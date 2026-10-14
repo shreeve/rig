@@ -1,0 +1,17 @@
+# A loop var may not share a module-level name, whichever comes first
+# (here the declaration comes before).
+
+obj Thing
+  v: Int
+
+fun site() -> Int
+  for Thing in 0..2
+    print(Thing)
+  1
+
+sub main()
+  print(1)
+
+# error: `Thing` has the same name as the module-level declaration `Thing`
+# error: declared here
+# errors: 1

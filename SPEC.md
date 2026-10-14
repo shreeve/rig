@@ -254,6 +254,13 @@ takes an integer, not a float: convert a `Float` with `Int(x)` first.
 integer `u`, a `U64` (a `U32` for `F32`), and `f.to_bits()` reads those
 bits from a float, as the unsigned integer of its size. They convert the
 representation, where `U64(f)` converts the value.
+`Float.nan()` and `Float.inf()` (also `F32.nan()`, `F32.inf()`) are the
+NaN and the positive infinity; `-Float.inf()` is the negative one.
+`f.fraction()` and `f.exponent()` are what C, Python, and Go call
+`frexp`: `f` is `f.fraction()` times 2 to the power `f.exponent()`, the
+fraction in [0.5, 1) in magnitude and of `f`'s type, the exponent an
+`Int`. A zero gives `(±0, 0)` and an infinity or a NaN gives itself and
+exponent 0, as Go's `Frexp` does; a subnormal is normalized.
 
 ```rig
 sub main()
@@ -264,12 +271,14 @@ sub main()
   print(b, Float.from_bits(b), Float.from_bits(0x8000000000000000))
   y: F32 = 1.5
   print(y.to_bits(), F32.from_bits(0x3FC00000))
+  print(x.fraction(), x.exponent(), Float.inf(), -F32.inf(), Float.nan() != Float.nan())
 ```
 
 ```output
 705032704 255 18446744073709551615 -56
 4609434218613702656 1.5 -0.0
 1069547520 1.5
+0.75 1 inf -inf true
 ```
 
 ```rig reject
@@ -388,7 +397,7 @@ a function over `?String` values such as `text.trim("  a  ")`) is not one, and
 nothing turns a `?String` into a `Static`. A `Static` is read as a
 `?String` where the text is only read: an argument or a field of type
 `?String`, a returned or bound `?String`, a `Static?` as a `(?String)?`, a
-`[]Static` as a `[]?String`, and in a branch, a `??`, or a list literal
+`[]Static` as a `[]?String` (so an array or a List of `Static`, lent to read, is one), and in a branch, a `??`, or a list literal
 that mixes the two (their type is `?String`). A generic `T` that a
 `Static` and a `?String` both bind is the `?String` (unless a place that
 holds it exactly, such as a `Cell[T]`, gives the type). `@name(Static)`
@@ -1278,7 +1287,7 @@ value, and a constructor may omit that field. Like a parameter default,
 it is a literal (a number, a string, `true` / `false`, `none`, or
 `.variant`) or a module constant, of this module or an imported one
 (`LIMIT`, `lib.LIMIT`, `U8.max`); a field's may also be an empty or
-literal constructor: `List()`, `List[T]()`, `Cell(0)`, or `[n of x]` with
+literal constructor: `List()`, `List[T]()`, `String()`, `Cell(0)`, or `[n of x]` with
 a literal or constant `x`. Each value the constructor makes gets a fresh
 default, so no two share a `List`. A struct with a `Cell` field lives
 only behind a shared handle, so it is made under `*`
@@ -6419,14 +6428,114 @@ sub main()
 30
 ```
 
-An owned closure's parameters and result are plain data: numbers,
-`Bool`, `?String`, plain enums, and structs, arrays, and optionals of
-plain data. Pass owning values in as captures. An owned closure can be stored
-anywhere, so it carries no loan ([§7](#changes-and-shared-storage)): it
-cannot capture a `?T`, `!T`, or slice, or a value holding one, nor a
-`?String` that may view a String ([§10](#string)); a stack closure can. `*`
-applies only to a closure literal, not to a function name or a closure
-binding.
+An owned closure is a method on its own environment: `*|<a, +b, p, q|`
+checked against `*fun(P, !Q) -> R` is a value `*Env(a: <a, b: +b)` of
+a type whose fields are the captures and whose one method is
+`fun invoke(?self, p: P, q: !Q) -> R`, and `h(x, !y)` is
+`h.invoke(x, !y)`. So the body reads its captures, and a re-entrant
+call is one more read of them. Its parameters and result are any a
+function's may be, and follow a function's rules
+([Core sentences 4 and 7](docs/CORE.md#2-the-core-in-ten-sentences)): a view it is given,
+read or write, lasts the call; what it is given to own, it drops,
+returns, or stores through a write parameter, once, also when its body
+fails or leaves the parameter out; and its result views only what the
+call lent it, never its environment. A function type's parameters and
+result are not parts of a value of that type, so a
+`List[*sub(!Checker)]` holds no write view.
+
+A stored closure takes a write view as an argument, for one call:
+
+```rig
+obj Mapper
+  f: *fun(!Checker, Int) -> Int
+
+obj Checker
+  calls: Int
+  mappers: List[Mapper]
+
+  fun map(!self, m: Int, t: Int) -> Int
+    f = +self.mappers[m].f
+    f(!self, t)
+
+sub main()
+  c = Checker(calls: 0, mappers: List())
+  double: *fun(!Checker, Int) -> Int = *|k, t|
+    k.calls += 1
+    t * 2
+  !c.mappers.push(Mapper(f: <double))
+  r = (!c).map(0, 21)
+  print(r, c.calls)
+```
+
+```output
+42 1
+```
+
+Calling a closure reads what holds it until the call returns, so a
+closure held in `self` is not called with `!self`: the call could
+replace it there and free the environment it runs in. Clone the handle
+first, as `map` does above, `f = +self.mappers[m].f`, which adds one
+count.
+
+State that changes between calls lives in a captured `*Cell`, and
+what the closure owns it captures with `<`:
+
+```rig
+obj Checker
+  lookups: Int
+
+  fun global_type(!self, name: ?String) -> Int
+    self.lookups += 1
+    name.len
+
+fun resolver(name: ?String) -> *fun(!Checker) -> Int
+  owned = String(name)
+  cache: *Cell[Int?] = *Cell(none)
+  *|<owned, <cache, c|
+    if cache.get() as v
+      return v
+    n = (!c).global_type(?owned)
+    !cache.set(n)
+    n
+
+sub main()
+  c = Checker(lookups: 0)
+  array = resolver("Array")
+  a = array(!c)
+  b = array(!c)
+  print(a, b, c.lookups)
+```
+
+```output
+5 5 1
+```
+
+A closure takes a view or an owner, and returns an owner:
+
+```rig
+sub main()
+  shout: *fun(?String) -> String = *|s| String(s, "!")
+  sum: *fun(List[Int]) -> Int = *|v|
+    t = 0
+    for x in v
+      t += x
+    t
+  v: List[Int] = List()
+  !v.push(2)
+  !v.push(3)
+  print(shout("hi"), sum(<v))
+```
+
+```output
+hi! 5
+```
+
+An owned closure can be stored anywhere, so its environment carries no
+loan ([§7](#changes-and-shared-storage)): it cannot capture a `?T`,
+`!T`, or slice, or a value holding one, nor a `?String` that may view a
+String ([§10](#string)); a stack closure can. `*` applies only to a
+closure literal, not to a function name or a closure binding: write
+`*|a| f(a)`.
 
 ---
 
@@ -7600,7 +7709,6 @@ The rest parse, and the checker rejects them as not supported yet
 |---|---|
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
 | a stack closure stored or returned | `` closures cannot escape their defining scope `` |
-| an owned closure taking or returning an owning value | `` an owned closure takes plain data `` |
 | `/`, `%`, or a shift of a vector; a vector's lanes summed, converted, or shuffled | `` operator `/` does not take a `Simd` ``, `` type `Simd[U8, 16]` has no method `sum` `` |
 | a module constant holding a vector | `` a module-level constant needs a value known at compile time `` |
 

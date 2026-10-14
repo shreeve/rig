@@ -551,14 +551,14 @@ const Checker = struct {
     /// A parameter or field default, of type `ty`, means the same value
     /// wherever it is filled in: a literal, or a module constant (this
     /// module's or an imported one, or a number type's limit). A field's
-    /// may also be an empty or literal constructor, `List()`, `Cell(0)`,
-    /// or `[n of 0]`, which each value gets a fresh one of.
+    /// may also be an empty or literal constructor, `List()`, `String()`,
+    /// `Cell(0)`, or `[n of 0]`, which each value gets a fresh one of.
     fn checkDefaultValue(self: *Checker, value: Sexp, ty: TypeId, what: []const u8) Error!void {
         const field = std.mem.eql(u8, what, "field");
         const ok = isDefaultLiteral(self.ctx.source, value) or self.isConstantDefault(value) or (field and try self.isConstructorDefault(value));
         if (!ok) {
             if (field) {
-                try self.errAt(value, "a default field value must be a literal, a module constant, a number type's limit, or an empty or literal constructor: `List()`, `Cell(0)`, `[n of 0]`", .{});
+                try self.errAt(value, "a default field value must be a literal, a module constant, a number type's limit, or an empty or literal constructor: `List()`, `String()`, `Cell(0)`, `[n of 0]`", .{});
             } else try self.errAt(value, "a default parameter value must be a literal, a module constant, or a number type's limit", .{});
             return;
         }
@@ -596,6 +596,8 @@ const Checker = struct {
         }
         if (!e.isKind(.call)) return false;
         var callee = ir.Call.callee(e);
+        // `String()`: the empty text, which owns nothing yet.
+        if (callee == .src and std.mem.eql(u8, self.text(callee), "String") and self.lookupQuiet(callee) == null) return ir.Call.args(e).len == 0;
         if (rig.isBracketList(callee)) callee = ir.get(callee, .object);
         if (callee != .src) return false;
         const id = self.lookupQuiet(callee) orelse return false;
@@ -3914,7 +3916,7 @@ const Checker = struct {
                 try self.errAt(e, "enum literal `.{s}` needs a known enum type; write `Type.{s}` or annotate the binding", .{ name, name });
                 break :blk self.t().invalid_id;
             },
-            .lambda => self.checkLambda(e, null, false),
+            .lambda => self.checkLambda(e, null),
             .builtin => self.synthBuiltin(e, null),
             .@"..",
             => blk: {
@@ -4391,7 +4393,7 @@ const Checker = struct {
             .type_var => |tv| tv,
             else => null,
         };
-        if (value != inner and !readsAsStringView(self.ctx, value, inner) and !(literal and (param != null or compatible(self.ctx, value, inner)))) return false;
+        if (value != inner and !sema.readsAsStringView(self.ctx, value, inner) and !(literal and (param != null or compatible(self.ctx, value, inner)))) return false;
         if (param) |tv| try self.requireHoldsLiteral(tv, value, value_node, self.startOf(at), op);
         try self.recordAdapted(value_node, value, inner);
         return true;
@@ -5618,7 +5620,7 @@ const Checker = struct {
                     .swap => "!xs.swap(i, j)",
                     .read => "xs.read[U32, .little](at)",
                     .write => "!xs.write[U32, .little](at, v)",
-                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
+                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
                 return self.t().invalid_id;
@@ -7100,6 +7102,7 @@ const Checker = struct {
         if (!op.isBits()) return null;
         const value = sema.unwrapViews(self.ctx, obj_ty);
         if (op == .to_bits) return self.toBitsCall(callee, obj, value, method, pos, args);
+        if (op == .fraction or op == .exponent) return self.frexpCall(callee, obj, value, op, method, pos, args);
         // `v.not()` of a vector: lane by lane, of integer or `Bool` lanes.
         // A mask's bits are counted as `bits()`'s.
         const lane = if (sema.simdOf(self.ctx, value)) |v| (if (op == .not) v.elem else {
@@ -7143,6 +7146,23 @@ const Checker = struct {
         return result;
     }
 
+    /// `f.fraction()` and `f.exponent()`, the two halves of what C,
+    /// Python, and Go call `frexp`: the fraction, a float of the
+    /// receiver's type, and the exponent, an `Int`. Null when the
+    /// receiver is not a float.
+    fn frexpCall(self: *Checker, callee: Sexp, obj: Sexp, value: TypeId, op: sema.ElemOp, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        if (self.ctx.types.get(value) != .float) return null;
+        if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "does not consume its receiver");
+        const result = if (op == .fraction) value else self.t().int_id;
+        if (args.len > 0) {
+            try self.err(pos, "`{s}` takes no arguments; got {d}", .{ method, args.len });
+            try self.synthArgs(args);
+        }
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{value}), .returns = result, .is_sub = false });
+        try self.ctx.recordElemCall(callee, .{ .op = op, .elem = result, .num = value });
+        return result;
+    }
+
     /// The unsigned integer type as wide as a float of `info`.
     fn bitsType(self: *Checker, info: sema.FloatInfo) Error!TypeId {
         return self.ctx.intern(.{ .int = .{ .bits = if (info.bits == 32) 32 else 64, .signed = false } });
@@ -7157,8 +7177,16 @@ const Checker = struct {
         const tt = self.ctx.types.get(target);
         const is_wrap = std.mem.eql(u8, method, "wrap");
         const is_bits = std.mem.eql(u8, method, "from_bits");
+        const special: ?sema.ElemOp = if (tt == .float and std.mem.eql(u8, method, "nan")) .nan else if (tt == .float and std.mem.eql(u8, method, "inf")) .inf else null;
+        if (special) |op| {
+            if (ct) |b| return self.badCall(args, b, "`{s}` takes no compile-time arguments", .{method});
+            if (args.len != 0) return self.badCall(args, pos, "`{s}.{s}()` takes no arguments; got {d}", .{ shown, method, args.len });
+            try self.noteCallee(.{ .params = &.{}, .returns = target, .is_sub = false });
+            try self.ctx.recordElemCall(callee, .{ .op = op, .elem = target, .num = target });
+            return target;
+        }
         if ((is_wrap and tt != .int) or (is_bits and tt != .float) or !(is_wrap or is_bits)) {
-            const fns: []const u8 = if (tt == .int) "`wrap`" else "`from_bits`";
+            const fns: []const u8 = if (tt == .int) "`wrap`" else "`from_bits`, `nan`, and `inf`";
             return self.badCall(args, pos, "`{s}` has no function `{s}`; its function is {s}, and its limits are `{s}.min` and `{s}.max`", .{ shown, method, fns, shown, shown });
         }
         if (ct) |b| return self.badCall(args, b, "`{s}` takes no compile-time arguments", .{method});
@@ -8234,7 +8262,7 @@ const Checker = struct {
             self.tentative -= 1;
             self.ctx.diagnostics.shrinkRetainingCapacity(mark);
         }
-        const ty = try self.checkLambdaGiven(lambda, null, given, false);
+        const ty = try self.checkLambdaGiven(lambda, null, given);
         const got = self.ctx.types.get(ty).function;
         for (got.params) |p| if (self.isPoison(p)) return null;
         if (got.params.len != f.params.len) return null;
@@ -9323,14 +9351,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -9345,7 +9373,7 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
         }
         return self.t().void_id;
     }
@@ -10296,7 +10324,7 @@ const Checker = struct {
             else => return false,
         };
         switch (self.ctx.types.get(actual)) {
-            .array => |a| if (a.elem == elem) {
+            .array => |a| if (a.elem == elem or (!want_write and sema.readsAsStringView(self.ctx, a.elem, elem))) {
                 if (self.hands(e).hasStorage()) {
                     const shown = try self.plainText(e);
                     const sigil: u8 = if (want_write) '!' else '?';
@@ -10507,7 +10535,7 @@ const Checker = struct {
             },
             .lambda => {
                 if (self.ctx.types.get(target) == .function) {
-                    const ty = try self.checkLambda(e, target, false);
+                    const ty = try self.checkLambda(e, target);
                     if (!sameNode(e, self.lent_callable) and !sameNode(e, self.callable_kept)) return ty;
                     // Reported here; the closure is not checked as escaping.
                     try self.errAt(e, "a closure literal is not a function value `{s}`; declare the parameter `?{s}` to lend the closure to the call", .{ try self.tyName(target), try self.tyName(target) });
@@ -10516,7 +10544,7 @@ const Checker = struct {
                 if (sema.callableFn(self.ctx, target) != null) return try self.lentLambda(e, target);
                 const fn_ty = self.ownedClosureType(target) orelse return null;
                 try self.errAt(e, "`{s}` is an owned closure; write `*|...| body` to make one", .{try self.tyName(target)});
-                _ = try self.checkLambda(e, fn_ty, false);
+                _ = try self.checkLambda(e, fn_ty);
                 return self.t().invalid_id;
             },
             .share => {
@@ -10524,7 +10552,7 @@ const Checker = struct {
                 if (try self.shareOfNone(e, target)) return target;
                 if (operand.isKind(.lambda) and sema.callableFn(self.ctx, target) != null) {
                     try self.errAt(e, "`{s}` views a closure for the call; write the closure without `*` (remove the `*`)", .{try self.tyName(target)});
-                    _ = try self.checkLambda(operand, sema.callableFnTy(self.ctx, target).?, false);
+                    _ = try self.checkLambda(operand, sema.callableFnTy(self.ctx, target).?);
                     return target;
                 }
                 if (operand.isKind(.lambda)) {
@@ -12125,7 +12153,7 @@ const Checker = struct {
         } else if (!sameNode(e, self.lent_callable)) {
             try self.errAt(e, "a closure literal is lent as `{s}` only as a call's argument; bind the closure (`f = |...| ...`) and lend it as `?f`", .{try self.tyName(target)});
         }
-        const ty = try self.checkLambda(e, fn_ty, false);
+        const ty = try self.checkLambda(e, fn_ty);
         try self.ctx.recordLend(e, sema.lendsAs(self.ctx, fn_ty, .read, target).?);
         return ty;
     }
@@ -12133,7 +12161,7 @@ const Checker = struct {
     /// `*|...| body`: an owned closure; `expected` is the function type
     /// its context gives it (`*fun(Int) -> Int` gives `fun(Int) -> Int`).
     fn ownedClosure(self: *Checker, lambda: Sexp, expected: ?TypeId) Error!TypeId {
-        const lty = try self.checkLambda(lambda, expected, true);
+        const lty = try self.checkLambda(lambda, expected);
         try self.ctx.recordType(lambda, lty);
         return self.ctx.intern(.{ .shared = lty });
     }
@@ -12150,14 +12178,14 @@ const Checker = struct {
     /// parameters take its parameter types and the body is checked
     /// against its return type; without one, every parameter must be
     /// annotated and the return type is that of the body's last
-    /// expression. `owned` closures pass only plain Copy values.
-    fn checkLambda(self: *Checker, node: Sexp, expected: ?TypeId, owned: bool) Error!TypeId {
-        return self.checkLambdaGiven(node, expected, &.{}, owned);
+    /// expression.
+    fn checkLambda(self: *Checker, node: Sexp, expected: ?TypeId) Error!TypeId {
+        return self.checkLambdaGiven(node, expected, &.{});
     }
 
     /// `checkLambda`, where without an `expected` type the parameters
     /// may take types from `given` (`type_invalid` for none).
-    fn checkLambdaGiven(self: *Checker, node: Sexp, expected: ?TypeId, given_params: []const TypeId, owned: bool) Error!TypeId {
+    fn checkLambdaGiven(self: *Checker, node: Sexp, expected: ?TypeId, given_params: []const TypeId) Error!TypeId {
         const captures = sema.captureList(ir.Lambda.captures(node));
         const outer = self.scope;
         const prev = self.enter(node);
@@ -12217,9 +12245,6 @@ const Checker = struct {
             } else if (want == null and !self.under_poison and !self.namesOuterLocal(outer, name, srcPos(pn, 0))) {
                 try self.errAt(pn, "closure parameter `{s}` needs a type: annotate it (`|{s}: Int|`) or write the closure where its type is known (`f: fun(Int) -> Int = |{s}| ...`)", .{ name, name, name });
             }
-            if (owned and given == null and !sema.isClosureValue(self.ctx, pty)) {
-                try self.errAt(pn, "an owned closure takes plain data, which copies and holds no view but a `?String` (numbers, Bool, `?String`, plain enums, and structs, arrays, and optionals of plain data); parameter `{s}` is `{s}`", .{ name, try self.tyName(pty) });
-            }
             try params.append(self.ctx.allocator, pty);
             if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
             try self.ctx.recordType(pn, pty);
@@ -12277,9 +12302,6 @@ const Checker = struct {
         ret = self.canonical(ret);
         if (ret == self.t().noreturn_id) ret = self.t().void_id;
         ret = try self.reconcileReturns(sites.items, ret, ends_in_return, body);
-        if (owned and ret != self.t().void_id and !sema.isClosureResult(self.ctx, ret)) {
-            try self.errAt(body, "an owned closure returns plain data, which copies and holds no view but a `?String` (numbers, Bool, `?String`, plain enums, and structs, arrays, and optionals of plain data), or fallible ones; this one returns `{s}`", .{try self.tyName(ret)});
-        }
 
         return self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params.items), .returns = ret, .is_sub = sema.returnsNothing(self.ctx, ret) } });
     }
@@ -12574,23 +12596,6 @@ fn copiedOut(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
     return !meets(ctx, actual, expected) and compatible(ctx, inner, expected);
 }
 
-/// Whether `actual` is read as `expected`, which differs from it only by
-/// a `Static` where a `?String` goes: the one conversion between the two,
-/// which reads the text and writes nothing. It holds for the text itself,
-/// a read view of it (`?Static` as `?String`), and an optional of either
-/// (a `Static?` as a `(?String)?`). A write view, a handle, and the elements
-/// of anything else hold exactly their type.
-fn readsAsStringView(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
-    if (actual == ctx.types.static_id) return expected == ctx.types.string_view_id;
-    const a = ctx.types.get(actual);
-    const e = ctx.types.get(expected);
-    return switch (a) {
-        .read_view => |inner| e == .read_view and readsAsStringView(ctx, inner, e.read_view),
-        .optional => |inner| e == .optional and readsAsStringView(ctx, inner, e.optional),
-        else => false,
-    };
-}
-
 /// Can a value of type `actual` be used as itself where `expected` is
 /// required?
 fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
@@ -12604,14 +12609,14 @@ fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
         .optional => |inner| {
             if (a == .none_literal) return true;
             // A `Static?` is read as a `(?String)?`.
-            if (a == .optional) if (readsAsStringView(ctx, a.optional, inner)) return true;
+            if (a == .optional) if (sema.readsAsStringView(ctx, a.optional, inner)) return true;
             return meets(ctx, actual, inner);
         },
         // A `Static` is read as the `?String` it is, a view that carries
         // no loan. Only where the text is read: a place that can be
         // written (`!x`) holds exactly its type.
         .string_view => if (a == .static) return true,
-        .read_view => |inner| if (readsAsStringView(ctx, actual, expected)) return true else if (a == .write_view) return a.write_view == inner,
+        .read_view => |inner| if (sema.readsAsStringView(ctx, actual, expected)) return true else if (a == .write_view) return a.write_view == inner,
         // A `T!` holds a `T`; an error value meets it only as `return`'s
         // operand (`Checker.isReturnLeaf`).
         .fallible => |inner| return meets(ctx, actual, inner),
@@ -12619,7 +12624,7 @@ fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
         .slice => |want| switch (a) {
             .read_view, .write_view => |inner| if (inner == expected) return true,
             // The elements of a `[]Static` are read as `?String`s.
-            .slice => |have| if (readsAsStringView(ctx, have.elem, want.elem)) return true,
+            .slice => |have| if (sema.readsAsStringView(ctx, have.elem, want.elem)) return true,
             else => {},
         },
         else => {},

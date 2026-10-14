@@ -47,7 +47,24 @@ const srcPos = sema.srcPos;
 
 pub fn resolveSymbols(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!void {
     var r: SymbolResolver = .{ .ctx = ctx, .scope = module_scope, .module_scope = module_scope };
+    defer r.pending_shadows.deinit(ctx.allocator);
     try r.walk(tree);
+    // Module-level names are visible throughout the module, so the
+    // clash with them is judged once all are declared.
+    // Each lands where the walk met it, so diagnostics stay in the
+    // order a one-pass check would give.
+    var inserted: usize = 0;
+    for (r.pending_shadows.items) |p| {
+        const start = ctx.diagnostics.items.len;
+        try r.reportShadowsDeclaration(p.name_node, p.what);
+        const n = ctx.diagnostics.items.len - start;
+        if (n == 0) continue;
+        const group = try ctx.allocator.dupe(sema.Diagnostic, ctx.diagnostics.items[start..]);
+        defer ctx.allocator.free(group);
+        ctx.diagnostics.shrinkRetainingCapacity(start);
+        try ctx.diagnostics.insertSlice(ctx.allocator, p.at + inserted, group);
+        inserted += n;
+    }
 }
 
 const SymbolResolver = struct {
@@ -57,6 +74,11 @@ const SymbolResolver = struct {
     /// The generic parameters of the generic type whose members are
     /// being walked.
     type_params: []const SymbolId = &.{},
+    /// Parameters and locals whose clash with a module-level
+    /// declaration is checked after the whole module is walked.
+    pending_shadows: std.ArrayList(PendingShadow) = .empty,
+
+    const PendingShadow = struct { name_node: Sexp, what: []const u8, at: usize };
 
     fn walk(self: *SymbolResolver, sexp: Sexp) Error!void {
         switch (sexp.kind() orelse return) {
@@ -218,6 +240,11 @@ const SymbolResolver = struct {
             return;
         }
         if (self.ctx.fileModule(name, srcPos(name_node, 0))) |module| return self.shadowsModule(name_node, what, module);
+        try self.pending_shadows.append(self.ctx.allocator, .{ .name_node = name_node, .what = what, .at = self.ctx.diagnostics.items.len });
+    }
+
+    fn reportShadowsDeclaration(self: *SymbolResolver, name_node: Sexp, what: []const u8) Error!void {
+        const name = identAt(self.ctx.source, name_node) orelse return;
         const decl = self.ctx.lookupInScopeOnly(self.module_scope, name) orelse return;
         const sym = self.ctx.symbols.items[decl];
         if (sym.decl_pos == sema.builtin_decl_pos) return;
@@ -886,7 +913,6 @@ pub const DeferredCheck = union(enum) {
     /// `pos`: none of its fields or methods may stack two holdings.
     instance_stacking: struct { pos: u32, ty: TypeId },
     /// `*fun(...) -> R`, with the function type spelled at `node`.
-    owned_closure: struct { node: Sexp, ty: TypeId },
     /// A type spelled at `node` that stands at `home`, where a value
     /// holding a Cell may not (`sema.misplaced`).
     cell_home: struct { node: Sexp, ty: TypeId, home: sema.Home },
@@ -909,7 +935,6 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
         .instance_stacking => |c| if (try sema.instanceHeapStacked(ctx, c.ty)) |found| {
             try ctx.err(c.pos, "`{s}` holds `{s}`, which stacks one heap holding on another; " ++ sema.heap_stacked_rule, .{ try sema.formatType(ctx, c.ty), try sema.formatType(ctx, found) });
         },
-        .owned_closure => |c| try checkOwnedClosureType(ctx, c.node, c.ty),
         .cell_home => |c| if (sema.misplaced(ctx, c.ty, c.home) == .cell) {
             const shown = try sema.formatType(ctx, c.ty);
             try ctx.errAt(c.node, sema.cell_misplaced, .{ shown, shown });
@@ -1525,6 +1550,20 @@ pub const TypeResolver = struct {
         return false;
     }
 
+    /// `*fun(...) -> R` / `*sub(...)`, function type `ty` written
+    /// `fun_type`: an owned closure is a method on its own environment
+    /// (docs/INTERNALS.md, "Owned closures"), so its parameters and
+    /// result stand where a function's do.
+    fn ownedClosureSignature(self: *TypeResolver, fun_type: Sexp, ty: TypeId) Error!void {
+        const f = self.ctx.types.get(ty).function;
+        const is_fun_type = fun_type.isKind(.fun_type);
+        const nodes: []const Sexp = if (is_fun_type) ir.FunType.params(fun_type).items() else &.{};
+        for (f.params, 0..) |p, i| _ = try self.misplacedAt(if (i < nodes.len) nodes[i] else fun_type, p, .signature);
+        if (f.is_sub) return;
+        const at = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) ir.FunType.returns(fun_type) else fun_type;
+        _ = try self.misplacedAt(at, f.returns, .signature);
+    }
+
     /// A field's type `ty`, written `node`: a callable view is not
     /// one. Reported.
     fn fieldCallable(self: *TypeResolver, node: Sexp, ty: TypeId) Error!bool {
@@ -1930,7 +1969,7 @@ pub const TypeResolver = struct {
                             return t.invalid_id;
                         }
                         if (sema.isReadOrWriteView(self.ctx, inner)) return self.handleOfView(sexp, inner);
-                        if (self.ctx.types.get(inner) == .function) try self.checkWhenResolved(.{ .owned_closure = .{ .node = inner_node, .ty = inner } });
+                        if (self.ctx.types.get(inner) == .function) try self.ownedClosureSignature(inner_node, inner);
                         try sema.requireHandleOf(self.ctx, inner, self.ctx.startOf(sexp), "`*`");
                         return self.ctx.intern(.{ .shared = inner });
                     },
@@ -2483,23 +2522,6 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
         return try a.print("`Signal[T]` requires `T` to be a value that copies (Int, Bool, Float, `?String`) or plain data (a struct, enum, optional, or array that owns nothing); got `{s}`", .{arg});
     }
     return null;
-}
-
-/// `*fun(...) -> R` / `*sub(...)`: an owned closure passes plain Copy
-/// values through its type-erased form, and may fail (`-> R!`).
-fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!void {
-    const f = ctx.types.get(ty).function;
-    const is_fun_type = fun_type.isKind(.fun_type);
-    const nodes: []const Sexp = if (is_fun_type) ir.FunType.params(fun_type).items() else &.{};
-    for (f.params, 0..) |p, i| {
-        if (sema.isClosureValue(ctx, p)) continue;
-        const pos = if (i < nodes.len) ctx.startOf(nodes[i]) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure takes plain data, which copies and holds no view but a `?String` (numbers, Bool, `?String`, plain enums, and structs, arrays, and optionals of plain data); `{s}` is not one", .{try sema.formatType(ctx, p)});
-    }
-    if (!f.is_sub and !sema.isClosureResult(ctx, f.returns)) {
-        const pos = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) ctx.startOf(ir.FunType.returns(fun_type)) else ctx.startOf(fun_type);
-        try ctx.err(pos, "an owned closure returns plain data, which copies and holds no view but a `?String` (numbers, Bool, `?String`, plain enums, and structs, arrays, and optionals of plain data), or fallible ones; `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
-    }
 }
 
 /// A leaf match pattern that binds its name: not the wildcard `_`, and

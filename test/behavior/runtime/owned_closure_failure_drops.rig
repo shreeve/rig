@@ -1,0 +1,39 @@
+# An owned closure drops what it is given to own once, whether its body
+# returns, fails, or omits the parameter.
+
+obj Gone
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+error Bad
+  oops
+
+fun boom() -> Int!
+  return Bad.oops
+
+fun later() -> Int!
+  f: *fun(Gone, Int) -> Int = *|g, n| g.n + n
+  f(Gone(n: 5), boom()!)
+
+sub main()
+  check: *fun(Gone) -> Int! = *|g|
+    if g.n == 1
+      return Bad.oops
+    g.n
+  skip: *fun(Int, Gone) -> Int = *|a| a
+  print(check(Gone(n: 1)) catch -1)
+  print(check(Gone(n: 2)) catch -1)
+  print(skip(3, Gone(n: 4)))
+  print(later() catch -2)
+
+# expect:
+# drop 1
+# -1
+# drop 2
+# 2
+# drop 4
+# 3
+# drop 5
+# -2

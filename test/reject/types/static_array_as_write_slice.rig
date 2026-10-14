@@ -1,0 +1,10 @@
+# The elements of a `Static` array are read as `?String`s, never
+# written as them: a write lend holds exactly its element type.
+sub fill(xs: ![]?String)
+  pass
+
+sub main()
+  a: [2]Static = ["a", "b"]
+  fill(!a)
+
+# error: 8:8: type mismatch: expected `![]?String`, got `![2]Static`

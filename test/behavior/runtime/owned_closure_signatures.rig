@@ -1,0 +1,42 @@
+# An owned closure's parameters and result are any a function's may be:
+# a write view it is lent for the call, a read view its result views, an
+# owner it stores through a write parameter, a write view it returns of
+# what the call lent it, a callable view, and another owned closure.
+
+obj H
+  name: String
+
+obj User
+  name: String
+
+sub main()
+  give: *sub(!H, String) = *|h, s| h.name = <s
+  h = H(name: String("a"))
+  give(!h, String("bb"))
+  print(h.name)
+  first: *fun(?User, ?User) -> ?String = *|a, b| ?a.name
+  u = User(name: String("ann"))
+  v = User(name: String("bo"))
+  print(first(?u, ?v))
+  pick: *fun(!Int) -> !Int = *|w| w
+  n = 1
+  g = pick(!n)
+  g += 5
+  print(n)
+  outer: *fun(*fun(Int) -> Int, Int) -> Int = *|f, x| f(x) + 1
+  inner: *fun(Int) -> Int = *|x| x * 2
+  print(outer(<inner, 5))
+  lent: *fun(?fun(Int) -> Int) -> Int = *|f| f(3)
+  k = 4
+  print(lent(|+k, x| x + k))
+  maybe: *fun(?String) -> (?String)? = *|s| s if s.len > 0 else none
+  if maybe("x") as y
+    print(y)
+
+# expect:
+# bb
+# ann
+# 6
+# 11
+# 7
+# x
