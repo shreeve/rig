@@ -3068,7 +3068,11 @@ pub const Parser = struct {
         var receiver = source;
         if (l.source != .place) {
             const value = if (l.source == .moved) try self.base.newNode(.move, &.{source}, at) else source;
-            hold = try self.base.newNode(.set, &.{ .{ .tag = .shadow }, hiddenLeaf(key + 1, .iterator), .nil, value }, at);
+            // `h` is declared before the loop, at the position before
+            // its `for`, so the loop does not enclose its declaration:
+            // what it holds stays in force through every iteration
+            // (`ownership.Checker.liveFrom`).
+            hold = try self.base.newNode(.set, &.{ .{ .tag = .shadow }, hiddenLeaf(key - 1, .iterator), .nil, value }, at);
             receiver = hiddenLeaf(key + 2, .iterator);
         }
         const lend = try self.base.newNode(.write, &.{receiver}, at);

@@ -1,0 +1,38 @@
+# A `for` over an iterator it holds (a value made there, or a place it
+# takes) keeps what the iterator views lent for every iteration:
+# writing it in the body would free what a later `next` reads.
+
+obj Cur
+  xs: []Int
+  i: Int
+
+  fun next(!self) -> Int?
+    return none if self.i >= self.xs.len
+    self.i += 1
+    self.xs[self.i - 1]
+
+sub made(v: !List[Int])
+  for x in Cur(xs: ?v[0..v.len], i: 0)
+    !v.push(x)
+
+sub taken(v: !List[Int])
+  c = Cur(xs: ?v[0..v.len], i: 0)
+  for x in <c
+    !v.push(x)
+
+sub labeled(v: !List[Int])
+  :outer for x in Cur(xs: ?v[0..v.len], i: 0)
+    for y in 0..2
+      !v.push(x + y)
+      continue :outer
+
+sub main()
+  v: List[Int] = List()
+  made(!v)
+  taken(!v)
+  labeled(!v)
+
+# error: 16:5: cannot lend `v` to write while a read loan is live
+# error: 21:5: cannot lend `v` to write while a read loan is live
+# error: 26:7: cannot lend `v` to write while a read loan is live
+# errors: 3
