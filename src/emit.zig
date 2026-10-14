@@ -910,7 +910,11 @@ pub const Emitter = struct {
                 try self.emitGuard(local);
                 try self.w.writeAll("\n");
             } else if (!self.usage.used.contains(local.sym) and !std.mem.eql(u8, local.zig_name, "_")) {
-                try self.line("_ = {s};", .{local.zig_name});
+                // Zig discards no error by value, so an error, or a value
+                // whose type an instance gives (which may be one), is
+                // discarded by address.
+                const by_address = if (local.ty) |ty| self.isErrorSetTy(ty) or self.facts.containsTypeVar(ty) else false;
+                try self.line("_ = {s}{s};", .{ if (by_address) "&" else "", local.zig_name });
             }
         };
     }
@@ -2817,7 +2821,9 @@ pub const Emitter = struct {
                 try self.writePatternHead(pattern, info);
                 try self.w.writeAll(" => ");
                 const captures: []const Sexp = if (pattern.isKind(.variant_pattern)) self.facts.payloadBindings(pattern) orelse &.{} else &.{};
-                const vname: []const u8 = if (pattern.isKind(.variant_pattern) or pattern.isKind(.enum_lit)) self.srcText(ir.get(pattern, .name)) else "";
+                // The one member a pattern names: a variant, or an error
+                // set's member (`E.name`); none for alternatives.
+                const vname: []const u8 = if (pattern.isKind(.variant_pattern) or pattern.isKind(.enum_lit) or pattern.isKind(.member)) self.srcText(ir.get(pattern, .name)) else "";
                 if (info.mode == .consume) {
                     // The arm owns the value: each field is bound or
                     // dropped at the end of the arm.
@@ -4399,7 +4405,7 @@ pub const Emitter = struct {
                 const handler = ir.Catch.handler(sexp);
                 const sym: ?SymbolId = if (name != .nil) self.facts.symbolOf(name) else null;
                 if (sym != null and self.usage.used.contains(sym.?)) {
-                    const tmp = try self.hiddenStorage(sexp, .error_value, .copy, .next);
+                    const tmp = try self.hiddenStorage(sexp, .error_value, .owned, .next);
                     try self.w.print("|{s}| ", .{tmp});
                     try self.pushScope();
                     const local = try self.declare(.{ .sym = sym.?, .ty = self.symType(sym.?) }, self.srcText(name));
@@ -5065,7 +5071,7 @@ pub const Emitter = struct {
                 const handler = ir.Catch.handler(e);
                 const sym: ?SymbolId = if (name != .nil) self.facts.symbolOf(name) else null;
                 if (sym != null and self.usage.used.contains(sym.?)) {
-                    const tmp = try self.hiddenStorage(e, .error_value, .copy, .next);
+                    const tmp = try self.hiddenStorage(e, .error_value, .owned, .next);
                     try self.w.print("|{s}| ", .{tmp});
                     try self.pushScope();
                     const local = try self.declare(.{ .sym = sym.?, .ty = self.symType(sym.?) }, self.srcText(name));

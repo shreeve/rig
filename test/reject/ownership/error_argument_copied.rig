@@ -1,0 +1,13 @@
+# A function that takes an `error` takes ownership of it.
+
+error E
+  bad
+
+fun keep(e: error) -> Int
+  1
+
+sub main()
+  e: error = E.bad
+  print(keep(e))
+
+# error: 11:14: `keep` takes ownership of an `error`, and `e` can't be copied

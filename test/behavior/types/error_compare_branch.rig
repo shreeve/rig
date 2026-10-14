@@ -1,0 +1,20 @@
+# `==` reads an `error` operand where it is, a branching one too: the
+# value is compared, and nothing moves.
+
+error X
+  one
+  two
+
+fun same(o: error?, b: error, a: error) -> Bool
+  (o ?? b) == a
+
+fun pick(c: Bool, a: error, b: error) -> Bool
+  (a if c else b) == X.one
+
+sub main()
+  print(same(none, X.one, X.one), same(X.two, X.one, X.one))
+  print(pick(true, X.one, X.two), pick(false, X.one, X.two))
+
+# expect:
+# true false
+# true false

@@ -5849,7 +5849,7 @@ pub const Checker = struct {
             .parameterized_nominal => |pn| ctx.symbols.items[pn.sym].name,
             else => if (sema.nominalDecl(ctx, inner)) |d| d.symbol().name else "value",
         };
-        if (!sema.typeHasDropGlue(ctx, t)) {
+        if (!sema.typeHasDropGlue(ctx, t) and sema.isUnique(ctx, t)) {
             // An array of unique values is named by its element.
             var elem = inner;
             while (ctx.types.get(elem) == .array or ctx.types.get(elem) == .optional) elem = switch (ctx.types.get(elem)) {
