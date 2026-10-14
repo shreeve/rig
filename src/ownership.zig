@@ -1622,7 +1622,7 @@ pub const Checker = struct {
             },
             .@"pub" => try self.walkDecl(ir.Pub.decl(sexp)),
             .@"test" => try self.walkFun(.nil, .nil, .nil, .nil, ir.Test.body(sexp)),
-            .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_extern, .variant, .@":" => {},
+            .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .variant, .@":" => {},
             else => try self.walkStmt(sexp),
         }
     }
