@@ -1717,6 +1717,9 @@ pub fn swap(items: anytype, i: anytype, j: anytype) void {
 /// Rig's `Endian`: the byte order of `read` and `write`.
 pub const Endian = enum { little, big };
 
+/// Rig's `Arch`: the target's processor architecture, Zig's own enum.
+pub const Arch = std.Target.Cpu.Arch;
+
 /// `bytes.read[T, e](at)`: the integer or float `T` stored in the
 /// `@sizeOf(T)` bytes from `at`, in byte order `e`; panics unless they
 /// are all in range.

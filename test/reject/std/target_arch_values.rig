@@ -1,0 +1,33 @@
+# Rig never assumes the value of `target.arch`, or of a constant that
+# names it: a place that needs the value is rejected on every machine.
+use std.target
+
+TIER = 0 if target.arch == .x86_64 else 16
+LANES = 16 if target.arch == .x86_64 else 16
+
+enum Code
+  ok = LANES
+
+fun twice[n: Int]() -> Int
+  n * 2
+
+sub main()
+  a: [TIER]U8 = [4 of 0]
+  v = Simd[U8, LANES].splat(1)
+  print(twice[TIER]())
+  w = Simd[U8, 16].splat(1)
+  print(w.lag[LANES](w))
+  match 5
+    0..LANES => print("low")
+    _ => print("high")
+  const k = TIER
+  c: [k]U8 = [4 of 0]
+  print(a, v, c, Code.ok)
+
+# error: 9:8: an enum value must be known when Rig checks the program; the value of `LANES` is chosen for each target
+# error: 15:7: an array length must be known when Rig checks the program; the value of `TIER` is chosen for each target
+# error: 16:16: compile-time argument 2 of `Simd` must be known when Rig checks the program; the value of `LANES`
+# error: 17:15: compile-time argument 1 of `twice` must be known when Rig checks the program; the value of `TIER`
+# error: 19:15: the number of lanes `lag` takes must be known when Rig checks the program; the value of `LANES`
+# error: 21:5: the bounds of a range pattern must be known when Rig checks the program; the value of `LANES`
+# error: 24:7: an array length must be known when Rig checks the program; the value of `k` is chosen for each target

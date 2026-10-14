@@ -367,6 +367,7 @@ tokens
     extern_fun                  name:leaf params:group? returns? origins:group?
     extern_sub                  name:leaf params:group?
     zig_extern                  file:leaf ...decls
+    zig_const                   name:leaf type
     drop_decl                   params:group body:block
     labeled                     label:leaf stmt
 
@@ -656,7 +657,9 @@ ext_sub  = EXTERN SUB name:name [params:params]     → (extern_sub)
 
 # Declarations the Zig file `file` implements (the standard library's
 # only): a `fun` or `sub` without a body, whose file declares a Zig
-# function of the type its signature lowers to.
+# function of the type its signature lowers to, or a constant
+# `name: T`, whose file declares a Zig constant of type `T` that Zig
+# computes for the target it compiles for.
 zig_ext  = EXTERN ZIG file:STRING_DQ INDENT decls:zdecls OUTDENT → (zig_extern)
 
 zdecls   = zdecl                                    → (1)
@@ -664,7 +667,11 @@ zdecls   = zdecl                                    → (1)
          | zdecls NEWLINE                           → 1
 
 zdecl    = zfun
+         | zconst
          | PUB decl:zfun                            → (pub)
+         | PUB decl:zconst                          → (pub)
+
+zconst   = name:name ":" type:type                  → (zig_const)
 
 zfun     = FUN name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] → (fun)
          | SUB name:name [tparams:tparams] [params:params] → (sub)
