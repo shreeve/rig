@@ -7,7 +7,10 @@ FILES = ["twitter", "twitterescaped", "canada", "citm_catalog", "gsoc-2018", "gi
 B = os.environ.get("BENCH_OUT", "")  # the --out directory of bench-json
 R = os.path.join(S, "rust-bench")
 Z = os.path.join(S, "zimdjson")
+C = os.path.join(S, "cbench")
 EXT = {
+    "simdjson-dom": [C + "/prog-simdjson-dom"],
+    "yyjson": [C + "/prog-yyjson"],
     "zimdjson-dom-fast": [Z + "/prog-dom-fast"],
     "zimdjson-dom-safe": [Z + "/prog-dom-safe"],
     "zimdjson-od-fast": [Z + "/prog-od-fast"],
