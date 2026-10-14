@@ -1,0 +1,29 @@
+obj SCur
+  xs: []Int
+  i: Int
+
+  fun next(!self) -> Int?
+    return none if self.i >= self.xs.len
+    self.i += 1
+    self.xs[self.i - 1]
+
+fun smk(v: ?List[Int]) -> SCur from v
+  SCur(xs: ?v[0..v.len], i: 0)
+
+sub grow(v: !List[Int])
+  for _ in 0..100
+    !v.push(1)
+
+obj SB
+  xs: List[Int]
+
+  fun each(?self) -> SCur from self
+    SCur(xs: ?self.xs[0..self.xs.len], i: 0)
+
+sub main()
+  b = SB(xs: List())
+  !b.xs.push(1)
+  !b.xs.push(2)
+  for x in ?b.each()
+    defer grow(!b.xs)
+    print(x)

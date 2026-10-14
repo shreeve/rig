@@ -1,0 +1,65 @@
+# A `defer` in a loop's body runs inside the loop, before the loop reads
+# its source again, so it cannot write what that source views: a slice
+# the condition reads, an iterator a `while … as` advances, or one a
+# `for` holds or lends.
+
+obj SCur
+  xs: []Int
+  i: Int
+
+  fun next(!self) -> Int?
+    return none if self.i >= self.xs.len
+    self.i += 1
+    self.xs[self.i - 1]
+
+fun smk(v: ?List[Int]) -> SCur from v
+  SCur(xs: ?v[0..v.len], i: 0)
+
+obj SB
+  xs: List[Int]
+
+  fun each(?self) -> SCur from self
+    SCur(xs: ?self.xs[0..self.xs.len], i: 0)
+
+sub grow(v: !List[Int])
+  for _ in 0..100
+    !v.push(1)
+
+sub cond(v: !List[Int])
+  s = ?v[0..2]
+  i = 0
+  while s[i] > 0 : i += 1
+    defer grow(!v)
+    break if i == 1
+
+sub advanced(v: !List[Int])
+  c = smk(?v)
+  while (!c).next() as x
+    defer grow(!v)
+    print(x)
+
+sub held(v: !List[Int])
+  for x in smk(?v)
+    defer grow(!v)
+    print(x)
+
+sub lent(b: !SB)
+  for x in ?b.each()
+    defer grow(!b.xs)
+    print(x)
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  cond(!v)
+  advanced(!v)
+  held(!v)
+  b = SB(xs: List())
+  lent(!b)
+
+# error: 32:17: cannot lend `v` to write while a read loan is live
+# error: 38:17: cannot lend `v` to write while a read loan is live
+# error: 43:17: cannot lend `v` to write while a read loan is live
+# error: 48:17: cannot lend `b` to write while a read loan is live
+# errors: 4
