@@ -104,9 +104,44 @@ tools that take them in `bench/json/`.
    and capacity in the stack frame: each `push` loads them and stores the
    length back. On `[[0,0], ...]`, where a number costs nothing,
    std.json spends 204 instructions per value against sonic-rs's 144.
-   Fix to consider: a List write window, reserve n and write through a
-   cursor kept in a register, as `!t.push(v, keep: k)` does for `String`.
-   *Observed (annotated assembly); to be sized.*
+   The cause is `push`'s out-of-line growth, `grow(self: *Self, ..)`:
+   passing the List's address means even a List held in a local stays
+   in memory, and every element store may change its length. Growing
+   by value instead (`buf = grown(buf, want)`, for `List` and `String`;
+   branch `growval`, 9786aed83) keeps a local List's fields in
+   registers. That wins in a small loop and loses in `document`, so it
+   did not land:
+   - A loop of 400M pushes to a local `List[Int]` ran 383% faster (0.349
+     against 1.685 ns a push), and to a local `String` 423% faster; a
+     List in a boxed object's field ran the same.
+   - With std.json holding the tape in a local in `document`, growval
+     cost 3.9% more cycles on twitter and 4.9% more on citm_catalog,
+     while retiring fewer instructions. LLVM inlined nearly every push
+     (`document` grew from 15.0 to 15.9 KB) and kept the tape's three
+     fields live across a function full of calls, paying in moves and
+     spills; with the List's address taken, the tape stays on the stack,
+     where store-to-load forwarding is cheap.
+   - Not layout: moving `document` by 0-32 bytes, without and with
+     growval, spans 1.771-1.809M and 1.877-1.956M cycles per citm parse,
+     ranges that do not overlap.
+   - The parts, citm and twitter cycles: by-value growth alone 6.0% and
+     2.3% more; laying a List out pointer, length, capacity alone 2.1%
+     and 1.3% fewer; a `@branchHint(.cold)` growth branch 5.5% and 3.2%
+     more.
+   - The field order matters only with by-value growth: LLVM then loads
+     the adjacent pointer and capacity as one `ldp`, which waits on the
+     loop's stores on Apple cores (6.0 against 2.3 cycles a push to a
+     field); `ptr, len, cap` keeps them apart.
+
+   Until then std.json holds the tape in a local in `document` (`replace`
+   it out, push, put it back), its fastest form with the runtime as it
+   is. Fix to consider: a List write window the program chooses, reserve
+   n and write through a cursor kept in a register, as
+   `!t.push(v, keep: k)` does for `String`, so registers are spent only
+   where the program asks. A `noalias` round should expect the same
+   trade-off: freeing registers can lose in a large function, so judge it
+   on `document`'s wall time, not on a micro-benchmark.
+   *Verified (measured); parked for a write window.*
 9. **No multiple results.** `take_digits` returns the position and hands
    the digits' value back through `m: !U64`, which stays in a register
    only when the call is inlined; a whitespace cache cannot stay in
