@@ -1,0 +1,68 @@
+# std.hash's Map timed on Int and String keys: insert, hit lookup, miss
+# lookup, and iterate, each over N keys. Prints `KEYS OP NS CHECK` per
+# line (bench/hash/bench-hash).
+
+use std.hash
+use std.time
+
+N = 1000000
+
+sub ints(n: Int)
+  m = hash.Map[Int, Int].new()
+  t = time.now()
+  for i in 0..n
+    !m.put(i *% -7046029254386353131, i)
+  print("int insert", t.elapsed(), m.len())
+  sum = 0
+  t = time.now()
+  for i in 0..n
+    if m.get(i *% -7046029254386353131) as v
+      sum += v
+  print("int hit", t.elapsed(), sum)
+  found = 0
+  t = time.now()
+  for i in n..2 * n
+    if m.has(i *% -7046029254386353131)
+      found += 1
+  print("int miss", t.elapsed(), found)
+  sum = 0
+  t = time.now()
+  for e in ?m.items()
+    sum += e.value
+  print("int iterate", t.elapsed(), sum)
+
+sub strings(n: Int)
+  put: List[String?] = List()
+  look: List[String] = List()
+  miss: List[String] = List()
+  for i in 0..n
+    !put.push(String("key", i))
+    !look.push(String("key", i))
+    !miss.push(String("key", n + i))
+  m = hash.Map[String, Int].new()
+  t = time.now()
+  for i in 0..n
+    if <put[i] as k
+      !m.put(<k, i)
+  print("string insert", t.elapsed(), m.len())
+  sum = 0
+  t = time.now()
+  for i in 0..n
+    if m.get(?look[i]) as v
+      sum += v
+  print("string hit", t.elapsed(), sum)
+  found = 0
+  t = time.now()
+  for i in 0..n
+    if m.has(?miss[i])
+      found += 1
+  print("string miss", t.elapsed(), found)
+  sum = 0
+  t = time.now()
+  for e in ?m.items()
+    sum += e.value
+  print("string iterate", t.elapsed(), sum)
+
+sub main()
+  ints(N)
+  strings(N)
