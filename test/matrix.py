@@ -122,8 +122,9 @@ def fal(ty):
 
 
 def opt(ty):
-    """The optional of a type: a read view takes parentheses first."""
-    return f"({ty})?" if ty.startswith("?") else f"{ty}?"
+    """The optional of a type: a read view or an optional takes
+    parentheses first."""
+    return f"({ty})?" if ty.startswith("?") or ty.endswith("?") else f"{ty}?"
 
 
 def optn(ty, n):
