@@ -512,7 +512,8 @@ STORE_FORMS = {
 # -----------------------------------------------------------------------------
 
 # How `main` makes the place `P` from `src`; `run` puts it in a function
-# given the holder as a write view.
+# given the holder as a write view; `take` replaces the `replace`, and
+# `thens` a then's lines and output (None: not written).
 TAKEN_PLACES = {
     "local": dict(setup=["s = S(text: ?src, value: String())"], place="s"),
     "field": dict(setup=["h = H(s: S(text: ?src, value: String()))"], place="h.s"),
@@ -521,6 +522,14 @@ TAKEN_PLACES = {
     "element": dict(setup=["v: List[S] = List()", "!v.push(S(text: ?src, value: String()))"], place="v[0]"),
     "boxed": dict(setup=["b = ^H(s: S(text: ?src, value: String()))"], place="b.s"),
     "param": dict(setup=["h = H(s: S(text: ?src, value: String()))"], place="p.s", run=True),
+    # A closure that captures `h` to write takes the value: it views
+    # `src`, never `h`, so the closure writes `h` again while it lives.
+    # Its result carries the closure's captures (Core sentence 7), so `h`
+    # itself is not written or put back into while it lives.
+    "closure": dict(setup=['h = H(s: S(text: ?src, value: String("v")))',
+                           'f = |!h| replace(!h.s, S(text: "", value: String("n")))'],
+                    place="h.s", take=["t = f()"],
+                    thens={"write": (["u = f()", "print(t.text, t.value, u.value)"], "abc v n\n"), "put_back": None}),
 }
 TAKEN_THENS = {
     "write": (['P.value = String("w")', "print(t.text, P.value)"], "abc w\n"),
@@ -2077,16 +2086,22 @@ def store_program(oname, fname, then):
     return "\n".join(out)
 
 
+def taken_then(pname, then):
+    """A `taken.` cell's lines after the take, and its output."""
+    return TAKEN_PLACES[pname].get("thens", {}).get(then, TAKEN_THENS[then])
+
+
 def taken_program(pname, then):
     """The program for one `taken.` cell; None where the place lives in
     no frame that owns `src`."""
     pl = TAKEN_PLACES[pname]
-    lines, _ = TAKEN_THENS[then]
-    if pl.get("run") and then == "drop":
+    lines, _ = taken_then(pname, then) or (None, None)
+    if lines is None or pl.get("run") and then == "drop":
         return None
     out = ["obj S\n  text: ?String\n  value: String\n", "obj H\n  s: S\n", "obj G\n  h: H\n"]
     place = pl["place"]
-    body = [f"t = replace(!{place}, S(text: \"\", value: String()))"] + [l.replace("P", place) for l in lines]
+    take = pl.get("take", [f"t = replace(!{place}, S(text: \"\", value: String()))"])
+    body = take + [l.replace("P", place) for l in lines]
     main = ['src = String("abc")'] + pl["setup"]
     if pl.get("run"):
         out.append("sub run(p: !H)\n" + indent(body, 2) + "\n")
@@ -3377,7 +3392,7 @@ def main():
             with open(path, "w") as fh:
                 fh.write(src)
             cells.append((ident, path))
-            expects[ident] = TAKEN_THENS[then][1]
+            expects[ident] = taken_then(pname, then)[1]
             # A cell that runs must be accepted.
             if then != "drop":
                 release.add(ident)

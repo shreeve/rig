@@ -1,0 +1,16 @@
+obj S
+  text: ?String
+  value: String
+
+obj H
+  s: S
+
+sub main()
+  src = String("abc")
+  h = H(s: S(text: ?src, value: String()))
+  f = |!h| replace(!h.s, S(text: "", value: String()))
+  t = f()
+  <f
+  <h
+  <src
+  print(t.text)
