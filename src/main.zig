@@ -36,9 +36,8 @@ const usage =
     \\  clean     Remove the programs rig built in its cache (see RIG_OUT_DIR)
     \\
     \\Options:
-    \\  --tests                Check the program as `rig test` builds it,
-    \\                         with each directory module's `*_test.rig`
-    \\                         files (check)
+    \\  --tests                Check what `rig test` builds: for a directory
+    \\                         module, its `*_test.rig` files too (check)
     \\  --facts                Print the root module's syntax facts after
     \\                         checking it (check): every IR node with its
     \\                         kind, span, and role-named children
@@ -300,10 +299,12 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
         return .{ .command = cmd, .path = "" };
     }
     const file = path orelse usageError("`rig {s}` needs a .rig file", .{@tagName(cmd)});
+    // `rig check` and `rig test` also take a directory module.
+    const directory = (cmd == .check or cmd == .@"test") and isDirectory(io, file);
     // `rig build` writes ./<name>: a file without `.rig` would be its own
     // output.
     const base = std.fs.path.basename(file);
-    if (!std.mem.endsWith(u8, base, ".rig") or base.len == ".rig".len) usageError("`{s}` is not a .rig file", .{file});
+    if (!directory and (!std.mem.endsWith(u8, base, ".rig") or base.len == ".rig".len)) usageError("`{s}` is not a .rig file", .{file});
     // Every source file ends in `.rig`, so an executable never replaces
     // one, even where file names ignore case.
     if (out_path) |o| if (std.ascii.endsWithIgnoreCase(o, ".rig")) usageError("`-o {s}` would write the executable over a .rig file", .{o});
@@ -424,9 +425,9 @@ fn printFacts(io: std.Io, m: *const modules.Module) !void {
     try writer.interface.flush();
 }
 
-/// Load and check the project rooted at `path`, with its directory
-/// modules' test files when `with_tests`; print every diagnostic and exit
-/// 1 if there are errors.
+/// Load and check the project rooted at `path`, with the root's test
+/// files, if it is a directory module, when `with_tests`; print every
+/// diagnostic and exit 1 if there are errors.
 /// With `times`, add each pass's time to it and print them after the
 /// diagnostics.
 fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8, with_tests: bool, times: ?*timing.Timing) !modules.ModuleGraph {
@@ -594,6 +595,11 @@ fn hasBinary(allocator: std.mem.Allocator, io: std.Io, zig_cache: []const u8, na
     return false;
 }
 
+fn isDirectory(io: std.Io, path: []const u8) bool {
+    const st = std.Io.Dir.cwd().statFile(io, path, .{}) catch return false;
+    return st.kind == .directory;
+}
+
 fn exists(io: std.Io, dir: []const u8, name: []const u8) bool {
     var buffer: [std.fs.max_path_bytes]u8 = undefined;
     const path = std.fmt.bufPrint(&buffer, "{s}/{s}", .{ dir, name }) catch return false;
@@ -602,10 +608,11 @@ fn exists(io: std.Io, dir: []const u8, name: []const u8) bool {
 }
 
 /// The module `rig test` builds: a driver next to the emitted ones that
-/// runs the `__rig_tests` table of every module (see `rig.runTests`).
+/// runs the `__rig_tests` table of the root module only (see
+/// `rig.runTests`); an imported module's tests are not emitted.
 const test_driver = "__rig_test.zig";
 
-fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *const modules.ModuleGraph) ![]const u8 {
+fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGraph) ![]const u8 {
     var driver: std.Io.Writer.Allocating = .init(allocator);
     const w = &driver.writer;
     try w.print(
@@ -626,10 +633,7 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *const modules.Modu
         \\    rig.runTests(&.{
         \\
     );
-    for (graph.modules.items, 0..) |m, i| {
-        if (m.is_std) continue;
-        try w.print("        .{{ .module = \"{s}\", .tests = testsOf(@import(\"{s}\")) }},\n", .{ if (i == 0) "" else m.name, m.out_basename });
-    }
+    try w.print("        .{{ .module = \"\", .tests = testsOf(@import(\"{s}\")) }},\n", .{graph.root().out_basename});
     try w.writeAll("    });\n}\n");
     return driver.written();
 }

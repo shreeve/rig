@@ -515,8 +515,11 @@ pub const Emitter = struct {
     }
 
     /// `(test "name" body)` → a function listed in the module's
-    /// `__rig_tests` table, which `rig test` runs (`rig.runTests`).
+    /// `__rig_tests` table, which `rig test` runs (`rig.runTests`). Only
+    /// the root module's tests are emitted; an imported module's are
+    /// checked and left out.
     fn emitTest(self: *Emitter, node: Sexp) Error!void {
+        if (!self.facts.is_root) return;
         const func = try self.fmt("__rig_test_{d}", .{self.tests.items.len});
         try self.tests.append(self.allocator, .{ .name = self.srcText(ir.Test.name(node)), .func = func });
         try self.w.print("fn {s}() anyerror!void ", .{func});

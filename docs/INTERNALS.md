@@ -135,15 +135,16 @@ which is what makes `rig.start` create the file: a program `rig build`
 makes has no such declaration, never reads that variable, and creates
 no file.
 
-`rig test` adds a driver, `__rig_test.zig`, whose `main` passes each
-module's `__rig_tests` table to `rig.runTests`. The emitter lowers a
-`test "name"` block to a private function `__rig_test_<n>` and lists it
-in that table; the tests of the root module run first, then those of
-its imports in load order. Each result is one line on stdout,
+`rig test X` adds a driver, `__rig_test.zig`, whose `main` passes the
+root module's `__rig_tests` table to `rig.runTests`; `X` is a file, or a
+directory module. The emitter lowers a `test "name"` block of the root to
+a private function `__rig_test_<n>` and lists it in that table. An
+imported module's `test` blocks are still type-checked, as a function
+body is, but are not emitted, so they are not run; its `*_test.rig`
+files are not read. Each result is one line on stdout,
 `ok    test "name"` or `FAIL  test "name": <reason>`, where the reason
 is the error the test returned (`E.name`), a leak (Debug), or a panic,
-which ends the run. Imported modules' tests carry the module name:
-`ok    test "double" (util)`. When every test finishes, the last line
+which ends the run. When every test finishes, the last line
 counts passes and failures, and the exit status is 1 if any test
 failed; after a panic it is non-zero, with no count.
 
@@ -752,10 +753,12 @@ file starts and its path. Three things keep the files apart:
 
 Everything else, private names included, is the module's, as in a Go
 package: sema's pipeline is unchanged, and the module emits one Zig
-file. Files whose names end in `_test.rig` belong to the module only in
-a build for `rig test` (`ModuleGraph.with_tests`), so they see its
-private names, and `rig run` and `rig check` leave them out;
-`rig check --tests` checks the program with them.
+file. Files whose names end in `_test.rig` belong to the module only when
+it is the root of a build for `rig test` (`ModuleGraph.with_tests`; the
+root of `rig check` and `rig test` may be a directory), so they see its
+private names. `rig run`, `rig check`, and an import of the module leave
+them out, and `rig check --tests` checks the root with them. The graph
+knows its root, so no imported module has test files.
 
 ### Methods outside the body
 

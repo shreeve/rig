@@ -1,5 +1,5 @@
-# `rig test` runs every `test` block of the program and its modules, in
-# order, and reports each: `ok    test "name"`, or `FAIL  test "name": why`
+# `rig test` runs every `test` block of the program, in order, and
+# reports each: `ok    test "name"`, or `FAIL  test "name": why`
 # for a test that returns an error, leaks, or panics (a panic ends the
 # run). The exit status is 1 when any test failed.
 source "$ROOT/test/cli/_lib.sh"
@@ -27,7 +27,7 @@ test "shared handles are released"
 EOF
 
 out=$(rig test main.rig 2>&1); expect_rc $? 0 "passing tests"
-expect_eq "$out" $'6\nok    test "area"\n1\nok    test "shared handles are released"\n42\nok    test "double" (util)\n3 passed, 0 failed' "report"
+expect_eq "$out" $'6\nok    test "area"\n1\nok    test "shared handles are released"\n2 passed, 0 failed' "report; the imported module's test does not run"
 
 # A program with tests and no main is fine for `rig test`.
 out=$(rig test util.rig 2>&1); expect_rc $? 0 "tests without main"

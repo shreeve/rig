@@ -285,7 +285,7 @@ bin/rig run file.rig -- a b            # the same, passing the program arguments
 bin/rig run --release file.rig         # the same, optimized (safe)
 bin/rig build -o hello file.rig        # a native executable
 bin/rig build --release=fast file.rig  # fast: no overflow checks
-bin/rig test file.rig                  # run the program's `test` blocks
+bin/rig test file.rig                  # run the file's own `test` blocks
 bin/rig check file.rig                 # check only
 bin/rig emit file.rig                  # print the emitted Zig
 bin/rig clean                          # remove the cache of built programs
