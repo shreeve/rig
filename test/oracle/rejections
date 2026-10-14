@@ -1084,6 +1084,7 @@ store.list.nested.grow f
 store.list.read_back.grow f
 store.list.write_field.grow f
 store.list.write_through.grow f
+taken.local.drop main
 string.arg_then_write.move run
 string.as_temp.call run
 string.as_temp.catch run
@@ -3522,6 +3523,11 @@ test/reject/ownership/receiver_view_stored_in_argument.rig store_slice
 test/reject/ownership/receiver_view_stored_in_argument.rig store_write_view
 test/reject/ownership/receiver_view_with_move_arg.rig main
 test/reject/ownership/recheck_implicit_lend_argument.rig main
+test/reject/ownership/replace_element_while_sibling_lent.rig main
+test/reject/ownership/replace_place_lent_during_call.rig main
+test/reject/ownership/replace_taken_carries_source_loan.rig main
+test/reject/ownership/replace_taken_outlives_source.rig take
+test/reject/ownership/replace_use_after_put_back.rig main
 test/reject/ownership/repointed_view_outlived.rig main
 test/reject/ownership/resource_temp_view.rig main
 test/reject/ownership/return_shared_field.rig take
