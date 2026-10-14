@@ -1,0 +1,11 @@
+# `Arch`'s variants are Zig's names for the architectures, no others.
+
+fun pick() -> Bool
+  x: Arch = .amd64
+  x == .x86_64
+
+sub main()
+  print(pick())
+
+# error: 4:13: no variant `amd64` on enum `Arch`
+# errors: 1

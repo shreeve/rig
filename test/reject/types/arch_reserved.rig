@@ -1,5 +1,4 @@
-# `Arch` is a built-in type: a module cannot declare its own, and its
-# variants are Zig's architectures, no others.
+# `Arch` is a built-in type: a module cannot declare its own.
 
 enum Arch
   intel
@@ -8,9 +7,4 @@ enum Arch
 sub main()
   print(Arch.intel)
 
-fun pick() -> Bool
-  x: Arch = .amd64
-  x == .x86_64
-
-# error: 4:6: `Arch` is a reserved built-in nominal name and cannot be redefined
-# error: 12:13: no variant `amd64` on enum `Arch`
+# error: 3:6: `Arch` is a reserved built-in nominal name and cannot be redefined

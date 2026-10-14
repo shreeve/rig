@@ -7776,7 +7776,12 @@ pub fn perTargetLeaf(ctx: *const SemContext, e: Sexp) ?Sexp {
             return if (ctx.symbols.items[id].flags.per_target) e else null;
         },
         .list => {
-            if (e.isKind(.member)) if (foreignMemberOf(ctx, e)) |f| return if (f.flags.per_target) e else null;
+            // A member's name and a variant's are not names in scope.
+            if (e.isKind(.enum_lit)) return null;
+            if (e.isKind(.member)) {
+                if (foreignMemberOf(ctx, e)) |f| return if (f.flags.per_target) e else null;
+                return perTargetLeaf(ctx, ir.Member.object(e));
+            }
             for (e.items()) |c| if (perTargetLeaf(ctx, c)) |leaf| return leaf;
             return null;
         },
