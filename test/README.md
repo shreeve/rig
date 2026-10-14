@@ -379,7 +379,7 @@ decides (also where the compiler's semantic checks stop first):
 ```
 
 The word after the function is `accept`, or `reject` with the rule
-the oracle names (C1–C8, B1–B4). A different verdict, or none, fails
+the oracle names (C1–C9, B1–B4). A different verdict, or none, fails
 the set. These lines are
 the oracle's own tests: each of the oracle's header rules (a subject
 that is a place, a made value, a part of one, a lend of one, or a

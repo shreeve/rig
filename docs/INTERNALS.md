@@ -2103,7 +2103,8 @@ abstract interpretation of the IR.
 parameter, capture, pattern, loop element) paired with a `Flow`: its
 status (`live`, `moved`, `dropped`, with the position that caused it)
 and the **loans** its value holds. A `Loan` is the record of a read or write
-lend of a root var. Vars form a stack, truncated when a scope ends.
+lend of a place: a root var and a path below it ([Places and
+paths](#places-and-paths)). Vars form a stack, truncated when a scope ends.
 
 The state is not copied at branches. Every write to a flow is recorded
 on a *trail* with the value it replaced, so going back to an earlier
@@ -2474,6 +2475,61 @@ make, which the type rules reject for any type that may hold a view.
 Emit reaches a view held in a box through the box's pointer first
 (`writeReach`).
 
+### Places and paths
+
+**The fact.** A place is a root var and a **path**: the fields after the
+name (Core §5, "A field is a place of its own"). `resolvePlace` decides
+it, once, for every place the checker meets, and every loan, use, and
+store of the place carries it (`Place.path`, `Loan.path`); no other pass
+reads a path from syntax. A step goes on the path by a positive list
+(`extendsPath`): a data field of a struct value, of a box's value (a box
+has one owner), or of what the root's own write view sees (`self.a` in
+a `!self` method). Any other step ends it, and the loan is on the path
+so far: an element or a slice (`p.items[i]` is a place of `p.items`), a
+handle (`p.h.a` with `h: *T` is a place of `p.h`), a read view (a lend
+through one keeps the view's loans and makes none on the holder,
+`walkThroughView`), an optional's value, or a member of anything else
+(`p.items.len`). A path is a number in a trie of fields (`Paths`):
+`whole_path` is the var, and a path's prefixes are its ancestors. A
+path longer than eight fields is cut there, which only adds conflicts.
+
+**Overlap.** Two places of one var conflict when one path is a prefix
+of the other (`Paths.overlap`), which only `loanMatches` asks, for
+`findLoan`: every conflict, read, and store check passes the path the
+use names. A use of the whole var passes `whole_path`, which overlaps
+every path: a bare name read, a move, a drop, a reassignment, a closure
+capture, and a method's receiver that is the name (`(!p).m()`,
+`!p.m()`), since a signature lends all of `self`. A field read
+(`p.b.len`) reads only its place: `walkMember` records the path, and
+the root's name, read first, takes it (`takePlaceRead`). The
+temporaries a statement takes (a receiver's reservation and its
+`place_hold`, `walkIndicesHeld`, `holdRead`) are on the place's path,
+and so are a `for` source's loan and a `match` payload's.
+
+**Desugaring.** For loans, a struct binding, a write view's referent,
+and a box's value are each a group of bindings, one per field, nested;
+using the whole uses every binding in the group. `(!self.a).mk(self.t)`
+is `w = !self.a; t = ?self.t; w.mk(t)`, a write loan on one binding
+beside a read loan on another, which sentence 5 already allows. Emit is
+unchanged: it passes `&self.a` and `self.t`, adds no temporary, and
+keeps the order.
+
+**A value never views itself.** With whole-var loans, a store of a view
+of `p` into `p` met a conflict; with paths it must be said. A field
+assignment whose value carries a loan on its target's root
+(`walkFieldAssign`), and a store a call, a write view, or `swap` makes
+into a var that the stored value carries a loan on (`absorbLoans`), are
+rejected, but for the lends the store goes in by (`isLendOf`): a write
+receiver's own lend, a write argument's, and the write loans held on
+the way. `swap` stores in each place the value the other held
+(`takenValue`), not only its lend, so a value viewing `p` swapped into
+`p.a` shows.
+
+**What stays per var.** What a var holds (`Flow.loans`) is per var:
+re-pointing a field that holds a view does not end the old view's
+loans while the var lives. `carry` judges what a view keeps by the
+var's type, liveness is per var, and so is `isLent`'s count.
+
 ### Binding access
 
 Whether a write may go through a binding is one fact, its *access*:
@@ -2727,7 +2783,10 @@ does; a place no var holds (`replace(!f().x, v)`) gives the loans of
 its view. The store is an assignment: `p`'s var now also views what `v`
 viewed (`absorbThroughWrites`). `swap(!a, !b)` is
 `t = <a; a = <b; b = <t`, with each place lent to write for the call, and
-hands back nothing.
+hands back nothing. Its two places are places like any other: two
+fields of one value are disjoint paths, and two elements of one
+collection overlap, which the hint `!a.swap(i, j)` says once
+(`sameCollection`).
 
 ### Loops
 
@@ -3656,6 +3715,16 @@ lend (`(!h).r`, `(?mk()).items`) is a path through that view, so a
 store there lands in what the view reaches and nothing is moved out of
 it; and a write receiver with no `!` whose value is a write view
 (`wrap(!h).keep(v)`) is lent on through that view.
+
+Its loans and accesses carry the place's path, cut where it goes
+through a handle or into an optional's value (`Place.cut`), and two of
+one var conflict unless their paths part at a field; an element
+overlaps every element. A loan on a part of what a write view views
+widens to all of it when the view is defined anew (`widen`), since its
+path described what the view viewed before: a loop's payload view is
+another value on each pass. A store whose value carries a loan on the
+var it lands in, but for the lends it goes in by, is C9 (Core §5, a
+value never holds a view of itself).
 
 What a call stores into its receiver itself leaves out the call's own
 lend of the receiver: a callee cannot store a view of `self` through

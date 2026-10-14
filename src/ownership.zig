@@ -13,10 +13,13 @@
 //!   Going back to a `Point` undoes the writes since; a branch or jump
 //!   captures its `State` as the flows changed since its construct's
 //!   point, so snapshots and joins cost what changed, not the scope.
-//! * A `Loan` is a read or write view of a root var. Loans travel with
-//!   values: `r = ?a` stores a read loan on `a` in `r`; `View(box: ?a)`
-//!   carries it into the struct. A call passes on only the loans its
-//!   signature shows (Core sentence 7): its result carries the loans of
+//! * A `Loan` is a read or write view of a place: a root var and the
+//!   path of fields below it (`resolvePlace`, `Paths`), so `p.a` and
+//!   `p.b` are lent apart, and two places conflict when one path is a
+//!   prefix of the other. Loans travel with values: `r = ?a` stores a
+//!   read loan on `a` in `r`; `View(box: ?a)` carries it into the
+//!   struct. A call passes on only the loans its signature shows (Core
+//!   sentence 7): its result carries the loans of
 //!   its callee (what a callable holds) and of the arguments whose
 //!   parameters' types could hold what it views, and it may store, in
 //!   its write receiver and in what its `!x` arguments and other write
@@ -72,7 +75,9 @@
 //! * A moved or dropped value cannot be used, viewed, moved or dropped.
 //!   Reassigning a binding makes it live again.
 //! * Read views exclude writes, moves, drops and reassignment of their
-//!   root; write views exclude every other use. A method call views
+//!   place; write views exclude every other use. A value never holds a
+//!   view of itself: a store of a loan on a part of a var into that var
+//!   is rejected. A method call views
 //!   its receiver for the whole call (`rc.show(<rc)` is rejected), and
 //!   an argument that reads a value sharing storage its place owns
 //!   holds that place read until the call ends (`print(v, grow(!v))`
