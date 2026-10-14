@@ -60,7 +60,7 @@ pub const NodeKey = sema.NodeKey;
 
 /// Emit asserts that it writes each node inside the unit that holds it
 /// (`Emitter.inUnit`) in every debug build of the compiler.
-pub const check_units = @import("builtin").mode == .debug;
+pub const check_units = @import("build_options").self_check;
 
 pub const UnitEvent = sema.UnitEvent;
 pub const GenericCall = sema.GenericCall;
@@ -152,6 +152,11 @@ pub const Facts = struct {
         var it = f.c().foreign_semas.valueIterator();
         while (it.next()) |ctx| if (ctx.*.source.ptr == source.ptr) return of(ctx.*);
         return null;
+    }
+
+    /// The module a `use`'s symbol names.
+    pub fn moduleOf(f: Facts, sym: SymbolId) ?u32 {
+        return f.c().module_refs.get(sym);
     }
 
     pub const Import = struct { local_name: []const u8, module_id: u32, facts: Facts };
@@ -411,6 +416,11 @@ pub const Facts = struct {
     }
     pub fn argumentHold(f: Facts, v: Sexp) ?ArgumentHold {
         return storage.decided(f.c(), v, .argument_hold);
+    }
+    /// Whether arithmetic on vector lanes is made by a checking runtime
+    /// helper (`storage.laneChecked`).
+    pub fn laneChecked(f: Facts, e: Sexp) ?bool {
+        return storage.decided(f.c(), e, .lane_checked);
     }
     pub fn isPureArg(f: Facts, e: Sexp) ?bool {
         return storage.decided(f.c(), e, .pure_arg);

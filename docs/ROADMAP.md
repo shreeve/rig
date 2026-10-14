@@ -9,7 +9,7 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 ## Language
 
 - **More compile-time values on generic types**: `Bool` and enum value parameters (`obj Ring[T, n: Int]` takes integers only).
-- **Owning values in more places**: arrays of owning values, and owned closures that take or return them.
+- **Owning values in more places**: arrays of owning values.
 - **`?String` values**: matching on them.
 - **Reading more through temporaries and optionals**: `o?` of an owned optional parameter read through a view where only read (`o?.len`), and a read-only use of an owning field of a temporary (`print(mk().t)`), both rejected today.
 - **Quieter follow-on errors**: one mistake about a temporary can still give two diagnostics.
@@ -26,7 +26,7 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 
 ## Speed
 
-- **SIMD**: `Simd[T, n]` vectors with `m.first()` and `any`/`all`, then byte lookup, a joined shift, a saturating subtract, `pad:` reads, and `blocks(N)`.
+- **SIMD**: `Simd[T, n]` vectors with `m.first()` and `any`/`all`, `t.lookup(idx)`, `cur.lag[k](prev)`, `+|` and `-|`, and lane shifts; then `pad:` reads and `blocks(N)`.
 - **Checker-proved check elimination**: bounds and overflow checks the checker proves redundant, redesigned around units.
 - **A frame-size guard** for every function.
 
@@ -79,5 +79,4 @@ Language decisions not yet made. Each describes what Rig does today;
 any change would be future work.
 
 - **`T??`** as a spelling of the nested optional `(T?)?`; today `??` after a type is the fallback operator, and the error points to `(T?)?`.
-- **Modules in subdirectories**: `use name` finds only `name.rig` beside the root file.
 - **Function values as module constants** (`handler = on_click` at module level); a module constant holds only compile-time values today.

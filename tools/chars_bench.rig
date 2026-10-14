@@ -1,0 +1,29 @@
+# Times `text.char_count` on 1 MB of ASCII prose, Latin text with
+# accents, CJK, and emoji, in MB/s. Build it for speed:
+#   bin/rig build --release -o chars_bench tools/chars_bench.rig
+use std.text
+use std.time
+
+# `piece` repeated until it holds at least `n` bytes.
+fun repeat(piece: ?String, n: Int) -> String
+  out = String()
+  while out.len < n
+    !out.add(piece)
+  out
+
+sub bench(name: ?String, piece: ?String)
+  s = repeat(piece, 1_000_000)
+  rounds = 400
+  chars = 0
+  t = time.now()
+  for r in 0..rounds
+    # A different start each round, so no round repeats another.
+    chars += text.char_count(s[r % 4..])
+  ns = t.elapsed()
+  print(name, s.len * rounds * 1000 / ns, "MB/s,", s.len, "bytes,", chars / rounds, "chars")
+
+sub main()
+  bench("ascii", "The quick brown fox jumps over the lazy dog; 0123456789.\r\n")
+  bench("latin", "Où est la bibliothèque? Ça coûte cher, dit la naïve Zoë à l'hôtel. Größe, añejo, Dvořák.\n")
+  bench("cjk", "日本語の文章を数えます。中文文本的字数统计。한국어 문장도 셉니다.\n")
+  bench("emoji", "👋🏽 hi 👨‍👩‍👧 🇫🇷🇯🇵 ❤️ 😀😃 👍🏿 🏳️‍🌈\n")

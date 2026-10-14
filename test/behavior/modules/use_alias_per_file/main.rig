@@ -1,0 +1,9 @@
+# A `use` binds its name in its own file only: two files of one module
+# may each name a different module `g`.
+use m
+
+sub main()
+  print(m.a(), m.b())
+
+# expect:
+# 1 2

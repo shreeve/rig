@@ -1,0 +1,79 @@
+# std.utf8 at every edge: each case prints the runes `rune_after` reads
+# from the start (rune/size), whether `rune_before` reads the same runes
+# walking back from the end, and `rune_size` at each byte (0 for `none`).
+# release
+use std.utf8
+
+sub show(name: ?String, s: ?String)
+  found = List[Int]()
+  sizes = List[Int]()
+  line = String()
+  i = 0
+  while i < s.len
+    r = utf8.rune_after(s, i)
+    !found.push(r.rune)
+    !sizes.push(r.size)
+    !line.add(" ", r.rune, "/", r.size)
+    i += r.size
+  at_end = utf8.rune_after(s, s.len)
+  at_start = utf8.rune_before(s, 0)
+  same = true
+  j = s.len
+  k = found.len
+  while j > 0 and k > 0
+    r = utf8.rune_before(s, j)
+    k -= 1
+    if r.rune != found[k] or r.size != sizes[k]
+      same = false
+    j -= r.size
+  back = "ok" if same and j == 0 and k == 0 else "differs"
+  ends = String()
+  for n in 0..s.len
+    !ends.add(" ", utf8.rune_size(s, n) ?? 0)
+  print(name, ":", line, "| back", back, "| size", ends, "| last", at_end.rune, at_end.size, at_start.rune, at_start.size)
+
+sub main()
+  show("empty", "")
+  show("ascii", "a\x7f")
+  show("two", "\u{80}\u{7ff}")
+  show("three", "\u{800}\u{d7ff}\u{e000}\u{fffd}\u{ffff}")
+  show("four", "\u{10000}\u{10ffff}")
+  show("cjk", "\u{4e2d}\u{6587}x")
+  show("overlong2", "\xc0\x80\xc1\xbf")
+  show("overlong3", "\xe0\x80\x80\xe0\x9f\xbf")
+  show("overlong4", "\xf0\x80\x80\x80\xf0\x8f\xbf\xbf")
+  show("surrogate", "\xed\xa0\x80\xed\xbf\xbf")
+  show("past", "\xf4\x90\x80\x80\xf5\x80\x80\x80")
+  show("leads", "\xf8\xfc\xfe\xff")
+  show("lone", "\x80a\xbf")
+  show("cut2", "a\xc3")
+  show("cut3", "a\xe2\x82")
+  show("cut4", "a\xf0\x9f\x98")
+  show("cutmid", "\xe2\x82a\xf0\x9fb")
+  show("extra", "\u{e9}\x80\u{1f600}\x80\x80")
+  show("leadlead", "\xc2\xc2\x80")
+  show("badsecond", "\xf0\xe1\x80\x80")
+  show("fivecont", "\x80\x80\x80\x80\x80")
+
+# expect:
+# empty :  | back ok | size  | last 65533 0 65533 0
+# ascii :  97/1 127/1 | back ok | size  1 1 | last 65533 0 65533 0
+# two :  128/2 2047/2 | back ok | size  2 0 2 0 | last 65533 0 65533 0
+# three :  2048/3 55295/3 57344/3 65533/3 65535/3 | back ok | size  3 0 0 3 0 0 3 0 0 3 0 0 3 0 0 | last 65533 0 65533 0
+# four :  65536/4 1114111/4 | back ok | size  4 0 0 0 4 0 0 0 | last 65533 0 65533 0
+# cjk :  20013/3 25991/3 120/1 | back ok | size  3 0 0 3 0 0 1 | last 65533 0 65533 0
+# overlong2 :  65533/1 65533/1 65533/1 65533/1 | back ok | size  0 0 0 0 | last 65533 0 65533 0
+# overlong3 :  65533/1 65533/1 65533/1 65533/1 65533/1 65533/1 | back ok | size  0 0 0 0 0 0 | last 65533 0 65533 0
+# overlong4 :  65533/1 65533/1 65533/1 65533/1 65533/1 65533/1 65533/1 65533/1 | back ok | size  0 0 0 0 0 0 0 0 | last 65533 0 65533 0
+# surrogate :  65533/1 65533/1 65533/1 65533/1 65533/1 65533/1 | back ok | size  0 0 0 0 0 0 | last 65533 0 65533 0
+# past :  65533/1 65533/1 65533/1 65533/1 65533/1 65533/1 65533/1 65533/1 | back ok | size  0 0 0 0 0 0 0 0 | last 65533 0 65533 0
+# leads :  65533/1 65533/1 65533/1 65533/1 | back ok | size  0 0 0 0 | last 65533 0 65533 0
+# lone :  65533/1 97/1 65533/1 | back ok | size  0 1 0 | last 65533 0 65533 0
+# cut2 :  97/1 65533/1 | back ok | size  1 0 | last 65533 0 65533 0
+# cut3 :  97/1 65533/1 65533/1 | back ok | size  1 0 0 | last 65533 0 65533 0
+# cut4 :  97/1 65533/1 65533/1 65533/1 | back ok | size  1 0 0 0 | last 65533 0 65533 0
+# cutmid :  65533/1 65533/1 97/1 65533/1 65533/1 98/1 | back ok | size  0 0 1 0 0 1 | last 65533 0 65533 0
+# extra :  233/2 65533/1 128512/4 65533/1 65533/1 | back ok | size  2 0 0 4 0 0 0 0 0 | last 65533 0 65533 0
+# leadlead :  65533/1 128/2 | back ok | size  0 2 0 | last 65533 0 65533 0
+# badsecond :  65533/1 4096/3 | back ok | size  0 3 0 0 | last 65533 0 65533 0
+# fivecont :  65533/1 65533/1 65533/1 65533/1 65533/1 | back ok | size  0 0 0 0 0 | last 65533 0 65533 0

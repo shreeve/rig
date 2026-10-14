@@ -48,19 +48,16 @@ RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
 DATA = os.path.join(ROOT, "test", "json", "data", "simd-json")
 FILES = ["twitter", "twitterescaped", "canada", "citm_catalog", "gsoc-2018", "github_events"]
 DEFAULT = ["rig-safe", "rig-fast", "zig-tape-safe", "zig-tape-fast", "zig-value-safe", "zig-value-fast"]
-CHUNK = 60000
 
 MAIN = '''use json
 use std.os
 use std.text
 use std.time
 
-@PARTS@
+SRC = "@SRC@"
 
 fun main() -> Int
-  src = String()
-  for p in PARTS
-    !src.add(p)
+  src = String(SRC)
   n = text.parse_int(os.args()[1]) catch 1
   d = json.new_doc()
   check = 0
@@ -74,18 +71,15 @@ fun main() -> Int
   0
 '''
 
-def rig_parts(data):
-    chunks, cur, n = [], [], 0
+def rig_literal(data):
+    """`data` as the text of one Rig string literal."""
+    out = []
     for b in data:
-        if b == 0x22: e = '\\"'
-        elif b == 0x5C: e = "\\\\"
-        elif 0x20 <= b < 0x7F: e = chr(b)
-        else: e = "\\x%02x" % b
-        cur.append(e); n += len(e)
-        if n >= CHUNK:
-            chunks.append("".join(cur)); cur, n = [], 0
-    chunks.append("".join(cur))
-    return "PARTS = [\n" + "".join('  "%s",\n' % c for c in chunks) + "]\n"
+        if b == 0x22: out.append('\\"')
+        elif b == 0x5C: out.append("\\\\")
+        elif 0x20 <= b < 0x7F: out.append(chr(b))
+        else: out.append("\\x%02x" % b)
+    return "".join(out)
 
 def run(cmd, env=None, cwd=None):
     p = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=cwd)
@@ -142,7 +136,7 @@ def build(name, variant, data, tmp, zig):
             src, count = re.subn(r"^((?:type )?%s *(?::[^=]*)?)= .*$" % re.escape(k), r"\1= %s" % v, src, flags=re.M)
             if count != 1: sys.exit("no module constant %s in std/json.rig" % k)
         open(os.path.join(d, "json.rig"), "w").write(src)
-        open(os.path.join(d, "main.rig"), "w").write(MAIN.replace("@PARTS@", rig_parts(data)))
+        open(os.path.join(d, "main.rig"), "w").write(MAIN.replace("@SRC@", rig_literal(data)))
         out = os.path.join(d, "out")
         env = dict(os.environ, RIG_OUT_DIR=out, ZIG=zig)
         mode = "--release" if base in ("rig-safe", "rig-safeinl") else "--release=fast"

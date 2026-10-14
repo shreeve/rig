@@ -1,0 +1,27 @@
+fun a(Thing: Int) -> Int
+  Thing
+
+fun dup() -> Int
+  1
+
+fun dup() -> Int
+  2
+
+fun b() -> Int
+  Other = 1
+  Other
+
+Thing = 4
+Other = 5
+
+fun c(Thing: Int, Other: Int) -> Int
+  Thing
+
+sub main()
+  print(1)
+
+# error: 1:7: parameter `Thing` has the same name as the module-level declaration `Thing`
+# error: 7:5: duplicate declaration of `dup`
+# error: 17:7: parameter `Thing` has the same name as the module-level declaration `Thing`
+# error: 17:19: parameter `Other` has the same name as the module-level declaration `Other`
+# errors: 4

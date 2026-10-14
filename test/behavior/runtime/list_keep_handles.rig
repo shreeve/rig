@@ -1,0 +1,47 @@
+# `keep` on Lists of boxes and of shared handles: a dropped box frees its
+# value, and a dropped handle releases its count, so a value another
+# handle keeps lives on.
+# release
+
+obj B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  boxes: List[^B] = List()
+  for i in 1..5
+    !boxes.push(^B(n: i))
+  !boxes.keep(boxes.len)
+  !boxes.keep(2)
+  print("boxes", boxes.len, boxes[1].n)
+  !boxes.keep(1)
+  !boxes.keep(0)
+  print("boxes empty", boxes.len)
+
+  kept = *B(n: 10)
+  hs: List[*B] = List()
+  !hs.push(*B(n: 11))
+  !hs.push(+kept)
+  !hs.push(*B(n: 12))
+  !hs.keep(hs.len)
+  !hs.keep(1)
+  print("handles", hs.len, hs[0].n)
+  print("still kept", kept.n)
+  !hs.keep(0)
+  print("end")
+
+# expect:
+# drop 4
+# drop 3
+# boxes 2 2
+# drop 2
+# drop 1
+# boxes empty 0
+# drop 12
+# handles 1 11
+# still kept 10
+# drop 11
+# end
+# drop 10

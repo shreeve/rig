@@ -1,0 +1,2 @@
+pub obj Point
+  pub x: Int

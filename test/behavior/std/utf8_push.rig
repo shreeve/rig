@@ -1,0 +1,51 @@
+# std.utf8's `push_rune` at every boundary of the encoding's lengths, read
+# back by `rune_after`, `rune_size`, and `runes`; and every value that is
+# not a rune written as U+FFFD, as Go's `AppendRune` writes it.
+# release
+use std.utf8
+
+sub main()
+  points = [0, 0x7F, 0x80, 0x7FF, 0x800, 0xD7FF, 0xE000, 0xFFFD, 0xFFFF, 0x10000, 0x10FFFF]
+  out = String()
+  for r in points
+    at = out.len
+    utf8.push_rune(!out, r)
+    d = utf8.rune_after(?out, at)
+    print(r, out.len - at, d.rune == r, d.size == out.len - at, (utf8.rune_size(?out, at) ?? 0) == out.len - at, (utf8.size(r) ?? 0) == out.len - at)
+  print(?out == "\x00\u{7f}\u{80}\u{7ff}\u{800}\u{d7ff}\u{e000}\u{fffd}\u{ffff}\u{10000}\u{10ffff}")
+  n = 0
+  for r in utf8.runes(?out)
+    n += 1 if r == points[n] else 100
+  print(n)
+  bad = String()
+  for r in [-1, -0x80, Int.min, 0xD800, 0xDBFF, 0xDC00, 0xDFFF, 0x110000, 0x7FFFFFFF, Int.max]
+    at = bad.len
+    utf8.push_rune(!bad, r)
+    print(r, ?bad[at..] == "\u{fffd}", utf8.size(r) ?? -1)
+  print(bad.len, utf8.is_valid(?bad), utf8.rune_count(?bad))
+
+# expect:
+# 0 1 true true true true
+# 127 1 true true true true
+# 128 2 true true true true
+# 2047 2 true true true true
+# 2048 3 true true true true
+# 55295 3 true true true true
+# 57344 3 true true true true
+# 65533 3 true true true true
+# 65535 3 true true true true
+# 65536 4 true true true true
+# 1114111 4 true true true true
+# true
+# 11
+# -1 true -1
+# -128 true -1
+# -9223372036854775808 true -1
+# 55296 true -1
+# 56319 true -1
+# 56320 true -1
+# 57343 true -1
+# 1114112 true -1
+# 2147483647 true -1
+# 9223372036854775807 true -1
+# 30 true 10

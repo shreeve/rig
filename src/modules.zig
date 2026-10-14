@@ -1,37 +1,54 @@
 //! Module graph: loads a program and the modules it `use`s, and runs
 //! every checker on each.
 //!
-//!   use foo          # loads foo.rig from the root file's directory
+//!   use foo          # foo.rig, or the directory foo/, in the root's directory
 //!   use foo as f     # the same module, named `f` here
+//!   use foo.bar      # the directory foo/bar/, named `bar` here
 //!   use std.os       # the standard library's `os`, named `os` here
 //!   foo.bar(...)     # qualified access to foo's `pub` declarations
 //!
-//! A program lives in one directory, the root file's: `use foo` names
-//! `foo.rig` there whichever module says it, and the file's real name
-//! must be exactly `foo.rig` (not a symlink under another name, nor
-//! another spelling on a case-insensitive filesystem). `use std.NAME`
-//! names the standard library's `NAME.rig`, embedded in the compiler
-//! (`std/` in the repository), or read from `$RIG_STD` when that is
-//! set. A module is keyed by its qualified name (`foo`, `std.os`), so a
-//! name denotes one file, and each module emits to its own file in one
-//! output directory: `<name>.zig`, or `__rig_std_<name>.zig` for the
-//! standard library's. The root emits to `root_zig`, a name no module
-//! can have.
+//! A program lives in one directory, the root file's, and a module path
+//! names a file or directory from there, whichever module says it:
+//! `use foo` names `foo.rig` or the directory `foo/` (not both), and
+//! `use a.b.c` the directory `a/b/c/`. Every `.rig` file in a directory
+//! belongs to that directory's module, so a module beneath another is a
+//! directory too. Each name of a path is spelled as on disk (not through
+//! a symlink under another name, nor in another case on a
+//! case-insensitive filesystem). `use std.PATH` names the standard
+//! library's module by the same rule, from its files embedded in the
+//! compiler (`std/` in the repository), or from `$RIG_STD` when that is
+//! set. A module is keyed by its qualified name (`foo`, `a.b.c`,
+//! `std.os`), so a name denotes one module, and each module emits to its
+//! own file in one output directory: `<name>.zig`, or
+//! `__rig_std_<name>.zig` for the standard library's. The root emits to
+//! `root_zig`, a name no module can have.
 //!
-//! A module is checked after its imports. A cycle or a module that
-//! cannot be read is reported at the `use`. A module whose import has
-//! errors is not checked (its errors would only be consequences); the
-//! import's own errors are reported.
+//! A directory module is the one-file module whose source is its files
+//! joined in the byte order of their names (docs/INTERNALS.md,
+//! "Directory modules"): each file closes its own blocks and brackets, a
+//! diagnostic names the file it is in, and a `use` binds its name in its
+//! own file only. Its files whose names end in `_test.rig` belong to it
+//! only when it is the root of a build for `rig test`: the root may be a
+//! directory, and no imported module has its test files.
+//!
+//! A module is checked after its imports, so modules may not import
+//! each other in a cycle. A cycle or a module that cannot be read is
+//! reported at the `use`. A module whose import has errors is not
+//! checked (its errors would only be consequences); the import's own
+//! errors are reported.
 
 const std = @import("std");
 const parser = @import("parser.zig");
+const rig = @import("rig.zig");
 const sema = @import("sema.zig");
 const proofs = @import("proofs.zig");
 const ownership = @import("ownership.zig");
 const diag = @import("diag.zig");
+const timing = @import("timing.zig");
 const ir = parser.ir;
 const std_lib = @import("rig_std");
 
+/// The most bytes a source file holds (16 MiB).
 pub const max_source_bytes = 16 * 1024 * 1024;
 
 /// The root module's emitted file. Names starting with `__rig` are the
@@ -44,6 +61,9 @@ pub const ModuleId = u32;
 pub const Import = struct {
     local_name: []const u8,
     target: ModuleId,
+    /// The file of a directory module whose `use` binds it
+    /// (`Module.parts`); 0 for a module of one file.
+    file: u32 = 0,
 };
 
 pub const Shim = struct { name: []const u8, source: []const u8 };
@@ -68,6 +88,9 @@ pub const Module = struct {
     /// modules only), which the package holds as `rig/std/<name>`.
     shims: std.ArrayList(Shim) = .empty,
     source: []const u8,
+    /// A directory module: where each of its files starts in `source`,
+    /// and its path. Empty for a module of one file.
+    parts: []const diag.Part = &.{},
     parser: *parser.Parser,
     /// Semantic IR; `.nil` if parsing failed.
     ir: parser.Sexp = .nil,
@@ -100,6 +123,15 @@ pub const ModuleGraph = struct {
     semas: ?*sema.ModuleMap = null,
     /// Errors with no source position (the root file cannot be read).
     errors: std.ArrayList([]const u8) = .empty,
+    /// Where `rig check --time` adds the time of each pass.
+    timing: ?*timing.Timing = null,
+    /// The program is built for `rig test`: the root, when it is a
+    /// directory module, has its `_test.rig` files. An imported module
+    /// never does.
+    with_tests: bool = false,
+    /// Where the root's imports are: the root file's directory, or a
+    /// directory root's parent (null for the current directory).
+    import_dir: ?[]const u8 = null,
 
     pub const Error = std.mem.Allocator.Error;
 
@@ -145,16 +177,36 @@ pub const ModuleGraph = struct {
     /// stack, so an import chain of any depth fits. A module is checked
     /// when it leaves the stack, after all of its imports; while on the
     /// stack it is `loading`, which is how a cycle is recognized.
+    ///
+    /// The root is a file, or a directory module (`isDirectory`), whose
+    /// imports are then its siblings.
     pub fn loadRoot(self: *ModuleGraph, path: []const u8) Error!void {
-        const source = self.read(path) catch |err| {
-            try self.errors.append(self.allocator, try self.arena.allocator().print("cannot read `{s}`: {s}", .{ path, fileError(err) }));
-            return;
-        };
         const Frame = struct { id: ModuleId, next: usize = 0, ok: bool = true };
         var stack: std.ArrayList(Frame) = .empty;
         defer stack.deinit(self.allocator);
 
-        const root_id = try self.add(try self.realPath(path), path, moduleName(path), source);
+        const root_id = if (self.isDirectory(path)) blk: {
+            const shown = std.mem.trimEnd(u8, path, "/");
+            const canonical = try self.realPath(path);
+            const name = moduleName(canonical);
+            const found = (try self.readDir(null, .{ .start = 0, .end = 0 }, .{}, if (shown.len == 0) "/" else shown, name)) orelse return;
+            // Siblings are in the real parent. The spelled parent names
+            // it unless the path ends in `.` or `..` or goes through a
+            // link; then the real parent is used.
+            const base = std.fs.path.basename(shown);
+            const spelled = std.fs.path.dirname(shown);
+            const same = !std.mem.eql(u8, base, ".") and !std.mem.eql(u8, base, "..") and std.mem.eql(u8, std.fs.path.basename(canonical), base) and
+                std.mem.eql(u8, try self.realPath(spelled orelse "."), std.fs.path.dirname(canonical) orelse "/");
+            self.import_dir = if (same) spelled else std.fs.path.dirname(canonical) orelse "/";
+            break :blk try self.add(found.key, found.display, name, found.source, found.parts);
+        } else blk: {
+            self.import_dir = std.fs.path.dirname(path);
+            const source = self.read(path) catch |err| {
+                try self.errors.append(self.allocator, try self.arena.allocator().print("cannot read `{s}`: {s}", .{ path, fileError(err) }));
+                return;
+            };
+            break :blk try self.add(try self.realPath(path), path, moduleName(path), source, &.{});
+        };
         if (self.get(root_id).state == .loading) try stack.append(self.allocator, .{ .id = root_id });
         while (stack.items.len > 0) {
             const top = &stack.items[stack.items.len - 1];
@@ -179,113 +231,316 @@ pub const ModuleGraph = struct {
         }
     }
 
-    /// Resolve `use NAME` or `use std.NAME` in module `id`: record the
-    /// import, adding the module to the graph if it is new, or report why
-    /// it cannot be imported.
+    /// Resolve `use PATH` in module `id`: record the import, adding the
+    /// module to the graph if it is new, or report why it cannot be
+    /// imported.
     fn resolveUse(self: *ModuleGraph, id: ModuleId, decl: parser.Sexp) Error!union(enum) { failed, loaded, added: ModuleId } {
         const a = self.arena.allocator();
         const importer = self.get(id);
         const path = ir.Use.name(decl);
-        const in_std = path.isKind(.member);
-        const name_node = if (in_std) ir.Member.name(path) else path;
-        const name = name_node.getText(importer.source);
+        var names: std.ArrayList([]const u8) = .empty;
+        var node = path;
+        while (node.isKind(.member)) : (node = ir.Member.object(node)) try names.append(a, rig.leafText(importer.source, ir.Member.name(node).src));
+        try names.append(a, rig.leafText(importer.source, node.src));
+        std.mem.reverse([]const u8, names.items);
+        const in_std = names.items.len > 1 and std.mem.eql(u8, names.items[0], "std");
+        const comps = if (in_std) names.items[1..] else names.items;
+        const name = comps[comps.len - 1];
         const alias = ir.Use.alias(decl);
-        const local_name = if (alias == .nil) name else alias.getText(importer.source);
+        const local_name = if (alias == .nil) name else rig.leafText(importer.source, alias.src);
         const at = importer.parser.span(decl);
+        const file = sema.fileIndex(importer.parts, at.start);
 
-        if (in_std) {
-            const head = ir.Member.object(path).getText(importer.source);
-            if (!std.mem.eql(u8, head, "std")) {
-                try self.errorAt(id, importer.parser.span(path), "`{s}.{s}` names no module: a dotted path names a module of the standard library, `std.{s}`, and a module beside this one is `use {s}`", .{ head, name, name, name });
-                return .failed;
-            }
-        }
-        if (std.mem.startsWith(u8, name, reserved_prefix)) {
+        for (comps) |c| if (std.mem.startsWith(u8, c, reserved_prefix)) {
             try self.errorAt(id, at, "module names starting with `{s}` are reserved for the compiler", .{reserved_prefix});
             return .failed;
-        }
+        };
+        const dotted = try std.mem.join(a, ".", comps);
         // The standard library is self-contained: it never reaches a
         // program's files, whatever their names.
         if (importer.is_std and !in_std) {
-            try self.errorAt(id, at, "a module of the standard library imports only other modules of it: `use std.{s}`", .{name});
+            try self.errorAt(id, at, "a module of the standard library imports only other modules of it: `use std.{s}`", .{dotted});
             return .failed;
         }
-        const qualified = if (in_std) try a.print("std.{s}", .{name}) else name;
+        const qualified = if (in_std) try a.print("std.{s}", .{dotted}) else dotted;
         const target = self.by_name.get(qualified) orelse blk: {
-            const file = try a.print("{s}.rig", .{name});
+            const tree: Tree = if (!in_std) .{ .dir = self.import_dir } else if (self.std_dir) |d| .{ .dir = d, .std = true } else .{ .std = true, .embedded = true };
+            const found = (try self.findModule(id, at, tree, comps, qualified)) orelse return .failed;
+            if (self.by_path.get(found.key)) |existing| break :blk existing;
+            const added = try self.add(found.key, found.display, qualified, found.source, found.parts);
             if (in_std) {
-                const found = self.readStd(file) catch |err| {
-                    try self.stdError(id, at, file, err);
-                    return .failed;
-                } orelse {
-                    try self.errorAt(id, at, "the standard library has no module `{s}`", .{name});
-                    return .failed;
-                };
-                const added = try self.add(found.key, found.display, qualified, found.source);
                 self.get(added).is_std = true;
-                self.get(added).out_basename = try a.print("__rig_std_{s}.zig", .{name});
+                self.get(added).out_basename = try a.print("__rig_std_{s}.zig", .{dotted});
                 if (!try self.loadShims(added)) self.get(added).state = .failed;
-                try self.get(id).imports.append(self.allocator, .{ .local_name = local_name, .target = added });
-                return .{ .added = added };
             }
-            const display = if (std.fs.path.dirname(self.root().display)) |d| try std.fs.path.join(a, &.{ d, file }) else file;
-            const source = self.read(display) catch |err| {
-                const hint = if (std.mem.eql(u8, name, "std")) "; a module of the standard library is `use std.NAME`" else "";
-                try self.errorAt(id, at, "cannot read module `{s}` ({s}): {s}{s}", .{ name, display, fileError(err), hint });
-                return .failed;
-            };
-            const canonical = try self.realPath(display);
-            const real = std.fs.path.basename(canonical);
-            if (!std.mem.eql(u8, real, file)) {
-                try self.errorAt(id, at, "module `{s}` is the file `{s}`; import it by that name", .{ name, real });
-                return .failed;
-            }
-            if (self.by_path.get(canonical)) |existing| break :blk existing;
-            const added = try self.add(canonical, display, name, source);
-            try self.get(id).imports.append(self.allocator, .{ .local_name = local_name, .target = added });
+            try self.get(id).imports.append(self.allocator, .{ .local_name = local_name, .target = added, .file = file });
             return .{ .added = added };
         };
         if (self.get(target).state == .loading) {
-            try self.errorAt(id, at, "cyclic import: `{s}` is still being loaded when `{s}` imports it", .{ qualified, self.get(id).name });
+            try self.errorAt(id, at, "cyclic import: `{s}` is still being loaded when `{s}` imports it; modules may not import each other in a cycle: put the files that call each other in one module, a directory", .{ qualified, self.get(id).name });
             return .failed;
         }
-        for (self.get(id).imports.items) |imp| if (imp.target == target and std.mem.eql(u8, imp.local_name, local_name)) {
+        // Each file of a directory module says what it uses.
+        for (self.get(id).imports.items) |imp| if (imp.target == target and imp.file == file and std.mem.eql(u8, imp.local_name, local_name)) {
             try self.errorAt(id, at, "`{s}` is already imported as `{s}`", .{ qualified, local_name });
             return .failed;
         };
-        try self.get(id).imports.append(self.allocator, .{ .local_name = local_name, .target = target });
+        try self.get(id).imports.append(self.allocator, .{ .local_name = local_name, .target = target, .file = file });
         return .loaded;
     }
 
+    /// Where a module path's files are: a directory of files (the
+    /// program's root directory, or `$RIG_STD`), or the standard
+    /// library embedded in the compiler (`dir` null).
+    const Tree = struct {
+        /// The directory; null for the current one.
+        dir: ?[]const u8 = null,
+        std: bool = false,
+        /// The standard library embedded in the compiler.
+        embedded: bool = false,
+
+        /// `rel` under the tree, as a path to open.
+        fn path(t: Tree, a: std.mem.Allocator, rel: []const u8) ![]const u8 {
+            return if (t.dir) |d| std.fs.path.join(a, &.{ d, rel }) else a.dupe(u8, rel);
+        }
+    };
+
+    const Found = struct { key: []const u8, display: []const u8, source: []const u8, parts: []const diag.Part };
+
+    const Kind = enum { none, file, dir };
+
+    /// What `rel` is in `tree`.
+    fn kindIn(self: *ModuleGraph, tree: Tree, rel: []const u8) Error!Kind {
+        if (tree.embedded) {
+            if (std_lib.get(rel) != null) return .file;
+            for (std_lib.files) |f| if (f[0].len > rel.len and std.mem.startsWith(u8, f[0], rel) and f[0][rel.len] == '/') return .dir;
+            return .none;
+        }
+        const p = try tree.path(self.arena.allocator(), rel);
+        const st = std.Io.Dir.cwd().statFile(self.io, p, .{}) catch return .none;
+        return if (st.kind == .directory) .dir else .file;
+    }
+
+    /// The module `comps` names in `tree`, read and joined; null when
+    /// there is none, which is reported at `at` in module `id`.
+    fn findModule(self: *ModuleGraph, id: ModuleId, at: parser.Span, tree: Tree, comps: []const []const u8, qualified: []const u8) Error!?Found {
+        const a = self.arena.allocator();
+        const rel = try std.mem.join(a, "/", comps);
+        const file = try a.print("{s}.rig", .{rel});
+        if (tree.std and !tree.embedded) {
+            var d = std.Io.Dir.cwd().openDir(self.io, tree.dir.?, .{}) catch {
+                try self.errorAt(id, at, "RIG_STD names `{s}`, which is not a directory", .{tree.dir.?});
+                return null;
+            };
+            d.close(self.io);
+        }
+        const dir_kind = try self.kindIn(tree, rel);
+        const file_kind = try self.kindIn(tree, file);
+        if (comps.len > 1 and dir_kind != .dir) {
+            const parent = try std.mem.join(a, "/", comps[0 .. comps.len - 1]);
+            const shown = if (tree.std) try a.print("std.{s}", .{try std.mem.join(a, ".", comps[0 .. comps.len - 1])}) else try std.mem.join(a, ".", comps[0 .. comps.len - 1]);
+            if (file_kind == .file) {
+                try self.errorAt(id, at, "`{s}` is part of module `{s}`; a module under `{s}/` is a directory, such as `{s}/`", .{ file, shown, parent, rel });
+            } else if (tree.std) {
+                try self.errorAt(id, at, "the standard library has no module `{s}`: no directory {s}/", .{ qualified, rel });
+            } else try self.errorAt(id, at, "cannot read module `{s}`: no directory {s}/", .{ qualified, rel });
+            return null;
+        }
+        if (comps.len == 1 and dir_kind == .dir and file_kind != .none) {
+            try self.errorAt(id, at, "module `{s}` is both the file `{s}` and the directory `{s}/`; keep one", .{ qualified, file, rel });
+            return null;
+        }
+        if (dir_kind == .dir) return self.readDir(id, at, tree, rel, qualified);
+        if (tree.std) {
+            const found = self.readStd(file) catch |err| {
+                try self.stdError(id, at, file, err);
+                return null;
+            } orelse {
+                try self.errorAt(id, at, "the standard library has no module `{s}`", .{comps[0]});
+                return null;
+            };
+            return .{ .key = found.key, .display = found.display, .source = found.source, .parts = &.{} };
+        }
+        const name = comps[0];
+        const display = try tree.path(a, file);
+        const source = self.read(display) catch |err| {
+            const hint = if (std.mem.eql(u8, name, "std")) "; a module of the standard library is `use std.NAME`" else "";
+            try self.errorAt(id, at, "cannot read module `{s}` ({s}): {s}{s}", .{ name, display, fileError(err), hint });
+            return null;
+        };
+        const canonical = try self.realPath(display);
+        const real = std.fs.path.basename(canonical);
+        if (!std.mem.eql(u8, real, file)) {
+            try self.errorAt(id, at, "module `{s}` is the file `{s}`; import it by that name", .{ name, real });
+            return null;
+        }
+        return .{ .key = canonical, .display = display, .source = source, .parts = &.{} };
+    }
+
+    /// The directory module at `rel` in `tree`: its `.rig` files, in the
+    /// byte order of their names, joined into one source, each ending in
+    /// a newline and without a byte order mark. `id` is the importing
+    /// module, null for the root, the only directory module that has its
+    /// test files, and only under `with_tests`.
+    fn readDir(self: *ModuleGraph, id: ?ModuleId, at: parser.Span, tree: Tree, rel: []const u8, qualified: []const u8) Error!?Found {
+        const a = self.arena.allocator();
+        const own_tests = id == null and self.with_tests;
+        const display_dir = if (tree.embedded) try a.print("std/{s}/", .{rel}) else try a.print("{s}/", .{try tree.path(a, rel)});
+        var key: []const u8 = try a.print("<std>/{s}/", .{rel});
+        var names: std.ArrayList([]const u8) = .empty;
+        if (tree.embedded) {
+            for (std_lib.files) |f| {
+                const n = f[0];
+                if (n.len > rel.len + 1 and std.mem.startsWith(u8, n, rel) and n[rel.len] == '/' and std.mem.findScalar(u8, n[rel.len + 1 ..], '/') == null) {
+                    if (belongs(n[rel.len + 1 ..], false)) try names.append(a, n[rel.len + 1 ..]);
+                }
+            }
+        } else {
+            const dir_path = try tree.path(a, rel);
+            if (!tree.std) {
+                // Each name of the path is spelled as on disk.
+                const canonical = try self.realPath(dir_path);
+                var parts = std.mem.splitBackwardsScalar(u8, canonical, std.fs.path.sep);
+                var comps = std.mem.splitBackwardsScalar(u8, rel, '/');
+                var wrong = false;
+                while (comps.next()) |c| if (!std.mem.eql(u8, parts.next() orelse "", c)) {
+                    wrong = true;
+                };
+                if (wrong and id != null) {
+                    const n = std.mem.countScalar(u8, rel, '/') + 1;
+                    var start = canonical.len;
+                    var seen: usize = 0;
+                    while (start > 0 and seen < n) : (start -= 1) {
+                        if (canonical[start - 1] == std.fs.path.sep) seen += 1;
+                        if (seen == n) break;
+                    }
+                    try self.dirError(id, at, "module `{s}` is the directory `{s}/`; import it by that name", .{ qualified, canonical[start..] });
+                    return null;
+                }
+                key = try a.print("{s}/", .{canonical});
+            }
+            var d = std.Io.Dir.cwd().openDir(self.io, dir_path, .{ .iterate = true }) catch |err| {
+                try self.dirError(id, at, "cannot read module `{s}` ({s}): {s}", .{ qualified, display_dir, fileError(err) });
+                return null;
+            };
+            defer d.close(self.io);
+            var it = d.iterate();
+            while (it.next(self.io) catch |err| {
+                try self.dirError(id, at, "cannot read module `{s}` ({s}): {s}", .{ qualified, display_dir, fileError(err) });
+                return null;
+            }) |entry| {
+                if (!std.mem.endsWith(u8, entry.name, ".rig") or entry.name.len == 4 or !belongs(entry.name, own_tests)) continue;
+                const st = d.statFile(self.io, entry.name, .{}) catch continue;
+                if (st.kind != .file) continue;
+                try names.append(a, try a.dupe(u8, entry.name));
+            }
+        }
+        if (names.items.len == 0) {
+            if (id == null) try self.dirError(id, at, "the directory `{s}` holds no `.rig` file", .{display_dir}) else try self.dirError(id, at, "module `{s}` is the directory `{s}`, which holds no `.rig` file", .{ qualified, display_dir });
+            return null;
+        }
+        std.mem.sort([]const u8, names.items, {}, struct {
+            fn lt(_: void, x: []const u8, y: []const u8) bool {
+                return std.mem.order(u8, x, y) == .lt;
+            }
+        }.lt);
+        var joined: std.ArrayList(u8) = .empty;
+        var parts: std.ArrayList(diag.Part) = .empty;
+        for (names.items) |n| {
+            const shown = try a.print("{s}{s}", .{ display_dir, n });
+            const text = if (tree.embedded) std_lib.get(try a.print("{s}/{s}", .{ rel, n })).? else self.read(shown) catch |err| {
+                try self.dirError(id, at, "cannot read `{s}`: {s}", .{ shown, fileError(err) });
+                return null;
+            };
+            const body = if (std.mem.startsWith(u8, text, "\xEF\xBB\xBF")) text[3..] else text;
+            const newline: usize = @intFromBool(body.len > 0 and body[body.len - 1] != '\n');
+            if (joined.items.len + body.len + newline > max_source_bytes) {
+                try self.dirError(id, at, "module `{s}` is larger than {d} MiB, the most one module may hold; split it into modules", .{ qualified, max_source_bytes >> 20 });
+                return null;
+            }
+            try parts.append(a, .{ .start = @intCast(joined.items.len), .path = shown });
+            try joined.appendSlice(a, body);
+            if (newline == 1) try joined.append(a, '\n');
+        }
+        return .{ .key = key, .display = display_dir, .source = joined.items, .parts = parts.items };
+    }
+
+    /// An error in reading a directory module: at the `use` of module
+    /// `id`, or, for the root, with no position.
+    fn dirError(self: *ModuleGraph, id: ?ModuleId, at: parser.Span, comptime fmt: []const u8, args: anytype) Error!void {
+        if (id) |i| return self.errorAt(i, at, fmt, args);
+        try self.errors.append(self.allocator, try self.arena.allocator().print(fmt, args));
+    }
+
+    /// Whether `path` is a directory, which as a root is a directory
+    /// module.
+    fn isDirectory(self: *ModuleGraph, path: []const u8) bool {
+        const st = std.Io.Dir.cwd().statFile(self.io, path, .{}) catch return false;
+        return st.kind == .directory;
+    }
+
+    /// Whether a file of a directory belongs to its module: a test file,
+    /// `name_test.rig`, only for the root of a build for `rig test`.
+    fn belongs(name: []const u8, own_tests: bool) bool {
+        return std.mem.endsWith(u8, name, ".rig") and (own_tests or !std.mem.endsWith(u8, name, "_test.rig"));
+    }
+
     /// Read the Zig file of each `extern zig` block of the standard
-    /// library's module `id`; false if one cannot be.
+    /// library's module `id`, and each Zig file of the standard library
+    /// those import by its plain name (`@import("name.zig")`), which the
+    /// package holds beside them; false if one cannot be.
     fn loadShims(self: *ModuleGraph, id: ModuleId) Error!bool {
         const m = self.get(id);
         if (m.ir == .nil) return true;
+        var at: parser.Span = undefined;
         for (ir.Module.decls(m.ir)) |decl| {
             if (!decl.isKind(.zig_extern)) continue;
             const leaf = ir.ZigExtern.file(decl);
-            const at = m.parser.span(leaf);
-            const quoted = leaf.getText(m.source);
+            at = m.parser.span(leaf);
+            const quoted = rig.leafText(m.source, leaf.src);
             const file = quoted[1 .. quoted.len - 1];
-            const base = file[0..file.len -| 4];
-            const plain = std.mem.endsWith(u8, file, ".zig") and base.len > 0 and for (base) |c| {
-                if (!std.ascii.isAlphanumeric(c) and c != '_') break false;
-            } else true;
-            if (!plain) {
+            if (!plainZigFile(file)) {
                 try self.errorAt(id, at, "`extern zig` names a Zig file of the standard library, `name.zig`", .{});
                 return false;
             }
-            const found = self.readStd(file) catch |err| {
-                try self.stdError(id, at, file, err);
-                return false;
-            } orelse {
-                try self.errorAt(id, at, "the standard library has no Zig file `{s}`", .{file});
-                return false;
-            };
-            try self.get(id).shims.append(self.allocator, .{ .name = file, .source = found.source });
+            if (!try self.addShim(id, at, file)) return false;
+        }
+        var next: usize = 0;
+        while (next < self.get(id).shims.items.len) : (next += 1) {
+            var rest = self.get(id).shims.items[next].source;
+            const import = "@import(\"";
+            while (std.mem.find(u8, rest, import)) |k| {
+                rest = rest[k + import.len ..];
+                const file = rest[0 .. std.mem.findScalar(u8, rest, '"') orelse break];
+                if (!plainZigFile(file)) continue;
+                for (self.get(id).shims.items) |shim| {
+                    if (std.mem.eql(u8, shim.name, file)) break;
+                } else if (!try self.addShim(id, at, file)) return false;
+            }
         }
         return true;
+    }
+
+    /// Read `file` of the standard library as a shim of module `id`;
+    /// false, with a diagnostic at `at`, if it cannot be.
+    fn addShim(self: *ModuleGraph, id: ModuleId, at: parser.Span, file: []const u8) Error!bool {
+        const found = self.readStd(file) catch |err| {
+            try self.stdError(id, at, file, err);
+            return false;
+        } orelse {
+            try self.errorAt(id, at, "the standard library has no Zig file `{s}`", .{file});
+            return false;
+        };
+        try self.get(id).shims.append(self.allocator, .{ .name = file, .source = found.source });
+        return true;
+    }
+
+    /// `name.zig`, with a name of letters, digits, and `_`.
+    fn plainZigFile(file: []const u8) bool {
+        const base = file[0..file.len -| 4];
+        return std.mem.endsWith(u8, file, ".zig") and base.len > 0 and for (base) |c| {
+            if (!std.ascii.isAlphanumeric(c) and c != '_') break false;
+        } else true;
     }
 
     /// A file of the standard library: from `$RIG_STD` when it is set,
@@ -323,7 +578,7 @@ pub const ModuleGraph = struct {
 
     /// Add a module and parse it; a module that does not parse is
     /// `failed` at once.
-    fn add(self: *ModuleGraph, canonical: []const u8, display: []const u8, name: []const u8, source: []const u8) Error!ModuleId {
+    fn add(self: *ModuleGraph, canonical: []const u8, display: []const u8, name: []const u8, source: []const u8, parts: []const diag.Part) Error!ModuleId {
         const a = self.arena.allocator();
         const id: ModuleId = @intCast(self.modules.items.len + 1);
         const p = blk: {
@@ -344,8 +599,12 @@ pub const ModuleGraph = struct {
             errdefer self.allocator.destroy(ctx);
             ctx.* = try sema.SemContext.init(self.allocator, source);
             errdefer ctx.deinit();
+            const ends = try a.alloc(u32, parts.len -| 1);
+            if (parts.len > 1) for (ends, parts[1..]) |*e, part| {
+                e.* = part.start;
+            };
             const p = try self.allocator.create(parser.Parser);
-            p.* = parser.Parser.init(self.allocator, source);
+            p.* = parser.Parser.initFiles(self.allocator, source, ends);
 
             self.modules.appendAssumeCapacity(.{
                 .id = id,
@@ -354,6 +613,7 @@ pub const ModuleGraph = struct {
                 .name = name,
                 .out_basename = out_basename,
                 .source = source,
+                .parts = parts,
                 .parser = p,
                 .sema = ctx,
             });
@@ -363,6 +623,8 @@ pub const ModuleGraph = struct {
             break :blk p;
         };
 
+        const t0 = timing.start(self.timing);
+        defer timing.stop(self.timing, .lex_parse, t0);
         self.get(id).ir = p.parseProgram() catch |err| switch (err) {
             error.ParseError => {
                 const d = p.diagnostic();
@@ -373,13 +635,15 @@ pub const ModuleGraph = struct {
                 return id;
             },
             error.InputTooLarge => unreachable, // sources are at most `max_source_bytes`
+            // `Lexer.next` returns each token it scans before it scans another.
+            error.TokenEndUnknown => unreachable,
             else => |e| return e,
         };
         return id;
     }
 
     fn read(self: *ModuleGraph, path: []const u8) ![]const u8 {
-        return std.Io.Dir.cwd().readFileAlloc(self.io, path, self.arena.allocator(), .limited(max_source_bytes));
+        return std.Io.Dir.cwd().readFileAlloc(self.io, path, self.arena.allocator(), .limited(max_source_bytes + 1));
     }
 
     /// The real absolute path of a readable file, or, where the platform
@@ -399,7 +663,7 @@ pub const ModuleGraph = struct {
         var entries: std.ArrayList(sema.ImportEntry) = .empty;
         defer entries.deinit(self.allocator);
         for (m.imports.items) |imp| {
-            try entries.append(self.allocator, .{ .local_name = imp.local_name, .sema = self.get(imp.target).sema, .module_id = imp.target });
+            try entries.append(self.allocator, .{ .local_name = imp.local_name, .sema = self.get(imp.target).sema, .module_id = imp.target, .file = imp.file });
         }
 
         const opts: sema.CheckOptions = .{
@@ -411,6 +675,8 @@ pub const ModuleGraph = struct {
             .is_root = id == 1,
             .zig_file = m.out_basename,
             .is_std = m.is_std,
+            .timing = self.timing,
+            .parts = m.parts,
         };
         m.sema.deinit();
         m.sema.* = try sema.check(self.allocator, m.source, m.ir, opts);
@@ -431,9 +697,11 @@ pub const ModuleGraph = struct {
             m.state = .failed;
             return;
         }
+        const t0 = timing.start(self.timing);
         var own = try ownership.Checker.initWithSema(self.allocator, m.source, m.sema);
         defer own.deinit();
         try own.check(m.ir);
+        timing.stop(self.timing, .ownership, t0);
         const first: u32 = @intCast(m.sema.diagnostics.items.len);
         for (own.diagnostics.items) |d| try self.addDiagnostic(id, d);
         m.own_ran = true;
@@ -444,7 +712,9 @@ pub const ModuleGraph = struct {
         m.state = if (m.sema.hasErrors()) .failed else .checked;
         // Which tests are known to pass rests on the ownership checker's
         // acceptance (docs/INTERNALS.md, "Proven checks").
+        const t1 = timing.start(self.timing);
         if (m.state == .checked) try proofs.check(m.sema, m.ir);
+        timing.stop(self.timing, .proofs, t1);
     }
 
     fn errorAt(self: *ModuleGraph, id: ModuleId, at: parser.Span, comptime fmt: []const u8, args: anytype) Error!void {
@@ -466,7 +736,7 @@ pub const ModuleGraph = struct {
         for (self.errors.items) |message| try w.print("error: {s}\n", .{message});
         const files = try self.allocator.alloc(diag.File, self.modules.items.len);
         defer self.allocator.free(files);
-        for (self.modules.items, files) |m, *f| f.* = .{ .source = m.source, .path = m.display };
+        for (self.modules.items, files) |m, *f| f.* = .{ .source = m.source, .path = m.display, .parts = m.parts };
         var budget: u32 = diag.max_errors;
         var hidden: u32 = 0;
         for (self.modules.items, files) |m, home| hidden += try diag.writeSome(m.sema.diagnostics.items, home, files, w, &budget);
@@ -483,6 +753,7 @@ fn hasTypeErrors(items: []const diag.Diagnostic) bool {
     }
     return false;
 }
+
 
 /// `dir/name.rig` → `name`.
 fn moduleName(path: []const u8) []const u8 {

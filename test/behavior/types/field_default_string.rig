@@ -1,0 +1,21 @@
+# `String()` is a field default as `List()` is: each value the
+# constructor makes gets its own empty text, which it releases.
+obj Buf
+  name: String = String()
+  parts: List[String] = List()
+  note: ?String = "none"
+
+sub main()
+  a = Buf()
+  b = Buf()
+  !a.name.add("hello", " ", 42)
+  !a.parts.push(String("x"))
+  print(a.name, a.name.len, a.parts.len)
+  print(b.name.len, b.parts.len, b.note)
+  c = Buf(note: "set")
+  print(c.name.len, c.note)
+
+# expect:
+# hello 42 8 1
+# 0 0 none
+# 0 set

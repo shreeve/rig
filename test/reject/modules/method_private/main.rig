@@ -1,0 +1,7 @@
+# A method declared outside its type's body is private unless `pub`.
+use geo
+
+sub main()
+  print(geo.Point(x: 1).norm())
+
+# error: method `norm` of `geo.Point` is private to module `geo`

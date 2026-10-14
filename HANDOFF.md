@@ -27,12 +27,27 @@ from).
   - **Text and lists:** String `reserve`, `push[T, e]`, and List
     `reserve`; a byte order on a one-byte type is rejected; clearing a
     List of plain values sets its length.
+  - **Owned closures:** `*fun` and `*sub` take and return anything a
+    function's signature may hold: write and read views for the call,
+    owners, and handles (docs/CORE.md §7). A temporary callee,
+    `(+h.f)(x)`, is planned.
   - **Vectors:** `Simd[T, n]`, `n` lanes of a number or `Bool` (`n` a
     power of two from 2 to 64): lane-wise operators that panic on
     overflow (`+%` and friends wrap), comparisons that give a mask
     `Simd[Bool, n]` with `any()`, `all()`, and `bits()`, `v.with(i, x)`,
     and byte reads with one bounds check. A vector is plain data
     (docs/CORE.md).
+  - **Modules at scale:** a directory is a module whose `.rig` files
+    share one namespace, as a Go package's do: `use a.b` names the
+    directory `a/b/`, a `use` binds its name in its own file, private
+    names are module-wide, and each module emits one Zig file. Modules
+    still may not import each other in a cycle. A method may be
+    declared outside its type's body in the type's module
+    (`fun Point.norm(?self)`, `fun Wrap[T].map[U](...)`), which
+    desugars to the member. Module constants fold in dependency order,
+    and one that depends on itself is rejected. A directory's
+    `_test.rig` files belong to its module only as the root of `rig test`
+    (docs/INTERNALS.md, "Directory modules").
   - **Evaluation order:** every assignment evaluates its value first,
     then its target's steps, then stores; the order is one recorded fact
     (`storage.SetOrder`, `storage.eachSetStep`) that emit and the
@@ -315,9 +330,12 @@ migration guide (`tools/migrate-0.3.py`).
   (`T!E`, `error L = A | B`) and the typed `catch` binding, then member
   fields moved up through `!`, then std.json's fallible API (SPEC §13,
   "Declared sets and fields").
-- SIMD round 2: byte lookup, a joined shift, a saturating subtract (its
-  spelling is undecided), `pad:` reads, `blocks(N)`, and one load for
-  4- and 8-byte byte-lane reads on ARM.
+- Constant tables: module constants built from constructors of plain
+  types, for Trig's diagnostics catalog (part B of the modules
+  proposal, `.git/revamp/r3/proposal-modules-constants.md`, local).
+- SIMD: `pad:` reads, `blocks(N)`, and one load for 4- and 8-byte
+  byte-lane reads on ARM. (Round 2 built `t.lookup(idx)`, `cur.lag[k](prev)`, `+|` and
+  `-|`, and lane shifts.)
 - A String API for part-word appends and windowed writes.
 - Multiple results.
 - A frame-size guard for every function.
@@ -341,9 +359,12 @@ Two gates (AGENTS.md, "Land fast, release deep"):
   independent review in parallel. A round that changes a soundness
   classifier also runs the full matrix.
 - **The deep gate, on `main` about twice a day:** everything below, plus
-  equivalence against the last deep run and the JSON benchmark guard. A
+  equivalence against the last deep run, the JSON benchmark guard, and
+  the check-speed guard. A
   failure is bisected and fixed before any new round lands; a tag needs
-  a clean deep gate.
+  a clean deep gate. It also runs the Unicode tables' freshness test
+  with the database present: `RIG_UCD=dir ./test/run unicode_tables`
+  (the generator fetches any pinned file `dir` lacks).
 - **The JSON benchmark guard:** on the Mac, `cpuq run --cores 2 --label
   rig:json -- bench/json/guard.py` builds `rig-safe` for the six corpus
   files and counts instructions retired per byte, which do not move
@@ -351,6 +372,16 @@ Two gates (AGENTS.md, "Land fast, release deep"):
   `bench/json/guard.txt` is a regression, and the guard fails. A change
   meant to move the counts commits a new baseline
   (`bench/json/guard.py --update`).
+- **The check-speed guard:** on the Mac, `cpuq run --cores 2 --label
+  rig:check -- bench/check/guard.py` builds the compiler in ReleaseSafe
+  and runs `rig check` on a generated program about the size of Trig's
+  parser (`bench/check/gen.py`). It fails when the instructions retired
+  are more than 2% above `bench/check/guard.txt`, when a pass of `rig
+  check --time` (best of 7) is more than 20% and 0.25 ms slower (skipped above a
+  load of 5), or when checking a program 8 times larger along one
+  dimension (modules, variants, fields, functions, statements) grows
+  with an exponent over 1.15. A change meant to move them commits a new
+  baseline (`bench/check/guard.py --update`).
 
 The machines are shared: run heavy work through the job queue
 (`cpuq run --cores 2 -- …`, with `-j "$CPUQ_CORES"`), which shares the

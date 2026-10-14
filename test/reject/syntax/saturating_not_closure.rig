@@ -1,0 +1,9 @@
+# `+|` and `-|` are operators, so a closure bar list cannot follow `+`
+# or `-` directly: `-|x| x` is no negated closure, as it was not before.
+
+sub main()
+  g = -|x: Int| x
+  print(g(1))
+
+# error: 5:7: unexpected `-|`; expected an expression
+# errors: 1

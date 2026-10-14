@@ -1,0 +1,2 @@
+pub obj Thing
+  v: Int

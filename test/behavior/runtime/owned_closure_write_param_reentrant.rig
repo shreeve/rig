@@ -1,0 +1,41 @@
+# A stored closure that writes what it is lent calls, through that, a
+# second handle to itself, three levels deep. Re-entry only reads the
+# environment, and the innermost call replaces the stored handle while
+# the outer calls run, each on a handle of its own.
+
+obj Checker
+  n: Int
+  hook: *sub(!Checker, Int)
+
+sub main()
+  tag = String("rec")
+  rec: *sub(!Checker, Int) = *|+tag, k, n|
+    print(tag, n, k.n)
+    k.n += 1
+    if n > 0
+      f = +k.hook
+      f(!k, n - 1)
+    else
+      k.hook = *|j, m| j.n += 100
+    print(tag, n, "back")
+  c = Checker(n: 0, hook: +rec)
+  rec(!c, 3)
+  print(c.n)
+  c.hook = <rec
+  f = +c.hook
+  f(!c, 0)
+  print(c.n)
+
+# expect:
+# rec 3 0
+# rec 2 1
+# rec 1 2
+# rec 0 3
+# rec 0 back
+# rec 1 back
+# rec 2 back
+# rec 3 back
+# 4
+# rec 0 4
+# rec 0 back
+# 5

@@ -1,0 +1,19 @@
+# A decoder in another module, which bounds the size it returns.
+
+pub obj Decoded
+  pub rune: Int
+  pub size: Int
+
+pub fun rune_after(s: ?String, i: Int) -> Decoded
+  if i >= 0 and i < s.len
+    b = s[i]
+    return Decoded(rune: Int(b), size: 1) if b < 0x80
+    return multi(s, i)
+  Decoded(rune: 0xFFFD, size: 0)
+
+fun multi(s: ?String, i: Int) -> Decoded
+  return bad() if i + 2 > s.len
+  Decoded(rune: Int(s[i] & 0x1F) << 6 | Int(s[i + 1] & 0x3F), size: 2)
+
+fun bad() -> Decoded
+  Decoded(rune: 0xFFFD, size: 1)

@@ -213,6 +213,12 @@ name right after `.` (`t.type`, `t.error()`), before `:` inside
 parentheses (a keyword argument or payload field, `Token(type: 1)`),
 and in a member list before `:` (a field) or after `fun` / `sub` (a
 method). `drop(!self)` is still a drop body, and `drop: Bool` a field.
+
+**Module paths** name a module by its path from the program's root
+directory, a name for each directory: `use geo` is `geo.rig` or the
+directory `geo/`, and `use checker.binder` the directory
+`checker/binder/` ([SPEC §14](SPEC.md#14-modules)). Each name is
+spelled as on disk.
 Everywhere else a keyword names nothing: not a local, a parameter, a
 top-level declaration, or an enum variant.
 
@@ -481,7 +487,7 @@ From lowest to highest precedence:
 | `^` | bitwise xor |
 | `&` | bitwise and |
 | `<<` `<<%` `>>` | shifts; `<<%` drops the bits it shifts out |
-| `+` `-` `+%` `-%` | `+%` and `-%` wrap |
+| `+` `-` `+%` `-%` `+\|` `-\|` | `+%` and `-%` wrap; `+\|` and `-\|` saturate, stopping at the type's limits |
 | `*` `/` `%` `*%` | `*%` wraps |
 | `-x` and the sigils | prefix |
 | `f(x)` `a[i]` `a.b` `e!` `e?` | postfix: call, index, member, propagate |
@@ -697,6 +703,37 @@ on the type (`other: ?Point`). A drop body is written like a method
 with the receiver `!self` and no name: `drop(!self)`. `pub` before a
 field or method exports it: `pub x: Int`, `pub fun sum(?self) -> Int`.
 
+A method may be declared outside the body, at module level in the
+type's module, written as it is called: `fun Point.length(?self) ->
+Int`, `sub Point.shift(!self, dx: Int)`, `pub fun Point.origin() ->
+Self`. After a name, `[]` is compile time: a generic type's method
+repeats the type's parameters as its declaration names them, then
+gives its own, `fun Wrap[T].map[U](?self, f: fun(T) -> U) -> Wrap[U]`.
+It is the same member written in the body ([SPEC
+§3](SPEC.md#methods-outside-the-body)); a `drop` body stays in the
+body.
+
+```rig
+obj Point
+  x: Int
+  y: Int
+
+fun Point.length2(?self) -> Int
+  self.x * self.x + self.y * self.y
+
+sub Point.shift(!self, dx: Int)
+  self.x += dx
+
+sub main()
+  p = Point(x: 3, y: 4)
+  !p.shift(1)
+  print(p.length2())
+```
+
+```output
+32
+```
+
 `unique` after the name (or the type parameters) declares a unique
 struct, whose values move instead of copying
 ([SPEC](SPEC.md#kinds-of-value)):
@@ -854,19 +891,24 @@ big 7 2.0
 
 A binding at module level is a constant: `LIMIT = 10`,
 `names = ["low", "high"]`, `pub unit: U8 = 10`. It is written with `=`,
-never `const` ([SPEC §3](SPEC.md#constants)).
+never `const` ([SPEC §3](SPEC.md#constants)), and may name any constant
+of its module, before or after it.
 
 ### Tests
 
-`test "name"` (or `test 'name'`) declares a block that `rig test` runs.
+`test "name"` (or `test 'name'`) declares a block that `rig test` runs when it is in the file or directory module `rig test` is given, not in a module that one imports.
 
 ### Imports and extern
 
-`use name` imports the module `name.rig`, whose `pub` declarations are
-then named `name.decl` and `name.Type`
-([SPEC §14](SPEC.md#14-modules)). `use std.name` imports a module of
-the standard library ([STD.md](docs/STD.md)), named `name` here, and
-`as` names a module otherwise: `use geo as g`, `use std.os as o`. `extern fun name(params) -> R`,
+`use name` imports the module `name.rig` or the directory `name/`,
+whose `pub` declarations are then named `name.decl` and `name.Type`
+([SPEC §14](SPEC.md#14-modules)). A dotted path names a directory and
+binds its last name: `use checker.binder` imports `checker/binder/` as
+`binder`. `use std.name` imports a module of the standard library
+([STD.md](docs/STD.md)), named `name` here, and `as` names a module
+otherwise: `use geo as g`, `use std.os as o`. A `use` applies to the
+file it is in, so each file of a directory module uses the modules it
+names. `extern fun name(params) -> R`,
 `extern sub name(params)`, and `extern name: T` declare C functions and
 data ([SPEC §15](SPEC.md#15-raw-code-and-ffi)). In the standard library,
 `extern zig "file.zig"` holds an indented list of `fun` and `sub`
@@ -882,7 +924,7 @@ declarations without bodies, which that Zig file implements
 | `const x = e`, `const x: T = e` | declare a fixed `x`, which cannot be reassigned |
 | `new x = e`, `new x: T = e`, `new const x = e` | declare a new `x` shadowing the visible one; `e` may read the old |
 | `x = <y` | move `y` into `x` |
-| `x += e`, and `-=` `*=` `/=` `%=` `+%=` `-%=` `*%=` `&=` `\|=` `^=` `<<=` `<<%=` `>>=` | compound assignment |
+| `x += e`, and `-=` `*=` `/=` `%=` `+%=` `-%=` `*%=` `+\|=` `-\|=` `&=` `\|=` `^=` `<<=` `<<%=` `>>=` | compound assignment |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate `e` and discard it |
 
@@ -1373,8 +1415,10 @@ this rule's.
 function: then the brackets hold compile-time arguments. What the name
 denotes decides, whether it is named directly, through a module
 (`lib.scaled[3]`), through a type (`Scale.unit[6]()`), or as a method
-(`s.times[5]()`). A bracket list of two or more is never an index, and
-empty brackets are rejected.
+(`s.times[5]()`), including a built-in method: `bytes.read[U32, .little](at)`
+names the type it reads, and a vector's `cur.lag[1](prev)` how many
+lanes back it reaches ([SPEC](SPEC.md#vectors)). A bracket list of two
+or more is never an index, and empty brackets are rejected.
 
 A type argument in an expression is written as a type that is also an
 expression: a name, `mod.Type`, `*T`, `~T`, `?T`, `!T`, `T?`, an
@@ -1612,18 +1656,19 @@ comma-separated list (which may end with a comma), `tail-closure` is a
 closure whose body assigns, and `INDENT` / `DEDENT` are the block
 structure. The checker narrows a few forms the grammar accepts: a `fun`
 needs `->`, a `drop` body takes `!self`, a module-level binding
-takes no `const`, and a label goes only on a loop, `match`, or `raw`
-block. The grammar also parses a definition without its parameter list,
+takes no `const`, a label goes only on a loop, `match`, or `raw`
+block, and a method outside the body names a type of its module. The grammar also parses a definition without its parameter list,
 so that the rejection can show the header with it.
 
 ```text
 program   = decl*
 decl      = ["pub"] (fun | sub | obj | enum | errors | typedef | test | constant)
           | use | extern
-use       = "use" ["std" "."] name ["as" name]
-fun       = "fun" name [tparams] params "->" type [from] block
+use       = "use" name ("." name)* ["as" name]
+fun       = "fun" [owner "."] name [tparams] params "->" type [from] block
 from      = "from" (name, ... | "static")
-sub       = "sub" name [tparams] params ["!"] block
+sub       = "sub" [owner "."] name [tparams] params ["!"] block
+owner     = name ["[" name, ... "]"] | name "." name   # the last parses only to be rejected
 tparams   = "[" (name | name ":" type), ... "]"    # a type, or a compile-time value
 params    = "(" [param, ...] ")"
 param     = name [":" type ["=" expr]] | ("?" | "!" | "<") "self"
@@ -1662,7 +1707,8 @@ simple    = tail | assign
           | "return" [tail] | "break" [":" name] [tail] | "continue" [":" name]
           | ("defer" | "errdefer") (simple | block) | "raw" block
 assign    = postfix ("=" | "+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%="
-                     | "*%=" | "&=" | "|=" | "^=" | "<<=" | "<<%=" | ">>=") tail
+                     | "*%=" | "+|=" | "-|=" | "&=" | "|=" | "^=" | "<<=" | "<<%="
+                     | ">>=") tail
 tail      = expr | ["*"] bars assign                # a closure whose body assigns
 
 expr      = value | if | while | for | match | closure

@@ -1,0 +1,33 @@
+# A `Cell[List[T]]` answers `keep` as it does `pop`.
+# release
+
+obj B
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  c: *Cell[List[Int]] = *Cell(List())
+  for i in 1..8
+    !c.push(i)
+  !c.keep(c.len)
+  !c.keep(3)
+  print(c.len, c[2])
+  !c.keep(0)
+  print(c.len)
+
+  bc: *Cell[List[B]] = *Cell(List())
+  !bc.push(B(n: 1))
+  !bc.push(B(n: 2))
+  !bc.push(B(n: 3))
+  !bc.keep(1)
+  print("kept", bc.len)
+
+# expect:
+# 3 3
+# 0
+# drop 3
+# drop 2
+# kept 1
+# drop 1

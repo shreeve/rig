@@ -32,11 +32,15 @@ never read as the library's.
 |---|---|
 | [`std.math`](#stdmath) | number helpers, and Float functions |
 | [`std.os`](#stdos) | the program's arguments and environment |
+| [`std.file`](#stdfile) | reading a whole file |
 | [`std.time`](#stdtime) | clocks and sleeping |
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
 | [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
+| [`std.utf8`](#stdutf8) | runes: reading, writing, counting, and checking UTF-8 |
+| [`std.utf16`](#stdutf16) | units: UTF-16 lengths and positions, and surrogate pairs |
+| [`std.unicode`](#stdunicode) | rune properties: identifier classes and white space |
 | [`std.json`](#stdjson) | a JSON parser (experimental) |
 
 ## std.math
@@ -47,7 +51,7 @@ checked for its type, as any generic call is.
 
 | Function | Result |
 |---|---|
-| `abs[T](x: T) -> T` | `x` without its sign, for a signed number type or `Float`; panics on a type's minimum integer (`Int.min`) |
+| `abs[T](x: T) -> T` | `x` without its sign, for a signed number type or `Float`; a Float's zero comes back as `+0.0`; panics on a type's minimum integer (`Int.min`) |
 | `min[T](a: T, b: T) -> T`, `max[T](a: T, b: T) -> T` | the smaller or larger of `a` and `b`, by `<`; `a` when they are equal |
 | `clamp[T](x: T, lo: T, hi: T) -> T` | `lo` when `x < lo`, `hi` when `x > hi`, else `x`; panics when `hi < lo` |
 | `gcd(a: Int, b: Int) -> Int` | the greatest common divisor, never negative; `gcd(0, 0)` is 0; panics when `a` or `b` is `Int.min` |
@@ -76,6 +80,8 @@ sub main()
 true true
 ```
 
+The Float constants NaN and infinity, and `frexp` (`fraction` and `exponent`), are methods of the number types, not of this module: `Float.nan()`, `Float.inf()`, `x.fraction()`, `x.exponent()` ([SPEC](../SPEC.md#numbers)).
+
 Float functions, from Zig's. They follow IEEE 754: a result out of
 range is an infinity, and an undefined one (the square root of a
 negative number) is NaN, which equals nothing, itself included.
@@ -85,8 +91,11 @@ negative number) is NaN, which equals nothing, itself included.
 | `sqrt(x: Float) -> Float` | the square root |
 | `floor(x: Float) -> Float` | the largest whole number not above `x` |
 | `ceil(x: Float) -> Float` | the smallest whole number not below `x` |
+| `trunc(x: Float) -> Float` | `x` rounded toward zero, keeping its sign (`trunc(-0.5)` is `-0.0`) |
+| `copysign(x: Float, sign: Float) -> Float` | the magnitude of `x` with the sign of `sign`, a zero's or a NaN's included |
 | `exp(x: Float) -> Float` | e to the power `x` |
 | `ln(x: Float) -> Float` | the natural logarithm |
+| `log2(x: Float) -> Float` | the base-2 logarithm |
 | `sin(x: Float) -> Float`, `cos(x: Float) -> Float` | the sine and cosine of `x` radians |
 | `powf(x: Float, y: Float) -> Float` | `x` to the power `y` |
 
@@ -98,6 +107,7 @@ sub main()
   print(math.exp(0.0), math.ln(math.E))
   print(math.cos(math.PI), math.powf(2.0, 0.5) == math.sqrt(2.0))
   print(Int(math.floor(7.9)))
+  print(math.abs(-0.0), math.trunc(-2.7), math.copysign(3.0, -1.0), math.log2(8.0))
 ```
 
 ```output
@@ -105,6 +115,7 @@ true -3.0 -2.0
 1.0 1.0
 -1.0 true
 7
+0.0 -2.0 -3.0 3.0
 ```
 
 `shortest(f: Float) -> Decimal?` is the shortest decimal that reads back
@@ -187,6 +198,47 @@ sub main()
 ```output
 nowhere
 ```
+
+## std.file
+
+Reading a whole file into a `String`.
+
+| Function | Result |
+|---|---|
+| `read(path: ?String) -> String?` | the file at `path` as a fresh `String` of exactly its bytes, or `none` when it cannot be read |
+
+A relative `path` starts at the working directory. The bytes are the
+file's as they are: none added, and none checked to be UTF-8, so a
+binary file reads as well as text. The `String` is the caller's, like
+any other, and its buffer holds exactly the file's bytes, with no
+spare room past them. A pipe or a device, which has no
+size, is read to its end, so one that never ends (`/dev/zero`) is read
+until memory runs out, and a pipe with no writer waits, as Go's
+`os.ReadFile` does. A file too large for memory panics as any
+allocation that fails does.
+
+`read` gives `none` when the file does not exist, when `path` names a
+directory, when the program may not read the file, and when reading it
+fails partway. It does not say which: the `none` covers them all.
+
+```rig
+use std.file
+use std.text
+
+sub main()
+  if file.read("examples/hello.rig") as source
+    end = text.find(source, "\n") ?? source.len
+    print(source[..end])
+  print(file.read("examples") == none, file.read("no/such/file") == none)
+```
+
+```output
+# The smallest meaningful Rig program.
+true true
+```
+
+The suite runs this example from the repository's root, where
+`examples/hello.rig` is.
 
 ## std.time
 
@@ -377,7 +429,9 @@ sub main()
 
 `List[T]` is built in ([SPEC §10](../SPEC.md)). `!v.reserve(n)` makes room
 for `n` more elements without changing the length, so the next `n`
-pushes allocate nothing; a negative `n` panics.
+pushes allocate nothing; a negative `n` panics. `!v.keep(n)` keeps the
+first `n` elements and drops the rest, so a List can be rewound to a
+length saved earlier.
 
 ```rig
 sub main()
@@ -386,10 +440,48 @@ sub main()
   for i in 0..3
     !v.push(i * i)
   print(v.len, v)
+  !v.keep(1)
+  print(v)
 ```
 
 ```output
 3 [0, 1, 4]
+[0]
+```
+
+## Text: bytes, runes, units, chars
+
+The whole text API, built and planned, is listed in [TEXT-API](TEXT-API.md).
+
+Every text API is described in four words, each with one meaning:
+
+| Word | What it is | Size |
+|---|---|---|
+| **byte** | 8 bits, a `U8`: what a `String` stores, and what `s.len`, `s[i]`, and slicing count | 1 byte |
+| **rune** | one Unicode code point other than a surrogate (a scalar value): a code point's number, 0 to 0x10FFFF | 1 to 4 bytes in UTF-8 |
+| **unit** | one UTF-16 code unit, what JavaScript's string length counts | 2 bytes; a rune above U+FFFF takes 2 |
+| **char** | what a reader sees as one character: a Unicode extended grapheme cluster | 1 or more runes |
+
+A char is a grapheme and nothing else: one character, as a person
+counts it, however many bytes it takes. The table of one char at 1, 2,
+3, 8, and 18 bytes is in [SPEC, Strings](../SPEC.md#strings), and the
+whole design, with each unit's module, is [TEXT](TEXT.md).
+
+Counting chars, runes, and units scans the text, so each is a call
+that names its unit:
+
+```rig
+use std.text
+use std.utf8
+use std.utf16
+
+sub main()
+  s = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}"
+  print(text.char_count(s), utf8.rune_count(s), utf16.unit_count(s), s.len)
+```
+
+```output
+1 5 8 18
 ```
 
 ## String
@@ -422,10 +514,11 @@ Rig!!! 6
 
 Searching, slicing, splitting, and parsing text, which every function
 reads as a `?String`: UTF-8 bytes by convention, and nothing here checks
-that it is. Every index and length is in bytes, and whitespace and case
-are ASCII's. A function that returns a `?String` returns a part of the
-`?String` it was given, a view of the same bytes, so nothing here
-allocates. A `?String` taken from a `String`
+that it is. Every index is a byte index; a count names its unit; and
+whitespace and case are ASCII's. A function that returns a `?String`
+returns a part of the `?String` it was given, a view of the same bytes,
+so nothing here allocates but `format_int`, which returns a new String,
+and `edit_distance`, which grows the `row` it is given. A `?String` taken from a `String`
 ([SPEC §10](../SPEC.md#string)) keeps it lent through every part these
 functions return.
 
@@ -436,6 +529,8 @@ functions return.
 | `contains(s: ?String, pat: ?String) -> Bool` | whether `pat` occurs in `s`; every `?String` contains `""` |
 | `starts_with(s: ?String, prefix: ?String) -> Bool`, `ends_with(s: ?String, suffix: ?String) -> Bool` | whether `s` begins with `prefix`, or ends with `suffix` |
 | `count(s: ?String, pat: ?String) -> Int` | how many times `pat` occurs, counted from the left without overlaps (`count("aaaa", "aa")` is 2); `s.len + 1` for `""` |
+| `find_any[set: ?String](s: ?String, i: Int) -> Int?` | the first index at or after `i` whose byte is one of `set`'s, or `none`; `set` is a compile-time string, each byte of it one compare per 16 bytes of `s`, and `""` holds no byte; panics unless `0 <= i <= s.len` |
+| `class_end(s: ?String, i: Int, table: ?[256]U8, mask: U8) -> Int` | the first index at or after `i` whose byte's class, `table[b]`, has no bit of `mask`, or `s.len`; the caller's table gives each byte its class bits; panics unless `0 <= i <= s.len` |
 | `trim(s: ?String) -> ?String` | `s` without its leading and trailing ASCII whitespace |
 | `trim_start(s: ?String) -> ?String`, `trim_end(s: ?String) -> ?String` | `s` without its leading, or its trailing, ASCII whitespace |
 | `strip_prefix(s: ?String, prefix: ?String) -> (?String)? from s` | `s` after `prefix`, or `none` when `s` does not begin with it |
@@ -444,14 +539,19 @@ functions return.
 | `split(s: ?String, sep: ?String) -> Split` | the parts of `s` between the occurrences of `sep`, one more than `count(s, sep)`, some perhaps empty; panics when `sep` is `""` |
 | `lines(s: ?String) -> Lines` | the lines of `s`, without their endings, `\n` or `\r\n`; a line ending at the end of `s` adds no empty line, so `""` has none |
 | `words(s: ?String) -> Words` | the words of `s`: the nonempty runs of bytes between ASCII whitespace |
-| `parse_int(s: ?String) -> Int!` | `s` as a base-10 `Int`: an optional sign, `+` or `-`, then digits, and nothing else |
+| `chars(s: ?String) -> Chars` | the chars of `s`, each a `?String` viewing its bytes in `s` ([below](#chars)) |
+| `char_count(s: ?String) -> Int` | how many chars `s` holds |
+| `first_chars(s: ?String, n: Int) -> ?String`, `last_chars(s: ?String, n: Int) -> ?String` | the first, or last, `n` chars of `s`, or all of `s` if it has fewer; panics when `n` is negative |
+| `char_boundary(s: ?String, i: Int) -> Int` | the char boundary at or before byte `i`: `i` where a char starts and at `s.len`, else the start of the char `i` is inside; panics unless `0 <= i <= s.len` |
+| `parse_int(s: ?String, base: Int = 10) -> Int!` | `s` as an `Int` in base `base`, 2 to 36: an optional sign, `+` or `-`, then digits (letters `a` to `z`, in either case, are 10 to 35), and nothing else: no `0x`, no `_`; panics for another base |
+| `format_int(n: Int, base: Int = 10, upper: Bool = false) -> String` | `n` in base `base`, 2 to 36: a `-` if negative, then the digits, lower case unless `upper`; an owned `String`; panics for another base |
 | `parse_float(s: ?String) -> Float!` | `s` as a `Float`: an optional sign, then digits with an optional `.` and fraction and an optional exponent (`2.5`, `.5`, `1e-3`), or `inf`, `infinity`, or `nan` in any case; the nearest `Float` to the number |
 | `parse_bool(s: ?String) -> Bool!` | `true` for `"true"` and `false` for `"false"` |
 | `is_digit(b: U8) -> Bool`, `is_alpha(b: U8) -> Bool` | whether `b` is an ASCII digit, or an ASCII letter |
 | `is_space(b: U8) -> Bool` | whether `b` is ASCII whitespace: a space, tab, line feed, vertical tab, form feed, or carriage return |
 | `to_upper(b: U8) -> U8`, `to_lower(b: U8) -> U8` | `b` in upper, or lower, case when it is an ASCII letter, else `b` |
-| `valid_utf8(bytes: []U8) -> Bool` | whether `bytes` is well-formed UTF-8 |
 | `compare(a: ?String, b: ?String) -> Int` | -1, 0, or 1 as `a` sorts before, with, or after `b` in the order of `<`, by bytes |
+| `edit_distance(a: ?String, b: ?String, row: !List[Int], max: Int = -1) -> Int` | the Levenshtein distance between `a` and `b` over runes (insert, delete, and substitute cost 1); `row` is the caller's scratch; with `max >= 0`, `max + 1` once the distance passes `max` |
 
 ```rig
 use std.text
@@ -463,6 +563,11 @@ sub main()
   print(text.find("banana", "an"), text.find_last("banana", "an"), text.count("banana", "a"))
   print(text.starts_with("main.rig", "main"), text.strip_suffix("main.rig", ".rig") ?? "?")
   print(text.contains("banana", "nab"), text.strip_prefix("banana", "x") ?? "no prefix")
+  print(text.find_any[",;"]("a b;c,d", 0) ?? -1, text.find_any[",;"]("a b;c,d", 4) ?? -1, text.find_any[",;"]("a b", 0) ?? -1)
+  digits: [256]U8 = [256 of 0]
+  for b in 0x30..0x3A
+    digits[b] = 1
+  print(text.class_end("2026-10-13", 0, digits, 1), text.class_end("2026-10-13", 5, digits, 1))
 ```
 
 ```output
@@ -470,6 +575,8 @@ name is Ada Lovelace
 1 3 3
 true main
 false no prefix
+3 5 -1
+4 7
 ```
 
 `split`, `lines`, and `words` give an iterator, a struct holding the
@@ -556,6 +663,354 @@ Bern 1
 Lima 10
 Oslo 7
 ```
+
+`parse_int` and `format_int` take a base from 2 to 36, and `edit_distance` counts
+the edits between two names over a scratch `row` the caller reuses, so the loop
+that compares one name with many candidates allocates once:
+
+```rig
+use std.text
+
+sub main()
+  print(text.parse_int("ff", 16)!, text.parse_int("-101", 2)!, text.parse_int("zz", 36)!)
+  print(text.parse_int("12", 2) catch -1)
+  print(text.format_int(255, 16), text.format_int(255, 16, upper: true), text.format_int(-8, 8))
+  row: List[Int] = List()
+  print(text.edit_distance("kitten", "sitting", !row), text.edit_distance("", "abc", !row))
+  print(text.edit_distance("\u{e9}a", "ea", !row), text.edit_distance("kitten", "sitting", !row, max: 2))
+```
+
+```output
+255 -5 1295
+-1
+ff FF -10
+3 3
+1 3
+```
+
+### Chars
+
+A char is an extended grapheme cluster of Unicode's text segmentation
+([UAX #29](https://unicode.org/reports/tr29/), rules GB1 to GB13 and
+GB999) by the tables of Unicode 15.1.0, the version of `std.unicode`:
+one character as a reader sees it, of one rune or several. Text that is
+not UTF-8 is read as Go reads it: each byte that starts no well-formed
+sequence is one rune, U+FFFD, of one byte. So every byte is in exactly
+one char, and the chars of a `?String` tile it: their sizes add up to
+`s.len`.
+
+`chars`, `char_count`, and `first_chars` read from the start of the
+text; `last_chars` and `char_boundary` read back from the end, or from
+`i`, only as far as they need. Each is one pass, and a run of ASCII is
+read 32 bytes at a time: two ASCII bytes are two chars, unless they are
+CR LF.
+
+```rig
+use std.text
+
+sub main()
+  s = "cafe\u{301}-\u{1f44b}\u{1f3fd}-\u{1f1eb}\u{1f1f7}!"
+  print(s.len, text.char_count(s))
+  for c in text.chars(s)
+    print(c, c.len)
+  print(text.first_chars(s, 4), text.last_chars(s, 2))
+  print(s[..text.char_boundary(s, 5)], text.char_count("\xff\xfe\r\n"))
+```
+
+```output
+25 9
+c 1
+a 1
+f 1
+é 3
+- 1
+👋🏽 8
+- 1
+🇫🇷 8
+! 1
+café 🇫🇷!
+caf 3
+```
+
+The tables are generated: `tools/gen-unicode.py` reads the pinned
+GraphemeBreakProperty.txt, emoji-data.txt (Extended_Pictographic), and
+DerivedCoreProperties.txt (Indic_Conjunct_Break, for GB9c) and writes
+`std/grapheme_tables.zig`, a two-level table of four bits a code point,
+20 KB, whose levels each fill the range of the type that indexes them,
+so no lookup needs a bounds check. It also writes two tests: every line of Unicode's
+GraphemeBreakTest.txt, through each char tool at every byte, and a
+census that puts every code point in texts whose char counts tell its
+class apart.
+
+## std.utf8
+
+Runes in UTF-8 (RFC 3629). A rune is one Unicode scalar value, an `Int`
+from 0 to 0xD7FF or 0xE000 to 0x10FFFF, which UTF-8 writes as one to
+four bytes; a valid sequence has no overlong form, encodes no surrogate,
+and nothing past U+10FFFF. Every index and size is in bytes. A reader
+takes a `?String` and allocates nothing; `push_rune` appends to a
+`String`. Each function with a twin in Go's `unicode/utf8` reads every
+input, valid or not, as that twin does, so a Go port is a rename; [TEXT](TEXT.md) says
+how runes fit with bytes, units, and chars.
+
+| Name | Meaning | Go |
+|---|---|---|
+| `Decoded` | a rune read from a `?String`: its `rune: Int`, and the `size: Int` in bytes it took there | |
+| `REPLACEMENT` | 0xFFFD, read in place of a byte that is not UTF-8, and written in place of a value that is not a rune | `RuneError` |
+| `RUNE_SELF` | 0x80: a byte below it is a whole rune | `RuneSelf` |
+| `rune_after(s: ?String, i: Int) -> Decoded` | the rune just after the cursor `i`, whose sequence starts at `i` | `DecodeRuneInString(s[i:])` |
+| `rune_before(s: ?String, i: Int) -> Decoded` | the rune just before the cursor `i`, whose sequence ends at `i` | `DecodeLastRuneInString(s[:i])` |
+| `runes(s: ?String) -> Runes` | each rune of `s`, a plain `Int`, in order, as `rune_after` reads it | `for _, r := range s` |
+| `rune_size(s: ?String, i: Int) -> Int?` | the size in bytes, 1 to 4, of the valid rune that starts at `i`, or `none` when the bytes there are not valid UTF-8 or `i` is `s.len` | |
+| `size(r: Int) -> Int?` | the bytes, 1 to 4, that `r` takes in UTF-8, or `none` when `r` is not a rune: a negative, a surrogate, or past 0x10FFFF | `RuneLen` |
+| `rune_count(s: ?String) -> Int` | the runes of `s`, each bad byte counted as one | `RuneCountInString` |
+| `is_valid(s: ?String) -> Bool` | whether `s` is well-formed UTF-8 | `ValidString` |
+| `is_ascii(s: ?String) -> Bool` | whether every byte of `s` is below 0x80 | |
+| `ascii_end(s: ?String, i: Int) -> Int` | the index of the first byte at or after the cursor `i` that is 0x80 or more, or `s.len`: `s[i..ascii_end(s, i)]` is the run of ASCII from `i`, each byte a whole rune | |
+| `push_rune(out: !String, r: Int)` | append the bytes of `r`, or of `REPLACEMENT` when `r` is not a rune | `AppendRune` |
+
+`test/behavior/std/utf8_go.rig` runs Go's own test tables, and
+`test/cli/text_go.sh` compares every function with Go's on generated
+text when `go` is installed.
+
+- **Size 1:** where the bytes are not valid UTF-8 (a stray continuation
+  byte, a truncated or overlong sequence, an encoded surrogate, or
+  anything past U+10FFFF), the result is `Decoded(rune: 0xFFFD, size: 1)`,
+  so a reader steps over one byte.
+- **Size 0:** where there is nothing to read, `rune_after(s, s.len)`
+  and `rune_before(s, 0)`, the empty `?String` included, the result is
+  `Decoded(rune: 0xFFFD, size: 0)`.
+- `rune_before` gives size 1 when the bytes behind `i` do not form one
+  valid rune ending at `i`.
+- An index outside 0 to `s.len` panics, as indexing does.
+
+A valid U+FFFD in the text reads with its size, 3, so the size tells it
+from an error, while `utf8.size(REPLACEMENT)` is always 3:
+
+```rig
+use std.utf8
+
+sub main()
+  for s in ["", "\u{fffd}", "\xe2\x82", "\xed\xa0\x80", "\x80\x80\x80\x80\x80"]
+    a = utf8.rune_after(s, 0)
+    b = utf8.rune_before(s, s.len)
+    print(s.len, a.rune, a.size, b.rune, b.size, utf8.rune_count(s), utf8.is_valid(s))
+```
+
+```output
+0 65533 0 65533 0 0 true
+3 65533 3 65533 3 1 true
+2 65533 1 65533 1 2 false
+3 65533 1 65533 1 3 false
+5 65533 1 65533 1 5 false
+```
+
+`rune_after` and `rune_before` read in either direction. Bad bytes read
+one at a time, so a reader always moves; here reading back from the end
+gives the runes read forward:
+
+```rig
+use std.utf8
+
+sub main()
+  s = "a\u{e9}\u{20ac}\xff\u{1f600}"
+  i = 0
+  while i < s.len
+    d = utf8.rune_after(s, i)
+    print(d.rune, d.size)
+    i += d.size
+  while i > 0
+    d = utf8.rune_before(s, i)
+    print(d.rune, d.size)
+    i -= d.size
+  print(utf8.rune_after(s, s.len).size, utf8.rune_size(s, 1) ?? 0, utf8.rune_size(s, 2) ?? 0, utf8.rune_size(s, 6) ?? 0)
+```
+
+```output
+97 1
+233 2
+8364 3
+65533 1
+128512 4
+128512 4
+65533 1
+8364 3
+233 2
+97 1
+0 2 0 0
+```
+
+`ascii_end` finds where a run of ASCII ends, testing many bytes at
+once, so a reader can take the whole run and decode only the runes
+after it. `rune_count` and `utf16.unit_count` count in blocks: valid
+UTF-8 holds one rune for each byte that is not a continuation byte,
+and one more unit for each first byte of a rune of four, so whole
+blocks of 64 and then 16 bytes are counted by their bytes, each checked
+valid as it is counted. The rest is read rune by rune: everything from
+the first block that is not valid, a sequence the last valid block cut
+short (from its first byte), and the 15 or fewer bytes after the last
+whole block. Either way each bad byte is one rune of one unit, as in
+Go.
+
+```rig
+use std.utf8
+use std.utf16
+
+sub main()
+  s = "let caf\u{e9} = 1"
+  i = 0
+  while i < s.len
+    j = utf8.ascii_end(s, i)
+    print(i, j, s[i..j])
+    i = j + utf8.rune_after(s, j).size if j < s.len else j
+  t = "a\u{e9}\u{1f600}\xff"
+  print(utf8.rune_count(t), utf16.unit_count(t), utf8.ascii_end(s, s.len))
+```
+
+```output
+0 7 let caf
+9 13  = 1
+4 5 13
+```
+
+`runes` gives an iterator whose `next` gives each rune, as `lines` does
+in `std.text`, and `push_rune` writes runes back, a value that is not a
+rune as U+FFFD:
+
+```rig
+use std.utf8
+
+sub main()
+  out = String()
+  for r in utf8.runes("\u{e9}t\u{e9}\x80")
+    utf8.push_rune(!out, r)
+  utf8.push_rune(!out, 0xD800)
+  print(out, out.len, ?out == "\u{e9}t\u{e9}\u{fffd}\u{fffd}", utf8.is_ascii(?out))
+  for r in [0x41, 0xe9, 0x20ac, 0x1f600, 0xd800, 0x110000, -1]
+    print(r, utf8.size(r) ?? -1)
+```
+
+```output
+été�� 11 true false
+65 1
+233 2
+8364 3
+128512 4
+55296 -1
+1114112 -1
+-1 -1
+```
+
+## std.utf16
+
+Units: the 16-bit code units of UTF-16, for code that must agree with
+JavaScript and the languages built on it, whose string `length` and
+positions count units. A rune below U+10000 is one unit; a rune from
+U+10000 up is two, a high surrogate (0xD800 to 0xDBFF) and then a low one
+(0xDC00 to 0xDFFF). Surrogates are units, never runes, so their
+parameters are named `u`, `hi`, and `lo`. Text is UTF-8, as a `String`
+holds it, and each byte that is not UTF-8 counts as one unit (U+FFFD),
+as Go reads it; a JavaScript decoder may merge a run of bad bytes into
+one U+FFFD.
+
+| Name | Meaning | Go |
+|---|---|---|
+| `Pair` | the two units of a rune from U+10000 up: `hi: Int` and `lo: Int` | |
+| `size(r: Int) -> Int?` | the units `r` takes, 1 or 2, or `none` when `r` is not a rune | `utf16.RuneLen` |
+| `unit_count(s: ?String) -> Int` | the units of the UTF-8 text `s`: JavaScript's `length` of the same text | |
+| `byte_index(s: ?String, units: Int) -> Int` | the byte where `units` units into `s` falls; a unit inside a pair lands after its rune, 0 or less gives 0, and a count past the end gives `s.len` | |
+| `is_surrogate(u: Int) -> Bool` | whether `0xD800 <= u < 0xE000` | `utf16.IsSurrogate` |
+| `is_high_surrogate(u: Int) -> Bool` | whether `0xD800 <= u < 0xDC00`, the first unit of a pair | |
+| `is_low_surrogate(u: Int) -> Bool` | whether `0xDC00 <= u < 0xE000`, the second unit of a pair | |
+| `rune_from_pair(hi: Int, lo: Int) -> Int` | the rune a pair encodes, or 0xFFFD when `hi` is not a high surrogate or `lo` not a low one | `utf16.DecodeRune` |
+| `pair_from_rune(r: Int) -> Pair` | the pair that encodes `r`, or `Pair(hi: 0xFFFD, lo: 0xFFFD)` when `r` needs none | `utf16.EncodeRune` |
+
+`byte_index` undoes `unit_count`: at each rune boundary `i`,
+`byte_index(s, unit_count(s[..i]))` is `i`.
+
+```rig
+use std.utf16
+
+sub main()
+  s = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}"
+  print(s.len, utf16.unit_count(s), utf16.unit_count("a\xffb"))
+  for u in [0, 1, 2, 3, 8, 20]
+    print(u, utf16.byte_index(s, u))
+  print(utf16.size(0x41) ?? 0, utf16.size(0x1f600) ?? 0, utf16.size(0xd800) ?? 0)
+  p = utf16.pair_from_rune(0x1f600)
+  q = utf16.pair_from_rune(0x41)
+  print(p.hi, p.lo, q.hi, q.lo, utf16.is_surrogate(p.hi))
+  print(utf16.is_high_surrogate(p.hi), utf16.is_low_surrogate(p.hi), utf16.is_low_surrogate(p.lo))
+  print(utf16.rune_from_pair(0xd83d, 0xde00), utf16.rune_from_pair(0xde00, 0xd83d))
+```
+
+```output
+18 8 3
+0 0
+1 4
+2 4
+3 7
+8 18
+20 18
+1 2 0
+55357 56832 65533 65533 true
+true false true
+128512 65533
+```
+
+`test/behavior/std/utf16_go.rig` runs Go's `unicode/utf16` test tables.
+
+## std.unicode
+
+Properties of one rune, from the Unicode Character Database of the
+version in `unicode.VERSION`, 15.1.0, the version of TypeScript's
+scanner. The identifier classes are those of
+[UAX #31](https://unicode.org/reports/tr31/): `is_id_start(r)` is
+ID_Start (letters, letter numbers, and Other_ID_Start) and
+`is_id_continue(r)` is ID_Continue (ID_Start, marks, decimal digits,
+connector punctuation, and Other_ID_Continue). They are exactly the
+Unicode classes: a language that begins identifiers with `$` or `_` adds
+those itself. (Unicode 15.1 put the joiners U+200C and U+200D into
+ID_Continue, as Other_ID_Continue.) White space is the White_Space
+property of `PropList.txt`, which is Go's `unicode.IsSpace`; it is not
+JavaScript's white space, which adds U+FEFF. A value that is not a rune
+has no property.
+
+| Name | Meaning |
+|---|---|
+| `VERSION` | the Unicode version of every property, `"15.1.0"` |
+| `is_id_start(r: Int) -> Bool`, `is_id_continue(r: Int) -> Bool` | whether `r` may begin an identifier, or continue one |
+| `is_space(r: Int) -> Bool` | whether `r` is one of the 25 runes of White_Space |
+
+```rig
+use std.unicode
+
+sub main()
+  print(unicode.is_id_start(0x61), unicode.is_id_start(0x30), unicode.is_id_continue(0x30))
+  print(unicode.is_id_start(0x2118), unicode.is_id_start(0xB7), unicode.is_id_continue(0xB7))
+  print(unicode.is_id_start(0x2E2F), unicode.is_id_continue(0x200C), unicode.is_id_start(0x4E00))
+  print(unicode.is_space(0x20), unicode.is_space(0x85), unicode.is_space(0x3000), unicode.is_space(0xFEFF))
+  print(unicode.VERSION)
+```
+
+```output
+true false true
+true false true
+false true true
+true true true false
+15.1.0
+```
+
+The identifier tables are generated: `tools/gen-unicode.py` reads the
+pinned `DerivedCoreProperties.txt` of the Unicode Character Database
+(checking its sha256, and fetching it when absent) and writes
+`std/unicode_tables.zig`, a two-level bitmap of about 11 KB with an
+ASCII fast path. To move to a newer Unicode, change the pinned version
+and hashes, run the generator, and review the diff of the census test it
+also writes. `tools/verify-unicode.py` compares every code point with the
+database and with Python's `unicodedata`, the identifier classes and
+White_Space both; the deep gate runs both with `RIG_UCD` naming a
+directory of the database.
 
 ## std.json
 

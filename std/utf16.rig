@@ -1,0 +1,185 @@
+# std.utf16: units, the 16-bit code units of UTF-16, for code that must
+# agree with JavaScript and the languages built on it. A rune below
+# U+10000 is one unit; a rune from U+10000 to U+10FFFF is two, a high
+# surrogate (0xD800 to 0xDBFF) and then a low one (0xDC00 to 0xDFFF).
+# Surrogates are units, never runes. Text is UTF-8, as a `String` holds
+# it, and each byte that is not valid UTF-8 counts as one unit, U+FFFD,
+# as Go's unicode/utf8 reads it.
+
+use std.utf8
+
+# The UTF-16 units of a rune from U+10000 up: a high surrogate `hi` and
+# a low one `lo`, or `REPLACEMENT` twice for a rune that needs no pair.
+pub obj Pair
+  pub hi: Int
+  pub lo: Int
+
+# How many units `r` takes, 1 or 2, or `none` when `r` is not a rune: a
+# negative, a surrogate, or past 0x10FFFF. Go's `utf16.RuneLen`.
+pub fun size(r: Int) -> Int?
+  return none if r < 0 or r > 0x10FFFF or (r >= 0xD800 and r < 0xE000)
+  # 1 below U+10000, 2 from it: arithmetic, so the result is one value
+  # and not a choice among constant optionals, which Zig loads from memory.
+  1 + ((r + 0xF0000) >> 20)
+
+# Whether `u` is a surrogate, high or low: `0xD800 <= u < 0xE000`. Go's
+# `utf16.IsSurrogate`.
+pub fun is_surrogate(u: Int) -> Bool
+  u >= 0xD800 and u < 0xE000
+
+# Whether `u` is a high surrogate, the first unit of a pair:
+# `0xD800 <= u < 0xDC00`. One unsigned compare: below 0xD800 the
+# difference wraps past 0x3FF.
+pub fun is_high_surrogate(u: Int) -> Bool
+  U64.wrap(u -% 0xD800) < 0x400
+
+# Whether `u` is a low surrogate, the second unit of a pair:
+# `0xDC00 <= u < 0xE000`, in one unsigned compare.
+pub fun is_low_surrogate(u: Int) -> Bool
+  U64.wrap(u -% 0xDC00) < 0x400
+
+# The rune the pair `hi`, `lo` encodes, or `utf8.REPLACEMENT` when `hi` is
+# not a high surrogate or `lo` not a low one. Go's `utf16.DecodeRune`.
+pub fun rune_from_pair(hi: Int, lo: Int) -> Int
+  if hi >= 0xD800 and hi < 0xDC00 and lo >= 0xDC00 and lo < 0xE000
+    return ((hi - 0xD800) << 10 | (lo - 0xDC00)) + 0x10000
+  utf8.REPLACEMENT
+
+# The pair of units that encodes `r`, or `Pair(0xFFFD, 0xFFFD)` when `r`
+# needs no pair: below U+10000, or not a rune. Go's `utf16.EncodeRune`.
+pub fun pair_from_rune(r: Int) -> Pair
+  if r < 0x10000 or r > 0x10FFFF
+    return Pair(hi: utf8.REPLACEMENT, lo: utf8.REPLACEMENT)
+  v = r - 0x10000
+  Pair(hi: 0xD800 + (v >> 10), lo: 0xDC00 + (v & 0x3FF))
+
+# How many units the UTF-8 text `s` takes in UTF-16: JavaScript's
+# `length` of the same text. A rune of four UTF-8 bytes is two units,
+# every other rune one, and each bad byte one (U+FFFD). Counted as
+# std.utf8's `rune_count` counts runes: whole blocks of valid UTF-8 by
+# their bytes, one unit per byte that is not a continuation byte and one
+# more per first byte of a rune of four, each block checked valid as it
+# is counted; the rest rune by rune, from the first block that is not
+# valid, a sequence the last valid block cut short, and the 15 or fewer
+# bytes after the last whole block.
+pub fun unit_count(s: ?String) -> Int
+  n = 0
+  i = 0
+  prev = Block.splat(0)
+  ones = Block.splat(0)
+  held = 0
+  # Whether `prev` holds a byte of 0x80 or more: only then can it end in
+  # a first byte whose sequence the next block must finish.
+  high = false
+  while i + 64 <= s.len : i += 64
+    a = s.read[Block](i)
+    b = s.read[Block](i + 16)
+    c = s.read[Block](i + 32)
+    d = s.read[Block](i + 48)
+    if ((a | b | c | d) < 0x80).all()
+      break if high and ((prev -| ENDS) != 0).any()
+      high = false
+      n += 64
+    else
+      break if ((errors(a, prev) | errors(b, a) | errors(c, b) | errors(d, c)) != 0).any()
+      ones += lane_units(a) + lane_units(b) + lane_units(c) + lane_units(d)
+      held += 1
+      # Each lane gains at most 8 for 64 bytes: empty them before 255.
+      if held == 31
+        n += lanes_sum(ones)
+        ones = Block.splat(0)
+        held = 0
+      high = true
+    prev = d
+  # Fewer than 64 bytes are left, or the 64 from `i` hold a fault: 16 at
+  # a time, at most 3 blocks before the end or the fault, so no lane of
+  # `ones` passes 30 * 8 + 3 * 2.
+  while i + 16 <= s.len : i += 16
+    a = s.read[Block](i)
+    if (a < 0x80).all()
+      break if high and ((prev -| ENDS) != 0).any()
+      high = false
+      n += 16
+    else
+      break if (errors(a, prev) != 0).any()
+      ones += lane_units(a)
+      high = true
+    prev = a
+  n += lanes_sum(ones)
+  # Every byte before `i` is valid UTF-8, but for a sequence that the
+  # bytes from `i` were to finish: read again from its first byte,
+  # which was counted.
+  j = i
+  while j > 0 and j > i - 3 and s[j - 1] & 0xC0 == 0x80
+    j -= 1
+  if j > 0 and s[j - 1] >= 0xC0
+    i = j - 1
+    n -= 2 if s[i] >= 0xF0 else 1
+  while i < s.len
+    if s[i] < 0x80
+      k = utf8.ascii_end(s, i)
+      n += k - i
+      i = k
+    else
+      k = utf8.rune_after(s, i).size
+      i += k
+      n += 2 if k == 4 else 1
+  n
+
+type Block = Simd[U8, 16]
+
+# The lanes of `cur` that break UTF-8, given the block before it: nonzero
+# where one does. The same check as std.utf8's `errors`, which explains
+# it and names the faults behind the three tables.
+fun errors(cur: Block, prev: Block) -> Block
+  p1 = cur.lag[1](prev)
+  pair = BY_FIRST_HIGH.lookup(p1 >> 4) & BY_FIRST_LOW.lookup(p1 & 0x0F) & BY_SECOND_HIGH.lookup(cur >> 4)
+  must = ((cur.lag[2](prev) -| (0xE0 - 0x80)) | (cur.lag[3](prev) -| (0xF0 - 0x80))) >= 0x80
+  must.select(Block.splat(0x80), Block.splat(0)) ^ pair
+
+# The faults each high nibble of the first byte of a pair can make.
+BY_FIRST_HIGH = Block([0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x80, 0x80, 0x80, 0x80, 0x21, 0x01, 0x15, 0x49])
+
+# The faults each low nibble of the first byte can make.
+BY_FIRST_LOW = Block([0xE7, 0xA3, 0x83, 0x83, 0x8B, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xDB, 0xCB, 0xCB])
+
+# The faults each high nibble of the second byte can make.
+BY_SECOND_HIGH = Block([0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0xE6, 0xAE, 0xBA, 0xBA, 0x01, 0x01, 0x01, 0x01])
+
+# Above these, a byte in the last three lanes is a first byte whose
+# sequence runs past the block: 0xF0 and up in lane 13, 0xE0 in 14, 0xC0
+# in 15.
+ENDS = Block([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xEF, 0xDF, 0xBF])
+
+# The units each lane adds: 0 for a continuation byte, 2 for the first
+# byte of a rune of four, and 1 for any other.
+fun lane_units(v: Block) -> Block
+  ((v < 0x80) | (v >= 0xC0)).select(Block.splat(1), Block.splat(0)) + (v >= 0xF0).select(Block.splat(1), Block.splat(0))
+
+# The sum of the lanes of `v`.
+fun lanes_sum(v: Block) -> Int
+  n = 0
+  for x in v.array()
+    n += Int(x)
+  n
+
+# The byte where `units` units into `s` falls: the inverse of
+# `unit_count`, so `byte_index(s, unit_count(s[..i])) == i` at every
+# rune boundary `i`. A unit inside a pair lands after its rune. `units`
+# of 0 or less gives 0, and `units` at or past `unit_count(s)` gives
+# `s.len`.
+pub fun byte_index(s: ?String, units: Int) -> Int
+  n = 0
+  i = 0
+  while i < s.len and n < units
+    if s[i] < 0x80
+      # The run of ASCII from `i`, but no further than the units left.
+      e = i + (units - n) if units - n < s.len - i else s.len
+      j = utf8.ascii_end(s[0..e], i)
+      n += j - i
+      i = j
+    else
+      k = utf8.rune_after(s, i).size
+      i += k
+      n += 2 if k == 4 else 1
+  i

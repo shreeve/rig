@@ -75,6 +75,48 @@ RIG
 out=$(emit method.rig)
 expect_has "$out" 'pub inline fn get(' "a method"
 
+# A cycle of method calls, through a receiver, a type, or two types'
+# methods, is found. A method call resolves by name, so a method that
+# calls another of its name is taken to call itself.
+cat >methods.rig <<'RIG'
+obj Ping
+  n: Int
+
+  fun depth(?self, k: Int) -> Int
+    0 if k == 0 else 1 + self.depth(k - 1)
+
+  fun count(k: Int) -> Int
+    0 if k == 0 else 1 + Ping.count(k - 1)
+
+  fun hop(?self, p: ?Pong, k: Int) -> Int
+    0 if k == 0 else p.hop(?self, k - 1)
+
+  fun size(?self) -> Int
+    self.n
+
+obj Pong
+  n: Int
+
+  fun hop(?self, p: ?Ping, k: Int) -> Int
+    0 if k == 0 else p.hop(?self, k - 1)
+
+  fun size(?self, p: ?Ping) -> Int
+    p.size() + self.n
+
+sub main()
+  a = Ping(n: 1)
+  b = Pong(n: 2)
+  print(a.depth(3), Ping.count(2), a.hop(?b, 4), b.size(?a))
+RIG
+out=$(emit methods.rig)
+expect_has "$out" 'pub fn depth(' "recursion through the receiver"
+expect_has "$out" 'pub fn count(' "recursion through the type"
+expect_lacks "$out" 'inline fn hop(' "recursion through two types' methods"
+expect_has "$out" 'pub inline fn size(__rig_in_self: *const Ping)' "a method of a name another calls"
+expect_has "$out" 'pub fn size(self: *const Pong' "a method calling another of its name"
+out=$(rig run methods.rig 2>&1) || fail "rig run methods.rig: $out"
+expect_eq "$out" "3 2 0 3" "methods.rig"
+
 # A body of more than inlining.max_size nodes (60) is called.
 {
     echo 'fun long(n: Int) -> Int'
@@ -207,3 +249,95 @@ RIG
 out=$(emit framefull.rig)
 expect_has "$out" 'pub fn bump(' "a callee that would overfill the caller's frame"
 expect_has "$out" 'pub fn near(' "the caller"
+
+# An instance of a function with compile-time values (Bool, Int, enum) is
+# sized and inlined as any function, and so are the helpers it calls; one
+# with a compile-time type parameter is called.
+cat >ctvalue.rig <<'RIG'
+enum Mode
+  strict
+  loose
+
+fun step(s: ?String, i: Int) -> Int
+  i + 1 if i < s.len else i
+
+fun pick(s: ?String, i: Int) -> Int
+  step(s, i) + 1
+
+fun walk[dense: Bool](s: ?String) -> Int
+  i = 0
+  while i < s.len
+    i = pick(s, i)
+    i = step(s, i) if dense else i
+  i
+
+fun times[n: Int](x: Int) -> Int
+  x * n
+
+fun mode[m: Mode](x: Int) -> Int
+  x + 1 if m == .strict else x - 1
+
+fun same[T](x: T) -> T
+  x
+
+fun down[b: Bool](x: Int) -> Int
+  x if x <= 0 else down[not b](x - 1)
+
+sub main()
+  print(walk[true]("abc"), walk[false]("abc"))
+  print(times[3](2), mode[.strict](1), mode[.loose](1), same(5), down[true](4))
+RIG
+out=$(emit ctvalue.rig)
+expect_has "$out" 'pub inline fn walk(comptime dense: bool' "a function with a compile-time Bool"
+expect_has "$out" 'pub inline fn times(comptime n: i64' "a function with a compile-time Int"
+expect_has "$out" 'pub inline fn mode(comptime m: ' "a function with a compile-time enum"
+expect_has "$out" 'pub inline fn step(' "the callee of an instance"
+expect_has "$out" 'pub inline fn pick(' "the callee of an instance"
+expect_has "$out" 'pub fn same(comptime T: type' "a function with a compile-time type"
+expect_has "$out" 'pub fn down(' "recursion through an instance"
+
+# A function that is called from one place only, in a function with
+# compile-time values, is exempt from inlining.max_expanded (each instance
+# of the caller holds a copy): `once` here expands to over 320 nodes. The
+# same body called from an ordinary function, or from two places, is called.
+{
+    echo 'fun leaf(n: Int) -> Int'
+    echo '  total = n'
+    for i in $(seq 1 18); do echo "  total += $i * n"; done
+    echo '  total'
+    for name in once twice plain; do
+        echo
+        echo "fun $name(n: Int) -> Int"
+        echo '  leaf(n) + leaf(n + 1) + leaf(n + 2) + leaf(n + 3) + leaf(n + 4) + leaf(n + 5) + leaf(n + 6) + leaf(n + 7)'
+    done
+    echo
+    echo 'fun inst[b: Bool](n: Int) -> Int'
+    echo '  once(n) if b else twice(n) + twice(n + 1)'
+    echo
+    echo 'sub main()'
+    echo '  print(inst[true](1) + inst[false](2) + plain(3))'
+} >once.rig
+out=$(emit once.rig)
+expect_has "$out" 'pub inline fn leaf(' "the leaf"
+expect_has "$out" 'pub inline fn once(' "an expansion over the limit, called from one instance function"
+expect_has "$out" 'pub fn twice(' "the same expansion, called from two places"
+expect_has "$out" 'pub fn plain(' "the same expansion, called from an ordinary function"
+
+# Inlining keeps what the proofs omitted: a Simd read proven in bounds
+# stays proven in a function that is inlined, whether it is small or is
+# called from one place only.
+{
+    echo 'fun scan(s: ?String, at: Int) -> Int'
+    echo '  i = at'
+    echo '  while i + 16 <= s.len : i += 16'
+    echo '    v = s.read[Simd[U8, 16]](i)'
+    echo '    if (v == 0x22).first() as k'
+    echo '      return i + k'
+    echo '  s.len'
+    echo
+    echo 'sub main()'
+    echo '  print(scan("abc\"abcdefghijklmnopq", 0))'
+} >proven.rig
+out=$(emit proven.rig)
+expect_has "$out" 'pub inline fn scan(' "a function with a proven read"
+expect_has "$out" 'rig.simdReadProven(' "the read stays proven when inlined"

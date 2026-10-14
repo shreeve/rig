@@ -1,0 +1,18 @@
+# A wide unsigned `-` panics on a lane below its subtrahend, in every build mode.
+
+sub main()
+  b: [64]U8 = [64 of 0]
+  for i in 0..64
+    b[i] = U8(i % 8)
+  c = b.read[Simd[U8, 64]](0)
+  print((c - c)[7])
+  b[40] = 9
+  d = b.read[Simd[U8, 64]](0)
+  print(c - d)
+
+# expect-panic: integer overflow
+
+# release
+
+# expect:
+# 0

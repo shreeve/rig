@@ -1,0 +1,15 @@
+# A call of an owned closure stores what its type's origins say: here
+# the `?String` argument into what `!H` reaches.
+
+obj H
+  s: ?String
+
+sub main()
+  put: *sub(!H, ?String) = *|h, s| h.s = s
+  h = H(s: "a")
+  t = String("x")
+  put(!h, ?t)
+  !t.add("y")
+  print(h.s)
+
+# error: 12:3: cannot lend `t` to write while a read loan is live

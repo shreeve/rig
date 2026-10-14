@@ -1,0 +1,8 @@
+use geo
+use geo.util as u
+
+pub fun total() -> Int
+  LIMIT + helper() + u.twice(geo.Point(x: 1, y: 2).sum())
+
+pub obj Ring[T, n: Int]
+  items: [n]T

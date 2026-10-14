@@ -1,0 +1,18 @@
+# A method param may not share a module-level name, whichever comes first
+# (here the declaration comes after).
+
+obj Foo
+  v: Int
+
+fun Foo.m(?self, Thing: Int) -> Int
+  Thing
+
+obj Thing
+  v: Int
+
+sub main()
+  print(1)
+
+# error: parameter `Thing` has the same name as the module-level declaration `Thing`
+# error: declared here
+# errors: 1

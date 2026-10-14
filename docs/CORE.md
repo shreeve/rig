@@ -771,7 +771,8 @@ a
 - **Taking:** a binding, an argument to a parameter that owns it,
   `return`, a stored field or element, or `<`.
 - **Reading:** a `print` or `String(...)` argument, an `==` operand, `?e`,
-  `+e`, a `?self` receiver, or a field or element read.
+  `+e`, a `?self` receiver, a field or element read, or the value a
+  call calls.
 
 Reading never moves a name, whatever form reads it: `print(a if c else
 b)` moves nothing.
@@ -782,6 +783,8 @@ value. Its statement is its scope, so it is a *temporary*, dropped when
 the statement ends, the last made first, also when the statement fails
 or leaves early. A temporary may be lent to read or to write (sentence
 4), and a view of it may be used only within its statement.
+A value made to be called (`(+h.f)(x)`) is a temporary too.
+*(planned)*
 
 **Headers are their own statements:** an `if` or `while` condition, a
 guard, and the subject of a `match` or `for`. A header's temporaries
@@ -981,6 +984,8 @@ an element, a type argument, or what a `?`, an optional, or a handle
 holds. `^T`, optionals, and a generic `T` hold any value but a write view,
 as a `List` does. A holder of a read view carries its loan: `^?v` keeps
 `v` lent while the box, or a view it gave out, is used.
+A function type's parameters and result are not parts of a value of
+that type: `List[*sub(!Checker)]` holds no write view. *(built)*
 
 `<` always leaves its source done: a name is ended, an optional place
 is emptied to `none`, and any other place is rejected, a part of a
@@ -1126,12 +1131,13 @@ sub main()
 ## 7. Closures and defer
 
 **Closures.** A closure captures each name with a sigil: `?x` lends
-`x` to read for the closure's life, `!x` lends it to write, `<x` moves it in,
-and `+x` captures what `+x` gives, read through a view: a copy of a
-value that copies, a new count of a handle, or a deep copy of an owner
-*(built)*. A stack closure may
-be lent (`?fun`) but not stored. An owned closure (`*fun`) may be
-stored, and follows sentence 9. *(built)*
+`x` to read for the closure's life, `!x` lends it to write, `<x` moves
+it in, and `+x` captures what `+x` gives, read through a view: a copy
+of a value that copies, a new count of a handle, or a deep copy of an
+owner. Captures are fixed: the body reads them, and writes only
+through a captured write view. A closure's life ends at its last use,
+so a closure literal lent to a call lends its captures for that call.
+A stack closure may be lent (`?fun`) but not stored. *(built)*
 
 ```rig
 sub main()
@@ -1156,6 +1162,73 @@ sub main()
 
 ```output
 1 1
+```
+
+**An owned closure is a function with its own environment.** `*|...|`
+moves or clones its captures into a value behind a counted handle,
+`*fun(A) -> R` or `*sub(A)`, which is stored, returned, cloned, and
+dropped like any `*T`. The environment holds no loan (sentence 9), so
+an owned closure captures owners, handles, and plain data, never a
+view. Its parameters and result are any a function's may be, and
+follow sentences 4 and 7 as a function's do: a view it is given, read
+or write, lasts the call; what it is given to own, it drops, returns,
+or stores through a write parameter; its result views only what the
+call lent it. So a write view reaches a stored closure only as an
+argument, for one call: mutation is never data. Calling a closure
+reads what holds it until the call returns (§6), so a closure held in
+`x` is not called with `!x`: clone its handle first, `f = +x.f`, then
+`f(!x)`. *(built)*
+
+```rig
+obj Checker
+  n: Int
+
+sub main()
+  c = Checker(n: 1)
+  step = 10
+  bump: *fun(!Checker, Int) -> Int = *|+step, k, t|
+    k.n += step
+    k.n + t
+  a = bump(!c, 1)
+  b = bump(!c, 2)
+  print(a, b, c.n)
+```
+
+```output
+12 23 21
+```
+
+```rig reject
+obj Checker
+  n: Int
+  hook: *sub(!Checker)
+
+  sub run(!self)
+    self.hook(!self)
+
+sub main()
+  bump: *sub(!Checker) = *|k| k.n += 1
+  c = Checker(n: 0, hook: <bump)
+  (!c).run()
+```
+
+```error
+cannot lend `self` to write while the callee's read of it is in use
+```
+
+A value made to be called is a temporary of its statement (§3):
+
+```rig pending
+obj Hooks
+  on: *fun(Int) -> Int
+
+sub main()
+  h = Hooks(on: *|x| x + 1)
+  print((+h.on)(1))
+```
+
+```output
+2
 ```
 
 **Defer.** `defer` and `errdefer` run where their scope ends. They may

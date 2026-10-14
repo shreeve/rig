@@ -1,0 +1,30 @@
+# std.unicode: properties of one rune, an `Int`, from the Unicode
+# Character Database of the version in `VERSION`. The identifier classes
+# are those of UAX #31, generated into `unicode_tables.zig` by
+# `tools/gen-unicode.py`; white space is the White_Space property of
+# PropList.txt. A value that is not a rune (a negative, a surrogate, or
+# past 0x10FFFF) has no property. The classes are the Unicode ones: a
+# language that begins identifiers with `$` or `_` adds those itself.
+
+# The Unicode version of every property here.
+pub VERSION = "15.1.0"
+
+# Whether `r` is white space: the 25 runes of Unicode's White_Space
+# property, ASCII's tab, line feed, vertical tab, form feed, carriage
+# return, and space among them. Go's `unicode.IsSpace`.
+pub fun is_space(r: Int) -> Bool
+  if r < 0x80
+    return r == 0x20 or (r >= 0x09 and r <= 0x0D)
+  match r
+    0x85, 0xA0, 0x1680, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000 => true
+    0x2000..0x200B => true
+    _ => false
+
+extern zig "unicode_tables.zig"
+  # Whether `r` is ID_Start: it may begin an identifier. The letters,
+  # the letter numbers, and Other_ID_Start.
+  pub fun is_id_start(r: Int) -> Bool
+  # Whether `r` is ID_Continue: it may follow the first rune of an
+  # identifier. ID_Start, marks, decimal digits, connector punctuation,
+  # and Other_ID_Continue.
+  pub fun is_id_continue(r: Int) -> Bool
