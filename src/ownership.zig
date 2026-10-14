@@ -4490,9 +4490,12 @@ pub const Checker = struct {
         var result: Value = .{};
         const ty = self.exprType(args[1]);
         if (!swap and self.mayCarryLoan(ty)) result = try self.takenValue(args[0], ty, first);
+        // A `swap` stores in each place the value the other held, which
+        // carries what that held (`takenValue`).
         const lends = if (swap) try self.unionLoans(first.loans, second.loans) else first.loans;
-        try self.absorbThroughLends(first, second, lends, self.startOf(args[1]), null, null);
-        if (swap) try self.absorbThroughLends(second, first, lends, self.startOf(args[0]), null, null);
+        const into_first = if (swap) try self.valueUnion(second, try self.takenValue(args[1], self.pointee(self.exprType(args[1])), second)) else second;
+        try self.absorbThroughLends(first, into_first, lends, self.startOf(args[1]), null, null);
+        if (swap) try self.absorbThroughLends(second, try self.valueUnion(first, try self.takenValue(args[0], self.pointee(self.exprType(args[0])), first)), lends, self.startOf(args[0]), null, null);
         self.temps.shrinkRetainingCapacity(start);
         return result;
     }
