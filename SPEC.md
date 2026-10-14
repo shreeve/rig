@@ -119,6 +119,7 @@ since) is not repeated.
 | `?String` | a read view of text: bytes, UTF-8 by convention, that it does not own ([strings](#strings)) | `[]const u8` |
 | `Static` | text that lives for the whole program: a string literal, or text derived only from literals; plain data that carries no loan ([Static](#static)) | `[]const u8` |
 | `Void` | no value (what a `sub` returns) | `void` |
+| `error` | an error of any set, owning ([§13](#any-error)) | `anyerror` |
 
 Every named type is an owner, and a view is never a name: it is written
 `?T` or `!T`, or is a slice `[]T`, so the read view of text is `?String`.
@@ -1189,7 +1190,7 @@ where its value is taken ([§7](#reading)):
 | Kind | Types | A bare name where the value is taken |
 |---|---|---|
 | **plain** | numbers, `Bool`, plain enums, vectors (`Simd[T, n]`), and optionals, arrays, structs, and enums of them | copies it |
-| **owning** | `List`, `^T`, `String`, `Signal`, and any type that holds an owner or a handle, or declares a `drop` body | moves it only as `return x`, or the last value of the function or block that declares it; anywhere else it is rejected: `<x` moves it, `+x` makes a new owner |
+| **owning** | `List`, `^T`, `String`, `Signal`, `error`, and any type that holds an owner or a handle, or declares a `drop` body | moves it only as `return x`, or the last value of the function or block that declares it; anywhere else it is rejected: `<x` moves it, `+x` makes a new owner |
 | **handle** | `*T`, `~T`, and owned closures | the same: `<h` moves it, `+h` adds a count |
 | **view** | `?T`, `!T`, `[]T`, `![]T`, `?String`, `?fun(...)`, and any type that holds one | copies a read view; a write view is rejected: `<w` moves it |
 
@@ -1734,7 +1735,8 @@ sub main()
 `error Name` declares a set of error values, which are used like the
 variants of a plain enum ([§13](#13-errors)). Each error belongs to its
 set: `A.timeout` and `B.timeout` of two sets, or of two modules, are
-different errors.
+different errors. The type `error` holds an error of any set
+([Any error](#any-error)).
 
 ```rig
 error NetworkError
@@ -7009,11 +7011,12 @@ fun find(n: Int) -> Int!
 ### Naming the error
 
 `f() catch |err| handler` names the error for the handler. Functions do
-not declare which errors they fail with, so `err` may be any error: it
-is compared with error-set members (`err == E.name`), matched by them
-(`E.name =>`, with a `_` arm, since no arms name every error),
-printed, and returned from a fallible function. The handler may be a
-block.
+not declare which errors they fail with, so `err` may be any error: its
+type is `error` ([Any error](#any-error)). It is compared with
+error-set members (`err == E.name`), matched by them (`E.name =>`,
+with a `_` arm, since no arms name every error), printed, and returned
+from a fallible function. It is the handler's own: `<err` or `return
+err` moves it on, and `+err` clones it. The handler may be a block.
 
 An error is its set's member: a failure with `Net.timeout` is not
 `Disk.timeout`, so `err == Disk.timeout` is false for it and a
@@ -7127,6 +7130,269 @@ fun plain(n: Int) -> Int
 
 ```error
 type mismatch: expected `Int`, got `ParseError`
+```
+
+### Any error
+
+> **Core §2:** A failure moves its error.
+
+The type `error` holds an error of any set, wherever a type goes: a
+parameter, a field, a result, an optional, a List's element. A member of
+any set is accepted where an `error` is expected. `error` is owning in
+every program ([kinds](#kinds-of-value)): a bare use where its value is
+taken is rejected, `<e` moves it, `+e` clones it, and `?e` lends it. It
+is compared, matched, and printed as `err` is above, and a fallible
+function fails with it by `return e`. `error!` is rejected, as `E!` is.
+
+```rig
+error Net
+  timeout
+
+error Disk
+  full
+
+fun fetch(n: Int) -> Int!
+  return Net.timeout if n == 1
+  return Disk.full if n == 2
+  n
+
+sub main()
+  seen: List[error] = List()
+  for n in [1, 2, 3]
+    v = fetch(n) catch |e|
+      !seen.push(<e)
+      0
+    print(v)
+  for e in seen
+    print(e)
+```
+
+```output
+0
+0
+3
+Net.timeout
+Disk.full
+```
+
+```rig reject
+error E
+  bad
+
+fun f() -> Int!
+  return E.bad
+
+sub main()
+  n = f() catch |err|
+    a = err
+    print(a)
+    0
+  print(n)
+```
+
+```error
+`err` owns an `error`, which can't be copied by `=`: write `<err` to move it, `+err` to clone it, or `?err` to view it
+```
+
+### Declared sets and fields
+
+These are decided and not built yet ([CORE §2](docs/CORE.md#2-the-core-in-ten-sentences),
+"A failure moves its error"). A function may declare the set it fails
+with, `-> T!E` or `sub f()!E`, and `T!` stays any error. Sets combine by
+a named union, `error L = A | B`. `catch |err|` gives `err` the type of
+the callee's set, a `match` on a set needs no `_`, and a `g: E =>` arm
+narrows an `error` to a set. A member may carry fields, as an enum's
+variant does, which are never views and always clone; the error moves
+up through `!` and the handler owns it.
+
+```rig pending
+error GlobError
+  bad_range
+  star_star
+
+fun error_text(err: GlobError) -> Static
+  match err
+    .bad_range => "bad range"
+    .star_star => "star star"
+
+fun parse(p: ?String) -> Int!GlobError
+  return GlobError.star_star if p == "a**"
+  return GlobError.bad_range if p == "["
+  p.len
+
+fun loose(p: ?String) -> Int!
+  parse(p)!
+
+sub main()
+  for p in ["ab", "[", "a**"]
+    n = parse(p) catch |e|
+      print(error_text(e))
+      0
+    print(n)
+  m = loose("[") catch |e|
+    match e
+      g: GlobError => print(error_text(g))
+      _ => print("other")
+    -1
+  print(m)
+```
+
+```output
+2
+bad range
+0
+star star
+0
+bad range
+-1
+```
+
+```rig pending
+error Net
+  timeout
+
+error Disk
+  full(path: String)
+
+fun fetch(n: Int) -> Int!
+  return Net.timeout if n == 1
+  return Disk.full(path: String("/tmp")) if n == 2
+  n
+
+sub main()
+  seen: List[error] = List()
+  for n in [1, 2, 3]
+    v = fetch(n) catch |e|
+      !seen.push(<e)
+      0
+    print(v)
+  for e in seen
+    print(e)
+```
+
+```output
+0
+0
+3
+Net.timeout
+Disk.full(path: "/tmp")
+```
+
+```rig pending
+error IoError
+  closed
+
+error ParseError
+  bad(pos: Int)
+
+error LoadError = IoError | ParseError
+
+fun read(n: Int) -> Int!IoError
+  return IoError.closed if n < 0
+  n
+
+fun parse(n: Int) -> Int!ParseError
+  return ParseError.bad(n) if n > 9
+  n
+
+fun load(n: Int) -> Int!LoadError
+  parse(read(n)!)!
+
+sub main()
+  for n in [3, -1, 12]
+    v = load(n) catch |e|
+      match e
+        IoError.closed => -1
+        ParseError.bad(pos) => -100 - pos
+    print(v)
+```
+
+```output
+3
+-1
+-112
+```
+
+```rig pending
+error A
+  x
+
+fun loose() -> Int!
+  1
+
+fun narrow() -> Int!A
+  loose()!
+```
+
+```error
+`loose` may fail with any error, and `narrow` declares `Int!A`: catch it, or declare `-> Int!`
+```
+
+```rig pending
+error A
+  x
+
+error B
+  y
+
+fun f() -> Int!A
+  return B.y
+```
+
+```error
+`B.y` is not in `A`, the error set `f` declares
+```
+
+```rig pending
+error P
+  bad(text: ?String)
+```
+
+```error
+an error's field is never a view: hold a `String` or a `Static`
+```
+
+```rig pending
+obj Random unique
+  seed: Int
+
+error U
+  bad(r: Random)
+```
+
+```error
+an error's fields must clone, and `Random` is unique
+```
+
+```rig pending
+error A
+  x
+
+error L = A
+  extra
+```
+
+```error
+a union of error sets lists no members of its own; declare a set for `extra` and join it
+```
+
+```rig pending
+error E
+  bad(msg: String)
+
+fun f() -> Int!E
+  return E.bad(msg: String("x"))
+
+sub main()
+  n = f() catch |err|
+    keep = <err
+    print(err)
+    0
+  print(n)
+```
+
+```error
+use of `err` after move
 ```
 
 ---

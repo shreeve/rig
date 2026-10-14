@@ -1,0 +1,18 @@
+# The error a handler names is the handler's own: once moved on, it is
+# gone.
+
+error E
+  bad
+
+fun f() -> Int!
+  return E.bad
+
+sub main()
+  n = f() catch |err|
+    keep = <err
+    print(err)
+    print(keep)
+    0
+  print(n)
+
+# error: 13:11: use of `err` after move

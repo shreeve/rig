@@ -709,6 +709,7 @@ thandle  = "*" type:thandle                         → (shared)
          | tatom
 
 tatom    = tname
+         | ERROR                                    # `error`: an error of any set
          | name:tname "[" args:types ![","] "]"      → (generic_inst)
          | "(" type ")"                             → 2
 
@@ -981,6 +982,7 @@ callarg  = name:KWARG_NAME ":" value:expr           → (kwarg)
          | expr
 
 atom     = name
+         | ERROR                                    # the type `error`, as a type argument: `List[error]()`
          | INTEGER
          | REAL
          | STRING_SQ

@@ -309,6 +309,12 @@ TYPES = {
     "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: List[Int])\n",
                  mk="xs: List[Int] = List()\n  !xs.push(n)\n  .line(v: <xs)", ctor="S.dot",
                  only=("eq_variant", "eq_none", "binding", "tail_if", "tail_match")),
+    # `error`, an error of any set: owning in every program, though no
+    # set here holds anything to drop (Core §2, "A failure moves its
+    # error"). `error!` is rejected, so it has no `fail`, and no form or
+    # tail catches one.
+    "error": dict(ty="error", decls="error X\n  one\n  two\n", mk="X.one if n > 0 else X.two", ctor="X.one",
+                  fallible=False),
 }
 
 # -----------------------------------------------------------------------------
@@ -429,6 +435,7 @@ POKES = {
     "shared": "x = *N(v: 9)", "box": "x = ^N(v: 9)", "drop": "x = D(v: 9)",
     "unique": "x = U(v: 9)", "enum": "x = S.dot",
     "plain": "x = P(v: 9)", "array": "x[0] += 1", "simd": "x = x +% 1",
+    "error": "x = X.two",
 }
 WRITE_TARGETS = {"field": "h.f", "nullish": "b", "catch": "b"}
 
@@ -2487,6 +2494,9 @@ def program(tname, fname, cname):
         return None
     if "recv" in ctx and tname not in ctx["recv"] or tname not in ctx.get("types", (tname,)):
         return None
+    fallible = t.get("fallible", True)
+    if not fallible and (fname == "catch" or ctx.get("tail") == "catch"):
+        return None
     if "tail" in ctx:
         if fname != "call" or tname in ("int", "string", "static", "plain", "array", "simd"):
             return None
@@ -2506,7 +2516,8 @@ def program(tname, fname, cname):
     out.append(t["decls"])
     out.append("error E\n  bad\n")
     out.append(f"fun mk(n: Int) -> {ty}\n  {t["mk"]}\n")
-    out.append(f"fun fail(c: Bool) -> {fal(ty)}\n  return E.bad if c\n  mk(7)\n")
+    if fallible:
+        out.append(f"fun fail(c: Bool) -> {fal(ty)}\n  return E.bad if c\n  mk(7)\n")
     out.append(f"fun look(x: {rd(ty)}) -> Int\n  1\n")
     if fname in VIEW_FORMS and ("decl" in ctx or "tail" in ctx):
         return None

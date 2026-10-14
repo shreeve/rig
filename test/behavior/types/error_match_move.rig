@@ -1,0 +1,36 @@
+# `match <e` takes the error a handler names: an arm naming one member,
+# alternatives, a binding of the whole, and a guarded match.
+
+error A
+  x
+  y
+
+error B
+  z
+
+fun f(n: Int) -> Int!
+  return A.x if n == 0
+  return A.y if n == 1
+  return B.z
+
+sub main()
+  for n in [0, 1, 2]
+    r = f(n) catch |e|
+      match <e
+        A.x => 1
+        A.y, B.z => 2
+        _ => 3
+    s = f(n) catch |e|
+      match <e
+        A.x => 10
+        other => 20 if other == B.z else 30
+    t = f(n) catch |e|
+      match <e
+        A.x if n == 0 => 100
+        q => 200 if q == A.y else 300
+    print(r, s, t)
+
+# expect:
+# 1 10 100
+# 2 30 200
+# 2 20 300

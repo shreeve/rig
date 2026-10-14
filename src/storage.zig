@@ -1407,7 +1407,7 @@ const Planner = struct {
                 _ = stepPoint(ctx, e);
                 try p.condition(ir.While.cond(e));
             },
-            .@"catch" => if (p.isUsed(ir.Catch.name(e))) try p.record(e, .error_value, .copy, .handler),
+            .@"catch" => if (p.isUsed(ir.Catch.name(e))) try p.record(e, .error_value, .owned, .handler),
             .share => if (ir.Share.operand(e).isKind(.lambda)) try p.record(ir.Share.operand(e), .closure_env, .owned, .expression),
             else => {},
         }
