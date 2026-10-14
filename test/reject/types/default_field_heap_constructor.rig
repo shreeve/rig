@@ -1,0 +1,14 @@
+# A field default is evaluated where the field is, with no allocation:
+# a constructor that allocates (a box or a shared handle) is not one.
+obj S
+  a: ^List[Int] = ^List[Int]()
+  b: *List[Int] = *List[Int]()
+  c: String = String("x")
+
+sub main()
+  s = S()
+  print(s.c)
+
+# error: 4:19: a default field value must be a literal
+# error: 5:19: a default field value must be a literal
+# error: 6:15: a default field value must be a literal

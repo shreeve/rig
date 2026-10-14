@@ -51,7 +51,7 @@ checked for its type, as any generic call is.
 
 | Function | Result |
 |---|---|
-| `abs[T](x: T) -> T` | `x` without its sign, for a signed number type or `Float`; panics on a type's minimum integer (`Int.min`) |
+| `abs[T](x: T) -> T` | `x` without its sign, for a signed number type or `Float`; a Float's zero comes back as `+0.0`; panics on a type's minimum integer (`Int.min`) |
 | `min[T](a: T, b: T) -> T`, `max[T](a: T, b: T) -> T` | the smaller or larger of `a` and `b`, by `<`; `a` when they are equal |
 | `clamp[T](x: T, lo: T, hi: T) -> T` | `lo` when `x < lo`, `hi` when `x > hi`, else `x`; panics when `hi < lo` |
 | `gcd(a: Int, b: Int) -> Int` | the greatest common divisor, never negative; `gcd(0, 0)` is 0; panics when `a` or `b` is `Int.min` |
@@ -80,6 +80,8 @@ sub main()
 true true
 ```
 
+The Float constants NaN and infinity, and `frexp` (`fraction` and `exponent`), are methods of the number types, not of this module: `Float.nan()`, `Float.inf()`, `x.fraction()`, `x.exponent()` ([SPEC](../SPEC.md#numbers)).
+
 Float functions, from Zig's. They follow IEEE 754: a result out of
 range is an infinity, and an undefined one (the square root of a
 negative number) is NaN, which equals nothing, itself included.
@@ -89,8 +91,11 @@ negative number) is NaN, which equals nothing, itself included.
 | `sqrt(x: Float) -> Float` | the square root |
 | `floor(x: Float) -> Float` | the largest whole number not above `x` |
 | `ceil(x: Float) -> Float` | the smallest whole number not below `x` |
+| `trunc(x: Float) -> Float` | `x` rounded toward zero, keeping its sign (`trunc(-0.5)` is `-0.0`) |
+| `copysign(x: Float, sign: Float) -> Float` | the magnitude of `x` with the sign of `sign`, a zero's or a NaN's included |
 | `exp(x: Float) -> Float` | e to the power `x` |
 | `ln(x: Float) -> Float` | the natural logarithm |
+| `log2(x: Float) -> Float` | the base-2 logarithm |
 | `sin(x: Float) -> Float`, `cos(x: Float) -> Float` | the sine and cosine of `x` radians |
 | `powf(x: Float, y: Float) -> Float` | `x` to the power `y` |
 
@@ -102,6 +107,7 @@ sub main()
   print(math.exp(0.0), math.ln(math.E))
   print(math.cos(math.PI), math.powf(2.0, 0.5) == math.sqrt(2.0))
   print(Int(math.floor(7.9)))
+  print(math.abs(-0.0), math.trunc(-2.7), math.copysign(3.0, -1.0), math.log2(8.0))
 ```
 
 ```output
@@ -109,6 +115,7 @@ true -3.0 -2.0
 1.0 1.0
 -1.0 true
 7
+0.0 -2.0 -3.0 3.0
 ```
 
 `shortest(f: Float) -> Decimal?` is the shortest decimal that reads back
@@ -729,7 +736,8 @@ The tables are generated: `tools/gen-unicode.py` reads the pinned
 GraphemeBreakProperty.txt, emoji-data.txt (Extended_Pictographic), and
 DerivedCoreProperties.txt (Indic_Conjunct_Break, for GB9c) and writes
 `std/grapheme_tables.zig`, a two-level table of four bits a code point,
-about 16 KB. It also writes two tests: every line of Unicode's
+20 KB, whose levels each fill the range of the type that indexes them,
+so no lookup needs a bounds check. It also writes two tests: every line of Unicode's
 GraphemeBreakTest.txt, through each char tool at every byte, and a
 census that puts every code point in texts whose char counts tell its
 class apart.
@@ -758,6 +766,7 @@ how runes fit with bytes, units, and chars.
 | `rune_count(s: ?String) -> Int` | the runes of `s`, each bad byte counted as one | `RuneCountInString` |
 | `is_valid(s: ?String) -> Bool` | whether `s` is well-formed UTF-8 | `ValidString` |
 | `is_ascii(s: ?String) -> Bool` | whether every byte of `s` is below 0x80 | |
+| `ascii_end(s: ?String, i: Int) -> Int` | the index of the first byte at or after the cursor `i` that is 0x80 or more, or `s.len`: `s[i..ascii_end(s, i)]` is the run of ASCII from `i`, each byte a whole rune | |
 | `push_rune(out: !String, r: Int)` | append the bytes of `r`, or of `REPLACEMENT` when `r` is not a rune | `AppendRune` |
 
 `test/behavior/std/utf8_go.rig` runs Go's own test tables, and
@@ -829,6 +838,39 @@ sub main()
 233 2
 97 1
 0 2 0 0
+```
+
+`ascii_end` finds where a run of ASCII ends, testing many bytes at
+once, so a reader can take the whole run and decode only the runes
+after it. `rune_count` and `utf16.unit_count` count in blocks: valid
+UTF-8 holds one rune for each byte that is not a continuation byte,
+and one more unit for each first byte of a rune of four, so whole
+blocks of 64 and then 16 bytes are counted by their bytes, each checked
+valid as it is counted. The rest is read rune by rune: everything from
+the first block that is not valid, a sequence the last valid block cut
+short (from its first byte), and the 15 or fewer bytes after the last
+whole block. Either way each bad byte is one rune of one unit, as in
+Go.
+
+```rig
+use std.utf8
+use std.utf16
+
+sub main()
+  s = "let caf\u{e9} = 1"
+  i = 0
+  while i < s.len
+    j = utf8.ascii_end(s, i)
+    print(i, j, s[i..j])
+    i = j + utf8.rune_after(s, j).size if j < s.len else j
+  t = "a\u{e9}\u{1f600}\xff"
+  print(utf8.rune_count(t), utf16.unit_count(t), utf8.ascii_end(s, s.len))
+```
+
+```output
+0 7 let caf
+9 13  = 1
+4 5 13
 ```
 
 `runes` gives an iterator whose `next` gives each rune, as `lines` does

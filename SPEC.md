@@ -251,6 +251,13 @@ takes an integer, not a float: convert a `Float` with `Int(x)` first.
 integer `u`, a `U64` (a `U32` for `F32`), and `f.to_bits()` reads those
 bits from a float, as the unsigned integer of its size. They convert the
 representation, where `U64(f)` converts the value.
+`Float.nan()` and `Float.inf()` (also `F32.nan()`, `F32.inf()`) are the
+NaN and the positive infinity; `-Float.inf()` is the negative one.
+`f.fraction()` and `f.exponent()` are what C, Python, and Go call
+`frexp`: `f` is `f.fraction()` times 2 to the power `f.exponent()`, the
+fraction in [0.5, 1) in magnitude and of `f`'s type, the exponent an
+`Int`. A zero gives `(±0, 0)` and an infinity or a NaN gives itself and
+exponent 0, as Go's `Frexp` does; a subnormal is normalized.
 
 ```rig
 sub main()
@@ -261,12 +268,14 @@ sub main()
   print(b, Float.from_bits(b), Float.from_bits(0x8000000000000000))
   y: F32 = 1.5
   print(y.to_bits(), F32.from_bits(0x3FC00000))
+  print(x.fraction(), x.exponent(), Float.inf(), -F32.inf(), Float.nan() != Float.nan())
 ```
 
 ```output
 705032704 255 18446744073709551615 -56
 4609434218613702656 1.5 -0.0
 1069547520 1.5
+0.75 1 inf -inf true
 ```
 
 ```rig reject
@@ -385,7 +394,7 @@ a function over `?String` values such as `text.trim("  a  ")`) is not one, and
 nothing turns a `?String` into a `Static`. A `Static` is read as a
 `?String` where the text is only read: an argument or a field of type
 `?String`, a returned or bound `?String`, a `Static?` as a `(?String)?`, a
-`[]Static` as a `[]?String`, and in a branch, a `??`, or a list literal
+`[]Static` as a `[]?String` (so an array or a List of `Static`, lent to read, is one), and in a branch, a `??`, or a list literal
 that mixes the two (their type is `?String`). A generic `T` that a
 `Static` and a `?String` both bind is the `?String` (unless a place that
 holds it exactly, such as a `Cell[T]`, gives the type). `@name(Static)`
@@ -1275,7 +1284,7 @@ value, and a constructor may omit that field. Like a parameter default,
 it is a literal (a number, a string, `true` / `false`, `none`, or
 `.variant`) or a module constant, of this module or an imported one
 (`LIMIT`, `lib.LIMIT`, `U8.max`); a field's may also be an empty or
-literal constructor: `List()`, `List[T]()`, `Cell(0)`, or `[n of x]` with
+literal constructor: `List()`, `List[T]()`, `String()`, `Cell(0)`, or `[n of x]` with
 a literal or constant `x`. Each value the constructor makes gets a fresh
 default, so no two share a `List`. A struct with a `Cell` field lives
 only behind a shared handle, so it is made under `*`

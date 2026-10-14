@@ -1,0 +1,19 @@
+type V = Simd[I8, 32]
+
+obj Box
+  v: V
+
+sub bump(p: !V)
+  p += V.splat(1)
+
+sub main()
+  bx = Box(v: V.splat(1))
+  bx.v += V.splat(2)
+  arr = [V.splat(1), V.splat(2)]
+  arr[1] *= V.splat(3)
+  v = V.splat(5)
+  bump(!v)
+  print(bx.v[0], arr[1][0], v[0])
+
+# expect:
+# 3 6 6

@@ -173,6 +173,7 @@ a rename.
 | `utf8.rune_count(s) -> Int` | the runes in `s` | `RuneCountInString` |
 | `utf8.is_valid(s) -> Bool` | whether `s` is well-formed UTF-8 | `ValidString` |
 | `utf8.is_ascii(s) -> Bool` | whether every byte is below 0x80 | |
+| `utf8.ascii_end(s, i) -> Int` | the first byte at or after `i` that is 0x80 or more, or `s.len`: where the run of ASCII from `i` ends | |
 | `utf8.push_rune(!out, r)` | appends `r` as UTF-8 | `AppendRune` |
 | `utf8.REPLACEMENT`, `utf8.RUNE_SELF` | 0xFFFD; 0x80, below which a byte is a whole rune | `RuneError`, `RuneSelf` |
 
