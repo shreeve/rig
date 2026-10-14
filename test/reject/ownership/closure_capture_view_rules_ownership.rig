@@ -45,6 +45,6 @@ sub main()
 # error: 16:9: cannot lend `total` to write while a write loan is live
 # error: 24:14: an owned closure cannot capture a view of `x`: it can be stored anywhere
 # error: 25:15: an owned closure cannot capture a view of `x`
-# error: 31:9: use of `c` while a write loan is live
+# error: 31:9: use of `c.n` while a write loan on `c` is live
 # error: 37:5: cannot store a view of `inner` through captured `v`
 # error: 40:12: cannot lend `c` to write while a read loan is live

@@ -15,5 +15,5 @@ sub main()
   p.item = String("w")
   print(r)
 
-# error: 16:3: cannot assign to `p.item` while `p.item` is lent
+# error: 15:3: cannot assign to `p.item` while `p.item` is lent
 # errors: 1

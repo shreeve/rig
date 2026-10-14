@@ -17,5 +17,5 @@ sub main()
   link(!p.a, ?p.b)
   print(p.a.t)
 
-# error: 17:3: cannot let this call store a view of `p.b` in `p.a`: a value never holds a view of itself
+# error: 17:8: cannot let this call store a view of `p.b` in `p.a`: a value never holds a view of itself
 # errors: 1

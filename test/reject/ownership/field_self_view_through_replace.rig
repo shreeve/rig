@@ -13,5 +13,5 @@ sub main()
   old = replace(!p.a, Holder(t: ?p.s))
   print(old.t, p.a.t)
 
-# error: 13:18: cannot let this call store a view of `p.s` in `p.a`: a value never holds a view of itself
+# error: 13:23: cannot let this call store a view of `p.s` in `p.a`: a value never holds a view of itself
 # errors: 1

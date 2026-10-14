@@ -17,5 +17,5 @@ sub main()
   p.items = List()
   print(r)
 
-# error: 18:3: cannot assign to `p.items` while `p.items` is lent
+# error: 17:3: cannot assign to `p.items` while `p.items` is lent
 # errors: 1

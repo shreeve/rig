@@ -74,14 +74,14 @@ sub main()
 # error: 51:18: cannot lend `v` to write while an earlier argument's read of it is in use
 # error: 52:17: cannot move `v` while an earlier argument's read of it is in use
 # error: 55:18: cannot lend `w` to write while an earlier argument's read of it is in use
-# error: 57:18: cannot lend `s` to write while an earlier argument's read of it is in use
-# error: 58:20: cannot lend `s` to write while an earlier argument's read of it is in use
+# error: 57:18: cannot lend `s.a` to write while an earlier argument's read of `s` is in use
+# error: 58:20: cannot lend `s.a` to write while an earlier argument's read of it is in use
 # error: 60:20: cannot lend `rc` to write while an earlier argument's read of it is in use
 # error: 62:19: cannot lend `b` to write while an earlier argument's read of it is in use
 # error: 64:13: cannot lend `x` to write while an earlier argument's read of it is in use
 # error: 66:22: cannot lend `z` to write while a read loan is live
 # error: 67:28: cannot lend `z` to write while a read loan is live
 # error: 68:29: cannot lend `z` to write while a read loan is live
-# error: 70:23: cannot lend `s` to write while a read loan is live
+# error: 70:23: cannot lend `s.a` to write while a read loan on `s` is live
 # error: 72:19: cannot lend `o` to write while an earlier argument's read of it is in use
 # errors: 13

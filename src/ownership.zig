@@ -899,8 +899,10 @@ pub const Checker = struct {
     }
 
     fn noteLoan(self: *Checker, loan: Loan) Error!void {
+        if (self.quiet > 0 or !self.last_err_kept) return;
+        const lent = try self.pathText(loan.root, loan.path);
         if (loan.place_hold) {
-            try self.note(loan.pos, "`{s}` is lent here, and the place is found up to each index before the index runs", .{self.vars.items[loan.root].name});
+            try self.note(loan.pos, "`{s}` is lent here, and the place is found up to each index before the index runs", .{lent});
         } else if (loan.held_read != .none) {
             const uses = switch (loan.held_read) {
                 .none, .argument => "the call uses it after its later arguments run",
@@ -909,24 +911,41 @@ pub const Checker = struct {
                 .operand => "the operator uses it after its right operand runs",
                 .base => "it is indexed after its index runs",
             };
-            try self.note(loan.pos, "`{s}` read here: the value shares its storage, and {s}", .{ self.vars.items[loan.root].name, uses });
+            try self.note(loan.pos, "`{s}` read here: the value shares its storage, and {s}", .{ lent, uses });
         } else if (loan.reserved) {
-            try self.note(loan.pos, "lent to write here, as the receiver, which is read until the call starts", .{});
+            try self.note(loan.pos, "`{s}` lent to write here, as the receiver, which is read until the call starts", .{lent});
         } else if (loan.read_of_write) {
-            try self.note(loan.pos, "lent to write here, and kept lent to read by a view that only reads it", .{});
-        } else try self.note(loan.pos, "lent to {s} here", .{@tagName(loan.kind)});
+            try self.note(loan.pos, "`{s}` lent to write here, and kept lent to read by a view that only reads it", .{lent});
+        } else try self.note(loan.pos, "`{s}` lent to {s} here", .{ lent, @tagName(loan.kind) });
+    }
+
+    /// How a message names the place loan `l` is on, after a use of
+    /// place `path` of the same var: nothing when it is that place, and
+    /// ` on `p.a`` when one holds the other.
+    fn loanOnText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
+        if (l.path == path) return "";
+        return self.arena().print(" on `{s}`", .{try self.pathText(l.root, l.path)});
+    }
+
+    /// How a message names what loan `l` is on, after a use of place
+    /// `path` of the same var: `it`, or the place `l` is on where that is
+    /// another.
+    fn lentText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
+        if (l.path == path) return "it";
+        return self.arena().print("`{s}`", .{try self.pathText(l.root, l.path)});
     }
 
     /// The end of a conflict's message for a read held in place: what
-    /// holds it.
-    fn heldReadClause(reader: Reader) []const u8 {
-        return switch (reader) {
-            .none, .argument => "while an earlier argument's read of it is in use",
-            .receiver => "while the receiver's read of it is in use",
-            .callee => "while the callee's read of it is in use",
-            .operand => "while the left operand's read of it is in use",
-            .base => "while the indexed value's read of it is in use",
+    /// holds it, and of what (`it`, or the place it reads).
+    fn heldReadClause(self: *Checker, reader: Reader, of: []const u8) Error![]const u8 {
+        const who = switch (reader) {
+            .none, .argument => "an earlier argument's",
+            .receiver => "the receiver's",
+            .callee => "the callee's",
+            .operand => "the left operand's",
+            .base => "the indexed value's",
         };
+        return self.arena().print("while {s} read of {s} is in use", .{ who, of });
     }
 
     /// What is done to a var, for a loan conflict.
@@ -941,30 +960,49 @@ pub const Checker = struct {
     /// `pos` conflicts with: a read lend conflicts with a write loan,
     /// anything else with every loan. Returns whether there was one.
     fn conflicts(self: *Checker, id: VarId, path: PathId, access: Access, pos: u32) Error!bool {
-        const l = self.findLoan(id, path, if (access == .read) .write else .any, null) orelse return false;
-        const name = self.vars.items[id].name;
-        const in_index = "in an index of a place it is lending";
-        const held = heldReadClause(l.held_read);
+        return try self.conflictingLoan(id, path, access, pos) != null;
+    }
+
+    /// `conflicts`, giving the loan it reported.
+    fn conflictingLoan(self: *Checker, id: VarId, path: PathId, access: Access, pos: u32) Error!?Loan {
+        const l = self.findLoan(id, path, if (access == .read) .write else .any, null) orelse return null;
+        // Diagnostics name both places: the one used, and the one lent
+        // where it is not the same.
+        const name = try self.pathText(id, path);
+        const on = try self.loanOnText(l, path);
+        const lent = try self.lentText(l, path);
+        const in_index = if (l.path == path) "in an index of a place it is lending" else try self.arena().print("in an index of {s}, a place being lent", .{lent});
+        const held = try self.heldReadClause(l.held_read, lent);
         switch (access) {
-            .read => try self.err(pos, "cannot lend `{s}` to read while a write loan is live", .{name}),
+            .read => try self.err(pos, "cannot lend `{s}` to read while a write loan{s} is live", .{ name, on }),
             .write => if (l.place_hold)
-                try self.err(pos, "cannot lend `{s}` to write " ++ in_index, .{name})
+                try self.err(pos, "cannot lend `{s}` to write {s}", .{ name, in_index })
             else if (l.held_read != .none)
                 try self.err(pos, "cannot lend `{s}` to write {s}", .{ name, held })
             else switch (l.kind) {
-                .read => try self.err(pos, "cannot lend `{s}` to write while a read loan is live", .{name}),
-                .write => try self.err(pos, "cannot lend `{s}` to write while a write loan is live", .{name}),
+                .read => try self.err(pos, "cannot lend `{s}` to write while a read loan{s} is live", .{ name, on }),
+                .write => try self.err(pos, "cannot lend `{s}` to write while a write loan{s} is live", .{ name, on }),
             },
             .consume => |verb| if (l.place_hold)
-                try self.err(pos, "cannot {s} `{s}` " ++ in_index, .{ verb, name })
+                try self.err(pos, "cannot {s} `{s}` {s}", .{ verb, name, in_index })
             else if (l.held_read != .none)
                 try self.err(pos, "cannot {s} `{s}` {s}", .{ verb, name, held })
             else
-                try self.err(pos, "cannot {s} `{s}` while a {s} loan is live", .{ verb, name, @tagName(l.kind) }),
+                try self.err(pos, "cannot {s} `{s}` while a {s} loan{s} is live", .{ verb, name, @tagName(l.kind), on }),
         }
         try self.noteLoan(l);
         if (access != .read and l.held_read == .callee) try self.noteCloneCallee(l.pos);
-        return true;
+        return l;
+    }
+
+    /// The fix for a call that lends all of `recv` (place `path` of var
+    /// `id`) to write while loan `l` is on a part of it: a method lends
+    /// all of its receiver (Core §5), so lend only the fields it writes.
+    fn noteWholeReceiver(self: *Checker, id: VarId, path: PathId, l: Loan, callee: Sexp, pos: u32) Error!void {
+        if (self.paths.depth(l.path) <= self.paths.depth(path)) return;
+        const recv = try self.pathText(id, path);
+        const method = self.text(ir.Member.name(callee));
+        try self.note(pos, "the call lends all of `{s}`: lend the fields it writes, `(!{s}.field).method(...)`, or make `{s}` a function of those fields", .{ recv, recv, method });
     }
 
     /// The fix for a call of an owned closure held in what the call
@@ -2272,10 +2310,9 @@ pub const Checker = struct {
     /// Reading place `path` of `id`: it must be live and not lent to
     /// write.
     fn checkReadable(self: *Checker, id: VarId, path: PathId, pos: u32) Error!void {
-        const v = self.vars.items[id];
         if (!try self.checkLive(id, pos)) return;
         if (self.findLoan(id, path, .write, null)) |l| {
-            try self.err(pos, "use of `{s}` while a write loan is live", .{v.name});
+            try self.err(pos, "use of `{s}` while a write loan{s} is live", .{ try self.pathText(id, path), try self.loanOnText(l, path) });
             try self.noteLoan(l);
         }
     }
@@ -3266,7 +3303,7 @@ pub const Checker = struct {
             return;
         }
         if (self.findLoan(id, whole_path, .any, null)) |l| {
-            try self.err(pos, "cannot drop `{s}` while it is lent", .{name});
+            try self.err(pos, "cannot drop `{s}` while {s} is lent", .{ name, try self.lentText(l, whole_path) });
             try self.noteLoan(l);
             return;
         }
@@ -3747,7 +3784,7 @@ pub const Checker = struct {
             return;
         }
         if (self.findLoan(id, whole_path, .any, null)) |l| {
-            try self.err(pos, "cannot reassign `{s}` while it is lent", .{v.name});
+            try self.err(pos, "cannot reassign `{s}` while {s} is lent", .{ v.name, try self.lentText(l, whole_path) });
             try self.noteLoan(l);
         }
     }
@@ -3845,7 +3882,7 @@ pub const Checker = struct {
         if (!try self.checkLive(id, pos)) return;
         const v = self.vars.items[id];
         if (self.findLoan(id, place.path, .any, null)) |l| {
-            try self.err(pos, "cannot assign to `{s}` while `{s}` is lent", .{ try self.placeText(target), v.name });
+            try self.err(pos, "cannot assign to `{s}` while `{s}` is lent", .{ try self.placeText(target), try self.pathText(l.root, l.path) });
             try self.noteLoan(l);
             return;
         }
@@ -4132,7 +4169,8 @@ pub const Checker = struct {
             }
             if (recv_root) |id| if (recv_mode == .write) {
                 const reserved = self.temps.orderedRemove(reservation);
-                _ = try self.conflicts(id, recv_path, .write, self.startOf(ir.Member.object(callee)));
+                const at = self.startOf(ir.Member.object(callee));
+                if (try self.conflictingLoan(id, recv_path, .write, at)) |l| try self.noteWholeReceiver(id, recv_path, l, callee, at);
                 try self.temps.insert(self.gpa, reservation, reserved);
             };
             self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
@@ -4207,7 +4245,8 @@ pub const Checker = struct {
         if (recv_root) |id| if (recv_mode == .write) {
             // The reservation itself is no conflict.
             const reserved = self.temps.orderedRemove(reservation);
-            _ = try self.conflicts(id, recv_path, .write, self.startOf(ir.Member.object(callee)));
+            const at = self.startOf(ir.Member.object(callee));
+            if (try self.conflictingLoan(id, recv_path, .write, at)) |l| try self.noteWholeReceiver(id, recv_path, l, callee, at);
             try self.temps.insert(self.gpa, reservation, reserved);
         };
 
@@ -4813,7 +4852,7 @@ pub const Checker = struct {
         if (mode == .cap_read or mode == .cap_write) return (try self.lendVar(id, whole_path, if (mode == .cap_read) .read else .write, pos)) orelse .{};
         if (!try self.checkCapturable(id, pos)) return .{};
         if (self.findLoan(id, whole_path, .write, null)) |l| {
-            try self.err(pos, "cannot capture `{s}` while a write loan is live", .{name});
+            try self.err(pos, "cannot capture `{s}` while a write loan{s} is live", .{ name, try self.loanOnText(l, whole_path) });
             try self.noteLoan(l);
             return .{};
         }

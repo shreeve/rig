@@ -36,5 +36,5 @@ sub main()
 # errors: 4
 # error: 9:4: cannot return a view of `h`
 # error: 14:4: cannot drop `h` while it is lent
-# error: 20:3: cannot reassign `w` while it is lent
+# error: 20:3: cannot reassign `w` while `w.t` is lent
 # error: 28:6: cannot drop `g` while it is lent

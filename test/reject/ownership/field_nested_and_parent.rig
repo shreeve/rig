@@ -17,5 +17,5 @@ sub main()
   p.a = Inner(b: String("y"))
   print(r)
 
-# error: 18:3: cannot assign to `p.a` while `p.a.b` is lent
+# error: 17:3: cannot assign to `p.a` while `p.a.b` is lent
 # errors: 1

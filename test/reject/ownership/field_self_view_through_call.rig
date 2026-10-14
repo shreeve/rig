@@ -21,5 +21,5 @@ sub main()
   p.b = String("z")
   print(p.a.t)
 
-# error: 21:3: cannot let this call store a view of `p.b` in `p.a`: a value never holds a view of itself
+# error: 20:4: cannot let this call store a view of `p.b` in `p.a`: a value never holds a view of itself
 # errors: 1

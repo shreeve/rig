@@ -18,5 +18,5 @@ sub main()
   p.h = *Sym(name: String("b"))
   print(r)
 
-# error: 19:3: cannot assign to `p.h` while `p.h` is lent
+# error: 18:3: cannot assign to `p.h` while `p.h` is lent
 # errors: 1

@@ -17,5 +17,5 @@ sub main()
   consume(<p)
   print(r)
 
-# error: 18:12: cannot move `p` while a read loan on `p.name` is live
+# error: 17:12: cannot move `p` while a read loan on `p.name` is live
 # errors: 1
