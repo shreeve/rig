@@ -1393,3 +1393,46 @@ ties. By geomean std.json is 10% faster than sonic-rs, 26% faster than
 zimdjson, 44% faster than simd-json, 4.5x serde_json, and 4.9x Zig's
 std.json. On the inlined harness the same geomean was 17% ahead of
 sonic-rs ("UTF-8 checked 16 bytes at a time").
+
+## Against C and C++: simdjson and yyjson
+
+The C and C++ parsers most often named as the fastest, built by
+`bench/json/cbench/build.sh`: simdjson v3.10.1's DOM parser and yyjson
+0.10.0, `-O3 -DNDEBUG` for the native CPU. Both validate fully. yyjson
+runs with every `YYJSON_DISABLE_*` switch off and read flags 0, so UTF-8
+validation, standard JSON only and exact float conversion are all on. On
+the 132 JSON_checker and fuzzer files it agrees with Python's strict
+parser on 112. In all 20 others it is stricter: it rejects lone
+surrogate escapes (19) and a number that overflows to infinity (1),
+which Python and std.json accept. Each reuses its buffers between runs,
+as std.json reuses its tape, and yyjson also copies the input into its
+own buffer on every parse. std.json runs in Zig's safe mode, every check
+kept; the C and C++ parsers have no such checks.
+
+The Mac, the honest harness (Rig main at f42512ebb with #204's driver), a quiet
+window at a load of 2.9-3.3, one core, fastest of 15 interleaved runs;
+MB/s:
+
+| file | std.json | yyjson | simdjson (DOM) | zimdjson (DOM, fast) | sonic-rs |
+|---|---:|---:|---:|---:|---:|
+| twitter | 3402 | **5181** | 4463 | 3592 | 3065 |
+| twitterescaped | 3064 | **4045** | 1729 | 2754 | 2773 |
+| canada | 2075 | **2123** | 1743 | 1317 | 1991 |
+| citm_catalog | 4160 | **5518** | 5196 | 3896 | 3744 |
+| gsoc-2018 | **8269** | 4745 | 5416 | 3820 | 7161 |
+| github_events | 4099 | **5276** | 4790 | 3948 | 3672 |
+| geomean | 3808 | **4280** | 3492 | 3025 | 3443 |
+
+yyjson is the fastest parser measured: 11% faster than std.json by
+geomean, 1.3x to 1.5x on twitter, citm_catalog and github_events, and
+within 2% on canada. std.json is 1.7x yyjson on gsoc-2018, whose long
+strings its SIMD scan takes 16 bytes at a time. std.json is 9% faster
+than simdjson's DOM parser by geomean, though simdjson leads on twitter,
+citm_catalog and github_events. (simdjson's On-Demand API, which walked
+every value in the same harness, was slower than its DOM parser on every
+file, 3173 by geomean, and is not kept.)
+
+The first answers are Rig's: keeping the parser's state in registers
+(the List growth round, `noalias` for write views, and a local tape in
+`document`; docs/RIG-NOTES.md, entry 8), worth up to 12% on citm_catalog
+by the honest harness's own measure ("The honest harness").
