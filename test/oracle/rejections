@@ -2471,7 +2471,6 @@ test/corpus/review-payload-loan-1-s05_ifas_then_match.rig main
 test/corpus/review-payload-loan-1-s06_write_lend_then_read_binding.rig main
 test/corpus/review-payload-loan-1-s08_vec_payload_for_read.rig main
 test/corpus/review-payload-loan-1-s09_generic_fn_view_param.rig main
-test/corpus/review-payload-loan-1-w02_disjoint_param.rig f
 test/corpus/review-payload-loan-1-w03_disjoint_ifas.rig main
 test/corpus/review-payload-loan-1-w04_disjoint_for.rig main
 test/corpus/review-payload-loan-2-a01_made_subject_path_write.rig main

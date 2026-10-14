@@ -4297,9 +4297,9 @@ pub const Checker = struct {
             // value holding a write view. A read view that carries the
             // write loans of what reached it (a parameter's own, a write
             // view's) writes nothing.
-            if (callee.isKind(.member) and self.carriesWriteView(self.exprType(ir.Member.object(callee)))) try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
+            if (callee.isKind(.member) and self.mayWrite(self.exprType(ir.Member.object(callee)))) try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
             for (args, arg_values) |a, v| {
-                if (self.carriesWriteView(self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a))) try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);
+                if (self.mayWrite(self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a))) try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);
             }
         }
 
@@ -4838,7 +4838,7 @@ pub const Checker = struct {
         // that can write leads a store (as for a call's arguments).
         if (!owned and caps.len > 1) for (caps, cap_values.items) |cap, cv| {
             const pos = sema.captureNameNode(cap).?.src.pos;
-            if (sema.captureModeOf(cap).? != .cap_write and !self.carriesWriteView(self.symType(pos))) continue;
+            if (sema.captureModeOf(cap).? != .cap_write and !self.mayWrite(self.symType(pos))) continue;
             try self.absorbThroughWrites(cv, value, pos, null, null);
         };
 
@@ -6193,6 +6193,12 @@ pub const Checker = struct {
     fn reachedType(self: *const Checker, ty: ?TypeId) ?TypeId {
         const ctx = self.sema orelse return ty;
         return sema.unwrapViews(ctx, ty orelse return null);
+    }
+
+    /// Whether a value of type `ty` may write what it reaches: it holds a
+    /// write view, or its type is not known.
+    fn mayWrite(self: *const Checker, ty: ?TypeId) bool {
+        return ty == null or self.sema == null or self.carriesWriteView(ty);
     }
 
     /// Whether a value of this type holds a write view, which must not
