@@ -1,0 +1,16 @@
+# `replace(!s, v)` lends `s` to write for the call; the argument
+# `make(?s)` reads `s` after that lend, so a view of the old value could
+# meet the new one.
+
+obj S
+  name: String
+
+fun make(s: ?S) -> S
+  S(name: String(s.name, "!"))
+
+sub main()
+  s = S(name: String("a"))
+  old = replace(!s, make(?s))
+  print(old.name, s.name)
+
+# error: 13:27: cannot lend `s` to read while a write loan is live

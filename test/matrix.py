@@ -6,7 +6,9 @@ one context (a `print` argument, a binding, an element assignment, ...)
 for one type (Int, ?String, String, List, `*T`, `^T`, a struct with a
 `drop`, a struct declared `unique`, a vector, and a few cells of a struct holding
 a Cell, every one of which must be rejected), plus the
-stores into a view parameter (`store.`, below), the views of a
+stores into a view parameter (`store.`, below), a value `replace`
+takes out of each kind of place, then the place written, the value put
+back, or what it views dropped while it lives (`taken.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
 `match` payload field that is itself a view (`viewpay.`), a lend of a
 binding that is a write view, then a write through it while the view
@@ -496,6 +498,34 @@ STORE_FORMS = {
     "loop_assign": ("s", ["for k in !a", "  k = H(r: S)"]),
     "match_payload": ("e", ["match !a", "  .one(h) => h.r = S", "  .zero => print(0)"]),
     "as_binding": ("opt", ["if !a as h", "  h.r = S"]),
+}
+
+
+# -----------------------------------------------------------------------------
+# A value `replace` takes out of a place: `t = replace(!P, v)` is
+# `t = <P; P = v` (docs/INTERNALS.md), so `t` views what the place's value
+# viewed (`src`) and no part of the place. The place, of each kind, is
+# then written while `t` lives (accepted), `t` put back into it (accepted),
+# or `src` dropped while `t` lives (rejected). Its type holds a view and
+# owns a String, which the view could view by type. Cells are
+# `taken.<place>.<then>`.
+# -----------------------------------------------------------------------------
+
+# How `main` makes the place `P` from `src`; `run` puts it in a function
+# given the holder as a write view.
+TAKEN_PLACES = {
+    "local": dict(setup=["s = S(text: ?src, value: String())"], place="s"),
+    "field": dict(setup=["h = H(s: S(text: ?src, value: String()))"], place="h.s"),
+    "nested": dict(setup=["g = G(h: H(s: S(text: ?src, value: String())))"], place="g.h.s"),
+    "write_local": dict(setup=["h = H(s: S(text: ?src, value: String()))", "w = !h.s"], place="w"),
+    "element": dict(setup=["v: List[S] = List()", "!v.push(S(text: ?src, value: String()))"], place="v[0]"),
+    "boxed": dict(setup=["b = ^H(s: S(text: ?src, value: String()))"], place="b.s"),
+    "param": dict(setup=["h = H(s: S(text: ?src, value: String()))"], place="p.s", run=True),
+}
+TAKEN_THENS = {
+    "write": (['P.value = String("w")', "print(t.text, P.value)"], "abc w\n"),
+    "put_back": (["_ = replace(!P, <t)", "print(P.text)"], "abc\n"),
+    "drop": (["<src", "print(t.text)"], "(rejected)\n"),
 }
 
 
@@ -2047,6 +2077,26 @@ def store_program(oname, fname, then):
     return "\n".join(out)
 
 
+def taken_program(pname, then):
+    """The program for one `taken.` cell; None where the place lives in
+    no frame that owns `src`."""
+    pl = TAKEN_PLACES[pname]
+    lines, _ = TAKEN_THENS[then]
+    if pl.get("run") and then == "drop":
+        return None
+    out = ["obj S\n  text: ?String\n  value: String\n", "obj H\n  s: S\n", "obj G\n  h: H\n"]
+    place = pl["place"]
+    body = [f"t = replace(!{place}, S(text: \"\", value: String()))"] + [l.replace("P", place) for l in lines]
+    main = ['src = String("abc")'] + pl["setup"]
+    if pl.get("run"):
+        out.append("sub run(p: !H)\n" + indent(body, 2) + "\n")
+        main.append("run(!h)")
+    else:
+        main += body
+    out.append("sub main()\n" + indent(main, 2) + "\n")
+    return "\n".join(out)
+
+
 # A value that holds a read view of an owner (`holder.`), whatever
 # holds it, keeps the owner lent while the holder is used: the owner is
 # written, moved, or dropped while the holder is still used (rejected),
@@ -3314,6 +3364,23 @@ def main():
                 cells.append((ident, path))
     release = set()
     also = set()
+    for pname in TAKEN_PLACES:
+        for then in TAKEN_THENS:
+            ident = f"taken.{pname}.{then}"
+            if not wanted(ident):
+                continue
+            src = taken_program(pname, then)
+            if src is None:
+                skipped += 1
+                continue
+            path = os.path.join(work, ident.replace(".", "__") + ".rig")
+            with open(path, "w") as fh:
+                fh.write(src)
+            cells.append((ident, path))
+            expects[ident] = TAKEN_THENS[then][1]
+            # A cell that runs must be accepted.
+            if then != "drop":
+                release.add(ident)
     for o in STEP_OWNERS:
         for hname in STEP_HOLDERS:
             for shape in STEP_SHAPES:

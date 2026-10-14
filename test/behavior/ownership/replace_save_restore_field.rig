@@ -1,0 +1,29 @@
+# Saving a field by `replace` and restoring it is a take and two stores:
+# the saved value carries what the field held, not a loan on `self`, so
+# `self` may be written while it is saved (the save-and-restore of a
+# checker's flow state).
+
+obj Flow
+  file: ?String
+  labels: List[String]
+  stack: List[Int]
+
+obj Checker
+  flow: Flow
+  depth: Int
+
+  sub check_cached(!self)
+    saved = replace(!self.flow, Flow(file: "", labels: List(), stack: List()))
+    self.depth += 1
+    !self.flow.stack.push(self.depth)
+    self.flow = <saved
+
+sub main()
+  f = "a.ts"
+  c = Checker(flow: Flow(file: ?f, labels: List(), stack: List()), depth: 0)
+  !c.flow.stack.push(9)
+  !c.check_cached()
+  print(c.flow.stack.len, c.flow.file, c.depth)
+
+# expect:
+# 1 a.ts 1

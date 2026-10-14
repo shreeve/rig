@@ -1,0 +1,18 @@
+# `replace(!p, v)` is a take then a store, `t = <p; p = v`: its result
+# carries what `p`'s value held (here the loan on `src`) and no loan on
+# `p`, so `s` may be lent to write again while `taken` lives. The value
+# both holds a view and owns a String, which the view could view by type.
+
+obj Scanner
+  text: ?String
+  value: String
+
+sub main()
+  src = "abc"
+  s = Scanner(text: ?src, value: String())
+  taken = replace(!s, Scanner(text: "", value: String()))
+  _ = replace(!s, <taken)
+  print(s.text)
+
+# expect:
+# abc
