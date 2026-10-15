@@ -2,8 +2,8 @@
 //! program, after every module is checked (docs/INTERNALS.md, "Inlining").
 //!
 //! A function marked `inline fun` is emitted `inline fn`, whatever its
-//! size, and one marked `rarely fun` never is; the rule below decides the
-//! rest. A marked `inline` function on a cycle of calls of `inline`
+//! size, and one marked `called fun` or `rarely fun` never is; the rule
+//! below decides the rest. A marked `inline` function on a cycle of calls of `inline`
 //! functions is an error, and so is a function whose frame the marked
 //! ones push over `sema.max_frame_bytes`: the sizes below never undo a
 //! marker, they only choose among the functions the compiler picked.
@@ -74,7 +74,8 @@ const Fn = struct {
     size: u32 = 0,
     /// Whether the declaration alone allows inlining.
     eligible: bool,
-    /// Its marker: `inline` inlines it at every call, `rarely` never.
+    /// Its marker: `inline` inlines it at every call, `called` and
+    /// `rarely` never.
     marker: rig.Marker,
     /// A member of a type, not a module's function.
     member: bool,
@@ -218,7 +219,7 @@ const Pass = struct {
         const body = ir.get(node, .body);
         const is_main = !member and self.mods[module].id == 1 and std.mem.eql(u8, name, "main");
         const marker = rig.markerOf(node);
-        const eligible = body != .nil and !is_main and !generic_owner and onlyValueParams(node) and marker != .rarely;
+        const eligible = body != .nil and !is_main and !generic_owner and onlyValueParams(node) and marker != .called and marker != .rarely;
         const idx: u32 = @intCast(self.fns.items.len);
         const pos = c.startOf(name_node);
         const gop = try self.by_name.getOrPut(self.a, name);

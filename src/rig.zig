@@ -44,14 +44,20 @@ pub fn subFails(fun_or_sub: Sexp) bool {
 }
 
 /// A function's marker, which asks for a speed and never changes what
-/// the program means: `inline fun` (inline it at every call), `rarely
-/// fun` (it is rarely called), or none (`inlining.decide` decides).
-pub const Marker = enum { none, @"inline", rarely };
+/// the program means: `inline fun` (inline it at every call), `called
+/// fun` (every call stays a call), `rarely fun` (it is rarely called), or
+/// none (`inlining.decide` decides).
+pub const Marker = enum { none, @"inline", called, rarely };
 
 pub fn markerOf(fun_or_sub: Sexp) Marker {
     const m = ir.get(fun_or_sub, .mark);
     if (m == .nil) return .none;
-    return if (m.isKind(.@"inline")) .@"inline" else .rarely;
+    return switch (m.kind().?) {
+        .@"inline" => .@"inline",
+        .called => .called,
+        .rarely => .rarely,
+        else => unreachable,
+    };
 }
 
 /// A module-level constant (`name = value`, or a `pub` one). Passes take
@@ -177,7 +183,7 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
         .set, .drop, .pass, .@"return", .@"break", .@"continue", .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .drop_decl, .@"inline", .rarely, .@":", .default, .valued, .variant, .as, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
     };
 }
 
@@ -456,7 +462,7 @@ pub fn shadows(op: Sexp) bool {
 /// The categories from `true` to `yield` in rig.grammar's `tokens`
 /// block are Rig's keywords. Every keyword is reserved and is a lexer
 /// rule, so the base lexer gives it its own category, except `new`, `obj`,
-/// `inline`, and `rarely`, which lex as names and are keywords only where
+/// `inline`, `called`, and `rarely`, which lex as names and are keywords only where
 /// the rewriter classifies them (`classifyWord`): `new` at the start of a
 /// statement followed by a name or `const` (`new x = ...`, `new const x =
 /// ...`), so `fun new(...)` and `Point.new(...)` stay ordinary names.
@@ -839,7 +845,7 @@ pub const Lexer = struct {
                 .decrement => "Rig has no `--`; write `x -= 1`",
                 .slash_comment => "comments start with `#`; Rig has no `//` or `/* */` comments",
                 .pin_sigil => "the pin sigil `@x` is reserved; `@` only starts a builtin call, `@name(...)`",
-                .two_markers => "a function takes one marker: `inline` (inline it at every call) contradicts `rarely` (keep it out of the code that calls it)",
+                .two_markers => "a function takes one marker: `inline` (inline it at every call), `called` (keep every call a call), or `rarely` (rarely called, so kept out of line and cold); `called` contradicts `inline`, and `rarely` already keeps every call a call",
             };
         }
     };
@@ -1277,13 +1283,17 @@ pub const Lexer = struct {
         if (std.mem.eql(u8, word, "obj")) return if ((self.stmtStart() or self.last_cat == .@"pub") and self.nextIsName()) .obj else .ident;
         if (isMarker(word)) {
             if (!(self.stmtStart() or self.last_cat == .@"pub") or !self.nextIsFunOrSub()) return .ident;
-            return if (word[0] == 'i') .@"inline" else .rarely;
+            return switch (word[0]) {
+                'i' => .@"inline",
+                'c' => .called,
+                else => .rarely,
+            };
         }
         return .ident;
     }
 
     /// The next token is `fun` or `sub`: a function's marker (`inline`,
-    /// `rarely`) stands right before it.
+    /// `called`, `rarely`) stands right before it.
     fn nextIsFunOrSub(self: *const Lexer) bool {
         var probe = self.base;
         const t = probe.next();
@@ -1291,7 +1301,8 @@ pub const Lexer = struct {
     }
 
     /// Where a second marker stands, when `tok` starts a declaration with
-    /// two (`inline rarely fun f()`): a function takes one.
+    /// two (`inline rarely fun f()`, `called rarely fun f()`): a function
+    /// takes one.
     fn twoMarkers(self: *const Lexer, tok: Token) ?u32 {
         if (!isMarker(self.base.text(tok)) or !(self.stmtStart() or self.last_cat == .@"pub")) return null;
         var probe = self.base;
@@ -1302,7 +1313,7 @@ pub const Lexer = struct {
     }
 
     fn isMarker(word: []const u8) bool {
-        return std.mem.eql(u8, word, "inline") or std.mem.eql(u8, word, "rarely");
+        return std.mem.eql(u8, word, "inline") or std.mem.eql(u8, word, "called") or std.mem.eql(u8, word, "rarely");
     }
 
     /// `of` after a value directly inside [ ] separates a fill literal's
@@ -3174,11 +3185,11 @@ test "keywords are reserved; `new` only at statement start" {
         try testing.expect(keyword(w) != null);
     }
     try testing.expect(keyword("var") == null);
-    // Every keyword category but `new`, `obj`, `inline`, and `rarely` is
-    // a lexer rule.
+    // Every keyword category but `new`, `obj`, `inline`, `called`, and
+    // `rarely` is a lexer rule.
     for (@intFromEnum(TokenCat.true)..@intFromEnum(TokenCat.yield) + 1) |c| {
         const cat: TokenCat = @enumFromInt(c);
-        if (cat == .obj or cat == .@"inline" or cat == .rarely) continue;
+        if (cat == .obj or cat == .@"inline" or cat == .called or cat == .rarely) continue;
         try testing.expectEqual(cat, keyword(@tagName(cat)).?);
         if (cat != .new) try expectCats(@tagName(cat), &.{cat});
     }
@@ -3201,9 +3212,11 @@ test "`obj` is a keyword only where a declaration starts; `struct` is a name" {
     try parses("obj P\n  obj: Int\n  struct: Int\n");
 }
 
-test "`inline` and `rarely` are keywords only before a declaration's `fun` or `sub`" {
-    try testing.expect(keyword("inline") == null and keyword("rarely") == null);
+test "`inline`, `called`, and `rarely` are keywords only before a declaration's `fun` or `sub`" {
+    try testing.expect(keyword("inline") == null and keyword("called") == null and keyword("rarely") == null);
     try expectCats("inline fun f()", &.{ .@"inline", .fun, .ident, .lparen, .rparen });
+    try expectCats("called fun f()", &.{ .called, .fun, .ident, .lparen, .rparen });
+    try expectCats("called = 1", &.{ .ident, .assign, .integer });
     try expectCats("pub rarely sub s()", &.{ .@"pub", .rarely, .sub, .ident, .lparen, .rparen });
     try expectCats("inline = 5", &.{ .ident, .assign, .integer });
     try expectCats("x = rarely", &.{ .ident, .assign, .ident });

@@ -59,8 +59,9 @@ from).
   - **Speed:** runtime fast paths for push, add, and clear; small,
     only-called functions are emitted `inline` by a size rule the
     compiler decides (`src/inlining.zig`); a function marked `inline fun`
-    is inlined at every call, and one marked `rarely fun` is kept out of
-    line with Zig's cold hint (`inline` and `rarely` are contextual); a
+    is inlined at every call, one marked `called fun` is always a call
+    (`noinline fn`), and one marked `rarely fun` is kept out of line with
+    Zig's cold hint (the three words are contextual); a
     `for` index counter needs no per-iteration cast.
   - **Compiler and tools:** a synthetic span outside its source reads as
     empty; the package cache and the build store have size caps;

@@ -775,7 +775,8 @@ pub const Emitter = struct {
 
         const tparams = facts.syntax.tparamsOf(node);
         const inlined = self.facts.isInlined(name_node);
-        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = self.facts.isRarely(node) };
+        const marker = self.facts.markerOf(node);
+        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = marker == .rarely };
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
@@ -789,7 +790,7 @@ pub const Emitter = struct {
                 try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return rig.exitStatus(__rig_run_main(__rig_init){s});\n}}\n\n", .{catches});
             } else try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) void {{\n    __rig_run_main(__rig_init){s};\n}}\n\n", .{catches});
             try self.w.writeAll("fn __rig_run_main(");
-        } else try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else "", ident(name) });
+        } else try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else if (marker == .called) "noinline " else "", ident(name) });
         // Zig hands the arguments and environment only to `main`.
         if (is_main) try self.w.writeAll("__rig_init: std.process.Init.Minimal");
         try self.pushScope();

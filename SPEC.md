@@ -1282,7 +1282,7 @@ name.
 
 ### Function markers
 
-A function may be marked, before its `fun` or `sub`, with one of two
+A function may be marked, before its `fun` or `sub`, with one of three
 words that ask for a speed and never change what the program means:
 
 - `inline fun` inlines the function at every call: its body is compiled
@@ -1290,9 +1290,13 @@ words that ask for a speed and never change what the program means:
   without the marker: its arguments are evaluated in order, a check on
   them panics when the program runs (never when it compiles), and an
   owned argument is moved in and dropped as in a call.
+- `called fun` keeps every call of the function a real call: it is
+  never inlined, and stays as hot as any function. Each instance of one
+  with compile-time parameters is a function of its own, so two
+  specialized copies of a large function stay apart, each called.
 - `rarely fun` says the function is rarely called, so the code that
   calls it is laid out for the case that does not: the function stays
-  out of line, and the compiler never inlines it by its own rule.
+  out of line, as `called` keeps it, and is also cold.
 
 Without a marker the compiler decides which small functions to inline
 ([INTERNALS](docs/INTERNALS.md), "Inlining"). A marker applies to every
@@ -1307,7 +1311,7 @@ rarely fun report(n: Int) -> Int
   print("out of range:", n)
   0
 
-fun scan[strict: Bool](xs: ?List[Int]) -> Int
+called fun scan[strict: Bool](xs: ?List[Int]) -> Int
   total = 0
   for x in xs
     if x > 99
@@ -1353,7 +1357,10 @@ sub main()
 `next` is `inline`, inlined at every call, so it can only be called, not used as a value
 ```
 
-A function takes one marker: `inline rarely fun` is an error. The
+A function takes one marker: `inline` and `called` contradict each
+other, and `rarely` already keeps every call a call, so any two are an
+error (`inline rarely fun`, `rarely called fun`). A `called` or `rarely`
+function is a function value as any other. The
 program's `main`, which the program calls once, takes none, and neither
 does an `extern zig` function, whose body is Zig's.
 

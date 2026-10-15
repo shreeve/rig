@@ -6,6 +6,9 @@ inline fun twice(n: Int) -> Int
 pub rarely sub warn(n: Int)
   print(n)
 
+called fun thrice(n: Int) -> Int
+  n * 3
+
 obj Point
   x: Int
 
@@ -16,6 +19,6 @@ rarely fun Point.zero(?self) -> Bool
   self.x == 0
 
 sub main()
-  inline = twice(1)
+  inline = twice(thrice(1))
   warn(inline)
   print(Point(x: inline).get(), Point(x: 0).zero())
