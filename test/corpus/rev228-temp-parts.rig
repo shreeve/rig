@@ -1,0 +1,21 @@
+obj S
+  n: Int
+
+obj H
+  w: ~S
+  ws: List[~S]
+
+fun mk(s: *S) -> H
+  ws: List[~S] = List()
+  !ws.push(~s)
+  H(w: ~s, ws: <ws)
+
+sub main()
+  s = *S(n: 1)
+  if *mk(+s).w as p
+    print(p.n)
+  if *mk(+s).ws[0] as p
+    print(p.n + 1)
+  print(*mk(+s).w != none)
+  <s
+  print(*mk(*S(n: 2)).w == none)

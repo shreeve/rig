@@ -1,0 +1,92 @@
+# An index may grow or replace the storage of its place's root where the
+# place is found after the index runs: an assignment's target, found
+# only after its indexes run, whose store lands in the storage the index
+# left, through an element, a field of an element, or a box; and a read
+# or a take of an element whose List lies in the root's own storage (a
+# local, a field of one, an element of an array, what a write view
+# views), which is found where it was and read after the index runs; and
+# a read past another buffer whose index writes only a sibling field.
+# (Past a List's buffer, a box, or a handle, a read is rejected:
+# test/reject/ownership/index_of_read_place.rig.)
+
+obj Q
+  vals: List[Int]
+
+obj P
+  qs: List[Q]
+  bx: ^Q
+  v: List[Int]
+
+fun grow(v: !List[List[Int]]) -> Int
+  for _ in 0..100
+    !v.push(List())
+  0
+
+fun grow_q(p: !P) -> Int
+  for _ in 0..100
+    !p.qs.push(Q(vals: List()))
+  0
+
+fun rebox(p: !P) -> Int
+  n: List[Int] = List()
+  !n.push(1)
+  p.bx = ^Q(vals: <n)
+  0
+
+fun refill(p: !P) -> Int
+  n: List[Int] = List()
+  !n.push(4)
+  p.v = <n
+  0
+
+fun grow_o(v: !List[Int?]) -> Int
+  for _ in 0..100
+    !v.push(none)
+  0
+
+fun swap0(a: ![2]List[Int]) -> Int
+  n: List[Int] = List()
+  !n.push(6)
+  a[0] = <n
+  0
+
+fun pushv(l: !List[Int]) -> Int
+  !l.push(0)
+  0
+
+fun at(p: !P) -> Int
+  p.v[refill(!p)]
+
+sub main()
+  v: List[List[Int]] = List()
+  !v.push(List())
+  !v[0].push(5)
+  v[0][grow(!v)] = 9
+  v[0][grow(!v)] += 7
+  v[0][0] += grow(!v)
+  print(v[0], v.len)
+  p = P(qs: List(), bx: ^Q(vals: List()), v: List())
+  !p.qs.push(Q(vals: List()))
+  !p.qs[0].vals.push(5)
+  !p.bx.vals.push(5)
+  !p.v.push(3)
+  p.qs[0].vals[grow_q(!p)] = 8
+  p.bx.vals[rebox(!p)] += 2
+  print(p.qs[0].vals, p.qs.len, p.bx.vals)
+  print(p.v[refill(!p)], at(!p))
+  print(p.qs[0].vals[pushv(!p.v)], p.bx.vals[pushv(!p.v)], p.v.len)
+  o: List[Int?] = List()
+  !o.push(5)
+  x = <o[grow_o(!o)]
+  print(x, o[0], o.len)
+  a: [2]List[Int] = [List(), List()]
+  !a[0].push(5)
+  print(a[0][swap0(!a)])
+
+# expect:
+# [16] 301
+# [8] 101 [3]
+# 4 4
+# 8 3 3
+# 5 none 101
+# 6

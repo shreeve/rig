@@ -44,7 +44,7 @@ sub main()
   wr()
   w = |+b|
     ww = |~b|
-      if b.upgrade() as s
+      if *b as s
         print("up", s.n)
     ww()
   w()

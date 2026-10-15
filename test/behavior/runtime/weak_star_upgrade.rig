@@ -1,0 +1,71 @@
+# `*w` upgrades a weak handle: a `*T?`, a new count while the value
+# lives and `none` after. It reads `w`, a name or a view `?~T`, which
+# stays usable; `*<w` upgrades and takes `w`, which is dropped. The
+# result binds like any `*T?`: stored, defaulted with `??`, and
+# propagated with `(*w)?`.
+
+obj Point
+  x: Int
+  y: Int
+
+fun x_of(w: ?~Point) -> Int?
+  p = (*w)?
+  p.x
+
+fun alive(w: ?~Point) -> Bool
+  if *w as p
+    return p.y > 0
+  false
+
+sub main()
+  s = *Point(x: 6, y: 7)
+  w = ~s
+  if *w as p
+    print(p.x)
+  print(alive(?w), x_of(?w) ?? -1)
+  kept = *w
+  fallback = *Point(x: 0, y: 0)
+  q = *w ?? +fallback
+  print(q.y, kept != none)
+  <q
+  <kept
+  ws: List[~Point] = List()
+  for _ in 0..3
+    !ws.push(~s)
+  total = 0
+  for v in ?ws
+    if *v as p
+      total += p.x
+  print(total)
+  t = ~s
+  if *<t as p
+    print("taken", p.y)
+  t2 = ~s
+  c = total > 0
+  if *(?w if c else ?t2) as p
+    print("either", p.x)
+  <s
+  if *w as p
+    print(p.x)
+  else
+    print("gone")
+  print(alive(?w), x_of(?w) ?? -1, *w == none)
+  for v in ?ws
+    print(*v == none)
+  u = ~fallback
+  <fallback
+  print(*<u == none)
+
+# expect:
+# 6
+# true 6
+# 7 true
+# 18
+# taken 7
+# either 6
+# gone
+# false -1 true
+# true
+# true
+# true
+# true

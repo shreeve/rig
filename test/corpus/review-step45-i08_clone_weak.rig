@@ -16,7 +16,7 @@ sub main()
   <o
   print("still", w.len)
   <p
-  if w[0].upgrade() as h
+  if *w[0] as h
     print("alive", h.n)
   else
     print("gone")

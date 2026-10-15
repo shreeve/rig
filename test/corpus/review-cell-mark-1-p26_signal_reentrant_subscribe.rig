@@ -4,7 +4,7 @@ sub main()
   n = *Cell(0)
   !s.subscribe(*|+w, +n|
     !n.set(n.get() + 1)
-    if w.upgrade() as h
+    if *w as h
       if n.get() < 50
         !h.subscribe(*|| print("x"))
   )

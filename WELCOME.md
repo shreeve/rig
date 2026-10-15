@@ -44,6 +44,7 @@ happens, as a one-character **sigil**:
 | `^x` | move into a box with one owner | `Box::new(x)` | `allocator.create(T)` |
 | `*x` | move into a shared, counted handle | `Rc::new(x)` | a hand-written refcounted box |
 | `~x` | weak handle | `Rc::downgrade(&x)` | a hand-written weak count |
+| `*w` of a weak handle | upgrade: a new handle, or `none` | `w.upgrade()` | a hand-written weak count check |
 | `e!` | propagate failure | `e?` | `try e` |
 | `e?` | propagate `none` | `e?` on an `Option` | `e orelse return null` |
 
@@ -365,7 +366,7 @@ support file.
 | lend | `&x`, `&mut x` | `&x` | `?x`, `!x` |
 | slice | `&v[a..b]`, `&mut v[a..]` | `v[a..b]`, `v[a..]` | `?v[a..b]`, `!v[a..]` |
 | reference count | `Rc::new(x)`, `Rc::clone(&r)` | by hand | `*x`, `+r` |
-| weak | `Rc::downgrade(&r)`, `w.upgrade()` | by hand | `~r`, `w.upgrade()` |
+| weak | `Rc::downgrade(&r)`, `w.upgrade()` | by hand | `~r`, `*w` |
 | interior mutability | `Rc<RefCell<T>>` | by hand | `*Cell[T]` |
 | heap box | `Box<T>` | `allocator.create(T)` | `^T` |
 | growable array | `Vec<T>` | `std.ArrayList(T)` | `List[T]` |

@@ -1,0 +1,20 @@
+# The meaning of `*x` is decided once, by the type the body sees: on a
+# type parameter `T` it copies `x` into a new counted handle, which needs
+# a `T` that copies, in every instance. An instance with `T = ~U` is
+# rejected; `*x` never upgrades there, though `*` of a `~U` outside a
+# generic body would.
+
+obj Node
+  id: Int
+
+fun share[T](x: T) -> T
+  h = *x
+  x
+
+sub main()
+  rc = *Node(id: 1)
+  w = share(~rc)
+  <w
+
+# error: 16:7: `share[~Node]` cannot use `T = ~Node`: the generic body copies a `T`, which would duplicate the resource `~Node` owns
+# errors: 1

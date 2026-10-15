@@ -21,14 +21,14 @@ fun depth(n: ?*Node) -> Int
   d = 0
   cur = +n
   while ?cur.parent as w
-    up = w.upgrade() ?? break
+    up = *w ?? break
     cur = <up
     d += 1
   d
 
 fun has_parent(n: ?*Node) -> Bool
   if ?n.parent as w
-    return w.upgrade() != none
+    return *w != none
   false
 
 sub main()

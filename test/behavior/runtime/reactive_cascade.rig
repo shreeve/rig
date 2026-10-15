@@ -32,12 +32,12 @@ sub main()
   total = IntSource.new(0)
 
   !count.subscribe(*|~count, ~total|
-    if count.upgrade() as c
-      if total.upgrade() as t
+    if *count as c
+      if *total as t
         !t.set(c.get() * 10)
   )
   !total.subscribe(*|~total|
-    if total.upgrade() as t
+    if *total as t
       print(t.get())
   )
 

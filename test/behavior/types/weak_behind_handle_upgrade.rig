@@ -1,0 +1,30 @@
+# A weak handle held in a field behind a counted handle, or in a List,
+# upgrades where it stands: `*h.w` reads the field, and `*ws[0]` the
+# element, and each stays usable.
+
+obj S
+  n: Int
+
+obj Holder
+  w: ~S
+
+sub main()
+  s = *S(n: 1)
+  h = *Holder(w: ~s)
+  if *h.w as t
+    print(t.n + 2)
+  u: ?~S = ?h.w
+  if *u as t
+    print(t.n + 3)
+  ws: List[~S] = List()
+  !ws.push(~s)
+  if *ws[0] as t
+    print(t.n + 4)
+  <s
+  print(*h.w == none, *ws[0] == none)
+
+# expect:
+# 3
+# 4
+# 5
+# true true

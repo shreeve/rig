@@ -7,6 +7,6 @@ obj Counter
 sub main()
   k = *Counter()
   w = ~k
-  if w.upgrade() as s
+  if *w as s
     !s.hit()
   print(k.hits.get())

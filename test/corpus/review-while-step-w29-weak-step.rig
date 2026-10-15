@@ -7,7 +7,7 @@ obj Node
   val: Int
 
 fun count(w: ?~Node) -> Int
-  if w.upgrade() as n
+  if *w as n
     return n.val
   0
 

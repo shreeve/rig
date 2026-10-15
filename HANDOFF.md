@@ -21,6 +21,9 @@ from).
     statement above (not after a line that opens a block); a closure may
     omit trailing parameters; a bare `for X` loops over `X`; an iterator
     in a place is written `for x in !it`.
+  - **Weak handles:** `*w` upgrades a weak handle to a `*T?` (`*<w`
+    upgrades and takes it); the method `w.upgrade()` is rejected with a
+    hint, and so is `*~T`, as every holding sigil over a held value is.
   - **Numbers:** `x.not()`, the integer bit methods `leading_zeros`,
     `trailing_zeros`, `count_ones`, and `swap_bytes`, and the wrapping
     left shift `<<%` and `<<%=`.

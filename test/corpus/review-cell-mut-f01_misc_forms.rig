@@ -54,7 +54,7 @@ sub main()
     print(b.b.c.get(), y.c.get())
   s = *mk(30)
   w = ~s
-  if w.upgrade() as h
+  if *w as h
     !h.hit()
   viah(!s)
   print(s.c.get())

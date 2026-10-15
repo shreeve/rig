@@ -4,10 +4,10 @@ obj N
 sub main()
   s: *sub() = *|| print("x")
   w = ~s
-  u = w.upgrade()
+  u = *w
   n = *N(a: 1)
   wn = ~n
-  un = wn.upgrade()
+  un = *wn
   arr: [2]Int? = none
   sl: ([]Int)? = none
   x: Int = u

@@ -1,0 +1,10 @@
+obj S
+  n: Int
+
+sub main()
+  s = *S(n: 1)
+  f = *|~s|
+    if *<s as p
+      print(p.n)
+  f()
+  f()

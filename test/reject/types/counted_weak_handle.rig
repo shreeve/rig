@@ -1,0 +1,31 @@
+# A value is held one way on the heap, so no counted handle holds a weak
+# one: `*~T` is rejected wherever the type comes from, written, named by
+# an alias, or reached through a generic's parameter. `*` of a weak
+# handle upgrades it instead (test/behavior/runtime/weak_star_upgrade.rig),
+# so it makes no `*~T` where one is expected.
+
+obj S
+  n: Int
+
+type Counted = *~S
+
+obj Wrap[T]
+  h: *T
+
+fun count[T](x: T) -> *T
+  *<x
+
+sub look(c: ?Wrap[~S])
+  print(1)
+
+sub main()
+  s = *S(n: 1)
+  a: *~S = *~s
+  b = count(~s)
+  c = Wrap[~S](h: *~s)
+
+# error: 10:16: `*~S` stacks one heap holding on another
+# error: 18:14: `Wrap[~S]` holds `*~S`, which stacks one heap holding on another
+# error: 23:6: `*~S` stacks one heap holding on another
+# error: 24:7: `count` at these types has `*~S` in its signature, which stacks one heap holding on another
+# error: 25:19: type mismatch: expected `*~S`, got `*S?`

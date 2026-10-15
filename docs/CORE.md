@@ -576,10 +576,10 @@ sub main()
 value there; `^<x` and `^S(...)` put a value alone in a box.** A box has
 one owner and no count: it moves, and `+b` copies its value into a new
 box. A value is held one way on the heap, as `^T`, `*T`, or `~T`, so a
-holding sigil over a held value (`^*T`, `**T`) is rejected. Handles only
+holding sigil over a held value (`^*T`, `**T`, `*~T`) is rejected. Handles only
 read (a `Cell` inside one changes by a marked call: sentence 9). `~h`
-holds the counted value weakly, and `h.upgrade()` is the way back.
-*(built)*
+holds the counted value weakly, and `*w` is the way back: a new handle
+while the value lives, `none` after. *(built)*
 
 ```rig
 obj User
@@ -589,10 +589,10 @@ sub main()
   u = User(name: "ada")
   a = *<u
   w = ~a
-  if w.upgrade() as h
+  if *w as h
     print(h.name)
   <a
-  if w.upgrade() as h
+  if *w as h
     print("still here")
   else
     print("gone")
