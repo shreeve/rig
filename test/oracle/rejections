@@ -4405,6 +4405,7 @@ error.tail_while_else_result_defer.call run
 error.write_held.call run
 error.write_held.clone run
 error.write_held.move run
+test/corpus/rev228-taken-capture.rig main
 test/corpus/review-errors-b3.rig main
 test/reject/ownership/error_argument_copied.rig main
 test/reject/ownership/error_binding_copied.rig main

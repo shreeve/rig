@@ -14041,11 +14041,12 @@ test "check: where a Cell and a write view stand, and a branch lent in place, ar
     // asked of every expression typed (`synthExpr`, `checkExpr`).
     try std.testing.expectEqual(2, std.mem.count(u8, tc, "self." ++ "cellMadeAway("));
     // Every lend of a branch, written or in place, asks `lendsBranch`:
-    // a sigil, a slice, a write lend of a temporary, a temporary lent
-    // to read, a header's subject, and a view a context takes in place.
+    // a sigil, a slice, a write lend of a temporary, a weak handle `*`
+    // upgrades, a temporary lent to read, a header's subject, and a view
+    // a context takes in place.
     const call = "self." ++ "lendsBranch(";
     var from: usize = 0;
-    for ([_][]const u8{ "headerLendsBranch", "synthLend", "lendsToWrite", "lendSlice", "lendTempIn", "checkExpr" }) |want| {
+    for ([_][]const u8{ "headerLendsBranch", "synthLend", "lendsToWrite", "lendSlice", "weakUpgrade", "lendTempIn", "checkExpr" }) |want| {
         from = std.mem.indexOfPos(u8, tc, from, call).?;
         const fn_at = std.mem.lastIndexOf(u8, tc[0..from], "    fn ").?;
         const got = tc[fn_at + "    fn ".len .. fn_at + std.mem.indexOfScalar(u8, tc[fn_at..], '(').?];
