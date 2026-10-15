@@ -1,0 +1,23 @@
+# `from` and `keeps` together: the result views only `t`, and the call
+# keeps `s` in the receiver. `u` is neither, so its lend ends with the
+# call.
+
+obj Binder
+  src: ?String
+
+  fun bind(!self, s: ?String, t: ?String, u: ?String) -> ?String from t keeps s
+    if u.len > 0
+      self.src = s
+    t
+
+sub main()
+  b = Binder(src: "")
+  s = String("kept")
+  t = String("returned")
+  u = String("read")
+  r = (!b).bind(?s, ?t, ?u)
+  <u
+  print(r, b.src)
+
+# expect:
+# returned kept

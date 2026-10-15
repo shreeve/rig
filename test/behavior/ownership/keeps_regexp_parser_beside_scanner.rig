@@ -1,0 +1,36 @@
+# Rule: a write view lent to a parameter the callee does not keep ends
+# with the call, so a parser beside its scanner can take the scanner
+# write-lent at each call, as Go's regExpParser points at its scanner.
+# From: Trig src/lexer/regexp.rig:78-90 (the parser lives in the scanner,
+# `s.rx`, NEEDS 11); Go regexp.go:78 `type regExpParser struct { scanner
+# *Scanner ... }`.
+
+obj Scanner
+  text: ?String
+  pos: Int
+
+obj RegExpParser
+  groups: List[String]
+
+  sub scan_group(!self, s: !Scanner)
+    start = s.pos
+    while s.pos < s.text.len and s.text[s.pos] != 0x3E
+      s.pos += 1
+    !self.groups.push(String(s.text[start..s.pos]))
+    s.pos += 1
+
+sub scan_regexp(s: !Scanner)
+  rx = RegExpParser(groups: List())
+  !rx.scan_group(!s)
+  !rx.scan_group(!s)
+  print(rx.groups.len, rx.groups[1])
+
+sub main()
+  src = "a>bc>"
+  s = Scanner(text: src, pos: 0)
+  scan_regexp(!s)
+  print(s.pos)
+
+# expect:
+# 2 bc
+# 5
