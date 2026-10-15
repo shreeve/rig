@@ -40,7 +40,7 @@
 # RIG_BUILD_STORE_DAYS (a run with no filter removes the store's builds
 # and the results cache's entries unused for longer, default 2),
 # RIG_BUILD_STORE_MAX_GB (that run also removes the store's least
-# recently used builds until it holds at most this many GB, default 50,
+# recently used builds until it holds at most this many GB, default 15,
 # 0 for no cap; one `du` over the store per unfiltered run),
 # RIG_RESULTS_CACHE (where passing runs are recorded, default
 # rig-results-cache in the repository's git directory; empty records
@@ -789,7 +789,7 @@ if [[ -z "${RIG_BUILD_STORE+set}" ]]; then
 fi
 STORE_DAYS=${RIG_BUILD_STORE_DAYS:-2}
 [[ $STORE_DAYS =~ ^[0-9]+$ ]] || { echo "RIG_BUILD_STORE_DAYS takes a number of days" >&2; exit 2; }
-STORE_MAX_GB=${RIG_BUILD_STORE_MAX_GB:-50}
+STORE_MAX_GB=${RIG_BUILD_STORE_MAX_GB:-15}
 [[ $STORE_MAX_GB =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "RIG_BUILD_STORE_MAX_GB takes a number of GB" >&2; exit 2; }
 export RIG_BUILD_STORE
 # Passing runs are recorded in the results cache beside the store, shared
