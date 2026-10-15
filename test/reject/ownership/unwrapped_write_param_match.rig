@@ -31,5 +31,5 @@ sub main()
   print(h.s)
 
 # errors: 2
-# error: a view of `d`
-# error: a view of `d`
+# error: 17:16: cannot store a view of `d` through `s`: `w` outlives it
+# error: 23:10: cannot store a view of `d` through `w ?? return`: `w` outlives it

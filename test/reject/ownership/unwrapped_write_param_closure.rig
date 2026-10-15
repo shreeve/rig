@@ -26,6 +26,7 @@ sub main()
   unwrapped(!h)
   print(h.s)
 
-# errors: 2
-# error: a view of `d`
-# error: a view of `d`
+# errors: 3
+# error: 13:9: cannot let this call store a view of `d` in `w`: `w` outlives it
+# error: 13:16: cannot store a view of `d` through `w ?? return`: `w` outlives it
+# error: 19:9: cannot let this call store a view of `d` in `w`: `w` outlives it

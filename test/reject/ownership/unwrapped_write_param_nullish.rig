@@ -18,4 +18,4 @@ sub main()
   print(h.s)
 
 # errors: 1
-# error: a view of `d`
+# error: 12:3: cannot store a view of `d` through `w ?? return`: `w` outlives it

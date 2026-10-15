@@ -31,5 +31,5 @@ sub main()
   print(h.s)
 
 # errors: 2
-# error: a view of `d`
-# error: a view of `d`
+# error: 19:3: cannot store a view of `d` through `must(<w)!`: `w` outlives it
+# error: 24:3: cannot store a view of `d` through `must(<w) catch return`: `w` outlives it

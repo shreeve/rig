@@ -29,6 +29,6 @@ sub main()
   print(h.s)
 
 # errors: 3
-# error: a view of `d`
-# error: a view of `d`
-# error: a view of `d`
+# error: 12:4: cannot let this call store a view of `d` in `w`: `w` outlives it
+# error: 16:4: cannot let this call store a view of `d` in `w`: `w` outlives it
+# error: 21:5: cannot let this call store a view of `d` in `w`: `w` outlives it

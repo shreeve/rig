@@ -45,8 +45,8 @@ sub main()
   print(h.s)
 
 # errors: 5
-# error: a view of `d`
-# error: a view of `d`
-# error: a view of `d`
-# error: a view of `d`
-# error: a view of `d`
+# error: 13:3: cannot store a view of `d` in `x.s`: `x` outlives it
+# error: 18:3: cannot store a view of `d` through `x`: what `x` views outlives it
+# error: 23:3: cannot store a view of `d` through `x ?? return`: `w` outlives it
+# error: 29:5: cannot store a view of `d` in `y.s`: `y` outlives it
+# error: 35:3: cannot store a view of `d` through `y`: `w` outlives it
