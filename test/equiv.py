@@ -98,7 +98,7 @@ def run(rig, args, f, tmp):
         return package(rig, f, tmp)
     env = dict(os.environ, RIG_OUT_DIR=tmp)
     try:
-        p = subprocess.run([rig] + args + [f], cwd=ROOT, env=env, capture_output=True, text=True, timeout=300)
+        p = subprocess.run([rig] + args + [f], cwd=ROOT, env=env, capture_output=True, text=True, errors="replace", timeout=300)
     except subprocess.TimeoutExpired:
         return -1, "TIMEOUT"
     return p.returncode, normalize(p.stdout + "\n--stderr--\n" + p.stderr, tmp)
@@ -111,7 +111,7 @@ def package(rig, f, tmp, keep=None):
     d = tempfile.mkdtemp(dir=tmp)
     env = dict(os.environ, RIG_OUT_DIR=d, RIG_SANITIZE="1")
     try:
-        p = subprocess.run([rig, "emit", f], cwd=ROOT, env=env, capture_output=True, text=True, timeout=300)
+        p = subprocess.run([rig, "emit", f], cwd=ROOT, env=env, capture_output=True, text=True, errors="replace", timeout=300)
     except subprocess.TimeoutExpired:
         shutil.rmtree(d, ignore_errors=True)
         return -1, "TIMEOUT"
