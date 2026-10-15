@@ -1,0 +1,10 @@
+fun rea(h: !*[3]Int) -> Int
+  h = *[4, 5, 6]
+  0
+
+sub main()
+  h: *[3]Int = *[1, 2, 3]
+  print(h[rea(!h)])
+
+# error: 7:16: cannot lend `h` to write in an index of a place it is lending
+# errors: 1

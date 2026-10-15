@@ -1,0 +1,17 @@
+# A Map's and a Set's `len` is a field, read anywhere and written only
+# by `std.hash`; `len()` is no method.
+
+use std.hash
+
+sub main()
+  m = hash.Map[String, Int]()
+  s = hash.Set[Int]()
+  print(m.len(), s.len())
+  m.len = 3
+  s.len += 1
+
+# error: 9:11: `len` is a field of `hash.Map[String, Int]`, not a method: write `m.len`
+# error: 9:20: `len` is a field of `hash.Set[Int]`, not a method: write `s.len`
+# error: 10:5: cannot assign to `m.len`: field `len` of `hash.Map` is read-only outside module `std.hash`, which declares it `pub ?len`
+# error: 11:5: cannot assign to `s.len`: field `len` of `hash.Set` is read-only outside module `std.hash`
+# errors: 4

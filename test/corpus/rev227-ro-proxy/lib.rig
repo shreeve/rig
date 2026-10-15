@@ -1,0 +1,22 @@
+pub obj Inner
+  pub n: Int = 0
+  pub sub inc(!self)
+    self.n += 1
+
+pub enum Shape
+  dot
+  rect(w: Int, h: Int)
+
+pub obj Tally
+  pub ?tags: List[Int] = List()
+  pub ?inner: Inner = Inner()
+  pub ?shape: Shape = .dot
+  pub ?last: Int? = none
+
+  pub sub bump(!self, tag: Int)
+    !self.tags.push(tag)
+    self.shape = Shape.rect(w: tag, h: tag)
+    self.last = tag
+
+pub obj Pile[T]
+  pub ?n: Int = 0

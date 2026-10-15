@@ -1,0 +1,25 @@
+# Objects whose every field has a default, some private: another module
+# makes an empty one with `T()`.
+
+pub obj Bag
+  items: List[Int] = List()
+  label: String = String()
+  pub limit: Int = 3
+
+  pub sub add(!self, n: Int)
+    !self.items.push(n) if self.items.len < self.limit
+
+  pub fun total(?self) -> Int
+    sum = 0
+    for n in ?self.items
+      sum += n
+    sum
+
+pub obj Pile[T]
+  items: List[T] = List()
+
+  pub sub put(!self, x: T)
+    !self.items.push(<x)
+
+  pub fun count(?self) -> Int
+    self.items.len

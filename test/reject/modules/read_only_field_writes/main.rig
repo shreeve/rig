@@ -1,0 +1,51 @@
+# A field declared `pub ?name: T` in another module is read-only here,
+# however it would be written: assigned, or a part of it assigned;
+# assigned by an operator; lent to write; taken out; written by a method
+# that writes its receiver; exchanged; walked or matched to write; and
+# written through a box or a write view. Nor does it set one by
+# constructing the object with its fields given.
+
+use lib
+
+sub set(n: !Int)
+  n = 1
+
+sub through(w: !lib.Tally)
+  w.count = 9
+
+sub main()
+  t = lib.Tally()
+  t.count = 1
+  t.inner.n = 2
+  t.count += 1
+  set(!t.count)
+  x = <t.last
+  !t.tags.push(5)
+  y = 0
+  swap(!t.count, !y)
+  z = replace(!t.count, 3)
+  for g in !t.tags
+    g += 1
+  if !t.mode as m
+    m = lib.Mode.idle
+  b = ^lib.Tally()
+  b.count = 4
+  through(!t)
+  print(x, y, z)
+
+fun make() -> lib.Tally
+  lib.Tally(count: 5, note: 1)
+# error: 14:5: cannot assign to `w.count`: field `count` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?count`
+# error: 18:5: cannot assign to `t.count`: field `count` of `lib.Tally` is read-only outside module `lib`
+# error: 19:5: cannot assign to `t.inner.n`: field `inner` of `lib.Tally` is read-only outside module `lib`
+# error: 20:5: cannot assign to `t.count`
+# error: 21:10: cannot lend `t.count` to write
+# error: 22:10: cannot take `t.last`
+# error: 23:6: cannot lend `t.tags` to write
+# error: 25:11: cannot lend `t.count` to write
+# error: 26:18: cannot lend `t.count` to write
+# error: 27:15: cannot write-iterate `t.tags`
+# error: 29:9: cannot lend `t.mode` to write
+# error: 32:5: cannot assign to `b.count`
+# error: 37:7: only module `lib` can construct `lib.Tally`: its fields `count`, `tags`, `inner`, `mode`, `last` are read-only
+# errors: 13

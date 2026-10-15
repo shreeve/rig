@@ -1,0 +1,12 @@
+# A deferred write to a read-only field from another module is rejected.
+
+use lib
+
+sub main()
+  t = lib.Tally()
+  !t.bump(3)
+  defer !t.tags.push(1)
+  print(t.tags, t.inner.n, t.shape, t.last)
+
+# error: 8:12: cannot lend `t.tags` to write: field `tags` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?tags`
+# errors: 1

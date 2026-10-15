@@ -1,0 +1,44 @@
+obj P
+  hl: *List[Int]
+
+fun reh(h: !*List[Int]) -> Int
+  n: List[Int] = List()
+  !n.push(50)
+  h = *<n
+  0
+
+fun rep(p: !P) -> Int
+  n: List[Int] = List()
+  !n.push(50)
+  p.hl = *<n
+  0
+
+fun rea(h: !*[3]Int) -> Int
+  h = *[4, 5, 6]
+  0
+
+fun rec(c: !*Cell[List[Int]]) -> Int
+  c = *Cell(List())
+  !c.push(9)
+  0
+
+sub main()
+  v: List[Int] = List()
+  !v.push(7)
+  h = *<v
+  print(h[reh(!h)])
+  w: List[Int] = List()
+  !w.push(7)
+  p = P(hl: *<w)
+  print(p.hl[rep(!p)])
+  a: *[3]Int = *[1, 2, 3]
+  print(a[rea(!a)])
+  c: *Cell[List[Int]] = *Cell(List())
+  !c.push(7)
+  print(c[rec(!c)])
+
+# error: 29:16: cannot lend `h` to write in an index of a place it is lending
+# error: 33:19: cannot lend `p` to write in an index of a place it is lending
+# error: 35:16: cannot lend `a` to write in an index of a place it is lending
+# error: 38:16: cannot lend `c` to write in an index of a place it is lending
+# errors: 4

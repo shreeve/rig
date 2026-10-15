@@ -516,6 +516,9 @@ pub const Field = struct {
     /// A field or method declared `pub`, which other modules may use.
     /// (Variants and their payload fields are always visible.)
     is_pub: bool = false,
+    /// A field declared `pub ?name: T`: other modules read it, and only
+    /// its own module writes it.
+    read_only: bool = false,
 };
 
 pub const Symbol = struct {
@@ -779,6 +782,11 @@ pub const Facts = struct {
     /// (`SemContext.recordSplat`).
     splats: std.AutoHashMapUnmanaged(u64, TypeId) = .empty,
 
+    /// A member access `x.f` whose field another module declared `pub
+    /// ?f: T`: read-only here (`Checker.placeOf` blocks every write
+    /// through it).
+    read_only_fields: std.AutoHashMapUnmanaged(NodeKey, ReadOnlyField) = .empty,
+
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         inline for (@typeInfo(Facts).@"struct".field_names) |f| @field(self, f).deinit(allocator);
     }
@@ -792,6 +800,14 @@ pub const Upgrade = enum {
     /// `w` is handed over and dropped once upgraded: a move (`*<w`) or a
     /// weak handle made there (`*~h`, `*f()`).
     takes,
+};
+
+/// A field another module declared `pub ?name: T`, as a member access
+/// here reaches it: its name, its type's name, and its module's.
+pub const ReadOnlyField = struct {
+    field: []const u8,
+    owner: []const u8,
+    module: []const u8,
 };
 
 /// How a node writes a binding (`SemContext.recordWrite`). Every site
@@ -1561,6 +1577,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
     switch (V) {
         StringCall, Use, Upgrade => try w.print(" {s}", .{@tagName(v)}),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
+        ReadOnlyField => try w.print(" {s}.{s}.{s}", .{ v.module, v.owner, v.field }),
         JumpDest => {
             const at = diag.lineCol(ctx.source, ctx.startOf(v.target));
             try w.print(" {s} {s} {d}:{d}", .{ @tagName(v.to), @tagName(v.target.kind().?), at.line, at.col });
@@ -2668,6 +2685,16 @@ pub const SemContext = struct {
         if (gop.found_existing and gop.value_ptr.* == .lend and use == .take) return;
         if (gop.found_existing) std.debug.assert(gop.value_ptr.* == use);
         gop.value_ptr.* = use;
+    }
+
+    /// The member access `node` reaches a field read-only here
+    /// (`Facts.read_only_fields`).
+    pub fn recordReadOnlyField(self: *SemContext, node: Sexp, field: ReadOnlyField) !void {
+        try self.facts.read_only_fields.put(self.allocator, recordKey(node), field);
+    }
+
+    pub fn readOnlyFieldOf(self: *const SemContext, node: Sexp) ?ReadOnlyField {
+        return self.facts.read_only_fields.get(nodeKey(node) orelse return null);
     }
 
     /// The context of `node` lends it, where it was first recorded as

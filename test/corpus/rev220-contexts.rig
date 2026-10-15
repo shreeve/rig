@@ -1,0 +1,48 @@
+# A read of a place past a List's buffer, in contexts beyond a plain
+# read: each index lends the root to write while the place is found.
+obj R
+  n: Int
+
+fun grow(v: !List[List[Int]]) -> Int
+  for _ in 0..100
+    !v.push(List())
+  0
+
+fun grow2(v: !List[List[Int?]]) -> Int
+  for _ in 0..100
+    !v.push(List())
+  0
+
+sub main()
+  v: List[List[Int]] = List()
+  !v.push(List())
+  !v[0].push(5)
+  o: List[List[Int?]] = List()
+  !o.push(List())
+  !o[0].push(5)
+  y = 0
+  y += v[0][grow(!v)]
+  r = R(n: v[0][grow(!v)])
+  print(o[0][grow2(!o)] ?? 3)
+  if o[0][grow2(!o)] as z
+    print(z)
+  for i in 0..v[0][grow(!v)]
+    print(i)
+  a = [v[0][grow(!v)], 2]
+  y = v[v[0][0]][grow(!v)]
+  defer print(v[0][grow(!v)])
+  w = +v[0][grow(!v)]
+  print(v[0][grow(!v)..1])
+  print(y, r.n, a, w)
+
+# error: 24:19: cannot lend `v` to write in an index of a place it is lending
+# error: 25:23: cannot lend `v` to write in an index of a place it is lending
+# error: 26:21: cannot lend `o` to write in an index of a place it is lending
+# error: 27:18: cannot lend `o` to write in an index of a place it is lending
+# error: 29:26: cannot lend `v` to write in an index of a place it is lending
+# error: 31:19: cannot lend `v` to write in an index of a place it is lending
+# error: 32:24: cannot lend `v` to write in an index of a place it is lending
+# error: 33:26: cannot lend `v` to write in an index of a place it is lending
+# error: 34:19: cannot lend `v` to write in an index of a place it is lending
+# error: 35:20: cannot lend `v` to write in an index of a place it is lending
+# errors: 10

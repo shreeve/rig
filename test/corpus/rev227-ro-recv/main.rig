@@ -1,0 +1,13 @@
+# A method that writes its receiver cannot be called on a read-only
+# field.
+
+use lib
+
+sub main()
+  t = lib.Tally()
+  !t.bump(3)
+  !t.inner.inc()
+  print(t.tags, t.inner.n, t.shape, t.last)
+
+# error: 9:6: cannot lend `t.inner` to write: field `inner` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?inner`
+# errors: 1

@@ -1,0 +1,18 @@
+# `T[A]()` of another module's generic object as a field default inside
+# a generic object.
+
+use lib
+
+obj Outer[T]
+  inner: lib.Box[T] = lib.Box[T]()
+  more: List[T] = List()
+
+sub main()
+  o = Outer[String]()
+  !o.more.push(String("x"))
+  !o.inner.put(String("y"))
+  p = Outer[String]()
+  print(o.inner.count, p.inner.count, o.more.len, p.more.len)
+
+# expect:
+# 1 0 1 0

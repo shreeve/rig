@@ -1,0 +1,15 @@
+fun bump(xs: ![]Int) -> Int
+  xs[0] = 1
+  0
+
+fun at(xs: ![]Int) -> Int
+  xs[bump(!xs)]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(7)
+  !v.push(8)
+  print(at(!v[..]))
+
+# expect:
+# 1

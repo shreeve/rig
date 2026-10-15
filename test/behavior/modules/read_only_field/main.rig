@@ -1,0 +1,42 @@
+# A field declared `pub ?name: T` is read by any module and written only
+# by its own: here it is read, lent to read, walked, and matched, and
+# changed only through the methods of its module. A plain `pub` field
+# stays writable.
+
+use lib
+
+sub show(t: ?lib.Tally)
+  print(t.count, t.tags.len, t.inner.n)
+
+sub main()
+  t = lib.Tally()
+  !t.bump(3)
+  !t.bump(4)
+  print(t.count, t.tags, t.inner.n, t.last)
+  show(?t)
+  for g in ?t.tags
+    print("tag", g)
+  if t.mode as m
+    match m
+      .idle => print("idle")
+      .busy => print("busy")
+  if t.last as l
+    print("last", l)
+  t.note = 7
+  t.note += 1
+  print(t.note)
+  b = ^lib.Tally()
+  !b.bump(1)
+  print(b.count)
+  print(lib.fresh().count)
+
+# expect:
+# 2 [3, 4] 7 4
+# 2 2 7
+# tag 3
+# tag 4
+# busy
+# last 4
+# 8
+# 1
+# 10

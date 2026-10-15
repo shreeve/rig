@@ -4411,3 +4411,16 @@ test/reject/ownership/error_argument_copied.rig main
 test/reject/ownership/error_binding_copied.rig main
 test/reject/ownership/error_binding_moved.rig main
 test/reject/ownership/weak_upgrade_taken.rig main
+rootidx.array.recv.root main
+rootidx.array.wrecv.root main
+rootidx.box.recv.root main
+rootidx.box.wrecv.root main
+rootidx.elemfield.recv.root main
+rootidx.elemfield.wrecv.root main
+rootidx.handle.recv.root main
+rootidx.list.recv.root main
+rootidx.list.wrecv.root main
+rootidx.listbox.recv.root main
+rootidx.listbox.wrecv.root main
+rootidx.nested.recv.root main
+rootidx.nested.wrecv.root main

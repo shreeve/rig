@@ -13,7 +13,7 @@ sub ints(n: Int)
   t = time.now()
   for i in 0..n
     !m.put(i *% -7046029254386353131, i)
-  print("int insert", t.elapsed(), m.len())
+  print("int insert", t.elapsed(), m.len)
   sum = 0
   t = time.now()
   for i in 0..n
@@ -44,7 +44,7 @@ sub strings(n: Int)
   t = time.now()
   for k, i in <put
     !m.put(<k, i)
-  print("string insert", t.elapsed(), m.len())
+  print("string insert", t.elapsed(), m.len)
   sum = 0
   t = time.now()
   for k in ?look

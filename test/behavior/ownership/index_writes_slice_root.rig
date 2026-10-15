@@ -1,0 +1,27 @@
+# A slice root's index may lend it to write: a lend of a slice writes the
+# elements it views but never moves or frees them, so the element is
+# read after the index runs, as it left it (the sorting shape,
+# `xs[partition(!xs)]`).
+
+# release
+
+fun partition(xs: ![]Int) -> Int
+  t = xs[0]
+  xs[0] = xs[1]
+  xs[1] = t
+  1
+
+fun pick(xs: ![]Int) -> Int
+  xs[partition(!xs)]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(3)
+  !v.push(8)
+  print(pick(!v[..]), v)
+  a = [5, 6]
+  print(pick(!a[..]), a)
+
+# expect:
+# 3 [8, 3]
+# 5 [6, 5]

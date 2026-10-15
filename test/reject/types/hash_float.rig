@@ -13,7 +13,7 @@ sub main()
   p = P(x: 1, w: 2.0)
   print(p.hash())
   m = hash.Map[Float, Int].new()
-  print(m.len())
+  print(m.len)
 
 # error: `.hash()` does not take a `Float`
 # error: `.hash()` does not take a `P`: field `w` is a `Float`

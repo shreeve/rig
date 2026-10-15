@@ -1,0 +1,9 @@
+pub obj Inner
+  pub n: Int = 0
+  pub name: String = String()
+
+pub obj Tally
+  pub ?boxed: ^Inner? = none
+
+pub fun make() -> Tally
+  Tally(boxed: ^Inner())
