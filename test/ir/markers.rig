@@ -1,6 +1,6 @@
 # A function's marker fills the `mark` role of `fun` and `sub`.
 
-inline fun twice(n: Int) -> Int
+fun twice(n: Int) -> Int
   n * 2
 
 pub rarely sub warn(n: Int)
@@ -12,7 +12,7 @@ called fun thrice(n: Int) -> Int
 obj Point
   x: Int
 
-  inline fun get(?self) -> Int
+  called fun get(?self) -> Int
     self.x
 
 rarely fun Point.zero(?self) -> Bool

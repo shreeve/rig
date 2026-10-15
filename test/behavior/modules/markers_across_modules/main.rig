@@ -1,28 +1,17 @@
 # A marked function of another module, called through the module or a
-# method of its type, is inlined or kept out of line as in its own. A
-# marked `inline` function that calls another module's of the same name,
-# or a method of the same name on another type, is no cycle: each call
-# reaches the one function it names.
+# method of its type, stays a call as in its own: `called` hot, `rarely`
+# cold.
 
 use lib
 
-obj Box
-  p: lib.Point
-
-  inline fun sum(?self) -> Int
-    self.p.sum() * 10
-
-inline fun twice(n: Int) -> Int
-  lib.twice(n) + 1
-
 sub main()
-  b = Box(p: lib.Point(x: 1, y: 2))
-  print(b.sum(), lib.scale(3, 4), twice(5))
+  p = lib.Point(x: 1, y: 2)
+  print(p.sum(), lib.scale(3, 4))
   print(lib.warn(6))
 
 # release
 
 # expect:
-# 30 12 11
+# 3 12
 # warn 6
 # -6

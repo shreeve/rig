@@ -2,7 +2,7 @@
 # holds statements.
 
 test "inner"
-  inline fun sq(x: Int) -> Int
+  called fun sq(x: Int) -> Int
     x * x
   print(sq(3))
 

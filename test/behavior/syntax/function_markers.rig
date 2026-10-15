@@ -1,16 +1,17 @@
-# `inline`, `called`, and `rarely` mark a function before its `fun` or
-# `sub`: a module's function, a public one, a method in its type's body or
-# outside it, and a function with compile-time parameters. They ask for a
-# speed and change no meaning, and anywhere else each word is a name. A
-# `called` function, always a real call, may be passed as a value.
+# `called` and `rarely` mark a function before its `fun` or `sub`: a
+# module's function, a public one, a method in its type's body or outside
+# it, and a function with compile-time parameters. They ask for a speed
+# and change no meaning, and anywhere else each word is a name, as
+# `inline` is. A marked function, always a real call, may be passed as a
+# value.
 
-inline fun add(a: Int, b: Int) -> Int
+called fun add(a: Int, b: Int) -> Int
   a + b
 
 rarely sub report(what: ?String, n: Int)
   print(what, n)
 
-pub inline fun double(x: Int) -> Int
+pub called fun double(x: Int) -> Int
   x * 2
 
 pub rarely fun fallback(x: Int) -> Int
@@ -29,7 +30,7 @@ obj Counter
   n: Int
   inline: Int
 
-  inline fun get(?self) -> Int
+  called fun get(?self) -> Int
     self.n + self.inline
 
   rarely sub reset(!self)
@@ -41,7 +42,7 @@ obj Counter
   fun rarely(?self) -> Int
     self.inline * 10
 
-inline fun Counter.bumped(?self, by: Int) -> Int
+called fun Counter.bumped(?self, by: Int) -> Int
   self.n + by
 
 rarely sub Counter.clear(!self)
@@ -53,7 +54,7 @@ called fun Counter.half(?self) -> Int
 obj Wrap[T]
   value: T
 
-  inline fun get(?self) -> T
+  called fun get(?self) -> T
     self.value
 
 rarely fun Wrap[T].peek(?self) -> T
@@ -62,7 +63,7 @@ rarely fun Wrap[T].peek(?self) -> T
 called fun Wrap[T].same(?self) -> T
   self.value
 
-inline fun larger[T](a: T, b: T) -> T
+called fun larger[T](a: T, b: T) -> T
   a if a > b else b
 
 rarely fun scaled[k: Int](x: Int) -> Int
