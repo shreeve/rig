@@ -3062,7 +3062,7 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
         }
     };
     var call: Call = .{ .args = args };
-    rig_switch_stack(&call, &Call.run, top);
+    switchStack(&call, &Call.run, top);
     return call.result;
 }
 
@@ -3070,19 +3070,20 @@ fn attachSignalStack() callconv(.c) void {
     std.Thread.maybeAttachSignalStack();
 }
 
-/// `rig_switch_stack(arg, run, top)` calls `run(arg)` with the stack
-/// pointer at `top`, and returns with it where it was. It is a symbol of
-/// its own, never inlined, and its frame record and unwind rules link the
-/// new stack's frames to its caller's, for stack traces.
-extern fn rig_switch_stack(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, top: usize) callconv(.c) void;
-
-comptime {
-    if (own_stack) {
-        const name = if (builtin.target.os.tag == .macos) "_rig_switch_stack" else "rig_switch_stack";
-        const hidden = if (builtin.target.os.tag == .macos) ".private_extern " else ".hidden ";
-        asm (".text\n.p2align 4\n.globl " ++ name ++ "\n" ++ hidden ++ name ++ "\n" ++ name ++ ":\n" ++ switch (builtin.target.cpu.arch) {
-                .aarch64 =>
-                \\ .cfi_startproc
+/// Call `run(arg)` with the stack pointer at `top`, and return with it
+/// where it was. The frame record it pushes links the new stack's frames
+/// to the caller's, for stack traces. Zig calls no naked function
+/// directly, and its body follows the C calling convention, so it is
+/// called through a pointer (`switchStack`).
+fn switchStackNaked() callconv(.naked) void {
+    // The unwind rules, where the build keeps any: the caller's frame
+    // pointer and return address are saved below the old stack pointer.
+    // Zig's own x86_64 assembler takes none of these but the one its
+    // `_start` uses, which ends a stack trace here.
+    const cfi = builtin.unwind_tables != .none or !builtin.strip_debug_info;
+    const self_hosted = builtin.zig_backend == .stage2_x86_64;
+    switch (builtin.target.cpu.arch) {
+        .aarch64 => asm volatile (if (cfi)
                 \\ stp x29, x30, [sp, #-32]!
                 \\ .cfi_def_cfa_offset 32
                 \\ .cfi_offset w30, -24
@@ -3098,31 +3099,72 @@ comptime {
                 \\ ldr x19, [sp, #16]
                 \\ ldp x29, x30, [sp], #32
                 \\ ret
-                \\ .cfi_endproc
-                \\
-                ,
-                .x86_64 =>
-                \\ .cfi_startproc
-                \\ push %rbp
-                \\ .cfi_def_cfa_offset 16
-                \\ .cfi_offset %rbp, -16
-                \\ mov %rsp, %rbp
-                \\ .cfi_def_cfa_register %rbp
-                \\ push %rbx
-                \\ .cfi_offset %rbx, -24
-                \\ mov %rsp, %rbx
-                \\ mov %rdx, %rsp
-                \\ call *%rsi
-                \\ mov %rbx, %rsp
-                \\ pop %rbx
-                \\ pop %rbp
+            else
+                \\ stp x29, x30, [sp, #-32]!
+                \\ str x19, [sp, #16]
+                \\ mov x29, sp
+                \\ mov x19, sp
+                \\ mov sp, x2
+                \\ blr x1
+                \\ mov sp, x19
+                \\ ldr x19, [sp, #16]
+                \\ ldp x29, x30, [sp], #32
                 \\ ret
-                \\ .cfi_endproc
-                \\
-                ,
-                else => unreachable,
-            });
+        ),
+        .x86_64 => asm volatile (if (cfi and self_hosted)
+                \\ .cfi_undefined %%rip
+                \\ push %%rbp
+                \\ mov %%rsp, %%rbp
+                \\ push %%rbx
+                \\ mov %%rsp, %%rbx
+                \\ mov %%rdx, %%rsp
+                \\ call *%%rsi
+                \\ mov %%rbx, %%rsp
+                \\ pop %%rbx
+                \\ pop %%rbp
+                \\ ret
+            else if (cfi)
+                \\ push %%rbp
+                \\ .cfi_def_cfa_offset 16
+                \\ .cfi_offset %%rbp, -16
+                \\ mov %%rsp, %%rbp
+                \\ .cfi_def_cfa_register %%rbp
+                \\ push %%rbx
+                \\ .cfi_offset %%rbx, -24
+                \\ mov %%rsp, %%rbx
+                \\ mov %%rdx, %%rsp
+                \\ call *%%rsi
+                \\ mov %%rbx, %%rsp
+                \\ pop %%rbx
+                \\ pop %%rbp
+                \\ ret
+            else
+                \\ push %%rbp
+                \\ mov %%rsp, %%rbp
+                \\ push %%rbx
+                \\ mov %%rsp, %%rbx
+                \\ mov %%rdx, %%rsp
+                \\ call *%%rsi
+                \\ mov %%rbx, %%rsp
+                \\ pop %%rbx
+                \\ pop %%rbp
+                \\ ret
+        ),
+        else => unreachable,
     }
+}
+
+const SwitchStack = *const fn (arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, top: usize) callconv(.c) void;
+
+/// `switchStackNaked` as a function to call. The empty `asm` hides which
+/// function the pointer names, so no optimizer inlines the naked body,
+/// which takes its arguments in registers only a call sets.
+fn switchStack(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, top: usize) void {
+    var f: SwitchStack = @ptrCast(&switchStackNaked);
+    asm volatile (""
+        : [f] "+r" (f),
+    );
+    f(arg, run, top);
 }
 
 // The overflow handler. Like the sanitizer's, it restores the handlers

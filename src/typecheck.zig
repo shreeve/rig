@@ -13608,7 +13608,7 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
 /// stack; what keeps the stack safe is its reach, below.
 ///
 /// A frame's reach is its values and a copy of every value its code
-/// makes or copies (`FrameWalker.copied`): Zig's code may hold each in a
+/// makes or copies (`FrameWalker.copy`): Zig's code may hold each in a
 /// temporary of its own, so the stack the frame really takes is at most
 /// `sema.reach_factor` times its reach, which must fit
 /// `sema.max_frame_reach`, far below the guard under the stack. A frame

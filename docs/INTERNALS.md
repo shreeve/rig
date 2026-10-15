@@ -3747,7 +3747,7 @@ reviewed.
 | `Signal(T)` | a value and a `List` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
-| `onOwnStack`, `rig_switch_stack` | run `main` and the tests on the program's stack, over its guard, with an overflow handler that names a fault in the guard a stack overflow ([The program's stack](#the-programs-stack)). `test/cli/stack_guard.sh` checks it |
+| `onOwnStack`, `switchStack` | run `main` and the tests on the program's stack, over its guard, with an overflow handler that names a fault in the guard a stack overflow ([The program's stack](#the-programs-stack)). `test/cli/stack_guard.sh` checks it |
 | `simdRead`, `simdWrite`, `lane`, `withLane`, `maskBits`, `maskFirst`, `maskAny`, `maskAll` | a vector's bytes, lanes, and mask ([Vectors](#vectors)): `simdRead` and `simdWrite` check the offset once, as `readInt` does, and load or store through an `align(1)` pointer, swapping each lane's bytes where its order is not native; `lane` and `withLane` go through `[n]T` with `index`'s check; `maskBits` lowers per target, and `maskFirst` too (below) |
 | `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @size(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
 | `Arch` | Rig's built-in enum `Arch`: Zig's `std.Target.Cpu.Arch`, so `std.target`'s `arch`, `builtin.cpu.arch`, needs no mapping; every module's `Arch` symbol names it (`importType`) |
@@ -3780,7 +3780,7 @@ A program's Rig code runs on a stack the runtime maps itself
    runs;
 2. make the top 64 MiB readable and writable: the stack;
 3. install the overflow handler, then call the body with the stack
-   pointer at the stack's top (`rig_switch_stack`), and return with it
+   pointer at the stack's top (`switchStack`), and return with it
    where it was.
 
 So the emitted `main` desugars to
@@ -3795,11 +3795,14 @@ and `rig.runTests` runs its tests the same way. The body runs on the
 process's main thread, which keeps its thread-local state, its
 alternate signal stack, and whatever only the main thread may do; the
 switch needs no libc, which a program on Linux links only for an
-`extern`. `rig_switch_stack` is a symbol of its own, in module-level
-assembly for aarch64 and x86_64, never inlined: it pushes a frame record
-that links the new stack's frames to the old one's, with the unwind
-rules to match, so a panic's stack trace runs from the Rig frame down to
-the system's `start`. On other targets the body runs on the thread's own
+`extern`. The switch is a naked function for aarch64 and x86_64
+(`switchStackNaked`), called through a pointer an empty `asm` hides, so
+no optimizer inlines its body: it pushes a frame record that links the
+new stack's frames to the old one's, with the unwind rules to match, so
+a debug build's stack trace runs from the Rig frame down to the system's
+`start`. Zig's own x86_64 backend, which builds debug programs there,
+assembles no unwind rule but the one its `_start` uses, so there a trace
+ends at the switch. On other targets the body runs on the thread's own
 stack.
 
 **Why it is safe.** Zig's code reserves a frame by moving the stack
