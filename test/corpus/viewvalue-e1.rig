@@ -1,0 +1,23 @@
+error Bad
+  oops
+
+fun sslot(v: !List[String], i: Int) -> !String from v
+  !v[i]
+
+fun sfail(v: !List[String], ok: Bool) -> (!String)! from v
+  return Bad.oops if not ok
+  !v[0]
+
+fun mks() -> List[String]
+  l: List[String] = List()
+  !l.push(String("first element string"))
+  l
+
+sub put(ok: Bool)!
+  sfail(!mks(), ok)! = String("new value long enough")
+
+sub main()
+  sslot(!mks(), 0) = String("replaced value long")
+  put(true) catch print("f")
+  put(false) catch print("f")
+  print("ok")

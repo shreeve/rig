@@ -1,0 +1,57 @@
+type V4 = Simd[I8, 4]
+
+fun sl(v: !List[V4], i: Int) -> !V4 from v
+  !v[i]
+
+fun fl(v: !List[Float], i: Int) -> !Float from v
+  !v[i]
+
+fun il(v: !List[Int], i: Int) -> !Int from v
+  !v[i]
+
+fun growv(v: !List[V4]) -> V4
+  for _ in 0..200
+    !v.push(V4.splat(0))
+  V4.splat(1)
+
+fun growf(v: !List[Float]) -> Float
+  for _ in 0..200
+    !v.push(0.0)
+  2.0
+
+fun growi(v: !List[Int]) -> Int
+  for _ in 0..200
+    !v.push(0)
+  2
+
+sub main()
+  v: List[V4] = List()
+  !v.push(V4.splat(3))
+  sl(!v, 0) +|= growv(!v)
+  sl(!v, 0) -|= growv(!v)
+  sl(!v, 0) *= growv(!v)
+  sl(!v, 0) <<= growi2(!v)
+  print(v[0], v.len)
+  f: List[Float] = List()
+  !f.push(9.0)
+  fl(!f, 0) %= growf(!f)
+  fl(!f, 0) /= growf(!f)
+  fl(!f, 0) += growf(!f)
+  print(f[0], f.len)
+  i: List[Int] = List()
+  !i.push(9)
+  il(!i, 0) %= growi(!i)
+  il(!i, 0) += 9
+  il(!i, 0) /= growi(!i)
+  il(!i, 0) <<= growi(!i)
+  il(!i, 0) <<%= growi(!i)
+  il(!i, 0) *%= growi(!i)
+  il(!i, 0) +|= growi(!i)
+  il(!i, 0) >>= growi(!i)
+  il(!i, 0) &= growi(!i)
+  print(i[0], i.len)
+
+fun growi2(v: !List[V4]) -> Int
+  for _ in 0..200
+    !v.push(V4.splat(0))
+  1

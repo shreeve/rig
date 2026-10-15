@@ -1,0 +1,22 @@
+error Bad
+  oops
+
+fun sfail(v: !List[String], ok: Bool) -> (!String)! from v
+  return Bad.oops if not ok
+  !v[0]
+
+fun mks(ok: Bool) -> String!
+  return Bad.oops if not ok
+  String("made a long string value here!!")
+
+sub put(v: !List[String], a: Bool, b: Bool)!
+  sfail(!v, a)! = mks(b)!
+
+sub main()
+  v: List[String] = List()
+  !v.push(String("a"))
+  put(!v, false, true) catch print("f1")
+  put(!v, true, false) catch print("f2")
+  put(!v, false, false) catch print("f3")
+  put(!v, true, true) catch print("f4")
+  print(v)

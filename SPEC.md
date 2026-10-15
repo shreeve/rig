@@ -2741,7 +2741,7 @@ sub main()
 ```
 
 ```error
-cannot assign to a call's result, a `Int`; only a write view (`!T`) a call returns is assigned through
+cannot assign to a call's result, an `Int`; only a write view (`!T`) a call returns is assigned through
 ```
 
 A write view is never stored inside a value (Core §5): `!T`,

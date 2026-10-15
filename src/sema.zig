@@ -2398,9 +2398,12 @@ pub const SemContext = struct {
     /// `node`, an `a ?? b` or `a catch b` whose payload is a view `?T` or
     /// `!T` of a `T` that copies, and whose fallback is a `T`, not a view:
     /// it gives the `T`, the payload's value copied out where `a` has
-    /// one, as `if a as v` then `v` else `b` would (`copiesPayload`).
-    pub fn recordPayloadCopy(self: *SemContext, node: Sexp) !void {
-        try self.facts.payload_copies.put(self.allocator, recordKey(node), {});
+    /// one, as `if a as v` then `v` else `b` would (`copiesPayload`); or,
+    /// with `copied` false, that it gives the view.
+    pub fn recordPayloadCopy(self: *SemContext, node: Sexp, copied: bool) !void {
+        if (copied) {
+            try self.facts.payload_copies.put(self.allocator, recordKey(node), {});
+        } else _ = self.facts.payload_copies.remove(nodeKey(node) orelse return);
     }
 
     /// Whether `node`, an `a ?? b` or `a catch b`, copies the value its

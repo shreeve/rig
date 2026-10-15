@@ -1,0 +1,18 @@
+use std.hash
+
+obj P
+  x: Int
+
+fun f(m: ?hash.Map[String, Int]) -> ?Int from m
+  m.get("a") ?? 0
+
+fun g(m: ?hash.Map[String, P]) -> ?P from m
+  m.get("a") ?? P(x: 5)
+
+sub main()
+  m = hash.Map[String, Int]()
+  print(f(?m))
+  q = hash.Map[String, P]()
+  print(g(?q).x)
+  r: ?P = q.get("a") ?? P(x: 6)
+  print(r.x)

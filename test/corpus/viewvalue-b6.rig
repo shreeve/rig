@@ -1,0 +1,21 @@
+use std.hash
+
+fun lookup[T](m: ?hash.Map[String, T], k: ?String, d: T) -> T
+  m.get(k) ?? d
+
+fun outer[T](m: ?hash.Map[String, T], d: T) -> T
+  lookup(m, "a", <d)
+
+obj Box[T]
+  m: hash.Map[String, T]
+
+  fun at(?self, d: T) -> T
+    self.m.get("a") ?? d
+
+sub main()
+  m = hash.Map[String, String]()
+  !m.put(String("a"), String("hello"))
+  s = outer(?m, String("d"))
+  b = Box[String](m: hash.Map[String, String]())
+  t = b.at(String("e"))
+  print(s, t)

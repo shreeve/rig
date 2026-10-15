@@ -1,0 +1,21 @@
+use std.hash
+
+enum Shape
+  circle(r: Int)
+  rect(w: Int, h: Int)
+  point
+
+fun noise(n: Int) -> Int
+  a: [64]Int = [64 of n]
+  s = 0
+  for k in 0..64
+    s += a[k]
+  s
+
+sub main()
+  m = hash.Map[String, Shape]()
+  !m.put(String("a"), .rect(w: 2, h: 3))
+  a = ?m.get("a") ?? .point
+  b = ?m.get("b") ?? .circle(r: 9)
+  print(noise(77))
+  print(a, b)

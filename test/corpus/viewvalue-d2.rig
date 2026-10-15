@@ -1,0 +1,32 @@
+obj C
+  n: Cell[Int]
+
+obj W
+  h: *C
+
+fun hp(w: !W) -> !*C from w
+  !w.h
+
+obj Q
+  x: Int
+
+obj R
+  q: *Q
+  b: ^Q
+
+fun rq(r: !R) -> !*Q from r
+  !r.q
+
+fun rb(r: !R) -> !^Q from r
+  !r.b
+
+sub main()
+  w = W(h: *C(n: Cell(1)))
+  other = *C(n: Cell(2))
+  hp(!w) = <other
+  print(w.h.n.get())
+  r = R(q: *Q(x: 1), b: ^Q(x: 2))
+  keep = +r.q
+  rq(!r) = *Q(x: 5)
+  rb(!r) = ^Q(x: 6)
+  print(r.q.x, keep.x, r.b.x)

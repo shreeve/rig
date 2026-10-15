@@ -1,0 +1,20 @@
+error Bad
+  oops
+
+obj O
+  n: Int
+  s: String
+
+fun of(o: !O, ok: Bool) -> (!O)! from o
+  return Bad.oops if not ok
+  o
+
+sub put(o: !O, ok: Bool)!
+  of(!o, ok)!.s = String("new value long enough!!")
+  of(!o, ok)!.n += 1
+
+sub main()
+  o = O(n: 1, s: String("a"))
+  put(!o, true) catch print("f")
+  put(!o, false) catch print("f")
+  print(o.n, o.s)

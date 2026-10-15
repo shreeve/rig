@@ -1,0 +1,14 @@
+obj Bag
+  items: List[Int]
+  name: String
+
+  fun label(!self) -> !String
+    !self.name
+
+fun mk() -> Bag
+  Bag(items: List(), name: String("a"))
+
+sub main()
+  w = (!mk()).label()
+  w = String("zzz")
+  print("ok")

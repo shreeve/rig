@@ -1,0 +1,11 @@
+fun lslot(v: !List[List[Int]], i: Int) -> !List[Int] from v
+  !v[i]
+
+fun mslot(v: !List[Int], i: Int) -> !Int from v
+  !v[i]
+
+sub main()
+  vs: List[List[Int]] = List()
+  !vs.push(List())
+  lslot(!vs, 0) = <vs
+  print(vs)

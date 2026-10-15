@@ -1,0 +1,17 @@
+use std.hash
+
+obj P
+  x: Int
+
+fun dv(p: ?P) -> ?P from p
+  p
+
+sub main()
+  q = hash.Map[String, P]()
+  d = P(x: 4)
+  c = q.len == 0
+  a = (q.get("a") ?? (P(x: 1) if c else ?d)).x
+  b = (q.get("a") ?? (?d if c else P(x: 1))).x
+  e = (q.get("a") ?? dv(?d)).x
+  f = q.get("a") ?? +dv(?d)
+  print(a, b, e, f)

@@ -1,0 +1,11 @@
+obj N
+  name: String
+  s: ?String
+
+sub main()
+  v: List[N] = List()
+  !v.push(N(name: String("a"), s: "x"))
+  !v.push(N(name: String("b"), s: "y"))
+  v[0].s = ?v[1].name
+  !v.push(N(name: String("c"), s: "z"))
+  print(v[0].s)

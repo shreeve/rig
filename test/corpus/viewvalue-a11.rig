@@ -1,0 +1,14 @@
+fun lslot(v: !List[List[Int]], i: Int) -> !List[Int] from v
+  !v[i]
+
+fun idx(v: ?List[Int]) -> Int
+  v.len
+
+sub main()
+  vs: List[List[Int]] = List()
+  !vs.push(List())
+  !vs.push(List())
+  x: List[Int] = List()
+  !x.push(1)
+  lslot(!vs, idx(?x)) = <x
+  print(vs)

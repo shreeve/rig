@@ -1,0 +1,27 @@
+obj V
+  s: Simd[I8, 4]
+  f: Float
+
+fun vs(v: !V) -> !Simd[I8, 4] from v
+  !v.s
+
+fun vf(v: !V) -> !Float from v
+  !v.f
+
+sub main()
+  v = V(s: Simd[I8, 4]([1, 2, 3, 20]), f: 1.0)
+  vs(!v) +|= 10
+  vs(!v) += Simd[I8, 4].splat(1)
+  vs(!v) <<= 1
+  vs(!v) *= 2
+  vf(!v) /= 3
+  vf(!v) %= 0.25
+  print(v.s, v.f)
+  w = V(s: Simd[I8, 4]([1, 2, 3, 20]), f: 1.0)
+  w.s +|= 10
+  w.s += Simd[I8, 4].splat(1)
+  w.s <<= 1
+  w.s *= 2
+  w.f /= 3
+  w.f %= 0.25
+  print(w.s, w.f)
