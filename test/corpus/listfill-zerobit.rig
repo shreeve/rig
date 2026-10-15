@@ -1,0 +1,7 @@
+enum One
+  only
+
+sub main()
+  xs = List.filled(1, One.only)
+  !xs.resize(3, One.only)
+  print(xs.len)

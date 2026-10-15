@@ -3468,6 +3468,7 @@ test/reject/ownership/lend_table_loans.rig held_view
 test/reject/ownership/lend_table_loans.rig optional_view
 test/reject/ownership/lend_table_loans.rig vec_elems
 test/reject/ownership/lend_table_loans.rig write_elems
+test/reject/ownership/list_filled_loans.rig main
 test/reject/ownership/list_keep_while_viewed.rig main
 test/reject/ownership/loop_drop_shared.rig main
 test/reject/ownership/loop_element_of_made_array_views.rig main

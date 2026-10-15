@@ -5626,19 +5626,39 @@ const Checker = struct {
         return false;
     }
 
-    /// `List.filled(n, x)` and `!v.resize(n, x)` copy `x` into every
-    /// element they make, so the element `elem` must copy (docs/CORE.md,
-    /// "`copy`, `fill`, and `[n of x]` duplicate values"); an owner is
-    /// made once per element by a loop that says so. False after a
+    /// The one rule for the List methods that copy an element in or
+    /// out, checked on both routes a call takes, `xs.m(...)` and
+    /// `List.m(xs, ...)` through the type, with `f` the method's type at
+    /// the call: `get` copies an element out, and `List.filled(n, x)` and
+    /// `!v.resize(n, x)` copy `x` into every element they make, so the
+    /// element must copy (docs/CORE.md, "`copy`, `fill`, `[n of x]`,
+    /// `List.filled`, and `resize` duplicate values"); an owner is made
+    /// once per element by a loop that says so. False after a
     /// diagnostic.
-    fn fillsCopies(self: *Checker, elem: TypeId, method: []const u8, pos: u32) Error!bool {
+    fn listCopies(self: *Checker, method: []const u8, f: FunctionType, pos: u32) Error!bool {
+        const Copying = enum { get, filled, resize };
+        const which = std.meta.stringToEnum(Copying, method) orelse return true;
+        const elem = switch (which) {
+            .get => switch (self.ctx.types.get(f.returns)) {
+                .optional => |o| o,
+                else => return true,
+            },
+            .filled => if (f.params.len == 2) f.params[1] else return true,
+            .resize => if (f.params.len == 3) f.params[2] else return true,
+        };
         if (self.isPoison(elem)) return true;
-        const op = if (method[0] == 'f') "copies into every element of `List.filled` a value" else "copies into every element `resize` adds a value";
+        const op = switch (which) {
+            .get => "copies an element out of a List",
+            .filled => "copies into every element of `List.filled` a value",
+            .resize => "copies into every element `resize` adds a value",
+        };
         if (!try self.cannotCopy(elem, pos, op)) return true;
         const shown = try self.tyName(elem);
-        if (method[0] == 'f') {
-            try self.err(pos, "`List.filled` copies its value into every element, and {s} `{s}` {s}, so it cannot be copied: write a loop that makes each element, `for 0..n` with `!xs.push(+x)`", .{ article(shown), shown, self.movesBecause(elem) });
-        } else try self.err(pos, "`resize` copies its value into every element it adds, and {s} `{s}` {s}, so it cannot be copied: write a loop that makes each element, `for xs.len..n` with `!xs.push(+x)`, and shrink with `!xs.keep(n)`", .{ article(shown), shown, self.movesBecause(elem) });
+        switch (which) {
+            .get => try self.err(pos, "`List.{s}` would copy an element out of a `List` of `{s}`, which a copy cannot share; read it in place with `v[i]`, or lend it with `?v[i]`", .{ method, shown }),
+            .filled => try self.err(pos, "`List.filled` copies its value into every element, and {s} `{s}` {s}, so it cannot be copied: write a loop that makes each element, `for 0..n` with `!xs.push(+x)`", .{ article(shown), shown, self.movesBecause(elem) }),
+            .resize => try self.err(pos, "`resize` copies its value into every element it adds, and {s} `{s}` {s}, so it cannot be copied: write a loop that makes each element, `for xs.len..n` with `!xs.push(+x)`, and shrink with `!xs.keep(n)`", .{ article(shown), shown, self.movesBecause(elem) }),
+        }
         return false;
     }
 
@@ -9600,12 +9620,7 @@ const Checker = struct {
         try self.checkVisible(resolved.field, resolved.owner_sym, resolved.module, pos);
         // `pop` removes the element, so it hands over ownership; `get`
         // would copy it out of the List.
-        if (resolved.nominal_sym == self.ctx.list_sym_id and std.mem.eql(u8, method, "get")) {
-            if (resolved.fn_ty.returns != self.t().invalid_id) {
-                const elem = self.ctx.types.get(resolved.fn_ty.returns).optional;
-                if (try self.cannotCopy(elem, pos, "copies an element out of a List")) return self.badCall(args, pos, "`List.{s}` would copy an element out of a `List` of `{s}`, which a copy cannot share; read it in place with `v[i]`, or lend it with `?v[i]`", .{ method, try self.tyName(elem) });
-            }
-        }
+        if (resolved.nominal_sym == self.ctx.list_sym_id and std.mem.eql(u8, method, "get")) if (!try self.listCopies(method, resolved.fn_ty, pos)) return self.skipCall(args);
 
         if (receiver == .none) {
             // A `self` without a sigil was reported where it is declared.
@@ -9624,7 +9639,7 @@ const Checker = struct {
         }
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
-        if (resolved.nominal_sym == self.ctx.list_sym_id and std.mem.eql(u8, method, "resize")) if (!try self.fillsCopies(f.params[2], method, pos)) return self.skipCall(args);
+        if (resolved.nominal_sym == self.ctx.list_sym_id and !std.mem.eql(u8, method, "get")) if (!try self.listCopies(method, f, pos)) return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
         const rest: FunctionType = .{
             .params = f.params[1..],
@@ -9982,7 +9997,7 @@ const Checker = struct {
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
                 const info = methodParams(m, false, source);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
-                if (nt.id == self.ctx.list_sym_id and std.mem.eql(u8, name, "filled")) if (!try self.fillsCopies(f.params[1], name, pos)) return self.skipCall(args);
+                if (nt.id == self.ctx.list_sym_id) if (!try self.listCopies(name, f, pos)) return self.skipCall(args);
                 try self.noteCallee(f);
                 self.lend_call = true;
                 try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins, .declared = fty.function.params });

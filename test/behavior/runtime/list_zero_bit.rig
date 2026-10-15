@@ -1,0 +1,26 @@
+# A List of an element that takes no memory, an enum of one variant,
+# grows by `push`, `insert`, and `resize` as any List does.
+
+# release
+
+enum One
+  only
+
+sub main()
+  xs = List.filled(1, One.only)
+  !xs.resize(3, One.only)
+  !xs.push(One.only)
+  !xs.insert(0, One.only)
+  print(xs.len, xs[4])
+  ys: List[One] = List()
+  for 0..100
+    !ys.push(One.only)
+  _ = (!ys).pop()
+  !ys.resize(10, One.only)
+  !ys.keep(2)
+  zs = +ys
+  print(ys.len, zs, ys.get(1))
+
+# expect:
+# 5 .only
+# 2 [.only, .only] .only

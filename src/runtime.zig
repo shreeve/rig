@@ -1099,6 +1099,13 @@ pub fn List(comptime T: type) type {
 
         /// The out-of-line growth, so `push` stays small enough to inline.
         noinline fn grow(self: *Self, want: usize) void {
+            // A zero-bit element takes no memory, so every length fits:
+            // the buffer is made as long as any length can be, and
+            // freeing it frees nothing.
+            if (comptime @sizeOf(T) == 0) {
+                self.buf = self.buf.ptr[0..std.math.maxInt(usize)];
+                return;
+            }
             self.buf = defaultAllocator().realloc(self.buf, @max(want, 4, self.buf.len * 2)) catch oom();
         }
 
