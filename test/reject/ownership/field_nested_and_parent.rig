@@ -1,0 +1,21 @@
+# `r` views `p.a.b`; assigning `p.a` drops the old `Inner`, and its
+# String with it, so `r` would dangle. `p.a` is a prefix of `p.a.b`.
+# Rule: a loan on a place covers every place inside it.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_nested_and_parent.rig).
+
+obj Inner
+  b: String
+
+obj Outer
+  a: Inner
+  n: Int
+
+sub main()
+  p = Outer(a: Inner(b: String("x")), n: 0)
+  r = ?p.a.b
+  p.a = Inner(b: String("y"))
+  print(r)
+
+# error: 17:3: cannot assign to `p.a` while `p.a.b` is lent
+# errors: 1

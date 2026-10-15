@@ -1,0 +1,40 @@
+# A local view carries the loan on the path it was lent from
+# (`?self.scanner.value`), and writes of another path (`self.ast`) may
+# happen while it lives.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_view_local_across_arms.rig).
+
+enum Kind
+  Str
+  Num
+
+obj Scanner
+  value: String
+  kind: Kind
+
+obj Arena
+  bytes: String
+
+  fun add(!self, tag: ?String, text: ?String) -> Int
+    !self.bytes.add(tag, text, ";")
+    self.bytes.len
+
+obj Parser
+  scanner: Scanner
+  ast: Arena
+
+  fun literal(!self) -> Int
+    text = ?self.scanner.value
+    match self.scanner.kind
+      .Str => (!self.ast).add("s:", text)
+      .Num => (!self.ast).add("n:", text)
+
+sub main()
+  p = Parser(scanner: Scanner(value: String("x"), kind: .Str), ast: Arena(bytes: String()))
+  print((!p).literal())
+  p.scanner.kind = .Num
+  print((!p).literal(), p.ast.bytes)
+
+# expect:
+# 4
+# 8 s:x;n:x;

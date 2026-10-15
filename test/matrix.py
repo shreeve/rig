@@ -35,7 +35,11 @@ changed through the `*` handle to the value holding it (`cellmut.`),
 built in debug and with `--release`, and a value holding a Cell made or
 held anywhere but behind `*` (`cellmut.value.`, `celltemp.value.`),
 every one of which must be rejected, and a branch of such places copied
-by value (`cellbranch.`), likewise, and a guard, a write between it and
+by value (`cellbranch.`), likewise, the loans on a struct's fields, a
+nested struct's, a read-view field's, `self`'s, and a box's, each beside
+a second use of a sibling, the same field, or the whole value, in a
+line, a loop, or a closure, past each exit, rejected exactly where the
+paths overlap, and run to the output the rule gives (`field.`), and a guard, a write between it and
 a use, and the use, whose test the compiler omits only where the guard
 still holds (`proof.`, below), and a write and a use in the slots of each
 statement form, proven exactly where the unit rule says, and run alike in
@@ -2679,6 +2683,216 @@ def rootidx_program(shape, site, writer):
     return src, "(rejected)\n" if rejected else prints + "\n"
 
 
+# Disjoint field loans (Core sentence 5, §5 "A field is a place of its
+# own"): a first loan on `X.a` (`r = ?X.a` or `w = !X.a`), used again
+# after a second use of a place of the same value, in a context, past an
+# exit. The places (`FIELD_ROOTS`): a struct's fields, a nested struct's,
+# a field reached through a read-view field (whose loan is the view's,
+# not the holder's), `self`'s in a `!self` method, and a box's. The
+# second use is a read lend, a write lend, a take (`<X.o`), or an
+# assignment, of a sibling (`sib`: `X.b`, `X.o`), the same field
+# (`same`), or the whole value (`parent`). The contexts: straight line,
+# a loop whose back edge carries the first loan, and a closure, whose
+# capture uses the whole name. The exits: fall-through, `return`,
+# `break`, `continue`, `!`, and a failing `if … as` guard. A cell the
+# rule accepts must run and print what the simulation says; any other
+# must be rejected.
+FIELD_ROOTS = {
+    # X: the value the first loan is a field of; Y: the value the second
+    # use is of (`h` holds the read view the first loan goes through);
+    # cap: the name a closure captures.
+    "field": dict(make=['x = P(a: String("a"), b: String("b"), o: String("o"), n: 1)'], X="x", Y="x", cap="x", again='x = P(a: String("a"), b: String("B"), o: String("o"), n: 1)'),
+    "nested": dict(make=['x = Outer(i: P(a: String("a"), b: String("b"), o: String("o"), n: 1), m: 0)'], X="x.i", Y="x.i", cap="x", again='x.i = P(a: String("a"), b: String("B"), o: String("o"), n: 1)'),
+    "readview": dict(make=['src = P(a: String("a"), b: String("s"), o: none, n: 0)', 'x = H(r: ?src, b: String("b"), o: String("o"), n: 1)'], X="x.r", Y="x", cap="x", again='x = H(r: ?src, b: String("B"), o: String("o"), n: 1)', viewed=True),
+    "self": dict(make=[], X="self", Y="self", cap="self", again='self = P(a: String("a"), b: String("B"), o: String("o"), n: 1)'),
+    "box": dict(make=['x = ^P(a: String("a"), b: String("b"), o: String("o"), n: 1)'], X="x", Y="x", cap="x", again='x = ^P(a: String("a"), b: String("B"), o: String("o"), n: 1)'),
+}
+FIELD_FIRSTS = ("read", "write")
+FIELD_RELS = ("sib", "same", "parent")
+FIELD_SECONDS = ("read", "write", "take", "assign")
+FIELD_CONTEXTS = ("straight", "loop", "closure")
+FIELD_EXITS = ("fall", "return", "break", "continue", "propagate", "guard")
+FIELD_DECLS = """error E
+  bad
+
+obj P
+  a: String
+  b: String
+  o: String?
+  n: Int
+
+obj Outer
+  i: P
+  m: Int
+
+obj H
+  r: ?P
+  b: String
+  o: String?
+  n: Int
+
+sub touch(p: !P)
+  !p.b.add("2")
+
+sub touch_h(h: !H)
+  !h.b.add("2")
+
+fun check(k: Int) -> Int!
+  return E.bad if k == 1
+  k
+
+fun some(k: Int) -> Int?
+  if k == 1
+    return none
+  k
+"""
+
+
+def field_second(root, rel, second):
+    """The statement of a second use, and what it does to the simulated
+    state (`a`, `b`, `o`, and the lines it prints); None where the form
+    cannot stand."""
+    r = FIELD_ROOTS[root]
+    Y = r["Y"]
+    if rel == "sib":
+        return {
+            "read": ([f"y = ?{Y}.b", "print(y)"], lambda s: s["out"].append(s["b"])),
+            "write": ([f"!{Y}.b.add(\"2\")"], lambda s: s.update(b=s["b"] + "2")),
+            "take": ([f"t = <{Y}.o", "print(t)"], lambda s: (s["out"].append(s["o"] or "none"), s.update(o=None))),
+            "assign": ([f'{Y}.b = String("B")'], lambda s: s.update(b="B")),
+        }[second]
+    if rel == "same":
+        # The first loan's own field; a field that is not optional is
+        # never taken, and nothing is written through a read view.
+        X = r["X"]
+        if r.get("viewed") and second != "read":
+            return None
+        return {
+            "read": ([f"y = ?{X}.a", "print(y)"], lambda s: s["out"].append(s["a"])),
+            "write": ([f"!{X}.a.add(\"2\")"], lambda s: s.update(a=s["a"] + "2")),
+            "take": None,
+            "assign": ([f'{X}.a = String("A")'], lambda s: s.update(a="A")),
+        }[second]
+    # The whole value the second use is of.
+    touch = "touch_h" if r.get("viewed") else "touch"
+    return {
+        "read": ([f"y = ?{Y}", "print(y.b)"], lambda s: s["out"].append(s["b"])),
+        "write": ([f"{touch}(!{Y})"], lambda s: s.update(b=s["b"] + "2")),
+        "take": None,
+        "assign": ([r["again"]], lambda s: s.update(b="B")),
+    }[second]
+
+
+def field_accepts(root, first, rel, second, ctx):
+    """Whether the rule accepts the cell: the second use touches a place
+    that overlaps the first loan's only where it is the same field or the
+    whole value, or a closure captures the whole name; through a read-view
+    field the first loan is the view's, and touches nothing of `x`."""
+    if FIELD_ROOTS[root].get("viewed"):
+        return True
+    if ctx == "closure" or rel != "sib":
+        return first == "read" and second == "read"
+    return True
+
+
+def field_program(root, first, rel, second, ctx, ex):
+    """The program for one field-loan cell, and what it prints (or
+    `(rejected)`); (None, None) where the form cannot stand."""
+    r = FIELD_ROOTS[root]
+    if r.get("viewed") and first == "write":
+        return None, None  # a write lend through a read view is a type error
+    if ex in ("break", "continue") and ctx != "loop":
+        return None, None
+    if ctx == "closure" and ex != "fall":
+        return None, None
+    if rel != "sib" and (ctx == "closure" or ex != "fall"):
+        return None, None
+    sec = field_second(root, rel, second)
+    if sec is None:
+        return None, None
+    stmts, effect = sec
+    X = r["X"]
+    take_first = [f"r = ?{X}.a"] if first == "read" else [f"w = !{X}.a"]
+    use_first = ["print(r)"] if first == "read" else ['!w.add("+")']
+    after_first = [] if first == "read" else [f"print({X}.a)"]
+    final = [f"print({r['Y']}.b)"]
+    exit_lines = {
+        "fall": [], "guard": [],
+        "return": ["if k == 1", "  return 1"],
+        "break": ["if k == 1", "  break"],
+        "continue": ["if k == 1", "  continue"],
+        "propagate": ["_ = check(k)!"],
+    }[ex]
+    second_lines = (["if some(k) as _"] + ["  " + l for l in stmts]) if ex == "guard" else stmts
+    if ctx == "closure":
+        cap = ("?" if second == "read" else "!") + r["cap"]
+        middle = [f"f = |{cap}|"] + ["  " + l for l in stmts] + ["f()"]
+    elif ctx == "loop":
+        middle = ["for _ in 0..2"] + ["  " + l for l in second_lines + exit_lines + use_first]
+    else:
+        middle = second_lines + exit_lines + use_first
+    body = list(r["make"]) + take_first + middle + (use_first if ctx == "closure" else []) + after_first + final + ["0"]
+    if root == "self":
+        decls = FIELD_DECLS.replace("obj P\n  a: String\n  b: String\n  o: String?\n  n: Int\n", "obj P\n  a: String\n  b: String\n  o: String?\n  n: Int\n\n  fun run(!self, k: Int) -> Int!\n" + indent(body, 4) + "\n")
+        call = ['x = P(a: String("a"), b: String("b"), o: String("o"), n: 1)', "n = (!x).run(k) catch 9"]
+    else:
+        decls = FIELD_DECLS + "\nfun run(k: Int) -> Int!\n" + indent(body, 2) + "\n"
+        call = ["n = run(k) catch 9"]
+    src = decls + "\nsub main()\n  for k in 0..2\n" + indent(call + ["print(n)"], 4) + "\n"
+    if not field_accepts(root, first, rel, second, ctx):
+        return src, "(rejected)\n"
+    # Simulate both calls.
+    out = []
+    for k in (0, 1):
+        s = {"a": "a", "b": "b", "o": "o", "out": out}
+        result = 0
+
+        def step(s=s):
+            """The second use, its exit, and the first view's use: what
+            the exit does (None, `return`, `fail`, `break`, `continue`)."""
+            if not (ex == "guard" and k == 1):
+                effect(s)
+            if k == 1 and ex in ("return", "break", "continue"):
+                return ex
+            if k == 1 and ex == "propagate":
+                return "fail"
+            if first == "read":
+                s["out"].append(s["a"])
+            else:
+                s["a"] += "+"
+            return None
+        how = None
+        if ctx == "loop":
+            for _ in range(2):
+                how = step()
+                if how == "continue":
+                    how = None
+                    continue
+                if how == "break":
+                    how = None
+                    break
+                if how is not None:
+                    break
+        elif ctx == "closure":
+            effect(s)
+            if first == "read":
+                s["out"].append(s["a"])
+            else:
+                s["a"] += "+"
+        else:
+            how = step()
+        if how == "return":
+            result = 1
+        elif how == "fail":
+            result = 9
+        else:
+            if first == "write":
+                s["out"].append(s["a"])
+            s["out"].append(s["b"])
+        out.append(str(result))
+    return src, "".join(line + "\n" for line in out)
+
+
 def indent(lines, n):
     return "\n".join(" " * n + l for l in lines)
 
@@ -3653,6 +3867,26 @@ def main():
             # A cell that runs must be accepted.
             if then != "drop":
                 release.add(ident)
+    for root in FIELD_ROOTS:
+        for first in FIELD_FIRSTS:
+            for rel in FIELD_RELS:
+                for second in FIELD_SECONDS:
+                    for ctx in FIELD_CONTEXTS:
+                        for ex in FIELD_EXITS:
+                            ident = f"field.{root}.{first}.{rel}.{second}.{ctx}.{ex}"
+                            if not wanted(ident):
+                                continue
+                            src, out = field_program(root, first, rel, second, ctx, ex)
+                            if src is None:
+                                skipped += 1
+                                continue
+                            path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                            with open(path, "w") as fh:
+                                fh.write(src)
+                            cells.append((ident, path))
+                            expects[ident] = out
+                            if out != "(rejected)\n" and ctx == "straight" and ex == "fall":
+                                release.add(ident)
     for o in STEP_OWNERS:
         for hname in STEP_HOLDERS:
             for shape in STEP_SHAPES:

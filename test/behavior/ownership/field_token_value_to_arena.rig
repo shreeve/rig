@@ -1,0 +1,37 @@
+# A use touches the path it names; `!self.ast` and `self.scanner.value`
+# are disjoint paths of `self`, so the write lend of one and the read of
+# the other may overlap (Core sentence 5, "A field is a place of its
+# own").
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_token_value_to_arena.rig).
+
+obj Scanner
+  value: String
+
+obj Arena
+  bytes: String
+  count: Int
+
+  fun add(!self, text: ?String) -> Int
+    !self.bytes.add(text)
+    self.count += 1
+    self.count
+
+obj Parser
+  scanner: Scanner
+  ast: Arena
+
+  fun literal(!self) -> Int
+    (!self.ast).add(self.scanner.value)
+
+sub main()
+  p = Parser(scanner: Scanner(value: String("abc")), ast: Arena(bytes: String(), count: 0))
+  print((!p).literal())
+  p.scanner.value = String("de")
+  print((!p).literal(), p.ast.bytes)
+
+# oracle: Parser.literal accept
+
+# expect:
+# 1
+# 2 abcde

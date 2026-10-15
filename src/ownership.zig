@@ -13,10 +13,13 @@
 //!   Going back to a `Point` undoes the writes since; a branch or jump
 //!   captures its `State` as the flows changed since its construct's
 //!   point, so snapshots and joins cost what changed, not the scope.
-//! * A `Loan` is a read or write view of a root var. Loans travel with
-//!   values: `r = ?a` stores a read loan on `a` in `r`; `View(box: ?a)`
-//!   carries it into the struct. A call passes on only the loans its
-//!   signature shows (Core sentence 7): its result carries the loans of
+//! * A `Loan` is a read or write view of a place: a root var and the
+//!   path of fields below it (`resolvePlace`, `Paths`), so `p.a` and
+//!   `p.b` are lent apart, and two places conflict when one path is a
+//!   prefix of the other. Loans travel with values: `r = ?a` stores a
+//!   read loan on `a` in `r`; `View(box: ?a)` carries it into the
+//!   struct. A call passes on only the loans its signature shows (Core
+//!   sentence 7): its result carries the loans of
 //!   its callee (what a callable holds) and of the arguments whose
 //!   parameters' types could hold what it views, and it may store, in
 //!   its write receiver and in what its `!x` arguments and other write
@@ -72,7 +75,9 @@
 //! * A moved or dropped value cannot be used, viewed, moved or dropped.
 //!   Reassigning a binding makes it live again.
 //! * Read views exclude writes, moves, drops and reassignment of their
-//!   root; write views exclude every other use. A method call views
+//!   place; write views exclude every other use. A value never holds a
+//!   view of itself: a store of a loan on a part of a var into that var
+//!   is rejected. A method call views
 //!   its receiver for the whole call (`rc.show(<rc)` is rejected), and
 //!   an argument that reads a value sharing storage its place owns
 //!   holds that place read until the call ends (`print(v, grow(!v))`
@@ -145,6 +150,81 @@ const LoanQuery = enum { any, write };
 
 const LoanKind = enum(u1) { read, write };
 
+/// The part of a var a place names: the fields after the name (Core §5,
+/// "A field is a place of its own"), decided by `resolvePlace` and kept
+/// interned in `Paths`. `whole_path` is the var itself.
+const PathId = u32;
+const whole_path: PathId = 0;
+
+/// The paths of the places the checker has met: a trie of fields, so a
+/// path is a number and its prefixes are its ancestors.
+const Paths = struct {
+    /// The path `i + 1`: its parent and its last field.
+    nodes: std.ArrayList(Node) = .empty,
+    index: std.HashMapUnmanaged(Key, PathId, KeyContext, std.hash_map.default_max_load_percentage) = .empty,
+    /// Each field step's path, by its node: decided by syntax and types
+    /// alone, so `resolvePlace` classifies a step once (`extendsPath`).
+    steps: std.AutoHashMapUnmanaged(u32, Step) = .empty,
+
+    const Step = struct { path: PathId, ended: bool };
+
+    /// A path is cut at this many fields, which only adds conflicts.
+    const max_depth = 8;
+
+    const Node = struct { parent: PathId, field: []const u8, depth: u8 };
+    const Key = struct { parent: PathId, field: []const u8 };
+    const KeyContext = struct {
+        pub fn hash(_: KeyContext, k: Key) u64 {
+            var h = std.hash.Wyhash.init(k.parent);
+            h.update(k.field);
+            return h.final();
+        }
+        pub fn eql(_: KeyContext, a: Key, b: Key) bool {
+            return a.parent == b.parent and std.mem.eql(u8, a.field, b.field);
+        }
+    };
+
+    fn deinit(self: *Paths, gpa: std.mem.Allocator) void {
+        self.nodes.deinit(gpa);
+        self.index.deinit(gpa);
+        self.steps.deinit(gpa);
+    }
+
+    /// The path `parent` and then `field`.
+    fn child(self: *Paths, gpa: std.mem.Allocator, parent: PathId, field: []const u8) Error!PathId {
+        const gop = try self.index.getOrPut(gpa, .{ .parent = parent, .field = field });
+        if (gop.found_existing) return gop.value_ptr.*;
+        errdefer self.index.removeByPtr(gop.key_ptr);
+        try self.nodes.append(gpa, .{ .parent = parent, .field = field, .depth = self.depth(parent) + 1 });
+        gop.value_ptr.* = @intCast(self.nodes.items.len);
+        return gop.value_ptr.*;
+    }
+
+    fn depth(self: *const Paths, p: PathId) u8 {
+        return if (p == whole_path) 0 else self.nodes.items[p - 1].depth;
+    }
+
+    /// Two places of one var conflict when one path is a prefix of the
+    /// other (Core sentence 5): `p` and `p.a`, `p.a` and `p.a.b`, but not
+    /// `p.a` and `p.b`.
+    fn overlap(self: *const Paths, a: PathId, b: PathId) bool {
+        var x = a;
+        var y = b;
+        while (self.depth(x) > self.depth(y)) x = self.nodes.items[x - 1].parent;
+        while (self.depth(y) > self.depth(x)) y = self.nodes.items[y - 1].parent;
+        return x == y;
+    }
+
+    /// Append the fields of path `p`, each after a `.`, to `out`.
+    fn appendText(self: *const Paths, a: std.mem.Allocator, out: *std.ArrayList(u8), p: PathId) Error!void {
+        if (p == whole_path) return;
+        const n = self.nodes.items[p - 1];
+        try self.appendText(a, out, n.parent);
+        try out.append(a, '.');
+        try out.appendSlice(a, n.field);
+    }
+};
+
 /// What reads a value in place before the operands after it run: a call
 /// argument, a method's receiver, the value a call calls, the left
 /// operand of a binary operator, or a value that is no place being
@@ -153,6 +233,8 @@ const Reader = enum(u3) { none, argument, receiver, callee, operand, base };
 
 const Loan = struct {
     root: VarId,
+    /// The place of the root the loan is on (`resolvePlace`).
+    path: PathId = whole_path,
     kind: LoanKind,
     /// Source position of the lend, for diagnostics.
     pos: u32,
@@ -177,7 +259,7 @@ const Loan = struct {
     reserved: bool = false,
 
     fn sameAs(a: Loan, b: Loan) bool {
-        return a.root == b.root and a.kind == b.kind and a.ext == b.ext and a.frame == b.frame;
+        return a.root == b.root and a.path == b.path and a.kind == b.kind and a.ext == b.ext and a.frame == b.frame;
     }
 };
 
@@ -497,6 +579,9 @@ pub const Checker = struct {
     /// of its parts leave them. Set just before walking that node; see
     /// `takeTail`.
     tail: ?Tail = null,
+    /// The paths of the places met so far (`resolvePlace`), shared by
+    /// every function the checker walks.
+    paths: *Paths,
     /// `mayOwnView`'s answers, by holder and view type.
     reaches: std.AutoHashMapUnmanaged(ReachKey, sema.ViewReach) = .empty,
     /// The struct or enum whose members are being walked: the owner of a
@@ -512,6 +597,11 @@ pub const Checker = struct {
     /// The value a header holds for its construct (`Header.held`): the
     /// node that makes it, read as the hidden var `id` holding it.
     held: ?Held = null,
+    /// The place `walkMember` is reading: its base (the root's name, or
+    /// a header's held value) and its path. Reading that base there reads
+    /// only that place (`takePlaceRead`), whose path is decided only where
+    /// a write loan on the root could conflict (`checkReadable`).
+    place_read: ?struct { base: Sexp, place: Sexp } = null,
     /// A source position at or before the statement being walked, for
     /// statements without one of their own (`break`, `continue`).
     anchor: u32 = 0,
@@ -607,12 +697,16 @@ pub const Checker = struct {
     own_plain_reqs: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Error!Checker {
+        const paths = try allocator.create(Paths);
+        paths.* = .{};
         var c = Checker{
             .gpa = allocator,
             .arena_state = std.heap.ArenaAllocator.init(allocator),
             .fn_arena_state = std.heap.ArenaAllocator.init(allocator),
             .source = source,
+            .paths = paths,
         };
+        errdefer c.deinit();
         try c.scopes.append(allocator, .{ .start = 0, .kind = .function });
         return c;
     }
@@ -650,6 +744,8 @@ pub const Checker = struct {
         self.after_value.deinit(self.gpa);
         self.temps.deinit(self.gpa);
         self.reaches.deinit(self.gpa);
+        self.paths.deinit(self.gpa);
+        self.gpa.destroy(self.paths);
         self.fn_arena_state.deinit();
         self.arena_state.deinit();
     }
@@ -826,8 +922,10 @@ pub const Checker = struct {
     }
 
     fn noteLoan(self: *Checker, loan: Loan) Error!void {
+        if (self.quiet > 0 or !self.last_err_kept) return;
+        const lent = try self.pathText(loan.root, loan.path);
         if (loan.place_hold) {
-            try self.note(loan.pos, "`{s}` is lent here, and the place is found up to each index before the index runs", .{self.vars.items[loan.root].name});
+            try self.note(loan.pos, "`{s}` is lent here, and the place is found up to each index before the index runs", .{lent});
         } else if (loan.held_read != .none) {
             const uses = switch (loan.held_read) {
                 .none, .argument => "the call uses it after its later arguments run",
@@ -836,24 +934,41 @@ pub const Checker = struct {
                 .operand => "the operator uses it after its right operand runs",
                 .base => "it is indexed after its index runs",
             };
-            try self.note(loan.pos, "`{s}` read here: the value shares its storage, and {s}", .{ self.vars.items[loan.root].name, uses });
+            try self.note(loan.pos, "`{s}` read here: the value shares its storage, and {s}", .{ lent, uses });
         } else if (loan.reserved) {
-            try self.note(loan.pos, "lent to write here, as the receiver, which is read until the call starts", .{});
+            try self.note(loan.pos, "`{s}` lent to write here, as the receiver, which is read until the call starts", .{lent});
         } else if (loan.read_of_write) {
-            try self.note(loan.pos, "lent to write here, and kept lent to read by a view that only reads it", .{});
-        } else try self.note(loan.pos, "lent to {s} here", .{@tagName(loan.kind)});
+            try self.note(loan.pos, "`{s}` lent to write here, and kept lent to read by a view that only reads it", .{lent});
+        } else try self.note(loan.pos, "`{s}` lent to {s} here", .{ lent, @tagName(loan.kind) });
+    }
+
+    /// How a message names the place loan `l` is on, after a use of
+    /// place `path` of the same var: nothing when it is that place, and
+    /// ` on `p.a`` when one holds the other.
+    fn loanOnText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
+        if (l.path == path) return "";
+        return self.arena().print(" on `{s}`", .{try self.pathText(l.root, l.path)});
+    }
+
+    /// How a message names what loan `l` is on, after a use of place
+    /// `path` of the same var: `it`, or the place `l` is on where that is
+    /// another.
+    fn lentText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
+        if (l.path == path) return "it";
+        return self.arena().print("`{s}`", .{try self.pathText(l.root, l.path)});
     }
 
     /// The end of a conflict's message for a read held in place: what
-    /// holds it.
-    fn heldReadClause(reader: Reader) []const u8 {
-        return switch (reader) {
-            .none, .argument => "while an earlier argument's read of it is in use",
-            .receiver => "while the receiver's read of it is in use",
-            .callee => "while the callee's read of it is in use",
-            .operand => "while the left operand's read of it is in use",
-            .base => "while the indexed value's read of it is in use",
+    /// holds it, and of what (`it`, or the place it reads).
+    fn heldReadClause(self: *Checker, reader: Reader, of: []const u8) Error![]const u8 {
+        const who = switch (reader) {
+            .none, .argument => "an earlier argument's",
+            .receiver => "the receiver's",
+            .callee => "the callee's",
+            .operand => "the left operand's",
+            .base => "the indexed value's",
         };
+        return self.arena().print("while {s} read of {s} is in use", .{ who, of });
     }
 
     /// What is done to a var, for a loan conflict.
@@ -864,34 +979,53 @@ pub const Checker = struct {
         consume: []const u8,
     };
 
-    /// Report a live loan on var `id` that `access` at `pos` conflicts
-    /// with: a read lend conflicts with a write loan, anything else
-    /// with every loan. Returns whether there was one.
-    fn conflicts(self: *Checker, id: VarId, access: Access, pos: u32) Error!bool {
-        const l = self.findLoan(id, if (access == .read) .write else .any, null) orelse return false;
-        const name = self.vars.items[id].name;
-        const in_index = "in an index of a place it is lending";
-        const held = heldReadClause(l.held_read);
+    /// Report a live loan on place `path` of var `id` that `access` at
+    /// `pos` conflicts with: a read lend conflicts with a write loan,
+    /// anything else with every loan. Returns whether there was one.
+    fn conflicts(self: *Checker, id: VarId, path: PathId, access: Access, pos: u32) Error!bool {
+        return try self.conflictingLoan(id, path, access, pos) != null;
+    }
+
+    /// `conflicts`, giving the loan it reported.
+    fn conflictingLoan(self: *Checker, id: VarId, path: PathId, access: Access, pos: u32) Error!?Loan {
+        const l = self.findLoan(id, path, if (access == .read) .write else .any, null) orelse return null;
+        // Diagnostics name both places: the one used, and the one lent
+        // where it is not the same.
+        const name = try self.pathText(id, path);
+        const on = try self.loanOnText(l, path);
+        const lent = try self.lentText(l, path);
+        const in_index = if (l.path == path) "in an index of a place it is lending" else try self.arena().print("in an index of {s}, a place being lent", .{lent});
+        const held = try self.heldReadClause(l.held_read, lent);
         switch (access) {
-            .read => try self.err(pos, "cannot lend `{s}` to read while a write loan is live", .{name}),
+            .read => try self.err(pos, "cannot lend `{s}` to read while a write loan{s} is live", .{ name, on }),
             .write => if (l.place_hold)
-                try self.err(pos, "cannot lend `{s}` to write " ++ in_index, .{name})
+                try self.err(pos, "cannot lend `{s}` to write {s}", .{ name, in_index })
             else if (l.held_read != .none)
                 try self.err(pos, "cannot lend `{s}` to write {s}", .{ name, held })
             else switch (l.kind) {
-                .read => try self.err(pos, "cannot lend `{s}` to write while a read loan is live", .{name}),
-                .write => try self.err(pos, "cannot lend `{s}` to write while a write loan is live", .{name}),
+                .read => try self.err(pos, "cannot lend `{s}` to write while a read loan{s} is live", .{ name, on }),
+                .write => try self.err(pos, "cannot lend `{s}` to write while a write loan{s} is live", .{ name, on }),
             },
             .consume => |verb| if (l.place_hold)
-                try self.err(pos, "cannot {s} `{s}` " ++ in_index, .{ verb, name })
+                try self.err(pos, "cannot {s} `{s}` {s}", .{ verb, name, in_index })
             else if (l.held_read != .none)
                 try self.err(pos, "cannot {s} `{s}` {s}", .{ verb, name, held })
             else
-                try self.err(pos, "cannot {s} `{s}` while a {s} loan is live", .{ verb, name, @tagName(l.kind) }),
+                try self.err(pos, "cannot {s} `{s}` while a {s} loan{s} is live", .{ verb, name, @tagName(l.kind), on }),
         }
         try self.noteLoan(l);
         if (access != .read and l.held_read == .callee) try self.noteCloneCallee(l.pos);
-        return true;
+        return l;
+    }
+
+    /// The fix for a call that lends all of `recv` (place `path` of var
+    /// `id`) to write while loan `l` is on a part of it: a method lends
+    /// all of its receiver (Core §5), so lend only the fields it writes.
+    fn noteWholeReceiver(self: *Checker, id: VarId, path: PathId, l: Loan, callee: Sexp, pos: u32) Error!void {
+        if (self.paths.depth(l.path) <= self.paths.depth(path)) return;
+        const recv = try self.pathText(id, path);
+        const method = self.text(ir.Member.name(callee));
+        try self.note(pos, "the call lends all of `{s}`: lend the fields it writes, `(!{s}.field).method(...)`, or make `{s}` a function of those fields", .{ recv, recv, method });
     }
 
     /// The fix for a call of an owned closure held in what the call
@@ -1453,19 +1587,26 @@ pub const Checker = struct {
     // Loan queries
     // -------------------------------------------------------------------------
 
-    /// A live, non-external loan on `root` held by a var or a temporary.
-    /// Vars that view `skip_alias_of` (payload bindings of that scrutinee)
-    /// are ignored.
-    fn findLoan(self: *Checker, root: VarId, q: LoanQuery, skip_alias_of: ?VarId) ?Loan {
+    /// A live, non-external loan on a place of `root` that overlaps
+    /// `path` (`Paths.overlap`), held by a var or a temporary. Vars that
+    /// view `skip_alias_of` (payload bindings of that scrutinee) are
+    /// ignored.
+    fn findLoan(self: *Checker, root: VarId, path: PathId, q: LoanQuery, skip_alias_of: ?VarId) ?Loan {
         if (self.isLent(root)) for (self.flows.items, self.vars.items, 0..) |f, v, holder| {
             if (skip_alias_of != null and v.alias_of == skip_alias_of) continue;
-            for (f.loans) |l| if (loanMatches(l, root, q)) {
+            for (f.loans) |l| if (self.loanMatches(l, root, path, q)) {
                 if (self.holderLive(@intCast(holder), null)) return l;
                 break;
             };
         };
-        for (self.temps.items) |l| if (loanMatches(l, root, q)) return l;
+        for (self.temps.items) |l| if (self.loanMatches(l, root, path, q)) return l;
         return null;
+    }
+
+    /// Whether `l` is a loan `q` asks for on a place of `root` that
+    /// overlaps `path`. Only this compares paths.
+    fn loanMatches(self: *const Checker, l: Loan, root: VarId, path: PathId, q: LoanQuery) bool {
+        return l.root == root and !l.ext and (q == .any or l.kind == .write) and self.paths.overlap(l.path, path);
     }
 
     // -------------------------------------------------------------------------
@@ -1960,7 +2101,7 @@ pub const Checker = struct {
         const kind = sexp.kind() orelse return .{};
         // The value a header holds is read from its hidden var.
         if (self.held) |h| if (sexp.list.ptr == h.base.list.ptr) {
-            try self.checkReadable(h.id, self.startOf(sexp));
+            try self.checkReadable(h.id, self.takePlaceRead(sexp), self.startOf(sexp));
             return self.varValue(h.id);
         };
         // A temporary is taken into its statement's slot: a block or
@@ -2173,8 +2314,28 @@ pub const Checker = struct {
             try self.errClosureValue(pos, name);
             return .{};
         }
-        try self.checkReadable(id, pos);
+        try self.checkReadable(id, self.takePlaceRead(node), pos);
         return self.varValue(id);
+    }
+
+    /// The place `walkMember` reads from `base`, once: a use touches the
+    /// path it names (Core §5). Null, the whole var, for any other read.
+    fn takePlaceRead(self: *Checker, base: Sexp) ?Sexp {
+        const r = self.place_read orelse return null;
+        if (!sameNode(r.base, base)) return null;
+        self.place_read = null;
+        return r.place;
+    }
+
+    /// The node a place's path starts from: its root's name, or a
+    /// header's held value.
+    fn placeBase(self: *const Checker, e: Sexp) Sexp {
+        var base = e;
+        while (base.isKind(.member) or base.isKind(.index)) {
+            if (self.held) |h| if (base.list.ptr == h.base.list.ptr) break;
+            base = ir.get(base, .object);
+        }
+        return base;
     }
 
     /// A closure binding used as a value.
@@ -2185,16 +2346,19 @@ pub const Checker = struct {
     /// `?f` of closure binding `id`: a read loan on the closure, and the
     /// loans its captures hold.
     fn lendClosure(self: *Checker, id: VarId, pos: u32) Error!Value {
-        const v = (try self.lendVar(id, .read, pos)) orelse return .{};
+        const v = (try self.lendVar(id, whole_path, .read, pos)) orelse return .{};
         return .{ .loans = try self.unionLoans(v.loans, self.flows.items[id].loans) };
     }
 
-    /// Reading `id`: it must be live and not lent to write.
-    fn checkReadable(self: *Checker, id: VarId, pos: u32) Error!void {
-        const v = self.vars.items[id];
+    /// Reading `id`, or the place `place` of it: it must be live and not
+    /// lent to write. The place's path is decided only where some write
+    /// loan on `id` is live.
+    fn checkReadable(self: *Checker, id: VarId, place: ?Sexp, pos: u32) Error!void {
         if (!try self.checkLive(id, pos)) return;
-        if (self.findLoan(id, .write, null)) |l| {
-            try self.err(pos, "use of `{s}` while a write loan is live", .{v.name});
+        if (self.findLoan(id, whole_path, .write, null) == null) return;
+        const path = if (place) |e| (if (self.resolvePlace(e)) |p| (if (p.root == id) p.path else whole_path) else whole_path) else whole_path;
+        if (self.findLoan(id, path, .write, null)) |l| {
+            try self.err(pos, "use of `{s}` while a write loan{s} is live", .{ try self.pathText(id, path), try self.loanOnText(l, path) });
             try self.noteLoan(l);
         }
     }
@@ -2246,6 +2410,11 @@ pub const Checker = struct {
     const Place = struct {
         root: VarId,
         whole: bool,
+        /// The part of the root the place names: its fields up to the
+        /// first step that ends a path (`extendsPath`).
+        path: PathId = whole_path,
+        /// A step has ended the path: no later field extends it.
+        path_ended: bool = false,
         /// Some step goes through an element index.
         indexed: bool = false,
         /// Some step dereferences a shared handle.
@@ -2255,9 +2424,11 @@ pub const Checker = struct {
         through_view: bool = false,
     };
 
-    /// The var a place (`sema.Hands.Kind.place`) starts from, and how
-    /// it gets there. Null for anything else, and for a name the closure
-    /// body did not capture (walking the expression reports it).
+    /// The var a place (`sema.Hands.Kind.place`) starts from, the path
+    /// it names below it, and how it gets there. Null for anything else,
+    /// and for a name the closure body did not capture (walking the
+    /// expression reports it). The path is decided here and nowhere else:
+    /// each loan, use, and store of the place carries it.
     fn resolvePlace(self: *const Checker, e: Sexp) ?Place {
         // The value a header holds is its hidden var.
         if (self.held) |h| if (e == .list and e.list.ptr == h.base.list.ptr) return .{ .root = h.id, .whole = true };
@@ -2271,8 +2442,25 @@ pub const Checker = struct {
                 .member, .index => {
                     const object = ir.get(e, .object);
                     var p = self.resolvePlace(object) orelse return null;
+                    const at_root = p.whole;
                     p.whole = false;
                     if (e.isKind(.index)) p.indexed = true;
+                    if (!p.path_ended) {
+                        if (self.paths.steps.get(e.list.id)) |step| {
+                            p.path = step.path;
+                            p.path_ended = step.ended;
+                        } else {
+                            if (self.paths.depth(p.path) < Paths.max_depth and self.extendsPath(e, at_root)) {
+                                // Out of memory, the path is cut where it
+                                // is, which only adds conflicts.
+                                p.path = self.paths.child(self.gpa, p.path, self.text(ir.Member.name(e))) catch blk: {
+                                    p.path_ended = true;
+                                    break :blk p.path;
+                                };
+                            } else p.path_ended = true;
+                            self.paths.steps.put(self.gpa, e.list.id, .{ .path = p.path, .ended = p.path_ended }) catch {};
+                        }
+                    }
                     if (self.exprType(object)) |t| {
                         const ty = self.typeData(t);
                         if (ty == .shared) p.through_shared = true;
@@ -2284,6 +2472,33 @@ pub const Checker = struct {
             },
             else => return null,
         }
+    }
+
+    /// Whether `e`, a step of a place, goes on the place's path (Core §5,
+    /// "A field is a place of its own"): a data field of a struct value,
+    /// of a box's value (a box has one owner), or of what the root's own
+    /// write view sees (`at_root`: `e`'s object is the root itself). Any
+    /// other step ends the path, and a loan is on the path so far: an
+    /// element or a slice (an index is a run-time value, and a push may
+    /// move the buffer), a handle (other handles reach its contents), a
+    /// read view (what it views is its own loans', not the holder's), an
+    /// optional's value (it exists only while present), or a member of
+    /// anything else.
+    fn extendsPath(self: *const Checker, e: Sexp, at_root: bool) bool {
+        const ctx = self.sema orelse return false;
+        if (!e.isKind(.member)) return false;
+        var t = self.exprType(ir.Member.object(e)) orelse return false;
+        if (at_root) switch (ctx.types.get(t)) {
+            .write_view => |inner| t = inner,
+            else => {},
+        };
+        while (sema.boxedType(ctx, t)) |inner| t = inner;
+        switch (ctx.types.get(t)) {
+            .nominal, .imported_nominal => {},
+            .parameterized_nominal => |pn| if (sema.isBuiltinGeneric(ctx, pn.sym)) return false,
+            else => return false,
+        }
+        return sema.lookupDataFieldConst(ctx, t, self.text(ir.Member.name(e))) != null;
     }
 
     /// Walk the index expressions inside a place.
@@ -2300,14 +2515,14 @@ pub const Checker = struct {
 
     /// The indices of place `e`, whose address is taken (a view, a
     /// slice, a method's receiver): the place up to each index is found
-    /// before the index runs, so while the indices run, `root` is held
-    /// read, and an index cannot lend to write or move it
-    /// (`!ps[0].a[grow(!ps)]` would write into the buffer `grow` freed).
-    /// An assignment finds its target only after its indices run
+    /// before the index runs, so while the indices run, the place's path
+    /// `path` of `root` is held read, and an index cannot lend to write or
+    /// move it (`!ps[0].a[grow(!ps)]` would write into the buffer `grow`
+    /// freed). An assignment finds its target only after its indices run
     /// (`walkFieldAssign`).
-    fn walkIndicesHeld(self: *Checker, e: Sexp, root: VarId) Error!void {
+    fn walkIndicesHeld(self: *Checker, e: Sexp, root: VarId, path: PathId) Error!void {
         const mark = self.temps.items.len;
-        try self.addTemp(.{ .root = root, .kind = .read, .pos = self.startOf(e), .place_hold = true });
+        try self.addTemp(.{ .root = root, .path = path, .kind = .read, .pos = self.startOf(e), .place_hold = true });
         try self.walkPlaceIndices(e);
         if (mark < self.temps.items.len and self.temps.items[mark].place_hold) _ = self.temps.orderedRemove(mark);
     }
@@ -2347,7 +2562,7 @@ pub const Checker = struct {
             return;
         }
         const mark = self.temps.items.len;
-        try self.addTemp(.{ .root = place.root, .kind = .read, .pos = self.startOf(object), .place_hold = true });
+        try self.addTemp(.{ .root = place.root, .path = place.path, .kind = .read, .pos = self.startOf(object), .place_hold = true });
         _ = try self.walk(index);
         if (mark < self.temps.items.len and self.temps.items[mark].place_hold) _ = self.temps.orderedRemove(mark);
     }
@@ -2402,9 +2617,20 @@ pub const Checker = struct {
         };
     }
 
-    /// A `member` or `index`.
+    /// A `member` or `index`. A place is read as far as its path: its
+    /// root's name is read there (`takePlaceRead`).
     fn walkMember(self: *Checker, e: Sexp) Error!Value {
         const object = ir.get(e, .object);
+        // The outermost step of the place sets it; its root's name, read
+        // first, takes it.
+        var sets_read = false;
+        defer if (sets_read) {
+            self.place_read = null;
+        };
+        if (self.place_read == null) {
+            self.place_read = .{ .base = self.placeBase(e), .place = e };
+            sets_read = true;
+        }
         // A value that is no place is read where it runs, and indexed
         // after its index runs; a place is found up to its index before
         // the index runs (`walkIndexOf`).
@@ -2591,7 +2817,7 @@ pub const Checker = struct {
             const v = try self.walkViewedPath(inner);
             return if (kind == .write) self.lendTempToWrite(v, start) else v;
         };
-        try self.walkIndicesHeld(inner, place.root);
+        try self.walkIndicesHeld(inner, place.root, place.path);
         const id = place.root;
         const v = self.vars.items[id];
         const pos = self.startOf(inner);
@@ -2600,7 +2826,7 @@ pub const Checker = struct {
             try self.err(pos, "closure `{s}` cannot be lent to write; lend it as `?{s}`", .{ v.name, v.name });
             return .{};
         }
-        return (try self.lendVar(id, kind, pos)) orelse .{};
+        return (try self.lendVar(id, place.path, kind, pos)) orelse .{};
     }
 
     /// `v`, the view of a path that starts from no var, lent to write:
@@ -2629,12 +2855,12 @@ pub const Checker = struct {
         return obj;
     }
 
-    /// Lend a place in var `id` at `pos`: null when `id` is moved or
+    /// Lend place `path` of var `id` at `pos`: null when `id` is moved or
     /// the lend conflicts, both reported.
-    fn lendVar(self: *Checker, id: VarId, kind: LoanKind, pos: u32) Error!?Value {
+    fn lendVar(self: *Checker, id: VarId, path: PathId, kind: LoanKind, pos: u32) Error!?Value {
         if (!try self.checkLive(id, pos)) return null;
-        if (try self.conflicts(id, if (kind == .write) .write else .read, pos)) return null;
-        const loan: Loan = .{ .root = id, .kind = kind, .pos = pos };
+        if (try self.conflicts(id, path, if (kind == .write) .write else .read, pos)) return null;
+        const loan: Loan = .{ .root = id, .path = path, .kind = kind, .pos = pos };
         try self.addTemp(loan);
         return try self.lendOn(id, loan);
     }
@@ -2681,12 +2907,12 @@ pub const Checker = struct {
             if (rig.isRangeIndex(slice)) _ = try self.walk(ir.Index.index(slice));
             return v;
         };
-        try self.walkIndicesHeld(indices, place.root);
+        try self.walkIndicesHeld(indices, place.root, place.path);
         const id = place.root;
         const pos = self.startOf(slice);
-        const v = (try self.lendVar(id, kind, pos)) orelse return .{};
+        const v = (try self.lendVar(id, place.path, kind, pos)) orelse return .{};
         if (self.typeData(peeled) != .array or !self.inVarStorage(object)) return v;
-        return .{ .loans = try self.unionLoans(v.loans, try self.oneLoan(.{ .root = id, .kind = kind, .pos = pos, .frame = true })) };
+        return .{ .loans = try self.unionLoans(v.loans, try self.oneLoan(.{ .root = id, .path = place.path, .kind = kind, .pos = pos, .frame = true })) };
     }
 
     /// A slice walked as a plain value, or a whole-array view's operand.
@@ -2718,8 +2944,8 @@ pub const Checker = struct {
     /// The var is held while the place's indexes run, as for any lend.
     fn walkThroughView(self: *Checker, e: Sexp) Error!Value {
         const place = self.resolvePlace(e) orelse return self.walkViewedPath(e);
-        try self.walkIndicesHeld(e, place.root);
-        try self.checkReadable(place.root, self.startOf(e));
+        try self.walkIndicesHeld(e, place.root, place.path);
+        try self.checkReadable(place.root, e, self.startOf(e));
         return self.varValue(place.root);
     }
 
@@ -2897,7 +3123,7 @@ pub const Checker = struct {
         const id = place.root;
         const pos = self.startOf(inner);
         if (!try self.checkLive(id, pos)) return .{};
-        if (try self.conflicts(id, .write, pos)) return .{};
+        if (try self.conflicts(id, place.path, .write, pos)) return .{};
         if (!self.mayCarryLoan(self.exprType(inner))) {
             self.taintGeneric(self.exprType(inner), self.varValue(id));
             return .{};
@@ -2971,7 +3197,7 @@ pub const Checker = struct {
         // payload is not a view (`bindPayload`).
         if (v.payload_view) return self.movePayload(id, pos, vt);
 
-        if (try self.conflicts(id, .{ .consume = vt }, pos)) return .{};
+        if (try self.conflicts(id, whole_path, .{ .consume = vt }, pos)) return .{};
         // Emit arms a drop flag only for a binding the consumed fact
         // records (`SemContext.consumes`), so no other may move.
         if (self.sema) |ctx| if (ctx.symbolAt(v.decl)) |sym| if (!ctx.consumes(sym)) {
@@ -3228,8 +3454,8 @@ pub const Checker = struct {
             if (!self.flowLive(id)) try self.markInvalid(id, .dropped, pos);
             return;
         }
-        if (self.findLoan(id, .any, null)) |l| {
-            try self.err(pos, "cannot drop `{s}` while it is lent", .{name});
+        if (self.findLoan(id, whole_path, .any, null)) |l| {
+            try self.err(pos, "cannot drop `{s}` while {s} is lent", .{ name, try self.lentText(l, whole_path) });
             try self.noteLoan(l);
             return;
         }
@@ -3596,7 +3822,7 @@ pub const Checker = struct {
             // Compound assignment (`+=`, ...).
             else => {
                 const id = self.find(name) orelse return;
-                try self.checkReadable(id, pos);
+                try self.checkReadable(id, null, pos);
                 try self.checkAssignable(id, pos);
                 return;
             },
@@ -3709,8 +3935,8 @@ pub const Checker = struct {
             try self.err(pos, "cannot reassign match binding `{s}`; it views the matched value", .{v.name});
             return;
         }
-        if (self.findLoan(id, .any, null)) |l| {
-            try self.err(pos, "cannot reassign `{s}` while it is lent", .{v.name});
+        if (self.findLoan(id, whole_path, .any, null)) |l| {
+            try self.err(pos, "cannot reassign `{s}` while {s} is lent", .{ v.name, try self.lentText(l, whole_path) });
             try self.noteLoan(l);
         }
     }
@@ -3730,7 +3956,7 @@ pub const Checker = struct {
         }
         if (v.closure or v.fixed or v.loop_view or v.capture_resource) return;
         if (self.isGlobal(id) and !self.copies(v.ty)) return;
-        if (self.findLoan(id, .any, null) != null) return;
+        if (self.findLoan(id, whole_path, .any, null) != null) return;
         if (v.ref == .write and !repoints) {
             // Assigning a write view writes into the value it views:
             // it still views it. Through a `!T` parameter (or a loop or
@@ -3807,8 +4033,8 @@ pub const Checker = struct {
         const pos = self.startOf(target);
         if (!try self.checkLive(id, pos)) return;
         const v = self.vars.items[id];
-        if (self.findLoan(id, .any, null)) |l| {
-            try self.err(pos, "cannot assign to `{s}` while `{s}` is lent", .{ try self.placeText(target), v.name });
+        if (self.findLoan(id, place.path, .any, null)) |l| {
+            try self.err(pos, "cannot assign to `{s}` while `{s}` is lent", .{ try self.placeText(target), try self.pathText(l.root, l.path) });
             try self.noteLoan(l);
             return;
         }
@@ -3816,6 +4042,12 @@ pub const Checker = struct {
         // the Cell, which every handle to it reaches: it may hold no loan.
         if (self.inCellList(target)) return self.storeInCellList(target, value);
         if (value.loans.len == 0 or !self.mayCarryLoan(self.exprType(target))) return;
+        // A value never holds a view of itself (Core §5): a part of `id`
+        // may not take a loan on a part of `id`.
+        if (try self.selfViewIn(id, value.loans, &.{}, &.{})) |l| {
+            try self.err(pos, "cannot store in `{s}` a view of `{s}`: a value never holds a view of itself", .{ try self.placeText(target), try self.pathText(l.root, l.path) });
+            return self.noteLoan(l);
+        }
         if (v.kind == .capture and !place.through_shared) return self.storeThroughCapture(v, pos, value);
         if (!place.through_shared and self.writesThroughLocal(id)) return self.storeThroughLocal(id, pos, value, self.placeDepth(target, false));
         if (v.ref != .none or place.through_view or place.through_shared or self.isGlobal(id)) {
@@ -3856,7 +4088,7 @@ pub const Checker = struct {
     /// within `depth` steps (`absorbThroughWrites`).
     fn storeInLent(self: *Checker, id: VarId, pos: u32, value: Value, depth: u32) Error!void {
         const v = self.vars.items[id];
-        if (v.kind == .param) return self.absorbLoans(id, value, pos, &.{}, v.name, false);
+        if (v.kind == .param) return self.absorbLoans(id, value, pos, &.{}, v.name, false, &.{});
         return self.absorbThroughWrites(self.varValue(id), value, pos, v.name, depth);
     }
 
@@ -4000,6 +4232,8 @@ pub const Checker = struct {
         // write receiver is reserved (read) while the arguments are
         // evaluated and must be otherwise unlent when the call starts.
         var recv_root: ?VarId = null;
+        // The place of `recv_root` the receiver is (`resolvePlace`).
+        var recv_path: PathId = whole_path;
         var recv_mode: sema.MethodReceiver = .read;
         var reservation: usize = 0;
         // What the call reads in place before its arguments run (the value
@@ -4026,7 +4260,7 @@ pub const Checker = struct {
                 // The receiver is passed by address: its indices are held
                 // as a viewed place's are.
                 const mark = self.temps.items.len;
-                try self.addTemp(.{ .root = p.root, .kind = .read, .pos = self.startOf(obj), .place_hold = true });
+                try self.addTemp(.{ .root = p.root, .path = p.path, .kind = .read, .pos = self.startOf(obj), .place_hold = true });
                 const recv_val = try self.walk(obj);
                 if (mark < self.temps.items.len and self.temps.items[mark].place_hold) _ = self.temps.orderedRemove(mark);
                 const id = p.root;
@@ -4035,12 +4269,13 @@ pub const Checker = struct {
                 if (self.flowLive(id) and !self.isScalar(self.vars.items[id].ty) and self.errors_found == found) {
                     const pos = self.startOf(obj);
                     reservation = self.temps.items.len;
-                    try self.addTemp(.{ .root = id, .kind = .read, .pos = pos, .reserved = recv_mode == .write });
+                    try self.addTemp(.{ .root = id, .path = p.path, .kind = .read, .pos = pos, .reserved = recv_mode == .write });
                     recv_root = id;
+                    recv_path = p.path;
                     // A built-in's methods hand out values, never views
                     // of the receiver.
                     const kind: LoanKind = if (recv_mode == .write) .write else .read;
-                    recv_value = if (self.builtinName(self.exprType(obj)) != null) recv_val else try self.valueUnion(recv_val, try self.lendOn(id, .{ .root = id, .kind = kind, .pos = pos }));
+                    recv_value = if (self.builtinName(self.exprType(obj)) != null) recv_val else try self.valueUnion(recv_val, try self.lendOn(id, .{ .root = id, .path = p.path, .kind = kind, .pos = pos }));
                 }
             } else if (recv_mode == .value) {
                 // A consuming receiver is taken like an argument: a name
@@ -4091,7 +4326,8 @@ pub const Checker = struct {
             }
             if (recv_root) |id| if (recv_mode == .write) {
                 const reserved = self.temps.orderedRemove(reservation);
-                _ = try self.conflicts(id, .write, self.startOf(ir.Member.object(callee)));
+                const at = self.startOf(ir.Member.object(callee));
+                if (try self.conflictingLoan(id, recv_path, .write, at)) |l| try self.noteWholeReceiver(id, recv_path, l, callee, at);
                 try self.temps.insert(self.gpa, reservation, reserved);
             };
             self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
@@ -4172,7 +4408,8 @@ pub const Checker = struct {
         if (recv_root) |id| if (recv_mode == .write) {
             // The reservation itself is no conflict.
             const reserved = self.temps.orderedRemove(reservation);
-            _ = try self.conflicts(id, .write, self.startOf(ir.Member.object(callee)));
+            const at = self.startOf(ir.Member.object(callee));
+            if (try self.conflictingLoan(id, recv_path, .write, at)) |l| try self.noteWholeReceiver(id, recv_path, l, callee, at);
             try self.temps.insert(self.gpa, reservation, reserved);
         };
 
@@ -4194,12 +4431,18 @@ pub const Checker = struct {
                 // What the receiver is, not the view lending it.
                 if (self.mayCarryLoan(self.pointee(self.exprType(obj)))) {
                     const pos = self.startOf(obj);
-                    const lent: Value = if (recv_root) |id| .{ .loans = try self.oneLoan(.{ .root = id, .kind = .write, .pos = pos }) } else recv_value;
+                    const lent: Value = if (recv_root) |id| .{ .loans = try self.oneLoan(.{ .root = id, .path = recv_path, .kind = .write, .pos = pos }) } else recv_value;
                     try self.storeThroughLend(lent, stored, pos);
                 }
             }
-            try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
-            for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);
+            // Only a value that can write leads a store: a write lend, or a
+            // value holding a write view. A read view that carries the
+            // write loans of what reached it (a parameter's own, a write
+            // view's) writes nothing.
+            if (callee.isKind(.member) and self.mayWrite(self.exprType(ir.Member.object(callee)))) try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee), null, null);
+            for (args, arg_values) |a, v| {
+                if (self.mayWrite(self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a))) try self.absorbThroughWrites(v, stored, self.startOf(a), null, null);
+            }
         }
 
         // The views passed to the call end when it returns, unless its
@@ -4236,7 +4479,7 @@ pub const Checker = struct {
         var ty = self.exprType(e) orelse return;
         while (ctx.types.get(ty) == .write_view) ty = ctx.types.get(ty).write_view;
         if (!sema.readByAddress(ctx, ty)) return;
-        try self.addTemp(.{ .root = place.root, .kind = .read, .pos = self.startOf(e), .held_read = reader });
+        try self.addTemp(.{ .root = place.root, .path = place.path, .kind = .read, .pos = self.startOf(e), .held_read = reader });
     }
 
     /// The places a value that is no place reads in place: what a read
@@ -4285,7 +4528,7 @@ pub const Checker = struct {
             const pos = self.startOf(leaf);
             if (self.resolvePlace(leaf)) |p| {
                 if (!self.flowLive(p.root)) continue;
-                out = try self.valueUnion(out, try self.lendOn(p.root, .{ .root = p.root, .kind = kind, .pos = pos }));
+                out = try self.valueUnion(out, try self.lendOn(p.root, .{ .root = p.root, .path = p.path, .kind = kind, .pos = pos }));
                 continue;
             }
             if (self.isPartOfNoPlace(leaf)) {
@@ -4317,7 +4560,7 @@ pub const Checker = struct {
         if (v.ref == .read or v.closure or !self.flowLive(place.root)) return;
         const ty = self.exprType(leaf) orelse return;
         if (!sema.readByAddress(ctx, ty)) return;
-        try self.addTemp(.{ .root = place.root, .kind = .read, .pos = self.startOf(leaf), .held_read = reader });
+        try self.addTemp(.{ .root = place.root, .path = place.path, .kind = .read, .pos = self.startOf(leaf), .held_read = reader });
     }
 
     /// Walk `earlier`, then `later` while what `earlier` reads in place is
@@ -4392,34 +4635,37 @@ pub const Checker = struct {
 
     /// `replace(!place, v)` / `swap(!a, !b)`: the places are lent to write
     /// for the call, and `v` moves in. The two places of a `swap` may be
-    /// different fields of one value (`swap(!t.left, !t.right)`); neither
-    /// may hold the other. `replace` is `t = <place; place = v`
-    /// (`takenValue`): its result is no view of the place.
+    /// different fields of one value (`swap(!t.left, !t.right)`), two
+    /// places, neither of which holds the other (Core sentence 5).
+    /// `replace` is `t = <place; place = v` (`takenValue`): its result is
+    /// no view of the place.
     fn walkSwapCall(self: *Checker, args: []const Sexp, swap: bool) Error!Value {
         const start = self.temps.items.len;
         const first = try self.walkConsumed(args[0], .argument);
         const lent = self.temps.items.len;
         var saved: std.ArrayList(Loan) = .empty;
         defer saved.deinit(self.gpa);
-        const elements = if (swap) self.sameCollection(args[0], args[1]) else null;
-        if (elements) |e| {
+        if (if (swap) self.sameCollection(args[0], args[1]) else null) |e| {
             // Two elements of one collection: its own `swap` exchanges
-            // them.
+            // them. Said once, here.
             try self.err(self.startOf(ir.Write.operand(args[1])), "cannot lend `{s}` to write while a write loan is live: to swap two elements of `{s}`, write `!{s}.swap({s}, {s})`", .{ e.base, e.base, e.base, e.i, e.j });
-        }
-        if (swap and (elements != null or self.disjointFields(args[0], args[1]))) {
             try saved.appendSlice(self.gpa, self.temps.items[start..lent]);
             self.temps.shrinkRetainingCapacity(start);
         }
         const second = try self.walkConsumed(args[1], .argument);
         try self.temps.appendSlice(self.gpa, saved.items);
         // What `replace` hands back views what the place's value viewed,
-        // and each place now views what went in.
+        // and each place now views what went in. A `swap`'s two lends are
+        // the ways in, not views stored.
         var result: Value = .{};
         const ty = self.exprType(args[1]);
         if (!swap and self.mayCarryLoan(ty)) result = try self.takenValue(args[0], ty, first) else if (!swap) self.taintGeneric(ty, first);
-        try self.absorbThroughWrites(first, second, self.startOf(args[1]), null, null);
-        if (swap) try self.absorbThroughWrites(second, first, self.startOf(args[0]), null, null);
+        // A `swap` stores in each place the value the other held, which
+        // carries what that held (`takenValue`).
+        const lends = if (swap) try self.unionLoans(first.loans, second.loans) else first.loans;
+        const into_first = if (swap) try self.valueUnion(second, try self.takenValue(args[1], self.pointee(self.exprType(args[1])), second)) else second;
+        try self.absorbThroughLends(first, into_first, lends, self.startOf(args[1]), null, null);
+        if (swap) try self.absorbThroughLends(second, try self.valueUnion(first, try self.takenValue(args[0], self.pointee(self.exprType(args[0])), first)), lends, self.startOf(args[0]), null, null);
         self.temps.shrinkRetainingCapacity(start);
         return result;
     }
@@ -4449,21 +4695,6 @@ pub const Checker = struct {
     fn spanText(self: *const Checker, node: Sexp) []const u8 {
         const sp = self.span(node);
         return diag.textOf(self.source, sp);
-    }
-
-    /// `!a.x` and `!a.y`: write views of two fields of one binding,
-    /// neither inside the other.
-    fn disjointFields(self: *Checker, a: Sexp, b: Sexp) bool {
-        if (!a.isKind(.write) or !b.isKind(.write)) return false;
-        var fa: [16]Sexp = undefined;
-        var fb: [16]Sexp = undefined;
-        const na = fieldChain(ir.Write.operand(a), &fa) orelse return false;
-        const nb = fieldChain(ir.Write.operand(b), &fb) orelse return false;
-        if (na == 0 or nb == 0 or !std.mem.eql(u8, self.text(fa[0]), self.text(fb[0]))) return false;
-        for (1..@min(na, nb)) |i| {
-            if (!std.mem.eql(u8, self.text(fa[i]), self.text(fb[i]))) return true;
-        }
-        return false;
     }
 
     fn isPrint(self: *Checker, callee: Sexp) bool {
@@ -4502,13 +4733,19 @@ pub const Checker = struct {
     /// views, do not. A write view var on the way (`w2 = !w`) is a
     /// name for what it views, and takes no step of its own.
     fn absorbThroughWrites(self: *Checker, v: Value, stored: Value, pos: u32, via: ?[]const u8, depth: ?u32) Error!void {
+        return self.absorbThroughLends(v, stored, v.loans, pos, via, depth);
+    }
+
+    /// `absorbThroughWrites`, where `lends` are the lends the store goes
+    /// through (`absorbLoans`): `v`'s, and a `swap`'s other place's.
+    fn absorbThroughLends(self: *Checker, v: Value, stored: Value, lends: []const Loan, pos: u32, via: ?[]const u8, depth: ?u32) Error!void {
         var level: std.ArrayList(VarId) = .empty;
         try self.appendWriteRoots(&level, v, &.{});
         const d = depth orelse {
             for (level.items) |r| {
                 // Only a value that can hold a view can have one stored in it.
                 if (!self.mayCarryLoan(self.pointee(self.vars.items[r].ty))) continue;
-                try self.absorbLoans(r, stored, pos, level.items, via, true);
+                try self.absorbLoans(r, stored, pos, level.items, via, true, lends);
             }
             return;
         };
@@ -4532,10 +4769,15 @@ pub const Checker = struct {
             remaining -= 1;
             level = next;
         }
-        if (seen.items.len > 64) return self.absorbThroughWrites(v, stored, pos, via, null);
+        if (seen.items.len > 64) return self.absorbThroughLends(v, stored, lends, pos, via, null);
+        // The write loans that lead from one value reached to the next are
+        // lends the store goes through too.
+        var through_lends: std.ArrayList(Loan) = .empty;
+        try through_lends.appendSlice(self.arena(), lends);
+        for (seen.items) |r| for (self.varValue(r).loans) |l| if (l.kind == .write) try through_lends.append(self.arena(), l);
         for (seen.items) |r| {
             if (!self.mayCarryLoan(self.pointee(self.vars.items[r].ty))) continue;
-            try self.absorbLoans(r, stored, pos, seen.items, via, false);
+            try self.absorbLoans(r, stored, pos, seen.items, via, false, through_lends.items);
         }
     }
 
@@ -4574,7 +4816,14 @@ pub const Checker = struct {
     /// values: storing a view of one into it is rejected, and a
     /// view parameter holds the loans the caller handed in, as any
     /// var does. `via` is as for `absorbThroughWrites`.
-    fn absorbLoans(self: *Checker, id: VarId, v_in: Value, pos: u32, through: []const VarId, via: ?[]const u8, deeper: bool) Error!void {
+    ///
+    /// A value never holds a view of itself (Core §5): a loan on a part
+    /// of `id` stored into `id` is rejected, but for `lends`, the lends
+    /// the store goes through (a write receiver's own, a write argument's,
+    /// the write loans held on the way), which are the way in, not views
+    /// stored.
+    fn absorbLoans(self: *Checker, id: VarId, v_in: Value, pos: u32, through: []const VarId, via: ?[]const u8, deeper: bool, lends: []const Loan) Error!void {
+        if (try self.selfViewIn(id, v_in.loans, lends, through)) |l| return self.reportSelfView(id, l, lends, pos, via);
         // A value that holds only Strings keeps only what leads to a String.
         // What lands in a value that holds only Strings needs only what
         // could hold them (`carry`).
@@ -4617,8 +4866,50 @@ pub const Checker = struct {
             if (l.kind != .write or std.mem.findScalar(VarId, next, l.root) != null) continue;
             // Only a value that can hold a view can have one stored in it.
             if (!self.mayCarryLoan(self.pointee(self.vars.items[l.root].ty))) continue;
-            try self.absorbLoans(l.root, v, pos, next, via, true);
+            try self.absorbLoans(l.root, v, pos, next, via, true, try std.mem.concat(self.arena(), Loan, &.{ lends, &.{l} }));
         }
+    }
+
+    /// A loan on a part of var `id` that a value carrying `loans` keeps,
+    /// directly or through what the vars they are on hold (a view of `r`
+    /// keeps what `r` views), but for `lends` and the loans on `through`:
+    /// the ways the store goes in (`absorbLoans`). A value never holds a
+    /// view of itself (Core §5).
+    fn selfViewIn(self: *Checker, id: VarId, loans: []const Loan, lends: []const Loan, through: []const VarId) Error!?Loan {
+        // `loans`, then what the vars they are on hold, which is copied
+        // only where there is some.
+        var seen: std.ArrayList(VarId) = .empty;
+        var work: std.ArrayList(Loan) = .empty;
+        var i: usize = 0;
+        while (true) : (i += 1) {
+            const l = if (i < loans.len) loans[i] else if (i - loans.len < work.items.len) work.items[i - loans.len] else break;
+            if (l.ext or l.root >= self.vars.items.len) continue;
+            if (l.root == id) {
+                if (!isLendOf(lends, l)) return l;
+                continue;
+            }
+            const held = self.flows.items[l.root].loans;
+            if (held.len == 0 or std.mem.findScalar(VarId, through, l.root) != null or std.mem.findScalar(VarId, seen.items, l.root) != null) continue;
+            if (seen.items.len >= 64) break;
+            try seen.append(self.arena(), l.root);
+            try work.appendSlice(self.arena(), held);
+        }
+        return null;
+    }
+
+    /// A store of view `l` into var `id`, which `l` is a loan on a part
+    /// of (`absorbLoans`): the part it went in by is the lend in `lends`
+    /// on `id`, if there is one.
+    fn reportSelfView(self: *Checker, id: VarId, l: Loan, lends: []const Loan, pos: u32, via: ?[]const u8) Error!void {
+        const into_path = for (lends) |x| {
+            if (x.root == id and !x.ext) break x.path;
+        } else whole_path;
+        const into = try self.pathText(id, into_path);
+        const viewed = try self.pathText(l.root, l.path);
+        if (via != null) {
+            try self.err(pos, "cannot store in `{s}` a view of `{s}`: a value never holds a view of itself", .{ into, viewed });
+        } else try self.err(pos, "cannot let this call store a view of `{s}` in `{s}`: a value never holds a view of itself", .{ viewed, into });
+        try self.noteLoan(l);
     }
 
     /// A loan on a value owned by the current function (as opposed to one
@@ -4686,9 +4977,12 @@ pub const Checker = struct {
         }
         // The body may store what one capture views into what a
         // captured write view leads to, as a call may with its
-        // arguments: that value now holds those loans.
+        // arguments: that value now holds those loans. Only a capture
+        // that can write leads a store (as for a call's arguments).
         if (!owned and caps.len > 1) for (caps, cap_values.items) |cap, cv| {
-            try self.absorbThroughWrites(cv, value, sema.captureNameNode(cap).?.src.pos, null, null);
+            const pos = sema.captureNameNode(cap).?.src.pos;
+            if (sema.captureModeOf(cap).? != .cap_write and !self.mayWrite(self.symType(pos))) continue;
+            try self.absorbThroughWrites(cv, value, pos, null, null);
         };
 
         // The body is checked as its own function; it cannot affect the
@@ -4756,10 +5050,10 @@ pub const Checker = struct {
         }
         if (mode == .cap_move) return self.moveVar(id, pos, .capture);
         // `|?x|` / `|!x|` view `x` for as long as the closure lives.
-        if (mode == .cap_read or mode == .cap_write) return (try self.lendVar(id, if (mode == .cap_read) .read else .write, pos)) orelse .{};
+        if (mode == .cap_read or mode == .cap_write) return (try self.lendVar(id, whole_path, if (mode == .cap_read) .read else .write, pos)) orelse .{};
         if (!try self.checkCapturable(id, pos)) return .{};
-        if (self.findLoan(id, .write, null)) |l| {
-            try self.err(pos, "cannot capture `{s}` while a write loan is live", .{name});
+        if (self.findLoan(id, whole_path, .write, null)) |l| {
+            try self.err(pos, "cannot capture `{s}` while a write loan{s} is live", .{ name, try self.loanOnText(l, whole_path) });
             try self.noteLoan(l);
             return .{};
         }
@@ -5149,6 +5443,9 @@ pub const Checker = struct {
         via: Via = .owned,
         /// The matched field (`h.s`) when it is not a whole binding.
         path: []const u8 = "",
+        /// The place of `root` the subject is (`resolvePlace`), which its
+        /// bindings view.
+        place: PathId = whole_path,
         /// The subject as written, when no var holds the value it reads
         /// (`Var.matched`); empty when the match takes it.
         shown: []const u8 = "",
@@ -5199,6 +5496,7 @@ pub const Checker = struct {
         }
         if (self.resolvePlace(node)) |p| {
             info.root = p.root;
+            info.place = p.path;
             const v = self.vars.items[p.root];
             if (p.through_view or v.payload_view) info.via = .viewed;
             if (p.through_shared) info.via = .shared;
@@ -5367,7 +5665,7 @@ pub const Checker = struct {
                 // viewed (lent to write when the view holds a write
                 // view, which must not be reached twice), and a viewed
                 // root lends what it holds.
-                loans = try self.oneLoan(.{ .root = r, .kind = if (self.carriesWriteView(ty)) .write else .read, .pos = pos });
+                loans = try self.oneLoan(.{ .root = r, .path = info.place, .kind = if (self.carriesWriteView(ty)) .write else .read, .pos = pos });
                 if (info.via == .viewed) loans = try self.unionLoans(loans, self.flows.items[r].loans);
             } else {
                 loans = scrut_value.loans;
@@ -5406,6 +5704,8 @@ pub const Checker = struct {
         elem1: Sexp = .nil,
         elem2: Sexp = .nil,
         source_root: ?VarId = null,
+        /// The place of `source_root` the source is (`resolvePlace`).
+        source_path: PathId = whole_path,
         /// `for x in <v`, or a collection the source makes: the loans it
         /// held, which its elements carry.
         moved: []const Loan = &.{},
@@ -5474,10 +5774,11 @@ pub const Checker = struct {
                 const id = p.root;
                 const kind: LoanKind = if (mode == .write) .write else .read;
                 spec.source_root = id;
+                spec.source_path = p.path;
                 spec.source_loan = kind;
                 spec.source_pos = self.startOf(source);
                 spec.resource_list = if (self.sema) |ctx| sema.forViewsSlot(ctx, node) else false;
-                if (!self.flowLive(id) or try self.conflicts(id, if (kind == .write) .write else .read, spec.source_pos)) {
+                if (!self.flowLive(id) or try self.conflicts(id, p.path, if (kind == .write) .write else .read, spec.source_pos)) {
                     spec.source_root = null;
                 }
             };
@@ -5637,7 +5938,7 @@ pub const Checker = struct {
         var elem_loans: []const Loan = &.{};
         if (spec.source_root) |root| if (self.flowLive(root)) {
             // The source stays lent for the whole loop.
-            elem_loans = try self.oneLoan(.{ .root = root, .kind = spec.source_loan, .pos = spec.source_pos });
+            elem_loans = try self.oneLoan(.{ .root = root, .path = spec.source_path, .kind = spec.source_loan, .pos = spec.source_pos });
             _ = try self.addVar(.{ .name = "", .decl = spec.source_pos, .kind = .hidden }, .{ .loans = elem_loans });
         };
         if (spec.elem1 == .src) {
@@ -6088,6 +6389,12 @@ pub const Checker = struct {
         return sema.unwrapViews(ctx, ty orelse return null);
     }
 
+    /// Whether a value of type `ty` may write what it reaches: it holds a
+    /// write view, or its type is not known.
+    fn mayWrite(self: *const Checker, ty: ?TypeId) bool {
+        return ty == null or self.sema == null or self.carriesWriteView(ty);
+    }
+
     /// Whether a value of this type holds a write view, which must not
     /// be duplicated.
     fn carriesWriteView(self: *const Checker, ty: ?TypeId) bool {
@@ -6126,6 +6433,14 @@ pub const Checker = struct {
         };
     }
 
+    /// Place `path` of var `root`, as the source names it (`p.a.b`).
+    fn pathText(self: *Checker, root: VarId, path: PathId) Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        try out.appendSlice(self.arena(), self.vars.items[root].name);
+        try self.paths.appendText(self.arena(), &out, path);
+        return out.items;
+    }
+
     fn placeText(self: *Checker, e: Sexp) Error![]const u8 {
         switch (e) {
             .src => return self.text(e),
@@ -6146,20 +6461,6 @@ pub const Checker = struct {
 // Helpers
 // =============================================================================
 
-/// The root name and field names of a field path `a.b.c`, into `out`:
-/// its length, or null when the path has an index or anything else.
-fn fieldChain(e: Sexp, out: *[16]Sexp) ?usize {
-    if (e == .src) {
-        out[0] = e;
-        return 1;
-    }
-    if (!e.isKind(.member)) return null;
-    const n = fieldChain(ir.Member.object(e), out) orelse return null;
-    if (n >= out.len) return null;
-    out[n] = ir.Member.name(e);
-    return n + 1;
-}
-
 fn isLambda(s: Sexp) bool {
     return s.isKind(.lambda);
 }
@@ -6168,8 +6469,12 @@ fn isIdentStart(c: u8) bool {
     return std.ascii.isAlphabetic(c) or c == '_';
 }
 
-fn loanMatches(l: Loan, root: VarId, q: LoanQuery) bool {
-    return l.root == root and !l.ext and (q == .any or l.kind == .write);
+/// Whether `l` is on the place of one of `lends`, whatever its kind: a
+/// lend a store goes through, which a view that only reads it keeps as a
+/// read loan (`carryLoan`).
+fn isLendOf(lends: []const Loan, l: Loan) bool {
+    for (lends) |x| if (x.root == l.root and x.path == l.path and !x.ext) return true;
+    return false;
 }
 
 fn containsLoan(set: []const Loan, l: Loan) bool {

@@ -75,8 +75,8 @@ sub main()
 # error: 46:14: cannot lend `v` to write in an index of a place it is lending
 # error: 60:18: cannot lend `v` to write in an index of a place it is lending
 # error: 61:20: cannot lend `v` to write in an index of a place it is lending
-# error: 62:30: cannot lend `p` to write in an index of a place it is lending
-# error: 63:26: cannot lend `p` to write in an index of a place it is lending
+# error: 62:30: cannot lend `p` to write in an index of `p.qs`, a place being lent
+# error: 63:26: cannot lend `p` to write in an index of `p.bx.vals`, a place being lent
 # error: 64:17: cannot lend `v` to write in an index of a place it is lending
 # error: 66:20: cannot lend `v` to write in an index of a place it is lending
 # error: 69:21: cannot lend `w` to write in an index of a place it is lending

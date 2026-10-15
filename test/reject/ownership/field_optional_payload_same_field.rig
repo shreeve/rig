@@ -1,0 +1,18 @@
+# `s` views the String inside `p.o`; setting `p.o = none` drops it.
+# Rule: the payload's loan is on `p.o`; assigning `p.o` is the same
+# path.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_optional_payload_same_field.rig).
+
+obj P
+  o: String?
+  n: Int
+
+sub main()
+  p = P(o: String("abc"), n: 0)
+  if ?p.o as s
+    p.o = none
+    print(s)
+
+# error: 14:5: cannot assign to `p.o` while `p.o` is lent
+# errors: 1

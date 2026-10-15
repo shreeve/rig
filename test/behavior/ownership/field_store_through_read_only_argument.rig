@@ -1,0 +1,35 @@
+# A `?String` read out of `self` carries the parameter's own write loan
+# on `self`, but it writes nothing: a call lends it no way into `self`,
+# so `!self.scanner.set_text(t)` stores nothing of `self.scanner` in
+# `self`. From Trig's JSDoc parser (src/parser/jsdoc.rig).
+
+obj Scanner
+  text: ?String
+  end: Int
+
+  sub set_text(!self, text: ?String)
+    self.text = text
+    self.end = text.len
+
+obj Parser
+  scanner: Scanner
+  source_text: ?String
+
+  sub narrow(!self)
+    save = self.source_text
+    t = save[0..2]
+    self.source_text = t
+    !self.scanner.set_text(t)
+    print(self.scanner.end)
+    self.source_text = save
+    !self.scanner.set_text(save)
+    print(self.scanner.end)
+
+sub main()
+  src = String("abcd")
+  p = Parser(scanner: Scanner(text: "", end: 0), source_text: ?src)
+  !p.narrow()
+
+# expect:
+# 2
+# 4

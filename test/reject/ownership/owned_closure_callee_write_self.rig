@@ -41,14 +41,14 @@ sub through(c: !Checker)
 sub main()
   print(1)
 
-# error: 14:16: cannot lend `self` to write while the callee's read of it is in use
+# error: 14:16: cannot lend `self` to write while the callee's read of `self.hook` is in use
 # error: 14:5: clone the handle first: `f = +self.hook`, then `f(!self)`
-# error: 17:20: cannot lend `self` to write while the callee's read of it is in use
+# error: 17:20: cannot lend `self` to write while the callee's read of `self.hooks` is in use
 # error: 17:5: clone the handle first: `f = +self.hooks[0]`, then `f(!self)`
-# error: 21:8: cannot lend `self` to write while a read loan is live
-# error: 25:10: cannot lend `self` to write while a read loan is live
-# error: 32:16: cannot lend `self` to write while the callee's read of it is in use
+# error: 21:8: cannot lend `self` to write while a read loan on `self.hook` is live
+# error: 25:10: cannot lend `self` to write while a read loan on `self.opt` is live
+# error: 32:16: cannot lend `self` to write while the callee's read of `self.hook` is in use
 # error: 32:5: clone the handle first: `f = +self.hook`, then `f(!self, x)`
-# error: 35:11: cannot lend `b` to write while the callee's read of it is in use
-# error: 39:11: cannot lend `w` to write while the callee's read of it is in use
+# error: 35:11: cannot lend `b` to write while the callee's read of `b.hook` is in use
+# error: 39:11: cannot lend `w` to write while the callee's read of `w.hook` is in use
 # errors: 7

@@ -1,0 +1,22 @@
+# `prev`, declared before the loop and read in it, counts as live
+# anywhere in the loop (docs/INTERNALS.md, "Liveness"), so its view of
+# `p.items` conflicts with the push, though `prev` is re-pointed before
+# its next use. The paths are equal: a field loan changes nothing here.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_loop_carried.rig).
+
+obj P
+  items: List[Int]
+  n: Int
+
+sub main()
+  p = P(items: List(), n: 0)
+  !p.items.push(0)
+  prev = ?p.items[..]
+  for i in 0..3
+    print(prev.len)
+    !p.items.push(i)
+    prev = ?p.items[..]
+
+# error: 18:5: cannot lend `p.items` to write while a read loan is live
+# errors: 1
