@@ -59,6 +59,13 @@ started:
   today): the tag from the stored bits up to 2^25 slots, and from the
   top of the whole hash, recomputed from the keys, past that. It
   matched the 8-byte version's speed; it saves 4 bytes an entry.
+- An unwrap of an optional that traps when it is `none`. `std.hash`'s
+  `Map.ensure` reaches its value, which is never `none` there, with a
+  `while true` whose only exit is a `return`; the unwrap would replace it.
+- A deep clone of a type parameter's value in a generic body (`+k` of a
+  `?K` where `K` owns text). With it, `Map.ensure`, `Map.put_new`, and
+  `Set.add` take a `?K` and copy the key only when it is stored (owner
+  approved); today they take an owned `K`.
 
 ## Agent tooling
 

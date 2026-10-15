@@ -131,14 +131,14 @@ pub obj Map[K, V]
         return v
     none
 
-  # Put the value `v` under the key `k`. A key already there keeps its
-  # place and gets `v`; its old value and `k` are dropped.
+  # Put `v` under `k`, inserting or overwriting; the old value is
+  # dropped. A key already there keeps its place, and `k` is dropped.
   pub sub put(!self, k: K, v: V)
     old = (!self).replace(<k, <v)
     <old
 
-  # Put `v` under `k` as `put` does, and hand back the value it
-  # replaces, or `none` when the key is new.
+  # Put `v` under `k`, inserting or overwriting, and hand back the old
+  # value, or `none` when `k` is new.
   pub fun replace(!self, k: K, v: V) -> V?
     h = k.hash()
     if self.find(?k, h) as j
@@ -146,6 +146,62 @@ pub obj Map[K, V]
       return replace(!self.es[j].value, <v)
     !self.insert(<k, <v, h)
     none
+
+  # Put `v` under `k` only when `k` is new: true if it did; otherwise
+  # `k` and `v` are dropped.
+  pub fun put_new(!self, k: K, v: V) -> Bool
+    h = k.hash()
+    if self.find(?k, h) != none
+      <k
+      <v
+      return false
+    !self.insert(<k, <v, h)
+    true
+
+  # Put `v` under `k` when `k` is new, and lend the value under `k` to
+  # write. When `k` is there, `k` and `v` are dropped.
+  pub fun ensure(!self, k: K, v: V) -> !V from self, k, v
+    j = (!self).index_of(<k, <v)
+    # The entry at `j` holds a value, so the loop returns at once; it
+    # stands where an unwrap that traps would (TODO.md).
+    while true
+      if !self.es[j].value as w
+        return w
+
+  # The index of the entry of `k`, put there with `v` when `k` is new;
+  # otherwise `k` and `v` are dropped.
+  fun index_of(!self, k: K, v: V) -> Int
+    h = k.hash()
+    if self.find(?k, h) as j
+      <k
+      <v
+      return j
+    !self.insert(<k, <v, h)
+    self.es.len - 1
+
+  # Keep the entries for which `f` is true, in order, and drop the rest
+  # at once. `f` gets each key to read and its value to write, in order.
+  # The entries stay in the Lists the Map has, so they keep their room.
+  pub sub retain(!self, f: ?fun(?K, !V) -> Bool)
+    back: List[Entry[K, V]] = List(capacity: self.es.len)
+    back_hs: List[U64] = List(capacity: self.es.len)
+    while (!self.es).pop() as e
+      !back.push(<e)
+      !back_hs.push((!self.hs).pop() ?? 0)
+    self.len = 0
+    while (!back).pop() as popped
+      new e = <popped
+      h = (!back_hs).pop() ?? 0
+      keep = false
+      if !e.value as v
+        keep = f(?e.key, !v)
+      if keep
+        !self.es.push(<e)
+        !self.hs.push(h)
+        self.len += 1
+      else
+        <e
+    !self.rebuild(self.table.tags.len) if self.table.tags.len > 0
 
   # Take the entry of the key `k` out: its value is handed back. Its key
   # is dropped when the entries are next compacted, as the Map grows,
@@ -314,6 +370,27 @@ pub obj Set[K]
       !self.table.unlink(j, h, ?self.hs) if self.table.tags.len > 0
       return <self.ks[j]
     none
+
+  # Keep the keys for which `f` is true, in order, and drop the rest at
+  # once, in the Lists the Set has, so they keep the room they have.
+  pub sub retain(!self, f: ?fun(?K) -> Bool)
+    back: List[K] = List(capacity: self.len)
+    back_hs: List[U64] = List(capacity: self.len)
+    while (!self.ks).pop() as slot
+      h = (!self.hs).pop() ?? 0
+      if <slot as k
+        !back.push(<k)
+        !back_hs.push(h)
+    self.len = 0
+    while (!back).pop() as k
+      h = (!back_hs).pop() ?? 0
+      if f(?k)
+        !self.ks.push(<k)
+        !self.hs.push(h)
+        self.len += 1
+      else
+        <k
+    !self.rebuild(self.table.tags.len) if self.table.tags.len > 0
 
   # Drop every key. The Set keeps the memory it has.
   pub sub clear(!self)

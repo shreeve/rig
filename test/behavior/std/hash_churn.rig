@@ -1,6 +1,6 @@
 # std.hash's Map and Set against a plain reference, a List of pairs searched in
-# turn, over a long pseudo-random run of puts, takes, gets, edits, and
-# clears, at sizes that cross from a small Map (no table) to a table
+# turn, over a long pseudo-random run of puts, takes, gets, edits,
+# `put_new`s, `ensure`s, `retain`s, and clears, at sizes that cross from a small Map (no table) to a table
 # and back after a clear, and with room reserved. After every step the
 # two agree on the length and on every key, and their walks agree in
 # order.
@@ -43,6 +43,23 @@ obj Model
     !self.pairs.clear()
     self.len = 0
 
+  # Keep the live pairs `kept_after` is true for, each value first
+  # raised by `raise`, as a `retain` raises it.
+  sub retain(!self, raise: Int)
+    kept: List[Pair] = List()
+    for p in ?self.pairs
+      if p.live and kept_after(p.key, p.value + raise)
+        !kept.push(Pair(key: p.key, value: p.value + raise, live: true))
+    self.len = kept.len
+    self.pairs = <kept
+
+fun kept_after(k: Int, v: Int) -> Bool
+  (k / 1024 + v) % 3 != 0
+
+fun raise_and_keep(k: ?Int, v: !Int) -> Bool
+  v += 2
+  kept_after(k, v)
+
 obj Rand
   s: U64
 
@@ -77,18 +94,30 @@ fun run(seed: U64, span: Int, steps: Int, reserve: Int) -> Bool
   m = hash.Map[Int, Int].new(capacity: reserve)
   ref = Model()
   for step in 0..steps
-    op = (!r).next(10)
+    op = (!r).next(20)
     k = (!r).next(span) * 1024
-    if op < 5
+    if op < 9
       !m.put(k, step)
       !ref.put(k, step)
-    else if op < 8
+    else if op < 14
       return false if (!m).take(k) != (!ref).take(k)
-    else if op < 9
+    else if op < 15
       if (!m).edit(k) as v
         v += 1
         !ref.bump(k)
-    else if (!r).next(50) == 0
+    else if op < 16
+      return false if (!m).put_new(k, step) != (ref.find(k) == none)
+      !ref.put(k, step) if ref.find(k) == none
+    else if op < 18
+      c = (!m).ensure(k, step)
+      c += 1
+      !ref.put(k, step) if ref.find(k) == none
+      !ref.bump(k)
+    else if op < 19
+      if (!r).next(10) == 0
+        !m.retain(|key, val| raise_and_keep(key, !val))
+        !ref.retain(2)
+    else if (!r).next(25) == 0
       !m.clear()
       !ref.clear()
     return false if not agree(?m, ?ref, span)
@@ -121,6 +150,10 @@ fun run_set(seed: U64, span: Int, steps: Int, reserve: Int) -> Bool
     else if op < 9
       got = (!s).take(k)
       return false if (got != none) != ((!ref).take(k) != none)
+    else if (!r).next(10) == 0
+      # The Model's values for a Set are all 0, and stay 0.
+      !s.retain(|key| kept_after(key, 0))
+      !ref.retain(0)
     else if (!r).next(50) == 0
       !s.clear()
       !ref.clear()

@@ -1,0 +1,11 @@
+# A receiver already lent to write, `(!b)`, takes no second `!`: the
+# outer one is removed, not parenthesized again.
+
+use std.hash
+
+sub main()
+  b = hash.Map[Int, List[Int]].new()
+  !(!b).ensure(1, List()).push(5)
+  print(b.len)
+
+# error: `(!b)` already lends `b` to write: remove the outer `!` and write `(!b).ensure(1, List())`
