@@ -713,6 +713,11 @@ The sigil shorthand is only for `self`; other parameters put the sigil
 on the type (`other: ?Point`). A drop body is written like a method
 with the receiver `!self` and no name: `drop(!self)`. `pub` before a
 field or method exports it: `pub x: Int`, `pub fun sum(?self) -> Int`.
+`pub ?x: Int` (or `pub ?x: Int = 0`) exports a field to read only: the
+read sigil before the name says other modules get a read view, and
+only the declaring module writes it ([SPEC §14](SPEC.md#14-modules)).
+It is not an optional type, which is written after the type:
+`pub x: Int?`.
 
 A method may be declared outside the body, at module level in the
 type's module, written as it is called: `fun Point.length(?self) ->
@@ -1685,7 +1690,7 @@ params    = "(" [param, ...] ")"
 param     = name [":" type ["=" expr]] | ("?" | "!" | "<") "self"
 obj       = "obj" name [tparams] ["unique"] INDENT member* DEDENT
 enum      = "enum" name [tparams] INDENT member* DEDENT
-member    = ["pub"] (field | fun | sub) | variant | "drop" params block
+member    = ["pub"] (field | fun | sub) | "pub" "?" field | variant | "drop" params block
 field     = name ":" type ["=" expr]
 variant   = name | name "=" expr | name params
 errors    = "error" name INDENT name* DEDENT

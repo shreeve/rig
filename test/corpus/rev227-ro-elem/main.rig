@@ -1,0 +1,12 @@
+# An element of a read-only List field is read-only from another module.
+
+use lib
+
+sub main()
+  t = lib.Tally()
+  !t.bump(3)
+  t.tags[0] += 42
+  print(t.tags, t.inner.n, t.shape, t.last)
+
+# error: 8:5: cannot assign to `t.tags[0]`: field `tags` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?tags`
+# errors: 1

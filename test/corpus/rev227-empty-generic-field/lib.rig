@@ -1,0 +1,34 @@
+pub obj Res
+  id: Int = 7
+  log: List[String] = List()
+
+  drop(!self)
+    print("drop", self.id, self.log.len)
+
+pub obj Seed unique
+  s: Int = 42
+
+  pub fun get(?self) -> Int
+    self.s
+
+pub obj Half
+  n: Int
+
+pub obj Box[T]
+  items: List[T] = List()
+  pub ?count: Int = 0
+  pub sub put(!self, x: T)
+    !self.items.push(<x)
+    self.count += 1
+
+pub obj Nest
+  inner: Box[String] = Box[String]()
+  more: List[Box[Int]] = List()
+
+pub obj Zero
+  pub fun one(?self) -> Int
+    1
+
+pub obj Lim
+  n: Int = Int.max
+  pub ?s: String = String()

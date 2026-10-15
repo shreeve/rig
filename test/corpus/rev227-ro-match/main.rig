@@ -1,0 +1,14 @@
+# A match that lends a read-only field to write is rejected.
+
+use lib
+
+sub main()
+  t = lib.Tally()
+  !t.bump(3)
+  match !t.shape
+    .rect(w, h) => w = 50
+    .dot => print("dot")
+  print(t.tags, t.inner.n, t.shape, t.last)
+
+# error: 8:12: cannot lend `t.shape` to write: field `shape` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?shape`
+# errors: 1

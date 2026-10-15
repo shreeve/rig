@@ -1,0 +1,34 @@
+# `T()` from another module, as a local and as field defaults, of
+# objects with private defaulted fields, a resource with a `drop`, a
+# `unique` object, a generic one, nested defaults, and an object with no
+# fields.
+
+use lib
+
+obj Holder
+  a: lib.Res = lib.Res()
+  n: lib.Nest = lib.Nest()
+  b: lib.Box[List[Int]] = lib.Box[List[Int]]()
+  z: lib.Zero = lib.Zero()
+  l: lib.Lim = lib.Lim()
+
+sub main()
+  r = lib.Res()
+  s = lib.Seed()
+  print(s.get())
+  h1 = Holder()
+  h2 = Holder()
+  l = List[Int]()
+  !l.push(1)
+  !h1.b.put(<l)
+  print(h1.b.count, h2.b.count, h1.l.s.len)
+  z = lib.Zero()
+  print(z)
+
+# expect:
+# 42
+# 1 0 0
+# Zero()
+# drop 7 0
+# drop 7 0
+# drop 7 0

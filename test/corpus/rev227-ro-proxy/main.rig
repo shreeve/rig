@@ -1,0 +1,14 @@
+# A read-only field of another module's generic object, reached through
+# a List element, is read-only here.
+
+use lib
+
+sub main()
+  ps = List[lib.Pile[Int]]()
+  !ps.push(lib.Pile[Int]())
+  for q in !ps
+    q.n = 8
+  print(ps[0].n)
+
+# error: 10:7: cannot assign to `q.n`: field `n` of `lib.Pile` is read-only outside module `lib`, which declares it `pub ?n`
+# errors: 1

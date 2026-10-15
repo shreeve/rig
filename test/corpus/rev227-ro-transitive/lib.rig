@@ -1,0 +1,6 @@
+pub obj Tally
+  pub ?count: Int = 0
+  pub ?tags: List[Int] = List()
+
+pub obj Pile[T]
+  pub ?n: Int = 0

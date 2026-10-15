@@ -1,0 +1,10 @@
+# `?` before a field means other modules may read it but not write it,
+# which only a `pub` field allows.
+
+obj Tally
+  ?count: Int
+
+sub main()
+  print(Tally(count: 1).count)
+
+# error: 5:3: `?` before a field means other modules may read it but not write it, which only a `pub` field allows
