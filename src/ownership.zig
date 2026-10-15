@@ -4869,6 +4869,10 @@ pub const Checker = struct {
         f.loans = try self.unionLoans(held, out.items);
         try self.setFlow(id, f);
         if (!deeper or through.len > 16) return;
+        // Only a var that holds a write view writes what its write loans
+        // lead to. Any other keeps a write loan only as what it copied
+        // out through one (`k.a = r.s`): what is stored in it stays there.
+        if (c.ref != .write and !self.mayWrite(c.ty)) return;
         const next = try std.mem.concat(self.arena(), VarId, &.{ through, &.{id} });
         for (held) |l| {
             if (l.kind != .write or std.mem.findScalar(VarId, next, l.root) != null) continue;

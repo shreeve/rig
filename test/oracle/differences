@@ -328,11 +328,10 @@ test/corpus/optwrite-review-j02-slice-obj.rig set prod-rejects ref-gap stores a 
 test/corpus/optwrite-review-j03-opt-obj.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-review-j05-generic-owned-param.rig stash prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 
-# A local that holds a parameter's write view (`x = <w`, `x = <w ?? e`),
-# or a value copied out through one, is treated as the function's own: a
-# view of it stored into, or returned to, what the caller owns is
-# rejected, and so is a later store of a view of a local beside such a
-# copy, though the value views only what the caller lent (Core sentence 7).
+# A local that holds a parameter's write view (`x = <w`, `x = <w ?? e`)
+# is treated as the function's own: a view of it stored into, or returned
+# to, what the caller owns is rejected, though it views only what the
+# caller lent (Core sentence 7).
 test/corpus/optwrite-review-a01-cross-param-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
 test/corpus/optwrite-review-a02-cross-param-ifas-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
 test/corpus/optwrite-review-b01-plain-local-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
@@ -342,8 +341,3 @@ test/corpus/optwrite-review-e01-return-sub-plain-ok.rig inner prod-rejects prod-
 test/corpus/optwrite-review-e02-return-sub-opt-ok.rig inner prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
 test/corpus/optwrite-review-e03-return-sub-ifas-ok.rig inner prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
 test/corpus/optwrite-review-e04-return-read-ok.rig name prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
-test/corpus/optwrite-review-k01-read-then-local-store-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
-test/corpus/optwrite-review-k03-local-holds-param-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
-test/corpus/optwrite-review-k03b-plain-local-holds-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
-test/corpus/optwrite-review-k04-list-of-reads-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
-test/corpus/optwrite-review-k04b-plain-list-of-reads-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
