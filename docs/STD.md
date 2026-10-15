@@ -485,6 +485,7 @@ type, as any generic is.
 | `(!m).replace(k, v)` | `fun replace(!self, k: K, v: V) -> V?` | puts `v` under `k`, inserting or overwriting, and hands back the old value, or `none` when `k` is new |
 | `(!m).put_new(k, v)` | `fun put_new(!self, k: K, v: V) -> Bool` | puts `v` under `k` only when `k` is new: true if it did; otherwise `k` and `v` are dropped |
 | `(!m).ensure(k, v)` | `fun ensure(!self, k: K, v: V) -> !V from self, k, v` | puts `v` under `k` when `k` is new, and lends the value under `k` to write; otherwise `k` and `v` are dropped. The view keeps `m` lent to write (and, for a key or value type that is a view, what that views) |
+| `(!m).ensure_with(k, make)` | `fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k, make` | as `ensure`, with the value `make(k)` made only when `k` is new; when `k` is there, `make` is not called and `k` is dropped |
 | `(!m).take(k)` | `fun take(!self, k: ?K) -> V?` | the value back, owned; the key dropped when the entries are next compacted (as the Map grows), or with the Map |
 | `!m.clear()` | `sub clear(!self)` | drops every entry |
 | `?m.items()` | `fun items(?self) -> Items[K, V] from self` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) lasts one step of the loop |
@@ -502,28 +503,36 @@ is new; otherwise `k` is dropped), `(!s).take(k: ?K) -> K?`,
 `?s.items()`, each key a `?K`.
 
 `ensure` takes the value to put even when the key is there, and drops
-it then. To make an expensive value only for a new key, `edit` first
-and `put` when it finds nothing:
+it then. To make an expensive value only for a new key, use
+`ensure_with`, whose `make` runs only then; `edit` first and `put` when
+it finds nothing does the same in two lookups:
 
 ```rig
 use std.hash
 
+fun twice(k: ?String) -> String
+  String(k, k)
+
 sub main()
   made = hash.Map[String, String].new()
   for w in ["ab", "cd", "ab"]
-    if (!made).edit(w) as s
+    s = (!made).ensure_with(String(w), twice)
+    !s.add("+")
+  again = hash.Map[String, String].new()
+  for w in ["ab", "cd", "ab"]
+    if (!again).edit(w) as s
       !s.add("+")
     else
-      !made.put(String(w), String(w, w))
+      !again.put(String(w), String(w, w, "+"))
   counts = hash.Map[String, Int].new()
   for w in ["to", "be", "to"]
     c = (!counts).ensure(String(w), 0)
     c += 1
-  print(made.get("ab"), made.get("cd"), counts.get("to"), counts.get("be"))
+  print(made.get("ab"), made.get("cd"), again.get("ab"), counts.get("to"), counts.get("be"))
 ```
 
 ```output
-abab+ cdcd 2 1
+abab++ cdcd+ abab++ 2 1
 ```
 
 A compound key is an object of its parts. A key object that owns its

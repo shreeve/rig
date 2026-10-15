@@ -161,21 +161,46 @@ pub obj Map[K, V]
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write. When `k` is there, `k` and `v` are dropped.
   pub fun ensure(!self, k: K, v: V) -> !V from self, k, v
-    j = (!self).index_of(<k, <v)
+    h = k.hash()
+    j = 0
+    if self.find(?k, h) as at
+      <k
+      <v
+      j = at
+    else
+      j = (!self).add_new(<k, <v, h)
     # The entry at `j` holds a value, so the loop returns at once; it
     # stands where an unwrap that traps would (TODO.md).
     while true
       if !self.es[j].value as w
         return w
 
-  # The index of the entry of `k`, put there with `v` when `k` is new;
-  # otherwise `k` and `v` are dropped.
-  fun index_of(!self, k: K, v: V) -> Int
+  # Lend the value under `k` to write, putting `make(k)` there first
+  # when `k` is new, so the value is made only then. When `k` is there,
+  # `k` is dropped and `make` is not called.
+  pub fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k, make
     h = k.hash()
-    if self.find(?k, h) as j
+    j = 0
+    if self.find(?k, h) as at
       <k
-      <v
-      return j
+      j = at
+    else
+      j = (!self).add_made(<k, make, h)
+    # As in `ensure`, the entry at `j` holds a value.
+    while true
+      if !self.es[j].value as w
+        return w
+
+  # Add the entry of `k`, whose key is new and hashes to `h`, with the
+  # value `make(k)`, and give its index; out of line, as `add_new`.
+  rarely fun add_made(!self, k: K, make: ?fun(?K) -> V, h: U64) -> Int
+    v = make(?k)
+    !self.insert(<k, <v, h)
+    self.es.len - 1
+
+  # Add the entry `k`, `v`, whose key is new and hashes to `h`, and give
+  # its index; out of line, so a lookup that finds its key stays short.
+  rarely fun add_new(!self, k: K, v: V, h: U64) -> Int
     !self.insert(<k, <v, h)
     self.es.len - 1
 
