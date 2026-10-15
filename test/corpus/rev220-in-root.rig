@@ -1,0 +1,35 @@
+obj G[T]
+  items: List[T]
+  pair: [2]List[T]
+
+obj P
+  arr: [2][2]Int
+  g: G[Int]
+
+fun bump(p: !P) -> Int
+  p.arr[0][1] = 40
+  n: List[Int] = List()
+  for i in 0..50
+    !n.push(i + 100)
+  p.g.items = <n
+  m: List[Int] = List()
+  !m.push(77)
+  p.g.pair[1] = <m
+  1
+
+fun inner(p: !P) -> Int
+  p.arr[0][bump(!p)] + p.g.items[bump(!p)] + p.g.pair[1][bump(!p) - 1]
+
+sub main()
+  l: List[Int] = List()
+  !l.push(1)
+  !l.push(2)
+  q: List[Int] = List()
+  !q.push(3)
+  p = P(arr: [[1, 2], [3, 4]], g: G(items: <l, pair: [List(), <q]))
+  print(p.arr[0][bump(!p)], p.g.items[bump(!p)], p.g.pair[1][bump(!p) - 1])
+  print(inner(!p))
+
+# expect:
+# 40 101 77
+# 218
