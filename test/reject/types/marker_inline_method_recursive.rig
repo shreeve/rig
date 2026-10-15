@@ -10,5 +10,5 @@ obj Node
 sub main()
   print(Node(depth: 1).deeper(2))
 
-# error: 7:14: `deeper` is `inline` and calls itself
+# error: 7:14: `Node.deeper` is `inline` and calls itself
 # errors: 1

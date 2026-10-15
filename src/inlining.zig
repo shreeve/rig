@@ -77,12 +77,14 @@ const Fn = struct {
     /// Its marker: `inline` inlines it at every call, `called` and
     /// `rarely` never.
     marker: rig.Marker,
+    /// The object type it is a method of; empty for a module's function.
+    owner: []const u8,
     /// The marked `inline` functions its calls reach, as typecheck
     /// recorded them (`SemContext.inline_calls`), once for each call, but
     /// those in its closures, which are functions of their own: the edges
     /// of a cycle of `inline` functions, and how their frames and sizes
     /// reach it.
-    inline_calls: std.ArrayList(u32) = .empty,
+    inline_calls: std.ArrayList(InlineEdge) = .empty,
     /// The search for cycles of marked `inline` functions (`forcedCycles`).
     color: enum { white, gray, black } = .white,
     /// Mentioned other than as a callee.
@@ -93,9 +95,11 @@ const Fn = struct {
     callers: std.ArrayList(u32) = .empty,
     /// Its name's group (`Group`).
     group: u32 = 0,
-    /// The bytes of values it keeps on its stack; 0 when that depends on
-    /// generic parameters.
-    own: u128 = 0,
+    /// The bytes of values it keeps on its stack; null when that depends
+    /// on compile-time parameters.
+    own: ?u128 = null,
+    /// What the functions the rule inlines add to its frame (`added`).
+    auto: ?u128 = null,
     inlined: bool = false,
     /// Its frame with the inlined calls in it (`frames`).
     frame: ?u128 = null,
@@ -135,6 +139,17 @@ const Group = struct {
 };
 
 const Top = struct { fun: ?u32 };
+
+/// A recorded call of a marked `inline` function: the function, and what
+/// it adds to the caller's frame at the call's instance, as typecheck's
+/// frame check counted it; null where only each instance of the caller
+/// knows (`InlineCall.bytes`).
+const InlineEdge = struct { fun: u32, bytes: ?u128 };
+
+/// A frame no count knows. Every limit fails it, so a function whose
+/// frame holds one is never inlined by the rule: an unknown frame is
+/// never counted as small. Sums of it stay in range.
+const unknown_frame: u128 = std.math.maxInt(u64);
 
 /// A call, by the order the calls are visited in, and the function it is in.
 const First = struct { seq: u32, caller: ?u32 };
@@ -193,31 +208,37 @@ const Pass = struct {
     }
 
     fn collect(self: *Pass, module: usize, root: Sexp) !void {
-        for (ir.Module.decls(root)) |d| try self.collectDecl(module, d, false);
+        for (ir.Module.decls(root)) |d| try self.collectDecl(module, d, null);
     }
 
-    fn collectDecl(self: *Pass, module: usize, decl: Sexp, member: bool) !void {
+    /// A declaration, a member of the object type named `owner` if any.
+    fn collectDecl(self: *Pass, module: usize, decl: Sexp, owner: ?[]const u8) !void {
         var d = decl;
         if (d.isKind(.@"pub")) d = ir.Pub.decl(d);
         const kind = d.kind() orelse return;
         switch (kind) {
-            .fun, .sub => try self.add(module, d, member, false),
-            .@"struct" => for (ir.Struct.members(d)) |m| try self.collectDecl(module, m, true),
-            .@"enum" => for (ir.Enum.members(d)) |m| try self.collectDecl(module, m, true),
-            .errors => for (ir.Errors.members(d)) |m| try self.collectDecl(module, m, true),
-            .generic_struct => for (ir.GenericStruct.members(d)) |m| try self.collectGeneric(module, m),
-            .generic_enum => for (ir.GenericEnum.members(d)) |m| try self.collectGeneric(module, m),
+            .fun, .sub => try self.add(module, d, owner, false),
+            .@"struct" => for (ir.Struct.members(d)) |m| try self.collectDecl(module, m, self.nameOf(module, d)),
+            .@"enum" => for (ir.Enum.members(d)) |m| try self.collectDecl(module, m, self.nameOf(module, d)),
+            .errors => for (ir.Errors.members(d)) |m| try self.collectDecl(module, m, self.nameOf(module, d)),
+            .generic_struct => for (ir.GenericStruct.members(d)) |m| try self.collectGeneric(module, m, self.nameOf(module, d)),
+            .generic_enum => for (ir.GenericEnum.members(d)) |m| try self.collectGeneric(module, m, self.nameOf(module, d)),
             else => {},
         }
     }
 
-    fn collectGeneric(self: *Pass, module: usize, member: Sexp) !void {
-        var m = member;
-        if (m.isKind(.@"pub")) m = ir.Pub.decl(m);
-        if (m.isKind(.fun) or m.isKind(.sub)) try self.add(module, m, true, true);
+    fn nameOf(self: *Pass, module: usize, decl: Sexp) []const u8 {
+        return textOf(self.ctx(module), ir.get(decl, .name));
     }
 
-    fn add(self: *Pass, module: usize, node: Sexp, member: bool, generic_owner: bool) !void {
+    fn collectGeneric(self: *Pass, module: usize, member: Sexp, owner: []const u8) !void {
+        var m = member;
+        if (m.isKind(.@"pub")) m = ir.Pub.decl(m);
+        if (m.isKind(.fun) or m.isKind(.sub)) try self.add(module, m, owner, true);
+    }
+
+    fn add(self: *Pass, module: usize, node: Sexp, owner: ?[]const u8, generic_owner: bool) !void {
+        const member = owner != null;
         const c = self.ctx(module);
         const name_node = ir.get(node, .name);
         const name = textOf(c, name_node);
@@ -240,6 +261,7 @@ const Pass = struct {
             .pos = pos,
             .eligible = eligible,
             .marker = marker,
+            .owner = owner orelse "",
             .size = if (body != .nil) size(body) else 0,
             .group = gop.value_ptr.*,
         });
@@ -337,7 +359,7 @@ const Pass = struct {
             if (cur) |from| try self.fns.items[from].calls.append(self.a, t);
             if (call.list.id != 0) try self.sites.append(self.a, .{ .module = module, .id = call.list.id, .callee = t });
         }
-        if (cur) |from| if (self.closures == 0) if (self.ctx(module).inlineCallOf(call)) |ic| try self.fns.items[from].inline_calls.append(self.a, self.declared(ic.fun));
+        if (cur) |from| if (self.closures == 0) if (self.ctx(module).inlineCallOf(call)) |ic| try self.fns.items[from].inline_calls.append(self.a, .{ .fun = self.declared(ic.fun), .bytes = ic.bytes });
         // The bracket list of a generic call, `f[T](x)`.
         if (raw.isKind(.inst)) for (raw.items()[2..]) |a| try self.visit(module, cur, a);
         for (ir.Call.args(call)) |a| try self.visit(module, cur, a);
@@ -367,9 +389,9 @@ const Pass = struct {
     fn forcedVisit(self: *Pass, v: u32) !void {
         self.fns.items[v].color = .gray;
         try self.stack.append(self.a, v);
-        for (self.fns.items[v].inline_calls.items) |w| switch (self.fns.items[w].color) {
-            .white => try self.forcedVisit(w),
-            .gray => try self.cycleError(w),
+        for (self.fns.items[v].inline_calls.items) |e| switch (self.fns.items[e.fun].color) {
+            .white => try self.forcedVisit(e.fun),
+            .gray => try self.cycleError(e.fun),
             .black => {},
         };
         _ = self.stack.pop();
@@ -384,15 +406,22 @@ const Pass = struct {
         const at = std.mem.lastIndexOfScalar(u32, self.stack.items, w).?;
         const path = self.stack.items[at + 1 ..];
         if (path.len == 0) {
-            try c.err(f.pos, "`{s}` is `inline` and calls itself, so no call of it can be inlined; drop `inline`", .{f.name});
+            try c.err(f.pos, "`{s}` is `inline` and calls itself, so no call of it can be inlined; drop `inline`", .{try self.shown(w)});
             return;
         }
         var through: std.ArrayList(u8) = .empty;
         for (path, 0..) |g, i| {
             if (i > 0) try through.appendSlice(self.a, ", ");
-            try through.print(self.a, "`{s}`", .{self.fns.items[g].name});
+            try through.print(self.a, "`{s}`", .{try self.shown(g)});
         }
-        try c.err(f.pos, "`{s}` is `inline` and calls itself through {s}, also `inline`, so no call of it can be inlined; drop `inline` from one of them", .{ f.name, through.items });
+        try c.err(f.pos, "`{s}` is `inline` and calls itself through {s}, also `inline`, so no call of it can be inlined; drop `inline` from one of them", .{ try self.shown(w), through.items });
+    }
+
+    /// A function as a message names it: `f`, or a method `Type.m`.
+    fn shown(self: *Pass, v: u32) ![]const u8 {
+        const f = self.fns.items[v];
+        if (f.owner.len == 0) return f.name;
+        return std.fmt.allocPrint(self.a, "{s}.{s}", .{ f.owner, f.name });
     }
 
     /// The group of the functions named `name`, which a call that resolves
@@ -413,15 +442,20 @@ const Pass = struct {
         }
     }
 
-    /// What the calls of `v` that are inlined add to its frame: the sum, over
-    /// its call sites, of the frame of each inlined callee. A marked
-    /// `inline` callee is counted by the calls typecheck recorded of it
-    /// (`inline_calls`), on which no cycle is left (`forcedCycles`); any
-    /// other by its call, on which no inlined function is on a cycle.
+    /// What the functions the rule inlines add to `v`'s frame: the frame
+    /// of each that a call of `v` reaches, and of each that the marked
+    /// `inline` functions `v` calls hold, since those land in `v` too.
+    /// What a marked function keeps itself is typecheck's to count in
+    /// `v`'s frame (`checkFrames`), so it is not here; it is in `v`'s own
+    /// frame where `v` is inlined (`frame`). No cycle of marked functions
+    /// is left (`forcedCycles`), and no function the rule inlines is on a
+    /// cycle, so this ends.
     fn added(self: *Pass, v: u32) u128 {
+        if (self.fns.items[v].auto) |b| return b;
         var total: u128 = 0;
         for (self.fns.items[v].calls.items) |t| total += self.calleeFrame(t);
-        for (self.fns.items[v].inline_calls.items) |w| total += self.frame(w);
+        for (self.fns.items[v].inline_calls.items) |e| total += self.added(e.fun);
+        self.fns.items[v].auto = total;
         return total;
     }
 
@@ -441,11 +475,14 @@ const Pass = struct {
         return total;
     }
 
-    /// The frame of an inlined function with its own inlined calls in it.
-    /// No cycle of calls is inlined, so this ends.
+    /// The frame of a function the rule inlines, as it lands in a caller:
+    /// its own values, those of the functions inlined in it, and the
+    /// marked `inline` functions it calls at each call's instance, as
+    /// typecheck counted them. A count no one knows is `unknown_frame`.
     fn frame(self: *Pass, v: u32) u128 {
         if (self.fns.items[v].frame) |b| return b;
-        const b = self.fns.items[v].own + self.added(v);
+        var b = (self.fns.items[v].own orelse unknown_frame) + self.added(v);
+        for (self.fns.items[v].inline_calls.items) |e| b += e.bytes orelse unknown_frame;
         self.fns.items[v].frame = b;
         return b;
     }
@@ -455,7 +492,7 @@ const Pass = struct {
         if (self.fns.items[v].weight) |w| return w;
         var total: u64 = self.fns.items[v].size;
         for (self.fns.items[v].calls.items) |t| total += self.calleeWeight(t);
-        for (self.fns.items[v].inline_calls.items) |w| total += self.expanded(w);
+        for (self.fns.items[v].inline_calls.items) |e| total += self.expanded(e.fun);
         self.fns.items[v].weight = total;
         return total;
     }
@@ -510,23 +547,41 @@ const Pass = struct {
                 try self.uninline(v);
                 continue;
             }
-            if (self.added(v) <= max_inlined_frame_bytes and f.own + self.added(v) <= sema.max_frame_bytes) {
+            // The functions the rule inlines add at most 64 KiB to any
+            // frame: what bounds them beside typecheck's count of the rest.
+            // A function whose own frame its instances decide is held to
+            // the limit by each instance's check (`checkInstanceSizes`).
+            const own_fits = if (f.own) |own| own + self.added(v) <= sema.max_frame_bytes else true;
+            if (self.added(v) <= max_inlined_frame_bytes and own_fits) {
                 i += 1;
                 continue;
             }
             // The largest of the inlined calls, the first of them in the
-            // order of the calls and of a group's functions.
-            var biggest: ?u32 = null;
-            for (f.calls.items) |t| {
-                const w = self.largest(t) orelse continue;
-                if (biggest == null or self.frame(w) > self.frame(biggest.?)) biggest = w;
-            }
+            // order of the calls and of a group's functions, through the
+            // marked `inline` functions it calls, whose own inlined calls
+            // land in it too.
+            const biggest = self.largestIn(v);
             if (biggest) |w| {
                 try self.uninline(w);
                 continue;
             }
             i += 1;
         }
+    }
+
+    /// The function the rule inlines with the largest frame, of those `v`'s
+    /// calls reach and those the marked `inline` functions it calls hold.
+    fn largestIn(self: *Pass, v: u32) ?u32 {
+        var biggest: ?u32 = null;
+        for (self.fns.items[v].calls.items) |t| {
+            const w = self.largest(t) orelse continue;
+            if (biggest == null or self.frame(w) > self.frame(biggest.?)) biggest = w;
+        }
+        for (self.fns.items[v].inline_calls.items) |e| {
+            const w = self.largestIn(e.fun) orelse continue;
+            if (biggest == null or self.frame(w) > self.frame(biggest.?)) biggest = w;
+        }
+        return biggest;
     }
 
     /// The inlined function a call of `t` reaches with the largest frame,
@@ -572,6 +627,7 @@ const Pass = struct {
                 if (u.forgot == self.epoch) continue;
                 u.forgot = self.epoch;
                 u.frame = null;
+                u.auto = null;
                 u.weight = null;
                 if (u.inlined) try self.reachers(t);
             }
@@ -725,7 +781,7 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
             continue;
         }
         if (!f.eligible or f.used_as_value or pass.isCyclic(@intCast(v)) or f.size > max) continue;
-        if (f.own > max_inlined_frame_bytes) continue;
+        if ((f.own orelse unknown_frame) > max_inlined_frame_bytes) continue;
         f.inlined = true;
     }
     try pass.fit();

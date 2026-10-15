@@ -13684,12 +13684,19 @@ const FrameWalker = struct {
         // argument poisoned, none is left.
         const blank = try ctx.arena.allocator().alloc(TypeId, ic.subst.args.len);
         @memset(blank, ctx.types.invalid_id);
-        for (slots) |slot| {
+        const tys = try ctx.arena.allocator().alloc(TypeId, slots.len);
+        var concrete = true;
+        for (slots, tys) |slot, *t| {
             const ty = if (local) slot.ty else try sema.importType(ctx, decl, slot.ty, ic.fun.module);
             if (sema.containsTypeVar(ctx, try sema.substituteType(ctx, ty, .{ .params = ic.subst.params, .args = blank })))
                 return self.unknownFrame(call, "the call does not bind every parameter its values hold");
-            try f.append(ctx.allocator, .{ .ty = try sema.substituteType(ctx, ty, ic.subst), .name = slot.name });
+            t.* = try sema.substituteType(ctx, ty, ic.subst);
+            if (sema.containsTypeVar(ctx, t.*)) concrete = false;
+            try f.append(ctx.allocator, .{ .ty = t.*, .name = slot.name });
         }
+        // What the call adds, for `inlining.decide`: known here unless the
+        // caller's own parameters decide it.
+        ctx.inline_calls.getPtr(call.list.id).?.bytes = if (concrete) try frameBytes(ctx, tys) else null;
     }
 
     fn unknownFrame(self: *FrameWalker, call: Sexp, why: []const u8) Error!void {

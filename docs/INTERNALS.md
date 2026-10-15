@@ -3427,10 +3427,25 @@ symbols); a query that decides more than that belongs in `Pending`.
 
   `decide` reads the same fact: a function's recorded calls of `inline`
   functions, but those in its closures, are the edges of the cycle check
-  (`forcedCycles`) and how an `inline` function's frame and size reach
-  its callers (`added`, `expanded`); a call by name counts only functions
-  the rule inlines (`byRule`), so two `inline` methods of one name never
-  stand for each other. A function marked `called fun` is never inlined
+  (`forcedCycles`) and how an `inline` function's size reaches its
+  callers (`expanded`); a call by name counts only functions the rule
+  inlines (`byRule`), so two `inline` methods of one name never stand for
+  each other. The frame check records on each call what the `inline`
+  function adds at that call's instance (`InlineCall.bytes`), and
+  `decide` takes that count rather than its own: a function the rule
+  would inline lands in its callers with its own values, the frames of
+  the functions inlined in it, and those bytes (`frame`). A frame no count
+  knows is never counted as small: an own frame its compile-time
+  parameters decide (`frameBytesOfFunction` is null) and an `inline` call
+  whose bytes only each instance of the caller knows (`bytes` is null)
+  are `unknown_frame`, which every limit fails, so a function holding one
+  is never inlined by the rule. That leaves each frame its parts, each
+  bounded: what typecheck counts (a function's own values and the
+  `inline` functions in it, at each instance), and what the rule adds,
+  held to 64 KiB, the functions it inlines into an `inline` one included,
+  since they land in its callers too (`added`, `largestIn`). A frame the
+  frame check cannot count at a call is the error above; one still being
+  worked out is on a cycle `decide` rejects. A function marked `called fun` is never inlined
   by the rule, and emit writes it `noinline fn`, so LLVM keeps every call
   a call too: each instance of a function with compile-time values is
   then a function of its own. A function marked `rarely fun` is never

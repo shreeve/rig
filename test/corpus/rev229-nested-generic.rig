@@ -1,0 +1,18 @@
+# Review of #229: generic `inline` functions nested in each other's
+# arguments are each counted at their instance.
+
+inline fun big[T](x: T, i: Int) -> T
+  t = [800000 of x]
+  t[i % 800000]
+
+inline fun small[T](x: T, i: Int) -> T
+  t = [100000 of x]
+  t[i % 100000]
+
+sub near(i: Int)
+  print(big(small(i, i), i) + small(big(i, 2), 3))
+
+sub main()
+  near(1)
+
+# error: 12:5: `near` keeps 14400104 bytes

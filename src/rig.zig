@@ -816,6 +816,7 @@ pub const Lexer = struct {
         semicolon,
         brace,
         two_markers,
+        repeated_marker,
         marker_before_pub,
 
         pub fn message(e: LexError) []const u8 {
@@ -847,6 +848,7 @@ pub const Lexer = struct {
                 .slash_comment => "comments start with `#`; Rig has no `//` or `/* */` comments",
                 .pin_sigil => "the pin sigil `@x` is reserved; `@` only starts a builtin call, `@name(...)`",
                 .marker_before_pub => "`pub` comes before a function's marker: write `pub inline fun`, `pub called fun`, or `pub rarely fun`",
+                .repeated_marker => "a function's marker is written once",
                 .two_markers => "a function takes one marker: `inline` (inline it at every call), `called` (keep every call a call), or `rarely` (rarely called, so kept out of line and cold); `called` contradicts `inline`, and `rarely` already keeps every call a call",
             };
         }
@@ -1303,8 +1305,9 @@ pub const Lexer = struct {
     }
 
     /// A marker `tok` puts where a declaration cannot take it: a second
-    /// one (`inline rarely fun f()`), since a function takes one, or one
-    /// before `pub` (`inline pub fun f()`), which comes first.
+    /// one (`inline rarely fun f()`), since a function takes one, the same
+    /// one again (`inline inline fun f()`), or one before `pub`
+    /// (`inline pub fun f()`), which comes first.
     fn misplacedMarker(self: *const Lexer, tok: Token) ?struct { err: LexError, pos: u32 } {
         if (!isMarker(self.base.text(tok)) or !(self.stmtStart() or self.last_cat == .@"pub")) return null;
         var probe = self.base;
@@ -1313,7 +1316,9 @@ pub const Lexer = struct {
         const t = if (second.cat == .@"pub" or second_marks) probe.next() else second;
         if (t.cat != .fun and t.cat != .sub) return null;
         if (second.cat == .@"pub") return .{ .err = .marker_before_pub, .pos = tok.pos };
-        return if (second_marks) .{ .err = .two_markers, .pos = second.pos } else null;
+        if (!second_marks) return null;
+        const same = std.mem.eql(u8, probe.text(second), self.base.text(tok));
+        return .{ .err = if (same) .repeated_marker else .two_markers, .pos = second.pos };
     }
 
     fn isMarker(word: []const u8) bool {

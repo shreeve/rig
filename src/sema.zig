@@ -4881,8 +4881,11 @@ pub const FnRef = struct {
 
 /// A call of an `inline` function: the function, and the instance the
 /// call makes, its object type's parameters then its own, to their
-/// arguments here.
-pub const InlineCall = struct { fun: FnRef, subst: TypeSubst };
+/// arguments here. `bytes` is what the function adds to the frame the
+/// call is in at that instance, as the frame check counts it; null where
+/// that depends on the caller's own parameters, which only each of its
+/// instances knows (`typecheck.FrameWalker.addInlined`).
+pub const InlineCall = struct { fun: FnRef, subst: TypeSubst, bytes: ?u128 = null };
 
 /// A value a function keeps on its stack (`typecheck.FrameWalker`).
 pub const FrameSlot = struct { ty: TypeId, name: []const u8 };

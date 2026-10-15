@@ -3,6 +3,9 @@
 # Zig's code actually reserves, for functions that inline marked `inline`
 # functions in every way a call can (a chain, generic instances, a
 # compile-time value, a method directly and through a box, an iterator),
+# and functions the automatic rule must not inline because the marked ones
+# they hold would land, uncounted, in their callers (a wrapper of a
+# generic one, and a helper called through a marked one many times),
 # in debug and --release: a count lower than the real frame fails. The
 # real frame is the prologue's stack reservation, read from the assembly
 # Zig writes for aarch64, so the test runs on an aarch64 Mac only.
@@ -56,6 +59,26 @@ obj Count
     return none if self.n > 2
     t[(self.n * 13) % 40000]
 
+# Unmarked: the rule must not inline them, since the marked functions
+# they hold land in their callers.
+fun wrap(i: Int) -> Int
+  gen(1, i)
+
+fun small(i: Int) -> Int
+  t = [7000 of 0]
+  for k in 0..7000
+    t[k] = k + i
+  t[(i * 3) % 7000]
+
+inline fun holds(i: Int) -> Int
+  small(i) + 1
+
+called sub wrapped(i: Int)
+  print(wrap(i) + wrap(i + 1) + wrap(i + 2) + wrap(i + 3))
+
+called sub piled(i: Int)
+  print(holds(i) + holds(i + 1) + holds(i + 2) + holds(i + 3) + holds(i + 4) + holds(i + 5) + holds(i + 6) + holds(i + 7) + holds(i + 8) + holds(i + 9) + holds(i + 10) + holds(i + 11))
+
 called sub chain(i: Int)
   print(mid(i) + big(i))
 
@@ -81,15 +104,22 @@ sub main()
   values(1)
   method(1)
   loop()
+  wrapped(1)
+  piled(1)
 RIG
 out=$(rig run ev.rig 2>&1) || fail "run: $out"
-expect_eq "$out" $'46\n20\n13\n20\n13\n27' "run"
+expect_eq "$out" $'46\n20\n13\n20\n13\n27\n64\n324' "run"
 counted=$(rig check --facts=frames ev.rig) || fail "facts: $counted"
 rig emit ev.rig >/dev/null 2>&1 || fail "emit"
 pkg=$RIG_OUT_DIR/programs/ev
 for mode in Debug ReleaseSafe; do
     (cd "$pkg" && "${ZIG:-zig}" build-obj -O $mode -femit-asm="$PWD/../ev-$mode.s" -fno-emit-bin __rig_main.zig) >build.log 2>&1 || fail "$mode asm: $(cat build.log)"
-    for fn in chain generic values method loop; do
+    # `wrapped` and `piled` check what Rig's rule inlines: in debug Zig
+    # inlines only an `inline fn`, while in --release LLVM inlines unmarked
+    # functions of its own accord, which no count of Rig's models.
+    fns="chain generic values method loop"
+    [[ $mode == Debug ]] && fns="$fns wrapped piled"
+    for fn in $fns; do
         est=$(awk -v f="\`$fn\`" '$2 == f { print $3 }' <<<"$counted")
         [[ -n $est && $est -gt 0 ]] || fail "$fn: no count in: $counted"
         # The prologue: each `sub sp, sp, #N` (`, lsl #12` scales it by

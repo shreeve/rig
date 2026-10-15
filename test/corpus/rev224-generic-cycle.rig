@@ -24,5 +24,5 @@ sub main()
   h = H(n: 1)
   print(g.a(3), h.step(2))
 
-# error: 7:14: `a` is `inline` and calls itself through `b`
-# error: 16:14: `step` is `inline` and calls itself through `via`
+# error: 7:14: `G.a` is `inline` and calls itself through `G.b`
+# error: 16:14: `H.step` is `inline` and calls itself through `via`
