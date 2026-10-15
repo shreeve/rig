@@ -1,4 +1,4 @@
-# std.hash's Map against a plain reference, a List of pairs searched in
+# std.hash's Map and Set against a plain reference, a List of pairs searched in
 # turn, over a long pseudo-random run of puts, takes, gets, edits, and
 # clears, at sizes that cross from a small Map (no table) to a table
 # and back after a clear, and with room reserved. After every step the
@@ -94,10 +94,45 @@ fun run(seed: U64, span: Int, steps: Int, reserve: Int) -> Bool
     return false if not agree(?m, ?ref, span)
   true
 
+fun set_agrees(s: ?hash.Set[Int], ref: ?Model, span: Int) -> Bool
+  return false if s.len != ref.len
+  for x in 0..span
+    return false if s.has(x * 1024) != (ref.find(x * 1024) != none)
+  order: List[Int] = List()
+  for k in ?s.items()
+    !order.push(k)
+  i = 0
+  for p in ?ref.pairs
+    if p.live
+      return false if i >= order.len or order[i] != p.key
+      i += 1
+  i == order.len
+
+fun run_set(seed: U64, span: Int, steps: Int, reserve: Int) -> Bool
+  r = Rand(s: seed)
+  s = hash.Set[Int].new(capacity: reserve)
+  ref = Model()
+  for _ in 0..steps
+    op = (!r).next(10)
+    k = (!r).next(span) * 1024
+    if op < 6
+      return false if (!s).add(k) != (ref.find(k) == none)
+      !ref.put(k, 0)
+    else if op < 9
+      got = (!s).take(k)
+      return false if (got != none) != ((!ref).take(k) != none)
+    else if (!r).next(50) == 0
+      !s.clear()
+      !ref.clear()
+    return false if not set_agrees(?s, ?ref, span)
+  true
+
 sub main()
   print(run(1, 6, 400, 0), run(2, 12, 2000, 0), run(3, 40, 4000, 0), run(4, 300, 6000, 0))
   print(run(5, 40, 3000, 100), run(6, 9, 3000, 9))
+  print(run_set(7, 6, 400, 0), run_set(8, 40, 4000, 0), run_set(9, 300, 6000, 50))
 
 # expect:
 # true true true true
 # true true
+# true true true

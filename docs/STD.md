@@ -483,7 +483,7 @@ type, as any generic is.
 | `(!m).edit(k)` | `fun edit(!self, k: ?K) -> (!V)? from self` | keeps `m` lent to write |
 | `!m.put(k, v)` | `sub put(!self, k: K, v: V)` | takes `k` and `v`; a key already there keeps its place, its old value and `k` are dropped |
 | `(!m).replace(k, v)` | `fun replace(!self, k: K, v: V) -> V?` | as `put`, handing the old value back |
-| `(!m).take(k)` | `fun take(!self, k: ?K) -> V?` | the value back, owned; the key dropped |
+| `(!m).take(k)` | `fun take(!self, k: ?K) -> V?` | the value back, owned; the key dropped when the entries are next compacted (as the Map grows), or with the Map |
 | `!m.clear()` | `sub clear(!self)` | drops every entry |
 | `?m.items()` | `fun items(?self) -> Items[K, V] from self` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) lasts one step of the loop |
 | `?m.keys()`, `?m.values()` | `fun keys(?self) -> Keys[K, V] from self` | likewise, each a `?K` or a `?V` |
@@ -601,8 +601,11 @@ where one matches. A larger one has a table, open-addressed and probed
 linearly, at most four fifths full; each slot holds a one-byte tag,
 seven bits of its key's hash, and the index of its entry, so a probe
 compares a key only when the tag matches, and a key that is not there
-is found missing from the tags alone. Taking an entry empties it in
-place, and the next growth drops it. The seed of `.hash()` is fixed, so
+is found missing from the tags alone. A Map's entry holds its key and
+an optional value, so a `Map[U32, U32]` entry takes 12 bytes; taking
+one empties its value in place, and the next growth drops the entry,
+key and all, keeping the rest in order. A Set's key is optional, and
+taking one hands it back. The seed of `.hash()` is fixed, so
 a program that lets others choose many keys that collide can be made
 slow.
 
