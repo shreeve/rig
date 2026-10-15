@@ -357,8 +357,8 @@ tokens
     # Declarations
     module                      ...decls
     use                         name alias:leaf?
-    fun                         name:leaf tparams:group? params:group? returns? origins:group? body:block? owner? owner_params:group? mark:called|rarely?
-    sub                         name:leaf tparams:group? params:group? fails:tag(fails)? body:block? owner? owner_params:group? mark:called|rarely?
+    fun                         name:leaf tparams:group? params:group? returns? origins:group? keeps:group? body:block? owner? owner_params:group? mark:called|rarely?
+    sub                         name:leaf tparams:group? params:group? fails:tag(fails)? keeps:group? body:block? owner? owner_params:group? mark:called|rarely?
     lambda                      captures:captures? params:group? body:block
     struct                      name:leaf unique:tag(unique)? ...members
     enum, errors                name:leaf ...members
@@ -368,8 +368,8 @@ tokens
     test                        name:leaf body:block
     pub                         decl
     extern                      name:leaf type
-    extern_fun                  name:leaf params:group? returns? origins:group?
-    extern_sub                  name:leaf params:group?
+    extern_fun                  name:leaf params:group? returns? origins:group? keeps:group?
+    extern_sub                  name:leaf params:group? keeps:group?
     zig_extern                  file:leaf ...decls
     zig_const                   name:leaf type
     drop_decl                   params:group body:block
@@ -451,7 +451,7 @@ tokens
     OUTDENT: "the end of the block"
     POST_IF: "`if`", TERNARY_IF: "`if`", BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`"
     KWARG_NAME: "a keyword argument"
-    OF: "`of`", OBJ: "`obj`", CALLED: "`called`", RARELY: "`rarely`", UNIQUE: "`unique`", FROM: "`from`", STATIC: "`static`"
+    OF: "`of`", OBJ: "`obj`", CALLED: "`called`", RARELY: "`rarely`", UNIQUE: "`unique`", FROM: "`from`", STATIC: "`static`", KEEPS: "`keeps`"
     DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", STEP_COLON: "`:`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
@@ -524,13 +524,14 @@ tokens
                         "&=" "|=" "^=" "<<=" "<<%=" ">>=" "+%=" "-%=" "*%=" "+|=" "-|=" "->" "=>"
     punctuation         "(" ")" "[" "]" "," ":" "." ".." "@"
 
-# `unique`, `from` and `static` lex as names, and the parser reads one as
-# a keyword where its state takes the keyword: `unique` after an obj
-# header's name or type parameters (`obj Random unique`), `from` after
-# a function's result type (`-> ?Item from a`), and `static` right after
-# that `from`. Everywhere else each is a name.
+# `unique`, `from`, `static` and `keeps` lex as names, and the parser
+# reads one as a keyword where its state takes the keyword: `unique` after
+# an obj header's name or type parameters (`obj Random unique`), `from`
+# after a function's result type (`-> ?Item from a`), `static` right after
+# that `from`, and `keeps` at the end of a function's header (`sub
+# watch(!self, s: ?String) keeps s`). Everywhere else each is a name.
 @keywords
-    ctx  unique from static
+    ctx  unique from static keeps
 
 @as IDENT = [ctx!]
 
@@ -620,21 +621,21 @@ mpath    = name
 mark     = CALLED                                   → (called)
          | RARELY                                   → (rarely)
 
-fun      = [mark:mark] FUN name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] body:block → (fun)
-sub      = [mark:mark] SUB name:name [tparams:tparams] [params:params] body:block → (sub)
-         | [mark:mark] SUB name:name [tparams:tparams] [params:params] "!" body:block → (sub fails:fails)  # `sub save(p: Page)!`
+fun      = [mark:mark] FUN name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] [keeps:keeps] body:block → (fun)
+sub      = [mark:mark] SUB name:name [tparams:tparams] [params:params] [keeps:keeps] body:block → (sub)
+         | [mark:mark] SUB name:name [tparams:tparams] [params:params] "!" [keeps:keeps] body:block → (sub fails:fails)  # `sub save(p: Page)!`
 
 # A method declared outside its type's body, in the type's module:
 # `fun Point.norm(?self) -> Float`, `fun Wrap[T].map[U](...)`, with the
 # type's parameters named as its declaration names them. The Parser
 # wrapper moves it into the body (`attachMethods`). A qualified owner,
 # `fun geo.Point.m()`, parses only to be rejected.
-method   = [mark:mark] FUN owner:name [owner_params:tparams] "." name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] body:block → (fun)
-         | [mark:mark] FUN owner:qowner "." name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] body:block → (fun)
-         | [mark:mark] SUB owner:name [owner_params:tparams] "." name:name [tparams:tparams] [params:params] body:block → (sub)
-         | [mark:mark] SUB owner:name [owner_params:tparams] "." name:name [tparams:tparams] [params:params] "!" body:block → (sub fails:fails)
-         | [mark:mark] SUB owner:qowner "." name:name [tparams:tparams] [params:params] body:block → (sub)
-         | [mark:mark] SUB owner:qowner "." name:name [tparams:tparams] [params:params] "!" body:block → (sub fails:fails)
+method   = [mark:mark] FUN owner:name [owner_params:tparams] "." name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] [keeps:keeps] body:block → (fun)
+         | [mark:mark] FUN owner:qowner "." name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] [keeps:keeps] body:block → (fun)
+         | [mark:mark] SUB owner:name [owner_params:tparams] "." name:name [tparams:tparams] [params:params] [keeps:keeps] body:block → (sub)
+         | [mark:mark] SUB owner:name [owner_params:tparams] "." name:name [tparams:tparams] [params:params] "!" [keeps:keeps] body:block → (sub fails:fails)
+         | [mark:mark] SUB owner:qowner "." name:name [tparams:tparams] [params:params] [keeps:keeps] body:block → (sub)
+         | [mark:mark] SUB owner:qowner "." name:name [tparams:tparams] [params:params] "!" [keeps:keeps] body:block → (sub fails:fails)
 
 qowner   = object:name "." name:name                → (member)
 
@@ -648,6 +649,12 @@ origins  = FROM onames                              → (...2)
 
 onames   = name                                     → (1)
          | onames "," name                          → (...1 3)
+
+# The lent parameters a function may keep, at the end of its header: it
+# may store what each views in what its write receiver and write
+# parameters lead to (`sub watch(!self, s: ?String) keeps s`; `keeps
+# self` names the receiver).
+keeps    = KEEPS onames                             → 2
 
 params   = "(" fields ![","] ")"                     → (...2)
          | "(" ")"                                  → ()
@@ -710,8 +717,8 @@ test     = TEST name:(STRING_DQ | STRING_SQ) body:block → (test)
 
 extvar   = EXTERN name:name ":" type:type           → (extern)
 
-ext_fun  = EXTERN FUN name:name [params:params] [returns:returns] [origins:origins] → (extern_fun)
-ext_sub  = EXTERN SUB name:name [params:params]     → (extern_sub)
+ext_fun  = EXTERN FUN name:name [params:params] [returns:returns] [origins:origins] [keeps:keeps] → (extern_fun)
+ext_sub  = EXTERN SUB name:name [params:params] [keeps:keeps] → (extern_sub)
 
 # Declarations the Zig file `file` implements (the standard library's
 # only): a `fun` or `sub` without a body, whose file declares a Zig
@@ -731,9 +738,9 @@ zdecl    = zfun
 
 zconst   = name:name ":" type:type                  → (zig_const)
 
-zfun     = [mark:mark] FUN name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] → (fun)
-         | [mark:mark] SUB name:name [tparams:tparams] [params:params] → (sub)
-         | [mark:mark] SUB name:name [tparams:tparams] [params:params] "!" → (sub fails:fails)
+zfun     = [mark:mark] FUN name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] [keeps:keeps] → (fun)
+         | [mark:mark] SUB name:name [tparams:tparams] [params:params] [keeps:keeps] → (sub)
+         | [mark:mark] SUB name:name [tparams:tparams] [params:params] "!" [keeps:keeps] → (sub fails:fails)
 
 # ==============================================================================
 # TYPES
