@@ -1,7 +1,6 @@
 # timeout: 600
 # The program runs on a stack the runtime maps itself, 64 MiB over a
-# guard far larger than any frame the compiler accepts (docs/INTERNALS.md,
-# "The program's stack"). This checks what reaches the program through
+# guard of 64 GiB (docs/INTERNALS.md, "The program's stack"). This checks what reaches the program through
 # it: the exit status, a failure out of `main`, and `rig test`'s tests,
 # which run there too; that a frame of 100 MiB, larger than the whole
 # stack, stops with a stack-overflow error in every build mode;

@@ -15,7 +15,20 @@ started:
   passing `<x` to `*T`) at an instance whose `T` is held (`T = ~U`
   makes `*~U`): rejected per instance, with the generic per-instance
   requirements round (option (b)). SPEC "Box" shows it as pending.
-- A frame-size guard for every function.
+- Destination-passing for values over about 64 KiB: emit passes,
+  returns, and copies none by value through a Zig temporary, and lowers
+  a `defer` or inlined body that declares one to a single call. A
+  frame's real size is then bounded by construction; today it is a
+  measured bound, `sema.reach_factor` (4) times its reach, which
+  `test/cli/frame_reach.sh` checks, and a form Zig copies that reach
+  does not model could exceed it. Two did in #230's review, both fixed:
+  a payload part a `match <e` arm drops, passed by value at each exit
+  (`test/corpus/rev230-discard-exits.rig`); and the same at 12,000
+  exits, whose 48 GB frame made Zig's aarch64 build fail with `fixup
+  value out of range` (`test/corpus/rev230-discard-build.rig`; a frame
+  over 4 GiB draws Zig's warning, and one that large fails to build).
+  With it, build debug programs for x86_64 with `-fllvm`, as aarch64's
+  are.
 - Switching to Nexus's `Span.text`.
 - `text.ByteSet`, a byte set built once when the program runs and
   searched with `set.find(s, at)`: the run-time sibling of

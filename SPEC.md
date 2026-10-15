@@ -564,16 +564,19 @@ code may take more stack than the values it keeps. Its *reach*, the
 values it keeps and every value its code makes or copies (a `defer` or
 `errdefer` body once for each exit it covers, a receiver taken by value
 at each call, and a small function inlined into it at each call), times
-4 is at most 512 MiB, and a function whose reach times 4 is 1 MiB or more is
-never inlined, so no two such frames merge into one.
+4 is at most 512 MiB, and a function whose reach times 4 is 1 MiB or
+more is never inlined, so no two such frames merge into one. The factor
+4 is measured, not proven: the frames each form takes are checked
+against it, and a form the compiler does not yet model could take more.
 
-A program runs on a stack of 64 MiB. A program that runs out of stack,
-through deep recursion or large frames, stops with a stack-overflow
-error (`error: rig: stack overflow`) before writing beyond the stack, in
-every build mode. A program that cannot reserve its stack and the guard
-below it stops before it runs, with `rig: cannot reserve the program's
-stack and the guard below it` and exit status 1
-([INTERNALS](docs/INTERNALS.md#the-programs-stack) describes the
+A program runs on a stack of 64 MiB, with a guard of 64 GiB of address
+space below it, or 1 GiB where 64 GiB cannot be reserved. A program that
+runs out of stack, through deep recursion or a frame no larger than the
+guard, stops with a stack-overflow error (`error: rig: stack overflow`)
+before writing beyond the stack, in every build mode. A program that
+cannot reserve its stack and the guard stops before it runs, with `rig:
+cannot reserve the program's stack and the guard below it` and exit
+status 1 ([INTERNALS](docs/INTERNALS.md#the-programs-stack) describes the
 mechanism).
 
 ```rig reject

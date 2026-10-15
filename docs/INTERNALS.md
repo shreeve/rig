@@ -3769,7 +3769,7 @@ reviewed.
 | `isVariant`, `isVariantDiscard` | `x == .variant` on an enum with payloads, or an optional of one: tests the tag only, so it compiles whatever the payloads hold; `isVariantDiscard` drops a temporary that owns a resource |
 | `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `null` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
 | `poison` | under the sanitizer, fills hidden storage whose scope has ended with `0xAA`; nothing otherwise |
-| `discard`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
+| `discard`, `discardAt`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`), or, by address, a part of a payload a `match <e` arm leaves unused (deferred, so each exit passes only the address); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, `?String` values by `std.mem.order`. Outside a generic body a `?String` or `[]U8` ordering is `std.mem.order` itself |
 | `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
@@ -3815,17 +3815,25 @@ assembles no unwind rule but the one its `_start` uses, so there a trace
 ends at the switch. On other targets the body runs on the thread's own
 stack.
 
-**Why it is safe.** Zig's code reserves a frame by moving the stack
-pointer down by its whole size and then writes its bottom first: a debug
-build spills its arguments there before the body runs, so no probe in
-the body could run before a write below the frame. Instead, nothing a frame can reach lies below the
-stack: the guard is larger than any frame the compiler accepts. A
-frame's real size is at most `sema.reach_factor` (4) times its reach,
-which `checkFrames` holds to `sema.max_frame_reach` (512 MiB, half the
-smallest guard), and a function with a large reach is never inlined, so
-no two such frames merge, and a function large with the calls inlined
-into it is marked so too. However a frame overflows the stack, its first
-access past it falls in the guard, and the access faults.
+**What it catches, and what is measured.** Zig's code reserves a frame
+by moving the stack pointer down by its whole size and then writes its
+bottom first: a debug build spills its arguments there before the body
+runs, so no probe in the body could run before a write below the frame.
+Instead, nothing lies within the guard below the stack: a frame no
+larger than the guard that overflows the stack makes its first access
+past it in the guard, and the access faults. That is what holds.
+
+That every frame is smaller than the guard is a measured bound, not a
+proven one. `checkFrames` holds a frame's reach to `sema.max_frame_reach`
+(512 MiB, half the smallest guard), a function with a large reach is
+never inlined, so no two such frames merge, and a function large with
+the calls inlined into it is marked so too. The real frame is at most
+`sema.reach_factor` (4) times the reach in every form
+`test/cli/frame_reach.sh` measures, but a form Zig copies that reach does
+not model could exceed it, as a payload part a `match <e` arm dropped by
+value at each exit did (`test/corpus/rev230-discard-exits.rig`;
+`rig.discardAt` now passes it by address). Destination-passing, planned
+(TODO.md), makes the bound hold by construction.
 
 Where Zig writes code or slots more than once, and how reach covers
 each:

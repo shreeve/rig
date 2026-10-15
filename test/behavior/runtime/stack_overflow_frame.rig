@@ -2,8 +2,7 @@
 # stack-overflow error before it writes anything past the stack. `big`
 # keeps one 6.4 MB array, but a debug build holds a copy of it for each
 # argument passed by value, so its frame takes 109 MB. The stack holds
-# 64 MiB, and below it the runtime keeps a guard far larger than any
-# frame the compiler accepts.
+# 64 MiB, and below it the runtime keeps a guard of 64 GiB.
 
 fun take(a: [800000]Int, k: Int) -> Int
   a[k]

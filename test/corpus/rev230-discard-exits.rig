@@ -1,0 +1,46 @@
+obj H
+  s: String
+  a: [100000]Int
+
+enum E
+  one(h: H, n: Int)
+  two
+
+fun arm(e: E, i: Int) -> Int
+  match <e
+    .one(_, n)
+      return 0 if i == 100
+      return 1 if i == 101
+      return 2 if i == 102
+      return 3 if i == 103
+      return 4 if i == 104
+      return 5 if i == 105
+      return 6 if i == 106
+      return 7 if i == 107
+      return 8 if i == 108
+      return 9 if i == 109
+      return 10 if i == 110
+      return 11 if i == 111
+      return 12 if i == 112
+      return 13 if i == 113
+      return 14 if i == 114
+      return 15 if i == 115
+      return 16 if i == 116
+      return 17 if i == 117
+      return 18 if i == 118
+      return 19 if i == 119
+      return 20 if i == 120
+      return 21 if i == 121
+      return 22 if i == 122
+      return 23 if i == 123
+      return 24 if i == 124
+      return 25 if i == 125
+      return 26 if i == 126
+      return 27 if i == 127
+      return 28 if i == 128
+      return 29 if i == 129
+      n
+    .two => 0
+
+sub main()
+  print(arm(E.one(h: H(s: String("x"), a: [100000 of 1]), n: 5), 1))

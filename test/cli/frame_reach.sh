@@ -12,7 +12,8 @@
 # call, a receiver taken by value, `match` alternatives and guards, a
 # generic instance, `==` on arrays, a closure's captures, arguments
 # evaluated first, a `match` on a value made there, a `defer` in a value
-# block), and checks the bound against the
+# block, a payload part a `match <e` arm drops at each exit), and checks
+# the bound against the
 # stack each frame reserves, in debug and release builds: Zig's aarch64
 # assembly on an aarch64 Mac, and the program's x86_64 code (objdump) on
 # Linux. A runtime function a program instantiates (`rig.runtime.*`)
@@ -91,6 +92,14 @@ fun mk_t(i: Int) -> T
 
 fun both(a: A, b: A) -> Int
   a[1] + b[2]
+
+obj HS
+  s: String
+  a: A
+
+enum ES
+  one(h: HS, n: Int)
+  two
 ''')
 forms = {
     'fill_rt': ([], f'[{N} of i]'),
@@ -152,6 +161,7 @@ dup = {
     'hoisted_args': ('Int', ['both(b: make(i), a: make(i + 1))']),
     'match_made': ('Int', ['match mk_t(i)', '  .one(v) => take(v)', '  .two(v) => take(v) + 1', '  .nothing => 0']),
     'nested_value': ('Int', ['v = (make(i) if i > 1 else make(0)) if i > 0 else make(2)', 'v[1]']),
+    'discard_exits': ('Int', [f'e = ES.one(h: HS(s: String("x"), a: [{N} of i]), n: 5)', 'match <e', '  .one(_, n)'] + rep(60, lambda k: f'    return {k} if i == {100 + k}') + ['    n', '  .two => 0']),
 }
 for name, (rt, lines) in dup.items():
     print(f'called fun {name}(i: Int) -> {rt}')

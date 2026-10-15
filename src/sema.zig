@@ -171,8 +171,8 @@ pub const reach_factor: u64 = 4;
 
 /// The most stack one function's code may take, `reach_factor` times its
 /// reach: 512 MiB, half the smallest guard the runtime keeps below the
-/// stack (`guard_sizes` in `rig/runtime.zig`, 1 GiB), so a frame that
-/// overflows the stack faults in the guard, however large it is.
+/// stack (`guard_sizes` in `rig/runtime.zig`, 1 GiB), so a frame within
+/// the measured bound that overflows the stack faults in the guard.
 pub const max_frame_reach: u64 = 512 << 20;
 
 /// A function whose code may take this much stack (`reach_factor` times

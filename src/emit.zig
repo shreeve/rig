@@ -3419,7 +3419,9 @@ pub const Emitter = struct {
                 try self.line("const {s} = {s};", .{ a.zig_name, a.payload });
             } else try self.line("const {s} = {s}{s}.{f}{s};", .{ a.zig_name, if (a.addr and !a.bytes) "&" else "", a.payload, ident(a.field), if (a.bytes) ".bytes()" else "" });
         }
-        for (prelude.drops) |d| try self.line("defer rig.discard({s});", .{d});
+        // Zig writes a deferred call again at each exit: the part goes by
+        // address, never by value (`rig.discardAt`).
+        for (prelude.drops) |d| try self.line("defer rig.discardAt(&{s});", .{d});
         for (prelude.owned) |o| {
             const is_var = o.local.kind == .value or o.local.kind == .optional;
             try self.line("{s} {s} = {s};", .{ if (is_var) "var" else "const", o.local.zig_name, o.expr });

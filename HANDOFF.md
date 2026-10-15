@@ -67,11 +67,13 @@ from).
     `for` index counter needs no per-iteration cast.
   - **The stack:** a program runs on a 64 MiB stack the runtime maps
     over a 64 GiB guard (`rig.onOwnStack`), so running out of stack, by
-    deep recursion or a large frame, stops with `error: rig: stack
-    overflow` in every build mode; each frame's reach (what it keeps and
-    every value its code makes or copies) is bounded to stay within the
-    guard, and a large frame is never inlined; a fill a box or a local
-    takes is built in place (docs/INTERNALS.md, "The program's stack").
+    deep recursion or a frame no larger than the guard, stops with
+    `error: rig: stack overflow` in every build mode; each frame's reach
+    (what it keeps and every value its code makes or copies) is held to
+    a bound that keeps it within the guard by a measured factor, not yet
+    a proven one (destination-passing, TODO.md, will make it one), and a
+    large frame is never inlined; a fill a box or a local takes is built
+    in place (docs/INTERNALS.md, "The program's stack").
   - **Compiler and tools:** a synthetic span outside its source reads as
     empty; the package cache and the build store have size caps;
     `src/parser.zig` is generated at build time from `rig.grammar`

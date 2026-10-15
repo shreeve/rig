@@ -682,6 +682,15 @@ pub fn discard(value: anytype) void {
     drop(&v);
 }
 
+/// Drop a copy of the value `ptr` points to, which nothing else drops: a
+/// part of a payload a `match <e` arm leaves unused, deferred. It takes a
+/// pointer, so each exit Zig writes the deferred call at passes only that,
+/// and the copy lives in this function's frame, once.
+pub fn discardAt(ptr: anytype) void {
+    var v = ptr.*;
+    drop(&v);
+}
+
 /// Allocate a new `*T` holding `value`.
 pub fn rcNew(value: anytype) *RcBox(@TypeOf(value)) {
     const box = create(RcBox(@TypeOf(value)));
@@ -2996,10 +3005,9 @@ fn reportLeaks(before: Usage) bool {
 }
 
 // The stack. Rig's code runs on a stack the runtime maps itself, over a
-// guard of inaccessible address space far larger than any frame the
-// compiler accepts, so a program that runs out of stack faults in the
-// guard before it writes anywhere else (docs/INTERNALS.md, "The
-// program's stack").
+// guard of inaccessible address space, so a program that runs out of
+// stack by a frame no larger than the guard faults in the guard before it
+// writes anywhere else (docs/INTERNALS.md, "The program's stack").
 
 /// The stack `main` and the tests run on: 64 MiB, four times the 16 MiB
 /// Zig gives the main thread, for deep recursion; a frame keeps at most
@@ -3007,9 +3015,9 @@ fn reportLeaks(before: Usage) bool {
 const stack_size: usize = 64 << 20;
 
 /// The inaccessible address space below the stack, the largest that can
-/// be reserved first: a frame the compiler accepts is far smaller than
-/// even the last (`max_frame_reach` in the compiler), so however it
-/// overflows the stack, its first access past it lands here.
+/// be reserved first: a frame no larger than it that overflows the stack
+/// makes its first access past it here. The compiler holds a frame's
+/// reach to half the last (`max_frame_reach`), a measured bound.
 const guard_sizes = [_]usize{ 64 << 30, 1 << 30 };
 
 /// Whether `onOwnStack` switches to a stack of its own: on macOS and
