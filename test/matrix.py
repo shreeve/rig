@@ -6,7 +6,9 @@ one context (a `print` argument, a binding, an element assignment, ...)
 for one type (Int, ?String, String, List, `*T`, `^T`, a struct with a
 `drop`, a struct declared `unique`, a vector, and a few cells of a struct holding
 a Cell, every one of which must be rejected), plus the
-stores into a view parameter (`store.`, below), a value `replace`
+stores into a view parameter (`store.`, below), a loan reaching a
+generic body's `T` result each way, its `from` naming that parameter or
+not (`gen.`, below), a value `replace`
 takes out of each kind of place, then the place written, the value put
 back, or what it views dropped while it lives (`taken.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
@@ -39,7 +41,8 @@ debug and with `--release` (`unit.`, below), and a generic `==`, `!=`, or
 ordering over every pairing of a view, an optional, an owner, and a List
 element, at each instance type, which is rejected with a diagnostic or
 runs, in debug and with `--release`, and prints what the values compare
-as (`cmp.`). The rule is
+as, and over the same pairings that values `==` calls equal have equal
+`.hash()`es (`cmp.`). The rule is
 the corpus's: `rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
@@ -122,8 +125,9 @@ def fal(ty):
 
 
 def opt(ty):
-    """The optional of a type: a read view takes parentheses first."""
-    return f"({ty})?" if ty.startswith("?") else f"{ty}?"
+    """The optional of a type: a read view or an optional takes
+    parentheses first."""
+    return f"({ty})?" if ty.startswith("?") or ty.endswith("?") else f"{ty}?"
 
 
 def optn(ty, n):
@@ -509,6 +513,60 @@ STORE_FORMS = {
     "match_payload": ("e", ["match !a", "  .one(h) => h.r = S", "  .zero => print(0)"]),
     "as_binding": ("opt", ["if !a as h", "  h.r = S"]),
 }
+
+
+# -----------------------------------------------------------------------------
+# A generic body tracks no loan in a value of a type parameter's type, but
+# in an instance one may hold a view: `g` makes its `T` result from its
+# parameter `p` each way (a callable's result, an element of a `[]T`, an
+# optional's value through `??` or `as`, a closure's result, the result
+# of a function a field holds, a `match` payload of a viewed `Opt[T]`),
+# and its `from` names `p` (and `d`, where
+# the body may return it) or only `d`.
+# Unnamed, the body is rejected; named, the result keeps `p`'s argument
+# lent, so `main` may read it, and may not drop what it views first.
+# Cells are `gen.<form>.<said>.<then>`.
+# -----------------------------------------------------------------------------
+
+# Each form: `g`'s parameters before `d`, what `from` names when it names
+# `p`, the body, `main`'s setup and arguments before `d`'s, and the type
+# argument `T` stands for (`?String`, or `K`, which holds one).
+GEN_FORMS = {
+    "call": dict(params="f: ?fun(?String) -> T, p: ?String", said="f, p", body=["f(p)"], setup=[],
+                 args="|s: ?String| s, ?t"),
+    "element": dict(params="p: []T", said="p", body=["p[0]"], setup=["a = [?t]"], args="?a[..]"),
+    "nullish": dict(params="p: T?", said="p, d", body=["p ?? d"], setup=["o: (?String)? = ?t"], args="o"),
+    "as": dict(params="p: T?", said="p, d", body=["if <p as v", "  return v", "d"], setup=["o: (?String)? = ?t"],
+               args="o"),
+    "closure": dict(params="f: ?fun(?String) -> T, p: ?String", said="f, p", body=["h = |?f, ?p| f(p)", "h()"],
+                    setup=[], args="|s: ?String| s, ?t"),
+    "field": dict(field=True, params="p: ?String", said="p", body=["self.f(p)"], setup=[], args="?t"),
+    "match": dict(params="p: ?Opt[T]", said="p, d", body=["match p", "  .some(v) => v", "  .none => d"],
+                  setup=["o = Opt[?String].some(?t)"], args="?o"),
+}
+
+
+def gen_program(fname, said, then):
+    """The program for one `gen.` cell, and what it prints."""
+    f = GEN_FORMS[fname]
+    origin = f["said"] if said else "d"
+    out = ["obj K\n  s: ?String\n", "enum Opt[T]\n  some(value: T)\n  none\n"]
+    if f.get("field"):
+        out.append("obj H[T]\n  f: *fun(?String) -> T\n\n"
+                   f"  fun g(?self, {f['params']}, d: ?String) -> T from {origin}\n{indent(f['body'], 4)}\n")
+        call = "r = h.g(?t, ?u)"
+        setup = ["h = H[K](f: *|s| K(s: s))"]
+        show = "print(r.s)"
+    else:
+        out.append(f"fun g[T]({f['params']}, d: T) -> T from {origin}\n{indent(f['body'], 2)}\n")
+        call = f"r = g({f['args']}, ?u)"
+        setup = f["setup"]
+        show = "print(r)"
+    main = ['t = String("abc")', 'u = String("u")'] + setup + [call]
+    main += (["<t"] if then == "drop" else []) + [show]
+    out.append("sub main()\n" + indent(main, 2) + "\n")
+    expect = "abc\n" if said and then == "read" else "(rejected)\n"
+    return "\n".join(out), expect
 
 
 # -----------------------------------------------------------------------------
@@ -938,7 +996,7 @@ def eq_expect(op, left, right):
 def eq_program(tname, lform, rform, group):
     """The program, and what it prints (None where it must be rejected)."""
     spec = EQ_TYPES[tname]
-    ops = ("eq", "ne") if group == "eq" else ("lt", "ge")
+    ops = {"eq": ("eq", "ne"), "ord": ("lt", "ge"), "hash": ("hs",)}[group]
     symbol = {"eq": "==", "ne": "!=", "lt": "<", "ge": ">="}
     lty, lmay, lbody = EQ_FORMS[lform]
     rty, rmay, rbody = EQ_FORMS[rform]
@@ -947,12 +1005,14 @@ def eq_program(tname, lform, rform, group):
         lines.append("")
     lines += [f"fun mk(n: Int) -> {spec['ty']}"] + ["  " + l for l in spec["mk"]] + [""]
     for op in ops:
-        lines += [f"fun {op}[K](a: {lty}, b: {rty}) -> Bool",
-                  f"  {lbody.format(v='a')} {symbol[op]} {rbody.format(v='b')}", ""]
+        l, r = lbody.format(v='a'), rbody.format(v='b')
+        # Values `==` calls equal hash equal.
+        test = f"not ({l} == {r}) or {l}.hash() == {r}.hash()" if op == "hs" else f"{l} {symbol[op]} {r}"
+        lines += [f"fun {op}[K](a: {lty}, b: {rty}) -> Bool", f"  {test}", ""]
     run, out = [], []
     def cases(form, may):
         d = EQ_DEPTH.get(form, 0)
-        if not may or group != "eq":
+        if not may or group == "ord":
             return [(0, 1), (0, 2)]
         return [(s, None) for s in range(d)] + [(d, 1), (d, 2)]
 
@@ -981,14 +1041,16 @@ def eq_program(tname, lform, rform, group):
                 run += ls + rs
                 shown.append(f"{op}[{spec['ty']}]({la}, {ra})")
             run.append("print(" + ", ".join(shown) + ")")
-            if group == "eq":
+            if group == "hash":
+                out.append("true")
+            elif group == "eq":
                 e = same(lv, rv)
                 out.append(" ".join("true" if (e if op == "eq" else not e) else "false" for op in ops))
             else:
                 vals = [None if v[1] is None else v[1] for v in (lv, rv)]
                 out.append(" ".join("true" if eq_expect(op, *vals) else "false" for op in ops))
     lines += ["sub main()"] + ["  " + l for l in run]
-    ok = spec["eq"] if group == "eq" else spec["ord"]
+    ok = {"eq": spec["eq"], "ord": spec["ord"], "hash": spec["eq"] and tname != "float"}[group]
     return "\n".join(lines) + "\n", ("\n".join(out) + "\n") if ok else None
 
 
@@ -996,7 +1058,7 @@ def eq_cells():
     """The `cmp.` cells: (id, program, expected output or None to be rejected)."""
     cells = []
     for tname, spec in EQ_TYPES.items():
-        for group in ("eq", "ord"):
+        for group in ("eq", "ord", "hash"):
             ordered = group == "ord"
             for lform in (EQ_ORDER_FORMS + ("elem", "elemopt") if ordered else EQ_FORMS):
                 for rform in EQ_RIGHT:
@@ -3213,10 +3275,34 @@ def run_unit(path, keep, started_dir, cell):
 RUN_SECONDS = 120
 RUN_OUTPUT = 1 << 20
 RUN_MB = 2048
+# Memory is read every RUN_MEM_EVERY seconds, so a program that ends
+# sooner is never read: where there is no /proc, each reading is a `ps`
+# of the whole machine.
+RUN_MEM_EVERY = 1.0
+
+
+PAGE_KB = os.sysconf("SC_PAGE_SIZE") // 1024
+# Linux lists a process's children in /proc, so the reading walks only
+# the program's own tree; elsewhere (macOS) `ps` lists every process.
+PROC_CHILDREN = os.path.exists(f"/proc/self/task/{os.getpid()}/children")
 
 
 def tree_rss(pgid):
-    """The resident memory of process group `pgid`, in kilobytes."""
+    """The resident memory of process group `pgid` (its leader and the
+    leader's descendants), in kilobytes."""
+    if PROC_CHILDREN:
+        total, stack = 0, [pgid]
+        while stack:
+            p = stack.pop()
+            try:
+                with open(f"/proc/{p}/statm") as f:
+                    total += int(f.read().split()[1]) * PAGE_KB
+                for t in os.listdir(f"/proc/{p}/task"):
+                    with open(f"/proc/{p}/task/{t}/children") as f:
+                        stack.extend(int(c) for c in f.read().split())
+            except (OSError, ValueError):
+                pass
+        return total
     r = subprocess.run(["ps", "-A", "-o", "pgid=,rss="], capture_output=True, text=True)
     total = 0
     for l in r.stdout.splitlines():
@@ -3231,15 +3317,23 @@ def run_capped(cmd, env):
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         p = subprocess.Popen(cmd, stdout=out, stderr=err, stdin=subprocess.DEVNULL, env=env, start_new_session=True)
         start = time.monotonic()
+        next_mem = start + RUN_MEM_EVERY
         why = None
-        while p.poll() is None:
-            time.sleep(0.2)
-            if time.monotonic() - start > RUN_SECONDS:
+        while True:
+            try:
+                p.wait(timeout=0.2)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            now = time.monotonic()
+            if now - start > RUN_SECONDS:
                 why = "timeout"
             elif os.fstat(out.fileno()).st_size + os.fstat(err.fileno()).st_size > RUN_OUTPUT:
                 why = f"printed more than {RUN_OUTPUT} bytes"
-            elif tree_rss(p.pid) > RUN_MB << 10:
-                why = f"used more than {RUN_MB} MB"
+            elif now >= next_mem:
+                next_mem = now + RUN_MEM_EVERY
+                if tree_rss(p.pid) > RUN_MB << 10:
+                    why = f"used more than {RUN_MB} MB"
             if why:
                 try:
                     os.killpg(p.pid, signal.SIGKILL)
@@ -3444,6 +3538,20 @@ def main():
                 cells.append((ident, path))
     release = set()
     also = set()
+    for fname in GEN_FORMS:
+        for said in ("said", "unsaid"):
+            for then in ("read", "drop"):
+                ident = f"gen.{fname}.{said}.{then}"
+                if not wanted(ident):
+                    continue
+                src, expects[ident] = gen_program(fname, said == "said", then)
+                path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                with open(path, "w") as fh:
+                    fh.write(src)
+                cells.append((ident, path))
+                # A cell that prints must be accepted.
+                if expects[ident] != "(rejected)\n":
+                    release.add(ident)
     for pname in TAKEN_PLACES:
         for then in TAKEN_THENS:
             ident = f"taken.{pname}.{then}"

@@ -5742,6 +5742,12 @@ pub const Emitter = struct {
                 try self.emitBare(args[0]);
                 return self.w.writeAll("))");
             },
+            // `rig.hash(x)`, of the value the receiver reaches.
+            .hash => {
+                try self.w.writeAll("rig.hash(");
+                try self.emitExpr(ir.Member.object(callee));
+                return self.w.writeAll(")");
+            },
             .swap_bytes => {
                 try self.w.writeAll("@byteSwap(");
                 try self.writeAsOpen(ec.num);

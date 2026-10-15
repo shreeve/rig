@@ -1,0 +1,29 @@
+# A generic function whose result is a `T` made from the parameter its
+# `from` names views only that argument: the other argument may be
+# dropped while the result lives.
+
+fun second[T](xs: []T, ys: []T) -> T from ys
+  _ = xs.len
+  ys[0]
+
+fun apply[T](f: ?fun(?String) -> T, a: ?String) -> T from f, a
+  f(a)
+
+obj K
+  s: ?String
+
+sub main()
+  t = String("abc")
+  u = String("u")
+  a = [?t]
+  b = [?u]
+  r = second(?a[..], ?b[..])
+  <t
+  print(r)
+  w = String("w")
+  k = apply(|s: ?String| K(s: s), ?w)
+  print(k.s)
+
+# expect:
+# u
+# w

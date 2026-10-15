@@ -9,4 +9,4 @@ obj File
   drop(!self)
     print(self.fd + 1)
 
-# error: duplicate `drop` declaration on this struct
+# error: duplicate `drop` declaration on this object

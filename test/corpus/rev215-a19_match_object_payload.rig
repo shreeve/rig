@@ -1,0 +1,23 @@
+# The payload binding of a match on a read view, in a body returning T.
+obj K
+  s: ?String
+
+enum Opt[T]
+  some(value: T)
+  none
+
+fun g[T](o: ?Opt[T], d: T) -> T from d
+  match o
+    .some(v)
+      w = v
+      w
+    .none => d
+
+sub main()
+  t = String("abc")
+  u = String("u")
+  o = Opt[K].some(K(s: ?t))
+  r = g(?o, K(s: ?u))
+  <o
+  <t
+  print(r.s)

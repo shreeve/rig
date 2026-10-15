@@ -2284,11 +2284,11 @@ pub const Parser = struct {
         const declared = std.mem.trimEnd(u8, before[0..start], " ");
         // `type` declares only an alias: `type Name = T`.
         if (word.len > 0 and endsWithWord(declared, "type")) switch (tok.cat) {
-            .indent => return self.format("a struct is declared with `obj`: `obj {s}`", .{word}),
+            .indent => return self.format("an object is declared with `obj`: `obj {s}`", .{word}),
             .lbracket, .lparen => {
                 const eol = std.mem.findScalarPos(u8, src, tok.pos, '\n') orelse src.len;
                 if (std.mem.findScalar(u8, src[tok.pos..eol], '=') != null) return "a type alias takes no type parameters; generic aliases are not supported";
-                return self.format("a struct is declared with `obj`: `obj {s}[T]`", .{word});
+                return self.format("an object is declared with `obj`: `obj {s}[T]`", .{word});
             },
             else => {},
         };

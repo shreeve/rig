@@ -1247,7 +1247,7 @@ pub const TypeResolver = struct {
             const inner = try self.resolveType(ir.ErrorUnion.type(node));
             if (sema.isErrorValue(self.ctx, inner)) {
                 const e = try sema.formatType(self.ctx, inner);
-                try self.ctx.errAt(node, "`{s}!` would make a failure and a success both `{s}` values; return `{s}` or `{s}?`, or a struct that holds one", .{ e, e, e, e });
+                try self.ctx.errAt(node, "`{s}!` would make a failure and a success both `{s}` values; return `{s}` or `{s}?`, or an object that holds one", .{ e, e, e, e });
                 return self.ctx.types.invalid_id;
             }
             // Each instance must give `T` a type that is not an error.
@@ -1304,7 +1304,7 @@ pub const TypeResolver = struct {
                             else => "<",
                         };
                         if (self.nominal.isEmpty()) {
-                            try self.ctx.err(pos, "`{s}self` is only allowed in a method body (inside a struct, enum, or errors declaration)", .{sigil});
+                            try self.ctx.err(pos, "`{s}self` is only allowed in a method body (inside an object, enum, or errors declaration)", .{sigil});
                             return self.ctx.types.invalid_id;
                         }
                         if (h == .move) _ = try self.misplacedAt(param, self.nominal.self_type, .signature);
@@ -1528,10 +1528,10 @@ pub const TypeResolver = struct {
                             } else {
                                 const where: []const u8 = switch (head) {
                                     .errors => "error sets",
-                                    .generic_struct => "generic structs",
+                                    .generic_struct => "generic objects",
                                     else => "enums",
                                 };
-                                try self.ctx.errAt(m, "`drop` bodies are only for non-generic structs, not {s}", .{where});
+                                try self.ctx.errAt(m, "`drop` bodies are only for non-generic objects, not {s}", .{where});
                             }
                         },
                         else => {},
@@ -1833,7 +1833,7 @@ pub const TypeResolver = struct {
         const pos = self.ctx.startOf(node);
         for (fields.items) |f| {
             if (f.is_drop_method) {
-                try self.ctx.err(pos, "duplicate `drop` declaration on this struct; a struct has at most one `drop`", .{});
+                try self.ctx.err(pos, "duplicate `drop` declaration on this object; an object has at most one `drop`", .{});
                 return;
             }
         }
@@ -2561,7 +2561,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     const arg = try sema.formatType(ctx, args[0]);
     if (sym_id == ctx.cell_sym_id) {
         if (sema.isPlainData(ctx, args[0]) or sema.moves(ctx, args[0]) == .yes) return null;
-        return try a.print("`Cell[T]` requires `T` to be a value that copies (Int, Bool, Float, `?String`), plain data (a struct, enum, optional, or array that owns nothing), a type that releases what it owns (`*T`, `~T`, `List[T]`, `*sub()`, a struct holding one of those or with a `drop` body), or a type declared `unique`; got `{s}`", .{arg});
+        return try a.print("`Cell[T]` requires `T` to be a value that copies (Int, Bool, Float, `?String`), plain data (an object, enum, optional, or array that owns nothing), a type that releases what it owns (`*T`, `~T`, `List[T]`, `*sub()`, a struct holding one of those or with a `drop` body), or a type declared `unique`; got `{s}`", .{arg});
     }
     if (sym_id == ctx.list_sym_id) {
         // A List holds any value, views included: its elements move in
@@ -2572,7 +2572,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     }
     if (sym_id == ctx.signal_sym_id) {
         if (sema.isPlainData(ctx, args[0])) return null;
-        return try a.print("`Signal[T]` requires `T` to be a value that copies (Int, Bool, Float, `?String`) or plain data (a struct, enum, optional, or array that owns nothing); got `{s}`", .{arg});
+        return try a.print("`Signal[T]` requires `T` to be a value that copies (Int, Bool, Float, `?String`) or plain data (an object, enum, optional, or array that owns nothing); got `{s}`", .{arg});
     }
     return null;
 }
