@@ -76,8 +76,9 @@ out=$(emit method.rig)
 expect_has "$out" 'pub inline fn get(' "a method"
 
 # A cycle of method calls, through a receiver, a type, or two types'
-# methods, is found. A method call resolves by name, so a method that
-# calls another of its name is taken to call itself.
+# methods, is found. A method call resolves by its receiver's type, as
+# typecheck resolved it, so a method that calls another type's method of
+# its name is a wrapper, inlined, and a method that calls itself is not.
 cat >methods.rig <<'RIG'
 obj Ping
   n: Int
@@ -113,9 +114,51 @@ expect_has "$out" 'pub fn depth(' "recursion through the receiver"
 expect_has "$out" 'pub fn count(' "recursion through the type"
 expect_lacks "$out" 'inline fn hop(' "recursion through two types' methods"
 expect_has "$out" 'pub inline fn size(__rig_in_self: *const Ping)' "a method of a name another calls"
-expect_has "$out" 'pub fn size(self: *const Pong' "a method calling another of its name"
+expect_has "$out" 'pub inline fn size(__rig_in_self: *const Pong' "a method calling another type's method of its name"
 out=$(rig run methods.rig 2>&1) || fail "rig run methods.rig: $out"
 expect_eq "$out" "3 2 0 3" "methods.rig"
+
+# A wrapper reached through fields, as a binder's `kind` calls its file's
+# tree's, is inlined; one that reaches its own method through a field of
+# its own type is on a cycle.
+cat >wrappers.rig <<'RIG'
+obj Ast
+  kinds: List[Int]
+
+  fun kind(?self, n: Int) -> Int
+    self.kinds[n]
+
+obj File
+  ast: Ast
+
+obj Binder
+  file: File
+
+  fun kind(?self, n: Int) -> Int
+    self.file.ast.kind(n)
+
+obj Node
+  next: ^Node?
+  n: Int
+
+  fun kind(?self) -> Int
+    if self.next as m
+      return m.kind() + 1
+    self.n
+
+sub main()
+  kinds: List[Int] = List()
+  !kinds.push(7)
+  b = Binder(file: File(ast: Ast(kinds: <kinds)))
+  n = Node(next: ^Node(next: none, n: 3), n: 1)
+  print(b.kind(0), n.kind())
+RIG
+out=$(emit wrappers.rig)
+expect_has "$out" 'pub inline fn kind(__rig_in_self: *const Ast' "the method a wrapper calls"
+expect_has "$out" 'pub inline fn kind(__rig_in_self: *const Binder' "a wrapper of another type's method of its name"
+expect_has "$out" 'pub fn kind(self: *const Node' "a method that calls itself through a field"
+out=$(rig run wrappers.rig 2>&1) || fail "rig run wrappers.rig: $out"
+expect_eq "$out" "7 4" "wrappers.rig"
 
 # A body of more than inlining.max_size nodes (60) is called.
 {

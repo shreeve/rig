@@ -1897,9 +1897,9 @@ parameter is kept in `generic_arrays` and checked, with the instance
 itself, at each instance (`checkInstanceSizes`). A type reported too
 large goes into `oversized`, and `minBytes` of anything holding it is
 null, so it is reported once. After the bodies are checked,
-`typecheck.checkFrames` walks every function, method, closure, test,
-and drop body and sums its frame against `sema.max_frame_bytes`
-(13 MiB): each binding and by-value parameter at its declaration, and
+`typecheck.recordFrameOwners` lists the frame owners
+([Frame owners](#frame-owners)), and `typecheck.checkFrames` sums each
+owner's frame against `sema.max_frame_bytes` (13 MiB): each binding and by-value parameter at its declaration, and
 each array literal, fill, and call that is not a `set`'s value; a
 closure's captures count in the enclosing frame. This count is a limit
 on how a program keeps its data; safety rests on the frame's *reach*
@@ -1917,18 +1917,21 @@ writes more than once counts once for each copy: a `defer` or
 `errdefer` body at every exit after it in its block (`return`, `!`,
 `?`, `break`, `continue`) and at the block's end (`deferBody`), and an
 inlined function at every call (`inlining.decide` adds callees' reach
-per call). The values and the copies are the reach, which
-`sema.reach_factor` (4) times must fit `sema.max_frame_reach` (512 MiB);
-a frame whose reach times the factor is `sema.noinline_reach` (1 MiB)
-or more marks its function in `large_frames`, which emit writes
-`noinline` and `inlining.decide` never inlines. A frame that mentions
+per call, into the owner's account). The values and the copies are the
+reach, which `sema.reach_factor` (4) times must fit
+`sema.max_frame_reach` (512 MiB); a frame whose reach times the factor
+is `sema.noinline_reach` (1 MiB) or more, with what is inlined into it,
+marks its owner in `large_frames`: emit writes a function, a closure's
+`__rig_invoke`, and a `drop` body's `__rig_user_drop` `noinline` there,
+and `inlining.decide` never inlines it. A frame that mentions
 generic parameters is kept in `generic_frames` (its copies last,
 `Frame.copies`) and summed at each instance: a function instance checks
 the frames that use its own parameters, a type instance its methods'.
 An instance made in another module that finds a frame large records it
 in `large_foreign_frames`, which `inlining.decide` copies into the
 declaring module's `large_frames` before emit. `rig check
---facts=frames` prints each frame's count and reach.
+--facts=frames` prints each owner's account: its count, its reach, and
+what the rule inlines into it.
 
 Instances come from the program: `instantiation_sites` holds each
 generic type instance and where it is first spelled or inferred, and
@@ -3469,12 +3472,14 @@ symbols); a query that decides more than that belongs in `Pending`.
     bound through `rig.rt` as always. Its frame must be known without the
     values;
   - its reach (`checkFrames`), with the inlined calls in it, is at most
-    64 KiB, and no function gets more than that added by the inlined
-    calls in it, each counted at every call (`max_inlined_frame_bytes`),
-    and no function's own frame with the reach of the inlined calls in
-    it passes `sema.max_frame_bytes` (13 MiB), since Zig writes an
-    inlined body, its locals and temporaries, again at each call, in its
-    caller's frame; and
+    64 KiB, and no frame owner ([Frame owners](#frame-owners)) gets more
+    than that added by the inlined calls in it, each counted at every
+    call and every copy Zig writes of the call
+    (`max_inlined_frame_bytes`), and no owner's own frame with the reach
+    of the inlined calls in it passes `sema.max_frame_bytes` (13 MiB),
+    since Zig writes an inlined body, its locals and temporaries, again
+    at each call, in its caller's frame; a test block, a closure, and a
+    `drop` body are owners as functions are; and
     its frame is not large (`large_frames`, which emit also writes
     `noinline`, [Sema](#sema));
   - with the inlined calls in it, each counted at every call site, it
@@ -3486,12 +3491,15 @@ symbols); a query that decides more than that belongs in `Pending`.
   A function that fails a test of the last two is dropped and the tests
   run again, until none fails; since dropping one only shrinks frames
   and expansions, they run again from the function that failed, not
-  from the first. A call resolves by the callee's name (a function by
-  its symbol, so a local of that name is not it), so two functions of
-  one name stand for each other: the analysis finds at most more cycles
-  and more value uses than there are. A call by name is one edge to the
-  group of the functions of that name, not one to each, so a name every
-  module declares costs no more than any other.
+  from the first. A call reaches what typecheck resolved it to
+  (`SemContext.callTargetOf`): a function by its symbol, a method by its
+  receiver's type, so a wrapper `Binder.kind` that calls its tree's
+  `kind` is no cycle. A call no check resolved stands for every function
+  of its name, so the analysis finds at most more cycles than there are;
+  such a call is one edge to the group of the functions of that name,
+  not one to each. A method taken as a value (`obj.m` not called)
+  stands for every method of its name: the analysis finds at most more
+  value uses than there are.
 
   Zig charges each inline call, and each pass of a compile-time loop in
   an inlined body, to the evaluation budget of the function the code
@@ -3778,6 +3786,56 @@ reviewed.
 | `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `SafeAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which `./test/run` sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, List, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, on the program's stack, checks it for leaks (Debug), reports it |
 
+### Frame owners
+
+A frame owner is a place Zig writes a stack frame of its own for, and
+the frame counts are kept per owner. Typecheck decides them once, by a
+positive list of their kinds (`typecheck.recordFrameOwners`, into
+`SemContext.frame_owners`, each with its root node and the owner around
+it):
+
+- every function and method, a generic one included, whose instances
+  are each a frame of this owner (`sema.FrameSize` records each
+  instance's, by the owner's declaration);
+- every closure, whose body is its `__rig_invoke`;
+- every test block;
+- every `drop` body;
+- `main`, which is a function.
+
+Nothing else is an owner: a `defer` or `errdefer` body, a match arm, a
+block, a loop, and the `next` call of a loop over an iterator belong to
+the owner around them. The same walk gives every call the innermost
+owner around it (`SemContext.ownerOf`), and the number of copies Zig
+writes of it, which a `defer` or `errdefer` body multiplies by the
+exits it covers (`sema.FrameCall`), as `deferBody` counts its values.
+Typecheck also records what each call reaches where it resolves it
+(`SemContext.callTargetOf`): a function by its symbol, a method by its
+receiver's type, or none.
+
+`checkFrames`, `inlining.decide`, and `rig check --facts=frames` iterate
+this list and read `ownerOf`; none of them finds an owner or attributes
+a call itself. Each owner has one account (`sema.Account`,
+`SemContext.account`):
+
+- **own:** its values, as `checkFrames` counts them, or for a generic
+  owner the largest of its instances'; unknown (null) where no count
+  knows them, which is unbounded and fails every limit;
+- **marked:** what calls of functions marked `inline` add (none yet);
+- **auto:** the frames of the functions the rule inlines into it, each
+  at every call and every copy of the call.
+
+`inlining.decide` fills `auto` and keeps it within 64 KiB
+(`max_inlined_frame_bytes`), own + auto within `sema.max_frame_bytes`,
+and (own reach + auto) times `sema.reach_factor` within
+`sema.max_frame_reach`; it never inlines into an owner whose own count
+is unknown. A function is inlined at every call or none, so an owner the
+build does not compile bounds nothing: a test block, and what is in it,
+outside `rig test` (and `rig check --tests`), and any module's but the
+root's always. `test/cli/frame_owners.sh` puts a pile of a helper the rule
+would inline in each kind of owner and each body that belongs to one,
+and `test/cli/frames.sh` holds each owner's account to the frame Zig's
+prologue reserves.
+
 ### The program's stack
 
 A program's Rig code runs on a stack the runtime maps itself
@@ -3826,8 +3884,9 @@ past it in the guard, and the access faults. That is what holds.
 That every frame is smaller than the guard is a measured bound, not a
 proven one. `checkFrames` holds a frame's reach to `sema.max_frame_reach`
 (512 MiB, half the smallest guard), a function with a large reach is
-never inlined, so no two such frames merge, and a function large with
-the calls inlined into it is marked so too. The real frame is at most
+never inlined, so no two such frames merge, and a function, a closure's
+body, or a `drop` body large with the calls inlined into it is marked so
+too. The real frame is at most
 `sema.reach_factor` (4) times the reach in every form
 `test/cli/frame_reach.sh` measures, but a form Zig copies that reach does
 not model could exceed it, as a payload part a `match <e` arm dropped by
@@ -3839,9 +3898,11 @@ Where Zig writes code or slots more than once, and how reach covers
 each:
 
 - a `defer` or `errdefer` body, at each exit it covers, `!` and `?`
-  included: counted once per exit (`deferBody`);
+  included: counted once per exit (`deferBody`), and so is an inlined
+  call in it ([Frame owners](#frame-owners));
 - an inlined function, at each call: Rig's inlining adds its reach per
-  call and inlines only a small reach (`inlining.decide`); emit writes
+  call to the account of the frame owner the call is in, and inlines
+  only a small reach (`inlining.decide`); emit writes
   no other `inline fn`, and the runtime's take vectors and slices, a
   few hundred bytes at most;
 - `inline for`, `inline while`, `inline else`, and loops Zig unrolls at

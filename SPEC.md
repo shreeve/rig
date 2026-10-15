@@ -547,9 +547,11 @@ array literal and fill whose value no binding takes directly, and every
 call of a function or method (twice when a binding takes its result,
 since a debug build holds it in a temporary first). The frames of the
 small functions inlined into it count too, and a call that would take
-the frame over the limit is not inlined. This holds for every function,
-method, closure (whose captures count where it is made), test, and
-`main`, and for each instance of a generic one. The limit keeps large
+the frame over the limit is not inlined. This holds for every frame
+the program has: every function, method, closure (whose captures count
+where it is made), test, `drop` body, and `main`, and each instance of a
+generic one; a `defer` body, a match arm, or a loop is part of the frame
+around it. The limit keeps large
 data on the heap: the error names the largest locals; keep large data
 in a box (`^T`) or a `List`, which holds its elements on the heap.
 `^[n of x]` fills the box's memory itself, never making the array on the
@@ -563,8 +565,9 @@ or `catch`, a constructor's) in a temporary of its own, so a function's
 code may take more stack than the values it keeps. Its *reach*, the
 values it keeps and every value its code makes or copies (a `defer` or
 `errdefer` body once for each exit it covers, a receiver taken by value
-at each call, and a small function inlined into it at each call), times
-4 is at most 512 MiB, and a function whose reach times 4 is 1 MiB or
+at each call, and a small function inlined into it at each call and at
+each copy of a `defer` body that calls it), times 4 is at most 512 MiB,
+and a function, closure, or `drop` body whose reach times 4 is 1 MiB or
 more is never inlined, so no two such frames merge into one. The factor
 4 is measured, not proven: the frames each form takes are checked
 against it, and a form the compiler does not yet model could take more.
