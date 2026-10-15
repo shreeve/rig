@@ -4284,3 +4284,4 @@ test/corpus/review-errors-b3.rig main
 test/reject/ownership/error_argument_copied.rig main
 test/reject/ownership/error_binding_copied.rig main
 test/reject/ownership/error_binding_moved.rig main
+test/reject/ownership/weak_upgrade_taken.rig main

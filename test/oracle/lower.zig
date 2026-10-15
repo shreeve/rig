@@ -1814,17 +1814,23 @@ const Lowerer = struct {
                 .take => return abstain("a stack closure stored"),
                 .read, .view => return try self.closure(e, false),
             },
-            .share => if (self.ctx.upgradeOf(e)) |upgrade| {
-                // `*w` upgrading a weak handle reads it, and the new count
-                // carries the handle's loans, as `~h`'s does; `*<w` takes
-                // the handle, as `*<x` takes `x` (Core s8, s9).
-                if (upgrade == .takes) return self.handOver(e, pos);
+            .share => {
+                // `*` of a weak handle upgrades it (Core s8): `*w` reads
+                // a place, and the new count carries the handle's loans,
+                // as `~h`'s does (s9); `*<w` and `*` of a handle made there
+                // take it, as `*<x` takes `x`.
                 const operand = ir.get(e, .operand);
-                const p = try self.place(if (operand.isKind(.read)) ir.get(operand, .operand) else operand) orelse return abstain("an upgrade of a weak handle that is no place");
+                if (operand.isKind(.lambda) or operand.isKind(.move)) return self.handOver(e, pos);
+                const ty = self.ctx.typeOf(operand) orelse return abstain("an untyped operand of `*`");
+                if (self.ctx.types.get(sema.unwrapViews(self.ctx, ty)) != .weak) return self.handOver(e, pos);
+                const p = try self.place(if (operand.isKind(.read)) ir.get(operand, .operand) else operand) orelse {
+                    if (operand.isKind(.call) or operand.isKind(.weak)) return self.handOver(e, pos);
+                    return abstain("an upgrade of a weak handle that is no place");
+                };
                 const t = try self.temp(try self.typeOf(e), pos);
                 try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(p.root), .def = t, .access = readAccess(p) });
                 return t;
-            } else return self.handOver(e, pos),
+            },
             .box => return self.handOver(e, pos),
             .weak => {
                 // `~h` reads the handle and holds its box weakly, with the
