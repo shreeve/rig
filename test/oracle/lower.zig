@@ -247,6 +247,9 @@ fn copiesNoT(a: std.mem.Allocator, c: Callee) Error!bool {
         .planned = true,
         .module = c.module,
     };
+    // Checked for an instance at an owner that holds no view: its type
+    // parameters' values carry no loan.
+    l.kinds.t_views = false;
     var ok = true;
     l.run(.{ .name = "", .decl = c.decl, .owner = c.owner, .generic_owner = c.owner != .nil }) catch |err| switch (err) {
         error.Found, error.Abstain => ok = false,
@@ -497,6 +500,7 @@ const Lowerer = struct {
             .holds_pointers = info.holds_pointers,
             .holds_writes = info.holds_writes,
             .drop_reads = info.drop_reads,
+            .t_only = info.t_only,
             .hidden = hidden,
             .pos = pos,
         });
@@ -518,6 +522,7 @@ const Lowerer = struct {
         self.f.vars.items[v].holds_views = true;
         self.f.vars.items[v].holds_pointers = true;
         self.f.vars.items[v].drop_reads = false;
+        self.f.vars.items[v].t_only = false;
         return v;
     }
 
@@ -1074,6 +1079,7 @@ const Lowerer = struct {
         hv.holds_pointers = vv.holds_pointers;
         hv.holds_writes = vv.holds_writes;
         hv.drop_reads = vv.drop_reads;
+        hv.t_only = vv.t_only;
         try self.regions.items[self.regions.items.len - 2].vars.append(self.a, h);
         try self.store(h, v, pos);
         return h;
@@ -1132,6 +1138,7 @@ const Lowerer = struct {
             xv.holds_views = true;
             xv.holds_pointers = true;
             xv.drop_reads = false;
+            xv.t_only = false;
         }
         try self.emit(.{ .pos = h.pos, .what = .copy, .reads = try self.one(h.v), .def = x });
     }
@@ -1767,8 +1774,13 @@ const Lowerer = struct {
                 // `[n of x]` copies `x` (Core §5).
                 const n = try self.eval(ir.ArrayFill.size(e), .read, null);
                 const v = try self.eval(ir.ArrayFill.value(e), .read, null);
+                // A generic body's copy of a `T` (SPEC "Generic bodies"),
+                // read by a lend: the copies carry what the value holds,
+                // not the lend's loan on it (`genericCopy`).
+                const generic_copy = (try self.kinds.of(try self.typeOf(ir.ArrayFill.value(e)))).generic_copy;
+                if (generic_copy) self.copies_t = true;
                 const t = try self.temp(try self.typeOf(e), pos);
-                try self.emit(.{ .pos = pos, .what = .make, .reads = try self.pair(n, v), .def = t });
+                try self.emit(.{ .pos = pos, .what = .make, .reads = try self.pair(n, v), .def = t, .unpoint = generic_copy });
                 return t;
             },
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => {
@@ -2096,7 +2108,7 @@ const Lowerer = struct {
                 const payload = how == .ret and self.owned_payloads.contains(p.root);
                 if (info.generic_copy and !payload) {
                     self.copies_t = true;
-                    return try self.copy(p, p.ty, pos);
+                    return try self.genericCopy(p, p.ty, pos);
                 }
                 return self.found(.C2, pos, "a bare `{s}` owns a resource and would be copied; write `<` or `+`", .{self.textOf(e)});
             },
@@ -2111,6 +2123,17 @@ const Lowerer = struct {
     fn copy(self: *Lowerer, p: Place, ty: TypeId, pos: u32) Error!VarId {
         const t = try self.temp(ty, pos);
         try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(p.root), .def = t, .access = readAccess(p), .carry = p.carry });
+        return t;
+    }
+
+    /// A generic body's copy of a value holding a type parameter, which
+    /// each instance allows only where the parameter is plain data or a
+    /// read view (SPEC "Generic bodies"): it carries what the value
+    /// holds, the loans of the views in it, and no loan on a place it
+    /// was read from (Core s2, as `+` through a view).
+    fn genericCopy(self: *Lowerer, p: Place, ty: TypeId, pos: u32) Error!VarId {
+        const t = try self.temp(ty, pos);
+        try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(p.root), .def = t, .access = readAccess(p), .carry = p.carry, .unpoint = true });
         return t;
     }
 
@@ -2130,7 +2153,7 @@ const Lowerer = struct {
         // "Generic bodies").
         if (self.loop_elems.contains(root) and (try self.kinds.of(self.f.vars.items[root].ty)).generic_copy) {
             self.copies_t = true;
-            return try self.copy(self.rootPlace(root), self.f.vars.items[root].ty, pos);
+            return try self.genericCopy(self.rootPlace(root), self.f.vars.items[root].ty, pos);
         }
         if (self.f.vars.items[root].alias) return self.found(.C7, pos, "a payload seen through a view does not move out; take the subject with `<`", .{});
         if (self.isFinding(root)) return abstain("an index that moves its place's root");
@@ -2164,6 +2187,36 @@ const Lowerer = struct {
         return !(try self.kinds.of(ft.returns)).holds_views;
     }
 
+    /// Whether a callee of type `ty` is an owned closure, or a view of
+    /// one: its environment carries no loan (Core s9), so its result
+    /// carries the loans of the call's arguments only, none on the
+    /// handle it is called through.
+    fn ownedClosure(self: *Lowerer, ty: TypeId) bool {
+        var t = ty;
+        while (true) switch (self.ctx.types.get(t)) {
+            .read_view => |inner| t = inner,
+            .shared => |inner| return self.ctx.types.get(inner) == .function,
+            else => return false,
+        };
+    }
+
+    /// The type of the function value a call's member callee names, when
+    /// it names a data field of its object's type (`self.f(x)` with `f:
+    /// *fun(...)`), not a method.
+    fn fieldCallee(self: *Lowerer, callee: Sexp) Error!?TypeId {
+        const obj = ir.Member.object(callee);
+        if (obj.isKind(.read) or obj.isKind(.write) or obj.isKind(.move)) return null;
+        const decl = sema.nominalDecl(self.ctx, try self.typeOf(obj)) orelse return null;
+        const mname = leafText(ir.Member.name(callee), self.src);
+        for (decl.symbol().fields orelse &.{}) |*f| {
+            if (f.is_method or f.is_variant or !std.mem.eql(u8, f.name, mname)) continue;
+            const fty = self.ctx.typeOf(callee) orelse if (decl.ctx == self.ctx) f.ty else return abstain("a function value a field of another module's type holds");
+            if (self.fnTypeOf(fty) == null) return null;
+            return fty;
+        }
+        return null;
+    }
+
     /// Whether a value of `ty` may be a closure or a view of one.
     fn holdsCallable(self: *Lowerer, ty: TypeId) bool {
         return switch (self.ctx.types.get(ty)) {
@@ -2192,6 +2245,8 @@ const Lowerer = struct {
     fn closure(self: *Lowerer, e: Sexp, owned: bool) Error!VarId {
         const pos = self.posOf(e);
         var parts: std.ArrayList(VarId) = .empty;
+        // The captures lent to write, through which its calls may store.
+        var writes: std.ArrayList(VarId) = .empty;
         for (sema.captureList(ir.Lambda.captures(e))) |cap| {
             const leaf = sema.captureNameNode(cap) orelse return abstain("an unusual capture");
             const sym_id = self.ctx.symbolOf(leaf) orelse return abstain("a capture without a symbol");
@@ -2200,7 +2255,11 @@ const Lowerer = struct {
             const p = self.rootPlace(outer);
             const v = switch (sema.captureModeOf(cap).?) {
                 .cap_read => try self.lend(p, .read, leaf, sym.ty),
-                .cap_write => try self.lend(p, .write, leaf, sym.ty),
+                .cap_write => blk: {
+                    const w = try self.lend(p, .write, leaf, sym.ty);
+                    try writes.append(self.a, w);
+                    break :blk w;
+                },
                 .cap_move => try self.moveWhole(outer, leaf.src.pos),
                 .cap_clone, .cap_weak => blk: {
                     // `|+x|` makes what `+x` makes (Core §7): through a
@@ -2225,6 +2284,7 @@ const Lowerer = struct {
             .planned = self.planned,
         };
         inner.kinds.generic = self.kinds.generic;
+        inner.kinds.t_views = self.kinds.t_views;
         inner.module = self.module;
         inner.runClosure(e) catch |err| switch (err) {
             error.Found => {},
@@ -2238,13 +2298,14 @@ const Lowerer = struct {
             if (self.f.early == null) self.f.early = f;
             return error.Found;
         }
-        const t = try self.temp(try self.typeOf(e), pos);
-        try self.emit(.{ .pos = pos, .what = .make, .moves = parts.items, .def = t, .no_loans = owned });
         // Its calls may store what it captured through what it captured
         // to write, as a call's write arguments may (SPEC §11 "Captures";
         // what one call received it never stores there, as checked in
         // its body): those places hold the captures' loans from here on.
-        try self.emit(.{ .pos = pos, .what = .call, .reads = try self.one(t), .through = try self.one(t) });
+        // A capture lent to read (`?w` of a write view too) is only read.
+        if (writes.items.len > 0) try self.emit(.{ .pos = pos, .what = .call, .reads = parts.items, .through = writes.items });
+        const t = try self.temp(try self.typeOf(e), pos);
+        try self.emit(.{ .pos = pos, .what = .make, .moves = parts.items, .def = t, .no_loans = owned });
         return t;
     }
 
@@ -2613,6 +2674,8 @@ const Lowerer = struct {
         var elem_copy: ?TypeId = null;
         var group: u32 = 0;
         var is_ctor = false;
+        // Each view argument lending a stack closure, and the closure.
+        var closure_lends: std.ArrayList(struct { VarId, VarId }) = .empty;
         var reach: kinds.Reach = .{ .a = self.a };
         // The callee's signature, as declared, whose parameter types say
         // which arguments the result and the stores carry (Core s7); null
@@ -2667,7 +2730,7 @@ const Lowerer = struct {
                         v
                     else
                         (try self.placeValue(self.rootPlace(v), .read, null, callee)).?;
-                    if (try self.callsOnly(v, try self.typeOf(e))) try uses.append(self.a, cv) else try reads.append(self.a, cv);
+                    if (self.ownedClosure(s.ty) or try self.callsOnly(v, try self.typeOf(e))) try uses.append(self.a, cv) else try reads.append(self.a, cv);
                 },
                 else => return abstain("an unusual callee"),
             };
@@ -2696,6 +2759,16 @@ const Lowerer = struct {
                     // signature; only a plain one says what it was declared.
                     if (ft.?.function.ct_params.len == 0) sig = .{ .ctx = self.ctx, .f = ft.?.function, .from = self.staticFrom(callee) };
                 } else is_ctor = true;
+            } else if (try self.fieldCallee(callee)) |fty| {
+                // A function value a field holds, called (`self.f(x)`): the
+                // field is read where it is, and stays read until the call
+                // runs (Core §6), as a named callee is.
+                const p = try self.place(callee) orelse return abstain("a call of a field of a value made there");
+                const vf = self.fnTypeOf(fty) orelse return abstain("an unusual callee");
+                shapes = try self.shapesOf(self.ctx, vf.params);
+                sig = .{ .ctx = self.ctx, .f = vf };
+                const cv = try self.lend(p, .read, callee, p.ty);
+                if (self.ownedClosure(fty) or try self.callsOnly(cv, try self.typeOf(e))) try uses.append(self.a, cv) else try reads.append(self.a, cv);
             } else {
                 // A method: the receiver first, then the arguments.
                 const recv_mode, const fn_params = try self.method(callee);
@@ -2868,6 +2941,10 @@ const Lowerer = struct {
             // Where a write view goes, a bare one would be copied (SPEC §7).
             const wants_view = is_ctor and arg.isKind(.kwarg) and self.fieldIsWriteView(e, leafText(ir.Kwarg.name(arg), self.src));
             var v = try self.eval(val, arg_how, if (wants_view) self.ctx.typeOf(val) else null) orelse continue;
+            // The stack closure a view argument lends: a literal made
+            // here, or a name lent (`?h`).
+            var lent_closure: ?VarId = if (val.isKind(.read) and ir.Read.operand(val) == .src) self.varOf(ir.Read.operand(val)) else null;
+            if (val.isKind(.lambda)) lent_closure = v;
             if ((arg_how == .take and (!is_ctor or cell_store)) or all_read) v = try self.readThrough(v, self.posOf(val));
             if (elem_copy) |et| {
                 // The elements read through the slice carry their own
@@ -2892,6 +2969,9 @@ const Lowerer = struct {
                 try uses.append(self.a, v);
                 continue;
             }
+            if (lent_closure) |c| if (c != v and self.ctx.types.get(self.f.vars.items[c].ty) == .function and self.f.vars.items[v].kind == .read_view) {
+                try closure_lends.append(self.a, .{ v, c });
+            };
             if (group != 0 and arg_how == .take) try stored_value.append(self.a, v);
             if (arg_how == .take or keeps) try moves.append(self.a, v) else try reads.append(self.a, v);
         }
@@ -2914,6 +2994,18 @@ const Lowerer = struct {
             if (std.mem.findScalar(VarId, kept.items, v) == null and std.mem.findScalar(VarId, no_store.items, v) == null) try no_store.append(self.a, v);
         };
         const rt = try self.typeOf(e);
+        // A call of a stack closure returns a view only of what it
+        // captured by a read lend, never of its own environment (Core §7,
+        // checked in its body): a result that cannot be the closure's
+        // view itself carries the closure's loans, not the loan on it.
+        // What the call stores may be that view, which keeps the loan.
+        if (sig != null and !self.holdsCallable(rt)) for (closure_lends.items) |vc| {
+            if (std.mem.findScalar(VarId, reads.items, vc[0]) == null) continue;
+            try reads.append(self.a, vc[1]);
+            const carries = std.mem.findScalar(VarId, no_result.items, vc[0]) == null;
+            if (carries) try no_result.append(self.a, vc[0]) else try no_result.append(self.a, vc[1]);
+            try no_store.append(self.a, vc[1]);
+        };
         const rinfo = self.ctx.types.get(rt);
         const result: ?VarId = switch (rinfo) {
             .void, .noreturn => null,
@@ -3042,7 +3134,7 @@ const Lowerer = struct {
         if (!inner.kind.copies() and !inner.generic_copy) return v;
         if (!inner.kind.copies()) self.copies_t = true;
         const t = try self.temp(inner_ty, pos);
-        try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(v), .def = t });
+        try self.emit(.{ .pos = pos, .what = .copy, .reads = try self.one(v), .def = t, .unpoint = !inner.kind.copies() });
         return t;
     }
 

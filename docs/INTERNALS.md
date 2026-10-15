@@ -3644,11 +3644,23 @@ handle holds through a loan on the handle, every handle carrying its
 contents' loans; makes a closure a value carrying its captures' loans
 and checks its body as a function whose captures hold the caller's
 loans; lets no value carrying a loan into a Cell, a Signal, or an owned
-closure (Core s9); and checks a generic body once, each type parameter
-owning and holding no view, with a copy of one left to each instance
+closure (Core s9); and checks a generic body once, for every instance
 (SPEC "Generic bodies"), and a call of a generic function or type at
 type arguments of plain data, or of owners where the bodies it runs
-never copy a type parameter. Every element of a List, an array, or a
+never copy a type parameter. In a generic body a type parameter moves
+like an owner, and may stand for a read view or a type holding one: a
+value of a type that mentions one carries the loans of whatever flowed
+into it, a call's result whose type is a parameter carries every
+argument that may lead anywhere (a `?String` too), and returning,
+storing, or yielding it is checked against the `from` as for a view
+type. A copy of a `T` (left to each instance) carries what the value
+holds, not a loan on its place; a value that carries a loan only
+through a type parameter may go into a Cell, a Signal, or an owned
+closure, since an instance at a view is rejected where the body does
+that. An owned closure's result carries its arguments' loans only, and
+a lent stack closure's its captures', never a loan on the closure
+(Core §7, s9); a function value a field holds is called through the
+field (`self.f(x)`). Every element of a List, an array, or a
 slice is a place: what `push`, `insert`, a store, or a literal puts in
 a container joins the loans the container carries, an element read out
 of it (`v[i]`, `get`, `pop`, `remove`) carries those and no loan on the

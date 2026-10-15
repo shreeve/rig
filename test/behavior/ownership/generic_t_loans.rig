@@ -1,0 +1,105 @@
+# A value of a type parameter carries the loans of what it was made
+# from, and nothing else: a body that names those parameters in its
+# `from` is accepted, and the caller keeps them lent; a copy of a `T`
+# carries what the value holds, not a loan on its place; a `T` stored in
+# a Cell carries none, since an instance that stores one there cannot
+# stand for a view; and an owned closure's or a lent stack closure's
+# result carries what its arguments and captures carry.
+# oracle: pick accept
+# oracle: mk accept
+# oracle: payload accept
+# oracle: wrapped accept
+# oracle: H.make accept
+# oracle: largest accept
+# oracle: three accept
+# oracle: stash accept
+# oracle: twice accept
+
+obj K
+  s: ?String
+
+fun pick[T](f: ?fun(?String) -> T, a: ?String, b: ?String) -> T from f, a
+  f(a)
+
+obj P[T]
+  s: ?String
+  v: T
+
+fun mk[T](x: T, c: ?String) -> P[T] from x, c
+  P(s: c, v: x)
+
+enum Opt[T]
+  some(value: T)
+  none
+
+fun payload[T](o: ?Opt[T], d: T) -> T from o, d
+  match o
+    .some(v) => v
+    .none => d
+
+fun wrapped[T](f: ?fun(?String) -> T, a: ?String) -> T from f, a
+  h = |?f, ?a| f(a)
+  h()
+
+obj H[T]
+  f: *fun(?String) -> T
+
+  fun make(?self, s: ?String, t: ?String) -> T from s
+    self.f(s)
+
+fun largest[T](xs: ?List[T]) -> T?
+  best: T? = none
+  for x in xs
+    if best as b
+      best = x if x > b else b
+    else
+      best = x
+  best
+
+fun three[T](x: T) -> [3]T
+  [3 of x]
+
+sub stash[T](c: !Cell[T], x: T)
+  !c.set(x)
+
+fun apply[T](x: T, f: ?fun(T) -> T) -> T
+  f(x)
+
+fun twice[T](x: T, f: ?fun(T) -> T) -> T
+  apply(x, |?f, y: T| f(f(y)))
+
+sub main()
+  t = String("abc")
+  u = String("u")
+  k = pick(|s: ?String| K(s: s), ?t, ?u)
+  print(k.s)
+  p = mk(?t, ?u)
+  print(p.s, p.v)
+  o = Opt[?String].some(?t)
+  print(payload(?o, ?u))
+  w = wrapped(|s: ?String| K(s: s), ?t)
+  print(w.s)
+  h = H[K](f: *|s| K(s: s))
+  print(h.make(?t, ?u).s)
+  v: List[Int] = List()
+  !v.push(3)
+  !v.push(9)
+  !v.push(4)
+  print(largest(?v))
+  n = three(7)
+  print(n[0] + n[1] + n[2])
+  c = *Cell(0)
+  stash(!c, 5)
+  print(c.get())
+  print(twice(3, |y: Int| y * 2))
+
+# expect:
+# abc
+# u abc
+# abc
+# abc
+# abc
+# 9
+# 21
+# 5
+# 12

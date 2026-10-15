@@ -1,0 +1,99 @@
+# A value of a type parameter may carry a loan: an instance may stand
+# for a read view, or a type holding one (SPEC "Generic bodies"). So a
+# `T`, or a value holding one, made from a parameter carries that
+# parameter's loans, and a body that returns it must name the parameter
+# in its `from`, as for a result of a view type. Each function here
+# returns one made from a parameter its `from` leaves out; the reference
+# checker rejects each (C6), whatever the compiler decides.
+# oracle: pick reject C6
+# oracle: mk reject C6
+# oracle: payload reject C6
+# oracle: either reject C6
+# oracle: first reject C6
+# oracle: gather reject C6
+# oracle: boxed reject C6
+# oracle: unwrap reject C6
+# oracle: wrapped reject C6
+# oracle: outer reject C6
+# oracle: H.make reject C6
+
+# A callable's result: `f` may turn the `?String` it is given into a `T`.
+fun pick[T](f: ?fun(?String) -> T, a: ?String, b: ?String) -> T from f, b
+  f(a)
+
+# A result holding a view and a `T`.
+obj P[T]
+  s: ?String
+  v: T
+
+fun mk[T](x: T, c: ?String) -> P[T] from c
+  P(s: c, v: x)
+
+# A match payload of type `T`, bound from a viewed enum.
+enum Opt[T]
+  some(value: T)
+  none
+
+fun payload[T](o: ?Opt[T], d: T) -> T from d
+  match o
+    .some(v) => v
+    .none => d
+
+# An optional's value.
+fun either[T](o: T?, d: T) -> T from d
+  o ?? d
+
+# An element of a List.
+fun first[T](l: ?List[T], m: ?List[T]) -> T from m
+  l[0]
+
+# A List made of an element of a slice.
+fun gather[T](xs: []T, ys: []T) -> List[T] from ys
+  out = List[T]()
+  !out.push(xs[0])
+  out
+
+# A box of an element.
+fun boxed[T](xs: []T, ys: []T) -> ^T from ys
+  ^xs[0]
+
+# A value unwrapped out of a viewed optional with `as`.
+fun unwrap[T](o: ?(T?), d: T) -> T from d
+  if o as v
+    return v
+  d
+
+# A closure's result.
+fun wrapped[T](f: ?fun(?String) -> T, a: ?String, b: ?String) -> T from f, b
+  h = |?f, ?a| f(a)
+  h()
+
+# Nested generics: `inner`'s result views `xs`.
+fun inner[T](xs: []T, ys: []T) -> T from xs
+  xs[0]
+
+fun outer[T](xs: []T, ys: []T) -> T from ys
+  inner(xs, ys)
+
+# The result of an owned closure a field holds, called with a parameter.
+obj H[T]
+  f: *fun(?String) -> T
+
+  fun make(?self, s: ?String, t: ?String) -> T from t
+    self.f(s)
+
+sub main()
+  pass
+
+# errors: 11
+# error: 22:3: `pick` returns a view of `a`, but its signature says it views only `f`, `b`
+# error: 30:3: `mk` returns a view of `x`, but its signature says it views only `c`
+# error: 38:3: `payload` returns a view of `o`, but its signature says it views only `d`
+# error: 44:3: `either` returns a view of `o`, but its signature says it views only `d`
+# error: 48:3: `first` returns a view of `l`, but its signature says it views only `m`
+# error: 54:3: `gather` returns a view of `xs`, but its signature says it views only `ys`
+# error: 58:3: `boxed` returns a view of `xs`, but its signature says it views only `ys`
+# error: 63:12: `unwrap` returns a view of `o`, but its signature says it views only `d`
+# error: 69:3: `wrapped` returns a view of `a`, but its signature says it views only `f`, `b`
+# error: 76:3: `outer` returns a view of `xs`, but its signature says it views only `ys`
+# error: 83:5: `make` returns a view of `s`, but its signature says it views only `t`

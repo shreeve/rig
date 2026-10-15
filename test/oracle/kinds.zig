@@ -47,6 +47,11 @@ pub const Info = struct {
     /// In a generic body: it moves only because it holds a type
     /// parameter, whose instances may copy (SPEC "Generic bodies").
     generic_copy: bool = false,
+    /// In a generic body: values may carry a loan only through a type
+    /// parameter, which no instance that may store one in a Cell, a
+    /// Signal, or an owned closure stands for a view (SPEC "Generic
+    /// bodies"): there they carry none.
+    t_only: bool = false,
 };
 
 pub const Kinds = struct {
@@ -56,11 +61,14 @@ pub const Kinds = struct {
     /// (Core §1, planned).
     planned: bool,
     memo: std.AutoHashMapUnmanaged(TypeId, Info) = .empty,
-    /// Kinds in a generic body: a type parameter is owning and holds no
-    /// view (SPEC "Generic bodies"), which is what the compiler checks
-    /// the body for; each instance is checked against what the body
-    /// does with it.
+    /// Kinds in a generic body: a type parameter moves like an owner,
+    /// and (`t_views`) may carry loans (SPEC "Generic bodies"); each
+    /// instance is checked against what the body does with it.
     generic: bool = false,
+    /// In a generic body: a type parameter may stand for a read view, or
+    /// a type holding one, so its values may carry loans. Off where the
+    /// body is checked for an instance at an owner that holds no view.
+    t_views: bool = true,
 
     pub fn init(a: std.mem.Allocator, ctx: *const SemContext, planned: bool) Kinds {
         return .{ .a = a, .ctx = ctx, .planned = planned };
@@ -93,14 +101,21 @@ pub const Kinds = struct {
             else
                 .plain,
         };
+        // In a generic body a type parameter may stand for a read view,
+        // or a type holding one (SPEC "Generic bodies"): a value of a
+        // type that mentions one may carry the loans of whatever flowed
+        // into it, a loan on a place among them. It never stands for a
+        // write view (Core §5).
+        const tvar = self.generic and self.t_views and ti.has_type_var;
         const info: Info = .{
             .kind = kind,
-            .holds_views = ti.views.marked or ti.views.string_view,
-            .holds_pointers = ti.views.marked,
+            .holds_views = ti.views.marked or ti.views.string_view or tvar,
+            .holds_pointers = ti.views.marked or tvar,
             .holds_writes = ti.views.write,
             .drop_reads = scan.drop_body and kind == .owning,
             .unsupported = if (ti.poison) "a type with an error" else scan.unsupported,
             .generic_copy = kind == .owning and !(ti.glue or ti.unique or ti.any_error or (self.planned and ti.cell)),
+            .t_only = tvar and !(ti.views.marked or ti.views.string_view),
         };
         try self.memo.put(self.a, ty, info);
         return info;
@@ -449,7 +464,10 @@ pub const Reach = struct {
                     .slice => |sl| try work.append(self.a, .{ .ctx = n.ctx, .ty = sl.elem, .subst = n.subst, .past_read = n.past_read, .past_view = true, .elem = true }),
                     else => try work.append(self.a, .{ .ctx = n.ctx, .ty = inner, .subst = n.subst, .past_read = n.past_read, .past_view = true }),
                 },
-                .string_view => if (t.bytes) {
+                // A `?String` views bytes, which a view that may point
+                // anywhere may point into too (a type parameter's value
+                // made from one by a callable).
+                .string_view => if (t.bytes or t.any) {
                     r.viewed = true;
                 },
                 .string => if (t.bytes) {

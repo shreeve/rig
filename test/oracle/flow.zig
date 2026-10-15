@@ -425,8 +425,13 @@ const Checker = struct {
         }
         // C8 (s9): an owned closure, a Cell, or a Signal takes no value
         // that carries a loan.
+        // A value that carries a loan only through a type parameter is
+        // stored there at an instance that stands for no view (SPEC
+        // "Generic bodies": an instance at a view is rejected where the
+        // body stores its `T` so; the oracle decides no call at one).
         if (op.no_loans) {
             for (op.moves) |v| {
+                if (self.f.vars.items[v].t_only) continue;
                 for (self.f.loans.items, 0..) |l, li| {
                     if (!st.holds[v].has(li)) continue;
                     try self.report(.C8, op.pos, "a value carrying a loan of `{s}` would be stored where every handle reaches it; an owned closure, a Cell, or a Signal holds only values that carry no loan", .{self.name(l.root)});

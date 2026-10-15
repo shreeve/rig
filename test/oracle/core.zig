@@ -64,6 +64,9 @@ pub const Var = struct {
     holds_writes: bool = false,
     /// Dropping it runs a user `drop` body, which reads what it views.
     drop_reads: bool,
+    /// In a generic body: it may carry a loan only through a type
+    /// parameter (`kinds.Info.t_only`).
+    t_only: bool = false,
     hidden: bool = false,
     param: bool = false,
     /// In a closure's body: what the closure captured, which its
@@ -246,7 +249,7 @@ fn vn(func: *const Func, v: VarId, buf: []u8) []const u8 {
 pub fn dump(func: *const Func, w: *std.Io.Writer) !void {
     var nb: [128]u8 = undefined;
     try w.print("vars:", .{});
-    for (func.vars.items, 0..) |v, i| try w.print(" {d}={s}:{s}", .{ i, v.name, @tagName(v.kind) });
+    for (func.vars.items, 0..) |v, i| try w.print(" {d}={s}:{s}{s}", .{ i, v.name, @tagName(v.kind), if (v.holds_views) "+" else "" });
     try w.print("\nloans:", .{});
     for (func.loans.items, 0..) |l, i| {
         try w.print(" L{d}={s}{s}", .{ i, @tagName(l.mode), if (l.deref) "*" else "" });
@@ -267,6 +270,7 @@ pub fn dump(func: *const Func, w: *std.Io.Writer) !void {
             for (op.uses) |v| try w.print(" u:{s}", .{vn(func, v, &nb)});
             for (op.gains) |v| try w.print(" g:{s}", .{vn(func, v, &nb)});
             for (op.keep) |v| try w.print(" k:{s}", .{vn(func, v, &nb)});
+            for (op.no_result) |v| try w.print(" nr:{s}", .{vn(func, v, &nb)});
             if (op.access) |acc| try w.print(" {s}({s}{s})", .{ @tagName(acc.kind), vn(func, acc.root, &nb), if (acc.deref) "*" else "" });
             try w.writeAll("\n");
         }

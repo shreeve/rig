@@ -4,7 +4,8 @@
 # made values, and branching values, `unique` types, Cells and Signals,
 # `defer` and `errdefer` bodies, inlined at each exit of their scope,
 # handles (`*T`, `~T`), closures, stack and owned, whose bodies it
-# checks as functions of their own, generic bodies, and calls of generic
+# checks as functions of their own, generic bodies, whose type
+# parameters may carry loans, and calls of generic
 # code at owners where those bodies never copy a type parameter, held
 # header parts, payload views, containers of views and write
 # views, every element a place, re-pointed write views, and clones, so
