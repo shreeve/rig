@@ -1,0 +1,25 @@
+# An integer hashes as its value whatever its width or signedness: a
+# value from the least `I64` to the greatest `U64` hashes the same in a
+# 64-bit type as in a 128-bit one, signed or not.
+
+sub main()
+  a: U64 = 18446744073709551615
+  b: I128 = 18446744073709551615
+  c: U128 = 18446744073709551615
+  print(c == U128(a), c.hash() == a.hash())
+  print(b == I128(a), b.hash() == a.hash(), b.hash() == c.hash())
+  d: I128 = 9223372036854775808
+  e: U64 = 9223372036854775808
+  print(d.hash() == e.hash())
+  f: I128 = -9223372036854775807 - 1
+  g: I64 = -9223372036854775807 - 1
+  print(f.hash() == g.hash(), I8(-3).hash() == I128(-3).hash())
+  big: U128 = 18446744073709551616
+  print(big.hash() != U128(0).hash(), big.hash() != a.hash())
+
+# expect:
+# true true
+# true true true
+# true
+# true true
+# true true

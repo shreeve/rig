@@ -399,9 +399,10 @@ fn hashBytes(bytes: []const u8) u64 {
     return std.hash.Wyhash.hash(0, bytes);
 }
 
-/// An integer by its value: any width up to 64 bits, signed or not,
-/// widened to 64 (sign-extended, so `-1` is the same in every width); a
-/// wider one folds its high half in unless it only extends the low.
+/// An integer by its value, whatever its width or signedness: a value
+/// from the least `i64` to the greatest `u64` hashes as one 64-bit word
+/// (a negative one sign-extended, so `-1` is the same in every width);
+/// a wider one folds its high half in.
 fn hashInt(x: anytype) u64 {
     const X = @TypeOf(x);
     if (X == comptime_int) return hashInt(@as(if (x < 0) i128 else u128, x));
@@ -410,12 +411,11 @@ fn hashInt(x: anytype) u64 {
         const w: u64 = if (info.signedness == .signed) @bitCast(@as(i64, x)) else x;
         return hashWord(w);
     }
-    const W = if (info.signedness == .signed) i128 else u128;
-    const v: W = x;
-    const lo: u64 = @truncate(@as(u128, @bitCast(v)));
-    const wide: W = if (info.signedness == .signed) @as(i64, @bitCast(lo)) else lo;
-    if (v == wide) return hashWord(lo);
-    return hashMix(hashWord(lo), hashWord(@truncate(@as(u128, @bitCast(v)) >> 64)));
+    const v: if (info.signedness == .signed) i128 else u128 = x;
+    if (v >= 0 and v <= std.math.maxInt(u64)) return hashWord(@intCast(v));
+    if (v < 0 and v >= std.math.minInt(i64)) return hashWord(@bitCast(@as(i64, @intCast(v))));
+    const bits: u128 = @bitCast(v);
+    return hashMix(hashWord(@truncate(bits)), hashWord(@truncate(bits >> 64)));
 }
 
 /// One 64-bit word, mixed by a full 64x64 multiply folded to 64 bits,
