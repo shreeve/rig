@@ -1,0 +1,58 @@
+use std.hash
+
+fun key(i: Int) -> String
+  String("key-number-", i, "-padding-to-heap")
+
+sub main()
+  m = hash.Map[String, List[String]].new(capacity: 5)
+  for round in 0..4
+    for i in 0..40
+      l: List[String] = List()
+      !l.push(String("v", i, "r", round))
+      old = (!m).replace(key(i), <l)
+      <old
+    for i in 0..40
+      if i % 3 != round % 3
+        got = (!m).take(?key(i))
+        <got
+    !m.reserve(100)
+    for i in 0..6
+      !m.put(key(i + 1000), List())
+  bad = 0
+  for i in 0..40
+    has = m.has(?key(i))
+    if has != (i % 3 == 3 % 3)
+      bad += 1
+  print(m.len, bad)
+  order = 0
+  for _ in ?m.items()
+    order += 1
+  print(order)
+  !m.clear()
+  print(m.len, m.has("key-number-1-padding-to-heap"))
+  for i in 0..20
+    !m.put(key(i), List())
+  for i in 0..20
+    _ = (!m).take(?key(i))
+  print(m.len)
+  for i in 0..3
+    !m.put(key(i), List())
+  print(m.len)
+
+  s = hash.Set[String].new(capacity: 3)
+  for i in 0..50
+    _ = (!s).add(key(i))
+    _ = (!s).add(key(i))
+  for i in 0..50
+    if i % 2 == 0
+      k = (!s).take(?key(i))
+      if k as kk
+        print(kk) if i == 48
+  !s.reserve(1000)
+  ok = true
+  for i in 0..50
+    ok = ok and s.has(?key(i)) == (i % 2 == 1)
+  print(s.len, ok)
+  for k in ?s.items()
+    print(k)
+    break
