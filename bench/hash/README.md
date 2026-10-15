@@ -16,4 +16,7 @@ variants (`rig-safe` and `zig-safe` by default; `rig-fast` and
 `zig-fast` on request) and the options. Each program inserts a million
 keys into an empty map, looks each up, looks up a million it does not
 hold, and walks the map, for Int and String keys; the runs are
-interleaved and the fastest of each operation counts.
+interleaved and the fastest of each operation counts. The Rig program
+also times the three ways to write the value under a key whether or
+not it is new (`ensure`, `ensure_with`, and `edit` then `put`), on
+misses and on hits, which Zig's has no rows for.
