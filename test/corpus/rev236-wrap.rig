@@ -1,0 +1,46 @@
+use std.hash
+
+obj Rand
+  s: U64
+
+  fun next(!self, n: Int) -> Int
+    self.s = self.s *% 6364136223846793005 +% 1442695040888963407
+    Int((self.s >> 33) % U64(n))
+
+sub main()
+  keys: List[Int] = List()
+  x = 0
+  while keys.len < 12
+    home = Int(x.hash() & 31)
+    !keys.push(x) if home >= 29 or home == 0
+    x += 1
+  bad = 0
+  r = Rand(s: 5)
+  for trial in 0..3000
+    m = hash.Map[Int, Int]()
+    s = hash.Set[Int]()
+    live: List[Bool] = List()
+    for k, i in ?keys
+      !m.put(k, i)
+      _ = (!s).add(k)
+      !live.push(true)
+    for _ in 0..(trial % 12)
+      j = (!r).next(12)
+      t = (!m).take(keys[j])
+      u = (!s).take(keys[j])
+      if live[j]
+        bad += 1 if t != j or u != keys[j]
+      else
+        bad += 1 if t != none or u != none
+      live[j] = false
+    for k, i in ?keys
+      bad += 1 if m.has(k) != live[i] or s.has(k) != live[i]
+    # put back the taken ones; each must be found once
+    for k, i in ?keys
+      if not live[i]
+        !m.put(k, 100 + i)
+        bad += 1 if not (!s).add(k)
+    for k in ?keys
+      bad += 1 if not m.has(k) or not s.has(k)
+    bad += 1 if m.len != 12 or s.len != 12
+  print(bad)

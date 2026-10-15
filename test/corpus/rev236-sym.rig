@@ -1,0 +1,25 @@
+use std.hash
+
+sub main()
+  n = hash.Symbols()
+  print((!n).intern("a"), (!n).intern("b"), (!n).intern("c"))
+  !n.reserve(100, bytes: 400)
+  bad = 0
+  for i in 0..500
+    t = String("s", i)
+    id = (!n).intern(?t)
+    bad += 1 if id != U32(i + 3)
+  for i in 0..500
+    t = String("s", i)
+    bad += 1 if n.id(?t) != U32(i + 3)
+    bad += 1 if n.text(U32(i + 3)) != t
+  bad += 1 if n.id("a") != U32(0) or n.id("c") != U32(2) or n.id("zz") != none
+  !n.reserve(5000)
+  for i in 0..500
+    t = String("s", i)
+    bad += 1 if (!n).intern(?t) != U32(i + 3)
+  print(n.len, bad)
+  e = hash.Symbols()
+  for i in 0..9
+    _ = (!e).intern(String("q", i))
+  print(e.len, e.id("q8"), e.id("q0"), e.text(8))
