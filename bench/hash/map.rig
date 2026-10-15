@@ -2,14 +2,17 @@
 # lookup, and iterate, each over N keys; hits in Maps of 4 and 8 keys;
 # and interning N words. Each loop walks its keys as
 # map.zig's does: a range of Ints, or a List's elements in order.
-# Prints `KEYS OP NS CHECK` per line (bench/hash/bench-hash).
+# Prints `KEYS OP NS CHECK` per line (bench/hash/bench-hash). Each group
+# is `called`, a function of its own as a program's would be, so what
+# one group keeps in registers does not depend on what the compiler
+# inlines into `main` around it.
 
 use std.hash
 use std.time
 
 N = 1000000
 
-sub ints(n: Int)
+called sub ints(n: Int)
   m = hash.Map[Int, Int].new()
   t = time.now()
   for i in 0..n
@@ -33,7 +36,7 @@ sub ints(n: Int)
     sum += e.value
   print("int iterate", t.elapsed(), sum)
 
-sub strings(n: Int)
+called sub strings(n: Int)
   put: List[String] = List()
   look: List[String] = List()
   miss: List[String] = List()
@@ -66,7 +69,7 @@ sub strings(n: Int)
 
 # N hit lookups in a Map of `size` Int keys: the symbol tables most
 # programs hold are this small.
-sub small(n: Int, size: Int)
+called sub small(n: Int, size: Int)
   m = hash.Map[Int, Int].new()
   for i in 0..size
     !m.put(i *% -7046029254386353131, i)
@@ -79,7 +82,7 @@ sub small(n: Int, size: Int)
 
 # N words, from 50,000 distinct ones, each given a dense id: the first
 # time a word is seen its text is copied in.
-sub intern(n: Int)
+called sub intern(n: Int)
   words: List[String] = List()
   for i in 0..n
     !words.push(String("w", (i * 7919) % 50000))
