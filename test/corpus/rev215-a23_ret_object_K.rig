@@ -1,4 +1,4 @@
-# a01 with T a struct holding a view.
+# a01 with T an object holding a view.
 obj K
   s: ?String
 
