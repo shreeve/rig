@@ -54,4 +54,44 @@ grep -qF 'pub inline fn peek(' <<<"$out" && fail "a small function that copies 3
 expect_has "$out" 'pub inline fn tiny(' "a small function that copies nothing is inlined"
 lib=$(cat "$RIG_OUT_DIR"/programs/app_main/*lib*.zig 2>/dev/null)
 expect_has "$lib" 'pub noinline fn pick(' "a generic function at a large instance another module makes"
+
+# Every frame owner Zig could inline into its caller is held to the same
+# rule: a closure's body and a `drop` body that copy 960 KB, and the small
+# ones beside them that are not.
+cat >owners.rig <<'EOF3'
+fun take(a: [40000]Int) -> Int
+  a[1]
+
+obj Big
+  n: Int
+
+  drop(!self)
+    a = [40000 of self.n]
+    print(take(a) + take(a) + take(a))
+
+obj Small
+  n: Int
+
+  drop(!self)
+    print(self.n)
+
+fun run(i: Int) -> Int
+  f = |+i|
+    a = [40000 of i]
+    take(a) + take(a) + take(a)
+  g = |+i| i + 1
+  f() + g()
+
+sub main()
+  b = Big(n: 1)
+  s = Small(n: 2)
+  print(run(1))
+EOF3
+out=$(rig run owners.rig 2>&1) || fail "run owners: $out"
+expect_eq "$out" $'5\n2\n3' "owners.rig"
+out=$(rig emit owners.rig 2>&1) || fail "emit owners: $out"
+expect_has "$out" 'noinline fn __rig_user_drop(self: *Big)' "a drop body that copies 960 KB"
+expect_has "$out" '    fn __rig_user_drop(self: *Small)' "a small drop body"
+[[ $(grep -c 'pub noinline fn __rig_invoke(' <<<"$out") == 1 ]] || fail "one closure body copies 960 KB: $out"
+[[ $(grep -c 'pub fn __rig_invoke(' <<<"$out") == 1 ]] || fail "one closure body is small: $out"
 exit 0

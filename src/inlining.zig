@@ -689,16 +689,18 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
     try pass.fit();
     for (pass.fns.items) |f| {
         if (f.inlined) try mods[f.module].sema.inlined.put(allocator, f.pos, {});
-        // A function large with the calls inlined into it is never inlined
-        // by Zig either.
-        const own = pass.owners.items[f.owner].own orelse continue;
-        if (!f.inlined and (own.reach + pass.added(f.owner)) * sema.reach_factor >= sema.noinline_reach)
-            try mods[f.module].sema.large_frames.put(allocator, f.pos, {});
     }
-    // Every owner's account.
+    // Every owner's account. An owner large with the calls inlined into it
+    // is never inlined by Zig either: a function, a closure's body, or a
+    // `drop` body (`Facts.isLargeFrame`, `Facts.isLargeOwner`).
     for (mods, 0..) |m, i| for (m.sema.frame_owners.items, 0..) |*o, k| {
         const index = pass.owner_base[i] + @as(u32, @intCast(k));
-        o.account = .{ .own = pass.owners.items[index].own, .auto = pass.added(index) };
+        const own = pass.owners.items[index].own;
+        const auto = pass.added(index);
+        o.account = .{ .own = own, .auto = auto };
+        if (pass.owners.items[index].fun) |v| if (pass.fns.items[v].inlined) continue;
+        const known = own orelse continue;
+        if ((known.reach + auto) * sema.reach_factor >= sema.noinline_reach) try m.sema.large_frames.put(allocator, o.pos, {});
     };
     // A call that may reach an inlined function hands back a value Zig
     // would know at compile time (`Emitter.emitCallDirect`).

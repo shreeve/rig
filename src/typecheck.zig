@@ -14576,3 +14576,89 @@ test "check: a written write lend read as a value is rejected" {
     }
     try std.testing.expectEqual(3, count);
 }
+
+test "frame owners: one list of each kind, and the owner of a call in each kind of body" {
+    var r = try checkSource(std.testing.allocator,
+        \\fun h(i: Int) -> Int
+        \\  i + 1
+        \\
+        \\fun g[T](x: T, i: Int) -> Int
+        \\  h(i)
+        \\
+        \\obj Res
+        \\  n: Int
+        \\
+        \\  fun get(?self) -> Int
+        \\    h(self.n)
+        \\
+        \\  drop(!self)
+        \\    print(h(self.n))
+        \\
+        \\fun f(i: Int) -> Int
+        \\  defer print(h(i))
+        \\  return 5 if i == 9
+        \\  c = |+i|
+        \\    k = |+i| h(i)
+        \\    k()
+        \\  match i
+        \\    0 => h(i)
+        \\    _ => c()
+        \\
+        \\test "t"
+        \\  print(h(1))
+        \\
+        \\sub main()
+        \\  r = Res(n: 1)
+        \\  print(f(0), g(1, 2), r.get())
+        \\
+    );
+    defer r.p.deinit();
+    defer r.ctx.deinit();
+    try expectClean(&r.ctx);
+    const Want = struct { kind: sema.FrameOwner.Kind, label: []const u8, parent: ?u32 };
+    const want = [_]Want{
+        .{ .kind = .function, .label = "`h`", .parent = null },
+        .{ .kind = .function, .label = "`g`", .parent = null },
+        .{ .kind = .function, .label = "`get`", .parent = null },
+        .{ .kind = .drop, .label = "`drop`", .parent = null },
+        .{ .kind = .function, .label = "`f`", .parent = null },
+        .{ .kind = .closure, .label = "a closure", .parent = 4 },
+        .{ .kind = .closure, .label = "a closure", .parent = 5 },
+        .{ .kind = .test_block, .label = "test \"t\"", .parent = null },
+        .{ .kind = .function, .label = "`main`", .parent = null },
+    };
+    const owners = r.ctx.frame_owners.items;
+    try std.testing.expectEqual(want.len, owners.len);
+    for (want, owners) |w, o| {
+        try std.testing.expectEqual(w.kind, o.kind);
+        try std.testing.expectEqualStrings(w.label, o.label);
+        try std.testing.expectEqual(w.parent, o.parent);
+    }
+    try std.testing.expect(owners[2].member and !owners[2].of_generic_type);
+    try std.testing.expect(owners[1].per_instance and owners[1].own == null);
+    // Each call of `h`: its owner, and how many times Zig writes it (the
+    // `defer` body at the `return` and at the end).
+    const Call = struct { owner: u32, copies: u32 };
+    const calls = [_]Call{
+        .{ .owner = 1, .copies = 1 }, // g
+        .{ .owner = 2, .copies = 1 }, // get
+        .{ .owner = 3, .copies = 1 }, // drop
+        .{ .owner = 4, .copies = 2 }, // f's defer
+        .{ .owner = 6, .copies = 1 }, // the inner closure
+        .{ .owner = 4, .copies = 1 }, // f's match arm
+        .{ .owner = 7, .copies = 1 }, // the test
+    };
+    var seen: usize = 0;
+    for (r.ctx.frame_calls.items) |c| {
+        const callee = r.ctx.calleeOf(c.node);
+        if (callee != .src or !std.mem.eql(u8, sema.identAt(r.ctx.source, callee) orelse "", "h")) continue;
+        try std.testing.expect(seen < calls.len);
+        try std.testing.expectEqual(calls[seen].owner, r.ctx.ownerOf(c.node).?);
+        try std.testing.expectEqual(calls[seen].copies, c.copies);
+        try std.testing.expectEqual(sema.CallTarget{ .function = .{ .module = r.ctx.module_id, .pos = owners[0].pos } }, r.ctx.callTargetOf(c.node).?);
+        seen += 1;
+    }
+    try std.testing.expectEqual(calls.len, seen);
+    // Each owner lists its calls.
+    for (owners, 0..) |o, i| for (o.calls) |ci| try std.testing.expectEqual(@as(?u32, @intCast(i)), r.ctx.frame_calls.items[ci].owner);
+}
