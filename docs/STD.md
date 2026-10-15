@@ -502,7 +502,7 @@ is new; otherwise `k` is dropped), `(!s).take(k: ?K) -> K?`,
 `ensure` takes the value to put even when the key is there, and drops
 it then. To make an expensive value only for a new key, use
 `ensure_with`, whose `make` runs only then; `edit` first and `put` when
-it finds nothing does the same in two lookups:
+it finds nothing does the same:
 
 ```rig
 use std.hash
