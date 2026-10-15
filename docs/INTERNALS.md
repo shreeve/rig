@@ -2957,7 +2957,8 @@ what it hands over (`sema.handsOver`), as every header does:
 | a name or field path, written `!it` (a bare `it` is rejected) | `while (!it).next() as x` |
 | a made value `e` | `{ h = e; while (!h).next() as x }` |
 | `<it`, a name or field path | `{ h = <it; while (!h).next() as x }` |
-| `?it`, an element `xs[i]`, a branching or part-of-made value, or `!e` of a made value | rejected |
+| `?e`, a made value whose `?` the receiver-sigil rule puts on a place's method call (`?b.each()`, `Parser.loopReceiverSource`) | `{ h = (?b).each(); while (!h).next() as x }` |
+| `?it`, any other `?e`, an element `xs[i]`, a branching or part-of-made value, or `!e` of a made value | rejected |
 
 `h` is a binding of the block that holds the `while`, so a value made
 there is held for the whole loop, dropped after the `else` (by `break`,

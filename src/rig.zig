@@ -1679,6 +1679,11 @@ pub const IterSource = enum {
     /// A place the loop takes (`for x in <it`), moved into the hidden
     /// binding it holds for the whole loop.
     moved,
+    /// A value a method call makes, with the loop's `?` on the call's
+    /// receiver by the receiver-sigil rule (`for x in ?b.each()` is
+    /// `for x in (?b).each()`), held in a hidden binding as `made` is
+    /// (`Parser.loopReceiverSource`).
+    lent,
 };
 
 /// A `for` node to rewrite (`Parser.desugarIterLoops`), with how it
@@ -1704,6 +1709,12 @@ pub const Parser = struct {
     /// `(move place)` receivers written in front of the call
     /// (`!v.push(x)`), not in parentheses.
     receiver_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// For each `for` whose `?` before its source reaches the receiver
+    /// of a method call by the receiver-sigil rule
+    /// (`for x in ?b.each()`), the source with the sigil there,
+    /// `(?b).each()`: what the loop holds when the call makes an
+    /// iterator (`IterSource.lent`).
+    loop_receivers: std.AutoHashMapUnmanaged(parser.NodeId, Sexp) = .empty,
     /// The node ids of the `(share x)` and `(weak x)` whose operand has a
     /// `?` suffix inside parentheses that open right after the sigil
     /// (`*(T?)`), which the tree does not keep.
@@ -2450,15 +2461,19 @@ pub const Parser = struct {
         var items = sexp.items();
         // A `for` source sigil is the loop's mode, taken before the
         // receiver rewrite can see it.
+        var loop_sigil: Sexp = .nil;
         if (sexp.kind() == .@"for") {
             const copy = try self.allocator().dupe(Sexp, items);
             self.bareFor(sexp, copy);
+            const source = ir.For.source(sexp);
+            if (ir.For.mode(sexp).tag == .iter and source.isKind(.read)) loop_sigil = source;
             normFor(copy);
             items = copy;
         }
         const walked = try self.allocator().alloc(Sexp, items.len);
         for (items, 0..) |child, i| walked[i] = try self.rewrite(child);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
+        if (loop_sigil != .nil) try self.loopReceiver(out, loop_sigil);
         switch (out.kind() orelse return out) {
             .module => {
                 self.moduleConsts(out);
@@ -2768,6 +2783,23 @@ pub const Parser = struct {
         return node == .list and self.paren_suffixes.contains(node.list.id);
     }
 
+    /// Record, for the `for` loop `loop` whose source was written after
+    /// `sigil`, a `?`, the source with that sigil on the receiver of its
+    /// first method call, when the receiver-sigil rule puts it there
+    /// (`loop_receivers`).
+    fn loopReceiver(self: *Parser, loop: Sexp, sigil: Sexp) std.mem.Allocator.Error!void {
+        const lent = try self.base.newNode(sigil.kind().?, &.{ir.For.source(loop)}, self.span(sigil));
+        const moved = try self.receiverSigil(lent);
+        if (moved.list.id == lent.list.id) return;
+        try self.loop_receivers.put(self.allocator(), loop.list.id, moved);
+    }
+
+    /// The source of the `for` loop `loop` with its sigil on the
+    /// receiver of its first method call (`loop_receivers`), or null.
+    pub fn loopReceiverSource(self: *const Parser, loop: Sexp) ?Sexp {
+        return if (loop == .list) self.loop_receivers.get(loop.list.id) else null;
+    }
+
     /// Whether `node` is a receiver sigil the wrapper moved onto the
     /// receiver: `!v` in `!v.push(x)`, not in `(!v).push(x)`.
     pub fn isReceiverSigil(self: *const Parser, node: Sexp) bool {
@@ -3067,8 +3099,16 @@ pub const Parser = struct {
         var hold: ?Sexp = null;
         var receiver = source;
         if (l.source != .place) {
-            const value = if (l.source == .moved) try self.base.newNode(.move, &.{source}, at) else source;
-            hold = try self.base.newNode(.set, &.{ .{ .tag = .shadow }, hiddenLeaf(key + 1, .iterator), .nil, value }, at);
+            const value = switch (l.source) {
+                .moved => try self.base.newNode(.move, &.{source}, at),
+                .lent => self.loopReceiverSource(loop).?,
+                else => source,
+            };
+            // `h` is declared before the loop, at the position before
+            // its `for`, so the loop does not enclose its declaration:
+            // what it holds stays in force through every iteration
+            // (`ownership.Checker.liveFrom`).
+            hold = try self.base.newNode(.set, &.{ .{ .tag = .shadow }, hiddenLeaf(key - 1, .iterator), .nil, value }, at);
             receiver = hiddenLeaf(key + 2, .iterator);
         }
         const lend = try self.base.newNode(.write, &.{receiver}, at);

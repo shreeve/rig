@@ -1,0 +1,90 @@
+obj Cur
+  xs: ?List[Int]
+  i: Int
+
+  fun next(!self) -> Int?
+    return none if self.i >= self.xs.len
+    self.i += 1
+    self.xs[self.i - 1]
+
+fun mk(v: ?List[Int]) -> Cur from v
+  Cur(xs: v, i: 0)
+
+obj Bag
+  xs: List[Int]
+
+  fun each(?self) -> Cur from self
+    Cur(xs: ?self.xs, i: 0)
+
+sub fill(v: !List[Int])
+  for _ in 0..3
+    !v.push(1)
+
+obj DCur
+  xs: ?List[Int]
+  i: Int
+
+  fun next(!self) -> Int?
+    return none if self.i >= self.xs.len
+    self.i += 1
+    self.xs[self.i - 1]
+
+  drop(!self)
+    print("drop", self.xs[0])
+
+fun dmk(v: ?List[Int]) -> DCur from v
+  DCur(xs: v, i: 0)
+
+error E
+  bad
+
+obj Bag2
+  xs: List[Int]
+
+  fun each(?self) -> DCur from self
+    DCur(xs: ?self.xs, i: 0)
+
+fun f(x: Int) -> Int!
+  return E.bad if x > 1
+  x
+
+fun by_err(v: ?List[Int]) -> Int!
+  for x in dmk(v)
+    f(x)!
+  0
+
+sub by_return(v: ?List[Int])
+  for x in dmk(v)
+    return if x == 1
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  for _ in dmk(?v)
+    break
+  print("a")
+  for x in dmk(?v)
+    print(x)
+  else
+    print("else")
+  print("b")
+  by_return(?v)
+  print("c")
+  print(by_err(?v) catch -1)
+  :o for _ in 0..2
+    for x in dmk(?v)
+      continue :o if x > 0
+  print("d")
+  b = Bag2(xs: List())
+  !b.xs.push(5)
+  for x in ?b.each()
+    break if x == 5
+  else
+    print("no")
+  !b.xs.push(6)
+  for x in ?b.each()
+    print(x)
+  for _ in 0..100
+    !b.xs.push(7)
+  print(b.xs.len, v.len)

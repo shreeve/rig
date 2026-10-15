@@ -1,0 +1,31 @@
+# `for x in ?b.each()` holds the iterator `each` makes, which views `b`,
+# so `b` stays lent to read for the whole loop: it cannot be written in
+# the body, nor moved.
+
+obj Cur
+  xs: ?List[Int]
+  i: Int
+
+  fun next(!self) -> Int?
+    return none if self.i >= self.xs.len
+    self.i += 1
+    self.xs[self.i - 1]
+
+obj Bag
+  xs: List[Int]
+
+  fun each(?self) -> Cur from self
+    Cur(xs: ?self.xs, i: 0)
+
+sub main()
+  b = Bag(xs: List())
+  !b.xs.push(4)
+  for x in ?b.each()
+    !b.xs.push(x)
+  for x in ?b.each()
+    c = <b
+    print(x, c.xs.len)
+
+# error: 24:5: cannot lend
+# error: 26:10: cannot move
+# errors: 2
