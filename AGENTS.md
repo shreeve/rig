@@ -208,6 +208,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `docs/DESIGN.md` | Principles and rationale |
 | `docs/RIG-MANTRAS.md` | The short phrases we steer by: how we choose, build, name, and measure |
 | `docs/BEYOND-RUST.md` | What Rig changes for a Rust programmer |
+| `docs/RUST-TRIAGE.md` | What Rig should take from Rust and what it should leave, sorted by priority: a plan, not a description of the compiler |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |
 | `docs/json/` | The JSON parser's design, its open items, and the measurement record |
