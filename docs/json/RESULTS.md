@@ -1469,3 +1469,18 @@ It does not land. x86
 has 16 general registers to arm64's 31, and keeping the tape's pointer,
 length and capacity in them spills other values in `document`. A
 change that keeps values in registers is timed on both machines.
+
+### A number's first digits a byte at a time
+
+`number` reads integer digits 8 at a time (`take_digits`), which
+computes where the digits end from data. A variant read the first 4
+integer digits a byte at a time, with branches the predictor learns, and
+went on 8 at a time after that. On the Mac (Rig main at 29b1d6b7d, one
+quiet window, fastest of 15 interleaved runs) it was 5.2% faster on
+canada (2073 to 2181 MB/s), whose integer parts are 1 to 3 digits, and
+2.6% slower on citm_catalog (4087 to 3982), whose integers run to about
+9 digits; the other four files were 0.8% to 1.3% slower. On x86, on top
+of the tape held in a local, it was 10.8% faster on canada. It misses
+the speed rule on citm_catalog and does not land; it can come back if
+something else removes its cost on long integers. Reading every integer
+digit a byte at a time, uncapped, was worse: citm_catalog 4.7% slower.
