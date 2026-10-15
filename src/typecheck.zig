@@ -5626,6 +5626,22 @@ const Checker = struct {
         return false;
     }
 
+    /// `List.filled(n, x)` and `!v.resize(n, x)` copy `x` into every
+    /// element they make, so the element `elem` must copy (docs/CORE.md,
+    /// "`copy`, `fill`, and `[n of x]` duplicate values"); an owner is
+    /// made once per element by a loop that says so. False after a
+    /// diagnostic.
+    fn fillsCopies(self: *Checker, elem: TypeId, method: []const u8, pos: u32) Error!bool {
+        if (self.isPoison(elem)) return true;
+        const op = if (method[0] == 'f') "copies into every element of `List.filled` a value" else "copies into every element `resize` adds a value";
+        if (!try self.cannotCopy(elem, pos, op)) return true;
+        const shown = try self.tyName(elem);
+        if (method[0] == 'f') {
+            try self.err(pos, "`List.filled` copies its value into every element, and {s} `{s}` {s}, so it cannot be copied: write a loop that makes each element, `for 0..n` with `!xs.push(+x)`", .{ article(shown), shown, self.movesBecause(elem) });
+        } else try self.err(pos, "`resize` copies its value into every element it adds, and {s} `{s}` {s}, so it cannot be copied: write a loop that makes each element, `for xs.len..n` with `!xs.push(+x)`, and shrink with `!xs.keep(n)`", .{ article(shown), shown, self.movesBecause(elem) });
+        return false;
+    }
+
     /// Why a value of `ty`, which does not copy (`sema.copies`), cannot
     /// be copied, as a diagnostic says it.
     fn movesBecause(self: *const Checker, ty: TypeId) []const u8 {
@@ -9608,6 +9624,7 @@ const Checker = struct {
         }
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
+        if (resolved.nominal_sym == self.ctx.list_sym_id and std.mem.eql(u8, method, "resize")) if (!try self.fillsCopies(f.params[2], method, pos)) return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
         const rest: FunctionType = .{
             .params = f.params[1..],
@@ -9965,6 +9982,7 @@ const Checker = struct {
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
                 const info = methodParams(m, false, source);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
+                if (nt.id == self.ctx.list_sym_id and std.mem.eql(u8, name, "filled")) if (!try self.fillsCopies(f.params[1], name, pos)) return self.skipCall(args);
                 try self.noteCallee(f);
                 self.lend_call = true;
                 try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins, .declared = fty.function.params });

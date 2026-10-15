@@ -1,0 +1,16 @@
+# Each copy `List.filled` and `resize` make of a read view carries its
+# loan: the List keeps what it views lent while the List is used.
+
+sub main()
+  s = String("abc")
+  a = [1, 2, 3]
+  vs = List.filled(2, ?s)
+  !s.add("d")
+  rs: List[[]Int] = List()
+  !rs.resize(3, ?a[..2])
+  a[0] = 5
+  print(vs, rs)
+
+# error: 8:3: cannot lend `s` to write while a read loan is live
+# error: 11:3: cannot assign to `a[0]` while `a` is lent
+# errors: 2

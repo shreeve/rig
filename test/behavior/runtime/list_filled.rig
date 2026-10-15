@@ -1,0 +1,62 @@
+# `List.filled(n, x)` makes a List of `n` copies of `x`, typed by `x`,
+# by the type where it goes, or by brackets. `n` is evaluated first,
+# then `x`, once, whatever `n` is.
+
+# release
+
+obj Pair
+  a: Int
+  b: Float
+
+enum Color
+  red
+  green
+
+fun say(n: Int) -> Int
+  print("say", n)
+  n
+
+fun make[T](n: Int, x: T) -> List[T]
+  List.filled(n, x)
+
+sub main()
+  ints = List.filled(3, 0)
+  floats: List[Float] = List.filled(2, 1)
+  bytes = List[U8].filled(4, 255)
+  print(ints, floats, bytes)
+  ps = List.filled(2, Pair(a: 1, b: 2.5))
+  ps[1].a = 9
+  print(ps)
+  print(List.filled(2, Color.green), List.filled(2, true), List.filled(2, "hi"))
+  maybe: List[Int?] = List.filled(3, none)
+  print(maybe)
+  rows = List.filled(2, [1, 2])
+  print(rows)
+  none_made = List.filled(0, 5)
+  print(none_made, none_made.len)
+  once = List.filled(say(2), say(7))
+  print(once)
+  skipped = List.filled(say(0), say(8))
+  print(skipped.len)
+  print(make(3, 4), make(1, "g"))
+  big = List.filled(300_000, 0)
+  total = 0
+  for x in big
+    total += x + 1
+  print(big.len, total)
+
+# expect:
+# [0, 0, 0] [1.0, 1.0] [255, 255, 255, 255]
+# [Pair(a: 1, b: 2.5), Pair(a: 9, b: 2.5)]
+# [.green, .green] [true, true] ["hi", "hi"]
+# [none, none, none]
+# [[1, 2], [1, 2]]
+# [] 0
+# say 2
+# say 7
+# [7, 7]
+# say 0
+# say 8
+# 0
+# [4, 4, 4] ["g"]
+# 300000 300000

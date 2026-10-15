@@ -1225,6 +1225,31 @@ pub fn List(comptime T: type) type {
             }
         }
 
+        /// `List.filled(n, x)`: `n` copies of `x` in one allocation of
+        /// exactly `n` slots, filled by one `@memset`. Sema admits only
+        /// a `T` that copies. Panics when `n` is negative.
+        pub fn filled(n: Int, value: T) Self {
+            const count = std.math.cast(usize, n) orelse @panic("negative size");
+            if (count == 0) return .empty;
+            const buf = defaultAllocator().alloc(T, count) catch oom();
+            @memset(buf, value);
+            return .{ .buf = buf, .len = count };
+        }
+
+        /// `!v.resize(n, x)`: grow to `n` elements with copies of `x`,
+        /// one allocation at most (growing as `push` does, so resizing
+        /// up by small steps stays linear) and one `@memset`, or shrink
+        /// to `n` as `keep` does. Sema admits only a `T` that copies.
+        /// Panics when `n` is negative.
+        pub fn resize(self: *Self, n: Int, value: T) void {
+            const want = std.math.cast(usize, n) orelse @panic("negative size");
+            if (want <= self.len) return self.keep(n);
+            self.reserveTotal(want);
+            invariant(want <= self.buf.len);
+            @memset(self.buf.ptr[self.len..want], value);
+            self.len = want;
+        }
+
         pub fn __rig_drop(self: *Self) void {
             self.clear();
             defaultAllocator().free(self.buf);
