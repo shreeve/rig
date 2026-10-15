@@ -191,6 +191,12 @@ pub const Facts = struct {
     pub fn isInlined(f: Facts, name: Sexp) bool {
         return f.c().inlined.contains(f.c().startOf(name));
     }
+    /// The marker of the `fun` or `sub` `node`: `rarely` starts its body
+    /// with the cold hint, and `called` emits it `noinline fn`.
+    pub fn markerOf(f: Facts, node: Sexp) rig.Marker {
+        _ = f;
+        return rig.markerOf(node);
+    }
     /// Whether the call may reach a function emitted `inline`, whose
     /// result Zig could know at compile time.
     pub fn callsInlined(f: Facts, call: Sexp) bool {

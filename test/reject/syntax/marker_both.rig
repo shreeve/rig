@@ -1,0 +1,12 @@
+# A function takes one marker: `rarely` already keeps every call a call,
+# so `called` beside it says nothing more (`marker_called_rarely` has the
+# other order).
+
+called rarely fun f(x: Int) -> Int
+  x
+
+sub main()
+  print(f(1))
+
+# error: 5:8: a function takes one marker
+# errors: 1
