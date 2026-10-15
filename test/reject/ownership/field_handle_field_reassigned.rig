@@ -1,0 +1,22 @@
+# A path stops at a handle: `?p.h.name` is a loan on `p.h`. Assigning
+# `p.h` drops this handle's count, which may free the shared value `r`
+# views.
+# Rule: a path stops at a handle (`*T`); the loan is on the path so far.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_handle_field_reassigned.rig).
+
+obj Sym
+  name: String
+
+obj P
+  h: *Sym
+  n: Int
+
+sub main()
+  p = P(h: *Sym(name: String("a")), n: 0)
+  r = ?p.h.name
+  p.h = *Sym(name: String("b"))
+  print(r)
+
+# error: 18:3: cannot assign to `p.h` while `p.h` is lent
+# errors: 1

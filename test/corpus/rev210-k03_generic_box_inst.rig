@@ -1,0 +1,18 @@
+# Reviewer probe for #210 (field loans): Fields through a box in a
+# generic struct instance.
+
+obj Node
+  name: String
+  n: Int
+
+obj Pair[T]
+  a: T
+  b: T
+
+sub main()
+  p = Pair[^Node](a: ^Node(name: String("a"), n: 0), b: ^Node(name: String("b"), n: 0))
+  r = ?p.a.name
+  p.a.n = 3
+  p.b = ^Node(name: String("c"), n: 0)
+  p.a = ^Node(name: String("d"), n: 0)
+  print(r)

@@ -1,0 +1,32 @@
+# A closure's body may store what one capture views through another
+# capture's write view, so making it lets what the write captures lead
+# to hold the captures' loans; a read capture leads nowhere, though its
+# value carries `self`'s own write loan. So the closure stores nothing in
+# `self` through `?hv`.
+
+obj Holder
+  n: Int
+
+obj Scanner
+  text: ?String
+  end: Int
+
+obj Parser
+  scanner: Scanner
+  h: ?Holder
+
+  sub go(!self)
+    hv = self.h
+    sc = !self.scanner
+    g = |!sc, ?hv|
+      sc.end = hv.n
+    g()
+    print(self.scanner.end)
+
+sub main()
+  k = Holder(n: 7)
+  p = Parser(scanner: Scanner(text: "", end: 0), h: ?k)
+  !p.go()
+
+# expect:
+# 7

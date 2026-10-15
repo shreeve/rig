@@ -1,0 +1,24 @@
+# Reviewer probe for #210 (field loans): A write view of `p.a` live
+# across a loop that pushes to `p.b`.
+
+obj A
+  n: Int
+  s: String
+
+obj P
+  a: A
+  b: List[Int]
+  items: List[Int]
+  name: String
+
+sub main()
+  p = P(a: A(n: 0, s: String("x")), b: List(), items: List(), name: String("nm"))
+  !p.items.push(1)
+  !p.items.push(2)
+  w = !p.a
+  i = 0
+  while i < 3
+    w.n += 1
+    !p.b.push(i)
+    i += 1
+  print(p.a.n, p.b)

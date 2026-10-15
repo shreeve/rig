@@ -67,7 +67,7 @@ sub main()
   store_read_view()
 
 # error: 36:3: cannot reassign `h` while it is lent
-# error: 44:4: use of `h` while a write loan is live
-# error: 53:6: use of `h` while a write loan is live
-# error: 63:6: use of `h` while a write loan is live
+# error: 44:4: use of `h.v` while a write loan on `h` is live
+# error: 53:6: use of `h.v` while a write loan on `h` is live
+# error: 63:6: use of `h.v` while a write loan on `h` is live
 # errors: 4

@@ -31,7 +31,7 @@ sub d()
 sub main()
   a()
 
-# error: 15:4: cannot drop `b` while it is lent
+# error: 15:4: cannot drop `b` while `b.t` is lent
 # error: 21:3: cannot lend `bt` to write while a read loan is live
 # error: 28:3: cannot lend `v` to write while a read loan is live
 # errors: 3

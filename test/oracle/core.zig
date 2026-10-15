@@ -42,6 +42,9 @@ pub const Rule = enum {
     /// s9: an owned closure, a Cell, or a Signal holds no value that
     /// carries a loan.
     C8,
+    /// §5: a value never holds a view of itself: what is stored in a
+    /// var carries no loan on that var, but the lends it goes in by.
+    C9,
 };
 
 pub const Finding = struct {
@@ -79,7 +82,9 @@ pub const Var = struct {
 
 pub const Mode = enum { read, write, reserved };
 
-/// One step of a place's path: a field by name, or any element.
+/// One step of a place's path: a field by name, or any element. Two
+/// places of one var conflict unless their paths part at a field (Core
+/// s5): an element overlaps every element.
 pub const Step = union(enum) { field: []const u8, elem };
 
 /// The record of one lend. A loan on a write view's referent (`!w` or
@@ -99,9 +104,6 @@ pub const Loan = struct {
     /// itself views, not on that value's place: what a value taken out
     /// through the parameter carries (`Op.untake`).
     held: bool = false,
-    /// Lends of one `swap` or `replace` call: their places may be
-    /// different fields of one value.
-    group: u32 = 0,
     /// What the lent place holds can hold a view: a store through a
     /// write loan may leave one there.
     stores_views: bool = false,
@@ -136,7 +138,6 @@ pub const Access = struct {
     kind: AccessKind,
     /// The loan an activation of a reserved lend ignores: its own.
     except: ?LoanId = null,
-    group: u32 = 0,
 };
 
 /// One op. Its effect, in order: every var in `reads`, `moves`, and

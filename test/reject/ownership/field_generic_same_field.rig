@@ -1,0 +1,19 @@
+# With `T = String`, assigning `p.item` frees the bytes `r` views. The
+# rule is the same for every `T`: the generic body is checked once, with
+# `T` opaque.
+# Rule: equal paths overlap whatever the field's type.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_generic_same_field.rig).
+
+obj Slot[T]
+  item: T
+  n: Int
+
+sub main()
+  p = Slot[String](item: String("v"), n: 0)
+  r = ?p.item
+  p.item = String("w")
+  print(r)
+
+# error: 15:3: cannot assign to `p.item` while `p.item` is lent
+# errors: 1

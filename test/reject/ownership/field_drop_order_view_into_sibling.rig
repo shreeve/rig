@@ -1,0 +1,23 @@
+# If `p.v` could view `p.s`, the drop order of `p`'s fields would decide
+# whether `p`'s `drop` body reads freed bytes; Rig rules such a value
+# out instead of ordering drops (a value never holds a view of itself).
+# Rule: a value never holds a view of itself (proposal-field-loans §3,
+# 1c).
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_drop_order_view_into_sibling.rig).
+
+obj P
+  s: String
+  v: ?String
+
+  drop(!self)
+    print(self.v)
+
+sub main()
+  p = P(s: String("abc"), v: "")
+  p.v = ?p.s[0..1]
+  print(p.s)
+
+# error: 18:3: cannot store in `p.v` a view of `p.s`: a value never holds a view of itself
+# errors: 1
+# oracle: main reject C9

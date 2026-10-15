@@ -1,0 +1,21 @@
+# Moving `p` moves every field, the one `r` views included; the moved
+# value may be dropped or changed through its new owner.
+# Rule: `<p` touches all of `p`.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_move_whole_while_field_lent.rig).
+
+obj P
+  name: String
+  n: Int
+
+sub consume(p: P)
+  print(p.n)
+
+sub main()
+  p = P(name: String("a"), n: 1)
+  r = ?p.name
+  consume(<p)
+  print(r)
+
+# error: 17:12: cannot move `p` while a read loan on `p.name` is live
+# errors: 1

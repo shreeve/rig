@@ -89,6 +89,10 @@ const Checker = struct {
     live_out: []Bits,
     /// The read loan each write loan reads as, in what a call returns.
     twins: []?LoanId,
+    /// For a loan on a part of what a write view views (`deref`, with a
+    /// path): the same loan on all of it. Defining the view anew points
+    /// it at another value, which the path does not describe.
+    wholes: []?LoanId = &.{},
     /// Scratch: an op's flow before its write loans are read only.
     full: Bits = undefined,
     /// Scratch: what an op stores (`gains`, `through`), before and after
@@ -260,6 +264,19 @@ const Checker = struct {
         }
     }
 
+    /// `v` is defined anew: a loan another var still holds on a part of
+    /// what it viewed is on all of it from here (`wholes`).
+    fn widen(self: *Checker, v: VarId, st: State) void {
+        for (self.wholes, 0..) |whole, li| {
+            const w = whole orelse continue;
+            if (self.f.loans.items[li].root != v) continue;
+            for (st.holds) |h| if (h.has(li)) {
+                h.unset(li);
+                h.set(w);
+            };
+        }
+    }
+
     /// Replace each write loan in a flow by its read twin.
     fn readOnly(self: *Checker, flow: Bits) void {
         for (self.twins, 0..) |twin, li| {
@@ -272,6 +289,7 @@ const Checker = struct {
 
     /// Apply an op to the state (after its checks).
     fn transfer(self: *Checker, op: core.Op, st: State, flow: Bits) void {
+        if (op.def) |d| self.widen(d, st);
         self.flowOf(op, st, flow, op.no_result, op.result_loan);
         const stored = self.stored;
         self.flowOf(op, st, stored, op.no_store, op.store_loan);
@@ -341,17 +359,43 @@ const Checker = struct {
 
     // ---- checks ---------------------------------------------------------
 
-    /// Whether an access conflicts with a loan a var carries.
+    /// Whether an access conflicts with a loan a var carries: on the same
+    /// var, at places neither of which is beside the other (Core s5:
+    /// `p` and `p.a`, `p.a` and `p.a.b`, but not `p.a` and `p.b`).
     fn conflicts(l: core.Loan, li: LoanId, acc: core.Access) bool {
         if (l.external or l.root != acc.root) return false;
         if (acc.except) |e| if (e == li) return false;
-        // The places of one `swap` may be different fields of one value.
-        if (l.group != 0 and l.group == acc.group and disjoint(l.path, acc.path)) return false;
+        if (disjoint(l.path, acc.path)) return false;
         return switch (acc.kind) {
             .read => l.mode == .write,
             .reserve => l.mode != .read,
             .write, .whole => true,
         };
+    }
+
+    /// Whether `op` stores in var `v`: its assignment target, a var it
+    /// gains, or what a view it stores through holds a write loan on.
+    fn storesInto(self: *Checker, op: core.Op, st: State, v: VarId) bool {
+        if (op.weak != null and op.weak.? == v) return true;
+        if (std.mem.findScalar(VarId, op.gains, v) != null) return true;
+        for (op.through) |t| for (self.f.loans.items, 0..) |l, li| {
+            if (st.holds[t].has(li) and !l.external and l.mode != .read and l.root == v) return true;
+        };
+        return false;
+    }
+
+    /// Whether loan `li` is a lend `op`'s store goes in by: the call's own
+    /// lend of its receiver, or a write loan a view it stores through
+    /// holds; or the read twin of one, as a call's stores carry them.
+    fn goesInBy(self: *Checker, op: core.Op, st: State, li: LoanId) bool {
+        for (self.f.loans.items, 0..) |l, x| {
+            const is = x == li or (x < self.twins.len and self.twins[x] != null and self.twins[x].? == li);
+            if (!is) continue;
+            if (op.what == .call and op.loan != null and op.loan.? == x) return true;
+            if (l.mode == .read or l.external) continue;
+            for (op.through) |t| if (st.holds[t].has(x)) return true;
+        }
+        return false;
     }
 
     fn disjoint(x: []const core.Step, y: []const core.Step) bool {
@@ -402,6 +446,24 @@ const Checker = struct {
                     });
                     return;
                 }
+            }
+        }
+        // C9 (§5): a value never holds a view of itself. What an op
+        // stores in a var (an assignment's target; what a call may store
+        // in its write arguments and receiver, and in what their write
+        // loans are on) carries no loan on that var, but the lends the
+        // store goes in by: the call's own lend of its receiver, and the
+        // write loans the views it stores through hold.
+        if (op.weak != null or op.gains.len > 0 or op.through.len > 0) {
+            const stored = self.stored;
+            if (op.what == .call) {
+                self.flowOf(op, st, stored, op.no_store, op.store_loan);
+            } else self.flowOf(op, st, stored, op.no_result, op.result_loan);
+            for (self.f.loans.items, 0..) |l, li| {
+                if (!stored.has(li) or l.external) continue;
+                if (!self.storesInto(op, st, l.root) or self.goesInBy(op, st, @intCast(li))) continue;
+                try self.report(.C9, op.pos, "a value carrying a loan on `{s}` would be stored in `{s}`: a value never holds a view of itself", .{ self.name(l.root), self.name(l.root) });
+                return;
             }
         }
         // C5 (s3, s6, §3): a var is not dropped while a loan of its own
@@ -525,21 +587,44 @@ pub fn check(a: std.mem.Allocator, f: *core.Func) !?core.Finding {
         try f.loans.append(a, twin);
         t.* = @intCast(f.loans.items.len - 1);
     }
+    // A loan on a part of what a write view views, and its read twin,
+    // each have one on all of it (`Checker.wholes`).
+    const m = f.loans.items.len;
+    const wholes = try a.alloc(?LoanId, m);
+    const origin = try a.alloc(LoanId, m);
+    for (origin, 0..) |*o, li| o.* = @intCast(li);
+    for (twins, 0..) |twin, li| if (twin) |t| {
+        origin[t] = @intCast(li);
+    };
+    for (wholes, 0..) |*w, li| {
+        const l = f.loans.items[li];
+        w.* = null;
+        if (!l.deref or l.external or l.path.len == 0) continue;
+        var whole = l;
+        whole.path = &.{};
+        try f.loans.append(a, whole);
+        w.* = @intCast(f.loans.items.len - 1);
+    }
     // Each loan added here is kept as the lowering decided for the loan
-    // it is the twin of; a caller's loan is external.
+    // it derives from; a caller's loan is external.
     if (f.keep.len > 0) {
         const nv = f.vars.items.len;
-        const keep = try a.alloc(bool, nv * f.loans.items.len);
+        const nl = f.loans.items.len;
+        const of = try a.alloc(LoanId, nl);
+        for (of, 0..) |*o, li| o.* = if (li < m) origin[li] else 0;
+        for (wholes, 0..) |w, li| if (w) |x| {
+            of[x] = origin[li];
+        };
+        const keep = try a.alloc(bool, nv * nl);
         @memset(keep, true);
-        for (0..nv) |v| for (twins, 0..) |twin, li| {
-            if (li >= f.keep_loans) continue;
-            keep[v * f.loans.items.len + li] = f.keep[v * f.keep_loans + li];
-            if (twin) |t| keep[v * f.loans.items.len + t] = f.keep[v * f.keep_loans + li];
+        for (0..nv) |v| for (0..nl) |li| {
+            if (of[li] >= f.keep_loans) continue;
+            keep[v * nl + li] = f.keep[v * f.keep_loans + of[li]];
         };
         f.keep = keep;
-        f.keep_loans = f.loans.items.len;
+        f.keep_loans = nl;
     }
-    var c: Checker = .{ .a = a, .f = f, .nv = f.vars.items.len, .nl = f.loans.items.len, .live_out = &.{}, .twins = twins, .held_of = held_of, .chain = try a.alloc(bool, f.vars.items.len) };
+    var c: Checker = .{ .a = a, .f = f, .nv = f.vars.items.len, .nl = f.loans.items.len, .live_out = &.{}, .twins = twins, .wholes = wholes, .held_of = held_of, .chain = try a.alloc(bool, f.vars.items.len) };
     try c.liveness();
     c.full = try Bits.init(a, c.nl);
     c.stored = try Bits.init(a, c.nl);
