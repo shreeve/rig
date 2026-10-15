@@ -1,0 +1,49 @@
+# The built-in methods that copy a `T` take one that copies, as
+# `xs.m(...)` and as `Type.m(xs, ...)` through the type, and in a generic
+# body: an `Int`, plain data, and a read view, which carries its loan.
+
+obj P
+  x: Int
+  y: Int
+
+type Ints = List[Int]
+
+fun first[T](xs: ?List[T]) -> T?
+  List.get(xs, 0)
+
+fun peek[T](c: ?Cell[T]) -> T
+  Cell[T].get(c)
+
+fun look[T](s: ?Signal[T]) -> T
+  s.get()
+
+sub grow[T](xs: !List[T], x: T)
+  List.resize(!xs, 3, x)
+
+sub main()
+  c = *Cell(P(x: 1, y: 2))
+  a = c.get()
+  b = Cell[P].get(?c)
+  print(a.x, b.y, peek(?c).x)
+  s = *Signal(7)
+  print(s.get(), Signal[Int].get(?s), look(?s))
+  xs = List.filled(2, 5)
+  ys = List[Int].filled(1, 6)
+  !xs.resize(3, 8)
+  List.resize(!ys, 2, 9)
+  Ints.resize(!ys, 3, 4)
+  grow(!xs, 0)
+  print(xs, ys, xs.get(1), List.get(?ys, 2), Ints.get(?ys, 7), first(?xs))
+  name = String("ab")
+  views = List.filled(2, ?name)
+  !views.resize(3, ?name)
+  print(views, views.get(2), List.get(?views, 0))
+  bx = ^List.filled(2, 3)
+  print(bx.get(1))
+
+# expect:
+# 1 2 1
+# 7 7 7
+# [5, 5, 8] [6, 9, 4] 5 4 none 5
+# ["ab", "ab", "ab"] ab ab
+# 3
