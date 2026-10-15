@@ -2333,7 +2333,7 @@ pub const Checker = struct {
     }
 
     /// Whether place `e` is stored where its root's value is, every step
-    /// to it a field of a struct or an element of an array held there:
+    /// to it a field of an object or an element of an array held there:
     /// a write of the root changes what is there but never moves it. The
     /// root is what a view it is views. A step into a List's buffer, a
     /// box, a handle, a String, a view a field holds, or a value of a type
