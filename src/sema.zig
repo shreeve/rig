@@ -1881,18 +1881,21 @@ pub const SemContext = struct {
     /// The functions and methods Zig inlines at every call, by where
     /// their names are declared (`inlining.decide`).
     inlined: std.AutoHashMapUnmanaged(u32, void) = .empty,
-    /// The functions and methods declared `inline fun`, by where their
-    /// names are declared: what the frame of a caller holds of them
-    /// (`typecheck.FrameWalker`).
-    marked_inline: std.AutoHashMapUnmanaged(u32, Sexp) = .empty,
+    /// This module's functions and methods declared `inline fun`, by
+    /// symbol (`FnRef.key`): their declarations (`resolve`).
+    inline_decls: std.AutoHashMapUnmanaged(u64, Sexp) = .empty,
     /// What each of them adds to the frame of a function it is inlined
     /// into: its own values and those of the `inline` functions it calls,
-    /// in this module's types, over its own and its type's parameters
-    /// (`typecheck.inlineFrame`); empty while it is being worked out.
-    inline_frames: std.AutoHashMapUnmanaged(u32, ?[]const FrameSlot) = .empty,
-    /// The instance each call of a generic function makes (its type's
-    /// parameters and its own, and their arguments), by call node.
-    call_instances: std.AutoHashMapUnmanaged(NodeKey, TypeSubst) = .empty,
+    /// in this module's types, over its own and its type's parameters;
+    /// null while it is being worked out (`typecheck.inlineFrame`).
+    inline_frames: std.AutoHashMapUnmanaged(u64, ?[]const FrameSlot) = .empty,
+    /// Each call of an `inline` function, by call node: the function and
+    /// the instance the call makes, recorded where typecheck resolves the
+    /// call (`Checker.noteInline`). Every frame and every cycle of
+    /// `inline` functions is read from it.
+    inline_calls: std.AutoHashMapUnmanaged(NodeKey, InlineCall) = .empty,
+    /// The frames `checkFrames` counted, for `rig check --facts=frames`.
+    frame_sizes: std.ArrayList(FrameSize) = .empty,
     /// The calls that may reach one of them, by node (`inlining.decide`).
     inlined_calls: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// The node `Question`s decided so far, each once.
@@ -1999,9 +2002,10 @@ pub const SemContext = struct {
         self.storage.deinit(self.allocator);
         self.discards.deinit(self.allocator);
         self.inlined.deinit(self.allocator);
-        self.marked_inline.deinit(self.allocator);
+        self.inline_decls.deinit(self.allocator);
         self.inline_frames.deinit(self.allocator);
-        self.call_instances.deinit(self.allocator);
+        self.inline_calls.deinit(self.allocator);
+        self.frame_sizes.deinit(self.allocator);
         self.inlined_calls.deinit(self.allocator);
         self.write_sites.deinit(self.allocator);
         self.proven.deinit(self.allocator);
@@ -2765,15 +2769,21 @@ pub const SemContext = struct {
         try self.facts.generic_calls.put(self.allocator, recordKey(node), call);
     }
 
-    /// The instance a call of a generic function makes: its parameters,
-    /// its type's then its own, and their arguments (`call_instances`).
-    pub fn recordCallInstance(self: *SemContext, node: Sexp, subst: TypeSubst) !void {
+    /// A call of an `inline` function (`inline_calls`).
+    pub fn recordInlineCall(self: *SemContext, node: Sexp, call: InlineCall) !void {
         const a = self.arena.allocator();
-        try self.call_instances.put(self.allocator, recordKey(node), .{ .params = try a.dupe(SymbolId, subst.params), .args = try a.dupe(TypeId, subst.args) });
+        try self.inline_calls.put(self.allocator, recordKey(node), .{ .fun = call.fun, .subst = .{ .params = try a.dupe(SymbolId, call.subst.params), .args = try a.dupe(TypeId, call.subst.args) } });
     }
 
-    pub fn callInstanceOf(self: *const SemContext, node: Sexp) ?TypeSubst {
-        return self.call_instances.get(nodeKey(node) orelse return null);
+    pub fn inlineCallOf(self: *const SemContext, node: Sexp) ?InlineCall {
+        return self.inline_calls.get(nodeKey(node) orelse return null);
+    }
+
+    /// The context of the module that declares `fun`: this one, or one
+    /// it imports.
+    pub fn declaringContext(self: *const SemContext, fun: FnRef) ?*const SemContext {
+        if (fun.module == self.module_id) return self;
+        return self.foreign_semas.get(fun.module);
     }
 
     /// Record an instance of a generic function a call makes at `site`:
@@ -4827,105 +4837,48 @@ pub const NominalDecl = struct {
     }
 };
 
-/// What a call reaches: one Rig function or method (where its name is
-/// declared, in the context of its module), nothing Rig declares with a
-/// body (a built-in, a method of a built-in type, an extern function, a
-/// closure), or what only an instance decides (a method on a type
-/// parameter, a name sema did not resolve).
-pub const CallTarget = union(enum) {
-    /// `module` is the id of the module that declares it, 0 for this one.
-    function: struct { ctx: *const SemContext, pos: u32, module: u32 = 0 },
-    none,
-    unknown,
+/// An `inline` function or method, by its declaration: the id of the
+/// module that declares it, and there the function's symbol, or its
+/// object type's symbol and the method's place in the type's members.
+/// Never a source position.
+pub const FnRef = struct {
+    module: u32,
+    owner: SymbolId = symbol_invalid,
+    index: u32,
+
+    /// Its key in the declaring module's tables (`inline_decls`).
+    pub fn key(self: FnRef) u64 {
+        return @as(u64, self.owner) << 32 | self.index;
+    }
 };
 
-/// The one function a call reaches, by the facts typecheck recorded: a
-/// function's symbol, `module.f`, `Type.m`, or a method of the type a
-/// receiver reaches through views, handles, and boxes.
-pub fn callTarget(ctx: *const SemContext, call: Sexp) CallTarget {
-    const callee = ctx.calleeOf(call);
-    if (callee == .src) {
-        const id = ctx.symbolOf(callee) orelse return .unknown;
-        const s = ctx.symbols.items[id];
-        if (s.kind != .function or s.decl_pos == builtin_decl_pos) return .none;
-        return .{ .function = .{ .ctx = ctx, .pos = s.decl_pos } };
-    }
-    if (!callee.isKind(.member)) return .none;
-    const obj = ir.Member.object(callee);
-    const name = if (ir.Member.name(callee) == .src) rig.leafText(ctx.source, ir.Member.name(callee).src) else return .unknown;
-    // `module.f(...)`.
-    if (obj == .src) if (ctx.symbolOf(obj)) |id| if (ctx.symbols.items[id].kind == .module) {
-        const at = foreignNamed(ctx, id, name) orelse return .unknown;
-        const f = at.ctx.symbols.items[at.sym];
-        if (f.kind != .function) return .none;
-        return .{ .function = .{ .ctx = at.ctx, .pos = f.decl_pos, .module = at.module_id orelse 0 } };
-    };
-    // `Type.m(...)`, `Wrap[Int].m(...)`, `geo.Point.m(...)`.
-    if (typeNamed(ctx, obj)) |t| return methodTarget(t, name);
-    const ty = ctx.typeOf(obj) orelse return .unknown;
-    const reached = unwrapAccess(ctx, ty);
-    switch (ctx.types.get(reached)) {
-        .type_var, .ct_param => return .unknown,
-        .parameterized_nominal => |pn| if (isBuiltinGeneric(ctx, pn.sym)) return .none,
-        .nominal, .imported_nominal => {},
-        else => return .none,
-    }
-    const nom = nominalDecl(ctx, reached) orelse return .unknown;
-    return methodTarget(nom, name);
-}
-
-/// The substitution a method call's receiver makes: a generic object
-/// type's parameters to the receiver's arguments, through views,
-/// handles, and boxes; empty for any other receiver.
-pub fn receiverSubst(ctx: *const SemContext, call: Sexp) TypeSubst {
-    const callee = ctx.calleeOf(call);
-    if (!callee.isKind(.member)) return TypeSubst.empty;
-    const ty = ctx.typeOf(ir.Member.object(callee)) orelse return TypeSubst.empty;
-    const m = membersOf(ctx, unwrapAccess(ctx, ty)) orelse return TypeSubst.empty;
-    return m.subst;
-}
+/// A call of an `inline` function: the function, and the instance the
+/// call makes, its object type's parameters then its own, to their
+/// arguments here.
+pub const InlineCall = struct { fun: FnRef, subst: TypeSubst };
 
 /// A value a function keeps on its stack (`typecheck.FrameWalker`).
 pub const FrameSlot = struct { ty: TypeId, name: []const u8 };
 
-/// The module-level symbol `name` of the module `module_sym` names.
-fn foreignNamed(ctx: *const SemContext, module_sym: SymbolId, name: []const u8) ?NominalDecl {
-    const origin = ctx.module_refs.get(module_sym) orelse return null;
-    const foreign = ctx.foreign_semas.get(origin) orelse return null;
-    const fid = foreign.lookupInScopeOnly(module_scope, name) orelse return null;
-    return .{ .ctx = foreign, .sym = fid, .module_id = origin };
-}
+/// A frame `checkFrames` counted: what it is and its bytes.
+pub const FrameSize = struct { label: []const u8, pos: u32, bytes: u128 };
 
-/// The object type an expression names as a type: `Point`, `Wrap[Int]`,
-/// `geo.Point`; null for a value.
-fn typeNamed(ctx: *const SemContext, e: Sexp) ?NominalDecl {
-    if (e.isKind(.inst)) return typeNamed(ctx, ir.get(e, .object));
-    const found: NominalDecl = if (e == .src) blk: {
-        const id = ctx.symbolOf(e) orelse return null;
-        break :blk .{ .ctx = ctx, .sym = id };
-    } else if (e.isKind(.member)) blk: {
-        const obj = ir.Member.object(e);
-        if (obj != .src or ir.Member.name(e) != .src) return null;
-        const id = ctx.symbolOf(obj) orelse return null;
-        if (ctx.symbols.items[id].kind != .module) return null;
-        break :blk foreignNamed(ctx, id, rig.leafText(ctx.source, ir.Member.name(e).src)) orelse return null;
-    } else return null;
-    return switch (found.symbol().kind) {
-        .nominal_type, .generic_type => found,
-        else => null,
-    };
-}
-
-fn methodTarget(decl: NominalDecl, name: []const u8) CallTarget {
-    // An imported generic type's proxy stands for its declaration.
-    var t = decl;
-    if (isProxy(t.symbol())) {
-        const from = t.symbol().from;
-        t = .{ .ctx = t.ctx.foreign_semas.get(from.module_id) orelse return .unknown, .sym = from.sym, .module_id = from.module_id };
+/// The method `name` of the object type `owner` (a symbol of `ctx`) as
+/// an `FnRef`, followed to the module that declares it: an imported
+/// generic type's proxy stands for its declaration.
+pub fn methodRef(ctx: *const SemContext, owner: SymbolId, name: []const u8) ?FnRef {
+    var decl_ctx = ctx;
+    var sym = owner;
+    var module = ctx.module_id;
+    if (isProxy(ctx.symbols.items[owner])) {
+        const from = ctx.symbols.items[owner].from;
+        decl_ctx = ctx.foreign_semas.get(from.module_id) orelse return null;
+        sym = from.sym;
+        module = from.module_id;
     }
-    const fs = t.symbol().fields orelse return .none;
-    const i = memberIn(t.ctx, fs, name, .method) orelse return .none;
-    return .{ .function = .{ .ctx = t.ctx, .pos = fs[i].decl_pos, .module = t.module_id orelse 0 } };
+    const fields = decl_ctx.symbols.items[sym].fields orelse return null;
+    const i = memberIn(decl_ctx, fields, name, .method) orelse return null;
+    return .{ .module = module, .owner = sym, .index = @intCast(i) };
 }
 
 /// The declaration behind a (possibly viewed) nominal type, local or

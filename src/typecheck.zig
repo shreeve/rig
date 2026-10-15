@@ -108,6 +108,10 @@ const Checker = struct {
     callee_node: ?Sexp = null,
     /// The call being checked, for its argument-slot fact.
     current_call: ?Sexp = null,
+    /// The compile-time parameters of its own and their arguments, of the
+    /// instance the last `instantiateCall` made; empty for a function that
+    /// has none (`noteInline`).
+    inst_own: TypeSubst = .empty,
     /// The `new x` binding whose value is being checked: not visible yet.
     pending: SymbolId = sema.symbol_invalid,
     /// Enclosing `raw` blocks.
@@ -5816,11 +5820,14 @@ const Checker = struct {
         /// The type's symbol, and the module it is in: null for this one.
         owner_sym: sema.Symbol,
         module: ?u32 = null,
+        /// The type's symbol in the context it is in (`methodRef`).
+        decl_ctx: *const SemContext,
+        decl_sym: SymbolId,
     };
 
     fn findMethod(self: *Checker, obj_ty: TypeId, name: []const u8) Error!?Method {
         if (try sema.lookupMethod(self.ctx, obj_ty, name)) |m| {
-            return .{ .field = m.field, .fn_ty = m.fn_ty, .owner = self.ctx.symbols.items[m.nominal_sym].name, .nominal_sym = m.nominal_sym, .source = self.declSource(m.nominal_sym), .owner_sym = self.ctx.symbols.items[m.nominal_sym] };
+            return .{ .field = m.field, .fn_ty = m.fn_ty, .owner = self.ctx.symbols.items[m.nominal_sym].name, .nominal_sym = m.nominal_sym, .source = self.declSource(m.nominal_sym), .owner_sym = self.ctx.symbols.items[m.nominal_sym], .decl_ctx = self.ctx, .decl_sym = m.nominal_sym };
         }
         const decl = sema.nominalDecl(self.ctx, sema.unwrapAccess(self.ctx, obj_ty)) orelse return null;
         const module_id = decl.module_id orelse return null;
@@ -5829,7 +5836,7 @@ const Checker = struct {
         const f = fields[(try sema.findMember(self.ctx, fields, name, .method)) orelse return null];
         const ty = self.ctx.types.get(try sema.importType(self.ctx, foreign, f.ty, module_id));
         if (ty != .function) return null;
-        return .{ .field = f, .fn_ty = ty.function, .owner = decl.symbol().name, .nominal_sym = sema.symbol_invalid, .source = foreign.source, .owner_sym = decl.symbol(), .module = module_id };
+        return .{ .field = f, .fn_ty = ty.function, .owner = decl.symbol().name, .nominal_sym = sema.symbol_invalid, .source = foreign.source, .owner_sym = decl.symbol(), .module = module_id, .decl_ctx = foreign, .decl_sym = decl.sym };
     }
 
     /// `module.name` as a value. Null when `obj` does not name a module.
@@ -6700,7 +6707,7 @@ const Checker = struct {
                 try self.ctx.recordType(callee, sym.ty);
             }
             switch (sym.kind) {
-                .function, .@"extern" => return self.functionCall(callee, sym, ct, args),
+                .function, .@"extern" => return self.functionCall(callee, sym_id, ct, args),
                 .nominal_type => return self.construct(sym_id, args, callee.src.pos, TypeSubst.empty, null),
                 .type_alias => return self.aliasCall(node, callee, name, sym.ty, args, callee.src.pos),
                 .generic_type => {
@@ -6770,7 +6777,8 @@ const Checker = struct {
 
     /// Call function `sym`, named by `callee`, with the compile-time
     /// arguments in bracket list `ct` (null for none).
-    fn functionCall(self: *Checker, callee: Sexp, sym: sema.Symbol, ct: ?Sexp, args: []const Sexp) Error!TypeId {
+    fn functionCall(self: *Checker, callee: Sexp, sym_id: SymbolId, ct: ?Sexp, args: []const Sexp) Error!TypeId {
+        const sym = self.ctx.symbols.items[sym_id];
         const name = self.text(callee);
         if (self.isEntryPoint(sym)) return self.badCall(args, callee, entry_point_use, .{});
         if (self.isPoison(sym.ty)) return self.skipCall(args);
@@ -6781,6 +6789,7 @@ const Checker = struct {
         }
         const info = paramsOf(sym, self.ctx.source);
         const f = (try self.instantiateCall(fty.function, ct, args, info, 0, name, callee.src.pos, false, .empty)) orelse return self.skipCall(args);
+        if (sym.flags.inline_marked) try self.noteInline(.{ .module = self.ctx.module_id, .index = sym_id }, .empty);
         // A generic function's callee has the instance's signature.
         if (fty.function.ct_params.len > 0) try self.ctx.recordType(callee, try self.ctx.internCopy(.{ .function = f }));
         self.lend_call = true;
@@ -8108,6 +8117,21 @@ const Checker = struct {
     /// A method's type parameters and the receiver's arguments for them:
     /// the first part of an instance of a method with type parameters of
     /// its own. Empty for a type that is not generic.
+    /// Record the call being checked as a call of the `inline` function
+    /// `fun`, at the instance its receiver's type arguments `recv` and its
+    /// own compile-time arguments (`inst_own`) make: the one fact every
+    /// frame and every cycle of `inline` functions is read from. A
+    /// method whose declaration cannot be found (`methodRef` null) is
+    /// none of the program's, and was reported.
+    fn noteInline(self: *Checker, fun: ?sema.FnRef, recv: TypeSubst) Error!void {
+        const call = self.current_call orelse return;
+        const a = self.ctx.arena.allocator();
+        try self.ctx.recordInlineCall(call, .{ .fun = fun orelse return, .subst = .{
+            .params = try std.mem.concat(a, SymbolId, &.{ recv.params, self.inst_own.params }),
+            .args = try std.mem.concat(a, TypeId, &.{ recv.args, self.inst_own.args }),
+        } });
+    }
+
     fn receiverArgs(self: *Checker, recv_ty: TypeId) TypeSubst {
         const pn = switch (self.ctx.types.get(sema.unwrapReadAccess(self.ctx, recv_ty))) {
             .parameterized_nominal => |pn| pn,
@@ -8125,6 +8149,7 @@ const Checker = struct {
     /// allow them, are recorded. Null after a diagnostic that makes the
     /// arguments not worth checking.
     fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const Sexp, info: ParamInfo, skip: usize, callee: []const u8, pos: u32, receiver_arg: bool, recv: TypeSubst) Error!?FunctionType {
+        self.inst_own = .empty;
         if (ct) |b| try self.ctx.recordInstance(b, .function);
         // A compile-time parameter was rejected: the declaration's
         // diagnostic says what is wrong with every call.
@@ -8200,13 +8225,11 @@ const Checker = struct {
         };
         const result = self.ctx.types.get(instance).function;
         try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
-        const inst_params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items });
-        const inst_args = try std.mem.concat(a, TypeId, &.{ recv.args, own_args });
-        try self.ctx.recordCallInstance(self.current_call.?, .{ .params = inst_params, .args = inst_args });
+        self.inst_own = .{ .params = own.items, .args = own_args };
         if (self.tentative == 0) _ = try self.ctx.recordFnInstance(.{
             .name = callee,
-            .params = inst_params,
-            .args = inst_args,
+            .params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items }),
+            .args = try std.mem.concat(a, TypeId, &.{ recv.args, own_args }),
             .own = @intCast(own.items.len),
         }, pos, null);
         return result;
@@ -9428,6 +9451,9 @@ const Checker = struct {
         }
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
+        // The type's parameters bound by the object the receiver reaches,
+        // through views, handles, and boxes, as the method was found.
+        if (resolved.field.inline_marked) try self.noteInline(sema.methodRef(resolved.decl_ctx, resolved.decl_sym, method), self.receiverArgs(sema.unwrapAccess(self.ctx, obj_ty)));
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
         const rest: FunctionType = .{
             .params = f.params[1..],
@@ -9785,6 +9811,7 @@ const Checker = struct {
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
                 const info = methodParams(m, false, source);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
+                if (m.inline_marked) try self.noteInline(sema.methodRef(if (nt.foreign) |fo| fo.ctx else self.ctx, nt.id, name), recv);
                 try self.noteCallee(f);
                 self.lend_call = true;
                 try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins, .declared = fty.function.params });
@@ -9912,6 +9939,7 @@ const Checker = struct {
                 if (fty != .function) return self.badCall(args, pos, "`{s}` cannot be called", .{qualified});
                 const info = paramsOf(found.sym, found.ctx.source);
                 const f = (try self.instantiateCall(fty.function, ct, args, info, 0, qualified, pos, false, .empty)) orelse return self.skipCall(args);
+                if (found.sym.flags.inline_marked) try self.noteInline(.{ .module = found.module_id, .index = found.id }, .empty);
                 // A generic function's callee has the instance's signature.
                 try self.noteCallee(f);
                 self.lend_call = true;
@@ -13403,26 +13431,28 @@ pub fn checkFrames(ctx: *SemContext, tree: Sexp) Error!void {
     var w: FrameWalker = .{ .ctx = ctx, .inline_calls = true };
     try w.walk(tree, null, false);
     // What each `inline` function adds to a caller's frame, worked out
-    // here for the modules that import this one.
-    var it = ctx.marked_inline.keyIterator();
-    while (it.next()) |pos| _ = try inlineFrame(ctx, pos.*);
+    // here, where it is declared, for the modules that import this one.
+    var it = ctx.inline_decls.keyIterator();
+    while (it.next()) |key| _ = try inlineFrame(ctx, key.*);
 }
 
-/// What the `inline` function whose name is declared at `pos` adds to the
-/// frame of a function it is inlined into: the values it keeps, and those
-/// of the `inline` functions it calls in turn, each at the instance its
-/// call makes. Null while it is being worked out, for a call on a cycle
-/// of `inline` functions, which `inlining.decide` reports.
-fn inlineFrame(ctx: *SemContext, pos: u32) Error!?[]const sema.FrameSlot {
-    if (ctx.inline_frames.get(pos)) |known| return known;
-    const node = ctx.marked_inline.get(pos) orelse return null;
-    try ctx.inline_frames.put(ctx.allocator, pos, null);
+/// What the `inline` function `key` names (`FnRef.key`), declared in
+/// this module, adds to the frame of a function it is inlined into: the
+/// values it keeps, and those of the `inline` functions it calls in turn,
+/// each at the instance its call makes, over its own and its type's
+/// parameters. Null while it is being worked out: a call on a cycle of
+/// `inline` functions, which `inlining.decide` reports, so the program is
+/// never emitted.
+fn inlineFrame(ctx: *SemContext, key: u64) Error!?[]const sema.FrameSlot {
+    if (ctx.inline_frames.get(key)) |known| return known;
+    const node = ctx.inline_decls.get(key).?;
+    try ctx.inline_frames.put(ctx.allocator, key, null);
     var w: FrameWalker = .{ .ctx = ctx, .captures_only = true, .inline_calls = true };
     var slots: FrameWalker.Slots = .empty;
     defer slots.deinit(ctx.allocator);
     for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try w.walk(part, &slots, false);
     const kept = try ctx.arena.allocator().dupe(sema.FrameSlot, slots.items);
-    try ctx.inline_frames.put(ctx.allocator, pos, kept);
+    try ctx.inline_frames.put(ctx.allocator, key, kept);
     return kept;
 }
 
@@ -13515,20 +13545,33 @@ const FrameWalker = struct {
 
     /// The values of the `inline` function `call` reaches, if any, at the
     /// instance the call makes, in this module's types.
+    /// The values of the `inline` function `call` calls (`inline_calls`),
+    /// at the instance the call makes, in this module's types. The frame
+    /// fails closed: one that is not known, or not known at this
+    /// instance, is an error at the call, never no values.
     fn addInlined(self: *FrameWalker, call: Sexp, f: *Slots) Error!void {
         const ctx = self.ctx;
-        const t = switch (sema.callTarget(ctx, call)) {
-            .function => |t| t,
-            .none, .unknown => return,
-        };
-        const local = t.ctx == @as(*const SemContext, ctx);
-        // Another module worked out its own (`checkFrames`).
-        const slots = (if (local) try inlineFrame(ctx, t.pos) else (t.ctx.inline_frames.get(t.pos) orelse return)) orelse return;
-        const subst = ctx.callInstanceOf(call) orelse sema.receiverSubst(ctx, call);
+        const ic = ctx.inlineCallOf(call) orelse return;
+        const decl = ctx.declaringContext(ic.fun) orelse return self.unknownFrame(call, "its module is not loaded");
+        const local = decl == @as(*const SemContext, ctx);
+        const slots = if (local) (try inlineFrame(ctx, ic.fun.key()) orelse return) else
+            // The module that declares it worked out its frame
+            // (`checkFrames`), unless that module failed its check.
+            (decl.inline_frames.get(ic.fun.key()) orelse return self.unknownFrame(call, "its module did not count it")) orelse return self.unknownFrame(call, "its module did not count it");
+        // The instance binds every parameter the frame mentions: with each
+        // argument poisoned, none is left.
+        const blank = try ctx.arena.allocator().alloc(TypeId, ic.subst.args.len);
+        @memset(blank, ctx.types.invalid_id);
         for (slots) |slot| {
-            const ty = if (local) slot.ty else try sema.importType(ctx, t.ctx, slot.ty, t.module);
-            try f.append(ctx.allocator, .{ .ty = try sema.substituteType(ctx, ty, subst), .name = slot.name });
+            const ty = if (local) slot.ty else try sema.importType(ctx, decl, slot.ty, ic.fun.module);
+            if (sema.containsTypeVar(ctx, try sema.substituteType(ctx, ty, .{ .params = ic.subst.params, .args = blank })))
+                return self.unknownFrame(call, "the call does not bind every parameter its values hold");
+            try f.append(ctx.allocator, .{ .ty = try sema.substituteType(ctx, ty, ic.subst), .name = slot.name });
         }
+    }
+
+    fn unknownFrame(self: *FrameWalker, call: Sexp, why: []const u8) Error!void {
+        try self.ctx.errAt(ir.Call.callee(call), "cannot count the values this `inline` call adds to the frame it is in ({s}); a frame must be known to be checked", .{why});
     }
 
     /// Whether `call` calls a function or method, not a type's constructor.
@@ -13560,6 +13603,7 @@ const FrameWalker = struct {
             return;
         };
         const bytes = (try frameBytes(ctx, tys)) orelse return;
+        try ctx.frame_sizes.append(ctx.allocator, .{ .label = label, .pos = pos, .bytes = bytes });
         if (bytes > sema.max_frame_bytes) try reportFrame(ctx, pos, label, bytes, null, tys, names);
     }
 };
@@ -13645,6 +13689,7 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
             try buf.append(ctx.allocator, t);
         }
         const bytes = (try frameBytes(ctx, buf.items)) orelse continue;
+        try ctx.frame_sizes.append(ctx.allocator, .{ .label = try ctx.arena.allocator().print("{s} in `{s}`", .{ fr.label, try sema.rootName(ctx, of) }), .pos = at, .bytes = bytes });
         if (bytes <= sema.max_frame_bytes) continue;
         try reportFrame(ctx, at, fr.label, bytes, of, buf.items, fr.names);
         try ctx.noteIn(fr.module_id, fr.pos, "{s} is declared here", .{fr.label});
@@ -14136,4 +14181,33 @@ test "check: a written write lend read as a value is rejected" {
         if (d.severity == .@"error" and std.mem.indexOf(u8, d.message, "here is read, not held") != null) count += 1;
     }
     try std.testing.expectEqual(3, count);
+}
+
+test "check: a frame an inline call cannot count is an error at the call, never no values" {
+    var r = try checkSource(std.testing.allocator,
+        \\inline fun big[T](x: T, i: Int) -> T
+        \\  t = [1000 of x]
+        \\  t[i % 1000]
+        \\
+        \\sub near(i: Int)
+        \\  print(big(1, i))
+        \\
+    );
+    defer r.p.deinit();
+    defer r.ctx.deinit();
+    try expectClean(&r.ctx);
+    try std.testing.expectEqual(1, r.ctx.inline_calls.count());
+    // The recorded call, without the instance it makes: `big`'s values
+    // hold `T`, which nothing binds.
+    var it = r.ctx.inline_calls.valueIterator();
+    const ic = it.next().?;
+    const saved = ic.*;
+    ic.subst = .empty;
+    try checkFrames(&r.ctx, r.tree);
+    try expectDiagnostic(&r.ctx, "cannot count the values this `inline` call adds to the frame it is in (the call does not bind every parameter its values hold)");
+    // A function no module declares.
+    ic.* = saved;
+    ic.fun.module +%= 1000;
+    try checkFrames(&r.ctx, r.tree);
+    try expectDiagnostic(&r.ctx, "cannot count the values this `inline` call adds to the frame it is in (its module is not loaded)");
 }

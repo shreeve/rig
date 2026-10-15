@@ -1343,8 +1343,11 @@ that calls itself, directly or through other `inline` functions, cannot
 be inlined into itself, and is an error; a cycle through a function
 that is not `inline` is a call there, and so is a call in a closure,
 which is a function of its own. A function's frame counts the `inline`
-functions inlined in it, each at the instance its call makes, and one
-over the limit ([§2](#arrays)) is an error.
+functions inlined in it, each at the instance its call makes, however
+the call names the function (through a module, a type, or an alias of
+either), and one over the limit ([§2](#arrays)) is an error. A call
+whose values the check cannot count is an error too, never counted as
+none.
 
 ```rig reject
 inline fun count(n: Int) -> Int

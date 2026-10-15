@@ -3391,34 +3391,56 @@ symbols); a query that decides more than that belongs in `Pending`.
   of its symbol or method), the root's `main` and an `extern zig`
   function (`resolve`), a cycle of calls among marked `inline` functions
   (`decide`, `forcedCycles`), and a frame over `sema.max_frame_bytes`
-  (`typecheck.checkFrames`). A call reaches the one function
-  `sema.callTarget` finds from the facts: a function's symbol,
-  `module.f`, `Type.m`, or a method of the object type the receiver
-  reaches through views, handles, and boxes, followed to the module
-  that declares it; a built-in, a method of a built-in type, an extern
-  function, or a closure is no Rig function, and only a name sema did not
-  resolve falls back to every function of that name (no accepted program
-  calls a method on a type parameter). A cycle's edges leave out the calls
-  in a closure, a function of its own that calls an `inline` function as
-  any caller does. The frame walker adds to the frame a call is in the
-  values of the `inline` function it reaches (`inlineFrame`: its own and
-  those of the `inline` functions it calls, worked out once in its
-  module), imported from that module and substituted at the call's
-  instance (`call_instances`, or the receiver's type arguments). A
-  frame that still holds a type parameter is checked at each instance of
-  its function, as any other; a test block and a closure are frames of
-  their own, and an `inline` function is none, since its values are in
-  its callers'. A function
-  marked `called fun` is never inlined by the rule, and emit writes it
-  `noinline fn`, so LLVM keeps every call a call too: each instance of a
-  function with compile-time values is then a function of its own. A
-  function marked `rarely fun` is never inlined by the rule, and emit starts its
-  body with `@branchHint(.cold);` before the evaluation budget, the one
-  place Zig takes the hint for a whole function: Zig 0.17 then gives
-  the function LLVM's `cold` attribute, so its callers lay out the call
-  as the unlikely path and LLVM does not inline it. Neither marker
-  changes what the checker walks: a marked function is the same function
-  called, and its calls are read through `rig.rt` as any inlined one's.
+  (`typecheck.checkFrames`).
+
+  Each call of an `inline` function is one recorded fact,
+  `inline_calls[call] = { fun, subst }`, written where typecheck resolves
+  the call and nowhere else (`Checker.noteInline`): in `functionCall`,
+  `crossModuleCall`, a method call, and `associatedCall` (`Type.m`,
+  through any alias). `fun` is an `FnRef`, the function by its
+  declaration: the declaring module's id, and there the function's
+  symbol, or its object type's symbol and the method's place in its
+  members, an imported generic type's proxy followed to its declaration
+  (`sema.methodRef`); never a source position. `subst` is the instance
+  the call makes: the object type's parameters bound by the receiver's
+  type (through views, handles, and boxes, as the method is found) or
+  the type named, then the function's own compile-time parameters
+  (`inst_own`, from `instantiateCall`). `resolve` records each `inline`
+  declaration under the same key (`inline_decls`).
+
+  The frame of each `inline` function is worked out once, in the module
+  that declares it (`inlineFrame`, at the end of `checkFrames`): its own
+  values and those of the `inline` functions it calls, each substituted
+  at its call, over its own and its type's parameters. The frame walker
+  adds, at each recorded call, that frame imported into the caller's
+  module and substituted at the call's instance. It fails closed: a frame
+  it cannot find, or one with a parameter the call's instance does not
+  bind, is an error at the call, never no values. A frame still being
+  worked out is a call on a cycle of `inline` functions, which `decide`
+  rejects, so that program is never emitted. A frame that still holds the
+  caller's type parameter is checked at each instance of the caller, as
+  any other; a test block and a closure are frames of their own, and an
+  `inline` function is none, since its values are in its callers'.
+  `rig check --facts=frames` prints each frame counted, and
+  `test/cli/inline_frames.sh` holds the counts to the stack Zig's code
+  reserves, in debug and `--release`.
+
+  `decide` reads the same fact: a function's recorded calls of `inline`
+  functions, but those in its closures, are the edges of the cycle check
+  (`forcedCycles`) and how an `inline` function's frame and size reach
+  its callers (`added`, `expanded`); a call by name counts only functions
+  the rule inlines (`byRule`), so two `inline` methods of one name never
+  stand for each other. A function marked `called fun` is never inlined
+  by the rule, and emit writes it `noinline fn`, so LLVM keeps every call
+  a call too: each instance of a function with compile-time values is
+  then a function of its own. A function marked `rarely fun` is never
+  inlined by the rule, and emit starts its body with `@branchHint(.cold);`
+  before the evaluation budget, the one place Zig takes the hint for a
+  whole function: Zig 0.17 then gives the function LLVM's `cold`
+  attribute, so its callers lay out the call as the unlikely path and
+  LLVM does not inline it. No marker changes what the checker walks: a
+  marked function is the same function called, and an inlined one's calls
+  are read through `rig.rt` as any inlined function's.
 
   Without a marker, a function is inlined when
 

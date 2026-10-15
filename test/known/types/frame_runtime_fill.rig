@@ -1,0 +1,18 @@
+# Known bug: Zig's debug build holds a fill of a value known only when the
+# program runs (`[800000 of i]`) in a temporary before the binding takes
+# it, so `f` reserves 25.6 MB, twice the 12.8 MB the frame check counts,
+# and runs off its stack in debug. The frame check counts the temporary,
+# or emit fills the binding in place; either way this program is correct:
+# accepted and run, or rejected. Found by test/cli/inline_frames.sh's
+# comparison of counted against reserved frames.
+
+sub f(i: Int)
+  a = [800000 of i]
+  b = [800000 of i + 1]
+  print(a[i] + b[i])
+
+sub main()
+  f(3)
+
+# expect:
+# 7
