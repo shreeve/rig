@@ -55,6 +55,10 @@ started:
   uses them in 3 places). Trig's version passes all 32,076 of its test
   cases; the std one must pass the same cases and be as fast before Trig
   swaps.
+- `std.hash` with 4-byte stored hashes (an entry's hash takes 8 bytes
+  today): the tag from the stored bits up to 2^25 slots, and from the
+  top of the whole hash, recomputed from the keys, past that. It
+  matched the 8-byte version's speed; it saves 4 bytes an entry.
 
 ## Agent tooling
 

@@ -116,7 +116,7 @@ fn small(io: std.Io, n: i64, size: i64) !void {
 }
 
 /// `n` words, from 50,000 distinct ones, each given a dense id, as
-/// `hash.Interner` does: a map from the text to its id, the text of a
+/// `hash.Symbols` does: a map from the text to its id, the text of a
 /// new word copied once into one arena.
 fn intern(io: std.Io, n: usize) !void {
     const words = try gpa.alloc(std.ArrayList(u8), n);

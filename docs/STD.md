@@ -38,7 +38,7 @@ never read as the library's.
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
-| [`std.hash`](#stdhash) | Map and Set: hash tables that keep insertion order; an Interner of strings |
+| [`std.hash`](#stdhash) | Map and Set: hash tables that keep insertion order; Symbols, dense ids for strings |
 | [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
 | [`std.utf8`](#stdutf8) | runes: reading, writing, counting, and checking UTF-8 |
 | [`std.utf16`](#stdutf16) | units: UTF-16 lengths and positions, and surrogate pairs |
@@ -565,16 +565,16 @@ sub main()
 cannot use `K = Float`: the generic body hashes a `K` with `.hash()`, which `Float` does not support
 ```
 
-`hash.Interner` holds a set of strings, each with a dense `U32` id from
+`hash.Symbols` holds a set of strings, each with a dense `U32` id from
 0 in the order it was first interned. Their text lives in one String,
 end to end, so an id costs four bytes and a new string is copied once.
 
 | Member | Signature | Ownership |
 |---|---|---|
-| `hash.Interner()` | | an empty one |
+| `hash.Symbols()` | | an empty one |
 | `(!names).intern(s)` | `fun intern(!self, s: ?String) -> U32` | the id of `s`, a new one when `s` is new, whose text is then copied in; nothing is copied otherwise |
 | `names.id(s)` | `fun id(?self, s: ?String) -> U32?` | the id of `s`, or `none`; adds nothing |
-| `names.text(id)` | `fun text(?self, id: U32) -> ?String from self` | the text of `id`, viewed where the Interner holds it |
+| `names.text(id)` | `fun text(?self, id: U32) -> ?String from self` | the text of `id`, viewed where the table holds it |
 | `names.len` | `pub ?len: Int` | how many strings it holds |
 | `!names.reserve(n, bytes: b)` | `sub reserve(!self, n: Int, bytes: Int = 0)` | room for `n` more strings of `b` bytes in all |
 
@@ -582,7 +582,7 @@ end to end, so an id costs four bytes and a new string is copied once.
 use std.hash
 
 sub main()
-  names = hash.Interner()
+  names = hash.Symbols()
   a = (!names).intern("width")
   b = (!names).intern("height")
   w = String("wid", "th")

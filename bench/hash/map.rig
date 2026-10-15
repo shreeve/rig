@@ -83,7 +83,7 @@ sub intern(n: Int)
   words: List[String] = List()
   for i in 0..n
     !words.push(String("w", (i * 7919) % 50000))
-  names = hash.Interner()
+  names = hash.Symbols()
   sum: U64 = 0
   t = time.now()
   for w in ?words

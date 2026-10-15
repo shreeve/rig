@@ -1,5 +1,5 @@
 # std.hash: Map and Set, hash tables written in Rig over Lists, that
-# keep their entries in the order they were first put in, and Interner,
+# keep their entries in the order they were first put in, and Symbols,
 # which gives strings dense ids. A key is any value `.hash()` takes:
 # what `==` compares, less a float and what holds one. Text keys hash
 # and compare by their bytes, so a `Map[String, V]` finds a key from a
@@ -28,11 +28,11 @@ obj Entry[K, V]
   key: K
   value: V?
 
-# Entries a Map, Set, or Interner holds before it builds a table: up to
+# Entries a Map, Set, or Symbols holds before it builds a table: up to
 # this many, a lookup compares the stored hashes of the entries in turn.
 SMALL = 8
 
-# The slots that find the entries of a Map, Set, or Interner once it
+# The slots that find the entries of a Map, Set, or Symbols once it
 # holds more than `SMALL` of them: none before that.
 obj Table
   tags: List[U8] = List()
@@ -376,10 +376,10 @@ pub obj Set[K]
 # A set of strings, each with a dense `U32` id from 0, in the order it
 # was first interned. Their text lives in one String, end to end, so
 # interning a new string copies it once and an id costs four bytes;
-# `intern`, `id`, and `text` never copy. `hash.Interner()` is an empty
+# `intern`, `id`, and `text` never copy. `hash.Symbols()` is an empty
 # one. It finds a string as a Map finds a key.
-pub obj Interner
-  # How many distinct strings the Interner holds.
+pub obj Symbols
+  # How many distinct strings it holds.
   pub ?len: Int = 0
   bytes: String = String()
   ends: List[U32] = List()
@@ -408,7 +408,7 @@ pub obj Interner
   pub fun id(?self, s: ?String) -> U32?
     self.find(s, s.hash())
 
-  # The text of the id `id`, viewed where the Interner holds it.
+  # The text of the id `id`, viewed where the table holds it.
   pub fun text(?self, id: U32) -> ?String from self
     i = Int(id)
     start = 0 if i == 0 else Int(self.ends[i - 1])
