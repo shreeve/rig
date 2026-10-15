@@ -2826,7 +2826,8 @@ A handle `*T` or `~T` has no `==`, since it could compare identity or
 content; nor does a function or closure, a List, Cell, or Signal, a
 struct that declares `drop`, or a struct or payload that holds a `?T`,
 `!T`, or slice. Neither does a type that holds one of these, and the
-diagnostic names the field that does.
+diagnostic names the field that does. Two handles' contents compare
+through views: `?a == ?b`.
 
 Ordering comparisons (`<`, `<=`, `>`, `>=`) take two numbers, or two
 `?String` values or two `[]U8` slices, ordered by their bytes: the first byte

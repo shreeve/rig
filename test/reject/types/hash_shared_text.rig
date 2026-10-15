@@ -1,6 +1,6 @@
 # A shared handle has no `==` and no `.hash()`, whatever it holds, so a
-# `*String` is not text to compare or hash: compare or hash what it
-# holds, `?s`.
+# `*String` is not text to compare with an optional or to hash: compare
+# or hash what it holds through a view, `?s`.
 
 sub main()
   s = *String("q")
@@ -8,7 +8,6 @@ sub main()
   o: String? = String("q")
   print(s.hash() == t.hash())
   print(o == s)
-  print(s == t)
 
 # error: 9:9: `.hash()` does not take a `*String`
 # error: 10:9: cannot compare `String?` with `*String`

@@ -246,6 +246,9 @@ pub fn eql(a: anytype, b: anytype) bool {
     // other side counts as `some` at that level), and `none` equals only
     // `none`: a `String?` beside a `?String` compares the text.
     if (comptime A == @TypeOf(null) or B == @TypeOf(null)) return nullish(a) and nullish(b);
+    // A view held as a pointer compares as the value it reaches.
+    if (comptime isValuePointer(A)) return eql(a.*, b);
+    if (comptime isValuePointer(B)) return eql(a, b.*);
     const dA = comptime optDepth(A);
     const dB = comptime optDepth(B);
     if (comptime dA > dB) {
@@ -266,6 +269,15 @@ pub fn eql(a: anytype, b: anytype) bool {
     // The peer type of an optional error and an error is an error union.
     const T = if (@typeInfo(A) == .optional) A else if (@typeInfo(B) == .optional) B else @TypeOf(a, b);
     return eqlAs(T, a, b);
+}
+
+/// A pointer to one value that is no text: a read view of a struct,
+/// enum, or array held by address. (A shared handle has no `==`.)
+fn isValuePointer(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |p| p.size == .one and !isString(T) and !isStringView(T) and @typeInfo(p.child) != .@"fn",
+        else => false,
+    };
 }
 
 /// How many optional levels `T` has.

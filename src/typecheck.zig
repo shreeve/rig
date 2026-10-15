@@ -4339,8 +4339,8 @@ const Checker = struct {
             const lit_ty = try self.synthReached(lit);
             a, b = if (l_array) .{ lit_ty, other_ty } else .{ other_ty, lit_ty };
         } else {
-            a = try self.synthReached(l);
-            b = try self.synthReached(r);
+            a = try self.synthEqOperand(l);
+            b = try self.synthEqOperand(r);
         }
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
         // Lane by lane: a mask. (An optional vector has no `==`, which
@@ -4396,13 +4396,39 @@ const Checker = struct {
         const b_read = if (b == self.t().static_id) string_view_ty else b;
         const ta_text = stringOrBoxed(self.ctx, a_read);
         const tb_text = stringOrBoxed(self.ctx, b_read);
-        if ((ta_text == string_ty or tb_text == string_ty) and (ta_text == string_ty or ta_text == string_view_ty) and (tb_text == string_ty or tb_text == string_view_ty)) return self.t().bool_id;
+        // A shared handle is not text: it has no `==`, and its content is
+        // compared through a view, `?a == ?b`.
+        const handles = sema.accessThroughShared(self.ctx, a) or sema.accessThroughShared(self.ctx, b);
+        if (!handles and (ta_text == string_ty or tb_text == string_ty) and (ta_text == string_ty or ta_text == string_view_ty) and (tb_text == string_ty or tb_text == string_view_ty)) return self.t().bool_id;
         if (a_read != b_read) {
             try self.errAt(l, "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
             return self.t().bool_id;
         }
         try self.checkEquatable(a, l, op);
         return self.t().bool_id;
+    }
+
+    /// An operand of `==`, as the value it reaches. A shared handle has
+    /// no `==`; `?h` of a name holding one, `*T`, lends the handle's value
+    /// as a `?T` (CORE §4), so `?a == ?b` compares two handles' contents.
+    fn synthEqOperand(self: *Checker, e: Sexp) Error!TypeId {
+        if (e.isKind(.read)) if (self.sharedContent(ir.Read.operand(e))) |content| {
+            const view = if (content == self.t().string_id) self.t().string_view_id else try self.ctx.intern(.{ .read_view = content });
+            try self.checkExpr(e, view);
+            return self.readThrough(e, view, sema.unwrapViews(self.ctx, view));
+        };
+        return self.synthReached(e);
+    }
+
+    /// The value a name holding a shared handle `*T` reaches, `T`, or null.
+    fn sharedContent(self: *Checker, e: Sexp) ?TypeId {
+        if (e != .src) return null;
+        const sym = self.lookupQuiet(e) orelse return null;
+        const ty = self.ctx.symbols.items[sym].ty;
+        return switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
+            .shared => |inner| if (self.ctx.types.get(inner) == .function) null else inner,
+            else => null,
+        };
     }
 
     /// Whether `opt` is a `T?` and `value` a `T` (or a literal that is

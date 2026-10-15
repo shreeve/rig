@@ -1,3 +1,3 @@
 sub main()
   h = *String("abc")
-  print(h.len, h == "abc")
+  print(h.len, ?h == "abc")
