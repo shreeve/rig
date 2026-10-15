@@ -223,6 +223,10 @@ pub const Func = struct {
     /// What a `from` clause says the result views (Core s7), a bit per
     /// parameter in `params`' order; null when the function writes none.
     from: ?u64 = null,
+    /// What a `keeps` clause names (Core s7), and which parameters are
+    /// lent, a bit each in `params`' order; null for a closure.
+    keeps_named: ?u64 = null,
+    lent: u64 = 0,
     /// Per var and loan (var-major, `loans.len` to a var): whether the
     /// var may carry the loan itself. A view carries the loans of only
     /// what could hold what it views (Core s7): a loan on a place whose

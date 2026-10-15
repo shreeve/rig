@@ -513,6 +513,21 @@ const Checker = struct {
                     return;
                 }
             };
+            // A function keeps a lent parameter only where its `keeps`
+            // names it: what its caller reaches through a write
+            // parameter holds no other lent parameter's loans.
+            if (self.f.keeps_named) |keeps| for (op.keep) |v| {
+                if (st.empty.has(v)) continue;
+                for (self.f.loans.items, 0..) |l, li| {
+                    if (!st.holds[v].has(li) or !l.external or l.root == v) continue;
+                    const i = std.mem.findScalar(VarId, self.f.params.items, l.root) orelse continue;
+                    if (i >= 64) continue;
+                    const bit = @as(u64, 1) << @intCast(i);
+                    if (self.f.lent & bit == 0 or keeps & bit != 0) continue;
+                    try self.report(.C6, op.pos, "a view of `{s}` is kept in `{s}`, which its caller reaches, but `keeps` does not name it", .{ self.name(l.root), self.name(v) });
+                    return;
+                }
+            };
             for (op.keep) |v| {
                 if (st.empty.has(v) or !self.f.vars.items[v].capture) continue;
                 for (self.f.loans.items, 0..) |l, li| {

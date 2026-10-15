@@ -447,6 +447,8 @@ const FnCtx = struct {
     /// and where the body first returns such a value.
     generic: sema.ParamMask = 0,
     generic_returned_at: ?u32 = null,
+    /// The name of the parameter each was first stored in.
+    stored_in: [@bitSizeOf(sema.ParamMask)][]const u8 = @splat(""),
     /// The run-time parameters bound so far.
     params: u32 = 0,
     /// Binding run-time parameters (`bindParam`), which get an index.
@@ -646,6 +648,10 @@ pub const Checker = struct {
     /// for the statement temporaries it makes (`holdPartTemps`), by node:
     /// `holdTemp` holds each there.
     part_temps: std.AutoHashMapUnmanaged(u32, VarId) = .empty,
+    /// The lends a call kept because its callee's `keeps` names their
+    /// parameter, by where each was lent: what a conflict's note says
+    /// (`noteLoan`).
+    kept_lends: std.AutoHashMapUnmanaged(u32, KeptLend) = .empty,
     /// The hidden vars holding what the calls being walked keep in
     /// storage of their own (`holdForCall`): each ends when its call
     /// returns (`endCallHeld`).
@@ -731,6 +737,7 @@ pub const Checker = struct {
         self.plain_reqs.deinit(self.gpa);
         self.stmt_drops.deinit(self.gpa);
         self.part_temps.deinit(self.gpa);
+        self.kept_lends.deinit(self.gpa);
         self.call_held.deinit(self.gpa);
         self.flows.deinit(self.gpa);
         self.loan_counts.deinit(self.gpa);
@@ -939,6 +946,8 @@ pub const Checker = struct {
             try self.note(loan.pos, "`{s}` lent to write here, as the receiver, which is read until the call starts", .{lent});
         } else if (loan.read_of_write) {
             try self.note(loan.pos, "`{s}` lent to write here, and kept lent to read by a view that only reads it", .{lent});
+        } else if (self.kept_lends.get(loan.pos)) |k| {
+            try self.note(loan.pos, "`{s}` lent to {s} here, and `{s}` keeps it in `{s}` (its signature says `keeps {s}`), so the loan lasts while `{s}` is used", .{ lent, @tagName(loan.kind), k.callee, k.holder, k.param, k.holder });
         } else try self.note(loan.pos, "`{s}` lent to {s} here", .{ lent, @tagName(loan.kind) });
     }
 
@@ -956,6 +965,28 @@ pub const Checker = struct {
     fn lentText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
         if (l.path == path) return "it";
         return self.arena().print("`{s}`", .{try self.pathText(l.root, l.path)});
+    }
+
+    /// A lend a call kept (`kept_lends`): the callee, the parameter its
+    /// `keeps` names, and the var the call stored it in.
+    const KeptLend = struct { callee: []const u8, param: []const u8, holder: []const u8 };
+
+    /// Note the lends in `v`, which call `node` keeps through `param`, as
+    /// kept in what its write receiver or arguments lead to.
+    fn noteKept(self: *Checker, callee: Sexp, v: Value, param: []const u8, write_recv: ?VarId, arg_values: []const Value) Error!void {
+        var holder = write_recv;
+        if (holder == null) find: for (arg_values) |av| {
+            for (av.loans) |l| if (l.kind == .write) {
+                holder = l.root;
+                break :find;
+            };
+        };
+        const h = holder orelse return;
+        const name = if (callee.isKind(.member)) self.text(ir.Member.name(callee)) else if (callee == .src) self.text(callee) else return;
+        for (v.loans) |l| {
+            if (l.ext) continue;
+            try self.kept_lends.put(self.gpa, l.pos, .{ .callee = name, .param = param, .holder = self.vars.items[h].name });
+        }
     }
 
     /// The end of a conflict's message for a read held in place: what
@@ -3505,7 +3536,7 @@ pub const Checker = struct {
                 if (v.closure) return; // reported by walkName
                 // A loop view passed to a call is lent on for the call, as
                 // `?x` lends it; anywhere else it would be copied out.
-                if (v.loop_view and !(sink == .argument and self.isViewType(v.ty))) {
+                if (v.loop_view and !(sink == .argument and self.isView(v.ty))) {
                     try self.err(pos, "bare use of loop view `{s}` in {s} would carry the viewed handle past the loop; " ++ loop_view_rule, .{ name, sink.text() });
                     return;
                 }
@@ -4427,6 +4458,12 @@ pub const Checker = struct {
         }
         result = try self.valueUnion(result, carried);
         from_args = try self.valueUnion(from_args, carried);
+        // What the call keeps by its callee's `keeps`, for a conflict's note.
+        if (params) |p| if (p.origins.stores & p.origins.lent != 0) {
+            const write_recv = if (recv_mode == .write) recv_root else null;
+            if (p.keepsLentReceiver()) try self.noteKept(callee, recv_value, "self", write_recv, arg_values);
+            for (arg_values, 0..) |v, i| if (p.keepsLent(i)) try self.noteKept(callee, v, p.paramName(i) orelse "?", write_recv, arg_values);
+        };
 
         // A write receiver is lent when the call starts, before the
         // callee stores anything.
@@ -5235,7 +5272,10 @@ pub const Checker = struct {
         if (!self.mayCarryLoan(self.pointee(self.vars.items[into].ty))) return;
         for (loans) |l| if (l.root != into) if (self.paramOf(l)) |i| {
             const bit = sema.paramBit(i);
-            if (self.func.stored & bit == 0) self.func.stored_at[i] = pos;
+            if (self.func.stored & bit == 0) {
+                self.func.stored_at[i] = pos;
+                self.func.stored_in[i] = self.vars.items[into].name;
+            }
             self.func.stored |= bit;
         };
     }
@@ -5275,7 +5315,12 @@ pub const Checker = struct {
                 try self.err(self.func.returned_at[i], "{s} returns a view of `{s}`, but a call of it carries no loan of `{s}`: its type cannot hold what the result views", .{ what, pname, pname });
             }
             if (self.func.stored & bit != 0 and o.stores & bit == 0) {
-                try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` where its caller can reach it, but a call of it keeps no loan of `{s}`: its type cannot hold what the write parameters hold", .{ what, pname, pname });
+                if (o.lent & bit != 0) {
+                    // A lent parameter is kept only where `keeps` names it.
+                    const into = self.func.stored_in[i];
+                    const kept = try self.paramList(items, (o.stores & o.lent) | (self.func.stored & o.lent), false);
+                    try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` in `{s}`, which its caller reaches, but its signature does not keep `{s}`; say so: `keeps {s}`", .{ what, pname, into, pname, kept });
+                } else try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` where its caller can reach it, but a call of it keeps no loan of `{s}`: its type cannot hold what the write parameters hold", .{ what, pname, pname });
             }
         }
     }
@@ -6286,13 +6331,10 @@ pub const Checker = struct {
         };
     }
 
-    /// Whether `ty` is a view: a `?T`, `!T`, slice, or `?String`.
-    fn isViewType(self: *const Checker, ty: ?TypeId) bool {
-        const t = ty orelse return false;
-        return switch (self.typeData(t)) {
-            .read_view, .write_view, .slice, .string_view => true,
-            else => false,
-        };
+    /// Whether `ty` is a view (`sema.isViewType`).
+    fn isView(self: *const Checker, ty: ?TypeId) bool {
+        const ctx = self.sema orelse return false;
+        return sema.isViewType(ctx, ty orelse return false);
     }
 
     /// The type a view type refers to.
