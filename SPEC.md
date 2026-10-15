@@ -1281,6 +1281,73 @@ Declarations are only allowed at module level; there are no nested
 functions (use a closure). Two module-level declarations may not share a
 name.
 
+### Function markers
+
+A function may be marked, before its `fun` or `sub`, with one of two
+words that ask for a speed and never change what the program means:
+
+- `called fun` keeps every call of the function a real call: it is
+  never inlined, and stays as hot as any function. Each instance of one
+  with compile-time parameters is a function of its own, so two
+  specialized copies of a large function stay apart, each called.
+- `rarely fun` says the function is rarely called, so the code that
+  calls it is laid out for the case that does not: the function stays
+  out of line, as `called` keeps it, and is also cold.
+
+Without a marker the compiler decides which small functions to inline
+([INTERNALS](docs/INTERNALS.md), "Inlining"). A marker applies to every
+instance of a function with compile-time parameters, and a method
+takes one as any function does, in its type's body or outside it. A
+marked function is a function value as any other.
+
+```rig
+fun clamp(x: Int, lo: Int, hi: Int) -> Int
+  lo if x < lo else hi if x > hi else x
+
+rarely fun report(n: Int) -> Int
+  print("out of range:", n)
+  0
+
+called fun scan[strict: Bool](xs: ?List[Int]) -> Int
+  total = 0
+  for x in xs
+    if x > 99
+      total += report(x) if strict else clamp(x, 0, 99)
+    else
+      total += clamp(x, 0, 99)
+  total
+
+sub main()
+  xs = List[Int]()
+  !xs.push(5)
+  !xs.push(-3)
+  !xs.push(120)
+  print(scan[true](xs), scan[false](xs))
+```
+
+```output
+out of range: 120
+5 104
+```
+
+A function takes one marker: `rarely` already keeps every call a call,
+so `called` beside it says nothing more, and the two together are an
+error, in either order. The program's `main`, which the program calls
+once, takes none, and neither does an `extern zig` function, whose
+body is Zig's.
+
+```rig reject
+called rarely fun f() -> Int
+  1
+
+sub main()
+  print(f())
+```
+
+```error
+a function takes one marker
+```
+
 ### Objects
 
 **An object is a value; `^` puts it on the heap and `*` shares it.** An object lives

@@ -1,0 +1,17 @@
+# A marked function of another module, called through the module or a
+# method of its type, stays a call as in its own: `called` hot, `rarely`
+# cold.
+
+use lib
+
+sub main()
+  p = lib.Point(x: 1, y: 2)
+  print(p.sum(), lib.scale(3, 4))
+  print(lib.warn(6))
+
+# release
+
+# expect:
+# 3 12
+# warn 6
+# -6

@@ -1,9 +1,12 @@
 //! Which functions are emitted `inline`: decided once, for the whole
 //! program, after every module is checked (docs/INTERNALS.md, "Inlining").
 //!
+//! A function marked `called fun` or `rarely fun` is never inlined; the
+//! rule below decides the rest.
+//!
 //! Zig inlines a small function only when asked, and LLVM leaves a
-//! small hot helper as a call when its body grows. A `fun` or `sub` is
-//! emitted as an `inline fn` when
+//! small hot helper as a call when its body grows. A `fun` or `sub` with
+//! no marker is emitted as an `inline fn` when
 //!
 //!   - its body has at most `max_size` nodes (`size`),
 //!   - it is not on a cycle of calls, directly or through others,
@@ -199,7 +202,7 @@ const Pass = struct {
         const name = textOf(c, name_node);
         const body = ir.get(node, .body);
         const is_main = !member and self.mods[module].id == 1 and std.mem.eql(u8, name, "main");
-        const eligible = body != .nil and !is_main and !generic_owner and onlyValueParams(node);
+        const eligible = body != .nil and !is_main and !generic_owner and onlyValueParams(node) and rig.markerOf(node) == .none;
         const idx: u32 = @intCast(self.fns.items.len);
         const pos = c.startOf(name_node);
         const gop = try self.by_name.getOrPut(self.a, name);
