@@ -1,6 +1,8 @@
 # An iterator a method returns views the place it came from, so the
-# loop cannot hold it as a made value. Every hint names the form that
-# compiles: bind the iterator with the lend written, then advance it.
+# loop keeps that place lent: the lend is written on the receiver, as
+# `for x in ?b.each()`. No iterator holds a write view, so `!` before
+# the source is rejected, with the form that compiles: `?` for a method
+# that reads its receiver, and `(!b).drain()` for one that writes it.
 
 obj Cur
   xs: ?List[Int]
@@ -11,23 +13,36 @@ obj Cur
     self.i += 1
     self.xs[self.i - 1]
 
+obj Count
+  n: Int
+
+  fun next(!self) -> Int?
+    return none if self.n == 0
+    self.n -= 1
+    self.n
+
 obj Bag
   xs: List[Int]
 
   fun each(?self) -> Cur from self
     Cur(xs: ?self.xs, i: 0)
 
+  fun drain(!self) -> Count
+    n = self.xs.len
+    !self.xs.clear()
+    Count(n: n)
+
 sub main()
   b = Bag(xs: List())
   !b.xs.push(4)
   for x in b.each()
     print(x)
-  for x in ?b.each()
-    print(x)
   for x in !b.each()
     print(x)
+  for x in !b.drain()
+    print(x)
 
-# error: 23:12: `b.each()` keeps `b` lent while the loop walks it; bind the iterator first, `it = ?b.each()`, then write `for ... in !it`
-# error: 25:13: `for x in ?b.each()` would only read an iterator made here, which `next` cannot advance; it views a place it keeps lent, so bind it first: `it = ?b.each()`, then `for x in !it`
-# error: 27:13: `!b.each()` advances a place, and this is a value made here; it views a place it keeps lent, so bind it first: `it = ?b.each()`, then `for x in !it`
+# error: 38:12: `b.each()` keeps `b` lent while the loop walks it; write `for ... in ?b.each()`
+# error: 40:13: `!b.each()` advances a place, and this is a value made here, which holds no write view; write `for x in ?b.each()`, which holds it for the loop
+# error: 42:15: method `drain` needs its receiver lent to write; write `(!b).drain()`
 # errors: 3

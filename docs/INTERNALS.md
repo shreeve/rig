@@ -2006,10 +2006,10 @@ runtime function with value arguments, or the existing `read` and
 | `Simd[T, n].splat(x)` | `rig.rt(@as(@Vector(n, T), @splat(x)))`; a mask's `rig.rt(rig.maskOf(rig.Mask(n), @splat(x)))` |
 | `Simd[T, n](a)` | `rig.rt(@as(@Vector(n, T), a))`; a mask's `rig.rt(rig.maskOf(rig.Mask(n), a))` |
 | `v +% w`, `v & w`, `v == w`, `v < w`; `+`, `-`, `*`, `-v` of float lanes | the Zig operator, lane by lane; a comparison's lanes become a mask through `rig.mask(v == w)` |
-| `v + w`, `v - w`, `v * w`, `-v` of integer lanes, and `+=`, `-=`, `*=` | `rig.vecAdd(v, w)`, `rig.vecSub(v, w)`, `rig.vecMul(v, w)`, `rig.vecNeg(v)` (`storage.laneChecked`): the wrapped lanes, and a panic when any lane overflows, found by lane comparisons (`r < v` unsigned, sign tests signed, the product in lanes twice as wide) with no overflow intrinsic, whose flags LLVM computes wrong on aarch64 for 32 and 64 byte lanes |
+| `v + w`, `v - w`, `v * w`, `-v` of integer lanes, and `+=`, `-=`, `*=` | `rig.vecAdd(v, w)`, `rig.vecSub(v, w)`, `rig.vecMul(v, w)`, `rig.vecNeg(v)` (`storage.laneChecked`): the wrapped lanes, and a panic when any lane overflows, found by lane comparisons (`r < v` unsigned, sign tests signed, the product in lanes twice as wide) with no overflow intrinsic, whose flags LLVM computes wrong on aarch64 for 32 and 64 byte lanes; with runtime safety off (`--release=fast`) each is the plain Zig operator, unchecked as a scalar is |
 | `m & k`, `m \| k`, `m ^ k`, `m == k`, `m != k` of masks, and their compound forms | `rig.maskAnd(m, k)`, `rig.maskOr`, `rig.maskXor`, `rig.maskEq`, `rig.maskNe` |
 | `v +\| w`, `v -\| w` | `rig.vecAddSat(v, w)`, `rig.vecSubSat(v, w)`: Zig's `+\|` and `-\|` where LLVM builds the code; elsewhere the wrapped lanes, corrected where one overflowed (Zig's own x86 backend saturates `I32` lanes wrong without AVX) |
-| `v << c`, `v <<% c`, `v >> c` | `rig.vecShl(v, c)`, `rig.vecShlWrap(v, c)`, `rig.vecShr(v, c)`: `c` cast to the lane's shift width (a panic at or over it), and `<<` checked by shifting back, `(r >> c) != v`, with no overflow intrinsic |
+| `v << c`, `v <<% c`, `v >> c` | `rig.vecShl(v, c)`, `rig.vecShlWrap(v, c)`, `rig.vecShr(v, c)`: `c` cast to the lane's shift width (a panic at or over it), and `<<` checked by shifting back, `(r >> c) != v`, with no overflow intrinsic (with runtime safety off, `vecShl` is `vecShlWrap`) |
 | `t.lookup(idx)` | `rig.lookup(t, idx)`: NEON `tbl1`/`tbl2`/`tbl4`, x86 `pshufb` (SSSE3; `vpshufb` on 32 indexes with AVX2) on the indexes plus 0x70, saturated (bit 7 set exactly from 16 on), WASM `i8x16.swizzle`, ORed over the table's 16-byte pieces off NEON, else a loop; at compile time, the loop (`@inComptime`) |
 | `cur.lag[k](prev)` | `rig.lag(k, cur, prev)`: one constant `@shuffle` of `prev` and `cur` |
 | a scalar beside a vector, `v + 1` | `rig.rt(@as(V, @splat(1)))` where the scalar stands (`splatOf`); beside a mask, `m \| true`, `rig.rt(rig.maskOf(rig.Mask(n), @splat(true)))` |
@@ -2957,7 +2957,8 @@ what it hands over (`sema.handsOver`), as every header does:
 | a name or field path, written `!it` (a bare `it` is rejected) | `while (!it).next() as x` |
 | a made value `e` | `{ h = e; while (!h).next() as x }` |
 | `<it`, a name or field path | `{ h = <it; while (!h).next() as x }` |
-| `?it`, an element `xs[i]`, a branching or part-of-made value, or `!e` of a made value | rejected |
+| `?e`, a made value whose `?` the receiver-sigil rule puts on a place's method call (`?b.each()`, `Parser.loopReceiverSource`) | `{ h = (?b).each(); while (!h).next() as x }` |
+| `?it`, any other `?e`, an element `xs[i]`, a branching or part-of-made value, or `!e` of a made value | rejected |
 
 `h` is a binding of the block that holds the `while`, so a value made
 there is held for the whole loop, dropped after the `else` (by `break`,

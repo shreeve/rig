@@ -1,0 +1,25 @@
+obj C2
+  xs: ?List[Int]
+  i: Int
+
+  fun next(!self) -> Int?
+    return none if self.i >= self.xs.len
+    self.i += 1
+    self.xs[self.i - 1]
+
+  fun skip1(<self) -> C2 from self
+    C2(xs: self.xs, i: self.i + 1)
+
+obj CBag
+  xs: List[Int]
+
+  fun each(?self) -> C2 from self
+    C2(xs: ?self.xs, i: 0)
+
+sub main()
+  b = CBag(xs: List())
+  for _ in 0..3
+    !b.xs.push(1)
+  for x in ?b.each().skip1()
+    for _ in 0..100
+      !b.xs.push(x)

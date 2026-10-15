@@ -96,7 +96,9 @@ overflow, out-of-bounds indexing and slicing, and a numeric conversion
 whose value does not fit panic in debug and safe builds.
 The fast mode is the one outside that guarantee: it drops the
 overflow and conversion checks, so there an overflow or an out-of-range
-conversion is undefined behavior. Indexing and slicing stay checked in
+conversion is undefined behavior. That holds for the lanes of a vector
+as for a scalar: `+ - * -v` and `<<` on vectors are checked in debug and
+safe builds and unchecked in fast. Indexing and slicing stay checked in
 every mode; a test the compiler proves already passed (a guard or an
 earlier check made it on every path, and nothing it tested changed
 since) is not repeated.
@@ -969,8 +971,9 @@ its lanes.
 `+%`, `-%`, `*%`, their saturating forms `+|`, `-|`, `&`, `|`, `^`, and
 `-v` give a vector of the same type, and `==`, `!=`, `<`, `<=`, `>`, and
 `>=` give a mask. Each lane follows the scalar rule for its type: `+`,
-`-`, `*`, and `-v` panic when any lane overflows, in every build mode,
-the wrapping forms wrap, and the saturating forms stop at the lane
+`-`, `*`, and `-v` panic when any lane overflows in debug and safe
+builds, and in `--release=fast` are unchecked (an overflowing lane is
+undefined behavior, as a scalar's is), the wrapping forms wrap, and the saturating forms stop at the lane
 type's limits; the integer operators take integer lanes, `&`, `|`, and
 `^` also a mask's, the orderings number lanes, and `-v` signed or float
 lanes. A scalar of the lane type, or a literal that fits it, stands for
@@ -978,8 +981,8 @@ every lane, on either side: `v < 0x20`, `v == quote`, `1 + v`. The
 shifts `v << c`, `v <<% c`, and `v >> c` move every integer lane by one
 amount `c`, an integer, below the lane's bit count, with the scalar rules: a
 constant `c` at or over it is rejected and a run-time one
-panics, `<<` panics where a lane loses bits (or its sign), `<<%` drops
-them, and `>>` is arithmetic on signed lanes. The compound forms
+panics, `<<` panics where a lane loses bits (or its sign) under the same rule
+(fast does not check), `<<%` drops them, and `>>` is arithmetic on signed lanes. The compound forms
 (`v += 1`, `m |= v == q`, `v >>= 4`) assign the result. `/` and `%`
 take no vector. A vector's lanes are computed only when the program
 runs, even from constants: where a constant scalar that overflows is
@@ -3443,6 +3446,7 @@ written decides what the loop does with it:
 | `!it`: a name, or a field path from one (`a.b`); a bare `it` is rejected | `while (!it).next() as x` |
 | `mk()`: a value made there | `h = mk()` held for the loop, then `while (!h).next() as x`; `h` ends with the loop |
 | `<it`: a name or field path the loop takes | `h = <it` held for the loop, then `while (!h).next() as x`; `it` is moved |
+| `?b.each()`: a method call whose `?` reaches its receiver, as before any call | `h = (?b).each()` held for the loop, then `while (!h).next() as x`; `b` stays lent to read while the loop holds `h` |
 | `?it` | rejected: reading an iterator cannot advance it |
 
 A type with a `next` of another shape (`next(?self)`, one that takes
@@ -3491,6 +3495,42 @@ then 4
 bb
 made 0
 made 1
+```
+
+An iterator a method returns may view the value the method was called
+on. `?b.each()` lends `b` to read for the call, as before any call, so
+the loop holds the iterator and keeps `b` lent while it walks it:
+
+```rig
+obj Cur
+  xs: ?List[Int]
+  i: Int
+
+  fun next(!self) -> Int?
+    return none if self.i >= self.xs.len
+    self.i += 1
+    self.xs[self.i - 1]
+
+obj Bag
+  xs: List[Int]
+
+  fun each(?self) -> Cur from self
+    Cur(xs: ?self.xs, i: 0)
+
+sub main()
+  b = Bag(xs: List())
+  !b.xs.push(4)
+  !b.xs.push(5)
+  for x in ?b.each()
+    print(x)
+  !b.xs.push(6)
+  print(b.xs)
+```
+
+```output
+4
+5
+[4, 5, 6]
 ```
 
 ```rig reject
