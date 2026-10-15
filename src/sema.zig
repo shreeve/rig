@@ -1537,11 +1537,19 @@ pub const Origins = struct {
     stores: ParamMask = all_params,
     /// `result` is what a `from` clause names, not the signature's types.
     declared: bool = false,
+    /// The lent parameters (`lentParam`), which `stores` holds only
+    /// where the declaration's `keeps` names them; none for a function
+    /// type's origins, which keep by type.
+    lent: ParamMask = 0,
 };
 
 /// A function's `from` clause: the names it lists (empty for `from
 /// static`), and the function's parameters.
 pub const DeclaredOrigins = struct { names: Sexp, params: Sexp, returns: Sexp };
+
+/// A function's `keeps` clause: the names it lists, and the function's
+/// parameters.
+pub const DeclaredKeeps = struct { names: Sexp, params: Sexp };
 
 /// What fills a run-time parameter of a call: the receiver of a method
 /// called on a value, the argument at an index of the call's argument
@@ -1558,6 +1566,9 @@ pub const ParamFill = union(enum) {
 pub const CallParams = struct {
     fills: []const ParamFill,
     origins: Origins,
+    /// The names of the parameters the arguments may fill, the receiver
+    /// left out, when known: what a diagnostic says a call keeps.
+    names: ?[]const []const u8 = null,
 
     /// Whether the call's result carries the loans of the argument at
     /// index `arg`.
@@ -1579,6 +1590,33 @@ pub const CallParams = struct {
     /// `arg`.
     pub fn stores(self: CallParams, arg: usize) bool {
         return self.filled(.{ .arg = @intCast(arg) }, self.origins.stores);
+    }
+
+    /// Whether the call keeps the argument at index `arg`, which fills a
+    /// lent parameter its callee's `keeps` names.
+    pub fn keepsLent(self: CallParams, arg: usize) bool {
+        return self.filled(.{ .arg = @intCast(arg) }, self.origins.stores & self.origins.lent);
+    }
+
+    /// Whether the call keeps its receiver, which its callee's `keeps`
+    /// names (`keeps self`).
+    pub fn keepsLentReceiver(self: CallParams) bool {
+        return self.filled(.receiver, self.origins.stores & self.origins.lent);
+    }
+
+    /// The name of the parameter the argument at index `arg` fills, when
+    /// known.
+    pub fn paramName(self: CallParams, arg: usize) ?[]const u8 {
+        const names = self.names orelse return null;
+        var skip: usize = 0;
+        for (self.fills, 0..) |f, i| {
+            if (f == .receiver) {
+                skip += 1;
+                continue;
+            }
+            if (f == .arg and f.arg == arg) return if (i - skip < names.len) names[i - skip] else null;
+        }
+        return null;
     }
 
     /// Whether `what` fills a parameter in `mask`.
@@ -2085,6 +2123,10 @@ pub const SemContext = struct {
     /// (`-> T from a, b`), by where its name is declared, with its
     /// parameters (`computeOrigins`).
     declared_origins: std.AutoHashMapUnmanaged(u32, DeclaredOrigins) = .empty,
+    /// The `keeps` clause of each function and method that writes one
+    /// (`keeps s, self`), by where its name is declared, with its
+    /// parameters (`computeOrigins`).
+    declared_keeps: std.AutoHashMapUnmanaged(u32, DeclaredKeeps) = .empty,
     /// The `for` loops over an iterator that typecheck found, each to be
     /// rewritten into the `while` it means (`rig.IterLoop`). A module with
     /// any is checked again on the rewritten tree, so no pass sees one.
@@ -2152,6 +2194,7 @@ pub const SemContext = struct {
         self.untakeable.deinit(self.allocator);
         self.facts.deinit(self.allocator);
         self.declared_origins.deinit(self.allocator);
+        self.declared_keeps.deinit(self.allocator);
         self.iter_loops.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.file_uses.deinit(self.allocator);
@@ -5817,13 +5860,36 @@ pub fn defaultOrigins(ctx: *const SemContext, a: std.mem.Allocator, f: FunctionT
     return o;
 }
 
+/// Whether a parameter of type `ty` is lent: a view (`isViewType`), or
+/// an optional of one. A call keeps a lent parameter only where its
+/// declaration's `keeps` names it (Core sentence 7); any other parameter
+/// is taken by value, the callee's, and kept wherever its type fits.
+pub fn lentParam(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .optional => |inner| isViewType(ctx, inner),
+        else => isViewType(ctx, ty),
+    };
+}
+
+/// Whether `ty` is a view: a `?T`, `!T`, `[]T` (a `![]T` is a `!T`),
+/// or `?String`.
+pub fn isViewType(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .read_view, .write_view, .slice, .string_view => true,
+        else => false,
+    };
+}
+
 /// The origins of function `name`, declared at `pos` with type `f`:
 /// its signature's (`defaultOrigins`), with the result's narrowed to the
-/// parameters its `from` clause names. A name that is no parameter, or
-/// one whose type cannot hold what the result views, is reported, as is
-/// a clause on a result that views nothing.
+/// parameters its `from` clause names, and the stores to its by-value
+/// parameters and the lent ones its `keeps` clause names (`declKeeps`).
+/// A name that is no parameter, or one whose type cannot hold what the
+/// result views, is reported, as is a clause on a result that views
+/// nothing.
 fn declOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType) std.mem.Allocator.Error!Origins {
     var o = try defaultOrigins(ctx, a, f);
+    try declKeeps(ctx, name, pos, f, &o);
     const d = ctx.declared_origins.get(pos) orelse return o;
     const results = try viewTargets(ctx, a, f.returns);
     if (results.isEmpty()) {
@@ -5850,6 +5916,45 @@ fn declOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u3
     o.result &= named;
     o.declared = true;
     return o;
+}
+
+/// Narrow `o.stores` to the parameters a call of function `name`,
+/// declared at `pos` with type `f`, keeps: each taken by value whose
+/// type could hold what its write parameters lead to (`defaultOrigins`),
+/// and each lent one (`lentParam`) its `keeps` clause names. A name that
+/// is no parameter, one taken by value, one nothing the function writes
+/// could hold, and one named twice are reported.
+fn declKeeps(ctx: *SemContext, name: []const u8, pos: u32, f: FunctionType, o: *Origins) std.mem.Allocator.Error!void {
+    for (f.params, 0..) |p, i| {
+        if (lentParam(ctx, p)) o.lent |= paramBit(i);
+    }
+    var named: ParamMask = 0;
+    if (ctx.declared_keeps.get(pos)) |d| {
+        for (d.names.items()) |n| {
+            const text = identAt(ctx.source, n) orelse continue;
+            const i = for (d.params.items(), 0..) |p, i| {
+                if (paramName(ctx.source, p)) |pn| if (std.mem.eql(u8, pn, text)) break i;
+            } else {
+                try ctx.errAt(n, "`{s}` has no parameter `{s}`; `keeps` names lent parameters, `self` among them", .{ name, text });
+                continue;
+            };
+            if (i >= f.params.len) continue;
+            if (named & paramBit(i) != 0) {
+                try ctx.errAt(n, "`keeps {s}`: `{s}` is named twice", .{ text, text });
+                continue;
+            }
+            if (!lentParam(ctx, f.params[i])) {
+                try ctx.errAt(n, "`keeps {s}`: `{s}` is taken by value, so the callee owns it already", .{ text, text });
+                continue;
+            }
+            if (o.stores & paramBit(i) == 0) {
+                try ctx.errAt(n, "`keeps {s}`: `{s}` takes nothing to write that could hold it", .{ text, name });
+                continue;
+            }
+            named |= paramBit(i);
+        }
+    }
+    o.stores &= ~o.lent | named;
 }
 
 /// Set the origins of every function and method this module declares
