@@ -67,9 +67,13 @@ expect_eq "$out" $'0\n6 6 0 6 6 6\n6\n6' "run"
 out=$(rig test ev.rig 2>&1) || fail "test: $out"
 expect_has "$out" "1 passed, 0 failed" "test"
 rig check --tests --facts=frames ev.rig >accounts.txt 2>&1 || fail "facts: $(cat accounts.txt)"
+rig emit ev.rig >/dev/null 2>&1 || fail "emit"
 pkg=$RIG_OUT_DIR/programs/ev
+# The emitted module holds its tests' functions, which only the table of
+# tests names: a root that names the table has Zig compile them too.
+echo 'comptime { _ = &@import("__rig_main.zig").__rig_tests; }' >"$pkg/__rig_frames_tests.zig"
 (cd "$pkg" && "${ZIG:-zig}" build-obj -O Debug -femit-asm="$PWD/../ev-main.s" -fno-emit-bin __rig_main.zig) >build.log 2>&1 || fail "asm: $(cat build.log)"
-(cd "$pkg" && "${ZIG:-zig}" build-obj -O Debug -femit-asm="$PWD/../ev-test.s" -fno-emit-bin __rig_test.zig) >build.log 2>&1 || fail "test asm: $(cat build.log)"
+(cd "$pkg" && "${ZIG:-zig}" build-obj -O Debug -femit-asm="$PWD/../ev-test.s" -fno-emit-bin __rig_frames_tests.zig) >build.log 2>&1 || fail "test asm: $(cat build.log)"
 
 python3 - accounts.txt "$pkg/../ev-main.s" "$pkg/../ev-test.s" <<'PY' || exit 1
 import re, sys
