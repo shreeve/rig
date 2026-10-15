@@ -5626,20 +5626,24 @@ const Checker = struct {
         return false;
     }
 
-    /// What the built-in method `m` of the type `owner` declares it needs
-    /// of the type's parameter `T` (`sema.Needs`, from
+    /// What the built-in method `m` of the type `owner_sym` declares it
+    /// needs of the type's parameter `T` (`sema.Needs`, from
     /// `resolve.registerBuiltins`), checked at a call on either route it
     /// takes, `xs.m(...)` and `List.m(xs, ...)` through the type, where
     /// `args` are the type's arguments at the call. A `T` that may or may
     /// not meet it, inside a generic body, makes it a requirement on
-    /// each instance (`Requirement.copies`). False after a diagnostic.
-    fn meetsNeeds(self: *Checker, m: Field, owner: []const u8, args: []const TypeId, pos: u32) Error!bool {
+    /// each instance (`Requirement.copies`). An instance the type itself
+    /// rejects (`resolve.builtinElementError`) was reported where it is
+    /// spelled or made. False after a diagnostic.
+    fn meetsNeeds(self: *Checker, m: Field, owner_sym: SymbolId, args: []const TypeId, pos: u32) Error!bool {
         const needs = m.needs orelse return true;
         if (args.len == 0 or self.isPoison(args[0])) return true;
         const param = args[0];
         switch (needs.t) {
             .copies => if (!try self.cannotCopy(param, pos, needs.op)) return true,
         }
+        if ((try resolve.builtinElementError(self.ctx, owner_sym, args)) != null) return true;
+        const owner = self.ctx.symbols.items[owner_sym].name;
         const shown = try self.tyName(param);
         switch (needs.says) {
             .element_out => |advice| try self.err(pos, "`{s}.{s}` would copy an element out of a `{s}` of `{s}`, which a copy cannot share; {s}", .{ owner, m.name, owner, shown, advice }),
@@ -9648,7 +9652,7 @@ const Checker = struct {
         }
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
-        if (!try self.meetsNeeds(resolved.field, resolved.owner, resolved.args, pos)) return self.skipCall(args);
+        if (!try self.meetsNeeds(resolved.field, resolved.nominal_sym, resolved.args, pos)) return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
         const rest: FunctionType = .{
             .params = f.params[1..],
@@ -10029,7 +10033,7 @@ const Checker = struct {
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
                 const info = methodParams(m, false, source);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
-                if (!try self.meetsNeeds(m, nt.sym.name, recv.args, pos)) return self.skipCall(args);
+                if (!try self.meetsNeeds(m, nt.id, recv.args, pos)) return self.skipCall(args);
                 try self.noteCallee(f);
                 self.lend_call = true;
                 try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins, .declared = fty.function.params });
