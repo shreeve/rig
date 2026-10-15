@@ -130,7 +130,7 @@ expect_eq "$out" "3 2 0 3" "methods.rig"
 out=$(emit long.rig)
 expect_has "$out" 'pub fn long(' "a long body"
 
-# A function holds at most 16 MiB of values on its stack, and Zig puts the
+# A function holds at most 13 MiB of values on its stack, and Zig puts the
 # frame of an inlined call in its caller's: a function that keeps much,
 # and calls that add much to a frame, are not inlined.
 cat >frames.rig <<'RIG'
@@ -248,7 +248,8 @@ sub main()
 RIG
 out=$(emit framefull.rig)
 expect_has "$out" 'pub fn bump(' "a callee that would overfill the caller's frame"
-expect_has "$out" 'pub fn near(' "the caller"
+# Its frame is large, so it is never inlined either (`sema.noinline_reach`).
+expect_has "$out" 'pub noinline fn near(' "the caller"
 
 # An instance of a function with compile-time values (Bool, Int, enum) is
 # sized and inlined as any function, and so are the helpers it calls; one

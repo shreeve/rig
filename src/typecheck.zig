@@ -13604,26 +13604,45 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
 /// fill, and call whose value no binding takes directly (a temporary). A
 /// closure's captures count in the frame that makes it. A call's result
 /// counts twice when a binding takes it, since a debug build holds it in a
-/// temporary first. A frame whose
-/// size depends on generic parameters is checked at each instance
-/// (`checkInstanceSizes`).
+/// temporary first. This count is a limit on what a program keeps on the
+/// stack; what keeps the stack safe is its reach, below.
+///
+/// A frame's reach is its values and a copy of every value its code
+/// makes or copies (`FrameWalker.copy`): Zig's code may hold each in a
+/// temporary of its own, so the stack the frame really takes is at most
+/// `sema.reach_factor` times its reach, which must fit
+/// `sema.max_frame_reach`, far below the guard under the stack. Code Zig
+/// writes more than once counts once for each copy: a `defer` or
+/// `errdefer` body at every exit it covers (`FrameWalker.deferBody`), and
+/// an inlined function at every call (`inlining.decide`). A frame whose
+/// reach passes `sema.noinline_reach` is never inlined, so two such
+/// frames never merge (`sema.SemContext.large_frames`).
+///
+/// A frame whose size depends on generic parameters is checked at each
+/// instance (`checkInstanceSizes`).
 pub fn checkFrames(ctx: *SemContext, tree: Sexp) Error!void {
     var w: FrameWalker = .{ .ctx = ctx };
-    try w.walk(tree, null, false);
+    try w.walk(tree, null, false, false);
 }
 
-/// The bytes of values the `fun` or `sub` `node` keeps on its stack, as
-/// `checkFrames` counts them, not counting the frames of its closures; null
-/// when that depends on generic parameters or follows an error.
-pub fn frameBytesOfFunction(ctx: *SemContext, node: Sexp) Error!?u128 {
+/// A frame as `checkFrames` counts it: the bytes of the values it keeps,
+/// and its reach.
+pub const FrameCount = struct { bytes: u128, reach: u128 };
+
+/// The frame of the `fun` or `sub` `node`, as `checkFrames` counts it, not
+/// counting the frames of its closures; null when that depends on generic
+/// parameters or follows an error.
+pub fn frameBytesOfFunction(ctx: *SemContext, node: Sexp) Error!?FrameCount {
     var w: FrameWalker = .{ .ctx = ctx, .captures_only = true };
     var slots: FrameWalker.Slots = .empty;
     defer slots.deinit(ctx.allocator);
-    for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try w.walk(part, &slots, false);
-    const tys = try ctx.arena.allocator().alloc(TypeId, slots.items.len);
-    for (slots.items, tys) |s, *t| t.* = s.ty;
-    for (tys) |ty| if (sema.containsTypeVar(ctx, ty)) return null;
-    return frameBytes(ctx, tys);
+    for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try w.walk(part, &slots, false, false);
+    var values: std.ArrayList(TypeId) = .empty;
+    var copies: std.ArrayList(TypeId) = .empty;
+    for (slots.items) |s| try (if (s.copy) &copies else &values).append(ctx.arena.allocator(), s.ty);
+    for (slots.items) |s| if (sema.containsTypeVar(ctx, s.ty)) return null;
+    const bytes = (try frameBytes(ctx, values.items)) orelse return null;
+    return .{ .bytes = bytes, .reach = bytes + ((try reachBytes(ctx, copies.items)) orelse return null) };
 }
 
 const FrameWalker = struct {
@@ -13632,26 +13651,34 @@ const FrameWalker = struct {
     /// of its own, which `checkFrames` reports, so only its captures count.
     captures_only: bool = false,
 
-    const Slot = struct { ty: TypeId, name: []const u8 };
+    /// A value the frame keeps, or (`copy`) a copy its code may make,
+    /// which counts in its reach alone.
+    const Slot = struct { ty: TypeId, name: []const u8, copy: bool = false };
     const Slots = std.ArrayList(Slot);
 
-    fn walk(self: *FrameWalker, node: Sexp, frame: ?*Slots, bound: bool) Error!void {
+    /// `copied`: the value of `node` is made or copied where it is used,
+    /// so Zig's code may hold it in a temporary (`copiedIn`).
+    fn walk(self: *FrameWalker, node: Sexp, frame: ?*Slots, bound: bool, copied: bool) Error!void {
         const ctx = self.ctx;
         if (node == .src) {
             const f = frame orelse return;
             const id = ctx.symbolOf(node) orelse return;
             const sym = ctx.symbols.items[id];
+            if (sym.decl_pos != node.src.pos) {
+                if (copied) try self.copy(node, f);
+                return;
+            }
             switch (sym.kind) {
                 .local, .param, .capture => {},
                 else => return,
             }
-            if (sym.decl_pos != node.src.pos or sym.flags.comptime_known or sym.scope == sema.module_scope) return;
+            if (sym.flags.comptime_known or sym.scope == sema.module_scope) return;
             try f.append(ctx.allocator, .{ .ty = sym.ty, .name = sym.name });
             return;
         }
         // A group (a parameter list) has no kind.
         const kind = node.kind() orelse {
-            for (node.items()) |c| try self.walk(c, frame, false);
+            for (node.items()) |c| try self.walk(c, frame, false, false);
             return;
         };
         switch (kind) {
@@ -13667,26 +13694,123 @@ const FrameWalker = struct {
             .drop_decl => try self.frameOf("`drop`", ctx.startOf(node), &.{ ir.get(node, .params), ir.get(node, .body) }),
             .lambda => {
                 // The captures are stored where the closure is made.
-                try self.walk(ir.Lambda.captures(node), frame, false);
+                try self.walk(ir.Lambda.captures(node), frame, false, false);
                 if (self.captures_only) return;
                 try self.frameOf("a closure", ctx.startOf(node), &.{ ir.Lambda.params(node), ir.Lambda.body(node) });
             },
             .set => {
-                try self.walk(ir.Set.target(node), frame, false);
-                try self.walk(ir.Set.value(node), frame, true);
+                try self.walk(ir.Set.target(node), frame, false, false);
+                // A fill built in the local makes no copy (`storage.fillsInPlace`).
+                try self.walk(ir.Set.value(node), frame, true, !storage.fillsInPlace(ctx, node));
+            },
+            .box => {
+                // A fill built in the box's allocation is no temporary.
+                const in_place = storage.fillsInPlace(ctx, node);
+                try self.walk(ir.Box.operand(node), frame, in_place, !in_place);
             },
             else => {
-                if (frame) |f| switch (kind) {
-                    .array, .array_fill => if (!bound) if (ctx.typeOf(node)) |ty| try f.append(ctx.allocator, .{ .ty = ty, .name = "" }),
-                    .call => if (ctx.typeOf(node)) |ty| {
-                        // A constructor builds its value where a binding takes it.
-                        if (!bound or self.callsFunction(node)) try f.append(ctx.allocator, .{ .ty = ty, .name = "" });
-                    },
-                    else => {},
-                };
-                for (rig.children(node)) |c| try self.walk(c, frame, false);
+                if (frame) |f| {
+                    switch (kind) {
+                        .array, .array_fill => if (!bound) if (ctx.typeOf(node)) |ty| try f.append(ctx.allocator, .{ .ty = ty, .name = "" }),
+                        .call => if (ctx.typeOf(node)) |ty| {
+                            // A constructor builds its value where a binding takes it.
+                            if (!bound or self.callsFunction(node)) try f.append(ctx.allocator, .{ .ty = ty, .name = "" });
+                        },
+                        else => {},
+                    }
+                    if (copied) try self.copy(node, f);
+                    // A receiver a method takes by value is copied.
+                    if (kind == .call) if (storage.receiverOf(ctx, node)) |recv| if (self.takesReceiver(node)) try self.copy(recv, f);
+                }
+                const kids = rig.children(node);
+                for (kids, 0..) |c, i| {
+                    if (frame) |f| if (c.isKind(.@"defer") or c.isKind(.@"errdefer")) {
+                        try self.deferBody(c, f, kids[i + 1 ..]);
+                        continue;
+                    };
+                    try self.walk(c, frame, false, self.copiedIn(node, c));
+                }
             },
         }
+    }
+
+    /// Whether the value of `child` is made or copied where `parent` uses
+    /// it, by a positive list of the uses that read it in place: a callee,
+    /// and the base of a field or element path or the operand of a lend
+    /// that is storage (`storage.hasStorage`) or reached where its leaf is
+    /// (`storage.reachesLeaf`); any other base or operand is made into a
+    /// temporary first.
+    fn copiedIn(self: *FrameWalker, parent: Sexp, child: Sexp) bool {
+        const ctx = self.ctx;
+        return switch (parent.kind().?) {
+            .member, .index => !sameSite(child, ir.get(parent, .object)) or !readsInPlace(ctx, child),
+            .read, .write => !readsInPlace(ctx, child),
+            .call => !sameSite(child, ctx.calleeOf(parent)),
+            else => true,
+        };
+    }
+
+    fn readsInPlace(ctx: *SemContext, e: Sexp) bool {
+        return storage.hasStorage(ctx, e) or storage.reachesLeaf(ctx, e);
+    }
+
+    /// Whether the method `call` calls takes its receiver by value, not
+    /// through a view.
+    fn takesReceiver(self: *FrameWalker, call: Sexp) bool {
+        const ctx = self.ctx;
+        const f = storage.fnType(ctx, storage.typeOf(ctx, ctx.calleeOf(call))) orelse return false;
+        if (f.params.len == 0) return false;
+        return switch (ctx.types.get(f.params[0])) {
+            .read_view, .write_view => false,
+            else => true,
+        };
+    }
+
+    /// A `defer` or `errdefer`, whose body Zig writes again at each exit
+    /// of its block it covers: every exit among the statements after it
+    /// (`storage.leave_kinds`), and the block's end. The body's values
+    /// and copies count once more for each exit past the first, as
+    /// copies.
+    fn deferBody(self: *FrameWalker, d: Sexp, f: *Slots, rest: []const Sexp) Error!void {
+        const ctx = self.ctx;
+        const start = f.items.len;
+        try self.walk(ir.get(d, .body), f, false, false);
+        var exits: usize = 1;
+        for (rest) |r| exits += countExits(r);
+        const once = try ctx.arena.allocator().dupe(Slot, f.items[start..]);
+        for (1..exits) |_| for (once) |slot| try f.append(ctx.allocator, .{ .ty = slot.ty, .name = "", .copy = true });
+    }
+
+    /// The exits in `e` (`storage.leave_kinds`), not counting those in its
+    /// closures.
+    fn countExits(e: Sexp) usize {
+        if (e != .list) return 0;
+        const kind = e.kind() orelse {
+            var n: usize = 0;
+            for (e.items()) |c| n += countExits(c);
+            return n;
+        };
+        if (kind == .lambda) return 0;
+        var n: usize = @intFromBool(std.mem.findScalar(Tag, &storage.leave_kinds, kind) != null);
+        for (rig.children(e)) |c| n += countExits(c);
+        return n;
+    }
+
+    /// A copy of the value of `node` in the frame's reach, unless it is
+    /// lent where it is used (a pointer) or fits in registers. A view its
+    /// context reads through (`readsThrough`: a use that expects the
+    /// value copies it out) counts at the size of what it views.
+    fn copy(self: *FrameWalker, node: Sexp, f: *Slots) Error!void {
+        const ctx = self.ctx;
+        if (ctx.lendOf(node) != null) return;
+        const seen = ctx.typeOf(node) orelse return;
+        const ty = if (ctx.readsThrough(node)) sema.unwrapViews(ctx, seen) else seen;
+        if (!sema.containsTypeVar(ctx, ty)) {
+            if (sema.containsPoison(ctx, ty)) return;
+            const b = (try sema.minBytes(ctx, ty)) orelse return;
+            if (b <= sema.register_bytes) return;
+        }
+        try f.append(ctx.allocator, .{ .ty = ty, .name = "", .copy = true });
     }
 
     /// Whether `call` calls a function or method, not a type's constructor.
@@ -13703,24 +13827,64 @@ const FrameWalker = struct {
         const ctx = self.ctx;
         var slots: Slots = .empty;
         defer slots.deinit(ctx.allocator);
-        for (parts) |p| try self.walk(p, &slots, false);
+        for (parts) |p| try self.walk(p, &slots, false, false);
         const items = slots.items;
         if (items.len == 0) return;
+        // The values first, then the copies.
         const arena = ctx.arena.allocator();
         const tys = try arena.alloc(TypeId, items.len);
         const names = try arena.alloc([]const u8, items.len);
-        for (items, tys, names) |s, *t, *n| {
-            t.* = s.ty;
-            n.* = s.name;
-        }
+        var n: usize = 0;
+        var copies: u32 = 0;
+        for ([_]bool{ false, true }) |want| for (items) |s| if (s.copy == want) {
+            tys[n] = s.ty;
+            names[n] = s.name;
+            n += 1;
+            if (want) copies += 1;
+        };
         for (tys) |ty| if (sema.containsTypeVar(ctx, ty)) {
-            try ctx.addGeneric(.frames, .{ .label = label, .pos = pos, .tys = tys, .names = names });
+            try ctx.addGeneric(.frames, .{ .label = label, .pos = pos, .tys = tys, .names = names, .copies = copies });
             return;
         };
-        const bytes = (try frameBytes(ctx, tys)) orelse return;
-        if (bytes > sema.max_frame_bytes) try reportFrame(ctx, pos, label, bytes, null, tys, names);
+        try checkFrame(ctx, pos, label, null, tys, names, copies, pos);
     }
 };
+
+/// Check the frame of `label` whose values are `tys` but the last
+/// `copies`, which are copies its code may make: its count against
+/// `sema.max_frame_bytes` and its reach against `sema.max_frame_reach`.
+/// A large one marks its declaration, at `decl` in `module` (0 for this
+/// one), `noinline` (`sema.SemContext.large_frames`).
+fn checkFrame(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, copies: u32, decl: u32) Error!void {
+    try checkFrameIn(ctx, pos, label, of, tys, names, copies, 0, decl);
+}
+
+fn checkFrameIn(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, copies: u32, module: u32, decl: u32) Error!void {
+    const values = tys[0 .. tys.len - copies];
+    const bytes = (try frameBytes(ctx, values)) orelse return;
+    const reach = bytes + ((try reachBytes(ctx, tys[values.len..])) orelse return);
+    const shown = if (of) |root| try ctx.arena.allocator().print("{s} in `{s}`", .{ label, try sema.rootName(ctx, root) }) else label;
+    try ctx.frame_sizes.append(ctx.allocator, .{ .label = shown, .pos = pos, .bytes = bytes, .reach = reach });
+    if (bytes > sema.max_frame_bytes) return reportFrame(ctx, pos, label, bytes, of, values, names[0..values.len]);
+    if (reach * sema.reach_factor > sema.max_frame_reach) {
+        const in = if (of) |root| try ctx.arena.allocator().print(" in `{s}`", .{try sema.rootName(ctx, root)}) else "";
+        return ctx.err(pos, "{s} makes or copies {d} bytes of values{s}, and a build may hold each in a temporary of its own on the stack, {d} times over at most; a function's code may take at most {d} bytes (512 MiB) of stack. Keep large data on the heap, in a box (`^T`) or a `List`, or split the function", .{ label, reach, in, sema.reach_factor, sema.max_frame_reach });
+    }
+    if (reach * sema.reach_factor < sema.noinline_reach) return;
+    if (module == 0 or module == ctx.module_id) try ctx.large_frames.put(ctx.allocator, decl, {}) else try ctx.large_foreign_frames.append(ctx.allocator, .{ .module = module, .pos = decl });
+}
+
+/// The bytes of the copies `tys`, each that does not fit in registers;
+/// null when one follows an error.
+fn reachBytes(ctx: *SemContext, tys: []const TypeId) Error!?u128 {
+    var total: u128 = 0;
+    for (tys) |ty| {
+        if (sema.containsPoison(ctx, ty)) return null;
+        const b = (try sema.minBytes(ctx, ty)) orelse return null;
+        if (b > sema.register_bytes) total += b;
+    }
+    return total;
+}
 
 /// The bytes the values `tys` take together; null when one follows an
 /// error or is too large by itself, which is reported on its own.
@@ -13756,7 +13920,7 @@ fn reportFrame(ctx: *SemContext, pos: u32, label: []const u8, bytes: u128, of: ?
         const what = if (names[i].len > 0) try ctx.arena.allocator().print("`{s}`", .{names[i]}) else "a temporary";
         try largest.appendSlice(ctx.arena.allocator(), try ctx.arena.allocator().print("{s}{s} ({d} bytes)", .{ if (k == 0) "" else ", ", what, b }));
     }
-    try ctx.err(pos, "{s} keeps {d} bytes of values on its stack{s}; a function keeps at most {d} (13 MiB), since the stack holds 16 MiB. Its largest: {s}. Keep large data on the heap, in a box (`^T`) or a `List`", .{ label, bytes, in, sema.max_frame_bytes, largest.items });
+    try ctx.err(pos, "{s} keeps {d} bytes of values on its stack{s}; a function keeps at most {d} (13 MiB). Its largest: {s}. Keep large data on the heap, in a box (`^T`) or a `List`", .{ label, bytes, in, sema.max_frame_bytes, largest.items });
 }
 
 /// The arrays a generic declaration makes, in one instance, and a generic
@@ -13802,9 +13966,9 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
             if (sema.containsTypeVar(ctx, t)) continue :frames;
             try buf.append(ctx.allocator, t);
         }
-        const bytes = (try frameBytes(ctx, buf.items)) orelse continue;
-        if (bytes <= sema.max_frame_bytes) continue;
-        try reportFrame(ctx, at, fr.label, bytes, of, buf.items, fr.names);
+        const before = ctx.diagnostics.items.len;
+        try checkFrameIn(ctx, at, fr.label, of, buf.items, fr.names, fr.copies, fr.module_id, fr.pos);
+        if (ctx.diagnostics.items.len == before) continue;
         try ctx.noteIn(fr.module_id, fr.pos, "{s} is declared here", .{fr.label});
         return;
     }

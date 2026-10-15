@@ -1454,7 +1454,12 @@ receiver (`consumes_receiver`), how it holds each argument
 index is pure, staying where it is (`pure_arg`); and for each
 assignment, which of its steps it evaluates into storage in their turn
 (`set_order`, [Assignments](#assignments)); and for each `while`,
-where its step runs (`step_point`, [Loops](#loops)). Typecheck's arm-local
+where its step runs (`step_point`, [Loops](#loops)); and for each box and
+binding, whether the fill `[n of x]` it takes is built where its value
+goes (`fills_in_place`: a box's `^[n of x]` in its allocation,
+`Box(T).fill`, and a binding that declares or reassigns a local array,
+unless its value is made first (`storesAfterValue`), in the local, by
+`@memset`). Typecheck's arm-local
 views and copy requirements, the ownership checker's check of a returned
 view, the storage plan, and emit all read the same records; the plan
 decides every binding's, guarded arms' included. At its end the plan asks each recorded question again from
@@ -1894,12 +1899,36 @@ large goes into `oversized`, and `minBytes` of anything holding it is
 null, so it is reported once. After the bodies are checked,
 `typecheck.checkFrames` walks every function, method, closure, test,
 and drop body and sums its frame against `sema.max_frame_bytes`
-(16 MiB): each binding and by-value parameter at its declaration, and
+(13 MiB): each binding and by-value parameter at its declaration, and
 each array literal, fill, and call that is not a `set`'s value; a
-closure's captures count in the enclosing frame. A frame that mentions
-generic parameters is kept in `generic_frames` and summed at each
-instance: a function instance checks the frames that use its own
-parameters, a type instance its methods'.
+closure's captures count in the enclosing frame. This count is a limit
+on how a program keeps its data; safety rests on the frame's *reach*
+([The program's stack](#the-programs-stack)). The same walk adds a copy
+of every value of more than `sema.register_bytes` (16) that the code
+makes or copies (`FrameWalker.copy`): every expression but, by a
+positive list (`copiedIn`), a callee, an assignment's target, one lent
+where it is used, and the base of a field or element path or the operand
+of a lend that is storage (`storage.hasStorage`) or reached where its
+leaf is (`storage.reachesLeaf`); a receiver a method takes by value
+counts again, and a view its context reads through (`readsThrough`)
+counts at the size of what it views. A fill built in place
+(`storage.fillsInPlace`) is neither a temporary nor a copy. Code Zig
+writes more than once counts once for each copy: a `defer` or
+`errdefer` body at every exit after it in its block (`return`, `!`,
+`?`, `break`, `continue`) and at the block's end (`deferBody`), and an
+inlined function at every call (`inlining.decide` adds callees' reach
+per call). The values and the copies are the reach, which
+`sema.reach_factor` (4) times must fit `sema.max_frame_reach` (512 MiB);
+a frame whose reach times the factor is `sema.noinline_reach` (1 MiB)
+or more marks its function in `large_frames`, which emit writes
+`noinline` and `inlining.decide` never inlines. A frame that mentions
+generic parameters is kept in `generic_frames` (its copies last,
+`Frame.copies`) and summed at each instance: a function instance checks
+the frames that use its own parameters, a type instance its methods'.
+An instance made in another module that finds a frame large records it
+in `large_foreign_frames`, which `inlining.decide` copies into the
+declaring module's `large_frames` before emit. `rig check
+--facts=frames` prints each frame's count and reach.
 
 Instances come from the program: `instantiation_sites` holds each
 generic type instance and where it is first spelled or inferred, and
@@ -3439,11 +3468,15 @@ symbols); a query that decides more than that belongs in `Pending`.
     calls; the `comptime` parameters stay compile-time and the rest are
     bound through `rig.rt` as always. Its frame must be known without the
     values;
-  - it keeps at most 64 KiB of values on its stack, and no function gets
-    more than that added by the inlined calls in it
-    (`max_inlined_frame_bytes`), and no function's own frame (`checkFrames`)
-    with the inlined calls in it passes `sema.max_frame_bytes` (13 MiB),
-    since Zig puts an inlined body's locals in its caller's frame;
+  - its reach (`checkFrames`), with the inlined calls in it, is at most
+    64 KiB, and no function gets more than that added by the inlined
+    calls in it, each counted at every call (`max_inlined_frame_bytes`),
+    and no function's own frame with the reach of the inlined calls in
+    it passes `sema.max_frame_bytes` (13 MiB), since Zig writes an
+    inlined body, its locals and temporaries, again at each call, in its
+    caller's frame; and
+    its frame is not large (`large_frames`, which emit also writes
+    `noinline`, [Sema](#sema));
   - with the inlined calls in it, each counted at every call site, it
     expands to at most `inlining.max_expanded` (320) nodes, so a chain of
     functions that each call the next twice does not have Zig analyze the
@@ -3682,16 +3715,18 @@ symbols); a query that decides more than that belongs in `Pending`.
   so it is a value of that type, and a `match` on its error sees every
   error, as for a Rig function.
 - **`main`** of the root module takes `std.process.Init.Minimal`, the
-  only way Zig hands a program its arguments and environment. It
-  calls `rig.guardStack()` and `rig.start(init)`, then defers
-  `rig.finish()`, so it runs after every other drop, and the root
-  module declares `pub const panic = rig.panic`. A `main` that may
-  fail (it propagates, or is `sub main()!` or `fun main() -> Int!`), and
-  `fun main() -> Int`, are emitted as `fn __rig_run_main(init)`, returning
-  `void` or `i64` (with `anyerror!` when it may fail), under a Zig
-  `main` that calls it: `rig.failMain` reports a failure and exits 1,
-  and `rig.exitStatus` makes the `Int` the `u8` exit status. Both run
-  after `__rig_run_main` has returned, so after its drops and `finish`.
+  only way Zig hands a program its arguments and environment. Its body
+  is emitted as `fn __rig_run_main(init)`, returning `void` or `i64`
+  (with `anyerror!` when it may fail: it propagates, or is
+  `sub main()!` or `fun main() -> Int!`), which calls `rig.start(init)`
+  and defers `rig.finish()`, so it runs after every other drop. The Zig
+  `main` runs it on the program's stack,
+  `rig.onOwnStack(__rig_run_main, .{init})`
+  ([The program's stack](#the-programs-stack)); then `rig.failMain`
+  reports a failure and exits 1, and `rig.exitStatus` makes the `Int`
+  the `u8` exit status. Both run after `__rig_run_main` has returned, so
+  after its drops and `finish`. The root module declares
+  `pub const panic = rig.panic`.
 - **Tests.** `test "name"` becomes `fn __rig_test_<n>() anyerror!void`,
   listed in the module's `pub const __rig_tests` table, which only
   `rig test` references.
@@ -3708,7 +3743,7 @@ reviewed.
 | Piece | Role |
 |---|---|
 | `RcBox(T)` | the box behind `*T`: a strong count, a weak count (plus one for all strong handles), and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
-| `Box(T)` | `^T`: a pointer to one heap `T`. `init` allocates, `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `RcBox` past 256 nested releases |
+| `Box(T)` | `^T`: a pointer to one heap `T`. `init` allocates, `fill` allocates an array and fills it there (`^[n of x]`), `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `RcBox` past 256 nested releases |
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade` (what `*w` lowers to), which returns a new strong handle or null once the value is gone |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
@@ -3722,7 +3757,7 @@ reviewed.
 | `Signal(T)` | a value and a `List` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
-| `guardStack` | called first in the emitted `main` and in `runTests`: makes a stack overflow stop the program rather than write past the stack. On x86 Zig probes the stack page by page as a frame grows, so the guard page catches every overflow and nothing more is needed. Elsewhere (aarch64) a frame steps down by its whole size, so one larger than the guard page could land in memory mapped below it; since a frame holds at most 13 MiB of values (`checkFrames`), 64 MiB kept unmapped below the stack catches it with room for Zig's temporaries. macOS guards the stack with one page and maps memory right below that once the address space fills, so `guardStack` reserves `stack_reserve` (64 MiB) below the guard page at start. Linux maps nothing within 128 MiB of the stack's top (nor within the stack limit the program started with, plus 1 MiB), so `guardStack` holds the stack to `stack_size` (16 MiB), leaving 112 MiB free below it. When it cannot (the space is taken, or the limit cannot be lowered), the program prints `rig: cannot reserve the stack guard below the main stack` and exits 1 before `main`'s body runs. On other operating systems it does nothing. `test/cli/stack_guard.sh` checks it |
+| `onOwnStack`, `switchStack` | run `main` and the tests on the program's stack, over its guard, with an overflow handler that names a fault in the guard a stack overflow ([The program's stack](#the-programs-stack)). `test/cli/stack_guard.sh` checks it |
 | `simdRead`, `simdWrite`, `lane`, `withLane`, `maskBits`, `maskFirst`, `maskAny`, `maskAll` | a vector's bytes, lanes, and mask ([Vectors](#vectors)): `simdRead` and `simdWrite` check the offset once, as `readInt` does, and load or store through an `align(1)` pointer, swapping each lane's bytes where its order is not native; `lane` and `withLane` go through `[n]T` with `index`'s check; `maskBits` lowers per target, and `maskFirst` too (below) |
 | `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @size(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
 | `Arch` | Rig's built-in enum `Arch`: Zig's `std.Target.Cpu.Arch`, so `std.target`'s `arch`, `builtin.cpu.arch`, needs no mapping; every module's `Arch` symbol names it (`importType`) |
@@ -3734,14 +3769,119 @@ reviewed.
 | `isVariant`, `isVariantDiscard` | `x == .variant` on an enum with payloads, or an optional of one: tests the tag only, so it compiles whatever the payloads hold; `isVariantDiscard` drops a temporary that owns a resource |
 | `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `null` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
 | `poison` | under the sanitizer, fills hidden storage whose scope has ended with `0xAA`; nothing otherwise |
-| `discard`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
+| `discard`, `discardAt`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`), or, by address, a part of a payload a `match <e` arm leaves unused (deferred, so each exit passes only the address); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, `?String` values by `std.mem.order`. Outside a generic body a `?String` or `[]U8` ordering is `std.mem.order` itself |
 | `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
 | `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
 | `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as `?String` values, gathered once and freed by `finish`; in a package `rig run` or `rig test` built (whose root declares `__rig_run_started`), `start` also creates the file `RIG_PROGRAM_STARTED` names, their evidence that the program ran; `exitStatus` checks the status of `fun main() -> Int` |
 | `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `SafeAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which `./test/run` sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, List, or closure stores an allocator. Allocation failure panics |
-| `runTests`, `Test` | the `rig test` driver: runs each test, checks it for leaks (Debug), reports it |
+| `runTests`, `Test` | the `rig test` driver: runs each test, on the program's stack, checks it for leaks (Debug), reports it |
+
+### The program's stack
+
+A program's Rig code runs on a stack the runtime maps itself
+(`rig.onOwnStack`), not on the stack the system gave its main thread:
+
+1. reserve `guard + 64 MiB` of address space inaccessible, the guard
+   64 GiB, or 1 GiB where that cannot be reserved (`guard_sizes`); a
+   program that cannot reserve even that prints `rig: cannot reserve
+   the program's stack and the guard below it` and exits 1 before it
+   runs;
+2. make the top 64 MiB readable and writable: the stack;
+3. install the overflow handler, then call the body with the stack
+   pointer at the stack's top (`switchStack`), and return with it
+   where it was.
+
+So the emitted `main` desugars to
+
+```zig
+pub fn main(init: std.process.Init.Minimal) void {
+    rig.onOwnStack(__rig_run_main, .{init});
+}
+```
+
+and `rig.runTests` runs its tests the same way. The body runs on the
+process's main thread, which keeps its thread-local state, its
+alternate signal stack, and whatever only the main thread may do; the
+switch needs no libc, which a program on Linux links only for an
+`extern`. The switch is a naked function for aarch64 and x86_64
+(`switchStackNaked`), called through a pointer an empty `asm` hides, so
+no optimizer inlines its body: it pushes a frame record that links the
+new stack's frames to the old one's, with the unwind rules to match, so
+a debug build's stack trace runs from the Rig frame down to the system's
+`start`. Zig's own x86_64 backend, which builds debug programs there,
+assembles no unwind rule but the one its `_start` uses, so there a trace
+ends at the switch. On other targets the body runs on the thread's own
+stack.
+
+**What it catches, and what is measured.** Zig's code reserves a frame
+by moving the stack pointer down by its whole size and then writes its
+bottom first: a debug build spills its arguments there before the body
+runs, so no probe in the body could run before a write below the frame.
+Instead, nothing lies within the guard below the stack: a frame no
+larger than the guard that overflows the stack makes its first access
+past it in the guard, and the access faults. That is what holds.
+
+That every frame is smaller than the guard is a measured bound, not a
+proven one. `checkFrames` holds a frame's reach to `sema.max_frame_reach`
+(512 MiB, half the smallest guard), a function with a large reach is
+never inlined, so no two such frames merge, and a function large with
+the calls inlined into it is marked so too. The real frame is at most
+`sema.reach_factor` (4) times the reach in every form
+`test/cli/frame_reach.sh` measures, but a form Zig copies that reach does
+not model could exceed it, as a payload part a `match <e` arm dropped by
+value at each exit did (`test/corpus/rev230-discard-exits.rig`;
+`rig.discardAt` now passes it by address). Destination-passing, planned
+(TODO.md), makes the bound hold by construction.
+
+Where Zig writes code or slots more than once, and how reach covers
+each:
+
+- a `defer` or `errdefer` body, at each exit it covers, `!` and `?`
+  included: counted once per exit (`deferBody`);
+- an inlined function, at each call: Rig's inlining adds its reach per
+  call and inlines only a small reach (`inlining.decide`); emit writes
+  no other `inline fn`, and the runtime's take vectors and slices, a
+  few hundred bytes at most;
+- `inline for`, `inline while`, `inline else`, and loops Zig unrolls at
+  compile time: emit writes none. The runtime's (over `print`'s values)
+  are in its own functions, separate frames;
+- a generic function, or one with compile-time values: each instance is
+  a function of its own, whose frame is checked at the instance
+  (`checkInstanceSizes`); an instance of the runtime's (`print`, `eql`,
+  `Box.init`) is a frame of its own that holds the values the program
+  passes it, which the program's reach counts;
+- `switch` prongs, `match` alternatives and guards, `if` branches,
+  labeled blocks, and loop bodies: written once, each node counted
+  once;
+- a drop at each exit (`defer rig.drop(&x)`): written per exit, but it
+  passes a pointer.
+
+`test/cli/frame_reach.sh` measures each of these.
+`test/cli/frame_reach.sh` holds the factor to what Zig really reserves,
+for every form that makes or copies a value in every context that takes
+one, in debug and release builds, on aarch64 (assembly) and x86_64
+(`objdump`).
+
+**The message.** The overflow handler (`onOverflow`) runs on the
+thread's alternate signal stack, which Zig's start code sets (a child
+process forked on macOS loses it, so `onOwnStack` sets it again in one,
+through `pthread_atfork`, where libc is linked). For a fault in the
+guard it flushes `print`'s output and writes `error: rig: stack
+overflow`; then, as the sanitizer's handler does, it restores the
+handlers it replaced and returns, so the access faults again into Zig's
+handler, which prints the stack trace, or, in `--release=fast`, ends the
+program.
+
+**64 MiB.** Four times the 16 MiB Zig gives the main thread: deep
+recursion (a checker's walk of a large tree) has room, and address
+space is cheap, since the stack's pages are made only as it reaches
+them. The 13 MiB a frame keeps (`sema.max_frame_bytes`) is a limit on
+how a program keeps its data, not what keeps the stack safe.
+
+Rig starts no threads; a thread a program starts through `extern` code
+runs on that code's stack, unguarded by this.
 
 ## Tests
 

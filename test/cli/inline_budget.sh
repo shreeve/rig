@@ -143,8 +143,10 @@ expect_eq "$out" 1500 "release under"
 # one runs on its caller's.
 out=$(rig emit b_proven_1000.rig 2>/dev/null) || fail "emit proven 1000"
 [[ $(grep -c 'rig.addProven(' <<<"$out") -ge 1000 ]] || fail "1000 adds in many: not all proven"
-for f in main many; do
-    grep -A1 -E "^pub fn $f\(" <<<"$out" | grep -qF '@setEvalBranchQuota(rig.eval_quota);' || fail "$f does not raise its budget first"
+# `main`'s body is `__rig_run_main`, which `main` runs on the program's
+# stack.
+for f in "fn __rig_run_main" "pub fn many"; do
+    grep -A1 -E "^$f\(" <<<"$out" | grep -qF '@setEvalBranchQuota(rig.eval_quota);' || fail "$f does not raise its budget first"
 done
 grep -A1 -F 'pub inline fn ' <<<"$out" | grep -qF '@setEvalBranchQuota' && fail "an inline function sets the budget"
 true

@@ -1,0 +1,39 @@
+# A frame larger than the whole stack stops the program with a
+# stack-overflow error before it writes anything past the stack. `big`
+# keeps one 6.4 MB array, but a debug build holds a copy of it for each
+# argument passed by value, so its frame takes 109 MB. The stack holds
+# 64 MiB, and below it the runtime keeps a guard of 64 GiB.
+
+fun take(a: [800000]Int, k: Int) -> Int
+  a[k]
+
+called sub big(i: Int)
+  a = [800000 of i]
+  s = 0
+  s += take(a, 0)
+  s += take(a, 1)
+  s += take(a, 2)
+  s += take(a, 3)
+  s += take(a, 4)
+  s += take(a, 5)
+  s += take(a, 6)
+  s += take(a, 7)
+  s += take(a, 8)
+  s += take(a, 9)
+  s += take(a, 10)
+  s += take(a, 11)
+  s += take(a, 12)
+  s += take(a, 13)
+  s += take(a, 14)
+  s += take(a, 15)
+  print(s)
+
+sub main()
+  print("before")
+  big(1)
+  print("after")
+
+# expect-panic: rig: stack overflow
+
+# expect:
+# before

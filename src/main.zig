@@ -47,6 +47,9 @@ const usage =
     \\                         root module instead (check)
     \\  --facts=proofs         Print the tests of the root module that are
     \\                         known to pass, which emit omits (check)
+    \\  --facts=frames         Print the bytes of values each frame of the
+    \\                         root module keeps on its stack, as the frame
+    \\                         check counts them, then its reach (check)
     \\  --time                 Print the time each pass of the compiler
     \\                         takes, summed over the modules (check)
     \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
@@ -121,8 +124,9 @@ const Mode = enum {
 };
 
 /// What `check --facts` prints: the IR's syntax facts, sema's, the
-/// hidden storage emit makes, or the tests known to pass.
-const Facts = enum { none, syntax, sema, storage, proofs };
+/// hidden storage emit makes, the tests known to pass, or each frame's
+/// counted bytes.
+const Facts = enum { none, syntax, sema, storage, proofs, frames };
 
 const Options = struct {
     command: Command,
@@ -207,6 +211,16 @@ pub fn main(init: std.process.Init) !void {
             switch (opts.facts) {
                 .none => {},
                 .syntax => try printFacts(io, graph.root()),
+                .frames => {
+                    const m = graph.root();
+                    var buffer: [4096]u8 = undefined;
+                    var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
+                    for (m.sema.frame_sizes.items) |fr| {
+                        const at = diag.lineCol(m.source, fr.pos);
+                        try writer.interface.print("{d}:{d} {s} {d} {d}\n", .{ at.line, at.col, fr.label, fr.bytes, fr.reach });
+                    }
+                    try writer.interface.flush();
+                },
                 .sema, .storage, .proofs => {
                     const m = graph.root();
                     var buffer: [4096]u8 = undefined;
@@ -268,6 +282,8 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
             facts = .storage;
         } else if (eql(arg, "--facts=proofs")) {
             facts = .proofs;
+        } else if (eql(arg, "--facts=frames")) {
+            facts = .frames;
         } else if (eql(arg, "--time")) {
             time = true;
         } else if (eql(arg, "-o")) {
