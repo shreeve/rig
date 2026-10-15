@@ -1,0 +1,21 @@
+# `?p.items[0]` is a loan on `p.items`; replacing the whole list frees
+# the element.
+# Rule: a path stops at an element; assigning the path so far overlaps.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_element_then_field_of_owner.rig).
+
+obj Item
+  name: String
+
+obj P
+  items: List[Item]
+
+sub main()
+  p = P(items: List())
+  !p.items.push(Item(name: String("a")))
+  r = ?p.items[0].name
+  p.items = List()
+  print(r)
+
+# error: 17:3: cannot assign to `p.items` while `p.items` is lent
+# errors: 1

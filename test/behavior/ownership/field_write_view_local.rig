@@ -1,0 +1,25 @@
+# A local write view of one field (`w = !p.a`) holds a write loan on
+# `p.a` only; `p.b` may be read while it lives.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_write_view_local.rig).
+
+obj Counter
+  n: Int
+
+obj P
+  a: Counter
+  b: String
+
+sub bump(c: !Counter, by: Int)
+  c.n += by
+
+sub main()
+  p = P(a: Counter(n: 1), b: String("abc"))
+  w = !p.a
+  bump(!w, p.b.len)
+  print(p.a.n)
+
+# oracle: main accept
+
+# expect:
+# 4

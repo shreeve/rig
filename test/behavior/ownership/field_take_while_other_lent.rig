@@ -1,0 +1,22 @@
+# `<p.f` takes only `p.f` (an optional field, left `none`), so it may
+# happen while a view of `p.g` lives.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_take_while_other_lent.rig).
+
+obj State
+  pos: Int
+
+obj P
+  saved: State?
+  name: String
+
+sub main()
+  p = P(saved: State(pos: 4), name: String("n"))
+  r = ?p.name
+  if <p.saved as s
+    print(s.pos, r)
+  print(p.saved == none)
+
+# expect:
+# 4 n
+# true

@@ -1,0 +1,19 @@
+# `w` views `p.a`, so storing through it a view of `p.b` leaves `p`
+# holding a view of itself.
+
+obj Holder
+  t: ?String
+
+obj P
+  a: Holder
+  b: String
+
+sub main()
+  p = P(a: Holder(t: ""), b: String("x"))
+  w = !p.a
+  w.t = ?p.b
+  print(p.a.t)
+
+# error: 14:3: cannot store in `p.a` a view of `p.b`: a value never holds a view of itself
+# errors: 1
+# oracle: main reject C9

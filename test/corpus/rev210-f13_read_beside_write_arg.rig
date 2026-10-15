@@ -1,0 +1,27 @@
+# Reviewer probe for #210 (field loans): An argument reading `p.a.s`
+# beside a write lend of `p.a`.
+
+obj Holder
+  t: ?String
+  s: String
+
+  sub add(!self, x: ?String)
+    !self.s.add(x)
+
+  fun view(!self) -> ?String from self
+    ?self.s[0..1]
+
+obj P
+  a: Holder
+  b: String
+  c: ?String
+  q: Holder
+
+sub rw(s: ?String, h: !Holder)
+  h.s = String("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+sub main()
+  p = P(a: Holder(t: "", s: String("aa")), b: String("x"), c: "", q: Holder(t: "", s: String("qq")))
+  rw(p.a.s, !p.a)
+  print(p.a.s)

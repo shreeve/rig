@@ -1,0 +1,17 @@
+# A path ends where a read view begins: a slice through `s.text`, a
+# `?String`, carries that view's loan on `src`, so `src` cannot be
+# written while the slice lives.
+
+obj Scanner
+  text: ?String
+  pos: Int
+
+sub main()
+  src = String("abcd")
+  s = Scanner(text: ?src, pos: 0)
+  t = s.text[0..2]
+  !src.add("e")
+  print(t)
+
+# error: 13:3: cannot lend `src` to write while a read loan is live
+# errors: 1

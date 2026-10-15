@@ -1,0 +1,17 @@
+# The path rule does not depend on a field's type, so a generic `T`
+# field is a place like any other; lending `p.item` leaves `p.log` free.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_generic_disjoint.rig).
+
+obj Slot[T]
+  item: T
+  log: List[Int]
+
+sub main()
+  p = Slot[String](item: String("v"), log: List())
+  r = ?p.item
+  !p.log.push(r.len)
+  print(r, p.log.len)
+
+# expect:
+# v 1

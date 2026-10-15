@@ -1,0 +1,36 @@
+# A `!self` method lends all of `self`, so it cannot be called while a
+# field of `self` is lent: the caller does not look into the body (Core
+# sentence 7). The idiom is a function of the fields it writes, which
+# lends only those paths.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/beyond/whole_receiver_method_field_arg.rig).
+
+obj Scanner
+  value: String
+
+obj Arena
+  bytes: String
+
+  fun add(!self, text: ?String) -> Int
+    !self.bytes.add(text)
+    self.bytes.len
+
+obj Parser
+  scanner: Scanner
+  ast: Arena
+  count: Int
+
+  fun new_identifier(!self, text: ?String) -> Int
+    self.count += 1
+    (!self.ast).add(text)
+
+  fun identifier(!self) -> Int
+    (!self).new_identifier(self.scanner.value)
+
+sub main()
+  p = Parser(scanner: Scanner(value: String("id")), ast: Arena(bytes: String()), count: 0)
+  print((!p).identifier(), p.count)
+
+# error: 28:6: cannot lend `self` to write while a read loan on `self.scanner.value` is live
+# error: lend the fields it writes
+# errors: 1

@@ -1,0 +1,37 @@
+# A method called on a field (`self.ast.text(id)`) lends that field, so
+# its view result carries a loan on `self.ast` only, and other fields
+# (`self.imports`, `self.uses_node`) may be written while it lives.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_method_result_on_field.rig).
+
+use std.text
+
+obj Ast
+  texts: List[String]
+
+  fun text(?self, id: Int) -> ?String
+    ?self.texts[id]
+
+obj Parser
+  ast: Ast
+  imports: List[Int]
+  uses_node: Bool
+
+  sub collect(!self, id: Int)
+    name = ?self.ast.text(id)
+    if name.len > 0
+      !self.imports.push(id)
+      if text.starts_with(name, "node:")
+        self.uses_node = true
+
+sub main()
+  a = Ast(texts: List())
+  !a.texts.push(String("fs"))
+  !a.texts.push(String("node:path"))
+  p = Parser(ast: <a, imports: List(), uses_node: false)
+  !p.collect(0)
+  !p.collect(1)
+  print(p.imports.len, p.uses_node)
+
+# expect:
+# 2 true

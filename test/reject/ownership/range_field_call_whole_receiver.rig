@@ -1,0 +1,33 @@
+# A `!self` method lends all of `self`, so it cannot be called while a
+# `for` walks a field of `self`: the caller does not look into the body
+# (Core sentence 7). The idiom is a function of the fields it writes.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/beyond/range_field_call_whole_receiver.rig).
+
+obj Ast
+  kinds: List[Int]
+
+obj Parser
+  ast: Ast
+  imports: List[Int]
+
+  sub collect(!self, node: Int)
+    if self.ast.kinds[node] == 1
+      !self.imports.push(node)
+
+  sub collect_all(!self)
+    for _, i in ?self.ast.kinds
+      !self.collect(i)
+
+sub main()
+  a = Ast(kinds: List())
+  !a.kinds.push(1)
+  !a.kinds.push(2)
+  !a.kinds.push(1)
+  p = Parser(ast: <a, imports: List())
+  !p.collect_all()
+  print(p.imports.len)
+
+# error: 20:7: cannot lend `self` to write while a read loan on `self.ast.kinds` is live
+# error: lend the fields it writes
+# errors: 1

@@ -1,0 +1,23 @@
+# `!p.bump()` lends all of `p` to write: the signature says so, and the
+# caller may not look into the body (Core sentence 7). `bump` could
+# clear `p.name`, so `r` must not live across the call.
+# Rule: `(!p).m()` and `!p.m()` touch all of `p` (proposal-field-loans
+# §7).
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_through_whole_receiver_method.rig).
+
+obj P
+  name: String
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+sub main()
+  p = P(name: String("a"), n: 0)
+  r = ?p.name
+  !p.bump()
+  print(r, p.n)
+
+# error: 19:3: cannot lend `p` to write while a read loan on `p.name` is live
+# errors: 1

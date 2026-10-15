@@ -1,0 +1,21 @@
+# A free function's view result carries the loans of its argument, here
+# the path `p.a`, so `p.n` may be written while it lives.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_free_function_result.rig).
+
+fun head(v: ?List[Int]) -> []Int
+  ?v[..1]
+
+obj P
+  a: List[Int]
+  n: Int
+
+sub main()
+  p = P(a: List(), n: 0)
+  !p.a.push(7)
+  r = head(?p.a)
+  p.n = 2
+  print(r, p.n)
+
+# expect:
+# [7] 2

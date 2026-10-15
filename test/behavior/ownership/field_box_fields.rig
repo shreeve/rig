@@ -1,0 +1,18 @@
+# A path continues through a box (`^T`), which has one owner.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_box_fields.rig).
+
+obj Node
+  name: String
+  n: Int
+
+sub main()
+  b = ^Node(name: String("id"), n: 0)
+  r = ?b.name
+  b.n = 1
+  print(r, b.n)
+
+# oracle: main accept
+
+# expect:
+# id 1

@@ -1,0 +1,17 @@
+# `swap(!p.a, !p.b)` touches `p.a` and `p.b`, two disjoint paths, under
+# the general rule; A deletes `swap`'s special case (`disjointFields`,
+# proposal-field-loans §5).
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_swap_general.rig).
+
+obj P
+  a: String
+  b: String
+
+sub main()
+  p = P(a: String("x"), b: String("y"))
+  swap(!p.a, !p.b)
+  print(p.a, p.b)
+
+# expect:
+# y x

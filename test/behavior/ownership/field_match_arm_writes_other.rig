@@ -1,0 +1,27 @@
+# A `match` on a view of one field lends that field; its arms may write
+# another field.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_match_arm_writes_other.rig).
+
+enum Tok
+  word(text: String)
+  num(n: Int)
+
+obj Lexer
+  tok: Tok
+  count: Int
+
+  sub step(!self)
+    match ?self.tok
+      .word(text) => self.count += text.len
+      .num(n) => self.count += n
+
+sub main()
+  l = Lexer(tok: .word(text: String("abc")), count: 0)
+  !l.step()
+  l.tok = .num(n: 10)
+  !l.step()
+  print(l.count)
+
+# expect:
+# 13

@@ -1,0 +1,23 @@
+# Reviewer probe for #210 (field loans): An `if !p.o as w` binding given
+# a view of `p.b`.
+
+obj Holder
+  t: ?String
+
+enum Slot
+  hold(h: Holder)
+  empty
+
+obj P
+  hs: List[Holder]
+  b: String
+  sl: Slot
+  o: Holder?
+
+sub main()
+  p = P(hs: List(), b: String("x"), sl: .hold(h: Holder(t: "")), o: Holder(t: ""))
+  !p.hs.push(Holder(t: ""))
+  if !p.o as w
+    w.t = ?p.b
+  p.b = String("zzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(p.o)

@@ -1,0 +1,32 @@
+# A path continues through what a write view the name holds sees, so in
+# `sub f(p: !Parser)` the paths `p.ast` and `p.scanner.value` are
+# disjoint.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_through_write_param.rig).
+
+obj Scanner
+  value: String
+
+obj Arena
+  bytes: String
+
+  sub add(!self, text: ?String)
+    !self.bytes.add(text)
+
+obj Parser
+  scanner: Scanner
+  ast: Arena
+
+sub take_token(p: !Parser)
+  (!p.ast).add(p.scanner.value)
+
+sub main()
+  p = Parser(scanner: Scanner(value: String("tok")), ast: Arena(bytes: String()))
+  take_token(!p)
+  take_token(!p)
+  print(p.ast.bytes)
+
+# oracle: take_token accept
+
+# expect:
+# toktok
