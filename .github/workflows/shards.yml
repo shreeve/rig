@@ -79,6 +79,16 @@ jobs:
       - name: Fetch the JSON test data
         run: tools/fetch-json-data.sh
 
+      # Ubuntu hands each process that aborts to systemd-coredump and
+      # apport, about 120 MB and seconds of CPU each. Tests panic on
+      # purpose hundreds of times, most of them in lane_grid on shard 1,
+      # and the reporters pile up until the runner runs out of memory and
+      # is shut down. A plain core file under the job's core limit of 0
+      # is never written.
+      - name: Turn off core dumps
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.core_pattern=core
+
       # test/run stops a test with GNU timeout, or with perl where there
       # is none (macOS). Shard 1 also runs the whole-program checks.
       - name: Test

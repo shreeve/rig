@@ -1,0 +1,13 @@
+# A shift by a per-target constant is checked when the program runs, as
+# a shift by any value Rig does not know is: Zig does not reject it
+# when it compiles.
+use std.target
+
+BIG = 16 if target.arch == .x86_64 else 16
+
+sub main()
+  x: U8 = 2
+  x >>= BIG
+  print(x)
+
+# expect-panic: integer does not fit

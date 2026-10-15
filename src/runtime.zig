@@ -1616,7 +1616,13 @@ pub inline fn addProven(a: Int, b: Int) Int {
 // lane reports one (`@reduce(.Or, flags)` is true), so a correct program
 // panics. The helpers below never ask for the intrinsic: they compute the
 // wrapped result and find an overflowing lane with lane comparisons, then
-// panic as a scalar overflow does.
+// panic as a scalar overflow does. Lanes follow the scalar rule in every
+// mode: the checks are there in debug and safe builds, and `--release=fast`
+// (no runtime safety) drops them, so each helper is the plain operator
+// and an overflowing lane is undefined behavior, as a scalar's is.
+
+/// Whether lane arithmetic checks for overflow: when runtime safety is on.
+const lane_checks = builtin.optimize.runtimeSafety();
 
 noinline fn laneOverflow() noreturn {
     @branchHint(.cold);
@@ -1639,6 +1645,11 @@ inline fn laneCheck(bad: anytype) void {
 /// `a + b` lane by lane: the sum wrapped, overflow where an unsigned
 /// sum is below an addend or a signed sum has the sign of neither.
 pub inline fn vecAdd(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    return addLanes(lane_checks, a, b);
+}
+
+inline fn addLanes(comptime checked: bool, a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    if (comptime !checked) return a + b;
     const V = @TypeOf(a);
     const r = a +% b;
     laneCheck(if (comptime laneUnsigned(V)) r < a else ((a ^ r) & (b ^ r)) < laneZero(V));
@@ -1649,6 +1660,11 @@ pub inline fn vecAdd(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 /// unsigned `a` is below `b` or a signed difference has the sign of
 /// neither `a` nor the negation of `b`.
 pub inline fn vecSub(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    return subLanes(lane_checks, a, b);
+}
+
+inline fn subLanes(comptime checked: bool, a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    if (comptime !checked) return a - b;
     const V = @TypeOf(a);
     const r = a -% b;
     laneCheck(if (comptime laneUnsigned(V)) a < b else ((a ^ b) & (a ^ r)) < laneZero(V));
@@ -1659,6 +1675,11 @@ pub inline fn vecSub(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 /// from the product taken in lanes twice as wide. A 64-bit lane has no
 /// wider vector lane, so each is tested as a scalar.
 pub inline fn vecMul(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    return mulLanes(lane_checks, a, b);
+}
+
+inline fn mulLanes(comptime checked: bool, a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    if (comptime !checked) return a * b;
     const V = @TypeOf(a);
     const info = @typeInfo(V).vector;
     const r = a *% b;
@@ -1677,6 +1698,11 @@ pub inline fn vecMul(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 /// `-a` lane by lane (signed lanes): overflow where a lane is the least
 /// value of its type.
 pub inline fn vecNeg(a: anytype) @TypeOf(a) {
+    return negLanes(lane_checks, a);
+}
+
+inline fn negLanes(comptime checked: bool, a: anytype) @TypeOf(a) {
+    if (comptime !checked) return -a;
     const V = @TypeOf(a);
     laneCheck(a == @as(V, @splat(std.math.minInt(@typeInfo(V).vector.child))));
     return laneZero(V) -% a;
@@ -1716,6 +1742,9 @@ pub fn swap(items: anytype, i: anytype, j: anytype) void {
 
 /// Rig's `Endian`: the byte order of `read` and `write`.
 pub const Endian = enum { little, big };
+
+/// Rig's `Arch`: the target's processor architecture, Zig's own enum.
+pub const Arch = std.Target.Cpu.Arch;
 
 /// `bytes.read[T, e](at)`: the integer or float `T` stored in the
 /// `@sizeOf(T)` bytes from `at`, in byte order `e`; panics unless they
@@ -1943,9 +1972,11 @@ inline fn laneSplat(comptime V: type, x: laneChild(V)) V {
 /// cast that panics otherwise, as for a scalar). `<<` panics where a lane
 /// loses bits or its sign, found by shifting back (`(r >> c) != v`): no
 /// overflow intrinsic, and a vector known at compile time still panics
-/// when the program runs rather than stopping the build.
+/// when the program runs rather than stopping the build. With runtime
+/// safety off (`--release=fast`) it is `<<%`, as a scalar `<<` is the plain
+/// shift there.
 pub inline fn vecShl(v: anytype, amount: anytype) @TypeOf(v) {
-    return laneShift(.left_checked, v, amount);
+    return laneShift(if (lane_checks) .left_checked else .left, v, amount);
 }
 
 pub inline fn vecShlWrap(v: anytype, amount: anytype) @TypeOf(v) {
@@ -3375,6 +3406,24 @@ test "lag: every amount and lane count" {
             for (got, 0..) |g, i| try testing.expectEqual(if (i >= k) c[i - k] else p[n - k + i], g);
         }
     }
+}
+
+test "lane arithmetic: the unchecked form is the plain operator" {
+    // `--release=fast` runs the unchecked form; an overflowing lane is
+    // undefined there, so only lanes that do not overflow are run, and the
+    // two forms must agree on them.
+    inline for (.{ u8, i8, u16, i16, u32, i32, u64, i64 }) |T| {
+        const a: @Vector(8, T) = .{ 9, 10, 11, 12, 13, 14, 15, 9 };
+        const b: @Vector(8, T) = .{ 8, 7, 6, 5, 4, 3, 2, 1 };
+        try testing.expectEqual(@as([8]T, addLanes(true, a, b)), @as([8]T, addLanes(false, a, b)));
+        try testing.expectEqual(@as([8]T, subLanes(true, a, b)), @as([8]T, subLanes(false, a, b)));
+        try testing.expectEqual(@as([8]T, mulLanes(true, a, b)), @as([8]T, mulLanes(false, a, b)));
+        if (@typeInfo(T).int.signedness == .signed)
+            try testing.expectEqual(@as([8]T, negLanes(true, a)), @as([8]T, negLanes(false, a)));
+    }
+    // The public helpers choose the unchecked form exactly when runtime
+    // safety is off, the rule a scalar follows.
+    try testing.expectEqual(builtin.optimize.runtimeSafety(), lane_checks);
 }
 
 test "vecShl, vecShlWrap, vecShr: every lane type and amount" {

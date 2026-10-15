@@ -1,0 +1,46 @@
+# `target.arch` is a compile-time value of the built-in enum `Arch`,
+# which Zig sets for the target: Rig checks both branches of a choice
+# on it, and Zig keeps one. The output holds on x86_64 and aarch64.
+use std.target
+
+TIER = 0 if target.arch == .x86_64 else 16
+KNOWN = target.arch == .x86_64 or target.arch == .aarch64
+ORDER: Endian = .big if target.arch == .s390x else .little
+HERE: Arch = target.arch
+
+fun family(a: Arch) -> Static
+  match a
+    .x86_64, .x86 => "x86"
+    .aarch64, .arm => "arm"
+    _ => "other"
+
+fun lanes[a: Arch]() -> Int
+  if a == .x86_64
+    return 32
+  16
+
+fun scan_from(tier: Int) -> Int
+  # A per-target constant in run-time arithmetic is checked when it runs.
+  tier * 2 + 1
+
+sub main()
+  print(KNOWN, family(target.arch) != "other")
+  print(TIER == 0 or TIER == 16, (TIER == 0) == (target.arch == .x86_64))
+  print(lanes[target.arch]() == (32 if HERE == .x86_64 else 16))
+  print(scan_from(TIER) == 2 * TIER + 1)
+  const local = target.arch
+  print(local == HERE, target.arch != .wasm32, Arch.riscv64)
+  b: [2]U8 = [1, 2]
+  print(b.read[U16, ORDER](0))
+  x: U8 = 200
+  x >>= 3 if target.arch == .x86_64 else 3
+  print(x)
+
+# expect:
+# true true
+# true true
+# true
+# true
+# true true .riscv64
+# 513
+# 25

@@ -1,0 +1,20 @@
+# The markers are checked over every `extern zig` block, std.target's
+# Zig-backed constant `arch` among them, and mark functions that read it.
+use std.target
+
+inline fun lanes() -> Int
+  32 if target.arch == .x86_64 else 16
+
+called fun bytes[a: Arch]() -> Int
+  64 if a == .x86_64 else 32
+
+rarely fun unknown(a: Arch) -> Bool
+  a != .x86_64 and a != .aarch64
+
+sub main()
+  print(lanes() * 2 == bytes[target.arch](), unknown(target.arch))
+
+# release
+
+# expect:
+# true false

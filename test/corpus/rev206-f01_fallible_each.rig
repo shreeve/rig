@@ -1,0 +1,41 @@
+obj Cur
+  xs: ?List[Int]
+  i: Int
+
+  fun next(!self) -> Int?
+    return none if self.i >= self.xs.len
+    self.i += 1
+    self.xs[self.i - 1]
+
+fun mk(v: ?List[Int]) -> Cur from v
+  Cur(xs: v, i: 0)
+
+obj Bag
+  xs: List[Int]
+
+  fun each(?self) -> Cur from self
+    Cur(xs: ?self.xs, i: 0)
+
+sub fill(v: !List[Int])
+  for _ in 0..3
+    !v.push(1)
+
+error E
+  bad
+
+obj FB
+  xs: List[Int]
+
+  fun each(?self) -> Cur! from self
+    return E.bad if self.xs.len == 0
+    Cur(xs: ?self.xs, i: 0)
+
+fun go(b: !FB) -> Int!
+  for x in ?b.each()!
+    !b.xs.push(x)
+  0
+
+sub main()
+  b = FB(xs: List())
+  fill(!b.xs)
+  print(go(!b) catch -1)

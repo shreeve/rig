@@ -1,0 +1,13 @@
+# In an `extern zig` block a marker is checked on each function; a
+# Zig-backed constant beside them has no marker to check.
+
+extern zig "fast.zig"
+  LIMIT: Int
+  inline fun fast(x: Int) -> Int
+
+sub main()
+  print(fast(LIMIT))
+
+# error: only the standard library binds declarations to Zig code
+# error: 6:3: `fast` is an `extern zig` function, whose body is Zig code: it takes no `inline`
+# errors: 2

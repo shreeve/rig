@@ -1,0 +1,9 @@
+# std.target: the target a program is compiled for, as compile-time
+# facts. Rig knows each one's type, never its value: Zig sets the value
+# for the target it compiles for, so `rig check` gives one verdict on
+# every machine, and a branch on one is chosen when Zig compiles.
+
+extern zig "target.zig"
+  # The target's processor architecture, one of the built-in enum
+  # `Arch`'s variants (`.x86_64`, `.aarch64`, `.wasm32`, ...).
+  pub arch: Arch

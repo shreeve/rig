@@ -110,11 +110,14 @@ const SymbolResolver = struct {
             .@"enum" => try self.walkNominalType(sexp, .{}),
             .errors => try self.walkNominalType(sexp, .{ .error_set = true }),
             .@"extern", .extern_fun, .extern_sub => _ = try self.declare(ir.get(sexp, .name), .@"extern", .{}),
+            // A Zig-backed constant: known at compile time, to Zig alone.
+            .zig_const => _ = try self.declare(ir.ZigConst.name(sexp), .local, .{ .fixed = true, .comptime_known = true, .per_target = true }),
             .zig_extern => {
                 if (!self.ctx.is_std) try self.ctx.errAt(sexp, "only the standard library binds declarations to Zig code with `extern zig`; write the function in Rig, or declare a C function with `extern fun` and call it in a `raw` block", .{});
                 for (ir.ZigExtern.decls(sexp)) |d| {
                     const f = if (d.isKind(.@"pub")) ir.Pub.decl(d) else d;
-                    const m = rig.markerOf(f);
+                    // A Zig-backed constant takes no marker, and has no role for one.
+                    const m: rig.Marker = if (f.isKind(.fun) or f.isKind(.sub)) rig.markerOf(f) else .none;
                     if (m != .none) try self.ctx.errAt(ir.get(f, .mark), "`{s}` is an `extern zig` function, whose body is Zig code: it takes no `{s}`", .{ identAt(self.ctx.source, ir.get(f, .name)) orelse "", @tagName(m) });
                     try self.walk(d);
                 }
@@ -889,6 +892,12 @@ fn foldModuleConsts(ctx: *SemContext) Error!void {
         const target = ir.Set.target(set);
         if (target != .src or rig.bindingKindOf(ir.Set.op(set)) != .fixed) continue;
         const id = ctx.symbolOf(target) orelse continue;
+        // A constant whose value names one the target sets is set by the
+        // target too, and has no value Rig knows.
+        if (sema.perTargetLeaf(ctx, ir.Set.value(set)) != null) {
+            ctx.symbols.items[id].flags.per_target = true;
+            continue;
+        }
         const ty = ir.Set.type(set);
         const declared: ?sema.IntInfo = if (ty == .nil) null else declaredIntType(ctx, ty) orelse continue;
         const names: ConstNames = .{ .ctx = ctx, .scope = sema.module_scope, .literal = declared orelse .{} };
@@ -1095,7 +1104,24 @@ pub const TypeResolver = struct {
             .extern_fun, .extern_sub => try self.resolveExternFun(sexp),
             .zig_extern => for (ir.ZigExtern.decls(sexp)) |d| {
                 try self.resolveDecl(d);
-                try self.checkZigBacked(if (d.isKind(.@"pub")) ir.Pub.decl(d) else d);
+                const decl = if (d.isKind(.@"pub")) ir.Pub.decl(d) else d;
+                if (!decl.isKind(.zig_const)) try self.checkZigBacked(decl);
+            },
+            .zig_const => {
+                const name = ir.ZigConst.name(sexp);
+                const id = self.ctx.symbolOf(name) orelse return;
+                const ty = try self.resolveType(ir.ZigConst.type(sexp));
+                self.ctx.symbols.items[id].ty = ty;
+                // Zig gives it a value of a type both sides spell alike.
+                const plain = switch (self.ctx.types.get(ty)) {
+                    .bool, .int => true,
+                    .nominal => |sym| sema.isBuiltinEnum(self.ctx, sym),
+                    else => false,
+                };
+                if (!plain and !self.isPoison(ty)) {
+                    try self.ctx.errAt(ir.ZigConst.type(sexp), "a Zig-backed constant is a `Bool`, an integer, or a built-in enum, not `{s}`", .{try sema.formatType(self.ctx, ty)});
+                    self.ctx.symbols.items[id].ty = self.ctx.types.invalid_id;
+                }
             },
             .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => try self.resolveNominal(sexp),
             else => {},
@@ -1664,7 +1690,9 @@ pub const TypeResolver = struct {
         switch (fold) {
             .value => |t| return t.v,
             .overflow, .mismatch => try self.reportFold(node, fold, what),
-            .not_constant => if (!node.isKind(.member) or !try self.memberNotCtInt(node, what)) {
+            .not_constant => if (sema.perTargetLeaf(self.ctx, node)) |leaf| {
+                try self.ctx.errAt(node, "{s} must be known when Rig checks the program; " ++ sema.per_target_why, .{ what, try self.sourceText(leaf) });
+            } else if (!node.isKind(.member) or !try self.memberNotCtInt(node, what)) {
                 try self.ctx.errAt(node, "the value of `{s}` must be a constant integer", .{name});
             },
         }
@@ -2129,6 +2157,10 @@ pub const TypeResolver = struct {
             .not_constant => {},
         }
         const text = try self.sourceText(node);
+        if (sema.perTargetLeaf(self.ctx, node)) |leaf| {
+            try self.ctx.errAt(node, "{s} must be known when Rig checks the program; " ++ sema.per_target_why, .{ what, try self.sourceText(leaf) });
+            return null;
+        }
         if (node == .src and !sema.isIntLiteralText(text)) {
             if (literalTypeName(text)) |lit| {
                 try self.ctx.errAt(node, "{s} is an integer; `{s}` is {s} `{s}`", .{ what, text, an(lit), lit });
@@ -2707,6 +2739,26 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             .{ .name = "little", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
             .{ .name = "big", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
         });
+    }
+
+    // Arch: the target's processor architecture, which `std.target`'s
+    // `arch` gives. Its variants are Zig's (`std.Target.Cpu.Arch`), all of
+    // them, and it lowers to that type, so every target Zig compiles for
+    // has a name and none needs mapping.
+    {
+        const sym = try ctx.addSymbol(.{
+            .name = "Arch",
+            .kind = .nominal_type,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_pos,
+            .scope = module_scope,
+        });
+        try ctx.addToScope(module_scope, sym);
+        ctx.arch_sym_id = sym;
+        const names = @typeInfo(std.Target.Cpu.Arch).@"enum".field_names;
+        var variants: [names.len]sema.Field = undefined;
+        for (names, &variants) |n, *v| v.* = .{ .name = n, .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true };
+        try setFields(ctx, sym, &variants);
     }
 
     // Simd[T, n: Int]: a vector of `n` lanes. An instance is a type of

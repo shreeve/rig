@@ -96,7 +96,9 @@ overflow, out-of-bounds indexing and slicing, and a numeric conversion
 whose value does not fit panic in debug and safe builds.
 The fast mode is the one outside that guarantee: it drops the
 overflow and conversion checks, so there an overflow or an out-of-range
-conversion is undefined behavior. Indexing and slicing stay checked in
+conversion is undefined behavior. That holds for the lanes of a vector
+as for a scalar: `+ - * -v` and `<<` on vectors are checked in debug and
+safe builds and unchecked in fast. Indexing and slicing stay checked in
 every mode; a test the compiler proves already passed (a guard or an
 earlier check made it on every path, and nothing it tested changed
 since) is not repeated.
@@ -972,8 +974,9 @@ its lanes.
 `+%`, `-%`, `*%`, their saturating forms `+|`, `-|`, `&`, `|`, `^`, and
 `-v` give a vector of the same type, and `==`, `!=`, `<`, `<=`, `>`, and
 `>=` give a mask. Each lane follows the scalar rule for its type: `+`,
-`-`, `*`, and `-v` panic when any lane overflows, in every build mode,
-the wrapping forms wrap, and the saturating forms stop at the lane
+`-`, `*`, and `-v` panic when any lane overflows in debug and safe
+builds, and in `--release=fast` are unchecked (an overflowing lane is
+undefined behavior, as a scalar's is), the wrapping forms wrap, and the saturating forms stop at the lane
 type's limits; the integer operators take integer lanes, `&`, `|`, and
 `^` also a mask's, the orderings number lanes, and `-v` signed or float
 lanes. A scalar of the lane type, or a literal that fits it, stands for
@@ -981,8 +984,8 @@ every lane, on either side: `v < 0x20`, `v == quote`, `1 + v`. The
 shifts `v << c`, `v <<% c`, and `v >> c` move every integer lane by one
 amount `c`, an integer, below the lane's bit count, with the scalar rules: a
 constant `c` at or over it is rejected and a run-time one
-panics, `<<` panics where a lane loses bits (or its sign), `<<%` drops
-them, and `>>` is arithmetic on signed lanes. The compound forms
+panics, `<<` panics where a lane loses bits (or its sign) under the same rule
+(fast does not check), `<<%` drops them, and `>>` is arithmetic on signed lanes. The compound forms
 (`v += 1`, `m |= v == q`, `v >>= 4`) assign the result. `/` and `%`
 take no vector. A vector's lanes are computed only when the program
 runs, even from constants: where a constant scalar that overflows is
@@ -1162,6 +1165,7 @@ sub main()
 | `Cell[T]`, `List[T]`, `^T`, `Signal[T]` | built-in generic types | [§10](#10-cell-list-box-string-and-signal) |
 | `String` | owned, growable text | [§10](#string) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§2](#bytes) |
+| `Arch` | built-in enum: the target's processor architecture, `target.arch` | [§3](#the-target) |
 | `Simd[T, n]` | vector: `n` lanes of a number or `Bool`, operated on together; `Simd[Bool, n]` is a mask | [§2](#vectors) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§3](#3-declarations), [§14](#14-modules) |
 
@@ -2400,6 +2404,12 @@ Only a constant scalar is folded: an element of a constant array
 (`table[0]`), a field of a constructed value, and a payload are read
 when the program runs, so `table[0] + 1` with `Int.max` in `table[0]`
 is a panic there, in every build mode, not a compile error.
+A module constant's integer arithmetic is computed when Rig checks the
+program, so each of its operands must be a value Rig computes. A
+constant that branches on something other than integers (an enum
+constant, or `target.arch`, [The target](#the-target)) has none, and
+arithmetic on it in another constant is rejected; in a function it is
+checked when it runs.
 
 ```rig
 limit = 10
@@ -2445,6 +2455,74 @@ sub main()
 ```error
 a module-level binding is already a constant; write `LIMIT = 4`
 ```
+
+### The target
+
+`use std.target` names facts about the target, the machine the program
+is compiled for ([STD.md](docs/STD.md#stdtarget)). `target.arch` is its
+processor architecture, a value of the built-in enum `Arch`, whose
+variants are Zig's names for every architecture Zig compiles for
+(`std.Target.Cpu.Arch`): `.x86_64`, `.aarch64`, `.wasm32`, `.wasm64`,
+`.riscv64`, and the rest. `Arch` lowers to that Zig enum, all of it, so
+every target has a name and each name means what it means to Zig.
+`Arch` is a built-in name, like `Endian`, and is reserved.
+
+`target.arch` is known at compile time and stands wherever a constant
+can: in a module constant's initializer, as a compile-time argument of
+type `Arch`, and in ordinary code, where `==` and `!=` compare it with
+a variant. Rig never knows its value: Zig sets it when it compiles the
+program for a target, so `rig check` gives a program the same verdict
+on every machine. Rig checks both branches of `a if target.arch ==
+.x86_64 else b`, and Zig keeps the one the target picks, when it
+compiles. A constant whose value names `target.arch` is set by the
+target too.
+
+```rig
+use std.target
+
+TIER = 0 if target.arch == .x86_64 else 16
+
+fun lanes(a: Arch) -> Int
+  match a
+    .x86_64 => 32
+    _ => 16
+
+sub main()
+  print(TIER == 0 or TIER == 16, lanes(target.arch) >= 16)
+```
+
+```output
+true true
+```
+
+Where Rig needs a value when it checks the program, a value the target
+sets is rejected: an array length, a vector's lane count, a compile-time
+integer argument, the lanes `lag` takes, a range pattern's bounds, an
+enum's value, and the operands of a module constant's arithmetic, which
+Rig computes when it checks the program and Zig computes again when it
+compiles (`100 / TIER` divides by zero on x86_64 alone). Write each
+branch's value instead: `DOUBLE = 0 if target.arch == .x86_64 else 32`.
+In a function, arithmetic on such a constant is checked when it runs,
+as on any value Rig does not know.
+
+```rig reject
+use std.target
+
+TIER = 0 if target.arch == .x86_64 else 16
+RATIO = 100 / TIER
+
+sub main()
+  a: [TIER]U8 = [4 of 0]
+  print(RATIO, a)
+```
+
+```error
+the operands of a module constant's arithmetic must be known when Rig checks the program; the value of `TIER` is chosen for each target when Zig compiles the program, so Rig does not know it
+an array length must be known when Rig checks the program; the value of `TIER`
+```
+
+`std.target` has only `arch`: the operating system and the CPU's
+features are not built.
 
 ### Other declarations
 
@@ -3467,6 +3545,7 @@ written decides what the loop does with it:
 | `!it`: a name, or a field path from one (`a.b`); a bare `it` is rejected | `while (!it).next() as x` |
 | `mk()`: a value made there | `h = mk()` held for the loop, then `while (!h).next() as x`; `h` ends with the loop |
 | `<it`: a name or field path the loop takes | `h = <it` held for the loop, then `while (!h).next() as x`; `it` is moved |
+| `?b.each()`: a method call whose `?` reaches its receiver, as before any call | `h = (?b).each()` held for the loop, then `while (!h).next() as x`; `b` stays lent to read while the loop holds `h` |
 | `?it` | rejected: reading an iterator cannot advance it |
 
 A type with a `next` of another shape (`next(?self)`, one that takes
@@ -3515,6 +3594,42 @@ then 4
 bb
 made 0
 made 1
+```
+
+An iterator a method returns may view the value the method was called
+on. `?b.each()` lends `b` to read for the call, as before any call, so
+the loop holds the iterator and keeps `b` lent while it walks it:
+
+```rig
+obj Cur
+  xs: ?List[Int]
+  i: Int
+
+  fun next(!self) -> Int?
+    return none if self.i >= self.xs.len
+    self.i += 1
+    self.xs[self.i - 1]
+
+obj Bag
+  xs: List[Int]
+
+  fun each(?self) -> Cur from self
+    Cur(xs: ?self.xs, i: 0)
+
+sub main()
+  b = Bag(xs: List())
+  !b.xs.push(4)
+  !b.xs.push(5)
+  for x in ?b.each()
+    print(x)
+  !b.xs.push(6)
+  print(b.xs)
+```
+
+```output
+4
+5
+[4, 5, 6]
 ```
 
 ```rig reject
@@ -7873,6 +7988,10 @@ is checked exactly as a call to a Rig function with that signature
 the Zig file is trusted as the runtime is, and each function's Zig type
 is checked, when the program is compiled, to be the one its Rig
 signature lowers to. Such a function takes no compile-time parameters.
+A constant `name: T` inside the block, of type `Bool`, an integer, or a
+built-in enum, is the Zig constant of that name, which Zig sets for the
+target it compiles for: Rig knows its type and never its value
+([The target](#the-target)).
 Its signature is trusted where the checker cannot see a body: one that
 returns a view and takes no view parameter, as
 `std.os.args() -> []?String` does, returns something that lives as long

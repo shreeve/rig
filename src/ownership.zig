@@ -561,6 +561,11 @@ pub const Checker = struct {
 
     func: FnCtx = .{},
     loop: ?*LoopCtx = null,
+    /// The loops around each deferred body being walked, innermost
+    /// last: `loop` is null at a deferred body's start, so a jump in it
+    /// leaves no loop outside it, but the body runs inside those loops,
+    /// so liveness (`liveFrom`) still counts them.
+    defer_loops: std.ArrayList(?*LoopCtx) = .empty,
     /// Set immediately before walking a lambda literal that sits in an
     /// allowed position (binding RHS, call callee, lent argument, `*|...|`).
     lambda_ok: bool = false,
@@ -634,6 +639,7 @@ pub const Checker = struct {
         self.scratch.deinit(self.gpa);
         self.last_use.deinit(self.gpa);
         self.defer_used.deinit(self.gpa);
+        self.defer_loops.deinit(self.gpa);
         for (self.scopes.items) |*s| s.defers.deinit(self.gpa);
         self.scopes.deinit(self.gpa);
         self.after_value.deinit(self.gpa);
@@ -1566,14 +1572,23 @@ pub const Checker = struct {
 
     /// The first position whose uses of a var declared at `decl` still
     /// lie ahead: the current statement (or `at`), or the start of an
-    /// enclosing loop the var was declared outside of.
+    /// enclosing loop the var was declared outside of, one around a
+    /// deferred body being walked included (`defer_loops`).
     fn liveFrom(self: *const Checker, decl: u32, at: ?u32) u32 {
-        var from: u32 = at orelse self.stmtStart();
-        var l = self.loop;
-        while (l) |ctx| : (l = ctx.parent) {
-            if (ctx.is_loop and ctx.start > decl) from = @min(from, ctx.start);
-        }
+        var from: u32 = loopStartFrom(self.loop, decl, at orelse self.stmtStart());
+        for (self.defer_loops.items) |outer| from = loopStartFrom(outer, decl, from);
         return from;
+    }
+
+    /// `from`, or the start of a loop of the chain from `loop` outward
+    /// that starts after `decl`, whichever is earlier.
+    fn loopStartFrom(loop: ?*LoopCtx, decl: u32, from: u32) u32 {
+        var out = from;
+        var l = loop;
+        while (l) |ctx| : (l = ctx.parent) {
+            if (ctx.is_loop and ctx.start > decl) out = @min(out, ctx.start);
+        }
+        return out;
     }
 
     /// Where the current statement starts: its first source position
@@ -1622,7 +1637,7 @@ pub const Checker = struct {
             },
             .@"pub" => try self.walkDecl(ir.Pub.decl(sexp)),
             .@"test" => try self.walkFun(.nil, .nil, .nil, .nil, ir.Test.body(sexp)),
-            .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_extern, .variant, .@":" => {},
+            .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .variant, .@":" => {},
             else => try self.walkStmt(sexp),
         }
     }
@@ -5626,9 +5641,11 @@ pub const Checker = struct {
         const snap = try self.here();
         const saved_loop = self.loop;
         const saved_in_defer = self.in_defer;
+        try self.defer_loops.append(self.gpa, self.loop);
         self.loop = null;
         self.in_defer = true;
         try self.walkStmt(body);
+        _ = self.defer_loops.pop();
         self.loop = saved_loop;
         self.in_defer = saved_in_defer;
         if (!report_changes) return;

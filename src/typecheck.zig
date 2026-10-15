@@ -411,7 +411,7 @@ const Checker = struct {
                 try self.checkBody(ir.Test.body(sexp), .{ .ret = self.t().void_id, .fail_to = .caller });
             },
             .set => try self.checkModuleConst(sexp),
-            .use, .type, .@"extern", .extern_fun, .extern_sub => {},
+            .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_const => {},
             .zig_extern => for (ir.ZigExtern.decls(sexp)) |d| try self.checkDecl(d),
             else => try self.errAt(sexp, not_at_module_level, .{}),
         }
@@ -439,7 +439,50 @@ const Checker = struct {
         const vector = value.isKind(.call) and self.isVectorMade(value) and self.isConstExpr(ir.Call.args(value)[0]);
         if (!vector and !self.isConstExpr(value)) {
             try self.errAt(value, "a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)", .{});
+            return;
         }
+        try self.checkConstArithmetic(value);
+    }
+
+    /// A module constant's integer arithmetic is checked here, when Rig
+    /// computes it (`sema.ctFoldBy`): Zig would compute it again when it
+    /// compiles, and stop at an overflow or a division by zero. So each
+    /// operand is a value Rig knows; one the target sets, or a constant
+    /// branching on something Rig does not compute, is rejected.
+    fn checkConstArithmetic(self: *Checker, e: Sexp) Error!void {
+        if (e != .list) return;
+        if (!isArithmetic(e)) {
+            for (e.items()) |c| try self.checkConstArithmetic(c);
+            return;
+        }
+        const ty = self.ctx.typeOf(e) orelse return;
+        if (!sema.isInteger(self.ctx, ty) and ty != self.t().int_literal_id) return;
+        if (sema.constInt(self.ctx, e) != .not_constant) return;
+        const operand = self.unknownOperand(e) orelse return;
+        if (try self.perTarget(operand, "the operands of a module constant's arithmetic")) return;
+        try self.errAt(operand, "the operands of a module constant's arithmetic must be values Rig computes when it checks the program, and it does not compute `{s}`; branch on integers, or write each branch's value", .{self.sourceText(operand)});
+    }
+
+    /// The first operand of the arithmetic `e`, outside further
+    /// arithmetic, whose value Rig does not compute; null when each has
+    /// one (and `e` has none for another reason, reported elsewhere).
+    fn unknownOperand(self: *Checker, e: Sexp) ?Sexp {
+        const pair = if (e.isKind(.neg)) [2]Sexp{ ir.Neg.operand(e), .nil } else [2]Sexp{ ir.get(e, .left), ir.get(e, .right) };
+        for (pair) |o| {
+            if (o == .nil) continue;
+            if (isArithmetic(o)) {
+                if (self.unknownOperand(o)) |x| return x;
+            } else if (sema.constInt(self.ctx, o) == .not_constant) return o;
+        }
+        return null;
+    }
+
+    /// Report that `node`, needed as `what`, names a value the target
+    /// sets (`sema.perTargetLeaf`); false when it names none.
+    fn perTarget(self: *Checker, node: Sexp, what: []const u8) Error!bool {
+        const leaf = sema.perTargetLeaf(self.ctx, node) orelse return false;
+        try self.errAt(node, "{s} must be known when Rig checks the program; " ++ sema.per_target_why, .{ what, self.sourceText(leaf) });
+        return true;
     }
 
     fn isConstExpr(self: *Checker, e: Sexp) bool {
@@ -793,7 +836,7 @@ const Checker = struct {
                 defer self.body.loops = frame.parent;
                 try self.checkStmt(inner);
             },
-            .fun, .sub, .@"struct", .@"enum", .errors, .type, .generic_struct, .generic_enum, .use, .@"extern", .extern_fun, .extern_sub, .zig_extern, .@"test", .@"pub" => {
+            .fun, .sub, .@"struct", .@"enum", .errors, .type, .generic_struct, .generic_enum, .use, .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .@"test", .@"pub" => {
                 try self.errAt(stmt, "declarations are only allowed at module level", .{});
             },
             else => try self.checkExprStmt(stmt),
@@ -1079,6 +1122,8 @@ const Checker = struct {
         // a later constant may branch on it.
         const ternary_const = s.scope == self.module_scope and rhs.isKind(.@"if") and self.isConstExpr(rhs);
         if (kind == .fixed and (ternary_const or self.isComptimeKnown(rhs))) s.flags.comptime_known = true;
+        // A `const` local of a value the target sets is set by it too.
+        if (s.flags.comptime_known and s.scope != self.module_scope and sema.perTargetLeaf(self.ctx, rhs) != null) s.flags.per_target = true;
         // `const k = n` stands for the compile-time parameter `n` where an
         // array length or a compile-time argument names it.
         if (kind == .fixed and is_decl and s.kind == .local) if (try self.ctParamOf(rhs)) |ct| try self.ctx.ct_locals.put(self.ctx.allocator, sym_id, ct);
@@ -2235,6 +2280,23 @@ const Checker = struct {
         return a.print("write `{s}{s}`, which holds it for the loop", .{ head, shown });
     }
 
+    /// Whether the `?` of the `for` loop `node` reaches the receiver of
+    /// its source's first method call (`Parser.loopReceiverSource`).
+    fn loopLendsReceiver(self: *Checker, node: Sexp) bool {
+        const p = self.ctx.parser orelse return false;
+        return p.loopReceiverSource(node) != null;
+    }
+
+    /// A method call on a name or fields from one (`b.each()`), where a
+    /// sigil written before it reaches that place.
+    fn receiverCall(source: Sexp) bool {
+        if (!source.isKind(.call)) return false;
+        const callee = ir.Call.callee(source);
+        if (!rig.isMethodCallee(callee)) return false;
+        const member = if (callee.isKind(.member)) callee else ir.get(callee, .object);
+        return isFieldPath(ir.Member.object(member));
+    }
+
     /// A name, or fields from one: the places a loop over an iterator
     /// advances where they stand.
     fn isFieldPath(e: Sexp) bool {
@@ -2277,14 +2339,22 @@ const Checker = struct {
             return true;
         }
         const how: rig.IterSource = switch (mode) {
-            .read => {
+            // `for x in ?b.each()`: the `?` reaches the call's receiver,
+            // `(?b).each()`, and the loop holds the iterator it makes.
+            .read, .write => if (kind == .made and self.loopLendsReceiver(node)) .lent else if (mode == .read) {
                 if (kind == .made) {
                     try self.errAt(source, "`{s}?{s}` would only read an iterator made here, which `next` cannot advance; {s}", .{ head, shown, try self.madeIteratorFix(head, shown, source_ty) });
                 } else try self.errAt(source, "`{s}?{s}` would only read an iterator, which `next` cannot advance; write `{s}!{s}` to advance it in place", .{ head, shown, head, shown });
                 return true;
-            },
-            .write => if (kind == .place) .place else {
-                if (kind == .made) {
+            } else if (kind == .place) .place else {
+                if (kind == .made and receiverCall(source)) {
+                    // A method that writes its receiver is reported where
+                    // it is called, with `(!b).drain()` to write; any
+                    // other method's iterator is held with `?`.
+                    const callee = ir.Call.callee(source);
+                    const writes = if (self.methods.get(nodeId(callee))) |m| m.receiver == .write else false;
+                    if (!writes) try self.errAt(source, "`!{s}` advances a place, and this is a value made here, which holds no write view; write `{s}?{s}`, which holds it for the loop", .{ shown, head, shown });
+                } else if (kind == .made) {
                     try self.errAt(source, "`!{s}` advances a place, and this is a value made here; {s}", .{ shown, try self.madeIteratorFix(head, shown, source_ty) });
                 } else try self.errAt(source, "a `for` walks an iterator that is a place or a value made here; bind `{s}` to a name first", .{shown});
                 return true;
@@ -3294,6 +3364,7 @@ const Checker = struct {
         const lo = self.constInt(lo_node);
         const hi = self.constInt(hi_node);
         if (lo == null or hi == null) {
+            if (try self.perTarget(pattern, "the bounds of a range pattern")) return;
             try self.err(pos, "the bounds of a range pattern must be constant integers", .{});
             return;
         }
@@ -6751,7 +6822,14 @@ const Checker = struct {
         if (self.isPoison(from)) return target;
         if (self.enumValues(from)) |plain| {
             const shown = try self.plainText(arg);
-            if (!plain) {
+            const bare = sema.unwrapViews(self.ctx, from);
+            const builtin = switch (self.ctx.types.get(bare)) {
+                .nominal => |sym| sema.isBuiltinEnum(self.ctx, sym),
+                else => false,
+            };
+            if (builtin) {
+                try self.errAt(arg, "`{s}(x)` takes a declared enum's value; the built-in enum `{s}` has no integer value", .{ name, try self.tyName(bare) });
+            } else if (!plain) {
                 try self.errAt(arg, "`{s}(x)` takes a plain enum's value; `{s}` has variants with payloads, which have no integer value", .{ name, try self.tyName(sema.unwrapViews(self.ctx, from)) });
             } else if (self.ctx.types.get(target) != .int) {
                 try self.errAt(arg, "`{s}(x)` converts an enum's value to an integer type only; write `{s}(Int(...))`", .{ name, name });
@@ -7439,7 +7517,9 @@ const Checker = struct {
                 .value => |c| c,
                 else => null,
             };
-            if (k == null or n == null) {
+            if (k == null and try self.perTarget(given[0], "the number of lanes `lag` takes")) {
+                // Reported.
+            } else if (k == null or n == null) {
                 try self.errAt(given[0], "`lag` takes a constant number of lanes, on a vector whose lane count is known where it is checked; got `{s}` on a `{s}`", .{ self.sourceText(given[0]), try self.tyName(vt) });
             } else if (k.? < 1 or k.? >= n.?) {
                 try self.errAt(given[0], "`lag` of a `{s}` takes 1 to {d} lanes; got `{d}`", .{ try self.tyName(vt), n.? - 1, k.? });
@@ -7947,7 +8027,9 @@ const Checker = struct {
                 return try sema.ctInt(self.ctx, v);
             },
             .overflow => try self.errAt(a, "compile-time argument {d} of `{s}` is too large to compute", .{ i + 1, callee }),
-            .not_constant => try self.errAt(a, "compile-time argument {d} of `{s}` must be an integer known at compile time: an integer, a constant, a compile-time parameter, or arithmetic on constants", .{ i + 1, callee }),
+            .not_constant => if (sema.perTargetLeaf(self.ctx, a)) |leaf| {
+                try self.errAt(a, "compile-time argument {d} of `{s}` must be known when Rig checks the program; " ++ sema.per_target_why, .{ i + 1, callee, self.sourceText(leaf) });
+            } else try self.errAt(a, "compile-time argument {d} of `{s}` must be an integer known at compile time: an integer, a constant, a compile-time parameter, or arithmetic on constants", .{ i + 1, callee }),
         }
         return null;
     }
@@ -10261,7 +10343,7 @@ const Checker = struct {
         _ = receiver;
         switch (kept) {
             .binding => |name| if (std.mem.eql(u8, name, rig.hiddenIteratorName())) {
-                try self.errAt(lent, "`{s}` keeps `{s}` lent while the loop walks it; bind the iterator first, `it = {s}`, then write `for ... in !it`", .{ call_text, shown, fixed });
+                try self.errAt(lent, "`{s}` keeps `{s}` lent while the loop walks it; write `for ... in {s}`", .{ call_text, shown, fixed });
             } else try self.errAt(lent, "`{s}` keeps `{s}` lent while `{s}` lives; write `{s}`", .{ call_text, shown, name, fixed }),
             .returned => try self.errAt(lent, "`{s}` keeps `{s}` lent in the value it returns; write `{s}`", .{ call_text, shown, fixed }),
             .stored => |callee| try self.errAt(lent, "`{s}` keeps `{s}` lent in what `{s}` stores; write `{s}`", .{ call_text, shown, callee, fixed }),
