@@ -5801,7 +5801,10 @@ const Checker = struct {
         const m = module orelse if (sema.isProxy(owner)) owner.from.module_id else return;
         if (m == self.ctx.module_id) return;
         const foreign = self.ctx.foreign_semas.get(m) orelse return;
-        try self.ctx.recordReadOnlyField(member, .{ .field = f.name, .owner = owner.name, .module = foreign.name });
+        // An imported type is named as checkVisible names it; a proxy is
+        // already named as this module spells it (`lib.Wrap`).
+        const owner_name = if (module != null) try self.ctx.arena.allocator().print("{s}.{s}", .{ foreign.name, owner.name }) else owner.name;
+        try self.ctx.recordReadOnlyField(member, .{ .field = f.name, .owner = owner_name, .module = foreign.name });
     }
 
     /// A field or method of a type another module declares, used at
@@ -9118,6 +9121,8 @@ const Checker = struct {
             try self.err(pos, "`{s}()` makes a `{s}` from its fields' defaults, and {s} {s} no default; its {s} {s} {s} {s} to module `{s}`, which alone can set {s}", .{ tname, tname, bare.items, if (n == 1) "has" else "have" } ++ which ++ .{ foreign.name, if (count == 1) "it" else "them" });
         } else if (foreign.is_std) {
             try self.err(pos, "only the standard library's module `{s}` can construct `{s}`: its {s} {s} {s} {s}; make one with its `pub` functions", .{ foreign.name, tname } ++ which);
+        } else if (read_only == count) {
+            try self.err(pos, "only module `{s}` can construct `{s}`: its {s} {s} {s} {s}; make the value with `{s}()` if every field has a default, or with a `pub` function of `{s}`", .{ foreign.name, tname } ++ which ++ .{ tname, foreign.name });
         } else try self.err(pos, "only module `{s}` can construct `{s}`: its {s} {s} {s} {s}; declare every field `pub` there, or make the value with a `pub` function of `{s}`", .{ foreign.name, tname } ++ which ++ .{foreign.name});
         for (fields) |f| {
             if (f.is_method or f.is_variant or (f.is_pub and !f.read_only) or f.decl_pos >= sema.imported_decl_pos) continue;

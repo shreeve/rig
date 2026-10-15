@@ -34,11 +34,11 @@ sub main()
   print(x, y, z)
 
 
-sub make() -> lib.Tally
+fun make() -> lib.Tally
   lib.Tally(count: 5, note: 1)
-# error: 14:5: cannot assign to `w.count`: field `count` of `Tally` is read-only outside module `lib`, which declares it `pub ?count`
-# error: 18:5: cannot assign to `t.count`: field `count` of `Tally` is read-only outside module `lib`
-# error: 19:5: cannot assign to `t.inner.n`: field `inner` of `Tally` is read-only outside module `lib`
+# error: 14:5: cannot assign to `w.count`: field `count` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?count`
+# error: 18:5: cannot assign to `t.count`: field `count` of `lib.Tally` is read-only outside module `lib`
+# error: 19:5: cannot assign to `t.inner.n`: field `inner` of `lib.Tally` is read-only outside module `lib`
 # error: 20:5: cannot assign to `t.count`
 # error: 21:10: cannot lend `t.count` to write
 # error: 22:10: cannot take `t.last`
@@ -48,5 +48,5 @@ sub make() -> lib.Tally
 # error: 27:15: cannot write-iterate `t.tags`
 # error: 29:9: cannot lend `t.mode` to write
 # error: 32:5: cannot assign to `b.count`
-# error: 38:3: only module `lib` can construct `lib.Tally`: its fields `count`, `tags`, `inner`, `mode`, `last` are read-only
+# error: 38:7: only module `lib` can construct `lib.Tally`: its fields `count`, `tags`, `inner`, `mode`, `last` are read-only
 # errors: 13
