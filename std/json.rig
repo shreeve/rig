@@ -1,7 +1,7 @@
 # std.json: JSON (RFC 8259), a one-pass, validating parser that builds
 # a tape. Experimental: the API will change to fallible `!` functions.
 #
-# `!doc.parse(src)` reads the whole of `src` in one pass and either
+# `!doc.parse(?src)` reads the whole of `src` in one pass and either
 # fills `doc`'s tape and returns true, or records the first error and
 # its byte offset and returns false. Nothing is lazy: every string's
 # escapes are decoded and its UTF-8 checked, and every number is
@@ -195,7 +195,7 @@ pub obj Doc
 
   # ---- Parsing --------------------------------------------------------
 
-  pub fun parse(!self, src: ?String) -> Bool
+  pub fun parse(!self, src: ?String) -> Bool keeps src
     self.src = src
     !self.tape.clear()
     !self.text.clear()
