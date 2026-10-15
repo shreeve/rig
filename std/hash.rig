@@ -113,18 +113,23 @@ pub obj Map[K, V]
       old = replace(!self.es[j].value, <held)
       <old
 
-  # The used slot of the key `k`, whose hash is `h`, or `none`.
+  # The used slot of the key `k`, whose hash is `h`, or `none`. The
+  # probe runs from the slot `h` names to the end of the table, then
+  # from its start: each pass is a loop whose test is the bounds test,
+  # so a step reads a tag with no other check.
   fun find(?self, k: ?K, h: U64) -> Int?
     return none if self.count == 0
-    mask = self.tags.len - 1
+    ts = ?self.tags[..]
     tag = U8(h >> 57) | 0x80
-    i = Int(h & U64(mask))
-    while true
-      t = self.tags[i]
-      return none if t == 0
-      if t == tag
-        return i if self.es[Int(self.at[i])].key == k
-      i = (i + 1) & mask
+    i = Int(h & U64(ts.len - 1))
+    for _ in 0..2
+      while 0 <= i and i < ts.len
+        t = ts[i]
+        return none if t == 0
+        if t == tag
+          return i if self.es[Int(self.at[i])].key == k
+        i += 1
+      i = 0
     none
 
   # Add the entry `k`, `v`, whose key is new and hashes to `h`.
@@ -137,12 +142,22 @@ pub obj Map[K, V]
 
   # Point a free slot at entry `j`, whose key hashes to `h`.
   sub place(!self, j: Int, h: U64)
-    mask = self.tags.len - 1
-    i = Int(h & U64(mask))
-    while self.tags[i] != 0
-      i = (i + 1) & mask
+    i = self.free_slot(h)
     self.tags[i] = U8(h >> 57) | 0x80
     self.at[i] = U32(j)
+
+  # The first free slot from the one `h` names, probed as `find` does.
+  # The table is never full, so the probe always finds one; past both
+  # passes, -1 would fail the caller's bounds check.
+  fun free_slot(?self, h: U64) -> Int
+    ts = ?self.tags[..]
+    i = Int(h & U64(ts.len - 1))
+    for _ in 0..2
+      while 0 <= i and i < ts.len
+        return i if ts[i] == 0
+        i += 1
+      i = 0
+    -1
 
   # Free the used slot `i`, shifting back each slot after it that would
   # otherwise no longer be found from where its key hashes to.
@@ -150,7 +165,7 @@ pub obj Map[K, V]
     mask = self.tags.len - 1
     hole = i
     s = (i + 1) & mask
-    while self.tags[s] != 0
+    while 0 <= s and s < self.tags.len and self.tags[s] != 0
       home = Int(self.es[Int(self.at[s])].key.hash() & U64(mask))
       if ((s - home) & mask) >= ((s - hole) & mask)
         self.tags[hole] = self.tags[s]
