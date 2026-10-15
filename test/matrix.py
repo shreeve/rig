@@ -3824,6 +3824,38 @@ def first_error(s):
 VERDICT_CODE = (tree_rss, run_capped, run_capped_cpuq, find_cap, run_one, run_built, first_line, first_error, run_proof, run_proof_built, proof_dump_at, run_unit)
 
 
+
+# cpuq names a file in CPUQ_PROGRESS where a run reports how far it has
+# got. Only this run writes it: the programs it runs never see it.
+PROGRESS = os.environ.pop("CPUQ_PROGRESS", None)
+
+
+class Progress:
+    """Replaces PROGRESS with one line, `DONE TOTAL FAILING`: the programs
+    with a verdict, all this run will have, and those that failed so far;
+    at most once a second, and once more at the end."""
+
+    def __init__(self, total):
+        self.total, self.done, self.failing, self.last = total, 0, 0, 0.0
+        self.write(True)
+
+    def add(self, failed):
+        self.done += 1
+        self.failing += failed
+        self.write(False)
+
+    def write(self, now):
+        if not PROGRESS or (not now and time.monotonic() - self.last < 1.0):
+            return
+        self.last = time.monotonic()
+        try:
+            with open(PROGRESS + ".tmp", "w") as f:
+                f.write(f"{self.done} {self.total} {self.failing}\n")
+            os.replace(PROGRESS + ".tmp", PROGRESS)
+        except OSError:
+            pass
+
+
 def main():
     global RIG, RUN_SECONDS, RUN_MB, RESULTS
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -4262,8 +4294,11 @@ def main():
             futs = {(pool.submit(run_proof, p, bool(args.keep), started_dir, proofs[i]) if i in proofs else
                      pool.submit(run_unit, p, bool(args.keep), started_dir, units[i]) if i in units else
                      pool.submit(run_one, p, bool(args.keep), started_dir, expects.get(i), "also" if i in also else i in release)): i for i, p in cells}
+            progress = Progress(len(futs))
             for fut in concurrent.futures.as_completed(futs):
                 results[futs[fut]] = fut.result()
+                progress.add(results[futs[fut]][0] == "fail")
+            progress.write(True)
     finally:
         shutil.rmtree(started_dir, ignore_errors=True)
     counts = {}

@@ -69,6 +69,11 @@ LEAK_RE='rig: memory leak detected'
 SANITIZE=${RIG_SANITIZE:-1}
 TIMEOUT=${RIG_TEST_TIMEOUT:-120}
 ZIG=${ZIG:-zig}
+# cpuq names a file in CPUQ_PROGRESS where a run reports how far it has
+# got (progress_write). Only this run writes it: the tests it starts,
+# and the runners among them, never see it.
+PROGRESS_FILE=${CPUQ_PROGRESS:-}
+unset CPUQ_PROGRESS
 
 # -----------------------------------------------------------------------------
 # Worker: run one test, write a result file. Invoked through xargs.
@@ -1383,6 +1388,28 @@ awk -F'\t' -v OFS='\t' '
     { d = ($1 in t) ? t[$1] : ($1 ~ /^cli\// ? 60 : 1); print d, FNR, $0 }
 ' "$DURATIONS" "$LIST" | sort -t$'\t' -k1,1nr -k2,2n | cut -f3- >"$LIST.sorted"
 
+# progress_write: replaces $PROGRESS_FILE with one line, `DONE TOTAL
+# FAILING`: the tests with a result, all this run will have, and those
+# that failed so far (the report's failures: fail and fixed).
+progress_write() {
+    [[ -n "$PROGRESS_FILE" ]] || return 0
+    local done failing
+    done=$(find "$RESULTS/st" -type f 2>/dev/null | wc -l | tr -d ' ')
+    failing=$(find "$RESULTS/st" -type f -exec cat {} + 2>/dev/null | grep -cE '^(fail|fixed)')
+    printf '%s %s %s\n' "$done" "$PROGRESS_TOTAL" "${failing:-0}" >"$PROGRESS_FILE.tmp" &&
+        mv -f "$PROGRESS_FILE.tmp" "$PROGRESS_FILE"
+}
+# The results already in (classify), the tests, and the unit tests'.
+PROGRESS_TOTAL=$(($(find "$RESULTS/st" -type f | wc -l) + TOTAL))
+[[ -n "${UNIT_PID:-}" ]] && PROGRESS_TOTAL=$((PROGRESS_TOTAL + 1))
+PROGRESS_PID=
+if [[ -n "$PROGRESS_FILE" ]]; then
+    : >"$WORK/progress.on"
+    # Once a second while the tests run; bounded by the run itself.
+    (while [[ -e "$WORK/progress.on" ]] && kill -0 $$ 2>/dev/null; do progress_write; sleep 1; done) &
+    PROGRESS_PID=$!
+fi
+
 printf '%srunning %s tests (-j %s)%s\n' "$D" "$TOTAL" "$JOBS" "$X"
 while IFS=$'\t' read -r id path key; do printf '%s\0%s\0%s\0' "$id" "$path" "$key"; done <"$LIST.sorted" |
     xargs -0 -n 3 -P "$JOBS" "$SELF" --worker
@@ -1399,6 +1426,11 @@ done <"$LIST"
 if [[ -n "$UNIT_PID" ]]; then
     if wait "$UNIT_PID"; then printf 'pass\tunit\t\n' >"$RESULTS/st/unit"
     else printf 'fail\tunit\tzig build test failed\n' >"$RESULTS/st/unit"; cp "$UNIT_LOG" "$RESULTS/log/unit"; fi
+fi
+if [[ -n "$PROGRESS_PID" ]]; then
+    rm -f "$WORK/progress.on"
+    wait "$PROGRESS_PID" 2>/dev/null
+    progress_write
 fi
 
 # -----------------------------------------------------------------------------
