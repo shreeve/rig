@@ -3307,9 +3307,8 @@ const Lowerer = struct {
         // (Core s8).
         switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
             .shared => |inner| recv_ty = inner,
-            // `w.upgrade()` reads the weak handle; its result is a new
-            // count carrying the handle's loans (Core s8, s9).
-            .weak => if (std.mem.eql(u8, mname, "upgrade")) return .{ .read, null } else return abstain("a method of a weak handle"),
+            // A weak handle has no methods: `*w` upgrades it (Core s8).
+            .weak => return abstain("a method of a weak handle"),
             else => {},
         }
         const decl = sema.nominalDecl(self.ctx, recv_ty) orelse {
