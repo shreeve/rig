@@ -49,7 +49,7 @@ const usage =
     \\                         known to pass, which emit omits (check)
     \\  --facts=frames         Print the bytes of values each frame of the
     \\                         root module keeps on its stack, as the frame
-    \\                         check counts them (check)
+    \\                         check counts them, then its reach (check)
     \\  --time                 Print the time each pass of the compiler
     \\                         takes, summed over the modules (check)
     \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
@@ -217,7 +217,7 @@ pub fn main(init: std.process.Init) !void {
                     var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
                     for (m.sema.frame_sizes.items) |fr| {
                         const at = diag.lineCol(m.source, fr.pos);
-                        try writer.interface.print("{d}:{d} {s} {d}\n", .{ at.line, at.col, fr.label, fr.bytes });
+                        try writer.interface.print("{d}:{d} {s} {d} {d}\n", .{ at.line, at.col, fr.label, fr.bytes, fr.reach });
                     }
                     try writer.interface.flush();
                 },

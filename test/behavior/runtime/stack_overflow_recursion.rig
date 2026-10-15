@@ -1,0 +1,19 @@
+# Recursion that runs out of stack stops the program with a
+# stack-overflow error, in every build mode. Each level lends its array to
+# the next, so no build can fold the levels into a loop.
+
+fun dive(depth: Int, prev: ?[1000]Int) -> Int
+  a = [1000 of depth]
+  a[depth % 1000] = prev[0]
+  a[0] + dive(depth + 1, ?a)
+
+sub main()
+  print("before")
+  first = [1000 of 0]
+  print(dive(0, ?first))
+
+# release
+# expect-panic: rig: stack overflow
+
+# expect:
+# before

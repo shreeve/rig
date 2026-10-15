@@ -191,6 +191,11 @@ pub const Facts = struct {
     pub fn isInlined(f: Facts, name: Sexp) bool {
         return f.c().inlined.contains(f.c().startOf(name));
     }
+    /// Whether the function or method whose name leaf is `name` has a
+    /// large frame, emitted `noinline` (`sema.SemContext.large_frames`).
+    pub fn isLargeFrame(f: Facts, name: Sexp) bool {
+        return f.c().large_frames.contains(f.c().startOf(name));
+    }
     /// The marker of the `fun` or `sub` `node`: `rarely` starts its body
     /// with the cold hint, and `called` emits it `noinline fn`.
     pub fn markerOf(f: Facts, node: Sexp) rig.Marker {
@@ -401,6 +406,11 @@ pub const Facts = struct {
     /// argument, an assigned value, or an index is pure.
     pub fn hoistsArgs(f: Facts, call: Sexp) ?bool {
         return storage.decided(f.c(), call, .hoists_args);
+    }
+    /// Whether the fill a box or a binding takes is built where its value
+    /// goes (`storage.fillsInPlace`).
+    pub fn fillsInPlace(f: Facts, e: Sexp) ?bool {
+        return storage.decided(f.c(), e, .fills_in_place);
     }
     /// How an assignment runs: which of its steps it evaluates into
     /// storage in their turn (`storage.setOrder`).

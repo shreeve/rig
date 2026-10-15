@@ -596,6 +596,9 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
     for (mods, 0..) |m, i| try pass.visit(i, null, m.ir);
     pass.countCalls();
     try pass.findCycles();
+    // A large frame found at an instance another module makes marks its
+    // declaration in its own module (module ids count from 1).
+    for (mods) |m| for (m.sema.large_foreign_frames.items) |fr| try mods[fr.module - 1].sema.large_frames.put(allocator, fr.pos, {});
     for (pass.fns.items) |*f| {
         if (ir.get(f.node, .body) == .nil) continue;
         f.own = (try typecheck.frameBytesOfFunction(mods[f.module].sema, f.node)) orelse {
@@ -606,7 +609,7 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
     }
     for (pass.fns.items, 0..) |*f, v| {
         if (!f.eligible or f.used_as_value or pass.isCyclic(@intCast(v)) or f.size > max) continue;
-        if (f.own > max_inlined_frame_bytes) continue;
+        if (f.own > max_inlined_frame_bytes or mods[f.module].sema.large_frames.contains(f.pos)) continue;
         f.inlined = true;
     }
     try pass.fit();

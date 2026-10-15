@@ -701,6 +701,14 @@ pub fn Box(comptime T: type) type {
             return .{ .value = p };
         }
 
+        /// `^[n of x]`: the array filled in its allocation, never made on
+        /// the stack first.
+        pub fn fill(x: @typeInfo(T).array.child) Self {
+            const p = create(T);
+            @memset(p, x);
+            return .{ .value = p };
+        }
+
         /// `<b.unbox()`: the value, moved out; the box's memory is freed.
         pub fn unbox(self: Self) T {
             const v = self.value.*;
@@ -2934,10 +2942,7 @@ const Sanitizer = struct {
 
     fn onFault(_: std.posix.SIG, info: *const std.posix.siginfo_t, _: ?*anyopaque) callconv(.c) void {
         for (signals, &previous) |sig, *old| std.posix.sigaction(sig, old, null);
-        const addr = switch (builtin.target.os.tag) {
-            .linux => @intFromPtr(info.fields.sigfault.addr),
-            else => @intFromPtr(info.addr),
-        };
+        const addr = faultAddress(info);
         if (!sanitizer.owns(addr)) return;
         flush();
         var buf: [256]u8 = undefined;
@@ -2982,67 +2987,166 @@ fn reportLeaks(before: Usage) bool {
     return true;
 }
 
-/// The bytes `guardStack` keeps unmapped below the stack on macOS: an
-/// overflowing frame of up to this size lands there and stops the
-/// program.
-const stack_reserve: usize = 64 << 20;
+// The stack. Rig's code runs on a stack the runtime maps itself, over a
+// guard of inaccessible address space far larger than any frame the
+// compiler accepts, so a program that runs out of stack faults in the
+// guard before it writes anywhere else (docs/INTERNALS.md, "The
+// program's stack").
 
-/// The main thread's stack: what Zig gives it, and what `guardStack`
-/// holds it to on Linux.
-const stack_size: usize = 16 << 20;
+/// The stack `main` and the tests run on: 64 MiB, four times the 16 MiB
+/// Zig gives the main thread, for deep recursion; a frame keeps at most
+/// 13 MiB of values (`checkFrames` in the compiler).
+const stack_size: usize = 64 << 20;
 
-extern "c" fn pthread_get_stackaddr_np(std.c.pthread_t) *anyopaque;
-extern "c" fn pthread_get_stacksize_np(std.c.pthread_t) usize;
+/// The inaccessible address space below the stack, the largest that can
+/// be reserved first: a frame the compiler accepts is far smaller than
+/// even the last (`max_frame_reach` in the compiler), so however it
+/// overflows the stack, its first access past it lands here.
+const guard_sizes = [_]usize{ 64 << 30, 1 << 30 };
 
-/// Called first in the emitted `main` (and by `runTests`). Zig probes the
-/// stack page by page as a frame grows only on x86; elsewhere a frame
-/// larger than the guard below the stack steps over it, and an overflow
-/// would write into whatever is mapped beyond instead of stopping the
-/// program. A frame holds at most 13 MiB of values (`checkFrames` in
-/// the compiler), so 64 MiB kept free below the stack catches it.
-///
-/// - macOS guards the stack with one page, and once the address space
-///   below fills, it maps memory right next to it: reserve
-///   `stack_reserve` bytes below the guard that no access may touch.
-/// - Linux places its mappings at least 128 MiB below the top of the
-///   stack, and at least the stack limit the program started with plus
-///   1 MiB: holding the stack to `stack_size` keeps 112 MiB free below it.
-///
-/// A program that cannot make that space safe stops before it runs.
-pub fn guardStack() void {
-    if (guarded()) return;
-    std.debug.print("rig: cannot reserve the stack guard below the main stack\n", .{});
-    std.process.exit(1);
-}
+/// Whether `onOwnStack` switches to a stack of its own: on macOS and
+/// Linux, on aarch64 and x86_64. Elsewhere code runs on the thread's
+/// own stack.
+const own_stack = (builtin.target.os.tag == .macos or builtin.target.os.tag == .linux) and
+    (builtin.target.cpu.arch == .aarch64 or builtin.target.cpu.arch == .x86_64);
 
-/// Whether an overflow of the main stack now stops the program.
-fn guarded() bool {
-    if (builtin.target.cpu.arch.isX86()) return true;
-    return switch (builtin.target.os.tag) {
-        .macos => reserveBelowStack() != null,
-        .linux => {
-            const limit = std.posix.getrlimit(.STACK) catch return false;
-            if (limit.cur <= stack_size) return true;
-            std.posix.setrlimit(.STACK, .{ .cur = stack_size, .max = limit.max }) catch return false;
-            return true;
-        },
-        else => true,
-    };
-}
+/// The guard below the stack, once it is mapped: an access in it is a
+/// stack overflow.
+var stack_guard: struct { lo: usize = 0, hi: usize = 0 } = .{};
 
-/// On macOS, reserve `stack_reserve` bytes right below the main stack's
-/// guard page; null when something is mapped there already.
-fn reserveBelowStack() ?[*]align(std.heap.page_size_min) u8 {
-    const self = std.c.pthread_self();
-    const bottom = @intFromPtr(pthread_get_stackaddr_np(self)) - pthread_get_stacksize_np(self);
-    const base = bottom - std.heap.pageSize() - stack_reserve;
-    const got = std.c.mmap(@ptrFromInt(base), stack_reserve, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0);
-    if (got == std.c.MAP_FAILED) return null;
-    if (@intFromPtr(got) != base) {
-        _ = std.c.munmap(@alignCast(got), stack_reserve);
-        return null;
+/// Map the stack, read-write, above its guard; the stack's top, or null
+/// when not even the smallest guard can be reserved.
+fn mapStack() ?usize {
+    for (guard_sizes) |size| {
+        const got = std.posix.mmap(null, size + stack_size, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch continue;
+        const base = @intFromPtr(got.ptr);
+        if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(base + size), stack_size, .{ .READ = true, .WRITE = true })) != .SUCCESS) {
+            std.posix.munmap(got);
+            continue;
+        }
+        stack_guard = .{ .lo = base, .hi = base + size };
+        return base + size + stack_size;
     }
-    return @ptrCast(@alignCast(got));
+    return null;
+}
+
+/// `f(args...)` on the stack the runtime maps: called by the emitted
+/// `main` with the program's `main`, and by `runTests`. A program whose
+/// stack and guard cannot be mapped stops before it runs.
+pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
+    if (!own_stack) return @call(.auto, f, args);
+    const top = mapStack() orelse {
+        std.debug.print("rig: cannot reserve the program's stack and the guard below it\n", .{});
+        std.process.exit(1);
+    };
+    // A fault runs its handler on the thread's alternate signal stack,
+    // which Zig's start code sets; a child process forked on macOS has
+    // none until it is set again.
+    if (builtin.link_libc) _ = std.c.pthread_atfork(null, null, attachSignalStack);
+    installOverflowHandler();
+    const Call = struct {
+        args: @TypeOf(args),
+        result: @typeInfo(@TypeOf(f)).@"fn".return_type.? = undefined,
+
+        fn run(p: *anyopaque) callconv(.c) void {
+            const call: *@This() = @ptrCast(@alignCast(p));
+            call.result = @call(.auto, f, call.args);
+        }
+    };
+    var call: Call = .{ .args = args };
+    rig_switch_stack(&call, &Call.run, top);
+    return call.result;
+}
+
+fn attachSignalStack() callconv(.c) void {
+    std.Thread.maybeAttachSignalStack();
+}
+
+/// `rig_switch_stack(arg, run, top)` calls `run(arg)` with the stack
+/// pointer at `top`, and returns with it where it was. It is a symbol of
+/// its own, never inlined, and its frame record and unwind rules link the
+/// new stack's frames to its caller's, for stack traces.
+extern fn rig_switch_stack(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, top: usize) callconv(.c) void;
+
+comptime {
+    if (own_stack) {
+        const name = if (builtin.target.os.tag == .macos) "_rig_switch_stack" else "rig_switch_stack";
+        const hidden = if (builtin.target.os.tag == .macos) ".private_extern " else ".hidden ";
+        asm (".text\n.p2align 4\n.globl " ++ name ++ "\n" ++ hidden ++ name ++ "\n" ++ name ++ ":\n" ++ switch (builtin.target.cpu.arch) {
+                .aarch64 =>
+                \\ .cfi_startproc
+                \\ stp x29, x30, [sp, #-32]!
+                \\ .cfi_def_cfa_offset 32
+                \\ .cfi_offset w30, -24
+                \\ .cfi_offset w29, -32
+                \\ str x19, [sp, #16]
+                \\ .cfi_offset w19, -16
+                \\ mov x29, sp
+                \\ .cfi_def_cfa w29, 32
+                \\ mov x19, sp
+                \\ mov sp, x2
+                \\ blr x1
+                \\ mov sp, x19
+                \\ ldr x19, [sp, #16]
+                \\ ldp x29, x30, [sp], #32
+                \\ ret
+                \\ .cfi_endproc
+                \\
+                ,
+                .x86_64 =>
+                \\ .cfi_startproc
+                \\ push %rbp
+                \\ .cfi_def_cfa_offset 16
+                \\ .cfi_offset %rbp, -16
+                \\ mov %rsp, %rbp
+                \\ .cfi_def_cfa_register %rbp
+                \\ push %rbx
+                \\ .cfi_offset %rbx, -24
+                \\ mov %rsp, %rbx
+                \\ mov %rdx, %rsp
+                \\ call *%rsi
+                \\ mov %rbx, %rsp
+                \\ pop %rbx
+                \\ pop %rbp
+                \\ ret
+                \\ .cfi_endproc
+                \\
+                ,
+                else => unreachable,
+            });
+    }
+}
+
+// The overflow handler. Like the sanitizer's, it restores the handlers
+// it replaced and returns: the access runs again and faults into Zig's
+// handler, which prints the stack trace.
+
+var overflow_previous: [2]std.posix.Sigaction = undefined;
+
+fn installOverflowHandler() void {
+    const act: std.posix.Sigaction = .{
+        .handler = .{ .sigaction = onOverflow },
+        .mask = std.posix.sigemptyset(),
+        .flags = std.posix.SA.SIGINFO | std.posix.SA.ONSTACK,
+    };
+    for (Sanitizer.signals, &overflow_previous) |sig, *old| std.posix.sigaction(sig, &act, old);
+}
+
+fn onOverflow(_: std.posix.SIG, info: *const std.posix.siginfo_t, _: ?*anyopaque) callconv(.c) void {
+    for (Sanitizer.signals, &overflow_previous) |sig, *old| std.posix.sigaction(sig, old, null);
+    const addr = faultAddress(info);
+    if (addr < stack_guard.lo or addr >= stack_guard.hi) return;
+    flush();
+    const msg = "error: rig: stack overflow\n";
+    _ = std.posix.system.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
+}
+
+/// The address whose access raised the fault `info` describes.
+fn faultAddress(info: *const std.posix.siginfo_t) usize {
+    return switch (builtin.target.os.tag) {
+        .linux => @intFromPtr(info.fields.sigfault.addr),
+        else => @intFromPtr(info.addr),
+    };
 }
 
 /// What the process started with, which Zig hands only to `main`:
@@ -3050,8 +3154,7 @@ fn reserveBelowStack() ?[*]align(std.heap.page_size_min) u8 {
 pub var process: ?std.process.Init.Minimal = null;
 var process_args: []const []const u8 = &.{};
 
-/// Called first in the emitted `main` (after `guardStack`) and in
-/// `rig test`'s: store what the process started with. The arguments are
+/// Called first in the program's `main` and in `rig test`'s: store what the process started with. The arguments are
 /// gathered into `Static`s once, freed by `finish`.
 pub fn start(init: std.process.Init.Minimal) void {
     process = init;
@@ -3206,7 +3309,10 @@ pub fn errorShown(err: anyerror) []const u8 {
 }
 
 pub fn runTests(modules: []const TestModule) void {
-    guardStack();
+    onOwnStack(runTestsHere, .{modules});
+}
+
+fn runTestsHere(modules: []const TestModule) void {
     const w = stdout();
     var passed: usize = 0;
     var failed: usize = 0;
@@ -3380,30 +3486,6 @@ const Order = struct {
         self.n.* += 1;
     }
 };
-
-test "the reserve below the stack is made only where nothing is mapped" {
-    if (builtin.target.os.tag != .macos or builtin.target.cpu.arch.isX86()) return error.SkipZigTest;
-    const self = std.c.pthread_self();
-    const bottom = @intFromPtr(pthread_get_stackaddr_np(self)) - pthread_get_stacksize_np(self);
-    const page = std.heap.pageSize();
-    // Something mapped in the middle of the space: no reserve.
-    const in = std.c.mmap(@ptrFromInt(bottom - page - stack_reserve / 2), page, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0);
-    try std.testing.expect(in != std.c.MAP_FAILED);
-    try std.testing.expect(reserveBelowStack() == null);
-    _ = std.c.munmap(@alignCast(in), page);
-    // Free again: the reserve is made.
-    const r = reserveBelowStack() orelse return error.TestUnexpectedResult;
-    _ = std.c.munmap(r, stack_reserve);
-}
-
-test "guardStack holds the stack to 16 MiB on Linux" {
-    if (builtin.target.os.tag != .linux or builtin.target.cpu.arch.isX86()) return error.SkipZigTest;
-    const before = try std.posix.getrlimit(.STACK);
-    if (before.max < 2 * stack_size) return error.SkipZigTest;
-    try std.posix.setrlimit(.STACK, .{ .cur = 2 * stack_size, .max = before.max });
-    try std.testing.expect(guarded());
-    try std.testing.expectEqual(stack_size, (try std.posix.getrlimit(.STACK)).cur);
-}
 
 test "maskBits: every form agrees" {
     var prng = std.Random.DefaultPrng.init(0x5eed);
@@ -4124,6 +4206,32 @@ fn writeByte(addr: usize) void {
 
 fn readByte(addr: usize) void {
     std.mem.doNotOptimizeAway(@as(*volatile u8, @ptrFromInt(addr)).*);
+}
+
+test "the program's stack is writable, and the guard below it faults" {
+    if (!own_stack) return error.SkipZigTest;
+    const top = mapStack() orelse return error.TestUnexpectedResult;
+    defer std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(stack_guard.lo))[0 .. top - stack_guard.lo]);
+    try std.testing.expectEqual(top - stack_size, stack_guard.hi);
+    try std.testing.expect(stack_guard.hi - stack_guard.lo >= guard_sizes[guard_sizes.len - 1]);
+    writeByte(top - 1);
+    writeByte(stack_guard.hi);
+    try std.testing.expect(try faults(stack_guard.hi - 1, writeByte));
+    try std.testing.expect(try faults(stack_guard.lo, readByte));
+}
+
+test "a call on the program's stack returns its value" {
+    if (!own_stack) return error.SkipZigTest;
+    const f = struct {
+        fn depth(n: u32) u32 {
+            var a: [4096]u8 = undefined;
+            a[n % 4096] = 1;
+            std.mem.doNotOptimizeAway(&a);
+            return if (n == 0) 0 else 1 + depth(n - 1);
+        }
+    }.depth;
+    // 8 MiB deep: more than a test thread's own stack may hold.
+    try std.testing.expectEqual(2048, onOwnStack(f, .{2048}));
 }
 
 test "the sanitizer faults on freed memory and past a block's end" {

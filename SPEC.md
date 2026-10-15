@@ -549,20 +549,30 @@ since a debug build holds it in a temporary first). The frames of the
 small functions inlined into it count too, and a call that would take
 the frame over the limit is not inlined. This holds for every function,
 method, closure (whose captures count where it is made), test, and
-`main`, and for each instance of a generic one. The stack holds 16 MiB,
-and the frames below the one that overflows need room too. Only one
-frame is checked: how deeply calls nest, by recursion or a long chain,
-is not known, so a chain of frames that each fit can still run off the
-stack, which stops the program as below. The error names the largest
-locals; keep large data in a box (`^T`) or a `List`, which holds its
-elements on the heap. A value or function too large is reported once;
-a type or function holding a value too large is not reported again.
+`main`, and for each instance of a generic one. The limit keeps large
+data on the heap: the error names the largest locals; keep large data
+in a box (`^T`) or a `List`, which holds its elements on the heap.
+`^[n of x]` fills the box's memory itself, never making the array on the
+stack first, and a fill that declares or reassigns a local array is made
+in the local. A value or function too large is reported once; a type or function
+holding a value too large is not reported again.
 
-A program that runs off the end of its stack, by recursing too deeply,
-stops before it writes beyond it. A program that cannot set up the
-guard that ensures this stops before it runs, with `rig: cannot reserve
-the stack guard below the main stack` and exit status 1
-([INTERNALS](docs/INTERNALS.md) describes the mechanism).
+A build may hold each value a function's code makes or copies (an
+argument passed by value, a copy of a place, the value of an `if`, `??`,
+or `catch`, a constructor's) in a temporary of its own, so a function's
+code may take more stack than the values it keeps. Its *reach*, the
+values it keeps and every value its code makes or copies, times 4 is at
+most 512 MiB, and a function whose reach times 4 is 1 MiB or more is
+never inlined, so no two such frames merge into one.
+
+A program runs on a stack of 64 MiB. A program that runs out of stack,
+through deep recursion or large frames, stops with a stack-overflow
+error (`error: rig: stack overflow`) before writing beyond the stack, in
+every build mode. A program that cannot reserve its stack and the guard
+below it stops before it runs, with `rig: cannot reserve the program's
+stack and the guard below it` and exit status 1
+([INTERNALS](docs/INTERNALS.md#the-programs-stack) describes the
+mechanism).
 
 ```rig reject
 obj Grid
