@@ -1,5 +1,5 @@
 # A weak handle does not keep its value alive, so its fields and methods
-# are reached only through `upgrade`.
+# are reached only once it is upgraded, with `*w`.
 
 obj S
   n: Int
@@ -7,11 +7,17 @@ obj S
   fun get(?self) -> Int
     self.n
 
+obj Holder
+  w: ~S
+
 sub main()
   s = *S(n: 1)
   w = ~s
   print(w.n)
   print(w.get())
+  h = *Holder(w: ~s)
+  print(h.w.n)
 
-# error: 13:11: a weak handle `~S` reaches its value only through `upgrade`: `if w.upgrade() as s`
-# error: 14:11: a weak handle `~S` reaches its value only through `upgrade`
+# error: 16:11: a weak handle `~S` reaches its value only once upgraded with `*w`: `if *w as s`
+# error: 17:11: a weak handle `~S` reaches its value only once upgraded with `*w`: `if *w as s`
+# error: 19:13: a weak handle `~S` reaches its value only once upgraded with `*h.w`: `if *h.w as s`

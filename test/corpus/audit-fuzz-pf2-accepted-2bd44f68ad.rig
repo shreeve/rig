@@ -1,4 +1,4 @@
-# `if w.upgrade() as n` binds a strong handle while the value is alive;
+# `if *w as n` binds a strong handle while the value is alive;
 # the binding owns the handle and drops it whe+xn the branch ends.
 
 obj Noisy
@@ -8,7 +8,7 @@ obj Noisy
     print("drop", self.id)
 
 sub show(w: ?~Noisy)
-  if w.upgrade() as n
+  if *w as n
     print("[alive", n.id)
   else
     print("gone")

@@ -5,4 +5,4 @@ sub main()
   h = *P(x: 1)
   w = ~h
   w2 = +w
-  print(w2.upgrade() != none)
+  print(*w2 != none)

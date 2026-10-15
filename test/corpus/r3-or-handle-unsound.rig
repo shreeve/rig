@@ -44,7 +44,7 @@ sub weak_carries()
   w = ~h
   <h
   !v.push(2)
-  if w.upgrade() as k
+  if *w as k
     print(k.r.len)
 
 sub moved_handle()

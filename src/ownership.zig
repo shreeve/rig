@@ -4933,6 +4933,13 @@ pub const Checker = struct {
             self.lambda_ok = true;
             return self.walkLambda(inner, true);
         }
+        // `*w` upgrading a weak handle it reads reads it, as a `?self`
+        // method reads its receiver; one it takes is moved, as `*<x` moves
+        // `x`. The new handle reaches what `w` reaches.
+        if (self.sema) |ctx| if (ctx.upgradeOf(node)) |how| {
+            const v = if (how == .reads) try self.walk(inner) else try self.walkConsumed(inner, .allocation);
+            return if (self.mayCarryLoan(self.exprType(node))) v else .{};
+        };
         return self.walkConsumed(inner, .allocation);
     }
 

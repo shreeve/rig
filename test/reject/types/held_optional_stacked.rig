@@ -1,0 +1,30 @@
+# A holding sigil over an optional of a held value stacks one heap
+# holding on another, as one over the held value itself does: rejected
+# written, through an alias, and in a value's type (`*<o` of an
+# optional weak handle). `*` of an optional weak handle points at
+# taking the handle out first.
+
+obj P
+  n: Int
+
+type OW = *(~P?)
+
+sub main()
+  s = *P(n: 1)
+  a: *(~P?) = none
+  b: *(*P?) = none
+  c: ^(~P?) = none
+  d: ^(*P?) = none
+  o: (~P)? = ~s
+  p = *<o
+  q: (~P)? = ~s
+  r = *q
+
+# error: 10:11: `*(~P?)` stacks one heap holding on another
+# error: 14:6: `*(~P?)` stacks one heap holding on another
+# error: 15:6: `*(*P?)` stacks one heap holding on another
+# error: 16:6: `^(~P?)` stacks one heap holding on another
+# error: 17:6: `^(*P?)` stacks one heap holding on another
+# error: 19:8: `o` is an optional weak handle `~P?`, and `*` upgrades a weak handle, not an optional: take the handle out first, `if o as w`, then `*w`
+# error: 21:8: `q` is an optional weak handle `~P?`, and `*` upgrades a weak handle, not an optional: take the handle out first, `if q as w`, then `*w`
+# errors: 7

@@ -17,7 +17,7 @@ sub main()
   s = *^R(n: 1)
   print(s.n)
   w = ~s
-  if w.upgrade() as t
+  if *w as t
     print(t.n)
   t2 = +s
   print(t2.n)

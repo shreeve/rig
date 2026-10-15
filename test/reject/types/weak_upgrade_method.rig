@@ -1,0 +1,19 @@
+# A weak handle upgrades with `*w`, a sigil, not a method: `w.upgrade()`
+# is rejected with the form to write, whatever lends the handle and
+# whatever it is given.
+
+obj User
+  name: ?String
+
+sub main()
+  rc = *User(name: "x")
+  w = ~rc
+  if w.upgrade() as u
+    print(u.name)
+  m = (?w).upgrade()
+  n = w.upgrade(42)
+
+# error: 11:8: a weak handle upgrades with `*w`, not a method: `if *w as s`
+# error: 13:12: a weak handle upgrades with `*w`, not a method: `if *w as s`
+# error: 14:9: a weak handle upgrades with `*w`, not a method: `if *w as s`
+# errors: 3

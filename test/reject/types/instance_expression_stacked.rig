@@ -1,0 +1,28 @@
+# A generic instance named in an expression is checked as a written one
+# is: one whose fields stack one heap holding on another is rejected,
+# whatever holds the type argument (`*`, `^`) and whatever it holds
+# (`~`, `*`).
+
+obj P
+  n: Int
+
+obj W[T]
+  h: (*T)?
+
+  sub keep(!self, x: T)
+    self.h = *<x
+
+obj B[T]
+  h: (^T)?
+
+sub main()
+  w = W[~P](h: none)
+  v = W[*P](h: none)
+  b = B[*P](h: none)
+  k = B[~P](h: none)
+
+# error: 19:7: `W[~P]` holds `*~P`, which stacks one heap holding on another
+# error: 20:7: `W[*P]` holds `**P`, which stacks one heap holding on another
+# error: 21:7: `B[*P]` holds `^*P`, which stacks one heap holding on another
+# error: 22:7: `B[~P]` holds `^~P`, which stacks one heap holding on another
+# errors: 4

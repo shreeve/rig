@@ -4,7 +4,7 @@
 sub main()
   c: *Cell[Int] = *Cell(13)
   peek = |~c|
-    if c.upgrade() as h
+    if *c as h
       print("peek", h.get())
   peek()
   flag = true

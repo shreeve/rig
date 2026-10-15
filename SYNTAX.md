@@ -542,7 +542,7 @@ the type after them, tighter than the suffixes: `^Node?` is an optional
 box, `*User?` an optional shared handle and `~User?` an optional weak
 handle, while a box or handle of an optional is written `^(Node?)`,
 `*(User?)`. A value is held one way on the heap, so `^^T`, `^*T`, `*^T`,
-`^~T`, and `**T` are rejected. A box may hold a read view, written
+`^~T`, `**T`, and `*~T` are rejected. A box may hold a read view, written
 `^?T`. A view sigil applies to the whole
 type after it, suffixes included: `?User?` and `!User?` view an
 optional, and `?*User?` views an optional handle. Prefixes compose right
@@ -1550,7 +1550,9 @@ the same sigil means the same thing in every position:
 
 `*x` moves a value into a new shared handle (`*<x` for a named owning
 value, `*Point(x: 1)` for a new one), and `^x` into a new box (`^<x`,
-`^Point(x: 1)`). Between two values `^` is the bit-wise exclusive or,
+`^Point(x: 1)`). `*w` of a weak handle upgrades it, a new `*T?` that is
+`none` once the value is gone; `*<w` upgrades and takes `w`, and `*w?`
+is `*(w?)`, so a gone value is propagated with `(*w)?`. Between two values `^` is the bit-wise exclusive or,
 and a prefix `^` touches its operand. `<x` alone on a line drops `x`
 now; where a value is expected, it moves it there. A sigil may reach
 into a place: `+p.a` clones the handle in a field, `<p.f` takes an optional

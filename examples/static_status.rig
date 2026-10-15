@@ -21,7 +21,7 @@ fun announcer(prefix: Static) -> *fun(Phase) -> Int
 sub main()
   status = *Signal("idle")
   !status.subscribe(*|~status|
-    if status.upgrade() as s
+    if *status as s
       print("status is now", s.get())
   )
   !status.set("running")

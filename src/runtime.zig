@@ -608,6 +608,14 @@ pub fn WeakHandle(comptime T: type) type {
     };
 }
 
+/// `*<w`, `*~h`: a new strong handle from the weak handle `w`, which it
+/// takes and drops once upgraded; null once the value has been dropped.
+pub fn upgradeTaken(w: anytype) @TypeOf(w.upgrade()) {
+    const up = w.upgrade();
+    w.dropWeak();
+    return up;
+}
+
 /// `+x` of a value that owns: a new value holding a clone of each part,
 /// as `+` gives it: a handle counted again, a `String`'s bytes and a List's
 /// elements copied, a box's value boxed again, plain data copied. Sema
@@ -3800,6 +3808,20 @@ test "strong and weak handles free the box once" {
     try testing.expectEqual(1, drops);
     try testing.expectEqual(null, w.upgrade());
     w.dropWeak();
+    try expectNoLeaks(before);
+}
+
+test "upgrading a taken weak handle drops it" {
+    const before = usage();
+    var drops: usize = 0;
+    const a = rcNew(Counter{ .drops = &drops });
+    const up = upgradeTaken(a.weakRef()).?;
+    a.dropStrong();
+    try testing.expectEqual(0, drops);
+    const w = up.weakRef();
+    up.dropStrong();
+    try testing.expectEqual(1, drops);
+    try testing.expectEqual(null, upgradeTaken(w));
     try expectNoLeaks(before);
 }
 

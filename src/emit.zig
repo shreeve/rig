@@ -5358,6 +5358,20 @@ pub const Emitter = struct {
     fn emitShare(self: *Emitter, sexp: Sexp) Error!void {
         const inner = ir.Share.operand(sexp);
         if (inner.isKind(.lambda)) return self.emitOwnedClosure(inner);
+        // `*w` upgrading a weak handle: the runtime's `upgrade`, called on
+        // a handle it reads where it stands; one it takes is dropped once
+        // upgraded.
+        if (self.facts.upgradeOf(sexp)) |how| switch (how) {
+            .reads => {
+                try self.emitMemberBase(inner, self.typeOf(inner));
+                return self.w.writeAll(".upgrade()");
+            },
+            .takes => {
+                try self.w.writeAll("rig.upgradeTaken(");
+                try self.emitBare(inner);
+                return self.w.writeAll(")");
+            },
+        };
         const payload_ty: ?TypeId = if (self.typeOf(sexp)) |t| switch (self.facts.types.get(t)) {
             .shared => |p| p,
             else => null,

@@ -3,6 +3,6 @@
 sub main()
   h = *Cell(1)
   w = ~ h
-  print(w.upgrade() != none)
+  print(*w != none)
 
 # error: 5:7: a prefix `~` touches its operand: write `~h`

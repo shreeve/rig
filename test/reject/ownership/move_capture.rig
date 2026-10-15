@@ -34,7 +34,7 @@ sub main()
   hh = *P(v: 1)
   y = |~hh| <hh
   yy = y()
-  print(yy.upgrade() != none)
+  print(*yy != none)
   u: List[Int] = List()
   z = |<u| eatv(<u)
   q = |+n, c: Bool| twice(<(n if c else 4))

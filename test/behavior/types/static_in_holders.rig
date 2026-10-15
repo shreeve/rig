@@ -35,7 +35,7 @@ sub main()
 
   sig = *Signal("start")
   !sig.subscribe(*|~sig|
-    if sig.upgrade() as s
+    if *sig as s
       print("signal", s.get())
   )
   !sig.set("go")

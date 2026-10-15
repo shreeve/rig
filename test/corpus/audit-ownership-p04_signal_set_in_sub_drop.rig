@@ -3,7 +3,7 @@ sub main()
   count: *Cell[Int] = *Cell(0)
   !sig.subscribe(*|~sig, +count|
     !count.set(count.get() + 1)
-    if sig.upgrade() as s
+    if *sig as s
       if s.get() < 3
         !s.set(s.get() + 1)
   )

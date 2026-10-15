@@ -217,7 +217,7 @@ sub main()
   clicks: *Signal[Int] = *Signal(0)
   total: *Cell[Int] = *Cell(0)
   !clicks.subscribe(*|~clicks, +total|
-    if clicks.upgrade() as c
+    if *clicks as c
       !total.set(total.get() + c.get())
       print("clicks", c.get(), "total", total.get())
   )
@@ -247,7 +247,7 @@ libraries are written in Rig itself (see
 | `!` | `!x` lend to write; `f()!` propagate failure | `!T` write view; `T!` fallible |
 | `+` | `+x` clone (a new owner) | |
 | `^` | `^x` box: move into a box with one owner | `^T` box |
-| `*` | `*x` share: move into a counted handle | `*T` shared handle |
+| `*` | `*x` share: move into a counted handle; `*w` of a weak handle upgrades it, a `*T?` | `*T` shared handle |
 | `~` | `~x` weak handle | `~T` weak handle |
 
 **An object is a value; `^` puts it on the heap and `*` shares it.** An object
