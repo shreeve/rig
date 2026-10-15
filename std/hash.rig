@@ -229,7 +229,7 @@ pub obj Map[K, V]
   # Make room for one more entry: drop the entries taken, and build the
   # table, or double it, when the entries left would fill more than two
   # fifths of it. A Map of up to `SMALL` entries keeps no table.
-  sub grow(!self)
+  rarely sub grow(!self)
     !self.compact() if self.len < self.es.len
     return if self.table.tags.len == 0 and self.len < SMALL
     !self.rebuild(table_size(self.len + 1, self.table.tags.len))
@@ -349,7 +349,7 @@ pub obj Set[K]
       i = 0
     none
 
-  sub grow(!self)
+  rarely sub grow(!self)
     !self.compact() if self.len < self.ks.len
     return if self.table.tags.len == 0 and self.len < SMALL
     !self.rebuild(table_size(self.len + 1, self.table.tags.len))
