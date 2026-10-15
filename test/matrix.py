@@ -18,7 +18,9 @@ branch, every one of which must be rejected (`hdr.`), a
 `while` step reading what its condition binds (`step.`), an assignment
 to a place a view reaches whose value holds a statement of its own
 (`target.`), an assignment whose target starts from a value that changes
-what its value reads (`order.`), a call of an owned closure held each
+what its value reads (`order.`), a place built over an index that
+writes the place's root, read, lent, or assigned (`rootidx.`), a call
+of an owned closure held each
 way, given its holder or a value, and returning a view or a value
 (`clos.`), a loop over each kind of source that views a List, whose
 body defers a write to that List (rejected: the deferred write runs in
@@ -2533,6 +2535,82 @@ def order_leave_program(step, fail):
     return src, ("done\n" if fail == "true" else "2\ndone\n")
 
 
+# -----------------------------------------------------------------------------
+# A place built over a sub-expression that writes its root (`rootidx.`).
+# Cells are `rootidx.<shape>.<site>.<writer>`: a place reaching an Int
+# element 5 at index `K`, `K` a call that writes the place's root (`root`,
+# which grows or replaces the storage the place is in and leaves the
+# element 5 in the new storage), another root of the same type (`other`),
+# or reads the root (`read`), and the place used at a site. A lend, a
+# slice, or a receiver finds the place up to each index before the index
+# runs, so a `root` writer there is rejected; so does a read, which is
+# rejected only where the List the index applies to lies outside the
+# root's own storage (`stays` is false): elsewhere it is found where it
+# was and the element read after the index runs. An assignment finds its
+# target after its indexes run, so there a `root` writer is accepted and
+# the store lands in the storage it left.
+# -----------------------------------------------------------------------------
+
+# Each shape: its declarations' root type, the root's setup, the place
+# with `K` its last index, the List the place indexes (`B`), whether that
+# List lies in the root's own storage, and the writer's body, which
+# replaces that List's storage.
+ROOTIDX_SHAPES = {
+    "list": dict(ty="List[Int]", init=["R: List[Int] = List()", "!R.push(5)"], place="R[K]", base="R", stays=True,
+                 grow=["for _ in 0..100", "  !r.push(0)"]),
+    "nested": dict(ty="List[List[Int]]", init=["R: List[List[Int]] = List()", "!R.push(List())", "!R[0].push(5)"],
+                   place="R[0][K]", base="R[0]", stays=False, grow=["for _ in 0..100", "  !r.push(List())"]),
+    "array": dict(ty="[2]List[Int]", init=["R: [2]List[Int] = [List(), List()]", "!R[0].push(5)"],
+                  place="R[0][K]", base="R[0]", stays=True, grow=["n: List[Int] = List()", "!n.push(5)", "r[0] = <n"]),
+    "elemfield": dict(ty="P", init=["R = P(qs: List(), bx: ^Q(vals: List()))", "!R.qs.push(Q(vals: List()))", "!R.qs[0].vals.push(5)"],
+                      place="R.qs[0].vals[K]", base="R.qs[0].vals", stays=False, grow=["for _ in 0..100", "  !r.qs.push(Q(vals: List()))"]),
+    "box": dict(ty="P", init=["R = P(qs: List(), bx: ^Q(vals: List()))", "!R.bx.vals.push(5)"],
+                place="R.bx.vals[K]", base="R.bx.vals", stays=False, grow=["n: List[Int] = List()", "!n.push(5)", "r.bx = ^Q(vals: <n)"]),
+    "listbox": dict(ty="List[^Q]", init=["R: List[^Q] = List()", "!R.push(^Q(vals: List()))", "!R[0].vals.push(5)"],
+                    place="R[0].vals[K]", base="R[0].vals", stays=False,
+                    grow=["n: List[Int] = List()", "!n.push(5)", "r[0] = ^Q(vals: <n)", "for _ in 0..100", "  !r.push(^Q(vals: List()))"]),
+}
+# Each site: the lines using the place (`X`) or its List (`B`), what it
+# prints, and when it finds the place: before its index runs (`before`),
+# as a read does (`read`), or after (`after`).
+ROOTIDX_SITES = {
+    "bind": (["x = X", "print(x)"], "5", "read"),
+    "print": (["print(X)"], "5", "read"),
+    "cond": (["if X == 5", '  print("yes")'], "yes", "read"),
+    "arg": (["show(X)"], "5", "read"),
+    "view": (["print(peek(?X))"], "5", "before"),
+    "lend": (["set9(!X)", "print(X0)"], "9", "before"),
+    "slice": (["print(?B[0..K + 1])"], "[5]", "before"),
+    "recv": (["print(B.get(K))"], "5", "before"),
+    "wrecv": (["!B.insert(K, 7)", "print(B)"], "[7, 5]", "before"),
+    "assign": (["X = 9", "print(X0)"], "9", "after"),
+    "compound": (["X += 7", "print(X0)"], "12", "after"),
+    "value": (["X0 += K", "print(X0)"], "5", "after"),
+}
+ROOTIDX_WRITERS = {"root": "wr(!R)", "other": "wr(!o)", "read": "rd(?R)"}
+
+
+def rootidx_program(shape, site, writer):
+    """The program for one rootidx cell and what it prints."""
+    sh = ROOTIDX_SHAPES[shape]
+    lines, prints, found = ROOTIDX_SITES[site]
+    k = ROOTIDX_WRITERS[writer]
+    decls = ["obj Q", "  vals: List[Int]", "", "obj P", "  qs: List[Q]", "  bx: ^Q", ""]
+    decls += [f"fun wr(r: !{sh['ty']}) -> Int"] + ["  " + g for g in sh["grow"]] + ["  0", ""]
+    decls += [f"fun rd(r: ?{sh['ty']}) -> Int", "  0", ""]
+    decls += ["fun peek(n: ?Int) -> Int", "  n", "", "sub show(n: Int)", "  print(n)", "", "sub set9(n: !Int)", "  n = 9", ""]
+    body = [l.replace("R", "o") for l in sh["init"]] if writer == "other" else []
+    body += sh["init"]
+    place = sh["place"].replace("K", k)
+    for line in lines:
+        line = line.replace("X0", sh["place"].replace("K", "0")).replace("X", place)
+        body.append(line.replace("B", sh["base"]).replace("K", k))
+    body = [l.replace("R", "t") for l in body]
+    src = "\n".join(decls) + "\nsub main()\n" + indent(body, 2) + "\n"
+    rejected = writer == "root" and (found == "before" or found == "read" and not sh["stays"])
+    return src, "(rejected)\n" if rejected else prints + "\n"
+
+
 def indent(lines, n):
     return "\n".join(" " * n + l for l in lines)
 
@@ -3579,6 +3657,19 @@ def main():
         cells.append((ident, path))
         expects[ident] = out
         release.add(ident)
+    for shape in ROOTIDX_SHAPES:
+        for site in ROOTIDX_SITES:
+            for writer in ROOTIDX_WRITERS:
+                ident = f"rootidx.{shape}.{site}.{writer}"
+                if not wanted(ident):
+                    continue
+                src, expects[ident] = rootidx_program(shape, site, writer)
+                path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                with open(path, "w") as fh:
+                    fh.write(src)
+                cells.append((ident, path))
+                if expects[ident] != "(rejected)\n":
+                    release.add(ident)
     for t in PAYLOAD_TYPES:
         for sname in PAYLOAD_SUBJECTS:
             for e in PAYLOAD_ESCAPES:

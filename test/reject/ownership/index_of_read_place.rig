@@ -1,0 +1,79 @@
+# A place that is read or taken is found up to each index before the
+# index runs. Where what the index is applied to lies past a List's
+# buffer, a box, or a handle, a write of the root could move or free it,
+# so the index cannot lend the root to write, or move it. (Where it lies
+# in the root's own storage, or in an assignment's target, which is
+# found after its indices run, the index may:
+# test/behavior/ownership/index_writes_place_root.rig.)
+
+obj Q
+  vals: List[Int]
+
+obj P
+  qs: List[Q]
+  bx: ^Q
+
+fun grow(v: !List[List[Int]]) -> Int
+  for _ in 0..100
+    !v.push(List())
+  0
+
+fun grow_q(p: !P) -> Int
+  for _ in 0..100
+    !p.qs.push(Q(vals: List()))
+  0
+
+fun rebox(p: !P) -> Int
+  p.bx = ^Q(vals: List())
+  0
+
+fun grow_o(v: !List[List[Int?]]) -> Int
+  !v.push(List())
+  0
+
+fun reh(h: !*Q) -> Int
+  h = *Q(vals: List())
+  0
+
+fun eat(v: List[List[Int]]) -> Int
+  v.len
+
+fun at(v: !List[List[Int]]) -> Int
+  v[0][grow(!v)]
+
+sub main()
+  v: List[List[Int]] = List()
+  !v.push(List())
+  !v[0].push(5)
+  p = P(qs: List(), bx: ^Q(vals: List()))
+  !p.qs.push(Q(vals: List()))
+  !p.qs[0].vals.push(5)
+  !p.bx.vals.push(5)
+  w: List[List[Int?]] = List()
+  !w.push(List())
+  !w[0].push(5)
+  h = *Q(vals: List())
+  x = v[0][grow(!v)]
+  print(v[0][grow(!v)], x)
+  print(p.qs[0].vals[grow_q(!p)])
+  print(p.bx.vals[rebox(!p)])
+  if v[0][grow(!v)] == 5
+    print("five")
+  match v[0][grow(!v)]
+    5 => print("five")
+    _ => print("other")
+  y = <w[0][grow_o(!w)]
+  print(y, at(!v), h.vals[reh(!h)])
+  print(v[0][eat(<v)])
+
+# error: 42:14: cannot lend `v` to write in an index of a place it is lending
+# error: 56:18: cannot lend `v` to write in an index of a place it is lending
+# error: 57:20: cannot lend `v` to write in an index of a place it is lending
+# error: 58:30: cannot lend `p` to write in an index of a place it is lending
+# error: 59:26: cannot lend `p` to write in an index of a place it is lending
+# error: 60:17: cannot lend `v` to write in an index of a place it is lending
+# error: 62:20: cannot lend `v` to write in an index of a place it is lending
+# error: 65:21: cannot lend `w` to write in an index of a place it is lending
+# error: 66:32: cannot lend `h` to write in an index of a place it is lending
+# error: 67:19: cannot move `v` in an index of a place it is lending
+# errors: 10
