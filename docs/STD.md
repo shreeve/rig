@@ -449,13 +449,19 @@ type, as any generic is.
 | `(!m).replace(k, v)` | `fun replace(!self, k: K, v: V) -> V?` | as `put`, handing the old value back |
 | `(!m).take(k)` | `fun take(!self, k: ?K) -> V?` | the value back, owned; the key dropped |
 | `!m.clear()` | `sub clear(!self)` | drops every entry |
-| `?m.items()` | `fun items(?self) -> Items[K, V] from self` | each an `Item[?K, ?V]` (`e.key`, `e.value`) viewing `m` |
-| `?m.keys()`, `?m.values()` | `fun keys(?self) -> Keys[K, V] from self` | each a `?K` or a `?V` viewing `m` |
+| `?m.items()` | `fun items(?self) -> Items[K, V] from self` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) lasts one step of the loop |
+| `?m.keys()`, `?m.values()` | `fun keys(?self) -> Keys[K, V] from self` | likewise, each a `?K` or a `?V` |
 | `!m.update(f)` | `sub update(!self, f: ?sub(?K, !V))` | writes each value in place; keys stay read-only |
 
 `hash.Set[K]` has `new()`, `len()`, `has(k: ?K)`, `(!s).add(k: K) ->
 Bool` (true when `k` is new; otherwise `k` is dropped), `(!s).take(k:
 ?K) -> K?`, `clear()`, and `?s.items()`, each key a `?K`.
+
+A view an iterator gives comes from `next`, which takes the iterator
+lent to write, so it lasts until the loop takes the next one: it can
+be read and passed on in the loop's body, but not kept past it (`keep =
+e.value` in the loop is rejected). To keep a value, clone it (`+e.value`),
+or look it up again with `get`.
 
 ```rig
 use std.hash
