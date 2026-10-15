@@ -8947,8 +8947,11 @@ test "origins: a result carries what could hold what it views" {
         \\fun pick(s: ?String, t: ?String, n: Int, u: ?Item) -> ?String
         \\  s
         \\
-        \\sub fill(h: !Holder, x: []Int, k: Int, s: ?String)
+        \\sub fill(h: !Holder, x: []Int, k: Int, s: ?String) keeps x
         \\  h.r = x
+        \\
+        \\sub peek(h: !Holder, x: []Int, t: Holder)
+        \\  print(h.r.len, x.len, t.r.len)
         \\
         \\fun same[T](a: ?T, k: Int) -> ?T
         \\  a
@@ -8964,8 +8967,13 @@ test "origins: a result carries what could hold what it views" {
     try std.testing.expectEqual(@as(ParamMask, 0), o(&r, "at").stores);
     try std.testing.expectEqual(@as(ParamMask, 0b11), o(&r, "first").result);
     try std.testing.expectEqual(@as(ParamMask, 0b0011), o(&r, "pick").result);
-    // `fill` may store `x` in `h.r`; a number or a `?String` it cannot.
-    try std.testing.expectEqual(@as(ParamMask, 0b0011), o(&r, "fill").stores);
+    // `fill` keeps the lent `x`, as it says; a number or a `?String` it
+    // cannot store, and `h` it is lent only to write into.
+    try std.testing.expectEqual(@as(ParamMask, 0b0010), o(&r, "fill").stores);
+    try std.testing.expectEqual(@as(ParamMask, 0b1011), o(&r, "fill").lent);
+    // `peek` names nothing: of its lent parameters it keeps none, and
+    // `t`, taken by value, it may keep by its type.
+    try std.testing.expectEqual(@as(ParamMask, 0b100), o(&r, "peek").stores);
     // A type parameter could be anything, but a value taken by value is
     // the callee's own.
     try std.testing.expectEqual(@as(ParamMask, 0b01), o(&r, "same").result);
