@@ -11,8 +11,9 @@
 //!
 //! src/parser.zig is generated, not committed. Nexus runs again only when
 //! rig.grammar or the Nexus binary changes. The binary is `-Dnexus=PATH`
-//! (relative to where `zig build` runs), else nexus/bin/nexus in the nearest
-//! parent directory (build it with `zig build -Doptimize=safe`).
+//! (relative to where `zig build` runs), else the path in the environment
+//! variable NEXUS, else nexus/bin/nexus in the nearest parent directory
+//! (build it with `zig build -Doptimize=safe`).
 
 const std = @import("std");
 
@@ -42,14 +43,14 @@ pub fn build(b: *std.Build) void {
     const nexus: ?[]const u8 = if (b.option([]const u8, "nexus", "Path to the Nexus binary")) |p|
         b.pathResolve(&.{ std.process.currentPathAlloc(b.graph.io, b.allocator) catch @panic("cannot read the working directory"), p })
     else
-        findNexus(b);
+        nexusFromEnv(b) orelse findNexus(b);
     // Every compile step depends on `parser_gen`.
     const parser_gen: *std.Build.Step = blk: {
         const path = nexus orelse {
             const fail = b.addFail("cannot generate src/parser.zig: Nexus not found.\n" ++
                 "Looked for nexus/bin/nexus in every parent directory of the Rig checkout (normally ../nexus/bin/nexus).\n" ++
                 "Get it: git clone https://github.com/shreeve/nexus ../nexus && (cd ../nexus && zig build -Doptimize=safe)\n" ++
-                "or name a binary: zig build -Dnexus=PATH");
+                "or name a binary: zig build -Dnexus=PATH, or NEXUS=PATH zig build");
             parser_step.dependOn(&fail.step);
             break :blk &fail.step;
         };
@@ -138,6 +139,17 @@ pub fn build(b: *std.Build) void {
     const oracle_bin = b.addUpdateSourceFiles();
     oracle_bin.addCopyFileToSource(oracle_exe.getEmittedBin(), "bin/rig-oracle");
     b.step("oracle", "Build bin/rig-oracle, the reference ownership checker").dependOn(&oracle_bin.step);
+}
+
+/// The Nexus binary named by the environment variable NEXUS (cpuq's packs
+/// set it), relative to where `zig build` runs. The configuration cache does
+/// not see the environment, so reading it poisons the cache. Null when NEXUS
+/// is unset or empty.
+fn nexusFromEnv(b: *std.Build) ?[]const u8 {
+    const p = b.graph.environ_map.get("NEXUS") orelse return null;
+    if (p.len == 0) return null;
+    b.graph.poisonCache();
+    return b.pathResolve(&.{ std.process.currentPathAlloc(b.graph.io, b.allocator) catch @panic("cannot read the working directory"), p });
 }
 
 /// `nexus/bin/nexus` in the nearest parent directory of the build root
