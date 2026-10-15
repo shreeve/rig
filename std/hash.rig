@@ -260,6 +260,102 @@ pub obj Map[K, V]
       return <self.es[j].key
     none
 
+# A set of strings, each with a dense `U32` id from 0, in the order it
+# was first interned. Their text lives in one String, end to end, so
+# interning a new string copies it once and an id costs four bytes;
+# `intern`, `id`, and `text` never copy. `hash.Interner()` is an empty
+# one. Its table works as a Map's: up to `SMALL` strings it compares
+# their stored hashes in turn, and beyond that it probes a table of
+# tags.
+pub obj Interner
+  # How many distinct strings the Interner holds.
+  pub ?len: Int = 0
+  bytes: String = String()
+  ends: List[U32] = List()
+  hs: List[U32] = List()
+  tags: List[U8] = List()
+  at: List[U32] = List()
+
+  # The id of `s`: the one it was given, or a new one, the next after the
+  # last, when `s` is new, whose text is then copied in.
+  pub fun intern(!self, s: ?String) -> U32
+    h = U32(s.hash() & 0xFFFFFFFF)
+    if self.find(s, h) as id
+      return id
+    id = U32(self.len)
+    !self.bytes.add(s)
+    !self.ends.push(U32(self.bytes.len))
+    !self.hs.push(h)
+    self.len += 1
+    # A rebuilt table places every id, the new one too.
+    if self.tags.len > 0 and self.len * 5 <= self.tags.len * 4
+      !self.place(id, h)
+    else if self.tags.len > 0 or self.len > SMALL
+      !self.rebuild(table_size(self.len, self.tags.len))
+    id
+
+  # The id of `s`, or `none` when it was never interned.
+  pub fun id(?self, s: ?String) -> U32?
+    self.find(s, U32(s.hash() & 0xFFFFFFFF))
+
+  # The text of the id `id`, viewed where the Interner holds it.
+  pub fun text(?self, id: U32) -> ?String from self
+    i = Int(id)
+    start = 0 if i == 0 else Int(self.ends[i - 1])
+    ?self.bytes[start..Int(self.ends[i])]
+
+  # Make room for `n` more strings whose text takes `bytes` bytes in all.
+  pub sub reserve(!self, n: Int, bytes: Int = 0)
+    !self.ends.reserve(n)
+    !self.hs.reserve(n)
+    !self.bytes.reserve(bytes) if bytes > 0
+    want = self.len + n
+    if want > SMALL
+      size = table_size(want, self.tags.len)
+      !self.rebuild(size) if size > self.tags.len
+
+  fun find(?self, s: ?String, h: U32) -> U32?
+    if self.tags.len == 0
+      hs = ?self.hs[..]
+      j = 0
+      while 0 <= j and j < hs.len
+        if hs[j] == h
+          return U32(j) if self.text(U32(j)) == s
+        j += 1
+      return none
+    ts = ?self.tags[..]
+    tag = tag_of(h)
+    i = Int(h) & (ts.len - 1)
+    for _ in 0..2
+      while 0 <= i and i < ts.len
+        t = ts[i]
+        return none if t == 0
+        if t == tag
+          id = self.at[i]
+          return id if self.text(id) == s
+        i += 1
+      i = 0
+    none
+
+  sub place(!self, id: U32, h: U32)
+    ts = ?self.tags[..]
+    i = Int(h) & (ts.len - 1)
+    while self.tags[i] != 0
+      i = (i + 1) & (self.tags.len - 1)
+    self.tags[i] = tag_of(h)
+    self.at[i] = id
+
+  sub rebuild(!self, n: Int)
+    !self.tags.clear()
+    !self.at.clear()
+    !self.tags.reserve(n)
+    !self.at.reserve(n)
+    for _ in 0..n
+      !self.tags.push(0)
+      !self.at.push(0)
+    for j in 0..self.hs.len
+      !self.place(U32(j), self.hs[j])
+
 # The slots a table needs to hold `want` entries at most two fifths
 # full: a power of two, at least 16, and at least `now`.
 fun table_size(want: Int, now: Int) -> Int

@@ -38,7 +38,7 @@ never read as the library's.
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
-| [`std.hash`](#stdhash) | Map and Set: hash tables that keep insertion order |
+| [`std.hash`](#stdhash) | Map and Set: hash tables that keep insertion order; an Interner of strings |
 | [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
 | [`std.utf8`](#stdutf8) | runes: reading, writing, counting, and checking UTF-8 |
 | [`std.utf16`](#stdutf16) | units: UTF-16 lengths and positions, and surrogate pairs |
@@ -475,7 +475,8 @@ type, as any generic is.
 
 | Member | Signature | Ownership |
 |---|---|---|
-| `hash.Map[K, V]()`, `hash.Map[K, V].new()` | `fun new() -> Map[K, V]` | an empty Map, which allocates nothing until the first `put` |
+| `hash.Map[K, V]()`, `hash.Map[K, V].new(capacity: n)` | `fun new(capacity: Int = 0) -> Map[K, V]` | an empty Map, which allocates nothing until the first `put`, or with room for `n` entries |
+| `!m.reserve(n)` | `sub reserve(!self, n: Int)` | room for `n` more entries: the next `n` puts of new keys allocate nothing |
 | `m.len` | `pub ?len: Int` | the number of entries: a field other modules read and only `std.hash` writes |
 | `m.has(k)` | `fun has(?self, k: ?K) -> Bool` | reads |
 | `m.get(k)` | `fun get(?self, k: ?K) -> (?V)? from self` | the view keeps `m` lent to read, not `k` |
@@ -488,9 +489,10 @@ type, as any generic is.
 | `?m.keys()`, `?m.values()` | `fun keys(?self) -> Keys[K, V] from self` | likewise, each a `?K` or a `?V` |
 | `!m.update(f)` | `sub update(!self, f: ?sub(?K, !V))` | writes each value in place; keys stay read-only |
 
-`hash.Set[K]` has `hash.Set[K]()` and `new()`, the field `len`, `has(k: ?K)`, `(!s).add(k: K) ->
-Bool` (true when `k` is new; otherwise `k` is dropped), `(!s).take(k:
-?K) -> K?`, `clear()`, and `?s.items()`, each key a `?K`.
+`hash.Set[K]` has `hash.Set[K]()` and `new(capacity: n)`, `reserve(n)`,
+the field `len`, `has(k: ?K)`, `(!s).add(k: K) -> Bool` (true when `k`
+is new; otherwise `k` is dropped), `(!s).take(k: ?K) -> K?`, `clear()`,
+and `?s.items()`, each key a `?K`.
 
 A view an iterator gives comes from `next`, which takes the iterator
 lent to write, so it lasts until the loop takes the next one: it can
@@ -563,14 +565,46 @@ sub main()
 cannot use `K = Float`: the generic body hashes a `K` with `.hash()`, which `Float` does not support
 ```
 
-The entries are kept in one List, in order. The table is
-open-addressed and probed linearly, at most four fifths full; each slot
-holds a one-byte tag, seven bits of its key's hash, and the index of its
-entry, so a probe compares a key only when the tag matches, and a key
-that is not there is found missing from the tags alone. Taking an entry
-empties it in place, and the next growth drops it. The seed of
-`.hash()` is fixed, so a program that lets others choose many keys that
-collide can be made slow.
+`hash.Interner` holds a set of strings, each with a dense `U32` id from
+0 in the order it was first interned. Their text lives in one String,
+end to end, so an id costs four bytes and a new string is copied once.
+
+| Member | Signature | Ownership |
+|---|---|---|
+| `hash.Interner()` | | an empty one |
+| `(!names).intern(s)` | `fun intern(!self, s: ?String) -> U32` | the id of `s`, a new one when `s` is new, whose text is then copied in; nothing is copied otherwise |
+| `names.id(s)` | `fun id(?self, s: ?String) -> U32?` | the id of `s`, or `none`; adds nothing |
+| `names.text(id)` | `fun text(?self, id: U32) -> ?String from self` | the text of `id`, viewed where the Interner holds it |
+| `names.len` | `pub ?len: Int` | how many strings it holds |
+| `!names.reserve(n, bytes: b)` | `sub reserve(!self, n: Int, bytes: Int = 0)` | room for `n` more strings of `b` bytes in all |
+
+```rig
+use std.hash
+
+sub main()
+  names = hash.Interner()
+  a = (!names).intern("width")
+  b = (!names).intern("height")
+  w = String("wid", "th")
+  print(a, b, (!names).intern(?w), names.id("depth"), names.text(b), names.len)
+```
+
+```output
+0 1 0 none height 2
+```
+
+The entries are kept in one List, in order, each with 32 bits of its
+key's hash beside it, so no key is hashed twice: not when the table
+grows, nor when an entry is taken. A Map or Set of up to 8 entries has
+no table: a lookup compares the stored hashes in turn, then the key
+where one matches. A larger one has a table, open-addressed and probed
+linearly, at most four fifths full; each slot holds a one-byte tag,
+seven bits of its key's hash, and the index of its entry, so a probe
+compares a key only when the tag matches, and a key that is not there
+is found missing from the tags alone. Taking an entry empties it in
+place, and the next growth drops it. The seed of `.hash()` is fixed, so
+a program that lets others choose many keys that collide can be made
+slow.
 
 ## List
 
