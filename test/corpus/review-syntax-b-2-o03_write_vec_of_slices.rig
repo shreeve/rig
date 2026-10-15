@@ -1,4 +1,4 @@
-sub g(w: !List[[]Int], u: []Int)
+sub g(w: !List[[]Int], u: []Int) keeps u
   s = w[0][1..]
   w[0] = u
   print(s)

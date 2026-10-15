@@ -7,7 +7,7 @@ obj H
 fun conv(xs: []Static) -> []?String
   xs
 
-sub put(h: !H, xs: []Static)
+sub put(h: !H, xs: []Static) keeps xs
   h.v = xs
 
 sub main()

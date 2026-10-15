@@ -10,7 +10,7 @@ obj View
 obj Outer
   inner: View?
 
-sub fill(o: !Outer, r: ?Res)
+sub fill(o: !Outer, r: ?Res) keeps r
   o.inner = View(r: r)
 
 sub main()

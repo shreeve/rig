@@ -15,7 +15,7 @@ obj S
 obj H
   rs: List[?String]
 
-  sub keep(!self, r: ?String)
+  sub keep(!self, r: ?String) keeps r
     !self.rs.push(r)
 
   drop(!self)

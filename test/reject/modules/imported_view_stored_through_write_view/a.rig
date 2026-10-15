@@ -4,5 +4,5 @@ pub obj Wrap
 pub obj Holder
   pub b: ?Wrap
 
-pub sub put(t: !Holder, x: ?Wrap)
+pub sub put(t: !Holder, x: ?Wrap) keeps x
   t.b = x

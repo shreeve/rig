@@ -5,7 +5,7 @@ obj K
 fun mk(s: ?String) -> K
   K(s: s)
 
-sub run[T](f: fun(?String) -> T, k: !T, s: ?String)
+sub run[T](f: fun(?String) -> T, k: !T, s: ?String) keeps s
   k = f(s)
 
 sub main()

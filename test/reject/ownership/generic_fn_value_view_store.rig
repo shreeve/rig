@@ -2,10 +2,10 @@
 obj K
   s: ?String
 
-sub put(k: !K, s: ?String)
+sub put(k: !K, s: ?String) keeps s
   k.s = s
 
-sub run[T](f: sub(!T, ?String), k: !T, s: ?String)
+sub run[T](f: sub(!T, ?String), k: !T, s: ?String) keeps s
   f(!k, s)
 
 sub main()

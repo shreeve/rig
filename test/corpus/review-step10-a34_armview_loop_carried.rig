@@ -15,7 +15,7 @@ obj Holder
 fun mk(k: Int) -> E
   E.a(p: P(t: String("a payload text long enough for the heap")))
 
-fun keep(p: ?P, h: !Holder) -> Int
+fun keep(p: ?P, h: !Holder) -> Int keeps p
   h.r = p
   1
 

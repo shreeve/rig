@@ -4,7 +4,7 @@ obj Stack[T]
   sub push(!self, x: T)
     !self.items.push(x)
 
-sub fill(s: !Stack[?List[Int]], v: ?List[Int])
+sub fill(s: !Stack[?List[Int]], v: ?List[Int]) keeps v
   !s.push(v)
 
 sub main()

@@ -5,7 +5,7 @@ obj S
   own: [2]Item
   items: ?[2]Item
 
-sub fix(s: !S, t: !S)
+sub fix(s: !S, t: !S) keeps t
   s.items = ?t.own
 
 sub main()

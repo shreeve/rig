@@ -4,7 +4,7 @@
 obj Holder
   r: []Int
 
-fun f(a: !Holder, b: !List[Int]) -> Int
+fun f(a: !Holder, b: !List[Int]) -> Int keeps b
   if a.r.len > 0
     defer a.r = ?b[..]
     print(1)

@@ -1,7 +1,7 @@
 obj H
   xs: []Int
 
-  sub keep(!self, xs: []Int)
+  sub keep(!self, xs: []Int) keeps xs
     self.xs = xs
 
 sub main()
@@ -9,7 +9,7 @@ sub main()
   !v.push(1)
   e = [0]
   h = H(xs: ?e[..])
-  !h.keep(v[..])
+  !h.keep(?v[..])
   for i in 0..50
     !v.push(i)
   print(h.xs)

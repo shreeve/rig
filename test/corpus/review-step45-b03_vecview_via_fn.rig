@@ -1,5 +1,5 @@
 # a view stored into a List through a function, then the source dropped
-sub keep(v: !List[?String], x: ?String)
+sub keep(v: !List[?String], x: ?String) keeps x
   !v.push(x)
 
 sub main()

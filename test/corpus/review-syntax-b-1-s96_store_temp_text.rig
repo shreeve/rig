@@ -1,4 +1,4 @@
-sub store(v: !List[?String], x: ?String)
+sub store(v: !List[?String], x: ?String) keeps x
   !v.push(x)
 
 fun mkt() -> String

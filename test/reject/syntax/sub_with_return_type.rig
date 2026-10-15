@@ -8,4 +8,4 @@ sub total(n: Int) -> Int
 sub main()
   print(1)
 
-# error: 4:19: unexpected `->`; expected an indented block, `!` or `keeps`
+# error: 5:19: unexpected `->`; expected an indented block, `!` or `keeps`

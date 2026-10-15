@@ -1,7 +1,7 @@
 obj R
   xs: []Int
 
-sub g(w: !R, u: []Int)
+sub g(w: !R, u: []Int) keeps u
   s = w.xs[1..]
   w.xs = u
   print(s)

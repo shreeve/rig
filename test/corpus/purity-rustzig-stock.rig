@@ -14,7 +14,7 @@ obj Stock
   items: List[Item]
   shipped: Int = 0
 
-  sub add(!self, name: ?String, qty: Int)
+  sub add(!self, name: ?String, qty: Int) keeps name
     !self.items.push(Item(name: name, qty: qty))
 
   fun find(?self, name: ?String) -> Int?

@@ -4,10 +4,10 @@
 obj Holder
   r: []Int
 
-  sub set(!self, s: []Int)
+  sub set(!self, s: []Int) keeps s
     self.r = s
 
-fun f(a: !Holder, b: !List[Int]) -> Int
+fun f(a: !Holder, b: !List[Int]) -> Int keeps b
   !a.set(?b[..])
   for i in 0..100
     !b.push(i)

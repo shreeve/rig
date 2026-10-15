@@ -1,6 +1,6 @@
 obj B
   xs: []Int
-  sub set(!self, s: []Int)
+  sub set(!self, s: []Int) keeps s
     self.xs = s
 
 sub main()
