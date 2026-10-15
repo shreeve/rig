@@ -284,7 +284,7 @@ bin/rig run examples/hello.rig         # check, build, and run (debug)
 bin/rig run file.rig -- a b            # the same, passing the program arguments
 bin/rig run --release file.rig         # the same, optimized (safe)
 bin/rig build -o hello file.rig        # a native executable
-bin/rig build --release=fast file.rig  # fast: no overflow checks, scalar or vector lanes
+bin/rig build --release=fast file.rig  # fast: no overflow checks
 bin/rig test file.rig                  # run the file's own `test` blocks
 bin/rig check file.rig                 # check only
 bin/rig emit file.rig                  # print the emitted Zig
@@ -307,8 +307,8 @@ Debug builds (the default) check for memory leaks: a program that
 leaks reports how many allocations it lost and exits 1; set
 `RIG_LEAK_TRACE=1` when building to see where each was allocated.
 `--release` keeps the overflow, conversion, and bounds checks;
-`--release=fast` drops the overflow and conversion checks, for the lanes
-of a vector as for a scalar, which makes overflow undefined behavior. `rig --help` lists every command, option,
+`--release=fast` drops the overflow and conversion checks, which makes
+overflow undefined behavior. `rig --help` lists every command, option,
 and environment variable. The suite runs on Linux and macOS in
 [CI](.github/workflows/test.yml).
 
