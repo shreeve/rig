@@ -7,9 +7,14 @@
 # element, a call, `if`, `??`, `catch`, `+x`) in each context that takes
 # one (a binding, an assignment, a field or element store, an argument,
 # a constructor, an enum payload, an optional, an array, a branch, a
-# return), and checks the bound against the stack each frame reserves,
-# in debug and release builds: Zig's aarch64 assembly on an aarch64 Mac,
-# and the program's x86_64 code (objdump) on Linux.
+# return), and each form Zig writes more than once or copies whole (a
+# `defer` or `errdefer` body at every exit, an inlined function at every
+# call, a receiver taken by value, `match` alternatives and guards, a
+# generic instance, `==` on arrays), and checks the bound against the
+# stack each frame reserves, in debug and release builds: Zig's aarch64
+# assembly on an aarch64 Mac, and the program's x86_64 code (objdump) on
+# Linux. A runtime function a program instantiates (`rig.runtime.*`)
+# reserves at most `factor` times the largest reach of the program's.
 source "$ROOT/test/cli/_lib.sh"
 
 case "$(uname -s)/$(uname -m)" in
@@ -57,6 +62,26 @@ fun look(a: ?A) -> Int
 
 fun takeP(p: P) -> Int
   p.a[3] + p.b
+
+obj Q
+  a: A
+  b: Int
+
+  fun get(self: Q, k: Int) -> Int
+    self.a[k] + self.b
+
+enum T
+  one(v: A)
+  two(v: A)
+  nothing
+
+fun g(a: ?A, k: Int) -> Int
+  take(a) + k
+
+fun same[X](x: X) -> X
+  y = x
+  z = y
+  z
 ''')
 forms = {
     'fill_rt': ([], f'[{N} of i]'),
@@ -101,6 +126,27 @@ for fn, (setup, e) in forms.items():
         use = {'A': f'{fn}__{cn}(3)[3]', 'A?': f'({fn}__{cn}(3) ?? [{N} of 0])[3]', 'A!': f'({fn}__{cn}(3) catch [{N} of 0])[3]'}[rt]
         print(f'called sub use_{fn}__{cn}()\n  print({use})\n')
         calls.append(f'use_{fn}__{cn}()')
+rep = lambda n, f: [f(k) for k in range(n)]
+dup = {
+    'defer_exits': ('Int', [f'a = [{N} of i]', 'defer print(take(a) + take(a) + take(a))'] + rep(10, lambda k: f'return {k} if i == {100 + k}') + ['i']),
+    'errdefer_exits': ('Int!', [f'a = [{N} of i]', 'errdefer print(take(a) + take(a))'] + rep(6, lambda k: f'x{k} = fails(i + {k})!') + ['x0[1] + x1[1] + x2[1] + x3[1] + x4[1] + x5[2] + a[3]']),
+    'defer_loop': ('Int', ['s = 0', 'for k in 0..10', f'  a = [{N} of k]', '  defer print(take(a))', '  if k == i', '    break', '  if k == 2', '    continue', '  s += a[1]', 's']),
+    'inline_copies': ('Int', [f'a = [{N} of i]', 's = 0'] + rep(20, lambda k: f's += g(?a, {k})') + ['s']),
+    'receiver_copies': ('Int', [f'q = Q(a: [{N} of i], b: 1)', 's = 0'] + rep(20, lambda k: f's += q.get({k})') + ['s']),
+    'match_alts': ('Int', [f'a = [{N} of i]', 'match i', '  0, 1, 2 => take(a)', '  3, 4 => take(a) + take(a)', '  _ => 0']),
+    'match_payload': ('Int', [f's = T.one([{N} of i])', 'match s', '  .one(v) => take(v)', '  .two(_), .nothing => 0']),
+    'match_guarded': ('Int', [f'a = [{N} of i]', 'match i', '  k if k > 2 => take(a)', '  k if k > 1 => take(a) + 1', '  _ => 0']),
+    'generic_use': ('Int', [f'same([{N} of i])[1]']),
+    'eq_arrays': ('Bool', [f'a = [{N} of i]', f'b = [{N} of 2]', 'a == b']),
+}
+for name, (rt, lines) in dup.items():
+    print(f'called fun {name}(i: Int) -> {rt}')
+    for line in lines:
+        print(f'  {line}')
+    print()
+    use = f'{name}(3) catch 0' if rt == 'Int!' else f'{name}(3)'
+    print(f'called sub use_{name}()\n  print({use})\n')
+    calls.append(f'use_{name}()')
 print('called sub viewarg(i: Int)')
 print(f'  x = [{N} of 1]')
 print('  print(look(x) + i)\n')
@@ -136,17 +182,23 @@ import sys
 factor = int(sys.argv[1])
 reach = {}
 for line in open(sys.argv[2]):
-    _, label, _, r = line.split()
-    reach[label.strip('`')] = int(r)
+    # "L:C label bytes reach"; an instance's label has spaces.
+    head, _, r = line.rsplit(None, 2)
+    name = head.split(None, 1)[1].split('`')[1]
+    reach[name] = max(reach.get(name, 0), int(r))
 bad = []
 for path in sys.argv[3:]:
     real = dict((n, int(b)) for n, b in (l.split() for l in open(path)))
     measured = [n for n in reach if n in real]
-    if 'Debug' in path and len(measured) < 150:
+    if 'Debug' in path and len(measured) < 160:
         bad.append(f'{path}: only {len(measured)} of {len(reach)} functions found')
     for n in measured:
         if real[n] > factor * reach[n] + 16384:
             bad.append(f'{path}: `{n}` reserves {real[n]} bytes; its reach is {reach[n]}, times {factor} is {factor * reach[n]}')
+    most = max(reach.values())
+    for n, b in real.items():
+        if n.startswith('rig.runtime.') and b > factor * most + 16384:
+            bad.append(f'{path}: `{n}` reserves {b} bytes, more than {factor} times the largest reach, {most}')
 if bad:
     print('FAIL: ' + '\n'.join(bad))
     sys.exit(1)

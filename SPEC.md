@@ -561,8 +561,10 @@ A build may hold each value a function's code makes or copies (an
 argument passed by value, a copy of a place, the value of an `if`, `??`,
 or `catch`, a constructor's) in a temporary of its own, so a function's
 code may take more stack than the values it keeps. Its *reach*, the
-values it keeps and every value its code makes or copies, times 4 is at
-most 512 MiB, and a function whose reach times 4 is 1 MiB or more is
+values it keeps and every value its code makes or copies (a `defer` or
+`errdefer` body once for each exit it covers, a receiver taken by value
+at each call, and a small function inlined into it at each call), times
+4 is at most 512 MiB, and a function whose reach times 4 is 1 MiB or more is
 never inlined, so no two such frames merge into one.
 
 A program runs on a stack of 64 MiB. A program that runs out of stack,

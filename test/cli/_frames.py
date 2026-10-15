@@ -2,7 +2,8 @@
 """The stack each function of the root module really reserves.
 
 `_frames.py <file>` prints "<function> <bytes>" for each function
-`__rig_main.<function>` in <file>, which is Zig's aarch64 assembly
+`__rig_main.<function>` in <file>, and for each of the runtime's,
+`rig.runtime.<function>` (with that prefix), which is Zig's aarch64 assembly
 (`-femit-asm`) or `objdump -d -M intel --no-show-raw-insn` of an x86_64
 program. The bytes are what its prologue reserves:
 
@@ -17,8 +18,8 @@ frames (test/cli/frame_reach.sh).
 import re
 import sys
 
-ARM_LABEL = re.compile(r'^___rig_main\.([A-Za-z0-9_]+):$')
-X86_LABEL = re.compile(r'^[0-9a-f]+ <__rig_main\.([A-Za-z0-9_]+)>:$')
+ARM_LABEL = re.compile(r'^___rig_main\.([A-Za-z0-9_]+):$|^_(rig\.runtime\.[A-Za-z0-9_.]+):$')
+X86_LABEL = re.compile(r'^[0-9a-f]+ <__rig_main\.([A-Za-z0-9_]+)>:$|^[0-9a-f]+ <(rig\.runtime\.[A-Za-z0-9_.]+)>:$')
 OTHER = re.compile(r'^([0-9a-f]+ <.*>:|_\S*:)$')
 
 
@@ -31,7 +32,7 @@ def frames(path):
         line = line.rstrip('\n')
         m = ARM_LABEL.match(line) or X86_LABEL.match(line)
         if m:
-            fn = m.group(1)
+            fn = m.group(1) or m.group(2)
             out[fn] = 0
             count = 0
             regs = {}

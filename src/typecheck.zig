@@ -13611,8 +13611,11 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
 /// makes or copies (`FrameWalker.copy`): Zig's code may hold each in a
 /// temporary of its own, so the stack the frame really takes is at most
 /// `sema.reach_factor` times its reach, which must fit
-/// `sema.max_frame_reach`, far below the guard under the stack. A frame
-/// whose reach passes `sema.noinline_reach` is never inlined, so two such
+/// `sema.max_frame_reach`, far below the guard under the stack. Code Zig
+/// writes more than once counts once for each copy: a `defer` or
+/// `errdefer` body at every exit it covers (`FrameWalker.deferBody`), and
+/// an inlined function at every call (`inlining.decide`). A frame whose
+/// reach passes `sema.noinline_reach` is never inlined, so two such
 /// frames never merge (`sema.SemContext.large_frames`).
 ///
 /// A frame whose size depends on generic parameters is checked at each
@@ -13622,18 +13625,24 @@ pub fn checkFrames(ctx: *SemContext, tree: Sexp) Error!void {
     try w.walk(tree, null, false, false);
 }
 
-/// The bytes of values the `fun` or `sub` `node` keeps on its stack, as
-/// `checkFrames` counts them, not counting the frames of its closures; null
-/// when that depends on generic parameters or follows an error.
-pub fn frameBytesOfFunction(ctx: *SemContext, node: Sexp) Error!?u128 {
+/// A frame as `checkFrames` counts it: the bytes of the values it keeps,
+/// and its reach.
+pub const FrameCount = struct { bytes: u128, reach: u128 };
+
+/// The frame of the `fun` or `sub` `node`, as `checkFrames` counts it, not
+/// counting the frames of its closures; null when that depends on generic
+/// parameters or follows an error.
+pub fn frameBytesOfFunction(ctx: *SemContext, node: Sexp) Error!?FrameCount {
     var w: FrameWalker = .{ .ctx = ctx, .captures_only = true };
     var slots: FrameWalker.Slots = .empty;
     defer slots.deinit(ctx.allocator);
     for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try w.walk(part, &slots, false, false);
-    var tys: std.ArrayList(TypeId) = .empty;
-    for (slots.items) |s| if (!s.copy) try tys.append(ctx.arena.allocator(), s.ty);
-    for (tys.items) |ty| if (sema.containsTypeVar(ctx, ty)) return null;
-    return frameBytes(ctx, tys.items);
+    var values: std.ArrayList(TypeId) = .empty;
+    var copies: std.ArrayList(TypeId) = .empty;
+    for (slots.items) |s| try (if (s.copy) &copies else &values).append(ctx.arena.allocator(), s.ty);
+    for (slots.items) |s| if (sema.containsTypeVar(ctx, s.ty)) return null;
+    const bytes = (try frameBytes(ctx, values.items)) orelse return null;
+    return .{ .bytes = bytes, .reach = bytes + ((try reachBytes(ctx, copies.items)) orelse return null) };
 }
 
 const FrameWalker = struct {
@@ -13710,30 +13719,92 @@ const FrameWalker = struct {
                         else => {},
                     }
                     if (copied) try self.copy(node, f);
+                    // A receiver a method takes by value is copied.
+                    if (kind == .call) if (storage.receiverOf(ctx, node)) |recv| if (self.takesReceiver(node)) try self.copy(recv, f);
                 }
-                for (rig.children(node)) |c| try self.walk(c, frame, false, self.copiedIn(node, c));
+                const kids = rig.children(node);
+                for (kids, 0..) |c, i| {
+                    if (frame) |f| if (c.isKind(.@"defer") or c.isKind(.@"errdefer")) {
+                        try self.deferBody(c, f, kids[i + 1 ..]);
+                        continue;
+                    };
+                    try self.walk(c, frame, false, self.copiedIn(node, c));
+                }
             },
         }
     }
 
     /// Whether the value of `child` is made or copied where `parent` uses
-    /// it, by a positive list of the uses that read it in place: the base
-    /// of a field or element path, the operand of a lend, and a callee.
+    /// it, by a positive list of the uses that read it in place: a callee,
+    /// and the base of a field or element path or the operand of a lend
+    /// that is storage (`storage.hasStorage`) or reached where its leaf is
+    /// (`storage.reachesLeaf`); any other base or operand is made into a
+    /// temporary first.
     fn copiedIn(self: *FrameWalker, parent: Sexp, child: Sexp) bool {
+        const ctx = self.ctx;
         return switch (parent.kind().?) {
-            .member, .index => !sameSite(child, ir.get(parent, .object)),
-            .read, .write => false,
-            .call => !sameSite(child, self.ctx.calleeOf(parent)),
+            .member, .index => !sameSite(child, ir.get(parent, .object)) or !readsInPlace(ctx, child),
+            .read, .write => !readsInPlace(ctx, child),
+            .call => !sameSite(child, ctx.calleeOf(parent)),
             else => true,
         };
     }
 
+    fn readsInPlace(ctx: *SemContext, e: Sexp) bool {
+        return storage.hasStorage(ctx, e) or storage.reachesLeaf(ctx, e);
+    }
+
+    /// Whether the method `call` calls takes its receiver by value, not
+    /// through a view.
+    fn takesReceiver(self: *FrameWalker, call: Sexp) bool {
+        const ctx = self.ctx;
+        const f = storage.fnType(ctx, storage.typeOf(ctx, ctx.calleeOf(call))) orelse return false;
+        if (f.params.len == 0) return false;
+        return switch (ctx.types.get(f.params[0])) {
+            .read_view, .write_view => false,
+            else => true,
+        };
+    }
+
+    /// A `defer` or `errdefer`, whose body Zig writes again at each exit
+    /// of its block it covers: every exit among the statements after it
+    /// (`storage.leave_kinds`), and the block's end. The body's values
+    /// and copies count once more for each exit past the first, as
+    /// copies.
+    fn deferBody(self: *FrameWalker, d: Sexp, f: *Slots, rest: []const Sexp) Error!void {
+        const ctx = self.ctx;
+        const start = f.items.len;
+        try self.walk(ir.get(d, .body), f, false, false);
+        var exits: usize = 1;
+        for (rest) |r| exits += countExits(r);
+        const once = try ctx.arena.allocator().dupe(Slot, f.items[start..]);
+        for (1..exits) |_| for (once) |slot| try f.append(ctx.allocator, .{ .ty = slot.ty, .name = "", .copy = true });
+    }
+
+    /// The exits in `e` (`storage.leave_kinds`), not counting those in its
+    /// closures.
+    fn countExits(e: Sexp) usize {
+        if (e != .list) return 0;
+        const kind = e.kind() orelse {
+            var n: usize = 0;
+            for (e.items()) |c| n += countExits(c);
+            return n;
+        };
+        if (kind == .lambda) return 0;
+        var n: usize = @intFromBool(std.mem.findScalar(Tag, &storage.leave_kinds, kind) != null);
+        for (rig.children(e)) |c| n += countExits(c);
+        return n;
+    }
+
     /// A copy of the value of `node` in the frame's reach, unless it is
-    /// lent where it is used (a pointer) or fits in registers.
+    /// lent where it is used (a pointer) or fits in registers. A view its
+    /// context reads through (`readsThrough`: a use that expects the
+    /// value copies it out) counts at the size of what it views.
     fn copy(self: *FrameWalker, node: Sexp, f: *Slots) Error!void {
         const ctx = self.ctx;
         if (ctx.lendOf(node) != null) return;
-        const ty = ctx.typeOf(node) orelse return;
+        const seen = ctx.typeOf(node) orelse return;
+        const ty = if (ctx.readsThrough(node)) sema.unwrapViews(ctx, seen) else seen;
         if (!sema.containsTypeVar(ctx, ty)) {
             if (sema.containsPoison(ctx, ty)) return;
             const b = (try sema.minBytes(ctx, ty)) orelse return;

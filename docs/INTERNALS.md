@@ -1906,10 +1906,18 @@ on how a program keeps its data; safety rests on the frame's *reach*
 ([The program's stack](#the-programs-stack)). The same walk adds a copy
 of every value of more than `sema.register_bytes` (16) that the code
 makes or copies (`FrameWalker.copy`): every expression but, by a
-positive list (`copiedIn`), the base of a field or element path, the
-operand of a lend, a callee, an assignment's target, and one lent where
-it is used; a fill built in place (`storage.fillsInPlace`) is neither a
-temporary nor a copy. The values and the copies are the reach, which
+positive list (`copiedIn`), a callee, an assignment's target, one lent
+where it is used, and the base of a field or element path or the operand
+of a lend that is storage (`storage.hasStorage`) or reached where its
+leaf is (`storage.reachesLeaf`); a receiver a method takes by value
+counts again, and a view its context reads through (`readsThrough`)
+counts at the size of what it views. A fill built in place
+(`storage.fillsInPlace`) is neither a temporary nor a copy. Code Zig
+writes more than once counts once for each copy: a `defer` or
+`errdefer` body at every exit after it in its block (`return`, `!`,
+`?`, `break`, `continue`) and at the block's end (`deferBody`), and an
+inlined function at every call (`inlining.decide` adds callees' reach
+per call). The values and the copies are the reach, which
 `sema.reach_factor` (4) times must fit `sema.max_frame_reach` (512 MiB);
 a frame whose reach times the factor is `sema.noinline_reach` (1 MiB)
 or more marks its function in `large_frames`, which emit writes
@@ -3460,11 +3468,13 @@ symbols); a query that decides more than that belongs in `Pending`.
     calls; the `comptime` parameters stay compile-time and the rest are
     bound through `rig.rt` as always. Its frame must be known without the
     values;
-  - it keeps at most 64 KiB of values on its stack, and no function gets
-    more than that added by the inlined calls in it
-    (`max_inlined_frame_bytes`), and no function's own frame (`checkFrames`)
-    with the inlined calls in it passes `sema.max_frame_bytes` (13 MiB),
-    since Zig puts an inlined body's locals in its caller's frame; and
+  - its reach (`checkFrames`), with the inlined calls in it, is at most
+    64 KiB, and no function gets more than that added by the inlined
+    calls in it, each counted at every call (`max_inlined_frame_bytes`),
+    and no function's own frame with the reach of the inlined calls in
+    it passes `sema.max_frame_bytes` (13 MiB), since Zig writes an
+    inlined body, its locals and temporaries, again at each call, in its
+    caller's frame; and
     its frame is not large (`large_frames`, which emit also writes
     `noinline`, [Sema](#sema));
   - with the inlined calls in it, each counted at every call site, it
@@ -3813,8 +3823,34 @@ stack: the guard is larger than any frame the compiler accepts. A
 frame's real size is at most `sema.reach_factor` (4) times its reach,
 which `checkFrames` holds to `sema.max_frame_reach` (512 MiB, half the
 smallest guard), and a function with a large reach is never inlined, so
-no two such frames merge. However a frame overflows the stack, its first
+no two such frames merge, and a function large with the calls inlined
+into it is marked so too. However a frame overflows the stack, its first
 access past it falls in the guard, and the access faults.
+
+Where Zig writes code or slots more than once, and how reach covers
+each:
+
+- a `defer` or `errdefer` body, at each exit it covers, `!` and `?`
+  included: counted once per exit (`deferBody`);
+- an inlined function, at each call: Rig's inlining adds its reach per
+  call and inlines only a small reach (`inlining.decide`); emit writes
+  no other `inline fn`, and the runtime's take vectors and slices, a
+  few hundred bytes at most;
+- `inline for`, `inline while`, `inline else`, and loops Zig unrolls at
+  compile time: emit writes none. The runtime's (over `print`'s values)
+  are in its own functions, separate frames;
+- a generic function, or one with compile-time values: each instance is
+  a function of its own, whose frame is checked at the instance
+  (`checkInstanceSizes`); an instance of the runtime's (`print`, `eql`,
+  `Box.init`) is a frame of its own that holds the values the program
+  passes it, which the program's reach counts;
+- `switch` prongs, `match` alternatives and guards, `if` branches,
+  labeled blocks, and loop bodies: written once, each node counted
+  once;
+- a drop at each exit (`defer rig.drop(&x)`): written per exit, but it
+  passes a pointer.
+
+`test/cli/frame_reach.sh` measures each of these.
 `test/cli/frame_reach.sh` holds the factor to what Zig really reserves,
 for every form that makes or copies a value in every context that takes
 one, in debug and release builds, on aarch64 (assembly) and x86_64

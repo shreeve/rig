@@ -1,7 +1,9 @@
 # A function whose code may take `sema.noinline_reach` (1 MiB) of stack
 # or more is emitted `noinline`, so no build merges two such frames into
 # one: a function itself, and a generic function at an instance made in
-# its own module or another one.
+# its own module or another one. A small function is inlined only when
+# its reach is small too, since Zig writes an inlined body, temporaries
+# and all, again at each call.
 source "$ROOT/test/cli/_lib.sh"
 
 mkdir -p app
@@ -31,15 +33,25 @@ fun twice[T](x: T) -> T
   z = y
   z
 
+fun peek(a: ?[40000]Int, k: Int) -> Int
+  take(a) + k
+
+fun tiny(a: ?[40000]Int, k: Int) -> Int
+  a[k] + 1
+
 sub main()
   big = [40000 of 1]
   print(copies(2), small(3), twice(big)[1], lib.pick(big, big, true)[1])
+  print(peek(?big, 1) + peek(?big, 2), tiny(?big, 1) + tiny(?big, 2))
 EOF3
 rig check app/main.rig >/dev/null 2>&1 || fail "check app"
 out=$(rig emit app/main.rig 2>&1) || fail "emit app: $out"
 expect_has "$out" 'pub noinline fn copies(' "a function that copies 960 KB"
 grep -qF 'pub noinline fn small(' <<<"$out" && fail "a small function is noinline"
 expect_has "$out" 'pub noinline fn twice(' "a generic function at a large instance"
+expect_has "$out" 'fn peek(' "peek"
+grep -qF 'pub inline fn peek(' <<<"$out" && fail "a small function that copies 320 KB is inlined"
+expect_has "$out" 'pub inline fn tiny(' "a small function that copies nothing is inlined"
 lib=$(cat "$RIG_OUT_DIR"/programs/app_main/*lib*.zig 2>/dev/null)
 expect_has "$lib" 'pub noinline fn pick(' "a generic function at a large instance another module makes"
 exit 0
