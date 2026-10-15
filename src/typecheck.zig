@@ -13624,6 +13624,7 @@ const FrameWalker = struct {
             return;
         };
         const bytes = (try frameBytes(ctx, tys)) orelse return;
+        try ctx.frame_sizes.append(ctx.allocator, .{ .label = label, .pos = pos, .bytes = bytes });
         if (bytes > sema.max_frame_bytes) try reportFrame(ctx, pos, label, bytes, null, tys, names);
     }
 };
@@ -13709,6 +13710,7 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
             try buf.append(ctx.allocator, t);
         }
         const bytes = (try frameBytes(ctx, buf.items)) orelse continue;
+        try ctx.frame_sizes.append(ctx.allocator, .{ .label = try ctx.arena.allocator().print("{s} in `{s}`", .{ fr.label, try sema.rootName(ctx, of) }), .pos = at, .bytes = bytes });
         if (bytes <= sema.max_frame_bytes) continue;
         try reportFrame(ctx, at, fr.label, bytes, of, buf.items, fr.names);
         try ctx.noteIn(fr.module_id, fr.pos, "{s} is declared here", .{fr.label});

@@ -154,6 +154,9 @@ pub const max_value_bytes: u64 = 8 << 20;
 /// fit can still overflow the stack (`rig.guardStack` stops it).
 pub const max_frame_bytes: u64 = 13 << 20;
 
+/// A frame `checkFrames` counted: what it is and its bytes.
+pub const FrameSize = struct { label: []const u8, pos: u32, bytes: u128 };
+
 /// The values one function or closure keeps on its stack: `label` names
 /// it in messages, declared at `pos` in module `module_id` (0 for the
 /// module that keeps the frame).
@@ -1893,6 +1896,8 @@ pub const SemContext = struct {
     /// The functions and methods Zig inlines at every call, by where
     /// their names are declared (`inlining.decide`).
     inlined: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// The frames `checkFrames` counted, for `rig check --facts=frames`.
+    frame_sizes: std.ArrayList(FrameSize) = .empty,
     /// The calls that may reach one of them, by node (`inlining.decide`).
     inlined_calls: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// The node `Question`s decided so far, each once.
@@ -1999,6 +2004,7 @@ pub const SemContext = struct {
         self.storage.deinit(self.allocator);
         self.discards.deinit(self.allocator);
         self.inlined.deinit(self.allocator);
+        self.frame_sizes.deinit(self.allocator);
         self.inlined_calls.deinit(self.allocator);
         self.write_sites.deinit(self.allocator);
         self.proven.deinit(self.allocator);
