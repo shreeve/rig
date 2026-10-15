@@ -1,0 +1,28 @@
+# A tally whose fields other modules read and only this module writes.
+
+pub obj Inner
+  pub n: Int = 0
+
+pub enum Mode
+  idle
+  busy
+
+pub obj Tally
+  pub ?count: Int = 0
+  pub ?tags: List[Int] = List()
+  pub ?inner: Inner = Inner()
+  pub ?mode: Mode? = none
+  pub ?last: Int? = none
+  pub note: Int = 0
+
+  pub sub bump(!self, tag: Int)
+    self.count += 1
+    !self.tags.push(tag)
+    self.inner.n += tag
+    self.mode = Mode.busy
+    self.last = tag
+
+pub fun fresh() -> Tally
+  t = Tally()
+  t.count = 10
+  t

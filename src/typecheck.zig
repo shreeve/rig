@@ -601,7 +601,7 @@ const Checker = struct {
         const ok = isDefaultLiteral(self.ctx.source, value) or self.isConstantDefault(value) or (field and try self.isConstructorDefault(value));
         if (!ok) {
             if (field) {
-                try self.errAt(value, "a default field value must be a literal, a module constant, a number type's limit, or an empty or literal constructor: `List()`, `String()`, `Cell(0)`, `[n of 0]`", .{});
+                try self.errAt(value, "a default field value must be a literal, a module constant, a number type's limit, or an empty or literal constructor: `List()`, `String()`, `Cell(0)`, `[n of 0]`, or `T()` of an object whose every field has a default", .{});
             } else try self.errAt(value, "a default parameter value must be a literal, a module constant, or a number type's limit", .{});
             return;
         }
@@ -631,7 +631,9 @@ const Checker = struct {
     }
 
     /// `List()`, `List[T]()`, `Cell(literal)`, `[n of literal]` (or of a
-    /// constant).
+    /// constant), or `T()` of an object type whose every field has a
+    /// default (`T`, `lib.T`, `T[A]`, `lib.T[A]`), which is made from
+    /// those defaults.
     fn isConstructorDefault(self: *Checker, e: Sexp) Error!bool {
         if (e.isKind(.array_fill)) {
             const v = ir.ArrayFill.value(e);
@@ -642,12 +644,21 @@ const Checker = struct {
         // `String()`: the empty text, which owns nothing yet.
         if (callee == .src and std.mem.eql(u8, self.text(callee), "String") and self.lookupQuiet(callee) == null) return ir.Call.args(e).len == 0;
         if (rig.isBracketList(callee)) callee = ir.get(callee, .object);
-        if (callee != .src) return false;
-        const id = self.lookupQuiet(callee) orelse return false;
         const args = ir.Call.args(e);
-        if (id == self.ctx.list_sym_id) return args.len == 0;
-        if (id == self.ctx.cell_sym_id) return args.len == 1 and isDefaultLiteral(self.ctx.source, args[0]);
-        return false;
+        if (callee == .src) if (self.lookupQuiet(callee)) |id| {
+            if (id == self.ctx.list_sym_id) return args.len == 0;
+            if (id == self.ctx.cell_sym_id) return args.len == 1 and isDefaultLiteral(self.ctx.source, args[0]);
+        };
+        return args.len == 0 and try self.emptyConstructor(ir.Call.callee(e));
+    }
+
+    /// Whether `callee`, called with no arguments, names an object type
+    /// whose every field has a default.
+    fn emptyConstructor(self: *Checker, callee: Sexp) Error!bool {
+        const nt = (try self.namedType(callee)) orelse return false;
+        const fields = nt.sym.fields orelse return false;
+        for (fields) |f| if (f.is_variant) return false;
+        return everyFieldDefaulted(fields);
     }
 
     /// A body's statements, checked as `context`; in a `fun`, the last one
@@ -1338,19 +1349,22 @@ const Checker = struct {
     };
 
     /// Why a place is read-only: a `*T` on the way, which other handles
-    /// may share; an element of a `[]T` or a `?String`, or a `.len`; or a
-    /// `?T` on the way. Where several apply, the first in that order.
+    /// may share; an element of a `[]T` or a `?String`, a `.len`, or a
+    /// field another module declared read-only; or a `?T` on the way.
+    /// Where several apply, the first in that order.
     const Block = enum {
         shared,
         slice,
         string,
         len,
+        /// A field another module declared `pub ?name: T`.
+        read_only,
         read_view,
 
         fn rank(b: Block) u2 {
             return switch (b) {
                 .shared => 0,
-                .slice, .string, .len => 1,
+                .slice, .string, .len, .read_only => 1,
                 .read_view => 2,
             };
         }
@@ -1379,6 +1393,8 @@ const Checker = struct {
         /// What makes the place read-only, and where: the outermost
         /// step of the first kind that applies.
         blocked: ?struct { why: Block, pos: u32 } = null,
+        /// For a `.read_only` block: the field, as the access reaches it.
+        read_only: ?sema.ReadOnlyField = null,
         /// The `c[i]` the path goes through where `c` is a
         /// `Cell[List[E]]`: such an element is a copy, read or written
         /// whole.
@@ -1432,6 +1448,10 @@ const Checker = struct {
                     place.block(if (is_text) .string else .slice, self.startOf(p));
                     if (!crossed) place.leaf_blocked = true;
                 }
+            } else if (self.ctx.readOnlyFieldOf(step)) |field| {
+                place.block(.read_only, self.startOf(ir.Member.name(step)));
+                if (place.blocked.?.why == .read_only) place.read_only = field;
+                if (!crossed) place.leaf_blocked = true;
             } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string_view or obj == .static or obj == .string or obj == .array or listElementType(self.ctx, inner) != null or cellListElement(self.ctx, inner) != null)) {
                 place.block(.len, self.startOf(ir.Member.name(step)));
                 if (!crossed) place.leaf_blocked = true;
@@ -1570,6 +1590,10 @@ const Checker = struct {
                 .slice => try self.err(b.pos, "cannot {s}{s} through a slice; a `[]T` is read-only{s}", .{ through.head, through.tail, try self.readMatchHint(place.sym) }),
                 .string => try self.err(b.pos, "cannot {s} a byte of a `?String`{s}; a `?String` is read-only", .{ verb.head, verb.tail }),
                 .len => try self.err(b.pos, "cannot {s} `.len`{s}; a length is read-only", .{ verb.head, verb.tail }),
+                .read_only => {
+                    const f = place.read_only.?;
+                    try self.err(b.pos, "cannot {s} `{s}`{s}: field `{s}` of `{s}` is read-only outside module `{s}`, which declares it `pub ?{s}`", .{ verb.head, try self.plainText(place.node), verb.tail, f.field, f.owner, f.module, f.field });
+                },
             }
             return false;
         }
@@ -5708,7 +5732,7 @@ const Checker = struct {
             return self.t().invalid_id;
         }
 
-        if (try self.dataField(obj_ty, field, pos)) |ty| return ty;
+        if (try self.dataField(obj_ty, field, pos, e)) |ty| return ty;
         const decl = sema.nominalDecl(self.ctx, peeled) orelse {
             // An element method named without its call.
             const has_elems = switch (self.ctx.types.get(peeled)) {
@@ -5751,16 +5775,33 @@ const Checker = struct {
 
     /// The type of data field `name` of a receiver's nominal type, local
     /// or imported, used at `pos`: another module's field must be `pub`.
-    fn dataField(self: *Checker, obj_ty: TypeId, name: []const u8, pos: u32) Error!?TypeId {
+    /// `member`, the access `x.name`, is recorded when the field is
+    /// read-only here (`noteReadOnly`).
+    fn dataField(self: *Checker, obj_ty: TypeId, name: []const u8, pos: u32, member: Sexp) Error!?TypeId {
         if (try sema.lookupDataField(self.ctx, obj_ty, name)) |f| {
-            try self.checkVisible(f.field, self.ctx.symbols.items[f.nominal_sym], null, pos);
+            const owner = self.ctx.symbols.items[f.nominal_sym];
+            try self.checkVisible(f.field, owner, null, pos);
+            try self.noteReadOnly(member, f.field, owner, null);
             return f.ty;
         }
         const decl = sema.nominalDecl(self.ctx, sema.unwrapAccess(self.ctx, obj_ty)) orelse return null;
         const module_id = decl.module_id orelse return null;
         const f = (try findDataField(self.ctx, decl.symbol().fields orelse &.{}, name)) orelse return null;
         try self.checkVisible(f, decl.symbol(), module_id, pos);
+        try self.noteReadOnly(member, f, decl.symbol(), module_id);
         return try sema.importType(self.ctx, self.ctx.foreign_semas.get(module_id).?, f.ty, module_id);
+    }
+
+    /// Record the member access `member` when its field `f`, of `owner`
+    /// (declared in module `module`, or here, where a proxy stands for
+    /// another module's generic type), is `pub ?name: T` in another
+    /// module: read-only here. The one place this is decided.
+    fn noteReadOnly(self: *Checker, member: Sexp, f: Field, owner: sema.Symbol, module: ?u32) Error!void {
+        if (member == .nil or !f.read_only) return;
+        const m = module orelse if (sema.isProxy(owner)) owner.from.module_id else return;
+        if (m == self.ctx.module_id) return;
+        const foreign = self.ctx.foreign_semas.get(m) orelse return;
+        try self.ctx.recordReadOnlyField(member, .{ .field = f.name, .owner = owner.name, .module = foreign.name });
     }
 
     /// A field or method of a type another module declares, used at
@@ -9008,7 +9049,10 @@ const Checker = struct {
             if (f.is_variant) break true;
         } else false;
         if (is_enum) return self.badCall(args, pos, "`{s}` is an enum; construct a variant with `{s}.name` or `.name(...)`", .{ sym.name, sym.name });
-        try self.checkConstructible(sym, fields, if (foreign) |fo| fo.module_id else null, pos);
+        // `T()` of a type whose every field has a default makes the value
+        // those defaults give, which the type itself chose: any module
+        // may make one.
+        if (!(args.len == 0 and everyFieldDefaulted(fields))) try self.checkConstructible(sym, fields, if (foreign) |fo| fo.module_id else null, pos, args.len == 0);
         const origin = if (sema.isProxy(sym)) sema.proxyOrigin(self.ctx, sym) else null;
         try self.checkFieldArgs(args, fields, .{
             .owner = sym.name,
@@ -9023,29 +9067,60 @@ const Checker = struct {
         return result;
     }
 
-    /// Another module's struct is constructed here only when every one
+    /// Whether every data field of a type has a default, so `T()` makes
+    /// a value (variants and methods are no fields).
+    fn everyFieldDefaulted(fields: []const Field) bool {
+        for (fields) |f| {
+            if (f.is_method or f.is_variant) continue;
+            if (f.default == null) return false;
+        }
+        return true;
+    }
+
+    /// Another module's object is constructed here only when every one
     /// of its fields is `pub`; a private field is that module's to set.
-    fn checkConstructible(self: *Checker, sym: sema.Symbol, fields: []const Field, module: ?u32, pos: u32) Error!void {
+    /// (`T()` of a type whose every field has a default is made anywhere:
+    /// `construct`.) `empty` is a call with no arguments, which names the
+    /// fields with no default.
+    fn checkConstructible(self: *Checker, sym: sema.Symbol, fields: []const Field, module: ?u32, pos: u32, empty: bool) Error!void {
         const m = module orelse if (sema.isProxy(sym)) sym.from.module_id else return;
         const foreign = self.ctx.foreign_semas.get(m) orelse return;
         var private: std.ArrayList(u8) = .empty;
         defer private.deinit(self.ctx.allocator);
         var count: usize = 0;
+        // A read-only field (`pub ?name: T`) is set by its module only,
+        // as a private one is.
+        var read_only: usize = 0;
         for (fields) |f| {
-            if (f.is_method or f.is_variant or f.is_pub) continue;
+            if (f.is_method or f.is_variant or (f.is_pub and !f.read_only)) continue;
             try private.appendSlice(self.ctx.allocator, if (count == 0) "`" else ", `");
             try private.appendSlice(self.ctx.allocator, f.name);
             try private.append(self.ctx.allocator, '`');
             count += 1;
+            if (f.read_only) read_only += 1;
         }
         if (count == 0) return;
         const tname = if (module != null) try self.ctx.arena.allocator().print("{s}.{s}", .{ foreign.name, sym.name }) else sym.name;
-        const which = .{ if (count == 1) "field" else "fields", private.items, if (count == 1) "is" else "are" };
-        if (foreign.is_std) {
-            try self.err(pos, "only the standard library's module `{s}` can construct `{s}`: its {s} {s} {s} private; make one with its `pub` functions", .{ foreign.name, tname } ++ which);
-        } else try self.err(pos, "only module `{s}` can construct `{s}`: its {s} {s} {s} private; declare every field `pub` there, or make the value with a `pub` function of `{s}`", .{ foreign.name, tname } ++ which ++ .{foreign.name});
+        const kind = if (read_only == 0) "private" else if (read_only == count) "read-only" else "private or read-only";
+        const which = .{ if (count == 1) "field" else "fields", private.items, if (count == 1) "is" else "are", kind };
+        if (empty) {
+            // `T()` makes an empty value only from defaults for every field.
+            var bare: std.ArrayList(u8) = .empty;
+            defer bare.deinit(self.ctx.allocator);
+            var n: usize = 0;
+            for (fields) |f| {
+                if (f.is_method or f.is_variant or f.default != null) continue;
+                try bare.appendSlice(self.ctx.allocator, if (n == 0) "`" else ", `");
+                try bare.appendSlice(self.ctx.allocator, f.name);
+                try bare.append(self.ctx.allocator, '`');
+                n += 1;
+            }
+            try self.err(pos, "`{s}()` makes a `{s}` from its fields' defaults, and {s} {s} no default; its {s} {s} {s} {s} to module `{s}`, which alone can set {s}", .{ tname, tname, bare.items, if (n == 1) "has" else "have" } ++ which ++ .{ foreign.name, if (count == 1) "it" else "them" });
+        } else if (foreign.is_std) {
+            try self.err(pos, "only the standard library's module `{s}` can construct `{s}`: its {s} {s} {s} {s}; make one with its `pub` functions", .{ foreign.name, tname } ++ which);
+        } else try self.err(pos, "only module `{s}` can construct `{s}`: its {s} {s} {s} {s}; declare every field `pub` there, or make the value with a `pub` function of `{s}`", .{ foreign.name, tname } ++ which ++ .{foreign.name});
         for (fields) |f| {
-            if (f.is_method or f.is_variant or f.is_pub or f.decl_pos >= sema.imported_decl_pos) continue;
+            if (f.is_method or f.is_variant or (f.is_pub and !f.read_only) or f.decl_pos >= sema.imported_decl_pos) continue;
             try self.ctx.noteIn(m, f.decl_pos, "`{s}` declared here", .{f.name});
         }
     }
@@ -9343,13 +9418,18 @@ const Checker = struct {
         const resolved = resolved_method orelse {
             // A data field holding a function or a closure handle is
             // called like one.
-            if (try self.dataField(obj_ty, method, pos)) |ty| {
+            if (try self.dataField(obj_ty, method, pos, .nil)) |ty| {
                 if (sema.ownedClosureFn(self.ctx, ty) != null or self.ctx.types.get(ty) == .function) {
                     if (self.isReceiverSigil(obj)) {
                         try self.fieldCallSigil(obj, method, "a field holding a function", ty);
                     } else try self.rejectResourceTemporary(obj, obj_ty);
                     try self.noteCalleeType(ty);
                     return self.callValue(callee, ty, args, method);
+                }
+                // A data field is read, not called: `m.len`, not `m.len()`.
+                if (!self.isPoison(ty)) {
+                    try self.err(pos, "`{s}` is a field of `{s}`, not a method: write `{s}.{s}`", .{ method, try self.tyName(peeled), try self.plainText(stripSigil(obj)), method });
+                    return self.skipCall(args);
                 }
             }
             const has_len = listElementType(self.ctx, peeled) != null or switch (self.ctx.types.get(peeled)) {

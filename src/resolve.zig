@@ -1464,7 +1464,7 @@ pub const TypeResolver = struct {
                             if (try self.checkDuplicateMember(&names, fname, fpos, sym_name)) continue;
                             var fty = try self.resolveType(ir.get(m, .type));
                             if (try self.fieldCallable(ir.get(m, .type), fty) or try self.misplacedAt(ir.get(m, .type), fty, .field)) fty = self.ctx.types.invalid_id;
-                            try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos, .default = if (h == .default) ir.Default.value(m) else null, .is_pub = self.isPubMember(m) });
+                            try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos, .default = if (h == .default) ir.Default.value(m) else null, .is_pub = self.isPubMember(m), .read_only = self.isReadOnlyMember(m) });
                         },
                         .valued => {
                             const name_node = ir.Valued.name(m);
@@ -1749,6 +1749,11 @@ pub const TypeResolver = struct {
     fn isPubMember(self: *const TypeResolver, member: Sexp) bool {
         const p = self.ctx.parser orelse return false;
         return p.isPubMember(member);
+    }
+
+    fn isReadOnlyMember(self: *const TypeResolver, member: Sexp) bool {
+        const p = self.ctx.parser orelse return false;
+        return p.isReadOnlyMember(member);
     }
 
     fn resolveMethod(self: *TypeResolver, node: Sexp, nominal_sym: SymbolId, fields: *std.ArrayList(Field), names: *std.StringHashMapUnmanaged(u32)) Error!void {
