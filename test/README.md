@@ -485,7 +485,7 @@ whose package it changed. Zig still checks every input of a cached
 build. A run with no filter removes the entries no run has used for
 `RIG_BUILD_STORE_DAYS` days (default 2), each renamed into the store's
 trash in one step and then deleted. The same run also caps the store's
-size: over `RIG_BUILD_STORE_MAX_GB` (default 50, 0 for no cap), it removes
+size: over `RIG_BUILD_STORE_MAX_GB` (default 15, 0 for no cap), it removes
 the least recently used entries (by their `used` file) until the store
 fits, by the same rules. The size is one `du` over the store per
 unfiltered run. `test/matrix.py` builds in the
