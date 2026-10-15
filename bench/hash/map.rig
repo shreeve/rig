@@ -1,5 +1,6 @@
 # std.hash's Map timed on Int and String keys: insert, hit lookup, miss
-# lookup, and iterate, each over N keys. Each loop walks its keys as
+# lookup, and iterate, each over N keys; hits in Maps of 4 and 8 keys;
+# and interning N words. Each loop walks its keys as
 # map.zig's does: a range of Ints, or a List's elements in order.
 # Prints `KEYS OP NS CHECK` per line (bench/hash/bench-hash).
 
@@ -63,6 +64,35 @@ sub strings(n: Int)
     sum += e.value
   print("string iterate", t.elapsed(), sum)
 
+# N hit lookups in a Map of `size` Int keys: the symbol tables most
+# programs hold are this small.
+sub small(n: Int, size: Int)
+  m = hash.Map[Int, Int].new()
+  for i in 0..size
+    !m.put(i *% -7046029254386353131, i)
+  sum = 0
+  t = time.now()
+  for i in 0..n
+    if m.get((i % size) *% -7046029254386353131) as v
+      sum += v
+  print("small", size, t.elapsed(), sum)
+
+# N words, from 50,000 distinct ones, each given a dense id: the first
+# time a word is seen its text is copied in.
+sub intern(n: Int)
+  words: List[String] = List()
+  for i in 0..n
+    !words.push(String("w", (i * 7919) % 50000))
+  names = hash.Interner()
+  sum: U64 = 0
+  t = time.now()
+  for w in ?words
+    sum +%= U64((!names).intern(w))
+  print("string intern", t.elapsed(), sum)
+
 sub main()
   ints(N)
   strings(N)
+  small(N, 4)
+  small(N, 8)
+  intern(N)

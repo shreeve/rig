@@ -99,10 +99,67 @@ fn strings(io: std.Io, n: usize) !void {
     gpa.free(miss);
 }
 
+/// `n` hit lookups in a map of `size` Int keys.
+fn small(io: std.Io, n: i64, size: i64) !void {
+    var m: std.AutoHashMapUnmanaged(i64, i64) = .empty;
+    defer m.deinit(gpa);
+    var i: i64 = 0;
+    while (i < size) : (i += 1) try m.put(gpa, i *% mul, i);
+    var sum: i64 = 0;
+    const t = now(io);
+    i = 0;
+    while (i < n) : (i += 1) if (m.get(@mod(i, size) *% mul)) |v| {
+        sum += v;
+    };
+    const keys = if (size == 4) "small 4" else "small 8";
+    std.debug.print("{s} {d} {d}\n", .{ keys, since(io, t), sum });
+}
+
+/// `n` words, from 50,000 distinct ones, each given a dense id, as
+/// `hash.Interner` does: a map from the text to its id, the text of a
+/// new word copied once into one arena.
+fn intern(io: std.Io, n: usize) !void {
+    const words = try gpa.alloc(std.ArrayList(u8), n);
+    for (words, 0..) |*w, i| w.* = try word(i);
+    var ids: std.StringHashMapUnmanaged(u32) = .empty;
+    var arena: std.ArrayList(u8) = .empty;
+    var ends: std.ArrayList(u32) = .empty;
+    var sum: u64 = 0;
+    const t = now(io);
+    for (words) |w| {
+        const got = try ids.getOrPut(gpa, w.items);
+        if (!got.found_existing) {
+            try arena.appendSlice(gpa, w.items);
+            try ends.append(gpa, @intCast(arena.items.len));
+            // The key views the word, whose buffer outlives the map.
+            got.key_ptr.* = w.items;
+            got.value_ptr.* = @intCast(ends.items.len - 1);
+        }
+        sum +%= got.value_ptr.*;
+    }
+    out("string", "intern", since(io, t), @bitCast(sum));
+    ids.deinit(gpa);
+    arena.deinit(gpa);
+    ends.deinit(gpa);
+    for (words) |*w| w.deinit(gpa);
+    gpa.free(words);
+}
+
+/// "w" and `(i * 7919) % 50000`, built as Rig builds `String("w", x)`.
+fn word(i: usize) !std.ArrayList(u8) {
+    var list: std.ArrayList(u8) = .empty;
+    var w: std.Io.Writer.Allocating = .fromArrayList(gpa, &list);
+    try w.writer.print("w{d}", .{(i * 7919) % 50000});
+    return w.toArrayList();
+}
+
 pub fn main(init: std.process.Init.Minimal) !void {
     _ = init;
     const n: usize = 1_000_000;
     const io = std.Io.Threaded.global_single_threaded.io();
     try ints(io, @intCast(n));
     try strings(io, n);
+    try small(io, @intCast(n), 4);
+    try small(io, @intCast(n), 8);
+    try intern(io, n);
 }
