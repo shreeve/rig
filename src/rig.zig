@@ -44,9 +44,8 @@ pub fn subFails(fun_or_sub: Sexp) bool {
 }
 
 /// A function's marker, which asks for a speed and never changes what
-/// the program means: `inline fun` (inline it at every call), `called
-/// fun` (every call stays a call), `rarely fun` (it is rarely called), or
-/// none (`inlining.decide` decides).
+/// the program means: `called fun` (every call stays a call), `rarely
+/// fun` (it is rarely called), or none (`inlining.decide` decides).
 pub const Marker = enum { none, called, rarely };
 
 pub fn markerOf(fun_or_sub: Sexp) Marker {
@@ -816,6 +815,7 @@ pub const Lexer = struct {
         brace,
         two_markers,
         marker_before_pub,
+        no_inline_marker,
 
         pub fn message(e: LexError) []const u8 {
             return switch (e) {
@@ -845,6 +845,7 @@ pub const Lexer = struct {
                 .decrement => "Rig has no `--`; write `x -= 1`",
                 .slash_comment => "comments start with `#`; Rig has no `//` or `/* */` comments",
                 .pin_sigil => "the pin sigil `@x` is reserved; `@` only starts a builtin call, `@name(...)`",
+                .no_inline_marker => "Rig has no `inline` marker yet; write `called fun` or `rarely fun`, or leave the function unmarked for the compiler to decide",
                 .marker_before_pub => "`pub` comes before a function's marker: write `pub called fun` or `pub rarely fun`",
                 .two_markers => "a function takes one marker: `called` (keep every call a call) or `rarely` (rarely called, so kept out of line and cold), and `rarely` already keeps every call a call",
             };
@@ -1298,15 +1299,25 @@ pub const Lexer = struct {
     }
 
     /// A marker `tok` puts where a declaration cannot take it: a second
-    /// one (`inline rarely fun f()`), since a function takes one, or one
-    /// before `pub` (`inline pub fun f()`), which comes first.
+    /// one (`called rarely fun f()`), since a function takes one, or one
+    /// before `pub` (`rarely pub fun f()`), which comes first. And
+    /// `inline` where a marker goes (`inline fun f()`, `pub inline fun`,
+    /// `called inline fun`): Rig has no such marker.
     fn misplacedMarker(self: *const Lexer, tok: Token) ?struct { err: LexError, pos: u32 } {
-        if (!isMarker(self.base.text(tok)) or !(self.stmtStart() or self.last_cat == .@"pub")) return null;
+        const word = self.base.text(tok);
+        const no_marker = std.mem.eql(u8, word, "inline");
+        if (!(isMarker(word) or no_marker) or !(self.stmtStart() or self.last_cat == .@"pub")) return null;
         var probe = self.base;
         const second = probe.next();
-        const err: LexError = if (second.cat == .@"pub") .marker_before_pub else if (second.cat == .ident and isMarker(probe.text(second))) .two_markers else return null;
-        const t = probe.next();
-        return if (t.cat == .fun or t.cat == .sub) .{ .err = err, .pos = if (err == .two_markers) second.pos else tok.pos } else null;
+        const text = if (second.cat == .ident) probe.text(second) else "";
+        const second_inline = std.mem.eql(u8, text, "inline");
+        const second_marks = isMarker(text) or second_inline;
+        const t = if (second.cat == .@"pub" or second_marks) probe.next() else second;
+        if (t.cat != .fun and t.cat != .sub) return null;
+        if (no_marker) return .{ .err = .no_inline_marker, .pos = tok.pos };
+        if (second_inline) return .{ .err = .no_inline_marker, .pos = second.pos };
+        if (second.cat == .@"pub") return .{ .err = .marker_before_pub, .pos = tok.pos };
+        return if (second_marks) .{ .err = .two_markers, .pos = second.pos } else null;
     }
 
     fn isMarker(word: []const u8) bool {

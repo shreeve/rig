@@ -580,8 +580,6 @@ fun      = [mark:mark] FUN name:name [tparams:tparams] [params:params] [returns:
 sub      = [mark:mark] SUB name:name [tparams:tparams] [params:params] body:block → (sub)
          | [mark:mark] SUB name:name [tparams:tparams] [params:params] "!" body:block → (sub fails:fails)  # `sub save(p: Page)!`
 
-
-
 # A method declared outside its type's body, in the type's module:
 # `fun Point.norm(?self) -> Float`, `fun Wrap[T].map[U](...)`, with the
 # type's parameters named as its declaration names them. The Parser
