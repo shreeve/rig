@@ -1,0 +1,13 @@
+{
+  "label": "rig:matrix",
+  "setup": "(cd deps/nexus && zig build -Doptimize=safe -j\"$CPUQ_CORES\") && zig build -j\"$CPUQ_CORES\" -Dnexus=deps/nexus/bin/nexus",
+  "run": "python3 test/matrix.py -j \"$CPUQ_CORES\" --delta \"$@\"",
+  "cores": "8-32",
+  "on": ["burst"],
+  "time": "90m",
+  "mem": "96G",
+  "tools": { "zig": "0.17.0" },
+  "exclude": [".git", ".zig-cache", "zig-out", "bin", "src/parser.zig", "bench/json/rust-bench/target-native", ".claude", ".rip", ".DS_Store"],
+  "deps": { "deps/nexus": "../nexus" },
+  "caches": { "RIG_RESULTS_CACHE": "rig-results", "RIG_BUILD_STORE": "rig-build-store" }
+}
