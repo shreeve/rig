@@ -1,0 +1,13 @@
+# The write view `ensure` returns takes a write call in the same
+# statement, with no `!` before the receiver it already lends.
+
+use std.hash
+
+sub main()
+  b = hash.Map[Int, List[Int]].new()
+  (!b).ensure(1, List()).push(5)
+  (!b).ensure(1, List()).push(6)
+  print(b.get(1), b.len)
+
+# expect:
+# [5, 6] 1

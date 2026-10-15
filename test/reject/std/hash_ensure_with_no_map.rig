@@ -1,0 +1,11 @@
+# `ensure_with` holds the Map lent to write while `make` runs, so `make`
+# cannot capture the Map.
+
+use std.hash
+
+sub main()
+  m = hash.Map[Int, Int].new()
+  v = (!m).ensure_with(1, |?m, k| m.len + k)
+  v += 1
+
+# error: cannot lend `m` to write while a read loan is live

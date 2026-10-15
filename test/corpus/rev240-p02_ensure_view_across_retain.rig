@@ -1,0 +1,8 @@
+use std.hash
+
+sub main()
+  m = hash.Map[Int, String].new()
+  c = (!m).ensure(1, String("a"))
+  !m.retain(|k, v| false)
+  !c.add("x")
+  print(m.len)

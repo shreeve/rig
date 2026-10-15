@@ -1,0 +1,10 @@
+use std.hash
+
+fun slot(m: !hash.Map[String, List[Int]], k: ?String) -> !List[Int] from m
+  (!m).ensure(String(k), List())
+
+sub main()
+  m = hash.Map[String, List[Int]].new()
+  for w in ["a", "b", "a"]
+    !slot(!m, w).push(w.len)
+  print(m.get("a"), m.get("b"))

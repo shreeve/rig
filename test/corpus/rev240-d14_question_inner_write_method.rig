@@ -1,0 +1,4 @@
+sub main()
+  v: List[Int] = List()
+  ?(!v).push(1)
+  print(v)

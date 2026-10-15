@@ -1,0 +1,49 @@
+# `ensure_with` lends the value under a key to write, making it with
+# `make` only when the key is new: a `|!count|` capture counts the calls,
+# and a `|!added|` capture reports whether the key was new. Values that
+# own memory are made, kept, and dropped clean.
+
+use std.hash
+
+fun make(k: ?String, count: !Int, added: !Bool) -> List[String]
+  count += 1
+  added = true
+  l = List[String]()
+  !l.push(String(k, "!"))
+  l
+
+sub main()
+  count = 0
+  m = hash.Map[String, List[String]].new()
+  for w in ["ab", "cd", "ab", "ab", "ef", "cd"]
+    added = false
+    g = (!m).ensure_with(String(w), |!count, !added, k| make(k, !count, !added))
+    !g.push(String(w))
+    print(w, added)
+  print(count, m.len)
+  for e in ?m.items()
+    print(e.key, e.value)
+
+  calls = 0
+  sq = hash.Map[Int, Int].new()
+  for i in 0..40
+    v = (!sq).ensure_with(i % 10, |!calls, k| square(k, !calls))
+    v += 1
+  print(calls, sq.len, sq.get(3), sq.get(9))
+
+fun square(k: ?Int, calls: !Int) -> Int
+  calls += 1
+  k * k
+
+# expect:
+# ab true
+# cd true
+# ab false
+# ab false
+# ef true
+# cd false
+# 3 3
+# ab ["ab!", "ab", "ab", "ab"]
+# cd ["cd!", "cd", "cd"]
+# ef ["ef!", "ef"]
+# 10 10 13 85

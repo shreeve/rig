@@ -1,0 +1,11 @@
+fun pick(a: !Int, f: ?fun(Int) -> Int) -> !Int from a, f
+  a
+
+sub main()
+  n = 1
+  s = String("hello")
+  f = |<s, x: Int| x + s.len
+  r = pick(!n, ?f)
+  <f
+  r += 1
+  print(n)

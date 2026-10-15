@@ -1,0 +1,14 @@
+use std.hash
+
+sub main()
+  count = 0
+  m = hash.Map[Int, Int].new()
+  f = |!count, k: ?Int| bump(k, !count)
+  for i in 0..6
+    c = (!m).ensure_with(i % 3, ?f)
+    c += 1
+  print(count, m.get(0), m.get(2))
+
+fun bump(k: ?Int, count: !Int) -> Int
+  count += 1
+  k * 7

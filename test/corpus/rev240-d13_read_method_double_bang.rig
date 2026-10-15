@@ -1,0 +1,6 @@
+use std.hash
+
+sub main()
+  b = hash.Map[Int, Int].new()
+  !b.put(1, 2)
+  print(!(!b).get(1))
