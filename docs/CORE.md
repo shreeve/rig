@@ -1092,9 +1092,9 @@ no `<` (`m = p.n`). *(built)*
 
 `<`'s operand is a place or a made value: `<(a if c else b)` is written
 `<a if c else <b`. `swap` and `sort_by` work for any element; `sort`
-needs `<`. `copy`, `fill`, and `[n of x]` duplicate values, so they
-need elements that copy (§1), read views included, each copy carrying
-its loan *(built)*. So `List[String]`,
+needs `<`. `copy`, `fill`, `[n of x]`, `List.filled`, and
+`resize` duplicate values, so they need elements that copy (§1), read
+views included, each copy carrying its loan *(built)*. So `List[String]`,
 `List[List[Int]]`, and a list of records that each own a string just
 work. *(built)*
 

@@ -6059,6 +6059,7 @@ owns one), and read views.
 | Member | Meaning |
 |---|---|
 | `List()`, `List(capacity: n)` | an empty List (typed by context) |
+| `List.filled(n, x)`, `List[T].filled(n, x)` | a List of `n` copies of `x` (typed by `x`, by context, or by brackets); `x` must copy (below); panics when `n` is negative |
 | `!v.push(x)` | append; an owning `x` is moved or cloned in |
 | `v.len` | the number of elements |
 | `v.is_empty()` | `v.len == 0`; it only reads, so `!v.is_empty()` is rejected (negate with `not`) |
@@ -6066,6 +6067,7 @@ owns one), and read views.
 | `v.get(i)` | a copy of the element as `T?` (a `T` that copies; otherwise read `v[i]` or lend `?v[i]`) |
 | `!v.pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
 | `!v.keep(n)` | keep the first `n` elements and drop the rest, last first; `n == v.len` changes nothing, `n == 0` drops every element; panics unless `0 <= n <= v.len` |
+| `!v.resize(n, x)` | grow to `n` elements with copies of `x`, or shrink to `n` as `keep` does; `n == v.len` changes nothing; `x` must copy (below); panics when `n` is negative |
 | `!v.insert(i, x)` | put `x` at index `i`, moving the elements from `i` on up by one; `i` may be `v.len`; panics past it |
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.clear()` | drop every element |
@@ -6102,6 +6104,58 @@ undo read
 1 open
 [1, 2]
 undo open
+```
+
+**`List.filled` and `resize` copy one value into many elements,** as
+`fill` and `[n of x]` do, so the element must copy
+([CORE §5](docs/CORE.md#5-containers-and-fields-hold-values)): plain
+data or a read view, each copy carrying the view's loan. A call that
+is handed one owner never makes several: a List of Strings, Lists,
+boxes, handles, or objects that own one is grown by a loop whose `+x`
+makes each element, and shrunk with `keep`. `n` is evaluated first,
+then `x`, once, even when nothing is added.
+
+```rig
+sub main()
+  seen = List.filled(4, false)
+  depth: List[Int] = List.filled(3, 0)
+  seen[2] = true
+  !depth.resize(5, 7)
+  print(seen, depth)
+  !depth.resize(2, 0)
+  print(depth)
+  s = String("ab")
+  names = List.filled(2, ?s)
+  print(names)
+```
+
+```output
+[false, false, true, false] [0, 0, 0, 7, 7]
+[0, 0]
+["ab", "ab"]
+```
+
+```rig reject
+sub main()
+  rows = List.filled(3, String("row"))
+  print(rows.len)
+```
+
+```error
+`List.filled` copies its value into every element, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element, `for 0..n` with `!xs.push(+x)`
+```
+
+```rig
+sub main()
+  rows: List[String] = List(capacity: 3)
+  base = String("row")
+  for 0..3
+    !rows.push(+base)
+  print(rows)
+```
+
+```output
+["row", "row", "row"]
 ```
 
 A `for` loop lends the List to read for the whole loop ([§6](#for)), so
