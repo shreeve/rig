@@ -1,0 +1,10 @@
+use std.hash
+
+sub main()
+  base = 5
+  m = hash.Map[Int, Int].new()
+  f = |?base, k: ?Int| base + k
+  c = (!m).ensure_with(1, ?f)
+  <f
+  c += 1
+  print(m.get(1))

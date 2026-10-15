@@ -1,0 +1,167 @@
+# Map[String, List[Int]] and Set[String] against a List-of-pairs model,
+# through put_new, ensure, ensure_with, retain (writing values), take,
+# put, reserve, and clear; checks len, get, has, and walk order each step.
+use std.hash
+
+obj Pair
+  key: String
+  value: List[Int]
+  live: Bool
+
+obj Model
+  pairs: List[Pair] = List()
+  len: Int = 0
+
+  fun find(?self, k: ?String) -> Int?
+    for p, i in ?self.pairs
+      return i if p.live and p.key == k
+    none
+
+  sub add(!self, k: ?String, v: Int)
+    !self.pairs.push(Pair(key: String(k), value: one(v), live: true))
+    self.len += 1
+
+fun one(n: Int) -> List[Int]
+  l = List[Int]()
+  !l.push(n)
+  l
+
+obj Rand
+  s: U64
+
+  fun next(!self, n: Int) -> Int
+    self.s = self.s *% 6364136223846793005 +% 1442695040888963407
+    Int((self.s >> 33) % U64(n))
+
+fun keep(k: ?String, v: !List[Int]) -> Bool
+  !v.push(k.len)
+  (v[0] + v.len) % 3 != 0
+
+fun same(a: ?List[Int], b: ?List[Int]) -> Bool
+  return false if a.len != b.len
+  for x, i in a
+    return false if x != b[i]
+  true
+
+fun agree(m: ?hash.Map[String, List[Int]], ref: ?Model, span: Int) -> Bool
+  return false if m.len != ref.len
+  for x in 0..span
+    k = String("key", x)
+    got = m.get(k)
+    if ref.find(k) as i
+      if got as g
+        return false if not same(g, ref.pairs[i].value)
+      else
+        return false
+    else
+      return false if got != none or m.has(k)
+  i = 0
+  for e in ?m.items()
+    while i < ref.pairs.len and not ref.pairs[i].live
+      i += 1
+    return false if i >= ref.pairs.len or ref.pairs[i].key != e.key
+    i += 1
+  while i < ref.pairs.len and not ref.pairs[i].live
+    i += 1
+  i == ref.pairs.len
+
+fun run(seed: U64, span: Int, steps: Int, reserve: Int) -> Int
+  r = Rand(s: seed)
+  m = hash.Map[String, List[Int]].new(capacity: reserve)
+  ref = Model()
+  for step in 0..steps
+    op = (!r).next(20)
+    k = String("key", (!r).next(span))
+    if op < 4
+      isnew = ref.find(k) == none
+      !ref.add(k, step) if isnew
+      return step if (!m).put_new(<k, one(step)) != isnew
+    else if op < 7
+      !ref.add(k, step) if ref.find(k) == none
+      i = ref.find(k) ?? 0
+      !ref.pairs[i].value.push(-1)
+      c = (!m).ensure(<k, one(step))
+      !c.push(-1)
+    else if op < 10
+      !ref.add(k, k.len) if ref.find(k) == none
+      i = ref.find(k) ?? 0
+      !ref.pairs[i].value.push(-2)
+      c = (!m).ensure_with(<k, |kk| one(kk.len))
+      !c.push(-2)
+    else if op < 14
+      got = (!m).take(k)
+      if ref.find(k) as i
+        ref.pairs[i].live = false
+        ref.len -= 1
+        return step if got == none
+      else
+        return step if got != none
+    else if op < 16
+      if ref.find(k) as i
+        ref.pairs[i].value = one(step)
+      else
+        !ref.add(k, step)
+      !m.put(<k, one(step))
+    else if op < 18
+      kept: List[Pair] = List()
+      while (!ref.pairs).pop() as p
+        !kept.push(<p)
+      ref.len = 0
+      while (!kept).pop() as p
+        new q = <p
+        if q.live
+          if keep(q.key, !q.value)
+            !ref.pairs.push(<q)
+            ref.len += 1
+      !m.retain(|kk, v| keep(kk, !v))
+    else if op < 19
+      !m.reserve((!r).next(40))
+    else if (!r).next(10) == 0
+      !m.clear()
+      !ref.pairs.clear()
+      ref.len = 0
+    return step if not agree(?m, ?ref, span)
+  -1
+
+fun run_set(seed: U64, span: Int, steps: Int) -> Int
+  r = Rand(s: seed)
+  s = hash.Set[String]()
+  ref = Model()
+  for step in 0..steps
+    op = (!r).next(10)
+    k = String("key", (!r).next(span))
+    if op < 5
+      isnew = ref.find(k) == none
+      !ref.add(k, 0) if isnew
+      return step if (!s).add(<k) != isnew
+    else if op < 7
+      got = (!s).take(k)
+      if ref.find(k) as i
+        ref.pairs[i].live = false
+        ref.len -= 1
+        return step if got == none
+      else
+        return step if got != none
+    else if op < 8
+      !s.retain(|kk| kk.len % 2 == 0)
+      for p in !ref.pairs
+        if p.live and p.key.len % 2 != 0
+          p.live = false
+          ref.len -= 1
+    else if op < 9
+      !s.reserve((!r).next(30))
+    return step if s.len != ref.len
+    for x in 0..span
+      kk = String("key", x)
+      return step if s.has(kk) != (ref.find(kk) != none)
+    i = 0
+    for kk in ?s.items()
+      while i < ref.pairs.len and not ref.pairs[i].live
+        i += 1
+      return step if i >= ref.pairs.len or ref.pairs[i].key != kk
+      i += 1
+  -1
+
+sub main()
+  print(run(1, 5, 300, 0), run(2, 12, 400, 0), run(3, 60, 400, 0), run(4, 200, 300, 0), run(5, 30, 300, 50))
+  print(run_set(6, 5, 300), run_set(7, 14, 400), run_set(8, 200, 300))

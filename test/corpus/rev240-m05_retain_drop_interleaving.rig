@@ -1,0 +1,19 @@
+# retain drops each entry f rejects as it goes, before f sees the next.
+use std.hash
+
+obj Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun keep(k: ?Int, r: !Res) -> Bool
+  print("f", k)
+  k % 2 == 0
+
+sub main()
+  m = hash.Map[Int, Res].new()
+  for i in 0..4
+    !m.put(i, Res(n: i))
+  !m.retain(|k, r| keep(k, !r))
+  print("after", m.len)

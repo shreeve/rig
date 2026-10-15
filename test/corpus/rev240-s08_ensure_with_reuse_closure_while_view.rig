@@ -1,0 +1,13 @@
+use std.hash
+
+sub main()
+  m = hash.Map[Int, Int].new()
+  n = hash.Map[Int, Int].new()
+  f = |k: ?Int| k * 7
+  c = (!m).ensure_with(1, ?f)
+  d = (!n).ensure_with(2, ?f)
+  c += 1
+  d += 1
+  <f
+  c += 1
+  print(m.get(1), n.get(2))

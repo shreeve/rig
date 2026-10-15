@@ -1,0 +1,108 @@
+# std.hash's writes beyond `put`: `ensure` lends the value under a key,
+# putting one first when the key is new; `put_new` puts only a new key,
+# so the first value wins; `edit` then `put` makes a value only for a
+# new key; and `retain` keeps, in order, the entries a closure says to,
+# writing values as it goes and dropping each entry it rejects then.
+
+use std.hash
+
+obj Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  words = ["to", "be", "or", "not", "to", "be", "to"]
+
+  counts = hash.Map[String, Int].new()
+  for w in words
+    c = (!counts).ensure(String(w), 0)
+    c += 1
+  for e in ?counts.items()
+    print(e.key, e.value)
+
+  groups = hash.Map[Int, List[String]].new()
+  for w in words
+    g = (!groups).ensure(w.len, List())
+    !g.push(String(w))
+  for e in ?groups.items()
+    print(e.key, e.value)
+
+  seen = hash.Map[?String, Int].new()
+  order = List[?String]()
+  for i in 0..words.len
+    if (!seen).put_new(words[i], i)
+      !order.push(words[i])
+  print(order, seen.get("to"), seen.get("be"), seen.len)
+
+  made = hash.Map[String, String].new()
+  for w in ["ab", "cd", "ab"]
+    if (!made).edit(w) as s
+      !s.add("+")
+    else
+      !made.put(String(w), String(w, w))
+  for e in ?made.items()
+    print(e.key, e.value)
+
+  res = hash.Map[Int, Res].new()
+  for i in 0..12
+    !res.put(i, Res(n: i * 10))
+  !res.retain(|k, r| keep(k, !r))
+  print("kept", res.len)
+  for e in ?res.items()
+    print(e.key, e.value.n)
+  print(res.has(3), res.get(4) != none)
+  !res.put(30, Res(n: 1))
+  print(res.len, res.has(30))
+
+  nums = hash.Set[Int].new()
+  for i in 0..20
+    _ = (!nums).add(i)
+  !nums.retain(|k| k % 5 != 0)
+  out = List[Int]()
+  for k in ?nums.items()
+    !out.push(k)
+  print(nums.len, nums.has(5), nums.has(6), out)
+  print("end")
+
+fun keep(k: ?Int, r: !Res) -> Bool
+  r.n += 1
+  k % 4 != 3 and k < 10
+
+# expect:
+# to 3
+# be 2
+# or 1
+# not 1
+# 2 ["to", "be", "or", "to", "be", "to"]
+# 3 ["not"]
+# ["to", "be", "or", "not"] 0 1 4
+# ab abab+
+# cd cdcd
+# drop 31
+# drop 71
+# drop 101
+# drop 111
+# kept 8
+# 0 1
+# 1 11
+# 2 21
+# 4 41
+# 5 51
+# 6 61
+# 8 81
+# 9 91
+# false true
+# 9 true
+# 16 false true [1, 2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14, 16, 17, 18, 19]
+# end
+# drop 1
+# drop 91
+# drop 81
+# drop 61
+# drop 51
+# drop 41
+# drop 21
+# drop 11
+# drop 1

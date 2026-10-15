@@ -1,0 +1,9 @@
+sub bump(v: !List[Int])
+  !v.push(1)
+
+sub main()
+  v: List[Int] = List()
+  bump(!(!v))
+  w = !(!v)
+  !w.push(2)
+  print(v)

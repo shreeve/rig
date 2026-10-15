@@ -1,0 +1,8 @@
+use std.hash
+
+sub main()
+  m = hash.Map[Int, String].new()
+  views: List[!String] = List()
+  !views.push((!m).ensure(1, String("a")))
+  !m.clear()
+  print(views.len)

@@ -1,0 +1,61 @@
+# Every value made is dropped exactly once through put_new, ensure,
+# ensure_with, retain, take, put, and clear, on small and large Maps.
+use std.hash
+
+obj Res
+  n: Int
+  live: *Cell[Int]
+
+  drop(!self)
+    !self.live.set(self.live.get() - 1)
+
+fun mk(n: Int, live: ?*Cell[Int]) -> Res
+  c = +live
+  !c.set(c.get() + 1)
+  Res(n: n, live: <c)
+
+obj Rand
+  s: U64
+
+  fun next(!self, n: Int) -> Int
+    self.s = self.s *% 6364136223846793005 +% 1442695040888963407
+    Int((self.s >> 33) % U64(n))
+
+fun run(seed: U64, span: Int, steps: Int, live: ?*Cell[Int]) -> Int
+  r = Rand(s: seed)
+  m = hash.Map[String, Res].new()
+  for step in 0..steps
+    op = (!r).next(12)
+    k = String("k", (!r).next(span))
+    if op < 3
+      _ = (!m).put_new(<k, mk(step, live))
+    else if op < 5
+      c = (!m).ensure(<k, mk(step, live))
+      c.n += 1
+    else if op < 7
+      c = (!m).ensure_with(<k, |?live, kk| mk(kk.len, live))
+      c.n += 1
+    else if op < 9
+      t = (!m).take(k)
+      <t
+    else if op < 10
+      !m.put(<k, mk(step, live))
+    else if op < 11
+      !m.retain(|kk, v| bumpkeep(kk, !v))
+    else if (!r).next(20) == 0
+      !m.clear()
+  n = 0
+  for e in ?m.items()
+    n += e.value.n
+  n
+
+fun bumpkeep(k: ?String, v: !Res) -> Bool
+  v.n += 1
+  (v.n + k.len) % 3 != 0
+
+sub main()
+  live = *Cell(0)
+  a = run(1, 5, 500, ?live)
+  b = run(2, 40, 3000, ?live)
+  c = run(3, 300, 6000, ?live)
+  print(a > 0, b > 0, c > 0, live.get())

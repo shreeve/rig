@@ -1,0 +1,9 @@
+use std.hash
+
+obj Box
+  m: hash.Map[Int, List[Int]] = hash.Map[Int, List[Int]]()
+
+sub main()
+  x = Box()
+  (!x.m).ensure(1, List()).push(5)
+  print(x.m.len)

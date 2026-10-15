@@ -1,0 +1,7 @@
+use std.hash
+
+sub main()
+  b = hash.Map[Int, Int].new()
+  x = !(!b).ensure(1, 0)
+  x += 1
+  print(b.get(1))

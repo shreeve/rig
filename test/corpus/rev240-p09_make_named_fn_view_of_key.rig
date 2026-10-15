@@ -1,0 +1,12 @@
+use std.hash
+
+fun same(k: ?(?String)) -> ?String
+  k
+
+sub main()
+  s = String("key")
+  m = hash.Map[?String, ?String].new()
+  c = (!m).ensure_with(?s, same)
+  print(c)
+  <s
+  print(m.len)

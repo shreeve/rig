@@ -1,0 +1,5 @@
+sub main()
+  vs: List[List[Int]] = List()
+  !vs.push(List())
+  !(!vs[0]).push(1)
+  print(vs)
