@@ -1399,9 +1399,10 @@ value, and a constructor may omit that field. Like a parameter default,
 it is a literal (a number, a string, `true` / `false`, `none`, or
 `.variant`) or a module constant, of this module or an imported one
 (`LIMIT`, `lib.LIMIT`, `U8.max`); a field's may also be an empty or
-literal constructor: `List()`, `List[T]()`, `String()`, `Cell(0)`, or `[n of x]` with
-a literal or constant `x`. Each value the constructor makes gets a fresh
-default, so no two share a `List`. An object with a `Cell` field lives
+literal constructor: `List()`, `List[T]()`, `String()`, `Cell(0)`, `[n of x]` with
+a literal or constant `x`, or `T()` of an object whose every field has a
+default (`Bag()`, `lib.Bag()`, `Stack[Int]()`). Each value the
+constructor makes gets a fresh default, so no two share a `List`. An object with a `Cell` field lives
 only behind a shared handle, so it is made under `*`
 ([§10](#cell)).
 
@@ -7924,12 +7925,31 @@ A field or method is private to its module unless it is declared `pub`:
 is visible; another module that reads or writes a private field, or
 calls a private method or associated function, is rejected, whichever
 way it reaches the member: through a view, a `*T` handle, a `^T`, or
-an instance of a generic type. Another module constructs an object only
-when every one of its fields is `pub`; a type with a private field is
-made by its own module, which can hand it out through a `pub` function.
-An enum's variants and their payload fields are always public, since
-they are the type's shape; its methods follow the rule above. A `drop`
-body is not called by name, so it takes no `pub`.
+an instance of a generic type. Another module constructs an object with
+its fields given only when every one of its fields is `pub`; a type with
+a private field is made by its own module, which can hand it out
+through a `pub` function. `T()`, with no fields given, makes an object
+whose every field has a default, from any module, private fields
+included, since it sets only the values the type itself chose; it is a
+field's default too ([§3](#objects)), as `List()` is, and works for a
+generic object (`boxes.Stack[Int]()`). An enum's variants and their
+payload fields are always public, since they are the type's shape; its
+methods follow the rule above. A `drop` body is not called by name, so
+it takes no `pub`.
+
+A field declared `pub ?name: T` (also `pub ?name: T = v`) is public to
+read and private to write: any module reads it, lends it to read, and
+walks it, and only its own module writes it. Another module that
+assigns it or a part of it, lends it to write (a `!` lend, a call of a
+method that writes it, `swap`, `replace`, a `for` or header that writes
+it), or takes it out with `<`, is rejected, through a view, a `^T`, or
+an instance alike. The `?` is the read sigil: other modules get a read
+view. It needs `pub`, since a private field is read by no other module,
+and it is not an optional type: `pub ?len: Int` is a read-only `Int`,
+and `pub len: Int?` an optional one anyone writes. Read-only stops at a
+shared handle: with `pub ?h: *Cell[Int]`, another module cannot point
+`h` at another Cell, but `!t.h.set(5)` changes the shared Cell, since a
+handle is only read and a Cell changes by a marked call.
 
 ```rig file=bank.rig
 pub obj Account
@@ -7985,6 +8005,51 @@ sub main()
 method `audit` of `bank.Account` is private to module `bank`; declare it `pub sub audit` there to call it from here
 only module `bank` can construct `bank.Account`: its field `balance` is private
 field `balance` of `bank.Account` is private to module `bank`; declare it `pub balance: ...` there to use it from here
+```
+
+```rig file=tally.rig
+pub obj Tally
+  pub ?count: Int = 0
+  marks: List[Int] = List()
+
+  pub sub add(!self, n: Int)
+    !self.marks.push(n)
+    self.count += 1
+```
+
+```rig
+use tally
+
+obj Report
+  votes: tally.Tally = tally.Tally()
+
+sub main()
+  r = Report()
+  !r.votes.add(7)
+  !r.votes.add(9)
+  print(r.votes.count)
+```
+
+```output
+2
+```
+
+```rig file=tally.rig
+pub obj Tally
+  pub ?count: Int = 0
+  marks: List[Int] = List()
+```
+
+```rig reject
+use tally
+
+sub main()
+  t = tally.Tally()
+  t.count = 5
+```
+
+```error
+cannot assign to `t.count`: field `count` of `tally.Tally` is read-only outside module `tally`, which declares it `pub ?count`
 ```
 
 Another module's `pub` generic types and functions are used as local

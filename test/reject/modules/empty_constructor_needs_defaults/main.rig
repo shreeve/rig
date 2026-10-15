@@ -1,0 +1,18 @@
+# `T()` makes a value only from defaults for every field, as a local or
+# as a field's default: a private field with no default is the module's
+# to set. And explicit fields set a value only when every field is
+# `pub`, as before.
+
+use lib
+
+obj Keep
+  h: lib.Half = lib.Half()
+
+sub main()
+  h = lib.Half()
+  b = lib.Bag(limit: 4)
+  print(h, b)
+
+# error: 9:17: `lib.Half()` is a default only when every field of `lib.Half` has one, and `size` has none
+# error: 12:11: `lib.Half()` makes a `lib.Half` from its fields' defaults, and `size` has no default; its fields `items`, `size` are private to module `lib`, which alone can set them
+# error: 13:11: only module `lib` can construct `lib.Bag`: its field `items` is private

@@ -1,0 +1,16 @@
+# A read-only field reached through an optional's payload is still read-
+# only.
+
+use lib
+
+sub main()
+  t = lib.Tally()
+  !t.bump(3)
+  o: lib.Tally? = <t
+  if !o as u
+    u.last = 5
+  t = lib.Tally()
+  print(t.tags, t.inner.n, t.shape, t.last)
+
+# error: 11:7: cannot assign to `u.last`: field `last` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?last`
+# errors: 1

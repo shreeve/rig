@@ -1,0 +1,13 @@
+# Read-only stops at a shared handle: a `pub ?h: *Cell[Int]` field is
+# not reassigned from another module, but the Cell it shares changes by
+# a marked call, since a handle is only read.
+
+use lib
+
+sub main()
+  t = lib.make()
+  !t.h.set(5)
+  print(t.h.get())
+
+# expect:
+# 5

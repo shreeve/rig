@@ -1,0 +1,12 @@
+# A read-only field stays read-only in a module that reaches the type
+# through another.
+
+use mid
+
+sub main()
+  t = mid.make()
+  t.count = 5
+  print(t.count)
+
+# error: 8:5: cannot assign to `t.count`: field `count` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?count`
+# errors: 1

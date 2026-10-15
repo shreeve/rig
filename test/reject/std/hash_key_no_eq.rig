@@ -4,6 +4,6 @@ use std.hash
 
 sub main()
   m = hash.Map[List[Int], Int].new()
-  print(m.len())
+  print(m.len)
 
 # error: cannot use `K = List[Int]`

@@ -1,0 +1,14 @@
+# A closure that captures an object to write cannot write its read-only
+# field.
+
+use lib
+
+sub main()
+  t = lib.Tally()
+  !t.bump(3)
+  f = |!t| t.last = 8
+  f()
+  print(t.tags, t.inner.n, t.shape, t.last)
+
+# error: 9:14: cannot assign to `t.last`: field `last` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?last`
+# errors: 1

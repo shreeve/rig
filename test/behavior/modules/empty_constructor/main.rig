@@ -1,0 +1,29 @@
+# `T()` of an object whose every field has a default makes the value
+# those defaults give, from any module, though some fields are private:
+# as a local, as a field's default (a fresh one for each value), and for
+# a generic object, as a local and as a default.
+
+use lib
+
+obj Shelf
+  bag: lib.Bag = lib.Bag()
+  pile: lib.Pile[String] = lib.Pile[String]()
+
+sub main()
+  b = lib.Bag()
+  !b.add(4)
+  !b.add(5)
+  print(b.total(), b.limit)
+  s = Shelf()
+  t = Shelf()
+  !s.bag.add(7)
+  !s.pile.put(String("x"))
+  print(s.bag.total(), t.bag.total(), s.pile.count(), t.pile.count())
+  p = lib.Pile[Int]()
+  !p.put(1)
+  print(p.count())
+
+# expect:
+# 9 3
+# 7 0 1 0
+# 1
