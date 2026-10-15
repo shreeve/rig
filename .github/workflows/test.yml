@@ -23,13 +23,18 @@ jobs:
     with:
       os: ubuntu-latest
 
+  # macOS runs on main only (and by hand): the account's few macOS runners
+  # are shared with other repositories, and every pull request's fast gate
+  # already runs on an Apple Silicon Mac before it merges.
   macos:
+    if: github.event_name != 'pull_request'
     uses: ./.github/workflows/shards.yml
     with:
       os: macos-latest
 
   # The checks the ruleset on main requires: each passes only when every
-  # shard of its system passed.
+  # shard of its system passed. On a pull request the macOS shards are
+  # skipped, and its check passes on that skip alone.
   test-ubuntu:
     name: test (ubuntu-latest)
     needs: ubuntu
@@ -44,4 +49,4 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - run: test "${{ needs.macos.result }}" = success
+      - run: test "${{ needs.macos.result }}" = success || { test "${{ github.event_name }}" = pull_request && test "${{ needs.macos.result }}" = skipped; }
