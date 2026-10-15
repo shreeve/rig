@@ -234,7 +234,7 @@ class Results:
         verdict = [inspect.getsource(f) for f in VERDICT_CODE] + [r.pattern for r in (BAD, POS, CRASH)]
         settings = sorted("%s=%s" % kv for kv in os.environ.items() if kv[0].startswith("RIG_") and not RIG_LOCATIONS.match(kv[0]))
         self.fixed = fixed_inputs()
-        self.base = sha256("rig results 2 matrix", *verdict, RUN_SECONDS, RUN_OUTPUT, RUN_MB,
+        self.base = sha256("rig results 2 matrix", *verdict, RUN_SECONDS, RUN_OUTPUT, RUN_MB, CAP_MODE,
                            open(os.path.join(ROOT, "src", "main.zig"), "rb").read(), zig, zenv.stdout, *settings)
 
     def key(self, path, expect, release):
@@ -3526,15 +3526,38 @@ def tree_rss(pgid):
     return total
 
 
-CPUQ = shutil.which("cpuq")
+def find_cap():
+    """`cpuq cap`, where it stops programs, else None (the watchdog).
+    RIG_CAP=1 asks for it and RIG_CAP=0 refuses it. Unset, it is used
+    off Linux, where it matched the watchdog; on Linux a cgroup's
+    memory.max counts page cache and kernel memory that RSS does not,
+    so it waits until RUN_MB is recalibrated there. Probed once."""
+    want, path = os.environ.get("RIG_CAP", ""), shutil.which("cpuq")
+    if want == "0" or not path or (want != "1" and sys.platform.startswith("linux")):
+        return None
+    try:
+        ok = subprocess.run([path, "cap", "--time", "10s", "--", "true"], capture_output=True,
+                            stdin=subprocess.DEVNULL, timeout=30).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        ok = False
+    if not ok:
+        print("note: `cpuq cap` failed its probe; the watchdog stops programs", file=sys.stderr)
+    return path if ok else None
 
 
-def run_capped(cmd, env):
+CPUQ = find_cap()
+# How programs are stopped, in the results cache's key.
+CAP_MODE = "watchdog" if not CPUQ else "cap %s %s" % (
+    subprocess.run([CPUQ, "--version"], capture_output=True, text=True).stdout.strip(),
+    "cgroup" if os.environ.get("CPUQ_CGROUP") else "tree")
+
+
+def run_capped(cmd, env, cap=True):
     """Run `cmd` with its output in files, stopping it as RUN_* say: by
     `cpuq cap` where cpuq is installed (inside a cpuq job on Linux the
     kernel enforces the memory limit, and nothing polls), else by the
     watchdog below (CI, and machines without cpuq)."""
-    if CPUQ:
+    if CPUQ and cap:
         return run_capped_cpuq(cmd, env)
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         p = subprocess.Popen(cmd, stdout=out, stderr=err, stdin=subprocess.DEVNULL, env=env, start_new_session=True)
@@ -3579,20 +3602,29 @@ def run_capped_cpuq(cmd, env):
     pipes."""
     capped = [CPUQ, "cap", "--mem", f"{RUN_MB}M", "--time", f"{RUN_SECONDS}s", "--output", str(RUN_OUTPUT), "--"] + cmd
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-        p = subprocess.run(capped, stdout=out, stderr=err, stdin=subprocess.DEVNULL, env=env, start_new_session=True)
+        p = subprocess.Popen(capped, stdout=out, stderr=err, stdin=subprocess.DEVNULL, env=env, start_new_session=True)
+        try:
+            p.wait(timeout=RUN_SECONDS + 60)
+        except subprocess.TimeoutExpired:
+            os.killpg(p.pid, signal.SIGKILL)
+            p.wait()
+            raise MemoryError("stopped: cpuq cap did not return (a harness failure)")
         out.seek(0)
         err.seek(0)
         stdout = out.read().decode(errors="replace")
         stderr = err.read().decode(errors="replace")
-    # 124, 122, and 121 are cap's only when it says so; the program's
-    # own exit status passes through.
-    if "cpuq cap: stopped" in stderr:
+    # cap's own line, when it has one, is the last.
+    last = stderr.rstrip("\n").rpartition("\n")[2]
+    if last.startswith("cpuq cap: stopped "):
         if p.returncode == 124:
             raise subprocess.TimeoutExpired(cmd, RUN_SECONDS)
         if p.returncode == 122:
             raise MemoryError(f"stopped: used more than {RUN_MB} MB")
         if p.returncode == 121:
             raise MemoryError(f"stopped: printed more than {RUN_OUTPUT} bytes")
+    elif p.returncode == 125 and last.startswith("cpuq cap: "):
+        print(f"note: {last}; the watchdog runs it", file=sys.stderr)
+        return run_capped(cmd, env, cap=False)
     return subprocess.CompletedProcess(cmd, p.returncode, stdout, stderr)
 
 def run_one(path, keep, started_dir, expect=None, release=False):
@@ -3705,7 +3737,7 @@ def first_error(s):
 
 
 # Every function a program's verdict reads (Results hashes their code).
-VERDICT_CODE = (tree_rss, run_capped, run_one, run_built, first_line, first_error, run_proof, run_proof_built, proof_dump_at, run_unit)
+VERDICT_CODE = (tree_rss, run_capped, run_capped_cpuq, find_cap, run_one, run_built, first_line, first_error, run_proof, run_proof_built, proof_dump_at, run_unit)
 
 
 def main():
