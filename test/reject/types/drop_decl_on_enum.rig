@@ -8,4 +8,4 @@ enum Color
   drop(!self)
     print(1)
 
-# error: `drop` bodies are only for non-generic structs, not enums
+# error: `drop` bodies are only for non-generic objects, not enums

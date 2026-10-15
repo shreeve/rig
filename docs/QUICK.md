@@ -15,6 +15,10 @@ states the ownership model in full; [SYNTAX](../SYNTAX.md) and
 After a type, `T?` may be `none` and `T!` may fail; after an
 expression, `e?` passes `none` up and `e!` passes a failure up.
 
+**An object is a value; `^` puts it on the heap and `*` shares it.** `b = a`
+copies a plain object and moves an owning one; the object itself is
+never on the heap or shared unless a sigil says so.
+
 **After a name, `[]` is compile time and `()` is run time.** Indexing is
 the one familiar exception: `max[Float](1, 2)` passes a type, `xs[i]`
 indexes a value.
