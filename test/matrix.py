@@ -3213,10 +3213,34 @@ def run_unit(path, keep, started_dir, cell):
 RUN_SECONDS = 120
 RUN_OUTPUT = 1 << 20
 RUN_MB = 2048
+# Memory is read every RUN_MEM_EVERY seconds, so a program that ends
+# sooner is never read: where there is no /proc, each reading is a `ps`
+# of the whole machine.
+RUN_MEM_EVERY = 1.0
+
+
+PAGE_KB = os.sysconf("SC_PAGE_SIZE") // 1024
+# Linux lists a process's children in /proc, so the reading walks only
+# the program's own tree; elsewhere (macOS) `ps` lists every process.
+PROC_CHILDREN = os.path.exists(f"/proc/self/task/{os.getpid()}/children")
 
 
 def tree_rss(pgid):
-    """The resident memory of process group `pgid`, in kilobytes."""
+    """The resident memory of process group `pgid` (its leader and the
+    leader's descendants), in kilobytes."""
+    if PROC_CHILDREN:
+        total, stack = 0, [pgid]
+        while stack:
+            p = stack.pop()
+            try:
+                with open(f"/proc/{p}/statm") as f:
+                    total += int(f.read().split()[1]) * PAGE_KB
+                for t in os.listdir(f"/proc/{p}/task"):
+                    with open(f"/proc/{p}/task/{t}/children") as f:
+                        stack.extend(int(c) for c in f.read().split())
+            except (OSError, ValueError):
+                pass
+        return total
     r = subprocess.run(["ps", "-A", "-o", "pgid=,rss="], capture_output=True, text=True)
     total = 0
     for l in r.stdout.splitlines():
@@ -3231,15 +3255,23 @@ def run_capped(cmd, env):
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         p = subprocess.Popen(cmd, stdout=out, stderr=err, stdin=subprocess.DEVNULL, env=env, start_new_session=True)
         start = time.monotonic()
+        next_mem = start + RUN_MEM_EVERY
         why = None
-        while p.poll() is None:
-            time.sleep(0.2)
-            if time.monotonic() - start > RUN_SECONDS:
+        while True:
+            try:
+                p.wait(timeout=0.2)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            now = time.monotonic()
+            if now - start > RUN_SECONDS:
                 why = "timeout"
             elif os.fstat(out.fileno()).st_size + os.fstat(err.fileno()).st_size > RUN_OUTPUT:
                 why = f"printed more than {RUN_OUTPUT} bytes"
-            elif tree_rss(p.pid) > RUN_MB << 10:
-                why = f"used more than {RUN_MB} MB"
+            elif now >= next_mem:
+                next_mem = now + RUN_MEM_EVERY
+                if tree_rss(p.pid) > RUN_MB << 10:
+                    why = f"used more than {RUN_MB} MB"
             if why:
                 try:
                     os.killpg(p.pid, signal.SIGKILL)
