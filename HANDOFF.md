@@ -65,6 +65,13 @@ from).
     is always a call (`noinline fn`), and one marked `rarely fun` is kept
     out of line with Zig's cold hint (both words are contextual); a
     `for` index counter needs no per-iteration cast.
+  - **The stack:** a program runs on a 64 MiB stack the runtime maps
+    over a 64 GiB guard (`rig.onOwnStack`), so running out of stack, by
+    deep recursion or a large frame, stops with `error: rig: stack
+    overflow` in every build mode; each frame's reach (what it keeps and
+    every value its code makes or copies) is bounded to stay within the
+    guard, and a large frame is never inlined; a fill a box or a local
+    takes is built in place (docs/INTERNALS.md, "The program's stack").
   - **Compiler and tools:** a synthetic span outside its source reads as
     empty; the package cache and the build store have size caps;
     `src/parser.zig` is generated at build time from `rig.grammar`
@@ -344,7 +351,6 @@ migration guide (`tools/migrate-0.3.py`).
   `-|`, and lane shifts.)
 - A String API for part-word appends and windowed writes.
 - Multiple results.
-- A frame-size guard for every function.
 - Nexus's `Span.text`, in place of the position slicing Rig does.
 
 **Also open:**

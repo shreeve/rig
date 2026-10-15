@@ -3464,7 +3464,9 @@ symbols); a query that decides more than that belongs in `Pending`.
     more than that added by the inlined calls in it
     (`max_inlined_frame_bytes`), and no function's own frame (`checkFrames`)
     with the inlined calls in it passes `sema.max_frame_bytes` (13 MiB),
-    since Zig puts an inlined body's locals in its caller's frame;
+    since Zig puts an inlined body's locals in its caller's frame; and
+    its frame is not large (`large_frames`, which emit also writes
+    `noinline`, [Sema](#sema));
   - with the inlined calls in it, each counted at every call site, it
     expands to at most `inlining.max_expanded` (320) nodes, so a chain of
     functions that each call the next twice does not have Zig analyze the
