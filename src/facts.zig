@@ -690,7 +690,6 @@ pub const syntax = struct {
     pub const lentPlace = storage.lentPlace;
     pub const argValue = storage.argValue;
     pub const eachTargetStep = storage.eachTargetStep;
-    pub const targetIsBase = storage.targetIsBase;
     pub const eachGuardPart = rig.eachGuardPart;
     pub const eachGuardOperand = rig.eachGuardOperand;
     pub const leavesBody = rig.leavesBody;

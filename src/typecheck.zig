@@ -1218,12 +1218,10 @@ const Checker = struct {
         }
     }
 
-    /// `obj.field = v`, `xs[i] = v`, `f(x) = v` where the call returns a
-    /// write view (also `f(x)! = v` and `f(x)? = v`), and compound forms.
+    /// `obj.field = v`, `xs[i] = v`, and compound forms.
     fn checkPlaceAssign(self: *Checker, kind: rig.BindingKind, target: Sexp, type_node: Sexp, rhs: Sexp) Error!void {
         const head = target.kind();
-        const through = head == .call or head == .propagate or head == .propagate_none;
-        if (head != .member and head != .index and !through) {
+        if (head != .member and head != .index) {
             try self.errAt(target, "cannot assign to this expression", .{});
             _ = try self.synthExpr(rhs);
             return;
@@ -1240,7 +1238,6 @@ const Checker = struct {
             else => {},
         }
         const place_ty = try self.synthExpr(target);
-        if (through) return self.assignThroughCall(kind, target, place_ty, rhs);
         if (try self.rejectLane(target, .assign)) {
             _ = try self.synthExpr(rhs);
             return;
@@ -1277,46 +1274,6 @@ const Checker = struct {
         if (head == .index) _ = try self.needsCleanup(place_ty, self.startOf(target), "overwrites an element");
         if (kind.operator() != null) return self.checkCompound(kind, place_ty, rhs, self.startOf(target), "this place has type");
         try self.checkExpr(rhs, place_ty);
-    }
-
-    /// `f(x) = v` or `f(x) op= v`, where the call returns a write view
-    /// `!T`: the `T` it views is written, as `w = f(x)` then `w = v` or
-    /// `w op= v` would write it through a hidden local `w` (Core §6), and
-    /// so for `f(x)!` and `f(x)?` of a call that returns a fallible or
-    /// optional write view. The call is the base of a target with no
-    /// fields or elements, so it runs after the value, as any target's
-    /// base does (`storage.eachSetStep`). Any other call's result is a
-    /// value, or a view that nothing is written through.
-    fn assignThroughCall(self: *Checker, kind: rig.BindingKind, target: Sexp, view_ty: TypeId, rhs: Sexp) Error!void {
-        if (self.isPoison(view_ty)) {
-            _ = try self.synthExpr(rhs);
-            return;
-        }
-        const viewed = switch (self.ctx.types.get(view_ty)) {
-            .write_view => |inner| inner,
-            .read_view => {
-                try self.errAt(target, "cannot assign through a read view (`?T`), which this call returns; a call that returns a write view (`!T`) is assigned through", .{});
-                _ = try self.synthExpr(rhs);
-                return;
-            },
-            else => {
-                const name = try self.tyName(view_ty);
-                try self.errAt(target, "cannot assign to a call's result, {s} `{s}`; only a write view (`!T`) a call returns is assigned through", .{ article(name), name });
-                _ = try self.synthExpr(rhs);
-                return;
-            },
-        };
-        if (sema.writeSliceElem(self.ctx, view_ty) != null) {
-            try self.errAt(target, "cannot assign to a `{s}` a call returns; write its elements with `{s}[i] = v`", .{ try self.tyName(view_ty), self.sourceText(target) });
-            _ = try self.synthExpr(rhs);
-            return;
-        }
-        if (!try self.requireAccess(self.placeOf(target), .assign, target)) {
-            _ = try self.synthExpr(rhs);
-            return;
-        }
-        if (kind.operator() != null) return self.checkCompound(kind, viewed, rhs, self.startOf(target), "the value this call's write view reaches has type");
-        try self.checkExpr(rhs, viewed);
     }
 
     /// `x op= e` is `x = x op e` with `x` evaluated once, and `x` keeps its
@@ -4689,8 +4646,9 @@ const Checker = struct {
     /// views is copied out where `a` has one, as `if a as v` then `v`
     /// else `b` copies `v` (Core sentence 1), and the form is recorded
     /// (`SemContext.recordPayloadCopy`). A `T` that does not copy is
-    /// reported, with poison returned; in a generic body, each instance's
-    /// `T` must copy (`cannotCopy`). Null where the form gives the view.
+    /// reported, with poison returned, and so is a `T` that may not copy in
+    /// every instance of a generic body. Null where the form gives the
+    /// view.
     fn fallbackCopy(self: *Checker, e: Sexp, holder: Sexp, holder_ty: TypeId, view_result: TypeId, fallback: Sexp, expected: ?TypeId) Error!?TypeId {
         const view = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, holder_ty))) {
             .optional, .fallible => |inner| inner,
@@ -4718,10 +4676,17 @@ const Checker = struct {
         // decide otherwise without its context.
         if (self.ctx.quiet == 0) try self.ctx.recordPayloadCopy(e, copies);
         if (!copies) return null;
-        if (try self.cannotCopy(viewed, self.startOf(holder), if (e.isKind(.@"??")) "copies out with `??` a value" else "copies out with `catch` a value")) {
+        // Only a value that copies is copied out of a view; in a generic
+        // body, a `T` that may not copy in every instance is not, as a
+        // view read where its `T` is expected is not (`checkActual`).
+        const answer = sema.copies(self.ctx, viewed);
+        if (answer != .yes) {
             const name = try self.tyName(viewed);
             const lent = try self.spliced(e, &.{fallback}, &.{try self.ctx.arena.allocator().print("?{s}", .{self.sourceText(fallback)})});
-            try self.errAt(e, "`{s}` would copy out the `{s}` that `{s}` views, since its fallback is a value, not a view, and {s} `{s}` {s}, so it does not copy: lend the fallback, so the result is the view, and clone that for {s} `{s}` of its own: `+({s})`", .{ self.sourceText(e), name, self.sourceText(holder), article(name), name, self.movesBecause(viewed), article(name), name, lent });
+            const head = "`{s}` would copy out the `{s}` that `{s}` views, since its fallback is a value, not a view; only a value that copies is copied out of a view, and ";
+            if (answer == .depends) {
+                try self.errAt(e, head ++ "`{s}` may not copy in every instance: lend the fallback, so the result is the view: `{s}`", .{ self.sourceText(e), name, self.sourceText(holder), name, lent });
+            } else try self.errAt(e, head ++ "{s} `{s}` {s}: lend the fallback, so the result is the view, and clone that for {s} `{s}` of its own: `+({s})`", .{ self.sourceText(e), name, self.sourceText(holder), article(name), name, self.movesBecause(viewed), article(name), name, lent });
             return self.t().invalid_id;
         }
         return viewed;

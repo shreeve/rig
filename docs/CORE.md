@@ -904,9 +904,43 @@ takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 A view of a value that copies (§1) is copied out where that value is
 expected, a plain object, array, or optional as a number is, and the
 copy carries no loan but those of the views it holds, as with a call's
-`?Int` result. So is the view inside an optional or fallible value
-whose `??` or `catch` falls back to a value, not a view: `m.get(k) ??
-0` is an `Int`, as `if m.get(k) as v` then `v` else `0` is. *(built)* A slice `x[a..b]` is the same lend, of
+`?Int` result. `a ?? b` is `v` when `a` holds a view `v`, and `b`
+otherwise; `a catch b` is the same over a failure (§8). So when `b` is
+a `T`, the type the view sees, `v` is copied out to match it, as above:
+`m.get(k) ?? 0` is an `Int`, and `m` stays free to change. A fallback
+that is a view or a jump leaves the view, and so does `none` where an
+optional view is expected. When the viewed type does not copy, a `T`
+fallback is rejected: lend the fallback and clone the result, as in
+`+(m.get(k) ?? ?String("none"))`. *(built)*
+
+```rig
+use std.hash
+
+sub main()
+  m = hash.Map[String, Int]()
+  for k in ["a", "b", "a"]
+    !m.put(String(k), (m.get(k) ?? 0) + 1)
+  print(m.get("a") ?? 0, m.get("b") ?? 0)
+```
+
+```output
+2 1
+```
+
+```rig reject
+use std.hash
+
+sub main()
+  m = hash.Map[String, String]()
+  s = m.get("a") ?? String("none")
+  print(s)
+```
+
+```error
+only a value that copies is copied out of a view, and a `String` owns a resource: lend the fallback, so the result is the view, and clone that for a `String` of its own: `+(m.get("a") ?? ?String("none"))`
+```
+
+A slice `x[a..b]` is the same lend, of
 part of `x`, and goes unwritten as an argument where `x` does:
 `total(w[1..3])` is `total(?w[1..3])`. *(built)* So `sort.sort(!v)` works on a `List` as it does on an array,
 and one `fun area(s: ?Shape)` serves a `Shape`, a `^Shape`, and a
@@ -1217,9 +1251,7 @@ sub main()
 
 **View places.** Assigning a view to a place that holds one re-points
 it, and assigning a value writes through. A field that holds a read
-view re-points the same way. A write view a call returns is a place
-too, which a value is written through: `slot(!n) += 1` is `w =
-slot(!n)`, then `w += 1`. `new` only shadows, and accepts every
+view re-points the same way. `new` only shadows, and accepts every
 binding form.
 *(built)*
 
@@ -1235,21 +1267,6 @@ sub main()
 
 ```output
 1 5
-```
-
-```rig
-fun slot(v: !List[Int], i: Int) -> !Int from v
-  !v[i]
-
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  slot(!v, 0) += 1
-  print(v)
-```
-
-```output
-[2]
 ```
 
 ## 7. Closures and defer

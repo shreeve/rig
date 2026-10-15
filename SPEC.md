@@ -2697,53 +2697,6 @@ and one bound with a `!T` type (`x: !Int = w`) would copy the view, so
 both are rejected. A write view of a plain object, array, or optional
 reads it as one of a number does (`q = p` with `p: !Point`).
 
-A write view a call returns is assignable too, with no binding to hold
-it: `slot(!v, 0) = 5`, `slot(!v, 0) += 1`, and `(!b).first() *= 2`
-write the value the view reaches, the old value dropped first, as
-`w = slot(!v, 0)` then `w = 5` does. So does the write view a call's
-`!` or `?` gives (`get(!v)! += 1` for a `(!Int)!`, `(!m).edit(k)? +=
-1` for a `(!Int)?`). The call is the target's base, so it runs after
-the value. A call that returns a value, a read view, or a `![]T` is not
-assigned (a `![]T`'s elements are: `all(!v)[0] = 5`).
-
-```rig
-obj Bag
-  items: List[Int]
-
-  fun first(!self) -> !Int
-    !self.items[0]
-
-fun slot(v: !List[String], i: Int) -> !String from v
-  !v[i]
-
-sub main()
-  b = Bag(items: List())
-  !b.items.push(5)
-  (!b).first() += 1
-  (!b).first() *= 2
-  names: List[String] = List()
-  !names.push(String("ada"))
-  slot(!names, 0) = String("bob")
-  print(b.items, names)
-```
-
-```output
-[12] ["bob"]
-```
-
-```rig reject
-fun count(v: ?List[Int]) -> Int
-  v.len
-
-sub main()
-  v: List[Int] = List()
-  count(?v) += 1
-```
-
-```error
-cannot assign to a call's result, an `Int`; only a write view (`!T`) a call returns is assigned through
-```
-
 A write view is never stored inside a value (Core §5): `!T`,
 also as `(!T)?` and `(!T)!`, is only a parameter's, a receiver's, a
 result's, or a local or header binding's type, never a field's, an
@@ -7364,10 +7317,11 @@ but those of the views it holds, so `n = m.get(k) ?? 0` leaves `m` free
 to change. A fallback that is a view (`?? ?d`), a jump, or `none` where
 an optional view is expected keeps the view instead, and a binding
 with no type then reads a view of a number as the number. `catch` does
-the same for a fallible view (`(?T)!`), and so does a generic body,
-where each instance's `T` must copy. A `T` that does not copy, such as
-a `String` or a `List`, is not copied out: lend the fallback, which
-gives the view, and clone that for a value of its own.
+the same for a fallible view (`(?T)!`). A `T` that does not copy, such
+as a `String` or a `List`, is not copied out: lend the fallback, which
+gives the view, and clone that for a value of its own. Nor is a type
+parameter `T` in a generic body, which may not copy in every instance,
+as a view read where its `T` is expected is not.
 
 ```rig
 use std.hash
@@ -7409,7 +7363,7 @@ sub main()
 ```
 
 ```error
-a `String` owns a resource, so it does not copy: lend the fallback, so the result is the view, and clone that for a `String` of its own: `+(names.get("a") ?? ?String("nobody"))`
+only a value that copies is copied out of a view, and a `String` owns a resource: lend the fallback, so the result is the view, and clone that for a `String` of its own: `+(names.get("a") ?? ?String("nobody"))`
 ```
 
 ---

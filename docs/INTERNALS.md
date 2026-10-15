@@ -2688,7 +2688,7 @@ and each desugars into forms the checker already walks:
 | `!xs.fill(e)`, `!xs.copy(src)` | `xs[i] = e` (or `src[i]`) for each `i`: a store into `xs` of a value carrying those loans |
 | `\|+x\|` | `c = +x` where the closure is made, then `\|<c\|`, the capture named `x`: `+x` reads through a view, copies a value that copies, counts a handle again, and clones an owner (`sema.cloneable`) |
 | `Cell.get`, `List.get`, and `??` and `?` through a view | a copy of the element or value inside, rejected when it does not copy; `if r as x` binds a copy of a value that copies, and a view of any other |
-| `a ?? b` or `a catch b` whose payload is a `?T` or `!T` (`sema.payloadViewed`) and whose fallback `b` is no view of it: it meets neither the view nor the form's type as a view, so not a view, a jump, or `none` where an optional view goes | `if a as v` then `v` else `b`, with `v` read through: the form is a `T`, recorded once by typecheck (`fallbackCopy`, the fact `copiesPayload`), which emit writes as `(rig.copiedOut(T, a) orelse b)` (`catch` alike) and the ownership checker walks as the payload read through (`walkPayloadHolder`, `copiedOut`): the copy keeps the loans of the views `T` holds, not `a`'s. A `T` that does not copy is rejected, and a generic `T` records `Requirement.copies`. A value that holds no view keeps no lend (`keptLends`), so `n = m.get(k) ?? 0` needs no `?m` |
+| `a ?? b` or `a catch b` whose payload is a `?T` or `!T` (`sema.payloadViewed`) and whose fallback `b` is no view of it: it meets neither the view nor the form's type as a view, so not a view, a jump, or `none` where an optional view goes | `if a as v` then `v` else `b`, with `v` read through: the form is a `T`, recorded once by typecheck (`fallbackCopy`, the fact `copiesPayload`), which emit writes as `(rig.copiedOut(T, a) orelse b)` (`catch` alike) and the ownership checker walks as the payload read through (`walkPayloadHolder`, `copiedOut`): the copy keeps the loans of the views `T` holds, not `a`'s. A `T` that does not copy is rejected, and so is a type parameter, which may not copy in every instance, as a view read where its `T` is expected is (`checkActual`). A value that holds no view keeps no lend (`keptLends`), so `n = m.get(k) ?? 0` needs no `?m` |
 
 A generic body that does any of these to a `T` records
 `Requirement.copies`, which each instance must meet. No value holds a
@@ -3158,25 +3158,6 @@ method's result `(!p).at(!i)`, a propagation `get(!h)?`, a branch
 a range's bounds left to right. A target that is a name has no steps.
 The store comes last: it finds the place through the base and indexes
 as they were evaluated, and stores.
-
-A target that is its own base, with no field or element on its path
-(`storage.targetIsBase`), is a call that returns a write view `!T`,
-or such a call's `!` or `?` (typecheck admits no other,
-`assignThroughCall`). It writes the `T` the view reaches, as a hidden
-binding of the view would:
-
-```text
-slot(!v, i) op= value   ==>   { __v = value; w = slot(!v, i); w op= __v }
-```
-
-The call is the base, so it runs after the value, and the store goes
-through the pointer it returns (`Emitter.emitTarget`: `__rig_base_N.*`
-where the base is held, else `(slot(&v, i)).*`). The storage plan and
-emit take the place's type as the `T` (`Planner.placeAssign`,
-`emitPlaceAssign`), so a `T` that owns is replaced through a `slot`,
-the old value dropped; the ownership checker walks the call as a base
-that is no place and stores through its write loans
-(`walkFieldAssign`), as it does for `slot(!v, i).f = value`.
 
 The value runs to its end first: every statement in it (a `match` arm,
 an `if` or `else` block, a `catch` handler, a nested assignment), every
