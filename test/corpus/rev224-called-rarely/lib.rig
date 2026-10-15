@@ -1,0 +1,17 @@
+pub obj Box[T]
+  pub v: T
+
+  pub called fun get(?self) -> T
+    self.v
+
+  pub rarely sub set(!self, v: T)
+    self.v = v
+
+pub called fun twice[T](x: T) -> T
+  x + x
+
+pub rarely fun scaled[k: Int](x: Int) -> Int
+  x * k
+
+pub called fun inc(x: Int) -> Int
+  x + 1

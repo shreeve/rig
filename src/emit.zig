@@ -173,6 +173,9 @@ const FunState = struct {
     /// The function is emitted `inline`: its parameters are bound as
     /// run-time values (`emitFunPrologue`).
     inlined: bool = false,
+    /// The function is marked `rarely`: its body starts with
+    /// `@branchHint(.cold)`, which Zig takes only as the first statement.
+    cold: bool = false,
     /// A closure's environment parameter, when no capture is used.
     unused_env: []const u8 = "",
     /// The body's first statement is still to come: it raises Zig's
@@ -780,7 +783,8 @@ pub const Emitter = struct {
 
         const tparams = facts.syntax.tparamsOf(node);
         const inlined = self.facts.isInlined(name_node);
-        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined };
+        const marker = self.facts.markerOf(node);
+        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main, .inlined = inlined, .cold = marker == .rarely };
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
@@ -794,7 +798,7 @@ pub const Emitter = struct {
                 try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return rig.exitStatus(__rig_run_main(__rig_init){s});\n}}\n\n", .{catches});
             } else try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) void {{\n    __rig_run_main(__rig_init){s};\n}}\n\n", .{catches});
             try self.w.writeAll("fn __rig_run_main(");
-        } else try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else "", ident(name) });
+        } else try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else if (marker == .called) "noinline " else "", ident(name) });
         // Zig hands the arguments and environment only to `main`.
         if (is_main) try self.w.writeAll("__rig_init: std.process.Init.Minimal");
         try self.pushScope();
@@ -871,7 +875,8 @@ pub const Emitter = struct {
         return std.mem.eql(u8, facts.syntax.paramName(self.source, p) orelse "", "self");
     }
 
-    /// Statements at the top of a function body: the evaluation budget
+    /// Statements at the top of a function body: the cold hint of a
+    /// `rarely` function, then the evaluation budget
     /// (`rig.eval_quota`) unless it is inline; in `main`,
     /// `rig.guardStack()` and the deferred `rig.finish()` (flush output,
     /// check for leaks), then parameter copies and guards, and discards
@@ -884,6 +889,7 @@ pub const Emitter = struct {
         // function that is not inline raises its budget first.
         if (self.fun.quota) {
             self.fun.quota = false;
+            if (self.fun.cold) try self.line("@branchHint(.cold);", .{});
             if (!self.fun.inlined) try self.line("@setEvalBranchQuota(rig.eval_quota);", .{});
         }
         if (self.fun.leak_check) {

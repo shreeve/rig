@@ -80,6 +80,7 @@ def programs(docdir):
             d = os.path.join(docdir, md[:-3].replace("/", "-"), "L%d" % start)
             os.makedirs(d)
             for f, t in [("main.rig", text)] + list(modules.items()):
+                # A `file=dir/name.rig` block is a file of a directory module.
                 os.makedirs(os.path.dirname(os.path.join(d, f)), exist_ok=True)
                 open(os.path.join(d, f), "w").write(t)
             modules = {}

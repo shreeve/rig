@@ -1,0 +1,7 @@
+# The program's `main` is called once, by the program: it takes no marker.
+
+rarely fun main() -> Int
+  0
+
+# error: 3:1: `main` is the program's entry point, which the program calls once: it takes no `rarely`
+# errors: 1
