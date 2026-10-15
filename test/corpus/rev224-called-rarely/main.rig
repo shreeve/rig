@@ -1,0 +1,72 @@
+# Review of #224's split: `called` and `rarely` on functions, methods,
+# generic and compile-time-parameter functions, fallible ones with
+# `defer` and `errdefer`, function values, and across modules.
+
+use lib
+use std.math
+
+error E
+  bad
+
+called fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+rarely fun safe(n: Int) -> Int!
+  return E.bad if n == 0
+  defer print("safe", n)
+  if n > 100
+    return 100
+  10 / n
+
+rarely sub check(n: Int)!
+  errdefer print("failed", n)
+  defer print("checked", n)
+  return E.bad if n < 0
+  print("ok", n)
+
+obj Acc
+  items: List[Int]
+
+  called sub add(!self, x: Int)
+    !self.items.push(x)
+
+  rarely fun first(?self) -> Int?
+    return none if self.items.len == 0
+    self.items[0]
+
+called fun Acc.count(?self) -> Int
+  self.items.len
+
+called fun tiny(x: Int) -> Int
+  x
+
+rarely fun sq(x: Float) -> Float
+  math.sqrt(x)
+
+sub main()
+  b = lib.Box[Int](v: 3)
+  !b.set(5)
+  print(b.get(), lib.twice(4), lib.twice(1.5), lib.scaled[3](2), lib.scaled[4](2))
+  print(apply(lib.inc, 1), apply(tiny, 9), apply(|x: Int| x * 2, 3))
+  g = tiny
+  print(g(7), safe(2) catch -1, safe(0) catch -1, safe(500) catch -1)
+  check(1) catch print("x")
+  check(-1) catch print("caught")
+  a = Acc(items: List[Int]())
+  print(a.first() ?? 0)
+  !a.add(8)
+  print(a.count(), a.first() ?? 0, sq(16.0))
+
+# expect:
+# 5 8 3.0 6 8
+# 2 9 6
+# safe 2
+# safe 500
+# 7 5 -1 100
+# ok 1
+# checked 1
+# checked -1
+# failed -1
+# caught
+# 0
+# 1 8 4.0

@@ -1,0 +1,13 @@
+pub obj Point
+  pub x: Int
+  pub y: Int
+
+  pub called fun sum(?self) -> Int
+    self.x + self.y
+
+pub called fun scale(n: Int, k: Int) -> Int
+  n * k
+
+pub rarely fun warn(n: Int) -> Int
+  print("warn", n)
+  0 - n

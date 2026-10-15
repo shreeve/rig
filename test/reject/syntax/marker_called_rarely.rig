@@ -1,0 +1,11 @@
+# A function takes one marker: `rarely` already keeps every call a call,
+# so `called` beside it says nothing more, and is an error for clarity.
+
+rarely called sub f()
+  print(1)
+
+sub main()
+  f()
+
+# error: 4:8: a function takes one marker
+# errors: 1
