@@ -1484,3 +1484,37 @@ of the tape held in a local, it was 10.8% faster on canada. It misses
 the speed rule on citm_catalog and does not land; it can come back if
 something else removes its cost on long integers. Reading every integer
 digit a byte at a time, uncapped, was worse: citm_catalog 4.7% slower.
+
+## Every parser on x86
+
+The honest harness on x86: pup (Intel Core Ultra 9 185H, AVX2), under
+cpuq's `pup-bench` lease, pinned to one P core (`taskset -c 2`), fastest
+of 15 interleaved runs of about 400 ms; MB/s. Rig main at f95ea861d. The
+C, C++ and Rust parsers are built for the native CPU, zimdjson is its DOM
+parser in ReleaseFast, and std.json is in Zig's safe mode, every check
+kept:
+
+| file | std.json | yyjson | simdjson (DOM) | sonic-rs | zimdjson (DOM, fast) | simd-json (tape) | Zig std.json (tape, safe) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| twitter | 2770 | 3771 | **4751** | 2661 | 4226 | 2402 | 675 |
+| twitterescaped | 2232 | 2624 | 2098 | 2129 | **2823** | 1391 | 464 |
+| canada | 1289 | 1392 | **1442** | 1365 | 929 | 1069 | 386 |
+| citm_catalog | 2922 | 3607 | **5192** | 3401 | 4415 | 2484 | 737 |
+| gsoc-2018 | **5781** | 3198 | 5718 | 5005 | 5361 | 3243 | 427 |
+| github_events | 3238 | 3941 | **5533** | 3766 | 4890 | 2690 | 619 |
+| geomean | 2754 | 2925 | **3649** | 2813 | 3296 | 2064 | 535 |
+
+On x86 simdjson is the fastest parser measured: 25% ahead of std.json by
+geomean, where on the Mac std.json is 9% ahead of it ("Against C and
+C++"). zimdjson, a port of simdjson's design, is 16% ahead, yyjson 6%,
+and sonic-rs within 2%. std.json leads only gsoc-2018, and stays 33%
+ahead of simd-json and 5.1x Zig's std.json. simdjson first indexes every
+structural character of each 64-byte block with SIMD (on x86, 32-byte
+AVX2 vectors), then walks the index; std.json scans tokens one after
+another. That index is docs/json/DESIGN.md's first open item, which also
+needs a carry-less multiply from Rig to find the bytes inside strings.
+
+The x86 checks in "SIMD first on x86, and the tape in a local" and "A
+number's first digits a byte at a time" ran on burst, a shared cloud VM
+that cpuq reserves for throughput, not timing: read them as indicative.
+x86 timing runs on pup under the `pup-bench` lease.
