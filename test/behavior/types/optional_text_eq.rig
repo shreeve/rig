@@ -1,0 +1,24 @@
+# An optional of text compares with text of any type by its bytes, as
+# two texts do: a `String?` beside a `?String`, a `Static`, or a String,
+# and a `?String?` beside a String, or a boxed String beside a
+# `String?`. `none` equals no text.
+
+sub main()
+  o: String? = String("a")
+  n: String? = none
+  t = String("a")
+  u = String("b")
+  print(o == ?t, o == ?u, n == ?t, o != ?u)
+  print(o == "a", o == "b", n == "a", "a" == o)
+  print(o == t, ?u == o)
+  v: (?String)? = ?t
+  print(v == t, v == u, v == "a")
+  bx = ^String("a")
+  print(o == bx, n == bx)
+
+# expect:
+# true false false true
+# true false false true
+# true false
+# true false true
+# true false

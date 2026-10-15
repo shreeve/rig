@@ -2916,7 +2916,8 @@ A handle `*T` or `~T` has no `==`, since it could compare identity or
 content; nor does a function or closure, a List, Cell, or Signal, a
 object that declares `drop`, or an object or payload that holds a `?T`,
 `!T`, or slice. Neither does a type that holds one of these, and the
-diagnostic names the field that does.
+diagnostic names the field that does. Two handles' contents compare
+through views: `?a == ?b`.
 
 Ordering comparisons (`<`, `<=`, `>`, `>=`) take two numbers, or two
 `?String` values or two `[]U8` slices, ordered by their bytes: the first byte
@@ -2997,6 +2998,51 @@ sub main()
 
 ```error
 `==` is not defined for `Slot`: field `held.to` is a handle `*Node`
+```
+
+`x.hash()` is a `U64` computed from a value's content, on exactly the
+types `==` compares less a `Float` and what holds one, since `==` calls
+`0.0` and `-0.0` equal and a NaN equal to nothing (hash a float's bits,
+`x.to_bits().hash()`). Values `==` calls equal hash equal: text hashes
+its bytes whatever its type (`String`, `?String`, `Static`, or a boxed
+String), an optional holding a value hashes as that value, an integer
+as its value, and the rest by their parts, as `==` compares them. The
+seed is fixed, so a value hashes the same in every run. `x.hash()` reads
+`x` where it is, as `==` does. A type that declares a method `hash`
+gets its own; in a generic body, `k.hash()` on a type parameter's value
+is checked at each instance, as `==` is, and an instance whose type
+declares its own `hash` is rejected, since the body calls the built-in
+one. `std.hash`'s Map and Set ([docs/STD.md](docs/STD.md#stdhash)) key
+on it.
+
+```rig
+obj P
+  x: Int
+  name: String
+
+sub main()
+  a = P(x: 1, name: String("q"))
+  b = P(x: 1, name: String("q"))
+  t = String("q")
+  print(a == b, a.hash() == b.hash(), t.hash() == "q".hash())
+```
+
+```output
+true true true
+```
+
+```rig reject
+obj Reading
+  at: Int
+  value: Float
+
+sub main()
+  r = Reading(at: 1, value: 2.5)
+  print(r.hash())
+```
+
+```error
+`.hash()` does not take a `Reading`: field `value` is a `Float`
 ```
 
 `and`, `or`, and `not` take `Bool`s, and `and` and `or` short-circuit:

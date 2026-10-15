@@ -1,0 +1,22 @@
+# Two shared handles' contents compare through views, `?a == ?b`, and
+# a handle's content with a value, `?s == t`: a handle itself has no
+# `==`.
+
+obj P
+  n: Int
+  name: String
+
+sub main()
+  s = *String("q")
+  r = *String("q")
+  u = *String("z")
+  t = String("q")
+  print(?s == ?r, ?s == ?u, ?s == t, ?s == "q")
+  a = *P(n: 1, name: String("x"))
+  b = *P(n: 1, name: String("x"))
+  c = *P(n: 2, name: String("x"))
+  print(?a == ?b, ?a == ?c)
+
+# expect:
+# true false true true
+# true false

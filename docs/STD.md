@@ -38,6 +38,7 @@ never read as the library's.
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
+| [`std.hash`](#stdhash) | Map and Set: hash tables that keep insertion order |
 | [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
 | [`std.utf8`](#stdutf8) | runes: reading, writing, counting, and checking UTF-8 |
 | [`std.utf16`](#stdutf16) | units: UTF-16 lengths and positions, and surrogate pairs |
@@ -459,6 +460,117 @@ sub main()
 ```output
 ["bob", "ann", "cy"] 1 false
 ```
+
+## std.hash
+
+`hash.Map[K, V]` and `hash.Set[K]`, hash tables written in Rig over
+Lists. Iteration is in the order keys were first put in, as in Python,
+Ruby, and JavaScript: `put` on a key already there keeps its place, and
+`take` keeps the rest in order. A key is any value `x.hash()` takes
+([SPEC §5](../SPEC.md#operators)): what `==` compares, less a `Float`
+and what holds one. Text hashes and compares by its bytes, so a
+`Map[String, V]` finds `m.get("x")` and `m.get(?t)` alike, and a
+`Map[?String, V]` holds views. Each instance is checked for its key
+type, as any generic is.
+
+| Member | Signature | Ownership |
+|---|---|---|
+| `hash.Map[K, V].new()` | `fun new() -> Map[K, V]` | allocates nothing until the first `put` |
+| `m.len()` | `fun len(?self) -> Int` | the number of entries |
+| `m.has(k)` | `fun has(?self, k: ?K) -> Bool` | reads |
+| `m.get(k)` | `fun get(?self, k: ?K) -> (?V)? from self` | the view keeps `m` lent to read, not `k` |
+| `(!m).edit(k)` | `fun edit(!self, k: ?K) -> (!V)? from self` | keeps `m` lent to write |
+| `!m.put(k, v)` | `sub put(!self, k: K, v: V)` | takes `k` and `v`; a key already there keeps its place, its old value and `k` are dropped |
+| `(!m).replace(k, v)` | `fun replace(!self, k: K, v: V) -> V?` | as `put`, handing the old value back |
+| `(!m).take(k)` | `fun take(!self, k: ?K) -> V?` | the value back, owned; the key dropped |
+| `!m.clear()` | `sub clear(!self)` | drops every entry |
+| `?m.items()` | `fun items(?self) -> Items[K, V] from self` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) lasts one step of the loop |
+| `?m.keys()`, `?m.values()` | `fun keys(?self) -> Keys[K, V] from self` | likewise, each a `?K` or a `?V` |
+| `!m.update(f)` | `sub update(!self, f: ?sub(?K, !V))` | writes each value in place; keys stay read-only |
+
+`hash.Set[K]` has `new()`, `len()`, `has(k: ?K)`, `(!s).add(k: K) ->
+Bool` (true when `k` is new; otherwise `k` is dropped), `(!s).take(k:
+?K) -> K?`, `clear()`, and `?s.items()`, each key a `?K`.
+
+A view an iterator gives comes from `next`, which takes the iterator
+lent to write, so it lasts until the loop takes the next one: it can
+be read and passed on in the loop's body, but not kept past it (`keep =
+e.value` in the loop is rejected). To keep a value, clone it (`+e.value`),
+or look it up again with `get`.
+
+```rig
+use std.hash
+
+sub main()
+  ages = hash.Map[String, Int].new()
+  !ages.put(String("ada"), 36)
+  !ages.put(String("bob"), 41)
+  !ages.put(String("ada"), 37)
+  print(ages.len(), ages.get("ada"), ages.get("cy"))
+  if (!ages).edit("bob") as a
+    a += 1
+  print((!ages).take("bob"), ages.has("bob"))
+  name = String("cy")
+  !ages.put(<name, 5)
+  for e in ?ages.items()
+    print(e.key, e.value)
+  seen = hash.Set[?String].new()
+  for w in ["b", "a", "b"]
+    if (!seen).add(w)
+      print("new", w)
+  print(seen.len(), seen.has("a"))
+```
+
+```output
+2 37 none
+42 false
+ada 37
+cy 5
+new b
+new a
+2 true
+```
+
+The view `get` returns keeps the Map lent to read, so the Map is not
+changed while it lives:
+
+```rig reject
+use std.hash
+
+sub main()
+  m = hash.Map[String, Int].new()
+  !m.put(String("a"), 1)
+  r = ?m.get("a")
+  !m.put(String("b"), 2)
+  print(r)
+```
+
+```error
+cannot lend `m` to write while a read loan is live
+```
+
+A key needs `.hash()`, which a `Float` does not have:
+
+```rig reject
+use std.hash
+
+sub main()
+  m = hash.Map[Float, Int].new()
+  print(m.len())
+```
+
+```error
+cannot use `K = Float`: the generic body hashes a `K` with `.hash()`, which `Float` does not support
+```
+
+The entries are kept in one List, in order. The table is
+open-addressed and probed linearly, at most four fifths full; each slot
+holds a one-byte tag, seven bits of its key's hash, and the index of its
+entry, so a probe compares a key only when the tag matches, and a key
+that is not there is found missing from the tags alone. Taking an entry
+empties it in place, and the next growth drops it. The seed of
+`.hash()` is fixed, so a program that lets others choose many keys that
+collide can be made slow.
 
 ## List
 

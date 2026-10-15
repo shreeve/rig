@@ -1065,6 +1065,13 @@ sub main()
 1
 ```
 
+**A container written in Rig follows its signatures.** `hash.Map[K,
+V]` and `hash.Set[K]` are std code with no rule of their own: `!m.put(k,
+v)` takes `k` and `v` as any owning parameter does; `m.get(k)` returns
+a `(?V)?` view `from self`, which keeps `m` lent and not `k` (sentence
+7); `(!m).edit(k)` returns a `(!V)?` that keeps `m` lent to write; and
+`(!m).take(k)` hands the value back owned and drops the key. *(built)*
+
 ## 6. Bindings and assignment
 
 **Evaluation order.** `x = e` evaluates `e` first, then the indexes in

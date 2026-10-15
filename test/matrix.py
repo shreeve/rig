@@ -41,7 +41,8 @@ debug and with `--release` (`unit.`, below), and a generic `==`, `!=`, or
 ordering over every pairing of a view, an optional, an owner, and a List
 element, at each instance type, which is rejected with a diagnostic or
 runs, in debug and with `--release`, and prints what the values compare
-as (`cmp.`). The rule is
+as, and over the same pairings that values `==` calls equal have equal
+`.hash()`es (`cmp.`). The rule is
 the corpus's: `rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
@@ -124,8 +125,9 @@ def fal(ty):
 
 
 def opt(ty):
-    """The optional of a type: a read view takes parentheses first."""
-    return f"({ty})?" if ty.startswith("?") else f"{ty}?"
+    """The optional of a type: a read view or an optional takes
+    parentheses first."""
+    return f"({ty})?" if ty.startswith("?") or ty.endswith("?") else f"{ty}?"
 
 
 def optn(ty, n):
@@ -994,7 +996,7 @@ def eq_expect(op, left, right):
 def eq_program(tname, lform, rform, group):
     """The program, and what it prints (None where it must be rejected)."""
     spec = EQ_TYPES[tname]
-    ops = ("eq", "ne") if group == "eq" else ("lt", "ge")
+    ops = {"eq": ("eq", "ne"), "ord": ("lt", "ge"), "hash": ("hs",)}[group]
     symbol = {"eq": "==", "ne": "!=", "lt": "<", "ge": ">="}
     lty, lmay, lbody = EQ_FORMS[lform]
     rty, rmay, rbody = EQ_FORMS[rform]
@@ -1003,12 +1005,14 @@ def eq_program(tname, lform, rform, group):
         lines.append("")
     lines += [f"fun mk(n: Int) -> {spec['ty']}"] + ["  " + l for l in spec["mk"]] + [""]
     for op in ops:
-        lines += [f"fun {op}[K](a: {lty}, b: {rty}) -> Bool",
-                  f"  {lbody.format(v='a')} {symbol[op]} {rbody.format(v='b')}", ""]
+        l, r = lbody.format(v='a'), rbody.format(v='b')
+        # Values `==` calls equal hash equal.
+        test = f"not ({l} == {r}) or {l}.hash() == {r}.hash()" if op == "hs" else f"{l} {symbol[op]} {r}"
+        lines += [f"fun {op}[K](a: {lty}, b: {rty}) -> Bool", f"  {test}", ""]
     run, out = [], []
     def cases(form, may):
         d = EQ_DEPTH.get(form, 0)
-        if not may or group != "eq":
+        if not may or group == "ord":
             return [(0, 1), (0, 2)]
         return [(s, None) for s in range(d)] + [(d, 1), (d, 2)]
 
@@ -1037,14 +1041,16 @@ def eq_program(tname, lform, rform, group):
                 run += ls + rs
                 shown.append(f"{op}[{spec['ty']}]({la}, {ra})")
             run.append("print(" + ", ".join(shown) + ")")
-            if group == "eq":
+            if group == "hash":
+                out.append("true")
+            elif group == "eq":
                 e = same(lv, rv)
                 out.append(" ".join("true" if (e if op == "eq" else not e) else "false" for op in ops))
             else:
                 vals = [None if v[1] is None else v[1] for v in (lv, rv)]
                 out.append(" ".join("true" if eq_expect(op, *vals) else "false" for op in ops))
     lines += ["sub main()"] + ["  " + l for l in run]
-    ok = spec["eq"] if group == "eq" else spec["ord"]
+    ok = {"eq": spec["eq"], "ord": spec["ord"], "hash": spec["eq"] and tname != "float"}[group]
     return "\n".join(lines) + "\n", ("\n".join(out) + "\n") if ok else None
 
 
@@ -1052,7 +1058,7 @@ def eq_cells():
     """The `cmp.` cells: (id, program, expected output or None to be rejected)."""
     cells = []
     for tname, spec in EQ_TYPES.items():
-        for group in ("eq", "ord"):
+        for group in ("eq", "ord", "hash"):
             ordered = group == "ord"
             for lform in (EQ_ORDER_FORMS + ("elem", "elemopt") if ordered else EQ_FORMS):
                 for rform in EQ_RIGHT:
