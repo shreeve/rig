@@ -2084,7 +2084,13 @@ holds the value. A type argument may be a read view, of an owner too
 which is never stored in a value ([Write views](#write-views)), and a
 body that stores its `T` in a Cell, a Signal, or an owned closure cannot
 be instantiated with a view, since those carry no loan; write `?T`
-in the signature to take a view that is only read.
+in the signature to take a view that is only read. In an instance a `T`
+may hold a view, so the check of a body against its signature counts a
+parameter whose loans reach a value of a type that holds a type
+parameter (an element of `xs: []T`, `f(s)` with `f` returning a `T`, a
+`T` taken by value) as returned wherever the body returns such a value:
+`fun pick[T](f: ?fun(?String) -> T, a: ?String, b: ?String) -> T from b`
+cannot return `f(a)`.
 
 ```rig
 fun same[T](x: T) -> T
