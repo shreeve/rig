@@ -664,6 +664,13 @@ pushes allocate nothing; a negative `n` panics. `!v.keep(n)` keeps the
 first `n` elements and drops the rest, so a List can be rewound to a
 length saved earlier.
 
+`List.filled(n, x)` makes a List of `n` copies of `x`, and
+`!v.resize(n, x)` grows a List to `n` elements with copies of `x`, or
+shrinks it to `n` as `keep` does; a negative `n` panics. Each copies
+one value into many elements, so the element must copy: plain data,
+or a read view whose copies carry its loan. A List of owners is grown
+by a loop whose `+x` makes each element.
+
 ```rig
 sub main()
   v: List[Int] = List()
@@ -678,6 +685,30 @@ sub main()
 ```output
 3 [0, 1, 4]
 [0]
+```
+
+```rig
+sub main()
+  marks = List.filled(3, 0)
+  !marks.resize(5, 1)
+  print(marks)
+  !marks.resize(1, 0)
+  print(marks)
+```
+
+```output
+[0, 0, 0, 1, 1]
+[0]
+```
+
+```rig reject
+sub main()
+  v: List[List[Int]] = List()
+  !v.resize(2, List())
+```
+
+```error
+`resize` copies its value into every element it adds, and a `List[Int]` owns a resource, so it cannot be copied
 ```
 
 ## Text: bytes, runes, units, chars

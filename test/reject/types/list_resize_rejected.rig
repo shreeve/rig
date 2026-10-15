@@ -1,0 +1,37 @@
+# `!v.resize(n, x)` copies `x` into every element it adds, so the element
+# type must copy, even when the call would only shrink (line 20 shrinks
+# a List of two Strings to one): a List of owners grows by a loop that
+# makes each element and shrinks with `keep`. It writes the List, so it
+# needs a write lend.
+
+obj Named
+  name: String
+
+sub grow[T](v: !List[T], x: T)
+  !v.resize(4, x)
+
+sub look(v: ?List[Int])
+  !v.resize(1, 0)
+
+sub main()
+  s: List[String] = List()
+  !s.push(String("b"))
+  !s.push(String("c"))
+  !s.resize(1, String())
+  !s.resize(3, String("a"))
+  n: List[Named] = List()
+  !n.resize(1, Named(name: String("x")))
+  v = List.filled(2, 0)
+  v.resize(3, 0)
+  !v.resize(3, "x")
+  grow(!s, String("q"))
+  print(s, n, v)
+
+# error: 20:6: `resize` copies its value into every element it adds, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for xs.len..n` with `!xs.push(+x)`); `!xs.keep(n)` shrinks any List
+# error: 21:6: `resize` copies its value into every element it adds, and a `String` owns a resource
+# error: 23:6: `resize` copies its value into every element it adds, and a `Named` owns a resource
+# error: 25:5: method `resize` needs its receiver lent to write; write `!v.resize(3, 0)`
+# error: 26:16: type mismatch: expected `Int`, got `Static`
+# error: 27:3: `grow[String]` cannot use `T = String`
+# error: 14:4: cannot lend to write through a read view `?List[Int]`
+# errors: 7

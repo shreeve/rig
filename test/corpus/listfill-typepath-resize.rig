@@ -1,0 +1,4 @@
+sub main()
+  xs: List[String] = List()
+  List.resize(!xs, 2, String("a"))
+  print(xs)

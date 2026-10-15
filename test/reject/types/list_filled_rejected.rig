@@ -1,0 +1,35 @@
+# `List.filled(n, x)` copies `x` into every element, so the element must
+# copy (docs/CORE.md): an owner, a box, a handle, or an object holding
+# one is made once per element by a loop that says so. The element
+# needs a type, and the count is an `Int`.
+
+obj Named
+  name: String
+
+fun make[T](n: Int, x: T) -> List[T]
+  List.filled(n, x)
+
+sub main()
+  y = 5
+  a = List.filled(3, String("a"))
+  b = List.filled(2, Named(name: String("x")))
+  c: List[^Int] = List.filled(2, ^1)
+  h = *Cell(0)
+  d = List.filled(2, h)
+  e = List.filled(3, none)
+  f = List.filled("3", 0)
+  g = List.filled(2, !y)
+  i = make(2, String("q"))
+  j = List.filled(3)
+  print(a, b, c, d, e, f, g, i, j)
+
+# error: 14:12: `List.filled` copies its value into every element, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for 0..n` with `!xs.push(+x)`)
+# error: 15:12: `List.filled` copies its value into every element, and a `Named` owns a resource
+# error: 16:24: `List.filled` copies its value into every element, and a `^Int` owns a resource
+# error: 18:12: `List.filled` copies its value into every element, and a `*Cell[Int]` owns a resource
+# error: 19:12: cannot infer `T` for `List` from the arguments
+# error: 20:19: type mismatch: expected `Int`, got `Static`
+# error: 21:22: `!y` here is read, not held
+# error: 22:7: `make[String]` cannot use `T = String`
+# error: 23:12: cannot infer `T` for `List` from the arguments
+# errors: 9

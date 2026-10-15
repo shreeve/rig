@@ -1,0 +1,5 @@
+sub main()
+  xs: List[String] = List()
+  !xs.push(String("a"))
+  g = List.get(?xs, 0)
+  print(g)

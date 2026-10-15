@@ -1099,6 +1099,13 @@ pub fn List(comptime T: type) type {
 
         /// The out-of-line growth, so `push` stays small enough to inline.
         noinline fn grow(self: *Self, want: usize) void {
+            // A zero-bit element takes no memory, so every length fits:
+            // the buffer is made as long as any length can be, and
+            // freeing it frees nothing.
+            if (comptime @sizeOf(T) == 0) {
+                self.buf = self.buf.ptr[0..std.math.maxInt(usize)];
+                return;
+            }
             self.buf = defaultAllocator().realloc(self.buf, @max(want, 4, self.buf.len * 2)) catch oom();
         }
 
@@ -1223,6 +1230,31 @@ pub fn List(comptime T: type) type {
                 self.len -= 1;
                 dropElement(T, &self.buf.ptr[self.len]);
             }
+        }
+
+        /// `List.filled(n, x)`: `n` copies of `x` in one allocation of
+        /// exactly `n` slots, filled by one `@memset`. Sema admits only
+        /// a `T` that copies. Panics when `n` is negative.
+        pub fn filled(n: Int, value: T) Self {
+            const count = std.math.cast(usize, n) orelse @panic("negative size");
+            if (count == 0) return .empty;
+            const buf = defaultAllocator().alloc(T, count) catch oom();
+            @memset(buf, value);
+            return .{ .buf = buf, .len = count };
+        }
+
+        /// `!v.resize(n, x)`: grow to `n` elements with copies of `x`,
+        /// one allocation at most (growing as `push` does, so resizing
+        /// up by small steps stays linear) and one `@memset`, or shrink
+        /// to `n` as `keep` does. Sema admits only a `T` that copies.
+        /// Panics when `n` is negative.
+        pub fn resize(self: *Self, n: Int, value: T) void {
+            const want = std.math.cast(usize, n) orelse @panic("negative size");
+            if (want <= self.len) return self.keep(n);
+            self.reserveTotal(want);
+            invariant(want <= self.buf.len);
+            @memset(self.buf.ptr[self.len..want], value);
+            self.len = want;
         }
 
         pub fn __rig_drop(self: *Self) void {
