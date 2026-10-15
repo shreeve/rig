@@ -25,10 +25,26 @@ started:
   a payload part a `match <e` arm drops, passed by value at each exit
   (`test/corpus/rev230-discard-exits.rig`); and the same at 12,000
   exits, whose 48 GB frame made Zig's aarch64 build fail with `fixup
-  value out of range` (`test/corpus/rev230-discard-build.rig`; a frame
-  over 4 GiB draws Zig's warning, and one that large fails to build).
+  value out of range` (`test/cli/discard_build.sh`; a frame over 4 GiB
+  draws Zig's warning, and one that large fails to build).
   With it, build debug programs for x86_64 with `-fllvm`, as aarch64's
   are.
+- The reference checker (`bin/rig-oracle`) takes memory quadratic in
+  the exits of one `match` arm. For an arm `.one(_, n)` of `match <e`
+  with that many `return ... if ...` lines, its peak resident memory:
+
+  | Exits | Peak memory |
+  |---|---|
+  | 50 | 6.7 MB |
+  | 100 | 10 MB |
+  | 200 | 24 MB |
+  | 400 | 74 MB |
+  | 12,000 | 52 GiB (`--set corpus`, measured on Linux) |
+
+  At 12,000 exits it took down a 7 GB CI runner, so that program is a
+  CLI test (`test/cli/discard_build.sh`), which the checker never sees,
+  rather than a corpus probe. Make it linear, then the program can
+  return to the corpus.
 - Switching to Nexus's `Span.text`.
 - `text.ByteSet`, a byte set built once when the program runs and
   searched with `set.find(s, at)`: the run-time sibling of
