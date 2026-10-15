@@ -1,0 +1,10 @@
+use std.hash
+
+fun grab() -> !Int
+  m = hash.Map[Int, Int].new()
+  (!m).ensure(1, 0)
+
+sub main()
+  r = grab()
+  r += 1
+  print(r)

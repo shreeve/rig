@@ -5696,6 +5696,67 @@ const Checker = struct {
         return false;
     }
 
+    /// The element rules of the List methods that copy an element,
+    /// checked on both routes a call takes, `xs.m(...)` and
+    /// `List.m(xs, ...)` through the type, with `f` the method's type at
+    /// the call. `get` copies an element out, which only a value that
+    /// copies allows (Core sentence 1). `List.filled(n, x)` and
+    /// `!v.resize(n, x)` write copies of `x`, which they leave in place,
+    /// into every element they make, so the element must copy
+    /// (docs/CORE.md §5, "Only a value that copies is duplicated without
+    /// `+`"). False after a diagnostic.
+    fn listCopies(self: *Checker, method: []const u8, f: FunctionType, pos: u32) Error!bool {
+        const Copying = enum { get, filled, resize };
+        const which = std.meta.stringToEnum(Copying, method) orelse return true;
+        const elem = switch (which) {
+            .get => switch (self.ctx.types.get(f.returns)) {
+                .optional => |o| o,
+                else => return true,
+            },
+            .filled => if (f.params.len == 2) f.params[1] else return true,
+            .resize => if (f.params.len == 3) f.params[2] else return true,
+        };
+        if (self.isPoison(elem)) return true;
+        const op = switch (which) {
+            .get => "copies an element out of a List",
+            .filled => "copies into every element of `List.filled` a value",
+            .resize => "copies into every element `resize` adds a value",
+        };
+        if (!try self.cannotCopy(elem, pos, op)) return true;
+        const shown = try self.tyName(elem);
+        switch (which) {
+            .get => try self.err(pos, "`List.{s}` would copy an element out of a `List` of `{s}`, which a copy cannot share; read it in place with `v[i]`, or lend it with `?v[i]`", .{ method, shown }),
+            .filled => try self.notDuplicated(pos, "`List.filled` copies its value into every element", elem, "`for 0..n` with `!xs.push(+x)`", ""),
+            .resize => try self.notDuplicated(pos, "`resize` copies its value into every element it adds", elem, "`for xs.len..n` with `!xs.push(+x)`", "; `!xs.keep(n)` shrinks any List"),
+        }
+        return false;
+    }
+
+    /// The one diagnostic of a form that writes copies of a value it
+    /// leaves in place (`copy`, `fill`, `[n of x]`, `List.filled`, and
+    /// `resize`) when the element `elem` does not copy (docs/CORE.md §5,
+    /// "Only a value that copies is duplicated without `+`"), at `at`, a
+    /// node or a position. `what` says what the form copies, and `loop`
+    /// is the loop that makes each element with `+x` instead, which the
+    /// diagnostic offers, followed by `tail`, when `+x` clones `elem`.
+    fn notDuplicated(self: *Checker, at: anytype, comptime what: []const u8, elem: TypeId, comptime loop: []const u8, comptime tail: []const u8) Error!void {
+        const shown = try self.tyName(elem);
+        const why = self.movesBecause(elem);
+        const args = .{ article(shown), shown, why };
+        if (sema.holdsWriteView(self.ctx, elem)) {
+            if (@TypeOf(at) == Sexp) return self.errAt(at, what ++ ", and {s} `{s}` {s}, so it cannot be copied", args);
+            return self.err(at, what ++ ", and {s} `{s}` {s}, so it cannot be copied", args);
+        }
+        if (sema.cloneable(self.ctx, elem) == .no) {
+            const fmt = what ++ ", and {s} `{s}` {s}, so it cannot be copied, and it has no clone: write a loop that makes each element anew";
+            if (@TypeOf(at) == Sexp) return self.errAt(at, fmt, args);
+            return self.err(at, fmt, args);
+        }
+        const fmt = what ++ ", and {s} `{s}` {s}, so it cannot be copied: write a loop that makes each element with `+x` (" ++ loop ++ ")" ++ tail;
+        if (@TypeOf(at) == Sexp) return self.errAt(at, fmt, args);
+        return self.err(at, fmt, args);
+    }
+
     /// Why a value of `ty`, which does not copy (`sema.copies`), cannot
     /// be copied, as a diagnostic says it.
     fn movesBecause(self: *const Checker, ty: TypeId) []const u8 {
@@ -6819,9 +6880,7 @@ const Checker = struct {
         }
         if (self.isPoison(elem) or self.isPoison(len)) return self.t().invalid_id;
         if (try self.cannotCopy(elem, self.startOf(value), "copies into every slot of `[n of x]` a value")) {
-            if (sema.typeHasDropGlue(self.ctx, elem)) {
-                try self.errAt(value, "`[n of x]` copies its element into every slot; `{s}` owns a resource, so an array cannot hold it (use a `List`)", .{try self.tyName(elem)});
-            } else try self.errAt(value, "`[n of x]` copies its element into every slot; `{s}` {s}, so it cannot be copied", .{ try self.tyName(elem), self.movesBecause(elem) });
+            try self.notDuplicated(value, "`[n of x]` copies its element into every slot", elem, "`for 0..n` with `!xs.push(+x)`, into a List", ", or write the elements out, `[+x, +x]`");
             return self.t().invalid_id;
         }
         const ty = try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
@@ -6846,6 +6905,9 @@ const Checker = struct {
         const saved = self.current_call;
         self.current_call = node;
         defer self.current_call = saved;
+        // What the call reaches, recorded where it resolves to a Rig
+        // function (`noteTarget`); any other call reaches none.
+        try self.ctx.recordCallTarget(node, .none);
         const ty = try self.synthCallInner(node);
         if (!handled and self.ctx.types.get(ty) == .fallible) {
             const callee = ir.Call.callee(node);
@@ -6982,6 +7044,7 @@ const Checker = struct {
         const name = self.text(callee);
         if (self.isEntryPoint(sym)) return self.badCall(args, callee, entry_point_use, .{});
         if (self.isPoison(sym.ty)) return self.skipCall(args);
+        if (sym.kind == .function) try self.noteTarget(self.ctx.module_id, sym.decl_pos);
         const fty = self.ctx.types.get(sym.ty);
         if (fty != .function) return self.badCall(args, callee, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(sym.ty) });
         if (sym.kind == .@"extern" and self.raw_depth == 0) {
@@ -9630,6 +9693,7 @@ const Checker = struct {
             return self.skipCall(args);
         };
         const receiver = resolved.field.receiver;
+        try self.noteMethodTarget(resolved.field, resolved.owner_sym, resolved.module);
         _ = try self.noteMethod(callee, receiver, resolved.fn_ty.returns);
         try self.noteCallee(resolved.fn_ty);
         const misplaced_sigil = receiver != .none and try self.checkReceiverSigil(obj, receiver, resolved.fn_ty.returns, method);
@@ -9654,12 +9718,7 @@ const Checker = struct {
         try self.checkVisible(resolved.field, resolved.owner_sym, resolved.module, pos);
         // `pop` removes the element, so it hands over ownership; `get`
         // would copy it out of the List.
-        if (resolved.nominal_sym == self.ctx.list_sym_id and std.mem.eql(u8, method, "get")) {
-            if (resolved.fn_ty.returns != self.t().invalid_id) {
-                const elem = self.ctx.types.get(resolved.fn_ty.returns).optional;
-                if (try self.cannotCopy(elem, pos, "copies an element out of a List")) return self.badCall(args, pos, "`List.{s}` would copy an element out of a `List` of `{s}`, which a copy cannot share; read it in place with `v[i]`, or lend it with `?v[i]`", .{ method, try self.tyName(elem) });
-            }
-        }
+        if (resolved.nominal_sym == self.ctx.list_sym_id and std.mem.eql(u8, method, "get")) if (!try self.listCopies(method, resolved.fn_ty, pos)) return self.skipCall(args);
 
         if (receiver == .none) {
             // A `self` without a sigil was reported where it is declared.
@@ -9678,6 +9737,7 @@ const Checker = struct {
         }
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
+        if (resolved.nominal_sym == self.ctx.list_sym_id and !std.mem.eql(u8, method, "get")) if (!try self.listCopies(method, f, pos)) return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
         const rest: FunctionType = .{
             .params = f.params[1..],
@@ -9704,6 +9764,25 @@ const Checker = struct {
         self.lend_recv = f.params[0];
         try self.checkArgs(args, rest, info, method, pos, .{ .receiver = true, .origins = resolved.field.origins, .declared = self.declaredParams(resolved.field, resolved.module, 1) orelse resolved.fn_ty.params[1..] });
         return f.returns;
+    }
+
+    /// Record the call being checked (`current_call`) as a call of the
+    /// Rig function or method declared at `pos` in module `module`
+    /// (`sema.CallTarget`): the one fact of what a call reaches, which
+    /// `inlining.decide` reads. A built-in declares none.
+    fn noteTarget(self: *Checker, module: u32, pos: u32) Error!void {
+        const call = self.current_call orelse return;
+        if (pos >= sema.imported_decl_pos) return;
+        try self.ctx.recordCallTarget(call, .{ .function = .{ .module = module, .pos = pos } });
+    }
+
+    /// `noteTarget` for the method `field` of the type `owner`, declared
+    /// in module `module` (null for this one), or, for a proxy of
+    /// another module's generic type, in the module the proxy stands for.
+    fn noteMethodTarget(self: *Checker, field: Field, owner: sema.Symbol, module: ?u32) Error!void {
+        if (owner.decl_pos == sema.builtin_decl_pos) return;
+        const declared = module orelse if (sema.isProxy(owner)) owner.from.module_id else self.ctx.module_id;
+        try self.noteTarget(declared, field.decl_pos);
     }
 
     /// Records `callee` as the member a call resolved as a method, which
@@ -9758,7 +9837,10 @@ const Checker = struct {
         if (ct) |b| return try self.badCall(args, b, "`{s}` takes no compile-time arguments", .{method});
         if (!try self.writesElements(obj, obj_ty, peeled, method)) return try self.skipCall(args);
         if (op != .swap and try self.cannotCopy(elem, pos, "copies into the elements a value")) {
-            return try self.badCall(args, pos, "`{s}` copies values into the elements; {s} `{s}` {s}", .{ method, article(try self.tyName(elem)), try self.tyName(elem), self.movesBecause(elem) });
+            if (op == .fill) {
+                try self.notDuplicated(pos, "`fill` copies its value into every element", elem, "`for i in 0..xs.len` with `xs[i] = +x`", "");
+            } else try self.notDuplicated(pos, "`copy` copies every element of its source", elem, "`for i in 0..src.len` with `xs[i] = +src[i]`", "");
+            return try self.skipCall(args);
         }
         for (args) |a| if (a.isKind(.kwarg)) return try self.badCall(args, a, "`{s}` takes no keyword arguments", .{method});
         const want: usize = if (op == .swap) 2 else 1;
@@ -10020,6 +10102,7 @@ const Checker = struct {
             const m = members[(try sema.findMember(self.ctx, members, name, .any)) orelse break :found];
             if (m.is_method and !m.is_drop_method) {
                 try self.checkVisible(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, pos);
+                try self.noteMethodTarget(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null);
                 const fty = self.ctx.types.get(try self.memberType(nt.foreign, m.ty));
                 if (fty != .function) break :found;
                 var f = fty.function;
@@ -10035,6 +10118,7 @@ const Checker = struct {
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
                 const info = methodParams(m, false, source);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
+                if (nt.id == self.ctx.list_sym_id) if (!try self.listCopies(name, f, pos)) return self.skipCall(args);
                 try self.noteCallee(f);
                 self.lend_call = true;
                 try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins, .declared = fty.function.params });
@@ -10162,6 +10246,7 @@ const Checker = struct {
         switch (found.sym.kind) {
             .type_alias => return self.aliasCall(self.current_call orelse Sexp.nil, self.callee_node orelse Sexp.nil, qualified, try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id), args, pos),
             .function, .@"extern" => {
+                if (found.sym.kind == .function) try self.noteTarget(found.module_id, found.sym.decl_pos);
                 const local = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
                 const fty = self.ctx.types.get(local);
                 if (fty != .function) return self.badCall(args, pos, "`{s}` cannot be called", .{qualified});
@@ -10232,6 +10317,15 @@ const Checker = struct {
         } else if (recv.isKind(.write)) switch (mode) {
             .write => {
                 if (!self.usesValue(recv, returns)) return false;
+                // `!(!b).m(...)` whose value is used: the receiver is lent
+                // to write already, so the outer `!` is the one to remove,
+                // not to parenthesize.
+                if (place.isKind(.write)) {
+                    const lent = self.sourceText(ir.get(place, .operand));
+                    const call = if (self.current_call) |c| try self.spliced(c, &.{recv}, &.{self.sourceText(recv)[1..]}) else try self.ctx.arena.allocator().print("(!{s}).{s}(...)", .{ lent, method });
+                    try self.errAt(recv, "`(!{s})` already lends `{s}` to write: remove the outer `!` and write `{s}`", .{ lent, lent, call });
+                    return true;
+                }
                 const long = try self.ctx.arena.allocator().print("({s})", .{self.sourceText(recv)});
                 const call = if (self.current_call) |c| try self.spliced(c, &.{recv}, &.{long}) else try self.ctx.arena.allocator().print("{s}.{s}(...)", .{ long, method });
                 try self.errAt(recv, "write `{s}`: a write call whose value is used puts its `!` in parentheses", .{call});
@@ -13696,14 +13790,15 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
 
 // ---- stack frames -----------------------------------------------------------
 
-/// Every function, method, closure, test, and drop body keeps at most
-/// `sema.max_frame_bytes` of values on its stack: each binding it
-/// declares and each by-value parameter, once, and each array literal,
-/// fill, and call whose value no binding takes directly (a temporary). A
-/// closure's captures count in the frame that makes it. A call's result
-/// counts twice when a binding takes it, since a debug build holds it in a
-/// temporary first. This count is a limit on what a program keeps on the
-/// stack; what keeps the stack safe is its reach, below.
+/// Every frame owner (`sema.FrameOwner`: a function, method, closure,
+/// test, or drop body) keeps at most `sema.max_frame_bytes` of values on
+/// its stack: each binding it declares and each by-value parameter, once,
+/// and each array literal, fill, and call whose value no binding takes
+/// directly (a temporary). A closure's captures count in the frame that
+/// makes it. A call's result counts twice when a binding takes it, since a
+/// debug build holds it in a temporary first. This count is a limit on
+/// what a program keeps on the stack; what keeps the stack safe is its
+/// reach, below.
 ///
 /// A frame's reach is its values and a copy of every value its code
 /// makes or copies (`FrameWalker.copy`): Zig's code may hold each in a
@@ -13712,42 +13807,134 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
 /// `sema.max_frame_reach`, far below the guard under the stack. Code Zig
 /// writes more than once counts once for each copy: a `defer` or
 /// `errdefer` body at every exit it covers (`FrameWalker.deferBody`), and
-/// an inlined function at every call (`inlining.decide`). A frame whose
-/// reach passes `sema.noinline_reach` is never inlined, so two such
-/// frames never merge (`sema.SemContext.large_frames`).
+/// an inlined function at every call (`inlining.decide`, which fills each
+/// owner's `sema.Account`). A frame whose reach passes
+/// `sema.noinline_reach` is never inlined, so two such frames never merge
+/// (`sema.SemContext.large_frames`).
 ///
 /// A frame whose size depends on generic parameters is checked at each
-/// instance (`checkInstanceSizes`).
-pub fn checkFrames(ctx: *SemContext, tree: Sexp) Error!void {
+/// instance (`checkInstanceSizes`). `recordFrameOwners` runs first.
+pub fn checkFrames(ctx: *SemContext) Error!void {
     var w: FrameWalker = .{ .ctx = ctx };
-    try w.walk(tree, null, false, false);
+    var i: u32 = 0;
+    while (i < ctx.frame_owners.items.len) i = try checkOwnerTree(&w, i);
 }
 
-/// A frame as `checkFrames` counts it: the bytes of the values it keeps,
-/// and its reach.
-pub const FrameCount = struct { bytes: u128, reach: u128 };
-
-/// The frame of the `fun` or `sub` `node`, as `checkFrames` counts it, not
-/// counting the frames of its closures; null when that depends on generic
-/// parameters or follows an error.
-pub fn frameBytesOfFunction(ctx: *SemContext, node: Sexp) Error!?FrameCount {
-    var w: FrameWalker = .{ .ctx = ctx, .captures_only = true };
-    var slots: FrameWalker.Slots = .empty;
-    defer slots.deinit(ctx.allocator);
-    for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try w.walk(part, &slots, false, false);
-    var values: std.ArrayList(TypeId) = .empty;
-    var copies: std.ArrayList(TypeId) = .empty;
-    for (slots.items) |s| try (if (s.copy) &copies else &values).append(ctx.arena.allocator(), s.ty);
-    for (slots.items) |s| if (sema.containsTypeVar(ctx, s.ty)) return null;
-    const bytes = (try frameBytes(ctx, values.items)) orelse return null;
-    return .{ .bytes = bytes, .reach = bytes + ((try reachBytes(ctx, copies.items)) orelse return null) };
+/// Check owner `i` after the closures in it, in source order, as a
+/// closure's frame is met inside its maker's: so a message about a
+/// closure comes before one about the frame around it. The owners are
+/// listed with each one's closures right after it. Returns the owner
+/// after them.
+fn checkOwnerTree(w: *FrameWalker, i: u32) Error!u32 {
+    const owners = w.ctx.frame_owners.items;
+    var j = i + 1;
+    while (j < owners.len and owners[j].parent == i) j = try checkOwnerTree(w, j);
+    try w.ownerFrame(i);
+    return j;
 }
+
+/// Record the frame owners of `tree` (`sema.FrameOwner`), each with the
+/// owner around it, and every call with the innermost owner around it
+/// and the copies of it Zig writes (`sema.FrameCall`): one walk, which
+/// knows the owners by a positive list of their kinds. Nothing else
+/// finds an owner or attributes a call; `checkFrames`, `inlining.decide`,
+/// and `rig check --facts=frames` read these.
+pub fn recordFrameOwners(ctx: *SemContext, tree: Sexp) Error!void {
+    var w: OwnerWalker = .{ .ctx = ctx };
+    try w.walk(tree, null, 1, .{});
+    const a = ctx.arena.allocator();
+    const owners = ctx.frame_owners.items;
+    const counts = try a.alloc(u32, owners.len);
+    @memset(counts, 0);
+    for (ctx.frame_calls.items) |c| if (c.owner) |o| {
+        counts[o] += 1;
+    };
+    const lists = try a.alloc([]u32, owners.len);
+    for (lists, counts) |*l, n| l.* = try a.alloc(u32, n);
+    @memset(counts, 0);
+    for (ctx.frame_calls.items, 0..) |c, i| if (c.owner) |o| {
+        lists[o][counts[o]] = @intCast(i);
+        counts[o] += 1;
+    };
+    for (owners, lists) |*o, l| o.calls = l;
+}
+
+const OwnerWalker = struct {
+    ctx: *SemContext,
+
+    /// What the declarations around a function make it: a member of a
+    /// type, and of a generic one.
+    const Decl = struct { member: bool = false, generic_type: bool = false };
+
+    /// `copies`: how many times Zig writes the code `node` is in, which a
+    /// `defer` or `errdefer` body multiplies by its exits
+    /// (`FrameWalker.deferBody` counts its values the same way).
+    fn walk(self: *OwnerWalker, node: Sexp, owner: ?u32, copies: u32, decl: Decl) Error!void {
+        const ctx = self.ctx;
+        if (node != .list) return;
+        const kind = node.kind() orelse {
+            for (node.items()) |c| try self.walk(c, owner, copies, decl);
+            return;
+        };
+        const a = ctx.arena.allocator();
+        switch (kind) {
+            .use => {},
+            .fun, .sub => {
+                const name = ir.get(node, .name);
+                const label = try a.print("`{s}`", .{sema.identAt(ctx.source, name) orelse "?"});
+                const o = try self.add(.{ .kind = .function, .root = node, .parent = owner, .pos = ctx.startOf(name), .label = label, .member = decl.member, .of_generic_type = decl.generic_type });
+                for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try self.walk(part, o, 1, .{});
+            },
+            .@"test" => {
+                const label = try a.print("test {s}", .{sema.identAt(ctx.source, ir.get(node, .name)) orelse "?"});
+                const o = try self.add(.{ .kind = .test_block, .root = node, .parent = owner, .pos = ctx.startOf(node), .label = label });
+                try self.walk(ir.get(node, .body), o, 1, .{});
+            },
+            .drop_decl => {
+                const o = try self.add(.{ .kind = .drop, .root = node, .parent = owner, .pos = ctx.startOf(node), .label = "`drop`" });
+                for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try self.walk(part, o, 1, .{});
+            },
+            .lambda => {
+                // The captures are made where the closure is.
+                try self.walk(ir.Lambda.captures(node), owner, copies, decl);
+                const o = try self.add(.{ .kind = .closure, .root = node, .parent = owner, .pos = ctx.startOf(node), .label = "a closure" });
+                for ([_]Sexp{ ir.Lambda.params(node), ir.Lambda.body(node) }) |part| try self.walk(part, o, 1, .{});
+            },
+            .@"struct", .@"enum", .errors => for (rig.children(node)) |c| try self.walk(c, owner, copies, .{ .member = true, .generic_type = decl.generic_type }),
+            .generic_struct, .generic_enum => for (rig.children(node)) |c| try self.walk(c, owner, copies, .{ .member = true, .generic_type = true }),
+            .call => {
+                // The callee first, as its object's calls run first.
+                try self.walk(ir.Call.callee(node), owner, copies, decl);
+                const i: u32 = @intCast(ctx.frame_calls.items.len);
+                try ctx.frame_calls.append(ctx.allocator, .{ .node = node, .owner = owner, .copies = copies });
+                if (sema.decisionKeyOf(node)) |k| try ctx.call_index.put(ctx.allocator, k, i);
+                for (ir.Call.args(node)) |arg| try self.walk(arg, owner, copies, decl);
+            },
+            else => {
+                const kids = rig.children(node);
+                for (kids, 0..) |c, i| {
+                    if (owner != null and (c.isKind(.@"defer") or c.isKind(.@"errdefer"))) {
+                        var exits: u32 = 1;
+                        for (kids[i + 1 ..]) |r| exits += @intCast(FrameWalker.countExits(r));
+                        // Saturating: a count that large fails every limit.
+                        try self.walk(ir.get(c, .body), owner, copies *| exits, decl);
+                        continue;
+                    }
+                    try self.walk(c, owner, copies, decl);
+                }
+            },
+        }
+    }
+
+    fn add(self: *OwnerWalker, o: sema.FrameOwner) Error!u32 {
+        const i: u32 = @intCast(self.ctx.frame_owners.items.len);
+        try self.ctx.frame_owners.append(self.ctx.allocator, o);
+        return i;
+    }
+};
 
 const FrameWalker = struct {
     ctx: *SemContext,
-    /// Walking one function for its size alone: a closure's body is a frame
-    /// of its own, which `checkFrames` reports, so only its captures count.
-    captures_only: bool = false,
 
     /// A value the frame keeps, or (`copy`) a copy its code may make,
     /// which counts in its reach alone.
@@ -13780,22 +13967,11 @@ const FrameWalker = struct {
             return;
         };
         switch (kind) {
-            .fun, .sub => {
-                const name = ir.get(node, .name);
-                const label = try ctx.arena.allocator().print("`{s}`", .{sema.identAt(ctx.source, name) orelse "?"});
-                try self.frameOf(label, ctx.startOf(name), &.{ ir.get(node, .params), ir.get(node, .body) });
-            },
-            .@"test" => {
-                const label = try ctx.arena.allocator().print("test {s}", .{sema.identAt(ctx.source, ir.get(node, .name)) orelse "?"});
-                try self.frameOf(label, ctx.startOf(node), &.{ir.get(node, .body)});
-            },
-            .drop_decl => try self.frameOf("`drop`", ctx.startOf(node), &.{ ir.get(node, .params), ir.get(node, .body) }),
-            .lambda => {
-                // The captures are stored where the closure is made.
-                try self.walk(ir.Lambda.captures(node), frame, false, false);
-                if (self.captures_only) return;
-                try self.frameOf("a closure", ctx.startOf(node), &.{ ir.Lambda.params(node), ir.Lambda.body(node) });
-            },
+            // Frame owners of their own (`recordFrameOwners`).
+            .fun, .sub, .@"test", .drop_decl => {},
+            // The captures are stored where the closure is made; its body
+            // is a frame of its own.
+            .lambda => try self.walk(ir.Lambda.captures(node), frame, false, false),
             .set => {
                 try self.walk(ir.Set.target(node), frame, false, false);
                 // A fill built in the local makes no copy (`storage.fillsInPlace`).
@@ -13881,7 +14057,7 @@ const FrameWalker = struct {
 
     /// The exits in `e` (`storage.leave_kinds`), not counting those in its
     /// closures.
-    fn countExits(e: Sexp) usize {
+    pub fn countExits(e: Sexp) usize {
         if (e != .list) return 0;
         const kind = e.kind() orelse {
             var n: usize = 0;
@@ -13919,15 +14095,28 @@ const FrameWalker = struct {
         return self.ctx.symbols.items[id].kind == .function;
     }
 
-    /// The frame of the body `parts` make up, checked now or, when its
-    /// size depends on generic parameters, at each instance.
-    fn frameOf(self: *FrameWalker, label: []const u8, pos: u32, parts: []const Sexp) Error!void {
+    /// The frame of owner `index`, checked now or, when its size depends
+    /// on generic parameters, at each instance; its own count goes into
+    /// the owner (`sema.FrameOwner.own`).
+    fn ownerFrame(self: *FrameWalker, index: u32) Error!void {
         const ctx = self.ctx;
+        const owner = ctx.frame_owners.items[index];
+        const root = owner.root;
+        const label = owner.label;
+        const pos = owner.pos;
         var slots: Slots = .empty;
         defer slots.deinit(ctx.allocator);
+        const parts: []const Sexp = switch (owner.kind) {
+            .function, .drop => &.{ ir.get(root, .params), ir.get(root, .body) },
+            .test_block => &.{ir.get(root, .body)},
+            .closure => &.{ ir.Lambda.params(root), ir.Lambda.body(root) },
+        };
         for (parts) |p| try self.walk(p, &slots, false, false);
         const items = slots.items;
-        if (items.len == 0) return;
+        if (items.len == 0) {
+            ctx.frame_owners.items[index].own = .{ .bytes = 0, .reach = 0 };
+            return;
+        }
         // The values first, then the copies.
         const arena = ctx.arena.allocator();
         const tys = try arena.alloc(TypeId, items.len);
@@ -13942,9 +14131,10 @@ const FrameWalker = struct {
         };
         for (tys) |ty| if (sema.containsTypeVar(ctx, ty)) {
             try ctx.addGeneric(.frames, .{ .label = label, .pos = pos, .tys = tys, .names = names, .copies = copies });
+            ctx.frame_owners.items[index].per_instance = true;
             return;
         };
-        try checkFrame(ctx, pos, label, null, tys, names, copies, pos);
+        ctx.frame_owners.items[index].own = try checkFrame(ctx, pos, label, null, tys, names, copies, pos);
     }
 };
 
@@ -13953,23 +14143,32 @@ const FrameWalker = struct {
 /// `sema.max_frame_bytes` and its reach against `sema.max_frame_reach`.
 /// A large one marks its declaration, at `decl` in `module` (0 for this
 /// one), `noinline` (`sema.SemContext.large_frames`).
-fn checkFrame(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, copies: u32, decl: u32) Error!void {
-    try checkFrameIn(ctx, pos, label, of, tys, names, copies, 0, decl);
+fn checkFrame(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, copies: u32, decl: u32) Error!?sema.FrameCount {
+    return checkFrameIn(ctx, pos, label, of, tys, names, copies, 0, decl);
 }
 
-fn checkFrameIn(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, copies: u32, module: u32, decl: u32) Error!void {
+/// The count of the frame, null when a value in it follows an error. It
+/// is recorded (`SemContext.frame_sizes`) as the frame of the owner
+/// declared at `decl` in module `module` (0 for this one).
+fn checkFrameIn(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, copies: u32, module: u32, decl: u32) Error!?sema.FrameCount {
     const values = tys[0 .. tys.len - copies];
-    const bytes = (try frameBytes(ctx, values)) orelse return;
-    const reach = bytes + ((try reachBytes(ctx, tys[values.len..])) orelse return);
+    const bytes = (try frameBytes(ctx, values)) orelse return null;
+    const reach = bytes + ((try reachBytes(ctx, tys[values.len..])) orelse return null);
+    const count: sema.FrameCount = .{ .bytes = bytes, .reach = reach };
     const shown = if (of) |root| try ctx.arena.allocator().print("{s} in `{s}`", .{ label, try sema.rootName(ctx, root) }) else label;
-    try ctx.frame_sizes.append(ctx.allocator, .{ .label = shown, .pos = pos, .bytes = bytes, .reach = reach });
-    if (bytes > sema.max_frame_bytes) return reportFrame(ctx, pos, label, bytes, of, values, names[0..values.len]);
+    try ctx.frame_sizes.append(ctx.allocator, .{ .label = shown, .pos = pos, .bytes = bytes, .reach = reach, .module = if (module == 0) ctx.module_id else module, .decl = decl });
+    if (bytes > sema.max_frame_bytes) {
+        try reportFrame(ctx, pos, label, bytes, of, values, names[0..values.len]);
+        return count;
+    }
     if (reach * sema.reach_factor > sema.max_frame_reach) {
         const in = if (of) |root| try ctx.arena.allocator().print(" in `{s}`", .{try sema.rootName(ctx, root)}) else "";
-        return ctx.err(pos, "{s} makes or copies {d} bytes of values{s}, and a build may hold each in a temporary of its own on the stack, {d} times over at most; a function's code may take at most {d} bytes (512 MiB) of stack. Keep large data on the heap, in a box (`^T`) or a `List`, or split the function", .{ label, reach, in, sema.reach_factor, sema.max_frame_reach });
+        try ctx.err(pos, "{s} makes or copies {d} bytes of values{s}, and a build may hold each in a temporary of its own on the stack, {d} times over at most; a function's code may take at most {d} bytes (512 MiB) of stack. Keep large data on the heap, in a box (`^T`) or a `List`, or split the function", .{ label, reach, in, sema.reach_factor, sema.max_frame_reach });
+        return count;
     }
-    if (reach * sema.reach_factor < sema.noinline_reach) return;
+    if (reach * sema.reach_factor < sema.noinline_reach) return count;
     if (module == 0 or module == ctx.module_id) try ctx.large_frames.put(ctx.allocator, decl, {}) else try ctx.large_foreign_frames.append(ctx.allocator, .{ .module = module, .pos = decl });
+    return count;
 }
 
 /// The bytes of the copies `tys`, each that does not fit in registers;
@@ -14065,7 +14264,7 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
             try buf.append(ctx.allocator, t);
         }
         const before = ctx.diagnostics.items.len;
-        try checkFrameIn(ctx, at, fr.label, of, buf.items, fr.names, fr.copies, fr.module_id, fr.pos);
+        _ = try checkFrameIn(ctx, at, fr.label, of, buf.items, fr.names, fr.copies, fr.module_id, fr.pos);
         if (ctx.diagnostics.items.len == before) continue;
         try ctx.noteIn(fr.module_id, fr.pos, "{s} is declared here", .{fr.label});
         return;
@@ -14557,4 +14756,90 @@ test "check: a written write lend read as a value is rejected" {
         if (d.severity == .@"error" and std.mem.indexOf(u8, d.message, "here is read, not held") != null) count += 1;
     }
     try std.testing.expectEqual(3, count);
+}
+
+test "frame owners: one list of each kind, and the owner of a call in each kind of body" {
+    var r = try checkSource(std.testing.allocator,
+        \\fun h(i: Int) -> Int
+        \\  i + 1
+        \\
+        \\fun g[T](x: T, i: Int) -> Int
+        \\  h(i)
+        \\
+        \\obj Res
+        \\  n: Int
+        \\
+        \\  fun get(?self) -> Int
+        \\    h(self.n)
+        \\
+        \\  drop(!self)
+        \\    print(h(self.n))
+        \\
+        \\fun f(i: Int) -> Int
+        \\  defer print(h(i))
+        \\  return 5 if i == 9
+        \\  c = |+i|
+        \\    k = |+i| h(i)
+        \\    k()
+        \\  match i
+        \\    0 => h(i)
+        \\    _ => c()
+        \\
+        \\test "t"
+        \\  print(h(1))
+        \\
+        \\sub main()
+        \\  r = Res(n: 1)
+        \\  print(f(0), g(1, 2), r.get())
+        \\
+    );
+    defer r.p.deinit();
+    defer r.ctx.deinit();
+    try expectClean(&r.ctx);
+    const Want = struct { kind: sema.FrameOwner.Kind, label: []const u8, parent: ?u32 };
+    const want = [_]Want{
+        .{ .kind = .function, .label = "`h`", .parent = null },
+        .{ .kind = .function, .label = "`g`", .parent = null },
+        .{ .kind = .function, .label = "`get`", .parent = null },
+        .{ .kind = .drop, .label = "`drop`", .parent = null },
+        .{ .kind = .function, .label = "`f`", .parent = null },
+        .{ .kind = .closure, .label = "a closure", .parent = 4 },
+        .{ .kind = .closure, .label = "a closure", .parent = 5 },
+        .{ .kind = .test_block, .label = "test \"t\"", .parent = null },
+        .{ .kind = .function, .label = "`main`", .parent = null },
+    };
+    const owners = r.ctx.frame_owners.items;
+    try std.testing.expectEqual(want.len, owners.len);
+    for (want, owners) |w, o| {
+        try std.testing.expectEqual(w.kind, o.kind);
+        try std.testing.expectEqualStrings(w.label, o.label);
+        try std.testing.expectEqual(w.parent, o.parent);
+    }
+    try std.testing.expect(owners[2].member and !owners[2].of_generic_type);
+    try std.testing.expect(owners[1].per_instance and owners[1].own == null);
+    // Each call of `h`: its owner, and how many times Zig writes it (the
+    // `defer` body at the `return` and at the end).
+    const Call = struct { owner: u32, copies: u32 };
+    const calls = [_]Call{
+        .{ .owner = 1, .copies = 1 }, // g
+        .{ .owner = 2, .copies = 1 }, // get
+        .{ .owner = 3, .copies = 1 }, // drop
+        .{ .owner = 4, .copies = 2 }, // f's defer
+        .{ .owner = 6, .copies = 1 }, // the inner closure
+        .{ .owner = 4, .copies = 1 }, // f's match arm
+        .{ .owner = 7, .copies = 1 }, // the test
+    };
+    var seen: usize = 0;
+    for (r.ctx.frame_calls.items) |c| {
+        const callee = r.ctx.calleeOf(c.node);
+        if (callee != .src or !std.mem.eql(u8, sema.identAt(r.ctx.source, callee) orelse "", "h")) continue;
+        try std.testing.expect(seen < calls.len);
+        try std.testing.expectEqual(calls[seen].owner, r.ctx.ownerOf(c.node).?);
+        try std.testing.expectEqual(calls[seen].copies, c.copies);
+        try std.testing.expectEqual(sema.CallTarget{ .function = .{ .module = r.ctx.module_id, .pos = owners[0].pos } }, r.ctx.callTargetOf(c.node).?);
+        seen += 1;
+    }
+    try std.testing.expectEqual(calls.len, seen);
+    // Each owner lists its calls.
+    for (owners, 0..) |o, i| for (o.calls) |ci| try std.testing.expectEqual(@as(?u32, @intCast(i)), r.ctx.frame_calls.items[ci].owner);
 }

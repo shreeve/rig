@@ -1,0 +1,18 @@
+# A lookup takes a view of the Map's own key type: an object with the
+# same parts, its text viewed rather than owned, is another type.
+
+use std.hash
+
+obj Key
+  name: String
+  n: Int
+
+obj KeyView
+  name: ?String
+  n: Int
+
+sub main()
+  m = hash.Map[Key, Int].new()
+  print(m.get(KeyView(name: "a", n: 1)))
+
+# error: type mismatch: expected `?Key`, got `KeyView`

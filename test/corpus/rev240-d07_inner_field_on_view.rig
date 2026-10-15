@@ -1,0 +1,10 @@
+obj W
+  v: List[Int] = List()
+
+  fun inner(!self) -> !List[Int] from self
+    !self.v
+
+sub main()
+  w = W()
+  !(!w).inner().push(1)
+  print(w.v)

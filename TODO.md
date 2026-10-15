@@ -11,6 +11,13 @@ started:
 - SIMD: `pad:` reads and `blocks(N)`.
 - A String API for part-word appends and windowed writes.
 - Multiple results.
+- Inlining a generic type's small methods. Rig never emits a generic
+  type's methods `inline` (`src/inlining.zig`), and LLVM leaves
+  `std.hash`'s `Map.ensure` and `Map.ensure_with` out of line, so on a
+  key already there they lose to `edit` then `put`, which inlines: on
+  Int keys, 1M operations, `ensure` 39% slower and `ensure_with` 31%
+  slower; on new keys `ensure` is 6% faster and `ensure_with` 0.2%
+  slower (Mac, off-window, best of 7).
 - Every copy out of a view in a generic body takes the per-instance
   `copies` requirement, as `Cell.get` and a `??` through a view of an
   optional do: today a view read where its `T` is expected (`p` in
@@ -65,6 +72,17 @@ started:
   today): the tag from the stored bits up to 2^25 slots, and from the
   top of the whole hash, recomputed from the keys, past that. It
   matched the 8-byte version's speed; it saves 4 bytes an entry.
+- Zig-backed List methods should declare the copy requirement in their
+  signature (`get`, `List.filled`, and `resize` need an element that
+  copies), instead of typecheck's `listCopies` switching on their
+  names.
+- An unwrap of an optional that traps when it is `none`. `std.hash`'s
+  `Map.ensure` reaches its value, which is never `none` there, with a
+  `while true` whose only exit is a `return`; the unwrap would replace it.
+- A deep clone of a type parameter's value in a generic body (`+k` of a
+  `?K` where `K` owns text). With it, `Map.ensure`, `Map.put_new`, and
+  `Set.add` take a `?K` and copy the key only when it is stored (owner
+  approved); today they take an owned `K`.
 
 ## Agent tooling
 

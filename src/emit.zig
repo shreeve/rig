@@ -748,7 +748,8 @@ pub const Emitter = struct {
     /// `__rig_drop` runs it and then drops every field.
     fn emitDropDecl(self: *Emitter, node: Sexp) Error!void {
         const nom = self.nominal.?.name;
-        try self.w.print("fn __rig_user_drop(self: *{s}) void ", .{nom});
+        // A large frame is never inlined into `__rig_drop`'s.
+        try self.w.print("{s}fn __rig_user_drop(self: *{s}) void ", .{ if (self.facts.isLargeOwner(node)) "noinline " else "", nom });
         const params = ir.DropDecl.params(node);
         self.fun = .{ .params = params };
         try self.pushScope();
@@ -6768,7 +6769,8 @@ pub const Emitter = struct {
         }
         try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
-        try self.w.print("pub fn __rig_invoke({s}: *@This()", .{env});
+        // A large frame is never inlined into its caller's.
+        try self.w.print("pub {s}fn __rig_invoke({s}: *@This()", .{ if (self.facts.isLargeOwner(lambda)) "noinline " else "", env });
         self.closure_depth += 1;
         defer self.closure_depth -= 1;
         const saved_fun = self.fun;

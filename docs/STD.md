@@ -481,18 +481,63 @@ type, as any generic is.
 | `m.has(k)` | `fun has(?self, k: ?K) -> Bool` | reads |
 | `m.get(k)` | `fun get(?self, k: ?K) -> (?V)? from self` | the view keeps `m` lent to read, not `k` |
 | `(!m).edit(k)` | `fun edit(!self, k: ?K) -> (!V)? from self` | keeps `m` lent to write |
-| `!m.put(k, v)` | `sub put(!self, k: K, v: V)` | takes `k` and `v`; a key already there keeps its place, its old value and `k` are dropped |
-| `(!m).replace(k, v)` | `fun replace(!self, k: K, v: V) -> V?` | as `put`, handing the old value back |
+| `!m.put(k, v)` | `sub put(!self, k: K, v: V)` | puts `v` under `k`, inserting or overwriting; the old value is dropped, and a key already there keeps its place and `k` is dropped |
+| `(!m).replace(k, v)` | `fun replace(!self, k: K, v: V) -> V?` | puts `v` under `k`, inserting or overwriting, and hands back the old value, or `none` when `k` is new |
+| `(!m).put_new(k, v)` | `fun put_new(!self, k: K, v: V) -> Bool` | puts `v` under `k` only when `k` is new: true if it did; otherwise `k` and `v` are dropped |
+| `(!m).ensure(k, v)` | `fun ensure(!self, k: K, v: V) -> !V from self, k, v` | puts `v` under `k` when `k` is new, and lends the value under `k` to write; otherwise `k` and `v` are dropped. The view keeps `m` lent to write |
+| `(!m).ensure_with(k, make)` | `fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k` | as `ensure`, with the value `make(k)` made only when `k` is new; when `k` is there, `make` is not called and `k` is dropped |
 | `(!m).take(k)` | `fun take(!self, k: ?K) -> V?` | the value back, owned; the key dropped when the entries are next compacted (as the Map grows), or with the Map |
 | `!m.clear()` | `sub clear(!self)` | drops every entry |
 | `?m.items()` | `fun items(?self) -> Items[K, V] from self` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) lasts one step of the loop |
 | `?m.keys()`, `?m.values()` | `fun keys(?self) -> Keys[K, V] from self` | likewise, each a `?K` or a `?V` |
 | `!m.update(f)` | `sub update(!self, f: ?sub(?K, !V))` | writes each value in place; keys stay read-only |
+| `!m.retain(f)` | `sub retain(!self, f: ?fun(?K, !V) -> Bool)` | keeps the entries `f` is true for, in order; `f` reads each key and may write its value, in order, and cannot reach `m`; an entry it rejects is dropped then, not left for compaction as `take` leaves a key |
 
 `hash.Set[K]` has `hash.Set[K]()` and `new(capacity: n)`, `reserve(n)`,
 the field `len`, `has(k: ?K)`, `(!s).add(k: K) -> Bool` (true when `k`
-is new; otherwise `k` is dropped), `(!s).take(k: ?K) -> K?`, `clear()`,
-and `?s.items()`, each key a `?K`.
+is new; otherwise `k` is dropped), `(!s).take(k: ?K) -> K?`,
+`!s.retain(f)` with `f: ?fun(?K) -> Bool`, `clear()`, and
+`?s.items()`, each key a `?K`.
+
+`ensure` takes the value to put even when the key is there, and drops
+it then. To make an expensive value only for a new key, use
+`ensure_with`, whose `make` runs only then; `edit` first and `put` when
+it finds nothing does the same:
+
+```rig
+use std.hash
+
+fun twice(k: ?String) -> String
+  String(k, k)
+
+sub main()
+  made = hash.Map[String, String].new()
+  for w in ["ab", "cd", "ab"]
+    s = (!made).ensure_with(String(w), twice)
+    !s.add("+")
+  again = hash.Map[String, String].new()
+  for w in ["ab", "cd", "ab"]
+    if (!again).edit(w) as s
+      !s.add("+")
+    else
+      !again.put(String(w), String(w, w, "+"))
+  counts = hash.Map[String, Int].new()
+  for w in ["to", "be", "to"]
+    c = (!counts).ensure(String(w), 0)
+    c += 1
+  print(made.get("ab"), made.get("cd"), again.get("ab"), counts.get("to"), counts.get("be"))
+```
+
+```output
+abab++ cdcd+ abab++ 2 1
+```
+
+A compound key is an object of its parts. A key object that owns its
+text is looked up with one built the same way, its text owned too: a
+lookup takes a view of the Map's own key type, and an object with the
+same parts holding a `?String` is another type. A key object that
+holds a `?String` looks up with no copy, and its Map holds views, as a
+`Map[?String, V]` does.
 
 A view an iterator gives comes from `next`, which takes the iterator
 lent to write, so it lasts until the loop takes the next one: it can
@@ -638,6 +683,13 @@ pushes allocate nothing; a negative `n` panics. `!v.keep(n)` keeps the
 first `n` elements and drops the rest, so a List can be rewound to a
 length saved earlier.
 
+`List.filled(n, x)` makes a List of `n` copies of `x`, and
+`!v.resize(n, x)` grows a List to `n` elements with copies of `x`, or
+shrinks it to `n` as `keep` does; a negative `n` panics. Each copies
+one value into many elements, so the element must copy: plain data,
+or a read view whose copies carry its loan. A List of owners is grown
+by a loop whose `+x` makes each element.
+
 ```rig
 sub main()
   v: List[Int] = List()
@@ -652,6 +704,30 @@ sub main()
 ```output
 3 [0, 1, 4]
 [0]
+```
+
+```rig
+sub main()
+  marks = List.filled(3, 0)
+  !marks.resize(5, 1)
+  print(marks)
+  !marks.resize(1, 0)
+  print(marks)
+```
+
+```output
+[0, 0, 0, 1, 1]
+[0]
+```
+
+```rig reject
+sub main()
+  v: List[List[Int]] = List()
+  !v.resize(2, List())
+```
+
+```error
+`resize` copies its value into every element it adds, and a `List[Int]` owns a resource, so it cannot be copied
 ```
 
 ## Text: bytes, runes, units, chars

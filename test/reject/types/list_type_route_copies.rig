@@ -1,0 +1,19 @@
+# A List method called through its type, `List.m(xs, ...)`, meets the
+# rule the method call `xs.m(...)` meets: `get`, `filled`, and `resize`
+# copy an element, so it must copy.
+
+type Names = List[String]
+
+sub main()
+  xs: List[String] = List()
+  List.resize(!xs, 2, String("a"))
+  List[String].resize(!xs, 2, String("b"))
+  Names.resize(!xs, 1, String("c"))
+  g = List.get(?xs, 0)
+  print(xs, g)
+
+# error: 9:8: `resize` copies its value into every element it adds, and a `String` owns a resource
+# error: 10:16: `resize` copies its value into every element it adds, and a `String` owns a resource
+# error: 11:9: `resize` copies its value into every element it adds, and a `String` owns a resource
+# error: 12:12: `List.get` would copy an element out of a `List` of `String`
+# errors: 4

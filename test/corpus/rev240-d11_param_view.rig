@@ -1,0 +1,7 @@
+sub f(b: !List[Int])
+  !(!b).push(1)
+
+sub main()
+  v: List[Int] = List()
+  f(!v)
+  print(v)

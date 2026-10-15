@@ -24,6 +24,6 @@ sub main()
 # error: 14:12: type mismatch: expected `Int`, got `[3]Int`
 # error: 15:8: array length -1 is out of range
 # error: 16:15: `[3 of 0]` has length `3`; `[4]Int` needs `4`
-# error: 17:13: `[n of x]` copies its element into every slot; `List[Int]` owns a resource
-# error: 18:13: `[n of x]` copies its element into every slot; `!Int` holds a write view, which has one holder
+# error: 17:13: `[n of x]` copies its element into every slot, and a `List[Int]` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for 0..n` with `!xs.push(+x)`, into a List), or write the elements out, `[+x, +x]`
+# error: 18:13: `[n of x]` copies its element into every slot, and a `!Int` holds a write view, which has one holder, so it cannot be copied
 # error: 19:7: `make[List[Int]]` cannot use `T = List[Int]`
