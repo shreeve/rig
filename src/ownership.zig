@@ -2295,16 +2295,74 @@ pub const Checker = struct {
         if (mark < self.temps.items.len and self.temps.items[mark].place_hold) _ = self.temps.orderedRemove(mark);
     }
 
+    /// The indices of place `e`, read or taken, each walked as
+    /// `walkIndexOf` walks it.
+    fn walkFoundIndices(self: *Checker, e: Sexp) Error!void {
+        switch (e.kind() orelse return) {
+            .member => try self.walkFoundIndices(ir.Member.object(e)),
+            .index => {
+                const object = ir.Index.object(e);
+                try self.walkFoundIndices(object);
+                try self.walkIndexOf(object, ir.Index.index(e));
+            },
+            else => {},
+        }
+    }
+
+    /// `index` of place `object`, read or taken: `object` is found before
+    /// the index runs (`v.constSlot(0).*.at(i)`). Where it is reached
+    /// through storage a write of its root could move or free
+    /// (`staysInRoot`), the root is held read while the index runs, so
+    /// the index cannot lend it to write or move it (`v[0][grow(!v)]`
+    /// would read the buffer `grow` freed). Where it is not, the index
+    /// may: `vs[grow(!vs)]` finds `vs` where it was, and reads the element
+    /// after.
+    fn walkIndexOf(self: *Checker, object: Sexp, index: Sexp) Error!void {
+        const place = self.resolvePlace(object) orelse {
+            _ = try self.walk(index);
+            return;
+        };
+        if (self.staysInRoot(object)) {
+            _ = try self.walk(index);
+            return;
+        }
+        const mark = self.temps.items.len;
+        try self.addTemp(.{ .root = place.root, .kind = .read, .pos = self.startOf(object), .place_hold = true });
+        _ = try self.walk(index);
+        if (mark < self.temps.items.len and self.temps.items[mark].place_hold) _ = self.temps.orderedRemove(mark);
+    }
+
+    /// Whether place `e` is stored where its root's value is, every step
+    /// to it a field of a struct or an element of an array held there:
+    /// a write of the root changes what is there but never moves it. The
+    /// root is what a view it is views. A step into a List's buffer, a
+    /// box, a handle, a String, a view a field holds, or a value of a type
+    /// parameter is not: the write could move or free that storage.
+    fn staysInRoot(self: *const Checker, e: Sexp) bool {
+        if (!e.isKind(.member) and !e.isKind(.index)) return true;
+        const ctx = self.sema orelse return false;
+        const object = ir.get(e, .object);
+        var ty = self.exprType(object) orelse return false;
+        if (!object.isKind(.member) and !object.isKind(.index)) ty = self.pointee(ty) orelse ty;
+        const inline_step = switch (ctx.types.get(ty)) {
+            .array, .nominal, .imported_nominal => true,
+            .parameterized_nominal => |pn| !sema.isBuiltinGeneric(ctx, pn.sym),
+            else => false,
+        };
+        return inline_step and self.staysInRoot(object);
+    }
+
     /// A `member` or `index`.
     fn walkMember(self: *Checker, e: Sexp) Error!Value {
         const object = ir.get(e, .object);
         // A value that is no place is read where it runs, and indexed
-        // after its index runs; a place is found after it.
+        // after its index runs; a place is found up to its index before
+        // the index runs (`walkIndexOf`).
         const obj = if (e.isKind(.index) and self.resolvePlace(object) == null)
             try self.walkThenHeld(object, .base, ir.Index.index(e))
         else blk: {
             const v = try self.walk(object);
-            if (e.isKind(.index)) _ = try self.walk(ir.Index.index(e));
+            if (e.isKind(.index)) try self.walkIndexOf(object, ir.Index.index(e));
             break :blk v;
         };
         if (!self.mayCarryLoan(self.exprType(e))) return .{};
@@ -2782,7 +2840,7 @@ pub const Checker = struct {
     /// views, the place viewed.
     fn walkTake(self: *Checker, inner: Sexp) Error!Value {
         const place = self.resolvePlace(inner) orelse return self.walkViewedPath(inner);
-        try self.walkPlaceIndices(inner);
+        try self.walkFoundIndices(inner);
         const id = place.root;
         const pos = self.startOf(inner);
         if (!try self.checkLive(id, pos)) return .{};

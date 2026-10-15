@@ -4699,9 +4699,16 @@ cannot lend `a` to write while the left operand's read of it is in use
 A view of a place (`!v[i]`, `?p.xs[i]`, a slice `!v[i..]`, or the
 receiver of a method call) finds the place up to each index before the
 index runs, so an index cannot write lend or move the place's root:
-it could grow or free the memory the place is in. An assignment finds
-its target only after the indexes run ([§4](#4-bindings-and-assignment)),
-so `v[grow(!v)] = 1` is accepted.
+it could grow or free the memory the place is in. A place that is read
+or taken (`<v[i]`) is found up to each index before the index runs too,
+which matters where what the index is applied to lies outside the
+root's own storage, past a List's buffer, a box, a handle, a String, or
+a view a field holds: there the index cannot write lend or move the
+root either, so `v[0][grow(!v)]` and `p.bx.vals[rebox(!p)]` are
+rejected, while `vs[grow(!vs)]` and `p.v[grow(!p)]` find `vs` and
+`p.v` where they were and read the element after the index runs. An
+assignment finds its target only after the indexes run
+([§4](#4-bindings-and-assignment)), so `v[grow(!v)] = 1` is accepted.
 
 ```rig reject
 obj P
@@ -4722,6 +4729,22 @@ sub main()
 
 ```error
 cannot lend `ps` to write in an index of a place it is lending
+```
+
+```rig reject
+fun grow(v: !List[List[Int]]) -> Int
+  !v.push(List())
+  0
+
+sub main()
+  v: List[List[Int]] = List()
+  !v.push(List())
+  !v[0].push(5)
+  print(v[0][grow(!v)])
+```
+
+```error
+cannot lend `v` to write in an index of a place it is lending
 ```
 
 ### Second-class views

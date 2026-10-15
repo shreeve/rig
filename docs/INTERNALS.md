@@ -3497,10 +3497,14 @@ symbols); a query that decides more than that belongs in `Pending`.
   their turn, then stores (`SetOrder`, `openAssign`, and
   `storesAfterValue` for a name): the desugaring
   [Assignments](#assignments) gives, which the ownership checker walks,
-  and the order SPEC §4 gives. A lend, a
-  slice, or a receiver takes its place's address up to each index
-  before the index runs, so there the checker holds the root read while
-  the indexes are walked (`walkIndicesHeld`).
+  and the order SPEC §4 gives. A lend, a slice, a receiver, a read,
+  or a take takes its place's address up to each index before the
+  index runs (`v.constSlot(0).*.at(i)`), so there the checker holds the
+  root read while the indexes are walked: every index of a lend, a
+  slice, or a receiver (`walkIndicesHeld`), and an index of a read or a
+  take whose object lies outside the root's own storage
+  (`walkIndexOf`, `staysInRoot`), where a write of the root could move
+  or free it.
 - **Closures.** A stack closure is a local struct holding its captures,
   with an `__rig_invoke` method. An owned closure allocates an environment
   struct per literal and erases it behind `rig.Closure(params, R)`, so
