@@ -38,7 +38,7 @@ never read as the library's.
 | [`std.random`](#stdrandom) | a seedable pseudorandom generator |
 | [`std.sort`](#stdsort) | sorting slices, and searching sorted ones |
 | [`std.slices`](#stdslices) | reversing and linear search |
-| [`std.hash`](#stdhash) | Map and Set: hash tables that keep insertion order |
+| [`std.hash`](#stdhash) | Map and Set: hash tables that keep insertion order; Symbols, dense ids for strings |
 | [`std.text`](#stdtext) | searching, slicing, splitting, and parsing text |
 | [`std.utf8`](#stdutf8) | runes: reading, writing, counting, and checking UTF-8 |
 | [`std.utf16`](#stdutf16) | units: UTF-16 lengths and positions, and surrogate pairs |
@@ -475,22 +475,24 @@ type, as any generic is.
 
 | Member | Signature | Ownership |
 |---|---|---|
-| `hash.Map[K, V]()`, `hash.Map[K, V].new()` | `fun new() -> Map[K, V]` | an empty Map, which allocates nothing until the first `put` |
+| `hash.Map[K, V]()`, `hash.Map[K, V].new(capacity: n)` | `fun new(capacity: Int = 0) -> Map[K, V]` | an empty Map, which allocates nothing until the first `put`, or with room for `n` entries |
+| `!m.reserve(n)` | `sub reserve(!self, n: Int)` | makes room for `n` more entries at once, sizing the entries and the table for them rather than growing as they are put |
 | `m.len` | `pub ?len: Int` | the number of entries: a field other modules read and only `std.hash` writes |
 | `m.has(k)` | `fun has(?self, k: ?K) -> Bool` | reads |
 | `m.get(k)` | `fun get(?self, k: ?K) -> (?V)? from self` | the view keeps `m` lent to read, not `k` |
 | `(!m).edit(k)` | `fun edit(!self, k: ?K) -> (!V)? from self` | keeps `m` lent to write |
 | `!m.put(k, v)` | `sub put(!self, k: K, v: V)` | takes `k` and `v`; a key already there keeps its place, its old value and `k` are dropped |
 | `(!m).replace(k, v)` | `fun replace(!self, k: K, v: V) -> V?` | as `put`, handing the old value back |
-| `(!m).take(k)` | `fun take(!self, k: ?K) -> V?` | the value back, owned; the key dropped |
+| `(!m).take(k)` | `fun take(!self, k: ?K) -> V?` | the value back, owned; the key dropped when the entries are next compacted (as the Map grows), or with the Map |
 | `!m.clear()` | `sub clear(!self)` | drops every entry |
 | `?m.items()` | `fun items(?self) -> Items[K, V] from self` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) lasts one step of the loop |
 | `?m.keys()`, `?m.values()` | `fun keys(?self) -> Keys[K, V] from self` | likewise, each a `?K` or a `?V` |
 | `!m.update(f)` | `sub update(!self, f: ?sub(?K, !V))` | writes each value in place; keys stay read-only |
 
-`hash.Set[K]` has `hash.Set[K]()` and `new()`, the field `len`, `has(k: ?K)`, `(!s).add(k: K) ->
-Bool` (true when `k` is new; otherwise `k` is dropped), `(!s).take(k:
-?K) -> K?`, `clear()`, and `?s.items()`, each key a `?K`.
+`hash.Set[K]` has `hash.Set[K]()` and `new(capacity: n)`, `reserve(n)`,
+the field `len`, `has(k: ?K)`, `(!s).add(k: K) -> Bool` (true when `k`
+is new; otherwise `k` is dropped), `(!s).take(k: ?K) -> K?`, `clear()`,
+and `?s.items()`, each key a `?K`.
 
 A view an iterator gives comes from `next`, which takes the iterator
 lent to write, so it lasts until the loop takes the next one: it can
@@ -563,14 +565,51 @@ sub main()
 cannot use `K = Float`: the generic body hashes a `K` with `.hash()`, which `Float` does not support
 ```
 
-The entries are kept in one List, in order. The table is
-open-addressed and probed linearly, at most four fifths full; each slot
-holds a one-byte tag, seven bits of its key's hash, and the index of its
-entry, so a probe compares a key only when the tag matches, and a key
-that is not there is found missing from the tags alone. Taking an entry
-empties it in place, and the next growth drops it. The seed of
-`.hash()` is fixed, so a program that lets others choose many keys that
-collide can be made slow.
+`hash.Symbols` holds a set of strings, each with a dense `U32` id from
+0 in the order it was first interned. Their text lives in one String,
+end to end, so an id costs four bytes and a new string is copied once.
+
+| Member | Signature | Ownership |
+|---|---|---|
+| `hash.Symbols()` | | an empty one |
+| `(!names).intern(s)` | `fun intern(!self, s: ?String) -> U32` | the id of `s`, a new one when `s` is new, whose text is then copied in; nothing is copied otherwise |
+| `names.id(s)` | `fun id(?self, s: ?String) -> U32?` | the id of `s`, or `none`; adds nothing |
+| `names.text(id)` | `fun text(?self, id: U32) -> ?String from self` | the text of `id`, viewed where the table holds it |
+| `names.len` | `pub ?len: Int` | how many strings it holds |
+| `!names.reserve(n, bytes: b)` | `sub reserve(!self, n: Int, bytes: Int = 0)` | room for `n` more strings of `b` bytes in all |
+
+```rig
+use std.hash
+
+sub main()
+  names = hash.Symbols()
+  a = (!names).intern("width")
+  b = (!names).intern("height")
+  w = String("wid", "th")
+  print(a, b, (!names).intern(?w), names.id("depth"), names.text(b), names.len)
+```
+
+```output
+0 1 0 none height 2
+```
+
+The entries are kept in one List, in order, each with its key's hash
+beside it, so no key is hashed twice: not when the table grows, nor
+when an entry is taken. A Map or Set builds a table when it first
+holds more than 8 entries, or when `reserve` makes room for more, and
+keeps it until `clear`; until then, a lookup compares the stored
+hashes in turn, then the key where one matches. The table is
+open-addressed and probed linearly, at most four fifths full; each
+slot holds a one-byte tag, the top seven bits of its key's hash, and
+the index of its entry, so a probe compares a key only when the tag
+matches, and a key that is not there is found missing from the tags
+alone. A Map's entry holds its key and an optional value (for a
+`Map[U32, U32]`, a `U32` and a `U32?`), and its hash, a `U64`, is kept
+in a List beside the entries; taking one empties its value in place,
+and the next growth drops the entry, key and all, keeping the rest in
+order. A Set's key is optional, and taking one hands it back. The seed
+of `.hash()` is fixed, so a program that lets others choose many keys
+that collide can be made slow.
 
 ## List
 

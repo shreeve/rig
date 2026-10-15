@@ -1,0 +1,37 @@
+# std.hash's Symbols: a string gets a dense id from 0 the first time
+# it is interned, the same id after, from any text type; `id` finds one
+# without adding it, and `text` views an id's text. Over many strings
+# it crosses from scanning its few stored hashes to a table, and every
+# id still names its own text.
+
+use std.hash
+
+sub main()
+  names = hash.Symbols()
+  a = (!names).intern("width")
+  b = (!names).intern("height")
+  w = String("wid", "th")
+  print(a, b, (!names).intern(?w), names.id("depth"), names.text(b), names.len)
+  for i in 0..3000
+    t = String("n", i % 1009)
+    id = (!names).intern(?t)
+    if names.text(id) != t
+      print("wrong text", id)
+  print(names.len, names.id("n1008"), names.text(names.id("n0") ?? 0))
+  ok = true
+  for i in 0..1009
+    t = String("n", i)
+    if names.id(?t) as id
+      ok = ok and id == U32(i + 2) and names.text(id) == t
+    else
+      ok = false
+  print(ok)
+  more = hash.Symbols()
+  !more.reserve(4, bytes: 16)
+  print((!more).intern(""), (!more).intern("x"), (!more).intern(""), more.len)
+
+# expect:
+# 0 1 0 none height 2
+# 1011 1010 n0
+# true
+# 0 1 0 2
