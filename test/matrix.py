@@ -3526,8 +3526,16 @@ def tree_rss(pgid):
     return total
 
 
+CPUQ = shutil.which("cpuq")
+
+
 def run_capped(cmd, env):
-    """Run `cmd` with its output in files, stopping it as RUN_* say."""
+    """Run `cmd` with its output in files, stopping it as RUN_* say: by
+    `cpuq cap` where cpuq is installed (inside a cpuq job on Linux the
+    kernel enforces the memory limit, and nothing polls), else by the
+    watchdog below (CI, and machines without cpuq)."""
+    if CPUQ:
+        return run_capped_cpuq(cmd, env)
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         p = subprocess.Popen(cmd, stdout=out, stderr=err, stdin=subprocess.DEVNULL, env=env, start_new_session=True)
         start = time.monotonic()
@@ -3563,6 +3571,29 @@ def run_capped(cmd, env):
         err.seek(0)
         return subprocess.CompletedProcess(cmd, p.returncode, out.read().decode(errors="replace"), err.read().decode(errors="replace"))
 
+
+
+def run_capped_cpuq(cmd, env):
+    """`run_capped` through `cpuq cap`, which stops the program and
+    everything it started. Its output must go to files: cap refuses
+    pipes."""
+    capped = [CPUQ, "cap", "--mem", f"{RUN_MB}M", "--time", f"{RUN_SECONDS}s", "--output", str(RUN_OUTPUT), "--"] + cmd
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        p = subprocess.run(capped, stdout=out, stderr=err, stdin=subprocess.DEVNULL, env=env, start_new_session=True)
+        out.seek(0)
+        err.seek(0)
+        stdout = out.read().decode(errors="replace")
+        stderr = err.read().decode(errors="replace")
+    # 124, 122, and 121 are cap's only when it says so; the program's
+    # own exit status passes through.
+    if "cpuq cap: stopped" in stderr:
+        if p.returncode == 124:
+            raise subprocess.TimeoutExpired(cmd, RUN_SECONDS)
+        if p.returncode == 122:
+            raise MemoryError(f"stopped: used more than {RUN_MB} MB")
+        if p.returncode == 121:
+            raise MemoryError(f"stopped: printed more than {RUN_OUTPUT} bytes")
+    return subprocess.CompletedProcess(cmd, p.returncode, stdout, stderr)
 
 def run_one(path, keep, started_dir, expect=None, release=False):
     """Classify one program: rejected, ok, or a failure with its reason.
