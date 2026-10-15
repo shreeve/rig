@@ -1,0 +1,15 @@
+# rust-lang/rust#164250's Rig analog: a struct whose drop body reads a
+# read-view field re-pointed at a shorter-lived local must be rejected.
+
+obj Q
+  f: ?String
+
+  drop(!self)
+    print(self.f)
+
+sub main()
+  l = String("inner")
+  s = String("outer")
+  q = Q(f: ?s)
+  q.f = ?l
+  <l
