@@ -4731,6 +4731,12 @@ const Checker = struct {
         const inner = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
             .optional => |i| i,
             else => {
+                // `*w?` is `*(w?)`; propagating a gone value is `(*w)?`.
+                if (sameNode(e, self.shared_operand) and self.ctx.types.get(sema.unwrapViews(self.ctx, ty)) == .weak) {
+                    const shown = try self.plainText(operand);
+                    try self.errAt(operand, "`*{s}?` is `*({s}?)`, and `{s}` is a weak handle, not an optional: to return `none` once its value is gone, write `(*{s})?`", .{ shown, shown, shown, shown });
+                    return self.t().invalid_id;
+                }
                 try self.errAt(operand, "`?` needs an optional operand; this expression has type `{s}`", .{try self.tyName(self.canonical(ty))});
                 return self.t().invalid_id;
             },
@@ -5305,6 +5311,7 @@ const Checker = struct {
         if (try self.shareOfNone(e, null)) return self.t().invalid_id;
         if (operand.isKind(.lambda)) return self.ownedClosure(operand, null);
         const ty = try self.shareOperand(operand, null);
+        if (try self.weakUpgrade(e, ty)) |upgraded| return upgraded;
         // A literal takes its default type.
         if (ty == self.t().int_literal_id) try self.defaultIntLiteral(operand);
         const inner = self.canonical(ty);
@@ -5317,7 +5324,14 @@ const Checker = struct {
             try self.errAt(operand, "this value is already a shared handle `{s}`; `*` would nest handles. Clone it with `+x` for another handle", .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
-        if (sema.heapStacked(self.ctx, .shared, inner)) {
+        if (sema.heapStacked(self.ctx, inner)) {
+            // `*o` of an optional weak handle: `*` upgrades the handle
+            // inside, once it is taken out.
+            if (self.ctx.types.get(sema.unwrapOptionals(self.ctx, inner)) == .weak) {
+                const shown = try self.plainText(stripSigil(operand));
+                try self.errAt(operand, "`{s}` is an optional weak handle `{s}`, and `*` upgrades a weak handle, not an optional: take the handle out first, `if {s} as w`, then `*w`", .{ shown, try self.tyName(inner), shown });
+                return self.t().invalid_id;
+            }
             try self.errAt(operand, "this value is already `{s}`; `*` would hold it twice; " ++ sema.heap_stacked_rule, .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
@@ -5330,6 +5344,63 @@ const Checker = struct {
         }
         try sema.requireHandleOf(self.ctx, inner, self.startOf(e), "`*`");
         return self.ctx.intern(.{ .shared = inner });
+    }
+
+    /// `*w` of `w`, of type `ty`, where it upgrades a weak handle: the
+    /// `*T?` it makes, else null. `*` of a `~T`, or of a view of one,
+    /// upgrades it; a `T` a generic body sees is no weak handle, so `*x`
+    /// there makes a counted handle in every instance. Whether `*` reads
+    /// `w` or takes it is decided by a positive list (`sema.Upgrade`):
+    /// it reads a view, a place, a part of a value, a lend, or a branching
+    /// value, and takes a weak handle made there (`*<w`, `*~h`, `*f()`),
+    /// which is dropped once upgraded. Recorded
+    /// (`SemContext.recordUpgrade`), which the ownership checker and emit
+    /// read: a read is `w`'s, as a `?self` method's receiver is read; a
+    /// take moves `w` as `*<x` moves `x`.
+    fn weakUpgrade(self: *Checker, e: Sexp, ty: TypeId) Error!?TypeId {
+        const operand = ir.Share.operand(e);
+        if (self.isPoison(ty)) return null;
+        const inner = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
+            .weak => |inner| inner,
+            else => return null,
+        };
+        const how: sema.Upgrade = if (sema.isReadOrWriteView(self.ctx, ty)) .reads else switch (self.hands(operand).kind) {
+            .place, .part_of_made, .lend, .branches => .reads,
+            .made => .takes,
+            .jump, .none => return null,
+        };
+        if (operand.isKind(.write)) {
+            const shown = try self.plainText(stripSigil(operand));
+            try self.errAt(operand, "`*` only reads the weak handle it upgrades: write `*{s}`", .{shown});
+            return self.t().invalid_id;
+        }
+        if (how == .reads) {
+            // A branching value that may be a name's is lent branch by
+            // branch, `*(?a if c else ?b)`, as a receiver is.
+            if (self.hands(operand).kind == .branches and !try self.lendsBranch(operand, e, .read)) return self.t().invalid_id;
+            try self.rejectResourceTemporary(operand, ty);
+        }
+        try self.ctx.recordUpgrade(e, how);
+        return try self.ctx.intern(.{ .optional = try self.ctx.intern(.{ .shared = inner }) });
+    }
+
+    /// Whether `e`'s type is its own wherever it stands, whatever is
+    /// expected of it, by a positive list: a name, a field or element
+    /// path, a lend, or a move (`checkContextual` types none of them).
+    fn typedWhereItStands(self: *Checker, e: Sexp) bool {
+        return switch (e) {
+            .src => blk: {
+                const s = self.text(e);
+                break :blk s.len > 0 and (std.ascii.isAlphabetic(s[0]) or s[0] == '_') and
+                    !std.mem.eql(u8, s, "none") and !std.mem.eql(u8, s, "true") and !std.mem.eql(u8, s, "false");
+            },
+            .list => if (e.kind()) |k| switch (k) {
+                .member, .index => true,
+                .read, .write, .move => self.typedWhereItStands(ir.get(e, .operand)),
+                else => false,
+            } else false,
+            else => false,
+        };
     }
 
     /// `*none` where no handle of an optional is expected (`target`, a
@@ -5364,7 +5435,10 @@ const Checker = struct {
     /// type when `target` is a box.
     /// The type `sigil` over `inner` would be, as a diagnostic spells it.
     fn stackedSpelling(self: *Checker, sigil: u8, inner: TypeId) Error![]const u8 {
-        return self.ctx.arena.allocator().print("{c}{s}", .{ sigil, try self.tyName(inner) });
+        // A suffix binds tighter than a holding sigil: `*(~T?)`.
+        const shown = try self.tyName(inner);
+        if (self.ctx.types.get(inner) == .optional) return self.ctx.arena.allocator().print("{c}({s})", .{ sigil, shown });
+        return self.ctx.arena.allocator().print("{c}{s}", .{ sigil, shown });
     }
 
     fn synthBox(self: *Checker, e: Sexp, target: ?TypeId) Error!TypeId {
@@ -5386,7 +5460,7 @@ const Checker = struct {
             try self.errAt(operand, sema.boxed_function, .{});
             return self.t().invalid_id;
         }
-        if (sema.heapStacked(self.ctx, .box, inner)) {
+        if (sema.heapStacked(self.ctx, inner)) {
             try self.errAt(operand, "this value is already `{s}`; `^` would hold it twice; " ++ sema.heap_stacked_rule, .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
@@ -5720,16 +5794,13 @@ const Checker = struct {
         return try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
     }
 
-    /// A field or method reached through weak handle `obj`, of type
-    /// `obj_ty`, which does not keep its value alive. `upgrade` takes
-    /// the weak handle itself, so one held in a box or behind a handle
-    /// is lent out first.
-    fn weakReach(self: *Checker, obj: Sexp, obj_ty: TypeId, weak: TypeId, pos: u32) Error!void {
+    /// A field or method reached through weak handle `obj`, which does not
+    /// keep its value alive: `*w` upgrades it. A box or a counted handle
+    /// holds no weak handle (`sema.heapStacked`), so `obj` is the weak
+    /// handle or a view of one.
+    fn weakReach(self: *Checker, obj: Sexp, weak: TypeId, pos: u32) Error!void {
         const shown = try self.plainText(stripSigil(obj));
-        const name = try self.tyName(weak);
-        if (self.ctx.types.get(sema.unwrapViews(self.ctx, obj_ty)) == .weak) {
-            try self.err(pos, "a weak handle `{s}` reaches its value only through `upgrade`: `if {s}.upgrade() as s`", .{ name, shown });
-        } else try self.err(pos, "a weak handle `{s}` reaches its value only through `upgrade`, which takes the handle itself: lend it first, `w: ?{s} = ?{s}`, then `if w.upgrade() as s`", .{ name, name, shown });
+        try self.err(pos, "a weak handle `{s}` reaches its value only once upgraded with `*{s}`: `if *{s} as s`", .{ try self.tyName(weak), shown, shown });
     }
 
     /// Member `e` of `obj`, a value of type `obj_ty`.
@@ -5780,7 +5851,7 @@ const Checker = struct {
                 return self.t().invalid_id;
             };
             if (self.ctx.types.get(peeled) == .weak) {
-                try self.weakReach(obj, obj_ty, peeled, pos);
+                try self.weakReach(obj, peeled, pos);
             } else try self.err(pos, "type `{s}` has no field `{s}`", .{ try self.tyName(obj_ty), field });
             return self.t().invalid_id;
         };
@@ -6199,7 +6270,7 @@ const Checker = struct {
                         try self.errAt(e, sema.boxed_function, .{});
                         return self.t().invalid_id;
                     }
-                    if (sema.heapStacked(self.ctx, .box, inner)) {
+                    if (sema.heapStacked(self.ctx, inner)) {
                         try self.errAt(e, sema.heap_stacked, .{try self.stackedSpelling('^', inner)});
                         return self.t().invalid_id;
                     }
@@ -6210,7 +6281,7 @@ const Checker = struct {
                     const inner_node = ir.get(e, if (e.isKind(.propagate_none)) .value else .operand);
                     const inner = try self.typeArg(inner_node);
                     if (self.isPoison(inner)) return inner;
-                    if (e.isKind(.share) and sema.heapStacked(self.ctx, .shared, inner)) {
+                    if (e.isKind(.share) and sema.heapStacked(self.ctx, inner)) {
                         try self.errAt(e, sema.heap_stacked, .{try self.stackedSpelling('*', inner)});
                         return self.t().invalid_id;
                     }
@@ -6278,11 +6349,11 @@ const Checker = struct {
             i -= 1;
             if (self.isPoison(ty)) return ty;
             const h = handles.items[i];
-            if (h.isKind(.share) and sema.heapStacked(self.ctx, .shared, ty)) {
+            if (h.isKind(.share) and sema.heapStacked(self.ctx, ty)) {
                 try self.errAt(h, sema.heap_stacked, .{try self.stackedSpelling('*', ty)});
                 return self.t().invalid_id;
             }
-            if (h.isKind(.box) and sema.heapStacked(self.ctx, .box, ty)) {
+            if (h.isKind(.box) and sema.heapStacked(self.ctx, ty)) {
                 try self.errAt(h, sema.heap_stacked, .{try self.stackedSpelling('^', ty)});
                 return self.t().invalid_id;
             }
@@ -9399,21 +9470,16 @@ const Checker = struct {
             return self.callValue(ct.?, elem_ty, args, self.sourceText(ct.?));
         }
 
+        // A weak handle upgrades with `*w`, a shared handle has nothing to
+        // upgrade, and an object's own `upgrade` is called as any method.
         if (std.mem.eql(u8, method, "upgrade")) {
             switch (self.ctx.types.get(sema.unwrapViews(self.ctx, obj_ty))) {
-                .weak => |inner| {
-                    if (self.isReceiverSigil(obj) and !obj.isKind(.read)) try self.misplacedSigil(obj, method, "only reads the weak handle");
-                    try self.rejectResourceTemporary(obj, obj_ty);
-                    if (args.len != 0) {
-                        try self.err(pos, "weak `upgrade` takes no arguments; got {d}", .{args.len});
-                        try self.synthArgs(args);
-                    }
-                    const result = try self.ctx.intern(.{ .optional = try self.ctx.intern(.{ .shared = inner }) });
-                    try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{obj_ty}), .returns = result, .is_sub = false });
-                    return self.noteMethod(callee, .read, result);
+                .weak => {
+                    const shown = try self.plainText(stripSigil(obj));
+                    return self.badCall(args, pos, "a weak handle upgrades with `*{s}`, not a method: `if *{s} as s`", .{ shown, shown });
                 },
                 .shared => if (!sema.hasMethodNamed(self.ctx, obj_ty, method)) {
-                    return self.badCall(args, pos, "`upgrade` is only available on weak handles (`~T`); receiver here is a shared handle (`*T`). Use `~rc` to obtain a weak reference, then `.upgrade()` on the weak.", .{});
+                    return self.badCall(args, pos, "a shared handle `{s}` is already counted, and has no `upgrade`; a weak handle `w` of one (`~h`) upgrades with `*w`", .{try self.tyName(sema.unwrapViews(self.ctx, obj_ty))});
                 },
                 else => {},
             }
@@ -9487,7 +9553,7 @@ const Checker = struct {
                 try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ method, sym.name, try self.memberHint(sym.fields orelse &.{}, method, .method) });
                 try self.noteDeclared(sym, decl.module_id == null);
             } else if (self.ctx.types.get(peeled) == .weak) {
-                try self.weakReach(obj, obj_ty, peeled, pos);
+                try self.weakReach(obj, peeled, pos);
             } else {
                 try self.err(pos, "type `{s}` has no method `{s}`", .{ try self.tyName(obj_ty), method });
             }
@@ -10008,7 +10074,12 @@ const Checker = struct {
         const ty = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = try self.ctx.dupeIds(args) } });
         if (!sema.containsTypeVar(self.ctx, ty)) {
             const gop = try self.ctx.instantiation_sites.getOrPut(self.ctx.allocator, ty);
-            if (!gop.found_existing) gop.value_ptr.* = pos;
+            if (!gop.found_existing) {
+                gop.value_ptr.* = pos;
+                // An instance first made here, in an expression, is checked
+                // as a written one is (`resolve`'s `instance_stacking`).
+                try sema.checkInstanceStacked(self.ctx, ty, pos);
+            }
         } else try self.ctx.addGeneric(.uses, ty);
         return ty;
     }
@@ -10310,7 +10381,12 @@ const Checker = struct {
             return self.ctx.recordType(e, ty);
         }
 
-        const actual = try self.synthExpr(e);
+        return self.checkActual(e, try self.synthExpr(e), expected);
+    }
+
+    /// `e`, of type `actual` (`synthExpr`), where `expected` goes: adapted
+    /// or lent to it, or reported.
+    fn checkActual(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
         // A written `!x` where a read view goes only lends to read.
         if (self.readViewSlot(expected) and try self.writeLendRead(e, actual, .{ .read_view = expected })) return;
         if (try self.lendView(e, actual, expected)) return;
@@ -10841,6 +10917,24 @@ const Checker = struct {
                 }
                 const tt = self.ctx.types.get(target);
                 if (tt != .shared) return null;
+                // `*` of a weak handle upgrades it whatever is expected
+                // (`weakUpgrade`), so it makes no `*~T`: synthesized, it
+                // mismatches. An operand typed where it stands is typed
+                // first, and checked against the handle's value only where
+                // it is no weak handle.
+                if (self.ctx.types.get(sema.unwrapViews(self.ctx, tt.shared)) == .weak) return null;
+                if (self.typedWhereItStands(operand)) {
+                    const ty = try self.shareOperand(operand, null);
+                    if (try self.weakUpgrade(e, ty)) |upgraded| {
+                        if (!compatible(self.ctx, upgraded, expected)) try self.mismatch(e, expected, upgraded);
+                        return upgraded;
+                    }
+                    if (self.isPoison(ty)) return target;
+                    try self.recordUse(operand, .take);
+                    if (operand == .list and self.ctx.quiet == 0) try self.expected.put(self.ctx.allocator, nodeId(operand), tt.shared);
+                    try self.checkActual(operand, ty, tt.shared);
+                    return target;
+                }
                 _ = try self.shareOperand(operand, tt.shared);
                 return target;
             },
@@ -14069,11 +14163,12 @@ test "check: where a Cell and a write view stand, and a branch lent in place, ar
     // asked of every expression typed (`synthExpr`, `checkExpr`).
     try std.testing.expectEqual(2, std.mem.count(u8, tc, "self." ++ "cellMadeAway("));
     // Every lend of a branch, written or in place, asks `lendsBranch`:
-    // a sigil, a slice, a write lend of a temporary, a temporary lent
-    // to read, a header's subject, and a view a context takes in place.
+    // a sigil, a slice, a write lend of a temporary, a weak handle `*`
+    // upgrades, a temporary lent to read, a header's subject, and a view
+    // a context takes in place.
     const call = "self." ++ "lendsBranch(";
     var from: usize = 0;
-    for ([_][]const u8{ "headerLendsBranch", "synthLend", "lendsToWrite", "lendSlice", "lendTempIn", "checkExpr" }) |want| {
+    for ([_][]const u8{ "headerLendsBranch", "synthLend", "lendsToWrite", "lendSlice", "weakUpgrade", "lendTempIn", "checkExpr" }) |want| {
         from = std.mem.indexOfPos(u8, tc, from, call).?;
         const fn_at = std.mem.lastIndexOf(u8, tc[0..from], "    fn ").?;
         const got = tc[fn_at + "    fn ".len .. fn_at + std.mem.indexOfScalar(u8, tc[fn_at..], '(').?];

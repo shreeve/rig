@@ -9,12 +9,12 @@ fun mkv(n: Int) -> List[Int]
   xs
 
 fun up(w: ~S) -> Int?
-  x = <(w.upgrade()?.o)
+  x = <((*w)?.o)
   print(x == none)
   0
 
 fun up2(w: ~S) -> Int?
-  y = <(w.upgrade()?.v)
+  y = <((*w)?.v)
   print(y.len)
   0
 

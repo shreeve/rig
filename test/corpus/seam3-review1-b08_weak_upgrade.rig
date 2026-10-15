@@ -9,6 +9,6 @@ sub main()
   keep = +h
   <h
   !v.push(2)
-  if w.upgrade() as s
+  if *w as s
     print(s.v.len)
   print(keep.v.len)

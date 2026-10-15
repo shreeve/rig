@@ -1,0 +1,29 @@
+# `*w` only reads the weak handle it upgrades, so a write lend there is
+# rejected. A suffix binds tighter than `*`: `*w?` is `*(w?)`, which
+# propagates `none` out of the weak handle itself; the hint gives
+# `(*w)?`, which returns `none` once the value is gone. A branching
+# value that may be a name's handle is lent branch by branch, as a
+# receiver is.
+
+obj Node
+  id: Int
+
+fun id_of(w: ?~Node) -> Int?
+  n = *w?
+  n.id
+
+sub main()
+  rc = *Node(id: 1)
+  w = ~rc
+  if *!w as p
+    print(p.id)
+  print(id_of(?w) ?? 0)
+  w2 = ~rc
+  c = true
+  if *(w if c else w2) as p
+    print(p.id)
+
+# error: 12:8: `*w?` is `*(w?)`, and `w` is a weak handle, not an optional: to return `none` once its value is gone, write `(*w)?`
+# error: 18:7: `*` only reads the weak handle it upgrades: write `*w`
+# error: 23:8: cannot lend `w if c else w2`: it may be `w`, a value a name holds, which lending the branching value would copy; lend each branch: `*(?w if c else ?w2)`
+# errors: 3

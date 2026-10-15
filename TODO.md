@@ -11,6 +11,10 @@ started:
 - SIMD: `pad:` reads and `blocks(N)`.
 - A String API for part-word appends and windowed writes.
 - Multiple results.
+- A generic body's own holding of a `T` (`h = *<x`, `List[*T]`, a call
+  passing `<x` to `*T`) at an instance whose `T` is held (`T = ~U`
+  makes `*~U`): rejected per instance, with the generic per-instance
+  requirements round (option (b)). SPEC "Box" shows it as pending.
 - A frame-size guard for every function.
 - Switching to Nexus's `Span.text`.
 - `text.ByteSet`, a byte set built once when the program runs and

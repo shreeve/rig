@@ -1,5 +1,6 @@
-# `upgrade` is a built-in only on weak handles; calling it on a shared
-# handle (whose type has no `upgrade` method) points at `~rc`.
+# A shared handle is already counted: calling `upgrade` on one (whose
+# type has no `upgrade` method) is rejected, pointing at `*w` of a weak
+# handle.
 
 obj User
   name: ?String
@@ -9,4 +10,4 @@ sub main()
   m  = rc.upgrade()
   <rc
 
-# error: `upgrade` is only available on weak handles (`~T`)
+# error: 10:11: a shared handle `*User` is already counted, and has no `upgrade`; a weak handle `w` of one (`~h`) upgrades with `*w`

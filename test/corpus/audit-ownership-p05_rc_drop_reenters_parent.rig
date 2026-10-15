@@ -4,7 +4,7 @@ obj Child
 
   drop(!self)
     print("drop child", self.n)
-    if self.parent.upgrade() as p
+    if *self.parent as p
       old = (!p).replace(none)
       print("old none", old == none)
 

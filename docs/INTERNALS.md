@@ -606,11 +606,11 @@ A few kinds serve more than one surface form:
   type argument in an expression is an expression read as a type
   (`typeArg`); `[]T`, `[N]T`, and function types have no such
   spelling, and the parser wrapper reports them with a hint. There
-  `*T?` is `(share (propagate_none T))` and `*~T?` is
-  `(share (weak (propagate_none T)))`, which `typeArg` reads as optional
+  `*T?` is `(share (propagate_none T))` and `~^T?` is
+  `(weak (box (propagate_none T)))`, which `typeArg` reads as optional
   handles, as the type grammar does: the suffixes under a chain of
   handles move outside the whole chain. A handle to an optional,
-  `*(T?)` or `*(~T?)`, has no expression spelling; the tree drops its
+  `*(T?)` or `~(T?)`, has no expression spelling; the tree drops its
   parentheses, so the parser wrapper records each `share` or `weak`
   whose chain has a suffix inside parentheses (`hasParenSuffix`, from
   the spans, as it finds receiver sigils), and `typeArg` rejects it
@@ -1327,6 +1327,7 @@ instead of re-deriving it by name:
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T` (or vector of numbers); the bracket list is recorded as compile-time arguments (`instanceOf`). Also the methods of an integer's bits (`x.not()`, `x.count_ones()`) and of a vector (`Simd[T, n].splat(x)`, `m.bits()`, `m.select(a, b)`, ...) |
 | `splatOf(node)` | for a scalar operand of a lane-wise operator or of `select`: the vector type it stands for, every lane its value; emit writes it `@as(V, @splat(x))` ([Vectors](#vectors)) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
+| `upgradeOf(share)` | for `*w` of a weak handle, a `~T` or a view of one: that it upgrades it, and whether it reads `w` or takes it (`sema.Upgrade`) ([Weak upgrades](#weak-upgrades)) |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
@@ -3028,6 +3029,32 @@ none), never `self`; and `*Env(...)` makes a new counted handle.
   it once, on success, failure, or omission (Closures with fewer
   parameters), and an owning result is the caller's.
 
+### Weak upgrades
+
+`*` of a weak handle upgrades it. Typecheck decides it once, by the
+operand's type (`weakUpgrade`): a `~T`, or a view of one, upgrades; any
+other operand, a type parameter `T` included, is shared into a new
+counted handle in every instance. A generic body never upgrades, and an
+instance at `T = ~U` is rejected as a copy of a `T` (or as `*~U`, which
+no counted handle may hold: `sema.heapStacked`). The record
+(`upgradeOf`) says whether `*` reads the handle or takes it, by a
+positive list: it reads a view, a place, a part of a value, a lend, or a
+branching value, and takes a move or a value made there. The node stays
+the `share` sigil node.
+
+| Form | Desugars to |
+|---|---|
+| `*w`, `w` read | the built-in `?self` method `w.upgrade()`: `w` read where it stands, its result a new owned `*T?` |
+| `*<w`, `*~h`, `*f()`, `w` taken | `w` moved into a hidden binding `t`, then `t.upgrade()`, then `<t` |
+
+The ownership checker walks a read as a `?self` receiver's read
+(`walk`) and a take as `*<x`'s (`walkConsumed`); the new handle carries
+what `w` carries, where its type may hold a loan. Emit writes a read as
+the receiver of the runtime's `upgrade` (`emitMemberBase`, then
+`.upgrade()`), and a take as `rig.upgradeTaken(t)`, which upgrades `t`
+and drops it. The reference checker lowers a read as `~h`'s read of a
+place and a take as `*<x`'s make.
+
 ### Loops over an iterator
 
 `for x in !it` is `while (!it).next() as x`, and nothing else: no pass
@@ -3682,7 +3709,7 @@ reviewed.
 |---|---|
 | `RcBox(T)` | the box behind `*T`: a strong count, a weak count (plus one for all strong handles), and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
 | `Box(T)` | `^T`: a pointer to one heap `T`. `init` allocates, `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `RcBox` past 256 nested releases |
-| `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade`, which returns a new strong handle or null once the value is gone |
+| `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade` (what `*w` lowers to), which returns a new strong handle or null once the value is gone |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |

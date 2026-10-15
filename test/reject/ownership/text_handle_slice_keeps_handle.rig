@@ -23,7 +23,7 @@ sub field()
 sub upgraded()
   h = *String("hello")
   w = ~h
-  if w.upgrade() as g
+  if *w as g
     s = ?g[1..]
     <g
     print(s)

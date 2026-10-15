@@ -18,6 +18,6 @@ sub main()
     w = ~h
     hold = +h
   if w as ww
-    if ww.upgrade() as s
+    if *ww as s
       print(s.r.n)
   print(hold.r.n)

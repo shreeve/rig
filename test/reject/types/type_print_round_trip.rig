@@ -19,9 +19,9 @@ sub main()
   x7: *(N?)? = 1
   x8: ~N? = 1
   x9: ~(N?) = 1
-  x10: *~N? = 1
-  x11: *(~N?) = 1
-  x12: *(~N)? = 1
+  x10: ?~N? = 1
+  x11: ?(~N?) = 1
+  x12: (?~N)? = 1
   x13: ?N? = 1
   x14: (?N)? = 1
   x15: ?*N? = 1
@@ -53,9 +53,9 @@ sub main()
 # error: 19:16: type mismatch: expected `*(N?)?`, got `Int`
 # error: 20:13: type mismatch: expected `~N?`, got `Int`
 # error: 21:15: type mismatch: expected `~(N?)`, got `Int`
-# error: 22:15: type mismatch: expected `*~N?`, got `Int`
-# error: 23:17: type mismatch: expected `*(~N?)`, got `Int`
-# error: 24:17: type mismatch: expected `*~N?`, got `Int`
+# error: 22:15: type mismatch: expected `?~N?`, got `Int`
+# error: 23:17: type mismatch: expected `?~N?`, got `Int`
+# error: 24:17: type mismatch: expected `(?~N)?`, got `Int`
 # error: 25:14: type mismatch: expected `?N?`, got `Int`
 # error: 26:16: type mismatch: expected `(?N)?`, got `Int`
 # error: 27:15: type mismatch: expected `?*N?`, got `Int`

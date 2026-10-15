@@ -1823,18 +1823,24 @@ const Lowerer = struct {
                 .take => return abstain("a stack closure stored"),
                 .read, .view => return try self.closure(e, false),
             },
-            .share, .box => {
-                // `*<x` moves `x` into a counted handle and `*S(...)` makes
-                // a new value there; `^<x` and `^S(...)` do so in a box of
-                // one owner: the holder takes it, with its loans (Core s8,
-                // s9). An owned closure's environment is the counted
-                // handle (Core §7).
+            .share => {
+                // `*` of a weak handle upgrades it (Core s8): `*w` reads
+                // a place, and the new count carries the handle's loans,
+                // as `~h`'s does (s9); `*<w` and `*` of a handle made there
+                // take it, as `*<x` takes `x`.
                 const operand = ir.get(e, .operand);
-                const v = if (operand.isKind(.lambda)) try self.closure(operand, true) else try self.eval(operand, .take, null);
+                if (operand.isKind(.lambda) or operand.isKind(.move)) return self.handOver(e, pos);
+                const ty = self.ctx.typeOf(operand) orelse return abstain("an untyped operand of `*`");
+                if (self.ctx.types.get(sema.unwrapViews(self.ctx, ty)) != .weak) return self.handOver(e, pos);
+                const p = try self.place(if (operand.isKind(.read)) ir.get(operand, .operand) else operand) orelse {
+                    if (operand.isKind(.call) or operand.isKind(.weak)) return self.handOver(e, pos);
+                    return abstain("an upgrade of a weak handle that is no place");
+                };
                 const t = try self.temp(try self.typeOf(e), pos);
-                try self.emit(.{ .pos = pos, .what = .make, .moves = try self.list(v), .def = t });
+                try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(p.root), .def = t, .access = readAccess(p) });
                 return t;
             },
+            .box => return self.handOver(e, pos),
             .weak => {
                 // `~h` reads the handle and holds its box weakly, with the
                 // contents' loans, as every handle does (Core s8, s9).
@@ -2581,6 +2587,20 @@ const Lowerer = struct {
         };
     }
 
+    /// `*<x`, `*S(...)`, `^<x`, `^S(...)`, or an owned closure `*|...|`.
+    fn handOver(self: *Lowerer, e: Sexp, pos: u32) Error!?VarId {
+        // `*<x` moves `x` into a counted handle and `*S(...)` makes
+        // a new value there; `^<x` and `^S(...)` do so in a box of
+        // one owner: the holder takes it, with its loans (Core s8,
+        // s9). An owned closure's environment is the counted
+        // handle (Core §7).
+        const operand = ir.get(e, .operand);
+        const v = if (operand.isKind(.lambda)) try self.closure(operand, true) else try self.eval(operand, .take, null);
+        const t = try self.temp(try self.typeOf(e), pos);
+        try self.emit(.{ .pos = pos, .what = .make, .moves = try self.list(v), .def = t });
+        return t;
+    }
+
     fn call(self: *Lowerer, e: Sexp, how: How) Error!?VarId {
         _ = how;
         const pos = self.posOf(e);
@@ -3300,9 +3320,8 @@ const Lowerer = struct {
         // (Core s8).
         switch (self.ctx.types.get(sema.unwrapViews(self.ctx, recv_ty))) {
             .shared => |inner| recv_ty = inner,
-            // `w.upgrade()` reads the weak handle; its result is a new
-            // count carrying the handle's loans (Core s8, s9).
-            .weak => if (std.mem.eql(u8, mname, "upgrade")) return .{ .read, null } else return abstain("a method of a weak handle"),
+            // A weak handle has no methods: `*w` upgrades it (Core s8).
+            .weak => return abstain("a method of a weak handle"),
             else => {},
         }
         const decl = sema.nominalDecl(self.ctx, recv_ty) orelse {

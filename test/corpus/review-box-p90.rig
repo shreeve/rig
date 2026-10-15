@@ -12,7 +12,7 @@ sub main()
   w = ~s
   if ?s.r as x
     print(x.n)
-  if w.upgrade() as t
+  if *w as t
     if ?t.r as y
       <t
       print(y.n)

@@ -16,7 +16,7 @@ sub h2()
 sub h3()
   h = *S(n: 1, v: List(), o: none)
   k = ~h
-  if k.upgrade() as g
+  if *k as g
     w = <g.v
     print(w.len)
 

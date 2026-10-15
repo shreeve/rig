@@ -13,7 +13,7 @@ sub main()
     print("some")
   rc = [0]*Noisy(id: 1)
   w = ~rc
-  if w.upgrade() as _
+  if *w as _
     print("alive")
   print("end")
 

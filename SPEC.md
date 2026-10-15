@@ -5768,8 +5768,13 @@ cannot assign through a shared handle
 ### Weak handles
 
 `~h` makes a weak handle `~T` from a shared one. A weak handle does not
-keep the value alive. `w.upgrade()` returns an optional strong handle
-`*T?`: a new owner while the value is alive, `none` after.
+keep the value alive. `*w` upgrades it: it reads `w`, which stays
+usable, and gives an optional strong handle `*T?`, a new count while
+the value is alive and `none` after. `w` may be a `~T` or a view of one
+(`?~T`), a name, a field, or an element. A weak handle reaches nothing
+else: its fields and methods are reached only through `*w`, and one
+held in a box or behind a handle is lent out first (`u: ?~T = ?c`, then
+`*u`).
 
 ```rig
 obj Node
@@ -5779,7 +5784,7 @@ obj Node
     print("drop", self.id)
 
 sub show(w: ?~Node)
-  if w.upgrade() as n
+  if *w as n
     print("alive", n.id)
   else
     print("gone")
@@ -5796,6 +5801,40 @@ sub main()
 alive 7
 drop 7
 gone
+```
+
+`*` of a weak handle always upgrades it. `*w` reads `w`; `*<w` takes
+it, so `w` is moved and its weak count dropped once upgraded, and a
+later use of `w` is a use after move. A weak handle made there (`*~h`,
+`*f()`) is taken the same way. So no counted handle holds a weak one:
+`*~T` is rejected, as every holding sigil over a held value is
+([§10](#box)). A suffix binds tighter than a prefix, so
+`*w?` is `*(w?)`; to return `none` from the function once the value is
+gone, write `(*w)?`. In a generic body, `*x` of a `T` copies `x` into a
+new handle, whatever `T` an instance gives it, so a `T` that is a weak
+handle does not suit it ([§3](#generic-bodies)).
+
+```rig
+obj Node
+  id: Int
+
+fun id_of(w: ?~Node) -> Int?
+  n = (*w)?
+  n.id
+
+sub main()
+  rc = *Node(id: 3)
+  w = ~rc
+  p = *w
+  print(id_of(?w), p != none)
+  <p
+  <rc
+  print(id_of(?w) ?? -1, *w == none)
+```
+
+```output
+3 true
+-1 true
 ```
 
 ### Cycles
@@ -6154,8 +6193,11 @@ viewed slot and moved out with `pop` ([List](#list)).
 
 **A value is held one way on the heap:** `^T` with one owner, `*T`
 counted, or `~T` weak. A holding sigil over a held value (`^^T`, `^*T`,
-`*^T`, `^~T`, `**T`) is rejected wherever the type comes from: written,
-named by an alias, or reached through a generic's parameter. `^none`
+`*^T`, `^~T`, `**T`, `*~T`), or over an optional of one (`*(~T?)`,
+`^(*T?)`), is rejected: in a written type or an alias, in the type of a
+value (`*<o` of an `o: (~T)?`), and in the fields and signatures of
+every generic instance the program makes, written or named in an
+expression (`W[~S](h: none)` where `W[T]` holds a `(*T)?`). `^none`
 boxes nothing (an optional box with no value is `none`), and a
 function has no box: `^fun` is rejected and reserved, and an owned
 closure is `*|...| body`.
@@ -6164,11 +6206,37 @@ closure is `*|...| body`.
 obj Holder
   inner: ^*Int
   twice: ^^Int
+  weak: *~Int
+  maybe: *(~Int?)
 ```
 
 ```error
 `^*Int` stacks one heap holding on another
 `^^Int` stacks one heap holding on another
+`*~Int` stacks one heap holding on another
+`*(~Int?)` stacks one heap holding on another
+```
+
+A generic body's own holding of a `T` (`*<x`, `List[*T]`) at an instance
+whose `T` is held is decided and not yet built: it will be rejected at
+that instance, as the generic per-instance requirements are.
+
+```rig pending
+obj N
+  n: Int
+
+fun hold[T](x: T) -> Int
+  h = *<x
+  <h
+  1
+
+sub main()
+  s = *N(n: 1)
+  print(hold(~s))
+```
+
+```error
+`*~N` stacks one heap holding on another
 ```
 
 A recursive enum holds its children in boxes, and a function reads one
@@ -6503,7 +6571,7 @@ it weakly, or the signal and its subscriber keep each other alive.
 sub main()
   sig: *Signal[Int] = *Signal(0)
   !sig.subscribe(*|~sig|
-    if sig.upgrade() as s
+    if *sig as s
       print("now", s.get())
   )
   !sig.set(7)
@@ -6710,10 +6778,10 @@ any other ([§9](#weak-handles)).
 sub main()
   f: *fun(Int) -> Int = *|a| a + 1
   w: ~fun(Int) -> Int = ~f
-  if w.upgrade() as g
+  if *w as g
     print(g(1))
   <f
-  print(w.upgrade() == none)
+  print(*w == none)
 ```
 
 ```output
@@ -7052,7 +7120,7 @@ sub main()
 grace none none
 ```
 
-An optional of an owning value (such as `*T?` from `upgrade()`) owns
+An optional of an owning value (such as the `*T?` `*w` gives) owns
 what it holds. `if e as x` over a temporary gives `x` ownership, and it
 is dropped at the end of the block. An optional held in a binding is
 read where it is: `if m as x` is `if ?m as x`. To take its value, move

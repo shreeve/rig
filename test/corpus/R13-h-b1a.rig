@@ -2,6 +2,6 @@ obj N
   a: Int
 
 sub main()
-  x: Cell[*~N?] = Cell[*~N?](value: none)
+  x: Cell[~N?] = Cell[~N?](value: none)
   old = (!x).replace(none)
   print(old == none)
