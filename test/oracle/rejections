@@ -2104,6 +2104,14 @@ test/corpus/r3-step2-x02_catch_handler_break_stores.rig main
 test/corpus/r3-step2-x03_nullish_continue_stores.rig main
 test/corpus/r3-step2-x05_defer_fallthrough_stores.rig main
 test/corpus/rev203-b01b_closure_dropped.rig main
+test/corpus/rev210-c15_wa_reads_wb.rig main
+test/corpus/rev210-k03_generic_box_inst.rig main
+test/corpus/rev210-i05_chain2_call.rig main
+test/corpus/rev210-i06_param_chain.rig go
+test/corpus/rev210-h02_match_write_payload_selfview.rig main
+test/corpus/rev210-h03_if_write_opt_selfview.rig main
+test/corpus/rev210-f13_read_beside_write_arg.rig main
+test/corpus/rev210-f16_print_grow_same.rig main
 test/corpus/rev203-c02_view_local_in_block.rig main
 test/corpus/rev203-e10_loop_break_continue.rig main
 test/corpus/rev203-h04_put_back_then_drop_viewed.rig main
