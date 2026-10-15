@@ -2336,12 +2336,19 @@ pub const Checker = struct {
     }
 
     /// Whether an element of place `object` is read where `object` is
-    /// found: from an array held inline in it, or from a List's buffer,
-    /// which `at` reads after the index runs. A root is what a view it is
+    /// found: from an array held inline in it, from a List's buffer,
+    /// which `at` reads after the index runs, or, for a root that is a
+    /// slice (`xs: ![]T`), from the elements it views, which a lend of
+    /// it may write but never move or free. A root is what a view it is
     /// views.
     fn readsAfterIndex(self: *const Checker, object: Sexp) bool {
         const ty = self.stepType(object) orelse return false;
-        return self.typeData(ty) == .array or self.isList(ty);
+        const root = !object.isKind(.member) and !object.isKind(.index);
+        return switch (self.typeData(ty)) {
+            .array => true,
+            .slice => root,
+            else => self.isList(ty),
+        };
     }
 
     /// The type of `e`, a place or a step of one, as a step into it sees

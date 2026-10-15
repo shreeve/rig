@@ -3503,7 +3503,8 @@ symbols); a query that decides more than that belongs in `Pending`.
   root read while the indexes are walked: every index of a lend, a
   slice, or a receiver (`walkIndicesHeld`), and an index of a read or a
   take unless its element is read from an inline array or a List's
-  buffer (which `at` reads after the index) in the root's own storage
+  buffer (which `at` reads after the index) in the root's own storage,
+  or from what a slice root views
   (`walkIndexOf`, `readsAfterIndex`, `staysInRoot`): elsewhere a write
   of the root could move or free it.
 - **Closures.** A stack closure is a local struct holding its captures,

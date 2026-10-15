@@ -1,0 +1,20 @@
+obj Q
+  vals: List[Int]
+
+obj P
+  ba: [2]^Q
+
+fun rebox(p: !P) -> Int
+  n: List[Int] = List()
+  !n.push(50)
+  p.ba[0] = ^Q(vals: <n)
+  0
+
+sub main()
+  a: List[Int] = List()
+  !a.push(7)
+  p = P(ba: [^Q(vals: <a), ^Q(vals: List())])
+  print(p.ba[0].vals[rebox(!p)])
+
+# error: 17:29: cannot lend `p` to write in an index of a place it is lending
+# errors: 1

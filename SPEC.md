@@ -4706,7 +4706,9 @@ read from an array held in place or from a List's buffer, which is read
 after the index runs, and what is indexed lies in the root's own
 storage, reached through fields of objects and elements of arrays:
 `vs[grow(!vs)]` and `p.v[grow(!p)]` find `vs` and `p.v` where they were
-and read the element after. Anywhere else, past a List's buffer, a box,
+and read the element after. So may an index of a slice root
+(`xs[partition(!xs)]` for `xs: ![]Int`): a lend of a slice writes the
+elements it views but never moves or frees them. Anywhere else, past a List's buffer, a box,
 a handle, or a Cell, the index could free what the place is in, so
 `v[0][grow(!v)]`, `p.bx.vals[rebox(!p)]`, and `h[reh(!h)]` for a
 handle `h: *List[Int]` are rejected. An
