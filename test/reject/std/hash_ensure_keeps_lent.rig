@@ -1,0 +1,12 @@
+# The write view `ensure` returns is `from self`: it keeps the Map lent
+# to write, so the Map cannot be read or written while the view lives.
+
+use std.hash
+
+sub main()
+  m = hash.Map[Int, Int].new()
+  c = (!m).ensure(1, 0)
+  print(m.len)
+  c += 1
+
+# error: use of `m.len` while a write loan on `m` is live

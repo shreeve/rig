@@ -4435,3 +4435,5 @@ test/corpus/optwrite-review-f01b-owned-closure-clone-plain.rig mk
 test/corpus/optwrite-review-g02-caller-local-opt.rig main
 test/corpus/optwrite-review-g03-method-param-caller.rig main
 test/corpus/optwrite-review-j05b-generic-owned-plain.rig stash
+test/corpus/rev240-g01_view_of_closure_outlives_drop.rig main
+test/corpus/rev240-g02_view_of_closure_direct.rig main

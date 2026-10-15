@@ -1,0 +1,9 @@
+use std.hash
+
+sub main()
+  m = hash.Map[String, List[Int]].new()
+  key = String("a")
+  c = (!m).ensure(<key, List())
+  key = String("b")
+  !c.push(1)
+  print(m.get("a"), key)

@@ -1,0 +1,12 @@
+# `retain` holds the Map lent to write while its closure runs, so the
+# closure cannot capture the Map, to read it or to write it.
+
+use std.hash
+
+sub main()
+  m = hash.Map[Int, Int].new()
+  !m.put(1, 1)
+  !m.retain(|?m, k, v| m.len > 1)
+  print(m.len)
+
+# error: cannot lend `m` to write while a read loan is live

@@ -1,0 +1,13 @@
+use std.hash
+
+obj Ref
+  s: ?String
+
+sub main()
+  t = String("short")
+  m = hash.Map[Int, Ref].new()
+  f = |?t, k: ?Int| Ref(s: t)
+  c = (!m).ensure_with(1, ?f)
+  <f
+  <t
+  print(c.s)

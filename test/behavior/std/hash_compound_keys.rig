@@ -1,0 +1,32 @@
+# A compound key is an object of its parts. One that owns its text is
+# looked up with a key built the same way, its text owned too; one that
+# holds a view of its text looks up with no copy, and its Map holds
+# views, so the text it views is declared before the Map.
+
+use std.hash
+
+obj Key
+  name: String
+  n: Int
+
+obj KeyView
+  name: ?String
+  n: Int
+
+sub main()
+  m = hash.Map[Key, Int].new()
+  !m.put(Key(name: String("a"), n: 1), 10)
+  c = (!m).ensure(Key(name: String("b"), n: 2), 0)
+  c += 5
+  print(m.get(Key(name: String("a"), n: 1)), m.get(Key(name: String("b"), n: 2)), m.has(Key(name: String("a"), n: 2)))
+
+  t = String("a")
+  v = hash.Map[KeyView, Int].new()
+  !v.put(KeyView(name: ?t, n: 1), 10)
+  w = (!v).ensure(KeyView(name: "b", n: 2), 0)
+  w += 5
+  print(v.get(KeyView(name: "a", n: 1)), v.get(KeyView(name: "b", n: 2)), v.has(KeyView(name: "a", n: 2)))
+
+# expect:
+# 10 5 false
+# 10 5 false

@@ -1,0 +1,17 @@
+use std.hash
+
+obj Ref
+  s: ?String
+
+sub store(v: !Ref, t: ?String)
+  v.s = t
+
+sub main()
+  a = String("a")
+  m = hash.Map[Int, Ref].new()
+  !m.put(1, Ref(s: ?a))
+  t = String("short")
+  !m.update(|?t, k, v| store(!v, t))
+  <t
+  if m.get(1) as r
+    print(r.s)

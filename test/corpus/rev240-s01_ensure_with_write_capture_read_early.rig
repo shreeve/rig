@@ -1,0 +1,13 @@
+use std.hash
+
+fun mk(k: ?Int, count: !Int) -> Int
+  count += 1
+  0
+
+sub main()
+  count = 0
+  m = hash.Map[Int, Int].new()
+  c = (!m).ensure_with(1, |!count, k| mk(k, !count))
+  print(count)
+  c += 1
+  print(m.get(1))
