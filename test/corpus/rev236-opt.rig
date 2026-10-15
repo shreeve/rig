@@ -1,0 +1,30 @@
+use std.hash
+
+sub main()
+  m = hash.Map[Int, Int?]()
+  !m.put(1, none)
+  !m.put(2, 5)
+  print(m.len, m.has(1), m.has(2), m.get(1), m.get(2))
+  n = 0
+  for _ in ?m.items()
+    n += 1
+  print(n)
+  for i in 10..30
+    !m.put(i, none)
+  print(m.len, m.has(1), m.has(15), m.get(15))
+  print((!m).take(15), m.has(15), m.len)
+  s = hash.Set[Int?]()
+  z: Int? = none
+  three: Int? = 3
+  print((!s).add(z), (!s).add(three), s.has(?z), s.len)
+  print((!s).take(?z), s.has(?z), s.len)
+  print((!s).add(z), s.has(?z), s.len)
+  c = 0
+  for _ in ?s.items()
+    c += 1
+  print(c)
+  t = hash.Map[Int?, Int]()
+  !t.put(z, 1)
+  !t.put(three, 2)
+  print(t.get(?z), t.get(?three), t.has(?three))
+  print((!t).take(?z), t.has(?z), t.len)
