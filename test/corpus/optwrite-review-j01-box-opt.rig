@@ -1,0 +1,12 @@
+obj In
+  s: ?String
+
+sub set(w: (!^In)?)
+  d = String("local")
+  (w ?? return).s = ?d
+
+sub main()
+  t = String("outer")
+  b = ^In(s: ?t)
+  set(!b)
+  print(b.s)

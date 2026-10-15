@@ -1,0 +1,10 @@
+obj H
+  n: String
+
+fun name(w: (!H)?) -> ?String
+  x = <w ?? return ""
+  ?x.n
+
+sub main()
+  h = H(n: String("caller"))
+  print(name(!h))

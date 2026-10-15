@@ -1,0 +1,20 @@
+enum E
+  a(s: ?String)
+  b
+
+obj H
+  e: E
+
+sub set(w: (!H)?)
+  d = String("local")
+  match !(w ?? return).e
+    .a(s) => s = ?d
+    .b => pass
+
+sub main()
+  t = String("outer")
+  h = H(e: E.a(s: ?t))
+  set(!h)
+  match h.e
+    .a(s) => print(s)
+    .b => pass

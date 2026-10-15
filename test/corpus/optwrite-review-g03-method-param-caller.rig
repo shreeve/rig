@@ -1,0 +1,16 @@
+obj H
+  s: ?String
+
+obj Src
+  n: String
+
+  sub give(?self, w: (!H)?)
+    (w ?? return).s = ?self.n
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  if true
+    src = Src(n: String("src"))
+    src.give(!h)
+  print(h.s)

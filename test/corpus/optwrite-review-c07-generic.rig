@@ -1,0 +1,16 @@
+obj H
+  s: ?String
+
+sub put[T](w: (!T)?, v: T)
+  x = <w ?? return
+  x = v
+
+sub set(w: (!(?String))?)
+  d = String("local")
+  put(<w, ?d)
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h.s)
+  print(h.s)

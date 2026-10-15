@@ -1,0 +1,16 @@
+obj H
+  n: String
+
+obj G
+  r: ?String
+
+sub set(w: (!H)?, g: (!G)?)
+  if <w as x
+    if <g as y
+      y.r = ?x.n
+
+sub main()
+  h = H(n: String("caller"))
+  g = G(r: "")
+  set(!h, !g)
+  print(g.r)

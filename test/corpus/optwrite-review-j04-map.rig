@@ -1,0 +1,11 @@
+use std.hash
+
+sub set(w: (!hash.Map[Int, ?String])?)
+  d = String("local")
+  x = <w ?? return
+  !x.put(1, ?d)
+
+sub main()
+  m: hash.Map[Int, ?String] = hash.Map()
+  set(!m)
+  print(m.get(1))

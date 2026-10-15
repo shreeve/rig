@@ -4424,3 +4424,14 @@ rootidx.listbox.recv.root main
 rootidx.listbox.wrecv.root main
 rootidx.nested.recv.root main
 rootidx.nested.wrecv.root main
+test/corpus/optwrite-p01-closure-capture.rig set
+test/corpus/optwrite-p02-local-lend-on.rig set
+test/corpus/optwrite-p03-swap.rig set
+test/corpus/optwrite-r11c-closure-param.rig set
+test/corpus/optwrite-r21-caller-sees-store.rig main
+test/corpus/optwrite-r22-caller-sees-store-write.rig main
+test/corpus/optwrite-review-c02b-closure-plain-capture.rig set
+test/corpus/optwrite-review-f01b-owned-closure-clone-plain.rig mk
+test/corpus/optwrite-review-g02-caller-local-opt.rig main
+test/corpus/optwrite-review-g03-method-param-caller.rig main
+test/corpus/optwrite-review-j05b-generic-owned-plain.rig stash

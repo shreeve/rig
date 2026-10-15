@@ -1,0 +1,10 @@
+sub set(w: (![]?String)?)
+  d = String("local")
+  x = <w ?? return
+  !x.fill(?d)
+
+sub main()
+  t = String("outer")
+  a = [?t, ?t]
+  set(!a[..])
+  print(a)

@@ -1,0 +1,22 @@
+obj H
+  s: ?String
+  n: Int
+
+  fun len(?self) -> Int
+    self.n
+
+sub set(w: (!H)?, v: ?String)
+  if w as r
+    print(r.len(), r.s)
+  (w ?? return).s = v
+  (w ?? return).n += 1
+  if w as r
+    print(r.len(), r.s)
+
+sub main()
+  t = String("outer")
+  u = String("new")
+  h = H(s: ?t, n: 1)
+  set(!h, ?u)
+  set(none, ?u)
+  print(h.s, h.n)
