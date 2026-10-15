@@ -1,5 +1,5 @@
 # std.hash's Map and Set: every member, over owned and viewed text keys,
-# integers, structs, and enums, through growth, taking, and clearing,
+# integers, objects, and enums, through growth, taking, and clearing,
 # with values that own memory, in the order keys were first put in.
 
 use std.hash

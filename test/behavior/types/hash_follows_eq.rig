@@ -2,7 +2,7 @@
 # float: values `==` calls equal hash equal, across types too. Text
 # hashes its bytes whatever its type (String, `?String`, `Static`, a
 # boxed String), an optional holding a value hashes as that value, an
-# integer as its value whatever its width, and structs, enums, arrays,
+# integer as its value whatever its width, and objects, enums, arrays,
 # and slices by their parts. The seed is fixed, so a hash is the same
 # from run to run.
 
