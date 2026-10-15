@@ -191,6 +191,22 @@ tools that take them in `bench/json/`.
     exactly its size. *Verified (a reviewer's probe: `String("abc")` had a
     capacity of 132, and reads at indexes 3 to 131 did not fault).*
 
+27. **A short formatted String is spread over a large allocation, which
+    slows every read of many of them.** `String("key", i)` builds its
+    text through an `std.Io.Writer.Allocating`, which leaves a 10-byte
+    String with 134 bytes of capacity; entry 15's rule, met through
+    formatting. A million such keys each sit in their own large block,
+    so a pass that reads their bytes misses the cache on each: hashing
+    them (`k.hash()`, Wyhash) took 5.3-8.7 ms where the same keys
+    allocated exactly took 1.6-1.9 ms, about 4 times as long, in a Zig
+    probe that built them both ways (and 6-9 ms in Rig). It shows in
+    `bench/hash`: a `Map[String, V]` lookup measured against Zig's
+    `StringHashMap` over exactly sized keys is 21-30% slower, and
+    faster or within 10% once Zig's keys are built the way Rig's are.
+    Fix: as entry 15's, size a String made by `String(...)` to its text
+    (shrink once formatting is done, or format into an exact buffer).
+    *Verified (bench/hash, and the probe above, on the Mac under load).*
+
 ## Missing pieces that cost clarity
 
 16. **No character literals.** std.json names 19 byte constants

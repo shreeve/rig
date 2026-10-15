@@ -250,6 +250,11 @@ libraries are written in Rig itself (see
 | `*` | `*x` share: move into a counted handle; `*w` of a weak handle upgrades it, a `*T?` | `*T` shared handle |
 | `~` | `~x` weak handle | `~T` weak handle |
 
+**An object is a value; `^` puts it on the heap and `*` shares it.** An object
+lives where it is declared and has no identity of its own: `b = a`
+copies a plain object and moves an owning one
+([Core §1](docs/CORE.md#1-four-kinds-of-value)).
+
 A sigil is a prefix where an operand starts, and an operator after a
 value, so `a < b` is still a comparison and `a * b` a product. A sigil
 touches what it marks, and an infix operator has the same spacing on
@@ -316,7 +321,7 @@ and environment variable. The suite runs on Linux and macOS in
 
 **Works today**, with tests for each feature:
 
-- `obj` types (structs) with field defaults, enums with payloads, error sets, type
+- objects (`obj` types) with field defaults, enums with payloads, error sets, type
   aliases, module-level constants, methods with explicit receivers,
   exhaustive `match`
 - generic types, functions, and methods (`obj Wrap[T]`,
@@ -330,7 +335,7 @@ and environment variable. The suite runs on Linux and macOS in
   in bytes (`buf.read[U16, .big](at)`)
 - loops as values (`x = for ... break v ... else w`), labeled loops
 - moves, read and write views (including views returned from
-  functions and held in structs) whose loans end at their last use, clones,
+  functions and held in objects) whose loans end at their last use, clones,
   drops, automatic drop on every path, drop glue, user `drop` bodies
 - shared `*T` and weak `~T` handles, `Cell`, `List`, `^T`, and `Signal`
 - `String`, owned text built with `String(a, b)` and `!t.add(...)`, whose

@@ -360,6 +360,11 @@ const FnCtx = struct {
     /// Where each was first returned or stored, for the diagnostic.
     returned_at: [@bitSizeOf(sema.ParamMask)]u32 = @splat(0),
     stored_at: [@bitSizeOf(sema.ParamMask)]u32 = @splat(0),
+    /// The parameters whose loans reached a value of a type parameter's
+    /// type, which carries no loan in a generic body (`taintGeneric`),
+    /// and where the body first returns such a value.
+    generic: sema.ParamMask = 0,
+    generic_returned_at: ?u32 = null,
     /// The run-time parameters bound so far.
     params: u32 = 0,
     /// Binding run-time parameters (`bindParam`), which get an index.
@@ -1613,7 +1618,19 @@ pub const Checker = struct {
     /// Loans carried by the current value of var `id`.
     fn varValue(self: *Checker, id: VarId) Value {
         const v = self.vars.items[id];
-        if (!v.closure and !self.mayCarryLoan(v.ty)) return .{};
+        if (!v.closure and !self.mayCarryLoan(v.ty)) {
+            if (self.genericType(v.ty)) {
+                // A value of a type parameter's type carries, in an
+                // instance, what its binding views (a match payload's
+                // view of the matched value), and a parameter taken by
+                // value what its caller's argument viewed.
+                self.taintGeneric(v.ty, .{ .loans = self.flows.items[id].loans });
+                if (v.kind == .param and v.ref == .none) if (v.param_index) |i| {
+                    self.func.generic |= sema.paramBit(i);
+                };
+            }
+            return .{};
+        }
         return .{ .loans = self.flows.items[id].loans };
     }
 
@@ -1959,7 +1976,7 @@ pub const Checker = struct {
             const reached = sema.unwrapViews(ctx, ty);
             if (!self.mayCarryLoan(reached)) {
                 const temps_start = self.temps.items.len;
-                _ = try self.walkList(sexp, kind);
+                self.taintGeneric(reached, try self.walkList(sexp, kind));
                 self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
                 return .{};
             }
@@ -2307,7 +2324,10 @@ pub const Checker = struct {
             if (e.isKind(.index)) _ = try self.walk(ir.Index.index(e));
             break :blk v;
         };
-        if (!self.mayCarryLoan(self.exprType(e))) return .{};
+        if (!self.mayCarryLoan(self.exprType(e))) {
+            self.taintGeneric(self.exprType(e), obj);
+            return .{};
+        }
         return self.carry(self.exprType(e), obj);
     }
 
@@ -2787,7 +2807,10 @@ pub const Checker = struct {
         const pos = self.startOf(inner);
         if (!try self.checkLive(id, pos)) return .{};
         if (try self.conflicts(id, .write, pos)) return .{};
-        if (!self.mayCarryLoan(self.exprType(inner))) return .{};
+        if (!self.mayCarryLoan(self.exprType(inner))) {
+            self.taintGeneric(self.exprType(inner), self.varValue(id));
+            return .{};
+        }
         return self.varValue(id);
     }
 
@@ -3037,7 +3060,10 @@ pub const Checker = struct {
     /// shared value holds; a write view held there cannot be duplicated,
     /// whoever lent it.
     fn newHandle(self: *Checker, pos: u32, what: []const u8, ty: ?TypeId, id: ?VarId, v: Value, weak: bool) Error!Value {
-        if (!self.mayCarryLoan(ty)) return .{};
+        if (!self.mayCarryLoan(ty)) {
+            self.taintGeneric(ty, v);
+            return .{};
+        }
         const out = self.heldThroughHandle(ty, id) orelse v;
         if (self.carriesWriteView(ty)) {
             try self.err(pos, "cannot {s} `{s}`: it holds a write view, which cannot be duplicated", .{ if (weak) "take a weak handle to" else "clone", what });
@@ -3562,7 +3588,7 @@ pub const Checker = struct {
             .ref = self.refOfType(ty),
             .fixed = fixed or closure,
             .closure = closure,
-        }, .{ .loans = if (closure) value.loans else if (self.mayCarryLoan(ty)) (try self.carry(ty, value)).loans else &.{} });
+        }, .{ .loans = if (closure) value.loans else if (self.mayCarryLoan(ty)) (try self.carry(ty, value)).loans else self.taintedNone(ty, value) });
     }
 
     /// Checks shared by reassignment and compound assignment.
@@ -3635,7 +3661,7 @@ pub const Checker = struct {
         }
         // The old value is dropped (if still owned) and the binding is
         // live again with the new value.
-        try self.setFlow(id, .{ .loans = if (self.mayCarryLoan(v.ty)) (try self.carry(v.ty, value)).loans else &.{} });
+        try self.setFlow(id, .{ .loans = if (self.mayCarryLoan(v.ty)) (try self.carry(v.ty, value)).loans else self.taintedNone(v.ty, value) });
     }
 
     /// The var a view held by var `id` views, when it holds one of
@@ -3875,6 +3901,9 @@ pub const Checker = struct {
         // receiver's value.
         var result: Value = .{};
         var recv_value: Value = .{};
+        // A function a field holds is called, which reaches nothing of
+        // the value holding it.
+        var field_call = false;
 
         // Method call: the receiver is lent for the whole call. A
         // write receiver is reserved (read) while the arguments are
@@ -3890,6 +3919,7 @@ pub const Checker = struct {
             // A function held in a field is called with the arguments
             // alone; it reaches nothing of the value holding it.
             result = try self.walk(ir.Member.object(callee));
+            field_call = true;
             if (self.errors_found == callee_found) try self.holdRead(callee, .callee);
         } else if (callee.isKind(.member)) {
             var obj = ir.Member.object(callee);
@@ -3988,7 +4018,12 @@ pub const Checker = struct {
         // Which arguments the call passes loans on from (Core sentence
         // 7): the callee's origins, by the parameter each argument fills.
         const params = if (self.sema) |ctx| ctx.callParamsOf(node) else null;
-        if (params == null or params.?.resultCarriesReceiver()) result = try self.valueUnion(result, recv_value);
+        // What the result carries of the receiver and arguments.
+        var from_args: Value = .{};
+        if (params == null or params.?.resultCarriesReceiver()) {
+            result = try self.valueUnion(result, recv_value);
+            from_args = recv_value;
+        }
         const arg_values = try self.arena().alloc(Value, args.len);
         // What the call may store, and what its result carries. A method
         // may store a view of what its receiver holds, or is, in what it
@@ -4039,6 +4074,7 @@ pub const Checker = struct {
             if (params == null or params.?.resultCarries(i)) carried = try self.valueUnion(carried, v.*);
         }
         result = try self.valueUnion(result, carried);
+        from_args = try self.valueUnion(from_args, carried);
 
         // A write receiver is lent when the call starts, before the
         // callee stores anything.
@@ -4078,6 +4114,7 @@ pub const Checker = struct {
         // The views passed to the call end when it returns, unless its
         // result can carry them.
         if (!self.mayCarryLoan(self.exprType(node))) {
+            self.taintGeneric(self.exprType(node), if (field_call) from_args else result);
             self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
             return .{};
         }
@@ -4289,7 +4326,7 @@ pub const Checker = struct {
         // and each place now views what went in.
         var result: Value = .{};
         const ty = self.exprType(args[1]);
-        if (!swap and self.mayCarryLoan(ty)) result = try self.takenValue(args[0], ty, first);
+        if (!swap and self.mayCarryLoan(ty)) result = try self.takenValue(args[0], ty, first) else if (!swap) self.taintGeneric(ty, first);
         try self.absorbThroughWrites(first, second, self.startOf(args[1]), null, null);
         if (swap) try self.absorbThroughWrites(second, first, self.startOf(args[0]), null, null);
         self.temps.shrinkRetainingCapacity(start);
@@ -4692,7 +4729,12 @@ pub const Checker = struct {
         if (self.func.ret_may_view and self.reachable) {
             try self.checkEscape(value);
             self.recordResult(value, self.startOf(expr));
+        } else if (self.reachable and self.genericType(self.func.ret_ty)) {
+            self.recordResult(value, self.startOf(expr));
         }
+        // A result that holds a value of a type parameter's type may carry,
+        // in an instance, whatever reached one (`taintGeneric`).
+        if (self.reachable and self.holdsGeneric(self.func.ret_ty) and self.func.generic_returned_at == null) self.func.generic_returned_at = self.startOf(expr);
     }
 
     /// A bare name that leaves the function moves out: a match payload
@@ -4779,6 +4821,14 @@ pub const Checker = struct {
     fn checkOrigins(self: *Checker, what: []const u8, name: Sexp, params: Sexp) Error!void {
         const o = self.func.origins;
         const items = params.items();
+        // What reached a value of a type parameter's type is returned
+        // wherever such a value is (`taintGeneric`).
+        if (self.func.generic_returned_at) |at| for (0..@min(items.len, @bitSizeOf(sema.ParamMask))) |i| {
+            const bit = sema.paramBit(i);
+            if (self.func.generic & bit == 0 or self.func.returned & bit != 0) continue;
+            self.func.returned |= bit;
+            self.func.returned_at[i] = at;
+        };
         const n = @min(items.len, @bitSizeOf(sema.ParamMask));
         for (0..n) |i| {
             const bit = sema.paramBit(i);
@@ -5211,6 +5261,7 @@ pub const Checker = struct {
         // field (`match ?e`) views the matched value instead.
         const copied = self.copies(ty) and v.ref == .none;
         // A copy views what the matched value views.
+        if (copied and !self.mayCarryLoan(ty)) self.taintGeneric(ty, scrut_value);
         if (copied and self.mayCarryLoan(ty)) {
             const r_loans: []const Loan = if (info.root) |r| self.flows.items[r].loans else &.{};
             loans = (try self.carry(ty, .{ .loans = try self.unionLoans(scrut_value.loans, r_loans) })).loans;
@@ -5517,7 +5568,7 @@ pub const Checker = struct {
                 .loop_view = spec.resource_list,
                 .elem_view = spec.elem_view,
                 .elem_of = if (elem_loans.len > 0) spec.source_root else null,
-            }, .{ .loans = if (self.mayCarryLoan(ty)) try self.unionLoans(elem_loans, spec.moved) else &.{} });
+            }, .{ .loans = if (self.mayCarryLoan(ty)) try self.unionLoans(elem_loans, spec.moved) else self.taintedNone(ty, .{ .loans = try self.unionLoans(elem_loans, spec.moved) }) });
         }
         if (spec.elem2 == .src) {
             const pos = spec.elem2.src.pos;
@@ -5910,6 +5961,41 @@ pub const Checker = struct {
     fn mayCarryLoan(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return true;
         return sema.mayHoldView(ctx, ty orelse return true);
+    }
+
+    /// Whether `ty` holds a type parameter by value and so may hold a view
+    /// in an instance, though a generic body tracks no loan in a value of
+    /// it (SPEC "Generic bodies"): what reaches one is recorded for the
+    /// body check instead (`taintGeneric`).
+    fn genericType(self: *const Checker, ty: ?TypeId) bool {
+        const ctx = self.sema orelse return false;
+        const t = ty orelse return false;
+        return !sema.mayHoldView(ctx, t) and sema.holdsTypeParam(ctx, t);
+    }
+
+    /// Whether a value of `ty` may hold a value of a type parameter's
+    /// type (`sema.holdsTypeParam`), which a generic body tracks no loan
+    /// in.
+    fn holdsGeneric(self: *const Checker, ty: ?TypeId) bool {
+        const ctx = self.sema orelse return false;
+        return sema.holdsTypeParam(ctx, ty orelse return false);
+    }
+
+    /// `v`'s loans reach a value of type `ty`, which a generic body keeps
+    /// no loan in (`genericType`): the parameters they are on may be
+    /// returned wherever such a value is (`checkOrigins`).
+    fn taintGeneric(self: *Checker, ty: ?TypeId, v: Value) void {
+        if (v.loans.len == 0 or !self.genericType(ty)) return;
+        for (v.loans) |l| if (self.paramOf(l)) |i| {
+            self.func.generic |= sema.paramBit(i);
+        };
+    }
+
+    /// No loans, for a value of `ty` that carries none, after `v`'s reach
+    /// it (`taintGeneric`).
+    fn taintedNone(self: *Checker, ty: ?TypeId, v: Value) []const Loan {
+        self.taintGeneric(ty, v);
+        return &.{};
     }
 
     /// The type a value of type `ty` reaches through its views.

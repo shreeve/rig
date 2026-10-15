@@ -1,0 +1,14 @@
+# Review probe (#215): a loan reaching a generic body's T; rejected, or runs sanitizer-clean.
+fun g[T](xs: []T, ys: []T, n: Int) -> T from ys
+  if n == 0
+    return ys[0]
+  g(ys, xs, n - 1)
+
+sub main()
+  t = String("abc")
+  u = String("u")
+  a = [?t]
+  b = [?u]
+  r = g(?a[..], ?b[..], 1)
+  <t
+  print(r)

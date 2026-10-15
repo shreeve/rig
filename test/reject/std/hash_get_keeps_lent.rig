@@ -1,0 +1,12 @@
+# The view `get` returns is `from self`: it keeps the Map lent to read,
+# so the Map cannot be written while the view lives.
+
+use std.hash
+
+sub main()
+  m = hash.Map[String, Int].new()
+  r = ?m.get("a")
+  !m.put(String("b"), 1)
+  print(r)
+
+# error: cannot lend `m` to write while a read loan is live

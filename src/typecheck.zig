@@ -4385,8 +4385,8 @@ const Checker = struct {
             const lit_ty = try self.synthReached(lit);
             a, b = if (l_array) .{ lit_ty, other_ty } else .{ other_ty, lit_ty };
         } else {
-            a = try self.synthReached(l);
-            b = try self.synthReached(r);
+            a = try self.synthEqOperand(l);
+            b = try self.synthEqOperand(r);
         }
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
         // Lane by lane: a mask. (An optional vector has no `==`, which
@@ -4442,13 +4442,39 @@ const Checker = struct {
         const b_read = if (b == self.t().static_id) string_view_ty else b;
         const ta_text = stringOrBoxed(self.ctx, a_read);
         const tb_text = stringOrBoxed(self.ctx, b_read);
-        if ((ta_text == string_ty or tb_text == string_ty) and (ta_text == string_ty or ta_text == string_view_ty) and (tb_text == string_ty or tb_text == string_view_ty)) return self.t().bool_id;
+        // A shared handle is not text: it has no `==`, and its content is
+        // compared through a view, `?a == ?b`.
+        const handles = sema.accessThroughShared(self.ctx, a) or sema.accessThroughShared(self.ctx, b);
+        if (!handles and (ta_text == string_ty or tb_text == string_ty) and (ta_text == string_ty or ta_text == string_view_ty) and (tb_text == string_ty or tb_text == string_view_ty)) return self.t().bool_id;
         if (a_read != b_read) {
             try self.errAt(l, "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
             return self.t().bool_id;
         }
         try self.checkEquatable(a, l, op);
         return self.t().bool_id;
+    }
+
+    /// An operand of `==`, as the value it reaches. A shared handle has
+    /// no `==`; `?h` of a name holding one, `*T`, lends the handle's value
+    /// as a `?T` (CORE §4), so `?a == ?b` compares two handles' contents.
+    fn synthEqOperand(self: *Checker, e: Sexp) Error!TypeId {
+        if (e.isKind(.read)) if (self.sharedContent(ir.Read.operand(e))) |content| {
+            const view = if (content == self.t().string_id) self.t().string_view_id else try self.ctx.intern(.{ .read_view = content });
+            try self.checkExpr(e, view);
+            return self.readThrough(e, view, sema.unwrapViews(self.ctx, view));
+        };
+        return self.synthReached(e);
+    }
+
+    /// The value a name holding a shared handle `*T` reaches, `T`, or null.
+    fn sharedContent(self: *Checker, e: Sexp) ?TypeId {
+        if (e != .src) return null;
+        const sym = self.lookupQuiet(e) orelse return null;
+        const ty = self.ctx.symbols.items[sym].ty;
+        return switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
+            .shared => |inner| if (self.ctx.types.get(inner) == .function) null else inner,
+            else => null,
+        };
     }
 
     /// Whether `opt` is a `T?` and `value` a `T` (or a literal that is
@@ -4464,6 +4490,9 @@ const Checker = struct {
             .type_var => |tv| tv,
             else => null,
         };
+        // Text beside an optional of text compares by its bytes, whatever
+        // its type, as two texts do.
+        if (isText(self.ctx, inner) and isText(self.ctx, value) and value != inner) return true;
         if (value != inner and !sema.readsAsStringView(self.ctx, value, inner) and !(literal and (param != null or compatible(self.ctx, value, inner)))) return false;
         if (param) |tv| try self.requireHoldsLiteral(tv, value, value_node, self.startOf(at), op);
         try self.recordAdapted(value_node, value, inner);
@@ -5742,14 +5771,14 @@ const Checker = struct {
                 .array, .slice, .string_view, .static => true,
                 else => listElementType(self.ctx, peeled) != null,
             };
-            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (!op.isBits() and !op.isSimd() and !op.isTypeFn()) {
+            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| if (!op.isBits() and !op.isSimd() and !op.isTypeFn() and op != .hash) {
                 const shown = switch (op) {
                     .copy => "!xs.copy(src)",
                     .fill => "!xs.fill(v)",
                     .swap => "!xs.swap(i, j)",
                     .read => "xs.read[U32, .little](at)",
                     .write => "!xs.write[U32, .little](at, v)",
-                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
+                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
                 return self.t().invalid_id;
@@ -7280,6 +7309,48 @@ const Checker = struct {
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{value}), .returns = result, .is_sub = false });
         try self.ctx.recordElemCall(callee, .{ .op = .to_bits, .elem = result, .num = value });
         return result;
+    }
+
+    /// `x.hash()`: a `U64` of the value `x` reaches, on exactly the
+    /// types `==` compares, less a float and what holds one
+    /// (`sema.notHashable`). Values `==` calls equal hash equal: text by
+    /// its bytes whatever its type, an optional holding a value as that
+    /// value. It reads `x` where it is, as `==` reads an operand; in a
+    /// generic body, each parameter the value holds records `hashable`,
+    /// checked at every instance.
+    fn hashCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, pos: u32, args: []const Sexp) Error!TypeId {
+        const u64_ty = try self.ctx.intern(.{ .int = .{ .bits = 64, .signed = false } });
+        if (self.isReceiverSigil(obj) and !obj.isKind(.read)) try self.misplacedSigil(obj, "hash", "only reads its receiver");
+        var value = sema.unwrapViews(self.ctx, obj_ty);
+        if (value == self.t().int_literal_id) {
+            try self.defaultIntLiteral(obj);
+            value = self.t().int_id;
+        }
+        if (args.len > 0) {
+            try self.err(pos, "`hash` takes no arguments; got {d}", .{args.len});
+            try self.synthArgs(args);
+        }
+        if (!isText(self.ctx, value)) {
+            var params: std.ArrayList(SymbolId) = .empty;
+            defer params.deinit(self.ctx.allocator);
+            if (try sema.notHashable(self.ctx, value, &params)) |n| {
+                try self.errAt(obj, "`.hash()` does not take a `{s}`: {s}", .{ try self.tyName(value), try notEquatableReason(self.ctx, n) });
+                return u64_ty;
+            }
+            for (params.items) |tv| try self.require(tv, .hashable, self.startOf(obj), ".hash()");
+        }
+        if (!self.hands(obj).hasStorage()) try self.readLeaf(obj) else try self.rejectResourceTemporary(obj, obj_ty);
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{try self.ctx.intern(.{ .read_view = value })}), .returns = u64_ty, .is_sub = false });
+        try self.ctx.recordElemCall(callee, .{ .op = .hash, .elem = u64_ty, .num = value });
+        return self.noteMethod(callee, .read, u64_ty);
+    }
+
+    /// Whether `obj_ty` has a data field `name`, here or in the module
+    /// that declares it.
+    fn hasDataField(self: *Checker, obj_ty: TypeId, name: []const u8) Error!bool {
+        if (try sema.lookupDataField(self.ctx, obj_ty, name)) |_| return true;
+        const decl = sema.nominalDecl(self.ctx, sema.unwrapAccess(self.ctx, obj_ty)) orelse return false;
+        return (try findDataField(self.ctx, decl.symbol().fields orelse &.{}, name)) != null;
     }
 
     /// `f.fraction()` and `f.exponent()`, the two halves of what C,
@@ -9262,6 +9333,8 @@ const Checker = struct {
         if (ct == null) if (try self.bitCall(callee, obj, obj_ty, method, pos, args)) |ty| return self.noteMethod(callee, .value, ty);
         if (try self.simdCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return self.noteMethod(callee, .value, ty);
         const resolved_method = try self.findMethod(obj_ty, method);
+        // `x.hash()`, unless the type declares a `hash` of its own.
+        if (resolved_method == null and ct == null and std.mem.eql(u8, method, "hash") and !try self.hasDataField(obj_ty, method)) return self.hashCall(callee, obj, obj_ty, pos, args);
         // `x.f[i](args)` where `f` is a field: its element is called.
         if (ct != null and resolved_method == null) {
             const field_ty = try self.memberOf(callee, obj, obj_ty);
@@ -9458,7 +9531,7 @@ const Checker = struct {
     /// them or the receiver has no elements.
     fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
         const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
-        if (op.isBits() or op.isSimd() or op.isTypeFn()) return null;
+        if (op.isBits() or op.isSimd() or op.isTypeFn() or op == .hash) return null;
         const peeled = sema.unwrapViews(self.ctx, obj_ty);
         var len: ?u64 = null;
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
@@ -9486,14 +9559,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -9508,7 +9581,7 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
         }
         return self.t().void_id;
     }
@@ -12919,6 +12992,15 @@ fn stringOrBoxed(ctx: *const SemContext, ty: TypeId) TypeId {
     return if (sema.unwrapAccess(ctx, ty) == ctx.types.string_id) ctx.types.string_id else ty;
 }
 
+/// A String (boxed or not, or viewed), a `?String`, or a `Static`: `==`
+/// compares any two of them by their bytes. A shared handle `*String` is
+/// not text: a handle has no `==` or `.hash()`.
+fn isText(ctx: *const SemContext, ty: TypeId) bool {
+    if (sema.accessThroughShared(ctx, ty)) return false;
+    const t = stringOrBoxed(ctx, ty);
+    return t == ctx.types.string_id or t == ctx.types.string_view_id or t == ctx.types.static_id;
+}
+
 fn numericBits(t: sema.Type) ?u16 {
     return switch (t) {
         .int => |i| intBounds(i).bits,
@@ -13621,6 +13703,10 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .not_error => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a return type `{s}!` would make a failure and a success both `{s}` values", .{ inst, pname, aname, pname, aname }),
                 .not_function => try ctx.err(at, cannot ++ "makes a handle `{s}{s}` of a `{s}`, and `{s}` is a function type: `*{s}` is an owned closure, not a handle of a function. Hold the owned closure itself in a `{s}`: `{s} = *{s}`", .{ inst, pname, aname, req.op[1..2], pname, pname, aname, aname, pname, pname, aname }),
                 .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
+                .hashable => if (try sema.notHashable(ctx, arg, null)) |n|
+                    try ctx.err(at, cannot ++ "hashes a `{s}` with `.hash()`, which `{s}` does not support: {s}", .{ inst, pname, aname, pname, aname, try notEquatableReason(ctx, n) })
+                else
+                    try ctx.err(at, cannot ++ "hashes a `{s}` with the built-in `.hash()`, and `{s}` declares a `hash` of its own, which that would not call", .{ inst, pname, aname, pname, aname }),
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {
@@ -13639,6 +13725,12 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
     return ok;
 }
 
+/// Whether `ty` is a type that declares a method `hash`, which a call
+/// `x.hash()` on it reaches instead of the built-in one.
+fn declaresHash(ctx: *SemContext, ty: TypeId) bool {
+    return sema.methodReceiver(ctx, ty, "hash") != null;
+}
+
 /// Why `==` is not defined for a type, as a diagnostic says it.
 fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
     const a = ctx.arena.allocator();
@@ -13652,6 +13744,7 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
         .drop => a.print("field `{s}` is a `{s}`: `{s}` declares `drop`", .{ n.path, t, t }),
         .unique => a.print("field `{s}` is a `{s}`, which is unique", .{ n.path, t }),
         .lanes => a.print("field `{s}` is a `{s}`, whose `==` compares lane by lane; compare the fields and reduce the mask: `(x.{s} == y.{s}).all()`", .{ n.path, t, n.path, n.path }),
+        .float => a.print("field `{s}` is a `{s}`, and `==` calls `0.0` and `-0.0` equal and NaN equal to nothing", .{ n.path, t }),
     };
     return switch (n.why) {
         .handle => a.print("`{s}` is a handle, which could compare by identity or by content", .{t}),
@@ -13662,6 +13755,7 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
         .drop => a.print("`{s}` declares `drop`", .{t}),
         .unique => a.print("`{s}` is unique", .{t}),
         .lanes => a.print("`{s}` holds a vector, whose `==` compares lane by lane", .{t}),
+        .float => a.print("`==` calls `0.0` and `-0.0` equal and NaN equal to nothing; hash its bits, `x.to_bits().hash()`", .{}),
     };
 }
 
@@ -13693,6 +13787,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
             else => false,
         },
         .equatable => sema.isEquatable(ctx, ty),
+        .hashable => isText(ctx, ty) or ((try sema.notHashable(ctx, ty, null)) == null and !declaresHash(ctx, ty)),
         .whole_division => sema.isInteger(ctx, ty),
         .not_error => ctx.types.get(ty) != .any_error and !sema.isErrorSet(ctx, ty),
         .not_function => ctx.types.get(ty) != .function,

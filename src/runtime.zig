@@ -246,6 +246,9 @@ pub fn eql(a: anytype, b: anytype) bool {
     // other side counts as `some` at that level), and `none` equals only
     // `none`: a `String?` beside a `?String` compares the text.
     if (comptime A == @TypeOf(null) or B == @TypeOf(null)) return nullish(a) and nullish(b);
+    // A view held as a pointer compares as the value it reaches.
+    if (comptime isValuePointer(A)) return eql(a.*, b);
+    if (comptime isValuePointer(B)) return eql(a, b.*);
     const dA = comptime optDepth(A);
     const dB = comptime optDepth(B);
     if (comptime dA > dB) {
@@ -266,6 +269,15 @@ pub fn eql(a: anytype, b: anytype) bool {
     // The peer type of an optional error and an error is an error union.
     const T = if (@typeInfo(A) == .optional) A else if (@typeInfo(B) == .optional) B else @TypeOf(a, b);
     return eqlAs(T, a, b);
+}
+
+/// A pointer to one value that is no text: a read view of a struct,
+/// enum, or array held by address. (A shared handle has no `==`.)
+fn isValuePointer(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |p| p.size == .one and !isString(T) and !isStringView(T) and @typeInfo(p.child) != .@"fn",
+        else => false,
+    };
 }
 
 /// How many optional levels `T` has.
@@ -339,6 +351,96 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
         .void => return true,
         else => return a == b,
     }
+}
+
+/// `x.hash()`: a `U64` of any value `==` compares but a float, the same
+/// for values `rig.eql` calls equal, with a fixed seed. Text hashes its
+/// bytes (Wyhash) whatever its type; an integer hashes its value,
+/// whatever its width or signedness, by one multiply; an optional holding
+/// a value hashes as that value; a view as what it views; arrays,
+/// slices, structs, and tagged unions combine their parts in order.
+pub fn hash(x: anytype) u64 {
+    return hashAs(@TypeOf(x), x);
+}
+
+/// `hash` of a value of type `T`.
+pub fn hashAs(comptime T: type, x: T) u64 {
+    if (comptime isString(T)) return hashBytes(stringBytes(x));
+    switch (@typeInfo(T)) {
+        .optional => |o| return if (x) |v| hashAs(o.child, v) else hash_none,
+        .null => return hash_none,
+        .pointer => |p| {
+            if (comptime isStringView(T)) return hashBytes(x);
+            if (p.size == .one) return hashAs(p.child, x.*);
+            if (p.size != .slice) @compileError("rig.hash: no `.hash()` of " ++ @typeName(T));
+            var h: u64 = hashInt(x.len);
+            for (x) |e| h = hashMix(h, hashAs(p.child, e));
+            return h;
+        },
+        .array => |arr| {
+            var h: u64 = hashInt(arr.len);
+            for (x) |e| h = hashMix(h, hashAs(arr.child, e));
+            return h;
+        },
+        .@"struct" => |st| {
+            var h: u64 = hash_seed;
+            inline for (st.field_names, st.field_types) |name, F| h = hashMix(h, hashAs(F, @field(x, name)));
+            return h;
+        },
+        .@"union" => |u| {
+            const Tag = u.tag_type orelse @compileError("rig.hash: no `.hash()` of " ++ @typeName(T));
+            return switch (x) {
+                inline else => |v, tag| hashMix(hashInt(@intFromEnum(@as(Tag, tag))), hashAs(@TypeOf(v), v)),
+            };
+        },
+        .@"enum" => return hashInt(@intFromEnum(x)),
+        .error_set => return hashInt(@intFromError(x)),
+        .bool => return hashInt(@intFromBool(x)),
+        .int, .comptime_int => return hashInt(x),
+        .void => return hash_seed,
+        else => @compileError("rig.hash: no `.hash()` of " ++ @typeName(T)),
+    }
+}
+
+const hash_seed: u64 = 0x2d358dccaa6c78a5;
+const hash_none: u64 = 0x8bb84b93962eacc9;
+const hash_mul: u64 = 0x4b33a62ed433d4a3;
+
+/// Wyhash of `bytes`, seed 0, as Zig's `StringHashMap` hashes text.
+fn hashBytes(bytes: []const u8) u64 {
+    return std.hash.Wyhash.hash(0, bytes);
+}
+
+/// An integer by its value, whatever its width or signedness: a value
+/// from the least `i64` to the greatest `u64` hashes as one 64-bit word
+/// (a negative one sign-extended, so `-1` is the same in every width);
+/// a wider one folds its high half in.
+fn hashInt(x: anytype) u64 {
+    const X = @TypeOf(x);
+    if (X == comptime_int) return hashInt(@as(if (x < 0) i128 else u128, x));
+    const info = @typeInfo(X).int;
+    if (info.bits <= 64) {
+        const w: u64 = if (info.signedness == .signed) @bitCast(@as(i64, x)) else x;
+        return hashWord(w);
+    }
+    const v: if (info.signedness == .signed) i128 else u128 = x;
+    if (v >= 0 and v <= std.math.maxInt(u64)) return hashWord(@intCast(v));
+    if (v < 0 and v >= std.math.minInt(i64)) return hashWord(@bitCast(@as(i64, @intCast(v))));
+    const bits: u128 = @bitCast(v);
+    return hashMix(hashWord(@truncate(bits)), hashWord(@truncate(bits >> 64)));
+}
+
+/// One 64-bit word, mixed by a full 64x64 multiply folded to 64 bits,
+/// so every input bit reaches the low bits a table indexes by.
+inline fn hashWord(w: u64) u64 {
+    const p = @as(u128, w ^ hash_seed) * hash_mul;
+    return @as(u64, @truncate(p)) ^ @as(u64, @truncate(p >> 64));
+}
+
+/// The hash of a part combined into the hash so far.
+inline fn hashMix(h: u64, part: u64) u64 {
+    const p = @as(u128, h ^ part) * hash_mul;
+    return @as(u64, @truncate(p)) ^ @as(u64, @truncate(p >> 64));
 }
 
 /// `x == .tag` for a tagged union, or an optional of one: whether `x`

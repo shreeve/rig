@@ -1,0 +1,94 @@
+# `x.hash()` gives a `U64` on exactly the types `==` compares, less a
+# float: values `==` calls equal hash equal, across types too. Text
+# hashes its bytes whatever its type (String, `?String`, `Static`, a
+# boxed String), an optional holding a value hashes as that value, an
+# integer as its value whatever its width, and objects, enums, arrays,
+# and slices by their parts. The seed is fixed, so a hash is the same
+# from run to run.
+
+obj P
+  x: Int
+  name: String
+
+obj Q
+  p: P
+  tag: ?String
+  n: I8?
+
+enum Shape
+  dot
+  box(w: Int, h: Int)
+  named(name: String)
+
+enum Color
+  red
+  green
+
+error Oops
+  bad
+
+fun same[T](a: ?T, b: ?T) -> Bool
+  a == b and a.hash() == b.hash()
+
+fun h[K](k: ?K) -> U64
+  k.hash()
+
+fun ho[K](k: ?K?) -> U64
+  k.hash()
+
+sub main()
+  t = String("q")
+  u = String("q")
+  v = ?u
+  bx = ^String("q")
+  print(t.hash() == "q".hash(), v.hash() == t.hash(), bx.hash() == t.hash())
+  o: String? = String("q")
+  vo: (?String)? = ?t
+  print(o.hash() == t.hash(), vo.hash() == "q".hash(), o == ?t)
+  n: Int? = 3
+  m: Int? = none
+  k: (Int?)? = 3
+  print(n.hash() == 3.hash(), k.hash() == n.hash(), m.hash() == m.hash())
+  print(I8(-1).hash() == (-1).hash(), U8(200).hash() == 200.hash(), I128(-5).hash() == I64(-5).hash())
+  print((U128(1) << 70).hash() != U128(0).hash(), true.hash() != false.hash())
+  a = P(x: 1, name: String("q"))
+  b = P(x: 1, name: String("q"))
+  c = P(x: 2, name: String("q"))
+  print(a == b, a.hash() == b.hash(), a.hash() == c.hash())
+  qa = Q(p: P(x: 1, name: String("a")), tag: "t", n: 4)
+  qb = Q(p: P(x: 1, name: String("a")), tag: ?t, n: none)
+  qc = Q(p: P(x: 1, name: String("a")), tag: "t", n: 4)
+  print(qa == qc, qa.hash() == qc.hash(), qa.hash() == qb.hash())
+  s1 = Shape.box(w: 2, h: 3)
+  s2 = Shape.box(w: 2, h: 3)
+  s3 = Shape.named(name: String("q"))
+  s4 = Shape.named(name: String("q"))
+  print(s1.hash() == s2.hash(), s3.hash() == s4.hash(), s1.hash() == Shape.dot.hash())
+  print(Color.red.hash() == Color.red.hash(), Color.red.hash() == Color.green.hash())
+  print(Oops.bad.hash() == Oops.bad.hash())
+  xs = [1, 2, 3]
+  ys = [1, 2, 3]
+  print(xs.hash() == ys.hash(), ?xs[0..2].hash() == ?ys[0..2].hash(), ?xs[0..2].hash() == ?xs[1..3].hash())
+  print(same(?a, ?b), same(?s3, ?s4), same(?t, ?u))
+  print(h(?t) == "q".hash(), h(?a) == a.hash(), h[?String]("q") == t.hash(), h(?n) == 3.hash())
+  print(ho[String](?o) == t.hash(), ho[Int](?m) == m.hash())
+  print(String("q").hash() == t.hash(), "".hash() == String().hash())
+  print(t.hash(), 7.hash(), P(x: 1, name: String("q")).hash())
+
+# expect:
+# true true true
+# true true true
+# true true true
+# true true true
+# true true
+# true true false
+# true true false
+# true true false
+# true false
+# true
+# true true false
+# true true true
+# true true true true
+# true true
+# true true
+# 6383968201797696812 6785948958033419204 17309069474865104009

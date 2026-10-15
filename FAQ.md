@@ -6,8 +6,8 @@ are coming from another language, start with [WELCOME.md](WELCOME.md).
 
 ## Is everything reference-counted?
 
-No. Numbers, strings, and structs, enums, and arrays made of them are
-plain values (a struct holding a `List` owns it), and views (`?T`,
+No. Numbers, strings, and objects, enums, and arrays made of them are
+plain values (an object holding a `List` owns it), and views (`?T`,
 `!T`) are checked at compile time and cost nothing at run time. Counting happens only behind a shared handle `*T`, where
 every new count is written (`*x`, `+x`) and a count ends where its
 handle's scope does, or at a statement `<x`; a heap value with one
@@ -39,7 +39,7 @@ Where the C, Rust, or Zig habit would change a program's meaning, it is
 a compile error instead: `if !done`, `!q.is_empty()`, and a `!` call
 returning a `Bool` that starts a condition or is an operand of `and`,
 `or`, or `not` without parentheses
-([receiver sigils](SPEC.md#structs), [operators](SPEC.md#operators)).
+([receiver sigils](SPEC.md#objects), [operators](SPEC.md#operators)).
 For the same reason, a comparison under `not` takes parentheses:
 `not (a > b)`, never `not a > b`.
 

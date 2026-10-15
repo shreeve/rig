@@ -49,7 +49,7 @@ happens, as a one-character **sigil**:
 | `e?` | propagate `none` | `e?` on an `Option` | `e orelse return null` |
 
 **Names say what a value is; sigils say how you hold it.** Every named
-type is an owner (`List[T]`, `String`, `Cell[T]`, a struct of yours), and
+type is an owner (`List[T]`, `String`, `Cell[T]`, an object of yours), and
 a view is never a name: it is written `?T` or `!T`, or is a slice `[]T`,
 so the read view of text is `?String`. `^T` is a box, a `T` alone on the
 heap, like Rust's `Box<T>`; `*T` is a counted pointer, like Rust's
@@ -189,7 +189,13 @@ returns nothing. The last expression of a `fun` is its value. `1..7`
 counts from 1 up to, not including, 7. `print` takes any number of
 values and separates them with spaces.
 
-### Structs, methods, and lending
+### Objects, methods, and lending
+
+**An object is a value; `^` puts it on the heap and `*` shares it.** An `obj` is
+what Rust and Zig call a struct. Unlike a Python, Ruby, or Java object,
+it lives where it is declared and has no identity of its own: `b = a`
+copies a plain object and moves an owning one, never giving one object
+two names ([Core §1](docs/CORE.md#1-four-kinds-of-value)).
 
 ```rig
 obj Account
@@ -345,7 +351,7 @@ support file.
 | fallible, no result | `fn f() -> Result<(), E>` | `fn f() !void` | `sub f()!` |
 | result views one argument | `fn f<'a>(a: &'a T, b: &T) -> &'a T` | (no check) | `fun f(a: ?T, b: ?T) -> ?T from a` |
 | call | `f(a)` | `f(a)` | `f(a)` |
-| struct literal | `P { x: 1 }` | `P{ .x = 1 }` | `P(x: 1)` |
+| object literal | `P { x: 1 }` | `P{ .x = 1 }` | `P(x: 1)` |
 | method receiver | `&self`, `&mut self`, `self` | `self: *const P`, `self: *P`, `self: P` | `?self`, `!self`, `<self` |
 | mutating call | `v.push(x)` | `try v.append(gpa, x)` | `!v.push(x)` |
 | enum variant | `Shape::Circle { r: 2 }` | `.{ .circle = .{ .r = 2 } }` | `.circle(r: 2)`, or `.circle(2)` for one field |
@@ -443,7 +449,7 @@ correspondences:
 | `[n of x]` | `@as([n]T, @splat(x))` |
 | `T?`, `none`, `a ?? b` | `?T`, `null`, `a orelse b` |
 | `T!`, `f()!`, `catch` | `anyerror!T`, `try f()`, `catch` |
-| a `?T` parameter | a copy of a scalar or view (a number, `Bool`, `?String`, a slice, a plain enum); `*const T` for a struct, an array, or a generic instance |
+| a `?T` parameter | a copy of a scalar or view (a number, `Bool`, `?String`, a slice, a plain enum); `*const T` for an object, an array, or a generic instance |
 | `!T` | `*T` |
 | `[]T`, `![]T` | `[]const T`, `[]T` |
 | `*T`, `~T` | a runtime `RcBox(T)` pointer, a weak handle |

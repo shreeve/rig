@@ -32,7 +32,7 @@ sub main()
   print(bt.len, bt == "q")
   <b.eat()
   h = *String("abc")
-  print(h.len, h == "abc")
+  print(h.len, ?h == "abc")
 
 # expect:
 # 6 6 12 xy

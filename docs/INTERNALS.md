@@ -880,7 +880,7 @@ later pass reads. It runs these steps in order:
    with an explicit stack), so no walk nests once per link of a long
    chain of types. Then a type that holds itself by value is rejected.
 5. **validation** (`checkTypeSizes`, then `resolve.checkDeclarations`):
-   every struct and enum fits `max_value_bytes`, each sized after the
+   every object and enum fits `max_value_bytes`, each sized after the
    types it holds; then the rules on spelled types that depend on
    contents (array and built-in element types, owned-closure
    signatures).
@@ -1475,7 +1475,7 @@ emitter ask these, never a predicate built for another question:
 | `moves` | `yes` when it needs cleanup or is unique, `depends` for a type parameter, otherwise `no`: a bare use moves it rather than copying it |
 | `copies` | does not move and holds no write view: duplicated by a bit copy with no owner involved (plain data, read views, and values holding only those). The one copy fact: a bare use, a copy out of a view (`copiedThrough`), `fill`, `copy`, `[n of x]`, a `\|+x\|` capture, `Cell.get`, and the generic requirement `copies` all ask it |
 | `copiedThrough` | the value a `?T` or `!T` (not a `![]T`) hands over where its context reads a value: `T`, when `T` copies |
-| `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), String copy, copy per instance, a deep copy part by part (`deep`: a List, a box, an array, an optional, or a struct or enum of this module made of parts that clone, `deepCloneable`), or nothing (a type with a `drop` body, a unique one, a Cell, a Signal, or a write view) |
+| `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), String copy, copy per instance, a deep copy part by part (`deep`: a List, a box, an array, an optional, or an object or enum of this module made of parts that clone, `deepCloneable`), or nothing (a type with a `drop` body, a unique one, a Cell, a Signal, or a write view) |
 | `readByAddress` | needs cleanup, or of a type parameter: `print` and a read argument read it where it is, by address, so a later argument may not change it first |
 | `isPlainData` | copies and holds no view or function value (a `?String` aside): plain data, what a Cell and a Signal hold |
 | `lendByValue` | a read lend of it hands over a copy (a scalar or a view), not an address |
@@ -1521,7 +1521,7 @@ A value that holds a Cell is also made only where one may stand, which
 one decider of expressions says: `Checker.cellMadeAway` rejects a call
 making such a value (a `Cell(...)`, or a constructor of a type that
 holds one) unless it is the operand of `*` (`shared_operand`), a field
-argument of a user struct's or enum's constructor (`cell_home`, set by
+argument of a user object's or enum's constructor (`cell_home`, set by
 `checkFieldArgs`; never a built-in generic's value), or a field's
 default. Desugared, a Cell is always `*Cell(v)` or a field of a value
 made by `*S(...)`: every path to it passes through a shared handle, and no
@@ -1700,7 +1700,7 @@ nested in `u` starts from `E - K(u)` too.
 `n` are locals or parameters of type `Int` of the body being walked (not
 a capture, a view, or a field); a bound `b` is `len(s)`, where `s` is
 such a binding of type `?String`, `[]T`, or `![]T`, or `int(n)`; `d` is
-such a binding of a struct type, held by value; `k` and `h` are at most
+such a binding of an object type, held by value; `k` and `h` are at most
 `2^62`. Each list below is positive: a shape not on it makes
 nothing and proves nothing. A unit makes its facts on its exit, each
 only if nothing in `K(u)` names it; then an assignment's store applies,
@@ -1736,12 +1736,12 @@ result, an `Int`, by `h` when every value it can return (each
 `return`'s, but those of the closures and functions declared in its
 body, and its body's tail unless that is a `return`) is a literal or a
 call of a function that bounds its result, and `h` is the largest of
-their bounds; it bounds the field `f` of its result, a struct, by `h`
-when every value it can return is a constructor of that struct whose
+their bounds; it bounds the field `f` of its result, an object, by `h`
+when every value it can return is a constructor of that object whose
 argument `f:` is a literal, or a call of a function that bounds `f` of
-the same struct. Every bound is a literal some path returns, so `0 <=
+the same object. Every bound is a literal some path returns, so `0 <=
 x <= h`: what the callee returns, it returned through one of those
-values, and a struct held by value changes a field only where a write
+values, and an object held by value changes a field only where a write
 of its binding says so. Anything else (a value `if`, a parameter, a
 negative or a larger literal) bounds nothing, and nor does a function
 whose bound reaches itself through a cycle of calls, since its bound is
@@ -1874,7 +1874,7 @@ length, and a `^T` its pointer. An array type is checked where it is
 spelled or made (`checkArrayBytes`), or, when a generic call infers it
 from an argument, at that argument (`checkArraysIn`); a synthesis whose
 diagnostics are dropped (`synthQuiet`, under `quiet`) leaves it to the
-check that keeps them. A struct or enum is checked after contents
+check that keeps them. An object or enum is checked after contents
 are known (`checkTypeSizes`), and an array that mentions a generic
 parameter is kept in `generic_arrays` and checked, with the instance
 itself, at each instance (`checkInstanceSizes`). A type reported too
@@ -2135,7 +2135,7 @@ construct changes, not the number of vars in scope. What is allocated
 while checking a module-level function is freed when it is done.
 
 **Loans travel with values.** `r = ?a` stores a read loan of `a` in
-`r`; `View(box: ?a)` carries it into the struct; a call whose result
+`r`; `View(box: ?a)` carries it into the object; a call whose result
 type can hold a view carries the loans of the callee's value, whatever
 form the callee takes (a closure binding, a callable view held by a
 local or parameter, `(?l)()`, a call that returns one), and of the
@@ -2172,7 +2172,7 @@ of the same call cannot lend or move their roots, and so does a write
 loan any argument's value carries (a write view a method's result keeps
 of its receiver: `both((!b).firstw(), ?b)` is rejected). Likewise, an
 argument that reads a place by value whose value shares storage the
-place owns (a List, a box, a handle, a struct holding one, or what a
+place owns (a List, a box, a handle, an object holding one, or what a
 write view reaches: `print(v, grow(!v))`) leaves a read loan of the
 place's root, marked as an argument's read, until the call ends
 (`holdRead`), so a later argument cannot lend it to write or move it.
@@ -2218,7 +2218,7 @@ treats it as a view the value may or may not hold: `?String` sets a
 `string` bit in a type's `Views` (reaching through optionals, fields,
 handles, and a List's or box's elements, but not into a Cell or Signal),
 and the checker tracks the loans of any value whose type has it, while
-sema's type-level `holdsMarkedView` ignores it (a struct holding a `?String`
+sema's type-level `holdsMarkedView` ignores it (an object holding a `?String`
 is not a view type, and `List[?String]` is plain data). `?t[a..b]` of a
 String lends the String as `?v[a..b]` lends a List; a literal carries no
 loan (nor does a `Static`, below), and a `?String` parameter, like a `?T` one, holds an external
@@ -2233,7 +2233,7 @@ value that holds only `?String` values (`sema.holdsViewOnly`) reads what it
 views, so the loans it keeps are read loans, and so does a call's result
 that holds no write view (`carryResult`, Core sentence 7). So `!it.next()` of an
 iterator holding `?String` values views what `it` views, not `it`, and a `?String`
-read through a write view of a struct that holds it, copied into a binding, or read out of a
+read through a write view of an object that holds it, copied into a binding, or read out of a
 `List[?String]` keeps what the `?String` views. A value holding a write
 view, a type parameter, or a type not known keeps every loan.
 The loans of a `for` source no binding holds go to its elements, and
@@ -2483,7 +2483,7 @@ instance's signature, so moves, lends, and the loans a result carries
 are checked there with the real types.
 
 **A holder of a read view.** A `^T`, an optional, a generic function's
-`T`, and a generic struct's field or `T` hold a read view as a `List`
+`T`, and a generic object's field or `T` hold a read view as a `List`
 element does, by one rule: a value whose type may hold a view
 (`sema.mayHoldView`) carries the loans of every view it was made from.
 `h = ^?v`, `h = same(?v)` and `h: (?T)? = ?v` mean
@@ -2632,7 +2632,7 @@ into: a `?T`'s or `!T`'s `T`, a `[]T`'s or `![]T`'s `T` elements, a
 `?String`'s bytes (a String's, or a literal's); a function, a lent callable,
 a type parameter, or a type not known points anywhere. A slice's targets
 are elements: an array's, a slice's, or a generic instance's argument
-(`elem_view`), never a field, so a struct's `n: Int` cannot be what an
+(`elem_view`), never a field, so an object's `n: Int` cannot be what an
 `[]Int` views. A holder type
 reaches a target `owned` when a path of parts it holds by value (fields,
 payloads, an optional's, array's, List's, box's, Cell's or Signal's
@@ -2709,8 +2709,21 @@ bug becomes a rejection, never a hole in a caller. One such edge is
 known: where a result's targets are anything (a type parameter's or a
 callable's), a `?String` parameter taken by value is never counted, which
 can only reject a body that returns one; no generic or callable body
-can turn a `?String` into a `T` or a callable. A `from` clause is
-part of a declaration, not of its function type: a function lent as a
+can turn a `?String` into a `T` or a callable.
+
+A generic body tracks no loan in a value of a type that holds a type
+parameter by value (SPEC "Generic bodies"), which in an instance may hold
+a view. So where such a value is made from values carrying a
+parameter's loans, the loans are dropped but the parameter is recorded
+(`taintGeneric`: a call's result, a field or element read, a binding, a
+loop element, a match copy, a take, a variable of such a type read (a
+`match` payload's view of its subject), and a parameter taken by value
+read), and `checkOrigins` counts it as returned wherever the body
+returns a value whose type holds a type parameter (`P[T]` too, beside
+its views). This is coarser than a loan: one read of a `[]T` parameter's
+element counts it as returned wherever the body returns a `T`.
+
+A `from` clause is part of a declaration, not of its function type: a function lent as a
 value (`?first`) is called with its type's origins, which every body
 satisfies. Recursion needs no fixpoint: a call of the function from its
 own body uses the origins being proved (each returning run is finite).
@@ -2972,7 +2985,7 @@ place and a take as `*<x`'s make.
 
 `for x in !it` is `while (!it).next() as x`, and nothing else: no pass
 has a form of its own for it. A `for` source is an iterator when its
-type, past views, is a struct or enum (not a `List`, array, slice,
+type, past views, is an object or enum (not a `List`, array, slice,
 `?String`, or range, which keep their own meaning) that declares
 `next(!self) -> T?` (`Checker.iteratorShape`, the one place this is
 decided); a `next` of another shape is reported where the loop is.
@@ -3142,7 +3155,7 @@ evaluate after it: `return value`, `break value`, and a new binding's
 initializer (`x = value` that declares `x`) evaluate the value and then
 leave or bind, so the order is the same. Layout gives no other form a
 statement-bearing value: an operand, an argument, a receiver, an index,
-and a struct or array literal field all reject a block, and a deferred
+and an object or array literal field all reject a block, and a deferred
 assignment (`defer w[0] = match ...`) is rejected, as deferred code
 keeps what it reads live for the whole scope.
 
@@ -3206,7 +3219,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   write view are pointers, read through `.*`. A `?T` of a scalar or a view (a
   number, `Bool`, a vector, a plain enum, an error, a slice or
   `?String`, a function, or an optional of one) is a copy: Zig parameters are
-  immutable. Any other `?T` (a struct, an array, an enum with
+  immutable. Any other `?T` (an object, an array, an enum with
   payloads) is a pointer, since a copy of a value with drop glue
   would be dropped with whatever holds it, and a `Cell` can change
   while it is lent: a `*const T`. In a generic type, where that depends on the type

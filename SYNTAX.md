@@ -438,7 +438,7 @@ required for a write call whose value is used, whatever its type:
 `if (!set).insert(k)`, `x = (!v).pop()`, `while (!it).next() as x`,
 so that its `!` never reads as negation. The short form stands only
 where the value is discarded: a statement, alone or under `!`, `?`, or
-`catch` ([SPEC §3](SPEC.md#structs) has the checks).
+`catch` ([SPEC §3](SPEC.md#objects) has the checks).
 
 ```rig
 obj Stack
@@ -652,7 +652,7 @@ sub main
 write `sub main()`: a function's parameter list is always written, even when empty
 ```
 
-### Structs
+### Objects
 
 An `obj` lists its fields, then its methods and at most one `drop`
 body. A field is `name: Type`, with an optional default value
@@ -735,7 +735,7 @@ sub main()
 ```
 
 `unique` after the name (or the type parameters) declares a unique
-struct, whose values move instead of copying
+object, whose values move instead of copying
 ([SPEC](SPEC.md#kinds-of-value)):
 
 ```rig
@@ -1374,8 +1374,8 @@ sub main()
 
 ### Constructors
 
-A struct is built by calling its name with its fields named,
-`Point(x: 1, y: 2)`, leaving out fields that have defaults. A struct
+An object is built by calling its name with its fields named,
+`Point(x: 1, y: 2)`, leaving out fields that have defaults. An object
 with exactly one field also takes it by position: `Meters(3.5)`, and
 the built-ins `^x`, `*Cell(0)`, and `*Signal(0)`. A payload variant
 is built the same way, `.rect(w: 2, h: 5)` or `Shape.circle(2)`, and a

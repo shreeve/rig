@@ -1,0 +1,17 @@
+# a01 with T an object holding a view.
+obj K
+  s: ?String
+
+obj P[T]
+  s: ?String
+  v: T
+
+fun mk[T](x: T, c: ?String) -> P[T] from c
+  P(s: c, v: x)
+
+sub main()
+  t = String("abc")
+  u = String("u")
+  p = mk(K(s: ?t), ?u)
+  <t
+  print(p.v.s)

@@ -1225,13 +1225,16 @@ pub const ElemOp = enum {
     select,
     lookup,
     lag,
+    /// `x.hash()`: a `U64` of any value `==` compares but a float's
+    /// (`notHashable`); `num` is the value's type, `elem` `U64`.
+    hash,
 
     /// Whether the method is one of a single integer's bits (`bitCall`),
     /// not of the elements of a slice.
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
             .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .fraction, .exponent => true,
-            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => false,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => false,
         };
     }
 
@@ -1249,7 +1252,7 @@ pub const ElemOp = enum {
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
             .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => true,
-            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent => false,
+            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .hash => false,
         };
     }
 };
@@ -1620,6 +1623,9 @@ pub const Requirement = union(enum) {
     numeric,
     ordered,
     equatable,
+    /// `x.hash()`: what `==` compares, less a float and what holds one
+    /// (`notHashable`).
+    hashable,
     integer,
     /// A signed integer or a float: the body negates the value.
     signed,
@@ -1667,6 +1673,7 @@ pub const Requirement = union(enum) {
             .numeric => "arithmetic",
             .ordered => "ordering comparison",
             .equatable => "`==` / `!=`",
+            .hashable => "`.hash()`",
             .integer => "integer operators",
             .signed => "negation",
             .float => "a float literal",
@@ -3914,6 +3921,22 @@ pub const TypeChildren = struct {
     }
 };
 
+/// Whether a value of `ty` may hold a value of a type parameter: the
+/// parameter itself, or a type built from it (`List[T]`, `T?`, `Bag[T]`),
+/// but no function, and not a compile-time value (`Simd[U8, n]`).
+pub fn holdsTypeParam(ctx: *const SemContext, ty: TypeId) bool {
+    if (!ctx.typeInfo(ty).has_type_var) return false;
+    const t = ctx.types.get(ty);
+    switch (t) {
+        .type_var => return true,
+        .function, .ct_param => return false,
+        else => {},
+    }
+    var it: TypeChildren = .{ .ty = t };
+    while (it.next()) |c| if (holdsTypeParam(ctx, c)) return true;
+    return false;
+}
+
 pub fn typeChildren(ctx: *const SemContext, ty: TypeId) TypeChildren {
     return .{ .ty = ctx.types.get(ty) };
 }
@@ -4390,6 +4413,8 @@ pub const NotEquatable = struct {
         unique,
         /// A `Simd[T, n]`, whose `==` compares lane by lane.
         lanes,
+        /// A float, which `.hash()` does not take (`notHashable`).
+        float,
     };
 };
 
@@ -4401,7 +4426,19 @@ pub const NotEquatable = struct {
 /// `ty` holds is appended to `params`, when given: `==` on `ty` holds in
 /// the instances where it holds for them.
 pub fn notEquatable(ctx: *SemContext, ty: TypeId, params: ?*std.ArrayList(SymbolId)) std.mem.Allocator.Error!?NotEquatable {
-    var walk: EquatableWalk = .{ .ctx = ctx, .params = params };
+    return notComparable(ctx, ty, params, false);
+}
+
+/// Why `x.hash()` does not take a value of `ty`, or null when it does:
+/// the types `==` compares (`notEquatable`), less a float and what holds
+/// one, whose `==` makes `0.0` and `-0.0` equal and NaN equal to nothing.
+/// Text of any type hashes its bytes.
+pub fn notHashable(ctx: *SemContext, ty: TypeId, params: ?*std.ArrayList(SymbolId)) std.mem.Allocator.Error!?NotEquatable {
+    return notComparable(ctx, ty, params, true);
+}
+
+fn notComparable(ctx: *SemContext, ty: TypeId, params: ?*std.ArrayList(SymbolId), hashing: bool) std.mem.Allocator.Error!?NotEquatable {
+    var walk: EquatableWalk = .{ .ctx = ctx, .params = params, .hashing = hashing };
     defer walk.deinit();
     try walk.items.append(ctx.allocator, .{ .ty = ty });
     try walk.work.append(ctx.allocator, 0);
@@ -4434,6 +4471,8 @@ pub fn isEquatable(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!bool {
 const EquatableWalk = struct {
     ctx: *SemContext,
     params: ?*std.ArrayList(SymbolId),
+    /// For `.hash()`: a float is not taken (`notHashable`).
+    hashing: bool = false,
     /// Every type reached: the compared one first, then each with the
     /// one that holds it and, for a field or payload, its name
     /// (`variant.field` for a payload field).
@@ -4460,6 +4499,7 @@ const EquatableWalk = struct {
             .array => |a| try self.push(i, a.elem, ""),
             // A vector's `==` is lane by lane, a mask, not one `Bool`.
             .simd => return .lanes,
+            .float, .float_literal => if (self.hashing) return .float,
             .slice => |sl| if (item.in_decl) return .view else try self.push(i, sl.elem, ""),
             .read_view, .write_view => return .view,
             .shared => |inner| return if (ctx.types.get(inner) == .function) .closure else .handle,
