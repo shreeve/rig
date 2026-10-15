@@ -2310,19 +2310,22 @@ pub const Checker = struct {
     }
 
     /// `index` of place `object`, read or taken: `object` is found before
-    /// the index runs (`v.constSlot(0).*.at(i)`). Where it is reached
-    /// through storage a write of its root could move or free
-    /// (`staysInRoot`), the root is held read while the index runs, so
-    /// the index cannot lend it to write or move it (`v[0][grow(!v)]`
-    /// would read the buffer `grow` freed). Where it is not, the index
-    /// may: `vs[grow(!vs)]` finds `vs` where it was, and reads the element
-    /// after.
+    /// the index runs (`v.constSlot(0).*.at(i)`). The index may lend the
+    /// root to write or move it only where what it reads stays put: the
+    /// element is read from an array held inline in `object`, or from a
+    /// List's buffer that `at` reads after the index, and `object` lies
+    /// in its root's own storage (`staysInRoot`): `vs[grow(!vs)]` finds
+    /// `vs` where it was, and reads the element after. Anywhere else (a
+    /// List past another List's buffer or a box, a handle, a String) the
+    /// root is held read while the index runs: `v[0][grow(!v)]` would read
+    /// the buffer `grow` freed, and `h[reh(!h)]` the List a re-pointed
+    /// handle let go.
     fn walkIndexOf(self: *Checker, object: Sexp, index: Sexp) Error!void {
         const place = self.resolvePlace(object) orelse {
             _ = try self.walk(index);
             return;
         };
-        if (self.staysInRoot(object)) {
+        if (self.readsAfterIndex(object) and self.staysInRoot(object)) {
             _ = try self.walk(index);
             return;
         }
@@ -2332,24 +2335,47 @@ pub const Checker = struct {
         if (mark < self.temps.items.len and self.temps.items[mark].place_hold) _ = self.temps.orderedRemove(mark);
     }
 
+    /// Whether an element of place `object` is read where `object` is
+    /// found: from an array held inline in it, or from a List's buffer,
+    /// which `at` reads after the index runs. A root is what a view it is
+    /// views.
+    fn readsAfterIndex(self: *const Checker, object: Sexp) bool {
+        const ty = self.stepType(object) orelse return false;
+        return self.typeData(ty) == .array or self.isList(ty);
+    }
+
+    /// The type of `e`, a place or a step of one, as a step into it sees
+    /// it: a root that is a view is what it views.
+    fn stepType(self: *const Checker, e: Sexp) ?TypeId {
+        const ty = self.exprType(e) orelse return null;
+        if (e.isKind(.member) or e.isKind(.index)) return ty;
+        return self.pointee(ty);
+    }
+
     /// Whether place `e` is stored where its root's value is, every step
-    /// to it a field of an object or an element of an array held there:
-    /// a write of the root changes what is there but never moves it. The
-    /// root is what a view it is views. A step into a List's buffer, a
-    /// box, a handle, a String, a view a field holds, or a value of a type
-    /// parameter is not: the write could move or free that storage.
+    /// to it a field of an object or an element of an array held there
+    /// (`holdsInline`): a write of the root changes what is there but
+    /// never moves it. A root is what a view it is views.
     fn staysInRoot(self: *const Checker, e: Sexp) bool {
         if (!e.isKind(.member) and !e.isKind(.index)) return true;
-        const ctx = self.sema orelse return false;
         const object = ir.get(e, .object);
-        var ty = self.exprType(object) orelse return false;
-        if (!object.isKind(.member) and !object.isKind(.index)) ty = self.pointee(ty) orelse ty;
-        const inline_step = switch (ctx.types.get(ty)) {
+        const ty = self.stepType(object) orelse return false;
+        return self.holdsInline(ty) and self.staysInRoot(object);
+    }
+
+    /// Whether values of `ty` hold their parts where the value is: an
+    /// array, or an object a module declares (`obj P`, `obj Wrap[T]`,
+    /// declared in this module's source).
+    fn holdsInline(self: *const Checker, ty: TypeId) bool {
+        const ctx = self.sema orelse return false;
+        return switch (ctx.types.get(ty)) {
             .array, .nominal, .imported_nominal => true,
-            .parameterized_nominal => |pn| !sema.isBuiltinGeneric(ctx, pn.sym),
+            .parameterized_nominal => |pn| blk: {
+                const sym = ctx.symbols.items[pn.sym];
+                break :blk sym.kind == .generic_type and sym.decl_pos < sema.imported_decl_pos;
+            },
             else => false,
         };
-        return inline_step and self.staysInRoot(object);
     }
 
     /// A `member` or `index`.

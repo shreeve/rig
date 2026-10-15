@@ -4700,13 +4700,16 @@ A view of a place (`!v[i]`, `?p.xs[i]`, a slice `!v[i..]`, or the
 receiver of a method call) finds the place up to each index before the
 index runs, so an index cannot write lend or move the place's root:
 it could grow or free the memory the place is in. A place that is read
-or taken (`<v[i]`) is found up to each index before the index runs too,
-which matters where what the index is applied to lies outside the
-root's own storage, past a List's buffer, a box, a handle, a String, or
-a view a field holds: there the index cannot write lend or move the
-root either, so `v[0][grow(!v)]` and `p.bx.vals[rebox(!p)]` are
-rejected, while `vs[grow(!vs)]` and `p.v[grow(!p)]` find `vs` and
-`p.v` where they were and read the element after the index runs. An
+or taken (`<v[i]`) is found up to each index before the index runs too.
+Its index may write lend or move the root only where the element is
+read from an array held in place or from a List's buffer, which is read
+after the index runs, and what is indexed lies in the root's own
+storage, reached through fields of objects and elements of arrays:
+`vs[grow(!vs)]` and `p.v[grow(!p)]` find `vs` and `p.v` where they were
+and read the element after. Anywhere else, past a List's buffer, a box,
+a handle, or a Cell, the index could free what the place is in, so
+`v[0][grow(!v)]`, `p.bx.vals[rebox(!p)]`, and `h[reh(!h)]` for a
+handle `h: *List[Int]` are rejected. An
 assignment finds its target only after the indexes run
 ([§4](#4-bindings-and-assignment)), so `v[grow(!v)] = 1` is accepted.
 

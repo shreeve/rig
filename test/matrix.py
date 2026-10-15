@@ -2553,8 +2553,9 @@ def order_leave_program(step, fail):
 
 # Each shape: its declarations' root type, the root's setup, the place
 # with `K` its last index, the List the place indexes (`B`), whether that
-# List lies in the root's own storage, and the writer's body, which
-# replaces that List's storage.
+# List lies in the root's own storage, the writer's body, which replaces
+# that List's storage (or re-points the handle), and the sites it can
+# stand at, when not every one.
 ROOTIDX_SHAPES = {
     "list": dict(ty="List[Int]", init=["R: List[Int] = List()", "!R.push(5)"], place="R[K]", base="R", stays=True,
                  grow=["for _ in 0..100", "  !r.push(0)"]),
@@ -2569,6 +2570,8 @@ ROOTIDX_SHAPES = {
     "listbox": dict(ty="List[^Q]", init=["R: List[^Q] = List()", "!R.push(^Q(vals: List()))", "!R[0].vals.push(5)"],
                     place="R[0].vals[K]", base="R[0].vals", stays=False,
                     grow=["n: List[Int] = List()", "!n.push(5)", "r[0] = ^Q(vals: <n)", "for _ in 0..100", "  !r.push(^Q(vals: List()))"]),
+    "handle": dict(ty="*List[Int]", init=["R = *mk()"], place="R[K]", base="R", stays=False,
+                   grow=["r = *mk()"], sites=("bind", "print", "cond", "arg", "view", "recv")),
 }
 # Each site: the lines using the place (`X`) or its List (`B`), what it
 # prints, and when it finds the place: before its index runs (`before`),
@@ -2593,11 +2596,14 @@ ROOTIDX_WRITERS = {"root": "wr(!R)", "other": "wr(!o)", "read": "rd(?R)"}
 def rootidx_program(shape, site, writer):
     """The program for one rootidx cell and what it prints."""
     sh = ROOTIDX_SHAPES[shape]
+    if site not in sh.get("sites", ROOTIDX_SITES):
+        return None, None
     lines, prints, found = ROOTIDX_SITES[site]
     k = ROOTIDX_WRITERS[writer]
     decls = ["obj Q", "  vals: List[Int]", "", "obj P", "  qs: List[Q]", "  bx: ^Q", ""]
     decls += [f"fun wr(r: !{sh['ty']}) -> Int"] + ["  " + g for g in sh["grow"]] + ["  0", ""]
     decls += [f"fun rd(r: ?{sh['ty']}) -> Int", "  0", ""]
+    decls += ["fun mk() -> List[Int]", "  n: List[Int] = List()", "  !n.push(5)", "  n", ""]
     decls += ["fun peek(n: ?Int) -> Int", "  n", "", "sub show(n: Int)", "  print(n)", "", "sub set9(n: !Int)", "  n = 9", ""]
     body = [l.replace("R", "o") for l in sh["init"]] if writer == "other" else []
     body += sh["init"]
@@ -3663,7 +3669,11 @@ def main():
                 ident = f"rootidx.{shape}.{site}.{writer}"
                 if not wanted(ident):
                     continue
-                src, expects[ident] = rootidx_program(shape, site, writer)
+                src, out = rootidx_program(shape, site, writer)
+                if src is None:
+                    skipped += 1
+                    continue
+                expects[ident] = out
                 path = os.path.join(work, ident.replace(".", "__") + ".rig")
                 with open(path, "w") as fh:
                     fh.write(src)

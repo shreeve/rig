@@ -1,0 +1,15 @@
+fun reh(h: !*List[Int]) -> Int
+  n: List[Int] = List()
+  for i in 0..100
+    !n.push(i + 50)
+  h = *<n
+  0
+
+sub main()
+  v: List[Int] = List()
+  !v.push(7)
+  h = *<v
+  print(h[reh(!h)])
+
+# error: 12:16: cannot lend `h` to write in an index of a place it is lending
+# errors: 1
