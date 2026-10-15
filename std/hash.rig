@@ -8,9 +8,10 @@
 # The entries are kept in a List, in order; a taken entry's value is
 # `none` (a Set's key), and its key stays until the List is next
 # compacted. Each entry's hash is kept beside it, so no key is hashed
-# twice. Up to `SMALL` entries there is no table: a
-# lookup compares the stored hashes in turn. Beyond that a `Table`
-# finds an entry: open-addressed, a power of two of slots probed
+# twice. A Map or Set builds a `Table` when it first holds more than
+# `SMALL` entries, or when `reserve` makes room for more, and keeps it
+# until `clear`; until then a lookup compares the stored hashes in
+# turn. The `Table` finds an entry: open-addressed, a power of two of slots probed
 # linearly, at most four fifths full. A key's slot is picked by its
 # hash's low bits; `tags[i]` is 0 for a free slot, or the top seven bits
 # of its key's hash with the high bit set (`tag_of`), so a probe compares
@@ -102,8 +103,8 @@ pub obj Map[K, V]
     !m.reserve(capacity) if capacity > 0
     m
 
-  # Make room for `n` more entries, so that the next `n` puts of new keys
-  # allocate nothing and never grow the table.
+  # Make room for `n` more entries at once: the entries and the table
+  # are sized for them, so the next `n` puts of new keys grow neither.
   pub sub reserve(!self, n: Int)
     !self.es.reserve(n)
     !self.hs.reserve(n)
@@ -228,7 +229,8 @@ pub obj Map[K, V]
 
   # Make room for one more entry: drop the entries taken, and build the
   # table, or double it, when the entries left would fill more than two
-  # fifths of it. A Map of up to `SMALL` entries keeps no table.
+  # fifths of it. A Map that has not held more than `SMALL` entries
+  # keeps no table.
   rarely sub grow(!self)
     !self.compact() if self.len < self.es.len
     return if self.table.tags.len == 0 and self.len < SMALL
@@ -275,8 +277,8 @@ pub obj Set[K]
     !s.reserve(capacity) if capacity > 0
     s
 
-  # Make room for `n` more keys, so that the next `n` adds of new keys
-  # allocate nothing and never grow the table.
+  # Make room for `n` more keys at once: the keys and the table are
+  # sized for them, so the next `n` adds of new keys grow neither.
   pub sub reserve(!self, n: Int)
     !self.ks.reserve(n)
     !self.hs.reserve(n)
@@ -354,16 +356,20 @@ pub obj Set[K]
     return if self.table.tags.len == 0 and self.len < SMALL
     !self.rebuild(table_size(self.len + 1, self.table.tags.len))
 
-  # Drop the keys taken, keeping the rest in order.
+  # Drop the keys taken, keeping the rest in order, in the Lists the Set
+  # has, so they keep the room they have: every key is popped off the
+  # end and the live ones pushed back the other way.
   sub compact(!self)
-    ks: List[K?] = List(capacity: self.len + 1)
-    hs: List[U64] = List(capacity: self.len + 1)
-    for j in 0..self.ks.len
-      if <self.ks[j] as k
-        !ks.push(<k)
-        !hs.push(self.hs[j])
-    self.ks = <ks
-    self.hs = <hs
+    back: List[K] = List(capacity: self.len)
+    back_hs: List[U64] = List(capacity: self.len)
+    while (!self.ks).pop() as slot
+      h = (!self.hs).pop() ?? 0
+      if <slot as k
+        !back.push(<k)
+        !back_hs.push(h)
+    while (!back).pop() as k
+      !self.ks.push(<k)
+      !self.hs.push((!back_hs).pop() ?? 0)
 
   # The table built anew with `n` slots, once the keys taken are
   # dropped, each key's slot placed again from its stored hash.

@@ -476,7 +476,7 @@ type, as any generic is.
 | Member | Signature | Ownership |
 |---|---|---|
 | `hash.Map[K, V]()`, `hash.Map[K, V].new(capacity: n)` | `fun new(capacity: Int = 0) -> Map[K, V]` | an empty Map, which allocates nothing until the first `put`, or with room for `n` entries |
-| `!m.reserve(n)` | `sub reserve(!self, n: Int)` | room for `n` more entries: the next `n` puts of new keys allocate nothing |
+| `!m.reserve(n)` | `sub reserve(!self, n: Int)` | makes room for `n` more entries at once, sizing the entries and the table for them rather than growing as they are put |
 | `m.len` | `pub ?len: Int` | the number of entries: a field other modules read and only `std.hash` writes |
 | `m.has(k)` | `fun has(?self, k: ?K) -> Bool` | reads |
 | `m.get(k)` | `fun get(?self, k: ?K) -> (?V)? from self` | the view keeps `m` lent to read, not `k` |
@@ -595,20 +595,21 @@ sub main()
 
 The entries are kept in one List, in order, each with its key's hash
 beside it, so no key is hashed twice: not when the table grows, nor
-when an entry is taken. A Map or Set of up to 8 entries has
-no table: a lookup compares the stored hashes in turn, then the key
-where one matches. A larger one has a table, open-addressed and probed
-linearly, at most four fifths full; each slot holds a one-byte tag,
-the top seven bits of its key's hash, and the index of its entry, so a probe
-compares a key only when the tag matches, and a key that is not there
-is found missing from the tags alone. A Map's entry holds its key and
-an optional value, so a `Map[U32, U32]` entry takes 12 bytes, and its
-hash 8 more; taking
-one empties its value in place, and the next growth drops the entry,
-key and all, keeping the rest in order. A Set's key is optional, and
-taking one hands it back. The seed of `.hash()` is fixed, so
-a program that lets others choose many keys that collide can be made
-slow.
+when an entry is taken. A Map or Set builds a table when it first
+holds more than 8 entries, or when `reserve` makes room for more, and
+keeps it until `clear`; until then, a lookup compares the stored
+hashes in turn, then the key where one matches. The table is
+open-addressed and probed linearly, at most four fifths full; each
+slot holds a one-byte tag, the top seven bits of its key's hash, and
+the index of its entry, so a probe compares a key only when the tag
+matches, and a key that is not there is found missing from the tags
+alone. A Map's entry holds its key and an optional value (for a
+`Map[U32, U32]`, a `U32` and a `U32?`), and its hash, a `U64`, is kept
+in a List beside the entries; taking one empties its value in place,
+and the next growth drops the entry, key and all, keeping the rest in
+order. A Set's key is optional, and taking one hands it back. The seed
+of `.hash()` is fixed, so a program that lets others choose many keys
+that collide can be made slow.
 
 ## List
 

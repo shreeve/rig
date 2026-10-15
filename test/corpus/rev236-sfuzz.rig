@@ -1,0 +1,63 @@
+use std.hash
+
+obj Rand
+  s: U64
+
+  fun next(!self, n: Int) -> Int
+    self.s = self.s *% 6364136223846793005 +% 1442695040888963407
+    Int((self.s >> 33) % U64(n))
+
+fun mk(k: Int) -> String
+  String("k", k, "-long-enough-to-allocate-on-heap")
+
+fun run(seed: U64, span: Int, steps: Int) -> Bool
+  r = Rand(s: seed)
+  s = hash.Set[String].new(capacity: (!r).next(20))
+  ref: List[String] = List()
+  for _ in 0..steps
+    op = (!r).next(20)
+    x = (!r).next(span)
+    k = mk(x)
+    at: Int? = none
+    for e, i in ?ref
+      at = i if e == k
+    if op < 9
+      added = (!s).add(+k)
+      return false if added != (at == none)
+      !ref.push(<k) if at == none
+    else if op < 17
+      got = (!s).take(?k)
+      if at as i
+        if got as g
+          return false if g != k
+        else
+          return false
+        _ = (!ref).remove(i)
+      else
+        return false if got != none
+    else if op < 18
+      !s.reserve((!r).next(30))
+    else if (!r).next(20) == 0
+      !s.clear()
+      !ref.clear()
+    return false if s.len != ref.len
+    i = 0
+    for e in ?s.items()
+      return false if i >= ref.len or ref[i] != e
+      i += 1
+    return false if i != ref.len
+    for y in 0..span
+      kk = mk(y)
+      inref = false
+      for e in ?ref
+        inref = true if e == kk
+      return false if s.has(?kk) != inref
+  true
+
+sub main()
+  ok = true
+  for seed in 1..9
+    if not run(U64(seed), 3 + Int(seed % 25), 300)
+      print("fail", seed)
+      ok = false
+  print(run(77, 200, 800), ok)

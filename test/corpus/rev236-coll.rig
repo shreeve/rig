@@ -1,0 +1,56 @@
+use std.hash
+
+sub main()
+  a: I128 = -1
+  b: I128 = 18446744073709551615
+  print(a.hash() == b.hash(), a == b)
+  base: I128 = 18446744073709551616
+  for n in [2, 5, 9, 40, 300]
+    m = hash.Map[I128, Int]()
+    for i in 0..n
+      x: I128 = -1 - I128(i)
+      !m.put(x, i)
+      !m.put(x + base, i + 1000)
+    bad = 0
+    for i in 0..n
+      x: I128 = -1 - I128(i)
+      if m.get(x) as v
+        bad += 1 if v != i
+      else
+        bad += 1
+      if m.get(x + base) as v
+        bad += 1 if v != i + 1000
+      else
+        bad += 1
+    # take one of each pair alternately
+    for i in 0..n
+      x: I128 = -1 - I128(i)
+      y = x if i % 2 == 0 else x + base
+      bad += 1 if (!m).take(y) == none
+    for i in 0..n
+      x: I128 = -1 - I128(i)
+      keep = x + base if i % 2 == 0 else x
+      gone = x if i % 2 == 0 else x + base
+      bad += 1 if not m.has(keep)
+      bad += 1 if m.has(gone)
+    for i in 0..n
+      x: I128 = -1 - I128(i)
+      gone = x if i % 2 == 0 else x + base
+      !m.put(gone, 7)
+    for i in 0..n
+      x: I128 = -1 - I128(i)
+      bad += 1 if not m.has(x) or not m.has(x + base)
+    print(n, m.len, bad)
+    s = hash.Set[I128]()
+    for i in 0..n
+      x: I128 = -1 - I128(i)
+      _ = (!s).add(x)
+      _ = (!s).add(x + base)
+    for i in 0..n
+      x: I128 = -1 - I128(i)
+      _ = (!s).take(x)
+    sb = 0
+    for i in 0..n
+      x: I128 = -1 - I128(i)
+      sb += 1 if s.has(x) or not s.has(x + base)
+    print(s.len, sb)
