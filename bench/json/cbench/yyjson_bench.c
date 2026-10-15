@@ -1,6 +1,7 @@
 // prog FILE N: N full parses of FILE with yyjson (input not modified, one
 // pool allocator reused between runs, as std.json reuses its tape), timed;
 // prints "<ns> <check>", check = the top-level element count summed over runs.
+#define _POSIX_C_SOURCE 200809L  /* clock_gettime under -std=c11 on Linux */
 #include "yyjson.h"
 #include <stdio.h>
 #include <stdlib.h>

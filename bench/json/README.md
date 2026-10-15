@@ -83,7 +83,7 @@ Each binary takes `FILE N`, like the Rig programs.
 - `cbench/`: simdjson's DOM parser (C++) and yyjson (C), each at a pinned
   release. `cbench/build.sh` clones them into `cbench/upstream` and
   builds `prog-simdjson-dom` and `prog-yyjson` (`-O3 -DNDEBUG` for the
-  native CPU; it needs `cc` and `c++`). Both validate as std.json does
+  native CPU; it needs `cc` and `c++`; GCC and Clang both build it). Both validate as std.json does
   (yyjson with every `YYJSON_DISABLE_*` switch off, read flags 0), reuse
   their buffers between runs, and are called from a separate translation
   unit, so neither is inlined into the benchmark's loop.

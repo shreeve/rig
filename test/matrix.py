@@ -3612,12 +3612,10 @@ def tree_rss(pgid):
 
 def find_cap():
     """`cpuq cap`, where it stops programs, else None (the watchdog).
-    RIG_CAP=1 asks for it and RIG_CAP=0 refuses it. Unset, it is used
-    off Linux, where it matched the watchdog; on Linux a cgroup's
-    memory.max counts page cache and kernel memory that RSS does not,
-    so it waits until RUN_MB is recalibrated there. Probed once."""
+    It is used wherever cpuq is installed; RIG_CAP=0 refuses it.
+    Probed once."""
     want, path = os.environ.get("RIG_CAP", ""), shutil.which("cpuq")
-    if want == "0" or not path or (want != "1" and sys.platform.startswith("linux")):
+    if want == "0" or not path:
         return None
     try:
         ok = subprocess.run([path, "cap", "--time", "10s", "--", "true"], capture_output=True,
