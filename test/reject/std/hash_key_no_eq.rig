@@ -1,0 +1,9 @@
+# A key is a value `.hash()` takes, and a List has no `==`.
+
+use std.hash
+
+sub main()
+  m = hash.Map[List[Int], Int].new()
+  print(m.len())
+
+# error: cannot use `K = List[Int]`

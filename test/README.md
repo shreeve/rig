@@ -242,8 +242,8 @@ constructor, `<x`, `+x`) stands in one context (a `print` argument, a
 `?T` argument, `==`, a binding, a field store, a List push, `return`, an
 element assignment, a `match` subject, a `for` source, a consuming
 receiver, a test against `none` or a bare `.variant`) for each of
-several types (Int, `?String`, `String`, `List`, `*T`, `^T`, a struct with a `drop`,
-a payload enum, and in a few cells a struct holding a Cell, which must
+several types (Int, `?String`, `String`, `List`, `*T`, `^T`, an object with a `drop`,
+a payload enum, and in a few cells an object holding a Cell, which must
 be rejected), and holds each to the corpus's rule; a slice of the
 value, written with no lend, stands as an argument where a `[]T` or a
 `?String` goes, also while a later argument writes what it slices; and a
@@ -265,7 +265,7 @@ guarded, nested, and of a branch of write lends; `if !o as b` and
 `while !o as b`; `for b in !v`, with an index and over an array; a `!T`
 parameter; a `|!b|` capture; a held `b = !x`; a `defer` in the arm) of
 a String, a
-List, a `^String`, or a struct holding a List, whole, sliced, or to a
+List, a `^String`, or an object holding a List, whole, sliced, or to a
 call or `?self` method, then writes through the binding while the view
 is live, or after its last use; a program that runs must print what the
 view showed before the write. A read binding of a write view (`if o as
@@ -279,7 +279,7 @@ a branch, through a path, `?.`, `??`, and `catch`, written bare, lent
 to read (`?S`), and lent to write (`!S`), for a `!W` parameter and a
 local write view, and writes through the place while a view of the binding lives; every such
 program must be rejected (`hdr.`). A `while` step
-reads what its condition binds, a view or a struct holding one, while
+reads what its condition binds, a view or an object holding one, while
 the body grows what it views on each way to the step (the body's end,
 `continue`, `continue :outer` from a nested `for`, `while`, or
 `while … as`, also under a joined or `catch break` condition, an inner
@@ -292,7 +292,7 @@ owned local, and a program that runs must print the trace of passes,
 steps, defers, and drops the jumps' meaning gives. Last, it changes or
 reads a Cell (`set`, `replace`, `get`, a `Cell[List]`'s `push`, `pop`,
 `clear`, and `c[i] = e`, and a `?self` method) of each kind of value
-holding one (a struct with a `drop`, the Cells in a part, a generic
+holding one (an object with a `drop`, the Cells in a part, a generic
 type, a bare Cell) through the `*` handle it lives behind: directly,
 through a `?T` parameter given the handle, and through a `?self`
 method, in a statement, a loop that continues or breaks early, a

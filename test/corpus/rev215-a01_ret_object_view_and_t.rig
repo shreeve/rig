@@ -1,0 +1,16 @@
+# A generic result type holding both a view and a T: the T part carries
+# what reached it, but the result type may hold a view, so the generic
+# taint is never counted.
+obj P[T]
+  s: ?String
+  v: T
+
+fun mk[T](x: T, c: ?String) -> P[T] from c
+  P(s: c, v: x)
+
+sub main()
+  t = String("abc")
+  u = String("u")
+  p = mk(?t, ?u)
+  <t
+  print(p.v)

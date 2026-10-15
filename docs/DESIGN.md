@@ -193,7 +193,7 @@ that keep it honest: a sigil before a method call must match the mode
 the method declares, so a `!` never stands before a method that only
 reads, where it would pass for negation, and a `!` call whose value is
 used keeps its parentheses, `(!set).insert(k)`, `x = (!v).pop()`, so a
-leading `!` never reads as "not" ([SPEC §3](../SPEC.md#structs)).
+leading `!` never reads as "not" ([SPEC §3](../SPEC.md#objects)).
 
 **Absorption.** Operations that would add nothing are rejected rather
 than silently tolerated. Sharing a shared handle (`*x` when `x : *T`,
@@ -299,11 +299,11 @@ The full rules are in [CORE](CORE.md).
 Rig follows the second-class-reference model of Swift, Hylo, and Mojo
 rather than Rust's lifetime parameters. A view can live in a
 parameter, a local, or a function's result, and a read view in a
-struct field too (a write view is never stored inside a value), and the
+object field too (a write view is never stored inside a value), and the
 checker tracks where each one came from: a returned view carries the
 loans of every argument whose type could hold what it views, or of
 only those a `from` clause names (`-> ?Item from a`), which the
-compiler checks against the body; and a struct holding a view keeps
+compiler checks against the body; and an object holding a view keeps
 its source lent. A loan lasts until the last use of every view
 that carries it, not to the end of its block, as in Rust's non-lexical
 lifetimes. That rule is sound without annotations; the price is that
@@ -361,7 +361,7 @@ unless marked `pub`. A module's `pub` surface is then exactly what it
 spells out: a type can keep its representation (a count, a cache, an
 invariant between two fields) to itself and hand out values through
 `pub` functions, and changing a private member cannot break another
-module. Construction follows: another module may construct a struct
+module. Construction follows: another module may construct an object
 only when it could set every field anyway, so a type with a private
 field is made by its own module. An enum's variants and their payloads
 are the type's shape, which `match` must see, so they are always

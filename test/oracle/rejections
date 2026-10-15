@@ -3057,6 +3057,9 @@ test/corpus/review-while-step-w42-step-temp-view.rig main
 test/corpus/review-while-step-w51-step-stores-h-via-call.rig main
 test/corpus/review-while-step-w54-step-grows-via-h-cond-reads.rig main
 test/corpus/review-while-step-w55-optional-view-binding.rig main
+test/corpus/rust164250-repoint-declared-first.rig main
+test/corpus/rust164250-repoint-drop-local.rig main
+test/corpus/rust164250-repoint-scope-end.rig main
 test/corpus/sb-r_a1.rig main
 test/corpus/sb-r_a2.rig main
 test/corpus/sb-r_a3.rig main

@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""Time std.hash's Map against Zig's std.HashMap.
+
+usage: cpuq run --cores 2 --label rig:hash -- bench/hash/bench-hash [options]
+   or, to time on a quiet machine:
+       cpuq run --cores 2 --label rig:hash -- bench/hash/bench-hash --out D --build-only
+       cpuq run --exclusive --cores 1 --label rig:hash -- bench/hash/bench-hash --out D --time-only
+
+  --variants a,b  what to build and time (default: rig-safe,zig-safe):
+                    rig-safe   bench/hash/map.rig, rig build --release (Zig's safe mode)
+                    rig-fast   the same, rig build --release=fast
+                    zig-safe   bench/hash/map.zig, -OReleaseSafe
+                    zig-fast   the same, -OReleaseFast
+  --reps N        runs per variant, interleaved across variants; the
+                  fastest of each operation counts (default 9)
+  --out DIR       keep the builds in DIR and reuse them; with
+  --build-only    build and stop, and later
+  --time-only     time what DIR holds
+
+Each program puts a million keys into an empty map (insert), looks each
+up (hit), looks up a million keys it does not hold (miss), and walks
+the map (iterate), for Int keys (scattered by a multiply) and String
+keys ("key" and a number). It prints `KEYS OP NS CHECK` per operation;
+the checksums must agree. The report compares each variant with the
+first Zig one, as "N% faster" or "N% slower".
+"""
+import argparse, os, shutil, subprocess, sys, tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))
+RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
+ZIG = os.environ.get("ZIG", "zig")
+N = 1_000_000
+
+
+def build(v, out):
+    exe = os.path.join(out, v)
+    if os.path.exists(exe):
+        return exe
+    tmp = exe + ".new"
+    if v.startswith("rig-"):
+        env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out"))
+        flag = "--release" if v == "rig-safe" else "--release=fast"
+        subprocess.run([RIG, "build", flag, "-o", tmp, os.path.join(HERE, "map.rig")], check=True, env=env)
+    else:
+        mode = "-OReleaseSafe" if v == "zig-safe" else "-OReleaseFast"
+        subprocess.run([ZIG, "build-exe", mode, os.path.join(HERE, "map.zig"), "-femit-bin=" + tmp,
+                        "--cache-dir", os.path.join(out, "zig-cache")], check=True)
+    os.rename(tmp, exe)
+    return exe
+
+
+def run(exe):
+    p = subprocess.run([exe], check=True, capture_output=True, text=True)
+    rows = {}
+    for line in (p.stdout + p.stderr).splitlines():
+        keys, op, ns, check = line.split()
+        rows[(keys, op)] = (int(ns), check)
+    return rows
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--variants", default="rig-safe,zig-safe")
+    ap.add_argument("--reps", type=int, default=9)
+    ap.add_argument("--out")
+    ap.add_argument("--build-only", action="store_true")
+    ap.add_argument("--time-only", action="store_true")
+    a = ap.parse_args()
+    variants = a.variants.split(",")
+    out = a.out or tempfile.mkdtemp(prefix="bench-hash.")
+    os.makedirs(out, exist_ok=True)
+    try:
+        exes = {v: (os.path.join(out, v) if a.time_only else build(v, out)) for v in variants}
+        if a.build_only:
+            return
+        best = {v: {} for v in variants}
+        checks = {}
+        for _ in range(a.reps):
+            for v in variants:
+                for k, (ns, check) in run(exes[v]).items():
+                    if checks.setdefault(k, check) != check:
+                        sys.exit(f"{v}: {k[0]} {k[1]} checksum {check}, expected {checks[k]}")
+                    best[v][k] = min(ns, best[v].get(k, ns))
+        base = next((v for v in variants if v.startswith("zig-")), variants[0])
+        print(f"{'keys':7} {'op':8} " + " ".join(f"{v + ' ns/op':>15}" for v in variants) + f"   vs {base}")
+        for k in best[base]:
+            cols = " ".join(f"{best[v][k] / N:15.2f}" for v in variants)
+            notes = []
+            for v in variants:
+                if v == base:
+                    continue
+                r = best[base][k] / best[v][k]
+                notes.append(f"{v} {abs(r - 1) * 100:.1f}% {'faster' if r >= 1 else 'slower'}")
+            print(f"{k[0]:7} {k[1]:8} {cols}   {', '.join(notes)}")
+    finally:
+        if not a.out:
+            shutil.rmtree(out, ignore_errors=True)
+
+
+main()

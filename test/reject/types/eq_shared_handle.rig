@@ -1,0 +1,13 @@
+# A handle has no `==`: it could compare by identity or by content. Two
+# `*String`s, or a `*String` and a String, compare their content through
+# a view, `?a == ?b`.
+
+sub main()
+  s = *String("q")
+  r = *String("q")
+  t = String("q")
+  print(s == r)
+  print(s == t)
+
+# error: 9:9: `==` is not defined for `*String`: `*String` is a handle, which could compare by identity or by content
+# error: 10:9: cannot compare `*String` with `String`
