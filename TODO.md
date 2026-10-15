@@ -15,7 +15,36 @@ started:
   passing `<x` to `*T`) at an instance whose `T` is held (`T = ~U`
   makes `*~U`): rejected per instance, with the generic per-instance
   requirements round (option (b)). SPEC "Box" shows it as pending.
-- A frame-size guard for every function.
+- Destination-passing for values over about 64 KiB: emit passes,
+  returns, and copies none by value through a Zig temporary, and lowers
+  a `defer` or inlined body that declares one to a single call. A
+  frame's real size is then bounded by construction; today it is a
+  measured bound, `sema.reach_factor` (4) times its reach, which
+  `test/cli/frame_reach.sh` checks, and a form Zig copies that reach
+  does not model could exceed it. Two did in #230's review, both fixed:
+  a payload part a `match <e` arm drops, passed by value at each exit
+  (`test/corpus/rev230-discard-exits.rig`); and the same at 12,000
+  exits, whose 48 GB frame made Zig's aarch64 build fail with `fixup
+  value out of range` (`test/cli/discard_build.sh`; a frame over 4 GiB
+  draws Zig's warning, and one that large fails to build).
+  With it, build debug programs for x86_64 with `-fllvm`, as aarch64's
+  are.
+- The reference checker (`bin/rig-oracle`) takes memory quadratic in
+  the exits of one `match` arm. For an arm `.one(_, n)` of `match <e`
+  with that many `return ... if ...` lines, its peak resident memory:
+
+  | Exits | Peak memory |
+  |---|---|
+  | 50 | 6.7 MB |
+  | 100 | 10 MB |
+  | 200 | 24 MB |
+  | 400 | 74 MB |
+  | 12,000 | 52 GiB (`--set corpus`, measured on Linux) |
+
+  At 12,000 exits it took down a 7 GB CI runner, so that program is a
+  CLI test (`test/cli/discard_build.sh`), which the checker never sees,
+  rather than a corpus probe. Make it linear, then the program can
+  return to the corpus.
 - Switching to Nexus's `Span.text`.
 - `text.ByteSet`, a byte set built once when the program runs and
   searched with `set.find(s, at)`: the run-time sibling of

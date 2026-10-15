@@ -1,0 +1,27 @@
+# Zig writes a `defer` body again at each exit it covers, so the body
+# counts in a frame's reach once for each: here at 10 returns and the
+# end, each copying a 6.4 MB array for 3 arguments passed by value.
+
+fun take(a: [800000]Int, k: Int) -> Int
+  a[k]
+
+fun many(i: Int) -> Int
+  a = [800000 of i]
+  defer print(take(a, 0) + take(a, 1) + take(a, 2))
+  return 0 if i == 100
+  return 1 if i == 101
+  return 2 if i == 102
+  return 3 if i == 103
+  return 4 if i == 104
+  return 5 if i == 105
+  return 6 if i == 106
+  return 7 if i == 107
+  return 8 if i == 108
+  return 9 if i == 109
+  i
+
+sub main()
+  print(many(1))
+
+# error: 8:5: `many` makes or copies
+# errors: 1

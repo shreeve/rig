@@ -139,20 +139,50 @@ pub const CtValue = union(enum) { int: Wide };
 pub const max_array_len: Wide = std.math.maxInt(u32);
 
 /// The most bytes a value takes: 8 MiB. A value may live in a stack
-/// frame, and the main thread's stack holds 16 MiB, so any one value fits
-/// there with room to spare; a frame that overflows it by up to 64 MiB
-/// stops the program (`rig.guardStack`). The cap also keeps compiles
-/// fast, since Zig builds a constant array element by element. Larger
-/// data belongs in a `List`.
+/// frame, and the program's stack holds 64 MiB, so any one value fits
+/// there with room to spare. The cap also keeps compiles fast, since Zig
+/// builds a constant array element by element. Larger data belongs in a
+/// `List`.
 pub const max_value_bytes: u64 = 8 << 20;
 
 /// The most bytes of values one function keeps on its stack, with the
-/// frames inlined into it: 13 MiB of the main thread's 16 MiB stack, which
-/// leaves room for the frames below it and for the few temporaries Zig
-/// adds that `typecheck.checkFrames` does not count. Only one frame is held
-/// to it: how deep calls nest is not known, so a chain of frames that each
-/// fit can still overflow the stack (`rig.guardStack` stops it).
+/// frames inlined into it: 13 MiB. It is a limit on how a program keeps
+/// its data, which leaves large data to the heap; safety does not rest on
+/// it. Zig's code holds temporaries this count leaves out, and how deep
+/// calls nest is not known, so a program can still run out of its 64 MiB
+/// stack: the guard below the stack (`max_frame_reach`) stops it there.
 pub const max_frame_bytes: u64 = 13 << 20;
+
+/// A frame `checkFrames` counted: what it is, its bytes, and its reach
+/// (`typecheck.checkFrames`).
+pub const FrameSize = struct { label: []const u8, pos: u32, bytes: u128, reach: u128 };
+
+/// A value of at most this many bytes is held in registers, or spilled
+/// to a slot of its own, never copied through a temporary of its size;
+/// a frame's reach leaves it out.
+pub const register_bytes: u64 = 16;
+
+/// The most times Zig's code holds one value a function makes or copies
+/// on its stack, in any build mode, on aarch64 (LLVM) and x86_64 (Zig's
+/// own backend in debug): the stack a frame takes is at most this many
+/// times its reach. `test/cli/frame_reach.sh` checks it against the
+/// frames Zig really reserves.
+pub const reach_factor: u64 = 4;
+
+/// The most stack one function's code may take, `reach_factor` times its
+/// reach: 512 MiB, half the smallest guard the runtime keeps below the
+/// stack (`guard_sizes` in `rig/runtime.zig`, 1 GiB), so a frame within
+/// the measured bound that overflows the stack faults in the guard.
+pub const max_frame_reach: u64 = 512 << 20;
+
+/// A function whose code may take this much stack (`reach_factor` times
+/// its reach) or more is emitted `noinline` and never inlined, so no two
+/// such frames merge into one.
+pub const noinline_reach: u64 = 1 << 20;
+
+/// A declaration, `pos` in module `module`, whose frame is large at an
+/// instance another module makes (`SemContext.large_foreign_frames`).
+pub const ForeignFrame = struct { module: u32, pos: u32 };
 
 /// The values one function or closure keeps on its stack: `label` names
 /// it in messages, declared at `pos` in module `module_id` (0 for the
@@ -160,7 +190,10 @@ pub const max_frame_bytes: u64 = 13 << 20;
 ///
 /// `names` holds the name of the local each type is, empty for a temporary,
 /// so a diagnostic can name the largest.
-pub const Frame = struct { label: []const u8, pos: u32, tys: []const TypeId, names: []const []const u8, module_id: u32 = 0 };
+///
+/// The last `copies` types are copies its code may make, which count in
+/// its reach alone (`typecheck.checkFrames`).
+pub const Frame = struct { label: []const u8, pos: u32, tys: []const TypeId, names: []const []const u8, copies: u32 = 0, module_id: u32 = 0 };
 
 pub const Type = union(enum) {
     /// A type error was reported here.
@@ -1145,6 +1178,9 @@ pub const Question = enum(u8) {
     /// expression or after the body in the condition's bindings
     /// (`storage.stepPoint`).
     step_point,
+    /// Of a box or a binding: whether the fill `[n of x]` it takes is
+    /// built where its value goes (`storage.fillsInPlace`).
+    fills_in_place,
 };
 
 /// A recorded answer to a `Question`, with the node it is about.
@@ -1910,6 +1946,15 @@ pub const SemContext = struct {
     /// The functions and methods Zig inlines at every call, by where
     /// their names are declared (`inlining.decide`).
     inlined: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// The frames `checkFrames` counted, for `rig check --facts=frames`.
+    frame_sizes: std.ArrayList(FrameSize) = .empty,
+    /// The functions, by where their names are declared, whose code may
+    /// take `noinline_reach` of stack or more: emitted `noinline` and
+    /// never inlined (`typecheck.checkFrames`, `inlining.decide`).
+    large_frames: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// Those of other modules, found large at an instance made here;
+    /// `inlining.decide` marks them in their own modules.
+    large_foreign_frames: std.ArrayList(ForeignFrame) = .empty,
     /// The calls that may reach one of them, by node (`inlining.decide`).
     inlined_calls: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// The node `Question`s decided so far, each once.
@@ -2016,6 +2061,9 @@ pub const SemContext = struct {
         self.storage.deinit(self.allocator);
         self.discards.deinit(self.allocator);
         self.inlined.deinit(self.allocator);
+        self.frame_sizes.deinit(self.allocator);
+        self.large_frames.deinit(self.allocator);
+        self.large_foreign_frames.deinit(self.allocator);
         self.inlined_calls.deinit(self.allocator);
         self.write_sites.deinit(self.allocator);
         self.proven.deinit(self.allocator);
@@ -6171,7 +6219,7 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         const fr = foreign.generic_frames.items[i];
         const tys = try a.alloc(TypeId, fr.tys.len);
         for (fr.tys, tys) |t, *out| out.* = try importType(ctx, foreign, t, m);
-        try ctx.addGeneric(.frames, .{ .label = fr.label, .pos = fr.pos, .tys = tys, .names = fr.names, .module_id = if (fr.module_id == 0) m else fr.module_id });
+        try ctx.addGeneric(.frames, .{ .label = fr.label, .pos = fr.pos, .tys = tys, .names = fr.names, .copies = fr.copies, .module_id = if (fr.module_id == 0) m else fr.module_id });
     }
     for (foreign.paramEntries(.fn_uses, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .fn_uses, i)) continue;

@@ -1,0 +1,46 @@
+# A method that takes its receiver by value copies it at each call, so
+# each call counts the receiver in the frame's reach: here 25 copies of
+# an object holding a 6.4 MB array.
+
+obj Q
+  a: [800000]Int
+  b: Int
+
+  fun get(self: Q, k: Int) -> Int
+    self.a[k] + self.b
+
+fun calls(i: Int) -> Int
+  q = Q(a: [800000 of i], b: 1)
+  s = 0
+  s += q.get(0)
+  s += q.get(1)
+  s += q.get(2)
+  s += q.get(3)
+  s += q.get(4)
+  s += q.get(5)
+  s += q.get(6)
+  s += q.get(7)
+  s += q.get(8)
+  s += q.get(9)
+  s += q.get(10)
+  s += q.get(11)
+  s += q.get(12)
+  s += q.get(13)
+  s += q.get(14)
+  s += q.get(15)
+  s += q.get(16)
+  s += q.get(17)
+  s += q.get(18)
+  s += q.get(19)
+  s += q.get(20)
+  s += q.get(21)
+  s += q.get(22)
+  s += q.get(23)
+  s += q.get(24)
+  s
+
+sub main()
+  print(calls(1))
+
+# error: 12:5: `calls` makes or copies
+# errors: 1

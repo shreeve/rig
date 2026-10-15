@@ -788,17 +788,18 @@ pub const Emitter = struct {
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
-        // A `main` that may fail, or returns the exit status, is the body
-        // of a Zig `main` that reports the failure as Rig shows errors
-        // (`rig.failMain`) or sets the status (`rig.exitStatus`), after
-        // every drop and the leak check.
-        if (main_fails or main_status) {
+        // `main` is the body of a Zig `main` that runs it on the stack the
+        // runtime maps (`rig.onOwnStack`), then reports a failure as Rig
+        // shows errors (`rig.failMain`) or sets the exit status
+        // (`rig.exitStatus`), after every drop and the leak check.
+        if (is_main) {
             const catches = if (main_fails) " catch |err| rig.failMain(err)" else "";
+            const run = "rig.onOwnStack(__rig_run_main, .{__rig_init})";
             if (main_status) {
-                try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return rig.exitStatus(__rig_run_main(__rig_init){s});\n}}\n\n", .{catches});
-            } else try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) void {{\n    __rig_run_main(__rig_init){s};\n}}\n\n", .{catches});
+                try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return rig.exitStatus({s}{s});\n}}\n\n", .{ run, catches });
+            } else try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) void {{\n    {s}{s};\n}}\n\n", .{ run, catches });
             try self.w.writeAll("fn __rig_run_main(");
-        } else try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else if (marker == .called) "noinline " else "", ident(name) });
+        } else try self.w.print("pub {s}fn {f}(", .{ if (inlined) "inline " else if (marker == .called or self.facts.isLargeFrame(name_node)) "noinline " else "", ident(name) });
         // Zig hands the arguments and environment only to `main`.
         if (is_main) try self.w.writeAll("__rig_init: std.process.Init.Minimal");
         try self.pushScope();
@@ -878,7 +879,7 @@ pub const Emitter = struct {
     /// Statements at the top of a function body: the cold hint of a
     /// `rarely` function, then the evaluation budget
     /// (`rig.eval_quota`) unless it is inline; in `main`,
-    /// `rig.guardStack()` and the deferred `rig.finish()` (flush output,
+    /// `rig.start` and the deferred `rig.finish()` (flush output,
     /// check for leaks), then parameter copies and guards, and discards
     /// for unused parameters.
     fn emitFunPrologue(self: *Emitter) Error!void {
@@ -894,7 +895,6 @@ pub const Emitter = struct {
         }
         if (self.fun.leak_check) {
             self.fun.leak_check = false;
-            try self.line("rig.guardStack();", .{});
             try self.line("rig.start(__rig_init);", .{});
             try self.line("defer rig.finish();", .{});
         }
@@ -1466,10 +1466,20 @@ pub const Emitter = struct {
         // Sema decides whether the name declares a binding or
         // reassigns one.
         const sym = self.facts.symbolOf(target) orelse return self.unsupported(target, "an unresolved binding");
+        // A fill is built in the local, never on the stack first.
+        const in_place = try self.need(self.facts.fillsInPlace(sexp), sexp);
         if (self.facts.symbols.items[sym].decl_pos == target.src.pos) {
+            if (in_place) return self.emitFillBind(target, sym, expr);
             try self.emitBind(target, sym, type_node, expr);
         } else {
             const local = self.localBySym(sym) orelse return self.unsupported(target, "an assignment to this name");
+            if (in_place) {
+                try self.w.writeAll("@memset(&");
+                try self.writeLocalPlace(local);
+                try self.w.writeAll(", ");
+                try self.emitBare(ir.ArrayFill.value(expr));
+                return self.w.writeAll(");");
+            }
             try self.emitRebind(local.*, expr, self.facts.repoints(sexp));
         }
     }
@@ -1498,6 +1508,25 @@ pub const Emitter = struct {
         try self.w.writeAll("_ = ");
         try self.emitBare(expr);
         try self.w.writeAll(";");
+    }
+
+    /// A new local array a fill builds in place (`storage.fillsInPlace`):
+    /// `var a: [n]T = undefined; @memset(&a, x);`. The element is
+    /// evaluated before the name is visible, so a shadow reads the old
+    /// binding.
+    fn emitFillBind(self: *Emitter, name_node: Sexp, sym: SymbolId, fill: Sexp) Error!void {
+        const ty = self.symType(sym) orelse return self.unsupported(name_node, "an untyped binding");
+        var value_buf: Writer.Allocating = .init(self.arena.allocator());
+        {
+            const saved_w = self.w;
+            self.w = &value_buf.writer;
+            defer self.w = saved_w;
+            try self.emitBare(ir.ArrayFill.value(fill));
+        }
+        const stored = try self.declare(.{ .sym = sym, .ty = ty }, self.srcText(name_node));
+        try self.w.print("var {s}: ", .{stored.zig_name});
+        try self.emitTypeTy(ty);
+        try self.w.print(" = undefined; @memset(&{s}, {s});", .{ stored.zig_name, value_buf.written() });
     }
 
     /// A new binding.
@@ -3406,7 +3435,9 @@ pub const Emitter = struct {
                 try self.line("const {s} = {s};", .{ a.zig_name, a.payload });
             } else try self.line("const {s} = {s}{s}.{f}{s};", .{ a.zig_name, if (a.addr and !a.bytes) "&" else "", a.payload, ident(a.field), if (a.bytes) ".bytes()" else "" });
         }
-        for (prelude.drops) |d| try self.line("defer rig.discard({s});", .{d});
+        // Zig writes a deferred call again at each exit: the part goes by
+        // address, never by value (`rig.discardAt`).
+        for (prelude.drops) |d| try self.line("defer rig.discardAt(&{s});", .{d});
         for (prelude.owned) |o| {
             const is_var = o.local.kind == .value or o.local.kind == .optional;
             try self.line("{s} {s} = {s};", .{ if (is_var) "var" else "const", o.local.zig_name, o.expr });
@@ -6606,9 +6637,15 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// `^v`: `v` moved into a new heap allocation.
+    /// `^v`: `v` moved into a new heap allocation. `^[n of x]` fills the
+    /// allocation itself (`storage.fillsInPlace`).
     fn emitBox(self: *Emitter, sexp: Sexp) Error!void {
         try self.emitTypeTy(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped box"));
+        if (try self.need(self.facts.fillsInPlace(sexp), sexp)) {
+            try self.w.writeAll(".fill(");
+            try self.emitBare(ir.ArrayFill.value(ir.Box.operand(sexp)));
+            return self.w.writeAll(")");
+        }
         try self.w.writeAll(".init(");
         try self.emitStored(ir.Box.operand(sexp));
         try self.w.writeAll(")");

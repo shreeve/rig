@@ -1,0 +1,22 @@
+fun take(a: [1048576]Int, k: Int) -> Int
+  a[k]
+
+called fun many(i: Int) -> Int
+  a = [1048576 of i]
+  defer print(take(a, 0) + take(a, 1) + take(a, 2) + take(a, 3) + take(a, 4) + take(a, 5) + take(a, 6) + take(a, 7) + take(a, 8) + take(a, 9) + take(a, 10) + take(a, 11) + take(a, 12) + take(a, 13))
+  return 0 if i == 100
+  return 1 if i == 101
+  return 2 if i == 102
+  return 3 if i == 103
+  return 4 if i == 104
+  return 5 if i == 105
+  return 6 if i == 106
+  return 7 if i == 107
+  return 8 if i == 108
+  return 9 if i == 109
+  i
+
+sub main()
+  print("before")
+  print(many(1))
+  print("after")

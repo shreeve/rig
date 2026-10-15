@@ -1,5 +1,5 @@
-# A function keeps at most 13 MiB of values on its stack, since the stack
-# holds 16 MiB and the frames below also need room. Two arrays of 7.2 MB
+# A function keeps at most 13 MiB of values on its stack, so that large
+# data lives on the heap, in a box or a List. Two arrays of 7.2 MB
 # are over it, a call result a binding takes counts twice (a debug build
 # holds it in a temporary first), and a closure's body is a frame of its
 # own. The error names the largest locals.
@@ -24,6 +24,6 @@ sub main()
     p[0] + q[0]
   print(two_arrays(1), two_calls(1), f(1))
 
-# error: 10:5: `two_arrays` keeps 14400008 bytes of values on its stack; a function keeps at most 13631488 (13 MiB), since the stack holds 16 MiB. Its largest: `a` (7200000 bytes), `b` (7200000 bytes)
+# error: 10:5: `two_arrays` keeps 14400008 bytes of values on its stack; a function keeps at most 13631488 (13 MiB). Its largest: `a` (7200000 bytes), `b` (7200000 bytes)
 # error: 15:5: `two_calls` keeps 28800008 bytes
 # error: 21:7: a closure keeps 14400008 bytes

@@ -1,0 +1,41 @@
+# A function's code may take at most 512 MiB of stack, half the smallest
+# guard below the program's stack: `reach_factor` (4) times the values it
+# keeps and every value it makes or copies, since a build may hold each
+# in a temporary of its own. `many` keeps one 6.4 MB array, within the
+# 13 MiB a frame keeps, but copies it for each of 21 arguments passed by
+# value.
+
+fun take(a: [800000]Int, k: Int) -> Int
+  a[k]
+
+sub many(i: Int)
+  a = [800000 of i]
+  s = 0
+  s += take(a, 0)
+  s += take(a, 1)
+  s += take(a, 2)
+  s += take(a, 3)
+  s += take(a, 4)
+  s += take(a, 5)
+  s += take(a, 6)
+  s += take(a, 7)
+  s += take(a, 8)
+  s += take(a, 9)
+  s += take(a, 10)
+  s += take(a, 11)
+  s += take(a, 12)
+  s += take(a, 13)
+  s += take(a, 14)
+  s += take(a, 15)
+  s += take(a, 16)
+  s += take(a, 17)
+  s += take(a, 18)
+  s += take(a, 19)
+  s += take(a, 20)
+  print(s)
+
+sub main()
+  many(1)
+
+# error: 11:5: `many` makes or copies 140800184 bytes of values, and a build may hold each in a temporary of its own on the stack, 4 times over at most; a function's code may take at most 536870912 bytes (512 MiB) of stack
+# errors: 1

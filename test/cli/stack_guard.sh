@@ -1,95 +1,81 @@
-# A program that runs off its stack stops there: the frame that
-# overflows never writes into memory mapped below the stack. Zig probes
-# the stack only on x86; on aarch64 macOS the guard below the stack is
-# one page, and once the address space below fills, the system maps
-# memory right next to it. This program fills that space with shared
-# mappings, then a child recurses with a 1 MB frame until it overflows;
-# the parent looks for the child's bytes in the mappings.
+# timeout: 600
+# The program runs on a stack the runtime maps itself, 64 MiB over a
+# guard of 64 GiB (docs/INTERNALS.md, "The program's stack"). This checks what reaches the program through
+# it: the exit status, a failure out of `main`, and `rig test`'s tests,
+# which run there too; that a frame of 100 MiB, larger than the whole
+# stack, stops with a stack-overflow error in every build mode;
+# and, on Linux, that a program that cannot reserve its stack stops before
+# it runs.
 source "$ROOT/test/cli/_lib.sh"
 
-[[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || exit 0
+# The exit status and a failure pass through unchanged.
+printf 'fun main() -> Int\n  7\n' >status.rig
+cat >fails.rig <<'EOF2'
+error Bad
+  broken
 
-cat >clash.rig <<'EOF2'
-extern fun pthread_self() -> U64
-extern fun pthread_get_stackaddr_np(t: U64) -> U64
-extern fun pthread_get_stacksize_np(t: U64) -> U64
-extern fun mmap(addr: U64, len: U64, prot: I32, flags: I32, fd: I32, off: I64) -> U64
-extern fun memchr(p: U64, c: I32, n: U64) -> U64
-extern fun fork() -> I32
-extern fun waitpid(pid: I32, status: U64, options: I32) -> I32
+sub main()!
+  print("before")
+  return Bad.broken
+EOF2
+for mode in "" --release; do
+    rig run $mode status.rig >/dev/null 2>&1; expect_rc $? 7 "the exit status $mode"
+    out=$(rig run $mode fails.rig 2>err.txt); expect_rc $? 1 "a failure out of main $mode"
+    expect_eq "$out" "before" "stdout of a failing main $mode"
+    expect_has "$(cat err.txt)" "error: Bad.broken" "the failure $mode"
+done
 
-fun stack_bottom() -> U64
-  raw
-    t = pthread_self()
-    pthread_get_stackaddr_np(t) - pthread_get_stacksize_np(t)
+# A test runs on the program's stack: this one goes 20 MB deep, more than
+# the 16 MiB a thread's stack holds by default.
+cat >deep.rig <<'EOF2'
+fun deep(n: Int, prev: ?[1000]Int) -> Int
+  a = [1000 of n]
+  a[1] = prev[1] + 1
+  if n == 0
+    return a[1]
+  deep(n - 1, ?a)
 
-# Shared memory (MAP_SHARED | MAP_ANON), readable and writable, wherever
-# the system puts it.
-fun map(len: U64) -> U64
-  raw
-    mmap(0, len, 3, 0x1001, -1, 0)
+test "deep"
+  first = [1000 of 0]
+  print(deep(2500, ?first))
+EOF2
+out=$(rig test deep.rig 2>&1) || fail "rig test on the program's stack: $out"
+expect_has "$out" '2501' "a test on the program's stack"
+expect_has "$out" '1 passed, 0 failed' "rig test on the program's stack"
 
-fun holds(p: U64, len: U64, byte: I32) -> Bool
-  raw
-    memchr(p, byte, len) != 0
-
-fun spawn() -> I32
-  raw
-    fork()
-
-sub wait(pid: I32)
-  raw
-    waitpid(pid, 0, 0)
-
-fun dive(depth: Int) -> Int
-  a: [1000000]U8 = [1000000 of 165]
-  a[depth % 7] = 165
-  if depth < 0
-    return 0
-  Int(a[depth % 7]) + dive(depth + 1)
+# A frame of 100 MiB, written by hand into the emitted package, so it
+# is as large in a release build as in a debug one: a debug build of an
+# accepted program reaches that size
+# (test/behavior/runtime/stack_overflow_frame.rig), but a release build
+# shares one slot among values that are never live together.
+cat >big.rig <<'EOF2'
+called fun big(i: Int) -> Int
+  i + 1
 
 sub main()
-  bottom = stack_bottom()
-  addrs = List[U64]()
-  lens = List[U64]()
-  for len in [U64(16777216), 1048576, 65536]
-    while true
-      p = map(len)
-      if p == 18446744073709551615 or p > bottom
-        break
-      !addrs.push(p)
-      !lens.push(len)
-  pid = spawn()
-  if pid == 0
-    print(dive(0))
-  wait(pid)
-  dirty = 0
-  for i in 0..addrs.len
-    if holds(addrs[i], lens[i], 165)
-      dirty += 1
-  print(addrs.len > 0, dirty)
+  print("before")
+  print(big(1))
 EOF2
+rig emit big.rig >/dev/null 2>&1 || fail "emit big.rig"
+pkg=$RIG_OUT_DIR/programs/big
+perl -0pi -e 's/(pub noinline fn big\(i: i64\) i64 \{).*?\n\}/$1\n    var a: [13107200]i64 = undefined;\n    a[\@intCast(i)] = i;\n    std.mem.doNotOptimizeAway(&a);\n    return a[\@intCast(i)];\n}/s' "$pkg/__rig_main.zig"
+grep -q '13107200' "$pkg/__rig_main.zig" || fail "the 100 MiB frame was not written into the package"
+for mode in Debug ReleaseSafe ReleaseFast; do
+    (cd "$pkg" && "${ZIG:-zig}" build-exe -O $mode -femit-bin="$PWD/../big-$mode" __rig_main.zig) >build.log 2>&1 || fail "build big $mode: $(cat build.log)"
+    out=$("$RIG_OUT_DIR/programs/big-$mode" 2>err.txt); rc=$?
+    [[ $rc -ne 0 ]] || fail "a 100 MiB frame in $mode exited 0"
+    expect_eq "$out" "before" "stdout of a 100 MiB frame in $mode"
+    expect_has "$(cat err.txt)" "error: rig: stack overflow" "a 100 MiB frame in $mode"
+done
 
-out=$(rig run clash.rig 2>/dev/null); expect_eq "$out" "true 0" "mappings the overflowing child wrote into"
-
-# A program that cannot reserve the space below its stack (here a
-# preloaded library maps a page there first) stops before it runs.
-cat >occupy.zig <<'EOF2'
-const std = @import("std");
-extern "c" fn pthread_get_stackaddr_np(std.c.pthread_t) *anyopaque;
-extern "c" fn pthread_get_stacksize_np(std.c.pthread_t) usize;
-fn occupy() callconv(.c) void {
-    const self = std.c.pthread_self();
-    const bottom = @intFromPtr(pthread_get_stackaddr_np(self)) - pthread_get_stacksize_np(self);
-    _ = std.c.mmap(@ptrFromInt(bottom - (16 << 10) - (32 << 20)), 16 << 10, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0);
-}
-export const init linksection("__DATA,__mod_init_func") = [_]*const fn () callconv(.c) void{&occupy};
-EOF2
-"${ZIG:-zig}" build-lib occupy.zig -dynamic -lc -femit-bin=occupy.dylib || fail "build occupy.dylib"
-printf 'sub main()\n  print(42)\n' >hi.rig
-rig build -o hi hi.rig || fail "build hi"
-expect_eq "$(./hi)" "42" "a program with the space free"
-DYLD_INSERT_LIBRARIES=$PWD/occupy.dylib ./hi >out.txt 2>err.txt; expect_rc $? 1 "a program with the space taken"
-expect_eq "$(cat out.txt)" "" "stdout of a program that cannot guard its stack"
-expect_eq "$(cat err.txt)" "rig: cannot reserve the stack guard below the main stack" "its message"
+# A program that cannot reserve its stack and the guard below it stops
+# before it runs. Only Linux holds a process to an address-space limit.
+if [[ $(uname -s) == Linux ]]; then
+    printf 'sub main()\n  print(42)\n' >hi.rig
+    RIG_SANITIZE=0 rig build -o hi hi.rig || fail "build hi"
+    expect_eq "$(./hi)" "42" "a program with room for its stack"
+    (ulimit -v 900000; ./hi >out.txt 2>err.txt); expect_rc $? 1 "a program with no room for its stack"
+    expect_eq "$(cat out.txt)" "" "stdout of a program with no room for its stack"
+    expect_eq "$(cat err.txt)" "rig: cannot reserve the program's stack and the guard below it" "its message"
+fi
 exit 0

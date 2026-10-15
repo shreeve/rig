@@ -45,11 +45,14 @@ const SemContext = sema.SemContext;
 /// statement) a body may have and be inlined.
 pub const max_size = 60;
 
-/// The most bytes of values the inlined calls in one function may add to
-/// its frame. Zig puts the locals of an inlined body in the caller's
-/// frame, so a function's own frame with the inlined ones in it also stays
+/// The most reach (`typecheck.checkFrames`) the inlined calls in one
+/// function may add to it, and an inlined function may have, each
+/// inlined call counted at every call. Zig writes an inlined body, its
+/// locals and its temporaries, again at each call, in the caller's frame,
+/// so a function's own frame with the inlined ones in it also stays
 /// within `sema.max_frame_bytes`, which `typecheck.checkFrames` holds the
-/// function's own frame to: inlining stops short of a frame that big.
+/// function's own frame to, and its reach within `sema.max_frame_reach`:
+/// inlining stops short of either.
 pub const max_inlined_frame_bytes: u128 = 64 << 10;
 
 /// The most nodes an inlined function may expand to at a call, counting
@@ -78,9 +81,13 @@ const Fn = struct {
     callers: std.ArrayList(u32) = .empty,
     /// Its name's group (`Group`).
     group: u32 = 0,
-    /// The bytes of values it keeps on its stack; 0 when that depends on
-    /// generic parameters.
+    /// Its reach (`typecheck.checkFrames`): what its code may take of
+    /// the stack, which an inlined call adds to its caller's at each call;
+    /// 0 when that depends on generic parameters.
     own: u128 = 0,
+    /// The bytes of values it keeps on its stack, as `sema.max_frame_bytes`
+    /// counts them.
+    count: u128 = 0,
     inlined: bool = false,
     /// Its frame with the inlined calls in it (`frames`).
     frame: ?u128 = null,
@@ -396,9 +403,10 @@ const Pass = struct {
     }
 
     /// Stop inlining until no function adds more than
-    /// `max_inlined_frame_bytes` to its frame, no function has a frame of
-    /// more than `sema.max_frame_bytes` with the inlined calls in it, no inlined function has a
-    /// frame of more than that, and none expands to more than
+    /// `max_inlined_frame_bytes` of reach to its frame, no function has a
+    /// frame of more than `sema.max_frame_bytes` with the reach of the
+    /// inlined calls in it, no inlined function has a reach of more than
+    /// `max_inlined_frame_bytes`, and none expands to more than
     /// `max_expanded` nodes: in order, at the first function that breaks
     /// a rule, stop inlining it or the largest of its inlined calls, and
     /// look again.
@@ -417,7 +425,7 @@ const Pass = struct {
                 try self.uninline(v);
                 continue;
             }
-            if (self.added(v) <= max_inlined_frame_bytes and f.own + self.added(v) <= sema.max_frame_bytes) {
+            if (self.added(v) <= max_inlined_frame_bytes and f.count + self.added(v) <= sema.max_frame_bytes) {
                 i += 1;
                 continue;
             }
@@ -596,22 +604,31 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
     for (mods, 0..) |m, i| try pass.visit(i, null, m.ir);
     pass.countCalls();
     try pass.findCycles();
+    // A large frame found at an instance another module makes marks its
+    // declaration in its own module (module ids count from 1).
+    for (mods) |m| for (m.sema.large_foreign_frames.items) |fr| try mods[fr.module - 1].sema.large_frames.put(allocator, fr.pos, {});
     for (pass.fns.items) |*f| {
         if (ir.get(f.node, .body) == .nil) continue;
-        f.own = (try typecheck.frameBytesOfFunction(mods[f.module].sema, f.node)) orelse {
+        const fc = (try typecheck.frameBytesOfFunction(mods[f.module].sema, f.node)) orelse {
             // A frame that depends on a compile-time value is unknown.
             if (sema.tparamsOf(f.node) != .nil) f.eligible = false;
             continue;
         };
+        f.own = fc.reach;
+        f.count = fc.bytes;
     }
     for (pass.fns.items, 0..) |*f, v| {
         if (!f.eligible or f.used_as_value or pass.isCyclic(@intCast(v)) or f.size > max) continue;
-        if (f.own > max_inlined_frame_bytes) continue;
+        if (f.own > max_inlined_frame_bytes or mods[f.module].sema.large_frames.contains(f.pos)) continue;
         f.inlined = true;
     }
     try pass.fit();
-    for (pass.fns.items) |f| {
+    for (pass.fns.items, 0..) |f, v| {
         if (f.inlined) try mods[f.module].sema.inlined.put(allocator, f.pos, {});
+        // A function large with the calls inlined into it is never inlined
+        // by Zig either.
+        if (!f.inlined and (f.own + pass.added(@intCast(v))) * sema.reach_factor >= sema.noinline_reach)
+            try mods[f.module].sema.large_frames.put(allocator, f.pos, {});
     }
     // A call that may reach an inlined function hands back a value Zig
     // would know at compile time (`Emitter.emitCallDirect`).

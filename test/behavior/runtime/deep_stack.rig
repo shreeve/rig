@@ -1,0 +1,17 @@
+# The program's stack holds 64 MiB: recursion 20 MB deep, more than the
+# 16 MiB a thread's stack holds by default, runs to the end.
+
+fun deep(n: Int, prev: ?[1000]Int) -> Int
+  a = [1000 of n]
+  a[1] = prev[1] + 1
+  if n == 0
+    return a[1]
+  deep(n - 1, ?a)
+
+sub main()
+  first = [1000 of 0]
+  print(deep(2500, ?first))
+
+# release
+# expect:
+# 2501

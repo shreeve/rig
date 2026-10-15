@@ -1049,6 +1049,33 @@ pub fn storesAfterValue(ctx: *const SemContext, set: Sexp) bool {
     return true;
 }
 
+/// Whether the fill `[n of x]` that `e` takes is built where its value
+/// goes, never in a temporary on the stack first: a box's (`^[n of x]`),
+/// in the box's allocation, or a binding's that declares or reassigns a
+/// local array (`a = [n of x]`), in the local, by `@memset`. A
+/// reassignment whose value is made first (`storesAfterValue`) is not.
+pub fn fillsInPlace(ctx: *const SemContext, e: Sexp) bool {
+    return decide(ctx, e, .fills_in_place);
+}
+
+fn decideFillsInPlace(ctx: *const SemContext, e: Sexp) bool {
+    switch (e.kind() orelse return false) {
+        .box => return ir.Box.operand(e).isKind(.array_fill),
+        .set => {
+            if (!ir.Set.value(e).isKind(.array_fill) or rig.bindingKindOf(ir.Set.op(e)).operator() != null) return false;
+            const target = ir.Set.target(e);
+            if (target != .src) return false;
+            const sym = ctx.symbolOf(target) orelse return false;
+            const s = ctx.symbols.items[sym];
+            if (s.kind != .local or s.scope == sema.module_scope or s.flags.comptime_known) return false;
+            const ty = known(ctx, s.ty) orelse return false;
+            if (ctx.types.get(ty) != .array) return false;
+            return s.decl_pos == target.src.pos or !storesAfterValue(ctx, e);
+        },
+        else => return false,
+    }
+}
+
 /// Where the step of a `while` runs (docs/INTERNALS.md, "Loops"), which
 /// emit lowers to, the ownership checker walks, and the type checker's
 /// jump resolver reads.
@@ -1141,7 +1168,7 @@ fn lastValue(e: Sexp) Sexp {
 pub fn Answer(comptime q: sema.Question) type {
     return switch (q) {
         .leaf_step => LeafStep,
-        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address, .drops_when_tested, .header_points, .views_optional_value, .hoists_args, .consumes_receiver, .pure_arg, .lane_checked => bool,
+        .reaches_leaf, .matches_in_place, .match_rereads, .match_block, .holds_view, .catch_all_by_address, .payload_by_address, .for_consumes, .print_by_address, .drops_when_tested, .header_points, .views_optional_value, .hoists_args, .consumes_receiver, .pure_arg, .lane_checked, .fills_in_place => bool,
         .receiver_hold => ?ReceiverHold,
         .argument_hold => ArgumentHold,
         .match_mode => MatchMode,
@@ -1190,6 +1217,7 @@ fn decider(comptime q: sema.Question) fn (*const SemContext, Sexp, Sexp) Answer(
         .lane_checked => Node.of(decideLaneChecked),
         .set_order => Node.of(decideSetOrder),
         .step_point => Node.of(decideStepPoint),
+        .fills_in_place => Node.of(decideFillsInPlace),
     };
 }
 
@@ -1406,8 +1434,10 @@ const Planner = struct {
             },
             .set => {
                 _ = laneChecked(ctx, e);
+                _ = fillsInPlace(ctx, e);
                 try p.assignment(e);
             },
+            .box => _ = fillsInPlace(ctx, e),
             .@"+", .@"-", .@"*", .neg => _ = laneChecked(ctx, e),
             .@"for" => try p.forLoop(e),
             .match => try p.match(e),

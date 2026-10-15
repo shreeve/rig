@@ -1,7 +1,7 @@
 # The values a function keeps on its stack (its locals, its by-value
 # parameters, the arrays it does not bind, and its call results) take at
-# most 13 MiB together (the stack holds 16 MiB). Closures, `main`, and
-# each instance of a generic function or type are checked the same way.
+# most 13 MiB together. Closures, `main`, and each instance of a generic
+# function or type are checked the same way.
 
 obj Ring[T, n: Int]
   items: [n]T

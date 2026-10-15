@@ -1,0 +1,14 @@
+# A fill of a value known only when the program runs (`[800000 of i]`)
+# is built where the binding keeps it, so `f` keeps 12.8 MB of values on
+# its stack, as the frame check counts, and runs within it.
+
+sub f(i: Int)
+  a = [800000 of i]
+  b = [800000 of i + 1]
+  print(a[i] + b[i])
+
+sub main()
+  f(3)
+
+# expect:
+# 7
