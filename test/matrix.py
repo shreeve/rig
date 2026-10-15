@@ -518,7 +518,8 @@ STORE_FORMS = {
 # in an instance one may hold a view: `g` makes its `T` result from its
 # parameter `p` each way (a callable's result, an element of a `[]T`, an
 # optional's value through `??` or `as`, a closure's result, the result
-# of a function a field holds), and its `from` names `p` (and `d`, where
+# of a function a field holds, a `match` payload of a viewed `Opt[T]`),
+# and its `from` names `p` (and `d`, where
 # the body may return it) or only `d`.
 # Unnamed, the body is rejected; named, the result keeps `p`'s argument
 # lent, so `main` may read it, and may not drop what it views first.
@@ -538,6 +539,8 @@ GEN_FORMS = {
     "closure": dict(params="f: ?fun(?String) -> T, p: ?String", said="f, p", body=["h = |?f, ?p| f(p)", "h()"],
                     setup=[], args="|s: ?String| s, ?t"),
     "field": dict(field=True, params="p: ?String", said="p", body=["self.f(p)"], setup=[], args="?t"),
+    "match": dict(params="p: ?Opt[T]", said="p, d", body=["match p", "  .some(v) => v", "  .none => d"],
+                  setup=["o = Opt[?String].some(?t)"], args="?o"),
 }
 
 
@@ -545,7 +548,7 @@ def gen_program(fname, said, then):
     """The program for one `gen.` cell, and what it prints."""
     f = GEN_FORMS[fname]
     origin = f["said"] if said else "d"
-    out = ["obj K\n  s: ?String\n"]
+    out = ["obj K\n  s: ?String\n", "enum Opt[T]\n  some(value: T)\n  none\n"]
     if f.get("field"):
         out.append("obj H[T]\n  f: *fun(?String) -> T\n\n"
                    f"  fun g(?self, {f['params']}, d: ?String) -> T from {origin}\n{indent(f['body'], 4)}\n")

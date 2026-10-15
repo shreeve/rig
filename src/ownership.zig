@@ -1619,11 +1619,16 @@ pub const Checker = struct {
     fn varValue(self: *Checker, id: VarId) Value {
         const v = self.vars.items[id];
         if (!v.closure and !self.mayCarryLoan(v.ty)) {
-            // A parameter taken by value carries, in an instance, what its
-            // caller's argument viewed.
-            if (v.kind == .param and v.ref == .none and self.genericType(v.ty)) if (v.param_index) |i| {
-                self.func.generic |= sema.paramBit(i);
-            };
+            if (self.genericType(v.ty)) {
+                // A value of a type parameter's type carries, in an
+                // instance, what its binding views (a match payload's
+                // view of the matched value), and a parameter taken by
+                // value what its caller's argument viewed.
+                self.taintGeneric(v.ty, .{ .loans = self.flows.items[id].loans });
+                if (v.kind == .param and v.ref == .none) if (v.param_index) |i| {
+                    self.func.generic |= sema.paramBit(i);
+                };
+            }
             return .{};
         }
         return .{ .loans = self.flows.items[id].loans };
@@ -4718,11 +4723,11 @@ pub const Checker = struct {
             try self.checkEscape(value);
             self.recordResult(value, self.startOf(expr));
         } else if (self.reachable and self.genericType(self.func.ret_ty)) {
-            // A value of a type parameter's type may carry, in an instance,
-            // whatever reached one (`taintGeneric`).
             self.recordResult(value, self.startOf(expr));
-            if (self.func.generic_returned_at == null) self.func.generic_returned_at = self.startOf(expr);
         }
+        // A result that holds a value of a type parameter's type may carry,
+        // in an instance, whatever reached one (`taintGeneric`).
+        if (self.reachable and self.holdsGeneric(self.func.ret_ty) and self.func.generic_returned_at == null) self.func.generic_returned_at = self.startOf(expr);
     }
 
     /// A bare name that leaves the function moves out: a match payload
@@ -5959,6 +5964,14 @@ pub const Checker = struct {
         const ctx = self.sema orelse return false;
         const t = ty orelse return false;
         return !sema.mayHoldView(ctx, t) and sema.holdsTypeParam(ctx, t);
+    }
+
+    /// Whether a value of `ty` may hold a value of a type parameter's
+    /// type (`sema.holdsTypeParam`), which a generic body tracks no loan
+    /// in.
+    fn holdsGeneric(self: *const Checker, ty: ?TypeId) bool {
+        const ctx = self.sema orelse return false;
+        return sema.holdsTypeParam(ctx, ty orelse return false);
     }
 
     /// `v`'s loans reach a value of type `ty`, which a generic body keeps
