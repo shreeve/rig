@@ -1,13 +1,12 @@
 {
   "label": "rig:corpus",
-  "setup": "(cd deps/nexus && zig build -Doptimize=safe -j\"$CPUQ_CORES\") && mkdir -p ../nexus/bin && cp deps/nexus/bin/nexus ../nexus/bin/.nexus.$$ && mv ../nexus/bin/.nexus.$$ ../nexus/bin/nexus && zig build -j\"$CPUQ_CORES\"",
+  "setup": "zig build -j\"$CPUQ_CORES\"",
   "run": "./test/run -j \"$CPUQ_CORES\" --delta corpus \"$@\"",
   "cores": "8-32",
   "on": ["burst"],
   "time": "60m",
   "mem": "96G",
-  "tools": { "zig": "0.17.0" },
+  "packs": { "zig": "0.17.0", "nexus": "latest" },
   "exclude": [".git", ".zig-cache", "zig-out", "bin", "src/parser.zig", "bench/json/rust-bench/target-native", ".claude", ".rip", ".DS_Store"],
-  "deps": { "deps/nexus": "../nexus" },
   "caches": { "RIG_RESULTS_CACHE": "rig-results", "RIG_BUILD_STORE": "rig-build-store" }
 }
