@@ -2116,6 +2116,7 @@ test/corpus/rev203-c02_view_local_in_block.rig main
 test/corpus/rev203-e10_loop_break_continue.rig main
 test/corpus/rev203-h04_put_back_then_drop_viewed.rig main
 test/corpus/rev203-h06_swap_after_take.rig main
+test/corpus/rev206-d08_defer_slice_cond_only.rig main
 test/corpus/review-arm-temps-2-m02_field_target_moved_in_arm.rig run
 test/corpus/review-arm-temps-2-m11_name_writeview_compound.rig main
 test/corpus/review-arm-temps-2-m12_nested_set_owner_reassigned.rig main
@@ -3347,6 +3348,8 @@ test/reject/ownership/copy_write_view_duplicated.rig bind
 test/reject/ownership/copy_write_view_duplicated.rig put
 test/reject/ownership/defer_ends_loan_at_propagate.rig f
 test/reject/ownership/defer_fallthrough_stores.rig main
+test/reject/ownership/defer_in_loop_keeps_lent.rig advanced
+test/reject/ownership/defer_in_loop_keeps_lent.rig cond
 test/reject/ownership/defer_moves_outer.rig main
 test/reject/ownership/defer_reads_moved.rig main
 test/reject/ownership/defer_reads_view_of_later_local.rig main
@@ -4287,6 +4290,10 @@ clos.view.wholder.plain.conflict main
 clos.view.wholder.plain.use main
 clos.view.wholder.view.conflict main
 clos.view.wholder.view.use main
+dloop.list.defer main
+dloop.slice.defer main
+dloop.while_as.defer main
+dloop.while_cond.defer main
 test/corpus/R11a-n1 lib.maker
 test/corpus/R11a-n1-lib.rig maker
 test/corpus/R11a-n1l.rig maker

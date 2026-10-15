@@ -20,7 +20,10 @@ to a place a view reaches whose value holds a statement of its own
 (`target.`), an assignment whose target starts from a value that changes
 what its value reads (`order.`), a call of an owned closure held each
 way, given its holder or a value, and returning a view or a value
-(`clos.`), and the
+(`clos.`), a loop over each kind of source that views a List, whose
+body defers a write to that List (rejected: the deferred write runs in
+the loop, before the next step reads the source again), defers one to
+another List, or is followed by a write (`dloop.`), and the
 shapes of nested loops and the jumps between them (`loop.`), a `for`
 over an iterator, from each kind of source, in each statement, value, and
 jump context, run in debug and with `--release` (`iter.`), a Cell
@@ -814,6 +817,57 @@ ITER_SOURCES = {
 }
 ITER_CONTEXTS = ("end", "break", "continue", "return", "fail", "else", "value_end", "value_break",
                  "tail_end", "tail_break", "nested", "labeled")
+
+
+# -----------------------------------------------------------------------------
+# A loop whose source views `b.xs`, from each kind of source (a `while`
+# whose condition reads a slice, `while … as` over an iterator, and a
+# `for` over a made, lent, named, or taken iterator, a List, or a
+# slice), with a body that defers a write to `b.xs` (which runs inside
+# the loop, before the source is read again: rejected), defers a write
+# to another List, or is followed by a write to `b.xs` after the loop.
+# Cells are `dloop.<source>.<write>`.
+# -----------------------------------------------------------------------------
+
+DLOOP_SOURCES = {
+    "while_cond": (["s = ?b.xs[0..2]", "i = 0"], "while s[i] > 0 : i += 1", ["x = s[i]"]),
+    "while_as": (["c = smk(?b.xs)"], "while (!c).next() as x", []),
+    "made": ([], "for x in smk(?b.xs)", []),
+    "lent": ([], "for x in ?b.each()", []),
+    "place": (["c = smk(?b.xs)"], "for x in !c", []),
+    "moved": (["c = smk(?b.xs)"], "for x in <c", []),
+    "list": ([], "for x in ?b.xs", []),
+    "slice": ([], "for x in ?b.xs[0..2]", []),
+}
+DLOOP_WRITES = {
+    "defer": (["defer grow(!b.xs)"], [], None),
+    "defer_other": (["defer grow(!w)"], [], "1\n2\n2 200\n"),
+    "after": ([], ["grow(!b.xs)"], "1\n2\n102 0\n"),
+}
+
+
+def dloop_program(source, write):
+    """The program for one `dloop.` cell, and what it prints (None where
+    it must be rejected)."""
+    setup, head, first = DLOOP_SOURCES[source]
+    body, after, out = DLOOP_WRITES[write]
+    lines = ["obj SCur", "  xs: []Int", "  i: Int", "",
+             "  fun next(!self) -> Int?", "    return none if self.i >= self.xs.len", "    self.i += 1",
+             "    self.xs[self.i - 1]", "",
+             "obj SB", "  xs: List[Int]", "",
+             "  fun each(?self) -> SCur from self", "    SCur(xs: ?self.xs[0..self.xs.len], i: 0)", "",
+             "fun smk(v: ?List[Int]) -> SCur from v", "  SCur(xs: ?v[0..v.len], i: 0)", "",
+             "sub grow(v: !List[Int])", "  for _ in 0..100", "    !v.push(1)", "",
+             "sub main()", "  b = SB(xs: List())", "  !b.xs.push(1)", "  !b.xs.push(2)", "  w: List[Int] = List()"]
+    lines += ["  " + l for l in setup] + ["  " + head]
+    lines += ["    " + l for l in first + body + ["print(x)", "break if x == 2"]]
+    lines += ["  " + l for l in after] + ["  print(b.xs.len, w.len)"]
+    return "\n".join(lines) + "\n", out
+
+
+def dloop_cells():
+    """The `dloop.` cells: (id, program, expected output or None to be rejected)."""
+    return [(f"dloop.{src}.{w}",) + dloop_program(src, w) for src in DLOOP_SOURCES for w in DLOOP_WRITES]
 
 
 # A generic `==`, `!=`, or ordering over two operands, each a view, an
@@ -3696,6 +3750,16 @@ def main():
             expects[ident] = out if out is not None else "(rejected)\n"
             if out is not None:
                 release.add(ident)
+    for ident, src, out in dloop_cells():
+        if not wanted(ident):
+            continue
+        path = os.path.join(work, ident.replace(".", "__") + ".rig")
+        with open(path, "w") as fh:
+            fh.write(src)
+        cells.append((ident, path))
+        expects[ident] = out if out is not None else "(rejected)\n"
+        if out is not None:
+            release.add(ident)
     for ident, src, out in eq_cells():
         if not wanted(ident):
             continue
