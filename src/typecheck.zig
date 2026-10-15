@@ -13650,7 +13650,21 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
 /// instance (`checkInstanceSizes`). `recordFrameOwners` runs first.
 pub fn checkFrames(ctx: *SemContext) Error!void {
     var w: FrameWalker = .{ .ctx = ctx };
-    for (0..ctx.frame_owners.items.len) |i| try w.ownerFrame(@intCast(i));
+    var i: u32 = 0;
+    while (i < ctx.frame_owners.items.len) i = try checkOwnerTree(&w, i);
+}
+
+/// Check owner `i` after the closures in it, in source order, as a
+/// closure's frame is met inside its maker's: so a message about a
+/// closure comes before one about the frame around it. The owners are
+/// listed with each one's closures right after it. Returns the owner
+/// after them.
+fn checkOwnerTree(w: *FrameWalker, i: u32) Error!u32 {
+    const owners = w.ctx.frame_owners.items;
+    var j = i + 1;
+    while (j < owners.len and owners[j].parent == i) j = try checkOwnerTree(w, j);
+    try w.ownerFrame(i);
+    return j;
 }
 
 /// Record the frame owners of `tree` (`sema.FrameOwner`), each with the
