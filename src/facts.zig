@@ -250,6 +250,9 @@ pub const Facts = struct {
     pub fn readsThrough(f: Facts, node: Sexp) bool {
         return f.c().readsThrough(node);
     }
+    pub fn copiesPayload(f: Facts, node: Sexp) bool {
+        return f.c().copiesPayload(node);
+    }
     pub fn readsInPlace(f: Facts, node: Sexp) bool {
         return f.c().readsInPlace(node);
     }
@@ -526,6 +529,9 @@ pub const Facts = struct {
     // Types
     // -------------------------------------------------------------------
 
+    pub fn payloadViewed(f: Facts, ty: TypeId) ?TypeId {
+        return sema.payloadViewed(f.c(), ty);
+    }
     pub fn unwrapViews(f: Facts, ty: TypeId) TypeId {
         return sema.unwrapViews(f.c(), ty);
     }
@@ -674,6 +680,7 @@ pub const syntax = struct {
     pub const lentPlace = storage.lentPlace;
     pub const argValue = storage.argValue;
     pub const eachTargetStep = storage.eachTargetStep;
+    pub const targetIsBase = storage.targetIsBase;
     pub const eachGuardPart = rig.eachGuardPart;
     pub const eachGuardOperand = rig.eachGuardOperand;
     pub const leavesBody = rig.leavesBody;

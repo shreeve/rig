@@ -450,7 +450,9 @@ pub fn leafStep(ctx: *const SemContext, e: Sexp) LeafStep {
 fn decideLeafStep(ctx: *const SemContext, e: Sexp) LeafStep {
     if (sema.isBranchingForm(e)) return switch (e.kind().?) {
         .@"if" => .@"if",
-        .@"??", .@"catch" => .fallback,
+        // One that copies the value its payload views out gives a value
+        // made here, not the payload where it is.
+        .@"??", .@"catch" => if (ctx.copiesPayload(e)) .made else .fallback,
         else => .unwrap,
     };
     return wholeStep(ctx, e);
@@ -902,6 +904,13 @@ pub const SetStep = struct {
 pub fn eachSetStep(set: Sexp, visitor: anytype) !void {
     try visitor.step(.{ .node = ir.Set.value(set), .role = .value });
     try eachTargetStep(ir.Set.target(set), visitor);
+}
+
+/// Whether assignment target `e` is its own base, with no field or
+/// element on its path (`eachSetStep`): a call that returns a write view,
+/// `f(x) = v`, which writes the value the view reaches.
+pub fn targetIsBase(e: Sexp) bool {
+    return e != .src and !e.isKind(.member) and !e.isKind(.index);
 }
 
 /// The steps of target `e` (`eachSetStep`).
@@ -1640,9 +1649,12 @@ const Planner = struct {
     fn placeAssign(p: *Planner, set: Sexp, order: SetOrder) !void {
         const ctx = p.ctx;
         const target = ir.Set.target(set);
-        const place_ty = typeOf(ctx, target);
+        // A target that is its own base, a call's write view, is the
+        // value the view reaches.
+        const through = targetIsBase(target);
+        const place_ty = if (through) (if (typeOf(ctx, target)) |t| sema.unwrapViews(ctx, t) else null) else typeOf(ctx, target);
         if (target.isKind(.index)) if (typeOf(ctx, ir.Index.object(target))) |t| if (isCellListTy(ctx, t)) return p.openAssign(set, order);
-        if (target != .src and isPtrViewExpr(ctx, target)) return p.openAssign(set, order);
+        if (target != .src and !through and isPtrViewExpr(ctx, target)) return p.openAssign(set, order);
         if (place_ty != null and !owns(ctx, place_ty.?)) return p.openAssign(set, order);
         try p.record(ir.Set.value(set), .new_value, .owned, .assignment);
         if (order.held) try p.targetSteps(set, order);

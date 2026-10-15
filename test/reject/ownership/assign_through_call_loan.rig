@@ -1,0 +1,14 @@
+# Assigning through a write view a call returns lends to write, so it
+# waits for the read loans on the owner to end.
+
+fun slot(v: !List[Int], i: Int) -> !Int from v
+  !v[i]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  r = ?v[..]
+  slot(!v, 0) += 3
+  print(r)
+
+# error: 11:9: cannot lend `v` to write while a read loan is live

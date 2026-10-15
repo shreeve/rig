@@ -1218,10 +1218,12 @@ const Checker = struct {
         }
     }
 
-    /// `obj.field = v`, `xs[i] = v`, and compound forms.
+    /// `obj.field = v`, `xs[i] = v`, `f(x) = v` where the call returns a
+    /// write view (also `f(x)! = v` and `f(x)? = v`), and compound forms.
     fn checkPlaceAssign(self: *Checker, kind: rig.BindingKind, target: Sexp, type_node: Sexp, rhs: Sexp) Error!void {
         const head = target.kind();
-        if (head != .member and head != .index) {
+        const through = head == .call or head == .propagate or head == .propagate_none;
+        if (head != .member and head != .index and !through) {
             try self.errAt(target, "cannot assign to this expression", .{});
             _ = try self.synthExpr(rhs);
             return;
@@ -1238,6 +1240,7 @@ const Checker = struct {
             else => {},
         }
         const place_ty = try self.synthExpr(target);
+        if (through) return self.assignThroughCall(kind, target, place_ty, rhs);
         if (try self.rejectLane(target, .assign)) {
             _ = try self.synthExpr(rhs);
             return;
@@ -1274,6 +1277,45 @@ const Checker = struct {
         if (head == .index) _ = try self.needsCleanup(place_ty, self.startOf(target), "overwrites an element");
         if (kind.operator() != null) return self.checkCompound(kind, place_ty, rhs, self.startOf(target), "this place has type");
         try self.checkExpr(rhs, place_ty);
+    }
+
+    /// `f(x) = v` or `f(x) op= v`, where the call returns a write view
+    /// `!T`: the `T` it views is written, as `w = f(x)` then `w = v` or
+    /// `w op= v` would write it through a hidden local `w` (Core §6), and
+    /// so for `f(x)!` and `f(x)?` of a call that returns a fallible or
+    /// optional write view. The call is the base of a target with no
+    /// fields or elements, so it runs after the value, as any target's
+    /// base does (`storage.eachSetStep`). Any other call's result is a
+    /// value, or a view that nothing is written through.
+    fn assignThroughCall(self: *Checker, kind: rig.BindingKind, target: Sexp, view_ty: TypeId, rhs: Sexp) Error!void {
+        if (self.isPoison(view_ty)) {
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        const viewed = switch (self.ctx.types.get(view_ty)) {
+            .write_view => |inner| inner,
+            .read_view => {
+                try self.errAt(target, "cannot assign through a read view (`?T`), which this call returns; a call that returns a write view (`!T`) is assigned through", .{});
+                _ = try self.synthExpr(rhs);
+                return;
+            },
+            else => {
+                try self.errAt(target, "cannot assign to a call's result, a `{s}`; only a write view (`!T`) a call returns is assigned through", .{try self.tyName(view_ty)});
+                _ = try self.synthExpr(rhs);
+                return;
+            },
+        };
+        if (sema.writeSliceElem(self.ctx, view_ty) != null) {
+            try self.errAt(target, "cannot assign to a `{s}` a call returns; write its elements with `{s}[i] = v`", .{ try self.tyName(view_ty), self.sourceText(target) });
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        if (!try self.requireAccess(self.placeOf(target), .assign, target)) {
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        if (kind.operator() != null) return self.checkCompound(kind, viewed, rhs, self.startOf(target), "the value this call's write view reaches has type");
+        try self.checkExpr(rhs, viewed);
     }
 
     /// `x op= e` is `x = x op e` with `x` evaluated once, and `x` keeps its
@@ -4624,9 +4666,50 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         _ = try self.readThrough(left, opt, sema.unwrapViews(self.ctx, opt));
-        const result = try self.joinFallback(self.fallbackType(inner, expected), right);
+        const view_result = try self.joinFallback(self.fallbackType(inner, expected), right);
+        const result = if (try self.fallbackCopy(e, left, opt, view_result, right)) |value| result: {
+            if (self.isPoison(value)) {
+                _ = try self.synthExpr(right);
+                return value;
+            }
+            break :result self.fallbackType(value, expected);
+        } else view_result;
         try self.checkExpr(right, result);
         return result;
+    }
+
+    /// The `T` that `a ?? b` or `a catch b` (`e`) gives when the payload
+    /// of `holder`, `a`, of type `holder_ty`, is a view `?T` or `!T`
+    /// (`sema.payloadViewed`), and the fallback `b` is no view of it: it
+    /// meets neither the view nor `view_result`, the type the form has
+    /// when it gives the view (so `none` where an optional view goes, a
+    /// jump, and another view leave it the view). The value the payload
+    /// views is copied out where `a` has one, as `if a as v` then `v`
+    /// else `b` copies `v` (Core sentence 1), and the form is recorded
+    /// (`SemContext.recordPayloadCopy`). A `T` that does not copy is
+    /// reported, with poison returned; in a generic body, each instance's
+    /// `T` must copy (`cannotCopy`). Null where the form gives the view.
+    fn fallbackCopy(self: *Checker, e: Sexp, holder: Sexp, holder_ty: TypeId, view_result: TypeId, fallback: Sexp) Error!?TypeId {
+        const view = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, holder_ty))) {
+            .optional, .fallible => |inner| inner,
+            else => return null,
+        };
+        // A `?String` views a `String`, which never copies: reported.
+        const viewed = sema.payloadViewed(self.ctx, holder_ty) orelse if (view == self.t().string_view_id) self.t().string_id else return null;
+        const ty = ty: {
+            self.tentative += 1;
+            defer self.tentative -= 1;
+            break :ty try self.synthQuiet(fallback);
+        };
+        if (self.isPoison(ty) or meets(self.ctx, ty, view) or meets(self.ctx, ty, view_result)) return null;
+        if (try self.cannotCopy(viewed, self.startOf(holder), if (e.isKind(.@"??")) "copies out with `??` a value" else "copies out with `catch` a value")) {
+            const name = try self.tyName(viewed);
+            const lent = try self.spliced(e, &.{fallback}, &.{try self.ctx.arena.allocator().print("?{s}", .{self.sourceText(fallback)})});
+            try self.errAt(e, "`{s}` would copy out the `{s}` that `{s}` views, since its fallback is a value, not a view, and {s} `{s}` {s}, so it does not copy: lend the fallback, so the result is the view, and clone that for {s} `{s}` of its own: `+({s})`", .{ self.sourceText(e), name, self.sourceText(holder), article(name), name, self.movesBecause(viewed), article(name), name, lent });
+            return self.t().invalid_id;
+        }
+        try self.ctx.recordPayloadCopy(e);
+        return viewed;
     }
 
     /// The type of `a ?? b` or `a catch b` when `a` gives a `Static` and
@@ -4684,7 +4767,14 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
         };
-        const result = try self.joinFallback(self.fallbackType(inner, expected), handler);
+        const view_result = try self.joinFallback(self.fallbackType(inner, expected), handler);
+        const result = if (try self.fallbackCopy(e, value, ty, view_result, handler)) |copied| result: {
+            if (self.isPoison(copied)) {
+                _ = try self.synthExpr(handler);
+                return copied;
+            }
+            break :result self.fallbackType(copied, expected);
+        } else view_result;
         try self.checkExpr(handler, result);
         return result;
     }
@@ -10548,10 +10638,38 @@ const Checker = struct {
     /// ends with the statement.
     fn keptLends(self: *Checker, value: Sexp, kept: Kept) Error!void {
         if (value != .list or self.under_poison) return;
+        // A value that holds no view keeps no loan, whatever views were
+        // read to make it: `m.get(k) ?? 0`, or a view read through where
+        // its value is expected.
+        if (self.ctx.typeOf(value)) |ty| {
+            const kept_ty = if (self.ctx.readsThrough(value)) sema.unwrapViews(self.ctx, ty) else ty;
+            if (!self.isPoison(kept_ty) and !sema.mayHoldView(self.ctx, kept_ty)) return;
+        }
         var leaves: std.ArrayList(Sexp) = .empty;
         defer leaves.deinit(self.ctx.allocator);
         try sema.yieldedLeaves(self.ctx.allocator, self.ctx.source, value, &leaves);
-        for (leaves.items) |leaf| try self.keptLeaf(leaf, kept);
+        // The payload of `a ?? b` or `a catch b` that copies what it views
+        // out keeps only what that value holds (`copiedPayloadLeaves`).
+        var copied: std.ArrayList(Sexp) = .empty;
+        defer copied.deinit(self.ctx.allocator);
+        try self.copiedPayloadLeaves(value, &copied);
+        leaf: for (leaves.items) |leaf| {
+            for (copied.items) |c| if (sameNode(c, leaf)) continue :leaf;
+            try self.keptLeaf(leaf, kept);
+        }
+    }
+
+    /// The leaves of every operand in `e` whose payload a `??` or `catch`
+    /// copies out (`SemContext.copiesPayload`): its view is read there,
+    /// not kept, so what the copy keeps is what the value it views holds,
+    /// as a binding `v` of `if a as v` keeps what `v` holds.
+    fn copiedPayloadLeaves(self: *Checker, e: Sexp, out: *std.ArrayList(Sexp)) Error!void {
+        if (e != .list) return;
+        if (self.ctx.copiesPayload(e)) {
+            const holder = if (e.isKind(.@"??")) ir.@"??".left(e) else ir.Catch.value(e);
+            try sema.yieldedLeaves(self.ctx.allocator, self.ctx.source, holder, out);
+        }
+        for (e.items()) |c| try self.copiedPayloadLeaves(c, out);
     }
 
     fn keptLeaf(self: *Checker, e: Sexp, kept: Kept) Error!void {

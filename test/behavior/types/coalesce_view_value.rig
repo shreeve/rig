@@ -1,0 +1,71 @@
+# `a ?? b` where `a` holds a view `?T` or `!T` of a `T` that copies, and
+# `b` is a `T`, not a view, gives a `T`: the viewed value copied out on
+# a hit, `b` on a miss, as `if a as v` then `v` else `b` would. The copy
+# keeps no loan, so the Map changes after it. `catch` does the same for
+# a fallible view, and a view held by address (a plain object) copies
+# as one held by value (an Int) does.
+
+use std.hash
+
+error Bad
+  oops
+
+enum Color
+  red
+  green
+
+obj P
+  x: Int
+  y: Int
+
+fun count(m: ?hash.Map[String, Int], k: ?String) -> Int
+  m.get(k) ?? 0
+
+fun pick(r: ?P, ok: Bool) -> (?P)!
+  return Bad.oops if not ok
+  r
+
+sub main()
+  m = hash.Map[String, Int]()
+  !m.put(String("a"), 5)
+  n = m.get("a") ?? 0
+  k: Int = m.get("b") ?? 7
+  o: Int? = m.get("b") ?? none
+  !m.put(String("a"), 6)
+  print(n, k, o, count(?m, "a"), count(?m, "z"))
+  q = hash.Map[String, P]()
+  !q.put(String("a"), P(x: 1, y: 2))
+  p = q.get("a") ?? P(x: 0, y: 0)
+  z = q.get("z") ?? P(x: 0, y: 0)
+  w: P? = q.get("z") ?? none
+  !q.put(String("a"), P(x: 3, y: 4))
+  print(p.x, z.x, w)
+  print((q.get("a") ?? P(x: 0, y: 0)).y, (q.get("b") ?? P(x: 8, y: 9)).y)
+  c = n > 5
+  print((q.get("a") ?? P(x: 0, y: 0) if c else P(x: 5, y: 5)).x)
+  e = hash.Map[String, Color]()
+  !e.put(String("a"), .green)
+  print(e.get("a") ?? .red, e.get("b") ?? .red)
+  if (!m).edit("a") as v
+    v += 10
+  t = (!m).edit("a") ?? 0
+  !m.put(String("a"), 0)
+  print(t, (!m).edit("zz") ?? 3)
+  a = P(x: 1, y: 1)
+  print((pick(?a, true) catch P(x: 2, y: 2)).x, (pick(?a, false) catch P(x: 2, y: 2)).x)
+  nm = hash.Map[String, Int?]()
+  !nm.put(String("a"), none)
+  !nm.put(String("b"), 4)
+  print(nm.get("a") ?? 9, nm.get("b") ?? 9, nm.get("c") ?? 9, (nm.get("a") ?? 9) ?? 1)
+  print(m.get("x") ?? m.get("a") ?? 2)
+
+# expect:
+# 5 7 none 6 0
+# 1 0 none
+# 4 9
+# 5
+# .green .red
+# 16 3
+# 1 2
+# none 4 9 1
+# 0
