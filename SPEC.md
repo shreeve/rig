@@ -4681,12 +4681,14 @@ a write view is never stored inside a value, and `!Int` cannot stand here
 
 ### One writer or many readers
 
-> **Core 5:** A value has any number of read loans, or one write loan, never both.
+> **Core 5:** A place has any number of read loans, or one write loan, never both.
 
-While a read loan is live the owner cannot be written, moved, or
-dropped; while a write loan is live the owner cannot be used at all,
+While a read loan is live the place cannot be written, moved, or
+dropped; while a write loan is live the place cannot be used at all,
 whatever its type: even a number is not read until the view's last use,
-so `w = !n` then `w += n` is rejected.
+so `w = !n` then `w += n` is rejected. A loan on a place covers every
+place inside it, and a field is a place of its own, so `p.a` and `p.b`
+may be lent apart, while `p` and `p.a` may not ([Paths](#paths)).
 
 ```rig reject
 obj User
@@ -5401,12 +5403,159 @@ sub main()
 1 2 3 none
 ```
 
+#### Paths
+
+> **Core §5:** A field is a place of its own.
+
+A place is named by a **path**: a name and the fields after it. The
+path goes on through a struct's fields, through what a write view the
+name holds sees (`self.a` in a `!self` method, `p.a` of `p: !P`), and
+through a box (`b.a` of `b: ^T`, which has one owner). It stops at an
+element (`p.items[i]` is a place of `p.items`: an index is a value the
+program computes, and a push may move the buffer), a handle (`p.h.a`
+with `h: *T` is a place of `p.h`, whose contents other handles reach),
+a read view (what `p.v.a` with `v: ?T` reaches is what the view views,
+and a lend of it keeps the view's loans, not a loan on `p`), and an
+optional's value. A loan is on the path so far.
+
+Two places conflict when one path is a prefix of the other. A use
+touches the path it names: `?p.a`, `!p.a`, `<p.a`, `p.a = x`,
+`(!p.a).m()`, `!p.a.m()`, and `swap(!p.a, !p.b)` touch `p.a` (and
+`p.b`); a bare `p`, `<p`, `p = x`, `(!p).m()`, and `!p.m()` touch all of
+`p`. A closure captures a name, so `|?p|` lends all of `p`. So a write
+of one field may stand beside a view of another:
+
+```rig
+obj Scanner
+  text: String
+  flags: Int
+
+  sub tag(!self)
+    t = ?self.text[0..2]
+    self.flags |= 1
+    print(t, self.flags)
+
+sub main()
+  s = Scanner(text: String("abcd"), flags: 0)
+  !s.tag()
+```
+
+```output
+ab 1
+```
+
+A method lends all of its receiver: its signature says `!self`, and a
+caller does not look into its body. To lend only the fields a step
+writes, lend them, `(!self.ast).add(...)`, or make the step a function
+of those fields, which a caller gives disjoint paths:
+
+```rig reject
+obj Parser
+  value: String
+  count: Int
+
+  sub bump(!self, t: ?String)
+    self.count += t.len
+
+  sub step(!self)
+    (!self).bump(self.value)
+
+sub main()
+  p = Parser(value: String("id"), count: 0)
+  !p.step()
+```
+
+```error
+cannot lend `self` to write while a read loan on `self.value` is live
+lend the fields it writes
+```
+
+```rig
+sub bump(count: !Int, t: ?String)
+  count += t.len
+
+obj Parser
+  value: String
+  count: Int
+
+  sub step(!self)
+    bump(!self.count, self.value)
+
+sub main()
+  p = Parser(value: String("id"), count: 0)
+  !p.step()
+  print(p.count)
+```
+
+```output
+2
+```
+
+A value never holds a view of itself: storing in a part of `p` a value
+that carries a loan on a part of `p`, by assignment, through a write
+view, or by a call that stores its argument, is rejected.
+
+```rig reject
+obj Holder
+  t: ?String
+
+  sub keep(!self, t: ?String)
+    self.t = t
+
+obj P
+  a: Holder
+  b: String
+
+sub main()
+  p = P(a: Holder(t: ""), b: String("x"))
+  (!p.a).keep(?p.b)
+  print(p.a.t)
+```
+
+```error
+cannot let this call store a view of `p.b` in `p.a`: a value never holds a view of itself
+```
+
+A method's view result carries a loan on all of its receiver, where
+the receiver's type could hold what it views (here `value`). Saying
+which part of the receiver it views (`-> ?String from self.text`) is
+planned, and would let the caller write the receiver's other fields
+while the result lives:
+
+```rig pending
+obj Scanner
+  text: ?String
+  pos: Int
+  value: String
+
+  fun digits(!self) -> ?String
+    start = self.pos
+    while self.pos < self.text.len and self.text[self.pos] >= 0x30 and self.text[self.pos] <= 0x39
+      self.pos += 1
+    self.text[start..self.pos]
+
+  sub number(!self)
+    whole = (!self).digits()
+    self.pos += 1
+    frac = (!self).digits()
+    print(whole, frac)
+
+sub main()
+  s = Scanner(text: "12.50", pos: 0, value: String())
+  !s.number()
+```
+
+```output
+12 50
+```
+
 #### Replace and swap
 
 `replace(!place, v)` stores `v` in a place and hands back the value that
 was there, owned; `swap(!a, !b)` exchanges the values of two places of
 one type, which may be different fields of one value
-(`swap(!t.left, !t.right)`). The places are lent to write for the call,
+(`swap(!t.left, !t.right)`), two places neither of which holds the
+other ([Paths](#paths)). The places are lent to write for the call,
 and the values hold no `?T`, `!T`, or slice. A place that holds a view, a
 `?String` among them, is not lent to write: assign to it to point it at
 other text. Like `print`, both are names a declaration may hide.

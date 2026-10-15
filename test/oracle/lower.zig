@@ -93,8 +93,18 @@ const Place = struct {
     /// Where the path first passes through a handle: the prefix of the
     /// path that is the handle's own slot, and that slot's type and view.
     handle_at: ?struct { len: usize, ty: TypeId, via: Via } = null,
+    /// Where the path stops being a place of the root's own (Core s5): at
+    /// a step through a handle, whose contents other handles reach, or
+    /// into an optional's value, which exists only while present. Loans
+    /// and accesses are on the path up to there (`loanPath`).
+    cut: ?usize = null,
 
     const Via = enum { own, read, write };
+
+    /// The path a loan on the place, or an access of it, is on.
+    fn loanPath(p: Place) []const Step {
+        return if (p.cut) |n| p.path[0..n] else p.path;
+    }
 };
 
 /// A scope (a block's bindings) or a statement's temporaries; leaving
@@ -281,7 +291,6 @@ const Lowerer = struct {
     /// The label of the statement being lowered, from `(labeled ...)`.
     label: ?[]const u8 = null,
     write_params: std.ArrayList(VarId) = .empty,
-    groups: u32 = 0,
     /// Roots whose places are being found while an index runs.
     finding: std.ArrayList(VarId) = .empty,
     /// The region of each binding.
@@ -762,7 +771,7 @@ const Lowerer = struct {
         // A store through a write view lands in what the view sees (s6).
         const deref = p.via == .write or write_in;
         const through: []const VarId = if (deref) try self.one(p.root) else &.{};
-        try self.emit(.{ .pos = pos, .what = .assign, .moves = try self.list(v), .uses = try self.one(p.root), .weak = p.root, .through = through, .access = .{ .root = p.root, .path = p.path, .deref = deref, .kind = .write } });
+        try self.emit(.{ .pos = pos, .what = .assign, .moves = try self.list(v), .uses = try self.one(p.root), .weak = p.root, .through = through, .access = .{ .root = p.root, .path = p.loanPath(), .deref = deref, .kind = .write } });
     }
 
     /// Whether assigning `rhs` to a place holding a write view re-points
@@ -806,7 +815,7 @@ const Lowerer = struct {
         }
         // Through a write view, or into what a place's write view sees.
         const deref = p.via == .write or (!p.slice and self.isWriteRef(p.ty));
-        try self.emit(.{ .pos = pos, .what = .assign, .reads = try self.list(v), .uses = try self.one(p.root), .access = .{ .root = p.root, .path = p.path, .deref = deref, .kind = .write } });
+        try self.emit(.{ .pos = pos, .what = .assign, .reads = try self.list(v), .uses = try self.one(p.root), .access = .{ .root = p.root, .path = p.loanPath(), .deref = deref, .kind = .write } });
     }
 
     /// Core §6: a local binding may be reassigned; parameters and fixed
@@ -1117,7 +1126,7 @@ const Lowerer = struct {
         if (!held_view) switch (self.ctx.types.get(xv.ty)) {
             .read_view, .write_view, .string_view => if (views_string or (self.ctx.types.get(xv.ty) != .string_view and (stored == null or stored.? != xv.ty))) {
                 const mode: core.Mode = if (self.ctx.types.get(xv.ty) == .write_view) .write else .read;
-                const loan = try self.newLoan(self.rootPlace(h.v), mode, false, 0, h.pos);
+                const loan = try self.newLoan(self.rootPlace(h.v), mode, false, h.pos);
                 try self.emit(.{ .pos = h.pos, .what = .lend, .reads = try self.one(h.v), .def = x, .loan = loan, .access = .{ .root = h.v, .kind = if (mode == .read) .read else .write } });
                 return;
             },
@@ -1708,7 +1717,7 @@ const Lowerer = struct {
                 // carries no loan on what `r` sees, and `+s` of a `?String` view
                 // makes a String that holds none.
                 const through = p.via != .own or self.isRef(p.ty) or sema.unwrapViews(self.ctx, p.ty) == self.ctx.types.string_view_id;
-                try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(p.root), .def = t, .unpoint = through, .access = .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .read } });
+                try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(p.root), .def = t, .unpoint = through, .access = .{ .root = p.root, .path = p.loanPath(), .deref = p.via == .write, .kind = .read } });
                 return t;
             },
             .@"if", .block, .match, .@"??", .@"catch" => {
@@ -1995,6 +2004,11 @@ const Lowerer = struct {
         var under_write = base.under_write;
         var handle = base.handle;
         var handle_at = base.handle_at;
+        var cut = base.cut;
+        if (cut == null) switch (self.ctx.types.get(sema.unwrapViews(self.ctx, base.ty))) {
+            .shared, .weak, .optional => cut = base.path.len,
+            else => {},
+        };
         // A view of a handle holds the handle: the slot a marked call lends.
         if (handle_at == null and self.ctx.types.get(sema.unwrapViews(self.ctx, base.ty)) == .shared) handle_at = .{ .len = base.path.len, .ty = base.ty, .via = base.via };
         switch (self.ctx.types.get(base.ty)) {
@@ -2023,7 +2037,7 @@ const Lowerer = struct {
             },
             else => {},
         }
-        return .{ .root = base.root, .path = path, .ty = try self.typeOf(e), .via = via, .slice = slice, .slice_of = if (slice) base.ty else 0, .carry = carry, .under_write = under_write, .handle = handle, .handle_at = handle_at };
+        return .{ .root = base.root, .path = path, .ty = try self.typeOf(e), .via = via, .slice = slice, .slice_of = if (slice) base.ty else 0, .carry = carry, .under_write = under_write, .handle = handle, .handle_at = handle_at, .cut = cut };
     }
 
     /// A var as a place; an alias is the payload it sees.
@@ -2061,7 +2075,7 @@ const Lowerer = struct {
                 const wants_view = if (want) |w| self.ctx.types.get(w) == .write_view else false;
                 const t_ty = try self.innerOf(p.ty);
                 const ti = try self.kinds.of(t_ty);
-                const through: Place = .{ .root = p.root, .path = p.path, .ty = t_ty, .via = .write };
+                const through: Place = .{ .root = p.root, .path = p.path, .ty = t_ty, .via = .write, .cut = p.cut };
                 const elems = self.ctx.types.get(t_ty) == .slice;
                 switch (how) {
                     .read => {
@@ -2119,7 +2133,7 @@ const Lowerer = struct {
     fn readAccess(p: Place) ?core.Access {
         if (p.under_write) return .{ .root = p.root, .deref = true, .kind = .read };
         if (p.via == .read) return null;
-        return .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .read };
+        return .{ .root = p.root, .path = p.loanPath(), .deref = p.via == .write, .kind = .read };
     }
 
     fn moveWhole(self: *Lowerer, root: VarId, pos: u32) Error!VarId {
@@ -2346,7 +2360,7 @@ const Lowerer = struct {
         // ends with the iteration.
         const loop_copy = p.path.len == 0 and mode == .read and self.loop_elems.contains(p.root) and self.genericLoopCopy(p.root);
         if (loop_copy) {
-            const loan = try self.lentLoan(p, .read, false, 0, pos);
+            const loan = try self.lentLoan(p, .read, false, pos);
             const t = try self.viewTemp(ty, kind, pos);
             try self.emit(.{ .pos = pos, .what = .lend, .reads = try self.one(p.root), .def = t, .loan = loan, .access = .{ .root = p.root, .kind = .read } });
             return t;
@@ -2358,7 +2372,7 @@ const Lowerer = struct {
             return t;
         }
         const deref = p.via == .write or (!p.slice and self.isWriteRef(p.ty));
-        const loan = try self.lentLoan(p, mode, deref, 0, pos);
+        const loan = try self.lentLoan(p, mode, deref, pos);
         // A slice or a `?String` views the place's bytes, and copies of it
         // carry the loan; a `?T` or `!T` points at the place.
         self.f.loans.items[loan].pointer = switch (self.ctx.types.get(ty)) {
@@ -2368,7 +2382,7 @@ const Lowerer = struct {
         const t = try self.viewTemp(ty, kind, pos);
         try self.emit(.{ .pos = pos, .what = .lend, .reads = try self.one(p.root), .def = t, .loan = loan, .access = .{
             .root = p.root,
-            .path = p.path,
+            .path = p.loanPath(),
             .deref = deref,
             .kind = switch (mode) {
                 .read => .read,
@@ -2381,21 +2395,20 @@ const Lowerer = struct {
 
     /// A loan on place `p`, which a view carries where the type of what
     /// is lent could hold what the view views (`lent`; `core.Loan.ty`).
-    fn lentLoan(self: *Lowerer, p: Place, mode: core.Mode, deref: bool, group: u32, pos: u32) Error!core.LoanId {
-        const loan = try self.newLoan(p, mode, deref, group, pos);
+    fn lentLoan(self: *Lowerer, p: Place, mode: core.Mode, deref: bool, pos: u32) Error!core.LoanId {
+        const loan = try self.newLoan(p, mode, deref, pos);
         // What the loan is on: for a slice, what is sliced; through a
         // write view, the view, which may write what it reaches.
         self.f.loans.items[loan].ty = if (p.slice) p.slice_of else p.ty;
         return loan;
     }
 
-    fn newLoan(self: *Lowerer, p: Place, mode: core.Mode, deref: bool, group: u32, pos: u32) Error!core.LoanId {
+    fn newLoan(self: *Lowerer, p: Place, mode: core.Mode, deref: bool, pos: u32) Error!core.LoanId {
         try self.f.loans.append(self.a, .{
             .root = p.root,
-            .path = p.path,
+            .path = p.loanPath(),
             .mode = mode,
             .deref = deref,
-            .group = group,
             .pos = pos,
             .stores_views = try self.storesViews(p),
         });
@@ -2434,7 +2447,7 @@ const Lowerer = struct {
             if (p.via == .own and self.f.vars.items[p.root].hidden) return self.found(.C3, pos, "a part of a value made here is dropped with it; nothing would see it emptied", .{});
             if (p.handle) return abstain("a take through a handle");
             const t = try self.temp(p.ty, pos);
-            try self.emit(.{ .pos = pos, .what = .take, .reads = try self.one(p.root), .def = t, .access = .{ .root = p.root, .path = p.path, .deref = p.via == .write, .kind = .write }, .untake = true });
+            try self.emit(.{ .pos = pos, .what = .take, .reads = try self.one(p.root), .def = t, .access = .{ .root = p.root, .path = p.loanPath(), .deref = p.via == .write, .kind = .write }, .untake = true });
             return t;
         }
         if (info.kind.copies()) return self.found(.C3, pos, "a part that copies is neither ended nor emptied; `<` would leave it as it was", .{});
@@ -2611,7 +2624,8 @@ const Lowerer = struct {
         // `copy`'s element type: what it stores is a copy of each element
         // its argument's slice views.
         var elem_copy: ?TypeId = null;
-        var group: u32 = 0;
+        // `swap` or `replace`, which lend their places for the call.
+        var exchange = false;
         var is_ctor = false;
         var reach: kinds.Reach = .{ .a = self.a };
         // The callee's signature, as declared, whose parameter types say
@@ -2630,8 +2644,7 @@ const Lowerer = struct {
             if (builtin and std.mem.eql(u8, name, "print")) {
                 all_read = true;
             } else if (builtin and (std.mem.eql(u8, name, "swap") or std.mem.eql(u8, name, "replace"))) {
-                self.groups += 1;
-                group = self.groups;
+                exchange = true;
                 if (std.mem.eql(u8, name, "swap")) all_read = true else shapes = &.{ .view, .take };
             } else if (self.ctx.stringCallOf(e) == .new) {
                 // `String(...)` formats its arguments as `print` does.
@@ -2750,9 +2763,9 @@ const Lowerer = struct {
                         // arguments may still read it (SPEC §7).
                         if (p.via == .read) return abstain("a write receiver through a read view");
                         const deref = p.via == .write or (!p.slice and self.isWriteRef(p.ty));
-                        const reserved = try self.lentLoan(p, .reserved, deref, 0, pos);
+                        const reserved = try self.lentLoan(p, .reserved, deref, pos);
                         const r = try self.viewTemp(try self.typeOf(obj), .write_view, pos);
-                        try self.emit(.{ .pos = pos, .what = .lend, .reads = try self.one(p.root), .def = r, .loan = reserved, .access = .{ .root = p.root, .path = p.path, .deref = deref, .kind = .reserve } });
+                        try self.emit(.{ .pos = pos, .what = .lend, .reads = try self.one(p.root), .def = r, .loan = reserved, .access = .{ .root = p.root, .path = p.loanPath(), .deref = deref, .kind = .reserve } });
                         try uses.append(self.a, r);
                         try reads.append(self.a, p.root);
                         try recv_vars.append(self.a, p.root);
@@ -2762,8 +2775,8 @@ const Lowerer = struct {
                         // what that view sees (`!w[0].push(?t)`).
                         if (deref) recv_view = r;
                         if (elem_method) elem_from = p.root;
-                        activation = try self.lentLoan(p, .write, deref, 0, pos);
-                        access = .{ .root = p.root, .path = p.path, .deref = deref, .kind = .write, .except = reserved };
+                        activation = try self.lentLoan(p, .write, deref, pos);
+                        access = .{ .root = p.root, .path = p.loanPath(), .deref = deref, .kind = .write, .except = reserved };
                     },
                     .read => {
                         // A method lends its receiver for the whole call
@@ -2844,13 +2857,13 @@ const Lowerer = struct {
                 }
             }
             try spans.append(self.a, .{ .reads = reads.items.len, .moves = moves.items.len, .to_result = to_result, .to_store = to_store });
-            if (group != 0 and val.isKind(.write)) {
+            if (exchange and val.isKind(.write)) {
                 // `swap` and `replace` lend their places for the call.
                 const p = try self.place(ir.Write.operand(val)) orelse return abstain("an unusual `swap`");
                 const deref = p.via == .write or (!p.slice and self.isWriteRef(p.ty));
-                const loan = try self.lentLoan(p, .write, deref, group, pos);
+                const loan = try self.lentLoan(p, .write, deref, pos);
                 const t = try self.viewTemp(try self.typeOf(val), .write_view, pos);
-                try self.emit(.{ .pos = self.posOf(val), .what = .lend, .reads = try self.one(p.root), .def = t, .loan = loan, .access = .{ .root = p.root, .path = p.path, .deref = deref, .kind = .write, .group = group } });
+                try self.emit(.{ .pos = self.posOf(val), .what = .lend, .reads = try self.one(p.root), .def = t, .loan = loan, .access = .{ .root = p.root, .path = p.loanPath(), .deref = deref, .kind = .write } });
                 try uses.append(self.a, t);
                 try reads.append(self.a, p.root);
                 if (try self.storesViews(p)) try exchanged.append(self.a, p.root);
@@ -2892,7 +2905,7 @@ const Lowerer = struct {
                 try uses.append(self.a, v);
                 continue;
             }
-            if (group != 0 and arg_how == .take) try stored_value.append(self.a, v);
+            if (exchange and arg_how == .take) try stored_value.append(self.a, v);
             if (arg_how == .take or keeps) try moves.append(self.a, v) else try reads.append(self.a, v);
         }
 

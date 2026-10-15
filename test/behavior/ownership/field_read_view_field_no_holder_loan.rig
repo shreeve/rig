@@ -1,0 +1,23 @@
+# A path ends where a read view begins: a slice of `self.text`, itself a
+# `?String`, carries the loans of that view, not a loan on `self`, so
+# even a call that lends all of `self` may run while it lives.
+
+obj Scanner
+  text: ?String
+  pos: Int
+
+  sub advance(!self)
+    self.pos += 1
+
+  sub scan(!self)
+    t = self.text[0..2]
+    !self.advance()
+    print(t, self.pos)
+
+sub main()
+  src = String("abcd")
+  s = Scanner(text: ?src, pos: 0)
+  !s.scan()
+
+# expect:
+# ab 1

@@ -1,0 +1,27 @@
+# Reviewer probe for #210 (field loans): `print(p.a.s, grow(!p.a))`: a
+# read held while the same place is lent to write.
+
+obj Holder
+  t: ?String
+  s: String
+
+  sub add(!self, x: ?String)
+    !self.s.add(x)
+
+  fun view(!self) -> ?String from self
+    ?self.s[0..1]
+
+obj P
+  a: Holder
+  b: String
+  c: ?String
+  q: Holder
+
+fun grow(h: !Holder) -> Int
+  !h.s.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  h.s.len
+
+sub main()
+  p = P(a: Holder(t: "", s: String("aa")), b: String("x"), c: "", q: Holder(t: "", s: String("qq")))
+  print(p.a.s, grow(!p.a))
+  print(p.a.s)

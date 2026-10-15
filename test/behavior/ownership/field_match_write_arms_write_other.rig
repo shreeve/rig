@@ -1,0 +1,22 @@
+# `match !p.a` lends `p.a` to write for its arms, whose bindings view it;
+# the arms may write `p.b`, a disjoint path.
+
+enum Tok
+  word(text: String)
+  num(n: Int)
+
+obj P
+  a: Tok
+  b: Int
+
+sub main()
+  p = P(a: .word(text: String("ab")), b: 0)
+  match !p.a
+    .word(text)
+      !text.add("c")
+      p.b = text.len
+    .num(n) => p.b = n
+  print(p.b)
+
+# expect:
+# 3

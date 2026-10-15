@@ -1,0 +1,29 @@
+# Iterating a view of one field while pushing to another is two disjoint
+# loans.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_fill_from_other_field.rig).
+
+obj Directive
+  pos: Int
+
+obj Scanner
+  directives: List[Directive]
+
+obj Parser
+  scanner: Scanner
+  directives: List[Directive]
+
+  sub finish(!self)
+    for d in self.scanner.directives
+      !self.directives.push(Directive(pos: d.pos))
+
+sub main()
+  s = Scanner(directives: List())
+  !s.directives.push(Directive(pos: 3))
+  !s.directives.push(Directive(pos: 9))
+  p = Parser(scanner: <s, directives: List())
+  !p.finish()
+  print(p.directives.len, p.directives[1].pos)
+
+# expect:
+# 2 9

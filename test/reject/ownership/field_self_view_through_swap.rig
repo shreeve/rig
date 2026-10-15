@@ -1,0 +1,19 @@
+# `q` views `p.s`; swapping it into `p.a` would leave `p` holding a view
+# of itself.
+
+obj Holder
+  t: ?String
+
+obj P
+  s: String
+  a: Holder
+
+sub main()
+  p = P(s: String("abc"), a: Holder(t: ""))
+  q = Holder(t: ?p.s)
+  swap(!p.a, !q)
+  print(p.a.t, q.t)
+
+# error: 14:14: cannot let this call store a view of `p.s` in `p.a`: a value never holds a view of itself
+# errors: 1
+# oracle: main reject C9

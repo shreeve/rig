@@ -1,0 +1,27 @@
+# A `for` over a view of one field lends that field; the body may write
+# the subject's other fields.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_range_writes_other.rig).
+
+obj Item
+  n: Int
+
+obj Checker
+  items: List[Item]
+  total: Int
+  seen: List[Int]
+
+  sub sum(!self)
+    for x in ?self.items
+      self.total += x.n
+      !self.seen.push(x.n)
+
+sub main()
+  c = Checker(items: List(), total: 0, seen: List())
+  !c.items.push(Item(n: 2))
+  !c.items.push(Item(n: 5))
+  !c.sum()
+  print(c.total, c.seen.len)
+
+# expect:
+# 7 2

@@ -1,0 +1,22 @@
+# `link` stores its second argument in its first: `link(!p.a, ?p.b)`
+# would leave `p.a` holding a view of `p.b`, a value holding a view of
+# itself.
+
+obj Holder
+  t: ?String
+
+sub link(h: !Holder, t: ?String)
+  h.t = t
+
+obj P
+  a: Holder
+  b: String
+
+sub main()
+  p = P(a: Holder(t: ""), b: String("x"))
+  link(!p.a, ?p.b)
+  print(p.a.t)
+
+# error: 17:8: cannot let this call store a view of `p.b` in `p.a`: a value never holds a view of itself
+# errors: 1
+# oracle: main reject C9

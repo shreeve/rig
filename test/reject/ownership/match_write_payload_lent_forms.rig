@@ -102,6 +102,6 @@ sub main()
 # error: 56:9: cannot lend `t` to write while a read loan is live
 # error: 65:7: cannot lend `t` to write while a read loan is live
 # error: 75:7: cannot lend `t` to write while a read loan is live
-# error: 84:7: cannot lend `r` to write while a read loan is live
+# error: 84:7: cannot lend `r.t` to write while a read loan on `r` is live
 # error: 93:7: cannot lend `t` to write while a read loan is live
 # errors: 7

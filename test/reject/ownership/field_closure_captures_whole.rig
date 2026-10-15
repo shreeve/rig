@@ -1,0 +1,20 @@
+# A closure captures a name, not a path (`|?p|` lends all of `p` for the
+# closure's life), so writing any field of `p` while the closure lives
+# conflicts. A field-precise capture would need a capture of a path,
+# which neither proposal adds.
+# Rule: a closure captures each name with a sigil (Core §7).
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_closure_captures_whole.rig).
+
+obj P
+  name: String
+  n: Int
+
+sub main()
+  p = P(name: String("ab"), n: 0)
+  f = |?p| p.name.len
+  p.n = 1
+  print(f())
+
+# error: 16:3: cannot assign to `p.n` while `p` is lent
+# errors: 1

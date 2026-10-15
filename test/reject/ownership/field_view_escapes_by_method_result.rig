@@ -1,0 +1,23 @@
+# A `!self` method's view result carries a loan on all of `self`;
+# without a path in the signature the caller cannot know which field the
+# result views, so writing any field while it lives is rejected.
+# Rule: a method's result carries its receiver (proposal-field-loans §7,
+# row "`r = (?p).first()`, then `p.n = 2`").
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_view_escapes_by_method_result.rig).
+
+obj P
+  name: String
+  n: Int
+
+  fun first(?self) -> ?String
+    ?self.name
+
+sub main()
+  p = P(name: String("abc"), n: 0)
+  r = (?p).first()
+  p.n = 2
+  print(r)
+
+# error: 19:3: cannot assign to `p.n` while `p` is lent
+# errors: 1

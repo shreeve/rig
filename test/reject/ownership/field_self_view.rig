@@ -1,0 +1,21 @@
+# Storing in `p.v` a view of `p.s` makes `p` hold a view of itself. With
+# whole-variable loans this was rejected for free; with paths it must be
+# said: `p.s = ...` would then free the bytes `p.v` views, and no loan
+# would stop it.
+# Rule: a value never holds a view of itself (proposal-field-loans §3,
+# 1c).
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/reject/field_self_view.rig).
+
+obj P
+  s: String
+  v: ?String
+
+sub main()
+  p = P(s: String("abc"), v: "")
+  p.v = ?p.s
+  print(p.v)
+
+# error: 16:3: cannot store in `p.v` a view of `p.s`: a value never holds a view of itself
+# errors: 1
+# oracle: main reject C9

@@ -13,5 +13,5 @@ sub main()
   h = H(f: *|<base, k: Int| base + k)
   print(h.f(reset(!h)))
 
-# error: 14:20: cannot lend `h` to write while the callee's read of it is in use
+# error: 14:20: cannot lend `h` to write while the callee's read of `h.f` is in use
 # errors: 1

@@ -1,0 +1,21 @@
+# Reviewer probe for #210 (field loans): A write view re-pointed after a
+# view of its field ended.
+
+obj S
+  s: String
+  k: Int
+
+obj Node
+  name: String
+  next: ^Node?
+
+sub main()
+  a = S(s: String("a"), k: 0)
+  b = S(s: String("b"), k: 0)
+  w = !a
+  r = ?w.s
+  w.k = 2
+  print(r)
+  w = !b
+  w.s = String("z")
+  print(a.s, b.s)
