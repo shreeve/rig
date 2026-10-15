@@ -1,0 +1,8 @@
+obj P
+  n: Int
+
+sub main()
+  s = *P(n: 1)
+  o: (~P)? = ~s
+  h = *<o
+  print(h != none)

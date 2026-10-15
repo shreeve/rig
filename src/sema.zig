@@ -3171,9 +3171,7 @@ fn expand(ctx: *SemContext, work: *std.ArrayList(ExpandItem), reached: ?*Reached
                     }
                     continue;
                 }
-                if (try instanceHeapStacked(ctx, concrete)) |found| {
-                    try ctx.err(item.site, "`{s}` holds `{s}`, which stacks one heap holding on another; " ++ heap_stacked_rule, .{ try formatType(ctx, concrete), try formatType(ctx, found) });
-                }
+                try checkInstanceStacked(ctx, concrete, item.site);
             }
             try work.append(ctx.allocator, .{ .subst = typeItem(ctx, concrete).?, .site = item.site, .root = item.root });
         }
@@ -4264,15 +4262,24 @@ pub fn retiredNameHint(name: []const u8) ?[]const u8 {
 }
 
 /// Whether a holding sigil (`^` or `*`) over `inner` holds a value that
-/// is already held on the heap: `^^T`, `^*T`, `^~T`, `*^T`, `**T`, and
-/// `*~T`. A value is held one way on the heap, so a second sigil is a
-/// typo.
+/// is already held on the heap, directly or inside an optional: `^^T`,
+/// `^*T`, `^~T`, `*^T`, `**T`, and `*~T`, and `*(~T?)` or `^(*T?)`. A
+/// value is held one way on the heap, so a second sigil is a typo.
 pub fn heapStacked(ctx: *const SemContext, inner: TypeId) bool {
-    if (boxedType(ctx, inner) != null) return true;
-    return switch (ctx.types.get(inner)) {
-        .shared => true,
-        .weak => true,
+    const held = unwrapOptionals(ctx, inner);
+    if (boxedType(ctx, held) != null) return true;
+    return switch (ctx.types.get(held)) {
+        .shared, .weak => true,
         else => false,
+    };
+}
+
+/// `ty` with every optional around it peeled: `T` of `T?` or `(T?)?`.
+pub fn unwrapOptionals(ctx: *const SemContext, ty: TypeId) TypeId {
+    var t = ty;
+    while (true) switch (ctx.types.get(t)) {
+        .optional => |inner| t = inner,
+        else => return t,
     };
 }
 
@@ -4325,6 +4332,15 @@ pub fn instanceHeapStacked(ctx: *SemContext, inst: TypeId) std.mem.Allocator.Err
         }
     }
     return null;
+}
+
+/// Report generic instance `inst`, made at `pos`, if a field of it stacks
+/// one heap holding on another (`instanceHeapStacked`): the one check of
+/// every instance the program makes, written, made in an expression, or
+/// reached through a generic body.
+pub fn checkInstanceStacked(ctx: *SemContext, inst: TypeId, pos: u32) std.mem.Allocator.Error!void {
+    const found = (try instanceHeapStacked(ctx, inst)) orelse return;
+    try ctx.err(pos, "`{s}` holds `{s}`, which stacks one heap holding on another; " ++ heap_stacked_rule, .{ try formatType(ctx, inst), try formatType(ctx, found) });
 }
 
 /// The diagnostic for a callable view held inside another value.

@@ -5273,6 +5273,13 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         if (sema.heapStacked(self.ctx, inner)) {
+            // `*o` of an optional weak handle: `*` upgrades the handle
+            // inside, once it is taken out.
+            if (self.ctx.types.get(sema.unwrapOptionals(self.ctx, inner)) == .weak) {
+                const shown = try self.plainText(stripSigil(operand));
+                try self.errAt(operand, "`{s}` is an optional weak handle `{s}`, and `*` upgrades a weak handle, not an optional: take the handle out first, `if {s} as w`, then `*w`", .{ shown, try self.tyName(inner), shown });
+                return self.t().invalid_id;
+            }
             try self.errAt(operand, "this value is already `{s}`; `*` would hold it twice; " ++ sema.heap_stacked_rule, .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
@@ -5315,7 +5322,12 @@ const Checker = struct {
             try self.errAt(operand, "`*` only reads the weak handle it upgrades: write `*{s}`", .{shown});
             return self.t().invalid_id;
         }
-        if (how == .reads) try self.rejectResourceTemporary(operand, ty);
+        if (how == .reads) {
+            // A branching value that may be a name's is lent branch by
+            // branch, `*(?a if c else ?b)`, as a receiver is.
+            if (self.hands(operand).kind == .branches and !try self.lendsBranch(operand, e, .read)) return self.t().invalid_id;
+            try self.rejectResourceTemporary(operand, ty);
+        }
         try self.ctx.recordUpgrade(e, how);
         return try self.ctx.intern(.{ .optional = try self.ctx.intern(.{ .shared = inner }) });
     }
@@ -5371,7 +5383,10 @@ const Checker = struct {
     /// type when `target` is a box.
     /// The type `sigil` over `inner` would be, as a diagnostic spells it.
     fn stackedSpelling(self: *Checker, sigil: u8, inner: TypeId) Error![]const u8 {
-        return self.ctx.arena.allocator().print("{c}{s}", .{ sigil, try self.tyName(inner) });
+        // A suffix binds tighter than a holding sigil: `*(~T?)`.
+        const shown = try self.tyName(inner);
+        if (self.ctx.types.get(inner) == .optional) return self.ctx.arena.allocator().print("{c}({s})", .{ sigil, shown });
+        return self.ctx.arena.allocator().print("{c}{s}", .{ sigil, shown });
     }
 
     fn synthBox(self: *Checker, e: Sexp, target: ?TypeId) Error!TypeId {
@@ -9937,7 +9952,12 @@ const Checker = struct {
         const ty = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = try self.ctx.dupeIds(args) } });
         if (!sema.containsTypeVar(self.ctx, ty)) {
             const gop = try self.ctx.instantiation_sites.getOrPut(self.ctx.allocator, ty);
-            if (!gop.found_existing) gop.value_ptr.* = pos;
+            if (!gop.found_existing) {
+                gop.value_ptr.* = pos;
+                // An instance first made here, in an expression, is checked
+                // as a written one is (`resolve`'s `instance_stacking`).
+                try sema.checkInstanceStacked(self.ctx, ty, pos);
+            }
         } else try self.ctx.addGeneric(.uses, ty);
         return ty;
     }

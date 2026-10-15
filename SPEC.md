@@ -6097,8 +6097,11 @@ viewed slot and moved out with `pop` ([List](#list)).
 
 **A value is held one way on the heap:** `^T` with one owner, `*T`
 counted, or `~T` weak. A holding sigil over a held value (`^^T`, `^*T`,
-`*^T`, `^~T`, `**T`, `*~T`) is rejected wherever the type comes from: written,
-named by an alias, or reached through a generic's parameter. `^none`
+`*^T`, `^~T`, `**T`, `*~T`), or over an optional of one (`*(~T?)`,
+`^(*T?)`), is rejected: in a written type or an alias, in the type of a
+value (`*<o` of an `o: (~T)?`), and in the fields and signatures of
+every generic instance the program makes, written or named in an
+expression (`W[~S](h: none)` where `W[T]` holds a `(*T)?`). `^none`
 boxes nothing (an optional box with no value is `none`), and a
 function has no box: `^fun` is rejected and reserved, and an owned
 closure is `*|...| body`.
@@ -6108,12 +6111,36 @@ obj Holder
   inner: ^*Int
   twice: ^^Int
   weak: *~Int
+  maybe: *(~Int?)
 ```
 
 ```error
 `^*Int` stacks one heap holding on another
 `^^Int` stacks one heap holding on another
 `*~Int` stacks one heap holding on another
+`*(~Int?)` stacks one heap holding on another
+```
+
+A generic body's own holding of a `T` (`*<x`, `List[*T]`) at an instance
+whose `T` is held is decided and not yet built: it will be rejected at
+that instance, as the generic per-instance requirements are.
+
+```rig pending
+obj N
+  n: Int
+
+fun hold[T](x: T) -> Int
+  h = *<x
+  <h
+  1
+
+sub main()
+  s = *N(n: 1)
+  print(hold(~s))
+```
+
+```error
+`*~N` stacks one heap holding on another
 ```
 
 A recursive enum holds its children in boxes, and a function reads one

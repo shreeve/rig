@@ -40,6 +40,10 @@ sub main()
   t = ~s
   if *<t as p
     print("taken", p.y)
+  t2 = ~s
+  c = total > 0
+  if *(?w if c else ?t2) as p
+    print("either", p.x)
   <s
   if *w as p
     print(p.x)
@@ -58,6 +62,7 @@ sub main()
 # 7 true
 # 18
 # taken 7
+# either 6
 # gone
 # false -1 true
 # true

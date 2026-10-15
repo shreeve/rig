@@ -940,9 +940,7 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
             }
         },
         .builtin => |c| if (try builtinElementError(ctx, c.sym, c.args)) |msg| try ctx.err(c.pos, "{s}", .{msg}),
-        .instance_stacking => |c| if (try sema.instanceHeapStacked(ctx, c.ty)) |found| {
-            try ctx.err(c.pos, "`{s}` holds `{s}`, which stacks one heap holding on another; " ++ sema.heap_stacked_rule, .{ try sema.formatType(ctx, c.ty), try sema.formatType(ctx, found) });
-        },
+        .instance_stacking => |c| try sema.checkInstanceStacked(ctx, c.ty, c.pos),
         .cell_home => |c| if (sema.misplaced(ctx, c.ty, c.home) == .cell) {
             const shown = try sema.formatType(ctx, c.ty);
             try ctx.errAt(c.node, sema.cell_misplaced, .{ shown, shown });
@@ -2477,7 +2475,10 @@ pub const TypeResolver = struct {
 
     /// The type `sigil` over `inner` would be, as a diagnostic spells it.
     fn stackedSpelling(self: *TypeResolver, sigil: u8, inner: TypeId) Error![]const u8 {
-        return self.ctx.arena.allocator().print("{c}{s}", .{ sigil, try sema.formatType(self.ctx, inner) });
+        // A suffix binds tighter than a holding sigil: `*(~T?)`.
+        const shown = try sema.formatType(self.ctx, inner);
+        if (self.ctx.types.get(inner) == .optional) return self.ctx.arena.allocator().print("{c}({s})", .{ sigil, shown });
+        return self.ctx.arena.allocator().print("{c}{s}", .{ sigil, shown });
     }
 
     /// `^T`: the built-in box of `T`, spelled at `pos`.

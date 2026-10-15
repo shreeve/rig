@@ -1,0 +1,14 @@
+obj S
+  n: Int
+
+obj W[T]
+  h: (*T)?
+
+  sub keep(!self, x: T)
+    self.h = *<x
+
+sub main()
+  s = *S(n: 1)
+  w = W[~S](h: none)
+  !w.keep(~s)
+  print(w.h != none)
