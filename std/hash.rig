@@ -23,19 +23,18 @@ obj Entry[K, V]
   key: K?
   value: V?
 
+# `hash.Map[K, V]()` is an empty Map, which allocates nothing until the
+# first `put`.
 pub obj Map[K, V]
-  es: List[Entry[K, V]]
-  tags: List[U8]
-  at: List[U32]
-  count: Int
-
-  # An empty Map. It allocates nothing until the first `put`.
-  pub fun new() -> Map[K, V]
-    Map(es: List(), tags: List(), at: List(), count: 0)
-
   # How many entries the Map holds.
-  pub fun len(?self) -> Int
-    self.count
+  pub ?len: Int = 0
+  es: List[Entry[K, V]] = List()
+  tags: List[U8] = List()
+  at: List[U32] = List()
+
+  # An empty Map, as `Map[K, V]()` is.
+  pub fun new() -> Map[K, V]
+    Map[K, V]()
 
   # Whether the Map holds the key `k`.
   pub fun has(?self, k: ?K) -> Bool
@@ -86,7 +85,7 @@ pub obj Map[K, V]
     !self.es.clear()
     !self.tags.clear()
     !self.at.clear()
-    self.count = 0
+    self.len = 0
 
   # The entries, in the order their keys were first put in: each an
   # `Item` viewing its key and value.
@@ -118,7 +117,7 @@ pub obj Map[K, V]
   # from its start: each pass is a loop whose test is the bounds test,
   # so a step reads a tag with no other check.
   fun find(?self, k: ?K, h: U64) -> Int?
-    return none if self.count == 0
+    return none if self.len == 0
     ts = ?self.tags[..]
     tag = U8(h >> 57) | 0x80
     i = Int(h & U64(ts.len - 1))
@@ -137,7 +136,7 @@ pub obj Map[K, V]
     if (self.es.len + 1) * 5 > self.tags.len * 4
       !self.grow()
     !self.es.push(Entry(key: <k, value: <v))
-    self.count += 1
+    self.len += 1
     !self.place(self.es.len - 1, h)
 
   # Point a free slot at entry `j`, whose key hashes to `h`.
@@ -173,19 +172,19 @@ pub obj Map[K, V]
         hole = s
       s = (s + 1) & mask
     self.tags[hole] = 0
-    self.count -= 1
+    self.len -= 1
 
   # Make room for one more entry: drop the entries taken, and double the
   # table when the entries left would fill more than two fifths of it.
   sub grow(!self)
-    if self.count < self.es.len
-      es: List[Entry[K, V]] = List(capacity: self.count + 1)
+    if self.len < self.es.len
+      es: List[Entry[K, V]] = List(capacity: self.len + 1)
       for j in 0..self.es.len
         if <self.es[j].key as k
           !es.push(Entry(key: <k, value: <self.es[j].value))
       self.es = <es
     n = 8 if self.tags.len < 8 else self.tags.len
-    while (self.count + 1) * 5 > n * 2
+    while (self.len + 1) * 5 > n * 2
       n *= 2
     !self.tags.clear()
     !self.at.clear()
@@ -261,16 +260,17 @@ pub obj Values[K, V]
 
 # A set of keys, kept in the order they were first added: a Map whose
 # values are nothing.
+#
+# `hash.Set[K]()` is an empty Set, which allocates nothing until the
+# first `add`.
 pub obj Set[K]
-  map: Map[K, Bool]
-
-  # An empty Set. It allocates nothing until the first `add`.
-  pub fun new() -> Set[K]
-    Set(map: Map[K, Bool].new())
-
   # How many keys the Set holds.
-  pub fun len(?self) -> Int
-    self.map.len()
+  pub ?len: Int = 0
+  map: Map[K, Bool] = Map[K, Bool]()
+
+  # An empty Set, as `Set[K]()` is.
+  pub fun new() -> Set[K]
+    Set[K]()
 
   # Whether the Set holds the key `k`.
   pub fun has(?self, k: ?K) -> Bool
@@ -278,16 +278,21 @@ pub obj Set[K]
 
   # Add the key `k`: true when it is new; otherwise `k` is dropped.
   pub fun add(!self, k: K) -> Bool
-    (!self.map).add(<k, true)
+    added = (!self.map).add(<k, true)
+    self.len = self.map.len
+    added
 
   # Take the key `k` out and hand it back, or `none` when the Set has
   # no such key.
   pub fun take(!self, k: ?K) -> K?
-    (!self.map).take_key(k)
+    taken = (!self.map).take_key(k)
+    self.len = self.map.len
+    taken
 
   # Drop every key. The Set keeps the memory it has.
   pub sub clear(!self)
     !self.map.clear()
+    self.len = 0
 
   # The keys, in the order they were first added, each viewed where the
   # Set holds it.

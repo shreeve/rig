@@ -475,8 +475,8 @@ type, as any generic is.
 
 | Member | Signature | Ownership |
 |---|---|---|
-| `hash.Map[K, V].new()` | `fun new() -> Map[K, V]` | allocates nothing until the first `put` |
-| `m.len()` | `fun len(?self) -> Int` | the number of entries |
+| `hash.Map[K, V]()`, `hash.Map[K, V].new()` | `fun new() -> Map[K, V]` | an empty Map, which allocates nothing until the first `put` |
+| `m.len` | `pub ?len: Int` | the number of entries: a field other modules read and only `std.hash` writes |
 | `m.has(k)` | `fun has(?self, k: ?K) -> Bool` | reads |
 | `m.get(k)` | `fun get(?self, k: ?K) -> (?V)? from self` | the view keeps `m` lent to read, not `k` |
 | `(!m).edit(k)` | `fun edit(!self, k: ?K) -> (!V)? from self` | keeps `m` lent to write |
@@ -488,7 +488,7 @@ type, as any generic is.
 | `?m.keys()`, `?m.values()` | `fun keys(?self) -> Keys[K, V] from self` | likewise, each a `?K` or a `?V` |
 | `!m.update(f)` | `sub update(!self, f: ?sub(?K, !V))` | writes each value in place; keys stay read-only |
 
-`hash.Set[K]` has `new()`, `len()`, `has(k: ?K)`, `(!s).add(k: K) ->
+`hash.Set[K]` has `hash.Set[K]()` and `new()`, the field `len`, `has(k: ?K)`, `(!s).add(k: K) ->
 Bool` (true when `k` is new; otherwise `k` is dropped), `(!s).take(k:
 ?K) -> K?`, `clear()`, and `?s.items()`, each key a `?K`.
 
@@ -506,7 +506,7 @@ sub main()
   !ages.put(String("ada"), 36)
   !ages.put(String("bob"), 41)
   !ages.put(String("ada"), 37)
-  print(ages.len(), ages.get("ada"), ages.get("cy"))
+  print(ages.len, ages.get("ada"), ages.get("cy"))
   if (!ages).edit("bob") as a
     a += 1
   print((!ages).take("bob"), ages.has("bob"))
@@ -518,7 +518,7 @@ sub main()
   for w in ["b", "a", "b"]
     if (!seen).add(w)
       print("new", w)
-  print(seen.len(), seen.has("a"))
+  print(seen.len, seen.has("a"))
 ```
 
 ```output
@@ -556,7 +556,7 @@ use std.hash
 
 sub main()
   m = hash.Map[Float, Int].new()
-  print(m.len())
+  print(m.len)
 ```
 
 ```error
