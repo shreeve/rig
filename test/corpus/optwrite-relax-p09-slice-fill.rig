@@ -1,0 +1,9 @@
+sub main()
+  t = String("outer")
+  l: List[?String] = List()
+  !l.push(?t)
+  if true
+    s = !l[0..1]
+    d = String("local")
+    !s.fill(?d)
+  print(l)

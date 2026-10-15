@@ -1,0 +1,24 @@
+obj K
+  a: ?String
+
+  sub put(!self, v: ?String)
+    self.a = v
+
+sub main()
+  t = String("outer")
+  k = K(a: ?t)
+  f = |!k|
+    d = String("d1")
+    !k.put(?d)
+  f()
+  g = |!k|
+    d = String("d2")
+    y = !k
+    !y.put(?d)
+  g()
+  h = |!k|
+    d = String("d3")
+    inner = |!k, ?d| !k.put(d)
+    inner()
+  h()
+  print(k.a)

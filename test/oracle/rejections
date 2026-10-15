@@ -4437,3 +4437,11 @@ test/corpus/optwrite-review-g03-method-param-caller.rig main
 test/corpus/optwrite-review-j05b-generic-owned-plain.rig stash
 test/corpus/rev240-g01_view_of_closure_outlives_drop.rig main
 test/corpus/rev240-g02_view_of_closure_direct.rig main
+test/corpus/optwrite-relax-p01-closure-store.rig main
+test/corpus/optwrite-relax-p04-match-write-chain.rig main
+test/corpus/optwrite-relax-p05-match-via-view.rig main
+test/corpus/optwrite-relax-p06-closure-capture-binding.rig main
+test/corpus/optwrite-relax-p08-slice.rig main
+test/corpus/optwrite-relax-p09-slice-fill.rig main
+test/corpus/optwrite-relax-p10-headers.rig main
+test/corpus/optwrite-relax-p12-closure-body.rig main
