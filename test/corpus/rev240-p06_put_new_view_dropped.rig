@@ -1,0 +1,8 @@
+use std.hash
+
+sub main()
+  m = hash.Map[Int, ?String].new()
+  t = String("val")
+  _ = (!m).put_new(1, ?t)
+  <t
+  print(m.get(1))

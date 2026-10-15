@@ -1,0 +1,49 @@
+# `put_new` and `ensure` drop the key and value they do not store at
+# the call, `ensure_with` does not call `make` for a key already there,
+# and `retain` drops an entry it rejects then.
+use std.hash
+
+obj Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(k: ?Int) -> Res
+  print("make", k)
+  Res(n: k * 100)
+
+sub main()
+  m = hash.Map[Int, Res].new()
+  print(m.len, (!m).put_new(1, Res(n: 1)))
+  print("a", (!m).put_new(1, Res(n: 2)))
+  c = (!m).ensure(1, Res(n: 3))
+  c.n += 10
+  print("b", c.n)
+  d = (!m).ensure_with(1, mk)
+  print("c", d.n)
+  e = (!m).ensure_with(2, mk)
+  print("d", e.n)
+  t = (!m).take(1)
+  print("e", t != none)
+  <t
+  f = (!m).ensure(1, Res(n: 4))
+  print("f", f.n)
+  !m.retain(|k, r| k == 1)
+  print("g", m.len)
+
+# expect:
+# 0 true
+# drop 2
+# a false
+# drop 3
+# b 11
+# c 11
+# make 2
+# d 200
+# e true
+# drop 11
+# f 4
+# drop 200
+# g 1
+# drop 4

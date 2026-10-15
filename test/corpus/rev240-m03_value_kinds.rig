@@ -1,0 +1,84 @@
+# ensure, ensure_with, put_new, and retain with boxed, shared, enum, and
+# view values and keys, crossing the small-map limit.
+use std.hash
+
+obj Node
+  name: String
+  n: Int
+
+enum Shape
+  dot
+  line(len: Int)
+  label(text: String)
+
+fun shape_of(k: ?Int) -> Shape
+  if k % 3 == 0
+    return Shape.dot
+  if k % 3 == 1
+    return Shape.line(len: k)
+  Shape.label(text: String("L", k))
+
+fun box_of(k: ?Int) -> ^Node
+  ^Node(name: String("n", k), n: k)
+
+fun weight(s: ?Shape) -> Int
+  match s
+    .dot => return 1
+    .line(len) => return len
+    .label(text) => return text.len
+
+sub main()
+  boxes = hash.Map[Int, ^Node].new()
+  for i in 0..30
+    b = (!boxes).ensure_with(i % 13, box_of)
+    b.n += 1
+  _ = (!boxes).put_new(1, ^Node(name: String("dup"), n: 0))
+  !boxes.retain(|k, b| b.n % 2 == 1)
+  t = 0
+  for e in ?boxes.items()
+    t += e.value.n
+  print(boxes.len, t, boxes.get(1) != none)
+
+  shared = hash.Map[String, *Node].new()
+  one = *Node(name: String("one"), n: 1)
+  for i in 0..20
+    _ = (!shared).ensure(String("s", i % 11), +one)
+  !shared.retain(|k, s| k.len == 2)
+  print(shared.len)
+  <shared
+  print(one.n)
+
+  shapes = hash.Map[Int, Shape].new()
+  for i in 0..25
+    _ = (!shapes).ensure_with(i % 17, shape_of)
+  !shapes.retain(|k, s| weight(s) > 1)
+  w = 0
+  for e in ?shapes.items()
+    w += weight(e.value)
+  print(shapes.len, w)
+
+  a = String("alpha")
+  b = String("beta")
+  c = String("gamma")
+  views = hash.Map[?String, ?String].new()
+  x = (!views).ensure(?a, ?b)
+  print(x)
+  x = ?c
+  y = (!views).ensure(?a, ?c)
+  print(y)
+  _ = (!views).put_new(?c, ?a)
+  !views.retain(|k, v| k.len == 5)
+  for e in ?views.items()
+    print(e.key, e.value)
+
+  vs = hash.Set[?String]()
+  for i in 0..20
+    _ = (!vs).add(?a[0..(i % 5) + 1])
+  !vs.retain(|k| k.len != 3)
+  !vs.reserve(100)
+  _ = (!vs).add(?b)
+  _ = (!vs).add(?a[0..3])
+  out = List[?String]()
+  for k in ?vs.items()
+    !out.push(k)
+  print(vs.len, out)

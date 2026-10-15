@@ -1,0 +1,9 @@
+use std.hash
+
+sub main()
+  m = hash.Map[Int, ?String].new()
+  t = String("val")
+  c = (!m).ensure_with(1, |?t, k| ?t)
+  print(c)
+  <t
+  print(m.get(1))

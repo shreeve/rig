@@ -1,0 +1,10 @@
+use std.hash
+
+sub main()
+  a = String("a")
+  m = hash.Map[Int, ?String].new()
+  c = (!m).ensure(1, ?a)
+  t = String("short")
+  c = ?t
+  <t
+  print(m.get(1))

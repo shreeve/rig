@@ -1,0 +1,7 @@
+use std.hash
+
+sub main()
+  m = hash.Map[Int, ?String].new()
+  c = (!m).ensure_with(1, |k| "static")
+  print(c)
+  print(m.get(1))
