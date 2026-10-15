@@ -1,0 +1,14 @@
+{
+  "label": "rig:suite",
+  "setup": "zig build -j\"$CPUQ_CORES\"",
+  "run": "./test/run -j \"$CPUQ_CORES\" --delta \"$@\"",
+  "cores": "8-32",
+  "on": ["burst"],
+  "time": "60m",
+  "mem": "96G",
+  "packs": { "zig": "0.17.0", "nexus": "latest" },
+  "env": { "JSON_REQUIRE_DATA": "1" },
+  "exclude": [".zig-cache", "zig-out", "bin", "src/parser.zig", "bench/json/rust-bench/target-native", ".claude", ".rip", ".DS_Store"],
+  "caches": { "RIG_RESULTS_CACHE": "rig-results", "RIG_BUILD_STORE": "rig-build-store" },
+  "git": true
+}
