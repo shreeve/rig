@@ -1,6 +1,6 @@
 {
   "label": "rig:corpus",
-  "setup": "(cd deps/nexus && zig build -Doptimize=safe -j\"$CPUQ_CORES\") && zig build -j\"$CPUQ_CORES\" -Dnexus=deps/nexus/bin/nexus",
+  "setup": "(cd deps/nexus && zig build -Doptimize=safe -j\"$CPUQ_CORES\") && mkdir -p ../nexus/bin && cp deps/nexus/bin/nexus ../nexus/bin/.nexus.$$ && mv ../nexus/bin/.nexus.$$ ../nexus/bin/nexus && zig build -j\"$CPUQ_CORES\"",
   "run": "./test/run -j \"$CPUQ_CORES\" --delta corpus \"$@\"",
   "cores": "8-32",
   "on": ["burst"],
