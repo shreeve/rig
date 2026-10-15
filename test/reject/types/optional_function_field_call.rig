@@ -1,0 +1,11 @@
+# A field holding an optional function is not called directly: the
+# function is taken out of the optional first.
+
+obj Hooks
+  f: (fun(Int) -> Int)? = none
+
+sub main()
+  h = Hooks()
+  print(h.f(1))
+
+# error: 9:11: field `f` holds an optional function, `(fun(Int) -> Int)?`: take the function out first, `if h.f as g`, then call `g(...)`

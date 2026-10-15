@@ -600,6 +600,7 @@ const Checker = struct {
         const field = std.mem.eql(u8, what, "field");
         const ok = isDefaultLiteral(self.ctx.source, value) or self.isConstantDefault(value) or (field and try self.isConstructorDefault(value));
         if (!ok) {
+            if (field and try self.emptyConstructorGap(value)) return;
             if (field) {
                 try self.errAt(value, "a default field value must be a literal, a module constant, a number type's limit, or an empty or literal constructor: `List()`, `String()`, `Cell(0)`, `[n of 0]`, or `T()` of an object whose every field has a default", .{});
             } else try self.errAt(value, "a default parameter value must be a literal, a module constant, or a number type's limit", .{});
@@ -650,6 +651,30 @@ const Checker = struct {
             if (id == self.ctx.cell_sym_id) return args.len == 1 and isDefaultLiteral(self.ctx.source, args[0]);
         };
         return args.len == 0 and try self.emptyConstructor(ir.Call.callee(e));
+    }
+
+    /// `T()` as a field default, of an object type with a field that has
+    /// no default: reported naming those fields. True when reported.
+    fn emptyConstructorGap(self: *Checker, e: Sexp) Error!bool {
+        if (!e.isKind(.call) or ir.Call.args(e).len != 0) return false;
+        const callee = ir.Call.callee(e);
+        const nt = (try self.namedType(callee)) orelse return false;
+        const fields = nt.sym.fields orelse return false;
+        var bare: std.ArrayList(u8) = .empty;
+        defer bare.deinit(self.ctx.allocator);
+        var n: usize = 0;
+        for (fields) |f| {
+            if (f.is_variant) return false;
+            if (f.is_method or f.default != null) continue;
+            try bare.appendSlice(self.ctx.allocator, if (n == 0) "`" else ", `");
+            try bare.appendSlice(self.ctx.allocator, f.name);
+            try bare.append(self.ctx.allocator, '`');
+            n += 1;
+        }
+        if (n == 0) return false;
+        const shown = self.sourceText(callee);
+        try self.errAt(e, "`{s}()` is a default only when every field of `{s}` has one, and {s} {s} none", .{ shown, shown, bare.items, if (n == 1) "has" else "have" });
+        return true;
     }
 
     /// Whether `callee`, called with no arguments, names an object type
@@ -2975,6 +3000,8 @@ const Checker = struct {
         if (s.access != .read) return "";
         if (self.read_subjects.get(id)) |from| if (from.kind == .as) {
             const shown = try self.plainText(from.place);
+            // No `!` writes a field another module keeps read-only.
+            if (self.placeOf(from.place).read_only) |f| return self.ctx.arena.allocator().print("; `{s}` is a read view of the value inside `{s}`, and field `{s}` of `{s}` is read-only outside module `{s}`, so nothing here writes through it", .{ s.name, shown, f.field, f.owner, f.module });
             // A parameter taken by value is written once it is taken to
             // write (`o: !T`).
             if (self.placeOf(from.place).root == .param) return self.ctx.arena.allocator().print("; `{s}` is a read view of the value inside `{s}`: to write through it, take the parameter to write (`{s}: !…`), then bind it with `if !{s} as {s}`", .{ s.name, shown, shown, shown, s.name });
@@ -2984,6 +3011,7 @@ const Checker = struct {
         if (from.kind != .match_copy and from.kind != .match_read) return "";
         const what = if (from.whole) "" else "a field of ";
         const shown = try self.plainText(from.place);
+        if (self.placeOf(from.place).read_only) |f| return self.ctx.arena.allocator().print("; `{s}` is a read view of {s}`{s}`, and field `{s}` of `{s}` is read-only outside module `{s}`, so nothing here writes through it", .{ s.name, what, shown, f.field, f.owner, f.module });
         // A subject reached through a read view or a shared handle is never
         // written through, however it is matched.
         if (self.readOnlyStep(from.place)) |why| return self.ctx.arena.allocator().print("; `{s}` is a read view of {s}`{s}`, which is reached through {s}, so nothing writes through it", .{ s.name, what, shown, why });
@@ -9430,6 +9458,15 @@ const Checker = struct {
                     } else try self.rejectResourceTemporary(obj, obj_ty);
                     try self.noteCalleeType(ty);
                     return self.callValue(callee, ty, args, method);
+                }
+                // An optional function is taken out of its optional first.
+                const inner = switch (self.ctx.types.get(ty)) {
+                    .optional => |o| o,
+                    else => sema.type_invalid,
+                };
+                if (inner != sema.type_invalid and (sema.ownedClosureFn(self.ctx, inner) != null or self.ctx.types.get(inner) == .function)) {
+                    try self.err(pos, "field `{s}` holds an optional function, `{s}`: take the function out first, `if {s}.{s} as g`, then call `g(...)`", .{ method, try self.tyName(ty), try self.plainText(stripSigil(obj)), method });
+                    return self.skipCall(args);
                 }
                 // A data field is read, not called: `m.len`, not `m.len()`.
                 if (!self.isPoison(ty)) {

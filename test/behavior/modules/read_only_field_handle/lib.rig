@@ -1,0 +1,5 @@
+pub obj Holder
+  pub ?h: *Cell[Int]
+
+pub fun make() -> Holder
+  Holder(h: *Cell(0))

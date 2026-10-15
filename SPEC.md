@@ -7843,7 +7843,10 @@ it), or takes it out with `<`, is rejected, through a view, a `^T`, or
 an instance alike. The `?` is the read sigil: other modules get a read
 view. It needs `pub`, since a private field is read by no other module,
 and it is not an optional type: `pub ?len: Int` is a read-only `Int`,
-and `pub len: Int?` an optional one anyone writes.
+and `pub len: Int?` an optional one anyone writes. Read-only stops at a
+shared handle: with `pub ?h: *Cell[Int]`, another module cannot point
+`h` at another Cell, but `!t.h.set(5)` changes the shared Cell, since a
+handle is only read and a Cell changes by a marked call.
 
 ```rig file=bank.rig
 pub obj Account

@@ -1,0 +1,12 @@
+# A header that reads a read-only field binds a read view, and the hint
+# does not suggest the write form, which the field rejects too.
+
+use lib
+
+sub main()
+  t = lib.make()
+  if t.boxed as b
+    b.n = 9
+
+# error: 9:5: cannot assign through a read view (`?T`); `b` is a read view of the value inside `t.boxed`, and field `boxed` of `lib.Tally` is read-only outside module `lib`, so nothing here writes through it
+# errors: 1

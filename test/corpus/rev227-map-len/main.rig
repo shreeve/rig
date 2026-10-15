@@ -1,0 +1,29 @@
+# A Map and a Set made with `T()` as field defaults, and their read-only
+# `len`.
+
+use std.hash
+
+obj Binder
+  symbols: hash.Map[Int, String] = hash.Map[Int, String]()
+  seen: hash.Set[Int] = hash.Set[Int]()
+
+sub main()
+  b = Binder()
+  c = Binder()
+  for i in 0..100
+    !b.symbols.put(i, String("v"))
+    _ = (!b.seen).add(i % 7)
+  print(b.symbols.len, b.seen.len, c.symbols.len, c.seen.len)
+  for i in 0..50
+    _ = (!b.symbols).take(?i)
+    _ = (!b.seen).take(?(i % 3))
+  !b.symbols.put(99, String("w"))
+  !b.symbols.put(0, String("z"))
+  print(b.symbols.len, b.seen.len)
+  (!b.seen).clear()
+  print(b.seen.len)
+
+# expect:
+# 100 7 0 0
+# 51 4
+# 0

@@ -1,0 +1,9 @@
+use lib
+
+pub fun make() -> lib.Tally
+  lib.Tally()
+
+pub fun pile() -> lib.Pile[Int]
+  lib.Pile[Int]()
+
+pub type T = lib.Tally
