@@ -13,7 +13,7 @@ obj Item
   h: ~Holder
 
   drop(!self)
-    if self.h.upgrade() as h
+    if *self.h as h
       print("drop", self.id, "sees", h.items.len)
       if self.id == 3
         if self.clears

@@ -123,12 +123,11 @@ For a value `x` of type `T`:
 Each operation has one meaning, becomes one IR node, and succeeds
 whenever it type-checks. That is the first law.
 
-**Totality.** A sigil never fails at run time; failure belongs to
-methods. This is why the way back from a weak handle is a method:
-`w.upgrade()` returns an optional `*U?`, because the value may be
-gone. A sigil for it (say `$w`) would be the only partial sigil. The
-round trip is total going down (`~x`), fallible coming up
-(`upgrade()`).
+**Totality.** A sigil never fails at run time; what may find nothing
+gives an optional. The way back from a weak handle, `*w`, gives an
+optional `*U?`, because the value may be gone: a new count while it
+lives, `none` after. The round trip is total both ways: `~x` going
+down, and `*w` coming up, which may give `none`.
 
 **Position picks the category; the symbol picks the family.** A prefix
 `?` or `!` is always about lending: it lends in an expression and names
@@ -169,7 +168,7 @@ it, suffixes included, so `?User?` views an optional:
 | `*<o` | move `o`, then share it |
 | `+p.a` | clone the handle held in field `a` |
 | `?*Node` | a read view of a shared handle |
-| `*User?` | an optional shared handle (what `upgrade()` returns) |
+| `*User?` | an optional shared handle (what `*w` gives) |
 | `*(User?)` | a shared handle to an optional `User` |
 | `?User?` | a read view of an optional `User` |
 | `*Cell[List[*sub()]]` | a shared cell holding a list of owned closures |
@@ -234,7 +233,7 @@ sub main()
   print(id_of(?first))         # lend the handle: ?*Node
   w = ~first                   # weaken it: ~Node
   <first
-  if w.upgrade() as n          # the way back is a method: *Node?
+  if *w as n                   # the way back, a new count: *Node?
     print("alive", n.id)
 ```
 

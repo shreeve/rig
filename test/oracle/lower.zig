@@ -1814,18 +1814,18 @@ const Lowerer = struct {
                 .take => return abstain("a stack closure stored"),
                 .read, .view => return try self.closure(e, false),
             },
-            .share, .box => {
-                // `*<x` moves `x` into a counted handle and `*S(...)` makes
-                // a new value there; `^<x` and `^S(...)` do so in a box of
-                // one owner: the holder takes it, with its loans (Core s8,
-                // s9). An owned closure's environment is the counted
-                // handle (Core §7).
+            .share => if (self.ctx.upgradeOf(e)) |upgrade| {
+                // `*w` upgrading a weak handle reads it, and the new count
+                // carries the handle's loans, as `~h`'s does; `*<w` takes
+                // the handle, as `*<x` takes `x` (Core s8, s9).
+                if (upgrade == .takes) return self.handOver(e, pos);
                 const operand = ir.get(e, .operand);
-                const v = if (operand.isKind(.lambda)) try self.closure(operand, true) else try self.eval(operand, .take, null);
+                const p = try self.place(if (operand.isKind(.read)) ir.get(operand, .operand) else operand) orelse return abstain("an upgrade of a weak handle that is no place");
                 const t = try self.temp(try self.typeOf(e), pos);
-                try self.emit(.{ .pos = pos, .what = .make, .moves = try self.list(v), .def = t });
+                try self.emit(.{ .pos = pos, .what = .make, .reads = try self.one(p.root), .def = t, .access = readAccess(p) });
                 return t;
-            },
+            } else return self.handOver(e, pos),
+            .box => return self.handOver(e, pos),
             .weak => {
                 // `~h` reads the handle and holds its box weakly, with the
                 // contents' loans, as every handle does (Core s8, s9).
@@ -2566,6 +2566,20 @@ const Lowerer = struct {
             },
             else => .take,
         };
+    }
+
+    /// `*<x`, `*S(...)`, `^<x`, `^S(...)`, or an owned closure `*|...|`.
+    fn handOver(self: *Lowerer, e: Sexp, pos: u32) Error!?VarId {
+        // `*<x` moves `x` into a counted handle and `*S(...)` makes
+        // a new value there; `^<x` and `^S(...)` do so in a box of
+        // one owner: the holder takes it, with its loans (Core s8,
+        // s9). An owned closure's environment is the counted
+        // handle (Core §7).
+        const operand = ir.get(e, .operand);
+        const v = if (operand.isKind(.lambda)) try self.closure(operand, true) else try self.eval(operand, .take, null);
+        const t = try self.temp(try self.typeOf(e), pos);
+        try self.emit(.{ .pos = pos, .what = .make, .moves = try self.list(v), .def = t });
+        return t;
     }
 
     fn call(self: *Lowerer, e: Sexp, how: How) Error!?VarId {

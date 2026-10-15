@@ -1,6 +1,6 @@
 # Handles (Core s8, s9): `*<x` moves `x` into a counted box, `*S(...)`
 # boxes a new value, `+h` adds a count, `~h` holds the box weakly, and
-# `h.upgrade()` is the way back. What a handle holds is read through it
+# `*h` is the way back. What a handle holds is read through it
 # while the handle lives, and every handle carries its contents' loans.
 #
 # oracle: boxes accept
@@ -42,7 +42,7 @@ sub clone_outlives()
   b = +a
   w = ~a
   <a
-  if w.upgrade() as h
+  if *w as h
     print(h.name)
   print(b.name)
 
@@ -61,7 +61,7 @@ sub weak_after_drop()
   a = *User(name: "dee")
   w = ~a
   <a
-  if w.upgrade() as h
+  if *w as h
     print("still", h.name)
   else
     print("gone")

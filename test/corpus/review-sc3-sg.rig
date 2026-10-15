@@ -12,7 +12,7 @@ fun keep[T](v: T) -> Cell[T]
 sub main()
   sig: *Signal[Shape] = *Signal(Shape.dot)
   !sig.subscribe(*|~sig|
-    if sig.upgrade() as s
+    if *sig as s
       match s.get()
         .circle(r) => print("circle", r)
         .dot => print("dot")

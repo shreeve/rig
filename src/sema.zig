@@ -750,6 +750,9 @@ pub const Facts = struct {
     /// `<place` nodes that take an optional out of a field or element
     /// (`SemContext.recordTake`).
     takes: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// `*w` nodes that upgrade a weak handle -> whether each reads or
+    /// takes it (`SemContext.recordUpgrade`).
+    upgrades: std.AutoHashMapUnmanaged(NodeKey, Upgrade) = .empty,
     /// Header nodes (`match`, `for`, `as`) emitted over a copy of their
     /// subject: the subject makes a statement temporary, reaches no
     /// place, and the construct does not own what it binds
@@ -779,6 +782,16 @@ pub const Facts = struct {
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         inline for (@typeInfo(Facts).@"struct".field_names) |f| @field(self, f).deinit(allocator);
     }
+};
+
+/// How `*w` upgrades the weak handle `w` (`SemContext.recordUpgrade`).
+pub const Upgrade = enum {
+    /// `w` is read where it is, and stays usable: a place, a part of a
+    /// value, a lend, a branching value, or a view.
+    reads,
+    /// `w` is handed over and dropped once upgraded: a move (`*<w`) or a
+    /// weak handle made there (`*~h`, `*f()`).
+    takes,
 };
 
 /// How a node writes a binding (`SemContext.recordWrite`). Every site
@@ -1543,7 +1556,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
         return w.print(" {s}", .{try formatTypeIn(ctx, a, v)});
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
-        StringCall, Use => try w.print(" {s}", .{@tagName(v)}),
+        StringCall, Use, Upgrade => try w.print(" {s}", .{@tagName(v)}),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
         JumpDest => {
             const at = diag.lineCol(ctx.source, ctx.startOf(v.target));
@@ -2441,6 +2454,20 @@ pub const SemContext = struct {
 
     pub fn takes(self: *const SemContext, node: Sexp) bool {
         return self.facts.takes.contains(nodeKey(node) orelse return false);
+    }
+
+    /// `*w` (`node`, a `share`) of a weak handle `w`, a `~T` or a view of
+    /// one, upgrades it (`how`): its value is a new `*T?`, a new count
+    /// while the value lives and `none` after. The type checker decides
+    /// it once, by the operand's type.
+    pub fn recordUpgrade(self: *SemContext, node: Sexp, how: Upgrade) !void {
+        try self.facts.upgrades.put(self.allocator, recordKey(node), how);
+    }
+
+    /// How `*w` upgrades a weak handle (`recordUpgrade`); null where `*`
+    /// makes a counted handle.
+    pub fn upgradeOf(self: *const SemContext, node: Sexp) ?Upgrade {
+        return self.facts.upgrades.get(nodeKey(node) orelse return null);
     }
 
     /// Header `node` (a `match`, `for`, or `as`) is evaluated in a block
@@ -4213,17 +4240,15 @@ pub fn retiredNameHint(name: []const u8) ?[]const u8 {
     return null;
 }
 
-/// A holding sigil that puts a value on the heap: `^` or `*`.
-pub const HeapHolder = enum { box, shared };
-
-/// Whether `holder` over `inner` holds a value that is already held on
-/// the heap: `^^T`, `^*T`, `^~T`, `*^T`, and `**T`. A value is held one
-/// way on the heap, so a second sigil is a typo.
-pub fn heapStacked(ctx: *const SemContext, holder: HeapHolder, inner: TypeId) bool {
+/// Whether a holding sigil (`^` or `*`) over `inner` holds a value that
+/// is already held on the heap: `^^T`, `^*T`, `^~T`, `*^T`, `**T`, and
+/// `*~T`. A value is held one way on the heap, so a second sigil is a
+/// typo.
+pub fn heapStacked(ctx: *const SemContext, inner: TypeId) bool {
     if (boxedType(ctx, inner) != null) return true;
     return switch (ctx.types.get(inner)) {
         .shared => true,
-        .weak => holder == .box,
+        .weak => true,
         else => false,
     };
 }
@@ -4242,7 +4267,7 @@ pub const boxed_function = "`^` boxes a value; a function has no box (`^fun` is 
 /// two holdings (`heapStacked`), or null.
 pub fn findHeapStacked(ctx: *const SemContext, ty: TypeId) ?TypeId {
     switch (ctx.types.get(ty)) {
-        .shared => |inner| return if (heapStacked(ctx, .shared, inner)) ty else findHeapStacked(ctx, inner),
+        .shared => |inner| return if (heapStacked(ctx, inner)) ty else findHeapStacked(ctx, inner),
         .weak, .read_view, .write_view, .optional, .fallible, .range, .callable => |inner| return findHeapStacked(ctx, inner),
         .slice => |s| return findHeapStacked(ctx, s.elem),
         .array => |a| return findHeapStacked(ctx, a.elem),
@@ -4251,7 +4276,7 @@ pub fn findHeapStacked(ctx: *const SemContext, ty: TypeId) ?TypeId {
             return findHeapStacked(ctx, f.returns);
         },
         .parameterized_nominal => |pn| {
-            if (pn.sym == ctx.box_sym_id and pn.args.len == 1 and heapStacked(ctx, .box, pn.args[0])) return ty;
+            if (pn.sym == ctx.box_sym_id and pn.args.len == 1 and heapStacked(ctx, pn.args[0])) return ty;
             for (pn.args) |a| if (findHeapStacked(ctx, a)) |found| return found;
             return null;
         },
@@ -8861,15 +8886,12 @@ test "heap holdings: a box prints as ^T, and a holding over a held value is stac
     try std.testing.expectEqualStrings("^?P", try spelled(ctx, box_read));
     try std.testing.expectEqualStrings("(^?P)?", try spelled(ctx, try ctx.intern(.{ .optional = box_read })));
     // A box holds a value held no other way on the heap.
-    try std.testing.expect(!heapStacked(ctx, .box, p));
-    try std.testing.expect(!heapStacked(ctx, .box, opt_p));
-    try std.testing.expect(!heapStacked(ctx, .box, ty.int_id));
-    try std.testing.expect(heapStacked(ctx, .box, box_p));
-    try std.testing.expect(heapStacked(ctx, .box, shared_p));
-    try std.testing.expect(heapStacked(ctx, .box, weak_p));
-    try std.testing.expect(heapStacked(ctx, .shared, box_p));
-    try std.testing.expect(heapStacked(ctx, .shared, shared_p));
-    try std.testing.expect(!heapStacked(ctx, .shared, weak_p));
+    try std.testing.expect(!heapStacked(ctx, p));
+    try std.testing.expect(!heapStacked(ctx, opt_p));
+    try std.testing.expect(!heapStacked(ctx, ty.int_id));
+    try std.testing.expect(heapStacked(ctx, box_p));
+    try std.testing.expect(heapStacked(ctx, shared_p));
+    try std.testing.expect(heapStacked(ctx, weak_p));
     // A stacked type is found inside the types made of it.
     try std.testing.expectEqual(@as(?TypeId, null), findHeapStacked(ctx, opt_box));
     try std.testing.expectEqual(@as(?TypeId, box_box), findHeapStacked(ctx, box_box));

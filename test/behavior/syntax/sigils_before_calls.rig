@@ -33,7 +33,7 @@ sub main()
   tree = Tree(leaf: *Leaf(n: 3))
   copy = +tree.first()
   weak = ~copy
-  print(copy.n, weak.upgrade() != none)
+  print(copy.n, *weak != none)
   p = Point(x: 4)
   print(-p.x, -p.shifted(1).x)
   show(?(p.shifted(2)))

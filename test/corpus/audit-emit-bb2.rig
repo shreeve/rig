@@ -6,7 +6,7 @@ sub main()
   s: *Signal[P] = *Signal(P(x: 0, y: 0))
   log: *Cell[List[Int]] = *Cell(List())
   !s.subscribe(*|+log, ~s|
-    if s.upgrade() as h
+    if *s as h
       v = h.get()
       !log.push(v.x)
       if v.x == 1

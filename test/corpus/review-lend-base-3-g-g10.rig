@@ -17,6 +17,6 @@ sub main()
   k = made()
   h = *N(v: 1, next: none)
   wk = ~h
-  if (?wk).upgrade() as s
+  if *?wk as s
     print(s.v)
   print(k.hits.get(), k.log.len, k.n, h.v)

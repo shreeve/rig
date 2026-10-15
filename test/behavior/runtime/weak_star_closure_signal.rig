@@ -1,0 +1,33 @@
+# A weak handle to an owned closure (`~f`, `w: ~fun(...)`) and a signal
+# captured weakly (`|~sig|`) upgrade as every weak handle does: `*w`, a
+# new handle while the closure or signal lives, `none` after.
+
+sub main()
+  f: *fun(Int) -> Int = *|a| a + 1
+  w: ~fun(Int) -> Int = ~f
+  if *w as g
+    print(g(1))
+  g: *fun(Int) -> Int = *|~f, a|
+    if *f as h
+      return h(a) * 10
+    0
+  print(g(2))
+  <f
+  print(*w == none, g(2))
+
+  sig: *Signal[Int] = *Signal(0)
+  !sig.subscribe(*|~sig|
+    if *sig as s
+      print("now", s.get())
+  )
+  !sig.set(7)
+  ws = ~sig
+  <sig
+  print(*ws == none)
+
+# expect:
+# 2
+# 30
+# true 0
+# now 7
+# true

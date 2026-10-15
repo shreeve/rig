@@ -4,7 +4,7 @@ obj Obj
 
   drop(!self)
     print("drop", self.n)
-    if self.home.upgrade() as h
+    if *self.home as h
       if h.len > 0
         _ = !h.pop()
 

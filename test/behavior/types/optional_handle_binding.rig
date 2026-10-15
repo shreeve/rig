@@ -51,9 +51,9 @@ sub main()
   <old
   print((!p).replace(none) == none, (!q).replace(none) == none)
   nd = *Node(value: 3)
-  sw: *Cell[*~Node?] = *Cell[*~Node?](*~nd)
+  sw: *Cell[~Node?] = *Cell[~Node?](~nd)
   ws: *Cell[~*Node?] = *Cell[~*Node?](none)
-  sp: *Cell[*(~Node)?] = *Cell[*(~Node)?](none)
+  sp: *Cell[(~Node)?] = *Cell[(~Node)?](none)
   print((!sw).replace(none) != none, (!ws).replace(none) == none, (!sp).replace(none) == none)
 
 # expect:

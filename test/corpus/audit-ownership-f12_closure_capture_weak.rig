@@ -19,7 +19,7 @@ fun cond(t: *Tok) -> Bool
 sub main()
   t = *Tok(n: 1)
   f = |~t|
-    if t.upgrade() as s
+    if *t as s
       print("alive", s.n)
     else
       print("gone")

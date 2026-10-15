@@ -4,5 +4,5 @@ obj S
 sub main()
   h = *S(n: 1)
   a: ^~S = ^~h
-  if a.upgrade() as x
+  if *a as x
     print(x.n)

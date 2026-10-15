@@ -22,7 +22,7 @@ fun dup[T](h: ?*T) -> *T
   +h
 
 fun alive[T](w: ?~T) -> Bool
-  s = w.upgrade()
+  s = *w
   s != none
 
 fun or_else[T](x: T?, d: T) -> T

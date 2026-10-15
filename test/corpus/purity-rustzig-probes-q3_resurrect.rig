@@ -10,7 +10,7 @@ obj H
 sub main()
   h = *H(name: "h", cb: Cell(none))
   !h.cb.set(*|~h|
-    if h.upgrade() as s
+    if *h as s
       print("upgraded during drop", s.name)
     else
       print("gone")

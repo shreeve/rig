@@ -1,0 +1,22 @@
+# `*w` only reads the weak handle it upgrades, so a write lend there is
+# rejected. A suffix binds tighter than `*`: `*w?` is `*(w?)`, which
+# propagates `none` out of the weak handle itself; the hint gives
+# `(*w)?`, which returns `none` once the value is gone.
+
+obj Node
+  id: Int
+
+fun id_of(w: ?~Node) -> Int?
+  n = *w?
+  n.id
+
+sub main()
+  rc = *Node(id: 1)
+  w = ~rc
+  if *!w as p
+    print(p.id)
+  print(id_of(?w) ?? 0)
+
+# error: 10:8: `*w?` is `*(w?)`, and `w` is a weak handle, not an optional: to return `none` once its value is gone, write `(*w)?`
+# error: 16:7: `*` only reads the weak handle it upgrades: write `*w`
+# errors: 2

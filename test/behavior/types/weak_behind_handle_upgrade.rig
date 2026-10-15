@@ -1,15 +1,30 @@
-# The forms the hints of test/reject/types/weak_in_box_upgrade_hint.rig
-# suggest: a weak handle behind a handle is lent out and upgraded.
+# A weak handle held in a field behind a counted handle, or in a List,
+# upgrades where it stands: `*h.w` reads the field, and `*ws[0]` the
+# element, and each stays usable.
 
 obj S
   n: Int
 
+obj Holder
+  w: ~S
+
 sub main()
-  h = *S(n: 1)
-  c: *~S = *(~h)
-  u: ?~S = ?c
-  if u.upgrade() as s
-    print(s.n + 2)
+  s = *S(n: 1)
+  h = *Holder(w: ~s)
+  if *h.w as t
+    print(t.n + 2)
+  u: ?~S = ?h.w
+  if *u as t
+    print(t.n + 3)
+  ws: List[~S] = List()
+  !ws.push(~s)
+  if *ws[0] as t
+    print(t.n + 4)
+  <s
+  print(*h.w == none, *ws[0] == none)
 
 # expect:
 # 3
+# 4
+# 5
+# true true

@@ -30,7 +30,7 @@ obj IntSource
 sub main()
   count = IntSource.new(0)
   !count.subscribe(*|~count|
-    if count.upgrade() as c
+    if *count as c
       print(c.get())
   )
   !count.set(1)

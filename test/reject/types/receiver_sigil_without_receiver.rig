@@ -1,16 +1,12 @@
 # `!` and `<` before a call apply to the method's receiver, so a call
 # with none rejects them: an associated function called through its
 # type (where `!` reaches the type, not the value the call makes), a
-# Cell's List members, a weak handle's `upgrade`, and a field holding a
-# function.
+# Cell's List members, and a field holding a function.
 
 obj Point
   x: Int
   fun origin() -> Point
     Point(x: 0)
-
-obj Node
-  n: Int
 
 obj Hooks
   on: *fun(Int) -> Int
@@ -20,15 +16,10 @@ sub main()
   b = <Point.origin()
   log: Cell[List[Int]] = Cell(List())
   !log.get(0)
-  h = *Node(n: 1)
-  w = ~h
-  if !w.upgrade() as k
-    print(k.n)
   hooks = Hooks(on: *|n| n + 1)
   print(!hooks.on(1), a.x, b.x)
 
-# error: 19:7: `!` here reaches `Point`, a type, not the value `Point.origin()` makes: write `!(Point.origin())` to lend that value, or remove the `!`
-# error: 20:7: `origin` is called through its type or module and has no receiver; remove the `<`
-# error: 22:3: `get` only reads the Cell; remove the `!`
-# error: 25:6: `upgrade` only reads the weak handle; remove the `!`
-# error: 28:9: `on` is a field holding a function, not a method with a receiver; remove the `!`
+# error: 15:7: `!` here reaches `Point`, a type, not the value `Point.origin()` makes: write `!(Point.origin())` to lend that value, or remove the `!`
+# error: 16:7: `origin` is called through its type or module and has no receiver; remove the `<`
+# error: 18:3: `get` only reads the Cell; remove the `!`
+# error: 20:9: `on` is a field holding a function, not a method with a receiver; remove the `!`

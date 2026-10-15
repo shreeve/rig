@@ -6,7 +6,7 @@ sub main()
   !v.push(1)
   h = *Hold(v: ?v)
   w = ~h
-  s = w.upgrade()
+  s = *w
   <h
   <w
   !v.push(2)

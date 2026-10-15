@@ -5,7 +5,7 @@ sub main()
   sig: *Signal[Int] = *Signal(0)
   !sig.subscribe(*|~sig|
     print("notified")
-    if sig.upgrade() as s
+    if *sig as s
       !s.subscribe(*|| print("late"))
   )
   print("before")

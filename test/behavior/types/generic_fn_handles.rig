@@ -15,7 +15,7 @@ fun weak_of[T](h: *T) -> ~T
   ~h
 
 fun upgraded[T](w: ?~T) -> *T?
-  w.upgrade()
+  *w
 
 sub main()
   h = *Res(n: 1)

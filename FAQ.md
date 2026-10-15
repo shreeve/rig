@@ -90,11 +90,13 @@ sub main()
 2
 ```
 
-## Why is `upgrade` a method and not a sigil?
+## Why does `*w` give an optional?
 
-Every sigil always succeeds, and upgrading a weak handle can fail,
-because the value may be gone. So it is a method returning an optional:
-`if w.upgrade() as h` ([totality](docs/DESIGN.md#the-operations)).
+A weak handle does not keep its value alive, so upgrading it may find
+the value gone. `*w` makes a new count, as `*` always does, and gives a
+`*T?`: a new handle while the value lives, `none` after. So it never
+fails at run time: `if *w as h`
+([totality](docs/DESIGN.md#the-operations)).
 
 ## Why no `var` or `let`?
 

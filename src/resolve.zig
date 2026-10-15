@@ -1993,7 +1993,7 @@ pub const TypeResolver = struct {
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
                         if (try self.heldCallable(inner_node, inner) or try self.misplacedAt(inner_node, inner, .handle)) return t.invalid_id;
-                        if (sema.heapStacked(self.ctx, .shared, inner)) {
+                        if (sema.heapStacked(self.ctx, inner)) {
                             try self.ctx.errAt(sexp, sema.heap_stacked, .{try self.stackedSpelling('*', inner)});
                             return t.invalid_id;
                         }
@@ -2041,7 +2041,7 @@ pub const TypeResolver = struct {
                             try self.ctx.errAt(sexp, sema.boxed_function, .{});
                             return t.invalid_id;
                         }
-                        if (sema.heapStacked(self.ctx, .box, inner)) {
+                        if (sema.heapStacked(self.ctx, inner)) {
                             try self.ctx.errAt(sexp, sema.heap_stacked, .{try self.stackedSpelling('^', inner)});
                             return t.invalid_id;
                         }

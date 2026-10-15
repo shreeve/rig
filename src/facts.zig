@@ -72,6 +72,7 @@ pub const StorageBy = sema.StorageBy;
 pub const Answer = sema.Answer;
 pub const Clone = sema.Clone;
 pub const MethodReceiver = sema.MethodReceiver;
+pub const Upgrade = sema.Upgrade;
 pub const TypedInt = sema.TypedInt;
 pub const ValueParts = sema.ValueParts;
 pub const ArgSlot = sema.ArgSlot;
@@ -257,6 +258,9 @@ pub const Facts = struct {
     }
     pub fn takes(f: Facts, node: Sexp) bool {
         return f.c().takes(node);
+    }
+    pub fn upgradeOf(f: Facts, node: Sexp) ?Upgrade {
+        return f.c().upgradeOf(node);
     }
     pub fn repoints(f: Facts, node: Sexp) bool {
         return f.c().repoints(node);

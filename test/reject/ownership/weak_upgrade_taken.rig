@@ -1,0 +1,16 @@
+# `*<w` upgrades the weak handle `w` and takes it: the handle is dropped
+# once upgraded, so a later use of `w` is a use after move. `*w` reads
+# `w`, which stays usable (test/behavior/runtime/weak_star_upgrade.rig).
+
+obj Node
+  id: Int
+
+sub main()
+  rc = *Node(id: 1)
+  w = ~rc
+  if *<w as p
+    print(p.id)
+  print(*w == none)
+
+# error: 13:10: use of `w` after move
+# errors: 1
