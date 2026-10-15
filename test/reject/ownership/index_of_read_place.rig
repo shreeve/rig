@@ -72,7 +72,6 @@ sub main()
   print(l[rel(!l)])
   print(v[0][eat(<v)])
 
-
 # error: 46:14: cannot lend `v` to write in an index of a place it is lending
 # error: 60:18: cannot lend `v` to write in an index of a place it is lending
 # error: 61:20: cannot lend `v` to write in an index of a place it is lending
