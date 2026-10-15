@@ -68,15 +68,40 @@ side; Rig names everything from the side the sigil is on.
 
 | Kind | Examples | A plain use | Status |
 |---|---|---|---|
-| **plain** | `Int`, `Bool`, `Static`, enums, `Simd[T, n]`, structs whose parts are all plain | copies | built |
-| **owning** | `List[T]`, `^T`, `String`, `error`, structs holding an owner | moves; one owner; dropped once | built |
+| **plain** | `Int`, `Bool`, `Static`, enums, `Simd[T, n]`, objects whose parts are all plain | copies | built |
+| **owning** | `List[T]`, `^T`, `String`, `error`, objects holding an owner | moves; one owner; dropped once | built |
 | **handle** | `*T` (counted), `~T` (weak), owned closures (`*fun`) | moves; `+h` adds a count | built |
 | **view** | `?T`, `!T`, `[]T`, `![]T` | a read view copies; a write view reads the value it sees where that copies (sentence 1), and otherwise moves with `<w` | built |
+
+**An object is a value; `^` puts it on the heap and `*` shares it.** An object
+lives where it is declared, inside whatever holds it, and has no
+identity of its own: `b = a` copies a plain object and moves an owning
+one. The object itself goes on the heap only behind `^`, with one owner,
+and is shared only behind `*`, where `+s` adds a count. *(built)*
+
+```rig
+obj Point
+  x: Int
+  y: Int
+
+sub main()
+  a = Point(x: 1, y: 2)
+  b = a                    # a copy
+  b.x = 5
+  h = ^Point(x: 3, y: 4)   # on the heap, one owner
+  s = *Point(x: 6, y: 7)   # shared
+  t = +s
+  print(a.x, b.x, h.x, s.x, t.x)
+```
+
+```output
+1 5 3 6 6
+```
 
 **A `^T` is held like a handle and behaves like an owner:** one owner,
 moved by `<b`, with `+b` copying its value into a new box. *(built)*
 
-**A struct's or enum's kind follows from its parts:** it is owning if
+**An object's or enum's kind follows from its parts:** it is owning if
 any part is owning or a handle; otherwise a view if any part is a view;
 otherwise plain. No part is a write view (§5). *(built)*
 
@@ -874,7 +899,7 @@ takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 | a function or closure | `?fun` | | built |
 
 A view of a value that copies (§1) is copied out where that value is
-expected, a plain struct, array, or optional as a number is, and the
+expected, a plain object, array, or optional as a number is, and the
 copy carries no loan but those of the views it holds, as with a call's
 `?Int` result. *(built)* A slice `x[a..b]` is the same lend, of
 part of `x`, and goes unwritten as an argument where `x` does:
@@ -971,7 +996,7 @@ sub main()
 ## 5. Containers and fields hold values
 
 `List`, arrays, and fields hold any value but a write view; only a
-struct field may hold a `Cell`. Each field and element is a place:
+object field may hold a `Cell`. Each field and element is a place:
 
 - `p.f` and `v[i]` read it (sentence 1);
 - `?p.f`, `!p.f`, `?v[i]`, and `!v[i]` lend it;

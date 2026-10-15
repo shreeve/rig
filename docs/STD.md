@@ -614,7 +614,7 @@ false no prefix
 4 7
 ```
 
-`split`, `lines`, and `words` give an iterator, a struct holding the
+`split`, `lines`, and `words` give an iterator, an object holding the
 rest of the `?String`, whose `next` gives each part in turn, and `none`
 after the last. A `for` walks one ([SPEC §6](../SPEC.md#for)): a call's
 result is held for the loop, and a name is advanced in place, so a loop

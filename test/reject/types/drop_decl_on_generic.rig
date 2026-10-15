@@ -6,4 +6,4 @@ obj Wrap[T]
   drop(!self)
     print(0)
 
-# error: `drop` bodies are only for non-generic structs, not generic structs
+# error: `drop` bodies are only for non-generic objects, not generic objects
