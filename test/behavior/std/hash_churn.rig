@@ -1,0 +1,103 @@
+# std.hash's Map against a plain reference, a List of pairs searched in
+# turn, over a long pseudo-random run of puts, takes, gets, edits, and
+# clears, at sizes that cross from a small Map (no table) to a table
+# and back after a clear, and with room reserved. After every step the
+# two agree on the length and on every key, and their walks agree in
+# order.
+
+use std.hash
+
+obj Pair
+  key: Int
+  value: Int
+  live: Bool
+
+obj Model
+  pairs: List[Pair] = List()
+  len: Int = 0
+
+  fun find(?self, k: Int) -> Int?
+    for p, i in ?self.pairs
+      return i if p.live and p.key == k
+    none
+
+  sub put(!self, k: Int, v: Int)
+    if self.find(k) as i
+      self.pairs[i].value = v
+    else
+      !self.pairs.push(Pair(key: k, value: v, live: true))
+      self.len += 1
+
+  fun take(!self, k: Int) -> Int?
+    if self.find(k) as i
+      self.pairs[i].live = false
+      self.len -= 1
+      return self.pairs[i].value
+    none
+
+  sub bump(!self, k: Int)
+    if self.find(k) as i
+      self.pairs[i].value += 1
+
+  sub clear(!self)
+    !self.pairs.clear()
+    self.len = 0
+
+obj Rand
+  s: U64
+
+  fun next(!self, n: Int) -> Int
+    self.s = self.s *% 6364136223846793005 +% 1442695040888963407
+    Int((self.s >> 33) % U64(n))
+
+fun agree(m: ?hash.Map[Int, Int], ref: ?Model, span: Int) -> Bool
+  return false if m.len != ref.len
+  for x in 0..span
+    k = x * 1024
+    want: Int? = none
+    if ref.find(k) as i
+      want = ref.pairs[i].value
+    got: Int? = none
+    if m.get(k) as v
+      got = v
+    return false if got != want
+  # The walk is in the order keys were first put in.
+  order: List[Int] = List()
+  for e in ?m.items()
+    !order.push(e.key)
+  i = 0
+  for p in ?ref.pairs
+    if p.live
+      return false if i >= order.len or order[i] != p.key
+      i += 1
+  i == order.len
+
+fun run(seed: U64, span: Int, steps: Int, reserve: Int) -> Bool
+  r = Rand(s: seed)
+  m = hash.Map[Int, Int].new(capacity: reserve)
+  ref = Model()
+  for step in 0..steps
+    op = (!r).next(10)
+    k = (!r).next(span) * 1024
+    if op < 5
+      !m.put(k, step)
+      !ref.put(k, step)
+    else if op < 8
+      return false if (!m).take(k) != (!ref).take(k)
+    else if op < 9
+      if (!m).edit(k) as v
+        v += 1
+        !ref.bump(k)
+    else if (!r).next(50) == 0
+      !m.clear()
+      !ref.clear()
+    return false if not agree(?m, ?ref, span)
+  true
+
+sub main()
+  print(run(1, 6, 400, 0), run(2, 12, 2000, 0), run(3, 40, 4000, 0), run(4, 300, 6000, 0))
+  print(run(5, 40, 3000, 100), run(6, 9, 3000, 9))
+
+# expect:
+# true true true true
+# true true
