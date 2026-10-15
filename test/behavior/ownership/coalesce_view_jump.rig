@@ -2,7 +2,8 @@
 # with no type reads a view of a number as the number, so `n` keeps no
 # loan, while `p`, a view of an object, keeps the Map lent and is
 # written `?q.get(k)`. The view a fallback form gives copies out where
-# its value is expected, so `z: Int` keeps no loan either.
+# its value is expected, so `z: Int` keeps no loan either, and `none`
+# where an optional view is expected keeps the view.
 
 use std.hash
 
@@ -33,6 +34,8 @@ sub main()
   z: Int = m.get("x") ?? ?d
   !m.put(String("x"), z)
   print(m.get("x") ?? 0)
+  o: (?Int)? = ?m.get("q") ?? none
+  print(o)
   q = hash.Map[String, P]()
   !q.put(String("a"), P(x: 4))
   print(x_of(?q, "a"), x_of(?q, "b"))
@@ -41,4 +44,5 @@ sub main()
 # 5
 # 3
 # 10
+# none
 # 4 -1

@@ -904,7 +904,9 @@ takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 A view of a value that copies (§1) is copied out where that value is
 expected, a plain object, array, or optional as a number is, and the
 copy carries no loan but those of the views it holds, as with a call's
-`?Int` result. *(built)* A slice `x[a..b]` is the same lend, of
+`?Int` result. So is the view inside an optional or fallible value
+whose `??` or `catch` falls back to a value, not a view: `m.get(k) ??
+0` is an `Int`, as `if m.get(k) as v` then `v` else `0` is. *(built)* A slice `x[a..b]` is the same lend, of
 part of `x`, and goes unwritten as an argument where `x` does:
 `total(w[1..3])` is `total(?w[1..3])`. *(built)* So `sort.sort(!v)` works on a `List` as it does on an array,
 and one `fun area(s: ?Shape)` serves a `Shape`, a `^Shape`, and a
@@ -1215,7 +1217,9 @@ sub main()
 
 **View places.** Assigning a view to a place that holds one re-points
 it, and assigning a value writes through. A field that holds a read
-view re-points the same way. `new` only shadows, and accepts every
+view re-points the same way. A write view a call returns is a place
+too, which a value is written through: `slot(!n) += 1` is `w =
+slot(!n)`, then `w += 1`. `new` only shadows, and accepts every
 binding form.
 *(built)*
 
@@ -1231,6 +1235,21 @@ sub main()
 
 ```output
 1 5
+```
+
+```rig
+fun slot(v: !List[Int], i: Int) -> !Int from v
+  !v[i]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  slot(!v, 0) += 1
+  print(v)
+```
+
+```output
+[2]
 ```
 
 ## 7. Closures and defer

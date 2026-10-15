@@ -549,6 +549,30 @@ sub main()
 cannot lend `m` to write while a read loan is live
 ```
 
+Where the value copies, `?? v` with a value `v` gives a copy of it
+instead of the view ([SPEC §12](../SPEC.md#the-fallback-of-)), which
+keeps no loan, and a write view `edit` gives is assigned through where
+it stands:
+
+```rig
+use std.hash
+
+fun bump(m: !hash.Map[String, Int], k: ?String) -> Int?
+  (!m).edit(k)? += 1
+  m.get(k) ?? 0
+
+sub main()
+  m = hash.Map[String, Int].new()
+  for w in ["a", "b", "a"]
+    n = m.get(w) ?? 0
+    !m.put(String(w), n + 1)
+  print(m.get("a") ?? 0, m.get("c") ?? 0, bump(!m, "b"), bump(!m, "c"))
+```
+
+```output
+2 0 2 none
+```
+
 A key needs `.hash()`, which a `Float` does not have:
 
 ```rig reject
