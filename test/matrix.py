@@ -6,7 +6,9 @@ one context (a `print` argument, a binding, an element assignment, ...)
 for one type (Int, ?String, String, List, `*T`, `^T`, a struct with a
 `drop`, a struct declared `unique`, a vector, and a few cells of a struct holding
 a Cell, every one of which must be rejected), plus the
-stores into a view parameter (`store.`, below), a value `replace`
+stores into a view parameter (`store.`, below), a loan reaching a
+generic body's `T` result each way, its `from` naming that parameter or
+not (`gen.`, below), a value `replace`
 takes out of each kind of place, then the place written, the value put
 back, or what it views dropped while it lives (`taken.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
@@ -513,6 +515,60 @@ STORE_FORMS = {
     "match_payload": ("e", ["match !a", "  .one(h) => h.r = S", "  .zero => print(0)"]),
     "as_binding": ("opt", ["if !a as h", "  h.r = S"]),
 }
+
+
+# -----------------------------------------------------------------------------
+# A generic body tracks no loan in a value of a type parameter's type, but
+# in an instance one may hold a view: `g` makes its `T` result from its
+# parameter `p` each way (a callable's result, an element of a `[]T`, an
+# optional's value through `??` or `as`, a closure's result, the result
+# of a function a field holds, a `match` payload of a viewed `Opt[T]`),
+# and its `from` names `p` (and `d`, where
+# the body may return it) or only `d`.
+# Unnamed, the body is rejected; named, the result keeps `p`'s argument
+# lent, so `main` may read it, and may not drop what it views first.
+# Cells are `gen.<form>.<said>.<then>`.
+# -----------------------------------------------------------------------------
+
+# Each form: `g`'s parameters before `d`, what `from` names when it names
+# `p`, the body, `main`'s setup and arguments before `d`'s, and the type
+# argument `T` stands for (`?String`, or `K`, which holds one).
+GEN_FORMS = {
+    "call": dict(params="f: ?fun(?String) -> T, p: ?String", said="f, p", body=["f(p)"], setup=[],
+                 args="|s: ?String| s, ?t"),
+    "element": dict(params="p: []T", said="p", body=["p[0]"], setup=["a = [?t]"], args="?a[..]"),
+    "nullish": dict(params="p: T?", said="p, d", body=["p ?? d"], setup=["o: (?String)? = ?t"], args="o"),
+    "as": dict(params="p: T?", said="p, d", body=["if <p as v", "  return v", "d"], setup=["o: (?String)? = ?t"],
+               args="o"),
+    "closure": dict(params="f: ?fun(?String) -> T, p: ?String", said="f, p", body=["h = |?f, ?p| f(p)", "h()"],
+                    setup=[], args="|s: ?String| s, ?t"),
+    "field": dict(field=True, params="p: ?String", said="p", body=["self.f(p)"], setup=[], args="?t"),
+    "match": dict(params="p: ?Opt[T]", said="p, d", body=["match p", "  .some(v) => v", "  .none => d"],
+                  setup=["o = Opt[?String].some(?t)"], args="?o"),
+}
+
+
+def gen_program(fname, said, then):
+    """The program for one `gen.` cell, and what it prints."""
+    f = GEN_FORMS[fname]
+    origin = f["said"] if said else "d"
+    out = ["obj K\n  s: ?String\n", "enum Opt[T]\n  some(value: T)\n  none\n"]
+    if f.get("field"):
+        out.append("obj H[T]\n  f: *fun(?String) -> T\n\n"
+                   f"  fun g(?self, {f['params']}, d: ?String) -> T from {origin}\n{indent(f['body'], 4)}\n")
+        call = "r = h.g(?t, ?u)"
+        setup = ["h = H[K](f: *|s| K(s: s))"]
+        show = "print(r.s)"
+    else:
+        out.append(f"fun g[T]({f['params']}, d: T) -> T from {origin}\n{indent(f['body'], 2)}\n")
+        call = f"r = g({f['args']}, ?u)"
+        setup = f["setup"]
+        show = "print(r)"
+    main = ['t = String("abc")', 'u = String("u")'] + setup + [call]
+    main += (["<t"] if then == "drop" else []) + [show]
+    out.append("sub main()\n" + indent(main, 2) + "\n")
+    expect = "abc\n" if said and then == "read" else "(rejected)\n"
+    return "\n".join(out), expect
 
 
 # -----------------------------------------------------------------------------
@@ -3690,6 +3746,20 @@ def main():
                 cells.append((ident, path))
     release = set()
     also = set()
+    for fname in GEN_FORMS:
+        for said in ("said", "unsaid"):
+            for then in ("read", "drop"):
+                ident = f"gen.{fname}.{said}.{then}"
+                if not wanted(ident):
+                    continue
+                src, expects[ident] = gen_program(fname, said == "said", then)
+                path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                with open(path, "w") as fh:
+                    fh.write(src)
+                cells.append((ident, path))
+                # A cell that prints must be accepted.
+                if expects[ident] != "(rejected)\n":
+                    release.add(ident)
     for pname in TAKEN_PLACES:
         for then in TAKEN_THENS:
             ident = f"taken.{pname}.{then}"

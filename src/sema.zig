@@ -3887,6 +3887,22 @@ pub const TypeChildren = struct {
     }
 };
 
+/// Whether a value of `ty` may hold a value of a type parameter: the
+/// parameter itself, or a type built from it (`List[T]`, `T?`, `Bag[T]`),
+/// but no function, and not a compile-time value (`Simd[U8, n]`).
+pub fn holdsTypeParam(ctx: *const SemContext, ty: TypeId) bool {
+    if (!ctx.typeInfo(ty).has_type_var) return false;
+    const t = ctx.types.get(ty);
+    switch (t) {
+        .type_var => return true,
+        .function, .ct_param => return false,
+        else => {},
+    }
+    var it: TypeChildren = .{ .ty = t };
+    while (it.next()) |c| if (holdsTypeParam(ctx, c)) return true;
+    return false;
+}
+
 pub fn typeChildren(ctx: *const SemContext, ty: TypeId) TypeChildren {
     return .{ .ty = ctx.types.get(ty) };
 }

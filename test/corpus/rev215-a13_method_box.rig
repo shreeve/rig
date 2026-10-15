@@ -1,0 +1,16 @@
+# Review probe (#215): a loan reaching a generic body's T; rejected, or runs sanitizer-clean.
+obj Box[T]
+  v: T
+
+  fun pick(?self, other: ?Box[T]) -> T from other
+    self.v
+
+sub main()
+  t = String("abc")
+  u = String("u")
+  b1 = Box(v: ?t)
+  b2 = Box(v: ?u)
+  r = b1.pick(?b2)
+  <b1
+  <t
+  print(r)

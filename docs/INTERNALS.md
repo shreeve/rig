@@ -2767,8 +2767,21 @@ bug becomes a rejection, never a hole in a caller. One such edge is
 known: where a result's targets are anything (a type parameter's or a
 callable's), a `?String` parameter taken by value is never counted, which
 can only reject a body that returns one; no generic or callable body
-can turn a `?String` into a `T` or a callable. A `from` clause is
-part of a declaration, not of its function type: a function lent as a
+can turn a `?String` into a `T` or a callable.
+
+A generic body tracks no loan in a value of a type that holds a type
+parameter by value (SPEC "Generic bodies"), which in an instance may hold
+a view. So where such a value is made from values carrying a
+parameter's loans, the loans are dropped but the parameter is recorded
+(`taintGeneric`: a call's result, a field or element read, a binding, a
+loop element, a match copy, a take, a variable of such a type read (a
+`match` payload's view of its subject), and a parameter taken by value
+read), and `checkOrigins` counts it as returned wherever the body
+returns a value whose type holds a type parameter (`P[T]` too, beside
+its views). This is coarser than a loan: one read of a `[]T` parameter's
+element counts it as returned wherever the body returns a `T`.
+
+A `from` clause is part of a declaration, not of its function type: a function lent as a
 value (`?first`) is called with its type's origins, which every body
 satisfies. Recursion needs no fixpoint: a call of the function from its
 own body uses the origins being proved (each returning run is finite).
