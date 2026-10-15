@@ -1,9 +1,10 @@
 # A generic body tracks no loan in a value of a type parameter's type,
 # but in an instance it may hold a view: a `T` made from a parameter
 # views what that parameter's argument views, so returning it returns a
-# view of that parameter, which `from` must name. Each was accepted and
-# used freed memory when the caller dropped what the unnamed argument
-# viewed.
+# view of that parameter, which `from` must name, as does a result that
+# holds a `T` beside a view, and a `match` payload of type `T` viewing
+# its subject. Each was accepted and used freed memory when the caller
+# dropped what the unnamed argument viewed.
 
 fun pick[T](f: ?fun(?String) -> T, a: ?String, b: ?String) -> T from b
   f(a)
@@ -25,12 +26,30 @@ fun unwrap[T](o: T?, d: T) -> T from d
     return v
   d
 
+obj P[T]
+  s: ?String
+  v: T
+
+fun mk[T](x: T, c: ?String) -> P[T] from c
+  P(s: c, v: x)
+
+enum Opt[T]
+  some(value: T)
+  none
+
+fun payload[T](o: ?Opt[T], d: T) -> T from d
+  match o
+    .some(v) => v
+    .none => d
+
 sub main()
   pass
 
-# errors: 5
-# error: 9:3: `pick` returns a view of `f`, but its signature says it views only `b`
-# error: 12:3: `first` returns a view of `xs`, but its signature says it views only `ys`
-# error: 18:5: `make` returns a view of `s`, but its signature says it views only `t`
-# error: 21:3: `get` returns a view of `o`, but its signature says it views only `d`
-# error: 25:12: `unwrap` returns a view of `o`, but its signature says it views only `d`
+# errors: 7
+# error: 10:3: `pick` returns a view of `f`, but its signature says it views only `b`
+# error: 13:3: `first` returns a view of `xs`, but its signature says it views only `ys`
+# error: 19:5: `make` returns a view of `s`, but its signature says it views only `t`
+# error: 22:3: `get` returns a view of `o`, but its signature says it views only `d`
+# error: 26:12: `unwrap` returns a view of `o`, but its signature says it views only `d`
+# error: 34:3: `mk` returns a view of `x`, but its signature says it views only `c`
+# error: 41:3: `payload` returns a view of `o`, but its signature says it views only `d`

@@ -1,0 +1,14 @@
+# Review probe (#215): a loan reaching a generic body's T; rejected, or runs sanitizer-clean.
+obj K
+  s: ?String
+
+fun pick[T](f: ?fun(?String) -> T, a: ?String, b: ?String) -> T from b
+  g = |?f, ?a| f(a)
+  g()
+
+sub main()
+  t = String("abc")
+  u = String("u")
+  k = pick(|s: ?String| K(s: s), ?t, ?u)
+  <t
+  print(k.s)
