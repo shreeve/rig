@@ -28,5 +28,5 @@ sub main()
       print(t.v[0])
     .empty => print("empty")
 
-# error: cannot assign to `h.s` while `h` is lent
+# error: cannot assign to `h.s` while `h.s` is lent
 # error: cannot reassign `h` while it is lent

@@ -1,0 +1,22 @@
+# A slice of one owned field lends that field only; assigning another
+# field while the slice lives is allowed.
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_slice_then_write_other.rig).
+
+obj Scanner
+  text: String
+  flags: Int
+
+  sub tag(!self)
+    t = ?self.text[0..2]
+    self.flags |= 1
+    print(t)
+
+sub main()
+  s = Scanner(text: String("abcd"), flags: 0)
+  !s.tag()
+  print(s.flags)
+
+# expect:
+# ab
+# 1

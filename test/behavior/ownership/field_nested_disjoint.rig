@@ -1,0 +1,20 @@
+# `p.a.b` and `p.a.c` are disjoint (neither path is a prefix of the
+# other).
+# From Trig's acceptance tests
+# (docs/ownership/acceptance/accept/field_nested_disjoint.rig).
+
+obj Inner
+  b: String
+  c: Int
+
+obj Outer
+  a: Inner
+
+sub main()
+  p = Outer(a: Inner(b: String("hi"), c: 0))
+  r = ?p.a.b
+  p.a.c = r.len
+  print(r, p.a.c)
+
+# expect:
+# hi 2

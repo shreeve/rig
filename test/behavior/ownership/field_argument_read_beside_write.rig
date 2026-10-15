@@ -1,0 +1,20 @@
+# An argument that reads `p.a` in place is held until the call runs; a
+# later argument may still lend `p.b` to write, a disjoint path.
+
+obj P
+  a: List[Int]
+  b: List[Int]
+
+fun grow(v: !List[Int]) -> Int
+  !v.push(9)
+  v.len
+
+sub main()
+  p = P(a: List(), b: List())
+  !p.a.push(1)
+  print(p.a, grow(!p.b))
+  print(p.b)
+
+# expect:
+# [1] 1
+# [9]

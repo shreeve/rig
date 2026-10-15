@@ -1,0 +1,17 @@
+# Reviewer probe for #210 (field loans): A box field lent beside writes
+# of a sibling and of the box's other field.
+
+obj Node
+  name: String
+  n: Int
+
+obj P
+  bx: ^Node
+  k: Int
+
+sub main()
+  p = P(bx: ^Node(name: String("id"), n: 0), k: 0)
+  r = ?p.bx.name
+  p.k = 3
+  p.bx.n = 4
+  print(r, p.k, p.bx.n)

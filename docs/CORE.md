@@ -397,8 +397,11 @@ sub main()
 42
 ```
 
-**5. A value has any number of read loans, or one write loan, never
-both.** This holds for every type, numbers included. *(built)*
+**5. A place has any number of read loans, or one write loan, never
+both.** A loan on a place covers every place inside it, so two
+places conflict when one holds the other: `p` and `p.a`, `p.a` and
+`p.a.b`, but not `p.a` and `p.b`. This holds for every type, numbers
+included. *(built)*
 
 ```rig reject
 sub add(a: !Int, b: ?Int)
@@ -1003,6 +1006,76 @@ object field may hold a `Cell`. Each field and element is a place:
 - `<p.f` and `<v[i]` take an optional one, leaving `none`;
 - assigning to it drops the old value.
 
+**A field is a place of its own.** A path is a name and the fields
+after it, through what a write view the name holds sees, and through
+a box. It stops at an element, a handle, or an optional's value, and
+the loan is on the path so far: `?v[i]` and `!v[j]` are both loans on
+`v`, and `?h.f` with `h: *T` is a loan on `h`. A use touches the path
+it names: `?p.a`, `!p.a`, `<p.a`, `p.a = x`, `(!p.a).m()`, and
+`swap(!p.a, !p.b)` touch `p.a` (and `p.b`); `p`, `<p`, `p = x`,
+`(!p).m()`, and `!p.m()` touch all of `p`. A value never holds a view
+of itself: storing in a part of `p` a value that carries a loan on a
+part of `p` is rejected. *(built)*
+
+```rig
+obj Arena
+  names: List[String]
+
+  sub add(!self, t: ?String)
+    !self.names.push(String(t))
+
+obj Parser
+  a: Arena
+  t: String
+
+  sub step(!self)
+    (!self.a).add(self.t)
+
+sub main()
+  p = Parser(a: Arena(names: List()), t: String("id"))
+  !p.step()
+  (!p.a).add(p.t)
+  print(p.a.names.len)
+```
+
+```output
+2
+```
+
+```rig reject
+obj P
+  name: String
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+sub main()
+  p = P(name: String("a"), n: 0)
+  r = ?p.name
+  !p.bump()
+  print(r)
+```
+
+```error
+cannot lend `p` to write while a read loan on `p.name` is live
+```
+
+```rig reject
+obj P
+  s: String
+  v: ?String
+
+sub main()
+  p = P(s: String("abc"), v: "")
+  p.v = ?p.s
+  print(p.v)
+```
+
+```error
+cannot store in `p.v` a view of `p.s`: a value never holds a view of itself
+```
+
 **Write views are not stored.** A `!T` (also `![]T`, `(!T)?`, `(!T)!`)
 is a parameter, a receiver, a result, or a local. It is never a field,
 an element, a type argument, or what a `?`, an optional, or a handle
@@ -1245,7 +1318,7 @@ sub main()
 ```
 
 ```error
-cannot lend `self` to write while the callee's read of it is in use
+cannot lend `self` to write while the callee's read of `self.hook` is in use
 ```
 
 A value made to be called is a temporary of its statement (§3):

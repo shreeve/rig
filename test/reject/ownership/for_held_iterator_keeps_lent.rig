@@ -47,6 +47,6 @@ sub main()
 
 # error: 23:5: cannot lend `v` to write while a read loan is live
 # error: 28:5: cannot lend `v` to write while a read loan is live
-# error: 32:5: cannot lend `b` to write while a read loan is live
+# error: 32:5: cannot lend `b.xs` to write while a read loan on `b` is live
 # error: 37:7: cannot lend `v` to write while a read loan is live
 # errors: 4

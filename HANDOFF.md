@@ -179,7 +179,9 @@ diagnostics name only forms that compile.
 
 - **Whole-program parameter summaries** (CORE §9, *planned*): a generic
   `Holder[?String]` built from literals is still rejected.
-- **Field-precise re-pointing:** with field-precise loans.
+- **Field-precise re-pointing:** its own round (decision 1d): what a
+  var holds is still per var, so re-pointing `p.v` keeps the old view's
+  loans while `p` lives.
 - **Std search taking `x: ?T`:** it would reject
   `slices.contains(?v[..], ?t[4..5])`; decide whether implicit lends
   extend to branching values.
@@ -196,11 +198,10 @@ These belong to the design owner; `.git/revamp/r3/rig-questions.md`
   found wrong; it needs the owner's approval, and can be dropped alone.
   So does B4b's "Mark bare break and payload views past the arm built
   in CORE sentence 1".
-- **Field-disjoint loans:** today field loans are unioned. The design
-  owner decided they come, with field-precise re-pointing, as their own
-  round after B4, with `docs/CORE.md` updated first. The other three
-  rules the Core left open are decided and built (CORE sentences 1, 6,
-  and 7): a call's result that holds no write view keeps a write
+- **Field-disjoint loans** are built (CORE sentence 5 and §5, "A field
+  is a place of its own"); field-precise re-pointing waits for its own
+  round. The other three rules the Core left open are decided and built
+  (CORE sentences 1, 6, and 7): a call's result that holds no write view keeps a write
   argument lent to read, and that argument's write lend ends as the call
   returns; dropping a container of views uses them only through a `drop`
   body; a bare name or place only reads, so `x = h.w`, like `x = w`, of
