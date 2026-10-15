@@ -66,6 +66,21 @@ expect_has "$out" "$want" "a pile in a test block"
 expect_has "$out" "1 passed, 0 failed" "a pile in a test block"
 facts=$(accounts testpile.rig --tests)
 expect_has "$facts" 'test "pile"' "a test block is an owner"
+# A build that does not compile the tests (`rig run`, `rig emit`) writes
+# no frame for them, so their calls bound nothing there: `main`'s one call
+# is inlined.
+{
+    cat testpile.rig
+    echo
+    echo 'sub main()'
+    echo '  print(w(1))'
+} >testmain.rig
+out=$(rig emit testmain.rig 2>&1) || fail "emit testmain: $out"
+expect_has "$out" 'pub inline fn w(' "tests not compiled: w is inlined into main"
+runs testmain.rig 2 "tests not compiled"
+out=$(rig test testmain.rig 2>&1); expect_rc $? 0 "tests compiled: $out"
+expect_has "$out" "$want" "tests compiled"
+accounts testmain.rig --tests >/dev/null
 
 # A `drop` body.
 {

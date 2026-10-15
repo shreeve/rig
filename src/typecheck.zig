@@ -13750,7 +13750,8 @@ const OwnerWalker = struct {
                     if (owner != null and (c.isKind(.@"defer") or c.isKind(.@"errdefer"))) {
                         var exits: u32 = 1;
                         for (kids[i + 1 ..]) |r| exits += @intCast(FrameWalker.countExits(r));
-                        try self.walk(ir.get(c, .body), owner, copies * exits, decl);
+                        // Saturating: a count that large fails every limit.
+                        try self.walk(ir.get(c, .body), owner, copies *| exits, decl);
                         continue;
                     }
                     try self.walk(c, owner, copies, decl);

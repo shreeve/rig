@@ -119,6 +119,11 @@ const Owner = struct {
     /// Its own frame: the count `checkFrames` made, or for a generic one
     /// the largest of its instances'; null when no count knows it.
     own: ?FrameCount,
+    /// Whether this build compiles it: a test block, and what is in one,
+    /// only under `rig test` (`ModuleGraph.with_tests`), and only the
+    /// root module's. A frame Zig never writes holds nothing the rule
+    /// inlines, so its account bounds nothing.
+    compiled: bool = true,
     /// What its calls reach, once for each call, with the copies of it.
     calls: std.ArrayList(Edge) = .empty,
 };
@@ -189,6 +194,8 @@ const Pass = struct {
     /// Per module: the function declared at a position.
     by_pos: []std.AutoHashMapUnmanaged(u32, u32),
     max: u32,
+    /// Whether this build compiles the root module's tests.
+    with_tests: bool,
     /// The calls met so far.
     seq: u32 = 0,
     // Tarjan's, over the functions and the groups: `nodeOf` numbers them.
@@ -211,6 +218,7 @@ const Pass = struct {
         for (c.frame_owners.items, 0..) |o, k| {
             const index: u32 = base + @as(u32, @intCast(k));
             const parent_fn = if (o.parent) |p| self.owners.items[base + p].in_fn else null;
+            const compiled = if (o.parent) |p| self.owners.items[base + p].compiled else o.kind != .test_block or (self.with_tests and self.mods[module].id == 1);
             // A generic owner's frame is its instances': the largest of
             // them, and none if no instance is made, since Zig writes no
             // frame for it then.
@@ -218,7 +226,7 @@ const Pass = struct {
                 instances.get(.{ .module = c.module_id, .pos = o.pos }) orelse .{ .bytes = 0, .reach = 0 }
             else
                 o.own;
-            try self.owners.append(self.a, .{ .fun = null, .in_fn = parent_fn, .own = own });
+            try self.owners.append(self.a, .{ .fun = null, .in_fn = parent_fn, .own = own, .compiled = compiled });
             if (o.kind != .function) continue;
             const v = try self.add(module, index, o);
             self.owners.items[index].fun = v;
@@ -445,13 +453,16 @@ const Pass = struct {
     }
 
     /// Whether owner `o`'s account fits: the functions the rule inlines
-    /// into it add at most `max_inlined_frame_bytes`, and its own frame
-    /// with them stays within `sema.max_frame_bytes`. An owner whose own
-    /// frame no count knows fits only with nothing inlined into it.
+    /// into it add at most `max_inlined_frame_bytes`, its own frame with
+    /// them stays within `sema.max_frame_bytes`, and its reach with them
+    /// within `sema.max_frame_reach` (`reach_factor` times over). An owner
+    /// whose own frame no count knows fits only with nothing inlined into
+    /// it; one this build does not compile fits.
     fn fits(self: *Pass, o: u32) bool {
+        if (!self.owners.items[o].compiled) return true;
         const auto = self.added(o);
         const own = self.owners.items[o].own orelse return auto == 0;
-        return auto <= max_inlined_frame_bytes and own.bytes + auto <= sema.max_frame_bytes;
+        return auto <= max_inlined_frame_bytes and own.bytes + auto <= sema.max_frame_bytes and (own.reach + auto) * sema.reach_factor <= sema.max_frame_reach;
     }
 
     /// Stop inlining until every owner's account fits (`fits`), no
@@ -656,6 +667,7 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
         .by_pos = try a.alloc(std.AutoHashMapUnmanaged(u32, u32), mods.len),
         .owner_base = try a.alloc(u32, mods.len),
         .max = max,
+        .with_tests = graph.with_tests,
     };
     for (pass.by_pos) |*m| m.* = .empty;
     // Each generic owner's frame at its instances, wherever they are made:

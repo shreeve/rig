@@ -3825,9 +3825,13 @@ a call itself. Each owner has one account (`sema.Account`,
   at every call and every copy of the call.
 
 `inlining.decide` fills `auto` and keeps it within 64 KiB
-(`max_inlined_frame_bytes`), and own + auto within
-`sema.max_frame_bytes`; it never inlines into an owner whose own count
-is unknown. `test/cli/frame_owners.sh` puts a pile of a helper the rule
+(`max_inlined_frame_bytes`), own + auto within `sema.max_frame_bytes`,
+and (own reach + auto) times `sema.reach_factor` within
+`sema.max_frame_reach`; it never inlines into an owner whose own count
+is unknown. A function is inlined at every call or none, so an owner the
+build does not compile bounds nothing: a test block, and what is in it,
+outside `rig test` (and `rig check --tests`), and any module's but the
+root's always. `test/cli/frame_owners.sh` puts a pile of a helper the rule
 would inline in each kind of owner and each body that belongs to one,
 and `test/cli/frames.sh` holds each owner's account to the frame Zig's
 prologue reserves.
