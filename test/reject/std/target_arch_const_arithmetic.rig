@@ -1,0 +1,25 @@
+# A module constant's arithmetic is computed when Rig checks the
+# program, and Zig computes it again when it compiles: on an operand the
+# target sets, Rig could not see the overflow or division by zero Zig
+# stops at (100 / TIER divides by zero on x86_64 only). So it is
+# rejected on every machine; write each branch's value instead.
+use std.target
+
+TIER = 0 if target.arch == .x86_64 else 16
+RATIO = 100 / TIER
+DOUBLE = TIER * 2
+NEG = -TIER
+TABLE = [TIER << 2, 1]
+WIDE = (TIER + 1) * 2
+OK = 0 if target.arch == .x86_64 else 32
+SAME = TIER == 0 and OK > 1
+
+sub main()
+  print(RATIO, DOUBLE, NEG, TABLE, WIDE, SAME)
+
+# error: 9:15: the operands of a module constant's arithmetic must be known when Rig checks the program; the value of `TIER`
+# error: 10:10: the operands of a module constant's arithmetic must be known
+# error: 11:8: the operands of a module constant's arithmetic must be known
+# error: 12:10: the operands of a module constant's arithmetic must be known
+# error: 13:9: the operands of a module constant's arithmetic must be known
+# errors: 5

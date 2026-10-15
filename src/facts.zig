@@ -107,6 +107,7 @@ pub const Facts = struct {
     signal_sym_id: SymbolId,
     box_sym_id: SymbolId,
     endian_sym_id: SymbolId,
+    arch_sym_id: SymbolId,
     /// The decisions emit still makes itself (the allowlist).
     pending: Pending,
 
@@ -124,6 +125,7 @@ pub const Facts = struct {
             .signal_sym_id = ctx.signal_sym_id,
             .box_sym_id = ctx.box_sym_id,
             .endian_sym_id = ctx.endian_sym_id,
+            .arch_sym_id = ctx.arch_sym_id,
             .pending = .{ .sema_context = ctx },
         };
     }
@@ -562,6 +564,9 @@ pub const Facts = struct {
     }
     pub fn containsTypeVar(f: Facts, ty: TypeId) bool {
         return sema.containsTypeVar(f.c(), ty);
+    }
+    pub fn isBuiltinEnum(f: Facts, sym: SymbolId) bool {
+        return sema.isBuiltinEnum(f.c(), sym);
     }
     pub fn isBuiltinGeneric(f: Facts, sym: SymbolId) bool {
         return sema.isBuiltinGeneric(f.c(), sym);

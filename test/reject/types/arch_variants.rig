@@ -1,0 +1,14 @@
+# `Arch`'s variants are Zig's names for the architectures, no others,
+# and like `Endian`'s they have no integer value.
+
+fun pick() -> Bool
+  x: Arch = .amd64
+  x == .x86_64
+
+sub main()
+  print(pick(), Int(Arch.x86_64), Int(Endian.big))
+
+# error: 5:14: no variant `amd64` on enum `Arch`
+# error: 9:21: `Int(x)` takes a declared enum's value; the built-in enum `Arch` has no integer value
+# error: 9:39: `Int(x)` takes a declared enum's value; the built-in enum `Endian` has no integer value
+# errors: 3

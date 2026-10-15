@@ -478,7 +478,12 @@ pub const SymbolFlags = packed struct(u16) {
     /// Typecheck decided the binding's access (`Symbol.access`, null
     /// included): a `match`, `as`, or loop binding.
     access_decided: bool = false,
-    _: u2 = 0,
+    /// A compile-time constant whose value Zig sets for the target it
+    /// compiles for: a Zig-backed constant (`target.arch`), or a module
+    /// constant whose value names one. Rig knows its type, never its
+    /// value, so its verdict is the same on every machine.
+    per_target: bool = false,
+    _: u1 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -1763,6 +1768,7 @@ pub const SemContext = struct {
     simd_sym_id: SymbolId = symbol_invalid,
     box_sym_id: SymbolId = symbol_invalid,
     endian_sym_id: SymbolId = symbol_invalid,
+    arch_sym_id: SymbolId = symbol_invalid,
 
     /// Assigned by the module graph.
     module_id: u32 = 0,
@@ -4727,6 +4733,12 @@ pub fn boxedType(ctx: *const SemContext, ty_id: TypeId) ?TypeId {
     };
 }
 
+/// One of the built-in enums, `Endian` and `Arch`: the runtime's own
+/// type, one in every module.
+pub fn isBuiltinEnum(ctx: *const SemContext, sym: SymbolId) bool {
+    return sym == ctx.endian_sym_id or sym == ctx.arch_sym_id;
+}
+
 /// One of the built-in generic types: `Cell`, `List`, `^T`, `Signal`.
 pub fn isBuiltinGeneric(ctx: *const SemContext, sym: SymbolId) bool {
     return isHeapBuiltin(ctx, sym) or sym == ctx.cell_sym_id or sym == ctx.signal_sym_id;
@@ -5223,7 +5235,7 @@ fn viewAtom(ctx: *const SemContext, ty: TypeId) u64 {
     const t = ctx.types.get(ty);
     const tag: u64 = @backingInt(std.meta.activeTag(t));
     const decl: ?struct { module: u32, sym: SymbolId } = switch (t) {
-        .nominal => |sym| if (sym == ctx.endian_sym_id) .{ .module = 0, .sym = symbol_invalid } else .{ .module = ctx.module_id, .sym = sym },
+        .nominal => |sym| if (isBuiltinEnum(ctx, sym)) .{ .module = 0, .sym = symbol_invalid } else .{ .module = ctx.module_id, .sym = sym },
         .imported_nominal => |n| .{ .module = n.module_id, .sym = n.sym_id },
         .parameterized_nominal => |pn| blk: {
             const sym = ctx.symbols.items[pn.sym];
@@ -5922,9 +5934,11 @@ pub fn importType(
             }
             return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = syms } });
         },
-        // Every module has its own `Endian`, and they are one type.
+        // Every module has its own `Endian` and `Arch`, and each is one type.
         .nominal => |sym_id| return if (sym_id == foreign_ctx.endian_sym_id)
             local_ctx.intern(.{ .nominal = local_ctx.endian_sym_id })
+        else if (sym_id == foreign_ctx.arch_sym_id)
+            local_ctx.intern(.{ .nominal = local_ctx.arch_sym_id })
         else
             local_ctx.intern(.{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
         .imported_nominal => |n| return local_ctx.intern(.{ .imported_nominal = n }),
@@ -5980,7 +5994,7 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
         .ty = ctx.types.unknown_id,
         .decl_pos = imported_decl_pos,
         .scope = scope_invalid,
-        .flags = .{ .is_public = fsym.flags.is_public, .comptime_known = fsym.flags.comptime_known },
+        .flags = .{ .is_public = fsym.flags.is_public, .comptime_known = fsym.flags.comptime_known, .per_target = fsym.flags.per_target },
         .contents = fsym.contents,
         .from = origin,
     });
@@ -7252,7 +7266,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
     const tag = node.kind() orelse return .none;
     return switch (tag) {
         // Declarations and their parts.
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .drop_decl, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
         .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
@@ -7793,6 +7807,45 @@ pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?Wide {
         else => null,
     };
 }
+
+/// The first name or `module.name` in `e` that is set for each target
+/// (`SymbolFlags.per_target`): `target.arch`, or a constant whose value
+/// names it. Null when `e` names none.
+pub fn perTargetLeaf(ctx: *const SemContext, e: Sexp) ?Sexp {
+    switch (e) {
+        .src => {
+            const id = ctx.symbolOf(e) orelse ctx.lookupInScopeOnly(module_scope, identAt(ctx.source, e) orelse return null) orelse return null;
+            return if (ctx.symbols.items[id].flags.per_target) e else null;
+        },
+        .list => {
+            // A member's name and a variant's are not names in scope.
+            if (e.isKind(.enum_lit)) return null;
+            if (e.isKind(.member)) {
+                if (foreignMemberOf(ctx, e)) |f| return if (f.flags.per_target) e else null;
+                return perTargetLeaf(ctx, ir.Member.object(e));
+            }
+            for (e.items()) |c| if (perTargetLeaf(ctx, c)) |leaf| return leaf;
+            return null;
+        },
+        else => return null,
+    }
+}
+
+/// The symbol `module.name` names in an imported module; null when `e`
+/// is not such a member.
+fn foreignMemberOf(ctx: *const SemContext, e: Sexp) ?Symbol {
+    const obj = ir.Member.object(e);
+    if (obj != .src) return null;
+    const id = ctx.symbolOf(obj) orelse ctx.lookupAt(module_scope, identAt(ctx.source, obj) orelse return null, obj.src.pos) orelse return null;
+    if (ctx.symbols.items[id].kind != .module) return null;
+    const foreign = ctx.foreign_semas.get(ctx.module_refs.get(id) orelse return null) orelse return null;
+    const fid = foreign.lookupInScopeOnly(module_scope, identAt(ctx.source, ir.Member.name(e)) orelse return null) orelse return null;
+    return foreign.symbols.items[fid];
+}
+
+/// Why a value Rig needs is not known when it checks the program: the
+/// target sets `leaf` (`perTargetLeaf`).
+pub const per_target_why = "the value of `{s}` is chosen for each target when Zig compiles the program, so Rig does not know it";
 
 /// The value of a constant Bool expression: literals, `not`, `and`,
 /// `or`, and comparisons of constant integers (`ctFoldBy`).

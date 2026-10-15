@@ -477,6 +477,14 @@ pub const Emitter = struct {
         for (ir.ZigExtern.decls(node)) |d0| {
             const d = if (d0.isKind(.@"pub")) ir.Pub.decl(d0) else d0;
             const name = ir.get(d, .name);
+            // A constant: Zig's value, coerced to the type Rig declares,
+            // so Zig compiles a branch on it as a compile-time choice.
+            if (d.isKind(.zig_const)) {
+                try self.w.print("pub const {f}: ", .{ident(self.srcText(name))});
+                try self.emitTypeTy(try self.declType(name));
+                try self.w.print(" = {s}.{f};\n", .{ shim, ident(self.srcText(name)) });
+                continue;
+            }
             const f = self.fnType(try self.declType(name)) orelse return self.unsupported(name, "an untyped function");
             if (self.facts.types.get(f.returns) == .fallible) {
                 try self.w.print("pub fn {f}(", .{ident(self.srcText(name))});
@@ -1890,6 +1898,12 @@ pub const Emitter = struct {
         // The value of a shift is its amount, of any integer type.
         const value_ty = self.typeOf(if (shift) value else target);
         const order = try self.openAssign(set, if (value_ty) |t| self.peelViews(t) else null, .value);
+        // The value is an operand of the operator, so a constant in it is
+        // a run-time value, as in `x op e` (`rt_names`): Zig would check a
+        // shift amount it knows when it compiles.
+        const saved_rt = self.rt_names;
+        defer self.rt_names = saved_rt;
+        self.rt_names = true;
         if (builtin) |b| {
             var slot: []const u8 = "";
             if (target == .src) {
@@ -3796,7 +3810,7 @@ pub const Emitter = struct {
         }
         if (isLiteralText(name)) return self.w.writeAll(name);
         // A built-in type named in an expression: `Endian.big`.
-        if (self.facts.symbolOf(sexp)) |id| if (id == self.facts.endian_sym_id) return self.writeNominalName(id);
+        if (self.facts.symbolOf(sexp)) |id| if (self.facts.isBuiltinEnum(id)) return self.writeNominalName(id);
         if (self.facts.symbolOf(sexp)) |id| if (self.facts.moduleOf(id)) |module| return self.writeModuleZig(module);
         if (self.rt_names and !self.keep_comptime and self.isModuleConst(sexp)) {
             try self.w.writeAll("rig.rt(");
@@ -5268,9 +5282,12 @@ pub const Emitter = struct {
             try self.emitBuiltinTy(t);
             try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, t)});
         }
-        try self.w.writeAll("        .{ ");
-        try self.writeNominalName(ctx.endian_sym_id);
-        try self.w.print(", \"{s}\" }},\n    }},\n    .generics = .{{\n", .{try ctx.formatTypeValue(a, .{ .nominal = ctx.endian_sym_id })});
+        for ([_]SymbolId{ ctx.endian_sym_id, ctx.arch_sym_id }) |sym| {
+            try self.w.writeAll("        .{ ");
+            try self.writeNominalName(sym);
+            try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, .{ .nominal = sym })});
+        }
+        try self.w.writeAll("    },\n    .generics = .{\n");
         for (0..ctx.symbols.items.len) |i| {
             const sym: SymbolId = @intCast(i);
             // A box is named as a handle is, from its shape (`rig.typeName`).
@@ -7047,7 +7064,7 @@ pub const Emitter = struct {
     /// module's generic type through its proxy (`lib.Wrap`).
     fn writeNominalName(self: *Emitter, sym: SymbolId) Error!void {
         const s = self.facts.symbols.items[sym];
-        if (self.facts.isBuiltinGeneric(sym) or sym == self.facts.endian_sym_id) {
+        if (self.facts.isBuiltinGeneric(sym) or self.facts.isBuiltinEnum(sym)) {
             // The runtime's `Box(T)` is `^T`.
             return self.w.print("rig.{s}", .{if (sym == self.facts.box_sym_id) "Box" else s.name});
         }

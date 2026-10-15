@@ -93,3 +93,42 @@ EOF
 out=$(rig run --release convert.rig 2>&1); rc=$?
 expect_has "$out" "integer does not fit in destination type" "release build conversion check"
 [[ $rc -ne 0 ]] || fail "release build: failing conversion exited 0"
+
+# Vector lanes follow the scalar rule: --release keeps the lane overflow
+# check and --release=fast drops it (an overflowing lane is undefined
+# there, so the run asserts only that no check fired).
+cat >vecover.rig <<'EOF'
+fun rt(n: I8) -> I8
+  n
+
+sub main()
+  v = Simd[I8, 16].splat(rt(127))
+  print(v + 1)
+  print(v << 1)
+EOF
+out=$(rig run --release vecover.rig 2>&1); rc=$?
+expect_has "$out" "integer overflow" "release build vector add check"
+[[ $rc -ne 0 ]] || fail "release build: overflowing vector add exited 0"
+out=$(rig run --release=fast vecover.rig 2>&1); rc=$?
+[[ "$out" != *overflow* ]] || fail "fast build kept a vector overflow check: $out"
+expect_rc "$rc" 0 "fast build vector overflow"
+
+# A vector program that does not overflow prints the same in every mode.
+cat >vecsame.rig <<'EOF'
+fun rt(n: I16) -> I16
+  n
+
+sub main()
+  a = Simd[I16, 8].splat(rt(100))
+  b = Simd[I16, 8].splat(rt(-7))
+  print(a + b)
+  print(a - b)
+  print(a * b)
+  print(-b)
+  print(a << 2)
+EOF
+want=$(rig run vecsame.rig 2>&1) || fail "debug vector run: $want"
+for m in --release --release=fast; do
+    got=$(rig run "$m" vecsame.rig 2>&1) || fail "vector run $m: $got"
+    expect_eq "$got" "$want" "vector output under $m"
+done

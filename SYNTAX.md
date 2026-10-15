@@ -912,8 +912,8 @@ names. `extern fun name(params) -> R`,
 `extern sub name(params)`, and `extern name: T` declare C functions and
 data ([SPEC §15](SPEC.md#15-raw-code-and-ffi)). In the standard library,
 `extern zig "file.zig"` holds an indented list of `fun` and `sub`
-declarations without bodies, which that Zig file implements
-([SPEC §15](SPEC.md#zig-backed-declarations)).
+declarations without bodies, and constants `name: T`, which that Zig
+file implements ([SPEC §15](SPEC.md#zig-backed-declarations)).
 
 ## 9. Bindings and assignment
 
@@ -1687,6 +1687,7 @@ extern    = "extern" "fun" name params ["->" type [from]]
           | "extern" "zig" string INDENT (["pub"] zdecl)* DEDENT
 zdecl     = "fun" name [tparams] params ["->" type [from]]
           | "sub" name [tparams] params ["!"]
+          | name ":" type
 
 type      = ("?" | "!") type | ptype | tsuffix
 ptype     = ("^" | "*" | "~")* ("[" [dim] "]" type
