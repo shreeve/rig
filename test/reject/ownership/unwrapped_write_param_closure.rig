@@ -1,6 +1,7 @@
 # A closure that captures the write view a `(!H)?` parameter holds, or
 # the view unwrapped from it, stores in the caller's value when it is
-# called.
+# called: the closure literal is reported, and a store through a base
+# that is no place (`w ?? return`) is reported where it stands too.
 
 obj H
   s: ?String
