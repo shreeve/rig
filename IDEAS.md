@@ -86,7 +86,7 @@ small round.
 
 ### 1.1 `for e in ?v` should give views of the elements *(new)*
 In `for e in ?self.entries`, `e` is a **copy** when the element type
-copies, such as a struct of `?String` values and integers. So this is rejected:
+copies, such as an object of `?String` values and integers. So this is rejected:
 ```rig fragment
 fun find(?self, name: ?String) -> (?PakEntry)?
   for e in ?self.entries

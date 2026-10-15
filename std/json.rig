@@ -38,6 +38,7 @@
 # Workarounds that stand in for missing Rig capabilities are marked
 # NEEDS; docs/json/DESIGN.md ("Open items") lists them.
 
+use std.target
 use std.text
 
 # ---- Bytes ------------------------------------------------------------
@@ -699,8 +700,10 @@ fun eight_digits(d: U64) -> U64
 
 # How many bytes `skip_plain_ascii` tests by SWAR, a U64 at a time,
 # before it goes on 16 bytes at a time with SIMD: most keys end within
-# them, and most string bytes are in values beyond them.
-TIER = 16
+# them, and most string bytes are in values beyond them. On x86_64 a
+# vector compare's mask reaches a general register cheaply, so the scan
+# starts with SIMD there (6% faster by geomean; docs/json/RESULTS.md).
+TIER = 0 if target.arch == .x86_64 else 16
 
 ONES64: U64 = 0x0101010101010101
 

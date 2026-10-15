@@ -412,7 +412,7 @@ literal is a `Static` (`s = "a"`), so a `?String` is assigned to it only
 when it is declared `s: ?String = "a"`.
 
 Because a `Static` carries no loan, it goes where no loan is tracked:
-in a `Cell`, a `Signal`, an owned closure, and in a struct field or a
+in a `Cell`, a `Signal`, an owned closure, and in an object field or a
 generic `T` kept there. A `?String` there is rejected by its type, with
 a hint that points to a `?String` parameter for text that is only read.
 
@@ -538,7 +538,7 @@ array length -1 is out of range
 ```
 
 A value takes at most 8 MiB (8388608 bytes, a `[1048576]Int`): an
-array, a struct or an enum, and each instance of a generic type or
+array, an object or an enum, and each instance of a generic type or
 function, for the arrays it makes and, for a type, for itself. A
 `Cell` or `Signal` holds its value inline, so it counts at the size of
 what it holds. The values a function keeps on its stack take at most 13 MiB together:
@@ -1121,7 +1121,7 @@ byte it touches, and loads or stores the vector whole: the program
 reads no byte past `at + n * @size(T)`.
 
 **A vector is one value.** It has no `==` of its own beyond its lanes',
-so a struct, enum, array, or optional that holds one has none, and a
+so an object, enum, array, or optional that holds one has none, and a
 generic `T` that is one cannot be compared. Its size and alignment are
 the target's, so `@size` and `@align` take no type that holds one
 inline (a `List` of vectors holds them on the heap, and has a size). A
@@ -1178,7 +1178,7 @@ Two kinds of type stand only in some places (Core §5 and sentence 9):
   type. It is never a field's, an element's, a type argument, or what
   an optional, a read view, or a handle holds
   ([Write views](#write-views)).
-- A type that holds a `Cell` by value (a `Cell[T]`, or a struct or enum
+- A type that holds a `Cell` by value (a `Cell[T]`, or an object or enum
   a field of which holds one) is a field's type, or stands behind `*`,
   `~`, or a read view. It is never a local's, a parameter's, or a
   result's type by value, a type argument, an element, or an optional
@@ -1186,19 +1186,19 @@ Two kinds of type stand only in some places (Core §5 and sentence 9):
 
 ### Kinds of value
 
-> **Core §1:** A struct's or enum's kind follows from its parts.
+> **Core §1:** An object's or enum's kind follows from its parts.
 
 Every type is one of four kinds, which decide what a bare name does
 where its value is taken ([§7](#reading)):
 
 | Kind | Types | A bare name where the value is taken |
 |---|---|---|
-| **plain** | numbers, `Bool`, plain enums, vectors (`Simd[T, n]`), and optionals, arrays, structs, and enums of them | copies it |
+| **plain** | numbers, `Bool`, plain enums, vectors (`Simd[T, n]`), and optionals, arrays, objects, and enums of them | copies it |
 | **owning** | `List`, `^T`, `String`, `Signal`, `error`, and any type that holds an owner or a handle, or declares a `drop` body | moves it only as `return x`, or the last value of the function or block that declares it; anywhere else it is rejected: `<x` moves it, `+x` makes a new owner |
 | **handle** | `*T`, `~T`, and owned closures | the same: `<h` moves it, `+h` adds a count |
 | **view** | `?T`, `!T`, `[]T`, `![]T`, `?String`, `?fun(...)`, and any type that holds one | copies a read view; a write view is rejected: `<w` moves it |
 
-A struct, enum, optional, or array is owning if any part is owning or a
+An object, enum, optional, or array is owning if any part is owning or a
 handle; otherwise a view if any part is a view; otherwise plain. No
 part is a write view ([Write views](#write-views)). Copying a read view copies the view, not
 what it views, and every copy carries the same loan. Owning values and
@@ -1207,12 +1207,12 @@ compiler generates to release them.
 
 **Plain data**, in this reference, is a value that owns nothing and
 holds no `?T`, `!T`, or slice: a plain value, a `?String`, or an
-optional, array, struct, or enum of them. It copies freely. A `?String` in
+optional, array, object, or enum of them. It copies freely. A `?String` in
 it is still a view, which may carry a String's loan ([strings](#strings)).
 
 A **unique** value owns nothing to release but must not be copied: a
-struct declared `unique` (`obj Random unique`, a generator whose
-copy would repeat its numbers), or any struct, enum, array, or generic
+object declared `unique` (`obj Random unique`, a generator whose
+copy would repeat its numbers), or any object, enum, array, or generic
 instance that holds one inline. It moves like an owning value, has no
 clone (`+x`) and no `==`, and nothing copies it out of a place; it has
 no drop glue, so a discarded one is simply dropped. A loop that reads
@@ -1281,10 +1281,14 @@ Declarations are only allowed at module level; there are no nested
 functions (use a closure). Two module-level declarations may not share a
 name.
 
-### Structs
+### Objects
+
+**An object is a value; `^` puts it on the heap and `*` shares it.** An object lives
+where it is declared and has no identity of its own
+([Core §1](docs/CORE.md#1-four-kinds-of-value)).
 
 An `obj` lists its fields, then its methods. It is constructed by
-naming its fields, `Point(x: 1, y: 2)`, and a struct with exactly one
+naming its fields, `Point(x: 1, y: 2)`, and an object with exactly one
 field also takes it by position: `Meters(3.5)` is
 `Meters(value: 3.5)`, as `^x`, `*Cell(0)`, and `*Signal(0)` are
 ([SYNTAX §11](SYNTAX.md#constructors)). A field may have a default
@@ -1294,7 +1298,7 @@ it is a literal (a number, a string, `true` / `false`, `none`, or
 (`LIMIT`, `lib.LIMIT`, `U8.max`); a field's may also be an empty or
 literal constructor: `List()`, `List[T]()`, `String()`, `Cell(0)`, or `[n of x]` with
 a literal or constant `x`. Each value the constructor makes gets a fresh
-default, so no two share a `List`. A struct with a `Cell` field lives
+default, so no two share a `List`. An object with a `Cell` field lives
 only behind a shared handle, so it is made under `*`
 ([§10](#cell)).
 
@@ -1631,7 +1635,7 @@ sub main()
 An `enum` lists variants, which may carry an explicit integer value or
 payload fields, and may have methods ([SYNTAX §8](SYNTAX.md#enums)). A
 variant is named `.name` where the enum type is known, or `Type.name`.
-A payload variant is constructed with its fields named, like a struct,
+A payload variant is constructed with its fields named, like an object,
 and a variant with exactly one field also takes it by position:
 `.circle(2)` is `.circle(radius: 2)`. A pattern binds the fields in
 order (`.circle(r) =>`). Enums have no constructor call (`Shape(...)`
@@ -1760,8 +1764,8 @@ timed out
 
 ### Generic types
 
-`obj Name[T, ...]` declares a generic struct and `enum Name[T, ...]`
-a generic enum; `error Name[T]` is rejected, and so is a struct declared
+`obj Name[T, ...]` declares a generic object and `enum Name[T, ...]`
+a generic enum; `error Name[T]` is rejected, and so is an object declared
 with `type`, which only names an [alias](#type-aliases). Their
 parameters are type parameters and compile-time integers
 ([§16](#16-compile-time-parameters)): `obj Ring[T, n: Int]`. A value
@@ -2229,7 +2233,7 @@ sub main()
 
 `type Name = T` gives a type a second name. An alias is transparent: it
 is the same type as `T`. An alias names its type in every role, in this module or, when `pub`,
-in another (`lib.Alias`). An alias of a struct or enum (this module's
+in another (`lib.Alias`). An alias of an object or enum (this module's
 or an imported one) constructs values, calls associated functions, and
 names variants; one of a generic instance (`Wrap[Int]`, `List[Int]`,
 `Cell[Int]`) constructs it as naming the instance does; one of a number
@@ -2599,7 +2603,7 @@ an argument, an operand, a branching value of them); `x = <w` moves the
 view instead, and `x = !w` lends it on. A write view of a value that
 does not copy (an owner or a unique value) is never read out this way,
 and one bound with a `!T` type (`x: !Int = w`) would copy the view, so
-both are rejected. A write view of a plain struct, array, or optional
+both are rejected. A write view of a plain object, array, or optional
 reads it as one of a number does (`q = p` with `p: !Point`).
 
 A write view is never stored inside a value (Core §5): `!T`,
@@ -2688,7 +2692,7 @@ The operators and their precedence are in
 spaced in [SYNTAX §5](SYNTAX.md#5-prefixes-infixes-and-suffixes): an
 infix operator has the same spacing on both sides, and a sigil touches
 what it marks. A receiver sigil
-applies to a method's receiver ([§3](#structs)); a call of a field
+applies to a method's receiver ([§3](#objects)); a call of a field
 holding functions (`!p.f()`, `!p.fs[0]()`) has no receiver, so a sigil
 there is rejected.
 
@@ -2889,27 +2893,27 @@ type `Float` has no method `count_ones`
 equatable types are numbers, `Bool`, `?String`, errors, and plain enums,
 and, when everything they hold is equatable: optionals, where `none`
 equals only `none` and a value compares with an optional as its value;
-arrays and `[]T` slices, element by element; structs, field by field;
+arrays and `[]T` slices, element by element; objects, field by field;
 and payload enums, by variant and then payload. A variant literal,
 `.red` or `.dot(at: p)`, takes its enum type from the other operand, on
 either side. A bare `.variant` tests only which variant a value holds,
 so it compares with any enum, or optional of one, whatever its payloads
 hold; a payload literal compares the payload too, so the enum must have
 `==`. Floats compare as IEEE numbers wherever they are, so a
-struct holding a NaN is not equal to itself. A viewed operand (`?P`,
+object holding a NaN is not equal to itself. A viewed operand (`?P`,
 `!P`) compares as the value it reaches. A method named `eq` is never
 called by `==`.
 
 A handle `*T` or `~T` has no `==`, since it could compare identity or
 content; nor does a function or closure, a List, Cell, or Signal, a
-struct that declares `drop`, or a struct or payload that holds a `?T`,
+object that declares `drop`, or an object or payload that holds a `?T`,
 `!T`, or slice. Neither does a type that holds one of these, and the
 diagnostic names the field that does.
 
 Ordering comparisons (`<`, `<=`, `>`, `>=`) take two numbers, or two
 `?String` values or two `[]U8` slices, ordered by their bytes: the first byte
 that differs decides, and a prefix sorts before the longer string.
-Structs, enums, and other slices have no ordering.
+Objects, enums, and other slices have no ordering.
 
 ```rig
 obj Point
@@ -3746,7 +3750,7 @@ lent on, as `if … as` lends one on: its bindings write, as under
 `match !e`. A branch is a value, never a place, so a header that reads
 one where it stands lends it there: a subject that branches, or a path
 through one (`match (a if c else b)` of `!E` names,
-`for x in (a if c else b).v` of structs that own a List), is lent by
+`for x in (a if c else b).v` of objects that own a List), is lent by
 its sigil or, bare, to read, and a leaf a name holds is rejected, for
 `match`, `if … as`, and `for` alike: lend each leaf, to read (`?a`) or
 to write (`!a`). A bare subject the header copies (plain data) or a
@@ -4142,8 +4146,8 @@ use of `b` after move
 or element is emptied to `none` ([Places](#places)), and `<` on any
 other place is rejected, as on a function or a module's constant, which
 lives for the whole program. So only whole bindings move. Moving a field
-that moves out of a struct is rejected (the struct would still drop
-it); clone a shared field with `+p.a`, move the struct as a whole, take
+that moves out of an object is rejected (the object would still drop
+it); clone a shared field with `+p.a`, move the object as a whole, take
 an optional field, or exchange the field with `replace` or `swap`
 ([Places](#places)). A field or element that copies would stay as it
 was, so `<p.n` is rejected too, and a plain read, `m = p.n`, copies it.
@@ -4182,7 +4186,7 @@ fun first(o: Int?) -> Int?
 
 `+x` makes a new owner. For a shared or weak handle it bumps the
 count; for plain data it copies; for a String, a List, a box, an
-optional, an array, or a struct or enum declared in the module that
+optional, an array, or an object or enum declared in the module that
 holds them, it clones each part the same way: a String's bytes and a
 List's elements are copied, a box's value is boxed again, and a handle
 inside is counted again (a deep copy). A type with a `drop` body, a
@@ -4202,9 +4206,9 @@ is dropped automatically when its block ends, including on early
 `return`, `break`, and `continue`, and on every path through branches.
 So a drop is only needed to release something early, or to end a view
 a binding holds. A view parameter cannot be dropped: the caller owns
-what it views. Plain data owns nothing, so `<n` of an `Int` or a struct
+what it views. Plain data owns nothing, so `<n` of an `Int` or an object
 of numbers drops nothing, and is rejected. A `?String` may view a `String`
-(§10), so `<s` of a `?String`, or of a struct holding one, ends the loan
+(§10), so `<s` of a `?String`, or of an object holding one, ends the loan
 it carries.
 
 ```rig
@@ -4254,7 +4258,7 @@ takes `!self` ([Changes and shared storage](#changes-and-shared-storage),
 where its view lasts only for the use: an argument to a view parameter
 (`balance_of(acct)` is `balance_of(?acct)`, and a slice is lent the
 way its name is: `total(w[1..3])` is `total(?w[1..3])`), a method's receiver
-([§3](#structs)), the subject of a `for`, `if … as`, or `match`
+([§3](#objects)), the subject of a `for`, `if … as`, or `match`
 ([§6](#6-control-flow)), and a held view or a function name lent on to
 read ([§11](#callable-views)). `print(...)` and `String(...)` read their
 arguments, so a slice there goes unwritten too (`print(w[1..3])`). A
@@ -4400,7 +4404,7 @@ A `!x` view needs a binding that may change: a parameter (other than
 `!T`), a fixed binding, a capture, or a loop binding cannot be
 lent to write. `!` lends any value to write, named or temporary
 ([Core 4](docs/CORE.md#2-the-core-in-ten-sentences)): a temporary, such
-as a call's result or a struct literal, or a field or element of one,
+as a call's result or an object literal, or a field or element of one,
 is kept in its statement's slot until the statement ends
 ([Temporaries](#temporaries)), where the change is seen, and a view of
 it may be used only within the statement. A branching value that may
@@ -4563,7 +4567,7 @@ every use of that closure), a binding that views the view in turn,
 deferred code, and the drop at scope exit of a value whose drop runs a
 `drop` body (its own, or one of a value it holds and drops), which could
 read the view. Any other drop only releases memory, so a `List[?T]`, or
-a struct holding views without a `drop` body, keeps their loans only
+an object holding views without a `drop` body, keeps their loans only
 until its last use. The binding's block ending, `<r`, or reassigning it
 also end the view.
 
@@ -4640,13 +4644,13 @@ holds is still in use while the later ones are evaluated. A view (`?v`)
 or a slice (`?v[..]`) in an earlier argument keeps its loan until the
 call ends. So does an argument that reads a place by value when that
 value shares storage the place owns: a List, a `^T`, a `*T` or `~T`
-handle, a struct holding one, or what a write view reaches, as
+handle, an object holding one, or what a write view reaches, as
 `print(v)` reads it. A later argument of the same call (`print`
 included) cannot lend that place to write or move it, since the call
 would see a stale value, or memory already freed: `print(v, grow(!v))`
 is rejected ([CORE §6](docs/CORE.md#6-bindings-and-assignment)). Plain
 data is copied whole when it is read, so `print(v.len, grow(!v))` and
-`print(p, bump(!p))` for a plain struct `p` are accepted, and print the
+`print(p, bump(!p))` for a plain object `p` are accepted, and print the
 values as they were read. A write receiver's arguments may read it,
 `!v.push(v.len)`, since they finish before the call writes.
 
@@ -4731,8 +4735,8 @@ cannot lend `ps` to write in an index of a place it is lending
 > **Core 7:** A call passes on only the loans its signature shows.
 
 Views are values the checker follows, not types you annotate: there is
-no lifetime syntax. A view can be held by a parameter, a local, a struct
-field (which makes the struct a view too), or a function's result, and
+no lifetime syntax. A view can be held by a parameter, a local, an object
+field (which makes the object a view too), or a function's result, and
 the checker tracks where every one came from.
 
 - A function may return a view only of something its caller lent it, or
@@ -4762,8 +4766,8 @@ the checker tracks where every one came from.
 - A view reached through another view views what that view views,
   not what holds it: `?c.items[0]`, with `items: ?List[Item]`, views
   the List, not `c`.
-- A struct holding a view keeps the viewed value lent while the
-  struct is alive. So does a stack closure that captured a view, and
+- An object holding a view keeps the viewed value lent while the
+  object is alive. So does a stack closure that captured a view, and
   a value a call may have stored a view into (its receiver lent to
   write, and what its `!` arguments and other write views lead to):
   a view of each argument, the receiver among them, whose type could
@@ -5186,7 +5190,7 @@ drop 4
 A field `p.f` or an element `v[i]` is read bare ([Reading](#reading)),
 lent with `?` and `!` ([Lending](#lending)), and assigned, which drops
 its old value. An optional field or element is also **taken**: `<p.f`
-takes the value out and leaves `none` behind, in one step, so the struct
+takes the value out and leaves `none` behind, in one step, so the object
 stays whole and nothing is dropped twice. Taking writes the place, so it
 needs a path that may write it (an owned local, a `!T`, not a `?T` or a
 `*T`), and no other view of the value may be live, and it needs an
@@ -5478,7 +5482,7 @@ closure accept only values that carry no loan ([§10](#string),
 
 ## 8. Drop and drop glue
 
-A struct may declare one `drop` body, which runs when a value of the
+An object may declare one `drop` body, which runs when a value of the
 type is released. It takes exactly one parameter, its receiver
 lent to write, spelled as a method's: `drop(!self)`, or `drop(self: !Self)`.
 
@@ -5500,7 +5504,7 @@ closing 3
 ```
 
 **Drop glue** is generated for every type that owns something: a
-struct with a `drop` body or an owning field, an enum with an owning
+object with a `drop` body or an owning field, an enum with an owning
 payload, and a generic instance with an owning argument. Releasing a
 value runs its `drop` body first, then releases its owning fields in
 reverse declaration order, recursively. Glue does not depend on the
@@ -5538,8 +5542,8 @@ reassign `self` directly, since a replaced `self` would be dropped,
 running the body again. A `!self` method that replaces its receiver
 recurses the same way, as it would in Rust. No field can be moved out,
 because the fields are released after the body returns.
-`drop` bodies are only for non-generic structs; enums and generic
-structs get structural glue only.
+`drop` bodies are only for non-generic objects; enums and generic
+objects get structural glue only.
 
 ---
 
@@ -5665,7 +5669,7 @@ are reserved.
 `Cell[T]` holds one value that can be replaced through any handle to it,
 by a marked call: it is what shared handles share
 ([§7](#changes-and-shared-storage)), and `*Cell[T]` is a shared value
-that changes. A value that holds a Cell (a `Cell[T]`, or a struct or
+that changes. A value that holds a Cell (a `Cell[T]`, or an object or
 enum a field of which holds one) lives only behind a shared handle
 (Core sentence 9): `*Cell[T]`, or `*S`. Its type may be a field's, of a
 value itself so held, or stand behind `*`, `~`, or a read view; a
@@ -5674,7 +5678,7 @@ is never a local's, a parameter's, or a result's type by value, a type
 argument (`List[Cell[Int]]`: write `List[*Cell[Int]]`), an element, or an
 optional. A constructor call that makes one stands only as the operand
 of `*` (`*Cell(0)`, `*Counter(hits: Cell(0))`), as a field argument of
-a constructor of a struct or enum that stands so, or as a field's
+a constructor of an object or enum that stands so, or as a field's
 default (`hits: Cell[Int] = Cell(0)`).
 
 | Member | Meaning |
@@ -5708,7 +5712,7 @@ with `pop`, or by taking the whole List out with `replace`.
 Every call that changes a Cell is marked: `set`, `replace`, `push`,
 `pop`, `keep`, `clear`, `c[i] = x` (written `(!c)[i] = x`), and a `Signal`'s `set`
 and `subscribe`. They take `!self`, so the receiver-sigil rule enforces
-the mark, and a read view (`?Cell[T]`, a `?self` method of a struct
+the mark, and a read view (`?Cell[T]`, a `?self` method of an object
 holding one) cannot change a Cell. `!c` where `c` is a handle lends the
 handle: `bump(!local)` with `local: *Cell[Int]`, and `bump(!k.hits)` with
 `k: *Counter`. A closure or a `Signal` subscriber marks the handle it
@@ -5845,7 +5849,7 @@ a value of `Cell[Int]` holds a Cell, so it lives only behind a shared handle: wr
 buffer: a `List` is an owning value whatever its elements are, and they
 are of any type but a write view or a value that holds a Cell
 ([CORE §5](docs/CORE.md#5-containers-and-fields-hold-values)): plain
-data, owning values (a `String`, a `List`, a box, a handle, a struct that
+data, owning values (a `String`, a `List`, a box, a handle, an object that
 owns one), and read views.
 
 | Member | Meaning |
@@ -5970,7 +5974,7 @@ drop 1
 
 ### Box
 
-`^T` is a box: one `T` alone on the heap, with one owner. A struct or
+`^T` is a box: one `T` alone on the heap, with one owner. An object or
 enum can hold itself through a box (`next: ^Node?`), since a box is a
 pointer whatever `T` is. A box moves (`<b`), is never copied, `+b`
 boxes a clone of its value ([§7](#clone)), and dropping it drops the
@@ -5983,7 +5987,7 @@ optional box, and a box of an optional is `^(Node?)`.
 | `^Node(...)` | a box of a new `Node` |
 | `^<x` | move the owner `x` into a new box |
 | `^x` | copy the plain value `x` into a new box |
-| `b.f`, `b.m(...)` | a field or method of the boxed value, reached through the box (and through any boxes it holds): a struct's or enum's, a List's (`!b.push(x)`, `b.len`), a String's (`!b.add(s)`, `b.len`) |
+| `b.f`, `b.m(...)` | a field or method of the boxed value, reached through the box (and through any boxes it holds): an object's or enum's, a List's (`!b.push(x)`, `b.len`), a String's (`!b.add(s)`, `b.len`) |
 | `?b`, `!b` | lend the box, or, where a view of the value is expected, that view: `?T` or `!T`, a `[]T` of a boxed array or List, a `?String` of a boxed String, through any number of boxes |
 | `<b.unbox()` | move the value out; the box is freed |
 | `<s.f` | take an optional box out of a field, leaving `none` ([§7](#places)) |
@@ -6108,7 +6112,7 @@ String. A `?String` is the view of text; a String is where text is built.
 | `t == u`, `t == s` | compares its bytes with a String's or a `?String`'s; a boxed String too |
 
 Each value is written as `print` writes it at the top level: a `?String`
-or a String as its text, a number as `print` shows it, a struct, enum,
+or a String as its text, a number as `print` shows it, an object, enum,
 optional, array, or List as `print` writes it, with the `?String` values inside
 it quoted. Rig has no `+` on text and no interpolation: text is built
 with `String(...)` and `!t.add(...)`, and every change to a String is
@@ -6214,7 +6218,7 @@ sub main()
 slice lends an array, and the `?String` it makes carries the loan: while
 the `?String` is in use, the String cannot be changed, moved, or dropped,
 and the `?String` cannot outlive it. The loan goes wherever the `?String`
-goes: into a binding, a struct field, a `List[?String]`, an optional, a
+goes: into a binding, an object field, a `List[?String]`, an optional, a
 closure's captures, and a call's result, since a function returning a
 `?String` may return a view of a `?String` it was passed
 ([§7](#second-class-views)). Once the last use of the `?String`, and of
@@ -6465,7 +6469,7 @@ sub main()
 
 A bare parameter takes its type from the type the context expects: a
 binding annotation, the parameter of the function being called, a
-`List`'s element type, a struct field, or a function's return type. An
+`List`'s element type, an object field, or a function's return type. An
 annotation is allowed anywhere and must agree with the context; with no
 context, every parameter must be annotated. A closure may ignore a
 parameter by naming it `_`, and, where its type is known, may leave out
@@ -7763,7 +7767,7 @@ A field or method is private to its module unless it is declared `pub`:
 is visible; another module that reads or writes a private field, or
 calls a private method or associated function, is rejected, whichever
 way it reaches the member: through a view, a `*T` handle, a `^T`, or
-an instance of a generic type. Another module constructs a struct only
+an instance of a generic type. Another module constructs an object only
 when every one of its fields is `pub`; a type with a private field is
 made by its own module, which can hand it out through a `pub` function.
 An enum's variants and their payload fields are always public, since
@@ -8199,7 +8203,7 @@ direct call; it is not a value.
 | `none` | `none` |
 | enum | `.green`, `.circle(r: 2.5)`, `.rect(w: 2, h: 3)`: payload fields by name, however it was built |
 | error | `Disk.timeout`: its set and its name, without the module |
-| struct | `User(name: "ada", age: 36)` |
+| object | `User(name: "ada", age: 36)` |
 | array, slice, `List` | `[1, 2]` |
 | shared handle | the value it holds |
 | `^T` | the value it holds |
@@ -8263,7 +8267,7 @@ The rest parse, and the checker rejects them as not supported yet
 
 | Form | Diagnostic |
 |---|---|
-| `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
+| `drop` on an enum or a generic object | `` `drop` bodies are only for non-generic objects `` |
 | a stack closure stored or returned | `` closures cannot escape their defining scope `` |
 | `/`, `%`, or a shift of a vector; a vector's lanes summed, converted, or shuffled | `` operator `/` does not take a `Simd` ``, `` type `Simd[U8, 16]` has no method `sum` `` |
 | a module constant holding a vector | `` a module-level constant needs a value known at compile time `` |

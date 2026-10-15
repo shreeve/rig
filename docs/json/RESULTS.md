@@ -1436,3 +1436,51 @@ The first answers are Rig's: keeping the parser's state in registers
 (the List growth round, `noalias` for write views, and a local tape in
 `document`; docs/RIG-NOTES.md, entry 8), worth up to 12% on citm_catalog
 by the honest harness's own measure ("The honest harness").
+
+## SIMD first on x86, and the tape in a local
+
+`TIER = 0 if target.arch == .x86_64 else 16` (`use std.target`): on
+x86_64, `skip_plain_ascii` starts with 16-lane SIMD, where a compare's
+mask reaches a general register cheaply; on arm64 it keeps its 16 bytes
+of SWAR first (TIER=0 there was 5-9% slower on three files). The Mac's
+code is unchanged.
+
+x86: burst (a cloud VM, AMD EPYC, 48 cores with SMT), the honest
+harness, `cpuq run --exclusive` holding the machine, pinned to CPU 2
+with its SMT sibling idle, fastest of 15 interleaved runs; MB/s. Each
+change is against main's `json.rig` built with the same compiler:
+
+| file | main | TIER by target | against main |
+|---|---:|---:|---|
+| twitter | 2639 | 2797 | 6.0% faster |
+| twitterescaped | 2145 | 2189 | 2.1% faster |
+| canada | 1370 | 1370 | within noise |
+| citm_catalog | 3314 | 3350 | 1.1% faster |
+| gsoc-2018 | 6281 | 6522 | 3.8% faster |
+| github_events | 3107 | 3389 | 9.1% faster |
+
+The same run timed `document` holding the tape in a local while it
+parses (taken out with `replace(!self.tape, List())` and put back on
+every way out), so its length and capacity could stay in registers. On
+the Mac that was up to 3.5% faster (twitter 3.5%, citm_catalog 3.3%),
+none slower; on x86 it is 6.5% slower on citm_catalog, 4.8% on
+gsoc-2018 and 3.0% on github_events, and 5.2% faster on twitterescaped.
+It does not land. x86
+has 16 general registers to arm64's 31, and keeping the tape's pointer,
+length and capacity in them spills other values in `document`. A
+change that keeps values in registers is timed on both machines.
+
+### A number's first digits a byte at a time
+
+`number` reads integer digits 8 at a time (`take_digits`), which
+computes where the digits end from data. A variant read the first 4
+integer digits a byte at a time, with branches the predictor learns, and
+went on 8 at a time after that. On the Mac (Rig main at 29b1d6b7d, one
+quiet window, fastest of 15 interleaved runs) it was 5.2% faster on
+canada (2073 to 2181 MB/s), whose integer parts are 1 to 3 digits, and
+2.6% slower on citm_catalog (4087 to 3982), whose integers run to about
+9 digits; the other four files were 0.8% to 1.3% slower. On x86, on top
+of the tape held in a local, it was 10.8% faster on canada. It misses
+the speed rule on citm_catalog and does not land; it can come back if
+something else removes its cost on long integers. Reading every integer
+digit a byte at a time, uncapped, was worse: citm_catalog 4.7% slower.

@@ -152,7 +152,7 @@ tools that take them in `bench/json/`.
     `i >= 0`, since the fact does not cross the call. Fix: facts a
     function proves of its result, or proofs after inlining.
     *Observed. Partly fixed: a function whose every return value is a
-    small literal, or a struct whose field is one, proves a caller's
+    small literal, or an object whose field is one, proves a caller's
     `i += d.size` (docs/INTERNALS.md, "Proven checks", Results); a bound
     in terms of an argument, such as `>= i`, is still open.*
 11. **A List's length converts to `Int` with a check.** `rig.len` tests
@@ -250,9 +250,15 @@ tools that take them in `bench/json/`.
     predictor guesses where a run ends and the next token starts early.
     The vector form makes that position a data dependency (load,
     classify, move the mask to a register, count) on every token's
-    critical path. `bench/json/guard.py` counts instructions only, so it
-    passes such a change: a change to a hot loop is judged by time on
-    both machines. *Verified* (docs/json/RESULTS.md).
+    critical path. A second case keeps the count in a general register:
+    after a whitespace byte, measuring the run of spaces that follows
+    from one U64 (`(w ^ SPACES).trailing_zeros() >> 3`, branch-free) took
+    13-18% fewer instructions on twitter, citm_catalog and github_events
+    and was 13-34% slower on them. A position computed from data waits
+    for its load; a branch the predictor learns does not.
+    `bench/json/guard.py` counts instructions only, so it passes such a
+    change: a change to a hot loop is judged by time on both machines.
+    *Verified* (docs/json/RESULTS.md).
 26. **A guard cannot bind.** `return i + k if m.first() as k` is
     rejected with "use of unbound name `k`": a guard (`if cond` after a
     statement) takes a `Bool`, and `as` binds only in a block form (`if

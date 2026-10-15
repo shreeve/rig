@@ -145,7 +145,7 @@ structural weak spots, which these steps removed (the evidence is in
 5. **The remaining planned rules.** An error value meets `T!` only as
    `return`'s operand, `(!s).insert(k)`, `const x = e`, an owner moves
    as a function's or block's last value, and `+x` deep-copies List, `^T`,
-   and owning structs.
+   and owning objects.
 6. **Result origins.** A call's result carries the loans of the
    arguments whose types could hold what it views, `from a` narrows
    that, and each body is checked against its signature.
@@ -203,7 +203,7 @@ These belong to the design owner; `.git/revamp/r3/rig-questions.md`
   returns; dropping a container of views uses them only through a `drop`
   body; a bare name or place only reads, so `x = h.w`, like `x = w`, of
   a `!Int` copies the Int.
-- **The kind of a struct of `?String` values:** CORE calls it a view, SPEC plain
+- **The kind of an object of `?String` values:** CORE calls it a view, SPEC plain
   data; the compiler treats it as CORE's read-view kind.
 - **A branching receiver:** a pointer per leaf (built) or a rejection?
 - **Clone limits:** are the missing clones of a type from another
@@ -298,7 +298,7 @@ and run the corpus after.
     while the view lives.
   - An operator, generic inference, and a binding with no type read a
     read view of a scalar as the value (`readsAsValue`), but keep a read
-    view of a plain struct, array, or optional as the view: copying
+    view of a plain object, array, or optional as the view: copying
     those out there would change the type of accepted programs
     (`x = r` with `r: ?Point` binds a `?Point`). Where a type is
     expected, every value that copies is copied out (`sema.copies`).
