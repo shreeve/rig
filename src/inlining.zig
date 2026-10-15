@@ -15,13 +15,21 @@
 //!   - it is not the program's `main`, has no compile-time type
 //!     parameters (an instance of one with compile-time values is sized
 //!     and inlined as any function), is not a member of a generic type,
-//!     and holds no closure.
+//!     and holds no closure,
+//!   - and the frame of every frame owner it lands in stays within its
+//!     account's limits (`fit`).
 //!
-//! A call resolves by name (a method by its name alone, a function by
-//! its symbol), so two functions of one name stand for each other: the
-//! analysis only ever finds more cycles and more value uses than there
-//! are, never fewer. A call by name is one edge to the group of the
-//! functions of that name (`Group`), not one to each.
+//! What a call reaches is the one fact typecheck records where it
+//! resolves the call (`SemContext.callTargetOf`): a function by its
+//! symbol, a method by its receiver's type. A call no check resolved
+//! reaches, by its name, every function of that name (`Group`), so the
+//! analysis only ever finds more cycles than there are, never fewer.
+//!
+//! Every frame Zig writes is a frame owner (`sema.FrameOwner`), and every
+//! call is in exactly one (`SemContext.ownerOf`): the pass reads both from
+//! typecheck and finds neither itself. An inlined function's body lands in
+//! the owner of each call of it, so each owner's account
+//! (`sema.Account`) holds what the rule inlines into it.
 //!
 //! Zig inlines by analyzing the body at each call, so an argument it knows
 //! at compile time is known inside, and `a + 1` on a constant `255` would
@@ -35,24 +43,24 @@ const parser = @import("parser.zig");
 const sema = @import("sema.zig");
 const modules = @import("modules.zig");
 const rig = @import("rig.zig");
-const typecheck = @import("typecheck.zig");
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
 const SemContext = sema.SemContext;
+const FrameCount = sema.FrameCount;
 
 /// The most nodes (each form of the tree: a call, an operator, a
 /// statement) a body may have and be inlined.
 pub const max_size = 60;
 
-/// The most reach (`typecheck.checkFrames`) the inlined calls in one
-/// function may add to it, and an inlined function may have, each
-/// inlined call counted at every call. Zig writes an inlined body, its
-/// locals and its temporaries, again at each call, in the caller's frame,
-/// so a function's own frame with the inlined ones in it also stays
-/// within `sema.max_frame_bytes`, which `typecheck.checkFrames` holds the
-/// function's own frame to, and its reach within `sema.max_frame_reach`:
-/// inlining stops short of either.
+/// The most reach (`typecheck.checkFrames`) the functions the rule
+/// inlines may add to one frame owner, and an inlined function may have,
+/// each inlined call counted at every call and at every copy Zig writes
+/// of it. Zig writes an inlined body, its locals and its temporaries,
+/// again at each call, in the caller's frame, so an owner's own frame
+/// with the inlined ones in it also stays within `sema.max_frame_bytes`,
+/// which `typecheck.checkFrames` holds the owner's own frame to, and its
+/// reach within `sema.max_frame_reach`: inlining stops short of either.
 pub const max_inlined_frame_bytes: u128 = 64 << 10;
 
 /// The most nodes an inlined function may expand to at a call, counting
@@ -64,8 +72,11 @@ pub const max_inlined_frame_bytes: u128 = 64 << 10;
 /// `max_size`, has a hot helper (`key`) that expands to 287.
 pub const max_expanded = 320;
 
+/// A function or method, the one frame owner the rule may inline.
 const Fn = struct {
     module: usize,
+    /// Its frame owner (`Pass.owners`).
+    owner: u32,
     node: Sexp,
     name: []const u8,
     /// Where the name is declared, which `Facts.isInlined` asks by.
@@ -75,26 +86,17 @@ const Fn = struct {
     eligible: bool,
     /// Mentioned other than as a callee.
     used_as_value: bool = false,
-    /// What its calls reach, once for each call (`Callee`).
-    calls: std.ArrayList(Callee) = .empty,
     /// The functions with a call of it, once for each such call.
     callers: std.ArrayList(u32) = .empty,
     /// Its name's group (`Group`).
     group: u32 = 0,
-    /// Its reach (`typecheck.checkFrames`): what its code may take of
-    /// the stack, which an inlined call adds to its caller's at each call;
-    /// 0 when that depends on generic parameters.
-    own: u128 = 0,
-    /// The bytes of values it keeps on its stack, as `sema.max_frame_bytes`
-    /// counts them.
-    count: u128 = 0,
     inlined: bool = false,
-    /// Its frame with the inlined calls in it (`frames`).
+    /// Its frame with the inlined calls in it (`frame`).
     frame: ?u128 = null,
     /// How many calls may reach it: those of it, and those of its name's
     /// group.
     call_sites: u32 = 0,
-    /// The function of the first call that may reach it.
+    /// The function around the first call that may reach it.
     first_caller: ?u32 = null,
     /// Its size with the inlined calls in it (`expanded`).
     weight: ?u64 = null,
@@ -106,8 +108,25 @@ const Fn = struct {
     node_state: Tarjan = .{},
 };
 
-/// The functions of one name, which a call that resolves by name reaches
-/// all of: such a call is one edge to the group, not one to each, so the
+/// A frame owner (`sema.FrameOwner`), as the pass counts it.
+const Owner = struct {
+    /// Its function, for a function.
+    fun: ?u32,
+    /// The function whose instances it is written in: its own, a closure's
+    /// nearest function around it; null for a test or a `drop` body
+    /// (`oncePerInstance`).
+    in_fn: ?u32,
+    /// Its own frame: the count `checkFrames` made, or for a generic one
+    /// the largest of its instances'; null when no count knows it.
+    own: ?FrameCount,
+    /// What its calls reach, once for each call, with the copies of it.
+    calls: std.ArrayList(Edge) = .empty,
+};
+
+const Edge = struct { callee: Callee, copies: u32 };
+
+/// The functions of one name, which a call no check resolved reaches all
+/// of: such a call is one edge to the group, not one to each, so the
 /// calls of a name every module declares cost no more than any other.
 const Group = struct {
     members: std.ArrayList(u32) = .empty,
@@ -128,7 +147,7 @@ const Group = struct {
 
 const Top = struct { fun: ?u32 };
 
-/// A call, by the order the calls are visited in, and the function it is in.
+/// A call, by the order the calls are met in, and the function around it.
 const First = struct { seq: u32, caller: ?u32 };
 
 const Tarjan = struct {
@@ -151,10 +170,17 @@ fn textOf(c: *const SemContext, leaf: Sexp) []const u8 {
 /// A call and what it may reach.
 const Site = struct { module: usize, id: parser.NodeId, callee: Callee };
 
+/// An owner's frame, by its declaring module's id and where it is
+/// declared (`sema.FrameSize`).
+const OwnerKey = struct { module: u32, pos: u32 };
+
 const Pass = struct {
     a: std.mem.Allocator,
     mods: []const *modules.Module,
     fns: std.ArrayList(Fn) = .empty,
+    owners: std.ArrayList(Owner) = .empty,
+    /// Per module: the index in `owners` of its first owner.
+    owner_base: []u32,
     groups: std.ArrayList(Group) = .empty,
     /// Each call that may reach a function, and what.
     sites: std.ArrayList(Site) = .empty,
@@ -163,7 +189,7 @@ const Pass = struct {
     /// Per module: the function declared at a position.
     by_pos: []std.AutoHashMapUnmanaged(u32, u32),
     max: u32,
-    /// The calls visited so far.
+    /// The calls met so far.
     seq: u32 = 0,
     // Tarjan's, over the functions and the groups: `nodeOf` numbers them.
     next_index: u32 = 1,
@@ -178,40 +204,39 @@ const Pass = struct {
         return self.mods[module].sema;
     }
 
-    fn collect(self: *Pass, module: usize, root: Sexp) !void {
-        for (ir.Module.decls(root)) |d| try self.collectDecl(module, d, false);
-    }
-
-    fn collectDecl(self: *Pass, module: usize, decl: Sexp, member: bool) !void {
-        var d = decl;
-        if (d.isKind(.@"pub")) d = ir.Pub.decl(d);
-        const kind = d.kind() orelse return;
-        switch (kind) {
-            .fun, .sub => try self.add(module, d, member, false),
-            .@"struct" => for (ir.Struct.members(d)) |m| try self.collectDecl(module, m, true),
-            .@"enum" => for (ir.Enum.members(d)) |m| try self.collectDecl(module, m, true),
-            .errors => for (ir.Errors.members(d)) |m| try self.collectDecl(module, m, true),
-            .generic_struct => for (ir.GenericStruct.members(d)) |m| try self.collectGeneric(module, m),
-            .generic_enum => for (ir.GenericEnum.members(d)) |m| try self.collectGeneric(module, m),
-            else => {},
+    /// The owners of module `module`, and its functions among them.
+    fn collect(self: *Pass, module: usize, instances: *const std.AutoHashMapUnmanaged(OwnerKey, FrameCount)) !void {
+        const c = self.ctx(module);
+        const base = self.owner_base[module];
+        for (c.frame_owners.items, 0..) |o, k| {
+            const index: u32 = base + @as(u32, @intCast(k));
+            const parent_fn = if (o.parent) |p| self.owners.items[base + p].in_fn else null;
+            // A generic owner's frame is its instances': the largest of
+            // them, and none if no instance is made, since Zig writes no
+            // frame for it then.
+            const own: ?FrameCount = if (o.per_instance)
+                instances.get(.{ .module = c.module_id, .pos = o.pos }) orelse .{ .bytes = 0, .reach = 0 }
+            else
+                o.own;
+            try self.owners.append(self.a, .{ .fun = null, .in_fn = parent_fn, .own = own });
+            if (o.kind != .function) continue;
+            const v = try self.add(module, index, o);
+            self.owners.items[index].fun = v;
+            self.owners.items[index].in_fn = v;
         }
     }
 
-    fn collectGeneric(self: *Pass, module: usize, member: Sexp) !void {
-        var m = member;
-        if (m.isKind(.@"pub")) m = ir.Pub.decl(m);
-        if (m.isKind(.fun) or m.isKind(.sub)) try self.add(module, m, true, true);
-    }
-
-    fn add(self: *Pass, module: usize, node: Sexp, member: bool, generic_owner: bool) !void {
+    fn add(self: *Pass, module: usize, owner: u32, o: sema.FrameOwner) !u32 {
         const c = self.ctx(module);
-        const name_node = ir.get(node, .name);
-        const name = textOf(c, name_node);
+        const node = o.root;
+        const name = textOf(c, ir.get(node, .name));
         const body = ir.get(node, .body);
-        const is_main = !member and self.mods[module].id == 1 and std.mem.eql(u8, name, "main");
-        const eligible = body != .nil and !is_main and !generic_owner and onlyValueParams(node) and rig.markerOf(node) == .none;
+        const is_main = !o.member and self.mods[module].id == 1 and std.mem.eql(u8, name, "main");
+        var eligible = body != .nil and !is_main and !o.of_generic_type and onlyValueParams(node) and rig.markerOf(node) == .none;
+        if (body != .nil and holdsClosure(body)) eligible = false;
+        // A frame that depends on a compile-time value is unknown.
+        if (o.per_instance and sema.tparamsOf(node) != .nil) eligible = false;
         const idx: u32 = @intCast(self.fns.items.len);
-        const pos = c.startOf(name_node);
         const gop = try self.by_name.getOrPut(self.a, name);
         if (!gop.found_existing) {
             gop.value_ptr.* = @intCast(self.groups.items.len);
@@ -220,39 +245,45 @@ const Pass = struct {
         try self.groups.items[gop.value_ptr.*].members.append(self.a, idx);
         try self.fns.append(self.a, .{
             .module = module,
+            .owner = owner,
             .node = node,
             .name = name,
-            .pos = pos,
+            .pos = o.pos,
             .eligible = eligible,
             .size = if (body != .nil) size(body) else 0,
             .group = gop.value_ptr.*,
         });
-        if (body != .nil and holdsClosure(body)) self.fns.items[idx].eligible = false;
-        try self.by_pos[module].put(self.a, pos, idx);
+        try self.by_pos[module].put(self.a, o.pos, idx);
+        return idx;
     }
 
-    /// Every mention of a function in `e`, inside the function `cur`.
-    fn visit(self: *Pass, module: usize, cur: ?u32, e: Sexp) std.mem.Allocator.Error!void {
+    /// Every mention of a function in `e` that is not a call's callee.
+    fn mentions(self: *Pass, module: usize, e: Sexp) std.mem.Allocator.Error!void {
         if (e == .src) return self.mention(module, e);
         if (e != .list) return;
         const kind = e.kind() orelse {
-            for (e.items()) |c| try self.visit(module, cur, c);
+            for (e.items()) |c| try self.mentions(module, c);
             return;
         };
         switch (kind) {
             .use => return,
-            .fun, .sub => {
-                const idx = self.by_pos[module].get(self.ctx(module).startOf(ir.get(e, .name)));
-                // Everything but the name.
-                for (e.items()[2..]) |c| try self.visit(module, idx orelse cur, c);
+            // Everything but the name.
+            .fun, .sub => for (e.items()[2..]) |c| try self.mentions(module, c),
+            .call => {
+                const raw = ir.Call.callee(e);
+                const callee = self.ctx(module).calleeOf(e);
+                if (callee.isKind(.member)) {
+                    try self.mentions(module, ir.Member.object(callee));
+                } else if (callee != .src) try self.mentions(module, callee);
+                // The bracket list of a generic call, `f[T](x)`.
+                if (raw.isKind(.inst)) for (raw.items()[2..]) |a| try self.mentions(module, a);
+                for (ir.Call.args(e)) |a| try self.mentions(module, a);
             },
-            .call => try self.visitCall(module, cur, e),
             .member => {
-                const obj = ir.Member.object(e);
-                try self.visit(module, cur, obj);
+                try self.mentions(module, ir.Member.object(e));
                 self.mentionMember(module, e);
             },
-            else => for (e.items()) |c| try self.visit(module, cur, c),
+            else => for (e.items()) |c| try self.mentions(module, c),
         }
     }
 
@@ -280,48 +311,56 @@ const Pass = struct {
         for (self.groups.items[g].members.items) |f| self.fns.items[f].used_as_value = true;
     }
 
-    fn visitCall(self: *Pass, module: usize, cur: ?u32, call: Sexp) std.mem.Allocator.Error!void {
+    /// What the call `fc` of module `module` reaches: the function
+    /// typecheck resolved it to, or, for a call no check resolved, every
+    /// function its callee's name may stand for.
+    fn target(self: *Pass, module: usize, call: Sexp) ?Callee {
         const c = self.ctx(module);
-        const raw = ir.Call.callee(call);
-        const callee = c.calleeOf(call);
-        var target: ?Callee = null;
-        switch (callee.kind() orelse .set) {
-            .member => {
-                try self.visit(module, cur, ir.Member.object(callee));
-                target = self.named(textOf(c, ir.Member.name(callee)));
+        if (c.callTargetOf(call)) |t| switch (t) {
+            .none => return null,
+            .function => |ref| {
+                if (ref.module >= 1 and ref.module <= self.mods.len) {
+                    if (self.by_pos[ref.module - 1].get(ref.pos)) |f| return f;
+                }
             },
-            else => if (callee == .src) {
-                const id = c.symbolOf(callee);
-                if (id) |sid| {
-                    const s = c.symbols.items[sid];
-                    if (s.kind == .function) target = self.by_pos[module].get(s.decl_pos);
-                } else target = self.named(textOf(c, callee));
-            } else try self.visit(module, cur, callee),
-        }
-        if (target) |t| {
-            const first: First = .{ .seq = self.seq, .caller = cur };
+        };
+        const callee = c.calleeOf(call);
+        if (callee.isKind(.member)) return self.named(textOf(c, ir.Member.name(callee)));
+        if (callee != .src) return null;
+        const id = c.symbolOf(callee) orelse return self.named(textOf(c, callee));
+        const s = c.symbols.items[id];
+        if (s.kind != .function) return null;
+        return self.by_pos[module].get(s.decl_pos) orelse self.named(textOf(c, callee));
+    }
+
+    /// The calls of module `module`, each to its owner (`ownerOf`).
+    fn calls(self: *Pass, module: usize) !void {
+        const c = self.ctx(module);
+        const base = self.owner_base[module];
+        for (c.frame_calls.items) |fc| {
+            const t = self.target(module, fc.node) orelse continue;
+            const owner: ?u32 = if (fc.owner) |o| base + o else null;
+            const from: ?u32 = if (owner) |o| self.owners.items[o].fun else null;
+            const first: First = .{ .seq = self.seq, .caller = if (owner) |o| self.owners.items[o].in_fn else null };
             self.seq += 1;
             if (t & group_bit != 0) {
                 const g = &self.groups.items[t & ~group_bit];
                 g.calls += 1;
                 if (g.first == null) g.first = first;
-                if (cur) |from| try g.callers.append(self.a, from);
+                if (from) |f| try g.callers.append(self.a, f);
             } else {
                 const f = &self.fns.items[t];
                 f.direct_calls += 1;
                 if (f.first == null) f.first = first;
-                if (cur) |from| try f.callers.append(self.a, from);
+                if (from) |v| try f.callers.append(self.a, v);
             }
-            if (cur) |from| try self.fns.items[from].calls.append(self.a, t);
-            if (call.list.id != 0) try self.sites.append(self.a, .{ .module = module, .id = call.list.id, .callee = t });
+            if (owner) |o| try self.owners.items[o].calls.append(self.a, .{ .callee = t, .copies = fc.copies });
+            if (fc.node == .list and fc.node.list.id != 0) try self.sites.append(self.a, .{ .module = module, .id = fc.node.list.id, .callee = t });
         }
-        // The bracket list of a generic call, `f[T](x)`.
-        if (raw.isKind(.inst)) for (raw.items()[2..]) |a| try self.visit(module, cur, a);
-        for (ir.Call.args(call)) |a| try self.visit(module, cur, a);
     }
 
-    /// The group of the functions named `name`, which a call that resolves
-    /// by name reaches.
+    /// The group of the functions named `name`, which a call no check
+    /// resolved reaches.
     fn named(self: *Pass, name: []const u8) ?Callee {
         const g = self.by_name.get(name) orelse return null;
         return group_bit | g;
@@ -338,11 +377,12 @@ const Pass = struct {
         }
     }
 
-    /// What the calls of `v` that are inlined add to its frame: the sum, over
-    /// its call sites, of the frame of each inlined callee.
-    fn added(self: *Pass, v: u32) u128 {
+    /// What the functions the rule inlines add to owner `o`'s frame (its
+    /// account's `auto`): the frame of each inlined callee of each of its
+    /// calls, at every copy of the call.
+    fn added(self: *Pass, o: u32) u128 {
         var total: u128 = 0;
-        for (self.fns.items[v].calls.items) |t| total += self.calleeFrame(t);
+        for (self.owners.items[o].calls.items) |e| total += e.copies * self.calleeFrame(e.callee);
         return total;
     }
 
@@ -361,10 +401,12 @@ const Pass = struct {
     }
 
     /// The frame of an inlined function with its own inlined calls in it.
-    /// No cycle of calls is inlined, so this ends.
+    /// No cycle of calls is inlined, so this ends, and an inlined
+    /// function's own frame is known (`collect`).
     fn frame(self: *Pass, v: u32) u128 {
         if (self.fns.items[v].frame) |b| return b;
-        const b = self.fns.items[v].own + self.added(v);
+        const o = self.fns.items[v].owner;
+        const b = self.owners.items[o].own.?.reach + self.added(o);
         self.fns.items[v].frame = b;
         return b;
     }
@@ -373,7 +415,7 @@ const Pass = struct {
     fn expanded(self: *Pass, v: u32) u64 {
         if (self.fns.items[v].weight) |w| return w;
         var total: u64 = self.fns.items[v].size;
-        for (self.fns.items[v].calls.items) |t| total += self.calleeWeight(t);
+        for (self.owners.items[self.fns.items[v].owner].calls.items) |e| total += self.calleeWeight(e.callee);
         self.fns.items[v].weight = total;
         return total;
     }
@@ -402,38 +444,47 @@ const Pass = struct {
         return sema.tparamsOf(self.fns.items[caller].node) != .nil;
     }
 
-    /// Stop inlining until no function adds more than
-    /// `max_inlined_frame_bytes` of reach to its frame, no function has a
-    /// frame of more than `sema.max_frame_bytes` with the reach of the
-    /// inlined calls in it, no inlined function has a reach of more than
-    /// `max_inlined_frame_bytes`, and none expands to more than
-    /// `max_expanded` nodes: in order, at the first function that breaks
-    /// a rule, stop inlining it or the largest of its inlined calls, and
-    /// look again.
+    /// Whether owner `o`'s account fits: the functions the rule inlines
+    /// into it add at most `max_inlined_frame_bytes`, and its own frame
+    /// with them stays within `sema.max_frame_bytes`. An owner whose own
+    /// frame no count knows fits only with nothing inlined into it.
+    fn fits(self: *Pass, o: u32) bool {
+        const auto = self.added(o);
+        const own = self.owners.items[o].own orelse return auto == 0;
+        return auto <= max_inlined_frame_bytes and own.bytes + auto <= sema.max_frame_bytes;
+    }
+
+    /// Stop inlining until every owner's account fits (`fits`), no
+    /// inlined function has a frame of more than `max_inlined_frame_bytes`
+    /// with the inlined calls in it, and none expands to more than
+    /// `max_expanded` nodes: in order, at the first owner that breaks a
+    /// rule, stop inlining it or the largest of its inlined calls, and look
+    /// again.
     ///
-    /// Each step only shrinks frames and expansions, so no function before
-    /// the one that broke a rule breaks one after it: the search goes on
-    /// from that function, not from the first, and forgets only the frames
-    /// and expansions that counted the call no longer inlined
-    /// (`uninline`).
+    /// Each step only shrinks frames and expansions, so no owner before the
+    /// one that broke a rule breaks one after it: the search goes on from
+    /// that owner, not from the first, and forgets only the frames and
+    /// expansions that counted the call no longer inlined (`uninline`).
     fn fit(self: *Pass) !void {
         var i: usize = 0;
-        while (i < self.fns.items.len) {
-            const v: u32 = @intCast(i);
-            const f = &self.fns.items[i];
-            if (f.inlined and (self.frame(v) > max_inlined_frame_bytes or (self.expanded(v) > max_expanded and !self.oncePerInstance(f)))) {
-                try self.uninline(v);
-                continue;
+        while (i < self.owners.items.len) {
+            const o: u32 = @intCast(i);
+            if (self.owners.items[i].fun) |v| {
+                const f = &self.fns.items[v];
+                if (f.inlined and (self.frame(v) > max_inlined_frame_bytes or (self.expanded(v) > max_expanded and !self.oncePerInstance(f)))) {
+                    try self.uninline(v);
+                    continue;
+                }
             }
-            if (self.added(v) <= max_inlined_frame_bytes and f.count + self.added(v) <= sema.max_frame_bytes) {
+            if (self.fits(o)) {
                 i += 1;
                 continue;
             }
             // The largest of the inlined calls, the first of them in the
             // order of the calls and of a group's functions.
             var biggest: ?u32 = null;
-            for (f.calls.items) |t| {
-                const w = self.largest(t) orelse continue;
+            for (self.owners.items[i].calls.items) |e| {
+                const w = self.largest(e.callee) orelse continue;
                 if (biggest == null or self.frame(w) > self.frame(biggest.?)) biggest = w;
             }
             try self.uninline(biggest.?);
@@ -507,8 +558,8 @@ const Pass = struct {
     fn edges(self: *Pass, n: u32, i: usize) ?u32 {
         const nf: u32 = @intCast(self.fns.items.len);
         if (n < nf) {
-            const calls = self.fns.items[n].calls.items;
-            return if (i < calls.len) self.nodeOf(calls[i]) else null;
+            const calls_of = self.owners.items[self.fns.items[n].owner].calls.items;
+            return if (i < calls_of.len) self.nodeOf(calls_of[i].callee) else null;
         }
         const members = self.groups.items[n - nf].members.items;
         return if (i < members.len) members[i] else null;
@@ -590,46 +641,65 @@ fn holdsClosure(e: Sexp) bool {
 }
 
 /// Decide, for every module of a program with no errors, which functions
-/// are emitted `inline`, and record them in the modules' contexts.
-/// `max` is the largest body to inline (`max_size`).
+/// are emitted `inline`, record them in the modules' contexts, and fill
+/// every frame owner's account (`SemContext.account`). `max` is the
+/// largest body to inline (`max_size`).
 pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u32) !void {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const mods = try a.alloc(*modules.Module, graph.modules.items.len);
     for (graph.modules.items, mods) |*m, *out| out.* = m;
-    var pass: Pass = .{ .a = a, .mods = mods, .by_pos = try a.alloc(std.AutoHashMapUnmanaged(u32, u32), mods.len), .max = max };
+    var pass: Pass = .{
+        .a = a,
+        .mods = mods,
+        .by_pos = try a.alloc(std.AutoHashMapUnmanaged(u32, u32), mods.len),
+        .owner_base = try a.alloc(u32, mods.len),
+        .max = max,
+    };
     for (pass.by_pos) |*m| m.* = .empty;
-    for (mods, 0..) |m, i| try pass.collect(i, m.ir);
-    for (mods, 0..) |m, i| try pass.visit(i, null, m.ir);
+    // Each generic owner's frame at its instances, wherever they are made:
+    // the largest.
+    var instances: std.AutoHashMapUnmanaged(OwnerKey, FrameCount) = .empty;
+    for (mods) |m| for (m.sema.frame_sizes.items) |fr| {
+        const gop = try instances.getOrPut(a, .{ .module = fr.module, .pos = fr.decl });
+        if (!gop.found_existing) gop.value_ptr.* = .{ .bytes = 0, .reach = 0 };
+        gop.value_ptr.bytes = @max(gop.value_ptr.bytes, fr.bytes);
+        gop.value_ptr.reach = @max(gop.value_ptr.reach, fr.reach);
+    };
+    var base: u32 = 0;
+    for (mods, 0..) |m, i| {
+        pass.owner_base[i] = base;
+        base += @intCast(m.sema.frame_owners.items.len);
+    }
+    for (0..mods.len) |i| try pass.collect(i, &instances);
+    for (mods, 0..) |m, i| try pass.mentions(i, m.ir);
+    for (0..mods.len) |i| try pass.calls(i);
     pass.countCalls();
     try pass.findCycles();
     // A large frame found at an instance another module makes marks its
     // declaration in its own module (module ids count from 1).
     for (mods) |m| for (m.sema.large_foreign_frames.items) |fr| try mods[fr.module - 1].sema.large_frames.put(allocator, fr.pos, {});
-    for (pass.fns.items) |*f| {
-        if (ir.get(f.node, .body) == .nil) continue;
-        const fc = (try typecheck.frameBytesOfFunction(mods[f.module].sema, f.node)) orelse {
-            // A frame that depends on a compile-time value is unknown.
-            if (sema.tparamsOf(f.node) != .nil) f.eligible = false;
-            continue;
-        };
-        f.own = fc.reach;
-        f.count = fc.bytes;
-    }
     for (pass.fns.items, 0..) |*f, v| {
         if (!f.eligible or f.used_as_value or pass.isCyclic(@intCast(v)) or f.size > max) continue;
-        if (f.own > max_inlined_frame_bytes or mods[f.module].sema.large_frames.contains(f.pos)) continue;
+        const own = pass.owners.items[f.owner].own orelse continue;
+        if (own.reach > max_inlined_frame_bytes or mods[f.module].sema.large_frames.contains(f.pos)) continue;
         f.inlined = true;
     }
     try pass.fit();
-    for (pass.fns.items, 0..) |f, v| {
+    for (pass.fns.items) |f| {
         if (f.inlined) try mods[f.module].sema.inlined.put(allocator, f.pos, {});
         // A function large with the calls inlined into it is never inlined
         // by Zig either.
-        if (!f.inlined and (f.own + pass.added(@intCast(v))) * sema.reach_factor >= sema.noinline_reach)
+        const own = pass.owners.items[f.owner].own orelse continue;
+        if (!f.inlined and (own.reach + pass.added(f.owner)) * sema.reach_factor >= sema.noinline_reach)
             try mods[f.module].sema.large_frames.put(allocator, f.pos, {});
     }
+    // Every owner's account.
+    for (mods, 0..) |m, i| for (m.sema.frame_owners.items, 0..) |*o, k| {
+        const index = pass.owner_base[i] + @as(u32, @intCast(k));
+        o.account = .{ .own = pass.owners.items[index].own, .auto = pass.added(index) };
+    };
     // A call that may reach an inlined function hands back a value Zig
     // would know at compile time (`Emitter.emitCallDirect`).
     for (pass.sites.items) |site| {
