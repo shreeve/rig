@@ -593,16 +593,17 @@ sub main()
 0 1 0 none height 2
 ```
 
-The entries are kept in one List, in order, each with 32 bits of its
-key's hash beside it, so no key is hashed twice: not when the table
-grows, nor when an entry is taken. A Map or Set of up to 8 entries has
+The entries are kept in one List, in order, each with its key's hash
+beside it, so no key is hashed twice: not when the table grows, nor
+when an entry is taken. A Map or Set of up to 8 entries has
 no table: a lookup compares the stored hashes in turn, then the key
 where one matches. A larger one has a table, open-addressed and probed
 linearly, at most four fifths full; each slot holds a one-byte tag,
-seven bits of its key's hash, and the index of its entry, so a probe
+the top seven bits of its key's hash, and the index of its entry, so a probe
 compares a key only when the tag matches, and a key that is not there
 is found missing from the tags alone. A Map's entry holds its key and
-an optional value, so a `Map[U32, U32]` entry takes 12 bytes; taking
+an optional value, so a `Map[U32, U32]` entry takes 12 bytes, and its
+hash 8 more; taking
 one empties its value in place, and the next growth drops the entry,
 key and all, keeping the rest in order. A Set's key is optional, and
 taking one hands it back. The seed of `.hash()` is fixed, so
