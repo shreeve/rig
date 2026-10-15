@@ -1,0 +1,52 @@
+# A local holding the write view a `(!H)?` parameter holds, unwrapped
+# or not, or lent on from it, stores in the caller's value.
+
+obj H
+  s: ?String
+
+  sub keep(!self, v: ?String)
+    self.s = v
+
+sub unwrapped(w: (!H)?)
+  d = String("local")
+  x = <w ?? return
+  x.s = ?d
+
+sub whole(w: (!H)?)
+  d = String("local")
+  x = <w ?? return
+  x = H(s: ?d)
+
+sub optional(w: (!H)?)
+  d = String("local")
+  x = <w
+  (x ?? return).s = ?d
+
+sub optional_header(w: (!H)?)
+  d = String("local")
+  x = <w
+  if <x as y
+    y.s = ?d
+
+sub lent_on(w: (!H)?)
+  d = String("local")
+  x = <w ?? return
+  y = !x
+  y.s = ?d
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  unwrapped(!h)
+  whole(!h)
+  optional(!h)
+  optional_header(!h)
+  lent_on(!h)
+  print(h.s)
+
+# errors: 5
+# error: a view of `d`
+# error: a view of `d`
+# error: a view of `d`
+# error: a view of `d`
+# error: a view of `d`

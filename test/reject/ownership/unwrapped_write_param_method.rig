@@ -1,0 +1,34 @@
+# A write method called on the write view a `(!H)?` parameter holds,
+# unwrapped by `??` or `if … as`, stores in the caller's value.
+
+obj H
+  s: ?String
+
+  sub keep(!self, v: ?String)
+    self.s = v
+
+sub nullish(w: (!H)?)
+  d = String("local")
+  (w ?? return).keep(?d)
+
+sub moved(w: (!H)?)
+  d = String("local")
+  (<w ?? return).keep(?d)
+
+sub header(w: (!H)?)
+  d = String("local")
+  if <w as x
+    !x.keep(?d)
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  nullish(!h)
+  moved(!h)
+  header(!h)
+  print(h.s)
+
+# errors: 3
+# error: a view of `d`
+# error: a view of `d`
+# error: a view of `d`

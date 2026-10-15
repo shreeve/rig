@@ -1,0 +1,31 @@
+# A closure that captures the write view a `(!H)?` parameter holds, or
+# the view unwrapped from it, stores in the caller's value when it is
+# called.
+
+obj H
+  s: ?String
+
+  sub keep(!self, v: ?String)
+    self.s = v
+
+sub captured(w: (!H)?)
+  d = String("local")
+  f = |<w, ?d| (w ?? return).s = d
+  f()
+
+sub unwrapped(w: (!H)?)
+  d = String("local")
+  x = <w ?? return
+  f = |<x, ?d| x.s = d
+  f()
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  captured(!h)
+  unwrapped(!h)
+  print(h.s)
+
+# errors: 2
+# error: a view of `d`
+# error: a view of `d`
