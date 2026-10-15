@@ -438,7 +438,7 @@ pub const SymbolKind = enum {
     capture,
 };
 
-pub const SymbolFlags = packed struct(u16) {
+pub const SymbolFlags = packed struct(u32) {
     /// `const` binding: cannot be reassigned.
     fixed: bool = false,
     is_public: bool = false,
@@ -483,7 +483,10 @@ pub const SymbolFlags = packed struct(u16) {
     /// constant whose value names one. Rig knows its type, never its
     /// value, so its verdict is the same on every machine.
     per_target: bool = false,
-    _: u1 = 0,
+    /// A function declared `inline fun`: it has no address, so it is only
+    /// called, never a value.
+    inline_marked: bool = false,
+    _: u16 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -516,6 +519,8 @@ pub const Field = struct {
     /// A field or method declared `pub`, which other modules may use.
     /// (Variants and their payload fields are always visible.)
     is_pub: bool = false,
+    /// A method declared `inline fun`, which is only called.
+    inline_marked: bool = false,
 };
 
 pub const Symbol = struct {
@@ -1876,6 +1881,18 @@ pub const SemContext = struct {
     /// The functions and methods Zig inlines at every call, by where
     /// their names are declared (`inlining.decide`).
     inlined: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// The functions and methods declared `inline fun`, by where their
+    /// names are declared: what the frame of a caller holds of them
+    /// (`typecheck.FrameWalker`).
+    marked_inline: std.AutoHashMapUnmanaged(u32, Sexp) = .empty,
+    /// What each of them adds to the frame of a function it is inlined
+    /// into: its own values and those of the `inline` functions it calls,
+    /// in this module's types, over its own and its type's parameters
+    /// (`typecheck.inlineFrame`); empty while it is being worked out.
+    inline_frames: std.AutoHashMapUnmanaged(u32, ?[]const FrameSlot) = .empty,
+    /// The instance each call of a generic function makes (its type's
+    /// parameters and its own, and their arguments), by call node.
+    call_instances: std.AutoHashMapUnmanaged(NodeKey, TypeSubst) = .empty,
     /// The calls that may reach one of them, by node (`inlining.decide`).
     inlined_calls: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// The node `Question`s decided so far, each once.
@@ -1982,6 +1999,9 @@ pub const SemContext = struct {
         self.storage.deinit(self.allocator);
         self.discards.deinit(self.allocator);
         self.inlined.deinit(self.allocator);
+        self.marked_inline.deinit(self.allocator);
+        self.inline_frames.deinit(self.allocator);
+        self.call_instances.deinit(self.allocator);
         self.inlined_calls.deinit(self.allocator);
         self.write_sites.deinit(self.allocator);
         self.proven.deinit(self.allocator);
@@ -2743,6 +2763,17 @@ pub const SemContext = struct {
 
     pub fn recordGenericCall(self: *SemContext, node: Sexp, call: GenericCall) !void {
         try self.facts.generic_calls.put(self.allocator, recordKey(node), call);
+    }
+
+    /// The instance a call of a generic function makes: its parameters,
+    /// its type's then its own, and their arguments (`call_instances`).
+    pub fn recordCallInstance(self: *SemContext, node: Sexp, subst: TypeSubst) !void {
+        const a = self.arena.allocator();
+        try self.call_instances.put(self.allocator, recordKey(node), .{ .params = try a.dupe(SymbolId, subst.params), .args = try a.dupe(TypeId, subst.args) });
+    }
+
+    pub fn callInstanceOf(self: *const SemContext, node: Sexp) ?TypeSubst {
+        return self.call_instances.get(nodeKey(node) orelse return null);
     }
 
     /// Record an instance of a generic function a call makes at `site`:
@@ -4795,6 +4826,107 @@ pub const NominalDecl = struct {
         return self.ctx.symbols.items[self.sym];
     }
 };
+
+/// What a call reaches: one Rig function or method (where its name is
+/// declared, in the context of its module), nothing Rig declares with a
+/// body (a built-in, a method of a built-in type, an extern function, a
+/// closure), or what only an instance decides (a method on a type
+/// parameter, a name sema did not resolve).
+pub const CallTarget = union(enum) {
+    /// `module` is the id of the module that declares it, 0 for this one.
+    function: struct { ctx: *const SemContext, pos: u32, module: u32 = 0 },
+    none,
+    unknown,
+};
+
+/// The one function a call reaches, by the facts typecheck recorded: a
+/// function's symbol, `module.f`, `Type.m`, or a method of the type a
+/// receiver reaches through views, handles, and boxes.
+pub fn callTarget(ctx: *const SemContext, call: Sexp) CallTarget {
+    const callee = ctx.calleeOf(call);
+    if (callee == .src) {
+        const id = ctx.symbolOf(callee) orelse return .unknown;
+        const s = ctx.symbols.items[id];
+        if (s.kind != .function or s.decl_pos == builtin_decl_pos) return .none;
+        return .{ .function = .{ .ctx = ctx, .pos = s.decl_pos } };
+    }
+    if (!callee.isKind(.member)) return .none;
+    const obj = ir.Member.object(callee);
+    const name = if (ir.Member.name(callee) == .src) rig.leafText(ctx.source, ir.Member.name(callee).src) else return .unknown;
+    // `module.f(...)`.
+    if (obj == .src) if (ctx.symbolOf(obj)) |id| if (ctx.symbols.items[id].kind == .module) {
+        const at = foreignNamed(ctx, id, name) orelse return .unknown;
+        const f = at.ctx.symbols.items[at.sym];
+        if (f.kind != .function) return .none;
+        return .{ .function = .{ .ctx = at.ctx, .pos = f.decl_pos, .module = at.module_id orelse 0 } };
+    };
+    // `Type.m(...)`, `Wrap[Int].m(...)`, `geo.Point.m(...)`.
+    if (typeNamed(ctx, obj)) |t| return methodTarget(t, name);
+    const ty = ctx.typeOf(obj) orelse return .unknown;
+    const reached = unwrapAccess(ctx, ty);
+    switch (ctx.types.get(reached)) {
+        .type_var, .ct_param => return .unknown,
+        .parameterized_nominal => |pn| if (isBuiltinGeneric(ctx, pn.sym)) return .none,
+        .nominal, .imported_nominal => {},
+        else => return .none,
+    }
+    const nom = nominalDecl(ctx, reached) orelse return .unknown;
+    return methodTarget(nom, name);
+}
+
+/// The substitution a method call's receiver makes: a generic object
+/// type's parameters to the receiver's arguments, through views,
+/// handles, and boxes; empty for any other receiver.
+pub fn receiverSubst(ctx: *const SemContext, call: Sexp) TypeSubst {
+    const callee = ctx.calleeOf(call);
+    if (!callee.isKind(.member)) return TypeSubst.empty;
+    const ty = ctx.typeOf(ir.Member.object(callee)) orelse return TypeSubst.empty;
+    const m = membersOf(ctx, unwrapAccess(ctx, ty)) orelse return TypeSubst.empty;
+    return m.subst;
+}
+
+/// A value a function keeps on its stack (`typecheck.FrameWalker`).
+pub const FrameSlot = struct { ty: TypeId, name: []const u8 };
+
+/// The module-level symbol `name` of the module `module_sym` names.
+fn foreignNamed(ctx: *const SemContext, module_sym: SymbolId, name: []const u8) ?NominalDecl {
+    const origin = ctx.module_refs.get(module_sym) orelse return null;
+    const foreign = ctx.foreign_semas.get(origin) orelse return null;
+    const fid = foreign.lookupInScopeOnly(module_scope, name) orelse return null;
+    return .{ .ctx = foreign, .sym = fid, .module_id = origin };
+}
+
+/// The object type an expression names as a type: `Point`, `Wrap[Int]`,
+/// `geo.Point`; null for a value.
+fn typeNamed(ctx: *const SemContext, e: Sexp) ?NominalDecl {
+    if (e.isKind(.inst)) return typeNamed(ctx, ir.get(e, .object));
+    const found: NominalDecl = if (e == .src) blk: {
+        const id = ctx.symbolOf(e) orelse return null;
+        break :blk .{ .ctx = ctx, .sym = id };
+    } else if (e.isKind(.member)) blk: {
+        const obj = ir.Member.object(e);
+        if (obj != .src or ir.Member.name(e) != .src) return null;
+        const id = ctx.symbolOf(obj) orelse return null;
+        if (ctx.symbols.items[id].kind != .module) return null;
+        break :blk foreignNamed(ctx, id, rig.leafText(ctx.source, ir.Member.name(e).src)) orelse return null;
+    } else return null;
+    return switch (found.symbol().kind) {
+        .nominal_type, .generic_type => found,
+        else => null,
+    };
+}
+
+fn methodTarget(decl: NominalDecl, name: []const u8) CallTarget {
+    // An imported generic type's proxy stands for its declaration.
+    var t = decl;
+    if (isProxy(t.symbol())) {
+        const from = t.symbol().from;
+        t = .{ .ctx = t.ctx.foreign_semas.get(from.module_id) orelse return .unknown, .sym = from.sym, .module_id = from.module_id };
+    }
+    const fs = t.symbol().fields orelse return .none;
+    const i = memberIn(t.ctx, fs, name, .method) orelse return .none;
+    return .{ .function = .{ .ctx = t.ctx, .pos = fs[i].decl_pos, .module = t.module_id orelse 0 } };
+}
 
 /// The declaration behind a (possibly viewed) nominal type, local or
 /// imported.
@@ -7282,7 +7414,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
     const tag = node.kind() orelse return .none;
     return switch (tag) {
         // Declarations and their parts.
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .called, .rarely, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
         .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.

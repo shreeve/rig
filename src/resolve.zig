@@ -98,7 +98,8 @@ const SymbolResolver = struct {
                 if (self.ctx.symbolOf(name)) |id| self.ctx.symbols.items[id].flags.is_public = true;
             },
             .fun, .sub => {
-                const id = try self.declare(ir.get(sexp, .name), .function, .{});
+                const id = try self.declare(ir.get(sexp, .name), .function, .{ .inline_marked = rig.markerOf(sexp) == .@"inline" });
+                if (rig.markerOf(sexp) == .@"inline") try self.ctx.marked_inline.put(self.ctx.allocator, srcPos(ir.get(sexp, .name), 0), sexp);
                 if (id) |sym| try self.checkMarker(sexp, self.ctx.symbols.items[sym]);
                 try self.walkFun(sexp);
             },
@@ -1775,6 +1776,7 @@ pub const TypeResolver = struct {
         const owner = self.ctx.symbols.items[nominal_sym].name;
         if (try self.checkDuplicateMember(names, mname, mpos, owner)) return;
         const fn_ty = try self.resolveFunction(node, nominal_sym);
+        if (rig.markerOf(node) == .@"inline") try self.ctx.marked_inline.put(self.ctx.allocator, mpos, node);
         const params = ir.get(node, .params);
         for (params.items(), 0..) |p, i| {
             if (i == 0) continue;
@@ -1795,6 +1797,7 @@ pub const TypeResolver = struct {
             .decl_pos = mpos,
             .is_method = true,
             .is_pub = self.isPubMember(node),
+            .inline_marked = rig.markerOf(node) == .@"inline",
             .receiver = receiver,
             .param_names = try self.paramNames(params),
             .param_defaults = try self.paramDefaults(params),

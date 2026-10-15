@@ -1,0 +1,21 @@
+# Review of #224: an `inline` function that calls a method of a built-in
+# type, or one through a handle, of its own name, calls no Rig function of
+# that name, so it is no cycle.
+
+inline sub push(xs: !List[Int], x: Int)
+  !xs.push(x)
+
+obj Holder
+  c: *Cell[Int]
+
+  inline fun get(?self) -> Int
+    self.c.get()
+
+sub main()
+  xs = List[Int]()
+  push(!xs, 1)
+  h = Holder(c: *Cell[Int](7))
+  print(xs.len, h.get())
+
+# expect:
+# 1 7

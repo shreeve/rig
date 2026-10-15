@@ -3757,7 +3757,7 @@ const Checker = struct {
                     try self.errAt(leaf, entry_point_use, .{});
                     return self.t().invalid_id;
                 }
-                return self.functionValue(sym.ty, s, leaf.src.pos);
+                return self.functionValue(sym.ty, s, leaf.src.pos, sym.flags.inline_marked);
             },
             else => return sym.ty,
         }
@@ -3771,8 +3771,13 @@ const Checker = struct {
     }
 
     /// A function named as a value. One with compile-time parameters has
-    /// an instance per call, and no single function value.
-    fn functionValue(self: *Checker, ty: TypeId, name: []const u8, pos: u32) Error!TypeId {
+    /// an instance per call, and no single function value; an `inline fun`
+    /// is inlined at every call, and has no address.
+    fn functionValue(self: *Checker, ty: TypeId, name: []const u8, pos: u32, inline_marked: bool) Error!TypeId {
+        if (inline_marked) {
+            try self.err(pos, "`{s}` is `inline`, inlined at every call, so it can only be called, not used as a value; to pass it, wrap the call in a closure", .{name});
+            return self.t().invalid_id;
+        }
         const f = self.ctx.types.get(ty);
         if (f == .function and f.function.ct_params.len != 0) {
             try self.err(pos, "`{s}` takes compile-time parameters, so it can only be called, not used as a value", .{name});
@@ -5836,7 +5841,7 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         const ty = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
-        if (found.sym.kind == .function) return try self.functionValue(ty, try self.ctx.arena.allocator().print("{s}.{s}", .{ self.text(obj), field }), pos);
+        if (found.sym.kind == .function) return try self.functionValue(ty, try self.ctx.arena.allocator().print("{s}.{s}", .{ self.text(obj), field }), pos, found.sym.flags.inline_marked);
         return ty;
     }
 
@@ -5947,7 +5952,7 @@ const Checker = struct {
                     return self.t().invalid_id;
                 }
                 const name = try self.ctx.arena.allocator().print("{s}.{s}", .{ tname, field });
-                return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos);
+                return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos, m.inline_marked);
             }
             if (!m.is_variant) break :found;
             if (nt.sym.kind == .generic_type and nt.args == null) {
@@ -8195,10 +8200,13 @@ const Checker = struct {
         };
         const result = self.ctx.types.get(instance).function;
         try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
+        const inst_params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items });
+        const inst_args = try std.mem.concat(a, TypeId, &.{ recv.args, own_args });
+        try self.ctx.recordCallInstance(self.current_call.?, .{ .params = inst_params, .args = inst_args });
         if (self.tentative == 0) _ = try self.ctx.recordFnInstance(.{
             .name = callee,
-            .params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items }),
-            .args = try std.mem.concat(a, TypeId, &.{ recv.args, own_args }),
+            .params = inst_params,
+            .args = inst_args,
             .own = @intCast(own.items.len),
         }, pos, null);
         return result;
@@ -13392,8 +13400,30 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
 /// size depends on generic parameters is checked at each instance
 /// (`checkInstanceSizes`).
 pub fn checkFrames(ctx: *SemContext, tree: Sexp) Error!void {
-    var w: FrameWalker = .{ .ctx = ctx };
+    var w: FrameWalker = .{ .ctx = ctx, .inline_calls = true };
     try w.walk(tree, null, false);
+    // What each `inline` function adds to a caller's frame, worked out
+    // here for the modules that import this one.
+    var it = ctx.marked_inline.keyIterator();
+    while (it.next()) |pos| _ = try inlineFrame(ctx, pos.*);
+}
+
+/// What the `inline` function whose name is declared at `pos` adds to the
+/// frame of a function it is inlined into: the values it keeps, and those
+/// of the `inline` functions it calls in turn, each at the instance its
+/// call makes. Null while it is being worked out, for a call on a cycle
+/// of `inline` functions, which `inlining.decide` reports.
+fn inlineFrame(ctx: *SemContext, pos: u32) Error!?[]const sema.FrameSlot {
+    if (ctx.inline_frames.get(pos)) |known| return known;
+    const node = ctx.marked_inline.get(pos) orelse return null;
+    try ctx.inline_frames.put(ctx.allocator, pos, null);
+    var w: FrameWalker = .{ .ctx = ctx, .captures_only = true, .inline_calls = true };
+    var slots: FrameWalker.Slots = .empty;
+    defer slots.deinit(ctx.allocator);
+    for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try w.walk(part, &slots, false);
+    const kept = try ctx.arena.allocator().dupe(sema.FrameSlot, slots.items);
+    try ctx.inline_frames.put(ctx.allocator, pos, kept);
+    return kept;
 }
 
 /// The bytes of values the `fun` or `sub` `node` keeps on its stack, as
@@ -13415,8 +13445,11 @@ const FrameWalker = struct {
     /// Walking one function for its size alone: a closure's body is a frame
     /// of its own, which `checkFrames` reports, so only its captures count.
     captures_only: bool = false,
+    /// A call of an `inline` function adds its values to the frame it is
+    /// in (`inlineFrame`), as Zig puts them there.
+    inline_calls: bool = false,
 
-    const Slot = struct { ty: TypeId, name: []const u8 };
+    const Slot = sema.FrameSlot;
     const Slots = std.ArrayList(Slot);
 
     fn walk(self: *FrameWalker, node: Sexp, frame: ?*Slots, bound: bool) Error!void {
@@ -13441,6 +13474,10 @@ const FrameWalker = struct {
         switch (kind) {
             .fun, .sub => {
                 const name = ir.get(node, .name);
+                // An `inline` function's values are in the frame of each
+                // function it is inlined into; only its closures are
+                // frames of their own.
+                if (self.inline_calls and rig.markerOf(node) == .@"inline") return self.walk(ir.get(node, .body), null, false);
                 const label = try ctx.arena.allocator().print("`{s}`", .{sema.identAt(ctx.source, name) orelse "?"});
                 try self.frameOf(label, ctx.startOf(name), &.{ ir.get(node, .params), ir.get(node, .body) });
             },
@@ -13462,14 +13499,35 @@ const FrameWalker = struct {
             else => {
                 if (frame) |f| switch (kind) {
                     .array, .array_fill => if (!bound) if (ctx.typeOf(node)) |ty| try f.append(ctx.allocator, .{ .ty = ty, .name = "" }),
-                    .call => if (ctx.typeOf(node)) |ty| {
-                        // A constructor builds its value where a binding takes it.
-                        if (!bound or self.callsFunction(node)) try f.append(ctx.allocator, .{ .ty = ty, .name = "" });
+                    .call => {
+                        if (ctx.typeOf(node)) |ty| {
+                            // A constructor builds its value where a binding takes it.
+                            if (!bound or self.callsFunction(node)) try f.append(ctx.allocator, .{ .ty = ty, .name = "" });
+                        }
+                        if (self.inline_calls) try self.addInlined(node, f);
                     },
                     else => {},
                 };
                 for (rig.children(node)) |c| try self.walk(c, frame, false);
             },
+        }
+    }
+
+    /// The values of the `inline` function `call` reaches, if any, at the
+    /// instance the call makes, in this module's types.
+    fn addInlined(self: *FrameWalker, call: Sexp, f: *Slots) Error!void {
+        const ctx = self.ctx;
+        const t = switch (sema.callTarget(ctx, call)) {
+            .function => |t| t,
+            .none, .unknown => return,
+        };
+        const local = t.ctx == @as(*const SemContext, ctx);
+        // Another module worked out its own (`checkFrames`).
+        const slots = (if (local) try inlineFrame(ctx, t.pos) else (t.ctx.inline_frames.get(t.pos) orelse return)) orelse return;
+        const subst = ctx.callInstanceOf(call) orelse sema.receiverSubst(ctx, call);
+        for (slots) |slot| {
+            const ty = if (local) slot.ty else try sema.importType(ctx, t.ctx, slot.ty, t.module);
+            try f.append(ctx.allocator, .{ .ty = try sema.substituteType(ctx, ty, subst), .name = slot.name });
         }
     }
 

@@ -249,7 +249,7 @@ fun f(in: Int) -> Int
 `in` is a keyword and cannot name a parameter
 ```
 
-Nine words are keywords only in one position. `new` is a keyword at
+Ten words are keywords only in one position. `new` is a keyword at
 the start of a statement (`new x = ...`, `new const x = ...`), so a
 method may be named `new`. `obj` is a keyword at the start of a
 declaration, before the type's name (`obj Point`, `pub obj Pair[T]`),
@@ -261,10 +261,10 @@ where it separates a fill literal's count from its element
 parameters (`obj Random unique`). `from` is a keyword only after a
 function's result type (`-> ?Item from a`), and `static` only right
 after that `from`; a parameter or a local may be named either.
-`called` and `rarely` are keywords only at the start of a declaration
-(after any `pub`), right before its `fun` or `sub` (`called fun f()`,
-`pub rarely sub s()`), so a local, a parameter, a field, or a method
-may be named either. `none`
+`inline`, `called`, and `rarely` are keywords only at the start of a
+declaration (after any `pub`), right before its `fun` or `sub`
+(`inline fun f()`, `pub rarely sub s()`), so a local, a parameter, a
+field, or a method may be named any of them. `none`
 is a reserved name, the absent optional. The words
 held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.
@@ -644,12 +644,13 @@ sign -1
   `fun max[T](a: T, b: T) -> T`, `sub show[n: Int]()`
   ([Generics](#generics-and-compile-time-parameters)).
 - A marker before `fun` or `sub` asks for a speed, and changes no
-  meaning: `called fun document[dense: Bool](...)` keeps every call a
-  call, and `rarely fun utf8_text(s: ?String, i: Int) -> Int` says it
-  is rarely called, so it stays out of the code that calls it
-  ([SPEC §3](SPEC.md#function-markers)). A function takes one marker,
-  and a method takes one as any function does
-  (`called fun Point.norm(?self) -> Int`).
+  meaning: `inline fun number(s: ?String, i: Int) -> Num` inlines the
+  function at every call, `called fun document[dense: Bool](...)` keeps
+  every call a call, and `rarely fun utf8_text(s: ?String, i: Int) ->
+  Int` says it is rarely called, so it stays out of the code that calls
+  it ([SPEC §3](SPEC.md#function-markers)). A function takes one
+  marker, and a method takes one as any function does
+  (`inline fun Point.norm(?self) -> Int`).
 
 A definition without its parameter list is rejected, with the header
 to write:
