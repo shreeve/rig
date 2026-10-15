@@ -1,0 +1,9 @@
+fun id(f: ?fun(Int) -> Int) -> ?fun(Int) -> Int from f
+  f
+
+sub main()
+  s = String("hello")
+  f = |<s, x: Int| x + s.len
+  g = id(?f)
+  <f
+  print(g(1))

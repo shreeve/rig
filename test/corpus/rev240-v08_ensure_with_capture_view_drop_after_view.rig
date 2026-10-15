@@ -1,0 +1,12 @@
+use std.hash
+
+obj Ref
+  s: ?String
+
+sub main()
+  t = String("short")
+  m = hash.Map[Int, Ref].new()
+  c = (!m).ensure_with(1, |?t, k| Ref(s: t))
+  print(c.s)
+  <t
+  print(m.len)

@@ -1,0 +1,11 @@
+use std.hash
+
+fun mk(k: ?Int) -> String
+  String("v")
+
+sub main()
+  m = hash.Map[Int, String].new()
+  c = (!m).ensure_with(1, mk)
+  t = (!m).take(1)
+  !c.add("x")
+  print(t)

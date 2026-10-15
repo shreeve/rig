@@ -178,7 +178,7 @@ pub obj Map[K, V]
   # Lend the value under `k` to write, putting `make(k)` there first
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
-  pub fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k, make
+  pub fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k
     h = k.hash()
     j = 0
     if self.find(?k, h) as at
@@ -204,9 +204,10 @@ pub obj Map[K, V]
     !self.insert(<k, <v, h)
     self.es.len - 1
 
-  # Keep the entries for which `f` is true, in order, and drop the rest
-  # at once. `f` gets each key to read and its value to write, in order.
-  # The entries stay in the Lists the Map has, so they keep their room.
+  # Keep the entries for which `f` is true, in order. `f` gets each key
+  # to read and its value to write, in order, and an entry it rejects is
+  # dropped then, not left for compaction as `take` leaves a key. The
+  # entries stay in the Lists the Map has, so they keep their room.
   pub sub retain(!self, f: ?fun(?K, !V) -> Bool)
     back: List[Entry[K, V]] = List(capacity: self.es.len)
     back_hs: List[U64] = List(capacity: self.es.len)
@@ -396,8 +397,9 @@ pub obj Set[K]
       return <self.ks[j]
     none
 
-  # Keep the keys for which `f` is true, in order, and drop the rest at
-  # once, in the Lists the Set has, so they keep the room they have.
+  # Keep the keys for which `f` is true, in order; a key it rejects is
+  # dropped then. The keys stay in the Lists the Set has, so they keep
+  # their room.
   pub sub retain(!self, f: ?fun(?K) -> Bool)
     back: List[K] = List(capacity: self.len)
     back_hs: List[U64] = List(capacity: self.len)

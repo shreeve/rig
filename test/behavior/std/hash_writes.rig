@@ -2,7 +2,7 @@
 # putting one first when the key is new; `put_new` puts only a new key,
 # so the first value wins; `edit` then `put` makes a value only for a
 # new key; and `retain` keeps, in order, the entries a closure says to,
-# writing values as it goes and dropping the rest at once.
+# writing values as it goes and dropping each entry it rejects then.
 
 use std.hash
 

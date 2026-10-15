@@ -484,17 +484,14 @@ type, as any generic is.
 | `!m.put(k, v)` | `sub put(!self, k: K, v: V)` | puts `v` under `k`, inserting or overwriting; the old value is dropped, and a key already there keeps its place and `k` is dropped |
 | `(!m).replace(k, v)` | `fun replace(!self, k: K, v: V) -> V?` | puts `v` under `k`, inserting or overwriting, and hands back the old value, or `none` when `k` is new |
 | `(!m).put_new(k, v)` | `fun put_new(!self, k: K, v: V) -> Bool` | puts `v` under `k` only when `k` is new: true if it did; otherwise `k` and `v` are dropped |
-| `(!m).ensure(k, v)` | `fun ensure(!self, k: K, v: V) -> !V from self, k, v` | puts `v` under `k` when `k` is new, and lends the value under `k` to write; otherwise `k` and `v` are dropped. The view keeps `m` lent to write (and, for a key or value type that is a view, what that views) |
-| `(!m).ensure_with(k, make)` | `fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k, make` | as `ensure`, with the value `make(k)` made only when `k` is new; when `k` is there, `make` is not called and `k` is dropped |
+| `(!m).ensure(k, v)` | `fun ensure(!self, k: K, v: V) -> !V from self, k, v` | puts `v` under `k` when `k` is new, and lends the value under `k` to write; otherwise `k` and `v` are dropped. The view keeps `m` lent to write |
+| `(!m).ensure_with(k, make)` | `fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k` | as `ensure`, with the value `make(k)` made only when `k` is new; when `k` is there, `make` is not called and `k` is dropped |
 | `(!m).take(k)` | `fun take(!self, k: ?K) -> V?` | the value back, owned; the key dropped when the entries are next compacted (as the Map grows), or with the Map |
 | `!m.clear()` | `sub clear(!self)` | drops every entry |
 | `?m.items()` | `fun items(?self) -> Items[K, V] from self` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) lasts one step of the loop |
 | `?m.keys()`, `?m.values()` | `fun keys(?self) -> Keys[K, V] from self` | likewise, each a `?K` or a `?V` |
 | `!m.update(f)` | `sub update(!self, f: ?sub(?K, !V))` | writes each value in place; keys stay read-only |
-| `!m.retain(f)` | `sub retain(!self, f: ?fun(?K, !V) -> Bool)` | keeps the entries `f` is true for, in order, and drops the rest at once; `f` reads each key and may write its value, and cannot reach `m` |
-
-Each call hashes its key at most once, and growing the table hashes no
-key again.
+| `!m.retain(f)` | `sub retain(!self, f: ?fun(?K, !V) -> Bool)` | keeps the entries `f` is true for, in order; `f` reads each key and may write its value, in order, and cannot reach `m`; an entry it rejects is dropped then, not left for compaction as `take` leaves a key |
 
 `hash.Set[K]` has `hash.Set[K]()` and `new(capacity: n)`, `reserve(n)`,
 the field `len`, `has(k: ?K)`, `(!s).add(k: K) -> Bool` (true when `k`

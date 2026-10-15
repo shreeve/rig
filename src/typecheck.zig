@@ -10161,15 +10161,16 @@ const Checker = struct {
             } else try self.errAt(recv, "`{s}` consumes its receiver: write `{s}`{s}", .{ method, try self.callWith(recv, try self.ctx.arena.allocator().print("<{s}", .{name}), method), hint });
         } else if (recv.isKind(.write)) switch (mode) {
             .write => {
-                // `!(!b).m(...)`: the receiver is lent to write already, so
-                // the outer `!` is the one to remove, not to parenthesize.
+                if (!self.usesValue(recv, returns)) return false;
+                // `!(!b).m(...)` whose value is used: the receiver is lent
+                // to write already, so the outer `!` is the one to remove,
+                // not to parenthesize.
                 if (place.isKind(.write)) {
                     const lent = self.sourceText(ir.get(place, .operand));
                     const call = if (self.current_call) |c| try self.spliced(c, &.{recv}, &.{self.sourceText(recv)[1..]}) else try self.ctx.arena.allocator().print("(!{s}).{s}(...)", .{ lent, method });
                     try self.errAt(recv, "`(!{s})` already lends `{s}` to write: remove the outer `!` and write `{s}`", .{ lent, lent, call });
                     return true;
                 }
-                if (!self.usesValue(recv, returns)) return false;
                 const long = try self.ctx.arena.allocator().print("({s})", .{self.sourceText(recv)});
                 const call = if (self.current_call) |c| try self.spliced(c, &.{recv}, &.{long}) else try self.ctx.arena.allocator().print("{s}.{s}(...)", .{ long, method });
                 try self.errAt(recv, "write `{s}`: a write call whose value is used puts its `!` in parentheses", .{call});

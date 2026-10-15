@@ -1,0 +1,6 @@
+use std.hash
+
+sub main()
+  b = hash.Map[Int, List[Int]].new()
+  ((!b)).ensure(1, List()).push(5)
+  print(b.len)

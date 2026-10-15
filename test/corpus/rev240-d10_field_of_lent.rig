@@ -1,0 +1,7 @@
+obj W
+  v: List[Int] = List()
+
+sub main()
+  w = W()
+  !(!w).v.push(1)
+  print(w.v)
