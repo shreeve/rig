@@ -3314,13 +3314,26 @@ symbols); a query that decides more than that belongs in `Pending`.
   the pass that knows it: a value use of it (`typecheck`, where every
   function value is typed: `functionValue`, by the `inline_marked` flag
   of its symbol or method), the root's `main` and an `extern zig`
-  function (`resolve`), and in `decide`, a cycle of calls among marked
-  `inline` functions (`forcedCycles`) and a caller whose frame with them
-  in it passes `sema.max_frame_bytes` (`fit`, `frameError`). For the
-  cycle and the frames, a marked function's calls resolve to the one
-  function they reach where the receiver's type, a module, or a type of
-  this module names it (`exactCallee`); the rule's calls by name would
-  make two `inline` methods of one name on two types a cycle. A function
+  function (`resolve`), a cycle of calls among marked `inline` functions
+  (`decide`, `forcedCycles`), and a frame over `sema.max_frame_bytes`
+  (`typecheck.checkFrames`). A call reaches the one function
+  `sema.callTarget` finds from the facts: a function's symbol,
+  `module.f`, `Type.m`, or a method of the object type the receiver
+  reaches through views, handles, and boxes, followed to the module
+  that declares it; a built-in, a method of a built-in type, an extern
+  function, or a closure is no Rig function, and only a name sema did not
+  resolve falls back to every function of that name (no accepted program
+  calls a method on a type parameter). A cycle's edges leave out the calls
+  in a closure, a function of its own that calls an `inline` function as
+  any caller does. The frame walker adds to the frame a call is in the
+  values of the `inline` function it reaches (`inlineFrame`: its own and
+  those of the `inline` functions it calls, worked out once in its
+  module), imported from that module and substituted at the call's
+  instance (`call_instances`, or the receiver's type arguments). A
+  frame that still holds a type parameter is checked at each instance of
+  its function, as any other; a test block and a closure are frames of
+  their own, and an `inline` function is none, since its values are in
+  its callers'. A function
   marked `called fun` is never inlined by the rule, and emit writes it
   `noinline fn`, so LLVM keeps every call a call too: each instance of a
   function with compile-time values is then a function of its own. A

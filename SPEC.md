@@ -548,9 +548,9 @@ call of a function or method (twice when a binding takes its result,
 since a debug build holds it in a temporary first). The frames of the
 small functions inlined into it count too, and a call that would take
 the frame over the limit is not inlined; a call of a function marked
-`inline` ([Function markers](#function-markers)) is, and the frame over
-the limit is an error. (A marked function generic over a type has a
-frame for each instance, which its callers' frames do not count.) This holds for every function,
+`inline` ([Function markers](#function-markers)) is, with the values it
+keeps at the instance the call makes, and the frame over the limit is an
+error. This holds for every function,
 method, closure (whose captures count where it is made), test, and
 `main`, and for each instance of a generic one. The stack holds 16 MiB,
 and the frames below the one that overflows need room too. Only one
@@ -1341,9 +1341,10 @@ An `inline` function has no address, so it is only called: naming it
 as a value is an error, and a closure that calls it is a value. One
 that calls itself, directly or through other `inline` functions, cannot
 be inlined into itself, and is an error; a cycle through a function
-that is not `inline` is a call there. A function's frame counts the
-`inline` functions inlined in it, and one over the limit
-([§2](#arrays)) is an error.
+that is not `inline` is a call there, and so is a call in a closure,
+which is a function of its own. A function's frame counts the `inline`
+functions inlined in it, each at the instance its call makes, and one
+over the limit ([§2](#arrays)) is an error.
 
 ```rig reject
 inline fun count(n: Int) -> Int

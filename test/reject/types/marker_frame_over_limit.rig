@@ -15,6 +15,5 @@ sub near_limit(i: Int)
 sub main()
   near_limit(3)
 
-# error: 10:5: `near_limit` would keep
-# error: on its stack with the `inline` functions it calls inlined in it, more than the 13631488 a function may
+# error: 10:5: `near_limit` keeps 13632024 bytes of values on its stack
 # errors: 1

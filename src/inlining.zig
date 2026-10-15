@@ -3,10 +3,10 @@
 //!
 //! A function marked `inline fun` is emitted `inline fn`, whatever its
 //! size, and one marked `called fun` or `rarely fun` never is; the rule
-//! below decides the rest. A marked `inline` function on a cycle of calls of `inline`
-//! functions is an error, and so is a function whose frame the marked
-//! ones push over `sema.max_frame_bytes`: the sizes below never undo a
-//! marker, they only choose among the functions the compiler picked.
+//! below decides the rest. A cycle of calls of marked `inline` functions
+//! is an error; the frames they make are checked with every other frame
+//! (`typecheck.checkFrames`). The sizes below never undo a marker, they
+//! only choose among the functions the compiler picked.
 //!
 //! Zig inlines a small function only when asked, and LLVM leaves a
 //! small hot helper as a call when its body grows. A `fun` or `sub` with
@@ -79,8 +79,9 @@ const Fn = struct {
     marker: rig.Marker,
     /// A member of a type, not a module's function.
     member: bool,
-    /// What its calls reach, resolved to the function where the receiver's
-    /// type or the module names it, else to the group (`exactCallee`).
+    /// What its calls reach, each resolved to the one function it calls
+    /// (`exactCallee`), but those in its closures, which are functions of
+    /// their own: the edges of a cycle of `inline` functions.
     exact: std.ArrayList(Callee) = .empty,
     /// The search for cycles of marked `inline` functions (`forcedCycles`).
     color: enum { white, gray, black } = .white,
@@ -182,6 +183,8 @@ const Pass = struct {
     work: std.ArrayList(Callee) = .empty,
     /// The cycles of marked `inline` functions reported.
     cycles: u32 = 0,
+    /// How many closures the visit is inside.
+    closures: u32 = 0,
 
     fn ctx(self: *Pass, module: usize) *const SemContext {
         return self.mods[module].sema;
@@ -259,6 +262,11 @@ const Pass = struct {
                 for (e.items()[2..]) |c| try self.visit(module, idx orelse cur, c);
             },
             .call => try self.visitCall(module, cur, e),
+            .lambda => {
+                self.closures += 1;
+                defer self.closures -= 1;
+                for (e.items()) |c| try self.visit(module, cur, c);
+            },
             .member => {
                 const obj = ir.Member.object(e);
                 try self.visit(module, cur, obj);
@@ -297,12 +305,10 @@ const Pass = struct {
         const raw = ir.Call.callee(call);
         const callee = c.calleeOf(call);
         var target: ?Callee = null;
-        var exact: ?Callee = null;
         switch (callee.kind() orelse .set) {
             .member => {
                 try self.visit(module, cur, ir.Member.object(callee));
                 target = self.named(textOf(c, ir.Member.name(callee)));
-                exact = self.exactCallee(module, callee);
             },
             else => if (callee == .src) {
                 const id = c.symbolOf(callee);
@@ -327,51 +333,25 @@ const Pass = struct {
                 if (cur) |from| try f.callers.append(self.a, from);
             }
             if (cur) |from| try self.fns.items[from].calls.append(self.a, t);
-            if (cur) |from| try self.fns.items[from].exact.append(self.a, exact orelse t);
             if (call.list.id != 0) try self.sites.append(self.a, .{ .module = module, .id = call.list.id, .callee = t });
         }
+        if (cur) |from| if (self.closures == 0) if (self.exactCallee(module, call, target)) |e| try self.fns.items[from].exact.append(self.a, e);
         // The bracket list of a generic call, `f[T](x)`.
         if (raw.isKind(.inst)) for (raw.items()[2..]) |a| try self.visit(module, cur, a);
         for (ir.Call.args(call)) |a| try self.visit(module, cur, a);
     }
 
-    /// The one function a call `object.name(...)` reaches, where the
-    /// object's type declares the method, or the object is a module or a
-    /// type of this module that declares the function: null where the
-    /// call resolves by name alone.
-    fn exactCallee(self: *Pass, module: usize, callee: Sexp) ?Callee {
-        const c = self.ctx(module);
-        const obj = ir.Member.object(callee);
-        const name = textOf(c, ir.Member.name(callee));
-        // A method of the receiver's type.
-        if (c.typeOf(obj)) |t| if (sema.nominalDecl(c, t)) |nom| {
-            const fields = nom.symbol().fields orelse return null;
-            const i = sema.memberIn(nom.ctx, fields, name, .method) orelse return null;
-            for (self.mods, 0..) |m, mi| if (m.sema == nom.ctx) return self.by_pos[mi].get(fields[i].decl_pos);
-            return null;
+    /// The function `call` reaches by `sema.callTarget`: one of the
+    /// program's, a group for a call only an instance decides, or null for
+    /// a call of nothing Rig declares with a body (a built-in, an extern).
+    fn exactCallee(self: *Pass, module: usize, call: Sexp, by_name: ?Callee) ?Callee {
+        return switch (sema.callTarget(self.ctx(module), call)) {
+            .function => |t| for (self.mods, 0..) |m, mi| {
+                if (m.sema == t.ctx) break self.by_pos[mi].get(t.pos);
+            } else null,
+            .none => null,
+            .unknown => by_name,
         };
-        if (obj != .src) return null;
-        const id = c.symbolOf(obj) orelse return null;
-        const s = c.symbols.items[id];
-        switch (s.kind) {
-            // `Type.method(...)`, a type of this module.
-            .nominal_type => {
-                const fields = s.fields orelse return null;
-                const i = sema.memberIn(c, fields, name, .method) orelse return null;
-                return self.by_pos[module].get(fields[i].decl_pos);
-            },
-            // `module.f(...)`.
-            .module => {
-                const origin = c.module_refs.get(id) orelse return null;
-                const g = self.by_name.get(name) orelse return null;
-                for (self.groups.items[g].members.items) |f| {
-                    const fun = self.fns.items[f];
-                    if (!fun.member and self.mods[fun.module].id == origin) return f;
-                }
-                return null;
-            },
-            else => return null,
-        }
     }
 
     /// Report each cycle of calls whose functions are all marked `inline`,
@@ -528,10 +508,9 @@ const Pass = struct {
     /// and expansions that counted the call no longer inlined
     /// (`uninline`).
     ///
-    /// A function marked `inline` stays inlined: no rule undoes it, and
-    /// only the hard limit on a frame, `sema.max_frame_bytes`, holds with
-    /// it, as an error (`frameError`) once no other inlined call is left
-    /// to stop inlining.
+    /// A function marked `inline` stays inlined: no rule undoes it. The
+    /// frames it makes are typecheck's to check (`checkFrames`), which
+    /// counts each at the instance its call makes.
     fn fit(self: *Pass) !void {
         var i: usize = 0;
         while (i < self.fns.items.len) {
@@ -556,16 +535,8 @@ const Pass = struct {
                 try self.uninline(w);
                 continue;
             }
-            if (f.own + self.added(v) > sema.max_frame_bytes) try self.frameError(v);
             i += 1;
         }
-    }
-
-    /// `v`'s frame with the marked `inline` functions in it is over the
-    /// hard limit.
-    fn frameError(self: *Pass, v: u32) !void {
-        const f = self.fns.items[v];
-        try self.mods[f.module].sema.err(f.pos, "`{s}` would keep {d} bytes on its stack with the `inline` functions it calls inlined in it, more than the {d} a function may; drop `inline` from one of them", .{ f.name, f.own + self.added(v), sema.max_frame_bytes });
     }
 
     /// The inlined function a call of `t` reaches with the largest frame,

@@ -1,0 +1,15 @@
+# Review of #224: a generic `inline` function's values are in its caller's
+# frame at each instance: three calls of `big` keep 24 MB in `near`, over
+# 13 MiB, which is rejected rather than run off the stack.
+
+inline fun big[T](x: T, i: Int) -> T
+  t = [1000000 of x]
+  t[i % 1000000]
+
+sub near(i: Int)
+  print(big(1, i) + big(2, i + 1) + big(3, i + 2))
+
+sub main()
+  near(3)
+
+# error: 9:5: `near` keeps 24000080 bytes of values on its stack

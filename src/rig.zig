@@ -816,6 +816,7 @@ pub const Lexer = struct {
         semicolon,
         brace,
         two_markers,
+        marker_before_pub,
 
         pub fn message(e: LexError) []const u8 {
             return switch (e) {
@@ -845,6 +846,7 @@ pub const Lexer = struct {
                 .decrement => "Rig has no `--`; write `x -= 1`",
                 .slash_comment => "comments start with `#`; Rig has no `//` or `/* */` comments",
                 .pin_sigil => "the pin sigil `@x` is reserved; `@` only starts a builtin call, `@name(...)`",
+                .marker_before_pub => "`pub` comes before a function's marker: write `pub inline fun`, `pub called fun`, or `pub rarely fun`",
                 .two_markers => "a function takes one marker: `inline` (inline it at every call), `called` (keep every call a call), or `rarely` (rarely called, so kept out of line and cold); `called` contradicts `inline`, and `rarely` already keeps every call a call",
             };
         }
@@ -1155,7 +1157,7 @@ pub const Lexer = struct {
         const after_value = self.after_value;
         var out = tok;
         out.cat = switch (tok.cat) {
-            .ident => if (self.twoMarkers(tok)) |at| return self.fail(.two_markers, at) else self.classifyWord(tok),
+            .ident => if (self.misplacedMarker(tok)) |bad| return self.fail(bad.err, bad.pos) else self.classifyWord(tok),
             .lparen, .lbracket => blk: {
                 if (self.nesting == max_nesting) return self.fail(.nesting_too_deep, tok.pos);
                 self.brackets[self.nesting] = tok.pos;
@@ -1300,16 +1302,16 @@ pub const Lexer = struct {
         return t.cat == .fun or t.cat == .sub;
     }
 
-    /// Where a second marker stands, when `tok` starts a declaration with
-    /// two (`inline rarely fun f()`, `called rarely fun f()`): a function
-    /// takes one.
-    fn twoMarkers(self: *const Lexer, tok: Token) ?u32 {
+    /// A marker `tok` puts where a declaration cannot take it: a second
+    /// one (`inline rarely fun f()`), since a function takes one, or one
+    /// before `pub` (`inline pub fun f()`), which comes first.
+    fn misplacedMarker(self: *const Lexer, tok: Token) ?struct { err: LexError, pos: u32 } {
         if (!isMarker(self.base.text(tok)) or !(self.stmtStart() or self.last_cat == .@"pub")) return null;
         var probe = self.base;
         const second = probe.next();
-        if (second.cat != .ident or !isMarker(probe.text(second))) return null;
+        const err: LexError = if (second.cat == .@"pub") .marker_before_pub else if (second.cat == .ident and isMarker(probe.text(second))) .two_markers else return null;
         const t = probe.next();
-        return if (t.cat == .fun or t.cat == .sub) second.pos else null;
+        return if (t.cat == .fun or t.cat == .sub) .{ .err = err, .pos = if (err == .two_markers) second.pos else tok.pos } else null;
     }
 
     fn isMarker(word: []const u8) bool {

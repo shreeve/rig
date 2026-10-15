@@ -1,0 +1,25 @@
+# Another module's `inline` functions add their values to a caller's
+# frame here, at the instances the calls make: a generic function, one
+# that calls it in turn, and a method of a generic object type.
+
+use lib
+
+sub generic(i: Int)
+  print(lib.big(1, i) + lib.big(2, i))
+
+sub nested(i: Int)
+  print(lib.outer(1, i) + lib.outer(2, i))
+
+sub method(i: Int)
+  g = lib.G[Int](v: 1)
+  print(g.huge(i) + g.huge(i + 1))
+
+sub main()
+  generic(1)
+  nested(1)
+  method(1)
+
+# error: 7:5: `generic` keeps
+# error: 10:5: `nested` keeps
+# error: 13:5: `method` keeps
+# errors: 3

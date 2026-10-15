@@ -1,0 +1,20 @@
+# A closure is a function of its own: an `inline` function holding one
+# that calls the function back is no cycle, as Zig inlines it into the
+# closure, which is called. An `inline` wrapper of an `extern zig`
+# function of its name calls no Rig function.
+use std.math
+
+inline fun walk(n: Int) -> Int
+  f = |x: Int| 0 if x == 0 else walk(x - 1) + x
+  f(n)
+
+inline fun sqrt(x: Float) -> Float
+  math.sqrt(x)
+
+sub main()
+  print(walk(3), sqrt(16.0))
+
+# release
+
+# expect:
+# 6 4.0
