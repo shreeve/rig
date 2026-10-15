@@ -12835,9 +12835,11 @@ fn stringOrBoxed(ctx: *const SemContext, ty: TypeId) TypeId {
     return if (sema.unwrapAccess(ctx, ty) == ctx.types.string_id) ctx.types.string_id else ty;
 }
 
-/// A String (boxed or not), a `?String`, or a `Static`: `==` compares
-/// any two of them by their bytes.
+/// A String (boxed or not, or viewed), a `?String`, or a `Static`: `==`
+/// compares any two of them by their bytes. A shared handle `*String` is
+/// not text: a handle has no `==` or `.hash()`.
 fn isText(ctx: *const SemContext, ty: TypeId) bool {
+    if (sema.accessThroughShared(ctx, ty)) return false;
     const t = stringOrBoxed(ctx, ty);
     return t == ctx.types.string_id or t == ctx.types.string_view_id or t == ctx.types.static_id;
 }
