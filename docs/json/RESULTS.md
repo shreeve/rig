@@ -1436,3 +1436,36 @@ The first answers are Rig's: keeping the parser's state in registers
 (the List growth round, `noalias` for write views, and a local tape in
 `document`; docs/RIG-NOTES.md, entry 8), worth up to 12% on citm_catalog
 by the honest harness's own measure ("The honest harness").
+
+## SIMD first on x86, and the tape in a local
+
+`TIER = 0 if target.arch == .x86_64 else 16` (`use std.target`): on
+x86_64, `skip_plain_ascii` starts with 16-lane SIMD, where a compare's
+mask reaches a general register cheaply; on arm64 it keeps its 16 bytes
+of SWAR first (TIER=0 there was 5-9% slower on three files). The Mac's
+code is unchanged.
+
+x86: burst (a cloud VM, AMD EPYC, 48 cores with SMT), the honest
+harness, `cpuq run --exclusive` holding the machine, pinned to CPU 2
+with its SMT sibling idle, fastest of 15 interleaved runs; MB/s. Each
+change is against main's `json.rig` built with the same compiler:
+
+| file | main | TIER by target | against main |
+|---|---:|---:|---|
+| twitter | 2639 | 2797 | 6.0% faster |
+| twitterescaped | 2145 | 2189 | 2.1% faster |
+| canada | 1370 | 1370 | within noise |
+| citm_catalog | 3314 | 3350 | 1.1% faster |
+| gsoc-2018 | 6281 | 6522 | 3.8% faster |
+| github_events | 3107 | 3389 | 9.1% faster |
+
+The same run timed `document` holding the tape in a local while it
+parses (taken out with `replace(!self.tape, List())` and put back on
+every way out), so its length and capacity could stay in registers. On
+the Mac that was up to 3.5% faster (twitter 3.5%, citm_catalog 3.3%),
+none slower; on x86 it is 6.5% slower on citm_catalog, 4.8% on
+gsoc-2018 and 3.0% on github_events, and 5.2% faster on twitterescaped.
+It does not land. x86
+has 16 general registers to arm64's 31, and keeping the tape's pointer,
+length and capacity in them spills other values in `document`. A
+change that keeps values in registers is timed on both machines.
