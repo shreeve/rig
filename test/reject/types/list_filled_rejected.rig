@@ -23,7 +23,7 @@ sub main()
   j = List.filled(3)
   print(a, b, c, d, e, f, g, i, j)
 
-# error: 14:12: `List.filled` copies its value into every element, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element, `for 0..n` with `!xs.push(+x)`
+# error: 14:12: `List.filled` copies its value into every element, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for 0..n` with `!xs.push(+x)`)
 # error: 15:12: `List.filled` copies its value into every element, and a `Named` owns a resource
 # error: 16:24: `List.filled` copies its value into every element, and a `^Int` owns a resource
 # error: 18:12: `List.filled` copies its value into every element, and a `*Cell[Int]` owns a resource

@@ -59,6 +59,10 @@ started:
   today): the tag from the stored bits up to 2^25 slots, and from the
   top of the whole hash, recomputed from the keys, past that. It
   matched the 8-byte version's speed; it saves 4 bytes an entry.
+- Zig-backed List methods should declare the copy requirement in their
+  signature (`get`, `List.filled`, and `resize` need an element that
+  copies), instead of typecheck's `listCopies` switching on their
+  names.
 
 ## Agent tooling
 

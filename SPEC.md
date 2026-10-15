@@ -534,7 +534,7 @@ an array length `n + 1` does arithmetic on a compile-time parameter
 an array of compile-time length `n` is built with `[n of x]`
 an array length must be known at compile time; `k` is not
 array length -1 is out of range
-`[n of x]` copies its element into every slot; `List[Int]` owns a resource
+`[n of x]` copies its element into every slot, and a `List[Int]` owns a resource
 ```
 
 A value takes at most 8 MiB (8388608 bytes, a `[1048576]Int`): an
@@ -6142,7 +6142,7 @@ sub main()
 ```
 
 ```error
-`List.filled` copies its value into every element, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element, `for 0..n` with `!xs.push(+x)`
+`List.filled` copies its value into every element, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for 0..n` with `!xs.push(+x)`)
 ```
 
 ```rig

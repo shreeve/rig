@@ -1,0 +1,61 @@
+# A List of owners works as a List of plain data does (docs/CORE.md §5):
+# `swap` and `sort_by` only move elements, so they work on Strings,
+# Lists, and objects that own a String, and each element drops once.
+# The loops the copy diagnostics offer, each element made with `+x`,
+# run too.
+use std.sort
+
+obj Named
+  name: String
+
+fun shorter(a: ?String, b: ?String) -> Bool
+  a.len < b.len
+
+sub refill(xs: ![]String, x: ?String)
+  for i in 0..xs.len
+    xs[i] = +x
+
+sub recopy(xs: ![]String, src: []String)
+  for i in 0..src.len
+    xs[i] = +src[i]
+
+sub main()
+  words: List[String] = List()
+  !words.push(String("ccc"))
+  !words.push(String("a"))
+  !words.push(String("bb"))
+  !words.swap(0, 2)
+  print(words)
+  sort.sort_by(!words, shorter)
+  print(words)
+  rows: List[List[Int]] = List()
+  for n in 0..3
+    r: List[Int] = List()
+    for i in 0..n
+      !r.push(i)
+    !rows.push(<r)
+  !rows.swap(0, 2)
+  sort.sort_by(!rows, |a, b| a.len > b.len)
+  print(rows)
+  people: List[Named] = List()
+  !people.push(Named(name: String("zed")))
+  !people.push(Named(name: String("al")))
+  sort.sort_by(!people, |a, b| a.name.len < b.name.len)
+  !people.swap(0, 1)
+  print(people[0].name, people[1].name)
+  x = String("x")
+  made: List[String] = List()
+  for 0..3
+    !made.push(+x)
+  refill(!words[..], ?made[0])
+  !made.push(String("y"))
+  recopy(!words[..], ?made[1..])
+  pair = [+x, +x]
+  print(made, words, pair)
+
+# expect:
+# ["bb", "a", "ccc"]
+# ["a", "bb", "ccc"]
+# [[0, 1], [0], []]
+# zed al
+# ["x", "x", "x", "y"] ["x", "x", "y"] ["x", "x"]

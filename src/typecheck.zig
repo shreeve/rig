@@ -5626,15 +5626,15 @@ const Checker = struct {
         return false;
     }
 
-    /// The one rule for the List methods that copy an element in or
-    /// out, checked on both routes a call takes, `xs.m(...)` and
+    /// The element rules of the List methods that copy an element,
+    /// checked on both routes a call takes, `xs.m(...)` and
     /// `List.m(xs, ...)` through the type, with `f` the method's type at
-    /// the call: `get` copies an element out, and `List.filled(n, x)` and
-    /// `!v.resize(n, x)` copy `x` into every element they make, so the
-    /// element must copy (docs/CORE.md, "`copy`, `fill`, `[n of x]`,
-    /// `List.filled`, and `resize` duplicate values"); an owner is made
-    /// once per element by a loop that says so. False after a
-    /// diagnostic.
+    /// the call. `get` copies an element out, which only a value that
+    /// copies allows (Core sentence 1). `List.filled(n, x)` and
+    /// `!v.resize(n, x)` write copies of `x`, which they leave in place,
+    /// into every element they make, so the element must copy
+    /// (docs/CORE.md §5, "Only a value that copies is duplicated without
+    /// `+`"). False after a diagnostic.
     fn listCopies(self: *Checker, method: []const u8, f: FunctionType, pos: u32) Error!bool {
         const Copying = enum { get, filled, resize };
         const which = std.meta.stringToEnum(Copying, method) orelse return true;
@@ -5656,10 +5656,35 @@ const Checker = struct {
         const shown = try self.tyName(elem);
         switch (which) {
             .get => try self.err(pos, "`List.{s}` would copy an element out of a `List` of `{s}`, which a copy cannot share; read it in place with `v[i]`, or lend it with `?v[i]`", .{ method, shown }),
-            .filled => try self.err(pos, "`List.filled` copies its value into every element, and {s} `{s}` {s}, so it cannot be copied: write a loop that makes each element, `for 0..n` with `!xs.push(+x)`", .{ article(shown), shown, self.movesBecause(elem) }),
-            .resize => try self.err(pos, "`resize` copies its value into every element it adds, and {s} `{s}` {s}, so it cannot be copied: write a loop that makes each element, `for xs.len..n` with `!xs.push(+x)`, and shrink with `!xs.keep(n)`", .{ article(shown), shown, self.movesBecause(elem) }),
+            .filled => try self.notDuplicated(pos, "`List.filled` copies its value into every element", elem, "`for 0..n` with `!xs.push(+x)`", ""),
+            .resize => try self.notDuplicated(pos, "`resize` copies its value into every element it adds", elem, "`for xs.len..n` with `!xs.push(+x)`", "; `!xs.keep(n)` shrinks any List"),
         }
         return false;
+    }
+
+    /// The one diagnostic of a form that writes copies of a value it
+    /// leaves in place (`copy`, `fill`, `[n of x]`, `List.filled`, and
+    /// `resize`) when the element `elem` does not copy (docs/CORE.md §5,
+    /// "Only a value that copies is duplicated without `+`"), at `at`, a
+    /// node or a position. `what` says what the form copies, and `loop`
+    /// is the loop that makes each element with `+x` instead, which the
+    /// diagnostic offers, followed by `tail`, when `+x` clones `elem`.
+    fn notDuplicated(self: *Checker, at: anytype, comptime what: []const u8, elem: TypeId, comptime loop: []const u8, comptime tail: []const u8) Error!void {
+        const shown = try self.tyName(elem);
+        const why = self.movesBecause(elem);
+        const args = .{ article(shown), shown, why };
+        if (sema.holdsWriteView(self.ctx, elem)) {
+            if (@TypeOf(at) == Sexp) return self.errAt(at, what ++ ", and {s} `{s}` {s}, so it cannot be copied", args);
+            return self.err(at, what ++ ", and {s} `{s}` {s}, so it cannot be copied", args);
+        }
+        if (sema.cloneable(self.ctx, elem) == .no) {
+            const fmt = what ++ ", and {s} `{s}` {s}, so it cannot be copied, and it has no clone: write a loop that makes each element anew";
+            if (@TypeOf(at) == Sexp) return self.errAt(at, fmt, args);
+            return self.err(at, fmt, args);
+        }
+        const fmt = what ++ ", and {s} `{s}` {s}, so it cannot be copied: write a loop that makes each element with `+x` (" ++ loop ++ ")" ++ tail;
+        if (@TypeOf(at) == Sexp) return self.errAt(at, fmt, args);
+        return self.err(at, fmt, args);
     }
 
     /// Why a value of `ty`, which does not copy (`sema.copies`), cannot
@@ -6785,9 +6810,7 @@ const Checker = struct {
         }
         if (self.isPoison(elem) or self.isPoison(len)) return self.t().invalid_id;
         if (try self.cannotCopy(elem, self.startOf(value), "copies into every slot of `[n of x]` a value")) {
-            if (sema.typeHasDropGlue(self.ctx, elem)) {
-                try self.errAt(value, "`[n of x]` copies its element into every slot; `{s}` owns a resource, so an array cannot hold it (use a `List`)", .{try self.tyName(elem)});
-            } else try self.errAt(value, "`[n of x]` copies its element into every slot; `{s}` {s}, so it cannot be copied", .{ try self.tyName(elem), self.movesBecause(elem) });
+            try self.notDuplicated(value, "`[n of x]` copies its element into every slot", elem, "`for 0..n` with `!xs.push(+x)`, into a List", ", or write the elements out, `[+x, +x]`");
             return self.t().invalid_id;
         }
         const ty = try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
@@ -9720,7 +9743,10 @@ const Checker = struct {
         if (ct) |b| return try self.badCall(args, b, "`{s}` takes no compile-time arguments", .{method});
         if (!try self.writesElements(obj, obj_ty, peeled, method)) return try self.skipCall(args);
         if (op != .swap and try self.cannotCopy(elem, pos, "copies into the elements a value")) {
-            return try self.badCall(args, pos, "`{s}` copies values into the elements; {s} `{s}` {s}", .{ method, article(try self.tyName(elem)), try self.tyName(elem), self.movesBecause(elem) });
+            if (op == .fill) {
+                try self.notDuplicated(pos, "`fill` copies its value into every element", elem, "`for i in 0..xs.len` with `xs[i] = +x`", "");
+            } else try self.notDuplicated(pos, "`copy` copies every element of its source", elem, "`for i in 0..src.len` with `xs[i] = +src[i]`", "");
+            return try self.skipCall(args);
         }
         for (args) |a| if (a.isKind(.kwarg)) return try self.badCall(args, a, "`{s}` takes no keyword arguments", .{method});
         const want: usize = if (op == .swap) 2 else 1;
