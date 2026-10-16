@@ -1,0 +1,12 @@
+fun get(i: Int) -> Bool?
+  (i < 9) if i < 2 else none
+
+sub tick(n: !Int)
+  n += 1
+
+sub main()
+  @o for k in 0..3
+    i = 0
+    while get(i + k) ?? continue @o : tick(!i)
+      print(k, i)
+  print(9)

@@ -1,4 +1,4 @@
-# A `continue :a` in the `else` of an inner loop also labeled `:a`: the inner loop has ended, so it names the outer joined `:a` loop, whose step refills `a`. Expected: accepted, prints `21 5`, sanitizer-clean; or rejected.
+# A `continue @a` in the `else` of an inner loop also labeled `@a`: the inner loop has ended, so it names the outer joined `@a` loop, whose step refills `a`. Expected: accepted, prints `21 5`, sanitizer-clean; or rejected.
 #
 # oracle: mk accept
 # oracle: fresh accept
@@ -25,14 +25,14 @@ sub main()
   a = fresh(1)
   k = 0
   i = 0
-  :a while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
+  @a while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
     i += 1
     k += take(<a)
     j = 0
-    :a while j < 2: j += 1
-      continue :a if j == 7
+    @a while j < 2: j += 1
+      continue @a if j == 7
       k += 0
     else
-      continue :a
+      continue @a
     k += 100
   print(k, i)

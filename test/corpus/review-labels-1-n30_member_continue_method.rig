@@ -1,0 +1,9 @@
+obj K
+  n: Int
+
+  fun break(self: ?K) -> Int
+    self.n
+
+sub main()
+  k = K(n: 3)
+  print(k.break())

@@ -1,0 +1,14 @@
+fun first(v: ?List[Int], i: Int) -> (?Int)?
+  ?v[i] if i < v.len else none
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  @o for k in 0..2
+    i = 0
+    w = ?v[0]
+    while (first(?v, i) ?? break @o) > 0 : !v.push(i)
+      print(k, i, w)
+      i += 1
+      break if i > 2
+  print(v.len)

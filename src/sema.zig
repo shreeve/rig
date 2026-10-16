@@ -9910,9 +9910,9 @@ test "a jump in a nested `for` source or `else` names the loop around it" {
         \\      break 6
         \\  else
         \\    0
-        \\  :a while true
-        \\    :a for k in 0..(n ?? break)
-        \\      break :a
+        \\  @a while true
+        \\    @a for k in 0..(n ?? break)
+        \\      break @a
         \\    defer
         \\      break
         \\    f = ||
@@ -9946,7 +9946,7 @@ test "a jump in a nested `for` source or `else` names the loop around it" {
     try std.testing.expectEqual(1, jumps.len);
     try std.testing.expect(jumps.list[0].isKind(.@"continue"));
     try std.testing.expect(!hasValueBreaks(source, inner));
-    // `:a while`: the `break` in the source of the inner `:a for`,
+    // `@a while`: the `break` in the source of the inner `@a for`,
     // not the one in its body, which names it; nothing in a `defer` or a
     // closure.
     n = 0;

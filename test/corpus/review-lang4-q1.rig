@@ -29,7 +29,7 @@ sub main()
     pass
   for _ in 0..2
     pass
-  :outer for _ in 0..2
+  @outer for _ in 0..2
     pass
   match n
     0 => pass

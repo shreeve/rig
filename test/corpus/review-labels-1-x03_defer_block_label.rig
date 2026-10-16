@@ -1,0 +1,7 @@
+sub main()
+  defer
+    @a for i in 0..3
+      for j in 0..3
+        break @a if j == 1
+        print(i, j)
+  print(0)

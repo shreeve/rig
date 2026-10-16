@@ -1,0 +1,6 @@
+sub main()
+  @a for i in 0..3
+    for j in 0..3
+      continue @a if j == 1
+      print(i, j)
+  print(9)

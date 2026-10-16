@@ -2695,6 +2695,10 @@ test/corpus/review-header-paths-1-t01_for_branch_part_readview_local_owner.rig m
 test/corpus/review-header-paths-1-t02_match_branch_part_slice_local_owner.rig main
 test/corpus/review-header-paths-1-t03_as_branch_part_optreadview_local_owner.rig main
 test/corpus/review-hotfix7-p13-nested-take-call-payload.rig nest
+test/corpus/review-labels-1-h05_header_move_then_jump.rig main
+test/corpus/review-labels-1-h06c_header_view_held_across_jump.rig main
+test/corpus/review-labels-1-h21_header_move_continue_outer_reuse.rig main
+test/corpus/review-labels-1-h22_header_move_break_outer_use_after.rig main
 test/corpus/review-lang4-a5.rig main
 test/corpus/review-lang4-a7.rig main
 test/corpus/review-lang4-a9.rig main

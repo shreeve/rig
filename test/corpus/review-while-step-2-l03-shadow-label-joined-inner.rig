@@ -1,4 +1,4 @@
-# The shadowing inner loop is a joined while with a step reading its binding; its `continue :a` must go to its own step, not the outer one.
+# The shadowing inner loop is a joined while with a step reading its binding; its `continue @a` must go to its own step, not the outer one.
 # Expected: accepted, prints `end 3 9 3`.
 #
 # oracle: mk accept
@@ -17,12 +17,12 @@ sub main()
   i = 0
   q = 0
   m = 0
-  :a while mk(?v, i) as h and i >= 0: k += h.s[0]
+  @a while mk(?v, i) as h and i >= 0: k += h.s[0]
     i += 1
     m = 0
-    break :a if i > 50
-    :a while mk(?v, m) as g and m >= 0: q += g.s[0]
+    break @a if i > 50
+    @a while mk(?v, m) as g and m >= 0: q += g.s[0]
       m += 1
       for _ in 0..2
-        continue :a
+        continue @a
   print("end", k, q, m)

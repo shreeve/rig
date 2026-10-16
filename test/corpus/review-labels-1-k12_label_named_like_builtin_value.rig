@@ -1,0 +1,7 @@
+sub main()
+  v = if true
+    @size while true
+      break @size (@size(I16))
+  else
+    0
+  print(v)

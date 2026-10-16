@@ -1,2 +1,2 @@
 sub main()
-  :a print(1)
+  @a print(1)

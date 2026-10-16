@@ -556,7 +556,7 @@
                         ^ constant.numeric
 >     total += i
             ^^ operator
->   :outer for row in xs
+>   @outer for row in xs
     ^^^^^^ label
            ^^^ keyword.control
                    ^^ keyword.control
@@ -566,7 +566,7 @@
 >       if col == row
         ^^ keyword.control
                ^^ operator
->         break :outer
+>         break @outer
           ^^^^^^ keyword.control
                 ^^^^^^ label
 >       total += 1 if col != row

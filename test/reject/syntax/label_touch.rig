@@ -1,0 +1,15 @@
+# A jump's label ends at its name: a value after it stands apart, so
+# `break @outer-1` does not pass for a subtraction.
+
+sub main()
+  x = if true
+    @outer for i in 0..3
+      for j in 0..3
+        break @outer-1 if j == i
+    else
+      0
+  else
+    1
+  print(x)
+
+# error: 8:21: a jump's label ends at its name: put a space before the value, `break @outer -1`
