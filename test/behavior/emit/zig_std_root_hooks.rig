@@ -1,0 +1,26 @@
+# Zig's standard library reads some declarations of the root module as
+# hooks (`@hasDecl(root, "debug")`, `std_options`, `os`, the entry
+# points of each target). A Rig declaration with one of those names is
+# renamed in the Zig, so it is the program's own and no hook.
+
+debug = 1
+os = 2
+std_options = 3
+tracy = 4
+
+fun std_options_debug_io() -> Int
+  5
+
+fun _start() -> Int
+  6
+
+sub WinMain(msg: ?String)
+  print("WinMain:", msg)
+
+sub main()
+  print(debug + os + std_options + tracy, std_options_debug_io(), _start())
+  WinMain("hi")
+
+# expect:
+# 10 5 6
+# WinMain: hi

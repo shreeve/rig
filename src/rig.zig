@@ -526,13 +526,24 @@ const zig_primitives = std.StaticStringMap(void).initComptime(.{
     .{"void"},
 });
 
-/// Names the emitted prelude declares (`panic` is the root module's panic
-/// handler), and the prefix of emitter temporaries. A Rig name that
-/// collides with one of these is renamed.
+/// Names a Rig name may not keep in the emitted Zig: the ones the emitted
+/// prelude declares (`std`, `rig`, and `panic`, the root module's panic
+/// handler), and the ones Zig's standard library looks up in the root
+/// module with `@hasDecl(root, ...)` and uses as hooks (`debug`, `os`,
+/// `std_options`, the entry points of each target). Every one is
+/// renamed wherever it stands, so no hook depends on which module or
+/// scope declares it.
 const emitter_names = std.StaticStringMap(void).initComptime(.{
-    .{"std"}, .{"rig"}, .{"panic"},
+    .{"std"},       .{"rig"},                .{"panic"},
+    .{"debug"},     .{"os"},                 .{"tracy"},
+    .{"_start"},    .{"__start"},            .{"main"},
+    .{"WinMain"},   .{"wWinMain"},           .{"WinMainCRTStartup"},
+    .{"DllMain"},   .{"wWinMainCRTStartup"}, .{"DllMainCRTStartup"},
+    .{"EfiMain"},   .{"_DllMainCRTStartup"},
 });
-const emitter_prefix = "__rig";
+/// The prefixes of the names emitter temporaries take (`__rig_tmp_3`),
+/// and of the `std_options_*` hooks.
+const emitter_prefixes = [_][]const u8{ "__rig", "std_options" };
 
 pub fn isPlainName(name: []const u8) bool {
     for (name) |c| if (!std.ascii.isAlphanumeric(c) and c != '_') return false;
@@ -545,20 +556,43 @@ fn isZigIntType(name: []const u8) bool {
     return true;
 }
 
+/// Whether the Zig spelling of the Rig name `name` is another name: the
+/// name `writeZigIdent` gives it a `'` suffix.
+pub fn zigRenames(name: []const u8) bool {
+    if (!isPlainName(name)) return false;
+    if (emitter_names.has(name)) return true;
+    for (emitter_prefixes) |p| if (std.mem.startsWith(u8, name, p)) return true;
+    return false;
+}
+
+/// How a name is written: a Rig name of the program (`.rig`), or a name
+/// that must be spelled exactly, as the Zig or C it denotes declares it
+/// (`.exact`: a function of a standard library Zig file).
+pub const ZigSpelling = enum { rig, exact };
+
 /// Write `name` as a Zig identifier that denotes the Rig name and nothing
-/// else:
-///   * a Zig keyword or primitive (`var`, `fn`, `u8`, `type`) is quoted:
-///     `@"var"`;
-///   * a name the emitter itself declares (`std`, `rig`, `__rig*`) gets a
-///     `'` suffix, which no Rig identifier can contain: `@"rig'"`;
+/// else. This is the one place a Rig name becomes a Zig name: every
+/// declaration and every use of a local, parameter, capture, field,
+/// method, variant, type, generic parameter, constant, function,
+/// label, or module the program names is written here, so a use is
+/// always spelled as its declaration.
+///   * a name the emitter or Zig's standard library uses
+///     (`zigRenames`: `std`, `rig`, `debug`, `__rig*`) gets a `'`
+///     suffix, which no Rig identifier can contain: `@"rig'"`; an
+///     `.exact` name never does;
+///   * a Zig keyword or primitive (`var`, `fn`, `u8`, `type`), and `_`,
+///     which alone is Zig's discard, are quoted: `@"var"`, `@"_"`;
 ///   * anything else is written as is.
-pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!void {
+/// The mapping is one to one, so two Rig names never meet in one Zig
+/// name, and the runtime strips the suffix where a name is printed
+/// (`rig.rigName`).
+pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8, spelling: ZigSpelling) std.Io.Writer.Error!void {
     if (!isPlainName(name)) {
         // A name no program writes (`hiddenLeaf`).
         try w.print("@\"{s}\"", .{name});
-    } else if (emitter_names.has(name) or std.mem.startsWith(u8, name, emitter_prefix)) {
+    } else if (spelling == .rig and zigRenames(name)) {
         try w.print("@\"{s}'\"", .{name});
-    } else if (zig_keywords.has(name) or zig_primitives.has(name) or isZigIntType(name)) {
+    } else if (zig_keywords.has(name) or zig_primitives.has(name) or isZigIntType(name) or std.mem.eql(u8, name, "_")) {
         try w.print("@\"{s}\"", .{name});
     } else {
         try w.writeAll(name);
@@ -1289,8 +1323,10 @@ pub const Lexer = struct {
 
     fn classifyWord(self: *const Lexer, tok: Token) TokenCat {
         const word = self.base.text(tok);
-        if (std.mem.eql(u8, word, "new")) return if (self.stmtStart() and (self.nextIsName() or self.nextIsConst())) .new else .ident;
+        // A name before `:` inside ( ) names a keyword argument or a
+        // payload field, `new` too (`O(new: 1)`, `.pp(new: x)`).
         if (self.inParens() and self.nextCat() == .colon) return .kwarg_name;
+        if (std.mem.eql(u8, word, "new")) return if (self.stmtStart() and (self.nextIsName() or self.nextIsConst())) .new else .ident;
         if (std.mem.eql(u8, word, "of") and self.isFillOf()) return .of;
         if (std.mem.eql(u8, word, "obj")) return if ((self.stmtStart() or self.last_cat == .@"pub") and self.nextIsName()) .obj else .ident;
         if (isMarker(word)) {
@@ -3378,6 +3414,7 @@ test "keywords are reserved; `new` only at statement start" {
     }
     try expectCats("new x = 1", &.{ .new, .ident, .assign, .integer });
     try expectCats("p = Point.new(1)", &.{ .ident, .assign, .ident, .dot, .ident, .lparen, .integer, .rparen });
+    try expectCats("O(new: 1)", &.{ .ident, .lparen, .kwarg_name, .colon, .integer, .rparen });
 }
 
 test "`obj` is a keyword only where a declaration starts; `struct` is a name" {
@@ -3647,16 +3684,14 @@ test "layout: a closure body inside brackets is laid out in blocks" {
 }
 
 test "writeZigIdent escapes Zig keywords and emitter names" {
-    var buf: [64]u8 = undefined;
+    var buf: [256]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try writeZigIdent(&w, "var");
-    try w.writeAll(" ");
-    try writeZigIdent(&w, "u8");
-    try w.writeAll(" ");
-    try writeZigIdent(&w, "rig");
-    try w.writeAll(" ");
-    try writeZigIdent(&w, "count");
-    try testing.expectEqualStrings("@\"var\" @\"u8\" @\"rig'\" count", w.buffered());
+    for ([_][]const u8{ "var", "u8", "rig", "count", "_", "debug", "std_options_cwd", "__rig_x" }) |n| {
+        try writeZigIdent(&w, n, .rig);
+        try w.writeAll(" ");
+    }
+    try writeZigIdent(&w, "panic", .exact);
+    try testing.expectEqualStrings("@\"var\" @\"u8\" @\"rig'\" count @\"_\" @\"debug'\" @\"std_options_cwd'\" @\"__rig_x'\" panic", w.buffered());
 }
 
 test "a condition's guard parts: each part a binding condition joins, or the whole condition" {

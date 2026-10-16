@@ -109,7 +109,11 @@ const SymbolResolver = struct {
             .@"struct" => try self.walkNominalType(sexp, .{ .unique = ir.Struct.unique(sexp) != .nil }),
             .@"enum" => try self.walkNominalType(sexp, .{}),
             .errors => try self.walkNominalType(sexp, .{ .error_set = true }),
-            .@"extern", .extern_fun, .extern_sub => _ = try self.declare(ir.get(sexp, .name), .@"extern", .{}),
+            .@"extern", .extern_fun, .extern_sub => {
+                const name_node = ir.get(sexp, .name);
+                _ = try self.declare(name_node, .@"extern", .{});
+                try self.checkExternName(name_node);
+            },
             // A Zig-backed constant: known at compile time, to Zig alone.
             .zig_const => _ = try self.declare(ir.ZigConst.name(sexp), .local, .{ .fixed = true, .comptime_known = true, .per_target = true }),
             .zig_extern => {
@@ -387,6 +391,15 @@ const SymbolResolver = struct {
         try self.checkShadowsDeclaration(name_node, "parameter");
     }
 
+    /// Reports a C declaration whose name the emitted Zig cannot keep
+    /// (`rig.zigRenames`: `std`, `rig`, `panic`, `debug`, `__rig*`):
+    /// the linker finds a C name only as it is spelled.
+    fn checkExternName(self: *SymbolResolver, name_node: Sexp) Error!void {
+        const name = identAt(self.ctx.source, name_node) orelse return;
+        if (!rig.zigRenames(name)) return;
+        try self.ctx.err(srcPos(name_node, 0), "a C declaration cannot be named `{s}`: the Zig that Rig writes uses that name itself, and C links a name only as it is spelled", .{name});
+    }
+
     /// `use NAME`, `use a.b.NAME`, or either `as ALIAS`: the module's
     /// symbol is named by the alias, else the path's last name. It binds
     /// that name in its own file only (`SemContext.fileModule`), so it is
@@ -398,6 +411,8 @@ const SymbolResolver = struct {
         const name = identAt(self.ctx.source, name_node) orelse return;
         const pos = srcPos(name_node, 0);
         const file = sema.fileIndex(self.ctx.parts, pos);
+        // As for any binding (`declare`): `none` is the absent optional.
+        if (std.mem.eql(u8, name, "none")) try self.ctx.err(pos, "`none` is the absent optional and cannot name a module; name it with `as`: `use ... as other`", .{});
         if (self.ctx.fileModule(name, pos)) |prev| {
             try self.ctx.err(pos, "two imports bind the name `{s}`; name one of them with `as`: `use ... as other`", .{name});
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` first imported here", .{name});
