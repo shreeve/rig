@@ -1,0 +1,11 @@
+obj P
+  s: String
+
+fun inner(h: !*P) -> !P from h
+  h
+
+sub main()
+  a = *P(s: String("a"))
+  b = +a
+  inner(!a) = P(s: String("new"))
+  print(a.s, b.s)

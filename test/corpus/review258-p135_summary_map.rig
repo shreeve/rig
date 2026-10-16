@@ -1,0 +1,15 @@
+use std.hash
+
+obj H
+  s: ?String
+
+sub go(m: !hash.Map[Int, H], u: ?String)
+  (!m).ensure(1, H(s: u)) = H(s: u)
+
+sub main()
+  t = String("t")
+  m = hash.Map[Int, H]()
+  u = String("u")
+  go(!m, ?u)
+  <u
+  print(m.len)

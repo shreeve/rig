@@ -1,0 +1,12 @@
+sub each(n: Int, f: ?sub(Int))
+  for i in 0..n
+    f(i)
+
+sub main()
+  each(2, |k: Int|
+    @a for i in 0..3
+      for j in 0..3
+        break @a if j == 1
+        print(k, i, j)
+  )
+  print(9)

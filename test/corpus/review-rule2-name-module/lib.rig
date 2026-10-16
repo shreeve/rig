@@ -1,0 +1,23 @@
+pub obj P
+  pub v: Int
+
+pub obj Box[T]
+  pub v: T
+
+  pub fun self_name(?self) -> ?String
+    @name(Self?)
+
+pub fun nm[T](x: T) -> ?String
+  @name(T?)
+
+pub fun hnm[T](x: T) -> ?String
+  @name(*T)
+
+pub fun deeper[T](x: T) -> ?String
+  y: T? = none
+  nm(y)
+
+pub type LP = (P?)?
+
+pub sub local_names()
+  print("lib", @name(LP), @name(Box[P?]?))

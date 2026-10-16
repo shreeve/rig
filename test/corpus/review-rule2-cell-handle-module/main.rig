@@ -1,0 +1,20 @@
+use lib
+
+sub local(c: *Cell[List[Int]])
+  lib.trade(+c, +c)
+
+sub main()
+  c: *Cell[List[Int]] = *Cell(List())
+  !c.push(1)
+  lib.put(+c, 4)
+  print(c[0], c.len)
+  a: *Cell[String] = *Cell(String("a"))
+  b: *Cell[String] = *Cell(String("b"))
+  lib.trade(+a, +b)
+  print((!a).replace(String("")), (!b).replace(String("")))
+  local(+c)
+  s: *Cell[List[String]] = *Cell(List())
+  lib.through(+s)
+  bx = lib.Box[Int](c: *Cell(1))
+  bx.put(8)
+  print(bx.c.get())

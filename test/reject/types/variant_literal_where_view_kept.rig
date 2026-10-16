@@ -1,0 +1,51 @@
+# A variant literal whose enum comes from where it goes is, where a
+# view held by address goes, the value `Val.V(...)` is, and is rejected
+# where that value is: lent to write, kept in a field, an element, or a
+# binding, returned, a view of an optional, or a parameter's default.
+
+enum Val
+  Num(n: Int)
+  Table(m: List[Int])
+  Empty
+
+enum Color
+  Red
+  Green
+
+obj Ref
+  v: ?Val
+
+sub write(v: !Val)
+  print("write")
+
+sub paint(c: !Color)
+  print("paint")
+
+sub opt(v: ?Val?)
+  print("opt")
+
+sub fallback(v: ?Val = .Empty)
+  print("fallback")
+
+fun made() -> ?Val
+  return .Num(n: 3)
+
+sub main()
+  write(.Num(n: 3))
+  paint(.Red)
+  r = Ref(v: .Num(n: 3))
+  xs: [1]?Val = [.Num(n: 3)]
+  v: ?Val = .Table(m: List())
+  opt(.Num(n: 3))
+  fallback()
+  print(r, xs, v, made())
+
+# error: 34:9: type mismatch: expected `!Val`, got `Val`
+# error: 35:9: type mismatch: expected `!Color`, got `Color`
+# error: 36:14: type mismatch: expected `?Val`, got `Val`
+# error: 37:18: type mismatch: expected `?Val`, got `Val`
+# error: 38:13: type mismatch: expected `?Val`, got `Val`
+# error: 39:8: `.Num` is an enum variant, but the expected type `?Val?` is not an enum
+# error: 27:24: type mismatch: expected `?Val`, got `Val`
+# error: 31:10: type mismatch: expected `?Val`, got `Val`
+# errors: 8

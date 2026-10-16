@@ -7,7 +7,7 @@ obj Item
 obj Cursor
   items: ?List[Item]
 
-  fun next(!self, extra: ?List[Item]) -> ?Item
+  fun next(!self, extra: ?List[Item]) -> ?Item keeps extra
     self.items = extra
     ?self.items[0]
 

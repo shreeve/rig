@@ -1,0 +1,12 @@
+obj P
+  src: ?String
+
+  sub watch(!self, s: ?String) keeps s
+    self.src = s
+
+  drop(!self)
+    print("drop", self.src)
+
+sub main()
+  !P(src: "").watch(?String("hello"))
+  print("end")

@@ -1,0 +1,10 @@
+# `new x =! e` shadows the visible `x` with a fixed binding, which
+# cannot be reassigned.
+
+sub main()
+  x = 1
+  new x =! x + 1
+  x = 3
+  print(x)
+
+# error: 7:3: cannot reassign fixed binding `x`

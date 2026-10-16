@@ -1,0 +1,15 @@
+obj H
+  r: ?Int
+
+fun run() -> Int?
+  n = 1
+  h = H(r: ?n)
+  w: (!H)? = !h
+  if true
+    e = 5
+    w? = H(r: ?e)
+  print(h.r)
+  0
+
+sub main()
+  print(run())

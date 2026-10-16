@@ -1,0 +1,9 @@
+# `Endian.from_text` and `Arch.from_text` called only in an imported
+# module: that module emits the tables, the root none.
+use lib
+
+sub main()
+  print(lib.order("big"), lib.arch("x86_64"))
+
+# expect:
+# .big .x86_64

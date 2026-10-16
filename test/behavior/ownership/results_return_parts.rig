@@ -1,0 +1,32 @@
+# Each part of `return a, b` is judged by its own result's type: a write
+# view read as a value that copies is a copy, and a view of a local read
+# into an `Int` keeps no loan of it.
+
+fun twice(w: !Int) -> (Int, Int)
+  return w, w
+
+fun pair(a: !Int, b: ?Int) -> (!Int, Int) from a
+  return a, b
+
+fun local() -> (Int, ?String)
+  n = 1
+  w = !n
+  w += 1
+  return w, "x"
+
+sub main()
+  n = 3
+  a, b = twice(!n)
+  print(a, b)
+  x = 1
+  y = 2
+  w, k = pair(!x, ?y)
+  w += k
+  print(x)
+  c, d = local()
+  print(c, d)
+
+# expect:
+# 3 3
+# 3
+# 2 x

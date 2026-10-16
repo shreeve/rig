@@ -1,0 +1,8 @@
+pub fun parse(w: ?String) -> Color?
+  Color.from_text(w)
+
+pub fun order(w: ?String) -> Endian?
+  Endian.from_text(w)
+
+pub fun hid(h: Int) -> Static
+  (Hidden.from_int(h) ?? .one).text

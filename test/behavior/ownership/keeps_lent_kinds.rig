@@ -1,0 +1,48 @@
+# Each kind of lent parameter is kept when `keeps` names it: a slice, a
+# write slice's elements, an optional of a view, a view of a type
+# parameter, and a parameter handed on to a call that keeps it.
+
+obj Bag[T]
+  last: (?T)?
+
+  sub put(!self, x: ?T) keeps x
+    self.last = x
+
+obj Holder
+  xs: []Int
+  name: (?String)?
+  src: ?String
+
+  sub take(!self, xs: []Int, name: (?String)?) keeps xs, name
+    self.xs = xs
+    self.name = name
+
+  sub watch(!self, s: ?String) keeps s
+    self.src = s
+
+  sub forward(!self, s: ?String) keeps s
+    !self.watch(s)
+
+sub put_first(dst: ![]?String, s: ?String) keeps s
+  dst[0] = s
+
+sub main()
+  n = String("4")
+  b = Bag[String](last: none)
+  !b.put(?n)
+  print(b.last)
+  a = [1, 2, 3]
+  s = String("ada")
+  t = String("bob")
+  h = Holder(xs: ?a[..0], name: none, src: "")
+  !h.take(?a[1..], ?s)
+  !h.forward(?t)
+  print(h.xs, h.name, h.src)
+  names: [2]?String = ["", ""]
+  put_first(!names[..], ?s)
+  print(names[0])
+
+# expect:
+# 4
+# [2, 3] ada bob
+# ada

@@ -1,0 +1,12 @@
+fun slot(v: !List[Int], i: Int) -> !Int from v
+  !v[i]
+
+fun run(o: Int?) -> Int?
+  v: List[Int] = List()
+  !v.push(1)
+  slot(!v, 0) = (o ?? return none)
+  slot(!v, 0) += o?
+  v[0]
+
+sub main()
+  print(run(4), run(none))

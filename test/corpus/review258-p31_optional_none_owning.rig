@@ -1,0 +1,13 @@
+fun pick(v: !List[String], i: Int) -> (!String)? from v
+  return none if i >= v.len
+  !v[i]
+
+fun put(v: !List[String], i: Int) -> Int?
+  pick(!v, i)? = String("new", "x")
+  1
+
+sub main()
+  v: List[String] = List()
+  !v.push(String("a"))
+  print(put(!v, 5) ?? 0, put(!v, 0) ?? 0)
+  print(v)

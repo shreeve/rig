@@ -1,0 +1,9 @@
+fun g(ok: Bool) -> (Int, Int)?
+  return none if not ok
+  return 1, 2
+
+fun h(ok: Bool) -> (Int, Int)
+  return g(ok)
+
+# error: type mismatch: expected `(Int, Int)`, got `(Int, Int)?`
+# errors: 1

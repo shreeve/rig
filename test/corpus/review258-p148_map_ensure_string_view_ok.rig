@@ -1,0 +1,10 @@
+use std.hash
+
+fun go(m: !hash.Map[?String, Int], k: ?String) -> Int
+  (!m).ensure(k, 0) += 1
+  m.get(k) ?? 0
+
+sub main()
+  a = String("a")
+  m = hash.Map[?String, Int]()
+  print(go(!m, ?a), go(!m, ?a))

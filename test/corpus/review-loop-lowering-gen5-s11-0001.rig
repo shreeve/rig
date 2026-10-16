@@ -63,7 +63,7 @@ sub main()
   guard = 0
   c0 = 0
   p0 = 0
-  :a while mkd(0, c0, 3) as h0: c0 = st(0, c0)
+  @a while mkd(0, c0, 3) as h0: c0 = st(0, c0)
     guard += 1
     if guard > 300
       print("cap")
@@ -72,11 +72,11 @@ sub main()
     _ = p0
     y0 = D(n: 0 + c0)
     print("b0", c0, h0.n)
-    :a match c0
+    @a match c0
       _
         c1 = 0
         p1 = 0
-        :a while c1 < 2: c1 = st(1, c1)
+        @a while c1 < 2: c1 = st(1, c1)
           guard += 1
           if guard > 300
             print("cap")
@@ -84,11 +84,11 @@ sub main()
           p1 += 1
           _ = p1
           print("b1", c0, c1)
-          :a match c1
+          @a match c1
             _
               z2 = "ab"
               p2 = 0
-              :a for ch2, c2 in z2
+              @a for ch2, c2 in z2
                 guard += 1
                 if guard > 300
                   print("cap")

@@ -1,0 +1,26 @@
+# Rule: a kept loan lasts while the holder is used, though the holder's
+# own write lend ends as the call returns; a lend the call does not keep
+# lasts no longer than the call (Core sentence 7). `f` keeps `s` in
+# `self`; `k`, a `!Int` that can hold no view, is free again after the
+# call, and so is `t` once `p` is no longer used.
+# From: the keeps Core review (spec author, p8).
+
+obj P
+  src: ?String
+
+  sub f(!self, k: !Int, s: ?String) keeps s
+    k += 1
+    self.src = s
+
+sub main()
+  p = P(src: "")
+  k = 0
+  t = String("x")
+  !p.f(!k, ?t)
+  print(p.src)
+  !t.add("y")
+  print(k, t)
+
+# expect:
+# x
+# 1 xy

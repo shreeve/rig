@@ -1,0 +1,31 @@
+# Owned results are taken by their names, left to right; a result `_`
+# takes is dropped at the statement's end, after the bindings, and an
+# assigned name drops its old value.
+
+obj Name
+  s: String
+
+  drop(!self)
+    print("drop", self.s)
+
+fun two(a: ?String, b: ?String) -> (Name, Name)
+  return Name(s: String(a)), Name(s: String(b))
+
+sub main()
+  x, y = two("x", "y")
+  print(x.s, y.s)
+  _, z = two("u", "v")
+  print(z.s)
+  x, _ = two("r", "t")
+  print("end", x.s)
+
+# expect:
+# x y
+# drop u
+# v
+# drop x
+# drop t
+# end r
+# drop v
+# drop y
+# drop r

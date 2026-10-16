@@ -9,10 +9,10 @@ obj H[T]
   fun make(?self, s: ?String) -> T
     self.f(s)
 
-  sub fill(?self, out: !T, s: ?String)
+  sub fill(?self, out: !T, s: ?String) keeps s
     out = self.f(s)
 
-sub run[T](f: ?*sub(!T, ?String), k: !T, s: ?String)
+sub run[T](f: ?*sub(!T, ?String), k: !T, s: ?String) keeps s
   f(!k, s)
 
 sub through_write_param()

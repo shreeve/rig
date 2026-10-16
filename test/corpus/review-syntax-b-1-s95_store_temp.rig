@@ -1,4 +1,4 @@
-sub store(v: !List[[]Int], x: []Int)
+sub store(v: !List[[]Int], x: []Int) keeps x
   !v.push(x)
 
 fun mkv() -> List[Int]

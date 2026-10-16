@@ -1,4 +1,4 @@
-sub copy_all[T](v: ?List[T], out: !List[T])
+sub copy_all[T](v: ?List[T], out: !List[T]) keeps v
   for x in v
     !out.push(x)
 

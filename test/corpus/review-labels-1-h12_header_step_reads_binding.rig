@@ -1,0 +1,14 @@
+fun pick(i: Int) -> Int?
+  i * 10 if i < 3 else none
+
+fun get(i: Int) -> Bool?
+  (i < 9) if i < 5 else none
+
+sub main()
+  @o for k in 0..2
+    i = 0
+    t = 0
+    while get(i) ?? continue @o : t += i
+      i += 1
+      print(k, i, t)
+  print(9)

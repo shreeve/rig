@@ -1,0 +1,14 @@
+obj P
+  x: Int
+  name: String
+
+obj H
+  s: ^P
+
+fun sl(h: !H) -> !(^P) from h
+  !h.s
+
+sub main()
+  h = H(s: ^P(x: 1, name: String("a")))
+  sl(!h) = ^P(x: 2, name: String("b"))
+  print(h.s.x, h.s.name)

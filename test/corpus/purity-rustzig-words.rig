@@ -20,7 +20,7 @@ fun same_word(a: ?String, b: ?String) -> Bool
     return false if lower(x) != lower(b[i])
   true
 
-sub add(counts: !List[Entry], word: ?String)
+sub add(counts: !List[Entry], word: ?String) keeps word
   for e in !counts
     if same_word(e.word, word)
       e.count += 1

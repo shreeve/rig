@@ -1,4 +1,4 @@
-sub copyit(d: ![]?Int, s: []?Int)
+sub copyit(d: ![]?Int, s: []?Int) keeps s
   !d.copy(s)
 
 sub main()

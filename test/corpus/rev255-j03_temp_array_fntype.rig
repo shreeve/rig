@@ -1,0 +1,11 @@
+sub put(out: !List[[]Int], xs: []Int) keeps xs
+  !out.push(xs)
+
+sub apply(out: !List[[]Int], g: ?sub(!List[[]Int], []Int))
+  a = 5
+  g(!out, [a, a + 1, a + 2])
+
+sub main()
+  out: List[[]Int] = List()
+  apply(!out, put)
+  print(out.len)

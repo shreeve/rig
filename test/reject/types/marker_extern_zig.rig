@@ -2,12 +2,14 @@
 # reach.
 
 extern zig "fast.zig"
+  inline fun fast(x: Int) -> Int
   rarely sub slow()
   called fun kept() -> Int
 
 sub main()
-  print(kept())
+  print(fast(1))
 
 # error: only the standard library binds declarations to Zig code
-# error: 5:3: `slow` is an `extern zig` function, whose body is Zig code: it takes no `rarely`
-# error: 6:3: `kept` is an `extern zig` function, whose body is Zig code: it takes no `called`
+# error: 5:3: `fast` is an `extern zig` function, whose body is Zig code: it takes no `inline`
+# error: 6:3: `slow` is an `extern zig` function, whose body is Zig code: it takes no `rarely`
+# error: 7:3: `kept` is an `extern zig` function, whose body is Zig code: it takes no `called`

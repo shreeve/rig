@@ -5,7 +5,7 @@
 obj View
   xs: []Int
 
-  sub point(!self, ys: []Int)
+  sub point(!self, ys: []Int) keeps ys
     self.xs = ys
 
 sub main()

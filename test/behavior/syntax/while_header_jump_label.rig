@@ -1,0 +1,34 @@
+# A jump in a `while` header may name a label: `@outer` is a label after
+# `break` or `continue`, and the header's `:` still starts the step.
+
+fun more(n: Int) -> Bool?
+  n > 0 if n < 9 else none
+
+sub main()
+  n = 3
+  @outer while true
+    while more(n) ?? break @outer
+      n -= 1
+    print(n)
+    n = 12
+    while more(n) ?? continue @outer
+      n -= 1
+  print(n)
+  i = 0
+  k = 0
+  @rows while i < 4 : i += 1
+    j = 0
+    while (more(i * 4 - j) ?? break @rows) and j < 2 : j += 1
+      k += 1
+  print(i, k)
+  m = 0
+  @a while m < 5 : m += 1
+    while more(m) ?? break @a : m += 10
+      pass
+  print(m)
+
+# expect:
+# 0
+# 12
+# 3 4
+# 11

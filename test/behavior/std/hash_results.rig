@@ -1,0 +1,35 @@
+# `Map.ensure_added` lends the value under a key to write, with whether
+# the key was new; `Map.at` gives the entry at an index, in order.
+use std.hash
+
+sub count(m: !hash.Map[String, Int], word: ?String)
+  w, added = (!m).ensure_added(String(word), 0)
+  w += 1
+  print("new", word) if added
+
+sub main()
+  m = hash.Map[String, Int]()
+  for word in ["a", "b", "a", "c", "a"]
+    count(!m, word)
+  print(m.get("a") ?? 0, m.get("b") ?? 0, m.len)
+  i = 0
+  while m.at(i) as k, v
+    print(i, k, v)
+    i += 1
+  _ = (!m).take("b")
+  if m.at(1) as k, v
+    print("after take", k, v)
+  if m.at(2) as k, v
+    print("past the end", k, v)
+  if m.at(-1) as k, v
+    print("below the start", k, v)
+
+# expect:
+# new a
+# new b
+# new c
+# 3 1 3
+# 0 a 3
+# 1 b 1
+# 2 c 1
+# after take c 1

@@ -1,0 +1,15 @@
+obj H
+  r: ?Int
+
+fun slot(h: !H) -> !H from h
+  h
+
+sub set(h: !H)
+  d = 4
+  slot(!h) = H(r: ?d)
+
+sub main()
+  n = 1
+  h = H(r: ?n)
+  set(!h)
+  print(h.r)

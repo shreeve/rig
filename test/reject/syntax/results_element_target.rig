@@ -1,0 +1,11 @@
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  xs = [0, 0]
+  i = 0
+  i, xs[i] = divmod(1, 2)
+  print(xs)
+
+# error: each result is bound to a name, and `xs[i]` reads `i`, which this statement binds
+# errors: 1

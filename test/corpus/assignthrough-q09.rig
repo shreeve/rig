@@ -1,0 +1,12 @@
+obj H
+  s: ?String
+
+fun slot(h: !H) -> !H from h
+  h
+
+sub main()
+  h = H(s: "x")
+  if true
+    d = String("inner")
+    slot(!h) = H(s: ?d)
+  print(h.s)

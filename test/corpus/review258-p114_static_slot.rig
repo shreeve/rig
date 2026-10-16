@@ -1,0 +1,10 @@
+fun sl(v: !List[Static], i: Int) -> !Static from v
+  !v[i]
+
+sub main()
+  v: List[Static] = List()
+  !v.push("a")
+  d = String("d")
+  sl(!v, 0) = ?d
+  sl(!v, 0) = "b"
+  print(v)

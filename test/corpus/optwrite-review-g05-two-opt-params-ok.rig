@@ -1,7 +1,7 @@
 obj H
   s: ?String
 
-sub copy(a: (!H)?, b: (!H)?)
+sub copy(a: (!H)?, b: (!H)?) keeps a
   x = <a ?? return
   y = <b ?? return
   y.s = x.s

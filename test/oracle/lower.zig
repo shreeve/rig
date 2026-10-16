@@ -132,7 +132,7 @@ const Fails = enum { no, yes, maybe };
 const Loop = struct {
     label: ?[]const u8,
     brk: BlockId,
-    /// Null for a `match`, which only `break :label` leaves.
+    /// Null for a `match`, which only `break @label` leaves.
     cont: ?BlockId,
     /// The region depth a `break` unwinds to.
     depth: usize,
@@ -187,6 +187,7 @@ fn declaredFrom(ctx: *const sema.SemContext, pos: u32) ?u64 {
     } else return null;
     if (m.ir == .nil) return null;
     const d = findFun(m.ir, pos) orelse return null;
+    if (!d.isKind(.fun) and !d.isKind(.extern_fun)) return null;
     const names = ir.get(d, .origins);
     if (names == .nil) return null;
     var mask: u64 = 0;
@@ -200,12 +201,49 @@ fn declaredFrom(ctx: *const sema.SemContext, pos: u32) ?u64 {
     return mask;
 }
 
-/// The `fun` (or `extern fun`) whose name is at `pos`, among `node`'s
-/// declarations and members.
+/// The lent parameters a function's `keeps` clause names (`keeps s,
+/// self`), a bit each, read from the declaration in its module's IR: the
+/// function or method whose name is at `pos`. Zero when it writes none,
+/// and null when it is not found.
+fn declaredKeeps(ctx: *const sema.SemContext, pos: u32) ?u64 {
+    const m = for (program_modules) |*m| {
+        if (m.sema == ctx) break m;
+    } else return null;
+    if (m.ir == .nil) return null;
+    const d = findFun(m.ir, pos) orelse return null;
+    const names = ir.get(d, .keeps);
+    if (names == .nil) return 0;
+    var mask: u64 = 0;
+    for (names.items()) |n| {
+        const text = leafText(n, m.source);
+        for (ir.get(d, .params).items(), 0..) |p, i| {
+            const pn = sema.paramNameNode(p) orelse continue;
+            if (std.mem.eql(u8, leafText(pn, m.source), text) and i < 64) mask |= @as(u64, 1) << @intCast(i);
+        }
+    }
+    return mask;
+}
+
+/// Whether a parameter of type `ty` is lent (Core s7): a `?T`, `!T`,
+/// `[]T`, or `?String`, or an optional of one. A call keeps one only
+/// where its callee's `keeps` names it.
+fn lentType(ctx: *const sema.SemContext, ty: TypeId) bool {
+    const t = switch (ctx.types.get(ty)) {
+        .optional => |inner| inner,
+        else => ty,
+    };
+    return switch (ctx.types.get(t)) {
+        .read_view, .write_view, .slice, .string_view => true,
+        else => false,
+    };
+}
+
+/// The `fun`, `sub`, `extern fun`, or `extern sub` whose name is at
+/// `pos`, among `node`'s declarations and members.
 fn findFun(node: Sexp, pos: u32) ?Sexp {
     const kind = node.kind() orelse return null;
     switch (kind) {
-        .fun, .extern_fun => {
+        .fun, .sub, .extern_fun, .extern_sub => {
             const n = ir.get(node, .name);
             return if (n == .src and n.src.pos == pos) node else null;
         },
@@ -326,6 +364,9 @@ const Lowerer = struct {
     module: ?*const lib.modules.Module = null,
     /// The result type the function or closure declares.
     ret_ty: ?TypeId = null,
+    /// While a destructure binds a target: the var holding its result,
+    /// which the target's `(result_part)` names.
+    part: ?VarId = null,
 
     // ---- the function ---------------------------------------------------
 
@@ -345,6 +386,13 @@ const Lowerer = struct {
             self.f.from = declaredFrom(self.ctx, ir.get(decl, .name).src.pos);
             self.ret_ty = self.declaredReturn(ir.get(decl, .name));
         };
+        if ((kind == .fun or kind == .sub) and ir.get(decl, .name) == .src) {
+            // What a call of it keeps of its lent parameters (Core s7).
+            self.f.keeps_named = declaredKeeps(self.ctx, ir.get(decl, .name).src.pos) orelse 0;
+            for (self.f.params.items, 0..) |p, i| {
+                if (i < 64 and lentType(self.ctx, self.f.vars.items[p].ty)) self.f.lent |= @as(u64, 1) << @intCast(i);
+            }
+        }
         try self.lowerBody(ir.get(decl, .body), kind == .fun);
     }
 
@@ -358,7 +406,7 @@ const Lowerer = struct {
                 try self.retValue(s);
             } else try self.stmt(s);
         }
-        if (self.cur != null) try self.ret(null, self.posOf(b), .no);
+        if (self.cur != null) try self.ret(&.{}, self.posOf(b), .no);
     }
 
     /// A closure's body, checked as a function of its own (Core §7):
@@ -411,7 +459,12 @@ const Lowerer = struct {
     /// a view of a value that copies, returned where that value is the
     /// result, is copied out (Core §4), as a typed binding copies it.
     fn resultType(self: *Lowerer, ty: TypeId) Error!TypeId {
-        const result = self.ret_ty orelse return ty;
+        return self.resultTypeAs(ty, self.ret_ty);
+    }
+
+    /// `resultType` for a result declared `declared`: one of several.
+    fn resultTypeAs(self: *Lowerer, ty: TypeId, declared: ?TypeId) Error!TypeId {
+        const result = declared orelse return ty;
         const inner = switch (self.ctx.types.get(ty)) {
             .read_view, .write_view => |inner| inner,
             else => return ty,
@@ -458,7 +511,7 @@ const Lowerer = struct {
     fn isValue(s: Sexp) bool {
         const k = s.kind() orelse return true;
         return switch (k) {
-            .set, .drop, .pass, .@"while", .@"for", .@"return", .@"break", .@"continue", .@"defer", .@"errdefer", .labeled => false,
+            .set, .destructure, .drop, .pass, .@"while", .@"for", .@"return", .@"break", .@"continue", .@"defer", .@"errdefer", .labeled => false,
             .@"if" => ir.If.@"else"(s) != .nil,
             else => true,
         };
@@ -668,6 +721,7 @@ const Lowerer = struct {
         if (k != .labeled and k != .@"while" and k != .@"for" and k != .match) self.label = null;
         switch (k) {
             .set => try self.set(s),
+            .destructure => try self.destructure(s),
             .drop => try self.dropStmt(s),
             .pass => {},
             .@"if" => try self.ifInto(s, .read, null),
@@ -676,7 +730,7 @@ const Lowerer = struct {
             .@"for" => try self.forStmt(s, null),
             .@"return" => {
                 const v = ir.Return.value(s);
-                if (v == .nil) try self.ret(null, self.posOf(s), .no) else try self.retValue(v);
+                if (v == .nil) try self.ret(&.{}, self.posOf(s), .no) else if (v.isKind(.results)) try self.retResults(v) else try self.retValue(v);
             },
             .@"break", .@"continue" => try self.jump(s),
             .labeled => {
@@ -692,7 +746,12 @@ const Lowerer = struct {
                 try scope.defers.append(self.a, .{ .body = ir.get(s, .body), .err = k == .@"errdefer", .at = scope.vars.items.len });
             },
             .raw_block => return abstain("`raw`"),
-            else => _ = try self.eval(s, .read, null),
+            // Several results a statement discards, each dropped with it.
+            else => if (self.givesResults(s)) {
+                _ = try self.resultsValue(s, self.regions.items.len - 1);
+            } else {
+                _ = try self.eval(s, .read, null);
+            },
         }
     }
 
@@ -704,10 +763,15 @@ const Lowerer = struct {
         const pos = self.posOf(s);
         if (target == .src and std.mem.eql(u8, leafText(target, self.src), "_")) {
             // `_ = e` binds the value to nothing: it is taken, then
-            // dropped with the statement.
+            // dropped with the statement; several results each.
+            if (self.givesResults(rhs)) {
+                _ = try self.resultsValue(rhs, self.regions.items.len - 1);
+                return;
+            }
             _ = try self.eval(rhs, .take, null);
             return;
         }
+        if (assignedThrough(target)) return self.assignThrough(target, rhs, op.operator() != null, pos);
         if (op.operator() != null) return self.compound(target, rhs, pos);
         if (target == .src) {
             const sym_id = self.ctx.symbolOf(target) orelse return abstain("a binding without a symbol");
@@ -772,6 +836,156 @@ const Lowerer = struct {
         const deref = p.via == .write or write_in;
         const through: []const VarId = if (deref) try self.one(p.root) else &.{};
         try self.emit(.{ .pos = pos, .what = .assign, .moves = try self.list(v), .uses = try self.one(p.root), .weak = p.root, .through = through, .access = .{ .root = p.root, .path = p.loanPath(), .deref = deref, .kind = .write } });
+    }
+
+    /// `f(x) op= value`, where the call gives a write view, or `f(x)? op=
+    /// value` and `f(x)! op= value` of an optional or fallible one (Core
+    /// §6): `__v = value; w = f(x); w op= __v`. The value first, then the
+    /// call, whose view a hidden binding `w` holds to the statement's end,
+    /// then a store through `w`, as through a `!T` local.
+    fn assignThrough(self: *Lowerer, target: Sexp, rhs: Sexp, compound_op: bool, pos: u32) Error!void {
+        const view_ty = try self.typeOf(target);
+        if (!self.isWriteRef(view_ty)) return abstain("an assignment through a call that gives no write view");
+        var v: ?VarId = null;
+        if (compound_op) {
+            v = try self.eval(rhs, .read, null);
+            if (v) |rv| v = try self.readThrough(rv, pos);
+        } else v = try self.eval(rhs, .take, try self.innerOf(view_ty));
+        const view = try self.eval(target, .take, view_ty) orelse return abstain("a call's write view the lowering did not make");
+        const w = try self.temp(view_ty, pos);
+        try self.store(w, view, pos);
+        if (compound_op) {
+            try self.emit(.{ .pos = pos, .what = .assign, .reads = try self.list(v), .uses = try self.one(w), .access = .{ .root = w, .deref = true, .kind = .write } });
+            return;
+        }
+        try self.emit(.{ .pos = pos, .what = .assign, .reads = try self.list(v), .uses = try self.one(w), .weak = w, .through = try self.one(w), .access = .{ .root = w, .deref = true, .kind = .write } });
+    }
+
+    /// Whether assignment target `e` is assigned through: a call, or a
+    /// call's `?` or `!` (Core §6). Its type decides whether it gives a
+    /// write view.
+    fn assignedThrough(e: Sexp) bool {
+        if (e.isKind(.call)) return true;
+        if (e.isKind(.propagate) or e.isKind(.propagate_none)) return ir.get(e, .value).isKind(.call);
+        return false;
+    }
+
+    /// `q, r = f(x)`: `__res = f(x); q = <__res.0; r = <__res.1`, where
+    /// `__res` is a statement temporary holding every result, one var a
+    /// result (Core §3). Each target takes its own result, left to
+    /// right, by the rule `x = e` has (`set`); a result not yet taken
+    /// keeps its loans, and a `_` result stays, dropped with the
+    /// statement. On a failure or absence nothing is bound.
+    fn destructure(self: *Lowerer, s: Sexp) Error!void {
+        const value = ir.Destructure.value(s);
+        if (value.isKind(.results)) return abstain("a parallel assignment");
+        const targets = ir.Destructure.targets(s).items();
+        const parts = try self.resultsValue(value, self.regions.items.len - 1);
+        if (parts.len != targets.len) return abstain("several results bound to as many names as they are not");
+        for (targets, parts) |tg, p| {
+            if (!tg.isKind(.set)) continue;
+            self.part = p;
+            defer self.part = null;
+            try self.set(tg);
+        }
+    }
+
+    /// The several results a destructure's value gives, each in a var of
+    /// region `region`: a call, alone or under `!` or `?`, or with a
+    /// `??` or `catch` fallback that jumps.
+    fn resultsValue(self: *Lowerer, value: Sexp, region: usize) Error![]const VarId {
+        const pos = self.posOf(value);
+        const k = value.kind() orelse return abstain("several results from a value that is no call");
+        switch (k) {
+            .call => return self.callParts(value, region),
+            .propagate, .propagate_none => {
+                // `e!` and `e?` leave the function on failure or absence,
+                // dropping every temporary and binding so far (Core s10).
+                const parts = try self.resultsValue(ir.get(value, .value), region);
+                const exit = try self.newBlock();
+                const on = try self.newBlock();
+                try self.branch(on, exit);
+                self.cur = exit;
+                try self.ret(&.{}, pos, if (k == .propagate) .yes else .no);
+                self.cur = on;
+                return parts;
+            },
+            .@"??", .@"catch" => {
+                const left = if (k == .@"??") ir.get(value, .left) else ir.Catch.value(value);
+                const handler = if (k == .@"??") ir.get(value, .right) else ir.Catch.handler(value);
+                if (!handler.isKind(.@"return") and !handler.isKind(.@"break") and !handler.isKind(.@"continue")) return abstain("a fallback of several results that does not jump");
+                const parts = try self.resultsValue(left, region);
+                const ok = try self.newBlock();
+                const other = try self.newBlock();
+                try self.branch(ok, other);
+                self.cur = other;
+                // The error a `catch` binds lives in its handler.
+                const name: Sexp = if (k == .@"catch") ir.Catch.name(value) else .nil;
+                const binds = name != .nil and !std.mem.eql(u8, leafText(name, self.src), "_");
+                if (binds) {
+                    try self.pushRegion();
+                    const err = try self.bind(name, 0);
+                    try self.emit(.{ .pos = pos, .what = .make, .def = err });
+                }
+                if (handler.isKind(.@"return")) try self.stmtIn(handler) else try self.jump(handler);
+                if (binds) try self.popRegion(pos);
+                self.cur = ok;
+                return parts;
+            },
+            else => return abstain("several results from a value that is no call"),
+        }
+    }
+
+    /// A call that gives several results, each into a new hidden var of
+    /// region `region`. The results are made after the call's argument
+    /// temporaries, so in one region they are dropped first, the last
+    /// made first (Core §3).
+    fn callParts(self: *Lowerer, e: Sexp, region: usize) Error![]const VarId {
+        const pos = self.posOf(e);
+        const tys = sema.resultsOf(self.ctx, try self.typeOf(e)) orelse return abstain("one result bound to several names");
+        const parts = try self.a.alloc(VarId, tys.len);
+        for (tys, parts) |t, *p| p.* = try self.newVar("a result", t, true, pos);
+        _ = try self.call(e, .take, parts);
+        try self.regions.items[region].vars.appendSlice(self.a, parts);
+        return parts;
+    }
+
+    /// Whether `e` gives several results a statement discards: `_ = e`,
+    /// or `e` as a statement.
+    fn givesResults(self: *Lowerer, e: Sexp) bool {
+        const k = e.kind() orelse return false;
+        switch (k) {
+            .call, .propagate, .propagate_none, .@"??", .@"catch" => {},
+            else => return false,
+        }
+        const ty = self.ctx.typeOf(e) orelse return false;
+        return sema.resultsOf(self.ctx, ty) != null;
+    }
+
+    /// `if f() as a, b` or `while f() as a, b`: a header, whose
+    /// temporaries end with it, calling `f`, whose results hidden vars of
+    /// the statement hold through the body (Core §3).
+    fn resultsHeader(self: *Lowerer, cond: Sexp) Error![]const VarId {
+        const value = ir.AsResults.value(cond);
+        if (!value.isKind(.call)) return abstain("several results from a value that is no call");
+        try self.pushRegion();
+        const parts = try self.callParts(value, self.regions.items.len - 2);
+        try self.popRegion(self.posOf(value));
+        return parts;
+    }
+
+    /// The names an `as` binds to several results: each a new binding
+    /// of the body that takes its result; a `_` result stays, dropped
+    /// with the statement.
+    fn bindParts(self: *Lowerer, names: []const Sexp, parts: []const VarId) Error!void {
+        if (names.len != parts.len) return abstain("several results bound to as many names as they are not");
+        for (names, parts) |n, p| {
+            if (!n.isKind(.set)) continue;
+            const leaf = ir.Set.target(n);
+            if (leaf != .src) return abstain("an unusual result name");
+            const x = try self.bind(leaf, 0);
+            try self.store(x, p, leaf.src.pos);
+        }
     }
 
     /// Whether assigning `rhs` to a place holding a write view re-points
@@ -863,8 +1077,11 @@ const Lowerer = struct {
     fn ifInto(self: *Lowerer, e: Sexp, how: How, j: ?VarId) Error!void {
         const cond = ir.If.cond(e);
         var held: ?Held = null;
+        var held_parts: ?[]const VarId = null;
         if (cond.isKind(.as)) {
             held = try self.asHeader(ir.As.value(cond), .take);
+        } else if (cond.isKind(.as_results)) {
+            held_parts = try self.resultsHeader(cond);
         } else if (rig.bindsInCondition(cond)) {
             return abstain("a joined `and` chain with `as` parts");
         } else try self.header(cond);
@@ -878,9 +1095,10 @@ const Lowerer = struct {
         // A branch is no statement of its own (Core §3): a value branch's
         // temporaries are its statement's, and only the bindings an `as`
         // makes leave with it.
-        const region = held != null or j == null;
+        const region = held != null or held_parts != null or j == null;
         if (region) try self.pushRegion();
         if (held) |h| try self.bindHeld(ir.As.name(cond), h, self.optionalInner(h.ty));
+        if (held_parts) |hp| try self.bindParts(ir.AsResults.names(cond).items(), hp);
         if (j) |jv| try self.armValue(ir.If.then(e), how, jv) else try self.blockStmts(ir.If.then(e));
         if (region) try self.popRegion(self.posOf(e));
         try self.goto(x);
@@ -1300,7 +1518,7 @@ const Lowerer = struct {
         const label = self.label;
         self.label = null;
         const cond = ir.While.cond(s);
-        if (!cond.isKind(.as) and rig.bindsInCondition(cond)) return abstain("a joined `and` chain with `as` parts");
+        if (!rig.isAsPart(cond) and rig.bindsInCondition(cond)) return abstain("a joined `and` chain with `as` parts");
         const h = try self.newBlock();
         try self.goto(h);
         self.cur = h;
@@ -1311,7 +1529,12 @@ const Lowerer = struct {
         // A jump in the condition (`?? break`) leaves the loop too.
         try self.loops.append(self.a, .{ .label = label, .brk = x, .cont = st, .depth = self.regions.items.len, .value = loop_value });
         var held: ?Held = null;
-        if (cond.isKind(.as)) held = try self.asHeader(ir.As.value(cond), .take) else try self.header(cond);
+        var held_parts: ?[]const VarId = null;
+        if (cond.isKind(.as)) {
+            held = try self.asHeader(ir.As.value(cond), .take);
+        } else if (cond.isKind(.as_results)) {
+            held_parts = try self.resultsHeader(cond);
+        } else try self.header(cond);
         const els = ir.While.@"else"(s);
         const e = if (els == .nil) x else try self.newBlock();
         if (forever) try self.goto(b) else try self.branch(b, e);
@@ -1321,6 +1544,7 @@ const Lowerer = struct {
         self.cur = b;
         try self.pushRegion();
         if (held) |hv| try self.bindHeld(ir.As.name(cond), hv, self.optionalInner(hv.ty));
+        if (held_parts) |hp| try self.bindParts(ir.AsResults.names(cond).items(), hp);
         self.loops.items[self.loops.items.len - 1].cont_depth = self.regions.items.len;
         try self.blockStmts(ir.While.body(s));
         try self.goto(st);
@@ -1495,13 +1719,32 @@ const Lowerer = struct {
         // with an error leaf.
         const ty = self.f.vars.items[r].ty;
         const fails: Fails = if (sema.isErrorValue(self.ctx, ty)) .yes else if (self.ctx.types.get(ty) == .fallible) .maybe else .no;
-        try self.ret(r, self.posOf(e), fails);
+        try self.ret(try self.one(r), self.posOf(e), fails);
+    }
+
+    /// `return a, b`: each part leaves the function as `return x` does,
+    /// left to right, each taken by the result declared in its position
+    /// (Core s3, s7), then every region left, then the return.
+    fn retResults(self: *Lowerer, e: Sexp) Error!void {
+        const pos = self.posOf(e);
+        const declared = (if (self.ret_ty) |rt| sema.resultsOf(self.ctx, rt) else null) orelse return abstain("several results where one is declared");
+        const values = ir.Results.values(e);
+        if (values.len != declared.len) return abstain("a `return` of as many results as are not declared");
+        const rs = try self.a.alloc(VarId, values.len);
+        try self.pushRegion();
+        for (values, declared, rs) |v, d, *r| {
+            r.* = try self.newVar("a result", try self.resultTypeAs(try self.typeOf(v), d), true, self.posOf(v));
+            try self.valueInto(v, .ret, r.*);
+        }
+        try self.popRegion(pos);
+        if (self.cur == null) return;
+        try self.ret(rs, pos, .no);
     }
 
     /// Leave the function: every scope's drops and `defer`s, then the
     /// return. Where it may fail, the `errdefer`s run on a path of their
     /// own (SPEC "defer and errdefer").
-    fn ret(self: *Lowerer, r: ?VarId, pos: u32, fails: Fails) Error!void {
+    fn ret(self: *Lowerer, r: []const VarId, pos: u32, fails: Fails) Error!void {
         if (self.in_defer) return abstain("a return from deferred code");
         if (fails == .maybe and self.hasErrdefer()) {
             const ok = try self.newBlock();
@@ -1516,10 +1759,10 @@ const Lowerer = struct {
         try self.retPath(r, pos, fails == .yes);
     }
 
-    fn retPath(self: *Lowerer, r: ?VarId, pos: u32, fails: bool) Error!void {
+    fn retPath(self: *Lowerer, r: []const VarId, pos: u32, fails: bool) Error!void {
         try self.unwind(0, pos, fails);
         // A write parameter's caller sees what it holds (Core s7).
-        try self.emit(.{ .pos = pos, .what = .ret, .reads = try self.list(r), .keep = self.write_params.items });
+        try self.emit(.{ .pos = pos, .what = .ret, .reads = r, .keep = self.write_params.items });
         self.cur = null;
     }
 
@@ -1690,7 +1933,14 @@ const Lowerer = struct {
                 const p = try self.place(e) orelse return abstain("an unusual access");
                 return try self.placeValue(p, how, want, e);
             },
-            .call => return self.call(e, how),
+            .call => return self.call(e, how, &.{}),
+            // A destructure's target takes its result, which leaves the
+            // statement's hidden var of results (`destructure`).
+            .result_part => {
+                const p = self.part orelse return abstain("a result part out of place");
+                self.part = null;
+                return p;
+            },
             .read, .write => {
                 const operand = ir.get(e, .operand);
                 if (k == .write) return try self.lend(try self.writePlace(operand), .write, e, try self.typeOf(e));
@@ -1755,7 +2005,7 @@ const Lowerer = struct {
                 try self.branch(on, exit);
                 self.cur = exit;
                 // `e!` fails the function; `e?` returns `none`.
-                try self.ret(null, pos, if (k == .propagate) .yes else .no);
+                try self.ret(&.{}, pos, if (k == .propagate) .yes else .no);
                 self.cur = on;
                 return v;
             },
@@ -2601,7 +2851,9 @@ const Lowerer = struct {
         return t;
     }
 
-    fn call(self: *Lowerer, e: Sexp, how: How) Error!?VarId {
+    /// A call; one that gives several results defines each in its var of
+    /// `parts`, and the call's own value is none.
+    fn call(self: *Lowerer, e: Sexp, how: How, parts: []const VarId) Error!?VarId {
         _ = how;
         const pos = self.posOf(e);
         const callee = self.ctx.calleeOf(e);
@@ -2677,7 +2929,7 @@ const Lowerer = struct {
                     const ft = self.ctx.types.get(s.ty);
                     if (ft != .function) return abstain("an unusual callee");
                     shapes = try self.shapesOf(self.ctx, ft.function.params);
-                    sig = .{ .ctx = self.ctx, .f = ft.function, .from = declaredFrom(self.ctx, s.decl_pos) };
+                    sig = .{ .ctx = self.ctx, .f = ft.function, .from = declaredFrom(self.ctx, s.decl_pos), .keeps = declaredKeeps(self.ctx, s.decl_pos) orelse 0 };
                 },
                 .nominal_type, .generic_type, .type_alias => {
                     is_ctor = true;
@@ -2727,7 +2979,7 @@ const Lowerer = struct {
                     shapes = try self.shapesOf(self.ctx, ft.?.function.params);
                     // A generic function's callee has its instance's
                     // signature; only a plain one says what it was declared.
-                    if (ft.?.function.ct_params.len == 0) sig = .{ .ctx = self.ctx, .f = ft.?.function, .from = self.staticFrom(callee) };
+                    if (ft.?.function.ct_params.len == 0) sig = .{ .ctx = self.ctx, .f = ft.?.function, .from = self.staticFrom(callee), .keeps = self.staticKeeps(callee) };
                 } else is_ctor = true;
             } else {
                 // A method: the receiver first, then the arguments.
@@ -2737,7 +2989,7 @@ const Lowerer = struct {
                 cell_store = self.isCell(recv_ty);
                 if (fn_params) |fp| {
                     shapes = try self.shapesOf(fp.ctx, if (fp.ctx == self.ctx) try self.instParams(recv_ty, fp.params) else fp.params);
-                    if (!fp.builtin) sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true, .from = declaredFrom(fp.ctx, fp.decl_pos) };
+                    if (!fp.builtin) sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true, .from = declaredFrom(fp.ctx, fp.decl_pos), .keeps = declaredKeeps(fp.ctx, fp.decl_pos) orelse 0 };
                     // A built-in generic's `T` parameter stores what it is
                     // given (`push`, `insert`, a Cell's `set`).
                     const st = try self.a.alloc(bool, fp.params.len);
@@ -2756,7 +3008,7 @@ const Lowerer = struct {
                         shapes = &.{.view};
                         stored = &.{true};
                     },
-                    .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => all_read = true,
+                    .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => all_read = true,
                 } else all_read = true;
                 // `get`, `pop`, and `remove` hand back an element of a List:
                 // a value it held, which carries the loans the List's
@@ -2835,33 +3087,25 @@ const Lowerer = struct {
             is_ctor = true;
         } else return abstain("an unusual callee");
 
-        // Which vars the result, and what the call stores, carry (Core s7).
-        var carried: std.ArrayList(VarId) = .empty;
+        // Which vars what the call stores carry (Core s7).
         var kept: std.ArrayList(VarId) = .empty;
-        var uncarried: std.ArrayList(VarId) = .empty;
-        var result_loan = true;
         var store_loan = true;
         if (sig) |sg| if (sg.receiver and sg.f.params.len > 0) {
-            const to_result = if (sg.from) |m| m & 1 != 0 else try reach.leads(sg.ctx, sg.f.params[0], sg.f.returns);
-            const to_store = try reach.stores(sg.ctx, sg.f.params, 0);
-            for (recv_vars.items) |rv| {
-                try (if (to_result) &carried else &uncarried).append(self.a, rv);
-                if (to_store) try kept.append(self.a, rv);
-            }
-            result_loan = to_result;
+            const to_store = try reach.stores(sg.ctx, sg.f.params, 0) and sg.kept(0);
+            if (to_store) try kept.appendSlice(self.a, recv_vars.items);
             store_loan = to_store;
         };
         // Where each argument's vars start in `reads` and `moves`.
-        var spans: std.ArrayList(struct { reads: usize, moves: usize, to_result: bool, to_store: bool }) = .empty;
+        var spans: std.ArrayList(ArgSpan) = .empty;
         // The arguments, left to right.
         const slots = self.ctx.callSlotsOf(e);
         for (args, 0..) |arg, i| {
             const val = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
             var shape: Shape = .take;
             var keeps = false;
-            // Whether the result, and a store, may carry this argument's
-            // loans: by its parameter's type, as declared.
-            var to_result = true;
+            // The parameter whose declared type says whether a result may
+            // carry this argument's loans, and whether a store may.
+            var param_at: ?usize = null;
             var to_store = true;
             if (!all_read and !is_ctor) {
                 const pi = if (slots) |sl| slotIndex(sl, i) orelse return abstain("an argument without a parameter") else i;
@@ -2871,12 +3115,12 @@ const Lowerer = struct {
                 if (sig) |sg| {
                     const fi = pi + @intFromBool(sg.receiver);
                     if (fi < sg.f.params.len) {
-                        to_result = if (sg.from) |m| fi < 64 and m & (@as(u64, 1) << @intCast(fi)) != 0 else try reach.leads(sg.ctx, sg.f.params[fi], sg.f.returns);
-                        to_store = try reach.stores(sg.ctx, sg.f.params, fi);
+                        param_at = fi;
+                        to_store = try reach.stores(sg.ctx, sg.f.params, fi) and sg.kept(fi);
                     }
                 }
             }
-            try spans.append(self.a, .{ .reads = reads.items.len, .moves = moves.items.len, .to_result = to_result, .to_store = to_store });
+            try spans.append(self.a, .{ .reads = reads.items.len, .moves = moves.items.len, .param = param_at, .to_store = to_store });
             if (exchange and val.isKind(.write)) {
                 // `swap` and `replace` lend their places for the call.
                 const p = try self.place(ir.Write.operand(val)) orelse return abstain("an unusual `swap`");
@@ -2930,28 +3174,38 @@ const Lowerer = struct {
         }
 
         for (spans.items, 0..) |sp, si| {
+            if (!sp.to_store) continue;
             const r_end = if (si + 1 < spans.items.len) spans.items[si + 1].reads else reads.items.len;
             const m_end = if (si + 1 < spans.items.len) spans.items[si + 1].moves else moves.items.len;
-            for ([_][]const VarId{ reads.items[sp.reads..r_end], moves.items[sp.moves..m_end] }) |g| for (g) |v| {
-                try (if (sp.to_result) &carried else &uncarried).append(self.a, v);
-                if (sp.to_store) try kept.append(self.a, v);
-            };
+            try kept.appendSlice(self.a, reads.items[sp.reads..r_end]);
+            try kept.appendSlice(self.a, moves.items[sp.moves..m_end]);
         }
-        // A var the result or a store carries for one reason carries it.
-        var no_result: std.ArrayList(VarId) = .empty;
+        // A var a store carries for one reason carries it; the value
+        // called is none of the arguments'.
         var no_store: std.ArrayList(VarId) = .empty;
         if (sig != null) for ([_][]const VarId{ reads.items, moves.items }) |g| for (g) |v| {
-            const callee_value = std.mem.findScalar(VarId, uncarried.items, v) == null and std.mem.findScalar(VarId, carried.items, v) == null;
-            if (callee_value) continue;
-            if (std.mem.findScalar(VarId, carried.items, v) == null and std.mem.findScalar(VarId, no_result.items, v) == null) try no_result.append(self.a, v);
+            if (!isArgVar(v, recv_vars.items, spans.items, reads.items, moves.items)) continue;
             if (std.mem.findScalar(VarId, kept.items, v) == null and std.mem.findScalar(VarId, no_store.items, v) == null) try no_store.append(self.a, v);
         };
         const rt = try self.typeOf(e);
         const rinfo = self.ctx.types.get(rt);
-        const result: ?VarId = switch (rinfo) {
+        const result: ?VarId = if (parts.len > 0) null else switch (rinfo) {
             .void, .noreturn => null,
             else => try self.temp(rt, pos),
         };
+        // What the result carries, or each of several results (Core s7,
+        // per result).
+        const whole = try self.resultCarry(&reach, sig, if (sig) |sg| sg.f.returns else rt, recv_vars.items, spans.items, reads.items, moves.items);
+        const part_carry = try self.a.alloc(core.Part, parts.len);
+        if (parts.len > 0) {
+            if (elem_from != null or taken != null) return abstain("several results of a built-in");
+            const declared: ?[]const TypeId = if (sig) |sg| sema.resultsOf(sg.ctx, sg.f.returns) else null;
+            if (declared) |d| if (d.len != parts.len) return abstain("a call whose results differ from its signature's");
+            for (parts, part_carry, 0..) |pv, *pc, pi| {
+                const c = if (declared) |d| try self.resultCarry(&reach, sig, d[pi], recv_vars.items, spans.items, reads.items, moves.items) else whole;
+                pc.* = .{ .v = pv, .no_result = c.no_result, .result_loan = c.result_loan };
+            }
+        }
         // `replace(!p, v)` is `t = <p; p = v` (Core §5): its result is
         // taken out of the place before the store, and carries what the
         // place's value held, no view of the place.
@@ -2974,13 +3228,14 @@ const Lowerer = struct {
             .moves = moves.items,
             .uses = uses.items,
             .def = if (elem_from == null and taken == null) result else null,
+            .parts = part_carry,
             .loan = activation,
             .access = access,
             .gains = gains.items,
             .through = through.items,
             .no_loans = cell_store,
-            .no_result = no_result.items,
-            .result_loan = result_loan or sig == null,
+            .no_result = whole.no_result,
+            .result_loan = whole.result_loan,
             .no_store = no_store.items,
             .store_loan = store_loan or sig == null,
             .recv_view = recv_view,
@@ -3002,6 +3257,54 @@ const Lowerer = struct {
             if (n > 0) try self.emit(.{ .pos = pos, .what = .assign, .reads = others[0..n], .weak = root });
         }
         return result;
+    }
+
+    /// Where an argument's vars start in a call's `reads` and `moves`,
+    /// and the parameter it is for, whose declared type says what of it
+    /// a result may carry (null: carried always), and whether a store
+    /// may carry it.
+    const ArgSpan = struct { reads: usize, moves: usize, param: ?usize, to_store: bool };
+
+    /// Whether `v` is a var of a call's receiver or of an argument, not
+    /// of the value called.
+    fn isArgVar(v: VarId, recv_vars: []const VarId, spans: []const ArgSpan, reads: []const VarId, moves: []const VarId) bool {
+        if (std.mem.findScalar(VarId, recv_vars, v) != null) return true;
+        if (spans.len == 0) return false;
+        if (std.mem.findScalar(VarId, reads[spans[0].reads..], v) != null) return true;
+        return std.mem.findScalar(VarId, moves[spans[0].moves..], v) != null;
+    }
+
+    const Carry = struct { no_result: []const VarId, result_loan: bool };
+
+    /// Which of a call's vars a result of type `view`, as the callee
+    /// declares it, carries (Core s7): the receiver's and each
+    /// argument's whose parameter's type leads to what `view` views, or
+    /// those a `from` names. `no_result` lists the others; a var carried
+    /// for one reason is carried. A built-in's result carries every one.
+    fn resultCarry(self: *Lowerer, reach: *kinds.Reach, sig: ?Sig, view: TypeId, recv_vars: []const VarId, spans: []const ArgSpan, reads: []const VarId, moves: []const VarId) Error!Carry {
+        const sg = sig orelse return .{ .no_result = &.{}, .result_loan = true };
+        var carried: std.ArrayList(VarId) = .empty;
+        var uncarried: std.ArrayList(VarId) = .empty;
+        var result_loan = true;
+        if (sg.receiver and sg.f.params.len > 0) {
+            const to = if (sg.from) |m| m & 1 != 0 else try reach.leads(sg.ctx, sg.f.params[0], view);
+            try (if (to) &carried else &uncarried).appendSlice(self.a, recv_vars);
+            result_loan = to;
+        }
+        for (spans, 0..) |sp, si| {
+            const to = if (sp.param) |fi| (if (sg.from) |m| fi < 64 and m & (@as(u64, 1) << @intCast(fi)) != 0 else try reach.leads(sg.ctx, sg.f.params[fi], view)) else true;
+            const r_end = if (si + 1 < spans.len) spans[si + 1].reads else reads.len;
+            const m_end = if (si + 1 < spans.len) spans[si + 1].moves else moves.len;
+            const into = if (to) &carried else &uncarried;
+            try into.appendSlice(self.a, reads[sp.reads..r_end]);
+            try into.appendSlice(self.a, moves[sp.moves..m_end]);
+        }
+        var no_result: std.ArrayList(VarId) = .empty;
+        for ([_][]const VarId{ reads, moves }) |g| for (g) |v| {
+            if (std.mem.findScalar(VarId, uncarried.items, v) == null) continue;
+            if (std.mem.findScalar(VarId, carried.items, v) == null and std.mem.findScalar(VarId, no_result.items, v) == null) try no_result.append(self.a, v);
+        };
+        return .{ .no_result = no_result.items, .result_loan = result_loan };
     }
 
     /// Whether `ty` is a List, or a view of one.
@@ -3142,6 +3445,7 @@ const Lowerer = struct {
     fn plainInstance(self: *Lowerer, ty: TypeId) Error!void {
         switch (self.ctx.types.get(ty)) {
             .read_view, .write_view, .shared, .weak, .optional, .fallible => |inner| return self.plainInstance(inner),
+            .results => |rs| for (rs) |r| try self.plainInstance(r),
             .parameterized_nominal => |pn| {
                 if (sema.isBuiltinGeneric(self.ctx, pn.sym)) {
                     for (pn.args) |a| try self.plainInstance(a);
@@ -3269,6 +3573,25 @@ const Lowerer = struct {
         return declaredFrom(fm.sema, fm.sema.symbols.items[id].decl_pos);
     }
 
+    /// The `keeps` clause of the function a static call `m.f(...)` or
+    /// `T.f(...)` calls (`declaredKeeps`), null when not found.
+    fn staticKeeps(self: *Lowerer, callee: Sexp) ?u64 {
+        const obj = ir.Member.object(callee);
+        if (obj != .src) return null;
+        const obj_sym = self.ctx.symbolOf(obj) orelse return null;
+        const name = leafText(ir.Member.name(callee), self.src);
+        if (self.ctx.module_refs.get(obj_sym)) |mid| {
+            const fm = moduleById(mid) orelse return null;
+            const id = fm.sema.lookupInScopeOnly(sema.module_scope, name) orelse return null;
+            return declaredKeeps(fm.sema, fm.sema.symbols.items[id].decl_pos);
+        }
+        const sym = self.ctx.symbols.items[obj_sym];
+        for (sym.fields orelse &.{}) |f| {
+            if (f.is_method and std.mem.eql(u8, f.name, name)) return declaredKeeps(self.ctx, f.decl_pos);
+        }
+        return null;
+    }
+
     /// Whether a value of `ty` is a Cell or Signal, or a view or handle
     /// of one.
     fn isCell(self: *Lowerer, ty: TypeId) bool {
@@ -3299,6 +3622,18 @@ const Lowerer = struct {
         /// What its `from` clause names (Core s7), when it writes one: a
         /// bit per parameter, a method's receiver first.
         from: ?u64 = null,
+        /// What its `keeps` clause names (Core s7), a bit per parameter
+        /// as `from`; null for a function called as a value, which keeps
+        /// what its type could hold.
+        keeps: ?u64 = null,
+
+        /// Whether a call may keep parameter `i` where its type fits: a
+        /// lent one only where `keeps` names it.
+        fn kept(self: Sig, i: usize) bool {
+            const k = self.keeps orelse return true;
+            if (!lentType(self.ctx, self.f.params[i])) return true;
+            return i < 64 and k & (@as(u64, 1) << @intCast(i)) != 0;
+        }
     };
 
     /// How a method takes its receiver, and its other parameters' types.

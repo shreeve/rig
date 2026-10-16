@@ -6,7 +6,7 @@
 obj Holder
   r: []Int
 
-  sub set(!self, s: []Int)
+  sub set(!self, s: []Int) keeps s
     self.r = s
 
 obj Text2
@@ -19,21 +19,21 @@ fun total(xs: []Int) -> Int
   n
 
 # The owner is written first, then lent and only read.
-fun grow_then_store(a: !Holder, b: !List[Int]) -> Int
+fun grow_then_store(a: !Holder, b: !List[Int]) -> Int keeps b
   !b.push(5)
   a.r = ?b[..]
   print(b.len, total(?b[..]))
   a.r[0] + a.r[1]
 
 # A method stores the view; the owner is read through other views.
-fun store_by_method(a: !Holder, b: !List[Int]) -> Int
+fun store_by_method(a: !Holder, b: !List[Int]) -> Int keeps b
   !a.set(?b[..])
   for x in ?b
     print(x)
   a.r.len
 
 # A caller's view stored in a parameter lends nothing here.
-fun store_caller_view(a: !Holder, b: []Int, c: !List[Int]) -> Int
+fun store_caller_view(a: !Holder, b: []Int, c: !List[Int]) -> Int keeps b
   a.r = b
   !c.push(7)
   a.r[0] + c.len
@@ -48,13 +48,13 @@ fun local_holder(b: !List[Int]) -> Int
   n + b.len
 
 # A closure that captures `!a` and only reads leaves `b` readable.
-fun closure_reads(a: !Holder, b: !List[Int]) -> Int
+fun closure_reads(a: !Holder, b: !List[Int]) -> Int keeps b
   g = |!a, ?b| print(a.r.len, b.len)
   g()
   b.len
 
 # A String viewing a Text stays readable beside the Text.
-fun text_view(a: !Text2, b: !String) -> Int
+fun text_view(a: !Text2, b: !String) -> Int keeps b
   !b.add("def")
   a.s = ?b[1..4]
   print(a.s, b)

@@ -1,0 +1,13 @@
+obj H
+  s: ?String
+
+fun slot(h: !H) -> !H from h
+  h
+
+sub main()
+  h = H(s: "x")
+  f = |!h|
+    e = String("e")
+    slot(!h) = H(s: ?e)
+  f()
+  print(h.s)

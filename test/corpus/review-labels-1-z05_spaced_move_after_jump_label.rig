@@ -1,0 +1,11 @@
+sub main()
+  s = String("a")
+  outer = 1
+  x = if true
+    @outer while true
+      while true
+        break @outer < s
+      print(99)
+  else
+    String("b")
+  print(x, outer)

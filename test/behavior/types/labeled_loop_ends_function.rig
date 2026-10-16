@@ -1,7 +1,7 @@
 # A function may end with a labeled `while true` that no `break` leaves.
 
 fun f(n: Int) -> Int
-  :a while true
+  @a while true
     while true
       break
     return n

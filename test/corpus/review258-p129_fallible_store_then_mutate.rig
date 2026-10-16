@@ -1,0 +1,18 @@
+error Bad
+  oops
+
+obj H
+  s: ?String
+
+fun must(v: !List[H]) -> (!H)! from v
+  return Bad.oops if v.len == 0
+  !v[0]
+
+sub main()
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  u = String("u")
+  must(!v)! = H(s: ?u) catch pass
+  !u.add("x")
+  print(v[0].s)

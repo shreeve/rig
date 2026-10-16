@@ -4,7 +4,7 @@ obj H
 obj Src
   n: String
 
-  sub give(?self, w: (!H)?)
+  sub give(?self, w: (!H)?) keeps self
     (w ?? return).s = ?self.n
 
 sub main()
@@ -12,5 +12,5 @@ sub main()
   h = H(s: ?t)
   if true
     src = Src(n: String("src"))
-    src.give(!h)
+    ?src.give(!h)
   print(h.s)

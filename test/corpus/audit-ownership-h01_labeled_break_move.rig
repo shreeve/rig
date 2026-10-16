@@ -18,9 +18,9 @@ fun cond(t: *Tok) -> Bool
 
 sub main()
   t = *Tok(n: 1)
-  :outer for i in 0..3
+  @outer for i in 0..3
     for j in 0..3
       if j == 1
         eat(<t)
-        continue :outer
+        continue @outer
   print("end")

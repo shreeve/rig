@@ -5,7 +5,7 @@ obj H
   fun len(?self) -> Int
     self.n
 
-sub set(w: (!H)?, v: ?String)
+sub set(w: (!H)?, v: ?String) keeps v
   if w as r
     print(r.len(), r.s)
   (w ?? return).s = v

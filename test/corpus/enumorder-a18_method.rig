@@ -1,0 +1,15 @@
+# Inside an enum's method, a bare `.variant` beside `self` and a
+# parameter.
+enum Lvl
+  hi = 3
+  lo = 1
+  mid = 2
+
+  fun clamp_to(?self, top: Lvl) -> Lvl
+    top if self > top else self
+
+  fun is_top(?self) -> Bool
+    not (self < .hi)
+
+sub main()
+  print(Lvl.hi.clamp_to(.mid), Lvl.lo.clamp_to(.mid), Lvl.hi.is_top(), Lvl.mid.is_top())

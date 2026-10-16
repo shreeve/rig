@@ -1,0 +1,16 @@
+obj P
+  x: Int
+  n: String
+
+obj Box[T]
+  item: T
+
+  fun at(!self) -> !T
+    !self.item
+
+sub main()
+  a = P(x: 1, n: String("a"))
+  b = P(x: 2, n: String("b"))
+  bx = Box[?P](item: ?a)
+  (!bx).at() = ?b
+  print(bx.item.n)

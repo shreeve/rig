@@ -160,6 +160,142 @@ expect_has "$out" 'pub fn kind(self: *const Node' "a method that calls itself th
 out=$(rig run wrappers.rig 2>&1) || fail "rig run wrappers.rig: $out"
 expect_eq "$out" "7 4" "wrappers.rig"
 
+# A small member of a generic type is inlined as any function is: Zig
+# writes one declaration for all its instances, so the decision is one,
+# under the largest frame of its instances. One whose frame passes 64 KiB
+# at an instance is called.
+cat >members.rig <<'RIG'
+obj Wrap[T]
+  v: T
+
+  fun get(?self) -> ?T
+    ?self.v
+
+  fun keeps(?self, i: Int) -> Int
+    t = [9000 of self.v]
+    i + t.len
+
+sub main()
+  a = Wrap[Int](v: 1)
+  b = Wrap[Bool](v: true)
+  print(a.get(), b.get(), a.keeps(1), b.keeps(2))
+RIG
+out=$(emit members.rig)
+expect_has "$out" 'pub inline fn get(__rig_in_self: rig.ReadView(__rig_Self))' "a small member of a generic type"
+expect_has "$out" 'pub fn keeps(self: rig.ReadView(__rig_Self)' "a member whose frame at one instance is 72 KB"
+out=$(rig run members.rig 2>&1) || fail "rig run members.rig: $out"
+expect_eq "$out" "1 true 9001 9002" "members.rig"
+# Its parameters are bound through `rig.rt`, as any inlined function's:
+# test/behavior/emit/inline_generic_member_overflow.rig runs it.
+out=$(emit "$ROOT/test/behavior/emit/inline_generic_member_overflow.rig")
+expect_has "$out" 'pub inline fn bump(__rig_in_self: rig.ReadView(__rig_Self), __rig_in_n: i64) i64 {' "a member of a generic type with a literal argument"
+expect_has "$out" 'const n = rig.rt(__rig_in_n);' "a member's parameter bound through rig.rt"
+
+# std.hash's `ensure` and `ensure_with` are inlined into the code that
+# calls them, so a lookup that finds its key costs no call, as `edit`'s
+# does (bench/hash).
+cat >ensure.rig <<'RIG'
+use std.hash
+
+fun zero(k: ?Int) -> Int
+  0
+
+sub main()
+  m = hash.Map[Int, Int].new()
+  a = (!m).ensure(1, 5)
+  a += 1
+  b = (!m).ensure_with(2, zero)
+  b += 2
+  if (!m).edit(1) as c
+    c += 3
+  print(m.get(1), m.get(2))
+RIG
+emit ensure.rig >/dev/null
+lib=$(cat "$RIG_OUT_DIR"/programs/ensure/__rig_std_h?sh.zig) || fail "std's module is not in the package"
+expect_has "$lib" 'pub inline fn ensure(' "Map.ensure"
+expect_has "$lib" 'pub inline fn ensure_with(' "Map.ensure_with"
+expect_has "$lib" 'pub inline fn edit(' "Map.edit"
+out=$(rig run ensure.rig 2>&1) || fail "rig run ensure.rig: $out"
+expect_eq "$out" "9 2" "ensure.rig"
+
+# A Map's or Set's write method that is inlined into its caller holds no
+# loop, through any inline function it calls: the path that adds a new
+# key is a call (`add_entry`, `add_new`), so a hot loop of hits keeps its
+# layout. `ensure`'s `while (true)`, which stands where an unwrap that
+# traps would (std/hash.rig), returns on its first pass.
+cat >writes.rig <<'RIG'
+use std.hash
+
+fun one(k: ?Int) -> Int
+  1
+
+sub main()
+  m = hash.Map[Int, Int].new()
+  !m.put(1, 2)
+  old = (!m).replace(1, 3)
+  added = (!m).put_new(2, 4)
+  a = (!m).ensure(3, 5)
+  a += 1
+  b = (!m).ensure_with(4, one)
+  b += 1
+  if (!m).edit(1) as c
+    c += 1
+  gone = (!m).take(2)
+  s = hash.Set[Int].new()
+  fresh = (!s).add(7)
+  out = (!s).take(7)
+  print(old, added, gone, fresh, out, m.len, s.len)
+RIG
+emit writes.rig >/dev/null
+out=$(rig run writes.rig 2>&1) || fail "rig run writes.rig: $out"
+expect_eq "$out" "2 true 4 true 7 3 0" "writes.rig"
+python3 - "$RIG_OUT_DIR"/programs/writes/__rig_std_h?sh.zig <<'PY' || fail "an inlined write method holds a loop"
+import re, sys
+src = open(sys.argv[1]).read().splitlines()
+fns, struct, i = {}, None, 0
+while i < len(src):
+    m = re.match(r'^(?:pub )?(?:fn (\w+)\(.*\) type \{|const (\w+) = struct \{)', src[i])
+    if m:
+        struct = m.group(1) or m.group(2)
+        i += 1
+        continue
+    m = re.match(r'^(\s*)pub (inline |noinline )?fn (\w+)\(', src[i])
+    if m:
+        body, i = [], i + 1
+        while i < len(src) and src[i] != m.group(1) + '}':
+            body.append(src[i])
+            i += 1
+        fns[(struct, m.group(3))] = (m.group(2) == 'inline ', body)
+    i += 1
+
+def loops(struct, name, seen):
+    if (struct, name) in seen or (struct, name) not in fns:
+        return []
+    seen.add((struct, name))
+    inline, body = fns[(struct, name)]
+    if not inline:
+        return []
+    found = [f'{struct}.{name}: {l.strip()}' for l in body if re.search(r'\b(while|for) \(', l) and 'while (true)' not in l]
+    for line in body:
+        for c in re.finditer(r'\bself(?:\.table)?\.(\w+)\(', line):
+            for s in (struct, 'Table'):
+                found += loops(s, c.group(1), seen)
+    return found
+
+bad = []
+for struct, names in {'Map': ['put', 'replace', 'put_new', 'ensure', 'ensure_with', 'edit', 'take'], 'Set': ['add', 'take']}.items():
+    for n in names:
+        if (struct, n) not in fns:
+            bad.append(f'no {struct}.{n}')
+            continue
+        if not fns[(struct, n)][0]:
+            bad.append(f'{struct}.{n} is not inlined')
+        bad += loops(struct, n, set())
+if bad:
+    print('\n'.join(bad))
+    sys.exit(1)
+PY
+
 # A body of more than inlining.max_size nodes (60) is called.
 {
     echo 'fun long(n: Int) -> Int'
@@ -272,7 +408,7 @@ expect_lacks "$out" 'inline fn next' "an iterator that loops over itself"
 # A call that may reach an inlined function is read through rig.rt, so the
 # result is a run-time value.
 out=$(emit small.rig)
-expect_has "$out" 'rig.print(.{ rig.rt(next(41)) })' "a call of an inlined function"
+expect_has "$out" 'rig.print(.{ rig.rt(next(41)), "\n" })' "a call of an inlined function"
 
 # A function that keeps nearly all of `sema.max_frame_bytes` calls what
 # would take it over, though the callee is small enough to inline.

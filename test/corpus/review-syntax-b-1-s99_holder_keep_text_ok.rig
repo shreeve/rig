@@ -1,13 +1,13 @@
 obj H
   s: ?String
 
-  sub keep(!self, s: ?String)
+  sub keep(!self, s: ?String) keeps s
     self.s = s
 
 sub main()
   t = String("hello")
   h = H(s: "x")
-  !h.keep(t[1..])
+  !h.keep(?t[1..])
   print(h.s)
   !t.add("zz")
   print(t)

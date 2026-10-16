@@ -1,0 +1,8 @@
+# A label is written `@name`; the old spelling, `:name`, is rejected
+# with a hint.
+
+sub main()
+  :outer for i in 0..3
+    print(i)
+
+# error: 5:3: a label is written `@name`: `@outer for ...`, `break @outer`, `continue @outer`

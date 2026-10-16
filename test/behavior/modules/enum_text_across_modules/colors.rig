@@ -1,0 +1,8 @@
+pub enum Color
+  red
+  dark_red
+  blue
+
+pub enum Unused
+  one
+  two

@@ -18,13 +18,13 @@ fun some(i: Int) -> Int?
 
 fun cx(k0: Int) -> Int
   k = k0
-  :x while some(k) as h: k = h + 1
+  @x while some(k) as h: k = h + 1
     d = D(n: 20 + k)
     for t in 0..3
       e = D(n: 40 + t)
       continue if t == 0
-      break :x 400 + t + h if k == 2
-      continue :x
+      break @x 400 + t + h if k == 2
+      continue @x
   else
     0 - 1
 

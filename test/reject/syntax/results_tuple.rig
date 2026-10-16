@@ -1,0 +1,5 @@
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  (a / b, a % b)
+
+# error: Rig has no tuple values: give several results with `return a / b, a % b`
+# errors: 1

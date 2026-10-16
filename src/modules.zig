@@ -168,6 +168,17 @@ pub const ModuleGraph = struct {
         return &self.modules.items[id - 1];
     }
 
+    /// Marks each plain enum some module calls `from_text` on in the
+    /// module that declares it, which emits its table of names
+    /// (`sema.SemContext.recordTextTable`). Run once every module is
+    /// checked.
+    pub fn markTextTables(self: *ModuleGraph) Error!void {
+        for (self.modules.items) |m| for (m.sema.foreign_text_tables.items) |ref| {
+            const owner = self.get(ref.module_id).sema;
+            try owner.text_tables.put(owner.allocator, ref.sym, {});
+        };
+    }
+
     pub fn hasErrors(self: *const ModuleGraph) bool {
         if (self.errors.items.len > 0) return true;
         for (self.modules.items) |m| if (m.state != .checked or m.sema.hasErrors()) return true;

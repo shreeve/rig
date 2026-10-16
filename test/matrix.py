@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Generate and run the form x context x type matrix of small programs.
 
-Each program puts one expression form (a place, a ternary, `o?`, ...) in
-one context (a `print` argument, a binding, an element assignment, ...)
+Each program puts one expression form (a place, a ternary, `o?`, a
+result taken out of several, `d1, d2 = f()`, ...) in one context (a
+`print` argument, a binding, an element assignment, one of several
+results a call is given or a function returns, ...)
 for one type (Int, ?String, String, List, `*T`, `^T`, a struct with a
 `drop`, a struct declared `unique`, a vector, and a few cells of a struct holding
 a Cell, every one of which must be rejected), plus the
-stores into a view parameter (`store.`, below), a loan reaching a
-generic body's `T` result each way, its `from` naming that parameter or
-not (`gen.`, below), a value `replace`
+stores into a view parameter (`store.`, below), a call that keeps each
+kind of parameter by each store, with `keeps` and without (`keeps.`,
+below), a loan reaching a generic body's `T` result each way, its `from`
+naming that parameter or not (`gen.`, below), a value `replace`
 takes out of each kind of place, then the place written, the value put
 back, or what it views dropped while it lives (`taken.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
@@ -48,7 +51,9 @@ ordering over every pairing of a view, an optional, an owner, and a List
 element, at each instance type, which is rejected with a diagnostic or
 runs, in debug and with `--release`, and prints what the values compare
 as, and over the same pairings that values `==` calls equal have equal
-`.hash()`es (`cmp.`). The rule is
+`.hash()`es (`cmp.`), and a variant literal whose enum comes from
+where it goes, in each place a view of that enum goes, lent as the
+value `T.V(...)` is, or rejected (`vlit.`). The rule is
 the corpus's: `rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
@@ -308,7 +313,8 @@ TYPES = {
     # rejected.
     "cell": dict(ty="Counter", decls="obj Counter\n  hits: Cell[Int]\n",
                  mk="Counter(hits: Cell(n))", ctor="Counter(hits: Cell(5))",
-                 rejected=(("binding", "ctor"), ("print", "call"), ("lend_arg", "place"))),
+                 rejected=(("binding", "ctor"), ("print", "call"), ("lend_arg", "place"),
+                           ("destructure", "call"), ("binding", "destructure"))),
     # A struct declared `unique`.
     "unique": dict(ty="U", decls="obj U unique\n  v: Int\n", mk="U(v: n)", ctor="U(v: 5)"),
     # Values that copy (`sema.copies`): a plain struct and an array,
@@ -321,7 +327,7 @@ TYPES = {
     # A payload enum: `== .variant` tests the variant.
     "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: List[Int])\n",
                  mk="xs: List[Int] = List()\n  !xs.push(n)\n  .line(v: <xs)", ctor="S.dot",
-                 only=("eq_variant", "eq_none", "binding", "tail_if", "tail_match")),
+                 only=("eq_variant", "eq_none", "binding", "tail_if", "tail_match", "destructure")),
     # `error`, an error of any set: owning in every program, though no
     # set here holds anything to drop (Core §2, "A failure moves its
     # error"). `error!` is rejected, so it has no `fail`, and no form or
@@ -353,9 +359,34 @@ FORMS = {
     # a view of a value that copies is copied out (Core sentence 1, §4).
     "read_view": "r",
     "write_view": "w",
+    # A result taken out of several (`d1, d2 = f()`): an owned one, a
+    # branch of the two, one that reads `a` (`-> (?T, ?T)`), and a write
+    # view of `a` beside a result that holds none (`-> (!T, Bool)`).
+    "destructure": "d1",
+    "destructure_branch": "d1 if c else d2",
+    "destructure_view": "d1",
+    "destructure_write": "d1",
 }
-# The binding each view form reads, declared before the context.
-VIEW_FORMS = {"read_view": "r = ?a", "write_view": "w = !a"}
+# The binding each view or destructure form reads, declared before the
+# context.
+VIEW_FORMS = {
+    "read_view": "r = ?a", "write_view": "w = !a",
+    "destructure": "d1, _ = pass2(mk(5), mk(6))",
+    "destructure_branch": "d1, d2 = pass2(mk(5), mk(6))",
+    "destructure_view": "d1, _ = views2(?a)",
+    "destructure_write": "d1, _ = wv(!a)",
+}
+
+# The functions that give several results, for a type `T`: each passes
+# its owned arguments through, or views its one argument, as the forms
+# and contexts that call it take them.
+RESULT_FUNS = {
+    "pass2": "fun pass2(x: {t}, y: {t}) -> ({t}, {t})\n  return x, y\n",
+    "pass2f": "fun pass2f(x: {t}, y: {t}, c: Bool) -> ({t}, {t})!\n  return E.bad if c\n  return x, y\n",
+    "some2": "fun some2(x: {t}, y: {t}, c: Bool) -> ({t}, {t})?\n  return none if c\n  return x, y\n",
+    "views2": "fun views2(x: {r}) -> ({r}, {r})\n  return x, x\n",
+    "wv": "fun wv(x: !{t}) -> (!{t}, Bool)\n  return x, true\n",
+}
 
 # -----------------------------------------------------------------------------
 # Contexts: statements that use the form `E`. `inline` contexts need an
@@ -438,6 +469,22 @@ CONTEXTS = {
     "slice_arg": dict(inline="print(sliced(E[..1]))", slice=True, types=("list", "array", "text", "string", "static")),
     "slice_arg_then_write": dict(inline="print(both(E[..1], poke(!W)))", slice=True, write=True,
                                  types=("list", "array", "text", "string", "static")),
+    # The value as one of several results (RESULT_FUNS): passed through
+    # and bound by name, each name declared, `_` (which drops it at the
+    # statement's end), or assigned over a value it drops; bound by
+    # `if … as`, past a failure (which drops what the call was given), or
+    # past `none`; and given by `return E, other` to a caller that binds
+    # both.
+    "destructure": dict(inline="x, y = pass2(E, mk(6))", after="print(look(?x), look(?y))"),
+    "destructure_discard": dict(inline="_, y = pass2(E, mk(6))", after="print(look(?y))"),
+    "destructure_assign": dict(inline="x = mk(7)\n  print(look(?x))\n  x, y = pass2(E, mk(6))",
+                               after="print(look(?x), look(?y))"),
+    "destructure_as": dict(inline="if some2(E, mk(6), not c) as x, y\n    print(look(?x), look(?y))"),
+    "destructure_catch": dict(inline="x, y = pass2f(E, mk(6), not c) catch return 0",
+                              after="print(look(?x), look(?y))"),
+    "destructure_none": dict(inline="x, y = some2(E, mk(6), not c) ?? return 0",
+                             after="print(look(?x), look(?y))"),
+    "destructure_return": dict(inline="return E, mk(6)", returns=True, results=True),
 }
 
 # How `poke` changes a value of each type: it grows the buffer, or
@@ -450,7 +497,7 @@ POKES = {
     "plain": "x = P(v: 9)", "array": "x[0] += 1", "simd": "x = x +% 1",
     "error": "x = X.two",
 }
-WRITE_TARGETS = {"field": "h.f", "nullish": "b", "catch": "b"}
+WRITE_TARGETS = {"field": "h.f", "nullish": "b", "catch": "b", "destructure": "d1", "destructure_branch": "d1"}
 
 # A block-local binding at the tail of a value block leaves it before the
 # block's defers run. Each shape of value block goes to each sink, with a
@@ -616,7 +663,7 @@ TAKEN_THENS = {
 # A `while` step that reads what its condition binds: a view of `v` (a
 # List's `[]Int`, a String's `?String`), a struct holding one read through a
 # field or a method, while the body grows `v` (or only reads it) on its
-# way to the step: falling off its end, `continue`, `continue :outer`
+# way to the step: falling off its end, `continue`, `continue @outer`
 # from a nested `for`, `while`, or `while … as` (also where the loop is
 # written as nested `if`s, for a joined condition or a `catch break`
 # in it), an inner loop, a `defer`, or a `break` (where the step does
@@ -643,14 +690,14 @@ STEP_HOLDERS = {
 STEP_SHAPES = {
     "plain": ["while C: S", "  n += 1", "  G"],
     "continue": ["while C: S", "  n += 1", "  if n > 0", "    G", "    continue", "  k += 1"],
-    "labeled": [":outer while C: S", "  n += 1", "  for _ in 0..1", "    G", "    continue :outer"],
-    "labeled_joined": [":outer while J: S", "  n += 1", "  for _ in 0..1", "    G", "    continue :outer"],
-    "labeled_catchbreak": [":outer while B: S", "  n += 1", "  for _ in 0..1", "    G", "    continue :outer"],
-    "labeled_while": [":outer while C: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue :outer"],
-    "labeled_while_joined": [":outer while J: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue :outer"],
-    "labeled_while_catchbreak": [":outer while B: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue :outer"],
-    "labeled_whileas_joined": [":outer while J: S", "  n += 1", "  while mk(?v, 0) as _", "    G", "    continue :outer"],
-    "labeled_whileas_catchbreak": [":outer while B: S", "  n += 1", "  while mk(?v, 0) as _", "    G", "    continue :outer"],
+    "labeled": ["@outer while C: S", "  n += 1", "  for _ in 0..1", "    G", "    continue @outer"],
+    "labeled_joined": ["@outer while J: S", "  n += 1", "  for _ in 0..1", "    G", "    continue @outer"],
+    "labeled_catchbreak": ["@outer while B: S", "  n += 1", "  for _ in 0..1", "    G", "    continue @outer"],
+    "labeled_while": ["@outer while C: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue @outer"],
+    "labeled_while_joined": ["@outer while J: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue @outer"],
+    "labeled_while_catchbreak": ["@outer while B: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue @outer"],
+    "labeled_whileas_joined": ["@outer while J: S", "  n += 1", "  while mk(?v, 0) as _", "    G", "    continue @outer"],
+    "labeled_whileas_catchbreak": ["@outer while B: S", "  n += 1", "  while mk(?v, 0) as _", "    G", "    continue @outer"],
     "inner": ["while C: S", "  n += 1", "  j = 0", "  while j < 1: j += 1", "    G"],
     "defer": ["while C: S", "  n += 1", "  defer G"],
     "joined": ["while J: S", "  n += 1", "  G"],
@@ -820,7 +867,7 @@ def step_output(shape):
 
 
 # -----------------------------------------------------------------------------
-# Loop shapes: an outer loop labeled `:outer` holding an inner construct
+# Loop shapes: an outer loop labeled `@outer` holding an inner construct
 # that jumps once, in the outer loop's second pass, with a `defer` or an
 # owned local at the outer body's end. Every program prints a trace of
 # its passes, steps, defers, and drops, which must be the one
@@ -831,11 +878,11 @@ def step_output(shape):
 # -----------------------------------------------------------------------------
 
 LOOP_OUTERS = {
-    "while": ":outer while i < 3: i = st(i)",
-    "while_as": ":outer while lim(i, 3) as h: i = st(h)",
-    "joined": ":outer while lim(i, 3) as h and h >= 0: i = st(h)",
-    "catch_break": ":outer while (limf(i, 3) catch break) as h: i = st(h)",
-    "for": ":outer for q in 0..3",
+    "while": "@outer while i < 3: i = st(i)",
+    "while_as": "@outer while lim(i, 3) as h: i = st(h)",
+    "joined": "@outer while lim(i, 3) as h and h >= 0: i = st(h)",
+    "catch_break": "@outer while (limf(i, 3) catch break) as h: i = st(h)",
+    "for": "@outer for q in 0..3",
 }
 # Each inner construct, with `JUMP` the statement that jumps; a loop's
 # `else` (or the construct's last branch) holds `ELSE`.
@@ -848,8 +895,8 @@ LOOP_INNERS = {
 }
 LOOP_JUMPS = {
     "continue": "continue",
-    "continue_outer": "continue :outer",
-    "break_outer": "break :outer",
+    "continue_outer": "continue @outer",
+    "break_outer": "break @outer",
     "else_continue": None,
 }
 
@@ -859,7 +906,7 @@ LOOP_JUMPS = {
 # which is `while (!it).next() as k` (SPEC, "for"), from each kind of
 # source and in each context: a statement that runs out, breaks, skips,
 # returns, fails, or has an `else`; a loop used as a value or as a
-# function's last line; one a `continue :outer` leaves from an outer
+# function's last line; one a `continue @outer` leaves from an outer
 # loop; a labeled one. An iterator a name or field holds is advanced in
 # place and dropped at the end of its scope; one made there, or taken
 # with `<`, is held for the loop and dropped where it ends, by any jump.
@@ -930,6 +977,126 @@ def dloop_cells():
     return [(f"dloop.{src}.{w}",) + dloop_program(src, w) for src in DLOOP_SOURCES for w in DLOOP_WRITES]
 
 
+# A variant literal whose enum comes from where it goes (`.V`, `.V(...)`)
+# in each place a view of its enum goes. Where the view is held by
+# address (any but a plain enum's read view), the literal is the value
+# `T.V(...)` is: lent to a view argument as a temporary its statement
+# drops, and rejected where the view is kept, lent to write, or is a view
+# of an optional. A plain enum's read view holds a copy, so takes the
+# literal anywhere a read view goes.
+# Cells are `vlit.<literal>.<place>`.
+VLIT_LITERALS = {
+    # name: (type, literal, what `show` prints of it, plain)
+    "bare": ("S", ".dot", "dot", False),
+    "scalar": ("S", ".pt(x: 4)", "pt 4", False),
+    "owner": ("S", ".line(v: three())", "line 3", False),
+    "nested": ("W", ".wrap(s: .line(v: three()))", "wrap line 3", False),
+    "generic": ("G[List[Int]]", ".some(value: three())", "some 3", False),
+    "plain": ("C", ".red", "red", True),
+}
+VLIT_PLACES = {
+    # name: (declarations, statements in main, accepted for a view held
+    # by address, accepted for a plain enum's, what it prints past `show`)
+    "arg": ("", ["show(@L)"], True, True, ""),
+    "opt_arg": ("sub maybe(v: (?T)?)\n  if v as x\n    show(x)\n  else\n    print(\"none\")\n",
+                ["maybe(@L)", "maybe(none)"], True, True, "none\n"),
+    "generic_arg": ("sub same[U](a: ?U, b: ?U)\n  print(\"same\")\n", ["x: @T = @L", "same(?x, @L)"], True, True, "same\n"),
+    "method_arg": ("obj H\n  n: Int\n\nsub H.look(?self, v: ?T)\n  show(v)\n",
+                   ["h = H(n: 0)", "h.look(@L)"], True, True, ""),
+    "kwarg": ("sub show2(v: ?T, k: Int)\n  show(v)\n  print(k)\n", ["show2(k: one(), v: @L)"], True, True, "1\n"),
+    "nested_call": ("fun count(v: ?T) -> Int\n  show(v)\n  1\n", ["print(count(@L) + count(@L))"], True, True, "2\n"),
+    "fail_arg": ("error E\n  oops\n\nfun bad() -> Int!\n  return E.oops\n\nsub both(v: ?T, k: Int)\n  show(v)\n\n"
+                 "fun tryit() -> Int!\n  both(@L, bad()!)\n  return 1\n", ["print(tryit() catch -1)"], True, True, "-1\n"),
+    "loop": ("", ["for _ in 0..2\n    show(@L)"], True, True, None),
+    "write_arg": ("sub poke(v: !T)\n  print(\"poke\")\n", ["poke(@L)"], False, False, ""),
+    "view_of_opt": ("sub vo(v: ?T?)\n  print(\"vo\")\n", ["vo(@L)"], False, False, ""),
+    "binding": ("", ["x: ?@T = @L", "show(x)"], False, True, ""),
+    "field": ("obj R\n  v: ?T\n", ["r = R(v: @L)", "show(r.v)"], False, True, ""),
+    "elem": ("", ["xs: [1]?@T = [@L]", "show(xs[0])"], False, True, ""),
+    "return": ("fun made() -> ?T\n  return @L\n", ["show(made())"], False, True, ""),
+    "kept": ("fun keep(v: ?T) -> ?T\n  return v\n", ["x = keep(@L)", "show(x)"], False, True, ""),
+    "default": ("sub dflt(v: ?T = @L)\n  show(v)\n", ["dflt()"], False, True, ""),
+    # A fallback that is a value copies out what `o` views, which only a
+    # value that copies may; a plain enum's fallback must be lent too.
+    "coalesce": ("", ["o: (?@T)? = none", "show(o ?? @L)"], False, False, ""),
+}
+VLIT_DECLS = """enum S
+  dot
+  pt(x: Int)
+  line(v: List[Int])
+
+enum W
+  wrap(s: S)
+  none_of
+
+enum G[T]
+  some(value: T)
+  nothing
+
+enum C
+  red
+  green
+
+fun three() -> List[Int]
+  xs = List[Int]()
+  for i in 0..3
+    !xs.push(i)
+  return <xs
+
+fun one() -> Int
+  1
+
+sub show_s(v: ?S)
+  match v
+    .dot => print("dot")
+    .pt(x) => print("pt", x)
+    .line(items) => print("line", items.len)
+
+"""
+VLIT_SHOW = {
+    "S": "sub show(v: ?S)\n  show_s(v)\n",
+    "W": "sub show_wrap(s: ?S)\n  print(\"wrap\")\n  show_s(s)\n\nsub show(v: ?W)\n  match v\n    .wrap(s) => show_wrap(s)\n    .none_of => print(\"none_of\")\n",
+    "G[List[Int]]": "sub show(v: ?G[List[Int]])\n  match v\n    .some(value) => print(\"some\", value.len)\n    .nothing => print(\"nothing\")\n",
+    "C": "sub show(v: ?C)\n  print(\"red\" if v == .red else \"green\")\n",
+}
+
+
+def vlit_program(lname, pname):
+    """The program for one `vlit.` cell, and what it prints (None where
+    it must be rejected); no program where the place takes no such
+    literal (a default is a bare variant)."""
+    ty, lit, shown, plain = VLIT_LITERALS[lname]
+    decls, stmts, held, by_copy, more = VLIT_PLACES[pname]
+    if pname == "default" and "(" in lit:
+        return None, None
+    src = VLIT_DECLS + VLIT_SHOW[ty] + "\n"
+    if decls:
+        src += decls.replace("?T", "?" + ty).replace("!T", "!" + ty).replace("@L", lit) + "\n"
+    src += "sub main()\n" + "".join("  " + s.replace("@L", lit).replace("@T", ty) + "\n" for s in stmts)
+    if not (by_copy if plain else held):
+        return src, None
+    # `wrap`'s line prints on two lines.
+    line = shown.replace("wrap ", "wrap\n") + "\n"
+    if pname == "generic_arg" or pname == "fail_arg":
+        return src, more
+    if pname == "loop":
+        return src, line * 2
+    if pname == "nested_call":
+        return src, line * 2 + more
+    return src, line + more
+
+
+def vlit_cells():
+    """The `vlit.` cells: (id, program, expected output or None to be rejected)."""
+    out = []
+    for lname in VLIT_LITERALS:
+        for pname in VLIT_PLACES:
+            src, expect = vlit_program(lname, pname)
+            if src is not None:
+                out.append((f"vlit.{lname}.{pname}", src, expect))
+    return out
+
+
 # A generic `==`, `!=`, or ordering over two operands, each a view, an
 # optional, an owner, or a List element, with `K` any instance type.
 EQ_TYPES = {
@@ -939,6 +1106,8 @@ EQ_TYPES = {
     "view": dict(ty="?String", decl="", mk=['return "a" if n == 1', '"b"'], copy=True, eq=True, ord=True),
     "obj": dict(ty="P", decl="obj P\n  n: Int\n  s: String\n\n", mk=['P(n: n, s: String("x"))'], copy=False, eq=True, ord=False),
     "enum": dict(ty="E", decl="enum E\n  a(x: Int)\n  z\n\n", mk=["E.a(x: n)"], copy=True, eq=True, ord=False),
+    # A plain enum orders by its variants' values, not their order.
+    "plain": dict(ty="Q", decl="enum Q\n  hi = 9\n  lo = 4\n\n", mk=["return Q.lo if n == 1", "Q.hi"], copy=True, eq=True, ord=True),
     "list": dict(ty="List[Int]", decl="", mk=["l: List[Int] = List()", "!l.push(n)", "l"], copy=False, eq=False, ord=False),
     "box": dict(ty="^P", decl="obj P\n  n: Int\n  s: String\n\n", mk=['^P(n: n, s: String("x"))'], copy=False, eq=False, ord=False),
     "shared": dict(ty="*P", decl="obj P\n  n: Int\n  s: String\n\n", mk=['*P(n: n, s: String("x"))'], copy=False, eq=False, ord=False),
@@ -1090,8 +1259,8 @@ def iter_program(source, ctx):
         "return": [head, '  print("body", k)', "  return if k == 1"],
         "fail": [head, '  print("body", k)', "  chk(k)!"],
         "else": [head, '  print("body", k)', "else", '  print("else")'],
-        "labeled": [":l " + head, '  print("body", k)', "  break :l if k == 1"],
-        "nested": [":outer for _ in 0..2", "  " + head, '    print("body", k)', "    continue :outer if k == 1",
+        "labeled": ["@l " + head, '  print("body", k)', "  break @l if k == 1"],
+        "nested": ["@outer for _ in 0..2", "  " + head, '    print("body", k)', "    continue @outer if k == 1",
                    '  print("inner done")'],
     }
     if ctx in ("value_end", "value_break"):
@@ -2203,16 +2372,146 @@ def store_program(oname, fname, then):
     kind, lines = STORE_FORMS[fname]
     h = STORE_HOLDERS[kind]
     v = o["view"]
-    out = [f"obj H\n  r: {v}\n\n  sub set(!self, s: {v})\n    self.r = s\n",
+    out = [f"obj H\n  r: {v}\n\n  sub set(!self, s: {v}) keeps s\n    self.r = s\n",
            "obj O\n  h: H\n", "enum E\n  one(h: H)\n  zero\n",
-           f"sub put(h: !H, s: {v})\n  h.r = s\n"]
+           f"sub put(h: !H, s: {v}) keeps s\n  h.r = s\n"]
     body = [l.replace("S", o["lend"]) for l in lines]
     body += o["grow"] if then == "grow" else ["print(b.len)"]
     body += ["print(t[0])"] if fname == "read_back" else h["read"]
-    out.append(f"sub f(a: !{h['ty']}, b: !{o['ty']})\n{indent(body, 2)}\n")
+    out.append(f"sub f(a: !{h['ty']}, b: !{o['ty']}) keeps b\n{indent(body, 2)}\n")
     main = [o["init"], o["make"], h["make"].replace("I", "?x[..]"), "f(!h, !v)"]
     out.append("sub main()\n" + indent(main, 2) + "\n")
     return "\n".join(out)
+
+
+# -----------------------------------------------------------------------------
+# A call that keeps a parameter (Core sentence 7): each kind of parameter,
+# stored by the callee into its receiver, into a write argument, through a
+# call that keeps it, on some paths only, or not at all, with `keeps`
+# naming it and without, then the holder read, or the lent owner changed
+# first. A lent parameter is kept only when `keeps` names it, and a body
+# that stores one unnamed is rejected; a parameter taken by value is kept
+# by its type, and `keeps` may not name it; a call through a function
+# value keeps by type. Cells are `keeps.<kind>.<store>.<said>.<then>`,
+# each with its outcome: what it prints, or rejected.
+# -----------------------------------------------------------------------------
+
+# Each kind: the parameter's type `P`, the holder's field type, what the
+# callee stores (`E`), how `main` makes the holder's first value
+# (`setup`, `init`), the owner (`owner`) and the argument lent from it
+# (`lend`), how the holder is read back with what it prints stored and
+# first, how the owner is changed, and how the callee hands the
+# parameter on (`on`, `p` unless written). `lent`: a lent parameter, which
+# `keeps` names; `generic`: the holder is `H[T]`; `recv`: the receiver
+# is the parameter, kept in a `!List[?Item]` argument; `fnval`: the
+# callee is called through a function value.
+KEEPS_KINDS = {
+    "read": dict(P="?Item", held="?Item", E="p", setup=["z = Item(n: 0)"], init="?z", owner=["it = Item(n: 7)"],
+                 lend="?it", read="print(h.r.n)", stored="7", first="0", change="it.n = 8"),
+    "write": dict(P="!List[Int]", held="[]Int", E="?p[..]", setup=["z: List[Int] = List()", "!z.push(0)"], init="?z[..]",
+                  owner=["v: List[Int] = List()", "!v.push(7)"], lend="!v", read="print(h.r[0])", stored="7", first="0",
+                  change="!v.push(8)", on="!p"),
+    "slice": dict(P="[]Int", held="[]Int", E="p", setup=["z = [0]"], init="?z[..]", owner=["a = [7, 1]"], lend="?a[..]",
+                  read="print(h.r[0])", stored="7", first="0", change="a[0] = 8"),
+    "text": dict(P="?String", held="?String", E="p", setup=[], init='"first"', owner=['t = String("seven")'], lend="?t",
+                 read="print(h.r)", stored="seven", first="first", change='!t.add("x")'),
+    "optional": dict(P="(?String)?", held="(?String)?", E="p", setup=[], init="none", owner=['t = String("seven")'],
+                     lend="?t", read="print(h.r)", stored="seven", first="none", change='!t.add("x")'),
+    "generic": dict(P="?T", held="(?T)?", E="p", setup=[], init="none", owner=['t = String("seven")'], lend="?t",
+                    read="print(h.r)", stored="seven", first="none", change='!t.add("x")', generic=True),
+    "receiver": dict(P="?self", lend="it", owner=["it = Item(n: 7)"], read="print(out.len)", stored="1", first="0",
+                     change="it.n = 8", recv=True),
+    "value": dict(P="Token", held="Token", E="p", setup=[], init='Token(text: "first")', owner=['t = String("seven")'],
+                  lend="Token(text: ?t)", read="print(h.r.text)", stored="seven", first="first", change='!t.add("x")',
+                  by_value=True),
+    "fnval": dict(P="?String", held="?String", E="p", setup=[], init='"first"', owner=['t = String("seven")'], lend="?t",
+                  read="print(h.r)", stored="seven", first="first", change='!t.add("x")', fnval=True),
+}
+# Each store: how the callee's body stores `E` (`self.r`, or `h.r` in a
+# function given the holder `h`), and whether it stores at all.
+KEEPS_STORES = {
+    "self": dict(stores=True),
+    "arg": dict(stores=True),
+    "call": dict(stores=True),
+    "some": dict(stores=True),
+    "none": dict(stores=False),
+}
+
+
+def keeps_program(kname, sname, said, then):
+    """The program for one `keeps.` cell and what it prints ("(rejected)"
+    when it must be rejected); None where the store cannot stand."""
+    k = KEEPS_KINDS[kname]
+    s = KEEPS_STORES[sname]
+    recv, fnval, generic, by_value = k.get("recv"), k.get("fnval"), k.get("generic"), k.get("by_value")
+    # A receiver is stored only into a write argument; a function value
+    # is a function, which has no receiver.
+    if recv and sname == "self" or fnval and sname in ("self", "some"):
+        return None, None
+    clause = (" keeps self" if recv else " keeps p") if said else ""
+    some = sname == "some"
+    out = ["obj Item\n  n: Int\n", "obj Token\n  text: ?String\n"]
+    if recv:
+        body = {"arg": ["!out.push(self)"], "call": ["self.put_in(!out)"],
+                "some": ["if c", "  !out.push(self)"], "none": ["pass"]}[sname]
+        params = "?self, out: !List[?Item]" + (", c: Bool" if some else "")
+        out[0] = ("obj Item\n  n: Int\n\n"
+                  f"  sub m({params}){clause}\n{indent(body, 4)}\n\n"
+                  "  sub put_in(?self, out: !List[?Item]) keeps self\n    !out.push(self)\n")
+        main = k["owner"] + ["out: List[?Item] = List()", f"(?it).m(!out{', true' if some else ''})"]
+        main += ([k["change"]] if then == "change" else []) + [k["read"]]
+        out.append("sub main()\n" + indent(main, 2) + "\n")
+        expect = keeps_expect(k, sname, said, then)
+        return "\n".join(out), expect
+    hty = "H[T]" if generic else "H"
+    tp = "[T]" if generic else ""
+    setter_keeps = "" if by_value else " keeps p"
+    target = "h.r" if sname == "arg" or fnval else "self.r"
+    body = {"self": [f"{target} = {k['E']}"], "arg": [f"{target} = {k['E']}"],
+            "call": ["set_r(!h, p)" if fnval else f"!self.set({k.get('on', 'p')})"],
+            "some": ["if c", f"  {target} = {k['E']}"], "none": ["pass"]}[sname]
+    params = f"p: {k['P']}" + (", c: Bool" if some else "")
+    methods = f"  sub set(!self, p: {k['P']}){setter_keeps}\n    self.r = {k['E']}\n"
+    if sname in ("self", "call", "some", "none") and not fnval:
+        methods += f"\n  sub m(!self, {params}){clause}\n{indent(body, 4)}\n"
+    out.append(f"obj H{tp}\n  r: {k['held']}\n\n{methods}")
+    if fnval:
+        out.append(f"sub m(h: !H, {params}){clause}\n{indent(body, 2)}\n")
+        out.append(f"sub set_r(h: !H, p: {k['P']}) keeps p\n  h.r = {k['E']}\n")
+    elif sname == "arg":
+        out.append(f"sub m{tp}(h: !{hty}, {params}){clause}\n{indent(body, 2)}\n")
+    make = f"h = H[String](r: {k['init']})" if generic else f"h = H(r: {k['init']})"
+    arg = k["lend"]
+    if fnval:
+        call = ["f: ?sub(!H, ?String) = ?m", f"f(!h, {arg})"]
+    elif sname == "arg":
+        call = [f"m(!h, {arg})"]
+    else:
+        call = [f"!h.m({arg}{', true' if some else ''})"]
+    main = k["setup"] + [make] + k["owner"] + call
+    main += ([k["change"]] if then == "change" else []) + [k["read"]]
+    out.append("sub main()\n" + indent(main, 2) + "\n")
+    return "\n".join(out), keeps_expect(k, sname, said, then)
+
+
+def keeps_expect(k, sname, said, then):
+    """What a `keeps.` cell prints, or "(rejected)"."""
+    rejected = "(rejected)\n"
+    stores = KEEPS_STORES[sname]["stores"]
+    if k.get("by_value"):
+        # `keeps` names no parameter taken by value, which is kept by its
+        # type: the owner stays lent while the holder lives.
+        if said or then == "change":
+            return rejected
+        return (k["stored"] if stores else k["first"]) + "\n"
+    # An unnamed lent parameter stored is the body check's error.
+    if stores and not said:
+        return rejected
+    # Kept: by the clause, or by type through a function value.
+    kept = said or k.get("fnval")
+    if then == "change" and kept:
+        return rejected
+    return (k["stored"] if stores else k["first"]) + "\n"
 
 
 def taken_then(pname, then):
@@ -2991,8 +3290,16 @@ def program(tname, fname, cname):
         body.append(after)
     if not returns:
         body.append("0")
+    if ctx.get("results"):
+        ret_ty = f"({ty}, {ty})"
+        main = ["for c in [true, false]", "  p, q = run(c, mk(9))", "  print(look(?p), look(?q))"]
+    else:
+        main = ["for c in [true, false]", "  r = run(c, mk(9))", "  print(r == none)"]
+    called = set(re.findall(r"\b(\w+)\(", "\n".join(body)))
+    for name, text in RESULT_FUNS.items():
+        if name in called:
+            out.append(text.format(t=ty, r=rd(ty)))
     out.append(f"fun run(c: Bool, o: {opt(ty)}) -> {ret_ty}\n{indent(body, 2)}\n")
-    main = ["for c in [true, false]", "  r = run(c, mk(9))", "  print(r == none)"]
     out.append("sub main()\n" + indent(main, 2) + "\n")
     return "\n".join(out)
 
@@ -3929,6 +4236,25 @@ def main():
                 cells.append((ident, path))
     release = set()
     also = set()
+    for kname in KEEPS_KINDS:
+        for sname in KEEPS_STORES:
+            for said in ("said", "unsaid"):
+                for then in ("read", "change"):
+                    ident = f"keeps.{kname}.{sname}.{said}.{then}"
+                    if not wanted(ident):
+                        continue
+                    src, expect = keeps_program(kname, sname, said == "said", then)
+                    if src is None:
+                        skipped += 1
+                        continue
+                    path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                    with open(path, "w") as fh:
+                        fh.write(src)
+                    cells.append((ident, path))
+                    expects[ident] = expect
+                    # A cell that prints must be accepted.
+                    if expect != "(rejected)\n":
+                        release.add(ident)
     for fname in GEN_FORMS:
         for said in ("said", "unsaid"):
             for then in ("read", "drop"):
@@ -4036,6 +4362,16 @@ def main():
             if out is not None:
                 release.add(ident)
     for ident, src, out in dloop_cells():
+        if not wanted(ident):
+            continue
+        path = os.path.join(work, ident.replace(".", "__") + ".rig")
+        with open(path, "w") as fh:
+            fh.write(src)
+        cells.append((ident, path))
+        expects[ident] = out if out is not None else "(rejected)\n"
+        if out is not None:
+            release.add(ident)
+    for ident, src, out in vlit_cells():
         if not wanted(ident):
             continue
         path = os.path.join(work, ident.replace(".", "__") + ".rig")

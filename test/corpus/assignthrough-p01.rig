@@ -1,0 +1,18 @@
+fun gslot[T](v: !List[T], i: Int) -> !T from v
+  !v[i]
+
+sub keep[T](v: !List[?T], x: ?T)
+  gslot(!v, 0) = x
+
+sub bad(v: !List[?String])
+  d = String("local")
+  gslot(!v, 0) = ?d
+
+sub main()
+  a = String("a")
+  b = String("b")
+  v: List[?String] = List()
+  !v.push(?a)
+  keep(!v, ?b)
+  bad(!v)
+  print(v)

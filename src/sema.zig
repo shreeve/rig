@@ -153,15 +153,33 @@ pub const max_value_bytes: u64 = 8 << 20;
 /// stack: the guard below the stack (`max_frame_reach`) stops it there.
 pub const max_frame_bytes: u64 = 13 << 20;
 
-/// A frame `checkFrames` counted: what it is, its bytes, and its reach
-/// (`typecheck.checkFrames`), and the frame owner it is the frame of, at
-/// one instance for a generic one: the module that declares it (its id)
-/// and where (`FrameOwner.pos`).
-pub const FrameSize = struct { label: []const u8, pos: u32, bytes: u128, reach: u128, module: u32, decl: u32 };
+/// A frame `checkFrames` counted: what it is, the bytes and reach of its
+/// own values (`typecheck.checkFrames`) and of those the calls of marked
+/// `inline` functions land in it (`marked`), and the frame owner it is
+/// the frame of, at one instance for a generic one: the module that
+/// declares it (its id) and where (`FrameOwner.pos`).
+pub const FrameSize = struct { label: []const u8, pos: u32, bytes: u128, reach: u128, marked: FrameCount = .none, params: u128 = 0, module: u32, decl: u32 };
 
 /// A frame as `typecheck.checkFrames` counts it: the bytes of the values
 /// it keeps, and its reach.
-pub const FrameCount = struct { bytes: u128, reach: u128 };
+pub const FrameCount = struct {
+    bytes: u128,
+    reach: u128,
+
+    pub const none: FrameCount = .{ .bytes = 0, .reach = 0 };
+};
+
+/// A value a frame keeps, or (`copy`) a copy its code may make, which
+/// counts in its reach alone (`typecheck.FrameWalker`); `marked` when a
+/// call of a marked `inline` function lands it there.
+pub const FrameSlot = struct { ty: TypeId, name: []const u8, copy: bool = false, marked: bool = false };
+
+/// A call of a marked `inline` function, recorded where typecheck
+/// resolves the call (`Checker.noteTarget`): the function, and the
+/// instance the call makes, its object type's parameters then its own,
+/// to their arguments here. Every frame and every cycle of `inline`
+/// functions is read from it.
+pub const InlineCall = struct { fun: FnRef, subst: TypeSubst };
 
 /// A place Zig writes a stack frame of its own for (docs/INTERNALS.md,
 /// "Frame owners"), decided once, by a positive list
@@ -181,15 +199,23 @@ pub const FrameOwner = struct {
     pos: u32,
     /// How messages name it.
     label: []const u8,
-    /// A method of an object or enum type, and of a generic one.
+    /// A method of an object or enum type, and of a generic one, and the
+    /// type's name.
     member: bool = false,
     of_generic_type: bool = false,
+    type_name: []const u8 = "",
     /// Its calls, as indexes into `SemContext.frame_calls`, in the order
     /// the walk met them.
     calls: []const u32 = &.{},
     /// Its own frame (`checkFrames`); null when each instance's frame is
     /// counted on its own (`FrameSize`), or before it is counted.
     own: ?FrameCount = null,
+    /// What the calls of marked `inline` functions in it land in its
+    /// frame, beside `own`, and as it.
+    marked: FrameCount = .none,
+    /// The reach of a function's parameters as its code copies them where
+    /// it is inlined, beside `own` (`typecheck.FrameWalker.paramCopies`).
+    params: u128 = 0,
     /// Whether `own` is null because its instances count it.
     per_instance: bool = false,
     /// Its frame with what the automatic rule inlines into it, which
@@ -202,18 +228,20 @@ pub const FrameOwner = struct {
 /// What a frame owner's frame holds (`SemContext.account`): its own
 /// values (`checkFrames`), or null where no count knows them, which is
 /// unbounded and fails every limit; what the calls of marked `inline`
-/// functions add (none yet); and what the functions the automatic rule
-/// inlines into it add, each counted at every call and at every copy Zig
-/// writes of the call (`inlining.decide`).
+/// functions land in it, their values and their reach, each at the
+/// instance the call makes and at every copy Zig writes of the call
+/// (`checkFrames`); and what the functions the automatic rule inlines
+/// into it add, each counted at every call and at every copy Zig writes
+/// of the call, through the marked functions too (`inlining.decide`).
 pub const Account = struct {
     own: ?FrameCount,
-    marked: u128 = 0,
+    marked: FrameCount = .none,
     auto: u128 = 0,
 
     /// Its values with everything inlined into it; null when unknown.
     pub fn total(self: Account) ?FrameCount {
         const own = self.own orelse return null;
-        return .{ .bytes = own.bytes + self.marked + self.auto, .reach = own.reach + self.marked + self.auto };
+        return .{ .bytes = own.bytes + self.marked.bytes + self.auto, .reach = own.reach + self.marked.reach + self.auto };
     }
 };
 
@@ -266,8 +294,12 @@ pub const ForeignFrame = struct { module: u32, pos: u32 };
 /// so a diagnostic can name the largest.
 ///
 /// The last `copies` types are copies its code may make, which count in
-/// its reach alone (`typecheck.checkFrames`).
-pub const Frame = struct { label: []const u8, pos: u32, tys: []const TypeId, names: []const []const u8, copies: u32 = 0, module_id: u32 = 0 };
+/// its reach alone (`typecheck.checkFrames`). Of the values, the last
+/// `marked` are those calls of marked `inline` functions land in it, and
+/// so are the last `marked_copies` of the copies. The last `params` types,
+/// after the copies, are a function's parameters as its code copies them
+/// where it is inlined.
+pub const Frame = struct { label: []const u8, pos: u32, tys: []const TypeId, names: []const []const u8, copies: u32 = 0, marked: u32 = 0, marked_copies: u32 = 0, params: u32 = 0, module_id: u32 = 0 };
 
 pub const Type = union(enum) {
     /// A type error was reported here.
@@ -318,6 +350,13 @@ pub const Type = union(enum) {
     range: TypeId,
 
     function: FunctionType,
+    /// `(A, B)`: a function's several results, two or more, each a type a
+    /// single result may have. It is a function's result type only (and
+    /// inside `T!` or `T?` there), never a value's: a call that gives it
+    /// stands only where each result is bound at once (`q, r = f()`), or
+    /// is returned whole. Its facts are its parts' together, as an
+    /// object's are its fields' (docs/INTERNALS.md, "Several results").
+    results: []const TypeId,
     /// What a callable view `?fun(...) -> R` views, written as
     /// such: a closure, a function, or an owned closure of function type
     /// `callable`, called through a `rig.FnRef`. (A `?T` whose `T` is a
@@ -509,6 +548,7 @@ pub const TypeStore = struct {
                 std.mem.eql(TypeId, af.params, b.function.params),
             .parameterized_nominal => |x| x.sym == b.parameterized_nominal.sym and
                 std.mem.eql(TypeId, x.args, b.parameterized_nominal.args),
+            .results => |x| std.mem.eql(TypeId, x, b.results),
             // The rest hold ids and numbers only.
             inline else => |x, tag| std.meta.eql(x, @field(b, @tagName(tag))),
         };
@@ -546,11 +586,11 @@ pub const SymbolKind = enum {
 };
 
 pub const SymbolFlags = packed struct(u16) {
-    /// `const` binding: cannot be reassigned.
+    /// `=!` binding: cannot be reassigned.
     fixed: bool = false,
     is_public: bool = false,
     /// Value known at compile time: a compile-time parameter
-    /// (`fun f[n: Int]`), or a `const` binding
+    /// (`fun f[n: Int]`), or a `=!` binding
     /// initialized with a compile-time-known expression.
     comptime_known: bool = false,
     /// Bound by a `for` loop or a match pattern: not assignable.
@@ -590,7 +630,9 @@ pub const SymbolFlags = packed struct(u16) {
     /// constant whose value names one. Rig knows its type, never its
     /// value, so its verdict is the same on every machine.
     per_target: bool = false,
-    _: u1 = 0,
+    /// A function declared `inline fun`: it has no address, so it is only
+    /// called, never a value.
+    inline_marked: bool = false,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -655,6 +697,8 @@ pub const Field = struct {
     /// A field declared `pub ?name: T`: other modules read it, and only
     /// its own module writes it.
     read_only: bool = false,
+    /// A method declared `inline fun`, which is only called.
+    inline_marked: bool = false,
 };
 
 pub const Symbol = struct {
@@ -842,6 +886,10 @@ pub const Facts = struct {
     /// Expressions that yield a view where their context reads the
     /// value it reaches (`SemContext.recordRead`).
     reads: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// Expressions whose value becomes an optional where it goes (`Lift`):
+    /// `none`, and a `T` where a `T?` goes, which Zig lifts on its own
+    /// (`SemContext.recordLift`).
+    lifts: std.AutoHashMapUnmanaged(u64, Lift) = .empty,
     /// `a ?? b` and `a catch b` whose fallback is a value, not a view, of
     /// what the payload of `a`, a view, reaches: the payload's value is
     /// copied out (`SemContext.recordPayloadCopy`).
@@ -917,6 +965,9 @@ pub const Facts = struct {
     /// `E.name` nodes that name a member of an error set `E`, through
     /// its module or an alias (`SemContext.recordErrorMember`).
     error_members: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// `e.text` nodes: the name of plain enum value `e`'s variant, a
+    /// `Static` (`SemContext.recordEnumText`).
+    enum_texts: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Variant pattern node -> the binding of each payload field of its
     /// variant, in field order (`SemContext.payloadBindings`).
     payload_binds: std.AutoHashMapUnmanaged(NodeKey, []const Sexp) = .empty,
@@ -937,6 +988,12 @@ pub const Facts = struct {
         inline for (@typeInfo(Facts).@"struct".field_names) |f| @field(self, f).deinit(allocator);
     }
 };
+
+/// The optional an expression's value becomes where it goes: `into`,
+/// an optional type, holding the value `from` gives, a type with fewer
+/// levels of optional (`none`'s, for `none`), lifted into it level by
+/// level (`SemContext.recordLift`).
+pub const Lift = struct { into: TypeId, from: TypeId };
 
 /// How `*w` upgrades the weak handle `w` (`SemContext.recordUpgrade`).
 pub const Upgrade = enum {
@@ -1158,6 +1215,11 @@ pub const StorageKind = enum {
     index,
     /// The place an assignment stores to, found once (`__rig_slot`).
     slot,
+    /// The several results a call gives, held for its statement while
+    /// each target takes its own, left to right (`__rig_res`): a
+    /// destructure's, `q, r = f()`. A result no target takes (`_`) it
+    /// drops at the statement's end.
+    results,
     /// A value made here whose address emit takes where Zig holds it, in
     /// no slot: a leaf no statement slot keeps (`storage.leafStep` is
     /// `made`, and not `dropsTemp`), or a literal, reached by address.
@@ -1345,8 +1407,8 @@ pub const Use = enum {
 /// (`num` is the float's type, `elem` the unsigned integer of its width);
 /// the functions of a type, which take an integer (`elem` is its type):
 /// `I32.wrap(x)` (`num` the target), `Float.from_bits(u)` (`num` the
-/// float, `elem` the unsigned integer), `Status.from_int(n)` (`num` the
-/// enum); and the methods of
+/// float, `elem` the unsigned integer), `Status.from_int(n)` and
+/// `Status.from_text(word)` (`num` the enum); and the methods of
 /// a vector (`isSimd`), where `num` is the vector and `elem` its lane
 /// type: `Simd[T, n].splat(x)`, `m.bits()`, `m.first()`, `m.any()`, `m.all()`,
 /// `v.array()`, `v.with(i, x)`, `m.select(a, b)`, whose `num` is the
@@ -1376,6 +1438,9 @@ pub const ElemOp = enum {
     from_bits,
     wrap,
     from_int,
+    /// `E.from_text(word)`: the variant of plain enum `num` named
+    /// `word`, a `?String` (`elem`).
+    from_text,
     nan,
     inf,
     fraction,
@@ -1399,15 +1464,16 @@ pub const ElemOp = enum {
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
             .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .fraction, .exponent => true,
-            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => false,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => false,
         };
     }
 
     /// Whether the call is a function of a number type or a plain enum:
-    /// `Float.from_bits(u)`, `I32.wrap(x)`, `Status.from_int(n)`.
+    /// `Float.from_bits(u)`, `I32.wrap(x)`, `Status.from_int(n)`,
+    /// `Status.from_text(word)`.
     pub fn isTypeFn(op: ElemOp) bool {
         return switch (op) {
-            .from_bits, .wrap, .from_int, .nan, .inf => true,
+            .from_bits, .wrap, .from_int, .from_text, .nan, .inf => true,
             else => false,
         };
     }
@@ -1417,7 +1483,7 @@ pub const ElemOp = enum {
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
             .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => true,
-            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .hash => false,
+            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .hash => false,
         };
     }
 };
@@ -1537,11 +1603,19 @@ pub const Origins = struct {
     stores: ParamMask = all_params,
     /// `result` is what a `from` clause names, not the signature's types.
     declared: bool = false,
+    /// The lent parameters (`lentParam`), which `stores` holds only
+    /// where the declaration's `keeps` names them; none for a function
+    /// type's origins, which keep by type.
+    lent: ParamMask = 0,
 };
 
 /// A function's `from` clause: the names it lists (empty for `from
 /// static`), and the function's parameters.
 pub const DeclaredOrigins = struct { names: Sexp, params: Sexp, returns: Sexp };
+
+/// A function's `keeps` clause: the names it lists, and the function's
+/// parameters.
+pub const DeclaredKeeps = struct { names: Sexp, params: Sexp };
 
 /// What fills a run-time parameter of a call: the receiver of a method
 /// called on a value, the argument at an index of the call's argument
@@ -1558,6 +1632,9 @@ pub const ParamFill = union(enum) {
 pub const CallParams = struct {
     fills: []const ParamFill,
     origins: Origins,
+    /// The names of the parameters the arguments may fill, the receiver
+    /// left out, when known: what a diagnostic says a call keeps.
+    names: ?[]const []const u8 = null,
 
     /// Whether the call's result carries the loans of the argument at
     /// index `arg`.
@@ -1579,6 +1656,33 @@ pub const CallParams = struct {
     /// `arg`.
     pub fn stores(self: CallParams, arg: usize) bool {
         return self.filled(.{ .arg = @intCast(arg) }, self.origins.stores);
+    }
+
+    /// Whether the call keeps the argument at index `arg`, which fills a
+    /// lent parameter its callee's `keeps` names.
+    pub fn keepsLent(self: CallParams, arg: usize) bool {
+        return self.filled(.{ .arg = @intCast(arg) }, self.origins.stores & self.origins.lent);
+    }
+
+    /// Whether the call keeps its receiver, which its callee's `keeps`
+    /// names (`keeps self`).
+    pub fn keepsLentReceiver(self: CallParams) bool {
+        return self.filled(.receiver, self.origins.stores & self.origins.lent);
+    }
+
+    /// The name of the parameter the argument at index `arg` fills, when
+    /// known.
+    pub fn paramName(self: CallParams, arg: usize) ?[]const u8 {
+        const names = self.names orelse return null;
+        var skip: usize = 0;
+        for (self.fills, 0..) |f, i| {
+            if (f == .receiver) {
+                skip += 1;
+                continue;
+            }
+            if (f == .arg and f.arg == arg) return if (i - skip < names.len) names[i - skip] else null;
+        }
+        return null;
     }
 
     /// Whether `what` fills a parameter in `mask`.
@@ -1725,6 +1829,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
         StringCall, Use, Upgrade => try w.print(" {s}", .{@tagName(v)}),
+        Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
         ReadOnlyField => try w.print(" {s}.{s}.{s}", .{ v.module, v.owner, v.field }),
         JumpDest => {
@@ -1833,6 +1938,10 @@ pub const Requirement = union(enum) {
     /// of the parameter (`*T`, `~T`), and `*fun(...)` is an owned
     /// closure, not a handle of a function.
     not_function,
+    /// Holds no view but a `?String` (`nameable`): the body names a type
+    /// that holds the parameter (`@name`), which the runtime spells from
+    /// the instance's Zig type.
+    named,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -1854,6 +1963,7 @@ pub const Requirement = union(enum) {
             .whole_division => "a division of whole numbers",
             .not_error => "a fallible return",
             .not_function => "a handle",
+            .named => "a type name",
         };
     }
 };
@@ -1876,6 +1986,22 @@ pub fn requireHandleOf(ctx: *SemContext, inner: TypeId, pos: u32, op: []const u8
         .type_var => |param| try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .not_function, .pos = pos, .op = op }),
         else => {},
     }
+}
+
+/// The first type `ty` holds, at any depth, that `@name` of a type
+/// parameter cannot spell, or null: a view but `?String`. The runtime
+/// names an instance from its Zig type (`rig.typeName`), where a read
+/// view of a number is the number, and a `[]U8` and a `?String` are one
+/// type. (A `Static` an instance binds reads as a `?String`, and is
+/// named one.)
+pub fn unnameable(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    switch (ctx.types.get(ty)) {
+        .read_view, .write_view, .slice, .callable => return ty,
+        else => {},
+    }
+    var it = typeChildren(ctx, ty);
+    while (it.next()) |c| if (unnameable(ctx, c)) |u| return u;
+    return null;
 }
 
 /// A generic body copies a value of a type parameter, found by the
@@ -2032,13 +2158,17 @@ pub const SemContext = struct {
     quiet: u32 = 0,
     /// `minBytes` of each type sized so far.
     byte_sizes: std.AutoHashMapUnmanaged(TypeId, ?u128) = .empty,
-    /// A local `const k = n` binding of a compile-time integer parameter ->
+    /// A local `k =! n` binding of a compile-time integer parameter ->
     /// the `ct_param` it stands for, where an array length or a
     /// compile-time argument names it.
     ct_locals: std.AutoHashMapUnmanaged(SymbolId, TypeId) = .empty,
     /// Another module's generic type or compile-time parameter (where it
     /// is declared) -> its proxy here (`proxyOf`).
     imported: std.AutoHashMapUnmanaged(ForeignRef, SymbolId) = .empty,
+    /// How many imports `importSymbol` is nested in, and the proxies made
+    /// past its limit, which the outermost fills in.
+    import_depth: u32 = 0,
+    import_pending: std.ArrayList(PendingProxy) = .empty,
     /// The entries of other modules' lists copied here (`importParam`).
     imported_entries: std.AutoHashMapUnmanaged(ImportedEntry, void) = .empty,
     /// The copies of type parameters' values generic bodies make, which
@@ -2055,6 +2185,20 @@ pub const SemContext = struct {
     /// The functions and methods Zig inlines at every call, by where
     /// their names are declared (`inlining.decide`).
     inlined: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// This module's functions and methods declared `inline fun`, by
+    /// where their names are declared: their declarations (`resolve`).
+    inline_decls: std.AutoHashMapUnmanaged(u32, Sexp) = .empty,
+    /// What each of them lands in the frame of a call of it: its own
+    /// values and those of the `inline` functions it calls, in this
+    /// module's types, over its own and its type's parameters; null while
+    /// it is being worked out (`typecheck.inlineFrame`).
+    inline_frames: std.AutoHashMapUnmanaged(u32, ?[]const FrameSlot) = .empty,
+    /// How deep the calls of marked `inline` functions nest below each of
+    /// them, which `typecheck.max_inline_depth` limits.
+    inline_heights: std.AutoHashMapUnmanaged(u32, u32) = .empty,
+    /// A call (`decisionKey`) of a marked `inline` function -> the
+    /// function and the instance it makes (`InlineCall`).
+    inline_calls: std.AutoHashMapUnmanaged(u64, InlineCall) = .empty,
     /// The frames `checkFrames` counted, each of its owner or, for a
     /// generic one, of one instance of it.
     frame_sizes: std.ArrayList(FrameSize) = .empty,
@@ -2075,6 +2219,11 @@ pub const SemContext = struct {
     /// Those of other modules, found large at an instance made here;
     /// `inlining.decide` marks them in their own modules.
     large_foreign_frames: std.ArrayList(ForeignFrame) = .empty,
+    /// The plain enums of this module, by symbol, that the program calls
+    /// `from_text` on (`recordTextTable`).
+    text_tables: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    /// Those of other modules, called here.
+    foreign_text_tables: std.ArrayList(ForeignRef) = .empty,
     /// The calls that may reach one of them, by node (`inlining.decide`).
     inlined_calls: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// The node `Question`s decided so far, each once.
@@ -2085,6 +2234,10 @@ pub const SemContext = struct {
     /// (`-> T from a, b`), by where its name is declared, with its
     /// parameters (`computeOrigins`).
     declared_origins: std.AutoHashMapUnmanaged(u32, DeclaredOrigins) = .empty,
+    /// The `keeps` clause of each function and method that writes one
+    /// (`keeps s, self`), by where its name is declared, with its
+    /// parameters (`computeOrigins`).
+    declared_keeps: std.AutoHashMapUnmanaged(u32, DeclaredKeeps) = .empty,
     /// The `for` loops over an iterator that typecheck found, each to be
     /// rewritten into the `while` it means (`rig.IterLoop`). A module with
     /// any is checked again on the rewritten tree, so no pass sees one.
@@ -2152,6 +2305,7 @@ pub const SemContext = struct {
         self.untakeable.deinit(self.allocator);
         self.facts.deinit(self.allocator);
         self.declared_origins.deinit(self.allocator);
+        self.declared_keeps.deinit(self.allocator);
         self.iter_loops.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.file_uses.deinit(self.allocator);
@@ -2176,18 +2330,25 @@ pub const SemContext = struct {
         self.oversized.deinit(self.allocator);
         self.byte_sizes.deinit(self.allocator);
         self.imported.deinit(self.allocator);
+        self.import_pending.deinit(self.allocator);
         self.imported_entries.deinit(self.allocator);
         self.plain_reqs.deinit(self.allocator);
         self.storage.deinit(self.allocator);
         self.discards.deinit(self.allocator);
         self.inlined.deinit(self.allocator);
         self.frame_sizes.deinit(self.allocator);
+        self.inline_decls.deinit(self.allocator);
+        self.inline_frames.deinit(self.allocator);
+        self.inline_heights.deinit(self.allocator);
+        self.inline_calls.deinit(self.allocator);
         self.frame_owners.deinit(self.allocator);
         self.frame_calls.deinit(self.allocator);
         self.call_index.deinit(self.allocator);
         self.call_targets.deinit(self.allocator);
         self.large_frames.deinit(self.allocator);
         self.large_foreign_frames.deinit(self.allocator);
+        self.text_tables.deinit(self.allocator);
+        self.foreign_text_tables.deinit(self.allocator);
         self.inlined_calls.deinit(self.allocator);
         self.write_sites.deinit(self.allocator);
         self.proven.deinit(self.allocator);
@@ -2503,6 +2664,24 @@ pub const SemContext = struct {
         try self.call_targets.put(self.allocator, decisionKey(call) orelse return, target);
     }
 
+    /// A call of a marked `inline` function (`inline_calls`); null for any
+    /// other call.
+    pub fn inlineCallOf(self: *const SemContext, call: Sexp) ?InlineCall {
+        return self.inline_calls.get(decisionKey(call) orelse return null);
+    }
+
+    pub fn recordInlineCall(self: *SemContext, call: Sexp, ic: InlineCall) !void {
+        const a = self.arena.allocator();
+        try self.inline_calls.put(self.allocator, decisionKey(call) orelse return, .{ .fun = ic.fun, .subst = .{ .params = try a.dupe(SymbolId, ic.subst.params), .args = try a.dupe(TypeId, ic.subst.args) } });
+    }
+
+    /// The context of the module that declares `fun`: this one, or one
+    /// it imports.
+    pub fn declaringContext(self: *const SemContext, fun: FnRef) ?*const SemContext {
+        if (fun.module == self.module_id) return self;
+        return self.foreign_semas.get(fun.module);
+    }
+
     /// The frame of owner `owner` with everything inlined into it: the
     /// one reader of a frame's account (`Account`).
     pub fn account(self: *const SemContext, owner: u32) Account {
@@ -2547,6 +2726,20 @@ pub const SemContext = struct {
     /// it gives the `T`, the payload's value copied out where `a` has
     /// one, as `if a as v` then `v` else `b` would (`copiesPayload`); or,
     /// with `copied` false, that it gives the view.
+    /// `node`'s value becomes an optional where it goes (`Lift`), or,
+    /// with null, no longer does: the latest check of the node decides.
+    pub fn recordLift(self: *SemContext, node: Sexp, lift: ?Lift) !void {
+        const key = recordExprKey(node) orelse return;
+        if (lift) |l| {
+            try self.facts.lifts.put(self.allocator, key, l);
+        } else _ = self.facts.lifts.remove(key);
+    }
+
+    /// The optional `node`'s value becomes where it goes (`recordLift`).
+    pub fn liftOf(self: *const SemContext, node: Sexp) ?Lift {
+        return self.facts.lifts.get(exprKey(node) orelse return null);
+    }
+
     pub fn recordPayloadCopy(self: *SemContext, node: Sexp, copied: bool) !void {
         if (copied) {
             try self.facts.payload_copies.put(self.allocator, recordKey(node), {});
@@ -2613,6 +2806,31 @@ pub const SemContext = struct {
 
     pub fn isErrorMember(self: *const SemContext, node: Sexp) bool {
         return self.facts.error_members.contains(nodeKey(node) orelse return false);
+    }
+
+    /// `node`, a `member` `e.text`, is the name of plain enum value
+    /// `e`'s variant, not a field.
+    pub fn recordEnumText(self: *SemContext, node: Sexp) !void {
+        try self.facts.enum_texts.put(self.allocator, recordKey(node), {});
+    }
+
+    pub fn isEnumText(self: *const SemContext, node: Sexp) bool {
+        return self.facts.enum_texts.contains(nodeKey(node) orelse return false);
+    }
+
+    /// The program calls `E.from_text` on plain enum `decl`, so its
+    /// module emits `E`'s table of names (`hasTextTable`). One of
+    /// another module is marked there once every module is checked
+    /// (`modules.ModuleGraph.markTextTables`).
+    pub fn recordTextTable(self: *SemContext, decl: NominalDecl) !void {
+        if (decl.module_id) |m| if (m != self.module_id) {
+            return self.foreign_text_tables.append(self.allocator, .{ .module_id = m, .sym = decl.sym });
+        };
+        try self.text_tables.put(self.allocator, decl.sym, {});
+    }
+
+    pub fn hasTextTable(self: *const SemContext, sym: SymbolId) bool {
+        return self.text_tables.contains(sym);
     }
 
     /// `node`, an optional field or element, could not be taken with
@@ -3129,6 +3347,7 @@ pub const SemContext = struct {
                 f.ct_syms = try self.arena.allocator().dupe(SymbolId, f.ct_syms);
             },
             .parameterized_nominal => |*pn| pn.args = try self.dupeIds(pn.args),
+            .results => |*parts| parts.* = try self.dupeIds(parts.*),
             else => {},
         }
         return self.intern(owned);
@@ -3638,7 +3857,7 @@ pub const Views = packed struct(u4) {
 /// Facts about an interned type, recorded when it is interned
 /// (`SemContext.intern`). The structural facts are always known; the
 /// rest once declarations are resolved (`SemContext.contents_ready`).
-pub const TypeInfo = packed struct(u21) {
+pub const TypeInfo = packed struct(u29) {
     /// Mentions a generic parameter anywhere.
     has_type_var: bool = false,
     /// Holds a generic parameter by value, so whether it owns a resource
@@ -3664,7 +3883,17 @@ pub const TypeInfo = packed struct(u21) {
     any_error: bool = false,
     /// How deeply wrappers and generic instances nest in it (saturating).
     depth: u8 = 0,
+    /// How deeply every type built from others nests in it, a function's
+    /// parameters and result too (saturating): what a walk over the type's
+    /// structure nests (`max_alias_height`).
+    height: u8 = 0,
 };
+
+/// How deeply the type a `type` alias names may nest (`TypeInfo.height`).
+/// A type written out nests no deeper than its expression, which the
+/// parser bounds; aliases, each naming the next, would nest one in another
+/// without end, and every walk over a type's structure with them.
+pub const max_alias_height = 200;
 
 /// The fields a member holds by value: a data field itself, or a
 /// variant's payload fields. Methods hold nothing.
@@ -3776,6 +4005,20 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
                 h.type_var = h.type_var or arg.type_var;
                 h.vector = h.vector or arg.vector;
                 h.any_error = h.any_error or arg.any_error;
+            }
+            break :blk h;
+        },
+        // Several results hold what each of them holds, as an object
+        // holds what its fields do.
+        .results => |parts| blk: {
+            var h: Holds = .{ .plain = true };
+            for (parts) |part| {
+                const r = try holdsIn(ctx, part, params, held);
+                h.glue = h.glue or r.glue;
+                h.plain = h.plain and r.plain;
+                h.type_var = h.type_var or r.type_var;
+                h.vector = h.vector or r.vector;
+                h.any_error = h.any_error or r.any_error;
             }
             break :blk h;
         },
@@ -3914,6 +4157,11 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
             }
             break :blk r;
         },
+        .results => |parts| blk: {
+            var r: Reach = .{};
+            for (parts) |part| r = r.with(try reachOf(ctx, part, mask, into));
+            break :blk r;
+        },
         else => .{},
     };
     return r.within(mask);
@@ -3925,18 +4173,21 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
     const ty = ctx.types.get(id);
     var info: TypeInfo = .{ .has_type_var = ty == .type_var or ty == .ct_param, .poison = ty == .invalid or ty == .unknown };
     var deepest: ?u8 = null;
+    var highest: ?u8 = null;
     var it: TypeChildren = .{ .ty = ty };
     while (it.next()) |c| {
         const ci = ctx.type_info.items[c];
         info.has_type_var = info.has_type_var or ci.has_type_var;
         info.poison = info.poison or ci.poison;
         deepest = @max(deepest orelse 0, ci.depth);
+        highest = @max(highest orelse 0, ci.height);
     }
     info.depth = switch (ty) {
         .function => 0,
         .parameterized_nominal => (deepest orelse 0) +| 1,
         else => if (deepest) |d| d +| 1 else 0,
     };
+    info.height = if (highest) |h| h +| 1 else 0;
     if (!ctx.contents_ready) return info;
     var no_params: [0]bool = .{};
     const h = try holdsIn(ctx, id, &.{}, &no_params);
@@ -4158,6 +4409,7 @@ pub const TypeChildren = struct {
             .simd => |v| if (i == 0) v.elem else if (i == 1) v.len else null,
             .function => |f| if (i < f.params.len) f.params[i] else if (i == f.params.len) f.returns else null,
             .parameterized_nominal => |pn| if (i < pn.args.len) pn.args[i] else null,
+            .results => |parts| if (i < parts.len) parts[i] else null,
             else => null,
         };
     }
@@ -4248,7 +4500,73 @@ pub fn maskBytes(n: u64) u64 {
 /// when that depends on a generic parameter or follows an error, such as
 /// holding a type reported too large.
 pub fn minBytes(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?u128 {
+    try sizeHeld(ctx, ty);
     return minBytesOf(ctx, ty, true);
+}
+
+/// A type `sizeHeld` sizes once the types it holds (`parts`, from `next`
+/// on) are sized.
+const SizePending = struct { ty: TypeId, parts: []const TypeId, next: usize = 0 };
+
+/// Sizes the types `ty` holds before `ty`, deepest first, so that
+/// `minBytesOf` finds each sized and does not nest through a chain of
+/// types, each holding the next: a generic one's instances are sized
+/// here, where `checkTypeSizes` sizes declared ones in order. The walk
+/// keeps a stack of its own; a type met again on it, on a cycle, is
+/// left to `minBytesOf`, which finds such a type no size.
+fn sizeHeld(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!void {
+    if (ctx.byte_sizes.contains(ty)) return;
+    var arena = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var open: std.AutoHashMapUnmanaged(TypeId, void) = .empty;
+    var stack: std.ArrayList(SizePending) = .empty;
+    try open.put(a, ty, {});
+    try stack.append(a, .{ .ty = ty, .parts = try sizedParts(ctx, a, ty) });
+    while (stack.items.len > 0) {
+        const top = &stack.items[stack.items.len - 1];
+        if (top.next < top.parts.len) {
+            const part = top.parts[top.next];
+            top.next += 1;
+            if (ctx.byte_sizes.contains(part) or ctx.oversized.contains(part)) continue;
+            if ((try open.getOrPut(a, part)).found_existing) continue;
+            try stack.append(a, .{ .ty = part, .parts = try sizedParts(ctx, a, part) });
+            continue;
+        }
+        const done = stack.pop().?.ty;
+        if (done != ty) _ = try minBytesOf(ctx, done, false);
+    }
+}
+
+/// The types `minBytesOf` sizes `ty` from: an optional's, array's, or
+/// vector's element, a Signal's value, and the fields and payloads of a
+/// declared type or a generic instance, in it.
+fn sizedParts(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId) std.mem.Allocator.Error![]const TypeId {
+    var out: std.ArrayList(TypeId) = .empty;
+    const fieldsOf = struct {
+        fn add(c: *SemContext, al: std.mem.Allocator, list: *std.ArrayList(TypeId), sym: SymbolId, subst: TypeSubst) std.mem.Allocator.Error!void {
+            if (c.symbols.items[sym].contents.cyclic) return;
+            for (c.symbols.items[sym].fields orelse &.{}) |f| {
+                if (f.is_method or f.is_drop_method) continue;
+                if (f.is_variant) {
+                    for (f.payload orelse &.{}) |p| try list.append(al, try substituteType(c, p.ty, subst));
+                } else try list.append(al, try substituteType(c, f.ty, subst));
+            }
+        }
+    }.add;
+    switch (ctx.types.get(ty)) {
+        .optional => |inner| try out.append(a, inner),
+        .array => |arr| try out.append(a, arr.elem),
+        .simd => |v| try out.append(a, v.elem),
+        .nominal => |sym| try fieldsOf(ctx, a, &out, sym, .empty),
+        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id or pn.sym == ctx.box_sym_id) {
+            // A List and a box are sized without what they hold.
+        } else if (pn.sym == ctx.signal_sym_id) {
+            try out.append(a, pn.args[0]);
+        } else try fieldsOf(ctx, a, &out, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
+        else => {},
+    }
+    return out.items;
 }
 
 fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?u128 {
@@ -4302,6 +4620,12 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             const v = (try minBytesOf(ctx, pn.args[0], false)) orelse break :blk null;
             break :blk 2 *| v +| 2 +| 24;
         } else try fieldBytes(ctx, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
+        // Several results are held together, as an object's fields are.
+        .results => |parts| blk: {
+            var total: u128 = 0;
+            for (parts) |part| total +|= (try minBytesOf(ctx, part, false)) orelse break :blk null;
+            break :blk total;
+        },
         else => 8,
     };
     try ctx.byte_sizes.put(ctx.allocator, ty, bytes);
@@ -4631,6 +4955,40 @@ fn collectErrorSets(ctx: *SemContext, in: *const SemContext, module_id: ?u32, na
     }
 }
 
+/// An object: a type declared `obj`, generic or not, in Rig. Not an
+/// enum, an error set, or a built-in type.
+pub fn isObject(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .nominal => |sym| isObjectSym(ctx, sym),
+        .parameterized_nominal => |pn| isObjectSym(ctx, pn.sym),
+        .imported_nominal => |n| isObjectSym(ctx.foreign_semas.get(n.module_id) orelse return false, n.sym_id),
+        else => false,
+    };
+}
+
+/// `isObject` of the type `sym` declares.
+pub fn isObjectSym(ctx: *const SemContext, sym_id: SymbolId) bool {
+    if (sym_id >= ctx.symbols.items.len) return false;
+    const sym = ctx.symbols.items[sym_id];
+    if (isProxy(sym)) return isObjectSym(ctx.foreign_semas.get(sym.from.module_id) orelse return false, sym.from.sym);
+    if (sym.decl_pos == builtin_decl_pos or sym.flags.error_set) return false;
+    if (sym.kind != .nominal_type and sym.kind != .generic_type) return false;
+    for (sym.fields orelse return false) |f| if (f.is_variant) return false;
+    return true;
+}
+
+/// Whether a `T?` of payload `inner` is written `rig.Opt(T)`, and every
+/// operation on it goes through the runtime's optional helpers (`some`,
+/// `somePtr`, `pack`): where its representation may differ from Zig's
+/// `?T`. A type parameter's may, since its instance decides; under
+/// `RIG_STRICT_OPTIONALS` (`strict`), so does every object's.
+pub fn optionalRouted(ctx: *const SemContext, inner: TypeId, strict: bool) bool {
+    return switch (ctx.types.get(inner)) {
+        .type_var => true,
+        else => strict and isObject(ctx, inner),
+    };
+}
+
 /// An enum all of whose variants are bare (no payloads): comparable
 /// with `==`.
 pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
@@ -4643,6 +5001,35 @@ pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
         if (f.payload != null and f.payload.?.len > 0) return false;
     }
     return any;
+}
+
+/// For an enum type (not an error set), read through views, whether its
+/// values are integers (`Int(x)`): true for a plain enum, false for one
+/// with payload variants or type parameters; null for any other type.
+pub fn enumValues(ctx: *const SemContext, ty: TypeId) ?bool {
+    const decl = nominalDecl(ctx, unwrapViews(ctx, ty)) orelse return null;
+    const sym = decl.symbol();
+    if (sym.flags.error_set) return null;
+    const fields = sym.fields orelse return null;
+    var any = false;
+    for (fields) |f| {
+        if (!f.is_variant) continue;
+        any = true;
+        if (f.value == null) return false;
+    }
+    return if (any) true else null;
+}
+
+/// A declared enum whose values are integers (`enumValues`), itself and
+/// not a view of one: `<`, `<=`, `>`, and `>=` order its values by those
+/// integers. A built-in enum (`Endian`, `Arch`) has no integer values.
+pub fn isOrderedEnum(ctx: *const SemContext, ty: TypeId) bool {
+    switch (ctx.types.get(ty)) {
+        .nominal => |sym| if (isBuiltinEnum(ctx, sym)) return false,
+        .imported_nominal => {},
+        else => return false,
+    }
+    return enumValues(ctx, ty) orelse false;
 }
 
 /// Why values of a type have no `==`: the type that lacks it, found
@@ -4977,6 +5364,16 @@ pub fn assignWritesThrough(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.types.get(ty) == .write_view;
 }
 
+/// The type a store through write view `ty` writes: the `T` of `!T`,
+/// one view peeled, so a `T` that is itself a view (`!?P`) is re-pointed,
+/// not replaced. Any other type is its own.
+pub fn writtenThrough(ctx: *const SemContext, ty: TypeId) TypeId {
+    return switch (ctx.types.get(ty)) {
+        .write_view => |inner| inner,
+        else => ty,
+    };
+}
+
 /// The element type of a writable slice `![]T`; null for any other type.
 pub fn writeSliceElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
@@ -5166,6 +5563,13 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
             for (pn.args) |a| try args.append(ctx.allocator, try substituteType(ctx, a, subst));
             if (std.mem.eql(TypeId, args.items, pn.args)) return ty_id;
             return ctx.internCopy(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args.items } });
+        },
+        .results => |parts| {
+            var out: std.ArrayList(TypeId) = .empty;
+            defer out.deinit(ctx.allocator);
+            for (parts) |part| try out.append(ctx.allocator, try substituteType(ctx, part, subst));
+            if (std.mem.eql(TypeId, out.items, parts)) return ty_id;
+            return ctx.internCopy(.{ .results = out.items });
         },
         else => return ty_id,
     }
@@ -5592,6 +5996,8 @@ fn ownedParts(node: ViewNode, f: anytype) std.mem.Allocator.Error!void {
                 for (dataFields(fld)) |d| try f.visit(.{ .ctx = ctx, .ty = d.ty, .args = .{ .ctx = ctx, .tys = pn.args } });
             }
         },
+        // Several results are held as an object's fields are.
+        .results => |parts| for (parts) |part| try f.visit(.{ .ctx = ctx, .ty = part, .args = node.args }),
         else => {},
     }
 }
@@ -5603,10 +6009,13 @@ fn ownedParts(node: ViewNode, f: anytype) std.mem.Allocator.Error!void {
 /// not known points anywhere.
 pub fn viewTargets(ctx: *const SemContext, a: std.mem.Allocator, view: TypeId) std.mem.Allocator.Error!ViewTargets {
     var w: TargetWalk = .{ .a = a };
-    try w.visit(.{ .ctx = ctx, .ty = view });
+    try w.walk(.{ .ctx = ctx, .ty = view });
     return w.out;
 }
 
+/// Each walk visits a type and those it holds in the order a recursive
+/// walk would, but with a stack of its own (`todo`): a chain of types,
+/// each holding the next, is as long as the program makes it.
 const TargetWalk = struct {
     a: std.mem.Allocator,
     out: ViewTargets = .{},
@@ -5614,8 +6023,39 @@ const TargetWalk = struct {
     /// Only the views of written memory: storage a write view leads to.
     written_only: bool = false,
     written: bool = false,
+    /// The types still to visit, the next on top, each with whether a
+    /// write view leads to it.
+    todo: std.ArrayList(Pending) = .empty,
 
     const SeenKey = struct { ctx: usize, ty: TypeId, args: usize, written: bool };
+    const Pending = struct { node: ViewNode, written: bool };
+
+    /// Visits `node` and every type it holds.
+    fn walk(self: *TargetWalk, node: ViewNode) std.mem.Allocator.Error!void {
+        try self.todo.append(self.a, .{ .node = node, .written = false });
+        while (self.todo.pop()) |next| {
+            self.written = next.written;
+            const mark = self.todo.items.len;
+            try self.visit(next.node);
+            // The first type `visit` found is visited first.
+            std.mem.reverse(Pending, self.todo.items[mark..]);
+        }
+        self.written = false;
+    }
+
+    /// `node`, to visit after the type being visited, through a write
+    /// view when `written`.
+    fn push(self: *TargetWalk, node: ViewNode, written: bool) std.mem.Allocator.Error!void {
+        try self.todo.append(self.a, .{ .node = node, .written = written });
+    }
+
+    /// What `ownedParts` passes each type it finds to: `push`.
+    const Parts = struct {
+        w: *TargetWalk,
+        fn visit(p: Parts, node: ViewNode) std.mem.Allocator.Error!void {
+            try p.w.push(node, p.w.written);
+        }
+    };
 
     fn target(self: *TargetWalk, node: ViewNode) std.mem.Allocator.Error!void {
         const ctx = node.ctx;
@@ -5623,7 +6063,12 @@ const TargetWalk = struct {
             .type_var => if (node.args) |args| {
                 for (args.tys) |t| switch (args.ctx.types.get(t)) {
                     .type_var, .invalid, .unknown => self.out.any = true,
-                    else => try self.target(.{ .ctx = args.ctx, .ty = t, .elem = node.elem }),
+                    else => {
+                        try self.target(.{ .ctx = args.ctx, .ty = t, .elem = node.elem });
+                        // A read view of a `T` that is `String` is a
+                        // `?String`, which views the text's bytes.
+                        if (!node.elem and t == args.ctx.types.string_id) self.out.bytes = true;
+                    },
                 };
             } else {
                 self.out.any = true;
@@ -5659,19 +6104,20 @@ const TargetWalk = struct {
         switch (t) {
             .write_view => |inner| if (self.written_only) {
                 // What a write view leads to may be written.
-                const saved = self.written;
-                defer self.written = saved;
-                self.written = true;
                 const elem = switch (ctx.types.get(inner)) {
                     .slice => |sl| sl.elem,
                     else => inner,
                 };
-                return self.visit(.{ .ctx = ctx, .ty = elem, .args = node.args });
+                return self.push(.{ .ctx = ctx, .ty = elem, .args = node.args }, true);
             },
-            .type_var => if (node.args) |args| {
-                if (self.written_only and !self.written) return;
-                // The instance's arguments, read where it is.
-                for (args.tys) |arg| try self.visit(.{ .ctx = args.ctx, .ty = arg });
+            // In a generic type's field, a type parameter stands for the
+            // instance's arguments, which `ownedParts` walked where the
+            // instance is, each in the context that gives its own type
+            // parameters theirs: walked again here, out of that context,
+            // an argument that is itself a type parameter (`Entry[K, V]`
+            // in a `Map[K, V]`'s field) would stand for anything.
+            .type_var => if (node.args != null) {
+                return;
             } else if (!self.written_only or self.written) {
                 self.out.any = true;
             },
@@ -5684,7 +6130,7 @@ const TargetWalk = struct {
         // Each type is walked once per context.
         const key: SeenKey = .{ .ctx = @intFromPtr(ctx), .ty = node.ty, .args = if (node.args) |args| @intFromPtr(args.tys.ptr) else 0, .written = self.written };
         if ((try self.seen.getOrPut(self.a, key)).found_existing) return;
-        try ownedParts(node, self);
+        try ownedParts(node, Parts{ .w = self });
     }
 };
 
@@ -5695,7 +6141,7 @@ const TargetWalk = struct {
 /// views lead to counts; what a read view leads to is never written.
 pub fn storeTargets(ctx: *const SemContext, a: std.mem.Allocator, params: []const TypeId) std.mem.Allocator.Error!ViewTargets {
     var w: TargetWalk = .{ .a = a, .written_only = true };
-    for (params) |p| try w.visit(.{ .ctx = ctx, .ty = p });
+    for (params) |p| try w.walk(.{ .ctx = ctx, .ty = p });
     return w.out;
 }
 
@@ -5817,13 +6263,70 @@ pub fn defaultOrigins(ctx: *const SemContext, a: std.mem.Allocator, f: FunctionT
     return o;
 }
 
+/// Whether a parameter of type `ty` is lent: a view (`isViewType`), or
+/// an optional of one. A call keeps a lent parameter only where its
+/// declaration's `keeps` names it (Core sentence 7); any other parameter
+/// is taken by value, the callee's, and kept wherever its type fits.
+pub fn lentParam(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .optional => |inner| isViewType(ctx, inner),
+        else => isViewType(ctx, ty),
+    };
+}
+
+/// Whether `ty` is a view: a `?T`, `!T`, `[]T` (a `![]T` is a `!T`),
+/// or `?String`.
+pub fn isViewType(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .read_view, .write_view, .slice, .string_view => true,
+        else => false,
+    };
+}
+
 /// The origins of function `name`, declared at `pos` with type `f`:
 /// its signature's (`defaultOrigins`), with the result's narrowed to the
-/// parameters its `from` clause names. A name that is no parameter, or
-/// one whose type cannot hold what the result views, is reported, as is
-/// a clause on a result that views nothing.
-fn declOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType) std.mem.Allocator.Error!Origins {
+/// parameters its `from` clause names, and the stores to its by-value
+/// parameters and the lent ones its `keeps` clause names (`declKeeps`).
+/// A name that is no parameter, or one whose type cannot hold what the
+/// result views, is reported, as is a clause on a result that views
+/// nothing.
+fn declOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType, param_names: ?[]const []const u8) std.mem.Allocator.Error!Origins {
+    const o = try declaredOrigins(ctx, a, name, pos, f);
+    if (resultsOf(ctx, f.returns)) |parts| try checkResultViews(ctx, a, name, pos, f, parts, o.result, param_names orelse &.{});
+    return o;
+}
+
+/// Several results of one function, `parts`, whose call's results carry
+/// the parameters of `mask`: a write view among them (one at most,
+/// `resolveResults`) views alone what it views while it lives (Core
+/// sentence 5), so no other result may view a parameter it may view.
+/// Reported at the declaration.
+fn checkResultViews(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType, parts: []const TypeId, mask: ParamMask, param_names: []const []const u8) std.mem.Allocator.Error!void {
+    const masks = try a.alloc(ParamMask, parts.len);
+    for (parts, masks) |part, *m| {
+        m.* = 0;
+        const targets = try viewTargets(ctx, a, part);
+        for (f.params, 0..) |p, i| {
+            if (mask & paramBit(i) == 0) continue;
+            if (try reachTargets(ctx, a, p, targets, .views) != .none) m.* |= paramBit(i);
+        }
+    }
+    for (parts, masks, 0..) |part, m, i| {
+        if (ctx.types.get(unwrapOptionals(ctx, part)) != .write_view) continue;
+        for (masks, 0..) |other, k| {
+            if (k == i or m & other == 0) continue;
+            const pi = @ctz(m & other);
+            const pname = if (pi < param_names.len) param_names[pi] else "a parameter";
+            try ctx.err(pos, "`{s}` gives a write view and another result, `{s}`, that could both view `{s}`: while the write view lives, nothing else may view what it writes", .{ name, try formatType(ctx, parts[k]), pname });
+            return;
+        }
+    }
+}
+
+/// `declOrigins` without the check of several results.
+fn declaredOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType) std.mem.Allocator.Error!Origins {
     var o = try defaultOrigins(ctx, a, f);
+    try declKeeps(ctx, name, pos, f, &o);
     const d = ctx.declared_origins.get(pos) orelse return o;
     const results = try viewTargets(ctx, a, f.returns);
     if (results.isEmpty()) {
@@ -5852,6 +6355,45 @@ fn declOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u3
     return o;
 }
 
+/// Narrow `o.stores` to the parameters a call of function `name`,
+/// declared at `pos` with type `f`, keeps: each taken by value whose
+/// type could hold what its write parameters lead to (`defaultOrigins`),
+/// and each lent one (`lentParam`) its `keeps` clause names. A name that
+/// is no parameter, one taken by value, one nothing the function writes
+/// could hold, and one named twice are reported.
+fn declKeeps(ctx: *SemContext, name: []const u8, pos: u32, f: FunctionType, o: *Origins) std.mem.Allocator.Error!void {
+    for (f.params, 0..) |p, i| {
+        if (lentParam(ctx, p)) o.lent |= paramBit(i);
+    }
+    var named: ParamMask = 0;
+    if (ctx.declared_keeps.get(pos)) |d| {
+        for (d.names.items()) |n| {
+            const text = identAt(ctx.source, n) orelse continue;
+            const i = for (d.params.items(), 0..) |p, i| {
+                if (paramName(ctx.source, p)) |pn| if (std.mem.eql(u8, pn, text)) break i;
+            } else {
+                try ctx.errAt(n, "`{s}` has no parameter `{s}`; `keeps` names lent parameters, `self` among them", .{ name, text });
+                continue;
+            };
+            if (i >= f.params.len) continue;
+            if (named & paramBit(i) != 0) {
+                try ctx.errAt(n, "`keeps {s}`: `{s}` is named twice", .{ text, text });
+                continue;
+            }
+            if (!lentParam(ctx, f.params[i])) {
+                try ctx.errAt(n, "`keeps {s}`: `{s}` is taken by value, so the callee owns it already", .{ text, text });
+                continue;
+            }
+            if (o.stores & paramBit(i) == 0) {
+                try ctx.errAt(n, "`keeps {s}`: `{s}` takes nothing to write that could hold it", .{ text, name });
+                continue;
+            }
+            named |= paramBit(i);
+        }
+    }
+    o.stores &= ~o.lent | named;
+}
+
 /// Set the origins of every function and method this module declares
 /// (`defaultOrigins`); the built-in generics' methods keep every
 /// argument's loans.
@@ -5866,7 +6408,7 @@ fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
                     .function => |f| f,
                     else => continue,
                 };
-                sym.origins = try declOrigins(ctx, scratch.allocator(), sym.name, sym.decl_pos, f);
+                sym.origins = try declOrigins(ctx, scratch.allocator(), sym.name, sym.decl_pos, f, sym.param_names);
                 _ = scratch.reset(.retain_capacity);
             },
             .nominal_type, .generic_type => {
@@ -5878,7 +6420,7 @@ fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
                         .function => |f| f,
                         else => continue,
                     };
-                    fld.origins = try declOrigins(ctx, scratch.allocator(), fld.name, fld.decl_pos, f);
+                    fld.origins = try declOrigins(ctx, scratch.allocator(), fld.name, fld.decl_pos, f, fld.param_names);
                     _ = scratch.reset(.retain_capacity);
                 }
                 sym.fields = out;
@@ -5886,6 +6428,19 @@ fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
             else => {},
         }
     }
+}
+
+/// The types of the several results `ty` gives, `(A, B)`, also inside
+/// one `T!` or `T?` (`(A, B)!`, `(A, B)?`); null for any other type.
+pub fn resultsOf(ctx: *const SemContext, ty: TypeId) ?[]const TypeId {
+    const t = switch (ctx.types.get(ty)) {
+        .fallible, .optional => |inner| inner,
+        else => ty,
+    };
+    return switch (ctx.types.get(t)) {
+        .results => |parts| parts,
+        else => null,
+    };
 }
 
 /// Whether a value of `ty` holds a write view, which is unique.
@@ -6270,6 +6825,12 @@ pub fn importType(
             for (pn.args) |a| try args.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, a, origin_module_id));
             return local_ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym, .args = args.items } });
         },
+        .results => |parts| {
+            var out: std.ArrayList(TypeId) = .empty;
+            defer out.deinit(local_ctx.allocator);
+            for (parts) |part| try out.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, part, origin_module_id));
+            return local_ctx.internCopy(.{ .results = out.items });
+        },
         inline .type_var, .ct_param => |sym, tag| {
             const p = try proxyOf(local_ctx, .{ .module_id = origin_module_id, .sym = sym });
             if (p == symbol_invalid) return local_ctx.types.invalid_id;
@@ -6319,16 +6880,46 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
     });
     // Recorded first: the members of a generic type name the type.
     try ctx.imported.put(ctx.allocator, origin, id);
-    if (!generic) {
+    // Past `max_import_depth` nested imports, the proxy is filled in
+    // later, by the outermost import, which fills each in turn: a chain
+    // of generics, each naming the next, would nest once per link.
+    if (ctx.import_depth >= max_import_depth) {
+        try ctx.import_pending.append(ctx.allocator, .{ .id = id, .origin = origin });
+        return id;
+    }
+    ctx.import_depth += 1;
+    defer ctx.import_depth -= 1;
+    try fillProxy(ctx, id, origin);
+    if (ctx.import_depth == 1) while (ctx.import_pending.pop()) |p| try fillProxy(ctx, p.id, p.origin);
+    return id;
+}
+
+/// How many imports `importSymbol` nests before it leaves the rest to the
+/// outermost one.
+const max_import_depth = 64;
+
+/// A proxy `importSymbol` made and has yet to fill in.
+pub const PendingProxy = struct { id: SymbolId, origin: ForeignRef };
+
+/// Fill in the proxy `id` of `origin`: a parameter's type and what its
+/// declaring module's bodies record of it, or a generic type's parameters
+/// and members. Only the outermost import reads a proxy, once every one
+/// it made is filled in; the facts of a type that names one, as it is
+/// made, read only its contents, copied when the proxy is made.
+fn fillProxy(ctx: *SemContext, id: SymbolId, origin: ForeignRef) std.mem.Allocator.Error!void {
+    const foreign = ctx.foreign_semas.get(origin.module_id).?;
+    const fsym = foreign.symbols.items[origin.sym];
+    const a = ctx.arena.allocator();
+    if (fsym.kind != .generic_type) {
         ctx.symbols.items[id].ty = try importType(ctx, foreign, fsym.ty, origin.module_id);
         try importParam(ctx, id, origin);
-        return id;
+        return;
     }
     const params = fsym.type_params orelse &.{};
     const tps = try a.alloc(SymbolId, params.len);
     for (params, tps) |tp, *out| out.* = try proxyOf(ctx, .{ .module_id = origin.module_id, .sym = tp });
     ctx.symbols.items[id].type_params = tps;
-    const fields = fsym.fields orelse return id;
+    const fields = fsym.fields orelse return;
     const out = try a.alloc(Field, fields.len);
     for (fields, out) |f, *o| {
         o.* = f;
@@ -6342,7 +6933,6 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
         o.payload = typed;
     }
     ctx.symbols.items[id].fields = out;
-    return id;
 }
 
 /// Copy to `proxy` what the declaring module's bodies record about the
@@ -6370,7 +6960,7 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         const fr = foreign.generic_frames.items[i];
         const tys = try a.alloc(TypeId, fr.tys.len);
         for (fr.tys, tys) |t, *out| out.* = try importType(ctx, foreign, t, m);
-        try ctx.addGeneric(.frames, .{ .label = fr.label, .pos = fr.pos, .tys = tys, .names = fr.names, .copies = fr.copies, .module_id = if (fr.module_id == 0) m else fr.module_id });
+        try ctx.addGeneric(.frames, .{ .label = fr.label, .pos = fr.pos, .tys = tys, .names = fr.names, .copies = fr.copies, .marked = fr.marked, .marked_copies = fr.marked_copies, .params = fr.params, .module_id = if (fr.module_id == 0) m else fr.module_id });
     }
     for (foreign.paramEntries(.fn_uses, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .fn_uses, i)) continue;
@@ -6692,9 +7282,11 @@ pub const type_param_mark = 0;
 
 /// `formatTypeIn` with each type parameter, or compile-time value
 /// parameter, written as its symbol id between two `type_param_mark`
-/// bytes (`List[\x003\x00]`), for a spelling completed per instance: the
-/// emitter fills each in (`@name(T)`). A spelling with no mark names
-/// one type.
+/// bytes (`List[\x003\x00]`), and each type whose spelling depends on
+/// the one a parameter stands for (`spelledPerInstance`) as `t` and its
+/// type id (`List[\x00t9\x00]` for `List[T?]`), for a spelling
+/// completed per instance: the emitter fills each in (`@name(T)`). A
+/// spelling with no mark names one type.
 pub fn formatTypeMarked(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
     return (TypePrinter{ .ctx = ctx, .a = a, .marked = true }).id(ty_id);
 }
@@ -6718,6 +7310,8 @@ const TypePrinter = struct {
     marked: bool = false,
 
     fn id(p: TypePrinter, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
+        // Marked whole, as `t` and its id, for the instance to spell.
+        if (p.marked and spelledPerInstance(p.ctx, ty_id)) return p.a.print("{c}t{d}{c}", .{ type_param_mark, ty_id, type_param_mark });
         return p.value(p.ctx.types.get(ty_id));
     }
 
@@ -6764,6 +7358,7 @@ const TypePrinter = struct {
                 try p.instance(ctx.symbols.items[pn.sym].name, try p.list(pn.args)),
             .type_var, .ct_param => |sym| try p.param(sym),
             .ct_value => |v| try a.print("{d}", .{v.int}),
+            .results => |parts| try a.print("({s})", .{try p.list(parts)}),
         };
     }
 
@@ -6828,6 +7423,32 @@ const TypePrinter = struct {
         };
     }
 };
+
+/// Whether the printer's spelling of `ty` depends on the type a type
+/// parameter in it stands for: a suffix after one, which `(T?)?` and
+/// `(fun() -> Int)?` put in parentheses (`TypePrinter.suffixed`), or a
+/// handle's sigil before one, which `*(T?)` does (`TypePrinter.handle`).
+/// A marked spelling leaves such a type to each instance whole
+/// (`rig.typeName`), which spells it by the same rules.
+fn spelledPerInstance(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .optional, .fallible => |inner| paramOperand(ctx, inner),
+        .shared, .weak => |inner| ctx.types.get(inner) == .type_var,
+        .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id and pn.args.len == 1 and ctx.types.get(pn.args[0]) == .type_var,
+        else => false,
+    };
+}
+
+/// A type parameter, or a handle or box of one, whose spelling a suffix
+/// may need parentheses around (`takesNoSuffix`).
+fn paramOperand(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .type_var => true,
+        .shared, .weak => |inner| paramOperand(ctx, inner),
+        .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id and pn.args.len == 1 and paramOperand(ctx, pn.args[0]),
+        else => false,
+    };
+}
 
 /// Types separated by `, `.
 fn formatTypeList(ctx: *const SemContext, a: std.mem.Allocator, ids: []const TypeId) std.mem.Allocator.Error![]const u8 {
@@ -7588,13 +8209,13 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
     const tag = node.kind() orelse return .none;
     return switch (tag) {
         // Declarations and their parts.
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .called, .rarely, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
-        .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
+        .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
         // Types.
-        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed => .none,
+        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .fails, .unique, .fixed => .none,
         .@"return", .@"break", .@"continue" => .jump,
         .read, .write => .lend,
         .member, .index => .path,
@@ -7602,7 +8223,9 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // A loop, labeled or not, is a value when a `break` leaves it
         // with one.
         .@"while", .@"for", .labeled => if (hasValueBreaks(source, node)) .made else .none,
-        .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .array, .array_fill, .move, .clone, .share, .box, .weak => .made,
+        // A destructure's target takes its result out of the statement's
+        // temporary, whole, as a binding takes a call's result.
+        .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .array, .array_fill, .tuple, .result_part, .move, .clone, .share, .box, .weak => .made,
         .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
     };
 }
@@ -8663,7 +9286,7 @@ test "facts: captures, parameters, and self resolve to their symbols" {
         \\    self.n
         \\
         \\sub main()
-        \\  const s = "hi"
+        \\  s =! "hi"
         \\  f = |+s|
         \\    print(s)
         \\  f()
@@ -8842,8 +9465,11 @@ test "origins: a result carries what could hold what it views" {
         \\fun pick(s: ?String, t: ?String, n: Int, u: ?Item) -> ?String
         \\  s
         \\
-        \\sub fill(h: !Holder, x: []Int, k: Int, s: ?String)
+        \\sub fill(h: !Holder, x: []Int, k: Int, s: ?String) keeps x
         \\  h.r = x
+        \\
+        \\sub peek(h: !Holder, x: []Int, t: Holder)
+        \\  print(h.r.len, x.len, t.r.len)
         \\
         \\fun same[T](a: ?T, k: Int) -> ?T
         \\  a
@@ -8859,8 +9485,13 @@ test "origins: a result carries what could hold what it views" {
     try std.testing.expectEqual(@as(ParamMask, 0), o(&r, "at").stores);
     try std.testing.expectEqual(@as(ParamMask, 0b11), o(&r, "first").result);
     try std.testing.expectEqual(@as(ParamMask, 0b0011), o(&r, "pick").result);
-    // `fill` may store `x` in `h.r`; a number or a `?String` it cannot.
-    try std.testing.expectEqual(@as(ParamMask, 0b0011), o(&r, "fill").stores);
+    // `fill` keeps the lent `x`, as it says; a number or a `?String` it
+    // cannot store, and `h` it is lent only to write into.
+    try std.testing.expectEqual(@as(ParamMask, 0b0010), o(&r, "fill").stores);
+    try std.testing.expectEqual(@as(ParamMask, 0b1011), o(&r, "fill").lent);
+    // `peek` names nothing: of its lent parameters it keeps none, and
+    // `t`, taken by value, it may keep by its type.
+    try std.testing.expectEqual(@as(ParamMask, 0b100), o(&r, "peek").stores);
     // A type parameter could be anything, but a value taken by value is
     // the callee's own.
     try std.testing.expectEqual(@as(ParamMask, 0b01), o(&r, "same").result);
@@ -8997,7 +9628,7 @@ test "symbols: binding flags" {
         \\  print(k)
         \\
         \\sub main()
-        \\  const y = 2
+        \\  y =! 2
         \\  show[y]()
         \\  print(read(?U(n: y)))
         \\
@@ -9805,9 +10436,9 @@ test "a jump in a nested `for` source or `else` names the loop around it" {
         \\      break 6
         \\  else
         \\    0
-        \\  :a while true
-        \\    :a for k in 0..(n ?? break)
-        \\      break :a
+        \\  @a while true
+        \\    @a for k in 0..(n ?? break)
+        \\      break @a
         \\    defer
         \\      break
         \\    f = ||
@@ -9841,7 +10472,7 @@ test "a jump in a nested `for` source or `else` names the loop around it" {
     try std.testing.expectEqual(1, jumps.len);
     try std.testing.expect(jumps.list[0].isKind(.@"continue"));
     try std.testing.expect(!hasValueBreaks(source, inner));
-    // `:a while`: the `break` in the source of the inner `:a for`,
+    // `@a while`: the `break` in the source of the inner `@a for`,
     // not the one in its body, which names it; nothing in a `defer` or a
     // closure.
     n = 0;

@@ -1,0 +1,59 @@
+# `e.text` of a view captured by a closure, a write view passed on, and loop and `as` bindings that are views.
+enum Color
+  red
+  dark_red
+
+sub f(c: !Color)
+  g = |!c| c.text
+  print(g())
+  h = |?c| c.text
+  print(h())
+  k = |+c| c.text
+  print(k())
+
+fun r(c: ?Color) -> Static
+  g = |?c| c.text
+  g()
+
+sub w(c: !Color)
+  inner(!c)
+  for i in 0..1
+    print(c.text, i)
+
+sub inner(c: !Color)
+  print(c.text)
+  c = .red
+
+sub main()
+  c: Color = .dark_red
+  !f(!c)
+  print(r(?c))
+  !w(!c)
+  o: Color? = .dark_red
+  if !o as v
+    print(v.text)
+    v = .red
+  if ?o as v
+    print(v.text)
+  xs = [Color.red, Color.dark_red]
+  for x in ?xs
+    print(x.text)
+  for x in !xs
+    print(x.text)
+  ys: []Color = ?xs
+  print(ys[1].text)
+
+# expect:
+# dark_red
+# dark_red
+# dark_red
+# dark_red
+# dark_red
+# red 0
+# dark_red
+# red
+# red
+# dark_red
+# red
+# dark_red
+# dark_red

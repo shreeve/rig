@@ -13,13 +13,13 @@ obj VH
 obj Src
   items: List[Int]
 
-  sub put(?self, out: !Holder)
+  sub put(?self, out: !Holder) keeps self
     out.r = ?self.items[..]
 
-  sub putw(!self, out: !Holder)
+  sub putw(!self, out: !Holder) keeps self
     out.r = ?self.items[..]
 
-  sub me(?self, out: !VH)
+  sub me(?self, out: !VH) keeps self
     out.s = self
 
 obj Outer
@@ -28,7 +28,7 @@ obj Outer
 obj P
   xs: [2]Int
 
-  sub put(?self, out: !Holder)
+  sub put(?self, out: !Holder) keeps self
     out.r = ?self.xs[..]
 
 obj HV
@@ -52,20 +52,20 @@ sub write_receiver(h: !Holder)
 sub view_of_self(t: ?Src)
   v = VH(s: t)
   s = Src(items: List())
-  s.me(!v)
+  ?s.me(!v)
   <s
   print(v.s.items.len)
 
 sub nested_field(h: !Holder)
   o = Outer(b: Src(items: List()))
   !o.b.items.push(5)
-  o.b.put(!h)
+  ?o.b.put(!h)
   <o
   print(h.r[0])
 
 sub element(h: !Holder)
   ps = [P(xs: [1, 1]), P(xs: [2, 2])]
-  ps[1].put(!h)
+  ?ps[1].put(!h)
   ps[1].xs[0] = 9
   print(h.r[0])
 
@@ -73,7 +73,7 @@ sub through_handle(h: !Holder)
   v: List[Int] = List()
   !v.push(5)
   s = *Src(items: <v)
-  s.put(!h)
+  ?s.put(!h)
   <s
   print(h.r[0])
 
@@ -103,9 +103,9 @@ sub main()
 
 # error: 48:11: cannot let this call store a view of `s` in `h`
 # error: 56:4: cannot drop `s` while it is lent
-# error: 62:11: cannot let this call store a view of `o` in `h`
-# error: 68:13: cannot let this call store a view of `ps` in `h`
-# error: 76:9: cannot let this call store a view of `s` in `h`
+# error: 62:12: cannot let this call store a view of `o` in `h`
+# error: 68:14: cannot let this call store a view of `ps` in `h`
+# error: 76:10: cannot let this call store a view of `s` in `h`
 # error: 84:12: cannot let this call store a view of `y` in `h`
 # error: 89:12: cannot let this call store a view of `mk()` in `h`
 # errors: 7

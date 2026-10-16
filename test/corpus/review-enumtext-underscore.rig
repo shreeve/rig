@@ -1,0 +1,16 @@
+# A variant named `_` (quoted in Zig) round-trips.
+enum Color
+  red
+  _
+  blue
+
+sub main()
+  for c in @variants(Color)
+    print(c, c.text, Color.from_text(c.text) == c)
+  print(Color.from_text("_"), Color.from_text("blue"))
+
+# expect:
+# .red red true
+# ._ _ true
+# .blue blue true
+# ._ .blue

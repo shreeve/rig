@@ -4,7 +4,7 @@ obj Big
 obj View
   b: ?Big
 
-fun put(v: !View, t: ?Big) -> Bool
+fun put(v: !View, t: ?Big) -> Bool keeps t
   v.b = t
   true
 

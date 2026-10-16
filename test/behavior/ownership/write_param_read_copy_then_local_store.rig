@@ -10,7 +10,7 @@ obj K
   a: ?String
   b: ?String
 
-  sub put(!self, v: ?String)
+  sub put(!self, v: ?String) keeps v
     self.b = v
 
 sub plain(w: !H)

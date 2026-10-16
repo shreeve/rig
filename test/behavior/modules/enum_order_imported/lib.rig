@@ -1,0 +1,7 @@
+pub enum Level
+  high = 9
+  low = 1
+  mid = 5
+
+pub fun at_least(l: Level, floor: Level) -> Bool
+  l >= floor

@@ -1,0 +1,22 @@
+# Rule: a lend is written wherever its view may outlast its statement,
+# as when the call it is lent to keeps it (Core sentence 4): a call
+# through a function value keeps what its type could hold (sentence 7),
+# so the lend is written `?t`.
+# From: the keeps Core review (Rust expert).
+
+obj B
+  src: ?String
+  n: Int
+
+sub note(b: !B, s: ?String)
+  b.n += s.len
+
+sub main()
+  b = B(src: "", n: 0)
+  f: ?sub(!B, ?String) = ?note
+  t = String("abc")
+  f(!b, ?t)
+  print(b.n)
+
+# expect:
+# 3

@@ -267,7 +267,7 @@ records every operator spaced so that it could read as another form
 on one side only (`a <b`, `a- 1`), a postfix `?` or `!` apart from what
 it follows, a member `.` with whitespace beside it on its line, an enum
 literal's `.` apart from its name, and a range's `..` apart from its
-only bound. The label of a jump (`break :a !n`) ends no operand there.
+only bound. The label of a jump (`break @a !n`) ends no operand there.
 The Parser wrapper reports them, each with the text to write, once the
 source parses and the tree is rewritten, so a parse error, or a type's
 detached sigil, is the one reported.
@@ -278,7 +278,8 @@ detached sigil, is the one reported.
 | `\|\| body` vs `a \|\| b` | `BAR_EMPTY` vs an error | where an operand starts, an empty bar list; after a value, rejected with a hint (`or`, or `??` before a literal) |
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
 | `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
-| `while c : step` vs `?? break :outer`, `break :outer` | `STEP_COLON` vs `:` | the first `:` at a `while` header's bracket depth starts its step; any other `:` after a jump names a label, and the grammar takes a label after every `break` and `continue` |
+| `while c : step`, `while a ?? break : step` vs `:outer for`, `break :outer` | `STEP_COLON` vs an error | the first `:` at a `while` header's bracket depth starts its step, also right after a jump, unless a name and a second `:` follow it (`?? break :outer : i += 1`, the old spelling); anywhere else, a `:` that starts a statement or follows `break` or `continue` is a label in the old spelling, rejected with a hint (`colon_label`) |
+| `@outer for`, `break @outer`, `break @outer (x)` vs `@size(T)` | `LABEL_AT` vs `@` | `@` and a name that no `(` touches is a label at the start of a line, after another label, or after `break` or `continue`, the places the grammar takes one (not after `=>`, `defer`, or `errdefer`, whose statement is a `simple`); with the `(` touching the name it starts a builtin call, except right after a jump, where `@name` is always a label and the touching `(` is an error (`label_call`). The `@` touches the name (`at_detached`), a keyword is no label (`label_keyword`), a value does not touch a jump's label (`label_touch`), and a bare `@name` anywhere else is the reserved pin sigil (`pin_sigil`). After a jump's label the next token starts an operand |
 | `a ?? return`, `?? break`, `?? continue` vs `a ?? b` | `NULLISH_JUMP` vs `??` | a `??` whose next token is `return`, `break`, or `continue` takes a jump; the grammar reads it at the level of `catch` (`value`), where a jump's value may run to the end of the expression, and the infix `??` never sees a jump |
 | keywords | one token each | every keyword is reserved; `new` only at statement start, `obj` only where a declaration starts, `called` and `rarely` only there before `fun` or `sub` |
 | `called fun g()`, `pub rarely sub s()` vs `called = 3`, `p.rarely`, `fun called()` | `CALLED`, `RARELY` vs `IDENT` | a marker is a keyword at the start of a statement (after any `pub`) when `fun` or `sub` follows it; a second marker before the `fun` is the lexer's `two_markers` error |
@@ -287,6 +288,7 @@ detached sigil, is the one reported.
 | `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
 | `obj Random unique` vs `unique = 3`, `p.unique` | `UNIQUE` vs `IDENT` | `unique` is a keyword only on an `obj` header line, outside brackets, right after the name or the type parameters' `]`, where it fills the `unique` role of `struct` or `generic_struct` |
 | `-> ?T from a, b`, `-> ?String from static` vs `from = 3`, `f(from: 1)` | `FROM`, `STATIC` vs `IDENT` | on the header line of a `fun` or `extern fun`, outside brackets, past the `->` of its result type and right after a value (the type's last token), `from` is a keyword that starts the `origins` list of `fun` or `extern_fun`; `static` is one only right after that `from`. A function type inside the parameters is in brackets, so its `->` starts nothing |
+| `sub watch(!self, s: ?String) keeps s`, `-> T from a keeps s` vs `keeps = 3`, `f(keeps: 1)` | `KEEPS` vs `IDENT` | on the header line of a `fun`, `sub`, method, `extern fun`, `extern sub`, or Zig-backed declaration, outside brackets, right after its parameter list, its result type, its `from` list, or a failing `sub`'s `!`, `keeps` is a keyword that starts the `keeps` list; everywhere else it is a name |
 | `xs[a..]`, `xs[..]` vs `xs[a..b]` | `DOTDOT_OPEN` vs `..` | a `..` whose next token is `]` (past a line break, which is whitespace inside brackets) ends an open range, so `xs[a == b..]` reduces `a == b` before it; a `..` that starts an operand (`xs[..b]`) needs no mark, since no expression starts with one |
 | `t.type`, `(type: 1)`, a member `type: Int`, `fun type()` in a member list, `@type(x)` | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`, and names a builtin after `@`; sema rejects a keyword parameter |
 
@@ -339,11 +341,15 @@ forms to `value`, an expression without blocks or closures (conditions,
   before the rule is asked, so they do not end a chain; the joined line
   produces no `NEWLINE` and no `INDENT`;
 - classifies keywords, the characters read by position, `if`, and
-  closure bars as above;
+  closure bars as above, and a `,` right after `as name` outside
+  brackets as `AS_COMMA`, which joins the names `if f() as a, b` binds:
+  inside brackets that `,` separates arguments or elements, and the
+  parser's state alone cannot tell them apart;
 - rejects `&&`, `||` after a value, `**`, `i++` and `i--`, `//` and
   `/*` comments, and the reserved pin sigil `@x` with a hint, and
-  malformed input where it is written: `=!`, which is no operator (so
-  `x =!y` never passes for `x = !y`), a number with a
+  malformed input where it is written: a `=!` with no space after it
+  (the one place token boundaries could read two ways: `x =!y` is a
+  fixed binding of `y`, or `x = !y`), a number with a
   leading zero or an uppercase radix prefix, a control character in a
   string, and a carriage return without a line feed (a leading byte
   order mark is skipped);
@@ -391,7 +397,7 @@ wrapper also makes the only rewrites that need to inspect the tree:
   member's `Field.is_pub`; `pub` on an enum's variant, a `drop` body,
   or another `pub` is an error;
 - a module-level binding, written `name = value`, is a constant: its
-  `set` gets the `fixed` op, and a module-level `const` is an error;
+  `set` gets the `fixed` op, and a module-level `=!` is an error;
 - a closure's bar-list entries are split into `(captures ...)` and a
   parameter list, and a capture after a parameter is an error;
 - a `for` over an iterator, which typecheck finds, is rewritten into
@@ -561,13 +567,13 @@ A few kinds serve more than one surface form:
   chain with `as` parts, `(and (as a x) (> x 0))`, whose parts every
   pass takes in order (`rig.bindsInCondition`); the emitter nests one
   Zig `if` per part, sharing the `else`.
-- `set`'s `op` is `_` for `=`, `fixed` for `const x =`, `shadow` for
-  `new x =`, `shadow_fixed` for `new const x =`, and the operator for a
+- `set`'s `op` is `_` for `=`, `fixed` for `x =!`, `shadow` for
+  `new x =`, `shadow_fixed` for `new x =!`, and the operator for a
   compound assignment. `rig.bindingKindOf` reads `shadow_fixed` as
-  `fixed`, and `rig.shadows` tells it from `const x =` where a name is
+  `fixed`, and `rig.shadows` tells it from `x =!` where a name is
   declared. A module-level binding is a constant written with `=`;
   the Parser wrapper makes its `op` `fixed`, so every pass reads it as
-  the fixed binding it is, and rejects a module-level `const`.
+  the fixed binding it is, and rejects a module-level `=!`.
 - `for`'s `mode` is `iter` from the grammar; the Parser wrapper turns
   `for x in ?xs` / `!xs` / `<xs` into `read`, `write`, `move`.
 - `arm`'s `guard` is the condition of `pattern if cond =>`, or `_`; its
@@ -578,6 +584,16 @@ A few kinds serve more than one surface form:
   which the checker accepts only when sema recorded it as a member of
   an error set (`E` names the set, through a module or an alias; not a
   module's constant or a value's field) that the subject can hold.
+- Several results ([Several results](#several-results)): the type
+  `(A, B)` is `(results_type A B)`, which the grammar takes anywhere a
+  type goes and sema only after a function's `->`; `return a, b` is
+  `(return (results a b))`; `q, r = f()` is `(destructure op targets
+  value)`, and `if f() as a, b` is `(as_results value names)`. The
+  Parser wrapper makes each target and name but `_` the binding `(set
+  op q _ (result_part))` of the result in its position (`shadow` for an
+  `as` name), so every pass reads it as the `x = e` it is; `_` stays a
+  leaf. `(tuple a b)`, a parenthesized list, and named results, `(q:
+  Int, r: Int)`, parse only to be rejected.
 - `(pass)`, the statement `pass`, has no roles. The checker rejects it
   where a value is needed, and the emitter writes it as `{}`, an empty
   Zig block, which is a statement wherever Zig takes one.
@@ -657,7 +673,7 @@ and types it (a `Bool`, an integer, or a built-in enum).
 `per_target` is the one fact of a value the target sets. The resolver
 records it on a module constant whose initializer names a flagged
 constant, in the order constants are folded (`foldModuleConsts`), and
-the checker on a `const` local; `sema.perTargetLeaf` finds the flagged
+the checker on a `=!` local; `sema.perTargetLeaf` finds the flagged
 name in an expression. No fold gives such a constant a value
 (`ctFoldBy` folds a ternary only on an integer condition), so every
 place that needs one (an array length, a lane count, a compile-time
@@ -856,7 +872,12 @@ tables: an instance made here, and every instance its bodies reach,
 even in a module this one does not import, is expanded, checked against
 the requirements, sized, and ownership-checked here, and a note about
 the body points into the declaring module's file. Import cycles are
-rejected, so a chain of proxies always ends.
+rejected, so a chain of proxies always ends. A proxy is recorded before
+its members and parameters are imported, which may make more; past 64
+nested imports a proxy is filled in later, by the outermost import
+(`importSymbol`), so a chain of generics, each naming the next, does
+not nest once per link. Until then a type naming the proxy reads only
+its contents, which it has from the start.
 
 ## Sema
 
@@ -882,6 +903,10 @@ later pass reads. It runs these steps in order:
    opens one, recorded under that node.
 3. **declarations** (`resolve.resolveDeclarations`): type expressions
    become `TypeId`s: signatures, fields, variants, aliases, constants.
+   An alias is resolved after the aliases its target names, with an
+   explicit stack (`resolveNamedAliases`), and names a type nested at
+   most `sema.max_alias_height` deep (`TypeInfo.height`), which every
+   walk over a type's structure then stays within.
 4. **contents** (`computeContents`, then `checkInfiniteTypes`): what
    each declared type's values hold, computed once all declarations
    are resolved: whether they need drop glue, hold a `Cell` inline,
@@ -895,7 +920,8 @@ later pass reads. It runs these steps in order:
    chain of types. Then a type that holds itself by value is rejected.
 5. **validation** (`checkTypeSizes`, then `resolve.checkDeclarations`):
    every object and enum fits `max_value_bytes`, each sized after the
-   types it holds; then the rules on spelled types that depend on
+   types it holds (a generic instance too, by `minBytes`, which sizes
+   what it holds first with a stack of its own); then the rules on spelled types that depend on
    contents (array and built-in element types, owned-closure
    signatures).
 6. **expressions** (`typecheck.checkModule`): bodies are type-checked
@@ -1327,10 +1353,12 @@ instead of re-deriving it by name:
 | `callParamsOf(call)` | for every call checked against a signature, what fills each parameter (the receiver too) and which arguments the call passes loans on from ([Call origins](#call-origins)) |
 | `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`List[Int]`), or a function's arguments |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
-| `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T` (or vector of numbers); the bracket list is recorded as compile-time arguments (`instanceOf`). Also the methods of an integer's bits (`x.not()`, `x.count_ones()`) and of a vector (`Simd[T, n].splat(x)`, `m.bits()`, `m.select(a, b)`, ...) |
+| `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T` (or vector of numbers); the bracket list is recorded as compile-time arguments (`instanceOf`). Also the methods of an integer's bits (`x.not()`, `x.count_ones()`) and of a vector (`Simd[T, n].splat(x)`, `m.bits()`, `m.select(a, b)`, ...), and the functions of a number type or a plain enum (`I32.wrap(x)`, `Status.from_int(n)`, `Color.from_text(word)`) |
 | `splatOf(node)` | for a scalar operand of a lane-wise operator or of `select`: the vector type it stands for, every lane its value; emit writes it `@as(V, @splat(x))` ([Vectors](#vectors)) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
+| `liftOf(node)` | for a value that becomes an optional where it goes, the optional and what it is made from (`sema.Lift`): `none`, with the optional type its context gives it, and a value with fewer levels of optional than the optional it goes into, a `T` where a `T?` goes (or the value a view of one copies out). Typecheck records it for every value checked against a type (`checkExprAgainst`) and every value it adapts (`recordAdapted`), the latest check of a node deciding; emit packs such a value into each level that goes through the optional helpers (`emitLift`, [Emit](#emit), "Optionals"), where Zig would lift it into a `?T` on its own |
 | `upgradeOf(share)` | for `*w` of a weak handle, a `~T` or a view of one: that it upgrades it, and whether it reads `w` or takes it (`sema.Upgrade`) ([Weak upgrades](#weak-upgrades)) |
+| `isEnumText(node)`, `hasTextTable(sym)` | whether a `member` `e.text` is the name of plain enum value `e`'s variant, which emit writes as `rig.enumText(e)`, and the place checks block every write and write lend of; and whether the program calls `from_text` on plain enum `sym` of this module, which then holds the table of its names (`rig.NameTable`, built by `src/nametable.zig`). A call on another module's enum is marked there once every module is checked (`ModuleGraph.markTextTables`); a built-in enum's table is the calling module's own |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
@@ -1341,7 +1369,7 @@ instead of re-deriving it by name:
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
 | `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
-| `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `push(v, keep: k)` is `push_keep`, whose vector or integer type it gives, emitted as `pushKeep(T, v, k, e)`; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
+| `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `push(v, keep: k)` is `push_keep`, whose vector or integer type it gives, emitted as `pushKeep(T, v, k, e)`; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple of pieces `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
 | `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, `_`, or none for a field a pattern that binds by name leaves out. A pattern binds in order, all of the fields, or by name, any of them, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, the storage planner, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm, as a `_` field is), and the reference checker |
 | `jumpDestOf(jump)` | for a `break` or `continue`, where it goes (`JumpDest`): the loop or labeled block it names, and `exit`, `step`, or `head` ([Loops](#loops)). The type checker resolves every jump once; emit writes the Zig jump from it, and the ownership checker files the state at the jump by it |
 | `unitOf(node)`, `unitRootKind(node)` | the root of the innermost unit holding a node of a body, and the kind of a unit's root (`rig.eachUnit`, [Proven checks](#proven-checks)), recorded by the storage plan; emit enters each unit as it writes it and asserts that every check, write, and hidden storage it writes lies in its own |
@@ -1415,6 +1443,20 @@ exactly as `?xs[a..b]` is, and emit writes it as it writes
 `?xs[a..b]`: the slice. Where the parameter takes a write view or a
 value of its own, the argument is rejected with what to write
 (`sliceArgRejected`); a slice anywhere else is written with its lend.
+
+A variant literal whose enum comes from where it goes, `.v` or
+`.v(...)`, where a view held by address goes (a `?E` of an enum that is
+not plain, any `!E`, or an optional of one), desugars to `E.v(...)`:
+`variantUnderView` types it as the viewed `E`, not as the view, when
+`v` is a variant of `E`, and `checkActual` then takes it exactly as it
+takes `E.v(...)` (a name that is no variant of `E` is reported as
+before, an error's name with the set to name). As an
+argument it is a value made there, lent to read as a temporary of its
+statement by the branch above; anywhere else (lent to write, kept in a
+binding, a field, or an element, returned, a view of an optional, a
+default) it is the mismatch `E.v(...)` is. A plain enum's read view
+holds a copy (`sema.lendByValue`), so there the literal is that copy,
+typed as the view, wherever the view goes.
 
 **Decisions.** A few questions about a node that emit, the storage plan,
 and the checkers all act on are recorded as answered the first time a
@@ -1604,6 +1646,8 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
 | `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
+| `results` | `__rig_res` | the several results a call gives, which each target of `q, r = f()` takes in its turn, or the names of `if f() as a, b` take; what no target takes (`_`) it drops at the statement's end | owned | statement, body |
+| `argument` (of `return a, b`) | `__rig_arg` | the parts of `return a, b`, made in their turn when a later part can leave after an earlier one that owns (`storage.hoistsResults`) | owned | call |
 | `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array lent to a call that evaluates its arguments where they stand (`lendsTempArray`) | owned | statement |
 
 `owned` storage holds a value of its own, made there or taken; `copy`
@@ -1765,7 +1809,9 @@ values, and an object held by value changes a field only where a write
 of its binding says so. Anything else (a value `if`, a parameter, a
 negative or a larger literal) bounds nothing, and nor does a function
 whose bound reaches itself through a cycle of calls, since its bound is
-not known when it is asked for.
+not known when it is asked for. The bounds are found callees first, by a
+walk with a stack of its own (`Summaries.visit`), so a chain of calls
+as long as a program makes it does not nest the compiler's own stack.
 
 **Writes.** A binding changes only where an assignment or a `!` says so
 (Core sentences 4 and 9), and resolve and typecheck record each such
@@ -1889,7 +1935,7 @@ dependency order, before any type is resolved, their literals taking
 the declared type: `resolve.foldModuleConsts`; `lib.N` comes from the
 other module's, if it is public), and `sema.constInt` reads the facts
 of checked code. A compile-time parameter,
-or a `const k = n` binding of one (`ct_locals`), becomes its `ct_param`. A
+or a `k =! n` binding of one (`ct_locals`), becomes its `ct_param`. A
 `ct_param` used as a length records the `array_len` requirement, so
 each instance's value is checked to be from 0 to 2^32 - 1. A generic
 type's value parameters are detached `param` symbols among its
@@ -1943,8 +1989,9 @@ the frames that use its own parameters, a type instance its methods'.
 An instance made in another module that finds a frame large records it
 in `large_foreign_frames`, which `inlining.decide` copies into the
 declaring module's `large_frames` before emit. `rig check
---facts=frames` prints each owner's account: its count, its reach, and
-what the rule inlines into it.
+--facts=frames` prints each owner's account: its count, its reach, the
+reach the marked `inline` calls land in it, and what the rule inlines
+into it.
 
 Instances come from the program: `instantiation_sites` holds each
 generic type instance and where it is first spelled or inferred, and
@@ -2072,7 +2119,7 @@ runtime function with value arguments, or the existing `read` and
 | `cur.lag[k](prev)` | `rig.lag(k, cur, prev)`: one constant `@shuffle` of `prev` and `cur` |
 | a scalar beside a vector, `v + 1` | `rig.rt(@as(V, @splat(1)))` where the scalar stands (`splatOf`); beside a mask, `m \| true`, `rig.rt(rig.maskOf(rig.Mask(n), @splat(true)))` |
 | `v.not()` | `~v`, or `rig.maskNot(m)` of a mask |
-| `m.bits()`, `m.first()`, `m.any()`, `m.all()` | `rig.maskBits(m)`, `rig.maskFirst(m)`, `rig.maskAny(m)`, `rig.maskAll(m)` |
+| `m.bits()`, `m.first()`, `m.any()`, `m.all()` | `rig.maskBits(m)`, `rig.maskFirst(m)`, `rig.maskAny(m)`, `rig.maskAll(m)`; `m.not().bits()` is `rig.maskBitsNot(m)`, the bits of `m` flipped |
 | `m.select(a, b)` | `rig.maskSelect(m, a, b)`: `@select` of the mask's lanes |
 | `v[i]`, `v.with(i, x)`, `v.array()` | `rig.lane(v, i)`, `rig.withLane(v, i, x)`, `@as([n]T, v)`, or `rig.maskArray(m)` of a mask |
 | `b.read[Simd[T, n], e](at)`, `!b.write[...](at, v)` | `rig.simdRead(V, b, at, e)`, `rig.simdWrite(V, b, at, v, e)` |
@@ -2149,9 +2196,32 @@ compare-and-mask kernel):
 | Target | Form | 64 lanes |
 |---|---|---:|
 | aarch64 with NEON, LLVM | the mask as bytes, weighted, then pairwise adds (`llvm.aarch64.neon.addp.v16i8`), read as one lane of a `u64` vector, for 32 and 64 lanes; `any` and `all` as a byte `umaxv` or `uminv` | 31 |
-| x86-64 (SSE2, AVX2) | `@bitCast` (`pmovmskb`) | 39, 21 |
-| WASM SIMD | 16-lane bitmasks (`i8x16.bitmask`) for more than 16 lanes; `any` and `all` through them | 64 (511 by `@bitCast`) |
+| x86-64 (SSE2, AVX2) | `pmovmskb` per 16 lanes (32 on AVX2); for 32 and 64 lanes, each piece's bytes held opaque first (`maskBitsOpaque`, below). With AVX-512BW, `@bitCast` (a `k` register, `kmovq`) | 39, 21 |
+| WASM SIMD | 16-lane bitmasks (`i8x16.bitmask`) for more than 16 lanes; `any` and `all` OR or AND the pieces by halving shuffles and test them once (`v128.any_true`, `i8x16.all_true`) | 64 (511 by `@bitCast`) |
 | WASM without SIMD | each lane a byte, eight gathered by one multiply | 851, but 1.75x faster under wasmtime than `@bitCast`'s 779 |
+
+LLVM reads the bits of a `@bitCast` mask of 32 or 64 lanes as the
+`<n x i1>` vector they came from, and may do later work on those bits
+on its lanes instead: a classifier's checked `<<` of them became a
+shuffle of the lanes, which x86 without AVX-512 does a lane at a time
+(`pextrb` and `pinsrb`, or bytes through the stack: 120 lane moves a
+block). So on x86-64 without AVX-512BW, `maskBitsOpaque` takes the
+bitmask of each piece of 16 lanes (32 on AVX2) from bytes that first
+pass through an empty `asm` (`opaqueBytes`), which LLVM cannot see
+into; the bits it gets are integers. LLVM still leaves out a piece
+whose bits go unused, and on AVX2 still ORs two masks' pieces before
+one `pmovmskb`. On SSE2 alone, two masks' bits combined after `bits()`
+(`a.bits() | b.bits()`) take a `pmovmskb` each; combined as masks
+(`(a | b).bits()`), they take one. At compile time the bytes are used
+as they are.
+
+`m.not().bits()` flips the bits after `bits()` (`rig.maskBitsNot`,
+`~bits & lanes`). Flipping the lanes first costs NEON a vector
+instruction per 16 lanes: LLVM turns the `not` of comparisons ORed
+together into a flipped comparison each (`cmeq`, then `mvn` or `bic`).
+Emit takes the form from the call, a `not` as the
+receiver of `bits` (`test/cli/wide_masks.sh` reads the assembly of
+each target).
 
 `m.first()` is the index of the first true lane, `Int?`. On NEON it
 turns the 16 mask bytes into a nibble mask: a narrowing shift right by 4
@@ -2730,8 +2800,26 @@ one's with its type parameters:
 
 - `result`: each parameter whose type could hold what the result views
   (`sema.defaultOrigins`);
-- `stores`: each parameter whose type could hold what may be stored in
-  memory a write parameter leads to (`sema.storeTargets`).
+- `stores`: each parameter taken by value whose type could hold what
+  may be stored in memory a write parameter leads to
+  (`sema.storeTargets`), and each lent parameter its `keeps` clause
+  names (`sema.declKeeps`).
+
+A parameter is *lent* when its type is a view (`sema.isViewType`: a
+`?T`, `!T`, `[]T`, `![]T`, or `?String`) or an optional of one, a
+`?self` or `!self` receiver among them: `sema.lentParam`, one
+classifier, recorded as `Origins.lent`, which the ownership checker,
+typecheck's written-lend rule, and the oracle read. A `keeps` clause
+(`sub watch(!self, s: ?String) keeps s`, `keeps s, self`) names the lent
+parameters a call keeps; every other lent parameter's loans end with the
+call. A name that is no parameter, one taken by value (the callee owns
+it already), one nothing the function writes could hold (`keeps s` on a
+function with no write parameter), and one named twice are reported
+where the clause names it. Resolve records each clause
+(`declared_keeps`) as it does `from`. A function type names no `keeps`:
+`sema.defaultOrigins` serves function types, which keep every
+parameter whose type could hold what their write parameters lead to,
+lent or not (`Origins.lent` is empty there).
 
 A `from` clause (`-> T from a, b`, `from static`) narrows `result` to
 the parameters it names (`sema.declOrigins`, `Origins.declared`); a
@@ -2807,11 +2895,11 @@ the result keeps stays lent, to read, for the rest of the statement, so
 on one read `v` as the split forms do. What the call stores
 keeps its own loans where it stores them, and the write lend it stored
 lasts to the statement's end as before. Whether a call may store an
-argument is its origins' `stores`, from the signature, so a generic
-callee's argument write lend lasts to the statement's end (a `T` could
-hold anything): `print(gfirst(!v).n, v.len)` is rejected, while
-`r = gfirst(!v)` then `print(v.len)` is accepted; per-instance origins
-are a later refinement: a write view of `v` stored in
+argument is its origins' `stores`, from the signature: a generic
+callee's lent argument is stored only where its `keeps` names it, so
+`print(gfirst(!v).n, v.len)` is accepted for `gfirst[T](v: !List[T]) ->
+?T`, while one taken by value, a `T` that could hold anything, keeps its
+write lend to the statement's end; a write view of `v` stored in
 `h` keeps `v` lent to write while `h` lives. A loan kept this way is
 marked `read_of_write`, so a conflict's note says the lend was a write. Every lend made in an argument still ends with its
 statement (the statement's temporaries are as before).
@@ -2819,12 +2907,21 @@ statement (the statement's temporaries are as before).
 **The body check** (`checkOrigins`). At every return and tail value the
 recorder notes the parameters whose loans the value carries
 (`recordResult`), and at every store into what a parameter leads to,
-the parameters whose loans are stored (`recordStore`). A function or
-closure whose body returns or stores the loans of a parameter its
-origins leave out is rejected there, with a note writing the clause the
-body satisfies (`-> T from a, b`). With origins from the signature's
-types this fires only when the classifier misses an edge: a compiler
-bug becomes a rejection, never a hole in a caller. One such edge is
+the parameters whose loans are stored (`recordStore`), on any path. A
+function or closure whose body returns or stores the loans of a
+parameter its origins leave out is rejected there, with a note writing
+the clause the body satisfies (`-> T from a, b`), or, for a lent
+parameter `keeps` does not name, an error at the store that writes the
+clause (`say so: keeps s`). A store is wherever a parameter's value
+comes to hold the loans: an assignment to what it leads to, through a
+local write view of it, a local moved into it, a box it holds, a
+closure that captures it to write, a `defer`, a match or `as` binding
+that writes through it, and a call that keeps the argument (a function
+value's call keeps by its type), so handing a lent parameter to a call
+that keeps it stores it. For a parameter taken by value, with origins
+from the signature's types, the check fires only when the classifier
+misses an edge: a compiler bug becomes a rejection, never a hole in a
+caller. One such edge is
 known: where a result's targets are anything (a type parameter's or a
 callable's), a `?String` parameter taken by value is never counted, which
 can only reject a body that returns one; no generic or callable body
@@ -2839,22 +2936,42 @@ loop element, a match copy, a take, a variable of such a type read (a
 `match` payload's view of its subject), and a parameter taken by value
 read), and `checkOrigins` counts it as returned wherever the body
 returns a value whose type holds a type parameter (`P[T]` too, beside
-its views). This is coarser than a loan: one read of a `[]T` parameter's
-element counts it as returned wherever the body returns a `T`.
+its views), and as stored in each parameter the body stores such a value
+in, past that parameter itself (`noteGenericStore`). A store into what a
+parameter leads to whose type holds a type parameter records the loans
+of the parameters it carries as stored there, through the write views a
+local holds (`genericStoreIn`), but takes no loan. This is coarser than
+a loan: one read of a `[]T` parameter's element counts it as returned
+wherever the body returns a `T`, and as stored wherever it stores one.
 
 A `from` clause is part of a declaration, not of its function type: a function lent as a
 value (`?first`) is called with its type's origins, which every body
 satisfies. Recursion needs no fixpoint: a call of the function from its
 own body uses the origins being proved (each returning run is finite).
-An `extern zig` declaration's clause is trusted, as the rest of its
-signature is.
+An `extern zig` declaration's `from` and `keeps` are trusted, as the
+rest of its signature is.
+
+**Written lends of kept arguments** (typecheck `checkArgs`). A place lent
+to a lent parameter the call may keep is lent with `?` written (Core
+sentence 4): `!b.watch(t)` is rejected with the fix `!b.watch(?t)`, and a
+`?self` receiver a method keeps is written `?a.register(!out)`. Where no
+`keeps` narrows the stores, every lent parameter the call may store by
+its type counts (`sema.lentParam` of the parameter's type at the call):
+a call through a function value (`f(!b, ?t)`), an owned closure, and a
+built-in generic's method at an instance whose `T` is a view
+(`!names.push(?t)` into a `List[?String]`). A
+conflict with a loan a call kept has a note naming the call, the
+parameter its `keeps` names, and the holder (`kept_lends`).
 
 **Desugaring.** A lend through a read view is the lend through a copy
 of the view, as above. A call `r = f(e1, ..., en)` is
 `t1 = e1; ...; tn = en; r = f(t1, ..., tn)` with each `ti` a statement
 temporary (Core §3): `r` holds the loans of the `ti` whose parameters
-are in `result`, the owners of the write arguments those in `stores`,
-and every other `ti`'s loans end with the statement. When `r`'s type
+are in `result`, the owners of the write arguments those in `stores`
+(the lent parameters `keeps` names, and the parameters taken by value
+whose types fit), and every other `ti`'s loans end with the statement.
+`keeps` adds no form: only the set changes, and its checker rule is the
+call rule with that set plus the body check. When `r`'s type
 holds no write view, it is `r = ?f(t1, ..., tn)`: a read lend of the
 views the call returns, which a held `!T` lends as `?T` (Core §4), so
 `r` keeps the `ti`'s loans as read loans, and each `ti` that was a
@@ -2884,6 +3001,72 @@ hands back nothing. Its two places are places like any other: two
 fields of one value are disjoint paths, and two elements of one
 collection overlap, which the hint `!a.swap(i, j)` says once
 (`sameCollection`).
+
+### Several results
+
+A function gives several results with `-> (A, B)` (also `(A, B)!` and
+`(A, B)?`), a type (`sema.Type.results`) that stands only there and in a
+function type's result. Its facts are its parts' together, as an
+object's are its fields' (`holdsIn`, `reachOf`, `ownedParts`,
+`minBytesOf`), and `resolveResults` takes two or more parts, each a
+type one result may have, at most one of them a write view. Typecheck
+keeps the positive list of where a call that gives them may stand
+(`Checker.results_ok`): the value of a destructure (a call, alone or
+under `!` or `?`, or with a `??` or `catch` that jumps), of `return`
+in a function giving the same results, and of `if … as a, b`; any
+other is reported where it is typed (`misplacedResults`). `(a, b)` is no
+value (`tupleValue`), and `a, b = b, a` is no parallel assignment.
+
+**Desugaring.** `q, r = f(x)` makes the call's results statement
+temporaries (Core §3), one a result, which no name holds; each target
+then takes its own, left to right, as the binding `x = e` takes a
+call's result, and a result `_` discards stays a temporary, dropped at
+the statement's end, the last first. `return a, b` gives each part as
+`return x` gives `x`, left to right, each judged by its own result's
+type. Each target is the binding `(set op q _ (result_part))`, so
+typecheck (`checkSet`), the ownership checker (`walkSet`), and emit
+(`emitSet`) bind it as any `x = e`; `result_part` is the result in its
+position, typed `part_ty` and walked as `part_value`.
+
+**Loans.** Sentence 7 applies per result: the call's loans are
+narrowed by each result's own type (`carryResult` of each,
+`callResults`), so a `Bool` beside a view carries none. An argument's
+write lend ends at the return only when no result keeps it to write;
+while one may, every lend of the call lasts to the statement's end, as
+for a `!T` result. The checker holds the results in a hidden var of the
+statement (`walkDestructure`), which keeps the loans of the results no
+target has taken yet: a target bound while a pending result views it is
+reported (`pendingView`). A `_`'s loans last to the statement's end
+when its drop runs a `drop` body, which could read them; any other
+discarded result reads none of its views (Core sentence 6), and its
+loans end at once. Write lends end per call: while any result may hold
+a write view, every lend of the call lasts to the statement's end (an
+`if … as` part is a header, its own statement), though the write view
+carries only the arguments its origins name; ending the other
+arguments' write lends at the return, per argument, is left for later
+(TODO.md). Two
+results of one call never break sentence 5: a function giving a write
+view and another result that could view the same parameter is rejected
+where it is declared (`sema.checkResultViews`), and the call checks the
+results' loans the same way, for a function value whose type says less.
+`if f() as a, b` binds new names, so nothing pending can view them; the
+call's loans end with the header, as `as`'s do. It takes no `_`: the
+header's temporaries end before the body, where a discarded result
+would drop. A call alone on its line, and `_ = f()`, discard every
+result, as one result is discarded.
+
+**Emit.** The results are a Zig tuple, `@Tuple(&.{ A, B })`; `return
+a, b` is `return .{ a, b }`, each part written as one result is
+(`emitResultValue`). When a later part can leave after an earlier one
+that owns (`storage.hoistsResults`), each part is made first into
+`__rig_arg_N_i`, an owned one guarded by a flag, so the way out drops it
+(`emitHoistedResults`); Zig's own tuple would lose it. A destructure is
+`const __rig_res_N = f(x);` and then each binding, whose value is
+`__rig_res_N[j]`, and a discarded owned result is dropped after them;
+`if f() as a, b` captures the results as `__rig_res_N` and binds the
+names at the body's start (`bindResults`), each result to its name. Emit never writes Zig's own
+destructure, `a, b = .{ b, a }`, which does not evaluate its right side
+first.
 
 ### Loops
 
@@ -3129,7 +3312,7 @@ start. A place is named by a name or fields from one, since the
 desugaring evaluates it for every `next`, and an element whose index
 the body may change would name another place each time. A loop with a
 label has the label on the `while`, inside the block. The checker rules are the ones this desugaring implies: `!it`
-needs `it` writable (a read view, a parameter, and a `const` are
+needs `it` writable (a read view, a parameter, and a `=!` binding are
 rejected where the loop stands), the loop variable is what `as` binds
 over `T?`, a view `next` gives holds the loan on what it views while it
 is alive, and `break` values and `else` are a `while`'s. An iterator
@@ -3175,6 +3358,26 @@ method's result `(!p).at(!i)`, a propagation `get(!h)?`, a branch
 a range's bounds left to right. A target that is a name has no steps.
 The store comes last: it finds the place through the base and indexes
 as they were evaluated, and stores.
+
+A target assigned through (`storage.assignedThrough`) has no field or
+element on its path, so it is its own base: a call that returns a
+write view `!T`, or that call's `!` or `?`. Typecheck admits no other
+(`assignThroughCall`): `?` or `!` around anything but a call is no
+target. It writes the `T` the view reaches, as a hidden binding of the
+view would:
+
+```text
+f(x) op= value   ==>   { __v = value; w = f(x); w op= __v }
+```
+
+The call is the base, so it runs after the value, and the store goes
+through the pointer it returns (`Emitter.emitTarget`: `__rig_base_N.*`
+where the base is held, else `(f(&x)).*`). The storage plan and emit
+take the viewed `T` as the place's type (`Planner.placeAssign`,
+`emitPlaceAssign`), so a `T` that owns is replaced through a `slot`,
+the old value dropped; the ownership checker walks the call as a base
+no var holds and stores through its write loans (`walkFieldAssign`,
+`storeThroughLend`), as it does for `f(x).field = value`.
 
 The value runs to its end first: every statement in it (a `match` arm,
 an `if` or `else` block, a `catch` handler, a nested assignment), every
@@ -3395,6 +3598,33 @@ symbols); a query that decides more than that belongs in `Pending`.
   A `[]T` is a `[]const T` and a `![]T` a Zig `[]T`, not a pointer to
   one: the slice already points at its elements, so it is passed and
   bound as it is.
+- **Optionals.** A `T?` is Zig's `?T`, written with `?`, `null`,
+  `orelse`, and `if (x) |v|`, unless its representation may differ
+  from that, which `Facts.optionalRouted` decides once per payload
+  type (`sema.optionalRouted`): a type parameter's `T?`, whose
+  instance decides, and, under `RIG_STRICT_OPTIONALS`, every
+  object's. Such an optional is written `rig.Opt(T)`, and every
+  operation on it goes through the runtime's helpers: `rig.some(x)` is
+  the Zig `?T` that `if x as v`, `while x as v`, `??`, `?`, and
+  `== none` test; `rig.somePtr(&x)` is the payload's address a `|*v|`
+  capture binds (`if !x as v`, a lend of the value inside); and
+  `rig.pack(O, z)` makes the `O` a Zig `?T` stands for, which is how a
+  `T`, `none`, and the value of `a ?? b` whose fallback is a `T?`
+  become one. Zig lifts a `T` into a `?T` on its own but never into a
+  struct, so typecheck records each lift (`liftOf`), and emit writes it
+  in one place, `emitLift`, called from `emitValue`, packing each level
+  of the optional that goes through the helpers; a default value
+  (`emitDefault`) is packed the same way, and a hoisted argument is held
+  as itself and packed where the call reads it. The helpers are the
+  identity on a `?T`, so a type parameter's `T?` is Zig's `?T` in every
+  instance, and inlines to nothing.
+
+  `RIG_STRICT_OPTIONALS=1` is a test of the compiler: every object
+  declares `__rig_strict_optional`, and `rig.Opt` of it is a tagged
+  struct (`rig.Strict`), so a program compiles only if emit and the
+  runtime write every operation on such an optional through the
+  helpers. The suite is run in this mode as a gate, and
+  `test/cli/strict_optionals.sh` runs one program both ways.
 - **Cells.** A value whose type holds a Cell by value lives only
   behind a shared handle (Core sentence 9): it is always in the heap
   memory a `*T` points to (`rig.RcBox(T)`), as a `Cell[T]`'s value or
@@ -3447,7 +3677,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   needs the receiver first): `fun times[n: Int](?self)` is
   `fn times(self: P, comptime n: i64) i64`. A call passes its bracket
   arguments in the same place: `show[3]()` is `show(3)`.
-  A compile-time value, or a module constant or `const` binding, read in run-time arithmetic
+  A compile-time value, or a module constant or `=!` binding, read in run-time arithmetic
   goes through `rig.rt(n)`, so Zig computes it when the program runs,
   with the overflow checks Rig specifies, rather than folding it. A
   generic type's value parameter is a `comptime n: i64` of its
@@ -3497,19 +3727,74 @@ symbols); a query that decides more than that belongs in `Pending`.
   small hot helper a call once its body grows, and pays the prologue and a
   stack protector at each call.
 
-  A function's marker comes first (SPEC.md, "Function markers"). A
-  function marked `called fun` or `rarely fun` is never inlined by the
-  rule below (`rig.markerOf`, read where `inlining.decide` collects the
-  functions). Emit writes a `called` function `noinline fn`, so LLVM
-  keeps every call a call too: each instance of a function with
-  compile-time values is then a function of its own. Emit starts a
-  `rarely` function's body with `@branchHint(.cold);`, before the
-  evaluation budget, the one place Zig takes the hint for a whole
-  function: Zig 0.17 then gives the function LLVM's `cold` attribute,
-  so its callers lay out the call as the unlikely path and LLVM does not
-  inline it. Neither marker changes what the checker walks: a marked
-  function is the same function, called. The program's `main` and an
-  `extern zig` function take no marker (`resolve`).
+  A function's marker comes first (SPEC.md, "Function markers"). One
+  marked `inline fun` is inlined whatever the rule below says: its size,
+  its expansion, its compile-time type parameters, a closure in it, and
+  its frame's size are waived, and no step of the rule stops inlining
+  it. What Zig cannot inline is an error, in the pass that knows it: a
+  value use of it (`typecheck`, where every function value is typed:
+  `functionValue`, by the `inline_marked` flag of its symbol or method),
+  the root's `main` and an `extern zig` function (`resolve`), and a
+  cycle of calls among marked `inline` functions (`decide`,
+  `forcedCycles`, whose edges are each one's calls in its own frame, so
+  a closure that calls it back is a call). A function marked `called
+  fun` or `rarely fun` is never inlined by the rule below (`rig.markerOf`,
+  read where `inlining.decide` collects the functions). Emit writes a
+  `called` function `noinline fn`, so LLVM keeps every call a call too:
+  each instance of a function with compile-time values is then a
+  function of its own. Emit starts a `rarely` function's body with
+  `@branchHint(.cold);`, before the evaluation budget, the one place Zig
+  takes the hint for a whole function: Zig 0.17 then gives the function
+  LLVM's `cold` attribute, so its callers lay out the call as the
+  unlikely path and LLVM does not inline it. No marker changes what the
+  checker walks: a marked function is the same function, called, and an
+  inlined one's calls are read through `rig.rt` as any inlined
+  function's. The program's `main` and an `extern zig` function take no
+  marker (`resolve`).
+
+  A call of a marked `inline` function is the one call-target fact of
+  any call (`callTargetOf`, recorded by `Checker.noteTarget` where
+  typecheck resolves the call: `functionCall`, `crossModuleCall`, a
+  method call, and `associatedCall`, through any alias), with the
+  instance the call makes beside it: `inline_calls[call] = { fun, subst
+  }`. `fun` is the `FnRef` of every call target, the declaring module's
+  id and where the function's name is there, an imported generic type's
+  proxy followed to its declaration; `subst` binds the object type's
+  parameters, by the receiver's type (through views, handles, and boxes,
+  as the method is found) or the type named, then the function's own
+  (`inst_own`, from `instantiateCall`). `resolve` records each marked
+  declaration by the same position (`inline_decls`).
+
+  What a marked function lands in a caller is counted once, in the
+  module that declares it (`inlineFrame`, at the end of `checkFrames`):
+  its own values and copies, and those of the marked functions it calls,
+  each substituted at its call, over its own and its type's parameters.
+  The frame walker of every owner adds, at each recorded call, that frame
+  imported into the caller's module and substituted at the call's
+  instance, each slot marked: the owner's account keeps them apart as
+  its `marked` part ([Frame owners](#frame-owners)), and the frame check
+  holds its own values and the marked ones together to the limits. A
+  call in a `defer` body counts at every copy, as any value there does.
+  The count fails closed: a frame it cannot find, or one with a
+  parameter the call's instance does not bind, is an error at the call,
+  never no values; a frame still being worked out is a call on a cycle
+  `decide` rejects, so that program is never emitted. A marked
+  function's own frame is counted, for what the rule inlines through
+  it, but not checked and never made `noinline`: Zig never writes it.
+  Each parameter of a function counts once more in its reach
+  (`paramCopies`): Zig's code copies it into a local of its own (an
+  owned one's `var`, an inlined function's `rig.rt`), beside the
+  argument and the parameter. Calls of marked functions nest at most
+  `max_inline_depth` (256) deep, since Zig analyzes each inlined body
+  inside the one around it and runs out of its own stack some thousands
+  deep: `inlineFrame` records how deep they nest below each marked
+  function (`inline_heights`), and a deeper nesting is an error at the
+  call where the walk finds it.
+
+  In debug and self-checking builds, emit checks that each call of a Rig
+  function it writes is one typecheck resolved (`Emitter.checkCallTarget`):
+  the frame facts and `decide` read the call-target fact, so a call
+  without one would land a frame no count saw.
 
   Without a marker, a function is inlined when
 
@@ -3520,14 +3805,21 @@ symbols); a query that decides more than that belongs in `Pending`.
   - it is on no cycle of calls, directly or through others;
   - every mention of it is the callee of a call, so it is never passed,
     stored, returned, or captured, and no address of it is taken;
-  - it is not the root's `main`, has no compile-time type parameters, is not
-    a member of a generic type, and holds no closure (`extern` functions
-    have no body). A function whose compile-time parameters are all values
-    (`Bool`, a number, an enum) is a function per instance, sized,
-    cycle-checked, and inlined as any other, and so are the helpers it
-    calls; the `comptime` parameters stay compile-time and the rest are
-    bound through `rig.rt` as always. Its frame must be known without the
-    values;
+  - it is not the root's `main`, has no compile-time type parameters,
+    and holds no closure (`extern` functions have no body). A function
+    whose compile-time parameters are all values (`Bool`, a number, an
+    enum) is a function per instance, sized, cycle-checked, and inlined
+    as any other, and so are the helpers it calls; the `comptime`
+    parameters stay compile-time and the rest are bound through `rig.rt`
+    as always. Its frame must be known without the values. A member of a
+    generic type is one declaration Zig writes once for all its
+    instances, so it is decided once, under the largest frame of its
+    instances, which bounds each: a generic owner's account is the
+    largest of the frames its instances counted (`FrameSize`), its own
+    values and its own with the marked ones, each the largest of any
+    instance. One no instance the program makes binds is a frame Zig
+    never writes, and holds the rule to nothing (`compiled` is false);
+    one whose instances made no count is unknown, never none;
   - its reach (`checkFrames`), with the inlined calls in it, is at most
     64 KiB, and no frame owner ([Frame owners](#frame-owners)) gets more
     than that added by the inlined calls in it, each counted at every
@@ -3538,7 +3830,13 @@ symbols); a query that decides more than that belongs in `Pending`.
     at each call, in its caller's frame; a test block, a closure, and a
     `drop` body are owners as functions are; and
     its frame is not large (`large_frames`, which emit also writes
-    `noinline`, [Sema](#sema));
+    `noinline`, [Sema](#sema)). What the rule inlines into a marked
+    `inline` function lands in each caller of it, at each call and copy,
+    so it counts in the caller's 64 KiB too (`added`), and is the first
+    to stop inlining when that owner does not fit (`largestIn` looks
+    through the marked functions it calls); a marked function's own
+    values are the account's marked part, which typecheck counted, so
+    `decide` counts them nowhere else;
   - with the inlined calls in it, each counted at every call site, it
     expands to at most `inlining.max_expanded` (320) nodes, so a chain of
     functions that each call the next twice does not have Zig analyze the
@@ -3810,21 +4108,23 @@ reviewed.
 | `RcBox(T)` | the box behind `*T`: a strong count, a weak count (plus one for all strong handles), and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
 | `Box(T)` | `^T`: a pointer to one heap `T`. `init` allocates, `fill` allocates an array and fills it there (`^[n of x]`), `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `RcBox` past 256 nested releases |
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade` (what `*w` lowers to), which returns a new strong handle or null once the value is gone |
+| `Opt(T)`, `Payload`, `some`, `somePtr`, `pack`, `Strict(T)` | Rig's `T?` and its helpers ([Emit](#emit), "Optionals"): `Opt(T)` is Zig's `?T`, or a struct that declares `__rig_optional`, its payload, and holds it its own way (`Strict(T)`, the tagged struct an object's optional is under `RIG_STRICT_OPTIONALS`); `some`, `somePtr`, and `pack` convert between it and Zig's `?T`, and are the identity on a `?T`. The generic API returns `Opt(T)` wherever Rig reads a `T?` (`List.get`, `pop`, `IntoIter.next`, `Cell`'s `listGet` and `listPop`, `elementAt`, `ArrayIntoIter.next`, `enumFromInt`), and each reflective function (`needsDrop`, `dropElement`, `cloneValue`, `cloneOptional`, `takeOut`, `noneAt`, `isNone`, `eql`, `hashAs`, `isVariant`, `writeValue`, `typeName`) has an arm for a struct optional, where an optional held another way will go |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
-| `typeName(x, names)` | `@name(T)` of a type that holds a type parameter. Emit writes such a `@name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, while a type known where it is written is the printer's string itself. Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which `test/behavior/types/type_names` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
+| `typeName(x, names)` | `@name(T)` of a type that holds a type parameter. Emit writes such a `@name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, and a type whose parentheses depend on the instance (`T?`, `*T`, `sema.spelledPerInstance`) named whole, from its Zig type, while a type known where it is written is the printer's string itself. The Zig type of an instance that holds a view or a slice, but a `?String`, does not tell its Rig type, so such an instance is rejected (`Requirement.named`). Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which `test/behavior/types/type_names` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
 | `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `filled` and `resize` fill new slots with one `@memset`; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a String's bytes and a List's elements copied (`List.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
-| `String` | `String`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` write each part of a tuple with `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `String(...)` and `print` agree exactly; `bytes` is the `?String` view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a String's or a `?String`'s |
+| `String` | `String`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` take the pieces `print` does (below), with no separators: each run of text is appended once, by the one writer of its length, a `?String` or a String as its bytes, and each other value by the one writer of its type, `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `String(...)` and `print` agree exactly; `bytes` is the `?String` view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a String's or a `?String`'s |
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `FnRef(params, R)` | a callable view: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |
 | `Signal(T)` | a value and a `List` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
-| `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
+| `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...`. `print` takes a tuple of pieces in order, the spaces between the arguments and the final newline included (`print(n, s)` is `rig.print(.{ n, " ", &s, "\n" })`), so every argument has run before a byte is written. It is `inline`, and `piecesOf` reads the tuple's type at compile time: a field known then whose bytes are too (a string literal, an Int, a Bool) is text, each run of text is joined and copied into the buffer by the one `noinline` writer of its length (`outFixed`), a `?String` or a String among the values is written as its bytes, and each other value goes to the one `noinline` writer of its type (`outValueOf`). A print site is a straight line of calls, about 60 bytes of code in `--release=fast` (`bench/print/guard.py`). `String.of` and `add` append the same way (`appendFixed`, `addValueOf`). A failed write lands in `outFailed`, which ignores it |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
 | `onOwnStack`, `switchStack` | run `main` and the tests on the program's stack, over its guard, with an overflow handler that names a fault in the guard a stack overflow ([The program's stack](#the-programs-stack)). `test/cli/stack_guard.sh` checks it |
 | `simdRead`, `simdWrite`, `lane`, `withLane`, `maskBits`, `maskFirst`, `maskAny`, `maskAll` | a vector's bytes, lanes, and mask ([Vectors](#vectors)): `simdRead` and `simdWrite` check the offset once, as `readInt` does, and load or store through an `align(1)` pointer, swapping each lane's bytes where its order is not native; `lane` and `withLane` go through `[n]T` with `index`'s check; `maskBits` lowers per target, and `maskFirst` too (below) |
 | `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @size(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
+| `enumText`, `enumFromText`, `NameTable` | a plain enum's names: `e.text` is the variant's `@tagName`, less the `'` a renamed one carries (`rigName`); `E.from_text(word)` finds `word` in a `NameTable`, the enum's names in declaration order in an open-addressed table the compiler emits (`src/nametable.zig`): a power of two of at least 16 slots, at most four fifths full, a one-byte tag per slot from the word's Wyhash, and each slot's index into the names. `find` hashes once, probes, and compares bytes only where a tag agrees, and the index gives the variant (`std.enums.values`). `bench/names/` times it against comparing names one by one |
 | `Arch` | Rig's built-in enum `Arch`: Zig's `std.Target.Cpu.Arch`, so `std.target`'s `arch`, `builtin.cpu.arch`, needs no mapping; every module's `Arch` symbol names it (`importType`) |
 | `Proven`, `atProven`, `elemPtrProven`, `readIntProven`, `writeIntProven`, `simdReadProven`, `simdWriteProven`, `addProven` | the operations with the tests the compiler proved omitted ([Proven checks](#proven-checks)): `Proven` names which (`lower`, `upper`, `both`), an index is read through the slice's pointer, which carries no test of its own, and an add is one LLVM may assume does not wrap. The other test is made as `index`, `readInt`, and `simdRead` make it, with the same panic; a vector is loaded and stored as `simdRead` and `simdWrite` do. A debug build, or one whose root declares `__rig_verify_proofs`, makes the proven ones too, as assertions |
 | `len`, `max_len` | a length as an `Int`; it panics above `2^62 - 1` ("length out of range"), which no target holds, so `i + c` is known to fit where `i` is below a length |
@@ -3832,14 +4132,14 @@ reviewed.
 | `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `index` converts an index of any integer type, 128-bit ones included, to `usize`, `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `notNan` | wraps a float converted to an integer type: where safety checks run (debug and safe), a NaN panics as an out-of-range value does, which `@trunc`'s own check misses |
 | `isVariant`, `isVariantDiscard` | `x == .variant` on an enum with payloads, or an optional of one: tests the tag only, so it compiles whatever the payloads hold; `isVariantDiscard` drops a temporary that owns a resource |
-| `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `null` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
+| `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `none` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
 | `poison` | under the sanitizer, fills hidden storage whose scope has ended with `0xAA`; nothing otherwise |
 | `discard`, `discardAt`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`), or, by address, a part of a payload a `match <e` arm leaves unused (deferred, so each exit passes only the address); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
-| `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, `?String` values by `std.mem.order`. Outside a generic body a `?String` or `[]U8` ordering is `std.mem.order` itself |
+| `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body or on a plain enum: numbers by the operator, a plain enum's values by `@intFromEnum`, `?String` values by `std.mem.order`. Outside a generic body a `?String` or `[]U8` ordering is `std.mem.order` itself |
 | `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
 | `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
-| `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as `?String` values, gathered once and freed by `finish`; in a package `rig run` or `rig test` built (whose root declares `__rig_run_started`), `start` also creates the file `RIG_PROGRAM_STARTED` names, their evidence that the program ran; `exitStatus` checks the status of `fun main() -> Int` |
+| `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as `?String` values, gathered once and freed by `finish`; in a package `rig run` or `rig test` built (whose root declares `__rig_run_started`), `start` also creates the file `RIG_PROGRAM_STARTED` names, their evidence that the program ran; `exitStatus` checks the status of `fun main() -> Int`. With `RIG_NO_CRASH_REPORT=1` in its environment, on macOS and in every build mode, `start` first sets the process's crash exception ports to none (`task_set_exception_ports`: `EXC_MASK_CRASH` and `EXC_MASK_CORPSE_NOTIFY`, `MACH_PORT_NULL`), so macOS files no crash report when it dies; it still dies by its signal, its stderr unchanged. A test harness sets it for programs that panic on purpose |
 | `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `SafeAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which `./test/run` sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, List, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, on the program's stack, checks it for leaks (Debug), reports it |
 
@@ -3877,36 +4177,54 @@ a call itself. Each owner has one account (`sema.Account`,
 - **own:** its values, as `checkFrames` counts them, or for a generic
   owner the largest of its instances'; unknown (null) where no count
   knows them, which is unbounded and fails every limit;
-- **marked:** what calls of functions marked `inline` add (none yet);
+- **marked:** the values and reach the calls of functions marked
+  `inline` land in it, each at the instance its call makes and at every
+  copy Zig writes of the call (`checkFrames`, slots tagged `marked`);
+  for a generic owner, what the largest of its instances' frames adds
+  to `own`;
 - **auto:** the frames of the functions the rule inlines into it, each
-  at every call and every copy of the call.
+  at every call and every copy of the call, those it inlines into a
+  marked function the owner calls included.
 
-`inlining.decide` fills `auto` and keeps it within 64 KiB
-(`max_inlined_frame_bytes`), own + auto within `sema.max_frame_bytes`,
-and (own reach + auto) times `sema.reach_factor` within
-`sema.max_frame_reach`; it never inlines into an owner whose own count
-is unknown. A function is inlined at every call or none, so an owner the
-build does not compile bounds nothing: a test block, and what is in it,
-outside `rig test` (and `rig check --tests`), and any module's but the
-root's always. `test/cli/frame_owners.sh` puts a pile of a helper the rule
-would inline in each kind of owner and each body that belongs to one,
-and `test/cli/frames.sh` holds each owner's account to the frame Zig's
-prologue reserves.
+`checkFrames` holds own + marked to `sema.max_frame_bytes` and their
+reach to `sema.max_frame_reach`. `inlining.decide` fills `auto` and
+keeps it within 64 KiB (`max_inlined_frame_bytes`), own + marked + auto
+within `sema.max_frame_bytes`, and (own reach + marked reach + auto)
+times `sema.reach_factor` within `sema.max_frame_reach`; it never
+inlines into an owner whose own count is unknown. A function is inlined
+at every call or none, so an owner the build does not compile bounds
+nothing: a test block, and what is in it, outside `rig test` (and `rig
+check --tests`), any module's but the root's always, and a generic one
+no instance of the program binds. A marked function's own frame Zig
+never writes, so only its `auto` is held to 64 KiB there; its callers
+count the rest. `test/cli/frame_owners.sh` puts a pile of a helper the
+rule would inline in each kind of owner and each body that belongs to
+one, `test/cli/frame_owners_inline.sh` does the same through a marked
+function and checks each owner's marked part, and `test/cli/frames.sh`
+holds each owner's account to the frame Zig's prologue reserves.
 
 ### The program's stack
 
 A program's Rig code runs on a stack the runtime maps itself
 (`rig.onOwnStack`), not on the stack the system gave its main thread:
 
-1. reserve `guard + 64 MiB` of address space inaccessible, the guard
+1. reserve `guard + 64 MiB + a page` of address space inaccessible, the guard
    64 GiB, or 1 GiB where that cannot be reserved (`guard_sizes`); a
    program that cannot reserve even that prints `rig: cannot reserve
    the program's stack and the guard below it` and exits 1 before it
    runs;
-2. make the top 64 MiB readable and writable: the stack;
+2. make the 64 MiB above the guard readable and writable: the stack,
+   with one more page above it left inaccessible, so a read past the
+   stack's top faults whatever else the process maps there;
 3. install the overflow handler, then call the body with the stack
-   pointer at the stack's top (`switchStack`), and return with it
-   where it was.
+   pointer 256 bytes below the stack's top (`switchStack`,
+   `unwind_headroom`), and return with it where it was. A panic's
+   stack trace reads above the first frame: on macOS, Zig's reader of
+   a compact unwind entry (the FRAME case of `unwindFrameInner` in
+   `std/debug/SelfInfo/MachO.zig`) reads the saved pairs of x19..x28
+   upward from 8 below the frame pointer, up to 56 bytes above where
+   the frame began, and at the stack's very top that read would fault
+   instead of printing the trace (`test/cli/panic_status.sh`).
 
 So the emitted `main` desugars to
 
@@ -3989,8 +4307,9 @@ through `pthread_atfork`, where libc is linked). For a fault in the
 guard it flushes `print`'s output and writes `error: rig: stack
 overflow`; then, as the sanitizer's handler does, it restores the
 handlers it replaced and returns, so the access faults again into Zig's
-handler, which prints the stack trace, or, in `--release=fast`, ends the
-program.
+handler, which prints the stack trace and aborts. In `--release=fast`,
+where Zig installs no handler, it aborts itself, so a stack overflow
+ends with SIGABRT (status 134) in every build mode, as a panic does.
 
 **64 MiB.** Four times the 16 MiB Zig gives the main thread: deep
 recursion (a checker's walk of a large tree) has room, and address
@@ -4076,6 +4395,14 @@ store there lands in what the view reaches and nothing is moved out of
 it; and a write receiver with no `!` whose value is a write view
 (`wrap(!h).keep(v)`) is lent on through that view.
 
+Several results are hidden statement temporaries, one a result, each
+carrying the loans its own type could view (Core s7, per result); each
+target takes its own by the `x = e` rule, left to right, so a pending
+result's loans conflict with binding what it views, and a `_` result
+drops at the statement's end. `return a, b` gives each part as `return
+x` does, and `if f() as a, b` binds new names from a header's
+results.
+
 Its loans and accesses carry the place's path, cut where it goes
 through a handle or into an optional's value (`Place.cut`), and two of
 one var conflict unless their paths part at a field; an element
@@ -4109,7 +4436,7 @@ where the compiler still rejects the program.
 - A label on a string literal (or a choice of them) whose role is typed
   `tag(...)` fills the role with the tag the matched literal names:
   `op:("+=" | "-=" | ...)` gives `(set += ...)`. Where the tag is not
-  the literal (`const` is `fixed`), the action supplies it
+  the literal (`=!` is `fixed`), the action supplies it
   (`→ (set op:fixed)`).
 - A choice `(A | B)` cannot sit inside an `[...]` group; `if ... else`
   is written as two alternatives for that reason.

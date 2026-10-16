@@ -1,0 +1,11 @@
+fun pushslot(v: !List[Int]) -> !Int from v
+  !v.push(99)
+  !v[0]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  pushslot(!v) = v.len
+  print(v)
+  pushslot(!v) += v.len
+  print(v)

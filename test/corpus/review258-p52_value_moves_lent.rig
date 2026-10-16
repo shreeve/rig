@@ -1,0 +1,11 @@
+fun slot(v: !List[Int], i: Int) -> !Int from v
+  !v[i]
+
+fun take(v: List[Int]) -> Int
+  v.len
+
+sub main()
+  v: List[Int] = List()
+  !v.push(5)
+  slot(!v, 0) = take(<v)
+  print(v)

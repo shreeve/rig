@@ -4,7 +4,7 @@
 obj Holder
   r: []Int
 
-fun f(a: !Holder, b: []Int, c: !List[Int]) -> Int
+fun f(a: !Holder, b: []Int, c: !List[Int]) -> Int keeps c
   a.r = ?c[..]
   t = a.r
   for i in 0..100

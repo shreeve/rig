@@ -1,0 +1,15 @@
+obj Guard
+  s: ?String
+
+  drop(!self)
+    print("guard", self.s)
+
+fun mk(s: ?String) -> (Guard, Int)?
+  return Guard(s: s), s.len
+
+sub main()
+  if mk(?String("abc", "def")) as g, n
+    print(n)
+    <g
+
+# error: a view of the temporary `String("abc", "def")` outlives its statement

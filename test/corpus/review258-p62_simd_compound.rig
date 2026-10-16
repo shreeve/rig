@@ -1,0 +1,12 @@
+fun vs(v: !List[Simd[I8, 4]], i: Int) -> !Simd[I8, 4] from v
+  !v[i]
+
+sub main()
+  v: List[Simd[I8, 4]] = List()
+  !v.push(Simd[I8, 4]([1, 2, 120, -128]))
+  vs(!v, 0) +|= 10
+  vs(!v, 0) -|= Simd[I8, 4].splat(1)
+  vs(!v, 0) <<= 1
+  print(v[0])
+  vs(!v, 0)[0] = 3
+  print(v[0])

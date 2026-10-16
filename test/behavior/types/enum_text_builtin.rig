@@ -1,0 +1,19 @@
+# The built-in plain enums, `Endian` and `Arch`, have `.text` and
+# `from_text` too. The target's architecture is one of Zig's names,
+# whatever the machine, so it is only checked to round-trip.
+
+use std.target
+
+sub main()
+  e: Endian = .big
+  print(e.text, Endian.little.text, Endian.from_text("little"), Endian.from_text("Big"))
+  print(Arch.from_text(target.arch.text) == target.arch, Arch.from_text("x86_64"), Arch.from_text("aarch64"), Arch.from_text("x86_65"))
+  n = 0
+  for a in [Arch.x86_64, Arch.aarch64, Arch.wasm32, Arch.riscv64]
+    n += 1 if Arch.from_text(a.text) == a else 0
+  print(n)
+
+# expect:
+# big little .little none
+# true .x86_64 .aarch64 none
+# 4

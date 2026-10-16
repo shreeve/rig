@@ -1,7 +1,7 @@
 obj S
   a: Int?
 
-const G = S(a: 1)
+G =! S(a: 1)
 
 sub main()
   t = <G.a

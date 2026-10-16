@@ -1,0 +1,15 @@
+# After a jump's label, the value starts an operand: a prefix sigil
+# touches its operand there as anywhere.
+
+sub main()
+  x = if true
+    @outer for i in 0..3
+      for j in 0..3
+        break @outer - 1 if j == i
+    else
+      0
+  else
+    1
+  print(x)
+
+# error: 8:22: a prefix `-` touches its operand

@@ -906,6 +906,19 @@ pub fn eachSetStep(set: Sexp, visitor: anytype) !void {
     try eachTargetStep(ir.Set.target(set), visitor);
 }
 
+/// Whether assignment target `e` is assigned through: a call, `f(x) =
+/// v`, or a call's `!` or `?`, `f(x)? = v`, which writes the value the
+/// write view `!T` it gives reaches (typecheck admits it only where the
+/// call gives one, `assignThroughCall`). No field or element is on its
+/// path, so the target is its own base (`eachSetStep`), and runs after
+/// the value.
+pub fn assignedThrough(e: Sexp) bool {
+    if (e.isKind(.call)) return true;
+    if (e.isKind(.propagate)) return ir.Propagate.value(e).isKind(.call);
+    if (e.isKind(.propagate_none)) return ir.PropagateNone.value(e).isKind(.call);
+    return false;
+}
+
 /// The steps of target `e` (`eachSetStep`).
 pub fn eachTargetStep(e: Sexp, visitor: anytype) !void {
     if (e == .src) return;
@@ -1007,6 +1020,22 @@ pub fn setActs(e: Sexp) bool {
 
 /// Whether step `e` of an assignment can leave before the store: `!`,
 /// `?`, `return`, `break`, or `continue`.
+/// Whether `return a, b` (`results`) evaluates its parts into storage
+/// first, in their order (`argument` storage, one per part): a part that
+/// can leave (`!`, `?`, a jump) comes after one that owns, which a
+/// tuple Zig builds as it goes would lose on the way out. The storage
+/// drops an owned part on that way, and the return takes each.
+pub fn hoistsResults(ctx: *const SemContext, results: Sexp) bool {
+    var owned = false;
+    for (ir.Results.values(results)) |part| {
+        if (owned and setLeaves(part)) return true;
+        if (typeOf(ctx, part)) |ty| if (owns(ctx, ty)) {
+            owned = true;
+        };
+    }
+    return false;
+}
+
 fn setLeaves(e: Sexp) bool {
     return contains(e, &leave_kinds);
 }
@@ -1325,7 +1354,10 @@ fn planConsumed(ctx: *SemContext, e: Sexp) !void {
     switch (head) {
         .move => try consumeName(ctx, ir.Move.operand(e)),
         .drop => try consumeName(ctx, ir.Drop.target(e)),
-        .@"return" => try consumeTail(ctx, ir.Return.value(e)),
+        // `return a, b` takes each part as `return x` takes `x`.
+        .@"return" => if (ir.Return.value(e).isKind(.results)) {
+            for (ir.Results.values(ir.Return.value(e))) |part| try consumeTail(ctx, part);
+        } else try consumeTail(ctx, ir.Return.value(e)),
         .@"break" => try consumeTail(ctx, ir.Break.value(e)),
         .@"for" => {
             if (ir.For.mode(e).tag == .move) try consumeName(ctx, ir.For.source(e));
@@ -1430,6 +1462,11 @@ const Planner = struct {
                 _ = fillsInPlace(ctx, e);
                 try p.assignment(e);
             },
+            // The call's results, which each target takes in its turn.
+            .destructure => try p.record(e, .results, .owned, .statement),
+            // The parts of `return a, b`, made first when a later one can
+            // leave.
+            .results => if (hoistsResults(ctx, e)) try p.record(e, .argument, .owned, .call),
             .box => _ = fillsInPlace(ctx, e),
             .@"+", .@"-", .@"*", .neg => _ = laneChecked(ctx, e),
             .@"for" => try p.forLoop(e),
@@ -1472,6 +1509,12 @@ const Planner = struct {
 
     pub fn part(p: *Planner, cond: Sexp) !void {
         if (cond.isKind(.as)) return p.optional(cond);
+        // `if f() as a, b`: the call's results, captured for the body,
+        // each taken by its binding, the rest dropped there.
+        if (cond.isKind(.as_results)) {
+            try p.subjectHeader(ir.AsResults.value(cond));
+            return p.record(cond, .results, .owned, .body);
+        }
         try p.header(cond);
     }
 
@@ -1664,7 +1707,8 @@ const Planner = struct {
         const ty = known(ctx, s.ty) orelse return;
         const ptr = isPtrViewTy(ctx, ty);
         const writes_through = !ctx.repoints(set) and sema.assignWritesThrough(ctx, s.ty);
-        if ((ptr and writes_through and owns(ctx, sema.unwrapViews(ctx, ty))) or (!ptr and owns(ctx, ty)) or storesAfterValue(ctx, set))
+        const pointee = sema.writtenThrough(ctx, ty);
+        if ((ptr and writes_through and !isPtrViewTy(ctx, pointee) and owns(ctx, pointee)) or (!ptr and owns(ctx, ty)) or storesAfterValue(ctx, set))
             try p.record(value, .new_value, .owned, .assignment);
     }
 
@@ -1672,9 +1716,13 @@ const Planner = struct {
     fn placeAssign(p: *Planner, set: Sexp, order: SetOrder) !void {
         const ctx = p.ctx;
         const target = ir.Set.target(set);
-        const place_ty = typeOf(ctx, target);
+        // A target assigned through, a call's write view, writes the
+        // value the view reaches.
+        const through = assignedThrough(target);
+        const place_ty = if (through) (if (typeOf(ctx, target)) |t| sema.writtenThrough(ctx, t) else null) else typeOf(ctx, target);
         if (target.isKind(.index)) if (typeOf(ctx, ir.Index.object(target))) |t| if (isCellListTy(ctx, t)) return p.openAssign(set, order);
-        if (target != .src and isPtrViewExpr(ctx, target)) return p.openAssign(set, order);
+        const holds_view = if (through) (if (place_ty) |t| isPtrViewTy(ctx, t) else false) else (target != .src and isPtrViewExpr(ctx, target));
+        if (holds_view) return p.openAssign(set, order);
         if (place_ty != null and !owns(ctx, place_ty.?)) return p.openAssign(set, order);
         try p.record(ir.Set.value(set), .new_value, .owned, .assignment);
         if (order.held) try p.targetSteps(set, order);

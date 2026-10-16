@@ -1,0 +1,6 @@
+sub main()
+  @outer for i in 0..2
+    for j in 0..2
+      print(i, j)
+      break: outer
+  print(9)

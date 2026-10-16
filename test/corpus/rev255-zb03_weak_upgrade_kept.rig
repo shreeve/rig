@@ -1,0 +1,14 @@
+obj N
+  n: String
+
+  sub reg(?self, out: !List[?N]) keeps self
+    !out.push(self)
+
+sub main()
+  a = *N(n: String("x"))
+  w = ~a
+  out: List[?N] = List()
+  if *w as s
+    ?s.reg(!out)
+  <a
+  print(out[0].n)

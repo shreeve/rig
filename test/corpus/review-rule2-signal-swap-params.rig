@@ -1,0 +1,18 @@
+sub poke(s: *Signal[Int], t: *Signal[Int])
+  (!s).set(4)
+  swap(!s, !t)
+  !t.set(5)
+
+sub main()
+  a: *Signal[Int] = *Signal(0)
+  b: *Signal[Int] = *Signal(1)
+  !a.subscribe(*||
+    print("a")
+  )
+  !b.subscribe(*||
+    print("b")
+  )
+  poke(+a, +b)
+  print(a.get(), b.get())
+  !a.set(1)
+  !b.set(1)

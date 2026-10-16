@@ -8,7 +8,7 @@ sub g(x: !*Cell[Int])
 sub main()
   c = *Cell(1)
   if true
-    const d = +c
+    d =! +c
     g(!d)
     print(d.get())
   print(c.get())

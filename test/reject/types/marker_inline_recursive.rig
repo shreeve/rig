@@ -1,0 +1,26 @@
+# Zig cannot inline a call into the function it is in: an `inline`
+# function that calls itself, or a cycle of `inline` functions, is an
+# error at the function the cycle returns to. A cycle through a function
+# that is not `inline` is a call there, and is fine.
+
+inline fun count(n: Int) -> Int
+  0 if n == 0 else 1 + count(n - 1)
+
+inline fun even(n: Int) -> Bool
+  true if n == 0 else odd(n - 1)
+
+inline fun odd(n: Int) -> Bool
+  false if n == 0 else even(n - 1)
+
+inline fun down(n: Int) -> Int
+  0 if n == 0 else up(n - 1)
+
+fun up(n: Int) -> Int
+  down(n)
+
+sub main()
+  print(count(3), even(4), down(5))
+
+# error: 6:12: `count` is `inline` and calls itself, so no call of it can be inlined
+# error: 9:12: `even` is `inline` and calls itself through `odd`, also `inline`
+# errors: 2

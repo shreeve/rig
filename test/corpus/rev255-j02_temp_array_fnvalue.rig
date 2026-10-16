@@ -1,0 +1,10 @@
+sub put(out: !List[[]Int], xs: []Int) keeps xs
+  !out.push(xs)
+
+sub main()
+  out: List[[]Int] = List()
+  f = put
+  a = 5
+  f(!out, [a, a + 1, a + 2])
+  junk = [9, 9, 9, 9, 9, 9]
+  print(out[0], junk)

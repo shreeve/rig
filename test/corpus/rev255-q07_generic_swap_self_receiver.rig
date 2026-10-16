@@ -1,0 +1,15 @@
+obj Bag[T]
+  items: List[T]
+
+  sub take_all(!self, other: !Bag[T])
+    swap(!self.items, !other.items)
+
+sub main()
+  t = String("hello")
+  b = Bag[?String](items: List())
+  !b.items.push(?t)
+  a = Bag[?String](items: List())
+  !a.take_all(!b)
+  <b
+  <t
+  print(a.items[0])

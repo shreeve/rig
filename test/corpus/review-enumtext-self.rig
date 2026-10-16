@@ -1,0 +1,36 @@
+# `self.text` in `?self`, `!self`, and `<self` methods, and `from_text` in associated functions and a method declared outside the body.
+enum Color
+  red
+  dark_red
+
+  fun name(?self) -> Static
+    self.text
+
+  sub flip(!self)
+    print(self.text)
+    self = Color.from_text("red") ?? .dark_red
+    print(self.text)
+
+  fun parse(w: ?String) -> Self?
+    Color.from_text(w)
+
+  fun parse2(w: ?String) -> Color?
+    Color.from_text(w)
+
+  fun owned(<self) -> Static
+    self.text
+
+fun Color.outside(?self) -> Static
+  self.text
+
+sub main()
+  c: Color = .dark_red
+  print(c.name(), Color.parse("dark_red"), Color.parse2("red"), c.outside(), c.owned())
+  !c.flip()
+  print(c.text)
+
+# expect:
+# dark_red .dark_red .red dark_red dark_red
+# dark_red
+# red
+# red

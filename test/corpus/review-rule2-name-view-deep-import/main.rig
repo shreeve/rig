@@ -1,0 +1,9 @@
+use lib
+
+obj Node
+  v: Int
+
+sub main()
+  n = Node(v: 1)
+  r: (?Node)? = ?n
+  print(lib.f0(?r))

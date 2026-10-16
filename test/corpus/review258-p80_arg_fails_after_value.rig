@@ -1,0 +1,19 @@
+error Bad
+  oops
+
+fun sf(v: !List[String], i: Int) -> (!String)! from v
+  !v[i]
+
+fun idx(ok: Bool) -> Int!
+  return Bad.oops if not ok
+  0
+
+sub put(v: !List[String], ok: Bool)!
+  sf(!v, idx(ok)!)! = String("new")
+
+sub main()
+  v: List[String] = List()
+  !v.push(String("a"))
+  put(!v, false) catch print("failed")
+  put(!v, true) catch print("failed")
+  print(v)

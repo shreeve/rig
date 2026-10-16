@@ -64,9 +64,9 @@ fun mkbuf() -> Buf
 
 sub main()
   keep: (?Item)? = none
-  :o for _ in upto(2)
+  @o for _ in upto(2)
     for it in mkbuf()
       keep = i
-      break :o
+      break @o
   if keep as k
     print(k.name)

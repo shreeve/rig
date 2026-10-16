@@ -1,0 +1,116 @@
+# A call that returns a write view `!T` is assigned through:
+# `slot(!v, 0) += e` is `__v = e`, `w = slot(!v, 0)`, then `w += __v`.
+# The value runs first, then the call, as a path's base does. So are
+# `f()!` and `f()?` of a fallible or optional write view. A value that
+# owns a resource replaces the old one, which is dropped; one made
+# before a base that fails is dropped too.
+
+use std.hash
+
+error Bad
+  oops
+
+obj P
+  x: Int
+
+obj Bag
+  items: List[Int]
+  name: String
+
+  fun first(!self) -> !Int
+    !self.items[0]
+
+  fun label(!self) -> !String
+    !self.name
+
+fun slot(v: !List[Int], i: Int) -> !Int from v
+  !v[i]
+
+fun pslot(v: !List[P], i: Int) -> !P from v
+  !v[i]
+
+fun lslot(v: !List[List[Int]], i: Int) -> !List[Int] from v
+  !v[i]
+
+fun gslot[T](v: !List[T], i: Int) -> !T from v
+  !v[i]
+
+fun grow(v: !List[Int]) -> Int
+  !v.push(100)
+  v.len
+
+fun sfail(v: !List[String], ok: Bool) -> (!String)! from v
+  return Bad.oops if not ok
+  !v[0]
+
+fun bump(m: !hash.Map[String, Int], k: ?String) -> Int?
+  (!m).edit(k)? += 1
+  m.get(k)? + 0
+
+sub count(m: !hash.Map[String, Int], k: String)
+  (!m).ensure(<k, 0) += 1
+
+sub put(v: !List[String], ok: Bool)!
+  sfail(!v, ok)! = String("new")
+
+sub set_first[T](v: !List[T], x: T)
+  gslot(!v, 0) = <x
+
+sub main()
+  v: List[Int] = List()
+  !v.push(10)
+  slot(!v, 0) += 1
+  slot(!v, 0) -= 2
+  slot(!v, 0) *= 3
+  slot(!v, 0) /= 2
+  slot(!v, 0) %= 7
+  slot(!v, 0) <<= 2
+  slot(!v, 0) |= 1
+  print(v[0])
+  slot(!v, 0) = 40
+  !v.push(2)
+  slot(!v, 1) = slot(!v, 0)
+  slot(!v, 0) += grow(!v)
+  print(v)
+  ps: List[P] = List()
+  !ps.push(P(x: 1))
+  pslot(!ps, 0) = P(x: 9)
+  pslot(!ps, 0).x += 1
+  print(ps[0].x)
+  ls: List[List[Int]] = List()
+  !ls.push(List())
+  !ls[0].push(1)
+  lslot(!ls, 0) = List()
+  print(ls[0].len)
+  b = Bag(items: List(), name: String("a"))
+  !b.items.push(5)
+  (!b).first() += 1
+  (!b).label() = String("bee")
+  print(b.items[0], b.name)
+  s: List[String] = List()
+  !s.push(String("a"))
+  set_first(!s, String("b"))
+  gslot(!s, 0) = String("c")
+  print(s)
+  put(!s, true) catch print("failed")
+  put(!s, false) catch print("failed")
+  print(s)
+  m = hash.Map[String, Int]()
+  !m.put(String("a"), 1)
+  print(bump(!m, "a"), bump(!m, "b"))
+  count(!m, String("a"))
+  count(!m, String("b"))
+  count(!m, String("b"))
+  print(m.get("a") ?? 0, m.get("b") ?? 0)
+
+# expect:
+# 25
+# [43, 40, 100]
+# 10
+# 0
+# 6 bee
+# ["c"]
+# failed
+# ["new"]
+# 2 none
+# 3 2

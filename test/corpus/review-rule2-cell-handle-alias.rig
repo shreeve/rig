@@ -1,0 +1,17 @@
+sub alias(a: *Cell[List[String]], b: *Cell[List[String]])
+  swap(!a, !b)
+  (!b).push(String("y"))
+  old = (!a).replace(List())
+  print(old.len, b.len)
+
+sub alias2(a: *Cell[String], b: *Cell[String])
+  swap(!a, !b)
+  (!a).set(String("q"))
+
+sub main()
+  c: *Cell[List[String]] = *Cell(List())
+  !c.push(String("a"))
+  alias(+c, +c)
+  s: *Cell[String] = *Cell(String("a"))
+  alias2(+s, +s)
+  print((!s).replace(String("")))

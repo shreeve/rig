@@ -98,8 +98,12 @@ const SymbolResolver = struct {
                 if (self.ctx.symbolOf(name)) |id| self.ctx.symbols.items[id].flags.is_public = true;
             },
             .fun, .sub => {
-                const id = try self.declare(ir.get(sexp, .name), .function, .{});
-                if (id) |sym| try self.checkMarker(sexp, self.ctx.symbols.items[sym]);
+                const marked = rig.markerOf(sexp) == .@"inline";
+                const id = try self.declare(ir.get(sexp, .name), .function, .{ .inline_marked = marked });
+                if (id) |sym| {
+                    try self.checkMarker(sexp, self.ctx.symbols.items[sym]);
+                    if (marked and self.scope == sema.module_scope) try self.ctx.inline_decls.put(self.ctx.allocator, self.ctx.symbols.items[sym].decl_pos, sexp);
+                }
                 try self.walkFun(sexp);
             },
             .lambda => try self.walkLambda(sexp),
@@ -128,6 +132,12 @@ const SymbolResolver = struct {
             },
             .@"test" => try self.walkTest(sexp),
             .set => try self.walkSet(sexp),
+            // `q, r = f()`: the value first, then each target's binding,
+            // left to right (`(set op q _ (result_part))`).
+            .destructure => {
+                try self.walk(ir.Destructure.value(sexp));
+                for (ir.Destructure.targets(sexp).items()) |t| try self.walk(t);
+            },
             .block => {
                 const prev = try self.enter(sexp, .block);
                 defer self.scope = prev;
@@ -510,7 +520,7 @@ const SymbolResolver = struct {
                 if (self.scope != self.module_scope and !rig.shadows(ir.Set.op(node))) {
                     if (self.visibleLocal(self.scope, identAt(self.ctx.source, target).?)) |prev| {
                         const name = self.ctx.symbols.items[prev].name;
-                        try self.ctx.errAt(target, "`{s}` is already bound; `const` declares a new binding. Assign with `{s} = ...` or shadow with `new const {s} = ...`", .{ name, name, name });
+                        try self.ctx.errAt(target, "`{s}` is already bound; `=!` declares a new binding. Assign with `{s} = ...` or shadow with `new {s} =! ...`", .{ name, name, name });
                         try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
                         try self.ctx.recordName(target, prev);
                         return;
@@ -618,6 +628,16 @@ const SymbolResolver = struct {
 
     /// One part of a binding condition (`rig.eachGuardPart`).
     pub fn part(self: *SymbolResolver, p: Sexp) Error!void {
+        if (p.isKind(.as_results)) {
+            try self.walk(ir.AsResults.value(p));
+            _ = try self.enter(p, .block);
+            for (ir.AsResults.names(p).items()) |n| {
+                try self.walk(n);
+                if (!n.isKind(.set)) continue;
+                if (self.ctx.symbolOf(ir.Set.target(n))) |id| self.ctx.symbols.items[id].flags.as_bound = true;
+            }
+            return;
+        }
         if (!p.isKind(.as)) return self.walk(p);
         try self.walk(ir.As.value(p));
         _ = try self.enter(p, .block);
@@ -1255,6 +1275,19 @@ pub const TypeResolver = struct {
     /// Only a function's return type may be fallible (`T!`); Zig error
     /// unions with inferred error sets exist only there.
     fn resolveReturnType(self: *TypeResolver, node: Sexp) Error!TypeId {
+        // Several results, `-> (A, B)`, also fallible or optional as a
+        // whole: `-> (A, B)!`, `-> (A, B)?`.
+        if (node.isKind(.results_type)) return self.resolveResults(node);
+        const wrapped = if (node.isKind(.error_union) or node.isKind(.optional)) ir.get(node, .type) else Sexp.nil;
+        if (wrapped.isKind(.results_type)) {
+            const inner = try self.resolveResults(wrapped);
+            if (self.isPoison(inner)) return inner;
+            return self.ctx.intern(if (node.isKind(.optional)) .{ .optional = inner } else .{ .fallible = inner });
+        }
+        if (node.isKind(.error_union) and wrapped.isKind(.optional) and ir.Optional.type(wrapped).isKind(.results_type)) {
+            try self.ctx.errAt(node, "several results are fallible, `(A, B)!`, or optional, `(A, B)?`, not both", .{});
+            return self.ctx.types.invalid_id;
+        }
         if (node.isKind(.error_union)) {
             const inner = try self.resolveType(ir.ErrorUnion.type(node));
             if (sema.isErrorValue(self.ctx, inner)) {
@@ -1273,6 +1306,77 @@ pub const TypeResolver = struct {
         const ty = try self.resolveType(node);
         if (try self.misplacedAt(node, ty, .signature)) return self.ctx.types.invalid_id;
         return ty;
+    }
+
+    /// `(A, B)`, a function's several results (`sema.Type.results`):
+    /// two or more, each a type one result may have, at most one of them
+    /// a write view. Named results are not Rig's.
+    fn resolveResults(self: *TypeResolver, node: Sexp) Error!TypeId {
+        const t = &self.ctx.types;
+        const nodes = ir.ResultsType.types(node);
+        var parts: std.ArrayList(TypeId) = .empty;
+        defer parts.deinit(self.ctx.allocator);
+        var poisoned = false;
+        var writes: usize = 0;
+        for (nodes) |n| {
+            if (n.isKind(.@":")) {
+                try self.ctx.errAt(n, "results are not named: write their types, `-> ({s})`, and name them where they are bound, `{s} = f()`", .{ try self.typesOnly(nodes), try self.namesOnly(nodes) });
+                return t.invalid_id;
+            }
+            const ty = try self.resolveType(n);
+            if (self.isPoison(ty)) {
+                poisoned = true;
+                continue;
+            }
+            switch (self.ctx.types.get(ty)) {
+                .void => {
+                    try self.ctx.errAt(n, "a result is a value: `Void` is none", .{});
+                    poisoned = true;
+                    continue;
+                },
+                .fallible => {
+                    try self.ctx.errAt(n, "a single result is not fallible: several results fail as a whole, `(A, B)!`", .{});
+                    poisoned = true;
+                    continue;
+                },
+                else => {},
+            }
+            if (try self.misplacedAt(n, ty, .signature)) {
+                poisoned = true;
+                continue;
+            }
+            // A write view stands in a signature only as `!T` or `(!T)?`.
+            if (self.ctx.types.get(sema.unwrapOptionals(self.ctx, ty)) == .write_view) writes += 1;
+            try parts.append(self.ctx.allocator, ty);
+        }
+        if (poisoned) return t.invalid_id;
+        if (writes > 1) {
+            try self.ctx.errAt(node, "at most one of a function's results is a write view", .{});
+            return t.invalid_id;
+        }
+        return self.ctx.internCopy(.{ .results = parts.items });
+    }
+
+    /// `(q: Int, r: Int)` as `Int, Int`: the types of named results.
+    fn typesOnly(self: *TypeResolver, nodes: []const Sexp) Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        for (nodes, 0..) |n, i| {
+            if (i > 0) try out.appendSlice(self.ctx.arena.allocator(), ", ");
+            const ty = if (n.isKind(.@":")) ir.get(n, .type) else n;
+            try out.appendSlice(self.ctx.arena.allocator(), diag.textOf(self.ctx.source, self.ctx.span(ty)));
+        }
+        return out.items;
+    }
+
+    /// `(q: Int, r: Int)` as `q, r`: the names of named results.
+    fn namesOnly(self: *TypeResolver, nodes: []const Sexp) Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        for (nodes, 0..) |n, i| {
+            if (i > 0) try out.appendSlice(self.ctx.arena.allocator(), ", ");
+            const name = if (n.isKind(.@":")) ir.get(n, .name) else n;
+            try out.appendSlice(self.ctx.arena.allocator(), if (n.isKind(.@":")) diag.textOf(self.ctx.source, self.ctx.span(name)) else "_");
+        }
+        return out.items;
     }
 
     /// `*(?T)`, `~(!T)`: a handle keeps a value alive, and a view is
@@ -1385,12 +1489,23 @@ pub const TypeResolver = struct {
     /// A `fun`'s `from` clause, which `sema.computeOrigins` reads once
     /// every type's contents are known.
     fn recordFrom(self: *TypeResolver, node: Sexp, params: Sexp, returns: Sexp) Error!void {
+        try self.recordKeeps(node, params);
         if (!node.isKind(.fun) and !node.isKind(.extern_fun)) return;
         const names = ir.get(node, .origins);
         if (names == .nil) return;
         const name = ir.get(node, .name);
         if (name != .src) return;
         try self.ctx.declared_origins.put(self.ctx.allocator, name.src.pos, .{ .names = names, .params = params, .returns = returns });
+    }
+
+    /// A function's `keeps` clause, which `sema.computeOrigins` reads
+    /// once every type's contents are known.
+    fn recordKeeps(self: *TypeResolver, node: Sexp, params: Sexp) Error!void {
+        const names = ir.get(node, .keeps);
+        if (names == .nil) return;
+        const name = ir.get(node, .name);
+        if (name != .src) return;
+        try self.ctx.declared_keeps.put(self.ctx.allocator, name.src.pos, .{ .names = names, .params = params });
     }
 
     /// C functions take and return only integers, floats, and Bool.
@@ -1422,6 +1537,8 @@ pub const TypeResolver = struct {
 
     /// Resolve (once) and return an alias's target type.
     pub fn resolveAlias(self: *TypeResolver, id: SymbolId) Error!TypeId {
+        if (self.ctx.symbols.items[id].ty != self.ctx.types.unknown_id) return self.ctx.symbols.items[id].ty;
+        if (!self.ctx.alias_in_progress.contains(id)) try self.resolveNamedAliases(id);
         const sym = &self.ctx.symbols.items[id];
         if (sym.ty != self.ctx.types.unknown_id) return sym.ty;
         const target = self.ctx.alias_targets.get(id) orelse return self.ctx.types.invalid_id;
@@ -1433,9 +1550,93 @@ pub const TypeResolver = struct {
         try self.ctx.alias_in_progress.put(self.ctx.allocator, id, {});
         defer _ = self.ctx.alias_in_progress.remove(id);
         var module_resolver: TypeResolver = .{ .ctx = self.ctx, .scope = sym.scope };
-        const ty = try module_resolver.resolveType(target);
+        var ty = try module_resolver.resolveType(target);
+        // A type built on one already reported (`poison`) is not reported
+        // again, but nests no deeper either.
+        const info = self.ctx.typeInfo(ty);
+        if (info.height > sema.max_alias_height) {
+            const s = self.ctx.symbols.items[id];
+            if (!info.poison) try self.ctx.err(s.decl_pos, "type alias `{s}` names a type nested more than {d} deep through the aliases it names; no type may nest so deep", .{ s.name, sema.max_alias_height });
+            ty = self.ctx.types.invalid_id;
+        }
         self.ctx.symbols.items[id].ty = ty;
         return ty;
+    }
+
+    /// An alias `resolveNamedAliases` resolves once those its target names
+    /// (`named`, from `next` on) are resolved.
+    const PendingAlias = struct { id: SymbolId, named: []const SymbolId, next: usize = 0 };
+
+    /// Resolve the aliases alias `id`'s target names, and those theirs
+    /// name in turn, deepest first, so that resolving `id` does not nest
+    /// once per link of a chain of aliases (`type A = B`, `type B = C`,
+    /// ...). The walk keeps a stack of its own. An alias met again on it
+    /// refers to itself, reported there as `resolveAlias` reports one it
+    /// meets again.
+    fn resolveNamedAliases(self: *TypeResolver, id: SymbolId) Error!void {
+        var arena = std.heap.ArenaAllocator.init(self.ctx.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+        // An alias on the stack is open; one taken off it, closed.
+        var open: std.AutoHashMapUnmanaged(SymbolId, bool) = .empty;
+        var stack: std.ArrayList(PendingAlias) = .empty;
+        try open.put(a, id, true);
+        try stack.append(a, .{ .id = id, .named = try self.aliasesNamed(a, id) });
+        while (stack.items.len > 0) {
+            const top = &stack.items[stack.items.len - 1];
+            if (top.next < top.named.len) {
+                const d = top.named[top.next];
+                top.next += 1;
+                const sym = &self.ctx.symbols.items[d];
+                if (sym.ty != self.ctx.types.unknown_id or self.ctx.alias_in_progress.contains(d)) continue;
+                const gop = try open.getOrPut(a, d);
+                if (gop.found_existing) {
+                    if (gop.value_ptr.*) {
+                        try self.ctx.err(sym.decl_pos, "type alias `{s}` refers to itself", .{sym.name});
+                        sym.ty = self.ctx.types.invalid_id;
+                    }
+                    continue;
+                }
+                gop.value_ptr.* = true;
+                try stack.append(a, .{ .id = d, .named = try self.aliasesNamed(a, d) });
+                continue;
+            }
+            const done = stack.pop().?.id;
+            try open.put(a, done, false);
+            if (done != id) _ = try self.resolveAlias(done);
+        }
+    }
+
+    /// The aliases the target of alias `id` names, in the order
+    /// `resolveType` meets them: each name it reads as a type here that is
+    /// an alias.
+    fn aliasesNamed(self: *TypeResolver, a: std.mem.Allocator, id: SymbolId) Error![]const SymbolId {
+        const target = self.ctx.alias_targets.get(id) orelse return &.{};
+        const scope = self.ctx.symbols.items[id].scope;
+        var out: std.ArrayList(SymbolId) = .empty;
+        var todo: std.ArrayList(Sexp) = .empty;
+        try todo.append(a, target);
+        while (todo.pop()) |e| switch (e) {
+            .src => {
+                const name = identAt(self.ctx.source, e) orelse continue;
+                if (std.mem.eql(u8, name, "error") or primitiveTypeId(self.ctx, name) != null or sizedType(name) != null) continue;
+                const found = self.ctx.lookup(scope, name) orelse continue;
+                if (self.ctx.symbols.items[found].kind == .type_alias) try out.append(a, found);
+            },
+            // `m.T` names another module's `T`, not this one's.
+            .list => if (e.isKind(.member)) {
+                try todo.append(a, ir.Member.object(e));
+            } else {
+                const items = e.items();
+                var i = items.len;
+                while (i > 0) {
+                    i -= 1;
+                    try todo.append(a, items[i]);
+                }
+            },
+            else => {},
+        };
+        return out.items;
     }
 
     // ---- nominal types ------------------------------------------------------
@@ -1476,7 +1677,7 @@ pub const TypeResolver = struct {
                         continue;
                     }
                     try self.noneMember(head, vname, s.pos);
-                    if (try self.reservedEnumMember(plain_enum, vname, s.pos)) continue;
+                    if (try self.reservedEnumMember(plain_enum, .variant, vname, s.pos)) continue;
                     if (try self.checkDuplicateMember(&names, vname, s.pos, sym_name)) continue;
                     const value = if (plain_enum) try self.enumValue(&values, m, null) else null;
                     try fields.append(self.ctx.allocator, .{ .name = vname, .ty = self.ctx.types.void_id, .decl_pos = s.pos, .is_variant = true, .value = value });
@@ -1511,7 +1712,7 @@ pub const TypeResolver = struct {
                                 try self.ctx.errAt(ir.Valued.value(m), "{s} cannot give its variants values; only a plain enum can", .{if (generic) "a generic enum" else "an enum with payload variants"});
                             }
                             try self.noneMember(head, vname, vpos);
-                            if (try self.reservedEnumMember(plain_enum, vname, vpos)) continue;
+                            if (try self.reservedEnumMember(plain_enum, .variant, vname, vpos)) continue;
                             if (try self.checkDuplicateMember(&names, vname, vpos, sym_name)) continue;
                             const value = if (plain_enum) try self.enumValue(&values, name_node, ir.Valued.value(m)) else null;
                             try fields.append(self.ctx.allocator, .{ .name = vname, .ty = self.ctx.types.void_id, .decl_pos = vpos, .is_variant = true, .value = value });
@@ -1530,7 +1731,7 @@ pub const TypeResolver = struct {
                                 continue;
                             }
                             const mname_node = ir.get(m, .name);
-                            if (try self.reservedEnumMember(plain_enum, identAt(self.ctx.source, mname_node) orelse "", mname_node.src.pos)) continue;
+                            if (try self.reservedEnumMember(plain_enum, .method, identAt(self.ctx.source, mname_node) orelse "", mname_node.src.pos)) continue;
                             try self.resolveMethod(m, sym_id, &fields, &names);
                         },
                         .read, .write, .move => {
@@ -1725,13 +1926,23 @@ pub const TypeResolver = struct {
         try self.ctx.err(pos, "{s} cannot be named `none`: `none` is the absent value of an optional, and `.none` would read as it; choose another name", .{if (head == .errors) "an error" else "a variant"});
     }
 
-    /// Whether `name`, declared at `pos` in an enum (`plain` when it has
-    /// values), is `from_int`, which every plain enum has built in.
+    /// Whether `name`, a variant or a method declared at `pos` in an enum
+    /// (`plain` when it has values), is one every plain enum has built
+    /// in: `from_int` and `from_text`, named through the type as a
+    /// variant is, and `text`, named through a value as a method is (a
+    /// variant named `text` is `E.text`, and clashes with neither).
     /// Reported.
-    fn reservedEnumMember(self: *TypeResolver, plain: bool, name: []const u8, pos: u32) Error!bool {
-        if (!plain or !std.mem.eql(u8, name, "from_int")) return false;
-        try self.ctx.err(pos, "`from_int` is built into every plain enum", .{});
-        return true;
+    fn reservedEnumMember(self: *TypeResolver, plain: bool, kind: enum { variant, method }, name: []const u8, pos: u32) Error!bool {
+        if (!plain) return false;
+        if (std.mem.eql(u8, name, "from_int") or std.mem.eql(u8, name, "from_text")) {
+            try self.ctx.err(pos, "`{s}` is built into every plain enum", .{name});
+            return true;
+        }
+        if (kind == .method and std.mem.eql(u8, name, "text")) {
+            try self.ctx.err(pos, "`text` is built into every plain enum: `e.text` is the name of `e`'s variant; give the method another name", .{});
+            return true;
+        }
+        return false;
     }
 
     /// Whether `name`, declared at `pos`, names an earlier member of
@@ -1806,6 +2017,8 @@ pub const TypeResolver = struct {
         const owner = self.ctx.symbols.items[nominal_sym].name;
         if (try self.checkDuplicateMember(names, mname, mpos, owner)) return;
         const fn_ty = try self.resolveFunction(node, nominal_sym);
+        const marked = rig.markerOf(node) == .@"inline";
+        if (marked) try self.ctx.inline_decls.put(self.ctx.allocator, mpos, node);
         const params = ir.get(node, .params);
         for (params.items(), 0..) |p, i| {
             if (i == 0) continue;
@@ -1826,6 +2039,7 @@ pub const TypeResolver = struct {
             .decl_pos = mpos,
             .is_method = true,
             .is_pub = self.isPubMember(node),
+            .inline_marked = marked,
             .receiver = receiver,
             .param_names = try self.paramNames(params),
             .param_defaults = try self.paramDefaults(params),
@@ -2097,6 +2311,12 @@ pub const TypeResolver = struct {
                     },
                     .generic_inst => return self.resolveGenericInst(sexp),
                     .member => return self.resolveQualified(ir.Member.object(sexp), ir.Member.name(sexp)),
+                    // Several results are a function's, after its `->`
+                    // (`resolveReturnType`), and no value's type.
+                    .results_type => {
+                        try self.ctx.errAt(sexp, "`{s}` is a function's results, not a type a value can have: name an object for a stored pair", .{diag.textOf(self.ctx.source, self.ctx.span(sexp))});
+                        return t.invalid_id;
+                    },
                     else => {
                         try self.ctx.errAt(sexp, "unsupported type expression", .{});
                         return t.invalid_id;
@@ -2318,7 +2538,7 @@ pub const TypeResolver = struct {
         return null;
     }
 
-    /// The `ct_param` of the compile-time integer parameter (or `const k = n`
+    /// The `ct_param` of the compile-time integer parameter (or `k =! n`
     /// alias of one) a name leaf denotes; null for any other name.
     fn ctParamNamed(self: *TypeResolver, leaf: Sexp) Error!?TypeId {
         const name = identAt(self.ctx.source, leaf) orelse return null;

@@ -4,7 +4,7 @@ obj H
 obj G
   r: ?String
 
-sub set(w: ?H, g: (!G)?)
+sub set(w: ?H, g: (!G)?) keeps w
   (g ?? return).r = ?w.n
 
 sub main()

@@ -1,0 +1,15 @@
+obj It
+  i: Int
+
+  fun next(!self) -> (Int, Int)?
+    return none if self.i >= 2
+    self.i += 1
+    return self.i, self.i * 10
+
+sub main()
+  it = It(i: 0)
+  for k in !it
+    print(k)
+
+# error: a `for` binds one value each step, and this iterator's `next` gives 2 results
+# errors: 1

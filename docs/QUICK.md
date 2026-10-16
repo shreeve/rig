@@ -39,6 +39,12 @@ it. The same holds for a call whose result keeps its argument lent:
 `r = head(?v)`, `xs = ?b.all()`, and `!xs.push(head(?v))` are written, while `print(head(v).len)`
 needs no mark, since its loan ends with the statement.
 
+**A call keeps only what it says.** A view lent to a call ends when the
+call returns, unless the function names that parameter in `keeps`:
+`sub watch(!self, s: ?String) keeps s` may store `s` in `self`, so its
+call is written `!b.watch(?t)`, and `t` stays lent while `b` is used. A
+body that stores a lent parameter without saying so is rejected.
+
 **Receivers.** A method declares how it takes `self`, and its call says
 the same: `?self` reads (`a.balance()`), `!self` changes
 (`!a.pay(30)`), and `<self` consumes (`<a.close()`).
@@ -70,6 +76,13 @@ function's last value.
 `none`, and `o ?? d` gives `d` instead. A `T!` function fails with
 `return E.name`; each call to it says `f()!`, to pass the failure up,
 or `f() catch d`.
+
+**Several results.** `fun divmod(a: Int, b: Int) -> (Int, Int)` gives
+two, with `return a / b, a % b`, and `q, r = divmod(17, 5)` binds each
+by name; `_` discards one. They never form a value: a group of values
+kept past its statement is an object. One result may be a write view,
+`w, added = (!m).ensure_added(k, 0)`, which keeps `m` lent to write as
+`w` lives, while `added` keeps nothing.
 
 **`not`** negates: `not done`. A comparison under it takes parentheses,
 `not (a > b)`, or is flipped, `a <= b`. `not a and b` is `(not a) and

@@ -16,7 +16,7 @@ sub main()
   print(a[rt(3)])
 EOF
 rig build --release=fast -o index index.rig || fail "rig build --release=fast"
-out=$(./index 2>&1); rc=$?
+out=$(RIG_NO_CRASH_REPORT=1 ./index 2>&1); rc=$?
 expect_has "$out" "index out of bounds" "fast build index check"
 [[ $rc -ne 0 ]] || fail "fast build: out-of-bounds index exited 0"
 
@@ -28,7 +28,7 @@ sub main()
   s = "abc"
   print(s[0..rt(4)])
 EOF
-out=$(rig run --release=fast slice.rig 2>&1); rc=$?
+out=$(RIG_NO_CRASH_REPORT=1 rig run --release=fast slice.rig 2>&1); rc=$?
 expect_has "$out" "slice bounds out of range" "fast build slice check"
 [[ $rc -ne 0 ]] || fail "fast build: out-of-range slice exited 0"
 
@@ -42,7 +42,7 @@ sub main()
   b = [4, 5, 6]
   !a.copy(?b[..rt(2)])
 EOF
-out=$(rig run --release=fast copy.rig 2>&1); rc=$?
+out=$(RIG_NO_CRASH_REPORT=1 rig run --release=fast copy.rig 2>&1); rc=$?
 expect_has "$out" "copy between slices of different lengths" "fast build copy check"
 [[ $rc -ne 0 ]] || fail "fast build: copy of a different length exited 0"
 
@@ -54,7 +54,7 @@ sub main()
   a = [1, 2, 3]
   !a.swap(0, rt(3))
 EOF
-out=$(rig run --release=fast swap.rig 2>&1); rc=$?
+out=$(RIG_NO_CRASH_REPORT=1 rig run --release=fast swap.rig 2>&1); rc=$?
 expect_has "$out" "index out of bounds" "fast build swap check"
 [[ $rc -ne 0 ]] || fail "fast build: out-of-range swap exited 0"
 
@@ -66,7 +66,7 @@ sub main()
   b: [4]U8 = [1, 2, 3, 4]
   print(b.read[U32, .big](rt(1)))
 EOF
-out=$(rig run --release=fast bytes.rig 2>&1); rc=$?
+out=$(RIG_NO_CRASH_REPORT=1 rig run --release=fast bytes.rig 2>&1); rc=$?
 expect_has "$out" "byte read out of range" "fast build read check"
 [[ $rc -ne 0 ]] || fail "fast build: read past the end exited 0"
 
@@ -78,7 +78,7 @@ sub main()
   b: [4]U8 = [1, 2, 3, 4]
   !b.write[U16, .little](rt(3), 7)
 EOF
-out=$(rig run --release=fast store.rig 2>&1); rc=$?
+out=$(RIG_NO_CRASH_REPORT=1 rig run --release=fast store.rig 2>&1); rc=$?
 expect_has "$out" "byte write out of range" "fast build write check"
 [[ $rc -ne 0 ]] || fail "fast build: write past the end exited 0"
 
@@ -90,7 +90,7 @@ fun rt(n: Int) -> Int
 sub main()
   print(I8(rt(300)))
 EOF
-out=$(rig run --release convert.rig 2>&1); rc=$?
+out=$(RIG_NO_CRASH_REPORT=1 rig run --release convert.rig 2>&1); rc=$?
 expect_has "$out" "integer does not fit in destination type" "release build conversion check"
 [[ $rc -ne 0 ]] || fail "release build: failing conversion exited 0"
 
@@ -106,7 +106,7 @@ sub main()
   print(v + 1)
   print(v << 1)
 EOF
-out=$(rig run --release vecover.rig 2>&1); rc=$?
+out=$(RIG_NO_CRASH_REPORT=1 rig run --release vecover.rig 2>&1); rc=$?
 expect_has "$out" "integer overflow" "release build vector add check"
 [[ $rc -ne 0 ]] || fail "release build: overflowing vector add exited 0"
 out=$(rig run --release=fast vecover.rig 2>&1); rc=$?

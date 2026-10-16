@@ -1,0 +1,39 @@
+# Rule: a call may store an argument taken by value only where its type
+# could hold what the call's write parameters lead to (Core sentence 7).
+# A `hash.Map[U32, U32]` holds no view: its entries are `Entry[K, V]`
+# instances inside the Map's own fields, whose type parameters stand for
+# the Map's arguments, `U32` and `U32`, not for anything. So `count` can
+# store `t`'s view of `xs` only where `Checker` views a `Program`, and
+# `xs` is free to change after the call.
+# From: Trig NEEDS 11 (.git/revamp/r3/repro/needs11-map-reach.rig).
+
+use std.hash
+
+obj Program
+  xs: List[Int]
+
+obj Tok
+  items: ?List[Int]
+
+obj Checker
+  program: ?Program
+  total: Int
+  m: hash.Map[U32, U32]
+  s: hash.Set[U32]
+
+fun Checker.count(!self, t: Tok) -> Int
+  self.total += 1
+  t.items.len
+
+sub main()
+  p = Program(xs: List())
+  xs: List[Int] = List()
+  c = Checker(program: ?p, total: 0, m: hash.Map[U32, U32](), s: hash.Set[U32]())
+  !xs.push(1)
+  print((!c).count(Tok(items: ?xs)))
+  !xs.push(2)
+  print(xs.len, c.total)
+
+# expect:
+# 1
+# 2 1

@@ -1,0 +1,7 @@
+# The program's `main` is called once, by the program: it takes no marker.
+
+inline sub main()
+  print(1)
+
+# error: 3:1: `main` is the program's entry point, which the program calls once: it takes no `inline`
+# errors: 1

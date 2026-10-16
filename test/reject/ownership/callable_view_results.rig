@@ -9,7 +9,7 @@ obj Wrap
 obj View
   w: ?Wrap
 
-sub fill(out: !View, f: ?fun() -> ?Wrap)
+sub fill(out: !View, f: ?fun() -> ?Wrap) keeps f
   out.w = f()
 
 fun get(f: ?fun() -> ?Wrap) -> ?Wrap

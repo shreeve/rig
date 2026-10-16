@@ -8,7 +8,7 @@ fun lim(i: Int) -> Int?
 
 sub main()
   i = 0
-  :outer while i < 10 : i += 1
+  @outer while i < 10 : i += 1
     j = 0
     while (odd(i) ?? continue) > j : j += (lim(j) ?? break) + 1
       print(i, j)

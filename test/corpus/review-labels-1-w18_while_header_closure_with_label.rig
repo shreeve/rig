@@ -1,0 +1,8 @@
+fun run(f: fun() -> Bool) -> Bool
+  f()
+
+sub main()
+  i = 0
+  @o while run(|| true) : i += 1
+    break @o if i > 1
+  print(i)

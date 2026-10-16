@@ -10,7 +10,7 @@ obj K
 fun mkd(n: Int) -> D
   D(c: Cell(n))
 
-sub stash(k: !K, p: ?D)
+sub stash(k: !K, p: ?D) keeps p
   k.r = p
 
 sub main()

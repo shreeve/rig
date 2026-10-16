@@ -1,0 +1,14 @@
+# Rule: a lend is written wherever its view may outlast its statement,
+# as when the call it is lent to keeps it (Core sentence 4): a built-in
+# generic's method keeps every argument, so `push` into a
+# `List[?String]` keeps the view, and the lend is written `?t`.
+# From: the keeps Core review (Rust expert).
+
+sub main()
+  t = String("abc")
+  names: List[?String] = List()
+  !names.push(?t)
+  print(names.len, names[0])
+
+# expect:
+# 1 abc

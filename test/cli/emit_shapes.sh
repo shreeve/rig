@@ -10,7 +10,7 @@ sub main()
 EOF
 out=$("$RIG" emit hello.rig 2>/dev/null) || fail "rig emit hello.rig"
 expect_has "$out" 'pub fn main(__rig_init: std.process.Init.Minimal) void' "hello"
-expect_has "$out" 'rig.print(.{ "hello, rig" })' "hello"
+expect_has "$out" 'rig.print(.{ "hello, rig", "\n" })' "hello"
 
 cat >bindings.rig <<'EOF'
 fun two() -> Int
@@ -20,7 +20,7 @@ sub main()
   x = 1
   y = two()
   z = 5
-  const user = 1
+  user =! 1
   if y > 1
     x = 3
   print(x + y + z + user)
@@ -284,8 +284,8 @@ grep -qF '@intCast(__rig_i_' <<<"$out" && fail "a loop index is range-checked ea
 # The mask helpers are inlined into their callers: called, a wide mask
 # is taken apart lane by lane. (Their asm, checked by hand with
 # `zig build-obj -target aarch64-macos`, has no `umov` and no call.)
-for f in maskBits maskFirst maskAny maskAll nibbleMask foldBytes maskBytes \
-         maskBitsCast maskBitsNeon maskBitsPieces maskBitsSwar mask maskOf \
+for f in maskBits maskBitsNot maskFirst maskAny maskAll nibbleMask foldBytes maskBytes opaqueBytes \
+         maskBitsCast maskBitsNeon maskBitsOpaque maskBitsPieces maskBitsSwar mask maskOf \
          maskLanes maskArray maskAnd maskOr maskXor maskEq maskNe maskNot maskSelect; do
   grep -qE "^(pub )?inline fn $f\(" "$ROOT/src/runtime.zig" || fail "runtime: $f is not an inline fn"
 done

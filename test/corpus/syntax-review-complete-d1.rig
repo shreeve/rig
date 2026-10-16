@@ -1,4 +1,4 @@
-const LIMIT = 8
+LIMIT =! 8
 
 obj C
   n: Int = LIMIT

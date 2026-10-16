@@ -1,0 +1,9 @@
+obj W
+  w: Int
+
+fun f() -> !Int
+  w = W(w: 1)
+  !w.w
+
+sub main()
+  f() = 3

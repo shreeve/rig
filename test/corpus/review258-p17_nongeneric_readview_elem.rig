@@ -1,0 +1,14 @@
+obj P
+  x: Int
+  n: String
+
+fun sl(v: !List[?P], i: Int) -> !(?P) from v
+  !v[i]
+
+sub main()
+  a = P(x: 1, n: String("a"))
+  b = P(x: 2, n: String("b"))
+  v: List[?P] = List()
+  !v.push(?a)
+  sl(!v, 0) = ?b
+  print(v[0].x, v[0].n)

@@ -1,0 +1,15 @@
+obj K
+  a: ?String
+
+  sub put(!self, v: ?String) keeps v
+    self.a = v
+
+sub main()
+  t = String("outer")
+  l: List[K] = List()
+  !l.push(K(a: ?t))
+  for x in !l
+    w = !x
+    d = String("local")
+    !w.put(?d)
+  print(l[0].a)

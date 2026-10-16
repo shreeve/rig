@@ -6,7 +6,7 @@ obj Todo
 obj TodoList
   items: List[Todo]
 
-  sub add(!self, title: ?String)
+  sub add(!self, title: ?String) keeps title
     !self.items.push(Todo(title: title))
 
   sub complete(!self, index: Int)

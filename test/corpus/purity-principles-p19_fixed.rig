@@ -1,6 +1,6 @@
 sub main()
   y = 1
-  const x = y
+  x =! y
   z = !y
   z += 5
   print(x, y)
