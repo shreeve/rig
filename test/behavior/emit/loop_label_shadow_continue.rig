@@ -1,4 +1,4 @@
-# An inner `:a for` inside an outer `:a` loop: `continue :a` targets the
+# An inner `@a for` inside an outer `:a` loop: `continue @a` targets the
 # inner loop, the innermost of that name.
 obj S
   s: []Int
@@ -14,12 +14,12 @@ sub main()
   k = 0
   i = 0
   j = 0
-  :a while mk(?v, i) as h and i >= 0: k += h.s[0]
+  @a while mk(?v, i) as h and i >= 0: k += h.s[0]
     i += 1
-    break :a if i > 50
-    :a for _ in 0..2
+    break @a if i > 50
+    @a for _ in 0..2
       j += 1
-      continue :a
+      continue @a
   print("end", k, j)
 
 # expect:

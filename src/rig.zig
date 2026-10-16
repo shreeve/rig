@@ -181,7 +181,7 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
         .set, .drop, .pass, .@"return", .@"break", .@"continue", .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .called, .rarely, .@":", .default, .valued, .variant, .as, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .called, .rarely, .@":", .default, .valued, .variant, .as, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .symbol, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
     };
 }
 
@@ -695,6 +695,9 @@ pub const Lexer = struct {
     /// The last token is the label of a jump (`break :outer`): what
     /// follows it starts the jump's value, though the label is a name.
     after_jump_label: bool = false,
+    /// The last token is a `:` that starts an operand: a symbol, whose
+    /// name may be a keyword (`:type`).
+    symbol_colon: bool = false,
     /// The category of the token before the last one.
     last2_cat: TokenCat = .eof,
     /// The operators whose spacing breaks the rule (an infix operator
@@ -804,6 +807,7 @@ pub const Lexer = struct {
         decrement,
         slash_comment,
         pin_sigil,
+        colon_label,
         control_in_string,
         lone_cr,
         leading_zero,
@@ -844,7 +848,8 @@ pub const Lexer = struct {
                 .increment => "Rig has no `++`; write `x += 1`",
                 .decrement => "Rig has no `--`; write `x -= 1`",
                 .slash_comment => "comments start with `#`; Rig has no `//` or `/* */` comments",
-                .pin_sigil => "the pin sigil `@x` is reserved; `@` only starts a builtin call, `@name(...)`",
+                .pin_sigil => "`@` starts a builtin call, `@name(...)`, or a label, `@name`",
+                .colon_label => "a label is written `@name`: `@outer for ...`, `break @outer`, `continue @outer`",
                 .no_inline_marker => "Rig has no `inline` marker yet; write `called fun` or `rarely fun`, or leave the function unmarked for the compiler to decide",
                 .marker_before_pub => "`pub` comes before a function's marker: write `pub called fun` or `pub rarely fun`",
                 .two_markers => "a function takes one marker: `called` (keep every call a call) or `rarely` (rarely called, so kept out of line and cold), and `rarely` already keeps every call a call",
@@ -861,9 +866,10 @@ pub const Lexer = struct {
     pub fn next(self: *Lexer) Token {
         const tok = self.produce();
         self.after_label = self.label_colon and tok.cat == .ident;
-        self.label_colon = tok.cat == .colon and self.stmtStart();
+        self.label_colon = tok.cat == .label_at and self.stmtStart();
+        self.symbol_colon = tok.cat == .colon and !self.after_value and self.last_cat != .kwarg_name;
         self.after_value = !self.after_label and (isValue(tok.cat) or (self.after_value and (tok.cat == .question or tok.cat == .not_sym)));
-        self.after_jump_label = tok.cat == .ident and self.last_cat == .colon and (self.last2_cat == .@"break" or self.last2_cat == .@"continue");
+        self.after_jump_label = tok.cat == .ident and self.last_cat == .label_at and (self.last2_cat == .@"break" or self.last2_cat == .@"continue");
         self.last2_cat = self.last_cat;
         self.last_cat = tok.cat;
         switch (tok.cat) {
@@ -1168,7 +1174,7 @@ pub const Lexer = struct {
                 if (self.nesting > 0) self.nesting -= 1;
                 break :blk tok.cat;
             },
-            .at => if (self.isBuiltinCall()) .at else return self.fail(.pin_sigil, tok.pos),
+            .at => if (self.isBuiltinCall()) .at else if (self.isLabelAt() and (self.stmtStart() or self.last_cat == .@"break" or self.last_cat == .@"continue")) .label_at else return self.fail(.pin_sigil, tok.pos),
             .bar => if (self.isCaptureBar(tok, after_value)) .bar_capture else .bar,
             .and_sym => return self.fail(.and_operator, tok.pos),
             // `||` where an operand starts is an empty closure bar list.
@@ -1185,7 +1191,11 @@ pub const Lexer = struct {
             .dotdot => if (self.nextJoined().cat == .rbracket) .dotdot_open else .dotdot,
             // `while i < n : i += 1`: the step; any other `:` in the
             // header, as after a jump (`?? break :outer`), is a label's.
-            .colon => if (self.while_header == self.nesting) .step_colon else .colon,
+            .colon => if (after_value and self.while_header == self.nesting) .step_colon else if (!after_value and self.last_cat != .kwarg_name) blk: {
+                if (self.isOldLabel()) return self.fail(.colon_label, tok.pos);
+                if (isSpace(self.charAfter(tok))) return self.fail(.detached_prefix, tok.pos);
+                break :blk .colon;
+            } else .colon,
             // `get(k) ?? return none`: a jump as the fallback.
             .nullish => if (self.nextIsJump()) .nullish_jump else .nullish,
             .err => return self.lexError(tok),
@@ -1268,7 +1278,7 @@ pub const Lexer = struct {
     }
 
     fn classifyKeyword(self: *const Lexer, kw: TokenCat) TokenCat {
-        if (kw != .@"if") return self.memberName() orelse kw;
+        if (kw != .@"if" or self.symbol_colon) return self.memberName() orelse kw;
         switch (self.last_cat) {
             .@"return", .@"break", .@"continue", .pass => return .post_if,
             else => {},
@@ -1338,6 +1348,7 @@ pub const Lexer = struct {
     fn memberName(self: *const Lexer) ?TokenCat {
         switch (self.last_cat) {
             .dot, .at => return .ident,
+            .colon => if (self.symbol_colon) return .ident,
             .fun, .sub => return if (self.in_members[self.depth]) .ident else null,
             else => {},
         }
@@ -1348,6 +1359,23 @@ pub const Lexer = struct {
 
     /// `@name(...)` is a builtin call; `@name` alone is the reserved pin
     /// sigil.
+    fn isLabelAt(self: *const Lexer) bool {
+        var probe = self.base;
+        return probe.next().cat == .ident;
+    }
+
+    /// `:outer for`, `continue :outer`: a label in the old spelling.
+    fn isOldLabel(self: *const Lexer) bool {
+        if (self.last_cat == .@"continue") return true;
+        if (!self.stmtStart()) return false;
+        var probe = self.base;
+        if (probe.next().cat != .ident) return false;
+        return switch (probe.next().cat) {
+            .@"for", .@"while", .match, .raw => true,
+            else => false,
+        };
+    }
+
     fn isBuiltinCall(self: *const Lexer) bool {
         var probe = self.base;
         const name = probe.next();

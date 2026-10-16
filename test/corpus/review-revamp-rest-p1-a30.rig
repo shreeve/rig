@@ -1,5 +1,5 @@
 sub main()
-  :l while true
+  @l while true
     x: Int? = none
     y = x ?? break : l
   print(9)

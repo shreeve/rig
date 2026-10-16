@@ -1,4 +1,4 @@
-# A `continue :outer` in a nested loop's `else` goes through the outer
+# A `continue @outer` in a nested loop's `else` goes through the outer
 # loop's step.
 obj S
   s: []Int
@@ -22,14 +22,14 @@ sub main()
   a = fresh(1)
   k = 0
   i = 0
-  :outer while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
+  @outer while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
     i += 1
     k += take(<a)
     j = 0
     while j < 2: j += 1
       k += 0
     else
-      continue :outer
+      continue @outer
     k += 100
   print(k, i)
 

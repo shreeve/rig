@@ -27,12 +27,12 @@ fun h(k: Int) -> Int
 
 sub main()
   print(f(1), f(2), g(0), g(1), g(2), h(1), h(3))
-  :outer for i in 0..3
+  @outer for i in 0..3
     v: List[Int] = List()
     !v.push(i)
     for j in 0..3
       w: List[Int] = List()
       !w.push(j)
-      n = get(j + i) ?? break :outer
-      m = get(n) ?? continue :outer
+      n = get(j + i) ?? break @outer
+      m = get(n) ?? continue @outer
       print(i, j, n, m, v.len, w.len)

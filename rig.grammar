@@ -184,7 +184,8 @@ tokens
     of              # of  after a value inside [ ]: a fill literal `[n of x]`
     dotdot_open     # ..  directly before `]`: an open range `xs[a..]`, `xs[..]`
     nullish_jump    # ??  directly before `return`, `break`, or `continue`
-    step_colon      # :   the first `:` of a `while` header: its step
+    step_colon      # :   the first `:` after a value in a `while` header: its step
+    label_at        # @   before a name that no `(` follows: a label, `@outer for`, `break @outer`
 
     # Misc
     comment
@@ -398,6 +399,7 @@ tokens
     range_pattern               lo hi
     variant_pattern             name:leaf ...bindings
     enum_lit                    name:leaf
+    symbol                      name:leaf
     return                      value?
     break                       value? label:leaf?
     continue                    label:leaf?
@@ -452,7 +454,7 @@ tokens
     POST_IF: "`if`", TERNARY_IF: "`if`", BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`"
     KWARG_NAME: "a keyword argument"
     OF: "`of`", OBJ: "`obj`", CALLED: "`called`", RARELY: "`rarely`", UNIQUE: "`unique`", FROM: "`from`", STATIC: "`static`"
-    DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", STEP_COLON: "`:`"
+    DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", STEP_COLON: "`:`", LABEL_AT: "`@`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
@@ -510,7 +512,7 @@ stmt     = use
          | ext_fun
          | ext_sub
          | zig_ext
-         | ":" label:name stmt:stmt                 → (labeled)
+         | LABEL_AT label:name stmt:stmt                 → (labeled)
          | simple
          | simple POST_IF cond:value                → (if then:(block 1))
 
@@ -529,8 +531,8 @@ simple   = tail
          | NEW CONST target:name ":" type:type "=" value:tail → (set op:shadow_fixed)
          | PASS                                     → (pass)
          | RETURN [value:tail]                      → (return)
-         | BREAK [":" label:name] [value:tail]      → (break)
-         | CONTINUE [":" label:name]                → (continue)
+         | BREAK [LABEL_AT label:name] [value:tail]      → (break)
+         | CONTINUE [LABEL_AT label:name]                → (continue)
          | DEFER body:(block | simple)              → (defer)
          | ERRDEFER body:(block | simple)           → (errdefer)
          | RAW body:block                           → (raw_block)
@@ -820,8 +822,8 @@ value    = then:logic TERNARY_IF cond:logic ELSE else:value → (if)
 # header, the rewriter marks the `:` that starts the step as STEP_COLON,
 # so a jump there takes no label.
 jump     = RETURN [value:value]                     → (return)
-         | BREAK [":" label:name] [value:value]     → (break)
-         | CONTINUE [":" label:name]                → (continue)
+         | BREAK [LABEL_AT label:name] [value:value]     → (break)
+         | CONTINUE [LABEL_AT label:name]                → (continue)
 
 logic    = left:logic OR right:conj                 → (or)
          | conj
@@ -899,6 +901,7 @@ patatom  = name
          | TRUE
          | FALSE
          | "." name:name                            → (enum_lit)
+         | ":" name:name                            → (symbol)
          | "." name:name "(" ")"                    → (variant_pattern)
          | "." name:name "(" bindings:pbinds ![","] ")" → (variant_pattern)
 
@@ -1011,6 +1014,7 @@ atom     = name
          | TRUE
          | FALSE
          | "." name:name                            → (enum_lit)
+         | ":" name:name                            → (symbol)
          | "@" name:name "(" args:args ")"          → (builtin)
          | "[" [elems:exprs] "]"                    → (array)
          | "[" elems:exprs "," "]"                  → (array)

@@ -1148,10 +1148,10 @@ names a label the same way, `v = next() ?? continue :outer`, except in a
 
 ```rig
 sub main()
-  :outer for i in 0..3
+  @outer for i in 0..3
     for j in 0..3
-      continue :outer if j > i
-      break :outer if i == 2
+      continue @outer if j > i
+      break @outer if i == 2
       print(i, j)
 ```
 

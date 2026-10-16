@@ -857,14 +857,14 @@ const Checker = struct {
                 // Only a loop, a `match`, or a `raw` block has a use for a
                 // label; the statement is still checked as if it took one.
                 if (inner.isKind(.labeled)) {
-                    try self.errAt(stmt, "a loop, `match`, or `raw` block takes one label; `:{s}` labels a statement already labeled `:{s}`", .{ label, self.text(ir.Labeled.label(inner)) });
+                    try self.errAt(stmt, "a loop, `match`, or `raw` block takes one label; `@{s}` labels a statement already labeled `@{s}`", .{ label, self.text(ir.Labeled.label(inner)) });
                 } else if (!inner.isKind(.match) and !inner.isKind(.raw_block)) {
                     const prefix = "a label names a loop, `match`, or `raw` block that `break` or `continue` can leave";
                     switch (inner.kind() orelse .labeled) {
-                        .@"if" => try self.errAt(stmt, "{s}; `:{s}` cannot label an `if`", .{ prefix, label }),
-                        .@"defer" => try self.errAt(stmt, "{s}; `:{s}` cannot label a `defer`", .{ prefix, label }),
-                        .@"errdefer" => try self.errAt(stmt, "{s}; `:{s}` cannot label an `errdefer`", .{ prefix, label }),
-                        else => try self.errAt(stmt, "{s}; `:{s}` on this statement would do nothing", .{ prefix, label }),
+                        .@"if" => try self.errAt(stmt, "{s}; `@{s}` cannot label an `if`", .{ prefix, label }),
+                        .@"defer" => try self.errAt(stmt, "{s}; `@{s}` cannot label a `defer`", .{ prefix, label }),
+                        .@"errdefer" => try self.errAt(stmt, "{s}; `@{s}` cannot label an `errdefer`", .{ prefix, label }),
+                        else => try self.errAt(stmt, "{s}; `@{s}` on this statement would do nothing", .{ prefix, label }),
                     }
                 }
                 var frame: LoopFrame = .{ .label = label, .node = inner, .is_loop = false, .parent = self.body.loops };
@@ -2114,7 +2114,7 @@ const Checker = struct {
             // `while x ?? break :outer`: the label reads as the step.
             const jump = if (step == .src) bareJumpAtEnd(cond) else null;
             if (jump) |j| {
-                try self.errAt(step, "a jump in a `while` header takes no label; the `:` there starts the step, so `{s}` reads as the step: to jump to an outer loop, jump from the body with `{s} :{s}`", .{ self.text(step), j, self.text(step) });
+                try self.errAt(step, "a jump in a `while` header takes no label; the `:` there starts the step, so `{s}` reads as the step: to jump to an outer loop, jump from the body with `{s} @{s}`", .{ self.text(step), j, self.text(step) });
             } else try self.errAt(step, "a `while` step is an assignment or a call", .{});
         } else if (step != .nil) {
             try self.checkStmt(step);
@@ -2527,7 +2527,7 @@ const Checker = struct {
         if (target) |f| {
             if (f.is_loop) {
                 try self.errAt(value, "`break` with a value needs a loop whose value is used (`x = for ...`)", .{});
-            } else try self.errAt(value, "a labeled block has no value; `break :{s}` cannot carry one", .{f.label});
+            } else try self.errAt(value, "a labeled block has no value; `break @{s}` cannot carry one", .{f.label});
         }
     }
 
@@ -2551,7 +2551,7 @@ const Checker = struct {
             if (label == .nil) {
                 try self.errAt(node, "`{s}` is not inside a loop{s}", .{ word, where });
             } else {
-                try self.errAt(node, "`{s} :{s}` names no enclosing loop or block{s}", .{ word, self.text(label), where });
+                try self.errAt(node, "`{s} @{s}` names no enclosing loop or block{s}", .{ word, self.text(label), where });
             }
             return null;
         };
@@ -2560,7 +2560,7 @@ const Checker = struct {
             return f;
         }
         if (!f.is_loop) {
-            try self.errAt(node, "`continue :{s}` names a block, not a loop", .{f.label});
+            try self.errAt(node, "`continue @{s}` names a block, not a loop", .{f.label});
             return null;
         }
         const to: sema.JumpDest.To = switch (f.part) {

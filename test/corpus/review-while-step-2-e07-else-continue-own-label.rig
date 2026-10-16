@@ -1,6 +1,6 @@
-# A `continue :a` in loop `:a`'s own `else`, which runs after the loop:
+# A `continue @a` in loop `:a`'s own `else`, which runs after the loop:
 # the loop has ended, so the jump cannot target it. Expected: rejected,
-# or `continue :a` must mean something the emitted code does.
+# or `continue @a` must mean something the emitted code does.
 #
 # oracle: mk accept
 obj S
@@ -18,10 +18,10 @@ sub main()
   n = 0
   for _ in 0..2
     i = 0
-    :a while mk(?v, i) as h and i >= 0: k += h.s[0]
+    @a while mk(?v, i) as h and i >= 0: k += h.s[0]
       i += 1
     else
       n += 1
-      continue :a
+      continue @a
     k += 100
   print("end", k, n)

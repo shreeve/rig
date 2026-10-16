@@ -12,13 +12,13 @@ fun f0(a0: Int) -> Int
       if not (((-1) - (-3)) < (a0 - m3))
         print(13)
       if (9 % 7) < (17 + c0)
-        :l6 for i10 in 1..4
+        @l6 for i10 in 1..4
           print(i10)
           print(((0 - 16) % 3))
           b0 = c0 % 1000
           return ((10 + c0) - a0) if not ((2 / 1) > (m3 * 1))
           continue if (i10 - i10) == (15 % 6)
-        :l7 for i11 in (-2)..5
+        @l7 for i11 in (-2)..5
           print(i11)
           continue if (5 - c0) >= ((-6) / 5)
       else if ((b0 % 6) != (7 % 7)) and (4 < (m3 / 1))
@@ -35,12 +35,12 @@ fun f0(a0: Int) -> Int
           print(((16 % 4) + a0))
           print(i5, b0)
         w6 = 0
-        :l2 while w6 < 3 : w6 += 1
-          continue :l2 if 18 < (w6 - b0)
+        @l2 while w6 < 3 : w6 += 1
+          continue @l2 if 18 < (w6 - b0)
           c0 -= ((c0 % 6) / 4)
           c0 = c0 % 1000
         w7 = 0
-        :l3 while w7 < 3 : w7 += 1
+        @l3 while w7 < 3 : w7 += 1
           print(19)
           continue if not ((m3 / 4) >= (c0 - 12))
           print(((9 + a0) - (m3 - m3)))
@@ -52,7 +52,7 @@ fun f0(a0: Int) -> Int
           b0 = b0 % 1000
           print(((m3 * 11) + (14 * (-4))))
       else
-        :l4 for i8 in (-2)..(-1)
+        @l4 for i8 in (-2)..(-1)
           print(i8)
           c0 += m3
           c0 = c0 % 1000
@@ -78,7 +78,7 @@ fun f1(a1: Int) -> Int
   new a1 = a1
   b1 = 2
   c1 = -5
-  :l8 for i12 in (-2)..0
+  @l8 for i12 in (-2)..0
     print(i12)
     defer print("defer", (a1 + c1))
   else
@@ -95,7 +95,7 @@ fun f1(a1: Int) -> Int
         c1 += b1
         c1 = c1 % 1000
         a1 = (19 * (-7)) % 1000
-      :l11 for i15 in 1..0
+      @l11 for i15 in 1..0
         print(i15)
         print(b1, c1)
         print(((c1 * b1) * (c1 + 5)))
