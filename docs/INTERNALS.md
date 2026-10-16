@@ -2906,9 +2906,14 @@ An `extern zig` declaration's `from` and `keeps` are trusted, as the
 rest of its signature is.
 
 **Written lends of kept arguments** (typecheck `checkArgs`). A place lent
-to a lent parameter the callee keeps is lent with `?` written (Core
+to a lent parameter the call may keep is lent with `?` written (Core
 sentence 4): `!b.watch(t)` is rejected with the fix `!b.watch(?t)`, and a
-`?self` receiver a method keeps is written `?a.register(!out)`. A
+`?self` receiver a method keeps is written `?a.register(!out)`. Where no
+`keeps` narrows the stores, every lent parameter the call may store by
+its type counts (`sema.lentParam` of the parameter's type at the call):
+a call through a function value (`f(!b, ?t)`), an owned closure, and a
+built-in generic's method at an instance whose `T` is a view
+(`!names.push(?t)` into a `List[?String]`). A
 conflict with a loan a call kept has a note naming the call, the
 parameter its `keeps` names, and the holder (`kept_lends`).
 

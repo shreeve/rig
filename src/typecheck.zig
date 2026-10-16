@@ -8215,13 +8215,20 @@ const Checker = struct {
         const recorded: sema.CallParams = .{ .fills = fills, .origins = site.origins, .names = info.names };
         try self.ctx.recordCallParams(call_node, recorded);
         // What the call may store outlives its statement. A place lent to
-        // a parameter the callee keeps is lent with `?` written (Core
-        // sentence 4).
+        // a parameter the call may keep is lent with `?` written (Core
+        // sentence 4): one its callee's `keeps` names, and, where nothing
+        // narrows the stores, any lent parameter the call may store by its
+        // type (a function value, an owned closure, a built-in generic's
+        // method at an instance whose `T` is a view).
         if (self.ctx.diagnostics.items.len == mark) {
             for (args, 0..) |a, i| {
                 if (!recorded.stores(i)) continue;
                 const value = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
-                if (recorded.keepsLent(i) and self.implicitArgument(value)) {
+                const param: ?usize = for (slots, 0..) |sl, k| {
+                    if (sl.? == .arg and sl.?.arg == i) break k;
+                } else null;
+                const lent = if (param) |k| sema.lentParam(self.ctx, f.params[k]) else false;
+                if ((recorded.keepsLent(i) or lent) and self.implicitArgument(value)) {
                     try self.reportKept(call_node, value, false, .{ .stored = callee });
                     continue;
                 }

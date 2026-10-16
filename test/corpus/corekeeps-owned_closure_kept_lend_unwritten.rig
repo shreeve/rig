@@ -6,5 +6,5 @@ sub main()
   b = B(src: "", n: 0)
   f: *sub(!B, ?String) = *|k, s| k.src = s
   t = String("abc")
-  f(!b, t)
+  f(!b, ?t)
   print(b.src)

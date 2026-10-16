@@ -27,6 +27,6 @@ fun cnt(v: ?List[Int]) -> Int
 sub main()
   p = P(x: 1, name: String("nm"), arr: [1, 2, 3], items: List[Int]())
   vs = List[?List[Int]]()
-  !vs.push((?p).items)
+  !vs.push(?p.items)
   print(vs.len)
   print(p.x, p.arr[0], p.items.len)

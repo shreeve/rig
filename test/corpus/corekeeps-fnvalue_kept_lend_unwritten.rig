@@ -9,5 +9,5 @@ sub main()
   b = B(src: "", n: 0)
   f: ?sub(!B, ?String) = ?note
   t = String("abc")
-  f(!b, t)
+  f(!b, ?t)
   print(b.n)

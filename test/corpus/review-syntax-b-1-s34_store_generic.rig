@@ -4,6 +4,6 @@ sub store[T](v: !List[T], x: T)
 sub main()
   s: List[[]Int] = List()
   arr = [1, 2, 3]
-  store(!s, arr[..2])
+  store(!s, ?arr[..2])
   arr[0] = 9
   print(s)

@@ -11,15 +11,6 @@ started:
 - SIMD: `pad:` reads and `blocks(N)`.
 - A String API for part-word appends and windowed writes.
 - Multiple results.
-- Require `?` for every lend a call keeps (Core sentence 4). Today a
-  lend a call keeps goes unwritten when the call is through a function
-  value (`f(!b, t)` with `f: ?sub(!B, ?String)`), through an owned
-  closure (`f: *sub(!B, ?String)`), or to a built-in generic's method
-  (`!names.push(t)` into a `List[?String]`); each extends `t`'s loan
-  safely but without the mark. Probes:
-  `test/corpus/corekeeps-fnvalue_kept_lend_unwritten.rig`,
-  `test/corpus/corekeeps-owned_closure_kept_lend_unwritten.rig`,
-  `test/corpus/corekeeps-push_kept_lend_unwritten.rig`.
 - A known over-strict rejection: what a call stores from a view reached
   through a lent read view should carry that view's loans, not a loan
   on the holder (Core sentence 7). `hold(!self, c: ?Cursor)` storing
