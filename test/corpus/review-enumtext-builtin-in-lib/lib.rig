@@ -1,0 +1,5 @@
+pub fun order(w: ?String) -> Endian?
+  Endian.from_text(w)
+
+pub fun arch(w: ?String) -> Arch?
+  Arch.from_text(w)

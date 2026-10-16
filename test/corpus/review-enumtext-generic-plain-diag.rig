@@ -1,0 +1,13 @@
+# A generic enum whose variants carry nothing has neither `.text` nor
+# `from_text`, and the diagnostics say its variants have payloads,
+# which they do not. Expected: rejected, with a reason that names the
+# generic enum (as `Int(t)` should too).
+enum Tag[T]
+  a
+  b
+
+sub main()
+  t: Tag[Int] = .a
+  print(t.text)
+  print(Tag[Int].from_text("a"))
+  print(Int(t))

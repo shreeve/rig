@@ -1,0 +1,57 @@
+# `.text` as a value: `?.` on an optional, a ternary, List[Static] and List[?String], comparisons, slices, hash, String building, iteration, and `from_text` of it.
+enum Color
+  red
+  dark_red
+  blue
+
+fun name_of(c: Color?) -> Static?
+  c?.text
+
+fun parse_name(w: ?String) -> Static?
+  Color.from_text(w)?.text
+
+fun len_of(w: ?String) -> Int?
+  Color.from_text(w)?.text.len
+
+fun echo(s: ?String) -> ?String
+  s
+
+sub main()
+  print(name_of(.blue), name_of(none), parse_name("red"), parse_name("x"), len_of("dark_red"))
+  c: Color = .dark_red
+  d: Color = .red
+  k = false
+  x = c.text if k else "other"
+  names: List[Static] = List()
+  !names.push(c.text)
+  !names.push(d.text)
+  print(x, names, names[0] == "dark_red", c.text < d.text, c.text == d.text)
+  print(echo(c.text), c.text[0..4], c.text.hash() == "dark_red".hash())
+  s = String(c.text, "-", d.text)
+  print(s, s.len)
+  views: List[?String] = List()
+  !views.push(c.text)
+  print(views)
+  arr = [c.text, d.text, Color.blue.text]
+  print(arr, arr.len)
+  for ch in c.text
+    print(ch)
+    break
+  m = match c
+    .dark_red => c.text
+    _ => "?"
+  print(m)
+  y = Color.from_text(c.text) ?? .blue
+  z = Color.from_text(?s[0..8])
+  print(y, z)
+
+# expect:
+# blue none red none 8
+# other ["dark_red", "red"] true true false
+# dark_red dark true
+# dark_red-red 12
+# ["dark_red"]
+# ["dark_red", "red", "blue"] 3
+# 100
+# dark_red
+# .dark_red .dark_red

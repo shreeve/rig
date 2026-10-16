@@ -1889,8 +1889,10 @@ an integer value's digits find nothing. Neither allocates:
 enum's names, which the compiler builds for each enum the program
 calls it on. The built-in enums `Endian` and `Arch` have both too.
 
-`.text` is read, never written, and is a member, not a method: `e.text`,
-not `e.text()`. A plain enum cannot declare a variant or method named
+`.text` is a member, not a method: `e.text`, not `e.text()`. It is
+read as it is, never written or lent: the name belongs to the enum's
+type, not to `e`, so `?e.text` is rejected, and `e.text` is passed
+where a `?String` is expected. A plain enum cannot declare a variant or method named
 `from_text`, nor a method named `text`; a variant named `text` is
 `Kind.text`, which clashes with neither. A payload enum has neither:
 `from_text` could not build a payload. (A name for a payload variant,

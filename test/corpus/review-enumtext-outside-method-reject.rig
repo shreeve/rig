@@ -1,0 +1,15 @@
+# A method named `text` or `from_text` declared outside a plain enum's
+# body clashes with the built-in members, as one in the body does.
+enum Color
+  red
+  blue
+
+fun Color.text(?self) -> Static
+  "custom"
+
+fun Color.from_text(w: ?String) -> Int
+  7
+
+sub main()
+  c: Color = .red
+  print(c.text, Color.from_text("red"))

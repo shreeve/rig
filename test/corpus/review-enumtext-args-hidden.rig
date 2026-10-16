@@ -1,0 +1,32 @@
+# `from_text` of temporaries lent with `?`, List elements, loop views, a nested `from_text`, and chained `??`.
+enum Color
+  red
+  blue
+
+fun mk(n: Int) -> String
+  String("bl", "ue") if n > 0 else String("x")
+
+fun nested(w: ?String) -> Color?
+  Color.from_text(Color.from_text(w)?.text)
+
+sub main()
+  print(Color.from_text(?String("re", "d")), Color.from_text(?mk(1)))
+  xs = List[String]()
+  !xs.push(String("red"))
+  !xs.push(mk(1))
+  print(Color.from_text(?xs[0]), Color.from_text(xs[1]))
+  for s in ?xs
+    print(Color.from_text(s))
+  print(nested("red"), nested("zzz"))
+  print(Color.from_text(mk(0)) ?? Color.from_text(mk(1)) ?? .red)
+  ok = Color.from_text(mk(1)) == .blue and Color.from_text(mk(0)) == none
+  print(ok)
+
+# expect:
+# .red .blue
+# .red .blue
+# .red
+# .blue
+# .red none
+# .blue
+# true

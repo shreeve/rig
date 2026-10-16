@@ -1,0 +1,15 @@
+# Aliases of built-in and declared plain enums, local and imported:
+# `from_text` through each finds the table in the module that owns it.
+use lib
+
+type Local = Endian
+type Tint = lib.Hue
+
+sub main()
+  print(lib.Order.from_text("big"), lib.Cpu.from_text("x86_64"), Local.from_text("little"))
+  o: lib.Order = .little
+  print(o.text, Tint.from_text("blue"), lib.Hue.from_text("red"))
+
+# expect:
+# .big .x86_64 .little
+# little .blue .red

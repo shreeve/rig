@@ -4938,6 +4938,12 @@ const Checker = struct {
         if (!try self.lendsBranch(operand, .nil, kind)) return self.t().invalid_id;
         // `?!x` only reads what `!x` lends.
         if (kind == .read and try self.writeLendRead(operand, inner, .lent_to_read)) return self.t().invalid_id;
+        // `e.text` is a name the enum's type holds, no part of `e`: there
+        // is nothing of `e` to lend.
+        if (kind == .read and self.ctx.isEnumText(operand)) {
+            try self.errAt(e, "`{s}` is a variant's name, a `Static`, not a part of the value to lend; pass it as it is: `{s}`", .{ self.sourceText(operand), self.sourceText(operand) });
+            return self.t().invalid_id;
+        }
         const place = self.placeOf(operand);
         if (place.cell_list_elem != null) {
             try self.errAt(operand, "cannot lend an element of a Cell's List: the cell may change while the view lives; copy the element out with `c[i]`", .{});
@@ -5981,7 +5987,7 @@ const Checker = struct {
                 return self.t().static_id;
             }
             if ((try self.findMethod(obj_ty, field)) == null) {
-                try self.err(pos, "`.text` is the name of a plain enum's variant; `{s}` has variants with payloads", .{try self.tyName(peeled)});
+                try self.err(pos, "`.text` is the name of a plain enum's variant; `{s}` {s}", .{ try self.tyName(peeled), notPlainWhy(self.ctx, peeled) });
                 return self.t().invalid_id;
             }
         }
@@ -10174,7 +10180,7 @@ const Checker = struct {
                     const enum_ty = try self.namedTypeValue(nt);
                     if (self.hasVariantNames(enum_ty)) return self.enumFromTextCall(self.callee_node orelse return self.skipCall(args), enum_ty, tname, pos, args, ct);
                 }
-                return self.badCall(args, pos, "`from_text` gives a plain enum's variant by its name; `{s}` has variants with payloads, which a name cannot build", .{tname});
+                return self.badCall(args, pos, "`from_text` gives a plain enum's variant by its name; `{s}` {s}", .{ tname, if (generic) "is generic" else "has variants with payloads, which a name cannot build" });
             }
         }
         // The first member of that name decides.
@@ -13404,6 +13410,13 @@ fn sliceArgLend(ctx: *const SemContext, actual: TypeId, view: TypeId) ?sema.Lend
 
 fn stringOrBoxed(ctx: *const SemContext, ty: TypeId) TypeId {
     return if (sema.unwrapAccess(ctx, ty) == ctx.types.string_id) ctx.types.string_id else ty;
+}
+
+/// Why enum `ty`, which has variants, is not plain: its payloads, or its
+/// type parameters.
+fn notPlainWhy(ctx: *const SemContext, ty: TypeId) []const u8 {
+    const generic = if (sema.nominalDecl(ctx, ty)) |d| d.symbol().type_params != null else false;
+    return if (generic) "is generic" else "has variants with payloads";
 }
 
 /// A String (boxed or not, or viewed), a `?String`, or a `Static`: `==`
