@@ -1,0 +1,50 @@
+# A zero-length array of a type with drop glue drops, clones, compares,
+# prints, sits in an object, passes as a slice, and returns.
+
+obj Holder
+  tag: String
+  none: [0]String
+
+obj Guard
+  n: Int
+
+  drop(!self)
+    print("guard dropped")
+
+fun count(args: []String) -> Int
+  args.len
+
+fun count_g(gs: []Guard) -> Int
+  gs.len
+
+fun make() -> [0]String
+  []
+
+sub main()
+  no_args: [0]String = []
+  print(count(no_args))
+  copy = +no_args
+  print(copy.len)
+  print(no_args == copy)
+  print(no_args)
+  r = make()
+  print(r.len)
+  h = Holder(tag: String("h"), none: [])
+  print(h.none.len)
+  gs: [0]Guard = []
+  print(count_g(gs))
+  h2 = +h
+  print(h2.tag)
+  empty: [0]Int = []
+  print(empty.len)
+
+# expect:
+# 0
+# 0
+# true
+# []
+# 0
+# 0
+# 0
+# h
+# 0
