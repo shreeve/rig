@@ -157,6 +157,9 @@ test "area"
 
 sub main()
   print(LIMIT, PI, Byte.max)
+  called = 3
+  rarely = 1
+  print(called + rarely)
 
 # Below here, nothing compiles: these are tokens an editor still colours.
 
