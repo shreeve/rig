@@ -14,7 +14,7 @@ sub go(n: Int)
   b()
   f = |!n|
     n += 1
-  const k = 3
+  k =! 3
   g = |!k|
     k += 1
 

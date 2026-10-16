@@ -158,7 +158,7 @@ structural weak spots, which these steps removed (the evidence is in
    that own text work; `?v[i]`, `!v[i]`, and `<v[i]` lend or take an
    element; assigning a view place re-points it or writes through.
 5. **The remaining planned rules.** An error value meets `T!` only as
-   `return`'s operand, `(!s).insert(k)`, `const x = e`, an owner moves
+   `return`'s operand, `(!s).insert(k)`, `x =! e`, an owner moves
    as a function's or block's last value, and `+x` deep-copies List, `^T`,
    and owning objects.
 6. **Result origins.** A call's result carries the loans of the

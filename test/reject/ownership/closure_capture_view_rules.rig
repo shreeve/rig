@@ -5,7 +5,7 @@ sub go(n: Int)
   f = |!n|
     n += 1
   f()
-  const k = 3
+  k =! 3
   g = |!k|
     k += 1
   g()

@@ -1,7 +1,7 @@
 obj P
   x: Int
 
-const K = P(x: 1)
+K =! P(x: 1)
 
 sub g(p: !P)
   p.x = 9

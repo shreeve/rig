@@ -28,7 +28,7 @@ sub main()
   print(TIER == 0 or TIER == 16, (TIER == 0) == (target.arch == .x86_64))
   print(lanes[target.arch]() == (32 if HERE == .x86_64 else 16))
   print(scan_from(TIER) == 2 * TIER + 1)
-  const local = target.arch
+  local =! target.arch
   print(local == HERE, target.arch != .wasm32, Arch.riscv64)
   b: [2]U8 = [1, 2]
   print(b.read[U16, ORDER](0))

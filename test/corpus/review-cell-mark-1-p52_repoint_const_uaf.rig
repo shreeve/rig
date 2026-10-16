@@ -3,6 +3,6 @@ sub k(a: ?Cell[List[Int]], b: !*Cell[List[Int]])
   print(a.len)
 
 sub main()
-  const c: *Cell[List[Int]] = *Cell(List())
+  c: *Cell[List[Int]] =! *Cell(List())
   !c.push(1)
   k(c, !c)

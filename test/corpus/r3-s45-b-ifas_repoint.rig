@@ -5,6 +5,6 @@ sub main()
   if <o as w
     w = !n
     w = 3
-  const c = !m
+  c =! !m
   c = !n
   print(m, n)
