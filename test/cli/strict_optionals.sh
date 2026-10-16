@@ -138,14 +138,14 @@ Node(id: 1) Node(id: 3) Node(id: 9) Node(id: 4) none'
 
 # Only a type parameter's optional goes through the helpers by default;
 # under the switch, every object's does.
-"$RIG" emit main.rig >plain.zig 2>err.txt || fail "rig emit: $(cat err.txt)"
+RIG_STRICT_OPTIONALS= "$RIG" emit main.rig >plain.zig 2>err.txt || fail "rig emit: $(cat err.txt)"
 expect_has "$(cat plain.zig)" 'item: rig.Opt(T),' "a type parameter's optional"
 if grep -q 'rig.Opt(Node)' plain.zig; then fail "an object's optional goes through the helpers by default"; fi
 RIG_STRICT_OPTIONALS=1 "$RIG" emit main.rig >strict.zig 2>err.txt || fail "strict rig emit: $(cat err.txt)"
 expect_has "$(cat strict.zig)" 'sym: rig.Opt(Node)' "an object's optional under the switch"
 expect_has "$(cat strict.zig)" 'pub const __rig_strict_optional = {};' "the object's marker"
 
-out=$(rig run main.rig 2>&1); expect_rc $? 0 "rig run"
+out=$(RIG_STRICT_OPTIONALS= rig run main.rig 2>&1); expect_rc $? 0 "rig run"
 expect_eq "$out" "$expected" "the program's output"
 out=$(RIG_STRICT_OPTIONALS=1 rig run main.rig 2>&1); expect_rc $? 0 "strict rig run"
 expect_eq "$out" "$expected" "the program's output with every object's optional a struct"
