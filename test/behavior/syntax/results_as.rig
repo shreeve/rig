@@ -31,8 +31,9 @@ sub main()
   while (!p).next() as n, s
     print(n, s)
   p.i = 0
-  while (!p).next() as n, _
+  while (!p).next() as n, s
     print(n)
+    <s
 
 # expect:
 # key value

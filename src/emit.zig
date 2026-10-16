@@ -3572,30 +3572,21 @@ pub const Emitter = struct {
     }
 
     /// The names of `if f() as a, b` take their results, captured as
-    /// `tmp`, each as the binding `a = e` it is; a result no name takes
-    /// (`_`) is dropped here.
+    /// `tmp`, each as the binding `a = e` it is. Every result has a name
+    /// (`_` is rejected there), so nothing is dropped here.
     fn bindResults(self: *Emitter, cond: Sexp, tmp: []const u8) Error!void {
         const names = ir.AsResults.names(cond).items();
-        const ty = self.typeOf(ir.AsResults.value(cond)) orelse return self.unsupported(cond, "an untyped `as` value");
-        const parts = self.facts.resultsOf(ty) orelse return self.unsupported(cond, "`as` of one value");
         const saved = self.part_name;
         defer self.part_name = saved;
         const resumed = try self.enterUnit(cond);
         defer self.leaveUnit(resumed);
-        var used = false;
         for (names, 0..) |n, j| {
-            if (n.isKind(.set)) {
-                used = true;
-                self.part_name = try self.fmt("{s}[{d}]", .{ tmp, j });
-                try self.writeIndent(self.indent);
-                try self.emitSet(n);
-                try self.w.writeAll("\n");
-            } else if (j < parts.len and self.kindOf(parts[j]) != null) {
-                used = true;
-                try self.line("rig.discard({s}[{d}]);", .{ tmp, j });
-            }
+            if (!n.isKind(.set)) return self.unsupported(n, "a result `as` discards");
+            self.part_name = try self.fmt("{s}[{d}]", .{ tmp, j });
+            try self.writeIndent(self.indent);
+            try self.emitSet(n);
+            try self.w.writeAll("\n");
         }
-        if (!used) try self.line("_ = {s};", .{tmp});
     }
 
     /// `(expr) |capture| ` for `if expr as name` / `while expr as name`.

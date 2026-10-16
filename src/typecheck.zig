@@ -949,6 +949,10 @@ const Checker = struct {
         defer self.discarded = saved;
         self.discarded = stmt;
         try self.ctx.recordDiscard(stmt);
+        // A call's several results are discarded whole, as one result is.
+        const saved_ok = self.results_ok;
+        defer self.results_ok = saved_ok;
+        self.results_ok = resultCall(stmt) orelse .nil;
         const ty = try self.synthExpr(stmt);
         // A closure literal alone is reported by the ownership checker.
         if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
@@ -965,6 +969,10 @@ const Checker = struct {
             return self.errAt(stmt, "this expression does nothing as a statement; use its value, or discard it with `_ = ...`", .{});
         }
         if ((try self.needsCleanup(ty, self.startOf(stmt), "discards a value"))) {
+            if (sema.resultsOf(self.ctx, ty)) |parts| {
+                const shown = self.sourceText(stmt);
+                return self.errAt(stmt, "this statement gives the results `{s}`, which own what they must release, and does not use them; bind each (`{s} = {s}`), or drop them now with `_ = {s}`", .{ try self.tyName(ty), try self.resultNames(parts.len), shown, shown });
+            }
             try self.errAt(stmt, "this statement makes a `{s}`, which owns what it must release, and does not use it; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver", .{try self.tyName(ty)});
         }
     }
@@ -1086,18 +1094,27 @@ const Checker = struct {
         }
         const saved_part = self.part_ty;
         defer self.part_ty = saved_part;
-        var kept = false;
+        const mark = self.ctx.diagnostics.items.len;
         for (targets, 0..) |tg, j| {
             if (!tg.isKind(.set)) continue;
             self.part_ty = if (ok and j < parts.len) parts[j] else self.t().invalid_id;
-            const mark = self.ctx.diagnostics.items.len;
             if (ok) try self.checkSet(tg) else try self.poisonTarget(tg);
-            // A lend a kept result carries is written (Core sentence 4).
-            if (ok and !kept and self.ctx.diagnostics.items.len == mark and sema.mayHoldView(self.ctx, self.part_ty)) {
-                kept = true;
-                try self.keptLends(value, .{ .binding = self.text(ir.Set.target(tg)) });
+        }
+        // A lend a kept result carries is written (Core sentence 4). A
+        // lend to read is kept by a result that only reads, so one is
+        // named first.
+        if (!ok or parts.len != targets.len or self.ctx.diagnostics.items.len != mark) return;
+        var keeper: Sexp = .nil;
+        for ([_]bool{ false, true }) |writes| {
+            if (keeper != .nil) break;
+            for (targets, parts) |tg, part| {
+                if (!tg.isKind(.set) or !sema.mayHoldView(self.ctx, part)) continue;
+                if (sema.holdsWriteView(self.ctx, part) != writes) continue;
+                keeper = tg;
+                break;
             }
         }
+        if (keeper != .nil) try self.keptLends(value, .{ .binding = self.text(ir.Set.target(keeper)) });
     }
 
     /// The targets of a destructure: names or `_`, each named once. A
@@ -1298,6 +1315,10 @@ const Checker = struct {
             const saved = self.discarded;
             defer self.discarded = saved;
             self.discarded = rhs;
+            // `_ = f()` discards every result `f` gives.
+            const saved_ok = self.results_ok;
+            defer self.results_ok = saved_ok;
+            self.results_ok = resultCall(rhs) orelse .nil;
             _ = try self.synthExpr(rhs);
             return;
         }
@@ -2340,6 +2361,13 @@ const Checker = struct {
         const value = ir.AsResults.value(node);
         const names = ir.AsResults.names(node).items();
         var ok = try self.checkResultTargets(names);
+        // A header's temporaries end with it, before its body runs, and a
+        // result `_` discarded there would drop after them: each result
+        // is bound to a name, which the body owns.
+        for (names) |n| if (!n.isKind(.set)) {
+            try self.errAt(n, "`as` binds each result to a name: name this one; the body owns it, and `<name` drops it there", .{});
+            ok = false;
+        };
         try self.recordUse(value, .take);
         const saved_ok = self.results_ok;
         defer self.results_ok = saved_ok;

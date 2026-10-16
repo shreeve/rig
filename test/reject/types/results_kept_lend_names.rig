@@ -1,0 +1,13 @@
+fun pick(a: !List[Int], b: ?String) -> (![]Int, ?String)
+  return !a[..], b
+
+sub main()
+  x = List[Int]()
+  !x.push(1)
+  t = String("q")
+  w, r = pick(!x, t)
+  w[0] = 5
+  print(r, x)
+
+# error: `pick(!x, t)` keeps `t` lent while `r` lives; write `pick(!x, ?t)`
+# errors: 1

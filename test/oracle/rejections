@@ -3998,6 +3998,8 @@ test/reject/ownership/replace_taken_outlives_source.rig take
 test/reject/ownership/replace_use_after_put_back.rig main
 test/reject/ownership/repointed_view_outlived.rig main
 test/reject/ownership/resource_temp_view.rig main
+test/reject/ownership/results_as_header_temp.rig main
+test/reject/ownership/results_discard_views.rig main
 test/reject/ownership/results_move_then_use.rig two
 test/reject/ownership/results_pending_view.rig main
 test/reject/ownership/results_return_local_view.rig two

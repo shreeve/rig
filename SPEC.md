@@ -1331,7 +1331,9 @@ sub main()
 The results never form a value: a call that gives several stands only
 where each result is bound at once (`q, r = f()`, `if f() as q, r`, and
 `while f() as q, r`), or where the function returns them whole
-(`return f()`, to a function that gives the same results). Anywhere
+(`return f()`, to a function that gives the same results), or where
+they are all discarded, as one result is: a call alone on its line
+discards results that own nothing, and `_ = f()` discards any. Anywhere
 else, as an argument, an operand, or a single binding, it is rejected,
 and so is `(Int, Int)` as the type of a value: a group of values that
 lives past its statement is an object.
@@ -1375,7 +1377,7 @@ one, writing through a `!T` local given a value and re-pointing it
 given a write view; an assigned name drops its old value. `new q, r =
 f()` declares new names, and `const q, r = f()` fixed ones. `_`
 discards a result, which is dropped at the statement's end, after the
-bindings. Every result is bound or discarded: the names match the
+bindings, the last first. Every result is bound or discarded: the names match the
 results in number. Each target is a name or `_`, each named once; a
 field or element is assigned on its own line. The parentheses of a
 result type are not written on the left.
@@ -1439,7 +1441,9 @@ the failure or the `none` on before anything is bound, and so does a
 fallback that jumps: `q, r = f() ?? return`, `q, r = f() catch break`.
 A fallback that is a value is not taken. `if f() as q, r` and `while
 f() as q, r` bind the results inside an optional to new names over the
-body, as `as` binds one value.
+body, as `as` binds one value. Each is named there: a header's
+temporaries end before its body runs, so `as` takes no `_`; a result
+the body does not need is dropped there with `<name`.
 
 ```rig
 fun cut(s: ?String, sep: U8) -> (?String, ?String)? from s
@@ -1468,9 +1472,10 @@ b a
 ```
 
 **Giving them.** `return a, b` gives each part as `return x` gives `x`,
-left to right: a bare owner moves out, and so does a bare write view,
-which a later part may not use again; a view must be of what the
-function was lent. A bare last line `a, b` is no statement: results are
+left to right: a bare owner moves out, and so does a bare write view
+given as a write view, which a later part may not use again; one read
+as a value that copies is a copy. A part's loans are judged by its own
+result's type: a view must be of what the function was lent. A bare last line `a, b` is no statement: results are
 given with `return`. A part that fails after an earlier one was made
 drops the earlier one on the way out.
 
@@ -1489,9 +1494,13 @@ a view carries none. One result may be a write view, which keeps its
 owner lent to write as a `!T` result does, beside results that hold no
 view of what it views: a function that gives two write views, or a
 write view and another result that could view the same parameter, is
-rejected where it is declared. A target is bound only while no result
-still waiting for its own target views it, or a result `_` discards,
-which drops at the statement's end.
+rejected where it is declared. While a result may hold a write view,
+every lend the call made lasts to the statement's end, as for a `!T`
+result: the first version decides this per call, not per argument. A
+target is bound only while no result still waiting for its own target
+views it, nor a result `_` discards whose drop runs a `drop` body,
+which drops at the statement's end; a discarded result whose drop runs
+none reads none of its views (§7), and keeps nothing lent.
 
 ```rig
 obj Counter
@@ -1542,6 +1551,27 @@ cannot bind `s` while `v` views it
 A function type takes several results as a function does: `?fun(Int) ->
 (Int, Int)`. Named results, a `for` that binds several results a step,
 and several results nested in a type argument are not Rig's.
+
+At most one result is a write view in this first version, a limit of
+its own rather than a rule of the ownership model: two write views of
+different arguments are disjoint, and will be allowed.
+
+```rig pending
+fun both(a: !Int, b: !Int) -> (!Int, !Int)
+  return a, b
+
+sub main()
+  x = 1
+  y = 2
+  p, q = both(!x, !y)
+  p += 10
+  q += 20
+  print(x, y)
+```
+
+```output
+11 22
+```
 
 ### Function markers
 

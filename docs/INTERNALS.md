@@ -1615,7 +1615,7 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
 | `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
-| `results` | `__rig_res` | the several results a call gives, which each target of `q, r = f()` takes in its turn, or the names of `if f() as a, b` take; what no target takes (`_`) it drops at the statement's end, or the body's start | owned | statement, body |
+| `results` | `__rig_res` | the several results a call gives, which each target of `q, r = f()` takes in its turn, or the names of `if f() as a, b` take; what no target takes (`_`) it drops at the statement's end | owned | statement, body |
 | `argument` (of `return a, b`) | `__rig_arg` | the parts of `return a, b`, made in their turn when a later part can leave after an earlier one that owns (`storage.hoistsResults`) | owned | call |
 | `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array lent to a call that evaluates its arguments where they stand (`lendsTempArray`) | owned | statement |
 
@@ -2913,16 +2913,13 @@ in a function giving the same results, and of `if … as a, b`; any
 other is reported where it is typed (`misplacedResults`). `(a, b)` is no
 value (`tupleValue`), and `a, b = b, a` is no parallel assignment.
 
-**Desugaring.** `q, r = f(x)` is
-
-```text
-__res = f(x)        # a statement temporary (Core §3), holding the results
-q = <__res.0        # each taken left to right, by the rule `x = e` has
-r = <__res.1
-```
-
-and `return a, b` gives each part as `return x` gives `x`, left to
-right. Each target is the binding `(set op q _ (result_part))`, so
+**Desugaring.** `q, r = f(x)` makes the call's results statement
+temporaries (Core §3), one a result, which no name holds; each target
+then takes its own, left to right, as the binding `x = e` takes a
+call's result, and a result `_` discards stays a temporary, dropped at
+the statement's end, the last first. `return a, b` gives each part as
+`return x` gives `x`, left to right, each judged by its own result's
+type. Each target is the binding `(set op q _ (result_part))`, so
 typecheck (`checkSet`), the ownership checker (`walkSet`), and emit
 (`emitSet`) bind it as any `x = e`; `result_part` is the result in its
 position, typed `part_ty` and walked as `part_value`.
@@ -2935,13 +2932,22 @@ while one may, every lend of the call lasts to the statement's end, as
 for a `!T` result. The checker holds the results in a hidden var of the
 statement (`walkDestructure`), which keeps the loans of the results no
 target has taken yet: a target bound while a pending result views it is
-reported (`pendingView`), and a `_`'s loans end with the statement. Two
+reported (`pendingView`). A `_`'s loans last to the statement's end
+when its drop runs a `drop` body, which could read them; any other
+discarded result reads none of its views (Core sentence 6), and its
+loans end at once. Write lends end per call: while any result may hold
+a write view, every lend of the call lasts to the statement's end;
+ending each argument's alone would need the write view's loans narrowed
+by its type, which `carryResult` does not do for a write view. Two
 results of one call never break sentence 5: a function giving a write
 view and another result that could view the same parameter is rejected
 where it is declared (`sema.checkResultViews`), and the call checks the
 results' loans the same way, for a function value whose type says less.
 `if f() as a, b` binds new names, so nothing pending can view them; the
-call's loans end with the header, as `as`'s do.
+call's loans end with the header, as `as`'s do. It takes no `_`: the
+header's temporaries end before the body, where a discarded result
+would drop. A call alone on its line, and `_ = f()`, discard every
+result, as one result is discarded.
 
 **Emit.** The results are a Zig tuple, `@Tuple(&.{ A, B })`; `return
 a, b` is `return .{ a, b }`, each part written as one result is
@@ -2952,7 +2958,7 @@ that owns (`storage.hoistsResults`), each part is made first into
 `const __rig_res_N = f(x);` and then each binding, whose value is
 `__rig_res_N[j]`, and a discarded owned result is dropped after them;
 `if f() as a, b` captures the results as `__rig_res_N` and binds the
-names at the body's start (`bindResults`). Emit never writes Zig's own
+names at the body's start (`bindResults`), each result to its name. Emit never writes Zig's own
 destructure, `a, b = .{ b, a }`, which does not evaluate its right side
 first.
 
