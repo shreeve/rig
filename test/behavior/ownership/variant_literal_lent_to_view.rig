@@ -1,0 +1,115 @@
+# A variant literal whose enum comes from where it goes (`.V`,
+# `.V(...)`) is, where a read view held by address goes, the value
+# `Val.V(...)` is: made where it stands and lent to read, held by its
+# statement, which drops it at its end. So an owned payload, a List
+# here, is dropped, in every place a view argument goes: a parameter,
+# an optional view, a generic `?T`, a method's argument, a keyword
+# argument, a std method's key, a nested variant, a loop, and a call
+# whose later argument fails. A view that holds a copy (`?Color`)
+# takes the literal itself.
+
+use std.hash
+
+enum Val
+  Num(n: Int)
+  Table(m: List[Int])
+  Empty
+
+enum Outer
+  Box(v: Val)
+
+enum Color
+  Red
+  Green
+
+enum Key
+  K(n: Int)
+  S(s: String)
+
+error E
+  Oops
+
+obj Bag
+  n: Int
+
+fun three() -> List[Int]
+  xs = List[Int]()
+  !xs.push(1)
+  !xs.push(2)
+  !xs.push(3)
+  return <xs
+
+sub show(v: ?Val)
+  match v
+    .Num(n) => print("num", n)
+    .Table(m) => print("table", m.len)
+    .Empty => print("empty")
+
+sub maybe(v: (?Val)?)
+  if v as x
+    show(x)
+  else
+    print("none")
+
+sub same[T](a: ?T, b: ?T)
+  print("same")
+
+sub outer(o: ?Outer)
+  match o
+    .Box(v) => show(v)
+
+sub color(c: ?Color)
+  print(c == .Red)
+
+fun size(v: ?Val, k: Int = 0) -> Int
+  match v
+    .Table(m) => m.len + k
+    _ => k
+
+sub Bag.look(?self, v: ?Val)
+  show(v)
+
+fun bad() -> Int!
+  return E.Oops
+
+fun both(a: ?Val, b: ?Val) -> Int
+  2
+
+fun failing() -> Int!
+  _ = both(.Table(m: three()), .Num(n: bad()!))
+  return 1
+
+sub main()
+  show(.Table(m: three()))
+  show(.Num(n: 3))
+  show(.Empty)
+  maybe(.Table(m: three()))
+  maybe(none)
+  same(Val.Num(n: 1), .Table(m: three()))
+  outer(.Box(v: .Table(m: three())))
+  color(.Red)
+  print(size(.Table(m: three())) + size(v: .Table(m: three()), k: 10))
+  b = Bag(n: 0)
+  b.look(.Table(m: three()))
+  m = hash.Map[Key, Int].new()
+  !m.put(Key.S(s: String("a")), 10)
+  print(m.get(.S(s: String("a"))) ?? 0, m.has(.K(n: 2)))
+  for _ in 0..2
+    show(.Table(m: three()))
+  print(failing() catch -1)
+
+# expect:
+# table 3
+# num 3
+# empty
+# table 3
+# none
+# same
+# table 3
+# true
+# 16
+# table 3
+# 10 false
+# table 3
+# table 3
+# -1

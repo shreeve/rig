@@ -1416,6 +1416,18 @@ exactly as `?xs[a..b]` is, and emit writes it as it writes
 value of its own, the argument is rejected with what to write
 (`sliceArgRejected`); a slice anywhere else is written with its lend.
 
+A variant literal whose enum comes from where it goes, `.v` or
+`.v(...)`, where a view held by address goes (a `?E` of an enum that is
+not plain, any `!E`, or an optional of one), desugars to `E.v(...)`:
+`variantUnderView` types it as the viewed `E`, not as the view, and
+`checkActual` then takes it exactly as it takes `E.v(...)`. As an
+argument it is a value made there, lent to read as a temporary of its
+statement by the branch above; anywhere else (lent to write, kept in a
+binding, a field, or an element, returned, a view of an optional, a
+default) it is the mismatch `E.v(...)` is. A plain enum's read view
+holds a copy (`sema.lendByValue`), so there the literal is that copy,
+typed as the view, wherever the view goes.
+
 **Decisions.** A few questions about a node that emit, the storage plan,
 and the checkers all act on are recorded as answered the first time a
 pass asks them (`sema.Question`, `SemContext.decided`): every later

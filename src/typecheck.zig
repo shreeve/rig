@@ -10534,6 +10534,12 @@ const Checker = struct {
             return;
         }
         if (try self.lentTempLiteral(e, expected)) return;
+        if (self.variantUnderView(e, expected)) |viewed| {
+            const ty = (try self.checkContextual(e, viewed)).?;
+            try self.ctx.recordType(e, ty);
+            if (self.isPoison(ty)) return;
+            return self.checkActual(e, ty, expected);
+        }
         if (try self.checkContextual(e, expected)) |ty| {
             if (try self.cellMadeAway(e, ty)) return self.ctx.recordType(e, self.t().invalid_id);
             return self.ctx.recordType(e, ty);
@@ -10980,6 +10986,22 @@ const Checker = struct {
         if (got != self.t().string_view_id and got != self.t().string_id) return "";
         if (self.static_target.len > 0 and sameSite(e, self.static_target_value)) return self.ctx.arena.allocator().print("; `{s}` is a `Static`, bound to a literal's text, and a `?String` may view a `String`: declare it `{s}: ?String = ...` to hold other text", .{ self.static_target, self.static_target }) catch "";
         return "; a `Static` is a literal, or text derived only from literals, and a `?String` may view a `String`. A parameter or field that only reads its text is declared `?String`, which takes a `Static` too";
+    }
+
+    /// The type a variant literal (`.V`, `.V(...)`) takes where a view
+    /// held by address goes (`?Val`, `!Color`, `(?Val)?`): the viewed
+    /// type, as `Val.V(...)` has, so the literal is a value made where it
+    /// stands, lent as one is or rejected. A view that holds a copy of
+    /// the value (`?Color`, `sema.lendByValue`) takes the literal itself.
+    /// Null for any other form or expected type.
+    fn variantUnderView(self: *Checker, e: Sexp, expected: TypeId) ?TypeId {
+        const variant = e.isKind(.enum_lit) or (e.isKind(.call) and ir.Call.callee(e).isKind(.enum_lit));
+        if (!variant) return null;
+        const view = self.liftTarget(expected);
+        return switch (self.ctx.types.get(view)) {
+            .read_view, .write_view => if (sema.viewHeldAsPointer(self.ctx, view)) sema.unwrapViews(self.ctx, view) else null,
+            else => null,
+        };
     }
 
     /// A form whose type comes from context: its type, or null when `e`

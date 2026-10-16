@@ -48,7 +48,9 @@ ordering over every pairing of a view, an optional, an owner, and a List
 element, at each instance type, which is rejected with a diagnostic or
 runs, in debug and with `--release`, and prints what the values compare
 as, and over the same pairings that values `==` calls equal have equal
-`.hash()`es (`cmp.`). The rule is
+`.hash()`es (`cmp.`), and a variant literal whose enum comes from
+where it goes, in each place a view of that enum goes, lent as the
+value `T.V(...)` is, or rejected (`vlit.`). The rule is
 the corpus's: `rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
@@ -928,6 +930,126 @@ def dloop_program(source, write):
 def dloop_cells():
     """The `dloop.` cells: (id, program, expected output or None to be rejected)."""
     return [(f"dloop.{src}.{w}",) + dloop_program(src, w) for src in DLOOP_SOURCES for w in DLOOP_WRITES]
+
+
+# A variant literal whose enum comes from where it goes (`.V`, `.V(...)`)
+# in each place a view of its enum goes. Where the view is held by
+# address (any but a plain enum's read view), the literal is the value
+# `T.V(...)` is: lent to a view argument as a temporary its statement
+# drops, and rejected where the view is kept, lent to write, or is a view
+# of an optional. A plain enum's read view holds a copy, so takes the
+# literal anywhere a read view goes.
+# Cells are `vlit.<literal>.<place>`.
+VLIT_LITERALS = {
+    # name: (type, literal, what `show` prints of it, plain)
+    "bare": ("S", ".dot", "dot", False),
+    "scalar": ("S", ".pt(x: 4)", "pt 4", False),
+    "owner": ("S", ".line(v: three())", "line 3", False),
+    "nested": ("W", ".wrap(s: .line(v: three()))", "wrap line 3", False),
+    "generic": ("G[List[Int]]", ".some(value: three())", "some 3", False),
+    "plain": ("C", ".red", "red", True),
+}
+VLIT_PLACES = {
+    # name: (declarations, statements in main, accepted for a view held
+    # by address, accepted for a plain enum's, what it prints past `show`)
+    "arg": ("", ["show(@L)"], True, True, ""),
+    "opt_arg": ("sub maybe(v: (?T)?)\n  if v as x\n    show(x)\n  else\n    print(\"none\")\n",
+                ["maybe(@L)", "maybe(none)"], True, True, "none\n"),
+    "generic_arg": ("sub same[U](a: ?U, b: ?U)\n  print(\"same\")\n", ["x: @T = @L", "same(?x, @L)"], True, True, "same\n"),
+    "method_arg": ("obj H\n  n: Int\n\nsub H.look(?self, v: ?T)\n  show(v)\n",
+                   ["h = H(n: 0)", "h.look(@L)"], True, True, ""),
+    "kwarg": ("sub show2(v: ?T, k: Int)\n  show(v)\n  print(k)\n", ["show2(k: one(), v: @L)"], True, True, "1\n"),
+    "nested_call": ("fun count(v: ?T) -> Int\n  show(v)\n  1\n", ["print(count(@L) + count(@L))"], True, True, "2\n"),
+    "fail_arg": ("error E\n  oops\n\nfun bad() -> Int!\n  return E.oops\n\nsub both(v: ?T, k: Int)\n  show(v)\n\n"
+                 "fun tryit() -> Int!\n  both(@L, bad()!)\n  return 1\n", ["print(tryit() catch -1)"], True, True, "-1\n"),
+    "loop": ("", ["for _ in 0..2\n    show(@L)"], True, True, None),
+    "write_arg": ("sub poke(v: !T)\n  print(\"poke\")\n", ["poke(@L)"], False, False, ""),
+    "view_of_opt": ("sub vo(v: ?T?)\n  print(\"vo\")\n", ["vo(@L)"], False, False, ""),
+    "binding": ("", ["x: ?@T = @L", "show(x)"], False, True, ""),
+    "field": ("obj R\n  v: ?T\n", ["r = R(v: @L)", "show(r.v)"], False, True, ""),
+    "elem": ("", ["xs: [1]?@T = [@L]", "show(xs[0])"], False, True, ""),
+    "return": ("fun made() -> ?T\n  return @L\n", ["show(made())"], False, True, ""),
+    "kept": ("fun keep(v: ?T) -> ?T\n  return v\n", ["x = keep(@L)", "show(x)"], False, True, ""),
+    "default": ("sub dflt(v: ?T = @L)\n  show(v)\n", ["dflt()"], False, True, ""),
+    # A fallback that is a value copies out what `o` views, which only a
+    # value that copies may; a plain enum's fallback must be lent too.
+    "coalesce": ("", ["o: (?@T)? = none", "show(o ?? @L)"], False, False, ""),
+}
+VLIT_DECLS = """enum S
+  dot
+  pt(x: Int)
+  line(v: List[Int])
+
+enum W
+  wrap(s: S)
+  none_of
+
+enum G[T]
+  some(value: T)
+  nothing
+
+enum C
+  red
+  green
+
+fun three() -> List[Int]
+  xs = List[Int]()
+  for i in 0..3
+    !xs.push(i)
+  return <xs
+
+fun one() -> Int
+  1
+
+sub show_s(v: ?S)
+  match v
+    .dot => print("dot")
+    .pt(x) => print("pt", x)
+    .line(items) => print("line", items.len)
+
+"""
+VLIT_SHOW = {
+    "S": "sub show(v: ?S)\n  show_s(v)\n",
+    "W": "sub show_wrap(s: ?S)\n  print(\"wrap\")\n  show_s(s)\n\nsub show(v: ?W)\n  match v\n    .wrap(s) => show_wrap(s)\n    .none_of => print(\"none_of\")\n",
+    "G[List[Int]]": "sub show(v: ?G[List[Int]])\n  match v\n    .some(value) => print(\"some\", value.len)\n    .nothing => print(\"nothing\")\n",
+    "C": "sub show(v: ?C)\n  print(\"red\" if v == .red else \"green\")\n",
+}
+
+
+def vlit_program(lname, pname):
+    """The program for one `vlit.` cell, and what it prints (None where
+    it must be rejected); no program where the place takes no such
+    literal (a default is a bare variant)."""
+    ty, lit, shown, plain = VLIT_LITERALS[lname]
+    decls, stmts, held, by_copy, more = VLIT_PLACES[pname]
+    if pname == "default" and "(" in lit:
+        return None, None
+    src = VLIT_DECLS + VLIT_SHOW[ty] + "\n"
+    if decls:
+        src += decls.replace("?T", "?" + ty).replace("!T", "!" + ty).replace("@L", lit) + "\n"
+    src += "sub main()\n" + "".join("  " + s.replace("@L", lit).replace("@T", ty) + "\n" for s in stmts)
+    if not (by_copy if plain else held):
+        return src, None
+    # `wrap`'s line prints on two lines.
+    line = shown.replace("wrap ", "wrap\n") + "\n"
+    if pname == "generic_arg" or pname == "fail_arg":
+        return src, more
+    if pname == "loop":
+        return src, line * 2
+    if pname == "nested_call":
+        return src, line * 2 + more
+    return src, line + more
+
+
+def vlit_cells():
+    """The `vlit.` cells: (id, program, expected output or None to be rejected)."""
+    out = []
+    for lname in VLIT_LITERALS:
+        for pname in VLIT_PLACES:
+            src, expect = vlit_program(lname, pname)
+            if src is not None:
+                out.append((f"vlit.{lname}.{pname}", src, expect))
+    return out
 
 
 # A generic `==`, `!=`, or ordering over two operands, each a view, an
@@ -4036,6 +4158,16 @@ def main():
             if out is not None:
                 release.add(ident)
     for ident, src, out in dloop_cells():
+        if not wanted(ident):
+            continue
+        path = os.path.join(work, ident.replace(".", "__") + ".rig")
+        with open(path, "w") as fh:
+            fh.write(src)
+        cells.append((ident, path))
+        expects[ident] = out if out is not None else "(rejected)\n"
+        if out is not None:
+            release.add(ident)
+    for ident, src, out in vlit_cells():
         if not wanted(ident):
             continue
         path = os.path.join(work, ident.replace(".", "__") + ".rig")
