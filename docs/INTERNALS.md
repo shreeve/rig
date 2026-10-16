@@ -856,7 +856,12 @@ tables: an instance made here, and every instance its bodies reach,
 even in a module this one does not import, is expanded, checked against
 the requirements, sized, and ownership-checked here, and a note about
 the body points into the declaring module's file. Import cycles are
-rejected, so a chain of proxies always ends.
+rejected, so a chain of proxies always ends. A proxy is recorded before
+its members and parameters are imported, which may make more; past 64
+nested imports a proxy is filled in later, by the outermost import
+(`importSymbol`), so a chain of generics, each naming the next, does
+not nest once per link. Until then a type naming the proxy reads only
+its contents, which it has from the start.
 
 ## Sema
 
@@ -882,6 +887,10 @@ later pass reads. It runs these steps in order:
    opens one, recorded under that node.
 3. **declarations** (`resolve.resolveDeclarations`): type expressions
    become `TypeId`s: signatures, fields, variants, aliases, constants.
+   An alias is resolved after the aliases its target names, with an
+   explicit stack (`resolveNamedAliases`), and names a type nested at
+   most `sema.max_alias_height` deep (`TypeInfo.height`), which every
+   walk over a type's structure then stays within.
 4. **contents** (`computeContents`, then `checkInfiniteTypes`): what
    each declared type's values hold, computed once all declarations
    are resolved: whether they need drop glue, hold a `Cell` inline,
@@ -895,7 +904,8 @@ later pass reads. It runs these steps in order:
    chain of types. Then a type that holds itself by value is rejected.
 5. **validation** (`checkTypeSizes`, then `resolve.checkDeclarations`):
    every object and enum fits `max_value_bytes`, each sized after the
-   types it holds; then the rules on spelled types that depend on
+   types it holds (a generic instance too, by `minBytes`, which sizes
+   what it holds first with a stack of its own); then the rules on spelled types that depend on
    contents (array and built-in element types, owned-closure
    signatures).
 6. **expressions** (`typecheck.checkModule`): bodies are type-checked
@@ -1765,7 +1775,9 @@ values, and an object held by value changes a field only where a write
 of its binding says so. Anything else (a value `if`, a parameter, a
 negative or a larger literal) bounds nothing, and nor does a function
 whose bound reaches itself through a cycle of calls, since its bound is
-not known when it is asked for.
+not known when it is asked for. The bounds are found callees first, by a
+walk with a stack of its own (`Summaries.visit`), so a chain of calls
+as long as a program makes it does not nest the compiler's own stack.
 
 **Writes.** A binding changes only where an assignment or a `!` says so
 (Core sentences 4 and 9), and resolve and typecheck record each such

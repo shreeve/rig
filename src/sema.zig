@@ -2075,6 +2075,10 @@ pub const SemContext = struct {
     /// Another module's generic type or compile-time parameter (where it
     /// is declared) -> its proxy here (`proxyOf`).
     imported: std.AutoHashMapUnmanaged(ForeignRef, SymbolId) = .empty,
+    /// How many imports `importSymbol` is nested in, and the proxies made
+    /// past its limit, which the outermost fills in.
+    import_depth: u32 = 0,
+    import_pending: std.ArrayList(PendingProxy) = .empty,
     /// The entries of other modules' lists copied here (`importParam`).
     imported_entries: std.AutoHashMapUnmanaged(ImportedEntry, void) = .empty,
     /// The copies of type parameters' values generic bodies make, which
@@ -2226,6 +2230,7 @@ pub const SemContext = struct {
         self.oversized.deinit(self.allocator);
         self.byte_sizes.deinit(self.allocator);
         self.imported.deinit(self.allocator);
+        self.import_pending.deinit(self.allocator);
         self.imported_entries.deinit(self.allocator);
         self.plain_reqs.deinit(self.allocator);
         self.storage.deinit(self.allocator);
@@ -3710,7 +3715,7 @@ pub const Views = packed struct(u4) {
 /// Facts about an interned type, recorded when it is interned
 /// (`SemContext.intern`). The structural facts are always known; the
 /// rest once declarations are resolved (`SemContext.contents_ready`).
-pub const TypeInfo = packed struct(u21) {
+pub const TypeInfo = packed struct(u29) {
     /// Mentions a generic parameter anywhere.
     has_type_var: bool = false,
     /// Holds a generic parameter by value, so whether it owns a resource
@@ -3736,7 +3741,17 @@ pub const TypeInfo = packed struct(u21) {
     any_error: bool = false,
     /// How deeply wrappers and generic instances nest in it (saturating).
     depth: u8 = 0,
+    /// How deeply every type built from others nests in it, a function's
+    /// parameters and result too (saturating): what a walk over the type's
+    /// structure nests (`max_alias_height`).
+    height: u8 = 0,
 };
+
+/// How deeply the type a `type` alias names may nest (`TypeInfo.height`).
+/// A type written out nests no deeper than its expression, which the
+/// parser bounds; aliases, each naming the next, would nest one in another
+/// without end, and every walk over a type's structure with them.
+pub const max_alias_height = 200;
 
 /// The fields a member holds by value: a data field itself, or a
 /// variant's payload fields. Methods hold nothing.
@@ -3997,18 +4012,21 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
     const ty = ctx.types.get(id);
     var info: TypeInfo = .{ .has_type_var = ty == .type_var or ty == .ct_param, .poison = ty == .invalid or ty == .unknown };
     var deepest: ?u8 = null;
+    var highest: ?u8 = null;
     var it: TypeChildren = .{ .ty = ty };
     while (it.next()) |c| {
         const ci = ctx.type_info.items[c];
         info.has_type_var = info.has_type_var or ci.has_type_var;
         info.poison = info.poison or ci.poison;
         deepest = @max(deepest orelse 0, ci.depth);
+        highest = @max(highest orelse 0, ci.height);
     }
     info.depth = switch (ty) {
         .function => 0,
         .parameterized_nominal => (deepest orelse 0) +| 1,
         else => if (deepest) |d| d +| 1 else 0,
     };
+    info.height = if (highest) |h| h +| 1 else 0;
     if (!ctx.contents_ready) return info;
     var no_params: [0]bool = .{};
     const h = try holdsIn(ctx, id, &.{}, &no_params);
@@ -4320,7 +4338,73 @@ pub fn maskBytes(n: u64) u64 {
 /// when that depends on a generic parameter or follows an error, such as
 /// holding a type reported too large.
 pub fn minBytes(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?u128 {
+    try sizeHeld(ctx, ty);
     return minBytesOf(ctx, ty, true);
+}
+
+/// A type `sizeHeld` sizes once the types it holds (`parts`, from `next`
+/// on) are sized.
+const SizePending = struct { ty: TypeId, parts: []const TypeId, next: usize = 0 };
+
+/// Sizes the types `ty` holds before `ty`, deepest first, so that
+/// `minBytesOf` finds each sized and does not nest through a chain of
+/// types, each holding the next: a generic one's instances are sized
+/// here, where `checkTypeSizes` sizes declared ones in order. The walk
+/// keeps a stack of its own; a type met again on it, on a cycle, is
+/// left to `minBytesOf`, which finds such a type no size.
+fn sizeHeld(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!void {
+    if (ctx.byte_sizes.contains(ty)) return;
+    var arena = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var open: std.AutoHashMapUnmanaged(TypeId, void) = .empty;
+    var stack: std.ArrayList(SizePending) = .empty;
+    try open.put(a, ty, {});
+    try stack.append(a, .{ .ty = ty, .parts = try sizedParts(ctx, a, ty) });
+    while (stack.items.len > 0) {
+        const top = &stack.items[stack.items.len - 1];
+        if (top.next < top.parts.len) {
+            const part = top.parts[top.next];
+            top.next += 1;
+            if (ctx.byte_sizes.contains(part) or ctx.oversized.contains(part)) continue;
+            if ((try open.getOrPut(a, part)).found_existing) continue;
+            try stack.append(a, .{ .ty = part, .parts = try sizedParts(ctx, a, part) });
+            continue;
+        }
+        const done = stack.pop().?.ty;
+        if (done != ty) _ = try minBytesOf(ctx, done, false);
+    }
+}
+
+/// The types `minBytesOf` sizes `ty` from: an optional's, array's, or
+/// vector's element, a Signal's value, and the fields and payloads of a
+/// declared type or a generic instance, in it.
+fn sizedParts(ctx: *SemContext, a: std.mem.Allocator, ty: TypeId) std.mem.Allocator.Error![]const TypeId {
+    var out: std.ArrayList(TypeId) = .empty;
+    const fieldsOf = struct {
+        fn add(c: *SemContext, al: std.mem.Allocator, list: *std.ArrayList(TypeId), sym: SymbolId, subst: TypeSubst) std.mem.Allocator.Error!void {
+            if (c.symbols.items[sym].contents.cyclic) return;
+            for (c.symbols.items[sym].fields orelse &.{}) |f| {
+                if (f.is_method or f.is_drop_method) continue;
+                if (f.is_variant) {
+                    for (f.payload orelse &.{}) |p| try list.append(al, try substituteType(c, p.ty, subst));
+                } else try list.append(al, try substituteType(c, f.ty, subst));
+            }
+        }
+    }.add;
+    switch (ctx.types.get(ty)) {
+        .optional => |inner| try out.append(a, inner),
+        .array => |arr| try out.append(a, arr.elem),
+        .simd => |v| try out.append(a, v.elem),
+        .nominal => |sym| try fieldsOf(ctx, a, &out, sym, .empty),
+        .parameterized_nominal => |pn| if (pn.sym == ctx.list_sym_id or pn.sym == ctx.box_sym_id) {
+            // A List and a box are sized without what they hold.
+        } else if (pn.sym == ctx.signal_sym_id) {
+            try out.append(a, pn.args[0]);
+        } else try fieldsOf(ctx, a, &out, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
+        else => {},
+    }
+    return out.items;
 }
 
 fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?u128 {
@@ -5704,10 +5788,13 @@ fn ownedParts(node: ViewNode, f: anytype) std.mem.Allocator.Error!void {
 /// not known points anywhere.
 pub fn viewTargets(ctx: *const SemContext, a: std.mem.Allocator, view: TypeId) std.mem.Allocator.Error!ViewTargets {
     var w: TargetWalk = .{ .a = a };
-    try w.visit(.{ .ctx = ctx, .ty = view });
+    try w.walk(.{ .ctx = ctx, .ty = view });
     return w.out;
 }
 
+/// Each walk visits a type and those it holds in the order a recursive
+/// walk would, but with a stack of its own (`todo`): a chain of types,
+/// each holding the next, is as long as the program makes it.
 const TargetWalk = struct {
     a: std.mem.Allocator,
     out: ViewTargets = .{},
@@ -5715,8 +5802,39 @@ const TargetWalk = struct {
     /// Only the views of written memory: storage a write view leads to.
     written_only: bool = false,
     written: bool = false,
+    /// The types still to visit, the next on top, each with whether a
+    /// write view leads to it.
+    todo: std.ArrayList(Pending) = .empty,
 
     const SeenKey = struct { ctx: usize, ty: TypeId, args: usize, written: bool };
+    const Pending = struct { node: ViewNode, written: bool };
+
+    /// Visits `node` and every type it holds.
+    fn walk(self: *TargetWalk, node: ViewNode) std.mem.Allocator.Error!void {
+        try self.todo.append(self.a, .{ .node = node, .written = false });
+        while (self.todo.pop()) |next| {
+            self.written = next.written;
+            const mark = self.todo.items.len;
+            try self.visit(next.node);
+            // The first type `visit` found is visited first.
+            std.mem.reverse(Pending, self.todo.items[mark..]);
+        }
+        self.written = false;
+    }
+
+    /// `node`, to visit after the type being visited, through a write
+    /// view when `written`.
+    fn push(self: *TargetWalk, node: ViewNode, written: bool) std.mem.Allocator.Error!void {
+        try self.todo.append(self.a, .{ .node = node, .written = written });
+    }
+
+    /// What `ownedParts` passes each type it finds to: `push`.
+    const Parts = struct {
+        w: *TargetWalk,
+        fn visit(p: Parts, node: ViewNode) std.mem.Allocator.Error!void {
+            try p.w.push(node, p.w.written);
+        }
+    };
 
     fn target(self: *TargetWalk, node: ViewNode) std.mem.Allocator.Error!void {
         const ctx = node.ctx;
@@ -5760,19 +5878,16 @@ const TargetWalk = struct {
         switch (t) {
             .write_view => |inner| if (self.written_only) {
                 // What a write view leads to may be written.
-                const saved = self.written;
-                defer self.written = saved;
-                self.written = true;
                 const elem = switch (ctx.types.get(inner)) {
                     .slice => |sl| sl.elem,
                     else => inner,
                 };
-                return self.visit(.{ .ctx = ctx, .ty = elem, .args = node.args });
+                return self.push(.{ .ctx = ctx, .ty = elem, .args = node.args }, true);
             },
             .type_var => if (node.args) |args| {
                 if (self.written_only and !self.written) return;
                 // The instance's arguments, read where it is.
-                for (args.tys) |arg| try self.visit(.{ .ctx = args.ctx, .ty = arg });
+                for (args.tys) |arg| try self.push(.{ .ctx = args.ctx, .ty = arg }, self.written);
             } else if (!self.written_only or self.written) {
                 self.out.any = true;
             },
@@ -5785,7 +5900,7 @@ const TargetWalk = struct {
         // Each type is walked once per context.
         const key: SeenKey = .{ .ctx = @intFromPtr(ctx), .ty = node.ty, .args = if (node.args) |args| @intFromPtr(args.tys.ptr) else 0, .written = self.written };
         if ((try self.seen.getOrPut(self.a, key)).found_existing) return;
-        try ownedParts(node, self);
+        try ownedParts(node, Parts{ .w = self });
     }
 };
 
@@ -5796,7 +5911,7 @@ const TargetWalk = struct {
 /// views lead to counts; what a read view leads to is never written.
 pub fn storeTargets(ctx: *const SemContext, a: std.mem.Allocator, params: []const TypeId) std.mem.Allocator.Error!ViewTargets {
     var w: TargetWalk = .{ .a = a, .written_only = true };
-    for (params) |p| try w.visit(.{ .ctx = ctx, .ty = p });
+    for (params) |p| try w.walk(.{ .ctx = ctx, .ty = p });
     return w.out;
 }
 
@@ -6420,16 +6535,46 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
     });
     // Recorded first: the members of a generic type name the type.
     try ctx.imported.put(ctx.allocator, origin, id);
-    if (!generic) {
+    // Past `max_import_depth` nested imports, the proxy is filled in
+    // later, by the outermost import, which fills each in turn: a chain
+    // of generics, each naming the next, would nest once per link.
+    if (ctx.import_depth >= max_import_depth) {
+        try ctx.import_pending.append(ctx.allocator, .{ .id = id, .origin = origin });
+        return id;
+    }
+    ctx.import_depth += 1;
+    defer ctx.import_depth -= 1;
+    try fillProxy(ctx, id, origin);
+    if (ctx.import_depth == 1) while (ctx.import_pending.pop()) |p| try fillProxy(ctx, p.id, p.origin);
+    return id;
+}
+
+/// How many imports `importSymbol` nests before it leaves the rest to the
+/// outermost one.
+const max_import_depth = 64;
+
+/// A proxy `importSymbol` made and has yet to fill in.
+pub const PendingProxy = struct { id: SymbolId, origin: ForeignRef };
+
+/// Fill in the proxy `id` of `origin`: a parameter's type and what its
+/// declaring module's bodies record of it, or a generic type's parameters
+/// and members. Only the outermost import reads a proxy, once every one
+/// it made is filled in; the facts of a type that names one, as it is
+/// made, read only its contents, copied when the proxy is made.
+fn fillProxy(ctx: *SemContext, id: SymbolId, origin: ForeignRef) std.mem.Allocator.Error!void {
+    const foreign = ctx.foreign_semas.get(origin.module_id).?;
+    const fsym = foreign.symbols.items[origin.sym];
+    const a = ctx.arena.allocator();
+    if (fsym.kind != .generic_type) {
         ctx.symbols.items[id].ty = try importType(ctx, foreign, fsym.ty, origin.module_id);
         try importParam(ctx, id, origin);
-        return id;
+        return;
     }
     const params = fsym.type_params orelse &.{};
     const tps = try a.alloc(SymbolId, params.len);
     for (params, tps) |tp, *out| out.* = try proxyOf(ctx, .{ .module_id = origin.module_id, .sym = tp });
     ctx.symbols.items[id].type_params = tps;
-    const fields = fsym.fields orelse return id;
+    const fields = fsym.fields orelse return;
     const out = try a.alloc(Field, fields.len);
     for (fields, out) |f, *o| {
         o.* = f;
@@ -6443,7 +6588,6 @@ fn importSymbol(ctx: *SemContext, origin: ForeignRef) std.mem.Allocator.Error!Sy
         o.payload = typed;
     }
     ctx.symbols.items[id].fields = out;
-    return id;
 }
 
 /// Copy to `proxy` what the declaring module's bodies record about the

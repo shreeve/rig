@@ -2479,6 +2479,11 @@ sub main()
 3 true 200 255 8
 ```
 
+The type an alias names nests at most 200 deep, counting each type it
+is built from (`List[A]`, `A?`, `[2]A`, `fun(A) -> Int`): aliases, each
+naming the next inside another type, would otherwise nest one in another
+without end. An alias that names a deeper type is rejected.
+
 ### Tests
 
 `test "name"` (or `test 'name'`) declares a block that is checked like

@@ -7311,9 +7311,7 @@ const Checker = struct {
                 .void => try self.errAt(a, "{s} needs a value; this expression produces no value (`Void`)", .{who}),
                 .none_literal => try self.errAt(a, "cannot {s} a bare `none`", .{verb}),
                 else => {
-                    var seen: std.ArrayList(ByteSliceVisit) = .empty;
-                    defer seen.deinit(self.ctx.allocator);
-                    if (try holdsByteSlice(self.ctx, ty, &seen, self.ctx.allocator)) {
+                    if (try holdsByteSlice(self.ctx, ty, self.ctx.allocator)) {
                         const name = try self.tyName(ty);
                         const direct = std.mem.eql(u8, name, "[]U8");
                         try self.errAt(a, "cannot {s} a `{s}`: {s}would {s} as text, like a `?String`; {s} the bytes one by one", .{ verb, name, if (direct) "it " else "the `[]U8` it holds ", verb, verb });
@@ -8067,29 +8065,46 @@ const Checker = struct {
     }
 
     const ByteSliceVisit = struct { ctx: *const SemContext, sym: SymbolId };
+    const ByteSliceItem = struct { ctx: *const SemContext, ty: TypeId };
 
     /// Whether a value of `ty` holds a `[]U8`, directly or through a
     /// wrapper, field, payload, or type argument. A `[]U8` and a `?String`
-    /// are both Zig `[]const u8`, so `print` cannot tell them apart.
-    fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, seen: *std.ArrayList(ByteSliceVisit), a: std.mem.Allocator) Error!bool {
-        switch (ctx.types.get(ty)) {
-            .slice => |sl| return switch (ctx.types.get(sl.elem)) {
-                .int => |i| i.bits == 8 and !i.signed,
-                else => holdsByteSlice(ctx, sl.elem, seen, a),
-            },
-            .optional, .fallible, .read_view, .write_view, .shared => |inner| return holdsByteSlice(ctx, inner, seen, a),
-            .array => |arr| return holdsByteSlice(ctx, arr.elem, seen, a),
-            .parameterized_nominal => |pn| for (pn.args) |arg| {
-                if (try holdsByteSlice(ctx, arg, seen, a)) return true;
-            },
-            .nominal, .imported_nominal => {},
-            else => return false,
-        }
-        const decl = sema.nominalDecl(ctx, ty) orelse return false;
-        for (seen.items) |v| if (v.ctx == decl.ctx and v.sym == decl.sym) return false;
-        try seen.append(a, .{ .ctx = decl.ctx, .sym = decl.sym });
-        for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
-            for (sema.dataFields(f)) |d| if (try holdsByteSlice(decl.ctx, d.ty, seen, a)) return true;
+    /// are both Zig `[]const u8`, so `print` cannot tell them apart. The
+    /// walk keeps a stack of its own, so a long chain of types, each
+    /// holding the next, does not nest it; each declaration is walked once.
+    fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator) Error!bool {
+        var todo: std.ArrayList(ByteSliceItem) = .empty;
+        defer todo.deinit(a);
+        var seen: std.AutoHashMapUnmanaged(ByteSliceVisit, void) = .empty;
+        defer seen.deinit(a);
+        try todo.append(a, .{ .ctx = ctx, .ty = ty });
+        while (todo.pop()) |item| {
+            const c = item.ctx;
+            switch (c.types.get(item.ty)) {
+                .slice => |sl| {
+                    switch (c.types.get(sl.elem)) {
+                        .int => |i| if (i.bits == 8 and !i.signed) return true,
+                        else => try todo.append(a, .{ .ctx = c, .ty = sl.elem }),
+                    }
+                    continue;
+                },
+                .optional, .fallible, .read_view, .write_view, .shared => |inner| {
+                    try todo.append(a, .{ .ctx = c, .ty = inner });
+                    continue;
+                },
+                .array => |arr| {
+                    try todo.append(a, .{ .ctx = c, .ty = arr.elem });
+                    continue;
+                },
+                .parameterized_nominal => |pn| for (pn.args) |arg| try todo.append(a, .{ .ctx = c, .ty = arg }),
+                .nominal, .imported_nominal => {},
+                else => continue,
+            }
+            const decl = sema.nominalDecl(c, item.ty) orelse continue;
+            if ((try seen.getOrPut(a, .{ .ctx = decl.ctx, .sym = decl.sym })).found_existing) continue;
+            for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
+                for (sema.dataFields(f)) |d| try todo.append(a, .{ .ctx = decl.ctx, .ty = d.ty });
+            }
         }
         return false;
     }
