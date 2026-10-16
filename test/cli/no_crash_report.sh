@@ -1,7 +1,9 @@
 # RIG_NO_CRASH_REPORT=1 only stops macOS from filing a crash report: a
 # panicking program exits with the same status (134, SIGABRT) and writes
 # the same stdout and stderr with it as without it, in every build mode,
-# and `rig test` reports a panicking test the same.
+# and `rig test` reports a panicking test the same. It builds in all four
+# modes, which on a loaded machine takes longer than the default limit.
+# timeout: 600
 source "$ROOT/test/cli/_lib.sh"
 
 # The stderr of a run, less what differs between any two runs: the
