@@ -332,8 +332,21 @@ pub obj Doc
   # Parses the string whose opening quote is at `at`.
   fun string(!self, src: ?String, at: Int) -> Int
     start = at + 1
-    i = (!self).plain(src, start)
-    return -1 if i < 0
+    i = skip_plain_ascii(src, start)
+    # Most strings are plain ASCII and end at a quote: one read decides.
+    if i >= 0 and i < src.len and src[i] == QUOTE
+      return -1 if (!self).add_string(T_STR, start, i - start, at) < 0
+      return i + 1
+    (!self).string_rest(src, start, at, i)
+
+  # The rest of a string whose scan stopped at `from` on something other
+  # than its closing quote: UTF-8, an escape, a control byte, or the
+  # input's end.
+  fun string_rest(!self, src: ?String, start: Int, at: Int, from: Int) -> Int
+    i = from
+    if i < src.len and src[i] >= 0x80
+      i = (!self).utf8_text(src, i)
+      return -1 if i < 0
     return (!self).fail(.eof, i) if i >= src.len
     c = src[i]
     if c == QUOTE
