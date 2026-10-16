@@ -4580,7 +4580,8 @@ pub const Emitter = struct {
                 if (!bare) try self.w.writeAll(")");
                 return;
             }
-            // A generic `T` orders as its instance does.
+            // A generic `T` orders as its instance does, and a plain
+            // enum by its variants' values.
             try self.w.writeAll("rig.compare(");
             try self.emitExpr(operands[0]);
             try self.w.print(", .{s}, ", .{order.op});
@@ -7387,7 +7388,8 @@ pub const Emitter = struct {
     }
 
     const OrderOperator = struct {
-        /// Strings or byte slices; otherwise a type parameter's values.
+        /// Strings or byte slices; otherwise a type parameter's or a
+        /// plain enum's values.
         bytes: bool,
         /// The `std.math.CompareOperator` name.
         op: []const u8,
@@ -7396,22 +7398,24 @@ pub const Emitter = struct {
     };
 
     /// How `a < b` (`<=`, `>`, `>=`) lowers when Zig's operator does not
-    /// order its operands: text and byte slices, and a type parameter's
-    /// values. Null for numbers and vectors, whatever their compile-time
-    /// arguments (`Simd[U8, n]` orders lane by lane with Zig's `<`).
+    /// order its operands: text and byte slices, a type parameter's
+    /// values, and a plain enum's, which order by the variants' values
+    /// (the only enums sema lets an ordering take). Null for numbers and
+    /// vectors, whatever their compile-time arguments (`Simd[U8, n]`
+    /// orders lane by lane with Zig's `<`).
     fn orderOperator(self: *Emitter, kind: Tag, operands: [2]Sexp) ?OrderOperator {
         var bytes = false;
-        var generic = false;
+        var values = false;
         for (operands) |o| {
             const ty = self.typeOf(o) orelse continue;
             const t = self.peelViews(ty);
             switch (self.facts.types.get(t)) {
                 .string_view, .static, .slice => bytes = true,
-                .type_var => generic = true,
+                .type_var, .nominal, .imported_nominal => values = true,
                 else => {},
             }
         }
-        if (!bytes and !generic) return null;
+        if (!bytes and !values) return null;
         return switch (kind) {
             .@"<" => .{ .bytes = bytes, .op = "lt", .test_ = ") == .lt" },
             .@"<=" => .{ .bytes = bytes, .op = "lte", .test_ = ") != .gt" },

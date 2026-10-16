@@ -11,10 +11,11 @@ sub main()
   print(a < b)
   print(a >= .dot)
   print(.dot > a)
-  print(@endian <= .big)
+  e = Endian.big
+  print(e <= .little)
 
 # error: 11:9: operator `<` orders a plain enum's values; `Shape` has variants with payloads, which have no integer value
 # error: 12:9: operator `>=` orders a plain enum's values; `Shape` has variants with payloads, which have no integer value
 # error: 13:9: operator `>` orders a plain enum's values; `Shape` has variants with payloads, which have no integer value
-# error: 14:9: operator `<=` orders a declared enum's values; the built-in enum `Endian` has no integer value
+# error: 15:9: operator `<=` orders a declared enum's values; the built-in enum `Endian` has no integer value
 # errors: 4

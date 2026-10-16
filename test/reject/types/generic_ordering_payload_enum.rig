@@ -9,4 +9,4 @@ enum Shape
 sub main()
   print(math.max(Shape.dot, Shape.dot))
 
-# error: `max[Shape]` cannot use `T = Shape`: the generic body applies `<` to `T`, which `Shape` does not support
+# error: 10:14: max[Shape]` cannot use `T = Shape`: the generic body applies `<` to `T`, which `Shape` does not support

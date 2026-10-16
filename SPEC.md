@@ -1785,6 +1785,64 @@ sub main()
 `Int(x)` takes a plain enum's value; `Shape` has variants with payloads, which have no integer value
 ```
 
+`<`, `<=`, `>`, and `>=` order two values of one plain enum by those
+values: `a < b` is `Int(a) < Int(b)`, so explicit values order the
+variants whatever order they are declared in, and without them the
+order is the declaration's. A `.variant` on either side takes its type
+from the other, as beside `==`. A plain enum meets a generic body's
+ordering, so `std.math.max` and `std.sort.sort` take one
+([Generic bodies](#generic-bodies)). Two different enums, an enum and a
+number, an enum with a payload variant, a built-in enum (`Endian`,
+`Arch`), and an error set have no order.
+
+```rig
+use std.math
+
+enum Target
+  es2015 = 2015
+  es5 = 5
+  es2020 = 2020
+
+sub main()
+  t: Target = .es2015
+  print(t >= .es2015, .es2020 < t, Target.es5 < t)
+  print(math.max(Target.es2020, Target.es5))
+```
+
+```output
+true false true
+.es2020
+```
+
+```rig reject
+enum Shape
+  dot
+  circle(r: Int)
+
+sub main()
+  s: Shape = .dot
+  print(s < .dot)
+```
+
+```error
+operator `<` orders a plain enum's values; `Shape` has variants with payloads, which have no integer value
+```
+
+```rig reject
+enum Color
+  red
+
+enum Size
+  small
+
+sub main()
+  print(Color.red < Size.small)
+```
+
+```error
+operator `<` operands have different types `Color` and `Size`
+```
+
 `Status.from_int(n)` is the other way: the variant of a plain enum
 whose value is the integer `n`, of any integer type, or `none` when no
 variant has it. `from_int` is built into every plain enum, so an enum
@@ -2152,8 +2210,8 @@ support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
 reaches, and every instance the program makes, spelled or
 inferred, directly or through other generic bodies, in any module, is
 checked against it. On a `T`, `==` compares whatever `==` compares
-outside a generic body, and ordering compares numbers and `?String` values. A
-failure is reported at the call or type that makes the instance, with a
+outside a generic body, and ordering compares numbers, plain enums, and
+`?String` values. A failure is reported at the call or type that makes the instance, with a
 note at the body line that needs the operation, in the module that
 declares the body. A body cannot call a method on a `T`, read a field
 of one, or call `T` itself.
@@ -3020,10 +3078,12 @@ object that declares `drop`, or an object or payload that holds a `?T`,
 diagnostic names the field that does. Two handles' contents compare
 through views: `?a == ?b`.
 
-Ordering comparisons (`<`, `<=`, `>`, `>=`) take two numbers, or two
-`?String` values or two `[]U8` slices, ordered by their bytes: the first byte
-that differs decides, and a prefix sorts before the longer string.
-Objects, enums, and other slices have no ordering.
+Ordering comparisons (`<`, `<=`, `>`, `>=`) take two numbers, two
+values of one plain enum, ordered by their variants' values
+([Enums](#enums)), or two `?String` values or two `[]U8` slices,
+ordered by their bytes: the first byte that differs decides, and a
+prefix sorts before the longer string. Objects, enums with payload
+variants, and other slices have no ordering.
 
 ```rig
 obj Point
@@ -3064,7 +3124,7 @@ sub main()
 
 ```error
 `==` is not defined for `Link`: field `to` is a handle `*Node`, which could compare by identity or by content
-operator `<` orders numbers, Strings, and `[]U8` slices; got `Link`
+operator `<` orders numbers, plain enums, Strings, and `[]U8` slices; got `Link`
 ```
 
 ```rig
