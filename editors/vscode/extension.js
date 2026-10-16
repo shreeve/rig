@@ -3,12 +3,26 @@
 // to the open .rig files. The TextMate grammar colours them whether or not
 // the server starts.
 const vscode = require("vscode");
-const { LanguageClient } = require("vscode-languageclient/node");
 
-/** @type {LanguageClient | undefined} */
+/** @type {import("vscode-languageclient/node").LanguageClient | undefined} */
 let client;
 
+/** The client library, or undefined when `npm install` has not been run in
+ * editors/vscode: the grammar still colours, and a note says what to do. */
+function languageClient() {
+  try {
+    return require("vscode-languageclient/node").LanguageClient;
+  } catch {
+    vscode.window.showInformationMessage(
+      "Rig: run `npm install` in editors/vscode to enable the Rig language server; highlighting works without it.",
+    );
+    return undefined;
+  }
+}
+
 async function start() {
+  const LanguageClient = languageClient();
+  if (!LanguageClient) return;
   const command = vscode.workspace.getConfiguration("rig").get("lsp.path") || "rig";
   const server = { command, args: ["lsp"] };
   client = new LanguageClient("rig", "Rig", { run: server, debug: server }, {
