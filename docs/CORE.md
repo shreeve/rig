@@ -129,7 +129,7 @@ parts of its value, not places, as an Int's bits are: `v[i]` reads a
 lane, and no lane is assigned, lent, or taken (`v.with(i, x)` makes
 the changed copy). `v` itself is a place like any other binding,
 field, or element, lent with `?v` and `!v`. Reading a vector out of
-bytes copies them, so the vector keeps no loan on what it was read
+bytes copies them, so the vector carries no loan on what it was read
 from. *(built)*
 
 ```rig
@@ -347,12 +347,13 @@ view the context expects** ([§4](#4-one-lend-table)). `?` promises that
 nothing changes. A read lend may
 go unwritten where its view lasts only for the use: an argument, a
 method's receiver, or a header's subject (sentence 1), and `print` and
-`String` read their arguments the same way. A lend kept in a binding or a
-field is written, and so is every write lend; so is a lend whose view a
-call's result keeps when that result is stored in a binding, a field, or
-a return, or handed to a call that stores it (`r = head(?v)`,
-`xs = ?b.all()`, `!xs.push(head(?v))`), while a result used within
-its statement (`print(head(v).len)`) leaves it unwritten. `!` lends any
+`String` read their arguments the same way. A lend is written wherever
+its view may outlast its statement: when it is kept in a binding or a
+field, kept by the call it is lent to (`!p.watch(?t)`), or kept by a
+call's result that is stored in a binding, a field, or a return, or
+handed to a call that keeps it (`r = head(?v)`, `xs = ?b.all()`,
+`!xs.push(head(?v))`). So is every write lend. A result used within its
+statement (`print(head(v).len)`) leaves it unwritten. `!` lends any
 value to write, named or temporary: `!mk().pop()` lends the value
 `mk()` makes, which lives until its statement ends ([§3](#3-temporaries)),
 so every change is still marked by `!`. *(built* for the rows of §4
@@ -470,17 +471,27 @@ cannot assign to `a[0]` while `a` is lent
 **7. A call passes on only the loans its signature shows.** A function
 returns a view only of what it was lent, or of something that lives for
 the whole program: a `Static` (a text literal is one), a module
-constant, or `os.args()`. Its result
-carries the loans of the arguments whose types could hold what it views,
-or, when the result says `from a`, of `a` alone. A result that holds no
-write view carries them as read loans, even one of an argument lent to
-write, whose write lend then ends as the call returns unless the call
-may store it: after `head(!v)`, in its own statement or through
-`r = head(!v)`, `v` may be read, but not written, while the result
-lives. A view reached through
-a read view that a value holds carries that view's loans, not a loan on
-the holder. The compiler checks each
-body against its signature. *(built)*
+constant, or `os.args()`. Its result carries the loans of the arguments
+whose types could hold what it views, or, when the result says
+`from a`, of `a` alone. A result that holds no write view carries its
+loans as read loans, even one of an argument lent to write, whose write
+lend then ends as the call returns unless the call keeps it: after
+`head(!v)`, in its own statement or through `r = head(!v)`, `v` may be
+read, but not written, while the result lives. A view reached through a
+read view that a value holds carries that view's loans, not a loan on
+the holder. What a call stores in what a write view lent to it sees
+carries, in the same way, the loans of the arguments whose types could
+hold it; for a lent parameter (a view, an optional of one, or the
+receiver), a declared function narrows this to the parameters its
+signature names in `keeps` (`sub watch(!self, s: ?String) keeps s`). A
+kept loan lasts while the holder is used, though the holder's own write
+lend ends as the call returns; a lend the call does not keep lasts no
+longer than the call and its result. A function called as a value is
+known only by its type, which names no `from` or `keeps`, so nothing
+narrows its result or its stores. The compiler checks each body against
+its signature, `from` and `keeps` included: a body that stores a lent
+parameter, on any path, directly or through a call that keeps it, names
+it in `keeps`. *(built)*
 
 ```rig reject
 fun pick(a: ?List[Int]) -> ?List[Int]
@@ -570,6 +581,73 @@ sub main()
 
 ```output
 0
+```
+
+`watch` keeps the text it is lent, so `text` stays lent while `p` is
+used, yet `p` may be written again at once; `note` keeps nothing, so
+`m` may be dropped as soon as it returns:
+
+```rig
+obj Parser
+  src: ?String
+  errors: Int
+
+  sub watch(!self, s: ?String) keeps s
+    self.src = s
+
+  sub note(!self, msg: ?String)
+    if msg.len > self.src.len
+      self.errors += 1
+
+sub main()
+  p = Parser(src: "", errors: 0)
+  text = String("let x")
+  !p.watch(?text)
+  m = String("a long message")
+  !p.note(?m)
+  <m
+  print(p.src, p.errors)
+```
+
+```output
+let x 1
+```
+
+```rig reject
+obj Parser
+  src: ?String
+
+  sub watch(!self, s: ?String) keeps s
+    self.src = s
+
+sub main()
+  p = Parser(src: "")
+  text = String("let x")
+  !p.watch(?text)
+  !text.add(";")
+  print(p.src)
+```
+
+```error
+cannot lend `text` to write while a read loan is live
+```
+
+A body that stores a lent parameter without naming it is rejected at
+the store:
+
+```rig reject
+obj Binder
+  src: ?String
+
+  sub set_src(!self, s: ?String)
+    self.src = s
+
+sub main()
+  pass
+```
+
+```error
+`set_src` stores a view of `s` in `self`, which its caller reaches, but its signature does not keep `s`; say so: `keeps s`
 ```
 
 **8. `*<x` moves `x` into a counted handle, and `*S(...)` makes a new
@@ -1116,8 +1194,8 @@ cannot store in `p.v` a view of `p.s`: a value never holds a view of itself
 is a parameter, a receiver, a result, or a local. It is never a field,
 an element, a type argument, or what a `?`, an optional, or a handle
 holds. `^T`, optionals, and a generic `T` hold any value but a write view,
-as a `List` does. A holder of a read view carries its loan: `^?v` keeps
-`v` lent while the box, or a view it gave out, is used.
+as a `List` does. A holder of a read view carries its loan: with `^?v`,
+`v` stays lent while the box, or a view it gave out, is used.
 A function type's parameters and result are not parts of a value of
 that type: `List[*sub(!Checker)]` holds no write view. *(built)*
 
@@ -1195,8 +1273,9 @@ sub main()
 **A container written in Rig follows its signatures.** `hash.Map[K,
 V]` and `hash.Set[K]` are std code with no rule of their own: `!m.put(k,
 v)` takes `k` and `v` as any owning parameter does; `m.get(k)` returns
-a `(?V)?` view `from self`, which keeps `m` lent and not `k` (sentence
-7); `(!m).edit(k)` returns a `(!V)?` that keeps `m` lent to write; and
+a `(?V)?` view `from self`, which carries the loan on `m` and not on
+`k` (sentence 7); `(!m).edit(k)` returns a `(!V)?` that carries a write
+loan on `m`; and
 `(!m).take(k)` hands the value back owned and drops the key. *(built)*
 
 ## 6. Bindings and assignment
@@ -1329,8 +1408,9 @@ moves or clones its captures into a value behind a counted handle,
 dropped like any `*T`. The environment holds no loan (sentence 9), so
 an owned closure captures owners, handles, and plain data, never a
 view. Its parameters and result are any a function's may be, and
-follow sentences 4 and 7 as a function's do: a view it is given, read
-or write, lasts the call; what it is given to own, it drops, returns,
+follow sentences 4 and 7 as a function's do: of a view it is given,
+read or write, it keeps what its type could hold (sentence 7); what it
+is given to own, it drops, returns,
 or stores through a write parameter; its result views only what the
 call lent it. So a write view reaches a stored closure only as an
 argument, for one call: mutation is never data. Calling a closure

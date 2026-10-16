@@ -4434,6 +4434,8 @@ dloop.while_cond.defer main
 test/corpus/R11a-n1 lib.maker
 test/corpus/R11a-n1-lib.rig maker
 test/corpus/R11a-n1l.rig maker
+test/corpus/corekeeps-p4_store_through_view.rig Holder.hold
+test/corpus/corekeeps-p4b_keeps_through_view.rig main
 test/corpus/review-text-gc.rig later
 test/corpus/seam3-review1-d06_gen_closure_getter.rig mk
 test/reject/ownership/owned_closure_call_stores_arg.rig main
@@ -4442,6 +4444,8 @@ test/reject/ownership/owned_closure_callee_write_self.rig Checker.run_view
 test/reject/ownership/owned_closure_result_views_env.rig main
 test/reject/ownership/owned_closure_stores_env_view.rig main
 doc/CORE/293868418 main
+doc/CORE/1109445535 main
+doc/CORE/1969971791 Binder.set_src
 doc/SPEC/2591928739 main
 doc/SPEC/761548706 main
 error.arg_then_write.field run
