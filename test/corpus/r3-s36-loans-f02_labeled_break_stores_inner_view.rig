@@ -11,10 +11,10 @@ obj V
 sub main()
   keep = R(n: 0)
   v = V(r: ?keep)
-  :blk match 1
+  @blk match 1
     1
       inner = R(n: 7)
       v = V(r: ?inner)
-      break :blk
+      break @blk
     _ => print("x")
   print(v.r.n)

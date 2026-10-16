@@ -1,0 +1,10 @@
+fun get(i: Int) -> Bool?
+  (i < 9) if i < 2 else none
+
+sub main()
+  @x for a in 0..2
+    @y for b in 0..2
+      i = 0
+      while get(i + a + b) ?? continue @x : i += 1
+        print(a, b, i)
+  print(9)

@@ -927,15 +927,15 @@ test "Facts reads where each step runs and where each jump goes" {
         \\  k = 0
         \\  while (some(k) ?? continue) > 0
         \\    k += 1
-        \\  :outer for a in 0..3
+        \\  @outer for a in 0..3
         \\    for b in 0..3
-        \\      continue :outer if b == a
-        \\      break :outer
+        \\      continue @outer if b == a
+        \\      break @outer
         \\  m = 0
         \\  while true: m += some(m) ?? continue
         \\    break
-        \\  :blk match i
-        \\    0 => break :blk
+        \\  @blk match i
+        \\    0 => break @blk
         \\    _ => pass
         \\
     ;
@@ -957,7 +957,7 @@ test "Facts reads where each step runs and where each jump goes" {
         .{ .to = .exit, .target = .@"while" },
         .{ .to = .step, .target = .@"while" }, // to the continue expression
         .{ .to = .head, .target = .@"while" }, // from the condition of a loop with no step
-        .{ .to = .head, .target = .@"for" }, // `continue :outer` from the inner loop's body
+        .{ .to = .head, .target = .@"for" }, // `continue @outer` from the inner loop's body
         .{ .to = .exit, .target = .@"for" },
         .{ .to = .head, .target = .@"while" }, // from the step
         .{ .to = .exit, .target = .@"while" },

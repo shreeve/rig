@@ -5,11 +5,11 @@ enum E
 sub main()
   e = E.a(String("hello"))
   s = ""
-  :out while true
+  @out while true
     match !e
       .a(t)
         s = ?t[1..]
-        break :out
+        break @out
       .b => pass
   match !e
     .a(t)

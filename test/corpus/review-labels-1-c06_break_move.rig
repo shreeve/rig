@@ -1,0 +1,10 @@
+sub main()
+  s = "hi".clone()
+  x = if true
+    @outer while true
+      while true
+        break @outer <s
+      print(99)
+  else
+    "".clone()
+  print(x)

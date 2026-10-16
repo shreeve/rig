@@ -5,7 +5,7 @@ obj Val
   n: Int
 
 fun first(xs: []Val) -> ?Val
-   :x ?xs[0]
+   @x ?xs[0]
 
 sub main()
   r = ?Val(n: 0)

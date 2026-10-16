@@ -52,7 +52,7 @@ sub main()
   o0 = ints(1)
   c0 = 0
   p0 = 0
-  :a while lim(c0, 3) as h0: c0 = grow(!o0, 0, h0)
+  @a while lim(c0, 3) as h0: c0 = grow(!o0, 0, h0)
     guard += 1
     if guard > 300
       print("cap")
@@ -62,11 +62,11 @@ sub main()
     sv0 = ?o0[..]
     defer print("od0", sv0[0])
     print("b0", c0, h0)
-    :w0 match c0
+    @w0 match c0
       _
         q1 = mkvec(1, 2)
         p1 = 0
-        :a for e1, c1 in <q1
+        @a for e1, c1 in <q1
           guard += 1
           if guard > 300
             print("cap")
@@ -74,12 +74,12 @@ sub main()
           p1 += 1
           _ = p1
           print("b1", c0, c1, e1.n)
-          break :a if c0 == 1 and c1 == 1
-          :a raw
+          break @a if c0 == 1 and c1 == 1
+          @a raw
             o2 = ints(1)
             c2 = 0
             p2 = 0
-            :a while lim(c2, 2) as h2 and (gate(c0 == 1 and c1 == 1 and c2 == 1) ?? continue) > 0: c2 = grow(!o2, 2, h2)
+            @a while lim(c2, 2) as h2 and (gate(c0 == 1 and c1 == 1 and c2 == 1) ?? continue) > 0: c2 = grow(!o2, 2, h2)
               guard += 1
               if guard > 300
                 print("cap")

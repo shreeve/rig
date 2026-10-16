@@ -12,16 +12,16 @@ fun odd(i: Int) -> Int?
   i
 
 fun f4() -> Int
-  :outer for a in 0..3
+  @outer for a in 0..3
     for b in 0..3
-      break :outer a * 10 + b if a + b == 3
+      break @outer a * 10 + b if a + b == 3
   else
     -1
 
 fun f6() -> Int
-  :top while true
+  @top while true
     for b in 0..3
-      break :top b + 40 if b == 2
+      break @top b + 40 if b == 2
 
 sub main()
   i = 0

@@ -1,0 +1,7 @@
+# A keyword is not a label name.
+
+sub main()
+  @for for i in 0..3
+    print(i)
+
+# error: 4:3: a keyword is not a label name

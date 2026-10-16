@@ -1,0 +1,13 @@
+obj P
+  a: Int
+
+sub main()
+  p = P(a: 4)
+  x = if true
+    @outer while true
+      while true
+        break @outer.a
+      print(99)
+  else
+    0
+  print(x, p.a)

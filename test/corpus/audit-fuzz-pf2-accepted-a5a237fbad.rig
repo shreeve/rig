@@ -18,7 +18,7 @@ fun f1(a1: Int) -> Int
   new a1 = a1
   b1 = 6
   c1 = -3
-  :l1 for i4 in (-1)..5
+  @l1 for i4 in (-1)..5
     print(i4)
     c1 = ((16 % 9) - (5 / 9)) % 1000
     a1 -= (3 - (i4 % 8))

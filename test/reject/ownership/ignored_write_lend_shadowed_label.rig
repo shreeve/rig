@@ -1,23 +1,23 @@
 # A loop used as a value is read at each `break` that leaves it. An
-# inner loop of the same label keeps its own `break :a`, but its `else`
-# runs after it, so a `break :a !n` there leaves the outer loop, and its
+# inner loop of the same label keeps its own `break @a`, but its `else`
+# runs after it, so a `break @a !n` there leaves the outer loop, and its
 # `!` would be ignored where the value is only read.
 
 sub main()
   n = 1
   c = n > 0
   k = if c
-    :a for i in 0..3
+    @a for i in 0..3
       j = if c
-        :a while true
-          break :a i
+        @a while true
+          break @a i
       else
         0
-      :a for x in 0..2
+      @a for x in 0..2
         if x > j + 5
-          break :a
+          break @a
       else
-        break :a !n
+        break @a !n
     else
       0
   else

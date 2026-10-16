@@ -2,11 +2,11 @@
 
 fun f(n: Int) -> Int
   i = 0
-  :a while true
+  @a while true
     while true
       i += 1
       if i > n
-        break :a
+        break @a
 
 sub main()
   print(f(3))

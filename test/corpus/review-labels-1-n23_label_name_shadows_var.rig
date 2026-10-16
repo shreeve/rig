@@ -1,0 +1,6 @@
+sub main()
+  a = 5
+  @a for i in 0..3
+    break @a if i == a - 4
+    print(i, a)
+  print(9)

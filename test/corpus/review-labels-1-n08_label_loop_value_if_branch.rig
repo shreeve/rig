@@ -1,0 +1,11 @@
+sub main()
+  c = true
+  v = if c
+    @a for i in 0..5
+      for j in 0..5
+        break @a i * 10 + j if i == 2 and j == 3
+    else
+      -1
+  else
+    0
+  print(v)

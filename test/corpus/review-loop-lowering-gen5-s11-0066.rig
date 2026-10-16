@@ -72,7 +72,7 @@ sub main()
     y0 = D(n: 0 + c0)
     defer print("d0", c0)
     print("b0", c0, h0)
-    :a match c0
+    @a match c0
       _
         c1 = 0
         p1 = 0
@@ -86,7 +86,7 @@ sub main()
           print("b1", c0, c1, h1)
           c2 = 0
           p2 = 0
-          :l2 while c2 >= 0 and lim(c2, 2) as h2: c2 = st(2, c2)
+          @l2 while c2 >= 0 and lim(c2, 2) as h2: c2 = st(2, c2)
             guard += 1
             if guard > 300
               print("cap")
