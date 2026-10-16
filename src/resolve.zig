@@ -1476,7 +1476,7 @@ pub const TypeResolver = struct {
                         continue;
                     }
                     try self.noneMember(head, vname, s.pos);
-                    if (try self.reservedEnumMember(plain_enum, vname, s.pos)) continue;
+                    if (try self.reservedEnumMember(plain_enum, .variant, vname, s.pos)) continue;
                     if (try self.checkDuplicateMember(&names, vname, s.pos, sym_name)) continue;
                     const value = if (plain_enum) try self.enumValue(&values, m, null) else null;
                     try fields.append(self.ctx.allocator, .{ .name = vname, .ty = self.ctx.types.void_id, .decl_pos = s.pos, .is_variant = true, .value = value });
@@ -1511,7 +1511,7 @@ pub const TypeResolver = struct {
                                 try self.ctx.errAt(ir.Valued.value(m), "{s} cannot give its variants values; only a plain enum can", .{if (generic) "a generic enum" else "an enum with payload variants"});
                             }
                             try self.noneMember(head, vname, vpos);
-                            if (try self.reservedEnumMember(plain_enum, vname, vpos)) continue;
+                            if (try self.reservedEnumMember(plain_enum, .variant, vname, vpos)) continue;
                             if (try self.checkDuplicateMember(&names, vname, vpos, sym_name)) continue;
                             const value = if (plain_enum) try self.enumValue(&values, name_node, ir.Valued.value(m)) else null;
                             try fields.append(self.ctx.allocator, .{ .name = vname, .ty = self.ctx.types.void_id, .decl_pos = vpos, .is_variant = true, .value = value });
@@ -1530,7 +1530,7 @@ pub const TypeResolver = struct {
                                 continue;
                             }
                             const mname_node = ir.get(m, .name);
-                            if (try self.reservedEnumMember(plain_enum, identAt(self.ctx.source, mname_node) orelse "", mname_node.src.pos)) continue;
+                            if (try self.reservedEnumMember(plain_enum, .method, identAt(self.ctx.source, mname_node) orelse "", mname_node.src.pos)) continue;
                             try self.resolveMethod(m, sym_id, &fields, &names);
                         },
                         .read, .write, .move => {
@@ -1725,13 +1725,23 @@ pub const TypeResolver = struct {
         try self.ctx.err(pos, "{s} cannot be named `none`: `none` is the absent value of an optional, and `.none` would read as it; choose another name", .{if (head == .errors) "an error" else "a variant"});
     }
 
-    /// Whether `name`, declared at `pos` in an enum (`plain` when it has
-    /// values), is `from_int`, which every plain enum has built in.
+    /// Whether `name`, a variant or a method declared at `pos` in an enum
+    /// (`plain` when it has values), is one every plain enum has built
+    /// in: `from_int` and `from_text`, named through the type as a
+    /// variant is, and `text`, named through a value as a method is (a
+    /// variant named `text` is `E.text`, and clashes with neither).
     /// Reported.
-    fn reservedEnumMember(self: *TypeResolver, plain: bool, name: []const u8, pos: u32) Error!bool {
-        if (!plain or !std.mem.eql(u8, name, "from_int")) return false;
-        try self.ctx.err(pos, "`from_int` is built into every plain enum", .{});
-        return true;
+    fn reservedEnumMember(self: *TypeResolver, plain: bool, kind: enum { variant, method }, name: []const u8, pos: u32) Error!bool {
+        if (!plain) return false;
+        if (std.mem.eql(u8, name, "from_int") or std.mem.eql(u8, name, "from_text")) {
+            try self.ctx.err(pos, "`{s}` is built into every plain enum", .{name});
+            return true;
+        }
+        if (kind == .method and std.mem.eql(u8, name, "text")) {
+            try self.ctx.err(pos, "`text` is built into every plain enum: `e.text` is the name of `e`'s variant; give the method another name", .{});
+            return true;
+        }
+        return false;
     }
 
     /// Whether `name`, declared at `pos`, names an earlier member of

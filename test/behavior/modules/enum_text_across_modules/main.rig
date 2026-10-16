@@ -1,0 +1,19 @@
+# A plain enum of another module: its `.text` and `from_text`, called
+# from two modules and through another module's alias of it. `Unused`
+# is never looked up, so its module emits no table of names for it.
+
+use colors
+use paint
+
+type Local = paint.Shade
+
+sub main()
+  c = colors.Color.from_text("blue") ?? .red
+  print(c, c.text, paint.parse("dark_red").text, paint.parse("nope").text)
+  print(paint.Shade.from_text("red"), Local.from_text("dark_red"), Local.from_text("Blue"))
+  print(colors.Unused.two.text)
+
+# expect:
+# .blue blue dark_red red
+# .red .dark_red none
+# two

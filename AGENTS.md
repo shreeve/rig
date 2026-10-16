@@ -178,6 +178,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `src/typecheck.zig` | Expression pass: types every expression, records facts, checks fallibility and the `raw` boundary |
 | `src/storage.zig` | Storage facts: the hidden storage emit makes, decided once |
 | `src/ownership.zig` | Move / loan / drop checking |
+| `src/nametable.zig` | The table a plain enum's `from_text` finds a name in, built by the compiler and emitted as data, which `rig.NameTable` reads |
 | `src/inlining.zig` | Which small functions are emitted `inline`, decided once for the whole program |
 | `src/proofs.zig` | Proven checks: the index, byte-access, and add tests a guard or check already made, which emit omits |
 | `src/facts.zig` | What emit may know: the recorded facts, read-only; emit imports no classifier |
@@ -192,6 +193,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `test/json/` | `std.json` against Python's `json` module, run by `./test/run json` (see `test/json/README.md`) |
 | `tools/fetch-json-data.sh` | Fetches the third-party JSON files that test reads, pinned by sha256, into the untracked `test/json/data/` |
 | `bench/json/` | The JSON benchmark: Rig and Zig builds, and the Rust and Zig competitors (not in CI; see `bench/json/README.md`) |
+| `bench/names/` | The name lookup benchmark: `from_text`'s table against comparing names one by one (not in CI) |
 | `bench/check/` | The check-speed guard: `rig check`'s instructions, pass times (`rig check --time`), and scaling on generated programs (not in CI; see `bench/check/guard.py`) |
 | `examples/` | Curated example programs, all run by the suite |
 | `std/` | The standard library: Rig modules and the Zig behind their Zig-backed declarations |

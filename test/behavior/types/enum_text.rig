@@ -1,0 +1,84 @@
+# `e.text` is the name of a plain enum value's variant, a `Static`,
+# however the value is reached: a local, a read or write view, a field,
+# an element, a box, a shared handle, a call's result, and a variant
+# named through its type.
+
+enum Color
+  red
+  dark_red
+  blue
+
+enum Status
+  ok = 200
+  missing = 404
+
+enum Kind
+  text
+  other
+
+# Names the emitted Zig spells another way: its own and its hooks'
+# names, Zig's keywords and primitive types.
+enum Word
+  debug
+  std
+  rig
+  main
+  panic
+  fn
+  u8
+  null
+
+obj Pen
+  color: Color
+
+fun name(c: ?Color) -> Static
+  c.text
+
+sub repaint(c: !Color)
+  print(c.text)
+  c = .blue
+
+fun pick() -> Color
+  .dark_red
+
+sub main()
+  c: Color = .dark_red
+  print(c.text, Color.red.text, name(.blue), Status.missing.text, Int(Status.missing))
+  !repaint(!c)
+  print(c.text)
+  p = Pen(color: .red)
+  print(p.color.text, p.color.text.len)
+  xs = [Color.red, Color.blue]
+  print(xs[1].text, pick().text)
+  b = ^Color.blue
+  h = *Color.red
+  print(b.text, h.text)
+  t = c.text
+  print(t == "blue", String(t, "!"), t.hash() == "blue".hash())
+  k = Kind.text
+  print(k, k.text, Kind.other.text)
+  for v in @variants(Color)
+    print(v.text)
+  for w in @variants(Word)
+    print(w, w.text, Word.from_text(w.text) == w, Word.from_text(String(w.text, "'")))
+
+# expect:
+# dark_red red blue missing 404
+# dark_red
+# blue
+# red 3
+# blue dark_red
+# blue red
+# true blue! true
+# .text text other
+# red
+# dark_red
+# blue
+# .debug debug true none
+# .std std true none
+# .rig rig true none
+# .main main true none
+# .panic panic true none
+# .fn fn true none
+# .u8 u8 true none
+# .null null true none

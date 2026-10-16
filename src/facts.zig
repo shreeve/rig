@@ -291,6 +291,14 @@ pub const Facts = struct {
     pub fn isErrorMember(f: Facts, node: Sexp) bool {
         return f.c().isErrorMember(node);
     }
+    pub fn isEnumText(f: Facts, node: Sexp) bool {
+        return f.c().isEnumText(node);
+    }
+    /// Whether the program calls `from_text` on plain enum `sym` of this
+    /// module, which then emits its table of names.
+    pub fn hasTextTable(f: Facts, sym: SymbolId) bool {
+        return f.c().hasTextTable(sym);
+    }
     pub fn headerOf(f: Facts, node: Sexp) ?Header {
         return f.c().headerOf(node);
     }

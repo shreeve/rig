@@ -1375,14 +1375,17 @@ const Checker = struct {
     };
 
     /// Why a place is read-only: a `*T` on the way, which other handles
-    /// may share; an element of a `[]T` or a `?String`, a `.len`, or a
-    /// field another module declared read-only; or a `?T` on the way.
+    /// may share; an element of a `[]T` or a `?String`, a `.len`, an
+    /// enum's `.text`, or a field another module declared read-only; or
+    /// a `?T` on the way.
     /// Where several apply, the first in that order.
     const Block = enum {
         shared,
         slice,
         string,
         len,
+        /// `e.text`, the name of a plain enum value's variant.
+        text,
         /// A field another module declared `pub ?name: T`.
         read_only,
         read_view,
@@ -1390,7 +1393,7 @@ const Checker = struct {
         fn rank(b: Block) u2 {
             return switch (b) {
                 .shared => 0,
-                .slice, .string, .len, .read_only => 1,
+                .slice, .string, .len, .text, .read_only => 1,
                 .read_view => 2,
             };
         }
@@ -1477,6 +1480,9 @@ const Checker = struct {
             } else if (self.ctx.readOnlyFieldOf(step)) |field| {
                 place.block(.read_only, self.startOf(ir.Member.name(step)));
                 if (place.blocked.?.why == .read_only) place.read_only = field;
+                if (!crossed) place.leaf_blocked = true;
+            } else if (self.ctx.isEnumText(step)) {
+                place.block(.text, self.startOf(ir.Member.name(step)));
                 if (!crossed) place.leaf_blocked = true;
             } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string_view or obj == .static or obj == .string or obj == .array or listElementType(self.ctx, inner) != null or cellListElement(self.ctx, inner) != null)) {
                 place.block(.len, self.startOf(ir.Member.name(step)));
@@ -1616,6 +1622,7 @@ const Checker = struct {
                 .slice => try self.err(b.pos, "cannot {s}{s} through a slice; a `[]T` is read-only{s}", .{ through.head, through.tail, try self.readMatchHint(place.sym) }),
                 .string => try self.err(b.pos, "cannot {s} a byte of a `?String`{s}; a `?String` is read-only", .{ verb.head, verb.tail }),
                 .len => try self.err(b.pos, "cannot {s} `.len`{s}; a length is read-only", .{ verb.head, verb.tail }),
+                .text => try self.err(b.pos, "cannot {s} `.text`{s}; a variant's name is read-only", .{ verb.head, verb.tail }),
                 .read_only => {
                     const f = place.read_only.?;
                     try self.err(b.pos, "cannot {s} `{s}`{s}: field `{s}` of `{s}` is read-only outside module `{s}`, which declares it `pub ?{s}`", .{ verb.head, try self.plainText(place.node), verb.tail, f.field, f.owner, f.module, f.field });
@@ -5958,6 +5965,17 @@ const Checker = struct {
             else => {},
         }
 
+        // `e.text`: the name of a plain enum value's variant.
+        if (std.mem.eql(u8, field, "text") and self.enumValues(peeled) != null) {
+            if (self.hasVariantNames(peeled)) {
+                try self.ctx.recordEnumText(e);
+                return self.t().static_id;
+            }
+            if ((try self.findMethod(obj_ty, field)) == null) {
+                try self.err(pos, "`.text` is the name of a plain enum's variant; `{s}` has variants with payloads", .{try self.tyName(peeled)});
+                return self.t().invalid_id;
+            }
+        }
         // `value` names a Cell's constructor argument, not a field to read.
         if (std.mem.eql(u8, field, "value") and cellElementType(self.ctx, peeled) != null) {
             try self.err(pos, "a Cell is read with `c.get()` and written with `!c.set(v)`, not through `.value`", .{});
@@ -5978,7 +5996,7 @@ const Checker = struct {
                     .swap => "!xs.swap(i, j)",
                     .read => "xs.read[U32, .little](at)",
                     .write => "!xs.write[U32, .little](at, v)",
-                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
+                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
                 return self.t().invalid_id;
@@ -7172,6 +7190,16 @@ const Checker = struct {
         return if (any) true else null;
     }
 
+    /// Whether `ty` is a plain enum, every variant without a payload: one
+    /// whose values are integers (`enumValues`), or a built-in one,
+    /// `Endian` or `Arch`, whose values are Zig's. Each has `e.text` and
+    /// `E.from_text(word)`.
+    fn hasVariantNames(self: *Checker, ty: TypeId) bool {
+        if (self.enumValues(ty) == true) return true;
+        const decl = sema.nominalDecl(self.ctx, sema.unwrapViews(self.ctx, ty)) orelse return false;
+        return sema.isBuiltinEnum(decl.ctx, decl.sym);
+    }
+
     /// The value of a variant named through its type, `Status.ok` or
     /// `lib.Status.ok`; null for any other expression.
     fn variantValue(self: *Checker, e: Sexp) Error!?Wide {
@@ -7664,6 +7692,23 @@ const Checker = struct {
         }
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{from}), .returns = result, .is_sub = false });
         try self.ctx.recordElemCall(callee, .{ .op = .from_int, .elem = from, .num = enum_ty });
+        return result;
+    }
+
+    /// `Color.from_text(word)`: the variant of plain enum `enum_ty` named
+    /// `word`, or `none`. `word` is passed as to a parameter `?String`.
+    fn enumFromTextCall(self: *Checker, callee: Sexp, enum_ty: TypeId, shown: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        const result = try self.ctx.intern(.{ .optional = enum_ty });
+        if (ct) |b| return self.badCall(args, b, "`from_text` takes no compile-time arguments", .{});
+        if (args.len != 1) return self.badCall(args, pos, "`{s}.from_text(word)` takes one argument, a `?String`; got {d}", .{ shown, args.len });
+        if (args[0].isKind(.kwarg)) return self.badCall(args, pos, "`{s}.from_text(word)` takes its argument by position", .{shown});
+        const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{self.t().string_view_id}), .returns = result, .is_sub = false };
+        try self.noteCallee(f);
+        var scratch = std.heap.ArenaAllocator.init(self.ctx.allocator);
+        defer scratch.deinit();
+        try self.checkArgs(args, f, .{}, "from_text", pos, .{ .origins = try sema.defaultOrigins(self.ctx, scratch.allocator(), f) });
+        try self.ctx.recordElemCall(callee, .{ .op = .from_text, .elem = self.t().string_view_id, .num = enum_ty });
+        try self.ctx.recordTextTable(sema.nominalDecl(self.ctx, enum_ty).?);
         return result;
     }
 
@@ -9685,6 +9730,8 @@ const Checker = struct {
                 try self.err(pos, "a List has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
             } else if (has_len and std.mem.eql(u8, method, "len")) {
                 try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
+            } else if (std.mem.eql(u8, method, "text") and self.hasVariantNames(peeled)) {
+                try self.err(pos, "no method `text` on type `{s}`; a variant's name is a member, read without a call: `{s}.text`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
                 const sym = decl.symbol();
                 try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ method, sym.name, try self.memberHint(sym.fields orelse &.{}, method, .method) });
@@ -9842,14 +9889,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -9864,7 +9911,7 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
         }
         return self.t().void_id;
     }
@@ -10089,6 +10136,19 @@ const Checker = struct {
                 if (plain) return self.enumFromIntCall(self.callee_node orelse return self.skipCall(args), enum_ty, tname, pos, args, ct);
                 const declared = (try sema.findMember(self.ctx, members, name, .any)) != null;
                 if (!declared) return self.badCall(args, pos, "`{s}` has variants with payloads, which have no integer value", .{tname});
+            }
+        }
+        // `from_text`, unless a payload enum declares its own.
+        if (std.mem.eql(u8, name, "from_text") and !nt.sym.flags.error_set and (try sema.findMember(self.ctx, members, name, .any)) == null) {
+            const is_enum = for (members) |m| {
+                if (m.is_variant) break true;
+            } else false;
+            if (is_enum) {
+                if (!generic) {
+                    const enum_ty = try self.namedTypeValue(nt);
+                    if (self.hasVariantNames(enum_ty)) return self.enumFromTextCall(self.callee_node orelse return self.skipCall(args), enum_ty, tname, pos, args, ct);
+                }
+                return self.badCall(args, pos, "`from_text` gives a plain enum's variant by its name; `{s}` has variants with payloads, which a name cannot build", .{tname});
             }
         }
         // The first member of that name decides.

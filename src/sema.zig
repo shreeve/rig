@@ -917,6 +917,9 @@ pub const Facts = struct {
     /// `E.name` nodes that name a member of an error set `E`, through
     /// its module or an alias (`SemContext.recordErrorMember`).
     error_members: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// `e.text` nodes: the name of plain enum value `e`'s variant, a
+    /// `Static` (`SemContext.recordEnumText`).
+    enum_texts: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Variant pattern node -> the binding of each payload field of its
     /// variant, in field order (`SemContext.payloadBindings`).
     payload_binds: std.AutoHashMapUnmanaged(NodeKey, []const Sexp) = .empty,
@@ -1345,8 +1348,8 @@ pub const Use = enum {
 /// (`num` is the float's type, `elem` the unsigned integer of its width);
 /// the functions of a type, which take an integer (`elem` is its type):
 /// `I32.wrap(x)` (`num` the target), `Float.from_bits(u)` (`num` the
-/// float, `elem` the unsigned integer), `Status.from_int(n)` (`num` the
-/// enum); and the methods of
+/// float, `elem` the unsigned integer), `Status.from_int(n)` and
+/// `Status.from_text(word)` (`num` the enum); and the methods of
 /// a vector (`isSimd`), where `num` is the vector and `elem` its lane
 /// type: `Simd[T, n].splat(x)`, `m.bits()`, `m.first()`, `m.any()`, `m.all()`,
 /// `v.array()`, `v.with(i, x)`, `m.select(a, b)`, whose `num` is the
@@ -1376,6 +1379,9 @@ pub const ElemOp = enum {
     from_bits,
     wrap,
     from_int,
+    /// `E.from_text(word)`: the variant of plain enum `num` named
+    /// `word`, a `?String` (`elem`).
+    from_text,
     nan,
     inf,
     fraction,
@@ -1399,15 +1405,16 @@ pub const ElemOp = enum {
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
             .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .fraction, .exponent => true,
-            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => false,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => false,
         };
     }
 
     /// Whether the call is a function of a number type or a plain enum:
-    /// `Float.from_bits(u)`, `I32.wrap(x)`, `Status.from_int(n)`.
+    /// `Float.from_bits(u)`, `I32.wrap(x)`, `Status.from_int(n)`,
+    /// `Status.from_text(word)`.
     pub fn isTypeFn(op: ElemOp) bool {
         return switch (op) {
-            .from_bits, .wrap, .from_int, .nan, .inf => true,
+            .from_bits, .wrap, .from_int, .from_text, .nan, .inf => true,
             else => false,
         };
     }
@@ -1417,7 +1424,7 @@ pub const ElemOp = enum {
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
             .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => true,
-            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .hash => false,
+            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .hash => false,
         };
     }
 };
@@ -2075,6 +2082,11 @@ pub const SemContext = struct {
     /// Those of other modules, found large at an instance made here;
     /// `inlining.decide` marks them in their own modules.
     large_foreign_frames: std.ArrayList(ForeignFrame) = .empty,
+    /// The plain enums of this module, by symbol, that the program calls
+    /// `from_text` on (`recordTextTable`).
+    text_tables: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    /// Those of other modules, called here.
+    foreign_text_tables: std.ArrayList(ForeignRef) = .empty,
     /// The calls that may reach one of them, by node (`inlining.decide`).
     inlined_calls: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// The node `Question`s decided so far, each once.
@@ -2188,6 +2200,8 @@ pub const SemContext = struct {
         self.call_targets.deinit(self.allocator);
         self.large_frames.deinit(self.allocator);
         self.large_foreign_frames.deinit(self.allocator);
+        self.text_tables.deinit(self.allocator);
+        self.foreign_text_tables.deinit(self.allocator);
         self.inlined_calls.deinit(self.allocator);
         self.write_sites.deinit(self.allocator);
         self.proven.deinit(self.allocator);
@@ -2613,6 +2627,31 @@ pub const SemContext = struct {
 
     pub fn isErrorMember(self: *const SemContext, node: Sexp) bool {
         return self.facts.error_members.contains(nodeKey(node) orelse return false);
+    }
+
+    /// `node`, a `member` `e.text`, is the name of plain enum value
+    /// `e`'s variant, not a field.
+    pub fn recordEnumText(self: *SemContext, node: Sexp) !void {
+        try self.facts.enum_texts.put(self.allocator, recordKey(node), {});
+    }
+
+    pub fn isEnumText(self: *const SemContext, node: Sexp) bool {
+        return self.facts.enum_texts.contains(nodeKey(node) orelse return false);
+    }
+
+    /// The program calls `E.from_text` on plain enum `decl`, so its
+    /// module emits `E`'s table of names (`hasTextTable`). One of
+    /// another module is marked there once every module is checked
+    /// (`modules.ModuleGraph.markTextTables`).
+    pub fn recordTextTable(self: *SemContext, decl: NominalDecl) !void {
+        if (decl.module_id) |m| if (m != self.module_id) {
+            return self.foreign_text_tables.append(self.allocator, .{ .module_id = m, .sym = decl.sym });
+        };
+        try self.text_tables.put(self.allocator, decl.sym, {});
+    }
+
+    pub fn hasTextTable(self: *const SemContext, sym: SymbolId) bool {
+        return self.text_tables.contains(sym);
     }
 
     /// `node`, an optional field or element, could not be taken with

@@ -473,6 +473,7 @@ fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
         const t1 = timing.start(times);
         try inlining.decide(allocator, &graph, inlining.max_size);
         timing.stop(times, .inlining, t1);
+        try graph.markTextTables();
     }
     if (times) |t| {
         try t.write(&writer.interface, @intCast(@max(t0.?.durationTo(t.now()).nanoseconds, 0)));
@@ -1389,4 +1390,5 @@ test {
     _ = proofs;
     _ = @import("ownership.zig");
     _ = @import("runtime.zig");
+    _ = @import("nametable.zig");
 }
