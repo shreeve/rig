@@ -73,9 +73,9 @@ mutation shows at the place it happens, as a sigil or a call.
 **No hidden cost.** No garbage collector, no hidden allocation, no hidden
 reference counting, no silent control flow.
 
-**A marker asks for speed, never for meaning.** `called fun` and
-`rarely fun` change where the code lands, not what it does; a program
-means the same with every marker removed.
+**A marker asks for speed, never for meaning.** `inline fun`,
+`called fun`, and `rarely fun` change where the code lands, not what it
+does; a program means the same with every marker removed.
 
 **Square brackets after a name mean compile time.** `List[Int]`,
 `push[U32, .big](x)`, `Simd[U8, 16]`; parentheses are run time.

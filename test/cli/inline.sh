@@ -160,6 +160,59 @@ expect_has "$out" 'pub fn kind(self: *const Node' "a method that calls itself th
 out=$(rig run wrappers.rig 2>&1) || fail "rig run wrappers.rig: $out"
 expect_eq "$out" "7 4" "wrappers.rig"
 
+# A small member of a generic type is inlined as any function is: Zig
+# writes one declaration for all its instances, so the decision is one,
+# under the largest frame of its instances. One whose frame passes 64 KiB
+# at an instance is called.
+cat >members.rig <<'RIG'
+obj Wrap[T]
+  v: T
+
+  fun get(?self) -> ?T
+    ?self.v
+
+  fun keeps(?self, i: Int) -> Int
+    t = [9000 of self.v]
+    i + t.len
+
+sub main()
+  a = Wrap[Int](v: 1)
+  b = Wrap[Bool](v: true)
+  print(a.get(), b.get(), a.keeps(1), b.keeps(2))
+RIG
+out=$(emit members.rig)
+expect_has "$out" 'pub inline fn get(__rig_in_self: rig.ReadView(__rig_Self))' "a small member of a generic type"
+expect_has "$out" 'pub fn keeps(self: rig.ReadView(__rig_Self)' "a member whose frame at one instance is 72 KB"
+out=$(rig run members.rig 2>&1) || fail "rig run members.rig: $out"
+expect_eq "$out" "1 true 9001 9002" "members.rig"
+
+# std.hash's `ensure` and `ensure_with` are inlined into the code that
+# calls them, so a lookup that finds its key costs no call, as `edit`'s
+# does (bench/hash).
+cat >ensure.rig <<'RIG'
+use std.hash
+
+fun zero(k: ?Int) -> Int
+  0
+
+sub main()
+  m = hash.Map[Int, Int].new()
+  a = (!m).ensure(1, 5)
+  a += 1
+  b = (!m).ensure_with(2, zero)
+  b += 2
+  if (!m).edit(1) as c
+    c += 3
+  print(m.get(1), m.get(2))
+RIG
+emit ensure.rig >/dev/null
+lib=$(cat "$RIG_OUT_DIR"/programs/ensure/__rig_std_h?sh.zig) || fail "std's module is not in the package"
+expect_has "$lib" 'pub inline fn ensure(' "Map.ensure"
+expect_has "$lib" 'pub inline fn ensure_with(' "Map.ensure_with"
+expect_has "$lib" 'pub inline fn edit(' "Map.edit"
+out=$(rig run ensure.rig 2>&1) || fail "rig run ensure.rig: $out"
+expect_eq "$out" "9 2" "ensure.rig"
+
 # A body of more than inlining.max_size nodes (60) is called.
 {
     echo 'fun long(n: Int) -> Int'
