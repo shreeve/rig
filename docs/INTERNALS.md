@@ -3344,12 +3344,14 @@ symbols); a query that decides more than that belongs in `Pending`.
 
   Every generated name and label starts with `__rig_` (a stack
   closure's `__rig_invoke`, a generic type's `__rig_Self`, a guarded
-  match's `__rig_arm_N`), so none can meet a Rig name; the one
+  match's `__rig_arm_N`, a drop flag's `__rig_alive_x`, an error
+  capture's `__rig_err`), so none can meet a Rig name; the one
   exception is a closure environment's fields, `cap_<name>`, in a
   struct that holds nothing else. A local that would shadow a visible
   Zig name (a module-level name, the type being emitted or one of its
-  methods, an enclosing local) is renamed; each is compared by its Zig
-  name, as Zig compares them.
+  methods, an enclosing local), each compared by its Zig name as Zig
+  compares them, is renamed to a name of the emitter's,
+  `__rig_local_x_3`, which no later name of the program's can be.
 - **Bindings** are `const` unless reassigned, written through, holding
   a value that moves (`sema.moves`), or
   initialized by a compile-time-known value, which Zig would fold.

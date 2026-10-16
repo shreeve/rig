@@ -802,7 +802,7 @@ pub const Emitter = struct {
         // shows errors (`rig.failMain`) or sets the exit status
         // (`rig.exitStatus`), after every drop and the leak check.
         if (is_main) {
-            const catches = if (main_fails) " catch |err| rig.failMain(err)" else "";
+            const catches = if (main_fails) " catch |__rig_err| rig.failMain(__rig_err)" else "";
             const run = "rig.onOwnStack(__rig_run_main, .{__rig_init})";
             if (main_status) {
                 try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return rig.exitStatus({s}{s});\n}}\n\n", .{ run, catches });
@@ -980,7 +980,9 @@ pub const Emitter = struct {
         };
         if (l.zig_name.len == 0) l.zig_name = try self.zigNameFor(rig_name);
         if (l.guard == .flag and l.flag.len == 0) {
-            l.flag = try self.fmt("__rig_alive_{s}", .{if (isPlainIdent(l.zig_name)) l.zig_name else try self.fresh(rig_name)});
+            // Named from the local's Zig name, which no visible local
+            // shares, or by a number no name of the program's can be.
+            l.flag = if (isPlainIdent(l.zig_name)) try self.fmt("__rig_alive_{s}", .{l.zig_name}) else try self.fmt("__rig_alive_{d}", .{self.nextId()});
         }
         const scope: u32 = @intCast(self.scopes.items.len - 1);
         const top = &self.scopes.items[scope];
@@ -1011,9 +1013,9 @@ pub const Emitter = struct {
         if (std.mem.eql(u8, rig_name, "_")) return "_";
         const base = try self.fmt("{f}", .{ident(rig_name)});
         if (!self.nameTaken(base)) return base;
-        // A name `ident` renames keeps no part of it: `rig_3` would read
-        // as a name of the program's.
-        return self.fresh(if (rig.isPlainName(rig_name) and !rig.zigRenames(rig_name)) rig_name else "__rig_hidden");
+        // The new name is the emitter's (`__rig_local_x_3`), so no name of
+        // the program's can be it.
+        return self.fresh(if (rig.isPlainName(rig_name)) try self.fmt("__rig_local_{s}", .{rig_name}) else "__rig_hidden");
     }
 
     /// Whether a Zig name is visible where a binding is being declared:
@@ -5155,7 +5157,7 @@ pub const Emitter = struct {
                 const v = try self.hiddenStorage(e, .leaf, .pointer, .next);
                 try self.w.writeAll("(if (");
                 try self.emitPayloadHolder(operand);
-                try self.w.print(") |*{s}| {s} else {s})", .{ v, v, if (e.isKind(.propagate)) "|err| return err" else "return null" });
+                try self.w.print(") |*{s}| {s} else {s})", .{ v, v, if (e.isKind(.propagate)) "|__rig_err| return __rig_err" else "return null" });
                 return;
             },
             .jump => return self.emitExpr(e),

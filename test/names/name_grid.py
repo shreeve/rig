@@ -7,7 +7,8 @@ emitter or Zig's standard library uses (`std`, `rig`, `panic`, `debug`,
   test/names/name_grid.py <rig> [--jobs N] [--keep DIR] [SITE...]
 
 Each site is one program with a block for every name, so a site builds
-once: its locals, parameters, captures, and bindings; methods, and the
+once: its locals, parameters, captures, and bindings; an owned local
+whose drop a flag guards, beside a later local named like it; methods, and the
 locals and parameters beside a method of the same name; fields and
 payload fields; variants; errors and labels; generic parameters; type
 names; module constants and functions; static methods; module members;
@@ -51,6 +52,7 @@ KEYWORD = "error:"
 BINDING = {"none": NONE, "_": UNDERSCORE, "type": KEYWORD, "drop": KEYWORD, "main": MAIN}
 REJECTED = {
     "local": {**BINDING},
+    "flag": {**BINDING},
     "method": {**BINDING, "self": "self"},
     "field": {},
     "variant": {"none": "none", "from_int": "from_int", "type": KEYWORD, "drop": KEYWORD},
@@ -113,6 +115,27 @@ sub t{i}()
   lb{i}(!k)
   print(lp{i}(41), lf{i}(), lo{i}(5), lc{i}(), x, lm{i}(.pp(v: 9)), k)
 """, f"LE{i}.bad\n42 3 5 42 7 9 2"
+
+
+def flag(n, i):
+    """An owned local whose drop a flag guards, and a later local named
+    like the names the emitter makes from it."""
+    return f"""fun take{i}(s: String) -> Int
+  s.len
+
+fun fl{i}(c: Bool) -> Int
+  {n} = String("ab")
+  k = 0
+  if c
+    k += take{i}(<{n})
+  {n}_2 = String("cde")
+  if not c
+    k += take{i}(<{n}_2)
+  k
+
+sub t{i}()
+  print(fl{i}(true), fl{i}(false))
+""", "2 3"
 
 
 def method(n, i):
@@ -465,7 +488,7 @@ def alias(n, i):
 
 
 SITES = {
-    "local": local, "method": method, "field": field, "variant": variant,
+    "local": local, "flag": flag, "method": method, "field": field, "variant": variant,
     "error": error, "tparam": tparam, "type": type_, "root_const": root_const,
     "root_fun": root_fun, "static": static, "module": module, "alias": alias,
 }
