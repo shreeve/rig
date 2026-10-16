@@ -1,0 +1,17 @@
+# A variant literal compared with a `?Q` view on either side of `==`
+# and `!=`, bare and with a payload, after being lent as the argument
+# that made the view. Runs sanitizer-clean.
+enum Q
+  Num(n: Int)
+  Str(s: String)
+  Empty
+
+sub check(v: ?Q)
+  print(v == .Empty, v == .Num(n: 3), .Num(n: 3) == v, v != .Str(s: String("x")))
+
+sub main()
+  check(.Num(n: 3))
+  check(.Empty)
+  check(.Str(s: String("x")))
+  q = Q.Num(n: 3)
+  print(q == .Num(n: 3), ?q == .Num(n: 3))

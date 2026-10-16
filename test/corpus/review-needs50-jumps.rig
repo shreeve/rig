@@ -1,0 +1,37 @@
+# A variant literal lent to a `?Val` argument, owning a List, is made
+# before a later argument jumps out of the statement (`continue`,
+# `break`, `return` through `??`): the temporary is dropped on every
+# path. Runs sanitizer-clean.
+enum Val
+  Num(n: Int)
+  Table(m: List[Int])
+
+fun three() -> List[Int]
+  xs = List[Int]()
+  !xs.push(1)
+  !xs.push(2)
+  !xs.push(3)
+  return <xs
+
+sub show(v: ?Val)
+  match v
+    .Num(n) => print("num", n)
+    .Table(m) => print("table", m.len)
+
+fun both(a: ?Val, b: ?Val) -> Int
+  show(a)
+  show(b)
+  2
+
+fun opt(i: Int) -> Int?
+  none if i == 1 else i
+
+fun early(i: Int) -> Int
+  return both(.Table(m: three()), .Num(n: opt(i) ?? return -1))
+
+sub main()
+  for i in 0..3
+    _ = both(.Table(m: three()), .Num(n: opt(i) ?? continue))
+  for i in 0..3
+    _ = both(.Table(m: three()), .Num(n: opt(i) ?? break))
+  print(early(1), early(2))

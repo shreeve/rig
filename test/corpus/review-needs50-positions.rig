@@ -1,0 +1,47 @@
+# A variant literal owning a List, lent to a `?Val` view in statement
+# positions other than a plain call: a closure and an owned closure, a
+# `?fun` value, a `defer`, a postfix `if`, a `while` condition and step,
+# a method's argument by keyword, and a view the call returns, read in
+# the same statement. Runs sanitizer-clean.
+enum Val
+  Num(n: Int)
+  Table(m: List[Int])
+
+obj Bag
+  n: Int
+
+fun three() -> List[Int]
+  xs = List[Int]()
+  !xs.push(1)
+  !xs.push(2)
+  !xs.push(3)
+  return <xs
+
+fun size(v: ?Val) -> Int
+  match v
+    .Table(m) => m.len
+    .Num(n) => n
+
+fun keep(v: ?Val) -> ?Val
+  return v
+
+fun apply(f: ?fun(?Val) -> Int) -> Int
+  f(.Table(m: three()))
+
+fun Bag.size(?self, v: ?Val, extra: Int = 0) -> Int
+  size(v) + extra + self.n
+
+sub main()
+  defer print("defer", size(.Table(m: three())))
+  c = true
+  f = |v: ?Val| print("closure", size(v))
+  f(.Table(m: three()))
+  g = *|v: ?Val| size(v) + 1
+  print(g(.Table(m: three())), apply(size))
+  print("postfix", size(.Table(m: three()))) if c
+  i = 0
+  while size(.Table(m: three())) > i: i += size(.Num(n: 1))
+    print("loop", i)
+  b = Bag(n: 1)
+  print(b.size(extra: 5, v: .Table(m: three())))
+  print(size(keep(.Table(m: three()))))
