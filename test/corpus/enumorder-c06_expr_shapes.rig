@@ -1,0 +1,30 @@
+# Orderings whose enum side is an `if`, a `??` default, a `catch`, a
+# `match`, and a call.
+enum Lvl
+  lo = 1
+  mid = 2
+  hi = 3
+
+error Bad
+  no
+
+fun get(n: Int) -> Lvl!
+  if n < 0
+    return Bad.no
+  Lvl.hi if n > 5 else Lvl.lo
+
+fun maybe(n: Int) -> Lvl?
+  if n == 0
+    return none
+  Lvl.mid
+
+sub main()
+  c = true
+  print((Lvl.lo if c else Lvl.hi) < .mid)
+  print((maybe(0) ?? .hi) > .mid, (maybe(1) ?? .lo) >= .mid)
+  print((get(-1) catch .mid) == .mid, (get(9) catch .lo) > .mid)
+  n = 2
+  m = match n
+    1 => Lvl.lo
+    _ => Lvl.hi
+  print(m > .mid, (get(1) catch .hi) < .mid)

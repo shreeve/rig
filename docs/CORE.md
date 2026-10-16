@@ -187,8 +187,9 @@ views, and reads owners and handles in place; a write view of a value
 that copies (§1: plain data, or a read view) reads the value it sees,
 so `x = w` with `w: !Int` copies the Int, and with `w: !Point` the
 Point. It never clones, writes, or drops, and it moves only where the
-value leaves for good: `return x`, `break x`, or `x` as the last value
-of the function or block that declares `x`. *(built:* copies, `return x`, a function's last value, a
+value leaves for good: `return x`, alone or as a part of `return x, y`,
+`break x`, or `x` as the last value of the function or block that
+declares `x`. *(built:* copies, `return x`, a function's last value, a
 block's last value when the block declares the name, `break x` of a
 name the loop declares, and reading in place: an argument where a view
 is expected (`size(v)` for a `?List[Int]` parameter), and a header's
@@ -572,6 +573,44 @@ sub main()
 0
 ```
 
+**Several results.** A function may give several results, `-> (A, B)`,
+with `return a, b`; each is a result as described above. The results
+never form a value (§5), so the call stands only where each result is
+bound at once (`a, b = f()`, `if f() as a, b`, `while f() as a, b`),
+where they are returned whole (`return f()`), or where all are
+discarded, as one result is. Until its target takes it, each result is
+a temporary of the call's statement (§3). The targets take theirs left
+to right, by the rule `x = e` has, so a name cannot be bound while a
+result not yet taken views it. A result that `_` discards drops at the
+statement's end, the last made first, and keeps what it views lent
+until then only when its drop runs a `drop` body (sentence 6). Each
+result carries the loans its own type could hold, so a `Bool` beside a
+view carries none, and a result may be a write view, as `-> !T` is,
+beside results whose types could view nothing it views (sentence 5).
+When no result holds a write view, every write lend of the call ends as
+it returns, as for one result. *(built; two write-view results are
+planned)*
+
+```rig
+obj Counter
+  n: Int
+  m: Int
+
+  fun bump(!self, k: Int) -> (!Int, Bool)
+    self.n += k
+    return !self.m, self.n > 3
+
+sub main()
+  c = Counter(n: 0, m: 0)
+  w, big = (!c).bump(5)
+  w += 10
+  print(big, c.m)
+```
+
+```output
+true 10
+```
+
 **8. `*<x` moves `x` into a counted handle, and `*S(...)` makes a new
 value there; `^<x` and `^S(...)` put a value alone in a box.** A box has
 one owner and no count: it moves, and `+b` copies its value into a new
@@ -810,9 +849,8 @@ no name: a call's result, a constructor, `+x`, or a block or `match`
 value. Its statement is its scope, so it is a *temporary*, dropped when
 the statement ends, the last made first, also when the statement fails
 or leaves early. A temporary may be lent to read or to write (sentence
-4), and a view of it may be used only within its statement.
-A value made to be called (`(+h.f)(x)`) is a temporary too.
-*(planned)*
+4), and a view of it may be used only within its statement. A value
+made to be called (`(+h.f)(x)`) is a temporary too *(planned)*.
 
 **Headers are their own statements:** an `if` or `while` condition, a
 guard, and the subject of a `match` or `for`. A header's temporaries

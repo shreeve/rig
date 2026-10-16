@@ -1,0 +1,22 @@
+# Review of #229: an unmarked wrapper of a generic `inline` function was
+# inlined by the automatic rule, which counted the `inline` function's
+# frame as none, so `main` ran off its stack. A frame the rule cannot
+# know keeps the wrapper a call.
+
+inline fun big[T](x: T, i: Int) -> Int
+  t = [1000000 of 0]
+  for q in 0..1000000
+    t[q] = q + i
+  t[i % 1000000]
+
+fun h(i: Int) -> Int
+  big(1, i)
+
+sub k(i: Int)
+  print(h(i) + h(i + 1) + h(i + 2) + h(i + 3) + h(i + 4) + h(i + 5) + h(i + 6) + h(i + 7) + h(i + 8) + h(i + 9))
+
+sub main()
+  k(3)
+
+# expect:
+# 150

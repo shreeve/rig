@@ -1,0 +1,33 @@
+# A plain enum meets a generic body's ordering: std.math's min, max, and
+# clamp, std.sort's sort, lower_bound, and search, and a user's generic
+# `<` each order its values by the variants' values.
+use std.math
+use std.sort
+
+enum Size
+  large = 30
+  small = 10
+  medium = 20
+
+fun least[T](xs: []T) -> T
+  best = xs[0]
+  for x in xs
+    if x < best
+      best = x
+  best
+
+sub main()
+  print(math.min(Size.large, Size.small), math.max(Size.small, Size.medium))
+  print(math.clamp(Size.large, Size.small, Size.medium), math.clamp(Size.small, Size.medium, Size.large))
+  xs = [Size.large, Size.small, Size.medium, Size.small]
+  print(least(?xs))
+  sort.sort(!xs)
+  print(xs)
+  print(sort.lower_bound(?xs, Size.medium), sort.search(?xs, Size.large), sort.search(?xs[0..2], Size.large))
+
+# expect:
+# .small .medium
+# .medium .medium
+# .small
+# [.small, .small, .medium, .large]
+# 2 3 none

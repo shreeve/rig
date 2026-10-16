@@ -1,0 +1,8 @@
+obj M
+  a: Int
+  b: Int
+
+  fun both(!self) -> (!Int, !Int)
+    return !self.a, !self.b
+
+# error: at most one of a function's results is a write view

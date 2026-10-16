@@ -1,0 +1,14 @@
+# A generic body that orders T beside an integer literal does not take a
+# plain enum.
+use std.math
+
+enum Size
+  small
+  large
+
+fun pos[T](x: T) -> Bool
+  x > 0
+
+sub main()
+  print(math.abs(Size.small))
+  print(pos(Size.large))

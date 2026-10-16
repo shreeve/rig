@@ -1,0 +1,13 @@
+# Review of #229: an `inline` function's closure calling it is a call of
+# its own, no cycle.
+
+inline fun go(n: Int) -> Int
+  return 0 if n <= 0
+  f = |+n| go(n - 1)
+  f() + 1
+
+sub main()
+  print(go(3))
+
+# expect:
+# 3

@@ -1,0 +1,10 @@
+# A function takes one marker, in either order.
+
+pub rarely inline sub f()
+  print(1)
+
+sub main()
+  f()
+
+# error: 3:12: a function takes one marker
+# errors: 1

@@ -1,0 +1,10 @@
+enum Color
+  red
+  green
+
+sub main()
+  o: Color? = .red
+  p: Color? = .green
+  print(o < .green)
+  print(o < p)
+  print(.red <= o)

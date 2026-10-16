@@ -1,0 +1,17 @@
+# A result that views carries the loans its own type can hold: the two
+# views of `t` keep it lent to read while they are used, and then `t`
+# may change.
+
+fun split(s: ?String, at: Int) -> (?String, ?String)
+  return s[..at], s[at..]
+
+sub main()
+  t = String("hello")
+  a, b = split(?t, 2)
+  print(a, b)
+  !t.add("!")
+  print(t)
+
+# expect:
+# he llo
+# hello!

@@ -1,0 +1,33 @@
+# Discarding results: a bare call statement discards results that own
+# nothing, and `_ = f()` discards all of them, the last first. A result
+# `_` discards whose drop runs no `drop` body reads none of its views,
+# so its loans end at once.
+
+obj Guard
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+fun guards(k: Int) -> (Guard, Guard)
+  return Guard(n: k), Guard(n: k + 1)
+
+fun two(s: ?String) -> (String, ?String)
+  return String(s, "!"), s
+
+sub main()
+  divmod(17, 5)
+  _ = guards(1)
+  print("after")
+  s = String("ab")
+  s, _ = two(?s)
+  print(s)
+
+# expect:
+# drop 2
+# drop 1
+# after
+# ab!

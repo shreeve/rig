@@ -1,0 +1,17 @@
+# A closure captures a plain enum and orders by it.
+enum Size
+  large = 30
+  small = 10
+  medium = 20
+
+fun count(xs: []Size, keep: ?fun(Size) -> Bool) -> Int
+  n = 0
+  for x in xs
+    if keep(x)
+      n += 1
+  n
+
+sub main()
+  floor = Size.medium
+  xs = [Size.large, Size.small, Size.medium, Size.small]
+  print(count(?xs, |+floor, x| x >= floor), count(?xs, |x| .small < x))

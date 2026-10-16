@@ -1,0 +1,23 @@
+# One result may be a write view, beside results that hold none: `w`
+# keeps the write loan on `c` while it lives, and `big` keeps nothing.
+
+obj Counter
+  n: Int
+  m: Int
+
+  fun bump(!self, k: Int) -> (!Int, Bool)
+    self.n += k
+    return !self.m, self.n > 3
+
+sub main()
+  c = Counter(n: 0, m: 0)
+  w, big = (!c).bump(2)
+  w += 10
+  print(big)
+  w2, big2 = (!c).bump(2)
+  w2 += 1
+  print(big2, c.n, c.m)
+
+# expect:
+# false
+# true 4 11

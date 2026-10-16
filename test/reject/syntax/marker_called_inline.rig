@@ -1,0 +1,11 @@
+# A function takes one marker: `called` keeps every call a call, which
+# contradicts `inline`.
+
+called inline fun f(x: Int) -> Int
+  x
+
+sub main()
+  print(f(1))
+
+# error: 4:8: a function takes one marker
+# errors: 1

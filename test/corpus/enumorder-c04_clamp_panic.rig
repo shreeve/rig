@@ -1,0 +1,9 @@
+# clamp with hi below lo panics for an enum as for a number.
+use std.math
+
+enum Size
+  small = 1
+  large = 2
+
+sub main()
+  print(math.clamp(Size.small, Size.large, Size.small))

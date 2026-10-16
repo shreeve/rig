@@ -1,0 +1,17 @@
+# While a result holds a write view, every write lend of the call lasts
+# to the statement's end, as for a `!T` result: the first version
+# decides it per call, not per argument (SPEC "Several results").
+
+fun pair(a: !Int, b: !Int) -> (!Int, Int) from a
+  b += 1
+  return a, b
+
+sub main()
+  x = 1
+  y = 1
+  w, y = pair(!x, !y)
+  w += y
+  print(x, y)
+
+# error: cannot reassign `y` while it is lent
+# errors: 1

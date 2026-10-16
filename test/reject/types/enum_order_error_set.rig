@@ -1,0 +1,15 @@
+# An error set has no order, though its members are written like a
+# plain enum's variants.
+
+error NetworkError
+  timeout
+  refused
+
+sub main()
+  e: NetworkError = .timeout
+  print(e < NetworkError.refused)
+  print(e >= .refused)
+
+# error: 10:9: operator `<` orders numbers, plain enums, Strings, and `[]U8` slices; got `NetworkError`
+# error: 11:9: operator `>=` orders numbers, plain enums, Strings, and `[]U8` slices; got `NetworkError`
+# errors: 2

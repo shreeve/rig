@@ -1,0 +1,10 @@
+# A function's marker is written once.
+
+inline inline fun f() -> Int
+  1
+
+sub main()
+  print(f())
+
+# error: 3:8: a function's marker is written once
+# errors: 1
