@@ -141,6 +141,9 @@ const Owner = struct {
     /// them, or for a generic one what the largest of its instances adds
     /// to `own` (`collect`).
     marked: FrameCount = .none,
+    /// Its parameters' copies where it is inlined
+    /// (`sema.FrameOwner.params`), the largest of a generic one's.
+    params: u128 = 0,
     /// Whether this build compiles it: a test block, and what is in one,
     /// only under `rig test` (`ModuleGraph.with_tests`), and only the
     /// root module's; a generic one only at an instance. A frame Zig
@@ -207,7 +210,7 @@ const OwnerKey = struct { module: u32, pos: u32 };
 /// The largest frame of a generic owner's instances: its own values, and
 /// its own with what marked calls land in it, each the largest of any
 /// instance.
-const Instances = struct { own: FrameCount, total: FrameCount };
+const Instances = struct { own: FrameCount, total: FrameCount, params: u128 = 0 };
 
 const Pass = struct {
     a: std.mem.Allocator,
@@ -258,6 +261,7 @@ const Pass = struct {
             var compiled = if (o.parent) |p| self.owners.items[base + p].compiled else o.kind != .test_block or (self.with_tests and self.mods[module].id == 1);
             var own: ?FrameCount = o.own;
             var marked = o.marked;
+            var params = o.params;
             // A generic owner's frame is its instances': the largest of
             // them. One no instance the program makes binds is a frame Zig
             // never writes; one whose instances made no count is unknown,
@@ -266,13 +270,14 @@ const Pass = struct {
                 if (self.instances.get(.{ .module = c.module_id, .pos = o.pos })) |in| {
                     own = in.own;
                     marked = .{ .bytes = in.total.bytes - in.own.bytes, .reach = in.total.reach - in.own.reach };
+                    params = in.params;
                 } else {
                     own = null;
                     marked = .none;
                     if (!try self.instanceMade(c, o)) compiled = false;
                 }
             }
-            try self.owners.append(self.a, .{ .fun = null, .in_fn = parent_fn, .own = own, .marked = marked, .compiled = compiled, .type_name = o.type_name });
+            try self.owners.append(self.a, .{ .fun = null, .in_fn = parent_fn, .own = own, .marked = marked, .params = params, .compiled = compiled, .type_name = o.type_name });
             if (o.kind != .function) continue;
             const v = try self.add(module, index, o);
             self.owners.items[index].fun = v;
@@ -499,8 +504,9 @@ const Pass = struct {
 
     /// What an inlined function adds to the frame of a call of it, with
     /// its own inlined calls in it, beside what typecheck counted there:
-    /// for one the rule inlines, its own values, what marked calls land
-    /// in it, and what the rule inlines into it; for a marked `inline`
+    /// for one the rule inlines, its own values, its parameters' copies,
+    /// what marked calls land in it, and what the rule inlines into it;
+    /// for a marked `inline`
     /// one, whose values and marked calls typecheck counts in the caller
     /// (`sema.Account.marked`), what the rule inlines into it. No cycle
     /// of calls is inlined (`forcedCycles`, `isCyclic`), so this ends, and
@@ -511,7 +517,7 @@ const Pass = struct {
         const b = if (self.fns.items[v].marker == .@"inline")
             self.added(o)
         else
-            self.owners.items[o].own.?.reach + self.owners.items[o].marked.reach + self.added(o);
+            self.owners.items[o].own.?.reach + self.owners.items[o].params + self.owners.items[o].marked.reach + self.added(o);
         self.fns.items[v].frame = b;
         return b;
     }
@@ -883,6 +889,7 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
             const in = gop.value_ptr;
             in.own = .{ .bytes = @max(in.own.bytes, fr.bytes), .reach = @max(in.own.reach, fr.reach) };
             in.total = .{ .bytes = @max(in.total.bytes, total.bytes), .reach = @max(in.total.reach, total.reach) };
+            in.params = @max(in.params, fr.params);
         }
         try pass.bind(m.sema);
     }
@@ -911,7 +918,7 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
         }
         if (!f.eligible or f.used_as_value or pass.isCyclic(@intCast(v)) or f.size > max) continue;
         const own = pass.owners.items[f.owner].own orelse continue;
-        if (own.reach + pass.owners.items[f.owner].marked.reach > max_inlined_frame_bytes or mods[f.module].sema.large_frames.contains(f.pos)) continue;
+        if (own.reach + pass.owners.items[f.owner].params + pass.owners.items[f.owner].marked.reach > max_inlined_frame_bytes or mods[f.module].sema.large_frames.contains(f.pos)) continue;
         f.inlined = true;
     }
     try pass.fit();

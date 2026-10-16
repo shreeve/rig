@@ -14167,9 +14167,9 @@ const FrameWalker = struct {
     }
 
     /// A copy of each parameter of the function whose parameters are
-    /// `params`, in its reach: Zig's code copies one into a local of its
-    /// own (an owned one's `var`, an inlined function's `rig.rt`), beside
-    /// the argument a call makes and the parameter itself.
+    /// `params`: where it is inlined, Zig's code copies each into a local
+    /// of its own (`rig.rt`), beside the argument a call makes and the
+    /// parameter itself.
     fn paramCopies(self: *FrameWalker, params: Sexp, f: *Slots) Error!void {
         if (params != .list) return;
         for (params.items()) |p| {
@@ -14246,17 +14246,20 @@ const FrameWalker = struct {
             .closure => &.{ ir.Lambda.params(root), ir.Lambda.body(root) },
         };
         for (nodes) |p| try self.walk(p, &slots, false, false);
-        if (owner.kind == .function) try self.paramCopies(ir.get(root, .params), &slots);
+        // A function's parameters, copied where the rule inlines it.
+        var params: Slots = .empty;
+        defer params.deinit(ctx.allocator);
+        if (owner.kind == .function) try self.paramCopies(ir.get(root, .params), &params);
         const items = slots.items;
-        if (items.len == 0) {
+        if (items.len + params.items.len == 0) {
             ctx.frame_owners.items[index].own = .none;
             return;
         }
         // The values first, then the copies; in each, its own, then what
-        // marked calls land in it.
+        // marked calls land in it; then the parameters' copies.
         const arena = ctx.arena.allocator();
-        const tys = try arena.alloc(TypeId, items.len);
-        const names = try arena.alloc([]const u8, items.len);
+        const tys = try arena.alloc(TypeId, items.len + params.items.len);
+        const names = try arena.alloc([]const u8, tys.len);
         var n: usize = 0;
         var parts: FrameParts = .{};
         for ([_]bool{ false, true }) |copies| for ([_]bool{ false, true }) |mark| for (items) |s| if (s.copy == copies and s.marked == mark) {
@@ -14267,26 +14270,36 @@ const FrameWalker = struct {
             if (mark and copies) parts.marked_copies += 1;
             if (mark and !copies) parts.marked += 1;
         };
+        for (params.items) |s| {
+            tys[n] = s.ty;
+            names[n] = s.name;
+            n += 1;
+        }
+        parts.params = @intCast(params.items.len);
         for (tys) |ty| if (sema.containsTypeVar(ctx, ty)) {
-            try ctx.addGeneric(.frames, .{ .label = label, .pos = pos, .tys = tys, .names = names, .copies = parts.copies, .marked = parts.marked, .marked_copies = parts.marked_copies });
+            try ctx.addGeneric(.frames, .{ .label = label, .pos = pos, .tys = tys, .names = names, .copies = parts.copies, .marked = parts.marked, .marked_copies = parts.marked_copies, .params = parts.params });
             ctx.frame_owners.items[index].per_instance = true;
             return;
         };
         const counted = (try checkFrame(ctx, pos, label, null, tys, names, parts, pos)) orelse return;
         ctx.frame_owners.items[index].own = counted.own;
         ctx.frame_owners.items[index].marked = counted.marked;
+        ctx.frame_owners.items[index].params = counted.params;
     }
 };
 
 /// How a frame's types (`sema.Frame.tys`) are laid out: the values, then
-/// the last `copies`, which are copies its code may make; of the values
-/// the last `marked`, and of the copies the last `marked_copies`, are
-/// what calls of marked `inline` functions land in it.
-const FrameParts = struct { copies: u32 = 0, marked: u32 = 0, marked_copies: u32 = 0 };
+/// `copies`, which are copies its code may make, then `params`, a
+/// function's parameters as the code copies them where it is inlined;
+/// of the values the last `marked`, and of the copies the last
+/// `marked_copies`, are what calls of marked `inline` functions land in
+/// it.
+const FrameParts = struct { copies: u32 = 0, marked: u32 = 0, marked_copies: u32 = 0, params: u32 = 0 };
 
-/// A frame's count: its own values, and what marked calls land in it
-/// (`sema.Account`).
-const FrameCounted = struct { own: sema.FrameCount, marked: sema.FrameCount };
+/// A frame's count: its own values, what marked calls land in it
+/// (`sema.Account`), and the reach of its parameters' copies where it is
+/// inlined (`sema.FrameOwner.params`).
+const FrameCounted = struct { own: sema.FrameCount, marked: sema.FrameCount, params: u128 = 0 };
 
 /// Check the frame of `label` whose types are `tys`, laid out as `parts`
 /// says: its count, its own values and what marked calls land in it
@@ -14304,16 +14317,18 @@ fn checkFrame(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceR
 /// is recorded (`SemContext.frame_sizes`) as the frame of the owner
 /// declared at `decl` in module `module` (0 for this one).
 fn checkFrameIn(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, parts: FrameParts, module: u32, decl: u32) Error!?FrameCounted {
-    const values = tys[0 .. tys.len - parts.copies];
-    const copied = tys[values.len..];
+    const body = tys[0 .. tys.len - parts.params];
+    const values = body[0 .. body.len - parts.copies];
+    const copied = body[values.len..];
     const bytes = (try frameBytes(ctx, values)) orelse return null;
     const reach = bytes + ((try reachBytes(ctx, copied)) orelse return null);
     const marked_bytes = (try frameBytes(ctx, values[values.len - parts.marked ..])) orelse return null;
     const marked: sema.FrameCount = .{ .bytes = marked_bytes, .reach = marked_bytes + ((try reachBytes(ctx, copied[copied.len - parts.marked_copies ..])) orelse return null) };
-    const counted: FrameCounted = .{ .own = .{ .bytes = bytes - marked.bytes, .reach = reach - marked.reach }, .marked = marked };
+    const params = (try reachBytes(ctx, tys[body.len..])) orelse return null;
+    const counted: FrameCounted = .{ .own = .{ .bytes = bytes - marked.bytes, .reach = reach - marked.reach }, .marked = marked, .params = params };
     const shown = if (of) |root| try ctx.arena.allocator().print("{s} in `{s}`", .{ label, try sema.rootName(ctx, root) }) else label;
     const declared = if (module == 0) ctx.module_id else module;
-    try ctx.frame_sizes.append(ctx.allocator, .{ .label = shown, .pos = pos, .bytes = counted.own.bytes, .reach = counted.own.reach, .marked = marked, .module = declared, .decl = decl });
+    try ctx.frame_sizes.append(ctx.allocator, .{ .label = shown, .pos = pos, .bytes = counted.own.bytes, .reach = counted.own.reach, .marked = marked, .params = params, .module = declared, .decl = decl });
     // A marked `inline` function's frame is never written: its values
     // land in each caller's, which is checked in turn.
     const decl_ctx = ctx.declaringContext(.{ .module = declared, .pos = decl }) orelse return counted;
@@ -14425,7 +14440,7 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
             try buf.append(ctx.allocator, t);
         }
         const before = ctx.diagnostics.items.len;
-        _ = try checkFrameIn(ctx, at, fr.label, of, buf.items, fr.names, .{ .copies = fr.copies, .marked = fr.marked, .marked_copies = fr.marked_copies }, fr.module_id, fr.pos);
+        _ = try checkFrameIn(ctx, at, fr.label, of, buf.items, fr.names, .{ .copies = fr.copies, .marked = fr.marked, .marked_copies = fr.marked_copies, .params = fr.params }, fr.module_id, fr.pos);
         if (ctx.diagnostics.items.len == before) continue;
         try ctx.noteIn(fr.module_id, fr.pos, "{s} is declared here", .{fr.label});
         return;

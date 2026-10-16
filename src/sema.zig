@@ -158,7 +158,7 @@ pub const max_frame_bytes: u64 = 13 << 20;
 /// `inline` functions land in it (`marked`), and the frame owner it is
 /// the frame of, at one instance for a generic one: the module that
 /// declares it (its id) and where (`FrameOwner.pos`).
-pub const FrameSize = struct { label: []const u8, pos: u32, bytes: u128, reach: u128, marked: FrameCount = .none, module: u32, decl: u32 };
+pub const FrameSize = struct { label: []const u8, pos: u32, bytes: u128, reach: u128, marked: FrameCount = .none, params: u128 = 0, module: u32, decl: u32 };
 
 /// A frame as `typecheck.checkFrames` counts it: the bytes of the values
 /// it keeps, and its reach.
@@ -213,6 +213,9 @@ pub const FrameOwner = struct {
     /// What the calls of marked `inline` functions in it land in its
     /// frame, beside `own`, and as it.
     marked: FrameCount = .none,
+    /// The reach of a function's parameters as its code copies them where
+    /// it is inlined, beside `own` (`typecheck.FrameWalker.paramCopies`).
+    params: u128 = 0,
     /// Whether `own` is null because its instances count it.
     per_instance: bool = false,
     /// Its frame with what the automatic rule inlines into it, which
@@ -293,8 +296,10 @@ pub const ForeignFrame = struct { module: u32, pos: u32 };
 /// The last `copies` types are copies its code may make, which count in
 /// its reach alone (`typecheck.checkFrames`). Of the values, the last
 /// `marked` are those calls of marked `inline` functions land in it, and
-/// so are the last `marked_copies` of the copies.
-pub const Frame = struct { label: []const u8, pos: u32, tys: []const TypeId, names: []const []const u8, copies: u32 = 0, marked: u32 = 0, marked_copies: u32 = 0, module_id: u32 = 0 };
+/// so are the last `marked_copies` of the copies. The last `params` types,
+/// after the copies, are a function's parameters as its code copies them
+/// where it is inlined.
+pub const Frame = struct { label: []const u8, pos: u32, tys: []const TypeId, names: []const []const u8, copies: u32 = 0, marked: u32 = 0, marked_copies: u32 = 0, params: u32 = 0, module_id: u32 = 0 };
 
 pub const Type = union(enum) {
     /// A type error was reported here.
@@ -6408,7 +6413,7 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         const fr = foreign.generic_frames.items[i];
         const tys = try a.alloc(TypeId, fr.tys.len);
         for (fr.tys, tys) |t, *out| out.* = try importType(ctx, foreign, t, m);
-        try ctx.addGeneric(.frames, .{ .label = fr.label, .pos = fr.pos, .tys = tys, .names = fr.names, .copies = fr.copies, .marked = fr.marked, .marked_copies = fr.marked_copies, .module_id = if (fr.module_id == 0) m else fr.module_id });
+        try ctx.addGeneric(.frames, .{ .label = fr.label, .pos = fr.pos, .tys = tys, .names = fr.names, .copies = fr.copies, .marked = fr.marked, .marked_copies = fr.marked_copies, .params = fr.params, .module_id = if (fr.module_id == 0) m else fr.module_id });
     }
     for (foreign.paramEntries(.fn_uses, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .fn_uses, i)) continue;
