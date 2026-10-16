@@ -1,0 +1,14 @@
+obj S
+  n: Int
+  c: Cell[Int]
+
+obj O
+  a: S
+  b: S
+
+sub main()
+  o = *O(a: S(n: 1, c: Cell(1)), b: S(n: 2, c: Cell(2)))
+  w = !o.a
+  w = S(n: 5, c: Cell(5))
+  !o.a.n += 1
+  print(o.a.n)

@@ -1,0 +1,32 @@
+# In a generic body, `m.get(k) ?? d` with `d: T` would copy out the `T`
+# the view reaches, and a `T` may not copy in every instance, so it is
+# rejected, as the copy out `if m.get(k) as v` then `v` else `d` is,
+# whatever the instances: lend the fallback to keep the view.
+
+use std.hash
+
+fun lookup[T](m: ?hash.Map[String, T], k: ?String, d: T) -> T
+  m.get(k) ?? d
+
+fun lookup2[T](m: ?hash.Map[String, T], k: ?String, d: T) -> T
+  if m.get(k) as v
+    v
+  else
+    d
+
+fun head[T](v: ?List[T]) -> (?T)? from v
+  return none if v.len == 0
+  ?v[0]
+
+fun first_or[T](v: ?List[T], d: T) -> T
+  head(v) ?? d
+
+sub main()
+  m = hash.Map[String, Int]()
+  e: List[Int] = List()
+  print(lookup(?m, "a", 0), lookup2(?m, "a", 0), first_or(?e, 4))
+
+# errors: 3
+# error: 9:3: `m.get(k) ?? d` would copy out the `T` that `m.get(k)` views, since its fallback is a value, not a view; only a value that copies is copied out of a view, and `T` may not copy in every instance: lend the fallback, so the result is the view: `m.get(k) ?? ?d`
+# error: 13:5: only a value that copies is copied out of a view, and `T` may not copy in every instance
+# error: 22:3: `T` may not copy in every instance

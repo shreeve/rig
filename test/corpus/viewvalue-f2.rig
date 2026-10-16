@@ -1,0 +1,15 @@
+error Bad
+  oops
+
+enum Shape
+  circle(r: Int)
+  point
+
+fun pick(r: ?Shape, ok: Bool) -> (?Shape)! from r
+  return Bad.oops if not ok
+  r
+
+sub main()
+  s: Shape = .circle(r: 1)
+  a: Shape = pick(?s, false) catch .point
+  print(a)

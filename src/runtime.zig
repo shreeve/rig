@@ -116,6 +116,30 @@ pub fn viewedPtr(comptime T: type, view: *const ReadView(T)) *const Reached(T) {
     return if (comptime ReadView(T) == T) view else view.*;
 }
 
+/// `held`, an optional or a fallible view of a `T` that copies, with the
+/// `T` the view holds (a view lent by value) or points at copied out in
+/// place of the view: what `a ?? b` and `a catch b` give where their
+/// fallback is a `T`, not a view.
+pub fn copiedOut(comptime T: type, held: anytype) CopiedOut(T, @TypeOf(held)) {
+    return switch (@typeInfo(@TypeOf(held))) {
+        .optional => if (held) |v| copiedView(T, v) else null,
+        .error_union => if (held) |v| copiedView(T, v) else |err| err,
+        else => @compileError("rig.copiedOut takes an optional or a fallible view"),
+    };
+}
+
+fn CopiedOut(comptime T: type, comptime Held: type) type {
+    return switch (@typeInfo(Held)) {
+        .optional => ?T,
+        .error_union => |e| e.error_set!T,
+        else => T,
+    };
+}
+
+fn copiedView(comptime T: type, view: anytype) T {
+    return if (comptime @TypeOf(view) == T) view else view.*;
+}
+
 /// Release whatever `value` owns: a strong handle drops its count, a
 /// type with `__rig_drop` runs it, and aggregates drop their parts.
 /// Plain data is a no-op, decided at compile time.

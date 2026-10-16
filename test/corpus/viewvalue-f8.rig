@@ -1,0 +1,13 @@
+use std.hash
+
+type V4 = Simd[I8, 4]
+
+sub main()
+  m = hash.Map[String, V4]()
+  !m.put(String("a"), V4.splat(3))
+  a = m.get("a") ?? V4.splat(0)
+  b = m.get("b") ?? V4.splat(1)
+  !m.put(String("a"), V4.splat(5))
+  print(a, b, (m.get("a") ?? V4.splat(0)) + b)
+  w = (!m).edit("a") ?? V4.splat(7)
+  print(w)

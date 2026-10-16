@@ -842,6 +842,10 @@ pub const Facts = struct {
     /// Expressions that yield a view where their context reads the
     /// value it reaches (`SemContext.recordRead`).
     reads: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// `a ?? b` and `a catch b` whose fallback is a value, not a view, of
+    /// what the payload of `a`, a view, reaches: the payload's value is
+    /// copied out (`SemContext.recordPayloadCopy`).
+    payload_copies: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Scope-opening node -> the scope it opens.
     scopes: std.AutoHashMapUnmanaged(NodeKey, ScopeId) = .empty,
     /// Call node -> how its arguments fill the parameters, for calls
@@ -2536,6 +2540,23 @@ pub const SemContext = struct {
     /// clone.
     pub fn recordRead(self: *SemContext, node: Sexp) !void {
         try self.facts.reads.put(self.allocator, recordExprKey(node) orelse return, {});
+    }
+
+    /// `node`, an `a ?? b` or `a catch b` whose payload is a view `?T` or
+    /// `!T` of a `T` that copies, and whose fallback is a `T`, not a view:
+    /// it gives the `T`, the payload's value copied out where `a` has
+    /// one, as `if a as v` then `v` else `b` would (`copiesPayload`); or,
+    /// with `copied` false, that it gives the view.
+    pub fn recordPayloadCopy(self: *SemContext, node: Sexp, copied: bool) !void {
+        if (copied) {
+            try self.facts.payload_copies.put(self.allocator, recordKey(node), {});
+        } else _ = self.facts.payload_copies.remove(nodeKey(node) orelse return);
+    }
+
+    /// Whether `node`, an `a ?? b` or `a catch b`, copies the value its
+    /// payload views out (`recordPayloadCopy`).
+    pub fn copiesPayload(self: *const SemContext, node: Sexp) bool {
+        return self.facts.payload_copies.contains(nodeKey(node) orelse return false);
     }
 
     /// `node`, a temporary array (a literal, a fill, a call's result),
@@ -6022,6 +6043,24 @@ pub fn copiedThrough(ctx: *const SemContext, ty: TypeId) ?TypeId {
     };
     if (writeSliceElem(ctx, ty) != null or isReadOrWriteView(ctx, inner)) return null;
     return if (copies(ctx, inner) == .yes) inner else null;
+}
+
+/// The value the payload of `holder`, an optional or fallible value (or
+/// a view of one), views: the `T` of a `(?T)?`, `(!T)?`, `(?T)!`, or
+/// `(!T)!`, where `T` is no view itself. Null for any other type, and
+/// for a payload `![]T`. What `a ?? b` and `a catch b` copy out where
+/// they copy their payload (`SemContext.copiesPayload`).
+pub fn payloadViewed(ctx: *const SemContext, holder: TypeId) ?TypeId {
+    const payload = switch (ctx.types.get(unwrapViews(ctx, holder))) {
+        .optional, .fallible => |inner| inner,
+        else => return null,
+    };
+    const viewed = switch (ctx.types.get(payload)) {
+        .read_view, .write_view => |inner| inner,
+        else => return null,
+    };
+    if (writeSliceElem(ctx, payload) != null or isReadOrWriteView(ctx, viewed)) return null;
+    return viewed;
 }
 
 /// What `+x` does for an `x` of type `ty`.

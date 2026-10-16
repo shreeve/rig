@@ -18,6 +18,12 @@ started:
   Int keys, 1M operations, `ensure` 39% slower and `ensure_with` 31%
   slower; on new keys `ensure` is 6% faster and `ensure_with` 0.2%
   slower (Mac, off-window, best of 7).
+- Every copy out of a view in a generic body takes the per-instance
+  `copies` requirement, as `Cell.get` and a `??` through a view of an
+  optional do: today a view read where its `T` is expected (`p` in
+  `fun copy[T](p: ?T) -> T`, `v` of `if m.get(k) as v`) and
+  `m.get(k) ?? d` are rejected outright, as `T` may not copy in every
+  instance.
 - A generic body's own holding of a `T` (`h = *<x`, `List[*T]`, a call
   passing `<x` to `*T`) at an instance whose `T` is held (`T = ~U`
   makes `*~U`): rejected per instance, with the generic per-instance

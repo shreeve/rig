@@ -1,0 +1,18 @@
+obj P
+  x: Int
+
+obj H
+  s: ?String
+
+fun f(s: ?String) -> P from s
+  P(x: s.len)
+
+fun g(s: ?String) -> H from s
+  H(s: s)
+
+sub main()
+  s = String("abc")
+  p = f(s)
+  h = g(s)
+  !s.add("d")
+  print(p.x, h.s)

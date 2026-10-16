@@ -1,0 +1,14 @@
+obj N
+  name: String
+  s: ?String
+
+fun nslot(v: !List[N], i: Int) -> !N from v
+  !v[i]
+
+sub main()
+  v: List[N] = List()
+  !v.push(N(name: String("a"), s: "x"))
+  !v.push(N(name: String("b"), s: "y"))
+  nslot(!v, 0).s = ?v[1].name
+  !v.push(N(name: String("c"), s: "z"))
+  print(v[0].s)

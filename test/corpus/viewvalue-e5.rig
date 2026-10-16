@@ -1,0 +1,22 @@
+error Bad
+  oops
+
+obj H
+  s: ?String
+
+fun pick(r: ?H, ok: Bool) -> (?H)! from r
+  return Bad.oops if not ok
+  r
+
+fun wpick(r: !H, ok: Bool) -> (!H)! from r
+  return Bad.oops if not ok
+  r
+
+sub main()
+  s = String("abc")
+  h = H(s: ?s)
+  c = pick(?h, true) catch H(s: "x")
+  d = wpick(!h, true) catch H(s: "y")
+  h = H(s: "z")
+  <s
+  print(c.s, d.s)
