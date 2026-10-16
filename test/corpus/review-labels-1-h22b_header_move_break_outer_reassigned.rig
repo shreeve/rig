@@ -1,0 +1,14 @@
+fun take(s: String, i: Int) -> Bool?
+  (s.len > 0) if i != 1 else none
+
+sub main()
+  s = String("x")
+  @o for k in 0..3
+    i = k
+    while take(<s, i) ?? break @o : i += 1
+      print(k, i)
+      s = String("y")
+      break
+    s = String("z")
+  s = String("w")
+  print(s)

@@ -1,7 +1,7 @@
 # The step of `while c as h: step` runs after the body, so a view the
 # step reads through `h` keeps its loan through the body: growing the
 # List or Text it views there is rejected, whatever the way to the step
-# (the end of the body, `continue`, `continue :outer` from a nested
+# (the end of the body, `continue`, `continue @outer` from a nested
 # loop, an inner loop, a `defer`) and however the step reads `h` (a
 # field, a method, a closure), for a joined or a failing condition too.
 #
@@ -118,10 +118,10 @@ sub labeled()
   v: List[Int] = List()
   !v.push(1)
   k = 0
-  :outer while mk(?v) as h: k += h.s[0]
+  @outer while mk(?v) as h: k += h.s[0]
     for _ in 0..2
       !v.push(2)
-      continue :outer
+      continue @outer
   print(k)
 
 sub inner()

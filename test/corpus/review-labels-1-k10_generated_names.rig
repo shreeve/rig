@@ -1,0 +1,12 @@
+sub main()
+  c = true
+  v = if c
+    @blk for i in 0..3
+      @blk_1 for j in 0..3
+        @b0 for k in 0..3
+          break @blk i * 100 + j * 10 + k if k == 2 and j == 1 and i == 1
+    else
+      -1
+  else
+    0
+  print(v)

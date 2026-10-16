@@ -6,18 +6,18 @@ sub main()
     f = ||
       break
     f()
-  :outer for i in 0..3
+  @outer for i in 0..3
     g = ||
       for j in 0..3
-        continue :outer
+        continue @outer
     g()
   while true
-    break :nowhere
+    break @nowhere
 
 sub stray()
   continue
 
 # error: `break` is not inside a loop (a closure body cannot leave a loop around it)
-# error: `continue :outer` names no enclosing loop or block (a closure body cannot leave a loop around it)
-# error: `break :nowhere` names no enclosing loop or block
+# error: `continue @outer` names no enclosing loop or block (a closure body cannot leave a loop around it)
+# error: `break @nowhere` names no enclosing loop or block
 # error: `continue` is not inside a loop

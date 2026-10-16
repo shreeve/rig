@@ -1,0 +1,4 @@
+sub main()
+  @from for i in 0..2
+    print(i)
+    break @from

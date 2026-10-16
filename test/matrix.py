@@ -616,7 +616,7 @@ TAKEN_THENS = {
 # A `while` step that reads what its condition binds: a view of `v` (a
 # List's `[]Int`, a String's `?String`), a struct holding one read through a
 # field or a method, while the body grows `v` (or only reads it) on its
-# way to the step: falling off its end, `continue`, `continue :outer`
+# way to the step: falling off its end, `continue`, `continue @outer`
 # from a nested `for`, `while`, or `while … as` (also where the loop is
 # written as nested `if`s, for a joined condition or a `catch break`
 # in it), an inner loop, a `defer`, or a `break` (where the step does
@@ -643,14 +643,14 @@ STEP_HOLDERS = {
 STEP_SHAPES = {
     "plain": ["while C: S", "  n += 1", "  G"],
     "continue": ["while C: S", "  n += 1", "  if n > 0", "    G", "    continue", "  k += 1"],
-    "labeled": [":outer while C: S", "  n += 1", "  for _ in 0..1", "    G", "    continue :outer"],
-    "labeled_joined": [":outer while J: S", "  n += 1", "  for _ in 0..1", "    G", "    continue :outer"],
-    "labeled_catchbreak": [":outer while B: S", "  n += 1", "  for _ in 0..1", "    G", "    continue :outer"],
-    "labeled_while": [":outer while C: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue :outer"],
-    "labeled_while_joined": [":outer while J: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue :outer"],
-    "labeled_while_catchbreak": [":outer while B: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue :outer"],
-    "labeled_whileas_joined": [":outer while J: S", "  n += 1", "  while mk(?v, 0) as _", "    G", "    continue :outer"],
-    "labeled_whileas_catchbreak": [":outer while B: S", "  n += 1", "  while mk(?v, 0) as _", "    G", "    continue :outer"],
+    "labeled": ["@outer while C: S", "  n += 1", "  for _ in 0..1", "    G", "    continue @outer"],
+    "labeled_joined": ["@outer while J: S", "  n += 1", "  for _ in 0..1", "    G", "    continue @outer"],
+    "labeled_catchbreak": ["@outer while B: S", "  n += 1", "  for _ in 0..1", "    G", "    continue @outer"],
+    "labeled_while": ["@outer while C: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue @outer"],
+    "labeled_while_joined": ["@outer while J: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue @outer"],
+    "labeled_while_catchbreak": ["@outer while B: S", "  n += 1", "  j = 0", "  while j < 2: j += 1", "    G", "    continue @outer"],
+    "labeled_whileas_joined": ["@outer while J: S", "  n += 1", "  while mk(?v, 0) as _", "    G", "    continue @outer"],
+    "labeled_whileas_catchbreak": ["@outer while B: S", "  n += 1", "  while mk(?v, 0) as _", "    G", "    continue @outer"],
     "inner": ["while C: S", "  n += 1", "  j = 0", "  while j < 1: j += 1", "    G"],
     "defer": ["while C: S", "  n += 1", "  defer G"],
     "joined": ["while J: S", "  n += 1", "  G"],
@@ -820,7 +820,7 @@ def step_output(shape):
 
 
 # -----------------------------------------------------------------------------
-# Loop shapes: an outer loop labeled `:outer` holding an inner construct
+# Loop shapes: an outer loop labeled `@outer` holding an inner construct
 # that jumps once, in the outer loop's second pass, with a `defer` or an
 # owned local at the outer body's end. Every program prints a trace of
 # its passes, steps, defers, and drops, which must be the one
@@ -831,11 +831,11 @@ def step_output(shape):
 # -----------------------------------------------------------------------------
 
 LOOP_OUTERS = {
-    "while": ":outer while i < 3: i = st(i)",
-    "while_as": ":outer while lim(i, 3) as h: i = st(h)",
-    "joined": ":outer while lim(i, 3) as h and h >= 0: i = st(h)",
-    "catch_break": ":outer while (limf(i, 3) catch break) as h: i = st(h)",
-    "for": ":outer for q in 0..3",
+    "while": "@outer while i < 3: i = st(i)",
+    "while_as": "@outer while lim(i, 3) as h: i = st(h)",
+    "joined": "@outer while lim(i, 3) as h and h >= 0: i = st(h)",
+    "catch_break": "@outer while (limf(i, 3) catch break) as h: i = st(h)",
+    "for": "@outer for q in 0..3",
 }
 # Each inner construct, with `JUMP` the statement that jumps; a loop's
 # `else` (or the construct's last branch) holds `ELSE`.
@@ -848,8 +848,8 @@ LOOP_INNERS = {
 }
 LOOP_JUMPS = {
     "continue": "continue",
-    "continue_outer": "continue :outer",
-    "break_outer": "break :outer",
+    "continue_outer": "continue @outer",
+    "break_outer": "break @outer",
     "else_continue": None,
 }
 
@@ -859,7 +859,7 @@ LOOP_JUMPS = {
 # which is `while (!it).next() as k` (SPEC, "for"), from each kind of
 # source and in each context: a statement that runs out, breaks, skips,
 # returns, fails, or has an `else`; a loop used as a value or as a
-# function's last line; one a `continue :outer` leaves from an outer
+# function's last line; one a `continue @outer` leaves from an outer
 # loop; a labeled one. An iterator a name or field holds is advanced in
 # place and dropped at the end of its scope; one made there, or taken
 # with `<`, is held for the loop and dropped where it ends, by any jump.
@@ -1092,8 +1092,8 @@ def iter_program(source, ctx):
         "return": [head, '  print("body", k)', "  return if k == 1"],
         "fail": [head, '  print("body", k)', "  chk(k)!"],
         "else": [head, '  print("body", k)', "else", '  print("else")'],
-        "labeled": [":l " + head, '  print("body", k)', "  break :l if k == 1"],
-        "nested": [":outer for _ in 0..2", "  " + head, '    print("body", k)', "    continue :outer if k == 1",
+        "labeled": ["@l " + head, '  print("body", k)', "  break @l if k == 1"],
+        "nested": ["@outer for _ in 0..2", "  " + head, '    print("body", k)', "    continue @outer if k == 1",
                    '  print("inner done")'],
     }
     if ctx in ("value_end", "value_break"):

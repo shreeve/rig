@@ -1,0 +1,5 @@
+sub main()
+  c = false
+  if c
+    print(0)
+  else print(1)

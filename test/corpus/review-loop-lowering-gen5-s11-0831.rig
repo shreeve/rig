@@ -61,7 +61,7 @@ fun ints(n: Int) -> List[Int]
 sub main()
   guard = 0
   p0 = 0
-  :a for c0 in 0..3
+  @a for c0 in 0..3
     guard += 1
     if guard > 300
       print("cap")
@@ -71,10 +71,10 @@ sub main()
     y0 = D(n: 0 + c0)
     print("b0", c0)
     continue if c0 == 1
-    :m raw
+    @m raw
       c1 = 0
       p1 = 0
-      :a while lim(c1, 2) as h1 and h1 >= 0: c1 = st(1, h1)
+      @a while lim(c1, 2) as h1 and h1 >= 0: c1 = st(1, h1)
         guard += 1
         if guard > 300
           print("cap")

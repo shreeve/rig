@@ -62,7 +62,7 @@ sub main()
   guard = 0
   c0 = 0
   p0 = 0
-  :a while lim(c0, 3) as h0 and (gate(c0 == 1) ?? break) > 0: c0 = st(0, c0)
+  @a while lim(c0, 3) as h0 and (gate(c0 == 1) ?? break) > 0: c0 = st(0, c0)
     guard += 1
     if guard > 300
       print("cap")
@@ -73,7 +73,7 @@ sub main()
     print("b0", c0, h0)
     c1 = 0
     p1 = 0
-    :a while lim(c1, 2) as h1: c1 = adv(1, h1, c0 == 1 and p1 == 2) ?? continue
+    @a while lim(c1, 2) as h1: c1 = adv(1, h1, c0 == 1 and p1 == 2) ?? continue
       guard += 1
       if guard > 300
         print("cap")

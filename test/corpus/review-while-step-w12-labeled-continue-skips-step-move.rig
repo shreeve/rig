@@ -1,5 +1,5 @@
-# `continue :outer` from an inner `while`, with the outer label kept by
-# a `break :outer`: the checker sends the continue through the step,
+# `continue @outer` from an inner `while`, with the outer label kept by
+# a `break @outer`: the checker sends the continue through the step,
 # which re-fills `a`; does emit run the step, or skip it and move `a`
 # a second time?
 #
@@ -28,13 +28,13 @@ sub main()
   a = fresh(1)
   k = 0
   i = 0
-  :outer while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
+  @outer while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
     i += 1
     k += take(<a)
     j = 0
     while j < 3: j += 1
-      break :outer if i > 100
-      continue :outer if j == 2
+      break @outer if i > 100
+      continue @outer if j == 2
   print(k, i)
 
 # expect: 21 5

@@ -1,0 +1,6 @@
+sub main()
+  k = 2
+  @m match k
+    2
+      break @m 5
+    _ => print(3)

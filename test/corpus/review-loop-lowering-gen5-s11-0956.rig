@@ -62,7 +62,7 @@ sub main()
   guard = 0
   c0 = 0
   p0 = 0
-  :l0 while (limf(c0, 3, false) catch break) as h0: c0 = st(0, h0)
+  @l0 while (limf(c0, 3, false) catch break) as h0: c0 = st(0, h0)
     guard += 1
     if guard > 300
       print("cap")
@@ -73,7 +73,7 @@ sub main()
     print("b0", c0, h0)
     c1 = 0
     p1 = 0
-    :l1 while lim(c1, 2) as h1 and h1 >= 0: c1 = st(1, h1)
+    @l1 while lim(c1, 2) as h1 and h1 >= 0: c1 = st(1, h1)
       guard += 1
       if guard > 300
         print("cap")
@@ -84,7 +84,7 @@ sub main()
       print("b1", c0, c1, h1)
       q2 = mkvec(2, 2)
       p2 = 0
-      :l2 for e2, c2 in <q2
+      @l2 for e2, c2 in <q2
         guard += 1
         if guard > 300
           print("cap")
@@ -92,12 +92,12 @@ sub main()
         p2 += 1
         _ = p2
         print("b2", c0, c1, c2, e2.n)
-        continue :l0 if c0 == 1 and c1 == 1 and c2 == 1
+        continue @l0 if c0 == 1 and c1 == 1 and c2 == 1
         return if c0 == 1 and c1 == 1 and c2 == 1
         print("t2", c0, c1, c2)
       print("t1", c0, c1)
     else
       print("e1", c0)
-      continue :l0 if c0 == 1
+      continue @l0 if c0 == 1
     print("t0", c0)
   print("end")

@@ -1,0 +1,9 @@
+sub main()
+  f = if true
+    @outer while true
+      while true
+        break @outer |x: Int| x + 1
+      print(99)
+  else
+    |x: Int| x
+  print(f(1))

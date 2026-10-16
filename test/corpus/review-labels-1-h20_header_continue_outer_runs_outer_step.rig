@@ -1,0 +1,15 @@
+fun get(i: Int) -> Bool?
+  (i < 9) if i < 2 else none
+
+fun mk(i: Int) -> Int?
+  i if i < 3 else none
+
+sub main()
+  k = 0
+  steps = 0
+  @o while mk(k) as v : steps += v + 1
+    k += 1
+    i = 0
+    while get(i + v) ?? continue @o : i += 1
+      print(v, i)
+  print(k, steps)

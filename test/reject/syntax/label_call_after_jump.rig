@@ -1,0 +1,13 @@
+# After `break` or `continue`, `@name` is always a label, so a `(`
+# touching it would read as a builtin call: the value takes a space.
+
+sub main()
+  x = for i in 0..3
+    @inner for j in 0..3
+      break @inner(j)
+    break i
+  else
+    0
+  print(x)
+
+# error: 7:13: after `break` or `continue`, `@name` is a label, never a builtin call: put a space before a value, `break @outer (x)`, or break with a builtin's value as `break (@size(T))`

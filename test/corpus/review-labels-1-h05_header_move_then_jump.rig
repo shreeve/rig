@@ -1,0 +1,10 @@
+fun pick(s: String, i: Int) -> Bool?
+  (s.len > 0) if i < 2 else none
+
+sub main()
+  @o for k in 0..2
+    s = String("x")
+    i = 0
+    while pick(<s, i) ?? break @o : i += 1
+      print(k, i)
+  print(9)

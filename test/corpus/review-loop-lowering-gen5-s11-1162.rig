@@ -63,7 +63,7 @@ sub main()
   guard = 0
   z0 = "abc"
   p0 = 0
-  :l0 for ch0, c0 in z0
+  @l0 for ch0, c0 in z0
     guard += 1
     if guard > 300
       print("cap")
@@ -76,7 +76,7 @@ sub main()
     print("b0", c0)
     z1 = "ab"
     p1 = 0
-    :l1 for ch1, c1 in z1
+    @l1 for ch1, c1 in z1
       guard += 1
       if guard > 300
         print("cap")
@@ -86,10 +86,10 @@ sub main()
       defer print("d1", c1)
       _ = ch1
       print("b1", c0, c1)
-      continue :l0 if c0 == 1 and c1 == 1
+      continue @l0 if c0 == 1 and c1 == 1
       c2 = 0
       p2 = 0
-      :l2 while (limf(c2, 2, false) catch break) as h2: c2 = st(2, h2)
+      @l2 while (limf(c2, 2, false) catch break) as h2: c2 = st(2, h2)
         guard += 1
         if guard > 300
           print("cap")

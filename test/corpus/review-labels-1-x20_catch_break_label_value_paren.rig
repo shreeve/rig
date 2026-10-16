@@ -1,0 +1,17 @@
+error E
+  bad
+
+fun f(i: Int) -> Int!
+  return E.bad if i == 2
+  i
+
+sub main()
+  v = if true
+    @a for i in 0..5
+      x = f(i) catch break @a (i * 100)
+      print(x)
+    else
+      -1
+  else
+    0
+  print(v)

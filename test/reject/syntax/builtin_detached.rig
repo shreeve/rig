@@ -1,0 +1,6 @@
+# `@` touches the name after it, for a builtin call as for a label.
+
+sub main()
+  print(@ size(Int))
+
+# error: 4:9: `@` touches the name after it: a label `@outer`, a builtin call `@size(T)`

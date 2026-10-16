@@ -1,0 +1,10 @@
+test "labels"
+  n = 0
+  @o for i in 0..3
+    for j in 0..3
+      n += 1
+      continue @o if j == 1
+  assert(n == 6)
+
+sub main()
+  print(1)
