@@ -180,8 +180,8 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .block, .@"if", .@"while", .@"for", .match, .labeled, .@"defer", .@"errdefer" => .structured,
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
-        .set, .drop, .pass, .@"return", .@"break", .@"continue", .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .called, .rarely, .@":", .default, .valued, .variant, .as, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
+        .set, .destructure, .tuple, .drop, .pass, .@"return", .@"break", .@"continue", .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
     };
 }
 
@@ -1188,6 +1188,10 @@ pub const Lexer = struct {
             .colon => if (self.while_header == self.nesting) .step_colon else .colon,
             // `get(k) ?? return none`: a jump as the fallback.
             .nullish => if (self.nextIsJump()) .nullish_jump else .nullish,
+            // `if f() as a, b`: a `,` after `as name` outside brackets
+            // joins the names `as` binds. Inside brackets a `,` after
+            // `x as a` separates arguments or elements.
+            .comma => if (self.nesting == 0 and self.last_cat == .ident and (self.last2_cat == .as or self.last2_cat == .as_comma)) .as_comma else .comma,
             .err => return self.lexError(tok),
             else => if (isKeyword(tok.cat)) self.classifyKeyword(tok.cat) else tok.cat,
         };
@@ -2083,6 +2087,7 @@ pub const Parser = struct {
         if (self.openRange(tok)) |d| return d;
         if (self.foreignWord(tok)) |d| return d;
         if (self.headerColon(tok)) |d| return d;
+        if (self.bareResults(tok)) |d| return d;
         const message: []const u8 = switch (tok.cat) {
             .err => return .{ .severity = .@"error", .pos = pos, .end = end, .message = switch (lexer.err) {
                 .semicolon => self.semicolonMessage(tok),
@@ -2208,6 +2213,49 @@ pub const Parser = struct {
             else => return null,
         };
         return .{ .severity = .@"error", .pos = pos, .end = pos + 1, .message = "unexpected `:`; a block's header ends without one: remove the `:`, and indent the block below" };
+    }
+
+    /// `a / b, a % b` as a statement: a function's several results are
+    /// given by `return`, never by a bare list, which no statement is.
+    /// Reported at the line, where the parse fails on its `,` or its end.
+    fn bareResults(self: *Parser, tok: Token) ?diag.Diagnostic {
+        const lexer = &self.base.lexer;
+        const src = self.base.source;
+        if (lexer.nesting > 0) return null;
+        const at: u32 = switch (tok.cat) {
+            .comma => tok.pos,
+            .newline, .outdent, .eof => lexer.prev_pos,
+            else => return null,
+        };
+        const start: u32 = if (std.mem.findScalarLast(u8, src[0..at], '\n')) |nl| @intCast(nl + 1) else 0;
+        var end: u32 = at;
+        while (end < src.len and src[end] != '\n' and src[end] != '#') end += 1;
+        const line = std.mem.trim(u8, src[start..end], " \t\r");
+        if (line.len == 0) return null;
+        // A statement that starts with a keyword is no bare list.
+        var w: usize = 0;
+        while (w < line.len and isIdentCont(line[w])) w += 1;
+        if (w > 0 and keyword(line[0..w]) != null) return null;
+        // A comma outside brackets, and no `=` of a binding.
+        var depth: i32 = 0;
+        var comma = false;
+        for (line, 0..) |c, i| switch (c) {
+            '(', '[' => depth += 1,
+            ')', ']' => depth -= 1,
+            '"', '\'' => return null,
+            ',' => if (depth == 0) {
+                comma = true;
+            },
+            '=' => if (depth == 0) {
+                const before = if (i > 0) line[i - 1] else ' ';
+                const after = if (i + 1 < line.len) line[i + 1] else ' ';
+                if (after != '=' and after != '>' and std.mem.findScalar(u8, "=!<>+-*/%&|^", before) == null) return null;
+            },
+            else => {},
+        };
+        if (!comma) return null;
+        const first = start + @as(u32, @intCast(std.mem.find(u8, src[start..end], line).?));
+        return .{ .severity = .@"error", .pos = first, .end = first + @as(u32, @intCast(line.len)), .message = self.format("results are written `return {s}`", .{line}) };
     }
 
     /// `0..=3`: Rig's ranges exclude their end. Reported at the `..=`.
@@ -2553,6 +2601,7 @@ pub const Parser = struct {
             .arm => try self.dropStatement(&walked[ir.slot(.arm, .body)]),
             .labeled => try self.dropStatement(&walked[ir.slot(.labeled, .stmt)]),
             .@"??" => return self.nearestFallback(out),
+            .destructure => try self.destructureTargets(walked),
             .read, .write, .move => return self.receiverSigil(out),
             .share, .box => try self.noteParenSuffix(out),
             .weak => {
@@ -2574,6 +2623,29 @@ pub const Parser = struct {
             else => {},
         }
         return out;
+    }
+
+    /// `q, r = f()`: each target but `_` takes the result in its position,
+    /// as the binding `(set op q _ (result_part))`, which every pass
+    /// reads as the `x = e` it is (docs/INTERNALS.md, "Several
+    /// results"). A `_` stays a leaf: its result is left in the
+    /// statement's temporary, which drops it at the statement's end.
+    fn destructureTargets(self: *Parser, walked: []Sexp) std.mem.Allocator.Error!void {
+        const slot = ir.slot(.destructure, .targets);
+        const group = walked[slot];
+        const op = walked[ir.slot(.destructure, .op)];
+        const targets = group.items();
+        const out = try self.allocator().alloc(Sexp, targets.len);
+        for (targets, out) |t, *o| {
+            if (t == .src and std.mem.eql(u8, leafText(self.base.source, t.src), "_")) {
+                o.* = t;
+                continue;
+            }
+            const at = self.span(t);
+            const part = try self.base.newNode(.result_part, &.{}, at);
+            o.* = try self.base.newNode(.set, &.{ op, t, .nil, part }, at);
+        }
+        walked[slot] = .{ .list = parser.List.withId(out, group.list.id) };
     }
 
     /// A module-level binding is a constant, written with `=`: its
@@ -3429,6 +3501,13 @@ test "`name:` is a keyword argument inside ( ), a name inside [ ]" {
 test "a statement label ends no operand" {
     try expectCats(":a if x", &.{ .colon, .ident, .@"if", .ident });
     try expectCats(":a -x", &.{ .colon, .ident, .minus, .ident });
+}
+
+test "a `,` after `as name` outside brackets joins the names `as` binds" {
+    try expectCats("if f() as a, b", &.{ .@"if", .ident, .lparen, .rparen, .as, .ident, .as_comma, .ident });
+    try expectCats("while g() as a, b, c", &.{ .@"while", .ident, .lparen, .rparen, .as, .ident, .as_comma, .ident, .as_comma, .ident });
+    try expectCats("f(x as a, b)", &.{ .ident, .lparen, .ident, .as, .ident, .comma, .ident, .rparen });
+    try expectCats("q, r = f()", &.{ .ident, .comma, .ident, .assign, .ident, .lparen, .rparen });
 }
 
 test "a `while` header's first `:` starts its step; another after a jump is a label's" {

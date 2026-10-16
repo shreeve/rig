@@ -7590,11 +7590,11 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // Declarations and their parts.
         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .called, .rarely, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
-        .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
+        .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
         // Types.
-        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed => .none,
+        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .fails, .unique, .fixed => .none,
         .@"return", .@"break", .@"continue" => .jump,
         .read, .write => .lend,
         .member, .index => .path,
@@ -7602,7 +7602,9 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // A loop, labeled or not, is a value when a `break` leaves it
         // with one.
         .@"while", .@"for", .labeled => if (hasValueBreaks(source, node)) .made else .none,
-        .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .array, .array_fill, .move, .clone, .share, .box, .weak => .made,
+        // A destructure's target takes its result out of the statement's
+        // temporary, whole, as a binding takes a call's result.
+        .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .array, .array_fill, .tuple, .result_part, .move, .clone, .share, .box, .weak => .made,
         .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
     };
 }
