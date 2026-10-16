@@ -5666,7 +5666,12 @@ const TargetWalk = struct {
             .type_var => if (node.args) |args| {
                 for (args.tys) |t| switch (args.ctx.types.get(t)) {
                     .type_var, .invalid, .unknown => self.out.any = true,
-                    else => try self.target(.{ .ctx = args.ctx, .ty = t, .elem = node.elem }),
+                    else => {
+                        try self.target(.{ .ctx = args.ctx, .ty = t, .elem = node.elem });
+                        // A read view of a `T` that is `String` is a
+                        // `?String`, which views the text's bytes.
+                        if (!node.elem and t == args.ctx.types.string_id) self.out.bytes = true;
+                    },
                 };
             } else {
                 self.out.any = true;
