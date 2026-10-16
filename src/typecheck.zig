@@ -10547,16 +10547,14 @@ const Checker = struct {
             return;
         }
         if (try self.lentTempLiteral(e, expected)) return;
-        if (try self.variantUnderView(e, expected)) |viewed| {
-            const ty = (try self.checkContextual(e, viewed)).?;
+        // A variant literal where a view held by address goes is the value
+        // `E.v(...)` is, which goes there as that value goes.
+        const viewed = try self.variantUnderView(e, expected);
+        if (try self.checkContextual(e, viewed orelse expected)) |ty| {
             if (try self.cellMadeAway(e, ty)) return self.ctx.recordType(e, self.t().invalid_id);
             try self.ctx.recordType(e, ty);
-            if (self.isPoison(ty)) return;
+            if (viewed == null or self.isPoison(ty)) return;
             return self.checkActual(e, ty, expected);
-        }
-        if (try self.checkContextual(e, expected)) |ty| {
-            if (try self.cellMadeAway(e, ty)) return self.ctx.recordType(e, self.t().invalid_id);
-            return self.ctx.recordType(e, ty);
         }
 
         return self.checkActual(e, try self.synthExpr(e), expected);
