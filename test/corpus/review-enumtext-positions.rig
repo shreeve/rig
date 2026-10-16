@@ -4,7 +4,6 @@ enum Color
   dark_red
   blue
 
-
 fun mk(n: Int) -> String
   String("bl", "ue") if n > 0 else String("x")
 
