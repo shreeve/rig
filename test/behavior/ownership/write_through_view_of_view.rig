@@ -16,25 +16,25 @@ fun gpick[T](v: !List[T], i: Int) -> (!T)? from v
   return none if i >= v.len
   !v[i]
 
-sub setit[T](v: !List[?T], x: ?T)
+sub setit[T](v: !List[?T], x: ?T) keeps x
   gslot(!v, 0) = x
 
-fun opt(v: !List[?P], b: ?P, i: Int) -> Int?
+fun opt(v: !List[?P], b: ?P, i: Int) -> Int? keeps b
   gpick(!v, i)? = b
   i
 
-sub bind(v: !List[?P], b: ?P)
+sub bind(v: !List[?P], b: ?P) keeps b
   w = gslot(!v, 0)
   w = b
 
-sub edit(m: !hash.Map[Int, ?P], b: ?P)
+sub edit(m: !hash.Map[Int, ?P], b: ?P) keeps b
   if (!m).edit(1) as w
     w = b
 
 fun at(m: ?hash.Map[Int, ?P], k: Int) -> Int?
   m.get(k)?.x
 
-fun medit(m: !hash.Map[Int, ?P], b: ?P) -> Int?
+fun medit(m: !hash.Map[Int, ?P], b: ?P) -> Int? keeps b
   (!m).edit(1)? = b
   1
 

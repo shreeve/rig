@@ -2,6 +2,6 @@ fun sl(v: !List[Int], i: Int) -> !Int from v
   !v[i]
 
 sub main()
-  const v: List[Int] = List()
+  v: List[Int] =! List()
   sl(!v, 0) = 5
   print(v)
