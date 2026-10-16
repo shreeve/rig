@@ -3137,6 +3137,15 @@ const guard_sizes = [_]usize{ 64 << 30, 1 << 30 };
 const own_stack = (builtin.target.os.tag == .macos or builtin.target.os.tag == .linux) and
     (builtin.target.cpu.arch == .aarch64 or builtin.target.cpu.arch == .x86_64);
 
+/// Bytes left unused at the stack's top, above the first frame, for a
+/// stack trace's walk to read. On macOS, Zig's reader of a frame's
+/// compact unwind entry reads the saved pairs of x19..x28 upward from
+/// the frame pointer, where they lie below it: up to 56 bytes above the
+/// stack pointer the frame started from. The first frame on this stack
+/// would have the walk read past its top, which faults while a panic
+/// prints its trace.
+const unwind_headroom: usize = 256;
+
 /// The guard below the stack, once it is mapped: an access in it is a
 /// stack overflow.
 var stack_guard: struct { lo: usize = 0, hi: usize = 0 } = .{};
@@ -3181,7 +3190,7 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
         }
     };
     var call: Call = .{ .args = args };
-    switchStack(&call, &Call.run, top);
+    switchStack(&call, &Call.run, top - unwind_headroom);
     return call.result;
 }
 
@@ -3288,7 +3297,8 @@ fn switchStack(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
 
 // The overflow handler. Like the sanitizer's, it restores the handlers
 // it replaced and returns: the access runs again and faults into Zig's
-// handler, which prints the stack trace.
+// handler, which prints the stack trace. Where Zig installs none, it
+// aborts.
 
 var overflow_previous: [2]std.posix.Sigaction = undefined;
 
@@ -3308,6 +3318,9 @@ fn onOverflow(_: std.posix.SIG, info: *const std.posix.siginfo_t, _: ?*anyopaque
     flush();
     const msg = "error: rig: stack overflow\n";
     _ = std.posix.system.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
+    // Where Zig installs no handler (`--release=fast`), the fault again
+    // would end the program by the signal; it aborts as a panic does.
+    if (!std.options.enable_segfault_handler) std.process.abort();
 }
 
 /// The address whose access raised the fault `info` describes.
