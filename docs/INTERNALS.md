@@ -4106,6 +4106,14 @@ store there lands in what the view reaches and nothing is moved out of
 it; and a write receiver with no `!` whose value is a write view
 (`wrap(!h).keep(v)`) is lent on through that view.
 
+Several results are hidden statement temporaries, one a result, each
+carrying the loans its own type could view (Core s7, per result); each
+target takes its own by the `x = e` rule, left to right, so a pending
+result's loans conflict with binding what it views, and a `_` result
+drops at the statement's end. `return a, b` gives each part as `return
+x` does, and `if f() as a, b` binds new names from a header's
+results.
+
 Its loans and accesses carry the place's path, cut where it goes
 through a handle or into an optional's value (`Place.cut`), and two of
 one var conflict unless their paths part at a field; an element
