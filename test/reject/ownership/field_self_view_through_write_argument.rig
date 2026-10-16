@@ -5,7 +5,7 @@
 obj Holder
   t: ?String
 
-sub link(h: !Holder, t: ?String)
+sub link(h: !Holder, t: ?String) keeps t
   h.t = t
 
 obj P

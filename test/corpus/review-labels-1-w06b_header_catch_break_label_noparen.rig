@@ -1,0 +1,13 @@
+error E
+  bad
+
+fun get(i: Int) -> Bool!
+  return E.bad if i > 2
+  i < 9
+
+sub main()
+  @o for k in 0..2
+    i = 0
+    while get(i) catch break @o : i += 1
+      print(k, i)
+  print(9)

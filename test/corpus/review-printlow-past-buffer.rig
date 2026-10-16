@@ -1,0 +1,15 @@
+sub main()
+  t = String()
+  for _ in 0..10000
+    !t.add("abcdefghij")
+  xs: List[Int] = List()
+  for i in 0..10000
+    !xs.push(i)
+  print("start", t.len, xs.len)
+  print(t, xs, t)
+  print(xs)
+  u = String("<", t, "|", xs, ">")
+  print(u.len)
+  !u.add(t, " ", xs.len, " ", xs)
+  print(u.len)
+  print("end")

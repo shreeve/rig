@@ -6,8 +6,8 @@ sub eat(v: List[Int])
 
 sub main()
   a: List[Int] = List()
-  :outer for i in 0..3
+  @outer for i in 0..3
     for j in 0..3
-      n = get(j) ?? break :outer
+      n = get(j) ?? break @outer
       eat(<a)
       print(n)

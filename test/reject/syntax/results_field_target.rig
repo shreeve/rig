@@ -1,0 +1,13 @@
+obj P
+  x: Int
+
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  p = P(x: 0)
+  q, p.x = divmod(1, 2)
+  print(q, p.x)
+
+# error: each result is bound to a name: bind one here, then assign `p.x` on the next line
+# errors: 1

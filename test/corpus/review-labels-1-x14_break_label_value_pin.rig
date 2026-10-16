@@ -1,0 +1,7 @@
+sub main()
+  v = if true
+    @a while true
+      break @a @b
+  else
+    0
+  print(v)

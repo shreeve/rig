@@ -1,0 +1,16 @@
+# A generic function that inlines a marked one is checked at each
+# instance, with the marked function's values at that instance: `run[Bool]`
+# and `run[Int]` both fit, and run.
+
+inline fun big[T](x: T, i: Int) -> T
+  t = [100000 of x]
+  t[i % 100000]
+
+fun run[T](x: T) -> T
+  big(x, 1)
+
+sub main()
+  print(run(1), run(true))
+
+# expect:
+# 1 true

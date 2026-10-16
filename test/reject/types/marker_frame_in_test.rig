@@ -1,0 +1,15 @@
+# A test block is a frame as a function is: the `inline` functions its
+# calls inline add their values to it.
+
+inline fun big(i: Int) -> Int
+  t = [1000000 of i]
+  t[i % 1000000]
+
+sub main()
+  print(1)
+
+test "two"
+  print(big(1) + big(2))
+
+# error: 11:1: test "two" keeps 16000032 bytes of values on its stack
+# errors: 1

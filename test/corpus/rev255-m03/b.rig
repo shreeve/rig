@@ -1,0 +1,2 @@
+pub sub push_into[T](out: !List[?T], x: ?T) keeps x
+  !out.push(x)

@@ -5,7 +5,7 @@ obj Res
 obj H
   r: ?Res
 
-fun store(h: !H, r: ?Res) -> Bool
+fun store(h: !H, r: ?Res) -> Bool keeps r
   h.r = r
   false
 

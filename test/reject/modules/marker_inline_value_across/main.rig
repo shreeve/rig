@@ -1,0 +1,12 @@
+# Another module's `inline` function is only called, as this module's is.
+
+use lib
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub main()
+  print(apply(lib.next, 1))
+
+# error: 9:19: `lib.next` is `inline`, inlined at every call, so it can only be called, not used as a value
+# errors: 1

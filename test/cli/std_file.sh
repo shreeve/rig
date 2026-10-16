@@ -79,7 +79,7 @@ for mode in debug release; do
     expect_eq "$out" "5: 112 105 112 101 100" "$mode: a pipe"
     out=$(RIG_SANITIZE=1 rig run $flag big.rig 2>&1); expect_rc $? 0 "$mode big: $out"
     expect_eq "$out" $'8388608 0\n8388609' "$mode: an 8 MB file"
-    out=$(RIG_SANITIZE=1 rig run $flag past.rig 2>&1); rc=$?
+    out=$(RIG_NO_CRASH_REPORT=1 RIG_SANITIZE=1 rig run $flag past.rig 2>&1); rc=$?
     [[ $rc -ne 0 ]] || fail "$mode: a read past the end ran on: $out"
     expect_has "$out" "index out of bounds" "$mode: a read past the end"
     expect_eq "$(head -1 <<<"$out")" "6" "$mode: past.rig's length"

@@ -144,7 +144,7 @@ pub obj Map[K, V]
     if self.find(?k, h) as j
       <k
       return replace(!self.es[j].value, <v)
-    !self.insert(<k, <v, h)
+    !self.add_entry(<k, <v, h)
     none
 
   # Put `v` under `k` only when `k` is new: true if it did; otherwise
@@ -155,7 +155,7 @@ pub obj Map[K, V]
       <k
       <v
       return false
-    !self.insert(<k, <v, h)
+    !self.add_entry(<k, <v, h)
     true
 
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
@@ -175,10 +175,29 @@ pub obj Map[K, V]
       if !self.es[j].value as w
         return w
 
+  # Put `v` under `k` when `k` is new, and lend the value under `k` to
+  # write, with whether `k` was new. When `k` is there, `k` and `v` are
+  # dropped.
+  pub fun ensure_added(!self, k: K, v: V) -> (!V, Bool) from self, k, v
+    h = k.hash()
+    j = 0
+    added = false
+    if self.find(?k, h) as at
+      <k
+      <v
+      j = at
+    else
+      j = (!self).add_new(<k, <v, h)
+      added = true
+    # As in `ensure`, the entry at `j` holds a value.
+    while true
+      if !self.es[j].value as w
+        return w, added
+
   # Lend the value under `k` to write, putting `make(k)` there first
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
-  pub fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k
+  pub fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k keeps make
     h = k.hash()
     j = 0
     if self.find(?k, h) as at
@@ -193,7 +212,7 @@ pub obj Map[K, V]
 
   # Add the entry of `k`, whose key is new and hashes to `h`, with the
   # value `make(k)`, and give its index; out of line, as `add_new`.
-  rarely fun add_made(!self, k: K, make: ?fun(?K) -> V, h: U64) -> Int
+  rarely fun add_made(!self, k: K, make: ?fun(?K) -> V, h: U64) -> Int keeps make
     v = make(?k)
     !self.insert(<k, <v, h)
     self.es.len - 1
@@ -203,6 +222,13 @@ pub obj Map[K, V]
   rarely fun add_new(!self, k: K, v: V, h: U64) -> Int
     !self.insert(<k, <v, h)
     self.es.len - 1
+
+  # Add the entry `k`, `v`, whose key is new and hashes to `h`: what
+  # `put`, `replace` and `put_new` call when the key is new; out of
+  # line, so a write inlined into its caller is the lookup and, on a hit,
+  # the overwrite, and hot, as a loop that puts new keys calls it each time.
+  called sub add_entry(!self, k: K, v: V, h: U64)
+    !self.insert(<k, <v, h)
 
   # Keep the entries for which `f` is true, in order. `f` gets each key
   # to read and its value to write, in order, and an entry it rejects is
@@ -247,6 +273,27 @@ pub obj Map[K, V]
     !self.table.tags.clear()
     !self.table.at.clear()
     self.len = 0
+
+  # The entry at index `i` in the order the keys were first put in: its
+  # key and its value, each viewed where the Map holds it, or `none` when
+  # `i` is not below `len`. One step while no entry has been taken since
+  # the entries were last compacted, as the Map grows; until then, it
+  # counts the entries before it.
+  pub fun at(?self, i: Int) -> (?K, ?V)? from self
+    return none if i < 0 or i >= self.len
+    j = i
+    if self.len < self.es.len
+      j = 0
+      n = 0
+      while j < self.es.len
+        if self.es[j].value != none
+          break if n == i
+          n += 1
+        j += 1
+    v: (?V)? = ?self.es[j].value
+    if v as vv
+      return ?self.es[j].key, vv
+    none
 
   # The entries, in the order their keys were first put in: each an
   # `Item` viewing its key and value.
@@ -298,7 +345,8 @@ pub obj Map[K, V]
       i = 0
     none
 
-  # Add the entry `k`, `v`, whose key is new and hashes to `h`.
+  # Add the entry `k`, `v`, whose key is new and hashes to `h`: the body
+  # of `add_new` and `add_made`.
   sub insert(!self, k: K, v: V, h: U64)
     if self.table.tags.len == 0
       !self.grow() if self.es.len >= SMALL
@@ -377,14 +425,7 @@ pub obj Set[K]
   pub fun add(!self, k: K) -> Bool
     h = k.hash()
     return false if self.find(?k, h) != none
-    if self.table.tags.len == 0
-      !self.grow() if self.ks.len >= SMALL
-    else if (self.ks.len + 1) * 5 > self.table.tags.len * 4
-      !self.grow()
-    !self.ks.push(<k)
-    !self.hs.push(h)
-    self.len += 1
-    !self.table.place(self.ks.len - 1, h) if self.table.tags.len > 0
+    !self.add_new(<k, h)
     true
 
   # Take the key `k` out and hand it back, or `none` when the Set has
@@ -454,6 +495,18 @@ pub obj Set[K]
         i += 1
       i = 0
     none
+
+  # Add the key `k`, which is new and hashes to `h`; out of line and hot,
+  # as a Map's `add_new` is.
+  called sub add_new(!self, k: K, h: U64)
+    if self.table.tags.len == 0
+      !self.grow() if self.ks.len >= SMALL
+    else if (self.ks.len + 1) * 5 > self.table.tags.len * 4
+      !self.grow()
+    !self.ks.push(<k)
+    !self.hs.push(h)
+    self.len += 1
+    !self.table.place(self.ks.len - 1, h) if self.table.tags.len > 0
 
   rarely sub grow(!self)
     !self.compact() if self.len < self.ks.len

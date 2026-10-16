@@ -447,11 +447,27 @@ const FnCtx = struct {
     /// and where the body first returns such a value.
     generic: sema.ParamMask = 0,
     generic_returned_at: ?u32 = null,
+    /// The name of the parameter each was first stored in.
+    stored_in: [@bitSizeOf(sema.ParamMask)][]const u8 = @splat(""),
+    /// Where the body first stores a value of a type parameter's type in
+    /// what each parameter leads to, past the parameter itself
+    /// (`noteGenericStore`).
+    generic_stores: [4]GenericStore = undefined,
+    generic_store_count: u8 = 0,
     /// The run-time parameters bound so far.
     params: u32 = 0,
     /// Binding run-time parameters (`bindParam`), which get an index.
     binding_params: bool = false,
 };
+
+/// `e` without a lend or move sigil written on it.
+fn unsigiled(e: Sexp) Sexp {
+    return if (e.isKind(.write) or e.isKind(.read) or e.isKind(.move)) ir.get(e, .operand) else e;
+}
+
+/// A store in a generic body, of a value whose type mentions a type
+/// parameter, in what parameter `param` leads to.
+const GenericStore = struct { param: u8, pos: u32, name: []const u8 };
 
 /// A loop, or a labeled block, that `break` / `continue` can leave.
 const LoopCtx = struct {
@@ -475,7 +491,7 @@ const LoopCtx = struct {
     /// The loans of the values `break` gives a loop used as a value.
     value: Value = .{},
     parent: ?*LoopCtx,
-    /// False for a labeled block: only `break :label` leaves it.
+    /// False for a labeled block: only `break @label` leaves it.
     is_loop: bool = true,
     /// Source position where the loop starts: code from here on may run
     /// again in the next iteration.
@@ -646,6 +662,10 @@ pub const Checker = struct {
     /// for the statement temporaries it makes (`holdPartTemps`), by node:
     /// `holdTemp` holds each there.
     part_temps: std.AutoHashMapUnmanaged(u32, VarId) = .empty,
+    /// The lends a call kept because its callee's `keeps` names their
+    /// parameter, by where each was lent: what a conflict's note says
+    /// (`noteLoan`).
+    kept_lends: std.AutoHashMapUnmanaged(u32, KeptLend) = .empty,
     /// The hidden vars holding what the calls being walked keep in
     /// storage of their own (`holdForCall`): each ends when its call
     /// returns (`endCallHeld`).
@@ -664,6 +684,11 @@ pub const Checker = struct {
     /// Set immediately before walking a lambda literal that sits in an
     /// allowed position (binding RHS, call callee, lent argument, `*|...|`).
     lambda_ok: bool = false,
+    /// The loans each of a call's several results carries, by result
+    /// (`callResults`), for the destructure that binds them.
+    results_of: ?struct { node: Sexp, parts: []const Value } = null,
+    /// The loans the `result_part` being walked takes: its result's.
+    part_value: Value = .{},
     /// The binding whose value is being walked, for its diagnostics.
     binding: ?struct { name: []const u8, value: Sexp, rejected: bool = false } = null,
     /// Walking the arguments of a call the type checker rejected.
@@ -731,6 +756,7 @@ pub const Checker = struct {
         self.plain_reqs.deinit(self.gpa);
         self.stmt_drops.deinit(self.gpa);
         self.part_temps.deinit(self.gpa);
+        self.kept_lends.deinit(self.gpa);
         self.call_held.deinit(self.gpa);
         self.flows.deinit(self.gpa);
         self.loan_counts.deinit(self.gpa);
@@ -939,6 +965,8 @@ pub const Checker = struct {
             try self.note(loan.pos, "`{s}` lent to write here, as the receiver, which is read until the call starts", .{lent});
         } else if (loan.read_of_write) {
             try self.note(loan.pos, "`{s}` lent to write here, and kept lent to read by a view that only reads it", .{lent});
+        } else if (self.kept_lends.get(loan.pos)) |k| {
+            try self.note(loan.pos, "`{s}` lent to {s} here, and `{s}` keeps it in `{s}` (its signature says `keeps {s}`), so the loan lasts while `{s}` is used", .{ lent, @tagName(loan.kind), k.callee, k.holder, k.param, k.holder });
         } else try self.note(loan.pos, "`{s}` lent to {s} here", .{ lent, @tagName(loan.kind) });
     }
 
@@ -956,6 +984,28 @@ pub const Checker = struct {
     fn lentText(self: *Checker, l: Loan, path: PathId) Error![]const u8 {
         if (l.path == path) return "it";
         return self.arena().print("`{s}`", .{try self.pathText(l.root, l.path)});
+    }
+
+    /// A lend a call kept (`kept_lends`): the callee, the parameter its
+    /// `keeps` names, and the var the call stored it in.
+    const KeptLend = struct { callee: []const u8, param: []const u8, holder: []const u8 };
+
+    /// Note the lends in `v`, which call `node` keeps through `param`, as
+    /// kept in what its write receiver or arguments lead to.
+    fn noteKept(self: *Checker, callee: Sexp, v: Value, param: []const u8, write_recv: ?VarId, arg_values: []const Value) Error!void {
+        var holder = write_recv;
+        if (holder == null) find: for (arg_values) |av| {
+            for (av.loans) |l| if (l.kind == .write) {
+                holder = l.root;
+                break :find;
+            };
+        };
+        const h = holder orelse return;
+        const name = if (callee.isKind(.member)) self.text(ir.Member.name(callee)) else if (callee == .src) self.text(callee) else return;
+        for (v.loans) |l| {
+            if (l.ext) continue;
+            try self.kept_lends.put(self.gpa, l.pos, .{ .callee = name, .param = param, .holder = self.vars.items[h].name });
+        }
     }
 
     /// The end of a conflict's message for a read held in place: what
@@ -1855,7 +1905,7 @@ pub const Checker = struct {
                 const saved_stmt = self.cur_stmt;
                 self.cur_stmt = stmt;
                 defer self.cur_stmt = saved_stmt;
-                try self.walkReturnValue(stmt);
+                try self.walkReturnValue(stmt, null);
             } else {
                 try self.walkStmt(stmt);
             }
@@ -2158,6 +2208,7 @@ pub const Checker = struct {
         switch (kind) {
             .fun, .sub, .drop_decl, .@"struct", .@"enum", .errors => try self.walkDecl(sexp),
             .set => try self.walkSet(sexp),
+            .destructure => try self.walkDestructure(sexp),
             .drop => try self.walkDrop(sexp),
             .@"return" => try self.walkReturn(sexp),
             .@"break" => try self.walkJump(sexp, .brk),
@@ -2188,6 +2239,8 @@ pub const Checker = struct {
                 .@"??" => self.walkNullish(sexp),
                 .propagate, .propagate_none => self.walkPropagate(sexp),
                 .call => self.walkCall(sexp),
+                // A destructure's target takes its result's loans.
+                .result_part => self.part_value,
                 .member, .index, .inst => if (self.isInstance(sexp)) .{} else self.walkMember(sexp),
                 .kwarg => self.walkConsumed(ir.Kwarg.value(sexp), .argument),
                 .array => blk: {
@@ -3505,7 +3558,7 @@ pub const Checker = struct {
                 if (v.closure) return; // reported by walkName
                 // A loop view passed to a call is lent on for the call, as
                 // `?x` lends it; anywhere else it would be copied out.
-                if (v.loop_view and !(sink == .argument and self.isViewType(v.ty))) {
+                if (v.loop_view and !(sink == .argument and self.isView(v.ty))) {
                     try self.err(pos, "bare use of loop view `{s}` in {s} would carry the viewed handle past the loop; " ++ loop_view_rule, .{ name, sink.text() });
                     return;
                 }
@@ -3946,7 +3999,7 @@ pub const Checker = struct {
         }
         if (v.fixed) {
             try self.err(pos, "cannot reassign fixed binding `{s}`", .{v.name});
-            try self.note(v.decl, "`{s}` was bound here with `const`", .{v.name});
+            try self.note(v.decl, "`{s}` was bound here with `=!`", .{v.name});
             return;
         }
         // Assigning a captured write view writes through it.
@@ -4004,6 +4057,14 @@ pub const Checker = struct {
         try self.setFlow(id, .{ .loans = if (self.mayCarryLoan(v.ty)) (try self.carry(v.ty, value)).loans else self.taintedNone(v.ty, value) });
     }
 
+    /// Whether storing `value` in a place of type `ty` may store a loan:
+    /// it carries one and the place may hold a view, or the place's type
+    /// mentions a type parameter (`noteGenericStore`).
+    fn storesLoans(self: *const Checker, ty: ?TypeId, value: Value) bool {
+        if (self.holdsGeneric(ty)) return true;
+        return value.loans.len > 0 and self.mayCarryLoan(ty);
+    }
+
     /// The var a view held by var `id` views, when it holds one of
     /// a var of this function.
     fn viewedRoot(self: *const Checker, id: VarId) ?VarId {
@@ -4050,7 +4111,7 @@ pub const Checker = struct {
             // An element of a Cell's List, marked `(!c)[i] = v`, is stored
             // in the Cell as one a name reaches is.
             if (self.inCellList(target)) return self.storeInCellList(target, value);
-            if (value.loans.len == 0 or !self.mayCarryLoan(self.exprType(target))) return;
+            if (!self.storesLoans(self.exprType(target), value)) return;
             return self.storeThroughLend(lent, value, self.startOf(target), if (base_node == .nil) null else self.spanText(base_node));
         };
         const id = place.root;
@@ -4065,7 +4126,7 @@ pub const Checker = struct {
         // An element of a Cell's List, or a field of one, is stored in
         // the Cell, which every handle to it reaches: it may hold no loan.
         if (self.inCellList(target)) return self.storeInCellList(target, value);
-        if (value.loans.len == 0 or !self.mayCarryLoan(self.exprType(target))) return;
+        if (!self.storesLoans(self.exprType(target), value)) return;
         // A value never holds a view of itself (Core §5): a part of `id`
         // may not take a loan on a part of `id`.
         if (try self.selfViewIn(id, value.loans, &.{}, &.{})) |l| {
@@ -4166,7 +4227,18 @@ pub const Checker = struct {
     fn walkCall(self: *Checker, node: Sexp) Error!Value {
         const mark = self.call_held.items.len;
         const v = try self.walkCallBody(node);
-        return self.endCallHeld(node, mark, v);
+        const out = try self.endCallHeld(node, mark, v);
+        // Each result keeps only what the call's value still carries.
+        if (self.results_of) |r| if (sameNode(r.node, node) and out.loans.len != v.loans.len) {
+            const parts = try self.arena().alloc(Value, r.parts.len);
+            for (r.parts, parts) |part, *kept| {
+                var loans: std.ArrayList(Loan) = .empty;
+                for (part.loans) |l| if (containsLoan(out.loans, l)) try loans.append(self.arena(), l);
+                kept.* = .{ .loans = loans.items };
+            }
+            self.results_of = .{ .node = node, .parts = parts };
+        };
+        return out;
     }
 
     /// Hold `v`, the value of `node`, which the emitted call keeps in
@@ -4381,6 +4453,9 @@ pub const Checker = struct {
         // may store a view of what its receiver holds, or is, in what it
         // was lent to write (`h.r = ?self.items[..]`).
         var stored: Value = if (params == null or params.?.storesReceiver()) recv_value else .{};
+        // Whether it may store a value of a type parameter's type, which
+        // carries no loan in a generic body (`noteGenericStore`).
+        var stores_generic = (params == null or params.?.storesReceiver()) and callee.isKind(.member) and self.holdsGeneric(self.pointee(self.exprType(unsigiled(ir.Member.object(callee)))));
         var carried: Value = .{};
         // A closure literal passed to a call the type checker rejected
         // was reported there.
@@ -4422,11 +4497,20 @@ pub const Checker = struct {
             // `!dst.copy(src)` stores copies of the elements `src` views,
             // which carry what those elements carry, not `src`'s loan
             // on what holds them (Core sentence 7).
-            if (params == null or params.?.stores(i)) stored = try self.valueUnion(stored, if (self.copiedElem(callee)) |elem| try self.carry(elem, v.*) else v.*);
+            if (params == null or params.?.stores(i)) {
+                stored = try self.valueUnion(stored, if (self.copiedElem(callee)) |elem| try self.carry(elem, v.*) else v.*);
+                if (self.holdsGeneric(self.exprType(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a))) stores_generic = true;
+            }
             if (params == null or params.?.resultCarries(i)) carried = try self.valueUnion(carried, v.*);
         }
         result = try self.valueUnion(result, carried);
         from_args = try self.valueUnion(from_args, carried);
+        // What the call keeps by its callee's `keeps`, for a conflict's note.
+        if (params) |p| if (p.origins.stores & p.origins.lent != 0) {
+            const write_recv = if (recv_mode == .write) recv_root else null;
+            if (p.keepsLentReceiver()) try self.noteKept(callee, recv_value, "self", write_recv, arg_values);
+            for (arg_values, 0..) |v, i| if (p.keepsLent(i)) try self.noteKept(callee, v, p.paramName(i) orelse "?", write_recv, arg_values);
+        };
 
         // A write receiver is lent when the call starts, before the
         // callee stores anything.
@@ -4444,7 +4528,7 @@ pub const Checker = struct {
         // value holding one). A built-in element method (`!dst.fill(v)`,
         // `!dst.copy(src)`) stores elements, which hold a view only where
         // the element type does (`storesNothing`).
-        if (stored.loans.len > 0 and !self.storesNothing(callee)) {
+        if ((stored.loans.len > 0 or stores_generic) and !self.storesNothing(callee)) {
             // A receiver lent to read is never written (Core sentence 9:
             // what changes through one is a Cell, which holds no loan). A
             // receiver lent to write holds what the call stores, whatever
@@ -4454,7 +4538,7 @@ pub const Checker = struct {
             if (recv_mode == .write and callee.isKind(.member)) {
                 const obj = ir.Member.object(callee);
                 // What the receiver is, not the view lending it.
-                if (self.mayCarryLoan(self.pointee(self.exprType(obj)))) {
+                if (self.mayHoldInInstance(self.pointee(self.exprType(obj)))) {
                     const pos = self.startOf(obj);
                     const lent: Value = if (recv_root) |id| .{ .loans = try self.oneLoan(.{ .root = id, .path = recv_path, .kind = .write, .pos = pos }) } else recv_value;
                     try self.storeThroughLend(lent, stored, pos, null);
@@ -4480,9 +4564,152 @@ pub const Checker = struct {
         // The result views only what could hold it (Core sentence 7). A
         // `?String`'s views end here but for those it keeps.
         const ty = self.exprType(node) orelse return result;
+        if (self.sema) |ctx| if (sema.resultsOf(ctx, ty)) |tys| return self.callResults(node, temps_start, stored, result, tys);
         if (self.sema) |ctx| if (sema.holdsViewOnly(ctx, ty)) return self.keepViewTemps(temps_start, try self.carryResult(ty, result));
         if (self.viewsOnlyRead(ty)) return self.endWriteLends(temps_start, stored, try self.carryResult(ty, result));
         return self.carryResult(ty, result);
+    }
+
+    /// A call that gives several results, `-> (A, B)`: each carries the
+    /// loans its own type can hold of what the call passes on, as one
+    /// result does (`carryResult` of each), recorded for the targets that
+    /// take them (`results_of`). An argument's write lend ends at the
+    /// return only when no result keeps it to write; while one may, every
+    /// lend lasts to the statement's end, as for a `!T` result. The
+    /// results are views of one call, so no two may break sentence 5: a
+    /// write loan one carries and a loan another carries on the same place
+    /// are reported (the declaration rejects them first, `sema`'s
+    /// `checkResultViews`, but a function value's type may say less).
+    fn callResults(self: *Checker, node: Sexp, temps_start: usize, stored: Value, result: Value, tys: []const TypeId) Error!Value {
+        const ctx = self.sema.?;
+        const parts = try self.arena().alloc(Value, tys.len);
+        var whole: Value = .{};
+        var view_only = true;
+        var read_only = true;
+        for (tys, parts) |t, *part| {
+            part.* = if (self.mayCarryLoan(t)) try self.carryResult(t, result) else .{};
+            whole = try self.valueUnion(whole, part.*);
+            if (!self.mayCarryLoan(t) or sema.holdsViewOnly(ctx, t)) continue;
+            view_only = false;
+            if (!self.viewsOnlyRead(t)) read_only = false;
+        }
+        for (parts, 0..) |a, i| for (a.loans) |l| {
+            if (l.kind != .write) continue;
+            for (parts, 0..) |b, k| if (k != i) for (b.loans) |m| if (m.root == l.root and self.paths.overlap(m.path, l.path)) {
+                try self.err(self.startOf(node), "the results of this call would view `{s}` twice while one of them writes it: a write view is the only view of what it views while it lives", .{self.vars.items[l.root].name});
+                self.results_of = .{ .node = node, .parts = parts };
+                return whole;
+            };
+        };
+        self.results_of = .{ .node = node, .parts = parts };
+        if (view_only) return self.keepViewTemps(temps_start, whole);
+        if (read_only) return self.endWriteLends(temps_start, stored, whole);
+        return whole;
+    }
+
+    /// `q, r = f()`: the call's several results go into the statement's
+    /// hidden results var, which holds the loans of every result no
+    /// target has taken yet; each target then takes its own, left to
+    /// right, as the binding `x = e` it is (`walkSet` of `(set op x _
+    /// (result_part))`), so a target is bound only while no result still
+    /// pending views it. A result no target takes (`_`) stays in the var,
+    /// which the statement's end drops (`dropStmtTemps`), when its drop
+    /// runs a `drop` body; any other reads none of its views. This walks
+    /// the desugaring: the results statement temporaries, each taken by
+    /// its binding (docs/INTERNALS.md, "Several results").
+    fn walkDestructure(self: *Checker, node: Sexp) Error!void {
+        const value = ir.Destructure.value(node);
+        const targets = ir.Destructure.targets(node).items();
+        // What a target's store reads is used after the value, as an
+        // assignment's target is.
+        const mark = self.after_value.items.len;
+        for (targets) |t| if (t.isKind(.set)) {
+            _ = try self.useAfterValue(t);
+        };
+        // A write-view local a target re-points never uses its old view
+        // again, when the value does not read it and cannot leave early:
+        // its loans end before the call lends anew, as for `w = e`.
+        if (self.sema) |ctx| if (!leavesEarly(value)) for (targets) |t| {
+            if (!t.isKind(.set) or !ctx.repoints(t)) continue;
+            const name = self.text(ir.Set.target(t));
+            if (self.readsName(value, name)) continue;
+            if (self.find(name)) |id| try self.setFlow(id, .{ .status = self.flows.items[id].status, .at = self.flows.items[id].at });
+        };
+        const saved_results = self.results_of;
+        defer self.results_of = saved_results;
+        self.results_of = null;
+        const temps_start = self.temps.items.len;
+        const whole = try self.walkConsumed(value, .binding);
+        self.after_value.shrinkRetainingCapacity(mark);
+        if (!self.reachable) return;
+        const call = resultsCall(value);
+        const parts: []const Value = blk: {
+            if (self.results_of) |r| if (sameNode(r.node, call) and r.parts.len == targets.len) break :blk r.parts;
+            const all = try self.arena().alloc(Value, targets.len);
+            @memset(all, whole);
+            break :blk all;
+        };
+        // Which results the statement holds to its end: each a target
+        // takes, until it takes it, and each `_` discards whose drop runs
+        // a `drop` body, which could read what it views. Any other
+        // discarded result uses none of its views (Core sentence 6), so
+        // its loans end here, but for those another result keeps.
+        const held = try self.arena().alloc(bool, targets.len);
+        const tys: []const TypeId = if (self.sema) |ctx| (if (self.exprType(value)) |t| sema.resultsOf(ctx, t) orelse &.{} else &.{}) else &.{};
+        var kept: Value = .{};
+        for (targets, held, parts, 0..) |t, *h, part, k| {
+            h.* = t.isKind(.set) or k >= tys.len or (if (self.sema) |ctx| sema.dropRunsBody(ctx, tys[k]) != .no else true);
+            if (h.*) kept = try self.valueUnion(kept, part);
+        }
+        for (held, parts) |h, part| if (!h) for (part.loans) |l| {
+            if (containsLoan(kept.loans, l)) continue;
+            var i = @min(temps_start, self.temps.items.len);
+            while (i < self.temps.items.len) {
+                if (self.temps.items[i].sameAs(l)) _ = self.temps.orderedRemove(i) else i += 1;
+            }
+        };
+        const pos = self.startOf(node);
+        const id = try self.addVar(.{ .name = "the call's results", .decl = pos, .ty = self.exprType(value), .kind = .hidden }, .{ .loans = kept.loans });
+        try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
+        const saved_part = self.part_value;
+        defer self.part_value = saved_part;
+        for (targets, 0..) |t, j| {
+            if (!t.isKind(.set)) continue;
+            // The result leaves the temporary for its binding, which keeps
+            // the loans of those still pending and of those held to the
+            // statement's end.
+            var left: Value = .{};
+            for (targets, parts, held, 0..) |o, part, h, k| {
+                if (k == j or (k < j and o.isKind(.set)) or !h) continue;
+                left = try self.valueUnion(left, part);
+            }
+            try self.setFlow(id, .{ .loans = left.loans });
+            if (try self.pendingView(t, targets, parts, held, j)) continue;
+            self.part_value = parts[j];
+            try self.walkSet(t);
+        }
+    }
+
+    /// The target of `set` (the `j`th of `targets`) names a binding that
+    /// a result still pending views: binding it would change or drop what
+    /// that result views (`s, rest = split(?s)`). Reported, true.
+    fn pendingView(self: *Checker, set: Sexp, targets: []const Sexp, parts: []const Value, held: []const bool, j: usize) Error!bool {
+        const target = ir.Set.target(set);
+        if (target != .src) return false;
+        const ctx = self.sema orelse return false;
+        const sym = ctx.symbolOf(target) orelse return false;
+        if (ctx.symbols.items[sym].decl_pos == target.src.pos) return false;
+        const id = self.find(self.text(target)) orelse return false;
+        for (targets, parts, held, 0..) |o, part, h, k| {
+            if (k == j or (k < j and o.isKind(.set)) or !h) continue;
+            for (part.loans) |l| if (l.root == id and !l.ext) {
+                if (o.isKind(.set)) {
+                    try self.err(target.src.pos, "cannot bind `{s}` while `{s}` views it", .{ self.text(target), self.text(ir.Set.target(o)) });
+                } else try self.err(target.src.pos, "cannot bind `{s}` while the result `_` discards views it: that result's `drop` body runs at the statement's end", .{self.text(target)});
+                return true;
+            };
+        }
+        return false;
     }
 
     /// A value read in place, by value, before the operands after it run
@@ -4769,7 +4996,10 @@ pub const Checker = struct {
         const d = depth orelse {
             for (level.items) |r| {
                 // Only a value that can hold a view can have one stored in it.
-                if (!self.mayCarryLoan(self.pointee(self.vars.items[r].ty))) continue;
+                if (!self.mayCarryLoan(self.pointee(self.vars.items[r].ty))) {
+                    try self.genericStoreIn(r, stored, pos, 0);
+                    continue;
+                }
                 try self.absorbLoans(r, stored, pos, level.items, via, true, lends);
             }
             return;
@@ -4801,7 +5031,10 @@ pub const Checker = struct {
         try through_lends.appendSlice(self.arena(), lends);
         for (seen.items) |r| for (self.varValue(r).loans) |l| if (l.kind == .write) try through_lends.append(self.arena(), l);
         for (seen.items) |r| {
-            if (!self.mayCarryLoan(self.pointee(self.vars.items[r].ty))) continue;
+            if (!self.mayCarryLoan(self.pointee(self.vars.items[r].ty))) {
+                try self.genericStoreIn(r, stored, pos, 0);
+                continue;
+            }
             try self.absorbLoans(r, stored, pos, seen.items, via, false, through_lends.items);
         }
     }
@@ -4859,8 +5092,8 @@ pub const Checker = struct {
         for (v.loans) |l| {
             if (l.root != id and std.mem.findScalar(VarId, through, l.root) == null) try out.append(self.arena(), l);
         }
-        if (out.items.len == 0) return;
         const c = self.vars.items[id];
+        if (self.callerOwns(id) and self.holdsGeneric(t)) self.noteGenericStore(id, pos);
         if (self.callerOwns(id) or self.isGlobal(id)) {
             // The caller accounts for views it passed in; only views
             // of this function's own values cannot be stored. Nothing
@@ -5119,7 +5352,21 @@ pub const Checker = struct {
 
     fn walkReturn(self: *Checker, node: Sexp) Error!void {
         const value = ir.Return.value(node);
-        if (value != .nil) try self.walkReturnValue(value);
+        // `return a, b`: each part leaves the function as `return x`
+        // does, left to right.
+        if (value.isKind(.results)) {
+            const tys: []const TypeId = if (self.sema) |ctx| (if (self.func.ret_ty) |r| sema.resultsOf(ctx, r) orelse &.{} else &.{}) else &.{};
+            for (ir.Results.values(value), 0..) |part, i| {
+                const ty: ?TypeId = if (i < tys.len) tys[i] else null;
+                try self.walkReturnValue(part, ty);
+                // A write view a part hands out as a write view leaves for
+                // good, as `<w` would: a later part may not use it again.
+                // One read as a value that copies is a copy.
+                if (part == .src and ty != null and self.refOfType(ty) == .write) if (self.find(self.text(part))) |id| {
+                    if (self.vars.items[id].ref == .write and self.flowLive(id)) try self.markInvalid(id, .moved, part.src.pos);
+                };
+            }
+        } else if (value != .nil) try self.walkReturnValue(value, null);
         _ = try self.exitTo(.{ .exit = .{ .@"return" = value != .nil and self.mayFail(value) } });
         self.reachable = false;
     }
@@ -5127,7 +5374,9 @@ pub const Checker = struct {
     /// A value leaving the function: a bare local moves out; anything
     /// else must not copy an owning value; views must come from
     /// view parameters.
-    fn walkReturnValue(self: *Checker, expr: Sexp) Error!void {
+    /// `part`, for a part of `return a, b`, is the type of the result it
+    /// gives, by which its loans are judged (Core sentence 7, per result).
+    fn walkReturnValue(self: *Checker, expr: Sexp, part: ?TypeId) Error!void {
         var value: Value = .{};
         if (expr == .src) {
             try self.checkNoImplicitCopy(expr, .ret, true);
@@ -5151,15 +5400,19 @@ pub const Checker = struct {
             _ = try self.walk(expr);
             return;
         }
-        if (self.func.ret_may_view and self.reachable) {
-            try self.checkEscape(value);
-            self.recordResult(value, self.startOf(expr));
-        } else if (self.reachable and self.genericType(self.func.ret_ty)) {
+        const ret = part orelse self.func.ret_ty;
+        const may_view = if (part) |t| self.mayCarryLoan(t) else self.func.ret_may_view;
+        if (may_view and self.reachable) {
+            // A result keeps only the loans its own type could hold.
+            const kept = if (part) |t| try self.carry(t, value) else value;
+            try self.checkEscape(kept);
+            self.recordResult(kept, self.startOf(expr));
+        } else if (self.reachable and self.genericType(ret)) {
             self.recordResult(value, self.startOf(expr));
         }
         // A result that holds a value of a type parameter's type may carry,
         // in an instance, whatever reached one (`taintGeneric`).
-        if (self.reachable and self.holdsGeneric(self.func.ret_ty) and self.func.generic_returned_at == null) self.func.generic_returned_at = self.startOf(expr);
+        if (self.reachable and self.holdsGeneric(ret) and self.func.generic_returned_at == null) self.func.generic_returned_at = self.startOf(expr);
     }
 
     /// A bare name that leaves the function moves out: a match payload
@@ -5231,11 +5484,16 @@ pub const Checker = struct {
     /// store.
     fn recordStore(self: *Checker, into: VarId, loans: []const Loan, pos: u32) void {
         // What cannot hold a view keeps no loan (`w = other` through
-        // `w: !Int` copies a number).
-        if (!self.mayCarryLoan(self.pointee(self.vars.items[into].ty))) return;
+        // `w: !Int` copies a number), unless an instance's may.
+        const held = self.pointee(self.vars.items[into].ty);
+        if (self.holdsGeneric(held)) self.noteGenericStore(into, pos);
+        if (!self.mayCarryLoan(held) and !self.genericType(held)) return;
         for (loans) |l| if (l.root != into) if (self.paramOf(l)) |i| {
             const bit = sema.paramBit(i);
-            if (self.func.stored & bit == 0) self.func.stored_at[i] = pos;
+            if (self.func.stored & bit == 0) {
+                self.func.stored_at[i] = pos;
+                self.func.stored_in[i] = self.vars.items[into].name;
+            }
             self.func.stored |= bit;
         };
     }
@@ -5246,14 +5504,23 @@ pub const Checker = struct {
     fn checkOrigins(self: *Checker, what: []const u8, name: Sexp, params: Sexp) Error!void {
         const o = self.func.origins;
         const items = params.items();
-        // What reached a value of a type parameter's type is returned
-        // wherever such a value is (`taintGeneric`).
-        if (self.func.generic_returned_at) |at| for (0..@min(items.len, @bitSizeOf(sema.ParamMask))) |i| {
+        // What reached a value of a type parameter's type is returned and
+        // stored wherever such a value is (`taintGeneric`).
+        for (0..@min(items.len, @bitSizeOf(sema.ParamMask))) |i| {
             const bit = sema.paramBit(i);
-            if (self.func.generic & bit == 0 or self.func.returned & bit != 0) continue;
-            self.func.returned |= bit;
-            self.func.returned_at[i] = at;
-        };
+            if (self.func.generic & bit == 0) continue;
+            if (self.func.generic_returned_at) |at| if (self.func.returned & bit == 0) {
+                self.func.returned |= bit;
+                self.func.returned_at[i] = at;
+            };
+            if (self.func.stored & bit != 0) continue;
+            for (self.func.generic_stores[0..self.func.generic_store_count]) |s| if (s.param != i) {
+                self.func.stored |= bit;
+                self.func.stored_at[i] = s.pos;
+                self.func.stored_in[i] = s.name;
+                break;
+            };
+        }
         const n = @min(items.len, @bitSizeOf(sema.ParamMask));
         for (0..n) |i| {
             const bit = sema.paramBit(i);
@@ -5275,7 +5542,12 @@ pub const Checker = struct {
                 try self.err(self.func.returned_at[i], "{s} returns a view of `{s}`, but a call of it carries no loan of `{s}`: its type cannot hold what the result views", .{ what, pname, pname });
             }
             if (self.func.stored & bit != 0 and o.stores & bit == 0) {
-                try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` where its caller can reach it, but a call of it keeps no loan of `{s}`: its type cannot hold what the write parameters hold", .{ what, pname, pname });
+                if (o.lent & bit != 0) {
+                    // A lent parameter is kept only where `keeps` names it.
+                    const into = self.func.stored_in[i];
+                    const kept = try self.paramList(items, (o.stores & o.lent) | (self.func.stored & o.lent), false);
+                    try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` in `{s}`, which its caller reaches, but its signature does not keep `{s}`; say so: `keeps {s}`", .{ what, pname, into, pname, kept });
+                } else try self.err(self.func.stored_at[i], "{s} stores a view of `{s}` where its caller can reach it, but a call of it keeps no loan of `{s}`: its type cannot hold what the write parameters hold", .{ what, pname, pname });
             }
         }
     }
@@ -5345,7 +5617,7 @@ pub const Checker = struct {
     fn walkIf(self: *Checker, node: Sexp) Error!Value {
         const t = self.takeTail(node);
         const cond = ir.If.cond(node);
-        if (cond.isKind(.as) or rig.isConditionJoin(cond)) return self.walkIfBinding(node, t);
+        if (rig.isAsPart(cond) or rig.isConditionJoin(cond)) return self.walkIfBinding(node, t);
         const then_b = ir.If.then(node);
         const else_b = ir.If.@"else"(node);
         // The condition is a header, its own statement.
@@ -5406,6 +5678,7 @@ pub const Checker = struct {
     fn walkConditionPart(self: *Checker, cond: Sexp, body: Sexp) Error!void {
         // Each part is a header, its own statement: its temporaries end
         // with it, after the binding takes what it binds.
+        if (cond.isKind(.as_results)) return self.walkResultsBinding(cond, body);
         if (!cond.isKind(.as)) return self.walkStmt(cond);
         // A bare place is bound as `if ?p as x` binds it, and a part of a
         // made value in a hidden var the `if` holds, in a scope the
@@ -5763,6 +6036,38 @@ pub const Checker = struct {
         elem_view: bool = false,
     };
 
+    /// `if f() as a, b`: each name is a new binding that takes its result,
+    /// as a destructure's target does (`walkDestructure`), in a scope over
+    /// `body`, which the caller pops. The loans taken to make the results
+    /// end with the header, as `as`'s do, and so do those of a result no
+    /// name takes.
+    fn walkResultsBinding(self: *Checker, cond: Sexp, body: Sexp) Error!void {
+        const value = ir.AsResults.value(cond);
+        const names = ir.AsResults.names(cond).items();
+        const temps_start = self.temps.items.len;
+        const drops = self.stmt_drops.items.len;
+        const saved_results = self.results_of;
+        defer self.results_of = saved_results;
+        self.results_of = null;
+        const whole = try self.walkConsumed(value, .binding);
+        const parts: []const Value = blk: {
+            if (self.results_of) |r| if (sameNode(r.node, value) and r.parts.len == names.len) break :blk r.parts;
+            const all = try self.arena().alloc(Value, names.len);
+            @memset(all, whole);
+            break :blk all;
+        };
+        self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+        try self.pushScopeFor(.block, body);
+        const saved_part = self.part_value;
+        defer self.part_value = saved_part;
+        for (names, parts) |n, part| {
+            if (!n.isKind(.set)) continue;
+            self.part_value = part;
+            try self.walkSet(n);
+        }
+        try self.dropStmtTemps(drops);
+    }
+
     /// A statement that gives a value (`sema.yieldsValue`).
     fn isValue(self: *const Checker, e: Sexp) bool {
         return sema.yieldsValue(self.source, e);
@@ -5774,7 +6079,7 @@ pub const Checker = struct {
         return self.walkLoop(.{
             .node = node,
             .cond = cond,
-            .cond_binds = cond.isKind(.as) or rig.isConditionJoin(cond),
+            .cond_binds = rig.isAsPart(cond) or rig.isConditionJoin(cond),
             .cond_always_true = cond == .src and std.mem.eql(u8, self.text(cond), "true"),
             .cont = if (step == .nil) null else step,
             .body = ir.While.body(node),
@@ -5841,7 +6146,7 @@ pub const Checker = struct {
     }
 
     /// `(labeled name stmt)`: a labeled loop, or a labeled `match` or
-    /// `raw` block, which `break :name` leaves.
+    /// `raw` block, which `break @name` leaves.
     fn walkLabeled(self: *Checker, node: Sexp) Error!Value {
         const stmt = ir.Labeled.stmt(node);
         if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) {
@@ -6286,13 +6591,10 @@ pub const Checker = struct {
         };
     }
 
-    /// Whether `ty` is a view: a `?T`, `!T`, slice, or `?String`.
-    fn isViewType(self: *const Checker, ty: ?TypeId) bool {
-        const t = ty orelse return false;
-        return switch (self.typeData(t)) {
-            .read_view, .write_view, .slice, .string_view => true,
-            else => false,
-        };
+    /// Whether `ty` is a view (`sema.isViewType`).
+    fn isView(self: *const Checker, ty: ?TypeId) bool {
+        const ctx = self.sema orelse return false;
+        return sema.isViewType(ctx, ty orelse return false);
     }
 
     /// The type a view type refers to.
@@ -6395,10 +6697,34 @@ pub const Checker = struct {
         return sema.mayHoldView(ctx, ty orelse return true);
     }
 
+    /// Whether a value of `ty` may hold a view, here or in an instance.
+    fn mayHoldInInstance(self: *const Checker, ty: ?TypeId) bool {
+        return self.mayCarryLoan(ty) or self.genericType(ty);
+    }
+
+    /// A store of `stored` in what var `id` leads to, a type that holds a
+    /// type parameter (`genericType`), whose loans a generic body does not
+    /// track: a parameter the caller lent is noted as holding them
+    /// (`noteGenericStore`, `recordStore`), through the write views a
+    /// local holds.
+    fn genericStoreIn(self: *Checker, id: VarId, stored: Value, pos: u32, depth: u32) Error!void {
+        if (depth > 16 or !self.holdsGeneric(self.pointee(self.vars.items[id].ty))) return;
+        const c = self.vars.items[id];
+        if (c.kind == .param and c.ref != .none) {
+            var out: std.ArrayList(Loan) = .empty;
+            for (stored.loans) |l| if (l.root != id and !self.isLocalLoan(l)) try out.append(self.arena(), l);
+            self.recordStore(id, out.items, pos);
+            return;
+        }
+        for (self.flows.items[id].loans) |l| {
+            if (l.kind == .write and l.root != id) try self.genericStoreIn(l.root, stored, pos, depth + 1);
+        }
+    }
+
     /// Whether `ty` holds a type parameter by value and so may hold a view
     /// in an instance, though a generic body tracks no loan in a value of
     /// it (SPEC "Generic bodies"): what reaches one is recorded for the
-    /// body check instead (`taintGeneric`).
+    /// body check instead (`taintGeneric`, `noteGenericStore`).
     fn genericType(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ty orelse return false;
@@ -6415,7 +6741,7 @@ pub const Checker = struct {
 
     /// `v`'s loans reach a value of type `ty`, which a generic body keeps
     /// no loan in (`genericType`): the parameters they are on may be
-    /// returned wherever such a value is (`checkOrigins`).
+    /// returned or stored wherever such a value is (`checkOrigins`).
     fn taintGeneric(self: *Checker, ty: ?TypeId, v: Value) void {
         if (v.loans.len == 0 or !self.genericType(ty)) return;
         for (v.loans) |l| if (self.paramOf(l)) |i| {
@@ -6428,6 +6754,17 @@ pub const Checker = struct {
     fn taintedNone(self: *Checker, ty: ?TypeId, v: Value) []const Loan {
         self.taintGeneric(ty, v);
         return &.{};
+    }
+
+    /// The body stores, at `pos`, a value whose type mentions a type
+    /// parameter in what parameter var `into` leads to: whatever reached
+    /// such a value may be stored there (`checkOrigins`).
+    fn noteGenericStore(self: *Checker, into: VarId, pos: u32) void {
+        const i = self.vars.items[into].param_index orelse return;
+        for (self.func.generic_stores[0..self.func.generic_store_count]) |s| if (s.param == i) return;
+        if (self.func.generic_store_count == self.func.generic_stores.len) return;
+        self.func.generic_stores[self.func.generic_store_count] = .{ .param = i, .pos = pos, .name = self.vars.items[into].name };
+        self.func.generic_store_count += 1;
     }
 
     /// The type a value of type `ty` reaches through its views.
@@ -6507,6 +6844,18 @@ pub const Checker = struct {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+/// The call a destructure's value is: alone, or under `!`, `?`, or a
+/// fallback that jumps.
+fn resultsCall(value: Sexp) Sexp {
+    return switch (value.kind() orelse return .nil) {
+        .call => value,
+        .propagate, .propagate_none => ir.get(value, .value),
+        .@"??" => ir.@"??".left(value),
+        .@"catch" => ir.Catch.value(value),
+        else => .nil,
+    };
+}
 
 fn isLambda(s: Sexp) bool {
     return s.isKind(.lambda);
@@ -6759,7 +7108,7 @@ test "hello passes" {
 test "fixed binding cannot be reassigned" {
     try expectError(
         \\sub main()
-        \\  const user = make()
+        \\  user =! make()
         \\  user = remake()
         \\
     , "cannot reassign fixed binding `user`");

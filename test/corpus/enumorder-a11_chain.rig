@@ -1,0 +1,10 @@
+enum Size
+  small
+  medium
+  large
+
+sub main()
+  a = Size.small
+  b = Size.medium
+  c = Size.large
+  print(a < b < c)

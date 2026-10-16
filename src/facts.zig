@@ -77,6 +77,7 @@ pub const Answer = sema.Answer;
 pub const Clone = sema.Clone;
 pub const MethodReceiver = sema.MethodReceiver;
 pub const Upgrade = sema.Upgrade;
+pub const Lift = sema.Lift;
 pub const TypedInt = sema.TypedInt;
 pub const ValueParts = sema.ValueParts;
 pub const ArgSlot = sema.ArgSlot;
@@ -90,6 +91,7 @@ pub const SetOrder = storage.SetOrder;
 pub const SetStep = storage.SetStep;
 pub const StepPoint = storage.StepPoint;
 pub const JumpDest = sema.JumpDest;
+pub const CallTarget = sema.CallTarget;
 
 pub const type_invalid = sema.type_invalid;
 pub const type_param_mark = sema.type_param_mark;
@@ -220,6 +222,40 @@ pub const Facts = struct {
     pub fn calleeOf(f: Facts, call: Sexp) Sexp {
         return f.c().calleeOf(call);
     }
+    /// What a call reaches, as typecheck resolved it (`SemContext.callTargetOf`).
+    pub fn callTargetOf(f: Facts, call: Sexp) ?CallTarget {
+        return f.c().callTargetOf(call);
+    }
+    /// Whether `call` calls a Rig function or method: a function of this
+    /// module or another, or a method a module declares on its type, not
+    /// a built-in's. For emit's check that typecheck resolved each such
+    /// call it writes (`Emitter.checkCallTarget`).
+    pub fn callsRigFunction(f: Facts, call: Sexp) bool {
+        const ctx = f.c();
+        const callee = ctx.calleeOf(call);
+        if (callee == .src) {
+            const id = ctx.symbolOf(callee) orelse return false;
+            return ctx.symbols.items[id].kind == .function;
+        }
+        if (!callee.isKind(.member)) return false;
+        if (storage.moduleMemberSym(ctx, callee)) |sym| return sym.kind == .function;
+        const obj = ir.Member.object(callee);
+        const name_leaf = ir.Member.name(callee);
+        if (name_leaf != .src) return false;
+        const name = rig.leafText(ctx.source, name_leaf.src);
+        // A value's type, or the type a type's name stands for.
+        const decl = if (ctx.typeOf(obj)) |t| sema.nominalDecl(ctx, t) else null;
+        const sym: sema.Symbol = if (decl) |d| d.symbol() else blk: {
+            const id = ctx.symbolOf(obj) orelse return false;
+            if (!storage.isTypeSym(ctx, id)) return false;
+            break :blk ctx.symbols.items[id];
+        };
+        if (sym.decl_pos == sema.builtin_decl_pos) return false;
+        for (sym.fields orelse return false) |field| {
+            if (field.is_method and !field.is_drop_method and std.mem.eql(u8, field.name, name)) return true;
+        }
+        return false;
+    }
     pub fn ctArgsOf(f: Facts, call: Sexp) []const Sexp {
         return f.c().ctArgsOf(call);
     }
@@ -278,6 +314,11 @@ pub const Facts = struct {
     }
     pub fn useOf(f: Facts, node: Sexp) ?Use {
         return f.c().useOf(node);
+    }
+    /// The optional `node`'s value becomes where it goes: `none`, or a
+    /// `T` where a `T?` goes (`SemContext.recordLift`).
+    pub fn liftOf(f: Facts, node: Sexp) ?Lift {
+        return f.c().liftOf(node);
     }
     pub fn takes(f: Facts, node: Sexp) bool {
         return f.c().takes(node);
@@ -471,7 +512,7 @@ pub const Facts = struct {
     pub fn isModuleLevel(f: Facts, sym: SymbolId) bool {
         return f.c().symbols.items[sym].scope == sema.module_scope;
     }
-    /// Whether a local `const k = n` stands for a compile-time parameter.
+    /// Whether a local `k =! n` stands for a compile-time parameter.
     pub fn isCtLocal(f: Facts, sym: SymbolId) bool {
         return f.c().ct_locals.contains(sym);
     }
@@ -594,6 +635,12 @@ pub const Facts = struct {
     pub fn isErrorValue(f: Facts, ty: TypeId) bool {
         return sema.isErrorValue(f.c(), ty);
     }
+    pub fn hoistsResults(f: Facts, results: Sexp) bool {
+        return storage.hoistsResults(f.c(), results);
+    }
+    pub fn resultsOf(f: Facts, ty: TypeId) ?[]const TypeId {
+        return sema.resultsOf(f.c(), ty);
+    }
     pub fn isNumeric(f: Facts, ty: TypeId) bool {
         return sema.isNumeric(f.c(), ty);
     }
@@ -667,6 +714,16 @@ pub const Facts = struct {
     /// The `T` of a `?T` written `rig.ReadView(T)` (`storage.genericReadView`).
     pub fn genericReadView(f: Facts, ty: TypeId) ?TypeId {
         return storage.genericReadView(f.c(), ty);
+    }
+    /// Whether a `T?` of payload `inner` is written `rig.Opt(T)`, with
+    /// every operation through the optional helpers
+    /// (`sema.optionalRouted`); `strict` under `RIG_STRICT_OPTIONALS`.
+    pub fn optionalRouted(f: Facts, inner: TypeId, strict: bool) bool {
+        return sema.optionalRouted(f.c(), inner, strict);
+    }
+    /// Whether the type `sym` declares is an object (`sema.isObjectSym`).
+    pub fn isObjectSym(f: Facts, sym: SymbolId) bool {
+        return sema.isObjectSym(f.c(), sym);
     }
     /// What `+x` does to a value of this type (`sema.cloneable`).
     pub fn cloneable(f: Facts, ty: TypeId) Clone {
@@ -931,15 +988,15 @@ test "Facts reads where each step runs and where each jump goes" {
         \\  k = 0
         \\  while (some(k) ?? continue) > 0
         \\    k += 1
-        \\  :outer for a in 0..3
+        \\  @outer for a in 0..3
         \\    for b in 0..3
-        \\      continue :outer if b == a
-        \\      break :outer
+        \\      continue @outer if b == a
+        \\      break @outer
         \\  m = 0
         \\  while true: m += some(m) ?? continue
         \\    break
-        \\  :blk match i
-        \\    0 => break :blk
+        \\  @blk match i
+        \\    0 => break @blk
         \\    _ => pass
         \\
     ;
@@ -961,7 +1018,7 @@ test "Facts reads where each step runs and where each jump goes" {
         .{ .to = .exit, .target = .@"while" },
         .{ .to = .step, .target = .@"while" }, // to the continue expression
         .{ .to = .head, .target = .@"while" }, // from the condition of a loop with no step
-        .{ .to = .head, .target = .@"for" }, // `continue :outer` from the inner loop's body
+        .{ .to = .head, .target = .@"for" }, // `continue @outer` from the inner loop's body
         .{ .to = .exit, .target = .@"for" },
         .{ .to = .head, .target = .@"while" }, // from the step
         .{ .to = .exit, .target = .@"while" },

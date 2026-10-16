@@ -1,0 +1,13 @@
+obj Counter
+  n: Int
+
+  fun bump(!self) -> (!Int, Bool)
+    return !self.n, true
+
+sub main()
+  c = Counter(n: 0)
+  w, big = (!c).bump()
+  print(c.n, big)
+  w += 1
+
+# error: use of `c.n` while a write loan on `c` is live

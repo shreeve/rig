@@ -1,0 +1,7 @@
+error E
+  bad
+
+fun f() -> Int!
+  errdefer @a for i in 0..1
+    print(i)
+  return E.bad

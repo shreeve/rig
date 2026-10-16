@@ -62,7 +62,7 @@ sub main()
   guard = 0
   c0 = 0
   p0 = 0
-  :a while (limf(c0, 3, false) catch none) as h0: c0 = st(0, h0)
+  @a while (limf(c0, 3, false) catch none) as h0: c0 = st(0, h0)
     guard += 1
     if guard > 300
       print("cap")

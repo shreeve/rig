@@ -31,7 +31,7 @@ obj H
   r: ?String
   rs: List[?String]
 
-  sub keep(!self, r: ?String)
+  sub keep(!self, r: ?String) keeps r
     !self.rs.push(r)
 
   fun me(!self) -> !H
@@ -43,14 +43,14 @@ obj H
 obj PR
   r: ?String
 
-  sub set(!self, r: ?String)
+  sub set(!self, r: ?String) keeps r
     self.r = r
 
-  fun set2(!self, r: ?String) -> ?String
+  fun set2(!self, r: ?String) -> ?String keeps r
     self.r = r
     self.r
 
-  fun with(!self, r: ?String) -> PR
+  fun with(!self, r: ?String) -> PR keeps r
     self.r = r
     PR(r: self.r)
 
@@ -72,25 +72,25 @@ obj Hold[T]
 obj VH
   hs: List[H]
 
-  sub add(!self, r: ?String)
+  sub add(!self, r: ?String) keeps r
     !self.hs.push(H(r: r, rs: List()))
 
 obj OH
   o: H?
 
-  sub add(!self, r: ?String)
+  sub add(!self, r: ?String) keeps r
     self.o = H(r: r, rs: List())
 
 obj AH
   a: [1]H
 
-  sub add(!self, r: ?String)
+  sub add(!self, r: ?String) keeps r
     self.a[0] = H(r: r, rs: List())
 
 obj BH
   b: ^H
 
-  sub add(!self, r: ?String)
+  sub add(!self, r: ?String) keeps r
     !self.b.keep(r)
 
 enum EH
@@ -124,7 +124,7 @@ fun f(n: Int) -> Int
 obj PQ
   r: ?String
 
-  fun get(!self, r: ?String) -> (?String)?
+  fun get(!self, r: ?String) -> (?String)? keeps r
     self.r = r
     self.r
 

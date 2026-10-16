@@ -1,0 +1,15 @@
+# The write lend ends as the call returns, but what a result views stays
+# lent to read: `v` may not be written while `a` lives.
+
+fun grab(v: !List[Int]) -> ([]Int, Int)
+  !v.push(v.len)
+  return ?v[..1], v.len
+
+sub main()
+  v: List[Int] = List()
+  a, n = grab(!v)
+  !v.push(3)
+  print(a, n)
+
+# error: cannot lend `v` to write while a read loan is live
+# errors: 1

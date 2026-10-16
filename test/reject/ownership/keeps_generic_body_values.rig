@@ -1,0 +1,28 @@
+# A generic body tracks no loan in a value of a type parameter's type,
+# but in an instance it may carry one: what reached such a value is
+# stored wherever the body stores one, so the body check finds a lent
+# parameter kept through a `T`.
+
+obj K
+  s: ?String
+
+sub run[T](f: ?*sub(!T, ?String), k: !T, s: ?String)
+  f(!k, s)
+
+obj H[T]
+  f: *fun(?String) -> T
+
+  sub fill(?self, out: !T, s: ?String)
+    out = self.f(s)
+
+sub copy_all[T](out: !List[T], xs: []T)
+  for x in xs
+    !out.push(x)
+
+sub main()
+  pass
+
+# errors: 3
+# error: 10:5: `run` stores a view of `s` in `k`, which its caller reaches, but its signature does not keep `s`; say so: `keeps s`
+# error: 16:5: `fill` stores a view of `s` in `out`, which its caller reaches, but its signature does not keep `s`; say so: `keeps s`
+# error: 20:5: `copy_all` stores a view of `xs` in `out`, which its caller reaches, but its signature does not keep `xs`; say so: `keeps xs`

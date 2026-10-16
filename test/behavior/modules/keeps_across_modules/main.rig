@@ -1,0 +1,15 @@
+# A method of another module keeps what its signature names, and no more:
+# `note`'s lend ends with the call, and `watch`'s lasts while `b` is used.
+use a
+
+sub main()
+  text = String("let x")
+  b = a.Binder(src: "", notes: 0)
+  m = String("long note")
+  !b.note(?m)
+  <m
+  !b.watch(?text)
+  print(b.src, b.notes)
+
+# expect:
+# let x 9

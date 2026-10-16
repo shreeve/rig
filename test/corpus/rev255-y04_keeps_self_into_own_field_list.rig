@@ -1,0 +1,15 @@
+obj N
+  n: Int
+
+  sub reg(?self, out: !List[?N]) keeps self
+    !out.push(self)
+
+obj O
+  a: N
+  out: List[?N]
+
+sub main()
+  o = O(a: N(n: 1), out: List())
+  ?o.a.reg(!o.out)
+  q = <o
+  print(q.out[0].n)

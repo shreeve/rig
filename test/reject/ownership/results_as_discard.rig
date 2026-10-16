@@ -1,0 +1,18 @@
+# A header's temporaries end with it, before its body: a result `as`
+# discarded there would drop after them, so each result is named.
+
+obj Guard
+  s: ?String
+
+  drop(!self)
+    print("guard", self.s)
+
+fun mk(s: ?String) -> (Guard, Int)?
+  return Guard(s: s), s.len
+
+sub main()
+  if mk(?String("abc", "def")) as _, n
+    print(n)
+
+# error: `as` binds each result to a name: name this one, and where the body does not use it
+# errors: 1

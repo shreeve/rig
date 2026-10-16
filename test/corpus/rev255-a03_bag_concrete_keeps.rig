@@ -1,0 +1,11 @@
+obj Bag[T]
+  last: (?T)?
+
+sub put(b: !Bag[String], x: ?String) keeps x
+  b.last = x
+
+sub main()
+  b = Bag[String](last: none)
+  n = String("4")
+  put(!b, ?n)
+  print(b.last)

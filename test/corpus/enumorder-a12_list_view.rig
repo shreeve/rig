@@ -1,0 +1,27 @@
+# Plain enum values read from a List, through a view, a loop over a
+# view, an optional propagation, and an index.
+enum Size
+  large = 30
+  small = 10
+  medium = 20
+
+fun first(xs: []Size) -> Size?
+  if xs.len == 0
+    return none
+  xs[0]
+
+fun big(xs: []Size) -> Bool?
+  first(xs)? > .medium
+
+sub main()
+  l: List[Size] = List()
+  !l.push(.large)
+  !l.push(.small)
+  print(l[0] > l[1], l[1] < .medium)
+  n = 0
+  for x in ?l
+    if x > .small
+      n += 1
+  print(n, big(?l), big(?l[1..]), big(?l[0..0]))
+  v = ?l[0]
+  print(v > .small)

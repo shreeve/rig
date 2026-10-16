@@ -33,7 +33,7 @@ fun mkh() -> H
 fun wrap(h: !H) -> !H
   h
 
-sub set(h: !H, s: ?S)
+sub set(h: !H, s: ?S) keeps s
   h.r = ?s.t
 
 sub main()

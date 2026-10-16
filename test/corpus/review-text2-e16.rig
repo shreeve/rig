@@ -1,7 +1,7 @@
 obj P
   s: ?String
 
-sub put(c: !List[P], s: ?String)
+sub put(c: !List[P], s: ?String) keeps s
   c[0] = P(s: s)
 
 sub main()

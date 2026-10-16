@@ -1,0 +1,6 @@
+sub main()
+  q, r = 1, 2
+  print(q, r)
+
+# error: Rig has no parallel assignment
+# errors: 1

@@ -67,7 +67,7 @@ sub main()
   !sig.set(2)
   print(total.get(), sig.get())
 
-  const fixed: *Cell[Int] = *Cell(0)
+  fixed: *Cell[Int] =! *Cell(0)
   !fixed.set(1)
   from_owned_handle(+fixed)
   print(fixed.get())

@@ -1,0 +1,9 @@
+# `new const x = e` is no shadow: `const` is reserved, and a shadow
+# that never changes is written `new x =! e`.
+
+sub main()
+  x = 1
+  new const x = x + 1
+  print(x)
+
+# error: 6:7: Rig has no `const`; write `x =! e` for a binding that never changes

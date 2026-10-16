@@ -1,0 +1,28 @@
+# A bare variant of a generic enum, written with its type, lent where a
+# view of the enum goes: the constant is reached through the instance
+# its type names (`Opt(i64).nothing`), never as an element of a bracket
+# list. The context-typed `.nothing` is a value made there.
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+sub show(o: ?Opt[Int])
+  match o
+    .some(v) => print("some", v)
+    .nothing => print("nothing")
+
+sub showl(o: ?Opt[List[Int]])
+  match o
+    .some(v) => print("some", v.len)
+    .nothing => print("nothing")
+
+sub main()
+  show(Opt[Int].nothing)
+  showl(Opt[List[Int]].nothing)
+  show(.nothing)
+
+# expect:
+# nothing
+# nothing
+# nothing

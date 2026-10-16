@@ -1,0 +1,22 @@
+# `<`, `<=`, `>`, `>=` order a plain enum by its variants' values: the
+# explicit values, not the order the variants are declared in.
+
+enum Target
+  es2015 = 2015
+  es5 = 5
+  es2020 = 2020
+  es3 = 3
+
+sub main()
+  a = Target.es2015
+  b = Target.es5
+  print(a < b, a <= b, a > b, a >= b)
+  print(b < a, Target.es3 < Target.es5, Target.es2020 > Target.es2015)
+  print(a <= a, a >= a, a < a, a > a)
+  print((Int(a) > Int(b)) == (a > b))
+
+# expect:
+# false false true true
+# true true true
+# true true false false
+# true

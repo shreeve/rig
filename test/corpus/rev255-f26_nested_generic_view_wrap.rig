@@ -1,0 +1,12 @@
+obj Inner[W]
+  w: (?W)?
+
+obj Outer[V]
+  i: Inner[V]
+
+sub main()
+  t = String("hello")
+  o = Outer[String](i: Inner[String](w: ?t))
+  <t
+  if o.i.w as w
+    print(w)

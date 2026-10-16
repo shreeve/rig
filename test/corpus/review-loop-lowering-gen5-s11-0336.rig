@@ -60,7 +60,7 @@ sub main()
     _ = p0
     y0 = D(n: 0 + c0)
     print("b0", c0, h0)
-    :m raw
+    @m raw
       c1 = 0
       p1 = 0
       while mkd(1, c1, 2) as h1: c1 = st(1, c1)
@@ -72,7 +72,7 @@ sub main()
         _ = p1
         defer print("d1", c1)
         print("b1", c0, c1, h1.n)
-        break :m if c0 == 1 and c1 == 1
+        break @m if c0 == 1 and c1 == 1
         c2 = 0
         p2 = 0
         while (limf(c2, 2, false) catch none) as h2 and (gate(c0 == 1 and c1 == 1 and c2 == 1) ?? continue) > 0: c2 = st(2, h2)

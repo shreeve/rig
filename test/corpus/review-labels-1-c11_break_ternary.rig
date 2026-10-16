@@ -1,0 +1,10 @@
+sub main()
+  c = false
+  x = if true
+    @outer while true
+      while true
+        break @outer 1 if c else 2
+      print(99)
+  else
+    0
+  print(x)

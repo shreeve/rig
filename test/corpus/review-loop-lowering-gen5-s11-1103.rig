@@ -63,7 +63,7 @@ sub main()
   guard = 0
   v0 = ints(3)
   p0 = 0
-  :a for x0, c0 in v0
+  @a for x0, c0 in v0
     guard += 1
     if guard > 300
       print("cap")
@@ -73,7 +73,7 @@ sub main()
     y0 = D(n: 0 + c0)
     defer print("d0", c0)
     print("b0", c0, x0)
-    :w0 match c0
+    @w0 match c0
       _
         c1 = 0
         p1 = 0
@@ -88,7 +88,7 @@ sub main()
           break 77 if c1 == 99
           z2 = "ab"
           p2 = 0
-          :a for ch2, c2 in z2
+          @a for ch2, c2 in z2
             guard += 1
             if guard > 300
               print("cap")

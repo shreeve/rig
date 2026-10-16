@@ -22,13 +22,13 @@ sub main()
   print(at([1, 2, 3], 7))
   print("never")
 EOF
-rig run boom.rig >out.txt 2>err.txt; rc=$?
+RIG_NO_CRASH_REPORT=1 rig run boom.rig >out.txt 2>err.txt; rc=$?
 [[ $rc -ne 0 ]] || fail "a panicking program exited 0"
 expect_eq "$(cat out.txt)" $'before\nstill before' "stdout of a panicking program"
 expect_has "$(cat err.txt)" "index out of bounds" "panic message"
 
 # One stream: buffered output is flushed before the panic is written.
-rig run boom.rig >both.txt 2>&1
+RIG_NO_CRASH_REPORT=1 rig run boom.rig >both.txt 2>&1
 first_panic=$(grep -n "panic" both.txt | head -1 | cut -d: -f1)
 last_print=$(grep -n "still before" both.txt | cut -d: -f1)
 [[ -n "$first_panic" && "$last_print" -lt "$first_panic" ]] || fail "print output came after the panic: $(cat both.txt)"

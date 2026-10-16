@@ -1,0 +1,20 @@
+# Rule: a setter that stores a lent parameter says so with `keeps s`; the
+# caller's loan then lasts while the holder is used.
+# From: proposal-call-stores §3 (b) and §9 (spelling 1); tsc's binder
+# `b.file = file` stores the file it is given (binder.go).
+
+obj Binder
+  src: ?String
+  n: Int
+
+  sub set_src(!self, s: ?String) keeps s
+    self.src = s
+
+sub main()
+  text = String("let x")
+  b = Binder(src: "", n: 0)
+  !b.set_src(?text)
+  print(b.src)
+
+# expect:
+# let x

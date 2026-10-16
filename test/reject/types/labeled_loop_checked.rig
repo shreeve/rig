@@ -1,8 +1,8 @@
 # The body of a labeled loop is type-checked like any other.
 
 sub main()
-  :outer while true
+  @outer while true
     x: Int = "s"
-    break :outer
+    break @outer
 
 # error: type mismatch: expected `Int`, got `Static`

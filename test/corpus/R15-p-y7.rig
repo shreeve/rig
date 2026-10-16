@@ -1,7 +1,7 @@
 obj S
   a: [2]Int
 
-const K = S(a: [1, 2])
+K =! S(a: [1, 2])
 
 sub main()
   w = !K.a[..]

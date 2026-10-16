@@ -1,0 +1,20 @@
+# Why: `set_src` stores its lent parameter in `self` without saying so;
+# callers would end the lend at the call and free the bytes `self.src`
+# then views.
+# Rule: the compiler checks each body against its `keeps` (Core
+# sentence 7).
+
+obj Binder
+  src: ?String
+
+  sub set_src(!self, s: ?String)
+    self.src = s
+
+sub main()
+  b = Binder(src: "")
+  t = String("x")
+  !b.set_src(?t)
+  <t
+  print(b.src)
+
+# error: 11:5: say so: `keeps s`

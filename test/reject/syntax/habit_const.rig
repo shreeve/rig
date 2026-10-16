@@ -1,0 +1,9 @@
+# `const` is reserved; a binding that never changes is written `x =! e`,
+# and one that shadows `new x =! e`.
+
+sub main()
+  const x = 5
+  new const y = x
+  print(x, y)
+
+# error: 5:3: Rig has no `const`; write `x =! e` for a binding that never changes

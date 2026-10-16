@@ -1,14 +1,14 @@
 obj K
   a: ?String
 
-  sub put(!self, v: ?String)
+  sub put(!self, v: ?String) keeps v
     self.a = v
 
 enum E
   one(k: K)
   nothing
 
-sub putk(k: !K, v: ?String)
+sub putk(k: !K, v: ?String) keeps v
   k.a = v
 
 sub main()

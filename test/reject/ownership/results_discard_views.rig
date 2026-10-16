@@ -1,0 +1,19 @@
+# A result `_` discards drops at the statement's end; one whose `drop`
+# body could read what it views keeps that viewed until then.
+
+obj Guard
+  s: ?String
+
+  drop(!self)
+    print("guard", self.s)
+
+fun keep(s: ?String) -> (Guard, String)
+  return Guard(s: s), String(s)
+
+sub main()
+  s = String("ab")
+  _, s = keep(?s)
+  print(s)
+
+# error: cannot bind `s` while the result `_` discards views it: that result's `drop` body runs at the statement's end
+# errors: 1

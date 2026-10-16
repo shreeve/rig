@@ -21,6 +21,93 @@ const std = @import("std");
 const Int = i64;
 
 // -----------------------------------------------------------------------------
+// Optionals
+// -----------------------------------------------------------------------------
+
+// Rig's `T?` is `Opt(T)`: Zig's `?T`, or a struct that declares
+// `__rig_optional`, its payload type, and holds the payload its own way.
+// Every operation on a `T?` whose representation may differ from `?T` goes
+// through `some`, `somePtr`, and `pack`, which are the identity on a `?T`:
+// Zig rejects `orelse`, `null`, and a payload where a struct optional
+// goes, so an operation that skips them fails to compile. Under
+// `RIG_STRICT_OPTIONALS`, every object declares `__rig_strict_optional`,
+// and its optional is a `Strict` wrapper, so the whole suite checks that
+// emit and this file route every such operation.
+
+/// The Zig type of Rig's `T?`.
+pub fn Opt(comptime T: type) type {
+    if (comptime @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_strict_optional")) return Strict(T);
+    // A type that names its none (a compact optional) gets its own
+    // struct here.
+    return ?T;
+}
+
+/// `T?` held beside a flag, for an object under `RIG_STRICT_OPTIONALS`:
+/// the same values as `?T`, in a type Zig never lifts a `T` into.
+fn Strict(comptime T: type) type {
+    return struct {
+        has: bool,
+        payload: T,
+
+        pub const __rig_optional = T;
+
+        pub inline fn unwrap(o: @This()) ?T {
+            return if (o.has) o.payload else null;
+        }
+
+        pub inline fn unwrapPtr(p: anytype) ?@TypeOf(&p.payload) {
+            return if (p.has) &p.payload else null;
+        }
+
+        pub inline fn wrap(x: ?T) @This() {
+            return if (x) |v| .{ .has = true, .payload = v } else .{ .has = false, .payload = undefined };
+        }
+    };
+}
+
+/// Whether `O` is a Rig optional held as a struct (`Opt`).
+fn isOptStruct(comptime O: type) bool {
+    return @typeInfo(O) == .@"struct" and @hasDecl(O, "__rig_optional");
+}
+
+/// Whether `O` is a Rig optional: Zig's `?T`, or a struct one.
+fn isOptional(comptime O: type) bool {
+    return @typeInfo(O) == .optional or isOptStruct(O);
+}
+
+/// The `T` of an optional type `O`.
+pub fn Payload(comptime O: type) type {
+    return if (comptime isOptStruct(O)) O.__rig_optional else @typeInfo(O).optional.child;
+}
+
+/// `x`, a `T?`, as Zig's `?T`: what `if x as v`, `while x as v`, `??`,
+/// `?`, and `== none` test.
+pub inline fn some(x: anytype) ?Payload(@TypeOf(x)) {
+    if (comptime isOptStruct(@TypeOf(x))) return x.unwrap();
+    return x;
+}
+
+/// The address of the value inside the optional `p` points to, or null:
+/// what a `|*v|` capture binds.
+pub inline fn somePtr(p: anytype) ?PayloadPtr(@TypeOf(p)) {
+    const O = @typeInfo(@TypeOf(p)).pointer.child;
+    if (comptime isOptStruct(O)) return O.unwrapPtr(p);
+    return if (p.*) |*v| v else null;
+}
+
+fn PayloadPtr(comptime P: type) type {
+    const info = @typeInfo(P).pointer;
+    return if (info.attrs.@"const") *const Payload(info.child) else *Payload(info.child);
+}
+
+/// Zig's `?T` as the `T?` of type `O`, the inverse of `some`: what a
+/// `T`, `none`, or an optional-valued `??` is where a `T?` goes.
+pub inline fn pack(comptime O: type, x: ?Payload(O)) O {
+    if (comptime isOptStruct(O)) return O.wrap(x);
+    return x;
+}
+
+// -----------------------------------------------------------------------------
 // Dropping values
 // -----------------------------------------------------------------------------
 
@@ -40,6 +127,7 @@ fn isStrongHandle(comptime T: type) bool {
 /// The mirror of sema's `typeHasDropGlue` for a Zig type: a unique type
 /// that needs no cleanup drops nothing.
 fn needsDrop(comptime T: type) bool {
+    if (comptime isOptStruct(T)) return needsDrop(Payload(T));
     return switch (@typeInfo(T)) {
         .pointer => isStrongHandle(T),
         .optional => |o| needsDrop(o.child),
@@ -75,6 +163,7 @@ pub fn ReadView(comptime T: type) type {
 }
 
 fn copiedByReadView(comptime T: type) bool {
+    if (comptime isOptStruct(T)) return copiedByReadView(Payload(T));
     return switch (@typeInfo(T)) {
         .int, .float, .bool, .comptime_int, .comptime_float, .error_set, .@"enum", .@"fn", .pointer, .vector => true,
         .optional => |o| copiedByReadView(o.child),
@@ -145,6 +234,10 @@ fn copiedView(comptime T: type, view: anytype) T {
 /// Plain data is a no-op, decided at compile time.
 fn dropElement(comptime T: type, value: *T) void {
     if (comptime !needsDrop(T)) return;
+    if (comptime isOptStruct(T)) {
+        if (somePtr(value)) |inner| dropElement(Payload(T), inner);
+        return;
+    }
     switch (@typeInfo(T)) {
         .pointer => value.*.dropStrong(),
         .optional => if (value.*) |*inner| dropElement(@TypeOf(inner.*), inner),
@@ -197,7 +290,7 @@ pub fn swapPlaces(a: anytype, b: @TypeOf(a)) void {
 /// `<p.f` of an optional: the value, with `none` left in its place.
 pub fn takeOut(place: anytype) @TypeOf(place.*) {
     const value = place.*;
-    place.* = null;
+    place.* = pack(@TypeOf(place.*), null);
     return value;
 }
 
@@ -216,7 +309,7 @@ pub fn keep(slot: anytype, live: *bool, value: @TypeOf(slot.*)) @TypeOf(slot) {
 /// value that has one, and this has none.
 pub fn noneAt(comptime O: type) *O {
     const S = struct {
-        var none: O = null;
+        var none: O = pack(O, null);
     };
     return &S.none;
 }
@@ -276,16 +369,16 @@ pub fn eql(a: anytype, b: anytype) bool {
     const dA = comptime optDepth(A);
     const dB = comptime optDepth(B);
     if (comptime dA > dB) {
-        const x = a orelse return false;
+        const x = some(a) orelse return false;
         return eql(x, b);
     }
     if (comptime dB > dA) {
-        const y = b orelse return false;
+        const y = some(b) orelse return false;
         return eql(a, y);
     }
     if (comptime dA > 0) {
-        const x = a orelse return b == null;
-        const y = b orelse return false;
+        const x = some(a) orelse return some(b) == null;
+        const y = some(b) orelse return false;
         return eql(x, y);
     }
     // A String compares with a String or a `?String` by its bytes.
@@ -306,6 +399,7 @@ fn isValuePointer(comptime T: type) bool {
 
 /// How many optional levels `T` has.
 fn optDepth(comptime T: type) comptime_int {
+    if (comptime isOptStruct(T)) return 1 + optDepth(Payload(T));
     return switch (@typeInfo(T)) {
         .optional => |o| 1 + optDepth(o.child),
         else => 0,
@@ -314,6 +408,7 @@ fn optDepth(comptime T: type) comptime_int {
 
 /// Whether `x` is `none`: the literal, or an optional holding nothing.
 fn nullish(x: anytype) bool {
+    if (comptime isOptStruct(@TypeOf(x))) return some(x) == null;
     return switch (@typeInfo(@TypeOf(x))) {
         .null => true,
         .optional => x == null,
@@ -342,6 +437,11 @@ fn stringBytes(x: anytype) []const u8 {
 }
 
 fn eqlAs(comptime T: type, a: T, b: T) bool {
+    if (comptime isOptStruct(T)) {
+        const x = some(a) orelse return some(b) == null;
+        const y = some(b) orelse return false;
+        return eqlAs(Payload(T), x, y);
+    }
     switch (@typeInfo(T)) {
         .optional => |o| {
             const x = a orelse return b == null;
@@ -390,6 +490,7 @@ pub fn hash(x: anytype) u64 {
 /// `hash` of a value of type `T`.
 pub fn hashAs(comptime T: type, x: T) u64 {
     if (comptime isString(T)) return hashBytes(stringBytes(x));
+    if (comptime isOptStruct(T)) return if (some(x)) |v| hashAs(Payload(T), v) else hash_none;
     switch (@typeInfo(T)) {
         .optional => |o| return if (x) |v| hashAs(o.child, v) else hash_none,
         .null => return hash_none,
@@ -470,8 +571,8 @@ inline fn hashMix(h: u64, part: u64) u64 {
 /// `x == .tag` for a tagged union, or an optional of one: whether `x`
 /// holds that variant, whatever its payload.
 pub fn isVariant(x: anytype, comptime tag: @EnumLiteral()) bool {
-    if (@typeInfo(@TypeOf(x)) == .optional) {
-        const v = x orelse return false;
+    if (comptime isOptional(@TypeOf(x))) {
+        const v = some(x) orelse return false;
         return isVariant(v, tag);
     }
     return std.meta.activeTag(x) == tag;
@@ -494,11 +595,14 @@ fn isScalar(comptime T: type) bool {
     };
 }
 
-/// `a op b` for an ordering operator in a generic body: numbers compare
-/// as numbers, and `?String`s by their bytes, where the first byte that
-/// differs decides and a prefix sorts first.
+/// `a op b` for an ordering operator in a generic body or on a plain
+/// enum: numbers compare as numbers, a plain enum's values by their
+/// variants' values, and `?String`s by their bytes, where the first byte
+/// that differs decides and a prefix sorts first.
 pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bool {
-    if (comptime isStringView(@TypeOf(a, b))) return std.mem.order(u8, a, b).compare(op);
+    const T = @TypeOf(a, b);
+    if (comptime isStringView(T)) return std.mem.order(u8, a, b).compare(op);
+    if (@typeInfo(T) == .@"enum") return std.math.compare(@intFromEnum(@as(T, a)), op, @intFromEnum(@as(T, b)));
     return std.math.compare(a, op, b);
 }
 
@@ -648,6 +752,7 @@ pub fn upgradeTaken(w: anytype) @TypeOf(w.upgrade()) {
 pub fn cloneValue(value: anytype) @TypeOf(value.*) {
     const T = @TypeOf(value.*);
     if (comptime !needsDrop(T)) return value.*;
+    if (comptime isOptStruct(T)) return pack(T, if (somePtr(value)) |inner| cloneValue(inner) else null);
     switch (@typeInfo(T)) {
         .pointer => return value.*.cloneStrong(),
         .optional => return if (value.*) |*inner| cloneValue(inner) else null,
@@ -673,22 +778,24 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
 
 /// `+x` for an optional handle: another handle to the same box, or null.
 pub fn cloneOptional(value: anytype) @TypeOf(value) {
-    const h = value orelse return null;
-    return if (comptime isStrongHandle(@TypeOf(h))) h.cloneStrong() else h.cloneWeak();
+    const O = @TypeOf(value);
+    const h = some(value) orelse return pack(O, null);
+    return pack(O, if (comptime isStrongHandle(@TypeOf(h))) h.cloneStrong() else h.cloneWeak());
 }
 
 /// `e == none` for a temporary optional that owns a resource: the
 /// temporary is dropped.
 pub fn isNone(value: anytype) bool {
     defer discard(value);
-    return value == null;
+    return some(value) == null;
 }
 
 /// `xs.get(i)` on an array (or a pointer to one), a slice, or a `?String`:
 /// the element at `i`, or null when out of range.
-pub fn elementAt(items: anytype, i: Int) ?ElementOf(@TypeOf(items)) {
-    const idx = std.math.cast(usize, i) orelse return null;
-    return if (idx < items.len) items[idx] else null;
+pub fn elementAt(items: anytype, i: Int) Opt(ElementOf(@TypeOf(items))) {
+    const O = Opt(ElementOf(@TypeOf(items)));
+    const idx = std.math.cast(usize, i) orelse return pack(O, null);
+    return pack(O, if (idx < items.len) items[idx] else null);
 }
 
 /// The element type of an array, a pointer to one, or a slice.
@@ -835,7 +942,7 @@ pub fn Cell(comptime T: type) type {
             self.value.push(value);
         }
 
-        pub fn listPop(self: *Self) ?E {
+        pub fn listPop(self: *Self) Opt(E) {
             return self.value.pop();
         }
 
@@ -847,7 +954,7 @@ pub fn Cell(comptime T: type) type {
             return self.value.at(i);
         }
 
-        pub fn listGet(self: *const Self, i: Int) ?E {
+        pub fn listGet(self: *const Self, i: Int) Opt(E) {
             return self.value.get(i);
         }
 
@@ -865,7 +972,7 @@ pub fn Cell(comptime T: type) type {
                 return;
             }
             while (self.value.len > rest) {
-                var gone = self.value.pop().?;
+                var gone = some(self.value.pop()).?;
                 dropElement(E, &gone);
             }
         }
@@ -1144,9 +1251,9 @@ pub fn List(comptime T: type) type {
         }
 
         /// The element at `i`, or null when out of range. Plain-data `T` only.
-        pub fn get(self: *const Self, i: Int) ?T {
-            const idx = std.math.cast(usize, i) orelse return null;
-            return if (idx < self.len) self.buf[idx] else null;
+        pub fn get(self: *const Self, i: Int) Opt(T) {
+            const idx = std.math.cast(usize, i) orelse return pack(Opt(T), null);
+            return pack(Opt(T), if (idx < self.len) self.buf[idx] else null);
         }
 
         /// `v[i]`: the element at `i`; panics when out of range.
@@ -1166,10 +1273,10 @@ pub fn List(comptime T: type) type {
         }
 
         /// Remove and return the last element; the caller owns it.
-        pub fn pop(self: *Self) ?T {
-            if (self.len == 0) return null;
+        pub fn pop(self: *Self) Opt(T) {
+            if (self.len == 0) return pack(Opt(T), null);
             self.len -= 1;
-            return self.buf[self.len];
+            return pack(Opt(T), self.buf[self.len]);
         }
 
         /// Insert `value` at `i`, moving the elements from `i` on up by
@@ -1198,11 +1305,11 @@ pub fn List(comptime T: type) type {
             list: Self,
             next_index: usize = 0,
 
-            pub fn next(it: *IntoIter) ?T {
-                if (it.next_index >= it.list.len) return null;
+            pub fn next(it: *IntoIter) Opt(T) {
+                if (it.next_index >= it.list.len) return pack(Opt(T), null);
                 const value = it.list.buf[it.next_index];
                 it.next_index += 1;
-                return value;
+                return pack(Opt(T), value);
             }
 
             /// Drop the elements not handed over (the loop left early),
@@ -1307,24 +1414,42 @@ pub const String = struct {
     pub const empty: String = .{};
 
     /// `String(a, b, ...)`.
-    pub fn of(parts: anytype) String {
+    pub inline fn of(pieces: anytype) String {
         var t: String = .empty;
-        t.add(parts);
+        t.add(pieces);
         return t;
     }
 
-    /// `!t.add(a, b, ...)`.
-    pub fn add(self: *String, parts: anytype) void {
-        const fields = @typeInfo(@TypeOf(parts)).@"struct".field_names;
-        if (comptime fields.len == 1) {
-            const part = @field(parts, fields[0]);
-            const P = @TypeOf(part);
-            if (comptime isStringView(P)) return self.appendBytes(part);
-            if (comptime P == String) return self.appendBytes(part.list.items);
-        }
+    /// `!t.add(a, b, ...)`: the pieces as `print` takes them (`piecesOf`),
+    /// with no separators. Inlined, it is a straight line of appends:
+    /// each run of text once, each value by the one writer of its type.
+    pub inline fn add(self: *String, pieces: anytype) void {
+        inline for (comptime piecesOf(@TypeOf(pieces))) |p| switch (p) {
+            .text => |t| self.appendFixed(t.len, t[0..t.len]),
+            .value => |f| self.addValue(pieces[f]),
+        };
+    }
+
+    /// Text of `n` bytes known at compile time, appended by the one
+    /// function of its length.
+    noinline fn appendFixed(self: *String, comptime n: usize, text: *const [n]u8) void {
+        self.appendBytes(text);
+    }
+
+    /// A value `add` writes: text and a String as their bytes, which the
+    /// ownership checker keeps from being this String's own, anything
+    /// else by the one writer of its type.
+    inline fn addValue(self: *String, value: anytype) void {
+        const P = @TypeOf(value);
+        if (comptime isStringView(P)) return self.appendBytes(value);
+        if (comptime P == String or isStringPlace(P)) return self.appendBytes(value.list.items);
+        self.addValueOf(value);
+    }
+
+    noinline fn addValueOf(self: *String, value: anytype) void {
         var out: std.Io.Writer.Allocating = .fromArrayList(defaultAllocator(), &self.list);
         defer self.list = out.toArrayList();
-        inline for (@typeInfo(@TypeOf(parts)).@"struct".field_names) |f| writeValue(&out.writer, @field(parts, f), true) catch oom();
+        writeValue(&out.writer, value, true) catch oom();
     }
 
     // The list's `items.len <= capacity` always holds, so every append
@@ -1479,6 +1604,7 @@ fn nameOf(comptime x: anytype, comptime names: anytype) []const u8 {
     if (@TypeOf(x) != type) return std.fmt.comptimePrint("{d}", .{x});
     const T = x;
     if (builtinName(T, names)) |name| return name;
+    if (comptime isOptStruct(T)) return suffixedName(Payload(T), "?", names);
     return switch (@typeInfo(T)) {
         .optional => |o| suffixedName(o.child, "?", names),
         .error_union => |e| suffixedName(e.payload, "!", names),
@@ -1567,7 +1693,7 @@ fn fnName(comptime params: anytype, comptime R: type, comptime names: anytype) [
 /// `T?` / `T!`, with `T` in parentheses when a suffix cannot follow it,
 /// as the printer writes them.
 fn suffixedName(comptime T: type, comptime suffix: []const u8, comptime names: anytype) []const u8 {
-    const doubled = std.mem.eql(u8, suffix, "?") and builtinName(T, names) == null and @typeInfo(T) == .optional;
+    const doubled = std.mem.eql(u8, suffix, "?") and builtinName(T, names) == null and isOptional(T);
     if (doubled or takesNoSuffix(T, names)) return "(" ++ nameOf(T, names) ++ ")" ++ suffix;
     return nameOf(T, names) ++ suffix;
 }
@@ -1594,7 +1720,7 @@ fn takesNoSuffix(comptime T: type, comptime names: anytype) bool {
 fn handleName(comptime sigil: []const u8, comptime T: type, comptime names: anytype) []const u8 {
     // A box of a read view is written `^?T`; a handle holds no view.
     const view = if (builtinName(T, names)) |name| name[0] == '?' and sigil[0] != '^' else false;
-    const suffixed = view or @typeInfo(T) == .optional or @typeInfo(T) == .error_union;
+    const suffixed = view or isOptional(T) or @typeInfo(T) == .error_union;
     return if (suffixed) sigil ++ "(" ++ nameOf(T, names) ++ ")" else sigil ++ nameOf(T, names);
 }
 
@@ -1681,8 +1807,8 @@ pub fn frexpExponent(x: anytype) i64 {
 }
 
 /// The variant of plain enum `E` whose integer value is `n`, or null.
-pub fn enumFromInt(comptime E: type, n: anytype) ?E {
-    return std.enums.fromInt(E, n);
+pub fn enumFromInt(comptime E: type, n: anytype) Opt(E) {
+    return pack(Opt(E), std.enums.fromInt(E, n));
 }
 
 /// `for x in <a` of an array whose elements move: each element handed
@@ -1694,11 +1820,11 @@ pub fn ArrayIntoIter(comptime A: type) type {
         items: A,
         next_index: usize = 0,
 
-        pub fn next(it: *@This()) ?T {
-            if (it.next_index >= it.items.len) return null;
+        pub fn next(it: *@This()) Opt(T) {
+            if (it.next_index >= it.items.len) return pack(Opt(T), null);
             const value = it.items[it.next_index];
             it.next_index += 1;
-            return value;
+            return pack(Opt(T), value);
         }
 
         pub fn deinit(it: *@This()) void {
@@ -3137,15 +3263,34 @@ const guard_sizes = [_]usize{ 64 << 30, 1 << 30 };
 const own_stack = (builtin.target.os.tag == .macos or builtin.target.os.tag == .linux) and
     (builtin.target.cpu.arch == .aarch64 or builtin.target.cpu.arch == .x86_64);
 
+/// Bytes left unused at the stack's top, above the first frame, for a
+/// stack trace's walk to read. On macOS, Zig's reader of a frame's
+/// compact unwind entry (the FRAME case of `unwindFrameInner` in
+/// `std/debug/SelfInfo/MachO.zig`, to recheck at each Zig upgrade)
+/// reads the saved pairs of x19..x28 upward from 8 below the frame
+/// pointer, though they lie below it: up to 56 bytes above the stack
+/// pointer the frame started from. Without this room the walk would
+/// read past the top of the first frame on this stack, into the page
+/// above, which faults while a panic prints its trace.
+const unwind_headroom: usize = 256;
+
+comptime {
+    // Room for five pairs read from 8 below a frame pointer that is 16
+    // below where the frame started, and the stack pointer kept aligned.
+    std.debug.assert(unwind_headroom >= 64 and unwind_headroom % 16 == 0);
+}
+
 /// The guard below the stack, once it is mapped: an access in it is a
 /// stack overflow.
 var stack_guard: struct { lo: usize = 0, hi: usize = 0 } = .{};
 
-/// Map the stack, read-write, above its guard; the stack's top, or null
-/// when not even the smallest guard can be reserved.
+/// Map the stack, read-write, above its guard and below one inaccessible
+/// page, so a read past its top faults whatever else is mapped; the
+/// stack's top, or null when not even the smallest guard can be
+/// reserved.
 fn mapStack() ?usize {
     for (guard_sizes) |size| {
-        const got = std.posix.mmap(null, size + stack_size, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch continue;
+        const got = std.posix.mmap(null, size + stack_size + std.heap.pageSize(), .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch continue;
         const base = @intFromPtr(got.ptr);
         if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(base + size), stack_size, .{ .READ = true, .WRITE = true })) != .SUCCESS) {
             std.posix.munmap(got);
@@ -3181,7 +3326,7 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
         }
     };
     var call: Call = .{ .args = args };
-    switchStack(&call, &Call.run, top);
+    switchStack(&call, &Call.run, top - unwind_headroom);
     return call.result;
 }
 
@@ -3288,7 +3433,8 @@ fn switchStack(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
 
 // The overflow handler. Like the sanitizer's, it restores the handlers
 // it replaced and returns: the access runs again and faults into Zig's
-// handler, which prints the stack trace.
+// handler, which prints the stack trace. Where Zig installs none, it
+// aborts.
 
 var overflow_previous: [2]std.posix.Sigaction = undefined;
 
@@ -3308,6 +3454,9 @@ fn onOverflow(_: std.posix.SIG, info: *const std.posix.siginfo_t, _: ?*anyopaque
     flush();
     const msg = "error: rig: stack overflow\n";
     _ = std.posix.system.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
+    // Where Zig installs no handler (`--release=fast`), the fault again
+    // would end the program by the signal; it aborts as a panic does.
+    if (!std.options.enable_segfault_handler) std.process.abort();
 }
 
 /// The address whose access raised the fault `info` describes.
@@ -3327,6 +3476,14 @@ var process_args: []const []const u8 = &.{};
 /// gathered into `Static`s once, freed by `finish`.
 pub fn start(init: std.process.Init.Minimal) void {
     process = init;
+    // RIG_NO_CRASH_REPORT=1, set by a test harness for a program that
+    // panics on purpose: macOS files no crash report when it dies. It
+    // still dies by its signal, its report on stderr unchanged.
+    if (builtin.os.tag.isDarwin()) {
+        if (init.environ.getPosix("RIG_NO_CRASH_REPORT")) |v| {
+            if (std.mem.eql(u8, v, "1")) noCrashReport();
+        }
+    }
     // Only a program `rig run` or `rig test` builds declares
     // `__rig_run_started`, the environment variable that names a file to
     // create as it starts: their evidence that the exit status is the
@@ -3344,6 +3501,21 @@ pub fn start(init: std.process.Init.Minimal) void {
     const list = defaultAllocator().alloc([]const u8, init.args.vector.len) catch oom();
     for (list, init.args.vector) |*arg, c| arg.* = std.mem.sliceTo(c, 0);
     process_args = list;
+}
+
+extern "c" var mach_task_self_: c_uint;
+extern "c" fn task_set_exception_ports(task: c_uint, mask: c_uint, port: c_uint, behavior: c_int, flavor: c_int) c_int;
+
+/// No handler for this process's crash exceptions (EXC_MASK_CRASH and
+/// EXC_MASK_CORPSE_NOTIFY to MACH_PORT_NULL, EXCEPTION_DEFAULT,
+/// THREAD_STATE_NONE), so ReportCrash never hears of its death. The
+/// processes it starts inherit it.
+fn noCrashReport() void {
+    const exc_mask_crash: c_uint = 1 << 10;
+    const exc_mask_corpse_notify: c_uint = 1 << 13;
+    const exception_default: c_int = 1;
+    const thread_state_none: c_int = if (builtin.cpu.arch == .x86_64) 13 else 5;
+    _ = task_set_exception_ports(mach_task_self_, exc_mask_crash | exc_mask_corpse_notify, 0, exception_default, thread_state_none);
 }
 
 /// Free what `start` gathered, at the end of the program or its tests.
@@ -3411,16 +3583,132 @@ fn flush() void {
     if (stdout_writer) |*w| w.interface.flush() catch {};
 }
 
-/// `print(a, b, ...)`: the values separated by single spaces, then a
-/// newline.
-pub fn print(args: anytype) void {
-    const w = stdout();
-    inline for (@typeInfo(@TypeOf(args)).@"struct".field_names, 0..) |f, i| {
-        if (i > 0) w.writeAll(" ") catch {};
-        writeValue(w, @field(args, f), true) catch {};
+/// One `print`: its pieces in order, the spaces between its arguments and
+/// the newline that ends them included, as the emitter lists them
+/// (`.{ "n =", " ", n, "\n" }`). The tuple holds every argument's value,
+/// so all of them have run before a byte is written. Inlined, it is a
+/// straight line: each run of text (`piecesOf`) copied into the buffer
+/// at once, each value written by its writer (`outValue`).
+pub inline fn print(pieces: anytype) void {
+    const plan = comptime piecesOf(@TypeOf(pieces));
+    comptime std.debug.assert(plan.len > 0 and plan[plan.len - 1] == .text);
+    inline for (plan, 0..) |p, i| switch (p) {
+        .text => |t| outText(t, i == plan.len - 1),
+        .value => |f| outValue(pieces[f]),
+    };
+}
+
+/// What one piece of `print`, `String(...)`, or `add` writes: text known
+/// at compile time, or the value of the tuple's field at this index.
+const Piece = union(enum) { text: []const u8, value: usize };
+
+/// The pieces of the tuple type `P`, in order, with each run of text
+/// joined into one. A field known at compile time whose bytes are too
+/// (a string literal, an Int, a Bool) is text, written as `writeValue`
+/// writes it at the top level.
+fn piecesOf(comptime P: type) []const Piece {
+    comptime {
+        const s = @typeInfo(P).@"struct";
+        const n = s.field_types.len;
+        @setEvalBranchQuota(1000 + 20 * n);
+        var texts: [n]?[]const u8 = undefined;
+        for (s.field_types, s.field_attrs, &texts) |T, a, *t| {
+            t.* = if (a.@"comptime") constantText(T, a.defaultValue(T).?) else null;
+        }
+        var out: [n]Piece = undefined;
+        var count: usize = 0;
+        var i: usize = 0;
+        while (i < n) : (count += 1) {
+            if (texts[i] == null) {
+                out[count] = .{ .value = i };
+                i += 1;
+                continue;
+            }
+            const first = i;
+            var bytes: usize = 0;
+            while (i < n and texts[i] != null) : (i += 1) bytes += texts[i].?.len;
+            out[count] = .{ .text = joined(bytes, texts[first..i]) };
+        }
+        const done = out[0..count].*;
+        return &done;
     }
-    w.writeAll("\n") catch {};
+}
+
+/// `parts` joined, `bytes` long in all.
+fn joined(comptime bytes: usize, comptime parts: []const ?[]const u8) []const u8 {
+    comptime {
+        var buf: [bytes]u8 = undefined;
+        var end: usize = 0;
+        for (parts) |p| {
+            @memcpy(buf[end..][0..p.?.len], p.?);
+            end += p.?.len;
+        }
+        const done = buf;
+        return &done;
+    }
+}
+
+/// The bytes `writeValue` writes for `v` at the top level, when they are
+/// known at compile time.
+fn constantText(comptime T: type, comptime v: T) ?[]const u8 {
+    if (comptime isStringView(T)) return v;
+    return switch (@typeInfo(T)) {
+        .int, .comptime_int => std.fmt.comptimePrint("{d}", .{v}),
+        .bool => if (v) "true" else "false",
+        else => null,
+    };
+}
+
+/// The one place a failed write to stdout lands. It is ignored.
+fn outFailed(err: std.Io.Writer.Error) void {
+    switch (err) {
+        error.WriteFailed => {},
+    }
+}
+
+/// Text of a `print`, known at compile time, written by the one writer
+/// of its length (`outFixed`).
+inline fn outText(comptime text: []const u8, comptime ends_line: bool) void {
+    outFixed(text.len, ends_line, text[0..text.len]);
+}
+
+/// Text of `n` bytes: copied into the buffer when it fits, and otherwise
+/// written by `outBytes`. Text that ends a line goes through `outLine`
+/// when stdout is a terminal.
+noinline fn outFixed(comptime n: usize, comptime ends_line: bool, text: *const [n]u8) void {
+    if (stdout_writer) |*sw| {
+        const w = &sw.interface;
+        if (!(ends_line and stdout_is_tty) and n <= w.buffer.len - w.end) {
+            w.buffer[w.end..][0..n].* = text.*;
+            w.end += n;
+            return;
+        }
+    }
+    if (ends_line) outLine(text) else outBytes(text);
+}
+
+/// Bytes of a `print`.
+noinline fn outBytes(bytes: []const u8) void {
+    stdout().writeAll(bytes) catch |err| outFailed(err);
+}
+
+/// The last text of a `print`, which ends its line: written, then
+/// flushed when stdout is a terminal.
+noinline fn outLine(text: []const u8) void {
+    outBytes(text);
     if (stdout_is_tty) flush();
+}
+
+/// A value of a `print`, as Rig writes it at the top level: text as its
+/// bytes, anything else by the one writer of its type.
+inline fn outValue(value: anytype) void {
+    if (comptime isStringView(@TypeOf(value))) return outBytes(value);
+    if (comptime isStringPlace(@TypeOf(value))) return outBytes(value.list.items);
+    outValueOf(value);
+}
+
+noinline fn outValueOf(value: anytype) void {
+    writeValue(stdout(), value, true) catch |err| outFailed(err);
 }
 
 /// The root panic handler of every emitted program: buffered output
@@ -3528,6 +3816,14 @@ fn isStringView(comptime T: type) bool {
     };
 }
 
+/// A String read where it is, by address (`*String`, `*const String`).
+fn isStringPlace(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |p| p.size == .one and p.child == String,
+        else => false,
+    };
+}
+
 /// The Rig name of a declared type: `main.Wrap(i64)` is `Wrap`.
 fn rigTypeName(comptime T: type) []const u8 {
     const full = @typeName(T);
@@ -3558,6 +3854,7 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
     if (comptime isStringView(T)) {
         return if (top) w.writeAll(value) else w.print("\"{s}\"", .{value});
     }
+    if (comptime isOptStruct(T)) return if (some(value)) |v| writeValue(w, v, top) else w.writeAll("none");
     switch (@typeInfo(T)) {
         .int, .comptime_int => return w.print("{d}", .{value}),
         .float, .comptime_float => {
@@ -4015,15 +4312,15 @@ test "dropping a shared handle to a shared handle drops the inner one" {
 test "optional handles drop, clone, and compare with none" {
     const before = usage();
     var drops: usize = 0;
-    var some: ?*RcBox(Counter) = rcNew(Counter{ .drops = &drops });
+    var held: ?*RcBox(Counter) = rcNew(Counter{ .drops = &drops });
     var none: ?*RcBox(Counter) = null;
-    var other = cloneOptional(some);
-    try testing.expectEqual(2, some.?.strong);
+    var other = cloneOptional(held);
+    try testing.expectEqual(2, held.?.strong);
     try testing.expectEqual(null, cloneOptional(none));
-    try testing.expect(!isNone(cloneOptional(some)));
+    try testing.expect(!isNone(cloneOptional(held)));
     try testing.expect(isNone(none));
     drop(&none);
-    drop(&some);
+    drop(&held);
     try testing.expectEqual(0, drops);
     drop(&other);
     try testing.expectEqual(1, drops);
@@ -4212,6 +4509,51 @@ test "aggregates drop their parts" {
     var arr: [2]H = .{ rcNew(Counter{ .drops = &drops }), rcNew(Counter{ .drops = &drops }) };
     drop(&arr);
     try testing.expectEqual(5, drops);
+    try expectNoLeaks(before);
+}
+
+test "an optional held as a struct drops, clones, compares, hashes, and prints as ?T does" {
+    const before = usage();
+    var drops: usize = 0;
+    const H = *RcBox(Counter);
+    const Obj = struct {
+        h: H,
+        pub const __rig_strict_optional = {};
+    };
+    const Plain = struct {
+        id: i64,
+        pub const __rig_strict_optional = {};
+    };
+    const O = Opt(Obj);
+    try testing.expect(isOptStruct(O) and needsDrop(O) and !needsDrop(Opt(Plain)));
+    try testing.expect(Opt(i64) == ?i64 and Opt(O) == ?O);
+
+    var held = pack(O, Obj{ .h = rcNew(Counter{ .drops = &drops }) });
+    var none = pack(O, null);
+    try testing.expect(some(none) == null and somePtr(&none) == null);
+    var cloned = cloneValue(&held);
+    try testing.expectEqual(2, some(held).?.h.strong);
+    somePtr(&cloned).?.h.dropStrong();
+    cloned = takeOut(&held);
+    try testing.expect(isNone(held) and !isNone(pack(Opt(Plain), Plain{ .id = 1 })));
+    drop(&none);
+    drop(&held);
+    try testing.expectEqual(0, drops);
+    drop(&cloned);
+    try testing.expectEqual(1, drops);
+
+    const P = Opt(Plain);
+    const a = pack(P, Plain{ .id = 3 });
+    try testing.expect(eql(a, pack(P, Plain{ .id = 3 })) and !eql(a, pack(P, null)) and eql(a, Plain{ .id = 3 }));
+    try testing.expect(eql(pack(P, null), @as(?Plain, null)) and !eql(a, pack(P, Plain{ .id = 4 })));
+    try testing.expectEqual(hash(@as(?Plain, Plain{ .id = 3 })), hash(a));
+    try testing.expectEqual(hash(@as(?Plain, null)), hash(pack(P, null)));
+    var buf: [64]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try writeValue(&w, a, true);
+    try w.writeAll(" ");
+    try writeValue(&w, pack(?P, pack(P, null)), true);
+    try testing.expectEqualStrings("Plain(id: 3) none", w.buffered());
     try expectNoLeaks(before);
 }
 
@@ -4409,16 +4751,17 @@ fn readByte(addr: usize) void {
     std.mem.doNotOptimizeAway(@as(*volatile u8, @ptrFromInt(addr)).*);
 }
 
-test "the program's stack is writable, and the guard below it faults" {
+test "the program's stack is writable, and the guard below it and the page above it fault" {
     if (!own_stack) return error.SkipZigTest;
     const top = mapStack() orelse return error.TestUnexpectedResult;
-    defer std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(stack_guard.lo))[0 .. top - stack_guard.lo]);
+    defer std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(stack_guard.lo))[0 .. top + std.heap.pageSize() - stack_guard.lo]);
     try std.testing.expectEqual(top - stack_size, stack_guard.hi);
     try std.testing.expect(stack_guard.hi - stack_guard.lo >= guard_sizes[guard_sizes.len - 1]);
     writeByte(top - 1);
     writeByte(stack_guard.hi);
     try std.testing.expect(try faults(stack_guard.hi - 1, writeByte));
     try std.testing.expect(try faults(stack_guard.lo, readByte));
+    try std.testing.expect(try faults(top, readByte));
 }
 
 test "a call on the program's stack returns its value" {

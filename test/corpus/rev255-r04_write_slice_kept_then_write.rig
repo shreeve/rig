@@ -1,0 +1,9 @@
+sub reg(xs: ![]String, out: !List[?String]) keeps xs
+  !out.push(?xs[0])
+
+sub main()
+  a = [String("first")]
+  out: List[?String] = List()
+  reg(!a[..], !out)
+  a[0] = String("second")
+  print(out[0])

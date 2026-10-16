@@ -1,6 +1,6 @@
 # `!c` lends the handle itself, which a callee may point elsewhere, only
 # where `c` may be written: an owned mutable local, a `!*T` parameter, a
-# handle field of a value reached through a write view. A `const` handle
+# handle field of a value reached through a write view. A fixed (`=!`) handle
 # or a read-only parameter lends what it holds.
 
 obj W
@@ -28,7 +28,7 @@ sub main()
   w = W(h: *Cell(1))
   through(!w)
   print(w.h.get())
-  const k = *Cell(1)
+  k =! *Cell(1)
   set5(!k)
   print(k.get())
 

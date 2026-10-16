@@ -1,5 +1,5 @@
 # The step of `while c as h: step` may read `h`: it runs after the
-# body, also after a `continue` (and a `continue :outer` from a nested
+# body, also after a `continue` (and a `continue @outer` from a nested
 # loop), while the body only reads what `h` views. A step that does not
 # read `h` runs after `h`'s scope ends, so the body may grow what `h`
 # viewed once `h` is done, and the step may grow it too. A `continue`
@@ -36,12 +36,12 @@ sub continued()
   !v.push(5)
   k = 0
   i = 0
-  :outer while mk(?v, i) as h: k += h.s[0]
+  @outer while mk(?v, i) as h: k += h.s[0]
     i += 1
     if i == 1
       continue
     for j in 0..3
-      continue :outer if j == i
+      continue @outer if j == i
     k += 100
   print(k, i)
 

@@ -1,0 +1,6 @@
+sub main()
+  c = false
+  if c
+    print(0)
+  else @a for i in 0..2
+    print(i)

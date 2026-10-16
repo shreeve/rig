@@ -1,0 +1,21 @@
+use std.math
+use std.sort
+
+enum Shape
+  dot
+  circle(r: Int)
+
+enum Tag[T]
+  a
+  b
+
+error Oops
+  bad
+
+sub main()
+  xs = [Shape.dot, Shape.dot]
+  sort.sort(!xs)
+  t: Tag[Int] = .a
+  print(math.max(t, t))
+  e: Oops = .bad
+  print(math.min(e, e))

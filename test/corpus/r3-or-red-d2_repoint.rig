@@ -7,7 +7,7 @@ obj Parser
   src: ?List[Tok]
   scratch: List[Tok]
 
-  fun next(!self, other: ?List[Tok]) -> ?Tok
+  fun next(!self, other: ?List[Tok]) -> ?Tok keeps other
     self.src = other
     ?self.src[0]
 

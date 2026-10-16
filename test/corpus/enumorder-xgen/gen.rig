@@ -1,0 +1,20 @@
+use std.math
+use std.sort
+
+pub fun lt[T](a: T, b: T) -> Bool
+  a < b
+
+pub fun outer[T](a: T, b: T) -> T
+  if lt(a, b)
+    return math.max(b, a)
+  a
+
+pub sub order[T](xs: ![]T)
+  sort.sort(!xs)
+
+pub obj Best[T]
+  pub a: T
+  pub b: T
+
+  pub fun least(?self) -> T
+    math.min(self.a, self.b)

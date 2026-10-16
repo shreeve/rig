@@ -1,0 +1,9 @@
+fun split(s: ?String, at: Int) -> (?String, ?String)
+  return s[..at], s[at..]
+
+fun bad() -> (?String, ?String)
+  t = String("hey")
+  return split(?t, 1)
+
+# error: cannot return a view of `t`, which this function was not lent
+# errors: 1

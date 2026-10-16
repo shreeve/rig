@@ -355,8 +355,8 @@ true true
 
 Sorting, and searching sorted slices, written in Rig over slices, so
 they work on arrays and on Lists alike (`!a`, `?a`, `!v`, `?v`). The elements are plain data, as a slice's are. `sort`,
-`lower_bound`, and `search` order elements with `<` (numbers and
-`?String` values), and `search` compares them with `==`; each call is checked
+`lower_bound`, and `search` order elements with `<` (numbers, plain
+enums, and `?String` values), and `search` compares them with `==`; each call is checked
 for its element type, as any generic call is.
 
 | Function | Result |
@@ -486,6 +486,8 @@ type, as any generic is.
 | `(!m).put_new(k, v)` | `fun put_new(!self, k: K, v: V) -> Bool` | puts `v` under `k` only when `k` is new: true if it did; otherwise `k` and `v` are dropped |
 | `(!m).ensure(k, v)` | `fun ensure(!self, k: K, v: V) -> !V from self, k, v` | puts `v` under `k` when `k` is new, and lends the value under `k` to write; otherwise `k` and `v` are dropped. The view keeps `m` lent to write |
 | `(!m).ensure_with(k, make)` | `fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k` | as `ensure`, with the value `make(k)` made only when `k` is new; when `k` is there, `make` is not called and `k` is dropped |
+| `w, added = (!m).ensure_added(k, v)` | `fun ensure_added(!self, k: K, v: V) -> (!V, Bool) from self, k, v` | as `ensure`, and also whether `k` was new; `w` keeps `m` lent to write, `added` keeps nothing |
+| `if m.at(i) as k, v` | `fun at(?self, i: Int) -> (?K, ?V)? from self` | the entry at index `i` in order, its key and value viewed where the Map holds them, or `none` past the end; both views keep `m` lent to read. One step while no entry was taken since the entries were last compacted; else it counts the entries before |
 | `(!m).take(k)` | `fun take(!self, k: ?K) -> V?` | the value back, owned; the key dropped when the entries are next compacted (as the Map grows), or with the Map |
 | `!m.clear()` | `sub clear(!self)` | drops every entry |
 | `?m.items()` | `fun items(?self) -> Items[K, V] from self` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) lasts one step of the loop |
@@ -529,6 +531,31 @@ sub main()
 
 ```output
 abab++ cdcd+ abab++ 2 1
+```
+
+`ensure_added` also says whether the key was new, which `ensure` cannot,
+and `at` reads the entries by index, in the order they were put in:
+
+```rig
+use std.hash
+
+sub main()
+  counts = hash.Map[String, Int].new()
+  for w in ["to", "be", "to"]
+    c, added = (!counts).ensure_added(String(w), 0)
+    c += 1
+    print(w, "is new") if added
+  i = 0
+  while counts.at(i) as k, n
+    print(i, k, n)
+    i += 1
+```
+
+```output
+to is new
+be is new
+0 to 2
+1 be 1
 ```
 
 A compound key is an object of its parts. A key object that owns its
@@ -1309,7 +1336,7 @@ before it returns.
 | Name | Meaning |
 |---|---|
 | `new_doc() -> Doc` | an empty `Doc`; each `parse` reuses its lists, so a parse allocates only when a list must grow |
-| `(!doc).parse(src: ?String) -> Bool` | read all of `src` into `doc`'s tape: `true`, or `false` with `doc.error` and `doc.error_pos` set |
+| `(!doc).parse(src: ?String) -> Bool keeps src` | read all of `src` into `doc`'s tape: `true`, or `false` with `doc.error` and `doc.error_pos` set |
 | `doc.error: Error`, `doc.error_pos: Int` | the first error, and the byte offset of the byte that cannot be read |
 | `error_name(e: Error) -> Static` | the name of an `Error`: `ok`, `empty`, `unexpected`, `eof`, `number`, `range`, `escape`, `surrogate`, `control`, `utf8`, `trailing`, `depth`, or `too_large` |
 | `doc.size() -> Int` | the number of tape entries |

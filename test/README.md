@@ -146,6 +146,15 @@ allocated, run the test again by hand with
 through Zig's `SafeAllocator`, which prints a stack trace for each
 leak.
 
+A program that panics on purpose (an `# expect-panic:` test, and the
+CLI tests' panicking programs and `rig test` runs) runs with
+`RIG_NO_CRASH_REPORT=1`. That only stops macOS from filing a crash report
+(`~/Library/Logs/DiagnosticReports`) for its abort: it still exits 134
+with the same output. `./test/run` sets it for those tests alone and
+clears it for every other program, whose crash is still reported;
+`test/cli/no_crash_report.sh` checks the status and output are the same
+with and without it.
+
 The suite also builds every program it runs (behavior tests, examples,
 known bugs, doc examples with output, the corpus) with `RIG_SANITIZE=1`,
 which puts the sanitizing allocator under the leak checker. Each block
@@ -171,6 +180,18 @@ guarded block is a memory mapping, and Linux caps those per process
 prints `rig: sanitizer: mapping limit reached; further allocations are
 not guarded` once and allocates the rest normally, poisoning them when
 freed. Leak checking still covers every block.
+
+## Strict optionals
+
+`RIG_STRICT_OPTIONALS=1 ./test/run` runs the suite with every object's
+optional held as a tagged struct, which Zig never lifts a value into
+and never tests with `orelse` or `null` (docs/INTERNALS.md, Emit,
+"Optionals"). A program then compiles only if the compiler writes
+every operation on such an optional through the runtime's optional
+helpers, and prints what it prints in a plain run, so a run in this
+mode that passes shows no optional site was missed. The run is a gate
+for a change to how emit or the runtime handles optionals.
+`test/cli/strict_optionals.sh` runs one program both ways in every run.
 
 ## CLI tests
 

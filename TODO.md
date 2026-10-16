@@ -10,14 +10,44 @@ started:
 
 - SIMD: `pad:` reads and `blocks(N)`.
 - A String API for part-word appends and windowed writes.
-- Multiple results.
-- Inlining a generic type's small methods. Rig never emits a generic
-  type's methods `inline` (`src/inlining.zig`), and LLVM leaves
-  `std.hash`'s `Map.ensure` and `Map.ensure_with` out of line, so on a
-  key already there they lose to `edit` then `put`, which inlines: on
-  Int keys, 1M operations, `ensure` 39% slower and `ensure_with` 31%
-  slower; on new keys `ensure` is 6% faster and `ensure_with` 0.2%
-  slower (Mac, off-window, best of 7).
+- A known over-strict rejection: what a call stores from a view reached
+  through a lent read view should carry that view's loans, not a loan
+  on the holder (Core sentence 7). `hold(!self, c: ?Cursor)` storing
+  `c.items` must say `keeps c`, and then keeps `c` itself lent while the
+  holder is used, though only `c.items`' loans need to last. Narrowing
+  it needs a new reach fact (what a lent parameter's own view target is,
+  apart from what it reaches through the views it holds) and a call rule
+  that stores the argument's held loans instead of its lend. Probes:
+  `test/corpus/corekeeps-p4_store_through_view.rig`,
+  `test/corpus/corekeeps-p4b_keeps_through_view.rig`.
+- Several results, after v1 (SPEC "Several results"):
+  - small results in registers: pack results of up to two words of
+    integers, `Bool`s, and pointers into a `u128`, which Zig's default
+    calling convention returns in registers where it returns a tuple
+    or an object through memory; it serves objects too, and lands only
+    if it passes the speed rule;
+  - write lends ended per argument: while a result holds a write view,
+    the lends of the arguments its origins leave out could end at the
+    return, as they do when no result holds one;
+  - `from` per result, so a write view and a read view may come from
+    different parameters whose types could both hold either, and
+    several write views a function proves disjoint (sentence 5);
+  - a `catch` or `??` fallback that gives every result (`catch 0, 0`);
+  - `for k, v in it` over an iterator whose `next` gives several
+    results, decided with iterators as values;
+  - `ResultBound` per result, so a proven bound on a result reaches the
+    name that takes it (`src/proofs.zig`).
+- bench/hash after inlining a generic type's small members (#246), on
+  the Mac (aarch64), pooled medians of 8 layouts x 21 runs against main:
+  - `int hit` is 2-6% slower, and `small 4` and `small 8` 2-3% slower:
+    LLVM spills registers differently in a function that holds several
+    loops once more is inlined into it. The code of `int hit`'s loop is
+    the same as main's, and x86 shows no difference. Needs a study.
+  - `int edit_put-hit` is 3.0% slower (95% interval -3.8% to +9.6%):
+    inside the noise, but worth measuring again.
+  - Judge memory-bound bench/hash rows by medians with intervals and an
+    unchanged control row, not by the fastest of N runs, which swung
+    single rows several percent either way on unchanged code.
 - Every copy out of a view in a generic body takes the per-instance
   `copies` requirement, as `Cell.get` and a `??` through a view of an
   optional do: today a view read where its `T` is expected (`p` in
@@ -90,6 +120,14 @@ started:
   `vs(!v, 0).with(0, 7)`, where `vs` returns `!Simd[I8, 4]`, is
   accepted, and emit writes `rig.withLane(rig.rt(vs(&v, 0)), ...)`
   with no dereference, which Zig rejects.
+- One classifier for a plain enum. `sema.isPlainEnum` (what `==` and
+  emit's scalar test read) counts a variant with an empty payload,
+  `a()`, as bare, but `sema.enumValues` (what `Int(x)`, `from_int`,
+  `@variants`, and ordering read) does not, as resolve gives it no
+  value. So for `enum E` of `a()` and `b`, `x == E.b` is accepted and
+  `x > E.b` and `Int(x)` are rejected as "variants with payloads"
+  (`test/corpus/enumorder-c02_empty_payload.rig`). Decide once whether
+  `a()` is bare (or reject the empty payload), and have both read it.
 
 ## Agent tooling
 

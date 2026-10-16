@@ -1,0 +1,12 @@
+# Variant values from constant expressions order as Int(x) says.
+K = 6
+
+enum Prio
+  a = K + 1
+  b = 1 << 2
+  c = K - 6
+  d
+
+sub main()
+  print(Int(Prio.a), Int(Prio.b), Int(Prio.c), Int(Prio.d))
+  print(Prio.a > Prio.b, Prio.b > Prio.c, Prio.d < Prio.b, Prio.d > Prio.c)

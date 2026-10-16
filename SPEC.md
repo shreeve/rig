@@ -547,11 +547,15 @@ array literal and fill whose value no binding takes directly, and every
 call of a function or method (twice when a binding takes its result,
 since a debug build holds it in a temporary first). The frames of the
 small functions inlined into it count too, and a call that would take
-the frame over the limit is not inlined. This holds for every frame
-the program has: every function, method, closure (whose captures count
-where it is made), test, `drop` body, and `main`, and each instance of a
-generic one; a `defer` body, a match arm, or a loop is part of the frame
-around it. The limit keeps large
+the frame over the limit is not inlined; a call of a function marked
+`inline` ([Function markers](#function-markers)) is, with the values it
+keeps at the instance the call makes, and the frame over the limit is an
+error. This holds for every frame the program has: every function,
+method, closure (whose captures count where it is made), test, `drop`
+body, and `main`, and each instance of a generic one; a `defer` body, a
+match arm, or a loop is part of the frame around it. A small method of
+a generic type is inlined or not for all its instances, as its largest
+frame at any of them allows. The limit keeps large
 data on the heap: the error names the largest locals; keep large data
 in a box (`^T`) or a `List`, which holds its elements on the heap.
 `^[n of x]` fills the box's memory itself, never making the array on the
@@ -565,10 +569,12 @@ or `catch`, a constructor's) in a temporary of its own, so a function's
 code may take more stack than the values it keeps. Its *reach*, the
 values it keeps and every value its code makes or copies (a `defer` or
 `errdefer` body once for each exit it covers, a receiver taken by value
-at each call, and a small function inlined into it at each call and at
-each copy of a `defer` body that calls it), times 4 is at most 512 MiB,
-and a function, closure, or `drop` body whose reach times 4 is 1 MiB or
-more is never inlined, so no two such frames merge into one. The factor
+at each call, and a function inlined into it, small or marked `inline`,
+at each call and at each copy of a `defer` body that calls it), times 4
+is at most 512 MiB, and a function, closure, or `drop` body whose reach
+times 4 is 1 MiB or more is never inlined, so no two such frames merge
+into one; a function marked `inline` is inlined still, and its caller's
+reach holds it, so the caller is the frame kept out of line. The factor
 4 is measured, not proven: the frames each form takes are checked
 against it, and a form the compiler does not yet model could take more.
 
@@ -1299,11 +1305,294 @@ Declarations are only allowed at module level; there are no nested
 functions (use a closure). Two module-level declarations may not share a
 name.
 
+### Several results
+
+A function may give several results at once, written as a list of types
+after `->`: `-> (Int, Int)`, two or more. Each result is a type one
+result may have, a view included, and the list may fail or be absent as
+a whole: `-> (A, B)!`, `-> (A, B)?`. `return a, b` gives them, and a
+call's results are bound by name, each where it stands:
+
+```rig
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+fun again(a: Int, b: Int) -> (Int, Int)
+  return divmod(a, b)
+
+sub main()
+  q, r = divmod(17, 5)
+  print(q, r)
+  _, r = divmod(9, 4)
+  new q, r = again(1, 1)
+  a, b =! divmod(8, 3)
+  print(q, r, a, b)
+```
+
+```output
+3 2
+1 0 2 2
+```
+
+The results never form a value: a call that gives several stands only
+where each result is bound at once (`q, r = f()`, `if f() as q, r`, and
+`while f() as q, r`), or where the function returns them whole
+(`return f()`, to a function that gives the same results), or where
+they are all discarded, as one result is: a call alone on its line
+discards results that own nothing, and `_ = f()` discards any. Anywhere
+else, as an argument, an operand, or a single binding, it is rejected,
+and so is `(Int, Int)` as the type of a value: a group of values that
+lives past its statement is an object.
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  p = divmod(17, 5)
+```
+
+```error
+`divmod` gives 2 results; bind each: `a, b = divmod(17, 5)`
+```
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  print(divmod(17, 5))
+```
+
+```error
+a call that gives several results stands only where each result is bound
+```
+
+```rig reject
+sub main()
+  xs: List[(Int, Int)] = List()
+```
+
+```error
+`(Int, Int)` is a function's results, not a type a value can have: name an object for a stored pair
+```
+
+**Binding.** `q, r = f()` binds the results left to right, each name by
+the rule `x = e` has (§4): it declares the name, or assigns the visible
+one, writing through a `!T` local given a value and re-pointing it
+given a write view; an assigned name drops its old value. `new q, r =
+f()` declares new names, and `q, r =! f()` fixed ones. `_`
+discards a result, which is dropped at the statement's end, after the
+bindings, the last first. Every result is bound or discarded: the names match the
+results in number. Each target is a name or `_`, each named once; a
+field or element is assigned on its own line. The parentheses of a
+result type are not written on the left.
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  q, r, s = divmod(17, 5)
+```
+
+```error
+`divmod` gives 2 results, but 3 names are bound
+```
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  xs = [0, 0]
+  i = 0
+  i, xs[i] = divmod(1, 2)
+  print(xs)
+```
+
+```error
+each result is bound to a name, and `xs[i]` reads `i`, which this statement binds
+```
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  (q, r) = divmod(17, 5)
+```
+
+```error
+write `q, r = divmod(17, 5)`; parentheses aren't needed on the left
+```
+
+Rig has no parallel assignment: the right side is one call. Two places
+are exchanged with `swap` (§7, "Replace and swap").
+
+```rig reject
+sub main()
+  a = 1
+  b = 2
+  a, b = b, a
+  print(a, b)
+```
+
+```error
+Rig has no parallel assignment: write `swap(!a, !b)` to exchange two places
+```
+
+**Failing and absent results.** `q, r = f()!` and `q, r = f()?` pass
+the failure or the `none` on before anything is bound, and so does a
+fallback that jumps: `q, r = f() ?? return`, `q, r = f() catch break`.
+A fallback that is a value is not taken. `if f() as q, r` and `while
+f() as q, r` bind the results inside an optional to new names over the
+body, as `as` binds one value. Each is named there: a header's
+temporaries end before its body runs, so `as` takes no `_`; a result
+the body does not need is discarded there with `_ = name`. A `while`
+step cannot read the names its condition binds this way, which live
+only in the body.
+
+```rig
+fun cut(s: ?String, sep: U8) -> (?String, ?String)? from s
+  i = 0
+  while i < s.len
+    return s[..i], s[i + 1..] if s[i] == sep
+    i += 1
+  none
+
+fun pair(s: ?String) -> (?String, ?String)? from s
+  k, v = cut(s, 61)?
+  return v, k
+
+sub main()
+  if cut("key=value", 61) as key, value
+    print(key, value)
+  if pair("a=b") as v, k
+    print(v, k)
+  k, v = cut("none here", 61) ?? return
+  print(k, v)
+```
+
+```output
+key value
+b a
+```
+
+**Giving them.** `return a, b` gives each part as `return x` gives `x`,
+left to right: a bare owner moves out, and so does a bare write view
+given as a write view, which a later part may not use again; one read
+as a value that copies is a copy. A part's loans are judged by its own
+result's type: a view must be of what the function was lent. A bare last line `a, b` is no statement: results are
+given with `return`. A part that fails after an earlier one was made
+drops the earlier one on the way out.
+
+```rig reject
+fun f(a: Int) -> (Int, Int)
+  a, a
+```
+
+```error
+results are written `return a, a`
+```
+
+**Loans.** Each result carries the loans its own type could hold of
+what the call was lent (§7, "How long a loan lasts"), so a `Bool` beside
+a view carries none. One result may be a write view, which keeps its
+owner lent to write as a `!T` result does, beside results that hold no
+view of what it views: a function that gives two write views, or a
+write view and another result that could view the same parameter, is
+rejected where it is declared. While a result may hold a write view,
+every lend the call made lasts to the statement's end, as for a `!T`
+result, and an `if … as` part's to its end, as a header is its own
+statement: the first version decides this per call, not per argument,
+though the write view carries only the arguments its signature names. A
+target is bound only while no result still waiting for its own target
+views it, nor a result `_` discards whose drop runs a `drop` body,
+which drops at the statement's end; a discarded result whose drop runs
+none reads none of its views (§7), and keeps nothing lent.
+
+```rig
+obj Counter
+  n: Int
+  m: Int
+
+  fun bump(!self, k: Int) -> (!Int, Bool)
+    self.n += k
+    return !self.m, self.n > 3
+
+sub main()
+  c = Counter(n: 0, m: 0)
+  w, big = (!c).bump(5)
+  w += 10
+  print(big, c.m)
+```
+
+```output
+true 10
+```
+
+```rig reject
+obj M
+  a: Int
+
+  fun two(!self) -> (!Int, ?Int)
+    return !self.a, ?self.a
+```
+
+```error
+`two` gives a write view and another result, `?Int`, that could both view `self`
+```
+
+```rig reject
+fun two(s: ?String) -> (String, ?String)
+  return String(s), s
+
+sub main()
+  s = String("ab")
+  s, v = two(?s)
+  print(v)
+```
+
+```error
+cannot bind `s` while `v` views it
+```
+
+A function type takes several results as a function does: `?fun(Int) ->
+(Int, Int)`. Named results, a `for` that binds several results a step,
+and several results nested in a type argument are not Rig's.
+
+At most one result is a write view in this first version, a limit of
+its own rather than a rule of the ownership model: two write views of
+different arguments are disjoint, and will be allowed.
+
+```rig pending
+fun both(a: !Int, b: !Int) -> (!Int, !Int)
+  return a, b
+
+sub main()
+  x = 1
+  y = 2
+  p, q = both(!x, !y)
+  p += 10
+  q += 20
+  print(x, y)
+```
+
+```output
+11 22
+```
+
 ### Function markers
 
-A function may be marked, before its `fun` or `sub`, with one of two
+A function may be marked, before its `fun` or `sub`, with one of three
 words that ask for a speed and never change what the program means:
 
+- `inline fun` inlines the function at every call: its body is compiled
+  into each caller, whatever its size. A call means what it means
+  without the marker: its arguments are evaluated in order, a check on
+  them panics when the program runs (never when it compiles), and an
+  owned argument is moved in and dropped as in a call.
 - `called fun` keeps every call of the function a real call: it is
   never inlined, and stays as hot as any function. Each instance of one
   with compile-time parameters is a function of its own, so two
@@ -1315,11 +1604,10 @@ words that ask for a speed and never change what the program means:
 Without a marker the compiler decides which small functions to inline
 ([INTERNALS](docs/INTERNALS.md), "Inlining"). A marker applies to every
 instance of a function with compile-time parameters, and a method
-takes one as any function does, in its type's body or outside it. A
-marked function is a function value as any other.
+takes one as any function does, in its type's body or outside it.
 
 ```rig
-fun clamp(x: Int, lo: Int, hi: Int) -> Int
+inline fun clamp(x: Int, lo: Int, hi: Int) -> Int
   lo if x < lo else hi if x > hi else x
 
 rarely fun report(n: Int) -> Int
@@ -1348,14 +1636,44 @@ out of range: 120
 5 104
 ```
 
-A function takes one marker: `rarely` already keeps every call a call,
-so `called` beside it says nothing more, and the two together are an
-error, in either order. The program's `main`, which the program calls
-once, takes none, and neither does an `extern zig` function, whose
-body is Zig's.
+An `inline` function has no address, so it is only called: naming it
+as a value is an error, and a closure that calls it is a value. One
+that calls itself, directly or through other `inline` functions, cannot
+be inlined into itself, and is an error; a cycle through a function
+that is not `inline` is a call there, and so is a call in a closure,
+which is a function of its own. A function's frame counts the `inline`
+functions inlined in it, each at the instance its call makes, however
+the call names the function (through a module, a type, or an alias of
+either), and one over the limit ([§2](#arrays)) is an error. A call
+whose values the check cannot count is an error too, never counted as
+none. Calls of `inline` functions nest at most 256 deep, each inlined
+into the one around it; a deeper chain is an error.
 
 ```rig reject
-called rarely fun f() -> Int
+inline fun count(n: Int) -> Int
+  0 if n == 0 else 1 + count(n - 1)
+
+inline fun next(n: Int) -> Int
+  n + 1
+
+sub main()
+  f = next
+  print(count(3), f(1))
+```
+
+```error
+`next` is `inline`, inlined at every call, so it can only be called, not used as a value
+```
+
+A function takes one marker: `inline` and `called` contradict each
+other, and `rarely` already keeps every call a call, so any two are an
+error (`inline rarely fun`, `rarely called fun`). A `called` or `rarely`
+function is a function value as any other. The
+program's `main`, which the program calls once, takes none, and neither
+does an `extern zig` function, whose body is Zig's.
+
+```rig reject
+inline rarely fun f() -> Int
   1
 
 sub main()
@@ -1785,6 +2103,64 @@ sub main()
 `Int(x)` takes a plain enum's value; `Shape` has variants with payloads, which have no integer value
 ```
 
+`<`, `<=`, `>`, and `>=` order two values of one plain enum by those
+values: `a < b` is `Int(a) < Int(b)`, so explicit values order the
+variants whatever order they are declared in, and without them the
+order is the declaration's. A `.variant` on either side takes its type
+from the other, as beside `==`. A plain enum meets a generic body's
+ordering, so `std.math.max` and `std.sort.sort` take one
+([Generic bodies](#generic-bodies)). Two different enums, an enum and a
+number, an enum with a payload variant, a built-in enum (`Endian`,
+`Arch`), and an error set have no order.
+
+```rig
+use std.math
+
+enum Target
+  es2015 = 2015
+  es5 = 5
+  es2020 = 2020
+
+sub main()
+  t: Target = .es2015
+  print(t >= .es2015, .es2020 < t, Target.es5 < t)
+  print(math.max(Target.es2020, Target.es5))
+```
+
+```output
+true false true
+.es2020
+```
+
+```rig reject
+enum Shape
+  dot
+  circle(r: Int)
+
+sub main()
+  s: Shape = .dot
+  print(s < .dot)
+```
+
+```error
+operator `<` orders a plain enum's values; `Shape` has variants with payloads, which have no integer value
+```
+
+```rig reject
+enum Color
+  red
+
+enum Size
+  small
+
+sub main()
+  print(Color.red < Size.small)
+```
+
+```error
+operator `<` operands have different types `Color` and `Size`
+```
+
 `Status.from_int(n)` is the other way: the variant of a plain enum
 whose value is the integer `n`, of any integer type, or `none` when no
 variant has it. `from_int` is built into every plain enum, so an enum
@@ -2152,8 +2528,8 @@ support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
 reaches, and every instance the program makes, spelled or
 inferred, directly or through other generic bodies, in any module, is
 checked against it. On a `T`, `==` compares whatever `==` compares
-outside a generic body, and ordering compares numbers and `?String` values. A
-failure is reported at the call or type that makes the instance, with a
+outside a generic body, and ordering compares numbers, plain enums, and
+`?String` values. A failure is reported at the call or type that makes the instance, with a
 note at the body line that needs the operation, in the module that
 declares the body. A body cannot call a method on a `T`, read a field
 of one, or call `T` itself.
@@ -2195,9 +2571,11 @@ parameter whose loans reach a value of a type that holds a type
 parameter (an element of `xs: []T`, `f(s)` with `f` returning a `T`, a
 `T` taken by value, a `match` payload of type `T` that views its
 subject) as returned wherever the body returns such a value, or a value
-that holds one (`P[T]`):
-`fun pick[T](f: ?fun(?String) -> T, a: ?String, b: ?String) -> T from b`
-cannot return `f(a)`.
+that holds one (`P[T]`), and as stored in what a parameter leads to
+wherever the body stores one there: `fun pick[T](f: ?fun(?String) -> T,
+a: ?String, b: ?String) -> T from b` cannot return `f(a)`, and `sub
+run[T](f: ?*sub(!T, ?String), k: !T, s: ?String)` that calls `f(!k, s)`
+says `keeps s`.
 
 ```rig
 fun same[T](x: T) -> T
@@ -2457,10 +2835,10 @@ constant `A` depends on itself (`A` → `B` → `A`)
 ```
 
 There are no mutable module-level variables, so a module-level binding
-needs no `const`, and one written with it is rejected:
+needs no `=!`, and one written with it is rejected:
 
 ```rig reject
-const LIMIT = 4
+LIMIT =! 4
 
 sub main()
   print(LIMIT)
@@ -2551,7 +2929,7 @@ declaration ([§14](#14-modules)), and `extern` declares a C symbol
 The forms are in [SYNTAX §9](SYNTAX.md#9-bindings-and-assignment). `x =
 e` binds a new local `x` when no `x` is visible, and otherwise assigns
 the visible one: through it, when `x` holds a write view
-([View places](#view-places)). `const x = e` binds a fixed local, which
+([View places](#view-places)). `x =! e` binds a fixed local, which
 cannot be reassigned. `_ = e` evaluates `e` and discards it, and an
 owning value discarded so is dropped at once. A binding's type comes
 from its annotation or its value.
@@ -2617,8 +2995,8 @@ index
 ```
 
 There is no implicit shadowing. A local may not reuse the name of a
-visible local, parameter, or module-level declaration, and `const x =
-e` always declares. To reuse a name on purpose, write `new`:
+visible local, parameter, or module-level declaration, and `x =! e`
+always declares. To reuse a name on purpose, write `new`:
 
 ```rig
 sub main()
@@ -2634,13 +3012,13 @@ sub main()
 now a string
 ```
 
-`new` takes the other binding forms too: `new x: T = e`, and `new
-const x = e`, which shadows with a fixed local.
+`new` takes the other binding forms too: `new x: T = e`, and `new x =!
+e`, which shadows with a fixed local.
 
 ```rig
 sub main()
-  const limit = 3
-  new const limit = limit * 2
+  limit =! 3
+  new limit =! limit * 2
   n = 7
   new n: U8 = U8(n)
   print(limit, n)
@@ -3084,10 +3462,12 @@ object that declares `drop`, or an object or payload that holds a `?T`,
 diagnostic names the field that does. Two handles' contents compare
 through views: `?a == ?b`.
 
-Ordering comparisons (`<`, `<=`, `>`, `>=`) take two numbers, or two
-`?String` values or two `[]U8` slices, ordered by their bytes: the first byte
-that differs decides, and a prefix sorts before the longer string.
-Objects, enums, and other slices have no ordering.
+Ordering comparisons (`<`, `<=`, `>`, `>=`) take two numbers, two
+values of one plain enum, ordered by their variants' values
+([Enums](#enums)), or two `?String` values or two `[]U8` slices,
+ordered by their bytes: the first byte that differs decides, and a
+prefix sorts before the longer string. Objects, enums with payload
+variants, and other slices have no ordering.
 
 ```rig
 obj Point
@@ -3128,7 +3508,7 @@ sub main()
 
 ```error
 `==` is not defined for `Link`: field `to` is a handle `*Node`, which could compare by identity or by content
-operator `<` orders numbers, Strings, and `[]U8` slices; got `Link`
+operator `<` orders numbers, plain enums, Strings, and `[]U8` slices; got `Link`
 ```
 
 ```rig
@@ -3221,8 +3601,8 @@ operand, a binding, an argument) is rejected. It is valid only where a
 `not a and b` is `(not a) and b`. Since `not a > b` could be read as
 `(not a) > b`, a comparison directly under `not` is written in
 parentheses, `not (a > b)`, or flipped: the diagnostic offers `a <= b`
-where that means the same, for integers, text, and any `==` or `!=`,
-though not for a `Float`, which may be NaN.
+where that means the same, for integers, plain enums, text, and any
+`==` or `!=`, though not for a `Float`, which may be NaN.
 
 ```rig reject
 sub main()
@@ -3788,31 +4168,43 @@ write `for x in !c`: the loop advances `c`
 
 ### Labels, break, and continue
 
-A loop may be labeled `:name`; `break :name` and `continue :name` then
+A loop may be labeled `@name`; `break @name` and `continue @name` then
 refer to it from an inner loop. A `match` or `raw` statement may be
-labeled too, and `break :name` leaves it. No other statement takes a
+labeled too, and `break @name` leaves it. No other statement takes a
 label, since no jump could use it, and none takes two. A jump after `??` or `catch`
-may name a label too ([§12](#the-fallback-of-)). A label may repeat an
+may name a label too ([§12](#the-fallback-of-)), also in a `while`
+header (`while more() ?? break @outer : i += 1`). A label may repeat an
 enclosing one's name; the innermost is meant. A `for` source is
 evaluated before its loop is entered, as a loop's `else` runs after it
 ends, so a jump in either (`for j in 0..(n ?? break v)`) leaves or
 continues the loop around that `for`, and a `break` value there is that
 loop's value.
 
+A label is `@` and a name, which the `@` touches. It stands before a
+statement that starts a line (or another label), or right after `break`
+or `continue`; the statement after `=>`, `defer`, or `errdefer` takes
+none. `@name(...)`, with the `(` touching the name, is a builtin call
+([Builtins](#builtins)) instead, except right after a jump, where
+`@name` is always a label: `break @outer (x)` leaves `outer` with the
+value `(x)`, and `break @outer(x)` is rejected. A jump's value stands
+apart from its label (`break @outer -1`, not `break @outer-1`). A
+keyword is not a label name, and the old spelling, `:name`, is rejected
+with a hint.
+
 ```rig reject
 sub main()
   n = 3
-  :done if n > 1
+  @done if n > 1
     print(n)
 ```
 
 ```error
-a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `:done` cannot label an `if`
+a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `@done` cannot label an `if`
 ```
 
 ### Loops as values
 
-A loop that `break` leaves with a value (`break v`, or `break :name v`
+A loop that `break` leaves with a value (`break v`, or `break @name v`
 from an inner loop) is an expression. Its value is the value of the
 `break` that leaves it, or, when the loop ends without one, the value
 of its `else` block, which it therefore needs (only `while true` can do
@@ -4510,6 +4902,45 @@ sub main()
 150 150
 ```
 
+A variant literal whose enum comes from the view it goes to
+(`.table(...)` where a `?Val` goes) is that value, `Val.table(...)`,
+made there and lent the same way; where `Val.table(...)` is rejected (a
+view kept or returned, a `!Val`), so is the literal. A plain enum's read
+view holds a copy of the value, so `.red` goes wherever a `?Color` does.
+
+```rig
+enum Val
+  num(n: Int)
+  table(m: List[Int])
+
+sub show(v: ?Val)
+  match v
+    .num(n) => print(n)
+    .table(m) => print(m.len)
+
+sub main()
+  show(.table(m: List()))
+  show(.num(n: 3))
+```
+
+```output
+0
+3
+```
+
+```rig reject
+enum Val
+  num(n: Int)
+  table(m: List[Int])
+
+fun made() -> ?Val
+  return .num(n: 3)
+```
+
+```error
+type mismatch: expected `?Val`, got `Val`
+```
+
 A constant (a literal, `none`, a function, a module's constant, an
 enum variant that holds no payload or an error value, a number type's
 limit such as `Int.max`, or a type's function such as `P.origin`, of
@@ -5013,12 +5444,30 @@ the checker tracks where every one came from.
 - A view reached through another view views what that view views,
   not what holds it: `?c.items[0]`, with `items: ?List[Item]`, views
   the List, not `c`.
+- A call keeps only what its signature shows. A view lent to it (a
+  `?T`, `!T`, `[]T`, `![]T`, `?String`, an optional of one, or a `?self`
+  or `!self` receiver) it keeps only when the signature names that
+  parameter in `keeps`: `sub watch(!self, s: ?String) keeps s` (also
+  `keeps s, t` and `keeps self`, after the result type and any `from`).
+  It may then store what the view sees in what its write receiver and
+  write arguments lead to, and the loan lasts while that holder is used;
+  every other lend ends when the call returns. A value passed by value
+  is the callee's, which may keep it, and its loans, wherever its type
+  fits; `keeps` does not name it. A function called as a value
+  (`?watch`) keeps what its type could hold, as if every lent parameter
+  were named, and so does a method of a built-in generic (`!v.push(x)`,
+  a Cell's `set`). The compiler checks each body against its `keeps`: a body
+  that stores a lent parameter where its caller reaches it, on any path
+  (into `self`, a write argument, or through a call that keeps it),
+  without naming it, is rejected at the store with the clause to write.
+  `keeps` names lent parameters, each once, that something the function
+  writes could hold. A place lent to a kept parameter is lent with `?`
+  written: `!b.watch(?t)`, `?a.register(!out)`.
 - An object holding a view keeps the viewed value lent while the
   object is alive. So does a stack closure that captured a view, and
   a value a call may have stored a view into (its receiver lent to
   write, and what its `!` arguments and other write views lead to):
-  a view of each argument, the receiver among them, whose type could
-  be held there.
+  a view of each argument the call keeps, as above.
 - A view may not outlive the value it views: not past the end of
   its block, not through `break`, and not out of the function.
 
@@ -5592,7 +6041,7 @@ view, or by a call that stores its argument, is rejected.
 obj Holder
   t: ?String
 
-  sub keep(!self, t: ?String)
+  sub keep(!self, t: ?String) keeps t
     self.t = t
 
 obj P
@@ -6029,7 +6478,7 @@ else, since the value lives only behind a handle and a handle's other
 fields only read: `swap` and `replace` do not exchange it whole. A
 handle is lent as itself, `!*C`, which a callee may point elsewhere, only
 where the handle may be written (an owned mutable local, a `!*C` parameter,
-a handle field of a write view); anywhere else (a `const`, a parameter that
+a handle field of a write view); anywhere else (a `=!` binding, a parameter that
 is not a `!` view, a capture, a field of a value another handle shares) `!h`
 lends what it holds, a `!C`, and a `!*C` parameter is a type mismatch whose
 hint is to pass `+h` for a handle of your own. A read view of a handle, or
@@ -7397,9 +7846,10 @@ The fallback of `??` may be a jump: `a ?? return v`, `a ?? return`,
 `a ?? break`, `a ?? break v`, or `a ?? continue`. When `a` is `none`
 the jump runs, exactly as the statement would: `return` is checked
 against the function's result, `break` and `continue` apply to the
-innermost loop or name a label (`a ?? continue :outer`), and leaving
+innermost loop or name a label (`a ?? continue @outer`), and leaving
 drops what the scope owns. In a `while` header the first `:` starts the
-step, so a jump there takes no label. The jump takes the rest of the expression as its value,
+step, even after a jump (`while a ?? break : i += 1`), and a jump there
+may name a label (`while a ?? break @outer : i += 1`). The jump takes the rest of the expression as its value,
 and the left side of `?? return` is the whole expression before it, as
 for `catch` (`a and b ?? return` is `(a and b) ?? return`), except in a
 chain of `??`, where the jump belongs to the nearest one, as `??` is
@@ -8628,11 +9078,11 @@ the signature holds, may be left to inference
 ([generic functions](#generic-functions)), any other value never. A
 value argument must be known at compile time: a literal
 (`none` included), an enum value, a module constant, a compile-time
-parameter, a `const` binding of one of these, or a comparison or `and`,
+parameter, a `=!` binding of one of these, or a comparison or `and`,
 `or`, `not` of them. Arithmetic in a compile-time argument must fold to
 a constant (`LIMIT * 2`), which is checked like constant arithmetic;
 arithmetic on a compile-time parameter (`n + 1`), directly or through a
-`const` binding, is rejected, since each instance would compute it
+`=!` binding, is rejected, since each instance would compute it
 unchecked. Inside a body, a compile-time value is an ordinary value, and
 arithmetic on it is checked when it runs. Whether `x[...]` indexes `x`
 or gives it compile-time arguments is decided by what `x` names
@@ -8769,7 +9219,9 @@ not parse, and their words and sigils stay reserved:
 | `for *x in v` | `` `for *x in` is reserved `` |
 | `try` blocks | `` `try` blocks are reserved `` |
 | `zig "..."` | `` inline Zig is reserved `` |
-| `when`, `yield`, ... as a name | `` unexpected keyword `when` `` (every word held for later: `async` `await` `impl` `trait` `when` `where` `yield`) |
+| `const x = e`, `new const x = e` | `` Rig has no `const`; write `x =! e` for a binding that never changes `` |
+| `x =!y` | `` `=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write `` |
+| `when`, `yield`, ... as a name | `` unexpected keyword `when` `` (every other word held for later: `async` `await` `impl` `trait` `when` `where` `yield`) |
 | string and float match patterns | `` a pattern is a name, an integer, `true`, `false`, or an enum variant `` |
 
 The rest parse, and the checker rejects them as not supported yet
@@ -8781,6 +9233,10 @@ The rest parse, and the checker rejects them as not supported yet
 | a stack closure stored or returned | `` closures cannot escape their defining scope `` |
 | `/`, `%`, or a shift of a vector; a vector's lanes summed, converted, or shuffled | `` operator `/` does not take a `Simd` ``, `` type `Simd[U8, 16]` has no method `sum` `` |
 | a module constant holding a vector | `` a module-level constant needs a value known at compile time `` |
+| two write views among a function's results | `` at most one of a function's results is a write view `` |
+| a field or element bound by several results, `i, xs[i] = f()` | `` each result is bound to a name `` |
+| named results, `-> (q: Int, r: Int)` | `` results are not named `` |
+| `for` over an iterator whose `next` gives several results | `` a `for` binds one value each step `` |
 
 ```rig reject
 sub main()

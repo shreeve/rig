@@ -1,0 +1,19 @@
+enum E
+  a(s: ?String)
+  b
+
+sub absorb(out: !List[?String], e: ?E)
+  match e
+    .a(s)
+      !out.push(s)
+    .b
+      pass
+
+sub main()
+  t = String("hello")
+  e: E = .a(?t)
+  out: List[?String] = List()
+  absorb(!out, ?e)
+  <e
+  <t
+  print(out[0])

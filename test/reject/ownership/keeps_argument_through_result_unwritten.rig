@@ -1,0 +1,22 @@
+# Why: `watch` keeps what `name(t)` views, a view of `t`, so the lend
+# outlasts the statement and must be written `?t`.
+# Rule: a lend is written wherever its view may outlast its statement
+# (Core sentence 4).
+# From: the keeps Core review (purist, p5).
+
+obj Binder
+  src: ?String
+
+  sub watch(!self, s: ?String) keeps s
+    self.src = s
+
+fun name(t: ?String) -> ?String
+  t
+
+sub main()
+  b = Binder(src: "")
+  t = String("x")
+  !b.watch(name(t))
+  print(b.src)
+
+# error: 19:17: `name(t)` keeps `t` lent in what `watch` stores; write `name(?t)`

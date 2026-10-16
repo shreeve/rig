@@ -1,0 +1,24 @@
+# An `inline` function is inlined at every call and has no address, so it
+# is only called: naming it as a value, or a method through its type, is
+# an error. A closure that calls it is a value.
+
+inline fun next(n: Int) -> Int
+  n + 1
+
+obj Counter
+  n: Int
+
+  inline fun get(?self) -> Int
+    self.n
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub main()
+  print(apply(next, 1))
+  g = Counter.get
+  print(apply(|x: Int| next(x), 2))
+
+# error: 18:15: `next` is `inline`, inlined at every call, so it can only be called, not used as a value
+# error: 19:15: `Counter.get` is `inline`, inlined at every call, so it can only be called, not used as a value
+# errors: 2

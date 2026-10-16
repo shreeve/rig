@@ -1,0 +1,10 @@
+# A label after a jump is written `@name`; `continue :outer`, spaced or
+# not, is the old spelling.
+
+sub main()
+  @outer for i in 0..3
+    for j in 0..3
+      print(j - i)
+      continue : outer
+
+# error: 8:16: a label is written `@name`: `@outer for ...`, `break @outer`, `continue @outer`

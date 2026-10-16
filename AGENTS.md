@@ -140,6 +140,7 @@ bin/rig test file.rig      # run the file's own `test` blocks
 bin/rig build --release -o prog file.rig   # optimized executable (safe)
 RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
+RIG_NO_CRASH_REPORT=1 ./prog              # macOS files no crash report if it dies (test harnesses)
 ```
 
 - Nexus: Rig and Nexus are co-developed. Every `zig build` target
@@ -193,6 +194,7 @@ RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 | `tools/fetch-json-data.sh` | Fetches the third-party JSON files that test reads, pinned by sha256, into the untracked `test/json/data/` |
 | `bench/json/` | The JSON benchmark: Rig and Zig builds, and the Rust and Zig competitors (not in CI; see `bench/json/README.md`) |
 | `bench/check/` | The check-speed guard: `rig check`'s instructions, pass times (`rig check --time`), and scaling on generated programs (not in CI; see `bench/check/guard.py`) |
+| `bench/print/` | The print-size guard: the machine code one `print` adds in `--release=fast`, against a recorded bound (not in CI; see `bench/print/guard.py`) |
 | `examples/` | Curated example programs, all run by the suite |
 | `std/` | The standard library: Rig modules and the Zig behind their Zig-backed declarations |
 | `docs/CORE.md` | The ownership model on one page, which every other doc must agree with |

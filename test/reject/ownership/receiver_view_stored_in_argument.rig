@@ -13,15 +13,15 @@ obj H
   n: Int
   v: List[Int]
 
-  sub put(!self, dst: !List[?List[Int]])
+  sub put(!self, dst: !List[?List[Int]]) keeps self
     !self.v.push(1)
     !dst.push(?self.v)
 
-  sub puts(!self, dst: !List[[]Int])
+  sub puts(!self, dst: !List[[]Int]) keeps self
     !self.v.push(1)
     !dst.push(?self.v[..])
 
-  sub putf(!self, dst: !Slot)
+  sub putf(!self, dst: !Slot) keeps self
     !self.v.push(1)
     dst.s = ?self.v[..]
 

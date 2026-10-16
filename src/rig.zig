@@ -44,14 +44,16 @@ pub fn subFails(fun_or_sub: Sexp) bool {
 }
 
 /// A function's marker, which asks for a speed and never changes what
-/// the program means: `called fun` (every call stays a call), `rarely
-/// fun` (it is rarely called), or none (`inlining.decide` decides).
-pub const Marker = enum { none, called, rarely };
+/// the program means: `inline fun` (inline it at every call), `called
+/// fun` (every call stays a call), `rarely fun` (it is rarely called), or
+/// none (`inlining.decide` decides).
+pub const Marker = enum { none, @"inline", called, rarely };
 
 pub fn markerOf(fun_or_sub: Sexp) Marker {
     const m = ir.get(fun_or_sub, .mark);
     if (m == .nil) return .none;
     return switch (m.kind().?) {
+        .@"inline" => .@"inline",
         .called => .called,
         .rarely => .rarely,
         else => unreachable,
@@ -72,9 +74,15 @@ pub fn isModuleConst(decl: Sexp) bool {
 /// the left spine, checked in order, each binding visible to the parts
 /// after it and to the body.
 pub fn bindsInCondition(cond: Sexp) bool {
-    if (cond.isKind(.as)) return true;
+    if (isAsPart(cond)) return true;
     if (!cond.isKind(.@"and")) return false;
-    return ir.get(cond, .right).isKind(.as) or bindsInCondition(ir.get(cond, .left));
+    return isAsPart(ir.get(cond, .right)) or bindsInCondition(ir.get(cond, .left));
+}
+
+/// A part of a condition that binds: `a as x`, or `f() as a, b`, which
+/// binds a call's several results (`as_results`).
+pub fn isAsPart(e: Sexp) bool {
+    return e.isKind(.as) or e.isKind(.as_results);
 }
 
 /// Whether `cond` joins two parts of a binding condition: an `and` on
@@ -180,8 +188,8 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .block, .@"if", .@"while", .@"for", .match, .labeled, .@"defer", .@"errdefer" => .structured,
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
-        .set, .drop, .pass, .@"return", .@"break", .@"continue", .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .called, .rarely, .@":", .default, .valued, .variant, .as, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
+        .set, .destructure, .tuple, .drop, .pass, .@"return", .@"break", .@"continue", .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
     };
 }
 
@@ -390,13 +398,13 @@ pub fn children(node: Sexp) []const Sexp {
 // =============================================================================
 
 /// Exhaustive view of the op slot, so dispatch sites must handle every
-/// kind: `_` → default, `fixed` (`const x =`, and `new const x =`),
-/// `shadow` (`new x =`), and the compound assignments (`x op= e`, one per
-/// binary arithmetic, wrapping, bitwise, and shift operator). Every kind
-/// but `default` is named after its tag in the schema's `op:tag(...)` for
-/// `set`. `new const x = e` is the tag `shadow_fixed`, decoded as `fixed`:
-/// it binds as `const x = e` does, and only declaring the name tells the
-/// two apart (`shadows`).
+/// kind: `_` → default, `fixed` (`x =!`, and `new x =!`), `shadow`
+/// (`new x =`), and the compound assignments (`x op= e`, one per binary
+/// arithmetic, wrapping, bitwise, and shift operator). Every kind but
+/// `default` is named after its tag in the schema's `op:tag(...)` for
+/// `set`. `new x =! e` is the tag `shadow_fixed`, decoded as `fixed`: it
+/// binds as `x =! e` does, and only declaring the name tells the two
+/// apart (`shadows`).
 pub const BindingKind = enum {
     default,
     fixed,
@@ -448,7 +456,7 @@ pub fn bindingKindOf(op: Sexp) BindingKind {
 }
 
 /// Whether the op slot of `(set <op> ...)` binds a new name even where
-/// one is already visible: `new x = e` and `new const x = e`.
+/// one is already visible: `new x = e` and `new x =! e`.
 pub fn shadows(op: Sexp) bool {
     return op == .tag and (op.tag == .shadow or op.tag == .shadow_fixed);
 }
@@ -460,10 +468,10 @@ pub fn shadows(op: Sexp) bool {
 /// The categories from `true` to `yield` in rig.grammar's `tokens`
 /// block are Rig's keywords. Every keyword is reserved and is a lexer
 /// rule, so the base lexer gives it its own category, except `new`, `obj`,
-/// `called`, and `rarely`, which lex as names and are keywords only where
+/// `inline`, `called`, and `rarely`, which lex as names and are keywords only where
 /// the rewriter classifies them (`classifyWord`): `new` at the start of a
-/// statement followed by a name or `const` (`new x = ...`, `new const x =
-/// ...`), so `fun new(...)` and `Point.new(...)` stay ordinary names.
+/// statement followed by a name (`new x = ...`, `new x =! ...`), so
+/// `fun new(...)` and `Point.new(...)` stay ordinary names.
 pub fn isKeyword(cat: TokenCat) bool {
     return @intFromEnum(cat) >= @intFromEnum(TokenCat.true) and @intFromEnum(cat) <= @intFromEnum(TokenCat.yield);
 }
@@ -648,8 +656,8 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8, spelling: ZigSpelling)
 //     parse error is the one reported.
 //
 //   Token boundaries still matter, as in `!=` and `==`: `=!` is one
-//   token, and an error wherever it stands, so `x =!y` is never quietly
-//   `x = !y`.
+//   token, so `x =!y` could be a fixed binding of `y` or `x = !y`; a
+//   `=!` without a space or tab after it is an error.
 //
 // `if`
 //   After `return`/`break`/`continue` or a value, `if` is a postfix guard
@@ -720,14 +728,14 @@ pub const Lexer = struct {
     /// The last token ends an operand (`isValue`, or a `?` / `!` suffix
     /// after one), so a character after it continues the operand.
     after_value: bool = false,
-    /// The last token is a `:` that starts a statement, and so starts its
-    /// label; the name after it is the label.
-    label_colon: bool = false,
+    /// The last token is an `@` that starts a statement's label; the name
+    /// after it is the label.
+    label_at: bool = false,
     /// The last token is a statement's label: a statement starts after
     /// it, and it ends no operand.
     after_label: bool = false,
-    /// The last token is the label of a jump (`break :outer`): what
-    /// follows it starts the jump's value, though the label is a name.
+    /// The last token is the label of a jump (`break @outer`): what
+    /// follows it starts the jump's value, and ends no operand.
     after_jump_label: bool = false,
     /// The category of the token before the last one.
     last2_cat: TokenCat = .eof,
@@ -838,18 +846,23 @@ pub const Lexer = struct {
         decrement,
         slash_comment,
         pin_sigil,
+        at_detached,
+        label_keyword,
+        label_call,
+        label_touch,
+        colon_label,
         control_in_string,
         lone_cr,
         leading_zero,
         radix_case,
         bad_number,
-        fixed_assign,
+        fixed_touch,
         detached_prefix,
         semicolon,
         brace,
         two_markers,
+        repeated_marker,
         marker_before_pub,
-        no_inline_marker,
 
         pub fn message(e: LexError) []const u8 {
             return switch (e) {
@@ -861,7 +874,7 @@ pub const Lexer = struct {
                 .leading_zero => "a decimal number has no leading zero",
                 .radix_case => "radix prefixes are lowercase: `0x`, `0b`, `0o`",
                 .bad_number => "malformed number; `_` may separate digits, and a space or an operator ends a number",
-                .fixed_assign => "Rig has no `=!`: a binding that never changes is `const x = e`, and `x = !y` lends `y` to write",
+                .fixed_touch => "`=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write",
                 .detached_prefix => "a prefix sigil touches its operand",
                 .semicolon => "unexpected `;`",
                 .brace => "Rig has no braces: a block is the lines indented under its header",
@@ -878,10 +891,15 @@ pub const Lexer = struct {
                 .increment => "Rig has no `++`; write `x += 1`",
                 .decrement => "Rig has no `--`; write `x -= 1`",
                 .slash_comment => "comments start with `#`; Rig has no `//` or `/* */` comments",
-                .pin_sigil => "the pin sigil `@x` is reserved; `@` only starts a builtin call, `@name(...)`",
-                .no_inline_marker => "Rig has no `inline` marker yet; write `called fun` or `rarely fun`, or leave the function unmarked for the compiler to decide",
-                .marker_before_pub => "`pub` comes before a function's marker: write `pub called fun` or `pub rarely fun`",
-                .two_markers => "a function takes one marker: `called` (keep every call a call) or `rarely` (rarely called, so kept out of line and cold), and `rarely` already keeps every call a call",
+                .pin_sigil => "the pin sigil `@x` is reserved; `@` starts a builtin call, `@name(...)` with the `(` touching the name, or a label, `@name`, before a statement that starts a line or after `break` or `continue`",
+                .at_detached => "`@` touches the name after it: a label `@outer`, a builtin call `@size(T)`",
+                .label_keyword => "a keyword is not a label name",
+                .label_call => "after `break` or `continue`, `@name` is a label, never a builtin call: put a space before a value, `break @outer (x)`, or break with a builtin's value as `break (@size(T))`",
+                .label_touch => "a jump's label ends at its name: put a space before the value, `break @outer -1`",
+                .colon_label => "a label is written `@name`: `@outer for ...`, `break @outer`, `continue @outer`",
+                .marker_before_pub => "`pub` comes before a function's marker: write `pub inline fun`, `pub called fun`, or `pub rarely fun`",
+                .repeated_marker => "a function's marker is written once",
+                .two_markers => "a function takes one marker: `inline` (inline it at every call), `called` (keep every call a call), or `rarely` (rarely called, so kept out of line and cold); `called` contradicts `inline`, and `rarely` already keeps every call a call",
             };
         }
     };
@@ -894,10 +912,10 @@ pub const Lexer = struct {
 
     pub fn next(self: *Lexer) Token {
         const tok = self.produce();
-        self.after_label = self.label_colon and tok.cat == .ident;
-        self.label_colon = tok.cat == .colon and self.stmtStart();
-        self.after_value = !self.after_label and (isValue(tok.cat) or (self.after_value and (tok.cat == .question or tok.cat == .not_sym)));
-        self.after_jump_label = tok.cat == .ident and self.last_cat == .colon and (self.last2_cat == .@"break" or self.last2_cat == .@"continue");
+        self.after_label = self.label_at and tok.cat == .ident;
+        self.label_at = tok.cat == .label_at and !isLabelJump(self.last_cat);
+        self.after_jump_label = tok.cat == .ident and self.last_cat == .label_at and isLabelJump(self.last2_cat);
+        self.after_value = !self.after_label and !self.after_jump_label and (isValue(tok.cat) or (self.after_value and (tok.cat == .question or tok.cat == .not_sym)));
         self.last2_cat = self.last_cat;
         self.last_cat = tok.cat;
         switch (tok.cat) {
@@ -1202,7 +1220,10 @@ pub const Lexer = struct {
                 if (self.nesting > 0) self.nesting -= 1;
                 break :blk tok.cat;
             },
-            .at => if (self.isBuiltinCall()) .at else return self.fail(.pin_sigil, tok.pos),
+            .at => switch (self.classifyAt(tok)) {
+                .cat => |cat| cat,
+                .err => |err| return self.fail(err, tok.pos),
+            },
             .bar => if (self.isCaptureBar(tok, after_value)) .bar_capture else .bar,
             .and_sym => return self.fail(.and_operator, tok.pos),
             // `||` where an operand starts is an empty closure bar list.
@@ -1212,19 +1233,27 @@ pub const Lexer = struct {
             } else return self.fail(if (self.literalFollows()) .or_fallback else .or_operator, tok.pos),
             .slash => if (self.charAfter(tok) == '/' or self.charAfter(tok) == '*') return self.fail(.slash_comment, tok.pos) else .slash,
             .power => return self.fail(.power_operator, tok.pos),
-            // `=!` is no operator: a binding that never changes is
-            // `const x = e`, and `x =!y` would pass for `x = !y`.
-            .fixed_assign => return self.fail(.fixed_assign, tok.pos),
+            // `x =!y`: a fixed binding of `y`, or `x = !y`, a write lend?
+            .fixed_assign => if (!isBlank(self.charAfter(tok))) return self.fail(.fixed_touch, tok.pos) else tok.cat,
             // `xs[a..]`: an open range ends at the `]`.
             .dotdot => if (self.nextJoined().cat == .rbracket) .dotdot_open else .dotdot,
-            // `while i < n : i += 1`: the step; any other `:` in the
-            // header, as after a jump (`?? break :outer`), is a label's.
-            .colon => if (self.while_header == self.nesting) .step_colon else .colon,
+            // `while i < n : i += 1`: the step, even right after a jump
+            // (`while a ?? break : i += 1`). A `:` that starts a statement
+            // or follows a jump anywhere else is a label in the old
+            // spelling (`:outer for`, `break :outer`).
+            .colon => if (self.while_header == self.nesting) (if (isLabelJump(self.last_cat) and self.oldLabelBeforeStep()) return self.fail(.colon_label, tok.pos) else .step_colon) else if (self.stmtStart() or isLabelJump(self.last_cat)) return self.fail(.colon_label, tok.pos) else .colon,
             // `get(k) ?? return none`: a jump as the fallback.
             .nullish => if (self.nextIsJump()) .nullish_jump else .nullish,
+            // `if f() as a, b`: a `,` after `as name` outside brackets
+            // joins the names `as` binds. Inside brackets a `,` after
+            // `x as a` separates arguments or elements.
+            .comma => if (self.nesting == 0 and self.last_cat == .ident and (self.last2_cat == .as or self.last2_cat == .as_comma)) .as_comma else .comma,
             .err => return self.lexError(tok),
             else => if (isKeyword(tok.cat)) self.classifyKeyword(tok.cat) else tok.cat,
         };
+        // A jump's label ends at its name: a value after it stands apart
+        // (`break @outer -1`, not `break @outer-1`).
+        if (self.after_jump_label and tok.pos == self.prev_end and startsOperand(tok.cat)) return self.fail(.label_touch, tok.pos);
         // A prefix sigil touches its operand (`-b`, `<x`, `*T`); `i++`
         // is no increment.
         if (!after_value and isSigil(tok.cat) and isSpace(self.charAfter(tok))) {
@@ -1233,7 +1262,7 @@ pub const Lexer = struct {
             if (twice and tok.cat == .minus) return self.fail(.decrement, tok.pos - 1);
             return self.fail(.detached_prefix, tok.pos);
         }
-        if (self.layout_count < max_layouts) self.checkSpacing(tok, out.cat, after_value and !self.after_jump_label);
+        if (self.layout_count < max_layouts) self.checkSpacing(tok, out.cat, after_value);
         switch (out.cat) {
             .@"if", .@"while", .@"for" => self.takes_else[self.depth] = true,
             else => {},
@@ -1307,6 +1336,7 @@ pub const Lexer = struct {
             .@"return", .@"break", .@"continue", .pass => return .post_if,
             else => {},
         }
+        if (self.after_jump_label) return .post_if;
         if (!self.after_value) return .@"if";
         return if (self.elseFollows()) .ternary_if else .post_if;
     }
@@ -1316,18 +1346,22 @@ pub const Lexer = struct {
         // A name before `:` inside ( ) names a keyword argument or a
         // payload field, `new` too (`O(new: 1)`, `.pp(new: x)`).
         if (self.inParens() and self.nextCat() == .colon) return .kwarg_name;
-        if (std.mem.eql(u8, word, "new")) return if (self.stmtStart() and (self.nextIsName() or self.nextIsConst())) .new else .ident;
+        if (std.mem.eql(u8, word, "new")) return if (self.stmtStart() and self.nextIsName()) .new else .ident;
         if (std.mem.eql(u8, word, "of") and self.isFillOf()) return .of;
         if (std.mem.eql(u8, word, "obj")) return if ((self.stmtStart() or self.last_cat == .@"pub") and self.nextIsName()) .obj else .ident;
         if (isMarker(word)) {
             if (!(self.stmtStart() or self.last_cat == .@"pub") or !self.nextIsFunOrSub()) return .ident;
-            return if (word[0] == 'c') .called else .rarely;
+            return switch (word[0]) {
+                'i' => .@"inline",
+                'c' => .called,
+                else => .rarely,
+            };
         }
         return .ident;
     }
 
-    /// The next token is `fun` or `sub`: a function's marker (`called`,
-    /// `rarely`) stands right before it.
+    /// The next token is `fun` or `sub`: a function's marker (`inline`,
+    /// `called`, `rarely`) stands right before it.
     fn nextIsFunOrSub(self: *const Lexer) bool {
         var probe = self.base;
         const t = probe.next();
@@ -1335,29 +1369,24 @@ pub const Lexer = struct {
     }
 
     /// A marker `tok` puts where a declaration cannot take it: a second
-    /// one (`called rarely fun f()`), since a function takes one, or one
-    /// before `pub` (`rarely pub fun f()`), which comes first. And
-    /// `inline` where a marker goes (`inline fun f()`, `pub inline fun`,
-    /// `called inline fun`): Rig has no such marker.
+    /// one (`inline rarely fun f()`), since a function takes one, the same
+    /// one again (`inline inline fun f()`), or one before `pub`
+    /// (`inline pub fun f()`), which comes first.
     fn misplacedMarker(self: *const Lexer, tok: Token) ?struct { err: LexError, pos: u32 } {
-        const word = self.base.text(tok);
-        const no_marker = std.mem.eql(u8, word, "inline");
-        if (!(isMarker(word) or no_marker) or !(self.stmtStart() or self.last_cat == .@"pub")) return null;
+        if (!isMarker(self.base.text(tok)) or !(self.stmtStart() or self.last_cat == .@"pub")) return null;
         var probe = self.base;
         const second = probe.next();
-        const text = if (second.cat == .ident) probe.text(second) else "";
-        const second_inline = std.mem.eql(u8, text, "inline");
-        const second_marks = isMarker(text) or second_inline;
+        const second_marks = second.cat == .ident and isMarker(probe.text(second));
         const t = if (second.cat == .@"pub" or second_marks) probe.next() else second;
         if (t.cat != .fun and t.cat != .sub) return null;
-        if (no_marker) return .{ .err = .no_inline_marker, .pos = tok.pos };
-        if (second_inline) return .{ .err = .no_inline_marker, .pos = second.pos };
         if (second.cat == .@"pub") return .{ .err = .marker_before_pub, .pos = tok.pos };
-        return if (second_marks) .{ .err = .two_markers, .pos = second.pos } else null;
+        if (!second_marks) return null;
+        const same = std.mem.eql(u8, probe.text(second), self.base.text(tok));
+        return .{ .err = if (same) .repeated_marker else .two_markers, .pos = second.pos };
     }
 
     fn isMarker(word: []const u8) bool {
-        return std.mem.eql(u8, word, "called") or std.mem.eql(u8, word, "rarely");
+        return std.mem.eql(u8, word, "inline") or std.mem.eql(u8, word, "called") or std.mem.eql(u8, word, "rarely");
     }
 
     /// `of` after a value directly inside [ ] separates a fill literal's
@@ -1382,13 +1411,25 @@ pub const Lexer = struct {
         return if (self.in_members[self.depth] and (self.stmtStart() or self.last_cat == .@"pub")) .ident else null;
     }
 
-    /// `@name(...)` is a builtin call; `@name` alone is the reserved pin
-    /// sigil.
-    fn isBuiltinCall(self: *const Lexer) bool {
+    /// `@name(...)`, the `(` touching the name, is a builtin call. `@name`
+    /// alone is a label where a statement that takes one starts (`@outer
+    /// for`) and after `break` or `continue`, where `@name` is always a
+    /// label (`break @outer (x)` leaves `outer` with the value `(x)`).
+    /// Anywhere else it is the reserved pin sigil. The `@` touches the
+    /// name.
+    fn classifyAt(self: *const Lexer, at: Token) union(enum) { cat: TokenCat, err: LexError } {
         var probe = self.base;
         const name = probe.next();
-        if (!isWord(name.cat)) return false;
-        return probe.next().cat == .lparen;
+        const paren = probe.next();
+        const word = isWord(name.cat);
+        if (word and name.pos != endOf(&self.base, at)) return .{ .err = .at_detached };
+        const call = word and paren.cat == .lparen and paren.pos == endOf(&probe, name);
+        const jump = isLabelJump(self.last_cat);
+        if (call and !jump) return .{ .cat = .at };
+        if (!word or !(jump or self.labelStart())) return .{ .err = .pin_sigil };
+        if (name.cat != .ident) return .{ .err = .label_keyword };
+        if (call) return .{ .err = .label_call };
+        return .{ .cat = .label_at };
     }
 
     /// The character right after `tok`, or 0 at the end of the source.
@@ -1481,10 +1522,20 @@ pub const Lexer = struct {
     }
 
     /// A statement starts here: at the start of a line, after `=>`,
-    /// `defer`, or `errdefer`, or after a statement's label (`:outer`).
+    /// `defer`, or `errdefer`, or after a statement's label (`@outer`).
     fn stmtStart(self: *const Lexer) bool {
         return self.after_label or switch (self.last_cat) {
             .newline, .indent, .outdent, .eof, .fat_arrow, .@"defer", .@"errdefer" => true,
+            else => false,
+        };
+    }
+
+    /// A statement that may take a label starts here: at the start of a
+    /// line, or after another label. The statement after `=>`, `defer`,
+    /// or `errdefer` takes none.
+    fn labelStart(self: *const Lexer) bool {
+        return self.after_label or switch (self.last_cat) {
+            .newline, .indent, .outdent, .eof => true,
             else => false,
         };
     }
@@ -1514,6 +1565,15 @@ pub const Lexer = struct {
         }
     }
 
+    /// `while a ?? break :outer : i += 1`: after a jump in a `while`
+    /// header, a name and a second `:` follow the first `:`, so it was
+    /// meant as a label in the old spelling, not as the step.
+    fn oldLabelBeforeStep(self: *const Lexer) bool {
+        var probe = self.base;
+        if (probe.next().cat != .ident) return false;
+        return probe.next().cat == .colon;
+    }
+
     /// The next token is `return`, `break`, or `continue`.
     fn nextIsJump(self: *const Lexer) bool {
         return switch (self.nextJoined().cat) {
@@ -1534,11 +1594,6 @@ pub const Lexer = struct {
         var probe = self.base;
         const t = probe.next();
         return t.cat == .ident and !std.mem.eql(u8, probe.text(t), "new");
-    }
-
-    fn nextIsConst(self: *const Lexer) bool {
-        var probe = self.base;
-        return probe.next().cat == .@"const";
     }
 
     /// Why the grammar produced an `err` token.
@@ -1602,6 +1657,20 @@ fn isValue(cat: TokenCat) bool {
 }
 
 /// The characters that start an operand as a prefix sigil.
+/// A token that starts an operand and does not continue a name: what may
+/// not touch a jump's label (`break @outer-1`, `break @outer.red`).
+fn startsOperand(cat: TokenCat) bool {
+    return isSigil(cat) or switch (cat) {
+        .lparen, .lbracket, .dot, .dotdot, .bar, .or_sym, .at, .string_sq, .string_dq => true,
+        else => false,
+    };
+}
+
+/// `break` or `continue`: the jumps that name a label.
+fn isLabelJump(cat: TokenCat) bool {
+    return cat == .@"break" or cat == .@"continue";
+}
+
 fn isSigil(cat: TokenCat) bool {
     return switch (cat) {
         .minus, .lt, .plus, .star, .question, .not_sym, .tilde, .caret => true,
@@ -1615,7 +1684,7 @@ fn isInfix(cat: TokenCat) bool {
         .plus, .minus, .star, .slash, .percent, .plus_wrap, .minus_wrap, .star_wrap, .plus_sat, .minus_sat => true,
         .eq, .ne, .lt, .gt, .le, .ge, .nullish, .nullish_jump => true,
         .bar, .ampersand, .caret, .lshift, .lshift_wrap, .rshift => true,
-        .assign, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign => true,
+        .assign, .fixed_assign, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign => true,
         .amp_assign, .bar_assign, .caret_assign, .lshift_assign, .lshift_wrap_assign, .rshift_assign => true,
         .plus_wrap_assign, .minus_wrap_assign, .star_wrap_assign, .plus_sat_assign, .minus_sat_assign => true,
         else => false,
@@ -1628,6 +1697,11 @@ fn isSpaceBefore(c: u8) bool {
         ' ', '\t', '\r', '\n' => true,
         else => false,
     };
+}
+
+/// A space or a tab: what must follow `=!`.
+fn isBlank(c: u8) bool {
+    return c == ' ' or c == '\t';
 }
 
 /// Whitespace, or the end of the line or source, after a token.
@@ -1679,6 +1753,12 @@ pub fn hiddenIteratorName() []const u8 {
 /// keyword (which holds no leaf); its `id` tells `leafText` which name.
 fn hiddenLeaf(pos: u32, name: HiddenName) Sexp {
     return .{ .src = .{ .pos = pos, .len = 1, .id = hidden_id_base + @intFromEnum(name) } };
+}
+
+/// Whether `leaf` is a name a rewrite built (`hiddenLeaf`), such as the
+/// `next` a `for` over an iterator calls.
+pub fn isHiddenLeaf(leaf: Sexp) bool {
+    return leaf == .src and leaf.src.id >= hidden_id_base;
 }
 
 /// Leaf ids from here are hidden names; the lexer's are keyword ordinals.
@@ -2119,6 +2199,7 @@ pub const Parser = struct {
         if (self.openRange(tok)) |d| return d;
         if (self.foreignWord(tok)) |d| return d;
         if (self.headerColon(tok)) |d| return d;
+        if (self.bareResults(tok)) |d| return d;
         const message: []const u8 = switch (tok.cat) {
             .err => return .{ .severity = .@"error", .pos = pos, .end = end, .message = switch (lexer.err) {
                 .semicolon => self.semicolonMessage(tok),
@@ -2205,8 +2286,9 @@ pub const Parser = struct {
         .{ "fn", Foreign{ .fix = "declare a function with `fun` (it returns a value) or `sub`" } },
         .{ "func", Foreign{ .fix = "declare a function with `fun` (it returns a value) or `sub`" } },
         .{ "function", Foreign{ .fix = "declare a function with `fun` (it returns a value) or `sub`" } },
-        .{ "let", Foreign{ .fix = "bind a name with `x = 5`, or `const x = 5` for one that never changes" } },
-        .{ "var", Foreign{ .fix = "bind a name with `x = 5`, or `const x = 5` for one that never changes" } },
+        .{ "let", Foreign{ .fix = "bind a name with `x = 5`, or `x =! 5` for one that never changes" } },
+        .{ "var", Foreign{ .fix = "bind a name with `x = 5`, or `x =! 5` for one that never changes" } },
+        .{ "const", Foreign{ .fix = "write `x =! e` for a binding that never changes", .alone = true } },
         .{ "class", Foreign{ .fix = "declare a type with `obj`" } },
         .{ "struct", Foreign{ .fix = "write `obj Name`: `struct` is spelled `obj`" } },
         .{ "impl", Foreign{ .fix = "methods go in the `obj` body", .alone = true } },
@@ -2244,6 +2326,49 @@ pub const Parser = struct {
             else => return null,
         };
         return .{ .severity = .@"error", .pos = pos, .end = pos + 1, .message = "unexpected `:`; a block's header ends without one: remove the `:`, and indent the block below" };
+    }
+
+    /// `a / b, a % b` as a statement: a function's several results are
+    /// given by `return`, never by a bare list, which no statement is.
+    /// Reported at the line, where the parse fails on its `,` or its end.
+    fn bareResults(self: *Parser, tok: Token) ?diag.Diagnostic {
+        const lexer = &self.base.lexer;
+        const src = self.base.source;
+        if (lexer.nesting > 0) return null;
+        const at: u32 = switch (tok.cat) {
+            .comma => tok.pos,
+            .newline, .outdent, .eof => lexer.prev_pos,
+            else => return null,
+        };
+        const start: u32 = if (std.mem.findScalarLast(u8, src[0..at], '\n')) |nl| @intCast(nl + 1) else 0;
+        var end: u32 = at;
+        while (end < src.len and src[end] != '\n' and src[end] != '#') end += 1;
+        const line = std.mem.trim(u8, src[start..end], " \t\r");
+        if (line.len == 0) return null;
+        // A statement that starts with a keyword is no bare list.
+        var w: usize = 0;
+        while (w < line.len and isIdentCont(line[w])) w += 1;
+        if (w > 0 and keyword(line[0..w]) != null) return null;
+        // A comma outside brackets, and no `=` of a binding.
+        var depth: i32 = 0;
+        var comma = false;
+        for (line, 0..) |c, i| switch (c) {
+            '(', '[' => depth += 1,
+            ')', ']' => depth -= 1,
+            '"', '\'' => return null,
+            ',' => if (depth == 0) {
+                comma = true;
+            },
+            '=' => if (depth == 0) {
+                const before = if (i > 0) line[i - 1] else ' ';
+                const after = if (i + 1 < line.len) line[i + 1] else ' ';
+                if (after != '=' and after != '>' and std.mem.findScalar(u8, "=!<>+-*/%&|^", before) == null) return null;
+            },
+            else => {},
+        };
+        if (!comma) return null;
+        const first = start + @as(u32, @intCast(std.mem.find(u8, src[start..end], line).?));
+        return .{ .severity = .@"error", .pos = first, .end = first + @as(u32, @intCast(line.len)), .message = self.format("results are written `return {s}`", .{line}) };
     }
 
     /// `0..=3`: Rig's ranges exclude their end. Reported at the `..=`.
@@ -2589,6 +2714,8 @@ pub const Parser = struct {
             .arm => try self.dropStatement(&walked[ir.slot(.arm, .body)]),
             .labeled => try self.dropStatement(&walked[ir.slot(.labeled, .stmt)]),
             .@"??" => return self.nearestFallback(out),
+            .destructure => try self.destructureTargets(walked),
+            .as_results => try self.resultNames(walked),
             .read, .write, .move => return self.receiverSigil(out),
             .share, .box => try self.noteParenSuffix(out),
             .weak => {
@@ -2612,9 +2739,52 @@ pub const Parser = struct {
         return out;
     }
 
+    /// `q, r = f()`: each target but `_` takes the result in its position,
+    /// as the binding `(set op q _ (result_part))`, which every pass
+    /// reads as the `x = e` it is (docs/INTERNALS.md, "Several
+    /// results"). A `_` stays a leaf: its result is left in the
+    /// statement's temporary, which drops it at the statement's end.
+    fn destructureTargets(self: *Parser, walked: []Sexp) std.mem.Allocator.Error!void {
+        const slot = ir.slot(.destructure, .targets);
+        const group = walked[slot];
+        const op = walked[ir.slot(.destructure, .op)];
+        const targets = group.items();
+        const out = try self.allocator().alloc(Sexp, targets.len);
+        for (targets, out) |t, *o| {
+            if (t == .src and std.mem.eql(u8, leafText(self.base.source, t.src), "_")) {
+                o.* = t;
+                continue;
+            }
+            const at = self.span(t);
+            const part = try self.base.newNode(.result_part, &.{}, at);
+            o.* = try self.base.newNode(.set, &.{ op, t, .nil, part }, at);
+        }
+        walked[slot] = .{ .list = parser.List.withId(out, group.list.id) };
+    }
+
+    /// `if f() as a, b`: each name but `_` is a new binding of the result
+    /// in its position, `(set shadow a _ (result_part))`, as a
+    /// destructure's target is (`destructureTargets`).
+    fn resultNames(self: *Parser, walked: []Sexp) std.mem.Allocator.Error!void {
+        const slot = ir.slot(.as_results, .names);
+        const group = walked[slot];
+        const names = group.items();
+        const out = try self.allocator().alloc(Sexp, names.len);
+        for (names, out) |n, *o| {
+            if (n == .src and std.mem.eql(u8, leafText(self.base.source, n.src), "_")) {
+                o.* = n;
+                continue;
+            }
+            const at = self.span(n);
+            const part = try self.base.newNode(.result_part, &.{}, at);
+            o.* = try self.base.newNode(.set, &.{ .{ .tag = .shadow }, n, .nil, part }, at);
+        }
+        walked[slot] = .{ .list = parser.List.withId(out, group.list.id) };
+    }
+
     /// A module-level binding is a constant, written with `=`: its
     /// `(set _ ...)` becomes `(set fixed ...)`, the fixed binding every
-    /// pass reads. A `const` there is rejected, as it would say nothing
+    /// pass reads. A `=!` there is rejected, as it would say nothing
     /// more.
     fn moduleConsts(self: *Parser, module: Sexp) void {
         for (ir.Module.decls(module)) |decl| {
@@ -3299,11 +3469,11 @@ test "keywords are reserved; `new` only at statement start" {
         try testing.expect(keyword(w) != null);
     }
     try testing.expect(keyword("var") == null);
-    // Every keyword category but `new`, `obj`, `called`, and `rarely` is a
-    // lexer rule.
+    // Every keyword category but `new`, `obj`, `inline`, `called`, and
+    // `rarely` is a lexer rule.
     for (@intFromEnum(TokenCat.true)..@intFromEnum(TokenCat.yield) + 1) |c| {
         const cat: TokenCat = @enumFromInt(c);
-        if (cat == .obj or cat == .called or cat == .rarely) continue;
+        if (cat == .obj or cat == .@"inline" or cat == .called or cat == .rarely) continue;
         try testing.expectEqual(cat, keyword(@tagName(cat)).?);
         if (cat != .new) try expectCats(@tagName(cat), &.{cat});
     }
@@ -3327,17 +3497,19 @@ test "`obj` is a keyword only where a declaration starts; `struct` is a name" {
     try parses("obj P\n  obj: Int\n  struct: Int\n");
 }
 
-test "`called` and `rarely` are keywords only before a declaration's `fun` or `sub`" {
-    try testing.expect(keyword("called") == null and keyword("rarely") == null);
+test "`inline`, `called`, and `rarely` are keywords only before a declaration's `fun` or `sub`" {
+    try testing.expect(keyword("inline") == null and keyword("called") == null and keyword("rarely") == null);
+    try expectCats("inline fun f()", &.{ .@"inline", .fun, .ident, .lparen, .rparen });
     try expectCats("called fun f()", &.{ .called, .fun, .ident, .lparen, .rparen });
+    try expectCats("called = 1", &.{ .ident, .assign, .integer });
     try expectCats("pub rarely sub s()", &.{ .@"pub", .rarely, .sub, .ident, .lparen, .rparen });
-    try expectCats("called = 5", &.{ .ident, .assign, .integer });
+    try expectCats("inline = 5", &.{ .ident, .assign, .integer });
     try expectCats("x = rarely", &.{ .ident, .assign, .ident });
-    try expectCats("f(called: 1)", &.{ .ident, .lparen, .kwarg_name, .colon, .integer, .rparen });
-    try expectCats("p.called(rarely)", &.{ .ident, .dot, .ident, .lparen, .ident, .rparen });
-    try parses("called fun f() -> Int\n  1\n");
-    try parses("obj P\n  called: Int\n  rarely sub m(?self)\n    pass\n  fun called(?self) -> Int\n    self.called\n");
-    try parses("fun f(called: Int, rarely: Int) -> Int\n  called + rarely\n");
+    try expectCats("f(inline: 1)", &.{ .ident, .lparen, .kwarg_name, .colon, .integer, .rparen });
+    try expectCats("p.inline(rarely)", &.{ .ident, .dot, .ident, .lparen, .ident, .rparen });
+    try parses("inline fun f() -> Int\n  1\n");
+    try parses("obj P\n  inline: Int\n  rarely sub m(?self)\n    pass\n  fun inline(?self) -> Int\n    self.inline\n");
+    try parses("fun f(inline: Int, rarely: Int) -> Int\n  inline + rarely\n");
 }
 
 test "a deeper line starting with `.` continues a complete statement" {
@@ -3409,6 +3581,26 @@ test "`from` and `static` are keywords only after a function's result type" {
     try parses("f = |x: Int| x\nfrom = 1\n");
 }
 
+/// The `keeps` list of `source`'s first declaration, a function: how
+/// many names it lists, null for none.
+fn keepsCount(source: []const u8) !?usize {
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    const keeps = ir.get(try firstDecl(&p), .keeps);
+    return if (keeps == .nil) null else keeps.items().len;
+}
+
+test "`keeps` is a keyword only at the end of a function's header" {
+    try testing.expectEqual(@as(?usize, 1), try keepsCount("sub f(!self, s: ?String) keeps s\n  pass\n"));
+    try testing.expectEqual(@as(?usize, 2), try keepsCount("fun f(o: !T, s: ?T) -> ?T from s keeps s, o\n  s\n"));
+    try testing.expectEqual(@as(?usize, 1), try keepsCount("fun f(o: !T, s: ?T) -> Int keeps s\n  1\n"));
+    try testing.expectEqual(@as(?usize, 1), try keepsCount("sub f(o: !T, s: ?T)! keeps s\n  pass\n"));
+    try testing.expectEqual(@as(?usize, 1), try keepsCount("extern sub f(o: !T, s: ?T) keeps s\n"));
+    try testing.expectEqual(@as(?usize, null), try keepsCount("fun keeps(keeps: Int) -> Int\n  keeps\n"));
+    try testing.expectEqual(@as(?usize, null), try keepsCount("sub f(g: sub(Int), keeps: Int)\n  g(keeps)\n"));
+    try parses("keeps = 1\nf(keeps: keeps)\n");
+}
+
 test "a prefix sigil touches its operand; after a value it is infix or a suffix" {
     for ([_][]const u8{ "a < b", "a<b", "a <b", "a< b" }) |src| try expectCats(src, &.{ .ident, .lt, .ident });
     for ([_][]const u8{ "a - 1", "a-1", "a -1" }) |src| try expectCats(src, &.{ .ident, .minus, .integer });
@@ -3420,6 +3612,21 @@ test "a prefix sigil touches its operand; after a value it is infix or a suffix"
     try expectCats("a | b | c", &.{ .ident, .bar, .ident, .bar, .ident });
     try expectCats("f = |a, +b| a", &.{ .ident, .assign, .bar_capture, .ident, .comma, .plus, .ident, .bar_capture, .ident });
     try expectCats("f = | +b , a | a", &.{ .ident, .assign, .bar_capture, .plus, .ident, .comma, .ident, .bar_capture, .ident });
+}
+
+test "`=!` binds fixed only with a space after it" {
+    try expectCats("x =! y", &.{ .ident, .fixed_assign, .ident });
+    try expectCats("x =! !y", &.{ .ident, .fixed_assign, .not_sym, .ident });
+    try expectCats("x =!\ty", &.{ .ident, .fixed_assign, .ident });
+    try expectCats("new x =! y", &.{ .new, .ident, .fixed_assign, .ident });
+    try expectCats("x: Int =! 1", &.{ .ident, .colon, .ident, .fixed_assign, .integer });
+    try expectCats("x = !y", &.{ .ident, .assign, .not_sym, .ident });
+    try expectCats("x != y", &.{ .ident, .ne, .ident });
+    for ([_][]const u8{ "x =!y", "x=!y", "x =!(y)", "x =!=y", "x =!= y", "x =!1", "x =!", "x =!\n", "x =!# c", "x =!\\\n  1" }) |src| {
+        try expectCats(src, &.{ .ident, .err });
+    }
+    try expectLayout("x =! y", &.{});
+    try expectLayout("x=! y", &.{.infix_after});
 }
 
 /// The spacing kinds the lexer records for `source`, in order.
@@ -3438,7 +3645,7 @@ fn expectLayout(source: []const u8, expected: []const Lexer.Layout.Kind) !void {
 }
 
 test "spacing: an infix operator is balanced; a postfix, a member, and an open range touch" {
-    for ([_][]const u8{ "a < b", "a<b", "a - 1", "a-1", "x = -1", "x=1", "a ?? b", "0..n", "0 .. n", "f()!", "x?", "w.get()", "c = .red", "xs[..2]", "xs[a..]", "a < -b", "a<-b", "f(\n  a\n  .b())", "[]?T", "[2]*T", "break :a !n", "f = |a| a + 1", "while i < n : i += 1" }) |src| {
+    for ([_][]const u8{ "a < b", "a<b", "a - 1", "a-1", "x = -1", "x=1", "a ?? b", "0..n", "0 .. n", "f()!", "x?", "w.get()", "c = .red", "xs[..2]", "xs[a..]", "a < -b", "a<-b", "f(\n  a\n  .b())", "[]?T", "[2]*T", "break @a !n", "break @a (n)", "f = |a| a + 1", "while i < n : i += 1" }) |src| {
         try expectLayout(src, &.{});
     }
     try expectLayout("a <b", &.{.infix_before});
@@ -3464,15 +3671,57 @@ test "`name:` is a keyword argument inside ( ), a name inside [ ]" {
 }
 
 test "a statement label ends no operand" {
-    try expectCats(":a if x", &.{ .colon, .ident, .@"if", .ident });
-    try expectCats(":a -x", &.{ .colon, .ident, .minus, .ident });
+    try expectCats("@a if x", &.{ .label_at, .ident, .@"if", .ident });
+    try expectCats("@a -x", &.{ .label_at, .ident, .minus, .ident });
+    try expectCats("@a (x)", &.{ .label_at, .ident, .lparen, .ident, .rparen });
 }
 
-test "a `while` header's first `:` starts its step; another after a jump is a label's" {
+test "a `,` after `as name` outside brackets joins the names `as` binds" {
+    try expectCats("if f() as a, b", &.{ .@"if", .ident, .lparen, .rparen, .as, .ident, .as_comma, .ident });
+    try expectCats("while g() as a, b, c", &.{ .@"while", .ident, .lparen, .rparen, .as, .ident, .as_comma, .ident, .as_comma, .ident });
+    try expectCats("f(x as a, b)", &.{ .ident, .lparen, .ident, .as, .ident, .comma, .ident, .rparen });
+    try expectCats("q, r = f()", &.{ .ident, .comma, .ident, .assign, .ident, .lparen, .rparen });
+}
+
+test "`@name(` with the `(` touching is a builtin; `@name` alone is a label" {
+    try expectCats("@size(T)", &.{ .at, .ident, .lparen, .ident, .rparen });
+    try expectCats("@type(x)", &.{ .at, .ident, .lparen, .ident, .rparen });
+    try expectCats("x = @size(T)", &.{ .ident, .assign, .at, .ident, .lparen, .ident, .rparen });
+    try expectCats("break @a", &.{ .@"break", .label_at, .ident });
+    try expectCats("break @a (x)", &.{ .@"break", .label_at, .ident, .lparen, .ident, .rparen });
+    try expectCats("break @a x if c", &.{ .@"break", .label_at, .ident, .ident, .post_if, .ident });
+    try expectCats("continue @a if c", &.{ .@"continue", .label_at, .ident, .post_if, .ident });
+    try expectCats("break @size(x)", &.{ .@"break", .err });
+    try expectCats("@ a for x in y", &.{.err});
+    try expectCats("@ size(T)", &.{.err});
+    try expectCats("break @a -1", &.{ .@"break", .label_at, .ident, .minus, .integer });
+    try expectCats("break @a-1", &.{ .@"break", .label_at, .ident, .err });
+    try expectCats("break @a.red", &.{ .@"break", .label_at, .ident, .err });
+    try expectCats("break @a - 1", &.{ .@"break", .label_at, .ident, .err });
+    try expectCats("break @a |x| x", &.{ .@"break", .label_at, .ident, .bar_capture, .ident, .bar_capture, .ident });
+    try expectCats("break @a, 1", &.{ .@"break", .label_at, .ident, .comma, .integer });
+    try expectCats("x => @a for y in z", &.{ .ident, .fat_arrow, .err });
+    try expectCats("defer @a for y in z", &.{ .@"defer", .err });
+    try expectCats("@for for x in y", &.{.err});
+    try expectCats("x = @a", &.{ .ident, .assign, .err });
+    try expectCats("f(@a)", &.{ .ident, .lparen, .err });
+}
+
+test "a label in the old spelling, `:name`, is an error" {
+    try expectCats(":a for x in y", &.{.err});
+    try expectCats("break :a", &.{ .@"break", .err });
+    try expectCats("continue : a", &.{ .@"continue", .err });
+    try expectCats("x = a ?? break :b", &.{ .ident, .assign, .ident, .nullish_jump, .@"break", .err });
+}
+
+test "a `while` header's first `:` starts its step, and a jump there may name a label" {
     try expectCats("while x : y", &.{ .@"while", .ident, .step_colon, .ident });
     try expectCats("while f(a: 1) : y", &.{ .@"while", .ident, .lparen, .kwarg_name, .colon, .integer, .rparen, .step_colon, .ident });
-    try expectCats("while x : y = a ?? break :b", &.{ .@"while", .ident, .step_colon, .ident, .assign, .ident, .nullish_jump, .@"break", .colon, .ident });
-    try expectCats("x = a ?? break :b", &.{ .ident, .assign, .ident, .nullish_jump, .@"break", .colon, .ident });
+    try expectCats("while a ?? break : y", &.{ .@"while", .ident, .nullish_jump, .@"break", .step_colon, .ident });
+    try expectCats("while a ?? break @b : y", &.{ .@"while", .ident, .nullish_jump, .@"break", .label_at, .ident, .step_colon, .ident });
+    try expectCats("while a ?? break :b : y", &.{ .@"while", .ident, .nullish_jump, .@"break", .err });
+    try expectCats("while x : y = a ?? break @b", &.{ .@"while", .ident, .step_colon, .ident, .assign, .ident, .nullish_jump, .@"break", .label_at, .ident });
+    try expectCats("x = a ?? break @b", &.{ .ident, .assign, .ident, .nullish_jump, .@"break", .label_at, .ident });
 }
 
 test "minus: infix or negation, never a drop" {
@@ -3845,12 +4094,12 @@ test "parser: every form parses" {
         \\
         \\sub main()
         \\  x = 1
-        \\  const y: [2]Int = [1, 2]
-        \\  const y2 = y
+        \\  y: [2]Int =! [1, 2]
+        \\  y2 =! y
         \\  new x = x + 1
         \\  new x: Int = x + 1
-        \\  new const x = x + 1
-        \\  new const y2: [2]Int = y
+        \\  new x =! x + 1
+        \\  new y2: [2]Int =! y
         \\  x += 1
         \\  x <<= 2
         \\  z = <w
@@ -3861,8 +4110,8 @@ test "parser: every form parses" {
         \\    return
         \\  if m as v
         \\    print(v)
-        \\  :outer while x < 3 : x += 1
-        \\    break :outer
+        \\  @outer while x < 3 : x += 1
+        \\    break @outer
         \\  while m as v
         \\    continue
         \\  else

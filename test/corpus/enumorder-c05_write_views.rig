@@ -1,0 +1,34 @@
+# Plain enum orderings through write views: `!self`, a `!T` in a generic
+# body, loop elements written through `!xs`, and a closure's `|!t|`.
+enum Lvl
+  lo = 1
+  mid = 2
+  hi = 3
+
+  sub raise(!self)
+    if self < .mid
+      self = .mid
+
+sub lift[T](x: !T, y: T)
+  if x < y
+    x = y
+
+sub main()
+  a = Lvl.lo
+  !a.raise()
+  b = Lvl.hi
+  !b.raise()
+  print(a, b)
+  c = Lvl.lo
+  lift(!c, Lvl.hi)
+  d = Lvl.hi
+  lift(!d, Lvl.mid)
+  print(c, d)
+  xs = [Lvl.lo, Lvl.hi, Lvl.mid]
+  for x in !xs
+    if x <= .mid
+      x = .hi
+  print(xs)
+  t = Lvl.lo
+  f = |!t| t >= .mid
+  print(f())

@@ -4,7 +4,7 @@
 obj Holder
   s: ?String
 
-fun f(a: !Holder, b: !String) -> Int
+fun f(a: !Holder, b: !String) -> Int keeps b
   a.s = ?b[0..1]
   for _ in 0..100
     !b.add("abcdefgh")

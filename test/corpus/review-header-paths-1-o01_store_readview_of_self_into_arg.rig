@@ -2,7 +2,7 @@ obj H
   n: Int
   v: List[Int]
 
-  sub put(!self, dst: !List[?List[Int]])
+  sub put(!self, dst: !List[?List[Int]]) keeps self
     !self.v.push(1)
     !dst.push(?self.v)
 

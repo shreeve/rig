@@ -1,0 +1,22 @@
+error E
+  bad
+
+fun f() -> Int!
+  return E.bad if false
+  8
+
+fun g(x: ?Int) -> Int
+  return @size(Int) if x == none
+  x ?? @size(I16)
+
+fun h() -> Int
+  f() catch @size(I32)
+
+sub main()
+  a = @size(Int)
+  c = |x: Int| @size(I16) + x
+  k = 3
+  m = match k
+    3 => @size(I8)
+    _ => @align(Int)
+  print(a, g(none), g(5), h(), c(1), m, @size(@type(a)), @name(@type(a)))

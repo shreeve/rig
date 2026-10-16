@@ -1,6 +1,6 @@
 # Steps, defers, and drops run in the same order for a joined outer loop
 # and a `catch break` inner loop as for plain `while … as` loops, with a
-# `continue :outer` from a `match` value in the inner body.
+# `continue @outer` from a `match` value in the inner body.
 error E
   bad
 
@@ -39,14 +39,14 @@ sub main()
   a = fresh(0, 0)
   k = 0
   i = 0
-  :outer while mk(?v, i) as h and i >= 0: a = fresh(1, h.s[0] + i)
+  @outer while mk(?v, i) as h and i >= 0: a = fresh(1, h.s[0] + i)
     i += 1
     defer print("odefer", i)
     x = D(n: i)
     k += take(<a)
     m = 0
     b = fresh(9, 0)
-    :mid while (mkf(?v, m, 99) catch break) as g: b = fresh(2, g.s[0] + m)
+    @mid while (mkf(?v, m, 99) catch break) as g: b = fresh(2, g.s[0] + m)
       m += 1
       defer print("mdefer", i, m)
       y = D(n: 100 + m)
@@ -54,7 +54,7 @@ sub main()
       w = match m
         1 => 10
         2
-          continue :outer if i % 2 == 0
+          continue @outer if i % 2 == 0
           20
         _ => 30
       k += w

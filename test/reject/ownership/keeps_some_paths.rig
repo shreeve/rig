@@ -1,0 +1,24 @@
+# Why: `maybe_keep` stores `s` on one path only; a store on any path is a
+# store, so it must say `keeps s` (and its callers keep the lend).
+# Rule: the body check finds a store of a lent parameter on any path.
+# From: the census's "B/some" methods (tsc checker.go:26156 getUnionType
+# keeps its slice on one path: 39 slice and 39 string parameters).
+
+obj Binder
+  src: ?String
+  n: Int
+
+  sub maybe_keep(!self, s: ?String)
+    if s.len > 3
+      self.src = s
+    else
+      self.n += 1
+
+sub main()
+  b = Binder(src: "", n: 0)
+  t = String("long")
+  !b.maybe_keep(?t)
+  <t
+  print(b.src)
+
+# error: 13:7: say so: `keeps s`

@@ -1,0 +1,19 @@
+# Why: `watch` keeps `s` in `self`; dropping `t` while `b` is used would
+# leave `b.src` viewing freed bytes.
+# Rule: a kept lend lasts while its holder is used.
+
+obj Binder
+  src: ?String
+
+  sub watch(!self, s: ?String) keeps s
+    self.src = s
+
+sub main()
+  b = Binder(src: "")
+  t = String("x")
+  !b.watch(?t)
+  <t
+  print(b.src)
+
+# error: 15:4: cannot drop `t` while it is lent
+# error: 14:12: `watch` keeps it in `b` (its signature says `keeps s`)

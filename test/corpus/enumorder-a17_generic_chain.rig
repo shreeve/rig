@@ -1,0 +1,29 @@
+# A generic body calls another that orders its T; and a generic object
+# instance made with a plain enum.
+use std.math
+
+enum Size
+  large = 30
+  small = 10
+  medium = 20
+
+fun lt[T](a: T, b: T) -> Bool
+  a < b
+
+fun outer[T](a: T, b: T) -> T
+  if lt(a, b)
+    return math.max(b, a)
+  a
+
+obj Pair[T]
+  a: T
+  b: T
+
+  fun ordered(?self) -> Bool
+    not (self.b < self.a)
+
+sub main()
+  print(outer(Size.small, Size.medium), outer(Size.large, Size.small))
+  p = Pair[Size](a: .small, b: .large)
+  q = Pair(a: Size.large, b: Size.medium)
+  print(p.ordered(), q.ordered())

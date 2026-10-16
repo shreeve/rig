@@ -1,0 +1,30 @@
+# Why: a `hash.Map[U32, ?List[Int]]` holds views of Lists in its
+# entries, `Entry[K, V]` instances whose `V` is the Map's `?List[Int]`,
+# so `count` may store `t`'s view of `xs` in `c`, and `xs` stays lent to
+# read while `c` is used.
+# Rule: a call may store an argument taken by value wherever its type
+# fits what the call's write parameters lead to, a generic instance's
+# arguments included (Core sentence 7).
+
+use std.hash
+
+obj Tok
+  items: ?List[Int]
+
+obj Checker
+  total: Int
+  m: hash.Map[U32, ?List[Int]]
+
+fun Checker.count(!self, t: Tok) -> Int
+  self.total += 1
+  t.items.len
+
+sub main()
+  xs: List[Int] = List()
+  c = Checker(total: 0, m: hash.Map[U32, ?List[Int]]())
+  !xs.push(1)
+  print((!c).count(Tok(items: ?xs)))
+  !xs.push(2)
+  print(xs.len, c.total)
+
+# error: 27:3: cannot lend `xs` to write while a read loan is live

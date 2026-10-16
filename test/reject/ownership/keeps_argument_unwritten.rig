@@ -1,0 +1,27 @@
+# A place lent to a parameter the callee keeps is lent with `?` written
+# (Core sentence 4), a receiver too.
+
+obj Binder
+  src: ?String
+
+  sub watch(!self, s: ?String) keeps s
+    self.src = s
+
+obj Node
+  n: Int
+
+  sub register(?self, out: !List[?Node]) keeps self
+    !out.push(self)
+
+sub main()
+  b = Binder(src: "")
+  t = String("x")
+  !b.watch(t)
+  a = Node(n: 1)
+  out: List[?Node] = List()
+  a.register(!out)
+  print(b.src, out.len)
+
+# errors: 2
+# error: 19:12: keeps `t` lent in what `watch` stores; write `!b.watch(?t)`
+# error: 22:3: keeps `a` lent in what `register` stores; write `?a.register(!out)`

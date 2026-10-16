@@ -1,0 +1,27 @@
+# Plain enum orderings: through views of a T, from_int, a List sorted
+# in place, and @variants sorted by a comparator.
+use std.sort
+
+enum Size
+  large = 30
+  small = 10
+  medium = 20
+
+fun lt2[T](a: ?T, b: ?T) -> Bool
+  a < b
+
+fun pick(n: Int) -> Bool?
+  Size.from_int(n)? > .small
+
+sub main()
+  x = Size.large
+  y = Size.medium
+  print(lt2(?x, ?y), lt2(?y, ?x))
+  print(pick(20), pick(10), pick(11))
+  l: List[Size] = List()
+  for v in @variants(Size)
+    !l.push(v)
+  sort.sort(!l)
+  print(l)
+  sort.sort_by(!l, |a, b| a > b)
+  print(l)

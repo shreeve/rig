@@ -5,7 +5,7 @@ obj K
   a: ?String
   b: ?String
 
-  sub put(!self, v: ?String)
+  sub put(!self, v: ?String) keeps v
     self.b = v
 
 sub ok(p: !H)

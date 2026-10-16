@@ -63,7 +63,7 @@ sub main()
   o0 = ints(1)
   c0 = 0
   p0 = 0
-  :l0 while (limf(c0, 3, false) catch none) as h0: c0 = grow(!o0, 0, h0)
+  @l0 while (limf(c0, 3, false) catch none) as h0: c0 = grow(!o0, 0, h0)
     guard += 1
     if guard > 300
       print("cap")
@@ -90,11 +90,11 @@ sub main()
       defer print("od1", sv1[0])
       print("b1", c0, c1, h1)
       break 77 if c1 == 99
-      :a match c1
+      @a match c1
         _
           c2 = 0
           p2 = 0
-          :l2 while lim(c2, 2) as h2 and (gate(c0 == 1 and c1 == 1 and c2 == 1) ?? break) > 0: c2 = st(2, h2)
+          @l2 while lim(c2, 2) as h2 and (gate(c0 == 1 and c1 == 1 and c2 == 1) ?? break) > 0: c2 = st(2, h2)
             guard += 1
             if guard > 300
               print("cap")

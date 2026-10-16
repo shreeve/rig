@@ -6,7 +6,7 @@
 obj H
   s: ?String
 
-  sub keep(!self, v: ?String)
+  sub keep(!self, v: ?String) keeps v
     self.s = v
 
 sub captured(w: (!H)?)

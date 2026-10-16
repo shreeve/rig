@@ -10,7 +10,7 @@ sub main()
 EOF
 out=$("$RIG" emit hello.rig 2>/dev/null) || fail "rig emit hello.rig"
 expect_has "$out" 'pub fn main(__rig_init: std.process.Init.Minimal) void' "hello"
-expect_has "$out" 'rig.print(.{ "hello, rig" })' "hello"
+expect_has "$out" 'rig.print(.{ "hello, rig", "\n" })' "hello"
 
 cat >bindings.rig <<'EOF'
 fun two() -> Int
@@ -20,7 +20,7 @@ sub main()
   x = 1
   y = two()
   z = 5
-  const user = 1
+  user =! 1
   if y > 1
     x = 3
   print(x + y + z + user)

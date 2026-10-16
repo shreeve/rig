@@ -3,7 +3,7 @@ use std.hash
 obj Ref
   s: ?String
 
-fun store(v: !Ref, t: ?String) -> Bool
+fun store(v: !Ref, t: ?String) -> Bool keeps t
   v.s = t
   true
 

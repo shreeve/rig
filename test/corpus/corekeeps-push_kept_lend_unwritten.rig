@@ -1,0 +1,5 @@
+sub main()
+  t = String("abc")
+  names: List[?String] = List()
+  !names.push(?t)
+  print(names.len)

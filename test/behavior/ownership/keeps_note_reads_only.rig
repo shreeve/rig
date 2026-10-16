@@ -1,0 +1,28 @@
+# Rule: a call keeps only what its signature shows; `note` names nothing
+# in `keeps`, so the lend of `suggestion` ends when the call returns
+# (Core sentence 7).
+# From: proposal-call-stores §1 (Trig NEEDS 11); Trig
+# src/parser/parser.rig:520-544 (the `_with` error forms take an owned
+# String: "a `?String` argument to one of its `!self` methods counts as
+# stored"); Go parser.go:321 parseErrorAt(..., args ...any).
+
+obj Parser
+  src: ?String
+  errors: Int
+
+  sub note(!self, msg: ?String)
+    if msg.len > self.src.len
+      self.errors += 1
+
+  sub check(!self)
+    suggestion = String("did you mean x?")
+    !self.note(?suggestion)
+
+sub main()
+  text = "x"
+  p = Parser(src: text, errors: 0)
+  !p.check()
+  print(p.errors)
+
+# expect:
+# 1

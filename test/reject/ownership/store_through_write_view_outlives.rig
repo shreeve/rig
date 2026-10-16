@@ -10,10 +10,10 @@ obj Wrap
 obj View
   b: ?In
 
-sub fill(w: !View, b: ?In)
+sub fill(w: !View, b: ?In) keeps b
   w.b = b
 
-sub fill_wrap(t: !Wrap, b: ?In)
+sub fill_wrap(t: !Wrap, b: ?In) keeps b
   t.r = b
 
 sub main()

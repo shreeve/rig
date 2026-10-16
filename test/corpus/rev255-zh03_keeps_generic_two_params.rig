@@ -1,0 +1,15 @@
+obj Pair[A, B]
+  a: (?A)?
+  b: (?B)?
+
+  sub set(!self, x: ?A, y: ?B) keeps y
+    self.b = y
+    print(x)
+
+sub main()
+  p = Pair[String, String](a: none, b: none)
+  s = String("s")
+  u = String("u")
+  !p.set(?s, ?u)
+  <s
+  print(p.b)

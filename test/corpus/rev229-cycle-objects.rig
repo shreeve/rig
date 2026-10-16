@@ -1,0 +1,23 @@
+# Review of #229: a cycle of `inline` methods of two object types names
+# each by its type.
+
+obj A[T]
+  v: T
+
+  inline fun go(?self, n: Int) -> Int
+    return 0 if n <= 0
+    b = B[T](v: 1)
+    b.go(n - 1) + 1
+
+obj B[T]
+  v: Int
+
+  inline fun go(?self, n: Int) -> Int
+    a = A[Int](v: 2)
+    a.go(n - 1) + 1
+
+sub main()
+  a = A[Bool](v: true)
+  print(a.go(3))
+
+# error: 7:14: `A.go` is `inline` and calls itself through `B.go`

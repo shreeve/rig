@@ -63,7 +63,7 @@ sub main()
   o0 = ints(1)
   c0 = 0
   p0 = 0
-  :a while lim(c0, 3) as h0 and h0 >= 0: c0 = grow(!o0, 0, h0)
+  @a while lim(c0, 3) as h0 and h0 >= 0: c0 = grow(!o0, 0, h0)
     guard += 1
     if guard > 300
       print("cap")
@@ -87,10 +87,10 @@ sub main()
       y1 = D(n: 100 + c1)
       defer print("d1", c1)
       print("b1", c0, c1, h1)
-      :a raw
+      @a raw
         c2 = 0
         p2 = 0
-        :l2 while lim(c2, 2) as h2: c2 = st(2, c2)
+        @l2 while lim(c2, 2) as h2: c2 = st(2, c2)
           guard += 1
           if guard > 300
             print("cap")

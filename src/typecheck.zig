@@ -86,6 +86,10 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     for (ir.Module.decls(tree)) |decl| try c.checkLendBases(decl, decl, false, true);
 }
 
+/// The diagnostic for an operand of `<`, `<=`, `>`, or `>=` whose type
+/// has no order: the operator, then the type.
+const ordering_operands = "operator `{s}` orders numbers, plain enums, Strings, and `[]U8` slices; got `{s}`";
+
 /// Where a binding that cannot be written got its value: a loop element
 /// or `as` binding copied from a place, or a match binding of a field of
 /// the place a bare match copies (`match_copy`) or a `?` match reads
@@ -108,8 +112,14 @@ const Checker = struct {
     callee_node: ?Sexp = null,
     /// The call being checked, for its argument-slot fact.
     current_call: ?Sexp = null,
+    /// The compile-time parameters of its own and their arguments, of the
+    /// instance the last `instantiateCall` made; empty for a function that
+    /// has none (`noteTarget`).
+    inst_own: TypeSubst = .empty,
     /// The `new x` binding whose value is being checked: not visible yet.
     pending: SymbolId = sema.symbol_invalid,
+    /// The names `new q, r = f()` declares, while its call is checked.
+    pending_names: []const SymbolId = &.{},
     /// Enclosing `raw` blocks.
     raw_depth: u32 = 0,
     /// The operand of the `!` or `catch` being checked: a fallible call
@@ -130,6 +140,24 @@ const Checker = struct {
     /// The expression statement being checked, whose value is
     /// discarded (`isDiscardedCall`).
     discarded: Sexp = .nil,
+    /// The call that gives several results where they may stand: the
+    /// value of a destructure, of `return` in a function that gives
+    /// them, or of `if ... as a, b` (docs/INTERNALS.md, "Several
+    /// results"). Any other such call is reported (`misplacedResults`).
+    results_ok: Sexp = .nil,
+    /// The type of the result the `result_part` being checked takes:
+    /// a destructure's target binds it as `x = e` binds `e`.
+    part_ty: TypeId = sema.type_invalid,
+    /// The value of the single binding being checked, and the call it
+    /// is, for the hint that binds each of several results.
+    bound_value: Sexp = .nil,
+    bound_call: Sexp = .nil,
+    /// The last line of a function that gives several results, which
+    /// gives them with `return`.
+    results_tail: Sexp = .nil,
+    /// The call `if c as x` binds one name of, for the hint that binds
+    /// each of several results.
+    as_call: Sexp = .nil,
     /// The name an assignment re-binds while its value is checked, when
     /// that name holds a `Static` (`staticHint`).
     static_target: []const u8 = "",
@@ -294,7 +322,7 @@ const Checker = struct {
         /// The construct a jump to this frame names: a `while` or `for`,
         /// or a labeled block's `match` or `raw` block.
         node: Sexp,
-        /// False for a labeled block, which only `break :label` leaves.
+        /// False for a labeled block, which only `break @label` leaves.
         is_loop: bool = true,
         /// The part of the loop being checked, which decides where a
         /// `continue` from it goes.
@@ -736,6 +764,9 @@ const Checker = struct {
                     try self.errAt(s, "a function returning `{s}` must end with a value; this {s} produces none", .{ try self.tyName(ret), what });
                     continue;
                 }
+                const saved_tail = self.results_tail;
+                defer self.results_tail = saved_tail;
+                if (sema.resultsOf(self.ctx, ret) != null) self.results_tail = resultCall(s) orelse .nil;
                 try self.checkTail(s, ret);
             } else {
                 try self.checkStmt(s);
@@ -784,11 +815,13 @@ const Checker = struct {
                 try self.checkSet(stmt);
                 if (self.ctx.diagnostics.items.len == mark) try self.checkKeptSet(stmt);
             },
+            .destructure => try self.checkDestructure(stmt),
             .@"return" => {
                 const mark = self.ctx.diagnostics.items.len;
                 try self.checkReturn(stmt);
                 const value = ir.Return.value(stmt);
-                if (value != .nil and self.ctx.diagnostics.items.len == mark) try self.keptLends(value, .returned);
+                // Each of several results is checked where it is checked.
+                if (value != .nil and !value.isKind(.results) and self.ctx.diagnostics.items.len == mark) try self.keptLends(value, .returned);
             },
             .@"if" => _ = try self.checkIfValue(stmt, null, .statement),
             .@"while" => try self.checkWhile(stmt),
@@ -857,14 +890,14 @@ const Checker = struct {
                 // Only a loop, a `match`, or a `raw` block has a use for a
                 // label; the statement is still checked as if it took one.
                 if (inner.isKind(.labeled)) {
-                    try self.errAt(stmt, "a loop, `match`, or `raw` block takes one label; `:{s}` labels a statement already labeled `:{s}`", .{ label, self.text(ir.Labeled.label(inner)) });
+                    try self.errAt(stmt, "a loop, `match`, or `raw` block takes one label; `@{s}` labels a statement already labeled `@{s}`", .{ label, self.text(ir.Labeled.label(inner)) });
                 } else if (!inner.isKind(.match) and !inner.isKind(.raw_block)) {
                     const prefix = "a label names a loop, `match`, or `raw` block that `break` or `continue` can leave";
                     switch (inner.kind() orelse .labeled) {
-                        .@"if" => try self.errAt(stmt, "{s}; `:{s}` cannot label an `if`", .{ prefix, label }),
-                        .@"defer" => try self.errAt(stmt, "{s}; `:{s}` cannot label a `defer`", .{ prefix, label }),
-                        .@"errdefer" => try self.errAt(stmt, "{s}; `:{s}` cannot label an `errdefer`", .{ prefix, label }),
-                        else => try self.errAt(stmt, "{s}; `:{s}` on this statement would do nothing", .{ prefix, label }),
+                        .@"if" => try self.errAt(stmt, "{s}; `@{s}` cannot label an `if`", .{ prefix, label }),
+                        .@"defer" => try self.errAt(stmt, "{s}; `@{s}` cannot label a `defer`", .{ prefix, label }),
+                        .@"errdefer" => try self.errAt(stmt, "{s}; `@{s}` cannot label an `errdefer`", .{ prefix, label }),
+                        else => try self.errAt(stmt, "{s}; `@{s}` on this statement would do nothing", .{ prefix, label }),
                     }
                 }
                 var frame: LoopFrame = .{ .label = label, .node = inner, .is_loop = false, .parent = self.body.loops };
@@ -926,6 +959,10 @@ const Checker = struct {
         defer self.discarded = saved;
         self.discarded = stmt;
         try self.ctx.recordDiscard(stmt);
+        // A call's several results are discarded whole, as one result is.
+        const saved_ok = self.results_ok;
+        defer self.results_ok = saved_ok;
+        self.results_ok = resultCall(stmt) orelse .nil;
         const ty = try self.synthExpr(stmt);
         // A closure literal alone is reported by the ownership checker.
         if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
@@ -942,6 +979,10 @@ const Checker = struct {
             return self.errAt(stmt, "this expression does nothing as a statement; use its value, or discard it with `_ = ...`", .{});
         }
         if ((try self.needsCleanup(ty, self.startOf(stmt), "discards a value"))) {
+            if (sema.resultsOf(self.ctx, ty)) |parts| {
+                const shown = self.sourceText(stmt);
+                return self.errAt(stmt, "this statement gives the results `{s}`, which own what they must release, and does not use them; bind each (`{s} = {s}`), or drop them now with `_ = {s}`", .{ try self.tyName(ty), try self.resultNames(parts.len), shown, shown });
+            }
             try self.errAt(stmt, "this statement makes a `{s}`, which owns what it must release, and does not use it; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver", .{try self.tyName(ty)});
         }
     }
@@ -962,6 +1003,11 @@ const Checker = struct {
 
     fn checkReturn(self: *Checker, node: Sexp) Error!void {
         const value = ir.Return.value(node);
+        if (value.isKind(.results)) return self.checkReturnResults(node, value);
+        // `return f()` gives the several results `f` gives, whole.
+        const saved_ok = self.results_ok;
+        defer self.results_ok = saved_ok;
+        if (sema.resultsOf(self.ctx, self.body.ret) != null) self.results_ok = resultCall(value) orelse .nil;
         if (value != .nil) try self.recordUse(value, .take);
         const ret = self.body.ret;
         if (self.body.fail_to == .deferred) try self.errAt(node, "cannot `return` inside `defer`; the deferred code runs as the function exits", .{});
@@ -1014,6 +1060,248 @@ const Checker = struct {
 
     /// `_ = e`, and a statement `<e` that drops what it takes: `e` is
     /// taken, and dropped at the statement's end.
+    // ---- several results ------------------------------------------------------
+
+    /// `q, r = f()`: the call's several results, each bound to its
+    /// target left to right as `x = e` binds `e` (each target but `_` is
+    /// `(set op x _ (result_part))`). The value is a call that gives
+    /// them, alone or under `!`, `?`, or a fallback that jumps
+    /// (docs/INTERNALS.md, "Several results").
+    fn checkDestructure(self: *Checker, node: Sexp) Error!void {
+        const value = ir.Destructure.value(node);
+        const targets = ir.Destructure.targets(node).items();
+        if (value.isKind(.results)) return self.parallelAssignment(node, targets, value);
+        var ok = try self.checkResultTargets(targets);
+        const call = resultCall(value) orelse Sexp.nil;
+        if (ok and !self.isResultsValue(value)) {
+            try self.errAt(value, "several results are bound from a call that gives them: `{s} = f()`, `f()!`, `f()?`, `f() ?? return`, or `f() catch return`", .{try self.targetNames(targets)});
+            _ = try self.synthQuiet(value);
+            for (targets) |tg| if (tg.isKind(.set)) try self.poisonTarget(tg);
+            return;
+        }
+        const saved_ok = self.results_ok;
+        defer self.results_ok = saved_ok;
+        self.results_ok = call;
+        try self.recordUse(value, .take);
+        // `new q, r = f(q)` reads the `q` it shadows, as `new x = e` does.
+        const saved_names = self.pending_names;
+        defer self.pending_names = saved_names;
+        if (rig.shadows(ir.Destructure.op(node))) {
+            var names: std.ArrayList(SymbolId) = .empty;
+            for (targets) |tg| if (tg.isKind(.set) and ir.Set.target(tg) == .src) if (self.ctx.symbolOf(ir.Set.target(tg))) |id| {
+                try names.append(self.ctx.arena.allocator(), id);
+            };
+            self.pending_names = names.items;
+        }
+        const ty = try self.synthExpr(value);
+        self.pending_names = saved_names;
+        var parts: []const TypeId = &.{};
+        if (!self.isPoison(ty)) switch (self.ctx.types.get(ty)) {
+            .results => |r| parts = r,
+            // Reported where the call is typed (`synthCall`).
+            .fallible => ok = false,
+            else => if (ok) {
+                const name = if (call != .nil) try self.calleeName(ir.Call.callee(call)) else self.sourceText(value);
+                const shown = self.sourceText(value);
+                if (sema.resultsOf(self.ctx, ty) != null) {
+                    try self.errAt(value, "`{s}` gives several results inside an optional, `{s}`: test it first, `{s}?`, `{s} ?? return`, or `if {s} as {s}`", .{ name, try self.tyName(ty), shown, shown, shown, try self.targetNames(targets) });
+                } else try self.errAt(value, "`{s}` gives one result, of type `{s}`; bind it to one name", .{ name, try self.tyName(ty) });
+                ok = false;
+            },
+        };
+        if (ok and parts.len > 0 and parts.len != targets.len) {
+            try self.errAt(value, "`{s}` gives {d} results, but {d} names are bound", .{ try self.calleeName(ir.Call.callee(call)), parts.len, targets.len });
+            ok = false;
+        }
+        const saved_part = self.part_ty;
+        defer self.part_ty = saved_part;
+        const mark = self.ctx.diagnostics.items.len;
+        for (targets, 0..) |tg, j| {
+            if (!tg.isKind(.set)) continue;
+            self.part_ty = if (ok and j < parts.len) parts[j] else self.t().invalid_id;
+            if (ok) try self.checkSet(tg) else try self.poisonTarget(tg);
+        }
+        // A lend a kept result carries is written (Core sentence 4). A
+        // lend to read is kept by a result that only reads, so one is
+        // named first.
+        if (!ok or parts.len != targets.len or self.ctx.diagnostics.items.len != mark) return;
+        var keeper: Sexp = .nil;
+        for ([_]bool{ false, true }) |writes| {
+            if (keeper != .nil) break;
+            for (targets, parts) |tg, part| {
+                if (!tg.isKind(.set) or !sema.mayHoldView(self.ctx, part)) continue;
+                if (sema.holdsWriteView(self.ctx, part) != writes) continue;
+                keeper = tg;
+                break;
+            }
+        }
+        if (keeper != .nil) try self.keptLends(value, .{ .binding = self.text(ir.Set.target(keeper)) });
+    }
+
+    /// The targets of a destructure: names or `_`, each named once. A
+    /// field or element is not one: its indexes would run in the middle
+    /// of the bindings. False when one is reported.
+    fn checkResultTargets(self: *Checker, targets: []const Sexp) Error!bool {
+        var ok = true;
+        for (targets, 0..) |tg, j| {
+            if (!tg.isKind(.set)) continue;
+            const target = ir.Set.target(tg);
+            if (target != .src) {
+                const shown = self.sourceText(target);
+                const reads = for (targets) |o| {
+                    if (!o.isKind(.set) or ir.Set.target(o) != .src) continue;
+                    const name = self.text(ir.Set.target(o));
+                    if (readsNameIn(self.ctx.source, target, name)) break name;
+                } else null;
+                if (reads) |name| {
+                    try self.errAt(target, "each result is bound to a name, and `{s}` reads `{s}`, which this statement binds, so the order would decide what it means: bind a name here, then assign `{s}` on the next line", .{ shown, name, shown });
+                } else try self.errAt(target, "each result is bound to a name: bind one here, then assign `{s}` on the next line", .{shown});
+                ok = false;
+                continue;
+            }
+            const name = self.text(target);
+            for (targets[0..j]) |o| if (o.isKind(.set) and ir.Set.target(o) == .src and std.mem.eql(u8, self.text(ir.Set.target(o)), name)) {
+                try self.errAt(target, "`{s}` is bound twice by one statement; bind each result to its own name, or discard one with `_`", .{name});
+                ok = false;
+                break;
+            };
+        }
+        return ok;
+    }
+
+    /// The value of a destructure, by a positive list: a call, alone or
+    /// under `!` or `?`, or with a `??` or `catch` fallback that jumps.
+    fn isResultsValue(self: *const Checker, value: Sexp) bool {
+        _ = self;
+        const head = value.kind() orelse return false;
+        return switch (head) {
+            .call => true,
+            .propagate => ir.Propagate.value(value).isKind(.call),
+            .propagate_none => ir.PropagateNone.value(value).isKind(.call),
+            .@"??" => ir.@"??".left(value).isKind(.call) and isJumpNode(ir.@"??".right(value)),
+            .@"catch" => ir.Catch.value(value).isKind(.call) and isJumpNode(ir.Catch.handler(value)),
+            else => false,
+        };
+    }
+
+    /// A destructure target checked after its statement was reported:
+    /// its name gets no type, so its uses report nothing more.
+    fn poisonTarget(self: *Checker, set: Sexp) Error!void {
+        const target = ir.Set.target(set);
+        if (target != .src) return;
+        const sym = self.ctx.symbolOf(target) orelse return;
+        if (self.ctx.symbols.items[sym].decl_pos == target.src.pos) self.ctx.symbols.items[sym].ty = self.t().invalid_id;
+        try self.ctx.recordType(ir.Set.value(set), self.t().invalid_id);
+    }
+
+    /// `a, b = b, a` and `q, r = 1, 2`: Rig has no parallel assignment.
+    fn parallelAssignment(self: *Checker, node: Sexp, targets: []const Sexp, value: Sexp) Error!void {
+        const values = ir.Results.values(value);
+        for (values) |v| _ = try self.synthExpr(v);
+        for (targets) |tg| if (tg.isKind(.set)) try self.poisonTarget(tg);
+        // Two names given each other's values: a swap.
+        if (targets.len == 2 and values.len == 2 and values[0] == .src and values[1] == .src and targets[0].isKind(.set) and targets[1].isKind(.set)) {
+            const a = ir.Set.target(targets[0]);
+            const b = ir.Set.target(targets[1]);
+            if (a == .src and b == .src and std.mem.eql(u8, self.text(a), self.text(values[1])) and std.mem.eql(u8, self.text(b), self.text(values[0]))) {
+                return self.errAt(node, "Rig has no parallel assignment: write `swap(!{s}, !{s})` to exchange two places", .{ self.text(a), self.text(b) });
+            }
+        }
+        try self.errAt(node, "Rig has no parallel assignment: bind each name on its own line; several results come from a call, `{s} = f()`", .{try self.targetNames(targets)});
+    }
+
+    /// The targets of a destructure as written: `q, r`.
+    fn targetNames(self: *Checker, targets: []const Sexp) Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        const a = self.ctx.arena.allocator();
+        for (targets, 0..) |tg, i| {
+            if (i > 0) try out.appendSlice(a, ", ");
+            try out.appendSlice(a, self.sourceText(if (tg.isKind(.set)) ir.Set.target(tg) else tg));
+        }
+        return out.items;
+    }
+
+    /// The function being checked, for a message: `` `f` ``, or this
+    /// closure.
+    fn bodyName(self: *Checker) Error![]const u8 {
+        if (self.body.name == .nil) return "this closure";
+        return self.ctx.arena.allocator().print("`{s}`", .{self.text(self.body.name)});
+    }
+
+    /// `n` names for a hint that binds several results: `a, b`.
+    fn resultNames(self: *Checker, n: usize) Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        const a = self.ctx.arena.allocator();
+        for (0..n) |i| {
+            if (i > 0) try out.appendSlice(a, ", ");
+            try out.append(a, @as(u8, @intCast(@as(usize, 'a') + @min(i, 25))));
+        }
+        return out.items;
+    }
+
+    /// A call that gives several results, where they may not stand.
+    fn misplacedResults(self: *Checker, call: Sexp, ty: TypeId) Error!void {
+        const n = sema.resultsOf(self.ctx, ty).?.len;
+        const name = try self.calleeName(ir.Call.callee(call));
+        if (sameNode(call, self.bound_call)) {
+            return self.errAt(call, "`{s}` gives {d} results; bind each: `{s} = {s}`", .{ name, n, try self.resultNames(n), self.sourceText(self.bound_value) });
+        }
+        // A `for` over an iterator calls its `next` for one value a step.
+        const callee = ir.Call.callee(call);
+        if (callee.isKind(.member) and rig.isHiddenLeaf(ir.Member.name(callee))) {
+            return self.errAt(call, "a `for` binds one value each step, and this iterator's `next` gives {d} results: bind them with `while (!it).next() as {s}`", .{ n, try self.resultNames(n) });
+        }
+        if (sameNode(call, self.as_call)) {
+            return self.errAt(call, "`{s}` gives {d} results: bind each, `if {s} as {s}`", .{ name, n, self.sourceText(call), try self.resultNames(n) });
+        }
+        if (sameNode(call, self.results_tail)) {
+            return self.errAt(call, "several results are given with `return`: `return {s}`", .{self.sourceText(call)});
+        }
+        try self.errAt(call, "a call that gives several results stands only where each result is bound: `{s} = {s}`", .{ try self.resultNames(n), self.sourceText(call) });
+    }
+
+    /// `(a, b)` as a value: Rig has no tuples.
+    fn tupleValue(self: *Checker, e: Sexp) Error!TypeId {
+        const elems = ir.Tuple.elems(e);
+        for (elems) |x| _ = try self.synthExpr(x);
+        const src = self.sourceText(e);
+        const inner = std.mem.trim(u8, src[1 .. src.len - 1], " ");
+        if (sema.resultsOf(self.ctx, self.body.ret) != null) {
+            try self.errAt(e, "Rig has no tuple values: give several results with `return {s}`", .{inner});
+        } else try self.errAt(e, "Rig has no tuple values: name an object for a group of values, or give a function several results, `-> (A, B)`, with `return {s}`", .{inner});
+        return self.t().invalid_id;
+    }
+
+    /// `return a, b`: each part is a result, checked as `return x` checks
+    /// its value against the result type in its position.
+    fn checkReturnResults(self: *Checker, node: Sexp, value: Sexp) Error!void {
+        const parts = ir.Results.values(value);
+        if (self.body.fail_to == .deferred) try self.errAt(node, "cannot `return` inside `defer`; the deferred code runs as the function exits", .{});
+        for (parts) |p| try self.recordUse(p, .take);
+        const ret = self.body.ret;
+        const tys: ?[]const TypeId = if (self.body.returns != null) null else sema.resultsOf(self.ctx, ret);
+        const want = tys orelse {
+            for (parts) |p| _ = try self.synthExpr(p);
+            // A closure whose result is inferred gives one.
+            if (self.body.returns != null) return self.errAt(value, "a closure gives several results only where its type says so: `?fun(...) -> (A, B)`", .{});
+            if (self.isPoison(ret)) return;
+            if (self.body.is_sub) return self.errAt(value, "a `sub` returns no value; several results are a `fun`'s: `-> (A, B)`", .{});
+            return self.errAt(value, "{s} gives one result, of type `{s}`; several are declared `-> (A, B)`", .{ try self.bodyName(), try self.tyName(ret) });
+        };
+        if (want.len != parts.len) {
+            for (parts) |p| _ = try self.synthExpr(p);
+            return self.errAt(value, "{s} gives {d} results, but `return` gives {d}", .{ try self.bodyName(), want.len, parts.len });
+        }
+        const saved = self.return_operand;
+        defer self.return_operand = saved;
+        for (parts, want) |p, ty| {
+            self.return_operand = p;
+            const mark = self.ctx.diagnostics.items.len;
+            try self.checkExpr(p, ty);
+            if (self.ctx.diagnostics.items.len == mark) try self.keptLends(p, .returned);
+        }
+    }
+
     fn checkDiscard(self: *Checker, value: Sexp) Error!void {
         try self.recordUse(value, .take);
         _ = try self.synthExpr(value);
@@ -1024,20 +1312,35 @@ const Checker = struct {
         const target = ir.Set.target(node);
         const type_node = ir.Set.type(node);
         const rhs = ir.Set.value(node);
+        const saved_bound = .{ self.bound_value, self.bound_call };
+        defer self.bound_value, self.bound_call = saved_bound;
+        self.bound_value = rhs;
+        self.bound_call = resultCall(rhs) orelse .nil;
         // A binding, an assignment, and `_ = e` take the value.
         try self.recordUse(rhs, .take);
 
+        // `(q, r) = f()`: several results are bound by the bare list.
+        if (target.isKind(.tuple)) {
+            _ = try self.synthQuiet(rhs);
+            const src = self.sourceText(target);
+            return self.errAt(target, "write `{s} = {s}`; parentheses aren't needed on the left", .{ std.mem.trim(u8, src[1 .. src.len - 1], " "), self.sourceText(rhs) });
+        }
         if (target != .src) return self.checkPlaceAssign(kind, target, type_node, rhs);
 
         const name = self.text(target);
         if (std.mem.eql(u8, name, "_")) {
             // `x op= e` reads `x`.
             if (kind.operator() != null) try self.errAt(target, discard_read, .{});
+            if (kind == .fixed) try self.errAt(target, "`_` binds nothing, so it cannot be fixed; discard with `_ = ...`", .{});
             // `_ =` discards the value, so a write call there is a
             // statement's (`isDiscardedCall`).
             const saved = self.discarded;
             defer self.discarded = saved;
             self.discarded = rhs;
+            // `_ = f()` discards every result `f` gives.
+            const saved_ok = self.results_ok;
+            defer self.results_ok = saved_ok;
+            self.results_ok = resultCall(rhs) orelse .nil;
             _ = try self.synthExpr(rhs);
             return;
         }
@@ -1158,9 +1461,9 @@ const Checker = struct {
         // a later constant may branch on it.
         const ternary_const = s.scope == self.module_scope and rhs.isKind(.@"if") and self.isConstExpr(rhs);
         if (kind == .fixed and (ternary_const or self.isComptimeKnown(rhs))) s.flags.comptime_known = true;
-        // A `const` local of a value the target sets is set by it too.
+        // A `=!` local of a value the target sets is set by it too.
         if (s.flags.comptime_known and s.scope != self.module_scope and sema.perTargetLeaf(self.ctx, rhs) != null) s.flags.per_target = true;
-        // `const k = n` stands for the compile-time parameter `n` where an
+        // `k =! n` stands for the compile-time parameter `n` where an
         // array length or a compile-time argument names it.
         if (kind == .fixed and is_decl and s.kind == .local) if (try self.ctParamOf(rhs)) |ct| try self.ctx.ct_locals.put(self.ctx.allocator, sym_id, ct);
         try self.ctx.recordType(target, s.ty);
@@ -1236,7 +1539,7 @@ const Checker = struct {
         }
         switch (kind) {
             .fixed, .shadow => {
-                try self.errAt(target, "`{s}` binds a name; a field or element can only be assigned with `=`", .{if (kind == .fixed) "const" else "new"});
+                try self.errAt(target, "`{s}` binds a name; a field or element can only be assigned with `=`", .{if (kind == .fixed) "=!" else "new"});
                 _ = try self.synthExpr(rhs);
                 return;
             },
@@ -1734,7 +2037,7 @@ const Checker = struct {
                 if (whole) return true;
                 if (root == .constant) {
                     try self.err(pos, "cannot {s} constant `{s}`{s}", .{ verb.head, name, verb.tail });
-                } else try self.err(pos, "cannot {s} fixed binding `{s}`{s} (bound with `const`)", .{ verb.head, name, verb.tail });
+                } else try self.err(pos, "cannot {s} fixed binding `{s}`{s} (bound with `=!`)", .{ verb.head, name, verb.tail });
                 return false;
             } else if (sym.flags.pattern_bound) {
                 // A write view a match that only reads its subject binds
@@ -1857,6 +2160,7 @@ const Checker = struct {
             c: *Checker,
             pub fn part(v: @This(), p: Sexp) Error!void {
                 if (p.isKind(.as)) return v.c.checkOptionalBinding(p);
+                if (p.isKind(.as_results)) return v.c.checkResultsBinding(p);
                 return v.c.checkExpr(p, v.c.t().bool_id);
             }
             pub fn join(v: @This(), j: Sexp) Error!void {
@@ -1885,6 +2189,13 @@ const Checker = struct {
     /// or a view the condition binds, which lives only in the body.
     fn checkStepUses(self: *Checker, cond: Sexp, step: Sexp) Error!void {
         for (try self.guardParts(cond)) |p| {
+            // The results `as` binds live only in the body.
+            if (p.isKind(.as_results)) for (ir.AsResults.names(p).items()) |n| {
+                if (!n.isKind(.set)) continue;
+                const b = self.ctx.symbolOf(ir.Set.target(n)) orelse continue;
+                const use = sema.findUse(self.ctx, step, b) orelse continue;
+                try self.errAt(use, "the loop step cannot use `{s}`, a result the condition binds, which lives only in the body; use it at the end of the body instead", .{self.ctx.symbols.items[b].name});
+            };
             if (!p.isKind(.as)) continue;
             const b = self.ctx.symbolOf(ir.As.name(p)) orelse continue;
             const sym = self.ctx.symbols.items[b];
@@ -2022,7 +2333,10 @@ const Checker = struct {
         const saved_held = self.held_base;
         defer self.held_base = saved_held;
         if (!self.no_hold) self.held_base = self.madeBase(expr);
+        const saved_as = self.as_call;
+        self.as_call = resultCall(expr) orelse .nil;
         const ty = try self.synthExpr(expr);
+        self.as_call = saved_as;
         var inner = self.t().invalid_id;
         if (!self.isPoison(ty)) switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
             .optional => |i| inner = i,
@@ -2108,6 +2422,53 @@ const Checker = struct {
         }
     }
 
+    /// `if f() as a, b` / `while f() as a, b`: `f()` gives several
+    /// results inside an optional, `(A, B)?`, and each name binds one of
+    /// them, taken, as a destructure's target does (`checkDestructure`).
+    fn checkResultsBinding(self: *Checker, node: Sexp) Error!void {
+        const value = ir.AsResults.value(node);
+        const names = ir.AsResults.names(node).items();
+        var ok = try self.checkResultTargets(names);
+        // A header's temporaries end with it, before its body runs, and a
+        // result `_` discarded there would drop after them: each result
+        // is bound to a name, which the body owns.
+        for (names) |n| if (!n.isKind(.set)) {
+            try self.errAt(n, "`as` binds each result to a name: name this one, and where the body does not use it, discard it there with `_ = name`", .{});
+            ok = false;
+        };
+        try self.recordUse(value, .take);
+        const saved_ok = self.results_ok;
+        defer self.results_ok = saved_ok;
+        if (value.isKind(.call)) self.results_ok = value;
+        const ty = try self.synthExpr(value);
+        var parts: []const TypeId = &.{};
+        if (ok and !self.isPoison(ty)) {
+            const inner = switch (self.ctx.types.get(ty)) {
+                .optional => |i| i,
+                else => self.t().invalid_id,
+            };
+            switch (self.ctx.types.get(inner)) {
+                .results => |r| parts = r,
+                else => {
+                    try self.errAt(value, "`as` binds several names to the results inside an optional, `(A, B)?`, that a call gives; this expression has type `{s}`", .{try self.tyName(ty)});
+                    ok = false;
+                },
+            }
+        }
+        if (ok and parts.len > 0 and parts.len != names.len) {
+            try self.errAt(value, "`{s}` gives {d} results, but {d} names are bound", .{ try self.calleeName(ir.Call.callee(value)), parts.len, names.len });
+            ok = false;
+        }
+        _ = self.enter(node);
+        const saved_part = self.part_ty;
+        defer self.part_ty = saved_part;
+        for (names, 0..) |n, j| {
+            if (!n.isKind(.set)) continue;
+            self.part_ty = if (ok and j < parts.len) parts[j] else self.t().invalid_id;
+            if (ok) try self.checkSet(n) else try self.poisonTarget(n);
+        }
+    }
+
     /// The frame of the loop being entered, which takes the pending label
     /// and value.
     fn enterLoop(self: *Checker, frame: *LoopFrame, node: Sexp) Error!void {
@@ -2157,10 +2518,11 @@ const Checker = struct {
         frame.part = .step;
         const call_step = step.isKind(.call) or (step.isKind(.propagate) and ir.Propagate.value(step).isKind(.call));
         if (step != .nil and !step.isKind(.set) and !call_step) {
-            // `while x ?? break :outer`: the label reads as the step.
+            // `while x ?? break :outer`, a label in the old spelling: the
+            // name reads as the step.
             const jump = if (step == .src) bareJumpAtEnd(cond) else null;
             if (jump) |j| {
-                try self.errAt(step, "a jump in a `while` header takes no label; the `:` there starts the step, so `{s}` reads as the step: to jump to an outer loop, jump from the body with `{s} :{s}`", .{ self.text(step), j, self.text(step) });
+                try self.errAt(step, "a label is written `@name`: the `:` in a `while` header starts the step, so `{s}` reads as the step; to name a label, write `{s} @{s}`", .{ self.text(step), j, self.text(step) });
             } else try self.errAt(step, "a `while` step is an assignment or a call", .{});
         } else if (step != .nil) {
             try self.checkStmt(step);
@@ -2499,8 +2861,8 @@ const Checker = struct {
     }
 
     /// The `break` or `continue`, with no label or value, that `cond`
-    /// ends in (`x ?? break`), which a label written after it would
-    /// belong to.
+    /// ends in (`x ?? break`), which a label in the old spelling
+    /// (`x ?? break :outer`) was meant for.
     fn bareJumpAtEnd(cond: Sexp) ?[]const u8 {
         var e = cond;
         while (e.isKind(.@"??") or e.isKind(.@"and") or e.isKind(.@"or")) e = ir.get(e, .right);
@@ -2573,7 +2935,7 @@ const Checker = struct {
         if (target) |f| {
             if (f.is_loop) {
                 try self.errAt(value, "`break` with a value needs a loop whose value is used (`x = for ...`)", .{});
-            } else try self.errAt(value, "a labeled block has no value; `break :{s}` cannot carry one", .{f.label});
+            } else try self.errAt(value, "a labeled block has no value; `break @{s}` cannot carry one", .{f.label});
         }
     }
 
@@ -2597,7 +2959,7 @@ const Checker = struct {
             if (label == .nil) {
                 try self.errAt(node, "`{s}` is not inside a loop{s}", .{ word, where });
             } else {
-                try self.errAt(node, "`{s} :{s}` names no enclosing loop or block{s}", .{ word, self.text(label), where });
+                try self.errAt(node, "`{s} @{s}` names no enclosing loop or block{s}", .{ word, self.text(label), where });
             }
             return null;
         };
@@ -2606,7 +2968,7 @@ const Checker = struct {
             return f;
         }
         if (!f.is_loop) {
-            try self.errAt(node, "`continue :{s}` names a block, not a loop", .{f.label});
+            try self.errAt(node, "`continue @{s}` names a block, not a loop", .{f.label});
             return null;
         }
         const to: sema.JumpDest.To = switch (f.part) {
@@ -3855,7 +4217,7 @@ const Checker = struct {
                     try self.errAt(leaf, entry_point_use, .{});
                     return self.t().invalid_id;
                 }
-                return self.functionValue(sym.ty, s, leaf.src.pos);
+                return self.functionValue(sym.ty, s, leaf.src.pos, sym.flags.inline_marked);
             },
             else => return sym.ty,
         }
@@ -3869,8 +4231,13 @@ const Checker = struct {
     }
 
     /// A function named as a value. One with compile-time parameters has
-    /// an instance per call, and no single function value.
-    fn functionValue(self: *Checker, ty: TypeId, name: []const u8, pos: u32) Error!TypeId {
+    /// an instance per call, and no single function value; an `inline fun`
+    /// is inlined at every call, and has no address.
+    fn functionValue(self: *Checker, ty: TypeId, name: []const u8, pos: u32, inline_marked: bool) Error!TypeId {
+        if (inline_marked) {
+            try self.err(pos, "`{s}` is `inline`, inlined at every call, so it can only be called, not used as a value; to pass it, wrap the call in a closure", .{name});
+            return self.t().invalid_id;
+        }
         const f = self.ctx.types.get(ty);
         if (f == .function and f.function.ct_params.len != 0) {
             try self.err(pos, "`{s}` takes compile-time parameters, so it can only be called, not used as a value", .{name});
@@ -4017,7 +4384,7 @@ const Checker = struct {
             // A module-level constant is visible in every function body,
             // and in every constant (`SemContext.const_order`).
             const later = sym.decl_pos > pos and scope != self.module_scope;
-            if (sym.kind == .local and (later or id == self.pending)) {
+            if (sym.kind == .local and (later or id == self.pending or std.mem.findScalar(SymbolId, self.pending_names, id) != null)) {
                 id = sym.prev_in_scope;
                 continue;
             }
@@ -4092,7 +4459,7 @@ const Checker = struct {
                 try self.errAt(e, "a range `a..b` can only be used as a `for` loop source", .{});
                 break :blk self.t().invalid_id;
             },
-            .@"while", .@"for", .labeled, .set, .drop, .@"defer", .@"errdefer" => if (self.isValueLoop(e)) self.checkLoopValue(e, null, true) else blk: {
+            .@"while", .@"for", .labeled, .set, .destructure, .drop, .@"defer", .@"errdefer" => if (self.isValueLoop(e)) self.checkLoopValue(e, null, true) else blk: {
                 try self.checkStmt(e);
                 break :blk self.t().void_id;
             },
@@ -4113,10 +4480,19 @@ const Checker = struct {
                 _ = try self.synthExpr(ir.As.value(e));
                 break :blk self.t().invalid_id;
             },
+            .as_results => blk: {
+                try self.errAt(e, "`as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`", .{});
+                _ = try self.synthQuiet(ir.AsResults.value(e));
+                for (ir.AsResults.names(e).items()) |n| if (n.isKind(.set)) try self.poisonTarget(n);
+                break :blk self.t().invalid_id;
+            },
             .kwarg => blk: {
                 try self.errAt(e, "`name: value` is only allowed as a call argument", .{});
                 break :blk self.t().invalid_id;
             },
+            // A destructure's target takes the result in its position.
+            .result_part => self.part_ty,
+            .tuple => self.tupleValue(e),
             else => blk: {
                 try self.errAt(e, "`{s}` expressions are not supported", .{@tagName(head)});
                 break :blk self.t().invalid_id;
@@ -4161,14 +4537,32 @@ const Checker = struct {
         return self.t().int_id;
     }
 
-    /// `a < b`, `<=`, `>`, `>=`: two numbers as for arithmetic, or two
+    /// `a < b`, `<=`, `>`, `>=`: two numbers as for arithmetic, two
+    /// values of one plain enum, by their variants' values, or two
     /// Strings or two `[]U8` slices, ordered by their bytes.
     fn synthOrdering(self: *Checker, e: Sexp, op: []const u8) Error!TypeId {
         const l = ir.get(e, .left);
         const r = ir.get(e, .right);
+        // A `.variant` takes its enum type from the other side, as beside
+        // `==`.
+        if (l.isKind(.enum_lit) != r.isKind(.enum_lit)) {
+            const lit, const other = if (l.isKind(.enum_lit)) .{ l, r } else .{ r, l };
+            const ty = try self.synthReached(other);
+            if (self.isPoison(ty)) return self.t().bool_id;
+            const mark = self.ctx.diagnostics.items.len;
+            try self.checkExpr(lit, ty);
+            if (self.ctx.diagnostics.items.len == mark) try self.checkOrderedEnum(l, ty, op);
+            return self.t().bool_id;
+        }
         const a = try self.synthReached(l);
         const b = try self.synthReached(r);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
+        if (self.enumValues(a) != null or self.enumValues(b) != null) {
+            if (a != b) {
+                try self.errAt(l, "operator `{s}` operands have different types `{s}` and `{s}`", .{ op, try self.tyName(a), try self.tyName(b) });
+            } else try self.checkOrderedEnum(l, a, op);
+            return self.t().bool_id;
+        }
         // Lane by lane: a mask.
         if (sema.simdOf(self.ctx, a) != null or sema.simdOf(self.ctx, b) != null) {
             const vt = try self.simdOperands(e, op, .ordered, a, b);
@@ -4183,6 +4577,23 @@ const Checker = struct {
         const b_read = if (b == self.t().static_id) self.t().string_view_id else b;
         if (a_read != b_read) try self.errAt(l, "operator `{s}` operands have different types `{s}` and `{s}`", .{ op, try self.tyName(a), try self.tyName(b) });
         return self.t().bool_id;
+    }
+
+    /// Two values of type `ty` ordered by operator `op`, at `at`, where
+    /// one is an enum's: a plain enum orders by its variants' values.
+    fn checkOrderedEnum(self: *Checker, at: Sexp, ty: TypeId, op: []const u8) Error!void {
+        if (sema.isOrderedEnum(self.ctx, ty)) return;
+        const builtin = switch (self.ctx.types.get(ty)) {
+            .nominal => |sym| sema.isBuiltinEnum(self.ctx, sym),
+            else => false,
+        };
+        if (builtin) {
+            try self.errAt(at, "operator `{s}` orders a declared enum's values; the built-in enum `{s}` has no integer value", .{ op, try self.tyName(ty) });
+        } else if (self.ctx.types.get(ty) == .parameterized_nominal) {
+            try self.errAt(at, "operator `{s}` orders a plain enum's values; `{s}` is a generic enum, whose variants have no integer value", .{ op, try self.tyName(ty) });
+        } else if (self.enumValues(ty) == false) {
+            try self.errAt(at, "operator `{s}` orders a plain enum's values; `{s}` has variants with payloads, which have no integer value", .{ op, try self.tyName(ty) });
+        } else try self.errAt(at, ordering_operands, .{ op, try self.tyName(ty) });
     }
 
     /// `not` applies to the whole comparison after it: `not a > b` is
@@ -4223,12 +4634,12 @@ const Checker = struct {
     }
 
     /// Whether a side of an ordering keeps its meaning when the ordering
-    /// is flipped (`not (a > b)` is `a <= b`): an integer or text, which
-    /// are totally ordered, unlike a Float.
+    /// is flipped (`not (a > b)` is `a <= b`): an integer, a plain enum,
+    /// or text, which are totally ordered, unlike a Float.
     fn flipsExactly(self: *Checker, side: Sexp) bool {
         const ty = self.ctx.typeOf(side) orelse return false;
         const v = sema.unwrapViews(self.ctx, ty);
-        return sema.isInteger(self.ctx, v) or self.isBytes(v);
+        return sema.isInteger(self.ctx, v) or self.isBytes(v) or sema.isOrderedEnum(self.ctx, v);
     }
 
     /// A `?String` or a `[]U8`: bytes ordered as text is.
@@ -4350,7 +4761,7 @@ const Checker = struct {
             const ok = if (want_int) sema.isInteger(self.ctx, ty) else sema.isNumeric(self.ctx, ty);
             if (!ok) {
                 if (req == .ordered) {
-                    try self.errAt(operands[i], "operator `{s}` orders numbers, Strings, and `[]U8` slices; got `{s}`", .{ op, try self.tyName(ty) });
+                    try self.errAt(operands[i], ordering_operands, .{ op, try self.tyName(ty) });
                 } else {
                     // String is built, not added: `String(a, b)`, `!t.add(b)`.
                     const is_text = ty == self.t().string_view_id or ty == self.t().static_id or ty == self.t().string_id;
@@ -4728,7 +5139,7 @@ const Checker = struct {
         const answer = sema.copies(self.ctx, viewed);
         if (answer != .yes) {
             const name = try self.tyName(viewed);
-            const lent = try self.spliced(e, &.{fallback}, &.{try self.ctx.arena.allocator().print("?{s}", .{self.sourceText(fallback)})});
+            const lent = try self.spliced(e, &.{fallback}, &.{try self.lentFallbackText(fallback, viewed)});
             const head = "`{s}` would copy out the `{s}` that `{s}` views, since its fallback is a value, not a view; only a value that copies is copied out of a view, and ";
             if (answer == .depends) {
                 try self.errAt(e, head ++ "`{s}` may not copy in every instance: lend the fallback, so the result is the view: `{s}`", .{ self.sourceText(e), name, self.sourceText(holder), name, lent });
@@ -4736,6 +5147,19 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         return viewed;
+    }
+
+    /// The fallback `b` of `a ?? b` lent to read, as a hint writes it: a
+    /// variant literal names its enum, `?(Val.v(...))`, since only its
+    /// context gives `.v(...)` its type, and a call through a type is
+    /// parenthesized, since `?Val.v(...)` would lend `Val`.
+    fn lentFallbackText(self: *Checker, fallback: Sexp, viewed: TypeId) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        const src = self.sourceText(fallback);
+        const variant = fallback.isKind(.enum_lit) or (fallback.isKind(.call) and ir.Call.callee(fallback).isKind(.enum_lit));
+        if (variant) return a.print("?({s}{s})", .{ try self.tyName(viewed), src });
+        if (fallback.isKind(.call) and ir.Call.callee(fallback).isKind(.member)) return a.print("?({s})", .{src});
+        return a.print("?{s}", .{src});
     }
 
     /// The type of `a ?? b` or `a catch b` when `a` gives a `Static` and
@@ -6158,7 +6582,7 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         const ty = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
-        if (found.sym.kind == .function) return try self.functionValue(ty, try self.ctx.arena.allocator().print("{s}.{s}", .{ self.text(obj), field }), pos);
+        if (found.sym.kind == .function) return try self.functionValue(ty, try self.ctx.arena.allocator().print("{s}.{s}", .{ self.text(obj), field }), pos, found.sym.flags.inline_marked);
         return ty;
     }
 
@@ -6269,7 +6693,7 @@ const Checker = struct {
                     return self.t().invalid_id;
                 }
                 const name = try self.ctx.arena.allocator().print("{s}.{s}", .{ tname, field });
-                return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos);
+                return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos, m.inline_marked);
             }
             if (!m.is_variant) break :found;
             if (nt.sym.kind == .generic_type and nt.args == null) {
@@ -6957,6 +7381,12 @@ const Checker = struct {
         // function (`noteTarget`); any other call reaches none.
         try self.ctx.recordCallTarget(node, .none);
         const ty = try self.synthCallInner(node);
+        // A call that gives several results stands only where each is
+        // bound at once, or where they are returned whole.
+        if (sema.resultsOf(self.ctx, ty) != null and !sameNode(node, self.results_ok)) {
+            try self.misplacedResults(node, ty);
+            return self.t().invalid_id;
+        }
         if (!handled and self.ctx.types.get(ty) == .fallible) {
             const callee = ir.Call.callee(node);
             const name = try self.calleeName(callee);
@@ -7092,7 +7522,6 @@ const Checker = struct {
         const name = self.text(callee);
         if (self.isEntryPoint(sym)) return self.badCall(args, callee, entry_point_use, .{});
         if (self.isPoison(sym.ty)) return self.skipCall(args);
-        if (sym.kind == .function) try self.noteTarget(self.ctx.module_id, sym.decl_pos);
         const fty = self.ctx.types.get(sym.ty);
         if (fty != .function) return self.badCall(args, callee, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(sym.ty) });
         if (sym.kind == .@"extern" and self.raw_depth == 0) {
@@ -7100,6 +7529,7 @@ const Checker = struct {
         }
         const info = paramsOf(sym, self.ctx.source);
         const f = (try self.instantiateCall(fty.function, ct, args, info, 0, name, callee.src.pos, false, .empty)) orelse return self.skipCall(args);
+        if (sym.kind == .function) try self.noteTarget(self.ctx.module_id, sym.decl_pos, sym.flags.inline_marked, .empty);
         // A generic function's callee has the instance's signature.
         if (fty.function.ct_params.len > 0) try self.ctx.recordType(callee, try self.ctx.internCopy(.{ .function = f }));
         self.lend_call = true;
@@ -7198,22 +7628,8 @@ const Checker = struct {
         return target;
     }
 
-    /// For an enum type (not an error set), whether its values are
-    /// integers: true for a plain enum, false for one with payload
-    /// variants or type parameters; null for any other type.
     fn enumValues(self: *Checker, ty: TypeId) ?bool {
-        const peeled = sema.unwrapViews(self.ctx, ty);
-        const decl = sema.nominalDecl(self.ctx, peeled) orelse return null;
-        const sym = decl.symbol();
-        if (sym.flags.error_set) return null;
-        const fields = sym.fields orelse return null;
-        var any = false;
-        for (fields) |f| {
-            if (!f.is_variant) continue;
-            any = true;
-            if (f.value == null) return false;
-        }
-        return if (any) true else null;
+        return sema.enumValues(self.ctx, ty);
     }
 
     /// The value of a variant named through its type, `Status.ok` or
@@ -8256,13 +8672,27 @@ const Checker = struct {
             .arg => |i| .{ .arg = i },
             .default => .default,
         };
-        const recorded: sema.CallParams = .{ .fills = fills, .origins = site.origins };
+        const recorded: sema.CallParams = .{ .fills = fills, .origins = site.origins, .names = info.names };
         try self.ctx.recordCallParams(call_node, recorded);
-        // What the call may store outlives its statement.
+        // What the call may store outlives its statement. A place lent to
+        // a parameter the call may keep is lent with `?` written (Core
+        // sentence 4): one its callee's `keeps` names, and, where nothing
+        // narrows the stores, any lent parameter the call may store by its
+        // type (a function value, an owned closure, a built-in generic's
+        // method at an instance whose `T` is a view).
         if (self.ctx.diagnostics.items.len == mark) {
             for (args, 0..) |a, i| {
                 if (!recorded.stores(i)) continue;
-                try self.keptLends(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a, .{ .stored = callee });
+                const value = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+                const param: ?usize = for (slots, 0..) |sl, k| {
+                    if (sl.? == .arg and sl.?.arg == i) break k;
+                } else null;
+                const lent = if (param) |k| sema.lentParam(self.ctx, f.params[k]) else false;
+                if ((recorded.keepsLent(i) or lent) and self.implicitArgument(value)) {
+                    try self.reportKept(call_node, value, false, .{ .stored = callee });
+                    continue;
+                }
+                try self.keptLends(value, .{ .stored = callee });
             }
         }
         if (keyword.len == 0 and args.len == f.params.len) return;
@@ -8382,11 +8812,11 @@ const Checker = struct {
         if (self.isCtArithmetic(a)) {
             try self.errAt(a, "compile-time argument {d} of `{s}` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; use a parameter or a constant", .{ i + 1, callee });
         } else if (fixed) {
-            try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; `{s}` is bound with `const` to a value computed when the program runs", .{ i + 1, callee, self.text(a) });
-        } else try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, a `const` binding of one, or arithmetic on them", .{ i + 1, callee });
+            try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; `{s}` is bound with `=!` to a value computed when the program runs", .{ i + 1, callee, self.text(a) });
+        } else try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, a `=!` binding of one, or arithmetic on them", .{ i + 1, callee });
     }
 
-    /// The `ct_param` of the compile-time integer parameter (or `const k = n`
+    /// The `ct_param` of the compile-time integer parameter (or `k =! n`
     /// binding of one) that `e` names; null for anything else.
     fn ctParamOf(self: *Checker, e: Sexp) Error!?TypeId {
         if (e != .src) return null;
@@ -8444,6 +8874,7 @@ const Checker = struct {
     /// allow them, are recorded. Null after a diagnostic that makes the
     /// arguments not worth checking.
     fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const Sexp, info: ParamInfo, skip: usize, callee: []const u8, pos: u32, receiver_arg: bool, recv: TypeSubst) Error!?FunctionType {
+        self.inst_own = .empty;
         if (ct) |b| try self.ctx.recordInstance(b, .function);
         // A compile-time parameter was rejected: the declaration's
         // diagnostic says what is wrong with every call.
@@ -8503,6 +8934,7 @@ const Checker = struct {
         if (bad) return null;
         if (own.items.len == 0) {
             if (ct != null) try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
+            self.inst_own = .empty;
             return f;
         }
         if (ct == null) {
@@ -8519,6 +8951,7 @@ const Checker = struct {
         };
         const result = self.ctx.types.get(instance).function;
         try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
+        self.inst_own = .{ .params = own.items, .args = own_args };
         if (self.tentative == 0) _ = try self.ctx.recordFnInstance(.{
             .name = callee,
             .params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items }),
@@ -9231,7 +9664,7 @@ const Checker = struct {
                     .not => self.isComptimeKnown(ir.get(e, .operand)),
                     .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => self.isComptimeKnown(ir.get(e, .left)) and self.isComptimeKnown(ir.get(e, .right)),
                     // Rig checks arithmetic only on constants: a compile-time
-                    // parameter or a `const` binding of one differs per call.
+                    // parameter or a `=!` binding of one differs per call.
                     .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => self.constInt(e) != null or (self.isCtArithmetic(e) and !self.mentionsCtLocal(e)),
                     .member => blk: {
                         const obj = ir.Member.object(e);
@@ -9301,7 +9734,7 @@ const Checker = struct {
         return self.isCtArithmetic(o) or self.constInt(o) != null;
     }
 
-    /// Whether `e` names a compile-time parameter or a `const` binding in a
+    /// Whether `e` names a compile-time parameter or a `=!` binding in a
     /// function, whose value differs from call to call.
     fn mentionsCtLocal(self: *Checker, e: Sexp) bool {
         return switch (e) {
@@ -9741,7 +10174,6 @@ const Checker = struct {
             return self.skipCall(args);
         };
         const receiver = resolved.field.receiver;
-        try self.noteMethodTarget(resolved.field, resolved.owner_sym, resolved.module);
         _ = try self.noteMethod(callee, receiver, resolved.fn_ty.returns);
         try self.noteCallee(resolved.fn_ty);
         const misplaced_sigil = receiver != .none and try self.checkReceiverSigil(obj, receiver, resolved.fn_ty.returns, method);
@@ -9775,6 +10207,10 @@ const Checker = struct {
         }
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
+        // The type's parameters are bound by the object the receiver
+        // reaches, through views, handles, and boxes, as the method was
+        // found.
+        try self.noteMethodTarget(resolved.field, resolved.owner_sym, resolved.module, self.receiverArgs(sema.unwrapAccess(self.ctx, obj_ty)));
         if (!try self.meetsNeeds(resolved.field, resolved.nominal_sym, resolved.args, pos)) return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
         const rest: FunctionType = .{
@@ -9800,27 +10236,45 @@ const Checker = struct {
         }
         self.lend_call = true;
         self.lend_recv = f.params[0];
+        const mark = self.ctx.diagnostics.items.len;
         try self.checkArgs(args, rest, info, method, pos, .{ .receiver = true, .origins = resolved.field.origins, .declared = self.declaredParams(resolved.field, resolved.module, 1) orelse resolved.fn_ty.params[1..] });
+        // A receiver the method keeps is lent with `?` written (Core
+        // sentence 4).
+        const o = resolved.field.origins;
+        if (receiver == .read and !misplaced_sigil and self.ctx.diagnostics.items.len == mark and o.stores & o.lent & sema.paramBit(0) != 0 and self.implicitReceiver(obj)) {
+            if (self.current_call) |call| try self.reportKept(call, obj, true, .{ .stored = method });
+        }
         return f.returns;
     }
 
     /// Record the call being checked (`current_call`) as a call of the
     /// Rig function or method declared at `pos` in module `module`
     /// (`sema.CallTarget`): the one fact of what a call reaches, which
-    /// `inlining.decide` reads. A built-in declares none.
-    fn noteTarget(self: *Checker, module: u32, pos: u32) Error!void {
+    /// `inlining.decide` reads. A built-in declares none. A call of a
+    /// function marked `inline` also records the instance it makes
+    /// (`sema.InlineCall`): its type's parameters bound by `recv`, then
+    /// its own (`inst_own`, so this runs after `instantiateCall`), which
+    /// the frame check lands its values at (`FrameWalker.addInlined`).
+    fn noteTarget(self: *Checker, module: u32, pos: u32, marked: bool, recv: TypeSubst) Error!void {
         const call = self.current_call orelse return;
         if (pos >= sema.imported_decl_pos) return;
-        try self.ctx.recordCallTarget(call, .{ .function = .{ .module = module, .pos = pos } });
+        const fun: sema.FnRef = .{ .module = module, .pos = pos };
+        try self.ctx.recordCallTarget(call, .{ .function = fun });
+        if (!marked) return;
+        const a = self.ctx.arena.allocator();
+        try self.ctx.recordInlineCall(call, .{ .fun = fun, .subst = .{
+            .params = try std.mem.concat(a, SymbolId, &.{ recv.params, self.inst_own.params }),
+            .args = try std.mem.concat(a, TypeId, &.{ recv.args, self.inst_own.args }),
+        } });
     }
 
     /// `noteTarget` for the method `field` of the type `owner`, declared
     /// in module `module` (null for this one), or, for a proxy of
     /// another module's generic type, in the module the proxy stands for.
-    fn noteMethodTarget(self: *Checker, field: Field, owner: sema.Symbol, module: ?u32) Error!void {
+    fn noteMethodTarget(self: *Checker, field: Field, owner: sema.Symbol, module: ?u32, recv: TypeSubst) Error!void {
         if (owner.decl_pos == sema.builtin_decl_pos) return;
         const declared = module orelse if (sema.isProxy(owner)) owner.from.module_id else self.ctx.module_id;
-        try self.noteTarget(declared, field.decl_pos);
+        try self.noteTarget(declared, field.decl_pos, field.inline_marked, recv);
     }
 
     /// Records `callee` as the member a call resolved as a method, which
@@ -10140,7 +10594,6 @@ const Checker = struct {
             const m = members[(try sema.findMember(self.ctx, members, name, .any)) orelse break :found];
             if (m.is_method and !m.is_drop_method) {
                 try self.checkVisible(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, pos);
-                try self.noteMethodTarget(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null);
                 const fty = self.ctx.types.get(try self.memberType(nt.foreign, m.ty));
                 if (fty != .function) break :found;
                 var f = fty.function;
@@ -10156,6 +10609,7 @@ const Checker = struct {
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
                 const info = methodParams(m, false, source);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
+                try self.noteMethodTarget(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv);
                 if (!try self.meetsNeeds(m, nt.id, recv.args, pos)) return self.skipCall(args);
                 try self.noteCallee(f);
                 self.lend_call = true;
@@ -10284,12 +10738,12 @@ const Checker = struct {
         switch (found.sym.kind) {
             .type_alias => return self.aliasCall(self.current_call orelse Sexp.nil, self.callee_node orelse Sexp.nil, qualified, try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id), args, pos),
             .function, .@"extern" => {
-                if (found.sym.kind == .function) try self.noteTarget(found.module_id, found.sym.decl_pos);
                 const local = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
                 const fty = self.ctx.types.get(local);
                 if (fty != .function) return self.badCall(args, pos, "`{s}` cannot be called", .{qualified});
                 const info = paramsOf(found.sym, found.ctx.source);
                 const f = (try self.instantiateCall(fty.function, ct, args, info, 0, qualified, pos, false, .empty)) orelse return self.skipCall(args);
+                if (found.sym.kind == .function) try self.noteTarget(found.module_id, found.sym.decl_pos, found.sym.flags.inline_marked, .empty);
                 // A generic function's callee has the instance's signature.
                 try self.noteCallee(f);
                 self.lend_call = true;
@@ -10555,6 +11009,11 @@ const Checker = struct {
     }
 
     fn checkExprAgainst(self: *Checker, e: Sexp, expected: TypeId) Error!void {
+        try self.checkExprAgainstType(e, expected);
+        if (self.ctx.typeOf(e)) |actual| try self.recordLift(e, actual, expected);
+    }
+
+    fn checkExprAgainstType(self: *Checker, e: Sexp, expected: TypeId) Error!void {
         // A value checked against the type its context gives it is taken
         // there: a typed binding, an argument, a field, an element, a
         // result.
@@ -10578,9 +11037,14 @@ const Checker = struct {
             return;
         }
         if (try self.lentTempLiteral(e, expected)) return;
-        if (try self.checkContextual(e, expected)) |ty| {
+        // A variant literal where a view held by address goes is the value
+        // `E.v(...)` is, which goes there as that value goes.
+        const viewed = try self.variantUnderView(e, expected);
+        if (try self.checkContextual(e, viewed orelse expected)) |ty| {
             if (try self.cellMadeAway(e, ty)) return self.ctx.recordType(e, self.t().invalid_id);
-            return self.ctx.recordType(e, ty);
+            try self.ctx.recordType(e, ty);
+            if (viewed == null or self.isPoison(ty)) return;
+            return self.checkActual(e, ty, expected);
         }
 
         return self.checkActual(e, try self.synthExpr(e), expected);
@@ -11026,6 +11490,31 @@ const Checker = struct {
         return "; a `Static` is a literal, or text derived only from literals, and a `?String` may view a `String`. A parameter or field that only reads its text is declared `?String`, which takes a `Static` too";
     }
 
+    /// The type a variant literal (`.V`, `.V(...)`) takes where a view
+    /// held by address goes (`?Val`, `!Color`, `(?Val)?`): the viewed
+    /// type, as `Val.V(...)` has, so the literal is a value made where it
+    /// stands, lent as one is or rejected. A view that holds a copy of
+    /// the value (`?Color`, `sema.lendByValue`) takes the literal itself.
+    /// Null for any other form or expected type, and for a name that is
+    /// no variant of the viewed enum, which `checkContextual` reports
+    /// (an error's name where a `T!` goes, too).
+    fn variantUnderView(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId {
+        const name = if (e.isKind(.enum_lit))
+            ir.EnumLit.name(e)
+        else if (e.isKind(.call) and ir.Call.callee(e).isKind(.enum_lit))
+            ir.EnumLit.name(ir.Call.callee(e))
+        else
+            return null;
+        const view = self.liftTarget(expected);
+        switch (self.ctx.types.get(view)) {
+            .read_view, .write_view => if (!sema.viewHeldAsPointer(self.ctx, view)) return null,
+            else => return null,
+        }
+        const viewed = sema.unwrapViews(self.ctx, view);
+        if (try sema.lookupVariant(self.ctx, viewed, self.text(name)) == null) return null;
+        return viewed;
+    }
+
     /// A form whose type comes from context: its type, or null when `e`
     /// is not one.
     fn checkContextual(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId {
@@ -11246,6 +11735,36 @@ const Checker = struct {
     /// (`readOf`), and so is a write view lent where a read view that
     /// copies its value is expected; a literal takes a concrete type.
     fn recordAdapted(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
+        try self.recordAdaptedType(e, actual, expected);
+        try self.recordLift(e, self.ctx.typeOf(e) orelse actual, expected);
+    }
+
+    /// Record the optional `e`'s value becomes where `expected` goes
+    /// (`SemContext.recordLift`): `none`, which needs the optional's type,
+    /// and a value of type `actual` (or the value a view of that type
+    /// copies out, `copiedOut`) with fewer levels of optional than the
+    /// optional `expected` is or holds, which Zig lifts into it on its own.
+    /// Emit writes either explicitly where an optional is not Zig's `?T`
+    /// (`sema.optionalRouted`). Any other value is no lift.
+    fn recordLift(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
+        const ts = &self.ctx.types;
+        var into = expected;
+        while (ts.get(into) == .fallible) into = ts.get(into).fallible;
+        if (ts.get(into) != .optional) return self.ctx.recordLift(e, null);
+        if (e == .src and self.ctx.symbolOf(e) == null and std.mem.eql(u8, self.text(e), "none")) {
+            return self.ctx.recordLift(e, .{ .into = into, .from = self.t().none_id });
+        }
+        var from = actual;
+        while (!meets(self.ctx, from, into)) from = sema.copiedThrough(self.ctx, from) orelse return self.ctx.recordLift(e, null);
+        switch (ts.get(from)) {
+            .none_literal, .noreturn, .invalid, .unknown => return self.ctx.recordLift(e, null),
+            else => {},
+        }
+        if (optionalDepth(self.ctx, from) >= optionalDepth(self.ctx, into)) return self.ctx.recordLift(e, null);
+        try self.ctx.recordLift(e, .{ .into = into, .from = from });
+    }
+
+    fn recordAdaptedType(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
         const lifted = self.liftTarget(expected);
         if (copiedOut(self.ctx, actual, expected)) return self.readOf(e, actual, .{ .slot = expected });
         if (self.ctx.types.get(actual) == .write_view) switch (self.ctx.types.get(lifted)) {
@@ -11275,7 +11794,7 @@ const Checker = struct {
         try sema.yieldedLeaves(self.ctx.allocator, self.ctx.source, e, &leaves);
         if (leaves.items.len == 0) return false;
         for (leaves.items) |leaf| switch (leaf.kind() orelse return false) {
-            .call, .write, .move, .@"return", .@"break", .@"continue" => {},
+            .call, .result_part, .write, .move, .@"return", .@"break", .@"continue" => {},
             else => return false,
         };
         return true;
@@ -13199,6 +13718,14 @@ fn copiedOut(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
     return !meets(ctx, actual, expected) and compatible(ctx, inner, expected);
 }
 
+/// How many levels of optional `ty` has.
+fn optionalDepth(ctx: *const SemContext, ty: TypeId) u32 {
+    var n: u32 = 0;
+    var t = ty;
+    while (ctx.types.get(t) == .optional) : (n += 1) t = ctx.types.get(t).optional;
+    return n;
+}
+
 /// Can a value of type `actual` be used as itself where `expected` is
 /// required?
 fn meets(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
@@ -13541,6 +14068,22 @@ fn isWhileTrue(source: []const u8, loop: Sexp) bool {
 
 /// The call whose value `e` is: `e` itself, or the call under a `!`,
 /// `?`, `catch`, or on the left of `??`.
+/// `return`, `break`, or `continue`: a fallback that jumps.
+fn isJumpNode(e: Sexp) bool {
+    return e.isKind(.@"return") or e.isKind(.@"break") or e.isKind(.@"continue");
+}
+
+/// Whether `e` names `name` anywhere in `source`.
+fn readsNameIn(source: []const u8, e: Sexp, name: []const u8) bool {
+    return switch (e) {
+        .src => |leaf| std.mem.eql(u8, rig.leafText(source, leaf), name),
+        .list => for (e.items()) |c| {
+            if (readsNameIn(source, c, name)) break true;
+        } else false,
+        else => false,
+    };
+}
+
 fn resultCall(e: Sexp) ?Sexp {
     const head = e.kind() orelse return null;
     return switch (head) {
@@ -13856,7 +14399,38 @@ pub fn checkFrames(ctx: *SemContext) Error!void {
     var w: FrameWalker = .{ .ctx = ctx };
     var i: u32 = 0;
     while (i < ctx.frame_owners.items.len) i = try checkOwnerTree(&w, i);
+    // What each `inline` function lands in a caller's frame, worked out
+    // here, where it is declared, for the modules that import this one.
+    var it = ctx.inline_decls.keyIterator();
+    while (it.next()) |pos| _ = try inlineFrame(ctx, pos.*, 1);
 }
+
+/// What the `inline` function declared at `pos` in this module lands in
+/// the frame of a call of it: the values it keeps and its copies, and
+/// those of the `inline` functions it calls in turn, each at the instance
+/// its call makes, over its own and its type's parameters. Its closures
+/// are frames of their own. Null while it is being worked out: a call on
+/// a cycle of `inline` functions, which `inlining.decide` reports, so the
+/// program is never emitted.
+fn inlineFrame(ctx: *SemContext, pos: u32, depth: u32) Error!?[]const sema.FrameSlot {
+    if (ctx.inline_frames.get(pos)) |known| return known;
+    const node = ctx.inline_decls.get(pos).?;
+    try ctx.inline_frames.put(ctx.allocator, pos, null);
+    var w: FrameWalker = .{ .ctx = ctx, .depth = depth };
+    var slots: FrameWalker.Slots = .empty;
+    defer slots.deinit(ctx.allocator);
+    for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try w.walk(part, &slots, false, false);
+    try w.paramCopies(ir.get(node, .params), &slots);
+    const kept = try ctx.arena.allocator().dupe(sema.FrameSlot, slots.items);
+    try ctx.inline_frames.put(ctx.allocator, pos, kept);
+    try ctx.inline_heights.put(ctx.allocator, pos, w.height);
+    return kept;
+}
+
+/// The most calls of marked `inline` functions that may nest, each
+/// inlined into the one around it: Zig's own analysis recurses once for
+/// each, and runs out of its stack some thousands deep.
+pub const max_inline_depth = 256;
 
 /// Check owner `i` after the closures in it, in source order, as a
 /// closure's frame is met inside its maker's: so a message about a
@@ -13901,8 +14475,8 @@ const OwnerWalker = struct {
     ctx: *SemContext,
 
     /// What the declarations around a function make it: a member of a
-    /// type, and of a generic one.
-    const Decl = struct { member: bool = false, generic_type: bool = false };
+    /// type, and of a generic one, and the type's name.
+    const Decl = struct { member: bool = false, generic_type: bool = false, type_name: []const u8 = "" };
 
     /// `copies`: how many times Zig writes the code `node` is in, which a
     /// `defer` or `errdefer` body multiplies by its exits
@@ -13920,7 +14494,7 @@ const OwnerWalker = struct {
             .fun, .sub => {
                 const name = ir.get(node, .name);
                 const label = try a.print("`{s}`", .{sema.identAt(ctx.source, name) orelse "?"});
-                const o = try self.add(.{ .kind = .function, .root = node, .parent = owner, .pos = ctx.startOf(name), .label = label, .member = decl.member, .of_generic_type = decl.generic_type });
+                const o = try self.add(.{ .kind = .function, .root = node, .parent = owner, .pos = ctx.startOf(name), .label = label, .member = decl.member, .of_generic_type = decl.generic_type, .type_name = decl.type_name });
                 for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try self.walk(part, o, 1, .{});
             },
             .@"test" => {
@@ -13938,8 +14512,10 @@ const OwnerWalker = struct {
                 const o = try self.add(.{ .kind = .closure, .root = node, .parent = owner, .pos = ctx.startOf(node), .label = "a closure" });
                 for ([_]Sexp{ ir.Lambda.params(node), ir.Lambda.body(node) }) |part| try self.walk(part, o, 1, .{});
             },
-            .@"struct", .@"enum", .errors => for (rig.children(node)) |c| try self.walk(c, owner, copies, .{ .member = true, .generic_type = decl.generic_type }),
-            .generic_struct, .generic_enum => for (rig.children(node)) |c| try self.walk(c, owner, copies, .{ .member = true, .generic_type = true }),
+            .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => {
+                const of: Decl = .{ .member = true, .generic_type = decl.generic_type or kind == .generic_struct or kind == .generic_enum, .type_name = sema.identAt(ctx.source, ir.get(node, .name)) orelse "" };
+                for (rig.children(node)) |c| try self.walk(c, owner, copies, of);
+            },
             .call => {
                 // The callee first, as its object's calls run first.
                 try self.walk(ir.Call.callee(node), owner, copies, decl);
@@ -13973,10 +14549,17 @@ const OwnerWalker = struct {
 
 const FrameWalker = struct {
     ctx: *SemContext,
+    /// How deep in calls of marked `inline` functions the body walked is
+    /// (`inlineFrame`): 0 for an owner's own.
+    depth: u32 = 0,
+    /// The deepest nesting of marked calls below the body walked, which
+    /// `inlineFrame` records (`SemContext.inline_heights`).
+    height: u32 = 0,
 
     /// A value the frame keeps, or (`copy`) a copy its code may make,
-    /// which counts in its reach alone.
-    const Slot = struct { ty: TypeId, name: []const u8, copy: bool = false };
+    /// which counts in its reach alone; `marked` when a call of a marked
+    /// `inline` function lands it there (`addInlined`).
+    const Slot = sema.FrameSlot;
     const Slots = std.ArrayList(Slot);
 
     /// `copied`: the value of `node` is made or copied where it is used,
@@ -14031,8 +14614,11 @@ const FrameWalker = struct {
                         else => {},
                     }
                     if (copied) try self.copy(node, f);
-                    // A receiver a method takes by value is copied.
-                    if (kind == .call) if (storage.receiverOf(ctx, node)) |recv| if (self.takesReceiver(node)) try self.copy(recv, f);
+                    if (kind == .call) {
+                        // A receiver a method takes by value is copied.
+                        if (storage.receiverOf(ctx, node)) |recv| if (self.takesReceiver(node)) try self.copy(recv, f);
+                        try self.addInlined(node, f);
+                    }
                 }
                 const kids = rig.children(node);
                 for (kids, 0..) |c, i| {
@@ -14090,7 +14676,72 @@ const FrameWalker = struct {
         var exits: usize = 1;
         for (rest) |r| exits += countExits(r);
         const once = try ctx.arena.allocator().dupe(Slot, f.items[start..]);
-        for (1..exits) |_| for (once) |slot| try f.append(ctx.allocator, .{ .ty = slot.ty, .name = "", .copy = true });
+        for (1..exits) |_| for (once) |slot| try f.append(ctx.allocator, .{ .ty = slot.ty, .name = "", .copy = true, .marked = slot.marked });
+    }
+
+    /// The values a call of a marked `inline` function lands in the frame
+    /// it is in (`sema.InlineCall`): the function's own values and copies
+    /// and those of the marked functions it calls in turn
+    /// (`inlineFrame`), at the instance the call makes, in this module's
+    /// types, each marked. The count fails closed: a frame no count knows,
+    /// or one the instance does not make concrete, is an error at the
+    /// call, never no values.
+    fn addInlined(self: *FrameWalker, call: Sexp, f: *Slots) Error!void {
+        const ctx = self.ctx;
+        const ic = ctx.inlineCallOf(call) orelse return;
+        const decl = ctx.declaringContext(ic.fun) orelse return self.unknownFrame(call, "its module is not loaded");
+        const local = decl == @as(*const SemContext, ctx);
+        if (!decl.inline_decls.contains(ic.fun.pos)) return self.unknownFrame(call, "its declaration is not recorded");
+        // Zig inlines each call into the body it is in, nested as deep as
+        // the calls are: past `max_inline_depth` Zig itself runs out of
+        // stack, so a deeper nesting is an error, found before this walk
+        // goes deeper.
+        if (self.depth + 1 > max_inline_depth) return self.tooDeep(call);
+        const slots = if (local)
+            // Null on a cycle of `inline` functions, which
+            // `inlining.decide` reports, so the program is never emitted.
+            (try inlineFrame(ctx, ic.fun.pos, self.depth + 1)) orelse return
+        else
+            // The module that declares it worked out its frame
+            // (`checkFrames`), unless that module failed its check.
+            (decl.inline_frames.get(ic.fun.pos) orelse return self.unknownFrame(call, "its module did not count it")) orelse return self.unknownFrame(call, "its module did not count it");
+        const below = decl.inline_heights.get(ic.fun.pos) orelse 0;
+        if (self.depth + 1 + below > max_inline_depth) return self.tooDeep(call);
+        self.height = @max(self.height, below + 1);
+        // The instance binds every parameter the frame mentions: with each
+        // argument poisoned, none is left.
+        const a = ctx.arena.allocator();
+        const blank = try a.alloc(TypeId, ic.subst.args.len);
+        @memset(blank, ctx.types.invalid_id);
+        for (slots) |slot| {
+            const ty = if (local) slot.ty else try sema.importType(ctx, decl, slot.ty, ic.fun.module);
+            if (sema.containsTypeVar(ctx, try sema.substituteType(ctx, ty, .{ .params = ic.subst.params, .args = blank })))
+                return self.unknownFrame(call, "the call does not bind every parameter its values hold");
+            try f.append(ctx.allocator, .{ .ty = try sema.substituteType(ctx, ty, ic.subst), .name = slot.name, .copy = slot.copy, .marked = true });
+        }
+    }
+
+    /// A copy of each parameter of the function whose parameters are
+    /// `params`: where it is inlined, Zig's code copies each into a local
+    /// of its own (`rig.rt`), beside the argument a call makes and the
+    /// parameter itself.
+    fn paramCopies(self: *FrameWalker, params: Sexp, f: *Slots) Error!void {
+        if (params != .list) return;
+        for (params.items()) |p| {
+            const name = sema.paramNameNode(p) orelse continue;
+            const id = self.ctx.symbolOf(name) orelse continue;
+            const sym = self.ctx.symbols.items[id];
+            if (sym.kind != .param or sym.flags.comptime_known) continue;
+            try f.append(self.ctx.allocator, .{ .ty = sym.ty, .name = "", .copy = true });
+        }
+    }
+
+    fn unknownFrame(self: *FrameWalker, call: Sexp, why: []const u8) Error!void {
+        try self.ctx.errAt(ir.Call.callee(call), "cannot count the values this `inline` call adds to the frame it is in ({s}); a frame must be known to be checked", .{why});
+    }
+
+    fn tooDeep(self: *FrameWalker, call: Sexp) Error!void {
+        try self.ctx.errAt(ir.Call.callee(call), "calls of `inline` functions nest more than {d} deep through this one, which no build can inline; drop `inline` from one of them", .{max_inline_depth});
     }
 
     /// The exits in `e` (`storage.leave_kinds`), not counting those in its
@@ -14144,69 +14795,111 @@ const FrameWalker = struct {
         const pos = owner.pos;
         var slots: Slots = .empty;
         defer slots.deinit(ctx.allocator);
-        const parts: []const Sexp = switch (owner.kind) {
+        const nodes: []const Sexp = switch (owner.kind) {
             .function, .drop => &.{ ir.get(root, .params), ir.get(root, .body) },
             .test_block => &.{ir.get(root, .body)},
             .closure => &.{ ir.Lambda.params(root), ir.Lambda.body(root) },
         };
-        for (parts) |p| try self.walk(p, &slots, false, false);
+        for (nodes) |p| try self.walk(p, &slots, false, false);
+        // A function's parameters, copied where the rule inlines it.
+        var params: Slots = .empty;
+        defer params.deinit(ctx.allocator);
+        if (owner.kind == .function) try self.paramCopies(ir.get(root, .params), &params);
         const items = slots.items;
-        if (items.len == 0) {
-            ctx.frame_owners.items[index].own = .{ .bytes = 0, .reach = 0 };
+        if (items.len + params.items.len == 0) {
+            ctx.frame_owners.items[index].own = .none;
             return;
         }
-        // The values first, then the copies.
+        // The values first, then the copies; in each, its own, then what
+        // marked calls land in it; then the parameters' copies.
         const arena = ctx.arena.allocator();
-        const tys = try arena.alloc(TypeId, items.len);
-        const names = try arena.alloc([]const u8, items.len);
+        const tys = try arena.alloc(TypeId, items.len + params.items.len);
+        const names = try arena.alloc([]const u8, tys.len);
         var n: usize = 0;
-        var copies: u32 = 0;
-        for ([_]bool{ false, true }) |want| for (items) |s| if (s.copy == want) {
+        var parts: FrameParts = .{};
+        for ([_]bool{ false, true }) |copies| for ([_]bool{ false, true }) |mark| for (items) |s| if (s.copy == copies and s.marked == mark) {
             tys[n] = s.ty;
             names[n] = s.name;
             n += 1;
-            if (want) copies += 1;
+            if (copies) parts.copies += 1;
+            if (mark and copies) parts.marked_copies += 1;
+            if (mark and !copies) parts.marked += 1;
         };
+        for (params.items) |s| {
+            tys[n] = s.ty;
+            names[n] = s.name;
+            n += 1;
+        }
+        parts.params = @intCast(params.items.len);
         for (tys) |ty| if (sema.containsTypeVar(ctx, ty)) {
-            try ctx.addGeneric(.frames, .{ .label = label, .pos = pos, .tys = tys, .names = names, .copies = copies });
+            try ctx.addGeneric(.frames, .{ .label = label, .pos = pos, .tys = tys, .names = names, .copies = parts.copies, .marked = parts.marked, .marked_copies = parts.marked_copies, .params = parts.params });
             ctx.frame_owners.items[index].per_instance = true;
             return;
         };
-        ctx.frame_owners.items[index].own = try checkFrame(ctx, pos, label, null, tys, names, copies, pos);
+        const counted = (try checkFrame(ctx, pos, label, null, tys, names, parts, pos)) orelse return;
+        ctx.frame_owners.items[index].own = counted.own;
+        ctx.frame_owners.items[index].marked = counted.marked;
+        ctx.frame_owners.items[index].params = counted.params;
     }
 };
 
-/// Check the frame of `label` whose values are `tys` but the last
-/// `copies`, which are copies its code may make: its count against
-/// `sema.max_frame_bytes` and its reach against `sema.max_frame_reach`.
-/// A large one marks its declaration, at `decl` in `module` (0 for this
-/// one), `noinline` (`sema.SemContext.large_frames`).
-fn checkFrame(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, copies: u32, decl: u32) Error!?sema.FrameCount {
-    return checkFrameIn(ctx, pos, label, of, tys, names, copies, 0, decl);
+/// How a frame's types (`sema.Frame.tys`) are laid out: the values, then
+/// `copies`, which are copies its code may make, then `params`, a
+/// function's parameters as the code copies them where it is inlined;
+/// of the values the last `marked`, and of the copies the last
+/// `marked_copies`, are what calls of marked `inline` functions land in
+/// it.
+const FrameParts = struct { copies: u32 = 0, marked: u32 = 0, marked_copies: u32 = 0, params: u32 = 0 };
+
+/// A frame's count: its own values, what marked calls land in it
+/// (`sema.Account`), and the reach of its parameters' copies where it is
+/// inlined (`sema.FrameOwner.params`).
+const FrameCounted = struct { own: sema.FrameCount, marked: sema.FrameCount, params: u128 = 0 };
+
+/// Check the frame of `label` whose types are `tys`, laid out as `parts`
+/// says: its count, its own values and what marked calls land in it
+/// together, against `sema.max_frame_bytes` and its reach against
+/// `sema.max_frame_reach`. A large one marks its declaration, at `decl`
+/// in `module` (0 for this one), `noinline` (`sema.SemContext.large_frames`).
+/// A marked `inline` function's frame is counted, for what the rule
+/// inlines through it (`inlining.decide`), and not checked: Zig never
+/// writes it, and its values land in each caller's, which is.
+fn checkFrame(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, parts: FrameParts, decl: u32) Error!?FrameCounted {
+    return checkFrameIn(ctx, pos, label, of, tys, names, parts, 0, decl);
 }
 
 /// The count of the frame, null when a value in it follows an error. It
 /// is recorded (`SemContext.frame_sizes`) as the frame of the owner
 /// declared at `decl` in module `module` (0 for this one).
-fn checkFrameIn(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, copies: u32, module: u32, decl: u32) Error!?sema.FrameCount {
-    const values = tys[0 .. tys.len - copies];
+fn checkFrameIn(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, parts: FrameParts, module: u32, decl: u32) Error!?FrameCounted {
+    const body = tys[0 .. tys.len - parts.params];
+    const values = body[0 .. body.len - parts.copies];
+    const copied = body[values.len..];
     const bytes = (try frameBytes(ctx, values)) orelse return null;
-    const reach = bytes + ((try reachBytes(ctx, tys[values.len..])) orelse return null);
-    const count: sema.FrameCount = .{ .bytes = bytes, .reach = reach };
+    const reach = bytes + ((try reachBytes(ctx, copied)) orelse return null);
+    const marked_bytes = (try frameBytes(ctx, values[values.len - parts.marked ..])) orelse return null;
+    const marked: sema.FrameCount = .{ .bytes = marked_bytes, .reach = marked_bytes + ((try reachBytes(ctx, copied[copied.len - parts.marked_copies ..])) orelse return null) };
+    const params = (try reachBytes(ctx, tys[body.len..])) orelse return null;
+    const counted: FrameCounted = .{ .own = .{ .bytes = bytes - marked.bytes, .reach = reach - marked.reach }, .marked = marked, .params = params };
     const shown = if (of) |root| try ctx.arena.allocator().print("{s} in `{s}`", .{ label, try sema.rootName(ctx, root) }) else label;
-    try ctx.frame_sizes.append(ctx.allocator, .{ .label = shown, .pos = pos, .bytes = bytes, .reach = reach, .module = if (module == 0) ctx.module_id else module, .decl = decl });
+    const declared = if (module == 0) ctx.module_id else module;
+    try ctx.frame_sizes.append(ctx.allocator, .{ .label = shown, .pos = pos, .bytes = counted.own.bytes, .reach = counted.own.reach, .marked = marked, .params = params, .module = declared, .decl = decl });
+    // A marked `inline` function's frame is never written: its values
+    // land in each caller's, which is checked in turn.
+    const decl_ctx = ctx.declaringContext(.{ .module = declared, .pos = decl }) orelse return counted;
+    if (decl_ctx.inline_decls.contains(decl)) return counted;
     if (bytes > sema.max_frame_bytes) {
         try reportFrame(ctx, pos, label, bytes, of, values, names[0..values.len]);
-        return count;
+        return counted;
     }
     if (reach * sema.reach_factor > sema.max_frame_reach) {
         const in = if (of) |root| try ctx.arena.allocator().print(" in `{s}`", .{try sema.rootName(ctx, root)}) else "";
         try ctx.err(pos, "{s} makes or copies {d} bytes of values{s}, and a build may hold each in a temporary of its own on the stack, {d} times over at most; a function's code may take at most {d} bytes (512 MiB) of stack. Keep large data on the heap, in a box (`^T`) or a `List`, or split the function", .{ label, reach, in, sema.reach_factor, sema.max_frame_reach });
-        return count;
+        return counted;
     }
-    if (reach * sema.reach_factor < sema.noinline_reach) return count;
-    if (module == 0 or module == ctx.module_id) try ctx.large_frames.put(ctx.allocator, decl, {}) else try ctx.large_foreign_frames.append(ctx.allocator, .{ .module = module, .pos = decl });
-    return count;
+    if (reach * sema.reach_factor < sema.noinline_reach) return counted;
+    if (declared == ctx.module_id) try ctx.large_frames.put(ctx.allocator, decl, {}) else try ctx.large_foreign_frames.append(ctx.allocator, .{ .module = module, .pos = decl });
+    return counted;
 }
 
 /// The bytes of the copies `tys`, each that does not fit in registers;
@@ -14302,7 +14995,7 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
             try buf.append(ctx.allocator, t);
         }
         const before = ctx.diagnostics.items.len;
-        _ = try checkFrameIn(ctx, at, fr.label, of, buf.items, fr.names, fr.copies, fr.module_id, fr.pos);
+        _ = try checkFrameIn(ctx, at, fr.label, of, buf.items, fr.names, .{ .copies = fr.copies, .marked = fr.marked, .marked_copies = fr.marked_copies, .params = fr.params }, fr.module_id, fr.pos);
         if (ctx.diagnostics.items.len == before) continue;
         try ctx.noteIn(fr.module_id, fr.pos, "{s} is declared here", .{fr.label});
         return;
@@ -14403,7 +15096,7 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
 fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
     return switch (req) {
         .numeric, .bytes => sema.isNumeric(ctx, ty),
-        .ordered => sema.isNumeric(ctx, ty) or ctx.types.get(ty) == .string_view or ctx.types.get(ty) == .static,
+        .ordered => sema.isNumeric(ctx, ty) or ctx.types.get(ty) == .string_view or ctx.types.get(ty) == .static or sema.isOrderedEnum(ctx, ty),
         .integer => sema.isInteger(ctx, ty),
         .signed => switch (ctx.types.get(ty)) {
             .int => |info| info.signed,
@@ -14880,4 +15573,40 @@ test "frame owners: one list of each kind, and the owner of a call in each kind 
     try std.testing.expectEqual(calls.len, seen);
     // Each owner lists its calls.
     for (owners, 0..) |o, i| for (o.calls) |ci| try std.testing.expectEqual(@as(?u32, @intCast(i)), r.ctx.frame_calls.items[ci].owner);
+}
+
+test "check: a frame an inline call cannot count is an error at the call, never no values" {
+    var r = try checkSource(std.testing.allocator,
+        \\inline fun big[T](x: T, i: Int) -> T
+        \\  t = [1000 of x]
+        \\  t[i % 1000]
+        \\
+        \\sub near(i: Int)
+        \\  print(big(1, i))
+        \\
+    );
+    defer r.p.deinit();
+    defer r.ctx.deinit();
+    try expectClean(&r.ctx);
+    try std.testing.expectEqual(1, r.ctx.inline_calls.count());
+    // `near`'s account holds `big`'s values at the instance its call makes.
+    var found = false;
+    for (r.ctx.frame_owners.items) |o| if (std.mem.eql(u8, o.label, "`near`")) {
+        try std.testing.expect(o.marked.bytes >= 8000);
+        found = true;
+    };
+    try std.testing.expect(found);
+    // The recorded call, without the instance it makes: `big`'s values
+    // hold `T`, which nothing binds.
+    var it = r.ctx.inline_calls.valueIterator();
+    const ic = it.next().?;
+    const saved = ic.*;
+    ic.subst = .empty;
+    try checkFrames(&r.ctx);
+    try expectDiagnostic(&r.ctx, "cannot count the values this `inline` call adds to the frame it is in (the call does not bind every parameter its values hold)");
+    // A function no module declares.
+    ic.* = saved;
+    ic.fun.module +%= 1000;
+    try checkFrames(&r.ctx);
+    try expectDiagnostic(&r.ctx, "cannot count the values this `inline` call adds to the frame it is in (its module is not loaded)");
 }

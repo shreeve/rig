@@ -1,0 +1,5 @@
+@a for i in 0..2
+  print(i)
+
+sub main()
+  print(1)

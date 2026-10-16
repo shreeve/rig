@@ -4,7 +4,7 @@ obj View
 obj Holder
   b: ^View
 
-  sub put(!self, ys: []Int)
+  sub put(!self, ys: []Int) keeps ys
     self.b.xs = ys
 
 sub main()

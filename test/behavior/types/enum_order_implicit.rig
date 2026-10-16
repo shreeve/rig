@@ -1,0 +1,33 @@
+# A plain enum without explicit values orders by declaration: each
+# variant's value is the previous one's plus one, the first 0. A variant
+# after an explicit value continues from it.
+
+enum Level
+  low
+  mid
+  high
+
+enum Code
+  a
+  b = 10
+  c
+  d = 5
+  e
+
+sub main()
+  lo = Level.low
+  hi = Level.high
+  print(lo < hi, Level.mid > lo, hi <= Level.mid, Level.mid >= Level.mid)
+  print(Code.c > Code.b, Code.d < Code.c, Code.e < Code.b, Code.a < Code.e)
+  print(Int(Code.c), Int(Code.e))
+  n = 0
+  for v in @variants(Level)
+    if v >= Level.mid
+      n += 1
+  print(n)
+
+# expect:
+# true true false true
+# true true true true
+# 11 6
+# 2

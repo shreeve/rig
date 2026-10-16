@@ -1,0 +1,13 @@
+sub main()
+  u: List[Int] = List()
+  r: ?List[Int] = if true
+    @o while true
+      w: List[Int] = List()
+      !w.push(5)
+      x: Bool? = none
+      while x ?? break @o ?w
+        print(1)
+      break @o ?u
+  else
+    ?u
+  print(r.len)

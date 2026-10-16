@@ -22,7 +22,7 @@ obj W[V]
   h: H
   xs: List[V]
 
-  sub put(!self, r: ?String, v: V)
+  sub put(!self, r: ?String, v: V) keeps r
     !self.h.rs.push(r)
     !self.xs.push(v)
 
