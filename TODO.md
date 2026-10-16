@@ -11,6 +11,17 @@ started:
 - SIMD: `pad:` reads and `blocks(N)`.
 - A String API for part-word appends and windowed writes.
 - Multiple results.
+- bench/hash after inlining a generic type's small members (#246), on
+  the Mac (aarch64), pooled medians of 8 layouts x 21 runs against main:
+  - `int hit` is 2-6% slower, and `small 4` and `small 8` 2-3% slower:
+    LLVM spills registers differently in a function that holds several
+    loops once more is inlined into it. The code of `int hit`'s loop is
+    the same as main's, and x86 shows no difference. Needs a study.
+  - `int edit_put-hit` is 3.0% slower (95% interval -3.8% to +9.6%):
+    inside the noise, but worth measuring again.
+  - Judge memory-bound bench/hash rows by medians with intervals and an
+    unchanged control row, not by the fastest of N runs, which swung
+    single rows several percent either way on unchanged code.
 - Every copy out of a view in a generic body takes the per-instance
   `copies` requirement, as `Cell.get` and a `??` through a view of an
   optional do: today a view read where its `T` is expected (`p` in
