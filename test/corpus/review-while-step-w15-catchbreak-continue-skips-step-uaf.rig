@@ -31,14 +31,14 @@ sub main()
   a = fresh(1)
   k = 0
   i = 0
-  :outer while (mk(?v, i) catch break) as h: a = fresh(h.s[0])
+  @outer while (mk(?v, i) catch break) as h: a = fresh(h.s[0])
     i += 1
     k += take(<a)
     continue if i > 200
     j = 0
     while j < 3: j += 1
-      break :outer if i > 100
-      continue :outer if j == 2
+      break @outer if i > 100
+      continue @outer if j == 2
   print(k, i)
 
 # expect: 21 5

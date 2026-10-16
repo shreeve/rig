@@ -66,10 +66,10 @@ sub main()
     break if hits == 5
   print("jumps", hits)
 
-  :outer for 0..3
+  @outer for 0..3
     for 0..3
       hits += 1
-      continue :outer if hits > 6
+      continue @outer if hits > 6
   print("label", hits)
 
   for upto(2)

@@ -3738,7 +3738,7 @@ loop's value.
 ```rig reject
 sub main()
   n = 3
-  :done if n > 1
+  @done if n > 1
     print(n)
 ```
 

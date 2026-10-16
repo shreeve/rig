@@ -41,9 +41,9 @@ sub main()
     print("ran out")
   print(first_over(4), first_over(20))
 
-  :outer for a in upto(3)
+  @outer for a in upto(3)
     for b in upto(3)
-      continue :outer if b > a
+      continue @outer if b > a
       print(a, b)
 
   r = for n in upto(5)
