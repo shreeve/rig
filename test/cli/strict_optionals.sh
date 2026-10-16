@@ -10,6 +10,9 @@ source "$ROOT/test/cli/_lib.sh"
 cat >main.rig <<'EOF2'
 use std.hash
 
+error E
+  bad
+
 enum Color
   red
   green
@@ -26,6 +29,19 @@ obj Holder[T]
 
   fun take(!self) -> T?
     <self.item
+
+fun mk(k: Int) -> Node
+  Node(id: k)
+
+fun mkn(k: Int) -> Node!
+  return E.bad if k < 0
+  Node(id: k)
+
+fun mko(k: Int) -> Node?
+  Node(id: k) if k > 0 else none
+
+fun tried[T](f: ?fun(Int) -> T!, k: Int) -> T?
+  f(k) catch none
 
 fun find(k: Int, at: Node? = none) -> Node?
   return at if k == 0
@@ -84,6 +100,20 @@ sub main()
   m = hash.Map[String, Node]()
   !m.put(String("a"), Node(id: 6))
   print(m.get("a") ?? Node(id: 0), m.get("z") ?? Node(id: 0))
+  r.sym = mk(1)
+  pair: [2]Node? = [none, none]
+  pair[0] = Node(id: 3)
+  zs: List[Node?] = List()
+  !zs.push(none)
+  zs[0] = mk(4)
+  c: *Cell[List[Node?]] = *Cell(List())
+  !c.push(none)
+  (!c)[0] = Node(id: 2)
+  print(r.sym, pair, zs, c[0])
+  e1: Node? = mkn(1) catch none
+  e2: Node? = mkn(-3) catch mko(3)
+  e3: Node? = mkn(-1) catch |e| Node(id: 9) if e == E.bad else none
+  print(e1, e2, e3, tried(?mkn, 4), tried(?mkn, -4))
 EOF2
 
 expected='none Node(id: 5) Node(id: 3) none Node(id: 8) none
@@ -102,7 +132,9 @@ Node(id: 0)
 Node(id: 3)
 none Node(id: 3)
 .green none
-Node(id: 6) Node(id: 0)'
+Node(id: 6) Node(id: 0)
+Node(id: 1) [Node(id: 3), none] [Node(id: 4)] Node(id: 2)
+Node(id: 1) Node(id: 3) Node(id: 9) Node(id: 4) none'
 
 # Only a type parameter's optional goes through the helpers by default;
 # under the switch, every object's does.

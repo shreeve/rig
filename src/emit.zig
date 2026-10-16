@@ -102,7 +102,15 @@ const LocalRef = struct { scope: u32, index: u32 };
 /// An argument evaluated into the temporary `name`. An owned one is
 /// dropped at scope exit while `flag` is set; the call clears it. With
 /// `ptr`, `name` holds the address of `node`, which stays where it is.
-const Hoisted = struct { node: Sexp, name: []const u8, flag: []const u8 = "", ptr: bool = false };
+const Hoisted = struct {
+    node: Sexp,
+    name: []const u8,
+    flag: []const u8 = "",
+    ptr: bool = false,
+    /// The temporary holds the value as the optional it becomes where it
+    /// goes (`emitLift`), already packed: an assignment's new value.
+    lifted: bool = false,
+};
 
 /// How a branch yields its value: the value itself, or the address of
 /// the leaf it takes (`Emitter.emitLeafPtr`).
@@ -1832,7 +1840,7 @@ pub const Emitter = struct {
         } else {
             const new = try self.openSetValue(set, ty, how);
             id = new.id;
-            try self.hoisted.append(self.allocator, .{ .node = value, .name = new.name, .flag = new.flag });
+            try self.hoisted.append(self.allocator, .{ .node = value, .name = new.name, .flag = new.flag, .lifted = true });
         }
         try self.hoistTarget(set, id);
         return first;
@@ -3696,7 +3704,8 @@ pub const Emitter = struct {
         };
         // A `T` or `none` that becomes an optional going through the
         // helpers is packed into it.
-        if (!self.want_ptr and !sameNode(sexp, self.lifting)) if (self.facts.liftOf(sexp)) |lift| if (self.liftRouted(lift)) return self.emitLift(sexp, lift, tail);
+        // (A temporary that holds an assignment's new value holds it packed.)
+        if (!self.want_ptr and !sameNode(sexp, self.lifting) and !(if (self.hoistedOf(sexp)) |h| h.lifted else false)) if (self.facts.liftOf(sexp)) |lift| if (self.liftRouted(lift)) return self.emitLift(sexp, lift, tail);
         // A part of the value whose use is known has that use; any other
         // value has the use its own context recorded.
         const saved_use = self.use;
@@ -4620,21 +4629,38 @@ pub const Emitter = struct {
                 // `(catch expr name? handler)`: the handler replaces the
                 // value. A named error is held as `anyerror`, so it
                 // compares and matches with any error value.
+                const handler = ir.Catch.handler(sexp);
+                // Where the handler is a `T?` and the value a `T!`, the
+                // value is one too: the handler is tested, and the result
+                // packed.
+                const packed_into = self.optionalHandler(sexp);
+                const some_handler = packed_into != null and self.typeOf(handler) != self.facts.types.noreturn_id;
+                if (packed_into) |o| {
+                    try self.w.writeAll("rig.pack(");
+                    try self.emitTypeTy(o);
+                    try self.w.writeAll(", ");
+                }
                 try self.w.writeAll("(");
                 try self.emitFallbackHolder(sexp, ir.Catch.value(sexp));
                 try self.w.writeAll(" catch ");
                 const name = ir.Catch.name(sexp);
-                const handler = ir.Catch.handler(sexp);
                 const sym: ?SymbolId = if (name != .nil) self.facts.symbolOf(name) else null;
                 if (sym != null and self.usage.used.contains(sym.?)) {
                     const tmp = try self.hiddenStorage(sexp, .error_value, .owned, .next);
                     try self.w.print("|{s}| ", .{tmp});
                     try self.pushScope();
                     const local = try self.declare(.{ .sym = sym.?, .ty = self.symType(sym.?) }, self.srcText(name));
+                    if (some_handler) try self.w.writeAll("rig.some(");
                     try self.emitValueBlock(handler, .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp } }, self.typeOf(sexp));
+                    if (some_handler) try self.w.writeAll(")");
                     try self.popScope();
-                } else try self.emitValue(handler, true);
+                } else {
+                    if (some_handler) try self.w.writeAll("rig.some(");
+                    try self.emitValue(handler, true);
+                    if (some_handler) try self.w.writeAll(")");
+                }
                 try self.w.writeAll(")");
+                if (packed_into != null) try self.w.writeAll(")");
             },
             .@"if", .match => {
                 // Literal branches under a run-time condition need the
@@ -5385,6 +5411,25 @@ pub const Emitter = struct {
         if (self.facts.copiesPayload(e)) return if (self.facts.payloadViewed(held) == inner) result else null;
         return switch (self.facts.types.get(self.peelViews(held))) {
             .optional => |payload| if (payload == inner) result else null,
+            else => null,
+        };
+    }
+
+    /// The optional type of `a catch b` (`e`) whose handler is a `T?` and
+    /// whose value succeeds with a `T`, which Zig would lift into it, where
+    /// it goes through the helpers; null for any other.
+    fn optionalHandler(self: *Emitter, e: Sexp) ?TypeId {
+        const result = self.typeOf(e) orelse return null;
+        const inner = switch (self.facts.types.get(result)) {
+            .optional => |inner| inner,
+            else => return null,
+        };
+        if (!self.routesPayload(inner)) return null;
+        const held = self.typeOf(ir.Catch.value(e)) orelse return null;
+        // A payload copied out of the view it is gives the value it views.
+        if (self.facts.copiesPayload(e)) return if (self.facts.payloadViewed(held) == inner) result else null;
+        return switch (self.facts.types.get(held)) {
+            .fallible => |payload| if (payload == inner) result else null,
             else => null,
         };
     }
