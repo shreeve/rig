@@ -8705,7 +8705,9 @@ not parse, and their words and sigils stay reserved:
 | `for *x in v` | `` `for *x in` is reserved `` |
 | `try` blocks | `` `try` blocks are reserved `` |
 | `zig "..."` | `` inline Zig is reserved `` |
-| `when`, `yield`, ... as a name | `` unexpected keyword `when` `` (every word held for later: `async` `await` `impl` `trait` `when` `where` `yield`) |
+| `const x = e`, `new const x = e` | `` Rig has no `const`; write `x =! e` for a binding that never changes `` |
+| `x =!y` | `` `=!` touches the operand after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write `` |
+| `when`, `yield`, ... as a name | `` unexpected keyword `when` `` (every other word held for later: `async` `await` `impl` `trait` `when` `where` `yield`) |
 | string and float match patterns | `` a pattern is a name, an integer, `true`, `false`, or an enum variant `` |
 
 The rest parse, and the checker rejects them as not supported yet

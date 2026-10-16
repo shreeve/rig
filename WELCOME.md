@@ -529,7 +529,7 @@ sub main()
 ```
 
 ```error
-Rig has no `let`; bind a name with `x = 5`, or `const x = 5` for one that never changes
+Rig has no `let`; bind a name with `x = 5`, or `x =! 5` for one that never changes
 ```
 
 A block's header takes no `:`, a comment starts with `#`, and `i++`
