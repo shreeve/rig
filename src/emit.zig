@@ -5697,11 +5697,24 @@ pub const Emitter = struct {
         const of = if (arg.isKind(.builtin)) ir.Builtin.args(arg)[0] else arg;
         const ty = self.typeOf(of) orelse return self.unsupported(arg, "an untyped `@name` argument");
         const spelling = try self.facts.formatTypeMarked(self.arena.allocator(), ty);
-        if (std.mem.findScalar(u8, spelling, facts.type_param_mark) == null) return self.w.print("\"{s}\"", .{spelling});
-        self.uses_names = true;
-        try self.w.writeAll("(comptime ");
-        try self.writeSpelling(spelling, .concat, null);
-        try self.w.writeAll(")");
+        // `@name(@type(x))` reads `x`, as `@size(@type(x))` does
+        // (`@TypeOf(x)`), though its name is known: a binding read only
+        // there is still used in the Zig.
+        const of_value = arg.isKind(.builtin);
+        if (of_value) {
+            try self.w.writeAll("(blk: { _ = @TypeOf(");
+            try self.emitBare(of);
+            try self.w.writeAll("); break :blk ");
+        }
+        if (std.mem.findScalar(u8, spelling, facts.type_param_mark) == null) {
+            try self.w.print("\"{s}\"", .{spelling});
+        } else {
+            self.uses_names = true;
+            try self.w.writeAll("(comptime ");
+            try self.writeSpelling(spelling, .concat, null);
+            try self.w.writeAll(")");
+        }
+        if (of_value) try self.w.writeAll("; })");
     }
 
     /// A marked spelling (`sema.formatTypeMarked`) as Zig: its strings,
