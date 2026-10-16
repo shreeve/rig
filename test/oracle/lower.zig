@@ -701,7 +701,12 @@ const Lowerer = struct {
                 try scope.defers.append(self.a, .{ .body = ir.get(s, .body), .err = k == .@"errdefer", .at = scope.vars.items.len });
             },
             .raw_block => return abstain("`raw`"),
-            else => _ = try self.eval(s, .read, null),
+            // Several results a statement discards, each dropped with it.
+            else => if (self.givesResults(s)) {
+                _ = try self.resultsValue(s, self.regions.items.len - 1);
+            } else {
+                _ = try self.eval(s, .read, null);
+            },
         }
     }
 
@@ -713,7 +718,11 @@ const Lowerer = struct {
         const pos = self.posOf(s);
         if (target == .src and std.mem.eql(u8, leafText(target, self.src), "_")) {
             // `_ = e` binds the value to nothing: it is taken, then
-            // dropped with the statement.
+            // dropped with the statement; several results each.
+            if (self.givesResults(rhs)) {
+                _ = try self.resultsValue(rhs, self.regions.items.len - 1);
+                return;
+            }
             _ = try self.eval(rhs, .take, null);
             return;
         }
@@ -850,17 +859,29 @@ const Lowerer = struct {
     }
 
     /// A call that gives several results, each into a new hidden var of
-    /// region `region`.
+    /// region `region`. The results are made after the call's argument
+    /// temporaries, so in one region they are dropped first, the last
+    /// made first (Core §3).
     fn callParts(self: *Lowerer, e: Sexp, region: usize) Error![]const VarId {
         const pos = self.posOf(e);
         const tys = sema.resultsOf(self.ctx, try self.typeOf(e)) orelse return abstain("one result bound to several names");
         const parts = try self.a.alloc(VarId, tys.len);
-        for (tys, parts) |t, *p| {
-            p.* = try self.newVar("a result", t, true, pos);
-            try self.regions.items[region].vars.append(self.a, p.*);
-        }
+        for (tys, parts) |t, *p| p.* = try self.newVar("a result", t, true, pos);
         _ = try self.call(e, .take, parts);
+        try self.regions.items[region].vars.appendSlice(self.a, parts);
         return parts;
+    }
+
+    /// Whether `e` gives several results a statement discards: `_ = e`,
+    /// or `e` as a statement.
+    fn givesResults(self: *Lowerer, e: Sexp) bool {
+        const k = e.kind() orelse return false;
+        switch (k) {
+            .call, .propagate, .propagate_none, .@"??", .@"catch" => {},
+            else => return false,
+        }
+        const ty = self.ctx.typeOf(e) orelse return false;
+        return sema.resultsOf(self.ctx, ty) != null;
     }
 
     /// `if f() as a, b` or `while f() as a, b`: a header, whose

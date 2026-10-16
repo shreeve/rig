@@ -465,6 +465,30 @@ const Checker = struct {
                 }
             }
         }
+        // C4 (s5): of several results, one that keeps a lend to write is
+        // the only view of what it views: no other result carries that
+        // lend.
+        if (op.parts.len > 1) {
+            for (op.parts, self.part_flows[0..op.parts.len]) |p, pf| {
+                self.flowOf(op, st, pf, p.no_result, p.result_loan);
+                const pv = self.f.vars.items[p.v];
+                if (!(pv.kind == .write_view or pv.holds_writes)) self.readOnly(pf);
+            }
+            for (op.parts, self.part_flows[0..op.parts.len], 0..) |p, pf, i| {
+                if (!self.f.vars.items[p.v].holds_views) continue;
+                for (self.f.loans.items, 0..) |l, li| {
+                    if (!pf.has(li) or l.external or l.mode != .write or !self.f.keeps(p.v, li)) continue;
+                    const twin = self.twins[li];
+                    for (op.parts, self.part_flows[0..op.parts.len], 0..) |q, qf, j| {
+                        if (j == i or !self.f.vars.items[q.v].holds_views) continue;
+                        const other = (qf.has(li) and self.f.keeps(q.v, li)) or (twin != null and qf.has(twin.?) and self.f.keeps(q.v, twin.?));
+                        if (!other) continue;
+                        try self.report(.C4, op.pos, "two results of one call view `{s}`, and one of them writes it", .{self.name(l.root)});
+                        return;
+                    }
+                }
+            }
+        }
         // C9 (§5): a value never holds a view of itself. What an op
         // stores in a var (an assignment's target; what a call may store
         // in its write arguments and receiver, and in what their write

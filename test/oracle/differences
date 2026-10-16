@@ -257,6 +257,28 @@ test/corpus/review-arm-temps-2-m21_name_target_old_drop_reads_view.rig main prod
 test/corpus/review-arm-temps-2-m33_slice_holder_drop_reads.rig main prod-rejects ref-gap `grow(!v)` in the value of `h = match`, whose old value's `drop` reads a slice of `v`
 test/corpus/review-arm-temps-2-m34_slice_holder_drop_reads_plain.rig main prod-rejects ref-gap `h = growh(!v, ?u)`, whose old value's `drop` reads a slice of `v`
 
+# A binding whose type's `drop` reads a view is used by that drop when
+# it is reassigned, so the views its old value holds stay live up to the
+# assignment. The oracle's liveness ends them at the last use by name:
+# it accepts a write or reassignment of what they view in between, whose
+# old value the drop then reads after it was freed.
+test/corpus/review-results-f01.rig main prod-rejects ref-gap `b, a = mk()` after `a = Guard(s: ?b, ...)`: the old `a`'s drop reads the old `b`, dropped first
+test/corpus/review-results-f04.rig main prod-rejects ref-gap `b, a = mk(?c)` after `a = Guard(s: ?b, ...)`: the old `a`'s drop reads the old `b`, dropped first
+test/corpus/review-results-f10.rig main prod-rejects ref-gap `b = String("new")` then `a = Guard(...)` after `a = Guard(s: ?b, ...)`: the old `a`'s drop reads the freed `b`
+test/corpus/review-results-z04.rig main prod-rejects ref-gap `g, n = mk(!x, 1)` after `g = Guard(s: ?x, ...)`: `mk` replaces `x`, which the old `g`'s drop then reads
+test/corpus/review-results-z05.rig main prod-rejects ref-gap `g = mk(!x, 1)` after `g = Guard(s: ?x, ...)`: `mk` replaces `x`, which the old `g`'s drop then reads
+
+# A result taken into a name ends its loan where that name's last use
+# does, as `x = e` does (Core sentence 6); the compiler keeps a result's
+# loan through its statement.
+test/corpus/review-results-v07.rig main prod-rejects prod-strict `v, s = mk(?s)` with `v` never read again: no live view of `s` when `s` is bound
+
+# A `for x in !l` element's write view stores a view of a local of the
+# body into the List, which outlives the iteration; the oracle does not
+# carry the store into the List's loans through the loop's element.
+test/corpus/review-results-p02_for_write.rig main prod-rejects ref-gap `!x.put(?d)` of a `for x in !l` element, with `d` local to the body
+test/corpus/review-results-p03_for_write_chain.rig main prod-rejects ref-gap `!w.put(?d)` through `w = !x`, a write view of the element
+
 # Reassigning a binding whose old value holds a write view, with a new
 # value that lends the same place again: the compiler checks the new
 # lend while the old value, dropped after it, still holds its loan
