@@ -1,0 +1,11 @@
+error Oops
+  bad
+
+enum Size
+  small
+  large
+
+sub main()
+  e: Oops = .bad
+  print(e < Size.small)
+  print(Size.small < e)

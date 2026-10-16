@@ -1,0 +1,11 @@
+# Is a constant chosen by an enum `==` known at compile time? (control
+# for a08)
+enum Size
+  small = 1
+  large = 2
+
+N = 3 if Size.large == Size.large else 4
+
+sub main()
+  a: [N]Int = [0, 0, 0]
+  print(N, a.len)

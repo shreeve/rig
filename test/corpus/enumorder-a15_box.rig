@@ -1,0 +1,8 @@
+enum Size
+  small
+  large
+
+sub main()
+  b = ^Size.large
+  c = *Size.small
+  print(b < c)

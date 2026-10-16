@@ -4171,6 +4171,8 @@ const Checker = struct {
         };
         if (builtin) {
             try self.errAt(at, "operator `{s}` orders a declared enum's values; the built-in enum `{s}` has no integer value", .{ op, try self.tyName(ty) });
+        } else if (self.ctx.types.get(ty) == .parameterized_nominal) {
+            try self.errAt(at, "operator `{s}` orders a plain enum's values; `{s}` is a generic enum, whose variants have no integer value", .{ op, try self.tyName(ty) });
         } else if (self.enumValues(ty) == false) {
             try self.errAt(at, "operator `{s}` orders a plain enum's values; `{s}` has variants with payloads, which have no integer value", .{ op, try self.tyName(ty) });
         } else try self.errAt(at, ordering_operands, .{ op, try self.tyName(ty) });

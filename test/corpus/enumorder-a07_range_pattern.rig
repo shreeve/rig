@@ -1,0 +1,10 @@
+enum Size
+  small
+  medium
+  large
+
+sub main()
+  s = Size.medium
+  match s
+    Size.small..Size.large => print("in")
+    _ => print("out")

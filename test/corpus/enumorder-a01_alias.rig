@@ -1,0 +1,11 @@
+# A type alias of a plain enum orders as the enum does.
+type C = Color
+
+enum Color
+  red = 7
+  green = 3
+
+sub main()
+  a: C = .red
+  b = Color.green
+  print(a < b, C.green < Color.red, b >= .red)

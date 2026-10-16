@@ -3217,8 +3217,8 @@ operand, a binding, an argument) is rejected. It is valid only where a
 `not a and b` is `(not a) and b`. Since `not a > b` could be read as
 `(not a) > b`, a comparison directly under `not` is written in
 parentheses, `not (a > b)`, or flipped: the diagnostic offers `a <= b`
-where that means the same, for integers, text, and any `==` or `!=`,
-though not for a `Float`, which may be NaN.
+where that means the same, for integers, plain enums, text, and any
+`==` or `!=`, though not for a `Float`, which may be NaN.
 
 ```rig reject
 sub main()
