@@ -175,6 +175,25 @@ pub obj Map[K, V]
       if !self.es[j].value as w
         return w
 
+  # Put `v` under `k` when `k` is new, and lend the value under `k` to
+  # write, with whether `k` was new. When `k` is there, `k` and `v` are
+  # dropped.
+  pub fun ensure_added(!self, k: K, v: V) -> (!V, Bool) from self, k, v
+    h = k.hash()
+    j = 0
+    added = false
+    if self.find(?k, h) as at
+      <k
+      <v
+      j = at
+    else
+      j = (!self).add_new(<k, <v, h)
+      added = true
+    # As in `ensure`, the entry at `j` holds a value.
+    while true
+      if !self.es[j].value as w
+        return w, added
+
   # Lend the value under `k` to write, putting `make(k)` there first
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
@@ -247,6 +266,27 @@ pub obj Map[K, V]
     !self.table.tags.clear()
     !self.table.at.clear()
     self.len = 0
+
+  # The entry at index `i` in the order the keys were first put in: its
+  # key and its value, each viewed where the Map holds it, or `none` when
+  # `i` is not below `len`. One step while no entry has been taken since
+  # the entries were last compacted, as the Map grows; until then, it
+  # counts the entries before it.
+  pub fun at(?self, i: Int) -> (?K, ?V)? from self
+    return none if i < 0 or i >= self.len
+    j = i
+    if self.len < self.es.len
+      j = 0
+      n = 0
+      while j < self.es.len
+        if self.es[j].value != none
+          break if n == i
+          n += 1
+        j += 1
+    v: (?V)? = ?self.es[j].value
+    if v as vv
+      return ?self.es[j].key, vv
+    none
 
   # The entries, in the order their keys were first put in: each an
   # `Item` viewing its key and value.

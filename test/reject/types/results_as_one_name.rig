@@ -1,0 +1,8 @@
+fun f() -> (Int, Int)?
+  return 1, 2
+
+sub main()
+  if f() as a
+    print(a)
+
+# error: a call that gives several results stands only where each result is bound
