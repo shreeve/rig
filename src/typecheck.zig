@@ -130,6 +130,21 @@ const Checker = struct {
     /// The expression statement being checked, whose value is
     /// discarded (`isDiscardedCall`).
     discarded: Sexp = .nil,
+    /// The call that gives several results where they may stand: the
+    /// value of a destructure, of `return` in a function that gives
+    /// them, or of `if ... as a, b` (docs/INTERNALS.md, "Several
+    /// results"). Any other such call is reported (`misplacedResults`).
+    results_ok: Sexp = .nil,
+    /// The type of the result the `result_part` being checked takes:
+    /// a destructure's target binds it as `x = e` binds `e`.
+    part_ty: TypeId = sema.type_invalid,
+    /// The value of the single binding being checked, and the call it
+    /// is, for the hint that binds each of several results.
+    bound_value: Sexp = .nil,
+    bound_call: Sexp = .nil,
+    /// The last line of a function that gives several results, which
+    /// gives them with `return`.
+    results_tail: Sexp = .nil,
     /// The name an assignment re-binds while its value is checked, when
     /// that name holds a `Static` (`staticHint`).
     static_target: []const u8 = "",
@@ -736,6 +751,9 @@ const Checker = struct {
                     try self.errAt(s, "a function returning `{s}` must end with a value; this {s} produces none", .{ try self.tyName(ret), what });
                     continue;
                 }
+                const saved_tail = self.results_tail;
+                defer self.results_tail = saved_tail;
+                if (sema.resultsOf(self.ctx, ret) != null) self.results_tail = resultCall(s) orelse .nil;
                 try self.checkTail(s, ret);
             } else {
                 try self.checkStmt(s);
@@ -784,11 +802,13 @@ const Checker = struct {
                 try self.checkSet(stmt);
                 if (self.ctx.diagnostics.items.len == mark) try self.checkKeptSet(stmt);
             },
+            .destructure => try self.checkDestructure(stmt),
             .@"return" => {
                 const mark = self.ctx.diagnostics.items.len;
                 try self.checkReturn(stmt);
                 const value = ir.Return.value(stmt);
-                if (value != .nil and self.ctx.diagnostics.items.len == mark) try self.keptLends(value, .returned);
+                // Each of several results is checked where it is checked.
+                if (value != .nil and !value.isKind(.results) and self.ctx.diagnostics.items.len == mark) try self.keptLends(value, .returned);
             },
             .@"if" => _ = try self.checkIfValue(stmt, null, .statement),
             .@"while" => try self.checkWhile(stmt),
@@ -962,6 +982,11 @@ const Checker = struct {
 
     fn checkReturn(self: *Checker, node: Sexp) Error!void {
         const value = ir.Return.value(node);
+        if (value.isKind(.results)) return self.checkReturnResults(node, value);
+        // `return f()` gives the several results `f` gives, whole.
+        const saved_ok = self.results_ok;
+        defer self.results_ok = saved_ok;
+        if (sema.resultsOf(self.ctx, self.body.ret) != null) self.results_ok = resultCall(value) orelse .nil;
         if (value != .nil) try self.recordUse(value, .take);
         const ret = self.body.ret;
         if (self.body.fail_to == .deferred) try self.errAt(node, "cannot `return` inside `defer`; the deferred code runs as the function exits", .{});
@@ -1014,6 +1039,207 @@ const Checker = struct {
 
     /// `_ = e`, and a statement `<e` that drops what it takes: `e` is
     /// taken, and dropped at the statement's end.
+    // ---- several results ------------------------------------------------------
+
+    /// `q, r = f()`: the call's several results, each bound to its
+    /// target left to right as `x = e` binds `e` (each target but `_` is
+    /// `(set op x _ (result_part))`). The value is a call that gives
+    /// them, alone or under `!`, `?`, or a fallback that jumps
+    /// (docs/INTERNALS.md, "Several results").
+    fn checkDestructure(self: *Checker, node: Sexp) Error!void {
+        const value = ir.Destructure.value(node);
+        const targets = ir.Destructure.targets(node).items();
+        if (value.isKind(.results)) return self.parallelAssignment(node, targets, value);
+        var ok = try self.checkResultTargets(targets);
+        const call = resultCall(value) orelse Sexp.nil;
+        if (ok and !self.isResultsValue(value)) {
+            try self.errAt(value, "several results are bound from a call that gives them: `{s} = f()`, `f()!`, `f()?`, or `f() ?? return`", .{try self.targetNames(targets)});
+            ok = false;
+        }
+        const saved_ok = self.results_ok;
+        defer self.results_ok = saved_ok;
+        self.results_ok = call;
+        try self.recordUse(value, .take);
+        const ty = try self.synthExpr(value);
+        var parts: []const TypeId = &.{};
+        if (!self.isPoison(ty)) switch (self.ctx.types.get(ty)) {
+            .results => |r| parts = r,
+            else => if (ok) {
+                const name = if (call != .nil) try self.calleeName(ir.Call.callee(call)) else self.sourceText(value);
+                try self.errAt(value, "`{s}` gives one result, of type `{s}`; bind it to one name", .{ name, try self.tyName(ty) });
+                ok = false;
+            },
+        };
+        if (ok and parts.len > 0 and parts.len != targets.len) {
+            try self.errAt(value, "`{s}` gives {d} results, but {d} names are bound", .{ try self.calleeName(ir.Call.callee(call)), parts.len, targets.len });
+            ok = false;
+        }
+        const saved_part = self.part_ty;
+        defer self.part_ty = saved_part;
+        var kept = false;
+        for (targets, 0..) |tg, j| {
+            if (!tg.isKind(.set)) continue;
+            self.part_ty = if (ok and j < parts.len) parts[j] else self.t().invalid_id;
+            const mark = self.ctx.diagnostics.items.len;
+            if (ok) try self.checkSet(tg) else try self.poisonTarget(tg);
+            // A lend a kept result carries is written (Core sentence 4).
+            if (ok and !kept and self.ctx.diagnostics.items.len == mark and sema.mayHoldView(self.ctx, self.part_ty)) {
+                kept = true;
+                try self.keptLends(value, .{ .binding = self.text(ir.Set.target(tg)) });
+            }
+        }
+    }
+
+    /// The targets of a destructure: names or `_`, each named once. A
+    /// field or element is not one: its indexes would run in the middle
+    /// of the bindings. False when one is reported.
+    fn checkResultTargets(self: *Checker, targets: []const Sexp) Error!bool {
+        var ok = true;
+        for (targets, 0..) |tg, j| {
+            if (!tg.isKind(.set)) continue;
+            const target = ir.Set.target(tg);
+            if (target != .src) {
+                const shown = self.sourceText(target);
+                const reads = for (targets) |o| {
+                    if (!o.isKind(.set) or ir.Set.target(o) != .src) continue;
+                    const name = self.text(ir.Set.target(o));
+                    if (readsNameIn(self.ctx.source, target, name)) break name;
+                } else null;
+                if (reads) |name| {
+                    try self.errAt(target, "each result is bound to a name, and `{s}` reads `{s}`, which this statement binds, so the order would decide what it means: bind a name here, then assign `{s}` on the next line", .{ shown, name, shown });
+                } else try self.errAt(target, "each result is bound to a name: bind one here, then assign `{s}` on the next line", .{shown});
+                ok = false;
+                continue;
+            }
+            const name = self.text(target);
+            for (targets[0..j]) |o| if (o.isKind(.set) and ir.Set.target(o) == .src and std.mem.eql(u8, self.text(ir.Set.target(o)), name)) {
+                try self.errAt(target, "`{s}` is bound twice by one statement; bind each result to its own name, or discard one with `_`", .{name});
+                ok = false;
+                break;
+            };
+        }
+        return ok;
+    }
+
+    /// The value of a destructure, by a positive list: a call, alone or
+    /// under `!` or `?`, or with a `??` or `catch` fallback that jumps.
+    fn isResultsValue(self: *const Checker, value: Sexp) bool {
+        _ = self;
+        const head = value.kind() orelse return false;
+        return switch (head) {
+            .call => true,
+            .propagate => ir.Propagate.value(value).isKind(.call),
+            .propagate_none => ir.PropagateNone.value(value).isKind(.call),
+            .@"??" => ir.@"??".left(value).isKind(.call) and isJumpNode(ir.@"??".right(value)),
+            .@"catch" => ir.Catch.value(value).isKind(.call) and isJumpNode(ir.Catch.handler(value)),
+            else => false,
+        };
+    }
+
+    /// A destructure target checked after its statement was reported:
+    /// its name gets no type, so its uses report nothing more.
+    fn poisonTarget(self: *Checker, set: Sexp) Error!void {
+        const target = ir.Set.target(set);
+        if (target != .src) return;
+        const sym = self.ctx.symbolOf(target) orelse return;
+        if (self.ctx.symbols.items[sym].decl_pos == target.src.pos) self.ctx.symbols.items[sym].ty = self.t().invalid_id;
+        try self.ctx.recordType(ir.Set.value(set), self.t().invalid_id);
+    }
+
+    /// `a, b = b, a` and `q, r = 1, 2`: Rig has no parallel assignment.
+    fn parallelAssignment(self: *Checker, node: Sexp, targets: []const Sexp, value: Sexp) Error!void {
+        const values = ir.Results.values(value);
+        for (values) |v| _ = try self.synthExpr(v);
+        for (targets) |tg| if (tg.isKind(.set)) try self.poisonTarget(tg);
+        // Two names given each other's values: a swap.
+        if (targets.len == 2 and values.len == 2 and values[0] == .src and values[1] == .src and targets[0].isKind(.set) and targets[1].isKind(.set)) {
+            const a = ir.Set.target(targets[0]);
+            const b = ir.Set.target(targets[1]);
+            if (a == .src and b == .src and std.mem.eql(u8, self.text(a), self.text(values[1])) and std.mem.eql(u8, self.text(b), self.text(values[0]))) {
+                return self.errAt(node, "Rig has no parallel assignment: write `swap(!{s}, !{s})` to exchange two places", .{ self.text(a), self.text(b) });
+            }
+        }
+        try self.errAt(node, "Rig has no parallel assignment: bind each name on its own line; several results come from a call, `{s} = f()`", .{try self.targetNames(targets)});
+    }
+
+    /// The targets of a destructure as written: `q, r`.
+    fn targetNames(self: *Checker, targets: []const Sexp) Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        const a = self.ctx.arena.allocator();
+        for (targets, 0..) |tg, i| {
+            if (i > 0) try out.appendSlice(a, ", ");
+            try out.appendSlice(a, self.sourceText(if (tg.isKind(.set)) ir.Set.target(tg) else tg));
+        }
+        return out.items;
+    }
+
+    /// `n` names for a hint that binds several results: `a, b`.
+    fn resultNames(self: *Checker, n: usize) Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        const a = self.ctx.arena.allocator();
+        for (0..n) |i| {
+            if (i > 0) try out.appendSlice(a, ", ");
+            try out.append(a, @as(u8, @intCast(@as(usize, 'a') + @min(i, 25))));
+        }
+        return out.items;
+    }
+
+    /// A call that gives several results, where they may not stand.
+    fn misplacedResults(self: *Checker, call: Sexp, ty: TypeId) Error!void {
+        const n = sema.resultsOf(self.ctx, ty).?.len;
+        const name = try self.calleeName(ir.Call.callee(call));
+        if (sameNode(call, self.bound_call)) {
+            return self.errAt(call, "`{s}` gives {d} results; bind each: `{s} = {s}`", .{ name, n, try self.resultNames(n), self.sourceText(self.bound_value) });
+        }
+        if (sameNode(call, self.results_tail)) {
+            return self.errAt(call, "several results are given with `return`: `return {s}`", .{self.sourceText(call)});
+        }
+        try self.errAt(call, "a call that gives several results stands only where each result is bound: `{s} = {s}`", .{ try self.resultNames(n), self.sourceText(call) });
+    }
+
+    /// `(a, b)` as a value: Rig has no tuples.
+    fn tupleValue(self: *Checker, e: Sexp) Error!TypeId {
+        const elems = ir.Tuple.elems(e);
+        for (elems) |x| _ = try self.synthExpr(x);
+        const src = self.sourceText(e);
+        const inner = std.mem.trim(u8, src[1 .. src.len - 1], " ");
+        if (sema.resultsOf(self.ctx, self.body.ret) != null) {
+            try self.errAt(e, "Rig has no tuple values: give several results with `return {s}`", .{inner});
+        } else try self.errAt(e, "Rig has no tuple values: name an object for a group of values, or give a function several results, `-> (A, B)`, with `return {s}`", .{inner});
+        return self.t().invalid_id;
+    }
+
+    /// `return a, b`: each part is a result, checked as `return x` checks
+    /// its value against the result type in its position.
+    fn checkReturnResults(self: *Checker, node: Sexp, value: Sexp) Error!void {
+        const parts = ir.Results.values(value);
+        if (self.body.fail_to == .deferred) try self.errAt(node, "cannot `return` inside `defer`; the deferred code runs as the function exits", .{});
+        for (parts) |p| try self.recordUse(p, .take);
+        const ret = self.body.ret;
+        const tys: ?[]const TypeId = if (self.body.returns != null) null else sema.resultsOf(self.ctx, ret);
+        const want = tys orelse {
+            for (parts) |p| _ = try self.synthExpr(p);
+            if (self.isPoison(ret)) return;
+            if (self.body.returns != null) return self.errAt(value, "a closure gives several results only where its type says so: `?fun(...) -> (A, B)`", .{});
+            if (self.body.is_sub) return self.errAt(value, "a `sub` returns no value; several results are a `fun`'s: `-> (A, B)`", .{});
+            const name = if (self.body.name != .nil) self.text(self.body.name) else "this function";
+            return self.errAt(value, "`{s}` gives one result, of type `{s}`; several are declared `-> (A, B)`", .{ name, try self.tyName(ret) });
+        };
+        if (want.len != parts.len) {
+            for (parts) |p| _ = try self.synthExpr(p);
+            const name = if (self.body.name != .nil) self.text(self.body.name) else "this function";
+            return self.errAt(value, "`{s}` gives {d} results, but `return` gives {d}", .{ name, want.len, parts.len });
+        }
+        const saved = self.return_operand;
+        defer self.return_operand = saved;
+        for (parts, want) |p, ty| {
+            self.return_operand = p;
+            const mark = self.ctx.diagnostics.items.len;
+            try self.checkExpr(p, ty);
+            if (self.ctx.diagnostics.items.len == mark) try self.keptLends(p, .returned);
+        }
+    }
+
     fn checkDiscard(self: *Checker, value: Sexp) Error!void {
         try self.recordUse(value, .take);
         _ = try self.synthExpr(value);
@@ -1024,9 +1250,19 @@ const Checker = struct {
         const target = ir.Set.target(node);
         const type_node = ir.Set.type(node);
         const rhs = ir.Set.value(node);
+        const saved_bound = .{ self.bound_value, self.bound_call };
+        defer self.bound_value, self.bound_call = saved_bound;
+        self.bound_value = rhs;
+        self.bound_call = resultCall(rhs) orelse .nil;
         // A binding, an assignment, and `_ = e` take the value.
         try self.recordUse(rhs, .take);
 
+        // `(q, r) = f()`: several results are bound by the bare list.
+        if (target.isKind(.tuple)) {
+            _ = try self.synthQuiet(rhs);
+            const src = self.sourceText(target);
+            return self.errAt(target, "write `{s} = {s}`; parentheses aren't needed on the left", .{ std.mem.trim(u8, src[1 .. src.len - 1], " "), self.sourceText(rhs) });
+        }
         if (target != .src) return self.checkPlaceAssign(kind, target, type_node, rhs);
 
         const name = self.text(target);
@@ -4071,6 +4307,9 @@ const Checker = struct {
                 try self.errAt(e, "`name: value` is only allowed as a call argument", .{});
                 break :blk self.t().invalid_id;
             },
+            // A destructure's target takes the result in its position.
+            .result_part => self.part_ty,
+            .tuple => self.tupleValue(e),
             else => blk: {
                 try self.errAt(e, "`{s}` expressions are not supported", .{@tagName(head)});
                 break :blk self.t().invalid_id;
@@ -6911,6 +7150,12 @@ const Checker = struct {
         // function (`noteTarget`); any other call reaches none.
         try self.ctx.recordCallTarget(node, .none);
         const ty = try self.synthCallInner(node);
+        // A call that gives several results stands only where each is
+        // bound at once, or where they are returned whole.
+        if (sema.resultsOf(self.ctx, ty) != null and !sameNode(node, self.results_ok)) {
+            try self.misplacedResults(node, ty);
+            return self.t().invalid_id;
+        }
         if (!handled and self.ctx.types.get(ty) == .fallible) {
             const callee = ir.Call.callee(node);
             const name = try self.calleeName(callee);
@@ -11229,7 +11474,7 @@ const Checker = struct {
         try sema.yieldedLeaves(self.ctx.allocator, self.ctx.source, e, &leaves);
         if (leaves.items.len == 0) return false;
         for (leaves.items) |leaf| switch (leaf.kind() orelse return false) {
-            .call, .write, .move, .@"return", .@"break", .@"continue" => {},
+            .call, .result_part, .write, .move, .@"return", .@"break", .@"continue" => {},
             else => return false,
         };
         return true;
@@ -13495,6 +13740,22 @@ fn isWhileTrue(source: []const u8, loop: Sexp) bool {
 
 /// The call whose value `e` is: `e` itself, or the call under a `!`,
 /// `?`, `catch`, or on the left of `??`.
+/// `return`, `break`, or `continue`: a fallback that jumps.
+fn isJumpNode(e: Sexp) bool {
+    return e.isKind(.@"return") or e.isKind(.@"break") or e.isKind(.@"continue");
+}
+
+/// Whether `e` names `name` anywhere in `source`.
+fn readsNameIn(source: []const u8, e: Sexp, name: []const u8) bool {
+    return switch (e) {
+        .src => |leaf| std.mem.eql(u8, rig.leafText(source, leaf), name),
+        .list => for (e.items()) |c| {
+            if (readsNameIn(source, c, name)) break true;
+        } else false,
+        else => false,
+    };
+}
+
 fn resultCall(e: Sexp) ?Sexp {
     const head = e.kind() orelse return null;
     return switch (head) {

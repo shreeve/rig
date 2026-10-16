@@ -1430,6 +1430,8 @@ const Planner = struct {
                 _ = fillsInPlace(ctx, e);
                 try p.assignment(e);
             },
+            // The call's results, which each target takes in its turn.
+            .destructure => try p.record(e, .results, .owned, .statement),
             .box => _ = fillsInPlace(ctx, e),
             .@"+", .@"-", .@"*", .neg => _ = laneChecked(ctx, e),
             .@"for" => try p.forLoop(e),
