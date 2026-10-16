@@ -2,6 +2,11 @@ name: shards
 
 # One operating system's test run, split into four disjoint shards that
 # run in parallel (test/run --shard). Called by test.yml once per system.
+#
+# Caches are read by every run and written only by a run on main that no
+# pull request started (nightly, or by hand), each under a key named by
+# its contents, so a pull request never saves one (its caches would be
+# visible to it alone) and two runs never race to save the same one.
 on:
   workflow_call:
     inputs:
@@ -21,20 +26,31 @@ jobs:
         shard: [1, 2, 3, 4]
     runs-on: ${{ inputs.os }}
     timeout-minutes: 45
+    env:
+      SAVE: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     defaults:
       run:
         working-directory: rig
     steps:
+      - name: Describe the runner
+        working-directory: .
+        run: |
+          if command -v nproc >/dev/null; then nproc; lscpu; else sysctl -n hw.ncpu machdep.cpu.brand_string; fi
+
       # Rig and Nexus side by side: the build and test/run look for
       # nexus/bin/nexus in a parent directory of the checkout.
       - uses: actions/checkout@v4
         with:
           path: rig
 
-      # setup-zig also caches Zig's global cache between runs.
+      # setup-zig points Zig's global and local caches at
+      # $GITHUB_WORKSPACE/.zig-cache. Its own caching saves under a key
+      # unique to each run, from pull requests too; the steps below cache
+      # that directory instead.
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
+          use-cache: false
 
       # Nexus is co-developed with Rig: always its main. Its binary is
       # built for a baseline CPU, since a cached one can land on an older
@@ -52,7 +68,7 @@ jobs:
 
       - name: Restore Nexus
         id: nexus
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: nexus/bin/nexus
           key: nexus-${{ steps.sha.outputs.sha }}-baseline-zig-0.17.0-${{ runner.os }}-${{ runner.arch }}
@@ -62,14 +78,42 @@ jobs:
         working-directory: nexus
         run: zig build -Doptimize=safe -Dcpu=baseline
 
-      - name: Build Rig
-        run: zig build
+      - name: Save Nexus
+        if: steps.nexus.outputs.cache-hit != 'true' && env.SAVE == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: nexus/bin/nexus
+          key: nexus-${{ steps.sha.outputs.sha }}-baseline-zig-0.17.0-${{ runner.os }}-${{ runner.arch }}
+
+      # The Zig cache holds the compiler's builds, so a run whose compiler
+      # sources match a saved run's builds nothing. The nightly run starts
+      # empty, so it checks the cold build and saves only what this
+      # compiler needs; other runs restore the closest saved cache.
+      - name: Name the Zig cache
+        id: zigkey
+        run: echo "key=zig-cache-${{ runner.os }}-${{ runner.arch }}-0.17.0-${{ steps.sha.outputs.sha }}-${{ hashFiles('rig/build.zig', 'rig/rig.grammar', 'rig/src/**', 'rig/std/**', 'rig/test/oracle/**') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the Zig cache
+        id: zigcache
+        if: github.event_name != 'schedule'
+        uses: actions/cache/restore@v4
+        with:
+          path: .zig-cache
+          key: ${{ steps.zigkey.outputs.key }}
+          restore-keys: zig-cache-${{ runner.os }}-${{ runner.arch }}-0.17.0-
+
+      # One build of each binary test/run uses, compiled in parallel and
+      # with the options test/run builds with, so its own `zig build`s
+      # find them in the cache.
+      - name: Build Rig and the oracle
+        run: zig build -Dself-check=true install oracle
 
       # The files test/run's json checker and corpus groups read: not in
       # the repository, pinned by sha256 in tools/fetch-json-data.sh, and
       # cached by the hash of that script.
       - name: Restore the JSON test data
-        uses: actions/cache@v4
+        id: jsondata
+        uses: actions/cache/restore@v4
         with:
           path: |
             rig/test/json/data/simd-json
@@ -78,6 +122,15 @@ jobs:
 
       - name: Fetch the JSON test data
         run: tools/fetch-json-data.sh
+
+      - name: Save the JSON test data
+        if: steps.jsondata.outputs.cache-hit != 'true' && env.SAVE == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            rig/test/json/data/simd-json
+            rig/test/json/data/simdjson
+          key: json-data-${{ hashFiles('rig/tools/fetch-json-data.sh') }}
 
       # Ubuntu hands each process that aborts to systemd-coredump and
       # apport, about 120 MB and seconds of CPU each. Tests panic on
@@ -90,10 +143,20 @@ jobs:
         run: sudo sysctl -w kernel.core_pattern=core
 
       # test/run stops a test with GNU timeout, or with perl where there
-      # is none (macOS). Shard 1 also runs the whole-program checks.
+      # is none (macOS). Shard 1 also runs the whole-program checks. A
+      # cold run reuses no earlier result, so it records none either.
       - name: Test
         # Release builds on a cold cache can take minutes on a CI runner.
         env:
           RIG_TEST_TIMEOUT: 300
+          RIG_RESULTS_CACHE: ""
           JSON_REQUIRE_DATA: 1
         run: ./test/run -j 4 --shard ${{ matrix.shard }}/4
+
+      # Shard 1 builds everything the others do, and the unit tests.
+      - name: Save the Zig cache
+        if: ${{ !cancelled() && matrix.shard == 1 && env.SAVE == 'true' && steps.zigcache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .zig-cache
+          key: ${{ steps.zigkey.outputs.key }}

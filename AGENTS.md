@@ -104,7 +104,8 @@ review rounds.
 - **Land fast, release deep.** A round lands through the fast gate, in
   minutes: the build, `./test/run --delta`, the round's new tests, a
   targeted grid of the forms it changes, and one independent review run
-  in parallel with them, then CI. A round that changes a soundness
+  in parallel with them, then `tools/gate`, whose verdict is the merge
+  check ("How merging works" below). A round that changes a soundness
   classifier (`src/ownership.zig`, the facts or proofs walks, or
   typecheck's classification of expressions) also runs the full
   matrix. The deep gate runs on `main` as it stands, about twice a day:
@@ -141,6 +142,7 @@ bin/rig build --release -o prog file.rig   # optimized executable (safe)
 RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 RIG_NO_CRASH_REPORT=1 ./prog              # no crash report (macOS) or apport (Linux) if it dies (test harnesses)
+tools/gate                 # test the pushed head on burst, and post the merge check rig/gate
 ```
 
 - Nexus: Rig and Nexus are co-developed. Every `zig build` target
@@ -162,6 +164,27 @@ RIG_NO_CRASH_REPORT=1 ./prog              # no crash report (macOS) or apport (L
 - Every change keeps `./test/run` green.
 - Commit messages are short, imperative, and describe the change.
   No AI attribution lines.
+
+## How merging works
+
+Burst tests a pull request; GitHub's runners do not test it again.
+
+1. Merge `origin/main` into the branch, push, and open the pull request.
+2. From the branch's clean worktree, run `tools/gate`. It submits the
+   suite, the corpus and the matrix to burst (`cpuq/*.json`, each a
+   `--delta` run), and when all pass it posts the commit status
+   `rig/gate`, success, on the exact commit they tested.
+3. The required checks, `test (ubuntu-latest)` and `test (macos-latest)`,
+   come from `.github/workflows/gate.yml`, which reads that status and
+   nothing else; `tools/gate` re-runs it, so they turn green within
+   seconds. A push after the gate has no status, and its checks fail
+   until `tools/gate` passes on it.
+4. Only Steve merges.
+
+A pull request from a fork is tested in full on GitHub's runners
+(`.github/workflows/test.yml`), which also runs the whole suite cold on
+`main` nightly, on Ubuntu and macOS, and by hand (test/README.md, "The
+merge gate and CI").
 
 ## Map
 
@@ -195,6 +218,8 @@ RIG_NO_CRASH_REPORT=1 ./prog              # no crash report (macOS) or apport (L
 | `test/oracle/` | The reference ownership checker, `bin/rig-oracle`, and its classified differences |
 | `test/json/` | `std.json` against Python's `json` module, run by `./test/run json` (see `test/json/README.md`) |
 | `tools/fetch-json-data.sh` | Fetches the third-party JSON files that test reads, pinned by sha256, into the untracked `test/json/data/` |
+| `tools/gate` | Tests a pull request's pushed head on burst and posts the merge check `rig/gate` ("How merging works") |
+| `.github/workflows/` | `gate.yml`, the required checks, read from `rig/gate`; `test.yml` and `shards.yml`, the whole suite cold on GitHub's runners (nightly, by hand, and for forks) |
 | `bench/json/` | The JSON benchmark: Rig and Zig builds, and the Rust and Zig competitors (not in CI; see `bench/json/README.md`) |
 | `bench/names/` | The name lookup benchmark: `from_text`'s table against comparing names one by one (not in CI) |
 | `bench/check/` | The check-speed guard: `rig check`'s instructions, pass times (`rig check --time`), and scaling on generated programs (not in CI; see `bench/check/guard.py`) |

@@ -1365,7 +1365,9 @@ if selected style; then
 fi
 
 # The oracle's sets, and the CLI tests of the oracle, run bin/rig-oracle.
-if grep -qE '^(oracle/|cli/oracle_)' "$LIST" && ! "$ZIG" build oracle 2>&1; then
+# It is built with the options bin/rig was, so one `zig build
+# -Dself-check=true install oracle` ahead of the run builds both at once.
+if grep -qE '^(oracle/|cli/oracle_)' "$LIST" && ! "$ZIG" build -Dself-check=true oracle 2>&1; then
     printf '%sbuild of bin/rig-oracle failed%s\n' "$R" "$X"
     exit 1
 fi

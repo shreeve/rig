@@ -1,0 +1,76 @@
+name: gate
+
+# The merge checks of a pull request from a branch of this repository.
+# Burst runs the tests: tools/gate submits the suite, the corpus and the
+# matrix through cpuq and, once all pass, posts the commit status
+# `rig/gate` on the exact commit they tested. This workflow runs no test;
+# it reads that status. It passes when the newest `rig/gate` status on the
+# pull request's head commit is a success posted by a trusted login, and
+# fails otherwise. tools/gate then re-runs it, so the checks turn green
+# seconds after burst finishes.
+#
+# pull_request_target runs this file as it is on the base branch, never a
+# pull request's copy, and nothing here checks out or runs the pull
+# request's code. The token reads statuses and nothing else.
+#
+# The jobs carry the names the ruleset on main requires, test
+# (ubuntu-latest) and test (macos-latest), only for a pull request from
+# this repository. A fork's pull request gets those names from test.yml,
+# which runs the whole suite on GitHub's runners; here its jobs take other
+# names, so they never stand in for those checks. Neither job is ever
+# skipped under a required name: a skipped required check counts as
+# passing.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  statuses: read
+
+jobs:
+  verify:
+    name: ${{ github.event.pull_request.head.repo.full_name == github.repository && format('test ({0})', matrix.os) || format('gate, not used for a fork ({0})', matrix.os) }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    # Both checks make the same test, on the cheapest runner.
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Read rig/gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          # The logins whose rig/gate status counts. Only a user with
+          # write access can post a status at all.
+          TRUSTED: shreeve
+        run: |
+          set -euo pipefail
+          if [[ $SAME_REPO != true ]]; then
+            echo "A pull request from a fork: test.yml runs its tests and gives the required checks."
+            exit 0
+          fi
+          [[ $SHA =~ ^[0-9a-f]{40}$ ]] || { echo "::error::not a commit: $SHA"; exit 1; }
+          # The API lists a commit's statuses newest first.
+          all=$(gh api --paginate "repos/$REPO/commits/$SHA/statuses?per_page=100" \
+            --jq '.[] | select(.context == "rig/gate") | [.state, .creator.login, .created_at, .description] | @tsv')
+          newest=${all%%$'\n'*}
+          if [[ -z $newest ]]; then
+            echo "::error::waiting for rig/gate from burst: no rig/gate status on $SHA (tools/gate posts it)"
+            exit 1
+          fi
+          IFS=$'\t' read -r state creator at description <<<"$newest"
+          echo "newest rig/gate on $SHA: $state, by $creator at $at: $description"
+          trusted=""
+          for login in $TRUSTED; do [[ $creator == "$login" ]] && trusted=1; done
+          if [[ -z $trusted ]]; then
+            echo "::error::rig/gate on $SHA was posted by $creator, who is not trusted ($TRUSTED)"
+            exit 1
+          fi
+          if [[ $state != success ]]; then
+            echo "::error::waiting for rig/gate from burst: its newest status on $SHA is $state"
+            exit 1
+          fi
+          echo "rig/gate passed on $SHA"
