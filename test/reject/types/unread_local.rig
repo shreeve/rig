@@ -6,7 +6,7 @@ sub main()
   totl = 5
   print(total)
   n: Int = 1
-  const k = 2
+  k =! 2
   new total = total + 1
 
 # error: 6:3: `totl` is assigned but never read

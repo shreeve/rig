@@ -12,5 +12,5 @@ G = P.get
 sub main()
   p = P.mk()
   print(G(?p))
-  const k = P.get
+  k =! P.get
   print(k(?p))

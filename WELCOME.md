@@ -342,7 +342,7 @@ support file.
 
 | Idea | Rust | Zig | Rig |
 |---|---|---|---|
-| binding | `let x = 1;` | `const x = 1;` | `x = 1` (fixed: `const x = 1`) |
+| binding | `let x = 1;` | `const x = 1;` | `x = 1` (fixed: `x =! 1`) |
 | reassignment | `let mut x = 1;` then `x = 2;` | `var x: i64 = 1;` then `x = 2;` | `x = 1`, then `x = 2` |
 | typed binding | `let x: u8 = 1;` | `const x: u8 = 1;` | `x: U8 = 1` |
 | shadowing | `let x = x + 1;` | not allowed | `new x = x + 1` |

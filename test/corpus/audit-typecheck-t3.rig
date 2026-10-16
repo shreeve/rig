@@ -5,5 +5,5 @@ obj P
     P(x: 1)
 
 sub main()
-  const k = P.mk
+  k =! P.mk
   print(k().x)

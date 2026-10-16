@@ -1,5 +1,5 @@
 # Review probe e05_const_decl.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
-const K = 5
+K =! 5
 
 sub inc(v: !Int)
   v += 1

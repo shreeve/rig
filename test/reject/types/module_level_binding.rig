@@ -23,7 +23,7 @@ fun uses(big: Int) -> Int
   big
 
 sub main()
-  const over = 2
+  over =! 2
 
 t = 1 if k > 2 else f()
 

@@ -340,8 +340,9 @@ forms to `value`, an expression without blocks or closures (conditions,
   closure bars as above;
 - rejects `&&`, `||` after a value, `**`, `i++` and `i--`, `//` and
   `/*` comments, and the reserved pin sigil `@x` with a hint, and
-  malformed input where it is written: `=!`, which is no operator (so
-  `x =!y` never passes for `x = !y`), a number with a
+  malformed input where it is written: a `=!` with no space after it
+  (the one place token boundaries could read two ways: `x =!y` is a
+  fixed binding of `y`, or `x = !y`), a number with a
   leading zero or an uppercase radix prefix, a control character in a
   string, and a carriage return without a line feed (a leading byte
   order mark is skipped);
@@ -389,7 +390,7 @@ wrapper also makes the only rewrites that need to inspect the tree:
   member's `Field.is_pub`; `pub` on an enum's variant, a `drop` body,
   or another `pub` is an error;
 - a module-level binding, written `name = value`, is a constant: its
-  `set` gets the `fixed` op, and a module-level `const` is an error;
+  `set` gets the `fixed` op, and a module-level `=!` is an error;
 - a closure's bar-list entries are split into `(captures ...)` and a
   parameter list, and a capture after a parameter is an error;
 - a `for` over an iterator, which typecheck finds, is rewritten into
@@ -559,13 +560,13 @@ A few kinds serve more than one surface form:
   chain with `as` parts, `(and (as a x) (> x 0))`, whose parts every
   pass takes in order (`rig.bindsInCondition`); the emitter nests one
   Zig `if` per part, sharing the `else`.
-- `set`'s `op` is `_` for `=`, `fixed` for `const x =`, `shadow` for
-  `new x =`, `shadow_fixed` for `new const x =`, and the operator for a
+- `set`'s `op` is `_` for `=`, `fixed` for `x =!`, `shadow` for
+  `new x =`, `shadow_fixed` for `new x =!`, and the operator for a
   compound assignment. `rig.bindingKindOf` reads `shadow_fixed` as
-  `fixed`, and `rig.shadows` tells it from `const x =` where a name is
+  `fixed`, and `rig.shadows` tells it from `x =!` where a name is
   declared. A module-level binding is a constant written with `=`;
   the Parser wrapper makes its `op` `fixed`, so every pass reads it as
-  the fixed binding it is, and rejects a module-level `const`.
+  the fixed binding it is, and rejects a module-level `=!`.
 - `for`'s `mode` is `iter` from the grammar; the Parser wrapper turns
   `for x in ?xs` / `!xs` / `<xs` into `read`, `write`, `move`.
 - `arm`'s `guard` is the condition of `pattern if cond =>`, or `_`; its
@@ -655,7 +656,7 @@ and types it (a `Bool`, an integer, or a built-in enum).
 `per_target` is the one fact of a value the target sets. The resolver
 records it on a module constant whose initializer names a flagged
 constant, in the order constants are folded (`foldModuleConsts`), and
-the checker on a `const` local; `sema.perTargetLeaf` finds the flagged
+the checker on a `=!` local; `sema.perTargetLeaf` finds the flagged
 name in an expression. No fold gives such a constant a value
 (`ctFoldBy` folds a ternary only on an integer condition), so every
 place that needs one (an array length, a lane count, a compile-time
@@ -1887,7 +1888,7 @@ dependency order, before any type is resolved, their literals taking
 the declared type: `resolve.foldModuleConsts`; `lib.N` comes from the
 other module's, if it is public), and `sema.constInt` reads the facts
 of checked code. A compile-time parameter,
-or a `const k = n` binding of one (`ct_locals`), becomes its `ct_param`. A
+or a `k =! n` binding of one (`ct_locals`), becomes its `ct_param`. A
 `ct_param` used as a length records the `array_len` requirement, so
 each instance's value is checked to be from 0 to 2^32 - 1. A generic
 type's value parameters are detached `param` symbols among its
@@ -3150,7 +3151,7 @@ start. A place is named by a name or fields from one, since the
 desugaring evaluates it for every `next`, and an element whose index
 the body may change would name another place each time. A loop with a
 label has the label on the `while`, inside the block. The checker rules are the ones this desugaring implies: `!it`
-needs `it` writable (a read view, a parameter, and a `const` are
+needs `it` writable (a read view, a parameter, and a `=!` binding are
 rejected where the loop stands), the loop variable is what `as` binds
 over `T?`, a view `next` gives holds the loan on what it views while it
 is alive, and `break` values and `else` are a `while`'s. An iterator
@@ -3468,7 +3469,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   needs the receiver first): `fun times[n: Int](?self)` is
   `fn times(self: P, comptime n: i64) i64`. A call passes its bracket
   arguments in the same place: `show[3]()` is `show(3)`.
-  A compile-time value, or a module constant or `const` binding, read in run-time arithmetic
+  A compile-time value, or a module constant or `=!` binding, read in run-time arithmetic
   goes through `rig.rt(n)`, so Zig computes it when the program runs,
   with the overflow checks Rig specifies, rather than folding it. A
   generic type's value parameter is a `comptime n: i64` of its
@@ -4130,7 +4131,7 @@ where the compiler still rejects the program.
 - A label on a string literal (or a choice of them) whose role is typed
   `tag(...)` fills the role with the tag the matched literal names:
   `op:("+=" | "-=" | ...)` gives `(set += ...)`. Where the tag is not
-  the literal (`const` is `fixed`), the action supplies it
+  the literal (`=!` is `fixed`), the action supplies it
   (`→ (set op:fixed)`).
 - A choice `(A | B)` cannot sit inside an `[...]` group; `if ... else`
   is written as two alternatives for that reason.

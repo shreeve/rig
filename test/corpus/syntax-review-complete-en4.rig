@@ -2,10 +2,10 @@ obj P
   x: Int
   y: Int
 
-const ORIGIN = P(x: 0, y: 0)
-const TABLE: [3]U8 = [1, 2, 3]
-const PAGE = 4096
-const MASK: U64 = 0xffff_ffff
+ORIGIN =! P(x: 0, y: 0)
+TABLE: [3]U8 =! [1, 2, 3]
+PAGE =! 4096
+MASK: U64 =! 0xffff_ffff
 
 sub main()
   print(ORIGIN, TABLE, PAGE, MASK)
