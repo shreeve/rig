@@ -536,22 +536,25 @@ that cpuq would ship (cpuq copies everything but a spec's `exclude`), and
 its HEAD is the pull request's pushed head and contains the base branch;
 so the bytes burst tests are exactly that commit's. It refuses a branch
 that changes `tools/gate` or `cpuq/` unless given `--allow-gate-changes`.
-It submits `cpuq/suite.json`, `corpus.json`, and `matrix.json` at once
-(each a `--delta` run), cancels the rest when one fails, and posts the
-commit status `rig/gate` on the commit: `success` with its tree and the
-job ids when all pass, `failure` when a test fails, `error` when a job
-could not finish. It posts with the Mac's `gh` login, and no credential
-goes to GitHub. Last it re-runs the pull request's `gate` workflow, waits
-for the required checks to pass, and prints the time each phase took.
+It submits `cpuq/suite.json`, `corpus.json`, and `matrix.json` together,
+each a `--delta` run (cpuq runs one worktree's jobs one at a time on its
+copy), cancels the rest when one fails, and posts the commit status
+`rig/gate` on the commit: `success` with its tree and the job ids when
+all pass, `failure` when a test fails, `error` when a job could not
+finish. It posts with the Mac's `gh` login, and no credential goes to
+GitHub. Last it re-runs the pull request's `gate` workflow, waits for the
+required checks to pass, and prints the time each phase took.
 
 The ruleset on `main` requires the checks `test (ubuntu-latest)` and
 `test (macos-latest)` from GitHub Actions. For a pull request from this
-repository they come from `.github/workflows/gate.yml`: run by
-`pull_request_target`, so from `main`'s copy of the file, it
-checks out and runs nothing of the pull request, reads only statuses,
-and passes when the newest `rig/gate` status on the pull request's head
-commit is a success posted by a login it trusts. A new push has no
-status, so its checks fail until `tools/gate` passes on it.
+repository they come from `.github/workflows/gate.yml`. It runs on
+`pull_request_target`, which always runs `main`'s copy of the file,
+whatever the pull request changes; it checks out and runs nothing of the
+pull request, reads only statuses, and passes when the newest `rig/gate`
+status on the pull request's head commit is a success posted by a login
+it trusts. A new push has no status, so its checks fail until
+`tools/gate` passes on it, and a failing check of a required name blocks
+the merge even when another workflow reports the same name passing.
 
 `.github/workflows/test.yml` runs the whole suite cold on GitHub's
 runners, in four shards on Ubuntu and four on macOS

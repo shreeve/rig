@@ -10,10 +10,11 @@
 # HEAD is the pull request's pushed head, so the bytes burst tests are
 # exactly that commit. It then submits the suite, the corpus and the
 # matrix (cpuq/suite.json, corpus.json, matrix.json, each a --delta run)
-# at once, and once every one passes it posts `success` on the commit,
-# with its tree and the job ids. A failing test posts `failure`, a job
-# that could not finish `error`, and the jobs still running are
-# cancelled. Last, it re-runs the pull request's gate workflow
+# together (cpuq runs one worktree's jobs one at a time on its copy), and
+# once every one passes it posts `success` on the commit, with its tree
+# and the job ids. A failing test posts `failure`, a job that could not
+# finish `error`, and the jobs still running are cancelled. Last, it
+# re-runs the pull request's gate workflow
 # (.github/workflows/gate.yml), whose two jobs are the required checks,
 # and waits for them to turn green; --no-wait stops once the re-run starts.
 #
@@ -107,7 +108,7 @@ echo "gate: #$PR $BRANCH at $SHORT (tree ${TREE:0:12}), base $BASE"
 # status <state> <description>: post rig/gate on SHA.
 status() {
     gh api -X POST "repos/$REPO/statuses/$SHA" -f state="$1" -f context=rig/gate \
-        -f description="${2:0:140}" --jq '"gate: posted rig/gate " + .state + " on " + .sha[0:12] + " as " + .creator.login' ||
+        -f description="${2:0:140}" --jq '"gate: posted rig/gate " + .state + " as " + .creator.login' ||
         die "posting rig/gate $1 failed"
 }
 phase "checked the worktree and #$PR"
