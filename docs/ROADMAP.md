@@ -83,3 +83,5 @@ any change would be future work.
 
 - **`T??`** as a spelling of the nested optional `(T?)?`; today `??` after a type is the fallback operator, and the error points to `(T?)?`.
 - **Function values as module constants** (`handler = on_click` at module level); a module constant holds only compile-time values today.
+
+This line is a scratch change for a demonstration of the merge gate, never merged.
