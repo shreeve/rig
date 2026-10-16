@@ -50,9 +50,9 @@ sub by_if(c: Bool)
 
 sub by_label()
   keep: (?Item)? = none
-  :l for it in mkbuf()
+  @l for it in mkbuf()
     keep = it
-    break :l
+    break @l
   if keep as k
     print(k.name)
 

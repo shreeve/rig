@@ -1,0 +1,10 @@
+fun get(i: Int) -> Bool?
+  (i < 9) if i < 2 else none
+
+sub main()
+  @o for k in 0..3
+    s = String("x")
+    i = 0
+    while get(i) ?? break @o : i += 1
+      print(k, i, s)
+  print(9)

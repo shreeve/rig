@@ -1,0 +1,4 @@
+sub main()
+  @a @b while true
+    break @a
+  print(9)

@@ -1,0 +1,13 @@
+enum Color
+  red
+  green
+
+sub main()
+  x: Color = if true
+    @outer while true
+      while true
+        break @outer .green
+      print(99)
+  else
+    .red
+  print(x == .green)

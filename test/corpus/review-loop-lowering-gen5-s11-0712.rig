@@ -72,7 +72,7 @@ sub main()
     y0 = D(n: 0 + c0)
     defer print("d0", c0)
     print("b0", c0, h0)
-    :w0 match c0
+    @w0 match c0
       _
         c1 = 0
         p1 = 0
@@ -86,7 +86,7 @@ sub main()
           y1 = D(n: 100 + c1)
           defer print("d1", c1)
           print("b1", c0, c1, h1)
-          :a match c1
+          @a match c1
             _
               c2 = 0
               p2 = 0

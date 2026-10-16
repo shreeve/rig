@@ -19,9 +19,9 @@ fun first_over(limit: Int) -> Int
     -1
 
 fun pair(g: ?Grid, t: Int) -> Int
-  :outer for r in g.rows
+  @outer for r in g.rows
     for c in g.cols
-      break :outer r * 10 + c if r + c == t
+      break @outer r * 10 + c if r + c == t
   else
     -1
 

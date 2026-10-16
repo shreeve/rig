@@ -62,7 +62,7 @@ sub main()
   guard = 0
   c0 = 0
   p0 = 0
-  :a while lim(c0, 3) as h0: c0 = st(0, c0)
+  @a while lim(c0, 3) as h0: c0 = st(0, c0)
     guard += 1
     if guard > 300
       print("cap")
@@ -71,10 +71,10 @@ sub main()
     _ = p0
     defer print("d0", c0)
     print("b0", c0, h0)
-    :a raw
+    @a raw
       c1 = 0
       p1 = 0
-      :a while mkd(1, c1, 2) as h1: c1 = st(1, c1)
+      @a while mkd(1, c1, 2) as h1: c1 = st(1, c1)
         guard += 1
         if guard > 300
           print("cap")
@@ -84,7 +84,7 @@ sub main()
         y1 = D(n: 100 + c1)
         print("b1", c0, c1, h1.n)
         continue if c0 == 1 and c1 == 1
-        :w1 raw
+        @w1 raw
           c2 = 0
           p2 = 0
           r2 = while lim(c2, 2) as h2 and h2 >= 0: c2 = st(2, h2)

@@ -1,0 +1,4 @@
+sub main()
+  @outer # a comment
+  for i in 0..2
+    print(i)

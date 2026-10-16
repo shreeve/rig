@@ -5,14 +5,14 @@ sub main()
   !v.push(7)
   w = !v[0..1]
   k = 0
-  :out match k
+  @out match k
     0
       w[0] = match k
         0
           y: List[Int] = List()
           !y.push(1)
           w = !y[0..1]
-          break :out
+          break @out
         _ => 3
     _ => pass
   print(w[0])

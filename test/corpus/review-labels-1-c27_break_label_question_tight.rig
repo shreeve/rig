@@ -1,0 +1,10 @@
+sub main()
+  outer: Int? = 3
+  x = if true
+    @outer while true
+      while true
+        break @outer?
+      print(99)
+  else
+    0
+  print(x)

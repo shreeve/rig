@@ -62,7 +62,7 @@ sub main()
   guard = 0
   c0 = 0
   p0 = 0
-  :a while lim(c0, 3) as h0 and h0 >= 0: c0 = st(0, h0)
+  @a while lim(c0, 3) as h0 and h0 >= 0: c0 = st(0, h0)
     guard += 1
     if guard > 300
       print("cap")
@@ -72,7 +72,7 @@ sub main()
     print("b0", c0, h0)
     c1 = 0
     p1 = 0
-    :a while lim(c1, 2) as h1 and h1 >= 0: c1 = st(1, h1)
+    @a while lim(c1, 2) as h1 and h1 >= 0: c1 = st(1, h1)
       guard += 1
       if guard > 300
         print("cap")
@@ -82,7 +82,7 @@ sub main()
       print("b1", c0, c1, h1)
       q2 = mkvec(2, 2)
       p2 = 0
-      :a for e2, c2 in <q2
+      @a for e2, c2 in <q2
         guard += 1
         if guard > 300
           print("cap")

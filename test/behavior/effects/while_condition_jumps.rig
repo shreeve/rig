@@ -52,9 +52,9 @@ sub main()
 
   n = 6
   odd = 0
-  :outer while get(n) as x and x > 0 : n = x - 1
+  @outer while get(n) as x and x > 0 : n = x - 1
     for _ in 0..2
-      continue :outer if x % 2 == 0
+      continue @outer if x % 2 == 0
     odd += x
     continue if x == 3
     odd += 100

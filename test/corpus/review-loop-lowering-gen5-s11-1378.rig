@@ -75,7 +75,7 @@ sub main()
     o1 = ints(1)
     c1 = 0
     p1 = 0
-    :l1 while lim(c1, 2) as h1 and h1 >= 0: c1 = grow(!o1, 1, h1)
+    @l1 while lim(c1, 2) as h1 and h1 >= 0: c1 = grow(!o1, 1, h1)
       guard += 1
       if guard > 300
         print("cap")
@@ -86,7 +86,7 @@ sub main()
       sv1 = ?o1[..]
       defer print("od1", sv1[0])
       print("b1", c0, c1, h1)
-      :w1 raw
+      @w1 raw
         c2 = 0
         p2 = 0
         r2 = while mkd(2, c2, 2) as h2: c2 = st(2, c2)

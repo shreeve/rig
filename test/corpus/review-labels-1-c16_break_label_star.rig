@@ -1,0 +1,10 @@
+sub main()
+  p = *3
+  x = if true
+    @outer while true
+      while true
+        break @outer *p
+      print(99)
+  else
+    *4
+  print(x)

@@ -1,0 +1,8 @@
+sub main()
+  k = 2
+  for i in 0..2
+    @m match k
+      2
+        continue @m
+      _ => print(3)
+    print(i)

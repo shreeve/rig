@@ -1,0 +1,10 @@
+obj K
+  break: Int
+  continue: Int
+
+sub main()
+  k = K(
+    break: 1
+    continue: 2
+  )
+  print(k.break, k.continue)

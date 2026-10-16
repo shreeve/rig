@@ -1,0 +1,7 @@
+# `@` touches the name after it, for a label as for a builtin call.
+
+sub main()
+  @ outer for i in 0..3
+    break @outer
+
+# error: 4:3: `@` touches the name after it: a label `@outer`, a builtin call `@size(T)`

@@ -1,0 +1,12 @@
+fun idx(i: Int) -> Int?
+  i if i < 3 else none
+
+fun get(i: Int) -> Bool?
+  (i < 9) if i < 3 else none
+
+sub main()
+  @o for k in 0..2
+    i = 0
+    while i < 5 : i = idx(i + 1) ?? break :o
+      print(k, i)
+  print(9)

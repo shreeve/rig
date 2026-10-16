@@ -62,7 +62,7 @@ sub main()
   guard = 0
   c0 = 0
   p0 = 0
-  :a while mkd(0, c0, 3) as h0 and c0 >= 0: c0 = st(0, c0)
+  @a while mkd(0, c0, 3) as h0 and c0 >= 0: c0 = st(0, c0)
     guard += 1
     if guard > 300
       print("cap")
@@ -71,7 +71,7 @@ sub main()
     _ = p0
     defer print("d0", c0)
     print("b0", c0, h0.n)
-    :a match c0
+    @a match c0
       _
         c1 = 0
         p1 = 0
