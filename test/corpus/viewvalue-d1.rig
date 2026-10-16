@@ -1,0 +1,15 @@
+use std.hash
+
+fun bump(m: !hash.Map[String, Int]) -> Int
+  for i in 0..50
+    !m.put(String("k", i), i)
+  m.len
+
+sub main()
+  m = hash.Map[String, Int]()
+  x = m.get("a") ?? bump(!m)
+  print(x)
+  !m.put(String("a"), 7)
+  g = ?m.get("a")
+  y = g ?? bump(!m)
+  print(y, g)

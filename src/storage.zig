@@ -450,7 +450,9 @@ pub fn leafStep(ctx: *const SemContext, e: Sexp) LeafStep {
 fn decideLeafStep(ctx: *const SemContext, e: Sexp) LeafStep {
     if (sema.isBranchingForm(e)) return switch (e.kind().?) {
         .@"if" => .@"if",
-        .@"??", .@"catch" => .fallback,
+        // One that copies the value its payload views out gives a value
+        // made here, not the payload where it is.
+        .@"??", .@"catch" => if (ctx.copiesPayload(e)) .made else .fallback,
         else => .unwrap,
     };
     return wholeStep(ctx, e);

@@ -1,0 +1,14 @@
+use std.hash
+
+sub main()
+  s = String("held")
+  hs = hash.Map[String, ?String]()
+  !hs.put(String("a"), ?s)
+  x = hs.get("a") ?? "lit"
+  y = hs.get("b") ?? "lit"
+  hs = hash.Map[String, ?String]()
+  print(x, y)
+  ss = hash.Map[String, String]()
+  !ss.put(String("a"), String("own"))
+  z = ss.get("a") ?? "lit"
+  print(z)

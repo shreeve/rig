@@ -1,0 +1,74 @@
+# `!v.resize(n, x)` grows a List to `n` elements with copies of `x`, or
+# shrinks it to `n` as `keep` does; `n == v.len` changes nothing. It
+# works on any List a write lend reaches: a binding, a field, a write
+# view, a box, and a temporary. `n` is evaluated first, then `x`, once,
+# even when nothing is added.
+
+# release
+
+obj Grid
+  cells: List[Int]
+
+sub grow(v: !List[Int], n: Int)
+  !v.resize(n, 3)
+
+fun say(n: Int) -> Int
+  print("say", n)
+  n
+
+fun mk() -> List[Int]
+  List.filled(2, 4)
+
+sub main()
+  v: List[Int] = List()
+  !v.resize(0, 1)
+  print(v.len)
+  !v.resize(4, 1)
+  !v.resize(6, 2)
+  print(v)
+  !v.resize(6, 9)
+  !v.resize(2, 7)
+  print(v)
+  !v.resize(5, 8)
+  print(v)
+  !v.resize(0, 0)
+  print(v, v.len)
+  for i in 1..200
+    !v.resize(i, i)
+  print(v.len, v[0], v[100], v[198])
+  g = Grid(cells: List.filled(2, 8))
+  !g.cells.resize(4, 1)
+  grow(!g.cells, 5)
+  print(g.cells)
+  b = ^List.filled(2, 6)
+  !b.resize(3, 7)
+  print(b.len)
+  !mk().resize(9, 0)
+  opt: List[Int?] = List.filled(2, 1)
+  !opt.resize(3, none)
+  print(opt)
+  s = String("abc")
+  views: List[?String] = List()
+  !views.resize(2, ?s)
+  !views.resize(1, "lit")
+  print(views)
+  !v.resize(say(3), say(5))
+  !v.resize(say(1), say(6))
+  print(v)
+
+# expect:
+# 0
+# [1, 1, 1, 1, 2, 2]
+# [1, 1]
+# [1, 1, 8, 8, 8]
+# [] 0
+# 199 1 101 199
+# [8, 8, 1, 1, 3]
+# 3
+# [1, 1, none]
+# ["abc"]
+# say 3
+# say 5
+# say 1
+# say 6
+# [1]

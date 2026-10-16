@@ -154,8 +154,82 @@ pub const max_value_bytes: u64 = 8 << 20;
 pub const max_frame_bytes: u64 = 13 << 20;
 
 /// A frame `checkFrames` counted: what it is, its bytes, and its reach
-/// (`typecheck.checkFrames`).
-pub const FrameSize = struct { label: []const u8, pos: u32, bytes: u128, reach: u128 };
+/// (`typecheck.checkFrames`), and the frame owner it is the frame of, at
+/// one instance for a generic one: the module that declares it (its id)
+/// and where (`FrameOwner.pos`).
+pub const FrameSize = struct { label: []const u8, pos: u32, bytes: u128, reach: u128, module: u32, decl: u32 };
+
+/// A frame as `typecheck.checkFrames` counts it: the bytes of the values
+/// it keeps, and its reach.
+pub const FrameCount = struct { bytes: u128, reach: u128 };
+
+/// A place Zig writes a stack frame of its own for (docs/INTERNALS.md,
+/// "Frame owners"), decided once, by a positive list
+/// (`typecheck.recordFrameOwners`): a function or method (each instance of
+/// a generic one is a frame of this owner), a closure, a test block, and
+/// a `drop` body. The program's `main` is a function. Every other body
+/// (a `defer` or `errdefer` body, a match arm, a block, a loop and its
+/// iterator's `next` call) belongs to the owner around it.
+pub const FrameOwner = struct {
+    kind: Kind,
+    /// The `fun`, `sub`, `lambda`, `test`, or `drop_decl` node.
+    root: Sexp,
+    /// The owner around it, for a closure.
+    parent: ?u32,
+    /// Where it is declared: a function's name, which `inlined` and
+    /// `large_frames` key by, or the start of any other.
+    pos: u32,
+    /// How messages name it.
+    label: []const u8,
+    /// A method of an object or enum type, and of a generic one.
+    member: bool = false,
+    of_generic_type: bool = false,
+    /// Its calls, as indexes into `SemContext.frame_calls`, in the order
+    /// the walk met them.
+    calls: []const u32 = &.{},
+    /// Its own frame (`checkFrames`); null when each instance's frame is
+    /// counted on its own (`FrameSize`), or before it is counted.
+    own: ?FrameCount = null,
+    /// Whether `own` is null because its instances count it.
+    per_instance: bool = false,
+    /// Its frame with what the automatic rule inlines into it, which
+    /// `inlining.decide` fills (`SemContext.account`).
+    account: Account = .{ .own = null },
+
+    pub const Kind = enum { function, closure, test_block, drop };
+};
+
+/// What a frame owner's frame holds (`SemContext.account`): its own
+/// values (`checkFrames`), or null where no count knows them, which is
+/// unbounded and fails every limit; what the calls of marked `inline`
+/// functions add (none yet); and what the functions the automatic rule
+/// inlines into it add, each counted at every call and at every copy Zig
+/// writes of the call (`inlining.decide`).
+pub const Account = struct {
+    own: ?FrameCount,
+    marked: u128 = 0,
+    auto: u128 = 0,
+
+    /// Its values with everything inlined into it; null when unknown.
+    pub fn total(self: Account) ?FrameCount {
+        const own = self.own orelse return null;
+        return .{ .bytes = own.bytes + self.marked + self.auto, .reach = own.reach + self.marked + self.auto };
+    }
+};
+
+/// A function or method by its declaration: the id of the module that
+/// declares it, and where its name is there.
+pub const FnRef = struct { module: u32, pos: u32 };
+
+/// What a call reaches, as typecheck resolved it (`Checker.synthCall`):
+/// one Rig function or method, or none (a built-in, an `extern`
+/// function, a constructor, a closure or function value).
+pub const CallTarget = union(enum) { function: FnRef, none };
+
+/// A call in a frame owner's body: the owner (null for one outside every
+/// owner), and how many times Zig writes it, which a `defer` or `errdefer`
+/// body multiplies by the exits it covers (`typecheck.FrameWalker`).
+pub const FrameCall = struct { node: Sexp, owner: ?u32, copies: u32 };
 
 /// A value of at most this many bytes is held in registers, or spilled
 /// to a slot of its own, never copied through a temporary of its size;
@@ -701,6 +775,12 @@ fn decisionKey(node: Sexp) ?u64 {
     return @as(u64, @intFromPtr(node.list.items().ptr)) | 1 << 33;
 }
 
+/// `decisionKey` for the passes outside sema that key a fact by node
+/// (`typecheck.recordFrameOwners`).
+pub fn decisionKeyOf(node: Sexp) ?u64 {
+    return decisionKey(node);
+}
+
 /// The key of a fact about an expression, leaf or list node: a leaf's
 /// source position, or a list node's id with bit 32 set. Null for any
 /// other node.
@@ -733,6 +813,10 @@ pub const Facts = struct {
     /// Expressions that yield a view where their context reads the
     /// value it reaches (`SemContext.recordRead`).
     reads: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// `a ?? b` and `a catch b` whose fallback is a value, not a view, of
+    /// what the payload of `a`, a view, reaches: the payload's value is
+    /// copied out (`SemContext.recordPayloadCopy`).
+    payload_copies: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Scope-opening node -> the scope it opens.
     scopes: std.AutoHashMapUnmanaged(NodeKey, ScopeId) = .empty,
     /// Call node -> how its arguments fill the parameters, for calls
@@ -1942,8 +2026,19 @@ pub const SemContext = struct {
     /// The functions and methods Zig inlines at every call, by where
     /// their names are declared (`inlining.decide`).
     inlined: std.AutoHashMapUnmanaged(u32, void) = .empty,
-    /// The frames `checkFrames` counted, for `rig check --facts=frames`.
+    /// The frames `checkFrames` counted, each of its owner or, for a
+    /// generic one, of one instance of it.
     frame_sizes: std.ArrayList(FrameSize) = .empty,
+    /// The frame owners, in the order the walk met them
+    /// (`typecheck.recordFrameOwners`): the one list every frame count,
+    /// `inlining.decide`, and `rig check --facts=frames` read.
+    frame_owners: std.ArrayList(FrameOwner) = .empty,
+    /// Every call, in the order the walk met them, with its owner.
+    frame_calls: std.ArrayList(FrameCall) = .empty,
+    /// A call (`decisionKey`) -> its index in `frame_calls` (`ownerOf`).
+    call_index: std.AutoHashMapUnmanaged(u64, u32) = .empty,
+    /// A call (`decisionKey`) -> what it reaches (`callTargetOf`).
+    call_targets: std.AutoHashMapUnmanaged(u64, CallTarget) = .empty,
     /// The functions, by where their names are declared, whose code may
     /// take `noinline_reach` of stack or more: emitted `noinline` and
     /// never inlined (`typecheck.checkFrames`, `inlining.decide`).
@@ -2058,6 +2153,10 @@ pub const SemContext = struct {
         self.discards.deinit(self.allocator);
         self.inlined.deinit(self.allocator);
         self.frame_sizes.deinit(self.allocator);
+        self.frame_owners.deinit(self.allocator);
+        self.frame_calls.deinit(self.allocator);
+        self.call_index.deinit(self.allocator);
+        self.call_targets.deinit(self.allocator);
         self.large_frames.deinit(self.allocator);
         self.large_foreign_frames.deinit(self.allocator);
         self.inlined_calls.deinit(self.allocator);
@@ -2358,6 +2457,29 @@ pub const SemContext = struct {
         return ir.get(callee, .object);
     }
 
+    /// The frame owner a call is in (`frame_owners`): the innermost one
+    /// around it; null for a call outside every owner.
+    pub fn ownerOf(self: *const SemContext, call: Sexp) ?u32 {
+        const i = self.call_index.get(decisionKey(call) orelse return null) orelse return null;
+        return self.frame_calls.items[i].owner;
+    }
+
+    /// What a call reaches, as typecheck resolved it; null for a call it
+    /// never checked.
+    pub fn callTargetOf(self: *const SemContext, call: Sexp) ?CallTarget {
+        return self.call_targets.get(decisionKey(call) orelse return null);
+    }
+
+    pub fn recordCallTarget(self: *SemContext, call: Sexp, target: CallTarget) !void {
+        try self.call_targets.put(self.allocator, decisionKey(call) orelse return, target);
+    }
+
+    /// The frame of owner `owner` with everything inlined into it: the
+    /// one reader of a frame's account (`Account`).
+    pub fn account(self: *const SemContext, owner: u32) Account {
+        return self.frame_owners.items[owner].account;
+    }
+
     /// The compile-time arguments of a call that has them; null for any
     /// other.
     pub fn genericCallOf(self: *const SemContext, node: Sexp) ?GenericCall {
@@ -2389,6 +2511,23 @@ pub const SemContext = struct {
     /// clone.
     pub fn recordRead(self: *SemContext, node: Sexp) !void {
         try self.facts.reads.put(self.allocator, recordExprKey(node) orelse return, {});
+    }
+
+    /// `node`, an `a ?? b` or `a catch b` whose payload is a view `?T` or
+    /// `!T` of a `T` that copies, and whose fallback is a `T`, not a view:
+    /// it gives the `T`, the payload's value copied out where `a` has
+    /// one, as `if a as v` then `v` else `b` would (`copiesPayload`); or,
+    /// with `copied` false, that it gives the view.
+    pub fn recordPayloadCopy(self: *SemContext, node: Sexp, copied: bool) !void {
+        if (copied) {
+            try self.facts.payload_copies.put(self.allocator, recordKey(node), {});
+        } else _ = self.facts.payload_copies.remove(nodeKey(node) orelse return);
+    }
+
+    /// Whether `node`, an `a ?? b` or `a catch b`, copies the value its
+    /// payload views out (`recordPayloadCopy`).
+    pub fn copiesPayload(self: *const SemContext, node: Sexp) bool {
+        return self.facts.payload_copies.contains(nodeKey(node) orelse return false);
     }
 
     /// `node`, a temporary array (a literal, a fill, a call's result),
@@ -3052,7 +3191,8 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     timing.stop(opts.timing, .resolve, t0);
     t0 = timing.start(opts.timing);
     try typecheck.checkModule(&ctx, tree, module_scope);
-    try typecheck.checkFrames(&ctx, tree);
+    try typecheck.recordFrameOwners(&ctx, tree);
+    try typecheck.checkFrames(&ctx);
     try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);
     try typecheck.checkGenericInstantiations(&ctx);
@@ -5874,6 +6014,24 @@ pub fn copiedThrough(ctx: *const SemContext, ty: TypeId) ?TypeId {
     };
     if (writeSliceElem(ctx, ty) != null or isReadOrWriteView(ctx, inner)) return null;
     return if (copies(ctx, inner) == .yes) inner else null;
+}
+
+/// The value the payload of `holder`, an optional or fallible value (or
+/// a view of one), views: the `T` of a `(?T)?`, `(!T)?`, `(?T)!`, or
+/// `(!T)!`, where `T` is no view itself. Null for any other type, and
+/// for a payload `![]T`. What `a ?? b` and `a catch b` copy out where
+/// they copy their payload (`SemContext.copiesPayload`).
+pub fn payloadViewed(ctx: *const SemContext, holder: TypeId) ?TypeId {
+    const payload = switch (ctx.types.get(unwrapViews(ctx, holder))) {
+        .optional, .fallible => |inner| inner,
+        else => return null,
+    };
+    const viewed = switch (ctx.types.get(payload)) {
+        .read_view, .write_view => |inner| inner,
+        else => return null,
+    };
+    if (writeSliceElem(ctx, payload) != null or isReadOrWriteView(ctx, viewed)) return null;
+    return viewed;
 }
 
 /// What `+x` does for an `x` of type `ty`.

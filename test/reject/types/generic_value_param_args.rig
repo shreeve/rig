@@ -27,4 +27,4 @@ sub main()
 # error: 18:11: `4` is a value; `T` takes a type
 # error: 19:6: generic type `Ring` expects 2 compile-time arguments, got 1
 # error: 20:12: compile-time argument 1 of `Small` is `256`, which `n`, a `U8`, cannot hold
-# error: 21:25: `[n of x]` copies its element into every slot; `List[Int]` owns a resource
+# error: 21:25: `[n of x]` copies its element into every slot, and a `List[Int]` owns a resource

@@ -197,6 +197,11 @@ pub const Facts = struct {
     pub fn isLargeFrame(f: Facts, name: Sexp) bool {
         return f.c().large_frames.contains(f.c().startOf(name));
     }
+    /// Whether the closure or `drop` body `node`, a frame owner of its
+    /// own (`sema.FrameOwner`), has a large frame, emitted `noinline`.
+    pub fn isLargeOwner(f: Facts, node: Sexp) bool {
+        return f.c().large_frames.contains(f.c().startOf(node));
+    }
     /// The marker of the `fun` or `sub` `node`: `rarely` starts its body
     /// with the cold hint, and `called` emits it `noinline fn`.
     pub fn markerOf(f: Facts, node: Sexp) rig.Marker {
@@ -254,6 +259,9 @@ pub const Facts = struct {
     }
     pub fn readsThrough(f: Facts, node: Sexp) bool {
         return f.c().readsThrough(node);
+    }
+    pub fn copiesPayload(f: Facts, node: Sexp) bool {
+        return f.c().copiesPayload(node);
     }
     pub fn readsInPlace(f: Facts, node: Sexp) bool {
         return f.c().readsInPlace(node);
@@ -536,6 +544,9 @@ pub const Facts = struct {
     // Types
     // -------------------------------------------------------------------
 
+    pub fn payloadViewed(f: Facts, ty: TypeId) ?TypeId {
+        return sema.payloadViewed(f.c(), ty);
+    }
     pub fn unwrapViews(f: Facts, ty: TypeId) TypeId {
         return sema.unwrapViews(f.c(), ty);
     }

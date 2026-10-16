@@ -534,7 +534,7 @@ an array length `n + 1` does arithmetic on a compile-time parameter
 an array of compile-time length `n` is built with `[n of x]`
 an array length must be known at compile time; `k` is not
 array length -1 is out of range
-`[n of x]` copies its element into every slot; `List[Int]` owns a resource
+`[n of x]` copies its element into every slot, and a `List[Int]` owns a resource
 ```
 
 A value takes at most 8 MiB (8388608 bytes, a `[1048576]Int`): an
@@ -547,9 +547,11 @@ array literal and fill whose value no binding takes directly, and every
 call of a function or method (twice when a binding takes its result,
 since a debug build holds it in a temporary first). The frames of the
 small functions inlined into it count too, and a call that would take
-the frame over the limit is not inlined. This holds for every function,
-method, closure (whose captures count where it is made), test, and
-`main`, and for each instance of a generic one. The limit keeps large
+the frame over the limit is not inlined. This holds for every frame
+the program has: every function, method, closure (whose captures count
+where it is made), test, `drop` body, and `main`, and each instance of a
+generic one; a `defer` body, a match arm, or a loop is part of the frame
+around it. The limit keeps large
 data on the heap: the error names the largest locals; keep large data
 in a box (`^T`) or a `List`, which holds its elements on the heap.
 `^[n of x]` fills the box's memory itself, never making the array on the
@@ -563,8 +565,9 @@ or `catch`, a constructor's) in a temporary of its own, so a function's
 code may take more stack than the values it keeps. Its *reach*, the
 values it keeps and every value its code makes or copies (a `defer` or
 `errdefer` body once for each exit it covers, a receiver taken by value
-at each call, and a small function inlined into it at each call), times
-4 is at most 512 MiB, and a function whose reach times 4 is 1 MiB or
+at each call, and a small function inlined into it at each call and at
+each copy of a `defer` body that calls it), times 4 is at most 512 MiB,
+and a function, closure, or `drop` body whose reach times 4 is 1 MiB or
 more is never inlined, so no two such frames merge into one. The factor
 4 is measured, not proven: the frames each form takes are checked
 against it, and a form the compiler does not yet model could take more.
@@ -6059,6 +6062,7 @@ owns one), and read views.
 | Member | Meaning |
 |---|---|
 | `List()`, `List(capacity: n)` | an empty List (typed by context) |
+| `List.filled(n, x)`, `List[T].filled(n, x)` | a List of `n` copies of `x` (typed by `x`, by context, or by brackets); `x` must copy (below); panics when `n` is negative |
 | `!v.push(x)` | append; an owning `x` is moved or cloned in |
 | `v.len` | the number of elements |
 | `v.is_empty()` | `v.len == 0`; it only reads, so `!v.is_empty()` is rejected (negate with `not`) |
@@ -6066,6 +6070,7 @@ owns one), and read views.
 | `v.get(i)` | a copy of the element as `T?` (a `T` that copies; otherwise read `v[i]` or lend `?v[i]`) |
 | `!v.pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
 | `!v.keep(n)` | keep the first `n` elements and drop the rest, last first; `n == v.len` changes nothing, `n == 0` drops every element; panics unless `0 <= n <= v.len` |
+| `!v.resize(n, x)` | grow to `n` elements with copies of `x`, or shrink to `n` as `keep` does; `n == v.len` changes nothing; `x` must copy (below); panics when `n` is negative |
 | `!v.insert(i, x)` | put `x` at index `i`, moving the elements from `i` on up by one; `i` may be `v.len`; panics past it |
 | `!v.remove(i)` | remove the element at `i` and hand it over, moving the rest down by one; panics out of range |
 | `!v.clear()` | drop every element |
@@ -6102,6 +6107,58 @@ undo read
 1 open
 [1, 2]
 undo open
+```
+
+**`List.filled` and `resize` copy one value into many elements,** as
+`fill` and `[n of x]` do, so the element must copy
+([CORE §5](docs/CORE.md#5-containers-and-fields-hold-values)): plain
+data or a read view, each copy carrying the view's loan. A call that
+is handed one owner never makes several: a List of Strings, Lists,
+boxes, handles, or objects that own one is grown by a loop whose `+x`
+makes each element, and shrunk with `keep`. `n` is evaluated first,
+then `x`, once, even when nothing is added.
+
+```rig
+sub main()
+  seen = List.filled(4, false)
+  depth: List[Int] = List.filled(3, 0)
+  seen[2] = true
+  !depth.resize(5, 7)
+  print(seen, depth)
+  !depth.resize(2, 0)
+  print(depth)
+  s = String("ab")
+  names = List.filled(2, ?s)
+  print(names)
+```
+
+```output
+[false, false, true, false] [0, 0, 0, 7, 7]
+[0, 0]
+["ab", "ab"]
+```
+
+```rig reject
+sub main()
+  rows = List.filled(3, String("row"))
+  print(rows.len)
+```
+
+```error
+`List.filled` copies its value into every element, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for 0..n` with `!xs.push(+x)`)
+```
+
+```rig
+sub main()
+  rows: List[String] = List(capacity: 3)
+  base = String("row")
+  for 0..3
+    !rows.push(+base)
+  print(rows)
+```
+
+```output
+["row", "row", "row"]
 ```
 
 A `for` loop lends the List to read for the whole loop ([§6](#for)), so
@@ -7071,7 +7128,7 @@ expected, and `none` needs a known optional type.
 
 | Form | Meaning |
 |---|---|
-| `a ?? b` | the value inside `a`, or `b` when `a` is `none`; where a `T?` is expected, `b` may be a `T?` too (as may a `catch` handler) |
+| `a ?? b` | the value inside `a`, or `b` when `a` is `none`; where a `T?` is expected, `b` may be a `T?` too (as may a `catch` handler); where `a` holds a view of a value that copies and `b` is that value, the value the view reaches, copied out ([The fallback of `??`](#the-fallback-of-)) |
 | `a == none`, `a != none` | test for absence |
 | `a == v`, `a != v` | whether `a` holds the value `v`, a `T` |
 | `if a as x` | run the block with `x` bound to the value inside `a`; `else` runs when `a` is `none` |
@@ -7274,9 +7331,10 @@ side: the optional may hold an owning value when it is made there
 (`make(k) ?? return`, `make(k) ?? make(0)`) or moved (`<o ?? return`,
 `<h.f ?? return`, which leaves `none`), but not when it is reached
 through a view, which gives up nothing. Anything
-else on the right of `??` is a value of the optional's type, so a bare
-error value is no fallback: `?? E.missing` is rejected, and failing is
-written `?? return E.missing` in a fallible function.
+else on the right of `??` is a value of the optional's type, or of the
+value it views (below), so a bare error value is no fallback:
+`?? E.missing` is rejected, and failing is written
+`?? return E.missing` in a fallible function.
 
 ```rig
 error E
@@ -7304,6 +7362,65 @@ sub main()
 
 ```output
 2 2 0
+```
+
+When `a` holds a view, `?T` or `!T` (a `(?T)?`, such as `get` returns),
+and the fallback is no view of the value but the value itself, `a ?? b`
+is the value: what the view reaches, copied out when `a` has one, and
+`b` when it is `none`. It is `if a as v` then `v` else `b`, with `v`
+copied ([Reading](#reading)), so it needs a `T` that copies: a number,
+a plain object or enum, or an optional of one. The copy keeps no loan
+but those of the views it holds, so `n = m.get(k) ?? 0` leaves `m` free
+to change. A fallback that is a view (`?? ?d`), a jump, or `none` where
+an optional view is expected keeps the view instead, and a binding
+with no type then reads a view of a number as the number. `catch` does
+the same for a fallible view (`(?T)!`). A `T` that does not copy, such
+as a `String` or a `List`, is not copied out: lend the fallback, which
+gives the view, and clone that for a value of its own. Nor is a type
+parameter `T` in a generic body, which may not copy in every instance,
+as a view read where its `T` is expected is not.
+
+```rig
+use std.hash
+
+obj Point
+  x: Int
+  y: Int
+
+sub main()
+  counts = hash.Map[String, Int]()
+  for w in ["a", "b", "a"]
+    n = counts.get(w) ?? 0
+    !counts.put(String(w), n + 1)
+  print(counts.get("a") ?? 0, counts.get("z") ?? 0)
+  at = hash.Map[String, Point]()
+  !at.put(String("home"), Point(x: 1, y: 2))
+  p = at.get("home") ?? Point(x: 0, y: 0)
+  !at.put(String("home"), Point(x: 5, y: 5))
+  print(p.x, (at.get("away") ?? Point(x: 0, y: 0)).y)
+  names = hash.Map[String, String]()
+  !names.put(String("a"), String("ada"))
+  s = +(names.get("b") ?? ?String("nobody"))
+  print(s)
+```
+
+```output
+2 0
+1 0
+nobody
+```
+
+```rig reject
+use std.hash
+
+sub main()
+  names = hash.Map[String, String]()
+  s = names.get("a") ?? String("nobody")
+  print(s)
+```
+
+```error
+only a value that copies is copied out of a view, and a `String` owns a resource: lend the fallback, so the result is the view, and clone that for a `String` of its own: `+(names.get("a") ?? ?String("nobody"))`
 ```
 
 ---

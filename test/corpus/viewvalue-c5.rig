@@ -1,0 +1,15 @@
+use std.hash
+
+sub main()
+  nm = hash.Map[String, Int?]()
+  !nm.put(String("a"), 3)
+  if (!nm).edit("a") ?? none as z
+    print("z", z)
+  if (!nm).edit("a") ?? 7 as y
+    print("y", y)
+  print(nm.get("a") ?? 0)
+  if (!nm).edit("a") as w
+    w = 10
+  print(nm.get("a") ?? 0)
+  if nm.get("a") as r
+    print(r)

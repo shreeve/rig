@@ -904,7 +904,43 @@ takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 A view of a value that copies (§1) is copied out where that value is
 expected, a plain object, array, or optional as a number is, and the
 copy carries no loan but those of the views it holds, as with a call's
-`?Int` result. *(built)* A slice `x[a..b]` is the same lend, of
+`?Int` result. `a ?? b` is `v` when `a` holds a view `v`, and `b`
+otherwise; `a catch b` is the same over a failure (§8). So when `b` is
+a `T`, the type the view sees, `v` is copied out to match it, as above:
+`m.get(k) ?? 0` is an `Int`, and `m` stays free to change. A fallback
+that is a view or a jump leaves the view, and so does `none` where an
+optional view is expected. When the viewed type does not copy, a `T`
+fallback is rejected: lend the fallback and clone the result, as in
+`+(m.get(k) ?? ?String("none"))`. *(built)*
+
+```rig
+use std.hash
+
+sub main()
+  m = hash.Map[String, Int]()
+  for k in ["a", "b", "a"]
+    !m.put(String(k), (m.get(k) ?? 0) + 1)
+  print(m.get("a") ?? 0, m.get("b") ?? 0)
+```
+
+```output
+2 1
+```
+
+```rig reject
+use std.hash
+
+sub main()
+  m = hash.Map[String, String]()
+  s = m.get("a") ?? String("none")
+  print(s)
+```
+
+```error
+only a value that copies is copied out of a view, and a `String` owns a resource: lend the fallback, so the result is the view, and clone that for a `String` of its own: `+(m.get("a") ?? ?String("none"))`
+```
+
+A slice `x[a..b]` is the same lend, of
 part of `x`, and goes unwritten as an argument where `x` does:
 `total(w[1..3])` is `total(?w[1..3])`. *(built)* So `sort.sort(!v)` works on a `List` as it does on an array,
 and one `fun area(s: ?Shape)` serves a `Shape`, a `^Shape`, and a
@@ -1088,15 +1124,8 @@ that type: `List[*sub(!Checker)]` holds no write view. *(built)*
 `<` always leaves its source done: a name is ended, an optional place
 is emptied to `none`, and any other place is rejected, a part of a
 value made there too, so a field or element that copies is copied with
-no `<` (`m = p.n`). *(built)*
-
-`<`'s operand is a place or a made value: `<(a if c else b)` is written
-`<a if c else <b`. `swap` and `sort_by` work for any element; `sort`
-needs `<`. `copy`, `fill`, and `[n of x]` duplicate values, so they
-need elements that copy (§1), read views included, each copy carrying
-its loan *(built)*. So `List[String]`,
-`List[List[Int]]`, and a list of records that each own a string just
-work. *(built)*
+no `<` (`m = p.n`). `<`'s operand is a place or a made value:
+`<(a if c else b)` is written `<a if c else <b`. *(built)*
 
 ```rig
 obj Slot
@@ -1112,6 +1141,31 @@ sub main()
 ```output
 7
 none
+```
+
+**A list of owners works as a list of plain data does.** `List[String]`, `List[List[Int]]`, and a `List` of objects that each own a string take their elements by move and drop each one once. `swap` and `sort_by` only move elements, so they work for any element; `sort` also needs `<`. *(built)*
+
+**Only a value that copies is duplicated without `+`.** An operation that writes copies of a value it leaves in place, as `copy`, `fill`, `[n of x]`, `List.filled`, and `resize` do, needs an element type that copies (§1). A read view copies, and each copy carries its loan. Anything else is rejected, since each copy would be a clone no `+x` wrote (sentences 1 and 2): write a loop that makes each element with `+x`. The element type decides, so `resize` needs one that copies even when it only shrinks; `!xs.keep(n)` shrinks any list. *(built)*
+
+```rig reject
+sub main()
+  rows = List.filled(3, String("a"))
+  print(rows)
+```
+
+```error
+`List.filled` copies its value into every element, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for 0..n` with `!xs.push(+x)`)
+```
+
+```rig
+sub main()
+  s = String("ab")
+  views = List.filled(2, ?s)
+  print(views)
+```
+
+```output
+["ab", "ab"]
 ```
 
 ```rig

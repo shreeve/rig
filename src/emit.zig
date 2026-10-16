@@ -748,7 +748,8 @@ pub const Emitter = struct {
     /// `__rig_drop` runs it and then drops every field.
     fn emitDropDecl(self: *Emitter, node: Sexp) Error!void {
         const nom = self.nominal.?.name;
-        try self.w.print("fn __rig_user_drop(self: *{s}) void ", .{nom});
+        // A large frame is never inlined into `__rig_drop`'s.
+        try self.w.print("{s}fn __rig_user_drop(self: *{s}) void ", .{ if (self.facts.isLargeOwner(node)) "noinline " else "", nom });
         const params = ir.DropDecl.params(node);
         self.fun = .{ .params = params };
         try self.pushScope();
@@ -4440,7 +4441,7 @@ pub const Emitter = struct {
             .@"/", .@"%" => try self.emitDivision(sexp),
             .@"??" => {
                 try self.w.writeAll("(");
-                try self.emitExpr(ir.@"??".left(sexp));
+                try self.emitFallbackHolder(sexp, ir.@"??".left(sexp));
                 try self.w.writeAll(" orelse ");
                 try self.emitValue(ir.@"??".right(sexp), true);
                 try self.w.writeAll(")");
@@ -4450,7 +4451,7 @@ pub const Emitter = struct {
                 // value. A named error is held as `anyerror`, so it
                 // compares and matches with any error value.
                 try self.w.writeAll("(");
-                try self.emitExpr(ir.Catch.value(sexp));
+                try self.emitFallbackHolder(sexp, ir.Catch.value(sexp));
                 try self.w.writeAll(" catch ");
                 const name = ir.Catch.name(sexp);
                 const handler = ir.Catch.handler(sexp);
@@ -5177,6 +5178,21 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             },
         }
+    }
+
+    /// `holder`, the operand of `a ?? b` or `a catch b` (`form`): as it
+    /// is, or, where the form copies the value its payload views out
+    /// (`Facts.copiesPayload`), `rig.copiedOut(T, holder)`, which gives
+    /// the payload the `T` its view holds or points at.
+    fn emitFallbackHolder(self: *Emitter, form: Sexp, holder: Sexp) Error!void {
+        if (!self.facts.copiesPayload(form)) return self.emitExpr(holder);
+        const ty = self.typeOf(holder) orelse return self.unsupported(holder, "an untyped optional");
+        const viewed = self.facts.payloadViewed(ty) orelse return self.unsupported(holder, "a payload copied out of no view");
+        try self.w.writeAll("rig.copiedOut(");
+        try self.emitTypeTy(viewed);
+        try self.w.writeAll(", ");
+        try self.emitExpr(holder);
+        try self.w.writeAll(")");
     }
 
     /// The optional or fallible value `e`, whose payload a branch takes
@@ -6753,7 +6769,8 @@ pub const Emitter = struct {
         }
         try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
-        try self.w.print("pub fn __rig_invoke({s}: *@This()", .{env});
+        // A large frame is never inlined into its caller's.
+        try self.w.print("pub {s}fn __rig_invoke({s}: *@This()", .{ if (self.facts.isLargeOwner(lambda)) "noinline " else "", env });
         self.closure_depth += 1;
         defer self.closure_depth -= 1;
         const saved_fun = self.fun;

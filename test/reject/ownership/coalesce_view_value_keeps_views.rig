@@ -1,0 +1,17 @@
+# A value `??` copies out of a view keeps the loans of the views it
+# holds: `h` holds a view of `s`, so `s` is not changed while `h` lives.
+
+use std.hash
+
+obj H
+  s: ?String
+
+sub main()
+  s = String("held")
+  hs = hash.Map[String, H]()
+  !hs.put(String("a"), H(s: ?s))
+  h = hs.get("a") ?? H(s: "none")
+  !s.add("!")
+  print(h.s)
+
+# error: 14:3: cannot lend `s` to write while a read loan is live

@@ -1,0 +1,10 @@
+# A negative count panics.
+
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  v = List.filled(rt(-1), 0)
+  print(v.len)
+
+# expect-panic: negative size

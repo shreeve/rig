@@ -47,9 +47,12 @@ const usage =
     \\                         root module instead (check)
     \\  --facts=proofs         Print the tests of the root module that are
     \\                         known to pass, which emit omits (check)
-    \\  --facts=frames         Print the bytes of values each frame of the
-    \\                         root module keeps on its stack, as the frame
-    \\                         check counts them, then its reach (check)
+    \\  --facts=frames         Print each frame owner of the root module
+    \\                         (a function, closure, test, or drop body)
+    \\                         with its account: the bytes of values it
+    \\                         keeps on its stack, as the frame check counts
+    \\                         them, its reach, and what the functions
+    \\                         inlined into it add (check)
     \\  --time                 Print the time each pass of the compiler
     \\                         takes, summed over the modules (check)
     \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
@@ -215,9 +218,15 @@ pub fn main(init: std.process.Init) !void {
                     const m = graph.root();
                     var buffer: [4096]u8 = undefined;
                     var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
-                    for (m.sema.frame_sizes.items) |fr| {
-                        const at = diag.lineCol(m.source, fr.pos);
-                        try writer.interface.print("{d}:{d} {s} {d} {d}\n", .{ at.line, at.col, fr.label, fr.bytes, fr.reach });
+                    // Each frame owner's account: its own bytes and reach
+                    // (`?` where no count knows them), and what the
+                    // functions the rule inlines into it add.
+                    for (m.sema.frame_owners.items, 0..) |o, i| {
+                        const at = diag.lineCol(m.source, o.pos);
+                        const acc = m.sema.account(@intCast(i));
+                        if (acc.own) |own| {
+                            try writer.interface.print("{d}:{d} {s} {d} {d} {d}\n", .{ at.line, at.col, o.label, own.bytes, own.reach, acc.auto });
+                        } else try writer.interface.print("{d}:{d} {s} ? ? {d}\n", .{ at.line, at.col, o.label, acc.auto });
                     }
                     try writer.interface.flush();
                 },

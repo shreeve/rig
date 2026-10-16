@@ -1,0 +1,14 @@
+use std.hash
+
+obj P
+  x: Int
+
+fun mk() -> P
+  P(x: 0)
+
+sub main()
+  c = true
+  a = P(x: 1)
+  (a if c else P(x: 0)).x = 5
+  mk().x = 5
+  print(a)

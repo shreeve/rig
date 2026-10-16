@@ -1,0 +1,19 @@
+# The loans the copies of a read view carry, in a List `List.filled` or
+# `resize` makes, end at the List's last use, so the owner may change
+# after it.
+
+sub main()
+  s = String("abc")
+  a = [1, 2, 3]
+  vs = List.filled(2, ?s)
+  rs: List[[]Int] = List()
+  !rs.resize(2, ?a[..2])
+  !rs.resize(1, ?a[1..])
+  print(vs, rs)
+  !s.add("d")
+  a[0] = 5
+  print(s, a)
+
+# expect:
+# ["abc", "abc"] [[1, 2]]
+# abcd [5, 2, 3]

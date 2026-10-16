@@ -3468,6 +3468,7 @@ test/reject/ownership/lend_table_loans.rig held_view
 test/reject/ownership/lend_table_loans.rig optional_view
 test/reject/ownership/lend_table_loans.rig vec_elems
 test/reject/ownership/lend_table_loans.rig write_elems
+test/reject/ownership/list_filled_loans.rig main
 test/reject/ownership/list_keep_while_viewed.rig main
 test/reject/ownership/loop_drop_shared.rig main
 test/reject/ownership/loop_element_of_made_array_views.rig main
@@ -4435,6 +4436,10 @@ test/corpus/optwrite-review-f01b-owned-closure-clone-plain.rig mk
 test/corpus/optwrite-review-g02-caller-local-opt.rig main
 test/corpus/optwrite-review-g03-method-param-caller.rig main
 test/corpus/optwrite-review-j05b-generic-owned-plain.rig stash
+test/corpus/viewvalue-a6.rig main
+test/corpus/viewvalue-c2.rig main
+test/corpus/viewvalue-c3.rig main
+test/corpus/viewvalue-e5.rig main
 test/corpus/rev240-g01_view_of_closure_outlives_drop.rig main
 test/corpus/rev240-g02_view_of_closure_direct.rig main
 test/corpus/optwrite-relax-p01-closure-store.rig main

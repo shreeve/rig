@@ -1,0 +1,19 @@
+use std.hash
+
+enum Shape
+  circle(r: Int)
+  rect(w: Int, h: Int)
+  point
+
+obj P
+  x: Int
+  y: Int
+
+sub main()
+  m = hash.Map[String, Shape]()
+  !m.put(String("a"), .rect(w: 2, h: 3))
+  a = m.get("a") ?? .point
+  b = m.get("b") ?? .circle(r: 9)
+  c = m.get("b") ?? Shape.point
+  !m.put(String("a"), .point)
+  print(a, b, c)

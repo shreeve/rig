@@ -2118,23 +2118,40 @@ pub const Checker = struct {
         // A view its context reads through gives the value it reaches;
         // when that holds no view, the loans taken to reach it end here.
         if (self.sema) |ctx| if (ctx.readsThrough(sexp)) if (ctx.typeOf(sexp)) |ty| {
-            const reached = sema.unwrapViews(ctx, ty);
-            if (!self.mayCarryLoan(reached)) {
-                const temps_start = self.temps.items.len;
-                self.taintGeneric(reached, try self.walkList(sexp, kind));
-                self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
-                return .{};
-            }
-            // A view read through a view is a copy of the view: it
-            // keeps what the view keeps, not the view that reached it.
-            // A `?String`'s views end here but for those it keeps.
-            if (sema.holdsViewOnly(ctx, reached)) {
-                const temps_start = self.temps.items.len;
-                return self.keepViewTemps(temps_start, try self.carry(reached, try self.walkList(sexp, kind)));
-            }
-            return self.carry(reached, try self.walkList(sexp, kind));
+            const temps_start = self.temps.items.len;
+            return self.copiedOut(sema.unwrapViews(ctx, ty), temps_start, try self.walkList(sexp, kind));
         };
         return self.walkList(sexp, kind);
+    }
+
+    /// `v`, a view walked from `temps_start`, read through for the value
+    /// of type `reached` it reaches: a copy of that value. When the value
+    /// holds no view, the loans taken to reach it end here. A view read
+    /// through a view is a copy of the view: it keeps what the view
+    /// keeps, not the view that reached it, and a `?String`'s views end
+    /// here but for those it keeps.
+    fn copiedOut(self: *Checker, reached: TypeId, temps_start: usize, v: Value) Error!Value {
+        const ctx = self.sema orelse return v;
+        if (!self.mayCarryLoan(reached)) {
+            self.taintGeneric(reached, v);
+            self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+            return .{};
+        }
+        if (sema.holdsViewOnly(ctx, reached)) return self.keepViewTemps(temps_start, try self.carry(reached, v));
+        return self.carry(reached, v);
+    }
+
+    /// The value `holder`, the operand of `a ?? b` or `a catch b` (`node`),
+    /// gives the fallback form: what its payload views, copied out where
+    /// `node` copies it (`SemContext.copiesPayload`), else the payload as
+    /// it is.
+    fn walkPayloadHolder(self: *Checker, node: Sexp, holder: Sexp) Error!Value {
+        const ctx = self.sema orelse return self.walk(holder);
+        if (!ctx.copiesPayload(node)) return self.walk(holder);
+        const temps_start = self.temps.items.len;
+        const v = try self.walk(holder);
+        const viewed = sema.payloadViewed(ctx, ctx.typeOf(holder) orelse return v) orelse return v;
+        return self.copiedOut(viewed, temps_start, v);
     }
 
     fn walkList(self: *Checker, sexp: Sexp, kind: Tag) Error!Value {
@@ -5410,7 +5427,7 @@ pub const Checker = struct {
     /// `(catch expr name? handler)`: the handler runs when `expr` fails.
     fn walkCatch(self: *Checker, node: Sexp) Error!Value {
         const t = self.takeTail(node);
-        const v1 = try self.walk(ir.Catch.value(node));
+        const v1 = try self.walkPayloadHolder(node, ir.Catch.value(node));
         const handler = ir.Catch.handler(node);
         try self.holdPartTemps(handler);
         const base = try self.here();
@@ -5431,7 +5448,7 @@ pub const Checker = struct {
     /// leaves the rest of the code reachable through the other path.
     fn walkNullish(self: *Checker, node: Sexp) Error!Value {
         const t = self.takeTail(node);
-        const v1 = try self.walk(ir.@"??".left(node));
+        const v1 = try self.walkPayloadHolder(node, ir.@"??".left(node));
         const base = try self.here();
         const v2 = try self.walkTailPart(ir.@"??".right(node), t);
         const s = try self.leave(base, resumeAt(.nil, node));

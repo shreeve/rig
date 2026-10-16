@@ -1315,6 +1315,7 @@ instead of re-deriving it by name:
 | `typeOf(node)` | the type of an expression (literals get their contextual type) |
 | `bindingTypeOf(leaf)` | the declared or inferred type of the symbol a leaf names |
 | `readsThrough(node)` | whether the node yields a view (`!x`, a call returning `!Int`, a `!Int` name) whose value its context reads: a value that copies where it is expected (`copiedThrough`), an operator's operand, the optional of `??`, `?`, or `as`, an indexed or sliced `?String` or slice, or a clone. Typecheck records it wherever it admits the view as its value (`recordAdapted`, `readThrough`); emit dereferences such a node in one place (`emitValue`), and the ownership checker ends the loans taken to reach a value that carries no loan |
+| `copiesPayload(node)` | whether an `a ?? b` or `a catch b` gives the value its payload's view reaches, copied out, because its fallback is that value, not a view ([Copies](#copies)): emit wraps `a` in `rig.copiedOut(T, a)`, the ownership checker reads `a`'s payload through (`walkPayloadHolder`), and the storage plan reaches the form as a value made there, not as the payload where it is (`leafStep`) |
 | `lendOf(node)` | for a node lent where a view of another type is expected, or a slice argument lent as the view it is (below): the rows of the lend table that make the view (`sema.Lend`, from `sema.lendsAs`, below). The ownership checker walks a lend of an array's elements or a String's bytes as `?a[..]`, lends a `![]T` lent on to read only to read, and lets a closure literal lent as a callable be an argument; emit writes each in one place (`emitLend`): an array's address, a String's `.bytes()`, a box's value, or a `rig.FnRef` (hoisting a literal's environment before the call) |
 | `lendsTempArray(node)` | whether the node is a temporary array passed as a `[]T` argument to a call that keeps no view of it: emit writes `&` before it, which Zig keeps alive through the call |
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
@@ -1490,7 +1491,7 @@ emitter ask these, never a predicate built for another question:
 | `holdsCellByValue` | holds a `Cell` inline (not behind a handle, a view, or a List's or box's buffer): a value of it lives only behind a shared handle (below) |
 | `changesByMark` | a `Cell`, a `Signal`, or a value that holds a Cell by value: what a write lend reaches through a `*`, by a marked call (below). A write view of such a value changes its Cells and Signals only; the checker blocks every other write through it as one through a shared handle |
 | `moves` | `yes` when it needs cleanup or is unique, `depends` for a type parameter, otherwise `no`: a bare use moves it rather than copying it |
-| `copies` | does not move and holds no write view: duplicated by a bit copy with no owner involved (plain data, read views, and values holding only those). The one copy fact: a bare use, a copy out of a view (`copiedThrough`), `fill`, `copy`, `[n of x]`, a `\|+x\|` capture, `Cell.get`, and the generic requirement `copies` all ask it |
+| `copies` | does not move and holds no write view: duplicated by a bit copy with no owner involved (plain data, read views, and values holding only those). The one copy fact: a bare use, a copy out of a view (`copiedThrough`), `fill`, `copy`, `[n of x]`, `List.filled`, `resize`, a `\|+x\|` capture, `Cell.get`, and the generic requirement `copies` all ask it |
 | `copiedThrough` | the value a `?T` or `!T` (not a `![]T`) hands over where its context reads a value: `T`, when `T` copies |
 | `cloneable` | what `+x` does: copy, count bump (`*T`, `~T`, an optional of one), String copy, copy per instance, a deep copy part by part (`deep`: a List, a box, an array, an optional, or an object or enum of this module made of parts that clone, `deepCloneable`), or nothing (a type with a `drop` body, a unique one, a Cell, a Signal, or a write view) |
 | `readByAddress` | needs cleanup, or of a type parameter: `print` and a read argument read it where it is, by address, so a later argument may not change it first |
@@ -1897,9 +1898,9 @@ parameter is kept in `generic_arrays` and checked, with the instance
 itself, at each instance (`checkInstanceSizes`). A type reported too
 large goes into `oversized`, and `minBytes` of anything holding it is
 null, so it is reported once. After the bodies are checked,
-`typecheck.checkFrames` walks every function, method, closure, test,
-and drop body and sums its frame against `sema.max_frame_bytes`
-(13 MiB): each binding and by-value parameter at its declaration, and
+`typecheck.recordFrameOwners` lists the frame owners
+([Frame owners](#frame-owners)), and `typecheck.checkFrames` sums each
+owner's frame against `sema.max_frame_bytes` (13 MiB): each binding and by-value parameter at its declaration, and
 each array literal, fill, and call that is not a `set`'s value; a
 closure's captures count in the enclosing frame. This count is a limit
 on how a program keeps its data; safety rests on the frame's *reach*
@@ -1917,18 +1918,21 @@ writes more than once counts once for each copy: a `defer` or
 `errdefer` body at every exit after it in its block (`return`, `!`,
 `?`, `break`, `continue`) and at the block's end (`deferBody`), and an
 inlined function at every call (`inlining.decide` adds callees' reach
-per call). The values and the copies are the reach, which
-`sema.reach_factor` (4) times must fit `sema.max_frame_reach` (512 MiB);
-a frame whose reach times the factor is `sema.noinline_reach` (1 MiB)
-or more marks its function in `large_frames`, which emit writes
-`noinline` and `inlining.decide` never inlines. A frame that mentions
+per call, into the owner's account). The values and the copies are the
+reach, which `sema.reach_factor` (4) times must fit
+`sema.max_frame_reach` (512 MiB); a frame whose reach times the factor
+is `sema.noinline_reach` (1 MiB) or more, with what is inlined into it,
+marks its owner in `large_frames`: emit writes a function, a closure's
+`__rig_invoke`, and a `drop` body's `__rig_user_drop` `noinline` there,
+and `inlining.decide` never inlines it. A frame that mentions
 generic parameters is kept in `generic_frames` (its copies last,
 `Frame.copies`) and summed at each instance: a function instance checks
 the frames that use its own parameters, a type instance its methods'.
 An instance made in another module that finds a frame large records it
 in `large_foreign_frames`, which `inlining.decide` copies into the
 declaring module's `large_frames` before emit. `rig check
---facts=frames` prints each frame's count and reach.
+--facts=frames` prints each owner's account: its count, its reach, and
+what the rule inlines into it.
 
 Instances come from the program: `instantiation_sites` holds each
 generic type instance and where it is first spelled or inferred, and
@@ -2685,8 +2689,11 @@ and each desugars into forms the checker already walks:
 | `x = w` with a `!T` of a `T` that copies | `x: T = w` |
 | `[n of e]` | `t = e`, then `[t, t, ..., t]`: `n` copies of one value, each carrying `t`'s loans |
 | `!xs.fill(e)`, `!xs.copy(src)` | `xs[i] = e` (or `src[i]`) for each `i`: a store into `xs` of a value carrying those loans |
+| `List.filled(n, e)` | `k = n`, `t = e`, then `xs: List[T] = List(capacity: k)` and `!xs.push(t)` `k` times, a new List of `k` copies of one value, each carrying `t`'s loans, which is the call's result. Emit writes `rig.List(T).filled(k, t)`, which makes one allocation of exactly `k` slots and fills it with one `@memset` (`std.mem.Allocator` has no zeroed allocation, so a fill of zero is a `@memset` too) |
+| `!xs.resize(n, e)` | `xs` lent to write first, as any `!self` receiver is, then `k = n`, `t = e`, then `!xs.keep(k)` when `k <= xs.len`, and otherwise `!xs.push(t)` until `xs.len == k`: a store into `xs` of copies carrying `t`'s loans. Emit writes `xs.resize(k, t)`, which grows the buffer once as `push` does and fills the new slots with one `@memset`, or keeps the first `k` as `keep` does. The element copies, so it needs no cleanup, and shrinking drops nothing but the length |
 | `\|+x\|` | `c = +x` where the closure is made, then `\|<c\|`, the capture named `x`: `+x` reads through a view, copies a value that copies, counts a handle again, and clones an owner (`sema.cloneable`) |
 | `Cell.get`, `List.get`, and `??` and `?` through a view | a copy of the element or value inside, rejected when it does not copy; `if r as x` binds a copy of a value that copies, and a view of any other |
+| `a ?? b` or `a catch b` whose payload is a `?T` or `!T` (`sema.payloadViewed`) and whose fallback `b` is no view of it: it meets neither the view nor the form's type as a view, so not a view, a jump, or `none` where an optional view goes | `if a as v` then `v` else `b`, with `v` read through: the form is a `T`, recorded once by typecheck (`fallbackCopy`, the fact `copiesPayload`), which emit writes as `(rig.copiedOut(T, a) orelse b)` (`catch` alike) and the ownership checker walks as the payload read through (`walkPayloadHolder`, `copiedOut`): the copy keeps the loans of the views `T` holds, not `a`'s. A `T` that does not copy is rejected, and so is a type parameter, which may not copy in every instance, as a view read where its `T` is expected is (`checkActual`). A value that holds no view keeps no lend (`keptLends`), so `n = m.get(k) ?? 0` needs no `?m` |
 
 A generic body that does any of these to a `T` records
 `Requirement.copies`, which each instance must meet. No value holds a
@@ -3469,12 +3476,14 @@ symbols); a query that decides more than that belongs in `Pending`.
     bound through `rig.rt` as always. Its frame must be known without the
     values;
   - its reach (`checkFrames`), with the inlined calls in it, is at most
-    64 KiB, and no function gets more than that added by the inlined
-    calls in it, each counted at every call (`max_inlined_frame_bytes`),
-    and no function's own frame with the reach of the inlined calls in
-    it passes `sema.max_frame_bytes` (13 MiB), since Zig writes an
-    inlined body, its locals and temporaries, again at each call, in its
-    caller's frame; and
+    64 KiB, and no frame owner ([Frame owners](#frame-owners)) gets more
+    than that added by the inlined calls in it, each counted at every
+    call and every copy Zig writes of the call
+    (`max_inlined_frame_bytes`), and no owner's own frame with the reach
+    of the inlined calls in it passes `sema.max_frame_bytes` (13 MiB),
+    since Zig writes an inlined body, its locals and temporaries, again
+    at each call, in its caller's frame; a test block, a closure, and a
+    `drop` body are owners as functions are; and
     its frame is not large (`large_frames`, which emit also writes
     `noinline`, [Sema](#sema));
   - with the inlined calls in it, each counted at every call site, it
@@ -3486,12 +3495,15 @@ symbols); a query that decides more than that belongs in `Pending`.
   A function that fails a test of the last two is dropped and the tests
   run again, until none fails; since dropping one only shrinks frames
   and expansions, they run again from the function that failed, not
-  from the first. A call resolves by the callee's name (a function by
-  its symbol, so a local of that name is not it), so two functions of
-  one name stand for each other: the analysis finds at most more cycles
-  and more value uses than there are. A call by name is one edge to the
-  group of the functions of that name, not one to each, so a name every
-  module declares costs no more than any other.
+  from the first. A call reaches what typecheck resolved it to
+  (`SemContext.callTargetOf`): a function by its symbol, a method by its
+  receiver's type, so a wrapper `Binder.kind` that calls its tree's
+  `kind` is no cycle. A call no check resolved stands for every function
+  of its name, so the analysis finds at most more cycles than there are;
+  such a call is one edge to the group of the functions of that name,
+  not one to each. A method taken as a value (`obj.m` not called)
+  stands for every method of its name: the analysis finds at most more
+  value uses than there are.
 
   Zig charges each inline call, and each pass of a compile-time loop in
   an inlined body, to the evaluation budget of the function the code
@@ -3749,7 +3761,7 @@ reviewed.
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
 | `typeName(x, names)` | `@name(T)` of a type that holds a type parameter. Emit writes such a `@name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, while a type known where it is written is the printer's string itself. Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which `test/behavior/types/type_names` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
-| `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
+| `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `filled` and `resize` fill new slots with one `@memset`; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a String's bytes and a List's elements copied (`List.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
 | `String` | `String`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` write each part of a tuple with `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `String(...)` and `print` agree exactly; `bytes` is the `?String` view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a String's or a `?String`'s |
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
@@ -3777,6 +3789,56 @@ reviewed.
 | `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as `?String` values, gathered once and freed by `finish`; in a package `rig run` or `rig test` built (whose root declares `__rig_run_started`), `start` also creates the file `RIG_PROGRAM_STARTED` names, their evidence that the program ran; `exitStatus` checks the status of `fun main() -> Int` |
 | `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `SafeAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which `./test/run` sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, List, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, on the program's stack, checks it for leaks (Debug), reports it |
+
+### Frame owners
+
+A frame owner is a place Zig writes a stack frame of its own for, and
+the frame counts are kept per owner. Typecheck decides them once, by a
+positive list of their kinds (`typecheck.recordFrameOwners`, into
+`SemContext.frame_owners`, each with its root node and the owner around
+it):
+
+- every function and method, a generic one included, whose instances
+  are each a frame of this owner (`sema.FrameSize` records each
+  instance's, by the owner's declaration);
+- every closure, whose body is its `__rig_invoke`;
+- every test block;
+- every `drop` body;
+- `main`, which is a function.
+
+Nothing else is an owner: a `defer` or `errdefer` body, a match arm, a
+block, a loop, and the `next` call of a loop over an iterator belong to
+the owner around them. The same walk gives every call the innermost
+owner around it (`SemContext.ownerOf`), and the number of copies Zig
+writes of it, which a `defer` or `errdefer` body multiplies by the
+exits it covers (`sema.FrameCall`), as `deferBody` counts its values.
+Typecheck also records what each call reaches where it resolves it
+(`SemContext.callTargetOf`): a function by its symbol, a method by its
+receiver's type, or none.
+
+`checkFrames`, `inlining.decide`, and `rig check --facts=frames` iterate
+this list and read `ownerOf`; none of them finds an owner or attributes
+a call itself. Each owner has one account (`sema.Account`,
+`SemContext.account`):
+
+- **own:** its values, as `checkFrames` counts them, or for a generic
+  owner the largest of its instances'; unknown (null) where no count
+  knows them, which is unbounded and fails every limit;
+- **marked:** what calls of functions marked `inline` add (none yet);
+- **auto:** the frames of the functions the rule inlines into it, each
+  at every call and every copy of the call.
+
+`inlining.decide` fills `auto` and keeps it within 64 KiB
+(`max_inlined_frame_bytes`), own + auto within `sema.max_frame_bytes`,
+and (own reach + auto) times `sema.reach_factor` within
+`sema.max_frame_reach`; it never inlines into an owner whose own count
+is unknown. A function is inlined at every call or none, so an owner the
+build does not compile bounds nothing: a test block, and what is in it,
+outside `rig test` (and `rig check --tests`), and any module's but the
+root's always. `test/cli/frame_owners.sh` puts a pile of a helper the rule
+would inline in each kind of owner and each body that belongs to one,
+and `test/cli/frames.sh` holds each owner's account to the frame Zig's
+prologue reserves.
 
 ### The program's stack
 
@@ -3826,8 +3888,9 @@ past it in the guard, and the access faults. That is what holds.
 That every frame is smaller than the guard is a measured bound, not a
 proven one. `checkFrames` holds a frame's reach to `sema.max_frame_reach`
 (512 MiB, half the smallest guard), a function with a large reach is
-never inlined, so no two such frames merge, and a function large with
-the calls inlined into it is marked so too. The real frame is at most
+never inlined, so no two such frames merge, and a function, a closure's
+body, or a `drop` body large with the calls inlined into it is marked so
+too. The real frame is at most
 `sema.reach_factor` (4) times the reach in every form
 `test/cli/frame_reach.sh` measures, but a form Zig copies that reach does
 not model could exceed it, as a payload part a `match <e` arm dropped by
@@ -3839,9 +3902,11 @@ Where Zig writes code or slots more than once, and how reach covers
 each:
 
 - a `defer` or `errdefer` body, at each exit it covers, `!` and `?`
-  included: counted once per exit (`deferBody`);
+  included: counted once per exit (`deferBody`), and so is an inlined
+  call in it ([Frame owners](#frame-owners));
 - an inlined function, at each call: Rig's inlining adds its reach per
-  call and inlines only a small reach (`inlining.decide`); emit writes
+  call to the account of the frame owner the call is in, and inlines
+  only a small reach (`inlining.decide`); emit writes
   no other `inline fn`, and the runtime's take vectors and slices, a
   few hundred bytes at most;
 - `inline for`, `inline while`, `inline else`, and loops Zig unrolls at
