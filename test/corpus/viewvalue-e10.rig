@@ -1,0 +1,11 @@
+use std.hash
+
+enum Shape
+  circle(r: Int)
+  point
+
+sub main()
+  m = hash.Map[String, Shape]()
+  !m.put(String("a"), .circle(r: 2))
+  b: Shape = m.get("b") ?? .circle(r: 3)
+  print(b)

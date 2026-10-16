@@ -1,0 +1,11 @@
+use std.hash
+
+sub main()
+  m = hash.Map[String, Int]()
+  !m.put(String("a"), 1)
+  k = m.keys()
+  for x in k
+    print(x)
+  s = String("abc")
+  c = |n: Int| n + s.len
+  print(c(1))

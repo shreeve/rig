@@ -1,0 +1,19 @@
+use std.hash
+
+obj Box[T]
+  m: hash.Map[String, T]
+
+  fun at(?self, d: T) -> T
+    self.m.get("a") ?? d
+
+  fun at2(?self, d: T) -> T
+    if self.m.get("a") as v
+      v
+    else
+      d
+
+sub main()
+  b = Box[String](m: hash.Map[String, String]())
+  print(b.m.len)
+  c = Box[Int](m: hash.Map[String, Int]())
+  print(c.at(3), c.at2(4))

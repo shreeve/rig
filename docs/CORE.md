@@ -904,7 +904,43 @@ takes none of the views in `!x`'s column, `!x` is rejected (sentence 4):
 A view of a value that copies (§1) is copied out where that value is
 expected, a plain object, array, or optional as a number is, and the
 copy carries no loan but those of the views it holds, as with a call's
-`?Int` result. *(built)* A slice `x[a..b]` is the same lend, of
+`?Int` result. `a ?? b` is `v` when `a` holds a view `v`, and `b`
+otherwise; `a catch b` is the same over a failure (§8). So when `b` is
+a `T`, the type the view sees, `v` is copied out to match it, as above:
+`m.get(k) ?? 0` is an `Int`, and `m` stays free to change. A fallback
+that is a view or a jump leaves the view, and so does `none` where an
+optional view is expected. When the viewed type does not copy, a `T`
+fallback is rejected: lend the fallback and clone the result, as in
+`+(m.get(k) ?? ?String("none"))`. *(built)*
+
+```rig
+use std.hash
+
+sub main()
+  m = hash.Map[String, Int]()
+  for k in ["a", "b", "a"]
+    !m.put(String(k), (m.get(k) ?? 0) + 1)
+  print(m.get("a") ?? 0, m.get("b") ?? 0)
+```
+
+```output
+2 1
+```
+
+```rig reject
+use std.hash
+
+sub main()
+  m = hash.Map[String, String]()
+  s = m.get("a") ?? String("none")
+  print(s)
+```
+
+```error
+only a value that copies is copied out of a view, and a `String` owns a resource: lend the fallback, so the result is the view, and clone that for a `String` of its own: `+(m.get("a") ?? ?String("none"))`
+```
+
+A slice `x[a..b]` is the same lend, of
 part of `x`, and goes unwritten as an argument where `x` does:
 `total(w[1..3])` is `total(?w[1..3])`. *(built)* So `sort.sort(!v)` works on a `List` as it does on an array,
 and one `fun area(s: ?Shape)` serves a `Shape`, a `^Shape`, and a

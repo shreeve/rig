@@ -4441,7 +4441,7 @@ pub const Emitter = struct {
             .@"/", .@"%" => try self.emitDivision(sexp),
             .@"??" => {
                 try self.w.writeAll("(");
-                try self.emitExpr(ir.@"??".left(sexp));
+                try self.emitFallbackHolder(sexp, ir.@"??".left(sexp));
                 try self.w.writeAll(" orelse ");
                 try self.emitValue(ir.@"??".right(sexp), true);
                 try self.w.writeAll(")");
@@ -4451,7 +4451,7 @@ pub const Emitter = struct {
                 // value. A named error is held as `anyerror`, so it
                 // compares and matches with any error value.
                 try self.w.writeAll("(");
-                try self.emitExpr(ir.Catch.value(sexp));
+                try self.emitFallbackHolder(sexp, ir.Catch.value(sexp));
                 try self.w.writeAll(" catch ");
                 const name = ir.Catch.name(sexp);
                 const handler = ir.Catch.handler(sexp);
@@ -5178,6 +5178,21 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             },
         }
+    }
+
+    /// `holder`, the operand of `a ?? b` or `a catch b` (`form`): as it
+    /// is, or, where the form copies the value its payload views out
+    /// (`Facts.copiesPayload`), `rig.copiedOut(T, holder)`, which gives
+    /// the payload the `T` its view holds or points at.
+    fn emitFallbackHolder(self: *Emitter, form: Sexp, holder: Sexp) Error!void {
+        if (!self.facts.copiesPayload(form)) return self.emitExpr(holder);
+        const ty = self.typeOf(holder) orelse return self.unsupported(holder, "an untyped optional");
+        const viewed = self.facts.payloadViewed(ty) orelse return self.unsupported(holder, "a payload copied out of no view");
+        try self.w.writeAll("rig.copiedOut(");
+        try self.emitTypeTy(viewed);
+        try self.w.writeAll(", ");
+        try self.emitExpr(holder);
+        try self.w.writeAll(")");
     }
 
     /// The optional or fallible value `e`, whose payload a branch takes

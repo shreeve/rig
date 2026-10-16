@@ -7163,7 +7163,7 @@ expected, and `none` needs a known optional type.
 
 | Form | Meaning |
 |---|---|
-| `a ?? b` | the value inside `a`, or `b` when `a` is `none`; where a `T?` is expected, `b` may be a `T?` too (as may a `catch` handler) |
+| `a ?? b` | the value inside `a`, or `b` when `a` is `none`; where a `T?` is expected, `b` may be a `T?` too (as may a `catch` handler); where `a` holds a view of a value that copies and `b` is that value, the value the view reaches, copied out ([The fallback of `??`](#the-fallback-of-)) |
 | `a == none`, `a != none` | test for absence |
 | `a == v`, `a != v` | whether `a` holds the value `v`, a `T` |
 | `if a as x` | run the block with `x` bound to the value inside `a`; `else` runs when `a` is `none` |
@@ -7366,9 +7366,10 @@ side: the optional may hold an owning value when it is made there
 (`make(k) ?? return`, `make(k) ?? make(0)`) or moved (`<o ?? return`,
 `<h.f ?? return`, which leaves `none`), but not when it is reached
 through a view, which gives up nothing. Anything
-else on the right of `??` is a value of the optional's type, so a bare
-error value is no fallback: `?? E.missing` is rejected, and failing is
-written `?? return E.missing` in a fallible function.
+else on the right of `??` is a value of the optional's type, or of the
+value it views (below), so a bare error value is no fallback:
+`?? E.missing` is rejected, and failing is written
+`?? return E.missing` in a fallible function.
 
 ```rig
 error E
@@ -7396,6 +7397,65 @@ sub main()
 
 ```output
 2 2 0
+```
+
+When `a` holds a view, `?T` or `!T` (a `(?T)?`, such as `get` returns),
+and the fallback is no view of the value but the value itself, `a ?? b`
+is the value: what the view reaches, copied out when `a` has one, and
+`b` when it is `none`. It is `if a as v` then `v` else `b`, with `v`
+copied ([Reading](#reading)), so it needs a `T` that copies: a number,
+a plain object or enum, or an optional of one. The copy keeps no loan
+but those of the views it holds, so `n = m.get(k) ?? 0` leaves `m` free
+to change. A fallback that is a view (`?? ?d`), a jump, or `none` where
+an optional view is expected keeps the view instead, and a binding
+with no type then reads a view of a number as the number. `catch` does
+the same for a fallible view (`(?T)!`). A `T` that does not copy, such
+as a `String` or a `List`, is not copied out: lend the fallback, which
+gives the view, and clone that for a value of its own. Nor is a type
+parameter `T` in a generic body, which may not copy in every instance,
+as a view read where its `T` is expected is not.
+
+```rig
+use std.hash
+
+obj Point
+  x: Int
+  y: Int
+
+sub main()
+  counts = hash.Map[String, Int]()
+  for w in ["a", "b", "a"]
+    n = counts.get(w) ?? 0
+    !counts.put(String(w), n + 1)
+  print(counts.get("a") ?? 0, counts.get("z") ?? 0)
+  at = hash.Map[String, Point]()
+  !at.put(String("home"), Point(x: 1, y: 2))
+  p = at.get("home") ?? Point(x: 0, y: 0)
+  !at.put(String("home"), Point(x: 5, y: 5))
+  print(p.x, (at.get("away") ?? Point(x: 0, y: 0)).y)
+  names = hash.Map[String, String]()
+  !names.put(String("a"), String("ada"))
+  s = +(names.get("b") ?? ?String("nobody"))
+  print(s)
+```
+
+```output
+2 0
+1 0
+nobody
+```
+
+```rig reject
+use std.hash
+
+sub main()
+  names = hash.Map[String, String]()
+  s = names.get("a") ?? String("nobody")
+  print(s)
+```
+
+```error
+only a value that copies is copied out of a view, and a `String` owns a resource: lend the fallback, so the result is the view, and clone that for a `String` of its own: `+(names.get("a") ?? ?String("nobody"))`
 ```
 
 ---

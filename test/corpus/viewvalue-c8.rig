@@ -1,0 +1,17 @@
+error Bad
+  oops
+
+fun head[T](v: ?List[T]) -> (?T)! from v
+  return Bad.oops if v.len == 0
+  ?v[0]
+
+fun first[T](v: ?List[T], d: T) -> T
+  head(v) catch d
+
+sub main()
+  a: List[Int] = List()
+  print(first(?a, 5))
+  !a.push(2)
+  print(first(?a, 5))
+  s: List[String] = List()
+  print(first(?s, String("x")))

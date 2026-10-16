@@ -1,0 +1,48 @@
+# A jump as the fallback of `??` leaves the view as it is: a binding
+# with no type reads a view of a number as the number, so `n` keeps no
+# loan, while `p`, a view of an object, keeps the Map lent and is
+# written `?q.get(k)`. The view a fallback form gives copies out where
+# its value is expected, so `z: Int` keeps no loan either, and `none`
+# where an optional view is expected keeps the view.
+
+use std.hash
+
+obj P
+  x: Int
+
+fun total(m: ?hash.Map[String, Int], keys: []Static) -> Int
+  t = 0
+  for k in keys
+    n = m.get(k) ?? continue
+    t += n
+  t
+
+fun x_of(q: ?hash.Map[String, P], k: ?String) -> Int
+  p = ?q.get(k) ?? return -1
+  p.x
+
+sub main()
+  m = hash.Map[String, Int]()
+  !m.put(String("a"), 2)
+  !m.put(String("b"), 3)
+  print(total(?m, ["a", "c", "b"]))
+  for k in ["a", "c"]
+    n = m.get(k) ?? break
+    !m.put(String("d"), n)
+  print(m.len)
+  d = 10
+  z: Int = m.get("x") ?? ?d
+  !m.put(String("x"), z)
+  print(m.get("x") ?? 0)
+  o: (?Int)? = ?m.get("q") ?? none
+  print(o)
+  q = hash.Map[String, P]()
+  !q.put(String("a"), P(x: 4))
+  print(x_of(?q, "a"), x_of(?q, "b"))
+
+# expect:
+# 5
+# 3
+# 10
+# none
+# 4 -1

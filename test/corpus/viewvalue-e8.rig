@@ -1,0 +1,17 @@
+use std.hash
+
+fun bump(m: !hash.Map[String, Int]) -> Int
+  for i in 0..40
+    !m.put(String("k", i), i)
+  m.len
+
+sub main()
+  m = hash.Map[String, Int]()
+  n = (!m).edit("a") ?? bump(!m)
+  k = if (!m).edit("b") as v
+    v
+  else
+    bump(!m)
+  print(n, k)
+  q = (!m).edit("k3") ?? bump(!m)
+  print(q)

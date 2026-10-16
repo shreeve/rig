@@ -1,0 +1,33 @@
+# `a ?? b` and `a catch b` copy out the value a view on the left reaches
+# only when it copies: a String, a List, and an owning object do not,
+# and the diagnostic shows the fallback lent, which gives the view, and
+# that cloned.
+
+use std.hash
+
+error Bad
+  oops
+
+obj Own
+  items: List[Int]
+
+fun pick(r: ?String, ok: Bool) -> (?String)!
+  return Bad.oops if not ok
+  r
+
+sub main()
+  m = hash.Map[String, String]()
+  s = m.get("a") ?? String("none")
+  l = hash.Map[String, List[Int]]()
+  e = l.get("a") ?? List[Int]()
+  o = hash.Map[String, Own]()
+  w = o.get("a") ?? Own(items: List())
+  t = String("t")
+  u = pick(?t, true) catch String("u")
+  print(s, e, w.items, u)
+
+# errors: 4
+# error: 20:7: `m.get("a") ?? String("none")` would copy out the `String` that `m.get("a")` views, since its fallback is a value, not a view; only a value that copies is copied out of a view, and a `String` owns a resource: lend the fallback, so the result is the view, and clone that for a `String` of its own: `+(m.get("a") ?? ?String("none"))`
+# error: 22:7: a `List[Int]` owns a resource: lend the fallback
+# error: 24:7: an `Own` owns a resource: lend the fallback, so the result is the view, and clone that for an `Own` of its own: `+(o.get("a") ?? ?Own(items: List()))`
+# error: 26:7: `+(pick(?t, true) catch ?String("u"))`

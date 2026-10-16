@@ -1,0 +1,32 @@
+use std.hash
+
+error Bad
+  oops
+
+obj P
+  x: Int
+  y: Int
+
+fun mk() -> hash.Map[String, P]
+  q = hash.Map[String, P]()
+  !q.put(String("a"), P(x: 1, y: 2))
+  q
+
+fun head(v: ?List[P]) -> (?P)! from v
+  return Bad.oops if v.len == 0
+  ?v[0]
+
+fun mkl() -> List[P]
+  l: List[P] = List()
+  !l.push(P(x: 3, y: 4))
+  l
+
+sub main()
+  x = mk().get("a") ?? P(x: 0, y: 0)
+  y = (!mk()).edit("a") ?? P(x: 0, y: 0)
+  z = head(?mkl()) catch P(x: 9, y: 9)
+  w = head(?List[P]()) catch P(x: 9, y: 9)
+  print(x, y, z, w)
+  for _ in 0..3
+    t = mk().get("a") ?? P(x: 0, y: 0)
+    print(t.x)

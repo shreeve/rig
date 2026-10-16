@@ -1,0 +1,16 @@
+use std.hash
+
+obj P
+  x: Int
+
+sub main()
+  q = hash.Map[String, P]()
+  !q.put(String("a"), P(x: 1))
+  d = (q.get("x") ?? q.get("a")) ?? P(x: 0)
+  !q.put(String("a"), P(x: 2))
+  print(d.x)
+  m = hash.Map[String, Int]()
+  !m.put(String("a"), 1)
+  e = (m.get("x") ?? m.get("a")) ?? 0
+  f = m.get("x") ?? m.get("a")
+  print(e, f)

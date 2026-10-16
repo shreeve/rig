@@ -1,0 +1,44 @@
+# A fallback whose type only its context gives, a variant shorthand, is a
+# value made there, never a view: `m.get(k) ?? .point` copies out the
+# enum the view reaches, also for an enum with payloads, whose view is
+# held by address, in a binding, a function's last value, and `catch`.
+# A `??` in a fallback decides the same with or without its context:
+# `?q.get("y") ?? none` there gives the view.
+
+use std.hash
+
+error Bad
+  oops
+
+enum Shape
+  circle(r: Int)
+  point
+
+obj P
+  x: Int
+
+fun get(m: ?hash.Map[String, Shape], k: ?String) -> Shape
+  m.get(k) ?? .point
+
+fun pick(s: ?Shape, ok: Bool) -> (?Shape)!
+  return Bad.oops if not ok
+  s
+
+sub main()
+  m = hash.Map[String, Shape]()
+  !m.put(String("a"), .circle(r: 2))
+  b: Shape = m.get("b") ?? .circle(r: 3)
+  a = m.get("a") ?? .point
+  !m.put(String("a"), .point)
+  print(a, b, get(?m, "a"), get(?m, "z"))
+  s = Shape.circle(r: 1)
+  print(pick(?s, true) catch .point, pick(?s, false) catch .point)
+  q = hash.Map[String, P]()
+  !q.put(String("y"), P(x: 1))
+  x: (?P)? = ?q.get("z") ?? (?q.get("y") ?? none)
+  print(x)
+
+# expect:
+# .circle(r: 2) .circle(r: 3) .point .point
+# .circle(r: 1) .point
+# P(x: 1)
