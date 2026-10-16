@@ -2070,7 +2070,7 @@ runtime function with value arguments, or the existing `read` and
 | `cur.lag[k](prev)` | `rig.lag(k, cur, prev)`: one constant `@shuffle` of `prev` and `cur` |
 | a scalar beside a vector, `v + 1` | `rig.rt(@as(V, @splat(1)))` where the scalar stands (`splatOf`); beside a mask, `m \| true`, `rig.rt(rig.maskOf(rig.Mask(n), @splat(true)))` |
 | `v.not()` | `~v`, or `rig.maskNot(m)` of a mask |
-| `m.bits()`, `m.first()`, `m.any()`, `m.all()` | `rig.maskBits(m)`, `rig.maskFirst(m)`, `rig.maskAny(m)`, `rig.maskAll(m)` |
+| `m.bits()`, `m.first()`, `m.any()`, `m.all()` | `rig.maskBits(m)`, `rig.maskFirst(m)`, `rig.maskAny(m)`, `rig.maskAll(m)`; `m.not().bits()` is `rig.maskBitsNot(m)`, the bits of `m` flipped |
 | `m.select(a, b)` | `rig.maskSelect(m, a, b)`: `@select` of the mask's lanes |
 | `v[i]`, `v.with(i, x)`, `v.array()` | `rig.lane(v, i)`, `rig.withLane(v, i, x)`, `@as([n]T, v)`, or `rig.maskArray(m)` of a mask |
 | `b.read[Simd[T, n], e](at)`, `!b.write[...](at, v)` | `rig.simdRead(V, b, at, e)`, `rig.simdWrite(V, b, at, v, e)` |
@@ -2147,9 +2147,30 @@ compare-and-mask kernel):
 | Target | Form | 64 lanes |
 |---|---|---:|
 | aarch64 with NEON, LLVM | the mask as bytes, weighted, then pairwise adds (`llvm.aarch64.neon.addp.v16i8`), read as one lane of a `u64` vector, for 32 and 64 lanes; `any` and `all` as a byte `umaxv` or `uminv` | 31 |
-| x86-64 (SSE2, AVX2) | `@bitCast` (`pmovmskb`) | 39, 21 |
-| WASM SIMD | 16-lane bitmasks (`i8x16.bitmask`) for more than 16 lanes; `any` and `all` through them | 64 (511 by `@bitCast`) |
+| x86-64 (SSE2, AVX2) | `@bitCast` (`pmovmskb`), its bits of 32 and 64 lanes held opaque (`opaqueBits`, below) | 39, 21 |
+| x86-64 with AVX-512BW | `@bitCast` (`vpcmpeqb` into a `k` register, `kmovq`) | |
+| WASM SIMD | 16-lane bitmasks (`i8x16.bitmask`) for more than 16 lanes; `any` and `all` OR or AND the pieces by halving shuffles and test them once (`v128.any_true`, `i8x16.all_true`) | 64 (511 by `@bitCast`) |
 | WASM without SIMD | each lane a byte, eight gathered by one multiply | 851, but 1.75x faster under wasmtime than `@bitCast`'s 779 |
+
+LLVM reads the bits of a `@bitCast` mask of 32 or 64 lanes as the
+`<n x i1>` vector they came from, and may do later work on those bits
+on its lanes instead: a classifier's checked `<<` of them became a
+shuffle of the lanes, which x86 without AVX-512 does a lane at a time
+(`pextrb` and `pinsrb`, or bytes through the stack: 120 lane moves a
+block). So `maskBitsCast` passes the bits of
+more than 16 lanes through an empty `asm` (`opaqueBits`), which LLVM
+cannot see into, except at compile time and where AVX-512BW holds the
+mask in a `k` register. The cost: two masks' bits combined after
+`bits()` take a `pmovmskb` each, where LLVM would combine the lanes
+first; combined as masks (`(a ^ b).bits()`), they take one.
+
+`m.not().bits()` flips the bits after `bits()` (`rig.maskBitsNot`,
+`~bits & lanes`). Flipping the lanes first costs NEON a vector
+instruction per 16 lanes: LLVM turns the `not` of comparisons ORed
+together into a flipped comparison each (`cmeq`, then `mvn` or `bic`).
+Emit takes the form from the call, a `not` as the
+receiver of `bits` (`test/cli/wide_masks.sh` reads the assembly of
+each target).
 
 `m.first()` is the index of the first true lane, `Int?`. On NEON it
 turns the 16 mask bytes into a nibble mask: a narrowing shift right by 4
