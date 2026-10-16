@@ -61,6 +61,7 @@ const Sexp = parser.Sexp;
 const ir = parser.ir;
 const SemContext = sema.SemContext;
 const FrameCount = sema.FrameCount;
+const Error = std.mem.Allocator.Error;
 
 /// The most nodes (each form of the tree: a call, an operator, a
 /// statement) a body may have and be inlined.
@@ -480,9 +481,9 @@ const Pass = struct {
     /// account's `auto`): the frame of each inlined callee of each of its
     /// calls, at every copy of the call, through each marked `inline`
     /// callee, whose own inlined calls land in `o` too.
-    fn added(self: *Pass, o: u32) u128 {
+    fn added(self: *Pass, o: u32) Error!u128 {
         var total: u128 = 0;
-        for (self.owners.items[o].calls.items) |e| total += e.copies * self.calleeFrame(e.callee);
+        for (self.owners.items[o].calls.items) |e| total += e.copies * try self.calleeFrame(e.callee);
         return total;
     }
 
@@ -490,16 +491,10 @@ const Pass = struct {
     /// the frames of the functions it reaches that the rule inlines, and
     /// what the rule inlines into a marked `inline` one (`frame`). A call
     /// by name never reaches a marked one (`byRule`).
-    fn calleeFrame(self: *Pass, t: Callee) u128 {
+    fn calleeFrame(self: *Pass, t: Callee) Error!u128 {
         if (t & group_bit == 0) return if (self.fns.items[t].inlined) self.frame(t) else 0;
-        const g = &self.groups.items[t & ~group_bit];
-        if (g.frame) |b| return b;
-        var total: u128 = 0;
-        for (g.members.items) |w| {
-            if (self.byRule(w)) total += self.frame(w);
-        }
-        self.groups.items[t & ~group_bit].frame = total;
-        return total;
+        try self.settle(.frame, t);
+        return self.groups.items[t & ~group_bit].frame.?;
     }
 
     /// What an inlined function adds to the frame of a call of it, with
@@ -511,39 +506,111 @@ const Pass = struct {
     /// (`sema.Account.marked`), what the rule inlines into it. No cycle
     /// of calls is inlined (`forcedCycles`, `isCyclic`), so this ends, and
     /// the own frame of a function the rule inlines is known (`decide`).
-    fn frame(self: *Pass, v: u32) u128 {
-        if (self.fns.items[v].frame) |b| return b;
-        const o = self.fns.items[v].owner;
-        const b = if (self.fns.items[v].marker == .@"inline")
-            self.added(o)
-        else
-            self.owners.items[o].own.?.reach + self.owners.items[o].params + self.owners.items[o].marked.reach + self.added(o);
-        self.fns.items[v].frame = b;
-        return b;
+    fn frame(self: *Pass, v: u32) Error!u128 {
+        try self.settle(.frame, v);
+        return self.fns.items[v].frame.?;
     }
 
     /// The size of an inlined function with its own inlined calls in it.
-    fn expanded(self: *Pass, v: u32) u64 {
-        if (self.fns.items[v].weight) |w| return w;
-        var total: u64 = self.fns.items[v].size;
-        for (self.owners.items[self.fns.items[v].owner].calls.items) |e| total += self.calleeWeight(e.callee);
-        self.fns.items[v].weight = total;
-        return total;
+    fn expanded(self: *Pass, v: u32) Error!u64 {
+        try self.settle(.weight, v);
+        return self.fns.items[v].weight.?;
     }
 
     /// What a call of `t` adds to a size: the expansions of the inlined
     /// functions it reaches, marked or by the rule; by name, those the
     /// rule inlines.
-    fn calleeWeight(self: *Pass, t: Callee) u64 {
+    fn calleeWeight(self: *Pass, t: Callee) Error!u64 {
         if (t & group_bit == 0) return if (self.fns.items[t].inlined) self.expanded(t) else 0;
-        const g = &self.groups.items[t & ~group_bit];
-        if (g.weight) |w| return w;
-        var total: u64 = 0;
-        for (g.members.items) |w| {
-            if (self.byRule(w)) total += self.expanded(w);
+        try self.settle(.weight, t);
+        return self.groups.items[t & ~group_bit].weight.?;
+    }
+
+    /// What `settle` finds of a function or group: its frame (`frame`,
+    /// `calleeFrame`) or its expansion (`expanded`, `calleeWeight`).
+    const Memo = enum { frame, weight };
+
+    fn known(self: *const Pass, m: Memo, t: Callee) bool {
+        if (t & group_bit != 0) {
+            const g = self.groups.items[t & ~group_bit];
+            return if (m == .frame) g.frame != null else g.weight != null;
         }
-        self.groups.items[t & ~group_bit].weight = total;
-        return total;
+        const f = self.fns.items[t];
+        return if (m == .frame) f.frame != null else f.weight != null;
+    }
+
+    /// The `i`th function or group that `t`'s frame and expansion count
+    /// when it leads to it (`leadsTo`): what a function's calls reach, a
+    /// group's functions; null past the last.
+    fn countedAt(self: *const Pass, t: Callee, i: usize) ?Callee {
+        if (t & group_bit != 0) {
+            const members = self.groups.items[t & ~group_bit].members.items;
+            return if (i < members.len) members[i] else null;
+        }
+        const calls_of = self.owners.items[self.fns.items[t].owner].calls.items;
+        return if (i < calls_of.len) calls_of[i].callee else null;
+    }
+
+    /// Whether `t`'s frame and expansion count those of `to`: a call of an
+    /// inlined function or of a group, a group's function the rule inlines.
+    fn leadsTo(self: *const Pass, t: Callee, to: Callee) bool {
+        if (t & group_bit != 0) return self.byRule(to);
+        return to & group_bit != 0 or self.fns.items[to].inlined;
+    }
+
+    /// A function or group whose memo `settle` finds once those it counts
+    /// (`countedAt`, from `next` on) are found.
+    const Pending = struct { t: Callee, next: usize = 0 };
+
+    /// Finds memo `m` of `start`, and first that of each function and
+    /// group it counts, deepest first. The walk keeps a stack of its own,
+    /// as long as the program's chain of inlined calls, rather than
+    /// recursing once a call; no cycle of calls is inlined (`isCyclic`),
+    /// so no path through them is longer than their count.
+    fn settle(self: *Pass, m: Memo, start: Callee) Error!void {
+        if (self.known(m, start)) return;
+        var stack: std.ArrayList(Pending) = .empty;
+        defer stack.deinit(self.a);
+        try stack.append(self.a, .{ .t = start });
+        while (stack.items.len > 0) {
+            const top = &stack.items[stack.items.len - 1];
+            if (self.countedAt(top.t, top.next)) |to| {
+                top.next += 1;
+                if (!self.leadsTo(top.t, to) or self.known(m, to)) continue;
+                if (stack.items.len > self.fns.items.len + self.groups.items.len)
+                    std.debug.panic("internal error: a cycle of inlined calls", .{});
+                try stack.append(self.a, .{ .t = to });
+                continue;
+            }
+            const t = stack.pop().?.t;
+            if (!self.known(m, t)) try self.compute(m, t);
+        }
+    }
+
+    /// Memo `m` of `t`, from those of the functions and groups it counts,
+    /// each found (`settle`).
+    fn compute(self: *Pass, m: Memo, t: Callee) Error!void {
+        if (t & group_bit != 0) {
+            const g = t & ~group_bit;
+            var frame_total: u128 = 0;
+            var weight_total: u64 = 0;
+            for (self.groups.items[g].members.items) |w| if (self.byRule(w)) {
+                if (m == .frame) frame_total += self.fns.items[w].frame.? else weight_total += self.fns.items[w].weight.?;
+            };
+            if (m == .frame) self.groups.items[g].frame = frame_total else self.groups.items[g].weight = weight_total;
+            return;
+        }
+        const o = self.fns.items[t].owner;
+        if (m == .weight) {
+            var total: u64 = self.fns.items[t].size;
+            for (self.owners.items[o].calls.items) |e| total += try self.calleeWeight(e.callee);
+            self.fns.items[t].weight = total;
+            return;
+        }
+        self.fns.items[t].frame = if (self.fns.items[t].marker == .@"inline")
+            try self.added(o)
+        else
+            self.owners.items[o].own.?.reach + self.owners.items[o].params + self.owners.items[o].marked.reach + try self.added(o);
     }
 
     /// Whether `f` is called from one place, in a function with
@@ -567,10 +634,10 @@ const Pass = struct {
     /// calls land in it are checked in each caller's, so only the rule's
     /// part is held to its 64 KiB here, as it is again in each caller at
     /// each call (`added`).
-    fn fits(self: *Pass, o: u32) bool {
+    fn fits(self: *Pass, o: u32) Error!bool {
         if (!self.owners.items[o].compiled) return true;
-        if (self.owners.items[o].fun) |v| if (self.fns.items[v].marker == .@"inline") return self.added(o) <= max_inlined_frame_bytes;
-        const auto = self.added(o);
+        if (self.owners.items[o].fun) |v| if (self.fns.items[v].marker == .@"inline") return try self.added(o) <= max_inlined_frame_bytes;
+        const auto = try self.added(o);
         const own = self.owners.items[o].own orelse return auto == 0;
         const marked = self.owners.items[o].marked;
         return auto <= max_inlined_frame_bytes and own.bytes + marked.bytes + auto <= sema.max_frame_bytes and (own.reach + marked.reach + auto) * sema.reach_factor <= sema.max_frame_reach;
@@ -597,19 +664,19 @@ const Pass = struct {
             const o: u32 = @intCast(i);
             if (self.owners.items[i].fun) |v| {
                 const f = &self.fns.items[v];
-                if (self.byRule(v) and (self.frame(v) > max_inlined_frame_bytes or (self.expanded(v) > max_expanded and !self.oncePerInstance(f)))) {
+                if (self.byRule(v) and (try self.frame(v) > max_inlined_frame_bytes or (try self.expanded(v) > max_expanded and !self.oncePerInstance(f)))) {
                     try self.uninline(v);
                     continue;
                 }
             }
-            if (self.fits(o)) {
+            if (try self.fits(o)) {
                 i += 1;
                 continue;
             }
             // The largest of the functions the rule inlines into it, the
             // first of them in the order of the calls and of a group's
             // functions, through the marked functions it calls.
-            const biggest = self.largestIn(o) orelse
+            const biggest = (try self.largestIn(o)) orelse
                 std.debug.panic("internal error: {s} does not fit its frame, and the rule inlines nothing into it", .{self.ownerName(o)});
             try self.uninline(biggest);
         }
@@ -618,11 +685,11 @@ const Pass = struct {
     /// The function the rule inlines into owner `o` with the largest
     /// frame, of those its calls reach and those the marked `inline`
     /// functions it calls hold.
-    fn largestIn(self: *Pass, o: u32) ?u32 {
+    fn largestIn(self: *Pass, o: u32) Error!?u32 {
         var biggest: ?u32 = null;
         for (self.owners.items[o].calls.items) |e| {
-            const w = self.largest(e.callee) orelse continue;
-            if (biggest == null or self.frame(w) > self.frame(biggest.?)) biggest = w;
+            const w = (try self.largest(e.callee)) orelse continue;
+            if (biggest == null or try self.frame(w) > try self.frame(biggest.?)) biggest = w;
         }
         return biggest;
     }
@@ -630,7 +697,7 @@ const Pass = struct {
     /// The function the rule inlines with the largest frame that a call
     /// of `t` lands in its caller: `t` itself, or through a marked one the
     /// largest it holds, or the first of a group's in its order.
-    fn largest(self: *Pass, t: Callee) ?u32 {
+    fn largest(self: *Pass, t: Callee) Error!?u32 {
         if (t & group_bit == 0) {
             if (self.byRule(t)) return t;
             if (self.fns.items[t].marker == .@"inline") return self.largestIn(self.fns.items[t].owner);
@@ -641,7 +708,7 @@ const Pass = struct {
         var best: ?u32 = null;
         for (self.groups.items[gi].members.items) |w| {
             if (!self.byRule(w)) continue;
-            if (best == null or self.frame(w) > self.frame(best.?)) best = w;
+            if (best == null or try self.frame(w) > try self.frame(best.?)) best = w;
         }
         self.groups.items[gi].top = .{ .fun = best };
         return best;
@@ -776,28 +843,56 @@ const Pass = struct {
         return if (i < members.len) members[i] else null;
     }
 
+    /// A node Tarjan's search has entered and not left: the next of its
+    /// edges to follow, and whether one of them leads back to it.
+    const Visit = struct { v: u32, next: usize = 0, self_loop: bool = false };
+
     /// Mark every function on a cycle of calls (Tarjan), a call that
     /// reaches a group leading to each function in it: a function with a
     /// call of its own group is on a cycle, as one that calls itself is.
-    fn strong(self: *Pass, v: u32) !void {
+    /// The search keeps a stack of its own (`visits`), as long as the
+    /// program's chain of calls, rather than recursing once a call.
+    fn strong(self: *Pass, root: u32) !void {
+        var visits: std.ArrayList(Visit) = .empty;
+        defer visits.deinit(self.a);
+        try self.enter(root);
+        try visits.append(self.a, .{ .v = root });
+        while (visits.items.len > 0) {
+            const top = &visits.items[visits.items.len - 1];
+            const v = top.v;
+            if (self.edges(v, top.next)) |w| {
+                top.next += 1;
+                if (w == v) top.self_loop = true;
+                if (self.state(w).index == 0) {
+                    try self.enter(w);
+                    try visits.append(self.a, .{ .v = w });
+                } else if (self.state(w).on_stack) {
+                    self.state(v).low = @min(self.state(v).low, self.state(w).index);
+                }
+                continue;
+            }
+            if (visits.pop().?.self_loop) self.cyclic.items[v] = true;
+            self.leave(v);
+            if (visits.items.len > 0) {
+                const parent = visits.items[visits.items.len - 1].v;
+                self.state(parent).low = @min(self.state(parent).low, self.state(v).low);
+            }
+        }
+    }
+
+    /// Number node `v` and put it on Tarjan's stack.
+    fn enter(self: *Pass, v: u32) !void {
         const sv = self.state(v);
         sv.index = self.next_index;
         sv.low = self.next_index;
         self.next_index += 1;
         try self.stack.append(self.a, v);
         sv.on_stack = true;
-        var self_loop = false;
-        var i: usize = 0;
-        while (self.edges(v, i)) |w| : (i += 1) {
-            if (w == v) self_loop = true;
-            if (self.state(w).index == 0) {
-                try self.strong(w);
-                self.state(v).low = @min(self.state(v).low, self.state(w).low);
-            } else if (self.state(w).on_stack) {
-                self.state(v).low = @min(self.state(v).low, self.state(w).index);
-            }
-        }
-        if (self_loop) self.cyclic.items[v] = true;
+    }
+
+    /// Once every edge of `v` is followed: when it roots a component, take
+    /// the component off the stack, marking its nodes when it is a cycle.
+    fn leave(self: *Pass, v: u32) void {
         if (self.state(v).low == self.state(v).index) {
             var members: u32 = 0;
             const start = self.stack.items.len;
@@ -932,7 +1027,7 @@ pub fn decide(allocator: std.mem.Allocator, graph: *modules.ModuleGraph, max: u3
         const index = pass.owner_base[i] + @as(u32, @intCast(k));
         const own = pass.owners.items[index].own;
         const marked = pass.owners.items[index].marked;
-        const auto = pass.added(index);
+        const auto = try pass.added(index);
         o.account = .{ .own = own, .marked = marked, .auto = auto };
         if (pass.owners.items[index].fun) |v| if (pass.fns.items[v].inlined) continue;
         const known = own orelse continue;

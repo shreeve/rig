@@ -405,7 +405,7 @@ that mixes the two (their type is `?String`). A generic `T` that a
 `Static` and a `?String` both bind is the `?String` (unless a place that
 holds it exactly, such as a `Cell[T]`, gives the type). `@name(Static)`
 is `"Static"`, but a type parameter bound to a `Static` is named
-`"String"`, since both are one Zig type. It never converts
+`"?String"`, since both are one Zig type. It never converts
 where the text can be written: a place of type `Static` holds only a
 `Static`, a `?String` is not written into one, and a binding that holds a
 literal is a `Static` (`s = "a"`), so a `?String` is assigned to it only
@@ -2832,6 +2832,11 @@ sub main()
 3 true 200 255 8
 ```
 
+The type an alias names nests at most 200 deep, counting each type it
+is built from (`List[A]`, `A?`, `[2]A`, `fun(A) -> Int`): aliases, each
+naming the next inside another type, would otherwise nest one in another
+without end. An alias that names a deeper type is rejected.
+
 ### Tests
 
 `test "name"` (or `test 'name'`) declares a block that is checked like
@@ -3893,6 +3898,27 @@ sub main()
 
 ```output
 List[Int] U8 Pair[Int, String] *Pair[U8, Bool]?
+```
+
+An instance is spelled as the printer spells that type, parentheses
+included: `T?` with `T = Int?` is `(Int?)?`, and `*T` is `*(Int?)`. A
+type parameter is named from the program's own type for it, where a
+read view of a number is the number and a `[]U8` is the bytes a
+`?String` is, so an instance that holds a view or a slice, but a
+`?String`, cannot be named, and is rejected where it is made:
+
+```rig reject
+fun name[T](x: T) -> ?String
+  @name(T)
+
+sub main()
+  n = 5
+  v: (?Int)? = ?n
+  print(name(v))
+```
+
+```error
+`name[(?Int)?]` cannot use `T = (?Int)?`
 ```
 
 Every other builtin is Zig's, keeps its Zig name, and works only

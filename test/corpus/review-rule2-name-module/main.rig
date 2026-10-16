@@ -1,0 +1,27 @@
+use lib
+
+obj Node
+  v: Int
+
+type NN = (Node?)?
+
+type HN = *(Node?)
+
+type LPP = (lib.P?)?
+
+type HP = *(lib.P?)
+
+type BX = lib.Box[(Int?)?]?
+
+sub main()
+  n: Node? = none
+  print(lib.nm(n), @name(NN))
+  print(lib.hnm(n), @name(HN))
+  p: lib.P? = none
+  print(lib.nm(p), @name(LPP))
+  print(lib.hnm(p), @name(HP))
+  print(lib.deeper(n))
+  i: (Int?)? = none
+  b = lib.Box(v: i)
+  print(b.self_name(), @name(BX))
+  lib.local_names()

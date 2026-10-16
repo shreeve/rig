@@ -5766,18 +5766,33 @@ pub const Emitter = struct {
         const of = if (arg.isKind(.builtin)) ir.Builtin.args(arg)[0] else arg;
         const ty = self.typeOf(of) orelse return self.unsupported(arg, "an untyped `@name` argument");
         const spelling = try self.facts.formatTypeMarked(self.arena.allocator(), ty);
-        if (std.mem.findScalar(u8, spelling, facts.type_param_mark) == null) return self.w.print("\"{s}\"", .{spelling});
-        self.uses_names = true;
-        try self.w.writeAll("(comptime ");
-        try self.writeSpelling(spelling, .concat, null);
-        try self.w.writeAll(")");
+        // `@name(@type(x))` reads `x`, as `@size(@type(x))` does
+        // (`@TypeOf(x)`), though its name is known: a binding read only
+        // there is still used in the Zig.
+        const of_value = arg.isKind(.builtin);
+        if (of_value) {
+            try self.w.writeAll("(blk: { _ = @TypeOf(");
+            try self.emitBare(of);
+            try self.w.writeAll("); break :blk ");
+        }
+        if (std.mem.findScalar(u8, spelling, facts.type_param_mark) == null) {
+            try self.w.print("\"{s}\"", .{spelling});
+        } else {
+            self.uses_names = true;
+            try self.w.writeAll("(comptime ");
+            try self.writeSpelling(spelling, .concat, null);
+            try self.w.writeAll(")");
+        }
+        if (of_value) try self.w.writeAll("; })");
     }
 
     /// A marked spelling (`sema.formatTypeMarked`) as Zig: its strings,
     /// and each type parameter as `how` writes it. `.concat` joins them
     /// with `++`, each parameter named by `rig.typeName`; `.parts` lists
     /// them in a tuple, each parameter as itself, or, given the generic
-    /// type `of`, as its index among that type's parameters.
+    /// type `of`, as its index among that type's parameters. A type
+    /// marked whole (`t` and its id) is written as its Zig type, and named
+    /// so in `.concat`.
     fn writeSpelling(self: *Emitter, spelling: []const u8, how: enum { concat, parts }, of: ?SymbolId) Error!void {
         if (how == .parts) try self.w.writeAll(".{ ");
         var it = std.mem.splitScalar(u8, spelling, facts.type_param_mark);
@@ -5790,6 +5805,13 @@ pub const Emitter = struct {
             first = false;
             if (!is_param) {
                 try self.w.print("\"{s}\"", .{piece});
+                continue;
+            }
+            if (piece[0] == 't') {
+                const ty = std.fmt.parseInt(TypeId, piece[1..], 10) catch unreachable;
+                if (how == .concat) try self.w.writeAll("rig.typeName(");
+                try self.emitTypeTy(ty);
+                if (how == .concat) try self.w.writeAll(", __rig_names)");
                 continue;
             }
             const sym = std.fmt.parseInt(SymbolId, piece, 10) catch unreachable;
@@ -6019,7 +6041,7 @@ pub const Emitter = struct {
         for (args, 0..) |a, i| {
             if (i > 0) try self.w.writeAll(", ");
             if (i == 0 or std.mem.eql(u8, name, "swap")) {
-                try self.emitAddressOf(lentPlace(a));
+                if (!try self.emitHeldAddress(a)) try self.emitAddressOf(lentPlace(a));
             } else try self.emitStored(a);
         }
         try self.w.writeAll(")");
@@ -6610,12 +6632,28 @@ pub const Emitter = struct {
     /// every read view of a value holding one is a mutable pointer
     /// (`emitViewPtrTy`).
     fn emitCellAddress(self: *Emitter, obj: Sexp) Error!void {
+        if (try self.emitHeldAddress(obj)) return;
         const saved = self.read_place;
         defer self.read_place = saved;
         self.read_place = true;
         try self.w.writeAll("(");
         try self.emitAddressOf(lentPlace(obj));
         try self.w.writeAll(")");
+    }
+
+    /// `!h` of a handle `h` that may not be written lends the value the
+    /// handle holds, not the handle (`typecheck.lendsHandle`), as its lend
+    /// records (the `handle` row): its address is on the heap, the
+    /// pointer the lend is, never `h`'s own. False, writing nothing, for
+    /// any other lend.
+    fn emitHeldAddress(self: *Emitter, lent: Sexp) Error!bool {
+        if (!(lent.isKind(.write) or lent.isKind(.read))) return false;
+        const lend = self.facts.lendOf(lent) orelse return false;
+        if (!lend.has(.handle)) return false;
+        try self.w.writeAll("(");
+        try self.emitWriteViewPtr(lent);
+        try self.w.writeAll(")");
+        return true;
     }
 
     /// `I32(x)` → `@as(i32, @intCast(@as(i64, x)))`, with the builtin

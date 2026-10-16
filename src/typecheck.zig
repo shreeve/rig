@@ -7730,6 +7730,16 @@ const Checker = struct {
             try self.errAt(arg, "`{s}` moves values whole, and `{s}` holds a Cell, so it lives only behind a shared handle, whose other fields only read", .{ what, try self.tyName(place) });
             return null;
         }
+        // A Signal changes only by its marked calls: exchanged whole, its
+        // subscribers would move with it, while `set` may be running them.
+        const signal = switch (self.ctx.types.get(place)) {
+            .parameterized_nominal => |pn| pn.sym == self.ctx.signal_sym_id,
+            else => false,
+        };
+        if (signal) {
+            try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its marked calls (`!s.set(v)`), which may be running its subscribers", .{ what, try self.tyName(place) });
+            return null;
+        }
         if (!arg.isKind(.write)) try self.checkLendsVisibly(arg, ty, "the call writes through");
         return place;
     }
@@ -7771,9 +7781,7 @@ const Checker = struct {
                 .void => try self.errAt(a, "{s} needs a value; this expression produces no value (`Void`)", .{who}),
                 .none_literal => try self.errAt(a, "cannot {s} a bare `none`", .{verb}),
                 else => {
-                    var seen: std.ArrayList(ByteSliceVisit) = .empty;
-                    defer seen.deinit(self.ctx.allocator);
-                    if (try holdsByteSlice(self.ctx, ty, &seen, self.ctx.allocator)) {
+                    if (try holdsByteSlice(self.ctx, ty, self.ctx.allocator)) {
                         const name = try self.tyName(ty);
                         const direct = std.mem.eql(u8, name, "[]U8");
                         try self.errAt(a, "cannot {s} a `{s}`: {s}would {s} as text, like a `?String`; {s} the bytes one by one", .{ verb, name, if (direct) "it " else "the `[]U8` it holds ", verb, verb });
@@ -8544,29 +8552,46 @@ const Checker = struct {
     }
 
     const ByteSliceVisit = struct { ctx: *const SemContext, sym: SymbolId };
+    const ByteSliceItem = struct { ctx: *const SemContext, ty: TypeId };
 
     /// Whether a value of `ty` holds a `[]U8`, directly or through a
     /// wrapper, field, payload, or type argument. A `[]U8` and a `?String`
-    /// are both Zig `[]const u8`, so `print` cannot tell them apart.
-    fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, seen: *std.ArrayList(ByteSliceVisit), a: std.mem.Allocator) Error!bool {
-        switch (ctx.types.get(ty)) {
-            .slice => |sl| return switch (ctx.types.get(sl.elem)) {
-                .int => |i| i.bits == 8 and !i.signed,
-                else => holdsByteSlice(ctx, sl.elem, seen, a),
-            },
-            .optional, .fallible, .read_view, .write_view, .shared => |inner| return holdsByteSlice(ctx, inner, seen, a),
-            .array => |arr| return holdsByteSlice(ctx, arr.elem, seen, a),
-            .parameterized_nominal => |pn| for (pn.args) |arg| {
-                if (try holdsByteSlice(ctx, arg, seen, a)) return true;
-            },
-            .nominal, .imported_nominal => {},
-            else => return false,
-        }
-        const decl = sema.nominalDecl(ctx, ty) orelse return false;
-        for (seen.items) |v| if (v.ctx == decl.ctx and v.sym == decl.sym) return false;
-        try seen.append(a, .{ .ctx = decl.ctx, .sym = decl.sym });
-        for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
-            for (sema.dataFields(f)) |d| if (try holdsByteSlice(decl.ctx, d.ty, seen, a)) return true;
+    /// are both Zig `[]const u8`, so `print` cannot tell them apart. The
+    /// walk keeps a stack of its own, so a long chain of types, each
+    /// holding the next, does not nest it; each declaration is walked once.
+    fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator) Error!bool {
+        var todo: std.ArrayList(ByteSliceItem) = .empty;
+        defer todo.deinit(a);
+        var seen: std.AutoHashMapUnmanaged(ByteSliceVisit, void) = .empty;
+        defer seen.deinit(a);
+        try todo.append(a, .{ .ctx = ctx, .ty = ty });
+        while (todo.pop()) |item| {
+            const c = item.ctx;
+            switch (c.types.get(item.ty)) {
+                .slice => |sl| {
+                    switch (c.types.get(sl.elem)) {
+                        .int => |i| if (i.bits == 8 and !i.signed) return true,
+                        else => try todo.append(a, .{ .ctx = c, .ty = sl.elem }),
+                    }
+                    continue;
+                },
+                .optional, .fallible, .read_view, .write_view, .shared => |inner| {
+                    try todo.append(a, .{ .ctx = c, .ty = inner });
+                    continue;
+                },
+                .array => |arr| {
+                    try todo.append(a, .{ .ctx = c, .ty = arr.elem });
+                    continue;
+                },
+                .parameterized_nominal => |pn| for (pn.args) |arg| try todo.append(a, .{ .ctx = c, .ty = arg }),
+                .nominal, .imported_nominal => {},
+                else => continue,
+            }
+            const decl = sema.nominalDecl(c, item.ty) orelse continue;
+            if ((try seen.getOrPut(a, .{ .ctx = decl.ctx, .sym = decl.sym })).found_existing) continue;
+            for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
+                for (sema.dataFields(f)) |d| try todo.append(a, .{ .ctx = decl.ctx, .ty = d.ty });
+            }
         }
         return false;
     }
@@ -13305,7 +13330,8 @@ const Checker = struct {
                 // Under a query spelled Zig's way, its fix-it covers this one.
                 const outer_rig = std.meta.stringToEnum(Builtin, name).?.isSafe();
                 if (b != .type and self.raw_depth == 0 and outer_rig) try self.zigQueryName(a, inner, "type");
-                _ = try self.synthExpr(ir.Builtin.args(a)[0]);
+                const of = try self.synthExpr(ir.Builtin.args(a)[0]);
+                try self.requireNamed(name, of, a);
                 return true;
             };
         }
@@ -13313,6 +13339,7 @@ const Checker = struct {
         const ty = try self.typeArg(a);
         if (self.isPoison(ty)) return false;
         try self.ctx.recordType(a, ty);
+        try self.requireNamed(name, ty, a);
         // A vector's size and alignment are the target's, so Rig gives
         // neither, nor those of a type that holds one inline.
         if (!std.mem.eql(u8, name, "name")) {
@@ -13325,6 +13352,18 @@ const Checker = struct {
             for (params.items) |param| try self.require(param, .sized, self.startOf(a), name);
         }
         return true;
+    }
+
+    /// `@name` of a type that holds type parameters names each one's
+    /// instance as the program runs (`rig.typeName`), from its Zig type:
+    /// each instance must hold no view it could not tell apart
+    /// (`Requirement.named`).
+    fn requireNamed(self: *Checker, builtin: []const u8, ty: TypeId, at: Sexp) Error!void {
+        // Zig's `@typeName`, inside `raw`, names the Zig type.
+        if (!std.mem.eql(u8, builtin, "name")) return;
+        var params: std.ArrayList(SymbolId) = .empty;
+        try sema.reachedTypeVars(self.ctx, ty, &params, self.ctx.arena.allocator());
+        for (params.items) |param| try self.require(param, .named, self.startOf(at), "@name");
     }
 
     // =========================================================================
@@ -15109,6 +15148,11 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .whole_division => try ctx.err(at, cannot ++ "gives a `{s}` the division of whole numbers `{s}`, which divides integers, not a `{s}`", .{ inst, pname, aname, pname, req.op, aname }),
                 .not_error => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a return type `{s}!` would make a failure and a success both `{s}` values", .{ inst, pname, aname, pname, aname }),
                 .not_function => try ctx.err(at, cannot ++ "makes a handle `{s}{s}` of a `{s}`, and `{s}` is a function type: `*{s}` is an owned closure, not a handle of a function. Hold the owned closure itself in a `{s}`: `{s} = *{s}`", .{ inst, pname, aname, req.op[1..2], pname, pname, aname, aname, pname, pname, aname }),
+                .named => {
+                    const held = sema.unnameable(ctx, arg).?;
+                    const what = if (held == arg) "is one" else try ctx.arena.allocator().print("holds `{s}`", .{try sema.formatType(ctx, held)});
+                    try ctx.err(at, cannot ++ "names a type that holds a `{s}` with `@name`, which spells no view or slice in a type parameter's instance but a `?String`, and `{s}` {s}", .{ inst, pname, aname, pname, aname, what });
+                },
                 .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
                 .hashable => if (try sema.notHashable(ctx, arg, null)) |n|
                     try ctx.err(at, cannot ++ "hashes a `{s}` with `.hash()`, which `{s}` does not support: {s}", .{ inst, pname, aname, pname, aname, try notEquatableReason(ctx, n) })
@@ -15123,6 +15167,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
                 .not_function => try ctx.noteIn(req.module_id, req.pos, "`{s}{s}` here", .{ req.op[1..2], pname }),
+                .named => try ctx.noteIn(req.module_id, req.pos, "`@name` here", .{}),
                 else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
             ok = false;
@@ -15198,6 +15243,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         .whole_division => sema.isInteger(ctx, ty),
         .not_error => ctx.types.get(ty) != .any_error and !sema.isErrorSet(ctx, ty),
         .not_function => ctx.types.get(ty) != .function,
+        .named => sema.unnameable(ctx, ty) == null,
     };
 }
 

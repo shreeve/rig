@@ -1,0 +1,13 @@
+# `@name` of the generic type's own instance at a deeper argument, inside
+# its method, is rejected as a type that nests itself without end, though
+# naming it makes no instance. A rejection, so within the corpus rule.
+
+obj Wrap[T]
+  v: T
+
+  fun opt_name(?self) -> ?String
+    @name(Wrap[T?])
+
+sub main()
+  w = Wrap(v: 1)
+  print(w.opt_name())

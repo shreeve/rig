@@ -1029,29 +1029,76 @@ const Summaries = struct {
             try s.fns.put(s.a, s.ctx.startOf(ir.get(d, .name)), d);
         }
         var it = s.fns.keyIterator();
-        while (it.next()) |pos| _ = try s.local(pos.*);
+        while (it.next()) |pos| try s.visit(pos.*);
+    }
+
+    /// A function whose bound `visit` finds once the bounds of the
+    /// functions it returns calls of (`callees`, from `next` on) are found.
+    const Pending = struct { pos: u32, callees: []const u32, next: usize = 0 };
+
+    /// Finds the bound of the function at `start`, and first those of the
+    /// functions of this module it returns calls of, deepest first. The
+    /// walk keeps a stack of its own, as long as the program's chain of
+    /// calls, rather than recursing once a call. A function is seen when
+    /// the walk reaches it, so one reached again on a cycle of calls,
+    /// before its bound is found, bounds nothing there.
+    fn visit(s: *Summaries, start: u32) Error!void {
+        if ((try s.seen.getOrPut(s.a, start)).found_existing) return;
+        var stack: std.ArrayList(Pending) = .empty;
+        try stack.append(s.a, .{ .pos = start, .callees = try s.callees(start) });
+        while (stack.items.len > 0) {
+            const top = &stack.items[stack.items.len - 1];
+            if (top.next < top.callees.len) {
+                const pos = top.callees[top.next];
+                top.next += 1;
+                if ((try s.seen.getOrPut(s.a, pos)).found_existing) continue;
+                try stack.append(s.a, .{ .pos = pos, .callees = try s.callees(pos) });
+                continue;
+            }
+            const pos = top.pos;
+            _ = stack.pop();
+            const b = (try s.summarize(s.fns.get(pos).?, pos)) orelse continue;
+            try s.ctx.result_bounds.put(s.ctx.allocator, pos, b);
+        }
+    }
+
+    /// The functions of this module whose calls the function at `pos`
+    /// returns, whose bounds its own is found from.
+    fn callees(s: *Summaries, pos: u32) Error![]const u32 {
+        const values = (try s.valuesOf(s.fns.get(pos).?)) orelse return &.{};
+        var out: std.ArrayList(u32) = .empty;
+        for (values) |v| {
+            const f = calledFn(s.ctx, v) orelse continue;
+            if (f.ctx == s.ctx and s.fns.contains(f.pos)) try out.append(s.a, f.pos);
+        }
+        return out.items;
     }
 
     /// The bound of the function that `call` calls: another module's,
-    /// found with that module, or one of this module's, found now.
+    /// found with that module, or one of this module's, which `visit`
+    /// found first.
     fn of(s: *Summaries, call: Sexp) Error!?sema.ResultBound {
         const f = calledFn(s.ctx, call) orelse return null;
-        if (f.ctx != s.ctx) return f.ctx.result_bounds.get(f.pos);
-        return s.local(f.pos);
+        return f.ctx.result_bounds.get(f.pos);
     }
 
-    fn local(s: *Summaries, pos: u32) Error!?sema.ResultBound {
-        if ((try s.seen.getOrPut(s.a, pos)).found_existing) return s.ctx.result_bounds.get(pos);
-        const node = s.fns.get(pos) orelse return null;
-        const b = (try s.summarize(node, pos)) orelse return null;
-        try s.ctx.result_bounds.put(s.ctx.allocator, pos, b);
-        return b;
+    /// Each value the function `node` can return: every `return`'s, and
+    /// its body's tail unless that is a `return`. Null when one returns
+    /// no value.
+    fn valuesOf(s: *Summaries, node: Sexp) Error!?[]const Sexp {
+        const body = ir.get(node, .body);
+        if (body == .nil) return null;
+        var values: std.ArrayList(Sexp) = .empty;
+        if (!try s.returns(body, &values)) return null;
+        const tail = sema.tailOf(body);
+        if (tail == .nil) return null;
+        if (!tail.isKind(.@"return")) try values.append(s.a, tail);
+        return values.items;
     }
 
     fn summarize(s: *Summaries, node: Sexp, pos: u32) Error!?sema.ResultBound {
         const ctx = s.ctx;
-        const body = ir.get(node, .body);
-        if (body == .nil or sema.tparamsOf(node) != .nil) return null;
+        if (sema.tparamsOf(node) != .nil) return null;
         const name = sema.identAt(ctx.source, ir.get(node, .name)) orelse return null;
         const id = ctx.lookupInScopeOnly(sema.module_scope, name) orelse return null;
         const sym = ctx.symbols.items[id];
@@ -1061,14 +1108,10 @@ const Summaries = struct {
             else => return null,
         };
         const ret = fty.returns;
-        var values: std.ArrayList(Sexp) = .empty;
-        if (!try s.returns(body, &values)) return null;
-        const tail = sema.tailOf(body);
-        if (tail == .nil) return null;
-        if (!tail.isKind(.@"return")) try values.append(s.a, tail);
+        const values = (try s.valuesOf(node)) orelse return null;
         if (ret == ctx.types.int_id) {
             var hi: u64 = 0;
-            for (values.items) |v| hi = @max(hi, (try s.wholeOf(v)) orelse return null);
+            for (values) |v| hi = @max(hi, (try s.wholeOf(v)) orelse return null);
             return .{ .whole = hi };
         }
         switch (ctx.types.get(ret)) {
@@ -1078,7 +1121,7 @@ const Summaries = struct {
         // The fields some value gives a bound, each kept when every value
         // bounds it.
         var names: std.ArrayList([]const u8) = .empty;
-        for (values.items) |v| {
+        for (values) |v| {
             if (constructs(ctx, v, ret)) {
                 for (ir.Call.args(v)) |arg| if (arg.isKind(.kwarg)) {
                     const n = sema.identAt(ctx.source, ir.Kwarg.name(arg)) orelse continue;
@@ -1091,7 +1134,7 @@ const Summaries = struct {
         var fields: std.ArrayList(sema.FieldBound) = .empty;
         next: for (names.items) |n| {
             var hi: u64 = 0;
-            for (values.items) |v| hi = @max(hi, (try s.fieldOf(v, ret, n)) orelse continue :next);
+            for (values) |v| hi = @max(hi, (try s.fieldOf(v, ret, n)) orelse continue :next);
             try fields.append(s.a, .{ .name = try ctx.arena.allocator().dupe(u8, n), .hi = hi });
         }
         if (fields.items.len == 0) return null;

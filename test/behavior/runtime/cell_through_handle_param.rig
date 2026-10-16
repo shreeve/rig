@@ -1,0 +1,76 @@
+# `!c` of a shared handle that may not be written, such as a parameter,
+# lends the Cell the handle holds, not the handle: an element assigned
+# through it, a List member called on it, and `swap` of two such lends
+# all reach the Cell on the heap, with a concrete or a generic element.
+
+obj P
+  x: Int
+  y: Int
+
+obj H
+  h: *Cell[List[Int]]
+
+  sub bump(!self)
+    (!self.h)[0] = 40
+
+sub put(c: *Cell[List[Int]], v: Int)
+  (!c)[0] = v
+  (!c).push(v + 1)
+  print((!c).pop() ?? -1, c[0], c.len)
+
+sub fill[T](c: *Cell[List[T]], v: T)
+  (!c)[0] = v
+  (!c).push(v)
+
+sub point(c: *Cell[List[P]])
+  (!c)[0] = P(x: 1, y: 2)
+
+sub strings(c: *Cell[List[String]])
+  (!c).push(String("q"))
+
+sub trade(a: *Cell[Int], b: *Cell[Int])
+  swap(!a, !b)
+
+sub viaField(o: !H)
+  (!o.h)[0] = 41
+
+sub viaCopy(c: *Cell[List[Int]])
+  d = +c
+  (!d)[0] = 43
+
+sub main()
+  c: *Cell[List[Int]] = *Cell(List())
+  !c.push(1)
+  put(+c, 5)
+  fill(+c, 6)
+  print(c[0], c.len)
+  p: *Cell[List[P]] = *Cell(List())
+  !p.push(P(x: 0, y: 0))
+  point(+p)
+  print(p[0].x, p[0].y)
+  s: *Cell[List[String]] = *Cell(List())
+  strings(+s)
+  print(s.len)
+  a: *Cell[Int] = *Cell(1)
+  b: *Cell[Int] = *Cell(2)
+  trade(+a, +b)
+  print(a.get(), b.get())
+  o = H(h: +c)
+  !o.bump()
+  print(c[0])
+  viaField(!o)
+  print(c[0])
+  viaCopy(+c)
+  f = |+c| (!c)[0] = 44
+  f()
+  print(c[0])
+
+# expect:
+# 6 5 1
+# 6 2
+# 1 2
+# 1
+# 2 1
+# 40
+# 41
+# 44

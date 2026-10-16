@@ -1,0 +1,30 @@
+obj Ring[T, n: Int]
+  v: [n]T?
+
+  fun names(?self) -> ?String
+    @name(Self)
+
+obj Wrap[T]
+  v: T
+
+  fun map_name[U](?self, u: U) -> ?String
+    @name(Wrap[U?]?)
+
+sub show[T](x: T)
+  print(@name(T), @name(T?), @name((T?)?))
+
+type RA = Ring[Int?, 2]?
+
+type WA = Wrap[(Int?)?]?
+
+sub main()
+  r = Ring[Int?, 2](v: [none, 1])
+  print(r.names(), @name(RA))
+  show(r)
+  w = Wrap(v: 1)
+  i: Int? = none
+  print(w.map_name(i), @name(WA))
+  s: ?String = "x"
+  show(s)
+  t: (?String)? = none
+  show(t)

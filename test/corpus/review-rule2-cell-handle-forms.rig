@@ -1,0 +1,63 @@
+obj H
+  h: *Cell[List[Int]]
+
+sub viaOwned(o: H)
+  h = +o.h
+  (!h)[0] = 20
+  (!h).push(21)
+
+sub viaOpt(h: (*Cell[List[Int]])?)
+  if h as x
+    print(x.len)
+  y = <h ?? return
+  (!y)[0] = 30
+  (!y).push(31)
+
+sub generic[T](c: *Cell[T], d: *Cell[T], v: T)
+  (!c).set(v)
+  swap(!c, !d)
+
+sub viaLoop(cs: List[*Cell[Int]])
+  for c in <cs
+    (!c).set(c.get() + 100)
+
+sub viaLoopView(cs: ?List[*Cell[Int]])
+  for c in cs
+    d = +c
+    (!d).set(d.get() + 1000)
+
+sub swapLocals()
+  a: *Cell[Int] = *Cell(1)
+  b: *Cell[Int] = *Cell(2)
+  a2 = +a
+  swap(!a, !b)
+  print(a.get(), b.get(), a2.get())
+  !a.set(9)
+  print(a.get(), b.get(), a2.get())
+
+sub fixed()
+  a =! *Cell(5)
+  b =! *Cell(6)
+  swap(!a, !b)
+  print(a.get(), b.get())
+
+sub main()
+  c: *Cell[List[Int]] = *Cell(List())
+  !c.push(1)
+  viaOwned(H(h: +c))
+  print(c[0], c.len)
+  viaOpt(+c)
+  print(c[0], c.len)
+  viaOpt(none)
+  x: *Cell[Int] = *Cell(1)
+  y: *Cell[Int] = *Cell(2)
+  generic(+x, +y, 7)
+  print(x.get(), y.get())
+  cs: List[*Cell[Int]] = List()
+  !cs.push(+x)
+  !cs.push(+y)
+  viaLoopView(?cs)
+  viaLoop(<cs)
+  print(x.get(), y.get())
+  swapLocals()
+  fixed()

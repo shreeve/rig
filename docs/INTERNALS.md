@@ -870,7 +870,12 @@ tables: an instance made here, and every instance its bodies reach,
 even in a module this one does not import, is expanded, checked against
 the requirements, sized, and ownership-checked here, and a note about
 the body points into the declaring module's file. Import cycles are
-rejected, so a chain of proxies always ends.
+rejected, so a chain of proxies always ends. A proxy is recorded before
+its members and parameters are imported, which may make more; past 64
+nested imports a proxy is filled in later, by the outermost import
+(`importSymbol`), so a chain of generics, each naming the next, does
+not nest once per link. Until then a type naming the proxy reads only
+its contents, which it has from the start.
 
 ## Sema
 
@@ -896,6 +901,10 @@ later pass reads. It runs these steps in order:
    opens one, recorded under that node.
 3. **declarations** (`resolve.resolveDeclarations`): type expressions
    become `TypeId`s: signatures, fields, variants, aliases, constants.
+   An alias is resolved after the aliases its target names, with an
+   explicit stack (`resolveNamedAliases`), and names a type nested at
+   most `sema.max_alias_height` deep (`TypeInfo.height`), which every
+   walk over a type's structure then stays within.
 4. **contents** (`computeContents`, then `checkInfiniteTypes`): what
    each declared type's values hold, computed once all declarations
    are resolved: whether they need drop glue, hold a `Cell` inline,
@@ -909,7 +918,8 @@ later pass reads. It runs these steps in order:
    chain of types. Then a type that holds itself by value is rejected.
 5. **validation** (`checkTypeSizes`, then `resolve.checkDeclarations`):
    every object and enum fits `max_value_bytes`, each sized after the
-   types it holds; then the rules on spelled types that depend on
+   types it holds (a generic instance too, by `minBytes`, which sizes
+   what it holds first with a stack of its own); then the rules on spelled types that depend on
    contents (array and built-in element types, owned-closure
    signatures).
 6. **expressions** (`typecheck.checkModule`): bodies are type-checked
@@ -1797,7 +1807,9 @@ values, and an object held by value changes a field only where a write
 of its binding says so. Anything else (a value `if`, a parameter, a
 negative or a larger literal) bounds nothing, and nor does a function
 whose bound reaches itself through a cycle of calls, since its bound is
-not known when it is asked for.
+not known when it is asked for. The bounds are found callees first, by a
+walk with a stack of its own (`Summaries.visit`), so a chain of calls
+as long as a program makes it does not nest the compiler's own stack.
 
 **Writes.** A binding changes only where an assignment or a `!` says so
 (Core sentences 4 and 9), and resolve and typecheck record each such
@@ -4098,7 +4110,7 @@ reviewed.
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
-| `typeName(x, names)` | `@name(T)` of a type that holds a type parameter. Emit writes such a `@name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, while a type known where it is written is the printer's string itself. Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which `test/behavior/types/type_names` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
+| `typeName(x, names)` | `@name(T)` of a type that holds a type parameter. Emit writes such a `@name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, and a type whose parentheses depend on the instance (`T?`, `*T`, `sema.spelledPerInstance`) named whole, from its Zig type, while a type known where it is written is the printer's string itself. The Zig type of an instance that holds a view or a slice, but a `?String`, does not tell its Rig type, so such an instance is rejected (`Requirement.named`). Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which `test/behavior/types/type_names` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
 | `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `filled` and `resize` fill new slots with one `@memset`; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a String's bytes and a List's elements copied (`List.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
 | `String` | `String`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` take the pieces `print` does (below), with no separators: each run of text is appended once, by the one writer of its length, a `?String` or a String as its bytes, and each other value by the one writer of its type, `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `String(...)` and `print` agree exactly; `bytes` is the `?String` view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a String's or a `?String`'s |

@@ -1,0 +1,17 @@
+# `swap` and `replace` move values whole. A Signal changes only by its
+# marked calls, which may be running its subscribers, so the Signals two
+# handle parameters lend are not exchanged; handles of local bindings,
+# which `!` lends themselves, still are.
+
+sub trade(s: *Signal[Int], t: *Signal[Int])
+  swap(!s, !t)
+
+sub main()
+  a: *Signal[Int] = *Signal(0)
+  b: *Signal[Int] = *Signal(1)
+  swap(!a, !b)
+  trade(+a, +b)
+  print(a.get(), b.get())
+
+# error: 7:8: `swap` moves values whole, and a `Signal[Int]` changes only by its marked calls
+# errors: 1
