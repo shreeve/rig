@@ -1,8 +1,10 @@
-# RIG_NO_CRASH_REPORT=1 only stops macOS from filing a crash report: a
-# panicking program exits with the same status (134, SIGABRT) and writes
-# the same stdout and stderr with it as without it, in every build mode,
-# and `rig test` reports a panicking test the same. It builds in all four
-# modes, which on a loaded machine takes longer than the default limit.
+# RIG_NO_CRASH_REPORT=1 only stops a crash report (macOS's, or Linux's
+# crash handler, apport): a panicking program exits with the same status
+# (134, SIGABRT) and writes the same stdout and stderr with it as without
+# it, in every build mode, and `rig test` reports a panicking test the
+# same. On Linux it is the program's own core limit of exactly 1. It
+# builds in all four modes, which on a loaded machine takes longer than
+# the default limit.
 # timeout: 600
 source "$ROOT/test/cli/_lib.sh"
 
@@ -45,4 +47,25 @@ RIG_NO_CRASH_REPORT=1 rig test tboom.rig >quiet_out.txt 2>quiet_err.txt; quiet_r
 expect_rc $quiet_rc $rc "rig test of a panicking test"
 expect_eq "$(cat quiet_out.txt)" "$(cat out.txt)" "rig test stdout"
 expect_eq "$(stable quiet_err.txt)" "$(stable err.txt)" "rig test stderr"
+
+# Linux: the program's core limit is exactly 1 (soft and hard), at which
+# the kernel starts no core_pattern pipe; without the variable it keeps
+# the limit it was given.
+if [[ $(uname -s) == Linux ]]; then
+    cat >limits.rig <<'EOF2'
+use std.file
+
+sub main()
+  if file.read("/proc/self/limits") as s
+    print(s)
+  else
+    print("none")
+EOF2
+    core() { awk '/^Max core file size/ { print $5, $6 }'; }
+    got=$(RIG_NO_CRASH_REPORT=1 rig run limits.rig 2>&1 | core)
+    expect_eq "$got" "1 1" "the core limit with RIG_NO_CRASH_REPORT=1"
+    want=$(core </proc/$$/limits)
+    got=$(rig run limits.rig 2>&1 | core)
+    expect_eq "$got" "$want" "the core limit without RIG_NO_CRASH_REPORT"
+fi
 exit 0
