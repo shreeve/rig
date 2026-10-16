@@ -3921,15 +3921,23 @@ prologue reserves.
 A program's Rig code runs on a stack the runtime maps itself
 (`rig.onOwnStack`), not on the stack the system gave its main thread:
 
-1. reserve `guard + 64 MiB` of address space inaccessible, the guard
+1. reserve `guard + 64 MiB + a page` of address space inaccessible, the guard
    64 GiB, or 1 GiB where that cannot be reserved (`guard_sizes`); a
    program that cannot reserve even that prints `rig: cannot reserve
    the program's stack and the guard below it` and exits 1 before it
    runs;
-2. make the top 64 MiB readable and writable: the stack;
+2. make the 64 MiB above the guard readable and writable: the stack,
+   with one more page above it left inaccessible, so a read past the
+   stack's top faults whatever else the process maps there;
 3. install the overflow handler, then call the body with the stack
-   pointer at the stack's top (`switchStack`), and return with it
-   where it was.
+   pointer 256 bytes below the stack's top (`switchStack`,
+   `unwind_headroom`), and return with it where it was. A panic's
+   stack trace reads above the first frame: on macOS, Zig's reader of
+   a compact unwind entry (the FRAME case of `unwindFrameInner` in
+   `std/debug/SelfInfo/MachO.zig`) reads the saved pairs of x19..x28
+   upward from 8 below the frame pointer, up to 56 bytes above where
+   the frame began, and at the stack's very top that read would fault
+   instead of printing the trace (`test/cli/panic_status.sh`).
 
 So the emitted `main` desugars to
 
@@ -4012,8 +4020,9 @@ through `pthread_atfork`, where libc is linked). For a fault in the
 guard it flushes `print`'s output and writes `error: rig: stack
 overflow`; then, as the sanitizer's handler does, it restores the
 handlers it replaced and returns, so the access faults again into Zig's
-handler, which prints the stack trace, or, in `--release=fast`, ends the
-program.
+handler, which prints the stack trace and aborts. In `--release=fast`,
+where Zig installs no handler, it aborts itself, so a stack overflow
+ends with SIGABRT (status 134) in every build mode, as a panic does.
 
 **64 MiB.** Four times the 16 MiB Zig gives the main thread: deep
 recursion (a checker's walk of a large tree) has room, and address
