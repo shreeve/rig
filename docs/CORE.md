@@ -1269,8 +1269,11 @@ sub main()
 
 **View places.** Assigning a view to a place that holds one re-points
 it, and assigning a value writes through. A field that holds a read
-view re-points the same way. `new` only shadows, and accepts every
-binding form.
+view re-points the same way. A `!T` a call returns, or that the call's
+`!` or `?` gives, is a place too: assigning to it writes through, as it
+would through a binding of it. The call finds the place, so it runs
+after the value, as an index does. `new` only shadows, and accepts
+every binding form.
 *(built)*
 
 ```rig
@@ -1285,6 +1288,22 @@ sub main()
 
 ```output
 1 5
+```
+
+```rig
+fun slot(v: !List[Int], i: Int) -> !Int from v
+  !v.push(7)
+  !v[i]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  slot(!v, 0) += v.len
+  print(v)
+```
+
+```output
+[2, 7]
 ```
 
 ## 7. Closures and defer
