@@ -507,7 +507,8 @@ tokens
     keyword.control     ("break" | "continue") [ \t]+ label:('@' [A-Za-z_] [A-Za-z0-9_]*)
     label               '@' [A-Za-z_] [A-Za-z0-9_]* after [ \t]+ ("for" | "while" | "match" | "raw")
     function.builtin    '@' [a-z_]+ after '('
-    storage.modifier    [<?!+^*~] not before [A-Za-z0-9_)\]] after [A-Za-z_(\[<]
+    storage.modifier    [*] not before [A-Za-z0-9_)\]] after '<' [A-Za-z_(\[]
+    storage.modifier    [<?!+^*~] not before [A-Za-z0-9_)\]] after [A-Za-z_(\[]
     storage.modifier    [!?] before [A-Za-z0-9_)\]] not after [A-Za-z0-9_(\[=?]
     variable.parameter  [A-Za-z_] [A-Za-z0-9_]* after ':' not before [A-Za-z0-9_.]
     type                [A-Z] [A-Za-z0-9_]* not before [A-Za-z0-9_]
