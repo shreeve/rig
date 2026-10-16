@@ -177,4 +177,7 @@ started:
   already name the fix, such as "write `rd(?n)`"; the JSON gives each
   fix as an edit to apply.
 - A formatter that writes the canonical style.
-- Later, `rig explain` and a language server.
+- Later, `rig explain`.
+- The language server's phase 2 (`rig lsp`, editors/README.md): hover,
+  go to definition, completion, rename, and formatting; and a file of a
+  directory module checked as part of its module.
