@@ -1857,6 +1857,16 @@ symbols in its scope, and its `FunctionType.ct_params` holds the
 parameter's type may not mention one), so a signature says which of its
 compile-time parameters are types; `ct_syms` names each slot's symbol.
 
+A built-in generic's method declares what it needs of its type's `T`
+in its entry of `resolve.registerBuiltins` (`sema.Needs`): `Cell.get`,
+`List.get`, and `Signal.get` hand out a copy of a value they keep, and
+`List.filled` and `resize` copy one into every element they make, so
+each needs a `T` that copies. `meetsNeeds` checks the declaration at
+every call, `xs.m(...)` and `List.m(xs, ...)` alike, by the path a
+Rig-written generic's use takes: a `T` that does not copy is rejected,
+and one that holds type parameters records `copies` on them; the check
+names no method.
+
 A compile-time integer where a type goes is a type too: `ct_value` (a
 folded integer) or `ct_param` (an integer value parameter, as
 `type_var` stands for a type parameter). An array's length is one

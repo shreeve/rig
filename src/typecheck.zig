@@ -5696,38 +5696,36 @@ const Checker = struct {
         return false;
     }
 
-    /// The element rules of the List methods that copy an element,
-    /// checked on both routes a call takes, `xs.m(...)` and
-    /// `List.m(xs, ...)` through the type, with `f` the method's type at
-    /// the call. `get` copies an element out, which only a value that
-    /// copies allows (Core sentence 1). `List.filled(n, x)` and
-    /// `!v.resize(n, x)` write copies of `x`, which they leave in place,
-    /// into every element they make, so the element must copy
-    /// (docs/CORE.md §5, "Only a value that copies is duplicated without
-    /// `+`"). False after a diagnostic.
-    fn listCopies(self: *Checker, method: []const u8, f: FunctionType, pos: u32) Error!bool {
-        const Copying = enum { get, filled, resize };
-        const which = std.meta.stringToEnum(Copying, method) orelse return true;
-        const elem = switch (which) {
-            .get => switch (self.ctx.types.get(f.returns)) {
-                .optional => |o| o,
-                else => return true,
-            },
-            .filled => if (f.params.len == 2) f.params[1] else return true,
-            .resize => if (f.params.len == 3) f.params[2] else return true,
-        };
-        if (self.isPoison(elem)) return true;
-        const op = switch (which) {
-            .get => "copies an element out of a List",
-            .filled => "copies into every element of `List.filled` a value",
-            .resize => "copies into every element `resize` adds a value",
-        };
-        if (!try self.cannotCopy(elem, pos, op)) return true;
-        const shown = try self.tyName(elem);
-        switch (which) {
-            .get => try self.err(pos, "`List.{s}` would copy an element out of a `List` of `{s}`, which a copy cannot share; read it in place with `v[i]`, or lend it with `?v[i]`", .{ method, shown }),
-            .filled => try self.notDuplicated(pos, "`List.filled` copies its value into every element", elem, "`for 0..n` with `!xs.push(+x)`", ""),
-            .resize => try self.notDuplicated(pos, "`resize` copies its value into every element it adds", elem, "`for xs.len..n` with `!xs.push(+x)`", "; `!xs.keep(n)` shrinks any List"),
+    /// What the built-in method `m` of the type `owner_sym` declares it
+    /// needs of the type's parameter `T` (`sema.Needs`, from
+    /// `resolve.registerBuiltins`), checked at a call on either route it
+    /// takes, `xs.m(...)` and `List.m(xs, ...)` through the type, where
+    /// `args` are the type's arguments at the call. A `T` that may or may
+    /// not meet it, inside a generic body, makes it a requirement on
+    /// each instance (`Requirement.copies`). An instance the type itself
+    /// rejects (`resolve.builtinElementError`) was reported where it is
+    /// spelled or made. False after a diagnostic.
+    fn meetsNeeds(self: *Checker, m: Field, owner_sym: SymbolId, args: []const TypeId, pos: u32) Error!bool {
+        const needs = m.needs orelse return true;
+        // Only a built-in generic's method declares needs, and every call
+        // of one has the type's arguments: a call without them is
+        // rejected, never passed unchecked.
+        if (args.len == 0) {
+            try self.err(pos, "internal error: `{s}.{s}` declares what it needs of `T`, and the call has no type arguments to check", .{ self.ctx.symbols.items[owner_sym].name, m.name });
+            return false;
+        }
+        if (self.isPoison(args[0])) return true;
+        const param = args[0];
+        switch (needs.t) {
+            .copies => if (!try self.cannotCopy(param, pos, needs.op)) return true,
+        }
+        if ((try resolve.builtinElementError(self.ctx, owner_sym, args)) != null) return true;
+        const owner = self.ctx.symbols.items[owner_sym].name;
+        const shown = try self.tyName(param);
+        switch (needs.says) {
+            .element_out => |advice| try self.err(pos, "`{s}.{s}` would copy an element out of a `{s}` of `{s}`, which a copy cannot share; {s}", .{ owner, m.name, owner, shown, advice }),
+            .value_out => |advice| try self.err(pos, "`{s}.{s}` returns a copy of the value, and {s} `{s}` {s}, so it can't be copied; {s}", .{ owner, m.name, article(shown), shown, if (sema.typeHasDropGlue(self.ctx, param)) "owns what it must release" else self.movesBecause(param), advice }),
+            .into_elements => |d| try self.notDuplicated(pos, d.what, param, d.loop, d.tail),
         }
         return false;
     }
@@ -5739,22 +5737,24 @@ const Checker = struct {
     /// node or a position. `what` says what the form copies, and `loop`
     /// is the loop that makes each element with `+x` instead, which the
     /// diagnostic offers, followed by `tail`, when `+x` clones `elem`.
-    fn notDuplicated(self: *Checker, at: anytype, comptime what: []const u8, elem: TypeId, comptime loop: []const u8, comptime tail: []const u8) Error!void {
+    fn notDuplicated(self: *Checker, at: anytype, what: []const u8, elem: TypeId, loop: []const u8, tail: []const u8) Error!void {
         const shown = try self.tyName(elem);
         const why = self.movesBecause(elem);
-        const args = .{ article(shown), shown, why };
+        const args = .{ what, article(shown), shown, why };
+        const plain = "{s}, and {s} `{s}` {s}, so it cannot be copied";
         if (sema.holdsWriteView(self.ctx, elem)) {
-            if (@TypeOf(at) == Sexp) return self.errAt(at, what ++ ", and {s} `{s}` {s}, so it cannot be copied", args);
-            return self.err(at, what ++ ", and {s} `{s}` {s}, so it cannot be copied", args);
+            if (@TypeOf(at) == Sexp) return self.errAt(at, plain, args);
+            return self.err(at, plain, args);
         }
         if (sema.cloneable(self.ctx, elem) == .no) {
-            const fmt = what ++ ", and {s} `{s}` {s}, so it cannot be copied, and it has no clone: write a loop that makes each element anew";
+            const fmt = plain ++ ", and it has no clone: write a loop that makes each element anew";
             if (@TypeOf(at) == Sexp) return self.errAt(at, fmt, args);
             return self.err(at, fmt, args);
         }
-        const fmt = what ++ ", and {s} `{s}` {s}, so it cannot be copied: write a loop that makes each element with `+x` (" ++ loop ++ ")" ++ tail;
-        if (@TypeOf(at) == Sexp) return self.errAt(at, fmt, args);
-        return self.err(at, fmt, args);
+        const fmt = plain ++ ": write a loop that makes each element with `+x` ({s}){s}";
+        const with_loop = .{ what, article(shown), shown, why, loop, tail };
+        if (@TypeOf(at) == Sexp) return self.errAt(at, fmt, with_loop);
+        return self.err(at, fmt, with_loop);
     }
 
     /// Why a value of `ty`, which does not copy (`sema.copies`), cannot
@@ -6085,11 +6085,13 @@ const Checker = struct {
         /// The type's symbol, and the module it is in: null for this one.
         owner_sym: sema.Symbol,
         module: ?u32 = null,
+        /// The type's generic arguments, for a local type.
+        args: []const TypeId = &.{},
     };
 
     fn findMethod(self: *Checker, obj_ty: TypeId, name: []const u8) Error!?Method {
         if (try sema.lookupMethod(self.ctx, obj_ty, name)) |m| {
-            return .{ .field = m.field, .fn_ty = m.fn_ty, .owner = self.ctx.symbols.items[m.nominal_sym].name, .nominal_sym = m.nominal_sym, .source = self.declSource(m.nominal_sym), .owner_sym = self.ctx.symbols.items[m.nominal_sym] };
+            return .{ .field = m.field, .fn_ty = m.fn_ty, .owner = self.ctx.symbols.items[m.nominal_sym].name, .nominal_sym = m.nominal_sym, .source = self.declSource(m.nominal_sym), .owner_sym = self.ctx.symbols.items[m.nominal_sym], .args = m.subst.args };
         }
         const decl = sema.nominalDecl(self.ctx, sema.unwrapAccess(self.ctx, obj_ty)) orelse return null;
         const module_id = decl.module_id orelse return null;
@@ -9708,17 +9710,7 @@ const Checker = struct {
             try self.readLeaf(obj);
         } else if (receiver != .value and !misplaced_sigil and !(receiver == .write and self.hands(obj).kind == .made)) try self.rejectResourceTemporary(obj, obj_ty);
 
-        if (resolved.nominal_sym == self.ctx.cell_sym_id) {
-            if (std.mem.eql(u8, method, "get")) {
-                if (cellElementType(self.ctx, obj_ty)) |elem| {
-                    if ((try self.cannotCopy(elem, pos, "copies out with `Cell.get` a value"))) return self.badCall(args, pos, "`Cell.get` returns a copy of the value, and {s} `{s}` {s}, so it can't be copied; write `(!cell).replace(<new)`, which puts `new` in and hands back the old value", .{ article(try self.tyName(elem)), try self.tyName(elem), if (sema.typeHasDropGlue(self.ctx, elem)) "owns what it must release" else self.movesBecause(elem) });
-                }
-            }
-        }
         try self.checkVisible(resolved.field, resolved.owner_sym, resolved.module, pos);
-        // `pop` removes the element, so it hands over ownership; `get`
-        // would copy it out of the List.
-        if (resolved.nominal_sym == self.ctx.list_sym_id and std.mem.eql(u8, method, "get")) if (!try self.listCopies(method, resolved.fn_ty, pos)) return self.skipCall(args);
 
         if (receiver == .none) {
             // A `self` without a sigil was reported where it is declared.
@@ -9737,7 +9729,7 @@ const Checker = struct {
         }
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
-        if (resolved.nominal_sym == self.ctx.list_sym_id and !std.mem.eql(u8, method, "get")) if (!try self.listCopies(method, f, pos)) return self.skipCall(args);
+        if (!try self.meetsNeeds(resolved.field, resolved.nominal_sym, resolved.args, pos)) return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
         const rest: FunctionType = .{
             .params = f.params[1..],
@@ -10118,7 +10110,7 @@ const Checker = struct {
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
                 const info = methodParams(m, false, source);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
-                if (nt.id == self.ctx.list_sym_id) if (!try self.listCopies(name, f, pos)) return self.skipCall(args);
+                if (!try self.meetsNeeds(m, nt.id, recv.args, pos)) return self.skipCall(args);
                 try self.noteCallee(f);
                 self.lend_call = true;
                 try self.checkArgs(args, f, info, name, pos, .{ .origins = m.origins, .declared = fty.function.params });

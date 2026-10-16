@@ -1,0 +1,11 @@
+# `Cell[String].get(?c)` calls `get` through the type: it hands out a
+# copy of the Cell's value as `c.get()` does, so it needs a value that
+# copies. Accepted, the copy and the Cell's own String were both freed.
+
+sub main()
+  c = *Cell(String("a"))
+  s = Cell[String].get(?c)
+  print(s)
+
+# error: 7:20: `Cell.get` returns a copy of the value, and a `String` owns what it must release, so it can't be copied
+# errors: 1

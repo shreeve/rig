@@ -2677,6 +2677,37 @@ pub fn isNumericTypeName(name: []const u8) bool {
 
 const builtin_pos = sema.builtin_decl_pos;
 
+// What the built-in methods that copy a `T` need of it: a `T` that
+// copies (docs/CORE.md: sentence 1, for a copy out of what a method
+// keeps; §5, "Only a value that copies is duplicated without `+`").
+
+/// `c.get()` hands out a copy of the Cell's value.
+const cell_get: sema.Needs = .{ .t = .copies, .op = "copies out with `Cell.get` a value", .says = .{
+    .value_out = "write `(!cell).replace(<new)`, which puts `new` in and hands back the old value",
+} };
+
+/// `xs.get(i)` hands out a copy of an element.
+const list_get: sema.Needs = .{ .t = .copies, .op = "copies an element out of a List", .says = .{
+    .element_out = "read it in place with `v[i]`, or lend it with `?v[i]`",
+} };
+
+/// `List.filled(n, x)` writes a copy of `x` into every element.
+const list_filled: sema.Needs = .{ .t = .copies, .op = "copies into every element of `List.filled` a value", .says = .{
+    .into_elements = .{ .what = "`List.filled` copies its value into every element", .loop = "`for 0..n` with `!xs.push(+x)`" },
+} };
+
+/// `!xs.resize(n, x)` writes a copy of `x` into every element it adds.
+/// The element type decides, so a call that only shrinks needs it too.
+const list_resize: sema.Needs = .{ .t = .copies, .op = "copies into every element `resize` adds a value", .says = .{
+    .into_elements = .{ .what = "`resize` copies its value into every element it adds", .loop = "`for xs.len..n` with `!xs.push(+x)`", .tail = "; `!xs.keep(n)` shrinks any List" },
+} };
+
+/// `s.get()` hands out a copy of the Signal's value, which every
+/// `Signal[T]` holds as plain data (`builtinElementError`).
+const signal_get: sema.Needs = .{ .t = .copies, .op = "copies out with `Signal.get` a value", .says = .{
+    .value_out = "a `Signal` holds only plain data",
+} };
+
 pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     // Cell[T]: the slot a shared handle shares. What changes it takes
     // `!self`, so a call marks the change: `!c.set(5)`.
@@ -2688,10 +2719,10 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const write_self = try ctx.intern(.{ .write_view = g.self_ty });
         try setFields(ctx, g.sym, &.{
             .{ .name = "value", .ty = t, .decl_pos = builtin_pos },
-            try method(ctx, "get", .read, &.{self_ty}, t),
-            try method(ctx, "set", .write, &.{ write_self, t }, ctx.types.void_id),
+            try method(ctx, "get", .read, &.{self_ty}, t, &cell_get),
+            try method(ctx, "set", .write, &.{ write_self, t }, ctx.types.void_id, null),
             // Swap in a new value and return the old one as owned.
-            try method(ctx, "replace", .write, &.{ write_self, t }, t),
+            try method(ctx, "replace", .write, &.{ write_self, t }, t, null),
         });
     }
 
@@ -2704,17 +2735,17 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const write_self = try ctx.intern(.{ .write_view = g.self_ty });
         const opt_t = try ctx.intern(.{ .optional = t });
         try setFields(ctx, g.sym, &.{
-            try method(ctx, "push", .write, &.{ write_self, t }, ctx.types.void_id),
-            try method(ctx, "clear", .write, &.{write_self}, ctx.types.void_id),
-            try method(ctx, "keep", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id),
-            try method(ctx, "reserve", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id),
-            try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t),
-            try method(ctx, "pop", .write, &.{write_self}, opt_t),
-            try method(ctx, "insert", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id),
-            try method(ctx, "remove", .write, &.{ write_self, ctx.types.int_id }, t),
-            try method(ctx, "resize", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id),
+            try method(ctx, "push", .write, &.{ write_self, t }, ctx.types.void_id, null),
+            try method(ctx, "clear", .write, &.{write_self}, ctx.types.void_id, null),
+            try method(ctx, "keep", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
+            try method(ctx, "reserve", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
+            try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t, &list_get),
+            try method(ctx, "pop", .write, &.{write_self}, opt_t, null),
+            try method(ctx, "insert", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id, null),
+            try method(ctx, "remove", .write, &.{ write_self, ctx.types.int_id }, t, null),
+            try method(ctx, "resize", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id, &list_resize),
             // `List.filled(n, x)`: called through the type.
-            try method(ctx, "filled", .none, &.{ ctx.types.int_id, t }, g.self_ty),
+            try method(ctx, "filled", .none, &.{ ctx.types.int_id, t }, g.self_ty, &list_filled),
         });
     }
 
@@ -2728,7 +2759,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const t = g.params[0];
         try setFields(ctx, g.sym, &.{
             .{ .name = "value", .ty = t, .decl_pos = builtin_pos },
-            try method(ctx, "unbox", .value, &.{g.self_ty}, t),
+            try method(ctx, "unbox", .value, &.{g.self_ty}, t, null),
         });
     }
 
@@ -2792,9 +2823,9 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const closure_handle = try ctx.intern(.{ .shared = callback });
         try setFields(ctx, g.sym, &.{
             .{ .name = "value", .ty = t, .decl_pos = builtin_pos },
-            try method(ctx, "get", .read, &.{self_ty}, t),
-            try method(ctx, "set", .write, &.{ write_self, t }, ctx.types.void_id),
-            try method(ctx, "subscribe", .write, &.{ write_self, closure_handle }, ctx.types.void_id),
+            try method(ctx, "get", .read, &.{self_ty}, t, &signal_get),
+            try method(ctx, "set", .write, &.{ write_self, t }, ctx.types.void_id, null),
+            try method(ctx, "subscribe", .write, &.{ write_self, closure_handle }, ctx.types.void_id, null),
         });
     }
 }
@@ -2837,13 +2868,16 @@ fn addGeneric(ctx: *SemContext, named_in: ?ScopeId, module_scope: ScopeId, name:
     return .{ .sym = sym, .params = param_tys, .self_ty = self_ty };
 }
 
-fn method(ctx: *SemContext, name: []const u8, receiver: MethodReceiver, params: []const TypeId, returns: TypeId) Error!Field {
+/// A built-in method, with what it needs of its type's parameter `T`
+/// (`sema.Needs`), or null when it needs nothing: every method that
+/// copies a `T`, out of what it keeps or into elements it makes, says so.
+fn method(ctx: *SemContext, name: []const u8, receiver: MethodReceiver, params: []const TypeId, returns: TypeId, needs: ?*const sema.Needs) Error!Field {
     const ty = try ctx.intern(.{ .function = .{
         .params = try ctx.dupeIds(params),
         .returns = returns,
         .is_sub = returns == ctx.types.void_id,
     } });
-    return .{ .name = name, .ty = ty, .decl_pos = builtin_pos, .is_method = true, .receiver = receiver };
+    return .{ .name = name, .ty = ty, .decl_pos = builtin_pos, .is_method = true, .receiver = receiver, .needs = needs };
 }
 
 fn setFields(ctx: *SemContext, sym: SymbolId, fields: []const Field) Error!void {
@@ -2859,6 +2893,23 @@ test "builtins: registered with methods" {
     try std.testing.expectEqual(ctx.list_sym_id, list);
     try std.testing.expectEqual(@as(usize, 10), ctx.symbols.items[list].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
+}
+
+test "builtins: a method that declares needs is a generic type's, with a T" {
+    var ctx = try SemContext.init(std.testing.allocator, "");
+    defer ctx.deinit();
+    const scope = try ctx.pushScopeKind(sema.scope_invalid, .module);
+    try registerBuiltins(&ctx, scope);
+    var declared: usize = 0;
+    for (ctx.symbols.items) |sym| for (sym.fields orelse &.{}) |f| if (f.needs != null) {
+        // `meetsNeeds` reads `T` from the type's arguments at the call.
+        try std.testing.expect(f.is_method);
+        try std.testing.expectEqual(sema.SymbolKind.generic_type, sym.kind);
+        try std.testing.expect(sym.type_params != null and sym.type_params.?.len >= 1);
+        declared += 1;
+    };
+    // `Cell.get`, `List.get`, `List.filled`, `List.resize`, `Signal.get`.
+    try std.testing.expectEqual(@as(usize, 5), declared);
 }
 
 /// A type a compile-time argument can have: one written as a literal,

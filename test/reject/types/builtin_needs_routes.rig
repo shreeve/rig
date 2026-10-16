@@ -1,0 +1,54 @@
+# A built-in method that copies a `T` declares that `T` must copy, and
+# every call meets it, as `xs.m(...)` and as `Type.m(xs, ...)` through
+# the type, and in a generic body for each instance: `Cell.get` and
+# `List.get` copy a value out of what they keep, `List.filled` and
+# `resize` copy one into every element they make.
+
+type Names = List[String]
+
+fun first[T](xs: ?List[T]) -> T?
+  List.get(xs, 0)
+
+fun peek[T](c: ?Cell[T]) -> T
+  Cell[T].get(c)
+
+fun look[T](c: ?Cell[T]) -> T
+  c.get()
+
+sub grow[T](xs: !List[T], x: T)
+  List.resize(!xs, 3, x)
+
+sub main()
+  c = *Cell(String("a"))
+  a = c.get()
+  b = Cell[String].get(?c)
+  xs: List[String] = List()
+  !xs.push(String("x"))
+  d = xs.get(0)
+  e = List.get(?xs, 0)
+  f = Names.get(?xs, 0)
+  bx = ^List[String]()
+  g = bx.get(0)
+  !xs.resize(2, String("y"))
+  List[String].resize(!xs, 2, String("z"))
+  h = List.filled(2, String("w"))
+  k = List[String].filled(2, String("v"))
+  print(first(?xs), peek(?c), look(?c))
+  grow(!xs, String("u"))
+  print(a, b, d, e, f, g, h, k)
+
+# error: 23:9: `Cell.get` returns a copy of the value, and a `String` owns what it must release, so it can't be copied; write `(!cell).replace(<new)`
+# error: 24:20: `Cell.get` returns a copy of the value, and a `String` owns what it must release
+# error: 27:10: `List.get` would copy an element out of a `List` of `String`, which a copy cannot share
+# error: 28:12: `List.get` would copy an element out of a `List` of `String`
+# error: 29:13: `List.get` would copy an element out of a `List` of `String`
+# error: 31:10: `List.get` would copy an element out of a `List` of `String`
+# error: 32:7: `resize` copies its value into every element it adds, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for xs.len..n` with `!xs.push(+x)`); `!xs.keep(n)` shrinks any List
+# error: 33:16: `resize` copies its value into every element it adds, and a `String` owns a resource
+# error: 34:12: `List.filled` copies its value into every element, and a `String` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for 0..n` with `!xs.push(+x)`)
+# error: 35:20: `List.filled` copies its value into every element, and a `String` owns a resource
+# error: 36:9: `first[String]` cannot use `T = String`: the generic body copies an element out of a List
+# error: 36:21: `peek[String]` cannot use `T = String`: the generic body copies out with `Cell.get` a value
+# error: 36:31: `look[String]` cannot use `T = String`: the generic body copies out with `Cell.get` a value
+# error: 37:3: `grow[String]` cannot use `T = String`: the generic body copies into every element `resize` adds a value
+# errors: 14
