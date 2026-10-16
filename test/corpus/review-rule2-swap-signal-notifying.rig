@@ -1,0 +1,20 @@
+# `swap(!s, !t)` of two Signal handle parameters would exchange the
+# Signals whole, subscribers included, while `set` may be running them:
+# rejected, as a Signal changes only by its marked calls.
+
+sub swapper(s: *Signal[Int], t: *Signal[Int])
+  swap(!s, !t)
+
+sub main()
+  a: *Signal[Int] = *Signal(0)
+  !a.subscribe(*|~a|
+    if *a as s
+      t: *Signal[Int] = *Signal(9)
+      swapper(+s, +t)
+      print("swapped", s.get(), t.get())
+  )
+  !a.subscribe(*||
+    print("second")
+  )
+  !a.set(1)
+  print(a.get())

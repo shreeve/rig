@@ -1,0 +1,8 @@
+pub type Order = Endian
+pub type Cpu = Arch
+
+pub enum Color
+  red
+  blue
+
+pub type Hue = Color

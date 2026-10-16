@@ -1,0 +1,28 @@
+# `@name(@type(x))` reads `x` as `@size(@type(x))` does, though its name
+# is known where it is written: a binding read only there (a method's
+# `self`, a `for` capture, a closure's capture) is used.
+
+obj W
+  v: Int
+
+  sub show(?self)
+    print(@name(@type(self.v)))
+
+sub loops(xs: []Int)
+  for x in xs
+    print(@name(@type(x)))
+
+sub main()
+  w = W(v: 1)
+  w.show()
+  xs = [1, 2]
+  loops(xs)
+  n = 4
+  g = |?n| print(@name(@type(n)), @align(@type(n)) > 0)
+  g()
+
+# expect:
+# Int
+# Int
+# Int
+# ?Int true

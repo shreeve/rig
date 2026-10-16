@@ -870,7 +870,12 @@ tables: an instance made here, and every instance its bodies reach,
 even in a module this one does not import, is expanded, checked against
 the requirements, sized, and ownership-checked here, and a note about
 the body points into the declaring module's file. Import cycles are
-rejected, so a chain of proxies always ends.
+rejected, so a chain of proxies always ends. A proxy is recorded before
+its members and parameters are imported, which may make more; past 64
+nested imports a proxy is filled in later, by the outermost import
+(`importSymbol`), so a chain of generics, each naming the next, does
+not nest once per link. Until then a type naming the proxy reads only
+its contents, which it has from the start.
 
 ## Sema
 
@@ -896,6 +901,10 @@ later pass reads. It runs these steps in order:
    opens one, recorded under that node.
 3. **declarations** (`resolve.resolveDeclarations`): type expressions
    become `TypeId`s: signatures, fields, variants, aliases, constants.
+   An alias is resolved after the aliases its target names, with an
+   explicit stack (`resolveNamedAliases`), and names a type nested at
+   most `sema.max_alias_height` deep (`TypeInfo.height`), which every
+   walk over a type's structure then stays within.
 4. **contents** (`computeContents`, then `checkInfiniteTypes`): what
    each declared type's values hold, computed once all declarations
    are resolved: whether they need drop glue, hold a `Cell` inline,
@@ -909,7 +918,8 @@ later pass reads. It runs these steps in order:
    chain of types. Then a type that holds itself by value is rejected.
 5. **validation** (`checkTypeSizes`, then `resolve.checkDeclarations`):
    every object and enum fits `max_value_bytes`, each sized after the
-   types it holds; then the rules on spelled types that depend on
+   types it holds (a generic instance too, by `minBytes`, which sizes
+   what it holds first with a stack of its own); then the rules on spelled types that depend on
    contents (array and built-in element types, owned-closure
    signatures).
 6. **expressions** (`typecheck.checkModule`): bodies are type-checked
@@ -1341,11 +1351,12 @@ instead of re-deriving it by name:
 | `callParamsOf(call)` | for every call checked against a signature, what fills each parameter (the receiver too) and which arguments the call passes loans on from ([Call origins](#call-origins)) |
 | `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`List[Int]`), or a function's arguments |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
-| `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T` (or vector of numbers); the bracket list is recorded as compile-time arguments (`instanceOf`). Also the methods of an integer's bits (`x.not()`, `x.count_ones()`) and of a vector (`Simd[T, n].splat(x)`, `m.bits()`, `m.select(a, b)`, ...) |
+| `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T` (or vector of numbers); the bracket list is recorded as compile-time arguments (`instanceOf`). Also the methods of an integer's bits (`x.not()`, `x.count_ones()`) and of a vector (`Simd[T, n].splat(x)`, `m.bits()`, `m.select(a, b)`, ...), and the functions of a number type or a plain enum (`I32.wrap(x)`, `Status.from_int(n)`, `Color.from_text(word)`) |
 | `splatOf(node)` | for a scalar operand of a lane-wise operator or of `select`: the vector type it stands for, every lane its value; emit writes it `@as(V, @splat(x))` ([Vectors](#vectors)) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
 | `liftOf(node)` | for a value that becomes an optional where it goes, the optional and what it is made from (`sema.Lift`): `none`, with the optional type its context gives it, and a value with fewer levels of optional than the optional it goes into, a `T` where a `T?` goes (or the value a view of one copies out). Typecheck records it for every value checked against a type (`checkExprAgainst`) and every value it adapts (`recordAdapted`), the latest check of a node deciding; emit packs such a value into each level that goes through the optional helpers (`emitLift`, [Emit](#emit), "Optionals"), where Zig would lift it into a `?T` on its own |
 | `upgradeOf(share)` | for `*w` of a weak handle, a `~T` or a view of one: that it upgrades it, and whether it reads `w` or takes it (`sema.Upgrade`) ([Weak upgrades](#weak-upgrades)) |
+| `isEnumText(node)`, `hasTextTable(sym)` | whether a `member` `e.text` is the name of plain enum value `e`'s variant, which emit writes as `rig.enumText(e)`, and the place checks block every write and write lend of; and whether the program calls `from_text` on plain enum `sym` of this module, which then holds the table of its names (`rig.NameTable`, built by `src/nametable.zig`). A call on another module's enum is marked there once every module is checked (`ModuleGraph.markTextTables`); a built-in enum's table is the calling module's own |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
@@ -1796,7 +1807,9 @@ values, and an object held by value changes a field only where a write
 of its binding says so. Anything else (a value `if`, a parameter, a
 negative or a larger literal) bounds nothing, and nor does a function
 whose bound reaches itself through a cycle of calls, since its bound is
-not known when it is asked for.
+not known when it is asked for. The bounds are found callees first, by a
+walk with a stack of its own (`Summaries.visit`), so a chain of calls
+as long as a program makes it does not nest the compiler's own stack.
 
 **Writes.** A binding changes only where an assignment or a `!` says so
 (Core sentences 4 and 9), and resolve and typecheck record each such
@@ -3344,6 +3357,26 @@ a range's bounds left to right. A target that is a name has no steps.
 The store comes last: it finds the place through the base and indexes
 as they were evaluated, and stores.
 
+A target assigned through (`storage.assignedThrough`) has no field or
+element on its path, so it is its own base: a call that returns a
+write view `!T`, or that call's `!` or `?`. Typecheck admits no other
+(`assignThroughCall`): `?` or `!` around anything but a call is no
+target. It writes the `T` the view reaches, as a hidden binding of the
+view would:
+
+```text
+f(x) op= value   ==>   { __v = value; w = f(x); w op= __v }
+```
+
+The call is the base, so it runs after the value, and the store goes
+through the pointer it returns (`Emitter.emitTarget`: `__rig_base_N.*`
+where the base is held, else `(f(&x)).*`). The storage plan and emit
+take the viewed `T` as the place's type (`Planner.placeAssign`,
+`emitPlaceAssign`), so a `T` that owns is replaced through a `slot`,
+the old value dropped; the ownership checker walks the call as a base
+no var holds and stores through its write loans (`walkFieldAssign`,
+`storeThroughLend`), as it does for `f(x).field = value`.
+
 The value runs to its end first: every statement in it (a `match` arm,
 an `if` or `else` block, a `catch` handler, a nested assignment), every
 scope it opens, and the drops and defers that end them. Only then does
@@ -4077,7 +4110,7 @@ reviewed.
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
-| `typeName(x, names)` | `@name(T)` of a type that holds a type parameter. Emit writes such a `@name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, while a type known where it is written is the printer's string itself. Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which `test/behavior/types/type_names` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
+| `typeName(x, names)` | `@name(T)` of a type that holds a type parameter. Emit writes such a `@name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, and a type whose parentheses depend on the instance (`T?`, `*T`, `sema.spelledPerInstance`) named whole, from its Zig type, while a type known where it is written is the printer's string itself. The Zig type of an instance that holds a view or a slice, but a `?String`, does not tell its Rig type, so such an instance is rejected (`Requirement.named`). Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which `test/behavior/types/type_names` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
 | `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `filled` and `resize` fill new slots with one `@memset`; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a String's bytes and a List's elements copied (`List.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
 | `String` | `String`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` take the pieces `print` does (below), with no separators: each run of text is appended once, by the one writer of its length, a `?String` or a String as its bytes, and each other value by the one writer of its type, `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `String(...)` and `print` agree exactly; `bytes` is the `?String` view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a String's or a `?String`'s |
@@ -4089,6 +4122,7 @@ reviewed.
 | `onOwnStack`, `switchStack` | run `main` and the tests on the program's stack, over its guard, with an overflow handler that names a fault in the guard a stack overflow ([The program's stack](#the-programs-stack)). `test/cli/stack_guard.sh` checks it |
 | `simdRead`, `simdWrite`, `lane`, `withLane`, `maskBits`, `maskFirst`, `maskAny`, `maskAll` | a vector's bytes, lanes, and mask ([Vectors](#vectors)): `simdRead` and `simdWrite` check the offset once, as `readInt` does, and load or store through an `align(1)` pointer, swapping each lane's bytes where its order is not native; `lane` and `withLane` go through `[n]T` with `index`'s check; `maskBits` lowers per target, and `maskFirst` too (below) |
 | `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @size(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
+| `enumText`, `enumFromText`, `NameTable` | a plain enum's names: `e.text` is the variant's `@tagName`, less the `'` a renamed one carries (`rigName`); `E.from_text(word)` finds `word` in a `NameTable`, the enum's names in declaration order in an open-addressed table the compiler emits (`src/nametable.zig`): a power of two of at least 16 slots, at most four fifths full, a one-byte tag per slot from the word's Wyhash, and each slot's index into the names. `find` hashes once, probes, and compares bytes only where a tag agrees, and the index gives the variant (`std.enums.values`). `bench/names/` times it against comparing names one by one |
 | `Arch` | Rig's built-in enum `Arch`: Zig's `std.Target.Cpu.Arch`, so `std.target`'s `arch`, `builtin.cpu.arch`, needs no mapping; every module's `Arch` symbol names it (`importType`) |
 | `Proven`, `atProven`, `elemPtrProven`, `readIntProven`, `writeIntProven`, `simdReadProven`, `simdWriteProven`, `addProven` | the operations with the tests the compiler proved omitted ([Proven checks](#proven-checks)): `Proven` names which (`lower`, `upper`, `both`), an index is read through the slice's pointer, which carries no test of its own, and an add is one LLVM may assume does not wrap. The other test is made as `index`, `readInt`, and `simdRead` make it, with the same panic; a vector is loaded and stored as `simdRead` and `simdWrite` do. A debug build, or one whose root declares `__rig_verify_proofs`, makes the proven ones too, as assertions |
 | `len`, `max_len` | a length as an `Int`; it panics above `2^62 - 1` ("length out of range"), which no target holds, so `i + c` is known to fit where `i` is below a length |

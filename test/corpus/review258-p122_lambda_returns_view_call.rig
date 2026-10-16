@@ -1,0 +1,10 @@
+fun sl(v: !List[Int]) -> !Int from v
+  !v[0]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  f = |w: !List[Int]| sl(!w) += 1
+  f(!v)
+  f(!v)
+  print(v)

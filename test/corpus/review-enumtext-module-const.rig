@@ -1,0 +1,21 @@
+# `.text` of module constants (an element of `@variants`, a variant, an array element) and of a Signal's value.
+enum Color
+  red
+  blue
+
+all = @variants(Color)
+fav = Color.blue
+pair = [Color.blue, Color.red]
+
+sub main()
+  print(all[1].text, fav.text, pair[1].text)
+  for c in all
+    print(c.text, Color.from_text(c.text))
+  s = *Signal(Color.red)
+  print(s.get().text)
+
+# expect:
+# blue blue red
+# red .red
+# blue .blue
+# red

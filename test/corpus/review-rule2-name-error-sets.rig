@@ -1,0 +1,24 @@
+error E1
+  bad
+
+error E2
+  bad
+
+error E3
+  bad
+  worse
+
+sub show[T](x: T)
+  print(@name(T), @name(T?), @name(List[T]))
+
+fun f1() -> Int!
+  return E1.bad
+
+fun f2() -> Int!
+  return E2.bad
+
+sub main()
+  show(E1.bad)
+  show(E2.bad)
+  show(E3.worse)
+  print(@name(E1), @name(E2), @name(E3))

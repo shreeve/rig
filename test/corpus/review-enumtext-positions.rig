@@ -1,0 +1,65 @@
+# `from_text` in `if as`, a match subject with `??`, `?? return`, `catch`, a closure, an owned closure, a write view lent on as `?s`, and a test block.
+enum Color
+  red
+  dark_red
+  blue
+
+fun mk(n: Int) -> String
+  String("bl", "ue") if n > 0 else String("x")
+
+fun opt(n: Int) -> String?
+  return none if n == 0
+  String("red")
+
+fun fail(n: Int) -> String!
+  return E.bad if n == 0
+  String("dark_red")
+
+error E
+  bad
+
+fun parse(w: ?String) -> Color!
+  Color.from_text(w) ?? return E.bad
+
+sub take(s: !String)
+  print(Color.from_text(?s))
+
+sub main()
+  print(Color.from_text(mk(1)), Color.from_text(mk(0)))
+  if Color.from_text(String("re", "d")) as c
+    print(c.text)
+  match Color.from_text("blue") ?? .red
+    .red => print("r")
+    .blue => print("b")
+    _ => print("other")
+  s = opt(1) ?? String("none")
+  print(Color.from_text(s))
+  if opt(1) as o
+    print(Color.from_text(o))
+  t = fail(1) catch String("q")
+  print(Color.from_text(t))
+  print(parse("red") catch Color.blue)
+  print(parse("nope") catch Color.blue)
+  ws = String("blue")
+  !take(!ws)
+  f = |w: ?String| Color.from_text(w)
+  print(f("dark_red"))
+  h: *fun(?String) -> Color? = *|w| Color.from_text(w)
+  print(h("red"), h("x"))
+
+test "from_text in a test"
+  print(Color.from_text("red") == Color.red, Color.blue.text == "blue")
+  print(Color.from_text(Color.dark_red.text))
+
+# expect:
+# .blue none
+# red
+# b
+# .red
+# .red
+# .dark_red
+# .red
+# .blue
+# .blue
+# .dark_red
+# .red none

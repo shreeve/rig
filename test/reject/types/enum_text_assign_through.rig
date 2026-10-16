@@ -1,0 +1,27 @@
+# A variant's name is read-only however the enum value is reached,
+# through a call's write view too: `slot(!c) = .blue` assigns through
+# that view, but `.text` is no part of the value it views, so
+# `slot(!c).text = ...` and `slot(!c).text += ...` are rejected.
+
+enum Color
+  red
+  blue
+
+fun slot(c: !Color) -> !Color
+  c
+
+fun pick(cs: ![]Color, i: Int) -> !Color
+  !cs[i]
+
+sub main()
+  c: Color = .red
+  xs = [Color.red, Color.blue]
+  slot(!c).text = "blue"
+  pick(!xs, 1).text = "red"
+  slot(!c).text += "x"
+  print(c, xs[1])
+
+# errors: 3
+# error: 19:12: cannot assign to `.text`; a variant's name is read-only
+# error: 20:16: cannot assign to `.text`; a variant's name is read-only
+# error: 21:12: cannot assign to `.text`; a variant's name is read-only

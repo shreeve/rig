@@ -1,0 +1,27 @@
+fun k() -> Int
+  2
+
+fun j() -> Int
+  if false
+    return 3
+  k()
+
+fun c1() -> Int
+  if false
+    return c2()
+  1
+
+fun c2() -> Int
+  if false
+    return c1()
+  9
+
+sub walk(s: []Int)
+  i = 0
+  while i + 4 <= s.len
+    print(s[i + j()], s[i + c1()])
+    i += 1
+
+sub main()
+  xs = [1, 2, 3, 4, 5, 6]
+  walk(xs[..])

@@ -1,0 +1,13 @@
+obj Node
+  v: Int
+
+fun inc(a: Int) -> Int
+  a + 1
+
+sub heap[T](x: T)
+  h: *T = *(<x)
+  print(@name(@type(h)), @size(*T), @size(^T))
+
+sub main()
+  heap(*Node(v: 1))
+  heap(^Node(v: 2))

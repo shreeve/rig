@@ -1,0 +1,12 @@
+fun gslot[T](v: !List[T], i: Int) -> !T from v
+  !v[i]
+
+sub setit[T](v: !List[T], x: ?T)
+  gslot(!v, 0) = +x
+
+sub main()
+  v: List[String] = List()
+  !v.push(String("a"))
+  b = String("b")
+  setit(!v, ?b)
+  print(v, b)

@@ -1,0 +1,9 @@
+use std.hash
+
+sub main()
+  a = String("a")
+  b = String("b")
+  m = hash.Map[Int, ?String]()
+  (!m).ensure(1, ?a) = ?b
+  (!m).ensure(2, ?a) = ?b
+  print(m.get(1) ?? "none", m.get(2) ?? "none")

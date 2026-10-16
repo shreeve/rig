@@ -1,0 +1,15 @@
+obj Q
+  n: Int
+
+fun slot2(v: !List[Int], q: !Q) -> !Int from v
+  q.n += 10
+  !v[0]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(0)
+  q = Q(n: 1)
+  slot2(!v, !q) = q.n
+  print(v, q.n)
+  slot2(!v, !q) -= q.n
+  print(v, q.n)

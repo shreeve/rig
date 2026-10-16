@@ -1811,6 +1811,68 @@ pub fn enumFromInt(comptime E: type, n: anytype) Opt(E) {
     return pack(Opt(E), std.enums.fromInt(E, n));
 }
 
+/// `e.text`: the Rig name of plain enum value `e`'s variant (`rigName`),
+/// or of the value a write view of it points at.
+pub fn enumText(e: anytype) []const u8 {
+    return rigName(switch (@typeInfo(@TypeOf(e))) {
+        .pointer => @tagName(e.*),
+        else => @tagName(e),
+    });
+}
+
+/// `E.from_text(word)`: the variant of plain enum `E` named `word`, or
+/// null. `names` is the table of `E`'s names in declaration order, which
+/// the compiler emits for each enum the program calls `from_text` on.
+pub fn enumFromText(comptime E: type, names: NameTable, word: []const u8) ?E {
+    const i = names.find(word) orelse return null;
+    return std.enums.values(E)[i];
+}
+
+/// A fixed set of names, each found by its text with no allocation: a
+/// plain enum's variants for `E.from_text(word)`. The compiler builds
+/// the table and emits it as constant data (`src/nametable.zig`); `find`
+/// gives a name's index in `names`.
+///
+/// The table is open-addressed: `tags.len` slots, a power of two of at
+/// least 16, at most four fifths full. A word hashes once (`hashOf`),
+/// starts at the slot the hash's low bits give, and walks on to the
+/// first empty slot. A slot's tag is 0 when it is empty, and otherwise
+/// `tagOf` of its name's hash, so a name's bytes are compared only where
+/// the tag agrees; `slots` holds each full slot's index into `names`.
+/// Measured against comparing the names one by one, the table wins every
+/// miss at every size, and loses only a hit among a few names, by 1 to
+/// 2 ns (bench/names/README.md), so every set of names gets one.
+pub const NameTable = struct {
+    names: []const []const u8,
+    tags: []const u8,
+    slots: []const u32,
+
+    pub fn hashOf(word: []const u8) u64 {
+        return std.hash.Wyhash.hash(0, word);
+    }
+
+    /// The top seven bits of hash `h`, and the eighth set, so no tag is
+    /// the empty slot's 0.
+    pub fn tagOf(h: u64) u8 {
+        return @as(u8, @intCast(h >> 57)) | 0x80;
+    }
+
+    pub fn find(t: NameTable, word: []const u8) ?u32 {
+        const h = hashOf(word);
+        const tag = tagOf(h);
+        const last = t.tags.len - 1;
+        var i: usize = @intCast(h & last);
+        while (true) : (i = (i + 1) & last) {
+            const slot_tag = t.tags[i];
+            if (slot_tag == 0) return null;
+            if (slot_tag == tag) {
+                const id = t.slots[i];
+                if (std.mem.eql(u8, t.names[id], word)) return id;
+            }
+        }
+    }
+};
+
 /// `for x in <a` of an array whose elements move: each element handed
 /// over in order; those not handed over (the loop left early) are
 /// dropped, last first, as the array would drop them.

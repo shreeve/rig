@@ -1,0 +1,6 @@
+use colors
+
+pub type Shade = colors.Color
+
+pub fun parse(word: ?String) -> colors.Color
+  colors.Color.from_text(word) ?? .red

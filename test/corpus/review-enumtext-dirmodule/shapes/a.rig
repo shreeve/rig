@@ -1,0 +1,11 @@
+pub enum Color
+  red
+  dark_red
+  blue
+
+enum Hidden
+  one
+  two
+
+pub fun from_b(w: ?String) -> Int
+  Int(Hidden.from_text(w) ?? .one)

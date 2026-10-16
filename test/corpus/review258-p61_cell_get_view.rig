@@ -1,0 +1,10 @@
+obj C
+  c: Cell[Int]
+
+  fun cv(!self) -> !Cell[Int]
+    !self.c
+
+sub main()
+  a = *C(c: Cell(1))
+  (!a).cv() = Cell(5)
+  print(a.c.get())

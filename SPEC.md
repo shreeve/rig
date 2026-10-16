@@ -405,7 +405,7 @@ that mixes the two (their type is `?String`). A generic `T` that a
 `Static` and a `?String` both bind is the `?String` (unless a place that
 holds it exactly, such as a `Cell[T]`, gives the type). `@name(Static)`
 is `"Static"`, but a type parameter bound to a `Static` is named
-`"String"`, since both are one Zig type. It never converts
+`"?String"`, since both are one Zig type. It never converts
 where the text can be written: a place of type `Static` holds only a
 `Static`, a `?String` is not written into one, and a binding that holds a
 literal is a `Static` (`s = "a"`), so a `?String` is assigned to it only
@@ -2215,6 +2215,79 @@ sub main()
 `@variants(T)` takes a plain enum; `Shape` has variants with payloads
 ```
 
+A plain enum's values have names. `e.text` is the name of `e`'s
+variant, a `Static` (`dark_red`), and `Color.from_text(word)` is the
+variant named `word`, or `none`. `word` is any text a parameter
+`?String` takes: a `Static`, a String, or a view or slice of one. The
+name must match whole and byte for byte, so a prefix, another case, or
+an integer value's digits find nothing. Neither allocates:
+`from_text` hashes `word` once and looks it up in a table of the
+enum's names, which the compiler builds for each enum the program
+calls it on. The built-in enums `Endian` and `Arch` have both too.
+
+`.text` is a member, not a method: `e.text`, not `e.text()`. It is
+read as it is, never written or lent: the name belongs to the enum's
+type, not to `e`, so `?e.text` is rejected, and `e.text` is passed
+where a `?String` is expected. A plain enum cannot declare a variant or method named
+`from_text`, nor a method named `text`; a variant named `text` is
+`Kind.text`, which clashes with neither. A payload enum has neither:
+`from_text` could not build a payload. (A name for a payload variant,
+`s.text`, may be added later.)
+
+```rig
+enum Color
+  red
+  dark_red
+
+enum Status
+  ok = 200
+  missing = 404
+
+fun code(word: ?String) -> Int
+  s = Status.from_text(word) ?? return 0
+  match s
+    .ok => 1
+    .missing => 2
+
+sub main()
+  c: Color = .dark_red
+  print(c.text, Color.red.text.len)
+  print(Color.from_text("red"), Color.from_text("Red"), Color.from_text("dark"))
+  print(code("missing"), code("404"))
+  for v in @variants(Color)
+    print(Color.from_text(v.text) == v)
+```
+
+```output
+dark_red 3
+.red none none
+2 0
+true
+true
+```
+
+```rig reject
+enum Shape
+  dot
+  circle(r: Int)
+
+enum Color
+  red
+
+  fun text(?self) -> Static
+    "red"
+
+sub main()
+  s: Shape = .dot
+  print(s.text, Shape.from_text("dot"))
+```
+
+```error
+`text` is built into every plain enum: `e.text` is the name of `e`'s variant; give the method another name
+`.text` is the name of a plain enum's variant; `Shape` has variants with payloads
+`from_text` gives a plain enum's variant by its name; `Shape` has variants with payloads, which a name cannot build
+```
+
 ### Error sets
 
 `error Name` declares a set of error values, which are used like the
@@ -2759,6 +2832,11 @@ sub main()
 3 true 200 255 8
 ```
 
+The type an alias names nests at most 200 deep, counting each type it
+is built from (`List[A]`, `A?`, `[2]A`, `fun(A) -> Int`): aliases, each
+naming the next inside another type, would otherwise nest one in another
+without end. An alias that names a deeper type is rejected.
+
 ### Tests
 
 `test "name"` (or `test 'name'`) declares a block that is checked like
@@ -3092,6 +3170,70 @@ does not copy (an owner or a unique value) is never read out this way,
 and one bound with a `!T` type (`x: !Int = w`) would copy the view, so
 both are rejected. A write view of a plain object, array, or optional
 reads it as one of a number does (`q = p` with `p: !Point`).
+
+A write view a call returns is assigned through, with no binding to
+hold it: `slot(!v, 0) = 5`, `slot(!v, 0) += 1`, and `(!b).first() *=
+2` write the value the view reaches, the old value dropped first. So is
+the write view a call's `!` or `?` gives (`get(!v)! += 1` for a
+`(!Int)!`, `(!m).edit(k)? += 1` for a `(!Int)?`). `f(x) op= e` is
+`__v = e`, then `w = f(x)`, then `w op= __v`: the value runs first,
+then the call, as a field's or element's base does, so
+`slot(!v, 0) += v.len` reads `v.len` before `slot` runs. Nothing else
+is assigned through: not a call that returns a value, a read view, or
+a `![]T` (a `![]T`'s elements are: `all(!v)[0] = 5`), and not `?` or
+`!` around anything but a call.
+
+```rig
+obj Bag
+  items: List[Int]
+
+  fun first(!self) -> !Int
+    !self.items[0]
+
+fun slot(v: !List[String], i: Int) -> !String from v
+  !v[i]
+
+sub main()
+  b = Bag(items: List())
+  !b.items.push(5)
+  (!b).first() += 1
+  (!b).first() *= 2
+  names: List[String] = List()
+  !names.push(String("ada"))
+  slot(!names, 0) = String("bob")
+  print(b.items, names)
+```
+
+```output
+[12] ["bob"]
+```
+
+```rig reject
+fun count(v: ?List[Int]) -> Int
+  v.len
+
+sub main()
+  v: List[Int] = List()
+  count(?v) += 1
+```
+
+```error
+cannot assign to a call's result, an `Int`; only a write view (`!T`) a call returns is assigned through
+```
+
+```rig reject
+fun bump(w: (!Int)?) -> Int?
+  w? += 1
+  0
+
+sub main()
+  n = 1
+  print(bump(!n))
+```
+
+```error
+cannot assign to `w?`: only a call that returns a write view (`!T`), or that call's `!` or `?`, is assigned through
+```
 
 A write view is never stored inside a value (Core §5): `!T`,
 also as `(!T)?` and `(!T)!`, is only a parameter's, a receiver's, a
@@ -3756,6 +3898,27 @@ sub main()
 
 ```output
 List[Int] U8 Pair[Int, String] *Pair[U8, Bool]?
+```
+
+An instance is spelled as the printer spells that type, parentheses
+included: `T?` with `T = Int?` is `(Int?)?`, and `*T` is `*(Int?)`. A
+type parameter is named from the program's own type for it, where a
+read view of a number is the number and a `[]U8` is the bytes a
+`?String` is, so an instance that holds a view or a slice, but a
+`?String`, cannot be named, and is rejected where it is made:
+
+```rig reject
+fun name[T](x: T) -> ?String
+  @name(T)
+
+sub main()
+  n = 5
+  v: (?Int)? = ?n
+  print(name(v))
+```
+
+```error
+`name[(?Int)?]` cannot use `T = (?Int)?`
 ```
 
 Every other builtin is Zig's, keeps its Zig name, and works only

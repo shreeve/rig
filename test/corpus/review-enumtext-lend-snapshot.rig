@@ -1,0 +1,20 @@
+# `r = ?c.text` would lend `c`'s variant name to read, and `c` is then
+# reassigned while `r` is still used. A variant's name is held by the
+# enum's type, no part of `c`, so a view of it would see a name `c` no
+# longer has: `?c.text` is rejected, and the name is passed as it is.
+enum Color
+  red
+  dark_red
+
+obj Pen
+  color: Color
+
+sub main()
+  c: Color = .dark_red
+  r = ?c.text
+  c = .red
+  print(r, c.text)
+  p = Pen(color: .red)
+  q = ?p.color.text
+  p.color = .dark_red
+  print(q, p.color.text)

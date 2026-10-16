@@ -1,0 +1,37 @@
+# `c.text` of a plain enum bound by a match on a payload enum, through read and write views.
+enum Color
+  red
+  blue
+
+enum Shape
+  dot
+  circle(c: Color)
+  pair(a: Color, b: Color)
+
+fun name(s: ?Shape) -> Static
+  match s
+    .dot => "dot"
+    .circle(c) => c.text
+    .pair(_, b) => b.text
+
+sub recolor(s: !Shape)
+  match !s
+    .circle(c)
+      print(c.text)
+      c = .blue
+    _ => pass
+
+sub main()
+  s: Shape = .circle(c: .red)
+  print(name(?s))
+  !recolor(!s)
+  print(name(?s), name(Shape.pair(a: .red, b: .blue)))
+  match ?s
+    .circle(c) => print(c.text, Color.from_text(c.text))
+    _ => pass
+
+# expect:
+# red
+# red
+# blue blue
+# blue .blue

@@ -311,6 +311,8 @@ test/reject/ownership/unwrapped_write_param_nested_field.rig nullish prod-reject
 test/reject/ownership/unwrapped_write_param_nullish.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r02b-fallible-bang.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r03-nullish.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
+test/corpus/assignthrough-b20.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
+test/corpus/assignthrough-b21.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r04-catch.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r06c-store-in-arm.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r07-nested.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
@@ -351,3 +353,5 @@ test/corpus/optwrite-review-e04-return-read-ok.rig name prod-rejects prod-strict
 # first. The oracle does not follow the binding's write view to the List.
 test/corpus/optwrite-relax-p02-for-write.rig main prod-rejects ref-gap `!x.put(?d)` through a `for x in !l` binding, with `d` local to the body
 test/corpus/optwrite-relax-p03-for-write-chain.rig main prod-rejects ref-gap `!w.put(?d)` through `w = !x` of a `for x in !l` binding, with `d` local to the body
+test/corpus/review258-p136b_loop_binding.rig main prod-rejects ref-gap `wrap(!x) = H(s: ?u)` through a `for x in !v` binding, then `<u`
+test/corpus/review258-p139b_loop_binding_local.rig main prod-rejects ref-gap `wrap(!x) = H(s: ?u)` through a `for x in !v` binding, with `u` local to the body

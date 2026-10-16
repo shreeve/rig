@@ -1,0 +1,11 @@
+fun slot(v: !List[Int]) -> !Int from v
+  v[0] += 100
+  !v[0]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  slot(!v) += 1
+  print(v)
+  slot(!v) = v[0]
+  print(v)

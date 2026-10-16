@@ -1,0 +1,20 @@
+error Bad
+  oops
+
+fun sf(v: !List[String], ok: Bool) -> (!String)! from v
+  return Bad.oops if not ok
+  !v[0]
+
+fun mk(n: !Int) -> String
+  n += 1
+  String("m")
+
+sub put(v: !List[String], n: !Int, ok: Bool)!
+  sf(!v, ok)! = mk(!n)
+
+sub main()
+  v: List[String] = List()
+  !v.push(String("a"))
+  n = 0
+  put(!v, !n, false) catch print("failed")
+  print(n, v)

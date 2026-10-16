@@ -1,0 +1,16 @@
+error Bad
+  oops
+
+fun pk(v: !List[Int], ok: Bool) -> ((!Int)?)! from v
+  return Bad.oops if not ok
+  !v[0]
+
+fun go(v: !List[Int]) -> Int!
+  (pk(!v, true)!)? = 5
+  0
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  print(go(!v) catch 1)
+  print(v)

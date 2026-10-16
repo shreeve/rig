@@ -1,0 +1,21 @@
+pub obj Box[T]
+  pub c: *Cell[T]
+
+  pub sub put(?self, v: T)
+    h = +self.c
+    (!h).set(v)
+
+pub sub put(c: *Cell[List[Int]], v: Int)
+  (!c)[0] = v
+  (!c).push(v)
+
+pub sub trade[T](a: *Cell[T], b: *Cell[T])
+  swap(!a, !b)
+
+pub sub touch[T](x: !T)
+  print(@name(T))
+
+pub sub through(c: *Cell[List[String]])
+  (!c).push(String("n"))
+  old = (!c).replace(List())
+  print(old.len, c.len)

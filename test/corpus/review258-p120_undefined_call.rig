@@ -1,0 +1,4 @@
+sub main()
+  nope(1) = 3
+  nope(1)? = 3
+  print(1)

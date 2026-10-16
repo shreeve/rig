@@ -1,0 +1,80 @@
+# `@name` of a type parameter names its instance as the printer spells
+# it: an optional of an optional, an array of optionals, an enum, a function
+# type, one that may fail, and a generic object's own instance, each
+# under a suffix or a handle's sigil with the printer's parentheses;
+# `@size` and `@align` take the same instances, an optional of a view too.
+
+obj Node
+  v: Int
+
+obj Wrap[T]
+  v: T
+
+  fun name(?self) -> ?String
+    @name(T)
+
+  fun self_name(?self) -> ?String
+    @name(Self)
+
+enum Color
+  red
+  green
+
+sub show[T](x: T)
+  print(@name(T), @name(T?))
+
+sub shapes[T](x: T)
+  print(@name(*T), @name(~T), @name(^T))
+  print(@name((*T)?), @name(List[T?]), @name(?T))
+
+sub sized[T](x: T)
+  print(@size(T) > 0, @align(T) > 0)
+
+fun inc(a: Int) -> Int
+  a + 1
+
+fun fails(a: Int) -> Int!
+  a
+
+sub main()
+  a: Node? = none
+  show(a)
+  b: (Node?)? = none
+  show(b)
+  c: (Int?)? = none
+  show(c)
+  d: [2]Int? = [1, none]
+  show(d)
+  show(Color.green)
+  show(inc)
+  show(fails)
+  l: Static = "lit"
+  show(l)
+  w = Wrap(v: 3)
+  print(w.name(), w.self_name())
+  shapes(a)
+  shapes(d)
+  shapes(c)
+  n = Node(v: 1)
+  e: (?Node)? = ?n
+  sized(e)
+  print(@name((?Node)?), @name(?Node), @name(!Node), @size((?Node)?) > 0)
+
+# expect:
+# Node? (Node?)?
+# (Node?)? ((Node?)?)?
+# (Int?)? ((Int?)?)?
+# [2]Int? ([2]Int?)?
+# Color Color?
+# fun(Int) -> Int (fun(Int) -> Int)?
+# fun(Int) -> Int! (fun(Int) -> Int!)?
+# ?String (?String)?
+# Int Wrap[Int]
+# *(Node?) ~(Node?) ^(Node?)
+# *(Node?)? List[(Node?)?] ?Node?
+# *[2]Int? ~[2]Int? ^[2]Int?
+# (*[2]Int?)? List[([2]Int?)?] ?[2]Int?
+# *((Int?)?) ~((Int?)?) ^((Int?)?)
+# *((Int?)?)? List[((Int?)?)?] ?(Int?)?
+# true true
+# (?Node)? ?Node !Node true

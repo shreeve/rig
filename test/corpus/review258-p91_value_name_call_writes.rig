@@ -1,0 +1,12 @@
+fun slot2(v: !List[Int], x: !Int) -> !Int from v
+  x += 10
+  !v[0]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(0)
+  x = 1
+  slot2(!v, !x) = x
+  print(v, x)
+  slot2(!v, !x) += x
+  print(v, x)

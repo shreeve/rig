@@ -1,0 +1,8 @@
+fun slot(v: !List[List[Int]], i: Int) -> !List[Int] from v
+  !v[i]
+
+sub main()
+  v: List[List[Int]] = List()
+  !v.push(List())
+  slot(!v, 0) = <v
+  print(v.len)

@@ -771,6 +771,7 @@ const Lowerer = struct {
             _ = try self.eval(rhs, .take, null);
             return;
         }
+        if (assignedThrough(target)) return self.assignThrough(target, rhs, op.operator() != null, pos);
         if (op.operator() != null) return self.compound(target, rhs, pos);
         if (target == .src) {
             const sym_id = self.ctx.symbolOf(target) orelse return abstain("a binding without a symbol");
@@ -835,6 +836,38 @@ const Lowerer = struct {
         const deref = p.via == .write or write_in;
         const through: []const VarId = if (deref) try self.one(p.root) else &.{};
         try self.emit(.{ .pos = pos, .what = .assign, .moves = try self.list(v), .uses = try self.one(p.root), .weak = p.root, .through = through, .access = .{ .root = p.root, .path = p.loanPath(), .deref = deref, .kind = .write } });
+    }
+
+    /// `f(x) op= value`, where the call gives a write view, or `f(x)? op=
+    /// value` and `f(x)! op= value` of an optional or fallible one (Core
+    /// §6): `__v = value; w = f(x); w op= __v`. The value first, then the
+    /// call, whose view a hidden binding `w` holds to the statement's end,
+    /// then a store through `w`, as through a `!T` local.
+    fn assignThrough(self: *Lowerer, target: Sexp, rhs: Sexp, compound_op: bool, pos: u32) Error!void {
+        const view_ty = try self.typeOf(target);
+        if (!self.isWriteRef(view_ty)) return abstain("an assignment through a call that gives no write view");
+        var v: ?VarId = null;
+        if (compound_op) {
+            v = try self.eval(rhs, .read, null);
+            if (v) |rv| v = try self.readThrough(rv, pos);
+        } else v = try self.eval(rhs, .take, try self.innerOf(view_ty));
+        const view = try self.eval(target, .take, view_ty) orelse return abstain("a call's write view the lowering did not make");
+        const w = try self.temp(view_ty, pos);
+        try self.store(w, view, pos);
+        if (compound_op) {
+            try self.emit(.{ .pos = pos, .what = .assign, .reads = try self.list(v), .uses = try self.one(w), .access = .{ .root = w, .deref = true, .kind = .write } });
+            return;
+        }
+        try self.emit(.{ .pos = pos, .what = .assign, .reads = try self.list(v), .uses = try self.one(w), .weak = w, .through = try self.one(w), .access = .{ .root = w, .deref = true, .kind = .write } });
+    }
+
+    /// Whether assignment target `e` is assigned through: a call, or a
+    /// call's `?` or `!` (Core §6). Its type decides whether it gives a
+    /// write view.
+    fn assignedThrough(e: Sexp) bool {
+        if (e.isKind(.call)) return true;
+        if (e.isKind(.propagate) or e.isKind(.propagate_none)) return ir.get(e, .value).isKind(.call);
+        return false;
     }
 
     /// `q, r = f(x)`: `__res = f(x); q = <__res.0; r = <__res.1`, where
@@ -2975,7 +3008,7 @@ const Lowerer = struct {
                         shapes = &.{.view};
                         stored = &.{true};
                     },
-                    .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => all_read = true,
+                    .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => all_read = true,
                 } else all_read = true;
                 // `get`, `pop`, and `remove` hand back an element of a List:
                 // a value it held, which carries the loans the List's

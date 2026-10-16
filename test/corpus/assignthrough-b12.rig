@@ -1,0 +1,18 @@
+obj H
+  r: ?Int
+
+fun set(w: (!H)?) -> Int?
+  d = 4
+  w? = H(r: ?d)
+  0
+
+fun noise(a: Int, b: Int, c: Int) -> Int
+  x = [a, b, c, a + b, b + c, 99, 98, 97]
+  x[5] + x[6]
+
+sub main()
+  n = 1
+  h = H(r: ?n)
+  print(set(!h))
+  print(noise(7, 8, 9))
+  print(h.r)

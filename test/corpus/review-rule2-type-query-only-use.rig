@@ -1,0 +1,25 @@
+# A binding read only inside `@type(...)` under `@name`, `@size`, or
+# `@align` (a method's `self`, a `for` capture, a closure's capture) is
+# still read in the Zig, where `@name` folds to its spelling.
+
+obj W
+  v: Int
+
+  sub show(?self)
+    print(@name(@type(self.v)))
+
+sub loops(xs: []Int)
+  for x in xs
+    print(@name(@type(x)))
+
+sub main()
+  w = W(v: 1)
+  w.show()
+  xs = [1, 2]
+  loops(xs)
+  k = 2
+  f = |+k| print(@size(@type(k)))
+  f()
+  n = 4
+  g = |?n| print(@name(@type(n)))
+  g()

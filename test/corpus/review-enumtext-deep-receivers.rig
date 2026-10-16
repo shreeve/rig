@@ -1,0 +1,65 @@
+# `e.text` through boxes and shared handles behind read and write views, fields of objects reached through views, and closures lending them.
+enum Color
+  red
+  blue
+
+obj Pen
+  color: Color
+  boxed: ^Color
+  shared: *Color
+  opt: Color?
+  list: List[Color]
+
+sub wbox(b: !^Color)
+  print(b.text)
+
+fun rbox(b: ?^Color) -> Static
+  b.text
+
+sub wsh(h: !*Color)
+  print(h.text)
+
+fun rsh(h: ?*Color) -> Static
+  h.text
+
+sub wpen(p: !Pen)
+  print(p.color.text, p.boxed.text, p.shared.text, p.list[0].text)
+  if p.opt as o
+    print(o.text)
+  for x in !p.list
+    print(x.text)
+
+fun rpen(p: ?Pen) -> Static
+  p.boxed.text
+
+sub main()
+  b = ^Color.blue
+  !wbox(!b)
+  print(rbox(?b))
+  h = *Color.red
+  !wsh(!h)
+  print(rsh(?h))
+  l = List[Color]()
+  !l.push(.blue)
+  p = Pen(color: .red, boxed: ^Color.blue, shared: *Color.red, opt: .blue, list: <l)
+  !wpen(!p)
+  print(rpen(?p))
+  r = ?p
+  print(r.color.text, r.shared.text)
+  f = |!p| p.color.text
+  print(f())
+  g = |?b| b.text
+  print(g())
+
+# expect:
+# blue
+# blue
+# red
+# red
+# red blue red blue
+# blue
+# blue
+# blue
+# red red
+# red
+# blue

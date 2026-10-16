@@ -525,8 +525,7 @@ sub main()
       !again.put(String(w), String(w, w, "+"))
   counts = hash.Map[String, Int].new()
   for w in ["to", "be", "to"]
-    c = (!counts).ensure(String(w), 0)
-    c += 1
+    (!counts).ensure(String(w), 0) += 1
   print(made.get("ab"), made.get("cd"), again.get("ab"), counts.get("to"), counts.get("be"))
 ```
 
@@ -816,6 +815,39 @@ sub main()
 
 ```output
 Rig!!! 6
+```
+
+## Enum names
+
+A plain enum's names are built in ([SPEC, Enums](../SPEC.md#enums)):
+`e.text` is the name of `e`'s variant, a `Static`, and
+`E.from_text(word)` is the variant named `word`, or `none`. Neither
+allocates, so a word read from input becomes a value as `text.parse_int`
+makes a number, and a value prints back as text. For names that are
+not an enum's, known only when the program runs, `hash.Symbols` gives
+each one a dense id ([std.hash](#stdhash)).
+
+```rig
+use std.text
+
+enum Level
+  debug
+  info
+  warn
+
+sub main()
+  for w in text.words("warn info trace debug")
+    if Level.from_text(w) as l
+      print(l.text, Int(l))
+    else
+      print("unknown level", w)
+```
+
+```output
+warn 2
+info 1
+unknown level trace
+debug 0
 ```
 
 ## std.text

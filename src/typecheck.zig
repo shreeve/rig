@@ -1521,11 +1521,16 @@ const Checker = struct {
         }
     }
 
-    /// `obj.field = v`, `xs[i] = v`, and compound forms.
+    /// `obj.field = v`, `xs[i] = v`, `f(x) = v` where the call returns a
+    /// write view (also `f(x)! = v` and `f(x)? = v`), and compound forms.
     fn checkPlaceAssign(self: *Checker, kind: rig.BindingKind, target: Sexp, type_node: Sexp, rhs: Sexp) Error!void {
         const head = target.kind();
-        if (head != .member and head != .index) {
-            try self.errAt(target, "cannot assign to this expression", .{});
+        const through = storage.assignedThrough(target);
+        if (head != .member and head != .index and !through) {
+            if (head == .propagate or head == .propagate_none) {
+                _ = try self.synthExpr(ir.get(target, .value));
+                try self.errAt(target, "cannot assign to `{s}`: only a call that returns a write view (`!T`), or that call's `!` or `?`, is assigned through", .{self.sourceText(target)});
+            } else try self.errAt(target, "cannot assign to this expression", .{});
             _ = try self.synthExpr(rhs);
             return;
         }
@@ -1541,6 +1546,7 @@ const Checker = struct {
             else => {},
         }
         const place_ty = try self.synthExpr(target);
+        if (through) return self.assignThroughCall(kind, target, place_ty, rhs);
         if (try self.rejectLane(target, .assign)) {
             _ = try self.synthExpr(rhs);
             return;
@@ -1577,6 +1583,46 @@ const Checker = struct {
         if (head == .index) _ = try self.needsCleanup(place_ty, self.startOf(target), "overwrites an element");
         if (kind.operator() != null) return self.checkCompound(kind, place_ty, rhs, self.startOf(target), "this place has type");
         try self.checkExpr(rhs, place_ty);
+    }
+
+    /// `f(x) = v` or `f(x) op= v`, where the call returns a write view
+    /// `!T`, and so `f(x)! = v` and `f(x)? = v` of a call that returns a
+    /// fallible or optional one (`storage.assignedThrough`): the `T` the
+    /// view reaches is written, as `__v: T = v; w = f(x); w op= __v`
+    /// writes it through a hidden binding `w` (Core §6). The value runs
+    /// first, then the call, as any target's base does
+    /// (`storage.eachSetStep`). A call that returns a value, a read view,
+    /// or a `![]T` is not assigned through.
+    fn assignThroughCall(self: *Checker, kind: rig.BindingKind, target: Sexp, view_ty: TypeId, rhs: Sexp) Error!void {
+        if (self.isPoison(view_ty)) {
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        const viewed = switch (self.ctx.types.get(view_ty)) {
+            .write_view => |inner| inner,
+            .read_view => {
+                try self.errAt(target, "cannot assign through a read view (`?T`), which this call returns; a call that returns a write view (`!T`) is assigned through", .{});
+                _ = try self.synthExpr(rhs);
+                return;
+            },
+            else => {
+                const name = try self.tyName(view_ty);
+                try self.errAt(target, "cannot assign to a call's result, {s} `{s}`; only a write view (`!T`) a call returns is assigned through", .{ article(name), name });
+                _ = try self.synthExpr(rhs);
+                return;
+            },
+        };
+        if (sema.writeSliceElem(self.ctx, view_ty) != null) {
+            try self.errAt(target, "cannot assign to a `{s}` a call returns; write its elements with `{s}[i] = v`", .{ try self.tyName(view_ty), self.sourceText(target) });
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        if (!try self.requireAccess(self.placeOf(target), .assign, target)) {
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        if (kind.operator() != null) return self.checkCompound(kind, viewed, rhs, self.startOf(target), "the value this call's write view reaches has type");
+        try self.checkExpr(rhs, viewed);
     }
 
     /// `x op= e` is `x = x op e` with `x` evaluated once, and `x` keeps its
@@ -1677,14 +1723,17 @@ const Checker = struct {
     };
 
     /// Why a place is read-only: a `*T` on the way, which other handles
-    /// may share; an element of a `[]T` or a `?String`, a `.len`, or a
-    /// field another module declared read-only; or a `?T` on the way.
+    /// may share; an element of a `[]T` or a `?String`, a `.len`, an
+    /// enum's `.text`, or a field another module declared read-only; or
+    /// a `?T` on the way.
     /// Where several apply, the first in that order.
     const Block = enum {
         shared,
         slice,
         string,
         len,
+        /// `e.text`, the name of a plain enum value's variant.
+        text,
         /// A field another module declared `pub ?name: T`.
         read_only,
         read_view,
@@ -1692,7 +1741,7 @@ const Checker = struct {
         fn rank(b: Block) u2 {
             return switch (b) {
                 .shared => 0,
-                .slice, .string, .len, .read_only => 1,
+                .slice, .string, .len, .text, .read_only => 1,
                 .read_view => 2,
             };
         }
@@ -1779,6 +1828,9 @@ const Checker = struct {
             } else if (self.ctx.readOnlyFieldOf(step)) |field| {
                 place.block(.read_only, self.startOf(ir.Member.name(step)));
                 if (place.blocked.?.why == .read_only) place.read_only = field;
+                if (!crossed) place.leaf_blocked = true;
+            } else if (self.ctx.isEnumText(step)) {
+                place.block(.text, self.startOf(ir.Member.name(step)));
                 if (!crossed) place.leaf_blocked = true;
             } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string_view or obj == .static or obj == .string or obj == .array or listElementType(self.ctx, inner) != null or cellListElement(self.ctx, inner) != null)) {
                 place.block(.len, self.startOf(ir.Member.name(step)));
@@ -1918,6 +1970,7 @@ const Checker = struct {
                 .slice => try self.err(b.pos, "cannot {s}{s} through a slice; a `[]T` is read-only{s}", .{ through.head, through.tail, try self.readMatchHint(place.sym) }),
                 .string => try self.err(b.pos, "cannot {s} a byte of a `?String`{s}; a `?String` is read-only", .{ verb.head, verb.tail }),
                 .len => try self.err(b.pos, "cannot {s} `.len`{s}; a length is read-only", .{ verb.head, verb.tail }),
+                .text => try self.err(b.pos, "cannot {s} `.text`{s}; a variant's name is read-only", .{ verb.head, verb.tail }),
                 .read_only => {
                     const f = place.read_only.?;
                     try self.err(b.pos, "cannot {s} `{s}`{s}: field `{s}` of `{s}` is read-only outside module `{s}`, which declares it `pub ?{s}`", .{ verb.head, try self.plainText(place.node), verb.tail, f.field, f.owner, f.module, f.field });
@@ -5344,6 +5397,12 @@ const Checker = struct {
         if (!try self.lendsBranch(operand, .nil, kind)) return self.t().invalid_id;
         // `?!x` only reads what `!x` lends.
         if (kind == .read and try self.writeLendRead(operand, inner, .lent_to_read)) return self.t().invalid_id;
+        // `e.text` is a name the enum's type holds, no part of `e`: there
+        // is nothing of `e` to lend.
+        if (kind == .read and self.ctx.isEnumText(operand)) {
+            try self.errAt(e, "`{s}` is a variant's name, a `Static`, not a part of the value to lend; pass it as it is: `{s}`", .{ self.sourceText(operand), self.sourceText(operand) });
+            return self.t().invalid_id;
+        }
         const place = self.placeOf(operand);
         if (place.cell_list_elem != null) {
             try self.errAt(operand, "cannot lend an element of a Cell's List: the cell may change while the view lives; copy the element out with `c[i]`", .{});
@@ -6380,6 +6439,17 @@ const Checker = struct {
             else => {},
         }
 
+        // `e.text`: the name of a plain enum value's variant.
+        if (std.mem.eql(u8, field, "text") and self.enumValues(peeled) != null) {
+            if (self.hasVariantNames(peeled)) {
+                try self.ctx.recordEnumText(e);
+                return self.t().static_id;
+            }
+            if ((try self.findMethod(obj_ty, field)) == null) {
+                try self.err(pos, "`.text` is the name of a plain enum's variant; `{s}` {s}", .{ try self.tyName(peeled), notPlainWhy(self.ctx, peeled) });
+                return self.t().invalid_id;
+            }
+        }
         // `value` names a Cell's constructor argument, not a field to read.
         if (std.mem.eql(u8, field, "value") and cellElementType(self.ctx, peeled) != null) {
             try self.err(pos, "a Cell is read with `c.get()` and written with `!c.set(v)`, not through `.value`", .{});
@@ -6400,7 +6470,7 @@ const Checker = struct {
                     .swap => "!xs.swap(i, j)",
                     .read => "xs.read[U32, .little](at)",
                     .write => "!xs.write[U32, .little](at, v)",
-                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
+                    .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
                 };
                 try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
                 return self.t().invalid_id;
@@ -7586,6 +7656,16 @@ const Checker = struct {
         return sema.enumValues(self.ctx, ty);
     }
 
+    /// Whether `ty` is a plain enum, every variant without a payload: one
+    /// whose values are integers (`enumValues`), or a built-in one,
+    /// `Endian` or `Arch`, whose values are Zig's. Each has `e.text` and
+    /// `E.from_text(word)`.
+    fn hasVariantNames(self: *Checker, ty: TypeId) bool {
+        if (self.enumValues(ty) == true) return true;
+        const decl = sema.nominalDecl(self.ctx, sema.unwrapViews(self.ctx, ty)) orelse return false;
+        return sema.isBuiltinEnum(decl.ctx, decl.sym);
+    }
+
     /// The value of a variant named through its type, `Status.ok` or
     /// `lib.Status.ok`; null for any other expression.
     fn variantValue(self: *Checker, e: Sexp) Error!?Wide {
@@ -7650,6 +7730,16 @@ const Checker = struct {
             try self.errAt(arg, "`{s}` moves values whole, and `{s}` holds a Cell, so it lives only behind a shared handle, whose other fields only read", .{ what, try self.tyName(place) });
             return null;
         }
+        // A Signal changes only by its marked calls: exchanged whole, its
+        // subscribers would move with it, while `set` may be running them.
+        const signal = switch (self.ctx.types.get(place)) {
+            .parameterized_nominal => |pn| pn.sym == self.ctx.signal_sym_id,
+            else => false,
+        };
+        if (signal) {
+            try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its marked calls (`!s.set(v)`), which may be running its subscribers", .{ what, try self.tyName(place) });
+            return null;
+        }
         if (!arg.isKind(.write)) try self.checkLendsVisibly(arg, ty, "the call writes through");
         return place;
     }
@@ -7691,9 +7781,7 @@ const Checker = struct {
                 .void => try self.errAt(a, "{s} needs a value; this expression produces no value (`Void`)", .{who}),
                 .none_literal => try self.errAt(a, "cannot {s} a bare `none`", .{verb}),
                 else => {
-                    var seen: std.ArrayList(ByteSliceVisit) = .empty;
-                    defer seen.deinit(self.ctx.allocator);
-                    if (try holdsByteSlice(self.ctx, ty, &seen, self.ctx.allocator)) {
+                    if (try holdsByteSlice(self.ctx, ty, self.ctx.allocator)) {
                         const name = try self.tyName(ty);
                         const direct = std.mem.eql(u8, name, "[]U8");
                         try self.errAt(a, "cannot {s} a `{s}`: {s}would {s} as text, like a `?String`; {s} the bytes one by one", .{ verb, name, if (direct) "it " else "the `[]U8` it holds ", verb, verb });
@@ -8081,6 +8169,23 @@ const Checker = struct {
         return result;
     }
 
+    /// `Color.from_text(word)`: the variant of plain enum `enum_ty` named
+    /// `word`, or `none`. `word` is passed as to a parameter `?String`.
+    fn enumFromTextCall(self: *Checker, callee: Sexp, enum_ty: TypeId, shown: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        const result = try self.ctx.intern(.{ .optional = enum_ty });
+        if (ct) |b| return self.badCall(args, b, "`from_text` takes no compile-time arguments", .{});
+        if (args.len != 1) return self.badCall(args, pos, "`{s}.from_text(word)` takes one argument, a `?String`; got {d}", .{ shown, args.len });
+        if (args[0].isKind(.kwarg)) return self.badCall(args, pos, "`{s}.from_text(word)` takes its argument by position", .{shown});
+        const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{self.t().string_view_id}), .returns = result, .is_sub = false };
+        try self.noteCallee(f);
+        var scratch = std.heap.ArenaAllocator.init(self.ctx.allocator);
+        defer scratch.deinit();
+        try self.checkArgs(args, f, .{}, "from_text", pos, .{ .origins = try sema.defaultOrigins(self.ctx, scratch.allocator(), f) });
+        try self.ctx.recordElemCall(callee, .{ .op = .from_text, .elem = self.t().string_view_id, .num = enum_ty });
+        try self.ctx.recordTextTable(sema.nominalDecl(self.ctx, enum_ty).?);
+        return result;
+    }
+
     // ---- vectors --------------------------------------------------------------
 
     /// What is done to a lane where a place would be.
@@ -8447,29 +8552,46 @@ const Checker = struct {
     }
 
     const ByteSliceVisit = struct { ctx: *const SemContext, sym: SymbolId };
+    const ByteSliceItem = struct { ctx: *const SemContext, ty: TypeId };
 
     /// Whether a value of `ty` holds a `[]U8`, directly or through a
     /// wrapper, field, payload, or type argument. A `[]U8` and a `?String`
-    /// are both Zig `[]const u8`, so `print` cannot tell them apart.
-    fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, seen: *std.ArrayList(ByteSliceVisit), a: std.mem.Allocator) Error!bool {
-        switch (ctx.types.get(ty)) {
-            .slice => |sl| return switch (ctx.types.get(sl.elem)) {
-                .int => |i| i.bits == 8 and !i.signed,
-                else => holdsByteSlice(ctx, sl.elem, seen, a),
-            },
-            .optional, .fallible, .read_view, .write_view, .shared => |inner| return holdsByteSlice(ctx, inner, seen, a),
-            .array => |arr| return holdsByteSlice(ctx, arr.elem, seen, a),
-            .parameterized_nominal => |pn| for (pn.args) |arg| {
-                if (try holdsByteSlice(ctx, arg, seen, a)) return true;
-            },
-            .nominal, .imported_nominal => {},
-            else => return false,
-        }
-        const decl = sema.nominalDecl(ctx, ty) orelse return false;
-        for (seen.items) |v| if (v.ctx == decl.ctx and v.sym == decl.sym) return false;
-        try seen.append(a, .{ .ctx = decl.ctx, .sym = decl.sym });
-        for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
-            for (sema.dataFields(f)) |d| if (try holdsByteSlice(decl.ctx, d.ty, seen, a)) return true;
+    /// are both Zig `[]const u8`, so `print` cannot tell them apart. The
+    /// walk keeps a stack of its own, so a long chain of types, each
+    /// holding the next, does not nest it; each declaration is walked once.
+    fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator) Error!bool {
+        var todo: std.ArrayList(ByteSliceItem) = .empty;
+        defer todo.deinit(a);
+        var seen: std.AutoHashMapUnmanaged(ByteSliceVisit, void) = .empty;
+        defer seen.deinit(a);
+        try todo.append(a, .{ .ctx = ctx, .ty = ty });
+        while (todo.pop()) |item| {
+            const c = item.ctx;
+            switch (c.types.get(item.ty)) {
+                .slice => |sl| {
+                    switch (c.types.get(sl.elem)) {
+                        .int => |i| if (i.bits == 8 and !i.signed) return true,
+                        else => try todo.append(a, .{ .ctx = c, .ty = sl.elem }),
+                    }
+                    continue;
+                },
+                .optional, .fallible, .read_view, .write_view, .shared => |inner| {
+                    try todo.append(a, .{ .ctx = c, .ty = inner });
+                    continue;
+                },
+                .array => |arr| {
+                    try todo.append(a, .{ .ctx = c, .ty = arr.elem });
+                    continue;
+                },
+                .parameterized_nominal => |pn| for (pn.args) |arg| try todo.append(a, .{ .ctx = c, .ty = arg }),
+                .nominal, .imported_nominal => {},
+                else => continue,
+            }
+            const decl = sema.nominalDecl(c, item.ty) orelse continue;
+            if ((try seen.getOrPut(a, .{ .ctx = decl.ctx, .sym = decl.sym })).found_existing) continue;
+            for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
+                for (sema.dataFields(f)) |d| try todo.append(a, .{ .ctx = decl.ctx, .ty = d.ty });
+            }
         }
         return false;
     }
@@ -10116,6 +10238,8 @@ const Checker = struct {
                 try self.err(pos, "a List has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
             } else if (has_len and std.mem.eql(u8, method, "len")) {
                 try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
+            } else if (std.mem.eql(u8, method, "text") and self.hasVariantNames(peeled)) {
+                try self.err(pos, "no method `text` on type `{s}`; a variant's name is a member, read without a call: `{s}.text`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
                 const sym = decl.symbol();
                 try self.err(pos, "no method `{s}` on type `{s}`{s}", .{ method, sym.name, try self.memberHint(sym.fields orelse &.{}, method, .method) });
@@ -10294,14 +10418,14 @@ const Checker = struct {
             .copy => "one argument, the `[]T` to copy from",
             .fill => "one argument, the value for every element",
             .swap => "two arguments, the indexes of the elements to swap",
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
         }, args.len, if (args.len == 1) "" else "s" });
         const recv = try self.ctx.intern(.{ .write_view = peeled });
         const params: []const TypeId = switch (op) {
             .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
             .fill => &.{ recv, elem },
             .swap => &.{ recv, self.t().int_id, self.t().int_id },
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
         };
         try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
         try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
@@ -10316,7 +10440,7 @@ const Checker = struct {
             },
             .fill => try self.checkExpr(args[0], params[1]),
             .swap => for (args) |a| try self.checkIndexArg(a, len),
-            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
+            .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => unreachable,
         }
         return self.t().void_id;
     }
@@ -10541,6 +10665,19 @@ const Checker = struct {
                 if (plain) return self.enumFromIntCall(self.callee_node orelse return self.skipCall(args), enum_ty, tname, pos, args, ct);
                 const declared = (try sema.findMember(self.ctx, members, name, .any)) != null;
                 if (!declared) return self.badCall(args, pos, "`{s}` has variants with payloads, which have no integer value", .{tname});
+            }
+        }
+        // `from_text`, unless a payload enum declares its own.
+        if (std.mem.eql(u8, name, "from_text") and !nt.sym.flags.error_set and (try sema.findMember(self.ctx, members, name, .any)) == null) {
+            const is_enum = for (members) |m| {
+                if (m.is_variant) break true;
+            } else false;
+            if (is_enum) {
+                if (!generic) {
+                    const enum_ty = try self.namedTypeValue(nt);
+                    if (self.hasVariantNames(enum_ty)) return self.enumFromTextCall(self.callee_node orelse return self.skipCall(args), enum_ty, tname, pos, args, ct);
+                }
+                return self.badCall(args, pos, "`from_text` gives a plain enum's variant by its name; `{s}` {s}", .{ tname, if (generic) "is generic" else "has variants with payloads, which a name cannot build" });
             }
         }
         // The first member of that name decides.
@@ -13193,7 +13330,8 @@ const Checker = struct {
                 // Under a query spelled Zig's way, its fix-it covers this one.
                 const outer_rig = std.meta.stringToEnum(Builtin, name).?.isSafe();
                 if (b != .type and self.raw_depth == 0 and outer_rig) try self.zigQueryName(a, inner, "type");
-                _ = try self.synthExpr(ir.Builtin.args(a)[0]);
+                const of = try self.synthExpr(ir.Builtin.args(a)[0]);
+                try self.requireNamed(name, of, a);
                 return true;
             };
         }
@@ -13201,6 +13339,7 @@ const Checker = struct {
         const ty = try self.typeArg(a);
         if (self.isPoison(ty)) return false;
         try self.ctx.recordType(a, ty);
+        try self.requireNamed(name, ty, a);
         // A vector's size and alignment are the target's, so Rig gives
         // neither, nor those of a type that holds one inline.
         if (!std.mem.eql(u8, name, "name")) {
@@ -13213,6 +13352,18 @@ const Checker = struct {
             for (params.items) |param| try self.require(param, .sized, self.startOf(a), name);
         }
         return true;
+    }
+
+    /// `@name` of a type that holds type parameters names each one's
+    /// instance as the program runs (`rig.typeName`), from its Zig type:
+    /// each instance must hold no view it could not tell apart
+    /// (`Requirement.named`).
+    fn requireNamed(self: *Checker, builtin: []const u8, ty: TypeId, at: Sexp) Error!void {
+        // Zig's `@typeName`, inside `raw`, names the Zig type.
+        if (!std.mem.eql(u8, builtin, "name")) return;
+        var params: std.ArrayList(SymbolId) = .empty;
+        try sema.reachedTypeVars(self.ctx, ty, &params, self.ctx.arena.allocator());
+        for (params.items) |param| try self.require(param, .named, self.startOf(at), "@name");
     }
 
     // =========================================================================
@@ -13843,6 +13994,13 @@ fn sliceArgLend(ctx: *const SemContext, actual: TypeId, view: TypeId) ?sema.Lend
 
 fn stringOrBoxed(ctx: *const SemContext, ty: TypeId) TypeId {
     return if (sema.unwrapAccess(ctx, ty) == ctx.types.string_id) ctx.types.string_id else ty;
+}
+
+/// Why enum `ty`, which has variants, is not plain: its payloads, or its
+/// type parameters.
+fn notPlainWhy(ctx: *const SemContext, ty: TypeId) []const u8 {
+    const generic = if (sema.nominalDecl(ctx, ty)) |d| d.symbol().type_params != null else false;
+    return if (generic) "is generic" else "has variants with payloads";
 }
 
 /// A String (boxed or not, or viewed), a `?String`, or a `Static`: `==`
@@ -14990,6 +15148,11 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .whole_division => try ctx.err(at, cannot ++ "gives a `{s}` the division of whole numbers `{s}`, which divides integers, not a `{s}`", .{ inst, pname, aname, pname, req.op, aname }),
                 .not_error => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a return type `{s}!` would make a failure and a success both `{s}` values", .{ inst, pname, aname, pname, aname }),
                 .not_function => try ctx.err(at, cannot ++ "makes a handle `{s}{s}` of a `{s}`, and `{s}` is a function type: `*{s}` is an owned closure, not a handle of a function. Hold the owned closure itself in a `{s}`: `{s} = *{s}`", .{ inst, pname, aname, req.op[1..2], pname, pname, aname, aname, pname, pname, aname }),
+                .named => {
+                    const held = sema.unnameable(ctx, arg).?;
+                    const what = if (held == arg) "is one" else try ctx.arena.allocator().print("holds `{s}`", .{try sema.formatType(ctx, held)});
+                    try ctx.err(at, cannot ++ "names a type that holds a `{s}` with `@name`, which spells no view or slice in a type parameter's instance but a `?String`, and `{s}` {s}", .{ inst, pname, aname, pname, aname, what });
+                },
                 .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
                 .hashable => if (try sema.notHashable(ctx, arg, null)) |n|
                     try ctx.err(at, cannot ++ "hashes a `{s}` with `.hash()`, which `{s}` does not support: {s}", .{ inst, pname, aname, pname, aname, try notEquatableReason(ctx, n) })
@@ -15004,6 +15167,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
                 .not_function => try ctx.noteIn(req.module_id, req.pos, "`{s}{s}` here", .{ req.op[1..2], pname }),
+                .named => try ctx.noteIn(req.module_id, req.pos, "`@name` here", .{}),
                 else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
             ok = false;
@@ -15079,6 +15243,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         .whole_division => sema.isInteger(ctx, ty),
         .not_error => ctx.types.get(ty) != .any_error and !sema.isErrorSet(ctx, ty),
         .not_function => ctx.types.get(ty) != .function,
+        .named => sema.unnameable(ctx, ty) == null,
     };
 }
 

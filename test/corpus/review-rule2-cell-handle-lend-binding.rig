@@ -1,0 +1,39 @@
+sub viaBinding(c: *Cell[List[Int]])
+  w = !c
+  !w.push(5)
+  w[0] = 6
+  print(w.len)
+
+sub viaTernary(c: *Cell[List[Int]], d: *Cell[List[Int]], k: Bool)
+  (!c if k else !d).push(7)
+  (!c if k else !d)[0] = 8
+
+sub viaCapture(c: *Cell[Int])
+  f = |+c| (!c).set(77)
+  f()
+
+sub swapTernary(a: *Cell[Int], b: *Cell[Int], c: *Cell[Int], k: Bool)
+  swap(!a if k else !b, !c)
+
+sub cellSwapMember(a: *Cell[Int], b: *Cell[Int])
+  x = (!a).replace(b.get())
+  (!b).set(x)
+
+sub main()
+  c: *Cell[List[Int]] = *Cell(List())
+  !c.push(1)
+  viaBinding(+c)
+  print(c[0], c.len)
+  d: *Cell[List[Int]] = *Cell(List())
+  !d.push(1)
+  viaTernary(+c, +d, false)
+  print(c[0], c.len, d[0], d.len)
+  i: *Cell[Int] = *Cell(1)
+  viaCapture(+i)
+  print(i.get())
+  j: *Cell[Int] = *Cell(2)
+  k: *Cell[Int] = *Cell(3)
+  swapTernary(+i, +j, +k, true)
+  print(i.get(), j.get(), k.get())
+  cellSwapMember(+i, +j)
+  print(i.get(), j.get())

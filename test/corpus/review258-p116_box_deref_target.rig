@@ -1,0 +1,11 @@
+obj P
+  x: Int
+  s: String
+
+fun bx(h: !^P) -> !P from h
+  h
+
+sub main()
+  b = ^P(x: 1, s: String("a"))
+  bx(!b) = P(x: 2, s: String("b"))
+  print(b.x, b.s)

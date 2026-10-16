@@ -1,0 +1,14 @@
+obj H
+  s: ?String
+
+fun wrap(h: !H) -> !H from h
+  h
+
+sub main()
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  for !x in v
+    u = String("u")
+    wrap(!x) = H(s: ?u)
+  print(v[0].s)
