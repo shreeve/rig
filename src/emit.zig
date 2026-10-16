@@ -47,8 +47,7 @@ const SymbolId = facts.SymbolId;
 pub const Error = std.mem.Allocator.Error || Writer.Error || error{Unsupported};
 pub const UnitEvent = facts.UnitEvent;
 const check_units = facts.check_units;
-/// Emit's own assertions, made in every self-checking build.
-const self_check = @import("build_options").self_check;
+const self_check = facts.self_check;
 
 /// How a resource binding is released.
 const ResourceKind = enum {
