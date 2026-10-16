@@ -1,0 +1,8 @@
+fun get(i: Int) -> Bool?
+  (i < 9) if i < 3 else none
+
+sub main()
+  i = 0
+  while get(i) ?? break :i
+    print(i)
+  print(9)

@@ -9,8 +9,8 @@ fun p(k: Int) -> Int!
   k
 
 sub main()
-  :outer for i in 0..4
+  @outer for i in 0..4
     for j in 0..3
-      v = get(j) ?? continue :outer
-      w = p(i) catch break :outer
+      v = get(j) ?? continue @outer
+      w = p(i) catch break @outer
       print(i, j, v, w)

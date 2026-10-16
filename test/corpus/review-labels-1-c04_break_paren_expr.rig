@@ -1,0 +1,12 @@
+sub main()
+  a = 2
+  b = 3
+  c = 4
+  x = if true
+    @outer while true
+      while true
+        break @outer (a + b) * c
+      print(99)
+  else
+    0
+  print(x)

@@ -1,0 +1,6 @@
+sub main()
+  @size for i in 0..3
+    x = @size(Int)
+    print(i, x)
+    break @size if i == 1
+  print(9)

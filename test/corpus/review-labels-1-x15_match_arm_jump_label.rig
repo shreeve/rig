@@ -1,0 +1,6 @@
+sub main()
+  @o for i in 0..3
+    match i
+      1 => break @o
+      _ => print(i)
+  print(9)

@@ -1,0 +1,4 @@
+sub main()
+  c = |x: Int|
+    @size(I16) + x
+  print(c(1))

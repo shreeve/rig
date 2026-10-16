@@ -12,15 +12,15 @@ fun check(n: Int) -> Int!
   n
 
 sub main()
-  :outer for i in 0..3
+  @outer for i in 0..3
     for j in 0..3
-      v = get(i, j) ?? continue :outer
-      w = check(v) catch break :outer
+      v = get(i, j) ?? continue @outer
+      w = check(v) catch break @outer
       print(w)
   i = 0
-  :loop while i < 5 : i += 1
+  @loop while i < 5 : i += 1
     while true
-      n = get(i, i) ?? break :loop
+      n = get(i, i) ?? break @loop
       print(n)
       break
 

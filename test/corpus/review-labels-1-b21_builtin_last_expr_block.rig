@@ -1,0 +1,5 @@
+fun g() -> Int
+  @size(Int)
+
+sub main()
+  print(g())

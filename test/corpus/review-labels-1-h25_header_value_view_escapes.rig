@@ -1,0 +1,16 @@
+fun first(v: ?List[Int], i: Int) -> (?Int)?
+  ?v[i] if i < v.len else none
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  r = if true
+    @o while true
+      w: List[Int] = List()
+      !w.push(5)
+      while (first(?w, 0) ?? break @o ?w[0]) > 9
+        print(1)
+      break @o 0
+  else
+    0
+  print(r)

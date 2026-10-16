@@ -62,7 +62,7 @@ sub main()
   guard = 0
   c0 = 0
   p0 = 0
-  :l0 while mkd(0, c0, 3) as h0: c0 = st(0, c0)
+  @l0 while mkd(0, c0, 3) as h0: c0 = st(0, c0)
     guard += 1
     if guard > 300
       print("cap")
@@ -72,10 +72,10 @@ sub main()
     y0 = D(n: 0 + c0)
     defer print("d0", c0)
     print("b0", c0, h0.n)
-    :m raw
+    @m raw
       v1 = ints(2)
       p1 = 0
-      :l1 for x1, c1 in v1
+      @l1 for x1, c1 in v1
         guard += 1
         if guard > 300
           print("cap")
@@ -84,11 +84,11 @@ sub main()
         _ = p1
         y1 = D(n: 100 + c1)
         print("b1", c0, c1, x1)
-        :w1 match c1
+        @w1 match c1
           _
             c2 = 0
             p2 = 0
-            :l2 while (limf(c2, 2, false) catch break) as h2: c2 = st(2, h2)
+            @l2 while (limf(c2, 2, false) catch break) as h2: c2 = st(2, h2)
               guard += 1
               if guard > 300
                 print("cap")
@@ -100,7 +100,7 @@ sub main()
               print("t2", c0, c1, c2)
             else
               print("e2", c0, c1)
-              continue :l0 if c0 == 1 and c1 == 1
+              continue @l0 if c0 == 1 and c1 == 1
             print("w1", c0, c1)
         print("t1", c0, c1)
       print("w0", c0)

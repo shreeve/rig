@@ -1,0 +1,13 @@
+error E
+  bad
+
+fun get(i: Int, k: Int) -> Bool!
+  return E.bad if i > k
+  true
+
+sub main()
+  @o for k in 0..3
+    i = 0
+    while get(i, k) catch continue @o : i += 1
+      print(k, i)
+  print(9)
