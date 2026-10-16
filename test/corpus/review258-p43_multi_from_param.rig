@@ -1,0 +1,18 @@
+obj H
+  s: ?String
+
+fun pick(a: !H, b: !H, c: Bool) -> !H from a, b
+  return a if c
+  b
+
+sub put(a: !H)
+  x = String("x")
+  l = H(s: ?x)
+  d = String("d")
+  pick(!l, !a, false) = H(s: ?d)
+
+sub main()
+  x = String("x")
+  h = H(s: ?x)
+  put(!h)
+  print(h.s)

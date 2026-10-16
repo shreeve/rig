@@ -1,0 +1,12 @@
+obj W
+  w: !Int
+
+fun wl(h: !W) -> !(!Int) from h
+  !h.w
+
+sub main()
+  a = 1
+  b = 2
+  h = W(w: !a)
+  wl(!h) = 7
+  print(a, b)

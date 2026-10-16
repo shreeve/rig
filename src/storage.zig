@@ -1677,7 +1677,8 @@ const Planner = struct {
         const ty = known(ctx, s.ty) orelse return;
         const ptr = isPtrViewTy(ctx, ty);
         const writes_through = !ctx.repoints(set) and sema.assignWritesThrough(ctx, s.ty);
-        if ((ptr and writes_through and owns(ctx, sema.unwrapViews(ctx, ty))) or (!ptr and owns(ctx, ty)) or storesAfterValue(ctx, set))
+        const pointee = sema.writtenThrough(ctx, ty);
+        if ((ptr and writes_through and !isPtrViewTy(ctx, pointee) and owns(ctx, pointee)) or (!ptr and owns(ctx, ty)) or storesAfterValue(ctx, set))
             try p.record(value, .new_value, .owned, .assignment);
     }
 
@@ -1688,9 +1689,10 @@ const Planner = struct {
         // A target assigned through, a call's write view, writes the
         // value the view reaches.
         const through = assignedThrough(target);
-        const place_ty = if (through) (if (typeOf(ctx, target)) |t| sema.unwrapViews(ctx, t) else null) else typeOf(ctx, target);
+        const place_ty = if (through) (if (typeOf(ctx, target)) |t| sema.writtenThrough(ctx, t) else null) else typeOf(ctx, target);
         if (target.isKind(.index)) if (typeOf(ctx, ir.Index.object(target))) |t| if (isCellListTy(ctx, t)) return p.openAssign(set, order);
-        if (target != .src and !through and isPtrViewExpr(ctx, target)) return p.openAssign(set, order);
+        const holds_view = if (through) (if (place_ty) |t| isPtrViewTy(ctx, t) else false) else (target != .src and isPtrViewExpr(ctx, target));
+        if (holds_view) return p.openAssign(set, order);
         if (place_ty != null and !owns(ctx, place_ty.?)) return p.openAssign(set, order);
         try p.record(ir.Set.value(set), .new_value, .owned, .assignment);
         if (order.held) try p.targetSteps(set, order);

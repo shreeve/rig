@@ -1,0 +1,7 @@
+obj P
+  x: Int
+
+sub main()
+  P(x: 1) = P(x: 2)
+  max(1, 2) = 3
+  print("x")

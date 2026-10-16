@@ -1,0 +1,14 @@
+# a call returns a write view of a field that holds a read view
+obj H
+  s: ?String
+
+fun sl(h: !H) -> !(?String) from h
+  !h.s
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  u = String("other")
+  sl(!h) = ?u
+  print(h.s)
+  print(t, u)

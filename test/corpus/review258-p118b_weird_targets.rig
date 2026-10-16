@@ -1,0 +1,15 @@
+fun pick(h: !Int) -> (!Int)? from h
+  h
+
+fun go(n: !Int) -> Int?
+  x: Int? = 1
+  5? = 3
+  none? = 3
+  (<x)? = 4
+  (pick(!n)?)? = 5
+  (x ?? 1)? = 3
+  0
+
+sub main()
+  n = 1
+  print(go(!n))

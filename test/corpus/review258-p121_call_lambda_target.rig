@@ -1,0 +1,3 @@
+sub main()
+  (|k: Int| k)(1) = 3
+  print(1)

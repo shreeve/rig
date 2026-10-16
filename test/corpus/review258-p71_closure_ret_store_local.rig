@@ -1,0 +1,12 @@
+obj H
+  s: ?String
+
+sub main()
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  g = |!v| !v[0]
+  if t.len > 0
+    d = String("d")
+    g() = H(s: ?d)
+  print(v[0].s)

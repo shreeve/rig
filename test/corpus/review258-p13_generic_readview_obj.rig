@@ -1,0 +1,15 @@
+obj P
+  x: Int
+  n: String
+
+fun gslot[T](v: !List[T], i: Int) -> !T from v
+  !v[i]
+
+sub main()
+  a = P(x: 1, n: String("a"))
+  b = P(x: 2, n: String("b"))
+  v: List[?P] = List()
+  !v.push(?a)
+  gslot(!v, 0) = ?b
+  print(v[0].x, v[0].n)
+  print(a.n, b.n)

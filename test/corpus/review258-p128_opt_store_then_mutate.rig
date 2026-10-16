@@ -1,0 +1,21 @@
+obj H
+  s: ?String
+
+fun pick(v: !List[H]) -> (!H)? from v
+  return none if v.len == 0
+  !v[0]
+
+fun go(v: !List[H], u: ?String) -> Int?
+  pick(!v)? = H(s: u)
+  0
+
+sub main()
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  u = String("u")
+  print(go(!v, ?u))
+  slot = 0
+  pick(!v)? = H(s: ?u) if false
+  !u.add("x")
+  print(v[0].s, slot)

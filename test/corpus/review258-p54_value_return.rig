@@ -1,0 +1,15 @@
+fun slot(v: !List[String], i: Int) -> !String from v
+  !v[i]
+
+fun go(v: !List[String], src: !List[String]) -> Int
+  while true
+    slot(!v, 0) = (!src).pop() ?? return v.len
+  0
+
+sub main()
+  v: List[String] = List()
+  !v.push(String("a"))
+  src: List[String] = List()
+  !src.push(String("x"))
+  !src.push(String("y"))
+  print(go(!v, !src), v)

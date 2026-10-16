@@ -1,0 +1,16 @@
+error Bad
+  oops
+
+fun must(h: !Int) -> (!Int)! from h
+  h
+
+fun go(n: !Int) -> Int!
+  "a"! = 3
+  must(!n)!! = 5
+  [1, 2]! = 3
+  (|k: Int| k)(1)! = 3
+  0
+
+sub main()
+  n = 1
+  print(go(!n) catch 0)

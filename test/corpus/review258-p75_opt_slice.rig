@@ -1,0 +1,12 @@
+fun items(v: !List[Int]) -> (![]Int)? from v
+  return none if v.len == 0
+  !v[0..v.len]
+
+fun go(v: !List[Int]) -> Int?
+  items(!v)? = items(!v)?
+  0
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  print(go(!v))

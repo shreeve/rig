@@ -1,0 +1,19 @@
+obj D
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun mk(n: Int) -> D
+  print("make", n)
+  D(n: n)
+
+fun sl(v: !List[D]) -> !D from v
+  print("call")
+  !v[0]
+
+sub main()
+  v: List[D] = List()
+  !v.push(D(n: 1))
+  sl(!v) = mk(2)
+  print("after")

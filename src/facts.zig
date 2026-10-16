@@ -554,6 +554,9 @@ pub const Facts = struct {
     pub fn unwrapViews(f: Facts, ty: TypeId) TypeId {
         return sema.unwrapViews(f.c(), ty);
     }
+    pub fn writtenThrough(f: Facts, ty: TypeId) TypeId {
+        return sema.writtenThrough(f.c(), ty);
+    }
     pub fn unwrapReadAccess(f: Facts, ty: TypeId) TypeId {
         return sema.unwrapReadAccess(f.c(), ty);
     }

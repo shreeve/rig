@@ -1,0 +1,13 @@
+obj C
+  c: Cell[Int]
+  s: String
+
+fun inner(h: !*C) -> !C from h
+  h
+
+sub main()
+  a = *C(c: Cell(1), s: String("a"))
+  b = +a
+  r = ?b.s
+  inner(!a) = C(c: Cell(2), s: String("new"))
+  print(r)

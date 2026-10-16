@@ -1,0 +1,16 @@
+error Bad
+  oops
+
+fun sf(v: !List[Int]) -> (!Int)! from v
+  !v[0]
+
+fun go(v: !List[Int]) -> Int!
+  (sf(!v) catch sf(!v)!) = 5
+  (sf(!v)!)! = 5
+  ((sf(!v))!) = 5
+  0
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  print(go(!v) catch 0)

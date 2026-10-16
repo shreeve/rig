@@ -1,0 +1,21 @@
+obj H
+  s: ?String
+
+enum E
+  a(h: H)
+  b
+
+fun wrap(h: !H) -> !H from h
+  h
+
+sub main()
+  t = String("t")
+  e = E.a(h: H(s: ?t))
+  u = String("u")
+  match !e
+    .a(h) => wrap(!h) = H(s: ?u)
+    .b => pass
+  <u
+  match e
+    .a(h) => print(h.s)
+    .b => pass
