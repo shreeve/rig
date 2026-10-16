@@ -1,0 +1,8 @@
+fun split(s: ?String) -> (?String, Int)
+  return s, 1
+
+fun own(s: ?String) -> (String, Int)
+  return split(s)
+
+# error: type mismatch: expected `(String, Int)`, got `(?String, Int)`
+# errors: 1

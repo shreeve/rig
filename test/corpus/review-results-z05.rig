@@ -1,0 +1,17 @@
+obj Guard
+  s: ?String
+  tag: Int
+
+  drop(!self)
+    print("guard", self.tag, self.s)
+
+fun mk(s: !String, t: Int) -> Guard
+  s = String("replaced")
+  Guard(s: "lit", tag: t)
+
+sub main()
+  x = String("x")
+  g = Guard(s: ?x, tag: 0)
+  print(g.tag)
+  g = mk(!x, 1)
+  print(g.tag)

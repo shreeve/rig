@@ -353,7 +353,8 @@ migration guide (`tools/migrate-0.3.py`).
   byte-lane reads on ARM. (Round 2 built `t.lookup(idx)`, `cur.lag[k](prev)`, `+|` and
   `-|`, and lane shifts.)
 - A String API for part-word appends and windowed writes.
-- Multiple results.
+- Several results after v1 (TODO.md): small results in registers, and
+  `from` per result.
 - Nexus's `Span.text`, in place of the position slicing Rig does.
 
 **Also open:**

@@ -1,0 +1,10 @@
+fun g(ok: Bool) -> (Int, Int)?
+  return none if not ok
+  return 1, 2
+
+sub main()
+  if g(true) as x
+    print(x)
+
+# error: `g` gives 2 results: bind each, `if g(true) as a, b`
+# errors: 1

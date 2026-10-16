@@ -132,6 +132,12 @@ const SymbolResolver = struct {
             },
             .@"test" => try self.walkTest(sexp),
             .set => try self.walkSet(sexp),
+            // `q, r = f()`: the value first, then each target's binding,
+            // left to right (`(set op q _ (result_part))`).
+            .destructure => {
+                try self.walk(ir.Destructure.value(sexp));
+                for (ir.Destructure.targets(sexp).items()) |t| try self.walk(t);
+            },
             .block => {
                 const prev = try self.enter(sexp, .block);
                 defer self.scope = prev;
@@ -622,6 +628,16 @@ const SymbolResolver = struct {
 
     /// One part of a binding condition (`rig.eachGuardPart`).
     pub fn part(self: *SymbolResolver, p: Sexp) Error!void {
+        if (p.isKind(.as_results)) {
+            try self.walk(ir.AsResults.value(p));
+            _ = try self.enter(p, .block);
+            for (ir.AsResults.names(p).items()) |n| {
+                try self.walk(n);
+                if (!n.isKind(.set)) continue;
+                if (self.ctx.symbolOf(ir.Set.target(n))) |id| self.ctx.symbols.items[id].flags.as_bound = true;
+            }
+            return;
+        }
         if (!p.isKind(.as)) return self.walk(p);
         try self.walk(ir.As.value(p));
         _ = try self.enter(p, .block);
@@ -1259,6 +1275,19 @@ pub const TypeResolver = struct {
     /// Only a function's return type may be fallible (`T!`); Zig error
     /// unions with inferred error sets exist only there.
     fn resolveReturnType(self: *TypeResolver, node: Sexp) Error!TypeId {
+        // Several results, `-> (A, B)`, also fallible or optional as a
+        // whole: `-> (A, B)!`, `-> (A, B)?`.
+        if (node.isKind(.results_type)) return self.resolveResults(node);
+        const wrapped = if (node.isKind(.error_union) or node.isKind(.optional)) ir.get(node, .type) else Sexp.nil;
+        if (wrapped.isKind(.results_type)) {
+            const inner = try self.resolveResults(wrapped);
+            if (self.isPoison(inner)) return inner;
+            return self.ctx.intern(if (node.isKind(.optional)) .{ .optional = inner } else .{ .fallible = inner });
+        }
+        if (node.isKind(.error_union) and wrapped.isKind(.optional) and ir.Optional.type(wrapped).isKind(.results_type)) {
+            try self.ctx.errAt(node, "several results are fallible, `(A, B)!`, or optional, `(A, B)?`, not both", .{});
+            return self.ctx.types.invalid_id;
+        }
         if (node.isKind(.error_union)) {
             const inner = try self.resolveType(ir.ErrorUnion.type(node));
             if (sema.isErrorValue(self.ctx, inner)) {
@@ -1277,6 +1306,77 @@ pub const TypeResolver = struct {
         const ty = try self.resolveType(node);
         if (try self.misplacedAt(node, ty, .signature)) return self.ctx.types.invalid_id;
         return ty;
+    }
+
+    /// `(A, B)`, a function's several results (`sema.Type.results`):
+    /// two or more, each a type one result may have, at most one of them
+    /// a write view. Named results are not Rig's.
+    fn resolveResults(self: *TypeResolver, node: Sexp) Error!TypeId {
+        const t = &self.ctx.types;
+        const nodes = ir.ResultsType.types(node);
+        var parts: std.ArrayList(TypeId) = .empty;
+        defer parts.deinit(self.ctx.allocator);
+        var poisoned = false;
+        var writes: usize = 0;
+        for (nodes) |n| {
+            if (n.isKind(.@":")) {
+                try self.ctx.errAt(n, "results are not named: write their types, `-> ({s})`, and name them where they are bound, `{s} = f()`", .{ try self.typesOnly(nodes), try self.namesOnly(nodes) });
+                return t.invalid_id;
+            }
+            const ty = try self.resolveType(n);
+            if (self.isPoison(ty)) {
+                poisoned = true;
+                continue;
+            }
+            switch (self.ctx.types.get(ty)) {
+                .void => {
+                    try self.ctx.errAt(n, "a result is a value: `Void` is none", .{});
+                    poisoned = true;
+                    continue;
+                },
+                .fallible => {
+                    try self.ctx.errAt(n, "a single result is not fallible: several results fail as a whole, `(A, B)!`", .{});
+                    poisoned = true;
+                    continue;
+                },
+                else => {},
+            }
+            if (try self.misplacedAt(n, ty, .signature)) {
+                poisoned = true;
+                continue;
+            }
+            // A write view stands in a signature only as `!T` or `(!T)?`.
+            if (self.ctx.types.get(sema.unwrapOptionals(self.ctx, ty)) == .write_view) writes += 1;
+            try parts.append(self.ctx.allocator, ty);
+        }
+        if (poisoned) return t.invalid_id;
+        if (writes > 1) {
+            try self.ctx.errAt(node, "at most one of a function's results is a write view", .{});
+            return t.invalid_id;
+        }
+        return self.ctx.internCopy(.{ .results = parts.items });
+    }
+
+    /// `(q: Int, r: Int)` as `Int, Int`: the types of named results.
+    fn typesOnly(self: *TypeResolver, nodes: []const Sexp) Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        for (nodes, 0..) |n, i| {
+            if (i > 0) try out.appendSlice(self.ctx.arena.allocator(), ", ");
+            const ty = if (n.isKind(.@":")) ir.get(n, .type) else n;
+            try out.appendSlice(self.ctx.arena.allocator(), diag.textOf(self.ctx.source, self.ctx.span(ty)));
+        }
+        return out.items;
+    }
+
+    /// `(q: Int, r: Int)` as `q, r`: the names of named results.
+    fn namesOnly(self: *TypeResolver, nodes: []const Sexp) Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        for (nodes, 0..) |n, i| {
+            if (i > 0) try out.appendSlice(self.ctx.arena.allocator(), ", ");
+            const name = if (n.isKind(.@":")) ir.get(n, .name) else n;
+            try out.appendSlice(self.ctx.arena.allocator(), if (n.isKind(.@":")) diag.textOf(self.ctx.source, self.ctx.span(name)) else "_");
+        }
+        return out.items;
     }
 
     /// `*(?T)`, `~(!T)`: a handle keeps a value alive, and a view is
@@ -2104,6 +2204,12 @@ pub const TypeResolver = struct {
                     },
                     .generic_inst => return self.resolveGenericInst(sexp),
                     .member => return self.resolveQualified(ir.Member.object(sexp), ir.Member.name(sexp)),
+                    // Several results are a function's, after its `->`
+                    // (`resolveReturnType`), and no value's type.
+                    .results_type => {
+                        try self.ctx.errAt(sexp, "`{s}` is a function's results, not a type a value can have: name an object for a stored pair", .{diag.textOf(self.ctx.source, self.ctx.span(sexp))});
+                        return t.invalid_id;
+                    },
                     else => {
                         try self.ctx.errAt(sexp, "unsupported type expression", .{});
                         return t.invalid_id;

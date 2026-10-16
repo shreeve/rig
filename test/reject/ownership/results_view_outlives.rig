@@ -1,0 +1,10 @@
+fun split(s: ?String, at: Int) -> (?String, ?String)
+  return s[..at], s[at..]
+
+sub main()
+  t = String("hello")
+  a, b = split(?t, 2)
+  !t.add("!")
+  print(a, b)
+
+# error: cannot lend `t` to write while a read loan is live

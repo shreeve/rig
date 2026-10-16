@@ -338,7 +338,10 @@ forms to `value`, an expression without blocks or closures (conditions,
   before the rule is asked, so they do not end a chain; the joined line
   produces no `NEWLINE` and no `INDENT`;
 - classifies keywords, the characters read by position, `if`, and
-  closure bars as above;
+  closure bars as above, and a `,` right after `as name` outside
+  brackets as `AS_COMMA`, which joins the names `if f() as a, b` binds:
+  inside brackets that `,` separates arguments or elements, and the
+  parser's state alone cannot tell them apart;
 - rejects `&&`, `||` after a value, `**`, `i++` and `i--`, `//` and
   `/*` comments, and the reserved pin sigil `@x` with a hint, and
   malformed input where it is written: a `=!` with no space after it
@@ -578,6 +581,16 @@ A few kinds serve more than one surface form:
   which the checker accepts only when sema recorded it as a member of
   an error set (`E` names the set, through a module or an alias; not a
   module's constant or a value's field) that the subject can hold.
+- Several results ([Several results](#several-results)): the type
+  `(A, B)` is `(results_type A B)`, which the grammar takes anywhere a
+  type goes and sema only after a function's `->`; `return a, b` is
+  `(return (results a b))`; `q, r = f()` is `(destructure op targets
+  value)`, and `if f() as a, b` is `(as_results value names)`. The
+  Parser wrapper makes each target and name but `_` the binding `(set
+  op q _ (result_part))` of the result in its position (`shadow` for an
+  `as` name), so every pass reads it as the `x = e` it is; `_` stays a
+  leaf. `(tuple a b)`, a parenthesized list, and named results, `(q:
+  Int, r: Int)`, parse only to be rejected.
 - `(pass)`, the statement `pass`, has no roles. The checker rejects it
   where a value is needed, and the emitter writes it as `{}`, an empty
   Zig block, which is a statement wherever Zig takes one.
@@ -1605,6 +1618,8 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
 | `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
+| `results` | `__rig_res` | the several results a call gives, which each target of `q, r = f()` takes in its turn, or the names of `if f() as a, b` take; what no target takes (`_`) it drops at the statement's end | owned | statement, body |
+| `argument` (of `return a, b`) | `__rig_arg` | the parts of `return a, b`, made in their turn when a later part can leave after an earlier one that owns (`storage.hoistsResults`) | owned | call |
 | `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array lent to a call that evaluates its arguments where they stand (`lendsTempArray`) | owned | statement |
 
 `owned` storage holds a value of its own, made there or taken; `copy`
@@ -2909,6 +2924,72 @@ hands back nothing. Its two places are places like any other: two
 fields of one value are disjoint paths, and two elements of one
 collection overlap, which the hint `!a.swap(i, j)` says once
 (`sameCollection`).
+
+### Several results
+
+A function gives several results with `-> (A, B)` (also `(A, B)!` and
+`(A, B)?`), a type (`sema.Type.results`) that stands only there and in a
+function type's result. Its facts are its parts' together, as an
+object's are its fields' (`holdsIn`, `reachOf`, `ownedParts`,
+`minBytesOf`), and `resolveResults` takes two or more parts, each a
+type one result may have, at most one of them a write view. Typecheck
+keeps the positive list of where a call that gives them may stand
+(`Checker.results_ok`): the value of a destructure (a call, alone or
+under `!` or `?`, or with a `??` or `catch` that jumps), of `return`
+in a function giving the same results, and of `if … as a, b`; any
+other is reported where it is typed (`misplacedResults`). `(a, b)` is no
+value (`tupleValue`), and `a, b = b, a` is no parallel assignment.
+
+**Desugaring.** `q, r = f(x)` makes the call's results statement
+temporaries (Core §3), one a result, which no name holds; each target
+then takes its own, left to right, as the binding `x = e` takes a
+call's result, and a result `_` discards stays a temporary, dropped at
+the statement's end, the last first. `return a, b` gives each part as
+`return x` gives `x`, left to right, each judged by its own result's
+type. Each target is the binding `(set op q _ (result_part))`, so
+typecheck (`checkSet`), the ownership checker (`walkSet`), and emit
+(`emitSet`) bind it as any `x = e`; `result_part` is the result in its
+position, typed `part_ty` and walked as `part_value`.
+
+**Loans.** Sentence 7 applies per result: the call's loans are
+narrowed by each result's own type (`carryResult` of each,
+`callResults`), so a `Bool` beside a view carries none. An argument's
+write lend ends at the return only when no result keeps it to write;
+while one may, every lend of the call lasts to the statement's end, as
+for a `!T` result. The checker holds the results in a hidden var of the
+statement (`walkDestructure`), which keeps the loans of the results no
+target has taken yet: a target bound while a pending result views it is
+reported (`pendingView`). A `_`'s loans last to the statement's end
+when its drop runs a `drop` body, which could read them; any other
+discarded result reads none of its views (Core sentence 6), and its
+loans end at once. Write lends end per call: while any result may hold
+a write view, every lend of the call lasts to the statement's end (an
+`if … as` part is a header, its own statement), though the write view
+carries only the arguments its origins name; ending the other
+arguments' write lends at the return, per argument, is left for later
+(TODO.md). Two
+results of one call never break sentence 5: a function giving a write
+view and another result that could view the same parameter is rejected
+where it is declared (`sema.checkResultViews`), and the call checks the
+results' loans the same way, for a function value whose type says less.
+`if f() as a, b` binds new names, so nothing pending can view them; the
+call's loans end with the header, as `as`'s do. It takes no `_`: the
+header's temporaries end before the body, where a discarded result
+would drop. A call alone on its line, and `_ = f()`, discard every
+result, as one result is discarded.
+
+**Emit.** The results are a Zig tuple, `@Tuple(&.{ A, B })`; `return
+a, b` is `return .{ a, b }`, each part written as one result is
+(`emitResultValue`). When a later part can leave after an earlier one
+that owns (`storage.hoistsResults`), each part is made first into
+`__rig_arg_N_i`, an owned one guarded by a flag, so the way out drops it
+(`emitHoistedResults`); Zig's own tuple would lose it. A destructure is
+`const __rig_res_N = f(x);` and then each binding, whose value is
+`__rig_res_N[j]`, and a discarded owned result is dropped after them;
+`if f() as a, b` captures the results as `__rig_res_N` and binds the
+names at the body's start (`bindResults`), each result to its name. Emit never writes Zig's own
+destructure, `a, b = .{ b, a }`, which does not evaluate its right side
+first.
 
 ### Loops
 
@@ -4215,6 +4296,14 @@ lend (`(!h).r`, `(?mk()).items`) is a path through that view, so a
 store there lands in what the view reaches and nothing is moved out of
 it; and a write receiver with no `!` whose value is a write view
 (`wrap(!h).keep(v)`) is lent on through that view.
+
+Several results are hidden statement temporaries, one a result, each
+carrying the loans its own type could view (Core s7, per result); each
+target takes its own by the `x = e` rule, left to right, so a pending
+result's loans conflict with binding what it views, and a `_` result
+drops at the statement's end. `return a, b` gives each part as `return
+x` does, and `if f() as a, b` binds new names from a header's
+results.
 
 Its loans and accesses carry the place's path, cut where it goes
 through a handle or into an optional's value (`Place.cut`), and two of

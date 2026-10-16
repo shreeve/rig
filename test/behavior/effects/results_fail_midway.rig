@@ -1,0 +1,32 @@
+# A later result that fails after an earlier one was made: the earlier
+# one is dropped on the way out, and nothing leaks.
+
+error E
+  bad
+
+fun num(ok: Bool) -> Int!
+  return E.bad if not ok
+  7
+
+fun two(ok: Bool) -> (String, Int)!
+  s = String("abc")
+  return s, num(ok)!
+
+fun three(ok: Bool) -> (String, Int)?
+  s = String("abc")
+  n = num(ok) catch return none
+  return s, n
+
+sub main()
+  a, n = two(true) catch return
+  print(a, n)
+  if three(false) as b, m
+    print(b, m)
+  else
+    print("none")
+  c, k = two(false) catch return
+  print(c, k)
+
+# expect:
+# abc 7
+# none

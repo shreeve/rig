@@ -1,0 +1,9 @@
+fun mk(s: ?String) -> (?String, String)
+  return s, String("new")
+
+sub main()
+  s = String("old")
+  v: ?String = "init"
+  print(v)
+  v, s = mk(?s)
+  print(s)

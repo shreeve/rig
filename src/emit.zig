@@ -238,6 +238,9 @@ pub const Emitter = struct {
     /// `test` blocks emitted so far: the Rig name literal and the Zig function.
     tests: std.ArrayList(struct { name: []const u8, func: []const u8 }) = .empty,
     fun: FunState = .{ .quota = false },
+    /// The result the `result_part` being emitted takes: `__rig_res_N[j]`,
+    /// of the destructure whose target it is (`emitDestructure`).
+    part_name: []const u8 = "",
     /// Closure bodies being emitted around the current point. Each names
     /// its environment `__rig_self`, `__rig_self1`, ... so a closure
     /// inside another does not shadow the outer one's.
@@ -1112,6 +1115,7 @@ pub const Emitter = struct {
             .base => "__rig_base",
             .index => "__rig_ix",
             .slot => "__rig_slot",
+            .results => "__rig_res",
             // The storage of these is another's: the header's value, the
             // capture it copies, or Zig's (`zigTemporary`).
             .header_copy, .as_copy, .zig_temp => "",
@@ -1422,6 +1426,7 @@ pub const Emitter = struct {
         };
         switch (head) {
             .set => try self.emitSet(sexp),
+            .destructure => try self.emitDestructure(sexp),
             .drop => try self.emitDrop(sexp),
             // An empty block: a statement wherever Zig wants one.
             .pass => try self.w.writeAll("{}"),
@@ -1522,6 +1527,52 @@ pub const Emitter = struct {
             }
             try self.emitRebind(local.*, expr, self.facts.repoints(sexp));
         }
+    }
+
+    /// `q, r = f()`: the call's results go into `__rig_res_N` (the
+    /// `results` storage fact), then each target takes its own, left to
+    /// right, as the binding `x = e` it is (`(set op x _ (result_part))`,
+    /// whose value is `__rig_res_N[j]`); a result no target takes (`_`)
+    /// is dropped at the statement's end, the last first.
+    fn emitDestructure(self: *Emitter, node: Sexp) Error!void {
+        const value = ir.Destructure.value(node);
+        const targets = ir.Destructure.targets(node).items();
+        const ty = self.typeOf(value) orelse return self.unsupported(value, "an untyped call");
+        const parts = switch (self.facts.types.get(ty)) {
+            .results => |r| r,
+            else => return self.unsupported(value, "a destructure of one value"),
+        };
+        if (parts.len != targets.len) return self.unsupported(node, "a destructure of the wrong arity");
+        var drops = false;
+        for (targets, parts) |t, part| if (!t.isKind(.set) and self.kindOf(part) != null) {
+            drops = true;
+        };
+        const name = try self.hiddenStorage(node, .results, .owned, .next);
+        try self.w.print("{s} {s} = ", .{ if (drops) "var" else "const", name });
+        try self.emitBare(value);
+        try self.w.writeAll(";");
+        const saved = self.part_name;
+        defer self.part_name = saved;
+        var taken = false;
+        for (targets, 0..) |t, j| {
+            if (!t.isKind(.set)) continue;
+            taken = true;
+            self.part_name = try self.fmt("{s}[{d}]", .{ name, j });
+            try self.w.writeAll("\n");
+            try self.writeIndent(self.indent);
+            try self.emitSet(t);
+        }
+        var j = targets.len;
+        while (j > 0) {
+            j -= 1;
+            if (targets[j].isKind(.set)) continue;
+            const kind = self.kindOf(parts[j]) orelse continue;
+            try self.w.writeAll(" ");
+            try self.writeDrop(try self.fmt("{s}[{d}]", .{ name, j }), kind);
+            try self.w.writeAll(";");
+        }
+        // Results no target takes, which own nothing.
+        if (!taken and !drops) try self.w.print(" _ = {s};", .{name});
     }
 
     /// `_ = expr`, and a statement `<e` of anything but a name, which
@@ -2131,6 +2182,7 @@ pub const Emitter = struct {
     fn emitReturn(self: *Emitter, node: Sexp) Error!void {
         const value = ir.Return.value(node);
         if (value == .nil) return self.w.writeAll("return;");
+        if (value.isKind(.results)) return self.emitReturnResults(value);
         try self.w.writeAll("return ");
         try self.emitReturnValue(value);
         try self.w.writeAll(";");
@@ -2140,9 +2192,67 @@ pub const Emitter = struct {
     /// position (directly, or through `if`/`match` branches) are moved
     /// out, so their scope-exit drop is disarmed.
     fn emitReturnValue(self: *Emitter, value: Sexp) Error!void {
+        return self.emitResultValue(value, self.fun.return_ty);
+    }
+
+    /// `return a, b`: `return .{ a, b }`, each part a result of its type
+    /// in its position, as `return x` gives `x` (`emitResultValue`).
+    fn emitReturnResults(self: *Emitter, value: Sexp) Error!void {
+        const ret = self.fun.return_ty orelse return self.unsupported(value, "several results from a function that gives one");
+        const tys = self.facts.resultsOf(ret) orelse return self.unsupported(value, "several results from a function that gives one");
+        const parts = ir.Results.values(value);
+        if (self.facts.hoistsResults(value)) return self.emitHoistedResults(value, parts, tys);
+        try self.w.writeAll("return .{ ");
+        for (parts, tys, 0..) |p, ty, i| {
+            if (i > 0) try self.w.writeAll(", ");
+            try self.emitResultValue(p, ty);
+        }
+        try self.w.writeAll(" };");
+    }
+
+    /// `return a, b` whose later part can leave after an earlier one that
+    /// owns (`storage.hoistsResults`): each part is made into
+    /// `__rig_arg_N_i` in its turn, an owned one dropped on the way out
+    /// unless the return takes it.
+    fn emitHoistedResults(self: *Emitter, value: Sexp, parts: []const Sexp, tys: []const TypeId) Error!void {
+        const id = self.nextId();
+        const names = try self.arena.allocator().alloc([]const u8, parts.len);
+        const flags = try self.arena.allocator().alloc(?[]const u8, parts.len);
+        try self.openBrace();
+        for (parts, tys, names, flags, 0..) |p, ty, *name, *flag, i| {
+            name.* = try self.hiddenStorage(value, .argument, .owned, .{ .pair = .{ id, @intCast(i) } });
+            const kind = self.kindOf(ty);
+            try self.writeIndent(self.indent);
+            try self.w.print("{s} {s}: ", .{ if (kind != null) "var" else "const", name.* });
+            try self.emitTypeTy(ty);
+            try self.w.writeAll(" = ");
+            try self.emitResultValue(p, ty);
+            try self.w.writeAll(";");
+            flag.* = null;
+            if (kind) |k| {
+                const f = try self.fmt("__rig_live_{d}_{d}", .{ id, i });
+                flag.* = f;
+                try self.w.print(" var {s} = true; defer if ({s}) ", .{ f, f });
+                try self.writeDrop(name.*, k);
+                try self.w.writeAll(";");
+            }
+            try self.w.writeAll("\n");
+        }
+        try self.writeIndent(self.indent);
+        try self.w.writeAll("return .{ ");
+        for (names, flags, 0..) |name, flag, i| {
+            if (i > 0) try self.w.writeAll(", ");
+            if (flag) |f| try self.w.print("rig.take(&{s}, {s})", .{ f, name }) else try self.w.writeAll(name);
+        }
+        try self.w.writeAll(" };\n");
+        try self.closeBrace();
+    }
+
+    /// `value` leaving the function as a result of type `result`.
+    fn emitResultValue(self: *Emitter, value: Sexp, result: ?TypeId) Error!void {
         // A result that is a view held as a pointer, or an optional or a
         // fallible one, returns the pointer; an error value is itself.
-        if (self.fun.return_ty) |r| if (self.isPtrViewTy(self.unwrapOptionals(self.unwrapFallible(r)))) {
+        if (result) |r| if (self.isPtrViewTy(self.unwrapOptionals(self.unwrapFallible(r)))) {
             const error_value = if (self.typeOf(value)) |t| self.facts.isErrorValue(t) else false;
             if (!error_value) return self.emitWriteViewPtr(value);
         };
@@ -2216,7 +2326,7 @@ pub const Emitter = struct {
         const cond = ir.If.cond(sexp);
         const else_ = ir.If.@"else"(sexp);
         try self.w.writeAll("if ");
-        if (cond.isKind(.as)) {
+        if (rig.isAsPart(cond)) {
             try self.pushScope();
             try self.emitBodyWith(ir.If.then(sexp), try self.emitCond(cond));
             try self.popScope();
@@ -2308,9 +2418,16 @@ pub const Emitter = struct {
     /// `(cond) ` for `if`/`while`, or the head of `if expr as name`,
     /// whose prelude binds the name (`emitOptionalHead`).
     fn emitCond(self: *Emitter, cond: Sexp) Error!Prelude {
-        const entered = try self.enterUnit(cond);
+        var entered = try self.enterUnit(cond);
         defer self.leaveUnit(entered);
         if (cond.isKind(.as)) return self.emitOptionalHead(cond);
+        if (cond.isKind(.as_results)) {
+            const prelude = try self.emitResultsHead(cond);
+            // The names take their results in the part's code, taken up
+            // again at the body's start (`bindResults`).
+            if (entered and try self.pauseUnit(cond)) entered = false;
+            return prelude;
+        }
         try self.w.writeAll("(");
         try self.emitHeader(cond);
         try self.w.writeAll(") ");
@@ -2491,7 +2608,7 @@ pub const Emitter = struct {
         var opened: usize = 0;
         for (parts) |p| {
             try self.writeIndent(self.indent);
-            if (p.isKind(.as)) {
+            if (rig.isAsPart(p)) {
                 try self.w.writeAll("if ");
                 const prelude = try self.emitCond(p);
                 try self.openBrace();
@@ -3371,9 +3488,12 @@ pub const Emitter = struct {
         lent: ?OptionalBinding = null,
         /// The error a `catch |err|` handler names, captured as `tmp`.
         err_capture: ?struct { zig_name: []const u8, tmp: []const u8 } = null,
+        /// The results `if f() as a, b` captures as `tmp`, which its names
+        /// take (`emitResultsHead`).
+        results: ?struct { cond: Sexp, tmp: []const u8 } = null,
 
         fn isEmpty(p: Prelude) bool {
-            return p.head.len == 0 and p.aliases.len == 0 and p.owned.len == 0 and p.drops.len == 0 and p.optional == null and p.lent == null and p.err_capture == null;
+            return p.head.len == 0 and p.aliases.len == 0 and p.owned.len == 0 and p.drops.len == 0 and p.optional == null and p.lent == null and p.err_capture == null and p.results == null;
         }
     };
 
@@ -3477,6 +3597,37 @@ pub const Emitter = struct {
         if (prelude.optional) |o| try self.bindOptionalResource(o);
         if (prelude.lent) |o| try self.bindOptionalView(o);
         if (prelude.err_capture) |c| try self.line("const {s}: anyerror = {s};", .{ c.zig_name, c.tmp });
+        if (prelude.results) |r| try self.bindResults(r.cond, r.tmp);
+    }
+
+    /// `(f()) |__rig_res_N| ` for `if f() as a, b`: the results are
+    /// captured, and the prelude has each name take its own
+    /// (`bindResults`).
+    fn emitResultsHead(self: *Emitter, cond: Sexp) Error!Prelude {
+        try self.w.writeAll("(");
+        try self.emitHeader(ir.AsResults.value(cond));
+        try self.w.writeAll(") ");
+        const tmp = try self.hiddenStorage(cond, .results, .owned, .next);
+        try self.w.print("|{s}| ", .{tmp});
+        return .{ .results = .{ .cond = cond, .tmp = tmp } };
+    }
+
+    /// The names of `if f() as a, b` take their results, captured as
+    /// `tmp`, each as the binding `a = e` it is. Every result has a name
+    /// (`_` is rejected there), so nothing is dropped here.
+    fn bindResults(self: *Emitter, cond: Sexp, tmp: []const u8) Error!void {
+        const names = ir.AsResults.names(cond).items();
+        const saved = self.part_name;
+        defer self.part_name = saved;
+        const resumed = try self.enterUnit(cond);
+        defer self.leaveUnit(resumed);
+        for (names, 0..) |n, j| {
+            if (!n.isKind(.set)) return self.unsupported(n, "a result `as` discards");
+            self.part_name = try self.fmt("{s}[{d}]", .{ tmp, j });
+            try self.writeIndent(self.indent);
+            try self.emitSet(n);
+            try self.w.writeAll("\n");
+        }
     }
 
     /// `(expr) |capture| ` for `if expr as name` / `while expr as name`.
@@ -4411,6 +4562,9 @@ pub const Emitter = struct {
             else => {},
         }
         switch (head) {
+            // A destructure's target takes its result out of the
+            // statement's results (`emitDestructure`).
+            .result_part => try self.w.writeAll(self.part_name),
             // `?a` / `!a` of an array lent as a slice: the array's address,
             // which Zig takes as a slice.
             .read, .write => if (head == .read) {
@@ -7418,6 +7572,12 @@ pub const Emitter = struct {
                 try self.emitTypeList(f.params);
                 try self.w.writeAll(") ");
                 try self.emitTypeTy(f.returns);
+            },
+            // Several results: a tuple of them, given by `return .{ a, b }`.
+            .results => |parts| {
+                try self.w.writeAll("@Tuple(&.{ ");
+                try self.emitTypeList(parts);
+                try self.w.writeAll(" })");
             },
             else => return self.unsupported(.nil, "a value of this type"),
         }

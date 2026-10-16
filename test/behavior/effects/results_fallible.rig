@@ -1,0 +1,35 @@
+# Fallible and optional results are consumed whole: `!` and `?` test
+# before anything is bound, as does a fallback that jumps.
+
+error E
+  bad
+
+fun f(ok: Bool) -> (Int, String)!
+  return E.bad if not ok
+  return 1, String("one")
+
+fun g(ok: Bool) -> (Int, Int)?
+  return none if not ok
+  return 2, 3
+
+fun h(ok: Bool) -> (Int, Int)?
+  a, b = g(ok)?
+  return b, a
+
+fun run(ok: Bool) -> Int!
+  n, s = f(ok)!
+  print(n, s)
+  a, b = g(ok) ?? return 0
+  c, d = h(ok) ?? return 0
+  a + b + c + d
+
+sub main()
+  print(run(true) catch -1)
+  print(run(false) catch -1)
+  x, y = f(false) catch return
+  print(x, y)
+
+# expect:
+# 1 one
+# 10
+# -1

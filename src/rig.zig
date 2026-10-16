@@ -74,9 +74,15 @@ pub fn isModuleConst(decl: Sexp) bool {
 /// the left spine, checked in order, each binding visible to the parts
 /// after it and to the body.
 pub fn bindsInCondition(cond: Sexp) bool {
-    if (cond.isKind(.as)) return true;
+    if (isAsPart(cond)) return true;
     if (!cond.isKind(.@"and")) return false;
-    return ir.get(cond, .right).isKind(.as) or bindsInCondition(ir.get(cond, .left));
+    return isAsPart(ir.get(cond, .right)) or bindsInCondition(ir.get(cond, .left));
+}
+
+/// A part of a condition that binds: `a as x`, or `f() as a, b`, which
+/// binds a call's several results (`as_results`).
+pub fn isAsPart(e: Sexp) bool {
+    return e.isKind(.as) or e.isKind(.as_results);
 }
 
 /// Whether `cond` joins two parts of a binding condition: an `and` on
@@ -182,8 +188,8 @@ pub fn stmtClass(tag: Tag) StmtClass {
         .block, .@"if", .@"while", .@"for", .match, .labeled, .@"defer", .@"errdefer" => .structured,
         .raw_block => .raw,
         // Assignments, drops, `pass`, the exits and jumps, and expressions.
-        .set, .drop, .pass, .@"return", .@"break", .@"continue", .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
+        .set, .destructure, .tuple, .drop, .pass, .@"return", .@"break", .@"continue", .propagate, .propagate_none, .@"catch", .call, .builtin, .member, .index, .inst, .array, .array_fill, .lambda, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"??", .@"and", .@"or", .@"..", .neg, .not, .move, .read, .write, .clone, .share, .weak, .box => .unit,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .as, .as_results, .results, .result_part, .results_type, .arm, .alt_pattern, .range_pattern, .variant_pattern, .enum_lit, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write, .kwarg, .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter => .none,
     };
 }
 
@@ -1238,6 +1244,10 @@ pub const Lexer = struct {
             .colon => if (self.while_header == self.nesting) (if (isLabelJump(self.last_cat) and self.oldLabelBeforeStep()) return self.fail(.colon_label, tok.pos) else .step_colon) else if (self.stmtStart() or isLabelJump(self.last_cat)) return self.fail(.colon_label, tok.pos) else .colon,
             // `get(k) ?? return none`: a jump as the fallback.
             .nullish => if (self.nextIsJump()) .nullish_jump else .nullish,
+            // `if f() as a, b`: a `,` after `as name` outside brackets
+            // joins the names `as` binds. Inside brackets a `,` after
+            // `x as a` separates arguments or elements.
+            .comma => if (self.nesting == 0 and self.last_cat == .ident and (self.last2_cat == .as or self.last2_cat == .as_comma)) .as_comma else .comma,
             .err => return self.lexError(tok),
             else => if (isKeyword(tok.cat)) self.classifyKeyword(tok.cat) else tok.cat,
         };
@@ -1745,6 +1755,12 @@ fn hiddenLeaf(pos: u32, name: HiddenName) Sexp {
     return .{ .src = .{ .pos = pos, .len = 1, .id = hidden_id_base + @intFromEnum(name) } };
 }
 
+/// Whether `leaf` is a name a rewrite built (`hiddenLeaf`), such as the
+/// `next` a `for` over an iterator calls.
+pub fn isHiddenLeaf(leaf: Sexp) bool {
+    return leaf == .src and leaf.src.id >= hidden_id_base;
+}
+
 /// Leaf ids from here are hidden names; the lexer's are keyword ordinals.
 const hidden_id_base: u16 = 0xFF00;
 
@@ -2183,6 +2199,7 @@ pub const Parser = struct {
         if (self.openRange(tok)) |d| return d;
         if (self.foreignWord(tok)) |d| return d;
         if (self.headerColon(tok)) |d| return d;
+        if (self.bareResults(tok)) |d| return d;
         const message: []const u8 = switch (tok.cat) {
             .err => return .{ .severity = .@"error", .pos = pos, .end = end, .message = switch (lexer.err) {
                 .semicolon => self.semicolonMessage(tok),
@@ -2309,6 +2326,49 @@ pub const Parser = struct {
             else => return null,
         };
         return .{ .severity = .@"error", .pos = pos, .end = pos + 1, .message = "unexpected `:`; a block's header ends without one: remove the `:`, and indent the block below" };
+    }
+
+    /// `a / b, a % b` as a statement: a function's several results are
+    /// given by `return`, never by a bare list, which no statement is.
+    /// Reported at the line, where the parse fails on its `,` or its end.
+    fn bareResults(self: *Parser, tok: Token) ?diag.Diagnostic {
+        const lexer = &self.base.lexer;
+        const src = self.base.source;
+        if (lexer.nesting > 0) return null;
+        const at: u32 = switch (tok.cat) {
+            .comma => tok.pos,
+            .newline, .outdent, .eof => lexer.prev_pos,
+            else => return null,
+        };
+        const start: u32 = if (std.mem.findScalarLast(u8, src[0..at], '\n')) |nl| @intCast(nl + 1) else 0;
+        var end: u32 = at;
+        while (end < src.len and src[end] != '\n' and src[end] != '#') end += 1;
+        const line = std.mem.trim(u8, src[start..end], " \t\r");
+        if (line.len == 0) return null;
+        // A statement that starts with a keyword is no bare list.
+        var w: usize = 0;
+        while (w < line.len and isIdentCont(line[w])) w += 1;
+        if (w > 0 and keyword(line[0..w]) != null) return null;
+        // A comma outside brackets, and no `=` of a binding.
+        var depth: i32 = 0;
+        var comma = false;
+        for (line, 0..) |c, i| switch (c) {
+            '(', '[' => depth += 1,
+            ')', ']' => depth -= 1,
+            '"', '\'' => return null,
+            ',' => if (depth == 0) {
+                comma = true;
+            },
+            '=' => if (depth == 0) {
+                const before = if (i > 0) line[i - 1] else ' ';
+                const after = if (i + 1 < line.len) line[i + 1] else ' ';
+                if (after != '=' and after != '>' and std.mem.findScalar(u8, "=!<>+-*/%&|^", before) == null) return null;
+            },
+            else => {},
+        };
+        if (!comma) return null;
+        const first = start + @as(u32, @intCast(std.mem.find(u8, src[start..end], line).?));
+        return .{ .severity = .@"error", .pos = first, .end = first + @as(u32, @intCast(line.len)), .message = self.format("results are written `return {s}`", .{line}) };
     }
 
     /// `0..=3`: Rig's ranges exclude their end. Reported at the `..=`.
@@ -2654,6 +2714,8 @@ pub const Parser = struct {
             .arm => try self.dropStatement(&walked[ir.slot(.arm, .body)]),
             .labeled => try self.dropStatement(&walked[ir.slot(.labeled, .stmt)]),
             .@"??" => return self.nearestFallback(out),
+            .destructure => try self.destructureTargets(walked),
+            .as_results => try self.resultNames(walked),
             .read, .write, .move => return self.receiverSigil(out),
             .share, .box => try self.noteParenSuffix(out),
             .weak => {
@@ -2675,6 +2737,49 @@ pub const Parser = struct {
             else => {},
         }
         return out;
+    }
+
+    /// `q, r = f()`: each target but `_` takes the result in its position,
+    /// as the binding `(set op q _ (result_part))`, which every pass
+    /// reads as the `x = e` it is (docs/INTERNALS.md, "Several
+    /// results"). A `_` stays a leaf: its result is left in the
+    /// statement's temporary, which drops it at the statement's end.
+    fn destructureTargets(self: *Parser, walked: []Sexp) std.mem.Allocator.Error!void {
+        const slot = ir.slot(.destructure, .targets);
+        const group = walked[slot];
+        const op = walked[ir.slot(.destructure, .op)];
+        const targets = group.items();
+        const out = try self.allocator().alloc(Sexp, targets.len);
+        for (targets, out) |t, *o| {
+            if (t == .src and std.mem.eql(u8, leafText(self.base.source, t.src), "_")) {
+                o.* = t;
+                continue;
+            }
+            const at = self.span(t);
+            const part = try self.base.newNode(.result_part, &.{}, at);
+            o.* = try self.base.newNode(.set, &.{ op, t, .nil, part }, at);
+        }
+        walked[slot] = .{ .list = parser.List.withId(out, group.list.id) };
+    }
+
+    /// `if f() as a, b`: each name but `_` is a new binding of the result
+    /// in its position, `(set shadow a _ (result_part))`, as a
+    /// destructure's target is (`destructureTargets`).
+    fn resultNames(self: *Parser, walked: []Sexp) std.mem.Allocator.Error!void {
+        const slot = ir.slot(.as_results, .names);
+        const group = walked[slot];
+        const names = group.items();
+        const out = try self.allocator().alloc(Sexp, names.len);
+        for (names, out) |n, *o| {
+            if (n == .src and std.mem.eql(u8, leafText(self.base.source, n.src), "_")) {
+                o.* = n;
+                continue;
+            }
+            const at = self.span(n);
+            const part = try self.base.newNode(.result_part, &.{}, at);
+            o.* = try self.base.newNode(.set, &.{ .{ .tag = .shadow }, n, .nil, part }, at);
+        }
+        walked[slot] = .{ .list = parser.List.withId(out, group.list.id) };
     }
 
     /// A module-level binding is a constant, written with `=`: its
@@ -3549,6 +3654,13 @@ test "a statement label ends no operand" {
     try expectCats("@a if x", &.{ .label_at, .ident, .@"if", .ident });
     try expectCats("@a -x", &.{ .label_at, .ident, .minus, .ident });
     try expectCats("@a (x)", &.{ .label_at, .ident, .lparen, .ident, .rparen });
+}
+
+test "a `,` after `as name` outside brackets joins the names `as` binds" {
+    try expectCats("if f() as a, b", &.{ .@"if", .ident, .lparen, .rparen, .as, .ident, .as_comma, .ident });
+    try expectCats("while g() as a, b, c", &.{ .@"while", .ident, .lparen, .rparen, .as, .ident, .as_comma, .ident, .as_comma, .ident });
+    try expectCats("f(x as a, b)", &.{ .ident, .lparen, .ident, .as, .ident, .comma, .ident, .rparen });
+    try expectCats("q, r = f()", &.{ .ident, .comma, .ident, .assign, .ident, .lparen, .rparen });
 }
 
 test "`@name(` with the `(` touching is a builtin; `@name` alone is a label" {

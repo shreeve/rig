@@ -41,6 +41,7 @@
 #       ?? return                    `??` before a jump (vs the operator)
 #       while c : i += 1             a `while` step (vs a keyword argument's `:`)
 #       a if c else b                ternary vs postfix guard `stmt if c`
+#       if f() as a, b               the names `as` binds (vs a list's `,`)
 #
 #     A character that both starts and continues an operand (`-x` and
 #     `a - b`, `f(x)` and `(x)`, `T?` and `?T`) is one token: the parser
@@ -191,6 +192,7 @@ tokens
     dotdot_open     # ..  directly before `]`: an open range `xs[a..]`, `xs[..]`
     nullish_jump    # ??  directly before `return`, `break`, or `continue`
     step_colon      # :   the first `:` of a `while` header: its step
+    as_comma        # ,   between the names `as` binds: `if f() as a, b`
     label_at        # @   before a name no `(` touches: a label, `@outer for`, `break @outer`
 
     # Misc
@@ -392,11 +394,18 @@ tokens
     # Bindings: `op` is the binding kind (see BindingKind in src/rig.zig)
     set                         op:tag(fixed|shadow|shadow_fixed|"+="|"-="|"*="|"/="|"%="|"+%="|"-%="|"*%="|"+|="|"-|="|"&="|"|="|"^="|"<<="|"<<%="|">>=")? target type? value
     drop                        target @wrapper  # a name, or the (move e) whose value is dropped
+    # `q, r = f()`: each target takes one of a call's results. The Parser
+    # wrapper makes each target but `_` the binding `(set op t _
+    # (result_part))` of the result in its position.
+    destructure                 op:tag(fixed|shadow|shadow_fixed)? targets:group value
+    result_part                 @wrapper
+    results                     ...values        # `return a, b`: a function's several results
     pass
 
     # Control flow
     if                          cond then else?
     as                          value name:leaf
+    as_results                  value names:group  # `if f() as a, b`
     while                       cond step? body:block else:block?
     for                         mode:tag(iter|read|write|move) var:leaf? index:leaf? source body:block else:block?
     match                       subject ...arms:arm
@@ -427,6 +436,7 @@ tokens
     inst                        object ...args
     array                       ...elems
     array_fill                  size value
+    tuple                       ...elems         # `(a, b)`: parsed only to be rejected
     kwarg                       name:leaf value
 
     # Operators
@@ -448,6 +458,7 @@ tokens
     generic_inst                name ...args
     array_type                  size type
     fun_type                    params:group? returns? fails:tag(fails)?
+    results_type                ...types         # `-> (Int, Int)`: a function's results
 
 @display
     # Tokens by what they read as in a message; every keyword and
@@ -459,7 +470,7 @@ tokens
     POST_IF: "`if`", TERNARY_IF: "`if`", BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`"
     KWARG_NAME: "a keyword argument"
     OF: "`of`", OBJ: "`obj`", INLINE: "`inline`", CALLED: "`called`", RARELY: "`rarely`", UNIQUE: "`unique`", FROM: "`from`", STATIC: "`static`"
-    DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", STEP_COLON: "`:`", LABEL_AT: "`@`"
+    DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", STEP_COLON: "`:`", AS_COMMA: "`,`", LABEL_AT: "`@`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
@@ -582,11 +593,27 @@ simple   = tail
          | NEW target:name ":" type:type "=!" value:tail → (set op:shadow_fixed)
          | PASS                                     → (pass)
          | RETURN [value:tail]                      → (return)
+         | RETURN rvals                             → (return value:(results ...2))
+         | targets:dtargets "=" value:tail          → (destructure)
+         | targets:dtargets "=" rvals               → (destructure value:(results ...3))
+         | NEW targets:dtargets "=" value:tail      → (destructure op:shadow)
+         | targets:dtargets "=!" value:tail         → (destructure op:fixed)
+         | NEW targets:dtargets "=!" value:tail     → (destructure op:shadow_fixed)
          | BREAK [LABEL_AT label:name] [value:tail] → (break)
          | CONTINUE [LABEL_AT label:name]           → (continue)
          | DEFER body:(block | simple)              → (defer)
          | ERRDEFER body:(block | simple)           → (errdefer)
          | RAW body:block                           → (raw_block)
+
+# `q, r = divmod(a, b)`: two or more targets, each a name or `_`. A
+# field or element parses, so that the checker can reject it.
+dtargets = postfix "," postfix                      → (1 3)
+         | dtargets "," postfix                     → (...1 3)
+
+# `return q, r`: a function's several results. Also the right side of
+# `a, b = b, a`, which parses so that the checker can name `swap`.
+rvals    = value "," value                          → (1 3)
+         | rvals "," value                          → (...1 3)
 
 assign   = target:postfix "="   value:tail          → (set)
          | target:postfix
@@ -788,6 +815,18 @@ tatom    = tname
          | ERROR                                    # `error`: an error of any set
          | name:tname "[" args:types ![","] "]"      → (generic_inst)
          | "(" type ")"                             → 2
+         | "(" type "," rtypes ![","] ")"           → (results_type 2 ...4)
+         | "(" rnamed ![","] ")"                    → (results_type ...2)
+
+# A function's results, `-> (Int, Int)`, after the first. Named results,
+# `(q: Int, r: Int)`, parse so that the checker can reject them.
+rtypes   = type                                     → (1)
+         | rtypes "," type                          → (...1 3)
+
+rnamed   = rnfield                                  → (1)
+         | rnamed "," rnfield                       → (...1 3)
+
+rnfield  = name:KWARG_NAME ":" type:type            → (:)
 
 # A named type, of this module or another: `Point`, `geo.Point`. Its
 # instance names it the same way: `Wrap[Int]`, `lib.Wrap[Int]`.
@@ -884,7 +923,18 @@ conj     = left:conj AND right:neg                  → (and)
          | neg
 neg      = NOT operand:neg                          → (not)
          | value:@infix AS name:name                → (as)
+         | value:@infix AS names:anames             → (as_results)
          | @infix
+
+# The names `as` binds from a call that gives several results; the
+# rewriter marks a `,` after `as name` outside brackets as AS_COMMA.
+anames   = name AS_COMMA name                       → (1 3)
+         | anames AS_COMMA name                     → (...1 3)
+
+# The rest of a parenthesized list, `(a, b)`, which parses only to be
+# rejected: its own rule, so a list in brackets expects no `)`.
+texprs   = expr                                     → (1)
+         | texprs "," expr                          → (...1 3)
 
 # Written out rather than `L(expr)`, which conflicts with a trailing
 # comma.
@@ -1072,6 +1122,7 @@ atom     = name
          | "[" size:expr OF value:expr "]"          → (array_fill)  # `[n of 0]`
          | "(" expr ")"                             → 2
          | "(" cclosure ")"                         → 2
+         | "(" expr "," texprs ![","] ")"           → (tuple 2 ...4)
 
 # ==============================================================================
 # INFIX OPERATORS (lowest precedence first; operands are `unary`)

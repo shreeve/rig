@@ -1,0 +1,29 @@
+# Several results, `-> (A, B)`, given by `return a, b` and bound by
+# name: each name declares or assigns as `x = e` does, `_` discards, and
+# `new` and `=!` work as for one name.
+
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+fun again(a: Int, b: Int) -> (Int, Int)
+  return divmod(a, b)
+
+sub main()
+  q, r = divmod(17, 5)
+  print(q, r)
+  _, r = divmod(9, 4)
+  print(q, r)
+  new q, r = divmod(1, 1)
+  print(q, r)
+  a, b =! again(8, 3)
+  print(a, b)
+  f = divmod
+  x, y = f(9, 2)
+  print(x, y)
+
+# expect:
+# 3 2
+# 3 1
+# 1 0
+# 2 2
+# 4 1

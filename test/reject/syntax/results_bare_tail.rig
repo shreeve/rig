@@ -1,0 +1,4 @@
+fun f(a: Int) -> (Int, Int)
+  a, a
+
+# error: results are written `return a, a`
