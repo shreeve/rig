@@ -17,8 +17,9 @@
 //!   `__rig_alive_<name>` flag, and the consuming site clears it.
 //! - `!T` parameters, `!self` receivers, and write-view bindings are
 //!   pointers; reads go through `.*`.
-//! - Every Rig name is written with `rig.writeZigIdent`; a local that
-//!   would shadow another visible Zig name is renamed.
+//! - Every Rig name is written with `rig.writeZigIdent` (`ident`), the
+//!   one place a Rig name becomes a Zig name; a local that would shadow
+//!   another visible Zig name, compared as Zig names, is renamed.
 //!
 //! Anything the emitter cannot lower is an internal error: sema must
 //! reject it first.
@@ -189,6 +190,8 @@ const Nominal = struct {
     name: []const u8,
     sym: SymbolId,
     members: []const Sexp,
+    /// The Zig name of each of its methods (`ident`).
+    methods: []const []const u8,
 };
 
 /// Facts about bindings the emitter derives from one walk over the
@@ -486,7 +489,7 @@ pub const Emitter = struct {
             if (d.isKind(.zig_const)) {
                 try self.w.print("pub const {f}: ", .{ident(self.srcText(name))});
                 try self.emitTypeTy(try self.declType(name));
-                try self.w.print(" = {s}.{f};\n", .{ shim, ident(self.srcText(name)) });
+                try self.w.print(" = {s}.{f};\n", .{ shim, exactIdent(self.srcText(name)) });
                 continue;
             }
             const f = self.fnType(try self.declType(name)) orelse return self.unsupported(name, "an untyped function");
@@ -499,13 +502,13 @@ pub const Emitter = struct {
                 }
                 try self.w.writeAll(") ");
                 try self.emitTypeTy(f.returns);
-                try self.w.print(" {{\n    return {s}.{f}(", .{ shim, ident(self.srcText(name)) });
+                try self.w.print(" {{\n    return {s}.{f}(", .{ shim, exactIdent(self.srcText(name)) });
                 for (0..f.params.len) |i| try self.w.print("{s}__rig_a{d}", .{ if (i > 0) ", " else "", i });
                 try self.w.writeAll(");\n}\n");
             } else {
-                try self.w.print("pub const {f} = {s}.{f};\n", .{ ident(self.srcText(name)), shim, ident(self.srcText(name)) });
+                try self.w.print("pub const {f} = {s}.{f};\n", .{ ident(self.srcText(name)), shim, exactIdent(self.srcText(name)) });
             }
-            try self.w.print("comptime {{\n    rig.expectShim({s}.{f}, fn (", .{ shim, ident(self.srcText(name)) });
+            try self.w.print("comptime {{\n    rig.expectShim({s}.{f}, fn (", .{ shim, exactIdent(self.srcText(name)) });
             try self.emitTypeList(f.params);
             try self.w.writeAll(") ");
             if (f.returns == self.facts.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
@@ -647,7 +650,11 @@ pub const Emitter = struct {
         const prev = self.nominal;
         const sym = self.facts.symbolOf(name_node) orelse return self.unsupported(name_node, "an unresolved type");
         const name = if (generic) "__rig_Self" else try self.fmt("{f}", .{ident(self.srcText(name_node))});
-        self.nominal = .{ .name = name, .sym = sym, .members = members };
+        var methods: std.ArrayList([]const u8) = .empty;
+        for (members) |m| if (m.isKind(.fun) or m.isKind(.sub)) {
+            try methods.append(self.arena.allocator(), try self.fmt("{f}", .{ident(self.srcText(ir.get(m, .name)))}));
+        };
+        self.nominal = .{ .name = name, .sym = sym, .members = members, .methods = methods.items };
         return prev;
     }
 
@@ -840,9 +847,10 @@ pub const Emitter = struct {
             const name_node = facts.syntax.paramNameNode(p) orelse continue;
             const sym = self.facts.symbolOf(name_node) orelse continue;
             const rig_name = self.srcText(name_node);
-            // A type parameter, `comptime T: type`.
+            // A type parameter, `comptime T: type`, is a name even when
+            // it is `_`: the type's name spells it (`emitRigName`).
             if (self.facts.symbols.items[sym].kind == .generic_param) {
-                _ = try self.declare(.{ .sym = sym }, rig_name);
+                _ = try self.declare(.{ .sym = sym, .zig_name = if (std.mem.eql(u8, rig_name, "_")) try self.fmt("{f}", .{ident(rig_name)}) else "" }, rig_name);
                 continue;
             }
             const ty = self.symType(sym) orelse return self.unsupported(p, "an untyped parameter");
@@ -1003,17 +1011,20 @@ pub const Emitter = struct {
         if (std.mem.eql(u8, rig_name, "_")) return "_";
         const base = try self.fmt("{f}", .{ident(rig_name)});
         if (!self.nameTaken(base)) return base;
-        return self.fresh(if (rig.isPlainName(rig_name)) rig_name else "__rig_hidden");
+        // A name `ident` renames keeps no part of it: `rig_3` would read
+        // as a name of the program's.
+        return self.fresh(if (rig.isPlainName(rig_name) and !rig.zigRenames(rig_name)) rig_name else "__rig_hidden");
     }
 
+    /// Whether a Zig name is visible where a binding is being declared:
+    /// a module-level name, the nominal type being emitted or one of its
+    /// methods, or a local. Every name compared is a Zig name
+    /// (`ident`), as Zig compares them.
     fn nameTaken(self: *Emitter, zig_name: []const u8) bool {
         if (self.module_names.contains(zig_name)) return true;
         if (self.nominal) |n| {
             if (std.mem.eql(u8, n.name, zig_name)) return true;
-            for (n.members) |m| {
-                if (!m.isKind(.fun) and !m.isKind(.sub)) continue;
-                if (std.mem.eql(u8, self.srcText(ir.get(m, .name)), zig_name)) return true;
-            }
+            for (n.methods) |m| if (std.mem.eql(u8, m, zig_name)) return true;
         }
         return self.local_names.contains(zig_name);
     }
@@ -7583,14 +7594,21 @@ const float_zig = "f64";
 /// Formats a Rig identifier as a Zig identifier (`rig.writeZigIdent`).
 const Ident = struct {
     name: []const u8,
+    spelling: rig.ZigSpelling = .rig,
 
     pub fn format(self: Ident, w: *Writer) Writer.Error!void {
-        try rig.writeZigIdent(w, self.name);
+        try rig.writeZigIdent(w, self.name, self.spelling);
     }
 };
 
 fn ident(name: []const u8) Ident {
     return .{ .name = name };
+}
+
+/// A name another file declares exactly so: a function of a standard
+/// library Zig file (`rig.ZigSpelling.exact`).
+fn exactIdent(name: []const u8) Ident {
+    return .{ .name = name, .spelling = .exact };
 }
 
 /// The Zig name of member `name` of error set `set`, declared in the

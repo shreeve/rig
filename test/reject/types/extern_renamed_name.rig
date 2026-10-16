@@ -1,0 +1,18 @@
+# C links a name only as it is spelled, and the Zig that Rig writes
+# keeps no declaration of the program's under a name it uses itself
+# (`panic`, `std`, `rig`, `debug`, `os`, `main`, `__rig*`), so a C
+# declaration cannot take one. A name Zig reserves (`var`, `fn`) is
+# quoted, not renamed, and links as it is spelled.
+
+extern fun panic(code: Int) -> Int
+extern sub debug()
+extern os: Int
+extern sub fn()
+
+sub main()
+  print(1)
+
+# error: 7:12: a C declaration cannot be named `panic`
+# error: 8:12: a C declaration cannot be named `debug`
+# error: 9:8: a C declaration cannot be named `os`
+# errors: 3
