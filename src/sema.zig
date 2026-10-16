@@ -9805,9 +9805,9 @@ test "a jump in a nested `for` source or `else` names the loop around it" {
         \\      break 6
         \\  else
         \\    0
-        \\  :a while true
-        \\    :a for k in 0..(n ?? break)
-        \\      break :a
+        \\  @a while true
+        \\    @a for k in 0..(n ?? break)
+        \\      break @a
         \\    defer
         \\      break
         \\    f = ||

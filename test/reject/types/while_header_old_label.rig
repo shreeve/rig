@@ -1,0 +1,19 @@
+# A label is written `@name`. In the old spelling, `while x ?? break
+# :outer`, the `:` in the header starts the step, so `outer` reads as the
+# step, and the error says how to write the label.
+
+fun more(n: Int) -> Bool?
+  n > 0 if n < 9 else none
+
+sub main()
+  n = 3
+  @outer while true
+    while more(n) ?? break :outer
+      n -= 1
+    while more(n) ?? continue :outer
+      n -= 1
+    break
+  print(n)
+
+# error: 11:29: a label is written `@name`: the `:` in a `while` header starts the step, so `outer` reads as the step; to name a label, write `break @outer`
+# error: 13:32: a label is written `@name`: the `:` in a `while` header starts the step, so `outer` reads as the step; to name a label, write `continue @outer`
