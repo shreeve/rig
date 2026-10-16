@@ -2895,6 +2895,23 @@ test "builtins: registered with methods" {
     try std.testing.expect(ctx.lookup(scope, "T") == null);
 }
 
+test "builtins: a method that declares needs is a generic type's, with a T" {
+    var ctx = try SemContext.init(std.testing.allocator, "");
+    defer ctx.deinit();
+    const scope = try ctx.pushScopeKind(sema.scope_invalid, .module);
+    try registerBuiltins(&ctx, scope);
+    var declared: usize = 0;
+    for (ctx.symbols.items) |sym| for (sym.fields orelse &.{}) |f| if (f.needs != null) {
+        // `meetsNeeds` reads `T` from the type's arguments at the call.
+        try std.testing.expect(f.is_method);
+        try std.testing.expectEqual(sema.SymbolKind.generic_type, sym.kind);
+        try std.testing.expect(sym.type_params != null and sym.type_params.?.len >= 1);
+        declared += 1;
+    };
+    // `Cell.get`, `List.get`, `List.filled`, `List.resize`, `Signal.get`.
+    try std.testing.expectEqual(@as(usize, 5), declared);
+}
+
 /// A type a compile-time argument can have: one written as a literal,
 /// an enum value, or `none`.
 fn isCtValueType(ctx: *const SemContext, ty: TypeId) bool {

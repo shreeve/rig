@@ -5637,7 +5637,14 @@ const Checker = struct {
     /// spelled or made. False after a diagnostic.
     fn meetsNeeds(self: *Checker, m: Field, owner_sym: SymbolId, args: []const TypeId, pos: u32) Error!bool {
         const needs = m.needs orelse return true;
-        if (args.len == 0 or self.isPoison(args[0])) return true;
+        // Only a built-in generic's method declares needs, and every call
+        // of one has the type's arguments: a call without them is
+        // rejected, never passed unchecked.
+        if (args.len == 0) {
+            try self.err(pos, "internal error: `{s}.{s}` declares what it needs of `T`, and the call has no type arguments to check", .{ self.ctx.symbols.items[owner_sym].name, m.name });
+            return false;
+        }
+        if (self.isPoison(args[0])) return true;
         const param = args[0];
         switch (needs.t) {
             .copies => if (!try self.cannotCopy(param, pos, needs.op)) return true,
