@@ -1,0 +1,14 @@
+# A generic body cannot read `.text` of a `T` or call `T.from_text`,
+# even when every instance's `T` is a plain enum.
+enum Color
+  red
+  blue
+
+fun name[T](x: T) -> Static
+  x.text
+
+fun parse[T](w: ?String) -> T?
+  T.from_text(w)
+
+sub main()
+  print(name(Color.red), parse[Color]("red"))

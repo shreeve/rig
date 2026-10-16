@@ -2215,6 +2215,79 @@ sub main()
 `@variants(T)` takes a plain enum; `Shape` has variants with payloads
 ```
 
+A plain enum's values have names. `e.text` is the name of `e`'s
+variant, a `Static` (`dark_red`), and `Color.from_text(word)` is the
+variant named `word`, or `none`. `word` is any text a parameter
+`?String` takes: a `Static`, a String, or a view or slice of one. The
+name must match whole and byte for byte, so a prefix, another case, or
+an integer value's digits find nothing. Neither allocates:
+`from_text` hashes `word` once and looks it up in a table of the
+enum's names, which the compiler builds for each enum the program
+calls it on. The built-in enums `Endian` and `Arch` have both too.
+
+`.text` is a member, not a method: `e.text`, not `e.text()`. It is
+read as it is, never written or lent: the name belongs to the enum's
+type, not to `e`, so `?e.text` is rejected, and `e.text` is passed
+where a `?String` is expected. A plain enum cannot declare a variant or method named
+`from_text`, nor a method named `text`; a variant named `text` is
+`Kind.text`, which clashes with neither. A payload enum has neither:
+`from_text` could not build a payload. (A name for a payload variant,
+`s.text`, may be added later.)
+
+```rig
+enum Color
+  red
+  dark_red
+
+enum Status
+  ok = 200
+  missing = 404
+
+fun code(word: ?String) -> Int
+  s = Status.from_text(word) ?? return 0
+  match s
+    .ok => 1
+    .missing => 2
+
+sub main()
+  c: Color = .dark_red
+  print(c.text, Color.red.text.len)
+  print(Color.from_text("red"), Color.from_text("Red"), Color.from_text("dark"))
+  print(code("missing"), code("404"))
+  for v in @variants(Color)
+    print(Color.from_text(v.text) == v)
+```
+
+```output
+dark_red 3
+.red none none
+2 0
+true
+true
+```
+
+```rig reject
+enum Shape
+  dot
+  circle(r: Int)
+
+enum Color
+  red
+
+  fun text(?self) -> Static
+    "red"
+
+sub main()
+  s: Shape = .dot
+  print(s.text, Shape.from_text("dot"))
+```
+
+```error
+`text` is built into every plain enum: `e.text` is the name of `e`'s variant; give the method another name
+`.text` is the name of a plain enum's variant; `Shape` has variants with payloads
+`from_text` gives a plain enum's variant by its name; `Shape` has variants with payloads, which a name cannot build
+```
+
 ### Error sets
 
 `error Name` declares a set of error values, which are used like the
@@ -2571,9 +2644,11 @@ parameter whose loans reach a value of a type that holds a type
 parameter (an element of `xs: []T`, `f(s)` with `f` returning a `T`, a
 `T` taken by value, a `match` payload of type `T` that views its
 subject) as returned wherever the body returns such a value, or a value
-that holds one (`P[T]`):
-`fun pick[T](f: ?fun(?String) -> T, a: ?String, b: ?String) -> T from b`
-cannot return `f(a)`.
+that holds one (`P[T]`), and as stored in what a parameter leads to
+wherever the body stores one there: `fun pick[T](f: ?fun(?String) -> T,
+a: ?String, b: ?String) -> T from b` cannot return `f(a)`, and `sub
+run[T](f: ?*sub(!T, ?String), k: !T, s: ?String)` that calls `f(!k, s)`
+says `keeps s`.
 
 ```rig
 fun same[T](x: T) -> T
@@ -3095,6 +3170,70 @@ does not copy (an owner or a unique value) is never read out this way,
 and one bound with a `!T` type (`x: !Int = w`) would copy the view, so
 both are rejected. A write view of a plain object, array, or optional
 reads it as one of a number does (`q = p` with `p: !Point`).
+
+A write view a call returns is assigned through, with no binding to
+hold it: `slot(!v, 0) = 5`, `slot(!v, 0) += 1`, and `(!b).first() *=
+2` write the value the view reaches, the old value dropped first. So is
+the write view a call's `!` or `?` gives (`get(!v)! += 1` for a
+`(!Int)!`, `(!m).edit(k)? += 1` for a `(!Int)?`). `f(x) op= e` is
+`__v = e`, then `w = f(x)`, then `w op= __v`: the value runs first,
+then the call, as a field's or element's base does, so
+`slot(!v, 0) += v.len` reads `v.len` before `slot` runs. Nothing else
+is assigned through: not a call that returns a value, a read view, or
+a `![]T` (a `![]T`'s elements are: `all(!v)[0] = 5`), and not `?` or
+`!` around anything but a call.
+
+```rig
+obj Bag
+  items: List[Int]
+
+  fun first(!self) -> !Int
+    !self.items[0]
+
+fun slot(v: !List[String], i: Int) -> !String from v
+  !v[i]
+
+sub main()
+  b = Bag(items: List())
+  !b.items.push(5)
+  (!b).first() += 1
+  (!b).first() *= 2
+  names: List[String] = List()
+  !names.push(String("ada"))
+  slot(!names, 0) = String("bob")
+  print(b.items, names)
+```
+
+```output
+[12] ["bob"]
+```
+
+```rig reject
+fun count(v: ?List[Int]) -> Int
+  v.len
+
+sub main()
+  v: List[Int] = List()
+  count(?v) += 1
+```
+
+```error
+cannot assign to a call's result, an `Int`; only a write view (`!T`) a call returns is assigned through
+```
+
+```rig reject
+fun bump(w: (!Int)?) -> Int?
+  w? += 1
+  0
+
+sub main()
+  n = 1
+  print(bump(!n))
+```
+
+```error
+cannot assign to `w?`: only a call that returns a write view (`!T`), or that call's `!` or `?`, is assigned through
+```
 
 A write view is never stored inside a value (Core §5): `!T`,
 also as `(!T)?` and `(!T)!`, is only a parameter's, a receiver's, a
@@ -5404,12 +5543,30 @@ the checker tracks where every one came from.
 - A view reached through another view views what that view views,
   not what holds it: `?c.items[0]`, with `items: ?List[Item]`, views
   the List, not `c`.
+- A call keeps only what its signature shows. A view lent to it (a
+  `?T`, `!T`, `[]T`, `![]T`, `?String`, an optional of one, or a `?self`
+  or `!self` receiver) it keeps only when the signature names that
+  parameter in `keeps`: `sub watch(!self, s: ?String) keeps s` (also
+  `keeps s, t` and `keeps self`, after the result type and any `from`).
+  It may then store what the view sees in what its write receiver and
+  write arguments lead to, and the loan lasts while that holder is used;
+  every other lend ends when the call returns. A value passed by value
+  is the callee's, which may keep it, and its loans, wherever its type
+  fits; `keeps` does not name it. A function called as a value
+  (`?watch`) keeps what its type could hold, as if every lent parameter
+  were named, and so does a method of a built-in generic (`!v.push(x)`,
+  a Cell's `set`). The compiler checks each body against its `keeps`: a body
+  that stores a lent parameter where its caller reaches it, on any path
+  (into `self`, a write argument, or through a call that keeps it),
+  without naming it, is rejected at the store with the clause to write.
+  `keeps` names lent parameters, each once, that something the function
+  writes could hold. A place lent to a kept parameter is lent with `?`
+  written: `!b.watch(?t)`, `?a.register(!out)`.
 - An object holding a view keeps the viewed value lent while the
   object is alive. So does a stack closure that captured a view, and
   a value a call may have stored a view into (its receiver lent to
   write, and what its `!` arguments and other write views lead to):
-  a view of each argument, the receiver among them, whose type could
-  be held there.
+  a view of each argument the call keeps, as above.
 - A view may not outlive the value it views: not past the end of
   its block, not through `break`, and not out of the function.
 
@@ -5983,7 +6140,7 @@ view, or by a call that stores its argument, is rejected.
 obj Holder
   t: ?String
 
-  sub keep(!self, t: ?String)
+  sub keep(!self, t: ?String) keeps t
     self.t = t
 
 obj P

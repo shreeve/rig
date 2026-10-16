@@ -1,0 +1,19 @@
+# `.text` of a compile-time enum parameter and `from_text` of a compile-time `?String` parameter.
+enum Mode
+  strict
+  loose
+
+fun name[mode: Mode]() -> Static
+  mode.text
+
+fun parse[w: ?String]() -> Mode?
+  Mode.from_text(w)
+
+sub main()
+  print(name[.strict](), name[Mode.loose](), parse["loose"](), parse["x"]())
+  m =! Mode.strict
+  print(m.text, name[m]())
+
+# expect:
+# strict loose .loose none
+# strict strict

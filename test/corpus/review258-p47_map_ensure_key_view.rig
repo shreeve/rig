@@ -1,0 +1,8 @@
+use std.hash
+
+sub main()
+  m = hash.Map[?String, Int]()
+  if true
+    k = String("k")
+    (!m).ensure(?k, 0) += 1
+  print(m.len)

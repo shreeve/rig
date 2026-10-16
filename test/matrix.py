@@ -8,9 +8,10 @@ results a call is given or a function returns, ...)
 for one type (Int, ?String, String, List, `*T`, `^T`, a struct with a
 `drop`, a struct declared `unique`, a vector, and a few cells of a struct holding
 a Cell, every one of which must be rejected), plus the
-stores into a view parameter (`store.`, below), a loan reaching a
-generic body's `T` result each way, its `from` naming that parameter or
-not (`gen.`, below), a value `replace`
+stores into a view parameter (`store.`, below), a call that keeps each
+kind of parameter by each store, with `keeps` and without (`keeps.`,
+below), a loan reaching a generic body's `T` result each way, its `from`
+naming that parameter or not (`gen.`, below), a value `replace`
 takes out of each kind of place, then the place written, the value put
 back, or what it views dropped while it lives (`taken.`, below), the views of a
 read `match` payload, used in the arm or escaping (`payload.`), a
@@ -2371,16 +2372,146 @@ def store_program(oname, fname, then):
     kind, lines = STORE_FORMS[fname]
     h = STORE_HOLDERS[kind]
     v = o["view"]
-    out = [f"obj H\n  r: {v}\n\n  sub set(!self, s: {v})\n    self.r = s\n",
+    out = [f"obj H\n  r: {v}\n\n  sub set(!self, s: {v}) keeps s\n    self.r = s\n",
            "obj O\n  h: H\n", "enum E\n  one(h: H)\n  zero\n",
-           f"sub put(h: !H, s: {v})\n  h.r = s\n"]
+           f"sub put(h: !H, s: {v}) keeps s\n  h.r = s\n"]
     body = [l.replace("S", o["lend"]) for l in lines]
     body += o["grow"] if then == "grow" else ["print(b.len)"]
     body += ["print(t[0])"] if fname == "read_back" else h["read"]
-    out.append(f"sub f(a: !{h['ty']}, b: !{o['ty']})\n{indent(body, 2)}\n")
+    out.append(f"sub f(a: !{h['ty']}, b: !{o['ty']}) keeps b\n{indent(body, 2)}\n")
     main = [o["init"], o["make"], h["make"].replace("I", "?x[..]"), "f(!h, !v)"]
     out.append("sub main()\n" + indent(main, 2) + "\n")
     return "\n".join(out)
+
+
+# -----------------------------------------------------------------------------
+# A call that keeps a parameter (Core sentence 7): each kind of parameter,
+# stored by the callee into its receiver, into a write argument, through a
+# call that keeps it, on some paths only, or not at all, with `keeps`
+# naming it and without, then the holder read, or the lent owner changed
+# first. A lent parameter is kept only when `keeps` names it, and a body
+# that stores one unnamed is rejected; a parameter taken by value is kept
+# by its type, and `keeps` may not name it; a call through a function
+# value keeps by type. Cells are `keeps.<kind>.<store>.<said>.<then>`,
+# each with its outcome: what it prints, or rejected.
+# -----------------------------------------------------------------------------
+
+# Each kind: the parameter's type `P`, the holder's field type, what the
+# callee stores (`E`), how `main` makes the holder's first value
+# (`setup`, `init`), the owner (`owner`) and the argument lent from it
+# (`lend`), how the holder is read back with what it prints stored and
+# first, how the owner is changed, and how the callee hands the
+# parameter on (`on`, `p` unless written). `lent`: a lent parameter, which
+# `keeps` names; `generic`: the holder is `H[T]`; `recv`: the receiver
+# is the parameter, kept in a `!List[?Item]` argument; `fnval`: the
+# callee is called through a function value.
+KEEPS_KINDS = {
+    "read": dict(P="?Item", held="?Item", E="p", setup=["z = Item(n: 0)"], init="?z", owner=["it = Item(n: 7)"],
+                 lend="?it", read="print(h.r.n)", stored="7", first="0", change="it.n = 8"),
+    "write": dict(P="!List[Int]", held="[]Int", E="?p[..]", setup=["z: List[Int] = List()", "!z.push(0)"], init="?z[..]",
+                  owner=["v: List[Int] = List()", "!v.push(7)"], lend="!v", read="print(h.r[0])", stored="7", first="0",
+                  change="!v.push(8)", on="!p"),
+    "slice": dict(P="[]Int", held="[]Int", E="p", setup=["z = [0]"], init="?z[..]", owner=["a = [7, 1]"], lend="?a[..]",
+                  read="print(h.r[0])", stored="7", first="0", change="a[0] = 8"),
+    "text": dict(P="?String", held="?String", E="p", setup=[], init='"first"', owner=['t = String("seven")'], lend="?t",
+                 read="print(h.r)", stored="seven", first="first", change='!t.add("x")'),
+    "optional": dict(P="(?String)?", held="(?String)?", E="p", setup=[], init="none", owner=['t = String("seven")'],
+                     lend="?t", read="print(h.r)", stored="seven", first="none", change='!t.add("x")'),
+    "generic": dict(P="?T", held="(?T)?", E="p", setup=[], init="none", owner=['t = String("seven")'], lend="?t",
+                    read="print(h.r)", stored="seven", first="none", change='!t.add("x")', generic=True),
+    "receiver": dict(P="?self", lend="it", owner=["it = Item(n: 7)"], read="print(out.len)", stored="1", first="0",
+                     change="it.n = 8", recv=True),
+    "value": dict(P="Token", held="Token", E="p", setup=[], init='Token(text: "first")', owner=['t = String("seven")'],
+                  lend="Token(text: ?t)", read="print(h.r.text)", stored="seven", first="first", change='!t.add("x")',
+                  by_value=True),
+    "fnval": dict(P="?String", held="?String", E="p", setup=[], init='"first"', owner=['t = String("seven")'], lend="?t",
+                  read="print(h.r)", stored="seven", first="first", change='!t.add("x")', fnval=True),
+}
+# Each store: how the callee's body stores `E` (`self.r`, or `h.r` in a
+# function given the holder `h`), and whether it stores at all.
+KEEPS_STORES = {
+    "self": dict(stores=True),
+    "arg": dict(stores=True),
+    "call": dict(stores=True),
+    "some": dict(stores=True),
+    "none": dict(stores=False),
+}
+
+
+def keeps_program(kname, sname, said, then):
+    """The program for one `keeps.` cell and what it prints ("(rejected)"
+    when it must be rejected); None where the store cannot stand."""
+    k = KEEPS_KINDS[kname]
+    s = KEEPS_STORES[sname]
+    recv, fnval, generic, by_value = k.get("recv"), k.get("fnval"), k.get("generic"), k.get("by_value")
+    # A receiver is stored only into a write argument; a function value
+    # is a function, which has no receiver.
+    if recv and sname == "self" or fnval and sname in ("self", "some"):
+        return None, None
+    clause = (" keeps self" if recv else " keeps p") if said else ""
+    some = sname == "some"
+    out = ["obj Item\n  n: Int\n", "obj Token\n  text: ?String\n"]
+    if recv:
+        body = {"arg": ["!out.push(self)"], "call": ["self.put_in(!out)"],
+                "some": ["if c", "  !out.push(self)"], "none": ["pass"]}[sname]
+        params = "?self, out: !List[?Item]" + (", c: Bool" if some else "")
+        out[0] = ("obj Item\n  n: Int\n\n"
+                  f"  sub m({params}){clause}\n{indent(body, 4)}\n\n"
+                  "  sub put_in(?self, out: !List[?Item]) keeps self\n    !out.push(self)\n")
+        main = k["owner"] + ["out: List[?Item] = List()", f"(?it).m(!out{', true' if some else ''})"]
+        main += ([k["change"]] if then == "change" else []) + [k["read"]]
+        out.append("sub main()\n" + indent(main, 2) + "\n")
+        expect = keeps_expect(k, sname, said, then)
+        return "\n".join(out), expect
+    hty = "H[T]" if generic else "H"
+    tp = "[T]" if generic else ""
+    setter_keeps = "" if by_value else " keeps p"
+    target = "h.r" if sname == "arg" or fnval else "self.r"
+    body = {"self": [f"{target} = {k['E']}"], "arg": [f"{target} = {k['E']}"],
+            "call": ["set_r(!h, p)" if fnval else f"!self.set({k.get('on', 'p')})"],
+            "some": ["if c", f"  {target} = {k['E']}"], "none": ["pass"]}[sname]
+    params = f"p: {k['P']}" + (", c: Bool" if some else "")
+    methods = f"  sub set(!self, p: {k['P']}){setter_keeps}\n    self.r = {k['E']}\n"
+    if sname in ("self", "call", "some", "none") and not fnval:
+        methods += f"\n  sub m(!self, {params}){clause}\n{indent(body, 4)}\n"
+    out.append(f"obj H{tp}\n  r: {k['held']}\n\n{methods}")
+    if fnval:
+        out.append(f"sub m(h: !H, {params}){clause}\n{indent(body, 2)}\n")
+        out.append(f"sub set_r(h: !H, p: {k['P']}) keeps p\n  h.r = {k['E']}\n")
+    elif sname == "arg":
+        out.append(f"sub m{tp}(h: !{hty}, {params}){clause}\n{indent(body, 2)}\n")
+    make = f"h = H[String](r: {k['init']})" if generic else f"h = H(r: {k['init']})"
+    arg = k["lend"]
+    if fnval:
+        call = ["f: ?sub(!H, ?String) = ?m", f"f(!h, {arg})"]
+    elif sname == "arg":
+        call = [f"m(!h, {arg})"]
+    else:
+        call = [f"!h.m({arg}{', true' if some else ''})"]
+    main = k["setup"] + [make] + k["owner"] + call
+    main += ([k["change"]] if then == "change" else []) + [k["read"]]
+    out.append("sub main()\n" + indent(main, 2) + "\n")
+    return "\n".join(out), keeps_expect(k, sname, said, then)
+
+
+def keeps_expect(k, sname, said, then):
+    """What a `keeps.` cell prints, or "(rejected)"."""
+    rejected = "(rejected)\n"
+    stores = KEEPS_STORES[sname]["stores"]
+    if k.get("by_value"):
+        # `keeps` names no parameter taken by value, which is kept by its
+        # type: the owner stays lent while the holder lives.
+        if said or then == "change":
+            return rejected
+        return (k["stored"] if stores else k["first"]) + "\n"
+    # An unnamed lent parameter stored is the body check's error.
+    if stores and not said:
+        return rejected
+    # Kept: by the clause, or by type through a function value.
+    kept = said or k.get("fnval")
+    if then == "change" and kept:
+        return rejected
+    return (k["stored"] if stores else k["first"]) + "\n"
 
 
 def taken_then(pname, then):
@@ -4105,6 +4236,25 @@ def main():
                 cells.append((ident, path))
     release = set()
     also = set()
+    for kname in KEEPS_KINDS:
+        for sname in KEEPS_STORES:
+            for said in ("said", "unsaid"):
+                for then in ("read", "change"):
+                    ident = f"keeps.{kname}.{sname}.{said}.{then}"
+                    if not wanted(ident):
+                        continue
+                    src, expect = keeps_program(kname, sname, said == "said", then)
+                    if src is None:
+                        skipped += 1
+                        continue
+                    path = os.path.join(work, ident.replace(".", "__") + ".rig")
+                    with open(path, "w") as fh:
+                        fh.write(src)
+                    cells.append((ident, path))
+                    expects[ident] = expect
+                    # A cell that prints must be accepted.
+                    if expect != "(rejected)\n":
+                        release.add(ident)
     for fname in GEN_FORMS:
         for said in ("said", "unsaid"):
             for then in ("read", "drop"):

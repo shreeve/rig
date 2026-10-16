@@ -10,6 +10,16 @@ started:
 
 - SIMD: `pad:` reads and `blocks(N)`.
 - A String API for part-word appends and windowed writes.
+- A known over-strict rejection: what a call stores from a view reached
+  through a lent read view should carry that view's loans, not a loan
+  on the holder (Core sentence 7). `hold(!self, c: ?Cursor)` storing
+  `c.items` must say `keeps c`, and then keeps `c` itself lent while the
+  holder is used, though only `c.items`' loans need to last. Narrowing
+  it needs a new reach fact (what a lent parameter's own view target is,
+  apart from what it reaches through the views it holds) and a call rule
+  that stores the argument's held loans instead of its lend. Probes:
+  `test/corpus/corekeeps-p4_store_through_view.rig`,
+  `test/corpus/corekeeps-p4b_keeps_through_view.rig`.
 - Several results, after v1 (SPEC "Several results"):
   - small results in registers: pack results of up to two words of
     integers, `Bool`s, and pointers into a `u128`, which Zig's default
@@ -106,6 +116,10 @@ started:
   `?K` where `K` owns text). With it, `Map.ensure`, `Map.put_new`, and
   `Set.add` take a `?K` and copy the key only when it is stored (owner
   approved); today they take an owned `K`.
+- A lane method on a call's write view of a `Simd` reads through it:
+  `vs(!v, 0).with(0, 7)`, where `vs` returns `!Simd[I8, 4]`, is
+  accepted, and emit writes `rig.withLane(rig.rt(vs(&v, 0)), ...)`
+  with no dereference, which Zig rejects.
 - One classifier for a plain enum. `sema.isPlainEnum` (what `==` and
   emit's scalar test read) counts a variant with an empty payload,
   `a()`, as bare, but `sema.enumValues` (what `Int(x)`, `from_int`,

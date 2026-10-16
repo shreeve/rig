@@ -8,7 +8,7 @@ enum E
   one(h: Holder)
   zero
 
-fun f(a: !E, b: !List[Int]) -> Int
+fun f(a: !E, b: !List[Int]) -> Int keeps b
   match !a
     .one(h) => h.r = ?b[..]
     .zero => print(0)

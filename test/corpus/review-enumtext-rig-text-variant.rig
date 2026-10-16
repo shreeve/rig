@@ -1,0 +1,10 @@
+# A variant named `__rig_text` beside the table `__rig_text` the compiler emits inside the enum.
+enum Color
+  red
+  __rig_text
+
+sub main()
+  print(Color.from_text("red"), Color.__rig_text.text)
+
+# expect:
+# .red __rig_text

@@ -1,0 +1,19 @@
+error Bad
+  oops
+
+obj P
+  src: ?String
+
+  fun watch(!self, s: ?String) -> Int keeps s
+    self.src = s
+    1
+
+fun fails() -> Int!
+  return Bad.oops
+
+sub main()
+  p = P(src: "")
+  t = String("hello")
+  x = fails() catch (!p).watch(?t)
+  <t
+  print(x, p.src)

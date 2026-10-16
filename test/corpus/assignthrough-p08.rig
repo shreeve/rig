@@ -1,0 +1,8 @@
+fun slot(v: ?List[Int], i: Int) -> !Int from v
+  !v[i]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  slot(?v, 0) = 2
+  print(v)

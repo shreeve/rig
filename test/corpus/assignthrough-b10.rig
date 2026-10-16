@@ -1,0 +1,14 @@
+obj H
+  r: ?Int
+
+fun run(h: !H) -> Int?
+  w: (!H)? = h
+  e = 5
+  w? = H(r: ?e)
+  0
+
+sub main()
+  n = 1
+  h = H(r: ?n)
+  print(run(!h))
+  print(h.r)

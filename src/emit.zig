@@ -31,6 +31,7 @@ const facts = @import("facts.zig");
 const Facts = facts.Facts;
 const Wide = facts.Wide;
 const diag = @import("diag.zig");
+const nametable = @import("nametable.zig");
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -388,6 +389,7 @@ pub const Emitter = struct {
         try self.emitTestTable();
         if (self.uses_module) try self.w.writeAll("\nconst __rig_module = @This();\n");
         if (self.uses_names) try self.emitNamesTable();
+        for ([_]SymbolId{ self.facts.endian_sym_id, self.facts.arch_sym_id }) |sym| if (self.facts.hasTextTable(sym)) try self.emitTextTable(sym);
     }
 
     // =========================================================================
@@ -636,10 +638,35 @@ pub const Emitter = struct {
                 if (has_values) try self.w.print(" = {d}", .{f.value.?});
                 try self.w.writeAll(",\n");
             }
+            if (self.facts.hasTextTable(self.nominal.?.sym)) try self.emitTextTable(self.nominal.?.sym);
         }
         try self.emitRigName(1);
         try self.emitMethods(members, 1);
         try self.w.writeAll("};\n");
+    }
+
+    /// `__rig_text: rig.NameTable = ...;`: the table of plain enum
+    /// `sym`'s names, in declaration order, which `E.from_text(word)`
+    /// looks `word` up in (`rig.enumFromText`). A declared enum holds it
+    /// as `E.__rig_text`; a module that looks up a built-in enum's names
+    /// holds the table itself, as `__rig_text_Endian` or `__rig_text_Arch`.
+    fn emitTextTable(self: *Emitter, sym: SymbolId) Error!void {
+        const a = self.arena.allocator();
+        var names: std.ArrayList([]const u8) = .empty;
+        for (self.facts.symbols.items[sym].fields orelse &.{}) |f| if (f.is_variant) try names.append(a, f.name);
+        if (self.facts.isBuiltinEnum(sym)) {
+            try self.w.print("\nconst __rig_text_{s}: rig.NameTable = ", .{self.facts.symbols.items[sym].name});
+        } else try self.w.writeAll("    pub const __rig_text: rig.NameTable = ");
+        try nametable.write(self.w, names.items, try nametable.build(a, names.items));
+        try self.w.writeAll(";\n");
+    }
+
+    /// The table of plain enum `ty`'s names (`emitTextTable`).
+    fn writeTextTable(self: *Emitter, ty: TypeId) Error!void {
+        const decl = self.facts.nominalDecl(ty) orelse return self.unsupported(.nil, "the names of a type that is no enum");
+        if (decl.facts.isBuiltinEnum(decl.sym)) return self.w.print("__rig_text_{s}", .{decl.symbol().name});
+        try self.emitTypeTy(ty);
+        try self.w.writeAll(".__rig_text");
     }
 
     /// `(generic_enum Name (T...) variants... methods...)`.
@@ -1722,7 +1749,24 @@ pub const Emitter = struct {
         }
         if (local.is_ptr) {
             // Through a `!T` parameter: the caller's value is replaced.
-            const pointee = if (local.ty) |t| self.peelViews(t) else null;
+            const pointee = if (local.ty) |t| self.facts.writtenThrough(t) else null;
+            if (pointee != null and self.isPtrViewTy(pointee.?)) {
+                // A `!T` whose `T` is a view: the view it reaches is
+                // pointed at another place, made first where the value
+                // can act (`storesAfterValue`).
+                if (self.facts.storageOf(value, .new_value) != null) {
+                    const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = self.nextId() });
+                    try self.w.print("{{ const {s} = ", .{name});
+                    try self.emitWriteViewPtr(value);
+                    try self.w.writeAll("; ");
+                    try self.writeLocalPlace(&local);
+                    return self.w.print(" = {s}; }}", .{name});
+                }
+                try self.writeLocalPlace(&local);
+                try self.w.writeAll(" = ");
+                try self.emitWriteViewPtr(value);
+                return self.w.writeAll(";");
+            }
             if (pointee != null and self.kindOf(pointee.?) != null) {
                 const new = try self.openNewValue(pointee, value);
                 return self.w.print("; rig.drop({s}); {s}.* = {s}; }}", .{ local.zig_name, local.zig_name, new.name });
@@ -1738,7 +1782,7 @@ pub const Emitter = struct {
                 try self.w.print("{{ const {s}", .{name});
                 if (local.ty) |t| {
                     try self.w.writeAll(": ");
-                    try self.emitTypeTy(if (local.is_ptr) self.peelViews(t) else t);
+                    try self.emitTypeTy(if (local.is_ptr) self.facts.writtenThrough(t) else t);
                 }
                 try self.w.writeAll(" = ");
                 try self.emitBareAs(value, local.ty);
@@ -1822,7 +1866,10 @@ pub const Emitter = struct {
     fn emitPlaceAssign(self: *Emitter, set: Sexp) Error!void {
         const target = ir.Set.target(set);
         const value = ir.Set.value(set);
-        const place_ty = self.typeOf(target);
+        // A target assigned through, a call's write view, writes the
+        // value the view reaches (`emitTarget`).
+        const through = facts.syntax.assignedThrough(target);
+        const place_ty = if (through) (if (self.typeOf(target)) |t| self.facts.writtenThrough(t) else null) else self.typeOf(target);
         if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellListTy(t)) {
             const order = try self.openAssign(set, self.typeOf(target), .value);
             try self.emitCellPtr(ir.Index.object(target));
@@ -1833,11 +1880,13 @@ pub const Emitter = struct {
             try self.w.writeAll(");");
             return self.closeAssign(order);
         };
-        if (target != .src and self.isPtrViewExpr(target)) {
-            // A field or element holding a write view is rebound.
+        const holds_view = if (through) (if (place_ty) |t| self.isPtrViewTy(t) else false) else (target != .src and self.isPtrViewExpr(target));
+        if (holds_view) {
+            // A field or element holding a view, or a view a call's write
+            // view reaches, is pointed at another place.
             const order = try self.openAssign(set, null, .view);
             // An element is reached as the slot it is.
-            if (target.isKind(.index)) try self.emitIndex(target, true) else try self.emitWriteViewPtr(target);
+            if (through) try self.emitTarget(target) else if (target.isKind(.index)) try self.emitIndex(target, true) else try self.emitWriteViewPtr(target);
             try self.w.writeAll(" = ");
             try self.emitWriteViewPtr(value);
             try self.w.writeAll(";");
@@ -1846,7 +1895,7 @@ pub const Emitter = struct {
         const may_own = if (place_ty) |t| self.kindOf(t) != null else true;
         if (!may_own) {
             const order = try self.openAssign(set, place_ty, .value);
-            try self.emitPlace(target);
+            try self.emitTarget(target);
             try self.w.writeAll(" = ");
             try self.emitBareAs(value, place_ty);
             try self.w.writeAll(";");
@@ -1857,7 +1906,7 @@ pub const Emitter = struct {
         if ((try self.need(self.facts.setOrder(set), set)).held) try self.hoistTarget(set, new.id);
         const slot = try self.hiddenStorage(target, .slot, .pointer, .{ .id = new.id });
         try self.w.print("const {s} = &", .{slot});
-        try self.emitPlace(target);
+        try self.emitTarget(target);
         self.hoisted.shrinkRetainingCapacity(first);
         try self.w.print("; rig.drop({s}); {s}.* = ", .{ slot, slot });
         try self.writeNewValue(new);
@@ -2033,13 +2082,13 @@ pub const Emitter = struct {
         if (builtin) |b| {
             var slot: []const u8 = "";
             if (target == .src) {
-                try self.emitPlace(target);
+                try self.emitTarget(target);
                 try self.w.print(" = {s}(", .{b});
-                try self.emitPlace(target);
+                try self.emitTarget(target);
             } else {
                 slot = try self.hiddenStorage(target, .slot, .pointer, .next);
                 try self.w.print("{{ const {s} = &", .{slot});
-                try self.emitPlace(target);
+                try self.emitTarget(target);
                 try self.w.print("; {s}.* = {s}({s}.*", .{ slot, b, slot });
             }
             const cast = shift and !lanes;
@@ -2049,13 +2098,26 @@ pub const Emitter = struct {
             try self.w.writeAll(if (target == .src) ");" else "); }");
             return self.closeAssign(order);
         }
-        try self.emitPlace(target);
+        try self.emitTarget(target);
         try self.w.print(" {s}= ", .{if (op == .@"<<%") "<<" else @tagName(op)});
         if (shift) try self.w.writeAll("@intCast(");
         try self.emitBare(value);
         if (shift) try self.w.writeAll(")");
         try self.w.writeAll(";");
         return self.closeAssign(order);
+    }
+
+    /// What an assignment's target writes: a binding, field, or element
+    /// (`emitPlace`), or, for a target assigned through
+    /// (`assignedThrough`), the value the call's write view reaches: the
+    /// pointer the base was held in (`hoistBase`), or the call, read
+    /// through.
+    fn emitTarget(self: *Emitter, target: Sexp) Error!void {
+        if (!facts.syntax.assignedThrough(target)) return self.emitPlace(target);
+        if (self.hoistedOf(target)) |h| return self.w.print("{s}.*", .{h.name});
+        try self.w.writeAll("(");
+        try self.emitWriteViewPtr(target);
+        try self.w.writeAll(").*");
     }
 
     /// An assignable place: a binding, field, or element.
@@ -5285,6 +5347,13 @@ pub const Emitter = struct {
             try self.emitTypeTy(t);
             return self.w.writeAll("))");
         };
+        // `e.text`: the name of a plain enum value's variant.
+        if (self.facts.isEnumText(sexp)) {
+            try self.w.writeAll("rig.enumText(");
+            try self.emitMemberBase(obj, obj_ty);
+            if (obj_ty) |t| try self.writeReach(t);
+            return self.w.writeAll(")");
+        }
         // `E.name` of an error set.
         if (self.facts.isErrorMember(sexp)) return self.writeError(self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped error"), field, sexp);
         // `Shape.dot` of an enum with payloads names the tag; the value
@@ -6249,6 +6318,17 @@ pub const Emitter = struct {
             },
             // The low bits, read in the target's signedness.
             .wrap => return self.emitWrap(args[0], ec),
+            // `rig.enumFromText(E, E.__rig_text, word)`: `word` found in
+            // the table of `E`'s names (`emitTextTable`).
+            .from_text => {
+                try self.w.writeAll("rig.enumFromText(");
+                try self.emitTypeTy(ec.num);
+                try self.w.writeAll(", ");
+                try self.writeTextTable(ec.num);
+                try self.w.writeAll(", ");
+                try self.emitArgs(call);
+                return self.w.writeAll(")");
+            },
             // `rig.enumFromInt(E, n)`.
             .from_int => {
                 try self.w.writeAll("rig.enumFromInt(");

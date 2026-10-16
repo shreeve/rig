@@ -1,0 +1,10 @@
+fun sl(v: !List[U8], i: Int) -> !U8 from v
+  !v[i]
+
+sub main()
+  v: List[U8] = List()
+  !v.push(U8(200))
+  sl(!v, 0) <<%= 1
+  print(v[0])
+  sl(!v, 0) >>= 1
+  print(v[0])

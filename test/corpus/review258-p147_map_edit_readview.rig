@@ -1,0 +1,16 @@
+use std.hash
+
+obj P
+  x: Int
+  n: String
+
+fun go(m: !hash.Map[Int, ?P], b: ?P) -> Int?
+  (!m).edit(1)? = b
+  0
+
+sub main()
+  a = P(x: 1, n: String("a"))
+  b = P(x: 2, n: String("b"))
+  m = hash.Map[Int, ?P]()
+  !m.put(1, ?a)
+  print(go(!m, ?b))

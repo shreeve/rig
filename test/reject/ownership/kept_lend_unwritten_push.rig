@@ -1,0 +1,14 @@
+# Why: a built-in generic's method keeps every argument, so `push` keeps
+# the view of `t` in `names`, a `List[?String]`; the lend outlasts the
+# statement and is written `?t`.
+# Rule: a lend is written wherever its view may outlast its statement,
+# as when the call it is lent to keeps it (Core sentence 4).
+# From: the keeps Core review (Rust expert).
+
+sub main()
+  t = String("abc")
+  names: List[?String] = List()
+  !names.push(t)
+  print(names.len)
+
+# error: 11:15: `names.push(t)` keeps `t` lent in what `push` stores; write `!names.push(?t)`

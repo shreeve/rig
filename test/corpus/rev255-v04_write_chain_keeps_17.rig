@@ -1,0 +1,25 @@
+sub put(out: !List[?String], x: ?String) keeps x
+  w0 = !out
+  w1 = !w0
+  w2 = !w1
+  w3 = !w2
+  w4 = !w3
+  w5 = !w4
+  w6 = !w5
+  w7 = !w6
+  w8 = !w7
+  w9 = !w8
+  w10 = !w9
+  w11 = !w10
+  w12 = !w11
+  w13 = !w12
+  w14 = !w13
+  w15 = !w14
+  w16 = !w15
+  !w16.push(x)
+
+sub main()
+  out: List[?String] = List()
+  t = String("hello")
+  put(!out, ?t)
+  print(out[0])

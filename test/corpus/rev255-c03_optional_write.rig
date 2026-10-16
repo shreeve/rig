@@ -1,0 +1,13 @@
+obj In
+  src: ?String
+
+sub f(w: (!In)?, s: ?String)
+  if <w as x
+    x.src = s
+
+sub main()
+  i = In(src: "")
+  t = String("hello")
+  f(!i, ?t)
+  <t
+  print(i.src)

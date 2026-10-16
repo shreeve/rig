@@ -1,0 +1,16 @@
+obj H
+  s: ?String
+
+fun slot(v: !List[H]) -> !H from v
+  !v[0]
+
+sub go(g: ?fun(!List[H]) -> !H, v: !List[H])
+  d = String("d")
+  g(!v) = H(s: ?d)
+
+sub main()
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  go(?slot, !v)
+  print(v[0].s)

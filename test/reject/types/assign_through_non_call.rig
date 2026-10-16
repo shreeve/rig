@@ -1,0 +1,51 @@
+# `?` or `!` around anything but a call is not assigned through: not a
+# parameter's or local's optional write view, not an optional value,
+# not a branching value of calls, and not a call's `?` or `!` nested in
+# another.
+
+obj H
+  r: Int
+
+error Bad
+  oops
+
+fun pick(h: !H) -> ((!H)?)! from h
+  h
+
+fun maybe(h: !H) -> (!H)? from h
+  h
+
+fun opt(w: (!Int)?) -> Int?
+  w? = 5
+  w? += 1
+  0
+
+fun local(h: !H) -> Int?
+  w: (!H)? = h
+  w? = H(r: 2)
+  x: Int? = 3
+  x? = 4
+  print(w, x)
+  0
+
+fun branch(a: !H, b: !H, c: Bool) -> Int?
+  (maybe(!a) if c else maybe(!b))? = H(r: 1)
+  0
+
+fun nested(h: !H) -> Int!
+  pick(!h)!? = H(r: 3)
+  0
+
+sub main()
+  n = 1
+  h = H(r: 0)
+  g = H(r: 0)
+  print(opt(!n), local(!h), branch(!h, !g, true), nested(!h) catch 0)
+
+# errors: 6
+# error: 19:3: cannot assign to `w?`: only a call that returns a write view (`!T`), or that call's `!` or `?`, is assigned through
+# error: 20:3: cannot assign to `w?`
+# error: 25:3: cannot assign to `w?`
+# error: 27:3: cannot assign to `x?`: only a call that returns a write view (`!T`), or that call's `!` or `?`, is assigned through
+# error: 32:3: cannot assign to `(maybe(!a) if c else maybe(!b))?`
+# error: 36:3: cannot assign to `pick(!h)!?`

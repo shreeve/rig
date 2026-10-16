@@ -11,7 +11,7 @@ obj Bag[T]
       !out.push(f(x))
     out
 
-  sub mutate(!self, f: ?fun(T) -> T)
+  sub mutate(!self, f: ?fun(T) -> T) keeps f
     i = 0
     while i < self.items.len
       self.items[i] = f(self.items[i])

@@ -12,7 +12,7 @@ enum O
   some(x: Big)
   nothing
 
-fun put(v: !View, t: ?Big) -> Bool
+fun put(v: !View, t: ?Big) -> Bool keeps t
   v.b = t
   false
 

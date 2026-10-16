@@ -1,0 +1,13 @@
+obj Bag[T]
+  v: T
+
+  sub reg(?self, out: !List[?Bag[T]]) keeps self
+    !out.push(self)
+
+sub main()
+  a = Bag[Int](v: 1)
+  b = Bag[Int](v: 2)
+  out: List[?Bag[Int]] = List()
+  ?a.reg(!out)
+  ?b.reg(!out)
+  print(out.len, out[0].v, out[1].v)

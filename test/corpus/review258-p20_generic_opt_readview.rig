@@ -1,0 +1,19 @@
+obj P
+  x: Int
+  n: String
+
+fun gslot[T](v: !List[T], i: Int) -> (!T)? from v
+  return none if i >= v.len
+  !v[i]
+
+fun go(v: !List[?P], b: ?P) -> Int?
+  gslot(!v, 0)? = b
+  0
+
+sub main()
+  a = P(x: 1, n: String("a"))
+  b = P(x: 2, n: String("b"))
+  v: List[?P] = List()
+  !v.push(?a)
+  print(go(!v, ?b))
+  print(v[0].n)

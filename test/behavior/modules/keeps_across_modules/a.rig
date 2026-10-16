@@ -1,0 +1,9 @@
+pub obj Binder
+  pub src: ?String
+  pub notes: Int
+
+  pub sub watch(!self, s: ?String) keeps s
+    self.src = s
+
+  pub sub note(!self, msg: ?String)
+    self.notes += msg.len

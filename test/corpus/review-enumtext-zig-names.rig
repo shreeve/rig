@@ -1,0 +1,38 @@
+# Variants named like runtime declarations, Zig keywords, primitives, and types round-trip through `.text` and `from_text`.
+enum Color
+  red
+  NameTable
+  enumText
+  enumFromText
+  values
+  E
+  self
+  Self
+  anyerror
+  noreturn
+  i32
+  f64
+  usize
+  undefined
+  unreachable
+
+sub main()
+  for c in @variants(Color)
+    print(c.text, Color.from_text(c.text) == c)
+
+# expect:
+# red true
+# NameTable true
+# enumText true
+# enumFromText true
+# values true
+# E true
+# self true
+# Self true
+# anyerror true
+# noreturn true
+# i32 true
+# f64 true
+# usize true
+# undefined true
+# unreachable true

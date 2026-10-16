@@ -1,0 +1,14 @@
+fun slot(v: !List[Int], i: Int) -> !Int from v
+  !v.push(7)
+  !v[i]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  slot(!v, 0) += v.len
+  print(v)
+  slot(!v, 0) = v.len
+  print(v)
+  n = v.len
+  slot(!v, 0) = n + v[1]
+  print(v)

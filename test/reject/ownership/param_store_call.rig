@@ -4,10 +4,10 @@
 obj Holder
   r: []Int
 
-sub put(h: !Holder, s: []Int)
+sub put(h: !Holder, s: []Int) keeps s
   h.r = s
 
-fun f(a: !Holder, b: !List[Int]) -> Int
+fun f(a: !Holder, b: !List[Int]) -> Int keeps b
   put(!a, ?b[..])
   for i in 0..100
     !b.push(i)

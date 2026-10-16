@@ -8,7 +8,7 @@ obj Wrap
 obj View
   box: ?Wrap
 
-sub put(v: !View, b: ?Wrap)
+sub put(v: !View, b: ?Wrap) keeps b
   v.box = b
 
 sub main()

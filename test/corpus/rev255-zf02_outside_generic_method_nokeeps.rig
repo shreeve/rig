@@ -1,0 +1,12 @@
+obj Bag[T]
+  last: (?T)?
+
+sub Bag[T].put(!self, x: ?T)
+  self.last = x
+
+sub main()
+  b = Bag[String](last: none)
+  n = String("4")
+  !b.put(?n)
+  <n
+  print(b.last)

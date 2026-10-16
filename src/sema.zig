@@ -965,6 +965,9 @@ pub const Facts = struct {
     /// `E.name` nodes that name a member of an error set `E`, through
     /// its module or an alias (`SemContext.recordErrorMember`).
     error_members: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// `e.text` nodes: the name of plain enum value `e`'s variant, a
+    /// `Static` (`SemContext.recordEnumText`).
+    enum_texts: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Variant pattern node -> the binding of each payload field of its
     /// variant, in field order (`SemContext.payloadBindings`).
     payload_binds: std.AutoHashMapUnmanaged(NodeKey, []const Sexp) = .empty,
@@ -1404,8 +1407,8 @@ pub const Use = enum {
 /// (`num` is the float's type, `elem` the unsigned integer of its width);
 /// the functions of a type, which take an integer (`elem` is its type):
 /// `I32.wrap(x)` (`num` the target), `Float.from_bits(u)` (`num` the
-/// float, `elem` the unsigned integer), `Status.from_int(n)` (`num` the
-/// enum); and the methods of
+/// float, `elem` the unsigned integer), `Status.from_int(n)` and
+/// `Status.from_text(word)` (`num` the enum); and the methods of
 /// a vector (`isSimd`), where `num` is the vector and `elem` its lane
 /// type: `Simd[T, n].splat(x)`, `m.bits()`, `m.first()`, `m.any()`, `m.all()`,
 /// `v.array()`, `v.with(i, x)`, `m.select(a, b)`, whose `num` is the
@@ -1435,6 +1438,9 @@ pub const ElemOp = enum {
     from_bits,
     wrap,
     from_int,
+    /// `E.from_text(word)`: the variant of plain enum `num` named
+    /// `word`, a `?String` (`elem`).
+    from_text,
     nan,
     inf,
     fraction,
@@ -1458,15 +1464,16 @@ pub const ElemOp = enum {
     pub fn isBits(op: ElemOp) bool {
         return switch (op) {
             .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .fraction, .exponent => true,
-            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => false,
+            .copy, .fill, .swap, .read, .write, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag, .hash => false,
         };
     }
 
     /// Whether the call is a function of a number type or a plain enum:
-    /// `Float.from_bits(u)`, `I32.wrap(x)`, `Status.from_int(n)`.
+    /// `Float.from_bits(u)`, `I32.wrap(x)`, `Status.from_int(n)`,
+    /// `Status.from_text(word)`.
     pub fn isTypeFn(op: ElemOp) bool {
         return switch (op) {
-            .from_bits, .wrap, .from_int, .nan, .inf => true,
+            .from_bits, .wrap, .from_int, .from_text, .nan, .inf => true,
             else => false,
         };
     }
@@ -1476,7 +1483,7 @@ pub const ElemOp = enum {
     pub fn isSimd(op: ElemOp) bool {
         return switch (op) {
             .splat, .bits, .first, .any, .all, .array, .with, .select, .lookup, .lag => true,
-            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .nan, .inf, .fraction, .exponent, .hash => false,
+            .copy, .fill, .swap, .read, .write, .not, .leading_zeros, .trailing_zeros, .count_ones, .swap_bytes, .to_bits, .from_bits, .wrap, .from_int, .from_text, .nan, .inf, .fraction, .exponent, .hash => false,
         };
     }
 };
@@ -1596,11 +1603,19 @@ pub const Origins = struct {
     stores: ParamMask = all_params,
     /// `result` is what a `from` clause names, not the signature's types.
     declared: bool = false,
+    /// The lent parameters (`lentParam`), which `stores` holds only
+    /// where the declaration's `keeps` names them; none for a function
+    /// type's origins, which keep by type.
+    lent: ParamMask = 0,
 };
 
 /// A function's `from` clause: the names it lists (empty for `from
 /// static`), and the function's parameters.
 pub const DeclaredOrigins = struct { names: Sexp, params: Sexp, returns: Sexp };
+
+/// A function's `keeps` clause: the names it lists, and the function's
+/// parameters.
+pub const DeclaredKeeps = struct { names: Sexp, params: Sexp };
 
 /// What fills a run-time parameter of a call: the receiver of a method
 /// called on a value, the argument at an index of the call's argument
@@ -1617,6 +1632,9 @@ pub const ParamFill = union(enum) {
 pub const CallParams = struct {
     fills: []const ParamFill,
     origins: Origins,
+    /// The names of the parameters the arguments may fill, the receiver
+    /// left out, when known: what a diagnostic says a call keeps.
+    names: ?[]const []const u8 = null,
 
     /// Whether the call's result carries the loans of the argument at
     /// index `arg`.
@@ -1638,6 +1656,33 @@ pub const CallParams = struct {
     /// `arg`.
     pub fn stores(self: CallParams, arg: usize) bool {
         return self.filled(.{ .arg = @intCast(arg) }, self.origins.stores);
+    }
+
+    /// Whether the call keeps the argument at index `arg`, which fills a
+    /// lent parameter its callee's `keeps` names.
+    pub fn keepsLent(self: CallParams, arg: usize) bool {
+        return self.filled(.{ .arg = @intCast(arg) }, self.origins.stores & self.origins.lent);
+    }
+
+    /// Whether the call keeps its receiver, which its callee's `keeps`
+    /// names (`keeps self`).
+    pub fn keepsLentReceiver(self: CallParams) bool {
+        return self.filled(.receiver, self.origins.stores & self.origins.lent);
+    }
+
+    /// The name of the parameter the argument at index `arg` fills, when
+    /// known.
+    pub fn paramName(self: CallParams, arg: usize) ?[]const u8 {
+        const names = self.names orelse return null;
+        var skip: usize = 0;
+        for (self.fills, 0..) |f, i| {
+            if (f == .receiver) {
+                skip += 1;
+                continue;
+            }
+            if (f == .arg and f.arg == arg) return if (i - skip < names.len) names[i - skip] else null;
+        }
+        return null;
     }
 
     /// Whether `what` fills a parameter in `mask`.
@@ -2174,6 +2219,11 @@ pub const SemContext = struct {
     /// Those of other modules, found large at an instance made here;
     /// `inlining.decide` marks them in their own modules.
     large_foreign_frames: std.ArrayList(ForeignFrame) = .empty,
+    /// The plain enums of this module, by symbol, that the program calls
+    /// `from_text` on (`recordTextTable`).
+    text_tables: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    /// Those of other modules, called here.
+    foreign_text_tables: std.ArrayList(ForeignRef) = .empty,
     /// The calls that may reach one of them, by node (`inlining.decide`).
     inlined_calls: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// The node `Question`s decided so far, each once.
@@ -2184,6 +2234,10 @@ pub const SemContext = struct {
     /// (`-> T from a, b`), by where its name is declared, with its
     /// parameters (`computeOrigins`).
     declared_origins: std.AutoHashMapUnmanaged(u32, DeclaredOrigins) = .empty,
+    /// The `keeps` clause of each function and method that writes one
+    /// (`keeps s, self`), by where its name is declared, with its
+    /// parameters (`computeOrigins`).
+    declared_keeps: std.AutoHashMapUnmanaged(u32, DeclaredKeeps) = .empty,
     /// The `for` loops over an iterator that typecheck found, each to be
     /// rewritten into the `while` it means (`rig.IterLoop`). A module with
     /// any is checked again on the rewritten tree, so no pass sees one.
@@ -2251,6 +2305,7 @@ pub const SemContext = struct {
         self.untakeable.deinit(self.allocator);
         self.facts.deinit(self.allocator);
         self.declared_origins.deinit(self.allocator);
+        self.declared_keeps.deinit(self.allocator);
         self.iter_loops.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.file_uses.deinit(self.allocator);
@@ -2292,6 +2347,8 @@ pub const SemContext = struct {
         self.call_targets.deinit(self.allocator);
         self.large_frames.deinit(self.allocator);
         self.large_foreign_frames.deinit(self.allocator);
+        self.text_tables.deinit(self.allocator);
+        self.foreign_text_tables.deinit(self.allocator);
         self.inlined_calls.deinit(self.allocator);
         self.write_sites.deinit(self.allocator);
         self.proven.deinit(self.allocator);
@@ -2749,6 +2806,31 @@ pub const SemContext = struct {
 
     pub fn isErrorMember(self: *const SemContext, node: Sexp) bool {
         return self.facts.error_members.contains(nodeKey(node) orelse return false);
+    }
+
+    /// `node`, a `member` `e.text`, is the name of plain enum value
+    /// `e`'s variant, not a field.
+    pub fn recordEnumText(self: *SemContext, node: Sexp) !void {
+        try self.facts.enum_texts.put(self.allocator, recordKey(node), {});
+    }
+
+    pub fn isEnumText(self: *const SemContext, node: Sexp) bool {
+        return self.facts.enum_texts.contains(nodeKey(node) orelse return false);
+    }
+
+    /// The program calls `E.from_text` on plain enum `decl`, so its
+    /// module emits `E`'s table of names (`hasTextTable`). One of
+    /// another module is marked there once every module is checked
+    /// (`modules.ModuleGraph.markTextTables`).
+    pub fn recordTextTable(self: *SemContext, decl: NominalDecl) !void {
+        if (decl.module_id) |m| if (m != self.module_id) {
+            return self.foreign_text_tables.append(self.allocator, .{ .module_id = m, .sym = decl.sym });
+        };
+        try self.text_tables.put(self.allocator, decl.sym, {});
+    }
+
+    pub fn hasTextTable(self: *const SemContext, sym: SymbolId) bool {
+        return self.text_tables.contains(sym);
     }
 
     /// `node`, an optional field or element, could not be taken with
@@ -5282,6 +5364,16 @@ pub fn assignWritesThrough(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.types.get(ty) == .write_view;
 }
 
+/// The type a store through write view `ty` writes: the `T` of `!T`,
+/// one view peeled, so a `T` that is itself a view (`!?P`) is re-pointed,
+/// not replaced. Any other type is its own.
+pub fn writtenThrough(ctx: *const SemContext, ty: TypeId) TypeId {
+    return switch (ctx.types.get(ty)) {
+        .write_view => |inner| inner,
+        else => ty,
+    };
+}
+
 /// The element type of a writable slice `![]T`; null for any other type.
 pub fn writeSliceElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
@@ -5971,7 +6063,12 @@ const TargetWalk = struct {
             .type_var => if (node.args) |args| {
                 for (args.tys) |t| switch (args.ctx.types.get(t)) {
                     .type_var, .invalid, .unknown => self.out.any = true,
-                    else => try self.target(.{ .ctx = args.ctx, .ty = t, .elem = node.elem }),
+                    else => {
+                        try self.target(.{ .ctx = args.ctx, .ty = t, .elem = node.elem });
+                        // A read view of a `T` that is `String` is a
+                        // `?String`, which views the text's bytes.
+                        if (!node.elem and t == args.ctx.types.string_id) self.out.bytes = true;
+                    },
                 };
             } else {
                 self.out.any = true;
@@ -6013,10 +6110,14 @@ const TargetWalk = struct {
                 };
                 return self.push(.{ .ctx = ctx, .ty = elem, .args = node.args }, true);
             },
-            .type_var => if (node.args) |args| {
-                if (self.written_only and !self.written) return;
-                // The instance's arguments, read where it is.
-                for (args.tys) |arg| try self.push(.{ .ctx = args.ctx, .ty = arg }, self.written);
+            // In a generic type's field, a type parameter stands for the
+            // instance's arguments, which `ownedParts` walked where the
+            // instance is, each in the context that gives its own type
+            // parameters theirs: walked again here, out of that context,
+            // an argument that is itself a type parameter (`Entry[K, V]`
+            // in a `Map[K, V]`'s field) would stand for anything.
+            .type_var => if (node.args != null) {
+                return;
             } else if (!self.written_only or self.written) {
                 self.out.any = true;
             },
@@ -6162,11 +6263,33 @@ pub fn defaultOrigins(ctx: *const SemContext, a: std.mem.Allocator, f: FunctionT
     return o;
 }
 
+/// Whether a parameter of type `ty` is lent: a view (`isViewType`), or
+/// an optional of one. A call keeps a lent parameter only where its
+/// declaration's `keeps` names it (Core sentence 7); any other parameter
+/// is taken by value, the callee's, and kept wherever its type fits.
+pub fn lentParam(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .optional => |inner| isViewType(ctx, inner),
+        else => isViewType(ctx, ty),
+    };
+}
+
+/// Whether `ty` is a view: a `?T`, `!T`, `[]T` (a `![]T` is a `!T`),
+/// or `?String`.
+pub fn isViewType(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .read_view, .write_view, .slice, .string_view => true,
+        else => false,
+    };
+}
+
 /// The origins of function `name`, declared at `pos` with type `f`:
 /// its signature's (`defaultOrigins`), with the result's narrowed to the
-/// parameters its `from` clause names. A name that is no parameter, or
-/// one whose type cannot hold what the result views, is reported, as is
-/// a clause on a result that views nothing.
+/// parameters its `from` clause names, and the stores to its by-value
+/// parameters and the lent ones its `keeps` clause names (`declKeeps`).
+/// A name that is no parameter, or one whose type cannot hold what the
+/// result views, is reported, as is a clause on a result that views
+/// nothing.
 fn declOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType, param_names: ?[]const []const u8) std.mem.Allocator.Error!Origins {
     const o = try declaredOrigins(ctx, a, name, pos, f);
     if (resultsOf(ctx, f.returns)) |parts| try checkResultViews(ctx, a, name, pos, f, parts, o.result, param_names orelse &.{});
@@ -6203,6 +6326,7 @@ fn checkResultViews(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, po
 /// `declOrigins` without the check of several results.
 fn declaredOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType) std.mem.Allocator.Error!Origins {
     var o = try defaultOrigins(ctx, a, f);
+    try declKeeps(ctx, name, pos, f, &o);
     const d = ctx.declared_origins.get(pos) orelse return o;
     const results = try viewTargets(ctx, a, f.returns);
     if (results.isEmpty()) {
@@ -6229,6 +6353,45 @@ fn declaredOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos
     o.result &= named;
     o.declared = true;
     return o;
+}
+
+/// Narrow `o.stores` to the parameters a call of function `name`,
+/// declared at `pos` with type `f`, keeps: each taken by value whose
+/// type could hold what its write parameters lead to (`defaultOrigins`),
+/// and each lent one (`lentParam`) its `keeps` clause names. A name that
+/// is no parameter, one taken by value, one nothing the function writes
+/// could hold, and one named twice are reported.
+fn declKeeps(ctx: *SemContext, name: []const u8, pos: u32, f: FunctionType, o: *Origins) std.mem.Allocator.Error!void {
+    for (f.params, 0..) |p, i| {
+        if (lentParam(ctx, p)) o.lent |= paramBit(i);
+    }
+    var named: ParamMask = 0;
+    if (ctx.declared_keeps.get(pos)) |d| {
+        for (d.names.items()) |n| {
+            const text = identAt(ctx.source, n) orelse continue;
+            const i = for (d.params.items(), 0..) |p, i| {
+                if (paramName(ctx.source, p)) |pn| if (std.mem.eql(u8, pn, text)) break i;
+            } else {
+                try ctx.errAt(n, "`{s}` has no parameter `{s}`; `keeps` names lent parameters, `self` among them", .{ name, text });
+                continue;
+            };
+            if (i >= f.params.len) continue;
+            if (named & paramBit(i) != 0) {
+                try ctx.errAt(n, "`keeps {s}`: `{s}` is named twice", .{ text, text });
+                continue;
+            }
+            if (!lentParam(ctx, f.params[i])) {
+                try ctx.errAt(n, "`keeps {s}`: `{s}` is taken by value, so the callee owns it already", .{ text, text });
+                continue;
+            }
+            if (o.stores & paramBit(i) == 0) {
+                try ctx.errAt(n, "`keeps {s}`: `{s}` takes nothing to write that could hold it", .{ text, name });
+                continue;
+            }
+            named |= paramBit(i);
+        }
+    }
+    o.stores &= ~o.lent | named;
 }
 
 /// Set the origins of every function and method this module declares
@@ -9302,8 +9465,11 @@ test "origins: a result carries what could hold what it views" {
         \\fun pick(s: ?String, t: ?String, n: Int, u: ?Item) -> ?String
         \\  s
         \\
-        \\sub fill(h: !Holder, x: []Int, k: Int, s: ?String)
+        \\sub fill(h: !Holder, x: []Int, k: Int, s: ?String) keeps x
         \\  h.r = x
+        \\
+        \\sub peek(h: !Holder, x: []Int, t: Holder)
+        \\  print(h.r.len, x.len, t.r.len)
         \\
         \\fun same[T](a: ?T, k: Int) -> ?T
         \\  a
@@ -9319,8 +9485,13 @@ test "origins: a result carries what could hold what it views" {
     try std.testing.expectEqual(@as(ParamMask, 0), o(&r, "at").stores);
     try std.testing.expectEqual(@as(ParamMask, 0b11), o(&r, "first").result);
     try std.testing.expectEqual(@as(ParamMask, 0b0011), o(&r, "pick").result);
-    // `fill` may store `x` in `h.r`; a number or a `?String` it cannot.
-    try std.testing.expectEqual(@as(ParamMask, 0b0011), o(&r, "fill").stores);
+    // `fill` keeps the lent `x`, as it says; a number or a `?String` it
+    // cannot store, and `h` it is lent only to write into.
+    try std.testing.expectEqual(@as(ParamMask, 0b0010), o(&r, "fill").stores);
+    try std.testing.expectEqual(@as(ParamMask, 0b1011), o(&r, "fill").lent);
+    // `peek` names nothing: of its lent parameters it keeps none, and
+    // `t`, taken by value, it may keep by its type.
+    try std.testing.expectEqual(@as(ParamMask, 0b100), o(&r, "peek").stores);
     // A type parameter could be anything, but a value taken by value is
     // the callee's own.
     try std.testing.expectEqual(@as(ParamMask, 0b01), o(&r, "same").result);

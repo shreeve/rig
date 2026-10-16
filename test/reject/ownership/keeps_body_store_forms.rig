@@ -1,0 +1,75 @@
+# The body check finds a lent parameter stored where the caller reaches
+# it, whatever the form: through a closure, a local write view, a local
+# moved in, a box, `defer`, a call through a function value, an
+# optional's payload, a loop, what another lent parameter leads to, and
+# the receiver into a write argument.
+
+obj In
+  src: ?String
+
+obj B
+  src: ?String
+  inner: In
+  names: List[?String]
+  boxed: ^In
+  opt: In?
+
+  sub by_closure(!self, s: ?String)
+    f = |!self, ?s| self.src = s
+    f()
+
+  sub by_local_view(!self, s: ?String)
+    w = !self.inner
+    w.src = s
+
+  sub by_local_moved(!self, s: ?String)
+    l: List[?String] = List()
+    !l.push(s)
+    self.names = <l
+
+  sub by_box(!self, s: ?String)
+    self.boxed.src = s
+
+  sub by_defer(!self, s: ?String)
+    defer self.src = s
+    print(1)
+
+  sub by_value(!self, s: ?String)
+    f: ?sub(!B, ?String) = ?put
+    f(!self, s)
+
+  sub by_payload(!self, s: ?String)
+    if !self.opt as o
+      o.src = s
+
+  sub by_loop(!self, s: ?String)
+    for i in 0..3
+      if i == 2
+        self.src = s
+
+sub put(b: !B, s: ?String) keeps s
+  b.src = s
+
+sub link(a: !In, b: !In)
+  a.src = b.src
+
+obj Node
+  n: Int
+
+  sub register(?self, out: !List[?Node])
+    !out.push(self)
+
+sub main()
+  pass
+
+# errors: 10
+# error: 18:11: `by_closure` stores a view of `s` in `self`
+# error: 23:5: `by_local_view` stores a view of `s` in `self`
+# error: 28:5: `by_local_moved` stores a view of `s` in `self`
+# error: 31:5: `by_box` stores a view of `s` in `self`
+# error: 34:11: `by_defer` stores a view of `s` in `self`
+# error: 39:7: `by_value` stores a view of `s` in `self`
+# error: 43:7: `by_payload` stores a view of `s` in `self`
+# error: 48:9: `by_loop` stores a view of `s` in `self`
+# error: 54:3: `link` stores a view of `b` in `a`, which its caller reaches, but its signature does not keep `b`; say so: `keeps b`
+# error: 60:5: `register` stores a view of `self` in `out`, which its caller reaches, but its signature does not keep `self`; say so: `keeps self`

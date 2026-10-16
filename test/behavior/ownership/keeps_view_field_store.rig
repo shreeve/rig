@@ -1,0 +1,39 @@
+# Rule: neither `add_to` nor `run` names a parameter in `keeps`, so
+# neither call stores `out` or the scanner.
+# From: Trig docs/lexer/repros/view-field-store.rig, which decided the
+# shape of the regexp parser (folded into the scanner as `s.rx`,
+# src/lexer/regexp.rig:78-90) and of the escape scanner
+# (docs/lexer/COMPARE.md).
+
+obj Scanner
+  text: ?String
+  pos: Int
+
+  sub add_to(!self, out: !String)
+    !out.add(self.text[0..1])
+
+  fun first(!self) -> String
+    out = String()
+    !self.add_to(!out)
+    out
+
+  sub check(!self)
+    c = Checker(names: List())
+    !c.run(!self)
+
+obj Checker
+  names: List[String]
+
+  sub run(!self, s: !Scanner)
+    s.pos += self.names.len + 1
+
+sub main()
+  src = "abc"
+  s = Scanner(text: src, pos: 0)
+  print((!s).first())
+  !s.check()
+  print(s.pos)
+
+# expect:
+# a
+# 1

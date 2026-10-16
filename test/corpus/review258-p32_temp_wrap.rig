@@ -1,0 +1,9 @@
+obj H
+  s: String
+
+fun wrap(h: !H) -> !H from h
+  h
+
+sub main()
+  wrap(!H(s: String("tmp"))) = H(s: String("new"))
+  print("ok")

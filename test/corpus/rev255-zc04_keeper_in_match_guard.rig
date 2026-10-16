@@ -1,0 +1,18 @@
+obj P
+  src: ?String
+
+  fun watch(!self, s: ?String) -> Bool keeps s
+    self.src = s
+    true
+
+sub main()
+  p = P(src: "")
+  t = String("hello")
+  n = 3
+  match n
+    3 if (!p).watch(?t)
+      print("three")
+    _
+      print("other")
+  <t
+  print(p.src)

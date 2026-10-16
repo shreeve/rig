@@ -1,0 +1,29 @@
+# Rule: a callee that copies a lent slice into its own storage keeps no
+# view: the copy is a new value, and only a stored view needs `keeps`.
+
+obj Program
+  files: Int
+
+obj Checker
+  program: ?Program
+  members: List[List[Int]]
+
+  fun union_of(!self, types: []Int) -> Int
+    copy: List[Int] = List()
+    for t in types
+      !copy.push(t)
+    !self.members.push(<copy)
+    self.members.len - 1
+
+sub main()
+  prog = Program(files: 1)
+  c = Checker(program: ?prog, members: List())
+  types: List[Int] = List()
+  !types.push(3)
+  !types.push(4)
+  id = (!c).union_of(?types[..])
+  !types.push(5)
+  print(id, c.members[0].len, types.len)
+
+# expect:
+# 0 2 3

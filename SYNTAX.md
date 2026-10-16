@@ -270,7 +270,9 @@ where it separates a fill literal's count from its element
 (`[n of x]`). `unique` is a keyword only after an `obj`'s name or type
 parameters (`obj Random unique`). `from` is a keyword only after a
 function's result type (`-> ?Item from a`), and `static` only right
-after that `from`; a parameter or a local may be named either.
+after that `from`; `keeps` only at the end of a function's header
+(`sub watch(!self, s: ?String) keeps s`); a parameter or a local may be
+named any of them.
 `inline`, `called`, and `rarely` are keywords only at the start of a
 declaration (after any `pub`), right before its `fun` or `sub`
 (`inline fun f()`, `pub rarely sub s()`), so a local, a parameter, a
@@ -655,6 +657,10 @@ sign -1
   its type: `-> ?Item from a`, `-> ?String from a, b`, `-> ?T from
   self`, or `-> ?String from static` for only what lives for the whole
   program ([CORE sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)).
+- A function that keeps a lent parameter names it last on its header:
+  `sub watch(!self, s: ?String) keeps s`, `fun bind(!self, s: ?String)
+  -> ?String from s keeps s`, `sub save(p: !Page, s: ?String)!
+  keeps s` ([CORE sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)).
 - Compile-time parameters go in brackets after the name:
   `fun max[T](a: T, b: T) -> T`, `sub show[n: Int]()`
   ([Generics](#generics-and-compile-time-parameters)).
@@ -1440,6 +1446,7 @@ as `print` writes it: `String("n=", n)`, or `String()` for an empty one.
 | `?a` where a `[]T` is expected | `?a[..]`; `!a` where a `![]T` is |
 | `?t` where a `?String` is expected | `?t[..]` of a String |
 | `xs.len`, `s.len`, `v.len` | a length, a field |
+| `e.text`, `Color.from_text(word)` | a plain enum value's name, a `Static`; the variant of that name, or `none` ([SPEC](SPEC.md#enums)) |
 | `mod.name`, `mod.Type.name` | a module's declaration or a type's member |
 
 A lend of a place is never the base of a path: `(!p).x`, `(?xs)[0]`,
@@ -1708,10 +1715,11 @@ program   = decl*
 decl      = ["pub"] (fun | sub | obj | enum | errors | typedef | test | constant)
           | use | extern
 use       = "use" name ("." name)* ["as" name]
-fun       = "fun" [owner "."] name [tparams] params "->" rtype [from] block
+fun       = "fun" [owner "."] name [tparams] params "->" rtype [from] [keeps] block
 rtype     = type | "(" type, type, ... ")" ["!" | "?"]   # several results
 from      = "from" (name, ... | "static")
-sub       = "sub" [owner "."] name [tparams] params ["!"] block
+keeps     = "keeps" name, ...
+sub       = "sub" [owner "."] name [tparams] params ["!"] [keeps] block
 owner     = name ["[" name, ... "]"] | name "." name   # the last parses only to be rejected
 tparams   = "[" (name | name ":" type), ... "]"    # a type, or a compile-time value
 params    = "(" [param, ...] ")"
@@ -1725,12 +1733,12 @@ errors    = "error" name INDENT name* DEDENT
 typedef   = "type" name "=" type
 constant  = name [":" type] "=" tail
 test      = "test" string block
-extern    = "extern" "fun" name params ["->" type [from]]
-          | "extern" "sub" name params
+extern    = "extern" "fun" name params ["->" type [from]] [keeps]
+          | "extern" "sub" name params [keeps]
           | "extern" name ":" type
           | "extern" "zig" string INDENT (["pub"] zdecl)* DEDENT
-zdecl     = "fun" name [tparams] params ["->" type [from]]
-          | "sub" name [tparams] params ["!"]
+zdecl     = "fun" name [tparams] params ["->" type [from]] [keeps]
+          | "sub" name [tparams] params ["!"] [keeps]
           | name ":" type
 
 type      = ("?" | "!") type | ptype | tsuffix

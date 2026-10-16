@@ -1,0 +1,9 @@
+fun rd(v: ?List[Int]) -> ?Int from v
+  ?v[0]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  rd(?v) = 5
+  rd(?v) += 5
+  print(v)

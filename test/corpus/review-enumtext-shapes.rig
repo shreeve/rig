@@ -1,0 +1,22 @@
+# A single-variant enum and one with sparse values up to 4294967295: `.text` and `from_text` round-trip.
+enum One
+  only
+
+enum Sparse
+  hi = 4294967295
+  lo = 0
+  mid = 70000
+
+sub main()
+  o: One = .only
+  print(o.text, One.from_text("only"), One.from_text("onl"), One.from_text(""))
+  for s in @variants(Sparse)
+    print(s.text, Int(s), Sparse.from_text(s.text) == s)
+  print(Sparse.from_text("mid"), Int(Sparse.from_text("hi") ?? .lo))
+
+# expect:
+# only .only none none
+# hi 4294967295 true
+# lo 0 true
+# mid 70000 true
+# .mid 4294967295

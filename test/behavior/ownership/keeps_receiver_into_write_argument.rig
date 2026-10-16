@@ -1,0 +1,23 @@
+# `keeps self` names a `?self` receiver: the method stores a view of it
+# in a write argument, so the receiver is lent with `?` written and stays
+# lent while that argument is used.
+
+obj Node
+  n: Int
+
+  sub register(?self, out: !List[?Node]) keeps self
+    !out.push(self)
+
+sub main()
+  a = Node(n: 1)
+  b = Node(n: 2)
+  out: List[?Node] = List()
+  ?a.register(!out)
+  (?b).register(!out)
+  print(out.len, out[0].n, out[1].n)
+  a.n = 3
+  print(a.n)
+
+# expect:
+# 2 1 2
+# 3

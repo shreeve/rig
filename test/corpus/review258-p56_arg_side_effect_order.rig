@@ -1,0 +1,15 @@
+fun slot(v: !List[Int], i: Int) -> !Int from v
+  !v[i]
+
+fun nx(c: !Int) -> Int
+  c += 1
+  c
+
+sub main()
+  v: List[Int] = List()
+  !v.push(0)
+  !v.push(0)
+  !v.push(0)
+  c = 0
+  slot(!v, nx(!c)) = nx(!c)
+  print(v, c)

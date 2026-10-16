@@ -1,0 +1,28 @@
+# Assigning through a call's write view runs the value first, then the
+# call: `slot(!v, 0) += e` is `__v = e`, `w = slot(!v, 0)`, then
+# `w += __v`. Here `slot` and `grow` each push, so the order shows in
+# what is added and where: had the call run first, `v.len` would be 2,
+# and `v[0]` would end 3.
+
+fun slot(v: !List[Int], i: Int) -> !Int from v
+  !v.push(7)
+  !v[i]
+
+fun grow(v: !List[Int]) -> Int
+  !v.push(100)
+  v.len
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  slot(!v, 0) += v.len
+  print(v)
+  slot(!v, 0) += grow(!v)
+  print(v)
+  slot(!v, 0) = v.len
+  print(v)
+
+# expect:
+# [2, 7]
+# [5, 7, 100, 7]
+# [4, 7, 100, 7, 7]

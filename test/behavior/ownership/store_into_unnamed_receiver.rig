@@ -7,7 +7,7 @@ obj H
   r: ?String
   rs: List[?String]
 
-  sub keep(!self, r: ?String)
+  sub keep(!self, r: ?String) keeps r
     !self.rs.push(r)
 
 fun wrap(h: !H) -> !H

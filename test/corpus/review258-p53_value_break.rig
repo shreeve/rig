@@ -1,0 +1,13 @@
+fun slot(v: !List[String], i: Int) -> !String from v
+  !v[i]
+
+sub main()
+  v: List[String] = List()
+  !v.push(String("a"))
+  src: List[String] = List()
+  !src.push(String("x"))
+  i = 0
+  while i < 3
+    i += 1
+    slot(!v, 0) = (!src).pop() ?? break
+  print(v, i)

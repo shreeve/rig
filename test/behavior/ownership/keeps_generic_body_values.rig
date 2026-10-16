@@ -1,0 +1,30 @@
+# A generic body that moves `T` values within what it is lent to write,
+# reading a lent comparator, keeps nothing else; one that stores a lent
+# parameter's `T`s says so, and its caller's loan lasts while the holder
+# is used.
+
+sub sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+  for i in 1..xs.len
+    j = i
+    while j > 0 and less(?xs[j], ?xs[j - 1])
+      !xs.swap(j, j - 1)
+      j -= 1
+
+sub copy_all[T](out: !List[T], xs: []T) keeps xs
+  for x in xs
+    !out.push(x)
+
+sub main()
+  a = [3, 1, 2]
+  sort_by(!a[..], |x: ?Int, y: ?Int| x < y)
+  print(a)
+  t = String("ab")
+  u = String("cd")
+  views = [?t, ?u]
+  out: List[?String] = List()
+  copy_all(!out, ?views[..])
+  print(out.len, out[0], out[1])
+
+# expect:
+# [1, 2, 3]
+# 2 ab cd

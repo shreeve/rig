@@ -1,0 +1,11 @@
+sub copy_first(out: !List[?String], xs: ?List[?String]) keeps xs
+  !out.push(xs[0])
+
+sub main()
+  t = String("hello")
+  xs: List[?String] = List()
+  !xs.push(?t)
+  out: List[?String] = List()
+  copy_first(!out, ?xs)
+  !xs.push("more")
+  print(out[0], xs.len)

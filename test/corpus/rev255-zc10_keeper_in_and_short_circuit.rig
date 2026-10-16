@@ -1,0 +1,15 @@
+obj P
+  src: ?String
+
+  fun watch(!self, s: ?String) -> Bool keeps s
+    self.src = s
+    true
+
+sub main()
+  p = P(src: "")
+  t = String("hello")
+  c = true
+  if c and (!p).watch(?t)
+    print("y")
+  <t
+  print(p.src)

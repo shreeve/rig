@@ -1,0 +1,12 @@
+fun sl(v: !List[String], i: Int) -> !String from v
+  !v[i]
+
+fun put(v: !List[String], o: Int?) -> Int
+  sl(!v, o ?? return 7) = String("new")
+  0
+
+sub main()
+  v: List[String] = List()
+  !v.push(String("a"))
+  print(put(!v, none), put(!v, 0))
+  print(v)

@@ -1,0 +1,12 @@
+obj H
+  s: String
+
+  fun me(!self) -> !String
+    !self.s
+
+fun make() -> H
+  H(s: String("tmp"))
+
+sub main()
+  (!make()).me() = String("new2")
+  print("ok")

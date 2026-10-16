@@ -1,0 +1,16 @@
+obj H
+  s: ?String
+
+fun slot(v: !List[H]) -> !H from v
+  !v[0]
+
+fun eat(s: String) -> Int
+  s.len
+
+sub main()
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  u = String("u")
+  (!v).at0() = H(s: ?u)
+  print(eat(<u), v[0].s)

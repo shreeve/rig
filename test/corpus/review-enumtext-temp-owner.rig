@@ -1,0 +1,56 @@
+# `.text` of a field of a temporary that owns a resource (an object, a List element, a box, a shared handle): each is dropped once; `from_text` of a temporary String.
+enum Color
+  red
+  dark_red
+
+obj Pen
+  color: Color
+  label: String
+
+  drop(!self)
+    print("drop", self.label)
+
+fun make(n: Int) -> Pen
+  Pen(color: .dark_red, label: String("pen", n))
+
+fun pens() -> List[Pen]
+  xs = List[Pen]()
+  !xs.push(make(1))
+  !xs.push(make(2))
+  xs
+
+fun boxed() -> ^Pen
+  ^make(3)
+
+fun shared() -> *Pen
+  *make(4)
+
+sub main()
+  print(make(0).color.text)
+  print(pens()[1].color.text)
+  print(boxed().color.text)
+  print(shared().color.text)
+  t = make(5).color.text
+  print(t)
+  print(Color.from_text(make(6).color.text))
+  print(Color.from_text(make(7).label))
+  print(Color.from_text(?make(8).label))
+
+# expect:
+# dark_red
+# drop pen0
+# dark_red
+# drop pen2
+# drop pen1
+# dark_red
+# drop pen3
+# dark_red
+# drop pen4
+# drop pen5
+# dark_red
+# .dark_red
+# drop pen6
+# none
+# drop pen7
+# none
+# drop pen8

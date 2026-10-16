@@ -1,0 +1,12 @@
+fun pick(v: !List[String], ok: Bool) -> (!String)? from v
+  return none if not ok
+  !v[0]
+
+fun put(v: !List[String], ok: Bool) -> Int?
+  pick(!v, ok)? = String("new")
+  1
+
+sub main()
+  v: List[String] = List()
+  !v.push(String("old"))
+  print(put(!v, false), put(!v, true), v)

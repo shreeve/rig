@@ -4,7 +4,7 @@ obj Item
 obj Holder
   r: ?Item
 
-fun f(a: !Holder, b: ?Item) -> ?Item
+fun f(a: !Holder, b: ?Item) -> ?Item keeps b
   a.r = b
   a.r
 

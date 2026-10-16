@@ -1,4 +1,4 @@
-sub keep(v: !List[?Int], x: ?Int)
+sub keep(v: !List[?Int], x: ?Int) keeps x
   !v.push(x)
 
 sub main()

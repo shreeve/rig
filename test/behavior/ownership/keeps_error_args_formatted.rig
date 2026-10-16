@@ -1,0 +1,24 @@
+# Rule: the callee formats its arguments into an owned message; it keeps
+# no view, so the caller may lend views of temporaries and locals.
+# From: tsc checker.go:14274 `c.error(location, message, args...)`, the
+# most-called never-storing method in the census (182 call sites with a
+# local or temporary argument); Trig src/parser/parser.rig:526-544
+# (`parse_error_at_with(..., a0: String)`).
+
+obj Checker
+  file: ?String
+  messages: List[String]
+
+  sub error(!self, at: Int, a: ?String, b: ?String)
+    !self.messages.push(String(self.file, ":", at, ": '", a, "' is not assignable to '", b, "'"))
+
+sub main()
+  c = Checker(file: "a.ts", messages: List())
+  a = String("num", "ber")
+  b = String("string")
+  !c.error(4, ?a, ?b)
+  <a
+  print(c.messages[0])
+
+# expect:
+# a.ts:4: 'number' is not assignable to 'string'

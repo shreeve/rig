@@ -8,7 +8,7 @@ obj View
 obj Counter
   n: Int
 
-  sub stash(!self, v: !View, ys: []Int)
+  sub stash(!self, v: !View, ys: []Int) keeps ys
     self.n += 1
     v.xs = ys
 

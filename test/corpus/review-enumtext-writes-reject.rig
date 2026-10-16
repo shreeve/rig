@@ -1,0 +1,31 @@
+# `.text` is read-only: assigning, compound-assigning, write-lending,
+# moving out, writing a byte or `.len`, and write-iterating are each
+# rejected with a Rig diagnostic.
+enum Color
+  red
+  blue
+
+obj Pen
+  color: Color
+
+sub set(s: !Static)
+  s = "x"
+
+sub paint(p: !Pen)
+  p.color.text = "green"
+
+sub main()
+  c: Color = .red
+  !set(!c.text)
+  c.text += "x"
+  p = Pen(color: .red)
+  p.color.text = "y"
+  xs = [Color.red]
+  xs[0].text = "z"
+  w = !c.text
+  t = <c.text
+  c.text[0] = U8(1)
+  c.text.len = 2
+  for b in !c.text
+    print(b)
+  print(t, w)

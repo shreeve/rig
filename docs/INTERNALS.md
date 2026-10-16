@@ -286,6 +286,7 @@ detached sigil, is the one reported.
 | `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
 | `obj Random unique` vs `unique = 3`, `p.unique` | `UNIQUE` vs `IDENT` | `unique` is a keyword only on an `obj` header line, outside brackets, right after the name or the type parameters' `]`, where it fills the `unique` role of `struct` or `generic_struct` |
 | `-> ?T from a, b`, `-> ?String from static` vs `from = 3`, `f(from: 1)` | `FROM`, `STATIC` vs `IDENT` | on the header line of a `fun` or `extern fun`, outside brackets, past the `->` of its result type and right after a value (the type's last token), `from` is a keyword that starts the `origins` list of `fun` or `extern_fun`; `static` is one only right after that `from`. A function type inside the parameters is in brackets, so its `->` starts nothing |
+| `sub watch(!self, s: ?String) keeps s`, `-> T from a keeps s` vs `keeps = 3`, `f(keeps: 1)` | `KEEPS` vs `IDENT` | on the header line of a `fun`, `sub`, method, `extern fun`, `extern sub`, or Zig-backed declaration, outside brackets, right after its parameter list, its result type, its `from` list, or a failing `sub`'s `!`, `keeps` is a keyword that starts the `keeps` list; everywhere else it is a name |
 | `xs[a..]`, `xs[..]` vs `xs[a..b]` | `DOTDOT_OPEN` vs `..` | a `..` whose next token is `]` (past a line break, which is whitespace inside brackets) ends an open range, so `xs[a == b..]` reduces `a == b` before it; a `..` that starts an operand (`xs[..b]`) needs no mark, since no expression starts with one |
 | `t.type`, `(type: 1)`, a member `type: Int`, `fun type()` in a member list, `@type(x)` | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`, and names a builtin after `@`; sema rejects a keyword parameter |
 
@@ -1350,11 +1351,12 @@ instead of re-deriving it by name:
 | `callParamsOf(call)` | for every call checked against a signature, what fills each parameter (the receiver too) and which arguments the call passes loans on from ([Call origins](#call-origins)) |
 | `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`List[Int]`), or a function's arguments |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
-| `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T` (or vector of numbers); the bracket list is recorded as compile-time arguments (`instanceOf`). Also the methods of an integer's bits (`x.not()`, `x.count_ones()`) and of a vector (`Simd[T, n].splat(x)`, `m.bits()`, `m.select(a, b)`, ...) |
+| `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T` (or vector of numbers); the bracket list is recorded as compile-time arguments (`instanceOf`). Also the methods of an integer's bits (`x.not()`, `x.count_ones()`) and of a vector (`Simd[T, n].splat(x)`, `m.bits()`, `m.select(a, b)`, ...), and the functions of a number type or a plain enum (`I32.wrap(x)`, `Status.from_int(n)`, `Color.from_text(word)`) |
 | `splatOf(node)` | for a scalar operand of a lane-wise operator or of `select`: the vector type it stands for, every lane its value; emit writes it `@as(V, @splat(x))` ([Vectors](#vectors)) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
 | `liftOf(node)` | for a value that becomes an optional where it goes, the optional and what it is made from (`sema.Lift`): `none`, with the optional type its context gives it, and a value with fewer levels of optional than the optional it goes into, a `T` where a `T?` goes (or the value a view of one copies out). Typecheck records it for every value checked against a type (`checkExprAgainst`) and every value it adapts (`recordAdapted`), the latest check of a node deciding; emit packs such a value into each level that goes through the optional helpers (`emitLift`, [Emit](#emit), "Optionals"), where Zig would lift it into a `?T` on its own |
 | `upgradeOf(share)` | for `*w` of a weak handle, a `~T` or a view of one: that it upgrades it, and whether it reads `w` or takes it (`sema.Upgrade`) ([Weak upgrades](#weak-upgrades)) |
+| `isEnumText(node)`, `hasTextTable(sym)` | whether a `member` `e.text` is the name of plain enum value `e`'s variant, which emit writes as `rig.enumText(e)`, and the place checks block every write and write lend of; and whether the program calls `from_text` on plain enum `sym` of this module, which then holds the table of its names (`rig.NameTable`, built by `src/nametable.zig`). A call on another module's enum is marked there once every module is checked (`ModuleGraph.markTextTables`); a built-in enum's table is the calling module's own |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
 | `repoints(set)` | whether an assignment of a `!T` or `![]T` local gives it a view (`w = !n`, `w = <w2`, a call returning one), which points the local at another place; any other assignment of a `!T` local writes through it. A parameter is never pointed elsewhere. The local is `SymbolFlags.repointed`, which emit declares as a `var` pointer |
@@ -2796,8 +2798,26 @@ one's with its type parameters:
 
 - `result`: each parameter whose type could hold what the result views
   (`sema.defaultOrigins`);
-- `stores`: each parameter whose type could hold what may be stored in
-  memory a write parameter leads to (`sema.storeTargets`).
+- `stores`: each parameter taken by value whose type could hold what
+  may be stored in memory a write parameter leads to
+  (`sema.storeTargets`), and each lent parameter its `keeps` clause
+  names (`sema.declKeeps`).
+
+A parameter is *lent* when its type is a view (`sema.isViewType`: a
+`?T`, `!T`, `[]T`, `![]T`, or `?String`) or an optional of one, a
+`?self` or `!self` receiver among them: `sema.lentParam`, one
+classifier, recorded as `Origins.lent`, which the ownership checker,
+typecheck's written-lend rule, and the oracle read. A `keeps` clause
+(`sub watch(!self, s: ?String) keeps s`, `keeps s, self`) names the lent
+parameters a call keeps; every other lent parameter's loans end with the
+call. A name that is no parameter, one taken by value (the callee owns
+it already), one nothing the function writes could hold (`keeps s` on a
+function with no write parameter), and one named twice are reported
+where the clause names it. Resolve records each clause
+(`declared_keeps`) as it does `from`. A function type names no `keeps`:
+`sema.defaultOrigins` serves function types, which keep every
+parameter whose type could hold what their write parameters lead to,
+lent or not (`Origins.lent` is empty there).
 
 A `from` clause (`-> T from a, b`, `from static`) narrows `result` to
 the parameters it names (`sema.declOrigins`, `Origins.declared`); a
@@ -2873,11 +2893,11 @@ the result keeps stays lent, to read, for the rest of the statement, so
 on one read `v` as the split forms do. What the call stores
 keeps its own loans where it stores them, and the write lend it stored
 lasts to the statement's end as before. Whether a call may store an
-argument is its origins' `stores`, from the signature, so a generic
-callee's argument write lend lasts to the statement's end (a `T` could
-hold anything): `print(gfirst(!v).n, v.len)` is rejected, while
-`r = gfirst(!v)` then `print(v.len)` is accepted; per-instance origins
-are a later refinement: a write view of `v` stored in
+argument is its origins' `stores`, from the signature: a generic
+callee's lent argument is stored only where its `keeps` names it, so
+`print(gfirst(!v).n, v.len)` is accepted for `gfirst[T](v: !List[T]) ->
+?T`, while one taken by value, a `T` that could hold anything, keeps its
+write lend to the statement's end; a write view of `v` stored in
 `h` keeps `v` lent to write while `h` lives. A loan kept this way is
 marked `read_of_write`, so a conflict's note says the lend was a write. Every lend made in an argument still ends with its
 statement (the statement's temporaries are as before).
@@ -2885,12 +2905,21 @@ statement (the statement's temporaries are as before).
 **The body check** (`checkOrigins`). At every return and tail value the
 recorder notes the parameters whose loans the value carries
 (`recordResult`), and at every store into what a parameter leads to,
-the parameters whose loans are stored (`recordStore`). A function or
-closure whose body returns or stores the loans of a parameter its
-origins leave out is rejected there, with a note writing the clause the
-body satisfies (`-> T from a, b`). With origins from the signature's
-types this fires only when the classifier misses an edge: a compiler
-bug becomes a rejection, never a hole in a caller. One such edge is
+the parameters whose loans are stored (`recordStore`), on any path. A
+function or closure whose body returns or stores the loans of a
+parameter its origins leave out is rejected there, with a note writing
+the clause the body satisfies (`-> T from a, b`), or, for a lent
+parameter `keeps` does not name, an error at the store that writes the
+clause (`say so: keeps s`). A store is wherever a parameter's value
+comes to hold the loans: an assignment to what it leads to, through a
+local write view of it, a local moved into it, a box it holds, a
+closure that captures it to write, a `defer`, a match or `as` binding
+that writes through it, and a call that keeps the argument (a function
+value's call keeps by its type), so handing a lent parameter to a call
+that keeps it stores it. For a parameter taken by value, with origins
+from the signature's types, the check fires only when the classifier
+misses an edge: a compiler bug becomes a rejection, never a hole in a
+caller. One such edge is
 known: where a result's targets are anything (a type parameter's or a
 callable's), a `?String` parameter taken by value is never counted, which
 can only reject a body that returns one; no generic or callable body
@@ -2905,22 +2934,42 @@ loop element, a match copy, a take, a variable of such a type read (a
 `match` payload's view of its subject), and a parameter taken by value
 read), and `checkOrigins` counts it as returned wherever the body
 returns a value whose type holds a type parameter (`P[T]` too, beside
-its views). This is coarser than a loan: one read of a `[]T` parameter's
-element counts it as returned wherever the body returns a `T`.
+its views), and as stored in each parameter the body stores such a value
+in, past that parameter itself (`noteGenericStore`). A store into what a
+parameter leads to whose type holds a type parameter records the loans
+of the parameters it carries as stored there, through the write views a
+local holds (`genericStoreIn`), but takes no loan. This is coarser than
+a loan: one read of a `[]T` parameter's element counts it as returned
+wherever the body returns a `T`, and as stored wherever it stores one.
 
 A `from` clause is part of a declaration, not of its function type: a function lent as a
 value (`?first`) is called with its type's origins, which every body
 satisfies. Recursion needs no fixpoint: a call of the function from its
 own body uses the origins being proved (each returning run is finite).
-An `extern zig` declaration's clause is trusted, as the rest of its
-signature is.
+An `extern zig` declaration's `from` and `keeps` are trusted, as the
+rest of its signature is.
+
+**Written lends of kept arguments** (typecheck `checkArgs`). A place lent
+to a lent parameter the call may keep is lent with `?` written (Core
+sentence 4): `!b.watch(t)` is rejected with the fix `!b.watch(?t)`, and a
+`?self` receiver a method keeps is written `?a.register(!out)`. Where no
+`keeps` narrows the stores, every lent parameter the call may store by
+its type counts (`sema.lentParam` of the parameter's type at the call):
+a call through a function value (`f(!b, ?t)`), an owned closure, and a
+built-in generic's method at an instance whose `T` is a view
+(`!names.push(?t)` into a `List[?String]`). A
+conflict with a loan a call kept has a note naming the call, the
+parameter its `keeps` names, and the holder (`kept_lends`).
 
 **Desugaring.** A lend through a read view is the lend through a copy
 of the view, as above. A call `r = f(e1, ..., en)` is
 `t1 = e1; ...; tn = en; r = f(t1, ..., tn)` with each `ti` a statement
 temporary (Core §3): `r` holds the loans of the `ti` whose parameters
-are in `result`, the owners of the write arguments those in `stores`,
-and every other `ti`'s loans end with the statement. When `r`'s type
+are in `result`, the owners of the write arguments those in `stores`
+(the lent parameters `keeps` names, and the parameters taken by value
+whose types fit), and every other `ti`'s loans end with the statement.
+`keeps` adds no form: only the set changes, and its checker rule is the
+call rule with that set plus the body check. When `r`'s type
 holds no write view, it is `r = ?f(t1, ..., tn)`: a read lend of the
 views the call returns, which a held `!T` lends as `?T` (Core §4), so
 `r` keeps the `ti`'s loans as read loans, and each `ti` that was a
@@ -3307,6 +3356,26 @@ method's result `(!p).at(!i)`, a propagation `get(!h)?`, a branch
 a range's bounds left to right. A target that is a name has no steps.
 The store comes last: it finds the place through the base and indexes
 as they were evaluated, and stores.
+
+A target assigned through (`storage.assignedThrough`) has no field or
+element on its path, so it is its own base: a call that returns a
+write view `!T`, or that call's `!` or `?`. Typecheck admits no other
+(`assignThroughCall`): `?` or `!` around anything but a call is no
+target. It writes the `T` the view reaches, as a hidden binding of the
+view would:
+
+```text
+f(x) op= value   ==>   { __v = value; w = f(x); w op= __v }
+```
+
+The call is the base, so it runs after the value, and the store goes
+through the pointer it returns (`Emitter.emitTarget`: `__rig_base_N.*`
+where the base is held, else `(f(&x)).*`). The storage plan and emit
+take the viewed `T` as the place's type (`Planner.placeAssign`,
+`emitPlaceAssign`), so a `T` that owns is replaced through a `slot`,
+the old value dropped; the ownership checker walks the call as a base
+no var holds and stores through its write loans (`walkFieldAssign`,
+`storeThroughLend`), as it does for `f(x).field = value`.
 
 The value runs to its end first: every statement in it (a `match` arm,
 an `if` or `else` block, a `catch` handler, a nested assignment), every
@@ -4053,6 +4122,7 @@ reviewed.
 | `onOwnStack`, `switchStack` | run `main` and the tests on the program's stack, over its guard, with an overflow handler that names a fault in the guard a stack overflow ([The program's stack](#the-programs-stack)). `test/cli/stack_guard.sh` checks it |
 | `simdRead`, `simdWrite`, `lane`, `withLane`, `maskBits`, `maskFirst`, `maskAny`, `maskAll` | a vector's bytes, lanes, and mask ([Vectors](#vectors)): `simdRead` and `simdWrite` check the offset once, as `readInt` does, and load or store through an `align(1)` pointer, swapping each lane's bytes where its order is not native; `lane` and `withLane` go through `[n]T` with `index`'s check; `maskBits` lowers per target, and `maskFirst` too (below) |
 | `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @size(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
+| `enumText`, `enumFromText`, `NameTable` | a plain enum's names: `e.text` is the variant's `@tagName`, less the `'` a renamed one carries (`rigName`); `E.from_text(word)` finds `word` in a `NameTable`, the enum's names in declaration order in an open-addressed table the compiler emits (`src/nametable.zig`): a power of two of at least 16 slots, at most four fifths full, a one-byte tag per slot from the word's Wyhash, and each slot's index into the names. `find` hashes once, probes, and compares bytes only where a tag agrees, and the index gives the variant (`std.enums.values`). `bench/names/` times it against comparing names one by one |
 | `Arch` | Rig's built-in enum `Arch`: Zig's `std.Target.Cpu.Arch`, so `std.target`'s `arch`, `builtin.cpu.arch`, needs no mapping; every module's `Arch` symbol names it (`importType`) |
 | `Proven`, `atProven`, `elemPtrProven`, `readIntProven`, `writeIntProven`, `simdReadProven`, `simdWriteProven`, `addProven` | the operations with the tests the compiler proved omitted ([Proven checks](#proven-checks)): `Proven` names which (`lower`, `upper`, `both`), an index is read through the slice's pointer, which carries no test of its own, and an add is one LLVM may assume does not wrap. The other test is made as `index`, `readInt`, and `simdRead` make it, with the same panic; a vector is loaded and stored as `simdRead` and `simdWrite` do. A debug build, or one whose root declares `__rig_verify_proofs`, makes the proven ones too, as assertions |
 | `len`, `max_len` | a length as an `Int`; it panics above `2^62 - 1` ("length out of range"), which no target holds, so `i + c` is known to fit where `i` is below a length |

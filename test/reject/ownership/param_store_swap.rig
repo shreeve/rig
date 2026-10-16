@@ -4,7 +4,7 @@
 obj Holder
   s: ?String
 
-fun f(a: !Holder, b: !String) -> Int
+fun f(a: !Holder, b: !String) -> Int keeps b
   q = Holder(s: ?b[0..1])
   swap(!a, !q)
   for _ in 0..100

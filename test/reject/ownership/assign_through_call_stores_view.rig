@@ -1,0 +1,19 @@
+# A value assigned through a write view a call returns lands in what the
+# view reaches, with the loans of the views it holds: `v` now views `t`,
+# so `t` is not changed while `v` lives.
+
+obj H
+  s: ?String
+
+fun slot(v: !List[H], i: Int) -> !H from v
+  !v[i]
+
+sub main()
+  v: List[H] = List()
+  !v.push(H(s: "a"))
+  t = String("b")
+  slot(!v, 0) = H(s: ?t)
+  !t.add("c")
+  print(v[0].s)
+
+# error: 16:3: cannot lend `t` to write while a read loan is live

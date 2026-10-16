@@ -1,0 +1,34 @@
+# Rule: `property_of` copies nothing and keeps nothing; the lend of the
+# local `name` ends with the call, though the checker holds a text view
+# (`file`) that a `?String` could be stored in.
+# From: tsc checker.go:19303 getPropertyOfType(t, name string) and the
+# census's 296 call sites that pass a local or a temporary to a checker
+# method that never stores it (docs/ownership/EVIDENCE.md, B).
+
+obj Program
+  files: Int
+
+obj Checker
+  program: ?Program
+  file: ?String
+  names: List[String]
+  lookups: Int
+
+  fun property_of(!self, t: Int, name: ?String) -> Int
+    self.lookups += 1
+    for n, i in ?self.names
+      return i if n == name
+    -1
+
+  fun check_access(!self, t: Int) -> Int
+    name = String("len", "gth")
+    (!self).property_of(t, ?name)
+
+sub main()
+  prog = Program(files: 1)
+  c = Checker(program: ?prog, file: "a.ts", names: List(), lookups: 0)
+  !c.names.push(String("length"))
+  print((!c).check_access(7), c.lookups)
+
+# expect:
+# 0 1

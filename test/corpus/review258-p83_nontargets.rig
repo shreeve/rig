@@ -1,0 +1,17 @@
+fun sl(v: !List[Int], i: Int) -> !Int from v
+  !v[i]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  a = 1
+  b = 2
+  o: Int? = 3
+  (a if true else b) = 5
+  (o ?? a) = 5
+  (!a) = 5
+  (!a)? = 5
+  (!a)! = 5
+  (sl(!v, 0) if true else sl(!v, 0)) = 5
+  (sl(!v, 0) if true else sl(!v, 0)) += 5
+  print(a, b)

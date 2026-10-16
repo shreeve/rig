@@ -1,0 +1,18 @@
+obj Cursor
+  items: ?List[Int]
+  i: Int
+
+obj Holder
+  items: ?List[Int]
+
+  sub hold(!self, c: ?Cursor)
+    self.items = c.items
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(items: ?v)
+  c = Cursor(items: ?v, i: 0)
+  !h.hold(?c)
+  <c
+  print(h.items.len)
