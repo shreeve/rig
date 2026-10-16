@@ -1419,8 +1419,10 @@ value of its own, the argument is rejected with what to write
 A variant literal whose enum comes from where it goes, `.v` or
 `.v(...)`, where a view held by address goes (a `?E` of an enum that is
 not plain, any `!E`, or an optional of one), desugars to `E.v(...)`:
-`variantUnderView` types it as the viewed `E`, not as the view, and
-`checkActual` then takes it exactly as it takes `E.v(...)`. As an
+`variantUnderView` types it as the viewed `E`, not as the view, when
+`v` is a variant of `E`, and `checkActual` then takes it exactly as it
+takes `E.v(...)` (a name that is no variant of `E` is reported as
+before, an error's name with the set to name). As an
 argument it is a value made there, lent to read as a temporary of its
 statement by the branch above; anywhere else (lent to write, kept in a
 binding, a field, or an element, returned, a view of an optional, a
