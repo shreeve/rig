@@ -4454,3 +4454,4 @@ test/corpus/assignthrough-b18.rig set
 test/corpus/assignthrough-exb2.rig main
 test/corpus/assignthrough-p11.rig main
 test/corpus/assignthrough-p16.rig f
+test/corpus/review258-p130_summary_plain.rig main
