@@ -15,4 +15,4 @@ sub main()
   (!p).watch(?p.name)
   print(p.alias)
 
-# error: 15:4: cannot lend `p` to write while a read loan is live
+# error: 15:4: cannot let this call store a view of `p.name` in `p`: a value never holds a view of itself
