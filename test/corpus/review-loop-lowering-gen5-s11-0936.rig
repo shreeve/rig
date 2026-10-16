@@ -85,7 +85,7 @@ sub main()
       y1 = D(n: 100 + c1)
       print("b1", c0, c1)
       break 77 if c1 == 99
-      :m raw
+      @m raw
         q2 = mkvec(2, 2)
         p2 = 0
         for e2, c2 in <q2

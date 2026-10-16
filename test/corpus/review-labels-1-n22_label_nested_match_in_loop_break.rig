@@ -1,0 +1,9 @@
+sub main()
+  @o for i in 0..3
+    @m match i
+      1
+        break @o
+      _
+        break @m
+    print(i)
+  print(9)

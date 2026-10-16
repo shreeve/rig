@@ -63,7 +63,7 @@ sub main()
   guard = 0
   c0 = 0
   p0 = 0
-  :a while (limf(c0, 3, false) catch continue) as h0: c0 = adv(0, c0, p0 == 2) ?? continue
+  @a while (limf(c0, 3, false) catch continue) as h0: c0 = adv(0, c0, p0 == 2) ?? continue
     guard += 1
     if guard > 300
       print("cap")
@@ -71,10 +71,10 @@ sub main()
     p0 += 1
     _ = p0
     print("b0", c0, h0)
-    continue :a if c0 == 1
+    continue @a if c0 == 1
     c1 = 0
     p1 = 0
-    :a while (limf(c1, 2, false) catch none) as h1: c1 = st(1, h1)
+    @a while (limf(c1, 2, false) catch none) as h1: c1 = st(1, h1)
       guard += 1
       if guard > 300
         print("cap")
@@ -82,12 +82,12 @@ sub main()
       p1 += 1
       _ = p1
       print("b1", c0, c1, h1)
-      :a match c1
+      @a match c1
         _
           o2 = ints(1)
           c2 = 0
           p2 = 0
-          :a while (limf(c2, 2, false) catch break) as h2: c2 = grow(!o2, 2, h2)
+          @a while (limf(c2, 2, false) catch break) as h2: c2 = grow(!o2, 2, h2)
             guard += 1
             if guard > 300
               print("cap")

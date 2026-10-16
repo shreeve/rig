@@ -1,0 +1,7 @@
+fun m(k: Int) -> Int
+  match k
+    3 => @size(I8)
+    _ => @size(Int)
+
+sub main()
+  print(m(3), m(4))

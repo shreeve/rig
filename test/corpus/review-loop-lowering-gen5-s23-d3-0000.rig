@@ -73,12 +73,12 @@ sub main()
     defer print("d0", c0)
     _ = ch0
     print("b0", c0)
-    :a match c0
+    @a match c0
       _
         o1 = ints(1)
         c1 = 0
         p1 = 0
-        :l1 while (limf(c1, 2, false) catch continue) as h1: c1 = grow(!o1, 1, c1)
+        @l1 while (limf(c1, 2, false) catch continue) as h1: c1 = grow(!o1, 1, c1)
           guard += 1
           if guard > 300
             print("cap")
@@ -89,7 +89,7 @@ sub main()
           sv1 = ?o1[..]
           defer print("od1", sv1[0])
           print("b1", c0, c1, h1)
-          :a match c1
+          @a match c1
             _
               c2 = 0
               p2 = 0

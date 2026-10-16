@@ -288,12 +288,12 @@ fun f{i}(k: Int) -> Int!
 
 sub t{i}()
   t = 0
-  :{n} for a in 0..3
+  @{n} for a in 0..3
     for j in 0..3
       if j == 2
-        continue :{n}
+        continue @{n}
       if a == 2
-        break :{n}
+        break @{n}
       t += 1
   print(t)
   _ = f{i}(1) catch |e|

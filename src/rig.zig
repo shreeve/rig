@@ -722,14 +722,14 @@ pub const Lexer = struct {
     /// The last token ends an operand (`isValue`, or a `?` / `!` suffix
     /// after one), so a character after it continues the operand.
     after_value: bool = false,
-    /// The last token is a `:` that starts a statement, and so starts its
-    /// label; the name after it is the label.
-    label_colon: bool = false,
+    /// The last token is an `@` that starts a statement's label; the name
+    /// after it is the label.
+    label_at: bool = false,
     /// The last token is a statement's label: a statement starts after
     /// it, and it ends no operand.
     after_label: bool = false,
-    /// The last token is the label of a jump (`break :outer`): what
-    /// follows it starts the jump's value, though the label is a name.
+    /// The last token is the label of a jump (`break @outer`): what
+    /// follows it starts the jump's value, and ends no operand.
     after_jump_label: bool = false,
     /// The category of the token before the last one.
     last2_cat: TokenCat = .eof,
@@ -840,6 +840,11 @@ pub const Lexer = struct {
         decrement,
         slash_comment,
         pin_sigil,
+        at_detached,
+        label_keyword,
+        label_call,
+        label_touch,
+        colon_label,
         control_in_string,
         lone_cr,
         leading_zero,
@@ -880,7 +885,12 @@ pub const Lexer = struct {
                 .increment => "Rig has no `++`; write `x += 1`",
                 .decrement => "Rig has no `--`; write `x -= 1`",
                 .slash_comment => "comments start with `#`; Rig has no `//` or `/* */` comments",
-                .pin_sigil => "the pin sigil `@x` is reserved; `@` only starts a builtin call, `@name(...)`",
+                .pin_sigil => "the pin sigil `@x` is reserved; `@` starts a builtin call, `@name(...)` with the `(` touching the name, or a label, `@name`, before a statement that starts a line or after `break` or `continue`",
+                .at_detached => "`@` touches the name after it: a label `@outer`, a builtin call `@size(T)`",
+                .label_keyword => "a keyword is not a label name",
+                .label_call => "after `break` or `continue`, `@name` is a label, never a builtin call: put a space before a value, `break @outer (x)`, or break with a builtin's value as `break (@size(T))`",
+                .label_touch => "a jump's label ends at its name: put a space before the value, `break @outer -1`",
+                .colon_label => "a label is written `@name`: `@outer for ...`, `break @outer`, `continue @outer`",
                 .marker_before_pub => "`pub` comes before a function's marker: write `pub inline fun`, `pub called fun`, or `pub rarely fun`",
                 .repeated_marker => "a function's marker is written once",
                 .two_markers => "a function takes one marker: `inline` (inline it at every call), `called` (keep every call a call), or `rarely` (rarely called, so kept out of line and cold); `called` contradicts `inline`, and `rarely` already keeps every call a call",
@@ -896,10 +906,10 @@ pub const Lexer = struct {
 
     pub fn next(self: *Lexer) Token {
         const tok = self.produce();
-        self.after_label = self.label_colon and tok.cat == .ident;
-        self.label_colon = tok.cat == .colon and self.stmtStart();
-        self.after_value = !self.after_label and (isValue(tok.cat) or (self.after_value and (tok.cat == .question or tok.cat == .not_sym)));
-        self.after_jump_label = tok.cat == .ident and self.last_cat == .colon and (self.last2_cat == .@"break" or self.last2_cat == .@"continue");
+        self.after_label = self.label_at and tok.cat == .ident;
+        self.label_at = tok.cat == .label_at and !isLabelJump(self.last_cat);
+        self.after_jump_label = tok.cat == .ident and self.last_cat == .label_at and isLabelJump(self.last2_cat);
+        self.after_value = !self.after_label and !self.after_jump_label and (isValue(tok.cat) or (self.after_value and (tok.cat == .question or tok.cat == .not_sym)));
         self.last2_cat = self.last_cat;
         self.last_cat = tok.cat;
         switch (tok.cat) {
@@ -1204,7 +1214,10 @@ pub const Lexer = struct {
                 if (self.nesting > 0) self.nesting -= 1;
                 break :blk tok.cat;
             },
-            .at => if (self.isBuiltinCall()) .at else return self.fail(.pin_sigil, tok.pos),
+            .at => switch (self.classifyAt(tok)) {
+                .cat => |cat| cat,
+                .err => |err| return self.fail(err, tok.pos),
+            },
             .bar => if (self.isCaptureBar(tok, after_value)) .bar_capture else .bar,
             .and_sym => return self.fail(.and_operator, tok.pos),
             // `||` where an operand starts is an empty closure bar list.
@@ -1219,14 +1232,19 @@ pub const Lexer = struct {
             .fixed_assign => return self.fail(.fixed_assign, tok.pos),
             // `xs[a..]`: an open range ends at the `]`.
             .dotdot => if (self.nextJoined().cat == .rbracket) .dotdot_open else .dotdot,
-            // `while i < n : i += 1`: the step; any other `:` in the
-            // header, as after a jump (`?? break :outer`), is a label's.
-            .colon => if (self.while_header == self.nesting) .step_colon else .colon,
+            // `while i < n : i += 1`: the step, even right after a jump
+            // (`while a ?? break : i += 1`). A `:` that starts a statement
+            // or follows a jump anywhere else is a label in the old
+            // spelling (`:outer for`, `break :outer`).
+            .colon => if (self.while_header == self.nesting) (if (isLabelJump(self.last_cat) and self.oldLabelBeforeStep()) return self.fail(.colon_label, tok.pos) else .step_colon) else if (self.stmtStart() or isLabelJump(self.last_cat)) return self.fail(.colon_label, tok.pos) else .colon,
             // `get(k) ?? return none`: a jump as the fallback.
             .nullish => if (self.nextIsJump()) .nullish_jump else .nullish,
             .err => return self.lexError(tok),
             else => if (isKeyword(tok.cat)) self.classifyKeyword(tok.cat) else tok.cat,
         };
+        // A jump's label ends at its name: a value after it stands apart
+        // (`break @outer -1`, not `break @outer-1`).
+        if (self.after_jump_label and tok.pos == self.prev_end and startsOperand(tok.cat)) return self.fail(.label_touch, tok.pos);
         // A prefix sigil touches its operand (`-b`, `<x`, `*T`); `i++`
         // is no increment.
         if (!after_value and isSigil(tok.cat) and isSpace(self.charAfter(tok))) {
@@ -1235,7 +1253,7 @@ pub const Lexer = struct {
             if (twice and tok.cat == .minus) return self.fail(.decrement, tok.pos - 1);
             return self.fail(.detached_prefix, tok.pos);
         }
-        if (self.layout_count < max_layouts) self.checkSpacing(tok, out.cat, after_value and !self.after_jump_label);
+        if (self.layout_count < max_layouts) self.checkSpacing(tok, out.cat, after_value);
         switch (out.cat) {
             .@"if", .@"while", .@"for" => self.takes_else[self.depth] = true,
             else => {},
@@ -1309,6 +1327,7 @@ pub const Lexer = struct {
             .@"return", .@"break", .@"continue", .pass => return .post_if,
             else => {},
         }
+        if (self.after_jump_label) return .post_if;
         if (!self.after_value) return .@"if";
         return if (self.elseFollows()) .ternary_if else .post_if;
     }
@@ -1383,13 +1402,25 @@ pub const Lexer = struct {
         return if (self.in_members[self.depth] and (self.stmtStart() or self.last_cat == .@"pub")) .ident else null;
     }
 
-    /// `@name(...)` is a builtin call; `@name` alone is the reserved pin
-    /// sigil.
-    fn isBuiltinCall(self: *const Lexer) bool {
+    /// `@name(...)`, the `(` touching the name, is a builtin call. `@name`
+    /// alone is a label where a statement that takes one starts (`@outer
+    /// for`) and after `break` or `continue`, where `@name` is always a
+    /// label (`break @outer (x)` leaves `outer` with the value `(x)`).
+    /// Anywhere else it is the reserved pin sigil. The `@` touches the
+    /// name.
+    fn classifyAt(self: *const Lexer, at: Token) union(enum) { cat: TokenCat, err: LexError } {
         var probe = self.base;
         const name = probe.next();
-        if (!isWord(name.cat)) return false;
-        return probe.next().cat == .lparen;
+        const paren = probe.next();
+        const word = isWord(name.cat);
+        if (word and name.pos != endOf(&self.base, at)) return .{ .err = .at_detached };
+        const call = word and paren.cat == .lparen and paren.pos == endOf(&probe, name);
+        const jump = isLabelJump(self.last_cat);
+        if (call and !jump) return .{ .cat = .at };
+        if (!word or !(jump or self.labelStart())) return .{ .err = .pin_sigil };
+        if (name.cat != .ident) return .{ .err = .label_keyword };
+        if (call) return .{ .err = .label_call };
+        return .{ .cat = .label_at };
     }
 
     /// The character right after `tok`, or 0 at the end of the source.
@@ -1482,10 +1513,20 @@ pub const Lexer = struct {
     }
 
     /// A statement starts here: at the start of a line, after `=>`,
-    /// `defer`, or `errdefer`, or after a statement's label (`:outer`).
+    /// `defer`, or `errdefer`, or after a statement's label (`@outer`).
     fn stmtStart(self: *const Lexer) bool {
         return self.after_label or switch (self.last_cat) {
             .newline, .indent, .outdent, .eof, .fat_arrow, .@"defer", .@"errdefer" => true,
+            else => false,
+        };
+    }
+
+    /// A statement that may take a label starts here: at the start of a
+    /// line, or after another label. The statement after `=>`, `defer`,
+    /// or `errdefer` takes none.
+    fn labelStart(self: *const Lexer) bool {
+        return self.after_label or switch (self.last_cat) {
+            .newline, .indent, .outdent, .eof => true,
             else => false,
         };
     }
@@ -1513,6 +1554,15 @@ pub const Lexer = struct {
                 else => return t,
             }
         }
+    }
+
+    /// `while a ?? break :outer : i += 1`: after a jump in a `while`
+    /// header, a name and a second `:` follow the first `:`, so it was
+    /// meant as a label in the old spelling, not as the step.
+    fn oldLabelBeforeStep(self: *const Lexer) bool {
+        var probe = self.base;
+        if (probe.next().cat != .ident) return false;
+        return probe.next().cat == .colon;
     }
 
     /// The next token is `return`, `break`, or `continue`.
@@ -1603,6 +1653,20 @@ fn isValue(cat: TokenCat) bool {
 }
 
 /// The characters that start an operand as a prefix sigil.
+/// A token that starts an operand and does not continue a name: what may
+/// not touch a jump's label (`break @outer-1`, `break @outer.red`).
+fn startsOperand(cat: TokenCat) bool {
+    return isSigil(cat) or switch (cat) {
+        .lparen, .lbracket, .dot, .dotdot, .bar, .or_sym, .at, .string_sq, .string_dq => true,
+        else => false,
+    };
+}
+
+/// `break` or `continue`: the jumps that name a label.
+fn isLabelJump(cat: TokenCat) bool {
+    return cat == .@"break" or cat == .@"continue";
+}
+
 fn isSigil(cat: TokenCat) bool {
     return switch (cat) {
         .minus, .lt, .plus, .star, .question, .not_sym, .tilde, .caret => true,
@@ -3441,7 +3505,7 @@ fn expectLayout(source: []const u8, expected: []const Lexer.Layout.Kind) !void {
 }
 
 test "spacing: an infix operator is balanced; a postfix, a member, and an open range touch" {
-    for ([_][]const u8{ "a < b", "a<b", "a - 1", "a-1", "x = -1", "x=1", "a ?? b", "0..n", "0 .. n", "f()!", "x?", "w.get()", "c = .red", "xs[..2]", "xs[a..]", "a < -b", "a<-b", "f(\n  a\n  .b())", "[]?T", "[2]*T", "break :a !n", "f = |a| a + 1", "while i < n : i += 1" }) |src| {
+    for ([_][]const u8{ "a < b", "a<b", "a - 1", "a-1", "x = -1", "x=1", "a ?? b", "0..n", "0 .. n", "f()!", "x?", "w.get()", "c = .red", "xs[..2]", "xs[a..]", "a < -b", "a<-b", "f(\n  a\n  .b())", "[]?T", "[2]*T", "break @a !n", "break @a (n)", "f = |a| a + 1", "while i < n : i += 1" }) |src| {
         try expectLayout(src, &.{});
     }
     try expectLayout("a <b", &.{.infix_before});
@@ -3467,15 +3531,50 @@ test "`name:` is a keyword argument inside ( ), a name inside [ ]" {
 }
 
 test "a statement label ends no operand" {
-    try expectCats(":a if x", &.{ .colon, .ident, .@"if", .ident });
-    try expectCats(":a -x", &.{ .colon, .ident, .minus, .ident });
+    try expectCats("@a if x", &.{ .label_at, .ident, .@"if", .ident });
+    try expectCats("@a -x", &.{ .label_at, .ident, .minus, .ident });
+    try expectCats("@a (x)", &.{ .label_at, .ident, .lparen, .ident, .rparen });
 }
 
-test "a `while` header's first `:` starts its step; another after a jump is a label's" {
+test "`@name(` with the `(` touching is a builtin; `@name` alone is a label" {
+    try expectCats("@size(T)", &.{ .at, .ident, .lparen, .ident, .rparen });
+    try expectCats("@type(x)", &.{ .at, .ident, .lparen, .ident, .rparen });
+    try expectCats("x = @size(T)", &.{ .ident, .assign, .at, .ident, .lparen, .ident, .rparen });
+    try expectCats("break @a", &.{ .@"break", .label_at, .ident });
+    try expectCats("break @a (x)", &.{ .@"break", .label_at, .ident, .lparen, .ident, .rparen });
+    try expectCats("break @a x if c", &.{ .@"break", .label_at, .ident, .ident, .post_if, .ident });
+    try expectCats("continue @a if c", &.{ .@"continue", .label_at, .ident, .post_if, .ident });
+    try expectCats("break @size(x)", &.{ .@"break", .err });
+    try expectCats("@ a for x in y", &.{.err});
+    try expectCats("@ size(T)", &.{.err});
+    try expectCats("break @a -1", &.{ .@"break", .label_at, .ident, .minus, .integer });
+    try expectCats("break @a-1", &.{ .@"break", .label_at, .ident, .err });
+    try expectCats("break @a.red", &.{ .@"break", .label_at, .ident, .err });
+    try expectCats("break @a - 1", &.{ .@"break", .label_at, .ident, .err });
+    try expectCats("break @a |x| x", &.{ .@"break", .label_at, .ident, .bar_capture, .ident, .bar_capture, .ident });
+    try expectCats("break @a, 1", &.{ .@"break", .label_at, .ident, .comma, .integer });
+    try expectCats("x => @a for y in z", &.{ .ident, .fat_arrow, .err });
+    try expectCats("defer @a for y in z", &.{ .@"defer", .err });
+    try expectCats("@for for x in y", &.{.err});
+    try expectCats("x = @a", &.{ .ident, .assign, .err });
+    try expectCats("f(@a)", &.{ .ident, .lparen, .err });
+}
+
+test "a label in the old spelling, `:name`, is an error" {
+    try expectCats(":a for x in y", &.{.err});
+    try expectCats("break :a", &.{ .@"break", .err });
+    try expectCats("continue : a", &.{ .@"continue", .err });
+    try expectCats("x = a ?? break :b", &.{ .ident, .assign, .ident, .nullish_jump, .@"break", .err });
+}
+
+test "a `while` header's first `:` starts its step, and a jump there may name a label" {
     try expectCats("while x : y", &.{ .@"while", .ident, .step_colon, .ident });
     try expectCats("while f(a: 1) : y", &.{ .@"while", .ident, .lparen, .kwarg_name, .colon, .integer, .rparen, .step_colon, .ident });
-    try expectCats("while x : y = a ?? break :b", &.{ .@"while", .ident, .step_colon, .ident, .assign, .ident, .nullish_jump, .@"break", .colon, .ident });
-    try expectCats("x = a ?? break :b", &.{ .ident, .assign, .ident, .nullish_jump, .@"break", .colon, .ident });
+    try expectCats("while a ?? break : y", &.{ .@"while", .ident, .nullish_jump, .@"break", .step_colon, .ident });
+    try expectCats("while a ?? break @b : y", &.{ .@"while", .ident, .nullish_jump, .@"break", .label_at, .ident, .step_colon, .ident });
+    try expectCats("while a ?? break :b : y", &.{ .@"while", .ident, .nullish_jump, .@"break", .err });
+    try expectCats("while x : y = a ?? break @b", &.{ .@"while", .ident, .step_colon, .ident, .assign, .ident, .nullish_jump, .@"break", .label_at, .ident });
+    try expectCats("x = a ?? break @b", &.{ .ident, .assign, .ident, .nullish_jump, .@"break", .label_at, .ident });
 }
 
 test "minus: infix or negation, never a drop" {
@@ -3864,8 +3963,8 @@ test "parser: every form parses" {
         \\    return
         \\  if m as v
         \\    print(v)
-        \\  :outer while x < 3 : x += 1
-        \\    break :outer
+        \\  @outer while x < 3 : x += 1
+        \\    break @outer
         \\  while m as v
         \\    continue
         \\  else

@@ -80,12 +80,13 @@ does; a program means the same with every marker removed.
 **Square brackets after a name mean compile time.** `List[Int]`,
 `push[U32, .big](x)`, `Simd[U8, 16]`; parentheses are run time.
 
-**`@` asks the compiler about a type.** Each of Rig's `@` builtins
-(`@size`, `@align`, `@name`, `@type`, `@variants`) is a question the
-compiler answers when it compiles, at no cost when the program runs.
-Work done on a value is a method or a function, never an `@`: so
-`x.hash()`, not `@hash(x)`. (Zig's own builtins, inside `raw`, are
-Zig's.)
+**`@name(…)` asks the compiler about a type; `@name` alone is a
+label.** The `(` touches the name. Each of Rig's `@` builtins (`@size`,
+`@align`, `@name`, `@type`, `@variants`) is a question the compiler
+answers when it compiles, at no cost when the program runs. Work done on
+a value is a method or a function, never an `@`: so `x.hash()`, not
+`@hash(x)`. (Zig's own builtins, inside `raw`, are Zig's.) A label,
+`@outer for`, `break @outer`, names a statement and asks nothing.
 
 **Name from the owner's side.** The owner lends; the compiler records a
 loan; the receiver holds a view. The rules are the ownership model, and

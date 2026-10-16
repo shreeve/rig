@@ -9,7 +9,7 @@ obj B
     print("drop", self.n)
 
 fun keep(b: ?*B) -> *fun() -> Int
-   :x *|+b| b.n * 100
+   @x *|+b| b.n * 100
 
 sub main()
   v: List[*B] = List()

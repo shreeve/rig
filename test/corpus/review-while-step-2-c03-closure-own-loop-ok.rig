@@ -15,12 +15,12 @@ sub main()
   k = 0
   i = 0
   c: *Cell[Int] = *Cell(0)
-  :outer while mk(?v, i) as h and i >= 0: k += h.s[0]
+  @outer while mk(?v, i) as h and i >= 0: k += h.s[0]
     i += 1
     f = |+c|
       for t in 0..3
         continue if t == 1
         !c.set(c.get() + 1)
     f()
-    continue :outer if i == 99
+    continue @outer if i == 99
   print("end", k, c.get())

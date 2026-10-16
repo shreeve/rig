@@ -1,0 +1,4 @@
+sub main()
+  @a for i in 0..@size(I16)
+    print(i)
+    break @a if i > 5

@@ -1,0 +1,6 @@
+sub main()
+  @a for i in 0..2
+    a = i
+    @i for j in 0..2
+      print(a, j)
+      break @a if j == 1

@@ -3,7 +3,7 @@ error E
   bad
 
 fun f(n: Int) -> Int!
-  :m match n
+  @m match n
     0 => E.bad
     _ => n
 

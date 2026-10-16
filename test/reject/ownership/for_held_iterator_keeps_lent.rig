@@ -32,10 +32,10 @@ sub lent(b: !Bag)
     !b.xs.push(x)
 
 sub labeled(v: !List[Int])
-  :outer for x in Cur(xs: ?v[0..v.len], i: 0)
+  @outer for x in Cur(xs: ?v[0..v.len], i: 0)
     for y in 0..2
       !v.push(x + y)
-      continue :outer
+      continue @outer
 
 sub main()
   v: List[Int] = List()

@@ -62,7 +62,7 @@ sub main()
   guard = 0
   z0 = "abc"
   p0 = 0
-  :a for ch0, c0 in z0
+  @a for ch0, c0 in z0
     guard += 1
     if guard > 300
       print("cap")
@@ -72,7 +72,7 @@ sub main()
     defer print("d0", c0)
     _ = ch0
     print("b0", c0)
-    break :a if c0 == 1
+    break @a if c0 == 1
     c1 = 0
     p1 = 0
     r1 = while lim(c1, 2) as h1 and h1 >= 0: c1 = st(1, h1)

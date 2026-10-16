@@ -1,4 +1,4 @@
-# Control: a labeled `continue :outer` in a nested while's `else` leaves the loop around it: the joined outer loop, whose step reads its binding and refills `a`. Expected: accepted, prints `21 5` (the first pass takes 1, each later one 5), sanitizer-clean; or rejected.
+# Control: a labeled `continue @outer` in a nested while's `else` leaves the loop around it: the joined outer loop, whose step reads its binding and refills `a`. Expected: accepted, prints `21 5` (the first pass takes 1, each later one 5), sanitizer-clean; or rejected.
 #
 # oracle: mk accept
 # oracle: fresh accept
@@ -25,13 +25,13 @@ sub main()
   a = fresh(1)
   k = 0
   i = 0
-  :outer while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
+  @outer while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
     i += 1
     k += take(<a)
     j = 0
     while j < 2: j += 1
       k += 0
     else
-      continue :outer
+      continue @outer
     k += 100
   print(k, i)
