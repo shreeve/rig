@@ -1,0 +1,9 @@
+sub main()
+  v = if true
+    @a for i in 0..3
+      continue @a if i < 5
+    else
+      7
+  else
+    0
+  print(v)

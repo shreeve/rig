@@ -10,4 +10,4 @@ sub main()
     0
   print(x)
 
-# error: 7:13: after `break` or `continue`, `@name` is a label, and a `(` touching it reads as a builtin call: put a space before the value, `break @outer (x)`
+# error: 7:13: after `break` or `continue`, `@name` is a label, never a builtin call: put a space before a value, `break @outer (x)`, or break with a builtin's value as `break (@size(T))`

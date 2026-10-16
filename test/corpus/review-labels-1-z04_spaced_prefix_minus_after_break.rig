@@ -1,0 +1,4 @@
+sub main()
+  x = while true
+    break - 1
+  print(x)

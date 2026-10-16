@@ -1,0 +1,4 @@
+sub main()
+  @outer for i in 0..2
+    for j in 0..2
+      continue @outer (i)

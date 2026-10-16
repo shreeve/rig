@@ -1,0 +1,12 @@
+fun get(i: Int) -> Bool?
+  (i < 9) if i < 3 else none
+
+sub main()
+  x = if true
+    @o while true
+      i = 0
+      while get(i) ?? break @o 42 : i += 1
+        print(i)
+  else
+    0
+  print(x)

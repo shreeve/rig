@@ -1,0 +1,9 @@
+# The statement after `defer`, `errdefer`, or `=>` takes no label, so
+# `@name` there is the reserved pin sigil.
+
+sub main()
+  for i in 0..3
+    defer @a for j in 0..i
+      print(j)
+
+# error: 6:11: the pin sigil `@x` is reserved

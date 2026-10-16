@@ -1,0 +1,10 @@
+sub main()
+  k = 1
+  match k
+    1
+      @a for i in 0..3
+        for j in 0..3
+          break @a if j == 1
+          print(i, j)
+    _ => print(0)
+  print(9)

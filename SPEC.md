@@ -3736,13 +3736,16 @@ ends, so a jump in either (`for j in 0..(n ?? break v)`) leaves or
 continues the loop around that `for`, and a `break` value there is that
 loop's value.
 
-A label is `@` and a name, which the `@` touches, where a statement
-starts or right after `break` or `continue`. `@name(...)`, with the `(`
-touching the name, is a builtin call ([Builtins](#builtins)) instead,
-except right after a jump, where `@name` is always a label: `break
-@outer (x)` leaves `outer` with the value `(x)`, and `break @outer(x)`
-is rejected. A keyword is not a label name, and the old spelling,
-`:name`, is rejected with a hint.
+A label is `@` and a name, which the `@` touches. It stands before a
+statement that starts a line (or another label), or right after `break`
+or `continue`; the statement after `=>`, `defer`, or `errdefer` takes
+none. `@name(...)`, with the `(` touching the name, is a builtin call
+([Builtins](#builtins)) instead, except right after a jump, where
+`@name` is always a label: `break @outer (x)` leaves `outer` with the
+value `(x)`, and `break @outer(x)` is rejected. A jump's value stands
+apart from its label (`break @outer -1`, not `break @outer-1`). A
+keyword is not a label name, and the old spelling, `:name`, is rejected
+with a hint.
 
 ```rig reject
 sub main()

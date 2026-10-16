@@ -1,0 +1,13 @@
+error E
+  bad
+
+fun pick(i: Int) -> Int?!
+  return E.bad if i > 2
+  i * 10 if i != 1 else none
+
+sub main()
+  @o for k in 0..2
+    i = 0
+    while (pick(i) catch break @o) as v : i += 1
+      print(k, v)
+  print(9)

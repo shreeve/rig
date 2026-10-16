@@ -294,7 +294,7 @@ const Checker = struct {
         /// The construct a jump to this frame names: a `while` or `for`,
         /// or a labeled block's `match` or `raw` block.
         node: Sexp,
-        /// False for a labeled block, which only `break :label` leaves.
+        /// False for a labeled block, which only `break @label` leaves.
         is_loop: bool = true,
         /// The part of the loop being checked, which decides where a
         /// `continue` from it goes.

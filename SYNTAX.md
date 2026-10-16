@@ -1161,7 +1161,8 @@ header: `while more() ?? break @outer : i += 1`.
 A label's `@` touches its name, and no `(` touches the name: `@size(T)`,
 with the `(` touching, asks the compiler about a type
 ([§11](#calls)). After `break` or `continue`, `@name` is always a
-label, so `break @outer (x)` leaves `outer` with the value `(x)`.
+label, so `break @outer (x)` leaves `outer` with the value `(x)`; the
+value stands apart from the label.
 
 ```rig
 sub main()

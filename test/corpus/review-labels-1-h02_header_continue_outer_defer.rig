@@ -1,0 +1,11 @@
+fun get(i: Int) -> Bool?
+  (i < 9) if i < 2 else none
+
+sub main()
+  @o for k in 0..3
+    defer print("d", k)
+    i = 0
+    while get(i) ?? continue @o : i += 1
+      print(k, i)
+    print("never", k)
+  print(9)

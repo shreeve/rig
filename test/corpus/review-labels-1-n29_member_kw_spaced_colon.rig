@@ -1,0 +1,6 @@
+obj K
+  break : Int
+
+sub main()
+  k = K(break: 3)
+  print(k.break)

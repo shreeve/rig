@@ -146,6 +146,7 @@ TOKEN = re.compile(r"\n|[A-Za-z_][A-Za-z0-9_]*|=>|\S")
 NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 STMT_START = ("\n", "=>", "defer", "errdefer")
 JUMPS = ("break", "continue")
+MEMBER_LISTS = ("obj", "enum", "error")
 
 
 def code_edits(src, code, strings):
@@ -163,6 +164,8 @@ def code_edits(src, code, strings):
     after_label = False  # the token before is a statement's label
     nesting = 0
     header = None       # the bracket nesting of the `while` header being read
+    blocks = []         # (indent, holds members) of the lines that may open a block
+    in_members = False  # this line stands directly in an obj, enum, or error set
     i = 0
     while i < len(toks):
         a, b, t = toks[i]
@@ -172,6 +175,13 @@ def code_edits(src, code, strings):
             if nesting == 0:
                 header = None
             continue
+        if prev == "\n" and nesting == 0:
+            indent = a - (src.rfind("\n", 0, a) + 1)
+            while blocks and blocks[-1][0] >= indent:
+                blocks.pop()
+            in_members = bool(blocks) and blocks[-1][1]
+            word = toks[i][2] if t == "pub" and i < len(toks) else t
+            blocks.append((indent, word in MEMBER_LISTS))
         stmt_start = prev in STMT_START or after_label
         after_label = False
         if t == ":":
@@ -179,16 +189,16 @@ def code_edits(src, code, strings):
                 header = None  # the `while` step
                 before, prev, prev_end = prev, ":", b
                 continue
-            # A keyword that the `:` touches names a member: a keyword
-            # argument inside ( ) (`f(break: 1)`), or a field at the start
-            # of a line (`break: Int`).
-            member = prev_end == a and NAME.fullmatch(prev) and (
-                nesting > 0 or (before == "\n" and src[b:b + 1] in (" ", "\t")))
+            # A keyword before a `:` names a member: a keyword argument
+            # after `(` or `,` (`f(break: 1)`), or a field in a member list
+            # (`break: Int`, `break : Int`).
+            member = NAME.fullmatch(prev) and (before in ("(", ",") or (before == "\n" and in_members))
             jump = prev in JUMPS and not member
             stmt_start = stmt_start and not member
             nxt = toks[i] if i < len(toks) else None
             if (jump or stmt_start) and nxt and NAME.fullmatch(nxt[2]) and src[b:nxt[0]].strip(" \t") == "":
-                edits.append((a, nxt[0], "@"))
+                # `continue:outer` -> `continue @outer`
+                edits.append((a, nxt[0], " @" if jump and prev_end == a else "@"))
                 after_label = not jump
                 before, prev, prev_end = prev, "<label>", nxt[1]
                 i += 1
@@ -251,8 +261,14 @@ def migrate_source(src, path, report, counts):
 # Markdown: ```rig blocks
 # ---------------------------------------------------------------------------
 
-FENCE = re.compile(r"^(\s*)```(.*)$")
+FENCE = re.compile(r"^\s*(`{3,})([^`]*)$")
 PROSE_LABEL = re.compile(r"\b(?:break|continue) :[A-Za-z_]|(?<![A-Za-z0-9_`]):[a-z_]+ (?:for|while|match|raw)\b|`:[a-z_]+`")
+
+
+def closes(line, fence):
+    """`line` closes a block opened by `fence` backticks."""
+    m = FENCE.match(line)
+    return m is not None and len(m.group(1)) >= len(fence) and not m.group(2).strip()
 
 
 def migrate_markdown(text, path, report, counts):
@@ -260,23 +276,23 @@ def migrate_markdown(text, path, report, counts):
     out, i = [], 0
     while i < len(lines):
         m = FENCE.match(lines[i])
-        if m and m.group(2).split()[:1] == ["rig"]:
-            out.append(lines[i])
-            j = i + 1
-            while j < len(lines) and not FENCE.match(lines[j]):
-                j += 1
-            block = "\n".join(lines[i + 1:j])
-            out.extend(migrate_source(block, "%s:%d" % (path, i + 2), report, counts).split("\n"))
-            if j < len(lines):
-                out.append(lines[j])
-            i = j + 1
-            continue
         if m:
+            fence, info = m.group(1), m.group(2).split()[:1]
             out.append(lines[i])
             j = i + 1
-            while j < len(lines) and not FENCE.match(lines[j]):
-                out.append(lines[j])
+            while j < len(lines) and not closes(lines[j], fence):
                 j += 1
+            body = lines[i + 1:j]
+            if info == ["rig"]:
+                out.extend(migrate_source("\n".join(body), "%s:%d" % (path, i + 2), report, counts).split("\n"))
+            else:
+                # An expected error or output may quote a label; Zig keeps
+                # its own spelling.
+                if info != ["zig"]:
+                    for k, l in enumerate(body):
+                        if PROSE_LABEL.search(l):
+                            report.append("MANUAL %s:%d: %s" % (path, i + 2 + k, l.strip()))
+                out.extend(body)
             if j < len(lines):
                 out.append(lines[j])
             i = j + 1
