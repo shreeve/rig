@@ -13,6 +13,8 @@
 #   proven  one function with N proven adds (`rig.addProven`)
 #   helpers N calls of an inlined helper holding six proven adds
 #   ctproven the same through an instance (`bump[1]`)
+#   forced  N calls of a helper marked `inline`, over the size the
+#           compiler inlines by itself, holding twelve proven adds
 source "$ROOT/test/cli/_lib.sh"
 
 # The probes of the review that found the class.
@@ -40,7 +42,7 @@ six='  if i + 1 <= s.len
     i += 1'
 
 for n in 100 1000 5000; do
-    for shape in plain value nested proven helpers ctproven; do
+    for shape in plain value nested proven helpers ctproven forced; do
         {
             echo 'fun inc(x: Int) -> Int'
             echo '  x + 1'
@@ -61,6 +63,12 @@ for n in 100 1000 5000; do
             echo "$six"
             echo '  i - at + k - 1'
             echo
+            echo 'inline fun fbump(s: ?String, at: Int) -> Int'
+            echo '  i = at'
+            echo "$six"
+            echo "$six"
+            echo '  i - at'
+            echo
             echo 'fun many(s: ?String) -> Int'
             echo '  i = 0'
             if [[ $shape == proven ]]; then
@@ -78,6 +86,7 @@ for n in 100 1000 5000; do
                     nested) echo '  n = twice(n)' ;;
                     helpers) echo '  n = n + bump(s, 0)' ;;
                     ctproven) echo '  n = n + cbump[1](s, 0)' ;;
+                    forced) echo '  n = n + fbump(s, 0)' ;;
                 esac
             done
             echo '  print(n + many(s))'
@@ -86,6 +95,7 @@ for n in 100 1000 5000; do
             nested) want=$((2 * n)) ;;
             proven) want=$((n < 26 ? n : 26)) ;;
             helpers | ctproven) want=$((6 * n)) ;;
+            forced) want=$((12 * n)) ;;
             *) want=$n ;;
         esac
         out=$(rig run "b_${shape}_$n.rig" 2>&1) || fail "debug $shape $n: $out"
@@ -138,6 +148,11 @@ expect_eq "$out" 1500 "debug under"
 rig build --release -o prog_under under.rig >build.log 2>&1 || fail "release under: $(cat build.log)"
 out=$(./prog_under 2>&1) || fail "release under ran: $out"
 expect_eq "$out" 1500 "release under"
+
+# The marked helper is inlined, over the size limit, its adds proven.
+out=$(rig emit b_forced_100.rig 2>/dev/null) || fail "emit forced 100"
+expect_has "$out" 'pub inline fn fbump(' "a marked helper over the size limit"
+[[ $(grep -c 'rig.addProven(' <<<"$out") -ge 12 ]] || fail "forced: fbump's adds not proven"
 
 # Each function that is not inline raises its budget first; an inline
 # one runs on its caller's.

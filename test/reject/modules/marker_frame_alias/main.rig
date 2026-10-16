@@ -1,0 +1,29 @@
+# A call of another module's `inline` method through an alias, of its
+# type or of an instance of its generic type, here or there, reaches the
+# method it names: its values are in the caller's frame, counted by the
+# function's declaration, never by where an alias stands.
+
+use lib
+
+type P = lib.Pt
+
+type H = lib.G[Int]
+
+sub there(i: Int)
+  print(lib.Q.make(i) + lib.Q.make(i + 1))
+
+sub here(i: Int)
+  print(P.make(i) + P.make(i + 1))
+
+sub generic(i: Int)
+  print(lib.GI.big(i) + H.big(i + 1))
+
+sub main()
+  there(1)
+  here(1)
+  generic(1)
+
+# error: 12:5: `there` keeps 16000040 bytes of values on its stack
+# error: 15:5: `here` keeps 16000040 bytes of values on its stack
+# error: 18:5: `generic` keeps 16000040 bytes of values on its stack
+# errors: 3

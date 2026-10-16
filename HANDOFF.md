@@ -61,9 +61,10 @@ from).
     error").
   - **Speed:** runtime fast paths for push, add, and clear; small,
     only-called functions are emitted `inline` by a size rule the
-    compiler decides (`src/inlining.zig`); a function marked `called fun`
-    is always a call (`noinline fn`), and one marked `rarely fun` is kept
-    out of line with Zig's cold hint (both words are contextual); a
+    compiler decides (`src/inlining.zig`); a function marked `inline fun`
+    is inlined at every call, one marked `called fun` is always a call
+    (`noinline fn`), and one marked `rarely fun` is kept out of line with
+    Zig's cold hint (the three words are contextual); a
     `for` index counter needs no per-iteration cast.
   - **The stack:** a program runs on a 64 MiB stack the runtime maps
     over a 64 GiB guard (`rig.onOwnStack`), so running out of stack, by

@@ -1,0 +1,16 @@
+pub inline fun big[T](x: T, i: Int) -> T
+  t = [1000000 of x]
+  t[i % 1000000]
+
+pub obj G[T]
+  pub v: T
+
+  pub inline fun huge(?self, i: Int) -> Int
+    t = [1000000 of i]
+    t[i % 1000000]
+
+pub inline fun small[T](x: T) -> T
+  x
+
+pub inline fun outer[T](x: T, i: Int) -> T
+  big(x, i)

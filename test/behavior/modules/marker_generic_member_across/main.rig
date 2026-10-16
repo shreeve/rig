@@ -1,0 +1,26 @@
+# Another module's generic type's `inline` methods are inlined at each
+# instance made here, and mean what they mean as calls: they hand back a
+# view, call a function they are lent, and take an owned argument, drop
+# the value it replaces, and keep the new one.
+
+use lib
+
+fun twice(n: ?Int) -> Int
+  n * 2
+
+fun size(s: ?String) -> Int
+  s.len
+
+sub main()
+  p = lib.Pair[Int](a: 1, b: 2)
+  q = lib.Pair[String](a: String("ab"), b: String("cde"))
+  print(p.first(), q.first(), p.both(twice), q.both(size))
+  !p.set(5)
+  !q.set(String("wxyz"))
+  print(p.first(), q.first(), q.both(size))
+
+# release
+
+# expect:
+# 1 ab 6 5
+# 5 wxyz 7
