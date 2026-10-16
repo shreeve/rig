@@ -1655,6 +1655,12 @@ fn hiddenLeaf(pos: u32, name: HiddenName) Sexp {
     return .{ .src = .{ .pos = pos, .len = 1, .id = hidden_id_base + @intFromEnum(name) } };
 }
 
+/// Whether `leaf` is a name a rewrite built (`hiddenLeaf`), such as the
+/// `next` a `for` over an iterator calls.
+pub fn isHiddenLeaf(leaf: Sexp) bool {
+    return leaf == .src and leaf.src.id >= hidden_id_base;
+}
+
 /// Leaf ids from here are hidden names; the lexer's are keyword ordinals.
 const hidden_id_base: u16 = 0xFF00;
 

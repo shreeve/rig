@@ -1193,6 +1193,11 @@ const Checker = struct {
         if (sameNode(call, self.bound_call)) {
             return self.errAt(call, "`{s}` gives {d} results; bind each: `{s} = {s}`", .{ name, n, try self.resultNames(n), self.sourceText(self.bound_value) });
         }
+        // A `for` over an iterator calls its `next` for one value a step.
+        const callee = ir.Call.callee(call);
+        if (callee.isKind(.member) and rig.isHiddenLeaf(ir.Member.name(callee))) {
+            return self.errAt(call, "a `for` binds one value each step, and this iterator's `next` gives {d} results: bind them with `while (!it).next() as {s}`", .{ n, try self.resultNames(n) });
+        }
         if (sameNode(call, self.results_tail)) {
             return self.errAt(call, "several results are given with `return`: `return {s}`", .{self.sourceText(call)});
         }

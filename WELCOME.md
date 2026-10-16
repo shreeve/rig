@@ -485,6 +485,7 @@ program; [INTERNALS](docs/INTERNALS.md) describes it.
 | switch | `switch` | `match` / `case` | `switch` | `match` |
 | do nothing | `;` | `pass` / `nil` | `{}` | `pass` |
 | exceptions | error codes | `raise` / `try` | `throw` / `error` returns | `T!`, `f()!`, `catch` |
+| several results | out-parameters | `return q, r`, a tuple | an array / `return q, r` | `-> (Int, Int)`, `return q, r`, `q, r = f()` |
 | string formatting | `printf` | f-strings / `#{}` | template strings / `Sprintf` | `print(a, b)`, `String(a, b)`: no interpolation |
 | memory | `malloc`, `free` | a garbage collector | a garbage collector | owners, released where their scope ends |
 
@@ -492,10 +493,62 @@ A Rig program frees what it allocates at a point you can see: when its
 owner's scope ends, or where a statement `<x` drops it. There is no collector, and
 a Debug build reports any allocation still live when `main` returns.
 
+### Go's multiple results and Python's tuples
+
+A function gives several results as Go's does: `-> (Int, Int)`, given by
+`return q, r`, and bound by name where they arrive, `q, r = divmod(a,
+b)`, each name declared or assigned as `x = e` would. `_` discards
+one. Unlike Python's tuple, the group is never a value: it is not
+stored, passed, or printed whole, and `(a, b)` builds nothing. A group
+that lives on is an object, which names its parts. Go's `(T, error)` is
+Rig's `T!`, and its `(T, bool)` is `T?`.
+
+```rig
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+obj Span
+  start: Int
+  end: Int
+
+sub main()
+  q, r = divmod(17, 5)
+  s = Span(start: q, end: q + r)
+  print(q, r, s.end)
+```
+
+```output
+3 2 5
+```
+
 ## Habits that trip people up
 
 Each habit below is a compile error, and the error names the Rig
 spelling.
+
+**Tuples and parallel assignment.** `(a, b)` is no value, and `a, b =
+b, a` assigns nothing in parallel: exchange two places with `swap`.
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  (a / b, a % b)
+```
+
+```error
+Rig has no tuple values: give several results with `return a / b, a % b`
+```
+
+```rig reject
+sub main()
+  a = 1
+  b = 2
+  a, b = b, a
+  print(a, b)
+```
+
+```error
+Rig has no parallel assignment: write `swap(!a, !b)` to exchange two places
+```
 
 **Another language's keywords.** Rig has `fun`, `sub`, `obj`,
 `else if`, and `match`, and no semicolons:

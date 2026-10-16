@@ -1299,6 +1299,248 @@ Declarations are only allowed at module level; there are no nested
 functions (use a closure). Two module-level declarations may not share a
 name.
 
+### Several results
+
+A function may give several results at once, written as a list of types
+after `->`: `-> (Int, Int)`, two or more. Each result is a type one
+result may have, a view included, and the list may fail or be absent as
+a whole: `-> (A, B)!`, `-> (A, B)?`. `return a, b` gives them, and a
+call's results are bound by name, each where it stands:
+
+```rig
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+fun again(a: Int, b: Int) -> (Int, Int)
+  return divmod(a, b)
+
+sub main()
+  q, r = divmod(17, 5)
+  print(q, r)
+  _, r = divmod(9, 4)
+  new q, r = again(1, 1)
+  const a, b = divmod(8, 3)
+  print(q, r, a, b)
+```
+
+```output
+3 2
+1 0 2 2
+```
+
+The results never form a value: a call that gives several stands only
+where each result is bound at once (`q, r = f()`, `if f() as q, r`, and
+`while f() as q, r`), or where the function returns them whole
+(`return f()`, to a function that gives the same results). Anywhere
+else, as an argument, an operand, or a single binding, it is rejected,
+and so is `(Int, Int)` as the type of a value: a group of values that
+lives past its statement is an object.
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  p = divmod(17, 5)
+```
+
+```error
+`divmod` gives 2 results; bind each: `a, b = divmod(17, 5)`
+```
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  print(divmod(17, 5))
+```
+
+```error
+a call that gives several results stands only where each result is bound
+```
+
+```rig reject
+sub main()
+  xs: List[(Int, Int)] = List()
+```
+
+```error
+`(Int, Int)` is a function's results, not a type a value can have: name an object for a stored pair
+```
+
+**Binding.** `q, r = f()` binds the results left to right, each name by
+the rule `x = e` has (§4): it declares the name, or assigns the visible
+one, writing through a `!T` local given a value and re-pointing it
+given a write view; an assigned name drops its old value. `new q, r =
+f()` declares new names, and `const q, r = f()` fixed ones. `_`
+discards a result, which is dropped at the statement's end, after the
+bindings. Every result is bound or discarded: the names match the
+results in number. Each target is a name or `_`, each named once; a
+field or element is assigned on its own line. The parentheses of a
+result type are not written on the left.
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  q, r, s = divmod(17, 5)
+```
+
+```error
+`divmod` gives 2 results, but 3 names are bound
+```
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  xs = [0, 0]
+  i = 0
+  i, xs[i] = divmod(1, 2)
+  print(xs)
+```
+
+```error
+each result is bound to a name, and `xs[i]` reads `i`, which this statement binds
+```
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  (q, r) = divmod(17, 5)
+```
+
+```error
+write `q, r = divmod(17, 5)`; parentheses aren't needed on the left
+```
+
+Rig has no parallel assignment: the right side is one call. Two places
+are exchanged with `swap` (§7, "Replace and swap").
+
+```rig reject
+sub main()
+  a = 1
+  b = 2
+  a, b = b, a
+  print(a, b)
+```
+
+```error
+Rig has no parallel assignment: write `swap(!a, !b)` to exchange two places
+```
+
+**Failing and absent results.** `q, r = f()!` and `q, r = f()?` pass
+the failure or the `none` on before anything is bound, and so does a
+fallback that jumps: `q, r = f() ?? return`, `q, r = f() catch break`.
+A fallback that is a value is not taken. `if f() as q, r` and `while
+f() as q, r` bind the results inside an optional to new names over the
+body, as `as` binds one value.
+
+```rig
+fun cut(s: ?String, sep: U8) -> (?String, ?String)? from s
+  i = 0
+  while i < s.len
+    return s[..i], s[i + 1..] if s[i] == sep
+    i += 1
+  none
+
+fun pair(s: ?String) -> (?String, ?String)? from s
+  k, v = cut(s, 61)?
+  return v, k
+
+sub main()
+  if cut("key=value", 61) as key, value
+    print(key, value)
+  if pair("a=b") as v, k
+    print(v, k)
+  k, v = cut("none here", 61) ?? return
+  print(k, v)
+```
+
+```output
+key value
+b a
+```
+
+**Giving them.** `return a, b` gives each part as `return x` gives `x`,
+left to right: a bare owner moves out, and a view must be of what the
+function was lent. A bare last line `a, b` is no statement: results are
+given with `return`. A part that fails after an earlier one was made
+drops the earlier one on the way out.
+
+```rig reject
+fun f(a: Int) -> (Int, Int)
+  a, a
+```
+
+```error
+results are written `return a, a`
+```
+
+**Loans.** Each result carries the loans its own type could hold of
+what the call was lent (§7, "How long a loan lasts"), so a `Bool` beside
+a view carries none. One result may be a write view, which keeps its
+owner lent to write as a `!T` result does, beside results that hold no
+view of what it views: a function that gives two write views, or a
+write view and another result that could view the same parameter, is
+rejected where it is declared. A target is bound only while no result
+still waiting for its own target views it.
+
+```rig
+obj Counter
+  n: Int
+  m: Int
+
+  fun bump(!self, k: Int) -> (!Int, Bool)
+    self.n += k
+    return !self.m, self.n > 3
+
+sub main()
+  c = Counter(n: 0, m: 0)
+  w, big = (!c).bump(5)
+  w += 10
+  print(big, c.m)
+```
+
+```output
+true 10
+```
+
+```rig reject
+obj M
+  a: Int
+
+  fun two(!self) -> (!Int, ?Int)
+    return !self.a, ?self.a
+```
+
+```error
+`two` gives a write view and another result, `?Int`, that could both view `self`
+```
+
+```rig reject
+fun two(s: ?String) -> (String, ?String)
+  return String(s), s
+
+sub main()
+  s = String("ab")
+  s, v = two(?s)
+  print(v)
+```
+
+```error
+cannot bind `s` while `v` views it
+```
+
+A function type takes several results as a function does: `?fun(Int) ->
+(Int, Int)`. Named results, a `for` that binds several results a step,
+and several results nested in a type argument are not Rig's.
+
 ### Function markers
 
 A function may be marked, before its `fun` or `sub`, with one of two
@@ -8700,6 +8942,10 @@ The rest parse, and the checker rejects them as not supported yet
 | a stack closure stored or returned | `` closures cannot escape their defining scope `` |
 | `/`, `%`, or a shift of a vector; a vector's lanes summed, converted, or shuffled | `` operator `/` does not take a `Simd` ``, `` type `Simd[U8, 16]` has no method `sum` `` |
 | a module constant holding a vector | `` a module-level constant needs a value known at compile time `` |
+| two write views among a function's results | `` at most one of a function's results is a write view `` |
+| a field or element bound by several results, `i, xs[i] = f()` | `` each result is bound to a name `` |
+| named results, `-> (q: Int, r: Int)` | `` results are not named `` |
+| `for` over an iterator whose `next` gives several results | `` a `for` binds one value each step `` |
 
 ```rig reject
 sub main()

@@ -4560,6 +4560,15 @@ pub const Checker = struct {
         for (targets) |t| if (t.isKind(.set)) {
             _ = try self.useAfterValue(t);
         };
+        // A write-view local a target re-points never uses its old view
+        // again, when the value does not read it and cannot leave early:
+        // its loans end before the call lends anew, as for `w = e`.
+        if (self.sema) |ctx| if (!leavesEarly(value)) for (targets) |t| {
+            if (!t.isKind(.set) or !ctx.repoints(t)) continue;
+            const name = self.text(ir.Set.target(t));
+            if (self.readsName(value, name)) continue;
+            if (self.find(name)) |id| try self.setFlow(id, .{ .status = self.flows.items[id].status, .at = self.flows.items[id].at });
+        };
         const saved_results = self.results_of;
         defer self.results_of = saved_results;
         self.results_of = null;
