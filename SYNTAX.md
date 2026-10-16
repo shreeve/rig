@@ -259,7 +259,7 @@ fun f(in: Int) -> Int
 `in` is a keyword and cannot name a parameter
 ```
 
-Nine words are keywords only in one position. `new` is a keyword at
+Ten words are keywords only in one position. `new` is a keyword at
 the start of a statement (`new x = ...`, `new x =! ...`), so a
 method may be named `new`. `obj` is a keyword at the start of a
 declaration, before the type's name (`obj Point`, `pub obj Pair[T]`),
@@ -273,10 +273,10 @@ function's result type (`-> ?Item from a`), and `static` only right
 after that `from`; `keeps` only at the end of a function's header
 (`sub watch(!self, s: ?String) keeps s`); a parameter or a local may be
 named any of them.
-`called` and `rarely` are keywords only at the start of a declaration
-(after any `pub`), right before its `fun` or `sub` (`called fun f()`,
-`pub rarely sub s()`), so a local, a parameter, a field, or a method
-may be named either. `none`
+`inline`, `called`, and `rarely` are keywords only at the start of a
+declaration (after any `pub`), right before its `fun` or `sub`
+(`inline fun f()`, `pub rarely sub s()`), so a local, a parameter, a
+field, or a method may be named any of them. `none`
 is a reserved name, the absent optional, which no binding, variant, or
 error may take ([SPEC](SPEC.md#enums)). The words
 held for later start no form yet. Words that are keywords elsewhere but
@@ -649,6 +649,10 @@ sign -1
   its calls (`f()`) and its type (`sub()`) do: `sub main()`,
   `fun answer() -> Int`.
 - The body's last expression is its value; `return e` leaves early.
+- Several results are a list of types in parentheses, `-> (Int, Int)`,
+  given by `return a, b` and bound by name, `q, r = divmod(17, 5)`
+  ([SPEC §3](SPEC.md#several-results)). The list may fail or be absent
+  as a whole: `-> (A, B)!`, `-> (A, B)?`.
 - A result that holds a view may say which parameters it views, after
   its type: `-> ?Item from a`, `-> ?String from a, b`, `-> ?T from
   self`, or `-> ?String from static` for only what lives for the whole
@@ -661,12 +665,13 @@ sign -1
   `fun max[T](a: T, b: T) -> T`, `sub show[n: Int]()`
   ([Generics](#generics-and-compile-time-parameters)).
 - A marker before `fun` or `sub` asks for a speed, and changes no
-  meaning: `called fun document[dense: Bool](...)` keeps every call a
-  call, and `rarely fun utf8_text(s: ?String, i: Int) -> Int` says it
-  is rarely called, so it stays out of the code that calls it
-  ([SPEC §3](SPEC.md#function-markers)). A function takes one marker,
-  and a method takes one as any function does
-  (`called fun Point.norm(?self) -> Int`).
+  meaning: `inline fun number(s: ?String, i: Int) -> Num` inlines the
+  function at every call, `called fun document[dense: Bool](...)` keeps
+  every call a call, and `rarely fun utf8_text(s: ?String, i: Int) ->
+  Int` says it is rarely called, so it stays out of the code that calls
+  it ([SPEC §3](SPEC.md#function-markers)). A function takes one
+  marker, and a method takes one as any function does
+  (`inline fun Point.norm(?self) -> Int`).
 
 A definition without its parameter list is rejected, with the header
 to write:
@@ -960,6 +965,8 @@ file implements ([SPEC §15](SPEC.md#zig-backed-declarations)).
 | `x += e`, and `-=` `*=` `/=` `%=` `+%=` `-%=` `*%=` `+\|=` `-\|=` `&=` `\|=` `^=` `<<=` `<<%=` `>>=` | compound assignment |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate `e` and discard it |
+| `q, r = f()` | bind each of a call's several results, left to right, as `x = e` binds; `_` discards one |
+| `new q, r = f()`, `q, r =! f()` | declare new, or fixed, names for them |
 
 There is no `let`, `var`, or `const`. The first `x = e` in a scope
 declares `x`, and later ones assign it. `x =! e` reads as "set,
@@ -1311,6 +1318,7 @@ An `if` or `while` condition binds the value inside an optional with
 | `while (!q).pop() as x` | what a call that lends its receiver to write returns |
 | `if a as x and x > 0 and b as y` | in order, each part only when the ones before it held |
 | `if a as _` | nothing: a test for a value |
+| `if f() as a, b`, `while f() as a, b` | each of the several results inside the optional a call gives, `-> (A, B)?` |
 
 `as` stands nowhere else: not under `or` or `not`, and not in a
 ternary's or a guard's condition.
@@ -1706,7 +1714,8 @@ program   = decl*
 decl      = ["pub"] (fun | sub | obj | enum | errors | typedef | test | constant)
           | use | extern
 use       = "use" name ("." name)* ["as" name]
-fun       = "fun" [owner "."] name [tparams] params "->" type [from] [keeps] block
+fun       = "fun" [owner "."] name [tparams] params "->" rtype [from] [keeps] block
+rtype     = type | "(" type, type, ... ")" ["!" | "?"]   # several results
 from      = "from" (name, ... | "static")
 keeps     = "keeps" name, ...
 sub       = "sub" [owner "."] name [tparams] params ["!"] [keeps] block
@@ -1747,7 +1756,9 @@ stmt      = decl | "@" name stmt | simple ["if" value]
 simple    = tail | assign
           | postfix "=!" tail | name ":" type ("=" | "=!") tail
           | "new" name [":" type] ("=" | "=!") tail | "-" name | "pass"
-          | "return" [tail] | "break" ["@" name] [tail] | "continue" ["@" name]
+          | "return" [tail] | "return" value "," value, ...
+          | ["new"] postfix "," postfix, ... ("=" | "=!") tail   # names or `_`
+          | "break" ["@" name] [tail] | "continue" ["@" name]
           | ("defer" | "errdefer") (simple | block) | "raw" block
 assign    = postfix ("=" | "+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%="
                      | "*%=" | "+|=" | "-|=" | "&=" | "|=" | "^=" | "<<=" | "<<%="
@@ -1776,7 +1787,7 @@ value     = logic "if" logic "else" value
 jump      = "return" [value] | "break" ["@" name] [value] | "continue" ["@" name]
 logic     = logic "or" conj | conj
 conj      = conj "and" neg | neg
-neg       = "not" neg | infix "as" name | infix
+neg       = "not" neg | infix "as" name ("," name)* | infix
 infix     = unary (op unary)*                       # the table in section 6
 unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~" | "^") unary | postfix
 postfix   = postfix ("." name | "[" expr "]" | "[" [expr] ".." [expr] "]"

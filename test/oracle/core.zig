@@ -140,10 +140,23 @@ pub const Access = struct {
     except: ?LoanId = null,
 };
 
+/// One of the several results a call gives (`Op.parts`): the var that
+/// holds it, and which of the call's vars it carries. Each result
+/// carries the loans of only the arguments whose types could hold what
+/// its own type views (Core s7, per result).
+pub const Part = struct {
+    v: VarId,
+    /// As `Op.no_result`, for this result.
+    no_result: []const VarId = &.{},
+    /// As `Op.result_loan`, for this result.
+    result_loan: bool = true,
+};
+
 /// One op. Its effect, in order: every var in `reads`, `moves`, and
 /// `uses` must hold a value (C1); `access` is checked against the loans
 /// live here (C4); the loans of `reads` and `moves` and the new `loan`
-/// flow into `def` (replacing what it held) or `weak` (added to it),
+/// flow into `def` (replacing what it held), into each of `parts`, or
+/// `weak` (added to it),
 /// filtered by whether its type can hold a view; `moves` are left
 /// empty; after a call, each var in `gains` takes the flowing loans (the
 /// call may have stored a view in it); `kill` drops a var (C5); `ret`
@@ -158,6 +171,9 @@ pub const Op = struct {
     /// write-view parameters (live to the end, never required to hold one).
     keep: []const VarId = &.{},
     def: ?VarId = null,
+    /// A call that gives several results defines each in its own var,
+    /// as it would define `def`.
+    parts: []const Part = &.{},
     weak: ?VarId = null,
     loan: ?LoanId = null,
     access: ?Access = null,
@@ -264,6 +280,7 @@ pub fn dump(func: *const Func, w: *std.Io.Writer) !void {
         for (b.ops.items) |op| {
             try w.print("  @{d} {s}", .{ op.pos, @tagName(op.what) });
             if (op.def) |d| try w.print(" def={s}", .{vn(func, d, &nb)});
+            for (op.parts) |p| try w.print(" part={s}", .{vn(func, p.v, &nb)});
             if (op.weak) |d| try w.print(" weak={s}", .{vn(func, d, &nb)});
             if (op.kill) |d| try w.print(" kill={s}", .{vn(func, d, &nb)});
             if (op.loan) |l| try w.print(" new=L{d}", .{l});

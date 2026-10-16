@@ -339,7 +339,10 @@ forms to `value`, an expression without blocks or closures (conditions,
   before the rule is asked, so they do not end a chain; the joined line
   produces no `NEWLINE` and no `INDENT`;
 - classifies keywords, the characters read by position, `if`, and
-  closure bars as above;
+  closure bars as above, and a `,` right after `as name` outside
+  brackets as `AS_COMMA`, which joins the names `if f() as a, b` binds:
+  inside brackets that `,` separates arguments or elements, and the
+  parser's state alone cannot tell them apart;
 - rejects `&&`, `||` after a value, `**`, `i++` and `i--`, `//` and
   `/*` comments, and the reserved pin sigil `@x` with a hint, and
   malformed input where it is written: a `=!` with no space after it
@@ -579,6 +582,16 @@ A few kinds serve more than one surface form:
   which the checker accepts only when sema recorded it as a member of
   an error set (`E` names the set, through a module or an alias; not a
   module's constant or a value's field) that the subject can hold.
+- Several results ([Several results](#several-results)): the type
+  `(A, B)` is `(results_type A B)`, which the grammar takes anywhere a
+  type goes and sema only after a function's `->`; `return a, b` is
+  `(return (results a b))`; `q, r = f()` is `(destructure op targets
+  value)`, and `if f() as a, b` is `(as_results value names)`. The
+  Parser wrapper makes each target and name but `_` the binding `(set
+  op q _ (result_part))` of the result in its position (`shadow` for an
+  `as` name), so every pass reads it as the `x = e` it is; `_` stays a
+  leaf. `(tuple a b)`, a parenthesized list, and named results, `(q:
+  Int, r: Int)`, parse only to be rejected.
 - `(pass)`, the statement `pass`, has no roles. The checker rejects it
   where a value is needed, and the emitter writes it as `{}`, an empty
   Zig block, which is a statement wherever Zig takes one.
@@ -1331,6 +1344,7 @@ instead of re-deriving it by name:
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T` (or vector of numbers); the bracket list is recorded as compile-time arguments (`instanceOf`). Also the methods of an integer's bits (`x.not()`, `x.count_ones()`) and of a vector (`Simd[T, n].splat(x)`, `m.bits()`, `m.select(a, b)`, ...) |
 | `splatOf(node)` | for a scalar operand of a lane-wise operator or of `select`: the vector type it stands for, every lane its value; emit writes it `@as(V, @splat(x))` ([Vectors](#vectors)) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
+| `liftOf(node)` | for a value that becomes an optional where it goes, the optional and what it is made from (`sema.Lift`): `none`, with the optional type its context gives it, and a value with fewer levels of optional than the optional it goes into, a `T` where a `T?` goes (or the value a view of one copies out). Typecheck records it for every value checked against a type (`checkExprAgainst`) and every value it adapts (`recordAdapted`), the latest check of a node deciding; emit packs such a value into each level that goes through the optional helpers (`emitLift`, [Emit](#emit), "Optionals"), where Zig would lift it into a `?T` on its own |
 | `upgradeOf(share)` | for `*w` of a weak handle, a `~T` or a view of one: that it upgrades it, and whether it reads `w` or takes it (`sema.Upgrade`) ([Weak upgrades](#weak-upgrades)) |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
 | `copiesHeader(header)` | whether a `match`, `for`, or `as` binds a copy of its subject, which makes a statement temporary and reaches no place (`rejectHeaderCopy`, `storage.headerPoints`); emit reads it and checks its own shape against it. It is the storage fact `header_copy` ([Storage facts](#storage-facts)) |
@@ -1605,6 +1619,8 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
 | `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
+| `results` | `__rig_res` | the several results a call gives, which each target of `q, r = f()` takes in its turn, or the names of `if f() as a, b` take; what no target takes (`_`) it drops at the statement's end | owned | statement, body |
+| `argument` (of `return a, b`) | `__rig_arg` | the parts of `return a, b`, made in their turn when a later part can leave after an earlier one that owns (`storage.hoistsResults`) | owned | call |
 | `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array lent to a call that evaluates its arguments where they stand (`lendsTempArray`) | owned | statement |
 
 `owned` storage holds a value of its own, made there or taken; `copy`
@@ -1944,8 +1960,9 @@ the frames that use its own parameters, a type instance its methods'.
 An instance made in another module that finds a frame large records it
 in `large_foreign_frames`, which `inlining.decide` copies into the
 declaring module's `large_frames` before emit. `rig check
---facts=frames` prints each owner's account: its count, its reach, and
-what the rule inlines into it.
+--facts=frames` prints each owner's account: its count, its reach, the
+reach the marked `inline` calls land in it, and what the rule inlines
+into it.
 
 Instances come from the program: `instantiation_sites` holds each
 generic type instance and where it is first spelled or inferred, and
@@ -2956,6 +2973,72 @@ fields of one value are disjoint paths, and two elements of one
 collection overlap, which the hint `!a.swap(i, j)` says once
 (`sameCollection`).
 
+### Several results
+
+A function gives several results with `-> (A, B)` (also `(A, B)!` and
+`(A, B)?`), a type (`sema.Type.results`) that stands only there and in a
+function type's result. Its facts are its parts' together, as an
+object's are its fields' (`holdsIn`, `reachOf`, `ownedParts`,
+`minBytesOf`), and `resolveResults` takes two or more parts, each a
+type one result may have, at most one of them a write view. Typecheck
+keeps the positive list of where a call that gives them may stand
+(`Checker.results_ok`): the value of a destructure (a call, alone or
+under `!` or `?`, or with a `??` or `catch` that jumps), of `return`
+in a function giving the same results, and of `if … as a, b`; any
+other is reported where it is typed (`misplacedResults`). `(a, b)` is no
+value (`tupleValue`), and `a, b = b, a` is no parallel assignment.
+
+**Desugaring.** `q, r = f(x)` makes the call's results statement
+temporaries (Core §3), one a result, which no name holds; each target
+then takes its own, left to right, as the binding `x = e` takes a
+call's result, and a result `_` discards stays a temporary, dropped at
+the statement's end, the last first. `return a, b` gives each part as
+`return x` gives `x`, left to right, each judged by its own result's
+type. Each target is the binding `(set op q _ (result_part))`, so
+typecheck (`checkSet`), the ownership checker (`walkSet`), and emit
+(`emitSet`) bind it as any `x = e`; `result_part` is the result in its
+position, typed `part_ty` and walked as `part_value`.
+
+**Loans.** Sentence 7 applies per result: the call's loans are
+narrowed by each result's own type (`carryResult` of each,
+`callResults`), so a `Bool` beside a view carries none. An argument's
+write lend ends at the return only when no result keeps it to write;
+while one may, every lend of the call lasts to the statement's end, as
+for a `!T` result. The checker holds the results in a hidden var of the
+statement (`walkDestructure`), which keeps the loans of the results no
+target has taken yet: a target bound while a pending result views it is
+reported (`pendingView`). A `_`'s loans last to the statement's end
+when its drop runs a `drop` body, which could read them; any other
+discarded result reads none of its views (Core sentence 6), and its
+loans end at once. Write lends end per call: while any result may hold
+a write view, every lend of the call lasts to the statement's end (an
+`if … as` part is a header, its own statement), though the write view
+carries only the arguments its origins name; ending the other
+arguments' write lends at the return, per argument, is left for later
+(TODO.md). Two
+results of one call never break sentence 5: a function giving a write
+view and another result that could view the same parameter is rejected
+where it is declared (`sema.checkResultViews`), and the call checks the
+results' loans the same way, for a function value whose type says less.
+`if f() as a, b` binds new names, so nothing pending can view them; the
+call's loans end with the header, as `as`'s do. It takes no `_`: the
+header's temporaries end before the body, where a discarded result
+would drop. A call alone on its line, and `_ = f()`, discard every
+result, as one result is discarded.
+
+**Emit.** The results are a Zig tuple, `@Tuple(&.{ A, B })`; `return
+a, b` is `return .{ a, b }`, each part written as one result is
+(`emitResultValue`). When a later part can leave after an earlier one
+that owns (`storage.hoistsResults`), each part is made first into
+`__rig_arg_N_i`, an owned one guarded by a flag, so the way out drops it
+(`emitHoistedResults`); Zig's own tuple would lose it. A destructure is
+`const __rig_res_N = f(x);` and then each binding, whose value is
+`__rig_res_N[j]`, and a discarded owned result is dropped after them;
+`if f() as a, b` captures the results as `__rig_res_N` and binds the
+names at the body's start (`bindResults`), each result to its name. Emit never writes Zig's own
+destructure, `a, b = .{ b, a }`, which does not evaluate its right side
+first.
+
 ### Loops
 
 Every loop, `while` and each form of `for`, is one desugaring, which
@@ -3466,6 +3549,33 @@ symbols); a query that decides more than that belongs in `Pending`.
   A `[]T` is a `[]const T` and a `![]T` a Zig `[]T`, not a pointer to
   one: the slice already points at its elements, so it is passed and
   bound as it is.
+- **Optionals.** A `T?` is Zig's `?T`, written with `?`, `null`,
+  `orelse`, and `if (x) |v|`, unless its representation may differ
+  from that, which `Facts.optionalRouted` decides once per payload
+  type (`sema.optionalRouted`): a type parameter's `T?`, whose
+  instance decides, and, under `RIG_STRICT_OPTIONALS`, every
+  object's. Such an optional is written `rig.Opt(T)`, and every
+  operation on it goes through the runtime's helpers: `rig.some(x)` is
+  the Zig `?T` that `if x as v`, `while x as v`, `??`, `?`, and
+  `== none` test; `rig.somePtr(&x)` is the payload's address a `|*v|`
+  capture binds (`if !x as v`, a lend of the value inside); and
+  `rig.pack(O, z)` makes the `O` a Zig `?T` stands for, which is how a
+  `T`, `none`, and the value of `a ?? b` whose fallback is a `T?`
+  become one. Zig lifts a `T` into a `?T` on its own but never into a
+  struct, so typecheck records each lift (`liftOf`), and emit writes it
+  in one place, `emitLift`, called from `emitValue`, packing each level
+  of the optional that goes through the helpers; a default value
+  (`emitDefault`) is packed the same way, and a hoisted argument is held
+  as itself and packed where the call reads it. The helpers are the
+  identity on a `?T`, so a type parameter's `T?` is Zig's `?T` in every
+  instance, and inlines to nothing.
+
+  `RIG_STRICT_OPTIONALS=1` is a test of the compiler: every object
+  declares `__rig_strict_optional`, and `rig.Opt` of it is a tagged
+  struct (`rig.Strict`), so a program compiles only if emit and the
+  runtime write every operation on such an optional through the
+  helpers. The suite is run in this mode as a gate, and
+  `test/cli/strict_optionals.sh` runs one program both ways.
 - **Cells.** A value whose type holds a Cell by value lives only
   behind a shared handle (Core sentence 9): it is always in the heap
   memory a `*T` points to (`rig.RcBox(T)`), as a `Cell[T]`'s value or
@@ -3568,19 +3678,74 @@ symbols); a query that decides more than that belongs in `Pending`.
   small hot helper a call once its body grows, and pays the prologue and a
   stack protector at each call.
 
-  A function's marker comes first (SPEC.md, "Function markers"). A
-  function marked `called fun` or `rarely fun` is never inlined by the
-  rule below (`rig.markerOf`, read where `inlining.decide` collects the
-  functions). Emit writes a `called` function `noinline fn`, so LLVM
-  keeps every call a call too: each instance of a function with
-  compile-time values is then a function of its own. Emit starts a
-  `rarely` function's body with `@branchHint(.cold);`, before the
-  evaluation budget, the one place Zig takes the hint for a whole
-  function: Zig 0.17 then gives the function LLVM's `cold` attribute,
-  so its callers lay out the call as the unlikely path and LLVM does not
-  inline it. Neither marker changes what the checker walks: a marked
-  function is the same function, called. The program's `main` and an
-  `extern zig` function take no marker (`resolve`).
+  A function's marker comes first (SPEC.md, "Function markers"). One
+  marked `inline fun` is inlined whatever the rule below says: its size,
+  its expansion, its compile-time type parameters, a closure in it, and
+  its frame's size are waived, and no step of the rule stops inlining
+  it. What Zig cannot inline is an error, in the pass that knows it: a
+  value use of it (`typecheck`, where every function value is typed:
+  `functionValue`, by the `inline_marked` flag of its symbol or method),
+  the root's `main` and an `extern zig` function (`resolve`), and a
+  cycle of calls among marked `inline` functions (`decide`,
+  `forcedCycles`, whose edges are each one's calls in its own frame, so
+  a closure that calls it back is a call). A function marked `called
+  fun` or `rarely fun` is never inlined by the rule below (`rig.markerOf`,
+  read where `inlining.decide` collects the functions). Emit writes a
+  `called` function `noinline fn`, so LLVM keeps every call a call too:
+  each instance of a function with compile-time values is then a
+  function of its own. Emit starts a `rarely` function's body with
+  `@branchHint(.cold);`, before the evaluation budget, the one place Zig
+  takes the hint for a whole function: Zig 0.17 then gives the function
+  LLVM's `cold` attribute, so its callers lay out the call as the
+  unlikely path and LLVM does not inline it. No marker changes what the
+  checker walks: a marked function is the same function, called, and an
+  inlined one's calls are read through `rig.rt` as any inlined
+  function's. The program's `main` and an `extern zig` function take no
+  marker (`resolve`).
+
+  A call of a marked `inline` function is the one call-target fact of
+  any call (`callTargetOf`, recorded by `Checker.noteTarget` where
+  typecheck resolves the call: `functionCall`, `crossModuleCall`, a
+  method call, and `associatedCall`, through any alias), with the
+  instance the call makes beside it: `inline_calls[call] = { fun, subst
+  }`. `fun` is the `FnRef` of every call target, the declaring module's
+  id and where the function's name is there, an imported generic type's
+  proxy followed to its declaration; `subst` binds the object type's
+  parameters, by the receiver's type (through views, handles, and boxes,
+  as the method is found) or the type named, then the function's own
+  (`inst_own`, from `instantiateCall`). `resolve` records each marked
+  declaration by the same position (`inline_decls`).
+
+  What a marked function lands in a caller is counted once, in the
+  module that declares it (`inlineFrame`, at the end of `checkFrames`):
+  its own values and copies, and those of the marked functions it calls,
+  each substituted at its call, over its own and its type's parameters.
+  The frame walker of every owner adds, at each recorded call, that frame
+  imported into the caller's module and substituted at the call's
+  instance, each slot marked: the owner's account keeps them apart as
+  its `marked` part ([Frame owners](#frame-owners)), and the frame check
+  holds its own values and the marked ones together to the limits. A
+  call in a `defer` body counts at every copy, as any value there does.
+  The count fails closed: a frame it cannot find, or one with a
+  parameter the call's instance does not bind, is an error at the call,
+  never no values; a frame still being worked out is a call on a cycle
+  `decide` rejects, so that program is never emitted. A marked
+  function's own frame is counted, for what the rule inlines through
+  it, but not checked and never made `noinline`: Zig never writes it.
+  Each parameter of a function counts once more in its reach
+  (`paramCopies`): Zig's code copies it into a local of its own (an
+  owned one's `var`, an inlined function's `rig.rt`), beside the
+  argument and the parameter. Calls of marked functions nest at most
+  `max_inline_depth` (256) deep, since Zig analyzes each inlined body
+  inside the one around it and runs out of its own stack some thousands
+  deep: `inlineFrame` records how deep they nest below each marked
+  function (`inline_heights`), and a deeper nesting is an error at the
+  call where the walk finds it.
+
+  In debug and self-checking builds, emit checks that each call of a Rig
+  function it writes is one typecheck resolved (`Emitter.checkCallTarget`):
+  the frame facts and `decide` read the call-target fact, so a call
+  without one would land a frame no count saw.
 
   Without a marker, a function is inlined when
 
@@ -3591,14 +3756,21 @@ symbols); a query that decides more than that belongs in `Pending`.
   - it is on no cycle of calls, directly or through others;
   - every mention of it is the callee of a call, so it is never passed,
     stored, returned, or captured, and no address of it is taken;
-  - it is not the root's `main`, has no compile-time type parameters, is not
-    a member of a generic type, and holds no closure (`extern` functions
-    have no body). A function whose compile-time parameters are all values
-    (`Bool`, a number, an enum) is a function per instance, sized,
-    cycle-checked, and inlined as any other, and so are the helpers it
-    calls; the `comptime` parameters stay compile-time and the rest are
-    bound through `rig.rt` as always. Its frame must be known without the
-    values;
+  - it is not the root's `main`, has no compile-time type parameters,
+    and holds no closure (`extern` functions have no body). A function
+    whose compile-time parameters are all values (`Bool`, a number, an
+    enum) is a function per instance, sized, cycle-checked, and inlined
+    as any other, and so are the helpers it calls; the `comptime`
+    parameters stay compile-time and the rest are bound through `rig.rt`
+    as always. Its frame must be known without the values. A member of a
+    generic type is one declaration Zig writes once for all its
+    instances, so it is decided once, under the largest frame of its
+    instances, which bounds each: a generic owner's account is the
+    largest of the frames its instances counted (`FrameSize`), its own
+    values and its own with the marked ones, each the largest of any
+    instance. One no instance the program makes binds is a frame Zig
+    never writes, and holds the rule to nothing (`compiled` is false);
+    one whose instances made no count is unknown, never none;
   - its reach (`checkFrames`), with the inlined calls in it, is at most
     64 KiB, and no frame owner ([Frame owners](#frame-owners)) gets more
     than that added by the inlined calls in it, each counted at every
@@ -3609,7 +3781,13 @@ symbols); a query that decides more than that belongs in `Pending`.
     at each call, in its caller's frame; a test block, a closure, and a
     `drop` body are owners as functions are; and
     its frame is not large (`large_frames`, which emit also writes
-    `noinline`, [Sema](#sema));
+    `noinline`, [Sema](#sema)). What the rule inlines into a marked
+    `inline` function lands in each caller of it, at each call and copy,
+    so it counts in the caller's 64 KiB too (`added`), and is the first
+    to stop inlining when that owner does not fit (`largestIn` looks
+    through the marked functions it calls); a marked function's own
+    values are the account's marked part, which typecheck counted, so
+    `decide` counts them nowhere else;
   - with the inlined calls in it, each counted at every call site, it
     expands to at most `inlining.max_expanded` (320) nodes, so a chain of
     functions that each call the next twice does not have Zig analyze the
@@ -3881,6 +4059,7 @@ reviewed.
 | `RcBox(T)` | the box behind `*T`: a strong count, a weak count (plus one for all strong handles), and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
 | `Box(T)` | `^T`: a pointer to one heap `T`. `init` allocates, `fill` allocates an array and fills it there (`^[n of x]`), `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `RcBox` past 256 nested releases |
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade` (what `*w` lowers to), which returns a new strong handle or null once the value is gone |
+| `Opt(T)`, `Payload`, `some`, `somePtr`, `pack`, `Strict(T)` | Rig's `T?` and its helpers ([Emit](#emit), "Optionals"): `Opt(T)` is Zig's `?T`, or a struct that declares `__rig_optional`, its payload, and holds it its own way (`Strict(T)`, the tagged struct an object's optional is under `RIG_STRICT_OPTIONALS`); `some`, `somePtr`, and `pack` convert between it and Zig's `?T`, and are the identity on a `?T`. The generic API returns `Opt(T)` wherever Rig reads a `T?` (`List.get`, `pop`, `IntoIter.next`, `Cell`'s `listGet` and `listPop`, `elementAt`, `ArrayIntoIter.next`, `enumFromInt`), and each reflective function (`needsDrop`, `dropElement`, `cloneValue`, `cloneOptional`, `takeOut`, `noneAt`, `isNone`, `eql`, `hashAs`, `isVariant`, `writeValue`, `typeName`) has an arm for a struct optional, where an optional held another way will go |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
@@ -3903,10 +4082,10 @@ reviewed.
 | `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `index` converts an index of any integer type, 128-bit ones included, to `usize`, `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `notNan` | wraps a float converted to an integer type: where safety checks run (debug and safe), a NaN panics as an out-of-range value does, which `@trunc`'s own check misses |
 | `isVariant`, `isVariantDiscard` | `x == .variant` on an enum with payloads, or an optional of one: tests the tag only, so it compiles whatever the payloads hold; `isVariantDiscard` drops a temporary that owns a resource |
-| `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `null` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
+| `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `none` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
 | `poison` | under the sanitizer, fills hidden storage whose scope has ended with `0xAA`; nothing otherwise |
 | `discard`, `discardAt`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`), or, by address, a part of a payload a `match <e` arm leaves unused (deferred, so each exit passes only the address); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
-| `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, `?String` values by `std.mem.order`. Outside a generic body a `?String` or `[]U8` ordering is `std.mem.order` itself |
+| `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body or on a plain enum: numbers by the operator, a plain enum's values by `@intFromEnum`, `?String` values by `std.mem.order`. Outside a generic body a `?String` or `[]U8` ordering is `std.mem.order` itself |
 | `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
 | `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
@@ -3948,21 +4127,31 @@ a call itself. Each owner has one account (`sema.Account`,
 - **own:** its values, as `checkFrames` counts them, or for a generic
   owner the largest of its instances'; unknown (null) where no count
   knows them, which is unbounded and fails every limit;
-- **marked:** what calls of functions marked `inline` add (none yet);
+- **marked:** the values and reach the calls of functions marked
+  `inline` land in it, each at the instance its call makes and at every
+  copy Zig writes of the call (`checkFrames`, slots tagged `marked`);
+  for a generic owner, what the largest of its instances' frames adds
+  to `own`;
 - **auto:** the frames of the functions the rule inlines into it, each
-  at every call and every copy of the call.
+  at every call and every copy of the call, those it inlines into a
+  marked function the owner calls included.
 
-`inlining.decide` fills `auto` and keeps it within 64 KiB
-(`max_inlined_frame_bytes`), own + auto within `sema.max_frame_bytes`,
-and (own reach + auto) times `sema.reach_factor` within
-`sema.max_frame_reach`; it never inlines into an owner whose own count
-is unknown. A function is inlined at every call or none, so an owner the
-build does not compile bounds nothing: a test block, and what is in it,
-outside `rig test` (and `rig check --tests`), and any module's but the
-root's always. `test/cli/frame_owners.sh` puts a pile of a helper the rule
-would inline in each kind of owner and each body that belongs to one,
-and `test/cli/frames.sh` holds each owner's account to the frame Zig's
-prologue reserves.
+`checkFrames` holds own + marked to `sema.max_frame_bytes` and their
+reach to `sema.max_frame_reach`. `inlining.decide` fills `auto` and
+keeps it within 64 KiB (`max_inlined_frame_bytes`), own + marked + auto
+within `sema.max_frame_bytes`, and (own reach + marked reach + auto)
+times `sema.reach_factor` within `sema.max_frame_reach`; it never
+inlines into an owner whose own count is unknown. A function is inlined
+at every call or none, so an owner the build does not compile bounds
+nothing: a test block, and what is in it, outside `rig test` (and `rig
+check --tests`), any module's but the root's always, and a generic one
+no instance of the program binds. A marked function's own frame Zig
+never writes, so only its `auto` is held to 64 KiB there; its callers
+count the rest. `test/cli/frame_owners.sh` puts a pile of a helper the
+rule would inline in each kind of owner and each body that belongs to
+one, `test/cli/frame_owners_inline.sh` does the same through a marked
+function and checks each owner's marked part, and `test/cli/frames.sh`
+holds each owner's account to the frame Zig's prologue reserves.
 
 ### The program's stack
 
@@ -4155,6 +4344,14 @@ lend (`(!h).r`, `(?mk()).items`) is a path through that view, so a
 store there lands in what the view reaches and nothing is moved out of
 it; and a write receiver with no `!` whose value is a write view
 (`wrap(!h).keep(v)`) is lent on through that view.
+
+Several results are hidden statement temporaries, one a result, each
+carrying the loans its own type could view (Core s7, per result); each
+target takes its own by the `x = e` rule, left to right, so a pending
+result's loans conflict with binding what it views, and a `_` result
+drops at the statement's end. `return a, b` gives each part as `return
+x` does, and `if f() as a, b` binds new names from a header's
+results.
 
 Its loans and accesses carry the place's path, cut where it goes
 through a handle or into an optional's value (`Place.cut`), and two of

@@ -1,0 +1,4 @@
+fun f() -> Int
+  return 1, 2
+
+# error: `f` gives one result, of type `Int`; several are declared `-> (A, B)`

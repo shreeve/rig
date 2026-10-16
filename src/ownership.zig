@@ -684,6 +684,11 @@ pub const Checker = struct {
     /// Set immediately before walking a lambda literal that sits in an
     /// allowed position (binding RHS, call callee, lent argument, `*|...|`).
     lambda_ok: bool = false,
+    /// The loans each of a call's several results carries, by result
+    /// (`callResults`), for the destructure that binds them.
+    results_of: ?struct { node: Sexp, parts: []const Value } = null,
+    /// The loans the `result_part` being walked takes: its result's.
+    part_value: Value = .{},
     /// The binding whose value is being walked, for its diagnostics.
     binding: ?struct { name: []const u8, value: Sexp, rejected: bool = false } = null,
     /// Walking the arguments of a call the type checker rejected.
@@ -1900,7 +1905,7 @@ pub const Checker = struct {
                 const saved_stmt = self.cur_stmt;
                 self.cur_stmt = stmt;
                 defer self.cur_stmt = saved_stmt;
-                try self.walkReturnValue(stmt);
+                try self.walkReturnValue(stmt, null);
             } else {
                 try self.walkStmt(stmt);
             }
@@ -2203,6 +2208,7 @@ pub const Checker = struct {
         switch (kind) {
             .fun, .sub, .drop_decl, .@"struct", .@"enum", .errors => try self.walkDecl(sexp),
             .set => try self.walkSet(sexp),
+            .destructure => try self.walkDestructure(sexp),
             .drop => try self.walkDrop(sexp),
             .@"return" => try self.walkReturn(sexp),
             .@"break" => try self.walkJump(sexp, .brk),
@@ -2233,6 +2239,8 @@ pub const Checker = struct {
                 .@"??" => self.walkNullish(sexp),
                 .propagate, .propagate_none => self.walkPropagate(sexp),
                 .call => self.walkCall(sexp),
+                // A destructure's target takes its result's loans.
+                .result_part => self.part_value,
                 .member, .index, .inst => if (self.isInstance(sexp)) .{} else self.walkMember(sexp),
                 .kwarg => self.walkConsumed(ir.Kwarg.value(sexp), .argument),
                 .array => blk: {
@@ -4219,7 +4227,18 @@ pub const Checker = struct {
     fn walkCall(self: *Checker, node: Sexp) Error!Value {
         const mark = self.call_held.items.len;
         const v = try self.walkCallBody(node);
-        return self.endCallHeld(node, mark, v);
+        const out = try self.endCallHeld(node, mark, v);
+        // Each result keeps only what the call's value still carries.
+        if (self.results_of) |r| if (sameNode(r.node, node) and out.loans.len != v.loans.len) {
+            const parts = try self.arena().alloc(Value, r.parts.len);
+            for (r.parts, parts) |part, *kept| {
+                var loans: std.ArrayList(Loan) = .empty;
+                for (part.loans) |l| if (containsLoan(out.loans, l)) try loans.append(self.arena(), l);
+                kept.* = .{ .loans = loans.items };
+            }
+            self.results_of = .{ .node = node, .parts = parts };
+        };
+        return out;
     }
 
     /// Hold `v`, the value of `node`, which the emitted call keeps in
@@ -4545,9 +4564,152 @@ pub const Checker = struct {
         // The result views only what could hold it (Core sentence 7). A
         // `?String`'s views end here but for those it keeps.
         const ty = self.exprType(node) orelse return result;
+        if (self.sema) |ctx| if (sema.resultsOf(ctx, ty)) |tys| return self.callResults(node, temps_start, stored, result, tys);
         if (self.sema) |ctx| if (sema.holdsViewOnly(ctx, ty)) return self.keepViewTemps(temps_start, try self.carryResult(ty, result));
         if (self.viewsOnlyRead(ty)) return self.endWriteLends(temps_start, stored, try self.carryResult(ty, result));
         return self.carryResult(ty, result);
+    }
+
+    /// A call that gives several results, `-> (A, B)`: each carries the
+    /// loans its own type can hold of what the call passes on, as one
+    /// result does (`carryResult` of each), recorded for the targets that
+    /// take them (`results_of`). An argument's write lend ends at the
+    /// return only when no result keeps it to write; while one may, every
+    /// lend lasts to the statement's end, as for a `!T` result. The
+    /// results are views of one call, so no two may break sentence 5: a
+    /// write loan one carries and a loan another carries on the same place
+    /// are reported (the declaration rejects them first, `sema`'s
+    /// `checkResultViews`, but a function value's type may say less).
+    fn callResults(self: *Checker, node: Sexp, temps_start: usize, stored: Value, result: Value, tys: []const TypeId) Error!Value {
+        const ctx = self.sema.?;
+        const parts = try self.arena().alloc(Value, tys.len);
+        var whole: Value = .{};
+        var view_only = true;
+        var read_only = true;
+        for (tys, parts) |t, *part| {
+            part.* = if (self.mayCarryLoan(t)) try self.carryResult(t, result) else .{};
+            whole = try self.valueUnion(whole, part.*);
+            if (!self.mayCarryLoan(t) or sema.holdsViewOnly(ctx, t)) continue;
+            view_only = false;
+            if (!self.viewsOnlyRead(t)) read_only = false;
+        }
+        for (parts, 0..) |a, i| for (a.loans) |l| {
+            if (l.kind != .write) continue;
+            for (parts, 0..) |b, k| if (k != i) for (b.loans) |m| if (m.root == l.root and self.paths.overlap(m.path, l.path)) {
+                try self.err(self.startOf(node), "the results of this call would view `{s}` twice while one of them writes it: a write view is the only view of what it views while it lives", .{self.vars.items[l.root].name});
+                self.results_of = .{ .node = node, .parts = parts };
+                return whole;
+            };
+        };
+        self.results_of = .{ .node = node, .parts = parts };
+        if (view_only) return self.keepViewTemps(temps_start, whole);
+        if (read_only) return self.endWriteLends(temps_start, stored, whole);
+        return whole;
+    }
+
+    /// `q, r = f()`: the call's several results go into the statement's
+    /// hidden results var, which holds the loans of every result no
+    /// target has taken yet; each target then takes its own, left to
+    /// right, as the binding `x = e` it is (`walkSet` of `(set op x _
+    /// (result_part))`), so a target is bound only while no result still
+    /// pending views it. A result no target takes (`_`) stays in the var,
+    /// which the statement's end drops (`dropStmtTemps`), when its drop
+    /// runs a `drop` body; any other reads none of its views. This walks
+    /// the desugaring: the results statement temporaries, each taken by
+    /// its binding (docs/INTERNALS.md, "Several results").
+    fn walkDestructure(self: *Checker, node: Sexp) Error!void {
+        const value = ir.Destructure.value(node);
+        const targets = ir.Destructure.targets(node).items();
+        // What a target's store reads is used after the value, as an
+        // assignment's target is.
+        const mark = self.after_value.items.len;
+        for (targets) |t| if (t.isKind(.set)) {
+            _ = try self.useAfterValue(t);
+        };
+        // A write-view local a target re-points never uses its old view
+        // again, when the value does not read it and cannot leave early:
+        // its loans end before the call lends anew, as for `w = e`.
+        if (self.sema) |ctx| if (!leavesEarly(value)) for (targets) |t| {
+            if (!t.isKind(.set) or !ctx.repoints(t)) continue;
+            const name = self.text(ir.Set.target(t));
+            if (self.readsName(value, name)) continue;
+            if (self.find(name)) |id| try self.setFlow(id, .{ .status = self.flows.items[id].status, .at = self.flows.items[id].at });
+        };
+        const saved_results = self.results_of;
+        defer self.results_of = saved_results;
+        self.results_of = null;
+        const temps_start = self.temps.items.len;
+        const whole = try self.walkConsumed(value, .binding);
+        self.after_value.shrinkRetainingCapacity(mark);
+        if (!self.reachable) return;
+        const call = resultsCall(value);
+        const parts: []const Value = blk: {
+            if (self.results_of) |r| if (sameNode(r.node, call) and r.parts.len == targets.len) break :blk r.parts;
+            const all = try self.arena().alloc(Value, targets.len);
+            @memset(all, whole);
+            break :blk all;
+        };
+        // Which results the statement holds to its end: each a target
+        // takes, until it takes it, and each `_` discards whose drop runs
+        // a `drop` body, which could read what it views. Any other
+        // discarded result uses none of its views (Core sentence 6), so
+        // its loans end here, but for those another result keeps.
+        const held = try self.arena().alloc(bool, targets.len);
+        const tys: []const TypeId = if (self.sema) |ctx| (if (self.exprType(value)) |t| sema.resultsOf(ctx, t) orelse &.{} else &.{}) else &.{};
+        var kept: Value = .{};
+        for (targets, held, parts, 0..) |t, *h, part, k| {
+            h.* = t.isKind(.set) or k >= tys.len or (if (self.sema) |ctx| sema.dropRunsBody(ctx, tys[k]) != .no else true);
+            if (h.*) kept = try self.valueUnion(kept, part);
+        }
+        for (held, parts) |h, part| if (!h) for (part.loans) |l| {
+            if (containsLoan(kept.loans, l)) continue;
+            var i = @min(temps_start, self.temps.items.len);
+            while (i < self.temps.items.len) {
+                if (self.temps.items[i].sameAs(l)) _ = self.temps.orderedRemove(i) else i += 1;
+            }
+        };
+        const pos = self.startOf(node);
+        const id = try self.addVar(.{ .name = "the call's results", .decl = pos, .ty = self.exprType(value), .kind = .hidden }, .{ .loans = kept.loans });
+        try self.stmt_drops.append(self.gpa, .{ .id = id, .pos = pos });
+        const saved_part = self.part_value;
+        defer self.part_value = saved_part;
+        for (targets, 0..) |t, j| {
+            if (!t.isKind(.set)) continue;
+            // The result leaves the temporary for its binding, which keeps
+            // the loans of those still pending and of those held to the
+            // statement's end.
+            var left: Value = .{};
+            for (targets, parts, held, 0..) |o, part, h, k| {
+                if (k == j or (k < j and o.isKind(.set)) or !h) continue;
+                left = try self.valueUnion(left, part);
+            }
+            try self.setFlow(id, .{ .loans = left.loans });
+            if (try self.pendingView(t, targets, parts, held, j)) continue;
+            self.part_value = parts[j];
+            try self.walkSet(t);
+        }
+    }
+
+    /// The target of `set` (the `j`th of `targets`) names a binding that
+    /// a result still pending views: binding it would change or drop what
+    /// that result views (`s, rest = split(?s)`). Reported, true.
+    fn pendingView(self: *Checker, set: Sexp, targets: []const Sexp, parts: []const Value, held: []const bool, j: usize) Error!bool {
+        const target = ir.Set.target(set);
+        if (target != .src) return false;
+        const ctx = self.sema orelse return false;
+        const sym = ctx.symbolOf(target) orelse return false;
+        if (ctx.symbols.items[sym].decl_pos == target.src.pos) return false;
+        const id = self.find(self.text(target)) orelse return false;
+        for (targets, parts, held, 0..) |o, part, h, k| {
+            if (k == j or (k < j and o.isKind(.set)) or !h) continue;
+            for (part.loans) |l| if (l.root == id and !l.ext) {
+                if (o.isKind(.set)) {
+                    try self.err(target.src.pos, "cannot bind `{s}` while `{s}` views it", .{ self.text(target), self.text(ir.Set.target(o)) });
+                } else try self.err(target.src.pos, "cannot bind `{s}` while the result `_` discards views it: that result's `drop` body runs at the statement's end", .{self.text(target)});
+                return true;
+            };
+        }
+        return false;
     }
 
     /// A value read in place, by value, before the operands after it run
@@ -5190,7 +5352,21 @@ pub const Checker = struct {
 
     fn walkReturn(self: *Checker, node: Sexp) Error!void {
         const value = ir.Return.value(node);
-        if (value != .nil) try self.walkReturnValue(value);
+        // `return a, b`: each part leaves the function as `return x`
+        // does, left to right.
+        if (value.isKind(.results)) {
+            const tys: []const TypeId = if (self.sema) |ctx| (if (self.func.ret_ty) |r| sema.resultsOf(ctx, r) orelse &.{} else &.{}) else &.{};
+            for (ir.Results.values(value), 0..) |part, i| {
+                const ty: ?TypeId = if (i < tys.len) tys[i] else null;
+                try self.walkReturnValue(part, ty);
+                // A write view a part hands out as a write view leaves for
+                // good, as `<w` would: a later part may not use it again.
+                // One read as a value that copies is a copy.
+                if (part == .src and ty != null and self.refOfType(ty) == .write) if (self.find(self.text(part))) |id| {
+                    if (self.vars.items[id].ref == .write and self.flowLive(id)) try self.markInvalid(id, .moved, part.src.pos);
+                };
+            }
+        } else if (value != .nil) try self.walkReturnValue(value, null);
         _ = try self.exitTo(.{ .exit = .{ .@"return" = value != .nil and self.mayFail(value) } });
         self.reachable = false;
     }
@@ -5198,7 +5374,9 @@ pub const Checker = struct {
     /// A value leaving the function: a bare local moves out; anything
     /// else must not copy an owning value; views must come from
     /// view parameters.
-    fn walkReturnValue(self: *Checker, expr: Sexp) Error!void {
+    /// `part`, for a part of `return a, b`, is the type of the result it
+    /// gives, by which its loans are judged (Core sentence 7, per result).
+    fn walkReturnValue(self: *Checker, expr: Sexp, part: ?TypeId) Error!void {
         var value: Value = .{};
         if (expr == .src) {
             try self.checkNoImplicitCopy(expr, .ret, true);
@@ -5222,15 +5400,19 @@ pub const Checker = struct {
             _ = try self.walk(expr);
             return;
         }
-        if (self.func.ret_may_view and self.reachable) {
-            try self.checkEscape(value);
-            self.recordResult(value, self.startOf(expr));
-        } else if (self.reachable and self.genericType(self.func.ret_ty)) {
+        const ret = part orelse self.func.ret_ty;
+        const may_view = if (part) |t| self.mayCarryLoan(t) else self.func.ret_may_view;
+        if (may_view and self.reachable) {
+            // A result keeps only the loans its own type could hold.
+            const kept = if (part) |t| try self.carry(t, value) else value;
+            try self.checkEscape(kept);
+            self.recordResult(kept, self.startOf(expr));
+        } else if (self.reachable and self.genericType(ret)) {
             self.recordResult(value, self.startOf(expr));
         }
         // A result that holds a value of a type parameter's type may carry,
         // in an instance, whatever reached one (`taintGeneric`).
-        if (self.reachable and self.holdsGeneric(self.func.ret_ty) and self.func.generic_returned_at == null) self.func.generic_returned_at = self.startOf(expr);
+        if (self.reachable and self.holdsGeneric(ret) and self.func.generic_returned_at == null) self.func.generic_returned_at = self.startOf(expr);
     }
 
     /// A bare name that leaves the function moves out: a match payload
@@ -5435,7 +5617,7 @@ pub const Checker = struct {
     fn walkIf(self: *Checker, node: Sexp) Error!Value {
         const t = self.takeTail(node);
         const cond = ir.If.cond(node);
-        if (cond.isKind(.as) or rig.isConditionJoin(cond)) return self.walkIfBinding(node, t);
+        if (rig.isAsPart(cond) or rig.isConditionJoin(cond)) return self.walkIfBinding(node, t);
         const then_b = ir.If.then(node);
         const else_b = ir.If.@"else"(node);
         // The condition is a header, its own statement.
@@ -5496,6 +5678,7 @@ pub const Checker = struct {
     fn walkConditionPart(self: *Checker, cond: Sexp, body: Sexp) Error!void {
         // Each part is a header, its own statement: its temporaries end
         // with it, after the binding takes what it binds.
+        if (cond.isKind(.as_results)) return self.walkResultsBinding(cond, body);
         if (!cond.isKind(.as)) return self.walkStmt(cond);
         // A bare place is bound as `if ?p as x` binds it, and a part of a
         // made value in a hidden var the `if` holds, in a scope the
@@ -5853,6 +6036,38 @@ pub const Checker = struct {
         elem_view: bool = false,
     };
 
+    /// `if f() as a, b`: each name is a new binding that takes its result,
+    /// as a destructure's target does (`walkDestructure`), in a scope over
+    /// `body`, which the caller pops. The loans taken to make the results
+    /// end with the header, as `as`'s do, and so do those of a result no
+    /// name takes.
+    fn walkResultsBinding(self: *Checker, cond: Sexp, body: Sexp) Error!void {
+        const value = ir.AsResults.value(cond);
+        const names = ir.AsResults.names(cond).items();
+        const temps_start = self.temps.items.len;
+        const drops = self.stmt_drops.items.len;
+        const saved_results = self.results_of;
+        defer self.results_of = saved_results;
+        self.results_of = null;
+        const whole = try self.walkConsumed(value, .binding);
+        const parts: []const Value = blk: {
+            if (self.results_of) |r| if (sameNode(r.node, value) and r.parts.len == names.len) break :blk r.parts;
+            const all = try self.arena().alloc(Value, names.len);
+            @memset(all, whole);
+            break :blk all;
+        };
+        self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+        try self.pushScopeFor(.block, body);
+        const saved_part = self.part_value;
+        defer self.part_value = saved_part;
+        for (names, parts) |n, part| {
+            if (!n.isKind(.set)) continue;
+            self.part_value = part;
+            try self.walkSet(n);
+        }
+        try self.dropStmtTemps(drops);
+    }
+
     /// A statement that gives a value (`sema.yieldsValue`).
     fn isValue(self: *const Checker, e: Sexp) bool {
         return sema.yieldsValue(self.source, e);
@@ -5864,7 +6079,7 @@ pub const Checker = struct {
         return self.walkLoop(.{
             .node = node,
             .cond = cond,
-            .cond_binds = cond.isKind(.as) or rig.isConditionJoin(cond),
+            .cond_binds = rig.isAsPart(cond) or rig.isConditionJoin(cond),
             .cond_always_true = cond == .src and std.mem.eql(u8, self.text(cond), "true"),
             .cont = if (step == .nil) null else step,
             .body = ir.While.body(node),
@@ -6629,6 +6844,18 @@ pub const Checker = struct {
 // =============================================================================
 // Helpers
 // =============================================================================
+
+/// The call a destructure's value is: alone, or under `!`, `?`, or a
+/// fallback that jumps.
+fn resultsCall(value: Sexp) Sexp {
+    return switch (value.kind() orelse return .nil) {
+        .call => value,
+        .propagate, .propagate_none => ir.get(value, .value),
+        .@"??" => ir.@"??".left(value),
+        .@"catch" => ir.Catch.value(value),
+        else => .nil,
+    };
+}
 
 fn isLambda(s: Sexp) bool {
     return s.isKind(.lambda);

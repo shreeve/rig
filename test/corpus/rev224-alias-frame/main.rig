@@ -1,0 +1,13 @@
+# Second review of #224: a static call of another module's `inline` method
+# through an alias of its type was not counted in the caller's frame, so
+# the program was accepted and ran off its stack.
+
+use lib
+
+sub one()
+  print(lib.Q.make(1) + lib.Q.make(2))
+
+sub main()
+  one()
+
+# error: 7:5: `one` keeps 16000032 bytes of values on its stack

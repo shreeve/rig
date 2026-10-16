@@ -31,6 +31,23 @@ EOF2
 "$RIG" check --facts=sema payload.rig >payload.txt 2>err.txt || fail "rig check --facts=sema payload.rig: $(cat err.txt)"
 expect_has "$(cat payload.txt)" 'payload_fields leaf 8:11-8:12 "v" ?String' "a payload field's type at the instance"
 
+# Each value that becomes an optional where it goes: `none`, and a `T`
+# where a `T?` goes, which Zig lifts on its own.
+cat >lift.rig <<'EOF2'
+fun half(n: Int) -> Int?
+  return none if n % 2 == 1
+  n / 2
+
+sub main()
+  x: Int? = 4
+  print(half(x ?? 0))
+EOF2
+"$RIG" check --facts=sema lift.rig >lift.txt 2>err.txt || fail "rig check --facts=sema lift.rig: $(cat err.txt)"
+expect_has "$(cat lift.txt)" 'lifts leaf 2:10-2:14 "none" Int? from none' "the optional a none becomes"
+expect_has "$(cat lift.txt)" 'lifts / 3:3-3:8 "n / 2" Int? from Int' "a result lifted into an optional"
+expect_has "$(cat lift.txt)" 'lifts leaf 6:13-6:14 "4" Int? from Int' "a literal lifted into an optional"
+if grep -q '"x ?? 0"' <(grep '^lifts' lift.txt); then fail "a value that goes where its own type goes is no lift"; fi
+
 cat >bad.rig <<'EOF2'
 sub main()
   print(missing)

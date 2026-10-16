@@ -1,0 +1,8 @@
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  (q, r) = divmod(17, 5)
+
+# error: write `q, r = divmod(17, 5)`; parentheses aren't needed on the left
+# errors: 1

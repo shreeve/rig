@@ -1,0 +1,8 @@
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  p = divmod(17, 5)
+
+# error: `divmod` gives 2 results; bind each: `a, b = divmod(17, 5)`
+# errors: 1

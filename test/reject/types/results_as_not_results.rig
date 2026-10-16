@@ -1,0 +1,8 @@
+fun f() -> Int?
+  1
+
+sub main()
+  if f() as a, b
+    print(a, b)
+
+# error: `as` binds several names to the results inside an optional, `(A, B)?`, that a call gives

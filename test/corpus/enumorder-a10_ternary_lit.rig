@@ -1,0 +1,9 @@
+enum Size
+  small
+  large
+
+sub main()
+  s = Size.small
+  c = true
+  print(s == (.small if c else .large))
+  print(s < (.small if c else .large))

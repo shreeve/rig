@@ -1,0 +1,26 @@
+# A generic enum has no order, even of bare variants only, nor has the
+# built-in enum `Arch`, in an ordering or a generic body's.
+use std.target
+use std.math
+
+enum Tag[T]
+  a
+  b
+
+fun f(a: Arch) -> Bool
+  a < .x86_64
+
+sub main()
+  x: Tag[Int] = .a
+  y: Tag[Int] = .b
+  print(x < y, x >= .b)
+  print(target.arch >= .aarch64, f(target.arch))
+  print(math.max(target.arch, target.arch))
+  print(math.min(x, y))
+
+# error: 11:3: operator `<` orders a declared enum's values; the built-in enum `Arch` has no integer value
+# error: 16:9: operator `<` orders a plain enum's values; `Tag[Int]` is a generic enum, whose variants have no integer value
+# error: 16:16: operator `>=` orders a plain enum's values; `Tag[Int]` is a generic enum
+# error: 17:9: operator `>=` orders a declared enum's values; the built-in enum `Arch` has no integer value
+# error: 18:14: max[Arch]` cannot use `T = Arch`
+# error: 19:14: min[Tag[Int]]` cannot use `T = Tag[Int]`

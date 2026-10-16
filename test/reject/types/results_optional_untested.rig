@@ -1,0 +1,10 @@
+fun g(ok: Bool) -> (Int, Int)?
+  return none if not ok
+  return 1, 2
+
+sub main()
+  q, r = g(true)
+  print(q, r)
+
+# error: `g` gives several results inside an optional, `(Int, Int)?`: test it first
+# errors: 1

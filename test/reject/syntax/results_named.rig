@@ -1,0 +1,4 @@
+fun f() -> (q: Int, r: Int)
+  return 1, 2
+
+# error: results are not named: write their types, `-> (Int, Int)`, and name them where they are bound, `q, r = f()`

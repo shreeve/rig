@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Generate and run the form x context x type matrix of small programs.
 
-Each program puts one expression form (a place, a ternary, `o?`, ...) in
-one context (a `print` argument, a binding, an element assignment, ...)
+Each program puts one expression form (a place, a ternary, `o?`, a
+result taken out of several, `d1, d2 = f()`, ...) in one context (a
+`print` argument, a binding, an element assignment, one of several
+results a call is given or a function returns, ...)
 for one type (Int, ?String, String, List, `*T`, `^T`, a struct with a
 `drop`, a struct declared `unique`, a vector, and a few cells of a struct holding
 a Cell, every one of which must be rejected), plus the
@@ -309,7 +311,8 @@ TYPES = {
     # rejected.
     "cell": dict(ty="Counter", decls="obj Counter\n  hits: Cell[Int]\n",
                  mk="Counter(hits: Cell(n))", ctor="Counter(hits: Cell(5))",
-                 rejected=(("binding", "ctor"), ("print", "call"), ("lend_arg", "place"))),
+                 rejected=(("binding", "ctor"), ("print", "call"), ("lend_arg", "place"),
+                           ("destructure", "call"), ("binding", "destructure"))),
     # A struct declared `unique`.
     "unique": dict(ty="U", decls="obj U unique\n  v: Int\n", mk="U(v: n)", ctor="U(v: 5)"),
     # Values that copy (`sema.copies`): a plain struct and an array,
@@ -322,7 +325,7 @@ TYPES = {
     # A payload enum: `== .variant` tests the variant.
     "enum": dict(ty="S", decls="enum S\n  dot\n  line(v: List[Int])\n",
                  mk="xs: List[Int] = List()\n  !xs.push(n)\n  .line(v: <xs)", ctor="S.dot",
-                 only=("eq_variant", "eq_none", "binding", "tail_if", "tail_match")),
+                 only=("eq_variant", "eq_none", "binding", "tail_if", "tail_match", "destructure")),
     # `error`, an error of any set: owning in every program, though no
     # set here holds anything to drop (Core §2, "A failure moves its
     # error"). `error!` is rejected, so it has no `fail`, and no form or
@@ -354,9 +357,34 @@ FORMS = {
     # a view of a value that copies is copied out (Core sentence 1, §4).
     "read_view": "r",
     "write_view": "w",
+    # A result taken out of several (`d1, d2 = f()`): an owned one, a
+    # branch of the two, one that reads `a` (`-> (?T, ?T)`), and a write
+    # view of `a` beside a result that holds none (`-> (!T, Bool)`).
+    "destructure": "d1",
+    "destructure_branch": "d1 if c else d2",
+    "destructure_view": "d1",
+    "destructure_write": "d1",
 }
-# The binding each view form reads, declared before the context.
-VIEW_FORMS = {"read_view": "r = ?a", "write_view": "w = !a"}
+# The binding each view or destructure form reads, declared before the
+# context.
+VIEW_FORMS = {
+    "read_view": "r = ?a", "write_view": "w = !a",
+    "destructure": "d1, _ = pass2(mk(5), mk(6))",
+    "destructure_branch": "d1, d2 = pass2(mk(5), mk(6))",
+    "destructure_view": "d1, _ = views2(?a)",
+    "destructure_write": "d1, _ = wv(!a)",
+}
+
+# The functions that give several results, for a type `T`: each passes
+# its owned arguments through, or views its one argument, as the forms
+# and contexts that call it take them.
+RESULT_FUNS = {
+    "pass2": "fun pass2(x: {t}, y: {t}) -> ({t}, {t})\n  return x, y\n",
+    "pass2f": "fun pass2f(x: {t}, y: {t}, c: Bool) -> ({t}, {t})!\n  return E.bad if c\n  return x, y\n",
+    "some2": "fun some2(x: {t}, y: {t}, c: Bool) -> ({t}, {t})?\n  return none if c\n  return x, y\n",
+    "views2": "fun views2(x: {r}) -> ({r}, {r})\n  return x, x\n",
+    "wv": "fun wv(x: !{t}) -> (!{t}, Bool)\n  return x, true\n",
+}
 
 # -----------------------------------------------------------------------------
 # Contexts: statements that use the form `E`. `inline` contexts need an
@@ -439,6 +467,22 @@ CONTEXTS = {
     "slice_arg": dict(inline="print(sliced(E[..1]))", slice=True, types=("list", "array", "text", "string", "static")),
     "slice_arg_then_write": dict(inline="print(both(E[..1], poke(!W)))", slice=True, write=True,
                                  types=("list", "array", "text", "string", "static")),
+    # The value as one of several results (RESULT_FUNS): passed through
+    # and bound by name, each name declared, `_` (which drops it at the
+    # statement's end), or assigned over a value it drops; bound by
+    # `if … as`, past a failure (which drops what the call was given), or
+    # past `none`; and given by `return E, other` to a caller that binds
+    # both.
+    "destructure": dict(inline="x, y = pass2(E, mk(6))", after="print(look(?x), look(?y))"),
+    "destructure_discard": dict(inline="_, y = pass2(E, mk(6))", after="print(look(?y))"),
+    "destructure_assign": dict(inline="x = mk(7)\n  print(look(?x))\n  x, y = pass2(E, mk(6))",
+                               after="print(look(?x), look(?y))"),
+    "destructure_as": dict(inline="if some2(E, mk(6), not c) as x, y\n    print(look(?x), look(?y))"),
+    "destructure_catch": dict(inline="x, y = pass2f(E, mk(6), not c) catch return 0",
+                              after="print(look(?x), look(?y))"),
+    "destructure_none": dict(inline="x, y = some2(E, mk(6), not c) ?? return 0",
+                             after="print(look(?x), look(?y))"),
+    "destructure_return": dict(inline="return E, mk(6)", returns=True, results=True),
 }
 
 # How `poke` changes a value of each type: it grows the buffer, or
@@ -451,7 +495,7 @@ POKES = {
     "plain": "x = P(v: 9)", "array": "x[0] += 1", "simd": "x = x +% 1",
     "error": "x = X.two",
 }
-WRITE_TARGETS = {"field": "h.f", "nullish": "b", "catch": "b"}
+WRITE_TARGETS = {"field": "h.f", "nullish": "b", "catch": "b", "destructure": "d1", "destructure_branch": "d1"}
 
 # A block-local binding at the tail of a value block leaves it before the
 # block's defers run. Each shape of value block goes to each sink, with a
@@ -940,6 +984,8 @@ EQ_TYPES = {
     "view": dict(ty="?String", decl="", mk=['return "a" if n == 1', '"b"'], copy=True, eq=True, ord=True),
     "obj": dict(ty="P", decl="obj P\n  n: Int\n  s: String\n\n", mk=['P(n: n, s: String("x"))'], copy=False, eq=True, ord=False),
     "enum": dict(ty="E", decl="enum E\n  a(x: Int)\n  z\n\n", mk=["E.a(x: n)"], copy=True, eq=True, ord=False),
+    # A plain enum orders by its variants' values, not their order.
+    "plain": dict(ty="Q", decl="enum Q\n  hi = 9\n  lo = 4\n\n", mk=["return Q.lo if n == 1", "Q.hi"], copy=True, eq=True, ord=True),
     "list": dict(ty="List[Int]", decl="", mk=["l: List[Int] = List()", "!l.push(n)", "l"], copy=False, eq=False, ord=False),
     "box": dict(ty="^P", decl="obj P\n  n: Int\n  s: String\n\n", mk=['^P(n: n, s: String("x"))'], copy=False, eq=False, ord=False),
     "shared": dict(ty="*P", decl="obj P\n  n: Int\n  s: String\n\n", mk=['*P(n: n, s: String("x"))'], copy=False, eq=False, ord=False),
@@ -3122,8 +3168,16 @@ def program(tname, fname, cname):
         body.append(after)
     if not returns:
         body.append("0")
+    if ctx.get("results"):
+        ret_ty = f"({ty}, {ty})"
+        main = ["for c in [true, false]", "  p, q = run(c, mk(9))", "  print(look(?p), look(?q))"]
+    else:
+        main = ["for c in [true, false]", "  r = run(c, mk(9))", "  print(r == none)"]
+    called = set(re.findall(r"\b(\w+)\(", "\n".join(body)))
+    for name, text in RESULT_FUNS.items():
+        if name in called:
+            out.append(text.format(t=ty, r=rd(ty)))
     out.append(f"fun run(c: Bool, o: {opt(ty)}) -> {ret_ty}\n{indent(body, 2)}\n")
-    main = ["for c in [true, false]", "  r = run(c, mk(9))", "  print(r == none)"]
     out.append("sub main()\n" + indent(main, 2) + "\n")
     return "\n".join(out)
 

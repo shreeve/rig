@@ -1,0 +1,14 @@
+obj Guard
+  s: ?String
+  tag: Int
+
+  drop(!self)
+    print("guard", self.tag, self.s)
+
+sub main()
+  b = String("oldb")
+  a = Guard(s: ?b, tag: 1)
+  print(a.tag)
+  b = String("newb")
+  a = Guard(s: "lit", tag: 2)
+  print(b, a.tag)

@@ -77,6 +77,13 @@ function's last value.
 `return E.name`; each call to it says `f()!`, to pass the failure up,
 or `f() catch d`.
 
+**Several results.** `fun divmod(a: Int, b: Int) -> (Int, Int)` gives
+two, with `return a / b, a % b`, and `q, r = divmod(17, 5)` binds each
+by name; `_` discards one. They never form a value: a group of values
+kept past its statement is an object. One result may be a write view,
+`w, added = (!m).ensure_added(k, 0)`, which keeps `m` lent to write as
+`w` lives, while `added` keeps nothing.
+
 **`not`** negates: `not done`. A comparison under it takes parentheses,
 `not (a > b)`, or is flipped, `a <= b`. `not a and b` is `(not a) and
 b`. `!` never negates. On an integer, `x.not()` flips every bit

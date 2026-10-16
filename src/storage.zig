@@ -1007,6 +1007,22 @@ pub fn setActs(e: Sexp) bool {
 
 /// Whether step `e` of an assignment can leave before the store: `!`,
 /// `?`, `return`, `break`, or `continue`.
+/// Whether `return a, b` (`results`) evaluates its parts into storage
+/// first, in their order (`argument` storage, one per part): a part that
+/// can leave (`!`, `?`, a jump) comes after one that owns, which a
+/// tuple Zig builds as it goes would lose on the way out. The storage
+/// drops an owned part on that way, and the return takes each.
+pub fn hoistsResults(ctx: *const SemContext, results: Sexp) bool {
+    var owned = false;
+    for (ir.Results.values(results)) |part| {
+        if (owned and setLeaves(part)) return true;
+        if (typeOf(ctx, part)) |ty| if (owns(ctx, ty)) {
+            owned = true;
+        };
+    }
+    return false;
+}
+
 fn setLeaves(e: Sexp) bool {
     return contains(e, &leave_kinds);
 }
@@ -1325,7 +1341,10 @@ fn planConsumed(ctx: *SemContext, e: Sexp) !void {
     switch (head) {
         .move => try consumeName(ctx, ir.Move.operand(e)),
         .drop => try consumeName(ctx, ir.Drop.target(e)),
-        .@"return" => try consumeTail(ctx, ir.Return.value(e)),
+        // `return a, b` takes each part as `return x` takes `x`.
+        .@"return" => if (ir.Return.value(e).isKind(.results)) {
+            for (ir.Results.values(ir.Return.value(e))) |part| try consumeTail(ctx, part);
+        } else try consumeTail(ctx, ir.Return.value(e)),
         .@"break" => try consumeTail(ctx, ir.Break.value(e)),
         .@"for" => {
             if (ir.For.mode(e).tag == .move) try consumeName(ctx, ir.For.source(e));
@@ -1430,6 +1449,11 @@ const Planner = struct {
                 _ = fillsInPlace(ctx, e);
                 try p.assignment(e);
             },
+            // The call's results, which each target takes in its turn.
+            .destructure => try p.record(e, .results, .owned, .statement),
+            // The parts of `return a, b`, made first when a later one can
+            // leave.
+            .results => if (hoistsResults(ctx, e)) try p.record(e, .argument, .owned, .call),
             .box => _ = fillsInPlace(ctx, e),
             .@"+", .@"-", .@"*", .neg => _ = laneChecked(ctx, e),
             .@"for" => try p.forLoop(e),
@@ -1472,6 +1496,12 @@ const Planner = struct {
 
     pub fn part(p: *Planner, cond: Sexp) !void {
         if (cond.isKind(.as)) return p.optional(cond);
+        // `if f() as a, b`: the call's results, captured for the body,
+        // each taken by its binding, the rest dropped there.
+        if (cond.isKind(.as_results)) {
+            try p.subjectHeader(ir.AsResults.value(cond));
+            return p.record(cond, .results, .owned, .body);
+        }
         try p.header(cond);
     }
 

@@ -1,0 +1,14 @@
+# A method marked `inline` that calls itself through its receiver is a
+# cycle as a function's call of itself is.
+
+obj Node
+  depth: Int
+
+  inline fun deeper(?self, n: Int) -> Int
+    self.depth if n == 0 else self.deeper(n - 1) + 1
+
+sub main()
+  print(Node(depth: 1).deeper(2))
+
+# error: 7:14: `Node.deeper` is `inline` and calls itself
+# errors: 1

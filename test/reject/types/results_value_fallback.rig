@@ -1,0 +1,9 @@
+fun f() -> (Int, Int)?
+  return 1, 2
+
+sub main()
+  a, b = f() ?? 0
+  print(a, b)
+
+# error: several results are bound from a call that gives them
+# errors: 1

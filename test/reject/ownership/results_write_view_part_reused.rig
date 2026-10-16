@@ -1,0 +1,14 @@
+fun f(x: !String) -> (!String, Int)
+  !x.add("1")
+  return x, g(!x)
+
+fun g(x: !String) -> Int
+  !x.add("2")
+  x.len
+
+sub main()
+  s = String("abc")
+  w, n = f(!s)
+  print(w, n)
+
+# error: use of `x` after move

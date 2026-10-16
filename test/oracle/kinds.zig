@@ -184,6 +184,8 @@ const Scan = struct {
                 try self.walk(ctx, inner, depth + 1, in_generic);
             },
             .optional, .fallible, .range => |inner| try self.walk(ctx, inner, depth + 1, in_generic),
+            // Several results are held together, as an object's fields.
+            .results => |parts| for (parts) |part| try self.walk(ctx, part, depth + 1, in_generic),
             .slice => |s| try self.walk(ctx, s.elem, depth + 1, in_generic),
             .array => |arr| try self.walk(ctx, arr.elem, depth + 1, in_generic),
             .nominal => |sym| try self.fields(ctx, sym, depth, in_generic),
@@ -278,6 +280,14 @@ pub const Reach = struct {
                 try spell(w, ctx, arr.elem, subst, depth + 1);
                 try w.writeAll(")");
             },
+            .results => |rs| {
+                try w.writeAll("results(");
+                for (rs) |part| {
+                    try spell(w, ctx, part, subst, depth + 1);
+                    try w.writeAll(",");
+                }
+                try w.writeAll(")");
+            },
             .int => |i| try w.print("int{d}{s}", .{ i.bits, if (i.signed) "s" else "u" }),
             .float => |f| try w.print("float{d}", .{f.bits}),
             else => try w.writeAll(@tagName(t)),
@@ -318,6 +328,8 @@ pub const Reach = struct {
         switch (ctx.types.get(n.ty)) {
             .optional, .fallible, .shared, .weak => |inner| try out.append(self.a, .{ .ctx = ctx, .ty = inner, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view }),
             .array => |arr| try out.append(self.a, .{ .ctx = ctx, .ty = arr.elem, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view, .elem = true }),
+            // Several results, each held by value as a field is.
+            .results => |rs| for (rs) |r| try out.append(self.a, .{ .ctx = ctx, .ty = r, .subst = n.subst, .past_read = n.past_read, .past_view = n.past_view }),
             .type_var => |sym| if (n.subst) |s| if (s.lookup(sym)) |b| try out.append(self.a, .{ .ctx = b.ctx, .ty = b.ty, .subst = s.outer, .past_read = n.past_read, .past_view = n.past_view }),
             .nominal => |sym| try self.fieldsOf(ctx, sym, n, null, out),
             .imported_nominal => |in| {

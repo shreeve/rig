@@ -1,0 +1,5 @@
+fun two() -> (Int, ?String)
+  s = String("x")
+  return 1, ?s
+
+# error: cannot return a view of `s`, which this function was not lent
