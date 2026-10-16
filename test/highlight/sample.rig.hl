@@ -793,6 +793,16 @@
                      ^^^^ type
                          ^ punctuation
                              ^ punctuation
+>   called = 3
+           ^ operator
+             ^ constant.numeric
+>   rarely = 1
+           ^ operator
+             ^ constant.numeric
+>   print(called + rarely)
+         ^ punctuation
+                 ^ operator
+                         ^ punctuation
 > 
 > # Below here, nothing compiles: these are tokens an editor still colours.
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment
