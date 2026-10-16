@@ -2,12 +2,12 @@
 # value a function ends with.
 
 fun f(n: Int) -> Int
-  :done match n
+  @done match n
     0 => 1
     _ => 2
 
 fun g(n: Int) -> Int
-  :blk raw
+  @blk raw
     n + 1
 
 sub main()

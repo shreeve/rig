@@ -1,0 +1,10 @@
+fun get(i: Int) -> Int?
+  i if i < 3 else none
+
+sub main()
+  i = 0
+  @a while get(i) as v : i += 1
+    for j in 0..2
+      continue @a if j == 1
+      print(v, j)
+  print(9)

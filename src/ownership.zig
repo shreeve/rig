@@ -491,7 +491,7 @@ const LoopCtx = struct {
     /// The loans of the values `break` gives a loop used as a value.
     value: Value = .{},
     parent: ?*LoopCtx,
-    /// False for a labeled block: only `break :label` leaves it.
+    /// False for a labeled block: only `break @label` leaves it.
     is_loop: bool = true,
     /// Source position where the loop starts: code from here on may run
     /// again in the next iteration.
@@ -5931,7 +5931,7 @@ pub const Checker = struct {
     }
 
     /// `(labeled name stmt)`: a labeled loop, or a labeled `match` or
-    /// `raw` block, which `break :name` leaves.
+    /// `raw` block, which `break @name` leaves.
     fn walkLabeled(self: *Checker, node: Sexp) Error!Value {
         const stmt = ir.Labeled.stmt(node);
         if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) {

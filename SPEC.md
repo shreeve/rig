@@ -3726,31 +3726,43 @@ write `for x in !c`: the loop advances `c`
 
 ### Labels, break, and continue
 
-A loop may be labeled `:name`; `break :name` and `continue :name` then
+A loop may be labeled `@name`; `break @name` and `continue @name` then
 refer to it from an inner loop. A `match` or `raw` statement may be
-labeled too, and `break :name` leaves it. No other statement takes a
+labeled too, and `break @name` leaves it. No other statement takes a
 label, since no jump could use it, and none takes two. A jump after `??` or `catch`
-may name a label too ([§12](#the-fallback-of-)). A label may repeat an
+may name a label too ([§12](#the-fallback-of-)), also in a `while`
+header (`while more() ?? break @outer : i += 1`). A label may repeat an
 enclosing one's name; the innermost is meant. A `for` source is
 evaluated before its loop is entered, as a loop's `else` runs after it
 ends, so a jump in either (`for j in 0..(n ?? break v)`) leaves or
 continues the loop around that `for`, and a `break` value there is that
 loop's value.
 
+A label is `@` and a name, which the `@` touches. It stands before a
+statement that starts a line (or another label), or right after `break`
+or `continue`; the statement after `=>`, `defer`, or `errdefer` takes
+none. `@name(...)`, with the `(` touching the name, is a builtin call
+([Builtins](#builtins)) instead, except right after a jump, where
+`@name` is always a label: `break @outer (x)` leaves `outer` with the
+value `(x)`, and `break @outer(x)` is rejected. A jump's value stands
+apart from its label (`break @outer -1`, not `break @outer-1`). A
+keyword is not a label name, and the old spelling, `:name`, is rejected
+with a hint.
+
 ```rig reject
 sub main()
   n = 3
-  :done if n > 1
+  @done if n > 1
     print(n)
 ```
 
 ```error
-a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `:done` cannot label an `if`
+a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `@done` cannot label an `if`
 ```
 
 ### Loops as values
 
-A loop that `break` leaves with a value (`break v`, or `break :name v`
+A loop that `break` leaves with a value (`break v`, or `break @name v`
 from an inner loop) is an expression. Its value is the value of the
 `break` that leaves it, or, when the loop ends without one, the value
 of its `else` block, which it therefore needs (only `while true` can do
@@ -7353,9 +7365,10 @@ The fallback of `??` may be a jump: `a ?? return v`, `a ?? return`,
 `a ?? break`, `a ?? break v`, or `a ?? continue`. When `a` is `none`
 the jump runs, exactly as the statement would: `return` is checked
 against the function's result, `break` and `continue` apply to the
-innermost loop or name a label (`a ?? continue :outer`), and leaving
+innermost loop or name a label (`a ?? continue @outer`), and leaving
 drops what the scope owns. In a `while` header the first `:` starts the
-step, so a jump there takes no label. The jump takes the rest of the expression as its value,
+step, even after a jump (`while a ?? break : i += 1`), and a jump there
+may name a label (`while a ?? break @outer : i += 1`). The jump takes the rest of the expression as its value,
 and the left side of `?? return` is the whole expression before it, as
 for `catch` (`a and b ?? return` is `(a and b) ?? return`), except in a
 chain of `??`, where the jump belongs to the nearest one, as `??` is

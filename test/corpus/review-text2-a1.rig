@@ -19,12 +19,12 @@ sub main()
     if i == 3
       break
   print("i", i)
-  :outer for k in 0..2
+  @outer for k in 0..2
     j = 0
     while get(?mk(10 + j)) < 12
       j += 1
       if k == 1
-        break :outer
+        break @outer
       if j == 1
-        continue :outer
+        continue @outer
   print("end")

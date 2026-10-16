@@ -63,7 +63,7 @@ sub main()
   o0 = ints(1)
   c0 = 0
   p0 = 0
-  :l0 while c0 < 3: c0 = grow(!o0, 0, c0)
+  @l0 while c0 < 3: c0 = grow(!o0, 0, c0)
     guard += 1
     if guard > 300
       print("cap")
@@ -90,7 +90,7 @@ sub main()
       defer print("od1", sv1[0])
       print("b1", c0, c1, h1)
       break 77 if c1 == 99
-      :m match c1
+      @m match c1
         _
           v2 = ints(2)
           p2 = 0
@@ -113,7 +113,7 @@ sub main()
       print("t1", c0, c1)
     else
       print("e1", c0)
-      continue :l0 if c0 == 1
+      continue @l0 if c0 == 1
       -1
     print("r1", r1)
     print("t0", c0)

@@ -1,0 +1,10 @@
+fun get(i: Int) -> Bool?
+  (i < 9) if i < 3 else none
+
+sub main()
+  i = 0
+  @o for k in 0..2
+    while get(i) ?? break @o
+      print(k, i)
+      i += 1
+  print(i)

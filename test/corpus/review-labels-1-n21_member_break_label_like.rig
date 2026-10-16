@@ -1,0 +1,7 @@
+obj K
+  break: Int
+
+sub main()
+  k = K(break: 1)
+  for _ in 0..2
+    print(k.break)

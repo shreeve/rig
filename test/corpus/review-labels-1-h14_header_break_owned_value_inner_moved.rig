@@ -1,0 +1,13 @@
+fun get(i: Int) -> Bool?
+  (i < 9) if i < 2 else none
+
+sub main()
+  v = if true
+    @o while true
+      s = String("hi")
+      i = 0
+      while get(i) ?? break @o <s : i += 1
+        print(i)
+  else
+    String("no")
+  print(v)

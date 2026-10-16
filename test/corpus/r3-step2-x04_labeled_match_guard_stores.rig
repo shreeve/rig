@@ -9,7 +9,7 @@ sub main()
   z: List[Int] = List()
   h = H(r: ?z)
   k = 3
-  :m match k
-    3 if store(!h, ?z) => break :m
+  @m match k
+    3 if store(!h, ?z) => break @m
     _ => pass
   print(h.r.len)

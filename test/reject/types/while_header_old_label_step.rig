@@ -1,0 +1,17 @@
+# A label in the old spelling in a `while` header that has a step:
+# `while x ?? break :outer : i += 1` is rejected with the hint, not read
+# as a step named `outer`.
+
+fun more(n: Int) -> Bool?
+  n > 0 if n < 9 else none
+
+sub main()
+  n = 3
+  i = 0
+  @outer while true
+    while more(n) ?? break :outer : i += 1
+      n -= 1
+    break
+  print(n, i)
+
+# error: 12:28: a label is written `@name`: `@outer for ...`, `break @outer`, `continue @outer`

@@ -1,0 +1,9 @@
+# A label stands where a statement starts or after `break` or
+# `continue`; anywhere else a bare `@name` is the reserved pin sigil.
+
+sub main()
+  x = @outer for i in 0..3
+    break @outer i
+  print(x)
+
+# error: 5:7: the pin sigil `@x` is reserved

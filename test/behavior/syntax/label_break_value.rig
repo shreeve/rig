@@ -1,0 +1,37 @@
+# After `break`, `@name` is always a label, so a value in parentheses
+# follows it with a space: `break @outer (x)` leaves `outer` with `(x)`.
+# `@size(Int)`, with the `(` touching the name, is a builtin call, also
+# inside a labeled loop.
+
+fun pick(a: Int, b: Int) -> Int
+  if a > 0
+    @outer for i in 0..4
+      for j in 0..4
+        break @outer (a + b) * i if j == 1 and i == 2
+    else
+      0
+  else
+    @first while true
+      break @first (b)
+
+sub main()
+  print(pick(2, 3), pick(-1, 7))
+  @outer for i in 0..3
+    for j in 0..3
+      continue @outer if j > i
+      print(@size(I32), i, j)
+  n = 0
+  @rows while n < 10 : n += 1
+    m = n * @size(I16)
+    break @rows if m > 6
+  print(n)
+
+# expect:
+# 10 7
+# 4 0 0
+# 4 1 0
+# 4 1 1
+# 4 2 0
+# 4 2 1
+# 4 2 2
+# 4

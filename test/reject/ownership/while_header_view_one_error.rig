@@ -11,10 +11,10 @@ sub main()
     break
   print(o)
   p: ?String = "init"
-  :outer for _ in 0..2
+  @outer for _ in 0..2
     while text.cut(?String("a=b"), "=") as kv
       p = kv.after
-      continue :outer
+      continue @outer
   print(p)
 
 # error: 9:19: a view of the temporary `String("k=v")` outlives its statement

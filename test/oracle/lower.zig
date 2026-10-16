@@ -132,7 +132,7 @@ const Fails = enum { no, yes, maybe };
 const Loop = struct {
     label: ?[]const u8,
     brk: BlockId,
-    /// Null for a `match`, which only `break :label` leaves.
+    /// Null for a `match`, which only `break @label` leaves.
     cont: ?BlockId,
     /// The region depth a `break` unwinds to.
     depth: usize,

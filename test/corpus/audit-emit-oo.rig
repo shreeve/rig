@@ -3,7 +3,7 @@ fun odd(i: Int) -> Int?
   i
 
 sub main()
-  :outer for i in 0..3
+  @outer for i in 0..3
     for j in 0..3
-      x = odd(j) ?? continue :outer
+      x = odd(j) ?? continue @outer
       print(i, x)

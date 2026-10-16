@@ -1,0 +1,7 @@
+sub main()
+  @o for i in 0..3
+    for j in 0..3
+      match j
+        1 => continue @o
+        _ => print(i, j)
+  print(9)

@@ -1,0 +1,7 @@
+sub main()
+  c = true
+  @r raw
+    print(1)
+    break @r if c
+    print(2)
+  print(9)

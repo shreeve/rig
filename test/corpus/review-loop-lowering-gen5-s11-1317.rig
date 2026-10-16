@@ -63,7 +63,7 @@ sub main()
   o0 = ints(1)
   c0 = 0
   p0 = 0
-  :l0 while lim(c0, 3) as h0: c0 = grow(!o0, 0, h0)
+  @l0 while lim(c0, 3) as h0: c0 = grow(!o0, 0, h0)
     guard += 1
     if guard > 300
       print("cap")
@@ -74,10 +74,10 @@ sub main()
     sv0 = ?o0[..]
     defer print("od0", sv0[0])
     print("b0", c0, h0)
-    :m raw
+    @m raw
       c1 = 0
       p1 = 0
-      :l1 while (limf(c1, 2, false) catch break) as h1: c1 = st(1, h1)
+      @l1 while (limf(c1, 2, false) catch break) as h1: c1 = st(1, h1)
         guard += 1
         if guard > 300
           print("cap")
@@ -88,7 +88,7 @@ sub main()
         print("b1", c0, c1, h1)
         c2 = 0
         p2 = 0
-        :l2 while (limf(c2, 2, false) catch break) as h2: c2 = st(2, h2)
+        @l2 while (limf(c2, 2, false) catch break) as h2: c2 = st(2, h2)
           guard += 1
           if guard > 300
             print("cap")
@@ -97,10 +97,10 @@ sub main()
           _ = p2
           defer print("d2", c2)
           print("b2", c0, c1, c2, h2)
-          continue :l0 if c0 == 1 and c1 == 1 and c2 == 1
+          continue @l0 if c0 == 1 and c1 == 1 and c2 == 1
           return if c0 == 1 and c1 == 1 and c2 == 1
           print("t2", c0, c1, c2)
-        break :l0 if c0 == 1 and c1 == 1
+        break @l0 if c0 == 1 and c1 == 1
         print("t1", c0, c1)
       print("w0", c0)
     print("t0", c0)
