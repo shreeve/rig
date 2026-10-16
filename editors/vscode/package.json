@@ -1,0 +1,47 @@
+{
+  "name": "vscode-rig",
+  "displayName": "Rig Language",
+  "description": "Syntax highlighting for Rig (.rig) files.",
+  "version": "0.1.0",
+  "publisher": "rig-lang",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shreeve/rig.git",
+    "directory": "editors/vscode"
+  },
+  "engines": {
+    "vscode": "^1.91.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "rig",
+    "ownership",
+    "systems",
+    "zig"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "rig",
+        "extensions": [
+          ".rig"
+        ],
+        "aliases": [
+          "Rig",
+          "rig"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "rig",
+        "scopeName": "source.rig",
+        "path": "./syntaxes/rig.tmLanguage.json"
+      }
+    ]
+  }
+}

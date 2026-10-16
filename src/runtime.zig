@@ -659,7 +659,7 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
         .@"struct" => |s| {
             if (comptime @hasDecl(T, "__rig_string") or @hasDecl(T, "__rig_list")) return value.clone();
             if (comptime @hasDecl(T, "__rig_box")) return T.init(cloneValue(value.value));
-            if (comptime @hasDecl(T, "cloneWeak")) return value.cloneWeak();
+            if (comptime @hasDecl(T, "__rig_weak")) return value.cloneWeak();
             var out: T = undefined;
             inline for (s.field_names) |f| @field(out, f) = cloneValue(&@field(value, f));
             return out;
@@ -3533,9 +3533,14 @@ fn rigTypeName(comptime T: type) []const u8 {
     const full = @typeName(T);
     const end = comptime std.mem.findScalar(u8, full, '(') orelse full.len;
     const begin = comptime if (std.mem.findScalarLast(u8, full[0..end], '.')) |d| d + 1 else 0;
-    // A Rig name the emitter reserves (`std`, `rig`) is spelled `@"std'"`.
-    const quoted = comptime end > begin and full[end - 1] == '\'';
-    return full[begin..if (quoted) end - 1 else end];
+    return rigName(full[begin..end]);
+}
+
+/// The Rig name of a Zig name the emitter wrote: a Rig name the emitted
+/// Zig cannot keep (`std`, `rig`, `debug`) is spelled with a `'` suffix
+/// (`rig.writeZigIdent` in the compiler), which no Rig name contains.
+pub fn rigName(zig: []const u8) []const u8 {
+    return if (zig.len > 1 and zig[zig.len - 1] == '\'') zig[0 .. zig.len - 1] else zig;
 }
 
 /// Values nested deeper than this print as `...`: a structure that
@@ -3577,7 +3582,7 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
             if (@typeInfo(p.child) == .@"fn") return w.writeAll("<fun>");
             if (p.size != .slice) return writeValue(w, value.*, top);
         },
-        .@"enum" => return w.print(".{s}", .{@tagName(value)}),
+        .@"enum" => return w.print(".{s}", .{rigName(@tagName(value))}),
         .error_set => return w.writeAll(errorShown(value)),
         else => {},
     }
@@ -3590,7 +3595,7 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
         .vector => |v| try writeList(w, @as([v.len]v.child, value)),
         .@"union" => switch (value) {
             inline else => |payload, tag| {
-                try w.print(".{s}", .{@tagName(tag)});
+                try w.print(".{s}", .{rigName(@tagName(tag))});
                 const P = @TypeOf(payload);
                 if (P == void) return;
                 try w.writeAll("(");
@@ -3611,7 +3616,7 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
 fn writeFields(w: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
     inline for (@typeInfo(@TypeOf(value)).@"struct".field_names, 0..) |f, i| {
         if (i > 0) try w.writeAll(", ");
-        try w.print("{s}: ", .{f});
+        try w.print("{s}: ", .{rigName(f)});
         try writeValue(w, @field(value, f), false);
     }
 }
