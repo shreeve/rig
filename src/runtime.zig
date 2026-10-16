@@ -969,7 +969,7 @@ pub fn Cell(comptime T: type) type {
                 return;
             }
             while (self.value.len > rest) {
-                var gone = self.value.pop().?;
+                var gone = some(self.value.pop()).?;
                 dropElement(E, &gone);
             }
         }
@@ -4250,6 +4250,51 @@ test "aggregates drop their parts" {
     var arr: [2]H = .{ rcNew(Counter{ .drops = &drops }), rcNew(Counter{ .drops = &drops }) };
     drop(&arr);
     try testing.expectEqual(5, drops);
+    try expectNoLeaks(before);
+}
+
+test "an optional held as a struct drops, clones, compares, hashes, and prints as ?T does" {
+    const before = usage();
+    var drops: usize = 0;
+    const H = *RcBox(Counter);
+    const Obj = struct {
+        h: H,
+        pub const __rig_strict_optional = {};
+    };
+    const Plain = struct {
+        id: i64,
+        pub const __rig_strict_optional = {};
+    };
+    const O = Opt(Obj);
+    try testing.expect(isOptStruct(O) and needsDrop(O) and !needsDrop(Opt(Plain)));
+    try testing.expect(Opt(i64) == ?i64 and Opt(O) == ?O);
+
+    var held = pack(O, Obj{ .h = rcNew(Counter{ .drops = &drops }) });
+    var none = pack(O, null);
+    try testing.expect(some(none) == null and somePtr(&none) == null);
+    var cloned = cloneValue(&held);
+    try testing.expectEqual(2, some(held).?.h.strong);
+    somePtr(&cloned).?.h.dropStrong();
+    cloned = takeOut(&held);
+    try testing.expect(isNone(held) and !isNone(pack(Opt(Plain), Plain{ .id = 1 })));
+    drop(&none);
+    drop(&held);
+    try testing.expectEqual(0, drops);
+    drop(&cloned);
+    try testing.expectEqual(1, drops);
+
+    const P = Opt(Plain);
+    const a = pack(P, Plain{ .id = 3 });
+    try testing.expect(eql(a, pack(P, Plain{ .id = 3 })) and !eql(a, pack(P, null)) and eql(a, Plain{ .id = 3 }));
+    try testing.expect(eql(pack(P, null), @as(?Plain, null)) and !eql(a, pack(P, Plain{ .id = 4 })));
+    try testing.expectEqual(hash(@as(?Plain, Plain{ .id = 3 })), hash(a));
+    try testing.expectEqual(hash(@as(?Plain, null)), hash(pack(P, null)));
+    var buf: [64]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try writeValue(&w, a, true);
+    try w.writeAll(" ");
+    try writeValue(&w, pack(?P, pack(P, null)), true);
+    try testing.expectEqualStrings("Plain(id: 3) none", w.buffered());
     try expectNoLeaks(before);
 }
 

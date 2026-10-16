@@ -5380,6 +5380,9 @@ pub const Emitter = struct {
         };
         if (!self.routesPayload(inner)) return null;
         const held = self.typeOf(ir.@"??".left(e)) orelse return null;
+        // A payload copied out of the view it is gives the value it views
+        // (`rig.copiedOut`, a Zig `?T`).
+        if (self.facts.copiesPayload(e)) return if (self.facts.payloadViewed(held) == inner) result else null;
         return switch (self.facts.types.get(self.peelViews(held))) {
             .optional => |payload| if (payload == inner) result else null,
             else => null,
