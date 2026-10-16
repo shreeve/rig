@@ -1,0 +1,21 @@
+fun sl(v: !List[U8], i: Int) -> !U8 from v
+  !v[i]
+
+fun nx(c: !Int) -> Int
+  c += 1
+  c
+
+sub main()
+  v: List[U8] = List()
+  !v.push(U8(250))
+  sl(!v, 0) +%= 10
+  print(v[0])
+  sl(!v, 0) -%= 10
+  print(v[0])
+  sl(!v, 0) *%= 3
+  print(v[0])
+  c = 0
+  sl(!v, 0) <<= nx(!c)
+  print(v[0], c)
+  sl(!v, 0) +|= 250
+  print(v[0])

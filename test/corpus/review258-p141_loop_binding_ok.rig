@@ -1,0 +1,16 @@
+obj H
+  s: ?String
+  n: Int
+
+fun wrap(h: !H) -> !H from h
+  h
+
+sub main()
+  t = String("t")
+  u = String("u")
+  v: List[H] = List()
+  !v.push(H(s: ?t, n: 1))
+  !v.push(H(s: ?t, n: 2))
+  for x in !v
+    wrap(!x) = H(s: ?u, n: x.n * 10)
+  print(v[0].s, v[0].n, v[1].n)

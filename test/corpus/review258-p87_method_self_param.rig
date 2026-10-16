@@ -1,0 +1,15 @@
+obj H
+  s: ?String
+
+  fun me(!self) -> !H
+    self
+
+sub put(h: !H)
+  d = String("d")
+  (!h).me() = H(s: ?d)
+
+sub main()
+  x = String("x")
+  h = H(s: ?x)
+  put(!h)
+  print(h.s)

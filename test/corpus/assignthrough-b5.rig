@@ -1,0 +1,9 @@
+fun set(w: (!Int)?) -> Int?
+  w? += 5
+  w? += 1
+  0
+
+sub main()
+  n = 1
+  print(set(!n), n)
+  print(set(none), n)

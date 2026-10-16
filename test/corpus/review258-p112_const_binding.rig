@@ -1,0 +1,7 @@
+fun sl(v: !List[Int], i: Int) -> !Int from v
+  !v[i]
+
+sub main()
+  v: List[Int] =! List()
+  sl(!v, 0) = 5
+  print(v)

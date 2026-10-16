@@ -1,0 +1,15 @@
+enum E
+  a(s: String)
+  b
+
+fun es(v: !List[E]) -> !E from v
+  !v[0]
+
+sub main()
+  v: List[E] = List()
+  !v.push(E.a(s: String("x")))
+  es(!v) = E.b
+  es(!v) = E.a(s: String("y"))
+  match v[0]
+    .a(s) => print(s)
+    .b => print("b")

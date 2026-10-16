@@ -1,0 +1,11 @@
+obj A
+  a: [3]Int
+
+fun arr(h: !A) -> ![3]Int from h
+  !h.a
+
+sub main()
+  h = A(a: [1, 2, 3])
+  arr(!h) = [7, 8, 9]
+  arr(!h)[1] += 10
+  print(h.a)

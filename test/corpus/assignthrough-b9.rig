@@ -1,0 +1,16 @@
+obj H
+  r: ?Int
+
+fun pick(h: !H) -> (!H)? from h
+  h
+
+fun set(h: !H) -> Int?
+  d = 4
+  pick(!h)? = H(r: ?d)
+  0
+
+sub main()
+  n = 1
+  h = H(r: ?n)
+  print(set(!h))
+  print(h.r)

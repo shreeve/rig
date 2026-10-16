@@ -1,0 +1,20 @@
+obj H
+  s: ?String
+
+obj Bag
+  items: List[H]
+
+  fun first(!self) -> !H
+    !self.items[0]
+
+  sub set(!self, u: ?String)
+    (!self).first() = H(s: u)
+
+sub main()
+  t = String("t")
+  b = Bag(items: List())
+  !b.items.push(H(s: ?t))
+  u = String("u")
+  !b.set(?u)
+  <u
+  print(b.items[0].s)

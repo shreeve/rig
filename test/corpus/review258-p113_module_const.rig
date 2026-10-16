@@ -1,0 +1,8 @@
+fun sl(v: ![4]Int, i: Int) -> !Int from v
+  !v[i]
+
+LIM: [4]Int = [1, 2, 3, 4]
+
+sub main()
+  sl(!LIM, 0) = 5
+  print(LIM)

@@ -1,0 +1,16 @@
+fun sl(v: !List[I64], i: Int) -> !I64 from v
+  !v[i]
+
+fun nx(c: !Int) -> Int
+  c += 1
+  c
+
+sub main()
+  v: List[I64] = List()
+  !v.push(1)
+  !v.push(1)
+  c = 0
+  sl(!v, nx(!c)) <<= nx(!c)
+  print(v, c)
+  sl(!v, nx(!c) - 3) >>= 1
+  print(v, c)

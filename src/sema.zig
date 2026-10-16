@@ -5220,6 +5220,16 @@ pub fn assignWritesThrough(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.types.get(ty) == .write_view;
 }
 
+/// The type a store through write view `ty` writes: the `T` of `!T`,
+/// one view peeled, so a `T` that is itself a view (`!?P`) is re-pointed,
+/// not replaced. Any other type is its own.
+pub fn writtenThrough(ctx: *const SemContext, ty: TypeId) TypeId {
+    return switch (ctx.types.get(ty)) {
+        .write_view => |inner| inner,
+        else => ty,
+    };
+}
+
 /// The element type of a writable slice `![]T`; null for any other type.
 pub fn writeSliceElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {

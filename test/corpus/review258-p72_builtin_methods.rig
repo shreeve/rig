@@ -1,0 +1,7 @@
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  (!v).last() = 5
+  (!v).first() = 5
+  v.get(0) = 5
+  print(v)

@@ -1521,11 +1521,16 @@ const Checker = struct {
         }
     }
 
-    /// `obj.field = v`, `xs[i] = v`, and compound forms.
+    /// `obj.field = v`, `xs[i] = v`, `f(x) = v` where the call returns a
+    /// write view (also `f(x)! = v` and `f(x)? = v`), and compound forms.
     fn checkPlaceAssign(self: *Checker, kind: rig.BindingKind, target: Sexp, type_node: Sexp, rhs: Sexp) Error!void {
         const head = target.kind();
-        if (head != .member and head != .index) {
-            try self.errAt(target, "cannot assign to this expression", .{});
+        const through = storage.assignedThrough(target);
+        if (head != .member and head != .index and !through) {
+            if (head == .propagate or head == .propagate_none) {
+                _ = try self.synthExpr(ir.get(target, .value));
+                try self.errAt(target, "cannot assign to `{s}`: only a call that returns a write view (`!T`), or that call's `!` or `?`, is assigned through", .{self.sourceText(target)});
+            } else try self.errAt(target, "cannot assign to this expression", .{});
             _ = try self.synthExpr(rhs);
             return;
         }
@@ -1541,6 +1546,7 @@ const Checker = struct {
             else => {},
         }
         const place_ty = try self.synthExpr(target);
+        if (through) return self.assignThroughCall(kind, target, place_ty, rhs);
         if (try self.rejectLane(target, .assign)) {
             _ = try self.synthExpr(rhs);
             return;
@@ -1577,6 +1583,46 @@ const Checker = struct {
         if (head == .index) _ = try self.needsCleanup(place_ty, self.startOf(target), "overwrites an element");
         if (kind.operator() != null) return self.checkCompound(kind, place_ty, rhs, self.startOf(target), "this place has type");
         try self.checkExpr(rhs, place_ty);
+    }
+
+    /// `f(x) = v` or `f(x) op= v`, where the call returns a write view
+    /// `!T`, and so `f(x)! = v` and `f(x)? = v` of a call that returns a
+    /// fallible or optional one (`storage.assignedThrough`): the `T` the
+    /// view reaches is written, as `__v: T = v; w = f(x); w op= __v`
+    /// writes it through a hidden binding `w` (Core §6). The value runs
+    /// first, then the call, as any target's base does
+    /// (`storage.eachSetStep`). A call that returns a value, a read view,
+    /// or a `![]T` is not assigned through.
+    fn assignThroughCall(self: *Checker, kind: rig.BindingKind, target: Sexp, view_ty: TypeId, rhs: Sexp) Error!void {
+        if (self.isPoison(view_ty)) {
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        const viewed = switch (self.ctx.types.get(view_ty)) {
+            .write_view => |inner| inner,
+            .read_view => {
+                try self.errAt(target, "cannot assign through a read view (`?T`), which this call returns; a call that returns a write view (`!T`) is assigned through", .{});
+                _ = try self.synthExpr(rhs);
+                return;
+            },
+            else => {
+                const name = try self.tyName(view_ty);
+                try self.errAt(target, "cannot assign to a call's result, {s} `{s}`; only a write view (`!T`) a call returns is assigned through", .{ article(name), name });
+                _ = try self.synthExpr(rhs);
+                return;
+            },
+        };
+        if (sema.writeSliceElem(self.ctx, view_ty) != null) {
+            try self.errAt(target, "cannot assign to a `{s}` a call returns; write its elements with `{s}[i] = v`", .{ try self.tyName(view_ty), self.sourceText(target) });
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        if (!try self.requireAccess(self.placeOf(target), .assign, target)) {
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        if (kind.operator() != null) return self.checkCompound(kind, viewed, rhs, self.startOf(target), "the value this call's write view reaches has type");
+        try self.checkExpr(rhs, viewed);
     }
 
     /// `x op= e` is `x = x op e` with `x` evaluated once, and `x` keeps its

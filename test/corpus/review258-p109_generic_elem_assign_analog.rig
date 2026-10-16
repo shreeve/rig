@@ -1,0 +1,8 @@
+sub setit[T](v: !List[T], x: T)
+  v[0] = <x
+
+sub main()
+  v: List[String] = List()
+  !v.push(String("a"))
+  setit(!v, String("b"))
+  print(v)

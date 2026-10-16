@@ -1,0 +1,15 @@
+obj H
+  s: ?String
+
+fun sl(h: !H) -> !(?String) from h
+  !h.s
+
+sub put(h: !H)
+  d = String("local")
+  sl(!h) = ?d
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  put(!h)
+  print(h.s)

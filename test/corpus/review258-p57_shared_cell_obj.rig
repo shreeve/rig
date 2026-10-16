@@ -1,0 +1,17 @@
+obj C
+  c: Cell[Int]
+
+fun find(v: !List[*C], n: Int) -> (!C)? from v
+  return none if n >= v.len
+  !v[n]
+
+fun go(v: !List[*C]) -> Int?
+  find(!v, 0)? = C(c: Cell(9))
+  0
+
+sub main()
+  a = *C(c: Cell(1))
+  v: List[*C] = List()
+  !v.push(+a)
+  print(go(!v))
+  print(a.c.get(), v[0].c.get())

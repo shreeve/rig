@@ -116,6 +116,10 @@ started:
   `?K` where `K` owns text). With it, `Map.ensure`, `Map.put_new`, and
   `Set.add` take a `?K` and copy the key only when it is stored (owner
   approved); today they take an owned `K`.
+- A lane method on a call's write view of a `Simd` reads through it:
+  `vs(!v, 0).with(0, 7)`, where `vs` returns `!Simd[I8, 4]`, is
+  accepted, and emit writes `rig.withLane(rig.rt(vs(&v, 0)), ...)`
+  with no dereference, which Zig rejects.
 - One classifier for a plain enum. `sema.isPlainEnum` (what `==` and
   emit's scalar test read) counts a variant with an empty payload,
   `a()`, as bare, but `sema.enumValues` (what `Int(x)`, `from_int`,

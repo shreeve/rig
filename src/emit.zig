@@ -1722,7 +1722,24 @@ pub const Emitter = struct {
         }
         if (local.is_ptr) {
             // Through a `!T` parameter: the caller's value is replaced.
-            const pointee = if (local.ty) |t| self.peelViews(t) else null;
+            const pointee = if (local.ty) |t| self.facts.writtenThrough(t) else null;
+            if (pointee != null and self.isPtrViewTy(pointee.?)) {
+                // A `!T` whose `T` is a view: the view it reaches is
+                // pointed at another place, made first where the value
+                // can act (`storesAfterValue`).
+                if (self.facts.storageOf(value, .new_value) != null) {
+                    const name = try self.hiddenStorage(value, .new_value, .owned, .{ .id = self.nextId() });
+                    try self.w.print("{{ const {s} = ", .{name});
+                    try self.emitWriteViewPtr(value);
+                    try self.w.writeAll("; ");
+                    try self.writeLocalPlace(&local);
+                    return self.w.print(" = {s}; }}", .{name});
+                }
+                try self.writeLocalPlace(&local);
+                try self.w.writeAll(" = ");
+                try self.emitWriteViewPtr(value);
+                return self.w.writeAll(";");
+            }
             if (pointee != null and self.kindOf(pointee.?) != null) {
                 const new = try self.openNewValue(pointee, value);
                 return self.w.print("; rig.drop({s}); {s}.* = {s}; }}", .{ local.zig_name, local.zig_name, new.name });
@@ -1738,7 +1755,7 @@ pub const Emitter = struct {
                 try self.w.print("{{ const {s}", .{name});
                 if (local.ty) |t| {
                     try self.w.writeAll(": ");
-                    try self.emitTypeTy(if (local.is_ptr) self.peelViews(t) else t);
+                    try self.emitTypeTy(if (local.is_ptr) self.facts.writtenThrough(t) else t);
                 }
                 try self.w.writeAll(" = ");
                 try self.emitBareAs(value, local.ty);
@@ -1822,7 +1839,10 @@ pub const Emitter = struct {
     fn emitPlaceAssign(self: *Emitter, set: Sexp) Error!void {
         const target = ir.Set.target(set);
         const value = ir.Set.value(set);
-        const place_ty = self.typeOf(target);
+        // A target assigned through, a call's write view, writes the
+        // value the view reaches (`emitTarget`).
+        const through = facts.syntax.assignedThrough(target);
+        const place_ty = if (through) (if (self.typeOf(target)) |t| self.facts.writtenThrough(t) else null) else self.typeOf(target);
         if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellListTy(t)) {
             const order = try self.openAssign(set, self.typeOf(target), .value);
             try self.emitCellPtr(ir.Index.object(target));
@@ -1833,11 +1853,13 @@ pub const Emitter = struct {
             try self.w.writeAll(");");
             return self.closeAssign(order);
         };
-        if (target != .src and self.isPtrViewExpr(target)) {
-            // A field or element holding a write view is rebound.
+        const holds_view = if (through) (if (place_ty) |t| self.isPtrViewTy(t) else false) else (target != .src and self.isPtrViewExpr(target));
+        if (holds_view) {
+            // A field or element holding a view, or a view a call's write
+            // view reaches, is pointed at another place.
             const order = try self.openAssign(set, null, .view);
             // An element is reached as the slot it is.
-            if (target.isKind(.index)) try self.emitIndex(target, true) else try self.emitWriteViewPtr(target);
+            if (through) try self.emitTarget(target) else if (target.isKind(.index)) try self.emitIndex(target, true) else try self.emitWriteViewPtr(target);
             try self.w.writeAll(" = ");
             try self.emitWriteViewPtr(value);
             try self.w.writeAll(";");
@@ -1846,7 +1868,7 @@ pub const Emitter = struct {
         const may_own = if (place_ty) |t| self.kindOf(t) != null else true;
         if (!may_own) {
             const order = try self.openAssign(set, place_ty, .value);
-            try self.emitPlace(target);
+            try self.emitTarget(target);
             try self.w.writeAll(" = ");
             try self.emitBareAs(value, place_ty);
             try self.w.writeAll(";");
@@ -1857,7 +1879,7 @@ pub const Emitter = struct {
         if ((try self.need(self.facts.setOrder(set), set)).held) try self.hoistTarget(set, new.id);
         const slot = try self.hiddenStorage(target, .slot, .pointer, .{ .id = new.id });
         try self.w.print("const {s} = &", .{slot});
-        try self.emitPlace(target);
+        try self.emitTarget(target);
         self.hoisted.shrinkRetainingCapacity(first);
         try self.w.print("; rig.drop({s}); {s}.* = ", .{ slot, slot });
         try self.writeNewValue(new);
@@ -2033,13 +2055,13 @@ pub const Emitter = struct {
         if (builtin) |b| {
             var slot: []const u8 = "";
             if (target == .src) {
-                try self.emitPlace(target);
+                try self.emitTarget(target);
                 try self.w.print(" = {s}(", .{b});
-                try self.emitPlace(target);
+                try self.emitTarget(target);
             } else {
                 slot = try self.hiddenStorage(target, .slot, .pointer, .next);
                 try self.w.print("{{ const {s} = &", .{slot});
-                try self.emitPlace(target);
+                try self.emitTarget(target);
                 try self.w.print("; {s}.* = {s}({s}.*", .{ slot, b, slot });
             }
             const cast = shift and !lanes;
@@ -2049,13 +2071,26 @@ pub const Emitter = struct {
             try self.w.writeAll(if (target == .src) ");" else "); }");
             return self.closeAssign(order);
         }
-        try self.emitPlace(target);
+        try self.emitTarget(target);
         try self.w.print(" {s}= ", .{if (op == .@"<<%") "<<" else @tagName(op)});
         if (shift) try self.w.writeAll("@intCast(");
         try self.emitBare(value);
         if (shift) try self.w.writeAll(")");
         try self.w.writeAll(";");
         return self.closeAssign(order);
+    }
+
+    /// What an assignment's target writes: a binding, field, or element
+    /// (`emitPlace`), or, for a target assigned through
+    /// (`assignedThrough`), the value the call's write view reaches: the
+    /// pointer the base was held in (`hoistBase`), or the call, read
+    /// through.
+    fn emitTarget(self: *Emitter, target: Sexp) Error!void {
+        if (!facts.syntax.assignedThrough(target)) return self.emitPlace(target);
+        if (self.hoistedOf(target)) |h| return self.w.print("{s}.*", .{h.name});
+        try self.w.writeAll("(");
+        try self.emitWriteViewPtr(target);
+        try self.w.writeAll(").*");
     }
 
     /// An assignable place: a binding, field, or element.

@@ -1,0 +1,7 @@
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  g = *|v: !List[Int]| -> !Int from v
+    !v[0]
+  g(!v) = 5
+  print(v)

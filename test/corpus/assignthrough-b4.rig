@@ -1,0 +1,6 @@
+fun set(x: Int?) -> Int?
+  x? = 5
+  0
+
+sub main()
+  print(set(1))

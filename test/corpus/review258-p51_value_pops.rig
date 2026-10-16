@@ -1,0 +1,9 @@
+fun slot(v: !List[String], i: Int) -> !String from v
+  !v[i]
+
+sub main()
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  slot(!v, 0) = (!v).pop() ?? String("z")
+  print(v)

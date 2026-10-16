@@ -1,0 +1,12 @@
+obj P
+  x: Int
+  s: String
+
+fun ps(v: !List[P], i: Int) -> !P from v
+  !v[i]
+
+sub main()
+  v: List[P] = List()
+  !v.push(P(x: 1, s: String("a")))
+  ps(!v, 0) = P(x: ps(!v, 0).x + 1, s: String("b"))
+  print(v[0].x, v[0].s)

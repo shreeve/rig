@@ -1,0 +1,15 @@
+obj H
+  s: ?String
+
+fun pick(a: !H, b: !H, c: Bool) -> !H from a, b
+  return a if c
+  b
+
+sub main()
+  x = String("x")
+  l1 = H(s: ?x)
+  l2 = H(s: ?x)
+  if l1.s.len > 0
+    d = String("d")
+    pick(!l1, !l2, false) = H(s: ?d)
+  print(l1.s, l2.s)

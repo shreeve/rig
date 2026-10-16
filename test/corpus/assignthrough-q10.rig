@@ -1,0 +1,11 @@
+sub apply(f: ?fun(!List[Int]) -> !Int, v: !List[Int])
+  f(!v) += 1
+
+fun first(v: !List[Int]) -> !Int from v
+  !v[0]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  apply(first, !v)
+  print(v)

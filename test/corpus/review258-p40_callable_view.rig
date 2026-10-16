@@ -1,0 +1,12 @@
+fun slot(v: !List[Int]) -> !Int from v
+  !v[0]
+
+sub go(g: ?fun(!List[Int]) -> !Int, v: !List[Int])
+  g(!v) = 9
+  g(!v) += 1
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  go(?slot, !v)
+  print(v)

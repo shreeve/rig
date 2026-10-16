@@ -1,0 +1,12 @@
+use std.hash
+
+obj P
+  x: Int
+  n: String
+
+sub main()
+  a = P(x: 1, n: String("a"))
+  b = P(x: 2, n: String("b"))
+  m = hash.Map[Int, ?P]()
+  (!m).ensure(1, ?a) = ?b
+  print(m.len)
