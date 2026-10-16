@@ -1,0 +1,41 @@
+# A name the emitted Zig renames (`rig` is `@"rig'"`) prints as the
+# program wrote it: a variant, a payload variant, a field, and through
+# `String(x)` and `@variants`.
+
+enum K
+  rig
+  std
+  panic
+  debug
+  var
+
+enum P
+  rig(std: Int, var: Int)
+  panic
+  __rig_x(v: Int)
+
+obj O
+  rig: Int
+  std: Int
+  debug: Int
+  u8: Int
+
+sub main()
+  print(K.rig, K.std, K.panic, K.debug, K.var)
+  print(P.rig(std: 1, var: 2), P.panic, P.__rig_x(v: 3))
+  o = O(rig: 1, std: 2, debug: 3, u8: 4)
+  print(o)
+  print(String(K.rig), String(o))
+  for v in @variants(K)
+    print(v)
+
+# expect:
+# .rig .std .panic .debug .var
+# .rig(std: 1, var: 2) .panic .__rig_x(v: 3)
+# O(rig: 1, std: 2, debug: 3, u8: 4)
+# .rig O(rig: 1, std: 2, debug: 3, u8: 4)
+# .rig
+# .std
+# .panic
+# .debug
+# .var

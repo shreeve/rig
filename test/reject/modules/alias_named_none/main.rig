@@ -1,0 +1,8 @@
+# `none` is the absent optional, so no `use ... as` binds it.
+use lib as none
+
+sub main()
+  print(none.two())
+
+# error: 2:12: `none` is the absent optional and cannot name a module; name it with `as`: `use ... as other`
+# errors: 1
