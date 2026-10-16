@@ -27,7 +27,7 @@ sub main()
   print(modern(?t), modern(?Target.es5))
   print(level(?Options(target: .es5)), level(?Options(target: .es2015)), level(?Options(target: .es2020)))
   x: Target? = .es2020
-  if v = x
+  if x as v
     print(v > .es5)
   ts = [Target.es2020, Target.es5, Target.es2015]
   n = 0

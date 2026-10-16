@@ -23,5 +23,6 @@ sub main()
 # error: 17:9: operator `>=` operands have different types `Color` and `Int`
 # error: 18:9: operator `<` operands have different types `Int` and `Color`
 # error: 19:9: enum literal `.red` needs a known enum type
-# error: 20:13: `small`
-# errors: 5
+# error: 19:16: enum literal `.green` needs a known enum type
+# error: 20:14: no variant `small` on enum `Color`
+# errors: 6
