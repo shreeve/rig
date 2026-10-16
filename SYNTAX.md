@@ -207,12 +207,14 @@ not used.
 | reserved forms | `try`, and `zig` elsewhere |
 | held for later | `async` `await` `impl` `trait` `when` `where` `yield` |
 
-A keyword may still name a member, where it cannot be mistaken for the
-keyword: an `obj` field, a method, or a payload field. It reads as a
-name right after `.` (`t.type`, `t.error()`), before `:` inside
-parentheses (a keyword argument or payload field, `Token(type: 1)`),
-and in a member list before `:` (a field) or after `fun` / `sub` (a
-method). `drop(!self)` is still a drop body, and `drop: Bool` a field.
+Every keyword but `if` may still name a member, where it cannot be
+mistaken for the keyword: an `obj` field, a method, or a payload field.
+It reads as a name right after `.` (`t.type`, `t.error()`), before `:`
+inside parentheses (a keyword argument or payload field,
+`Token(type: 1)`), and in a member list before `:` (a field) or after
+`fun` / `sub` (a method). `drop(!self)` is still a drop body, and
+`drop: Bool` a field. `if` names no member: after a value it starts a
+guard or a ternary (`x if c else y`).
 
 **Module paths** name a module by its path from the program's root
 directory, a name for each directory: `use geo` is `geo.rig` or the
@@ -238,6 +240,15 @@ sub main()
 
 ```output
 -1 true false true
+```
+
+```rig reject
+obj Node
+  if: Int
+```
+
+```error
+unexpected keyword `if`; expected a member
 ```
 
 ```rig reject
