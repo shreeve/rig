@@ -14,17 +14,18 @@
 # (overflow, conversion, division) are run in the modes that keep them.
 source "$ROOT/test/cli/_lib.sh"
 
-# <name> <modes> <message>: build <name>.rig in each mode, run it with
-# stdout to a file, and expect 134, stdout "before", and the message.
+# <name> <modes> <message> [stdout]: build <name>.rig in each mode, run
+# it with stdout to a file, and expect 134, the stdout ("before" unless
+# given), and the message.
 check() {
-    local name=$1 modes=$2 msg=$3 mode flag exe rc
+    local name=$1 modes=$2 msg=$3 want=${4:-before} mode flag exe rc
     for mode in $modes; do
         flag=""; [[ $mode == debug ]] || flag=--$mode
         exe=$name-${mode//=/-}
         rig build $flag -o "$exe" "$name.rig" >build.log 2>&1 || fail "build $name $mode: $(cat build.log)"
         "./$exe" >out.txt 2>err.txt; rc=$?
         expect_rc $rc 134 "$name in $mode ($(head -c 300 err.txt))"
-        expect_eq "$(cat out.txt)" "before" "stdout of $name in $mode"
+        expect_eq "$(cat out.txt)" "$want" "stdout of $name in $mode"
         expect_has "$(cat err.txt)" "$msg" "the message of $name in $mode"
         [[ $msg == *"stack overflow"* ]] && continue
         grep -qE '\.zig:[0-9]+:[0-9]+: 0x[0-9a-f]+ in ' err.txt || fail "no location in the trace of $name in $mode: $(cat err.txt)"
@@ -67,6 +68,24 @@ sub main()
   print("after")
 EOF
 check list_index "$all" "panic: index out of bounds"
+
+# Values live across calls: on aarch64 macOS the first frame saves all
+# five register pairs, the most the trace's walk reads above it.
+cat >live_values.rig <<'EOF'
+use std.os
+
+sub main()
+  n = os.args().len
+  a = n * 3
+  b = n * 5
+  v: List[Int] = List()
+  !v.push(a)
+  print("before")
+  print(a, b)
+  i = v.len + 3
+  print(a + b + v[i])
+EOF
+check live_values "$all" "panic: index out of bounds" $'before\n3 5'
 
 cat >array_index.rig <<'EOF'
 use std.os
@@ -161,4 +180,26 @@ sub main()
   print(down(100000000))
 EOF
 check recurse "$all" "error: rig: stack overflow"
+
+# A test that panics under `rig test`, which runs the tests on the same
+# stack: the run ends with the program's 134, naming the test.
+cat >tpanic.rig <<'EOF'
+use std.os
+
+fun pick(v: ?List[Int]) -> Int
+  v[v.len + os.args().len + 2]
+
+test "index past the end"
+  v: List[Int] = List()
+  !v.push(1)
+  print(pick(?v))
+EOF
+for mode in debug release release=fast; do
+    flag=""; [[ $mode == debug ]] || flag=--$mode
+    rig test $flag tpanic.rig >out.txt 2>err.txt; rc=$?
+    expect_rc $rc 134 "a panicking test in $mode ($(head -c 300 err.txt))"
+    expect_has "$(cat out.txt)" "index past the end" "the panicking test named in $mode"
+    expect_has "$(cat err.txt)" "panic: index out of bounds" "a panicking test's message in $mode"
+    expect_has "$(cat err.txt)" "killed by signal 6" "a panicking test's signal in $mode"
+done
 exit 0
