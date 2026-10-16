@@ -2069,7 +2069,8 @@ converts a number ([§2](#numeric-conversions)): `Int(st)`, `U16(d)`.
 The conversion is checked: a variant named through its type
 (`Status.missing`) must fit the target at compile time, and any other
 value that does not fit panics when the program runs. A payload enum
-has no integer values, and neither converts to a float directly.
+has no integer values, nor does a built-in enum (`Endian`, `Arch`,
+whose variants are Zig's), and no enum converts to a float directly.
 
 ```rig
 enum Status
@@ -2167,7 +2168,7 @@ variant has it. `from_int` is built into every plain enum, so an enum
 cannot declare a variant or method of that name. `@variants(T)` is every
 variant of a plain enum, in declaration order, as a constant `[N]T`; it
 can be a module constant, and it asks about a type as `@size(T)` does.
-A payload enum has neither.
+A payload enum has neither, and nor does a built-in enum.
 
 ```rig
 enum Status

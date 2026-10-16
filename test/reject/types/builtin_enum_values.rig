@@ -1,0 +1,15 @@
+# The built-in enums `Endian` and `Arch` have no payloads, but no
+# integer values either (`Arch`'s variants are Zig's), so neither has
+# `from_int` or `@variants`, as neither converts with `Int(x)`.
+
+sub main()
+  print(Endian.from_int(0))
+  print(Arch.from_int(0))
+  print(@variants(Endian))
+  print(@variants(Arch).len)
+
+# error: 6:16: `Endian.from_int(n)` takes a declared enum; the built-in enum `Endian` has no integer value
+# error: 7:14: `Arch.from_int(n)` takes a declared enum; the built-in enum `Arch` has no integer value
+# error: 8:19: `@variants(T)` takes a declared enum; `Endian` is a built-in enum
+# error: 9:19: `@variants(T)` takes a declared enum; `Arch` is a built-in enum
+# errors: 4

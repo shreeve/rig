@@ -168,6 +168,8 @@ failed; after a panic it is non-zero, with no count.
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | the runtime shipped with every program |
 | `src/main.zig` | the CLI |
+| `src/lsp.zig` | `rig lsp`, the language server: JSON-RPC on stdin and stdout, positions, and the diagnostics `rig check` gives, read through the same `ModuleGraph` |
+| `src/editor.zig` | what an editor shows of one file: the parse errors, the tokens the lexer wrapper classifies with the tree's declared names and sigils, the outline, and the folds, from the tolerant parse (`parseTolerant`, rig.grammar's `@repair`) |
 
 ## Front end
 

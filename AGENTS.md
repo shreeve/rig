@@ -186,6 +186,8 @@ RIG_NO_CRASH_REPORT=1 ./prog              # no crash report (macOS) or apport (L
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | Runtime support shipped with every program (embedded by `src/emit.zig`) |
 | `src/main.zig` | CLI |
+| `src/lsp.zig` | `rig lsp`, the language server (editors/README.md) |
+| `src/editor.zig` | What an editor shows of one file: classified tokens, outline, folds, parse errors |
 | `src/lib.zig` | The compiler as a library, for `bin/rig-oracle` only |
 | `tools/` | `migrate-0.3.py`, which migrates 0.2 programs to 0.3; `gen-unicode.py`, which writes `std/unicode_tables.zig` and `std/grapheme_tables.zig` (the classes behind `std/grapheme.zig`, the chars of `std.text`) from the pinned Unicode data, and `verify-unicode.py`, which checks it (`RIG_UCD`, docs/STD.md) |
 | `test/` | The test suite (see `test/README.md`) |

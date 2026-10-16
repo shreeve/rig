@@ -498,6 +498,15 @@ tokens
     pattern: "a pattern", arm: "a match arm", params: "a parameter list"
     unary: "an operand", step: "an assignment or a call"
 
+# The tokens tolerant parsing (`parseTolerant`, which the language server
+# uses) may insert to parse on past a syntax error: a missing name, block
+# layout, and the end of a statement. The strict parse the compiler runs
+# is unchanged.
+@repair
+    holes       IDENT
+    structure   INDENT OUTDENT
+    terminator  NEWLINE
+
 # How editors colour Rig: `nexus --highlight all rig.grammar editors`
 # writes editors/ from this (editors/README.md). Words the lang module
 # classifies by place (`new`, `obj`, `of`, the markers) and the sigils,

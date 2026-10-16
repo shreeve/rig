@@ -9,6 +9,10 @@ expect_has "$out" "Usage:" "help"
 
 out=$("$RIG" --version 2>/dev/null); expect_rc $? 0 "--version"
 [[ "$out" =~ ^rig\ [0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "--version printed [$out]"
+for v in -V version; do
+  out2=$("$RIG" $v 2>/dev/null); expect_rc $? 0 "$v"
+  [[ "$out2" == "$out" ]] || fail "$v printed [$out2], --version printed [$out]"
+done
 
 out=$("$RIG" 2>&1); expect_rc $? 2 "no arguments"
 expect_has "$out" "Usage:" "no arguments"

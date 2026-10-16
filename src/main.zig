@@ -19,6 +19,7 @@ const emit_facts = @import("facts.zig");
 const modules = @import("modules.zig");
 const sema = @import("sema.zig");
 const proofs = @import("proofs.zig");
+const lsp = @import("lsp.zig");
 
 const usage =
     \\Rig: a systems language with visible ownership, compiled to Zig.
@@ -26,6 +27,7 @@ const usage =
     \\Usage: rig <command> [options] <file.rig>
     \\       rig run [options] <file.rig> -- <program arguments>
     \\       rig clean
+    \\       rig lsp
     \\
     \\Commands:
     \\  check     Check the program and its imports
@@ -34,6 +36,8 @@ const usage =
     \\  test      Check, build, and run the program's `test` blocks
     \\  emit      Check, then print the root module's Zig to stdout
     \\  clean     Remove the programs rig built in its cache (see RIG_OUT_DIR)
+    \\  lsp       Serve the language server protocol on stdin and stdout, for
+    \\            an editor (editors/README.md)
     \\
     \\Options:
     \\  --tests                Check what `rig test` builds: for a directory
@@ -63,7 +67,7 @@ const usage =
     \\                         debug, leak-checked.
     \\  -o <path>              Executable to write (build; default ./<name>)
     \\  -h, --help             Show this help
-    \\  --version              Show the version
+    \\  -V, --version          Show the version
     \\
     \\Debugging the compiler:
     \\  tokens     Dump the token stream
@@ -200,6 +204,11 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const env: Env = .{ .map = init.environ_map };
     const args = try init.minimal.args.toSlice(allocator);
+    // `rig lsp` serves an editor until it says `exit`.
+    if (args.len > 1 and eql(args[1], "lsp")) {
+        for (args[2..]) |arg| if (!eql(arg, "--stdio")) usageError("`rig lsp` takes no arguments; it serves on stdin and stdout", .{});
+        std.process.exit(lsp.run(io, init.environ_map));
+    }
     const opts = parseArgs(io, args[@min(1, args.len)..]);
 
     switch (opts.command) {
@@ -282,7 +291,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
         if (eql(arg, "-h") or eql(arg, "--help") or (first and eql(arg, "help"))) {
             printOut(io, "{s}", .{usage});
             std.process.exit(0);
-        } else if (eql(arg, "--version") or (first and eql(arg, "version"))) {
+        } else if (eql(arg, "-V") or eql(arg, "--version") or (first and eql(arg, "version"))) {
             printOut(io, "rig {s}\n", .{build_options.version});
             std.process.exit(0);
         } else if (eql(arg, "--release") or eql(arg, "--release=safe")) {
@@ -1399,6 +1408,7 @@ test {
     _ = emit_facts;
     _ = sema;
     _ = proofs;
+    _ = lsp;
     _ = @import("ownership.zig");
     _ = @import("runtime.zig");
     _ = @import("nametable.zig");
