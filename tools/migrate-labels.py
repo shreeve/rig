@@ -158,6 +158,8 @@ def code_edits(src, code, strings):
     toks.sort()
     edits = []
     prev = "\n"        # the token before; "\n" at a line start
+    prev_end = 0        # where it ends
+    before = "\n"      # the token before that one
     after_label = False  # the token before is a statement's label
     nesting = 0
     header = None       # the bracket nesting of the `while` header being read
@@ -166,7 +168,7 @@ def code_edits(src, code, strings):
         a, b, t = toks[i]
         i += 1
         if t == "\n":
-            prev, after_label = "\n", False
+            before, prev, prev_end, after_label = prev, "\n", b, False
             if nesting == 0:
                 header = None
             continue
@@ -174,17 +176,24 @@ def code_edits(src, code, strings):
         after_label = False
         if t == ":":
             if header is not None and header == nesting:
-                header, prev = None, ":"  # the `while` step
+                header = None  # the `while` step
+                before, prev, prev_end = prev, ":", b
                 continue
-            jump = prev in JUMPS
+            # A keyword that the `:` touches names a member: a keyword
+            # argument inside ( ) (`f(break: 1)`), or a field at the start
+            # of a line (`break: Int`).
+            member = prev_end == a and NAME.fullmatch(prev) and (
+                nesting > 0 or (before == "\n" and src[b:b + 1] in (" ", "\t")))
+            jump = prev in JUMPS and not member
+            stmt_start = stmt_start and not member
             nxt = toks[i] if i < len(toks) else None
             if (jump or stmt_start) and nxt and NAME.fullmatch(nxt[2]) and src[b:nxt[0]].strip(" \t") == "":
                 edits.append((a, nxt[0], "@"))
                 after_label = not jump
-                prev = "label"
+                before, prev, prev_end = prev, "<label>", nxt[1]
                 i += 1
                 continue
-            prev = ":"
+            before, prev, prev_end = prev, ":", b
             continue
         if t in "([":
             nesting += 1
@@ -192,7 +201,7 @@ def code_edits(src, code, strings):
             nesting = max(0, nesting - 1)
         elif t == "while":
             header = nesting
-        prev = t
+        before, prev, prev_end = prev, t, b
     return edits
 
 
