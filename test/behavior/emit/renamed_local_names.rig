@@ -1,0 +1,54 @@
+# A local the emitted Zig renames, and the flag that guards its drop,
+# take names of the emitter's own (`__rig_local_get_3`,
+# `__rig_alive_4`), so no name of the program's can be one: not a later
+# local (`var_2`, `debug_2`), and not a generic type's parameter
+# (`get_1`). A root declaration named `err` is no capture of the
+# emitter's either.
+
+err = 100
+
+error E
+  bad
+
+fun take(s: String) -> Int
+  s.len
+
+fun go(c: Bool) -> Int
+  var = String("ab")
+  debug = String("xyz")
+  n = 0
+  if c
+    n += take(<var) + take(<debug)
+  var_2 = String("cde")
+  debug_2 = String("f")
+  if not c
+    n += take(<var_2) + take(<debug_2)
+  n
+
+obj G[get_1]
+  v: get_1
+
+  fun get(?self) -> Int
+    get = 5
+    get + 1
+
+enum K[T, get_1: Int]
+  aa(v: T)
+  bb
+
+  fun get(?self) -> Int
+    get = 5
+    get + get_1
+
+fun f(k: Int) -> Int!
+  if k > 0
+    return E.bad
+  k
+
+sub main()!
+  print(go(true), go(false), G[Int](v: 3).get(), K[Int, 10].bb.get())
+  print(err + f(0)!)
+
+# expect:
+# 5 4 6 15
+# 100
