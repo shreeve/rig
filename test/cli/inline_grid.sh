@@ -37,7 +37,7 @@ for mode in debug release; do
     # INLINE_GRID_FULL=1 (the full gates); a CI shard runs the debug ones.
     [[ $mode == release ]] && continue
     for f in reached_*.rig; do
-        out=$(rig run "$f" 2>&1) && fail "$mode $f should panic: $out"
+        out=$(RIG_NO_CRASH_REPORT=1 rig run "$f" 2>&1) && fail "$mode $f should panic: $out"
         expect_has "$out" "panic" "$mode $f"
     done
 done

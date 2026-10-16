@@ -23,7 +23,7 @@ check() {
         flag=""; [[ $mode == debug ]] || flag=--$mode
         exe=$name-${mode//=/-}
         rig build $flag -o "$exe" "$name.rig" >build.log 2>&1 || fail "build $name $mode: $(cat build.log)"
-        "./$exe" >out.txt 2>err.txt; rc=$?
+        RIG_NO_CRASH_REPORT=1 "./$exe" >out.txt 2>err.txt; rc=$?
         expect_rc $rc 134 "$name in $mode ($(head -c 300 err.txt))"
         expect_eq "$(cat out.txt)" "$want" "stdout of $name in $mode"
         expect_has "$(cat err.txt)" "$msg" "the message of $name in $mode"
@@ -196,7 +196,7 @@ test "index past the end"
 EOF
 for mode in debug release release=fast; do
     flag=""; [[ $mode == debug ]] || flag=--$mode
-    rig test $flag tpanic.rig >out.txt 2>err.txt; rc=$?
+    RIG_NO_CRASH_REPORT=1 rig test $flag tpanic.rig >out.txt 2>err.txt; rc=$?
     expect_rc $rc 134 "a panicking test in $mode ($(head -c 300 err.txt))"
     expect_has "$(cat out.txt)" "index past the end" "the panicking test named in $mode"
     expect_has "$(cat err.txt)" "panic: index out of bounds" "a panicking test's message in $mode"

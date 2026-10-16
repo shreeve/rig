@@ -1,0 +1,20 @@
+enum Light
+  red
+  amber
+
+K = "k\tv"
+E: String? = none
+U: U8 = 200
+NEGU: I8 = -3
+BIGU: U64 = 18446744073709551615
+FLAG = not false
+
+sub main()
+  print("a\nb", "\t|", "\u{e9}", "\\", "\"", 'raw\n', K)
+  print(U, NEGU, BIGU, FLAG, U.not())
+  print(1 << 62, -(1 << 62) * 2)
+  print(1_000_000, 0o17, 0xff_ff)
+  print(-9223372036854775807 - 1)
+  print(Light.red == Light.red, 1 == 1, "a" == "a")
+  print(1.0e10, 1e21, 1e22, 123456789.0, 0.1 + 0.2)
+  print('\u{e9}', '')
