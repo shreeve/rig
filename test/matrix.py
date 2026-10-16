@@ -3574,6 +3574,12 @@ def run_proof_built(path, keep, started_dir, expect, panic, flags, unguarded):
     outdir = path[:-4] + (".release" if flags else "") + ".out"
     started = os.path.join(started_dir, os.path.basename(path)[:-4] + "." + uuid.uuid4().hex)
     env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir, RIG_BUILD_STORE=STORE, RIG_RUN_STARTED=started)
+    # A cell that must panic runs with RIG_NO_CRASH_REPORT=1: no macOS
+    # crash report, and no Linux crash handler (apport), for its abort. Only
+    # the program reads it (rig.start), never the compile `rig run` does
+    # first; every other program runs without it, its crash reported.
+    if panic is not None:
+        env["RIG_NO_CRASH_REPORT"] = "1"
     try:
         r = run_capped([RIG, "run"] + flags + [path], env)
     except subprocess.TimeoutExpired:
@@ -4133,6 +4139,10 @@ VERDICT_CODE = (tree_rss, run_capped, run_capped_cpuq, find_cap, run_one, run_bu
 # cpuq names a file in CPUQ_PROGRESS where a run reports how far it has
 # got. Only this run writes it: the programs it runs never see it.
 PROGRESS = os.environ.pop("CPUQ_PROGRESS", None)
+# RIG_NO_CRASH_REPORT=1 keeps a crash from being reported; only the
+# `proof.` cells that must panic set it (run_proof_built), so no other
+# program inherits it from the caller.
+os.environ.pop("RIG_NO_CRASH_REPORT", None)
 
 
 class Progress:
