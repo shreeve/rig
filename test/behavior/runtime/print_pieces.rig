@@ -1,0 +1,55 @@
+# `print` writes its pieces in order: every argument runs before a byte
+# is written, so a call that prints inside an argument list prints its
+# line first; a failing argument writes nothing. Constant text, Ints and
+# Bools, the spaces between arguments, and the newline join into runs of
+# text; and `String(...)` and `!t.add(...)` take the same pieces with no
+# spaces.
+
+N = 7
+NAME = "rig"
+
+error E
+  bad
+
+fun side(n: Int) -> Int
+  print("side", n)
+  n * 10
+
+fun parse(ok: Bool) -> Int!
+  if not ok
+    return E.bad
+  5
+
+sub show(ok: Bool)!
+  print("before", side(1), parse(ok)!, side(2))
+
+sub main()
+  print("a", side(3), "b", side(4))
+  print(N, NAME, 1 + 2, -5, not true, 3 > 2, "x", N)
+  print()
+  print("")
+  print("", "", "|")
+  show(true) catch print("failed")
+  show(false) catch print("failed")
+  s = String("s", N, true, NAME, " ", side(5))
+  print(s)
+  t = String()
+  !t.add(s, "|", N, "|", NAME, "|", 2.5, "|", s)
+  print(t, String(), "|")
+
+# expect:
+# side 3
+# side 4
+# a 30 b 40
+# 7 rig 3 -5 false true x 7
+#
+#
+#   |
+# side 1
+# side 2
+# before 10 5 20
+# side 1
+# failed
+# side 5
+# s7truerig 50
+# s7truerig 50|7|rig|2.5|s7truerig 50  |
