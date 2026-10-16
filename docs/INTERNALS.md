@@ -265,7 +265,7 @@ records every operator spaced so that it could read as another form
 on one side only (`a <b`, `a- 1`), a postfix `?` or `!` apart from what
 it follows, a member `.` with whitespace beside it on its line, an enum
 literal's `.` apart from its name, and a range's `..` apart from its
-only bound. The label of a jump (`break :a !n`) ends no operand there.
+only bound. The label of a jump (`break @a !n`) ends no operand there.
 The Parser wrapper reports them, each with the text to write, once the
 source parses and the tree is rewritten, so a parse error, or a type's
 detached sigil, is the one reported.
@@ -276,7 +276,8 @@ detached sigil, is the one reported.
 | `\|\| body` vs `a \|\| b` | `BAR_EMPTY` vs an error | where an operand starts, an empty bar list; after a value, rejected with a hint (`or`, or `??` before a literal) |
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
 | `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
-| `while c : step` vs `?? break :outer`, `break :outer` | `STEP_COLON` vs `:` | the first `:` at a `while` header's bracket depth starts its step; any other `:` after a jump names a label, and the grammar takes a label after every `break` and `continue` |
+| `while c : step`, `while a ?? break : step` vs `:outer for`, `break :outer` | `STEP_COLON` vs an error | the first `:` at a `while` header's bracket depth starts its step, also right after a jump; anywhere else, a `:` that starts a statement or follows `break` or `continue` is a label in the old spelling, rejected with a hint (`colon_label`) |
+| `@outer for`, `break @outer`, `break @outer (x)` vs `@size(T)` | `LABEL_AT` vs `@` | `@` and a name that no `(` touches is a label where a statement starts or after `break` or `continue`, and the grammar takes one there; with the `(` touching the name it starts a builtin call, except right after a jump, where `@name` is always a label and the touching `(` is an error (`label_call`). The `@` touches the name (`label_detached`), a keyword is no label (`label_keyword`), and a bare `@name` anywhere else is the reserved pin sigil (`pin_sigil`) |
 | `a ?? return`, `?? break`, `?? continue` vs `a ?? b` | `NULLISH_JUMP` vs `??` | a `??` whose next token is `return`, `break`, or `continue` takes a jump; the grammar reads it at the level of `catch` (`value`), where a jump's value may run to the end of the expression, and the infix `??` never sees a jump |
 | keywords | one token each | every keyword is reserved; `new` only at statement start, `obj` only where a declaration starts, `called` and `rarely` only there before `fun` or `sub` |
 | `called fun g()`, `pub rarely sub s()` vs `called = 3`, `p.rarely`, `fun called()` | `CALLED`, `RARELY` vs `IDENT` | a marker is a keyword at the start of a statement (after any `pub`) when `fun` or `sub` follows it; a second marker before the `fun` is the lexer's `two_markers` error |

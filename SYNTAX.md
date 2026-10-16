@@ -992,12 +992,12 @@ A statement is one of:
   line of a closure that gives a value, a branch whose value is used),
   `<x` moves the value there;
 - `pass`, which does nothing;
-- `return`, `return e`, `break`, `break e`, `break :label`,
-  `continue`, `continue :label`;
+- `return`, `return e`, `break`, `break e`, `break @label`,
+  `break @label e`, `continue`, `continue @label`;
 - `defer` or `errdefer` with a statement or block (a one-line
   statement may not declare a name);
 - a `raw` block ([SPEC §15](SPEC.md#15-raw-code-and-ffi));
-- a labeled loop, `match`, or `raw` block, `:name stmt`.
+- a labeled loop, `match`, or `raw` block, `@name stmt`.
 
 ### if
 
@@ -1151,12 +1151,17 @@ has the rules. An `else` block runs when the loop ends without `break`.
 
 ### Labels, break, and continue
 
-`:name` before a loop labels it, and `break :name` or `continue :name`
+`@name` before a loop labels it, and `break @name` or `continue @name`
 names it from an inner loop. A `match` or `raw` statement may be
-labeled too, and `break :name` leaves it; no other statement takes a
-label, and none takes two. A jump after `??` or `catch`
-names a label the same way, `v = next() ?? continue :outer`, except in a
-`while` header, where the first `:` starts the step.
+labeled too, and `break @name` leaves it; no other statement takes a
+label, and none takes two. A jump after `??` or `catch` names a label
+the same way, `v = next() ?? continue @outer`, also in a `while`
+header: `while more() ?? break @outer : i += 1`.
+
+A label's `@` touches its name, and no `(` touches the name: `@size(T)`,
+with the `(` touching, asks the compiler about a type
+([§11](#calls)). After `break` or `continue`, `@name` is always a
+label, so `break @outer (x)` leaves `outer` with the value `(x)`.
 
 ```rig
 sub main()
@@ -1636,7 +1641,7 @@ A parameter's type, and the result's, may come from context;
 | Form | Meaning |
 |---|---|
 | `a ?? b` | the value in `a`, or `b` when `a` is `none` |
-| `a ?? return v`, `a ?? break`, `a ?? continue :outer` | the value in `a`, or leave |
+| `a ?? return v`, `a ?? break`, `a ?? continue @outer` | the value in `a`, or leave |
 | `a?` | the value in `a`, or return `none` from the function |
 | `f()!` | the value of `f()`, or propagate its failure |
 | `f() catch v` | the value of `f()`, or `v` when it fails |
@@ -1731,11 +1736,11 @@ cexp      = cunit (("+" | "-" | "*" | "/" | "%") cunit)+ | "(" cexp ")"
 cunit     = integer | name | name "." name | "(" cexp ")"
 
 block     = INDENT stmt* DEDENT
-stmt      = decl | ":" name stmt | simple ["if" value]
+stmt      = decl | "@" name stmt | simple ["if" value]
 simple    = tail | assign
           | name ":" type "=" tail | "const" name [":" type] "=" tail
           | "new" ["const"] name [":" type] "=" tail | "-" name | "pass"
-          | "return" [tail] | "break" [":" name] [tail] | "continue" [":" name]
+          | "return" [tail] | "break" ["@" name] [tail] | "continue" ["@" name]
           | ("defer" | "errdefer") (simple | block) | "raw" block
 assign    = postfix ("=" | "+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%="
                      | "*%=" | "+|=" | "-|=" | "&=" | "|=" | "^=" | "<<=" | "<<%="
@@ -1761,7 +1766,7 @@ bars      = "|" (name [":" type] | ("+" | "<" | "~" | "?" | "!") name), ... "|" 
 value     = logic "if" logic "else" value
           | logic "catch" ["|" name "|"] (value | jump)
           | logic "??" jump | logic
-jump      = "return" [value] | "break" [":" name] [value] | "continue" [":" name]
+jump      = "return" [value] | "break" ["@" name] [value] | "continue" ["@" name]
 logic     = logic "or" conj | conj
 conj      = conj "and" neg | neg
 neg       = "not" neg | infix "as" name | infix
