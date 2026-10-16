@@ -17,7 +17,7 @@ obj N
 
 enum E
   one(b: ^N)
-  none
+  nothing
 
 sub if_as()
   o: ^N? = ^N(v: 1)
@@ -45,8 +45,8 @@ sub match_place()
   e = E.one(b: ^N(v: 3))
   match e
     .one(n) => print(n.v)
-    .none => pass
-  e = E.none
+    .nothing => pass
+  e = E.nothing
 
 sub plain_copies()
   n: Int? = 4

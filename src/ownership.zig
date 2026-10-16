@@ -1913,9 +1913,13 @@ pub const Checker = struct {
             .param_index = if (self.func.binding_params and index < @bitSizeOf(sema.ParamMask)) @intCast(index) else null,
         }, .{});
         // Views handed in by the caller: an external loan on the param
-        // itself marks them as returnable and conflict-free.
+        // itself marks them as returnable and conflict-free. It is a
+        // write loan when the param holds a write view, as `!T` or
+        // inside an optional (`(!T)?`): whatever unwraps it writes
+        // through that loan to what the caller owns (`callerOwns`).
         if (ref != .none or (ty != null and self.mayCarryLoan(ty))) {
-            self.replaceFlow(id, .{ .loans = try self.oneLoan(.{ .root = id, .kind = if (ref == .write) .write else .read, .pos = pos, .ext = true }) });
+            const writes = ref == .write or self.carriesWriteView(ty);
+            self.replaceFlow(id, .{ .loans = try self.oneLoan(.{ .root = id, .kind = if (writes) .write else .read, .pos = pos, .ext = true }) });
         }
     }
 
@@ -3770,6 +3774,7 @@ pub const Checker = struct {
                 placed: bool,
                 value: Value = .{},
                 base: ?Value = null,
+                base_node: Sexp = .nil,
 
                 pub fn step(st: *@This(), s: storage.SetStep) Error!void {
                     switch (s.role) {
@@ -3784,6 +3789,7 @@ pub const Checker = struct {
                         // the store.
                         .base => if (!st.placed) {
                             st.base = try st.c.walk(s.node);
+                            st.base_node = s.node;
                         },
                         .index => _ = try st.c.walk(s.node),
                     }
@@ -3791,7 +3797,7 @@ pub const Checker = struct {
             };
             var steps: Steps = .{ .c = self, .set = node, .placed = self.resolvePlace(target) != null };
             try storage.eachSetStep(node, &steps);
-            return self.walkFieldAssign(target, steps.value, steps.base);
+            return self.walkFieldAssign(target, steps.value, steps.base, steps.base_node);
         }
 
         const pos = target.src.pos;
@@ -4023,7 +4029,7 @@ pub const Checker = struct {
         for (held.loans) |w| {
             if (w.kind != .write) continue;
             const r = self.vars.items[w.root];
-            if (!w.ext and !(r.kind == .param and r.ref != .none) and !self.isGlobal(w.root)) continue;
+            if (!w.ext and !self.callerOwns(w.root) and !self.isGlobal(w.root)) continue;
             for (value.loans) |l| if (self.isLocalLoan(l)) {
                 try self.err(pos, "cannot store a view of `{s}` through `{s}`: `{s}` outlives it", .{ self.vars.items[l.root].name, self.vars.items[id].name, r.name });
                 return;
@@ -4033,8 +4039,9 @@ pub const Checker = struct {
     }
 
     /// The store of `value` into `target`, once its steps have run
-    /// (`walkSet`); `base` is what a base that is no place gave.
-    fn walkFieldAssign(self: *Checker, target: Sexp, value: Value, base: ?Value) Error!void {
+    /// (`walkSet`); `base` is what a base that is no place, `base_node`,
+    /// gave.
+    fn walkFieldAssign(self: *Checker, target: Sexp, value: Value, base: ?Value, base_node: Sexp) Error!void {
         const place = self.resolvePlace(target) orelse {
             // A target whose path starts from a value no var holds is
             // reached through that value's write loans: what is stored
@@ -4044,7 +4051,7 @@ pub const Checker = struct {
             // in the Cell as one a name reaches is.
             if (self.inCellList(target)) return self.storeInCellList(target, value);
             if (value.loans.len == 0 or !self.mayCarryLoan(self.exprType(target))) return;
-            return self.storeThroughLend(lent, value, self.startOf(target));
+            return self.storeThroughLend(lent, value, self.startOf(target), if (base_node == .nil) null else self.spanText(base_node));
         };
         const id = place.root;
         const pos = self.startOf(target);
@@ -4092,9 +4099,10 @@ pub const Checker = struct {
     /// syntax that reaches it: a write receiver (`wrap(!h).keep(v)`,
     /// `(!a if c else !b).keep(v)`), or an assignment's target that no
     /// var holds (`(!h).r = v`, `wrap(!h).r = v`). Whatever its write
-    /// loans reach holds `stored`'s loans from here on.
-    fn storeThroughLend(self: *Checker, lent: Value, stored: Value, pos: u32) Error!void {
-        try self.absorbThroughWrites(lent, stored, pos, null, null);
+    /// loans reach holds `stored`'s loans from here on. `via` names
+    /// the write view an assignment stores through; a call has none.
+    fn storeThroughLend(self: *Checker, lent: Value, stored: Value, pos: u32, via: ?[]const u8) Error!void {
+        try self.absorbThroughWrites(lent, stored, pos, via, null);
     }
 
     /// `value`, which carries only loans the caller handed in, was stored
@@ -4449,7 +4457,7 @@ pub const Checker = struct {
                 if (self.mayCarryLoan(self.pointee(self.exprType(obj)))) {
                     const pos = self.startOf(obj);
                     const lent: Value = if (recv_root) |id| .{ .loans = try self.oneLoan(.{ .root = id, .path = recv_path, .kind = .write, .pos = pos }) } else recv_value;
-                    try self.storeThroughLend(lent, stored, pos);
+                    try self.storeThroughLend(lent, stored, pos, null);
                 }
             }
             // Only a value that can write leads a store: a write lend, or a
@@ -4777,7 +4785,7 @@ pub const Checker = struct {
                 if (std.mem.findScalar(VarId, seen.items, r) != null) continue;
                 try seen.append(self.arena(), r);
                 const c = self.vars.items[r];
-                if ((c.kind == .param and c.ref != .none) or self.isGlobal(r)) continue;
+                if (self.callerOwns(r) or self.isGlobal(r)) continue;
                 if (c.ref == .write) {
                     try self.appendWriteRoots(&level, self.varValue(r), seen.items);
                 } else if (remaining > 1) try self.appendWriteRoots(&next, self.varValue(r), seen.items);
@@ -4853,7 +4861,7 @@ pub const Checker = struct {
         }
         if (out.items.len == 0) return;
         const c = self.vars.items[id];
-        if ((c.kind == .param and c.ref != .none) or self.isGlobal(id)) {
+        if (self.callerOwns(id) or self.isGlobal(id)) {
             // The caller accounts for views it passed in; only views
             // of this function's own values cannot be stored. Nothing
             // viewed may be stored in a module-level binding.
@@ -4878,6 +4886,10 @@ pub const Checker = struct {
         f.loans = try self.unionLoans(held, out.items);
         try self.setFlow(id, f);
         if (!deeper or through.len > 16) return;
+        // Only a var that holds a write view writes what its write loans
+        // lead to. Any other keeps a write loan only as what it copied
+        // out through one (`k.a = r.s`): what is stored in it stays there.
+        if (c.ref != .write and !self.mayWrite(c.ty)) return;
         const next = try std.mem.concat(self.arena(), VarId, &.{ through, &.{id} });
         for (held) |l| {
             if (l.kind != .write or std.mem.findScalar(VarId, next, l.root) != null) continue;
@@ -4927,6 +4939,17 @@ pub const Checker = struct {
             try self.err(pos, "cannot store in `{s}` a view of `{s}`: a value never holds a view of itself", .{ into, viewed });
         } else try self.err(pos, "cannot let this call store a view of `{s}` in `{s}`: a value never holds a view of itself", .{ viewed, into });
         try self.noteLoan(l);
+    }
+
+    /// Whether var `id` is a parameter whose value is what the caller
+    /// lent: a view parameter (`?T`, `!T`), or one holding a write view
+    /// (`(!T)?`), which every unwrapping of it (`w?`, `w ?? e`,
+    /// `if <w as x`, a call's `!` or `catch`) writes through. A store
+    /// a write loan leads to on it lands in what the caller owns, which
+    /// outlives this function's own values.
+    fn callerOwns(self: *const Checker, id: VarId) bool {
+        const v = self.vars.items[id];
+        return v.kind == .param and (v.ref != .none or self.carriesWriteView(v.ty));
     }
 
     /// A loan on a value owned by the current function (as opposed to one

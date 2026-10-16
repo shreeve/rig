@@ -1,0 +1,14 @@
+# `Signal.get` needs a `T` that copies, and every `Signal[T]` already
+# holds only plain data: an instance the type rejects is reported where
+# it is spelled, and not again at a call of its methods.
+
+sub show(s: ?Signal[String])
+  print(s.get())
+  print(Signal[String].get(s))
+
+sub main()
+  print(0)
+
+# error: 5:14: `Signal[T]` requires `T` to be a value that copies
+# error: 7:9: `Signal[T]` requires `T` to be a value that copies
+# errors: 2

@@ -1,0 +1,11 @@
+sub set(w: (![]?String)?)
+  d = String("local")
+  src = [?d, ?d]
+  x = <w ?? return
+  !x.copy(?src[..])
+
+sub main()
+  t = String("outer")
+  a = [?t, ?t]
+  set(!a[..])
+  print(a)

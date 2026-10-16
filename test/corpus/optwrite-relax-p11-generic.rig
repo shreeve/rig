@@ -1,0 +1,17 @@
+obj K
+  a: ?String
+
+  sub put(!self, v: ?String)
+    self.a = v
+
+fun idv[T](x: T) -> T
+  x
+
+sub main()
+  t = String("outer")
+  k = K(a: ?t)
+  if true
+    w = idv(!k)
+    d = String("d1")
+    !w.put(?d)
+  print(k.a)

@@ -1,0 +1,21 @@
+obj H
+  s: ?String
+
+obj K
+  a: ?String
+  b: ?String
+
+  sub put(!self, v: ?String)
+    self.b = v
+
+sub set(w: (!H)?)
+  d = String("local")
+  k = K(a: (w ?? return).s, b: "")
+  !k.put(?d)
+  print(k.a, k.b)
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)

@@ -1,0 +1,22 @@
+obj K
+  a: ?String
+
+  sub put(!self, v: ?String)
+    self.a = v
+
+enum E
+  one(k: K)
+  nothing
+
+sub main()
+  t = String("outer")
+  e: E = .one(k: K(a: ?t))
+  match !e
+    .one(k: x)
+      w = !x
+      d = String("local")
+      !w.put(?d)
+    .nothing => pass
+  match e
+    .one(k: y) => print(y.a)
+    .nothing => pass

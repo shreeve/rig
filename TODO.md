@@ -76,10 +76,13 @@ started:
   today): the tag from the stored bits up to 2^25 slots, and from the
   top of the whole hash, recomputed from the keys, past that. It
   matched the 8-byte version's speed; it saves 4 bytes an entry.
-- Zig-backed List methods should declare the copy requirement in their
-  signature (`get`, `List.filled`, and `resize` need an element that
-  copies), instead of typecheck's `listCopies` switching on their
-  names.
+- A built-in generic named through a module agrees on both sides: as
+  an expression, `lib.List[Int].filled(2, 3)` reaches the local `List`,
+  while as a type, `lib.List[String]` is reported as "`lib.List` is not
+  public".
+- Generic inference looks through a box as a method call does: with
+  `bx: ^List[P]`, `first(?bx)` (`first[T](xs: ?List[T])`) is a type
+  mismatch, though `first[P](?bx)` is accepted.
 - An unwrap of an optional that traps when it is `none`. `std.hash`'s
   `Map.ensure` reaches its value, which is never `none` there, with a
   `while true` whose only exit is a `return`; the unwrap would replace it.

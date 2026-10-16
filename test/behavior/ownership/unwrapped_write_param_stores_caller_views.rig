@@ -1,0 +1,59 @@
+# A `(!H)?` parameter's write view, unwrapped any way, may store what
+# the caller lent or what lives for the whole program.
+
+obj H
+  s: ?String
+  items: List[?String]
+
+  sub keep(!self, v: ?String)
+    self.s = v
+
+error E
+  bad
+
+fun must(w: (!H)?) -> (!H)!
+  <w ?? return E.bad
+
+fun prop(w: (!H)?, v: ?String) -> Int?
+  w?.s = v
+  0
+
+sub nullish(w: (!H)?, v: ?String)
+  (w ?? return).s = v
+  !(<w ?? return).items.push(v)
+
+sub header(w: (!H)?, v: ?String)
+  if <w as x
+    x.s = v
+    !x.keep(v)
+    !x.items.push(v)
+
+sub fallible(w: (!H)?)
+  (must(<w) catch return).s = "static"
+
+fun passed(w: (!H)?) -> (!H)?
+  x = <w ?? return none
+  x.s = "passed"
+  x
+
+sub main()
+  t = String("outer")
+  u = String("new")
+  h = H(s: ?t, items: List())
+  print(prop(!h, ?u), h.s)
+  nullish(!h, ?t)
+  print(h.s)
+  header(!h, ?u)
+  print(h.s, h.items)
+  fallible(!h)
+  print(h.s)
+  if passed(!h) as y
+    y.s = "after"
+  print(h.s)
+
+# expect:
+# 0 new
+# outer
+# new ["outer", "new"]
+# static
+# after

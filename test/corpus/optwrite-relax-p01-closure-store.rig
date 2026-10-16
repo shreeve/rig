@@ -1,0 +1,11 @@
+obj H
+  s: ?String
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  if true
+    d = String("local")
+    f = |!h, v: ?String| h.s = v
+    f(?d)
+  print(h.s)

@@ -1518,3 +1518,51 @@ The x86 checks in "SIMD first on x86, and the tape in a local" and "A
 number's first digits a byte at a time" ran on burst, a shared cloud VM
 that cpuq reserves for throughput, not timing: read them as indicative.
 x86 timing runs on pup under the `pup-bench` lease.
+
+## One read for a plain string
+
+`Doc.string` decides the common case, an ASCII string that ends at its
+closing quote, with one guarded read of the next 16 bytes. Every other
+string moves into a new inline `string_rest`; `plain` is unchanged. This
+removes `plain`'s second read of the stop byte, which was 8.1% of
+twitter's instructions in a pup perf profile of main at 11f1e3bf6.
+
+The honest harness, against main, MB/s.
+
+Mac (Apple silicon), in a cpuq exclusive window:
+
+| file | main | one read | change |
+|---|---:|---:|---|
+| twitter | 3393 | 3512 | 3.5% faster |
+| twitterescaped | 3051 | 3166 | 3.8% faster |
+| canada | 2063 | 2082 | 0.9% faster |
+| citm_catalog | 4178 | 4150 | 0.7% slower |
+| gsoc-2018 | 8233 | 8310 | 0.9% faster |
+| github_events | 4069 | 4124 | 1.4% faster |
+
+pup (Intel Core Ultra 9 185H, x86_64), under `cpuq lease pup-bench
+--exclusive`, with 2.6 CPUs of outside work:
+
+| file | main | one read | change |
+|---|---:|---:|---|
+| twitter | 2756 | 2875 | 4.3% faster |
+| twitterescaped | 2209 | 2380 | 7.7% faster |
+| canada | 1287 | 1310 | 1.8% faster |
+| citm_catalog | 2900 | 2988 | 3.0% faster |
+| gsoc-2018 | 5775 | 5734 | 0.7% slower |
+| github_events | 3220 | 3361 | 4.4% faster |
+
+Instructions retired, in the same runs: twitter and twitterescaped 7.6%
+to 7.7% fewer, github_events 3.9%, citm_catalog 2.1%, gsoc-2018 1.7%,
+canada level. `bench/json/guard.py` on the Mac (`rig-safe`, per byte)
+counts twitter 8.6418 to 7.8445 (9.2% fewer), twitterescaped 10.2310 to
+9.3549 (8.6%), canada 16.0315 to 15.9260 (0.7%), citm_catalog 8.1676 to
+7.9841 (2.2%), gsoc-2018 3.5823 to 3.4543 (3.6%), github_events 7.3151 to
+7.0332 (3.9%); `guard.txt` holds the new baseline.
+
+It passes the speed rule on both machines: the two slower results (Mac
+citm_catalog, x86 gsoc-2018) are each 0.7% slower, and each of those
+files is faster on the other machine. A review compared main and the
+branch on 65,285 generated inputs (truncations, substitutions, strings padded across the
+8- and 16-byte boundaries, and 60,000 mutants) under `RIG_SANITIZE=1`:
+the output was byte-identical.

@@ -6,7 +6,7 @@ obj B
 
 enum Pair
   two(a: *B, b: *B)
-  none
+  nothing
 
 sub keep(b: *B)
   print("kept", b.n)
@@ -17,7 +17,7 @@ fun pick(p: Pair, first: Bool) -> *B
       if first
         return <a
       <b
-    .none => *B(n: 0)
+    .nothing => *B(n: 0)
 
 sub main()
   i = 0
@@ -29,7 +29,7 @@ sub main()
           keep(<a)
         else
           keep(<b)
-      .none => print("none")
+      .nothing => print("none")
     i += 1
   x = pick(.two(a: *B(n: 50), b: *B(n: 51)), true)
   y = pick(.two(a: *B(n: 60), b: *B(n: 61)), false)
@@ -38,6 +38,6 @@ sub main()
   q2 = match <q
     .two(a, b) if a.n > 100 => <a
     .two(a, b) => <b
-    .none => *B(n: 0)
+    .nothing => *B(n: 0)
   print(q2.n)
   print("end")

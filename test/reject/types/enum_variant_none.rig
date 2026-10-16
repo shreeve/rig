@@ -1,0 +1,35 @@
+# A variant cannot be named `none`: `.none` would read as `none`, the
+# absent value of an optional, and in a `K?` could be taken for it. The
+# variant is still declared, so each use of it below (a field default,
+# a binding, a match arm, a comparison, an argument, a return, and
+# `K.none` written out) draws no further error.
+
+enum K
+  none = 0
+  some = 1
+
+obj Box
+  k: K = .none
+
+fun id(k: K) -> K
+  k
+
+fun mk() -> K
+  .none
+
+sub main()
+  b = Box()
+  print(Int(b.k))
+  k: K = .none
+  match k
+    .none => print("n")
+    .some => print("s")
+  print(k == .none)
+  print(Int(id(.none)))
+  print(Int(mk()))
+  print(Int(K.none))
+  o: K? = .none
+  print(o)
+
+# error: 8:3: a variant cannot be named `none`: `none` is the absent value of an optional
+# errors: 1

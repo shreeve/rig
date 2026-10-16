@@ -5,7 +5,7 @@
 # `w.r` (`rig.viewedPtr`) makes sound.
 enum Opt[T]
   some(v: T)
-  none
+  nothing
 
 obj V[T]
   r: ?Opt[T]
@@ -13,7 +13,7 @@ obj V[T]
 fun get[T](w: ?V[T], d: ?T) -> ?T from w, d
   match w.r
     .some(v) => ?v
-    .none => d
+    .nothing => d
 
 fun getg[T](w: ?V[T], d: ?T) -> ?T from w, d
   match w.r

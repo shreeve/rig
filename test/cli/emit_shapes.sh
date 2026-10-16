@@ -47,7 +47,7 @@ EOF
 out=$("$RIG" emit fallible.rig 2>/dev/null) || fail "rig emit fallible.rig"
 expect_has "$out" 'try rig.rt(bar())' "propagate"
 expect_has "$out" 'pub inline fn foo() anyerror!i64' "fallible return type"
-expect_has "$out" 'rig.onOwnStack(__rig_run_main, .{__rig_init}) catch |err| rig.failMain(err);' "fallible main"
+expect_has "$out" 'rig.onOwnStack(__rig_run_main, .{__rig_init}) catch |__rig_failed| rig.failMain(__rig_failed);' "fallible main"
 expect_has "$out" 'fn __rig_run_main(__rig_init: std.process.Init.Minimal) anyerror!void' "fallible main body"
 
 cat >names.rig <<'EOF'
@@ -137,7 +137,7 @@ grep -qE '__rig_recv_[0-9]+ = &\(rig\.keep\(' <<<"$out" || fail "kept receiver n
 cat >generic.rig <<'EOF2'
 enum Opt[T]
   some(v: T)
-  none
+  nothing
 
   fun all(?self) -> Int
     match self
@@ -160,7 +160,7 @@ expect_has "$out" 'switch (rig.viewedPtr(__rig_Self, &self).*)' "generic subject
 cat >viewfield.rig <<'EOF2'
 enum Opt[T]
   some(v: T)
-  none
+  nothing
 
 obj V[T]
   r: ?Opt[T]
@@ -171,7 +171,7 @@ fun look[T](x: ?T) -> Int
 fun f[T](w: ?V[T]) -> Int
   match w.r
     .some(v) => look(?v)
-    .none => 0
+    .nothing => 0
 
 fun g[T](w: ?V[T]) -> Int
   match w.r
@@ -185,7 +185,7 @@ fun h[T](a: ?Opt[T], b: ?Opt[T]) -> Int
     _ => 0
   m = match arr[0]
     .some(v) => look(?v)
-    .none => 0
+    .nothing => 0
   n + m
 
 sub main()

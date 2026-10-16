@@ -1,0 +1,16 @@
+obj H
+  s: ?String
+
+sub set(w: (!H)?)
+  d = String("local")
+  l: List[?String] = List()
+  if w as r
+    !l.push(r.s)
+  !l.push(?d)
+  print(l)
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)

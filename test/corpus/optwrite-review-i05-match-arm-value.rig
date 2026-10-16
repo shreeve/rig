@@ -1,0 +1,16 @@
+obj H
+  s: ?String
+
+sub set(w: (!H)?, c: Bool)
+  d = String("local")
+  v = match c
+    true => ?d
+    false => "x"
+  x = <w ?? return
+  x.s = v
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h, true)
+  print(h.s)

@@ -1,6 +1,6 @@
 pub enum Opt[T]
   some(value: T)
-  none
+  nothing
 
 pub enum Tag[T]
   on

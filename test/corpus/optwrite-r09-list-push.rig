@@ -1,0 +1,11 @@
+obj H
+  items: List[?String]
+
+sub set(w: (!H)?)
+  d = String("local")
+  !(w ?? return).items.push(?d)
+
+sub main()
+  h = H(items: List())
+  set(!h)
+  print(h.items)

@@ -1,6 +1,6 @@
 enum Opt[T]
   some(v: T)
-  none
+  nothing
 
 sub f[T](o: !Opt[T], x: T)
   match !o
@@ -8,7 +8,7 @@ sub f[T](o: !Opt[T], x: T)
       s = ?v
       v = <x
       print(s)
-    .none => pass
+    .nothing => pass
 
 sub main()
   o = Opt.some(String("hello"))

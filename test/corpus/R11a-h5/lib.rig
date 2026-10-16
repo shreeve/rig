@@ -3,7 +3,7 @@ pub obj Wrap[T]
 
 pub enum Opt[T]
   some(value: T)
-  none
+  nothing
 
 pub obj Ring[T, n: Int]
   items: [n]T
@@ -21,7 +21,7 @@ pub fun nest(x: Int) -> Wrap[Wrap[Int]]
   Wrap(v: Wrap(v: x))
 
 pub fun opt(x: Int) -> Opt[Int]
-  .some(value: x) if x > 0 else .none
+  .some(value: x) if x > 0 else .nothing
 
 pub fun ring4() -> Ring[Int, 4]
   Ring(items: [1, 2, 3, 4])

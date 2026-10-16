@@ -1,0 +1,15 @@
+obj H
+  s: ?String
+
+fun id[T](v: T) -> T
+  v
+
+sub set(w: (!H)?)
+  d = String("local")
+  (w ?? return).s = id(?d)
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)

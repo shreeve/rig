@@ -1,0 +1,25 @@
+# A List in the value a `(!H)?` parameter views is the caller's: a
+# push, or an element's store, of a view of a local is rejected.
+
+obj H
+  items: List[?String]
+
+sub pushed(w: (!H)?)
+  d = String("local")
+  if <w as x
+    !x.items.push(?d)
+
+sub element(w: (!H)?)
+  d = String("local")
+  (w ?? return).items[0] = ?d
+
+sub main()
+  h = H(items: List())
+  !h.items.push("x")
+  pushed(!h)
+  element(!h)
+  print(h.items)
+
+# errors: 2
+# error: 10:5: cannot let this call store a view of `d` in `w`: `w` outlives it
+# error: 14:3: cannot store a view of `d` through `w ?? return`: `w` outlives it

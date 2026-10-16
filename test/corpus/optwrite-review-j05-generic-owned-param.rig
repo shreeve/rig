@@ -1,0 +1,8 @@
+sub stash[T](w: (!List[?T])?, v: T)
+  x = <w ?? return
+  !x.push(?v)
+
+sub main()
+  l: List[?String] = List()
+  stash(!l, String("gone"))
+  print(l)

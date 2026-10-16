@@ -113,7 +113,11 @@ const SymbolResolver = struct {
             .@"struct" => try self.walkNominalType(sexp, .{ .unique = ir.Struct.unique(sexp) != .nil }),
             .@"enum" => try self.walkNominalType(sexp, .{}),
             .errors => try self.walkNominalType(sexp, .{ .error_set = true }),
-            .@"extern", .extern_fun, .extern_sub => _ = try self.declare(ir.get(sexp, .name), .@"extern", .{}),
+            .@"extern", .extern_fun, .extern_sub => {
+                const name_node = ir.get(sexp, .name);
+                _ = try self.declare(name_node, .@"extern", .{});
+                try self.checkExternName(name_node);
+            },
             // A Zig-backed constant: known at compile time, to Zig alone.
             .zig_const => _ = try self.declare(ir.ZigConst.name(sexp), .local, .{ .fixed = true, .comptime_known = true, .per_target = true }),
             .zig_extern => {
@@ -385,6 +389,15 @@ const SymbolResolver = struct {
         try self.checkShadowsDeclaration(name_node, "parameter");
     }
 
+    /// Reports a C declaration whose name the emitted Zig cannot keep
+    /// (`rig.zigRenames`: `std`, `rig`, `panic`, `debug`, `__rig*`):
+    /// the linker finds a C name only as it is spelled.
+    fn checkExternName(self: *SymbolResolver, name_node: Sexp) Error!void {
+        const name = identAt(self.ctx.source, name_node) orelse return;
+        if (!rig.zigRenames(name)) return;
+        try self.ctx.err(srcPos(name_node, 0), "a C declaration cannot be named `{s}`: the Zig that Rig writes uses that name itself, and C links a name only as it is spelled", .{name});
+    }
+
     /// `use NAME`, `use a.b.NAME`, or either `as ALIAS`: the module's
     /// symbol is named by the alias, else the path's last name. It binds
     /// that name in its own file only (`SemContext.fileModule`), so it is
@@ -396,6 +409,8 @@ const SymbolResolver = struct {
         const name = identAt(self.ctx.source, name_node) orelse return;
         const pos = srcPos(name_node, 0);
         const file = sema.fileIndex(self.ctx.parts, pos);
+        // As for any binding (`declare`): `none` is the absent optional.
+        if (std.mem.eql(u8, name, "none")) try self.ctx.err(pos, "`none` is the absent optional and cannot name a module; name it with `as`: `use ... as other`", .{});
         if (self.ctx.fileModule(name, pos)) |prev| {
             try self.ctx.err(pos, "two imports bind the name `{s}`; name one of them with `as`: `use ... as other`", .{name});
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` first imported here", .{name});
@@ -1464,6 +1479,7 @@ pub const TypeResolver = struct {
                         try self.ctx.err(s.pos, "field `{s}` needs a type (`{s}: T`)", .{ vname, vname });
                         continue;
                     }
+                    try self.noneMember(head, vname, s.pos);
                     if (try self.reservedEnumMember(plain_enum, vname, s.pos)) continue;
                     if (try self.checkDuplicateMember(&names, vname, s.pos, sym_name)) continue;
                     const value = if (plain_enum) try self.enumValue(&values, m, null) else null;
@@ -1498,6 +1514,7 @@ pub const TypeResolver = struct {
                             } else if (!plain_enum) {
                                 try self.ctx.errAt(ir.Valued.value(m), "{s} cannot give its variants values; only a plain enum can", .{if (generic) "a generic enum" else "an enum with payload variants"});
                             }
+                            try self.noneMember(head, vname, vpos);
                             if (try self.reservedEnumMember(plain_enum, vname, vpos)) continue;
                             if (try self.checkDuplicateMember(&names, vname, vpos, sym_name)) continue;
                             const value = if (plain_enum) try self.enumValue(&values, name_node, ir.Valued.value(m)) else null;
@@ -1508,6 +1525,7 @@ pub const TypeResolver = struct {
                                 try self.ctx.errAt(m, "only enums declare payload variants", .{});
                                 continue;
                             }
+                            try self.noneMember(head, identAt(self.ctx.source, ir.Variant.name(m)).?, ir.Variant.name(m).src.pos);
                             try self.resolveVariant(m, &fields, &names, sym_name);
                         },
                         .fun, .sub => {
@@ -1699,6 +1717,16 @@ pub const TypeResolver = struct {
             },
         }
         return null;
+    }
+
+    /// Reports a variant or error named `none`, declared at `pos` in a
+    /// nominal of kind `head`: `.none` would read as `none`, the absent
+    /// value of an optional, and in a `T?` of the enum could be taken
+    /// for it. The member is still declared, so its uses draw no
+    /// further errors.
+    fn noneMember(self: *TypeResolver, head: Tag, name: []const u8, pos: u32) Error!void {
+        if (!std.mem.eql(u8, name, "none")) return;
+        try self.ctx.err(pos, "{s} cannot be named `none`: `none` is the absent value of an optional, and `.none` would read as it; choose another name", .{if (head == .errors) "an error" else "a variant"});
     }
 
     /// Whether `name`, declared at `pos` in an enum (`plain` when it has
@@ -2684,6 +2712,37 @@ pub fn isNumericTypeName(name: []const u8) bool {
 
 const builtin_pos = sema.builtin_decl_pos;
 
+// What the built-in methods that copy a `T` need of it: a `T` that
+// copies (docs/CORE.md: sentence 1, for a copy out of what a method
+// keeps; §5, "Only a value that copies is duplicated without `+`").
+
+/// `c.get()` hands out a copy of the Cell's value.
+const cell_get: sema.Needs = .{ .t = .copies, .op = "copies out with `Cell.get` a value", .says = .{
+    .value_out = "write `(!cell).replace(<new)`, which puts `new` in and hands back the old value",
+} };
+
+/// `xs.get(i)` hands out a copy of an element.
+const list_get: sema.Needs = .{ .t = .copies, .op = "copies an element out of a List", .says = .{
+    .element_out = "read it in place with `v[i]`, or lend it with `?v[i]`",
+} };
+
+/// `List.filled(n, x)` writes a copy of `x` into every element.
+const list_filled: sema.Needs = .{ .t = .copies, .op = "copies into every element of `List.filled` a value", .says = .{
+    .into_elements = .{ .what = "`List.filled` copies its value into every element", .loop = "`for 0..n` with `!xs.push(+x)`" },
+} };
+
+/// `!xs.resize(n, x)` writes a copy of `x` into every element it adds.
+/// The element type decides, so a call that only shrinks needs it too.
+const list_resize: sema.Needs = .{ .t = .copies, .op = "copies into every element `resize` adds a value", .says = .{
+    .into_elements = .{ .what = "`resize` copies its value into every element it adds", .loop = "`for xs.len..n` with `!xs.push(+x)`", .tail = "; `!xs.keep(n)` shrinks any List" },
+} };
+
+/// `s.get()` hands out a copy of the Signal's value, which every
+/// `Signal[T]` holds as plain data (`builtinElementError`).
+const signal_get: sema.Needs = .{ .t = .copies, .op = "copies out with `Signal.get` a value", .says = .{
+    .value_out = "a `Signal` holds only plain data",
+} };
+
 pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     // Cell[T]: the slot a shared handle shares. What changes it takes
     // `!self`, so a call marks the change: `!c.set(5)`.
@@ -2695,10 +2754,10 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const write_self = try ctx.intern(.{ .write_view = g.self_ty });
         try setFields(ctx, g.sym, &.{
             .{ .name = "value", .ty = t, .decl_pos = builtin_pos },
-            try method(ctx, "get", .read, &.{self_ty}, t),
-            try method(ctx, "set", .write, &.{ write_self, t }, ctx.types.void_id),
+            try method(ctx, "get", .read, &.{self_ty}, t, &cell_get),
+            try method(ctx, "set", .write, &.{ write_self, t }, ctx.types.void_id, null),
             // Swap in a new value and return the old one as owned.
-            try method(ctx, "replace", .write, &.{ write_self, t }, t),
+            try method(ctx, "replace", .write, &.{ write_self, t }, t, null),
         });
     }
 
@@ -2711,17 +2770,17 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const write_self = try ctx.intern(.{ .write_view = g.self_ty });
         const opt_t = try ctx.intern(.{ .optional = t });
         try setFields(ctx, g.sym, &.{
-            try method(ctx, "push", .write, &.{ write_self, t }, ctx.types.void_id),
-            try method(ctx, "clear", .write, &.{write_self}, ctx.types.void_id),
-            try method(ctx, "keep", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id),
-            try method(ctx, "reserve", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id),
-            try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t),
-            try method(ctx, "pop", .write, &.{write_self}, opt_t),
-            try method(ctx, "insert", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id),
-            try method(ctx, "remove", .write, &.{ write_self, ctx.types.int_id }, t),
-            try method(ctx, "resize", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id),
+            try method(ctx, "push", .write, &.{ write_self, t }, ctx.types.void_id, null),
+            try method(ctx, "clear", .write, &.{write_self}, ctx.types.void_id, null),
+            try method(ctx, "keep", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
+            try method(ctx, "reserve", .write, &.{ write_self, ctx.types.int_id }, ctx.types.void_id, null),
+            try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t, &list_get),
+            try method(ctx, "pop", .write, &.{write_self}, opt_t, null),
+            try method(ctx, "insert", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id, null),
+            try method(ctx, "remove", .write, &.{ write_self, ctx.types.int_id }, t, null),
+            try method(ctx, "resize", .write, &.{ write_self, ctx.types.int_id, t }, ctx.types.void_id, &list_resize),
             // `List.filled(n, x)`: called through the type.
-            try method(ctx, "filled", .none, &.{ ctx.types.int_id, t }, g.self_ty),
+            try method(ctx, "filled", .none, &.{ ctx.types.int_id, t }, g.self_ty, &list_filled),
         });
     }
 
@@ -2735,7 +2794,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const t = g.params[0];
         try setFields(ctx, g.sym, &.{
             .{ .name = "value", .ty = t, .decl_pos = builtin_pos },
-            try method(ctx, "unbox", .value, &.{g.self_ty}, t),
+            try method(ctx, "unbox", .value, &.{g.self_ty}, t, null),
         });
     }
 
@@ -2799,9 +2858,9 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const closure_handle = try ctx.intern(.{ .shared = callback });
         try setFields(ctx, g.sym, &.{
             .{ .name = "value", .ty = t, .decl_pos = builtin_pos },
-            try method(ctx, "get", .read, &.{self_ty}, t),
-            try method(ctx, "set", .write, &.{ write_self, t }, ctx.types.void_id),
-            try method(ctx, "subscribe", .write, &.{ write_self, closure_handle }, ctx.types.void_id),
+            try method(ctx, "get", .read, &.{self_ty}, t, &signal_get),
+            try method(ctx, "set", .write, &.{ write_self, t }, ctx.types.void_id, null),
+            try method(ctx, "subscribe", .write, &.{ write_self, closure_handle }, ctx.types.void_id, null),
         });
     }
 }
@@ -2844,13 +2903,16 @@ fn addGeneric(ctx: *SemContext, named_in: ?ScopeId, module_scope: ScopeId, name:
     return .{ .sym = sym, .params = param_tys, .self_ty = self_ty };
 }
 
-fn method(ctx: *SemContext, name: []const u8, receiver: MethodReceiver, params: []const TypeId, returns: TypeId) Error!Field {
+/// A built-in method, with what it needs of its type's parameter `T`
+/// (`sema.Needs`), or null when it needs nothing: every method that
+/// copies a `T`, out of what it keeps or into elements it makes, says so.
+fn method(ctx: *SemContext, name: []const u8, receiver: MethodReceiver, params: []const TypeId, returns: TypeId, needs: ?*const sema.Needs) Error!Field {
     const ty = try ctx.intern(.{ .function = .{
         .params = try ctx.dupeIds(params),
         .returns = returns,
         .is_sub = returns == ctx.types.void_id,
     } });
-    return .{ .name = name, .ty = ty, .decl_pos = builtin_pos, .is_method = true, .receiver = receiver };
+    return .{ .name = name, .ty = ty, .decl_pos = builtin_pos, .is_method = true, .receiver = receiver, .needs = needs };
 }
 
 fn setFields(ctx: *SemContext, sym: SymbolId, fields: []const Field) Error!void {
@@ -2866,6 +2928,23 @@ test "builtins: registered with methods" {
     try std.testing.expectEqual(ctx.list_sym_id, list);
     try std.testing.expectEqual(@as(usize, 10), ctx.symbols.items[list].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
+}
+
+test "builtins: a method that declares needs is a generic type's, with a T" {
+    var ctx = try SemContext.init(std.testing.allocator, "");
+    defer ctx.deinit();
+    const scope = try ctx.pushScopeKind(sema.scope_invalid, .module);
+    try registerBuiltins(&ctx, scope);
+    var declared: usize = 0;
+    for (ctx.symbols.items) |sym| for (sym.fields orelse &.{}) |f| if (f.needs != null) {
+        // `meetsNeeds` reads `T` from the type's arguments at the call.
+        try std.testing.expect(f.is_method);
+        try std.testing.expectEqual(sema.SymbolKind.generic_type, sym.kind);
+        try std.testing.expect(sym.type_params != null and sym.type_params.?.len >= 1);
+        declared += 1;
+    };
+    // `Cell.get`, `List.get`, `List.filled`, `List.resize`, `Signal.get`.
+    try std.testing.expectEqual(@as(usize, 5), declared);
 }
 
 /// A type a compile-time argument can have: one written as a literal,

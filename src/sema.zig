@@ -630,6 +630,33 @@ pub const SymbolFlags = packed struct(u16) {
 /// How a method takes its receiver, from the declared first parameter.
 pub const MethodReceiver = enum { none, read, write, value };
 
+/// What a built-in method needs of its type's parameter `T`, declared in
+/// its entry of `resolve.registerBuiltins` and checked at every call,
+/// `xs.m(...)` and `List.m(xs, ...)` alike: the call's `T` must meet `t`.
+/// Inside a generic body, a `T` that may or may not meet it makes the
+/// requirement one on each instance, as a Rig-written generic's use does
+/// (`Requirement.copies`).
+pub const Needs = struct {
+    t: enum { copies },
+    /// What the method does with a `T`, as the note of a generic body
+    /// whose instance fails says it.
+    op: []const u8,
+    /// How the diagnostic of a call whose `T` fails says it.
+    says: union(enum) {
+        /// The method hands out a copy of an element it keeps; `advice`
+        /// reaches the element instead.
+        element_out: []const u8,
+        /// The method hands out a copy of the one value it keeps;
+        /// `advice` takes it out instead.
+        value_out: []const u8,
+        /// The method writes copies of a value it leaves in place into
+        /// the elements it makes (`Checker.notDuplicated`): `what` it
+        /// copies, and the loop, followed by `tail`, that makes each
+        /// element with `+x` instead.
+        into_elements: struct { what: []const u8, loop: []const u8, tail: []const u8 = "" },
+    },
+};
+
 /// A member of a nominal type: data field, method, or enum variant.
 pub const Field = struct {
     name: []const u8,
@@ -652,6 +679,8 @@ pub const Field = struct {
     param_defaults: ?[]const ?Sexp = null,
     /// A method: which arguments a call passes loans on from.
     origins: Origins = .{},
+    /// A built-in method: what it needs of its type's parameter `T`.
+    needs: ?*const Needs = null,
     /// A plain enum's variant: its integer value, declared or implicit.
     value: ?Wide = null,
     /// A field or method declared `pub`, which other modules may use.
@@ -6497,6 +6526,9 @@ pub const ResolvedMethod = struct {
     /// The method's signature with the receiver's generic arguments applied.
     fn_ty: FunctionType,
     nominal_sym: SymbolId,
+    /// The receiver's generic arguments: those of the type that declares
+    /// the method, reached through any views, handles, and boxes.
+    subst: TypeSubst,
 };
 
 pub const ResolvedVariant = struct {
@@ -6576,7 +6608,7 @@ fn methodIn(ctx: *SemContext, peeled: TypeId, name: []const u8) std.mem.Allocato
         const sub_id = try substituteType(ctx, f.ty, m.subst);
         const sub = ctx.types.get(sub_id);
         if (sub != .function) continue;
-        return .{ .field = f, .receiver = f.receiver, .fn_ty = sub.function, .nominal_sym = m.sym };
+        return .{ .field = f, .receiver = f.receiver, .fn_ty = sub.function, .nominal_sym = m.sym, .subst = m.subst };
     }
     return null;
 }

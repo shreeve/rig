@@ -17,8 +17,9 @@
 //!   `__rig_alive_<name>` flag, and the consuming site clears it.
 //! - `!T` parameters, `!self` receivers, and write-view bindings are
 //!   pointers; reads go through `.*`.
-//! - Every Rig name is written with `rig.writeZigIdent`; a local that
-//!   would shadow another visible Zig name is renamed.
+//! - Every Rig name is written with `rig.writeZigIdent` (`ident`), the
+//!   one place a Rig name becomes a Zig name; a local that would shadow
+//!   another visible Zig name, compared as Zig names, is renamed.
 //!
 //! Anything the emitter cannot lower is an internal error: sema must
 //! reject it first.
@@ -47,6 +48,7 @@ const SymbolId = facts.SymbolId;
 pub const Error = std.mem.Allocator.Error || Writer.Error || error{Unsupported};
 pub const UnitEvent = facts.UnitEvent;
 const check_units = facts.check_units;
+const self_check = facts.self_check;
 
 /// How a resource binding is released.
 const ResourceKind = enum {
@@ -188,6 +190,8 @@ const Nominal = struct {
     name: []const u8,
     sym: SymbolId,
     members: []const Sexp,
+    /// The Zig name of each of its methods (`ident`).
+    methods: []const []const u8,
 };
 
 /// Facts about bindings the emitter derives from one walk over the
@@ -485,7 +489,7 @@ pub const Emitter = struct {
             if (d.isKind(.zig_const)) {
                 try self.w.print("pub const {f}: ", .{ident(self.srcText(name))});
                 try self.emitTypeTy(try self.declType(name));
-                try self.w.print(" = {s}.{f};\n", .{ shim, ident(self.srcText(name)) });
+                try self.w.print(" = {s}.{f};\n", .{ shim, exactIdent(self.srcText(name)) });
                 continue;
             }
             const f = self.fnType(try self.declType(name)) orelse return self.unsupported(name, "an untyped function");
@@ -498,13 +502,13 @@ pub const Emitter = struct {
                 }
                 try self.w.writeAll(") ");
                 try self.emitTypeTy(f.returns);
-                try self.w.print(" {{\n    return {s}.{f}(", .{ shim, ident(self.srcText(name)) });
+                try self.w.print(" {{\n    return {s}.{f}(", .{ shim, exactIdent(self.srcText(name)) });
                 for (0..f.params.len) |i| try self.w.print("{s}__rig_a{d}", .{ if (i > 0) ", " else "", i });
                 try self.w.writeAll(");\n}\n");
             } else {
-                try self.w.print("pub const {f} = {s}.{f};\n", .{ ident(self.srcText(name)), shim, ident(self.srcText(name)) });
+                try self.w.print("pub const {f} = {s}.{f};\n", .{ ident(self.srcText(name)), shim, exactIdent(self.srcText(name)) });
             }
-            try self.w.print("comptime {{\n    rig.expectShim({s}.{f}, fn (", .{ shim, ident(self.srcText(name)) });
+            try self.w.print("comptime {{\n    rig.expectShim({s}.{f}, fn (", .{ shim, exactIdent(self.srcText(name)) });
             try self.emitTypeList(f.params);
             try self.w.writeAll(") ");
             if (f.returns == self.facts.types.void_id) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
@@ -646,7 +650,11 @@ pub const Emitter = struct {
         const prev = self.nominal;
         const sym = self.facts.symbolOf(name_node) orelse return self.unsupported(name_node, "an unresolved type");
         const name = if (generic) "__rig_Self" else try self.fmt("{f}", .{ident(self.srcText(name_node))});
-        self.nominal = .{ .name = name, .sym = sym, .members = members };
+        var methods: std.ArrayList([]const u8) = .empty;
+        for (members) |m| if (m.isKind(.fun) or m.isKind(.sub)) {
+            try methods.append(self.arena.allocator(), try self.fmt("{f}", .{ident(self.srcText(ir.get(m, .name)))}));
+        };
+        self.nominal = .{ .name = name, .sym = sym, .members = members, .methods = methods.items };
         return prev;
     }
 
@@ -794,7 +802,7 @@ pub const Emitter = struct {
         // shows errors (`rig.failMain`) or sets the exit status
         // (`rig.exitStatus`), after every drop and the leak check.
         if (is_main) {
-            const catches = if (main_fails) " catch |err| rig.failMain(err)" else "";
+            const catches = if (main_fails) " catch |__rig_failed| rig.failMain(__rig_failed)" else "";
             const run = "rig.onOwnStack(__rig_run_main, .{__rig_init})";
             if (main_status) {
                 try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return rig.exitStatus({s}{s});\n}}\n\n", .{ run, catches });
@@ -839,9 +847,10 @@ pub const Emitter = struct {
             const name_node = facts.syntax.paramNameNode(p) orelse continue;
             const sym = self.facts.symbolOf(name_node) orelse continue;
             const rig_name = self.srcText(name_node);
-            // A type parameter, `comptime T: type`.
+            // A type parameter, `comptime T: type`, is a name even when
+            // it is `_`: the type's name spells it (`emitRigName`).
             if (self.facts.symbols.items[sym].kind == .generic_param) {
-                _ = try self.declare(.{ .sym = sym }, rig_name);
+                _ = try self.declare(.{ .sym = sym, .zig_name = if (std.mem.eql(u8, rig_name, "_")) try self.fmt("{f}", .{ident(rig_name)}) else "" }, rig_name);
                 continue;
             }
             const ty = self.symType(sym) orelse return self.unsupported(p, "an untyped parameter");
@@ -971,7 +980,9 @@ pub const Emitter = struct {
         };
         if (l.zig_name.len == 0) l.zig_name = try self.zigNameFor(rig_name);
         if (l.guard == .flag and l.flag.len == 0) {
-            l.flag = try self.fmt("__rig_alive_{s}", .{if (isPlainIdent(l.zig_name)) l.zig_name else try self.fresh(rig_name)});
+            // Named from the local's Zig name, which no visible local
+            // shares, or by a number no name of the program's can be.
+            l.flag = if (isPlainIdent(l.zig_name)) try self.fmt("__rig_alive_{s}", .{l.zig_name}) else try self.fmt("__rig_alive_{d}", .{self.nextId()});
         }
         const scope: u32 = @intCast(self.scopes.items.len - 1);
         const top = &self.scopes.items[scope];
@@ -1002,17 +1013,20 @@ pub const Emitter = struct {
         if (std.mem.eql(u8, rig_name, "_")) return "_";
         const base = try self.fmt("{f}", .{ident(rig_name)});
         if (!self.nameTaken(base)) return base;
-        return self.fresh(if (rig.isPlainName(rig_name)) rig_name else "__rig_hidden");
+        // The new name is the emitter's (`__rig_local_x_3`), so no name of
+        // the program's can be it.
+        return self.fresh(if (rig.isPlainName(rig_name)) try self.fmt("__rig_local_{s}", .{rig_name}) else "__rig_hidden");
     }
 
+    /// Whether a Zig name is visible where a binding is being declared:
+    /// a module-level name, the nominal type being emitted or one of its
+    /// methods, or a local. Every name compared is a Zig name
+    /// (`ident`), as Zig compares them.
     fn nameTaken(self: *Emitter, zig_name: []const u8) bool {
         if (self.module_names.contains(zig_name)) return true;
         if (self.nominal) |n| {
             if (std.mem.eql(u8, n.name, zig_name)) return true;
-            for (n.members) |m| {
-                if (!m.isKind(.fun) and !m.isKind(.sub)) continue;
-                if (std.mem.eql(u8, self.srcText(ir.get(m, .name)), zig_name)) return true;
-            }
+            for (n.methods) |m| if (std.mem.eql(u8, m, zig_name)) return true;
         }
         return self.local_names.contains(zig_name);
     }
@@ -3839,7 +3853,10 @@ pub const Emitter = struct {
             if (self.subjectView(sexp, local)) |inner| return self.writeSubjectView(inner, local.zig_name);
             return if (tail and try self.takesTail(sexp, local)) self.writeTake(local) else self.writeLocalPlace(local);
         }
-        if (std.mem.eql(u8, name, "none")) return self.w.writeAll("null");
+        if (std.mem.eql(u8, name, "none")) {
+            if (self_check) if (self.typeOf(sexp)) |t| if (self.isEnumTy(t)) return self.unsupported(sexp, "`none` with an enum type");
+            return self.w.writeAll("null");
+        }
         if (name[0] == '\'') return writeSingleQuoted(self.w, name);
         if (facts.syntax.isFloatLiteralText(name)) {
             // Typed, so arithmetic on literals rounds like run-time Float math.
@@ -5140,7 +5157,7 @@ pub const Emitter = struct {
                 const v = try self.hiddenStorage(e, .leaf, .pointer, .next);
                 try self.w.writeAll("(if (");
                 try self.emitPayloadHolder(operand);
-                try self.w.print(") |*{s}| {s} else {s})", .{ v, v, if (e.isKind(.propagate)) "|err| return err" else "return null" });
+                try self.w.print(") |*{s}| {s} else {s})", .{ v, v, if (e.isKind(.propagate)) "|__rig_failed| return __rig_failed" else "return null" });
                 return;
             },
             .jump => return self.emitExpr(e),
@@ -6210,7 +6227,10 @@ pub const Emitter = struct {
             try self.w.writeAll("error.");
             return writeErrorName(self.w, set.facts, set.symbol().name, rig.leafText(decl.source, name.src));
         };
-        if (isDefaultLiteralNode(decl.source, e)) return writeLiteral(self.w, decl.source, e);
+        if (isDefaultLiteralNode(decl.source, e)) {
+            if (self_check and e == .src) if (decl.typeOf(e)) |t| if (decl.nominalDecl(t) != null and std.mem.eql(u8, rig.leafText(decl.source, e.src), "none")) return self.unsupported(e, "`none` with an enum type");
+            return writeLiteral(self.w, decl.source, e);
+        }
         if (e.isKind(.call) and decl.stringCall(e) == .new) return self.w.writeAll("rig.String.empty");
         if (decl.same(self.facts)) {
             const saved = self.keep_comptime;
@@ -7587,14 +7607,21 @@ const float_zig = "f64";
 /// Formats a Rig identifier as a Zig identifier (`rig.writeZigIdent`).
 const Ident = struct {
     name: []const u8,
+    spelling: rig.ZigSpelling = .rig,
 
     pub fn format(self: Ident, w: *Writer) Writer.Error!void {
-        try rig.writeZigIdent(w, self.name);
+        try rig.writeZigIdent(w, self.name, self.spelling);
     }
 };
 
 fn ident(name: []const u8) Ident {
     return .{ .name = name };
+}
+
+/// A name another file declares exactly so: a function of a standard
+/// library Zig file (`rig.ZigSpelling.exact`).
+fn exactIdent(name: []const u8) Ident {
+    return .{ .name = name, .spelling = .exact };
 }
 
 /// The Zig name of member `name` of error set `set`, declared in the
@@ -7638,10 +7665,14 @@ fn writeLiteral(w: *Writer, source: []const u8, e: Sexp) Error!void {
             if (t[0] == '.') try w.writeAll("0");
             try w.writeAll(t);
         },
-        // `-1`, `.red`: the sign or dot, then the literal.
-        .list => {
-            try w.writeAll(if (e.isKind(.neg)) "-" else ".");
-            try writeLiteral(w, source, ir.get(e, if (e.isKind(.neg)) .operand else .name));
+        // `.red`: the variant's name, never read as a literal (`.none`
+        // names a variant, not the absent value).
+        .list => if (e.isKind(.enum_lit)) {
+            try w.print(".{f}", .{ident(rig.leafText(source, ir.EnumLit.name(e).src))});
+        } else {
+            // `-1`: the sign, then the number.
+            try w.writeAll("-");
+            try writeLiteral(w, source, ir.Neg.operand(e));
         },
         else => {},
     }
