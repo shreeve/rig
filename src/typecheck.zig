@@ -1037,6 +1037,7 @@ const Checker = struct {
         if (std.mem.eql(u8, name, "_")) {
             // `x op= e` reads `x`.
             if (kind.operator() != null) try self.errAt(target, discard_read, .{});
+            if (kind == .fixed) try self.errAt(target, "`_` binds nothing, so it cannot be fixed; discard with `_ = ...`", .{});
             // `_ =` discards the value, so a write call there is a
             // statement's (`isDiscardedCall`).
             const saved = self.discarded;
@@ -1162,9 +1163,9 @@ const Checker = struct {
         // a later constant may branch on it.
         const ternary_const = s.scope == self.module_scope and rhs.isKind(.@"if") and self.isConstExpr(rhs);
         if (kind == .fixed and (ternary_const or self.isComptimeKnown(rhs))) s.flags.comptime_known = true;
-        // A `const` local of a value the target sets is set by it too.
+        // A `=!` local of a value the target sets is set by it too.
         if (s.flags.comptime_known and s.scope != self.module_scope and sema.perTargetLeaf(self.ctx, rhs) != null) s.flags.per_target = true;
-        // `const k = n` stands for the compile-time parameter `n` where an
+        // `k =! n` stands for the compile-time parameter `n` where an
         // array length or a compile-time argument names it.
         if (kind == .fixed and is_decl and s.kind == .local) if (try self.ctParamOf(rhs)) |ct| try self.ctx.ct_locals.put(self.ctx.allocator, sym_id, ct);
         try self.ctx.recordType(target, s.ty);
@@ -1235,7 +1236,7 @@ const Checker = struct {
         }
         switch (kind) {
             .fixed, .shadow => {
-                try self.errAt(target, "`{s}` binds a name; a field or element can only be assigned with `=`", .{if (kind == .fixed) "const" else "new"});
+                try self.errAt(target, "`{s}` binds a name; a field or element can only be assigned with `=`", .{if (kind == .fixed) "=!" else "new"});
                 _ = try self.synthExpr(rhs);
                 return;
             },
@@ -1692,7 +1693,7 @@ const Checker = struct {
                 if (whole) return true;
                 if (root == .constant) {
                     try self.err(pos, "cannot {s} constant `{s}`{s}", .{ verb.head, name, verb.tail });
-                } else try self.err(pos, "cannot {s} fixed binding `{s}`{s} (bound with `const`)", .{ verb.head, name, verb.tail });
+                } else try self.err(pos, "cannot {s} fixed binding `{s}`{s} (bound with `=!`)", .{ verb.head, name, verb.tail });
                 return false;
             } else if (sym.flags.pattern_bound) {
                 // A write view a match that only reads its subject binds
@@ -8362,11 +8363,11 @@ const Checker = struct {
         if (self.isCtArithmetic(a)) {
             try self.errAt(a, "compile-time argument {d} of `{s}` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; use a parameter or a constant", .{ i + 1, callee });
         } else if (fixed) {
-            try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; `{s}` is bound with `const` to a value computed when the program runs", .{ i + 1, callee, self.text(a) });
-        } else try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, a `const` binding of one, or arithmetic on them", .{ i + 1, callee });
+            try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; `{s}` is bound with `=!` to a value computed when the program runs", .{ i + 1, callee, self.text(a) });
+        } else try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, a `=!` binding of one, or arithmetic on them", .{ i + 1, callee });
     }
 
-    /// The `ct_param` of the compile-time integer parameter (or `const k = n`
+    /// The `ct_param` of the compile-time integer parameter (or `k =! n`
     /// binding of one) that `e` names; null for anything else.
     fn ctParamOf(self: *Checker, e: Sexp) Error!?TypeId {
         if (e != .src) return null;
@@ -9211,7 +9212,7 @@ const Checker = struct {
                     .not => self.isComptimeKnown(ir.get(e, .operand)),
                     .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => self.isComptimeKnown(ir.get(e, .left)) and self.isComptimeKnown(ir.get(e, .right)),
                     // Rig checks arithmetic only on constants: a compile-time
-                    // parameter or a `const` binding of one differs per call.
+                    // parameter or a `=!` binding of one differs per call.
                     .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"<<", .@"<<%", .@">>", .@"&", .@"|", .@"^" => self.constInt(e) != null or (self.isCtArithmetic(e) and !self.mentionsCtLocal(e)),
                     .member => blk: {
                         const obj = ir.Member.object(e);
@@ -9281,7 +9282,7 @@ const Checker = struct {
         return self.isCtArithmetic(o) or self.constInt(o) != null;
     }
 
-    /// Whether `e` names a compile-time parameter or a `const` binding in a
+    /// Whether `e` names a compile-time parameter or a `=!` binding in a
     /// function, whose value differs from call to call.
     fn mentionsCtLocal(self: *Checker, e: Sexp) bool {
         return switch (e) {

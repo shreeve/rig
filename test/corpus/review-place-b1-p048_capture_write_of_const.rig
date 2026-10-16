@@ -1,4 +1,4 @@
-const K = 1
+K =! 1
 
 sub main()
   g = |!K| K += 1

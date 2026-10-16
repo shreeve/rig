@@ -1,7 +1,7 @@
 N = 3
 
 fun f() -> Int
-  const N = 4
+  N =! 4
   N
 
 enum E

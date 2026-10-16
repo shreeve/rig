@@ -2,6 +2,6 @@ sub g(x: !*Cell[Int])
   x = *Cell(9)
 
 sub main()
-  const c: *Cell[Int] = *Cell(1)
+  c: *Cell[Int] =! *Cell(1)
   g(!c)
   print(c.get())

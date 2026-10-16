@@ -8,7 +8,7 @@ sub f(n: Int)
   bump(!n)
 
 sub main()
-  const y = 1
+  y =! 1
   bump(!y)
   k = 1
   g = |+k|
