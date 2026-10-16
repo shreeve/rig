@@ -14,5 +14,5 @@ sub main()
   if mk(?String("abc", "def")) as _, n
     print(n)
 
-# error: `as` binds each result to a name: name this one
+# error: `as` binds each result to a name: name this one, and where the body does not use it
 # errors: 1

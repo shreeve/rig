@@ -1443,7 +1443,9 @@ A fallback that is a value is not taken. `if f() as q, r` and `while
 f() as q, r` bind the results inside an optional to new names over the
 body, as `as` binds one value. Each is named there: a header's
 temporaries end before its body runs, so `as` takes no `_`; a result
-the body does not need is dropped there with `<name`.
+the body does not need is discarded there with `_ = name`. A `while`
+step cannot read the names its condition binds this way, which live
+only in the body.
 
 ```rig
 fun cut(s: ?String, sep: U8) -> (?String, ?String)? from s

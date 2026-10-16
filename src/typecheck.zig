@@ -110,6 +110,8 @@ const Checker = struct {
     current_call: ?Sexp = null,
     /// The `new x` binding whose value is being checked: not visible yet.
     pending: SymbolId = sema.symbol_invalid,
+    /// The names `new q, r = f()` declares, while its call is checked.
+    pending_names: []const SymbolId = &.{},
     /// Enclosing `raw` blocks.
     raw_depth: u32 = 0,
     /// The operand of the `!` or `catch` being checked: a fallible call
@@ -1073,7 +1075,18 @@ const Checker = struct {
         defer self.results_ok = saved_ok;
         self.results_ok = call;
         try self.recordUse(value, .take);
+        // `new q, r = f(q)` reads the `q` it shadows, as `new x = e` does.
+        const saved_names = self.pending_names;
+        defer self.pending_names = saved_names;
+        if (rig.shadows(ir.Destructure.op(node))) {
+            var names: std.ArrayList(SymbolId) = .empty;
+            for (targets) |tg| if (tg.isKind(.set) and ir.Set.target(tg) == .src) if (self.ctx.symbolOf(ir.Set.target(tg))) |id| {
+                try names.append(self.ctx.arena.allocator(), id);
+            };
+            self.pending_names = names.items;
+        }
         const ty = try self.synthExpr(value);
+        self.pending_names = saved_names;
         var parts: []const TypeId = &.{};
         if (!self.isPoison(ty)) switch (self.ctx.types.get(ty)) {
             .results => |r| parts = r,
@@ -2365,7 +2378,7 @@ const Checker = struct {
         // result `_` discarded there would drop after them: each result
         // is bound to a name, which the body owns.
         for (names) |n| if (!n.isKind(.set)) {
-            try self.errAt(n, "`as` binds each result to a name: name this one; the body owns it, and `<name` drops it there", .{});
+            try self.errAt(n, "`as` binds each result to a name: name this one, and where the body does not use it, discard it there with `_ = name`", .{});
             ok = false;
         };
         try self.recordUse(value, .take);
@@ -4310,7 +4323,7 @@ const Checker = struct {
             // A module-level constant is visible in every function body,
             // and in every constant (`SemContext.const_order`).
             const later = sym.decl_pos > pos and scope != self.module_scope;
-            if (sym.kind == .local and (later or id == self.pending)) {
+            if (sym.kind == .local and (later or id == self.pending or std.mem.findScalar(SymbolId, self.pending_names, id) != null)) {
                 id = sym.prev_in_scope;
                 continue;
             }
@@ -4385,7 +4398,7 @@ const Checker = struct {
                 try self.errAt(e, "a range `a..b` can only be used as a `for` loop source", .{});
                 break :blk self.t().invalid_id;
             },
-            .@"while", .@"for", .labeled, .set, .drop, .@"defer", .@"errdefer" => if (self.isValueLoop(e)) self.checkLoopValue(e, null, true) else blk: {
+            .@"while", .@"for", .labeled, .set, .destructure, .drop, .@"defer", .@"errdefer" => if (self.isValueLoop(e)) self.checkLoopValue(e, null, true) else blk: {
                 try self.checkStmt(e);
                 break :blk self.t().void_id;
             },
