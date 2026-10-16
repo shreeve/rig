@@ -114,6 +114,48 @@ started:
   `x > E.b` and `Int(x)` are rejected as "variants with payloads"
   (`test/corpus/enumorder-c02_empty_payload.rig`). Decide once whether
   `a()` is bare (or reject the empty payload), and have both read it.
+- Objects nested by value, deep or wide, fail inside Zig, not in Rig
+  (rule 2), found by #270.
+  - Probe: a chain `obj A0` .. `obj A99`, each with nine `Int` fields and
+    `a: A<i+1>` (the last `s: String`), then in `main`, `x: A0? = none`
+    pushed into a `List[A0?]`.
+  - Today Zig reports `evaluation exceeded 1000 backwards branches` in
+    the runtime's `needsDrop`, reached from `List.clear`. A chain with
+    one field per object fails near 950 deep, and past about 1500 Zig
+    itself crashes.
+  - Fix:
+    - give the runtime's recursive reflective helpers `rig.eval_quota`,
+      as emitted functions have;
+    - add a sema limit on how deeply types nest by value, below where
+      Zig crashes.
+- Compiler memory on two generated shapes, the same on main, found by
+  #270's review.
+  - One straight-line function of 10,000 bindings takes 2.6 GB, and one
+    of 20,000 takes 10 GB. Proofs take most of the time, and likely the
+    memory.
+  - A chain of generic functions, each calling the next at
+    `(fun(T) -> Int)?` of its `T` (which adds no instance depth), grows
+    about cubically: 300 links take 1 GB, 1000 take 19 GB.
+- A generic `?T` parameter bound to an optional of a view fails in Zig
+  (rule 2): `sub show[T](x: ?T)` called as `show(b)` with
+  `b: (?Node)? = ?n` emits `show(?*const Node, &b)`, and Zig wants a
+  `T`.
+  - Cause: sema's `copiedByReadView` holds a read view of a view by
+    address, while the runtime's `ReadView(T)` copies any pointer.
+  - Make the two rules one. This changes how such views are held, so it
+    is its own round.
+- The "ever deeper instances" message fires on finite chains. Thirty
+  generic functions, each calling the next at `Box[T]` of its `T`
+  (`f0[T](x: T)` calls `f1(Box(v: x))`, ...), are rejected at the 25th
+  with "a generic function cannot call itself with its own type
+  parameters nested deeper". No function there calls itself. Say that
+  instances nest more than 24 deep instead. The same limit also rejects
+  `@name(Wrap[T?])` inside `Wrap`'s own method.
+- Lending a handle parameter to write is accepted as `!c` but rejected
+  as a capture. In `sub poke(c: *Cell[Int])`, `(!c).set(2)` lends the
+  Cell `c` holds, while `f = |!c| (!c).set(3)` is "cannot lend parameter
+  `c` to write". So is `!o.h` for `o` an owned parameter. Decide whether
+  a capture and a field lend, like `!c`, lend what the handle holds.
 
 ## Agent tooling
 
