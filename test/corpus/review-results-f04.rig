@@ -1,0 +1,17 @@
+obj Guard
+  s: ?String
+  tag: Int
+
+  drop(!self)
+    print("guard", self.tag, self.s)
+
+fun mk(s: ?String) -> (String, Guard)
+  return String("newb"), Guard(s: s, tag: 2)
+
+sub main()
+  b = String("oldb")
+  c = String("c")
+  a = Guard(s: ?b, tag: 1)
+  print(a.tag)
+  b, a = mk(?c)
+  print(b, a.tag)

@@ -1,0 +1,38 @@
+# `return f()` returns the results `f` gives, whole: owners move on, and
+# views keep what they view.
+
+obj G
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+fun two(s: ?String) -> (G, ?String)
+  return G(n: s.len), s
+
+fun fwd(s: ?String) -> (G, ?String)
+  return two(s)
+
+fun split(s: ?String, at: Int) -> (?String, ?String)
+  return s[..at], s[at..]
+
+fun fwopt(s: ?String) -> (?String, ?String)?
+  return split(s, 1)
+
+fun fwfail(s: ?String) -> (?String, ?String)!
+  return split(s, 1)
+
+sub main()
+  t = String("abc")
+  g, v = fwd(?t)
+  print(g.n, v)
+  if fwopt(?t) as c, d
+    print(c, d)
+  e, f = fwfail(?t) catch return
+  print(e, f)
+
+# expect:
+# 3 abc
+# a bc
+# a bc
+# drop 3

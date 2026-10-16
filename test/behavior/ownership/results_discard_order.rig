@@ -1,0 +1,26 @@
+# A result `_` discards is a temporary of its statement, made after the
+# call's arguments, so it drops first, at the statement's end (Core §3):
+# a `drop` body that reads a view of an argument's temporary reads it
+# while it lives. `_ = f()` drops each result the same way.
+
+obj Guard
+  s: ?String
+  tag: Int
+
+  drop(!self)
+    print("guard", self.tag, self.s)
+
+fun mk(s: ?String) -> (Guard, Int)
+  return Guard(s: s, tag: 1), s.len
+
+sub main()
+  _, n = mk(?String("abc", "def"))
+  print(n)
+  _ = mk(?String("g", "h"))
+  print("end")
+
+# expect:
+# guard 1 abcdef
+# 6
+# guard 1 gh
+# end

@@ -68,8 +68,7 @@ sub main()
   print(words.size, words.height(), words.has("fox"), words.has("cat"))
 
   nums = Tree[Int](root: none, size: 0)
-  i = 0
-  while i < 1000 : i += 1
+  for i in 0..1000
     !nums.add((i * 7919) % 1000)
   print(nums.size, nums.has(500), nums.height() < 40)
 

@@ -1,0 +1,8 @@
+sub main()
+  f = |x: Int|
+    return x, 1
+  f(3)
+  print("ok")
+
+# error: a closure gives several results only where its type says so
+# errors: 1

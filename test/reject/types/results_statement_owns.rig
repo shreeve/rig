@@ -1,0 +1,8 @@
+fun two() -> (String, Int)
+  return String("x"), 1
+
+sub main()
+  two()
+
+# error: this statement gives the results `(String, Int)`, which own what they must release, and does not use them; bind each (`a, b = two()`), or drop them now with `_ = two()`
+# errors: 1

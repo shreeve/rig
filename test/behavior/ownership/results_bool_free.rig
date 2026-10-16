@@ -1,0 +1,21 @@
+# Each result carries the loans its own type could hold: the `Bool`
+# beside a write view carries none, so `c` may change once `w` is done
+# while `big` is still used.
+
+obj Counter
+  n: Int
+  m: Int
+
+  fun bump(!self, k: Int) -> (!Int, Bool)
+    self.n += k
+    return !self.m, self.n > 3
+
+sub main()
+  c = Counter(n: 0, m: 0)
+  w, big = (!c).bump(5)
+  w += 10
+  c.n = 0
+  print(c.m, big)
+
+# expect:
+# 10 true

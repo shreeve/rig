@@ -1,0 +1,21 @@
+obj P
+  a: Int
+  s: String
+
+sub main()
+  t = String("ab")
+  !t.add(t.len, "-", true, 1.5, -0.0)
+  u = String(t)
+  !t.add(u, " ", u, " ", ?u)
+  p = P(a: 1, s: String("q"))
+  o: Int? = none
+  !t.add(p, o, [1, 2], 0, -1, false)
+  v = ?t
+  w = String(v, v, t.len)
+  print(t)
+  print(w)
+  e = String()
+  f = String("")
+  print(e.len, f.len, String(e, f).len)
+  !e.add()
+  print(e.len)

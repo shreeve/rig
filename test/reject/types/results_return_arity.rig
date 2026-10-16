@@ -1,0 +1,4 @@
+fun f() -> (Int, Int)
+  return 1, 2, 3
+
+# error: `f` gives 2 results, but `return` gives 3

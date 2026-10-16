@@ -1,0 +1,14 @@
+# When no result holds a write view, the call's write lend ends as it
+# returns: `v` may be read while `a` views it.
+
+fun grab(v: !List[Int]) -> ([]Int, Int)
+  !v.push(v.len)
+  return ?v[..1], v.len
+
+sub main()
+  v: List[Int] = List()
+  a, n = grab(!v)
+  print(v.len, a, n)
+
+# expect:
+# 1 [0] 1
