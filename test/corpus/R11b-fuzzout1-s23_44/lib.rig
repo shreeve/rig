@@ -17,9 +17,9 @@ pub obj Pair[A, B]
 
 pub enum Opt[T]
   some(value: T)
-  none
+  nothing
 
   fun or(?self, d: T) -> T
     match self
       .some(value) => value
-      .none => d
+      .nothing => d

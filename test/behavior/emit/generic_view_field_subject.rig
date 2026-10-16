@@ -7,7 +7,7 @@
 
 enum Opt[T]
   some(v: T)
-  none
+  nothing
 
 obj V[T]
   r: ?Opt[T]
@@ -25,7 +25,7 @@ fun f[T](w: ?V[T]) -> Int
     .some(v)
       k = clobber(100)
       look(?v) + k - 101
-    .none => 0
+    .nothing => 0
 
 fun g[T](w: ?V[T]) -> Int
   match w.r
@@ -43,7 +43,7 @@ fun h[T](a: ?Opt[T], b: ?Opt[T]) -> Int
     _ => 0
   m = match arr[0]
     .some(v) => look(?v)
-    .none => 0
+    .nothing => 0
   n + m
 
 sub main()

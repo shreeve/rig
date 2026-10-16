@@ -1,12 +1,12 @@
 # Review probe (#215): a loan reaching a generic body's T; rejected, or runs sanitizer-clean.
 enum Opt[T]
   some(value: T)
-  none
+  nothing
 
 fun g[T](o: ?Opt[T], d: T) -> T from d
   match o
     .some(v) => v
-    .none => d
+    .nothing => d
 
 sub main()
   t = String("abc")

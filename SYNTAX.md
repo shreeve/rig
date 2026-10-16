@@ -265,7 +265,8 @@ after that `from`; a parameter or a local may be named either.
 (after any `pub`), right before its `fun` or `sub` (`called fun f()`,
 `pub rarely sub s()`), so a local, a parameter, a field, or a method
 may be named either. `none`
-is a reserved name, the absent optional. The words
+is a reserved name, the absent optional, which no binding, variant, or
+error may take ([SPEC](SPEC.md#enums)). The words
 held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.
 

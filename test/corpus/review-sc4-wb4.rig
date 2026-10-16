@@ -1,11 +1,11 @@
 enum E
   w(p: !Int)
-  none
+  nothing
 
 sub poke(e: ?E)
   match e
     .w(p) => p += 5
-    .none => print("n")
+    .nothing => print("n")
 
 sub main()
   a = 1

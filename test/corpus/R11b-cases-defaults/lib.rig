@@ -16,4 +16,4 @@ pub fun rep[T](x: T, n: Int = 4) -> Int
 
 pub enum Opt[T]
   some(value: T, extra: Int)
-  none
+  nothing

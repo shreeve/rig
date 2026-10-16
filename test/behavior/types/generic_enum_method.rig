@@ -3,16 +3,16 @@
 
 enum Option[T]
   some(value: T)
-  none
+  nothing
 
   fun is_some(?self) -> Bool
     match self
       .some => true
-      .none => false
+      .nothing => false
 
 sub main()
   o1: Option[Int] = .some(value: 1)
-  o2: Option[Int] = .none
+  o2: Option[Int] = .nothing
   print(o1.is_some())
   print(o2.is_some())
 

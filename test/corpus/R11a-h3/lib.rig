@@ -1,6 +1,6 @@
 pub enum Opt[T]
   some(value: T)
-  none
+  nothing
 
 pub fun wrap[T](x: T) -> Opt[T]
   .some(value: <x)

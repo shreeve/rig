@@ -1,6 +1,6 @@
 pub enum Opt[T]
   some(value: T)
-  none
+  nothing
   other(a: Int, b: T)
 
 pub enum Color[T]

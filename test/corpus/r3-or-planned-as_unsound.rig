@@ -22,7 +22,7 @@ obj N
 
 enum E
   one(b: ^N)
-  none
+  empty
 
 sub assign_place()
   o: ^N? = ^N(v: 1)
@@ -75,9 +75,9 @@ sub match_assign()
   e = E.one(b: ^N(v: 3))
   match e
     .one(n)
-      e = E.none
+      e = E.empty
       print(n.v)
-    .none => pass
+    .empty => pass
 
 sub main()
   assign_place()

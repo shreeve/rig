@@ -4,7 +4,7 @@ sub main()
   o = lib.Opt[Int].some(value: 1)
   match o
     .some(value) => print(value)
-    .none => print("none")
+    .nothing => print("none")
   c: lib.Color[Int] = .red
   print(c == .red)
   match c

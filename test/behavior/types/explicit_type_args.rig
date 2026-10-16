@@ -1,6 +1,6 @@
 # A generic type's arguments may be named in an expression, in brackets:
 # a constructor (`Wrap[Int](v: 3)`, `List[Int]()`), a variant
-# (`Option[Int].some(...)`, `Option[Int].none`), and an associated
+# (`Option[Int].some(...)`, `Option[Int].nothing`), and an associated
 # function (`Pair[Int, ?String].make(...)`). The arguments nest, and may
 # be any type an expression can spell.
 
@@ -22,7 +22,7 @@ obj Pair[T, U]
 
 enum Option[T]
   some(value: T)
-  none
+  nothing
 
 obj Node
   n: Int
@@ -38,7 +38,7 @@ sub main()
   b = Wrap[Int](v: 3)
   print(b.get())
   o = Option[Int].some(value: 7)
-  e = Option[?String].none
+  e = Option[?String].nothing
   print(o, e)
   p = Pair[Int, ?String].make(1, "x")
   q = ?p.swap()
@@ -63,7 +63,7 @@ sub main()
 # expect:
 # 2 4
 # 3
-# .some(value: 7) .none
+# .some(value: 7) .nothing
 # 1 x x 1
 # 1 5
 # 1 8

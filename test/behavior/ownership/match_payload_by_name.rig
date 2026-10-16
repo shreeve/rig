@@ -20,7 +20,7 @@ obj Res
 
 enum E
   pair(r: Res, k: Int)
-  none
+  nothing
 
 sub keep(b: *B)
   print("kept", b.n)
@@ -34,13 +34,13 @@ fun res(e: ?E, d: ?Res) -> ?Res from e, d
   match e
     .pair(r: r) if r.t.len > 3 => ?r
     .pair(r: r) => r
-    .none => d
+    .nothing => d
 
 fun take(e: E) -> Res
   match <e
     .pair(k: k) if k > 10 => Res(t: String("big"))
     .pair(r: r) => <r
-    .none => Res(t: String("none"))
+    .nothing => Res(t: String("none"))
 
 sub main()
   x: Bag = .three(a: *B(n: 1), label: String("one"), xs: List())
@@ -84,7 +84,7 @@ sub main()
       a = *B(n: 6)
     _ => pass
   print(label(?g, ?blank))
-  print(take(.pair(r: Res(t: String("taken")), k: 1)).t, take(.pair(r: Res(t: String("x")), k: 20)).t, take(.none).t)
+  print(take(.pair(r: Res(t: String("taken")), k: 1)).t, take(.pair(r: Res(t: String("x")), k: 20)).t, take(.nothing).t)
   print("end")
 
 # expect:

@@ -4,7 +4,7 @@ obj Counter
 
 enum U
   k(c: Counter)
-  none
+  nothing
 
 fun idx(s: ?String) -> Int
   s.len - 1
@@ -17,12 +17,12 @@ fun ck(u: ?U, d: ?Counter) -> ?Counter from u, d
   match u
     .k(c) if c.hits.get() > 100 => d
     .k(c) => ?c
-    .none => d
+    .nothing => d
 
 sub show(u: ?U)
   match u
     .k(c) => print(c.hits.get())
-    .none => print("none")
+    .nothing => print("none")
 
 sub main()
   u = U.k(c: Counter(hits: Cell(1)))
@@ -30,26 +30,26 @@ sub main()
   saved = ?d
   match u
     .k(c) => saved = ?c
-    .none => pass
+    .nothing => pass
   print(clobber(1))
   saved.hits.set(5)
   show(?u)
   match u
     .k(c) if c.hits.get() > 0 => saved = ?c
     .k(c) => saved = ?c
-    .none => pass
+    .nothing => pass
   saved.hits.set(6)
   show(?u)
   b = ^U.k(c: Counter(hits: Cell(1)))
   match b
     .k(c) => saved = ?c
-    .none => pass
+    .nothing => pass
   saved.hits.set(7)
   show(?b)
-  us = [U.k(c: Counter(hits: Cell(1))), U.none]
+  us = [U.k(c: Counter(hits: Cell(1))), U.nothing]
   match us[idx(?String("a"))]
     .k(c) => saved = ?c
-    .none => pass
+    .nothing => pass
   saved.hits.set(8)
   show(?us[0])
   r = ck(?u, ?d)

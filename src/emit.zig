@@ -47,6 +47,7 @@ const SymbolId = facts.SymbolId;
 pub const Error = std.mem.Allocator.Error || Writer.Error || error{Unsupported};
 pub const UnitEvent = facts.UnitEvent;
 const check_units = facts.check_units;
+const self_check = facts.self_check;
 
 /// How a resource binding is released.
 const ResourceKind = enum {
@@ -3839,7 +3840,10 @@ pub const Emitter = struct {
             if (self.subjectView(sexp, local)) |inner| return self.writeSubjectView(inner, local.zig_name);
             return if (tail and try self.takesTail(sexp, local)) self.writeTake(local) else self.writeLocalPlace(local);
         }
-        if (std.mem.eql(u8, name, "none")) return self.w.writeAll("null");
+        if (std.mem.eql(u8, name, "none")) {
+            if (self_check) if (self.typeOf(sexp)) |t| if (self.isEnumTy(t)) return self.unsupported(sexp, "`none` with an enum type");
+            return self.w.writeAll("null");
+        }
         if (name[0] == '\'') return writeSingleQuoted(self.w, name);
         if (facts.syntax.isFloatLiteralText(name)) {
             // Typed, so arithmetic on literals rounds like run-time Float math.
@@ -6199,7 +6203,10 @@ pub const Emitter = struct {
             try self.w.writeAll("error.");
             return writeErrorName(self.w, set.facts, set.symbol().name, rig.leafText(decl.source, name.src));
         };
-        if (isDefaultLiteralNode(decl.source, e)) return writeLiteral(self.w, decl.source, e);
+        if (isDefaultLiteralNode(decl.source, e)) {
+            if (self_check and e == .src) if (decl.typeOf(e)) |t| if (decl.nominalDecl(t) != null and std.mem.eql(u8, rig.leafText(decl.source, e.src), "none")) return self.unsupported(e, "`none` with an enum type");
+            return writeLiteral(self.w, decl.source, e);
+        }
         if (e.isKind(.call) and decl.stringCall(e) == .new) return self.w.writeAll("rig.String.empty");
         if (decl.same(self.facts)) {
             const saved = self.keep_comptime;
@@ -7627,10 +7634,14 @@ fn writeLiteral(w: *Writer, source: []const u8, e: Sexp) Error!void {
             if (t[0] == '.') try w.writeAll("0");
             try w.writeAll(t);
         },
-        // `-1`, `.red`: the sign or dot, then the literal.
-        .list => {
-            try w.writeAll(if (e.isKind(.neg)) "-" else ".");
-            try writeLiteral(w, source, ir.get(e, if (e.isKind(.neg)) .operand else .name));
+        // `.red`: the variant's name, never read as a literal (`.none`
+        // names a variant, not the absent value).
+        .list => if (e.isKind(.enum_lit)) {
+            try w.print(".{f}", .{ident(rig.leafText(source, ir.EnumLit.name(e).src))});
+        } else {
+            // `-1`: the sign, then the number.
+            try w.writeAll("-");
+            try writeLiteral(w, source, ir.Neg.operand(e));
         },
         else => {},
     }

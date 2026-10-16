@@ -1,6 +1,6 @@
 enum Opt[T]
   some(value: T)
-  none
+  nothing
   other(a: Int, b: T)
 
 enum Color[T]
@@ -11,7 +11,7 @@ sub main()
   o = Opt[Int].some(value: 1)
   match o
     .some(value) => print(value)
-    .none => print("none")
+    .nothing => print("none")
   c: Color[Int] = .red
   print(c == .red)
   match c

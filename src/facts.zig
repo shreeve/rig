@@ -58,9 +58,13 @@ pub const Proven = sema.Proven;
 pub const UnitKind = rig.UnitKind;
 pub const NodeKey = sema.NodeKey;
 
+/// Whether this build of the compiler runs its own consistency checks
+/// (`zig build -Dself-check`; on in every debug build).
+pub const self_check = @import("build_options").self_check;
+
 /// Emit asserts that it writes each node inside the unit that holds it
-/// (`Emitter.inUnit`) in every debug build of the compiler.
-pub const check_units = @import("build_options").self_check;
+/// (`Emitter.inUnit`) in every self-checking build.
+pub const check_units = self_check;
 
 pub const UnitEvent = sema.UnitEvent;
 pub const GenericCall = sema.GenericCall;
