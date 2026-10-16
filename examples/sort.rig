@@ -3,7 +3,8 @@
 # the literal is written bare in the call and nothing is allocated. Its
 # captures say what it views for the call: `|!compares|` counts into a
 # local while `sort` runs. `map` infers `U` from what the literal
-# returns.
+# returns. The standard library has the same in `std.sort`; this one is
+# written out to show how a closure is passed.
 
 obj Player
   name: ?String
@@ -38,12 +39,12 @@ sub main()
 
   words = ["pear", "fig", "apple"]
   sort(!words[..], |a, b| a < b)
-  lens = map(?words[..], |w| w.len)
+  lens =! map(?words[..], |w| w.len)
   print(words, lens)
 
   team = [Player(name: "ada", score: 7), Player(name: "bob", score: 9)]
   sort(!team[..], by_score)
-  names = map(?team[..], |p| p.name)
+  names =! map(?team[..], |p| p.name)
   print(names)
 
 # expect:
