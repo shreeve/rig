@@ -4065,6 +4065,10 @@ unique.list_push.ternary run
 unique.write_held.call run
 unique.write_held.ctor run
 unique.write_held.move run
+vlit.generic.kept main
+vlit.nested.kept main
+vlit.owner.kept main
+vlit.scalar.kept main
 list.arg_then_write.catch run
 list.arg_then_write.field run
 list.arg_then_write.move run
