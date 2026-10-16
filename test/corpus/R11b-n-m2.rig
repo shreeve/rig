@@ -3,7 +3,7 @@ obj Wrap2[T]
 
 enum Opt2[T]
   some(value: T)
-  none
+  nothing
 
 sub main()
   x = Opt2[Int].some(val: 1)

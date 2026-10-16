@@ -1,6 +1,6 @@
 enum E
   w(p: !List[Int])
-  none
+  nothing
 
 sub main()
   v: List[Int] = List()
@@ -13,6 +13,6 @@ sub main()
           for x in p
             !q.push(x)
             print(x)
-        .none => print("n")
-    .none => print("n")
+        .nothing => print("n")
+    .nothing => print("n")
   print(v.len)

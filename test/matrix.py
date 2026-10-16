@@ -547,7 +547,7 @@ GEN_FORMS = {
     "closure": dict(params="f: ?fun(?String) -> T, p: ?String", said="f, p", body=["h = |?f, ?p| f(p)", "h()"],
                     setup=[], args="|s: ?String| s, ?t"),
     "field": dict(field=True, params="p: ?String", said="p", body=["self.f(p)"], setup=[], args="?t"),
-    "match": dict(params="p: ?Opt[T]", said="p, d", body=["match p", "  .some(v) => v", "  .none => d"],
+    "match": dict(params="p: ?Opt[T]", said="p, d", body=["match p", "  .some(v) => v", "  .nothing => d"],
                   setup=["o = Opt[?String].some(?t)"], args="?o"),
 }
 
@@ -556,7 +556,7 @@ def gen_program(fname, said, then):
     """The program for one `gen.` cell, and what it prints."""
     f = GEN_FORMS[fname]
     origin = f["said"] if said else "d"
-    out = ["obj K\n  s: ?String\n", "enum Opt[T]\n  some(value: T)\n  none\n"]
+    out = ["obj K\n  s: ?String\n", "enum Opt[T]\n  some(value: T)\n  nothing\n"]
     if f.get("field"):
         out.append("obj H[T]\n  f: *fun(?String) -> T\n\n"
                    f"  fun g(?self, {f['params']}, d: ?String) -> T from {origin}\n{indent(f['body'], 4)}\n")

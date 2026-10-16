@@ -1,0 +1,35 @@
+# No enum names a variant `none`, nor an error set an error: a plain
+# variant, one with a value, a payload variant, and one of a generic
+# enum, with payload or without.
+
+enum A
+  none
+
+enum B
+  one = 1
+  none = 2
+
+enum C
+  some(v: Int)
+  none(why: String)
+
+enum D[T]
+  some(v: T)
+  none
+
+enum E[T]
+  none(v: T)
+
+error Bad
+  none
+
+sub main()
+  pass
+
+# error: 6:3: a variant cannot be named `none`
+# error: 10:3: a variant cannot be named `none`
+# error: 14:3: a variant cannot be named `none`
+# error: 18:3: a variant cannot be named `none`
+# error: 21:3: a variant cannot be named `none`
+# error: 24:3: an error cannot be named `none`
+# errors: 6

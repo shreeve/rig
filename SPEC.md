@@ -1731,6 +1731,21 @@ no two the same, where a variant without one takes the value after the
 previous variant's (the first, 0). Payload and generic enums take no
 values.
 
+No variant is named `none`, in any enum: `.none` would read as `none`,
+the absent value of an optional ([§12](#12-optionals)), and in a `K?`
+could be taken for it. `some` is an ordinary name, since an optional
+has no `.some`, and so is a name Zig reserves (`.fn`, `.null`).
+
+```rig reject
+enum Reply
+  yes
+  none
+```
+
+```error
+a variant cannot be named `none`: `none` is the absent value of an optional, and `.none` would read as it; choose another name
+```
+
 An integer type's name converts a plain enum value to its value, as it
 converts a number ([§2](#numeric-conversions)): `Int(st)`, `U16(d)`.
 The conversion is checked: a variant named through its type
@@ -1830,7 +1845,7 @@ sub main()
 variants of a plain enum ([§13](#13-errors)). Each error belongs to its
 set: `A.timeout` and `B.timeout` of two sets, or of two modules, are
 different errors. The type `error` holds an error of any set
-([Any error](#any-error)).
+([Any error](#any-error)). As with a variant, no error is named `none`.
 
 ```rig
 error NetworkError

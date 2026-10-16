@@ -23,14 +23,14 @@ enum Opt[T]
 
 enum K
   k(t: String)
-  none
+  empty
 
 obj Key unique
   n: Int
 
 enum U
   k(key: Key)
-  none
+  empty
 
 fun get(e: ?E) -> ?E from e
   e
@@ -79,12 +79,12 @@ fun elems(e: ?E, d: ?[2]Int) -> []Int from e, d
 fun pick(e: ?K) -> ?String from e
   match ?e
     .k(t) => return ?t
-    .none => return "none"
+    .empty => return "none"
 
 fun ukey(o: ?U, d: ?Key) -> ?Key from o, d
   match o
     .k(kk) => ?kk
-    .none => d
+    .empty => d
 
 fun clobber(n: Int) -> Int
   a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
@@ -108,7 +108,7 @@ sub stores()
   o = K.k(t: String("kt"))
   match o
     .k(t) => s = ?t
-    .none => pass
+    .empty => pass
   print(clobber(1))
   print(saved.t, hold.r.t, v.t, s)
 

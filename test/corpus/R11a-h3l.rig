@@ -1,6 +1,6 @@
 enum Opt[T]
   some(value: T)
-  none
+  nothing
 
 fun wrap[T](x: T) -> Opt[T]
   .some(value: <x)
@@ -18,7 +18,7 @@ obj Res
 fun unwrap(o: Opt[Res]) -> Res
   match o
     .some(value) => <value
-    .none => Res(n: 0)
+    .nothing => Res(n: 0)
 
 sub main()
   o = wrap(Res(n: 1))
@@ -27,8 +27,8 @@ sub main()
   p = Opt[Res].some(value: Res(n: 2))
   match p
     .some(value) => print("peek", value.n)
-    .none => print("none")
-  q: Opt[Res] = .none
+    .nothing => print("none")
+  q: Opt[Res] = .nothing
   t = Two(a: Res(n: 3), b: List[Int]())
   !t.b.push(1)
   u = <t

@@ -1,6 +1,6 @@
 enum Opt[T]
   some(t: T)
-  none
+  nothing
 
 fun f[T](a: Opt[T], d: Opt[T]) -> Int
   o = <a
@@ -10,8 +10,8 @@ fun f[T](a: Opt[T], d: Opt[T]) -> Int
       t = r
       o = <d
       print(t)
-    .none => pass
+    .nothing => pass
   0
 
 sub main()
-  print(f(Opt.some(String("hello")), Opt[String].none))
+  print(f(Opt.some(String("hello")), Opt[String].nothing))

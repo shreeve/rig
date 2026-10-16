@@ -1,0 +1,49 @@
+# A variant named like a Zig keyword (`fn`, `var`, `struct`,
+# `unreachable`, `comptime`), a Zig value (`null`, `undefined`), or a
+# name the emitter uses (`rig`, `std`) is written as a Zig identifier
+# everywhere it appears: as a field's or a parameter's default too.
+# `some` names no optional, so it is a variant like any other.
+
+enum K
+  fn
+  var
+  struct
+  unreachable
+  comptime
+  null
+  undefined
+  rig
+  std
+  some
+
+obj Box
+  a: K = .fn
+  b: K = .null
+  c: K = .rig
+  d: K = .undefined
+  e: K = .some
+
+fun pick(k: K = .comptime) -> Int
+  Int(k)
+
+fun last(k: K = .std) -> K
+  k
+
+fun mk() -> K
+  .unreachable
+
+sub main()
+  b = Box()
+  print(Int(b.a), Int(b.b), Int(b.c), Int(b.d), Int(b.e))
+  print(pick(), pick(.var), Int(last()), Int(mk()))
+  k: K = .struct
+  print(k == .struct, k == K.null)
+  match last()
+    .std => print("std")
+    _ => print("other")
+
+# expect:
+# 0 5 7 6 9
+# 4 1 8 3
+# true false
+# std
