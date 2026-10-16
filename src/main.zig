@@ -63,7 +63,7 @@ const usage =
     \\                         debug, leak-checked.
     \\  -o <path>              Executable to write (build; default ./<name>)
     \\  -h, --help             Show this help
-    \\  --version              Show the version
+    \\  -V, --version          Show the version
     \\
     \\Debugging the compiler:
     \\  tokens     Dump the token stream
@@ -282,7 +282,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
         if (eql(arg, "-h") or eql(arg, "--help") or (first and eql(arg, "help"))) {
             printOut(io, "{s}", .{usage});
             std.process.exit(0);
-        } else if (eql(arg, "--version") or (first and eql(arg, "version"))) {
+        } else if (eql(arg, "-V") or eql(arg, "--version") or (first and eql(arg, "version"))) {
             printOut(io, "rig {s}\n", .{build_options.version});
             std.process.exit(0);
         } else if (eql(arg, "--release") or eql(arg, "--release=safe")) {
