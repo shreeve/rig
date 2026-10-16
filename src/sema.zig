@@ -878,6 +878,10 @@ pub const Facts = struct {
     /// Expressions that yield a view where their context reads the
     /// value it reaches (`SemContext.recordRead`).
     reads: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// Expressions whose value becomes an optional where it goes (`Lift`):
+    /// `none`, and a `T` where a `T?` goes, which Zig lifts on its own
+    /// (`SemContext.recordLift`).
+    lifts: std.AutoHashMapUnmanaged(u64, Lift) = .empty,
     /// `a ?? b` and `a catch b` whose fallback is a value, not a view, of
     /// what the payload of `a`, a view, reaches: the payload's value is
     /// copied out (`SemContext.recordPayloadCopy`).
@@ -973,6 +977,12 @@ pub const Facts = struct {
         inline for (@typeInfo(Facts).@"struct".field_names) |f| @field(self, f).deinit(allocator);
     }
 };
+
+/// The optional an expression's value becomes where it goes: `into`,
+/// an optional type, holding the value `from` gives, a type with fewer
+/// levels of optional (`none`'s, for `none`), lifted into it level by
+/// level (`SemContext.recordLift`).
+pub const Lift = struct { into: TypeId, from: TypeId };
 
 /// How `*w` upgrades the weak handle `w` (`SemContext.recordUpgrade`).
 pub const Upgrade = enum {
@@ -1761,6 +1771,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
         StringCall, Use, Upgrade => try w.print(" {s}", .{@tagName(v)}),
+        Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
         ReadOnlyField => try w.print(" {s}.{s}.{s}", .{ v.module, v.owner, v.field }),
         JumpDest => {
@@ -2619,6 +2630,20 @@ pub const SemContext = struct {
     /// it gives the `T`, the payload's value copied out where `a` has
     /// one, as `if a as v` then `v` else `b` would (`copiesPayload`); or,
     /// with `copied` false, that it gives the view.
+    /// `node`'s value becomes an optional where it goes (`Lift`), or,
+    /// with null, no longer does: the latest check of the node decides.
+    pub fn recordLift(self: *SemContext, node: Sexp, lift: ?Lift) !void {
+        const key = recordExprKey(node) orelse return;
+        if (lift) |l| {
+            try self.facts.lifts.put(self.allocator, key, l);
+        } else _ = self.facts.lifts.remove(key);
+    }
+
+    /// The optional `node`'s value becomes where it goes (`recordLift`).
+    pub fn liftOf(self: *const SemContext, node: Sexp) ?Lift {
+        return self.facts.lifts.get(exprKey(node) orelse return null);
+    }
+
     pub fn recordPayloadCopy(self: *SemContext, node: Sexp, copied: bool) !void {
         if (copied) {
             try self.facts.payload_copies.put(self.allocator, recordKey(node), {});
@@ -4703,6 +4728,40 @@ fn collectErrorSets(ctx: *SemContext, in: *const SemContext, module_id: ?u32, na
     }
 }
 
+/// An object: a type declared `obj`, generic or not, in Rig. Not an
+/// enum, an error set, or a built-in type.
+pub fn isObject(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .nominal => |sym| isObjectSym(ctx, sym),
+        .parameterized_nominal => |pn| isObjectSym(ctx, pn.sym),
+        .imported_nominal => |n| isObjectSym(ctx.foreign_semas.get(n.module_id) orelse return false, n.sym_id),
+        else => false,
+    };
+}
+
+/// `isObject` of the type `sym` declares.
+pub fn isObjectSym(ctx: *const SemContext, sym_id: SymbolId) bool {
+    if (sym_id >= ctx.symbols.items.len) return false;
+    const sym = ctx.symbols.items[sym_id];
+    if (isProxy(sym)) return isObjectSym(ctx.foreign_semas.get(sym.from.module_id) orelse return false, sym.from.sym);
+    if (sym.decl_pos == builtin_decl_pos or sym.flags.error_set) return false;
+    if (sym.kind != .nominal_type and sym.kind != .generic_type) return false;
+    for (sym.fields orelse return false) |f| if (f.is_variant) return false;
+    return true;
+}
+
+/// Whether a `T?` of payload `inner` is written `rig.Opt(T)`, and every
+/// operation on it goes through the runtime's optional helpers (`some`,
+/// `somePtr`, `pack`): where its representation may differ from Zig's
+/// `?T`. A type parameter's may, since its instance decides; under
+/// `RIG_STRICT_OPTIONALS` (`strict`), so does every object's.
+pub fn optionalRouted(ctx: *const SemContext, inner: TypeId, strict: bool) bool {
+    return switch (ctx.types.get(inner)) {
+        .type_var => true,
+        else => strict and isObject(ctx, inner),
+    };
+}
+
 /// An enum all of whose variants are bare (no payloads): comparable
 /// with `==`.
 pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
@@ -4715,6 +4774,35 @@ pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
         if (f.payload != null and f.payload.?.len > 0) return false;
     }
     return any;
+}
+
+/// For an enum type (not an error set), read through views, whether its
+/// values are integers (`Int(x)`): true for a plain enum, false for one
+/// with payload variants or type parameters; null for any other type.
+pub fn enumValues(ctx: *const SemContext, ty: TypeId) ?bool {
+    const decl = nominalDecl(ctx, unwrapViews(ctx, ty)) orelse return null;
+    const sym = decl.symbol();
+    if (sym.flags.error_set) return null;
+    const fields = sym.fields orelse return null;
+    var any = false;
+    for (fields) |f| {
+        if (!f.is_variant) continue;
+        any = true;
+        if (f.value == null) return false;
+    }
+    return if (any) true else null;
+}
+
+/// A declared enum whose values are integers (`enumValues`), itself and
+/// not a view of one: `<`, `<=`, `>`, and `>=` order its values by those
+/// integers. A built-in enum (`Endian`, `Arch`) has no integer values.
+pub fn isOrderedEnum(ctx: *const SemContext, ty: TypeId) bool {
+    switch (ctx.types.get(ty)) {
+        .nominal => |sym| if (isBuiltinEnum(ctx, sym)) return false,
+        .imported_nominal => {},
+        else => return false,
+    }
+    return enumValues(ctx, ty) orelse false;
 }
 
 /// Why values of a type have no `==`: the type that lacks it, found

@@ -1,0 +1,9 @@
+# A variant written with an empty payload `a()`: is the enum plain?
+enum E
+  a()
+  b
+
+sub main()
+  x = E.b
+  print(x == E.b)
+  print(x > E.b)

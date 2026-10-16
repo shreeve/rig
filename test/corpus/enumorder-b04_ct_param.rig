@@ -1,0 +1,14 @@
+# A compile-time parameter of a plain enum type ordered in the body.
+enum Size
+  large = 30
+  small = 10
+  medium = 20
+
+fun big[s: Size]() -> Bool
+  s > .medium
+
+fun pick[s: Size](n: Int) -> Int
+  n * 2 if s >= Size.medium else n
+
+sub main()
+  print(big[Size.large](), big[.small](), pick[.medium](4), pick[.small](4))

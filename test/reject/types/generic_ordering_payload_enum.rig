@@ -1,0 +1,12 @@
+# A generic body's `<` takes a plain enum but not one with a payload
+# variant.
+use std.math
+
+enum Shape
+  dot
+  circle(r: Int)
+
+sub main()
+  print(math.max(Shape.dot, Shape.dot))
+
+# error: 10:14: max[Shape]` cannot use `T = Shape`: the generic body applies `<` to `T`, which `Shape` does not support

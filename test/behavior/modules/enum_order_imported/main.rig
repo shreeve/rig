@@ -1,0 +1,13 @@
+# Another module's plain enum orders by its variants' values, beside a
+# `.variant`, a qualified variant, and in its own module's function.
+use lib
+use std.math
+
+sub main()
+  l: lib.Level = .mid
+  print(l > .low, lib.Level.high < l, l <= lib.Level.mid)
+  print(lib.at_least(l, .high), lib.at_least(.high, l), math.min(lib.Level.high, l))
+
+# expect:
+# true false true
+# false true .mid

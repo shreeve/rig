@@ -1,0 +1,10 @@
+# Values at the top of the range order as their integers do.
+enum Big
+  top = 4294967295
+  zero = 0
+  mid = 2147483648
+  low = 2147483647
+
+sub main()
+  print(Big.top > Big.mid, Big.mid > Big.low, Big.zero < Big.low, Big.low < Big.mid)
+  print(Int(Big.top) > Int(Big.mid), Int(Big.mid))

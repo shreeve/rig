@@ -21,6 +21,93 @@ const std = @import("std");
 const Int = i64;
 
 // -----------------------------------------------------------------------------
+// Optionals
+// -----------------------------------------------------------------------------
+
+// Rig's `T?` is `Opt(T)`: Zig's `?T`, or a struct that declares
+// `__rig_optional`, its payload type, and holds the payload its own way.
+// Every operation on a `T?` whose representation may differ from `?T` goes
+// through `some`, `somePtr`, and `pack`, which are the identity on a `?T`:
+// Zig rejects `orelse`, `null`, and a payload where a struct optional
+// goes, so an operation that skips them fails to compile. Under
+// `RIG_STRICT_OPTIONALS`, every object declares `__rig_strict_optional`,
+// and its optional is a `Strict` wrapper, so the whole suite checks that
+// emit and this file route every such operation.
+
+/// The Zig type of Rig's `T?`.
+pub fn Opt(comptime T: type) type {
+    if (comptime @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_strict_optional")) return Strict(T);
+    // A type that names its none (a compact optional) gets its own
+    // struct here.
+    return ?T;
+}
+
+/// `T?` held beside a flag, for an object under `RIG_STRICT_OPTIONALS`:
+/// the same values as `?T`, in a type Zig never lifts a `T` into.
+fn Strict(comptime T: type) type {
+    return struct {
+        has: bool,
+        payload: T,
+
+        pub const __rig_optional = T;
+
+        pub inline fn unwrap(o: @This()) ?T {
+            return if (o.has) o.payload else null;
+        }
+
+        pub inline fn unwrapPtr(p: anytype) ?@TypeOf(&p.payload) {
+            return if (p.has) &p.payload else null;
+        }
+
+        pub inline fn wrap(x: ?T) @This() {
+            return if (x) |v| .{ .has = true, .payload = v } else .{ .has = false, .payload = undefined };
+        }
+    };
+}
+
+/// Whether `O` is a Rig optional held as a struct (`Opt`).
+fn isOptStruct(comptime O: type) bool {
+    return @typeInfo(O) == .@"struct" and @hasDecl(O, "__rig_optional");
+}
+
+/// Whether `O` is a Rig optional: Zig's `?T`, or a struct one.
+fn isOptional(comptime O: type) bool {
+    return @typeInfo(O) == .optional or isOptStruct(O);
+}
+
+/// The `T` of an optional type `O`.
+pub fn Payload(comptime O: type) type {
+    return if (comptime isOptStruct(O)) O.__rig_optional else @typeInfo(O).optional.child;
+}
+
+/// `x`, a `T?`, as Zig's `?T`: what `if x as v`, `while x as v`, `??`,
+/// `?`, and `== none` test.
+pub inline fn some(x: anytype) ?Payload(@TypeOf(x)) {
+    if (comptime isOptStruct(@TypeOf(x))) return x.unwrap();
+    return x;
+}
+
+/// The address of the value inside the optional `p` points to, or null:
+/// what a `|*v|` capture binds.
+pub inline fn somePtr(p: anytype) ?PayloadPtr(@TypeOf(p)) {
+    const O = @typeInfo(@TypeOf(p)).pointer.child;
+    if (comptime isOptStruct(O)) return O.unwrapPtr(p);
+    return if (p.*) |*v| v else null;
+}
+
+fn PayloadPtr(comptime P: type) type {
+    const info = @typeInfo(P).pointer;
+    return if (info.attrs.@"const") *const Payload(info.child) else *Payload(info.child);
+}
+
+/// Zig's `?T` as the `T?` of type `O`, the inverse of `some`: what a
+/// `T`, `none`, or an optional-valued `??` is where a `T?` goes.
+pub inline fn pack(comptime O: type, x: ?Payload(O)) O {
+    if (comptime isOptStruct(O)) return O.wrap(x);
+    return x;
+}
+
+// -----------------------------------------------------------------------------
 // Dropping values
 // -----------------------------------------------------------------------------
 
@@ -40,6 +127,7 @@ fn isStrongHandle(comptime T: type) bool {
 /// The mirror of sema's `typeHasDropGlue` for a Zig type: a unique type
 /// that needs no cleanup drops nothing.
 fn needsDrop(comptime T: type) bool {
+    if (comptime isOptStruct(T)) return needsDrop(Payload(T));
     return switch (@typeInfo(T)) {
         .pointer => isStrongHandle(T),
         .optional => |o| needsDrop(o.child),
@@ -75,6 +163,7 @@ pub fn ReadView(comptime T: type) type {
 }
 
 fn copiedByReadView(comptime T: type) bool {
+    if (comptime isOptStruct(T)) return copiedByReadView(Payload(T));
     return switch (@typeInfo(T)) {
         .int, .float, .bool, .comptime_int, .comptime_float, .error_set, .@"enum", .@"fn", .pointer, .vector => true,
         .optional => |o| copiedByReadView(o.child),
@@ -145,6 +234,10 @@ fn copiedView(comptime T: type, view: anytype) T {
 /// Plain data is a no-op, decided at compile time.
 fn dropElement(comptime T: type, value: *T) void {
     if (comptime !needsDrop(T)) return;
+    if (comptime isOptStruct(T)) {
+        if (somePtr(value)) |inner| dropElement(Payload(T), inner);
+        return;
+    }
     switch (@typeInfo(T)) {
         .pointer => value.*.dropStrong(),
         .optional => if (value.*) |*inner| dropElement(@TypeOf(inner.*), inner),
@@ -197,7 +290,7 @@ pub fn swapPlaces(a: anytype, b: @TypeOf(a)) void {
 /// `<p.f` of an optional: the value, with `none` left in its place.
 pub fn takeOut(place: anytype) @TypeOf(place.*) {
     const value = place.*;
-    place.* = null;
+    place.* = pack(@TypeOf(place.*), null);
     return value;
 }
 
@@ -216,7 +309,7 @@ pub fn keep(slot: anytype, live: *bool, value: @TypeOf(slot.*)) @TypeOf(slot) {
 /// value that has one, and this has none.
 pub fn noneAt(comptime O: type) *O {
     const S = struct {
-        var none: O = null;
+        var none: O = pack(O, null);
     };
     return &S.none;
 }
@@ -276,16 +369,16 @@ pub fn eql(a: anytype, b: anytype) bool {
     const dA = comptime optDepth(A);
     const dB = comptime optDepth(B);
     if (comptime dA > dB) {
-        const x = a orelse return false;
+        const x = some(a) orelse return false;
         return eql(x, b);
     }
     if (comptime dB > dA) {
-        const y = b orelse return false;
+        const y = some(b) orelse return false;
         return eql(a, y);
     }
     if (comptime dA > 0) {
-        const x = a orelse return b == null;
-        const y = b orelse return false;
+        const x = some(a) orelse return some(b) == null;
+        const y = some(b) orelse return false;
         return eql(x, y);
     }
     // A String compares with a String or a `?String` by its bytes.
@@ -306,6 +399,7 @@ fn isValuePointer(comptime T: type) bool {
 
 /// How many optional levels `T` has.
 fn optDepth(comptime T: type) comptime_int {
+    if (comptime isOptStruct(T)) return 1 + optDepth(Payload(T));
     return switch (@typeInfo(T)) {
         .optional => |o| 1 + optDepth(o.child),
         else => 0,
@@ -314,6 +408,7 @@ fn optDepth(comptime T: type) comptime_int {
 
 /// Whether `x` is `none`: the literal, or an optional holding nothing.
 fn nullish(x: anytype) bool {
+    if (comptime isOptStruct(@TypeOf(x))) return some(x) == null;
     return switch (@typeInfo(@TypeOf(x))) {
         .null => true,
         .optional => x == null,
@@ -342,6 +437,11 @@ fn stringBytes(x: anytype) []const u8 {
 }
 
 fn eqlAs(comptime T: type, a: T, b: T) bool {
+    if (comptime isOptStruct(T)) {
+        const x = some(a) orelse return some(b) == null;
+        const y = some(b) orelse return false;
+        return eqlAs(Payload(T), x, y);
+    }
     switch (@typeInfo(T)) {
         .optional => |o| {
             const x = a orelse return b == null;
@@ -390,6 +490,7 @@ pub fn hash(x: anytype) u64 {
 /// `hash` of a value of type `T`.
 pub fn hashAs(comptime T: type, x: T) u64 {
     if (comptime isString(T)) return hashBytes(stringBytes(x));
+    if (comptime isOptStruct(T)) return if (some(x)) |v| hashAs(Payload(T), v) else hash_none;
     switch (@typeInfo(T)) {
         .optional => |o| return if (x) |v| hashAs(o.child, v) else hash_none,
         .null => return hash_none,
@@ -470,8 +571,8 @@ inline fn hashMix(h: u64, part: u64) u64 {
 /// `x == .tag` for a tagged union, or an optional of one: whether `x`
 /// holds that variant, whatever its payload.
 pub fn isVariant(x: anytype, comptime tag: @EnumLiteral()) bool {
-    if (@typeInfo(@TypeOf(x)) == .optional) {
-        const v = x orelse return false;
+    if (comptime isOptional(@TypeOf(x))) {
+        const v = some(x) orelse return false;
         return isVariant(v, tag);
     }
     return std.meta.activeTag(x) == tag;
@@ -494,11 +595,14 @@ fn isScalar(comptime T: type) bool {
     };
 }
 
-/// `a op b` for an ordering operator in a generic body: numbers compare
-/// as numbers, and `?String`s by their bytes, where the first byte that
-/// differs decides and a prefix sorts first.
+/// `a op b` for an ordering operator in a generic body or on a plain
+/// enum: numbers compare as numbers, a plain enum's values by their
+/// variants' values, and `?String`s by their bytes, where the first byte
+/// that differs decides and a prefix sorts first.
 pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bool {
-    if (comptime isStringView(@TypeOf(a, b))) return std.mem.order(u8, a, b).compare(op);
+    const T = @TypeOf(a, b);
+    if (comptime isStringView(T)) return std.mem.order(u8, a, b).compare(op);
+    if (@typeInfo(T) == .@"enum") return std.math.compare(@intFromEnum(@as(T, a)), op, @intFromEnum(@as(T, b)));
     return std.math.compare(a, op, b);
 }
 
@@ -648,6 +752,7 @@ pub fn upgradeTaken(w: anytype) @TypeOf(w.upgrade()) {
 pub fn cloneValue(value: anytype) @TypeOf(value.*) {
     const T = @TypeOf(value.*);
     if (comptime !needsDrop(T)) return value.*;
+    if (comptime isOptStruct(T)) return pack(T, if (somePtr(value)) |inner| cloneValue(inner) else null);
     switch (@typeInfo(T)) {
         .pointer => return value.*.cloneStrong(),
         .optional => return if (value.*) |*inner| cloneValue(inner) else null,
@@ -673,22 +778,24 @@ pub fn cloneValue(value: anytype) @TypeOf(value.*) {
 
 /// `+x` for an optional handle: another handle to the same box, or null.
 pub fn cloneOptional(value: anytype) @TypeOf(value) {
-    const h = value orelse return null;
-    return if (comptime isStrongHandle(@TypeOf(h))) h.cloneStrong() else h.cloneWeak();
+    const O = @TypeOf(value);
+    const h = some(value) orelse return pack(O, null);
+    return pack(O, if (comptime isStrongHandle(@TypeOf(h))) h.cloneStrong() else h.cloneWeak());
 }
 
 /// `e == none` for a temporary optional that owns a resource: the
 /// temporary is dropped.
 pub fn isNone(value: anytype) bool {
     defer discard(value);
-    return value == null;
+    return some(value) == null;
 }
 
 /// `xs.get(i)` on an array (or a pointer to one), a slice, or a `?String`:
 /// the element at `i`, or null when out of range.
-pub fn elementAt(items: anytype, i: Int) ?ElementOf(@TypeOf(items)) {
-    const idx = std.math.cast(usize, i) orelse return null;
-    return if (idx < items.len) items[idx] else null;
+pub fn elementAt(items: anytype, i: Int) Opt(ElementOf(@TypeOf(items))) {
+    const O = Opt(ElementOf(@TypeOf(items)));
+    const idx = std.math.cast(usize, i) orelse return pack(O, null);
+    return pack(O, if (idx < items.len) items[idx] else null);
 }
 
 /// The element type of an array, a pointer to one, or a slice.
@@ -835,7 +942,7 @@ pub fn Cell(comptime T: type) type {
             self.value.push(value);
         }
 
-        pub fn listPop(self: *Self) ?E {
+        pub fn listPop(self: *Self) Opt(E) {
             return self.value.pop();
         }
 
@@ -847,7 +954,7 @@ pub fn Cell(comptime T: type) type {
             return self.value.at(i);
         }
 
-        pub fn listGet(self: *const Self, i: Int) ?E {
+        pub fn listGet(self: *const Self, i: Int) Opt(E) {
             return self.value.get(i);
         }
 
@@ -865,7 +972,7 @@ pub fn Cell(comptime T: type) type {
                 return;
             }
             while (self.value.len > rest) {
-                var gone = self.value.pop().?;
+                var gone = some(self.value.pop()).?;
                 dropElement(E, &gone);
             }
         }
@@ -1144,9 +1251,9 @@ pub fn List(comptime T: type) type {
         }
 
         /// The element at `i`, or null when out of range. Plain-data `T` only.
-        pub fn get(self: *const Self, i: Int) ?T {
-            const idx = std.math.cast(usize, i) orelse return null;
-            return if (idx < self.len) self.buf[idx] else null;
+        pub fn get(self: *const Self, i: Int) Opt(T) {
+            const idx = std.math.cast(usize, i) orelse return pack(Opt(T), null);
+            return pack(Opt(T), if (idx < self.len) self.buf[idx] else null);
         }
 
         /// `v[i]`: the element at `i`; panics when out of range.
@@ -1166,10 +1273,10 @@ pub fn List(comptime T: type) type {
         }
 
         /// Remove and return the last element; the caller owns it.
-        pub fn pop(self: *Self) ?T {
-            if (self.len == 0) return null;
+        pub fn pop(self: *Self) Opt(T) {
+            if (self.len == 0) return pack(Opt(T), null);
             self.len -= 1;
-            return self.buf[self.len];
+            return pack(Opt(T), self.buf[self.len]);
         }
 
         /// Insert `value` at `i`, moving the elements from `i` on up by
@@ -1198,11 +1305,11 @@ pub fn List(comptime T: type) type {
             list: Self,
             next_index: usize = 0,
 
-            pub fn next(it: *IntoIter) ?T {
-                if (it.next_index >= it.list.len) return null;
+            pub fn next(it: *IntoIter) Opt(T) {
+                if (it.next_index >= it.list.len) return pack(Opt(T), null);
                 const value = it.list.buf[it.next_index];
                 it.next_index += 1;
-                return value;
+                return pack(Opt(T), value);
             }
 
             /// Drop the elements not handed over (the loop left early),
@@ -1497,6 +1604,7 @@ fn nameOf(comptime x: anytype, comptime names: anytype) []const u8 {
     if (@TypeOf(x) != type) return std.fmt.comptimePrint("{d}", .{x});
     const T = x;
     if (builtinName(T, names)) |name| return name;
+    if (comptime isOptStruct(T)) return suffixedName(Payload(T), "?", names);
     return switch (@typeInfo(T)) {
         .optional => |o| suffixedName(o.child, "?", names),
         .error_union => |e| suffixedName(e.payload, "!", names),
@@ -1585,7 +1693,7 @@ fn fnName(comptime params: anytype, comptime R: type, comptime names: anytype) [
 /// `T?` / `T!`, with `T` in parentheses when a suffix cannot follow it,
 /// as the printer writes them.
 fn suffixedName(comptime T: type, comptime suffix: []const u8, comptime names: anytype) []const u8 {
-    const doubled = std.mem.eql(u8, suffix, "?") and builtinName(T, names) == null and @typeInfo(T) == .optional;
+    const doubled = std.mem.eql(u8, suffix, "?") and builtinName(T, names) == null and isOptional(T);
     if (doubled or takesNoSuffix(T, names)) return "(" ++ nameOf(T, names) ++ ")" ++ suffix;
     return nameOf(T, names) ++ suffix;
 }
@@ -1612,7 +1720,7 @@ fn takesNoSuffix(comptime T: type, comptime names: anytype) bool {
 fn handleName(comptime sigil: []const u8, comptime T: type, comptime names: anytype) []const u8 {
     // A box of a read view is written `^?T`; a handle holds no view.
     const view = if (builtinName(T, names)) |name| name[0] == '?' and sigil[0] != '^' else false;
-    const suffixed = view or @typeInfo(T) == .optional or @typeInfo(T) == .error_union;
+    const suffixed = view or isOptional(T) or @typeInfo(T) == .error_union;
     return if (suffixed) sigil ++ "(" ++ nameOf(T, names) ++ ")" else sigil ++ nameOf(T, names);
 }
 
@@ -1699,8 +1807,8 @@ pub fn frexpExponent(x: anytype) i64 {
 }
 
 /// The variant of plain enum `E` whose integer value is `n`, or null.
-pub fn enumFromInt(comptime E: type, n: anytype) ?E {
-    return std.enums.fromInt(E, n);
+pub fn enumFromInt(comptime E: type, n: anytype) Opt(E) {
+    return pack(Opt(E), std.enums.fromInt(E, n));
 }
 
 /// `for x in <a` of an array whose elements move: each element handed
@@ -1712,11 +1820,11 @@ pub fn ArrayIntoIter(comptime A: type) type {
         items: A,
         next_index: usize = 0,
 
-        pub fn next(it: *@This()) ?T {
-            if (it.next_index >= it.items.len) return null;
+        pub fn next(it: *@This()) Opt(T) {
+            if (it.next_index >= it.items.len) return pack(Opt(T), null);
             const value = it.items[it.next_index];
             it.next_index += 1;
-            return value;
+            return pack(Opt(T), value);
         }
 
         pub fn deinit(it: *@This()) void {
@@ -3723,6 +3831,7 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
     if (comptime isStringView(T)) {
         return if (top) w.writeAll(value) else w.print("\"{s}\"", .{value});
     }
+    if (comptime isOptStruct(T)) return if (some(value)) |v| writeValue(w, v, top) else w.writeAll("none");
     switch (@typeInfo(T)) {
         .int, .comptime_int => return w.print("{d}", .{value}),
         .float, .comptime_float => {
@@ -4180,15 +4289,15 @@ test "dropping a shared handle to a shared handle drops the inner one" {
 test "optional handles drop, clone, and compare with none" {
     const before = usage();
     var drops: usize = 0;
-    var some: ?*RcBox(Counter) = rcNew(Counter{ .drops = &drops });
+    var held: ?*RcBox(Counter) = rcNew(Counter{ .drops = &drops });
     var none: ?*RcBox(Counter) = null;
-    var other = cloneOptional(some);
-    try testing.expectEqual(2, some.?.strong);
+    var other = cloneOptional(held);
+    try testing.expectEqual(2, held.?.strong);
     try testing.expectEqual(null, cloneOptional(none));
-    try testing.expect(!isNone(cloneOptional(some)));
+    try testing.expect(!isNone(cloneOptional(held)));
     try testing.expect(isNone(none));
     drop(&none);
-    drop(&some);
+    drop(&held);
     try testing.expectEqual(0, drops);
     drop(&other);
     try testing.expectEqual(1, drops);
@@ -4377,6 +4486,51 @@ test "aggregates drop their parts" {
     var arr: [2]H = .{ rcNew(Counter{ .drops = &drops }), rcNew(Counter{ .drops = &drops }) };
     drop(&arr);
     try testing.expectEqual(5, drops);
+    try expectNoLeaks(before);
+}
+
+test "an optional held as a struct drops, clones, compares, hashes, and prints as ?T does" {
+    const before = usage();
+    var drops: usize = 0;
+    const H = *RcBox(Counter);
+    const Obj = struct {
+        h: H,
+        pub const __rig_strict_optional = {};
+    };
+    const Plain = struct {
+        id: i64,
+        pub const __rig_strict_optional = {};
+    };
+    const O = Opt(Obj);
+    try testing.expect(isOptStruct(O) and needsDrop(O) and !needsDrop(Opt(Plain)));
+    try testing.expect(Opt(i64) == ?i64 and Opt(O) == ?O);
+
+    var held = pack(O, Obj{ .h = rcNew(Counter{ .drops = &drops }) });
+    var none = pack(O, null);
+    try testing.expect(some(none) == null and somePtr(&none) == null);
+    var cloned = cloneValue(&held);
+    try testing.expectEqual(2, some(held).?.h.strong);
+    somePtr(&cloned).?.h.dropStrong();
+    cloned = takeOut(&held);
+    try testing.expect(isNone(held) and !isNone(pack(Opt(Plain), Plain{ .id = 1 })));
+    drop(&none);
+    drop(&held);
+    try testing.expectEqual(0, drops);
+    drop(&cloned);
+    try testing.expectEqual(1, drops);
+
+    const P = Opt(Plain);
+    const a = pack(P, Plain{ .id = 3 });
+    try testing.expect(eql(a, pack(P, Plain{ .id = 3 })) and !eql(a, pack(P, null)) and eql(a, Plain{ .id = 3 }));
+    try testing.expect(eql(pack(P, null), @as(?Plain, null)) and !eql(a, pack(P, Plain{ .id = 4 })));
+    try testing.expectEqual(hash(@as(?Plain, Plain{ .id = 3 })), hash(a));
+    try testing.expectEqual(hash(@as(?Plain, null)), hash(pack(P, null)));
+    var buf: [64]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try writeValue(&w, a, true);
+    try w.writeAll(" ");
+    try writeValue(&w, pack(?P, pack(P, null)), true);
+    try testing.expectEqualStrings("Plain(id: 3) none", w.buffered());
     try expectNoLeaks(before);
 }
 
