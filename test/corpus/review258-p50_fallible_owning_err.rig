@@ -1,0 +1,19 @@
+error Bad
+  oops
+
+obj R
+  s: String
+
+fun sf(v: !List[R], ok: Bool) -> (!R)! from v
+  return Bad.oops if not ok
+  !v[0]
+
+sub put(v: !List[R], ok: Bool)!
+  sf(!v, ok)! = R(s: String("new"))
+
+sub main()
+  v: List[R] = List()
+  !v.push(R(s: String("a")))
+  put(!v, false) catch print("failed")
+  put(!v, true) catch print("failed")
+  print(v[0].s)

@@ -1,0 +1,23 @@
+# Only a write view `!T` a call returns is assigned through: not a read
+# view, not a value, and not a `![]T`, whose elements are written instead.
+
+fun first(v: ?List[Int]) -> ?Int from v
+  ?v[0]
+
+fun count(v: ?List[Int]) -> Int
+  v.len
+
+fun all(v: !List[Int]) -> ![]Int from v
+  !v[..]
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  first(?v) = 2
+  count(?v) += 1
+  all(!v) = !v[..]
+
+# errors: 3
+# error: 16:3: cannot assign through a read view (`?T`), which this call returns; a call that returns a write view (`!T`) is assigned through
+# error: 17:3: cannot assign to a call's result, an `Int`; only a write view (`!T`) a call returns is assigned through
+# error: 18:3: cannot assign to a `![]Int` a call returns; write its elements with `all(!v)[i] = v`

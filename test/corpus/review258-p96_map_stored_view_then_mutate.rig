@@ -1,0 +1,12 @@
+use std.hash
+
+obj H
+  s: ?String
+
+sub main()
+  a = String("a")
+  b = String("b")
+  m = hash.Map[Int, H]()
+  (!m).ensure(1, H(s: ?a)) = H(s: ?b)
+  !b.add("x")
+  print(m.len)

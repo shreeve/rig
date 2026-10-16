@@ -1,0 +1,16 @@
+obj H
+  r: ?Int
+
+error Bad
+  oops
+
+fun set(w: (!H)!) -> Int!
+  d = 4
+  w! = H(r: ?d)
+  0
+
+sub main()
+  n = 1
+  h = H(r: ?n)
+  print(set(!h) catch 0)
+  print(h.r)

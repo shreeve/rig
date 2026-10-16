@@ -1,0 +1,10 @@
+fun sl(v: !List[Float], i: Int) -> !Float from v
+  !v[i]
+
+sub main()
+  v: List[Float] = List()
+  !v.push(1.5)
+  sl(!v, 0) *= 2.0
+  sl(!v, 0) /= 4.0
+  sl(!v, 0) += 1
+  print(v)

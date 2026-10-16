@@ -1,0 +1,16 @@
+fun slot(h: !List[String], i: Int) -> !String from h
+  !h[i]
+
+obj Q
+  a: List[String]
+  b: ?String
+
+fun qa(q: !Q) -> !List[String] from q
+  !q.a
+
+sub main()
+  x = String("x")
+  q = Q(a: List(), b: ?x)
+  !q.a.push(String("z"))
+  qa(!q) = List()
+  print(q.a.len, q.b)

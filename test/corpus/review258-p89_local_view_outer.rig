@@ -1,0 +1,14 @@
+obj H
+  s: ?String
+
+fun wrap(h: !H) -> !H from h
+  h
+
+sub main()
+  x = String("x")
+  h = H(s: ?x)
+  w = !h
+  if x.len > 0
+    d = String("d")
+    wrap(!w) = H(s: ?d)
+  print(h.s)

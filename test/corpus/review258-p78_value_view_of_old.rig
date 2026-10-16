@@ -1,0 +1,14 @@
+obj H
+  t: String
+  s: ?String
+
+fun hs(v: !List[H], i: Int) -> !H from v
+  !v[i]
+
+sub main()
+  x = String("x")
+  v: List[H] = List()
+  !v.push(H(t: String("a"), s: ?x))
+  !v.push(H(t: String("b"), s: ?x))
+  hs(!v, 0) = H(t: String("c"), s: ?v[1].t)
+  print(v[0].s)

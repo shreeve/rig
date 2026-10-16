@@ -1,0 +1,45 @@
+# A value assigned through a call's write view lands in what the view
+# reaches: here the caller's `H`, through parameter `h`. It may hold no
+# view of a local, which ends when the function returns: so for the
+# call, its `?`, and its `!`.
+
+obj H
+  s: ?String
+
+error Bad
+  oops
+
+fun slot(h: !H) -> !H from h
+  h
+
+fun pick(h: !H) -> (!H)? from h
+  h
+
+fun must(h: !H) -> (!H)! from h
+  h
+
+sub plain(h: !H)
+  d = String("local")
+  slot(!h) = H(s: ?d)
+
+fun optional(h: !H) -> Int?
+  d = String("local")
+  pick(!h)? = H(s: ?d)
+  0
+
+fun fallible(h: !H) -> Int!
+  d = String("local")
+  must(!h)! = H(s: ?d)
+  0
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  plain(!h)
+  print(optional(!h), fallible(!h) catch 0)
+  print(h.s)
+
+# errors: 3
+# error: 23:3: cannot store a view of `d`
+# error: 27:3: cannot store a view of `d`
+# error: 32:3: cannot store a view of `d`

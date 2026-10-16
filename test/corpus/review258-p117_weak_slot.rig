@@ -1,0 +1,14 @@
+obj P
+  x: Int
+
+fun wk(h: !List[~P]) -> !(~P) from h
+  !h[0]
+
+sub main()
+  a = *P(x: 1)
+  b = *P(x: 2)
+  v: List[~P] = List()
+  !v.push(~a)
+  wk(!v) = ~b
+  if v[0].get() as p
+    print(p.x)

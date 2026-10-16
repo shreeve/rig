@@ -1,0 +1,13 @@
+fun sl(v: !List[String], i: Int) -> !String from v
+  !v[i]
+
+sub go(v: !List[String])
+  defer sl(!v, 0) = String("deferred")
+  sl(!v, 0) = String("body")
+  print(v)
+
+sub main()
+  v: List[String] = List()
+  !v.push(String("a"))
+  go(!v)
+  print(v)

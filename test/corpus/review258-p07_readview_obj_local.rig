@@ -1,0 +1,18 @@
+obj P
+  x: Int
+
+obj H
+  s: ?P
+
+fun sl(h: !H) -> !(?P) from h
+  !h.s
+
+sub put(h: !H)
+  d = P(x: 5)
+  sl(!h) = ?d
+
+sub main()
+  a = P(x: 1)
+  h = H(s: ?a)
+  put(!h)
+  print(h.s.x)

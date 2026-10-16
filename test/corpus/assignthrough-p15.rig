@@ -1,0 +1,10 @@
+fun mk(v: !List[Int]) -> !List[Int] from v
+  v
+
+sub main()
+  v: List[Int] = List()
+  !v.push(1)
+  mk(!v) = List()
+  !mk(!v).push(4)
+  mk(!v)[0] = 9
+  print(v)
