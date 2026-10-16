@@ -1302,9 +1302,7 @@ pub const Lexer = struct {
     }
 
     fn classifyKeyword(self: *const Lexer, kw: TokenCat) TokenCat {
-        // A member's name first, `if` too (`t.if`, `if: Bool`).
-        if (self.memberName()) |m| return m;
-        if (kw != .@"if") return kw;
+        if (kw != .@"if") return self.memberName() orelse kw;
         switch (self.last_cat) {
             .@"return", .@"break", .@"continue", .pass => return .post_if,
             else => {},
