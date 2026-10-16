@@ -265,13 +265,11 @@
                   ^ constant.numeric
 >   e = a << 2 >> 1 <<% 3
       ^ operator
-          ^ storage.modifier
-           ^ operator
+          ^^ operator
              ^ constant.numeric
                ^^ operator
                   ^ constant.numeric
-                    ^ storage.modifier
-                     ^^ operator
+                    ^^^ operator
                         ^ constant.numeric
 >   f = (a & 7) | (a ^ 3)
       ^ operator
@@ -318,15 +316,13 @@
       ^^ operator
          ^ constant.numeric
 >   a <<= 1
-      ^ storage.modifier
-       ^^ operator
+      ^^^ operator
           ^ constant.numeric
 >   a >>= 1
       ^^^ operator
           ^ constant.numeric
 >   a <<%= 1
-      ^ storage.modifier
-       ^^^ operator
+      ^^^^ operator
            ^ constant.numeric
 >   a +%= 1
       ^^^ operator
@@ -379,6 +375,12 @@
                   ^^^^^^ string
                         ^^ string.escape
                           ^^^^^^ string
+>   e = ''
+      ^ operator
+        ^^ string
+>   f = ""
+      ^ operator
+        ^^ string
 >   u = String(s, t)
       ^ operator
         ^^^^^^ type
