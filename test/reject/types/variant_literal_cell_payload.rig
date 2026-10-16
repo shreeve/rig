@@ -1,0 +1,27 @@
+# A variant literal of an enum that holds a Cell by value, lent where a
+# `?CV` goes, is rejected as `CV.C(c: Cell(1))` is: a value that holds a
+# Cell lives only behind a shared handle.
+enum CV
+  C(c: Cell[Int])
+  E
+
+enum Outer
+  O(v: CV)
+
+sub look(v: ?CV)
+  match v
+    .C(c) => print("c", c.get())
+    .E => print("e")
+
+sub outer(o: ?Outer)
+  match o
+    .O(v) => look(v)
+
+sub main()
+  look(.C(c: Cell(1)))
+  outer(.O(v: .C(c: Cell(2))))
+  look(.E)
+
+# error: 21:8: `.C(c: Cell(1))` makes a `CV`, which holds a Cell, so it lives only behind a shared handle
+# error: 22:9: `.O(v: .C(c: Cell(2)))` makes a `Outer`, which holds a Cell, so it lives only behind a shared handle
+# errors: 2

@@ -140,6 +140,13 @@ test/corpus/review-step45-r2-e14_match.rig main prod-rejects prod-strict `cnt(?o
 test/reject/ownership/call_write_lend_kept.rig match_arm_writes prod-rejects prod-strict `!v.push(Item(n: it.n))` in an arm of `match find(!v)`, after the last use of `it`
 test/reject/ownership/call_write_lend_kept.rig write_result_whole prod-rejects prod-strict `v.len` after `firstw(!v).n`, the last use of the write view, in one statement
 
+# A bare variant literal whose enum comes from a view held by address
+# (`keep(.dot)` where `keep(v: ?S) -> ?S`) is a constant, which lives for
+# the whole program (SPEC "Lending"), so the oracle lets its view be
+# kept; the compiler lends it as a value made there, a temporary of its
+# statement, as it lends `.line(...)`.
+vlit.bare.kept main prod-rejects prod-strict `x = keep(.dot)` keeps a view of a bare variant literal past its statement
+
 # The matrix's view forms (`r = ?a`, `w = !a`) meet rules older than
 # them, which a number already met in v0.2.2. A read view read by an
 # earlier argument keeps its owner lent until the call returns (Core §6),

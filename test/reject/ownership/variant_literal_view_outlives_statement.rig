@@ -1,0 +1,17 @@
+# A variant literal lent to a view argument is a temporary its
+# statement drops, as `Val.Table(...)` is: a view the call returns of it
+# cannot outlive the statement.
+
+enum Val
+  Num(n: Int)
+  Table(m: List[Int])
+
+fun keep(v: ?Val) -> ?Val
+  return v
+
+sub main()
+  x = keep(.Table(m: List()))
+  print(x)
+
+# error: 13:12: a view of the temporary `.Table(m: List())` outlives its statement, which drops it; bind the value to a name first
+# errors: 1

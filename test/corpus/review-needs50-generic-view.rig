@@ -1,0 +1,35 @@
+# A variant literal lent where a generic `?T` goes once `T` is known:
+# from an earlier argument, from a generic object's receiver, and from
+# the view the call's result is lent to. Runs sanitizer-clean.
+enum Q
+  Num(n: Int)
+  Str(s: String)
+  Empty
+
+obj Box[T]
+  x: T
+
+fun Box[T].same(?self, y: ?T) -> Bool
+  self.x == y
+
+fun count[T](xs: ?List[T], x: ?T) -> Int
+  n = 0
+  for y in xs
+    n += 1 if y == x
+  return n
+
+fun id[T](x: ?T) -> ?T
+  return x
+
+sub show(q: ?Q)
+  print(q)
+
+sub main()
+  xs = List[Q]()
+  !xs.push(.Num(n: 1))
+  !xs.push(.Str(s: String("a")))
+  !xs.push(.Num(n: 1))
+  print(count(?xs, .Num(n: 1)), count(?xs, .Str(s: String("a"))), count(?xs, .Empty))
+  b = Box[Q](x: .Str(s: String("z")))
+  print(b.same(.Str(s: String("z"))), b.same(.Empty))
+  show(id(.Str(s: String("id"))))
