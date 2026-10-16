@@ -4,7 +4,7 @@ obj G
 obj H
   arr: [3]Int
 
-const E = Endian.little
+E =! Endian.little
 
 fun total(xs: []Int) -> Int
   t = 0

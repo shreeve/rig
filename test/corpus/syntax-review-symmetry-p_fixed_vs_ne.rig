@@ -1,4 +1,4 @@
 sub main()
   y = 2
-  const x = y
+  x =! y
   print(x != y)

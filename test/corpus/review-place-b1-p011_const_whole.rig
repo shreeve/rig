@@ -1,4 +1,4 @@
-const K = 3
+K =! 3
 
 sub main()
   K = 4

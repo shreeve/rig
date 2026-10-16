@@ -3954,7 +3954,7 @@ pub const Checker = struct {
         }
         if (v.fixed) {
             try self.err(pos, "cannot reassign fixed binding `{s}`", .{v.name});
-            try self.note(v.decl, "`{s}` was bound here with `const`", .{v.name});
+            try self.note(v.decl, "`{s}` was bound here with `=!`", .{v.name});
             return;
         }
         // Assigning a captured write view writes through it.
@@ -6986,7 +6986,7 @@ test "hello passes" {
 test "fixed binding cannot be reassigned" {
     try expectError(
         \\sub main()
-        \\  const user = make()
+        \\  user =! make()
         \\  user = remake()
         \\
     , "cannot reassign fixed binding `user`");

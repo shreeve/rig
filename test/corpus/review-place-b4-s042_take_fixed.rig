@@ -2,5 +2,5 @@ obj P
   o: (?String)?
 
 sub main()
-  const p = P(o: "a")
+  p =! P(o: "a")
   x = <p.o

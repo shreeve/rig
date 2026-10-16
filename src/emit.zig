@@ -257,7 +257,7 @@ pub const Emitter = struct {
     /// its context reads through it (`emitDeref`).
     want_ptr: bool = false,
     /// Emitting an operand of arithmetic or an index: compile-time names
-    /// (compile-time parameters, `const` bindings) are read through `rig.rt` so Zig
+    /// (compile-time parameters, `=!` bindings) are read through `rig.rt` so Zig
     /// evaluates the operation at run time, as Rig checked it.
     rt_names: bool = false,
     /// Emitting a compile-time argument, which must stay compile-time known.
