@@ -145,6 +145,9 @@ const Checker = struct {
     /// The last line of a function that gives several results, which
     /// gives them with `return`.
     results_tail: Sexp = .nil,
+    /// The call `if c as x` binds one name of, for the hint that binds
+    /// each of several results.
+    as_call: Sexp = .nil,
     /// The name an assignment re-binds while its value is checked, when
     /// that name holds a `Static` (`staticHint`).
     static_target: []const u8 = "",
@@ -1053,7 +1056,7 @@ const Checker = struct {
         var ok = try self.checkResultTargets(targets);
         const call = resultCall(value) orelse Sexp.nil;
         if (ok and !self.isResultsValue(value)) {
-            try self.errAt(value, "several results are bound from a call that gives them: `{s} = f()`, `f()!`, `f()?`, or `f() ?? return`", .{try self.targetNames(targets)});
+            try self.errAt(value, "several results are bound from a call that gives them: `{s} = f()`, `f()!`, `f()?`, `f() ?? return`, or `f() catch return`", .{try self.targetNames(targets)});
             _ = try self.synthQuiet(value);
             for (targets) |tg| if (tg.isKind(.set)) try self.poisonTarget(tg);
             return;
@@ -1066,9 +1069,14 @@ const Checker = struct {
         var parts: []const TypeId = &.{};
         if (!self.isPoison(ty)) switch (self.ctx.types.get(ty)) {
             .results => |r| parts = r,
+            // Reported where the call is typed (`synthCall`).
+            .fallible => ok = false,
             else => if (ok) {
                 const name = if (call != .nil) try self.calleeName(ir.Call.callee(call)) else self.sourceText(value);
-                try self.errAt(value, "`{s}` gives one result, of type `{s}`; bind it to one name", .{ name, try self.tyName(ty) });
+                const shown = self.sourceText(value);
+                if (sema.resultsOf(self.ctx, ty) != null) {
+                    try self.errAt(value, "`{s}` gives several results inside an optional, `{s}`: test it first, `{s}?`, `{s} ?? return`, or `if {s} as {s}`", .{ name, try self.tyName(ty), shown, shown, shown, try self.targetNames(targets) });
+                } else try self.errAt(value, "`{s}` gives one result, of type `{s}`; bind it to one name", .{ name, try self.tyName(ty) });
                 ok = false;
             },
         };
@@ -1175,6 +1183,13 @@ const Checker = struct {
         return out.items;
     }
 
+    /// The function being checked, for a message: `` `f` ``, or this
+    /// closure.
+    fn bodyName(self: *Checker) Error![]const u8 {
+        if (self.body.name == .nil) return "this closure";
+        return self.ctx.arena.allocator().print("`{s}`", .{self.text(self.body.name)});
+    }
+
     /// `n` names for a hint that binds several results: `a, b`.
     fn resultNames(self: *Checker, n: usize) Error![]const u8 {
         var out: std.ArrayList(u8) = .empty;
@@ -1197,6 +1212,9 @@ const Checker = struct {
         const callee = ir.Call.callee(call);
         if (callee.isKind(.member) and rig.isHiddenLeaf(ir.Member.name(callee))) {
             return self.errAt(call, "a `for` binds one value each step, and this iterator's `next` gives {d} results: bind them with `while (!it).next() as {s}`", .{ n, try self.resultNames(n) });
+        }
+        if (sameNode(call, self.as_call)) {
+            return self.errAt(call, "`{s}` gives {d} results: bind each, `if {s} as {s}`", .{ name, n, self.sourceText(call), try self.resultNames(n) });
         }
         if (sameNode(call, self.results_tail)) {
             return self.errAt(call, "several results are given with `return`: `return {s}`", .{self.sourceText(call)});
@@ -1226,16 +1244,15 @@ const Checker = struct {
         const tys: ?[]const TypeId = if (self.body.returns != null) null else sema.resultsOf(self.ctx, ret);
         const want = tys orelse {
             for (parts) |p| _ = try self.synthExpr(p);
-            if (self.isPoison(ret)) return;
+            // A closure whose result is inferred gives one.
             if (self.body.returns != null) return self.errAt(value, "a closure gives several results only where its type says so: `?fun(...) -> (A, B)`", .{});
+            if (self.isPoison(ret)) return;
             if (self.body.is_sub) return self.errAt(value, "a `sub` returns no value; several results are a `fun`'s: `-> (A, B)`", .{});
-            const name = if (self.body.name != .nil) self.text(self.body.name) else "this function";
-            return self.errAt(value, "`{s}` gives one result, of type `{s}`; several are declared `-> (A, B)`", .{ name, try self.tyName(ret) });
+            return self.errAt(value, "{s} gives one result, of type `{s}`; several are declared `-> (A, B)`", .{ try self.bodyName(), try self.tyName(ret) });
         };
         if (want.len != parts.len) {
             for (parts) |p| _ = try self.synthExpr(p);
-            const name = if (self.body.name != .nil) self.text(self.body.name) else "this function";
-            return self.errAt(value, "`{s}` gives {d} results, but `return` gives {d}", .{ name, want.len, parts.len });
+            return self.errAt(value, "{s} gives {d} results, but `return` gives {d}", .{ try self.bodyName(), want.len, parts.len });
         }
         const saved = self.return_operand;
         defer self.return_operand = saved;
@@ -2227,7 +2244,10 @@ const Checker = struct {
         const saved_held = self.held_base;
         defer self.held_base = saved_held;
         if (!self.no_hold) self.held_base = self.madeBase(expr);
+        const saved_as = self.as_call;
+        self.as_call = resultCall(expr) orelse .nil;
         const ty = try self.synthExpr(expr);
+        self.as_call = saved_as;
         var inner = self.t().invalid_id;
         if (!self.isPoison(ty)) switch (self.ctx.types.get(sema.unwrapViews(self.ctx, ty))) {
             .optional => |i| inner = i,
@@ -4356,6 +4376,12 @@ const Checker = struct {
             .as => blk: {
                 try self.errAt(e, "`as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`", .{});
                 _ = try self.synthExpr(ir.As.value(e));
+                break :blk self.t().invalid_id;
+            },
+            .as_results => blk: {
+                try self.errAt(e, "`as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`", .{});
+                _ = try self.synthQuiet(ir.AsResults.value(e));
+                for (ir.AsResults.names(e).items()) |n| if (n.isKind(.set)) try self.poisonTarget(n);
                 break :blk self.t().invalid_id;
             },
             .kwarg => blk: {

@@ -4616,10 +4616,9 @@ pub const Checker = struct {
         for (targets, parts, 0..) |o, part, k| {
             if (k == j or (k < j and o.isKind(.set))) continue;
             for (part.loans) |l| if (l.root == id and !l.ext) {
-                const by = if (o.isKind(.set)) self.text(ir.Set.target(o)) else "a result `_` discards";
                 if (o.isKind(.set)) {
-                    try self.err(target.src.pos, "cannot bind `{s}` while `{s}` views it", .{ self.text(target), by });
-                } else try self.err(target.src.pos, "cannot bind `{s}` while {s} views it", .{ self.text(target), by });
+                    try self.err(target.src.pos, "cannot bind `{s}` while `{s}` views it", .{ self.text(target), self.text(ir.Set.target(o)) });
+                } else try self.err(target.src.pos, "cannot bind `{s}` while the result `_` discards views it: that result drops at the statement's end", .{self.text(target)});
                 return true;
             };
         }
@@ -5263,7 +5262,14 @@ pub const Checker = struct {
         // `return a, b`: each part leaves the function as `return x`
         // does, left to right.
         if (value.isKind(.results)) {
-            for (ir.Results.values(value)) |part| try self.walkReturnValue(part);
+            for (ir.Results.values(value)) |part| {
+                try self.walkReturnValue(part);
+                // A write view a part hands out leaves for good, as
+                // `<w` would: a later part may not use it again.
+                if (part == .src) if (self.find(self.text(part))) |id| {
+                    if (self.vars.items[id].ref == .write and self.flowLive(id)) try self.markInvalid(id, .moved, part.src.pos);
+                };
+            }
         } else if (value != .nil) try self.walkReturnValue(value);
         _ = try self.exitTo(.{ .exit = .{ .@"return" = value != .nil and self.mayFail(value) } });
         self.reachable = false;

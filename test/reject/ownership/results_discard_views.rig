@@ -1,0 +1,9 @@
+fun keep(s: ?String) -> (?String, String)
+  return s, String(s)
+
+sub main()
+  s = String("ab")
+  _, s = keep(?s)
+  print(s)
+
+# error: cannot bind `s` while the result `_` discards views it

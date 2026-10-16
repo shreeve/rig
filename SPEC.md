@@ -1468,7 +1468,8 @@ b a
 ```
 
 **Giving them.** `return a, b` gives each part as `return x` gives `x`,
-left to right: a bare owner moves out, and a view must be of what the
+left to right: a bare owner moves out, and so does a bare write view,
+which a later part may not use again; a view must be of what the
 function was lent. A bare last line `a, b` is no statement: results are
 given with `return`. A part that fails after an earlier one was made
 drops the earlier one on the way out.
@@ -1489,7 +1490,8 @@ owner lent to write as a `!T` result does, beside results that hold no
 view of what it views: a function that gives two write views, or a
 write view and another result that could view the same parameter, is
 rejected where it is declared. A target is bound only while no result
-still waiting for its own target views it.
+still waiting for its own target views it, or a result `_` discards,
+which drops at the statement's end.
 
 ```rig
 obj Counter
