@@ -1,0 +1,6 @@
+inline fun big[T](x: T, i: Int) -> Int
+  t = [1000000 of x]
+  t.len - 1000000 + i
+
+pub fun gen[T](x: T, i: Int) -> Int
+  big(x, i) + big(x, i + 1)

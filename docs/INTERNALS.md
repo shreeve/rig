@@ -341,8 +341,9 @@ forms to `value`, an expression without blocks or closures (conditions,
   closure bars as above;
 - rejects `&&`, `||` after a value, `**`, `i++` and `i--`, `//` and
   `/*` comments, and the reserved pin sigil `@x` with a hint, and
-  malformed input where it is written: `=!`, which is no operator (so
-  `x =!y` never passes for `x = !y`), a number with a
+  malformed input where it is written: a `=!` with no space after it
+  (the one place token boundaries could read two ways: `x =!y` is a
+  fixed binding of `y`, or `x = !y`), a number with a
   leading zero or an uppercase radix prefix, a control character in a
   string, and a carriage return without a line feed (a leading byte
   order mark is skipped);
@@ -390,7 +391,7 @@ wrapper also makes the only rewrites that need to inspect the tree:
   member's `Field.is_pub`; `pub` on an enum's variant, a `drop` body,
   or another `pub` is an error;
 - a module-level binding, written `name = value`, is a constant: its
-  `set` gets the `fixed` op, and a module-level `const` is an error;
+  `set` gets the `fixed` op, and a module-level `=!` is an error;
 - a closure's bar-list entries are split into `(captures ...)` and a
   parameter list, and a capture after a parameter is an error;
 - a `for` over an iterator, which typecheck finds, is rewritten into
@@ -560,13 +561,13 @@ A few kinds serve more than one surface form:
   chain with `as` parts, `(and (as a x) (> x 0))`, whose parts every
   pass takes in order (`rig.bindsInCondition`); the emitter nests one
   Zig `if` per part, sharing the `else`.
-- `set`'s `op` is `_` for `=`, `fixed` for `const x =`, `shadow` for
-  `new x =`, `shadow_fixed` for `new const x =`, and the operator for a
+- `set`'s `op` is `_` for `=`, `fixed` for `x =!`, `shadow` for
+  `new x =`, `shadow_fixed` for `new x =!`, and the operator for a
   compound assignment. `rig.bindingKindOf` reads `shadow_fixed` as
-  `fixed`, and `rig.shadows` tells it from `const x =` where a name is
+  `fixed`, and `rig.shadows` tells it from `x =!` where a name is
   declared. A module-level binding is a constant written with `=`;
   the Parser wrapper makes its `op` `fixed`, so every pass reads it as
-  the fixed binding it is, and rejects a module-level `const`.
+  the fixed binding it is, and rejects a module-level `=!`.
 - `for`'s `mode` is `iter` from the grammar; the Parser wrapper turns
   `for x in ?xs` / `!xs` / `<xs` into `read`, `write`, `move`.
 - `arm`'s `guard` is the condition of `pattern if cond =>`, or `_`; its
@@ -656,7 +657,7 @@ and types it (a `Bool`, an integer, or a built-in enum).
 `per_target` is the one fact of a value the target sets. The resolver
 records it on a module constant whose initializer names a flagged
 constant, in the order constants are folded (`foldModuleConsts`), and
-the checker on a `const` local; `sema.perTargetLeaf` finds the flagged
+the checker on a `=!` local; `sema.perTargetLeaf` finds the flagged
 name in an expression. No fold gives such a constant a value
 (`ctFoldBy` folds a ternary only on an integer condition), so every
 place that needs one (an array length, a lane count, a compile-time
@@ -1889,7 +1890,7 @@ dependency order, before any type is resolved, their literals taking
 the declared type: `resolve.foldModuleConsts`; `lib.N` comes from the
 other module's, if it is public), and `sema.constInt` reads the facts
 of checked code. A compile-time parameter,
-or a `const k = n` binding of one (`ct_locals`), becomes its `ct_param`. A
+or a `k =! n` binding of one (`ct_locals`), becomes its `ct_param`. A
 `ct_param` used as a length records the `array_len` requirement, so
 each instance's value is checked to be from 0 to 2^32 - 1. A generic
 type's value parameters are detached `param` symbols among its
@@ -1943,8 +1944,9 @@ the frames that use its own parameters, a type instance its methods'.
 An instance made in another module that finds a frame large records it
 in `large_foreign_frames`, which `inlining.decide` copies into the
 declaring module's `large_frames` before emit. `rig check
---facts=frames` prints each owner's account: its count, its reach, and
-what the rule inlines into it.
+--facts=frames` prints each owner's account: its count, its reach, the
+reach the marked `inline` calls land in it, and what the rule inlines
+into it.
 
 Instances come from the program: `instantiation_sites` holds each
 generic type instance and where it is first spelled or inferred, and
@@ -3152,7 +3154,7 @@ start. A place is named by a name or fields from one, since the
 desugaring evaluates it for every `next`, and an element whose index
 the body may change would name another place each time. A loop with a
 label has the label on the `while`, inside the block. The checker rules are the ones this desugaring implies: `!it`
-needs `it` writable (a read view, a parameter, and a `const` are
+needs `it` writable (a read view, a parameter, and a `=!` binding are
 rejected where the loop stands), the loop variable is what `as` binds
 over `T?`, a view `next` gives holds the loan on what it views while it
 is alive, and `break` values and `else` are a `while`'s. An iterator
@@ -3497,7 +3499,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   needs the receiver first): `fun times[n: Int](?self)` is
   `fn times(self: P, comptime n: i64) i64`. A call passes its bracket
   arguments in the same place: `show[3]()` is `show(3)`.
-  A compile-time value, or a module constant or `const` binding, read in run-time arithmetic
+  A compile-time value, or a module constant or `=!` binding, read in run-time arithmetic
   goes through `rig.rt(n)`, so Zig computes it when the program runs,
   with the overflow checks Rig specifies, rather than folding it. A
   generic type's value parameter is a `comptime n: i64` of its
@@ -3547,19 +3549,74 @@ symbols); a query that decides more than that belongs in `Pending`.
   small hot helper a call once its body grows, and pays the prologue and a
   stack protector at each call.
 
-  A function's marker comes first (SPEC.md, "Function markers"). A
-  function marked `called fun` or `rarely fun` is never inlined by the
-  rule below (`rig.markerOf`, read where `inlining.decide` collects the
-  functions). Emit writes a `called` function `noinline fn`, so LLVM
-  keeps every call a call too: each instance of a function with
-  compile-time values is then a function of its own. Emit starts a
-  `rarely` function's body with `@branchHint(.cold);`, before the
-  evaluation budget, the one place Zig takes the hint for a whole
-  function: Zig 0.17 then gives the function LLVM's `cold` attribute,
-  so its callers lay out the call as the unlikely path and LLVM does not
-  inline it. Neither marker changes what the checker walks: a marked
-  function is the same function, called. The program's `main` and an
-  `extern zig` function take no marker (`resolve`).
+  A function's marker comes first (SPEC.md, "Function markers"). One
+  marked `inline fun` is inlined whatever the rule below says: its size,
+  its expansion, its compile-time type parameters, a closure in it, and
+  its frame's size are waived, and no step of the rule stops inlining
+  it. What Zig cannot inline is an error, in the pass that knows it: a
+  value use of it (`typecheck`, where every function value is typed:
+  `functionValue`, by the `inline_marked` flag of its symbol or method),
+  the root's `main` and an `extern zig` function (`resolve`), and a
+  cycle of calls among marked `inline` functions (`decide`,
+  `forcedCycles`, whose edges are each one's calls in its own frame, so
+  a closure that calls it back is a call). A function marked `called
+  fun` or `rarely fun` is never inlined by the rule below (`rig.markerOf`,
+  read where `inlining.decide` collects the functions). Emit writes a
+  `called` function `noinline fn`, so LLVM keeps every call a call too:
+  each instance of a function with compile-time values is then a
+  function of its own. Emit starts a `rarely` function's body with
+  `@branchHint(.cold);`, before the evaluation budget, the one place Zig
+  takes the hint for a whole function: Zig 0.17 then gives the function
+  LLVM's `cold` attribute, so its callers lay out the call as the
+  unlikely path and LLVM does not inline it. No marker changes what the
+  checker walks: a marked function is the same function, called, and an
+  inlined one's calls are read through `rig.rt` as any inlined
+  function's. The program's `main` and an `extern zig` function take no
+  marker (`resolve`).
+
+  A call of a marked `inline` function is the one call-target fact of
+  any call (`callTargetOf`, recorded by `Checker.noteTarget` where
+  typecheck resolves the call: `functionCall`, `crossModuleCall`, a
+  method call, and `associatedCall`, through any alias), with the
+  instance the call makes beside it: `inline_calls[call] = { fun, subst
+  }`. `fun` is the `FnRef` of every call target, the declaring module's
+  id and where the function's name is there, an imported generic type's
+  proxy followed to its declaration; `subst` binds the object type's
+  parameters, by the receiver's type (through views, handles, and boxes,
+  as the method is found) or the type named, then the function's own
+  (`inst_own`, from `instantiateCall`). `resolve` records each marked
+  declaration by the same position (`inline_decls`).
+
+  What a marked function lands in a caller is counted once, in the
+  module that declares it (`inlineFrame`, at the end of `checkFrames`):
+  its own values and copies, and those of the marked functions it calls,
+  each substituted at its call, over its own and its type's parameters.
+  The frame walker of every owner adds, at each recorded call, that frame
+  imported into the caller's module and substituted at the call's
+  instance, each slot marked: the owner's account keeps them apart as
+  its `marked` part ([Frame owners](#frame-owners)), and the frame check
+  holds its own values and the marked ones together to the limits. A
+  call in a `defer` body counts at every copy, as any value there does.
+  The count fails closed: a frame it cannot find, or one with a
+  parameter the call's instance does not bind, is an error at the call,
+  never no values; a frame still being worked out is a call on a cycle
+  `decide` rejects, so that program is never emitted. A marked
+  function's own frame is counted, for what the rule inlines through
+  it, but not checked and never made `noinline`: Zig never writes it.
+  Each parameter of a function counts once more in its reach
+  (`paramCopies`): Zig's code copies it into a local of its own (an
+  owned one's `var`, an inlined function's `rig.rt`), beside the
+  argument and the parameter. Calls of marked functions nest at most
+  `max_inline_depth` (256) deep, since Zig analyzes each inlined body
+  inside the one around it and runs out of its own stack some thousands
+  deep: `inlineFrame` records how deep they nest below each marked
+  function (`inline_heights`), and a deeper nesting is an error at the
+  call where the walk finds it.
+
+  In debug and self-checking builds, emit checks that each call of a Rig
+  function it writes is one typecheck resolved (`Emitter.checkCallTarget`):
+  the frame facts and `decide` read the call-target fact, so a call
+  without one would land a frame no count saw.
 
   Without a marker, a function is inlined when
 
@@ -3570,14 +3627,21 @@ symbols); a query that decides more than that belongs in `Pending`.
   - it is on no cycle of calls, directly or through others;
   - every mention of it is the callee of a call, so it is never passed,
     stored, returned, or captured, and no address of it is taken;
-  - it is not the root's `main`, has no compile-time type parameters, is not
-    a member of a generic type, and holds no closure (`extern` functions
-    have no body). A function whose compile-time parameters are all values
-    (`Bool`, a number, an enum) is a function per instance, sized,
-    cycle-checked, and inlined as any other, and so are the helpers it
-    calls; the `comptime` parameters stay compile-time and the rest are
-    bound through `rig.rt` as always. Its frame must be known without the
-    values;
+  - it is not the root's `main`, has no compile-time type parameters,
+    and holds no closure (`extern` functions have no body). A function
+    whose compile-time parameters are all values (`Bool`, a number, an
+    enum) is a function per instance, sized, cycle-checked, and inlined
+    as any other, and so are the helpers it calls; the `comptime`
+    parameters stay compile-time and the rest are bound through `rig.rt`
+    as always. Its frame must be known without the values. A member of a
+    generic type is one declaration Zig writes once for all its
+    instances, so it is decided once, under the largest frame of its
+    instances, which bounds each: a generic owner's account is the
+    largest of the frames its instances counted (`FrameSize`), its own
+    values and its own with the marked ones, each the largest of any
+    instance. One no instance the program makes binds is a frame Zig
+    never writes, and holds the rule to nothing (`compiled` is false);
+    one whose instances made no count is unknown, never none;
   - its reach (`checkFrames`), with the inlined calls in it, is at most
     64 KiB, and no frame owner ([Frame owners](#frame-owners)) gets more
     than that added by the inlined calls in it, each counted at every
@@ -3588,7 +3652,13 @@ symbols); a query that decides more than that belongs in `Pending`.
     at each call, in its caller's frame; a test block, a closure, and a
     `drop` body are owners as functions are; and
     its frame is not large (`large_frames`, which emit also writes
-    `noinline`, [Sema](#sema));
+    `noinline`, [Sema](#sema)). What the rule inlines into a marked
+    `inline` function lands in each caller of it, at each call and copy,
+    so it counts in the caller's 64 KiB too (`added`), and is the first
+    to stop inlining when that owner does not fit (`largestIn` looks
+    through the marked functions it calls); a marked function's own
+    values are the account's marked part, which typecheck counted, so
+    `decide` counts them nowhere else;
   - with the inlined calls in it, each counted at every call site, it
     expands to at most `inlining.max_expanded` (320) nodes, so a chain of
     functions that each call the next twice does not have Zig analyze the
@@ -3928,36 +3998,54 @@ a call itself. Each owner has one account (`sema.Account`,
 - **own:** its values, as `checkFrames` counts them, or for a generic
   owner the largest of its instances'; unknown (null) where no count
   knows them, which is unbounded and fails every limit;
-- **marked:** what calls of functions marked `inline` add (none yet);
+- **marked:** the values and reach the calls of functions marked
+  `inline` land in it, each at the instance its call makes and at every
+  copy Zig writes of the call (`checkFrames`, slots tagged `marked`);
+  for a generic owner, what the largest of its instances' frames adds
+  to `own`;
 - **auto:** the frames of the functions the rule inlines into it, each
-  at every call and every copy of the call.
+  at every call and every copy of the call, those it inlines into a
+  marked function the owner calls included.
 
-`inlining.decide` fills `auto` and keeps it within 64 KiB
-(`max_inlined_frame_bytes`), own + auto within `sema.max_frame_bytes`,
-and (own reach + auto) times `sema.reach_factor` within
-`sema.max_frame_reach`; it never inlines into an owner whose own count
-is unknown. A function is inlined at every call or none, so an owner the
-build does not compile bounds nothing: a test block, and what is in it,
-outside `rig test` (and `rig check --tests`), and any module's but the
-root's always. `test/cli/frame_owners.sh` puts a pile of a helper the rule
-would inline in each kind of owner and each body that belongs to one,
-and `test/cli/frames.sh` holds each owner's account to the frame Zig's
-prologue reserves.
+`checkFrames` holds own + marked to `sema.max_frame_bytes` and their
+reach to `sema.max_frame_reach`. `inlining.decide` fills `auto` and
+keeps it within 64 KiB (`max_inlined_frame_bytes`), own + marked + auto
+within `sema.max_frame_bytes`, and (own reach + marked reach + auto)
+times `sema.reach_factor` within `sema.max_frame_reach`; it never
+inlines into an owner whose own count is unknown. A function is inlined
+at every call or none, so an owner the build does not compile bounds
+nothing: a test block, and what is in it, outside `rig test` (and `rig
+check --tests`), any module's but the root's always, and a generic one
+no instance of the program binds. A marked function's own frame Zig
+never writes, so only its `auto` is held to 64 KiB there; its callers
+count the rest. `test/cli/frame_owners.sh` puts a pile of a helper the
+rule would inline in each kind of owner and each body that belongs to
+one, `test/cli/frame_owners_inline.sh` does the same through a marked
+function and checks each owner's marked part, and `test/cli/frames.sh`
+holds each owner's account to the frame Zig's prologue reserves.
 
 ### The program's stack
 
 A program's Rig code runs on a stack the runtime maps itself
 (`rig.onOwnStack`), not on the stack the system gave its main thread:
 
-1. reserve `guard + 64 MiB` of address space inaccessible, the guard
+1. reserve `guard + 64 MiB + a page` of address space inaccessible, the guard
    64 GiB, or 1 GiB where that cannot be reserved (`guard_sizes`); a
    program that cannot reserve even that prints `rig: cannot reserve
    the program's stack and the guard below it` and exits 1 before it
    runs;
-2. make the top 64 MiB readable and writable: the stack;
+2. make the 64 MiB above the guard readable and writable: the stack,
+   with one more page above it left inaccessible, so a read past the
+   stack's top faults whatever else the process maps there;
 3. install the overflow handler, then call the body with the stack
-   pointer at the stack's top (`switchStack`), and return with it
-   where it was.
+   pointer 256 bytes below the stack's top (`switchStack`,
+   `unwind_headroom`), and return with it where it was. A panic's
+   stack trace reads above the first frame: on macOS, Zig's reader of
+   a compact unwind entry (the FRAME case of `unwindFrameInner` in
+   `std/debug/SelfInfo/MachO.zig`) reads the saved pairs of x19..x28
+   upward from 8 below the frame pointer, up to 56 bytes above where
+   the frame began, and at the stack's very top that read would fault
+   instead of printing the trace (`test/cli/panic_status.sh`).
 
 So the emitted `main` desugars to
 
@@ -4040,8 +4128,9 @@ through `pthread_atfork`, where libc is linked). For a fault in the
 guard it flushes `print`'s output and writes `error: rig: stack
 overflow`; then, as the sanitizer's handler does, it restores the
 handlers it replaced and returns, so the access faults again into Zig's
-handler, which prints the stack trace, or, in `--release=fast`, ends the
-program.
+handler, which prints the stack trace and aborts. In `--release=fast`,
+where Zig installs no handler, it aborts itself, so a stack overflow
+ends with SIGABRT (status 134) in every build mode, as a panic does.
 
 **64 MiB.** Four times the 16 MiB Zig gives the main thread: deep
 recursion (a checker's walk of a large tree) has room, and address
@@ -4160,7 +4249,7 @@ where the compiler still rejects the program.
 - A label on a string literal (or a choice of them) whose role is typed
   `tag(...)` fills the role with the tag the matched literal names:
   `op:("+=" | "-=" | ...)` gives `(set += ...)`. Where the tag is not
-  the literal (`const` is `fixed`), the action supplies it
+  the literal (`=!` is `fixed`), the action supplies it
   (`→ (set op:fixed)`).
 - A choice `(A | B)` cannot sit inside an `[...]` group; `if ... else`
   is written as two alternatives for that reason.

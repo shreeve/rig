@@ -1,6 +1,6 @@
-# `const` at module level, without `pub` or a type.
+# `=!` at module level, without `pub` or a type.
 
-const LIMIT = 4
+LIMIT =! 4
 
 sub main()
   print(LIMIT)

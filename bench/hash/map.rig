@@ -1,6 +1,7 @@
 # std.hash's Map timed on Int and String keys: insert, hit lookup, miss
 # lookup, and iterate, each over N keys; hits in Maps of 4 and 8 keys;
-# and interning N words. Each loop walks its keys as
+# interning N words; and writing a value whether or not its key is new,
+# three ways, on misses and on hits. Each loop walks its keys as
 # map.zig's does: a range of Ints, or a List's elements in order.
 # Prints `KEYS OP NS CHECK` per line (bench/hash/bench-hash). Each group
 # is `called`, a function of its own as a program's would be, so what
@@ -93,9 +94,126 @@ called sub intern(n: Int)
     sum +%= U64((!names).intern(w))
   print("string intern", t.elapsed(), sum)
 
+# The three ways to write the value under a key whether or not the key
+# is new: `ensure`, `ensure_with`, and `edit` then `put`. Each counts N
+# keys into an empty Map (miss: every key is new), then the same N
+# again (hit: every key is there). A String key is owned, moved in from
+# a List, so each way drops one key per hit.
+fun one(k: ?Int) -> Int
+  1
+
+fun one_of(k: ?String) -> Int
+  1
+
+fun keys(n: Int) -> List[String]
+  ks: List[String] = List()
+  for i in 0..n
+    !ks.push(String("key", i))
+  ks
+
+called sub int_ensure(n: Int)
+  m = hash.Map[Int, Int].new()
+  t = time.now()
+  for i in 0..n
+    w = (!m).ensure(i *% -7046029254386353131, 0)
+    w += 1
+  print("int ensure-miss", t.elapsed(), m.len)
+  t = time.now()
+  for i in 0..n
+    w = (!m).ensure(i *% -7046029254386353131, 0)
+    w += 1
+  print("int ensure-hit", t.elapsed(), m.get(0))
+
+called sub int_ensure_with(n: Int)
+  m = hash.Map[Int, Int].new()
+  t = time.now()
+  for i in 0..n
+    w = (!m).ensure_with(i *% -7046029254386353131, one)
+    w += 1
+  print("int ensure_with-miss", t.elapsed(), m.len)
+  t = time.now()
+  for i in 0..n
+    w = (!m).ensure_with(i *% -7046029254386353131, one)
+    w += 1
+  print("int ensure_with-hit", t.elapsed(), m.get(0))
+
+called sub int_edit_put(n: Int)
+  m = hash.Map[Int, Int].new()
+  t = time.now()
+  for i in 0..n
+    k = i *% -7046029254386353131
+    if (!m).edit(k) as w
+      w += 1
+    else
+      !m.put(k, 1)
+  print("int edit_put-miss", t.elapsed(), m.len)
+  t = time.now()
+  for i in 0..n
+    k = i *% -7046029254386353131
+    if (!m).edit(k) as w
+      w += 1
+    else
+      !m.put(k, 1)
+  print("int edit_put-hit", t.elapsed(), m.get(0))
+
+called sub string_ensure(n: Int)
+  put = keys(n)
+  look = keys(n)
+  m = hash.Map[String, Int].new()
+  t = time.now()
+  for k in <put
+    w = (!m).ensure(<k, 0)
+    w += 1
+  print("string ensure-miss", t.elapsed(), m.len)
+  t = time.now()
+  for k in <look
+    w = (!m).ensure(<k, 0)
+    w += 1
+  print("string ensure-hit", t.elapsed(), m.get("key0"))
+
+called sub string_ensure_with(n: Int)
+  put = keys(n)
+  look = keys(n)
+  m = hash.Map[String, Int].new()
+  t = time.now()
+  for k in <put
+    w = (!m).ensure_with(<k, one_of)
+    w += 1
+  print("string ensure_with-miss", t.elapsed(), m.len)
+  t = time.now()
+  for k in <look
+    w = (!m).ensure_with(<k, one_of)
+    w += 1
+  print("string ensure_with-hit", t.elapsed(), m.get("key0"))
+
+called sub string_edit_put(n: Int)
+  put = keys(n)
+  look = keys(n)
+  m = hash.Map[String, Int].new()
+  t = time.now()
+  for k in <put
+    if (!m).edit(k) as w
+      w += 1
+    else
+      !m.put(<k, 1)
+  print("string edit_put-miss", t.elapsed(), m.len)
+  t = time.now()
+  for k in <look
+    if (!m).edit(k) as w
+      w += 1
+    else
+      !m.put(<k, 1)
+  print("string edit_put-hit", t.elapsed(), m.get("key0"))
+
 sub main()
   ints(N)
   strings(N)
   small(N, 4)
   small(N, 8)
   intern(N)
+  int_ensure(N)
+  int_ensure_with(N)
+  int_edit_put(N)
+  string_ensure(N)
+  string_ensure_with(N)
+  string_edit_put(N)

@@ -2,7 +2,7 @@
 # Zig-backed constant `arch` among them, and mark functions that read it.
 use std.target
 
-called fun lanes() -> Int
+inline fun lanes() -> Int
   32 if target.arch == .x86_64 else 16
 
 called fun bytes[a: Arch]() -> Int

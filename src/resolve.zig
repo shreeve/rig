@@ -98,8 +98,12 @@ const SymbolResolver = struct {
                 if (self.ctx.symbolOf(name)) |id| self.ctx.symbols.items[id].flags.is_public = true;
             },
             .fun, .sub => {
-                const id = try self.declare(ir.get(sexp, .name), .function, .{});
-                if (id) |sym| try self.checkMarker(sexp, self.ctx.symbols.items[sym]);
+                const marked = rig.markerOf(sexp) == .@"inline";
+                const id = try self.declare(ir.get(sexp, .name), .function, .{ .inline_marked = marked });
+                if (id) |sym| {
+                    try self.checkMarker(sexp, self.ctx.symbols.items[sym]);
+                    if (marked and self.scope == sema.module_scope) try self.ctx.inline_decls.put(self.ctx.allocator, self.ctx.symbols.items[sym].decl_pos, sexp);
+                }
                 try self.walkFun(sexp);
             },
             .lambda => try self.walkLambda(sexp),
@@ -510,7 +514,7 @@ const SymbolResolver = struct {
                 if (self.scope != self.module_scope and !rig.shadows(ir.Set.op(node))) {
                     if (self.visibleLocal(self.scope, identAt(self.ctx.source, target).?)) |prev| {
                         const name = self.ctx.symbols.items[prev].name;
-                        try self.ctx.errAt(target, "`{s}` is already bound; `const` declares a new binding. Assign with `{s} = ...` or shadow with `new const {s} = ...`", .{ name, name, name });
+                        try self.ctx.errAt(target, "`{s}` is already bound; `=!` declares a new binding. Assign with `{s} = ...` or shadow with `new {s} =! ...`", .{ name, name, name });
                         try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
                         try self.ctx.recordName(target, prev);
                         return;
@@ -1806,6 +1810,8 @@ pub const TypeResolver = struct {
         const owner = self.ctx.symbols.items[nominal_sym].name;
         if (try self.checkDuplicateMember(names, mname, mpos, owner)) return;
         const fn_ty = try self.resolveFunction(node, nominal_sym);
+        const marked = rig.markerOf(node) == .@"inline";
+        if (marked) try self.ctx.inline_decls.put(self.ctx.allocator, mpos, node);
         const params = ir.get(node, .params);
         for (params.items(), 0..) |p, i| {
             if (i == 0) continue;
@@ -1826,6 +1832,7 @@ pub const TypeResolver = struct {
             .decl_pos = mpos,
             .is_method = true,
             .is_pub = self.isPubMember(node),
+            .inline_marked = marked,
             .receiver = receiver,
             .param_names = try self.paramNames(params),
             .param_defaults = try self.paramDefaults(params),
@@ -2318,7 +2325,7 @@ pub const TypeResolver = struct {
         return null;
     }
 
-    /// The `ct_param` of the compile-time integer parameter (or `const k = n`
+    /// The `ct_param` of the compile-time integer parameter (or `k =! n`
     /// alias of one) a name leaf denotes; null for any other name.
     fn ctParamNamed(self: *TypeResolver, leaf: Sexp) Error!?TypeId {
         const name = identAt(self.ctx.source, leaf) orelse return null;

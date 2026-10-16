@@ -19,7 +19,7 @@ sub peek(it: Count)
     print(1)
 
 sub main()
-  const k = Count(lo: 0, hi: 2)
+  k =! Count(lo: 0, hi: 2)
   for !k
     print(1)
   c = Count(lo: 0, hi: 2)
@@ -30,7 +30,7 @@ sub main()
 
 # error: 14:8: cannot lend to write through a read view `?Count`
 # error: 18:8: cannot lend parameter `it` to write; parameters are immutable (bind a copy with `new it = it`, or take `it: !Count` to write through to the caller)
-# error: 23:8: cannot lend fixed binding `k` to write (bound with `const`)
+# error: 23:8: cannot lend fixed binding `k` to write (bound with `=!`)
 # error: 26:8: `for ?c` would only read an iterator, which `next` cannot advance; write `for !c` to advance it in place
 # error: 28:8: `!Count(lo: 0, hi: 2)` advances a place, and this is a value made here; write `for Count(lo: 0, hi: 2)`, which holds it for the loop
 # errors: 5

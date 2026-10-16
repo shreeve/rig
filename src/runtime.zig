@@ -3242,15 +3242,34 @@ const guard_sizes = [_]usize{ 64 << 30, 1 << 30 };
 const own_stack = (builtin.target.os.tag == .macos or builtin.target.os.tag == .linux) and
     (builtin.target.cpu.arch == .aarch64 or builtin.target.cpu.arch == .x86_64);
 
+/// Bytes left unused at the stack's top, above the first frame, for a
+/// stack trace's walk to read. On macOS, Zig's reader of a frame's
+/// compact unwind entry (the FRAME case of `unwindFrameInner` in
+/// `std/debug/SelfInfo/MachO.zig`, to recheck at each Zig upgrade)
+/// reads the saved pairs of x19..x28 upward from 8 below the frame
+/// pointer, though they lie below it: up to 56 bytes above the stack
+/// pointer the frame started from. Without this room the walk would
+/// read past the top of the first frame on this stack, into the page
+/// above, which faults while a panic prints its trace.
+const unwind_headroom: usize = 256;
+
+comptime {
+    // Room for five pairs read from 8 below a frame pointer that is 16
+    // below where the frame started, and the stack pointer kept aligned.
+    std.debug.assert(unwind_headroom >= 64 and unwind_headroom % 16 == 0);
+}
+
 /// The guard below the stack, once it is mapped: an access in it is a
 /// stack overflow.
 var stack_guard: struct { lo: usize = 0, hi: usize = 0 } = .{};
 
-/// Map the stack, read-write, above its guard; the stack's top, or null
-/// when not even the smallest guard can be reserved.
+/// Map the stack, read-write, above its guard and below one inaccessible
+/// page, so a read past its top faults whatever else is mapped; the
+/// stack's top, or null when not even the smallest guard can be
+/// reserved.
 fn mapStack() ?usize {
     for (guard_sizes) |size| {
-        const got = std.posix.mmap(null, size + stack_size, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch continue;
+        const got = std.posix.mmap(null, size + stack_size + std.heap.pageSize(), .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch continue;
         const base = @intFromPtr(got.ptr);
         if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(base + size), stack_size, .{ .READ = true, .WRITE = true })) != .SUCCESS) {
             std.posix.munmap(got);
@@ -3286,7 +3305,7 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
         }
     };
     var call: Call = .{ .args = args };
-    switchStack(&call, &Call.run, top);
+    switchStack(&call, &Call.run, top - unwind_headroom);
     return call.result;
 }
 
@@ -3393,7 +3412,8 @@ fn switchStack(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
 
 // The overflow handler. Like the sanitizer's, it restores the handlers
 // it replaced and returns: the access runs again and faults into Zig's
-// handler, which prints the stack trace.
+// handler, which prints the stack trace. Where Zig installs none, it
+// aborts.
 
 var overflow_previous: [2]std.posix.Sigaction = undefined;
 
@@ -3413,6 +3433,9 @@ fn onOverflow(_: std.posix.SIG, info: *const std.posix.siginfo_t, _: ?*anyopaque
     flush();
     const msg = "error: rig: stack overflow\n";
     _ = std.posix.system.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
+    // Where Zig installs no handler (`--release=fast`), the fault again
+    // would end the program by the signal; it aborts as a panic does.
+    if (!std.options.enable_segfault_handler) std.process.abort();
 }
 
 /// The address whose access raised the fault `info` describes.
@@ -4560,16 +4583,17 @@ fn readByte(addr: usize) void {
     std.mem.doNotOptimizeAway(@as(*volatile u8, @ptrFromInt(addr)).*);
 }
 
-test "the program's stack is writable, and the guard below it faults" {
+test "the program's stack is writable, and the guard below it and the page above it fault" {
     if (!own_stack) return error.SkipZigTest;
     const top = mapStack() orelse return error.TestUnexpectedResult;
-    defer std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(stack_guard.lo))[0 .. top - stack_guard.lo]);
+    defer std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(stack_guard.lo))[0 .. top + std.heap.pageSize() - stack_guard.lo]);
     try std.testing.expectEqual(top - stack_size, stack_guard.hi);
     try std.testing.expect(stack_guard.hi - stack_guard.lo >= guard_sizes[guard_sizes.len - 1]);
     writeByte(top - 1);
     writeByte(stack_guard.hi);
     try std.testing.expect(try faults(stack_guard.hi - 1, writeByte));
     try std.testing.expect(try faults(stack_guard.lo, readByte));
+    try std.testing.expect(try faults(top, readByte));
 }
 
 test "a call on the program's stack returns its value" {

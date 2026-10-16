@@ -31,11 +31,10 @@
        ^^^^ type
             ^ operator
               ^^ type
-> const LIMIT = 1_000
-  ^^^^^ keyword
-        ^^^^^ type
-              ^ operator
-                ^^^^^ constant.numeric
+> LIMIT = 1_000
+  ^^^^^ type
+        ^ operator
+          ^^^^^ constant.numeric
 > pub PI = 3.141_592
   ^^^ keyword
       ^^ type
@@ -715,12 +714,13 @@
   ^^^^^ keyword
           ^ operator
             ^ constant.numeric
->   new const y = x * 2
+>   z =! x
+      ^^ operator
+>   new y =! x * 2
   ^^^^^ keyword
-        ^^^^^ keyword
-                ^ operator
-                    ^ operator
-                      ^ constant.numeric
+          ^^ operator
+               ^ operator
+                 ^ constant.numeric
 >   st: Status = .missing
     ^^ variable.parameter
       ^ punctuation
@@ -766,11 +766,12 @@
     ^^^ keyword
 >     pass
       ^^^^ keyword.control
->   print(ok, b, y)
+>   print(ok, b, y, z)
          ^ punctuation
             ^ punctuation
                ^ punctuation
                   ^ punctuation
+                     ^ punctuation
 > 
 > test "area"
   ^^^^ keyword
@@ -809,15 +810,16 @@
 > 
 > # Reserved words, keywords though no form uses them yet.
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment
-> try async await impl trait when where yield
+> try async await const impl trait when where yield
   ^^^ keyword.control
       ^^^^^ keyword
             ^^^^^ keyword.control
-                  ^^^^ keyword
-                       ^^^^^ keyword
-                             ^^^^ keyword
-                                  ^^^^^ keyword
-                                        ^^^^^ keyword.control
+                  ^^^^^ keyword
+                        ^^^^ keyword
+                             ^^^^^ keyword
+                                   ^^^^ keyword
+                                        ^^^^^ keyword
+                                              ^^^^^ keyword.control
 > 
 > # Rejected forms, lexed only so Rig can say why; shown as invalid.
   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment
@@ -829,6 +831,5 @@
 > q = a && b
     ^ operator
         ^^ invalid
-> x =! 1
+> x =!y
     ^^ invalid
-       ^ constant.numeric

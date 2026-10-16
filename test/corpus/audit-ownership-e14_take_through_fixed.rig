@@ -20,6 +20,6 @@ obj H
   o: *Tok?
 
 sub main()
-  const h = H(o: *Tok(n: 1))
+  h =! H(o: *Tok(n: 1))
   x = <h.o
   print(x == none)
