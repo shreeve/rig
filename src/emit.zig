@@ -5544,7 +5544,7 @@ pub const Emitter = struct {
         for (args, 0..) |a, i| {
             if (i > 0) try self.w.writeAll(", ");
             if (i == 0 or std.mem.eql(u8, name, "swap")) {
-                try self.emitAddressOf(lentPlace(a));
+                if (!try self.emitHeldAddress(a)) try self.emitAddressOf(lentPlace(a));
             } else try self.emitStored(a);
         }
         try self.w.writeAll(")");
@@ -6124,12 +6124,28 @@ pub const Emitter = struct {
     /// every read view of a value holding one is a mutable pointer
     /// (`emitViewPtrTy`).
     fn emitCellAddress(self: *Emitter, obj: Sexp) Error!void {
+        if (try self.emitHeldAddress(obj)) return;
         const saved = self.read_place;
         defer self.read_place = saved;
         self.read_place = true;
         try self.w.writeAll("(");
         try self.emitAddressOf(lentPlace(obj));
         try self.w.writeAll(")");
+    }
+
+    /// `!h` of a handle `h` that may not be written lends the value the
+    /// handle holds, not the handle (`typecheck.lendsHandle`), as its lend
+    /// records (the `handle` row): its address is on the heap, the
+    /// pointer the lend is, never `h`'s own. False, writing nothing, for
+    /// any other lend.
+    fn emitHeldAddress(self: *Emitter, lent: Sexp) Error!bool {
+        if (!(lent.isKind(.write) or lent.isKind(.read))) return false;
+        const lend = self.facts.lendOf(lent) orelse return false;
+        if (!lend.has(.handle)) return false;
+        try self.w.writeAll("(");
+        try self.emitWriteViewPtr(lent);
+        try self.w.writeAll(")");
+        return true;
     }
 
     /// `I32(x)` → `@as(i32, @intCast(@as(i64, x)))`, with the builtin
