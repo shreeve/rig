@@ -56,7 +56,10 @@ if [[ $(uname -s) == Linux ]]; then
 use std.file
 
 sub main()
-  print(file.read("/proc/self/limits") ?? "none")
+  if file.read("/proc/self/limits") as s
+    print(s)
+  else
+    print("none")
 EOF2
     core() { awk '/^Max core file size/ { print $5, $6 }'; }
     got=$(RIG_NO_CRASH_REPORT=1 rig run limits.rig 2>&1 | core)
