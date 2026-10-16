@@ -3476,6 +3476,14 @@ var process_args: []const []const u8 = &.{};
 /// gathered into `Static`s once, freed by `finish`.
 pub fn start(init: std.process.Init.Minimal) void {
     process = init;
+    // RIG_NO_CRASH_REPORT=1, set by a test harness for a program that
+    // panics on purpose: macOS files no crash report when it dies. It
+    // still dies by its signal, its report on stderr unchanged.
+    if (builtin.os.tag.isDarwin()) {
+        if (init.environ.getPosix("RIG_NO_CRASH_REPORT")) |v| {
+            if (std.mem.eql(u8, v, "1")) noCrashReport();
+        }
+    }
     // Only a program `rig run` or `rig test` builds declares
     // `__rig_run_started`, the environment variable that names a file to
     // create as it starts: their evidence that the exit status is the
@@ -3493,6 +3501,21 @@ pub fn start(init: std.process.Init.Minimal) void {
     const list = defaultAllocator().alloc([]const u8, init.args.vector.len) catch oom();
     for (list, init.args.vector) |*arg, c| arg.* = std.mem.sliceTo(c, 0);
     process_args = list;
+}
+
+extern "c" var mach_task_self_: c_uint;
+extern "c" fn task_set_exception_ports(task: c_uint, mask: c_uint, port: c_uint, behavior: c_int, flavor: c_int) c_int;
+
+/// No handler for this process's crash exceptions (EXC_MASK_CRASH and
+/// EXC_MASK_CORPSE_NOTIFY to MACH_PORT_NULL, EXCEPTION_DEFAULT,
+/// THREAD_STATE_NONE), so ReportCrash never hears of its death. The
+/// processes it starts inherit it.
+fn noCrashReport() void {
+    const exc_mask_crash: c_uint = 1 << 10;
+    const exc_mask_corpse_notify: c_uint = 1 << 13;
+    const exception_default: c_int = 1;
+    const thread_state_none: c_int = if (builtin.cpu.arch == .x86_64) 13 else 5;
+    _ = task_set_exception_ports(mach_task_self_, exc_mask_crash | exc_mask_corpse_notify, 0, exception_default, thread_state_none);
 }
 
 /// Free what `start` gathered, at the end of the program or its tests.
