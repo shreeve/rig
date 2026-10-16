@@ -5711,10 +5711,14 @@ const TargetWalk = struct {
                 };
                 return self.visit(.{ .ctx = ctx, .ty = elem, .args = node.args });
             },
-            .type_var => if (node.args) |args| {
-                if (self.written_only and !self.written) return;
-                // The instance's arguments, read where it is.
-                for (args.tys) |arg| try self.visit(.{ .ctx = args.ctx, .ty = arg });
+            // In a generic type's field, a type parameter stands for the
+            // instance's arguments, which `ownedParts` walked where the
+            // instance is, each in the context that gives its own type
+            // parameters theirs: walked again here, out of that context,
+            // an argument that is itself a type parameter (`Entry[K, V]`
+            // in a `Map[K, V]`'s field) would stand for anything.
+            .type_var => if (node.args != null) {
+                return;
             } else if (!self.written_only or self.written) {
                 self.out.any = true;
             },
