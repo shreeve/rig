@@ -1,7 +1,6 @@
 # Only a call's write view, or that call's `!` or `?`, is assigned
 # through. `w?` of a parameter `w: (!H)?` is not: assigning it would
 # store a view of local `d` in the caller's `H`, which outlives `d`.
-# Write `if w as x` then `x = v`, which the ownership checker walks.
 
 obj H
   s: ?String
@@ -18,4 +17,4 @@ sub main()
   print(h.s)
 
 # errors: 1
-# error: 11:3: cannot assign to `w?`: only a call that returns a write view (`!T`), or that call's `!` or `?`, is assigned through; to write what `w` views, write `if w as x` then `x = v`
+# error: 10:3: cannot assign to `w?`: only a call that returns a write view (`!T`), or that call's `!` or `?`, is assigned through

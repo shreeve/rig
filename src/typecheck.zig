@@ -1225,19 +1225,8 @@ const Checker = struct {
         const through = storage.assignedThrough(target);
         if (head != .member and head != .index and !through) {
             if (head == .propagate or head == .propagate_none) {
-                // `w? = v` of a binding `w` that holds an optional write
-                // view writes through the payload `if w as x` binds.
-                const operand = ir.get(target, .value);
-                const operand_ty = try self.synthExpr(operand);
-                const views = operand == .src and switch (self.ctx.types.get(sema.unwrapViews(self.ctx, operand_ty))) {
-                    .optional, .fallible => |inner| self.ctx.types.get(inner) == .write_view,
-                    else => false,
-                };
-                const shown = self.sourceText(operand);
-                const head_msg = "cannot assign to `{s}`: only a call that returns a write view (`!T`), or that call's `!` or `?`, is assigned through";
-                if (views) {
-                    try self.errAt(target, head_msg ++ "; to write what `{s}` views, write `if {s} as x` then `x = v`", .{ self.sourceText(target), shown, shown });
-                } else try self.errAt(target, head_msg, .{self.sourceText(target)});
+                _ = try self.synthExpr(ir.get(target, .value));
+                try self.errAt(target, "cannot assign to `{s}`: only a call that returns a write view (`!T`), or that call's `!` or `?`, is assigned through", .{self.sourceText(target)});
             } else try self.errAt(target, "cannot assign to this expression", .{});
             _ = try self.synthExpr(rhs);
             return;

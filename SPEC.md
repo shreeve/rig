@@ -2725,8 +2725,7 @@ then the call, as a field's or element's base does, so
 `slot(!v, 0) += v.len` reads `v.len` before `slot` runs. Nothing else
 is assigned through: not a call that returns a value, a read view, or
 a `![]T` (a `![]T`'s elements are: `all(!v)[0] = 5`), and not `?` or
-`!` around anything but a call. To write what an optional write view
-`w` reaches, write `if w as x` then `x = v`.
+`!` around anything but a call.
 
 ```rig
 obj Bag
@@ -2777,7 +2776,7 @@ sub main()
 ```
 
 ```error
-cannot assign to `w?`: only a call that returns a write view (`!T`), or that call's `!` or `?`, is assigned through; to write what `w` views, write `if w as x` then `x = v`
+cannot assign to `w?`: only a call that returns a write view (`!T`), or that call's `!` or `?`, is assigned through
 ```
 
 A write view is never stored inside a value (Core §5): `!T`,
