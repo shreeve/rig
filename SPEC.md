@@ -1498,7 +1498,9 @@ view of what it views: a function that gives two write views, or a
 write view and another result that could view the same parameter, is
 rejected where it is declared. While a result may hold a write view,
 every lend the call made lasts to the statement's end, as for a `!T`
-result: the first version decides this per call, not per argument. A
+result, and an `if … as` part's to its end, as a header is its own
+statement: the first version decides this per call, not per argument,
+though the write view carries only the arguments its signature names. A
 target is bound only while no result still waiting for its own target
 views it, nor a result `_` discards whose drop runs a `drop` body,
 which drops at the statement's end; a discarded result whose drop runs

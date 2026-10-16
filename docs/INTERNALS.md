@@ -2961,9 +2961,11 @@ reported (`pendingView`). A `_`'s loans last to the statement's end
 when its drop runs a `drop` body, which could read them; any other
 discarded result reads none of its views (Core sentence 6), and its
 loans end at once. Write lends end per call: while any result may hold
-a write view, every lend of the call lasts to the statement's end;
-ending each argument's alone would need the write view's loans narrowed
-by its type, which `carryResult` does not do for a write view. Two
+a write view, every lend of the call lasts to the statement's end (an
+`if … as` part is a header, its own statement), though the write view
+carries only the arguments its origins name; ending the other
+arguments' write lends at the return, per argument, is left for later
+(TODO.md). Two
 results of one call never break sentence 5: a function giving a write
 view and another result that could view the same parameter is rejected
 where it is declared (`sema.checkResultViews`), and the call checks the

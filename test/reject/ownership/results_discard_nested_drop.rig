@@ -1,0 +1,34 @@
+# A discarded result keeps what it views lent to the statement's end
+# when its drop runs a `drop` body anywhere inside it: a field's, a
+# List's element's, or a shared handle's value's.
+
+obj G
+  w: ?String
+
+  drop(!self)
+    print("g", self.w)
+
+obj H
+  g: G
+
+fun field(s: ?String) -> (H, String)
+  return H(g: G(w: s)), String(s, "!")
+
+fun list(s: ?String) -> (List[G], String)
+  v: List[G] = List()
+  !v.push(G(w: s))
+  return v, String(s, "!")
+
+fun shared(s: ?String) -> (*G, String)
+  return *G(w: s), String(s, "!")
+
+sub main()
+  s = String("ab")
+  _, s = field(?s)
+  _, s = list(?s)
+  _, s = shared(?s)
+  print(s)
+
+# error: 27:6: cannot bind `s` while the result `_` discards views it
+# error: 28:6: cannot bind `s` while the result `_` discards views it
+# error: 29:6: cannot bind `s` while the result `_` discards views it

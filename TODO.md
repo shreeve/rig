@@ -16,6 +16,9 @@ started:
     calling convention returns in registers where it returns a tuple
     or an object through memory; it serves objects too, and lands only
     if it passes the speed rule;
+  - write lends ended per argument: while a result holds a write view,
+    the lends of the arguments its origins leave out could end at the
+    return, as they do when no result holds one;
   - `from` per result, so a write view and a read view may come from
     different parameters whose types could both hold either, and
     several write views a function proves disjoint (sentence 5);

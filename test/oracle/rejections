@@ -4003,11 +4003,14 @@ test/reject/ownership/replace_use_after_put_back.rig main
 test/reject/ownership/repointed_view_outlived.rig main
 test/reject/ownership/resource_temp_view.rig main
 test/reject/ownership/results_as_header_temp.rig main
+test/reject/ownership/results_discard_nested_drop.rig main
 test/reject/ownership/results_discard_views.rig main
+test/reject/ownership/results_forward_local_view.rig bad
 test/reject/ownership/results_move_then_use.rig two
 test/reject/ownership/results_pending_view.rig main
 test/reject/ownership/results_return_local_view.rig two
 test/reject/ownership/results_view_outlives.rig main
+test/reject/ownership/results_write_lend_read_view.rig main
 test/reject/ownership/results_write_view_live.rig main
 test/reject/ownership/results_write_view_part_reused.rig f
 test/reject/ownership/return_shared_field.rig take
