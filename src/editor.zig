@@ -233,26 +233,52 @@ const sigil_cats: Cats = .initMany(&.{ .lt, .question, .not_sym, .plus, .caret, 
 /// The class of a token by its category alone (the tree's classes come
 /// first). Null for a token left to the editor's grammar.
 fn classOf(cat: TokenCat, pos: u32, text: []const u8, parsed: *const Parsed, leaves: *const std.AutoHashMapUnmanaged(u32, void)) ?Class {
-    return switch (cat) {
-        .string_sq, .string_dq => .{ .kind = .string },
-        .integer, .real => .{ .kind = .number },
-        .comment => .{ .kind = .comment },
-        .err => .{ .kind = .invalid },
-        .kwarg_name => .{ .kind = .parameter },
-        .post_if, .ternary_if => .{ .kind = .keyword, .modifiers = Modifier.control.bit() },
-        .of => .{ .kind = .keyword },
-        .@"and", .@"or", .not => .{ .kind = .operator },
-        .true, .false => null,
-        .@"if", .@"else", .@"while", .@"for", .in, .match, .@"return", .@"break", .@"continue", .pass, .@"defer", .@"errdefer", .@"catch", .@"try", .await, .yield => .{ .kind = .keyword, .modifiers = Modifier.control.bit() },
+    return switch (colourOf(cat)) {
+        .class => |c| c,
+        .uncoloured => null,
         // A contextual keyword (`unique`, `from`, `static`) the parser read
         // as a keyword holds no leaf of the tree; read as a name, it does.
-        .ident => if (parsed.complete and parser.ctxAs(text) != null and !leaves.contains(pos))
-            .{ .kind = .keyword }
-        else
-            null,
-        .lparen, .rparen, .lbracket, .rbracket, .comma, .colon, .dot, .dotdot, .dotdot_open, .step_colon, .at => null,
-        .indent, .outdent, .newline, .eof, .skip => null,
-        else => if (rig.isKeyword(cat)) .{ .kind = .keyword } else .{ .kind = .operator },
+        .name => if (parsed.complete and parser.ctxAs(text) != null and !leaves.contains(pos)) .{ .kind = .keyword } else null,
+    };
+}
+
+/// What a token category is coloured as.
+const Colour = union(enum) {
+    class: Class,
+    /// Layout, punctuation, and the literals the editor's grammar colours.
+    uncoloured,
+    /// A name: the tree says what it names, or that the parser read it as
+    /// a contextual keyword.
+    name,
+};
+
+const control: Class = .{ .kind = .keyword, .modifiers = Modifier.control.bit() };
+const keyword: Class = .{ .kind = .keyword };
+const operator: Class = .{ .kind = .operator };
+
+/// The colour of every token category the lexer and its wrapper make. The
+/// switch names each one, so a new category does not compile until it is
+/// given a colour here.
+fn colourOf(cat: TokenCat) Colour {
+    return switch (cat) {
+        .ident => .name,
+        .integer, .real => .{ .class = .{ .kind = .number } },
+        .string_sq, .string_dq => .{ .class = .{ .kind = .string } },
+        .comment => .{ .class = .{ .kind = .comment } },
+        .err => .{ .class = .{ .kind = .invalid } },
+        .kwarg_name => .{ .class = .{ .kind = .parameter } },
+        .true, .false => .uncoloured,
+        .@"if", .@"else", .@"while", .@"for", .in, .match, .@"return", .@"break", .@"continue", .pass, .@"defer", .@"errdefer", .@"catch", .@"try", .await, .yield, .post_if, .ternary_if => .{ .class = control },
+        .as, .drop, .@"enum", .@"error", .@"extern", .fun, .new, .obj, .rarely, .called, .@"pub", .raw, .sub, .@"test", .type, .use, .zig, .async, .@"const", .impl, .trait, .when, .where, .of => .{ .class = keyword },
+        .@"and", .@"or", .not => .{ .class = operator },
+        .plus, .minus, .star, .slash, .percent, .plus_wrap, .minus_wrap, .star_wrap, .plus_sat, .minus_sat, .power => .{ .class = operator },
+        .eq, .ne, .lt, .gt, .le, .ge, .and_sym, .or_sym, .not_sym, .question, .nullish, .nullish_jump => .{ .class = operator },
+        .bar, .ampersand, .caret, .tilde, .lshift, .lshift_wrap, .rshift, .bar_capture, .bar_empty => .{ .class = operator },
+        .assign, .fixed_assign, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .amp_assign, .bar_assign, .caret_assign => .{ .class = operator },
+        .lshift_assign, .lshift_wrap_assign, .rshift_assign, .plus_wrap_assign, .minus_wrap_assign, .star_wrap_assign, .plus_sat_assign, .minus_sat_assign => .{ .class = operator },
+        .arrow, .fat_arrow => .{ .class = operator },
+        .at, .lparen, .rparen, .lbracket, .rbracket, .comma, .colon, .dot, .dotdot, .dotdot_open, .step_colon => .uncoloured,
+        .indent, .outdent, .newline, .eof, .skip => .uncoloured,
     };
 }
 
@@ -687,6 +713,29 @@ fn renderTokens(a: std.mem.Allocator, source: []const u8) ![]const u8 {
         try out.writer.writeByte(' ');
     }
     return out.written();
+}
+
+test "colourOf: every token category has a colour in the legend, or none" {
+    const legend = @typeInfo(Kind).@"enum".field_names.len;
+    var coloured: usize = 0;
+    inline for (@typeInfo(TokenCat).@"enum".field_names) |name| {
+        const cat = @field(TokenCat, name);
+        switch (colourOf(cat)) {
+            .class => |c| {
+                try testing.expect(@backingInt(c.kind) < legend);
+                coloured += 1;
+            },
+            .uncoloured, .name => {},
+        }
+        // Layout is never coloured, a keyword always is (but `true` and
+        // `false`, which the editor's grammar colours as constants).
+        switch (cat) {
+            .indent, .outdent, .newline, .eof, .skip => try testing.expect(colourOf(cat) == .uncoloured),
+            .true, .false => {},
+            else => if (rig.isKeyword(cat)) try testing.expect(colourOf(cat) == .class),
+        }
+    }
+    try testing.expect(coloured > 0);
 }
 
 test "tokens: sigils, contextual words, and a postfix if, as the compiler reads them" {

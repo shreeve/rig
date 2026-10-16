@@ -205,7 +205,7 @@ pub const ModuleGraph = struct {
             break :blk try self.add(found.key, found.display, name, found.source, found.parts);
         } else blk: {
             self.import_dir = std.fs.path.dirname(path);
-            const source = if (self.root_source) |text| text else self.read(path) catch |err| {
+            const source = (if (self.root_source) |text| sized(text) else self.read(path)) catch |err| {
                 try self.errors.append(self.allocator, try self.arena.allocator().print("cannot read `{s}`: {s}", .{ path, fileError(err) }));
                 return;
             };
@@ -644,6 +644,11 @@ pub const ModuleGraph = struct {
             else => |e| return e,
         };
         return id;
+    }
+
+    /// `text`, when a file read could hold it (`read`).
+    fn sized(text: []const u8) error{StreamTooLong}![]const u8 {
+        return if (text.len > max_source_bytes) error.StreamTooLong else text;
     }
 
     fn read(self: *ModuleGraph, path: []const u8) ![]const u8 {

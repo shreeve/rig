@@ -6,7 +6,10 @@
 # the compiler as its error's related information. Then a change to the
 # root's text that leaves its meaning alone (a comment appended) publishes
 # the parse errors the server reads as the text is typed: none, or exactly
-# what `rig check` printed, when the root does not parse.
+# what `rig check` printed, when the root does not parse. Last, the
+# root's text, whole and cut short, has semantic tokens in order and
+# apart, symbols whose names lie in their ranges, and folds of two lines
+# or more, with no error from the server.
 source "$ROOT/test/cli/_lib.sh"
 
 python3 - "$RIG" "$ROOT" <<'PY' || exit 1
@@ -31,6 +34,50 @@ c.request("initialize", {"capabilities": {}})
 c.notify("initialized", {})
 failed = 0
 typed = 0
+
+
+def before(p, q):
+    return (p["line"], p["character"]) <= (q["line"], q["character"])
+
+
+def editor_view(text, rel):
+    """Tokens, symbols, and folds of `text` as an untitled document: no
+    error, tokens in order and apart, each symbol's name in its range."""
+    uri = "untitled:lsp-check"
+    c.notify("textDocument/didOpen", {"textDocument": {"uri": uri, "languageId": "rig", "version": 1, "text": text}})
+    doc = {"textDocument": {"uri": uri}}
+    problems = []
+    data = c.request("textDocument/semanticTokens/full", doc).get("result", {}).get("data")
+    if data is None or len(data) % 5:
+        problems.append("semantic tokens")
+    else:
+        line, end, prev_start = 0, 0, 0
+        for i in range(0, len(data), 5):
+            dl, dc, n = data[i : i + 3]
+            if dl:
+                line, end = line + dl, 0
+            start = dc if dl else (prev_start + dc)
+            if n == 0 or start < end:
+                problems.append(f"token {i // 5} overlaps or is empty")
+                break
+            prev_start, end = start, start + n
+    stack = list(c.request("textDocument/documentSymbol", doc).get("result") or [])
+    while stack:
+        s = stack.pop()
+        r, sel = s["range"], s["selectionRange"]
+        if not s["name"] or not (before(r["start"], sel["start"]) and before(sel["end"], r["end"])):
+            problems.append(f"symbol {s['name']!r}")
+        stack += s["children"]
+    for f in c.request("textDocument/foldingRange", doc).get("result") or []:
+        if f["startLine"] >= f["endLine"]:
+            problems.append(f"fold {f}")
+    c.notify("textDocument/didClose", {"textDocument": {"uri": uri}})
+    c.sync()
+    for p in problems:
+        print(f"FAIL: {rel}: {p}")
+    return len(problems)
+
+
 for path in roots:
     rel = os.path.relpath(path, root)
     status, cli = _lsp.cli_diagnostics(rig, path, os.path.dirname(path))
@@ -63,6 +110,10 @@ for path in roots:
         failed += 1
         print(f"FAIL: {rel}: a change published {len(notes)} times")
         continue
+    # The editor's view of the text, whole and cut short at three places.
+    for cut in (len(text), len(text) // 3, len(text) // 2, 2 * len(text) // 3):
+        failed += editor_view(text[:cut], rel)
+
     as_typed = [(_lsp.path_of(uri), d["range"]["start"]["line"], d["range"]["start"]["character"],
                  "error" if d["severity"] == 1 else "note", d["message"]) for d in notes[0]["diagnostics"]]
     if as_typed:

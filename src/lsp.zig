@@ -125,34 +125,68 @@ pub const Lines = struct {
     /// inside a character, or inside a line's ending, is the position
     /// before it.
     pub fn position(self: Lines, offset: u32) Position {
-        const at = @min(offset, self.text.len);
-        // The last line that starts at or before `at`.
+        var c: Cursor = .{ .lines = self };
+        return c.position(offset);
+    }
+
+    pub fn range(self: Lines, start: u32, end: u32) Range {
+        var c: Cursor = .{ .lines = self };
+        return .{ .start = c.position(start), .end = c.position(@max(start, end)) };
+    }
+
+    /// The line `at` is on: the last that starts at or before it.
+    fn lineOf(self: Lines, at: u32) u32 {
         var lo: usize = 0;
         var hi: usize = self.starts.len;
         while (hi - lo > 1) {
             const mid = (lo + hi) / 2;
             if (self.starts[mid] <= at) lo = mid else hi = mid;
         }
-        const start = self.starts[lo];
-        if (at < start) return .{ .line = @intCast(lo), .character = 0 };
-        var units: u32 = 0;
-        var i: usize = start;
+        return @intCast(lo);
+    }
+
+    /// Where the text of `line` ends, before its line ending.
+    pub fn lineEnd(self: Lines, line: u32) u32 {
+        if (line + 1 >= self.starts.len) return @intCast(self.text.len);
+        var end = self.starts[line + 1];
+        if (end > 0 and self.text[end - 1] == '\n') end -= 1;
+        if (end > 0 and self.text[end - 1] == '\r') end -= 1;
+        return @max(end, self.starts[line]);
+    }
+};
+
+/// Positions of offsets in ascending order, each counted on from the one
+/// before on its line, so a line's characters are counted once however
+/// many offsets it holds. An offset before the last starts the count again.
+pub const Cursor = struct {
+    lines: Lines,
+    line: u32 = 0,
+    /// The offset counted to on `line`, and its units from the line's start.
+    at: u32 = 0,
+    units: u32 = 0,
+    counted: bool = false,
+
+    pub fn position(c: *Cursor, offset: u32) Position {
+        const text = c.lines.text;
+        const at: u32 = @intCast(@min(offset, text.len));
+        const line = c.lines.lineOf(at);
+        const start = c.lines.starts[line];
+        if (!c.counted or line != c.line or at < c.at) c.* = .{ .lines = c.lines, .line = line, .at = start, .units = 0, .counted = true };
+        if (at < start) return .{ .line = line, .character = 0 };
+        var i: usize = c.at;
         while (i < at) {
-            const c = self.text[i];
-            if (c == '\n' or c == '\r') break;
-            const n = sequenceLength(self.text[i..]);
+            const ch = text[i];
+            if (ch == '\n' or ch == '\r') break;
+            const n = sequenceLength(text[i..]);
             if (i + n > at) break;
-            units += switch (self.encoding) {
+            c.units += switch (c.lines.encoding) {
                 .utf8 => @intCast(n),
                 .utf16 => if (n == 4) 2 else 1,
             };
             i += n;
         }
-        return .{ .line = @intCast(lo), .character = units };
-    }
-
-    pub fn range(self: Lines, start: u32, end: u32) Range {
-        return .{ .start = self.position(start), .end = self.position(@max(start, end)) };
+        c.at = @intCast(i);
+        return .{ .line = line, .character = c.units };
     }
 };
 
@@ -395,10 +429,13 @@ const Server = struct {
         } else if (eql(method, "textDocument/didClose")) {
             const uri = string(field(field(params, "textDocument"), "uri")) orelse return null;
             for (s.docs.items, 0..) |*d, i| if (eql(d.uri, uri)) {
-                try s.publishRaw(a, d.uri, null, "[]");
-                for (d.others.items) |o| if (s.findDoc(o) == null) try s.publishRaw(a, o, null, "[]");
-                d.deinit(s.gpa);
+                var gone = d.*;
                 _ = s.docs.swapRemove(i);
+                defer gone.deinit(s.gpa);
+                try s.publishRaw(a, gone.uri, null, "[]");
+                // A file the closed one's check published to keeps what
+                // another open file's check put there.
+                for (gone.others.items) |o| if (s.findDoc(o) == null and !s.publishesTo(o)) try s.publishRaw(a, o, null, "[]");
                 break;
             };
         }
@@ -414,6 +451,12 @@ const Server = struct {
         if (offered != .array) return .utf16;
         for (offered.array.items) |e| if (e == .string and eql(e.string, "utf-8")) return .utf8;
         return .utf16;
+    }
+
+    /// Whether an open document's last check published to `uri`.
+    fn publishesTo(s: *Server, uri: []const u8) bool {
+        for (s.docs.items) |d| for (d.others.items) |o| if (eql(o, uri)) return true;
+        return false;
     }
 
     fn findDoc(s: *Server, uri: []const u8) ?*Doc {
@@ -454,7 +497,7 @@ const Server = struct {
         const found = try editor.parseDiagnostics(a, d.text);
         var files: Files = .{ .a = a, .encoding = s.encoding };
         var items: std.ArrayList(Item) = .empty;
-        try addDiagnostics(a, &items, found, .{ .source = d.text, .path = "" }, &.{}, .home);
+        try addDiagnostics(a, &items, found, .{ .source = d.text, .path = "" }, &.{}, .home, null);
         try s.publishRaw(a, d.uri, d.version, try files.json(items.items, "", d.uri, s.io));
     }
 
@@ -485,20 +528,28 @@ const Server = struct {
         }
         var items: std.ArrayList(Item) = .empty;
         for (graph.errors.items) |message| try items.append(a, .{ .path = path, .text = d.text, .start = 0, .end = 0, .severity = .@"error", .message = try a.dupe(u8, message) });
+        // As many errors as `rig check` prints (`writeAllDiagnostics`).
+        var budget: u32 = diag.max_errors;
         for (graph.modules.items, all, shown) |m, home, ok| {
-            if (!ok) continue;
-            try addDiagnostics(a, &items, m.sema.diagnostics.items, home, all, .{ .shown = shown });
+            // The errors of a module no editor can open still count.
+            if (!ok) {
+                for (m.sema.diagnostics.items) |x| if (x.severity == .@"error") {
+                    budget -|= 1;
+                };
+                continue;
+            }
+            try addDiagnostics(a, &items, m.sema.diagnostics.items, home, all, .{ .shown = shown }, &budget);
         }
-        // Copy what the graph holds before it goes: each file's path and
-        // text once, and each message.
+        // Copy what the graph holds before it goes: each file's path, made
+        // absolute as its URI is, and its text once, and each message.
         var copies: std.StringHashMapUnmanaged([2][]const u8) = .empty;
         for (items.items) |*it| {
-            const file = try copyFile(a, &copies, it.path, it.text);
+            const file = try copyFile(a, s.io, &copies, it.path, it.text);
             it.path = file[0];
             it.text = file[1];
             it.message = try a.dupe(u8, it.message);
             for (it.related.items) |*r| {
-                const rf = try copyFile(a, &copies, r.path, r.text);
+                const rf = try copyFile(a, s.io, &copies, r.path, r.text);
                 r.path = rf[0];
                 r.text = rf[1];
                 r.message = try a.dupe(u8, r.message);
@@ -507,8 +558,9 @@ const Server = struct {
 
         var files: Files = .{ .a = a, .encoding = s.encoding };
         const own_json = try files.json(items.items, path, d.uri, s.io);
+        const kept = try s.gpa.dupe(u8, own_json);
         if (d.checked) |old| s.gpa.free(old);
-        d.checked = try s.gpa.dupe(u8, own_json);
+        d.checked = kept;
         d.checked_hash = std.hash.Wyhash.hash(0, d.text);
 
         // The other files: each once, in order, unless it is open (its own
@@ -521,7 +573,7 @@ const Server = struct {
         }
         for (items.items) |it| {
             if (eql(it.path, path)) continue;
-            const uri = try pathToUri(a, try absolute(a, s.io, it.path));
+            const uri = try pathToUri(a, it.path);
             if (s.findDoc(uri) != null) continue;
             for (d.others.items) |o| {
                 if (eql(o, uri)) break;
@@ -541,7 +593,7 @@ const Server = struct {
         for (old.items) |o| {
             for (d.others.items) |now| {
                 if (eql(o, now)) break;
-            } else if (s.findDoc(o) == null) try s.publishRaw(a, o, null, "[]");
+            } else if (s.findDoc(o) == null and !s.publishesTo(o)) try s.publishRaw(a, o, null, "[]");
         }
     }
 
@@ -582,11 +634,12 @@ const Server = struct {
         const lines = try Lines.init(a, text, s.encoding);
         var data: std.ArrayList(u32) = .empty;
         var prev: Position = .{ .line = 0, .character = 0 };
+        // The tokens come in order, so one cursor counts each line once.
+        var cursor: Cursor = .{ .lines = lines };
         for (toks) |t| {
-            const start = lines.position(t.pos);
-            // A token ends on its line.
-            const line_end = if (start.line + 1 < lines.starts.len) lines.starts[start.line + 1] else @as(u32, @intCast(text.len));
-            const end = lines.position(@min(t.end, line_end));
+            const start = cursor.position(t.pos);
+            // A token is cut at the end of its line.
+            const end = cursor.position(@min(t.end, lines.lineEnd(start.line)));
             if (end.line != start.line or end.character <= start.character) continue;
             const delta_line = start.line - prev.line;
             try data.appendSlice(a, &.{
@@ -683,10 +736,18 @@ const Where = union(enum) {
 /// Append the compiler's diagnostics `found`, reported by the module whose
 /// text is `home`, as items: each in the file its position is in (a
 /// diagnostic may point into another module, `Diagnostic.module`), its
-/// notes attached to it.
-fn addDiagnostics(a: Allocator, items: *std.ArrayList(Item), found: []const diag.Diagnostic, home: diag.File, all: []const diag.File, where: Where) !void {
+/// notes attached to it. With a `budget`, each error takes one from it, as
+/// `diag.writeSome` counts them, and an error past it is left out with its
+/// notes.
+fn addDiagnostics(a: Allocator, items: *std.ArrayList(Item), found: []const diag.Diagnostic, home: diag.File, all: []const diag.File, where: Where, budget: ?*u32) !void {
     var last_error: ?usize = null;
+    var showing = true;
     for (found) |d| {
+        if (budget) |b| if (d.severity == .@"error") {
+            showing = b.* > 0;
+            if (showing) b.* -= 1;
+        };
+        if (!showing) continue;
         const module = if (d.module != 0 and d.module <= all.len) d.module else 0;
         const file = if (module == 0) home else all[module - 1];
         const at = file.locate(d.pos);
@@ -764,13 +825,13 @@ const Files = struct {
     }
 };
 
-/// The copy in `a` of a file's path and text, made once per path.
-fn copyFile(a: Allocator, copies: *std.StringHashMapUnmanaged([2][]const u8), path: []const u8, text: []const u8) ![2][]const u8 {
+/// The copy in `a` of a file's path, made absolute, and of its text, made
+/// once per path.
+fn copyFile(a: Allocator, io: std.Io, copies: *std.StringHashMapUnmanaged([2][]const u8), path: []const u8, text: []const u8) ![2][]const u8 {
     const gop = try copies.getOrPut(a, path);
     if (!gop.found_existing) {
-        const p = try a.dupe(u8, path);
-        gop.key_ptr.* = p;
-        gop.value_ptr.* = .{ p, try a.dupe(u8, text) };
+        gop.key_ptr.* = try a.dupe(u8, path);
+        gop.value_ptr.* = .{ try a.dupe(u8, try absolute(a, io, path)), try a.dupe(u8, text) };
     }
     return gop.value_ptr.*;
 }

@@ -181,7 +181,7 @@ check(by_line[2], [[0, "pub", "keyword"], [4, "obj", "keyword"], [8, "Square", "
 check(by_line[5], [[2, "fun", "keyword"], [6, "area", "method", "declaration"], [11, "?", "modifier"], [12, "self", "parameter", "declaration"], [18, "->", "operator"]], "a method taking `?self`")
 check(by_line[8], [[2, "sub", "keyword"], [6, "grow", "method", "declaration"], [11, "!", "modifier"], [12, "self", "parameter", "declaration"], [18, "by", "parameter", "declaration"]], "a method taking `!self`")
 check(by_line[17], [[2, "new", "keyword"], [8, "=", "operator"], [10, "<", "modifier"]], "`new` and a move")
-check(by_line[18], [[18, "if", "keyword", "control"], [28, ">", "operator"], [30, "0", "number"]], "a postfix `if`")
+check(by_line[18], [[10, "area", "method"], [18, "if", "keyword", "control"], [23, "side", "property"], [28, ">", "operator"], [30, "0", "number"]], "a method called, a postfix `if`, and a field")
 check(by_line[0], [[0, "# Shapes, and how big they are.", "comment"]], "a comment")
 
 symbols = c.request("textDocument/documentSymbol", doc)["result"]
@@ -219,6 +219,19 @@ published = open_doc(c, "wide.rig")
 check([d["range"] for d in published[_lsp.uri("wide.rig")]["diagnostics"]], [rng(1, 11, 1, 11)], "a position after a surrogate pair, in UTF-16")
 wide = decode(c.request("textDocument/semanticTokens/full", {"textDocument": {"uri": _lsp.uri("wide.rig")}})["result"]["data"], legend, text("wide.rig"))
 check([t for t in wide if t[0] == 1], [[1, 4, "=", "operator"], [1, 6, '"😀é"', "string"], [1, 11, ";", "invalid"], [1, 15, "=", "operator"], [1, 17, "1", "number"]], "a string holding a surrogate pair, in UTF-16")
+
+# --- a long line: positions are counted once per line, not once per token --
+import time
+long_text = "sub main()\n  x = [" + ", ".join(str(i) for i in range(40000)) + "]\n"
+c.notify("textDocument/didOpen", {"textDocument": {"uri": "untitled:long", "languageId": "rig", "version": 1, "text": long_text}})
+c.sync()
+began = time.time()
+data = c.request("textDocument/semanticTokens/full", {"textDocument": {"uri": "untitled:long"}})["result"]["data"]
+took = time.time() - began
+check(len(data) // 5, 2 + 1 + 40000, "the tokens of a 230 KB line")
+check(took < 10, True, f"the tokens of a 230 KB line in {took:.1f}s")
+c.notify("textDocument/didClose", {"textDocument": {"uri": "untitled:long"}})
+c.sync()
 
 # --- shutdown, exit -------------------------------------------------------
 check(c.request("shutdown"), {"jsonrpc": "2.0", "id": c.next_id, "result": None}, "shutdown")
