@@ -1,0 +1,19 @@
+obj Node
+  v: Int
+
+fun inc(a: Int) -> Int
+  a + 1
+
+sub heap[T](x: T)
+  print(@name(*T), @name(^T), @name(List[*T]))
+
+sub boxfun[T](x: T)
+  print(@name(^T), @name((^T)?))
+
+sub cellfun[T](x: T)
+  print(@name(*Cell[T?]))
+
+sub main()
+  heap(*Node(v: 1))
+  heap(^Node(v: 1))
+  boxfun(inc)

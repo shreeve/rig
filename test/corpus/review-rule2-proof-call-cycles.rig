@@ -1,0 +1,41 @@
+obj P
+  k: Int
+
+fun f(n: Int) -> Int
+  if n > 0
+    return g(n - 1)
+  2
+
+fun g(n: Int) -> Int
+  if n == 0
+    return 10
+  f(n)
+
+fun h(n: Int) -> Int
+  if n > 0
+    return h(n - 1)
+  1
+
+fun a(n: Int) -> P
+  if n > 0
+    return b(n - 1)
+  P(k: 1)
+
+fun b(n: Int) -> P
+  if n == 0
+    return P(k: 9)
+  a(n)
+
+fun c() -> Int
+  d()
+
+fun d() -> Int
+  if true
+    return c()
+  0
+
+sub main()
+  xs = [1, 2, 3]
+  print(xs[h(4)])
+  print(xs[a(5).k])
+  print(xs[f(1)])

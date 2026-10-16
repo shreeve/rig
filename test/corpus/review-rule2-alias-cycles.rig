@@ -1,0 +1,33 @@
+obj W[T]
+  v: T
+
+obj O
+  a: B1
+
+type S = S
+
+type L = List[L]
+
+type B1 = B2
+
+type B2 = B1?
+
+type C0 = C1
+
+type C1 = C2
+
+type C2 = C1
+
+type F = fun(F) -> Int
+
+type G = W[G]
+
+type M = Map[String, M]
+
+type H = *H
+
+type ok = Int
+
+sub main()
+  x: ok = 1
+  print(x)

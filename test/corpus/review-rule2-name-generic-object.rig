@@ -1,0 +1,55 @@
+obj Node
+  v: Int
+
+obj Wrap[T]
+  v: T
+
+  fun names(?self) -> ?String
+    @name(T?)
+
+  sub all(?self)
+    print(@name(Self), @name(Self?), @name(*T), @name(List[Self?]))
+
+obj Two[A, B]
+  a: A
+  b: B?
+
+  sub all(?self)
+    print(@name(Self), @name(A?), @name(B?), @name(Two[A, B]))
+
+type WI = Wrap[(Int?)?]
+
+type WN = Wrap[*(Node?)]
+
+type T2 = Two[(Int?)?, Node?]
+
+fun share[T](x: T) -> *T
+  *(<x)
+
+sub viaType[T](x: T)
+  y: T? = none
+  print(@name(@type(y)), @name(@type(x)))
+
+sub closures[T](x: T)
+  print(@name(T), @name(T?), @name(List[T?]))
+
+sub main()
+  w0: (Int?)? = none
+  w = Wrap(v: w0)
+  w.all()
+  print(w.names(), @name(WI))
+  nn: Node? = none
+  n = share(nn)
+  wn = Wrap(v: <n)
+  wn.all()
+  print(wn.names(), @name(WN))
+  t = Two[(Int?)?, Node?](a: none, b: none)
+  t.all()
+  print(@name(T2))
+  c: (Int?)? = none
+  viaType(c)
+  k = 3
+  f: *fun(Int) -> Int = *|+k, a: Int| a + k
+  closures(<f)
+  g: (*sub())? = none
+  closures(<g)

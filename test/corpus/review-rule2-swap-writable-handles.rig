@@ -1,0 +1,18 @@
+obj H
+  h: *Cell[Int]
+
+sub main()
+  a: *Cell[Int] = *Cell(1)
+  b: *Cell[Int] = *Cell(2)
+  c: *Cell[Int] = *Cell(3)
+  a2 = +a
+  k = a.get() == 1
+  swap(!a if k else !b, !c)
+  print(a.get(), b.get(), c.get(), a2.get())
+  o = H(h: +a2)
+  q = H(h: +b)
+  swap(!o.h, !q.h)
+  print(o.h.get(), q.h.get(), a2.get(), b.get())
+  r = replace(!o.h, *Cell(40))
+  print(r.get(), o.h.get())
+  print(c.get())

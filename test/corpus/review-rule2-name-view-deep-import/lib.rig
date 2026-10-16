@@ -1,0 +1,30 @@
+pub fun f0[T](x: ?T) -> Int
+  f1(x) + 1
+
+pub fun f1[T](x: ?T) -> Int
+  f2(x) + 1
+
+pub fun f2[T](x: ?T) -> Int
+  f3(x) + 1
+
+pub fun f3[T](x: ?T) -> Int
+  f4(x) + 1
+
+pub fun f4[T](x: ?T) -> Int
+  f5(x) + 1
+
+pub fun f5[T](x: ?T) -> Int
+  f6(x) + 1
+
+pub fun f6[T](x: ?T) -> Int
+  f7(x) + 1
+
+pub fun f7[T](x: ?T) -> Int
+  f8(x) + 1
+
+pub fun f8[T](x: ?T) -> Int
+  f9(x) + 1
+
+pub fun f9[T](x: ?T) -> Int
+  print(@name(T))
+  0
