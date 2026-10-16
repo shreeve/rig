@@ -81,6 +81,8 @@ fun numbers() -> Int
 fun strings() -> String
   s = "tab\tnewline\nquote\"backslash\\ hex\x41"
   t = 'single ''quoted'' text'
+  e = ''
+  f = ""
   u = String(s, t)
   u
 
