@@ -29,7 +29,7 @@ fun id_u128(x: U128) -> U128
   x
 
 fun id_float(x
-  @Float) -> Float
+  : Float) -> Float
   x
 
 sub main()

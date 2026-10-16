@@ -149,6 +149,12 @@ JUMPS = ("break", "continue")
 MEMBER_LISTS = ("obj", "enum", "error")
 
 
+def after_label_line(toks, i):
+    """toks[i] is the name after a `:`: what follows it is a statement a
+    label may name, or another label."""
+    return i + 1 < len(toks) and toks[i + 1][2] in ("for", "while", "match", "raw", ":")
+
+
 def code_edits(src, code, strings):
     """The label edits in the code of `src`: (start, end, "@"), each
     replacing a label's `:` and any blanks after it."""
@@ -196,6 +202,11 @@ def code_edits(src, code, strings):
             jump = prev in JUMPS and not member
             stmt_start = stmt_start and not member
             nxt = toks[i] if i < len(toks) else None
+            # Inside brackets a line break is whitespace (`f(x\n  :T)`),
+            # but for a closure body laid out there: a line there starts
+            # with a label only when a loop, `match`, or `raw` follows it.
+            if stmt_start and nesting > 0 and prev == "\n" and not after_label_line(toks, i):
+                stmt_start = False
             if (jump or stmt_start) and nxt and NAME.fullmatch(nxt[2]) and src[b:nxt[0]].strip(" \t") == "":
                 # `continue:outer` -> `continue @outer`
                 edits.append((a, nxt[0], " @" if jump and prev_end == a else "@"))
