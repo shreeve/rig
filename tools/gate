@@ -22,6 +22,7 @@
 # cpuq/*.json, which decide what the gate runs; without it such a branch
 # is refused, since the copy that runs would be the branch's own.
 #
+# GATE_REMOTE names the remote of the GitHub repository (default origin).
 # It posts with this machine's `gh` login: no credential goes to GitHub
 # or to burst. Each phase's wall-clock time is printed as it ends.
 # (bash 3.2, as macOS ships it.)
@@ -33,7 +34,7 @@ for arg in "$@"; do
         --no-matrix) MATRIX="" ;;
         --allow-gate-changes) ALLOW_GATE_CHANGES=1 ;;
         --no-wait) WAIT="" ;;
-        -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;;
         *) echo "tools/gate: unknown option $arg (see --help)" >&2; exit 2 ;;
     esac
 done
@@ -80,19 +81,23 @@ for path in sys.stdin.read().split("\0"):
 [[ -z $SHIPPED ]] || die "ignored files cpuq would ship and test (remove them):
 $SHIPPED"
 
-REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner) || die "gh cannot read the repository"
-PR_JSON=$(gh pr view "$BRANCH" --json number,state,headRefOid,baseRefName,isCrossRepository,url) ||
+# The GitHub repository behind the remote (GATE_REMOTE, default origin).
+REMOTE=${GATE_REMOTE:-origin}
+REPO=$(git remote get-url "$REMOTE" | sed -nE 's#^(git@github\.com:|ssh://git@github\.com/|https://github\.com/)([^/]+/[^/]+)$#\2#p')
+REPO=${REPO%.git}
+[[ -n $REPO ]] || die "the remote $REMOTE is not a GitHub repository"
+PR_JSON=$(gh pr view "$BRANCH" -R "$REPO" --json number,state,headRefOid,baseRefName,isCrossRepository,url) ||
     die "no pull request for $BRANCH; open one first (gh pr create --draft)"
 read -r PR STATE HEAD_OID BASE CROSS URL < <(jq -r '[.number, .state, .headRefOid, .baseRefName, .isCrossRepository, .url] | @tsv' <<<"$PR_JSON")
 [[ $STATE == OPEN ]] || die "pull request #$PR is $STATE"
 [[ $CROSS == false ]] || die "pull request #$PR comes from a fork; test.yml tests forks"
 
-git fetch -q origin "$BRANCH" "$BASE" || die "cannot fetch origin"
+git fetch -q "$REMOTE" "$BRANCH" "$BASE" || die "cannot fetch $REMOTE"
 SHA=$(git rev-parse HEAD)
-[[ $SHA == "$(git rev-parse "origin/$BRANCH")" ]] || die "HEAD is not origin/$BRANCH; push first (or pull)"
+[[ $SHA == "$(git rev-parse "$REMOTE/$BRANCH")" ]] || die "HEAD is not $REMOTE/$BRANCH; push first (or pull)"
 [[ $SHA == "$HEAD_OID" ]] || die "HEAD is not the head of #$PR ($HEAD_OID)"
-git merge-base --is-ancestor "origin/$BASE" HEAD || die "HEAD does not contain origin/$BASE; merge it and push"
-if [[ -z $ALLOW_GATE_CHANGES ]] && ! git diff --quiet "origin/$BASE" HEAD -- tools/gate cpuq; then
+git merge-base --is-ancestor "$REMOTE/$BASE" HEAD || die "HEAD does not contain $REMOTE/$BASE; merge it and push"
+if [[ -z $ALLOW_GATE_CHANGES ]] && ! git diff --quiet "$REMOTE/$BASE" HEAD -- tools/gate cpuq; then
     die "this branch changes tools/gate or cpuq/, which decide what the gate runs; review them, then pass --allow-gate-changes"
 fi
 TREE=$(git rev-parse "HEAD^{tree}")
@@ -186,7 +191,8 @@ phase "posted success"
 
 # The newest gate workflow run for this commit. It ran when the commit was
 # pushed, and found no status then; a re-run reads the status anew, with
-# the workflow as the base branch held it.
+# the workflow as main held it then (pull_request_target always runs the
+# default branch's copy).
 RUN="" ATTEMPT="" RUN_STATUS=""
 for _ in $(seq 1 60); do
     read -r RUN ATTEMPT RUN_STATUS < <(gh api "repos/$REPO/actions/workflows/gate.yml/runs?event=pull_request_target&head_sha=$SHA&per_page=1" \

@@ -547,7 +547,7 @@ for the required checks to pass, and prints the time each phase took.
 The ruleset on `main` requires the checks `test (ubuntu-latest)` and
 `test (macos-latest)` from GitHub Actions. For a pull request from this
 repository they come from `.github/workflows/gate.yml`: run by
-`pull_request_target`, so from the base branch's copy of the file, it
+`pull_request_target`, so from `main`'s copy of the file, it
 checks out and runs nothing of the pull request, reads only statuses,
 and passes when the newest `rig/gate` status on the pull request's head
 commit is a success posted by a login it trusts. A new push has no

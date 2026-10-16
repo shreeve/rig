@@ -9,9 +9,10 @@ name: gate
 # fails otherwise. tools/gate then re-runs it, so the checks turn green
 # seconds after burst finishes.
 #
-# pull_request_target runs this file as it is on the base branch, never a
-# pull request's copy, and nothing here checks out or runs the pull
-# request's code. The token reads statuses and nothing else.
+# pull_request_target runs this file as the default branch (main) holds
+# it, whatever the pull request's base, never a pull request's copy; and
+# nothing here checks out or runs the pull request's code. The token
+# reads statuses and nothing else.
 #
 # The jobs carry the names the ruleset on main requires, test
 # (ubuntu-latest) and test (macos-latest), only for a pull request from
