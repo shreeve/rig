@@ -7,4 +7,4 @@ sub main()
   x =!y
   print(x)
 
-# error: 7:5: `=!` touches the operand after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write
+# error: 7:5: `=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write

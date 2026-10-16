@@ -1033,6 +1033,7 @@ const Checker = struct {
         if (std.mem.eql(u8, name, "_")) {
             // `x op= e` reads `x`.
             if (kind.operator() != null) try self.errAt(target, discard_read, .{});
+            if (kind == .fixed) try self.errAt(target, "`_` binds nothing, so it cannot be fixed; discard with `_ = ...`", .{});
             // `_ =` discards the value, so a write call there is a
             // statement's (`isDiscardedCall`).
             const saved = self.discarded;

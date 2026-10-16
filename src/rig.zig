@@ -649,7 +649,7 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8, spelling: ZigSpelling)
 //
 //   Token boundaries still matter, as in `!=` and `==`: `=!` is one
 //   token, so `x =!y` could be a fixed binding of `y` or `x = !y`; a
-//   `=!` with no space after it is an error.
+//   `=!` without a space or tab after it is an error.
 //
 // `if`
 //   After `return`/`break`/`continue` or a value, `if` is a postfix guard
@@ -861,7 +861,7 @@ pub const Lexer = struct {
                 .leading_zero => "a decimal number has no leading zero",
                 .radix_case => "radix prefixes are lowercase: `0x`, `0b`, `0o`",
                 .bad_number => "malformed number; `_` may separate digits, and a space or an operator ends a number",
-                .fixed_touch => "`=!` touches the operand after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write",
+                .fixed_touch => "`=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write",
                 .detached_prefix => "a prefix sigil touches its operand",
                 .semicolon => "unexpected `;`",
                 .brace => "Rig has no braces: a block is the lines indented under its header",
@@ -1213,7 +1213,7 @@ pub const Lexer = struct {
             .slash => if (self.charAfter(tok) == '/' or self.charAfter(tok) == '*') return self.fail(.slash_comment, tok.pos) else .slash,
             .power => return self.fail(.power_operator, tok.pos),
             // `x =!y`: a fixed binding of `y`, or `x = !y`, a write lend?
-            .fixed_assign => if (!isSpace(self.charAfter(tok))) return self.fail(.fixed_touch, tok.pos) else tok.cat,
+            .fixed_assign => if (!isBlank(self.charAfter(tok))) return self.fail(.fixed_touch, tok.pos) else tok.cat,
             // `xs[a..]`: an open range ends at the `]`.
             .dotdot => if (self.nextJoined().cat == .rbracket) .dotdot_open else .dotdot,
             // `while i < n : i += 1`: the step; any other `:` in the
@@ -1622,6 +1622,11 @@ fn isSpaceBefore(c: u8) bool {
         ' ', '\t', '\r', '\n' => true,
         else => false,
     };
+}
+
+/// A space or a tab: what must follow `=!`.
+fn isBlank(c: u8) bool {
+    return c == ' ' or c == '\t';
 }
 
 /// Whitespace, or the end of the line or source, after a token.
@@ -3420,11 +3425,12 @@ test "a prefix sigil touches its operand; after a value it is infix or a suffix"
 test "`=!` binds fixed only with a space after it" {
     try expectCats("x =! y", &.{ .ident, .fixed_assign, .ident });
     try expectCats("x =! !y", &.{ .ident, .fixed_assign, .not_sym, .ident });
+    try expectCats("x =!\ty", &.{ .ident, .fixed_assign, .ident });
     try expectCats("new x =! y", &.{ .new, .ident, .fixed_assign, .ident });
     try expectCats("x: Int =! 1", &.{ .ident, .colon, .ident, .fixed_assign, .integer });
     try expectCats("x = !y", &.{ .ident, .assign, .not_sym, .ident });
     try expectCats("x != y", &.{ .ident, .ne, .ident });
-    for ([_][]const u8{ "x =!y", "x=!y", "x =!(y)", "x =!=y", "x =!= y", "x =!1" }) |src| {
+    for ([_][]const u8{ "x =!y", "x=!y", "x =!(y)", "x =!=y", "x =!= y", "x =!1", "x =!", "x =!\n", "x =!# c", "x =!\\\n  1" }) |src| {
         try expectCats(src, &.{ .ident, .err });
     }
     try expectLayout("x =! y", &.{});

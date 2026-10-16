@@ -6,10 +6,13 @@
 
 A PATH is a directory (every `.rig`, `.rig.tmpl` and `.md` file under
 it, skipping `.git`, `.zig-cache` and `zig-out`) or a file. In a Rig
-file every line is a candidate; in a Markdown file only the lines of a
-```` ```rig ```` block (any words after `rig` allowed), and a code span
-in prose that holds a whole binding (`` `const x = e` ``; one with a
-`;` in it is Zig's, and kept).
+file every line is a candidate, a line inside a multi-line string too.
+In a Markdown file the candidates are the lines of a ```` ```rig ````
+block (a fence of three or more backticks or tildes, any words after
+`rig`), and a code span in prose that holds a whole binding
+(`` `const x = e` ``). A span with `;`, `{` or `@import` in it is
+Zig's, and kept. A ```` ```rig reject ```` block is listed, not
+rewritten: what it shows rejected may be the `const` itself.
 
 A line is rewritten when, after its indentation, it starts with a
 binding written with `const`:
@@ -28,8 +31,12 @@ the first (a module-level binding is already a constant): write `X = e`.
 
 Not rewritten: the word `const` in a comment or in prose ("a `const`
 binding"), and a binding that does not start its line. `scan` lists
-each, as `MANUAL path:line: text`, so a person can decide. The rewrite
-is textual and idempotent; commit first.
+each, as `MANUAL path:line: text`, so a person can decide. The type is
+taken to hold no `=`, as no Rig type does.
+
+The rewrite is textual; commit first, and read `scan` before `apply`.
+Run again on a tree it migrated, it rewrites only the `const` bindings
+written since, which includes a test that shows `const` rejected.
 """
 import os
 import re
@@ -46,12 +53,14 @@ BIND = re.compile(
     r"(?P<names>" + NAME + r"(?:[ \t]*,[ \t]*" + NAME + r")*)"
     r"(?P<ty>[ \t]*:[^=\n]*?)?[ \t]*=(?![=>])[ \t]*(?P<rest>.*)$"
 )
-# A code span in prose that holds a whole binding (Zig's end in `;`).
-SPAN = re.compile(r"`((?:new[ \t]+)?const[ \t]+" + NAME + r"[^`;]*)`")
+# A code span in prose that holds a whole binding; Zig's hold `;`, `{`
+# or `@import`.
+SPAN = re.compile(r"`((?:new[ \t]+)?const[ \t]+" + NAME + r"[^`]*)`")
+ZIG = re.compile(r"[;{]|@import")
 # Any other `const` as a word, for the MANUAL report.
 WORD = re.compile(r"(?<![A-Za-z0-9_@.\"])const(?![A-Za-z0-9_])")
-FENCE = re.compile(r"^[ \t]*```")
-RIG_FENCE = re.compile(r"^[ \t]*```rig(?:[ \t].*)?$")
+# A fence: its characters, and the words after them.
+FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[ \t]*([^`]*?)[ \t]*$")
 
 
 def rewrite(line):
@@ -66,7 +75,7 @@ def rewrite(line):
 
 
 def span(m):
-    new = rewrite(m.group(1))
+    new = None if ZIG.search(m.group(1)) else rewrite(m.group(1))
     return "`" + (new if new is not None else m.group(1)) + "`"
 
 
@@ -75,26 +84,31 @@ def migrate(path, text):
     lines = text.split("\n")
     changes, manual = [], []
     markdown = path.endswith(".md")
-    in_rig = in_other = False
+    fence = None  # the open fence's characters
+    kind = None  # "rig", "reject" (a rig reject block), or "other"
     for i, line in enumerate(lines):
         if markdown:
-            if not in_rig and not in_other and FENCE.match(line):
-                if RIG_FENCE.match(line):
-                    in_rig = True
-                else:
-                    in_other = True
+            f = FENCE.match(line)
+            if fence is None and f:
+                fence = f.group(1)
+                words = f.group(2).split()
+                kind = "other" if not words or words[0] != "rig" else "reject" if "reject" in words[1:] else "rig"
                 continue
-            if (in_rig or in_other) and FENCE.match(line):
-                in_rig = in_other = False
+            if fence is not None and f and f.group(1)[0] == fence[0] and len(f.group(1)) >= len(fence) and not f.group(2):
+                fence = kind = None
                 continue
-            if in_other:
+            if kind == "other":
                 continue
-            if not in_rig:
+            if kind == "reject":
+                if BIND.match(line) or WORD.search(line):
+                    manual.append((i + 1, line))
+                continue
+            if fence is None:
                 new = SPAN.sub(span, line)
                 if new != line:
                     changes.append((i + 1, line, new))
                     lines[i] = new
-                if WORD.search(SPAN.sub("", new)):
+                if WORD.search(SPAN.sub(lambda m: m.group(0) if ZIG.search(m.group(1)) else "", new)):
                     manual.append((i + 1, new))
                 continue
         new = rewrite(line)
