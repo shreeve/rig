@@ -16,7 +16,9 @@ change that makes Zig compile print's code again at each site shows here.
 usage: cpuq run --cores 2 --label rig:print-size -- bench/print/guard.py [--update] [--rig PATH] [--sites N]
 
 --update writes the measured bytes per site, plus 25%, as the new bound;
-commit it with the change that moved it. Without --rig it uses bin/rig.
+commit it with the change that moved it. The bound is measured on the Mac
+(arm64): code for another machine has another size. Without --rig it uses
+bin/rig.
 """
 import os, re, subprocess, sys, tempfile
 

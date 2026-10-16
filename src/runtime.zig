@@ -1318,9 +1318,15 @@ pub const String = struct {
     /// each run of text once, each value by the one writer of its type.
     pub inline fn add(self: *String, pieces: anytype) void {
         inline for (comptime piecesOf(@TypeOf(pieces))) |p| switch (p) {
-            .text => |t| self.appendBytes(t),
+            .text => |t| self.appendFixed(t.len, t[0..t.len]),
             .value => |f| self.addValue(pieces[f]),
         };
+    }
+
+    /// Text of `n` bytes known at compile time, appended by the one
+    /// function of its length.
+    noinline fn appendFixed(self: *String, comptime n: usize, text: *const [n]u8) void {
+        self.appendBytes(text);
     }
 
     /// A value `add` writes: text and a String as their bytes, which the
@@ -3450,12 +3456,13 @@ fn flush() void {
 /// the newline after them included, as the emitter lists them
 /// (`.{ "n =", " ", n, "\n" }`). The tuple holds every argument's value,
 /// so all of them have run before a byte is written. Inlined, it is a
-/// straight line of calls: each run of text (`piecesOf`) written once,
-/// each value by the one writer of its type (`outValue`).
+/// straight line: each run of text (`piecesOf`) copied into the buffer
+/// at once, each value written by the one writer of its type
+/// (`outValue`).
 pub inline fn print(pieces: anytype) void {
     const plan = comptime piecesOf(@TypeOf(pieces));
     inline for (plan, 0..) |p, i| switch (p) {
-        .text => |t| if (i == plan.len - 1) outLine(t) else outText(t),
+        .text => |t| outText(t, i == plan.len - 1),
         .value => |f| outValue(pieces[f]),
     };
     if (comptime plan.len == 0 or plan[plan.len - 1] != .text) outLine("");
@@ -3504,23 +3511,44 @@ fn outFailed(err: std.Io.Writer.Error) void {
     }
 }
 
-/// Text of a `print`.
-noinline fn outText(text: []const u8) void {
-    stdout().writeAll(text) catch |err| outFailed(err);
+/// Text of a `print`, known at compile time, written by the one writer
+/// of its length (`outFixed`).
+inline fn outText(comptime text: []const u8, comptime ends_line: bool) void {
+    outFixed(text.len, ends_line, text[0..text.len]);
+}
+
+/// Text of `n` bytes: copied into the buffer when it fits, and otherwise
+/// written by `outBytes`. Text that ends a line goes through `outLine`
+/// when stdout is a terminal.
+noinline fn outFixed(comptime n: usize, comptime ends_line: bool, text: *const [n]u8) void {
+    if (stdout_writer) |*sw| {
+        const w = &sw.interface;
+        if (!(ends_line and stdout_is_tty) and n <= w.buffer.len - w.end) {
+            w.buffer[w.end..][0..n].* = text.*;
+            w.end += n;
+            return;
+        }
+    }
+    if (ends_line) outLine(text) else outBytes(text);
+}
+
+/// Bytes of a `print`.
+noinline fn outBytes(bytes: []const u8) void {
+    stdout().writeAll(bytes) catch |err| outFailed(err);
 }
 
 /// The last text of a `print`, which ends its line: written, then
 /// flushed when stdout is a terminal.
 noinline fn outLine(text: []const u8) void {
-    outText(text);
+    outBytes(text);
     if (stdout_is_tty) flush();
 }
 
 /// A value of a `print`, as Rig writes it at the top level: text as its
 /// bytes, anything else by the one writer of its type.
 inline fn outValue(value: anytype) void {
-    if (comptime isStringView(@TypeOf(value))) return outText(value);
-    if (comptime isStringPlace(@TypeOf(value))) return outText(value.list.items);
+    if (comptime isStringView(@TypeOf(value))) return outBytes(value);
+    if (comptime isStringPlace(@TypeOf(value))) return outBytes(value.list.items);
     outValueOf(value);
 }
 
