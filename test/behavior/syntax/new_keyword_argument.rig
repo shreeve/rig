@@ -1,0 +1,23 @@
+# `new` is a keyword only at the start of a statement, so it names a
+# field, and a keyword argument or a payload field in a call or a
+# pattern, as any member name does.
+
+obj O
+  new: Int
+  b: Int
+
+enum P
+  pp(new: Int, b: Int)
+  qq
+
+fun pv(p: P) -> Int
+  match p
+    .pp(new: x, b: y) => x * 10 + y
+    .qq => 0
+
+sub main()
+  o = O(new: 1, b: 2)
+  print(o.new, o, pv(P.pp(new: 3, b: 4)), pv(.pp(b: 6, new: 5)))
+
+# expect:
+# 1 O(new: 1, b: 2) 34 56

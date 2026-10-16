@@ -1,0 +1,9 @@
+# `none` is the absent optional, so no `use` binds it, even to a module
+# whose file is `none.rig`; `use none as other` names it.
+use none
+
+sub main()
+  print(none.two())
+
+# error: 3:5: `none` is the absent optional and cannot name a module; name it with `as`: `use ... as other`
+# errors: 1

@@ -1,0 +1,26 @@
+# `+x` clones an object field by field, whatever its methods are named:
+# a method named like one of the runtime's (`cloneWeak`, `cloneStrong`,
+# `dropWeak`, `upgrade`) is no hook for it.
+
+obj O
+  s: String
+
+  fun cloneWeak(?self) -> O
+    O(s: String("surprise"))
+
+  fun cloneStrong(?self) -> Int
+    42
+
+  fun upgrade(?self) -> Int
+    7
+
+sub main()
+  o = O(s: String("hi"))
+  xs: List[O] = List()
+  !xs.push(+o)
+  ys = +xs
+  p = +o
+  print(p.s, ys[0].s, o.cloneWeak().s, o.cloneStrong(), o.upgrade())
+
+# expect:
+# hi hi surprise 42 7
