@@ -1,0 +1,77 @@
+# A function marked `inline` is inlined at every call whatever its size,
+# and means what it means as a call: it takes an owned argument and drops
+# it, writes through a lend, holds a closure, and calls a `rarely`
+# function, which stays a call. `mix` is over the size the compiler
+# inlines by itself (test/cli/markers.sh checks the Zig).
+
+obj Tag
+  name: String
+
+  drop(!self)
+    print("drop", self.name)
+
+inline fun mix(a: Int, b: Int, k: Int) -> Int
+  x = a * 3 + b
+  y = b * 5 - a
+  if x > y
+    x = x - y + k
+  else
+    y = y - x + k
+  z = 0
+  i = 0
+  while i < k
+    z += (x + i) % 7 + (y - i) % 5
+    i += 1
+  if z > 100
+    z = z % 100 + 1
+  w = 0
+  j = k
+  while j > 0
+    w += (x * j + y) % 11 - (z + j) % 3
+    j -= 1
+  if w < 0
+    w = 0 - w
+  v = x - y
+  if v < 0
+    v = 0 - v
+  v = v % 13 + w % 17 + z % 19
+  x + y + z + w + v
+
+inline sub consume(t: Tag, out: !String)
+  !out.add(t.name)
+  !out.add("!")
+
+inline fun scaled(xs: ?List[Int], k: Int) -> Int
+  total = 0
+  each = |+k, x: Int| x * k
+  for x in xs
+    total += each(x)
+  total
+
+rarely fun slow(n: Int) -> Int
+  print("slow", n)
+  n * 2
+
+inline fun pick(n: Int) -> Int
+  slow(n) if n < 0 else n
+
+sub main()
+  print(mix(1, 2, 3), mix(4, 5, 6))
+  s = String()
+  consume(Tag(name: String("a")), !s)
+  print(s)
+  xs = List[Int]()
+  !xs.push(1)
+  !xs.push(2)
+  print(scaled(xs, 10))
+  print(pick(4), pick(-4))
+
+# release
+
+# expect:
+# 50 103
+# drop a
+# a!
+# 30
+# slow -4
+# 4 -8

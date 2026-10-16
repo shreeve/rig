@@ -20,8 +20,10 @@ usage: cpuq run --cores 2 --label rig:hash -- bench/hash/bench-hash [options]
 Each program puts a million keys into an empty map (insert), looks each
 up (hit), looks up a million keys it does not hold (miss), and walks
 the map (iterate), for Int keys (scattered by a multiply) and String
-keys ("key" and a number). It prints `KEYS OP NS CHECK` per operation;
-the checksums must agree. The report compares each variant with the
+keys ("key" and a number). The Rig program also writes a value under
+N keys whether or not each is new, three ways (`ensure`, `ensure_with`,
+`edit` then `put`), on misses and on hits; Zig has no such rows. It
+prints `KEYS OP NS CHECK` per operation; the checksums must agree. The report compares each variant with the
 first Zig one, as "N% faster" or "N% slower".
 """
 import argparse, os, shutil, subprocess, sys, tempfile
@@ -83,16 +85,19 @@ def main():
                         sys.exit(f"{v}: {k[0]} {k[1]} checksum {check}, expected {checks[k]}")
                     best[v][k] = min(ns, best[v].get(k, ns))
         base = next((v for v in variants if v.startswith("zig-")), variants[0])
-        print(f"{'keys':7} {'op':8} " + " ".join(f"{v + ' ns/op':>15}" for v in variants) + f"   vs {base}")
-        for k in best[base]:
-            cols = " ".join(f"{best[v][k] / N:15.2f}" for v in variants)
+        print(f"{'keys':7} {'op':20} " + " ".join(f"{v + ' ns/op':>15}" for v in variants) + f"   vs {base}")
+        # Every row any variant prints, in the order they were met; a row
+        # only Rig times (the write rows) shows `-` for Zig.
+        rows = list(dict.fromkeys(k for v in variants for k in best[v]))
+        for k in rows:
+            cols = " ".join(f"{best[v][k] / N:15.2f}" if k in best[v] else f"{'-':>15}" for v in variants)
             notes = []
             for v in variants:
-                if v == base:
+                if v == base or k not in best[base] or k not in best[v]:
                     continue
                 r = best[base][k] / best[v][k]
                 notes.append(f"{v} {abs(r - 1) * 100:.1f}% {'faster' if r >= 1 else 'slower'}")
-            print(f"{k[0]:7} {k[1]:8} {cols}   {', '.join(notes)}")
+            print(f"{k[0]:7} {k[1]:20} {cols}   {', '.join(notes)}")
     finally:
         if not a.out:
             shutil.rmtree(out, ignore_errors=True)

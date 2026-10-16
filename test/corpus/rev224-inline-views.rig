@@ -1,0 +1,44 @@
+# Review of #224: `inline` functions and methods that move, lend, and hand
+# back views run as they do when called.
+
+obj Bag
+  items: List[String]
+  name: String
+
+  inline fun into_name(<self) -> String
+    new b = <self
+    replace(!b.name, String("x"))
+
+  inline fun first(?self) -> ?String
+    ?self.items[0]
+
+  inline fun slot(!self) -> !String
+    !self.items[0]
+
+inline fun head(xs: ?List[Int]) -> ?Int
+  ?xs[0]
+
+inline fun make(n: Int) -> List[Int]
+  out = List[Int]()
+  for i in 0..n
+    !out.push(i)
+  out
+
+sub main()
+  b = Bag(items: List[String](), name: String("bag"))
+  !b.items.push(String("a"))
+  print(b.first())
+  s = (!b).slot()
+  !s.add("z")
+  print(b.first())
+  xs = make(3)
+  h = head(?xs)
+  print(h, xs.len)
+  n = <b.into_name()
+  print(n)
+
+# expect:
+# a
+# az
+# 0 3
+# bag

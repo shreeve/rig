@@ -1,0 +1,17 @@
+pub obj Pt
+  pub n: Int
+
+  pub inline fun make(i: Int) -> Int
+    t = [1000000 of i]
+    t[i % 1000000]
+
+pub type Q = Pt
+
+pub obj G[T]
+  pub v: T
+
+  pub inline fun big(i: Int) -> Int
+    t = [1000000 of i]
+    t[i % 1000000]
+
+pub type GI = G[Int]

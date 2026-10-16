@@ -144,7 +144,7 @@ pub obj Map[K, V]
     if self.find(?k, h) as j
       <k
       return replace(!self.es[j].value, <v)
-    !self.insert(<k, <v, h)
+    !self.add_entry(<k, <v, h)
     none
 
   # Put `v` under `k` only when `k` is new: true if it did; otherwise
@@ -155,7 +155,7 @@ pub obj Map[K, V]
       <k
       <v
       return false
-    !self.insert(<k, <v, h)
+    !self.add_entry(<k, <v, h)
     true
 
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
@@ -222,6 +222,13 @@ pub obj Map[K, V]
   rarely fun add_new(!self, k: K, v: V, h: U64) -> Int
     !self.insert(<k, <v, h)
     self.es.len - 1
+
+  # Add the entry `k`, `v`, whose key is new and hashes to `h`: what
+  # `put`, `replace` and `put_new` call when the key is new; out of
+  # line, so a write inlined into its caller is the lookup and, on a hit,
+  # the overwrite, and hot, as a loop that puts new keys calls it each time.
+  called sub add_entry(!self, k: K, v: V, h: U64)
+    !self.insert(<k, <v, h)
 
   # Keep the entries for which `f` is true, in order. `f` gets each key
   # to read and its value to write, in order, and an entry it rejects is
@@ -338,7 +345,8 @@ pub obj Map[K, V]
       i = 0
     none
 
-  # Add the entry `k`, `v`, whose key is new and hashes to `h`.
+  # Add the entry `k`, `v`, whose key is new and hashes to `h`: the body
+  # of `add_new` and `add_made`.
   sub insert(!self, k: K, v: V, h: U64)
     if self.table.tags.len == 0
       !self.grow() if self.es.len >= SMALL
@@ -417,14 +425,7 @@ pub obj Set[K]
   pub fun add(!self, k: K) -> Bool
     h = k.hash()
     return false if self.find(?k, h) != none
-    if self.table.tags.len == 0
-      !self.grow() if self.ks.len >= SMALL
-    else if (self.ks.len + 1) * 5 > self.table.tags.len * 4
-      !self.grow()
-    !self.ks.push(<k)
-    !self.hs.push(h)
-    self.len += 1
-    !self.table.place(self.ks.len - 1, h) if self.table.tags.len > 0
+    !self.add_new(<k, h)
     true
 
   # Take the key `k` out and hand it back, or `none` when the Set has
@@ -494,6 +495,18 @@ pub obj Set[K]
         i += 1
       i = 0
     none
+
+  # Add the key `k`, which is new and hashes to `h`; out of line and hot,
+  # as a Map's `add_new` is.
+  called sub add_new(!self, k: K, h: U64)
+    if self.table.tags.len == 0
+      !self.grow() if self.ks.len >= SMALL
+    else if (self.ks.len + 1) * 5 > self.table.tags.len * 4
+      !self.grow()
+    !self.ks.push(<k)
+    !self.hs.push(h)
+    self.len += 1
+    !self.table.place(self.ks.len - 1, h) if self.table.tags.len > 0
 
   rarely sub grow(!self)
     !self.compact() if self.len < self.ks.len

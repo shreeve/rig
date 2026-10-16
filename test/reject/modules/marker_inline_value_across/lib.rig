@@ -1,0 +1,2 @@
+pub inline fun next(n: Int) -> Int
+  n + 1

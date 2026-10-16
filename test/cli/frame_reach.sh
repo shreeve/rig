@@ -1,7 +1,7 @@
 # timeout: 900
 # The stack a function's code takes is at most `sema.reach_factor` times
-# its reach with what the rule inlines into it (`rig check --facts=frames`,
-# its last two columns): the bound that
+# its reach with what the marked calls and the rule inline into it (`rig
+# check --facts=frames`, its last three columns): the bound that
 # keeps every frame the compiler accepts within the guard below the
 # program's stack (docs/INTERNALS.md, "The program's stack"). This builds
 # each form that makes or copies a value (a fill, a place, a field, an
@@ -207,12 +207,13 @@ import sys
 factor = int(sys.argv[1])
 reach = {}
 for line in open(sys.argv[2]):
-    # "L:C label bytes reach auto": a frame owner's account; a label has
-    # spaces. What the rule inlines into a frame lands in it.
-    head, _, r, auto = line.rsplit(None, 3)
+    # "L:C label bytes reach marked auto": a frame owner's account; a
+    # label has spaces. What the marked calls and the rule inline into a
+    # frame land in it.
+    head, _, r, marked, auto = line.rsplit(None, 4)
     label = head.split(None, 1)[1]
     name = label.split('`')[1] if '`' in label else label
-    reach[name] = max(reach.get(name, 0), int(r) + int(auto))
+    reach[name] = max(reach.get(name, 0), int(r) + int(marked) + int(auto))
 bad = []
 for path in sys.argv[3:]:
     real = dict((n, int(b)) for n, b in (l.split() for l in open(path)))

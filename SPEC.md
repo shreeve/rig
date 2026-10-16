@@ -547,11 +547,15 @@ array literal and fill whose value no binding takes directly, and every
 call of a function or method (twice when a binding takes its result,
 since a debug build holds it in a temporary first). The frames of the
 small functions inlined into it count too, and a call that would take
-the frame over the limit is not inlined. This holds for every frame
-the program has: every function, method, closure (whose captures count
-where it is made), test, `drop` body, and `main`, and each instance of a
-generic one; a `defer` body, a match arm, or a loop is part of the frame
-around it. The limit keeps large
+the frame over the limit is not inlined; a call of a function marked
+`inline` ([Function markers](#function-markers)) is, with the values it
+keeps at the instance the call makes, and the frame over the limit is an
+error. This holds for every frame the program has: every function,
+method, closure (whose captures count where it is made), test, `drop`
+body, and `main`, and each instance of a generic one; a `defer` body, a
+match arm, or a loop is part of the frame around it. A small method of
+a generic type is inlined or not for all its instances, as its largest
+frame at any of them allows. The limit keeps large
 data on the heap: the error names the largest locals; keep large data
 in a box (`^T`) or a `List`, which holds its elements on the heap.
 `^[n of x]` fills the box's memory itself, never making the array on the
@@ -565,10 +569,12 @@ or `catch`, a constructor's) in a temporary of its own, so a function's
 code may take more stack than the values it keeps. Its *reach*, the
 values it keeps and every value its code makes or copies (a `defer` or
 `errdefer` body once for each exit it covers, a receiver taken by value
-at each call, and a small function inlined into it at each call and at
-each copy of a `defer` body that calls it), times 4 is at most 512 MiB,
-and a function, closure, or `drop` body whose reach times 4 is 1 MiB or
-more is never inlined, so no two such frames merge into one. The factor
+at each call, and a function inlined into it, small or marked `inline`,
+at each call and at each copy of a `defer` body that calls it), times 4
+is at most 512 MiB, and a function, closure, or `drop` body whose reach
+times 4 is 1 MiB or more is never inlined, so no two such frames merge
+into one; a function marked `inline` is inlined still, and its caller's
+reach holds it, so the caller is the frame kept out of line. The factor
 4 is measured, not proven: the frames each form takes are checked
 against it, and a form the compiler does not yet model could take more.
 
@@ -1579,9 +1585,14 @@ sub main()
 
 ### Function markers
 
-A function may be marked, before its `fun` or `sub`, with one of two
+A function may be marked, before its `fun` or `sub`, with one of three
 words that ask for a speed and never change what the program means:
 
+- `inline fun` inlines the function at every call: its body is compiled
+  into each caller, whatever its size. A call means what it means
+  without the marker: its arguments are evaluated in order, a check on
+  them panics when the program runs (never when it compiles), and an
+  owned argument is moved in and dropped as in a call.
 - `called fun` keeps every call of the function a real call: it is
   never inlined, and stays as hot as any function. Each instance of one
   with compile-time parameters is a function of its own, so two
@@ -1593,11 +1604,10 @@ words that ask for a speed and never change what the program means:
 Without a marker the compiler decides which small functions to inline
 ([INTERNALS](docs/INTERNALS.md), "Inlining"). A marker applies to every
 instance of a function with compile-time parameters, and a method
-takes one as any function does, in its type's body or outside it. A
-marked function is a function value as any other.
+takes one as any function does, in its type's body or outside it.
 
 ```rig
-fun clamp(x: Int, lo: Int, hi: Int) -> Int
+inline fun clamp(x: Int, lo: Int, hi: Int) -> Int
   lo if x < lo else hi if x > hi else x
 
 rarely fun report(n: Int) -> Int
@@ -1626,14 +1636,44 @@ out of range: 120
 5 104
 ```
 
-A function takes one marker: `rarely` already keeps every call a call,
-so `called` beside it says nothing more, and the two together are an
-error, in either order. The program's `main`, which the program calls
-once, takes none, and neither does an `extern zig` function, whose
-body is Zig's.
+An `inline` function has no address, so it is only called: naming it
+as a value is an error, and a closure that calls it is a value. One
+that calls itself, directly or through other `inline` functions, cannot
+be inlined into itself, and is an error; a cycle through a function
+that is not `inline` is a call there, and so is a call in a closure,
+which is a function of its own. A function's frame counts the `inline`
+functions inlined in it, each at the instance its call makes, however
+the call names the function (through a module, a type, or an alias of
+either), and one over the limit ([§2](#arrays)) is an error. A call
+whose values the check cannot count is an error too, never counted as
+none. Calls of `inline` functions nest at most 256 deep, each inlined
+into the one around it; a deeper chain is an error.
 
 ```rig reject
-called rarely fun f() -> Int
+inline fun count(n: Int) -> Int
+  0 if n == 0 else 1 + count(n - 1)
+
+inline fun next(n: Int) -> Int
+  n + 1
+
+sub main()
+  f = next
+  print(count(3), f(1))
+```
+
+```error
+`next` is `inline`, inlined at every call, so it can only be called, not used as a value
+```
+
+A function takes one marker: `inline` and `called` contradict each
+other, and `rarely` already keeps every call a call, so any two are an
+error (`inline rarely fun`, `rarely called fun`). A `called` or `rarely`
+function is a function value as any other. The
+program's `main`, which the program calls once, takes none, and neither
+does an `extern zig` function, whose body is Zig's.
+
+```rig reject
+inline rarely fun f() -> Int
   1
 
 sub main()
