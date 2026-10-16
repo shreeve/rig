@@ -802,7 +802,7 @@ pub const Emitter = struct {
         // shows errors (`rig.failMain`) or sets the exit status
         // (`rig.exitStatus`), after every drop and the leak check.
         if (is_main) {
-            const catches = if (main_fails) " catch |__rig_err| rig.failMain(__rig_err)" else "";
+            const catches = if (main_fails) " catch |__rig_failed| rig.failMain(__rig_failed)" else "";
             const run = "rig.onOwnStack(__rig_run_main, .{__rig_init})";
             if (main_status) {
                 try self.w.print("pub fn main(__rig_init: std.process.Init.Minimal) u8 {{\n    return rig.exitStatus({s}{s});\n}}\n\n", .{ run, catches });
@@ -5157,7 +5157,7 @@ pub const Emitter = struct {
                 const v = try self.hiddenStorage(e, .leaf, .pointer, .next);
                 try self.w.writeAll("(if (");
                 try self.emitPayloadHolder(operand);
-                try self.w.print(") |*{s}| {s} else {s})", .{ v, v, if (e.isKind(.propagate)) "|__rig_err| return __rig_err" else "return null" });
+                try self.w.print(") |*{s}| {s} else {s})", .{ v, v, if (e.isKind(.propagate)) "|__rig_failed| return __rig_failed" else "return null" });
                 return;
             },
             .jump => return self.emitExpr(e),
