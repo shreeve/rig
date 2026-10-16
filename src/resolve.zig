@@ -609,6 +609,16 @@ const SymbolResolver = struct {
 
     /// One part of a binding condition (`rig.eachGuardPart`).
     pub fn part(self: *SymbolResolver, p: Sexp) Error!void {
+        if (p.isKind(.as_results)) {
+            try self.walk(ir.AsResults.value(p));
+            _ = try self.enter(p, .block);
+            for (ir.AsResults.names(p).items()) |n| {
+                try self.walk(n);
+                if (!n.isKind(.set)) continue;
+                if (self.ctx.symbolOf(ir.Set.target(n))) |id| self.ctx.symbols.items[id].flags.as_bound = true;
+            }
+            return;
+        }
         if (!p.isKind(.as)) return self.walk(p);
         try self.walk(ir.As.value(p));
         _ = try self.enter(p, .block);

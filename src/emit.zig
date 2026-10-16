@@ -2249,7 +2249,7 @@ pub const Emitter = struct {
         const cond = ir.If.cond(sexp);
         const else_ = ir.If.@"else"(sexp);
         try self.w.writeAll("if ");
-        if (cond.isKind(.as)) {
+        if (rig.isAsPart(cond)) {
             try self.pushScope();
             try self.emitBodyWith(ir.If.then(sexp), try self.emitCond(cond));
             try self.popScope();
@@ -2341,9 +2341,16 @@ pub const Emitter = struct {
     /// `(cond) ` for `if`/`while`, or the head of `if expr as name`,
     /// whose prelude binds the name (`emitOptionalHead`).
     fn emitCond(self: *Emitter, cond: Sexp) Error!Prelude {
-        const entered = try self.enterUnit(cond);
+        var entered = try self.enterUnit(cond);
         defer self.leaveUnit(entered);
         if (cond.isKind(.as)) return self.emitOptionalHead(cond);
+        if (cond.isKind(.as_results)) {
+            const prelude = try self.emitResultsHead(cond);
+            // The names take their results in the part's code, taken up
+            // again at the body's start (`bindResults`).
+            if (entered and try self.pauseUnit(cond)) entered = false;
+            return prelude;
+        }
         try self.w.writeAll("(");
         try self.emitHeader(cond);
         try self.w.writeAll(") ");
@@ -2524,7 +2531,7 @@ pub const Emitter = struct {
         var opened: usize = 0;
         for (parts) |p| {
             try self.writeIndent(self.indent);
-            if (p.isKind(.as)) {
+            if (rig.isAsPart(p)) {
                 try self.w.writeAll("if ");
                 const prelude = try self.emitCond(p);
                 try self.openBrace();
@@ -3401,9 +3408,12 @@ pub const Emitter = struct {
         lent: ?OptionalBinding = null,
         /// The error a `catch |err|` handler names, captured as `tmp`.
         err_capture: ?struct { zig_name: []const u8, tmp: []const u8 } = null,
+        /// The results `if f() as a, b` captures as `tmp`, which its names
+        /// take (`emitResultsHead`).
+        results: ?struct { cond: Sexp, tmp: []const u8 } = null,
 
         fn isEmpty(p: Prelude) bool {
-            return p.head.len == 0 and p.aliases.len == 0 and p.owned.len == 0 and p.drops.len == 0 and p.optional == null and p.lent == null and p.err_capture == null;
+            return p.head.len == 0 and p.aliases.len == 0 and p.owned.len == 0 and p.drops.len == 0 and p.optional == null and p.lent == null and p.err_capture == null and p.results == null;
         }
     };
 
@@ -3507,6 +3517,46 @@ pub const Emitter = struct {
         if (prelude.optional) |o| try self.bindOptionalResource(o);
         if (prelude.lent) |o| try self.bindOptionalView(o);
         if (prelude.err_capture) |c| try self.line("const {s}: anyerror = {s};", .{ c.zig_name, c.tmp });
+        if (prelude.results) |r| try self.bindResults(r.cond, r.tmp);
+    }
+
+    /// `(f()) |__rig_res_N| ` for `if f() as a, b`: the results are
+    /// captured, and the prelude has each name take its own
+    /// (`bindResults`).
+    fn emitResultsHead(self: *Emitter, cond: Sexp) Error!Prelude {
+        try self.w.writeAll("(");
+        try self.emitHeader(ir.AsResults.value(cond));
+        try self.w.writeAll(") ");
+        const tmp = try self.hiddenStorage(cond, .results, .owned, .next);
+        try self.w.print("|{s}| ", .{tmp});
+        return .{ .results = .{ .cond = cond, .tmp = tmp } };
+    }
+
+    /// The names of `if f() as a, b` take their results, captured as
+    /// `tmp`, each as the binding `a = e` it is; a result no name takes
+    /// (`_`) is dropped here.
+    fn bindResults(self: *Emitter, cond: Sexp, tmp: []const u8) Error!void {
+        const names = ir.AsResults.names(cond).items();
+        const ty = self.typeOf(ir.AsResults.value(cond)) orelse return self.unsupported(cond, "an untyped `as` value");
+        const parts = self.facts.resultsOf(ty) orelse return self.unsupported(cond, "`as` of one value");
+        const saved = self.part_name;
+        defer self.part_name = saved;
+        const resumed = try self.enterUnit(cond);
+        defer self.leaveUnit(resumed);
+        var used = false;
+        for (names, 0..) |n, j| {
+            if (n.isKind(.set)) {
+                used = true;
+                self.part_name = try self.fmt("{s}[{d}]", .{ tmp, j });
+                try self.writeIndent(self.indent);
+                try self.emitSet(n);
+                try self.w.writeAll("\n");
+            } else if (j < parts.len and self.kindOf(parts[j]) != null) {
+                used = true;
+                try self.line("rig.discard({s}[{d}]);", .{ tmp, j });
+            }
+        }
+        if (!used) try self.line("_ = {s};", .{tmp});
     }
 
     /// `(expr) |capture| ` for `if expr as name` / `while expr as name`.

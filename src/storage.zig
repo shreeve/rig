@@ -1474,6 +1474,12 @@ const Planner = struct {
 
     pub fn part(p: *Planner, cond: Sexp) !void {
         if (cond.isKind(.as)) return p.optional(cond);
+        // `if f() as a, b`: the call's results, captured for the body,
+        // each taken by its binding, the rest dropped there.
+        if (cond.isKind(.as_results)) {
+            try p.subjectHeader(ir.AsResults.value(cond));
+            return p.record(cond, .results, .owned, .body);
+        }
         try p.header(cond);
     }
 

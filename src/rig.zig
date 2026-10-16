@@ -72,9 +72,15 @@ pub fn isModuleConst(decl: Sexp) bool {
 /// the left spine, checked in order, each binding visible to the parts
 /// after it and to the body.
 pub fn bindsInCondition(cond: Sexp) bool {
-    if (cond.isKind(.as)) return true;
+    if (isAsPart(cond)) return true;
     if (!cond.isKind(.@"and")) return false;
-    return ir.get(cond, .right).isKind(.as) or bindsInCondition(ir.get(cond, .left));
+    return isAsPart(ir.get(cond, .right)) or bindsInCondition(ir.get(cond, .left));
+}
+
+/// A part of a condition that binds: `a as x`, or `f() as a, b`, which
+/// binds a call's several results (`as_results`).
+pub fn isAsPart(e: Sexp) bool {
+    return e.isKind(.as) or e.isKind(.as_results);
 }
 
 /// Whether `cond` joins two parts of a binding condition: an `and` on
@@ -2602,6 +2608,7 @@ pub const Parser = struct {
             .labeled => try self.dropStatement(&walked[ir.slot(.labeled, .stmt)]),
             .@"??" => return self.nearestFallback(out),
             .destructure => try self.destructureTargets(walked),
+            .as_results => try self.resultNames(walked),
             .read, .write, .move => return self.receiverSigil(out),
             .share, .box => try self.noteParenSuffix(out),
             .weak => {
@@ -2644,6 +2651,26 @@ pub const Parser = struct {
             const at = self.span(t);
             const part = try self.base.newNode(.result_part, &.{}, at);
             o.* = try self.base.newNode(.set, &.{ op, t, .nil, part }, at);
+        }
+        walked[slot] = .{ .list = parser.List.withId(out, group.list.id) };
+    }
+
+    /// `if f() as a, b`: each name but `_` is a new binding of the result
+    /// in its position, `(set shadow a _ (result_part))`, as a
+    /// destructure's target is (`destructureTargets`).
+    fn resultNames(self: *Parser, walked: []Sexp) std.mem.Allocator.Error!void {
+        const slot = ir.slot(.as_results, .names);
+        const group = walked[slot];
+        const names = group.items();
+        const out = try self.allocator().alloc(Sexp, names.len);
+        for (names, out) |n, *o| {
+            if (n == .src and std.mem.eql(u8, leafText(self.base.source, n.src), "_")) {
+                o.* = n;
+                continue;
+            }
+            const at = self.span(n);
+            const part = try self.base.newNode(.result_part, &.{}, at);
+            o.* = try self.base.newNode(.set, &.{ .{ .tag = .shadow }, n, .nil, part }, at);
         }
         walked[slot] = .{ .list = parser.List.withId(out, group.list.id) };
     }

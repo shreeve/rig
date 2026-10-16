@@ -834,7 +834,7 @@ const Pass = struct {
         try p.traceUnit(.{ .enter = g.list.id });
         try p.walkParts(g, t);
         try p.traceUnit(.{ .exit = g.list.id });
-        if (g.isKind(.as)) return;
+        if (rig.isAsPart(g)) return;
         var made: State = .{};
         try p.genGuard(g, &made);
         try p.addMade(t, &made, &k);

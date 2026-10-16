@@ -5481,7 +5481,7 @@ pub const Checker = struct {
     fn walkIf(self: *Checker, node: Sexp) Error!Value {
         const t = self.takeTail(node);
         const cond = ir.If.cond(node);
-        if (cond.isKind(.as) or rig.isConditionJoin(cond)) return self.walkIfBinding(node, t);
+        if (rig.isAsPart(cond) or rig.isConditionJoin(cond)) return self.walkIfBinding(node, t);
         const then_b = ir.If.then(node);
         const else_b = ir.If.@"else"(node);
         // The condition is a header, its own statement.
@@ -5542,6 +5542,7 @@ pub const Checker = struct {
     fn walkConditionPart(self: *Checker, cond: Sexp, body: Sexp) Error!void {
         // Each part is a header, its own statement: its temporaries end
         // with it, after the binding takes what it binds.
+        if (cond.isKind(.as_results)) return self.walkResultsBinding(cond, body);
         if (!cond.isKind(.as)) return self.walkStmt(cond);
         // A bare place is bound as `if ?p as x` binds it, and a part of a
         // made value in a hidden var the `if` holds, in a scope the
@@ -5899,6 +5900,38 @@ pub const Checker = struct {
         elem_view: bool = false,
     };
 
+    /// `if f() as a, b`: each name is a new binding that takes its result,
+    /// as a destructure's target does (`walkDestructure`), in a scope over
+    /// `body`, which the caller pops. The loans taken to make the results
+    /// end with the header, as `as`'s do, and so do those of a result no
+    /// name takes.
+    fn walkResultsBinding(self: *Checker, cond: Sexp, body: Sexp) Error!void {
+        const value = ir.AsResults.value(cond);
+        const names = ir.AsResults.names(cond).items();
+        const temps_start = self.temps.items.len;
+        const drops = self.stmt_drops.items.len;
+        const saved_results = self.results_of;
+        defer self.results_of = saved_results;
+        self.results_of = null;
+        const whole = try self.walkConsumed(value, .binding);
+        const parts: []const Value = blk: {
+            if (self.results_of) |r| if (sameNode(r.node, value) and r.parts.len == names.len) break :blk r.parts;
+            const all = try self.arena().alloc(Value, names.len);
+            @memset(all, whole);
+            break :blk all;
+        };
+        self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+        try self.pushScopeFor(.block, body);
+        const saved_part = self.part_value;
+        defer self.part_value = saved_part;
+        for (names, parts) |n, part| {
+            if (!n.isKind(.set)) continue;
+            self.part_value = part;
+            try self.walkSet(n);
+        }
+        try self.dropStmtTemps(drops);
+    }
+
     /// A statement that gives a value (`sema.yieldsValue`).
     fn isValue(self: *const Checker, e: Sexp) bool {
         return sema.yieldsValue(self.source, e);
@@ -5910,7 +5943,7 @@ pub const Checker = struct {
         return self.walkLoop(.{
             .node = node,
             .cond = cond,
-            .cond_binds = cond.isKind(.as) or rig.isConditionJoin(cond),
+            .cond_binds = rig.isAsPart(cond) or rig.isConditionJoin(cond),
             .cond_always_true = cond == .src and std.mem.eql(u8, self.text(cond), "true"),
             .cont = if (step == .nil) null else step,
             .body = ir.While.body(node),

@@ -1054,7 +1054,9 @@ const Checker = struct {
         const call = resultCall(value) orelse Sexp.nil;
         if (ok and !self.isResultsValue(value)) {
             try self.errAt(value, "several results are bound from a call that gives them: `{s} = f()`, `f()!`, `f()?`, or `f() ?? return`", .{try self.targetNames(targets)});
-            ok = false;
+            _ = try self.synthQuiet(value);
+            for (targets) |tg| if (tg.isKind(.set)) try self.poisonTarget(tg);
+            return;
         }
         const saved_ok = self.results_ok;
         defer self.results_ok = saved_ok;
@@ -2047,6 +2049,7 @@ const Checker = struct {
             c: *Checker,
             pub fn part(v: @This(), p: Sexp) Error!void {
                 if (p.isKind(.as)) return v.c.checkOptionalBinding(p);
+                if (p.isKind(.as_results)) return v.c.checkResultsBinding(p);
                 return v.c.checkExpr(p, v.c.t().bool_id);
             }
             pub fn join(v: @This(), j: Sexp) Error!void {
@@ -2075,6 +2078,13 @@ const Checker = struct {
     /// or a view the condition binds, which lives only in the body.
     fn checkStepUses(self: *Checker, cond: Sexp, step: Sexp) Error!void {
         for (try self.guardParts(cond)) |p| {
+            // The results `as` binds live only in the body.
+            if (p.isKind(.as_results)) for (ir.AsResults.names(p).items()) |n| {
+                if (!n.isKind(.set)) continue;
+                const b = self.ctx.symbolOf(ir.Set.target(n)) orelse continue;
+                const use = sema.findUse(self.ctx, step, b) orelse continue;
+                try self.errAt(use, "the loop step cannot use `{s}`, a result the condition binds, which lives only in the body; use it at the end of the body instead", .{self.ctx.symbols.items[b].name});
+            };
             if (!p.isKind(.as)) continue;
             const b = self.ctx.symbolOf(ir.As.name(p)) orelse continue;
             const sym = self.ctx.symbols.items[b];
@@ -2295,6 +2305,46 @@ const Checker = struct {
             if (access == .read and viewed) try self.read_subjects.put(self.ctx.allocator, sym, .{ .place = expr, .kind = .as });
             try self.ctx.recordType(name, inner);
             if (!through_view and !viewed and self.hands(expr).hasStorage()) try self.copied_from.put(self.ctx.allocator, sym, .{ .place = expr, .kind = .as });
+        }
+    }
+
+    /// `if f() as a, b` / `while f() as a, b`: `f()` gives several
+    /// results inside an optional, `(A, B)?`, and each name binds one of
+    /// them, taken, as a destructure's target does (`checkDestructure`).
+    fn checkResultsBinding(self: *Checker, node: Sexp) Error!void {
+        const value = ir.AsResults.value(node);
+        const names = ir.AsResults.names(node).items();
+        var ok = try self.checkResultTargets(names);
+        try self.recordUse(value, .take);
+        const saved_ok = self.results_ok;
+        defer self.results_ok = saved_ok;
+        if (value.isKind(.call)) self.results_ok = value;
+        const ty = try self.synthExpr(value);
+        var parts: []const TypeId = &.{};
+        if (ok and !self.isPoison(ty)) {
+            const inner = switch (self.ctx.types.get(ty)) {
+                .optional => |i| i,
+                else => self.t().invalid_id,
+            };
+            switch (self.ctx.types.get(inner)) {
+                .results => |r| parts = r,
+                else => {
+                    try self.errAt(value, "`as` binds several names to the results inside an optional, `(A, B)?`, that a call gives; this expression has type `{s}`", .{try self.tyName(ty)});
+                    ok = false;
+                },
+            }
+        }
+        if (ok and parts.len > 0 and parts.len != names.len) {
+            try self.errAt(value, "`{s}` gives {d} results, but {d} names are bound", .{ try self.calleeName(ir.Call.callee(value)), parts.len, names.len });
+            ok = false;
+        }
+        _ = self.enter(node);
+        const saved_part = self.part_ty;
+        defer self.part_ty = saved_part;
+        for (names, 0..) |n, j| {
+            if (!n.isKind(.set)) continue;
+            self.part_ty = if (ok and j < parts.len) parts[j] else self.t().invalid_id;
+            if (ok) try self.checkSet(n) else try self.poisonTarget(n);
         }
     }
 
