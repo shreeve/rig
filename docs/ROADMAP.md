@@ -22,7 +22,9 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 - **A value-yielding `try` block** with a matching `catch` block.
 - **Drop bodies for enums and generic types.**
 
-- **Multiple results** from a function.
+- **Several results**, after their first form (SPEC "Several results"):
+  in registers when small, `from` per result, and a `for` that binds
+  them each step.
 
 ## Speed
 

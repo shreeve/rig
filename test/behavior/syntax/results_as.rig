@@ -1,0 +1,44 @@
+# `if f() as a, b` and `while f() as a, b` bind the results inside an
+# optional, each name a new binding over the body.
+
+fun cut(s: ?String, sep: U8) -> (?String, ?String)? from s
+  i = 0
+  while i < s.len
+    return s[..i], s[i + 1..] if s[i] == sep
+    i += 1
+  none
+
+obj Pairs
+  ks: List[String]
+  i: Int
+
+  fun next(!self) -> (Int, String)?
+    return none if self.i >= self.ks.len
+    self.i += 1
+    return self.i, +self.ks[self.i - 1]
+
+sub main()
+  t = String("key=value")
+  if cut(?t, 61) as key, value and key.len > 0
+    print(key, value)
+  if cut("abc", 61) as k, v
+    print(k, v)
+  else
+    print("no =")
+  p = Pairs(ks: List(), i: 0)
+  !p.ks.push(String("a"))
+  !p.ks.push(String("b"))
+  while (!p).next() as n, s
+    print(n, s)
+  p.i = 0
+  while (!p).next() as n, s
+    print(n)
+    <s
+
+# expect:
+# key value
+# no =
+# 1 a
+# 2 b
+# 1
+# 2

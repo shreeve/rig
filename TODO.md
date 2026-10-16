@@ -10,7 +10,23 @@ started:
 
 - SIMD: `pad:` reads and `blocks(N)`.
 - A String API for part-word appends and windowed writes.
-- Multiple results.
+- Several results, after v1 (SPEC "Several results"):
+  - small results in registers: pack results of up to two words of
+    integers, `Bool`s, and pointers into a `u128`, which Zig's default
+    calling convention returns in registers where it returns a tuple
+    or an object through memory; it serves objects too, and lands only
+    if it passes the speed rule;
+  - write lends ended per argument: while a result holds a write view,
+    the lends of the arguments its origins leave out could end at the
+    return, as they do when no result holds one;
+  - `from` per result, so a write view and a read view may come from
+    different parameters whose types could both hold either, and
+    several write views a function proves disjoint (sentence 5);
+  - a `catch` or `??` fallback that gives every result (`catch 0, 0`);
+  - `for k, v in it` over an iterator whose `next` gives several
+    results, decided with iterators as values;
+  - `ResultBound` per result, so a proven bound on a result reaches the
+    name that takes it (`src/proofs.zig`).
 - bench/hash after inlining a generic type's small members (#246), on
   the Mac (aarch64), pooled medians of 8 layouts x 21 runs against main:
   - `int hit` is 2-6% slower, and `small 4` and `small 8` 2-3% slower:
@@ -90,6 +106,14 @@ started:
   `?K` where `K` owns text). With it, `Map.ensure`, `Map.put_new`, and
   `Set.add` take a `?K` and copy the key only when it is stored (owner
   approved); today they take an owned `K`.
+- One classifier for a plain enum. `sema.isPlainEnum` (what `==` and
+  emit's scalar test read) counts a variant with an empty payload,
+  `a()`, as bare, but `sema.enumValues` (what `Int(x)`, `from_int`,
+  `@variants`, and ordering read) does not, as resolve gives it no
+  value. So for `enum E` of `a()` and `b`, `x == E.b` is accepted and
+  `x > E.b` and `Int(x)` are rejected as "variants with payloads"
+  (`test/corpus/enumorder-c02_empty_payload.rig`). Decide once whether
+  `a()` is bare (or reject the empty payload), and have both read it.
 
 ## Agent tooling
 

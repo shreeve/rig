@@ -1305,6 +1305,284 @@ Declarations are only allowed at module level; there are no nested
 functions (use a closure). Two module-level declarations may not share a
 name.
 
+### Several results
+
+A function may give several results at once, written as a list of types
+after `->`: `-> (Int, Int)`, two or more. Each result is a type one
+result may have, a view included, and the list may fail or be absent as
+a whole: `-> (A, B)!`, `-> (A, B)?`. `return a, b` gives them, and a
+call's results are bound by name, each where it stands:
+
+```rig
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+fun again(a: Int, b: Int) -> (Int, Int)
+  return divmod(a, b)
+
+sub main()
+  q, r = divmod(17, 5)
+  print(q, r)
+  _, r = divmod(9, 4)
+  new q, r = again(1, 1)
+  a, b =! divmod(8, 3)
+  print(q, r, a, b)
+```
+
+```output
+3 2
+1 0 2 2
+```
+
+The results never form a value: a call that gives several stands only
+where each result is bound at once (`q, r = f()`, `if f() as q, r`, and
+`while f() as q, r`), or where the function returns them whole
+(`return f()`, to a function that gives the same results), or where
+they are all discarded, as one result is: a call alone on its line
+discards results that own nothing, and `_ = f()` discards any. Anywhere
+else, as an argument, an operand, or a single binding, it is rejected,
+and so is `(Int, Int)` as the type of a value: a group of values that
+lives past its statement is an object.
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  p = divmod(17, 5)
+```
+
+```error
+`divmod` gives 2 results; bind each: `a, b = divmod(17, 5)`
+```
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  print(divmod(17, 5))
+```
+
+```error
+a call that gives several results stands only where each result is bound
+```
+
+```rig reject
+sub main()
+  xs: List[(Int, Int)] = List()
+```
+
+```error
+`(Int, Int)` is a function's results, not a type a value can have: name an object for a stored pair
+```
+
+**Binding.** `q, r = f()` binds the results left to right, each name by
+the rule `x = e` has (§4): it declares the name, or assigns the visible
+one, writing through a `!T` local given a value and re-pointing it
+given a write view; an assigned name drops its old value. `new q, r =
+f()` declares new names, and `q, r =! f()` fixed ones. `_`
+discards a result, which is dropped at the statement's end, after the
+bindings, the last first. Every result is bound or discarded: the names match the
+results in number. Each target is a name or `_`, each named once; a
+field or element is assigned on its own line. The parentheses of a
+result type are not written on the left.
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  q, r, s = divmod(17, 5)
+```
+
+```error
+`divmod` gives 2 results, but 3 names are bound
+```
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  xs = [0, 0]
+  i = 0
+  i, xs[i] = divmod(1, 2)
+  print(xs)
+```
+
+```error
+each result is bound to a name, and `xs[i]` reads `i`, which this statement binds
+```
+
+```rig reject
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  (q, r) = divmod(17, 5)
+```
+
+```error
+write `q, r = divmod(17, 5)`; parentheses aren't needed on the left
+```
+
+Rig has no parallel assignment: the right side is one call. Two places
+are exchanged with `swap` (§7, "Replace and swap").
+
+```rig reject
+sub main()
+  a = 1
+  b = 2
+  a, b = b, a
+  print(a, b)
+```
+
+```error
+Rig has no parallel assignment: write `swap(!a, !b)` to exchange two places
+```
+
+**Failing and absent results.** `q, r = f()!` and `q, r = f()?` pass
+the failure or the `none` on before anything is bound, and so does a
+fallback that jumps: `q, r = f() ?? return`, `q, r = f() catch break`.
+A fallback that is a value is not taken. `if f() as q, r` and `while
+f() as q, r` bind the results inside an optional to new names over the
+body, as `as` binds one value. Each is named there: a header's
+temporaries end before its body runs, so `as` takes no `_`; a result
+the body does not need is discarded there with `_ = name`. A `while`
+step cannot read the names its condition binds this way, which live
+only in the body.
+
+```rig
+fun cut(s: ?String, sep: U8) -> (?String, ?String)? from s
+  i = 0
+  while i < s.len
+    return s[..i], s[i + 1..] if s[i] == sep
+    i += 1
+  none
+
+fun pair(s: ?String) -> (?String, ?String)? from s
+  k, v = cut(s, 61)?
+  return v, k
+
+sub main()
+  if cut("key=value", 61) as key, value
+    print(key, value)
+  if pair("a=b") as v, k
+    print(v, k)
+  k, v = cut("none here", 61) ?? return
+  print(k, v)
+```
+
+```output
+key value
+b a
+```
+
+**Giving them.** `return a, b` gives each part as `return x` gives `x`,
+left to right: a bare owner moves out, and so does a bare write view
+given as a write view, which a later part may not use again; one read
+as a value that copies is a copy. A part's loans are judged by its own
+result's type: a view must be of what the function was lent. A bare last line `a, b` is no statement: results are
+given with `return`. A part that fails after an earlier one was made
+drops the earlier one on the way out.
+
+```rig reject
+fun f(a: Int) -> (Int, Int)
+  a, a
+```
+
+```error
+results are written `return a, a`
+```
+
+**Loans.** Each result carries the loans its own type could hold of
+what the call was lent (§7, "How long a loan lasts"), so a `Bool` beside
+a view carries none. One result may be a write view, which keeps its
+owner lent to write as a `!T` result does, beside results that hold no
+view of what it views: a function that gives two write views, or a
+write view and another result that could view the same parameter, is
+rejected where it is declared. While a result may hold a write view,
+every lend the call made lasts to the statement's end, as for a `!T`
+result, and an `if … as` part's to its end, as a header is its own
+statement: the first version decides this per call, not per argument,
+though the write view carries only the arguments its signature names. A
+target is bound only while no result still waiting for its own target
+views it, nor a result `_` discards whose drop runs a `drop` body,
+which drops at the statement's end; a discarded result whose drop runs
+none reads none of its views (§7), and keeps nothing lent.
+
+```rig
+obj Counter
+  n: Int
+  m: Int
+
+  fun bump(!self, k: Int) -> (!Int, Bool)
+    self.n += k
+    return !self.m, self.n > 3
+
+sub main()
+  c = Counter(n: 0, m: 0)
+  w, big = (!c).bump(5)
+  w += 10
+  print(big, c.m)
+```
+
+```output
+true 10
+```
+
+```rig reject
+obj M
+  a: Int
+
+  fun two(!self) -> (!Int, ?Int)
+    return !self.a, ?self.a
+```
+
+```error
+`two` gives a write view and another result, `?Int`, that could both view `self`
+```
+
+```rig reject
+fun two(s: ?String) -> (String, ?String)
+  return String(s), s
+
+sub main()
+  s = String("ab")
+  s, v = two(?s)
+  print(v)
+```
+
+```error
+cannot bind `s` while `v` views it
+```
+
+A function type takes several results as a function does: `?fun(Int) ->
+(Int, Int)`. Named results, a `for` that binds several results a step,
+and several results nested in a type argument are not Rig's.
+
+At most one result is a write view in this first version, a limit of
+its own rather than a rule of the ownership model: two write views of
+different arguments are disjoint, and will be allowed.
+
+```rig pending
+fun both(a: !Int, b: !Int) -> (!Int, !Int)
+  return a, b
+
+sub main()
+  x = 1
+  y = 2
+  p, q = both(!x, !y)
+  p += 10
+  q += 20
+  print(x, y)
+```
+
+```output
+11 22
+```
+
 ### Function markers
 
 A function may be marked, before its `fun` or `sub`, with one of three
@@ -1825,6 +2103,64 @@ sub main()
 `Int(x)` takes a plain enum's value; `Shape` has variants with payloads, which have no integer value
 ```
 
+`<`, `<=`, `>`, and `>=` order two values of one plain enum by those
+values: `a < b` is `Int(a) < Int(b)`, so explicit values order the
+variants whatever order they are declared in, and without them the
+order is the declaration's. A `.variant` on either side takes its type
+from the other, as beside `==`. A plain enum meets a generic body's
+ordering, so `std.math.max` and `std.sort.sort` take one
+([Generic bodies](#generic-bodies)). Two different enums, an enum and a
+number, an enum with a payload variant, a built-in enum (`Endian`,
+`Arch`), and an error set have no order.
+
+```rig
+use std.math
+
+enum Target
+  es2015 = 2015
+  es5 = 5
+  es2020 = 2020
+
+sub main()
+  t: Target = .es2015
+  print(t >= .es2015, .es2020 < t, Target.es5 < t)
+  print(math.max(Target.es2020, Target.es5))
+```
+
+```output
+true false true
+.es2020
+```
+
+```rig reject
+enum Shape
+  dot
+  circle(r: Int)
+
+sub main()
+  s: Shape = .dot
+  print(s < .dot)
+```
+
+```error
+operator `<` orders a plain enum's values; `Shape` has variants with payloads, which have no integer value
+```
+
+```rig reject
+enum Color
+  red
+
+enum Size
+  small
+
+sub main()
+  print(Color.red < Size.small)
+```
+
+```error
+operator `<` operands have different types `Color` and `Size`
+```
+
 `Status.from_int(n)` is the other way: the variant of a plain enum
 whose value is the integer `n`, of any integer type, or `none` when no
 variant has it. `from_int` is built into every plain enum, so an enum
@@ -2265,8 +2601,8 @@ support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
 reaches, and every instance the program makes, spelled or
 inferred, directly or through other generic bodies, in any module, is
 checked against it. On a `T`, `==` compares whatever `==` compares
-outside a generic body, and ordering compares numbers and `?String` values. A
-failure is reported at the call or type that makes the instance, with a
+outside a generic body, and ordering compares numbers, plain enums, and
+`?String` values. A failure is reported at the call or type that makes the instance, with a
 note at the body line that needs the operation, in the module that
 declares the body. A body cannot call a method on a `T`, read a field
 of one, or call `T` itself.
@@ -3133,10 +3469,12 @@ object that declares `drop`, or an object or payload that holds a `?T`,
 diagnostic names the field that does. Two handles' contents compare
 through views: `?a == ?b`.
 
-Ordering comparisons (`<`, `<=`, `>`, `>=`) take two numbers, or two
-`?String` values or two `[]U8` slices, ordered by their bytes: the first byte
-that differs decides, and a prefix sorts before the longer string.
-Objects, enums, and other slices have no ordering.
+Ordering comparisons (`<`, `<=`, `>`, `>=`) take two numbers, two
+values of one plain enum, ordered by their variants' values
+([Enums](#enums)), or two `?String` values or two `[]U8` slices,
+ordered by their bytes: the first byte that differs decides, and a
+prefix sorts before the longer string. Objects, enums with payload
+variants, and other slices have no ordering.
 
 ```rig
 obj Point
@@ -3177,7 +3515,7 @@ sub main()
 
 ```error
 `==` is not defined for `Link`: field `to` is a handle `*Node`, which could compare by identity or by content
-operator `<` orders numbers, Strings, and `[]U8` slices; got `Link`
+operator `<` orders numbers, plain enums, Strings, and `[]U8` slices; got `Link`
 ```
 
 ```rig
@@ -3270,8 +3608,8 @@ operand, a binding, an argument) is rejected. It is valid only where a
 `not a and b` is `(not a) and b`. Since `not a > b` could be read as
 `(not a) > b`, a comparison directly under `not` is written in
 parentheses, `not (a > b)`, or flipped: the diagnostic offers `a <= b`
-where that means the same, for integers, text, and any `==` or `!=`,
-though not for a `Float`, which may be NaN.
+where that means the same, for integers, plain enums, text, and any
+`==` or `!=`, though not for a `Float`, which may be NaN.
 
 ```rig reject
 sub main()
@@ -8845,6 +9183,10 @@ The rest parse, and the checker rejects them as not supported yet
 | a stack closure stored or returned | `` closures cannot escape their defining scope `` |
 | `/`, `%`, or a shift of a vector; a vector's lanes summed, converted, or shuffled | `` operator `/` does not take a `Simd` ``, `` type `Simd[U8, 16]` has no method `sum` `` |
 | a module constant holding a vector | `` a module-level constant needs a value known at compile time `` |
+| two write views among a function's results | `` at most one of a function's results is a write view `` |
+| a field or element bound by several results, `i, xs[i] = f()` | `` each result is bound to a name `` |
+| named results, `-> (q: Int, r: Int)` | `` results are not named `` |
+| `for` over an iterator whose `next` gives several results | `` a `for` binds one value each step `` |
 
 ```rig reject
 sub main()

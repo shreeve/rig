@@ -1,0 +1,7 @@
+fun f() -> Int
+  1
+
+sub main()
+  a, b = f()
+
+# error: `f` gives one result, of type `Int`; bind it to one name

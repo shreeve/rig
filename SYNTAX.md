@@ -647,6 +647,10 @@ sign -1
   its calls (`f()`) and its type (`sub()`) do: `sub main()`,
   `fun answer() -> Int`.
 - The body's last expression is its value; `return e` leaves early.
+- Several results are a list of types in parentheses, `-> (Int, Int)`,
+  given by `return a, b` and bound by name, `q, r = divmod(17, 5)`
+  ([SPEC §3](SPEC.md#several-results)). The list may fail or be absent
+  as a whole: `-> (A, B)!`, `-> (A, B)?`.
 - A result that holds a view may say which parameters it views, after
   its type: `-> ?Item from a`, `-> ?String from a, b`, `-> ?T from
   self`, or `-> ?String from static` for only what lives for the whole
@@ -955,6 +959,8 @@ file implements ([SPEC §15](SPEC.md#zig-backed-declarations)).
 | `x += e`, and `-=` `*=` `/=` `%=` `+%=` `-%=` `*%=` `+\|=` `-\|=` `&=` `\|=` `^=` `<<=` `<<%=` `>>=` | compound assignment |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate `e` and discard it |
+| `q, r = f()` | bind each of a call's several results, left to right, as `x = e` binds; `_` discards one |
+| `new q, r = f()`, `q, r =! f()` | declare new, or fixed, names for them |
 
 There is no `let`, `var`, or `const`. The first `x = e` in a scope
 declares `x`, and later ones assign it. `x =! e` reads as "set,
@@ -1306,6 +1312,7 @@ An `if` or `while` condition binds the value inside an optional with
 | `while (!q).pop() as x` | what a call that lends its receiver to write returns |
 | `if a as x and x > 0 and b as y` | in order, each part only when the ones before it held |
 | `if a as _` | nothing: a test for a value |
+| `if f() as a, b`, `while f() as a, b` | each of the several results inside the optional a call gives, `-> (A, B)?` |
 
 `as` stands nowhere else: not under `or` or `not`, and not in a
 ternary's or a guard's condition.
@@ -1702,7 +1709,8 @@ program   = decl*
 decl      = ["pub"] (fun | sub | obj | enum | errors | typedef | test | constant)
           | use | extern
 use       = "use" name ("." name)* ["as" name]
-fun       = "fun" [owner "."] name [tparams] params "->" type [from] block
+fun       = "fun" [owner "."] name [tparams] params "->" rtype [from] block
+rtype     = type | "(" type, type, ... ")" ["!" | "?"]   # several results
 from      = "from" (name, ... | "static")
 sub       = "sub" [owner "."] name [tparams] params ["!"] block
 owner     = name ["[" name, ... "]"] | name "." name   # the last parses only to be rejected
@@ -1742,7 +1750,9 @@ stmt      = decl | "@" name stmt | simple ["if" value]
 simple    = tail | assign
           | postfix "=!" tail | name ":" type ("=" | "=!") tail
           | "new" name [":" type] ("=" | "=!") tail | "-" name | "pass"
-          | "return" [tail] | "break" ["@" name] [tail] | "continue" ["@" name]
+          | "return" [tail] | "return" value "," value, ...
+          | ["new"] postfix "," postfix, ... ("=" | "=!") tail   # names or `_`
+          | "break" ["@" name] [tail] | "continue" ["@" name]
           | ("defer" | "errdefer") (simple | block) | "raw" block
 assign    = postfix ("=" | "+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%="
                      | "*%=" | "+|=" | "-|=" | "&=" | "|=" | "^=" | "<<=" | "<<%="
@@ -1771,7 +1781,7 @@ value     = logic "if" logic "else" value
 jump      = "return" [value] | "break" ["@" name] [value] | "continue" ["@" name]
 logic     = logic "or" conj | conj
 conj      = conj "and" neg | neg
-neg       = "not" neg | infix "as" name | infix
+neg       = "not" neg | infix "as" name ("," name)* | infix
 infix     = unary (op unary)*                       # the table in section 6
 unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~" | "^") unary | postfix
 postfix   = postfix ("." name | "[" expr "]" | "[" [expr] ".." [expr] "]"

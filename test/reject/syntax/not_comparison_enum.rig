@@ -1,0 +1,15 @@
+# A plain enum is totally ordered, so an ordering of one directly under
+# `not` is flipped exactly, a `.variant` side included.
+
+enum Level
+  low
+  high
+
+sub main()
+  l = Level.low
+  print(not l > .low)
+  print(not Level.high <= l)
+
+# error: 10:9: write `l <= .low`, or `not (l > .low)`: `not` applies to the whole comparison
+# error: 11:9: write `Level.high > l`, or `not (Level.high <= l)`
+# errors: 2

@@ -1,0 +1,9 @@
+fun divmod(a: Int, b: Int) -> (Int, Int)?
+  return a / b, a % b
+
+sub main()
+  if divmod(7, 2) as q, _
+    print(q)
+
+# error: `as` binds each result to a name: name this one, and where the body does not use it, discard it there with `_ = name`
+# errors: 1

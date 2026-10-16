@@ -1,0 +1,15 @@
+use std.math
+
+enum Shape
+  dot
+  circle(r: Int)
+
+enum Size
+  small
+  large
+
+sub main()
+  s: Shape = .dot
+  print(s < .circle(1))
+  print(math.max(.small, .large))
+  print(Size.small < none)

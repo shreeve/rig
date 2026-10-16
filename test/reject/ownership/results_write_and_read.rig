@@ -1,0 +1,7 @@
+obj M
+  a: Int
+
+  fun two(!self) -> (!Int, ?Int)
+    return !self.a, ?self.a
+
+# error: `two` gives a write view and another result, `?Int`, that could both view `self`

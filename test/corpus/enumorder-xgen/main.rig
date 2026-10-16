@@ -1,0 +1,21 @@
+# Generic bodies in a module that imports neither enum, ordering an
+# imported enum and this module's own, directly and through std.
+use lib
+use gen
+
+enum Mine
+  z = 3
+  y = 2
+  x = 1
+
+sub main()
+  print(gen.lt(lib.Level.high, lib.Level.mid), gen.lt(Mine.x, Mine.z))
+  print(gen.outer(lib.Level.low, lib.Level.mid), gen.outer(Mine.y, Mine.z))
+  xs = [Mine.z, Mine.x, Mine.y]
+  gen.order(!xs)
+  ys = [lib.Level.high, lib.Level.low, lib.Level.mid]
+  gen.order(!ys)
+  print(xs, ys)
+  b = gen.Best[Mine](a: .z, b: .y)
+  c = gen.Best(a: lib.Level.mid, b: lib.Level.low)
+  print(b.least(), c.least())

@@ -1,0 +1,44 @@
+# A `.variant` on either side of an ordering takes its enum type from the
+# other side, as it does beside `==`: beside a binding, a view, a field
+# read through a view, and an optional's value.
+
+enum Target
+  es5 = 5
+  es2015 = 2015
+  es2020 = 2020
+
+obj Options
+  target: Target
+
+fun modern(t: ?Target) -> Bool
+  t >= .es2015
+
+fun level(o: ?Options) -> Int
+  if o.target > .es2015
+    2
+  else if .es5 < o.target
+    1
+  else
+    0
+
+sub main()
+  t: Target = .es2015
+  print(t >= .es2015, .es5 < t, t > .es2020, .es2020 <= t)
+  print(modern(?t), modern(?Target.es5))
+  print(level(?Options(target: .es5)), level(?Options(target: .es2015)), level(?Options(target: .es2020)))
+  x: Target? = .es2020
+  if x as v
+    print(v > .es5)
+  ts = [Target.es2020, Target.es5, Target.es2015]
+  n = 0
+  for u in ts
+    if u <= .es2015
+      n += 1
+  print(n)
+
+# expect:
+# true true false false
+# true false
+# 0 1 2
+# true
+# 2

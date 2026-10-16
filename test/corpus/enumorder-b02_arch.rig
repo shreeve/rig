@@ -1,0 +1,12 @@
+# The built-in enum Arch has no order.
+use std.target
+use std.math
+
+fun f(a: Arch) -> Bool
+  a < .x86_64
+
+sub main()
+  print(target.arch >= .aarch64)
+  print(f(target.arch))
+  print(math.max(target.arch, target.arch))
+  print(math.max(Endian.big, Endian.little))

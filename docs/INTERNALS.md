@@ -338,7 +338,10 @@ forms to `value`, an expression without blocks or closures (conditions,
   before the rule is asked, so they do not end a chain; the joined line
   produces no `NEWLINE` and no `INDENT`;
 - classifies keywords, the characters read by position, `if`, and
-  closure bars as above;
+  closure bars as above, and a `,` right after `as name` outside
+  brackets as `AS_COMMA`, which joins the names `if f() as a, b` binds:
+  inside brackets that `,` separates arguments or elements, and the
+  parser's state alone cannot tell them apart;
 - rejects `&&`, `||` after a value, `**`, `i++` and `i--`, `//` and
   `/*` comments, and the reserved pin sigil `@x` with a hint, and
   malformed input where it is written: a `=!` with no space after it
@@ -578,6 +581,16 @@ A few kinds serve more than one surface form:
   which the checker accepts only when sema recorded it as a member of
   an error set (`E` names the set, through a module or an alias; not a
   module's constant or a value's field) that the subject can hold.
+- Several results ([Several results](#several-results)): the type
+  `(A, B)` is `(results_type A B)`, which the grammar takes anywhere a
+  type goes and sema only after a function's `->`; `return a, b` is
+  `(return (results a b))`; `q, r = f()` is `(destructure op targets
+  value)`, and `if f() as a, b` is `(as_results value names)`. The
+  Parser wrapper makes each target and name but `_` the binding `(set
+  op q _ (result_part))` of the result in its position (`shadow` for an
+  `as` name), so every pass reads it as the `x = e` it is; `_` stays a
+  leaf. `(tuple a b)`, a parenthesized list, and named results, `(q:
+  Int, r: Int)`, parse only to be rejected.
 - `(pass)`, the statement `pass`, has no roles. The checker rejects it
   where a value is needed, and the emitter writes it as `{}`, an empty
   Zig block, which is a statement wherever Zig takes one.
@@ -1330,6 +1343,7 @@ instead of re-deriving it by name:
 | `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T` (or vector of numbers); the bracket list is recorded as compile-time arguments (`instanceOf`). Also the methods of an integer's bits (`x.not()`, `x.count_ones()`) and of a vector (`Simd[T, n].splat(x)`, `m.bits()`, `m.select(a, b)`, ...), and the functions of a number type or a plain enum (`I32.wrap(x)`, `Status.from_int(n)`, `Color.from_text(word)`) |
 | `splatOf(node)` | for a scalar operand of a lane-wise operator or of `select`: the vector type it stands for, every lane its value; emit writes it `@as(V, @splat(x))` ([Vectors](#vectors)) |
 | `takes(node)` | whether `<place` takes an optional out of a field or element, leaving `none` behind |
+| `liftOf(node)` | for a value that becomes an optional where it goes, the optional and what it is made from (`sema.Lift`): `none`, with the optional type its context gives it, and a value with fewer levels of optional than the optional it goes into, a `T` where a `T?` goes (or the value a view of one copies out). Typecheck records it for every value checked against a type (`checkExprAgainst`) and every value it adapts (`recordAdapted`), the latest check of a node deciding; emit packs such a value into each level that goes through the optional helpers (`emitLift`, [Emit](#emit), "Optionals"), where Zig would lift it into a `?T` on its own |
 | `upgradeOf(share)` | for `*w` of a weak handle, a `~T` or a view of one: that it upgrades it, and whether it reads `w` or takes it (`sema.Upgrade`) ([Weak upgrades](#weak-upgrades)) |
 | `isEnumText(node)`, `hasTextTable(sym)` | whether a `member` `e.text` is the name of plain enum value `e`'s variant, which emit writes as `rig.enumText(e)`, and the place checks block every write and write lend of; and whether the program calls `from_text` on plain enum `sym` of this module, which then holds the table of its names (`rig.NameTable`, built by `src/nametable.zig`). A call on another module's enum is marked there once every module is checked (`ModuleGraph.markTextTables`); a built-in enum's table is the calling module's own |
 | `isErrorMember(node)` | whether a `member` `X.name` names a member of the error set `X` names, directly, through a module, or through an alias: emit writes it as that error, and a match arm covers that member |
@@ -1342,7 +1356,7 @@ instead of re-deriving it by name:
 | `readsInPlace(node)` | whether a branch of a read branching value is a place (`a` in `print(a if c else b)`): emit reads it where it is, never moving it out |
 | `useOf(node)` | for a name, or a value that yields one of its parts: whether its context reads, takes, or lends it (`Use`); emit moves a name at a tail of the value out of its binding only where it is taken |
 | `headerOf(header)`, `heldBaseOf(header)` | how a `for`, `match`, or `as` has a bare subject that is not plain data (`Header`): `viewed` (a place, read as `?p`), `taken` (a value made there, as `<e`), or `held` (a part of a made value, whose made value `heldBaseOf` gives); `takesSubject(match)` is `taken` |
-| `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `push(v, keep: k)` is `push_keep`, whose vector or integer type it gives, emitted as `pushKeep(T, v, k, e)`; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
+| `stringCallOf(node)` | for a `String(...)` call, or the callee of `!t.add(...)` or `!t.clear()`: which built-in String operation it is (`push[T, e](v)` is `push_int`, whose integer type `stringNumOf(callee)` gives; `push(v, keep: k)` is `push_keep`, whose vector or integer type it gives, emitted as `pushKeep(T, v, k, e)`; `reserve(n)` is `reserve`). `new` and `add` format their arguments as `print` does, so the ownership checker walks them as `print`'s (read, kept by nothing) and emit writes them in the tuple of pieces `rig.String.of` and `add` take; `?t` of a String lent as a `?String` is a `lendOf` `text`, walked as `?t[..]` |
 | `payloadBindings(pattern)` | for a variant pattern the checker accepted, the binding of each payload field of its variant, in field order: a name, `_`, or none for a field a pattern that binds by name leaves out. A pattern binds in order, all of the fields, or by name, any of them, and `.rect(h: b)` on `rect(w, h)` desugars to `.rect(_, b)`; typecheck decides the mapping once (`fieldBindings`), and every pass that pairs bindings with fields reads it: typecheck's binding types, the storage planner, the ownership checker, emit's captures, guards, and `match <x` parts (a field left out is dropped at the end of the arm, as a `_` field is), and the reference checker |
 | `jumpDestOf(jump)` | for a `break` or `continue`, where it goes (`JumpDest`): the loop or labeled block it names, and `exit`, `step`, or `head` ([Loops](#loops)). The type checker resolves every jump once; emit writes the Zig jump from it, and the ownership checker files the state at the jump by it |
 | `unitOf(node)`, `unitRootKind(node)` | the root of the innermost unit holding a node of a body, and the kind of a unit's root (`rig.eachUnit`, [Proven checks](#proven-checks)), recorded by the storage plan; emit enters each unit as it writes it and asserts that every check, write, and hidden storage it writes lies in its own |
@@ -1605,6 +1619,8 @@ gives its Zig name), how (`by`), and how long it lives (`life`).
 | `environment`, `invoked` | `__rig_env`, `__rig_fn` | a closure literal lent to a call, or called where it is written | owned | call |
 | `closure_env` | `__rig_env` | the environment an owned closure allocates, which the closure then owns | owned | expression |
 | `new_value`, `base`, `index`, `slot` | `__rig_new`, `__rig_base`, `__rig_ix`, `__rig_slot` | an assignment that makes its value, then evaluates its target's steps, then finds its place (`storage.setOrder`) | owned, pointer, owned, pointer | assignment |
+| `results` | `__rig_res` | the several results a call gives, which each target of `q, r = f()` takes in its turn, or the names of `if f() as a, b` take; what no target takes (`_`) it drops at the statement's end | owned | statement, body |
+| `argument` (of `return a, b`) | `__rig_arg` | the parts of `return a, b`, made in their turn when a later part can leave after an earlier one that owns (`storage.hoistsResults`) | owned | call |
 | `zig_temp` | (Zig's own) | a value made here whose address emit takes where Zig holds it: a leaf reached by address that no slot keeps (`leafStep` is `made`, not `dropsTemp`), a literal leaf, or a temporary array lent to a call that evaluates its arguments where they stand (`lendsTempArray`) | owned | statement |
 
 `owned` storage holds a value of its own, made there or taken; `copy`
@@ -2910,6 +2926,72 @@ fields of one value are disjoint paths, and two elements of one
 collection overlap, which the hint `!a.swap(i, j)` says once
 (`sameCollection`).
 
+### Several results
+
+A function gives several results with `-> (A, B)` (also `(A, B)!` and
+`(A, B)?`), a type (`sema.Type.results`) that stands only there and in a
+function type's result. Its facts are its parts' together, as an
+object's are its fields' (`holdsIn`, `reachOf`, `ownedParts`,
+`minBytesOf`), and `resolveResults` takes two or more parts, each a
+type one result may have, at most one of them a write view. Typecheck
+keeps the positive list of where a call that gives them may stand
+(`Checker.results_ok`): the value of a destructure (a call, alone or
+under `!` or `?`, or with a `??` or `catch` that jumps), of `return`
+in a function giving the same results, and of `if … as a, b`; any
+other is reported where it is typed (`misplacedResults`). `(a, b)` is no
+value (`tupleValue`), and `a, b = b, a` is no parallel assignment.
+
+**Desugaring.** `q, r = f(x)` makes the call's results statement
+temporaries (Core §3), one a result, which no name holds; each target
+then takes its own, left to right, as the binding `x = e` takes a
+call's result, and a result `_` discards stays a temporary, dropped at
+the statement's end, the last first. `return a, b` gives each part as
+`return x` gives `x`, left to right, each judged by its own result's
+type. Each target is the binding `(set op q _ (result_part))`, so
+typecheck (`checkSet`), the ownership checker (`walkSet`), and emit
+(`emitSet`) bind it as any `x = e`; `result_part` is the result in its
+position, typed `part_ty` and walked as `part_value`.
+
+**Loans.** Sentence 7 applies per result: the call's loans are
+narrowed by each result's own type (`carryResult` of each,
+`callResults`), so a `Bool` beside a view carries none. An argument's
+write lend ends at the return only when no result keeps it to write;
+while one may, every lend of the call lasts to the statement's end, as
+for a `!T` result. The checker holds the results in a hidden var of the
+statement (`walkDestructure`), which keeps the loans of the results no
+target has taken yet: a target bound while a pending result views it is
+reported (`pendingView`). A `_`'s loans last to the statement's end
+when its drop runs a `drop` body, which could read them; any other
+discarded result reads none of its views (Core sentence 6), and its
+loans end at once. Write lends end per call: while any result may hold
+a write view, every lend of the call lasts to the statement's end (an
+`if … as` part is a header, its own statement), though the write view
+carries only the arguments its origins name; ending the other
+arguments' write lends at the return, per argument, is left for later
+(TODO.md). Two
+results of one call never break sentence 5: a function giving a write
+view and another result that could view the same parameter is rejected
+where it is declared (`sema.checkResultViews`), and the call checks the
+results' loans the same way, for a function value whose type says less.
+`if f() as a, b` binds new names, so nothing pending can view them; the
+call's loans end with the header, as `as`'s do. It takes no `_`: the
+header's temporaries end before the body, where a discarded result
+would drop. A call alone on its line, and `_ = f()`, discard every
+result, as one result is discarded.
+
+**Emit.** The results are a Zig tuple, `@Tuple(&.{ A, B })`; `return
+a, b` is `return .{ a, b }`, each part written as one result is
+(`emitResultValue`). When a later part can leave after an earlier one
+that owns (`storage.hoistsResults`), each part is made first into
+`__rig_arg_N_i`, an owned one guarded by a flag, so the way out drops it
+(`emitHoistedResults`); Zig's own tuple would lose it. A destructure is
+`const __rig_res_N = f(x);` and then each binding, whose value is
+`__rig_res_N[j]`, and a discarded owned result is dropped after them;
+`if f() as a, b` captures the results as `__rig_res_N` and binds the
+names at the body's start (`bindResults`), each result to its name. Emit never writes Zig's own
+destructure, `a, b = .{ b, a }`, which does not evaluate its right side
+first.
+
 ### Loops
 
 Every loop, `while` and each form of `for`, is one desugaring, which
@@ -3420,6 +3502,33 @@ symbols); a query that decides more than that belongs in `Pending`.
   A `[]T` is a `[]const T` and a `![]T` a Zig `[]T`, not a pointer to
   one: the slice already points at its elements, so it is passed and
   bound as it is.
+- **Optionals.** A `T?` is Zig's `?T`, written with `?`, `null`,
+  `orelse`, and `if (x) |v|`, unless its representation may differ
+  from that, which `Facts.optionalRouted` decides once per payload
+  type (`sema.optionalRouted`): a type parameter's `T?`, whose
+  instance decides, and, under `RIG_STRICT_OPTIONALS`, every
+  object's. Such an optional is written `rig.Opt(T)`, and every
+  operation on it goes through the runtime's helpers: `rig.some(x)` is
+  the Zig `?T` that `if x as v`, `while x as v`, `??`, `?`, and
+  `== none` test; `rig.somePtr(&x)` is the payload's address a `|*v|`
+  capture binds (`if !x as v`, a lend of the value inside); and
+  `rig.pack(O, z)` makes the `O` a Zig `?T` stands for, which is how a
+  `T`, `none`, and the value of `a ?? b` whose fallback is a `T?`
+  become one. Zig lifts a `T` into a `?T` on its own but never into a
+  struct, so typecheck records each lift (`liftOf`), and emit writes it
+  in one place, `emitLift`, called from `emitValue`, packing each level
+  of the optional that goes through the helpers; a default value
+  (`emitDefault`) is packed the same way, and a hoisted argument is held
+  as itself and packed where the call reads it. The helpers are the
+  identity on a `?T`, so a type parameter's `T?` is Zig's `?T` in every
+  instance, and inlines to nothing.
+
+  `RIG_STRICT_OPTIONALS=1` is a test of the compiler: every object
+  declares `__rig_strict_optional`, and `rig.Opt` of it is a tagged
+  struct (`rig.Strict`), so a program compiles only if emit and the
+  runtime write every operation on such an optional through the
+  helpers. The suite is run in this mode as a gate, and
+  `test/cli/strict_optionals.sh` runs one program both ways.
 - **Cells.** A value whose type holds a Cell by value lives only
   behind a shared handle (Core sentence 9): it is always in the heap
   memory a `*T` points to (`rig.RcBox(T)`), as a `Cell[T]`'s value or
@@ -3903,17 +4012,18 @@ reviewed.
 | `RcBox(T)` | the box behind `*T`: a strong count, a weak count (plus one for all strong handles), and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue in the order the nested releases would have run, so dropping a long `*T` chain uses bounded stack |
 | `Box(T)` | `^T`: a pointer to one heap `T`. `init` allocates, `fill` allocates an array and fills it there (`^[n of x]`), `unbox` moves the value out and frees it, and dropping it drops the value and frees it, queued like `RcBox` past 256 nested releases |
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade` (what `*w` lowers to), which returns a new strong handle or null once the value is gone |
+| `Opt(T)`, `Payload`, `some`, `somePtr`, `pack`, `Strict(T)` | Rig's `T?` and its helpers ([Emit](#emit), "Optionals"): `Opt(T)` is Zig's `?T`, or a struct that declares `__rig_optional`, its payload, and holds it its own way (`Strict(T)`, the tagged struct an object's optional is under `RIG_STRICT_OPTIONALS`); `some`, `somePtr`, and `pack` convert between it and Zig's `?T`, and are the identity on a `?T`. The generic API returns `Opt(T)` wherever Rig reads a `T?` (`List.get`, `pop`, `IntoIter.next`, `Cell`'s `listGet` and `listPop`, `elementAt`, `ArrayIntoIter.next`, `enumFromInt`), and each reflective function (`needsDrop`, `dropElement`, `cloneValue`, `cloneOptional`, `takeOut`, `noneAt`, `isNone`, `eql`, `hashAs`, `isVariant`, `writeValue`, `typeName`) has an arm for a struct optional, where an optional held another way will go |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
 | `typeName(x, names)` | `@name(T)` of a type that holds a type parameter. Emit writes such a `@name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, while a type known where it is written is the printer's string itself. Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which `test/behavior/types/type_names` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
 | `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `filled` and `resize` fill new slots with one `@memset`; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a String's bytes and a List's elements copied (`List.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
-| `String` | `String`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` write each part of a tuple with `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `String(...)` and `print` agree exactly; `bytes` is the `?String` view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a String's or a `?String`'s |
+| `String` | `String`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` take the pieces `print` does (below), with no separators: each run of text is appended once, by the one writer of its length, a `?String` or a String as its bytes, and each other value by the one writer of its type, `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `String(...)` and `print` agree exactly; `bytes` is the `?String` view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a String's or a `?String`'s |
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `FnRef(params, R)` | a callable view: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |
 | `Signal(T)` | a value and a `List` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
-| `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
+| `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...`. `print` takes a tuple of pieces in order, the spaces between the arguments and the final newline included (`print(n, s)` is `rig.print(.{ n, " ", &s, "\n" })`), so every argument has run before a byte is written. It is `inline`, and `piecesOf` reads the tuple's type at compile time: a field known then whose bytes are too (a string literal, an Int, a Bool) is text, each run of text is joined and copied into the buffer by the one `noinline` writer of its length (`outFixed`), a `?String` or a String among the values is written as its bytes, and each other value goes to the one `noinline` writer of its type (`outValueOf`). A print site is a straight line of calls, about 60 bytes of code in `--release=fast` (`bench/print/guard.py`). `String.of` and `add` append the same way (`appendFixed`, `addValueOf`). A failed write lands in `outFailed`, which ignores it |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
 | `onOwnStack`, `switchStack` | run `main` and the tests on the program's stack, over its guard, with an overflow handler that names a fault in the guard a stack overflow ([The program's stack](#the-programs-stack)). `test/cli/stack_guard.sh` checks it |
 | `simdRead`, `simdWrite`, `lane`, `withLane`, `maskBits`, `maskFirst`, `maskAny`, `maskAll` | a vector's bytes, lanes, and mask ([Vectors](#vectors)): `simdRead` and `simdWrite` check the offset once, as `readInt` does, and load or store through an `align(1)` pointer, swapping each lane's bytes where its order is not native; `lane` and `withLane` go through `[n]T` with `index`'s check; `maskBits` lowers per target, and `maskFirst` too (below) |
@@ -3926,14 +4036,14 @@ reviewed.
 | `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `index` converts an index of any integer type, 128-bit ones included, to `usize`, `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `notNan` | wraps a float converted to an integer type: where safety checks run (debug and safe), a NaN panics as an out-of-range value does, which `@trunc`'s own check misses |
 | `isVariant`, `isVariantDiscard` | `x == .variant` on an enum with payloads, or an optional of one: tests the tag only, so it compiles whatever the payloads hold; `isVariantDiscard` drops a temporary that owns a resource |
-| `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `null` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
+| `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `none` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
 | `poison` | under the sanitizer, fills hidden storage whose scope has ended with `0xAA`; nothing otherwise |
 | `discard`, `discardAt`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`), or, by address, a part of a payload a `match <e` arm leaves unused (deferred, so each exit passes only the address); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
-| `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, `?String` values by `std.mem.order`. Outside a generic body a `?String` or `[]U8` ordering is `std.mem.order` itself |
+| `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body or on a plain enum: numbers by the operator, a plain enum's values by `@intFromEnum`, `?String` values by `std.mem.order`. Outside a generic body a `?String` or `[]U8` ordering is `std.mem.order` itself |
 | `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
 | `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
-| `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as `?String` values, gathered once and freed by `finish`; in a package `rig run` or `rig test` built (whose root declares `__rig_run_started`), `start` also creates the file `RIG_PROGRAM_STARTED` names, their evidence that the program ran; `exitStatus` checks the status of `fun main() -> Int` |
+| `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as `?String` values, gathered once and freed by `finish`; in a package `rig run` or `rig test` built (whose root declares `__rig_run_started`), `start` also creates the file `RIG_PROGRAM_STARTED` names, their evidence that the program ran; `exitStatus` checks the status of `fun main() -> Int`. With `RIG_NO_CRASH_REPORT=1` in its environment, on macOS and in every build mode, `start` first sets the process's crash exception ports to none (`task_set_exception_ports`: `EXC_MASK_CRASH` and `EXC_MASK_CORPSE_NOTIFY`, `MACH_PORT_NULL`), so macOS files no crash report when it dies; it still dies by its signal, its stderr unchanged. A test harness sets it for programs that panic on purpose |
 | `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `SafeAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which `./test/run` sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, List, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, on the program's stack, checks it for leaks (Debug), reports it |
 
@@ -4188,6 +4298,14 @@ lend (`(!h).r`, `(?mk()).items`) is a path through that view, so a
 store there lands in what the view reaches and nothing is moved out of
 it; and a write receiver with no `!` whose value is a write view
 (`wrap(!h).keep(v)`) is lent on through that view.
+
+Several results are hidden statement temporaries, one a result, each
+carrying the loans its own type could view (Core s7, per result); each
+target takes its own by the `x = e` rule, left to right, so a pending
+result's loans conflict with binding what it views, and a `_` result
+drops at the statement's end. `return a, b` gives each part as `return
+x` does, and `if f() as a, b` binds new names from a header's
+results.
 
 Its loans and accesses carry the place's path, cut where it goes
 through a handle or into an optional's value (`Place.cut`), and two of

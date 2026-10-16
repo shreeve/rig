@@ -1,0 +1,61 @@
+# A plain enum orders wherever a value does: in its own methods beside
+# `self`, in a module constant, through read and write views, in a
+# generic body, a comparator closure, a match guard, and a loop
+# condition, and under `not`; an enum of one variant too.
+use std.sort
+
+enum Target
+  es2015 = 2015
+  es5 = 5
+  es2020 = 2020
+
+  fun modern(?self) -> Bool
+    self >= .es2015
+
+  fun before(?self, o: Target) -> Bool
+    self < o
+
+enum One
+  only
+
+LATE = Target.es2020 > Target.es5
+
+fun both(a: ?Target, b: !Target) -> Bool
+  a < b and b >= .es5 and .es2020 > b
+
+fun lt[K](a: K, b: K) -> Bool
+  a < b
+
+sub bump(t: !Target)
+  if t < .es2020
+    t = .es2020
+
+sub main()
+  t = Target.es5
+  u = Target.es2020
+  print(LATE, t.modern(), u.modern(), t.before(u), u.before(t))
+  print(both(?t, !u), One.only <= One.only, One.only < One.only)
+  xs = [Target.es2020, Target.es5, Target.es2015]
+  sort.sort_by(!xs, |a, b| a > b)
+  print(xs)
+  match t
+    .es5 if t < .es2015 => print("old")
+    _ => print("new")
+  i = 0
+  while t < u and i < 3 : i += 1
+    t = .es2015 if t < .es2015 else .es2020
+  print(t, i)
+  bump(!t)
+  print(t, not (t > .es5), lt[Target](Target.es5, Target.es2015))
+  o: Target? = .es5
+  if o as w
+    print(lt(w, Target.es2015))
+
+# expect:
+# true false true true false
+# false true false
+# [.es2020, .es2015, .es5]
+# old
+# .es2020 2
+# .es2020 false true
+# true

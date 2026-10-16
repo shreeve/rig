@@ -1,0 +1,13 @@
+# `?x` operands: an Int's and a plain enum's.
+enum Size
+  small
+  large
+
+sub main()
+  n = 1
+  m = 2
+  print(?n < ?m)
+  t = Size.small
+  u = Size.large
+  print(?t < ?u)
+  print(?t < .large)

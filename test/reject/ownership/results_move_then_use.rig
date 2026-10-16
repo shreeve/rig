@@ -1,0 +1,9 @@
+fun len(s: !String) -> Int
+  !s.add("x")
+  s.len
+
+fun two() -> (String, Int)
+  s = String("abc")
+  return s, len(!s)
+
+# error: use of `s` after move

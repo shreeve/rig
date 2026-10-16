@@ -1,0 +1,11 @@
+fun count(s: ?String) -> Int
+  print("count", s)
+  s.len
+
+sub main()
+  t = String("abc")
+  !t.add("-", t.len, "-", count(t), "-", +t)
+  print(t)
+  print(t, count(t), t.len, String(t, count(t)))
+  u = String(count(t), t, count(t))
+  print(u)

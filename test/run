@@ -74,6 +74,10 @@ ZIG=${ZIG:-zig}
 # and the runners among them, never see it.
 PROGRESS_FILE=${CPUQ_PROGRESS:-}
 unset CPUQ_PROGRESS
+# RIG_NO_CRASH_REPORT=1 keeps macOS from filing a crash report for a
+# program that dies. run_program sets it for an `# expect-panic:` test
+# alone, so any other program's crash is still reported.
+unset RIG_NO_CRASH_REPORT
 
 # -----------------------------------------------------------------------------
 # Worker: run one test, write a result file. Invoked through xargs.
@@ -99,7 +103,8 @@ has_expect_block() { grep -qE '^# expect:[[:space:]]*$' "$1"; }
 
 # run_program <entry> <outdir> [flag...]: `rig run [flag...]` the program
 # under the time limit, its stdout and stderr in <outdir>.stdout and
-# .stderr; sets RC.
+# .stderr; sets RC. A program that panics on purpose (`# expect-panic:`)
+# runs with RIG_NO_CRASH_REPORT=1: no macOS crash report for its abort.
 # rig creates $STARTED (RIG_RUN_STARTED) once the program has started:
 # the positive evidence a test needs that it ran. $STARTED is the test's
 # own path in this run's private results directory, where no test's
@@ -113,8 +118,10 @@ run_program() {
         printf 'cannot clear %s\n' "$STARTED" >"$outdir.stderr"; : >"$outdir.stdout"; RC=125
         return
     fi
+    local quiet=()
+    grep -qE '^# expect-panic:' "$entry" && quiet=(env RIG_NO_CRASH_REPORT=1)
     # The braces keep bash's own "Abort trap" job notice out of the output.
-    { RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$outdir" RIG_RUN_STARTED="$STARTED" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$@" "$entry" >"$outdir.stdout" 2>"$outdir.stderr" </dev/null; } 2>/dev/null
+    { RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$outdir" RIG_RUN_STARTED="$STARTED" ${quiet[@]+"${quiet[@]}"} "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$@" "$entry" >"$outdir.stdout" 2>"$outdir.stderr" </dev/null; } 2>/dev/null
     RC=$?
 }
 
@@ -146,7 +153,7 @@ not_run() {
 results_key() {
     KEY=""
     [[ -n "$RESULTS_CACHE" && -z "$NO_CACHE" ]] || return 1
-    local tmp="$RESULTS/key/${ID//\//__}" listing libc
+    local tmp="$RESULTS/key/${ID//\//__}" listing="" libc=""
     rm -rf "$tmp"
     mkdir -p "$tmp" || return 1
     if RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$tmp/package" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" emit "$2" >/dev/null 2>"$tmp/stderr" </dev/null; then
