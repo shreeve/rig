@@ -11,6 +11,25 @@ started:
 - SIMD: `pad:` reads and `blocks(N)`.
 - A String API for part-word appends and windowed writes.
 - Multiple results.
+- Require `?` for every lend a call keeps (Core sentence 4). Today a
+  lend a call keeps goes unwritten when the call is through a function
+  value (`f(!b, t)` with `f: ?sub(!B, ?String)`), through an owned
+  closure (`f: *sub(!B, ?String)`), or to a built-in generic's method
+  (`!names.push(t)` into a `List[?String]`); each extends `t`'s loan
+  safely but without the mark. Probes:
+  `test/corpus/corekeeps-fnvalue_kept_lend_unwritten.rig`,
+  `test/corpus/corekeeps-owned_closure_kept_lend_unwritten.rig`,
+  `test/corpus/corekeeps-push_kept_lend_unwritten.rig`.
+- A known over-strict rejection: what a call stores from a view reached
+  through a lent read view should carry that view's loans, not a loan
+  on the holder (Core sentence 7). `hold(!self, c: ?Cursor)` storing
+  `c.items` must say `keeps c`, and then keeps `c` itself lent while the
+  holder is used, though only `c.items`' loans need to last. Narrowing
+  it needs a new reach fact (what a lent parameter's own view target is,
+  apart from what it reaches through the views it holds) and a call rule
+  that stores the argument's held loans instead of its lend. Probes:
+  `test/corpus/corekeeps-p4_store_through_view.rig`,
+  `test/corpus/corekeeps-p4b_keeps_through_view.rig`.
 - Inlining a generic type's small methods. Rig never emits a generic
   type's methods `inline` (`src/inlining.zig`), and LLVM leaves
   `std.hash`'s `Map.ensure` and `Map.ensure_with` out of line, so on a
