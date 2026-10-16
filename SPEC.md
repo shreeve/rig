@@ -1368,7 +1368,8 @@ functions inlined in it, each at the instance its call makes, however
 the call names the function (through a module, a type, or an alias of
 either), and one over the limit ([§2](#arrays)) is an error. A call
 whose values the check cannot count is an error too, never counted as
-none.
+none. Calls of `inline` functions nest at most 256 deep, each inlined
+into the one around it; a deeper chain is an error.
 
 ```rig reject
 inline fun count(n: Int) -> Int

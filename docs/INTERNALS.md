@@ -3499,6 +3499,15 @@ symbols); a query that decides more than that belongs in `Pending`.
   `decide` rejects, so that program is never emitted. A marked
   function's own frame is counted, for what the rule inlines through
   it, but not checked and never made `noinline`: Zig never writes it.
+  Each parameter of a function counts once more in its reach
+  (`paramCopies`): Zig's code copies it into a local of its own (an
+  owned one's `var`, an inlined function's `rig.rt`), beside the
+  argument and the parameter. Calls of marked functions nest at most
+  `max_inline_depth` (256) deep, since Zig analyzes each inlined body
+  inside the one around it and runs out of its own stack some thousands
+  deep: `inlineFrame` records how deep they nest below each marked
+  function (`inline_heights`), and a deeper nesting is an error at the
+  call where the walk finds it.
 
   In debug and self-checking builds, emit checks that each call of a Rig
   function it writes is one typecheck resolved (`Emitter.checkCallTarget`):
