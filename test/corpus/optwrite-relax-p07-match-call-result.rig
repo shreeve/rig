@@ -6,7 +6,7 @@ obj K
 
 enum E
   one(k: K)
-  none
+  nothing
 
 fun thru(e: !E) -> !E
   e
@@ -19,7 +19,7 @@ sub main()
       .one(k: x)
         d = String("local")
         !x.put(?d)
-      .none => pass
+      .nothing => pass
   match e
     .one(k: y) => print(y.a)
-    .none => pass
+    .nothing => pass

@@ -1460,6 +1460,7 @@ pub const TypeResolver = struct {
                         try self.ctx.err(s.pos, "field `{s}` needs a type (`{s}: T`)", .{ vname, vname });
                         continue;
                     }
+                    try self.noneMember(head, vname, s.pos);
                     if (try self.reservedEnumMember(plain_enum, vname, s.pos)) continue;
                     if (try self.checkDuplicateMember(&names, vname, s.pos, sym_name)) continue;
                     const value = if (plain_enum) try self.enumValue(&values, m, null) else null;
@@ -1494,6 +1495,7 @@ pub const TypeResolver = struct {
                             } else if (!plain_enum) {
                                 try self.ctx.errAt(ir.Valued.value(m), "{s} cannot give its variants values; only a plain enum can", .{if (generic) "a generic enum" else "an enum with payload variants"});
                             }
+                            try self.noneMember(head, vname, vpos);
                             if (try self.reservedEnumMember(plain_enum, vname, vpos)) continue;
                             if (try self.checkDuplicateMember(&names, vname, vpos, sym_name)) continue;
                             const value = if (plain_enum) try self.enumValue(&values, name_node, ir.Valued.value(m)) else null;
@@ -1504,6 +1506,7 @@ pub const TypeResolver = struct {
                                 try self.ctx.errAt(m, "only enums declare payload variants", .{});
                                 continue;
                             }
+                            try self.noneMember(head, identAt(self.ctx.source, ir.Variant.name(m)).?, ir.Variant.name(m).src.pos);
                             try self.resolveVariant(m, &fields, &names, sym_name);
                         },
                         .fun, .sub => {
@@ -1695,6 +1698,16 @@ pub const TypeResolver = struct {
             },
         }
         return null;
+    }
+
+    /// Reports a variant or error named `none`, declared at `pos` in a
+    /// nominal of kind `head`: `.none` would read as `none`, the absent
+    /// value of an optional, and in a `T?` of the enum could be taken
+    /// for it. The member is still declared, so its uses draw no
+    /// further errors.
+    fn noneMember(self: *TypeResolver, head: Tag, name: []const u8, pos: u32) Error!void {
+        if (!std.mem.eql(u8, name, "none")) return;
+        try self.ctx.err(pos, "{s} cannot be named `none`: `none` is the absent value of an optional, and `.none` would read as it; choose another name", .{if (head == .errors) "an error" else "a variant"});
     }
 
     /// Whether `name`, declared at `pos` in an enum (`plain` when it has

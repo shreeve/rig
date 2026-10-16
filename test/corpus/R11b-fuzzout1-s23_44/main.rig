@@ -19,11 +19,11 @@ sub main()
   q = s.with(7)
   print(p.first, p.second, q.first, q.second)
   o = lib.Opt[Int].some(value: 7)
-  n: lib.Opt[Int] = .none
+  n: lib.Opt[Int] = .nothing
   match o
     .some(value) => print("some", value)
-    .none => print("none")
-  print(o.or(0), n.or(9), lib.Opt[?String].none.or("x"))
+    .nothing => print("none")
+  print(o.or(0), n.or(9), lib.Opt[?String].nothing.or("x"))
   v = List[?lib.Wrap[Int]]()
   !v.push(a)
   !v.push(lib.Wrap(v: 5, count: 2))

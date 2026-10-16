@@ -35,12 +35,12 @@ fun mk[T](x: T, c: ?String) -> P[T] from c
 
 enum Opt[T]
   some(value: T)
-  none
+  nothing
 
 fun payload[T](o: ?Opt[T], d: T) -> T from d
   match o
     .some(v) => v
-    .none => d
+    .nothing => d
 
 sub main()
   pass

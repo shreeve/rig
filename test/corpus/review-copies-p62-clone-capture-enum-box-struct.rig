@@ -9,7 +9,7 @@ obj N
 enum E
   t(s: String)
   n(h: *N)
-  none
+  nothing
 
 obj R
   name: String
@@ -19,7 +19,7 @@ fun elen(e: ?E) -> Int
   match e
     .t(s) => s.len
     .n(h) => h.v
-    .none => 0
+    .nothing => 0
 
 sub main()
   e = E.t(s: String("enum text"))

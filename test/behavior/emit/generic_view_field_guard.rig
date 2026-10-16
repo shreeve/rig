@@ -6,7 +6,7 @@
 
 enum Opt[T]
   some(v: T)
-  none
+  nothing
 
 obj V[T]
   r: ?Opt[T]
@@ -24,7 +24,7 @@ fun g[T](w: ?V[T], u: ?V[T]) -> Int
       a = spill(7)
       k = match u.r
         .some(q) => look(?q)
-        .none => 0
+        .nothing => 0
       print(k)
       print(a[3])
       look(?v)

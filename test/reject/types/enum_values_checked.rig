@@ -24,7 +24,7 @@ enum Mixed
   code(n: Int)
 
 enum Opt[T]
-  none = 0
+  nothing = 0
   some(value: T)
 
 sub main()

@@ -2,9 +2,9 @@ use lib
 
 sub main()
   a = lib.Opt.some(value: 1)
-  b: lib.Opt[?String] = .none
-  c: lib.Opt[Int] = lib.Opt[Int].none
+  b: lib.Opt[?String] = .nothing
+  c: lib.Opt[Int] = lib.Opt[Int].nothing
   match a
     .some(value) => print(value)
-    .none => print("none")
+    .nothing => print("none")
   print(b, c)

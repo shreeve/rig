@@ -4,12 +4,12 @@
 
 enum Opt[T]
   some(v: T)
-  none
+  nothing
 
   fun get(?self) -> Int
     match self
       .some(v) => size(?v)
-      .none => 0
+      .nothing => 0
 
   fun all(?self) -> Int
     match self
@@ -21,7 +21,7 @@ fun size[T](v: ?T) -> Int
 sub main()
   a = Opt.some(v: 3)
   b: Opt[String] = Opt.some(v: String("x"))
-  n: Opt[String] = .none
+  n: Opt[String] = .nothing
   print(a.get(), b.get(), n.get(), a.all(), b.all(), n.all())
 
 # expect:

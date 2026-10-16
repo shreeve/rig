@@ -3,7 +3,7 @@
 
 enum Maybe[T]
   some(value: T)
-  none
+  nothing
 
 obj Noisy
   id: Int
@@ -16,7 +16,7 @@ sub main()
   m: Maybe[*Noisy] = .some(value: <n)
   match m
     .some => print("some")
-    .none => print("none")
+    .nothing => print("none")
 
 # expect:
 # some

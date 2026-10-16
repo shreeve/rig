@@ -1,12 +1,12 @@
 enum Opt
   some(t: String)
-  none
+  nothing
 
 sub main()
   o = Opt.some(String("hello"))
   match o
     .some(x)
       r = ?x
-      o = Opt.none
+      o = Opt.nothing
       print(r)
-    .none => pass
+    .nothing => pass
