@@ -2070,7 +2070,7 @@ runtime function with value arguments, or the existing `read` and
 | `cur.lag[k](prev)` | `rig.lag(k, cur, prev)`: one constant `@shuffle` of `prev` and `cur` |
 | a scalar beside a vector, `v + 1` | `rig.rt(@as(V, @splat(1)))` where the scalar stands (`splatOf`); beside a mask, `m \| true`, `rig.rt(rig.maskOf(rig.Mask(n), @splat(true)))` |
 | `v.not()` | `~v`, or `rig.maskNot(m)` of a mask |
-| `m.bits()`, `m.first()`, `m.any()`, `m.all()` | `rig.maskBits(m)`, `rig.maskFirst(m)`, `rig.maskAny(m)`, `rig.maskAll(m)` |
+| `m.bits()`, `m.first()`, `m.any()`, `m.all()` | `rig.maskBits(m)`, `rig.maskFirst(m)`, `rig.maskAny(m)`, `rig.maskAll(m)`; `m.not().bits()` is `rig.maskBitsNot(m)`, the bits of `m` flipped |
 | `m.select(a, b)` | `rig.maskSelect(m, a, b)`: `@select` of the mask's lanes |
 | `v[i]`, `v.with(i, x)`, `v.array()` | `rig.lane(v, i)`, `rig.withLane(v, i, x)`, `@as([n]T, v)`, or `rig.maskArray(m)` of a mask |
 | `b.read[Simd[T, n], e](at)`, `!b.write[...](at, v)` | `rig.simdRead(V, b, at, e)`, `rig.simdWrite(V, b, at, v, e)` |
@@ -2147,9 +2147,32 @@ compare-and-mask kernel):
 | Target | Form | 64 lanes |
 |---|---|---:|
 | aarch64 with NEON, LLVM | the mask as bytes, weighted, then pairwise adds (`llvm.aarch64.neon.addp.v16i8`), read as one lane of a `u64` vector, for 32 and 64 lanes; `any` and `all` as a byte `umaxv` or `uminv` | 31 |
-| x86-64 (SSE2, AVX2) | `@bitCast` (`pmovmskb`) | 39, 21 |
-| WASM SIMD | 16-lane bitmasks (`i8x16.bitmask`) for more than 16 lanes; `any` and `all` through them | 64 (511 by `@bitCast`) |
+| x86-64 (SSE2, AVX2) | `pmovmskb` per 16 lanes (32 on AVX2); for 32 and 64 lanes, each piece's bytes held opaque first (`maskBitsOpaque`, below). With AVX-512BW, `@bitCast` (a `k` register, `kmovq`) | 39, 21 |
+| WASM SIMD | 16-lane bitmasks (`i8x16.bitmask`) for more than 16 lanes; `any` and `all` OR or AND the pieces by halving shuffles and test them once (`v128.any_true`, `i8x16.all_true`) | 64 (511 by `@bitCast`) |
 | WASM without SIMD | each lane a byte, eight gathered by one multiply | 851, but 1.75x faster under wasmtime than `@bitCast`'s 779 |
+
+LLVM reads the bits of a `@bitCast` mask of 32 or 64 lanes as the
+`<n x i1>` vector they came from, and may do later work on those bits
+on its lanes instead: a classifier's checked `<<` of them became a
+shuffle of the lanes, which x86 without AVX-512 does a lane at a time
+(`pextrb` and `pinsrb`, or bytes through the stack: 120 lane moves a
+block). So on x86-64 without AVX-512BW, `maskBitsOpaque` takes the
+bitmask of each piece of 16 lanes (32 on AVX2) from bytes that first
+pass through an empty `asm` (`opaqueBytes`), which LLVM cannot see
+into; the bits it gets are integers. LLVM still leaves out a piece
+whose bits go unused, and on AVX2 still ORs two masks' pieces before
+one `pmovmskb`. On SSE2 alone, two masks' bits combined after `bits()`
+(`a.bits() | b.bits()`) take a `pmovmskb` each; combined as masks
+(`(a | b).bits()`), they take one. At compile time the bytes are used
+as they are.
+
+`m.not().bits()` flips the bits after `bits()` (`rig.maskBitsNot`,
+`~bits & lanes`). Flipping the lanes first costs NEON a vector
+instruction per 16 lanes: LLVM turns the `not` of comparisons ORed
+together into a flipped comparison each (`cmeq`, then `mvn` or `bic`).
+Emit takes the form from the call, a `not` as the
+receiver of `bits` (`test/cli/wide_masks.sh` reads the assembly of
+each target).
 
 `m.first()` is the index of the first true lane, `Int?`. On NEON it
 turns the 16 mask bytes into a nibble mask: a narrowing shift right by 4
@@ -3305,18 +3328,59 @@ the IR makes them; `receiverOf`, `argParams`, and `receiverWrites` read
 `callParamsOf`; `isNoneLeaf`, `stringCall`, and `isTypeCallee` read
 symbols); a query that decides more than that belongs in `Pending`.
 
+- **Names.** One function decides how a Rig name becomes a Zig name,
+  `rig.writeZigIdent`, and every declaration and every use of a name
+  the program chooses is written through it: a local, a parameter, a
+  capture, a label, a field, a payload field, a method, a variant, an
+  error set, a type, a generic parameter, a module constant or
+  function, and a module member another module reaches. It is one to
+  one, and context free, so a use is spelled as its declaration
+  wherever each stands:
+  - a name the emitted Zig or Zig's standard library uses
+    (`rig.zigRenames`) gets a `'` suffix, which no Rig name can
+    contain: `std`, `rig`, and `panic`, which the prelude declares;
+    anything starting with `__rig`, the emitter's own names; and the
+    names Zig's standard library looks up in the root module with
+    `@hasDecl(root, ...)` and uses as hooks (`main`, `debug`, `os`,
+    `tracy`, `std_options` and anything starting with it, `_start`,
+    `__start`, and the Windows and UEFI entry points), so no
+    declaration of the program is a hook (`@"debug'"`);
+  - a Zig keyword or primitive (`var`, `fn`, `u8`, `null`), and `_`,
+    which alone is Zig's discard and a non-exhaustive enum's marker,
+    are quoted (`@"var"`, `@"_"`);
+  - every other name is written as it is.
+
+  Two kinds of name are qualified instead, so no Rig name can meet
+  them: an error is written with its set (`error.@"E.name"`, below),
+  and a module the program imports is bound to a name of the
+  emitter's (`__rig_m2_lib`).
+
+  A name another file declares exactly so is written `.exact`, quoted
+  but never renamed: a function of a standard library Zig file
+  (`extern zig`). A C declaration (`extern`, `extern fun`) links by its
+  Zig name, so sema rejects one whose name `zigRenames`. A `_` that
+  discards (`_ = f()`, a parameter `_`) is no name: it is Zig's `_`,
+  or, for an owned parameter, which is dropped, `__rig_unused_N`.
+  Printing strips the suffix (`rig.rigName`): a variant, a field, and a
+  type print as the program wrote them. No runtime test of a type asks
+  for a name a program may choose: the runtime finds its own types by
+  the `__rig_*` markers they declare (`__rig_weak`, `__rig_box`).
+
+  Every generated name and label starts with `__rig_` (a stack
+  closure's `__rig_invoke`, a generic type's `__rig_Self`, a guarded
+  match's `__rig_arm_N`, a drop flag's `__rig_alive_x`, a propagated
+  error's capture `__rig_failed`), so none can meet a Rig name. Two
+  are spelled otherwise and meet none either: a closure environment's
+  fields, `cap_<name>`, in a struct that holds nothing else, and the
+  hidden binding of a `for` loop's iterator, `@"for iterator"`, which
+  no name can spell. A local that would shadow a visible
+  Zig name (a module-level name, the type being emitted or one of its
+  methods, an enclosing local), each compared by its Zig name as Zig
+  compares them, is renamed to a name of the emitter's,
+  `__rig_local_x_3`, which no later name of the program's can be.
 - **Bindings** are `const` unless reassigned, written through, holding
   a value that moves (`sema.moves`), or
-  initialized by a compile-time-known value, which Zig would fold. Every Rig name is written through
-  `rig.writeZigIdent`, which quotes Zig keywords and primitives
-  (`@"var"`) and marks a name the emitter itself declares (`std`, `rig`,
-  `panic`, anything starting with `__rig`) with a `'` no Rig name can
-  contain (`@"rig'"`). Every generated name and label starts with
-  `__rig_` (a stack closure's `__rig_invoke`, a generic type's
-  `__rig_Self`, a guarded match's `__rig_arm_N`), so none can meet a Rig
-  name; the one exception is a closure environment's fields,
-  `cap_<name>`, in a struct that holds nothing else. A local that would
-  shadow a visible Zig name is renamed.
+  initialized by a compile-time-known value, which Zig would fold.
 - **Automatic drop.** An owning binding gets a `defer` that releases
   it. A binding of a value that moves but needs no cleanup (a unique
   value) gets the same `defer` and guard, which `rig.drop` reduces to

@@ -1,0 +1,11 @@
+# A root `sub debug` is the program's own function, not the hook Zig's
+# standard library looks for under that name (`root.debug.SelfInfo`).
+
+sub debug(msg: ?String)
+  print("debug:", msg)
+
+sub main()
+  debug("hi")
+
+# expect:
+# debug: hi

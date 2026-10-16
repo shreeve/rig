@@ -345,3 +345,5 @@ Performance bugs:
 - On wasm simd128, bool vectors wider than 16 lanes scalarize (section 3).
 - `<<|` scalarizes on NEON (section 2).
 - LLVM turns a portable addp chain into uzp/orr once it proves the operands disjoint (section 3).
+- The `u64` from `@bitCast` of a `@Vector(64, bool)` (or 32) is still that vector to LLVM. In a classifier whose bits are then shifted with `@shlExact`, LLVM shuffled the lanes instead, and x86 without AVX-512 did it lane by lane (120 `pextrb`/`pinsrb`, or bytes through the stack on SSE2). Taking each 16- or 32-byte piece's bitmask from bytes passed through an empty `asm` (`asm ("" : [out] "=x" (-> V) : [in] "0" (v))`) keeps the bits integers, and LLVM still drops unused pieces and, on AVX2, ORs two masks' pieces before one `vpmovmskb`. An empty `asm` on the `u64` itself works too, but costs every `pmovmskb` even where only some bits are used. Rig's runtime holds the bytes (`maskBitsOpaque`).
+- `~` of comparisons ORed together, then masked with lane weights for `addp`: LLVM flips each comparison (`cmeq` + `mvn`, then `bic`), a vector instruction more per 16 lanes. Flipping the `u64` after the reduction avoids it.

@@ -8521,6 +8521,23 @@ sub main()
 call to extern function `abs` requires `raw` block
 ```
 
+C links a name only as it is spelled, so a C declaration cannot take a
+name the Zig that Rig writes uses itself: `std`, `rig`, `panic`,
+`main`, a name starting with `__rig`, or a name Zig's standard library
+looks for in a program (`debug`, `os`, `std_options`, `_start`, and
+the like). A name Zig reserves (`var`, `fn`, `u8`) links as spelled.
+
+```rig reject
+extern fun panic(code: Int) -> Int
+
+sub main()
+  print(1)
+```
+
+```error
+a C declaration cannot be named `panic`
+```
+
 ### Zig-backed declarations
 
 The standard library binds declarations to Zig code: a `fun` or `sub`
