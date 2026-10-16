@@ -2163,12 +2163,51 @@ pub const Emitter = struct {
         const ret = self.fun.return_ty orelse return self.unsupported(value, "several results from a function that gives one");
         const tys = self.facts.resultsOf(ret) orelse return self.unsupported(value, "several results from a function that gives one");
         const parts = ir.Results.values(value);
+        if (self.facts.hoistsResults(value)) return self.emitHoistedResults(value, parts, tys);
         try self.w.writeAll("return .{ ");
         for (parts, tys, 0..) |p, ty, i| {
             if (i > 0) try self.w.writeAll(", ");
             try self.emitResultValue(p, ty);
         }
         try self.w.writeAll(" };");
+    }
+
+    /// `return a, b` whose later part can leave after an earlier one that
+    /// owns (`storage.hoistsResults`): each part is made into
+    /// `__rig_arg_N_i` in its turn, an owned one dropped on the way out
+    /// unless the return takes it.
+    fn emitHoistedResults(self: *Emitter, value: Sexp, parts: []const Sexp, tys: []const TypeId) Error!void {
+        const id = self.nextId();
+        const names = try self.arena.allocator().alloc([]const u8, parts.len);
+        const flags = try self.arena.allocator().alloc(?[]const u8, parts.len);
+        try self.openBrace();
+        for (parts, tys, names, flags, 0..) |p, ty, *name, *flag, i| {
+            name.* = try self.hiddenStorage(value, .argument, .owned, .{ .pair = .{ id, @intCast(i) } });
+            const kind = self.kindOf(ty);
+            try self.writeIndent(self.indent);
+            try self.w.print("{s} {s}: ", .{ if (kind != null) "var" else "const", name.* });
+            try self.emitTypeTy(ty);
+            try self.w.writeAll(" = ");
+            try self.emitResultValue(p, ty);
+            try self.w.writeAll(";");
+            flag.* = null;
+            if (kind) |k| {
+                const f = try self.fmt("__rig_live_{d}_{d}", .{ id, i });
+                flag.* = f;
+                try self.w.print(" var {s} = true; defer if ({s}) ", .{ f, f });
+                try self.writeDrop(name.*, k);
+                try self.w.writeAll(";");
+            }
+            try self.w.writeAll("\n");
+        }
+        try self.writeIndent(self.indent);
+        try self.w.writeAll("return .{ ");
+        for (names, flags, 0..) |name, flag, i| {
+            if (i > 0) try self.w.writeAll(", ");
+            if (flag) |f| try self.w.print("rig.take(&{s}, {s})", .{ f, name }) else try self.w.writeAll(name);
+        }
+        try self.w.writeAll(" };\n");
+        try self.closeBrace();
     }
 
     /// `value` leaving the function as a result of type `result`.

@@ -591,6 +591,9 @@ pub const Facts = struct {
     pub fn isErrorValue(f: Facts, ty: TypeId) bool {
         return sema.isErrorValue(f.c(), ty);
     }
+    pub fn hoistsResults(f: Facts, results: Sexp) bool {
+        return storage.hoistsResults(f.c(), results);
+    }
     pub fn resultsOf(f: Facts, ty: TypeId) ?[]const TypeId {
         return sema.resultsOf(f.c(), ty);
     }
