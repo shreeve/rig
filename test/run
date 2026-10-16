@@ -533,11 +533,12 @@ check_json() {
     if [[ $group == checker || $group == corpus ]] && why=$("${cmp[@]}" --check-data 2>&1); then why=""; fi
     if [[ -z ${why:-} ]]; then
         # The key hashes the driver's emitted package (it is the std.json
-        # of this compiler) and the files that make the cases.
+        # of this compiler), the files that make the cases, and the Python
+        # whose json module judges them.
         stub="$outdir/key.rig"
         if env -u JSON python3 "$ROOT/test/json/compare.py" --stub "$stub" 2>/dev/null; then
             { printf '# json %s %s\n# inputs %s\n' "$group" "$part" \
-                "$(cat test/json/compare.py test/json/cases.txt tools/fetch-json-data.sh | $SHA256 | cut -d' ' -f1)"; } >>"$stub"
+                "$({ cat test/json/compare.py test/json/cases.txt tools/fetch-json-data.sh && python3 -c 'import sys; print(sys.version)'; } | $SHA256 | cut -d' ' -f1)"; } >>"$stub"
             carried_over "json $group $part $TIMEOUT" "$stub" && return 0
         fi
     fi

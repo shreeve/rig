@@ -230,7 +230,8 @@ the deep gate does. The groups `checker` and `corpus` read third-party
 files that `tools/fetch-json-data.sh` fetches into `test/json/data/` (CI
 fetches them too). Without them those groups are skipped with a note, and
 `JSON_REQUIRE_DATA=1` makes that a failure. A `--delta` run carries a
-group over when the compiler, the cases and the data are unchanged.
+group over when the compiler, the cases, the data, and Python are
+unchanged.
 
 ## The corpus
 
