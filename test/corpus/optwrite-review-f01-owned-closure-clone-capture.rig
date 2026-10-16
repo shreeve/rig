@@ -1,0 +1,13 @@
+obj H
+  s: ?String
+
+fun mk() -> *sub((!H)?)
+  d = String("local")
+  *|+d, k| (k ?? return).s = ?d
+
+sub main()
+  h = H(s: "x")
+  g = mk()
+  g(!h)
+  <g
+  print(h.s)

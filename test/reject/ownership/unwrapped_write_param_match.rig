@@ -1,0 +1,35 @@
+# A `match !x.e` arm binds a write view of a field of the value a
+# `(!H)?` parameter views, and a store through it lands in the caller's
+# value; so does a store made in any arm.
+
+enum E
+  a(s: ?String)
+  b
+
+obj H
+  e: E
+  s: ?String
+
+sub payload(w: (!H)?)
+  d = String("local")
+  if <w as x
+    match !x.e
+      .a(s) => s = ?d
+      .b => pass
+
+sub arm(w: (!H)?)
+  d = String("local")
+  match d.len
+    5 => (w ?? return).s = ?d
+    _ => pass
+
+sub main()
+  t = String("outer")
+  h = H(e: E.a(s: ?t), s: ?t)
+  payload(!h)
+  arm(!h)
+  print(h.s)
+
+# errors: 2
+# error: 17:16: cannot store a view of `d` through `s`: `w` outlives it
+# error: 23:10: cannot store a view of `d` through `w ?? return`: `w` outlives it

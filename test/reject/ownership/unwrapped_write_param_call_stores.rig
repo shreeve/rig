@@ -1,0 +1,42 @@
+# A call that stores through the write view a `(!H)?` parameter holds,
+# passed on whole or unwrapped, or `swap` with it, stores in the
+# caller's value.
+
+obj H
+  s: ?String
+
+  sub keep(!self, v: ?String)
+    self.s = v
+
+sub put(w: (!H)?, v: ?String)
+  (w ?? return).s = v
+
+sub put_view(w: !H, v: ?String)
+  w.s = v
+
+sub whole(w: (!H)?)
+  d = String("local")
+  put(<w, ?d)
+
+sub unwrapped(w: (!H)?)
+  d = String("local")
+  put_view(<w ?? return, ?d)
+
+sub swapped(w: (!H)?)
+  d = String("local")
+  x = <w ?? return
+  k = H(s: ?d)
+  swap(!x, !k)
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  whole(!h)
+  unwrapped(!h)
+  swapped(!h)
+  print(h.s)
+
+# errors: 3
+# error: 19:7: cannot let this call store a view of `d` in `w`: `w` outlives it
+# error: 23:12: cannot let this call store a view of `d` in `w`: `w` outlives it
+# error: 29:12: cannot let this call store a view of `k` in `w`: `w` outlives it

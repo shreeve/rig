@@ -1,0 +1,17 @@
+obj In
+  s: ?String
+
+obj H
+  s: ?String
+
+sub set(w: (!H)?)
+  d = String("local")
+  sh = *In(s: ?d)
+  x = <w ?? return
+  x.s = sh.s
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)

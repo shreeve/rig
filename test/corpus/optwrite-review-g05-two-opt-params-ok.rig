@@ -1,0 +1,15 @@
+obj H
+  s: ?String
+
+sub copy(a: (!H)?, b: (!H)?)
+  x = <a ?? return
+  y = <b ?? return
+  y.s = x.s
+
+sub main()
+  t = String("outer")
+  u = String("u")
+  h = H(s: ?t)
+  k = H(s: ?u)
+  copy(!h, !k)
+  print(h.s, k.s)

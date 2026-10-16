@@ -1,0 +1,16 @@
+obj H
+  s: ?String
+
+  sub keep(!self, v: ?String)
+    self.s = v
+
+fun set(w: (!H)?, v: ?String) -> Int?
+  !w?.keep(v)
+  0
+
+sub main()
+  t = String("outer")
+  u = String("new")
+  h = H(s: ?t)
+  print(set(!h, ?u))
+  print(h.s)

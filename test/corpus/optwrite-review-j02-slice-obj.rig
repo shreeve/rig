@@ -1,0 +1,12 @@
+obj In
+  s: ?String
+
+sub set(w: (![]In)?)
+  d = String("local")
+  (w ?? return)[0].s = ?d
+
+sub main()
+  t = String("outer")
+  a = [In(s: ?t)]
+  set(!a[..])
+  print(a[0].s)

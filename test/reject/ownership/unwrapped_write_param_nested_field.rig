@@ -1,0 +1,28 @@
+# A store to a field of a field, through the write view a `(!H)?`
+# parameter holds, lands in the caller's value.
+
+obj In
+  s: ?String
+
+obj H
+  a: In
+
+fun prop(w: (!H)?) -> Int?
+  d = String("local")
+  w?.a.s = ?d
+  0
+
+sub nullish(w: (!H)?)
+  d = String("local")
+  (w ?? return).a.s = ?d
+
+sub main()
+  t = String("outer")
+  h = H(a: In(s: ?t))
+  print(prop(!h))
+  nullish(!h)
+  print(h.a.s)
+
+# errors: 2
+# error: 12:3: cannot store a view of `d` through `w?`: `w` outlives it
+# error: 17:3: cannot store a view of `d` through `w ?? return`: `w` outlives it

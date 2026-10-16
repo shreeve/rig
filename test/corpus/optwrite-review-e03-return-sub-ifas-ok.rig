@@ -1,0 +1,16 @@
+obj In
+  s: ?String
+
+obj H
+  inner: In
+
+fun inner(w: (!H)?) -> (!In)?
+  if <w as x
+    return !x.inner
+  none
+
+sub main()
+  t = String("outer")
+  h = H(inner: In(s: ?t))
+  (inner(!h) ?? return).s = "new"
+  print(h.inner.s)

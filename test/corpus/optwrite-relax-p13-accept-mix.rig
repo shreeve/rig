@@ -1,0 +1,49 @@
+obj H
+  s: ?String
+
+obj K
+  a: ?String
+  b: ?String
+
+  sub put(!self, v: ?String)
+    self.b = v
+
+fun mk(w: !H) -> K
+  K(a: w.s, b: "")
+
+sub viaReturn(h: !H)
+  if true
+    k = mk(!h)
+    d = String("local1")
+    !k.put(?d)
+    print(k.a, k.b)
+  print(h.s)
+
+sub viaSwap(w: !H)
+  d = String("local2")
+  a = K(a: w.s, b: "")
+  b = K(a: ?d, b: ?d)
+  swap(!a, !b)
+  print(a.a, b.a)
+
+sub viaReplace(w: !H)
+  d = String("local3")
+  a = K(a: w.s, b: "")
+  old = replace(!a, K(a: ?d, b: ""))
+  print(a.a, old.a)
+
+sub viaOpt(w: (!H)?)
+  d = String("local4")
+  if w as r
+    k = K(a: r.s, b: "")
+    !k.put(?d)
+    print(k.a, k.b)
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  viaReturn(!h)
+  viaSwap(!h)
+  viaReplace(!h)
+  viaOpt(!h)
+  print(h.s)

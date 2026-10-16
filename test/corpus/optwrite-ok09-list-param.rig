@@ -1,0 +1,11 @@
+obj H
+  items: List[?String]
+
+sub set(w: (!H)?, v: ?String)
+  !(w ?? return).items.push(v)
+
+sub main()
+  u = String("new")
+  h = H(items: List())
+  set(!h, ?u)
+  print(h.items)

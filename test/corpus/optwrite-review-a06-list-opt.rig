@@ -1,0 +1,10 @@
+sub set(w: (!List[?String])?)
+  d = String("local")
+  x = <w ?? return
+  !x.push(?d)
+
+sub main()
+  t = String("outer")
+  a: List[?String] = List()
+  set(!a)
+  print(a)

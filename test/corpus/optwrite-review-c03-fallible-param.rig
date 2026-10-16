@@ -1,0 +1,15 @@
+obj H
+  s: ?String
+
+error E
+  bad
+
+sub set(w: (!H)!)
+  d = String("local")
+  (w catch return).s = ?d
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)

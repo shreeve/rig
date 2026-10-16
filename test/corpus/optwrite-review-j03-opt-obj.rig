@@ -1,0 +1,14 @@
+obj In
+  s: ?String
+
+sub set(w: (!(In?))?)
+  d = String("local")
+  x = <w ?? return
+  x = In(s: ?d)
+
+sub main()
+  t = String("outer")
+  o: In? = In(s: ?t)
+  set(!o)
+  if o as v
+    print(v.s)

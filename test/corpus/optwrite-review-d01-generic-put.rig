@@ -1,0 +1,16 @@
+obj In
+  s: ?String
+
+sub put[T](w: (!T)?, v: T)
+  x = <w ?? return
+  x = v
+
+sub set(w: (!In)?)
+  d = String("local")
+  put(<w, In(s: ?d))
+
+sub main()
+  t = String("outer")
+  h = In(s: ?t)
+  set(!h)
+  print(h.s)

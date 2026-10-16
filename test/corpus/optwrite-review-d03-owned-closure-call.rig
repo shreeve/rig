@@ -1,0 +1,13 @@
+obj H
+  s: ?String
+
+sub set(w: (!H)?, g: *sub((!H)?, ?String))
+  d = String("local")
+  g(<w, ?d)
+
+sub main()
+  t = String("outer")
+  h = H(s: ?t)
+  g: *sub((!H)?, ?String) = *|k, v| (k ?? return).s = v
+  set(!h, +g)
+  print(h.s)

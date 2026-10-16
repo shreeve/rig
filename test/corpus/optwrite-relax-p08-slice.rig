@@ -1,0 +1,12 @@
+sub setfirst(s: ![]?String, v: ?String)
+  s[0] = v
+
+sub main()
+  t = String("outer")
+  l: List[?String] = List()
+  !l.push(?t)
+  if true
+    s = !l[0..1]
+    d = String("local")
+    setfirst(!s, ?d)
+  print(l)
