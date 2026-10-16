@@ -1,10 +1,10 @@
 obj H
   s: ?String
 
-  sub keep(!self, v: ?String)
+  sub keep(!self, v: ?String) keeps v
     self.s = v
 
-sub set(w: !H, v: ?String)
+sub set(w: !H, v: ?String) keeps v
   f = |!w, ?v| w.s = v
   f()
 

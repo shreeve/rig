@@ -5547,7 +5547,7 @@ view, or by a call that stores its argument, is rejected.
 obj Holder
   t: ?String
 
-  sub keep(!self, t: ?String)
+  sub keep(!self, t: ?String) keeps t
     self.t = t
 
 obj P

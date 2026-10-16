@@ -140,13 +140,6 @@ test/corpus/review-step45-r2-e14_match.rig main prod-rejects prod-strict `cnt(?o
 test/reject/ownership/call_write_lend_kept.rig match_arm_writes prod-rejects prod-strict `!v.push(Item(n: it.n))` in an arm of `match find(!v)`, after the last use of `it`
 test/reject/ownership/call_write_lend_kept.rig write_result_whole prod-rejects prod-strict `v.len` after `firstw(!v).n`, the last use of the write view, in one statement
 
-# A generic callee's origins come from its signature, where a `T` could
-# hold anything, so the call may store its `!v` argument and that write
-# lend lasts to the statement's end; the oracle reads the instance, whose
-# `?Item` result only reads `v` (Core s7). Per-instance origins are a
-# later refinement.
-test/corpus/review-c-rules-r2-cf_generic_ok.rig main prod-rejects prod-strict `print(gfirst(!v).n, v.len)` of a generic `gfirst[T](v: !List[T]) -> ?T`
-
 # The matrix's view forms (`r = ?a`, `w = !a`) meet rules older than
 # them, which a number already met in v0.2.2. A read view read by an
 # earlier argument keeps its owner lent until the call returns (Core §6),
@@ -334,8 +327,6 @@ test/corpus/optwrite-review-j05-generic-owned-param.rig stash prod-rejects ref-g
 # caller lent (Core sentence 7).
 test/corpus/optwrite-review-a01-cross-param-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
 test/corpus/optwrite-review-a02-cross-param-ifas-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
-test/corpus/optwrite-review-b01-plain-local-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
-test/corpus/optwrite-review-b02-unwrap-direct-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
 test/corpus/optwrite-review-d15-call-result-view.rig inner prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
 test/corpus/optwrite-review-e01-return-sub-plain-ok.rig inner prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
 test/corpus/optwrite-review-e02-return-sub-opt-ok.rig inner prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own

@@ -266,7 +266,6 @@ doc/SPEC/2230264097 keep
 doc/SPEC/86191133 main
 doc/SPEC/4067922064 main
 doc/SPEC/3687934557 main
-doc/SPEC/3817416873 main
 doc/SPEC/385648819 main
 doc/SPEC/1795220611 main
 doc/SPEC/1796458252 Scanner.number
@@ -1816,10 +1815,6 @@ test/corpus/r3-or-fit-f2b_lookup_struct.rig main
 test/corpus/r3-or-fit-f2d_lookup_print.rig main
 test/corpus/r3-or-fit-f3_two_buffers.rig main
 test/corpus/r3-or-fit-f4b_callback_ret.rig main
-test/corpus/r3-or-fit-f5_sub_store.rig main
-test/corpus/r3-or-fit-f5b_sub_log.rig main
-test/corpus/r3-or-fit-f5c_sub_log_temp.rig main
-test/corpus/r3-or-fit-f5d_method_log.rig main
 test/corpus/r3-or-fit-f6b_split_sep.rig main
 test/corpus/r3-or-formal-closure_ret.rig main
 test/corpus/r3-or-formal-deep1.rig main
@@ -1835,7 +1830,6 @@ test/corpus/r3-or-formal-selfref.rig S.fix
 test/corpus/r3-or-formal-selfref2.rig main
 test/corpus/r3-or-formal-split.rig main
 test/corpus/r3-or-formal-static_param.rig remember
-test/corpus/r3-or-formal-store.rig main
 test/corpus/r3-or-formal-variance.rig main
 test/corpus/r3-or-generic-loopcopy.rig lastref
 test/corpus/r3-or-generic-unsound.rig grows_while_viewed
@@ -1864,7 +1858,6 @@ test/corpus/r3-or-impl-u8_byval.rig main
 test/corpus/r3-or-impl-u9_temp.rig main
 test/corpus/r3-or-pa-store2.rig main
 test/corpus/r3-or-pa-store3.rig main
-test/corpus/r3-or-power-logger.rig main
 test/corpus/r3-or-power-parser_scratch.rig main
 test/corpus/r3-or-power-table_get.rig main
 test/corpus/r3-or-power-table_get_free.rig main
@@ -3128,6 +3121,7 @@ test/corpus/review-text-fh.rig main
 test/corpus/review-text-jd.rig main
 test/corpus/review-text2-e11.rig main
 test/corpus/review-text2-e14.rig put
+test/corpus/review-text2-e15.rig put
 test/corpus/review-text2-e16.rig main
 test/corpus/review-text2-t9.rig main
 test/corpus/review-text3-d10.rig f
@@ -3455,6 +3449,25 @@ test/reject/ownership/implicit_lend_loans.rig one
 test/reject/ownership/implicit_lend_loans.rig three
 test/reject/ownership/implicit_lend_loans.rig two
 test/reject/ownership/index_base_read_then_written.rig main
+test/reject/ownership/keeps_body_store_forms.rig B.by_box
+test/reject/ownership/keeps_body_store_forms.rig B.by_closure
+test/reject/ownership/keeps_body_store_forms.rig B.by_defer
+test/reject/ownership/keeps_body_store_forms.rig B.by_local_moved
+test/reject/ownership/keeps_body_store_forms.rig B.by_local_view
+test/reject/ownership/keeps_body_store_forms.rig B.by_loop
+test/reject/ownership/keeps_body_store_forms.rig B.by_payload
+test/reject/ownership/keeps_body_store_forms.rig B.by_value
+test/reject/ownership/keeps_body_store_forms.rig Node.register
+test/reject/ownership/keeps_body_store_forms.rig link
+test/reject/ownership/keeps_drop_while_kept.rig main
+test/reject/ownership/keeps_function_value_by_type.rig call
+test/reject/ownership/keeps_generic_param_stored.rig Bag.put
+test/reject/ownership/keeps_into_write_arg_unsaid.rig collect
+test/reject/ownership/keeps_kept_loan_conflicts.rig main
+test/reject/ownership/keeps_own_field_kept.rig main
+test/reject/ownership/keeps_some_paths.rig Binder.maybe_keep
+test/reject/ownership/keeps_store_without_clause.rig Binder.set_src
+test/reject/ownership/keeps_transitive.rig Binder.forward
 test/reject/ownership/kept_receiver_view_leaves_tail.rig early
 test/reject/ownership/kept_receiver_view_leaves_tail.rig main
 test/reject/ownership/kept_receiver_view_leaves_tail.rig view
@@ -4310,6 +4323,7 @@ test/reject/ownership/owned_closure_result_views_env.rig main
 test/reject/ownership/owned_closure_stores_env_view.rig main
 doc/CORE/293868418 main
 doc/SPEC/2591928739 main
+doc/SPEC/761548706 main
 error.arg_then_write.field run
 error.arg_then_write.move run
 error.arg_then_write.nullish run
@@ -4431,6 +4445,8 @@ test/corpus/optwrite-p03-swap.rig set
 test/corpus/optwrite-r11c-closure-param.rig set
 test/corpus/optwrite-r21-caller-sees-store.rig main
 test/corpus/optwrite-r22-caller-sees-store-write.rig main
+test/corpus/optwrite-review-b01-plain-local-ok.rig set
+test/corpus/optwrite-review-b02-unwrap-direct-ok.rig set
 test/corpus/optwrite-review-c02b-closure-plain-capture.rig set
 test/corpus/optwrite-review-f01b-owned-closure-clone-plain.rig mk
 test/corpus/optwrite-review-g02-caller-local-opt.rig main

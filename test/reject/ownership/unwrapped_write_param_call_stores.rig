@@ -5,13 +5,13 @@
 obj H
   s: ?String
 
-  sub keep(!self, v: ?String)
+  sub keep(!self, v: ?String) keeps v
     self.s = v
 
-sub put(w: (!H)?, v: ?String)
+sub put(w: (!H)?, v: ?String) keeps v
   (w ?? return).s = v
 
-sub put_view(w: !H, v: ?String)
+sub put_view(w: !H, v: ?String) keeps v
   w.s = v
 
 sub whole(w: (!H)?)
