@@ -148,12 +148,14 @@ leak.
 
 A program that panics on purpose (an `# expect-panic:` test, and the
 CLI tests' panicking programs and `rig test` runs) runs with
-`RIG_NO_CRASH_REPORT=1`. That only stops macOS from filing a crash report
-(`~/Library/Logs/DiagnosticReports`) for its abort: it still exits 134
-with the same output. `./test/run` sets it for those tests alone and
-clears it for every other program, whose crash is still reported;
-`test/cli/no_crash_report.sh` checks the status and output are the same
-with and without it.
+`RIG_NO_CRASH_REPORT=1`. That only stops a crash report for its abort:
+macOS files none (`~/Library/Logs/DiagnosticReports`), and on Linux the
+program's core limit of exactly 1 keeps the kernel from passing it to the
+`core_pattern` handler (Ubuntu's apport, which made each panic wait
+seconds). It still exits 134 with the same output. `./test/run` sets it
+for those tests alone and clears it for every other program, whose crash
+is still reported; `test/cli/no_crash_report.sh` checks the status and
+output are the same with and without it, and on Linux the core limit.
 
 The suite also builds every program it runs (behavior tests, examples,
 known bugs, doc examples with output, the corpus) with `RIG_SANITIZE=1`,
