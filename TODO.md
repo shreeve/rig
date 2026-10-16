@@ -10,7 +10,20 @@ started:
 
 - SIMD: `pad:` reads and `blocks(N)`.
 - A String API for part-word appends and windowed writes.
-- Multiple results.
+- Several results, after v1 (SPEC "Several results"):
+  - small results in registers: pack results of up to two words of
+    integers, `Bool`s, and pointers into a `u128`, which Zig's default
+    calling convention returns in registers where it returns a tuple
+    or an object through memory; it serves objects too, and lands only
+    if it passes the speed rule;
+  - `from` per result, so a write view and a read view may come from
+    different parameters whose types could both hold either, and
+    several write views a function proves disjoint (sentence 5);
+  - a `catch` or `??` fallback that gives every result (`catch 0, 0`);
+  - `for k, v in it` over an iterator whose `next` gives several
+    results, decided with iterators as values;
+  - `ResultBound` per result, so a proven bound on a result reaches the
+    name that takes it (`src/proofs.zig`).
 - Inlining a generic type's small methods. Rig never emits a generic
   type's methods `inline` (`src/inlining.zig`), and LLVM leaves
   `std.hash`'s `Map.ensure` and `Map.ensure_with` out of line, so on a
