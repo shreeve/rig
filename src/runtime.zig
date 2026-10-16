@@ -2451,16 +2451,27 @@ pub inline fn maskSelect(m: anytype, a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 /// bitmasks on WASM SIMD for more than 16 (a wider mask would be taken
 /// apart lane by lane), a multiply that gathers eight lanes at a time on
 /// WASM without SIMD, and Zig's own `@bitCast` elsewhere (one `pmovmskb`
-/// per 16 lanes on x86, one `i8x16.bitmask` on WASM SIMD). Every form
+/// per 16 lanes on x86, one `i8x16.bitmask` on WASM SIMD), a piece at a
+/// time held opaque for more than 16 lanes (`maskBitsOpaque`). Every form
 /// gives the same bits (`test "maskBits: every form agrees"`).
 pub inline fn maskBits(m: anytype) u64 {
     const n = maskLen(@TypeOf(m));
     if (comptime (n == 32 or n == 64) and neonIntrinsics()) return maskBitsNeon(n, maskBytes(m));
     if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, maskBytes(m));
     if (comptime n >= 8 and builtin.cpu.arch.isWasm() and !wasmSimd()) return maskBitsSwar(n, maskBytes(m));
+    if (comptime n > 16 and opaque_wide_bits) return maskBitsOpaque(n, maskBytes(m));
     // `@bitCast` of a mask gives wrong bits on aarch64 without NEON (Zig
     // 0.17); Rig builds no such target, so it takes this form too.
     return maskBitsCast(n, maskLanes(m));
+}
+
+/// `m.not().bits()`: the bits of `m` flipped, the higher bits 0. Flipped
+/// lanes cost more on NEON: LLVM turns the `not` of comparisons ORed
+/// together into a flipped comparison each (`cmeq` and `mvn`, then `bic`),
+/// a vector instruction more per 16 lanes, where this flips one register.
+pub inline fn maskBitsNot(m: anytype) u64 {
+    const n = maskLen(@TypeOf(m));
+    return ~maskBits(m) & std.math.maxInt(@Int(.unsigned, n));
 }
 
 /// `m.first()`: the index of the first true lane of mask `m`, or null.
@@ -2525,7 +2536,9 @@ fn iota(comptime n: usize, comptime from: i32) @Vector(n, i32) {
 /// `m.any()`: whether any lane of mask `m` is true.
 pub inline fn maskAny(m: anytype) bool {
     const n = maskLen(@TypeOf(m));
-    // WASM SIMD reduces a mask of more than 16 lanes lane by lane.
+    // WASM SIMD reduces a mask of more than 16 lanes lane by lane; its
+    // pieces OR into one, which `v128.any_true` tests.
+    if (comptime wasmSimd() and n > 16 and n & (n - 1) == 0) return @reduce(.Or, foldBytes(n, maskBytes(m), false) >= @as(@Vector(16, u8), @splat(0x80)));
     if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, maskBytes(m)) != 0;
     // On NEON, the pieces OR into one, whose largest byte (`umaxv`) is
     // the answer; spelled as a reduction, LLVM turns it back into a
@@ -2539,6 +2552,7 @@ pub inline fn maskAny(m: anytype) bool {
 /// `m.all()`: whether every lane of mask `m` is true.
 pub inline fn maskAll(m: anytype) bool {
     const n = maskLen(@TypeOf(m));
+    if (comptime wasmSimd() and n > 16 and n & (n - 1) == 0) return @reduce(.And, foldBytes(n, maskBytes(m), true) >= @as(@Vector(16, u8), @splat(0x80)));
     if (comptime n > 16 and wasmSimd()) return maskBitsPieces(n, maskBytes(m)) == std.math.maxInt(@Int(.unsigned, n));
     if (comptime n >= 16 and std.math.isPowerOfTwo(n) and neonIntrinsics()) {
         return @"llvm.aarch64.neon.uminv.i32.v16i8"(foldBytes(n, maskBytes(m), true)) != 0;
@@ -2580,6 +2594,47 @@ const wasm_simd = builtin.cpu.arch.isWasm() and std.Target.wasm.featureSetHas(bu
 inline fn maskBitsCast(comptime n: usize, m: @Vector(n, bool)) u64 {
     return @as(@Int(.unsigned, n), @bitCast(m));
 }
+
+/// Whether a mask of more than 16 lanes gives its bits by
+/// `maskBitsOpaque`: x86-64 built by LLVM, without AVX-512BW, whose `k`
+/// registers hold a mask of 64 lanes and take shifts with no lane moves.
+const opaque_wide_bits = x86_llvm and !std.Target.x86.featureSetHas(builtin.cpu.features, .avx512bw);
+
+/// A mask of more than 16 lanes as the bitmasks of its pieces of 16 lanes
+/// (32 with AVX2), one `pmovmskb` each, whose bytes first pass through an
+/// empty `asm` (`opaqueBytes`). LLVM reads the bits of a whole mask's
+/// `@bitCast` as the vector of `bool` they came from, and may do later
+/// work on them on its lanes: a classifier's checked `<<` of them became
+/// a shuffle of the lanes, which x86 without AVX-512 does a lane at a time
+/// (`pextrb` and `pinsrb`, or bytes through the stack). From bytes it
+/// cannot see past, each piece's bits stay an integer; LLVM still leaves
+/// out a piece whose bits go unused (`bits() & 0xFF` takes one `pmovmskb`)
+/// and, on AVX2, ORs two masks' pieces before one `pmovmskb`
+/// (`a.bits() | b.bits()`).
+inline fn maskBitsOpaque(comptime n: usize, lanes: @Vector(n, u8)) u64 {
+    const w = if (avx2 and n % 32 == 0) 32 else 16;
+    const bytes: [n]u8 = lanes;
+    var r: u64 = 0;
+    inline for (0..n / w) |k| {
+        const piece: @Vector(w, u8) = bytes[k * w ..][0..w].*;
+        const held = if (@inComptime()) piece else opaqueBytes(piece);
+        const bits: @Int(.unsigned, w) = @bitCast(held >= @as(@Vector(w, u8), @splat(0x80)));
+        r |= @as(u64, bits) << (k * w);
+    }
+    return r;
+}
+
+/// `v` itself, through an empty `asm` that LLVM cannot see into, on x86-64
+/// (`x` is an SSE or AVX register); elsewhere `v` as it is.
+inline fn opaqueBytes(v: anytype) @TypeOf(v) {
+    if (comptime !x86_llvm) return v;
+    return asm (""
+        : [out] "=x" (-> @TypeOf(v)),
+        : [in] "0" (v),
+    );
+}
+
+const x86_llvm = builtin.cpu.arch == .x86_64 and builtin.zig_backend == .stage2_llvm;
 
 /// simdjson's reduction: each lane's bit weighted within its byte, then
 /// pairwise adds (`addp`) fold 16 lanes into 2 bytes, 64 into 8.
@@ -3607,6 +3662,7 @@ const Order = struct {
 };
 
 test "maskBits: every form agrees" {
+    @setEvalBranchQuota(10_000);
     var prng = std.Random.DefaultPrng.init(0x5eed);
     const r = prng.random();
     inline for (.{ 2, 4, 8, 16, 32, 64 }) |n| {
@@ -3621,10 +3677,12 @@ test "maskBits: every form agrees" {
             try testing.expectEqual(want, maskBitsCast(n, m));
             if (n >= 8) try testing.expectEqual(want, maskBitsSwar(n, bytes));
             if (n >= 16) try testing.expectEqual(want, maskBitsPieces(n, bytes));
+            if (n > 16) try testing.expectEqual(want, maskBitsOpaque(n, bytes));
             if (comptime (n == 32 or n == 64) and neonIntrinsics()) try testing.expectEqual(want, maskBitsNeon(n, bytes));
             // A vector of `bool` and the mask of its lanes alike.
             inline for (.{ m, w }) |x| {
                 try testing.expectEqual(want, maskBits(x));
+                try testing.expectEqual(~want & std.math.maxInt(@Int(.unsigned, n)), maskBitsNot(x));
                 try testing.expectEqual(want != 0, maskAny(x));
                 try testing.expectEqual(if (want == 0) null else @as(?i64, @ctz(want)), maskFirst(x));
                 try testing.expectEqual(want == std.math.maxInt(@Int(.unsigned, n)), maskAll(x));
@@ -3752,6 +3810,8 @@ test "vecShl, vecShlWrap, vecShr: every lane type and amount" {
 }
 
 test "mask helpers: a mask known at compile time" {
+    // Every helper below runs at compile time, against this one quota.
+    @setEvalBranchQuota(10_000);
     inline for (.{ 8, 16, 32, 64 }) |n| {
         const none = maskOf(Mask(n), @splat(false));
         const all = maskOf(Mask(n), @splat(true));
@@ -3766,6 +3826,14 @@ test "mask helpers: a mask known at compile time" {
         try testing.expectEqual(@as(u64, 0), maskBits(none));
         try testing.expectEqual(@as(u64, 1) << (n - 1), maskBits(one));
         try testing.expectEqual(@as(u64, std.math.maxInt(@Int(.unsigned, n))), maskBits(all));
+        try testing.expectEqual(maskBits(none), maskBitsNot(all));
+        try testing.expectEqual(~(@as(u64, 1) << (n - 1)) & std.math.maxInt(@Int(.unsigned, n)), maskBitsNot(one));
+        // Evaluated by Zig at compile time, the pieces take no `asm`.
+        if (n > 16) try testing.expectEqual(@as(u64, 1) << (n - 1), comptime blk: {
+            var bytes: [n]u8 = @splat(0);
+            bytes[n - 1] = 0xFF;
+            break :blk maskBitsOpaque(n, bytes);
+        });
     }
 }
 
