@@ -142,11 +142,13 @@ tools that take them in `bench/json/`.
    trade-off: freeing registers can lose in a large function, so judge it
    on `document`'s wall time, not on a micro-benchmark.
    *Verified (measured); parked for a write window.*
-9. **No multiple results.** `take_digits` returns the position and hands
-   the digits' value back through `m: !U64`, which stays in a register
-   only when the call is inlined; a whitespace cache cannot stay in
-   `document`'s registers across `key` for the same reason. Fix: multiple
-   results, lowered to registers. *Observed.*
+9. **Results through memory.** `take_digits` returns the position and
+   hands the digits' value back through `m: !U64`, which stays in a
+   register only when the call is inlined; a whitespace cache cannot
+   stay in `document`'s registers across `key` for the same reason.
+   Several results now exist (`-> (Int, U64)`), but Zig returns them
+   through memory, as it does an object. Fix: small results in
+   registers (TODO.md). *Observed.*
 10. **Proofs stop at a call.** `skip_space(src, i)` always returns a
     value at least `i`, but `document`'s next `src[i]` still tests
     `i >= 0`, since the fact does not cross the call. Fix: facts a
