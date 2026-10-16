@@ -22,5 +22,5 @@ sub main()
 # error: 16:9: operator `<` orders a plain enum's values; `Tag[Int]` is a generic enum, whose variants have no integer value
 # error: 16:16: operator `>=` orders a plain enum's values; `Tag[Int]` is a generic enum
 # error: 17:9: operator `>=` orders a declared enum's values; the built-in enum `Arch` has no integer value
-# error: 18:9: max[Arch]` cannot use `T = Arch`
-# error: 19:9: min[Tag[Int]]` cannot use `T = Tag[Int]`
+# error: 18:14: max[Arch]` cannot use `T = Arch`
+# error: 19:14: min[Tag[Int]]` cannot use `T = Tag[Int]`
