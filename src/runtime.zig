@@ -243,10 +243,11 @@ fn dropElement(comptime T: type, value: *T) void {
         .optional => if (value.*) |*inner| dropElement(@TypeOf(inner.*), inner),
         .error_union => if (value.*) |*inner| dropElement(@TypeOf(inner.*), inner) else |_| {},
         .array => {
-            var i: usize = value.len;
+            const items: []@typeInfo(T).array.child = value;
+            var i: usize = items.len;
             while (i > 0) {
                 i -= 1;
-                dropElement(@TypeOf(value[i]), &value[i]);
+                dropElement(@typeInfo(T).array.child, &items[i]);
             }
         },
         .@"struct" => if (@hasDecl(T, "__rig_drop")) value.__rig_drop() else dropFields(value),
