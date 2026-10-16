@@ -128,10 +128,10 @@ check(unknown.get("error", {}).get("code"), -32601, "an unknown request")
 published = open_doc(c, "parse.rig")
 check(list(published), [_lsp.uri("parse.rig")], "the files a parse error publishes to")
 check(published[_lsp.uri("parse.rig")]["diagnostics"], [
-    {"range": rng(2, 10, 2, 10), "severity": 1, "source": "rig", "message": "unexpected end of block; expected `)`", "relatedInformation": [
+    {"range": rng(2, 10, 2, 10), "severity": 1, "source": "rig", "message": "unexpected end of block; expected `,` or `)`", "relatedInformation": [
         {"location": {"uri": _lsp.uri("parse.rig"), "range": rng(1, 6, 1, 7)}, "message": "the `(` opened here is not closed"}]},
     {"range": rng(1, 6, 1, 7), "severity": 3, "source": "rig", "message": "the `(` opened here is not closed", "relatedInformation": [
-        {"location": {"uri": _lsp.uri("parse.rig"), "range": rng(2, 10, 2, 10)}, "message": "unexpected end of block; expected `)`"}]},
+        {"location": {"uri": _lsp.uri("parse.rig"), "range": rng(2, 10, 2, 10)}, "message": "unexpected end of block; expected `,` or `)`"}]},
 ], "the parse error and its note")
 
 # --- an ownership error, with its note as related information -------------

@@ -269,7 +269,7 @@ fn colourOf(cat: TokenCat) Colour {
         .kwarg_name => .{ .class = .{ .kind = .parameter } },
         .true, .false => .uncoloured,
         .@"if", .@"else", .@"while", .@"for", .in, .match, .@"return", .@"break", .@"continue", .pass, .@"defer", .@"errdefer", .@"catch", .@"try", .await, .yield, .post_if, .ternary_if => .{ .class = control },
-        .as, .drop, .@"enum", .@"error", .@"extern", .fun, .new, .obj, .rarely, .called, .@"pub", .raw, .sub, .@"test", .type, .use, .zig, .async, .@"const", .impl, .trait, .when, .where, .of => .{ .class = keyword },
+        .as, .drop, .@"enum", .@"error", .@"extern", .fun, .new, .obj, .rarely, .called, .@"inline", .@"pub", .raw, .sub, .@"test", .type, .use, .zig, .async, .@"const", .impl, .trait, .when, .where, .of => .{ .class = keyword },
         .@"and", .@"or", .not => .{ .class = operator },
         .plus, .minus, .star, .slash, .percent, .plus_wrap, .minus_wrap, .star_wrap, .plus_sat, .minus_sat, .power => .{ .class = operator },
         .eq, .ne, .lt, .gt, .le, .ge, .and_sym, .or_sym, .not_sym, .question, .nullish, .nullish_jump => .{ .class = operator },
@@ -277,7 +277,8 @@ fn colourOf(cat: TokenCat) Colour {
         .assign, .fixed_assign, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .amp_assign, .bar_assign, .caret_assign => .{ .class = operator },
         .lshift_assign, .lshift_wrap_assign, .rshift_assign, .plus_wrap_assign, .minus_wrap_assign, .star_wrap_assign, .plus_sat_assign, .minus_sat_assign => .{ .class = operator },
         .arrow, .fat_arrow => .{ .class = operator },
-        .at, .lparen, .rparen, .lbracket, .rbracket, .comma, .colon, .dot, .dotdot, .dotdot_open, .step_colon => .uncoloured,
+        .at, .lparen, .rparen, .lbracket, .rbracket, .comma, .as_comma, .colon, .dot, .dotdot, .dotdot_open, .step_colon => .uncoloured,
+        .label_at => .{ .class = .{ .kind = .label } },
         .indent, .outdent, .newline, .eof, .skip => .uncoloured,
     };
 }
@@ -422,11 +423,10 @@ const Classifier = struct {
         }
     }
 
-    /// A label and the `:` before it.
+    /// A label's name; the `@` before it is its own token, `label_at`.
     fn label(c: *Classifier, leaf: Sexp) !void {
         const s = c.parsed.leafSpan(leaf) orelse return;
         try c.putAt(s.start, .{ .kind = .label });
-        if (s.start > 0) try c.putAt(s.start - 1, .{ .kind = .label, .need = .initOne(.colon) });
     }
 };
 
@@ -787,14 +787,14 @@ test "tokens: labels, builtins, suffix sigils, and a rejected token" {
     defer arena.deinit();
     const got = try renderTokens(arena.allocator(),
         \\sub f()!
-        \\  :outer while true
-        \\    break :outer
+        \\  @outer while true
+        \\    break @outer
         \\  n = @sizeOf(Int)
         \\  x = g()?
         \\  y = 1 && 2
         \\
     );
-    for ([_][]const u8{ "f:function.declaration !:modifier ", "::label outer:label ", "while:keyword.control ", "break:keyword.control ::label outer:label ", "@:function.defaultLibrary sizeOf:function.defaultLibrary ", "?:modifier ", "&&:invalid " }) |want| {
+    for ([_][]const u8{ "f:function.declaration !:modifier ", "@:label outer:label ", "while:keyword.control ", "break:keyword.control @:label outer:label ", "@:function.defaultLibrary sizeOf:function.defaultLibrary ", "?:modifier ", "&&:invalid " }) |want| {
         if (std.mem.find(u8, got, want) == null) {
             std.debug.print("missing `{s}` in: {s}\n", .{ want, got });
             return error.TestExpectedEqual;
