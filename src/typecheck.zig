@@ -7637,6 +7637,16 @@ const Checker = struct {
             try self.errAt(arg, "`{s}` moves values whole, and `{s}` holds a Cell, so it lives only behind a shared handle, whose other fields only read", .{ what, try self.tyName(place) });
             return null;
         }
+        // A Signal changes only by its marked calls: exchanged whole, its
+        // subscribers would move with it, while `set` may be running them.
+        const signal = switch (self.ctx.types.get(place)) {
+            .parameterized_nominal => |pn| pn.sym == self.ctx.signal_sym_id,
+            else => false,
+        };
+        if (signal) {
+            try self.errAt(arg, "`{s}` moves values whole, and a `{s}` changes only by its marked calls (`!s.set(v)`), which may be running its subscribers", .{ what, try self.tyName(place) });
+            return null;
+        }
         if (!arg.isKind(.write)) try self.checkLendsVisibly(arg, ty, "the call writes through");
         return place;
     }
