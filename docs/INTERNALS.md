@@ -2147,8 +2147,7 @@ compare-and-mask kernel):
 | Target | Form | 64 lanes |
 |---|---|---:|
 | aarch64 with NEON, LLVM | the mask as bytes, weighted, then pairwise adds (`llvm.aarch64.neon.addp.v16i8`), read as one lane of a `u64` vector, for 32 and 64 lanes; `any` and `all` as a byte `umaxv` or `uminv` | 31 |
-| x86-64 (SSE2, AVX2) | `@bitCast` (`pmovmskb`), its bits of 32 and 64 lanes held opaque (`opaqueBits`, below) | 39, 21 |
-| x86-64 with AVX-512BW | `@bitCast` (`vpcmpeqb` into a `k` register, `kmovq`) | |
+| x86-64 (SSE2, AVX2) | `pmovmskb` per 16 lanes (32 on AVX2); for 32 and 64 lanes, each piece's bytes held opaque first (`maskBitsOpaque`, below). With AVX-512BW, `@bitCast` (a `k` register, `kmovq`) | 39, 21 |
 | WASM SIMD | 16-lane bitmasks (`i8x16.bitmask`) for more than 16 lanes; `any` and `all` OR or AND the pieces by halving shuffles and test them once (`v128.any_true`, `i8x16.all_true`) | 64 (511 by `@bitCast`) |
 | WASM without SIMD | each lane a byte, eight gathered by one multiply | 851, but 1.75x faster under wasmtime than `@bitCast`'s 779 |
 
@@ -2157,12 +2156,15 @@ LLVM reads the bits of a `@bitCast` mask of 32 or 64 lanes as the
 on its lanes instead: a classifier's checked `<<` of them became a
 shuffle of the lanes, which x86 without AVX-512 does a lane at a time
 (`pextrb` and `pinsrb`, or bytes through the stack: 120 lane moves a
-block). So `maskBitsCast` passes the bits of
-more than 16 lanes through an empty `asm` (`opaqueBits`), which LLVM
-cannot see into, except at compile time and where AVX-512BW holds the
-mask in a `k` register. The cost: two masks' bits combined after
-`bits()` take a `pmovmskb` each, where LLVM would combine the lanes
-first; combined as masks (`(a ^ b).bits()`), they take one.
+block). So on x86-64 without AVX-512BW, `maskBitsOpaque` takes the
+bitmask of each piece of 16 lanes (32 on AVX2) from bytes that first
+pass through an empty `asm` (`opaqueBytes`), which LLVM cannot see
+into; the bits it gets are integers. LLVM still leaves out a piece
+whose bits go unused, and on AVX2 still ORs two masks' pieces before
+one `pmovmskb`. On SSE2 alone, two masks' bits combined after `bits()`
+(`a.bits() | b.bits()`) take a `pmovmskb` each; combined as masks
+(`(a | b).bits()`), they take one. At compile time the bytes are used
+as they are.
 
 `m.not().bits()` flips the bits after `bits()` (`rig.maskBitsNot`,
 `~bits & lanes`). Flipping the lanes first costs NEON a vector

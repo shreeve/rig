@@ -7,7 +7,9 @@
 # - x86 without AVX-512 (baseline SSE2 and x86-64-v3): no mask is rebuilt
 #   a lane at a time (`pextrb`, `pinsrb`, or bytes through the stack), even
 #   where a classifier shifts the bits with a checked `<<`, which LLVM
-#   would otherwise do on the lanes (`opaqueBits`);
+#   would otherwise do on the lanes (`maskBitsOpaque`), and a use of
+#   some of the bits (`bits() & 0xFF`, `bits() >> 63`) takes one piece's
+#   `pmovmskb` only;
 # - WASM SIMD: `any()` and `all()` of a flipped 64-lane mask move no lane;
 # - x86 debug builds, which Zig's own backend makes, compile.
 source "$ROOT/test/cli/_lib.sh"
@@ -58,15 +60,30 @@ fun spaces(s: ?String) -> Int
     n += 2 if m.not().all() else 0
   n
 
+fun ends(s: ?String) -> U64
+  acc: U64 = 0
+  i = 0
+  while i + 64 <= s.len : i += 64
+    m = s.read[W64](i) == 0x22
+    acc = acc +% (m.bits() & 0xFF) +% (m.bits() >> 63)
+  acc
+
+fun low(s: ?String) -> U64
+  acc: U64 = 0
+  i = 0
+  while i + 64 <= s.len : i += 64
+    acc = acc +% ((s.read[W64](i) == 0x3A).bits() & 0xFF)
+  acc
+
 sub main()
   s = String()
   # Each block of 64 ends in a space, so `starts` shifts out no bit.
   for k in 0..1024
     !s.push(0x20 if k % 64 == 63 else U8(" \x0a{\"a\": 1, \"b\": [2, 3]}\x09\x0d:x"[k % 26]))
-  print(nonspace64(?s), nonspace32(?s), starts(?s), spaces(?s))
+  print(nonspace64(?s), nonspace32(?s), starts(?s), spaces(?s), ends(?s), low(?s))
 RIG
 out=$(rig run --release wm.rig 2>&1) || fail "run: $out"
-expect_eq "$out" "699 775 1309964357605222691 16" "run"
+expect_eq "$out" "699 775 1309964357605222691 16 882 410" "run"
 out=$(rig emit wm.rig 2>&1) || fail "emit: $out"
 expect_has "$out" 'rig.maskBitsNot(rig.maskOr(' "m.not().bits() flips the bits"
 grep -qF 'rig.maskBits(rig.maskNot(' <<<"$out" && fail "m.not().bits() flips the lanes: $out"
@@ -85,6 +102,12 @@ export fn x_starts(p: [*]const u8, n: usize) u64 {
 }
 export fn x_spaces(p: [*]const u8, n: usize) i64 {
     return m.spaces(p[0..n]);
+}
+export fn x_ends(p: [*]const u8, n: usize) u64 {
+    return m.ends(p[0..n]);
+}
+export fn x_low(p: [*]const u8, n: usize) u64 {
+    return m.low(p[0..n]);
 }
 ZIG
 
@@ -126,13 +149,17 @@ for k, adds in (("x_nonspace64", 4), ("x_nonspace32", 3)):
     if count(a64[k], r"\bmvn\.16b\b"): bad.append(f"a64 {k}: flips lanes (mvn.16b)")
 lanes = r"\b(v?pextrb|v?pinsrb|v?pextrw|v?pinsrw)\b|byte ptr \[r[bs]p"
 for t in ("x64", "x64v3"):
-    for k, body in bodies(f"{d}/{t}.s").items():
+    x64 = bodies(f"{d}/{t}.s")
+    for k, body in x64.items():
         if count(body, lanes): bad.append(f"{t} {k}: moves lanes one by one")
         if not count(body, r"\bv?pmovmskb\b"): bad.append(f"{t} {k}: no pmovmskb")
+    # Some of the bits take only their pieces' `pmovmskb`.
+    for k, most in (("x_low", 1), ("x_ends", 2)):
+        if count(x64[k], r"\bv?pmovmskb\b") > most: bad.append(f"{t} {k}: more than {most} pmovmskb")
 wasm = bodies(f"{d}/wasm.s")
 for k, body in wasm.items():
     if count(body, r"extract_lane|replace_lane"): bad.append(f"wasm {k}: moves lanes one by one")
-if len(a64) != 4 or len(wasm) != 4: bad.append(f"kernels found: a64 {len(a64)}, wasm {len(wasm)}")
+if len(a64) != 6 or len(wasm) != 6: bad.append(f"kernels found: a64 {len(a64)}, wasm {len(wasm)}")
 if bad:
     print("FAIL: " + "; ".join(bad)); sys.exit(1)
 PY
