@@ -1,0 +1,182 @@
+# Every keyword but `if` names a member where it cannot be mistaken for
+# the keyword (SYNTAX.md, "Keywords"): a field, a method, and a
+# payload field, read after `.` and before `:` inside parentheses.
+# `if` names none (test/torture/03_keyword_as_field.rig).
+
+obj O
+  fun: Int
+  sub: Int
+  enum: Int
+  error: Int
+  type: Int
+  use: Int
+  pub: Int
+  extern: Int
+  test: Int
+  drop: Int
+  const: Int
+  else: Int
+  while: Int
+  for: Int
+  in: Int
+  match: Int
+  break: Int
+  continue: Int
+  return: Int
+  defer: Int
+  errdefer: Int
+  pass: Int
+  and: Int
+  or: Int
+  not: Int
+  as: Int
+  catch: Int
+  true: Int
+  false: Int
+  raw: Int
+  zig: Int
+  try: Int
+  async: Int
+  await: Int
+  impl: Int
+  trait: Int
+  when: Int
+  where: Int
+  yield: Int
+
+  fun fun2(?self) -> Int
+    self.fun
+
+  fun sub2(?self) -> Int
+    self.sub
+
+  fun enum2(?self) -> Int
+    self.enum
+
+  fun error2(?self) -> Int
+    self.error
+
+  fun type2(?self) -> Int
+    self.type
+
+  fun use2(?self) -> Int
+    self.use
+
+  fun pub2(?self) -> Int
+    self.pub
+
+  fun extern2(?self) -> Int
+    self.extern
+
+  fun test2(?self) -> Int
+    self.test
+
+  fun drop2(?self) -> Int
+    self.drop
+
+  fun const2(?self) -> Int
+    self.const
+
+  fun else2(?self) -> Int
+    self.else
+
+  fun while2(?self) -> Int
+    self.while
+
+  fun for2(?self) -> Int
+    self.for
+
+  fun in2(?self) -> Int
+    self.in
+
+  fun match2(?self) -> Int
+    self.match
+
+  fun break2(?self) -> Int
+    self.break
+
+  fun continue2(?self) -> Int
+    self.continue
+
+  fun return2(?self) -> Int
+    self.return
+
+  fun defer2(?self) -> Int
+    self.defer
+
+  fun errdefer2(?self) -> Int
+    self.errdefer
+
+  fun pass2(?self) -> Int
+    self.pass
+
+  fun and2(?self) -> Int
+    self.and
+
+  fun or2(?self) -> Int
+    self.or
+
+  fun not2(?self) -> Int
+    self.not
+
+  fun as2(?self) -> Int
+    self.as
+
+  fun catch2(?self) -> Int
+    self.catch
+
+  fun true2(?self) -> Int
+    self.true
+
+  fun false2(?self) -> Int
+    self.false
+
+  fun raw2(?self) -> Int
+    self.raw
+
+  fun zig2(?self) -> Int
+    self.zig
+
+  fun try2(?self) -> Int
+    self.try
+
+  fun async2(?self) -> Int
+    self.async
+
+  fun await2(?self) -> Int
+    self.await
+
+  fun impl2(?self) -> Int
+    self.impl
+
+  fun trait2(?self) -> Int
+    self.trait
+
+  fun when2(?self) -> Int
+    self.when
+
+  fun where2(?self) -> Int
+    self.where
+
+  fun yield2(?self) -> Int
+    self.yield
+
+enum P
+  pp(fun: Int, sub: Int, enum: Int, error: Int, type: Int, use: Int, pub: Int, extern: Int, test: Int, drop: Int, const: Int, else: Int, while: Int, for: Int, in: Int, match: Int, break: Int, continue: Int, return: Int, defer: Int, errdefer: Int, pass: Int, and: Int, or: Int, not: Int, as: Int, catch: Int, true: Int, false: Int, raw: Int, zig: Int, try: Int, async: Int, await: Int, impl: Int, trait: Int, when: Int, where: Int, yield: Int)
+  qq
+
+fun total(p: P) -> Int
+  match p
+    .pp(fun: v0, sub: v1, enum: v2, error: v3, type: v4, use: v5, pub: v6, extern: v7, test: v8, drop: v9, const: v10, else: v11, while: v12, for: v13, in: v14, match: v15, break: v16, continue: v17, return: v18, defer: v19, errdefer: v20, pass: v21, and: v22, or: v23, not: v24, as: v25, catch: v26, true: v27, false: v28, raw: v29, zig: v30, try: v31, async: v32, await: v33, impl: v34, trait: v35, when: v36, where: v37, yield: v38) => v0 + v1 + v2 + v3 + v4 + v5 + v6 + v7 + v8 + v9 + v10 + v11 + v12 + v13 + v14 + v15 + v16 + v17 + v18 + v19 + v20 + v21 + v22 + v23 + v24 + v25 + v26 + v27 + v28 + v29 + v30 + v31 + v32 + v33 + v34 + v35 + v36 + v37 + v38
+    .qq => 0
+
+sub main()
+  o = O(fun: 0, sub: 1, enum: 2, error: 3, type: 4, use: 5, pub: 6, extern: 7, test: 8, drop: 9, const: 10, else: 11, while: 12, for: 13, in: 14, match: 15, break: 16, continue: 17, return: 18, defer: 19, errdefer: 20, pass: 21, and: 22, or: 23, not: 24, as: 25, catch: 26, true: 27, false: 28, raw: 29, zig: 30, try: 31, async: 32, await: 33, impl: 34, trait: 35, when: 36, where: 37, yield: 38)
+  print(o.fun, o.sub, o.enum, o.error, o.type, o.use, o.pub, o.extern, o.test, o.drop)
+  print(o.fun2() + o.sub2() + o.enum2() + o.error2() + o.type2() + o.use2() + o.pub2() + o.extern2() + o.test2() + o.drop2() + o.const2() + o.else2() + o.while2() + o.for2() + o.in2() + o.match2() + o.break2() + o.continue2() + o.return2() + o.defer2() + o.errdefer2() + o.pass2() + o.and2() + o.or2() + o.not2() + o.as2() + o.catch2() + o.true2() + o.false2() + o.raw2() + o.zig2() + o.try2() + o.async2() + o.await2() + o.impl2() + o.trait2() + o.when2() + o.where2() + o.yield2())
+  print(total(.pp(fun: 1, sub: 1, enum: 1, error: 1, type: 1, use: 1, pub: 1, extern: 1, test: 1, drop: 1, const: 1, else: 1, while: 1, for: 1, in: 1, match: 1, break: 1, continue: 1, return: 1, defer: 1, errdefer: 1, pass: 1, and: 1, or: 1, not: 1, as: 1, catch: 1, true: 1, false: 1, raw: 1, zig: 1, try: 1, async: 1, await: 1, impl: 1, trait: 1, when: 1, where: 1, yield: 1)))
+
+# expect:
+# 0 1 2 3 4 5 6 7 8 9
+# 741
+# 39
