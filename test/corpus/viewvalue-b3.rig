@@ -1,0 +1,15 @@
+use std.hash
+
+obj H
+  s: ?String
+  n: Int
+
+sub main()
+  s = String("abc")
+  hs = hash.Map[String, H]()
+  !hs.put(String("a"), H(s: ?s, n: 1))
+  n = (hs.get("a") ?? H(s: "z", n: 0)).n
+  t = (hs.get("a") ?? H(s: "z", n: 0)).s
+  hs = hash.Map[String, H]()
+  !s.add("d")
+  print(n, t)

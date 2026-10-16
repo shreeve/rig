@@ -1,0 +1,12 @@
+use std.hash
+
+obj P
+  x: Int
+
+sub main()
+  q = hash.Map[String, P]()
+  !q.put(String("y"), P(x: 1))
+  d = P(x: 9)
+  c = q.len > 0
+  x: (?P)? = ?q.get("z") ?? ((?q.get("y") ?? none) if c else ?d)
+  print(x)

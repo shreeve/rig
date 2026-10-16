@@ -1,0 +1,41 @@
+error Bad
+  oops
+  worse
+
+obj P
+  x: Int
+
+fun pick(r: ?P, n: Int) -> (?P)! from r
+  return Bad.oops if n == 1
+  return Bad.worse if n == 2
+  r
+
+fun wpick(r: !P, n: Int) -> (!P)! from r
+  return Bad.oops if n == 1
+  r
+
+fun go(a: ?P, n: Int) -> Int
+  q = pick(a, n) catch |e|
+    print("handler", e)
+    return -1 if e == Bad.worse
+    P(x: 50)
+  q.x
+
+fun go2(a: ?P, n: Int) -> Int
+  q = pick(a, n) catch |e|
+    print("h2", e)
+    return -1
+  q.x
+
+sub main()
+  a = P(x: 1)
+  seen: List[error] = List()
+  print(go(?a, 0), go(?a, 1), go(?a, 2), go2(?a, 0), go2(?a, 1))
+  b = pick(?a, 1) catch |e|
+    !seen.push(<e)
+    P(x: 7)
+  c = wpick(!a, 0) catch P(x: 8)
+  c.x = 99
+  d = wpick(!a, 1) catch P(x: 8)
+  a.x = 3
+  print(b.x, c.x, d.x, a.x, seen)

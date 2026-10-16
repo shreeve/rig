@@ -4425,5 +4425,9 @@ rootidx.listbox.recv.root main
 rootidx.listbox.wrecv.root main
 rootidx.nested.recv.root main
 rootidx.nested.wrecv.root main
+test/corpus/viewvalue-a6.rig main
+test/corpus/viewvalue-c2.rig main
+test/corpus/viewvalue-c3.rig main
+test/corpus/viewvalue-e5.rig main
 test/corpus/rev240-g01_view_of_closure_outlives_drop.rig main
 test/corpus/rev240-g02_view_of_closure_direct.rig main

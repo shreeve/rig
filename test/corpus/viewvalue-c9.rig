@@ -1,0 +1,20 @@
+use std.hash
+
+fun consume(m: hash.Map[String, Int]) -> Int
+  m.len
+
+sub main()
+  m = hash.Map[String, Int]()
+  !m.put(String("b"), 1)
+  x = m.get("a") ?? consume(<m)
+  print(x)
+  n = hash.Map[String, Int]()
+  !n.put(String("a"), 1)
+  y = (!n).edit("a") ?? consume(<n)
+  print(y)
+  k = hash.Map[String, Int]()
+  z = if k.get("a") as v
+    v
+  else
+    consume(<k)
+  print(z)

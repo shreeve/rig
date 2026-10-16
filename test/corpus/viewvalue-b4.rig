@@ -1,0 +1,26 @@
+use std.hash
+
+obj H
+  s: ?String
+  n: Int
+
+sub main()
+  s = String("abc")
+  hs = hash.Map[String, H]()
+  !hs.put(String("a"), H(s: ?s, n: 1))
+  h = hs.get("a") ?? H(s: "z", n: 0)
+  hs = hash.Map[String, H]()
+  print(h.s)
+  hs2 = hash.Map[String, H]()
+  !hs2.put(String("a"), H(s: ?s, n: 1))
+  t = (hs2.get("a") ?? H(s: "z", n: 0)).s
+  hs2 = hash.Map[String, H]()
+  print(t)
+  hs3 = hash.Map[String, H]()
+  !hs3.put(String("a"), H(s: ?s, n: 1))
+  u = if hs3.get("a") as v
+    v.s
+  else
+    "z"
+  hs3 = hash.Map[String, H]()
+  print(u)
