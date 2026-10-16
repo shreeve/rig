@@ -1,0 +1,53 @@
+# Every way a call inlines a marked `inline` function adds its values to
+# the frame the call is in: an instance of a compile-time value parameter,
+# a method of a generic object type, directly and through a shared handle,
+# a call in `defer`, and a call in a closure, whose frame is its own. An
+# `inline` function in the middle of a chain is no frame of its own: only
+# the function the chain is inlined into is reported.
+
+inline fun bign[n: Int](i: Int) -> Int
+  t = [1000000 of n]
+  t[i % 1000000]
+
+obj G[T]
+  v: T
+
+  inline fun big(?self, i: Int) -> Int
+    t = [1000000 of i]
+    t[i % 1000000]
+
+inline fun mid(i: Int) -> Int
+  bign[1](i) + bign[2](i)
+
+sub values(i: Int)
+  print(bign[1](i) + bign[2](i))
+
+sub methods(i: Int)
+  g = G[Int](v: 1)
+  h = *G[Int](v: 2)
+  print(g.big(i) + h.big(i))
+
+sub deferred(i: Int)
+  defer print(bign[1](i))
+  print(bign[2](i))
+
+sub closure(i: Int)
+  f = |+i| bign[1](i) + bign[2](i)
+  print(f())
+
+sub chain(i: Int)
+  print(mid(i))
+
+sub main()
+  values(1)
+  methods(1)
+  deferred(1)
+  closure(1)
+  chain(1)
+
+# error: 22:5: `values` keeps
+# error: 25:5: `methods` keeps
+# error: 30:5: `deferred` keeps
+# error: 35:7: a closure keeps
+# error: 38:5: `chain` keeps
+# errors: 5

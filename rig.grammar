@@ -23,8 +23,8 @@
 #     chain written down the page);
 #   * classifies three contextual words: `new` is a keyword only at the
 #     start of a statement before a name, `obj` only at the
-#     start of a declaration (after any `pub`) before a name, `called`
-#     and `rarely` only there before `fun` or `sub`, and `of` only after
+#     start of a declaration (after any `pub`) before a name, `inline`,
+#     `called`, and `rarely` only there before `fun` or `sub`, and `of` only after
 #     a value directly inside [ ] (`[n of x]`); each is a name everywhere
 #     else (the other contextual words are the parser's: see @keywords);
 #   * marks a `..` whose next token is `]` as DOTDOT_OPEN, the end of an
@@ -65,9 +65,9 @@ tokens
     string_dq       # "double"
 
     # Keywords, `true` first and `yield` last (src/rig.zig reads the range
-    # as Rig's keywords). Every keyword but `new`, `obj`, `called`, and
-    # `rarely` is reserved, and is a lexer rule; those four are classified
-    # by the rewriter.
+    # as Rig's keywords). Every keyword but `new`, `obj`, `inline`,
+    # `called`, and `rarely` is reserved, and is a lexer rule; those five
+    # are classified by the rewriter.
     true
     false
     and
@@ -89,6 +89,7 @@ tokens
     match
     new             # a keyword only at statement start (`new x = ...`)
     obj             # a keyword only at the start of a type declaration (`obj Point`)
+    inline          # a keyword only before the `fun` or `sub` of a declaration
     rarely          # a keyword only before the `fun` or `sub` of a declaration
     called          # a keyword only before the `fun` or `sub` of a declaration
     not
@@ -363,8 +364,8 @@ tokens
     # Declarations
     module                      ...decls
     use                         name alias:leaf?
-    fun                         name:leaf tparams:group? params:group? returns? origins:group? body:block? owner? owner_params:group? mark:called|rarely?
-    sub                         name:leaf tparams:group? params:group? fails:tag(fails)? body:block? owner? owner_params:group? mark:called|rarely?
+    fun                         name:leaf tparams:group? params:group? returns? origins:group? body:block? owner? owner_params:group? mark:inline|called|rarely?
+    sub                         name:leaf tparams:group? params:group? fails:tag(fails)? body:block? owner? owner_params:group? mark:inline|called|rarely?
     lambda                      captures:captures? params:group? body:block
     struct                      name:leaf unique:tag(unique)? ...members
     enum, errors                name:leaf ...members
@@ -379,7 +380,7 @@ tokens
     zig_extern                  file:leaf ...decls
     zig_const                   name:leaf type
     drop_decl                   params:group body:block
-    called, rarely                                  # a function's marker
+    inline, called, rarely                          # a function's marker
     labeled                     label:leaf stmt
 
     # Parameters, fields, and enum members
@@ -457,7 +458,7 @@ tokens
     OUTDENT: "the end of the block"
     POST_IF: "`if`", TERNARY_IF: "`if`", BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`"
     KWARG_NAME: "a keyword argument"
-    OF: "`of`", OBJ: "`obj`", CALLED: "`called`", RARELY: "`rarely`", UNIQUE: "`unique`", FROM: "`from`", STATIC: "`static`"
+    OF: "`of`", OBJ: "`obj`", INLINE: "`inline`", CALLED: "`called`", RARELY: "`rarely`", UNIQUE: "`unique`", FROM: "`from`", STATIC: "`static`"
     DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", STEP_COLON: "`:`", LABEL_AT: "`@`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
@@ -622,9 +623,11 @@ mpath    = name
 # Parser wrapper can reject it with the header to write.
 #
 # A marker before `fun` or `sub` asks for a speed, never a meaning:
-# `called` keeps every call a call, and `rarely` says it is rarely
-# called, so it stays out of the code that calls it.
-mark     = CALLED                                   → (called)
+# `inline` inlines the function at every call, `called` keeps every call
+# a call, and `rarely` says it is rarely called, so it stays out of the
+# code that calls it.
+mark     = INLINE                                   → (inline)
+         | CALLED                                   → (called)
          | RARELY                                   → (rarely)
 
 fun      = [mark:mark] FUN name:name [tparams:tparams] [params:params] [returns:returns] [origins:origins] body:block → (fun)

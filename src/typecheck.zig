@@ -108,6 +108,10 @@ const Checker = struct {
     callee_node: ?Sexp = null,
     /// The call being checked, for its argument-slot fact.
     current_call: ?Sexp = null,
+    /// The compile-time parameters of its own and their arguments, of the
+    /// instance the last `instantiateCall` made; empty for a function that
+    /// has none (`noteTarget`).
+    inst_own: TypeSubst = .empty,
     /// The `new x` binding whose value is being checked: not visible yet.
     pending: SymbolId = sema.symbol_invalid,
     /// Enclosing `raw` blocks.
@@ -3818,7 +3822,7 @@ const Checker = struct {
                     try self.errAt(leaf, entry_point_use, .{});
                     return self.t().invalid_id;
                 }
-                return self.functionValue(sym.ty, s, leaf.src.pos);
+                return self.functionValue(sym.ty, s, leaf.src.pos, sym.flags.inline_marked);
             },
             else => return sym.ty,
         }
@@ -3832,8 +3836,13 @@ const Checker = struct {
     }
 
     /// A function named as a value. One with compile-time parameters has
-    /// an instance per call, and no single function value.
-    fn functionValue(self: *Checker, ty: TypeId, name: []const u8, pos: u32) Error!TypeId {
+    /// an instance per call, and no single function value; an `inline fun`
+    /// is inlined at every call, and has no address.
+    fn functionValue(self: *Checker, ty: TypeId, name: []const u8, pos: u32, inline_marked: bool) Error!TypeId {
+        if (inline_marked) {
+            try self.err(pos, "`{s}` is `inline`, inlined at every call, so it can only be called, not used as a value; to pass it, wrap the call in a closure", .{name});
+            return self.t().invalid_id;
+        }
         const f = self.ctx.types.get(ty);
         if (f == .function and f.function.ct_params.len != 0) {
             try self.err(pos, "`{s}` takes compile-time parameters, so it can only be called, not used as a value", .{name});
@@ -6132,7 +6141,7 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         const ty = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
-        if (found.sym.kind == .function) return try self.functionValue(ty, try self.ctx.arena.allocator().print("{s}.{s}", .{ self.text(obj), field }), pos);
+        if (found.sym.kind == .function) return try self.functionValue(ty, try self.ctx.arena.allocator().print("{s}.{s}", .{ self.text(obj), field }), pos, found.sym.flags.inline_marked);
         return ty;
     }
 
@@ -6243,7 +6252,7 @@ const Checker = struct {
                     return self.t().invalid_id;
                 }
                 const name = try self.ctx.arena.allocator().print("{s}.{s}", .{ tname, field });
-                return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos);
+                return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos, m.inline_marked);
             }
             if (!m.is_variant) break :found;
             if (nt.sym.kind == .generic_type and nt.args == null) {
@@ -7066,7 +7075,6 @@ const Checker = struct {
         const name = self.text(callee);
         if (self.isEntryPoint(sym)) return self.badCall(args, callee, entry_point_use, .{});
         if (self.isPoison(sym.ty)) return self.skipCall(args);
-        if (sym.kind == .function) try self.noteTarget(self.ctx.module_id, sym.decl_pos);
         const fty = self.ctx.types.get(sym.ty);
         if (fty != .function) return self.badCall(args, callee, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(sym.ty) });
         if (sym.kind == .@"extern" and self.raw_depth == 0) {
@@ -7074,6 +7082,7 @@ const Checker = struct {
         }
         const info = paramsOf(sym, self.ctx.source);
         const f = (try self.instantiateCall(fty.function, ct, args, info, 0, name, callee.src.pos, false, .empty)) orelse return self.skipCall(args);
+        if (sym.kind == .function) try self.noteTarget(self.ctx.module_id, sym.decl_pos, sym.flags.inline_marked, .empty);
         // A generic function's callee has the instance's signature.
         if (fty.function.ct_params.len > 0) try self.ctx.recordType(callee, try self.ctx.internCopy(.{ .function = f }));
         self.lend_call = true;
@@ -8445,6 +8454,7 @@ const Checker = struct {
     /// allow them, are recorded. Null after a diagnostic that makes the
     /// arguments not worth checking.
     fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const Sexp, info: ParamInfo, skip: usize, callee: []const u8, pos: u32, receiver_arg: bool, recv: TypeSubst) Error!?FunctionType {
+        self.inst_own = .empty;
         if (ct) |b| try self.ctx.recordInstance(b, .function);
         // A compile-time parameter was rejected: the declaration's
         // diagnostic says what is wrong with every call.
@@ -8504,6 +8514,7 @@ const Checker = struct {
         if (bad) return null;
         if (own.items.len == 0) {
             if (ct != null) try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
+            self.inst_own = .empty;
             return f;
         }
         if (ct == null) {
@@ -8520,6 +8531,7 @@ const Checker = struct {
         };
         const result = self.ctx.types.get(instance).function;
         try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
+        self.inst_own = .{ .params = own.items, .args = own_args };
         if (self.tentative == 0) _ = try self.ctx.recordFnInstance(.{
             .name = callee,
             .params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items }),
@@ -9744,7 +9756,6 @@ const Checker = struct {
             return self.skipCall(args);
         };
         const receiver = resolved.field.receiver;
-        try self.noteMethodTarget(resolved.field, resolved.owner_sym, resolved.module);
         _ = try self.noteMethod(callee, receiver, resolved.fn_ty.returns);
         try self.noteCallee(resolved.fn_ty);
         const misplaced_sigil = receiver != .none and try self.checkReceiverSigil(obj, receiver, resolved.fn_ty.returns, method);
@@ -9778,6 +9789,10 @@ const Checker = struct {
         }
         const info = methodParams(resolved.field, true, resolved.source);
         const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
+        // The type's parameters are bound by the object the receiver
+        // reaches, through views, handles, and boxes, as the method was
+        // found.
+        try self.noteMethodTarget(resolved.field, resolved.owner_sym, resolved.module, self.receiverArgs(sema.unwrapAccess(self.ctx, obj_ty)));
         if (!try self.meetsNeeds(resolved.field, resolved.nominal_sym, resolved.args, pos)) return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
         const rest: FunctionType = .{
@@ -9810,20 +9825,31 @@ const Checker = struct {
     /// Record the call being checked (`current_call`) as a call of the
     /// Rig function or method declared at `pos` in module `module`
     /// (`sema.CallTarget`): the one fact of what a call reaches, which
-    /// `inlining.decide` reads. A built-in declares none.
-    fn noteTarget(self: *Checker, module: u32, pos: u32) Error!void {
+    /// `inlining.decide` reads. A built-in declares none. A call of a
+    /// function marked `inline` also records the instance it makes
+    /// (`sema.InlineCall`): its type's parameters bound by `recv`, then
+    /// its own (`inst_own`, so this runs after `instantiateCall`), which
+    /// the frame check lands its values at (`FrameWalker.addInlined`).
+    fn noteTarget(self: *Checker, module: u32, pos: u32, marked: bool, recv: TypeSubst) Error!void {
         const call = self.current_call orelse return;
         if (pos >= sema.imported_decl_pos) return;
-        try self.ctx.recordCallTarget(call, .{ .function = .{ .module = module, .pos = pos } });
+        const fun: sema.FnRef = .{ .module = module, .pos = pos };
+        try self.ctx.recordCallTarget(call, .{ .function = fun });
+        if (!marked) return;
+        const a = self.ctx.arena.allocator();
+        try self.ctx.recordInlineCall(call, .{ .fun = fun, .subst = .{
+            .params = try std.mem.concat(a, SymbolId, &.{ recv.params, self.inst_own.params }),
+            .args = try std.mem.concat(a, TypeId, &.{ recv.args, self.inst_own.args }),
+        } });
     }
 
     /// `noteTarget` for the method `field` of the type `owner`, declared
     /// in module `module` (null for this one), or, for a proxy of
     /// another module's generic type, in the module the proxy stands for.
-    fn noteMethodTarget(self: *Checker, field: Field, owner: sema.Symbol, module: ?u32) Error!void {
+    fn noteMethodTarget(self: *Checker, field: Field, owner: sema.Symbol, module: ?u32, recv: TypeSubst) Error!void {
         if (owner.decl_pos == sema.builtin_decl_pos) return;
         const declared = module orelse if (sema.isProxy(owner)) owner.from.module_id else self.ctx.module_id;
-        try self.noteTarget(declared, field.decl_pos);
+        try self.noteTarget(declared, field.decl_pos, field.inline_marked, recv);
     }
 
     /// Records `callee` as the member a call resolved as a method, which
@@ -10156,7 +10182,6 @@ const Checker = struct {
             const m = members[(try sema.findMember(self.ctx, members, name, .any)) orelse break :found];
             if (m.is_method and !m.is_drop_method) {
                 try self.checkVisible(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, pos);
-                try self.noteMethodTarget(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null);
                 const fty = self.ctx.types.get(try self.memberType(nt.foreign, m.ty));
                 if (fty != .function) break :found;
                 var f = fty.function;
@@ -10172,6 +10197,7 @@ const Checker = struct {
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
                 const info = methodParams(m, false, source);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
+                try self.noteMethodTarget(m, nt.sym, if (nt.foreign) |fo| fo.module_id else null, recv);
                 if (!try self.meetsNeeds(m, nt.id, recv.args, pos)) return self.skipCall(args);
                 try self.noteCallee(f);
                 self.lend_call = true;
@@ -10300,12 +10326,12 @@ const Checker = struct {
         switch (found.sym.kind) {
             .type_alias => return self.aliasCall(self.current_call orelse Sexp.nil, self.callee_node orelse Sexp.nil, qualified, try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id), args, pos),
             .function, .@"extern" => {
-                if (found.sym.kind == .function) try self.noteTarget(found.module_id, found.sym.decl_pos);
                 const local = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
                 const fty = self.ctx.types.get(local);
                 if (fty != .function) return self.badCall(args, pos, "`{s}` cannot be called", .{qualified});
                 const info = paramsOf(found.sym, found.ctx.source);
                 const f = (try self.instantiateCall(fty.function, ct, args, info, 0, qualified, pos, false, .empty)) orelse return self.skipCall(args);
+                if (found.sym.kind == .function) try self.noteTarget(found.module_id, found.sym.decl_pos, found.sym.flags.inline_marked, .empty);
                 // A generic function's callee has the instance's signature.
                 try self.noteCallee(f);
                 self.lend_call = true;
@@ -13872,7 +13898,38 @@ pub fn checkFrames(ctx: *SemContext) Error!void {
     var w: FrameWalker = .{ .ctx = ctx };
     var i: u32 = 0;
     while (i < ctx.frame_owners.items.len) i = try checkOwnerTree(&w, i);
+    // What each `inline` function lands in a caller's frame, worked out
+    // here, where it is declared, for the modules that import this one.
+    var it = ctx.inline_decls.keyIterator();
+    while (it.next()) |pos| _ = try inlineFrame(ctx, pos.*, 1);
 }
+
+/// What the `inline` function declared at `pos` in this module lands in
+/// the frame of a call of it: the values it keeps and its copies, and
+/// those of the `inline` functions it calls in turn, each at the instance
+/// its call makes, over its own and its type's parameters. Its closures
+/// are frames of their own. Null while it is being worked out: a call on
+/// a cycle of `inline` functions, which `inlining.decide` reports, so the
+/// program is never emitted.
+fn inlineFrame(ctx: *SemContext, pos: u32, depth: u32) Error!?[]const sema.FrameSlot {
+    if (ctx.inline_frames.get(pos)) |known| return known;
+    const node = ctx.inline_decls.get(pos).?;
+    try ctx.inline_frames.put(ctx.allocator, pos, null);
+    var w: FrameWalker = .{ .ctx = ctx, .depth = depth };
+    var slots: FrameWalker.Slots = .empty;
+    defer slots.deinit(ctx.allocator);
+    for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try w.walk(part, &slots, false, false);
+    try w.paramCopies(ir.get(node, .params), &slots);
+    const kept = try ctx.arena.allocator().dupe(sema.FrameSlot, slots.items);
+    try ctx.inline_frames.put(ctx.allocator, pos, kept);
+    try ctx.inline_heights.put(ctx.allocator, pos, w.height);
+    return kept;
+}
+
+/// The most calls of marked `inline` functions that may nest, each
+/// inlined into the one around it: Zig's own analysis recurses once for
+/// each, and runs out of its stack some thousands deep.
+pub const max_inline_depth = 256;
 
 /// Check owner `i` after the closures in it, in source order, as a
 /// closure's frame is met inside its maker's: so a message about a
@@ -13917,8 +13974,8 @@ const OwnerWalker = struct {
     ctx: *SemContext,
 
     /// What the declarations around a function make it: a member of a
-    /// type, and of a generic one.
-    const Decl = struct { member: bool = false, generic_type: bool = false };
+    /// type, and of a generic one, and the type's name.
+    const Decl = struct { member: bool = false, generic_type: bool = false, type_name: []const u8 = "" };
 
     /// `copies`: how many times Zig writes the code `node` is in, which a
     /// `defer` or `errdefer` body multiplies by its exits
@@ -13936,7 +13993,7 @@ const OwnerWalker = struct {
             .fun, .sub => {
                 const name = ir.get(node, .name);
                 const label = try a.print("`{s}`", .{sema.identAt(ctx.source, name) orelse "?"});
-                const o = try self.add(.{ .kind = .function, .root = node, .parent = owner, .pos = ctx.startOf(name), .label = label, .member = decl.member, .of_generic_type = decl.generic_type });
+                const o = try self.add(.{ .kind = .function, .root = node, .parent = owner, .pos = ctx.startOf(name), .label = label, .member = decl.member, .of_generic_type = decl.generic_type, .type_name = decl.type_name });
                 for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try self.walk(part, o, 1, .{});
             },
             .@"test" => {
@@ -13954,8 +14011,10 @@ const OwnerWalker = struct {
                 const o = try self.add(.{ .kind = .closure, .root = node, .parent = owner, .pos = ctx.startOf(node), .label = "a closure" });
                 for ([_]Sexp{ ir.Lambda.params(node), ir.Lambda.body(node) }) |part| try self.walk(part, o, 1, .{});
             },
-            .@"struct", .@"enum", .errors => for (rig.children(node)) |c| try self.walk(c, owner, copies, .{ .member = true, .generic_type = decl.generic_type }),
-            .generic_struct, .generic_enum => for (rig.children(node)) |c| try self.walk(c, owner, copies, .{ .member = true, .generic_type = true }),
+            .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => {
+                const of: Decl = .{ .member = true, .generic_type = decl.generic_type or kind == .generic_struct or kind == .generic_enum, .type_name = sema.identAt(ctx.source, ir.get(node, .name)) orelse "" };
+                for (rig.children(node)) |c| try self.walk(c, owner, copies, of);
+            },
             .call => {
                 // The callee first, as its object's calls run first.
                 try self.walk(ir.Call.callee(node), owner, copies, decl);
@@ -13989,10 +14048,17 @@ const OwnerWalker = struct {
 
 const FrameWalker = struct {
     ctx: *SemContext,
+    /// How deep in calls of marked `inline` functions the body walked is
+    /// (`inlineFrame`): 0 for an owner's own.
+    depth: u32 = 0,
+    /// The deepest nesting of marked calls below the body walked, which
+    /// `inlineFrame` records (`SemContext.inline_heights`).
+    height: u32 = 0,
 
     /// A value the frame keeps, or (`copy`) a copy its code may make,
-    /// which counts in its reach alone.
-    const Slot = struct { ty: TypeId, name: []const u8, copy: bool = false };
+    /// which counts in its reach alone; `marked` when a call of a marked
+    /// `inline` function lands it there (`addInlined`).
+    const Slot = sema.FrameSlot;
     const Slots = std.ArrayList(Slot);
 
     /// `copied`: the value of `node` is made or copied where it is used,
@@ -14047,8 +14113,11 @@ const FrameWalker = struct {
                         else => {},
                     }
                     if (copied) try self.copy(node, f);
-                    // A receiver a method takes by value is copied.
-                    if (kind == .call) if (storage.receiverOf(ctx, node)) |recv| if (self.takesReceiver(node)) try self.copy(recv, f);
+                    if (kind == .call) {
+                        // A receiver a method takes by value is copied.
+                        if (storage.receiverOf(ctx, node)) |recv| if (self.takesReceiver(node)) try self.copy(recv, f);
+                        try self.addInlined(node, f);
+                    }
                 }
                 const kids = rig.children(node);
                 for (kids, 0..) |c, i| {
@@ -14106,7 +14175,72 @@ const FrameWalker = struct {
         var exits: usize = 1;
         for (rest) |r| exits += countExits(r);
         const once = try ctx.arena.allocator().dupe(Slot, f.items[start..]);
-        for (1..exits) |_| for (once) |slot| try f.append(ctx.allocator, .{ .ty = slot.ty, .name = "", .copy = true });
+        for (1..exits) |_| for (once) |slot| try f.append(ctx.allocator, .{ .ty = slot.ty, .name = "", .copy = true, .marked = slot.marked });
+    }
+
+    /// The values a call of a marked `inline` function lands in the frame
+    /// it is in (`sema.InlineCall`): the function's own values and copies
+    /// and those of the marked functions it calls in turn
+    /// (`inlineFrame`), at the instance the call makes, in this module's
+    /// types, each marked. The count fails closed: a frame no count knows,
+    /// or one the instance does not make concrete, is an error at the
+    /// call, never no values.
+    fn addInlined(self: *FrameWalker, call: Sexp, f: *Slots) Error!void {
+        const ctx = self.ctx;
+        const ic = ctx.inlineCallOf(call) orelse return;
+        const decl = ctx.declaringContext(ic.fun) orelse return self.unknownFrame(call, "its module is not loaded");
+        const local = decl == @as(*const SemContext, ctx);
+        if (!decl.inline_decls.contains(ic.fun.pos)) return self.unknownFrame(call, "its declaration is not recorded");
+        // Zig inlines each call into the body it is in, nested as deep as
+        // the calls are: past `max_inline_depth` Zig itself runs out of
+        // stack, so a deeper nesting is an error, found before this walk
+        // goes deeper.
+        if (self.depth + 1 > max_inline_depth) return self.tooDeep(call);
+        const slots = if (local)
+            // Null on a cycle of `inline` functions, which
+            // `inlining.decide` reports, so the program is never emitted.
+            (try inlineFrame(ctx, ic.fun.pos, self.depth + 1)) orelse return
+        else
+            // The module that declares it worked out its frame
+            // (`checkFrames`), unless that module failed its check.
+            (decl.inline_frames.get(ic.fun.pos) orelse return self.unknownFrame(call, "its module did not count it")) orelse return self.unknownFrame(call, "its module did not count it");
+        const below = decl.inline_heights.get(ic.fun.pos) orelse 0;
+        if (self.depth + 1 + below > max_inline_depth) return self.tooDeep(call);
+        self.height = @max(self.height, below + 1);
+        // The instance binds every parameter the frame mentions: with each
+        // argument poisoned, none is left.
+        const a = ctx.arena.allocator();
+        const blank = try a.alloc(TypeId, ic.subst.args.len);
+        @memset(blank, ctx.types.invalid_id);
+        for (slots) |slot| {
+            const ty = if (local) slot.ty else try sema.importType(ctx, decl, slot.ty, ic.fun.module);
+            if (sema.containsTypeVar(ctx, try sema.substituteType(ctx, ty, .{ .params = ic.subst.params, .args = blank })))
+                return self.unknownFrame(call, "the call does not bind every parameter its values hold");
+            try f.append(ctx.allocator, .{ .ty = try sema.substituteType(ctx, ty, ic.subst), .name = slot.name, .copy = slot.copy, .marked = true });
+        }
+    }
+
+    /// A copy of each parameter of the function whose parameters are
+    /// `params`: where it is inlined, Zig's code copies each into a local
+    /// of its own (`rig.rt`), beside the argument a call makes and the
+    /// parameter itself.
+    fn paramCopies(self: *FrameWalker, params: Sexp, f: *Slots) Error!void {
+        if (params != .list) return;
+        for (params.items()) |p| {
+            const name = sema.paramNameNode(p) orelse continue;
+            const id = self.ctx.symbolOf(name) orelse continue;
+            const sym = self.ctx.symbols.items[id];
+            if (sym.kind != .param or sym.flags.comptime_known) continue;
+            try f.append(self.ctx.allocator, .{ .ty = sym.ty, .name = "", .copy = true });
+        }
+    }
+
+    fn unknownFrame(self: *FrameWalker, call: Sexp, why: []const u8) Error!void {
+        try self.ctx.errAt(ir.Call.callee(call), "cannot count the values this `inline` call adds to the frame it is in ({s}); a frame must be known to be checked", .{why});
+    }
+
+    fn tooDeep(self: *FrameWalker, call: Sexp) Error!void {
+        try self.ctx.errAt(ir.Call.callee(call), "calls of `inline` functions nest more than {d} deep through this one, which no build can inline; drop `inline` from one of them", .{max_inline_depth});
     }
 
     /// The exits in `e` (`storage.leave_kinds`), not counting those in its
@@ -14160,69 +14294,111 @@ const FrameWalker = struct {
         const pos = owner.pos;
         var slots: Slots = .empty;
         defer slots.deinit(ctx.allocator);
-        const parts: []const Sexp = switch (owner.kind) {
+        const nodes: []const Sexp = switch (owner.kind) {
             .function, .drop => &.{ ir.get(root, .params), ir.get(root, .body) },
             .test_block => &.{ir.get(root, .body)},
             .closure => &.{ ir.Lambda.params(root), ir.Lambda.body(root) },
         };
-        for (parts) |p| try self.walk(p, &slots, false, false);
+        for (nodes) |p| try self.walk(p, &slots, false, false);
+        // A function's parameters, copied where the rule inlines it.
+        var params: Slots = .empty;
+        defer params.deinit(ctx.allocator);
+        if (owner.kind == .function) try self.paramCopies(ir.get(root, .params), &params);
         const items = slots.items;
-        if (items.len == 0) {
-            ctx.frame_owners.items[index].own = .{ .bytes = 0, .reach = 0 };
+        if (items.len + params.items.len == 0) {
+            ctx.frame_owners.items[index].own = .none;
             return;
         }
-        // The values first, then the copies.
+        // The values first, then the copies; in each, its own, then what
+        // marked calls land in it; then the parameters' copies.
         const arena = ctx.arena.allocator();
-        const tys = try arena.alloc(TypeId, items.len);
-        const names = try arena.alloc([]const u8, items.len);
+        const tys = try arena.alloc(TypeId, items.len + params.items.len);
+        const names = try arena.alloc([]const u8, tys.len);
         var n: usize = 0;
-        var copies: u32 = 0;
-        for ([_]bool{ false, true }) |want| for (items) |s| if (s.copy == want) {
+        var parts: FrameParts = .{};
+        for ([_]bool{ false, true }) |copies| for ([_]bool{ false, true }) |mark| for (items) |s| if (s.copy == copies and s.marked == mark) {
             tys[n] = s.ty;
             names[n] = s.name;
             n += 1;
-            if (want) copies += 1;
+            if (copies) parts.copies += 1;
+            if (mark and copies) parts.marked_copies += 1;
+            if (mark and !copies) parts.marked += 1;
         };
+        for (params.items) |s| {
+            tys[n] = s.ty;
+            names[n] = s.name;
+            n += 1;
+        }
+        parts.params = @intCast(params.items.len);
         for (tys) |ty| if (sema.containsTypeVar(ctx, ty)) {
-            try ctx.addGeneric(.frames, .{ .label = label, .pos = pos, .tys = tys, .names = names, .copies = copies });
+            try ctx.addGeneric(.frames, .{ .label = label, .pos = pos, .tys = tys, .names = names, .copies = parts.copies, .marked = parts.marked, .marked_copies = parts.marked_copies, .params = parts.params });
             ctx.frame_owners.items[index].per_instance = true;
             return;
         };
-        ctx.frame_owners.items[index].own = try checkFrame(ctx, pos, label, null, tys, names, copies, pos);
+        const counted = (try checkFrame(ctx, pos, label, null, tys, names, parts, pos)) orelse return;
+        ctx.frame_owners.items[index].own = counted.own;
+        ctx.frame_owners.items[index].marked = counted.marked;
+        ctx.frame_owners.items[index].params = counted.params;
     }
 };
 
-/// Check the frame of `label` whose values are `tys` but the last
-/// `copies`, which are copies its code may make: its count against
-/// `sema.max_frame_bytes` and its reach against `sema.max_frame_reach`.
-/// A large one marks its declaration, at `decl` in `module` (0 for this
-/// one), `noinline` (`sema.SemContext.large_frames`).
-fn checkFrame(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, copies: u32, decl: u32) Error!?sema.FrameCount {
-    return checkFrameIn(ctx, pos, label, of, tys, names, copies, 0, decl);
+/// How a frame's types (`sema.Frame.tys`) are laid out: the values, then
+/// `copies`, which are copies its code may make, then `params`, a
+/// function's parameters as the code copies them where it is inlined;
+/// of the values the last `marked`, and of the copies the last
+/// `marked_copies`, are what calls of marked `inline` functions land in
+/// it.
+const FrameParts = struct { copies: u32 = 0, marked: u32 = 0, marked_copies: u32 = 0, params: u32 = 0 };
+
+/// A frame's count: its own values, what marked calls land in it
+/// (`sema.Account`), and the reach of its parameters' copies where it is
+/// inlined (`sema.FrameOwner.params`).
+const FrameCounted = struct { own: sema.FrameCount, marked: sema.FrameCount, params: u128 = 0 };
+
+/// Check the frame of `label` whose types are `tys`, laid out as `parts`
+/// says: its count, its own values and what marked calls land in it
+/// together, against `sema.max_frame_bytes` and its reach against
+/// `sema.max_frame_reach`. A large one marks its declaration, at `decl`
+/// in `module` (0 for this one), `noinline` (`sema.SemContext.large_frames`).
+/// A marked `inline` function's frame is counted, for what the rule
+/// inlines through it (`inlining.decide`), and not checked: Zig never
+/// writes it, and its values land in each caller's, which is.
+fn checkFrame(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, parts: FrameParts, decl: u32) Error!?FrameCounted {
+    return checkFrameIn(ctx, pos, label, of, tys, names, parts, 0, decl);
 }
 
 /// The count of the frame, null when a value in it follows an error. It
 /// is recorded (`SemContext.frame_sizes`) as the frame of the owner
 /// declared at `decl` in module `module` (0 for this one).
-fn checkFrameIn(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, copies: u32, module: u32, decl: u32) Error!?sema.FrameCount {
-    const values = tys[0 .. tys.len - copies];
+fn checkFrameIn(ctx: *SemContext, pos: u32, label: []const u8, of: ?sema.InstanceRoot, tys: []const TypeId, names: []const []const u8, parts: FrameParts, module: u32, decl: u32) Error!?FrameCounted {
+    const body = tys[0 .. tys.len - parts.params];
+    const values = body[0 .. body.len - parts.copies];
+    const copied = body[values.len..];
     const bytes = (try frameBytes(ctx, values)) orelse return null;
-    const reach = bytes + ((try reachBytes(ctx, tys[values.len..])) orelse return null);
-    const count: sema.FrameCount = .{ .bytes = bytes, .reach = reach };
+    const reach = bytes + ((try reachBytes(ctx, copied)) orelse return null);
+    const marked_bytes = (try frameBytes(ctx, values[values.len - parts.marked ..])) orelse return null;
+    const marked: sema.FrameCount = .{ .bytes = marked_bytes, .reach = marked_bytes + ((try reachBytes(ctx, copied[copied.len - parts.marked_copies ..])) orelse return null) };
+    const params = (try reachBytes(ctx, tys[body.len..])) orelse return null;
+    const counted: FrameCounted = .{ .own = .{ .bytes = bytes - marked.bytes, .reach = reach - marked.reach }, .marked = marked, .params = params };
     const shown = if (of) |root| try ctx.arena.allocator().print("{s} in `{s}`", .{ label, try sema.rootName(ctx, root) }) else label;
-    try ctx.frame_sizes.append(ctx.allocator, .{ .label = shown, .pos = pos, .bytes = bytes, .reach = reach, .module = if (module == 0) ctx.module_id else module, .decl = decl });
+    const declared = if (module == 0) ctx.module_id else module;
+    try ctx.frame_sizes.append(ctx.allocator, .{ .label = shown, .pos = pos, .bytes = counted.own.bytes, .reach = counted.own.reach, .marked = marked, .params = params, .module = declared, .decl = decl });
+    // A marked `inline` function's frame is never written: its values
+    // land in each caller's, which is checked in turn.
+    const decl_ctx = ctx.declaringContext(.{ .module = declared, .pos = decl }) orelse return counted;
+    if (decl_ctx.inline_decls.contains(decl)) return counted;
     if (bytes > sema.max_frame_bytes) {
         try reportFrame(ctx, pos, label, bytes, of, values, names[0..values.len]);
-        return count;
+        return counted;
     }
     if (reach * sema.reach_factor > sema.max_frame_reach) {
         const in = if (of) |root| try ctx.arena.allocator().print(" in `{s}`", .{try sema.rootName(ctx, root)}) else "";
         try ctx.err(pos, "{s} makes or copies {d} bytes of values{s}, and a build may hold each in a temporary of its own on the stack, {d} times over at most; a function's code may take at most {d} bytes (512 MiB) of stack. Keep large data on the heap, in a box (`^T`) or a `List`, or split the function", .{ label, reach, in, sema.reach_factor, sema.max_frame_reach });
-        return count;
+        return counted;
     }
-    if (reach * sema.reach_factor < sema.noinline_reach) return count;
-    if (module == 0 or module == ctx.module_id) try ctx.large_frames.put(ctx.allocator, decl, {}) else try ctx.large_foreign_frames.append(ctx.allocator, .{ .module = module, .pos = decl });
-    return count;
+    if (reach * sema.reach_factor < sema.noinline_reach) return counted;
+    if (declared == ctx.module_id) try ctx.large_frames.put(ctx.allocator, decl, {}) else try ctx.large_foreign_frames.append(ctx.allocator, .{ .module = module, .pos = decl });
+    return counted;
 }
 
 /// The bytes of the copies `tys`, each that does not fit in registers;
@@ -14318,7 +14494,7 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
             try buf.append(ctx.allocator, t);
         }
         const before = ctx.diagnostics.items.len;
-        _ = try checkFrameIn(ctx, at, fr.label, of, buf.items, fr.names, fr.copies, fr.module_id, fr.pos);
+        _ = try checkFrameIn(ctx, at, fr.label, of, buf.items, fr.names, .{ .copies = fr.copies, .marked = fr.marked, .marked_copies = fr.marked_copies, .params = fr.params }, fr.module_id, fr.pos);
         if (ctx.diagnostics.items.len == before) continue;
         try ctx.noteIn(fr.module_id, fr.pos, "{s} is declared here", .{fr.label});
         return;
@@ -14896,4 +15072,40 @@ test "frame owners: one list of each kind, and the owner of a call in each kind 
     try std.testing.expectEqual(calls.len, seen);
     // Each owner lists its calls.
     for (owners, 0..) |o, i| for (o.calls) |ci| try std.testing.expectEqual(@as(?u32, @intCast(i)), r.ctx.frame_calls.items[ci].owner);
+}
+
+test "check: a frame an inline call cannot count is an error at the call, never no values" {
+    var r = try checkSource(std.testing.allocator,
+        \\inline fun big[T](x: T, i: Int) -> T
+        \\  t = [1000 of x]
+        \\  t[i % 1000]
+        \\
+        \\sub near(i: Int)
+        \\  print(big(1, i))
+        \\
+    );
+    defer r.p.deinit();
+    defer r.ctx.deinit();
+    try expectClean(&r.ctx);
+    try std.testing.expectEqual(1, r.ctx.inline_calls.count());
+    // `near`'s account holds `big`'s values at the instance its call makes.
+    var found = false;
+    for (r.ctx.frame_owners.items) |o| if (std.mem.eql(u8, o.label, "`near`")) {
+        try std.testing.expect(o.marked.bytes >= 8000);
+        found = true;
+    };
+    try std.testing.expect(found);
+    // The recorded call, without the instance it makes: `big`'s values
+    // hold `T`, which nothing binds.
+    var it = r.ctx.inline_calls.valueIterator();
+    const ic = it.next().?;
+    const saved = ic.*;
+    ic.subst = .empty;
+    try checkFrames(&r.ctx);
+    try expectDiagnostic(&r.ctx, "cannot count the values this `inline` call adds to the frame it is in (the call does not bind every parameter its values hold)");
+    // A function no module declares.
+    ic.* = saved;
+    ic.fun.module +%= 1000;
+    try checkFrames(&r.ctx);
+    try expectDiagnostic(&r.ctx, "cannot count the values this `inline` call adds to the frame it is in (its module is not loaded)");
 }

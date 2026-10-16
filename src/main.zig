@@ -51,8 +51,9 @@ const usage =
     \\                         (a function, closure, test, or drop body)
     \\                         with its account: the bytes of values it
     \\                         keeps on its stack, as the frame check counts
-    \\                         them, its reach, and what the functions
-    \\                         inlined into it add (check)
+    \\                         them, its reach, what the calls of functions
+    \\                         marked `inline` land in it, and what the
+    \\                         functions the compiler inlines add (check)
     \\  --time                 Print the time each pass of the compiler
     \\                         takes, summed over the modules (check)
     \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
@@ -219,14 +220,15 @@ pub fn main(init: std.process.Init) !void {
                     var buffer: [4096]u8 = undefined;
                     var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
                     // Each frame owner's account: its own bytes and reach
-                    // (`?` where no count knows them), and what the
-                    // functions the rule inlines into it add.
+                    // (`?` where no count knows them), the reach of what
+                    // the calls of marked `inline` functions land in it,
+                    // and what the functions the rule inlines into it add.
                     for (m.sema.frame_owners.items, 0..) |o, i| {
                         const at = diag.lineCol(m.source, o.pos);
                         const acc = m.sema.account(@intCast(i));
                         if (acc.own) |own| {
-                            try writer.interface.print("{d}:{d} {s} {d} {d} {d}\n", .{ at.line, at.col, o.label, own.bytes, own.reach, acc.auto });
-                        } else try writer.interface.print("{d}:{d} {s} ? ? {d}\n", .{ at.line, at.col, o.label, acc.auto });
+                            try writer.interface.print("{d}:{d} {s} {d} {d} {d} {d}\n", .{ at.line, at.col, o.label, own.bytes, own.reach, acc.marked.reach, acc.auto });
+                        } else try writer.interface.print("{d}:{d} {s} ? ? {d} {d}\n", .{ at.line, at.col, o.label, acc.marked.reach, acc.auto });
                     }
                     try writer.interface.flush();
                 },
@@ -466,15 +468,17 @@ fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
-    try graph.writeAllDiagnostics(&writer.interface);
-    try writer.interface.flush();
-    const failed = graph.hasErrors();
-    if (!failed) {
+    // Inlining is decided for a program with no errors, and reports a
+    // cycle of marked `inline` functions, which Zig cannot inline.
+    if (!graph.hasErrors()) {
         const t1 = timing.start(times);
         try inlining.decide(allocator, &graph, inlining.max_size);
         timing.stop(times, .inlining, t1);
         try graph.markTextTables();
     }
+    try graph.writeAllDiagnostics(&writer.interface);
+    try writer.interface.flush();
+    const failed = graph.hasErrors();
     if (times) |t| {
         try t.write(&writer.interface, @intCast(@max(t0.?.durationTo(t.now()).nanoseconds, 0)));
         try writer.interface.flush();

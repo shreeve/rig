@@ -98,8 +98,12 @@ const SymbolResolver = struct {
                 if (self.ctx.symbolOf(name)) |id| self.ctx.symbols.items[id].flags.is_public = true;
             },
             .fun, .sub => {
-                const id = try self.declare(ir.get(sexp, .name), .function, .{});
-                if (id) |sym| try self.checkMarker(sexp, self.ctx.symbols.items[sym]);
+                const marked = rig.markerOf(sexp) == .@"inline";
+                const id = try self.declare(ir.get(sexp, .name), .function, .{ .inline_marked = marked });
+                if (id) |sym| {
+                    try self.checkMarker(sexp, self.ctx.symbols.items[sym]);
+                    if (marked and self.scope == sema.module_scope) try self.ctx.inline_decls.put(self.ctx.allocator, self.ctx.symbols.items[sym].decl_pos, sexp);
+                }
                 try self.walkFun(sexp);
             },
             .lambda => try self.walkLambda(sexp),
@@ -1816,6 +1820,8 @@ pub const TypeResolver = struct {
         const owner = self.ctx.symbols.items[nominal_sym].name;
         if (try self.checkDuplicateMember(names, mname, mpos, owner)) return;
         const fn_ty = try self.resolveFunction(node, nominal_sym);
+        const marked = rig.markerOf(node) == .@"inline";
+        if (marked) try self.ctx.inline_decls.put(self.ctx.allocator, mpos, node);
         const params = ir.get(node, .params);
         for (params.items(), 0..) |p, i| {
             if (i == 0) continue;
@@ -1836,6 +1842,7 @@ pub const TypeResolver = struct {
             .decl_pos = mpos,
             .is_method = true,
             .is_pub = self.isPubMember(node),
+            .inline_marked = marked,
             .receiver = receiver,
             .param_names = try self.paramNames(params),
             .param_defaults = try self.paramDefaults(params),
