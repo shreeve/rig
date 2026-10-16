@@ -335,6 +335,17 @@ const Classifier = struct {
                 return;
             },
             .type => try c.put(ir.Type.name(node), declared(.type)),
+            // A member's name, which may be a reserved word (`x.type`): a
+            // method where it is called, else a field.
+            .call => {
+                const callee = ir.get(node, .callee);
+                if (callee.isKind(.member)) try c.put(ir.get(callee, .name), .{ .kind = .method });
+            },
+            .member => if (c.parsed.leafSpan(ir.get(node, .name))) |name| {
+                const gop = try c.by_pos.getOrPut(c.a, name.start);
+                if (!gop.found_existing) gop.value_ptr.* = .{ .kind = .property };
+            },
+            .enum_lit, .variant_pattern => try c.put(ir.get(node, .name), .{ .kind = .enumMember }),
             .labeled => try c.label(ir.Labeled.label(node)),
             .@"break" => try c.label(ir.get(node, .label)),
             .@"continue" => try c.label(ir.get(node, .label)),
@@ -704,7 +715,8 @@ test "tokens: a word is a name where the compiler reads one" {
     try testing.expectEqualStrings(
         "obj:keyword R:struct.declaration unique:keyword n:property.declaration " ++
             "fun:keyword new:method.declaration ->:operator n:parameter 1:number " ++
-            "sub:keyword f:function.declaration obj:parameter.declaration unique:parameter.declaration =:operator +:operator ",
+            "sub:keyword f:function.declaration obj:parameter.declaration unique:parameter.declaration =:operator +:operator " ++
+            "=:operator type:property =:operator new:method ",
         try renderTokens(arena.allocator(),
             \\obj R unique
             \\  n: Int
@@ -714,6 +726,8 @@ test "tokens: a word is a name where the compiler reads one" {
             \\
             \\sub f(obj: Int, unique: Int)
             \\  x = obj + unique
+            \\  t = x.type
+            \\  r = R.new()
             \\
         ),
     );
