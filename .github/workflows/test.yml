@@ -7,10 +7,11 @@ name: test
 #
 # The checks the ruleset on main requires are named test (ubuntu-latest)
 # and test (macos-latest). Here the jobs carry those names only for a
-# fork's pull request, where they report real results; on every other run
-# they are named cold (...), and on a pull request from this repository
-# they are skipped under that name. A skipped required check counts as
-# passing, so no job here is ever skipped under a required name.
+# fork's pull request, where they report real results, and cold (...) on
+# every other run. On a pull request from this repository they are
+# skipped, and GitHub names a skipped job by its name expression's text,
+# unevaluated, which is no required name. A skipped required check counts
+# as passing, so no job here is ever skipped under a required name.
 on:
   pull_request:
   schedule:

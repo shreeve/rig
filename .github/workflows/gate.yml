@@ -31,7 +31,10 @@ permissions:
 jobs:
   verify:
     name: ${{ github.event.pull_request.head.repo.full_name == github.repository && format('test ({0})', matrix.os) || format('gate, not used for a fork ({0})', matrix.os) }}
+    # Each job reports its own verdict: neither is cancelled when the
+    # other fails.
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     # Both checks make the same test, on the cheapest runner.
