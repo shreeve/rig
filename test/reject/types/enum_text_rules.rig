@@ -1,0 +1,49 @@
+# `.text` and `from_text` are a plain enum's: a payload or generic enum
+# has neither, a plain enum declares no member that clashes with them,
+# and a variant's name is read as it is, never written or lent.
+
+enum Shape
+  dot
+  circle(r: Int)
+
+enum Color
+  red
+  from_text
+
+  fun text(?self) -> Static
+    "red"
+
+enum Mode
+  on
+
+  fun from_text(word: ?String) -> Int
+    0
+
+enum Tag[T]
+  a
+  b
+
+sub main()
+  s: Shape = .dot
+  print(s.text, Shape.from_text("dot"))
+  m: Mode = .on
+  m.text = "off"
+  print(m.text(), Mode.from_text(word: "on"), Mode.from_text("a", "b"), Mode.from_text(1))
+  t: Tag[Int] = .a
+  r = ?m.text
+  print(t.text, Tag[Int].from_text("a"), r)
+
+# errors: 13
+# error: 11:3: `from_text` is built into every plain enum
+# error: 13:7: `text` is built into every plain enum: `e.text` is the name of `e`'s variant; give the method another name
+# error: 19:7: `from_text` is built into every plain enum
+# error: 28:11: `.text` is the name of a plain enum's variant; `Shape` has variants with payloads
+# error: 28:23: `from_text` gives a plain enum's variant by its name; `Shape` has variants with payloads, which a name cannot build
+# error: 30:5: cannot assign to `.text`; a variant's name is read-only
+# error: 31:11: no method `text` on type `Mode`; a variant's name is a member, read without a call: `m.text`
+# error: 31:24: `Mode.from_text(word)` takes its argument by position
+# error: 31:52: `Mode.from_text(word)` takes one argument, a `?String`; got 2
+# error: 31:88: type mismatch: expected `?String`, got `Int`
+# error: 33:7: `m.text` is a variant's name, a `Static`, not a part of the value to lend; pass it as it is: `m.text`
+# error: 34:11: `.text` is the name of a plain enum's variant; `Tag[Int]` is generic
+# error: 34:26: `from_text` gives a plain enum's variant by its name; `Tag` is generic

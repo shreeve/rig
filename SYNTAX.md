@@ -1446,6 +1446,7 @@ as `print` writes it: `String("n=", n)`, or `String()` for an empty one.
 | `?a` where a `[]T` is expected | `?a[..]`; `!a` where a `![]T` is |
 | `?t` where a `?String` is expected | `?t[..]` of a String |
 | `xs.len`, `s.len`, `v.len` | a length, a field |
+| `e.text`, `Color.from_text(word)` | a plain enum value's name, a `Static`; the variant of that name, or `none` ([SPEC](SPEC.md#enums)) |
 | `mod.name`, `mod.Type.name` | a module's declaration or a type's member |
 
 A lend of a place is never the base of a path: `(!p).x`, `(?xs)[0]`,

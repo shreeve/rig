@@ -2215,6 +2215,79 @@ sub main()
 `@variants(T)` takes a plain enum; `Shape` has variants with payloads
 ```
 
+A plain enum's values have names. `e.text` is the name of `e`'s
+variant, a `Static` (`dark_red`), and `Color.from_text(word)` is the
+variant named `word`, or `none`. `word` is any text a parameter
+`?String` takes: a `Static`, a String, or a view or slice of one. The
+name must match whole and byte for byte, so a prefix, another case, or
+an integer value's digits find nothing. Neither allocates:
+`from_text` hashes `word` once and looks it up in a table of the
+enum's names, which the compiler builds for each enum the program
+calls it on. The built-in enums `Endian` and `Arch` have both too.
+
+`.text` is a member, not a method: `e.text`, not `e.text()`. It is
+read as it is, never written or lent: the name belongs to the enum's
+type, not to `e`, so `?e.text` is rejected, and `e.text` is passed
+where a `?String` is expected. A plain enum cannot declare a variant or method named
+`from_text`, nor a method named `text`; a variant named `text` is
+`Kind.text`, which clashes with neither. A payload enum has neither:
+`from_text` could not build a payload. (A name for a payload variant,
+`s.text`, may be added later.)
+
+```rig
+enum Color
+  red
+  dark_red
+
+enum Status
+  ok = 200
+  missing = 404
+
+fun code(word: ?String) -> Int
+  s = Status.from_text(word) ?? return 0
+  match s
+    .ok => 1
+    .missing => 2
+
+sub main()
+  c: Color = .dark_red
+  print(c.text, Color.red.text.len)
+  print(Color.from_text("red"), Color.from_text("Red"), Color.from_text("dark"))
+  print(code("missing"), code("404"))
+  for v in @variants(Color)
+    print(Color.from_text(v.text) == v)
+```
+
+```output
+dark_red 3
+.red none none
+2 0
+true
+true
+```
+
+```rig reject
+enum Shape
+  dot
+  circle(r: Int)
+
+enum Color
+  red
+
+  fun text(?self) -> Static
+    "red"
+
+sub main()
+  s: Shape = .dot
+  print(s.text, Shape.from_text("dot"))
+```
+
+```error
+`text` is built into every plain enum: `e.text` is the name of `e`'s variant; give the method another name
+`.text` is the name of a plain enum's variant; `Shape` has variants with payloads
+`from_text` gives a plain enum's variant by its name; `Shape` has variants with payloads, which a name cannot build
+```
+
 ### Error sets
 
 `error Name` declares a set of error values, which are used like the

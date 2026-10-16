@@ -1,0 +1,15 @@
+# A directory module: a plain enum declared in one file and looked up
+# by `from_text` in another, a private enum's table, and `Endian`'s
+# module-level table needed by two files of the module and the root.
+use shapes
+
+sub main()
+  print(shapes.parse("blue"), shapes.parse("x"), shapes.order("big"), shapes.order2("little"))
+  print(shapes.from_b("two"), shapes.hid(1), shapes.Color.from_text("dark_red"), Endian.from_text("big"))
+  e: Endian = .little
+  print(e.text, shapes.Color.red.text)
+
+# expect:
+# .blue none .big .little
+# 1 two .dark_red .big
+# little red

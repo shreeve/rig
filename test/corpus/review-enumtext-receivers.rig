@@ -1,0 +1,94 @@
+# `e.text` through locals, views, List and array elements, optionals unwrapped, a Cell, a weak handle upgraded, a generic object, a ternary, a closure, an owned closure, a defer, and a match value.
+enum Color
+  red
+  dark_red
+  blue
+
+obj Pen
+  color: Color
+
+obj Box2[T]
+  item: T
+
+fun first(xs: ?List[Color]) -> Static
+  xs[0].text
+
+fun through(p: ?Pen) -> Static
+  p.color.text
+
+sub paint(p: !Pen)
+  print(p.color.text)
+  p.color = .blue
+
+fun maybe(c: Color?) -> Static
+  if c as v
+    return v.text
+  "nothing"
+
+fun gen[T](x: T) -> T
+  x
+
+sub main()
+  xs = List[Color]()
+  !xs.push(.red)
+  !xs.push(.blue)
+  print(first(?xs), xs[1].text)
+  for x in xs
+    print(x.text)
+  for x in !xs
+    print(x.text)
+  p = Pen(color: .dark_red)
+  print(through(?p))
+  !paint(!p)
+  print(p.color.text)
+  o: Color? = .red
+  print(maybe(o), maybe(none))
+  if o as v
+    print(v.text)
+  print((o ?? .blue).text)
+  c = *Cell(Color.blue)
+  print(c.get().text)
+  sh = *Color.red
+  wk = ~sh
+  if *wk as s
+    print(s.text)
+  bb = Box2[Color](item: .blue)
+  print(bb.item.text, gen(Color.red).text)
+  k = true
+  print((Color.red if k else Color.blue).text)
+  f = |z: Color| z.text
+  print(f(.dark_red))
+  cap = Color.blue
+  g: *fun() -> Static = *|+cap| cap.text
+  print(g())
+  defer print(cap.text)
+  m = match cap
+    .blue => Color.red
+    _ => Color.blue
+  print(m.text)
+  arr = [Color.red, Color.dark_red]
+  print(arr[1].text, arr[0].text.len, arr[0].text[0])
+  print(Color.dark_red.text[1..3])
+
+# expect:
+# red blue
+# red
+# blue
+# red
+# blue
+# dark_red
+# dark_red
+# blue
+# red nothing
+# red
+# red
+# blue
+# red
+# blue red
+# red
+# dark_red
+# blue
+# red
+# dark_red 3 114
+# ar
+# blue

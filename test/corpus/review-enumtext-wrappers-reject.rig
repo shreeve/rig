@@ -1,0 +1,24 @@
+# `.text` is reached only on a plain enum value or a view, box, or
+# shared handle of one: an optional, an optional shared handle, a weak
+# handle, a Cell, an array, a List, a fallible result, an error, and a
+# value `from_text` is called on are each rejected.
+enum Color
+  red
+
+error Bad
+  odd
+
+fun f() -> Color!
+  .red
+
+sub main()
+  o: Color? = .red
+  h: *Color? = *Color.red
+  s = *Color.red
+  w = ~s
+  c = *Cell(Color.red)
+  xs = [Color.red]
+  l = List[Color]()
+  e = Bad.odd
+  v: Color = .red
+  print(o.text, h.text, w.text, c.text, xs.text, l.text, f().text, e.text, Bad.from_text("odd"), v.from_text("red"), v.text())
