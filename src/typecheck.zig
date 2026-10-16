@@ -7622,17 +7622,13 @@ const Checker = struct {
         const arg = args[0];
         const from = try self.synthValue(arg);
         if (self.isPoison(from)) return target;
-        if (self.enumValues(from)) |plain| {
+        if (self.enumValues(from)) |values| {
             const shown = try self.plainText(arg);
             const bare = sema.unwrapViews(self.ctx, from);
-            const builtin = switch (self.ctx.types.get(bare)) {
-                .nominal => |sym| sema.isBuiltinEnum(self.ctx, sym),
-                else => false,
-            };
-            if (builtin) {
+            if (self.isBuiltinEnumTy(bare)) {
                 try self.errAt(arg, "`{s}(x)` takes a declared enum's value; the built-in enum `{s}` has no integer value", .{ name, try self.tyName(bare) });
-            } else if (!plain) {
-                try self.errAt(arg, "`{s}(x)` takes a plain enum's value; `{s}` has variants with payloads, which have no integer value", .{ name, try self.tyName(sema.unwrapViews(self.ctx, from)) });
+            } else if (!values) {
+                try self.errAt(arg, "`{s}(x)` takes a plain enum's value; `{s}` has variants with payloads, which have no integer value", .{ name, try self.tyName(bare) });
             } else if (self.ctx.types.get(target) != .int) {
                 try self.errAt(arg, "`{s}(x)` converts an enum's value to an integer type only; write `{s}(Int(...))`", .{ name, name });
             } else if (try self.variantValue(arg)) |v| if (!holdsInt(self.ctx, target, v)) {
@@ -7662,6 +7658,14 @@ const Checker = struct {
     /// `E.from_text(word)`.
     fn hasVariantNames(self: *Checker, ty: TypeId) bool {
         if (self.enumValues(ty) == true) return true;
+        const decl = sema.nominalDecl(self.ctx, sema.unwrapViews(self.ctx, ty)) orelse return false;
+        return sema.isBuiltinEnum(decl.ctx, decl.sym);
+    }
+
+    /// Whether `ty`, read through views, is a built-in enum, `Endian` or
+    /// `Arch`: no payloads, but variants that are Zig's, with no integer
+    /// Rig fixes.
+    fn isBuiltinEnumTy(self: *Checker, ty: TypeId) bool {
         const decl = sema.nominalDecl(self.ctx, sema.unwrapViews(self.ctx, ty)) orelse return false;
         return sema.isBuiltinEnum(decl.ctx, decl.sym);
     }
@@ -10662,6 +10666,7 @@ const Checker = struct {
         if (!generic and std.mem.eql(u8, name, "from_int")) {
             const enum_ty = try self.namedTypeValue(nt);
             if (self.enumValues(enum_ty)) |plain| {
+                if (self.isBuiltinEnumTy(enum_ty)) return self.badCall(args, pos, "`{s}.from_int(n)` takes a declared enum; the built-in enum `{s}` has no integer value", .{ tname, tname });
                 if (plain) return self.enumFromIntCall(self.callee_node orelse return self.skipCall(args), enum_ty, tname, pos, args, ct);
                 const declared = (try sema.findMember(self.ctx, members, name, .any)) != null;
                 if (!declared) return self.badCall(args, pos, "`{s}` has variants with payloads, which have no integer value", .{tname});
@@ -13274,6 +13279,10 @@ const Checker = struct {
             try self.errAt(args[0], "`@variants` takes an enum type; `{s}` is not an enum", .{try self.tyName(ty)});
             return self.t().invalid_id;
         };
+        if (self.isBuiltinEnumTy(ty)) {
+            try self.errAt(args[0], "`@variants(T)` takes a declared enum; `{s}` is a built-in enum", .{try self.tyName(ty)});
+            return self.t().invalid_id;
+        }
         if (!plain) {
             try self.errAt(args[0], "`@variants(T)` takes a plain enum; `{s}` has variants with payloads", .{try self.tyName(ty)});
             return self.t().invalid_id;
