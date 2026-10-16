@@ -153,15 +153,33 @@ pub const max_value_bytes: u64 = 8 << 20;
 /// stack: the guard below the stack (`max_frame_reach`) stops it there.
 pub const max_frame_bytes: u64 = 13 << 20;
 
-/// A frame `checkFrames` counted: what it is, its bytes, and its reach
-/// (`typecheck.checkFrames`), and the frame owner it is the frame of, at
-/// one instance for a generic one: the module that declares it (its id)
-/// and where (`FrameOwner.pos`).
-pub const FrameSize = struct { label: []const u8, pos: u32, bytes: u128, reach: u128, module: u32, decl: u32 };
+/// A frame `checkFrames` counted: what it is, the bytes and reach of its
+/// own values (`typecheck.checkFrames`) and of those the calls of marked
+/// `inline` functions land in it (`marked`), and the frame owner it is
+/// the frame of, at one instance for a generic one: the module that
+/// declares it (its id) and where (`FrameOwner.pos`).
+pub const FrameSize = struct { label: []const u8, pos: u32, bytes: u128, reach: u128, marked: FrameCount = .none, module: u32, decl: u32 };
 
 /// A frame as `typecheck.checkFrames` counts it: the bytes of the values
 /// it keeps, and its reach.
-pub const FrameCount = struct { bytes: u128, reach: u128 };
+pub const FrameCount = struct {
+    bytes: u128,
+    reach: u128,
+
+    pub const none: FrameCount = .{ .bytes = 0, .reach = 0 };
+};
+
+/// A value a frame keeps, or (`copy`) a copy its code may make, which
+/// counts in its reach alone (`typecheck.FrameWalker`); `marked` when a
+/// call of a marked `inline` function lands it there.
+pub const FrameSlot = struct { ty: TypeId, name: []const u8, copy: bool = false, marked: bool = false };
+
+/// A call of a marked `inline` function, recorded where typecheck
+/// resolves the call (`Checker.noteTarget`): the function, and the
+/// instance the call makes, its object type's parameters then its own,
+/// to their arguments here. Every frame and every cycle of `inline`
+/// functions is read from it.
+pub const InlineCall = struct { fun: FnRef, subst: TypeSubst };
 
 /// A place Zig writes a stack frame of its own for (docs/INTERNALS.md,
 /// "Frame owners"), decided once, by a positive list
@@ -181,15 +199,20 @@ pub const FrameOwner = struct {
     pos: u32,
     /// How messages name it.
     label: []const u8,
-    /// A method of an object or enum type, and of a generic one.
+    /// A method of an object or enum type, and of a generic one, and the
+    /// type's name.
     member: bool = false,
     of_generic_type: bool = false,
+    type_name: []const u8 = "",
     /// Its calls, as indexes into `SemContext.frame_calls`, in the order
     /// the walk met them.
     calls: []const u32 = &.{},
     /// Its own frame (`checkFrames`); null when each instance's frame is
     /// counted on its own (`FrameSize`), or before it is counted.
     own: ?FrameCount = null,
+    /// What the calls of marked `inline` functions in it land in its
+    /// frame, beside `own`, and as it.
+    marked: FrameCount = .none,
     /// Whether `own` is null because its instances count it.
     per_instance: bool = false,
     /// Its frame with what the automatic rule inlines into it, which
@@ -202,18 +225,20 @@ pub const FrameOwner = struct {
 /// What a frame owner's frame holds (`SemContext.account`): its own
 /// values (`checkFrames`), or null where no count knows them, which is
 /// unbounded and fails every limit; what the calls of marked `inline`
-/// functions add (none yet); and what the functions the automatic rule
-/// inlines into it add, each counted at every call and at every copy Zig
-/// writes of the call (`inlining.decide`).
+/// functions land in it, their values and their reach, each at the
+/// instance the call makes and at every copy Zig writes of the call
+/// (`checkFrames`); and what the functions the automatic rule inlines
+/// into it add, each counted at every call and at every copy Zig writes
+/// of the call, through the marked functions too (`inlining.decide`).
 pub const Account = struct {
     own: ?FrameCount,
-    marked: u128 = 0,
+    marked: FrameCount = .none,
     auto: u128 = 0,
 
     /// Its values with everything inlined into it; null when unknown.
     pub fn total(self: Account) ?FrameCount {
         const own = self.own orelse return null;
-        return .{ .bytes = own.bytes + self.marked + self.auto, .reach = own.reach + self.marked + self.auto };
+        return .{ .bytes = own.bytes + self.marked.bytes + self.auto, .reach = own.reach + self.marked.reach + self.auto };
     }
 };
 
@@ -266,8 +291,10 @@ pub const ForeignFrame = struct { module: u32, pos: u32 };
 /// so a diagnostic can name the largest.
 ///
 /// The last `copies` types are copies its code may make, which count in
-/// its reach alone (`typecheck.checkFrames`).
-pub const Frame = struct { label: []const u8, pos: u32, tys: []const TypeId, names: []const []const u8, copies: u32 = 0, module_id: u32 = 0 };
+/// its reach alone (`typecheck.checkFrames`). Of the values, the last
+/// `marked` are those calls of marked `inline` functions land in it, and
+/// so are the last `marked_copies` of the copies.
+pub const Frame = struct { label: []const u8, pos: u32, tys: []const TypeId, names: []const []const u8, copies: u32 = 0, marked: u32 = 0, marked_copies: u32 = 0, module_id: u32 = 0 };
 
 pub const Type = union(enum) {
     /// A type error was reported here.
@@ -590,7 +617,9 @@ pub const SymbolFlags = packed struct(u16) {
     /// constant whose value names one. Rig knows its type, never its
     /// value, so its verdict is the same on every machine.
     per_target: bool = false,
-    _: u1 = 0,
+    /// A function declared `inline fun`: it has no address, so it is only
+    /// called, never a value.
+    inline_marked: bool = false,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -626,6 +655,8 @@ pub const Field = struct {
     /// A field declared `pub ?name: T`: other modules read it, and only
     /// its own module writes it.
     read_only: bool = false,
+    /// A method declared `inline fun`, which is only called.
+    inline_marked: bool = false,
 };
 
 pub const Symbol = struct {
@@ -2022,6 +2053,17 @@ pub const SemContext = struct {
     /// The functions and methods Zig inlines at every call, by where
     /// their names are declared (`inlining.decide`).
     inlined: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// This module's functions and methods declared `inline fun`, by
+    /// where their names are declared: their declarations (`resolve`).
+    inline_decls: std.AutoHashMapUnmanaged(u32, Sexp) = .empty,
+    /// What each of them lands in the frame of a call of it: its own
+    /// values and those of the `inline` functions it calls, in this
+    /// module's types, over its own and its type's parameters; null while
+    /// it is being worked out (`typecheck.inlineFrame`).
+    inline_frames: std.AutoHashMapUnmanaged(u32, ?[]const FrameSlot) = .empty,
+    /// A call (`decisionKey`) of a marked `inline` function -> the
+    /// function and the instance it makes (`InlineCall`).
+    inline_calls: std.AutoHashMapUnmanaged(u64, InlineCall) = .empty,
     /// The frames `checkFrames` counted, each of its owner or, for a
     /// generic one, of one instance of it.
     frame_sizes: std.ArrayList(FrameSize) = .empty,
@@ -2149,6 +2191,9 @@ pub const SemContext = struct {
         self.discards.deinit(self.allocator);
         self.inlined.deinit(self.allocator);
         self.frame_sizes.deinit(self.allocator);
+        self.inline_decls.deinit(self.allocator);
+        self.inline_frames.deinit(self.allocator);
+        self.inline_calls.deinit(self.allocator);
         self.frame_owners.deinit(self.allocator);
         self.frame_calls.deinit(self.allocator);
         self.call_index.deinit(self.allocator);
@@ -2468,6 +2513,24 @@ pub const SemContext = struct {
 
     pub fn recordCallTarget(self: *SemContext, call: Sexp, target: CallTarget) !void {
         try self.call_targets.put(self.allocator, decisionKey(call) orelse return, target);
+    }
+
+    /// A call of a marked `inline` function (`inline_calls`); null for any
+    /// other call.
+    pub fn inlineCallOf(self: *const SemContext, call: Sexp) ?InlineCall {
+        return self.inline_calls.get(decisionKey(call) orelse return null);
+    }
+
+    pub fn recordInlineCall(self: *SemContext, call: Sexp, ic: InlineCall) !void {
+        const a = self.arena.allocator();
+        try self.inline_calls.put(self.allocator, decisionKey(call) orelse return, .{ .fun = ic.fun, .subst = .{ .params = try a.dupe(SymbolId, ic.subst.params), .args = try a.dupe(TypeId, ic.subst.args) } });
+    }
+
+    /// The context of the module that declares `fun`: this one, or one
+    /// it imports.
+    pub fn declaringContext(self: *const SemContext, fun: FnRef) ?*const SemContext {
+        if (fun.module == self.module_id) return self;
+        return self.foreign_semas.get(fun.module);
     }
 
     /// The frame of owner `owner` with everything inlined into it: the
@@ -6302,7 +6365,7 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         const fr = foreign.generic_frames.items[i];
         const tys = try a.alloc(TypeId, fr.tys.len);
         for (fr.tys, tys) |t, *out| out.* = try importType(ctx, foreign, t, m);
-        try ctx.addGeneric(.frames, .{ .label = fr.label, .pos = fr.pos, .tys = tys, .names = fr.names, .copies = fr.copies, .module_id = if (fr.module_id == 0) m else fr.module_id });
+        try ctx.addGeneric(.frames, .{ .label = fr.label, .pos = fr.pos, .tys = tys, .names = fr.names, .copies = fr.copies, .marked = fr.marked, .marked_copies = fr.marked_copies, .module_id = if (fr.module_id == 0) m else fr.module_id });
     }
     for (foreign.paramEntries(.fn_uses, origin.sym)) |i| {
         if (!try firstImport(ctx, m, .fn_uses, i)) continue;
@@ -7517,7 +7580,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
     const tag = node.kind() orelse return .none;
     return switch (tag) {
         // Declarations and their parts.
-        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .called, .rarely, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
+        .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
         .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.

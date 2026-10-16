@@ -86,6 +86,7 @@ pub const SetOrder = storage.SetOrder;
 pub const SetStep = storage.SetStep;
 pub const StepPoint = storage.StepPoint;
 pub const JumpDest = sema.JumpDest;
+pub const CallTarget = sema.CallTarget;
 
 pub const type_invalid = sema.type_invalid;
 pub const type_param_mark = sema.type_param_mark;
@@ -215,6 +216,40 @@ pub const Facts = struct {
     }
     pub fn calleeOf(f: Facts, call: Sexp) Sexp {
         return f.c().calleeOf(call);
+    }
+    /// What a call reaches, as typecheck resolved it (`SemContext.callTargetOf`).
+    pub fn callTargetOf(f: Facts, call: Sexp) ?CallTarget {
+        return f.c().callTargetOf(call);
+    }
+    /// Whether `call` calls a Rig function or method: a function of this
+    /// module or another, or a method a module declares on its type, not
+    /// a built-in's. For emit's check that typecheck resolved each such
+    /// call it writes (`Emitter.checkCallTarget`).
+    pub fn callsRigFunction(f: Facts, call: Sexp) bool {
+        const ctx = f.c();
+        const callee = ctx.calleeOf(call);
+        if (callee == .src) {
+            const id = ctx.symbolOf(callee) orelse return false;
+            return ctx.symbols.items[id].kind == .function;
+        }
+        if (!callee.isKind(.member)) return false;
+        if (storage.moduleMemberSym(ctx, callee)) |sym| return sym.kind == .function;
+        const obj = ir.Member.object(callee);
+        const name_leaf = ir.Member.name(callee);
+        if (name_leaf != .src) return false;
+        const name = rig.leafText(ctx.source, name_leaf.src);
+        // A value's type, or the type a type's name stands for.
+        const decl = if (ctx.typeOf(obj)) |t| sema.nominalDecl(ctx, t) else null;
+        const sym: sema.Symbol = if (decl) |d| d.symbol() else blk: {
+            const id = ctx.symbolOf(obj) orelse return false;
+            if (!storage.isTypeSym(ctx, id)) return false;
+            break :blk ctx.symbols.items[id];
+        };
+        if (sym.decl_pos == sema.builtin_decl_pos) return false;
+        for (sym.fields orelse return false) |field| {
+            if (field.is_method and !field.is_drop_method and std.mem.eql(u8, field.name, name)) return true;
+        }
+        return false;
     }
     pub fn ctArgsOf(f: Facts, call: Sexp) []const Sexp {
         return f.c().ctArgsOf(call);
