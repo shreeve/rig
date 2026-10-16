@@ -1,0 +1,29 @@
+obj Holder
+  s: String
+  b: ^String
+  h: *String
+
+sub show(t: !String, u: ?String, v: ?*String)
+  print(t, u, v)
+  !t.add(u, v, "|")
+  w = String(t, u, v)
+  print(w)
+
+sub main()
+  b = ^String("boxed")
+  h: *String = *String("shared")
+  k = ~h
+  c: *Cell[String] = *Cell(String("celled"))
+  print(b, h, k, c)
+  t = String(b, h, k, c)
+  print(t)
+  o = Holder(s: String("own"), b: ^String("ob"), h: +h)
+  print(o, o.s, o.b, o.h)
+  u = String(o.s, o.b, o.h, o)
+  print(u)
+  m = String("m")
+  show(!m, o.s, h)
+  print(m)
+  ob: ^String? = none
+  oh: *String? = +h
+  print(ob, oh)

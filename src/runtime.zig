@@ -1414,24 +1414,42 @@ pub const String = struct {
     pub const empty: String = .{};
 
     /// `String(a, b, ...)`.
-    pub fn of(parts: anytype) String {
+    pub inline fn of(pieces: anytype) String {
         var t: String = .empty;
-        t.add(parts);
+        t.add(pieces);
         return t;
     }
 
-    /// `!t.add(a, b, ...)`.
-    pub fn add(self: *String, parts: anytype) void {
-        const fields = @typeInfo(@TypeOf(parts)).@"struct".field_names;
-        if (comptime fields.len == 1) {
-            const part = @field(parts, fields[0]);
-            const P = @TypeOf(part);
-            if (comptime isStringView(P)) return self.appendBytes(part);
-            if (comptime P == String) return self.appendBytes(part.list.items);
-        }
+    /// `!t.add(a, b, ...)`: the pieces as `print` takes them (`piecesOf`),
+    /// with no separators. Inlined, it is a straight line of appends:
+    /// each run of text once, each value by the one writer of its type.
+    pub inline fn add(self: *String, pieces: anytype) void {
+        inline for (comptime piecesOf(@TypeOf(pieces))) |p| switch (p) {
+            .text => |t| self.appendFixed(t.len, t[0..t.len]),
+            .value => |f| self.addValue(pieces[f]),
+        };
+    }
+
+    /// Text of `n` bytes known at compile time, appended by the one
+    /// function of its length.
+    noinline fn appendFixed(self: *String, comptime n: usize, text: *const [n]u8) void {
+        self.appendBytes(text);
+    }
+
+    /// A value `add` writes: text and a String as their bytes, which the
+    /// ownership checker keeps from being this String's own, anything
+    /// else by the one writer of its type.
+    inline fn addValue(self: *String, value: anytype) void {
+        const P = @TypeOf(value);
+        if (comptime isStringView(P)) return self.appendBytes(value);
+        if (comptime P == String or isStringPlace(P)) return self.appendBytes(value.list.items);
+        self.addValueOf(value);
+    }
+
+    noinline fn addValueOf(self: *String, value: anytype) void {
         var out: std.Io.Writer.Allocating = .fromArrayList(defaultAllocator(), &self.list);
         defer self.list = out.toArrayList();
-        inline for (@typeInfo(@TypeOf(parts)).@"struct".field_names) |f| writeValue(&out.writer, @field(parts, f), true) catch oom();
+        writeValue(&out.writer, value, true) catch oom();
     }
 
     // The list's `items.len <= capacity` always holds, so every append
@@ -3458,6 +3476,14 @@ var process_args: []const []const u8 = &.{};
 /// gathered into `Static`s once, freed by `finish`.
 pub fn start(init: std.process.Init.Minimal) void {
     process = init;
+    // RIG_NO_CRASH_REPORT=1, set by a test harness for a program that
+    // panics on purpose: macOS files no crash report when it dies. It
+    // still dies by its signal, its report on stderr unchanged.
+    if (builtin.os.tag.isDarwin()) {
+        if (init.environ.getPosix("RIG_NO_CRASH_REPORT")) |v| {
+            if (std.mem.eql(u8, v, "1")) noCrashReport();
+        }
+    }
     // Only a program `rig run` or `rig test` builds declares
     // `__rig_run_started`, the environment variable that names a file to
     // create as it starts: their evidence that the exit status is the
@@ -3475,6 +3501,21 @@ pub fn start(init: std.process.Init.Minimal) void {
     const list = defaultAllocator().alloc([]const u8, init.args.vector.len) catch oom();
     for (list, init.args.vector) |*arg, c| arg.* = std.mem.sliceTo(c, 0);
     process_args = list;
+}
+
+extern "c" var mach_task_self_: c_uint;
+extern "c" fn task_set_exception_ports(task: c_uint, mask: c_uint, port: c_uint, behavior: c_int, flavor: c_int) c_int;
+
+/// No handler for this process's crash exceptions (EXC_MASK_CRASH and
+/// EXC_MASK_CORPSE_NOTIFY to MACH_PORT_NULL, EXCEPTION_DEFAULT,
+/// THREAD_STATE_NONE), so ReportCrash never hears of its death. The
+/// processes it starts inherit it.
+fn noCrashReport() void {
+    const exc_mask_crash: c_uint = 1 << 10;
+    const exc_mask_corpse_notify: c_uint = 1 << 13;
+    const exception_default: c_int = 1;
+    const thread_state_none: c_int = if (builtin.cpu.arch == .x86_64) 13 else 5;
+    _ = task_set_exception_ports(mach_task_self_, exc_mask_crash | exc_mask_corpse_notify, 0, exception_default, thread_state_none);
 }
 
 /// Free what `start` gathered, at the end of the program or its tests.
@@ -3542,16 +3583,132 @@ fn flush() void {
     if (stdout_writer) |*w| w.interface.flush() catch {};
 }
 
-/// `print(a, b, ...)`: the values separated by single spaces, then a
-/// newline.
-pub fn print(args: anytype) void {
-    const w = stdout();
-    inline for (@typeInfo(@TypeOf(args)).@"struct".field_names, 0..) |f, i| {
-        if (i > 0) w.writeAll(" ") catch {};
-        writeValue(w, @field(args, f), true) catch {};
+/// One `print`: its pieces in order, the spaces between its arguments and
+/// the newline that ends them included, as the emitter lists them
+/// (`.{ "n =", " ", n, "\n" }`). The tuple holds every argument's value,
+/// so all of them have run before a byte is written. Inlined, it is a
+/// straight line: each run of text (`piecesOf`) copied into the buffer
+/// at once, each value written by its writer (`outValue`).
+pub inline fn print(pieces: anytype) void {
+    const plan = comptime piecesOf(@TypeOf(pieces));
+    comptime std.debug.assert(plan.len > 0 and plan[plan.len - 1] == .text);
+    inline for (plan, 0..) |p, i| switch (p) {
+        .text => |t| outText(t, i == plan.len - 1),
+        .value => |f| outValue(pieces[f]),
+    };
+}
+
+/// What one piece of `print`, `String(...)`, or `add` writes: text known
+/// at compile time, or the value of the tuple's field at this index.
+const Piece = union(enum) { text: []const u8, value: usize };
+
+/// The pieces of the tuple type `P`, in order, with each run of text
+/// joined into one. A field known at compile time whose bytes are too
+/// (a string literal, an Int, a Bool) is text, written as `writeValue`
+/// writes it at the top level.
+fn piecesOf(comptime P: type) []const Piece {
+    comptime {
+        const s = @typeInfo(P).@"struct";
+        const n = s.field_types.len;
+        @setEvalBranchQuota(1000 + 20 * n);
+        var texts: [n]?[]const u8 = undefined;
+        for (s.field_types, s.field_attrs, &texts) |T, a, *t| {
+            t.* = if (a.@"comptime") constantText(T, a.defaultValue(T).?) else null;
+        }
+        var out: [n]Piece = undefined;
+        var count: usize = 0;
+        var i: usize = 0;
+        while (i < n) : (count += 1) {
+            if (texts[i] == null) {
+                out[count] = .{ .value = i };
+                i += 1;
+                continue;
+            }
+            const first = i;
+            var bytes: usize = 0;
+            while (i < n and texts[i] != null) : (i += 1) bytes += texts[i].?.len;
+            out[count] = .{ .text = joined(bytes, texts[first..i]) };
+        }
+        const done = out[0..count].*;
+        return &done;
     }
-    w.writeAll("\n") catch {};
+}
+
+/// `parts` joined, `bytes` long in all.
+fn joined(comptime bytes: usize, comptime parts: []const ?[]const u8) []const u8 {
+    comptime {
+        var buf: [bytes]u8 = undefined;
+        var end: usize = 0;
+        for (parts) |p| {
+            @memcpy(buf[end..][0..p.?.len], p.?);
+            end += p.?.len;
+        }
+        const done = buf;
+        return &done;
+    }
+}
+
+/// The bytes `writeValue` writes for `v` at the top level, when they are
+/// known at compile time.
+fn constantText(comptime T: type, comptime v: T) ?[]const u8 {
+    if (comptime isStringView(T)) return v;
+    return switch (@typeInfo(T)) {
+        .int, .comptime_int => std.fmt.comptimePrint("{d}", .{v}),
+        .bool => if (v) "true" else "false",
+        else => null,
+    };
+}
+
+/// The one place a failed write to stdout lands. It is ignored.
+fn outFailed(err: std.Io.Writer.Error) void {
+    switch (err) {
+        error.WriteFailed => {},
+    }
+}
+
+/// Text of a `print`, known at compile time, written by the one writer
+/// of its length (`outFixed`).
+inline fn outText(comptime text: []const u8, comptime ends_line: bool) void {
+    outFixed(text.len, ends_line, text[0..text.len]);
+}
+
+/// Text of `n` bytes: copied into the buffer when it fits, and otherwise
+/// written by `outBytes`. Text that ends a line goes through `outLine`
+/// when stdout is a terminal.
+noinline fn outFixed(comptime n: usize, comptime ends_line: bool, text: *const [n]u8) void {
+    if (stdout_writer) |*sw| {
+        const w = &sw.interface;
+        if (!(ends_line and stdout_is_tty) and n <= w.buffer.len - w.end) {
+            w.buffer[w.end..][0..n].* = text.*;
+            w.end += n;
+            return;
+        }
+    }
+    if (ends_line) outLine(text) else outBytes(text);
+}
+
+/// Bytes of a `print`.
+noinline fn outBytes(bytes: []const u8) void {
+    stdout().writeAll(bytes) catch |err| outFailed(err);
+}
+
+/// The last text of a `print`, which ends its line: written, then
+/// flushed when stdout is a terminal.
+noinline fn outLine(text: []const u8) void {
+    outBytes(text);
     if (stdout_is_tty) flush();
+}
+
+/// A value of a `print`, as Rig writes it at the top level: text as its
+/// bytes, anything else by the one writer of its type.
+inline fn outValue(value: anytype) void {
+    if (comptime isStringView(@TypeOf(value))) return outBytes(value);
+    if (comptime isStringPlace(@TypeOf(value))) return outBytes(value.list.items);
+    outValueOf(value);
+}
+
+noinline fn outValueOf(value: anytype) void {
+    writeValue(stdout(), value, true) catch |err| outFailed(err);
 }
 
 /// The root panic handler of every emitted program: buffered output
@@ -3655,6 +3812,14 @@ fn isStringView(comptime T: type) bool {
             },
             else => false,
         },
+        else => false,
+    };
+}
+
+/// A String read where it is, by address (`*String`, `*const String`).
+fn isStringPlace(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |p| p.size == .one and p.child == String,
         else => false,
     };
 }

@@ -1,0 +1,19 @@
+# The harness runs a program that panics on purpose with
+# RIG_NO_CRASH_REPORT=1, so macOS files no crash report for its abort;
+# the panic is the same (test/cli/no_crash_report.sh).
+use std.os
+
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  print(os.env("RIG_NO_CRASH_REPORT") ?? "unset")
+  a = [1, 2, 3]
+  print(a[rt(3)])
+
+# expect:
+# 1
+
+# expect-panic: index out of bounds
+
+# release

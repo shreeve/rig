@@ -101,7 +101,7 @@ inline_grid_release_reached() {
     for shape in "$@"; do
         for f in reached_"$shape"_*.rig; do
             rig build --release -o "prog_${f%.rig}" "$f" >build.log 2>&1 || fail "release $f: $(cat build.log)"
-            out=$(./"prog_${f%.rig}" 2>&1) && fail "release $f should panic: $out"
+            out=$(RIG_NO_CRASH_REPORT=1 ./"prog_${f%.rig}" 2>&1) && fail "release $f should panic: $out"
             expect_has "$out" "panic" "release $f"
         done
     done
