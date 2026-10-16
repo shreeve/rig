@@ -3765,6 +3765,7 @@ test/reject/ownership/use_after_drop.rig main
 test/reject/ownership/use_after_move.rig main
 test/reject/ownership/use_after_move_in_branch.rig main
 test/reject/ownership/use_after_move_in_match_arm.rig main
+test/reject/ownership/variant_literal_view_outlives_statement.rig main
 test/reject/ownership/variant_positional_bare_owner.rig main
 test/reject/ownership/vec_alias.rig main
 test/reject/ownership/vec_for_write_during_iter.rig main

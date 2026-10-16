@@ -45,7 +45,7 @@ sub main()
 # error: 36:14: type mismatch: expected `?Val`, got `Val`
 # error: 37:18: type mismatch: expected `?Val`, got `Val`
 # error: 38:13: type mismatch: expected `?Val`, got `Val`
-# error: 39:7: type mismatch: expected `?Val?`, got `Val`
+# error: 39:8: `.Num` is an enum variant, but the expected type `?Val?` is not an enum
 # error: 27:24: type mismatch: expected `?Val`, got `Val`
 # error: 31:10: type mismatch: expected `?Val`, got `Val`
 # errors: 8

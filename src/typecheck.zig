@@ -4684,7 +4684,7 @@ const Checker = struct {
         const answer = sema.copies(self.ctx, viewed);
         if (answer != .yes) {
             const name = try self.tyName(viewed);
-            const lent = try self.spliced(e, &.{fallback}, &.{try self.ctx.arena.allocator().print("?{s}", .{self.sourceText(fallback)})});
+            const lent = try self.spliced(e, &.{fallback}, &.{try self.lentFallbackText(fallback, viewed)});
             const head = "`{s}` would copy out the `{s}` that `{s}` views, since its fallback is a value, not a view; only a value that copies is copied out of a view, and ";
             if (answer == .depends) {
                 try self.errAt(e, head ++ "`{s}` may not copy in every instance: lend the fallback, so the result is the view: `{s}`", .{ self.sourceText(e), name, self.sourceText(holder), name, lent });
@@ -4692,6 +4692,19 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         return viewed;
+    }
+
+    /// The fallback `b` of `a ?? b` lent to read, as a hint writes it: a
+    /// variant literal names its enum, `?(Val.v(...))`, since only its
+    /// context gives `.v(...)` its type, and a call through a type is
+    /// parenthesized, since `?Val.v(...)` would lend `Val`.
+    fn lentFallbackText(self: *Checker, fallback: Sexp, viewed: TypeId) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        const src = self.sourceText(fallback);
+        const variant = fallback.isKind(.enum_lit) or (fallback.isKind(.call) and ir.Call.callee(fallback).isKind(.enum_lit));
+        if (variant) return a.print("?({s}{s})", .{ try self.tyName(viewed), src });
+        if (fallback.isKind(.call) and ir.Call.callee(fallback).isKind(.member)) return a.print("?({s})", .{src});
+        return a.print("?{s}", .{src});
     }
 
     /// The type of `a ?? b` or `a catch b` when `a` gives a `Static` and
@@ -10534,8 +10547,9 @@ const Checker = struct {
             return;
         }
         if (try self.lentTempLiteral(e, expected)) return;
-        if (self.variantUnderView(e, expected)) |viewed| {
+        if (try self.variantUnderView(e, expected)) |viewed| {
             const ty = (try self.checkContextual(e, viewed)).?;
+            if (try self.cellMadeAway(e, ty)) return self.ctx.recordType(e, self.t().invalid_id);
             try self.ctx.recordType(e, ty);
             if (self.isPoison(ty)) return;
             return self.checkActual(e, ty, expected);
@@ -10993,15 +11007,24 @@ const Checker = struct {
     /// type, as `Val.V(...)` has, so the literal is a value made where it
     /// stands, lent as one is or rejected. A view that holds a copy of
     /// the value (`?Color`, `sema.lendByValue`) takes the literal itself.
-    /// Null for any other form or expected type.
-    fn variantUnderView(self: *Checker, e: Sexp, expected: TypeId) ?TypeId {
-        const variant = e.isKind(.enum_lit) or (e.isKind(.call) and ir.Call.callee(e).isKind(.enum_lit));
-        if (!variant) return null;
+    /// Null for any other form or expected type, and for a name that is
+    /// no variant of the viewed enum, which `checkContextual` reports
+    /// (an error's name where a `T!` goes, too).
+    fn variantUnderView(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId {
+        const name = if (e.isKind(.enum_lit))
+            ir.EnumLit.name(e)
+        else if (e.isKind(.call) and ir.Call.callee(e).isKind(.enum_lit))
+            ir.EnumLit.name(ir.Call.callee(e))
+        else
+            return null;
         const view = self.liftTarget(expected);
-        return switch (self.ctx.types.get(view)) {
-            .read_view, .write_view => if (sema.viewHeldAsPointer(self.ctx, view)) sema.unwrapViews(self.ctx, view) else null,
-            else => null,
-        };
+        switch (self.ctx.types.get(view)) {
+            .read_view, .write_view => if (!sema.viewHeldAsPointer(self.ctx, view)) return null,
+            else => return null,
+        }
+        const viewed = sema.unwrapViews(self.ctx, view);
+        if (try sema.lookupVariant(self.ctx, viewed, self.text(name)) == null) return null;
+        return viewed;
     }
 
     /// A form whose type comes from context: its type, or null when `e`

@@ -1,0 +1,16 @@
+# A variant literal of an enum imported from another module, plain and
+# generic, lent where `?lib.E` and `?lib.G[lib.R]` go, also by keyword.
+# Runs sanitizer-clean, dropping each `lib.R` at its statement's end.
+use lib
+
+sub mine(e: ?lib.E, k: Int = 0)
+  lib.look(e)
+
+sub main()
+  lib.look(.A(r: lib.R(n: 1)))
+  lib.look(.B(xs: List()))
+  lib.look(.C)
+  mine(k: 2, e: .A(r: lib.R(n: 2)))
+  lib.lookg(.Some(v: lib.R(n: 3)))
+  lib.lookg(.None_)
+  print("end")

@@ -1,0 +1,20 @@
+# A bare error name where a `(?Val)!` goes names no variant of `Val`:
+# it is reported once, with the error set to name.
+
+enum Val
+  Num(n: Int)
+  Table(m: List[Int])
+
+error E
+  Oops
+
+fun pick(v: ?Val, k: Int) -> (?Val)!
+  return .Oops if k == 0
+  return v
+
+sub main()
+  v = Val.Num(n: 1)
+  _ = pick(?v, 1) catch return
+
+# error: 12:11: `.Oops` is not a variant of `?Val`; to fail, name the error set: `E.Oops`
+# errors: 1
