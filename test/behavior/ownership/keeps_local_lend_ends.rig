@@ -1,0 +1,23 @@
+# Rule: a lend to a parameter the callee does not keep ends when the call
+# returns, so `m` may be dropped while `p` lives.
+# From: proposal-call-stores §1 ("`note(!p, ?m)` ... keeps `m` lent while
+# `p` lives").
+
+obj Parser
+  src: ?String
+  errors: Int
+
+sub note(p: !Parser, msg: ?String)
+  if msg.len > p.src.len
+    p.errors += 1
+
+sub main()
+  text = "x"
+  p = Parser(src: text, errors: 0)
+  m = String("long message")
+  note(!p, ?m)
+  <m
+  print(p.errors)
+
+# expect:
+# 1

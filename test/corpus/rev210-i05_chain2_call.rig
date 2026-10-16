@@ -13,7 +13,7 @@ obj P
   m: Mid
   b: String
 
-sub set(h: !Holder, s: ?String)
+sub set(h: !Holder, s: ?String) keeps s
   h.t = s
 
 sub main()

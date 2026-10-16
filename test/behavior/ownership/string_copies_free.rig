@@ -13,7 +13,7 @@ obj Person
 obj Reg
   names: List[?String]
 
-  sub add(!self, n: ?String)
+  sub add(!self, n: ?String) keeps n
     !self.names.push(n)
 
   fun first(?self) -> ?String

@@ -8626,13 +8626,27 @@ const Checker = struct {
             .arg => |i| .{ .arg = i },
             .default => .default,
         };
-        const recorded: sema.CallParams = .{ .fills = fills, .origins = site.origins };
+        const recorded: sema.CallParams = .{ .fills = fills, .origins = site.origins, .names = info.names };
         try self.ctx.recordCallParams(call_node, recorded);
-        // What the call may store outlives its statement.
+        // What the call may store outlives its statement. A place lent to
+        // a parameter the call may keep is lent with `?` written (Core
+        // sentence 4): one its callee's `keeps` names, and, where nothing
+        // narrows the stores, any lent parameter the call may store by its
+        // type (a function value, an owned closure, a built-in generic's
+        // method at an instance whose `T` is a view).
         if (self.ctx.diagnostics.items.len == mark) {
             for (args, 0..) |a, i| {
                 if (!recorded.stores(i)) continue;
-                try self.keptLends(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a, .{ .stored = callee });
+                const value = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+                const param: ?usize = for (slots, 0..) |sl, k| {
+                    if (sl.? == .arg and sl.?.arg == i) break k;
+                } else null;
+                const lent = if (param) |k| sema.lentParam(self.ctx, f.params[k]) else false;
+                if ((recorded.keepsLent(i) or lent) and self.implicitArgument(value)) {
+                    try self.reportKept(call_node, value, false, .{ .stored = callee });
+                    continue;
+                }
+                try self.keptLends(value, .{ .stored = callee });
             }
         }
         if (keyword.len == 0 and args.len == f.params.len) return;
@@ -10176,7 +10190,14 @@ const Checker = struct {
         }
         self.lend_call = true;
         self.lend_recv = f.params[0];
+        const mark = self.ctx.diagnostics.items.len;
         try self.checkArgs(args, rest, info, method, pos, .{ .receiver = true, .origins = resolved.field.origins, .declared = self.declaredParams(resolved.field, resolved.module, 1) orelse resolved.fn_ty.params[1..] });
+        // A receiver the method keeps is lent with `?` written (Core
+        // sentence 4).
+        const o = resolved.field.origins;
+        if (receiver == .read and !misplaced_sigil and self.ctx.diagnostics.items.len == mark and o.stores & o.lent & sema.paramBit(0) != 0 and self.implicitReceiver(obj)) {
+            if (self.current_call) |call| try self.reportKept(call, obj, true, .{ .stored = method });
+        }
         return f.returns;
     }
 

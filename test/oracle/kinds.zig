@@ -380,10 +380,15 @@ pub const Reach = struct {
     }
 
     fn targetsOf(self: *Reach, ctx: *const SemContext, view: TypeId) std.mem.Allocator.Error!Targets {
+        return self.targetsUnder(ctx, view, null);
+    }
+
+    /// `targetsOf` a type written under a generic instance's bindings.
+    fn targetsUnder(self: *Reach, ctx: *const SemContext, view: TypeId, subst: ?*const Subst) std.mem.Allocator.Error!Targets {
         var t: Targets = .{};
         var work: std.ArrayList(Node) = .empty;
         var seen: std.StringHashMapUnmanaged(void) = .empty;
-        try work.append(self.a, .{ .ctx = ctx, .ty = view });
+        try work.append(self.a, .{ .ctx = ctx, .ty = view, .subst = subst });
         while (work.pop()) |popped| {
             const n = bound(popped);
             if (anything(n)) {
@@ -413,6 +418,10 @@ pub const Reach = struct {
                 },
             };
             if (target) |x| {
+                // A read view of a `T` bound to `String` is a `?String`,
+                // which views the text's bytes.
+                const b = bound(x);
+                if (n.ctx.types.get(n.ty) == .read_view and !b.elem and b.ctx.types.get(b.ty) == .string) t.bytes = true;
                 try self.addTarget(&t, x);
                 try work.append(self.a, x);
             }
@@ -461,7 +470,8 @@ pub const Reach = struct {
                     .slice => |sl| try work.append(self.a, .{ .ctx = n.ctx, .ty = sl.elem, .subst = n.subst, .past_read = n.past_read, .past_view = true, .elem = true }),
                     else => try work.append(self.a, .{ .ctx = n.ctx, .ty = inner, .subst = n.subst, .past_read = n.past_read, .past_view = true }),
                 },
-                .string_view => if (t.bytes) {
+                // Memory that may be anything holds text bytes too.
+                .string_view => if (t.bytes or t.any) {
                     r.viewed = true;
                 },
                 .string => if (t.bytes) {
@@ -517,7 +527,7 @@ pub const Reach = struct {
             // A slot in written memory may get any value of its type.
             if (n.past_view) switch (tt) {
                 .read_view, .write_view, .slice, .string_view => {
-                    const v = try self.targetsOf(n.ctx, n.ty);
+                    const v = try self.targetsUnder(n.ctx, n.ty, n.subst);
                     if (v.any) t.any = true;
                     if (v.bytes) t.bytes = true;
                     try t.types.appendSlice(self.a, v.types.items);
@@ -537,7 +547,7 @@ pub const Reach = struct {
                 // What a handle holds is only read, but a handle stored in
                 // a slot brings what its box holds.
                 .shared, .weak => |inner| if (n.past_view) {
-                    const v = try self.targetsOf(n.ctx, inner);
+                    const v = try self.targetsUnder(n.ctx, inner, n.subst);
                     if (v.any) t.any = true;
                     if (v.bytes) t.bytes = true;
                     try t.types.appendSlice(self.a, v.types.items);

@@ -140,13 +140,6 @@ test/corpus/review-step45-r2-e14_match.rig main prod-rejects prod-strict `cnt(?o
 test/reject/ownership/call_write_lend_kept.rig match_arm_writes prod-rejects prod-strict `!v.push(Item(n: it.n))` in an arm of `match find(!v)`, after the last use of `it`
 test/reject/ownership/call_write_lend_kept.rig write_result_whole prod-rejects prod-strict `v.len` after `firstw(!v).n`, the last use of the write view, in one statement
 
-# A generic callee's origins come from its signature, where a `T` could
-# hold anything, so the call may store its `!v` argument and that write
-# lend lasts to the statement's end; the oracle reads the instance, whose
-# `?Item` result only reads `v` (Core s7). Per-instance origins are a
-# later refinement.
-test/corpus/review-c-rules-r2-cf_generic_ok.rig main prod-rejects prod-strict `print(gfirst(!v).n, v.len)` of a generic `gfirst[T](v: !List[T]) -> ?T`
-
 # A bare variant literal whose enum comes from a view held by address
 # (`keep(.dot)` where `keep(v: ?S) -> ?S`) is a constant, which lives for
 # the whole program (SPEC "Lending"), so the oracle lets its view be
@@ -299,68 +292,38 @@ test/corpus/review-header-paths-1-t05_for_read_plain_array_part_local.rig main p
 # A `(!T)?` parameter holds the caller's write view: every unwrapping of
 # it (`w?`, `w ?? e`, `if <w as x`, a call's `!` or `catch`, a local or
 # capture holding it) writes into what the caller owns, which outlives the
-# function's own values (Core sentence 7). The oracle does not follow the
-# write view out of the optional, so it accepts these stores of a view of
-# a local.
+# function's own values (Core sentence 7). The oracle follows the write
+# view into a local write view that a move or a copy takes it into (`x =
+# <w`, `if <w as x`), but not through `w?`, `w ?? e`, a call's `!` or
+# `catch`, a closure, or a call that stores it, so it accepts these
+# stores of a view of a local.
 test/reject/ownership/unwrapped_write_param_call_stores.rig whole prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/reject/ownership/unwrapped_write_param_call_stores.rig unwrapped prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/reject/ownership/unwrapped_write_param_call_stores.rig swapped prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/reject/ownership/unwrapped_write_param_closure.rig captured prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/reject/ownership/unwrapped_write_param_closure.rig unwrapped prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/reject/ownership/unwrapped_write_param_fallible.rig bang prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/reject/ownership/unwrapped_write_param_fallible.rig caught prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/reject/ownership/unwrapped_write_param_header.rig field prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/reject/ownership/unwrapped_write_param_header.rig whole prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/reject/ownership/unwrapped_write_param_header.rig looped prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/reject/ownership/unwrapped_write_param_list.rig pushed prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/reject/ownership/unwrapped_write_param_list.rig element prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/reject/ownership/unwrapped_write_param_local.rig unwrapped prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/reject/ownership/unwrapped_write_param_local.rig whole prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/reject/ownership/unwrapped_write_param_local.rig optional prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/reject/ownership/unwrapped_write_param_local.rig optional_header prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/reject/ownership/unwrapped_write_param_local.rig lent_on prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/reject/ownership/unwrapped_write_param_match.rig payload prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/reject/ownership/unwrapped_write_param_match.rig arm prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/reject/ownership/unwrapped_write_param_method.rig nullish prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/reject/ownership/unwrapped_write_param_method.rig moved prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/reject/ownership/unwrapped_write_param_method.rig header prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/reject/ownership/unwrapped_write_param_nested_field.rig nullish prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/reject/ownership/unwrapped_write_param_nullish.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r02b-fallible-bang.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r03-nullish.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r04-catch.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-r05-ifas-move.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-r06b-match-unwrapped.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r06c-store-in-arm.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r07-nested.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r08b-method-nullish.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-r08c-method-ifas.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-r09b-list-push-ifas.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r10-list-elem.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r11-closure-capture.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r11b-closure-unwrapped.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-r12-local-unwrapped.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-r12b-local-unwrapped-paren.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r13-local-opt.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-r13b-local-opt-prop-ifas.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-r14-whole-local.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-r14b-whole-ifas.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-r15-local-lend-on.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-r16-swap.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-r17-while-as.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r18-call-stores.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r19-call-stores-unwrapped.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-r20-method-on-moved.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-review-a04-slice-opt.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-review-a05-slice-opt-direct.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-review-a06-list-opt.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-review-c02-closure-param-capture.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-review-c04-defer.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-review-c05-for-loop.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-review-c06-subview-local.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-review-c08-swap-fields.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-review-d03-owned-closure-call.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-review-d11-or-local.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-review-d15-call-result-view.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-review-d18-byvalue-self.rig Src.give prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-review-f01-owned-closure-clone-capture.rig mk prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
@@ -368,26 +331,15 @@ test/corpus/optwrite-review-f02-index-store.rig set prod-rejects ref-gap stores 
 test/corpus/optwrite-review-g01-caller-branch.rig main prod-rejects ref-gap `set(!h if c else none, ?u)` stores `?u` in `h` through a `(!T)?` parameter, and `u` ends first
 test/corpus/optwrite-review-h01-box-path.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-review-h04-break-value.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-review-h15-slice-for.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-review-h16-subslice.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-review-h17-slice-fill.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-review-h18-slice-copy.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-review-i03-closure-result.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-review-i04-shared.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-review-i05-match-arm-value.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-review-j01-box-opt.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-review-j02-slice-obj.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-review-j03-opt-obj.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
-test/corpus/optwrite-review-j05-generic-owned-param.rig stash prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 
 # A local that holds a parameter's write view (`x = <w`, `x = <w ?? e`)
 # is treated as the function's own: a view of it stored into, or returned
 # to, what the caller owns is rejected, though it views only what the
 # caller lent (Core sentence 7).
 test/corpus/optwrite-review-a01-cross-param-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
-test/corpus/optwrite-review-a02-cross-param-ifas-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
-test/corpus/optwrite-review-b01-plain-local-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
-test/corpus/optwrite-review-b02-unwrap-direct-ok.rig set prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
 test/corpus/optwrite-review-d15-call-result-view.rig inner prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
 test/corpus/optwrite-review-e01-return-sub-plain-ok.rig inner prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own
 test/corpus/optwrite-review-e02-return-sub-opt-ok.rig inner prod-rejects prod-strict a view reached through a local holding a parameter's write view counts as the function's own

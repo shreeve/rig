@@ -3,7 +3,7 @@ use std.hash
 obj Ref
   s: ?String
 
-sub store(v: !Ref, t: ?String)
+sub store(v: !Ref, t: ?String) keeps t
   v.s = t
 
 sub main()

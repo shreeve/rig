@@ -1,0 +1,17 @@
+# Why: `keeps` names a lent parameter; a by-value parameter is the
+# callee's already, so naming it says nothing.
+# Rule: `keeps` names only lent parameters, and only when a write
+# parameter or receiver could hold them (proposal-call-stores §6).
+
+obj Binder
+  names: List[String]
+
+  sub add(!self, s: String) keeps s
+    !self.names.push(<s)
+
+sub main()
+  b = Binder(names: List())
+  !b.add(String("x"))
+  print(b.names.len)
+
+# error: 9:35: `keeps s`: `s` is taken by value, so the callee owns it already

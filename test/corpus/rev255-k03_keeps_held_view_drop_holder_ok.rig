@@ -1,0 +1,13 @@
+obj P
+  src: ?String
+
+  sub absorb(!self, other: ?P) keeps other
+    self.src = other.src
+
+sub main()
+  t = String("hello")
+  p = P(src: ?t)
+  q = P(src: "")
+  !q.absorb(?p)
+  <p
+  print(q.src)

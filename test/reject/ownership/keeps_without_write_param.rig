@@ -1,0 +1,11 @@
+# Why: with no write receiver or write parameter there is nowhere to keep
+# a view.
+# Rule: `keeps` needs a write parameter or receiver (proposal-call-stores §6).
+
+fun size(s: ?String) -> Int keeps s
+  s.len
+
+sub main()
+  print(size("abc"))
+
+# error: 5:35: `keeps s`: `size` takes nothing to write that could hold it

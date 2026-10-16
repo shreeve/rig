@@ -1,0 +1,14 @@
+obj P
+  src: ?String
+
+  sub watch(!self, a: ?String, b: ?String) keeps b
+    print(a)
+    self.src = b
+
+sub main()
+  p = P(src: "")
+  t = String("tee")
+  u = String("you")
+  !p.watch(b: ?t, a: ?u)
+  <t
+  print(p.src)

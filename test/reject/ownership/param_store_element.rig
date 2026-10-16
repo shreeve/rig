@@ -1,7 +1,7 @@
 # A store into an element of write slice `a` keeps `b` lent for the
 # rest of the body.
 
-fun f(a: ![2][]Int, b: !List[Int]) -> Int
+fun f(a: ![2][]Int, b: !List[Int]) -> Int keeps b
   a[0] = ?b[..]
   for i in 0..100
     !b.push(i)

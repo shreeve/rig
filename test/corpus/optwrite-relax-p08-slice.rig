@@ -1,4 +1,4 @@
-sub setfirst(s: ![]?String, v: ?String)
+sub setfirst(s: ![]?String, v: ?String) keeps v
   s[0] = v
 
 sub main()

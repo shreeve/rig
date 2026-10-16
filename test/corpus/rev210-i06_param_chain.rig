@@ -18,7 +18,7 @@ sub go(q: !P)
   set(!w, ?q.b)
   q.b = String("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
 
-sub set(h: !Holder, s: ?String)
+sub set(h: !Holder, s: ?String) keeps s
   h.t = s
 
 sub main()

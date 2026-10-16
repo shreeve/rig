@@ -107,6 +107,9 @@ const Checker = struct {
     part_flows: []Bits = &.{},
     /// Each write-view parameter's `held` loan.
     held_of: []?LoanId = &.{},
+    /// The write-view parameter each local write view was moved or
+    /// copied out of, through any temporaries (`viewsOf`).
+    view_of: []?VarId = &.{},
     /// Scratch for `untake`: the vars the taken place is reached through.
     chain: []bool = &.{},
     finding: ?core.Finding = null,
@@ -258,6 +261,20 @@ const Checker = struct {
     /// A var a call or store may have left a view in takes the flowing
     /// loans, but never a loan on itself.
     fn gain(self: *Checker, g: VarId, st: State, flow: Bits) void {
+        self.gainOnly(g, st, flow);
+        self.toCaller(g, st, flow, false);
+    }
+
+    /// What is stored in a var that took a write-view parameter's view
+    /// (`x = <w`, `if <w as x`) is stored in what the caller lent: the
+    /// parameter, which the caller reads after the return, takes it too
+    /// (Core s7).
+    fn toCaller(self: *Checker, v: VarId, st: State, flow: Bits, by_take: bool) void {
+        const p = self.view_of[v] orelse return;
+        if (by_take) self.take(p, st, flow) else self.gainOnly(p, st, flow);
+    }
+
+    fn gainOnly(self: *Checker, g: VarId, st: State, flow: Bits) void {
         const vr = self.f.vars.items[g];
         if (!vr.holds_views) return;
         for (self.f.loans.items, 0..) |l, li| {
@@ -265,6 +282,14 @@ const Checker = struct {
             if (!vr.holds_pointers and !(l.external or self.f.keeps(g, li))) continue;
             st.holds[g].set(li);
         }
+    }
+
+    /// Whether `v` is a write-view parameter: what it views is the
+    /// caller's, which holds what the body stored there after `v` itself
+    /// is moved on (`x = <w`).
+    fn callerReaches(self: *Checker, v: VarId) bool {
+        const vr = self.f.vars.items[v];
+        return vr.param and vr.kind == .write_view;
     }
 
     /// `v` is defined anew: a loan another var still holds on a part of
@@ -354,7 +379,8 @@ const Checker = struct {
         }
         for (op.moves) |v| {
             st.empty.set(v);
-            st.holds[v].clear();
+            // What the caller lent keeps what was stored in it.
+            if (!self.callerReaches(v)) st.holds[v].clear();
         }
         if (op.def) |d| {
             st.holds[d].clear();
@@ -366,7 +392,10 @@ const Checker = struct {
             self.take(p.v, st, pf);
             st.empty.unset(p.v);
         }
-        if (op.weak) |w| self.take(w, st, flow);
+        if (op.weak) |w| {
+            self.take(w, st, flow);
+            self.toCaller(w, st, flow, true);
+        }
         if (op.kill) |k| {
             st.empty.set(k);
             st.holds[k].clear();
@@ -554,6 +583,21 @@ const Checker = struct {
                     return;
                 }
             };
+            // A function keeps a lent parameter only where its `keeps`
+            // names it: what its caller reaches through a write
+            // parameter holds no other lent parameter's loans.
+            if (self.f.keeps_named) |keeps| for (op.keep) |v| {
+                if (st.empty.has(v) and !self.callerReaches(v)) continue;
+                for (self.f.loans.items, 0..) |l, li| {
+                    if (!st.holds[v].has(li) or !l.external or l.root == v) continue;
+                    const i = std.mem.findScalar(VarId, self.f.params.items, l.root) orelse continue;
+                    if (i >= 64) continue;
+                    const bit = @as(u64, 1) << @intCast(i);
+                    if (self.f.lent & bit == 0 or keeps & bit != 0) continue;
+                    try self.report(.C6, op.pos, "a view of `{s}` is kept in `{s}`, which its caller reaches, but `keeps` does not name it", .{ self.name(l.root), self.name(v) });
+                    return;
+                }
+            };
             for (op.keep) |v| {
                 if (st.empty.has(v) or !self.f.vars.items[v].capture) continue;
                 for (self.f.loans.items, 0..) |l, li| {
@@ -597,6 +641,37 @@ const Checker = struct {
         }
     }
 };
+
+/// The write-view parameter each local write view holds the view of,
+/// taken from it by a move or a copy, directly or through other locals:
+/// what is stored through such a local lands in what the caller lent.
+fn viewsOf(a: std.mem.Allocator, f: *const core.Func) ![]?VarId {
+    const out = try a.alloc(?VarId, f.vars.items.len);
+    @memset(out, null);
+    for (f.params.items) |p| {
+        const pv = f.vars.items[p];
+        if (pv.kind == .write_view and !pv.capture) out[p] = p;
+    }
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (f.blocks.items) |b| for (b.ops.items) |op| {
+            if (op.what != .move and op.what != .copy) continue;
+            const d = op.def orelse continue;
+            const dv = f.vars.items[d];
+            if (dv.kind != .write_view or dv.param or dv.capture or out[d] != null) continue;
+            const srcs = if (op.what == .move) op.moves else op.reads;
+            if (srcs.len != 1) continue;
+            if (out[srcs[0]]) |p| {
+                out[d] = p;
+                changed = true;
+            }
+        };
+    }
+    // A parameter is its own; only the locals are noted.
+    for (f.params.items) |p| out[p] = null;
+    return out;
+}
 
 pub fn check(a: std.mem.Allocator, f: *core.Func) !?core.Finding {
     if (f.early) |e| return e;
@@ -667,6 +742,7 @@ pub fn check(a: std.mem.Allocator, f: *core.Func) !?core.Finding {
     }
     var c: Checker = .{ .a = a, .f = f, .nv = f.vars.items.len, .nl = f.loans.items.len, .live_out = &.{}, .twins = twins, .wholes = wholes, .held_of = held_of, .chain = try a.alloc(bool, f.vars.items.len) };
     try c.liveness();
+    c.view_of = try viewsOf(a, f);
     c.full = try Bits.init(a, c.nl);
     c.stored = try Bits.init(a, c.nl);
     c.stored_full = try Bits.init(a, c.nl);

@@ -26,7 +26,7 @@ obj R
 fun rep[T](p: !T, v: T) -> T
   replace(!p, <v)
 
-sub sw[T](a: !T, b: !T)
+sub sw[T](a: !T, b: !T) keeps a, b
   swap(!a, !b)
 
 sub main()

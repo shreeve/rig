@@ -1,0 +1,32 @@
+# Rule: a call keeps only what its signature shows (Core sentence 7):
+# `sum` names nothing in `keeps`, so the lend of `xs` ends when the call
+# returns, though `self` holds a view field and a Map.
+# From: Trig NEEDS 11, its checker's `!self` methods that take a view
+# (.git/revamp/r3/repro/needs11-map-reach.rig).
+
+use std.hash
+
+obj Program
+  xs: List[Int]
+
+obj Checker
+  program: ?Program
+  total: Int
+  m: hash.Map[U32, U32]
+
+fun Checker.sum(!self, xs: ?List[Int], i: Int) -> Int
+  self.total += 1
+  xs[i]
+
+fun Checker.run(!self) -> Int
+  xs: List[Int] = List()
+  !xs.push(1)
+  (!self).sum(?xs, 0)
+
+sub main()
+  p = Program(xs: List())
+  c = Checker(program: ?p, total: 0, m: hash.Map[U32, U32]())
+  print((!c).run())
+
+# expect:
+# 1

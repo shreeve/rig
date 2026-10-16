@@ -1,0 +1,15 @@
+# Why: storing a lent parameter into a write argument is a store, just
+# as into `self`.
+# Rule: `keeps` covers every write parameter the view could reach.
+
+sub collect(out: !List[?String], s: ?String)
+  !out.push(s)
+
+sub main()
+  names: List[?String] = List()
+  a = String("x")
+  collect(!names, ?a)
+  <a
+  print(names.len)
+
+# error: 6:3: say so: `keeps s`

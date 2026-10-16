@@ -1,0 +1,23 @@
+# Rule: a lend is written wherever its view may outlast its statement,
+# as when a call's result that carries it is handed to a call that keeps
+# it (Core sentence 4): `watch` keeps what `name(?t)` views, so `t` is
+# lent with `?` written.
+# From: the keeps Core review (purist, p6).
+
+obj Binder
+  src: ?String
+
+  sub watch(!self, s: ?String) keeps s
+    self.src = s
+
+fun name(t: ?String) -> ?String
+  t
+
+sub main()
+  b = Binder(src: "")
+  t = String("x")
+  !b.watch(name(?t))
+  print(b.src)
+
+# expect:
+# x

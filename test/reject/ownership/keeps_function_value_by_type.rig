@@ -1,0 +1,23 @@
+# Why: a call through a function value keeps what its type could hold,
+# since a type names no `keeps`; the checker cannot see which function
+# runs.
+# Rule: a function called as a value keeps what its type could hold
+# (Core sentence 7).
+
+obj Binder
+  src: ?String
+  n: Int
+
+sub note(b: !Binder, s: ?String)
+  b.n += s.len
+
+sub call(f: ?sub(!Binder, ?String), b: !Binder)
+  t = String("x")
+  f(!b, ?t)
+
+sub main()
+  b = Binder(src: "", n: 0)
+  call(?note, !b)
+  print(b.n)
+
+# error: 16:5: cannot let this call store a view of `t` in `b`

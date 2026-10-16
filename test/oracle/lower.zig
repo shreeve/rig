@@ -187,6 +187,7 @@ fn declaredFrom(ctx: *const sema.SemContext, pos: u32) ?u64 {
     } else return null;
     if (m.ir == .nil) return null;
     const d = findFun(m.ir, pos) orelse return null;
+    if (!d.isKind(.fun) and !d.isKind(.extern_fun)) return null;
     const names = ir.get(d, .origins);
     if (names == .nil) return null;
     var mask: u64 = 0;
@@ -200,12 +201,49 @@ fn declaredFrom(ctx: *const sema.SemContext, pos: u32) ?u64 {
     return mask;
 }
 
-/// The `fun` (or `extern fun`) whose name is at `pos`, among `node`'s
-/// declarations and members.
+/// The lent parameters a function's `keeps` clause names (`keeps s,
+/// self`), a bit each, read from the declaration in its module's IR: the
+/// function or method whose name is at `pos`. Zero when it writes none,
+/// and null when it is not found.
+fn declaredKeeps(ctx: *const sema.SemContext, pos: u32) ?u64 {
+    const m = for (program_modules) |*m| {
+        if (m.sema == ctx) break m;
+    } else return null;
+    if (m.ir == .nil) return null;
+    const d = findFun(m.ir, pos) orelse return null;
+    const names = ir.get(d, .keeps);
+    if (names == .nil) return 0;
+    var mask: u64 = 0;
+    for (names.items()) |n| {
+        const text = leafText(n, m.source);
+        for (ir.get(d, .params).items(), 0..) |p, i| {
+            const pn = sema.paramNameNode(p) orelse continue;
+            if (std.mem.eql(u8, leafText(pn, m.source), text) and i < 64) mask |= @as(u64, 1) << @intCast(i);
+        }
+    }
+    return mask;
+}
+
+/// Whether a parameter of type `ty` is lent (Core s7): a `?T`, `!T`,
+/// `[]T`, or `?String`, or an optional of one. A call keeps one only
+/// where its callee's `keeps` names it.
+fn lentType(ctx: *const sema.SemContext, ty: TypeId) bool {
+    const t = switch (ctx.types.get(ty)) {
+        .optional => |inner| inner,
+        else => ty,
+    };
+    return switch (ctx.types.get(t)) {
+        .read_view, .write_view, .slice, .string_view => true,
+        else => false,
+    };
+}
+
+/// The `fun`, `sub`, `extern fun`, or `extern sub` whose name is at
+/// `pos`, among `node`'s declarations and members.
 fn findFun(node: Sexp, pos: u32) ?Sexp {
     const kind = node.kind() orelse return null;
     switch (kind) {
-        .fun, .extern_fun => {
+        .fun, .sub, .extern_fun, .extern_sub => {
             const n = ir.get(node, .name);
             return if (n == .src and n.src.pos == pos) node else null;
         },
@@ -348,6 +386,13 @@ const Lowerer = struct {
             self.f.from = declaredFrom(self.ctx, ir.get(decl, .name).src.pos);
             self.ret_ty = self.declaredReturn(ir.get(decl, .name));
         };
+        if ((kind == .fun or kind == .sub) and ir.get(decl, .name) == .src) {
+            // What a call of it keeps of its lent parameters (Core s7).
+            self.f.keeps_named = declaredKeeps(self.ctx, ir.get(decl, .name).src.pos) orelse 0;
+            for (self.f.params.items, 0..) |p, i| {
+                if (i < 64 and lentType(self.ctx, self.f.vars.items[p].ty)) self.f.lent |= @as(u64, 1) << @intCast(i);
+            }
+        }
         try self.lowerBody(ir.get(decl, .body), kind == .fun);
     }
 
@@ -2851,7 +2896,7 @@ const Lowerer = struct {
                     const ft = self.ctx.types.get(s.ty);
                     if (ft != .function) return abstain("an unusual callee");
                     shapes = try self.shapesOf(self.ctx, ft.function.params);
-                    sig = .{ .ctx = self.ctx, .f = ft.function, .from = declaredFrom(self.ctx, s.decl_pos) };
+                    sig = .{ .ctx = self.ctx, .f = ft.function, .from = declaredFrom(self.ctx, s.decl_pos), .keeps = declaredKeeps(self.ctx, s.decl_pos) orelse 0 };
                 },
                 .nominal_type, .generic_type, .type_alias => {
                     is_ctor = true;
@@ -2901,7 +2946,7 @@ const Lowerer = struct {
                     shapes = try self.shapesOf(self.ctx, ft.?.function.params);
                     // A generic function's callee has its instance's
                     // signature; only a plain one says what it was declared.
-                    if (ft.?.function.ct_params.len == 0) sig = .{ .ctx = self.ctx, .f = ft.?.function, .from = self.staticFrom(callee) };
+                    if (ft.?.function.ct_params.len == 0) sig = .{ .ctx = self.ctx, .f = ft.?.function, .from = self.staticFrom(callee), .keeps = self.staticKeeps(callee) };
                 } else is_ctor = true;
             } else {
                 // A method: the receiver first, then the arguments.
@@ -2911,7 +2956,7 @@ const Lowerer = struct {
                 cell_store = self.isCell(recv_ty);
                 if (fn_params) |fp| {
                     shapes = try self.shapesOf(fp.ctx, if (fp.ctx == self.ctx) try self.instParams(recv_ty, fp.params) else fp.params);
-                    if (!fp.builtin) sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true, .from = declaredFrom(fp.ctx, fp.decl_pos) };
+                    if (!fp.builtin) sig = .{ .ctx = fp.ctx, .f = fp.full, .receiver = true, .from = declaredFrom(fp.ctx, fp.decl_pos), .keeps = declaredKeeps(fp.ctx, fp.decl_pos) orelse 0 };
                     // A built-in generic's `T` parameter stores what it is
                     // given (`push`, `insert`, a Cell's `set`).
                     const st = try self.a.alloc(bool, fp.params.len);
@@ -3013,7 +3058,7 @@ const Lowerer = struct {
         var kept: std.ArrayList(VarId) = .empty;
         var store_loan = true;
         if (sig) |sg| if (sg.receiver and sg.f.params.len > 0) {
-            const to_store = try reach.stores(sg.ctx, sg.f.params, 0);
+            const to_store = try reach.stores(sg.ctx, sg.f.params, 0) and sg.kept(0);
             if (to_store) try kept.appendSlice(self.a, recv_vars.items);
             store_loan = to_store;
         };
@@ -3038,7 +3083,7 @@ const Lowerer = struct {
                     const fi = pi + @intFromBool(sg.receiver);
                     if (fi < sg.f.params.len) {
                         param_at = fi;
-                        to_store = try reach.stores(sg.ctx, sg.f.params, fi);
+                        to_store = try reach.stores(sg.ctx, sg.f.params, fi) and sg.kept(fi);
                     }
                 }
             }
@@ -3495,6 +3540,25 @@ const Lowerer = struct {
         return declaredFrom(fm.sema, fm.sema.symbols.items[id].decl_pos);
     }
 
+    /// The `keeps` clause of the function a static call `m.f(...)` or
+    /// `T.f(...)` calls (`declaredKeeps`), null when not found.
+    fn staticKeeps(self: *Lowerer, callee: Sexp) ?u64 {
+        const obj = ir.Member.object(callee);
+        if (obj != .src) return null;
+        const obj_sym = self.ctx.symbolOf(obj) orelse return null;
+        const name = leafText(ir.Member.name(callee), self.src);
+        if (self.ctx.module_refs.get(obj_sym)) |mid| {
+            const fm = moduleById(mid) orelse return null;
+            const id = fm.sema.lookupInScopeOnly(sema.module_scope, name) orelse return null;
+            return declaredKeeps(fm.sema, fm.sema.symbols.items[id].decl_pos);
+        }
+        const sym = self.ctx.symbols.items[obj_sym];
+        for (sym.fields orelse &.{}) |f| {
+            if (f.is_method and std.mem.eql(u8, f.name, name)) return declaredKeeps(self.ctx, f.decl_pos);
+        }
+        return null;
+    }
+
     /// Whether a value of `ty` is a Cell or Signal, or a view or handle
     /// of one.
     fn isCell(self: *Lowerer, ty: TypeId) bool {
@@ -3525,6 +3589,18 @@ const Lowerer = struct {
         /// What its `from` clause names (Core s7), when it writes one: a
         /// bit per parameter, a method's receiver first.
         from: ?u64 = null,
+        /// What its `keeps` clause names (Core s7), a bit per parameter
+        /// as `from`; null for a function called as a value, which keeps
+        /// what its type could hold.
+        keeps: ?u64 = null,
+
+        /// Whether a call may keep parameter `i` where its type fits: a
+        /// lent one only where `keeps` names it.
+        fn kept(self: Sig, i: usize) bool {
+            const k = self.keeps orelse return true;
+            if (!lentType(self.ctx, self.f.params[i])) return true;
+            return i < 64 and k & (@as(u64, 1) << @intCast(i)) != 0;
+        }
     };
 
     /// How a method takes its receiver, and its other parameters' types.

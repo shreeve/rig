@@ -5,7 +5,7 @@ obj Pair[A, B]
 obj Holder
   p: Pair[?Int, Int]
 
-  sub put(!self, x: ?Int)
+  sub put(!self, x: ?Int) keeps x
     self.p = Pair(a: x, b: 0)
 
 sub main()

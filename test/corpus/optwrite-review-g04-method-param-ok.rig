@@ -4,12 +4,12 @@ obj H
 obj Src
   n: String
 
-  sub give(?self, w: (!H)?)
+  sub give(?self, w: (!H)?) keeps self
     (w ?? return).s = ?self.n
 
 sub main()
   src = Src(n: String("src"))
   t = String("outer")
   h = H(s: ?t)
-  src.give(!h)
+  ?src.give(!h)
   print(h.s)

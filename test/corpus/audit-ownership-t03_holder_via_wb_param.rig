@@ -12,7 +12,7 @@ obj Holder
   drop(!self)
     print("holder reads", self.b.v[0])
 
-sub set(h: !Holder, b: ?Big)
+sub set(h: !Holder, b: ?Big) keeps b
   h.b = b
 
 sub main()

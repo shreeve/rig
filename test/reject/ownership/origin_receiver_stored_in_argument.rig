@@ -7,7 +7,7 @@ obj Holder
 obj Src
   items: List[Int]
 
-  sub put(?self, out: !Holder)
+  sub put(?self, out: !Holder) keeps self
     out.r = ?self.items[..]
 
 sub main()
@@ -15,7 +15,7 @@ sub main()
   h = Holder(r: ?x[..])
   s = Src(items: List())
   !s.items.push(5)
-  s.put(!h)
+  ?s.put(!h)
   <s
   print(h.r[0])
 

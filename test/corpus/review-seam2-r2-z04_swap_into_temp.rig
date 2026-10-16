@@ -14,7 +14,7 @@ obj S
 obj H
   r: ?String
 
-  sub set(!self, s: ?String)
+  sub set(!self, s: ?String) keeps s
     self.r = s
 
   drop(!self)

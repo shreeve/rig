@@ -8,7 +8,7 @@ enum S
   a(v: List[Int])
   b
 
-fun store(h: !H, r: ?List[Int]) -> Bool
+fun store(h: !H, r: ?List[Int]) -> Bool keeps r
   h.r = r
   false
 

@@ -4,7 +4,7 @@ obj Item
 obj Holder
   r: ?Item
 
-sub evil(h: !Holder, x: ?Item)
+sub evil(h: !Holder, x: ?Item) keeps x
   h.r = x
 
 sub main()

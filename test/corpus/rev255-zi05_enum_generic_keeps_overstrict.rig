@@ -1,0 +1,16 @@
+enum Maybe[T]
+  some(v: ?T)
+  nothing
+
+sub put(m: !Maybe[String], s: ?String) keeps s
+  m = .some(s)
+
+sub main()
+  m: Maybe[String] = .nothing
+  t = String("hello")
+  put(!m, ?t)
+  match m
+    .some(v)
+      print(v)
+    .nothing
+      print("none")

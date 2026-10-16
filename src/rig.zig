@@ -3581,6 +3581,26 @@ test "`from` and `static` are keywords only after a function's result type" {
     try parses("f = |x: Int| x\nfrom = 1\n");
 }
 
+/// The `keeps` list of `source`'s first declaration, a function: how
+/// many names it lists, null for none.
+fn keepsCount(source: []const u8) !?usize {
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    const keeps = ir.get(try firstDecl(&p), .keeps);
+    return if (keeps == .nil) null else keeps.items().len;
+}
+
+test "`keeps` is a keyword only at the end of a function's header" {
+    try testing.expectEqual(@as(?usize, 1), try keepsCount("sub f(!self, s: ?String) keeps s\n  pass\n"));
+    try testing.expectEqual(@as(?usize, 2), try keepsCount("fun f(o: !T, s: ?T) -> ?T from s keeps s, o\n  s\n"));
+    try testing.expectEqual(@as(?usize, 1), try keepsCount("fun f(o: !T, s: ?T) -> Int keeps s\n  1\n"));
+    try testing.expectEqual(@as(?usize, 1), try keepsCount("sub f(o: !T, s: ?T)! keeps s\n  pass\n"));
+    try testing.expectEqual(@as(?usize, 1), try keepsCount("extern sub f(o: !T, s: ?T) keeps s\n"));
+    try testing.expectEqual(@as(?usize, null), try keepsCount("fun keeps(keeps: Int) -> Int\n  keeps\n"));
+    try testing.expectEqual(@as(?usize, null), try keepsCount("sub f(g: sub(Int), keeps: Int)\n  g(keeps)\n"));
+    try parses("keeps = 1\nf(keeps: keeps)\n");
+}
+
 test "a prefix sigil touches its operand; after a value it is infix or a suffix" {
     for ([_][]const u8{ "a < b", "a<b", "a <b", "a< b" }) |src| try expectCats(src, &.{ .ident, .lt, .ident });
     for ([_][]const u8{ "a - 1", "a-1", "a -1" }) |src| try expectCats(src, &.{ .ident, .minus, .integer });

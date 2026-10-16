@@ -1,7 +1,7 @@
 obj Holder
   v: List[[]Int]
 
-  sub put(!self, ys: []Int)
+  sub put(!self, ys: []Int) keeps ys
     !self.v.push(ys)
 
 sub main()

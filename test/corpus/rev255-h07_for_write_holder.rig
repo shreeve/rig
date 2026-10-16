@@ -1,0 +1,14 @@
+obj P
+  src: ?String
+
+  sub watch(!self, s: ?String) keeps s
+    self.src = s
+
+sub main()
+  xs: List[P] = List()
+  !xs.push(P(src: ""))
+  t = String("hello")
+  for x in !xs
+    !x.watch(?t)
+  <t
+  print(xs[0].src)

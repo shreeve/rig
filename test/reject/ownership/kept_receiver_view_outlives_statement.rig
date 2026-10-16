@@ -19,7 +19,7 @@ obj Q
   fun me(?self) -> ?Q
     self
 
-  fun put(?self, h: !Holder) -> Int
+  fun put(?self, h: !Holder) -> Int keeps self
     h.r = self
     self.n
 

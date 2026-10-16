@@ -4,7 +4,7 @@
 obj Holder
   r: []Int
 
-fun f(a: !Holder, b: !List[Int]) -> []Int
+fun f(a: !Holder, b: !List[Int]) -> []Int keeps b
   a.r = ?b[..]
   a.r
 

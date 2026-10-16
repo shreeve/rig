@@ -2,7 +2,7 @@
 obj Bag
   items: List[?String]
 
-  sub add(!self, s: ?String)
+  sub add(!self, s: ?String) keeps s
     !self.items.push(s)
 
 sub main()

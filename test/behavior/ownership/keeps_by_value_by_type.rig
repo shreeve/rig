@@ -1,0 +1,22 @@
+# A value passed by value is the callee's, which may keep it, and its
+# loans, wherever its type fits: no `keeps` is written, and the caller's
+# loan lasts while the holder is used.
+
+obj Token
+  text: ?String
+
+obj Lexer
+  tokens: List[Token]
+
+  sub add(!self, tok: Token)
+    !self.tokens.push(tok)
+
+sub main()
+  src = String("let x")
+  lx = Lexer(tokens: List())
+  !lx.add(Token(text: ?src[0..3]))
+  !lx.add(Token(text: ?src[4..]))
+  print(lx.tokens.len, lx.tokens[0].text, lx.tokens[1].text)
+
+# expect:
+# 2 let x

@@ -1337,7 +1337,7 @@ before it returns.
 | Name | Meaning |
 |---|---|
 | `new_doc() -> Doc` | an empty `Doc`; each `parse` reuses its lists, so a parse allocates only when a list must grow |
-| `(!doc).parse(src: ?String) -> Bool` | read all of `src` into `doc`'s tape: `true`, or `false` with `doc.error` and `doc.error_pos` set |
+| `(!doc).parse(src: ?String) -> Bool keeps src` | read all of `src` into `doc`'s tape: `true`, or `false` with `doc.error` and `doc.error_pos` set |
 | `doc.error: Error`, `doc.error_pos: Int` | the first error, and the byte offset of the byte that cannot be read |
 | `error_name(e: Error) -> Static` | the name of an `Error`: `ok`, `empty`, `unexpected`, `eof`, `number`, `range`, `escape`, `surrogate`, `control`, `utf8`, `trailing`, `depth`, or `too_large` |
 | `doc.size() -> Int` | the number of tape entries |

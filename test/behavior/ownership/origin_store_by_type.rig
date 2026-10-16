@@ -11,7 +11,7 @@ obj Holder
 sub bump(c: !Counter, name: ?String)
   c.n += name.len
 
-sub keep(h: !Holder, x: []Int, label: ?String)
+sub keep(h: !Holder, x: []Int, label: ?String) keeps x
   h.r = x
   print(label)
 
