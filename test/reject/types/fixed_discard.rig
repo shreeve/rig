@@ -1,0 +1,10 @@
+# `_` discards a value and binds nothing, so there is nothing to fix:
+# a discard is `_ = e`, never `_ =! e`.
+
+fun f() -> Int
+  1
+
+sub main()
+  _ =! f()
+
+# error: 8:3: `_` binds nothing, so it cannot be fixed; discard with `_ = ...`

@@ -1,0 +1,19 @@
+# `x =! e` binds a fixed local, with or without a type, and `new x =! e`
+# shadows with one. `=!` lexes as one token only before a space, so
+# `x =! !y` is a fixed binding of the write lend `!y`, and `x != y`
+# compares.
+
+sub main()
+  a =! 40
+  b: Int =! a + 2
+  new a =! a * 2
+  new b: Int =! b + 1
+  print(a, b)
+  xs = [1, 2, 3]
+  w =! !xs
+  w[0] = 9
+  print(xs[0], a != b)
+
+# expect:
+# 80 43
+# 9 true

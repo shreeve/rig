@@ -1,7 +1,7 @@
 obj Counter
   hits: Cell[Int]
 
-const a = [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
+a =! [Counter(hits: Cell(0)), Counter(hits: Cell(0))]
 
 sub main()
   for k in a

@@ -471,7 +471,7 @@ pub const Facts = struct {
     pub fn isModuleLevel(f: Facts, sym: SymbolId) bool {
         return f.c().symbols.items[sym].scope == sema.module_scope;
     }
-    /// Whether a local `const k = n` stands for a compile-time parameter.
+    /// Whether a local `k =! n` stands for a compile-time parameter.
     pub fn isCtLocal(f: Facts, sym: SymbolId) bool {
         return f.c().ct_locals.contains(sym);
     }

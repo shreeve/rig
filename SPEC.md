@@ -2457,10 +2457,10 @@ constant `A` depends on itself (`A` → `B` → `A`)
 ```
 
 There are no mutable module-level variables, so a module-level binding
-needs no `const`, and one written with it is rejected:
+needs no `=!`, and one written with it is rejected:
 
 ```rig reject
-const LIMIT = 4
+LIMIT =! 4
 
 sub main()
   print(LIMIT)
@@ -2551,7 +2551,7 @@ declaration ([§14](#14-modules)), and `extern` declares a C symbol
 The forms are in [SYNTAX §9](SYNTAX.md#9-bindings-and-assignment). `x =
 e` binds a new local `x` when no `x` is visible, and otherwise assigns
 the visible one: through it, when `x` holds a write view
-([View places](#view-places)). `const x = e` binds a fixed local, which
+([View places](#view-places)). `x =! e` binds a fixed local, which
 cannot be reassigned. `_ = e` evaluates `e` and discards it, and an
 owning value discarded so is dropped at once. A binding's type comes
 from its annotation or its value.
@@ -2617,8 +2617,8 @@ index
 ```
 
 There is no implicit shadowing. A local may not reuse the name of a
-visible local, parameter, or module-level declaration, and `const x =
-e` always declares. To reuse a name on purpose, write `new`:
+visible local, parameter, or module-level declaration, and `x =! e`
+always declares. To reuse a name on purpose, write `new`:
 
 ```rig
 sub main()
@@ -2634,13 +2634,13 @@ sub main()
 now a string
 ```
 
-`new` takes the other binding forms too: `new x: T = e`, and `new
-const x = e`, which shadows with a fixed local.
+`new` takes the other binding forms too: `new x: T = e`, and `new x =!
+e`, which shadows with a fixed local.
 
 ```rig
 sub main()
-  const limit = 3
-  new const limit = limit * 2
+  limit =! 3
+  new limit =! limit * 2
   n = 7
   new n: U8 = U8(n)
   print(limit, n)
@@ -5977,7 +5977,7 @@ else, since the value lives only behind a handle and a handle's other
 fields only read: `swap` and `replace` do not exchange it whole. A
 handle is lent as itself, `!*C`, which a callee may point elsewhere, only
 where the handle may be written (an owned mutable local, a `!*C` parameter,
-a handle field of a write view); anywhere else (a `const`, a parameter that
+a handle field of a write view); anywhere else (a `=!` binding, a parameter that
 is not a `!` view, a capture, a field of a value another handle shares) `!h`
 lends what it holds, a `!C`, and a `!*C` parameter is a type mismatch whose
 hint is to pass `+h` for a handle of your own. A read view of a handle, or
@@ -8577,11 +8577,11 @@ the signature holds, may be left to inference
 ([generic functions](#generic-functions)), any other value never. A
 value argument must be known at compile time: a literal
 (`none` included), an enum value, a module constant, a compile-time
-parameter, a `const` binding of one of these, or a comparison or `and`,
+parameter, a `=!` binding of one of these, or a comparison or `and`,
 `or`, `not` of them. Arithmetic in a compile-time argument must fold to
 a constant (`LIMIT * 2`), which is checked like constant arithmetic;
 arithmetic on a compile-time parameter (`n + 1`), directly or through a
-`const` binding, is rejected, since each instance would compute it
+`=!` binding, is rejected, since each instance would compute it
 unchecked. Inside a body, a compile-time value is an ordinary value, and
 arithmetic on it is checked when it runs. Whether `x[...]` indexes `x`
 or gives it compile-time arguments is decided by what `x` names
@@ -8718,7 +8718,9 @@ not parse, and their words and sigils stay reserved:
 | `for *x in v` | `` `for *x in` is reserved `` |
 | `try` blocks | `` `try` blocks are reserved `` |
 | `zig "..."` | `` inline Zig is reserved `` |
-| `when`, `yield`, ... as a name | `` unexpected keyword `when` `` (every word held for later: `async` `await` `impl` `trait` `when` `where` `yield`) |
+| `const x = e`, `new const x = e` | `` Rig has no `const`; write `x =! e` for a binding that never changes `` |
+| `x =!y` | `` `=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write `` |
+| `when`, `yield`, ... as a name | `` unexpected keyword `when` `` (every other word held for later: `async` `await` `impl` `trait` `when` `where` `yield`) |
 | string and float match patterns | `` a pattern is a name, an integer, `true`, `false`, or an enum variant `` |
 
 The rest parse, and the checker rejects them as not supported yet

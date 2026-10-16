@@ -9,7 +9,7 @@ sub bump(c: Counter)
   print("param", c.hits.get())
 
 sub main()
-  const k = Counter(hits: Cell(0))
+  k =! Counter(hits: Cell(0))
   k.hit()
   k.hit()
   print(k.hits.get())
