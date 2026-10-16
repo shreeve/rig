@@ -774,8 +774,9 @@ const pending_budget = 3;
 test "emit reads the checkers' decisions only through Facts" {
     const emit_source = @embedFile("emit.zig");
     // Emit imports no file that holds a classifier: sema.zig, storage.zig,
-    // and resolve.zig are reached only through this one.
-    const allowed = [_][]const u8{ "std", "parser.zig", "rig.zig", "facts.zig", "diag.zig" };
+    // and resolve.zig are reached only through this one. nametable.zig
+    // builds the data of a table of names, and decides nothing.
+    const allowed = [_][]const u8{ "std", "parser.zig", "rig.zig", "facts.zig", "diag.zig", "nametable.zig" };
     // Read as Zig reads it, so no spelling of an import slips past.
     var tokens = std.zig.Tokenizer.init(emit_source);
     var imports: usize = 0;
