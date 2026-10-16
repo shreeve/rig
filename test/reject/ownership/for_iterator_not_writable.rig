@@ -1,5 +1,5 @@
 # `for x in it` is `while (!it).next() as x`, so the iterator must be
-# writable where the loop stands: a read view, a `const`, and `?it`
+# writable where the loop stands: a read view, a `=!` binding, and `?it`
 # cannot be advanced, and `!` needs a place, not a value made there.
 
 obj Count
@@ -20,7 +20,7 @@ sub peek(it: Count)
     print(n)
 
 sub main()
-  const k = Count(lo: 0, hi: 2)
+  k =! Count(lo: 0, hi: 2)
   for n in !k
     print(n)
   c = Count(lo: 0, hi: 2)
@@ -31,7 +31,7 @@ sub main()
 
 # error: 15:13: cannot lend to write through a read view `?Count`
 # error: 19:13: cannot lend parameter `it` to write; parameters are immutable (bind a copy with `new it = it`, or take `it: !Count` to write through to the caller)
-# error: 24:13: cannot lend fixed binding `k` to write (bound with `const`)
+# error: 24:13: cannot lend fixed binding `k` to write (bound with `=!`)
 # error: 27:13: `for n in ?c` would only read an iterator, which `next` cannot advance; write `for n in !c` to advance it in place
 # error: 29:13: `!Count(lo: 0, hi: 2)` advances a place, and this is a value made here; write `for n in Count(lo: 0, hi: 2)`, which holds it for the loop
 # errors: 5

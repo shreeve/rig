@@ -3797,7 +3797,7 @@ test/reject/ownership/return_shared_field.rig take
 test/reject/ownership/return_struct_with_local_view.rig bad
 test/reject/ownership/return_view_chosen_by_if.rig pick
 test/reject/ownership/return_view_of_local.rig bad
-test/reject/ownership/shadow_const_is_fixed.rig main
+test/reject/ownership/shadow_fixed_is_fixed.rig main
 test/reject/ownership/share_named_drop_glue.rig main
 test/reject/ownership/shared_alias_binding.rig main
 test/reject/ownership/shared_alias_call_arg.rig main

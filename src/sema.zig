@@ -546,11 +546,11 @@ pub const SymbolKind = enum {
 };
 
 pub const SymbolFlags = packed struct(u16) {
-    /// `const` binding: cannot be reassigned.
+    /// `=!` binding: cannot be reassigned.
     fixed: bool = false,
     is_public: bool = false,
     /// Value known at compile time: a compile-time parameter
-    /// (`fun f[n: Int]`), or a `const` binding
+    /// (`fun f[n: Int]`), or a `=!` binding
     /// initialized with a compile-time-known expression.
     comptime_known: bool = false,
     /// Bound by a `for` loop or a match pattern: not assignable.
@@ -2070,7 +2070,7 @@ pub const SemContext = struct {
     quiet: u32 = 0,
     /// `minBytes` of each type sized so far.
     byte_sizes: std.AutoHashMapUnmanaged(TypeId, ?u128) = .empty,
-    /// A local `const k = n` binding of a compile-time integer parameter ->
+    /// A local `k =! n` binding of a compile-time integer parameter ->
     /// the `ct_param` it stands for, where an array length or a
     /// compile-time argument names it.
     ct_locals: std.AutoHashMapUnmanaged(SymbolId, TypeId) = .empty,
@@ -8777,7 +8777,7 @@ test "facts: captures, parameters, and self resolve to their symbols" {
         \\    self.n
         \\
         \\sub main()
-        \\  const s = "hi"
+        \\  s =! "hi"
         \\  f = |+s|
         \\    print(s)
         \\  f()
@@ -9119,7 +9119,7 @@ test "symbols: binding flags" {
         \\  print(k)
         \\
         \\sub main()
-        \\  const y = 2
+        \\  y =! 2
         \\  show[y]()
         \\  print(read(?U(n: y)))
         \\

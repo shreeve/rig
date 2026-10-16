@@ -6,7 +6,7 @@ sub f(a: *Cell[Int], v: ?List[*Cell[Int]])
   print(a.get(), old.get(), v[0].get())
 
 sub main()
-  const x = *Cell(1)
+  x =! *Cell(1)
   v = List[*Cell[Int]]()
   !v.push(*Cell(2))
   f(+x, ?v)

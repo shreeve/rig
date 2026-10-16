@@ -1,4 +1,4 @@
-# Pointing a `const` handle elsewhere would free a box another view reads.
+# Pointing a fixed (`=!`) handle elsewhere would free a box another view reads.
 # (A handle is lent as itself, `!*T`, only where it may be written; the
 # review probe of that name.)
 
@@ -7,7 +7,7 @@ sub k(a: ?Cell[List[Int]], b: !*Cell[List[Int]])
   print(a.len)
 
 sub main()
-  const c: *Cell[List[Int]] = *Cell(List())
+  c: *Cell[List[Int]] =! *Cell(List())
   !c.push(1)
   k(c, !c)
 

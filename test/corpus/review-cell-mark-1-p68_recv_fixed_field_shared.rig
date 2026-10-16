@@ -12,7 +12,7 @@ obj S
 sub main()
   k = *C(n: Cell(0), log: Cell(List()))
   s = *S(h: +k)
-  const t = +s
+  t =! +s
   !t.h.hit()
   !s.h.hit()
   print(k.n.get())

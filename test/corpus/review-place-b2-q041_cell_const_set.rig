@@ -1,4 +1,4 @@
-const K = Cell[Int](1)
+K =! Cell[Int](1)
 
 sub main()
   K.set(3)

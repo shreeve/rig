@@ -200,12 +200,11 @@ not used.
 | Role | Keywords |
 |---|---|
 | declarations | `fun` `sub` `enum` `error` `type` `use` `pub` `extern` `test` `drop` |
-| bindings | `const` |
 | control | `if` `else` `while` `for` `in` `match` `break` `continue` `return` `defer` `errdefer` `pass` |
 | expressions | `and` `or` `not` `as` `catch` `true` `false` |
 | boundaries | `raw` `zig` (in `extern zig`) |
 | reserved forms | `try`, and `zig` elsewhere |
-| held for later | `async` `await` `impl` `trait` `when` `where` `yield` |
+| held for later | `async` `await` `const` `impl` `trait` `when` `where` `yield` |
 
 Every keyword but `if` may still name a member, where it cannot be
 mistaken for the keyword: an `obj` field, a method, or a payload field.
@@ -261,7 +260,7 @@ fun f(in: Int) -> Int
 ```
 
 Nine words are keywords only in one position. `new` is a keyword at
-the start of a statement (`new x = ...`, `new const x = ...`), so a
+the start of a statement (`new x = ...`, `new x =! ...`), so a
 method may be named `new`. `obj` is a keyword at the start of a
 declaration, before the type's name (`obj Point`, `pub obj Pair[T]`),
 so `obj = 5`, `obj.x` and `fun f(obj: Int)` are ordinary; `struct` is
@@ -402,9 +401,9 @@ a prefix `-` touches its operand: write `-b`
 ```
 
 Tokens split by the longest match, as in C and Zig, so `a == b` is not
-`a = = b`. `=!` is one token and no operator: `x =! y` and `x =!y` are
-rejected, so `x =!y` never passes for `x = !y`, a write lend. A sigil
-after the `]` of an array or slice type starts its element type: in
+`a = = b`. `=!` is one token, so `x =!y` could be a fixed binding of `y`
+or `x = !y`, a write lend; a `=!` with no space after it is rejected. A
+sigil after the `]` of an array or slice type starts its element type: in
 `[2]?Int`, each element is a read view.
 
 Postfixes bind tighter than prefixes: `-a.len` is `-(a.len)`, and
@@ -925,7 +924,7 @@ big 7 2.0
 
 A binding at module level is a constant: `LIMIT = 10`,
 `names = ["low", "high"]`, `pub unit: U8 = 10`. It is written with `=`,
-never `const` ([SPEC §3](SPEC.md#constants)), and may name any constant
+never `=!` ([SPEC §3](SPEC.md#constants)), and may name any constant
 of its module, before or after it.
 
 ### Tests
@@ -955,23 +954,23 @@ file implements ([SPEC §15](SPEC.md#zig-backed-declarations)).
 |---|---|
 | `x = e` | declare `x`, or assign the visible `x` (through it, when `x` holds a write view) |
 | `x: T = e` | declare with a type |
-| `const x = e`, `const x: T = e` | declare a fixed `x`, which cannot be reassigned |
-| `new x = e`, `new x: T = e`, `new const x = e` | declare a new `x` shadowing the visible one; `e` may read the old |
+| `x =! e`, `x: T =! e` | declare a fixed `x`, which cannot be reassigned |
+| `new x = e`, `new x: T = e`, `new x =! e` | declare a new `x` shadowing the visible one; `e` may read the old |
 | `x = <y` | move `y` into `x` |
 | `x += e`, and `-=` `*=` `/=` `%=` `+%=` `-%=` `*%=` `+\|=` `-\|=` `&=` `\|=` `^=` `<<=` `<<%=` `>>=` | compound assignment |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate `e` and discard it |
 
-There is no `let` or `var`. The first `x = e` in a scope declares `x`,
-and later ones assign it. `const x = e` declares a binding that never
-changes, in a function body; at module level every binding is already
-constant.
+There is no `let`, `var`, or `const`. The first `x = e` in a scope
+declares `x`, and later ones assign it. `x =! e` reads as "set,
+dammit!": it declares a binding that never changes, in a function body;
+at module level every binding is already constant.
 
 ```rig
 sub main()
   x = 1
   x = x + 1
-  const limit = 10
+  limit =! 10
   new x = "now a string"
   total = 0
   total += limit
@@ -1698,7 +1697,7 @@ comma-separated list (which may end with a comma), `tail-closure` is a
 closure whose body assigns, and `INDENT` / `DEDENT` are the block
 structure. The checker narrows a few forms the grammar accepts: a `fun`
 needs `->`, a `drop` body takes `!self`, a module-level binding
-takes no `const`, a label goes only on a loop, `match`, or `raw`
+takes no `=!`, a label goes only on a loop, `match`, or `raw`
 block, and a method outside the body names a type of its module. The grammar also parses a definition without its parameter list,
 so that the rejection can show the header with it.
 
@@ -1746,8 +1745,8 @@ cunit     = integer | name | name "." name | "(" cexp ")"
 block     = INDENT stmt* DEDENT
 stmt      = decl | "@" name stmt | simple ["if" value]
 simple    = tail | assign
-          | name ":" type "=" tail | "const" name [":" type] "=" tail
-          | "new" ["const"] name [":" type] "=" tail | "-" name | "pass"
+          | postfix "=!" tail | name ":" type ("=" | "=!") tail
+          | "new" name [":" type] ("=" | "=!") tail | "-" name | "pass"
           | "return" [tail] | "break" ["@" name] [tail] | "continue" ["@" name]
           | ("defer" | "errdefer") (simple | block) | "raw" block
 assign    = postfix ("=" | "+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%="

@@ -100,7 +100,7 @@ fails at run time: `if *w as h`
 
 ## Why no `var` or `let`?
 
-`x = e` binds or assigns, as in Python and Ruby, and `const x = e` binds
+`x = e` binds or assigns, as in Python and Ruby, and `x =! e` binds
 for good. What Rig forbids is silently reusing a visible name; write
 `new x = e` to shadow on purpose ([more](docs/DESIGN.md#bindings)).
 

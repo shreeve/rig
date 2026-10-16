@@ -510,7 +510,7 @@ const SymbolResolver = struct {
                 if (self.scope != self.module_scope and !rig.shadows(ir.Set.op(node))) {
                     if (self.visibleLocal(self.scope, identAt(self.ctx.source, target).?)) |prev| {
                         const name = self.ctx.symbols.items[prev].name;
-                        try self.ctx.errAt(target, "`{s}` is already bound; `const` declares a new binding. Assign with `{s} = ...` or shadow with `new const {s} = ...`", .{ name, name, name });
+                        try self.ctx.errAt(target, "`{s}` is already bound; `=!` declares a new binding. Assign with `{s} = ...` or shadow with `new {s} =! ...`", .{ name, name, name });
                         try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
                         try self.ctx.recordName(target, prev);
                         return;
@@ -2329,7 +2329,7 @@ pub const TypeResolver = struct {
         return null;
     }
 
-    /// The `ct_param` of the compile-time integer parameter (or `const k = n`
+    /// The `ct_param` of the compile-time integer parameter (or `k =! n`
     /// alias of one) a name leaf denotes; null for any other name.
     fn ctParamNamed(self: *TypeResolver, leaf: Sexp) Error!?TypeId {
         const name = identAt(self.ctx.source, leaf) orelse return null;

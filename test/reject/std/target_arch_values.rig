@@ -20,7 +20,7 @@ sub main()
   match 5
     0..LANES => print("low")
     _ => print("high")
-  const k = TIER
+  k =! TIER
   c: [k]U8 = [4 of 0]
   print(a, v, c, Code.ok)
 

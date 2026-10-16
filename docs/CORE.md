@@ -1333,12 +1333,12 @@ sub main()
 while an earlier argument's read of it is in use
 ```
 
-**Bindings.** A local binding may be reassigned. Parameters and `const`
-bindings may not. *(built)*
+**Bindings.** A local binding may be reassigned. Parameters and fixed
+bindings (`x =! e`) may not. *(built)*
 
 ```rig
 sub main()
-  const limit = 3
+  limit =! 3
   print(limit)
 ```
 
@@ -1494,7 +1494,7 @@ rule in SYNTAX is syntax too.
   rejected; a drop is written `<x` (sentence 2). *(built)*
 - **The receiver-sigil rule:** `!v.push(x)` applies `!` to `v`, and
   `!mk().pop()` applies it to `mk()`. *(built)*
-- **`const x = e`:** a binding that never changes. *(built)*
+- **`x =! e`:** a local binding that never changes. *(built)*
 - **The sigil leads the whole path.** Write `!p.x` to lend a field,
   `p.x` to read it, and `p.x = 4` to assign it. `(!p).x`, `(?arr)[0]`
   and `(!v)[0..2]` are rejected. Parentheses around a lend are only for
