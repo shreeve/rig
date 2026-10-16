@@ -3174,6 +3174,26 @@ a range's bounds left to right. A target that is a name has no steps.
 The store comes last: it finds the place through the base and indexes
 as they were evaluated, and stores.
 
+A target assigned through (`storage.assignedThrough`) has no field or
+element on its path, so it is its own base: a call that returns a
+write view `!T`, or that call's `!` or `?`. Typecheck admits no other
+(`assignThroughCall`): `?` or `!` around anything but a call is no
+target. It writes the `T` the view reaches, as a hidden binding of the
+view would:
+
+```text
+f(x) op= value   ==>   { __v = value; w = f(x); w op= __v }
+```
+
+The call is the base, so it runs after the value, and the store goes
+through the pointer it returns (`Emitter.emitTarget`: `__rig_base_N.*`
+where the base is held, else `(f(&x)).*`). The storage plan and emit
+take the viewed `T` as the place's type (`Planner.placeAssign`,
+`emitPlaceAssign`), so a `T` that owns is replaced through a `slot`,
+the old value dropped; the ownership checker walks the call as a base
+no var holds and stores through its write loans (`walkFieldAssign`,
+`storeThroughLend`), as it does for `f(x).field = value`.
+
 The value runs to its end first: every statement in it (a `match` arm,
 an `if` or `else` block, a `catch` handler, a nested assignment), every
 scope it opens, and the drops and defers that end them. Only then does

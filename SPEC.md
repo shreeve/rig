@@ -2715,6 +2715,71 @@ and one bound with a `!T` type (`x: !Int = w`) would copy the view, so
 both are rejected. A write view of a plain object, array, or optional
 reads it as one of a number does (`q = p` with `p: !Point`).
 
+A write view a call returns is assigned through, with no binding to
+hold it: `slot(!v, 0) = 5`, `slot(!v, 0) += 1`, and `(!b).first() *=
+2` write the value the view reaches, the old value dropped first. So is
+the write view a call's `!` or `?` gives (`get(!v)! += 1` for a
+`(!Int)!`, `(!m).edit(k)? += 1` for a `(!Int)?`). `f(x) op= e` is
+`__v = e`, then `w = f(x)`, then `w op= __v`: the value runs first,
+then the call, as a field's or element's base does, so
+`slot(!v, 0) += v.len` reads `v.len` before `slot` runs. Nothing else
+is assigned through: not a call that returns a value, a read view, or
+a `![]T` (a `![]T`'s elements are: `all(!v)[0] = 5`), and not `?` or
+`!` around anything but a call. To write what an optional write view
+`w` reaches, write `if w as x` then `x = v`.
+
+```rig
+obj Bag
+  items: List[Int]
+
+  fun first(!self) -> !Int
+    !self.items[0]
+
+fun slot(v: !List[String], i: Int) -> !String from v
+  !v[i]
+
+sub main()
+  b = Bag(items: List())
+  !b.items.push(5)
+  (!b).first() += 1
+  (!b).first() *= 2
+  names: List[String] = List()
+  !names.push(String("ada"))
+  slot(!names, 0) = String("bob")
+  print(b.items, names)
+```
+
+```output
+[12] ["bob"]
+```
+
+```rig reject
+fun count(v: ?List[Int]) -> Int
+  v.len
+
+sub main()
+  v: List[Int] = List()
+  count(?v) += 1
+```
+
+```error
+cannot assign to a call's result, an `Int`; only a write view (`!T`) a call returns is assigned through
+```
+
+```rig reject
+fun bump(w: (!Int)?) -> Int?
+  w? += 1
+  0
+
+sub main()
+  n = 1
+  print(bump(!n))
+```
+
+```error
+cannot assign to `w?`: only a call that returns a write view (`!T`), or that call's `!` or `?`, is assigned through; to write what `w` views, write `if w as x` then `x = v`
+```
+
 A write view is never stored inside a value (Core §5): `!T`,
 also as `(!T)?` and `(!T)!`, is only a parameter's, a receiver's, a
 result's, or a local or header binding's type, never a field's, an

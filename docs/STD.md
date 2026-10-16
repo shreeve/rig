@@ -523,8 +523,7 @@ sub main()
       !again.put(String(w), String(w, w, "+"))
   counts = hash.Map[String, Int].new()
   for w in ["to", "be", "to"]
-    c = (!counts).ensure(String(w), 0)
-    c += 1
+    (!counts).ensure(String(w), 0) += 1
   print(made.get("ab"), made.get("cd"), again.get("ab"), counts.get("to"), counts.get("be"))
 ```
 
