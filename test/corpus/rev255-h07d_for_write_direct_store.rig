@@ -1,0 +1,11 @@
+obj P
+  src: ?String
+
+sub main()
+  xs: List[P] = List()
+  !xs.push(P(src: ""))
+  t = String("hello")
+  for x in !xs
+    x.src = ?t
+  <t
+  print(xs[0].src)

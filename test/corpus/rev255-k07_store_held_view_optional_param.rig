@@ -1,0 +1,15 @@
+obj P
+  src: ?String
+
+sub absorb(out: !List[?String], o: (?P)?)
+  if o as p
+    !out.push(p.src)
+
+sub main()
+  t = String("hello")
+  p = P(src: ?t)
+  out: List[?String] = List()
+  absorb(!out, ?p)
+  <p
+  <t
+  print(out[0])

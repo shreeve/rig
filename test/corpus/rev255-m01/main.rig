@@ -1,0 +1,8 @@
+use b
+
+sub main()
+  n = String("4")
+  bag = b.Bag[String](last: none)
+  !bag.put(?n)
+  <n
+  print(bag.last)

@@ -1,0 +1,14 @@
+obj H
+  s: ?String
+
+sub sw(a: !H, b: !H) keeps a, b
+  swap(!a, !b)
+
+sub main()
+  t1 = String("one")
+  t2 = String("two")
+  x = H(s: ?t1)
+  y = H(s: ?t2)
+  sw(!x, !y)
+  x.s = "z"
+  print(x.s, y.s)

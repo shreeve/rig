@@ -1,0 +1,9 @@
+sub fill[T](out: !List[T], s: ?String, mk: ?fun(?String) -> T)
+  !out.push(mk(s))
+
+sub main()
+  out: List[?String] = List()
+  t = String("hello")
+  fill(!out, ?t, |x| x)
+  <t
+  print(out[0])

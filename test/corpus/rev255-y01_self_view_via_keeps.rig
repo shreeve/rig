@@ -1,0 +1,19 @@
+obj H2
+  name: String
+
+obj H
+  r: (?H2)?
+
+obj O
+  h: H
+  h2: H2
+
+sub link(a: !H, b: !H2) keeps b
+  a.r = ?b
+
+sub main()
+  o = O(h: H(r: none), h2: H2(name: String("x")))
+  link(!o.h, !o.h2)
+  q = <o
+  if q.h.r as r
+    print(r.name)
