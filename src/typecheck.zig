@@ -13847,7 +13847,7 @@ pub fn checkFrames(ctx: *SemContext) Error!void {
     // What each `inline` function lands in a caller's frame, worked out
     // here, where it is declared, for the modules that import this one.
     var it = ctx.inline_decls.keyIterator();
-    while (it.next()) |pos| _ = try inlineFrame(ctx, pos.*);
+    while (it.next()) |pos| _ = try inlineFrame(ctx, pos.*, 1);
 }
 
 /// What the `inline` function declared at `pos` in this module lands in
@@ -13857,18 +13857,25 @@ pub fn checkFrames(ctx: *SemContext) Error!void {
 /// are frames of their own. Null while it is being worked out: a call on
 /// a cycle of `inline` functions, which `inlining.decide` reports, so the
 /// program is never emitted.
-fn inlineFrame(ctx: *SemContext, pos: u32) Error!?[]const sema.FrameSlot {
+fn inlineFrame(ctx: *SemContext, pos: u32, depth: u32) Error!?[]const sema.FrameSlot {
     if (ctx.inline_frames.get(pos)) |known| return known;
     const node = ctx.inline_decls.get(pos).?;
     try ctx.inline_frames.put(ctx.allocator, pos, null);
-    var w: FrameWalker = .{ .ctx = ctx };
+    var w: FrameWalker = .{ .ctx = ctx, .depth = depth };
     var slots: FrameWalker.Slots = .empty;
     defer slots.deinit(ctx.allocator);
     for ([_]Sexp{ ir.get(node, .params), ir.get(node, .body) }) |part| try w.walk(part, &slots, false, false);
+    try w.paramCopies(ir.get(node, .params), &slots);
     const kept = try ctx.arena.allocator().dupe(sema.FrameSlot, slots.items);
     try ctx.inline_frames.put(ctx.allocator, pos, kept);
+    try ctx.inline_heights.put(ctx.allocator, pos, w.height);
     return kept;
 }
+
+/// The most calls of marked `inline` functions that may nest, each
+/// inlined into the one around it: Zig's own analysis recurses once for
+/// each, and runs out of its stack some thousands deep.
+pub const max_inline_depth = 256;
 
 /// Check owner `i` after the closures in it, in source order, as a
 /// closure's frame is met inside its maker's: so a message about a
@@ -13987,6 +13994,12 @@ const OwnerWalker = struct {
 
 const FrameWalker = struct {
     ctx: *SemContext,
+    /// How deep in calls of marked `inline` functions the body walked is
+    /// (`inlineFrame`): 0 for an owner's own.
+    depth: u32 = 0,
+    /// The deepest nesting of marked calls below the body walked, which
+    /// `inlineFrame` records (`SemContext.inline_heights`).
+    height: u32 = 0,
 
     /// A value the frame keeps, or (`copy`) a copy its code may make,
     /// which counts in its reach alone; `marked` when a call of a marked
@@ -14124,14 +14137,22 @@ const FrameWalker = struct {
         const decl = ctx.declaringContext(ic.fun) orelse return self.unknownFrame(call, "its module is not loaded");
         const local = decl == @as(*const SemContext, ctx);
         if (!decl.inline_decls.contains(ic.fun.pos)) return self.unknownFrame(call, "its declaration is not recorded");
+        // Zig inlines each call into the body it is in, nested as deep as
+        // the calls are: past `max_inline_depth` Zig itself runs out of
+        // stack, so a deeper nesting is an error, found before this walk
+        // goes deeper.
+        if (self.depth + 1 > max_inline_depth) return self.tooDeep(call);
         const slots = if (local)
             // Null on a cycle of `inline` functions, which
             // `inlining.decide` reports, so the program is never emitted.
-            (try inlineFrame(ctx, ic.fun.pos)) orelse return
+            (try inlineFrame(ctx, ic.fun.pos, self.depth + 1)) orelse return
         else
             // The module that declares it worked out its frame
             // (`checkFrames`), unless that module failed its check.
             (decl.inline_frames.get(ic.fun.pos) orelse return self.unknownFrame(call, "its module did not count it")) orelse return self.unknownFrame(call, "its module did not count it");
+        const below = decl.inline_heights.get(ic.fun.pos) orelse 0;
+        if (self.depth + 1 + below > max_inline_depth) return self.tooDeep(call);
+        self.height = @max(self.height, below + 1);
         // The instance binds every parameter the frame mentions: with each
         // argument poisoned, none is left.
         const a = ctx.arena.allocator();
@@ -14145,8 +14166,27 @@ const FrameWalker = struct {
         }
     }
 
+    /// A copy of each parameter of the function whose parameters are
+    /// `params`, in its reach: Zig's code copies one into a local of its
+    /// own (an owned one's `var`, an inlined function's `rig.rt`), beside
+    /// the argument a call makes and the parameter itself.
+    fn paramCopies(self: *FrameWalker, params: Sexp, f: *Slots) Error!void {
+        if (params != .list) return;
+        for (params.items()) |p| {
+            const name = sema.paramNameNode(p) orelse continue;
+            const id = self.ctx.symbolOf(name) orelse continue;
+            const sym = self.ctx.symbols.items[id];
+            if (sym.kind != .param or sym.flags.comptime_known) continue;
+            try f.append(self.ctx.allocator, .{ .ty = sym.ty, .name = "", .copy = true });
+        }
+    }
+
     fn unknownFrame(self: *FrameWalker, call: Sexp, why: []const u8) Error!void {
         try self.ctx.errAt(ir.Call.callee(call), "cannot count the values this `inline` call adds to the frame it is in ({s}); a frame must be known to be checked", .{why});
+    }
+
+    fn tooDeep(self: *FrameWalker, call: Sexp) Error!void {
+        try self.ctx.errAt(ir.Call.callee(call), "calls of `inline` functions nest more than {d} deep through this one, which no build can inline; drop `inline` from one of them", .{max_inline_depth});
     }
 
     /// The exits in `e` (`storage.leave_kinds`), not counting those in its
@@ -14206,6 +14246,7 @@ const FrameWalker = struct {
             .closure => &.{ ir.Lambda.params(root), ir.Lambda.body(root) },
         };
         for (nodes) |p| try self.walk(p, &slots, false, false);
+        if (owner.kind == .function) try self.paramCopies(ir.get(root, .params), &slots);
         const items = slots.items;
         if (items.len == 0) {
             ctx.frame_owners.items[index].own = .none;

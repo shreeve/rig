@@ -8,10 +8,12 @@
 # arm), each with the calls of a 16 KB helper the rule inlines; and for
 # owners that call marked functions in every way a call can (a chain,
 # generic instances, a compile-time value, a method directly and through
-# a box, an iterator), and owners the rule must not inline a function
-# into because the marked functions it holds would land, uncounted, in
-# them (a wrapper of a generic one, and a helper called through a marked
-# one many times). An account lower than the real frame by more than
+# a box, an iterator, a parameter by value), and owners the rule must
+# not inline a function into because the marked functions it holds would
+# land, uncounted, in them (a wrapper of a generic one, and a helper
+# called through a marked one many times), and one the rule inlines a
+# function with a parameter by value into. An account lower than the
+# real frame by more than
 # 4 KiB fails. The real frame is the prologue's reservation, read from
 # the assembly Zig writes for aarch64, so the test runs on an aarch64 Mac
 # only. Debug checks every owner; --release checks only owners whose
@@ -235,6 +237,26 @@ called sub loop()
   for x in !c
     print(x)
 
+# Parameters by value: an inlined function's code copies each into a
+# local of its own (`rig.rt`), beside the argument and the parameter.
+obj Big
+  a: [20000]Int
+
+obj Mid
+  a: [2600]Int
+
+inline fun take(b: Big, i: Int) -> Int
+  b.a[i % 20000]
+
+fun pick(m: Mid, i: Int) -> Int
+  m.a[i % 2600]
+
+called fun byvalue(b: ?Big, i: Int) -> Int
+  take(b, i) + take(b, i + 1)
+
+called fun byrule(m: ?Mid, i: Int) -> Int
+  pick(m, i)
+
 sub main()
   chain(1)
   generic(1)
@@ -243,20 +265,24 @@ sub main()
   loop()
   wrapped(1)
   piled(1)
+  hb = ^Big(a: [20000 of 1])
+  hm = ^Mid(a: [2600 of 3])
+  print(byvalue(hb, 1), byrule(hm, 1))
 RIG
 out=$(rig run iv.rig 2>&1) || fail "run iv: $out"
-expect_eq "$out" $'46\n20\n13\n20\n13\n27\n64\n324' "run iv"
+expect_eq "$out" $'46\n20\n13\n20\n13\n27\n64\n324\n2 3' "run iv"
 rig check --facts=frames iv.rig >iv-accounts.txt 2>&1 || fail "facts iv: $(cat iv-accounts.txt)"
 rig emit iv.rig >/dev/null 2>&1 || fail "emit iv"
 pkg=$RIG_OUT_DIR/programs/iv
 for mode in Debug ReleaseSafe; do
     (cd "$pkg" && "${ZIG:-zig}" build-obj -O $mode -femit-asm="$PWD/../iv-$mode.s" -fno-emit-bin __rig_main.zig) >build.log 2>&1 || fail "$mode asm iv: $(cat build.log)"
-    python3 check.py iv-accounts.txt "$pkg/../iv-$mode.s" -- 300000 '`chain`=chain' '`generic`=generic' '`values`=values' '`method`=method' '`loop`=loop' || fail "$mode"
+    python3 check.py iv-accounts.txt "$pkg/../iv-$mode.s" -- 300000 '`chain`=chain' '`generic`=generic' '`values`=values' '`method`=method' '`loop`=loop' '`byvalue`=byvalue' || fail "$mode"
     # `wrapped` and `piled` check what the rule leaves out of line, which
     # holds the marked functions: in debug Zig inlines only an `inline
     # fn`, while in --release LLVM inlines unmarked functions of its own
     # accord.
     [[ $mode == Debug ]] || continue
     python3 check.py iv-accounts.txt "$pkg/../iv-$mode.s" -- 0 '`wrapped`=wrapped' '`piled`=piled' || fail "$mode"
+    python3 check.py iv-accounts.txt "$pkg/../iv-$mode.s" -- 40000 '`byrule`=byrule' || fail "$mode"
 done
 exit 0

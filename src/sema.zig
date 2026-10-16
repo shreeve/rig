@@ -2065,6 +2065,9 @@ pub const SemContext = struct {
     /// module's types, over its own and its type's parameters; null while
     /// it is being worked out (`typecheck.inlineFrame`).
     inline_frames: std.AutoHashMapUnmanaged(u32, ?[]const FrameSlot) = .empty,
+    /// How deep the calls of marked `inline` functions nest below each of
+    /// them, which `typecheck.max_inline_depth` limits.
+    inline_heights: std.AutoHashMapUnmanaged(u32, u32) = .empty,
     /// A call (`decisionKey`) of a marked `inline` function -> the
     /// function and the instance it makes (`InlineCall`).
     inline_calls: std.AutoHashMapUnmanaged(u64, InlineCall) = .empty,
@@ -2197,6 +2200,7 @@ pub const SemContext = struct {
         self.frame_sizes.deinit(self.allocator);
         self.inline_decls.deinit(self.allocator);
         self.inline_frames.deinit(self.allocator);
+        self.inline_heights.deinit(self.allocator);
         self.inline_calls.deinit(self.allocator);
         self.frame_owners.deinit(self.allocator);
         self.frame_calls.deinit(self.allocator);

@@ -233,6 +233,33 @@ marked=$(awk '$2 == "`near`" { print $(NF - 1) }' <<<"$facts")
 out=$(rig run large.rig 2>&1) || fail "run large.rig: $out"
 expect_eq "$out" 4 "large.rig"
 
+# Calls of marked `inline` functions nest at most 256 deep
+# (`typecheck.max_inline_depth`): Zig analyzes each inlined body inside
+# the one around it, and runs out of its own stack some thousands deep.
+# chain <n>: `main` calls g0, and each marked g_i calls g_(i+1), n deep.
+chain() {
+    local i
+    for i in $(seq 0 $(($1 - 1))); do
+        echo "inline fun g$i(x: Int) -> Int"
+        echo "  g$((i + 1))(x) + 1"
+        echo
+    done
+    echo "fun g$1(x: Int) -> Int"
+    echo "  x"
+    echo
+    echo 'sub main()'
+    echo '  print(g0(0))'
+}
+chain 256 >deep256.rig
+out=$(rig run deep256.rig 2>&1) || fail "a chain of 256 marked calls: $out"
+expect_eq "$out" 256 "a chain of 256 marked calls"
+chain 257 >deep257.rig
+out=$(rig check deep257.rig 2>&1) && fail "a chain of 257 marked calls is accepted"
+expect_has "$out" 'calls of `inline` functions nest more than 256 deep through this one' "a chain of 257 marked calls"
+chain 10000 >deep10000.rig
+out=$(rig check deep10000.rig 2>&1) && fail "a chain of 10,000 marked calls is accepted"
+expect_has "$out" 'nest more than 256 deep' "a chain of 10,000 marked calls"
+
 # `rig test` runs a program's test blocks with its marked functions.
 cat >tested.rig <<'RIG'
 inline fun twice(n: Int) -> Int
