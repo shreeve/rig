@@ -1,0 +1,25 @@
+# A small method of a generic type, which the compiler inlines (one
+# declaration for every instance), keeps its run-time checks when a call
+# passes a literal, as any inlined function does: the sum overflows when
+# the program runs, not when Zig compiles it (test/cli/inline.sh checks
+# that `bump` is inlined).
+
+obj Acc[T]
+  v: T
+
+  fun bump(?self, n: Int) -> Int
+    m = n
+    m += 1
+    m
+
+sub main()
+  a = Acc[Bool](v: true)
+  b = Acc[Int](v: 2)
+  print(a.bump(41), b.bump(1))
+  print(a.bump(9223372036854775807))
+
+# release
+# expect-panic: integer overflow
+
+# expect:
+# 42 2

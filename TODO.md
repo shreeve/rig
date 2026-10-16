@@ -11,13 +11,6 @@ started:
 - SIMD: `pad:` reads and `blocks(N)`.
 - A String API for part-word appends and windowed writes.
 - Multiple results.
-- Inlining a generic type's small methods. Rig never emits a generic
-  type's methods `inline` (`src/inlining.zig`), and LLVM leaves
-  `std.hash`'s `Map.ensure` and `Map.ensure_with` out of line, so on a
-  key already there they lose to `edit` then `put`, which inlines: on
-  Int keys, 1M operations, `ensure` 39% slower and `ensure_with` 31%
-  slower; on new keys `ensure` is 6% faster and `ensure_with` 0.2%
-  slower (Mac, off-window, best of 7).
 - Every copy out of a view in a generic body takes the per-instance
   `copies` requirement, as `Cell.get` and a `??` through a view of an
   optional do: today a view read where its `T` is expected (`p` in

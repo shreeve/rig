@@ -185,6 +185,11 @@ expect_has "$out" 'pub inline fn get(__rig_in_self: rig.ReadView(__rig_Self))' "
 expect_has "$out" 'pub fn keeps(self: rig.ReadView(__rig_Self)' "a member whose frame at one instance is 72 KB"
 out=$(rig run members.rig 2>&1) || fail "rig run members.rig: $out"
 expect_eq "$out" "1 true 9001 9002" "members.rig"
+# Its parameters are bound through `rig.rt`, as any inlined function's:
+# test/behavior/emit/inline_generic_member_overflow.rig runs it.
+out=$(emit "$ROOT/test/behavior/emit/inline_generic_member_overflow.rig")
+expect_has "$out" 'pub inline fn bump(__rig_in_self: rig.ReadView(__rig_Self), __rig_in_n: i64) i64 {' "a member of a generic type with a literal argument"
+expect_has "$out" 'const n = rig.rt(__rig_in_n);' "a member's parameter bound through rig.rt"
 
 # std.hash's `ensure` and `ensure_with` are inlined into the code that
 # calls them, so a lookup that finds its key costs no call, as `edit`'s
