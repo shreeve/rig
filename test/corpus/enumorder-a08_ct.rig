@@ -1,0 +1,11 @@
+# Orderings of plain enums in constants and compile-time positions.
+enum Size
+  small = 1
+  large = 2
+
+N = 3 if Size.large > Size.small else 4
+OK = Size.small < Size.large and not (Size.large <= Size.small)
+
+sub main()
+  a: [N]Int = [0, 0, 0]
+  print(N, OK, a.len)

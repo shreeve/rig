@@ -146,7 +146,7 @@ not_run() {
 results_key() {
     KEY=""
     [[ -n "$RESULTS_CACHE" && -z "$NO_CACHE" ]] || return 1
-    local tmp="$RESULTS/key/${ID//\//__}" listing libc
+    local tmp="$RESULTS/key/${ID//\//__}" listing="" libc=""
     rm -rf "$tmp"
     mkdir -p "$tmp" || return 1
     if RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$tmp/package" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" emit "$2" >/dev/null 2>"$tmp/stderr" </dev/null; then

@@ -1,0 +1,8 @@
+# The same imported enum reached through two modules is one type.
+use lib
+use mid
+use std.math
+
+sub main()
+  print(mid.top() > lib.Level.low, lib.Level.low < mid.top(), mid.top() >= .high)
+  print(math.min(mid.top(), lib.Level.low))

@@ -103,6 +103,12 @@ const usage =
     \\                   Set to 1 when building with --release to make
     \\                   the tests the compiler proved, and omits, as
     \\                   assertions, as every debug build does
+    \\  RIG_STRICT_OPTIONALS
+    \\                   Set to 1 to hold every object's optional as a
+    \\                   tagged struct, so a program compiles only if the
+    \\                   compiler writes every operation on one through
+    \\                   the runtime's optional helpers: a test of the
+    \\                   compiler
     \\  RIG_STD          For developing the standard library: a directory
     \\                   to read it from, in place of the copy built into
     \\                   rig
@@ -736,6 +742,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         defer em.deinit();
         em.poison = env.sanitize();
         em.no_proofs = env.flag("RIG_NO_PROOFS");
+        em.strict_optionals = env.flag("RIG_STRICT_OPTIONALS");
         // A debug build of the compiler checks that emit writes the units
         // the proof pass walks, in the same order (`proofs.checkUnitOrder`).
         var trace: std.ArrayList(emit.UnitEvent) = .empty;

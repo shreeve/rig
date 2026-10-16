@@ -355,8 +355,8 @@ true true
 
 Sorting, and searching sorted slices, written in Rig over slices, so
 they work on arrays and on Lists alike (`!a`, `?a`, `!v`, `?v`). The elements are plain data, as a slice's are. `sort`,
-`lower_bound`, and `search` order elements with `<` (numbers and
-`?String` values), and `search` compares them with `==`; each call is checked
+`lower_bound`, and `search` order elements with `<` (numbers, plain
+enums, and `?String` values), and `search` compares them with `==`; each call is checked
 for its element type, as any generic call is.
 
 | Function | Result |

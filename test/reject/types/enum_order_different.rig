@@ -1,0 +1,28 @@
+# Both sides of an ordering are of one enum type: two enums, or an enum
+# and an integer, do not order with each other; nor do two variant
+# literals with no type to take.
+
+enum Color
+  red
+  green
+
+enum Size
+  small
+  large
+
+sub main()
+  c = Color.green
+  s = Size.small
+  print(c < s)
+  print(c >= 1)
+  print(0 < c)
+  print(.red < .green)
+  print(c < .small)
+
+# error: 16:9: operator `<` operands have different types `Color` and `Size`
+# error: 17:9: operator `>=` operands have different types `Color` and `Int`
+# error: 18:9: operator `<` operands have different types `Int` and `Color`
+# error: 19:9: enum literal `.red` needs a known enum type
+# error: 19:16: enum literal `.green` needs a known enum type
+# error: 20:14: no variant `small` on enum `Color`
+# errors: 6

@@ -1,0 +1,21 @@
+# An enum with a payload variant has no order, nor has its `.variant`
+# shorthand; nor has a built-in enum.
+
+enum Shape
+  dot
+  circle(r: Int)
+
+sub main()
+  a: Shape = .dot
+  b: Shape = .circle(1)
+  print(a < b)
+  print(a >= .dot)
+  print(.dot > a)
+  e = Endian.big
+  print(e <= .little)
+
+# error: 11:9: operator `<` orders a plain enum's values; `Shape` has variants with payloads, which have no integer value
+# error: 12:9: operator `>=` orders a plain enum's values; `Shape` has variants with payloads, which have no integer value
+# error: 13:9: operator `>` orders a plain enum's values; `Shape` has variants with payloads, which have no integer value
+# error: 15:9: operator `<=` orders a declared enum's values; the built-in enum `Endian` has no integer value
+# errors: 4

@@ -1,0 +1,9 @@
+# A generic enum of bare variants only: rejected, but with which words?
+enum Tag[T]
+  a
+  b
+
+sub main()
+  x: Tag[Int] = .a
+  y: Tag[Int] = .b
+  print(x < y)

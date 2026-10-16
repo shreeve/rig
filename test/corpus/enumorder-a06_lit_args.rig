@@ -1,0 +1,18 @@
+# A `.variant` argument beside a plain enum argument of a generic `T`.
+use std.math
+use std.sort
+
+enum Size
+  large = 30
+  small = 10
+  medium = 20
+
+fun lt[T](a: T, b: T) -> Bool
+  a < b
+
+sub main()
+  print(math.max(Size.small, .large), math.min(.large, Size.medium))
+  print(lt(Size.small, .medium), lt(.large, Size.medium))
+  xs = [Size.large, Size.small, Size.medium]
+  sort.sort(!xs)
+  print(sort.lower_bound(?xs, .medium), sort.search(?xs, .large))

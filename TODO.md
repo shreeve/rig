@@ -106,6 +106,14 @@ started:
   `?K` where `K` owns text). With it, `Map.ensure`, `Map.put_new`, and
   `Set.add` take a `?K` and copy the key only when it is stored (owner
   approved); today they take an owned `K`.
+- One classifier for a plain enum. `sema.isPlainEnum` (what `==` and
+  emit's scalar test read) counts a variant with an empty payload,
+  `a()`, as bare, but `sema.enumValues` (what `Int(x)`, `from_int`,
+  `@variants`, and ordering read) does not, as resolve gives it no
+  value. So for `enum E` of `a()` and `b`, `x == E.b` is accepted and
+  `x > E.b` and `Int(x)` are rejected as "variants with payloads"
+  (`test/corpus/enumorder-c02_empty_payload.rig`). Decide once whether
+  `a()` is bare (or reject the empty payload), and have both read it.
 
 ## Agent tooling
 

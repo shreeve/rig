@@ -77,6 +77,7 @@ pub const Answer = sema.Answer;
 pub const Clone = sema.Clone;
 pub const MethodReceiver = sema.MethodReceiver;
 pub const Upgrade = sema.Upgrade;
+pub const Lift = sema.Lift;
 pub const TypedInt = sema.TypedInt;
 pub const ValueParts = sema.ValueParts;
 pub const ArgSlot = sema.ArgSlot;
@@ -313,6 +314,11 @@ pub const Facts = struct {
     }
     pub fn useOf(f: Facts, node: Sexp) ?Use {
         return f.c().useOf(node);
+    }
+    /// The optional `node`'s value becomes where it goes: `none`, or a
+    /// `T` where a `T?` goes (`SemContext.recordLift`).
+    pub fn liftOf(f: Facts, node: Sexp) ?Lift {
+        return f.c().liftOf(node);
     }
     pub fn takes(f: Facts, node: Sexp) bool {
         return f.c().takes(node);
@@ -705,6 +711,16 @@ pub const Facts = struct {
     /// The `T` of a `?T` written `rig.ReadView(T)` (`storage.genericReadView`).
     pub fn genericReadView(f: Facts, ty: TypeId) ?TypeId {
         return storage.genericReadView(f.c(), ty);
+    }
+    /// Whether a `T?` of payload `inner` is written `rig.Opt(T)`, with
+    /// every operation through the optional helpers
+    /// (`sema.optionalRouted`); `strict` under `RIG_STRICT_OPTIONALS`.
+    pub fn optionalRouted(f: Facts, inner: TypeId, strict: bool) bool {
+        return sema.optionalRouted(f.c(), inner, strict);
+    }
+    /// Whether the type `sym` declares is an object (`sema.isObjectSym`).
+    pub fn isObjectSym(f: Facts, sym: SymbolId) bool {
+        return sema.isObjectSym(f.c(), sym);
     }
     /// What `+x` does to a value of this type (`sema.cloneable`).
     pub fn cloneable(f: Facts, ty: TypeId) Clone {
