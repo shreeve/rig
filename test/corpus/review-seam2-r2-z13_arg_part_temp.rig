@@ -33,7 +33,7 @@ fun mkh() -> H
 fun wrap(h: !H) -> !H
   h
 
-sub put(v: !List[?String], r: ?String)
+sub put(v: !List[?String], r: ?String) keeps r
   !v.push(r)
 
 sub main()

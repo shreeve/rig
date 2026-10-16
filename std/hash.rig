@@ -197,7 +197,7 @@ pub obj Map[K, V]
   # Lend the value under `k` to write, putting `make(k)` there first
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
-  pub fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k
+  pub fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k keeps make
     h = k.hash()
     j = 0
     if self.find(?k, h) as at
@@ -212,7 +212,7 @@ pub obj Map[K, V]
 
   # Add the entry of `k`, whose key is new and hashes to `h`, with the
   # value `make(k)`, and give its index; out of line, as `add_new`.
-  rarely fun add_made(!self, k: K, make: ?fun(?K) -> V, h: U64) -> Int
+  rarely fun add_made(!self, k: K, make: ?fun(?K) -> V, h: U64) -> Int keeps make
     v = make(?k)
     !self.insert(<k, <v, h)
     self.es.len - 1

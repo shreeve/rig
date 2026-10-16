@@ -5,7 +5,7 @@ obj H
   s: ?String
   items: List[?String]
 
-  sub keep(!self, v: ?String)
+  sub keep(!self, v: ?String) keeps v
     self.s = v
 
 error E
@@ -14,15 +14,15 @@ error E
 fun must(w: (!H)?) -> (!H)!
   <w ?? return E.bad
 
-fun prop(w: (!H)?, v: ?String) -> Int?
+fun prop(w: (!H)?, v: ?String) -> Int? keeps v
   w?.s = v
   0
 
-sub nullish(w: (!H)?, v: ?String)
+sub nullish(w: (!H)?, v: ?String) keeps v
   (w ?? return).s = v
   !(<w ?? return).items.push(v)
 
-sub header(w: (!H)?, v: ?String)
+sub header(w: (!H)?, v: ?String) keeps v
   if <w as x
     x.s = v
     !x.keep(v)

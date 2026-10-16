@@ -1,0 +1,15 @@
+obj Inner[W]
+  w: (?W)?
+
+obj Outer[V]
+  i: Inner[V]
+
+sub put(o: !Outer[String], x: ?String) keeps x
+  o.i.w = x
+
+sub main()
+  o = Outer[String](i: Inner[String](w: none))
+  n = String("4")
+  put(!o, ?n)
+  <n
+  print(o.i.w)

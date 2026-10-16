@@ -7,7 +7,7 @@ obj Holder
 obj Outer
   h: Holder
 
-fun f(a: !Outer, b: !List[Int]) -> Int
+fun f(a: !Outer, b: !List[Int]) -> Int keeps b
   a.h.r = ?b[..]
   for i in 0..100
     !b.push(i)

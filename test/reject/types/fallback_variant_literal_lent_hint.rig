@@ -1,0 +1,23 @@
+# A `??` whose fallback is a value copies out what its left side views;
+# the hint lends the fallback in a form that parses and types: a
+# variant literal names its enum, and a call through a type is
+# parenthesized, since `?Val.table(...)` would lend `Val`.
+
+enum Val
+  num(n: Int)
+  table(m: List[Int])
+  empty
+
+sub show(v: ?Val)
+  match v
+    .num(n) => print(n)
+    .table(m) => print(m.len)
+    .empty => print("empty")
+
+sub main()
+  o: (?Val)? = none
+  show(o ?? .empty)
+  show(o ?? Val.table(m: List()))
+
+# error: 19:8: lend the fallback, so the result is the view, and clone that for a `Val` of its own: `+(o ?? ?(Val.empty))`
+# error: 20:8: lend the fallback, so the result is the view, and clone that for a `Val` of its own: `+(o ?? ?(Val.table(m: List())))`

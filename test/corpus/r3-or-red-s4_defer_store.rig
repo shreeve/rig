@@ -4,7 +4,7 @@ obj Item
 obj Holder
   r: ?Item
 
-sub put(h: !Holder, y: ?Item)
+sub put(h: !Holder, y: ?Item) keeps y
   defer h.r = y
   print(1)
 

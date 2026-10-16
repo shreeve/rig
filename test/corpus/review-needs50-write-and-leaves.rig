@@ -1,0 +1,25 @@
+# A variant literal where a write view goes (`!Color`, `(!Val)?`), and
+# as the leaves of an `if` expression where a `?Val` goes, is rejected,
+# as `Val.V(...)` is there. Rejected.
+enum Val
+  Num(n: Int)
+  Table(m: List[Int])
+
+enum Color
+  Red
+  Green
+
+sub paint(c: !Color)
+  c = .Green
+
+sub w(v: (!Val)?)
+  print("w")
+
+sub show(v: ?Val)
+  print(v)
+
+sub main()
+  c = true
+  paint(.Red)
+  w(.Num(n: 1))
+  show(.Num(n: 1) if c else .Table(m: List()))

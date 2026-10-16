@@ -1,0 +1,31 @@
+# A kept lend lasts while its holder is used, and the note says which
+# call kept it, in what.
+
+obj Binder
+  src: ?String
+
+  sub watch(!self, s: ?String) keeps s
+    self.src = s
+
+obj Node
+  n: Int
+
+  sub register(?self, out: !List[?Node]) keeps self
+    !out.push(self)
+
+sub main()
+  b = Binder(src: "")
+  t = String("x")
+  !b.watch(?t)
+  !t.add("y")
+  a = Node(n: 1)
+  out: List[?Node] = List()
+  ?a.register(!out)
+  a.n = 2
+  print(b.src, out.len)
+
+# errors: 2
+# error: 20:3: cannot lend `t` to write while a read loan is live
+# error: 19:12: `watch` keeps it in `b` (its signature says `keeps s`), so the loan lasts while `b` is used
+# error: 24:3: cannot assign to `a.n` while `a` is lent
+# error: 23:4: `register` keeps it in `out` (its signature says `keeps self`), so the loan lasts while `out` is used

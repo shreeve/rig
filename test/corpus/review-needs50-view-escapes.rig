@@ -1,0 +1,27 @@
+# A view of a variant literal lent to a call, returned by that call, may
+# not outlive the statement that drops the literal: bound by `if ... as`,
+# read by the arms of `match`, or iterated by `for`. Rejected.
+enum Val
+  Num(n: Int)
+  Table(m: List[Int])
+
+fun keep(v: ?Val) -> ?Val
+  return v
+
+fun keep2(v: ?Val) -> (?Val)?
+  return v
+
+fun items(v: ?Val, other: ?List[Int]) -> ?List[Int]
+  match v
+    .Table(m) => m
+    .Num(_) => other
+
+sub main()
+  ys = List[Int]()
+  if keep2(.Table(m: List())) as v
+    print(v)
+  match keep(.Table(m: List()))
+    .Table(m) => print("t", m.len)
+    .Num(n) => print(n)
+  for x in items(.Table(m: List()), ?ys)
+    print(x)

@@ -1,0 +1,13 @@
+obj B
+  src: ?String
+  n: Int
+
+sub note(b: !B, s: ?String)
+  b.n += s.len
+
+sub main()
+  b = B(src: "", n: 0)
+  f: ?sub(!B, ?String) = ?note
+  t = String("abc")
+  f(!b, ?t)
+  print(b.n)

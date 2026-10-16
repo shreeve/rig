@@ -1,0 +1,20 @@
+pub obj Bag[T]
+  pub last: (?T)?
+
+  pub sub put(!self, x: ?T) keeps x
+    self.last = x
+
+  pub sub peek(!self, x: ?T)
+    print(x)
+
+pub sub push_into[T](out: !List[?T], x: ?T) keeps x
+  !out.push(x)
+
+pub sub look[T](out: !List[?T], x: ?T)
+  print(out.len)
+
+pub obj W
+  pub src: ?String
+
+  pub sub watch(!self, a: ?String, s: ?String) keeps s
+    self.src = s

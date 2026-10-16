@@ -1,7 +1,7 @@
 obj H
   s: ?String
 
-sub set(w: (!H)?, v: ?String)
+sub set(w: (!H)?, v: ?String) keeps v
   (w ?? return).s = v
 
 sub main()

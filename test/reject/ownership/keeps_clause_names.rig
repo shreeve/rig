@@ -1,0 +1,22 @@
+# `keeps` names lent parameters, each once, that something the function
+# writes could hold.
+
+obj Binder
+  src: ?String
+
+  sub a(!self, s: ?String) keeps t
+    self.src = s
+
+  sub b(!self, s: ?String) keeps s, s
+    self.src = s
+
+  sub c(!self, n: ?Int) keeps n
+    self.src = ""
+
+sub main()
+  pass
+
+# errors: 3
+# error: 7:34: `a` has no parameter `t`; `keeps` names lent parameters, `self` among them
+# error: 10:37: `keeps s`: `s` is named twice
+# error: 13:31: `keeps n`: `c` takes nothing to write that could hold it

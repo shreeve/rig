@@ -1,0 +1,18 @@
+# Why: a method that keeps its argument, given a view of the receiver's
+# own field, would make `self` hold a view of itself.
+# Rule: a value never holds a view of itself; with B, a kept argument's
+# loans go into the holder (here `self`).
+
+obj P
+  name: String
+  alias: ?String
+
+  sub watch(!self, s: ?String) keeps s
+    self.alias = s
+
+sub main()
+  p = P(name: String("a"), alias: "")
+  (!p).watch(?p.name)
+  print(p.alias)
+
+# error: 15:4: cannot let this call store a view of `p.name` in `p`: a value never holds a view of itself

@@ -7,7 +7,7 @@ obj Scanner
   text: ?String
   end: Int
 
-  sub set_text(!self, text: ?String)
+  sub set_text(!self, text: ?String) keeps text
     self.text = text
     self.end = text.len
 

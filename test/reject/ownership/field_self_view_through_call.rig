@@ -8,7 +8,7 @@
 obj Holder
   t: ?String
 
-  sub keep(!self, t: ?String)
+  sub keep(!self, t: ?String) keeps t
     self.t = t
 
 obj P

@@ -1,0 +1,27 @@
+# A variant literal of a generic enum, bare and with a payload, lent
+# where `?Opt[List[Int]]` and `?Opt[Int]` go. Runs sanitizer-clean.
+enum Opt[T]
+  Some(v: T)
+  Nothing
+
+fun three() -> List[Int]
+  xs = List[Int]()
+  !xs.push(1)
+  !xs.push(2)
+  return <xs
+
+sub show(o: ?Opt[List[Int]])
+  match o
+    .Some(v) => print("some", v.len)
+    .Nothing => print("nothing")
+
+sub count(o: ?Opt[Int])
+  match o
+    .Some(v) => print("some", v)
+    .Nothing => print("nothing")
+
+sub main()
+  show(.Some(v: three()))
+  show(.Nothing)
+  count(.Some(v: 3))
+  count(.Nothing)

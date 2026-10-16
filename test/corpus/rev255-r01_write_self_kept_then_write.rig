@@ -1,0 +1,12 @@
+obj P
+  name: String
+
+  sub reg(!self, out: !List[?String]) keeps self
+    !out.push(?self.name)
+
+sub main()
+  p = P(name: String("first"))
+  out: List[?String] = List()
+  !p.reg(!out)
+  p.name = String("second")
+  print(out[0])

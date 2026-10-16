@@ -5,7 +5,7 @@ obj K
 obj H[T]
   f: *fun(?String) -> T
 
-  sub fill(?self, out: !T, s: ?String)
+  sub fill(?self, out: !T, s: ?String) keeps s
     out = self.f(s)
 
 sub main()

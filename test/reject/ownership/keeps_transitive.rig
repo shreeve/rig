@@ -1,0 +1,21 @@
+# Why: `forward` passes `s` to `watch`, which keeps it; so `forward`
+# keeps it too, and must say so.
+# Rule: a body that hands a lent parameter to a call that keeps it stores
+# it (the call rule, applied in the body check).
+
+obj Binder
+  src: ?String
+
+  sub watch(!self, s: ?String) keeps s
+    self.src = s
+
+  sub forward(!self, s: ?String)
+    !self.watch(s)
+
+sub main()
+  t = String("x")
+  b = Binder(src: "")
+  !b.forward(?t)
+  print(b.src)
+
+# error: 13:5: say so: `keeps s`

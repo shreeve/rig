@@ -1,0 +1,18 @@
+# Why: a generic `?T` parameter stored in the receiver is a stored view
+# like any other; the body is checked once with `T` opaque.
+# Rule: the body check applies to generic lent parameters.
+
+obj Bag[T]
+  last: (?T)?
+
+  sub put(!self, x: ?T)
+    self.last = x
+
+sub main()
+  b = Bag[String](last: none)
+  n = String("4")
+  !b.put(?n)
+  <n
+  print(b.last)
+
+# error: 9:5: say so: `keeps x`

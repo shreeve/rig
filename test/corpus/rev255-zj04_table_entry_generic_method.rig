@@ -1,0 +1,16 @@
+obj Entry[K, V]
+  k: K
+  v: V
+
+obj Table[K, V]
+  entries: List[Entry[K, V]]
+
+  sub put(!self, k: K, v: V)
+    !self.entries.push(Entry[K, V](k: k, v: v))
+
+sub main()
+  t = Table[Int, ?String](entries: List())
+  x = String("hello")
+  !t.put(1, ?x)
+  <x
+  print(t.entries[0].v)

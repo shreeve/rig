@@ -71,7 +71,7 @@ fun chain[T](o: T?) -> T?
   x = (<o)?
   x
 
-sub swap_gen[T](a: !T, b: !T)
+sub swap_gen[T](a: !T, b: !T) keeps a, b
   swap(!a, !b)
 
 fun first_ref[T, U](p: ?Pair[T, U]) -> ?T

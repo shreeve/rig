@@ -1,0 +1,25 @@
+pub obj R
+  pub n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+pub enum E
+  A(r: R)
+  B(xs: List[Int])
+  C
+
+pub enum G[T]
+  Some(v: T)
+  None_
+
+pub sub look(e: ?E)
+  match e
+    .A(r) => print("a", r.n)
+    .B(xs) => print("b", xs.len)
+    .C => print("c")
+
+pub sub lookg(g: ?G[R])
+  match g
+    .Some(v) => print("some", v.n)
+    .None_ => print("none")

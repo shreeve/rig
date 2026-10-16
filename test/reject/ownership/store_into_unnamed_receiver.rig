@@ -17,10 +17,10 @@ obj H
   r: ?String
   rs: List[?String]
 
-  sub keep(!self, r: ?String)
+  sub keep(!self, r: ?String) keeps r
     !self.rs.push(r)
 
-  sub keep2(!self, k: Int, r: ?String)
+  sub keep2(!self, k: Int, r: ?String) keeps r
     !self.rs.push(r)
 
   drop(!self)

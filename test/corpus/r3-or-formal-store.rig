@@ -4,7 +4,7 @@ obj Item
 obj Holder
   r: ?Item
 
-sub set(h: !Holder, x: ?Item, y: ?Item)
+sub set(h: !Holder, x: ?Item, y: ?Item) keeps x
   h.r = x
   print(y.n)
 

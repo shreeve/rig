@@ -1,0 +1,17 @@
+# Rule: `keeps` covers stores into a write argument too, not only into
+# `self`.
+# From: proposal-call-stores §10, "`keeps self` into a `!` argument".
+
+sub collect(out: !List[?String], s: ?String) keeps s
+  !out.push(s)
+
+sub main()
+  a = String("x")
+  b = String("y")
+  names: List[?String] = List()
+  collect(!names, ?a)
+  collect(!names, ?b)
+  print(names.len, names[1])
+
+# expect:
+# 2 y

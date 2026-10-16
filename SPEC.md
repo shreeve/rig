@@ -2644,9 +2644,11 @@ parameter whose loans reach a value of a type that holds a type
 parameter (an element of `xs: []T`, `f(s)` with `f` returning a `T`, a
 `T` taken by value, a `match` payload of type `T` that views its
 subject) as returned wherever the body returns such a value, or a value
-that holds one (`P[T]`):
-`fun pick[T](f: ?fun(?String) -> T, a: ?String, b: ?String) -> T from b`
-cannot return `f(a)`.
+that holds one (`P[T]`), and as stored in what a parameter leads to
+wherever the body stores one there: `fun pick[T](f: ?fun(?String) -> T,
+a: ?String, b: ?String) -> T from b` cannot return `f(a)`, and `sub
+run[T](f: ?*sub(!T, ?String), k: !T, s: ?String)` that calls `f(!k, s)`
+says `keeps s`.
 
 ```rig
 fun same[T](x: T) -> T
@@ -4909,6 +4911,45 @@ sub main()
 150 150
 ```
 
+A variant literal whose enum comes from the view it goes to
+(`.table(...)` where a `?Val` goes) is that value, `Val.table(...)`,
+made there and lent the same way; where `Val.table(...)` is rejected (a
+view kept or returned, a `!Val`), so is the literal. A plain enum's read
+view holds a copy of the value, so `.red` goes wherever a `?Color` does.
+
+```rig
+enum Val
+  num(n: Int)
+  table(m: List[Int])
+
+sub show(v: ?Val)
+  match v
+    .num(n) => print(n)
+    .table(m) => print(m.len)
+
+sub main()
+  show(.table(m: List()))
+  show(.num(n: 3))
+```
+
+```output
+0
+3
+```
+
+```rig reject
+enum Val
+  num(n: Int)
+  table(m: List[Int])
+
+fun made() -> ?Val
+  return .num(n: 3)
+```
+
+```error
+type mismatch: expected `?Val`, got `Val`
+```
+
 A constant (a literal, `none`, a function, a module's constant, an
 enum variant that holds no payload or an error value, a number type's
 limit such as `Int.max`, or a type's function such as `P.origin`, of
@@ -5412,12 +5453,30 @@ the checker tracks where every one came from.
 - A view reached through another view views what that view views,
   not what holds it: `?c.items[0]`, with `items: ?List[Item]`, views
   the List, not `c`.
+- A call keeps only what its signature shows. A view lent to it (a
+  `?T`, `!T`, `[]T`, `![]T`, `?String`, an optional of one, or a `?self`
+  or `!self` receiver) it keeps only when the signature names that
+  parameter in `keeps`: `sub watch(!self, s: ?String) keeps s` (also
+  `keeps s, t` and `keeps self`, after the result type and any `from`).
+  It may then store what the view sees in what its write receiver and
+  write arguments lead to, and the loan lasts while that holder is used;
+  every other lend ends when the call returns. A value passed by value
+  is the callee's, which may keep it, and its loans, wherever its type
+  fits; `keeps` does not name it. A function called as a value
+  (`?watch`) keeps what its type could hold, as if every lent parameter
+  were named, and so does a method of a built-in generic (`!v.push(x)`,
+  a Cell's `set`). The compiler checks each body against its `keeps`: a body
+  that stores a lent parameter where its caller reaches it, on any path
+  (into `self`, a write argument, or through a call that keeps it),
+  without naming it, is rejected at the store with the clause to write.
+  `keeps` names lent parameters, each once, that something the function
+  writes could hold. A place lent to a kept parameter is lent with `?`
+  written: `!b.watch(?t)`, `?a.register(!out)`.
 - An object holding a view keeps the viewed value lent while the
   object is alive. So does a stack closure that captured a view, and
   a value a call may have stored a view into (its receiver lent to
   write, and what its `!` arguments and other write views lead to):
-  a view of each argument, the receiver among them, whose type could
-  be held there.
+  a view of each argument the call keeps, as above.
 - A view may not outlive the value it views: not past the end of
   its block, not through `break`, and not out of the function.
 
@@ -5991,7 +6050,7 @@ view, or by a call that stores its argument, is rejected.
 obj Holder
   t: ?String
 
-  sub keep(!self, t: ?String)
+  sub keep(!self, t: ?String) keeps t
     self.t = t
 
 obj P

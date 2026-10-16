@@ -1,0 +1,9 @@
+use std.hash
+
+sub main()
+  m: hash.Map[Int, ?String] = hash.Map()
+  base = String("abc")
+  v = (!m).ensure_with(1, |?base, k| base)
+  print(v)
+  <base
+  print(m.get(1))

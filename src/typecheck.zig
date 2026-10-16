@@ -5100,7 +5100,7 @@ const Checker = struct {
         const answer = sema.copies(self.ctx, viewed);
         if (answer != .yes) {
             const name = try self.tyName(viewed);
-            const lent = try self.spliced(e, &.{fallback}, &.{try self.ctx.arena.allocator().print("?{s}", .{self.sourceText(fallback)})});
+            const lent = try self.spliced(e, &.{fallback}, &.{try self.lentFallbackText(fallback, viewed)});
             const head = "`{s}` would copy out the `{s}` that `{s}` views, since its fallback is a value, not a view; only a value that copies is copied out of a view, and ";
             if (answer == .depends) {
                 try self.errAt(e, head ++ "`{s}` may not copy in every instance: lend the fallback, so the result is the view: `{s}`", .{ self.sourceText(e), name, self.sourceText(holder), name, lent });
@@ -5108,6 +5108,19 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         return viewed;
+    }
+
+    /// The fallback `b` of `a ?? b` lent to read, as a hint writes it: a
+    /// variant literal names its enum, `?(Val.v(...))`, since only its
+    /// context gives `.v(...)` its type, and a call through a type is
+    /// parenthesized, since `?Val.v(...)` would lend `Val`.
+    fn lentFallbackText(self: *Checker, fallback: Sexp, viewed: TypeId) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        const src = self.sourceText(fallback);
+        const variant = fallback.isKind(.enum_lit) or (fallback.isKind(.call) and ir.Call.callee(fallback).isKind(.enum_lit));
+        if (variant) return a.print("?({s}{s})", .{ try self.tyName(viewed), src });
+        if (fallback.isKind(.call) and ir.Call.callee(fallback).isKind(.member)) return a.print("?({s})", .{src});
+        return a.print("?{s}", .{src});
     }
 
     /// The type of `a ?? b` or `a catch b` when `a` gives a `Static` and
@@ -8664,13 +8677,27 @@ const Checker = struct {
             .arg => |i| .{ .arg = i },
             .default => .default,
         };
-        const recorded: sema.CallParams = .{ .fills = fills, .origins = site.origins };
+        const recorded: sema.CallParams = .{ .fills = fills, .origins = site.origins, .names = info.names };
         try self.ctx.recordCallParams(call_node, recorded);
-        // What the call may store outlives its statement.
+        // What the call may store outlives its statement. A place lent to
+        // a parameter the call may keep is lent with `?` written (Core
+        // sentence 4): one its callee's `keeps` names, and, where nothing
+        // narrows the stores, any lent parameter the call may store by its
+        // type (a function value, an owned closure, a built-in generic's
+        // method at an instance whose `T` is a view).
         if (self.ctx.diagnostics.items.len == mark) {
             for (args, 0..) |a, i| {
                 if (!recorded.stores(i)) continue;
-                try self.keptLends(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a, .{ .stored = callee });
+                const value = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+                const param: ?usize = for (slots, 0..) |sl, k| {
+                    if (sl.? == .arg and sl.?.arg == i) break k;
+                } else null;
+                const lent = if (param) |k| sema.lentParam(self.ctx, f.params[k]) else false;
+                if ((recorded.keepsLent(i) or lent) and self.implicitArgument(value)) {
+                    try self.reportKept(call_node, value, false, .{ .stored = callee });
+                    continue;
+                }
+                try self.keptLends(value, .{ .stored = callee });
             }
         }
         if (keyword.len == 0 and args.len == f.params.len) return;
@@ -10216,7 +10243,14 @@ const Checker = struct {
         }
         self.lend_call = true;
         self.lend_recv = f.params[0];
+        const mark = self.ctx.diagnostics.items.len;
         try self.checkArgs(args, rest, info, method, pos, .{ .receiver = true, .origins = resolved.field.origins, .declared = self.declaredParams(resolved.field, resolved.module, 1) orelse resolved.fn_ty.params[1..] });
+        // A receiver the method keeps is lent with `?` written (Core
+        // sentence 4).
+        const o = resolved.field.origins;
+        if (receiver == .read and !misplaced_sigil and self.ctx.diagnostics.items.len == mark and o.stores & o.lent & sema.paramBit(0) != 0 and self.implicitReceiver(obj)) {
+            if (self.current_call) |call| try self.reportKept(call, obj, true, .{ .stored = method });
+        }
         return f.returns;
     }
 
@@ -11023,9 +11057,14 @@ const Checker = struct {
             return;
         }
         if (try self.lentTempLiteral(e, expected)) return;
-        if (try self.checkContextual(e, expected)) |ty| {
+        // A variant literal where a view held by address goes is the value
+        // `E.v(...)` is, which goes there as that value goes.
+        const viewed = try self.variantUnderView(e, expected);
+        if (try self.checkContextual(e, viewed orelse expected)) |ty| {
             if (try self.cellMadeAway(e, ty)) return self.ctx.recordType(e, self.t().invalid_id);
-            return self.ctx.recordType(e, ty);
+            try self.ctx.recordType(e, ty);
+            if (viewed == null or self.isPoison(ty)) return;
+            return self.checkActual(e, ty, expected);
         }
 
         return self.checkActual(e, try self.synthExpr(e), expected);
@@ -11469,6 +11508,31 @@ const Checker = struct {
         if (got != self.t().string_view_id and got != self.t().string_id) return "";
         if (self.static_target.len > 0 and sameSite(e, self.static_target_value)) return self.ctx.arena.allocator().print("; `{s}` is a `Static`, bound to a literal's text, and a `?String` may view a `String`: declare it `{s}: ?String = ...` to hold other text", .{ self.static_target, self.static_target }) catch "";
         return "; a `Static` is a literal, or text derived only from literals, and a `?String` may view a `String`. A parameter or field that only reads its text is declared `?String`, which takes a `Static` too";
+    }
+
+    /// The type a variant literal (`.V`, `.V(...)`) takes where a view
+    /// held by address goes (`?Val`, `!Color`, `(?Val)?`): the viewed
+    /// type, as `Val.V(...)` has, so the literal is a value made where it
+    /// stands, lent as one is or rejected. A view that holds a copy of
+    /// the value (`?Color`, `sema.lendByValue`) takes the literal itself.
+    /// Null for any other form or expected type, and for a name that is
+    /// no variant of the viewed enum, which `checkContextual` reports
+    /// (an error's name where a `T!` goes, too).
+    fn variantUnderView(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId {
+        const name = if (e.isKind(.enum_lit))
+            ir.EnumLit.name(e)
+        else if (e.isKind(.call) and ir.Call.callee(e).isKind(.enum_lit))
+            ir.EnumLit.name(ir.Call.callee(e))
+        else
+            return null;
+        const view = self.liftTarget(expected);
+        switch (self.ctx.types.get(view)) {
+            .read_view, .write_view => if (!sema.viewHeldAsPointer(self.ctx, view)) return null,
+            else => return null,
+        }
+        const viewed = sema.unwrapViews(self.ctx, view);
+        if (try sema.lookupVariant(self.ctx, viewed, self.text(name)) == null) return null;
+        return viewed;
     }
 
     /// A form whose type comes from context: its type, or null when `e`

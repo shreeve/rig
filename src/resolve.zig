@@ -1489,12 +1489,23 @@ pub const TypeResolver = struct {
     /// A `fun`'s `from` clause, which `sema.computeOrigins` reads once
     /// every type's contents are known.
     fn recordFrom(self: *TypeResolver, node: Sexp, params: Sexp, returns: Sexp) Error!void {
+        try self.recordKeeps(node, params);
         if (!node.isKind(.fun) and !node.isKind(.extern_fun)) return;
         const names = ir.get(node, .origins);
         if (names == .nil) return;
         const name = ir.get(node, .name);
         if (name != .src) return;
         try self.ctx.declared_origins.put(self.ctx.allocator, name.src.pos, .{ .names = names, .params = params, .returns = returns });
+    }
+
+    /// A function's `keeps` clause, which `sema.computeOrigins` reads
+    /// once every type's contents are known.
+    fn recordKeeps(self: *TypeResolver, node: Sexp, params: Sexp) Error!void {
+        const names = ir.get(node, .keeps);
+        if (names == .nil) return;
+        const name = ir.get(node, .name);
+        if (name != .src) return;
+        try self.ctx.declared_keeps.put(self.ctx.allocator, name.src.pos, .{ .names = names, .params = params });
     }
 
     /// C functions take and return only integers, floats, and Bool.

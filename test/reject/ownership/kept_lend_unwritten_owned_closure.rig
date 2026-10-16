@@ -1,0 +1,19 @@
+# Why: an owned closure keeps what its type could hold (Core sentence 7,
+# §7), and this one stores `s` in `k`; the lend of `t` outlasts the
+# statement and is written `?t`.
+# Rule: a lend is written wherever its view may outlast its statement,
+# as when the call it is lent to keeps it (Core sentence 4).
+# From: the keeps Core review (Rust expert).
+
+obj B
+  src: ?String
+  n: Int
+
+sub main()
+  b = B(src: "", n: 0)
+  f: *sub(!B, ?String) = *|k, s| k.src = s
+  t = String("abc")
+  f(!b, t)
+  print(b.src)
+
+# error: 16:9: `f(!b, t)` keeps `t` lent in what `f` stores; write `f(!b, ?t)`
