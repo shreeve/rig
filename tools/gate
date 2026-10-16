@@ -196,13 +196,16 @@ phase "posted success"
 # default branch's copy).
 RUN="" ATTEMPT="" RUN_STATUS=""
 for _ in $(seq 1 60); do
-    read -r RUN ATTEMPT RUN_STATUS < <(gh api "repos/$REPO/actions/workflows/gate.yml/runs?event=pull_request_target&head_sha=$SHA&per_page=1" \
-        --jq '.workflow_runs[0] | [.id, .run_attempt, .status] | @tsv' 2>/dev/null)
-    [[ -n $RUN && $RUN != null && $RUN_STATUS == completed ]] && break
+    # Nothing when there is no run, or no gate.yml on the default branch.
+    runs=$(gh api "repos/$REPO/actions/workflows/gate.yml/runs?event=pull_request_target&head_sha=$SHA&per_page=1" \
+        --jq '.workflow_runs[0] // empty | [.id, .run_attempt, .status] | @tsv' 2>/dev/null) || runs=""
+    [[ -n $runs ]] || break
+    read -r RUN ATTEMPT RUN_STATUS <<<"$runs"
+    [[ $RUN_STATUS == completed ]] && break
     sleep 2
 done
-if [[ -z $RUN || $RUN == null ]]; then
-    echo "gate: no gate workflow run for $SHORT yet; the first one (opening or reopening #$PR) reads the status"
+if [[ -z $RUN ]]; then
+    echo "gate: no gate workflow run for $SHORT (none yet, or no gate.yml on the default branch); the next one, as #$PR is pushed or reopened, reads the status"
     exit 0
 fi
 [[ $RUN_STATUS == completed ]] || die "gate run $RUN did not complete within 2 minutes; re-run it: gh run rerun $RUN -R $REPO"
@@ -214,7 +217,8 @@ phase "re-ran gate run $RUN"
 for _ in $(seq 1 100); do
     read -r now_attempt now_status conclusion < <(gh api "repos/$REPO/actions/runs/$RUN" \
         --jq '[.run_attempt, .status, (.conclusion // "-")] | @tsv' 2>/dev/null)
-    [[ ${now_attempt:-0} -gt $ATTEMPT && $now_status == completed ]] && break
+    [[ ${now_attempt:-} =~ ^[0-9]+$ ]] || now_attempt=0
+    [[ $now_attempt -gt $ATTEMPT && $now_status == completed ]] && break
     sleep 3
 done
 [[ ${now_attempt:-0} -gt $ATTEMPT && $now_status == completed ]] || die "gate run $RUN did not finish within 5 minutes"
