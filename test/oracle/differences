@@ -276,6 +276,8 @@ test/reject/ownership/unwrapped_write_param_nested_field.rig nullish prod-reject
 test/reject/ownership/unwrapped_write_param_nullish.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r02b-fallible-bang.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r03-nullish.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
+test/corpus/assignthrough-b20.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
+test/corpus/assignthrough-b21.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r04-catch.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r05-ifas-move.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds
 test/corpus/optwrite-r06b-match-unwrapped.rig set prod-rejects ref-gap stores a view of a local through the write view a `(!T)?` parameter holds

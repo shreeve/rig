@@ -4450,3 +4450,7 @@ test/corpus/optwrite-relax-p08-slice.rig main
 test/corpus/optwrite-relax-p09-slice-fill.rig main
 test/corpus/optwrite-relax-p10-headers.rig main
 test/corpus/optwrite-relax-p12-closure-body.rig main
+test/corpus/assignthrough-b18.rig set
+test/corpus/assignthrough-exb2.rig main
+test/corpus/assignthrough-p11.rig main
+test/corpus/assignthrough-p16.rig f
