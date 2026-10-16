@@ -656,7 +656,7 @@ sign -1
   program ([CORE sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)).
 - A function that keeps a lent parameter names it last on its header:
   `sub watch(!self, s: ?String) keeps s`, `fun bind(!self, s: ?String)
-  -> ?String from s keeps s, self`, `sub save(p: !Page, s: ?String)!
+  -> ?String from s keeps s`, `sub save(p: !Page, s: ?String)!
   keeps s` ([CORE sentence 7](docs/CORE.md#2-the-core-in-ten-sentences)).
 - Compile-time parameters go in brackets after the name:
   `fun max[T](a: T, b: T) -> T`, `sub show[n: Int]()`

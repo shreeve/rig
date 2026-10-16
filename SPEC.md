@@ -4962,7 +4962,8 @@ the checker tracks where every one came from.
   is the callee's, which may keep it, and its loans, wherever its type
   fits; `keeps` does not name it. A function called as a value
   (`?watch`) keeps what its type could hold, as if every lent parameter
-  were named. The compiler checks each body against its `keeps`: a body
+  were named, and so does a method of a built-in generic (`!v.push(x)`,
+  a Cell's `set`). The compiler checks each body against its `keeps`: a body
   that stores a lent parameter where its caller reaches it, on any path
   (into `self`, a write argument, or through a call that keeps it),
   without naming it, is rejected at the store with the clause to write.
