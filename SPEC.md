@@ -4862,6 +4862,45 @@ sub main()
 150 150
 ```
 
+A variant literal whose enum comes from the view it goes to
+(`.table(...)` where a `?Val` goes) is that value, `Val.table(...)`,
+made there and lent the same way; where `Val.table(...)` is rejected (a
+view kept or returned, a `!Val`), so is the literal. A plain enum's read
+view holds a copy of the value, so `.red` goes wherever a `?Color` does.
+
+```rig
+enum Val
+  num(n: Int)
+  table(m: List[Int])
+
+sub show(v: ?Val)
+  match v
+    .num(n) => print(n)
+    .table(m) => print(m.len)
+
+sub main()
+  show(.table(m: List()))
+  show(.num(n: 3))
+```
+
+```output
+0
+3
+```
+
+```rig reject
+enum Val
+  num(n: Int)
+  table(m: List[Int])
+
+fun made() -> ?Val
+  return .num(n: 3)
+```
+
+```error
+type mismatch: expected `?Val`, got `Val`
+```
+
 A constant (a literal, `none`, a function, a module's constant, an
 enum variant that holds no payload or an error value, a number type's
 limit such as `Int.max`, or a type's function such as `P.origin`, of

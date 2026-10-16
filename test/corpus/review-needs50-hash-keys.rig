@@ -1,0 +1,23 @@
+# A variant literal owning a String, lent as the `?K` key of
+# `hash.Map` and `hash.Set` methods that read (`get`, `has`) and write
+# (`edit`, `take`). Runs sanitizer-clean.
+use std.hash
+
+enum Key
+  K(n: Int)
+  S(s: String)
+
+sub main()
+  m = hash.Map[Key, Int].new()
+  !m.put(Key.S(s: String("a")), 10)
+  !m.put(Key.K(n: 1), 11)
+  if (!m).edit(.S(s: String("a"))) as v
+    v += 1
+  print(m.get(.S(s: String("a"))) ?? 0)
+  print((!m).take(.K(n: 1)) ?? 0, m.has(.K(n: 1)))
+  s = hash.Set[Key].new()
+  _ = !s.add(Key.S(s: String("b")))
+  print(s.has(.S(s: String("b"))), s.has(.K(n: 9)))
+  if (!s).take(.S(s: String("b"))) as k
+    print(k)
+  print(s.len, m.len)
