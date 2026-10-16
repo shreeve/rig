@@ -1,6 +1,6 @@
 {
   "label": "rig:corpus",
-  "setup": "zig build -j\"$CPUQ_CORES\"",
+  "setup": "zig build -j\"$CPUQ_CORES\" -Dself-check=true",
   "run": "./test/run -j \"$CPUQ_CORES\" --delta corpus \"$@\"",
   "cores": "8-32",
   "on": ["burst"],
