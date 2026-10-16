@@ -1,0 +1,13 @@
+# Another module's generic function holds calls of an `inline` one, whose
+# values land in its frame at each instance: at `gen[Bool]` 2 MB, at
+# `gen[Int]`, made only here, 16 MB, over 13 MiB.
+
+use lib
+
+sub main()
+  print(lib.gen(true, 0))
+  print(lib.gen(1, 0))
+
+# error: `gen` keeps 16000
+# error: in `lib.gen[Int]`
+# errors: 1

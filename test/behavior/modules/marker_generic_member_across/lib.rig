@@ -1,0 +1,12 @@
+pub obj Pair[T]
+  pub a: T
+  pub b: T
+
+  pub inline fun first(?self) -> ?T
+    ?self.a
+
+  pub inline fun both(?self, f: ?fun(?T) -> Int) -> Int
+    f(?self.a) + f(?self.b)
+
+  pub inline sub set(!self, a: T)
+    self.a = <a

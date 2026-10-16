@@ -6056,6 +6056,7 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             }
         };
+        try self.checkCallTarget(sexp);
         // `get` on an array, a slice, or a `?String`.
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isSequence(t) and std.mem.eql(u8, self.srcText(ir.Member.name(callee)), "get")) {
             try self.w.writeAll("rig.elementAt(");
@@ -6079,6 +6080,16 @@ pub const Emitter = struct {
         try self.w.writeAll("(");
         try self.emitArgs(sexp);
         try self.w.writeAll(")");
+    }
+
+    /// In a self-checking build, a call of a Rig function or method that
+    /// emit writes is one typecheck resolved (`Facts.callTargetOf`): the
+    /// frame counts and inlining read that fact, so a call it lacked
+    /// would land a frame no count saw.
+    fn checkCallTarget(self: *Emitter, call: Sexp) Error!void {
+        if (!check_units) return;
+        if (self.facts.callTargetOf(call)) |t| if (t == .function) return;
+        if (self.facts.callsRigFunction(call)) return self.unsupported(call, "a call of a Rig function no check resolved (callTargetOf)");
     }
 
     /// An array, a slice, or a `?String`, or a view of one.

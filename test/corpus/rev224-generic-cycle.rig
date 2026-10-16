@@ -1,0 +1,28 @@
+# Review of #224: a cycle of `inline` methods of a generic object type,
+# and one through an `inline` generic function, are rejected.
+
+obj G[T]
+  v: T
+
+  inline fun a(?self, n: Int) -> Int
+    0 if n == 0 else self.b(n - 1)
+
+  inline fun b(?self, n: Int) -> Int
+    0 if n == 0 else self.a(n - 1)
+
+obj H
+  n: Int
+
+  inline fun step(?self, k: Int) -> Int
+    0 if k == 0 else via[Int](self, k - 1)
+
+inline fun via[T](x: ?H, k: Int) -> Int
+  x.step(k)
+
+sub main()
+  g = G[Int](v: 1)
+  h = H(n: 1)
+  print(g.a(3), h.step(2))
+
+# error: 7:14: `G.a` is `inline` and calls itself through `G.b`
+# error: 16:14: `H.step` is `inline` and calls itself through `via`
