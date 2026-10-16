@@ -172,6 +172,18 @@ prints `rig: sanitizer: mapping limit reached; further allocations are
 not guarded` once and allocates the rest normally, poisoning them when
 freed. Leak checking still covers every block.
 
+## Strict optionals
+
+`RIG_STRICT_OPTIONALS=1 ./test/run` runs the suite with every object's
+optional held as a tagged struct, which Zig never lifts a value into
+and never tests with `orelse` or `null` (docs/INTERNALS.md, Emit,
+"Optionals"). A program then compiles only if the compiler writes
+every operation on such an optional through the runtime's optional
+helpers, and prints what it prints in a plain run, so a run in this
+mode that passes shows no optional site was missed. The run is a gate
+for a change to how emit or the runtime handles optionals.
+`test/cli/strict_optionals.sh` runs one program both ways in every run.
+
 ## CLI tests
 
 Each `test/cli/<name>.sh` runs in an empty directory with `RIG` (the
