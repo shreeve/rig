@@ -1,0 +1,5 @@
+sub main()
+  @blk for i in 0..2
+    @comptime for j in 0..2
+      print(i, j)
+      break @blk

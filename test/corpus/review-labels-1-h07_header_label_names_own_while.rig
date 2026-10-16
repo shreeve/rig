@@ -1,0 +1,9 @@
+fun get(i: Int) -> Bool?
+  (i < 9) if i < 3 else none
+
+sub main()
+  i = 0
+  n = 0
+  @a while get(i) ?? break @a : i += 1
+    n += 1
+  print(i, n)

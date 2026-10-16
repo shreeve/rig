@@ -1,0 +1,5 @@
+sub main()
+  for i in 0..2
+    @r raw
+      continue @r
+    print(i)

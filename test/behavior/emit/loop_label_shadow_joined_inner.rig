@@ -1,4 +1,4 @@
-# An inner joined `:a` loop inside an outer `:a` loop: its `continue :a`
+# An inner joined `@a` loop inside an outer `@a` loop: its `continue @a`
 # goes through its own step.
 obj S
   s: []Int
@@ -15,14 +15,14 @@ sub main()
   i = 0
   q = 0
   m = 0
-  :a while mk(?v, i) as h and i >= 0: k += h.s[0]
+  @a while mk(?v, i) as h and i >= 0: k += h.s[0]
     i += 1
     m = 0
-    break :a if i > 50
-    :a while mk(?v, m) as g and m >= 0: q += g.s[0]
+    break @a if i > 50
+    @a while mk(?v, m) as g and m >= 0: q += g.s[0]
       m += 1
       for _ in 0..2
-        continue :a
+        continue @a
   print("end", k, q, m)
 
 # expect:

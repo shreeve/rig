@@ -1,0 +1,5 @@
+sub main()
+  @a for i in 0..2
+    defer
+      break @a
+    print(i)

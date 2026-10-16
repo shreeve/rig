@@ -1,0 +1,9 @@
+fun get(i: Int, lim: Int) -> Bool?
+  (i < 9) if i < lim else none
+
+sub main()
+  @o for k in 0..2
+    i = 0
+    while get(i, lim: 2) ?? break @o : i += 1
+      print(k, i)
+  print(9)

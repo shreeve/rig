@@ -14,8 +14,8 @@ sub main()
   !v.push(1)
   k = 0
   i = 0
-  :outer while mk(?v, i) as h and i >= 0: k += h.s[0]
+  @outer while mk(?v, i) as h and i >= 0: k += h.s[0]
     i += 1
     for _ in 0..2
-      defer continue :outer
+      defer continue @outer
   print(k)

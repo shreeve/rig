@@ -1,0 +1,8 @@
+fun get(i: Int) -> Int?
+  i if i != 1 else none
+
+sub main()
+  @a for i in 0..3
+    for j in 0..2
+      print(i, j, get(i) ?? continue @a)
+  print(9)

@@ -63,7 +63,7 @@ sub main()
   o0 = ints(1)
   c0 = 0
   p0 = 0
-  :l0 while (limf(c0, 3, false) catch continue) as h0 and (gate(c0 == 1) ?? break) > 0: c0 = grow(!o0, 0, c0)
+  @l0 while (limf(c0, 3, false) catch continue) as h0 and (gate(c0 == 1) ?? break) > 0: c0 = grow(!o0, 0, c0)
     guard += 1
     if guard > 300
       print("cap")
@@ -76,7 +76,7 @@ sub main()
     print("b0", c0, h0)
     v1 = ints(2)
     p1 = 0
-    :l1 for x1, c1 in v1
+    @l1 for x1, c1 in v1
       guard += 1
       if guard > 300
         print("cap")
@@ -85,12 +85,12 @@ sub main()
       _ = p1
       defer print("d1", c1)
       print("b1", c0, c1, x1)
-      continue :l0 if c0 == 1 and c1 == 1
-      :m raw
+      continue @l0 if c0 == 1 and c1 == 1
+      @m raw
         o2 = ints(1)
         c2 = 0
         p2 = 0
-        :l2 while (limf(c2, 2, false) catch none) as h2 and (gate(c0 == 1 and c1 == 1 and c2 == 1) ?? break) > 0: c2 = grow(!o2, 2, h2)
+        @l2 while (limf(c2, 2, false) catch none) as h2 and (gate(c0 == 1 and c1 == 1 and c2 == 1) ?? break) > 0: c2 = grow(!o2, 2, h2)
           guard += 1
           if guard > 300
             print("cap")

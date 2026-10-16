@@ -1,8 +1,8 @@
 fun f(xs: ?[3]Int?) -> Int
   n = 0
-  :outer for x in xs
+  @outer for x in xs
     for y in 0..2
-      v = x ?? continue :outer
+      v = x ?? continue @outer
       n += v + y
   n
 

@@ -16,26 +16,26 @@ fun run(f: ?fun(Int) -> Int, x: Int) -> Int
 
 fun work(fail: Bool) -> Int!
   n = 0
-  :a for i in 0..2
+  @a for i in 0..2
     defer
-      :a for j in 0..3
-        continue :a if j == 0
+      @a for j in 0..3
+        continue @a if j == 0
         print("defer", i, j)
-        break :a if j == 1
+        break @a if j == 1
     errdefer
       k = 0
-      :a while (opt(k) ?? continue) > 0: k += 1
+      @a while (opt(k) ?? continue) > 0: k += 1
         print("errdefer", i, k)
-        break :a if k > 2
+        break @a if k > 2
     n += run(x: 3, f: |x: Int|
       t = 0
-      :a for q in 0..x
-        continue :a if q == 0
+      @a for q in 0..x
+        continue @a if q == 0
         t += q
       t
     )
     return E.bad if fail and i == 1
-    continue :a
+    continue @a
   n
 
 sub main()

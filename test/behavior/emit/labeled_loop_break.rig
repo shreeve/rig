@@ -1,10 +1,10 @@
-# `break :outer` inside a nested loop exits the loop labeled `:outer`,
+# `break @outer` inside a nested loop exits the loop labeled `@outer`,
 # so the `print(99)` after the inner loop never runs.
 
 sub main()
-  :outer while true
+  @outer while true
     while true
-      break :outer
+      break @outer
     print(99)
   print(1)
 

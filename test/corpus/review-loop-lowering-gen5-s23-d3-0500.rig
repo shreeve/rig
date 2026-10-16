@@ -62,7 +62,7 @@ sub main()
   guard = 0
   c0 = 0
   p0 = 0
-  :l0 while lim(c0, 3) as h0 and (gate(c0 == 1) ?? return) > 0: c0 = st(0, h0)
+  @l0 while lim(c0, 3) as h0 and (gate(c0 == 1) ?? return) > 0: c0 = st(0, h0)
     guard += 1
     if guard > 300
       print("cap")
@@ -86,9 +86,9 @@ sub main()
       defer print("od1", sv1[0])
       print("b1", c0, c1)
       break 77 if c1 == 99
-      :a raw
+      @a raw
         p2 = 0
-        :l2 for c2 in 0..2
+        @l2 for c2 in 0..2
           guard += 1
           if guard > 300
             print("cap")
@@ -104,6 +104,6 @@ sub main()
       return if c0 == 1
       -1
     print("r1", r1)
-    continue :l0 if c0 == 1
+    continue @l0 if c0 == 1
     print("t0", c0)
   print("end")

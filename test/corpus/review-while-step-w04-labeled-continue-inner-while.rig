@@ -1,4 +1,4 @@
-# `continue :outer` from an inner `while` must run the outer step,
+# `continue @outer` from an inner `while` must run the outer step,
 # which reads the outer condition's binding.
 #
 # oracle: mk accept
@@ -16,11 +16,11 @@ sub main()
   !v.push(5)
   k = 0
   i = 0
-  :outer while mk(?v, i) as h: k += h.s[0]
+  @outer while mk(?v, i) as h: k += h.s[0]
     i += 1
     j = 0
     while j < 3: j += 1
-      continue :outer if j == 2
+      continue @outer if j == 2
     k += 100
   print(k, i)
 
