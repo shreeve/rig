@@ -1,0 +1,44 @@
+# A local or a parameter may be named like a method of its type, though
+# the method's Zig name is escaped (`var` is `@"var"`, `rig` is
+# `@"rig'"`): the emitter renames the local, since Zig rejects a local
+# that shadows a declaration, and compares the escaped names to know it.
+
+obj O
+  v: Int
+
+  fun var(?self) -> Int
+    self.v
+
+  fun rig(?self) -> Int
+    self.v * 10
+
+  fun b(?self) -> Int
+    var = self.v + 1
+    var + self.var()
+
+  fun c(?self, rig: Int) -> Int
+    rig + self.rig()
+
+  fun d(?self) -> Int
+    g = |?self|
+      var = self.v + 2
+      var
+    g()
+
+obj G[T]
+  v: T
+
+  fun var(?self) -> Int
+    1
+
+  fun b(?self, var: Int, u8: Int) -> Int
+    var + u8 + self.var()
+
+sub main()
+  o = O(v: 1)
+  print(o.b(), o.c(5), o.d())
+  print(G[Int](v: 0).b(10, 20))
+
+# expect:
+# 3 15 3
+# 31

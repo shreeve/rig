@@ -1,0 +1,50 @@
+# `_` names a variant, a payload variant, a field, an error, or a type
+# parameter as any name does. Zig reads a bare `_` as a discard (or a
+# non-exhaustive enum's marker), so the emitted Zig writes `@"_"`.
+
+enum K
+  a
+  _
+
+enum V
+  a = 1
+  _ = 2
+
+enum P
+  p(v: Int)
+  _(w: Int)
+
+obj O
+  _: Int
+  b: Int
+
+error E
+  _
+
+obj G[_]
+  x: Int
+
+fun f() -> Int!
+  return E._
+
+sub main()
+  print(K.a, K._, Int(V._), V.from_int(2))
+  q = P._(w: 4)
+  match q
+    ._(w) => print(w)
+    _ => print("other")
+  print(q)
+  o = O(_: 1, b: 2)
+  print(o._, o)
+  x = f() catch |e|
+    print(e)
+    0
+  print(x, G[Int](x: 4).x, @name(G[Int]))
+
+# expect:
+# .a ._ 2 ._
+# 4
+# ._(w: 4)
+# 1 O(_: 1, b: 2)
+# E._
+# 0 4 G[Int]
