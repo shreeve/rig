@@ -1,0 +1,44 @@
+# `@name` of a type parameter names its instance from the instance's Zig
+# type, where a read view of a number is the number and a `[]U8` is a
+# `?String`'s bytes: an instance that holds a view or a slice, at any
+# depth, is rejected where it is made, not left to fail in Zig.
+
+obj Node
+  v: Int
+
+obj Wrap[T]
+  v: T
+
+  fun name(?self) -> ?String
+    @name(T)
+
+sub show[T](x: T)
+  print(@name(T))
+
+sub list_name[T](xs: ?List[T])
+  print(@name(List[T]))
+
+fun look(n: ?Node) -> Int
+  n.v
+
+sub main()
+  n = Node(v: 1)
+  b: (?Node)? = ?n
+  show(b)
+  i: (?Int)? = none
+  show(i)
+  xs = [1, 2, 3]
+  show(xs[0..2])
+  show(look)
+  w = Wrap(v: b)
+  print(w.v == none)
+  ys: List[(?Int)?] = List()
+  list_name(ys)
+
+# error: 27:3: `show[(?Node)?]` cannot use `T = (?Node)?`: the generic body names a type that holds a `T` with `@name`, which spells no view or slice in a type parameter's instance but a `?String`, and `(?Node)?` holds `?Node`
+# error: 29:3: `show[(?Int)?]` cannot use `T = (?Int)?`
+# error: 31:3: `show[[]Int]` cannot use `T = []Int`: the generic body names a type that holds a `T` with `@name`, which spells no view or slice in a type parameter's instance but a `?String`, and `[]Int` is one
+# error: 32:3: `show[fun(?Node) -> Int]` cannot use `T = fun(?Node) -> Int`
+# error: 33:7: `Wrap[(?Node)?]` cannot use `T = (?Node)?`
+# error: 36:3: `list_name[(?Int)?]` cannot use `T = (?Int)?`
+# errors: 6

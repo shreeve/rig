@@ -5708,7 +5708,9 @@ pub const Emitter = struct {
     /// and each type parameter as `how` writes it. `.concat` joins them
     /// with `++`, each parameter named by `rig.typeName`; `.parts` lists
     /// them in a tuple, each parameter as itself, or, given the generic
-    /// type `of`, as its index among that type's parameters.
+    /// type `of`, as its index among that type's parameters. A type
+    /// marked whole (`t` and its id) is written as its Zig type, and named
+    /// so in `.concat`.
     fn writeSpelling(self: *Emitter, spelling: []const u8, how: enum { concat, parts }, of: ?SymbolId) Error!void {
         if (how == .parts) try self.w.writeAll(".{ ");
         var it = std.mem.splitScalar(u8, spelling, facts.type_param_mark);
@@ -5721,6 +5723,13 @@ pub const Emitter = struct {
             first = false;
             if (!is_param) {
                 try self.w.print("\"{s}\"", .{piece});
+                continue;
+            }
+            if (piece[0] == 't') {
+                const ty = std.fmt.parseInt(TypeId, piece[1..], 10) catch unreachable;
+                if (how == .concat) try self.w.writeAll("rig.typeName(");
+                try self.emitTypeTy(ty);
+                if (how == .concat) try self.w.writeAll(", __rig_names)");
                 continue;
             }
             const sym = std.fmt.parseInt(SymbolId, piece, 10) catch unreachable;

@@ -13144,7 +13144,8 @@ const Checker = struct {
                 // Under a query spelled Zig's way, its fix-it covers this one.
                 const outer_rig = std.meta.stringToEnum(Builtin, name).?.isSafe();
                 if (b != .type and self.raw_depth == 0 and outer_rig) try self.zigQueryName(a, inner, "type");
-                _ = try self.synthExpr(ir.Builtin.args(a)[0]);
+                const of = try self.synthExpr(ir.Builtin.args(a)[0]);
+                try self.requireNamed(name, of, a);
                 return true;
             };
         }
@@ -13152,6 +13153,7 @@ const Checker = struct {
         const ty = try self.typeArg(a);
         if (self.isPoison(ty)) return false;
         try self.ctx.recordType(a, ty);
+        try self.requireNamed(name, ty, a);
         // A vector's size and alignment are the target's, so Rig gives
         // neither, nor those of a type that holds one inline.
         if (!std.mem.eql(u8, name, "name")) {
@@ -13164,6 +13166,18 @@ const Checker = struct {
             for (params.items) |param| try self.require(param, .sized, self.startOf(a), name);
         }
         return true;
+    }
+
+    /// `@name` of a type that holds type parameters names each one's
+    /// instance as the program runs (`rig.typeName`), from its Zig type:
+    /// each instance must hold no view it could not tell apart
+    /// (`Requirement.named`).
+    fn requireNamed(self: *Checker, builtin: []const u8, ty: TypeId, at: Sexp) Error!void {
+        // Zig's `@typeName`, inside `raw`, names the Zig type.
+        if (!std.mem.eql(u8, builtin, "name")) return;
+        var params: std.ArrayList(SymbolId) = .empty;
+        try sema.reachedTypeVars(self.ctx, ty, &params, self.ctx.arena.allocator());
+        for (params.items) |param| try self.require(param, .named, self.startOf(at), "@name");
     }
 
     // =========================================================================
@@ -14941,6 +14955,11 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .whole_division => try ctx.err(at, cannot ++ "gives a `{s}` the division of whole numbers `{s}`, which divides integers, not a `{s}`", .{ inst, pname, aname, pname, req.op, aname }),
                 .not_error => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a return type `{s}!` would make a failure and a success both `{s}` values", .{ inst, pname, aname, pname, aname }),
                 .not_function => try ctx.err(at, cannot ++ "makes a handle `{s}{s}` of a `{s}`, and `{s}` is a function type: `*{s}` is an owned closure, not a handle of a function. Hold the owned closure itself in a `{s}`: `{s} = *{s}`", .{ inst, pname, aname, req.op[1..2], pname, pname, aname, aname, pname, pname, aname }),
+                .named => {
+                    const held = sema.unnameable(ctx, arg).?;
+                    const what = if (held == arg) "is one" else try ctx.arena.allocator().print("holds `{s}`", .{try sema.formatType(ctx, held)});
+                    try ctx.err(at, cannot ++ "names a type that holds a `{s}` with `@name`, which spells no view or slice in a type parameter's instance but a `?String`, and `{s}` {s}", .{ inst, pname, aname, pname, aname, what });
+                },
                 .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
                 .hashable => if (try sema.notHashable(ctx, arg, null)) |n|
                     try ctx.err(at, cannot ++ "hashes a `{s}` with `.hash()`, which `{s}` does not support: {s}", .{ inst, pname, aname, pname, aname, try notEquatableReason(ctx, n) })
@@ -14955,6 +14974,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .bytes, .fits, .float, .shift, .whole_division => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
                 .not_function => try ctx.noteIn(req.module_id, req.pos, "`{s}{s}` here", .{ req.op[1..2], pname }),
+                .named => try ctx.noteIn(req.module_id, req.pos, "`@name` here", .{}),
                 else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
             ok = false;
@@ -15030,6 +15050,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         .whole_division => sema.isInteger(ctx, ty),
         .not_error => ctx.types.get(ty) != .any_error and !sema.isErrorSet(ctx, ty),
         .not_function => ctx.types.get(ty) != .function,
+        .named => sema.unnameable(ctx, ty) == null,
     };
 }
 

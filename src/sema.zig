@@ -1893,6 +1893,10 @@ pub const Requirement = union(enum) {
     /// of the parameter (`*T`, `~T`), and `*fun(...)` is an owned
     /// closure, not a handle of a function.
     not_function,
+    /// Holds no view but a `?String` (`nameable`): the body names a type
+    /// that holds the parameter (`@name`), which the runtime spells from
+    /// the instance's Zig type.
+    named,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -1914,6 +1918,7 @@ pub const Requirement = union(enum) {
             .whole_division => "a division of whole numbers",
             .not_error => "a fallible return",
             .not_function => "a handle",
+            .named => "a type name",
         };
     }
 };
@@ -1936,6 +1941,22 @@ pub fn requireHandleOf(ctx: *SemContext, inner: TypeId, pos: u32, op: []const u8
         .type_var => |param| try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .not_function, .pos = pos, .op = op }),
         else => {},
     }
+}
+
+/// The first type `ty` holds, at any depth, that `@name` of a type
+/// parameter cannot spell, or null: a view but `?String`. The runtime
+/// names an instance from its Zig type (`rig.typeName`), where a read
+/// view of a number is the number, and a `[]U8` and a `?String` are one
+/// type. (A `Static` an instance binds reads as a `?String`, and is
+/// named one.)
+pub fn unnameable(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    switch (ctx.types.get(ty)) {
+        .read_view, .write_view, .slice, .callable => return ty,
+        else => {},
+    }
+    var it = typeChildren(ctx, ty);
+    while (it.next()) |c| if (unnameable(ctx, c)) |u| return u;
+    return null;
 }
 
 /// A generic body copies a value of a type parameter, found by the
@@ -7098,9 +7119,11 @@ pub const type_param_mark = 0;
 
 /// `formatTypeIn` with each type parameter, or compile-time value
 /// parameter, written as its symbol id between two `type_param_mark`
-/// bytes (`List[\x003\x00]`), for a spelling completed per instance: the
-/// emitter fills each in (`@name(T)`). A spelling with no mark names
-/// one type.
+/// bytes (`List[\x003\x00]`), and each type whose spelling depends on
+/// the one a parameter stands for (`spelledPerInstance`) as `t` and its
+/// type id (`List[\x00t9\x00]` for `List[T?]`), for a spelling
+/// completed per instance: the emitter fills each in (`@name(T)`). A
+/// spelling with no mark names one type.
 pub fn formatTypeMarked(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
     return (TypePrinter{ .ctx = ctx, .a = a, .marked = true }).id(ty_id);
 }
@@ -7124,6 +7147,8 @@ const TypePrinter = struct {
     marked: bool = false,
 
     fn id(p: TypePrinter, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
+        // Marked whole, as `t` and its id, for the instance to spell.
+        if (p.marked and spelledPerInstance(p.ctx, ty_id)) return p.a.print("{c}t{d}{c}", .{ type_param_mark, ty_id, type_param_mark });
         return p.value(p.ctx.types.get(ty_id));
     }
 
@@ -7235,6 +7260,32 @@ const TypePrinter = struct {
         };
     }
 };
+
+/// Whether the printer's spelling of `ty` depends on the type a type
+/// parameter in it stands for: a suffix after one, which `(T?)?` and
+/// `(fun() -> Int)?` put in parentheses (`TypePrinter.suffixed`), or a
+/// handle's sigil before one, which `*(T?)` does (`TypePrinter.handle`).
+/// A marked spelling leaves such a type to each instance whole
+/// (`rig.typeName`), which spells it by the same rules.
+fn spelledPerInstance(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .optional, .fallible => |inner| paramOperand(ctx, inner),
+        .shared, .weak => |inner| ctx.types.get(inner) == .type_var,
+        .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id and pn.args.len == 1 and ctx.types.get(pn.args[0]) == .type_var,
+        else => false,
+    };
+}
+
+/// A type parameter, or a handle or box of one, whose spelling a suffix
+/// may need parentheses around (`takesNoSuffix`).
+fn paramOperand(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .type_var => true,
+        .shared, .weak => |inner| paramOperand(ctx, inner),
+        .parameterized_nominal => |pn| pn.sym == ctx.box_sym_id and pn.args.len == 1 and paramOperand(ctx, pn.args[0]),
+        else => false,
+    };
+}
 
 /// Types separated by `, `.
 fn formatTypeList(ctx: *const SemContext, a: std.mem.Allocator, ids: []const TypeId) std.mem.Allocator.Error![]const u8 {
