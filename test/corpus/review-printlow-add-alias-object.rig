@@ -1,0 +1,8 @@
+obj O
+  s: String
+  n: Int
+
+sub main()
+  o = O(s: String("abcdefgh"), n: 1)
+  !o.s.add("x", o)
+  print(o.s)

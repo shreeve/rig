@@ -1,0 +1,65 @@
+enum Status
+  ok = 200
+  missing = 404
+
+enum Shape
+  circle(radius: Int)
+  rect(w: Int, h: Int)
+  point
+
+enum Light
+  red
+  amber
+
+obj Inner
+  name: String
+  n: Int
+
+obj Outer
+  inner: Inner
+  tags: List[String]
+  maybe: Int?
+
+fun add1(x: Int) -> Int
+  x + 1
+
+sub main()
+  o: Int? = none
+  p: Int? = 4
+  s: String? = none
+  t: String? = String("hi")
+  l: Light? = none
+  print(o, p, s, t, l)
+  print(Status.ok, Status.missing, Light.red, Light.amber)
+  sh: Shape = .rect(w: 2, h: 5)
+  pt: Shape = .point
+  ci: Shape = .circle(radius: 3)
+  print(sh, pt, ci)
+  tags: List[String] = List()
+  !tags.push(String("a b"))
+  !tags.push(String("q\"x"))
+  x = Outer(inner: Inner(name: String("nm"), n: 3), tags: <tags, maybe: none)
+  print(x)
+  print(x.inner, x.inner.name, x.tags, x.maybe)
+  ll: List[List[Int]] = List()
+  a: List[Int] = List()
+  !a.push(1)
+  !a.push(2)
+  !ll.push(<a)
+  !ll.push(List())
+  print(ll, ll.len)
+  bx = ^Inner(name: String("box"), n: 1)
+  print(bx)
+  sh2: *Inner = *Inner(name: String("shared"), n: 2)
+  w = ~sh2
+  print(sh2, w)
+  c: *Cell[Int] = *Cell(9)
+  print(c, c.get())
+  print(add1, add1(1))
+  f = |y: Int| y * 2
+  print(f(4))
+  arr = [1, 2, 3]
+  print(arr, arr[1..3])
+  str = String("hello")
+  v = ?str
+  print(str, v, str.len)

@@ -2893,6 +2893,8 @@ test/corpus/review-place-b14-n003_readptr_from_wb.rig main
 test/corpus/review-place-b2-q019_range_of_temp.rig main
 test/corpus/review-place-b6-u012_mod_const_take main
 test/corpus/review-place-b7-v023_wt_value_holding_view_escape.rig main
+test/corpus/review-printlow-add-alias-box.rig main
+test/corpus/review-printlow-add-alias-object.rig main
 test/corpus/review-revamp-checkers-p-a1.rig main
 test/corpus/review-revamp-checkers-p-a4.rig first
 test/corpus/review-revamp-checkers-p-a5.rig rows
