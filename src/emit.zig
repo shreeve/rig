@@ -318,6 +318,13 @@ pub const Emitter = struct {
     /// Write every test, ignoring which are known to pass (`provenOf`):
     /// `RIG_NO_PROOFS`, for the differential run of the proofs.
     no_proofs: bool = false,
+    /// Hold every object's optional as a tagged struct, so the program
+    /// compiles only if every operation on one goes through the optional
+    /// helpers (`RIG_STRICT_OPTIONALS`, `Facts.optionalRouted`).
+    strict_optionals: bool = false,
+    /// The value being written inside the `rig.pack` of the optional it
+    /// becomes (`emitLift`), or written where it is held as itself.
+    lifting: Sexp = .nil,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, w: *Writer, ctx: Facts) Emitter {
         return .{
@@ -564,8 +571,17 @@ pub const Emitter = struct {
         defer self.nominal = prev;
         try self.emitFields(1);
         try self.emitRigName(1);
+        try self.emitStrictOptional(1);
         try self.emitMethods(members, 1);
         try self.w.writeAll("};\n");
+    }
+
+    /// Under `RIG_STRICT_OPTIONALS`, the object being emitted asks for its
+    /// optional to be held as a tagged struct (`rig.Opt`).
+    fn emitStrictOptional(self: *Emitter, depth: u32) Error!void {
+        if (!self.strict_optionals or !self.facts.isObjectSym(self.nominal.?.sym)) return;
+        try self.writeIndent(depth);
+        try self.w.writeAll("pub const __rig_strict_optional = {};\n");
     }
 
     /// `(generic_struct Name (T...) members...)` → a type-returning function.
@@ -576,6 +592,7 @@ pub const Emitter = struct {
         try self.emitGenericHead(ir.GenericStruct.tparams(node), "struct");
         try self.emitFields(2);
         try self.emitRigName(2);
+        try self.emitStrictOptional(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
     }
@@ -698,7 +715,7 @@ pub const Emitter = struct {
             try self.emitTypeTy(f.ty);
             if (f.default) |d| {
                 try self.w.writeAll(" = ");
-                try self.emitDefault(self.facts, d);
+                try self.emitDefault(self.facts, d, f.ty);
             }
             try self.w.writeAll(",\n");
         }
@@ -2665,7 +2682,10 @@ pub const Emitter = struct {
         try self.startLoopLine(lp);
         try self.enterLoop(lp);
         const l = try self.openLabeled(lp.loop);
-        try self.w.print("while ({s}.next()) |{s}| ", .{ it, tmp });
+        const elem = if (self.typeOf(ir.For.source(sexp))) |t| self.loopElem(t) else null;
+        if (elem != null and self.routesPayload(elem.?)) {
+            try self.w.print("while (rig.some({s}.next())) |{s}| ", .{ it, tmp });
+        } else try self.w.print("while ({s}.next()) |{s}| ", .{ it, tmp });
         if (indexed) try self.w.print(": ({s} += 1) ", .{counter});
         const body = try self.openLoopBody(lp);
         const sym = self.facts.symbolOf(binding);
@@ -3451,21 +3471,29 @@ pub const Emitter = struct {
         const owns = value.isKind(.move) or (try self.need(self.facts.handsOver(value), value) == .made and !self.facts.isReadOrWriteView(self.typeOf(value) orelse return self.unsupported(value, "an untyped `as` value")));
         const copies = !owns and try self.copiesSubject(cond, value);
         const points = try self.headerPoints(value);
+        // An optional that goes through the helpers is tested as the Zig
+        // optional `rig.some` gives, and captured by address through
+        // `rig.somePtr`.
+        const routed = self.routedOptional(self.typeOf(value));
         // A place, or a part of a value the `if` holds, is bound where it
         // stands, as `if ?o as x` binds it (`Header`).
         if (self.facts.headerOf(cond) != null) {
-            try self.w.writeAll("(");
+            try self.w.writeAll(if (routed) "(rig.somePtr(" else "(");
             if (points) {
                 try self.emitSubjectPtr(value, false);
-                try self.w.writeAll(".*");
-            } else try self.emitBare(value);
-            try self.w.writeAll(") ");
+                if (!routed) try self.w.writeAll(".*");
+            } else {
+                if (routed) try self.w.writeAll("&(");
+                try self.emitBare(value);
+                if (routed) try self.w.writeAll(")");
+            }
+            try self.w.writeAll(if (routed) ")) " else ") ");
             if (sym == null or !self.usage.used.contains(sym.?)) {
                 try self.w.writeAll("|_| ");
                 return .{};
             }
             const tmp = try self.hiddenStorage(cond, .as_value, .pointer, .next);
-            try self.w.print("|*{s}| ", .{tmp});
+            try self.w.print("|{s}{s}| ", .{ if (routed) "" else "*", tmp });
             return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp } };
         }
         // Over a view of an optional, a viewed binding points into it.
@@ -3474,13 +3502,13 @@ pub const Emitter = struct {
             // read inside the header, and the binding views a copy of the
             // value inside, which the ownership checker lets nothing use
             // past the header.
-            try self.w.writeAll("(");
+            try self.w.writeAll(if (routed) "(rig.some(" else "(");
             const h = try self.openHeader(value);
             try self.w.writeAll("(");
             try self.emitBare(value);
             try self.w.writeAll(").*");
             try self.closeHeader(h);
-            try self.w.writeAll(") ");
+            try self.w.writeAll(if (routed) ")) " else ") ");
             if (sym == null or !self.usage.used.contains(sym.?)) {
                 try self.w.writeAll("|_| ");
                 return .{};
@@ -3495,29 +3523,29 @@ pub const Emitter = struct {
             const named = value == .src or (value.isKind(.move) and ir.Move.operand(value) == .src);
             if (points) {
                 // A place reached through temporaries is viewed where it is.
-                try self.w.writeAll("(");
+                try self.w.writeAll(if (routed) "(rig.somePtr(" else "(");
                 try self.emitSubjectPtr(value, false);
-                try self.w.writeAll(".*) ");
+                try self.w.writeAll(if (routed) ")) " else ".*) ");
             } else if (named) {
-                try self.w.writeAll("(");
+                try self.w.writeAll(if (routed) "(rig.somePtr(&(" else "(");
                 try self.emitBare(value);
-                try self.w.writeAll(") ");
+                try self.w.writeAll(if (routed) "))) " else ") ");
             } else {
                 // Any other view, a field's or an element's included, is
                 // read through the pointer it is, once.
-                try self.w.writeAll("((");
+                try self.w.writeAll(if (routed) "(rig.somePtr(" else "((");
                 try self.emitWriteViewPtr(value);
-                try self.w.writeAll(").*) ");
+                try self.w.writeAll(if (routed) ")) " else ").*) ");
             }
             if (sym == null or !self.usage.used.contains(sym.?)) {
                 try self.w.writeAll("|_| ");
                 return .{};
             }
             const tmp = try self.hiddenStorage(cond, .as_value, .pointer, .next);
-            try self.w.print("|*{s}| ", .{tmp});
+            try self.w.print("|{s}{s}| ", .{ if (routed) "" else "*", tmp });
             return .{ .lent = .{ .cond = cond, .name = name, .tmp = tmp } };
         }
-        try self.w.writeAll("(");
+        try self.w.writeAll(if (routed) "(rig.some(" else "(");
         if (points) {
             try self.emitSubjectPtr(value, false);
             try self.w.writeAll(".*");
@@ -3529,7 +3557,7 @@ pub const Emitter = struct {
             try self.emitHeader(value);
             try self.closeFixed(fixed, value);
         }
-        try self.w.writeAll(") ");
+        try self.w.writeAll(if (routed) ")) " else ") ");
         // `as _` binds no symbol; a resource inside is dropped at once.
         const ty: ?TypeId = if (sym) |s| self.symType(s) else if (self.typeOf(value)) |t| switch (self.facts.types.get(self.peelViews(t))) {
             .optional => |inner| inner,
@@ -3653,6 +3681,9 @@ pub const Emitter = struct {
             try self.emitBare(sexp);
             return self.w.writeAll(")))");
         };
+        // A `T` or `none` that becomes an optional going through the
+        // helpers is packed into it.
+        if (!self.want_ptr and !sameNode(sexp, self.lifting)) if (self.facts.liftOf(sexp)) |lift| if (self.liftRouted(lift)) return self.emitLift(sexp, lift, tail);
         // A part of the value whose use is known has that use; any other
         // value has the use its own context recorded.
         const saved_use = self.use;
@@ -3818,6 +3849,10 @@ pub const Emitter = struct {
             .optional => {
                 const name = try self.hiddenStorage(node, .lent, .pointer, .next);
                 const inner = try self.lendChain(node, .{ .text = name, .ptr = true }, types.get(from).optional, rows[i + 1 ..], types.get(view).optional, false);
+                if (self.routesPayload(types.get(from).optional)) {
+                    const ptr = if (at.ptr) at.text else try self.fmt("&({s})", .{at.text});
+                    return self.fmt("(if (rig.somePtr({s})) |{s}| {s} else null)", .{ ptr, name, inner });
+                }
                 const value = if (at.ptr) try self.fmt("({s}).*", .{at.text}) else at.text;
                 return self.fmt("(if ({s}) |*{s}| {s} else null)", .{ value, name, inner });
             },
@@ -4105,6 +4140,11 @@ pub const Emitter = struct {
         // nested `if` of `none`s alone is that type too.
         if (ty) |t| if (self.facts.types.get(t) == .optional) {
             if (self.isNoneLeaf(e)) {
+                if (self.routesPayload(self.facts.types.get(t).optional)) {
+                    try self.w.writeAll("rig.pack(");
+                    try self.emitTypeTy(t);
+                    return self.w.writeAll(", null)");
+                }
                 try self.writeAsOpen(t);
                 return self.w.writeAll("null)");
             }
@@ -4129,6 +4169,99 @@ pub const Emitter = struct {
     fn emitBareAs(self: *Emitter, e: Sexp, target: ?TypeId) Error!void {
         if (target) |t| if (self.facts.types.get(t) == .optional and self.isPtrViewExpr(e) and self.isPtrViewTy(self.unwrapOptionals(t))) return self.emitWriteViewPtr(e);
         try self.emitBare(e);
+    }
+
+    // ---- optionals ------------------------------------------------------------
+    //
+    // A `T?` whose payload is routed (`Facts.optionalRouted`) is written
+    // `rig.Opt(T)`, and each operation on it goes through the runtime's
+    // helpers: `rig.some(x)` gives Zig's `?T` for a test, `??`, `?`, or
+    // `as`; `rig.somePtr(&x)` the payload's address for a `|*v|` capture;
+    // and `rig.pack(O, z)` makes the `O` a Zig `?T` stands for, where a `T`
+    // or `none` becomes one (`emitLift`). Every other optional is Zig's
+    // `?T`, which each form uses directly.
+
+    /// Whether a `T?` of payload `inner` goes through the helpers.
+    fn routesPayload(self: *Emitter, inner: TypeId) bool {
+        return self.facts.optionalRouted(inner, self.strict_optionals);
+    }
+
+    /// Whether `ty`, through any views, is an optional whose payload goes
+    /// through the helpers.
+    fn routedOptional(self: *Emitter, ty: ?TypeId) bool {
+        const t = ty orelse return false;
+        return switch (self.facts.types.get(self.peelViews(t))) {
+            .optional => |inner| self.routesPayload(inner),
+            else => false,
+        };
+    }
+
+    /// `rig.some(` when `e`'s optional goes through the helpers; the
+    /// caller writes `e` and `closeSome`.
+    fn openSome(self: *Emitter, e: Sexp) Error!bool {
+        if (!self.routedOptional(self.typeOf(e))) return false;
+        try self.w.writeAll("rig.some(");
+        return true;
+    }
+
+    fn closeSome(self: *Emitter, open: bool) Error!void {
+        if (open) try self.w.writeAll(")");
+    }
+
+    /// Whether some level of the optional `lift` makes goes through the
+    /// helpers (`emitLift`).
+    fn liftRouted(self: *Emitter, lift: facts.Lift) bool {
+        var o = lift.into;
+        var levels = self.liftLevels(lift);
+        while (levels > 0) : (levels -= 1) {
+            const inner = self.facts.types.get(o).optional;
+            if (self.routesPayload(inner)) return true;
+            o = inner;
+        }
+        return false;
+    }
+
+    /// How many levels of optional `lift` adds to its value: one for
+    /// `none`.
+    fn liftLevels(self: *Emitter, lift: facts.Lift) u32 {
+        if (lift.from == self.facts.types.none_id) return 1;
+        return optionalDepth(self.facts.types, lift.into) -| optionalDepth(self.facts.types, lift.from);
+    }
+
+    /// `e`, whose value becomes the optional `lift.into` where it goes,
+    /// packed level by level into each optional that goes through the
+    /// helpers (`rig.pack(O, e)`, and `rig.pack(O, null)` for `none`);
+    /// Zig lifts it into any other.
+    fn emitLift(self: *Emitter, e: Sexp, lift: facts.Lift, tail: bool) Error!void {
+        const saved = self.lifting;
+        defer self.lifting = saved;
+        self.lifting = e;
+        const opened = try self.openPacks(lift.into, self.liftLevels(lift));
+        self.bare = true;
+        try self.emitValue(e, tail);
+        for (0..opened) |_| try self.w.writeAll(")");
+    }
+
+    /// `rig.pack(O, ` for each of the outer `levels` levels of the optional
+    /// `into` that goes through the helpers; returns how many the caller
+    /// closes.
+    fn openPacks(self: *Emitter, into: TypeId, levels: u32) Error!u32 {
+        var o = into;
+        var opened: u32 = 0;
+        for (0..levels) |_| {
+            const inner = switch (self.facts.types.get(o)) {
+                .optional => |inner| inner,
+                else => break,
+            };
+            if (self.routesPayload(inner)) {
+                try self.w.writeAll("rig.pack(");
+                try self.emitTypeTy(o);
+                try self.w.writeAll(", ");
+                opened += 1;
+            }
+            o = inner;
+        }
+        return opened;
     }
 
     /// The type `ty` holds under every level of optional; any other type
@@ -4368,8 +4501,12 @@ pub const Emitter = struct {
             .propagate_none => {
                 const operand = ir.PropagateNone.value(sexp);
                 try self.w.writeAll("(");
+                const some = try self.openSome(operand);
                 try self.emitExpr(operand);
-                try self.w.writeAll(" orelse return null)");
+                try self.closeSome(some);
+                try self.w.writeAll(" orelse ");
+                try self.writeReturnNone();
+                try self.w.writeAll(")");
             },
             .neg => {
                 const operand = ir.Neg.operand(sexp);
@@ -4444,11 +4581,27 @@ pub const Emitter = struct {
             },
             .@"/", .@"%" => try self.emitDivision(sexp),
             .@"??" => {
+                const left = ir.@"??".left(sexp);
+                const right = ir.@"??".right(sexp);
+                // Where the fallback is itself a `T?`, so is the value:
+                // both sides are tested, and the result packed.
+                const packed_into = self.optionalFallback(sexp);
+                if (packed_into) |o| {
+                    try self.w.writeAll("rig.pack(");
+                    try self.emitTypeTy(o);
+                    try self.w.writeAll(", ");
+                }
                 try self.w.writeAll("(");
-                try self.emitFallbackHolder(sexp, ir.@"??".left(sexp));
+                const some = try self.openSome(left);
+                try self.emitFallbackHolder(sexp, left);
+                try self.closeSome(some);
                 try self.w.writeAll(" orelse ");
-                try self.emitValue(ir.@"??".right(sexp), true);
+                const some_right = packed_into != null and self.typeOf(right) != self.facts.types.noreturn_id;
+                if (some_right) try self.w.writeAll("rig.some(");
+                try self.emitValue(right, true);
+                if (some_right) try self.w.writeAll(")");
                 try self.w.writeAll(")");
+                if (packed_into != null) try self.w.writeAll(")");
             },
             .@"catch" => {
                 // `(catch expr name? handler)`: the handler replaces the
@@ -4553,6 +4706,17 @@ pub const Emitter = struct {
             try self.w.writeAll("rig.isNone(");
             try self.emitBare(operands[i]);
             return self.w.writeAll(")");
+        };
+        // `none` beside an optional that goes through the helpers tests
+        // what `rig.some` gives.
+        if (is_eq) for ([2]usize{ 0, 1 }) |i| {
+            if (!self.isNoneLeaf(operands[1 - i]) or !self.routedOptional(self.typeOf(operands[i]))) continue;
+            if (!bare) try self.w.writeAll("(");
+            try self.w.writeAll("rig.some(");
+            try self.emitBare(operands[i]);
+            try self.w.print(") {s} null", .{op});
+            if (!bare) try self.w.writeAll(")");
+            return;
         };
         // A bare `.variant` beside a payload enum tests the variant only.
         if (is_eq) for ([2]usize{ 0, 1 }) |i| {
@@ -5116,9 +5280,10 @@ pub const Emitter = struct {
             .fallback => {
                 const holder = if (e.isKind(.@"??")) ir.@"??".left(e) else ir.Catch.value(e);
                 const v = try self.hiddenStorage(e, .leaf, .pointer, .next);
-                try self.w.writeAll("(if (");
+                const routed = e.isKind(.@"??") and self.routedOptional(self.typeOf(holder));
+                try self.w.writeAll(if (routed) "(if (rig.somePtr(&" else "(if (");
                 try self.emitPayloadHolder(holder);
-                try self.w.print(") |*{s}| {s} else ", .{ v, v });
+                try self.w.print("{s} |{s}{s}| {s} else ", .{ if (routed) "))" else ")", if (routed) "" else "*", v, v });
                 if (e.isKind(.@"??")) {
                     try self.emitLeafPtr(ir.@"??".right(e), ty);
                     return self.w.writeAll(")");
@@ -5142,10 +5307,17 @@ pub const Emitter = struct {
             .unwrap => {
                 const operand = if (e.isKind(.propagate)) ir.Propagate.value(e) else ir.PropagateNone.value(e);
                 const v = try self.hiddenStorage(e, .leaf, .pointer, .next);
-                try self.w.writeAll("(if (");
+                if (e.isKind(.propagate)) {
+                    try self.w.writeAll("(if (");
+                    try self.emitPayloadHolder(operand);
+                    return self.w.print(") |*{s}| {s} else |err| return err)", .{ v, v });
+                }
+                const routed = self.routedOptional(self.typeOf(operand));
+                try self.w.writeAll(if (routed) "(if (rig.somePtr(&" else "(if (");
                 try self.emitPayloadHolder(operand);
-                try self.w.print(") |*{s}| {s} else {s})", .{ v, v, if (e.isKind(.propagate)) "|err| return err" else "return null" });
-                return;
+                try self.w.print("{s} |{s}{s}| {s} else ", .{ if (routed) "))" else ")", if (routed) "" else "*", v, v });
+                try self.writeReturnNone();
+                return self.w.writeAll(")");
             },
             .jump => return self.emitExpr(e),
             .place, .part, .lend => {
@@ -5182,6 +5354,38 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             },
         }
+    }
+
+    /// The optional type of `a ?? b` (`e`) whose fallback is a `T?` like
+    /// `a`, so the value is one too, where it goes through the helpers;
+    /// null for any other.
+    fn optionalFallback(self: *Emitter, e: Sexp) ?TypeId {
+        const result = self.typeOf(e) orelse return null;
+        const inner = switch (self.facts.types.get(result)) {
+            .optional => |inner| inner,
+            else => return null,
+        };
+        if (!self.routesPayload(inner)) return null;
+        const held = self.typeOf(ir.@"??".left(e)) orelse return null;
+        return switch (self.facts.types.get(self.peelViews(held))) {
+            .optional => |payload| if (payload == inner) result else null,
+            else => null,
+        };
+    }
+
+    /// `return null` from the function being emitted, whose result is
+    /// an optional: `none` packed into it where it goes through the
+    /// helpers.
+    fn writeReturnNone(self: *Emitter) Error!void {
+        if (self.fun.return_ty) |r| {
+            const o = self.unwrapFallible(r);
+            if (self.facts.types.get(o) == .optional and self.routesPayload(self.facts.types.get(o).optional)) {
+                try self.w.writeAll("return rig.pack(");
+                try self.emitTypeTy(o);
+                return self.w.writeAll(", null)");
+            }
+        }
+        try self.w.writeAll("return null");
     }
 
     /// `holder`, the operand of `a ?? b` or `a catch b` (`form`): as it
@@ -6186,7 +6390,7 @@ pub const Emitter = struct {
             written += 1;
             if (slots) |sl| switch (sl[i]) {
                 .arg => |ai| try self.emitArg(args[ai], params, i),
-                .default => |d| try self.emitDefault(self.semaOf(d.source) orelse return self.unsupported(call, "this default argument"), d.expr),
+                .default => |d| try self.emitDefault(self.semaOf(d.source) orelse return self.unsupported(call, "this default argument"), d.expr, if (i < params.len) params[i] else facts.type_invalid),
             } else try self.emitArg(args[i], params, i);
         }
     }
@@ -6196,7 +6400,22 @@ pub const Emitter = struct {
     /// type) a constructor. A constant of another module than the one
     /// being emitted is reached through its file, which every module of
     /// the package can import.
-    fn emitDefault(self: *Emitter, decl: Facts, e: Sexp) Error!void {
+    fn emitDefault(self: *Emitter, decl: Facts, e: Sexp, target: TypeId) Error!void {
+        // A default that becomes an optional where it goes (`liftOf`, in
+        // its own module's types) is packed into each level of `target`
+        // that goes through the helpers.
+        if (!sameNode(e, self.lifting)) if (decl.liftOf(e)) |lift| {
+            const saved = self.lifting;
+            defer self.lifting = saved;
+            self.lifting = e;
+            const levels = if (lift.from == decl.types.none_id) 1 else optionalDepth(decl.types, lift.into) -| optionalDepth(decl.types, lift.from);
+            var into = target;
+            while (self.facts.types.get(into) == .fallible) into = self.facts.types.get(into).fallible;
+            const opened = try self.openPacks(into, levels);
+            try self.emitDefault(decl, e, target);
+            for (0..opened) |_| try self.w.writeAll(")");
+            return;
+        };
         // A member of an error set: `.name` or `E.name`.
         if (e.isKind(.enum_lit) or decl.isErrorMember(e)) if (decl.typeOf(e)) |t| if (decl.nominalDecl(t)) |set| if (set.symbol().flags.error_set) {
             const name = if (e.isKind(.member)) ir.Member.name(e) else ir.EnumLit.name(e);
@@ -6502,7 +6721,14 @@ pub const Emitter = struct {
             try self.emitTypeTy(if (self.readsThrough(h.node)) self.peelViews(t) else t);
         };
         try self.w.writeAll(" = ");
-        if (fields) try self.emitStored(h.node) else if (self.facts.lendsTempArray(h.node)) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
+        {
+            // The temporary holds the value as itself; where the call reads
+            // it, it becomes the optional it goes into (`emitLift`).
+            const saved = self.lifting;
+            defer self.lifting = saved;
+            if (shown == ty) self.lifting = h.node;
+            if (fields) try self.emitStored(h.node) else if (self.facts.lendsTempArray(h.node)) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
+        }
         try self.w.writeAll(";\n");
         if (kind == .value or kind == .optional) try self.poisonAtExit(h.name);
         const k = kind orelse return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
@@ -7024,6 +7250,11 @@ pub const Emitter = struct {
         switch (ctx.types.get(ty)) {
             .void, .any_error, .bool, .string_view, .static, .string, .int_literal, .float_literal, .int, .float => try self.emitBuiltinTy(ctx.types.get(ty)),
             .optional => |inner| {
+                if (self.routesPayload(inner)) {
+                    try self.w.writeAll("rig.Opt(");
+                    try self.emitTypeTy(inner);
+                    return self.w.writeAll(")");
+                }
                 try self.w.writeAll("?");
                 try self.emitTypeTy(inner);
             },
@@ -7814,4 +8045,12 @@ test "emit and the runtime cast no constness away" {
     const of_fn = std.mem.indexOf(u8, runtime_source, "pub fn ofFn(").?;
     const end = std.mem.indexOfPos(u8, runtime_source, of_fn, "\n        }\n").?;
     try std.testing.expect(std.mem.indexOf(u8, runtime_source[of_fn..end], cast) != null);
+}
+
+/// How many levels of optional `ty` has.
+fn optionalDepth(types: *const facts.TypeStore, ty: TypeId) u32 {
+    var n: u32 = 0;
+    var t = ty;
+    while (types.get(t) == .optional) : (n += 1) t = types.get(t).optional;
+    return n;
 }

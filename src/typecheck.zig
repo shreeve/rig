@@ -10509,6 +10509,11 @@ const Checker = struct {
     }
 
     fn checkExprAgainst(self: *Checker, e: Sexp, expected: TypeId) Error!void {
+        try self.checkExprAgainstType(e, expected);
+        if (self.ctx.typeOf(e)) |actual| try self.recordLift(e, actual, expected);
+    }
+
+    fn checkExprAgainstType(self: *Checker, e: Sexp, expected: TypeId) Error!void {
         // A value checked against the type its context gives it is taken
         // there: a typed binding, an argument, a field, an element, a
         // result.
@@ -11200,6 +11205,36 @@ const Checker = struct {
     /// (`readOf`), and so is a write view lent where a read view that
     /// copies its value is expected; a literal takes a concrete type.
     fn recordAdapted(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
+        try self.recordAdaptedType(e, actual, expected);
+        try self.recordLift(e, self.ctx.typeOf(e) orelse actual, expected);
+    }
+
+    /// Record the optional `e`'s value becomes where `expected` goes
+    /// (`SemContext.recordLift`): `none`, which needs the optional's type,
+    /// and a value of type `actual` (or the value a view of that type
+    /// copies out, `copiedOut`) with fewer levels of optional than the
+    /// optional `expected` is or holds, which Zig lifts into it on its own.
+    /// Emit writes either explicitly where an optional is not Zig's `?T`
+    /// (`sema.optionalRouted`). Any other value is no lift.
+    fn recordLift(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
+        const ts = &self.ctx.types;
+        var into = expected;
+        while (ts.get(into) == .fallible) into = ts.get(into).fallible;
+        if (ts.get(into) != .optional) return self.ctx.recordLift(e, null);
+        if (e == .src and self.ctx.symbolOf(e) == null and std.mem.eql(u8, self.text(e), "none")) {
+            return self.ctx.recordLift(e, .{ .into = into, .from = self.t().none_id });
+        }
+        var from = actual;
+        while (!meets(self.ctx, from, into)) from = sema.copiedThrough(self.ctx, from) orelse return self.ctx.recordLift(e, null);
+        switch (ts.get(from)) {
+            .none_literal, .noreturn, .invalid, .unknown => return self.ctx.recordLift(e, null),
+            else => {},
+        }
+        if (optionalDepth(self.ctx, from) >= optionalDepth(self.ctx, into)) return self.ctx.recordLift(e, null);
+        try self.ctx.recordLift(e, .{ .into = into, .from = from });
+    }
+
+    fn recordAdaptedType(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
         const lifted = self.liftTarget(expected);
         if (copiedOut(self.ctx, actual, expected)) return self.readOf(e, actual, .{ .slot = expected });
         if (self.ctx.types.get(actual) == .write_view) switch (self.ctx.types.get(lifted)) {
@@ -13151,6 +13186,14 @@ fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
 fn copiedOut(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
     const inner = sema.copiedThrough(ctx, actual) orelse return false;
     return !meets(ctx, actual, expected) and compatible(ctx, inner, expected);
+}
+
+/// How many levels of optional `ty` has.
+fn optionalDepth(ctx: *const SemContext, ty: TypeId) u32 {
+    var n: u32 = 0;
+    var t = ty;
+    while (ctx.types.get(t) == .optional) : (n += 1) t = ctx.types.get(t).optional;
+    return n;
 }
 
 /// Can a value of type `actual` be used as itself where `expected` is
