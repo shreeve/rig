@@ -1,0 +1,44 @@
+# Nested variant literals under a view: an outer literal lent to
+# `?Outer` whose owned payloads are themselves literals (with keyword
+# arguments reordered), and a tree of boxed literals lent to `?Tree`.
+# Runs sanitizer-clean.
+enum Outer
+  Box(v: Inner)
+  Pair(a: Inner, b: Inner)
+
+enum Inner
+  L(xs: List[Int])
+  S(s: String)
+  E
+
+enum Tree
+  Leaf(n: Int)
+  Node(l: ^Tree, r: ^Tree, tag: String)
+
+fun mk() -> List[Int]
+  xs = List[Int]()
+  !xs.push(4)
+  return <xs
+
+fun inner(i: ?Inner) -> Int
+  match i
+    .L(xs) => xs.len
+    .S(s) => s.len
+    .E => 0
+
+sub look(o: ?Outer)
+  match o
+    .Box(v) => print("box", inner(v))
+    .Pair(a, b) => print("pair", inner(a), inner(b))
+
+fun sum(t: ?Tree) -> Int
+  match t
+    .Leaf(n) => n
+    .Node(l, r, _) => sum(l) + sum(r)
+
+sub main()
+  look(.Box(v: .L(xs: mk())))
+  look(.Pair(a: .S(s: String("hey")), b: .E))
+  look(.Pair(b: .L(xs: mk()), a: .L(xs: mk())))
+  print(inner(.S(s: String("abcd"))))
+  print(sum(.Node(l: ^.Leaf(n: 1), r: ^.Node(l: ^.Leaf(n: 2), r: ^.Leaf(n: 3), tag: String("in")), tag: String("out"))))

@@ -5394,7 +5394,7 @@ pub const Emitter = struct {
         // The type of the value reached, which a lend of it (`!mk()`, a
         // view of the value it lends) is not.
         const o_ty = if (sameNode(o, obj)) obj_ty else self.typeOf(o);
-        if (self.place_chain and o.isKind(.index)) return self.emitIndex(o, true);
+        if (self.place_chain and o.isKind(.index) and self.facts.instanceOf(o) == null) return self.emitIndex(o, true);
         // A lent to write field or element (`!v[i].bump()`) is changed
         // in place, reached through the element's slot, unless it was
         // hoisted to run before the arguments.

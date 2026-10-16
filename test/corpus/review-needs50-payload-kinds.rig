@@ -1,0 +1,42 @@
+# A variant literal lent to a `?H` argument, for each kind of payload:
+# a `*T` cloned and moved, a `^T`, a String, an object with a `drop`, a
+# `?String`, and a box of a nested literal. Each temporary is dropped
+# at the end of its statement. Runs sanitizer-clean.
+obj N
+  n: Int
+
+obj R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum H
+  Sh(p: *N)
+  Bx(b: ^N)
+  St(s: String)
+  Rs(r: R)
+  Vw(s: ?String)
+  Nest(h: ^H)
+
+sub look(x: ?H)
+  match x
+    .Sh(p) => print("sh", p.n)
+    .Bx(b) => print("bx", b.n)
+    .St(s) => print("st", s)
+    .Rs(r) => print("rs", r.n)
+    .Vw(s) => print("vw", s)
+    .Nest(h) => look(h)
+
+sub main()
+  p = *N(n: 1)
+  look(.Sh(p: +p))
+  look(.Sh(p: <p))
+  look(.Bx(b: ^N(n: 2)))
+  look(.St(s: String("hi")))
+  look(.Rs(r: R(n: 3)))
+  print("after")
+  look(.Vw(s: "view"))
+  look(.Nest(h: ^H.Rs(r: R(n: 4))))
+  look(.Nest(h: ^.Rs(r: R(n: 5))))
+  print("end")
