@@ -5717,6 +5717,15 @@ pub const Emitter = struct {
             // `rig.maskBits(m)`, `rig.maskFirst(m)`, `rig.maskAny(m)`,
             // `rig.maskAll(m)`: the runtime lowers each per target.
             .bits, .first, .any, .all => {
+                // `m.not().bits()` is `rig.maskBitsNot(m)`: NEON flips
+                // the bits after the reduction, where flipping the lanes
+                // first costs a vector instruction per 16 lanes.
+                const obj = ir.Member.object(callee);
+                if (ec.op == .bits and obj.isKind(.call)) if (self.facts.elemCallOf(self.facts.calleeOf(obj))) |inner| if (inner.op == .not) {
+                    try self.w.writeAll("rig.maskBitsNot(");
+                    try self.emitBare(ir.Member.object(self.facts.calleeOf(obj)));
+                    return self.w.writeAll(")");
+                };
                 try self.w.writeAll(switch (ec.op) {
                     .bits => "rig.maskBits(",
                     .first => "rig.maskFirst(",
