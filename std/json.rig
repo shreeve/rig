@@ -339,8 +339,9 @@ pub obj Doc
       return i + 1
     (!self).string_rest(src, start, at, i)
 
-  # The rest of a string that `skip_plain_ascii` stopped in at `i` before
-  # a quote: UTF-8, an escape, a control byte, or the input's end.
+  # The rest of a string whose scan stopped at `from` on something other
+  # than its closing quote: UTF-8, an escape, a control byte, or the
+  # input's end.
   fun string_rest(!self, src: ?String, start: Int, at: Int, from: Int) -> Int
     i = from
     if i < src.len and src[i] >= 0x80
