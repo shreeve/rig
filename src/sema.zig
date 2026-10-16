@@ -350,6 +350,13 @@ pub const Type = union(enum) {
     range: TypeId,
 
     function: FunctionType,
+    /// `(A, B)`: a function's several results, two or more, each a type a
+    /// single result may have. It is a function's result type only (and
+    /// inside `T!` or `T?` there), never a value's: a call that gives it
+    /// stands only where each result is bound at once (`q, r = f()`), or
+    /// is returned whole. Its facts are its parts' together, as an
+    /// object's are its fields' (docs/INTERNALS.md, "Several results").
+    results: []const TypeId,
     /// What a callable view `?fun(...) -> R` views, written as
     /// such: a closure, a function, or an owned closure of function type
     /// `callable`, called through a `rig.FnRef`. (A `?T` whose `T` is a
@@ -541,6 +548,7 @@ pub const TypeStore = struct {
                 std.mem.eql(TypeId, af.params, b.function.params),
             .parameterized_nominal => |x| x.sym == b.parameterized_nominal.sym and
                 std.mem.eql(TypeId, x.args, b.parameterized_nominal.args),
+            .results => |x| std.mem.eql(TypeId, x, b.results),
             // The rest hold ids and numbers only.
             inline else => |x, tag| std.meta.eql(x, @field(b, @tagName(tag))),
         };
@@ -1204,6 +1212,11 @@ pub const StorageKind = enum {
     index,
     /// The place an assignment stores to, found once (`__rig_slot`).
     slot,
+    /// The several results a call gives, held for its statement while
+    /// each target takes its own, left to right (`__rig_res`): a
+    /// destructure's, `q, r = f()`. A result no target takes (`_`) it
+    /// drops at the statement's end.
+    results,
     /// A value made here whose address emit takes where Zig holds it, in
     /// no slot: a leaf no statement slot keeps (`storage.leafStep` is
     /// `made`, and not `dropsTemp`), or a literal, reached by address.
@@ -3226,6 +3239,7 @@ pub const SemContext = struct {
                 f.ct_syms = try self.arena.allocator().dupe(SymbolId, f.ct_syms);
             },
             .parameterized_nominal => |*pn| pn.args = try self.dupeIds(pn.args),
+            .results => |*parts| parts.* = try self.dupeIds(parts.*),
             else => {},
         }
         return self.intern(owned);
@@ -3876,6 +3890,20 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
             }
             break :blk h;
         },
+        // Several results hold what each of them holds, as an object
+        // holds what its fields do.
+        .results => |parts| blk: {
+            var h: Holds = .{ .plain = true };
+            for (parts) |part| {
+                const r = try holdsIn(ctx, part, params, held);
+                h.glue = h.glue or r.glue;
+                h.plain = h.plain and r.plain;
+                h.type_var = h.type_var or r.type_var;
+                h.vector = h.vector or r.vector;
+                h.any_error = h.any_error or r.any_error;
+            }
+            break :blk h;
+        },
         else => .{},
     };
 }
@@ -4009,6 +4037,11 @@ fn reachOf(ctx: *const SemContext, ty: TypeId, mask: Reach, into: ?struct { edge
                 const by_value = i < held.len and held[i];
                 r = r.with(try reachOf(ctx, a, if (by_value) m else m.within(Reach.no_cell), into));
             }
+            break :blk r;
+        },
+        .results => |parts| blk: {
+            var r: Reach = .{};
+            for (parts) |part| r = r.with(try reachOf(ctx, part, mask, into));
             break :blk r;
         },
         else => .{},
@@ -4255,6 +4288,7 @@ pub const TypeChildren = struct {
             .simd => |v| if (i == 0) v.elem else if (i == 1) v.len else null,
             .function => |f| if (i < f.params.len) f.params[i] else if (i == f.params.len) f.returns else null,
             .parameterized_nominal => |pn| if (i < pn.args.len) pn.args[i] else null,
+            .results => |parts| if (i < parts.len) parts[i] else null,
             else => null,
         };
     }
@@ -4399,6 +4433,12 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
             const v = (try minBytesOf(ctx, pn.args[0], false)) orelse break :blk null;
             break :blk 2 *| v +| 2 +| 24;
         } else try fieldBytes(ctx, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
+        // Several results are held together, as an object's fields are.
+        .results => |parts| blk: {
+            var total: u128 = 0;
+            for (parts) |part| total +|= (try minBytesOf(ctx, part, false)) orelse break :blk null;
+            break :blk total;
+        },
         else => 8,
     };
     try ctx.byte_sizes.put(ctx.allocator, ty, bytes);
@@ -5327,6 +5367,13 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
             if (std.mem.eql(TypeId, args.items, pn.args)) return ty_id;
             return ctx.internCopy(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args.items } });
         },
+        .results => |parts| {
+            var out: std.ArrayList(TypeId) = .empty;
+            defer out.deinit(ctx.allocator);
+            for (parts) |part| try out.append(ctx.allocator, try substituteType(ctx, part, subst));
+            if (std.mem.eql(TypeId, out.items, parts)) return ty_id;
+            return ctx.internCopy(.{ .results = out.items });
+        },
         else => return ty_id,
     }
 }
@@ -5752,6 +5799,8 @@ fn ownedParts(node: ViewNode, f: anytype) std.mem.Allocator.Error!void {
                 for (dataFields(fld)) |d| try f.visit(.{ .ctx = ctx, .ty = d.ty, .args = .{ .ctx = ctx, .tys = pn.args } });
             }
         },
+        // Several results are held as an object's fields are.
+        .results => |parts| for (parts) |part| try f.visit(.{ .ctx = ctx, .ty = part, .args = node.args }),
         else => {},
     }
 }
@@ -5982,7 +6031,41 @@ pub fn defaultOrigins(ctx: *const SemContext, a: std.mem.Allocator, f: FunctionT
 /// parameters its `from` clause names. A name that is no parameter, or
 /// one whose type cannot hold what the result views, is reported, as is
 /// a clause on a result that views nothing.
-fn declOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType) std.mem.Allocator.Error!Origins {
+fn declOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType, param_names: ?[]const []const u8) std.mem.Allocator.Error!Origins {
+    const o = try declaredOrigins(ctx, a, name, pos, f);
+    if (resultsOf(ctx, f.returns)) |parts| try checkResultViews(ctx, a, name, pos, f, parts, o.result, param_names orelse &.{});
+    return o;
+}
+
+/// Several results of one function, `parts`, whose call's results carry
+/// the parameters of `mask`: a write view among them (one at most,
+/// `resolveResults`) views alone what it views while it lives (Core
+/// sentence 5), so no other result may view a parameter it may view.
+/// Reported at the declaration.
+fn checkResultViews(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType, parts: []const TypeId, mask: ParamMask, param_names: []const []const u8) std.mem.Allocator.Error!void {
+    const masks = try a.alloc(ParamMask, parts.len);
+    for (parts, masks) |part, *m| {
+        m.* = 0;
+        const targets = try viewTargets(ctx, a, part);
+        for (f.params, 0..) |p, i| {
+            if (mask & paramBit(i) == 0) continue;
+            if (try reachTargets(ctx, a, p, targets, .views) != .none) m.* |= paramBit(i);
+        }
+    }
+    for (parts, masks, 0..) |part, m, i| {
+        if (ctx.types.get(unwrapOptionals(ctx, part)) != .write_view) continue;
+        for (masks, 0..) |other, k| {
+            if (k == i or m & other == 0) continue;
+            const pi = @ctz(m & other);
+            const pname = if (pi < param_names.len) param_names[pi] else "a parameter";
+            try ctx.err(pos, "`{s}` gives a write view and another result, `{s}`, that could both view `{s}`: while the write view lives, nothing else may view what it writes", .{ name, try formatType(ctx, parts[k]), pname });
+            return;
+        }
+    }
+}
+
+/// `declOrigins` without the check of several results.
+fn declaredOrigins(ctx: *SemContext, a: std.mem.Allocator, name: []const u8, pos: u32, f: FunctionType) std.mem.Allocator.Error!Origins {
     var o = try defaultOrigins(ctx, a, f);
     const d = ctx.declared_origins.get(pos) orelse return o;
     const results = try viewTargets(ctx, a, f.returns);
@@ -6026,7 +6109,7 @@ fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
                     .function => |f| f,
                     else => continue,
                 };
-                sym.origins = try declOrigins(ctx, scratch.allocator(), sym.name, sym.decl_pos, f);
+                sym.origins = try declOrigins(ctx, scratch.allocator(), sym.name, sym.decl_pos, f, sym.param_names);
                 _ = scratch.reset(.retain_capacity);
             },
             .nominal_type, .generic_type => {
@@ -6038,7 +6121,7 @@ fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
                         .function => |f| f,
                         else => continue,
                     };
-                    fld.origins = try declOrigins(ctx, scratch.allocator(), fld.name, fld.decl_pos, f);
+                    fld.origins = try declOrigins(ctx, scratch.allocator(), fld.name, fld.decl_pos, f, fld.param_names);
                     _ = scratch.reset(.retain_capacity);
                 }
                 sym.fields = out;
@@ -6046,6 +6129,19 @@ fn computeOrigins(ctx: *SemContext) std.mem.Allocator.Error!void {
             else => {},
         }
     }
+}
+
+/// The types of the several results `ty` gives, `(A, B)`, also inside
+/// one `T!` or `T?` (`(A, B)!`, `(A, B)?`); null for any other type.
+pub fn resultsOf(ctx: *const SemContext, ty: TypeId) ?[]const TypeId {
+    const t = switch (ctx.types.get(ty)) {
+        .fallible, .optional => |inner| inner,
+        else => ty,
+    };
+    return switch (ctx.types.get(t)) {
+        .results => |parts| parts,
+        else => null,
+    };
 }
 
 /// Whether a value of `ty` holds a write view, which is unique.
@@ -6429,6 +6525,12 @@ pub fn importType(
             defer args.deinit(local_ctx.allocator);
             for (pn.args) |a| try args.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, a, origin_module_id));
             return local_ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym, .args = args.items } });
+        },
+        .results => |parts| {
+            var out: std.ArrayList(TypeId) = .empty;
+            defer out.deinit(local_ctx.allocator);
+            for (parts) |part| try out.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, part, origin_module_id));
+            return local_ctx.internCopy(.{ .results = out.items });
         },
         inline .type_var, .ct_param => |sym, tag| {
             const p = try proxyOf(local_ctx, .{ .module_id = origin_module_id, .sym = sym });
@@ -6924,6 +7026,7 @@ const TypePrinter = struct {
                 try p.instance(ctx.symbols.items[pn.sym].name, try p.list(pn.args)),
             .type_var, .ct_param => |sym| try p.param(sym),
             .ct_value => |v| try a.print("{d}", .{v.int}),
+            .results => |parts| try a.print("({s})", .{try p.list(parts)}),
         };
     }
 
@@ -7750,11 +7853,11 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // Declarations and their parts.
         .module, .use, .fun, .sub, .@"struct", .@"enum", .errors, .generic_struct, .generic_enum, .type, .@"test", .@"pub", .@"extern", .extern_fun, .extern_sub, .zig_extern, .zig_const, .drop_decl, .@"inline", .called, .rarely, .@":", .default, .valued, .variant, .captures, .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => .none,
         // Statements, and the parts of statements, conditions, and calls.
-        .set, .drop, .pass, .@"defer", .@"errdefer", .as, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
+        .set, .destructure, .results, .drop, .pass, .@"defer", .@"errdefer", .as, .as_results, .shadow, .shadow_fixed, .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"+%=", .@"-%=", .@"*%=", .@"+|=", .@"-|=", .@"&=", .@"|=", .@"^=", .@"<<=", .@"<<%=", .@">>=", .iter, .kwarg => .none,
         // Patterns and arms.
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
         // Types.
-        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .fails, .unique, .fixed => .none,
+        .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .fails, .unique, .fixed => .none,
         .@"return", .@"break", .@"continue" => .jump,
         .read, .write => .lend,
         .member, .index => .path,
@@ -7762,7 +7865,9 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         // A loop, labeled or not, is a value when a `break` leaves it
         // with one.
         .@"while", .@"for", .labeled => if (hasValueBreaks(source, node)) .made else .none,
-        .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .array, .array_fill, .move, .clone, .share, .box, .weak => .made,
+        // A destructure's target takes its result out of the statement's
+        // temporary, whole, as a binding takes a call's result.
+        .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .array, .array_fill, .tuple, .result_part, .move, .clone, .share, .box, .weak => .made,
         .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
     };
 }

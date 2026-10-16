@@ -1,0 +1,8 @@
+fun divmod(a: Int, b: Int) -> (Int, Int)
+  return a / b, a % b
+
+sub main()
+  q, q = divmod(1, 2)
+
+# error: `q` is bound twice by one statement
+# errors: 1

@@ -1,0 +1,4 @@
+fun f(x: (Int, Int)) -> Int
+  1
+
+# error: `(Int, Int)` is a function's results, not a type a value can have

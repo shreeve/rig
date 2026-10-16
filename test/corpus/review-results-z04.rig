@@ -1,0 +1,19 @@
+obj Guard
+  s: ?String
+  tag: Int
+
+  drop(!self)
+    print("guard", self.tag, self.s)
+
+fun mk(s: !String, t: Int) -> (Guard, Int)
+  for _ in 0..50
+    !s.add("grow-grow-grow")
+  s = String("replaced")
+  return Guard(s: "lit", tag: t), t
+
+sub main()
+  x = String("x")
+  g = Guard(s: ?x, tag: 0)
+  print(g.tag)
+  g, n = mk(!x, 1)
+  print(g.tag, n)

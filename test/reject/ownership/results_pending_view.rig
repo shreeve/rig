@@ -1,0 +1,9 @@
+fun two(s: ?String) -> (String, ?String)
+  return String(s), s
+
+sub main()
+  s = String("ab")
+  s, v = two(?s)
+  print(v)
+
+# error: cannot bind `s` while `v` views it

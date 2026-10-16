@@ -486,6 +486,8 @@ type, as any generic is.
 | `(!m).put_new(k, v)` | `fun put_new(!self, k: K, v: V) -> Bool` | puts `v` under `k` only when `k` is new: true if it did; otherwise `k` and `v` are dropped |
 | `(!m).ensure(k, v)` | `fun ensure(!self, k: K, v: V) -> !V from self, k, v` | puts `v` under `k` when `k` is new, and lends the value under `k` to write; otherwise `k` and `v` are dropped. The view keeps `m` lent to write |
 | `(!m).ensure_with(k, make)` | `fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k` | as `ensure`, with the value `make(k)` made only when `k` is new; when `k` is there, `make` is not called and `k` is dropped |
+| `w, added = (!m).ensure_added(k, v)` | `fun ensure_added(!self, k: K, v: V) -> (!V, Bool) from self, k, v` | as `ensure`, and also whether `k` was new; `w` keeps `m` lent to write, `added` keeps nothing |
+| `if m.at(i) as k, v` | `fun at(?self, i: Int) -> (?K, ?V)? from self` | the entry at index `i` in order, its key and value viewed where the Map holds them, or `none` past the end; both views keep `m` lent to read. One step while no entry was taken since the entries were last compacted; else it counts the entries before |
 | `(!m).take(k)` | `fun take(!self, k: ?K) -> V?` | the value back, owned; the key dropped when the entries are next compacted (as the Map grows), or with the Map |
 | `!m.clear()` | `sub clear(!self)` | drops every entry |
 | `?m.items()` | `fun items(?self) -> Items[K, V] from self` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) lasts one step of the loop |
@@ -530,6 +532,31 @@ sub main()
 
 ```output
 abab++ cdcd+ abab++ 2 1
+```
+
+`ensure_added` also says whether the key was new, which `ensure` cannot,
+and `at` reads the entries by index, in the order they were put in:
+
+```rig
+use std.hash
+
+sub main()
+  counts = hash.Map[String, Int].new()
+  for w in ["to", "be", "to"]
+    c, added = (!counts).ensure_added(String(w), 0)
+    c += 1
+    print(w, "is new") if added
+  i = 0
+  while counts.at(i) as k, n
+    print(i, k, n)
+    i += 1
+```
+
+```output
+to is new
+be is new
+0 to 2
+1 be 1
 ```
 
 A compound key is an object of its parts. A key object that owns its

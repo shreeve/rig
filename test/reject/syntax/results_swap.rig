@@ -1,0 +1,8 @@
+sub main()
+  a = 1
+  b = 2
+  a, b = b, a
+  print(a, b)
+
+# error: Rig has no parallel assignment: write `swap(!a, !b)` to exchange two places
+# errors: 1
