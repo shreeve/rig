@@ -1,0 +1,28 @@
+N = 5
+NEG = -7
+K = "kay"
+B = true
+BIG = 9223372036854775807
+SMALL = -9223372036854775808
+
+sub main()
+  a: I8 = -128
+  b: I8 = 127
+  c: U8 = 255
+  d: I16 = -32768
+  e: U16 = 65535
+  f: I32 = -2147483648
+  g: U32 = 4294967295
+  h: I64 = -9223372036854775808
+  i: U64 = 18446744073709551615
+  print(a, b, c, d, e, f, g, h, i)
+  print(N, NEG, K, B, BIG, SMALL)
+  print(1 + 2, -5, not true, 3 * 4, 10 / 3, 7 % 3)
+  print(0, -0, 0x10, 0b101)
+  print()
+  print("")
+  print("", "")
+  print("a", "", "b")
+  x: U8 = 65
+  print(x, 'A', "A")
+  print(true, false, B and false, N > 3)

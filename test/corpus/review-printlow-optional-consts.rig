@@ -1,0 +1,13 @@
+enum Light
+  red
+  amber
+
+E: String? = none
+O: Int? = none
+P: Int? = 4
+L: Light = .amber
+
+sub main()
+  print(E, O, P, L, Light.red)
+  t = String(E, O, P, L)
+  print(t)

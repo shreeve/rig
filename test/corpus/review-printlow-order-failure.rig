@@ -1,0 +1,41 @@
+error E
+  bad
+
+obj Ring[T, n: Int]
+  items: [n]T
+
+  sub show(?self)
+    print("cap", n, @size(T), @name(T))
+    t = String(n, "/", @name(T))
+    print(t)
+
+fun side(tag: Int) -> Int
+  print("side", tag)
+  tag
+
+fun fail(yes: Bool) -> Int!
+  print("in fail", yes)
+  if yes
+    return E.bad
+  7
+
+fun mk(s: ?String) -> String
+  print("mk", s)
+  String(s, "!")
+
+fun go(yes: Bool) -> Int!
+  print("a", mk("x"), side(1), fail(yes)!, side(2), mk("y"))
+  t = String("b", mk("z"), fail(yes)!, side(3))
+  print(t)
+  0
+
+sub main()
+  print("x", side(1), "y", side(2))
+  print(side(3))
+  r = go(false) catch -1
+  print("r", r)
+  r2 = go(true) catch -1
+  print("r2", r2)
+  g = Ring[Int, 3](items: [1, 2, 3])
+  g.show()
+  print(@size(Int), @name(String), @align(I32))

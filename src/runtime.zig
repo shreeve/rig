@@ -3453,19 +3453,18 @@ fn flush() void {
 }
 
 /// One `print`: its pieces in order, the spaces between its arguments and
-/// the newline after them included, as the emitter lists them
+/// the newline that ends them included, as the emitter lists them
 /// (`.{ "n =", " ", n, "\n" }`). The tuple holds every argument's value,
 /// so all of them have run before a byte is written. Inlined, it is a
 /// straight line: each run of text (`piecesOf`) copied into the buffer
-/// at once, each value written by the one writer of its type
-/// (`outValue`).
+/// at once, each value written by its writer (`outValue`).
 pub inline fn print(pieces: anytype) void {
     const plan = comptime piecesOf(@TypeOf(pieces));
+    comptime std.debug.assert(plan.len > 0 and plan[plan.len - 1] == .text);
     inline for (plan, 0..) |p, i| switch (p) {
         .text => |t| outText(t, i == plan.len - 1),
         .value => |f| outValue(pieces[f]),
     };
-    if (comptime plan.len == 0 or plan[plan.len - 1] != .text) outLine("");
 }
 
 /// What one piece of `print`, `String(...)`, or `add` writes: text known
@@ -3479,16 +3478,41 @@ const Piece = union(enum) { text: []const u8, value: usize };
 fn piecesOf(comptime P: type) []const Piece {
     comptime {
         const s = @typeInfo(P).@"struct";
-        var out: []const Piece = &.{};
-        for (s.field_types, s.field_attrs, 0..) |T, a, i| {
-            const text: ?[]const u8 = if (a.@"comptime") constantText(T, a.defaultValue(T).?) else null;
-            if (text) |t| {
-                if (out.len > 0 and out[out.len - 1] == .text) {
-                    out = out[0 .. out.len - 1] ++ &[_]Piece{.{ .text = out[out.len - 1].text ++ t }};
-                } else out = out ++ &[_]Piece{.{ .text = t }};
-            } else out = out ++ &[_]Piece{.{ .value = i }};
+        const n = s.field_types.len;
+        @setEvalBranchQuota(1000 + 20 * n);
+        var texts: [n]?[]const u8 = undefined;
+        for (s.field_types, s.field_attrs, &texts) |T, a, *t| {
+            t.* = if (a.@"comptime") constantText(T, a.defaultValue(T).?) else null;
         }
-        const done = out[0..out.len].*;
+        var out: [n]Piece = undefined;
+        var count: usize = 0;
+        var i: usize = 0;
+        while (i < n) : (count += 1) {
+            if (texts[i] == null) {
+                out[count] = .{ .value = i };
+                i += 1;
+                continue;
+            }
+            const first = i;
+            var bytes: usize = 0;
+            while (i < n and texts[i] != null) : (i += 1) bytes += texts[i].?.len;
+            out[count] = .{ .text = joined(bytes, texts[first..i]) };
+        }
+        const done = out[0..count].*;
+        return &done;
+    }
+}
+
+/// `parts` joined, `bytes` long in all.
+fn joined(comptime bytes: usize, comptime parts: []const ?[]const u8) []const u8 {
+    comptime {
+        var buf: [bytes]u8 = undefined;
+        var end: usize = 0;
+        for (parts) |p| {
+            @memcpy(buf[end..][0..p.?.len], p.?);
+            end += p.?.len;
+        }
+        const done = buf;
         return &done;
     }
 }

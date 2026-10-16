@@ -1,0 +1,20 @@
+error E
+  bad
+  worse
+
+fun twice(x: Int) -> Int
+  x * 2
+
+sub main()
+  k = 3
+  f = |+k, x: Int| x + k
+  g: *sub(Int) = *|x| print("g", x)
+  h: ?fun(Int) -> Int = twice
+  print(?f, g, h, twice, f(1), h(2))
+  t = String(?f, g, h, twice)
+  print(t)
+  g(5)
+  print(E.bad, E.worse)
+  w = |+k| print("in w", k, String(k, k))
+  w()
+  defer w()

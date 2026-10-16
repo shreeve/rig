@@ -1,0 +1,45 @@
+enum Light
+  red
+  amber
+  green
+
+obj Res
+  name: String
+
+  drop(!self)
+    print("drop", self.name, 1, true)
+
+sub stop(l: Light)
+  match l
+    .red => print("stop", l)
+    .amber => print()
+    _ => print("go", 3)
+
+sub each(f: *sub(Int))
+  for i in 0..3
+    f(i)
+
+test "prints in a test"
+  print("in test", 1 + 1)
+  s = String("t", 2)
+  print(s)
+
+sub main()
+  defer print("deferred", 1, "x")
+  r = Res(name: String("r1"))
+  stop(.red)
+  stop(.amber)
+  stop(.green)
+  n = 3
+  print("big", n) if n > 2 else print("small")
+  print("yes") if n == 3
+  each(*|i| print("closure", i))
+  k = 10
+  g = |+k, i: Int| print("cap", k, i)
+  g(1)
+  for i in 0..2
+    print(i, "loop", i * 2)
+  while n > 0
+    print("w", n)
+    n -= 1
+  print("end", r.name)

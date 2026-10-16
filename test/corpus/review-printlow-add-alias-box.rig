@@ -1,0 +1,7 @@
+sub main()
+  b = ^String("abcdefgh")
+  xs: List[String] = List()
+  !xs.push(String("q"))
+  !xs[0].add(xs, xs[0])
+  !b.add(b)
+  print(b, xs)

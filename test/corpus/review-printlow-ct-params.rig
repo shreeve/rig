@@ -1,0 +1,26 @@
+enum Mode
+  strict
+  loose
+
+LIMIT = 5
+NAME = "nm"
+
+sub ints[a: Int, b: U8, c: I8, d: U64](x: Int)
+  print(a, b, c, d, x, a, "|", b)
+  t = String(a, b, c, d)
+  print(t)
+
+sub misc[f: Float, g: Bool, s: ?String, m: Mode, o: Int?]()
+  print(f, g, s, m, o)
+  t = String(f, g, s, m, o)
+  print(t)
+
+sub main()
+  ints[-9223372036854775807, 255, -128, 18446744073709551615](1)
+  ints[0, 0, 0, 0](0)
+  ints[LIMIT * 2, 7, -1, 1](2)
+  misc[1.5, true, "hi", .strict, none]()
+  misc[-0.0, LIMIT > 9, NAME, .loose, 4]()
+  misc[3.0, not false, "", .loose, -4]()
+  k =! LIMIT + 1
+  print(k, "k", k)
