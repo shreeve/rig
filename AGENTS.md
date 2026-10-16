@@ -140,7 +140,7 @@ bin/rig test file.rig      # run the file's own `test` blocks
 bin/rig build --release -o prog file.rig   # optimized executable (safe)
 RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
-RIG_NO_CRASH_REPORT=1 ./prog              # macOS files no crash report if it dies (test harnesses)
+RIG_NO_CRASH_REPORT=1 ./prog              # no crash report (macOS) or apport (Linux) if it dies (test harnesses)
 ```
 
 - Nexus: Rig and Nexus are co-developed. Every `zig build` target
