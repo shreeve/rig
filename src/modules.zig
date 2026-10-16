@@ -132,6 +132,10 @@ pub const ModuleGraph = struct {
     /// Where the root's imports are: the root file's directory, or a
     /// directory root's parent (null for the current directory).
     import_dir: ?[]const u8 = null,
+    /// The root file's text, when the caller holds it (the language
+    /// server's open document), read in place of the file. The caller
+    /// keeps it alive as long as the graph.
+    root_source: ?[]const u8 = null,
 
     pub const Error = std.mem.Allocator.Error;
 
@@ -201,7 +205,7 @@ pub const ModuleGraph = struct {
             break :blk try self.add(found.key, found.display, name, found.source, found.parts);
         } else blk: {
             self.import_dir = std.fs.path.dirname(path);
-            const source = self.read(path) catch |err| {
+            const source = if (self.root_source) |text| text else self.read(path) catch |err| {
                 try self.errors.append(self.allocator, try self.arena.allocator().print("cannot read `{s}`: {s}", .{ path, fileError(err) }));
                 return;
             };
