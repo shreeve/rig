@@ -1,0 +1,11 @@
+# A program not marked to panic runs without RIG_NO_CRASH_REPORT: should
+# it crash, macOS still files its crash report.
+use std.os
+
+sub main()
+  print(os.env("RIG_NO_CRASH_REPORT") ?? "unset")
+
+# expect:
+# unset
+
+# release
