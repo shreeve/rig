@@ -408,7 +408,7 @@ expect_lacks "$out" 'inline fn next' "an iterator that loops over itself"
 # A call that may reach an inlined function is read through rig.rt, so the
 # result is a run-time value.
 out=$(emit small.rig)
-expect_has "$out" 'rig.print(.{ rig.rt(next(41)) })' "a call of an inlined function"
+expect_has "$out" 'rig.print(.{ rig.rt(next(41)), "\n" })' "a call of an inlined function"
 
 # A function that keeps nearly all of `sema.max_frame_bytes` calls what
 # would take it over, though the callee is small enough to inline.

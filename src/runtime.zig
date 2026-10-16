@@ -1307,24 +1307,36 @@ pub const String = struct {
     pub const empty: String = .{};
 
     /// `String(a, b, ...)`.
-    pub fn of(parts: anytype) String {
+    pub inline fn of(pieces: anytype) String {
         var t: String = .empty;
-        t.add(parts);
+        t.add(pieces);
         return t;
     }
 
-    /// `!t.add(a, b, ...)`.
-    pub fn add(self: *String, parts: anytype) void {
-        const fields = @typeInfo(@TypeOf(parts)).@"struct".field_names;
-        if (comptime fields.len == 1) {
-            const part = @field(parts, fields[0]);
-            const P = @TypeOf(part);
-            if (comptime isStringView(P)) return self.appendBytes(part);
-            if (comptime P == String) return self.appendBytes(part.list.items);
-        }
+    /// `!t.add(a, b, ...)`: the pieces as `print` takes them (`piecesOf`),
+    /// with no separators. Inlined, it is a straight line of appends:
+    /// each run of text once, each value by the one writer of its type.
+    pub inline fn add(self: *String, pieces: anytype) void {
+        inline for (comptime piecesOf(@TypeOf(pieces))) |p| switch (p) {
+            .text => |t| self.appendBytes(t),
+            .value => |f| self.addValue(pieces[f]),
+        };
+    }
+
+    /// A value `add` writes: text and a String as their bytes, which the
+    /// ownership checker keeps from being this String's own, anything
+    /// else by the one writer of its type.
+    inline fn addValue(self: *String, value: anytype) void {
+        const P = @TypeOf(value);
+        if (comptime isStringView(P)) return self.appendBytes(value);
+        if (comptime P == String or isStringPlace(P)) return self.appendBytes(value.list.items);
+        self.addValueOf(value);
+    }
+
+    noinline fn addValueOf(self: *String, value: anytype) void {
         var out: std.Io.Writer.Allocating = .fromArrayList(defaultAllocator(), &self.list);
         defer self.list = out.toArrayList();
-        inline for (@typeInfo(@TypeOf(parts)).@"struct".field_names) |f| writeValue(&out.writer, @field(parts, f), true) catch oom();
+        writeValue(&out.writer, value, true) catch oom();
     }
 
     // The list's `items.len <= capacity` always holds, so every append
@@ -3434,16 +3446,86 @@ fn flush() void {
     if (stdout_writer) |*w| w.interface.flush() catch {};
 }
 
-/// `print(a, b, ...)`: the values separated by single spaces, then a
-/// newline.
-pub fn print(args: anytype) void {
-    const w = stdout();
-    inline for (@typeInfo(@TypeOf(args)).@"struct".field_names, 0..) |f, i| {
-        if (i > 0) w.writeAll(" ") catch {};
-        writeValue(w, @field(args, f), true) catch {};
+/// One `print`: its pieces in order, the spaces between its arguments and
+/// the newline after them included, as the emitter lists them
+/// (`.{ "n =", " ", n, "\n" }`). The tuple holds every argument's value,
+/// so all of them have run before a byte is written. Inlined, it is a
+/// straight line of calls: each run of text (`piecesOf`) written once,
+/// each value by the one writer of its type (`outValue`).
+pub inline fn print(pieces: anytype) void {
+    const plan = comptime piecesOf(@TypeOf(pieces));
+    inline for (plan, 0..) |p, i| switch (p) {
+        .text => |t| if (i == plan.len - 1) outLine(t) else outText(t),
+        .value => |f| outValue(pieces[f]),
+    };
+    if (comptime plan.len == 0 or plan[plan.len - 1] != .text) outLine("");
+}
+
+/// What one piece of `print`, `String(...)`, or `add` writes: text known
+/// at compile time, or the value of the tuple's field at this index.
+const Piece = union(enum) { text: []const u8, value: usize };
+
+/// The pieces of the tuple type `P`, in order, with each run of text
+/// joined into one. A field known at compile time whose bytes are too
+/// (a string literal, an Int, a Bool) is text, written as `writeValue`
+/// writes it at the top level.
+fn piecesOf(comptime P: type) []const Piece {
+    comptime {
+        const s = @typeInfo(P).@"struct";
+        var out: []const Piece = &.{};
+        for (s.field_types, s.field_attrs, 0..) |T, a, i| {
+            const text: ?[]const u8 = if (a.@"comptime") constantText(T, a.defaultValue(T).?) else null;
+            if (text) |t| {
+                if (out.len > 0 and out[out.len - 1] == .text) {
+                    out = out[0 .. out.len - 1] ++ &[_]Piece{.{ .text = out[out.len - 1].text ++ t }};
+                } else out = out ++ &[_]Piece{.{ .text = t }};
+            } else out = out ++ &[_]Piece{.{ .value = i }};
+        }
+        const done = out[0..out.len].*;
+        return &done;
     }
-    w.writeAll("\n") catch {};
+}
+
+/// The bytes `writeValue` writes for `v` at the top level, when they are
+/// known at compile time.
+fn constantText(comptime T: type, comptime v: T) ?[]const u8 {
+    if (comptime isStringView(T)) return v;
+    return switch (@typeInfo(T)) {
+        .int, .comptime_int => std.fmt.comptimePrint("{d}", .{v}),
+        .bool => if (v) "true" else "false",
+        else => null,
+    };
+}
+
+/// The one place a failed write to stdout lands. It is ignored.
+fn outFailed(err: std.Io.Writer.Error) void {
+    switch (err) {
+        error.WriteFailed => {},
+    }
+}
+
+/// Text of a `print`.
+noinline fn outText(text: []const u8) void {
+    stdout().writeAll(text) catch |err| outFailed(err);
+}
+
+/// The last text of a `print`, which ends its line: written, then
+/// flushed when stdout is a terminal.
+noinline fn outLine(text: []const u8) void {
+    outText(text);
     if (stdout_is_tty) flush();
+}
+
+/// A value of a `print`, as Rig writes it at the top level: text as its
+/// bytes, anything else by the one writer of its type.
+inline fn outValue(value: anytype) void {
+    if (comptime isStringView(@TypeOf(value))) return outText(value);
+    if (comptime isStringPlace(@TypeOf(value))) return outText(value.list.items);
+    outValueOf(value);
+}
+
+noinline fn outValueOf(value: anytype) void {
+    writeValue(stdout(), value, true) catch |err| outFailed(err);
 }
 
 /// The root panic handler of every emitted program: buffered output
@@ -3547,6 +3629,14 @@ fn isStringView(comptime T: type) bool {
             },
             else => false,
         },
+        else => false,
+    };
+}
+
+/// A String read where it is, by address (`*String`, `*const String`).
+fn isStringPlace(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |p| p.size == .one and p.child == String,
         else => false,
     };
 }

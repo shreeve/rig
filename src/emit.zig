@@ -5628,7 +5628,7 @@ pub const Emitter = struct {
                 try self.w.writeAll(".add(");
             },
         }
-        try self.emitPrintArgs(args);
+        try self.emitPrintArgs(args, .{});
         try self.w.writeAll(")");
     }
 
@@ -6697,18 +6697,30 @@ pub const Emitter = struct {
     /// argument has run, as the ownership checker holds it
     /// (`holdRead`): such a place goes by address, so a later argument
     /// that changes it through a Cell leaves no copy of what it frees.
-    /// Plain data is copied whole where it is read.
+    /// Plain data is copied whole where it is read. The call takes print's
+    /// pieces: the arguments, a space between two, and the newline
+    /// (`rig.print(.{ a, " ", &b, "\n" })`), which the runtime writes as
+    /// straight-line code once every argument has run.
     fn emitPrint(self: *Emitter, args: []const Sexp) Error!void {
         try self.w.writeAll("rig.print(");
-        try self.emitPrintArgs(args);
+        try self.emitPrintArgs(args, .{ .sep = "\" \"", .end = "\"\\n\"" });
         try self.w.writeAll(")");
     }
 
-    /// The tuple of values the runtime's writer reads: `.{ a, &b }`.
-    fn emitPrintArgs(self: *Emitter, args: []const Sexp) Error!void {
+    /// Text `emitPrintArgs` puts among the values, each a Zig string
+    /// literal.
+    const PrintText = struct { sep: ?[]const u8 = null, end: ?[]const u8 = null };
+
+    /// The tuple of pieces the runtime's writer reads: the values
+    /// (`.{ a, &b }`), with `text.sep` between two and `text.end` after
+    /// the last.
+    fn emitPrintArgs(self: *Emitter, args: []const Sexp, text: PrintText) Error!void {
         try self.w.writeAll(".{");
+        var n: usize = 0;
         for (args, 0..) |a, i| {
-            try self.w.writeAll(if (i == 0) " " else ", ");
+            if (i > 0) if (text.sep) |sep| try self.emitPiece(&n, sep);
+            try self.w.writeAll(if (n == 0) " " else ", ");
+            n += 1;
             if (try self.printsByAddress(a)) {
                 const saved_read = self.read_place;
                 defer self.read_place = saved_read;
@@ -6716,7 +6728,15 @@ pub const Emitter = struct {
                 try self.emitAddressOf(a);
             } else try self.emitBare(a);
         }
-        try self.w.writeAll(if (args.len > 0) " }" else "}");
+        if (text.end) |end| try self.emitPiece(&n, end);
+        try self.w.writeAll(if (n > 0) " }" else "}");
+    }
+
+    /// A piece of text in the tuple `emitPrintArgs` writes, after `n` others.
+    fn emitPiece(self: *Emitter, n: *usize, literal: []const u8) Error!void {
+        try self.w.writeAll(if (n.* == 0) " " else ", ");
+        try self.w.writeAll(literal);
+        n.* += 1;
     }
 
     /// Whether a `print`, `String(...)`, or `add` argument `a` reads a
