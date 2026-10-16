@@ -494,11 +494,14 @@ fn isScalar(comptime T: type) bool {
     };
 }
 
-/// `a op b` for an ordering operator in a generic body: numbers compare
-/// as numbers, and `?String`s by their bytes, where the first byte that
-/// differs decides and a prefix sorts first.
+/// `a op b` for an ordering operator in a generic body or on a plain
+/// enum: numbers compare as numbers, a plain enum's values by their
+/// variants' values, and `?String`s by their bytes, where the first byte
+/// that differs decides and a prefix sorts first.
 pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bool {
-    if (comptime isStringView(@TypeOf(a, b))) return std.mem.order(u8, a, b).compare(op);
+    const T = @TypeOf(a, b);
+    if (comptime isStringView(T)) return std.mem.order(u8, a, b).compare(op);
+    if (@typeInfo(T) == .@"enum") return std.math.compare(@intFromEnum(@as(T, a)), op, @intFromEnum(@as(T, b)));
     return std.math.compare(a, op, b);
 }
 

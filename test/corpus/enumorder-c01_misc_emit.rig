@@ -1,0 +1,18 @@
+# std.json's Kind, a field read through a shared handle, and the emitted
+# lowering.
+use std.json
+
+enum Size
+  small
+  large
+
+obj Box
+  size: Size
+
+sub main()
+  k = json.Kind.int
+  print(k > json.Kind.bool, k < .float, json.Kind.null <= k)
+  h = *Box(size: .large)
+  print(h.size > .small, Size.small < h.size)
+  t = Size.small
+  print(t < .large)

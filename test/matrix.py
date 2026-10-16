@@ -939,6 +939,8 @@ EQ_TYPES = {
     "view": dict(ty="?String", decl="", mk=['return "a" if n == 1', '"b"'], copy=True, eq=True, ord=True),
     "obj": dict(ty="P", decl="obj P\n  n: Int\n  s: String\n\n", mk=['P(n: n, s: String("x"))'], copy=False, eq=True, ord=False),
     "enum": dict(ty="E", decl="enum E\n  a(x: Int)\n  z\n\n", mk=["E.a(x: n)"], copy=True, eq=True, ord=False),
+    # A plain enum orders by its variants' values, not their order.
+    "plain": dict(ty="Q", decl="enum Q\n  hi = 9\n  lo = 4\n\n", mk=["return Q.lo if n == 1", "Q.hi"], copy=True, eq=True, ord=True),
     "list": dict(ty="List[Int]", decl="", mk=["l: List[Int] = List()", "!l.push(n)", "l"], copy=False, eq=False, ord=False),
     "box": dict(ty="^P", decl="obj P\n  n: Int\n  s: String\n\n", mk=['^P(n: n, s: String("x"))'], copy=False, eq=False, ord=False),
     "shared": dict(ty="*P", decl="obj P\n  n: Int\n  s: String\n\n", mk=['*P(n: n, s: String("x"))'], copy=False, eq=False, ord=False),

@@ -4717,6 +4717,35 @@ pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
     return any;
 }
 
+/// For an enum type (not an error set), read through views, whether its
+/// values are integers (`Int(x)`): true for a plain enum, false for one
+/// with payload variants or type parameters; null for any other type.
+pub fn enumValues(ctx: *const SemContext, ty: TypeId) ?bool {
+    const decl = nominalDecl(ctx, unwrapViews(ctx, ty)) orelse return null;
+    const sym = decl.symbol();
+    if (sym.flags.error_set) return null;
+    const fields = sym.fields orelse return null;
+    var any = false;
+    for (fields) |f| {
+        if (!f.is_variant) continue;
+        any = true;
+        if (f.value == null) return false;
+    }
+    return if (any) true else null;
+}
+
+/// A declared enum whose values are integers (`enumValues`), itself and
+/// not a view of one: `<`, `<=`, `>`, and `>=` order its values by those
+/// integers. A built-in enum (`Endian`, `Arch`) has no integer values.
+pub fn isOrderedEnum(ctx: *const SemContext, ty: TypeId) bool {
+    switch (ctx.types.get(ty)) {
+        .nominal => |sym| if (isBuiltinEnum(ctx, sym)) return false,
+        .imported_nominal => {},
+        else => return false,
+    }
+    return enumValues(ctx, ty) orelse false;
+}
+
 /// Why values of a type have no `==`: the type that lacks it, found
 /// inside the compared type, and the path of fields to it.
 pub const NotEquatable = struct {

@@ -9,4 +9,4 @@ sub main()
   b = Point(x: 2, y: 1)
   print(a < b)
 
-# error: 10:9: operator `<` orders numbers, Strings, and `[]U8` slices; got `Point`
+# error: 10:9: operator `<` orders numbers, plain enums, Strings, and `[]U8` slices; got `Point`

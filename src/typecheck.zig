@@ -86,6 +86,10 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     for (ir.Module.decls(tree)) |decl| try c.checkLendBases(decl, decl, false, true);
 }
 
+/// The diagnostic for an operand of `<`, `<=`, `>`, or `>=` whose type
+/// has no order: the operator, then the type.
+const ordering_operands = "operator `{s}` orders numbers, plain enums, Strings, and `[]U8` slices; got `{s}`";
+
 /// Where a binding that cannot be written got its value: a loop element
 /// or `as` binding copied from a place, or a match binding of a field of
 /// the place a bare match copies (`match_copy`) or a `?` match reads
@@ -4126,14 +4130,32 @@ const Checker = struct {
         return self.t().int_id;
     }
 
-    /// `a < b`, `<=`, `>`, `>=`: two numbers as for arithmetic, or two
+    /// `a < b`, `<=`, `>`, `>=`: two numbers as for arithmetic, two
+    /// values of one plain enum, by their variants' values, or two
     /// Strings or two `[]U8` slices, ordered by their bytes.
     fn synthOrdering(self: *Checker, e: Sexp, op: []const u8) Error!TypeId {
         const l = ir.get(e, .left);
         const r = ir.get(e, .right);
+        // A `.variant` takes its enum type from the other side, as beside
+        // `==`.
+        if (l.isKind(.enum_lit) != r.isKind(.enum_lit)) {
+            const lit, const other = if (l.isKind(.enum_lit)) .{ l, r } else .{ r, l };
+            const ty = try self.synthReached(other);
+            if (self.isPoison(ty)) return self.t().bool_id;
+            const mark = self.ctx.diagnostics.items.len;
+            try self.checkExpr(lit, ty);
+            if (self.ctx.diagnostics.items.len == mark) try self.checkOrderedEnum(l, ty, op);
+            return self.t().bool_id;
+        }
         const a = try self.synthReached(l);
         const b = try self.synthReached(r);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
+        if (self.enumValues(a) != null or self.enumValues(b) != null) {
+            if (a != b) {
+                try self.errAt(l, "operator `{s}` operands have different types `{s}` and `{s}`", .{ op, try self.tyName(a), try self.tyName(b) });
+            } else try self.checkOrderedEnum(l, a, op);
+            return self.t().bool_id;
+        }
         // Lane by lane: a mask.
         if (sema.simdOf(self.ctx, a) != null or sema.simdOf(self.ctx, b) != null) {
             const vt = try self.simdOperands(e, op, .ordered, a, b);
@@ -4148,6 +4170,23 @@ const Checker = struct {
         const b_read = if (b == self.t().static_id) self.t().string_view_id else b;
         if (a_read != b_read) try self.errAt(l, "operator `{s}` operands have different types `{s}` and `{s}`", .{ op, try self.tyName(a), try self.tyName(b) });
         return self.t().bool_id;
+    }
+
+    /// Two values of type `ty` ordered by operator `op`, at `at`, where
+    /// one is an enum's: a plain enum orders by its variants' values.
+    fn checkOrderedEnum(self: *Checker, at: Sexp, ty: TypeId, op: []const u8) Error!void {
+        if (sema.isOrderedEnum(self.ctx, ty)) return;
+        const builtin = switch (self.ctx.types.get(ty)) {
+            .nominal => |sym| sema.isBuiltinEnum(self.ctx, sym),
+            else => false,
+        };
+        if (builtin) {
+            try self.errAt(at, "operator `{s}` orders a declared enum's values; the built-in enum `{s}` has no integer value", .{ op, try self.tyName(ty) });
+        } else if (self.ctx.types.get(ty) == .parameterized_nominal) {
+            try self.errAt(at, "operator `{s}` orders a plain enum's values; `{s}` is a generic enum, whose variants have no integer value", .{ op, try self.tyName(ty) });
+        } else if (self.enumValues(ty) == false) {
+            try self.errAt(at, "operator `{s}` orders a plain enum's values; `{s}` has variants with payloads, which have no integer value", .{ op, try self.tyName(ty) });
+        } else try self.errAt(at, ordering_operands, .{ op, try self.tyName(ty) });
     }
 
     /// `not` applies to the whole comparison after it: `not a > b` is
@@ -4188,12 +4227,12 @@ const Checker = struct {
     }
 
     /// Whether a side of an ordering keeps its meaning when the ordering
-    /// is flipped (`not (a > b)` is `a <= b`): an integer or text, which
-    /// are totally ordered, unlike a Float.
+    /// is flipped (`not (a > b)` is `a <= b`): an integer, a plain enum,
+    /// or text, which are totally ordered, unlike a Float.
     fn flipsExactly(self: *Checker, side: Sexp) bool {
         const ty = self.ctx.typeOf(side) orelse return false;
         const v = sema.unwrapViews(self.ctx, ty);
-        return sema.isInteger(self.ctx, v) or self.isBytes(v);
+        return sema.isInteger(self.ctx, v) or self.isBytes(v) or sema.isOrderedEnum(self.ctx, v);
     }
 
     /// A `?String` or a `[]U8`: bytes ordered as text is.
@@ -4315,7 +4354,7 @@ const Checker = struct {
             const ok = if (want_int) sema.isInteger(self.ctx, ty) else sema.isNumeric(self.ctx, ty);
             if (!ok) {
                 if (req == .ordered) {
-                    try self.errAt(operands[i], "operator `{s}` orders numbers, Strings, and `[]U8` slices; got `{s}`", .{ op, try self.tyName(ty) });
+                    try self.errAt(operands[i], ordering_operands, .{ op, try self.tyName(ty) });
                 } else {
                     // String is built, not added: `String(a, b)`, `!t.add(b)`.
                     const is_text = ty == self.t().string_view_id or ty == self.t().static_id or ty == self.t().string_id;
@@ -7163,22 +7202,8 @@ const Checker = struct {
         return target;
     }
 
-    /// For an enum type (not an error set), whether its values are
-    /// integers: true for a plain enum, false for one with payload
-    /// variants or type parameters; null for any other type.
     fn enumValues(self: *Checker, ty: TypeId) ?bool {
-        const peeled = sema.unwrapViews(self.ctx, ty);
-        const decl = sema.nominalDecl(self.ctx, peeled) orelse return null;
-        const sym = decl.symbol();
-        if (sym.flags.error_set) return null;
-        const fields = sym.fields orelse return null;
-        var any = false;
-        for (fields) |f| {
-            if (!f.is_variant) continue;
-            any = true;
-            if (f.value == null) return false;
-        }
-        return if (any) true else null;
+        return sema.enumValues(self.ctx, ty);
     }
 
     /// The value of a variant named through its type, `Status.ok` or
@@ -14535,7 +14560,7 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
 fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
     return switch (req) {
         .numeric, .bytes => sema.isNumeric(ctx, ty),
-        .ordered => sema.isNumeric(ctx, ty) or ctx.types.get(ty) == .string_view or ctx.types.get(ty) == .static,
+        .ordered => sema.isNumeric(ctx, ty) or ctx.types.get(ty) == .string_view or ctx.types.get(ty) == .static or sema.isOrderedEnum(ctx, ty),
         .integer => sema.isInteger(ctx, ty),
         .signed => switch (ctx.types.get(ty)) {
             .int => |info| info.signed,

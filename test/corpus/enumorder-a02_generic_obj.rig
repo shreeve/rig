@@ -1,0 +1,24 @@
+# A generic object's method orders its T elements; T a plain enum.
+enum Size
+  large = 30
+  small = 10
+  medium = 20
+
+obj Best[T]
+  items: List[T]
+
+  fun least(?self) -> T
+    b = self.items[0]
+    i = 1
+    while i < self.items.len : i += 1
+      if self.items[i] < b
+        b = self.items[i]
+    b
+
+sub main()
+  l: List[Size] = List()
+  !l.push(.large)
+  !l.push(.small)
+  !l.push(.medium)
+  bb = Best[Size](items: <l)
+  print(bb.least())
