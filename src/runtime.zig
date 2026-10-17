@@ -3527,13 +3527,13 @@ fn installOverflowHandler() void {
 
 fn onOverflow(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
     // A fault inside the handler that prints the trace.
-    if (overflow_handling) std.process.abort();
+    if (@atomicLoad(bool, &overflow_handling, .seq_cst)) std.process.abort();
     const addr = faultAddress(info);
     if (addr < stack_guard.lo or addr >= stack_guard.hi) {
         for (Sanitizer.signals, &overflow_previous) |s, *old| std.posix.sigaction(s, old, null);
         return;
     }
-    overflow_handling = true;
+    @atomicStore(bool, &overflow_handling, true, .seq_cst);
     flushQuietly();
     const msg = "error: rig: stack overflow\n";
     _ = std.posix.system.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
