@@ -7871,6 +7871,7 @@ const Checker = struct {
             switch (self.ctx.types.get(ty)) {
                 .void => try self.errAt(a, "{s} needs a value; this expression produces no value (`Void`)", .{who}),
                 .none_literal => try self.errAt(a, "cannot {s} a bare `none`", .{verb}),
+                .noreturn => try self.errAt(a, "{s} needs a value; this expression never produces one", .{who}),
                 else => {
                     if (!try sema.printable(self.ctx, ty)) {
                         const name = try self.tyName(ty);
