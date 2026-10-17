@@ -1,0 +1,14 @@
+# A ternary whose branches both `panic` never produces a value, so it
+# cannot be printed, as it cannot be bound.
+
+sub main()
+  c = true
+  print(panic("a") if c else panic("b"))
+  warn(panic("a") if c else panic("b"))
+  x = panic("a") if c else panic("b")
+  print(x)
+
+# error: 6:9: `print` needs a value; this expression never produces one
+# error: 7:8: `warn` needs a value; this expression never produces one
+# error: 8:7: `x` would be bound to an expression that never produces a value
+# errors: 3

@@ -4414,15 +4414,7 @@ pub const Checker = struct {
         // their text, not them.
         const text_op = if (self.sema) |ctx| ctx.stringCallOf(node) orelse ctx.stringCallOf(callee) else null;
         if (self.isPrint(callee) or text_op != null) {
-            for (args) |a| {
-                // A slice there is lent to read, as `?a` would be.
-                if (self.lendOf(a)) |lend| if (lend.implicit) {
-                    _ = try self.walkImplicitLend(a, lend);
-                    continue;
-                };
-                _ = try self.walk(a);
-                try self.holdRead(a, .argument);
-            }
+            try self.walkReadArgs(args);
             if (recv_root) |id| if (recv_mode == .write) {
                 const reserved = self.temps.orderedRemove(reservation);
                 const at = self.startOf(ir.Member.object(callee));
@@ -6390,12 +6382,11 @@ pub const Checker = struct {
         self.reachable = false;
     }
 
-    /// `panic(a, b)`: its values are read as `print` reads them, and the
-    /// program ends there. No scope is left: no drop or `defer` runs, so
-    /// nothing after it is reached.
-    fn walkPanic(self: *Checker, node: Sexp) Error!void {
-        const temps_start = self.temps.items.len;
-        for (ir.Panic.args(node)) |a| {
+    /// The arguments of `print`, `panic`, `String(...)`, and `!t.add(...)`,
+    /// which are only read: a slice there is lent to read, as `?a` would
+    /// be, and none is held past the call.
+    fn walkReadArgs(self: *Checker, args: []const Sexp) Error!void {
+        for (args) |a| {
             if (self.lendOf(a)) |lend| if (lend.implicit) {
                 _ = try self.walkImplicitLend(a, lend);
                 continue;
@@ -6403,6 +6394,14 @@ pub const Checker = struct {
             _ = try self.walk(a);
             try self.holdRead(a, .argument);
         }
+    }
+
+    /// `panic(a, b)`: its values are read as `print` reads them, and the
+    /// program ends there. No scope is left: no drop or `defer` runs, so
+    /// nothing after it is reached.
+    fn walkPanic(self: *Checker, node: Sexp) Error!void {
+        const temps_start = self.temps.items.len;
+        try self.walkReadArgs(ir.Panic.args(node));
         self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
         self.reachable = false;
     }

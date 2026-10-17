@@ -4302,8 +4302,8 @@ const Checker = struct {
             try self.errAt(leaf, "`{s}` is a type, not a value", .{name});
             return null;
         }
-        if (std.mem.eql(u8, name, "print")) {
-            try self.errAt(leaf, "`print` is called with parentheses: `print(...)`", .{});
+        if (std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "warn")) {
+            try self.errAt(leaf, "`{s}` is called with parentheses: `{s}(...)`", .{ name, name });
             return null;
         }
         // Inside a type's methods, a field or method is reached through
@@ -7871,6 +7871,7 @@ const Checker = struct {
             switch (self.ctx.types.get(ty)) {
                 .void => try self.errAt(a, "{s} needs a value; this expression produces no value (`Void`)", .{who}),
                 .none_literal => try self.errAt(a, "cannot {s} a bare `none`", .{verb}),
+                .noreturn => try self.errAt(a, "{s} needs a value; this expression never produces one", .{who}),
                 else => {
                     if (!try sema.printable(self.ctx, ty)) {
                         const name = try self.tyName(ty);

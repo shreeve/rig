@@ -1,0 +1,6 @@
+# `warn "hi"` is not a call; the error names the fix.
+
+sub main()
+  warn "hi"
+
+# error: 4:8: unexpected `"hi"`; `warn` is called with parentheses: `warn(...)`
