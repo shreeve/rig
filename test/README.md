@@ -545,7 +545,10 @@ tools/gate --skip REASON   # test nothing: post success, which clears a failed g
 that cpuq would ship (cpuq copies everything but a spec's `exclude`), and
 its HEAD is the pull request's pushed head and contains the base branch;
 so the bytes burst tests are exactly that commit's. It refuses a branch
-that changes `tools/gate` or `cpuq/` unless given `--allow-gate-changes`.
+that changes `tools/gate` or `cpuq/` unless given `--allow-gate-changes`. A branch that changes `formal/`
+also builds its Lean proofs on this machine first (`cd formal && lake
+build`; burst has no Lean), and fails on an unfinished one, a `sorry`,
+which lake only warns of.
 It submits `cpuq/suite.json`, `corpus.json`, and `matrix.json` together,
 each a `--delta` run, which burst runs at once; cancels the rest when one
 fails; and posts the commit status `rig/gate` on the commit: `success`
