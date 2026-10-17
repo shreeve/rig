@@ -199,9 +199,9 @@ const SymbolResolver = struct {
             .flags = flags,
         };
         const dup = if (self.scope == self.module_scope) self.ctx.lookupInScopeOnly(self.scope, name) else null;
-        // `String` and `Static` are built-in types, like `List`, though no
-        // symbol holds them.
-        const reserved = self.scope == self.module_scope and (std.mem.eql(u8, name, "String") or std.mem.eql(u8, name, "Static"));
+        // `String`, `Static`, and `Symbol` are built-in types, like `List`,
+        // though no symbol holds them.
+        const reserved = self.scope == self.module_scope and isNominalBuiltinName(name);
         if (reserved) try self.ctx.err(pos, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
         if (dup) |prev| {
             const p = self.ctx.symbols.items[prev];
@@ -752,7 +752,7 @@ fn checkDetachedMethods(ctx: *SemContext, tree: Sexp) Error!void {
             } else try ctx.errAt(owner, "`{s}` is an alias of `{s}`; a method is declared on an `obj` or `enum` of this module", .{ tname, shown });
             continue;
         }
-        if ((sym != null and sym.?.decl_pos == sema.builtin_decl_pos) or isBuiltinTypeName(ctx, tname) or std.mem.eql(u8, tname, "String") or std.mem.eql(u8, tname, "Static")) {
+        if ((sym != null and sym.?.decl_pos == sema.builtin_decl_pos) or isBuiltinTypeName(ctx, tname) or isNominalBuiltinName(tname)) {
             try ctx.errAt(owner, "`{s}` is a built-in type; a method is declared on a type of this module", .{tname});
             continue;
         }
@@ -886,6 +886,7 @@ fn constNamesIn(ctx: *const SemContext, node: Sexp, index: *const std.AutoHashMa
             .member => try constNamesIn(ctx, ir.Member.object(node), index, out),
             .kwarg => try constNamesIn(ctx, ir.Kwarg.value(node), index, out),
             .enum_lit, .builtin => for (rig.children(node)[1..]) |c| try constNamesIn(ctx, c, index, out),
+            .symbol => {},
             else => for (rig.children(node)) |c| try constNamesIn(ctx, c, index, out),
         },
         else => {},
@@ -1107,7 +1108,7 @@ pub const TypeResolver = struct {
             }
         }.keep);
         for (self.nominal.type_params) |tp| s.offer(self.ctx.symbols.items[tp].name);
-        for ([_][]const u8{ "Int", "Float", "Bool", "String", "Static", "Void" }) |p| s.offer(p);
+        for (primitive_type_names) |p| s.offer(p);
         return s.hint(a);
     }
 
@@ -2836,11 +2837,11 @@ pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
     return !sema.isIntLiteralText(text) and !sema.isFloatLiteralText(text);
 }
 
-const primitive_type_names = [_][]const u8{ "Int", "Float", "Bool", "String", "Static", "Void" };
+const primitive_type_names = [_][]const u8{ "Int", "Float", "Bool", "String", "Static", "Symbol", "Void" };
 
 fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
     const t = &ctx.types;
-    const ids = [primitive_type_names.len]TypeId{ t.int_id, t.float_id, t.bool_id, t.string_id, t.static_id, t.void_id };
+    const ids = [primitive_type_names.len]TypeId{ t.int_id, t.float_id, t.bool_id, t.string_id, t.static_id, t.symbol_id, t.void_id };
     for (primitive_type_names, ids) |n, id| {
         if (std.mem.eql(u8, name, n)) return id;
     }
@@ -2903,6 +2904,12 @@ pub fn builtinTypes(ctx: *const SemContext, a: std.mem.Allocator) Error![]const 
 }
 
 /// Whether `name` spells a built-in type: `Int`, `String`, `U8`, ...
+/// `String`, `Static`, or `Symbol`: a built-in type no symbol holds,
+/// whose name no module may declare.
+fn isNominalBuiltinName(name: []const u8) bool {
+    return std.mem.eql(u8, name, "String") or std.mem.eql(u8, name, "Static") or std.mem.eql(u8, name, "Symbol");
+}
+
 pub fn isBuiltinTypeName(ctx: *const SemContext, name: []const u8) bool {
     return primitiveTypeId(ctx, name) != null or sizedTypeBits(name) != null or std.mem.eql(u8, name, "error");
 }

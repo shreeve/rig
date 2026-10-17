@@ -41,6 +41,10 @@ const ir = parser.ir;
 /// as `rig`.
 pub const runtime_filename = "rig/runtime.zig";
 pub const runtime_source = @embedFile("runtime.zig");
+/// The program's symbols, written next to the modules
+/// (`src/symbols.zig`), which a module that writes one imports as
+/// `__rig_sym`.
+pub const symbols_filename = "__rig_symbols.zig";
 const Tag = rig.Tag;
 const Writer = std.Io.Writer;
 const TypeId = facts.TypeId;
@@ -307,6 +311,9 @@ pub const Emitter = struct {
     /// A `@name` of a type parameter needs the module's table of names
     /// (`emitNamesTable`).
     uses_names: bool = false,
+    /// A symbol or the type `Symbol` is written, so the module imports
+    /// the program's symbols as `__rig_sym` (`src/symbols.zig`).
+    uses_symbols: bool = false,
     /// The module declares an `extern "c"`, so the program links libc.
     links_libc: bool = false,
     /// Fill each hidden storage location with `0xAA` when its scope ends
@@ -393,6 +400,7 @@ pub const Emitter = struct {
         if (self.uses_module) try self.w.writeAll("\nconst __rig_module = @This();\n");
         if (self.uses_names) try self.emitNamesTable();
         for ([_]SymbolId{ self.facts.endian_sym_id, self.facts.arch_sym_id }) |sym| if (self.facts.hasTextTable(sym)) try self.emitTextTable(sym);
+        if (self.uses_symbols) try self.w.print("\nconst __rig_sym = @import(\"{s}\");\n", .{symbols_filename});
     }
 
     // =========================================================================
@@ -4774,6 +4782,11 @@ pub const Emitter = struct {
                 if (self.typeOf(sexp)) |t| if (self.isErrorSetTy(t)) return self.writeError(self.peelViews(t), name, sexp);
                 try self.w.print(".{f}", .{ident(name)});
             },
+            // `:width`: the tag `__rig_sym.Symbol.@"width"`, never its id.
+            .symbol => {
+                self.uses_symbols = true;
+                try self.w.print("__rig_sym.Symbol.@\"{s}\"", .{self.srcText(ir.Symbol.name(sexp))});
+            },
             .@"+", .@"-", .@"*", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^" => try self.emitInfix(sexp, bare),
             .@"+%", .@"-%", .@"*%", .@"+|", .@"-|" => {
                 if ((head == .@"+|" or head == .@"-|") and self.isSimd(self.typeOf(sexp))) {
@@ -5855,6 +5868,9 @@ pub const Emitter = struct {
         }
         try self.w.writeAll("    },\n    .types = .{\n");
         for (try ctx.builtinTypes(a)) |t| {
+            // `Symbol` names itself (`rig.typeName`), so a module that
+            // writes no symbol need not import them.
+            if (t == .symbol) continue;
             try self.w.writeAll("        .{ ");
             try self.emitBuiltinTy(t);
             try self.w.print(", \"{s}\" }},\n", .{try ctx.formatTypeValue(a, t)});
@@ -6330,6 +6346,13 @@ pub const Emitter = struct {
             // `rig.enumFromText(E, E.__rig_text, word)`: `word` found in
             // the table of `E`'s names (`emitTextTable`).
             .from_text => {
+                // `__rig_sym.fromText(word)`: a symbol the program writes.
+                if (ec.num == self.facts.types.symbol_id) {
+                    self.uses_symbols = true;
+                    try self.w.writeAll("__rig_sym.fromText(");
+                    try self.emitArgs(call);
+                    return self.w.writeAll(")");
+                }
                 try self.w.writeAll("rig.enumFromText(");
                 try self.emitTypeTy(ec.num);
                 try self.w.writeAll(", ");
@@ -6788,6 +6811,11 @@ pub const Emitter = struct {
             try self.w.writeAll("error.");
             return writeErrorName(self.w, set.facts, set.symbol().name, rig.leafText(decl.source, name.src));
         };
+        // `:name`, a symbol of the one program-wide set.
+        if (e.isKind(.symbol)) {
+            self.uses_symbols = true;
+            return self.w.print("__rig_sym.Symbol.@\"{s}\"", .{rig.leafText(decl.source, ir.Symbol.name(e).src)});
+        }
         if (isDefaultLiteralNode(decl.source, e)) {
             if (self_check and e == .src) if (decl.typeOf(e)) |t| if (decl.nominalDecl(t) != null and std.mem.eql(u8, rig.leafText(decl.source, e.src), "none")) return self.unsupported(e, "`none` with an enum type");
             return writeLiteral(self.w, decl.source, e);
@@ -7661,7 +7689,7 @@ pub const Emitter = struct {
     fn emitTypeTy(self: *Emitter, ty: TypeId) Error!void {
         const ctx = self.facts;
         switch (ctx.types.get(ty)) {
-            .void, .any_error, .bool, .string_view, .static, .string, .int_literal, .float_literal, .int, .float => try self.emitBuiltinTy(ctx.types.get(ty)),
+            .void, .any_error, .bool, .string_view, .static, .string, .symbol, .int_literal, .float_literal, .int, .float => try self.emitBuiltinTy(ctx.types.get(ty)),
             .optional => |inner| {
                 if (self.routesPayload(inner)) {
                     try self.w.writeAll("rig.Opt(");
@@ -7768,6 +7796,10 @@ pub const Emitter = struct {
             .bool => try self.w.writeAll("bool"),
             .string_view, .static => try self.w.writeAll("[]const u8"),
             .string => try self.w.writeAll("rig.String"),
+            .symbol => {
+                self.uses_symbols = true;
+                try self.w.writeAll("__rig_sym.Symbol");
+            },
             .int_literal => try self.w.writeAll(int_zig),
             .float_literal => try self.w.writeAll(float_zig),
             .int => |i| if (i.bits == 0) try self.w.writeAll(int_zig) else try self.w.print("{c}{d}", .{ @as(u8, if (i.signed) 'i' else 'u'), i.bits }),
@@ -8030,7 +8062,7 @@ pub const Emitter = struct {
     /// A number, Bool, plain enum, or error: Zig's `==` compares it.
     fn isScalarTy(self: *Emitter, ty: TypeId) bool {
         return switch (self.facts.types.get(ty)) {
-            .int, .float, .bool, .int_literal, .float_literal, .any_error => true,
+            .int, .float, .bool, .symbol, .int_literal, .float_literal, .any_error => true,
             .nominal, .imported_nominal => self.facts.isPlainEnum(ty) or self.facts.isErrorSet(ty),
             else => false,
         };

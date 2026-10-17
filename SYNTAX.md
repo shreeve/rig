@@ -298,6 +298,7 @@ are names a declaration may hide.
 | array | `[1, 2, 3]`, `[]` | |
 | fill | `[4 of 0]`, `[n of x]` | `n` copies of `x`, count first as in the type `[n]T` |
 | enum variant | `.red`, `.circle(2)`, `.rect(w: 2, h: 3)` | the enum comes from context |
+| symbol | `:width`, `:if`, `:content-type` | a `Symbol`, whatever the context ([below](#symbols)) |
 
 A string holds no control character: a tab or newline in it is written
 `\t` or `\n`. There is no string interpolation; `print` takes several
@@ -315,6 +316,53 @@ sub main()
 255 5 15 1000 0.5 1000.0 150.0 0.002
 tab	here it's raw: \n quote: 'x'
 [7, 7, 7] [[0, 0], [0, 0]]
+```
+
+### Symbols
+
+A symbol is `:` touching a name, where an operand starts: `:width`
+([SPEC, Symbols](SPEC.md#symbols)). The name is an identifier, a
+keyword included (`:if`, `:type`), then any run of `-` or `.`, each
+followed by a letter, digit, or `_`: `:content-type`, `:utf-8`, and
+`:a.b` are each one symbol. It stops at `..`, a space, or a `-` or `.`
+with nothing after it. So `:a.text` is the symbol `a.text`, and a
+symbol's member is read through a name or parentheses: `s.text`,
+`(:a).text`.
+
+A `:` is one of three things, and what stands before it decides which:
+
+| A `:` that... | is | Example |
+|---|---|---|
+| follows a value, or ends a jump, at a `while` header's depth, the first such | the loop's step | `while i < n : i += 1`, `while x ?? break : i += 1` |
+| follows a value anywhere else | a type, a keyword argument, or a field | `x: Int`, `f(a: 1)` |
+| stands where an operand starts, touching a name | a symbol | `x = :a`, `f(a: :b)`, `[:a, :b]`, `:a =>` |
+
+```rig
+sub main()
+  s = :start
+  n = 0
+  while s != :done : s = (:done if n == 2 else :middle)
+    n += 1
+  print(s, n, s.text, (:a).text, :a.text, [:if, :content-type])
+  match s
+    :done, :stop => print("stopped")
+    _ => print("running")
+```
+
+```output
+:done 2 done a :a.text [:if, :content-type]
+stopped
+```
+
+A `:` where an operand starts that does not touch a name is rejected.
+
+```rig reject
+sub main()
+  y = : width
+```
+
+```error
+a prefix `:` touches its operand: a symbol is written `:width`
 ```
 
 ## 5. Prefixes, infixes, and suffixes
@@ -337,6 +385,7 @@ spacing that would read as the other form is rejected.
 | `f(-x)`, `-x` | negation |
 | `f(x)`, `f (x)`, `a[i]`, `a.b` | a call, an index or compile-time arguments ([§11](#compile-time-arguments)), member access |
 | `(x)`, `[1, 2]`, `.red` | grouping, an array literal, an enum literal |
+| `x: Int`, `x = :a` | a type, and a symbol ([§4](#symbols)) |
 | `T?`, `T!`, `f()!`, `x?` | suffixes: optional, fallible, propagate a failure or `none` |
 | `a \| b`, `\|x\| x + 1` | bitwise or, and a closure's bar list |
 
@@ -1687,6 +1736,7 @@ expression, or a `return` value. A `raw` block may yield a value too.
 | `.name(_, b)` | a payload variant, ignoring a field |
 | `.name(f: a)` | a payload variant, binding the fields it names, in any order; the rest are not bound |
 | `42`, `-1`, `true` | a literal |
+| `:name` | a symbol |
 | `lo..hi` | an integer from `lo` up to, not including, `hi` |
 | `_` | everything else |
 | any other name | everything else, bound to the name |
@@ -1781,7 +1831,7 @@ arm       = pattern, ... ["if" value] ("=>" simple | block)
 pattern   = patom [".." patom]
 patom     = name | ["-"] integer | "true" | "false"
           | "." name ["(" [(name | name ":" name), ...] ")"]
-          | [name "."] name "." name
+          | [name "."] name "." name | ":" name           # `:` touches the name
 closure   = ["*"] bars (expr | block)
 bars      = "|" (name [":" type] | ("+" | "<" | "~" | "?" | "!") name), ... "|" | "||"
 
@@ -1798,6 +1848,7 @@ postfix   = postfix ("." name | "[" expr "]" | "[" [expr] ".." [expr] "]"
           | "[" expr, expr, ... "]" | "(" args ")" | "!" | "?") | atom
 args      = [(name ":" expr | expr), ...] | (name ":" expr | expr), ..., tail-closure
 atom      = name | integer | float | string | "true" | "false" | "." name
+          | ":" name                                # a symbol; `:` touches the name
           | "@" name "(" args ")" | "panic" "(" args ")"
           | "[" [expr, ...] "]" | "[" expr "of" expr "]" | "(" expr ")"
 ```

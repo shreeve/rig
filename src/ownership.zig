@@ -2251,7 +2251,7 @@ pub const Checker = struct {
                 },
                 .array_fill => self.walkConsumed(ir.ArrayFill.value(sexp), .element),
                 .raw_block => self.walkTailPart(ir.RawBlock.body(sexp), self.takeTail(sexp)),
-                .enum_lit, .use, .type, .generic_struct, .generic_inst => .{},
+                .enum_lit, .symbol, .use, .type, .generic_struct, .generic_inst => .{},
                 // Operators on values produce fresh Copy results. A binary
                 // operator reads its left operand where it runs, and uses
                 // it after the right one runs.

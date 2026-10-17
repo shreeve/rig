@@ -1,0 +1,44 @@
+# A `:` that stands where an operand starts and touches a name is a
+# symbol: beside `or`, `and`, `not`, and a ternary inside parentheses,
+# as a keyword argument's value, in a list, and in a `while` step. A
+# `:` after a value, or after a bare jump in a `while` header, is a
+# step. A name may go on in runs of `-` or `.`, each followed by a
+# letter, digit, or `_`.
+
+obj Tagged
+  tag: Symbol
+  n: Int
+
+fun more(n: Int) -> Bool?
+  return none if n == 0
+  n > 1
+
+fun tagged(tag: Symbol = :plain) -> Tagged
+  Tagged(tag: tag, n: 1)
+
+sub main()
+  c = false
+  print(c or :a == :a, :a == :b and true, not (:a == :b))
+  print((:x if c else :y), (:x if not c else :y))
+  print(tagged(), tagged(tag: :hot), Tagged(tag: :cold, n: 2).tag)
+  print(:content-type, :utf-8, :a.b-c, :x.text, :x_1)
+  t = :content-type
+  print(t.text, t == :content-type, t != :content)
+  n = 3
+  while more(n) ?? break : n -= 1
+    print(n)
+  i = 0
+  s = :go
+  while s != :stop : s = (:stop if i == 2 else :go)
+    i += 1
+  print(i, s)
+
+# expect:
+# true false true
+# :y :x
+# Tagged(tag: :plain, n: 1) Tagged(tag: :hot, n: 1) :cold
+# :content-type :utf-8 :a.b-c :x.text :x_1
+# content-type true true
+# 3
+# 2
+# 2 :stop

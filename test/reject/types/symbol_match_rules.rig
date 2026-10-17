@@ -1,0 +1,17 @@
+# A `match` on a `Symbol` needs `_ =>`: its values are every symbol the
+# whole program writes, so no set of arms covers them. Two arms for one
+# symbol are rejected, as two for one integer are.
+
+sub main()
+  t = :a
+  match t
+    :a => print(1)
+    :b => print(2)
+  match t
+    :a => print(1)
+    :b, :a => print(2)
+    _ => print(3)
+
+# error: 7:9: `match` on a `Symbol` is not exhaustive without `_ =>`
+# error: 12:9: duplicate arm for symbol `:a`
+# errors: 2
