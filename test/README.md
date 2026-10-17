@@ -530,6 +530,32 @@ The output directory's `.durations` file records how long each test
 took, in whole seconds; the next run starts the longest tests first, so
 it does not end waiting on one of them.
 
+## A quick local check
+
+`tools/check N` is a sniff test before a push, run on this Mac through
+the job queue (`cpuq run --local --cores 2`). `N` is a share of the
+suite in percent: 10, 20, 25, 33, 50 or 100, which split it into 10, 5,
+4, 3, 2 or 1 equal parts (any other `N` rounds to the nearest, and the
+tool says so). It runs, each with `--delta`:
+
+1. The branch's own tests, in full: every test the branch adds or
+   changes since its merge-base with `origin/main` (committed or not,
+   new files included), found by id from the files it touches under
+   `test/behavior`, `reject`, `known`, `ir`, `torture`, `cli`, `corpus`
+   and `examples/`, and every doc example of a Markdown file whose `rig`
+   blocks changed (`doc/<file>/`, the whole file, since an edit moves
+   lines). A change to a `test/cli/_*` helper runs every CLI test.
+2. One random slice of the suite, `./test/run --delta --shard I/K` with
+   `I` chosen at random, so repeated checks cover more over time. Slice
+   1 also runs the whole-program checks (`unit`, `classify`, `vocab`,
+   `style`), as any first shard does.
+
+`--matrix` adds the same slice of `test/matrix.py --delta --shard I/K`,
+and `--slice I` picks the slice. The report gives the passed and failed
+counts, the slice that ran, and one command that reruns just the
+failures; the exit status is 1 if anything failed. It samples; it does
+not replace `./test/run`, the gate, or the deep gate.
+
 ## The merge gate and CI
 
 A pull request is tested on burst when we ask, and GitHub's runners do
