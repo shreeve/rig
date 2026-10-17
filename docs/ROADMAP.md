@@ -34,9 +34,10 @@ in [SPEC §18](../SPEC.md#18-reserved-and-unsupported-forms).
 
 ## Concurrency
 
-- **Structured concurrency**: scope-bound tasks with cancellation and no orphans.
-- **Async**: suspended computations with their own ownership, cancellation, and pinning rules, built on structured concurrency.
-- **Thread-safe handles**: an atomically counted shared handle and rules for what may cross threads.
+- **Task groups**: tasks spawned in a group that always ends, with cancellation and no orphans; a local group runs on one thread, a parallel group across cores, on Zig's `std.Io`. Users write no threads, fibers, `Pin`, or async functions ([FORMAL-RIG](FORMAL-RIG.md)).
+- **Channels**: sending moves a value, so tasks share no mutable state; `select` waits on several.
+- **What may cross**: the facts *moves* and *shares*, derived for Rig objects and declared for Zig-backed types; `Mutex` and atomics only if a measurement asks.
+- **Actors**: a task and its channel, in std: a typed, bounded mailbox, `receive` as a `match`, and supervisors that restart a task that ends with an error. A panic stays fatal.
 
 ## Kernels and freestanding code
 
