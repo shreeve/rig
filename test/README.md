@@ -538,9 +538,11 @@ it does not end waiting on one of them.
 
 ## Rerunning only what changed
 
-A program's run passes or fails by its inputs: the package `rig run`
-builds (every module, the standard library's shims, and the runtime),
-how rig runs it, Zig, and what the test expects. A change that leaves
+A program's run passes or fails by its source code, the Zig source the
+current compiler generates for it: the package `rig run` builds (every
+module, the standard library's shims, and the runtime), together with
+how rig runs it, Zig, and what the test expects. The test's own `.rig`
+file is always compiled again; only the build and run are skipped. A change that leaves
 all of them as they were, such as a diagnostic's wording or a fix in
 the checker that rejects nothing new, cannot change the verdict, so the
 run need not be repeated.
