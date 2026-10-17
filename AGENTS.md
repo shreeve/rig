@@ -57,9 +57,12 @@ These are about the compiler, not the process. They don't bend.
 
 ### Show what you're doing
 
-- **One PR per piece of work, opened early.** Open it as a draft with
-  your first push. Its body is a checklist of the steps; tick each one
-  as it lands. `gh pr list` is the board of work in progress.
+- **One PR per piece of work, opened early.** Push your first commit
+  early and open the PR as a draft, so the checklist has a home. Its
+  body is a checklist of the steps; tick each one as it lands. `gh pr
+  list` is the board of work in progress.
+- **One worktree per branch:** `wt new BRANCH` makes it under
+  `~/Data/Code/worktrees/rig/`; `wt done` removes it after the merge.
 - **Say what you're doing.** One line when you start a step, one when it
   finishes or fails: what's done, what's next, what you're waiting on.
 - **Stuck? Say so.** After two failed attempts at the same thing, stop
@@ -78,13 +81,20 @@ you name.
 
 **2. Full test on burst, when we're happy.** `tools/gate` runs the whole
 suite, the corpus, and the matrix on burst against the pushed head and
-posts the result on the PR. Run it when Steve asks, or ask him first.
+posts the result on the PR. Run it only when Steve asks, never by rule
+on every PR.
 If `main` ever fails, `git bisect run` with the failing test finds the
 commit, and the fix goes in on a new branch.
 
 **Nothing else runs unless Steve asks:** no full local suite, corpus,
 matrix, `./test/run json`, benchmark or check-speed guards, review
-agents, or expert panels.
+agents, or expert panels. Two cases get an offer, not a run:
+
+- A change to `src/ownership.zig`, `src/emit.zig`, or a classifier:
+  offer Steve one review agent. Reviews have caught memory bugs every
+  test passed.
+- Two open PRs that touch the same classifier: say so in both, and
+  before the second merges, offer a gate with the first merged into it.
 
 ### Spend tokens well
 
@@ -99,8 +109,10 @@ agents, or expert panels.
 ### Commits and merging
 
 - Commit messages are short and imperative. No AI attribution lines.
+- Before a PR that rejects old syntax merges, send Trig a one-line note
+  and a migration script.
 - Only Steve merges. After a merge, delete the branch locally and on
-  GitHub, and remove its worktree.
+  GitHub, and `wt done` its worktree.
 
 ## Workflow
 
@@ -120,9 +132,10 @@ tools/gate                         # full test on burst: suite, corpus, matrix (
 
 - **Nexus** is co-developed. `zig build` regenerates `src/parser.zig`
   with `../nexus/bin/nexus`, or another binary with `-Dnexus=PATH`.
-- **Shared machines:** heavy runs go through `cpuq run --cores 2 -- …`
-  with `-j "$CPUQ_CORES"`. Under load, rerun a timeout alone before
-  trusting it.
+- **Shared machines:** heavy runs go through `cpuq run --cores 2-6 -- …`
+  with `-j "$CPUQ_CORES"`; Mac builds and timing add `--local`, or the
+  job may spill to another host. Under load, rerun a timeout alone
+  before trusting it.
 
 ## Map
 
