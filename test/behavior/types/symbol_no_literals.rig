@@ -1,0 +1,13 @@
+# A program that writes no symbol still has the type `Symbol`, with no
+# values: `Symbol.from_text(word)` finds none.
+
+fun find(w: ?String) -> Symbol?
+  Symbol.from_text(w)
+
+sub main()
+  w = String("width")
+  s = find(?w)
+  print(s, s == none)
+
+# expect:
+# none true

@@ -192,7 +192,7 @@ fn decideIsPureArg(ctx: *const SemContext, e: Sexp) bool {
             };
         },
         .list => return switch (e.kind().?) {
-            .enum_lit => true,
+            .enum_lit, .symbol => true,
             // A view held as a pointer is the name's address; a view
             // held by value (a `?String`'s bytes, a slice, a copy of a
             // number) reads the name where the call runs, after the

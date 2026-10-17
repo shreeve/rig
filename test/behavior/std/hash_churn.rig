@@ -1,9 +1,9 @@
 # std.hash's Map and Set against a plain reference, a List of pairs searched in
 # turn, over a long pseudo-random run of puts, takes, gets, edits,
-# `put_new`s, `ensure`s, `retain`s, and clears, at sizes that cross from a small Map (no table) to a table
-# and back after a clear, and with room reserved. After every step the
-# two agree on the length and on every key, and their walks agree in
-# order.
+# `put_new`s, `ensure`s, `retain`s, and clears, at sizes that grow the
+# table and fill it again after a clear, and with room reserved. After
+# every step the two agree on the length and on every key, and their
+# walks agree in order.
 
 use std.hash
 

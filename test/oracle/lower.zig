@@ -1493,7 +1493,7 @@ const Lowerer = struct {
                     if (alt.isKind(.variant_pattern) and ir.VariantPattern.bindings(alt).len > 0) return abstain("alternatives that bind");
                     if (alt == .src and self.bindsName(alt)) return abstain("alternatives that bind");
                 },
-                .enum_lit, .member, .range_pattern, .neg => {},
+                .enum_lit, .symbol, .member, .range_pattern, .neg => {},
                 else => return abstain("an unusual pattern"),
             },
             else => {},
@@ -2070,7 +2070,7 @@ const Lowerer = struct {
                 self.cur = x;
                 return t;
             },
-            .enum_lit => return null,
+            .enum_lit, .symbol => return null,
             .@"return", .@"break", .@"continue", .panic => {
                 try self.valueInto(e, how, undefined);
                 return null;

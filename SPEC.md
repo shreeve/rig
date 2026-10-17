@@ -122,6 +122,7 @@ since) is not repeated.
 | `String` | owned, growable text: bytes on the heap, UTF-8 by convention ([§10](#string)) | `rig.String` |
 | `?String` | a read view of text: bytes, UTF-8 by convention, that it does not own ([strings](#strings)) | `[]const u8` |
 | `Static` | text that lives for the whole program: a string literal, or text derived only from literals; plain data that carries no loan ([Static](#static)) | `[]const u8` |
+| `Symbol` | a name the program writes, `:width`; plain data, 4 bytes ([Symbols](#symbols)) | an `enum(u32)` |
 | `Void` | no value (what a `sub` returns) | `void` |
 | `error` | an error of any set, owning ([§13](#any-error)) | `anyerror` |
 
@@ -2291,6 +2292,108 @@ sub main()
 `from_text` gives a plain enum's variant by its name; `Shape` has variants with payloads, which a name cannot build
 ```
 
+### Symbols
+
+A symbol is `:` and a name, written where an operand starts: `:width`,
+`:if`, `:content-type` ([SYNTAX, Symbols](SYNTAX.md#symbols)). Its
+type is the builtin `Symbol` wherever it stands: unlike `.width`, it is
+not inferred from context, and `.width` where a `Symbol` is expected is
+rejected. The values of `Symbol` are exactly the symbol literals the
+whole program writes, in every module, std included, so every symbol
+has a name that lives for the whole program.
+
+A symbol is plain data, one value like a plain enum's: a bare use
+copies it, it carries no loan, and it goes in a List, an optional, a
+box, or a shared handle as any plain value does. Its operations are
+these, and no others:
+
+- `a == b` and `a != b`: the same name. A symbol has no order, so `<`
+  and its kin are rejected.
+- `s.text`: its name, a `Static` (`width`), read-only, as a plain
+  enum's `.text` is.
+- `Symbol.from_text(word)`: the program's symbol spelled `word`, or
+  `none`, where `word` is any text a `?String` parameter takes. It
+  allocates nothing: it hashes `word` once and looks it up in a table
+  of every literal, which the compiler builds.
+- `print(:width)` prints `:width`, as an enum prints `.dot`.
+- `s.hash()`, and a symbol as a key of a `hash.Map` or `hash.Set`
+  ([std.hash](docs/STD.md#stdhash)).
+- `match s`, with arms such as `:a =>` and `:a, :b =>`, guards, and a
+  required `_ =>`. The values belong to the whole program, so no set of
+  arms covers them; two arms for one symbol are rejected.
+
+No number becomes a symbol and no symbol becomes a number: `U32(s)` is
+rejected, and `Symbol` has no function but `from_text`. The compiler
+numbers the symbols when it builds the program, and the numbers differ
+between programs; a symbol is stored or sent as its `.text`.
+
+`from_text` answers "is this name written somewhere in the program?",
+never "is this name allowed?". Its answer changes when another module,
+or std, writes a new literal, so a word read from input is checked by a
+`match` whose `_ =>` arm rejects it. When the set of names is closed
+and a missing case should be an error, use a plain enum: `.widht` is
+an error where a `Dim` is expected, but `:widht` is just another symbol.
+
+```rig
+fun area(shape: Symbol, w: Int, h: Int) -> Int
+  match shape
+    :rect => w * h
+    :triangle => w * h / 2
+    _ => 0
+
+sub main()
+  print(area(:rect, 3, 4), area(:triangle, 3, 4), :rect)
+  print(Symbol.from_text("rect") == :rect, Symbol.from_text("hexagon"))
+  s = :content-type
+  print(s.text, s.text.len, [:if, :utf-8, :a.b])
+```
+
+```output
+12 6 :rect
+true none
+content-type 12 [:if, :utf-8, :a.b]
+```
+
+```rig
+use std.hash
+
+fun command(word: ?String) -> Symbol
+  s = Symbol.from_text(word) ?? :unknown
+  match s
+    :add, :remove => s
+    _ => :unknown
+
+sub main()
+  shape = :rect
+  print(command("add"), command("rect"), command("drop"), shape)
+  seen = hash.Map[Symbol, Int]()
+  for w in ["add", "remove", "add"]
+    c = command(w)
+    !seen.put(c, (seen.get(c) ?? 0) + 1)
+  print(seen.get(:add) ?? 0, seen.get(:remove) ?? 0, seen.len)
+```
+
+```output
+:add :unknown :unknown :rect
+2 1 2
+```
+
+```rig reject
+sub main()
+  s: Symbol = .width
+  t = :a
+  print(s, t < :b, U32(t))
+  match t
+    :a => print(1)
+```
+
+```error
+`.width` is an enum variant, and a `Symbol` is expected; a symbol is written `:width`
+operator `<` is not defined for `Symbol`: a symbol has no order
+`U32(x)` converts a number; `x` has type `Symbol`
+`match` on a `Symbol` is not exhaustive without `_ =>`
+```
+
 ### Error sets
 
 `error Name` declares a set of error values, which are used like the
@@ -4321,7 +4424,8 @@ value is not.
 ### match
 
 `match` runs the first arm whose pattern matches, and no other. It works
-on enums, integers, `Bool`, and error values (`catch |err|`,
+on enums, integers, `Bool`, symbols ([Symbols](#symbols)), and error
+values (`catch |err|`,
 [§13](#naming-the-error)); [SYNTAX §12](SYNTAX.md#12-patterns) lists
 the patterns. A range pattern's bounds are constants. Every match must
 cover every value, whether its value is used
@@ -9271,6 +9375,7 @@ may hide either. `panic` is a keyword.
 | `?String`, `String` | its text; inside other values, quoted and escaped (below) |
 | `none` | `none` |
 | enum | `.green`, `.circle(r: 2.5)`, `.rect(w: 2, h: 3)`: payload fields by name, however it was built |
+| `Symbol` | `:width`, as it is written |
 | error | `Disk.timeout`: its set and its name, without the module |
 | object | `User(name: "ada", age: 36)`: every field, in order |
 | array, slice, `List` | `[1, 2]` |

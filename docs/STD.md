@@ -761,21 +761,17 @@ sub main()
 0 1 0 none height 2
 ```
 
-The entries are kept in one List, in order, each with its key's hash
-beside it, so no key is hashed twice: not when the table grows, nor
-when an entry is taken. A Map or Set builds a table when it first
-holds more than 8 entries, or when `reserve` makes room for more, and
-keeps it until `clear`; until then, a lookup compares the stored
-hashes in turn, then the key where one matches. The table is
-open-addressed and probed linearly, at most four fifths full; each
-slot holds a one-byte tag, the top seven bits of its key's hash, and
-the index of its entry, so a probe compares a key only when the tag
-matches, and a key that is not there is found missing from the tags
+The entries are kept in one List, in order, and a table finds them
+from the first entry on. The table is open-addressed and probed
+linearly, at most half full; each slot is one `U64`, 0 when free, else
+31 bits of its key's hash over the index of its entry. A slot keeps
+those bits, so no key is hashed twice: not when the table grows, nor
+when an entry is taken. A probe compares a key only when a slot's hash
+bits match, so a key that is not there is found missing from the slots
 alone. A Map's entry holds its key and an optional value (for a
-`Map[U32, U32]`, a `U32` and a `U32?`), and its hash, a `U64`, is kept
-in a List beside the entries; taking one empties its value in place,
-and the next growth drops the entry, key and all, keeping the rest in
-order. A Set's key is optional, and taking one hands it back. The seed
+`Map[U32, U32]`, a `U32` and a `U32?`); taking one empties its value
+in place, and the next growth drops the entry, key and all, keeping
+the rest in order. A Set's key is optional, and taking one hands it back. The seed
 of `.hash()` is fixed, so a program that lets others choose many keys
 that collide can be made slow.
 
@@ -951,6 +947,43 @@ warn 2
 info 1
 unknown level trace
 debug 0
+```
+
+## Symbol names
+
+A symbol, `:width`, is a value of the builtin type `Symbol`
+([SPEC, Symbols](../SPEC.md#symbols)), and needs no `use`. `s.text` is
+its name, a `Static`, and `Symbol.from_text(word)` is the program's
+symbol spelled `word`, or `none`; neither allocates. The symbols are
+exactly the names the program writes, so `from_text` finds a name
+written anywhere in the program, std included: a word read from input
+is checked by a `match` whose `_ =>` arm rejects it. A symbol is a key
+of a `hash.Map` or a `hash.Set` ([std.hash](#stdhash)). A name known
+only when the program runs is no symbol; `hash.Symbols` gives it a
+dense id.
+
+```rig
+use std.hash
+use std.text
+
+sub main()
+  counts = hash.Map[Symbol, Int]()
+  for w in text.words("get put get drop")
+    s = Symbol.from_text(w) ?? :other
+    k = :other
+    match s
+      :get, :put => k = s
+      _ => pass
+    n = (!counts).ensure(k, 0)
+    n += 1
+  for e in ?counts.items()
+    print(e.key, e.key.text, e.value)
+```
+
+```output
+:get get 2
+:put put 1
+:other other 1
 ```
 
 ## std.text

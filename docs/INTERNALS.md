@@ -23,6 +23,7 @@ modules          src/modules.zig   load `use`d files, check in dependency order
   │  proofs      src/proofs.zig    the tests known to pass
   ▼
 inlining         src/inlining.zig  which small functions Zig inlines, program-wide
+symbols          src/symbols.zig   the program's symbols, numbered
 emit             src/emit.zig      one Zig file per module
 runtime          src/runtime.zig   written next to them as rig/runtime.zig
   ▼
@@ -163,6 +164,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/storage.zig` | the storage facts: where emit makes hidden storage, decided once for emit and the ownership checker |
 | `src/ownership.zig` | the ownership checker |
 | `src/inlining.zig` | which functions are emitted `inline`, decided once for the whole program after every module is checked |
+| `src/symbols.zig` | the program's symbols: every `:name` of every module, numbered once for the whole program, and `__rig_symbols.zig`, which holds them ([Symbols](#symbols)) |
 | `src/proofs.zig` | the proven checks: which index, byte-access, and add tests a guard or a check already made |
 | `src/facts.zig` | `Facts`, emit's read-only view of a checked module: the facts table, the storage facts, and how each type is held in Zig; the decisions emit still makes itself (`Pending`) |
 | `src/emit.zig` | Zig code generation |
@@ -277,8 +279,8 @@ detached sigil, is the one reported.
 | `a \| b` vs `\|a, +b\| body` | `BAR` vs `BAR_CAPTURE` | after a value, bitwise or; otherwise a bar list, whose closing bar is the one the opening probe found |
 | `\|\| body` vs `a \|\| b` | `BAR_EMPTY` vs an error | where an operand starts, an empty bar list; after a value, rejected with a hint (`or`, or `??` before a literal) |
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
-| `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
-| `while c : step`, `while a ?? break : step` vs `:outer for`, `break :outer` | `STEP_COLON` vs an error | the first `:` at a `while` header's bracket depth starts its step, also right after a jump, unless a name and a second `:` follow it (`?? break :outer : i += 1`, the old spelling); anywhere else, a `:` that starts a statement or follows `break` or `continue` is a label in the old spelling, rejected with a hint (`colon_label`) |
+| `name:` inside `( )` vs `f(not :a)` | `KWARG_NAME` vs a word | a keyword argument or typed parameter: a word right after `(`, `,`, or a closure's opening bar, before a `:` that touches it or that no name touches (`K(break : 3)`); a word anywhere else stays a word, so `f(c or :a)` holds a symbol; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
+| `while c : step`, `while a ?? break : step` vs `x: Int` vs `x = :width`, `:a =>` vs `:outer for` | `STEP_COLON` vs `:` vs `SYMBOL_COLON` vs an error | decided once, in `Lexer.classifyColon`. The first `:` at a `while` header's bracket depth, after a value or a jump, starts its step, unless a name and a second `:` follow a jump (`?? break :outer : i += 1`, the old label spelling). A `:` after a value or a keyword argument's name anywhere else is `:`. A `:` where an operand starts that touches a name is a symbol's, and the word after it, a keyword too, is the symbol's name, with its runs of `-` or `.` and a name character (`symbolName`): `:content-type`, `:a.b`. Where an operand starts, `:outer for`, `continue :outer`, and a jump's `:` that touches no name are labels in the old spelling (`colon_label`); any other `:` that touches no name is an error (`symbol_detached`, `symbol_name`) |
 | `@outer for`, `break @outer`, `break @outer (x)` vs `@size(T)` | `LABEL_AT` vs `@` | `@` and a name that no `(` touches is a label at the start of a line, after another label, or after `break` or `continue`, the places the grammar takes one (not after `=>`, `defer`, or `errdefer`, whose statement is a `simple`); with the `(` touching the name it starts a builtin call, except right after a jump, where `@name` is always a label and the touching `(` is an error (`label_call`). The `@` touches the name (`at_detached`), a keyword is no label (`label_keyword`), a value does not touch a jump's label (`label_touch`), and a bare `@name` anywhere else is the reserved pin sigil (`pin_sigil`). After a jump's label the next token starts an operand |
 | `a ?? return`, `?? break`, `?? continue` vs `a ?? b` | `NULLISH_JUMP` vs `??` | a `??` whose next token is `return`, `break`, or `continue` takes a jump; the grammar reads it at the level of `catch` (`value`), where a jump's value may run to the end of the expression, and the infix `??` never sees a jump |
 | keywords | one token each | every keyword is reserved; `new` only at statement start, `obj` only where a declaration starts, `called` and `rarely` only there before `fun` or `sub` |
@@ -4105,6 +4107,55 @@ symbols); a query that decides more than that belongs in `Pending`.
 - **Tests.** `test "name"` becomes `fn __rig_test_<n>() anyerror!void`,
   listed in the module's `pub const __rig_tests` table, which only
   `rig test` references.
+
+### Symbols
+
+A symbol, `:name`, is one `SYMBOL_COLON` and the name after it, a
+`symbol` node with one leaf ([Conflicts policy](#conflicts-policy)). It
+is specified as a desugaring:
+
+```text
+:name               ≡ Symbol.name           a variant of a plain enum `Symbol`
+                                             the compiler writes once per program,
+                                             one variant per distinct literal
+s.text              ≡ symbol_text(s)        fun symbol_text(s: Symbol) -> Static,
+                                             indexing a constant array of the names
+Symbol.from_text(w) ≡ symbol_find(w)        fun symbol_find(w: ?String) -> Symbol?,
+                                             reading only constants; the result is
+                                             plain, so it keeps no loan on `w`
+match s / :a =>     ≡ a match on that enum, with its `_` arm
+```
+
+Every form on the right exists already, so the checker rule for a
+symbol is the one those forms have: typecheck types `:name` as the
+builtin `Symbol`, a plain type; storage and the ownership checker read
+it as a constant, as they read an enum literal; `s.text` is a member
+the place checks block every write and write lend of, as a plain enum's
+`.text` is (`symbol_text`). Checking needs no numbering.
+
+The numbering is one pass over the whole program, after every module
+is checked and before the Zig is written (`src/symbols.zig`, called
+from `emitPackage` in `src/main.zig`): it collects every `symbol` leaf
+of every module, std included, removes duplicates, and sorts them
+bytewise, so the numbers depend on no module order and two builds of a
+program agree. When any module uses a symbol, the package gets one more
+file, `__rig_symbols.zig`:
+
+```zig
+pub const Symbol = enum(u32) { @"a" = 0, @"if" = 1, ..., _, pub const __rig_symbol = true; pub fn text(...) };
+const table: rig.NameTable = ...;   // src/nametable.zig, as an enum's from_text
+pub fn fromText(word: []const u8) ?Symbol
+```
+
+A module that uses a symbol imports it as `__rig_sym` and writes
+`:name` as the tag `__rig_sym.Symbol.@"name"`, never as a number, so a
+new symbol anywhere changes only that file. Every tag is quoted, so no
+name meets a Zig keyword. The enum is non-exhaustive (`_`): a `match`
+lowers to a `switch` with an `else`, which Zig accepts even when the
+arms name every tag, and a program with no symbol has a `Symbol` with
+no tags whose `text` is `unreachable`. The runtime knows a symbol type
+by its `__rig_symbol` declaration: `print` writes `:` and its text,
+`rig.nameOf` gives `Symbol`, and `rig.enumText` reads `text`.
 
 ## The runtime
 
