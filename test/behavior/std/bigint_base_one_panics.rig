@@ -1,0 +1,7 @@
+# A base of 1 reads nothing, so it is a misuse too.
+use std.bigint
+
+sub main()
+  print((bigint.parse("0", 1) catch bigint.from_int(0)).text())
+
+# expect-panic: bigint.parse: the base is not 0 or between 2 and 36

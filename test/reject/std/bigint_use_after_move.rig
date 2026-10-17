@@ -1,0 +1,12 @@
+# A BigInt owns its limbs, so `<x` moves it, and a BigInt moved away
+# cannot be read; `clone` makes a second one.
+use std.bigint
+
+sub main()
+  a = bigint.from_int(1)
+  b = a.clone()
+  c = <a
+  print(a.text(), b.text(), c.text())
+
+# error: 9:9: use of `a` after move
+# errors: 1

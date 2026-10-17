@@ -31,6 +31,7 @@ never read as the library's.
 | Module | What it offers |
 |---|---|
 | [`std.math`](#stdmath) | number helpers, and Float functions |
+| [`std.bigint`](#stdbigint) | integers of any size: parsing, printing, arithmetic, shifts, powers, and the nearest Float |
 | [`std.os`](#stdos) | the program's arguments and environment |
 | [`std.file`](#stdfile) | reading a whole file |
 | [`std.time`](#stdtime) | clocks and sleeping |
@@ -149,6 +150,83 @@ true 1 -1
 false 12345 -2
 false 0 0
 none
+```
+
+## std.bigint
+
+`BigInt` is an integer of any size, written in Rig: a sign and a
+magnitude of 64-bit limbs on the heap, kept normalized, so zero has no
+limbs and is never negative. A BigInt owns its limbs, so it moves
+(`b = <a`) and `clone` makes a second one. Its fields are private: a
+BigInt is made by `parse` or `from_int`, or by an operation on others.
+
+Every operation that makes a BigInt allocates its limbs, sized before
+they are filled, and `pow` one more List of the result's size while it
+works; zero allocates nothing. `text` allocates the String it returns,
+and for a number of more than 8 limbs (about 154 digits) a copy of the
+limbs to divide and a List of the 19-digit groups. `compare`, `equals`,
+`sign`, `bit_len`, and `to_f64` only read, and allocate nothing.
+
+| Member | Result |
+|---|---|
+| `bigint.parse(s: ?String, base: Int = 0) -> BigInt!` | the integer `s` writes, or `ParseError.invalid`; panics unless `base` is 0 or from 2 to 36 |
+| `bigint.from_int(n: Int) -> BigInt` | `n` as a BigInt |
+| `a.text() -> String` | the number in base 10: a `-` when it is negative, no leading zeros |
+| `a.clone() -> BigInt` | a second BigInt of the same value |
+| `a.compare(b: ?BigInt) -> Int` | -1, 0, or 1, as `a` is below, equal to, or above `b` |
+| `a.equals(b: ?BigInt) -> Bool` | whether the two are equal |
+| `a.sign() -> Int` | -1, 0, or 1 |
+| `a.bit_len() -> Int` | the bits of the magnitude: 0 for zero, 64 for 2^63 |
+| `a.add(b)`, `a.sub(b)`, `a.mul(b)` | the sum, difference, and product |
+| `a.shl(n: Int) -> BigInt` | `a` times 2^n; panics when `n` is negative |
+| `a.shr(n: Int) -> BigInt` | `a` divided by 2^n, rounded toward minus infinity as `>>` rounds, so -1 at the least for a negative number; panics when `n` is negative |
+| `a.pow(e: Int) -> BigInt` | `a` to the power `e`, 1 when `e` is 0; panics when `e` is negative |
+| `a.to_f64() -> Float` | the nearest `Float`, ties to even, and infinite past the largest |
+
+`parse` reads Go's `Int.SetString` syntax: an optional sign, then
+digits in `base`, upper or lower case. Base 0 reads the base from a
+prefix, `0x`, `0o`, `0b`, or a bare `0` for octal, else 10, and allows
+one `_` after the prefix or a digit; any other base reads no prefix
+and no `_`. Anything else, an empty text or a space included, is
+`invalid`.
+
+```rig
+use std.bigint
+
+sub main()!
+  a = bigint.parse("123456789012345678901234567890")!
+  b = bigint.from_int(-42)
+  print(a.mul(b).text())
+  print(a.add(b).text(), a.sub(b).text(), a.compare(b), a.equals(a.clone()))
+  print(bigint.parse("0xffff_ffff_ffff_ffff")!.add(bigint.from_int(1)).text())
+  print(bigint.from_int(1).shl(100).text(), b.shr(4).text())
+  print(bigint.from_int(3).pow(50).text(), bigint.from_int(10).pow(400).to_f64())
+  print(bigint.parse("9007199254740993")!.to_f64(), (bigint.parse("1_000", 10) catch bigint.from_int(-1)).text())
+```
+
+```output
+-5185185138518518513851851851380
+123456789012345678901234567848 123456789012345678901234567932 1 true
+18446744073709551616
+1267650600228229401496703205376 -3
+717897987691852588770249 inf
+9007199254740992.0 -1
+```
+
+`9007199254740993` is 2^53 + 1, halfway between two `Float`s, and
+rounds to the even one, 2^53; `"1_000"` in base 10 is `invalid`, as a
+set base reads no `_`. A BigInt has no `==` or `<`, which would
+hide a walk over the limbs; `equals` and `compare` name it.
+
+```rig reject
+use std.bigint
+
+sub main()
+  print(bigint.from_int(1) < bigint.from_int(2))
+```
+
+```error
+operator `<` orders numbers, plain enums, Strings, and `[]U8` slices; got `bigint.BigInt`
 ```
 
 ## std.os
