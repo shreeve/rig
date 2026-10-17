@@ -4,7 +4,11 @@
 # its package, the compiler's driver, Zig, the harness, and the settings
 # are what they were when it passed, and a run records nothing that
 # changed while it ran. Each case below changes one of them and makes
-# the run fail, so carrying the old pass over would be a false green.
+# the run fail, so carrying the old pass over would be a false green. A
+# change to the compiler (emit, the runtime, the standard library, the
+# grammar) reaches the key through the package it emits, and every run
+# checks and emits every program again, so a change to a diagnostic alone
+# fails the rejection that expects the old words.
 #
 # The runs use a small checkout of their own: test/run, src/main.zig,
 # behavior tests and a corpus program, and as bin/rig a stand-in for
@@ -31,8 +35,33 @@ sub main()
   s = "probe"
   print(s)
 EOF
-# The stand-in compiler. Its modes:
+# A program that uses the standard library: its package holds a module of
+# std (std/math.rig) and its Zig shim (std/math.zig).
+cat >co/test/behavior/a/std.rig <<'EOF'
+use std.math
+
+sub main()
+  print(math.gcd(12, 18))
+
+# expect:
+# 6
+EOF
+mkdir -p co/test/reject/a
+cat >co/test/reject/a/unbound.rig <<'EOF'
+sub main()
+  print(nope)
+
+# error: 2:9: use of unbound name `nope`
+EOF
+# The stand-in compiler. It logs each command and the file it names to
+# calls. Its modes:
 #   runtime    it emits a runtime with one more line, and its programs leak
+#   module     it emits a program's root module with one more line (a change
+#              to how the compiler writes Zig), and its programs leak
+#   std        it emits the standard library's modules and shims with one
+#              more line (a change to std/), and its programs leak
+#   diag       its diagnostics say `unknown name` for `unbound name` (a
+#              change to a diagnostic alone, which changes no package)
 #   fail       the same package as the real compiler, but its programs leak
 #   nolibc     its emit does not say that Zig links libc
 #   swap       before a run, it saves good.rig over the program
@@ -43,6 +72,7 @@ cat >co/bin/rig <<EOF
 #!/bin/bash
 mode=" \$(cat "$PWD/mode" 2>/dev/null) "
 has() { [[ \$mode == *" \$1 "* ]]; }
+echo "\$1 \${@: -1}" >>"$PWD/calls"
 case \$1 in
     emit)
         err=\$(mktemp)
@@ -50,23 +80,40 @@ case \$1 in
         if has nolibc; then grep -v -- '(-lc)\$' "\$err" >&2; else cat "\$err" >&2; fi
         rm -f "\$err"
         has runtime && echo "// another runtime" >>"\$RIG_OUT_DIR/rig/runtime.zig"
+        has module && echo "// another emit" >>"\$RIG_OUT_DIR/__rig_main.zig"
+        if has std; then
+            for f in "\$RIG_OUT_DIR"/__rig_std_*.zig "\$RIG_OUT_DIR"/rig/std/*.zig; do
+                [[ -f \$f ]] && echo "// another std" >>"\$f"
+            done
+        fi
         exit \$rc ;;
+    check)
+        if has diag; then
+            out=\$("$RIG" "\$@" 2>&1); rc=\$?
+            printf '%s\n' "\$out" | sed 's/unbound name/unknown name/' >&2
+            exit \$rc
+        fi ;;
     run)
         has swap && cp "$PWD/good.rig" "\${@: -1}"
         has rebuild && cp "\$0" "\$0.new" && mv "\$0.new" "\$0"
         has harness && echo "# changed during the run" >>"$PWD/co/test/run"
         "$RIG" "\$@"; rc=\$?
         has unguarded && echo "rig: sanitizer: mapping limit reached; further allocations are not guarded" >&2
-        { has runtime || has fail; } && { echo "error: rig: memory leak detected: 1 allocations (8 bytes) never freed" >&2; exit 1; }
+        { has runtime || has module || has std || has fail; } && { echo "error: rig: memory leak detected: 1 allocations (8 bytes) never freed" >&2; exit 1; }
         exit \$rc ;;
 esac
 exec "$RIG" "\$@"
 EOF
 chmod +x co/bin/rig
-# Zig, but `zig build` leaves the stand-in in place.
+# Zig, but `zig build` leaves the stand-in in place, and with a file
+# zigver, `zig env` names another version of Zig at the same path.
 cat >zig <<EOF
 #!/bin/bash
 [[ \$1 == build ]] && exit 0
+if [[ \$1 == env && -f "$PWD/zigver" ]]; then
+    "$real_zig" env | sed "s/\$("$real_zig" version)/\$(cat "$PWD/zigver")/"
+    exit
+fi
 exec "$real_zig" "\$@"
 EOF
 chmod +x zig
@@ -74,7 +121,7 @@ cp zig zig2
 
 export RIG_RESULTS_CACHE=$PWD/cache RIG_TEST_OUT=$PWD/out ZIG=$PWD/zig
 : >mode
-suite() { "$PWD/co/test/run" -v -j 2 "$@" behavior/a corpus 2>&1; }
+suite() { "$PWD/co/test/run" -v -j 2 "$@" behavior/a reject/a corpus 2>&1; }
 # run_only [option...] <filter...>: test/run with only the filters given.
 run_only() { "$PWD/co/test/run" -v -j 2 "$@" 2>&1; }
 records() { find cache -type f | wc -l | tr -d ' '; }
@@ -83,10 +130,10 @@ carried() { grep -qE "pass +$2 .*carried over" <<<"$1"; }
 
 o=$(suite) || fail "first run: $o"
 carried "$o" behavior/a/prog && fail "a run with an empty cache carried a test over"
-[[ $(records) -eq 3 ]] || fail "expected 3 records, found: $(find cache -type f)"
+[[ $(records) -eq 4 ]] || fail "expected 4 records, found: $(find cache -type f)"
 o=$(suite --delta) || fail "delta run: $o"
 carried "$o" behavior/a/prog && carried "$o" corpus/probe || fail "an unchanged test was not carried over: $o"
-expect_has "$o" "3 passed (3 carried over)" "the summary of a delta run"
+expect_has "$o" "5 passed (4 carried over)" "the summary of a delta run"
 o=$(suite) || fail "a full run: $o"
 carried "$o" behavior/a/prog && fail "a run without --delta carried a test over"
 
@@ -129,6 +176,46 @@ o=$(RIG_SANITIZE=0 suite --delta); expect_rc $? 1 "a delta run without the sanit
 o=$(RIG_TEST_TIMEOUT=7 suite --delta); expect_rc $? 1 "a delta run with another time limit"
 o=$(RIG_SANITIZE_BLOCKS=100000 suite --delta); expect_rc $? 1 "a delta run with a sanitizer knob"
 o=$(RIG_PROGRAM_READS_THIS=1 suite --delta); expect_rc $? 1 "a delta run with another RIG_ variable"
+
+# Another version of Zig at the same path: `zig env` names the version.
+echo 0.17.99-other >zigver
+o=$(suite --delta); expect_rc $? 1 "a delta run with another version of Zig at the same path"
+expect_has "$o" "FAIL   behavior/a/prog" "another version of Zig"
+rm zigver
+
+# A compiler that writes a program's Zig differently (a change to emit or
+# anything before it), or the standard library's (a change to std/): each
+# program whose package changed runs again, and only those.
+echo module >mode
+o=$(suite --delta); expect_rc $? 1 "a delta run with another emit"
+expect_has "$o" "FAIL   behavior/a/prog" "another emit"
+expect_has "$o" "FAIL   corpus/probe" "another emit, corpus"
+echo std >mode
+o=$(suite --delta); expect_rc $? 1 "a delta run with another standard library"
+expect_has "$o" "FAIL   behavior/a/std" "another standard library"
+carried "$o" behavior/a/prog || fail "a program that uses no std module was not carried over: $o"
+
+# Every run checks and emits every program again; the cache spares only a
+# program's build and run. So a change to a diagnostic alone, which
+# changes no package, still fails the rejection that expects the old
+# words, and a changed `# error:` is checked at once.
+: >mode
+o=$(suite --delta) || fail "the real compiler again: $o"
+: >calls
+echo diag >mode
+o=$(suite --delta); expect_rc $? 1 "a delta run with another diagnostic"
+expect_has "$o" "FAIL   reject/a/unbound" "a diagnostic's wording"
+carried "$o" behavior/a/prog || fail "a diagnostic's wording kept a run from being carried over: $o"
+grep -qE '^emit .*behavior/a/prog\.rig$' calls || fail "a carried-over program was not emitted again: $(cat calls)"
+grep -qE '^check .*reject/a/unbound\.rig$' calls || fail "a rejection was not checked again: $(cat calls)"
+grep -qE '^run .*behavior/a/prog\.rig$' calls && fail "a carried-over program ran: $(cat calls)"
+: >mode
+cp co/test/reject/a/unbound.rig unbound.rig
+perl -pi -e 's/unbound name/unbound variable/' co/test/reject/a/unbound.rig
+o=$(suite --delta); expect_rc $? 1 "a delta run after a rejection's expected error changed"
+expect_has "$o" "FAIL   reject/a/unbound" "a changed # error:"
+cp unbound.rig co/test/reject/a/unbound.rig
+echo fail >mode
 
 # The same package, which Zig links without libc: the key says whether it
 # links libc, which is in no file of the package.
