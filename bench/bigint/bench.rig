@@ -1,0 +1,543 @@
+# The std.bigint benchmark: std.bigint against Trig's port of Go's
+# math/big (bench/bigint/README.md). Between the PORT markers is a
+# verbatim copy of trig/src/jsnum/gostd.rig (Trig b2d44c7), its big-int
+# section and the constants and `digit_value` it reads from jsnum.rig
+# and gostd.rig; the port-style functions after it are not in the port.
+use std.bigint
+use std.random
+use std.time
+
+# ---- PORT: trig/src/jsnum/jsnum.rig, the bytes the port compares with
+
+PLUS: U8 = 0x2B
+MINUS: U8 = 0x2D
+DIGIT_0: U8 = 0x30
+DIGIT_9: U8 = 0x39
+UPPER_A: U8 = 0x41
+UPPER_Z: U8 = 0x5A
+UNDERSCORE: U8 = 0x5F
+LOWER_A: U8 = 0x61
+LOWER_B: U8 = 0x62
+LOWER_O: U8 = 0x6F
+LOWER_X: U8 = 0x78
+LOWER_Z: U8 = 0x7A
+
+# ---- PORT: trig/src/jsnum/gostd.rig:180
+
+# A digit's value in bases up to 36 (Go's ParseUint and big's scan), or
+# 99 for a byte that is no digit.
+fun digit_value(c: U8) -> Int
+  return Int(c - DIGIT_0) if c >= DIGIT_0 and c <= DIGIT_9
+  return Int(c - LOWER_A) + 10 if c >= LOWER_A and c <= LOWER_Z
+  return Int(c - UPPER_A) + 10 if c >= UPPER_A and c <= UPPER_Z
+  99
+
+# ---- PORT: trig/src/jsnum/gostd.rig:325
+
+# ---- Go's standard library: math/big ----------------------------------
+# A natural number is a List of 32-bit limbs, least significant first,
+# with no high zero limbs (Go's `nat`, normalized); zero has no limbs.
+
+# Go: (std) math/big/int.go:34 Int: a sign and a magnitude.
+obj BigInt
+  neg: Bool
+  abs: List[U32]
+
+LIMB_MASK: U64 = 0xFFFFFFFF
+
+# Go: (std) math/big/nat.go:68 nat.norm
+sub nat_norm(z: !List[U32])
+  while z.len > 0 and z[z.len - 1] == 0
+    !z.pop()
+
+# Go: (std) math/big/nat.go:154 nat.mulAddWW, in place: z = z*m + a,
+# for `m` and `a` below 2^32.
+sub nat_mul_add(z: !List[U32], m: U64, a: U64)
+  carry = a
+  for i in 0..z.len
+    t = U64(z[i]) * m + carry
+    z[i] = U32(t & LIMB_MASK)
+    carry = t >> 32
+  !z.push(U32(carry)) if carry != 0
+
+# Go: (std) math/big/nat.go:328 nat.mul, by schoolbook multiplication.
+fun nat_mul(x: []U32, y: []U32) -> List[U32]
+  z: List[U32] = List()
+  for _ in 0..x.len + y.len
+    !z.push(0)
+  for xi, i in x
+    carry: U64 = 0
+    for yj, j in y
+      t = U64(xi) * U64(yj) + U64(z[i + j]) + carry
+      z[i + j] = U32(t & LIMB_MASK)
+      carry = t >> 32
+    z[i + y.len] = U32(carry)
+  nat_norm(!z)
+  z
+
+# A natural number from a U64.
+fun nat_from_u64(v: U64) -> List[U32]
+  z: List[U32] = List()
+  !z.push(U32(v & LIMB_MASK))
+  !z.push(U32(v >> 32))
+  nat_norm(!z)
+  z
+
+# Go: (std) math/big/nat.go:707 nat.bitLen
+fun nat_bit_len(x: []U32) -> Int
+  return 0 if x.is_empty()
+  (x.len - 1) * 32 + 32 - x[x.len - 1].leading_zeros()
+
+# Go: (std) math/big/nat.go:723 nat.trailingZeroBits
+fun nat_trailing_zero_bits(x: []U32) -> Int
+  for limb, i in x
+    return i * 32 + limb.trailing_zeros() if limb != 0
+  0
+
+# Bit `i` of `x` (Go `nat.bit`).
+fun nat_bit(x: []U32, i: Int) -> Bool
+  return false if i / 32 >= x.len
+  (x[i / 32] >> (i % 32)) & 1 == 1
+
+# Whether any bit of `x` below bit `n` is set (Go's sticky bit,
+# `nat.sticky`).
+fun nat_sticky(x: []U32, n: Int) -> Bool
+  for limb, i in x
+    break if i * 32 >= n
+    if (i + 1) * 32 <= n
+      return true if limb != 0
+    else
+      keep = n - i * 32
+      return true if U64(limb) & ((U64(1) << keep) - 1) != 0
+  false
+
+# Go: (std) math/big/nat.go:847 nat.shr: x >> s.
+fun nat_shr(x: []U32, s: Int) -> List[U32]
+  z: List[U32] = List()
+  limbs = s / 32
+  bits = s % 32
+  for i in limbs..x.len
+    lo = U64(x[i]) >> bits
+    hi: U64 = 0
+    if bits > 0 and i + 1 < x.len
+      hi = (U64(x[i + 1]) << (32 - bits)) & LIMB_MASK
+    !z.push(U32(lo | hi))
+  nat_norm(!z)
+  z
+
+# Go: (std) math/big/nat.go:83 low64
+fun nat_low64(x: []U32) -> U64
+  return 0 if x.is_empty()
+  return U64(x[0]) if x.len == 1
+  U64(x[0]) | (U64(x[1]) << 32)
+
+# Go: (std) math/big/natconv.go:109 nat.scan with base 0, and
+# math/big/int.go:582 Int.SetString(s, 0), with `Int.scan`'s sign: the
+# integer `s` writes, or `none` where SetString fails.
+fun big_int_set_string(s: ?String) -> BigInt?
+  i = 0
+  neg = false
+  if i < s.len and (s[i] == MINUS or s[i] == PLUS)
+    neg = s[i] == MINUS
+    i += 1
+
+  # prev encodes the previously seen char: '_', a digit, or anything
+  # else. A valid separator '_' may only occur after a digit.
+  prev_digit = false
+  prev_sep = false
+  inval_sep = false
+
+  # Determine actual base.
+  base = 10
+  prefix: U8 = 0
+  count = 0
+  if i < s.len and s[i] == DIGIT_0
+    prev_digit = true
+    count = 1
+    i += 1
+    if i < s.len
+      # possibly one of 0b, 0B, 0o, 0O, 0x, 0X
+      match s[i]
+        0x62, 0x42
+          base = 2
+          prefix = LOWER_B
+        0x6F, 0x4F
+          base = 8
+          prefix = LOWER_O
+        0x78, 0x58
+          base = 16
+          prefix = LOWER_X
+        _
+          base = 8
+          prefix = DIGIT_0
+      count = 0  # prefix is not counted
+      i += 1 if prefix != DIGIT_0
+
+  # Convert string.
+  z: List[U32] = List()
+  while i < s.len
+    ch = s[i]
+    if ch == UNDERSCORE
+      inval_sep = true if not prev_digit
+      prev_digit = false
+      prev_sep = true
+    else
+      d = digit_value(ch)
+      break if d >= base  # ch does not belong to number anymore
+      prev_digit = true
+      prev_sep = false
+      count += 1
+      nat_mul_add(!z, U64(base), U64(d))
+    i += 1
+
+  return none if inval_sep or prev_sep
+  # no digits found: only an octal prefix 0 reads as decimal 0.
+  return none if count == 0 and prefix != DIGIT_0
+  # entire content must have been consumed
+  return none if i < s.len
+  BigInt(neg: neg and not z.is_empty(), abs: <z)
+
+# Go: (std) math/big/int.go:542 Int.Float64: the float64 nearest `x`,
+# ties to even.
+fun big_int_float64(x: ?BigInt) -> Float
+  n = nat_bit_len(?x.abs)
+  return 0.0 if n == 0
+
+  # Fast path: no more than 53 significant bits.
+  if n <= 53 or n < 64 and n - nat_trailing_zero_bits(?x.abs) <= 53
+    f = Float(nat_low64(?x.abs))
+    return -f if x.neg else f
+
+  # Go `new(Float).SetInt(x).Float64()`: SetInt is exact at its
+  # default precision, so Float64 rounds once.
+  big_int_to_float_prec(x, n)
+
+# Go `new(big.Float).SetPrec(prec).SetInt(x).Float64()`: `x` rounded to
+# `prec` bits, then to a float64's 53, each to nearest with ties to even
+# (Go: (std) math/big/float.go:601 SetInt and float.go:961 Float64, for
+# an integer of at least 2^53, so never a subnormal).
+fun big_int_to_float_prec(x: ?BigInt, prec: Int) -> Float
+  first = nat_round(?x.abs, prec)
+  second = nat_round(?first.mant, 53)
+  # At most 2^53, so exact.
+  f = Float(nat_low64(?second.mant))
+  shift = first.shift + second.shift
+  # Exact doubling, to +Inf past `Float.max`, as Float64 overflows.
+  for _ in 0..shift
+    f *= 2.0
+    break if f > Float.max
+  -f if x.neg else f
+
+# A natural number rounded: `mant * 2^shift`.
+obj Rounded
+  mant: List[U32]
+  shift: Int
+
+# Go: (std) math/big/float.go:374 Float.round, ToNearestEven: `x`
+# rounded to `prec` significant bits.
+fun nat_round(x: []U32, prec: Int) -> Rounded
+  n = nat_bit_len(x)
+  if n <= prec
+    exact: List[U32] = List()
+    for limb in x
+      !exact.push(limb)
+    return Rounded(mant: <exact, shift: 0)
+  s = n - prec
+  q = nat_shr(x, s)
+  rbit = nat_bit(x, s - 1)
+  sbit = nat_sticky(x, s - 1)
+  if rbit and (sbit or nat_bit(?q, 0))
+    nat_mul_add(!q, 1, 1)
+  Rounded(mant: <q, shift: s)
+
+# Go: (std) math/big/int.go:650 Int.Exp(x, y, nil) for int64 `x` and
+# `y >= 0`.
+fun big_int_exp(x: Int, y: Int) -> BigInt
+  # |x| as a U64: Int.min's magnitude is no Int.
+  mag: U64 = U64(-(x + 1)) + 1 if x < 0 else U64(x)
+  b = nat_from_u64(mag)
+  z: List[U32] = List()
+  !z.push(1)
+  # Square and multiply, from the high bit of `y` down.
+  k = 63
+  while k >= 0
+    sq = nat_mul(?z, ?z)
+    z = <sq
+    if (y >> k) & 1 == 1
+      p = nat_mul(?z, ?b)
+      z = <p
+    k -= 1
+  BigInt(neg: x < 0 and y & 1 == 1 and not z.is_empty(), abs: <z)
+
+# Go: (std) math/big/intconv.go:39 Int.String: base 10, with a sign.
+fun big_int_string(x: ?BigInt) -> String
+  return String("0") if x.abs.is_empty()
+  # Go: (std) math/big/natconv.go nat.utoa, by repeated division by
+  # 10^9.
+  q: List[U32] = List()
+  for limb in ?x.abs
+    !q.push(limb)
+  chunks: List[U32] = List()
+  while not q.is_empty()
+    rem: U64 = 0
+    i = q.len - 1
+    while i >= 0
+      cur = (rem << 32) | U64(q[i])
+      q[i] = U32(cur / 1000000000)
+      rem = cur % 1000000000
+      i -= 1
+    nat_norm(!q)
+    !chunks.push(U32(rem))
+  out = String("-") if x.neg else String()
+  !out.add(chunks[chunks.len - 1])
+  j = chunks.len - 2
+  while j >= 0
+    v = chunks[j]
+    p: U32 = 100000000
+    while p > 0
+      !out.push(DIGIT_0 + U8((v / p) % 10))
+      p /= 10
+    j -= 1
+  out
+
+# ---- END PORT ----------------------------------------------------------
+
+# Port-style, not in Trig's port: Go's nat.add, on the port's limbs and
+# in its style.
+fun nat_add(x: []U32, y: []U32) -> List[U32]
+  if x.len < y.len
+    return nat_add(y, x)
+  z: List[U32] = List()
+  carry: U64 = 0
+  for xi, i in x
+    t = U64(xi) + carry
+    t += U64(y[i]) if i < y.len
+    !z.push(U32(t & LIMB_MASK))
+    carry = t >> 32
+  !z.push(U32(carry)) if carry != 0
+  z
+
+# Port-style, not in Trig's port: Go's nat.shl.
+fun nat_shl(x: []U32, s: Int) -> List[U32]
+  z: List[U32] = List()
+  for _ in 0..s / 32
+    !z.push(0)
+  bits = s % 32
+  carry: U64 = 0
+  for limb in x
+    v = (U64(limb) << bits) | carry
+    !z.push(U32(v & LIMB_MASK))
+    carry = v >> 32
+  !z.push(U32(carry)) if carry != 0
+  z
+
+# ---- The harness -------------------------------------------------------
+
+# The nanoseconds of one call of `f`, which runs it `n` times and returns
+# a checksum: the fastest of seven runs, each of at least 20 ms. Each run
+# cycles through K inputs, so the optimizer cannot hoist the work.
+fun measure(f: ?fun(Int) -> Int) -> Float
+  n = 1
+  sink = 0
+  start = time.now()
+  sink +%= f(n)
+  while start.elapsed() < 20 * time.MS and n < 1 << 40
+    n *= 2
+    start = time.now()
+    sink +%= f(n)
+  best = Float.inf()
+  for 0..7
+    start = time.now()
+    sink +%= f(n)
+    ns = Float(start.elapsed()) / Float(n)
+    best = ns if ns < best else best
+  # The checksum keeps the work from being optimized away.
+  print("  # sink", sink % 10) if sink == 7
+  best
+
+# One result line: the operation, the size, both times, and how much
+# faster std is.
+sub report(op: ?String, size: ?String, port: Float, std: Float)
+  speed = (port / std - 1.0) * 100.0
+  word = "faster"
+  if speed < 0.0
+    speed = (std / port - 1.0) * 100.0
+    word = "slower"
+  print(op, size, Int(port * 10.0) / 10, Int(std * 10.0) / 10, Int(speed), "%", word)
+
+# `n` random digits in base 10, or hexadecimal with `hex`, the first not
+# zero.
+fun digits(r: !random.Random, n: Int, hex: Bool) -> String
+  out = String("0x") if hex else String()
+  set = "0123456789abcdef"
+  base = 16 if hex else 10
+  !out.push(set[(!r).int(1, base)])
+  for 1..n
+    !out.push(set[(!r).int(0, base)])
+  out
+
+K = 8
+
+fun std_of(s: ?String) -> bigint.BigInt
+  bigint.parse(s) catch bigint.from_int(0)
+
+fun port_of(s: ?String) -> BigInt
+  big_int_set_string(s) ?? BigInt(neg: false, abs: List())
+
+sub main()
+  r = random.Random.seeded(42)
+  print("op size port_ns std_ns speed")
+  for limbs in [1, 2, 4, 16, 64]
+    size = String(limbs, "L")
+    dec: List[String] = List()
+    hex: List[String] = List()
+    a: List[bigint.BigInt] = List()
+    b: List[bigint.BigInt] = List()
+    pa: List[BigInt] = List()
+    pb: List[BigInt] = List()
+    for 0..K
+      d1 = digits(!r, limbs * 19, false)
+      d2 = digits(!r, limbs * 19, false)
+      !a.push(std_of(d1))
+      !b.push(std_of(d2))
+      !pa.push(port_of(d1))
+      !pb.push(port_of(d2))
+      !dec.push(<d1)
+      !hex.push(digits(!r, limbs * 16, true))
+
+    report("parse10", size, measure(|?dec, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += port_of(dec[j]).abs.len
+      t
+    ), measure(|?dec, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += std_of(dec[j]).bit_len()
+      t
+    ))
+    report("parse16", size, measure(|?hex, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += port_of(hex[j]).abs.len
+      t
+    ), measure(|?hex, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += std_of(hex[j]).bit_len()
+      t
+    ))
+    report("text", size, measure(|?pa, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += big_int_string(pa[j]).len
+      t
+    ), measure(|?a, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += a[j].text().len
+      t
+    ))
+    report("add", size, measure(|?pa, ?pb, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += nat_add(?pa[j].abs, ?pb[j].abs).len
+      t
+    ), measure(|?a, ?b, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += a[j].add(b[j]).bit_len()
+      t
+    ))
+    report("mul", size, measure(|?pa, ?pb, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += nat_mul(?pa[j].abs, ?pb[j].abs).len
+      t
+    ), measure(|?a, ?b, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += a[j].mul(b[j]).bit_len()
+      t
+    ))
+    report("shl", size, measure(|?pa, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += nat_shl(?pa[j].abs, 77).len
+      t
+    ), measure(|?a, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += a[j].shl(77).bit_len()
+      t
+    ))
+    report("shr", size, measure(|?pa, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += nat_shr(?pa[j].abs, 37).len
+      t
+    ), measure(|?a, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += a[j].shr(37).bit_len()
+      t
+    ))
+    report("to_f64", size, measure(|?pa, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t +%= Int.wrap(big_int_float64(pa[j]).to_bits())
+      t
+    ), measure(|?a, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t +%= Int.wrap(a[j].to_f64().to_bits())
+      t
+    ))
+  for p in [[10, 22], [3, 100], [7, 500], [123, 1000]]
+    size = String(p[0], "^", p[1])
+    # K bases next to p[0], so no two runs in a row compute the same power.
+    bases: List[Int] = List()
+    for k in 0..K
+      !bases.push(p[0] + k)
+    e = p[1]
+    report("pow", size, measure(|?bases, +e, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += big_int_exp(bases[j], e).abs.len
+      t
+    ), measure(|?bases, +e, n|
+      t = 0
+      for i in 0..n
+        j = i % K
+        t += bigint.from_int(bases[j]).pow(e).bit_len()
+      t
+    ))
+    report("pow_f64", size, measure(|?bases, +e, n|
+      t = 0
+      for i in 0..n
+        ri = big_int_exp(bases[i % K], e)
+        t +%= Int.wrap(big_int_to_float_prec(?ri, 256).to_bits())
+      t
+    ), measure(|?bases, +e, n|
+      t = 0
+      for i in 0..n
+        t +%= Int.wrap(bigint.from_int(bases[i % K]).pow(e).to_f64().to_bits())
+      t
+    ))
