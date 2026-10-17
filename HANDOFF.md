@@ -91,8 +91,8 @@ from).
   (docs/json/DESIGN.md, "Open items").
 - **Releases:** every change, fixes included, ships in the current
   line, `v0.3.x`; an earlier line gets no further releases. Rounds land
-  on `main` untagged until the next tag, which is cut only after the
-  deep gate (AGENTS.md, "Land fast, release deep"); its release notes
+  on `main` untagged until the next tag, which is cut only after a
+  clean full run ("Testing" below); its release notes
   include a migration guide for the renames.
 - **Branches:** `main` is the one long-lived branch. Work lands through
   short-lived branches and pull requests. The ruleset on `main` requires
@@ -103,11 +103,11 @@ from).
   `nexus/bin/nexus` (AGENTS.md, "Workflow").
   - [docs/zig-0.17.md](docs/zig-0.17.md) covers every Zig API Rig uses.
   - The cross-project Zig guide is `~/Data/Code/zig/docs/ZIG-0.17.md`.
-- **Health:** the gates in "The gates" below are green on `main`: the
+- **Health:** the last full run ("Testing" below) was green on `main`: the
   full suite (`./test/run`, with its pending examples the planned Core
   rules), the corpus, `test/matrix.py`, the unit tests, and the oracle
   floors in `test/oracle/coverage`. `test/known/` holds no open bugs.
-  CI and each deep-gate run report the counts.
+  Each full run reports the counts.
 
 ## Scope
 
@@ -337,7 +337,7 @@ and run the corpus after.
    `loopfacts` (where loop steps run and jumps go, recorded once; no
    emitted change), then `proofs2`.
 
-**Toward `v0.3.0`:** the docs pass, the deep gate, and the tag with a
+**Toward `v0.3.0`:** the docs pass, a clean full run, and the tag with a
 migration guide (`tools/migrate-0.3.py`).
 
 **Later:**
@@ -366,21 +366,23 @@ migration guide (`tools/migrate-0.3.py`).
 - The per-expression "is a view" fact.
 - The held items, as their prerequisites land.
 
-## The gates
+## Testing
 
-Two gates (AGENTS.md, "Land fast, release deep"):
+Two steps (AGENTS.md, "Test in two steps"):
 
-- **The fast gate, per round:** the build, `./test/run --delta`, the
-  round's new tests, a targeted grid of the forms it changes, and one
-  independent review in parallel. A round that changes a soundness
-  classifier also runs the full matrix.
-- **The deep gate, on `main` about twice a day:** everything below, plus
-  equivalence against the last deep run, the JSON benchmark guard, and
-  the check-speed guard. A
-  failure is bisected and fixed before any new round lands; a tag needs
-  a clean deep gate. It also runs the Unicode tables' freshness test
-  with the database present: `RIG_UCD=dir ./test/run unicode_tables`
-  (the generator fetches any pinned file `dir` lacks).
+- **Smoke test on the Mac, while working:** `tools/check N` runs the
+  branch's own tests plus N% of the suite (`1`, `5`, `20`, …), as often
+  as you like.
+- **Full test on burst, when Steve asks:** `tools/gate` runs the suite,
+  the corpus, and the matrix on the pushed head. A failure on `main` is
+  bisected (`git bisect run`) and fixed on a new branch. A tag needs a
+  clean full run.
+
+Everything else runs only when Steve asks: the guards below,
+equivalence, the unit tests, and the Unicode tables' freshness test
+(`RIG_UCD=dir ./test/run unicode_tables`, which fetches any pinned file
+`dir` lacks).
+
 - **The JSON benchmark guard:** on the Mac, `cpuq run --cores 2 --label
   rig:json -- bench/json/guard.py` builds `rig-safe` for the six corpus
   files and counts instructions retired per byte, which do not move
