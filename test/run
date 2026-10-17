@@ -86,13 +86,26 @@ unset RIG_NO_CRASH_REPORT
 # Results go to $RESULTS/st/, details (captured output) to $RESULTS/log/.
 # -----------------------------------------------------------------------------
 
-# Expected stdout: the `# expect:` block, one `# line` per output line.
-expected_stdout() {
-    awk '
+# expected_block <name> <file>: the `# <name>:` block, one `# line` per
+# line. It ends at the first line that is no comment, or that starts
+# another block.
+expected_block() {
+    awk -v start="# $1:" '
+        function opens(l) { sub(/[ \t\r]*$/, "", l); return l == "# expect:" || l == "# expect-stderr:" }
+        inblock && opens($0) { exit }
         inblock && /^#/ { sub(/^# ?/, ""); sub(/\r$/, ""); print; next }
         inblock { exit }
-        /^# expect:[[:space:]]*$/ { inblock = 1 }
-    ' "$1"
+        { l = $0; sub(/[ \t\r]*$/, "", l); if (l == start) inblock = 1 }
+    ' "$2"
+}
+
+# Expected stdout: the `# expect:` block.
+expected_stdout() { expected_block expect "$1"; }
+
+# A program's stderr as `# expect-stderr:` compares it: without the line
+# `rig run` adds when a signal ended the program.
+stderr_shown() {
+    grep -vE '^error: rig: the program was killed by signal [0-9]+$' "$1"
 }
 
 directive() { # directive <name> <file>  → all values of `# name: value`
@@ -104,7 +117,8 @@ has_expect_block() { grep -qE '^# expect:[[:space:]]*$' "$1"; }
 # run_program <entry> <outdir> [flag...]: `rig run [flag...]` the program
 # under the time limit, its stdout and stderr in <outdir>.stdout and
 # .stderr; sets RC. A program that panics on purpose (`# expect-panic:`)
-# runs with RIG_NO_CRASH_REPORT=1: no macOS crash report for its abort.
+# or exits non-zero (`# expect-exit:`) runs with RIG_NO_CRASH_REPORT=1:
+# no crash report for its abort.
 # rig creates $STARTED (RIG_RUN_STARTED) once the program has started:
 # the positive evidence a test needs that it ran. $STARTED is the test's
 # own path in this run's private results directory, where no test's
@@ -119,7 +133,7 @@ run_program() {
         return
     fi
     local quiet=()
-    grep -qE '^# expect-panic:' "$entry" && quiet=(env RIG_NO_CRASH_REPORT=1)
+    grep -qE '^# expect-(panic|exit):' "$entry" && quiet=(env RIG_NO_CRASH_REPORT=1)
     # The braces keep bash's own "Abort trap" job notice out of the output.
     { RIG_SANITIZE="$SANITIZE" RIG_OUT_DIR="$outdir" RIG_RUN_STARTED="$STARTED" ${quiet[@]+"${quiet[@]}"} "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$@" "$entry" >"$outdir.stdout" 2>"$outdir.stderr" </dev/null; } 2>/dev/null
     RC=$?
@@ -224,8 +238,12 @@ check_output() {
     local out="$outdir.stdout" err="$outdir.stderr"
     run_program "$entry" "$outdir" "$@"
     local rc=$RC
-    local panic_want
+    local panic_want exit_want
     panic_want=$(directive expect-panic "$entry" | head -1)
+    # A panic exits 134 in every build mode, unless the test says otherwise.
+    exit_want=$(directive expect-exit "$entry" | head -1)
+    if [[ -n "$exit_want" && ! $exit_want =~ ^[0-9]+$ ]]; then REASON="\`# expect-exit:\` takes a number, not \"$exit_want\""; return 1; fi
+    [[ -z "$exit_want" && -n "$panic_want" ]] && exit_want=134
 
     { echo "--- stdout"; cat "$out"; echo "--- stderr"; cat "$err"; } >"$log"
 
@@ -243,9 +261,24 @@ check_output() {
             REASON="expected panic \"$panic_want\"; got: $REASON"
             return 1
         fi
-    elif [[ $rc -ne 0 ]]; then
+    elif [[ $rc -ne ${exit_want:-0} ]]; then
         REASON=$(classify_failure "$err" "$rc")
+        [[ -n "$exit_want" ]] && REASON="expected exit $exit_want, got $rc: $REASON"
         return 1
+    fi
+    if [[ -n "$exit_want" ]]; then
+        # An expected failure is no cover for a memory error.
+        if grep -qE "$LEAK_RE|rig: (use of freed memory|access past the end|double free)" "$err"; then
+            REASON=$(classify_failure "$err" "$rc"); return 1
+        fi
+        if [[ $rc -ne $exit_want ]]; then REASON="expected exit $exit_want, got $rc: $(head -1 "$err")"; return 1; fi
+    fi
+    if grep -qE '^# expect-stderr:[[:space:]]*$' "$entry"; then
+        if ! diff <(expected_block expect-stderr "$entry") <(stderr_shown "$err") >"$outdir.diff" 2>&1; then
+            REASON="stderr differs from # expect-stderr block"
+            { echo "--- diff (expected vs actual)"; cat "$outdir.diff"; } >>"$log"
+            return 1
+        fi
     fi
 
     if [[ -z "$panic_want" ]] || has_expect_block "$entry"; then
@@ -1032,10 +1065,16 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
             printf "%s", body > (dir "/main.rig")
             if (mode == "run" || mode == "reject") {
                 n = split(extra, ls, "\n")
+                if (mode == "run" && exitn != "") printf "\n# expect-exit: %s", exitn > (dir "/main.rig")
                 printf "\n%s\n", (mode == "run" ? "# expect:" : "") > (dir "/main.rig")
                 for (k = 1; k < n; k++) {
                     if (mode == "run") printf "%s\n", (ls[k] == "" ? "#" : "# " ls[k]) > (dir "/main.rig")
                     else printf "# error: %s\n", ls[k] > (dir "/main.rig")
+                }
+                if (mode == "run" && has_err) {
+                    n = split(errtext, ls, "\n")
+                    printf "# expect-stderr:\n" > (dir "/main.rig")
+                    for (k = 1; k < n; k++) printf "%s\n", (ls[k] == "" ? "#" : "# " ls[k]) > (dir "/main.rig")
                 }
             }
             close(dir "/main.rig")
@@ -1068,11 +1107,29 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
                 i++
                 j = i
                 while (j <= NR && line[j] ~ /^[ \t]*$/) j++
-                kind = ""; extra = ""
+                kind = ""; extra = ""; has_err = 0; errtext = ""; exitn = ""
                 if (j <= NR && (line[j] == "```output" || line[j] == "```error" || line[j] == "```facts")) {
                     kind = substr(line[j], 4)
                     for (j++; j <= NR && line[j] != "```"; j++) extra = extra line[j] "\n"
                     i = j + 1
+                }
+                # A ```stderr block, after the output or alone: what the run writes to
+                # stderr, and with `exit=N` the status it exits with.
+                j = i
+                while (j <= NR && line[j] ~ /^[ \t]*$/) j++
+                if (j <= NR && line[j] ~ /^```stderr([ \t]|$)/) {
+                    has_err = 1
+                    n = split(substr(line[j], 10), words, /[ \t]+/)
+                    for (k = 1; k <= n; k++) {
+                        w = words[k]
+                        if (w == "") continue
+                        if (w ~ /^exit=[0-9]+$/) exitn = substr(w, 6)
+                        else fail("unknown word `" w "` after ```stderr")
+                    }
+                    for (j++; j <= NR && line[j] != "```"; j++) errtext = errtext line[j] "\n"
+                    i = j + 1
+                    if (kind == "") kind = "output"
+                    else if (kind != "output") fail("```stderr follows a program or its ```output block")
                 }
                 if (pend) {
                     if (mode != "check" || fname != "") fail("```rig pending takes no other word")
@@ -1436,7 +1493,7 @@ fi
 
 printf '%srunning %s tests (-j %s)%s\n' "$D" "$TOTAL" "$JOBS" "$X"
 while IFS=$'\t' read -r id path key; do printf '%s\0%s\0%s\0' "$id" "$path" "$key"; done <"$LIST.sorted" |
-    xargs -0 -n 3 -P "$JOBS" "$SELF" --worker
+    xargs -0 -r -n 3 -P "$JOBS" "$SELF" --worker
 # Keep the times of the tests this run did not select.
 [[ -f "$RESULTS/durations" ]] &&
     awk -F'\t' 'FILENAME == ARGV[1] { ran[$1] = 1; print; next } !($1 in ran)' \

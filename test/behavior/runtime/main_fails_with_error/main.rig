@@ -16,7 +16,9 @@ sub main()
   print(lib.read(0)!)
   print("unreachable")
 
-# expect-panic: error: IoErr.eof
+# expect-exit: 1
+# expect-stderr:
+# error: IoErr.eof
 # expect:
 # 2 2 1
 # drop 1

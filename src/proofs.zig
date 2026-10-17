@@ -729,9 +729,9 @@ const Pass = struct {
         try p.traceUnit(.{ .enter = root.list.id });
         try p.walkParts(root, st);
         try p.traceUnit(.{ .exit = root.list.id });
-        // What follows a `return`, `break`, or `continue` statement does not
-        // run. (A failing `e!` leaves too, but only when it fails.)
-        if (kind == .stmt and (root.isKind(.@"return") or rig.isJump(root))) {
+        // What follows a `return`, `break`, `continue`, or `panic` statement
+        // does not run. (A failing `e!` leaves too, but only when it fails.)
+        if (kind == .stmt and rig.leaves(root)) {
             st.dead = true;
             return;
         }

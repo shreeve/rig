@@ -62,8 +62,8 @@ perl -0pi -e 's/(pub noinline fn big\(i: i64\) i64 \{).*?\n\}/$1\n    var a: [13
 grep -q '13107200' "$pkg/__rig_main.zig" || fail "the 100 MiB frame was not written into the package"
 for mode in Debug ReleaseSafe ReleaseFast; do
     (cd "$pkg" && "${ZIG:-zig}" build-exe -O $mode -femit-bin="$PWD/../big-$mode" __rig_main.zig) >build.log 2>&1 || fail "build big $mode: $(cat build.log)"
-    out=$("$RIG_OUT_DIR/programs/big-$mode" 2>err.txt); rc=$?
-    [[ $rc -ne 0 ]] || fail "a 100 MiB frame in $mode exited 0"
+    out=$(quiet "$RIG_OUT_DIR/programs/big-$mode" 2>err.txt); rc=$?
+    expect_rc $rc 134 "a 100 MiB frame in $mode ($(head -c 300 err.txt))"
     expect_eq "$out" "before" "stdout of a 100 MiB frame in $mode"
     expect_has "$(cat err.txt)" "error: rig: stack overflow" "a 100 MiB frame in $mode"
 done

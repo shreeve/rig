@@ -4,7 +4,7 @@
 # declaration cannot take one. A name Zig reserves (`var`, `fn`) is
 # quoted, not renamed, and links as it is spelled.
 
-extern fun panic(code: Int) -> Int
+extern fun rig(code: Int) -> Int
 extern sub debug()
 extern os: Int
 extern sub fn()
@@ -12,7 +12,7 @@ extern sub fn()
 sub main()
   print(1)
 
-# error: 7:12: a C declaration cannot be named `panic`
+# error: 7:12: a C declaration cannot be named `rig`
 # error: 8:12: a C declaration cannot be named `debug`
 # error: 9:8: a C declaration cannot be named `os`
 # errors: 3

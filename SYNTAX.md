@@ -200,7 +200,7 @@ not used.
 | Role | Keywords |
 |---|---|
 | declarations | `fun` `sub` `enum` `error` `type` `use` `pub` `extern` `test` `drop` |
-| control | `if` `else` `while` `for` `in` `match` `break` `continue` `return` `defer` `errdefer` `pass` |
+| control | `if` `else` `while` `for` `in` `match` `break` `continue` `return` `defer` `errdefer` `pass` `panic` |
 | expressions | `and` `or` `not` `as` `catch` `true` `false` |
 | boundaries | `raw` `zig` (in `extern zig`) |
 | reserved forms | `try`, and `zig` elsewhere |
@@ -283,7 +283,7 @@ held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.
 
 The built-in types `Cell`, `List`, `String`, `Signal`, `Simd`, and
-`Endian` are reserved names. The built-in functions `print`, `replace`, and `swap`
+`Endian` are reserved names. The built-in functions `print`, `warn`, `replace`, and `swap`
 are names a declaration may hide.
 
 ## 4. Literals
@@ -1006,6 +1006,9 @@ A statement is one of:
 - `pass`, which does nothing;
 - `return`, `return e`, `break`, `break e`, `break @label`,
   `break @label e`, `continue`, `continue @label`;
+- `panic(a, b, ...)`, which ends the program; it may also stand as a
+  branch's value: in a ternary, a `match` arm, after `??`, or as a
+  `catch` handler ([SPEC §17](SPEC.md#panic));
 - `defer` or `errdefer` with a statement or block (a one-line
   statement may not declare a name);
 - a `raw` block ([SPEC §15](SPEC.md#15-raw-code-and-ffi));
@@ -1795,8 +1798,8 @@ postfix   = postfix ("." name | "[" expr "]" | "[" [expr] ".." [expr] "]"
           | "[" expr, expr, ... "]" | "(" args ")" | "!" | "?") | atom
 args      = [(name ":" expr | expr), ...] | (name ":" expr | expr), ..., tail-closure
 atom      = name | integer | float | string | "true" | "false" | "." name
-          | "@" name "(" args ")" | "[" [expr, ...] "]" | "[" expr "of" expr "]"
-          | "(" expr ")"
+          | "@" name "(" args ")" | "panic" "(" args ")"
+          | "[" [expr, ...] "]" | "[" expr "of" expr "]" | "(" expr ")"
 ```
 
 The grammar reads `!v.push(x)` as `!` applied to `v.push(x)`, like any

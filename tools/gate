@@ -106,7 +106,7 @@ PR_JSON=$(gh pr view "${PR:-$BRANCH}" -R "$REPO" --json number,state,isDraft,hea
 read -r PR STATE DRAFT HEAD_OID BASE CROSS URL < <(jq -r '[.number, .state, .isDraft, .headRefOid, .baseRefName, .isCrossRepository, .url] | @tsv' <<<"$PR_JSON")
 [[ $STATE == OPEN ]] || die "pull request #$PR is $STATE"
 [[ -n $SKIP || $DRAFT != true ]] ||
-    die "#$PR is a draft; a pull request is gated once, when it is ready: gh pr ready $PR, then run tools/gate again"
+    die "#$PR is a draft; mark it ready first (gh pr ready $PR), then run tools/gate again"
 
 SHA=$(git rev-parse HEAD)
 if [[ $CROSS == true ]]; then
