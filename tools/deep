@@ -3,7 +3,7 @@
 # post the verdict to GitHub as the commit status `rig/deep` on that
 # commit.
 #
-#   tools/deep [--if-due] [--force] [--dry-run]
+#   tools/deep [--force] [--dry-run]
 #   tools/deep --bisect [SHA] [--dry-run] [-- ID...]
 #
 # Pull requests are gated alone, and only some of them (tools/gate); this
@@ -21,9 +21,7 @@
 # It exits at once when main's head is the commit the last deep run
 # passed or failed (a run that ended in `error` is tried again), or when
 # another deep run or bisect holds the lock; --force runs it anyway.
-# --if-due runs it only when it is due: 6 or more merges (first-parent
-# commits) or 4 hours or more since the last run, or no run yet. That is
-# for a timer; Steve runs it without, for "the gauntlet now".
+# It runs when Steve asks, by hand; nothing starts it on a schedule.
 #
 # --bisect finds the merge that broke a red run: `git bisect --first-parent`
 # between SHA (default: the last run, if it failed) and `deep-green`, in
@@ -43,10 +41,9 @@
 # (bash 3.2, as macOS ships it.)
 set -uo pipefail
 
-IF_DUE="" FORCE="" DRY="" BISECT="" RED="" IDS_GIVEN=()
+FORCE="" DRY="" BISECT="" RED="" IDS_GIVEN=()
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --if-due) IF_DUE=1 ;;
         --force) FORCE=1 ;;
         --dry-run) DRY=1 ;;
         --bisect) BISECT=1
@@ -57,11 +54,7 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
-[[ -z $BISECT || -z $IF_DUE ]] || { echo "tools/deep: --bisect takes no --if-due" >&2; exit 2; }
 [[ -n $BISECT || ${#IDS_GIVEN[@]} -eq 0 ]] || { echo "tools/deep: test ids go with --bisect" >&2; exit 2; }
-
-# The thresholds of --if-due.
-DUE_MERGES=6 DUE_SECONDS=$((4 * 3600))
 
 START=$(date +%s)
 LAST_PHASE=$START
@@ -240,19 +233,11 @@ STEP
     exit 0
 fi
 
-# --- Is a run due? --------------------------------------------------------
+# --- Has main moved? -----------------------------------------------------
 
 if [[ -z $FORCE && $MAIN == "$LAST_SHA" ]]; then
     echo "deep: main ($SHORT) is the last deep run's commit, which ended $LAST_VERDICT; nothing to do (--force runs it again)"
     exit 0
-fi
-if [[ -n $IF_DUE && -z $FORCE && -n $LAST_SHA ]]; then
-    MERGES=$(git rev-list --first-parent --count "$LAST_SHA..$MAIN" 2>/dev/null) || MERGES=$DUE_MERGES
-    AGE=$(($(date +%s) - LAST_TIME))
-    if [[ $MERGES -lt $DUE_MERGES && $AGE -lt $DUE_SECONDS ]]; then
-        echo "deep: not due: $MERGES merges and $((AGE / 60)) minutes since the last run (due at $DUE_MERGES or $((DUE_SECONDS / 3600)) hours)"
-        exit 0
-    fi
 fi
 
 NAMES="suite corpus matrix"

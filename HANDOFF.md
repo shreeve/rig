@@ -383,8 +383,7 @@ The tiers, cheapest first (test/README.md, "The tiers"):
 - **The deep gate, on `main`:** `tools/deep` runs the suite, the corpus,
   and the full matrix on burst against `main`'s head from a clean
   worktree, posts `rig/deep` on that commit, and moves the tag
-  `deep-green` when it passes. `tools/deep --if-due` runs it only after
-  6 merges or 4 hours since the last one. A failure is bisected
+  `deep-green` when it passes. It runs when Steve asks. A failure is bisected
   (`tools/deep --bisect`) and fixed before any new round lands; a tag
   needs a clean deep gate. Equivalence against the last deep run, and
   the Unicode tables' freshness test with the database present

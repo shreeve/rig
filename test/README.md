@@ -540,8 +540,7 @@ Each tier runs what the one before cannot afford:
    `cpuq submit cpuq/suite.json -- <filters>` runs part of it there.
 2. **Once per pull request, when it is ready:** `tools/gate`, the suite
    and the corpus on burst (below).
-3. **On `main`:** `tools/deep`, the deep gate (below), every few merges
-   or hours, and by hand.
+3. **On `main`:** `tools/deep`, the deep gate (below), when Steve asks.
 4. **Nightly:** the cold suite on GitHub's runners (`test.yml`, below).
 
 ## A quick local check
@@ -669,7 +668,6 @@ the last run, together:
 
 ```bash
 tools/deep                 # now: the suite, the corpus, the full matrix
-tools/deep --if-due        # only after 6 merges or 4 hours since the last run (for a timer)
 tools/deep --bisect        # find the merge that broke the last run
 tools/deep --dry-run       # say what it would do
 ```
@@ -682,7 +680,8 @@ job finish, posts the commit status `rig/deep` on the commit, and when
 all pass moves the tag `deep-green` there, on GitHub too. It exits at
 once when `main` has not moved since the last run that passed or failed,
 or while another run holds its lock; `--force` runs it anyway. It takes
-30 to 45 minutes, and nobody waits on it.
+30 to 45 minutes. It runs when Steve asks; nothing starts it on a
+schedule.
 
 A red run keeps its logs and failing ids in the git directory,
 `rig-deep/runs/<sha>/`. `tools/deep --bisect` runs `git bisect
