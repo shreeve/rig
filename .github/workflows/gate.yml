@@ -1,8 +1,9 @@
 name: gate
 
 # The merge checks of every pull request. A pull request is tested on
-# burst only when someone asks: tools/gate submits the suite, the corpus
-# and the matrix through cpuq, posts the commit status `rig/gate` as it
+# burst only when someone asks: tools/gate submits the suite and the
+# corpus (and the matrix, for the paths it names) through cpuq, posts the
+# commit status `rig/gate` as it
 # starts (pending) and ends (success, failure, or error), and re-runs this
 # workflow. This workflow runs no test; it reads that status. On a pull
 # request from a branch of this repository it passes
