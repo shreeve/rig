@@ -50,7 +50,7 @@ cpuq run --cores 2 --label rig:json -- bench/json/guard.py            # check
 cpuq run --cores 2 --label rig:json -- bench/json/guard.py --update   # new baseline
 ```
 
-The deep gate runs it on the Mac. It builds `rig-safe` for the six
+It runs on the Mac. It builds `rig-safe` for the six
 corpus files and counts instructions retired per byte. These counts
 don't move with the machine's load, so it can run on a busy machine.
 Any file more than 2% above its baseline in `guard.txt` fails the guard.

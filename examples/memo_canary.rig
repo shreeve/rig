@@ -45,7 +45,7 @@ sub main()
 
   !count.set(3)                          # squared 36
   !count.set(5)                          # squared 100
-  print(doubled.get(), squared.get())   # 10 100
+  print(doubled.get(), squared.get())    # 10 100
 
 # expect:
 # 2 4

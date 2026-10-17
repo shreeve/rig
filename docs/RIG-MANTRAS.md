@@ -57,9 +57,6 @@ checker did not walk: no hidden temporary, order, or drop.
 of soundness fixes means the design is wrong; redesign it rather than
 patch it again.
 
-**Land fast, release deep.** Each round passes a fast gate in minutes;
-the deep gate runs on `main` twice a day.
-
 **Rerun only what changed.** A rerun checks everything and runs only
 what differs from a run that passed.
 

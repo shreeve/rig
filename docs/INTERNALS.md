@@ -4182,7 +4182,7 @@ reviewed.
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `FnRef(params, R)` | a callable view: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |
 | `Signal(T)` | a value and a `List` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
-| `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...`. `print` takes a tuple of pieces in order, the spaces between the arguments and the final newline included (`print(n, s)` is `rig.print(.{ n, " ", &s, "\n" })`), so every argument has run before a byte is written. It is `inline`, and `piecesOf` reads the tuple's type at compile time: a field known then whose bytes are too (a string literal, an Int, a Bool) is text, each run of text is joined and copied into the buffer by the one `noinline` writer of its length (`outFixed`), a `?String` or a String among the values is written as its bytes, and each other value goes to the one `noinline` writer of its type (`outValueOf`). A print site is a straight line of calls, about 60 bytes of code in `--release=fast` (`bench/print/guard.py`). `String.of` and `add` append the same way (`appendFixed`, `addValueOf`). Text inside another value is quoted and escaped (`writeQuoted`), and a float is written as its shortest digits (`writeFloat`, on `std.fmt.float.binaryToDecimal`), with an exponent from `1e21` up and below `1e-6`. A failed write lands in `stdoutFailed`: a closed pipe (`BrokenPipe`) exits 0 at once, and any other error writes `error: stdout: <reason>` and exits 1, running no drop. `flushOutput` is the flush before a read of stdin or a spawned process, for the library that adds them |
+| `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...`. `print` takes a tuple of pieces in order, the spaces between the arguments and the final newline included (`print(n, s)` is `rig.print(.{ n, " ", &s, "\n" })`), so every argument has run before a byte is written. It is `inline`, and `piecesOf` reads the tuple's type at compile time: a field known then whose bytes are too (a string literal, an Int, a Bool) is text, each run of text is joined and copied into the buffer by the one `noinline` writer of its length (`outFixed`), a `?String` or a String among the values is written as its bytes, and each other value goes to the one `noinline` writer of its type (`outValueOf`). A print site is a straight line of calls, about 60 bytes of code in `--release=fast` (`bench/print/guard.py`). `String.of` and `add` append the same way (`appendFixed`, `addValueOf`). Text inside another value is quoted and escaped (`writeQuoted`), and a float is written as its shortest digits (`writeFloat`, on `std.fmt.float.binaryToDecimal`), with an exponent from `1e21` up and below `1e-6`. A failed write lands in `stdoutFailed`: a closed pipe (`BrokenPipe`) exits 0 at once, and any other error writes `error: stdout: <reason>` and exits 1, running no drop. A failed write to stderr in `warn` is dropped, and the program goes on |
 | `warn`, `fail` | `warn(a, b)` and `panic(a, b)`: `flush`, then the pieces `print` takes written to stderr under `std.debug.lockStderr`; `warn` writes through a 4 KiB buffer, so a line up to that size is one write. `fail` reports the test it ended (`beginPanic`) and ends the program by `std.process.abort`, status 134, after the line |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
 | `onOwnStack`, `switchStack` | run `main` and the tests on the program's stack, over its guard, with an overflow handler that names a fault in the guard a stack overflow ([The program's stack](#the-programs-stack)). `test/cli/stack_guard.sh` checks it |
@@ -4369,14 +4369,16 @@ thread's alternate signal stack, which Zig's start code sets (a child
 process forked on macOS loses it, so `onOwnStack` sets it again in one,
 through `pthread_atfork`, where libc is linked). For a fault in the
 guard it flushes `print`'s output and writes `error: rig: stack
-overflow`, and restores the handlers it replaced. In a debug build it
-then returns, as the sanitizer's handler does, so the access faults
-again into Zig's handler, which prints the stack trace and aborts. An
-optimized build aborts itself with the message alone, as a runtime
-panic does: there Zig's handler walks the trace by frame pointers, which
-can fault again at the top of the program's stack, and `--release=fast`
-installs no handler. So a stack overflow ends with SIGABRT (status 134)
-in every build mode.
+overflow`. An optimized build then aborts with the message alone, as a
+runtime panic does: there Zig's handler walks the trace by frame
+pointers, which can fault again at the top of the program's stack, and
+`--release=fast` installs no handler. A debug build calls the handler
+it replaced (Zig's, which prints the stack trace and aborts) and stays
+installed. A fault taken while that handler walks the stack (on x86_64
+Linux the walk from inside Zig's stack-probe routine, whose stack
+pointer is already in the guard, reads the guard) comes back to it, and
+it aborts. So a stack overflow ends with SIGABRT (status 134) in every
+build mode.
 
 **64 MiB.** Four times the 16 MiB Zig gives the main thread: deep
 recursion (a checker's walk of a large tree) has room, and address

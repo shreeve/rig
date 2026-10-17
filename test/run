@@ -19,8 +19,9 @@
 #   --shard I/N run only the selected tests whose id hashes to shard I
 #               of N (1 <= I <= N); shard 1 also runs the whole-program
 #               checks (unit, classify, vocab, style)
-#   --delta     check every program, but do not run again one whose run
-#               passed before with the same inputs (the results cache,
+#   --delta     compile every program with the current compiler, but do
+#               not build and run again one whose generated source code
+#               is unchanged since a run that passed (the results cache,
 #               test/README.md); it counts as passed, carried over
 #   --proofs-diff[=all]
 #               instead of each program's own checks, the differential
@@ -748,6 +749,20 @@ worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
 }
 
 if [[ "${1:-}" == "--worker" ]]; then
+    # A worker that ends without recording a result (a shell error such
+    # as an unset variable, or a signal it can catch) names its test, its
+    # status, and the last line of its log, instead of leaving the driver
+    # to say only that it died. One killed with SIGKILL leaves nothing to
+    # say it; the driver then names the test and the likely causes.
+    worker_exit() {
+        local st=$? res="$RESULTS/st/${2//\//__}" log="$RESULTS/log/${2//\//__}" last=""
+        [[ -f "$res" ]] && exit "$st"
+        [[ -f "$log" ]] && last=$(tail -n 1 "$log" 2>/dev/null | tr '\t\n' '  ')
+        printf 'fail\t%s\tthe test runner exited with status %s before recording a result%s\n' \
+            "$2" "$st" "${last:+ (last log line: $last)}" >"$res"
+        exit 0
+    }
+    trap 'worker_exit "$@"' EXIT
     worker "$2" "$3" "$4"
     # Whole seconds since this worker started, to schedule the next run
     # (not a carried-over test's, which did not run).
@@ -1479,7 +1494,7 @@ fi
 
 printf '%srunning %s tests (-j %s)%s\n' "$D" "$TOTAL" "$JOBS" "$X"
 while IFS=$'\t' read -r id path key; do printf '%s\0%s\0%s\0' "$id" "$path" "$key"; done <"$LIST.sorted" |
-    xargs -0 -n 3 -P "$JOBS" "$SELF" --worker
+    xargs -0 -r -n 3 -P "$JOBS" "$SELF" --worker
 # Keep the times of the tests this run did not select.
 [[ -f "$RESULTS/durations" ]] &&
     awk -F'\t' 'FILENAME == ARGV[1] { ran[$1] = 1; print; next } !($1 in ran)' \
@@ -1487,7 +1502,7 @@ while IFS=$'\t' read -r id path key; do printf '%s\0%s\0%s\0' "$id" "$path" "$ke
     mv "$DURATIONS.new" "$DURATIONS"
 # A worker that died left no result.
 while IFS=$'\t' read -r id _; do
-    [[ -f "$RESULTS/st/${id//\//__}" ]] || printf 'fail\t%s\tno result: the test runner died\n' "$id" >"$RESULTS/st/${id//\//__}"
+    [[ -f "$RESULTS/st/${id//\//__}" ]] || printf 'fail\t%s\tno result: its worker was killed (out of memory or a signal) or never started\n' "$id" >"$RESULTS/st/${id//\//__}"
 done <"$LIST"
 
 if [[ -n "$UNIT_PID" ]]; then

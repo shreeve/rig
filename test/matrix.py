@@ -77,7 +77,7 @@ and again built with `--release`.
                                    # whose runs passed before (below)
     test/matrix.py --deep          # also each write of the proof. grid with
                                    # its use nested, and every write, use, and
-                                   # guard of the unit. grid (the deep gate)
+                                   # guard of the unit. grid
 
 Each program is stopped past its time, past 1 MB of output, or when its
 processes hold more than its memory, and every loop a cell writes
@@ -4193,8 +4193,8 @@ def main():
     ap.add_argument("--rig", help="the compiler to test (default bin/rig)")
     ap.add_argument("--timeout", type=int, default=RUN_SECONDS, help=f"seconds each program may take to build and run (default {RUN_SECONDS})")
     ap.add_argument("--mem", type=int, default=RUN_MB, help=f"megabytes each program may use (default {RUN_MB})")
-    ap.add_argument("--delta", action="store_true", help="do not run a program whose runs passed before (the results cache)")
-    ap.add_argument("--deep", action="store_true", help="every write of the proof. grid with its use nested too, and the whole unit. grid (the deep gate)")
+    ap.add_argument("--delta", action="store_true", help="do not build and run a program whose generated source code is unchanged since a run that passed (the results cache)")
+    ap.add_argument("--deep", action="store_true", help="every write of the proof. grid with its use nested too, and the whole unit. grid")
     args = ap.parse_args()
     RIG = os.path.abspath(args.rig) if args.rig else RIG
     RUN_SECONDS, RUN_MB = args.timeout, args.mem

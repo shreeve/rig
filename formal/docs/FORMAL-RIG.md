@@ -264,8 +264,9 @@ suite, the corpus and the matrix. It catches what the sanitizer cannot:
 a read view that sees its owner change when nothing was freed (CORE §4).
 It replaces `bin/rig-oracle` over time rather than becoming a third
 checker. Its first slice is built: [`formal/`](../README.md) has λRig
-with boxes, plain numbers and views, and a proof that no step of the
-interpreter leaves a place with read loans and a write loan at once. A cheaper version of the same check also goes into the emitted
+with boxes, plain numbers and views, an interpreter, an ownership
+checker, and a proof (`accepts_runs`) that every program the checker
+accepts runs without a fault or a leak (stage 3 for that slice). A cheaper version of the same check also goes into the emitted
 code (`RIG_SANITIZE=views`): each owner counts its writes, and a view
 checks the count it was lent at on every read.
 
@@ -314,8 +315,7 @@ its proof. Rig already has:
 - every program run under the sanitizing allocator;
 - the reference checker;
 - the generated grids (`test/matrix.py`);
-- the corpus of reviewer probes;
-- the gates: `tools/gate` on burst, and the deep gate on `main`.
+- the corpus of reviewer probes.
 
 It adds:
 

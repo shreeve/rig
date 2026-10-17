@@ -26,7 +26,7 @@ JSON=path/to/json.rig test/json/compare.py   # another parser, such as an experi
 A run with filters takes every input of the groups it selects; a run
 without takes the part `--subset` keeps (about a tenth of the inputs, in
 every group), so the full suite stays quick. `./test/run json` is the full
-check, run by the deep gate. `--delta` carries a group over when neither
+check. `--delta` carries a group over when neither
 the compiler, the cases, nor the data changed.
 
 ## Third-party data

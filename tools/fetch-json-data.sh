@@ -40,6 +40,13 @@ fetch_one() {
 export -f fetch_one sha
 export DEST SIMD_JSON SIMDJSON
 
+# A link to a directory that is gone (a cache that was cleared) would make
+# every `mkdir -p` below fail with "Already exists"; make it a directory.
+for d in simd-json simdjson; do
+    [[ -L "$DEST/$d" && ! -d "$DEST/$d" ]] && rm -f "$DEST/$d"
+done
+mkdir -p "$DEST"
+
 MANIFEST() { cat <<'LIST'
 f8e3422ac7d3c3550674afcb37e979e4e9bbeccffdb66933423495d55b6f5c74 simd-json/apache_builds.json
 f83b3b354030d5dd58740c68ac4fecef64cb730a0d12a90362a7f23077f50d78 simd-json/canada.json

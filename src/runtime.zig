@@ -3507,35 +3507,51 @@ fn switchStack(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     f(arg, run, top);
 }
 
-// The overflow handler. It restores the handlers it replaced; in a debug
-// build it then returns, like the sanitizer's, so the access runs again
-// and faults into Zig's handler, which prints the stack trace. An
-// optimized build aborts.
+// The overflow handler. For a fault in the guard it writes the message.
+// An optimized build then aborts, as a runtime panic does. A debug build
+// hands the fault to the handler it replaced (Zig's, which prints the
+// stack trace and aborts), keeping itself installed: a fault taken while
+// that handler walks the stack (a probe function's unwind rules read the
+// stack pointer it has already moved into the guard) comes back here and
+// aborts, rather than reaching the default action and ending the program
+// by SIGSEGV. A fault elsewhere restores the replaced handlers, as the
+// sanitizer's does, and returns, so the access faults again into them.
 
 var overflow_previous: [2]std.posix.Sigaction = undefined;
+var overflow_handling: bool = false;
 
 fn installOverflowHandler() void {
     const act: std.posix.Sigaction = .{
         .handler = .{ .sigaction = onOverflow },
         .mask = std.posix.sigemptyset(),
-        .flags = std.posix.SA.SIGINFO | std.posix.SA.ONSTACK,
+        .flags = std.posix.SA.SIGINFO | std.posix.SA.ONSTACK | std.posix.SA.NODEFER,
     };
     for (Sanitizer.signals, &overflow_previous) |sig, *old| std.posix.sigaction(sig, &act, old);
 }
 
-fn onOverflow(_: std.posix.SIG, info: *const std.posix.siginfo_t, _: ?*anyopaque) callconv(.c) void {
-    for (Sanitizer.signals, &overflow_previous) |sig, *old| std.posix.sigaction(sig, old, null);
+fn onOverflow(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
+    // A fault inside the handler that prints the trace.
+    if (@atomicLoad(bool, &overflow_handling, .seq_cst)) std.process.abort();
     const addr = faultAddress(info);
-    if (addr < stack_guard.lo or addr >= stack_guard.hi) return;
+    if (addr < stack_guard.lo or addr >= stack_guard.hi) {
+        for (Sanitizer.signals, &overflow_previous) |s, *old| std.posix.sigaction(s, old, null);
+        return;
+    }
+    @atomicStore(bool, &overflow_handling, true, .seq_cst);
     flushQuietly();
     const msg = "error: rig: stack overflow\n";
     _ = std.posix.system.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
-    // Only a debug build returns, into Zig's handler and its trace. An
-    // optimized build aborts as a runtime panic does, with the message
-    // alone: Zig's handler there walks the trace by a frame-pointer
-    // unwinder, which can fault again at the top of the program's stack
-    // and end it by SIGSEGV; and in `--release=fast` there is no handler.
+    // Only a debug build calls Zig's handler, for its trace. An optimized
+    // build aborts with the message alone: Zig's handler there walks the
+    // trace by a frame-pointer unwinder, which can fault again at the top
+    // of the program's stack; and in `--release=fast` there is no handler.
     if (builtin.mode != .debug or !std.options.enable_segfault_handler) std.process.abort();
+    for (Sanitizer.signals, &overflow_previous) |s, *old| {
+        if (s != sig) continue;
+        const prev = old.handler.sigaction;
+        if (old.flags & std.posix.SA.SIGINFO != 0 and @intFromPtr(prev) > 1) prev.?(sig, info, ctx);
+    }
+    std.process.abort();
 }
 
 /// The address whose access raised the fault `info` describes.
@@ -3653,8 +3669,7 @@ pub fn failMain(err: anyerror) noreturn {
 // Output. `print` writes to one process-wide buffer. It is flushed
 // when the program finishes, before anything is written to stderr (a
 // `warn`, a panic, an error report), and after every `print` when stdout
-// is a terminal; the standard library flushes it before it reads stdin
-// or starts a process (`flushOutput`).
+// is a terminal.
 
 var stdout_buffer: [8192]u8 = undefined;
 var stdout_writer: ?std.Io.File.Writer = null;
@@ -3673,13 +3688,6 @@ fn stdout() *std.Io.Writer {
 /// the program (`stdoutFailed`).
 fn flush() void {
     if (stdout_writer) |*w| w.interface.flush() catch stdoutFailed();
-}
-
-/// Write out everything `print` has buffered, before the standard
-/// library reads stdin or starts a process, so what the program printed
-/// comes first.
-pub fn flushOutput() void {
-    flush();
 }
 
 /// Write out what `print` has buffered on the way out of a program that
@@ -3767,26 +3775,21 @@ fn constantText(comptime T: type, comptime v: T) ?[]const u8 {
 }
 
 /// The one place a failed write to stdout lands. A closed pipe (`prog |
-/// head`) ends the program quietly with status 0; any other failure ends
-/// it with `error: stdout: <reason>` and status 1. Either way it ends as
-/// a panic does: no drop, `defer`, or leak check runs.
+/// head`) ends the program quietly with status 0, unless a panic is being
+/// reported or `rig test` has not finished (its verdict is lost, so it is
+/// status 1); any other failure ends it with `error: stdout: <reason>` and
+/// status 1. Either way it ends as a panic does: no drop, `defer`, or leak
+/// check runs.
 noinline fn stdoutFailed() noreturn {
     @branchHint(.cold);
     const err = (if (stdout_writer) |w| w.err else null) orelse error.InputOutput;
-    if (err == error.BrokenPipe) std.process.exit(0);
+    if (err == error.BrokenPipe) {
+        std.process.exit(if (panic_stage > 0 or running_tests or tests_failed > 0) 1 else 0);
+    }
     var buf: [128]u8 = undefined;
     const ls = std.debug.lockStderr(&buf);
     ls.file_writer.interface.print("error: stdout: {s}\n", .{writeFailure(err)}) catch {};
     ls.file_writer.interface.flush() catch {};
-    std.process.exit(1);
-}
-
-/// A failed write to stderr, where no report can go: a closed pipe ends
-/// the program with status 0, as on stdout, and any other failure with
-/// status 1.
-noinline fn stderrFailed(err: ?std.Io.File.Writer.Error) noreturn {
-    @branchHint(.cold);
-    if (err) |e| if (e == error.BrokenPipe) std.process.exit(0);
     std.process.exit(1);
 }
 
@@ -3851,15 +3854,16 @@ noinline fn outValueOf(value: anytype) void {
 
 /// `warn(a, b)`: the line `print` would write, written to stderr after
 /// everything `print` has buffered, in one write when it is at most
-/// 4 KiB.
+/// 4 KiB. A write to stderr that fails is dropped, and the program goes
+/// on: there is nowhere left to report it.
 pub noinline fn warn(pieces: anytype) void {
     flush();
     var buf: [4096]u8 = undefined;
     const ls = std.debug.lockStderr(&buf);
     defer std.debug.unlockStderr();
     const w = &ls.file_writer.interface;
-    writeArgs(w, pieces) catch stderrFailed(ls.file_writer.err);
-    w.flush() catch stderrFailed(ls.file_writer.err);
+    writeArgs(w, pieces) catch return;
+    w.flush() catch {};
 }
 
 /// The pieces of a `print`, written to `w`: what `warn` and `panic`
@@ -3982,8 +3986,13 @@ pub fn runTests(modules: []const TestModule) void {
 var tests_passed: usize = 0;
 var tests_failed: usize = 0;
 
+/// Whether `runTests` is between its first test and its summary: a closed
+/// stdout then ends the run before the verdict is known.
+var running_tests = false;
+
 fn runTestsHere(modules: []const TestModule) void {
     const w = stdout();
+    running_tests = true;
     for (modules) |m| for (m.tests) |t| {
         const name: TestName = .{ .module = m.module, .name = t.name };
         current_test = name;
@@ -4005,6 +4014,7 @@ fn runTestsHere(modules: []const TestModule) void {
         }
         flush();
     };
+    running_tests = false;
     w.print("{d} passed, {d} failed\n", .{ tests_passed, tests_failed }) catch {};
     flush();
     releaseProcess();

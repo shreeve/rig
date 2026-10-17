@@ -62,14 +62,25 @@ inductive Fault where
   | stuck (what : String)
   deriving DecidableEq, Repr
 
+/-- `f` with `a` now mapped to `b`: how the heap and the environment change. -/
+def upd [DecidableEq α] (f : α → Option β) (a : α) (b : Option β) : α → Option β :=
+  fun a' => if a' = a then b else f a'
+
+@[simp] theorem upd_same [DecidableEq α] (f : α → Option β) (a : α) (b : Option β) :
+    upd f a b a = b := by simp [upd]
+
+@[simp] theorem upd_other [DecidableEq α] (f : α → Option β) {a a' : α} (b : Option β)
+    (h : a' ≠ a) : upd f a b a' = f a' := by simp [upd, h]
+
 structure Machine where
-  heap : List (Loc × Cell) := []
-  env  : List (Var × Loc) := []
+  /-- The allocated cells. -/
+  heap : Loc → Option Cell := fun _ => none
+  /-- Where each name in scope lives. -/
+  env  : Var → Option Loc := fun _ => none
   /-- The next fresh location or tag. -/
   next : Nat := 0
   /-- What `print` printed, newest first. -/
   out  : List Int := []
-  deriving Repr
 
 abbrev M := StateT Machine (Except Fault)
 
@@ -79,30 +90,30 @@ def fresh : M Nat := do
   pure s.next
 
 def cell (l : Loc) : M Cell := do
-  match (← get).heap.lookup l with
+  match (← get).heap l with
   | some c => pure c
   | none => throw (.freed l)
 
 /-- Replace the cell at `l`, which must be allocated. -/
 def setCell (l : Loc) (c : Cell) : M Unit := do
   let s ← get
-  match s.heap.lookup l with
-  | some _ => set { s with heap := s.heap.map fun (p : Loc × Cell) => if p.1 = l then (l, c) else p }
+  match s.heap l with
+  | some _ => set { s with heap := upd s.heap l (some c) }
   | none => throw (.freed l)
 
 def alloc (v : Val) : M Loc := do
   let l ← fresh
-  modify fun s => { s with heap := (l, Cell.fresh v) :: s.heap }
+  modify fun s => { s with heap := upd s.heap l (some (Cell.fresh v)) }
   pure l
 
 def free (l : Loc) : M Unit := do
   let s ← get
-  match s.heap.lookup l with
-  | some _ => set { s with heap := s.heap.filter fun (p : Loc × Cell) => p.1 != l }
+  match s.heap l with
+  | some _ => set { s with heap := upd s.heap l none }
   | none => throw (.freed l)
 
 def slotOf (x : Var) : M Loc := do
-  match (← get).env.lookup x with
+  match (← get).env x with
   | some l => pure l
   | none => throw (.unbound x)
 
@@ -111,12 +122,27 @@ def dropVal : Val → M Unit
   | .box b => free b
   | _ => pure ()
 
-/-- Read an Int through a view, if its loan is still live. -/
-def deref (m : Mode) (l : Loc) (t : Tag) : M Int := do
+/-- The Int in a box. -/
+def readBox (b : Loc) : M Int := do
+  let c ← cell b
+  match c.val with
+  | some (.int n) => pure n
+  | _ => throw (.stuck "a box that holds no Int")
+
+/-- What a view sees, if its loan is still live: the value in the owner's
+place, an Int or a box. -/
+def seen (m : Mode) (l : Loc) (t : Tag) : M Val := do
   let c ← cell l
   unless c.live m t do throw (.deadTag t)
   match c.val with
-  | some (.int n) => pure n
+  | some v => pure v
+  | none => throw (.stuck "a view of an empty place")
+
+/-- Read an Int through a view: the Int the place holds, or the one in its box. -/
+def deref (m : Mode) (l : Loc) (t : Tag) : M Int := do
+  match ← seen m l t with
+  | .int n => pure n
+  | .box b => readBox b
   | _ => throw (.stuck "a view of something that is not an Int")
 
 end LambdaRig

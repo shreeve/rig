@@ -45,7 +45,7 @@ theorem Cell.ownerRead_ends (c : Cell) (t : Tag) : c.ownerRead.live .write t = f
 /-! ## The whole machine -/
 
 /-- Every cell of the machine is well formed. -/
-def Machine.WF (s : Machine) : Prop := ∀ p ∈ s.heap, p.2.WF
+def Machine.WF (s : Machine) : Prop := ∀ l c, s.heap l = some c → c.WF
 
 /-- `m` keeps the machine well formed whenever it succeeds. -/
 def Keeps (m : M α) : Prop :=
@@ -103,12 +103,11 @@ theorem Keeps.setCell (l : Loc) (c : Cell) (hc : c.WF) : Keeps (setCell l c) := 
   split at h
   · simp only [StateT.run_set] at h
     obtain ⟨-, rfl⟩ := h
-    intro p hp
-    simp only [List.mem_map] at hp
-    obtain ⟨q, hq, rfl⟩ := hp
-    split
-    · exact hc
-    · exact hs q hq
+    intro l' c' hl
+    simp only [upd] at hl
+    split at hl
+    · cases hl; exact hc
+    · exact hs l' c' hl
   · simp [StateT.run] at h
     cases h
 
@@ -118,8 +117,11 @@ theorem Keeps.free (l : Loc) : Keeps (free l) := by
   split at h
   · simp only [StateT.run_set] at h
     obtain ⟨-, rfl⟩ := h
-    intro p hp
-    exact hs p (List.mem_filter.1 hp).1
+    intro l' c' hl
+    simp only [upd] at hl
+    split at hl
+    · cases hl
+    · exact hs l' c' hl
   · simp [StateT.run] at h
     cases h
 
@@ -154,20 +156,31 @@ theorem Keeps.alloc (v : Val) : Keeps (alloc v) := by
   intro l
   apply Keeps.bind _ fun _ => Keeps.pure _
   apply Keeps.modify
-  intro s hs p hp
-  cases hp with
-  | head => exact Cell.fresh_wf v
-  | tail _ hp => exact hs p hp
+  intro s hs l' c' hl
+  simp only [upd] at hl
+  split at hl
+  · cases hl; exact Cell.fresh_wf v
+  · exact hs l' c' hl
 
 theorem Keeps.slotOf (x : Var) : Keeps (slotOf x) := by unfold LambdaRig.slotOf; keeps
 
 theorem Keeps.dropVal (v : Val) : Keeps (dropVal v) := by
   unfold LambdaRig.dropVal; split <;> keeps
 
-theorem Keeps.deref (m : Mode) (l : Loc) (t : Tag) : Keeps (deref m l t) := by
-  unfold LambdaRig.deref
+theorem Keeps.readBox (b : Loc) : Keeps (readBox b) := by
+  unfold LambdaRig.readBox
+  apply Keeps.bind (Keeps.cell b)
+  keeps
+
+theorem Keeps.seen (m : Mode) (l : Loc) (t : Tag) : Keeps (seen m l t) := by
+  unfold LambdaRig.seen
   apply Keeps.bind (Keeps.cell l)
   keeps
+
+theorem Keeps.deref (m : Mode) (l : Loc) (t : Tag) : Keeps (deref m l t) := by
+  unfold LambdaRig.deref
+  apply Keeps.bind (Keeps.seen m l t)
+  intro v; split <;> first | exact Keeps.readBox _ | keeps
 
 theorem Keeps.held (x : Var) : Keeps (held x) := by
   unfold LambdaRig.held
@@ -175,13 +188,17 @@ theorem Keeps.held (x : Var) : Keeps (held x) := by
   apply Keeps.bind (Keeps.cell l)
   keeps
 
-theorem Keeps.readBox (b : Loc) : Keeps (readBox b) := by
-  unfold LambdaRig.readBox
-  apply Keeps.bind (Keeps.cell b)
-  keeps
 
 theorem Keeps.intOf (v : Val) : Keeps (intOf v) := by
   unfold LambdaRig.intOf; split <;> first | exact Keeps.deref _ _ _ | keeps
+
+theorem Keeps.copyOf (v : Val) : Keeps (copyOf v) := by
+  unfold LambdaRig.copyOf; split
+  · keeps
+  · apply Keeps.bind (Keeps.readBox _); intro n
+    apply Keeps.bind (Keeps.alloc _); intro _
+    exact Keeps.pure _
+  · keeps
 
 /-- `keeps`, also through the interpreter's helpers. -/
 syntax "keeps_all" : tactic
@@ -202,6 +219,8 @@ macro_rules
       | exact Keeps.held _
       | exact Keeps.readBox _
       | exact Keeps.intOf _
+      | exact Keeps.seen _ _ _
+      | exact Keeps.copyOf _
       | exact Keeps.modify _ (fun _ h => h)
       | apply Keeps.map
       | apply Keeps.setCell

@@ -2064,7 +2064,7 @@ pub const Parser = struct {
         const left = operandBefore(src, sp.pos) orelse "a";
         const right = operandAfter(src, sp.pos + sp.len) orelse "b";
         // `print -1`: a call without its parentheses.
-        if (sp.kind == .infix_before and std.mem.eql(u8, left, "print")) return self.format("`print` is called with parentheses: `print({s}{s})`", .{ op, right });
+        if (sp.kind == .infix_before and isOutputCall(left)) return self.format("`{s}` is called with parentheses: `{s}({s}{s})`", .{ left, left, op, right });
         return switch (sp.kind) {
             .infix_before => if (prefixMeaning(op)) |m|
                 self.format("`{s} {s}{s}`: an operator has the same spacing on both sides; write `{s} {s} {s}` to {s}, or `{s}, {s}{s}` to {s} `{s}` as a value of its own", .{ left, op, right, left, op, right, m.infix, left, op, right, m.prefix, right })
@@ -2599,15 +2599,21 @@ pub const Parser = struct {
         return null;
     }
 
-    /// `print "hi"`: `print` named without its call's parentheses.
+    /// Whether `name` is `print` or `warn`, which are called with parentheses.
+    fn isOutputCall(name: []const u8) bool {
+        return std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "warn");
+    }
+
+    /// `print "hi"`: `print` or `warn` named without its call's parentheses.
     fn printHint(self: *Parser, tok: Token) ?[]const u8 {
         const lex = &self.base.lexer;
         if (tok.len == 0 or lex.before_cat != .ident) return null;
         const src = self.base.source;
         var end = lex.before_pos;
         while (end < src.len and isIdentCont(src[end])) end += 1;
-        if (!std.mem.eql(u8, src[lex.before_pos..end], "print")) return null;
-        return "`print` is called with parentheses: `print(...)`";
+        const name = src[lex.before_pos..end];
+        if (!isOutputCall(name)) return null;
+        return self.format("`{s}` is called with parentheses: `{s}(...)`", .{ name, name });
     }
 
     /// A prefix sigil with whitespace after it (`- b`): named with the

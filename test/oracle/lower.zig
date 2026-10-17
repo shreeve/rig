@@ -1742,9 +1742,6 @@ const Lowerer = struct {
         try self.ret(rs, pos, .no);
     }
 
-    /// Leave the function: every scope's drops and `defer`s, then the
-    /// return. Where it may fail, the `errdefer`s run on a path of their
-    /// own (SPEC "defer and errdefer").
     /// `panic(a, b)`: its values are read, and the program ends there,
     /// running no drop or `defer`: the path ends with no exit.
     fn panicStmt(self: *Lowerer, s: Sexp) Error!void {
@@ -1755,6 +1752,9 @@ const Lowerer = struct {
         self.cur = null;
     }
 
+    /// Leave the function: every scope's drops and `defer`s, then the
+    /// return. Where it may fail, the `errdefer`s run on a path of their
+    /// own (SPEC "defer and errdefer").
     fn ret(self: *Lowerer, r: []const VarId, pos: u32, fails: Fails) Error!void {
         if (self.in_defer) return abstain("a return from deferred code");
         if (fails == .maybe and self.hasErrdefer()) {
