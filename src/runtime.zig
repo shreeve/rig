@@ -1191,10 +1191,19 @@ pub fn List(comptime T: type) type {
 
         pub const empty: Self = .{};
 
+        /// `List(capacity: n)`: an empty List with room for exactly `n`
+        /// elements, one allocation of `n` slots, so a List made to its
+        /// final size takes no more memory than it holds. Panics when `n`
+        /// is negative.
         pub fn initCapacity(capacity: Int) Self {
-            var v: Self = .empty;
-            v.reserve(capacity);
-            return v;
+            const n = std.math.cast(usize, capacity) orelse @panic("negative size");
+            if (n == 0) return .empty;
+            if (comptime @sizeOf(T) == 0) {
+                var v: Self = .empty;
+                v.reserve(capacity);
+                return v;
+            }
+            return .{ .buf = defaultAllocator().alloc(T, n) catch oom() };
         }
 
         pub fn __rig_print(self: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
