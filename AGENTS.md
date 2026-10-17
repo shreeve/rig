@@ -223,6 +223,7 @@ request, under names no rule requires.
 | `tools/gate` | Tests a pull request's head on burst and posts the merge check `rig/gate` ("How merging works") |
 | `.github/workflows/` | `gate.yml`, the required checks of every pull request, read from `rig/gate`; `test.yml` and `shards.yml`, the whole suite cold on GitHub's runners (nightly, by hand, and for forks, under names no rule requires) |
 | `bench/json/` | The JSON benchmark: Rig and Zig builds, and the Rust and Zig competitors (not in CI; see `bench/json/README.md`) |
+| `bench/bigint/` | The BigInt benchmark: `std.bigint` against Trig's port of Go's `math/big` (not in CI; see `bench/bigint/README.md`) |
 | `bench/names/` | The name lookup benchmark: `from_text`'s table against comparing names one by one (not in CI) |
 | `bench/check/` | The check-speed guard: `rig check`'s instructions, pass times (`rig check --time`), and scaling on generated programs (not in CI; see `bench/check/guard.py`) |
 | `bench/print/` | The print-size guard: the machine code one `print` adds in `--release=fast`, against a recorded bound (not in CI; see `bench/print/guard.py`) |
