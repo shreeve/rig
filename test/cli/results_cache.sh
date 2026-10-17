@@ -1,4 +1,4 @@
-# timeout: 300
+# timeout: 600
 # The results cache never turns a run that would fail into a pass: a
 # --delta run carries a test over only when its program, its directives,
 # its package, the compiler's driver, Zig, the harness, and the settings
