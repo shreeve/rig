@@ -3,3 +3,4 @@ defaultTargets = ["LambdaRig"]
 
 [[lean_lib]]
 name = "LambdaRig"
+leanOptions = { warningAsError = true }
