@@ -3755,13 +3755,17 @@ fn constantText(comptime T: type, comptime v: T) ?[]const u8 {
 }
 
 /// The one place a failed write to stdout lands. A closed pipe (`prog |
-/// head`) ends the program quietly with status 0; any other failure ends
-/// it with `error: stdout: <reason>` and status 1. Either way it ends as
-/// a panic does: no drop, `defer`, or leak check runs.
+/// head`) ends the program quietly with status 0, unless a panic is being
+/// reported or `rig test` has not finished (its verdict is lost, so it is
+/// status 1); any other failure ends it with `error: stdout: <reason>` and
+/// status 1. Either way it ends as a panic does: no drop, `defer`, or leak
+/// check runs.
 noinline fn stdoutFailed() noreturn {
     @branchHint(.cold);
     const err = (if (stdout_writer) |w| w.err else null) orelse error.InputOutput;
-    if (err == error.BrokenPipe) std.process.exit(0);
+    if (err == error.BrokenPipe) {
+        std.process.exit(if (panic_stage > 0 or running_tests or tests_failed > 0) 1 else 0);
+    }
     var buf: [128]u8 = undefined;
     const ls = std.debug.lockStderr(&buf);
     ls.file_writer.interface.print("error: stdout: {s}\n", .{writeFailure(err)}) catch {};
@@ -3962,8 +3966,13 @@ pub fn runTests(modules: []const TestModule) void {
 var tests_passed: usize = 0;
 var tests_failed: usize = 0;
 
+/// Whether `runTests` is between its first test and its summary: a closed
+/// stdout then ends the run before the verdict is known.
+var running_tests = false;
+
 fn runTestsHere(modules: []const TestModule) void {
     const w = stdout();
+    running_tests = true;
     for (modules) |m| for (m.tests) |t| {
         const name: TestName = .{ .module = m.module, .name = t.name };
         current_test = name;
@@ -3985,6 +3994,7 @@ fn runTestsHere(modules: []const TestModule) void {
         }
         flush();
     };
+    running_tests = false;
     w.print("{d} passed, {d} failed\n", .{ tests_passed, tests_failed }) catch {};
     flush();
     releaseProcess();
