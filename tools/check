@@ -2,7 +2,7 @@
 # tools/check: a quick local sample of the test suite, run on this Mac, as
 # a sniff test before a push.
 #
-#   tools/check N [--matrix] [--slice I] [--remote]
+#   tools/check N [--matrix] [--slice I] [--on HOST]
 #
 # N is the share of the suite to sample, in percent, 1 to 100: the suite
 # splits into K = 100/N equal parts, rounded to a whole number (5 is 20
@@ -31,10 +31,11 @@
 # --matrix adds the same slice of the generated grids
 # (test/matrix.py --delta --shard I/K).
 # --slice I picks the slice instead of choosing it at random (1 <= I <= K).
-# --remote runs the same check on burst instead, through cpuq's specs
-# (cpuq submit cpuq/suite.json, and matrix.json for --matrix). By default
-# it runs here: the smoke test is how we learn whether a change is worth
-# sending to a remote host at all.
+# --on HOST runs the same check on HOST instead, through cpuq's specs
+# (cpuq submit --on HOST cpuq/suite.json, and matrix.json for --matrix);
+# cpuq checks HOST against the spec's hosts. By default it runs here: the
+# smoke test is how we learn whether a change is worth sending to a
+# remote host at all.
 #
 # The report gives the passed and failed counts of each run, the slice that
 # ran, and a one-line command that reruns just the failures. The exit
@@ -44,13 +45,16 @@
 # (bash 3.2, as macOS ships it.)
 set -uo pipefail
 
-MATRIX="" SLICE="" N="" ON_BURST=""
+MATRIX="" SLICE="" N="" ON=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         --matrix) MATRIX=1 ;;
         --slice) [[ ${2:-} =~ ^[1-9][0-9]*$ ]] || { echo "tools/check: --slice takes a slice's number" >&2; exit 2; }
             SLICE=$2; shift ;;
-        --remote) ON_BURST=1 ;;
+        --on=*) ON=${1#--on=}
+            [[ -n $ON ]] || { echo "tools/check: --on takes a host's name" >&2; exit 2; } ;;
+        --on) [[ -n ${2:-} && ${2:-} != -* ]] || { echo "tools/check: --on takes a host's name" >&2; exit 2; }
+            ON=$2; shift ;;
         -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;;
         -*) echo "tools/check: unknown option $1 (see --help)" >&2; exit 2 ;;
         *) [[ -z $N ]] || { echo "tools/check: one N only (see --help)" >&2; exit 2; }
@@ -190,8 +194,8 @@ sort -u "$WORK/ids" -o "$WORK/ids"
 # The shell and matrix commands run under cpuq with its grant of cores.
 # run_job <log> <label> <spec> <script> [args...]: bash runs the script
 # with the args as "$@" under cpuq; its output goes to the log as well as
-# the screen, and its status is returned. With --remote, cpuq's spec
-# cpuq/<spec>.json runs the same command on burst with the args, and the
+# the screen, and its status is returned. With --on HOST, cpuq's spec
+# cpuq/<spec>.json runs the same command on HOST with the args, and the
 # job's log is read back.
 # --local keeps the run on this Mac by default: the smoke test is how we
 # learn whether a change is worth sending to a remote host at all.
@@ -199,11 +203,11 @@ CPUQ_RUN="cpuq run --local --cores 2-6"
 run_job() {
     local log=$1 label=$2 spec=$3 script=$4 id st
     shift 4
-    if [[ -z $ON_BURST ]]; then
+    if [[ -z $ON ]]; then
         $CPUQ_RUN --label "rig:$label" -- bash -c "$script" _ "$@" 2>&1 | tee "$log"
         return "${PIPESTATUS[0]}"
     fi
-    cpuq submit "cpuq/$spec.json" --note "tools/check $label" -- "$@" 2>&1 | tee "$log.submit"
+    cpuq submit --on "$ON" "cpuq/$spec.json" --note "tools/check $label" -- "$@" 2>&1 | tee "$log.submit"
     st=${PIPESTATUS[0]}
     id=$(sed -nE '1s/^job ([0-9a-f]+)$/\1/p' "$log.submit")
     [[ -n $id ]] && cpuq job "$id" --tail 1000000 >"$log" 2>&1
@@ -212,7 +216,7 @@ run_job() {
 }
 # rerun_line <spec> <script> <args>: the command that reruns just the failures.
 rerun_line() {
-    if [[ -n $ON_BURST ]]; then echo "cpuq submit cpuq/$1.json -- $3"
+    if [[ -n $ON ]]; then echo "cpuq submit --on $ON cpuq/$1.json -- $3"
     else echo "$CPUQ_RUN -- bash -c '$2' _ $3"; fi
 }
 
@@ -291,5 +295,5 @@ fi
 if [[ -n ${RERUN_CELLS// /} ]]; then
     echo "rerun the matrix failures:  $(rerun_line matrix 'test/matrix.py --delta -j "$CPUQ_CORES" "$@"' "${RERUN_CELLS% }")"
 fi
-[[ -n $RERUN$RERUN_CELLS || $BROKEN -eq 0 ]] || echo "rerun:  tools/check $N --slice $I${ON_BURST:+ --remote}"
+[[ -n $RERUN$RERUN_CELLS || $BROKEN -eq 0 ]] || echo "rerun:  tools/check $N --slice $I${ON:+ --on $ON}"
 exit 1

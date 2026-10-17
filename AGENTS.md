@@ -80,8 +80,9 @@ chosen at random, on this Mac:
 `tools/check 1` is about 40 tests, `tools/check 5` about 200, and
 `tools/check 20` about 800. Use it as often as you like. It runs on
 the Mac by default, not on a remote host: it is how we learn whether a
-change is worth sending to burst at all. `tools/check N --remote` runs
-the same check on burst, through `cpuq submit`, when Steve asks. A bug
+change is worth sending to a remote host at all. `tools/check N --on
+HOST` runs the same check on HOST (burst or pup), through `cpuq submit`,
+when Steve asks. A bug
 fix starts with a test that fails; `./test/run --delta <ids>` reruns
 just the tests you name.
 
@@ -144,7 +145,7 @@ RIG_LEAK_TRACE=1 bin/rig run f.rig # leaks with allocation stack traces
 tools/check 1                      # smoke test on the Mac: branch tests + 1% of the suite
 tools/check 5                      #   ... + 5%
 tools/check 20                     #   ... + 20%
-tools/check 1 --remote             #   the same, on burst (when Steve asks)
+tools/check 1 --on burst           #   the same, on burst (when Steve asks)
 tools/gate                         # a PR on burst (when Steve asks)
 tools/deep                         # all of main on burst (when Steve asks)
 ```
