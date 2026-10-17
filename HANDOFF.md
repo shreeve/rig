@@ -92,7 +92,7 @@ from).
 - **Releases:** every change, fixes included, ships in the current
   line, `v0.3.x`; an earlier line gets no further releases. Rounds land
   on `main` untagged until the next tag, which is cut only after the
-  deep gate (`tools/deep`, "The gates" below); its release notes
+  deep gate (`tools/deep`, "Testing" below); its release notes
   include a migration guide for the renames.
 - **Branches:** `main` is the one long-lived branch. Work lands through
   short-lived branches and pull requests. The ruleset on `main` requires

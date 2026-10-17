@@ -715,6 +715,20 @@ worker() { # worker <id> <path> <output directory, relative to $OUTROOT>
 }
 
 if [[ "${1:-}" == "--worker" ]]; then
+    # A worker that ends without recording a result (a shell error such
+    # as an unset variable, or a signal it can catch) names its test, its
+    # status, and the last line of its log, instead of leaving the driver
+    # to say only that it died. One killed with SIGKILL leaves nothing to
+    # say it; the driver then names the test and the likely causes.
+    worker_exit() {
+        local st=$? res="$RESULTS/st/${2//\//__}" log="$RESULTS/log/${2//\//__}" last=""
+        [[ -f "$res" ]] && exit "$st"
+        [[ -f "$log" ]] && last=$(tail -n 1 "$log" 2>/dev/null | tr '\t\n' '  ')
+        printf 'fail\t%s\tthe test runner exited with status %s before recording a result%s\n' \
+            "$2" "$st" "${last:+ (last log line: $last)}" >"$res"
+        exit 0
+    }
+    trap 'worker_exit "$@"' EXIT
     worker "$2" "$3" "$4"
     # Whole seconds since this worker started, to schedule the next run
     # (not a carried-over test's, which did not run).
@@ -1430,7 +1444,7 @@ while IFS=$'\t' read -r id path key; do printf '%s\0%s\0%s\0' "$id" "$path" "$ke
     mv "$DURATIONS.new" "$DURATIONS"
 # A worker that died left no result.
 while IFS=$'\t' read -r id _; do
-    [[ -f "$RESULTS/st/${id//\//__}" ]] || printf 'fail\t%s\tno result: the test runner died\n' "$id" >"$RESULTS/st/${id//\//__}"
+    [[ -f "$RESULTS/st/${id//\//__}" ]] || printf 'fail\t%s\tno result: its worker was killed (out of memory or a signal) or never started\n' "$id" >"$RESULTS/st/${id//\//__}"
 done <"$LIST"
 
 if [[ -n "$UNIT_PID" ]]; then
