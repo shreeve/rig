@@ -21,8 +21,7 @@ cd formal && lake build
 ```
 
 `lake build` checks every proof and runs every example program. Every
-warning is an error. `tools/gate` runs it for a branch that changes
-`formal/`, and fails if a proof is left unfinished.
+warning is an error. Run it after changing `formal/`.
 
 ## Layout
 

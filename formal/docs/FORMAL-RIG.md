@@ -315,8 +315,7 @@ its proof. Rig already has:
 - every program run under the sanitizing allocator;
 - the reference checker;
 - the generated grids (`test/matrix.py`);
-- the corpus of reviewer probes;
-- the gates: `tools/gate` on burst, and the deep gate on `main`.
+- the corpus of reviewer probes.
 
 It adds:
 

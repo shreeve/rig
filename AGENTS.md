@@ -61,7 +61,7 @@ These are about the compiler, not the process. They don't bend.
   early and open the PR as a draft, so the checklist has a home. Its
   body is a checklist of the steps; tick each one as it lands. `gh pr
   list` is the board of work in progress. When the work is done, mark
-  it ready with `gh pr ready`; `tools/gate` refuses a draft.
+  it ready with `gh pr ready`.
 - **One worktree per branch:** `wt new BRANCH` makes it under
   `~/Data/Code/worktrees/rig/`; `wt done` removes it after the merge.
   Never work in the main checkout; it's Steve's.
@@ -72,47 +72,13 @@ These are about the compiler, not the process. They don't bend.
 - **Long jobs:** anything over two minutes runs in the background. Say
   what it is and roughly how long it takes.
 
-### Test in two steps
+### Testing
 
-**1. Smoke test on the Mac, while you work.** `tools/check N` runs the
-branch's own tests, the whole-program checks, and N% of the suite,
-chosen at random, on this Mac:
-`tools/check 1` is about 40 tests, `tools/check 5` about 200, and
-`tools/check 20` about 800. Use it as often as you like. It runs on
-the Mac by default, not on a remote host: it is how we learn whether a
-change is worth sending to a remote host at all. `tools/check N --on
-HOST` runs the same check on HOST (burst or pup), through `cpuq submit`,
-when Steve asks. A bug
-fix starts with a test that fails; `./test/run --delta <ids>` reruns
-just the tests you name.
-
-**2. Full test on burst, when we're happy.** Only when Steve asks, never
-by rule on every PR:
-
-- `tools/gate` tests a PR's pushed head: the suite and the corpus, plus
-  the matrix when the PR touches a file in `tools/gate`'s
-  `MATRIX_PATHS`: `facts`, `storage`, `proofs`, `emit`, `ownership`,
-  `sema`, and `runtime` in `src/`, and the matrix's own files. It
-  skips a PR that touches no code or harness.
-- `tools/deep` tests everything merged on `main`: the suite, the corpus,
-  and the full matrix. When it fails, `tools/deep --bisect` finds the
-  merge that broke it, and the fix goes in on a new branch.
-
-A full suite never runs on the Mac; when Steve asks, `cpuq submit
-cpuq/suite.json` runs it on burst (test/README.md, "The tiers").
-
-Never time on burst, a shared VM: time arm64 on the Mac and x86 on pup,
-through `cpuq lease pup-bench`.
-
-**Nothing else runs unless Steve asks:** no full local suite, corpus,
-matrix, `./test/run json`, benchmark or check-speed guards, review
-agents, or expert panels. Two cases get an offer, not a run:
-
-- A change to a `src/` file in `MATRIX_PATHS`: offer Steve one review
-  agent. Reviews have caught memory bugs every test passed.
-- Two open PRs that touch the same `MATRIX_PATHS` file: say so in
-  both, and before the second merges, offer a gate with the first
-  merged into it.
+Run the tests your change touches, `./test/run --delta <ids>`, through
+`cpuq run` (below). A bug fix starts with a test that fails. There are
+no gates, tiers or required runs: run more of the suite when you judge
+the change needs it. Never time on burst, a shared VM: time arm64 on
+the Mac and x86 on pup, through `cpuq lease pup-bench`.
 
 ### Spend tokens well
 
@@ -129,8 +95,11 @@ agents, or expert panels. Two cases get an offer, not a run:
 - Commit messages are short and imperative. No AI attribution lines.
 - Before a PR that rejects old syntax merges, send Trig a one-line note
   and a migration script.
-- Only Steve merges. After a merge, `wt done` removes the worktree and
-  the local branch; delete the GitHub branch if the merge didn't.
+- Merge your own PR when the work is done. After a merge, `wt done`
+  removes the worktree and the local branch; delete the GitHub branch if
+  the merge didn't.
+- **Plain git.** No GitHub Actions, no gates, no required checks, no
+  commit statuses. Don't add any unless Steve asks.
 
 ## Workflow
 
@@ -141,23 +110,13 @@ bin/rig emit file.rig              # the emitted Zig
 bin/rig check --time file.rig      # time per compiler pass
 ./test/run --delta <ids>           # the tests you name, skipping unchanged passes
 RIG_LEAK_TRACE=1 bin/rig run f.rig # leaks with allocation stack traces
-
-tools/check 1                      # smoke test on the Mac: branch tests + 1% of the suite
-tools/check 5                      #   ... + 5%
-tools/check 20                     #   ... + 20%
-tools/check 1 --on burst           #   the same, on burst (when Steve asks)
-tools/gate                         # a PR on burst (when Steve asks)
-tools/deep                         # all of main on burst (when Steve asks)
 ```
 
 - **Nexus** is co-developed. `zig build` regenerates `src/parser.zig`
   with `../nexus/bin/nexus`, or another binary with `-Dnexus=PATH`.
 - **Shared machines:** run work through `cpuq run --label rig:NAME -- …`
   with `-j "$CPUQ_CORES"`, and keep the label stable. A plain `cpuq run`
-  stays on this Mac; `--on HOST` sends it to pup or burst. A suite or
-  matrix goes through `cpuq submit cpuq/suite.json --note "#PR branch"`
-  (or `matrix.json`), which cpuq places where it finishes first; `--on
-  burst` forces burst. Never ssh to pup or burst. Limit test programs
+  stays on this Mac; `--on HOST` sends it to pup or burst. Never ssh to pup or burst. Limit test programs
   with `cpuq cap`, not a watchdog. Under load, rerun a timeout alone
   before trusting it.
 
@@ -174,8 +133,7 @@ tools/deep                         # all of main on burst (when Steve asks)
 | `src/main.zig`, `lsp.zig` | CLI and language server |
 | `std/` | The standard library |
 | `test/` | The suite; `test/README.md` explains it |
-| `tools/` | `check`, `gate`, and `deep`: the test tiers |
-| `cpuq/` | The job specs `cpuq submit` runs on burst |
+| `tools/` | Generators and migration scripts |
 | `examples/` | Example programs, all run by the suite |
 | `docs/CORE.md` | The ownership model on one page |
 | `docs/INTERNALS.md` | Compiler architecture and the IR |

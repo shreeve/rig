@@ -1452,7 +1452,7 @@ ASCII fast path. To move to a newer Unicode, change the pinned version
 and hashes, run the generator, and review the diff of the census test it
 also writes. `tools/verify-unicode.py` compares every code point with the
 database and with Python's `unicodedata`, the identifier classes and
-White_Space both; the deep gate runs both with `RIG_UCD` naming a
+White_Space both; run both with `RIG_UCD` naming a
 directory of the database.
 
 ## std.json
