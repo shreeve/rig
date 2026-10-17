@@ -2,6 +2,7 @@
 # keeps the output, and so the build cache, of every corpus program that
 # still exists, though it runs only a sample of them. It also removes
 # the build store's old builds.
+# timeout: 300
 source "$ROOT/test/cli/_lib.sh"
 export RIG_BUILD_STORE=   # until the store's own check, below
 
