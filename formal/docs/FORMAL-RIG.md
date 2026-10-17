@@ -315,7 +315,7 @@ its proof. Rig already has:
 - the reference checker;
 - the generated grids (`test/matrix.py`);
 - the corpus of reviewer probes;
-- the merge gate.
+- the gates: `tools/gate` on burst, and the deep gate on `main`.
 
 It adds:
 
