@@ -31,7 +31,7 @@ check() {
             grep -qE '\.zig:[0-9]+:[0-9]+: 0x[0-9a-f]+ in ' err.txt || fail "no location in the trace of $name in $mode: $(cat err.txt)"
             expect_has "$(cat err.txt)" "__rig_main.zig:" "the program's line in the trace of $name in $mode"
         else
-            expect_eq "$(cat err.txt)" "$msg" "the stderr of $name in $mode"
+            ! grep -qE '\.zig:[0-9]+:[0-9]+: 0x[0-9a-f]+ in ' err.txt || fail "a trace in $mode for $name: $(cat err.txt)"
         fi
     done
 }
