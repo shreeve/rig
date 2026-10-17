@@ -4318,14 +4318,16 @@ thread's alternate signal stack, which Zig's start code sets (a child
 process forked on macOS loses it, so `onOwnStack` sets it again in one,
 through `pthread_atfork`, where libc is linked). For a fault in the
 guard it flushes `print`'s output and writes `error: rig: stack
-overflow`, and restores the handlers it replaced. In a debug build it
-then returns, as the sanitizer's handler does, so the access faults
-again into Zig's handler, which prints the stack trace and aborts. An
-optimized build aborts itself with the message alone, as a runtime
-panic does: there Zig's handler walks the trace by frame pointers, which
-can fault again at the top of the program's stack, and `--release=fast`
-installs no handler. So a stack overflow ends with SIGABRT (status 134)
-in every build mode.
+overflow`. An optimized build then aborts with the message alone, as a
+runtime panic does: there Zig's handler walks the trace by frame
+pointers, which can fault again at the top of the program's stack, and
+`--release=fast` installs no handler. A debug build calls the handler
+it replaced (Zig's, which prints the stack trace and aborts) and stays
+installed. A fault taken while that handler walks the stack (on x86_64
+Linux the walk from inside Zig's stack-probe routine, whose stack
+pointer is already in the guard, reads the guard) comes back to it, and
+it aborts. So a stack overflow ends with SIGABRT (status 134) in every
+build mode.
 
 **64 MiB.** Four times the 16 MiB Zig gives the main thread: deep
 recursion (a checker's walk of a large tree) has room, and address
