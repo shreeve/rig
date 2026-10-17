@@ -81,6 +81,8 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     defer c.literal_results.deinit(ctx.allocator);
     defer c.result_hints.deinit(ctx.allocator);
     defer c.jump_targets.deinit(ctx.allocator);
+    defer c.panic_places.deinit(ctx.allocator);
+    try c.placePanics(tree, .value);
     for (ctx.const_order.items) |decl| try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl)) try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| try c.checkLendBases(decl, decl, false, true);
@@ -250,6 +252,9 @@ const Checker = struct {
     /// and that construct (`sema.eachJumpTo`), recorded as the construct
     /// is entered (`enterFrame`).
     jump_targets: std.AutoHashMapUnmanaged(parser.NodeId, Sexp) = .empty,
+    /// Where each `panic` of a body stands (`placePanics`); one absent
+    /// stands where a value is needed.
+    panic_places: std.AutoHashMapUnmanaged(parser.NodeId, PanicPlace) = .empty,
     /// The types inference found for arguments (`argType`).
     arg_types: std.AutoHashMapUnmanaged(parser.NodeId, TypeId) = .empty,
     /// What typing found that the walk over paths reads
@@ -745,7 +750,7 @@ const Checker = struct {
                     try self.checkStmt(s);
                     continue;
                 }
-                if (self.yieldsNoValue(s) and !s.isKind(.@"return")) {
+                if (self.yieldsNoValue(s) and !s.isKind(.@"return") and !s.isKind(.panic)) {
                     try self.checkStmt(s);
                     const what = switch (s.kind().?) {
                         .set => "assignment",
@@ -856,6 +861,7 @@ const Checker = struct {
             },
             .@"break" => try self.checkBreak(stmt),
             .@"continue" => _ = try self.resolveJump(stmt),
+            .panic => _ = try self.checkPanic(stmt),
             .pass => {},
             .@"defer", .@"errdefer" => {
                 if (head == .@"errdefer") try self.checkErrdeferCanRun(stmt);
@@ -1724,7 +1730,7 @@ const Checker = struct {
 
     /// Why a place is read-only: a `*T` on the way, which other handles
     /// may share; an element of a `[]T` or a `?String`, a `.len`, an
-    /// enum's `.text`, or a field another module declared read-only; or
+    /// enum's or a symbol's `.text`, or a field another module declared read-only; or
     /// a `?T` on the way.
     /// Where several apply, the first in that order.
     const Block = enum {
@@ -1734,6 +1740,8 @@ const Checker = struct {
         len,
         /// `e.text`, the name of a plain enum value's variant.
         text,
+        /// `s.text`, the name of a symbol.
+        symbol_text,
         /// A field another module declared `pub ?name: T`.
         read_only,
         read_view,
@@ -1741,7 +1749,7 @@ const Checker = struct {
         fn rank(b: Block) u2 {
             return switch (b) {
                 .shared => 0,
-                .slice, .string, .len, .text, .read_only => 1,
+                .slice, .string, .len, .text, .symbol_text, .read_only => 1,
                 .read_view => 2,
             };
         }
@@ -1830,7 +1838,7 @@ const Checker = struct {
                 if (place.blocked.?.why == .read_only) place.read_only = field;
                 if (!crossed) place.leaf_blocked = true;
             } else if (self.ctx.isEnumText(step)) {
-                place.block(.text, self.startOf(ir.Member.name(step)));
+                place.block(if (inner == self.t().symbol_id) .symbol_text else .text, self.startOf(ir.Member.name(step)));
                 if (!crossed) place.leaf_blocked = true;
             } else if (std.mem.eql(u8, self.text(ir.Member.name(step)), "len") and (obj == .slice or obj == .string_view or obj == .static or obj == .string or obj == .array or listElementType(self.ctx, inner) != null or cellListElement(self.ctx, inner) != null)) {
                 place.block(.len, self.startOf(ir.Member.name(step)));
@@ -1971,6 +1979,7 @@ const Checker = struct {
                 .string => try self.err(b.pos, "cannot {s} a byte of a `?String`{s}; a `?String` is read-only", .{ verb.head, verb.tail }),
                 .len => try self.err(b.pos, "cannot {s} `.len`{s}; a length is read-only", .{ verb.head, verb.tail }),
                 .text => try self.err(b.pos, "cannot {s} `.text`{s}; a variant's name is read-only", .{ verb.head, verb.tail }),
+                .symbol_text => try self.err(b.pos, "cannot {s} `.text`{s}; a symbol's name is read-only", .{ verb.head, verb.tail }),
                 .read_only => {
                     const f = place.read_only.?;
                     try self.err(b.pos, "cannot {s} `{s}`{s}: field `{s}` of `{s}` is read-only outside module `{s}`, which declares it `pub ?{s}`", .{ verb.head, try self.plainText(place.node), verb.tail, f.field, f.owner, f.module, f.field });
@@ -2888,7 +2897,7 @@ const Checker = struct {
     fn yieldsNoValue(self: *Checker, e: Sexp) bool {
         const h = e.kind() orelse return false;
         return switch (h) {
-            .set, .@"while", .@"for", .drop, .pass, .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .labeled => !self.isValueLoop(e),
+            .set, .@"while", .@"for", .drop, .pass, .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .panic, .labeled => !self.isValueLoop(e),
             else => false,
         };
     }
@@ -3225,12 +3234,12 @@ const Checker = struct {
         };
         if (scrutinee == self.t().int_literal_id) try self.defaultIntLiteral(subject);
         const matchable = switch (self.ctx.types.get(sema.unwrapViews(self.ctx, scrutinee))) {
-            .int, .int_literal, .bool, .invalid, .unknown, .any_error => true,
+            .int, .int_literal, .bool, .symbol, .invalid, .unknown, .any_error => true,
             .nominal, .parameterized_nominal, .imported_nominal => sema.enumVariantCount(self.ctx, scrutinee) != null,
             else => false,
         };
         if (!matchable) {
-            try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, errors, integers, and Bool", .{try self.tyName(scrutinee)});
+            try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, errors, integers, Bool, and Symbol", .{try self.tyName(scrutinee)});
         }
 
         // The place a binding that cannot be written views, for the
@@ -3732,6 +3741,7 @@ const Checker = struct {
                 }
                 return self.err(pos, "`match` on `{s}` is not exhaustive: it misses `{d}`; {s}", .{ try self.tyName(scrutinee), next, fix });
             },
+            .symbol => return self.err(pos, "`match` on a `Symbol` is not exhaustive without `_ =>`: a symbol's values are every symbol the program writes", .{}),
             else => return self.err(pos, "`match` on `{s}` is not exhaustive; add `_ =>` for the values its arms miss", .{try self.tyName(ty)}),
         }
     }
@@ -3797,6 +3807,16 @@ const Checker = struct {
                         }
                         try self.ctx.recordType(pattern, scrutinee);
                         try self.recordCovered(self.text(name), self.startOf(pattern), cov);
+                    },
+                    // `:name`: one value of the program's symbols, which
+                    // no set of arms covers.
+                    .symbol => {
+                        try self.checkExpr(pattern, scrutinee);
+                        const key = try std.fmt.allocPrint(self.ctx.arena.allocator(), ":{s}", .{self.text(ir.Symbol.name(pattern))});
+                        if (cov.variantAt(key)) |first| {
+                            try self.err(self.startOf(pattern), "duplicate arm for symbol `{s}`", .{key});
+                            try self.note(first, "first arm here", .{});
+                        } else try cov.variants.put(self.ctx.allocator, key, self.startOf(pattern));
                     },
                     .member => try self.checkQualifiedPattern(pattern, scrutinee, cov),
                     .variant_pattern => try self.checkVariantPattern(pattern, scrutinee, cov, mode),
@@ -3921,7 +3941,7 @@ const Checker = struct {
                 // A value made here, an enum, an error, an integer, or a
                 // Bool, is the match's whole.
                 if (self.hands(subject).kind == .made) if (self.ctx.typeOf(subject)) |ty| switch (self.ctx.types.get(ty)) {
-                    .nominal, .parameterized_nominal, .imported_nominal, .any_error, .int, .bool => break :blk .read_own,
+                    .nominal, .parameterized_nominal, .imported_nominal, .any_error, .int, .bool, .symbol => break :blk .read_own,
                     else => {},
                 };
                 // Anything else is read.
@@ -4028,6 +4048,9 @@ const Checker = struct {
 
 
     fn reportMissingVariant(self: *Checker, enum_ty: TypeId, vname: []const u8, pos: u32) Error!void {
+        if (sema.unwrapViews(self.ctx, enum_ty) == self.t().symbol_id) {
+            return self.err(pos, "`.{s}` is an enum variant, and a `Symbol` is expected; a symbol is written `:{s}`", .{ vname, vname });
+        }
         const decl = sema.nominalDecl(self.ctx, enum_ty) orelse {
             if (!self.isPoison(enum_ty)) {
                 try self.err(pos, "`.{s}` is an enum variant, but the expected type `{s}` is not an enum", .{ vname, try self.tyName(enum_ty) });
@@ -4296,8 +4319,8 @@ const Checker = struct {
             try self.errAt(leaf, "`{s}` is a type, not a value", .{name});
             return null;
         }
-        if (std.mem.eql(u8, name, "print")) {
-            try self.errAt(leaf, "`print` is called with parentheses: `print(...)`", .{});
+        if (std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "warn")) {
+            try self.errAt(leaf, "`{s}` is called with parentheses: `{s}(...)`", .{ name, name });
             return null;
         }
         // Inside a type's methods, a field or method is reached through
@@ -4459,6 +4482,7 @@ const Checker = struct {
                 try self.errAt(e, "enum literal `.{s}` needs a known enum type; write `Type.{s}` or annotate the binding", .{ name, name });
                 break :blk self.t().invalid_id;
             },
+            .symbol => self.t().symbol_id,
             .lambda => self.checkLambda(e, null),
             .builtin => self.synthBuiltin(e, null),
             .@"..",
@@ -4482,6 +4506,7 @@ const Checker = struct {
                 try self.checkStmt(e);
                 break :blk self.t().noreturn_id;
             },
+            .panic => self.checkPanic(e),
             .as => blk: {
                 try self.errAt(e, "`as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`", .{});
                 _ = try self.synthExpr(ir.As.value(e));
@@ -4564,6 +4589,10 @@ const Checker = struct {
         const a = try self.synthReached(l);
         const b = try self.synthReached(r);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
+        if (sema.unwrapViews(self.ctx, a) == self.t().symbol_id or sema.unwrapViews(self.ctx, b) == self.t().symbol_id) {
+            try self.errAt(l, "operator `{s}` is not defined for `Symbol`: a symbol has no order; compare with `==` and `!=`", .{op});
+            return self.t().bool_id;
+        }
         if (self.enumValues(a) != null or self.enumValues(b) != null) {
             if (a != b) {
                 try self.errAt(l, "operator `{s}` operands have different types `{s}` and `{s}`", .{ op, try self.tyName(a), try self.tyName(b) });
@@ -5592,7 +5621,7 @@ const Checker = struct {
             }
         }
         return switch (e.kind() orelse return false) {
-            .enum_lit => true,
+            .enum_lit, .symbol => true,
             .member => self.ctx.isErrorMember(e) or try self.namesTypeConstant(e) or self.namesModuleConstant(e),
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>" => for (rig.children(e)) |c| {
                 if (!try self.isConstant(c)) break false;
@@ -6439,6 +6468,15 @@ const Checker = struct {
             else => {},
         }
 
+        // `s.text`: a symbol's name, its one member.
+        if (peeled == self.t().symbol_id) {
+            if (std.mem.eql(u8, field, "text")) {
+                try self.ctx.recordEnumText(e);
+                return self.t().static_id;
+            }
+            try self.err(pos, "a `Symbol` has no field `{s}`; its one member is its name, `.text`", .{field});
+            return self.t().invalid_id;
+        }
         // `e.text`: the name of a plain enum value's variant.
         if (std.mem.eql(u8, field, "text") and self.enumValues(peeled) != null) {
             if (self.hasVariantNames(peeled)) {
@@ -7458,6 +7496,7 @@ const Checker = struct {
             const name = self.text(callee);
             if (self.lookupQuiet(callee) == null) {
                 if (std.mem.eql(u8, name, "print")) return self.checkPrint(args);
+                if (std.mem.eql(u8, name, "warn")) return self.checkWarn(args);
                 if (std.mem.eql(u8, name, "String")) return self.checkStringNew(node, args);
                 if (std.mem.eql(u8, name, "replace")) return self.checkReplace(callee, args);
                 if (std.mem.eql(u8, name, "swap")) return self.checkSwap(callee, args);
@@ -7754,6 +7793,85 @@ const Checker = struct {
         return self.t().void_id;
     }
 
+    /// `warn(a, b, ...)`: written as `print` writes them, to stderr.
+    fn checkWarn(self: *Checker, args: []const Sexp) Error!TypeId {
+        try self.checkFormatArgs(args, "`warn`", "warn");
+        return self.t().void_id;
+    }
+
+    /// `panic(a, b, ...)`: a message, written as `print` writes it, and
+    /// the end of the program, so it gives no value. It stands where
+    /// `placePanics` allows it.
+    fn checkPanic(self: *Checker, e: Sexp) Error!TypeId {
+        const args = ir.Panic.args(e);
+        const place = self.panic_places.get(nodeId(e)) orelse .value;
+        switch (place) {
+            .statement => {},
+            .value => try self.errAt(e, "`panic` ends the program and gives no value, so it stands as a statement or as a branch's value", .{}),
+            .deferred => try self.errAt(e, "`panic` cannot stand in deferred code, which runs as its scope ends; check before the scope ends instead", .{}),
+        }
+        if (args.len == 0) try self.errAt(e, "`panic` needs a message: say what went wrong", .{});
+        try self.checkFormatArgs(args, "`panic`", "print");
+        // A misplaced `panic` is poison, so what uses it reports nothing more.
+        return if (place == .statement) self.t().noreturn_id else self.t().invalid_id;
+    }
+
+    /// Where a `panic` stands (`placePanics`).
+    const PanicPlace = enum {
+        /// A statement, or a branch's value: allowed.
+        statement,
+        /// Where a value is needed.
+        value,
+        /// In a `defer` or `errdefer`.
+        deferred,
+    };
+
+    /// Record where each `panic` under `e` stands, `e` standing at
+    /// `place`, by a positive list: a block's statement, the value of an
+    /// `if` or `match` branch, the right side of `??`, and the tail of a
+    /// `catch` handler stand as statements, and a body is a block.
+    /// Everything else needs a value. Deferred code keeps `deferred`.
+    fn placePanics(self: *Checker, e: Sexp, place: PanicPlace) Error!void {
+        const kind = e.kind() orelse return;
+        const stmt: PanicPlace = if (place == .deferred) .deferred else .statement;
+        const value: PanicPlace = if (place == .deferred) .deferred else .value;
+        switch (kind) {
+            .panic => {
+                try self.panic_places.put(self.ctx.allocator, nodeId(e), place);
+                for (ir.Panic.args(e)) |a| try self.placePanics(a, value);
+            },
+            .block => for (ir.Block.stmts(e)) |s| try self.placePanics(s, stmt),
+            .@"if" => {
+                try self.placePanics(ir.If.cond(e), value);
+                try self.placePanics(ir.If.then(e), stmt);
+                try self.placePanics(ir.If.@"else"(e), stmt);
+            },
+            .match => {
+                try self.placePanics(ir.Match.subject(e), value);
+                for (ir.Match.arms(e)) |arm| {
+                    try self.placePanics(ir.Arm.pattern(arm), value);
+                    try self.placePanics(ir.Arm.guard(arm), value);
+                    try self.placePanics(ir.Arm.body(arm), stmt);
+                }
+            },
+            .@"??" => {
+                try self.placePanics(ir.@"??".left(e), value);
+                try self.placePanics(ir.@"??".right(e), stmt);
+            },
+            .@"catch" => {
+                try self.placePanics(ir.Catch.value(e), value);
+                try self.placePanics(ir.Catch.handler(e), stmt);
+            },
+            .labeled => try self.placePanics(ir.Labeled.stmt(e), place),
+            .@"defer", .@"errdefer" => try self.placePanics(ir.get(e, .body), .deferred),
+            .fun, .sub, .drop_decl, .@"test", .lambda => {
+                const body = ir.get(e, .body);
+                for (rig.children(e)) |c| try self.placePanics(c, if (sameNode(c, body)) .statement else .value);
+            },
+            else => for (rig.children(e)) |c| try self.placePanics(c, value),
+        }
+    }
+
     /// The values `print`, `String(...)`, and `!t.add(...)` (`who`) write
     /// as text, each as `print` writes it: any value but a `Void`, a
     /// bare `none`, or one holding a `[]U8`, positionally. They are only
@@ -7784,12 +7902,15 @@ const Checker = struct {
             switch (self.ctx.types.get(ty)) {
                 .void => try self.errAt(a, "{s} needs a value; this expression produces no value (`Void`)", .{who}),
                 .none_literal => try self.errAt(a, "cannot {s} a bare `none`", .{verb}),
+                .noreturn => try self.errAt(a, "{s} needs a value; this expression never produces one", .{who}),
                 else => {
-                    if (try holdsByteSlice(self.ctx, ty, self.ctx.allocator)) {
+                    if (!try sema.printable(self.ctx, ty)) {
                         const name = try self.tyName(ty);
                         const direct = std.mem.eql(u8, name, "[]U8");
                         try self.errAt(a, "cannot {s} a `{s}`: {s}would {s} as text, like a `?String`; {s} the bytes one by one", .{ verb, name, if (direct) "it " else "the `[]U8` it holds ", verb, verb });
                     }
+                    // Each instance answers for a type parameter the value holds.
+                    try self.requireOf(ty, .printable, self.startOf(a), verb);
                 },
             }
         }
@@ -8175,6 +8296,31 @@ const Checker = struct {
 
     /// `Color.from_text(word)`: the variant of plain enum `enum_ty` named
     /// `word`, or `none`. `word` is passed as to a parameter `?String`.
+    /// Whether `obj` names the builtin type `Symbol`.
+    fn symbolNamed(self: *Checker, obj: Sexp) bool {
+        return obj == .src and std.mem.eql(u8, self.text(obj), "Symbol") and self.lookupQuiet(obj) == null;
+    }
+
+    /// `Symbol.from_text(word)`: the symbol the program writes as
+    /// `:word`, or none. It is `Symbol`'s one function.
+    fn symbolTypeCall(self: *Checker, callee: Sexp, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        if (!std.mem.eql(u8, method, "from_text")) {
+            return self.badCall(args, pos, "`Symbol` has no function `{s}`; its one function is `Symbol.from_text(word)`", .{method});
+        }
+        const symbol_id = self.t().symbol_id;
+        const result = try self.ctx.intern(.{ .optional = symbol_id });
+        if (ct) |b| return self.badCall(args, b, "`from_text` takes no compile-time arguments", .{});
+        if (args.len != 1) return self.badCall(args, pos, "`Symbol.from_text(word)` takes one argument, a `?String`; got {d}", .{args.len});
+        if (args[0].isKind(.kwarg)) return self.badCall(args, pos, "`Symbol.from_text(word)` takes its argument by position", .{});
+        const f: FunctionType = .{ .params = try self.ctx.dupeIds(&.{self.t().string_view_id}), .returns = result, .is_sub = false };
+        try self.noteCallee(f);
+        var scratch = std.heap.ArenaAllocator.init(self.ctx.allocator);
+        defer scratch.deinit();
+        try self.checkArgs(args, f, .{}, "from_text", pos, .{ .origins = try sema.defaultOrigins(self.ctx, scratch.allocator(), f) });
+        try self.ctx.recordElemCall(callee, .{ .op = .from_text, .elem = self.t().string_view_id, .num = symbol_id });
+        return result;
+    }
+
     fn enumFromTextCall(self: *Checker, callee: Sexp, enum_ty: TypeId, shown: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
         const result = try self.ctx.intern(.{ .optional = enum_ty });
         if (ct) |b| return self.badCall(args, b, "`from_text` takes no compile-time arguments", .{});
@@ -8553,51 +8699,6 @@ const Checker = struct {
         }
         if (sameSite(e, self.ternary_cond)) return self.errAt(e, "`{s}` is a mask, `{s}`, not a `Bool`: a ternary runs one side, so pick lanes with `{s}.select(a, b)`, or reduce the mask with `.any()` or `.all()`", .{ shown, ty, recv });
         try self.errAt(e, "`{s}` is a mask, `{s}`, not a `Bool`: write `{s}.any()` or `{s}.all()`", .{ shown, ty, recv, recv });
-    }
-
-    const ByteSliceVisit = struct { ctx: *const SemContext, sym: SymbolId };
-    const ByteSliceItem = struct { ctx: *const SemContext, ty: TypeId };
-
-    /// Whether a value of `ty` holds a `[]U8`, directly or through a
-    /// wrapper, field, payload, or type argument. A `[]U8` and a `?String`
-    /// are both Zig `[]const u8`, so `print` cannot tell them apart. The
-    /// walk keeps a stack of its own, so a long chain of types, each
-    /// holding the next, does not nest it; each declaration is walked once.
-    fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator) Error!bool {
-        var todo: std.ArrayList(ByteSliceItem) = .empty;
-        defer todo.deinit(a);
-        var seen: std.AutoHashMapUnmanaged(ByteSliceVisit, void) = .empty;
-        defer seen.deinit(a);
-        try todo.append(a, .{ .ctx = ctx, .ty = ty });
-        while (todo.pop()) |item| {
-            const c = item.ctx;
-            switch (c.types.get(item.ty)) {
-                .slice => |sl| {
-                    switch (c.types.get(sl.elem)) {
-                        .int => |i| if (i.bits == 8 and !i.signed) return true,
-                        else => try todo.append(a, .{ .ctx = c, .ty = sl.elem }),
-                    }
-                    continue;
-                },
-                .optional, .fallible, .read_view, .write_view, .shared => |inner| {
-                    try todo.append(a, .{ .ctx = c, .ty = inner });
-                    continue;
-                },
-                .array => |arr| {
-                    try todo.append(a, .{ .ctx = c, .ty = arr.elem });
-                    continue;
-                },
-                .parameterized_nominal => |pn| for (pn.args) |arg| try todo.append(a, .{ .ctx = c, .ty = arg }),
-                .nominal, .imported_nominal => {},
-                else => continue,
-            }
-            const decl = sema.nominalDecl(c, item.ty) orelse continue;
-            if ((try seen.getOrPut(a, .{ .ctx = decl.ctx, .sym = decl.sym })).found_existing) continue;
-            for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
-                for (sema.dataFields(f)) |d| try todo.append(a, .{ .ctx = decl.ctx, .ty = d.ty });
-            }
-        }
-        return false;
     }
 
     /// What a call needs to know about a callee's parameters beyond its
@@ -9739,7 +9840,7 @@ const Checker = struct {
             .list => {
                 const h = e.kind() orelse return false;
                 return switch (h) {
-                    .enum_lit => true,
+                    .enum_lit, .symbol => true,
                     .builtin => std.mem.eql(u8, self.text(ir.Builtin.name(e)), "variants"),
                     .not => self.isComptimeKnown(ir.get(e, .operand)),
                     .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => self.isComptimeKnown(ir.get(e, .left)) and self.isComptimeKnown(ir.get(e, .right)),
@@ -10129,6 +10230,7 @@ const Checker = struct {
         }
         if (try self.moduleNamed(obj)) |id| return self.misreachedWrite(misreached, obj, method, try self.crossModuleCall(id, method, pos, args, ct));
         if (try self.simdNamed(obj)) |vt| return self.misreachedWrite(misreached, obj, method, try self.simdTypeCall(callee, vt, method, pos, args, ct));
+        if (self.symbolNamed(obj)) return self.misreachedWrite(misreached, obj, method, try self.symbolTypeCall(callee, method, pos, args, ct));
         if (try self.numberType(obj)) |nty| return self.misreachedWrite(misreached, obj, method, try self.numberTypeCall(callee, obj, nty, method, pos, args, ct));
         if (try self.namedType(obj)) |nt| return self.misreachedWrite(misreached, obj, method, try self.associatedCall(obj, nt, method, pos, args, ct));
 
@@ -10242,7 +10344,7 @@ const Checker = struct {
                 try self.err(pos, "a List has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
             } else if (has_len and std.mem.eql(u8, method, "len")) {
                 try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
-            } else if (std.mem.eql(u8, method, "text") and self.hasVariantNames(peeled)) {
+            } else if (std.mem.eql(u8, method, "text") and (self.hasVariantNames(peeled) or peeled == self.t().symbol_id)) {
                 try self.err(pos, "no method `text` on type `{s}`; a variant's name is a member, read without a call: `{s}.text`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
                 const sym = decl.symbol();
@@ -11890,7 +11992,7 @@ const Checker = struct {
         try sema.yieldedLeaves(self.ctx.allocator, self.ctx.source, e, &leaves);
         if (leaves.items.len == 0) return false;
         for (leaves.items) |leaf| switch (leaf.kind() orelse return false) {
-            .call, .result_part, .write, .move, .@"return", .@"break", .@"continue" => {},
+            .call, .result_part, .write, .move, .@"return", .@"break", .@"continue", .panic => {},
             else => return false,
         };
         return true;
@@ -13512,7 +13614,7 @@ const Checker = struct {
             if (stmts.len > 0) {
                 for (stmts[0 .. stmts.len - 1]) |s| try self.checkStmt(s);
                 const last = stmts[stmts.len - 1];
-                ends_in_return = last.isKind(.@"return");
+                ends_in_return = last.isKind(.@"return") or last.isKind(.panic);
                 // A closure ending in a statement, or an `if` without
                 // `else`, returns nothing.
                 const no_value = self.yieldsNoValue(last) or ifWithoutValue(last);
@@ -14189,9 +14291,9 @@ fn isWhileTrue(source: []const u8, loop: Sexp) bool {
 
 /// The call whose value `e` is: `e` itself, or the call under a `!`,
 /// `?`, `catch`, or on the left of `??`.
-/// `return`, `break`, or `continue`: a fallback that jumps.
+/// `return`, `break`, `continue`, or `panic`: a fallback that leaves.
 fn isJumpNode(e: Sexp) bool {
-    return e.isKind(.@"return") or e.isKind(.@"break") or e.isKind(.@"continue");
+    return rig.leaves(e);
 }
 
 /// Whether `e` names `name` anywhere in `source`.
@@ -14369,7 +14471,7 @@ fn isContextual(source: []const u8, e: Sexp) bool {
 fn isDefaultLiteral(source: []const u8, e: Sexp) bool {
     return switch (e) {
         .src => isLiteralText(identAt(source, e).?) or std.mem.eql(u8, identAt(source, e).?, "none"),
-        .list => e.isKind(.enum_lit) or
+        .list => e.isKind(.enum_lit) or e.isKind(.symbol) or
             (e.isKind(.neg) and ir.Neg.operand(e) == .src and isLiteralText(identAt(source, ir.Neg.operand(e)).?)),
         else => false,
     };
@@ -15154,6 +15256,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
+                .printable => try ctx.err(at, cannot ++ "{s}s a value that holds a `{s}`, and {s} would {s} as text, like a `?String`", .{ inst, pname, aname, req.op, pname, if (std.mem.eql(u8, aname, "[]U8")) "a `[]U8`" else try ctx.arena.allocator().print("the `[]U8` a `{s}` holds", .{aname}), req.op }),
                 .whole_division => try ctx.err(at, cannot ++ "gives a `{s}` the division of whole numbers `{s}`, which divides integers, not a `{s}`", .{ inst, pname, aname, pname, req.op, aname }),
                 .not_error => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a return type `{s}!` would make a failure and a success both `{s}` values", .{ inst, pname, aname, pname, aname }),
                 .not_function => try ctx.err(at, cannot ++ "makes a handle `{s}{s}` of a `{s}`, and `{s}` is a function type: `*{s}` is an owned closure, not a handle of a function. Hold the owned closure itself in a `{s}`: `{s} = *{s}`", .{ inst, pname, aname, req.op[1..2], pname, pname, aname, aname, pname, pname, aname }),
@@ -15177,6 +15280,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
                 .not_function => try ctx.noteIn(req.module_id, req.pos, "`{s}{s}` here", .{ req.op[1..2], pname }),
                 .named => try ctx.noteIn(req.module_id, req.pos, "`@name` here", .{}),
+                .printable => try ctx.noteIn(req.module_id, req.pos, "written here", .{}),
                 else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
             ok = false;
@@ -15250,6 +15354,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         .equatable => sema.isEquatable(ctx, ty),
         .hashable => isText(ctx, ty) or ((try sema.notHashable(ctx, ty, null)) == null and !declaresHash(ctx, ty)),
         .whole_division => sema.isInteger(ctx, ty),
+        .printable => try sema.printable(ctx, ty),
         .not_error => ctx.types.get(ty) != .any_error and !sema.isErrorSet(ctx, ty),
         .not_function => ctx.types.get(ty) != .function,
         .named => sema.unnameable(ctx, ty) == null,

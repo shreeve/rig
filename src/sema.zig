@@ -317,6 +317,10 @@ pub const Type = union(enum) {
     /// is plain data that carries no loan, and it is read as a `?String`
     /// where the text is only read (`typecheck.meets`).
     static,
+    /// `Symbol`: a symbol literal's type (`:width`). Its values are the
+    /// program's symbol literals, numbered once for the whole program
+    /// (`src/symbols.zig`); it is plain data, compared with `==` and `!=`.
+    symbol,
     int: IntInfo,
     float: FloatInfo,
 
@@ -431,6 +435,7 @@ pub const TypeStore = struct {
     string_view_id: TypeId = type_invalid,
     string_id: TypeId = type_invalid,
     static_id: TypeId = type_invalid,
+    symbol_id: TypeId = type_invalid,
     int_id: TypeId = type_invalid,
     float_id: TypeId = type_invalid,
     int_literal_id: TypeId = type_invalid,
@@ -476,6 +481,7 @@ pub const TypeStore = struct {
         s.noreturn_id = try s.intern(allocator, .noreturn);
         s.any_error_id = try s.intern(allocator, .any_error);
         s.static_id = try s.intern(allocator, .static);
+        s.symbol_id = try s.intern(allocator, .symbol);
         return s;
     }
 
@@ -540,7 +546,7 @@ pub const TypeStore = struct {
     fn typeEqual(a: Type, b: Type) bool {
         if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
         return switch (a) {
-            .invalid, .unknown, .void, .bool, .string_view, .string, .static, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => true,
+            .invalid, .unknown, .void, .bool, .string_view, .string, .static, .symbol, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => true,
             .function => |af| af.is_sub == b.function.is_sub and
                 af.returns == b.function.returns and
                 std.mem.eql(TypeId, af.ct_params, b.function.ct_params) and
@@ -1367,6 +1373,8 @@ pub const Decision = struct { node: Sexp, at: Sexp = .nil, answer: u8 };
 pub const TypeMemo = struct {
     /// `runsDropBody` of a type, with nothing yet looked into.
     drop_body: std.AutoHashMapUnmanaged(TypeId, bool) = .empty,
+    /// `printable` of a type.
+    printable: std.AutoHashMapUnmanaged(TypeId, bool) = .empty,
 };
 
 pub const Decided = struct {
@@ -1942,6 +1950,9 @@ pub const Requirement = union(enum) {
     /// that holds the parameter (`@name`), which the runtime spells from
     /// the instance's Zig type.
     named,
+    /// Printable (`printable`): the body prints a value that holds the
+    /// parameter, and a `[]U8` would print as text.
+    printable,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -1964,6 +1975,7 @@ pub const Requirement = union(enum) {
             .not_error => "a fallible return",
             .not_function => "a handle",
             .named => "a type name",
+            .printable => "printing",
         };
     }
 };
@@ -2358,6 +2370,7 @@ pub const SemContext = struct {
         self.decided.map.deinit(self.allocator);
         self.allocator.destroy(self.decided);
         self.type_memo.drop_body.deinit(self.allocator);
+        self.type_memo.printable.deinit(self.allocator);
         self.allocator.destroy(self.type_memo);
         self.arena.deinit();
     }
@@ -3970,7 +3983,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         return .{ .glue = info.glue, .plain = info.plain, .type_var = info.holds_type_var, .vector = info.vector, .any_error = info.any_error };
     }
     return switch (ctx.types.get(ty)) {
-        .bool, .int, .float, .string_view, .static, .ct_value, .ct_param => .{ .plain = true },
+        .bool, .int, .float, .string_view, .static, .symbol, .ct_value, .ct_param => .{ .plain = true },
         .string => .{ .glue = true },
         // An error of any set is owning in every program, whatever the
         // program's sets hold (Core §2, "A failure moves its error").
@@ -4344,9 +4357,9 @@ pub fn returnsNothing(ctx: *const SemContext, ret: TypeId) bool {
 }
 
 /// A built-in function called by name unless a declaration hides it:
-/// `print`, `replace`, `swap`.
+/// `print`, `warn`, `replace`, `swap`.
 pub fn isBuiltinCallName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "replace") or std.mem.eql(u8, name, "swap");
+    return std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "warn") or std.mem.eql(u8, name, "replace") or std.mem.eql(u8, name, "swap");
 }
 
 /// A built-in generic that keeps its values on the heap: a `List[T]` and
@@ -4580,6 +4593,7 @@ fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?
         .invalid, .unknown, .type_var, .ct_param => null,
         .void, .noreturn, .none_literal => 0,
         .bool => 1,
+        .symbol => 4,
         .int => |i| i.width() / 8,
         .float => |f| if (f.bits == 0) 8 else f.bits / 8,
         .string_view, .static, .slice => 16,
@@ -5209,7 +5223,7 @@ const EquatableWalk = struct {
 /// Primitive values that are copied freely.
 pub fn isCopyPrimitive(ctx: *const SemContext, ty_id: TypeId) bool {
     return switch (ctx.types.get(ty_id)) {
-        .bool, .int, .float, .string_view, .static, .int_literal, .float_literal => true,
+        .bool, .int, .float, .string_view, .static, .symbol, .int_literal, .float_literal => true,
         else => false,
     };
 }
@@ -5618,7 +5632,7 @@ pub fn lendByValue(ctx: *const SemContext, inner: TypeId) bool {
 /// an error, or an optional of one of those.
 fn copiedByReadView(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
-        .bool, .string_view, .static, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable, .simd => true,
+        .bool, .string_view, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable, .simd => true,
         .write_view => writeSliceElem(ctx, ty) != null,
         .optional => |inner| copiedByReadView(ctx, inner),
         .nominal, .imported_nominal => isPlainEnum(ctx, ty) or isErrorSet(ctx, ty),
@@ -6491,6 +6505,64 @@ pub fn dropRunsBody(ctx: *const SemContext, ty: TypeId) Answer {
     return if (info.holds_type_var or info.poison) .depends else .no;
 }
 
+/// Whether `print` can write a value of `ty`: unless it holds a `[]U8`,
+/// directly or through a wrapper, field, payload, or type argument
+/// (`holdsByteSlice`). A type parameter answers for each instance
+/// (`Requirement.printable`). Worked out once declarations are resolved
+/// (`TypeMemo`).
+pub fn printable(ctx: *const SemContext, ty: TypeId) !bool {
+    if (!ctx.contents_ready) return !try holdsByteSlice(ctx, ty, ctx.allocator);
+    if (ctx.type_memo.printable.get(ty)) |b| return b;
+    const b = !try holdsByteSlice(ctx, ty, ctx.allocator);
+    try ctx.type_memo.printable.put(ctx.allocator, ty, b);
+    return b;
+}
+
+const ByteSliceVisit = struct { ctx: *const SemContext, sym: SymbolId };
+const ByteSliceItem = struct { ctx: *const SemContext, ty: TypeId };
+
+/// Whether a value of `ty` holds a `[]U8`, directly or through a
+/// wrapper, field, payload, or type argument. A `[]U8` and a `?String`
+/// are both Zig `[]const u8`, so `print` cannot tell them apart. The
+/// walk keeps a stack of its own, so a long chain of types, each
+/// holding the next, does not nest it; each declaration is walked once.
+fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator) !bool {
+    var todo: std.ArrayList(ByteSliceItem) = .empty;
+    defer todo.deinit(a);
+    var seen: std.AutoHashMapUnmanaged(ByteSliceVisit, void) = .empty;
+    defer seen.deinit(a);
+    try todo.append(a, .{ .ctx = ctx, .ty = ty });
+    while (todo.pop()) |item| {
+        const c = item.ctx;
+        switch (c.types.get(item.ty)) {
+            .slice => |sl| {
+                switch (c.types.get(sl.elem)) {
+                    .int => |i| if (i.bits == 8 and !i.signed) return true,
+                    else => try todo.append(a, .{ .ctx = c, .ty = sl.elem }),
+                }
+                continue;
+            },
+            .optional, .fallible, .read_view, .write_view, .shared => |inner| {
+                try todo.append(a, .{ .ctx = c, .ty = inner });
+                continue;
+            },
+            .array => |arr| {
+                try todo.append(a, .{ .ctx = c, .ty = arr.elem });
+                continue;
+            },
+            .parameterized_nominal => |pn| for (pn.args) |arg| try todo.append(a, .{ .ctx = c, .ty = arg }),
+            .nominal, .imported_nominal => {},
+            else => continue,
+        }
+        const decl = nominalDecl(c, item.ty) orelse continue;
+        if ((try seen.getOrPut(a, .{ .ctx = decl.ctx, .sym = decl.sym })).found_existing) continue;
+        for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
+            for (dataFields(f)) |d| try todo.append(a, .{ .ctx = decl.ctx, .ty = d.ty });
+        }
+    }
+    return false;
+}
+
 /// `runsDropBody` of `ty`, worked out once declarations are resolved
 /// (`TypeMemo`).
 fn dropBodyOf(ctx: *const SemContext, ty: TypeId) bool {
@@ -6776,7 +6848,7 @@ pub fn importType(
 ) std.mem.Allocator.Error!TypeId {
     const ty = foreign_ctx.types.get(foreign_ty_id);
     switch (ty) {
-        .invalid, .unknown, .void, .bool, .string_view, .string, .static, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
+        .invalid, .unknown, .void, .bool, .string_view, .string, .static, .symbol, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
         inline .optional, .fallible, .read_view, .write_view, .shared, .weak, .range, .callable => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
             return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
@@ -7326,6 +7398,7 @@ const TypePrinter = struct {
             .string_view => "?String",
             .string => "String",
             .static => "Static",
+            .symbol => "Symbol",
             .int => |info| if (info.bits == 0) "Int" else try a.print("{c}{d}", .{ @as(u8, if (info.signed) 'I' else 'U'), info.bits }),
             .float => |info| if (info.bits == 0) "Float" else try a.print("F{d}", .{info.bits}),
             .int_literal => "Int",
@@ -8216,7 +8289,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
         // Types.
         .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .fails, .unique, .fixed => .none,
-        .@"return", .@"break", .@"continue" => .jump,
+        .@"return", .@"break", .@"continue", .panic => .jump,
         .read, .write => .lend,
         .member, .index => .path,
         .@"if", .@"??", .@"catch", .propagate, .propagate_none => if (isBranchingForm(node)) .branches else .none,
@@ -8225,7 +8298,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         .@"while", .@"for", .labeled => if (hasValueBreaks(source, node)) .made else .none,
         // A destructure's target takes its result out of the statement's
         // temporary, whole, as a binding takes a call's result.
-        .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .array, .array_fill, .tuple, .result_part, .move, .clone, .share, .box, .weak => .made,
+        .call, .builtin, .inst, .lambda, .match, .block, .raw_block, .enum_lit, .symbol, .array, .array_fill, .tuple, .result_part, .move, .clone, .share, .box, .weak => .made,
         .@"+", .@"-", .@"*", .@"/", .@"%", .@"+%", .@"-%", .@"*%", .@"+|", .@"-|", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@"<<%", .@">>", .@"and", .@"or", .@"..", .neg, .not => .made,
     };
 }
@@ -8763,8 +8836,9 @@ pub fn perTargetLeaf(ctx: *const SemContext, e: Sexp) ?Sexp {
             return if (ctx.symbols.items[id].flags.per_target) e else null;
         },
         .list => {
-            // A member's name and a variant's are not names in scope.
-            if (e.isKind(.enum_lit)) return null;
+            // A member's name, a variant's, and a symbol's are not names
+            // in scope.
+            if (e.isKind(.enum_lit) or e.isKind(.symbol)) return null;
             if (e.isKind(.member)) {
                 if (foreignMemberOf(ctx, e)) |f| return if (f.flags.per_target) e else null;
                 return perTargetLeaf(ctx, ir.Member.object(e));
@@ -10125,7 +10199,7 @@ const Coverage = struct {
                     }
                 },
                 .@"return", .drop, .@"defer" => for (rig.children(e)) |c| self.expr(c),
-                .enum_lit => self.expectType(e),
+                .enum_lit, .symbol => self.expectType(e),
                 else => {
                     self.expectType(e);
                     for (rig.children(e)) |c| if (c != .tag) self.expr(c);

@@ -2213,6 +2213,7 @@ pub const Checker = struct {
             .@"return" => try self.walkReturn(sexp),
             .@"break" => try self.walkJump(sexp, .brk),
             .@"continue" => try self.walkJump(sexp, .cont),
+            .panic => try self.walkPanic(sexp),
             .@"defer", .@"errdefer" => try self.walkDefer(sexp),
             else => return switch (kind) {
                 .block => self.walkBlock(sexp),
@@ -2250,7 +2251,7 @@ pub const Checker = struct {
                 },
                 .array_fill => self.walkConsumed(ir.ArrayFill.value(sexp), .element),
                 .raw_block => self.walkTailPart(ir.RawBlock.body(sexp), self.takeTail(sexp)),
-                .enum_lit, .use, .type, .generic_struct, .generic_inst => .{},
+                .enum_lit, .symbol, .use, .type, .generic_struct, .generic_inst => .{},
                 // Operators on values produce fresh Copy results. A binary
                 // operator reads its left operand where it runs, and uses
                 // it after the right one runs.
@@ -3951,10 +3952,11 @@ pub const Checker = struct {
     }
 
     /// Whether evaluating `e` may leave before it gives its value: a
-    /// propagation, a `return`, a `break`, or a `continue` inside it.
+    /// propagation, a `return`, a `break`, a `continue`, or a `panic`
+    /// inside it.
     fn leavesEarly(e: Sexp) bool {
         if (e != .list) return false;
-        if (rig.leavesBody(e) or rig.isJump(e)) return true;
+        if (rig.leavesBody(e) or rig.leaves(e)) return true;
         for (e.items()) |item| if (leavesEarly(item)) return true;
         return false;
     }
@@ -4412,15 +4414,7 @@ pub const Checker = struct {
         // their text, not them.
         const text_op = if (self.sema) |ctx| ctx.stringCallOf(node) orelse ctx.stringCallOf(callee) else null;
         if (self.isPrint(callee) or text_op != null) {
-            for (args) |a| {
-                // A slice there is lent to read, as `?a` would be.
-                if (self.lendOf(a)) |lend| if (lend.implicit) {
-                    _ = try self.walkImplicitLend(a, lend);
-                    continue;
-                };
-                _ = try self.walk(a);
-                try self.holdRead(a, .argument);
-            }
+            try self.walkReadArgs(args);
             if (recv_root) |id| if (recv_mode == .write) {
                 const reserved = self.temps.orderedRemove(reservation);
                 const at = self.startOf(ir.Member.object(callee));
@@ -4949,10 +4943,13 @@ pub const Checker = struct {
         return diag.textOf(self.source, sp);
     }
 
+    /// `print` or `warn`, the built-ins that only read their values.
     fn isPrint(self: *Checker, callee: Sexp) bool {
-        if (callee != .src or !std.mem.eql(u8, self.text(callee), "print")) return false;
+        if (callee != .src) return false;
+        const name = self.text(callee);
+        if (!std.mem.eql(u8, name, "print") and !std.mem.eql(u8, name, "warn")) return false;
         if (self.sema) |ctx| return ctx.symbolOf(callee) == null;
-        return self.find("print") == null;
+        return self.find(name) == null;
     }
 
     /// `Cell`, `Signal`, or `List` when a value of type `ty` is one,
@@ -6315,12 +6312,12 @@ pub const Checker = struct {
 
     const Jump = enum { brk, cont };
 
-    /// Code right after `return`, `break`, or `continue` in the same
-    /// block never runs; Zig rejects it, and so does Rig.
+    /// Code right after `return`, `break`, `continue`, or `panic` in the
+    /// same block never runs; Zig rejects it, and so does Rig.
     fn checkAfterJump(self: *Checker, stmts: []const Sexp, i: usize) Error!void {
         if (i == 0) return;
         const prev = stmts[i - 1];
-        if (!(prev.isKind(.@"return") or prev.isKind(.@"break") or prev.isKind(.@"continue"))) return;
+        if (!rig.leaves(prev)) return;
         try self.errSpan(self.stmtSpan(stmts[i]), "unreachable code: this statement follows a `{s}`", .{@tagName(prev.kind().?)});
     }
 
@@ -6382,6 +6379,30 @@ pub const Checker = struct {
             .step, .head => try (if (to_step != null) &t.step_conts else &t.conts).append(self.arena(), s),
         }
         try self.after_value.appendSlice(self.gpa, kept);
+        self.reachable = false;
+    }
+
+    /// The arguments of `print`, `panic`, `String(...)`, and `!t.add(...)`,
+    /// which are only read: a slice there is lent to read, as `?a` would
+    /// be, and none is held past the call.
+    fn walkReadArgs(self: *Checker, args: []const Sexp) Error!void {
+        for (args) |a| {
+            if (self.lendOf(a)) |lend| if (lend.implicit) {
+                _ = try self.walkImplicitLend(a, lend);
+                continue;
+            };
+            _ = try self.walk(a);
+            try self.holdRead(a, .argument);
+        }
+    }
+
+    /// `panic(a, b)`: its values are read as `print` reads them, and the
+    /// program ends there. No scope is left: no drop or `defer` runs, so
+    /// nothing after it is reached.
+    fn walkPanic(self: *Checker, node: Sexp) Error!void {
+        const temps_start = self.temps.items.len;
+        try self.walkReadArgs(ir.Panic.args(node));
+        self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
         self.reachable = false;
     }
 

@@ -268,7 +268,7 @@ fn colourOf(cat: TokenCat) Colour {
         .err => .{ .class = .{ .kind = .invalid } },
         .kwarg_name => .{ .class = .{ .kind = .parameter } },
         .true, .false => .uncoloured,
-        .@"if", .@"else", .@"while", .@"for", .in, .match, .@"return", .@"break", .@"continue", .pass, .@"defer", .@"errdefer", .@"catch", .@"try", .await, .yield, .post_if, .ternary_if => .{ .class = control },
+        .@"if", .@"else", .@"while", .@"for", .in, .match, .@"return", .@"break", .@"continue", .panic, .pass, .@"defer", .@"errdefer", .@"catch", .@"try", .await, .yield, .post_if, .ternary_if => .{ .class = control },
         .as, .drop, .@"enum", .@"error", .@"extern", .fun, .new, .obj, .rarely, .called, .@"inline", .@"pub", .raw, .sub, .@"test", .type, .use, .zig, .async, .@"const", .impl, .trait, .when, .where, .of => .{ .class = keyword },
         .@"and", .@"or", .not => .{ .class = operator },
         .plus, .minus, .star, .slash, .percent, .plus_wrap, .minus_wrap, .star_wrap, .plus_sat, .minus_sat, .power => .{ .class = operator },
@@ -279,6 +279,8 @@ fn colourOf(cat: TokenCat) Colour {
         .arrow, .fat_arrow => .{ .class = operator },
         .at, .lparen, .rparen, .lbracket, .rbracket, .comma, .as_comma, .colon, .dot, .dotdot, .dotdot_open, .step_colon => .uncoloured,
         .label_at => .{ .class = .{ .kind = .label } },
+        // A symbol is one constant: its `:` is coloured with its name.
+        .symbol_colon => .{ .class = .{ .kind = .enumMember } },
         .indent, .outdent, .newline, .eof, .skip => .uncoloured,
     };
 }
@@ -372,7 +374,7 @@ const Classifier = struct {
                 const gop = try c.by_pos.getOrPut(c.a, name.start);
                 if (!gop.found_existing) gop.value_ptr.* = .{ .kind = .property };
             },
-            .enum_lit, .variant_pattern => try c.put(ir.get(node, .name), .{ .kind = .enumMember }),
+            .enum_lit, .symbol, .variant_pattern => try c.put(ir.get(node, .name), .{ .kind = .enumMember }),
             .labeled => try c.label(ir.Labeled.label(node)),
             .@"break" => try c.label(ir.get(node, .label)),
             .@"continue" => try c.label(ir.get(node, .label)),

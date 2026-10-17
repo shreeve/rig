@@ -83,8 +83,17 @@ sub main()
   one line of output (`# ` is stripped; a bare `#` is an empty line). The
   block ends at the first non-comment line. With no block, stdout must be
   empty.
-- `# expect-panic: <text>` — the program must exit non-zero with `<text>`
-  on stderr. An `# expect:` block, if present, still checks stdout.
+- `# expect:` and `# expect-stderr:` blocks also end at each other, so
+  a test may give both.
+- `# expect-panic: <text>` — the program must exit 134 (the status of
+  every panic) with `<text>` on stderr. An `# expect:` block, if
+  present, still checks stdout.
+- `# expect-exit: <n>` — the program must exit with status `n` instead
+  of 0 (or 134 for `# expect-panic:`). It must still free what it
+  allocated and use no freed memory.
+- `# expect-stderr:` starts a block, written as `# expect:` is, that
+  stderr must equal. Without one, stderr is not compared. The line
+  `rig run` adds for a program a signal ended is left out.
 - `# error: <text>` — makes the file a rejection test. Repeat the line to
   require several diagnostics. `# error: L:C: <text>` also requires the
   diagnostic to be at line `L`, column `C`.
@@ -109,13 +118,14 @@ compiler. The word after `rig` on the opening fence sets the contract:
 |---|---|
 | ```` ```rig ```` | a program `rig check` accepts |
 | ```` ```rig ```` followed by ```` ```output ```` | run like a behavior test: stdout equals the output block, no leaks |
+| ```` ```rig ```` followed by ```` ```stderr ```` (after the ```` ```output ```` block, if one) | as above, and stderr equals the stderr block; ```` ```stderr exit=N ```` also requires exit status `N` |
 | ```` ```rig reject ```` followed by ```` ```error ```` | `rig check` rejects it; each line of the error block appears in a diagnostic |
 | ```` ```rig fragment ```` | only parsed; for snippets that are not whole programs |
 | ```` ```rig facts ```` followed by ```` ```facts ```` | `rig check --facts` accepts it and prints exactly the facts block |
 | ```` ```rig file=name.rig ```` | module `name.rig`, written next to the next example, which can `use name`; a path, ```` ```rig file=dir/name.rig ````, writes a file of the directory module `dir` |
 | ```` ```rig pending ```` | a rule that is decided but not built yet (see below) |
 
-Blank lines may separate a block from its `output` or `error` block.
+Blank lines may separate a block from its `output`, `stderr`, or `error` block.
 
 A ```` ```rig pending ```` block shows the behavior a decided rule will
 have: followed by an `output` block it is a program that runs and prints
@@ -233,10 +243,8 @@ hand-written inputs and compares each parse with Python's `json` module
 one test, `json/<group>`, built and run under the sanitizer. A plain
 `./test/run` takes a fixed, spread-out part of every group (about a tenth
 of the inputs); a run that names any filter, `./test/run json` or
-`./test/run json/floats`, takes every input of the groups it selects, as
-the deep gate does. The groups `checker` and `corpus` read third-party
-files that `tools/fetch-json-data.sh` fetches into `test/json/data/` (CI
-fetches them too). Without them those groups are skipped with a note, and
+`./test/run json/floats`, takes every input of the groups it selects. The groups `checker` and `corpus` read third-party
+files that `tools/fetch-json-data.sh` fetches into `test/json/data/`. Without them those groups are skipped with a note, and
 `JSON_REQUIRE_DATA=1` makes that a failure. A `--delta` run carries a
 group over when the compiler, the cases, the data, and Python are
 unchanged.
@@ -259,8 +267,7 @@ parser.
 Running every accepted probe builds hundreds of programs, several
 minutes of work, so a plain `./test/run` takes a fixed sample, one
 program in 16 by a hash of its name; `./test/run corpus` (or any filter
-that names corpus programs) takes all of them, as `tools/gate` does
-before every merge. A corpus run removes each passing program's output; its build stays in the store
+that names corpus programs) takes all of them. A corpus run removes each passing program's output; its build stays in the store
 (a few gigabytes for the whole corpus, see [Output](#output)), so a
 later run rebuilds only the programs whose emitted Zig changed. Add new review probes here, named `<review>-<probe>.rig`.
 
@@ -466,8 +473,7 @@ runs in debug, where every omitted test is still made as an assertion,
 with `--release`, and with `--release` and `RIG_NO_PROOFS=1`, where emit
 omits nothing. The three runs must print the same, exit the same, and
 panic with the same message, and no proven check may fail. Other tests
-pass untouched. The fast gate runs it on the programs with a proven
-test; the deep gate on every program.
+pass untouched.
 
 ## Known bugs
 
@@ -530,108 +536,13 @@ The output directory's `.durations` file records how long each test
 took, in whole seconds; the next run starts the longest tests first, so
 it does not end waiting on one of them.
 
-## A quick local check
-
-`tools/check N` is a sniff test before a push, run on this Mac through
-the job queue (`cpuq run --local --cores 2`). `N` is a share of the
-suite in percent, 1 to 100: the suite splits into `100/N` equal parts,
-rounded to a whole number, and one runs (`tools/check 1` is about 40
-tests, `tools/check 5` about 200). It runs, each with `--delta`:
-
-1. The branch's own tests, in full: every test the branch adds or
-   changes since its merge-base with `origin/main` (committed or not,
-   new files included), found by id from the files it touches under
-   `test/behavior`, `reject`, `known`, `ir`, `torture`, `cli`, `corpus`
-   and `examples/`, and every doc example of a Markdown file whose `rig`
-   blocks changed (`doc/<file>/`, the whole file, since an edit moves
-   lines). A change to a `test/cli/_*` helper runs every CLI test.
-2. One random slice of the suite, `./test/run --delta --shard I/K` with
-   `I` chosen at random, so repeated checks cover more over time. Slice
-   1 also runs the whole-program checks (`unit`, `classify`, `vocab`,
-   `style`), as any first shard does.
-
-`--matrix` adds the same slice of `test/matrix.py --delta --shard I/K`,
-and `--slice I` picks the slice. The report gives the passed and failed
-counts, the slice that ran, and one command that reruns just the
-failures; the exit status is 1 if anything failed. It samples; it does
-not replace `./test/run`, the gate, or the deep gate.
-
-## The merge gate and CI
-
-A pull request is tested on burst when we ask, and GitHub's runners do
-not test it again; the deep gate on `main` tests everything that merged:
-
-```bash
-tools/gate                 # from the branch's worktree, after merging main and pushing
-tools/gate --no-matrix     # a quicker look, the suite and the corpus
-tools/gate --skip REASON   # test nothing: post success, which clears a failed gate
-```
-
-`tools/gate` refuses unless the worktree is clean, holds no ignored file
-that cpuq would ship (cpuq copies everything but a spec's `exclude`), and
-its HEAD is the pull request's pushed head and contains the base branch;
-so the bytes burst tests are exactly that commit's. It refuses a branch
-that changes `tools/gate` or `cpuq/` unless given `--allow-gate-changes`. A branch that changes `formal/`
-also builds its Lean proofs on this machine first (`cd formal && lake
-build`; burst has no Lean), and fails on an unfinished one, a `sorry`,
-which lake only warns of.
-It submits `cpuq/suite.json`, `corpus.json`, and `matrix.json` together,
-each a `--delta` run, which burst runs at once; cancels the rest when one
-fails; and posts the commit status `rig/gate` on the commit: `success`
-with its tree and the job ids when all pass, `failure` when a test
-fails, `error` when a job could not finish. It posts with the Mac's `gh`
-login, and no credential goes to GitHub. Last it re-runs the pull
-request's `gate` workflow and, after a success, waits for the required
-checks to pass, printing the time each phase took. With `--no-matrix` its
-success says it ran no matrix. `--skip REASON` posts `success` with
-"skipped by LOGIN: REASON" on the pull request's pushed head and re-runs
-the checks; it needs no clean worktree and no merge of the base.
-
-The ruleset on `main` requires the checks `test (ubuntu-latest)` and
-`test (macos-latest)` from GitHub Actions, and `.github/workflows/gate.yml`
-gives them to every pull request. It runs on `pull_request_target`,
-which always runs `main`'s copy of the file, whatever the pull request
-changes; it checks out and runs nothing of the pull request, and reads
-only statuses, the pull request, and commits. On a pull request from a
-branch of this repository it passes when the head commit has no
-`rig/gate` status (it was not gated, the default) or when the newest is
-a success posted by a login it trusts; it fails while a gate is pending
-when it runs, and after a gate failed, until a push, a passing gate, or
-`--skip`. A failing check of a required name blocks the merge even when
-a workflow of the pull request's own reports the same name passing.
-
-A fork's pull request passes only with a trusted success: it is gated
-by hand, once it has been read in full: `tools/gate` runs the pull request's code on burst, beside
-the caches every run there shares, so never gate code you have not read.
-Fetch its head into a local branch and run `main`'s copy of `tools/gate`,
-not the fork's:
-
-```bash
-git fetch origin pull/N/head:pr-N && git switch pr-N
-bash <(git show origin/main:tools/gate) --pr N
-```
-
-The fork's head must already contain `main` (ask its author to merge
-it), and a fork that changes `tools/gate` or `cpuq/` is refused unless
-given `--allow-gate-changes`.
-
-`.github/workflows/test.yml` runs the whole suite cold on GitHub's
-runners, in four shards on Ubuntu and four on macOS
-(`.github/workflows/shards.yml`): nightly on `main`, by hand, and for a
-fork's pull request, as more information beside the gate. Its jobs are
-named `cold (...)`, never a required name, and on a pull request from this
-repository they are skipped. No workflow skips a job under a required
-name, since a skipped required check counts as passing. Each shard builds
-the compiler and the oracle once, in one `zig build`, so the suite's own
-builds find them in Zig's cache; caches are restored on every run and
-saved only by a run on `main` that no pull request started, under keys
-named by their contents.
-
 ## Rerunning only what changed
 
-A program's run passes or fails by its inputs: the package `rig run`
-builds (every module, the standard library's shims, and the runtime),
-how rig runs it, Zig, and what the test expects. A change that leaves
+A program's run passes or fails by its source code, the Zig source the
+current compiler generates for it: the package `rig run` builds (every
+module, the standard library's shims, and the runtime), together with
+how rig runs it, Zig, and what the test expects. The test's own `.rig`
+file is always compiled again; only the build and run are skipped. A change that leaves
 all of them as they were, such as a diagnostic's wording or a fix in
 the checker that rejects nothing new, cannot change the verdict, so the
 run need not be repeated.

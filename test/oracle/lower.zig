@@ -511,7 +511,7 @@ const Lowerer = struct {
     fn isValue(s: Sexp) bool {
         const k = s.kind() orelse return true;
         return switch (k) {
-            .set, .destructure, .drop, .pass, .@"while", .@"for", .@"return", .@"break", .@"continue", .@"defer", .@"errdefer", .labeled => false,
+            .set, .destructure, .drop, .pass, .@"while", .@"for", .@"return", .@"break", .@"continue", .panic, .@"defer", .@"errdefer", .labeled => false,
             .@"if" => ir.If.@"else"(s) != .nil,
             else => true,
         };
@@ -733,6 +733,7 @@ const Lowerer = struct {
                 if (v == .nil) try self.ret(&.{}, self.posOf(s), .no) else if (v.isKind(.results)) try self.retResults(v) else try self.retValue(v);
             },
             .@"break", .@"continue" => try self.jump(s),
+            .panic => try self.panicStmt(s),
             .labeled => {
                 const inner = ir.Labeled.stmt(s);
                 if (!inner.isKind(.@"while") and !inner.isKind(.@"for") and !inner.isKind(.match)) return abstain("a labeled `raw` block");
@@ -913,7 +914,7 @@ const Lowerer = struct {
             .@"??", .@"catch" => {
                 const left = if (k == .@"??") ir.get(value, .left) else ir.Catch.value(value);
                 const handler = if (k == .@"??") ir.get(value, .right) else ir.Catch.handler(value);
-                if (!handler.isKind(.@"return") and !handler.isKind(.@"break") and !handler.isKind(.@"continue")) return abstain("a fallback of several results that does not jump");
+                if (!rig.leaves(handler)) return abstain("a fallback of several results that does not jump");
                 const parts = try self.resultsValue(left, region);
                 const ok = try self.newBlock();
                 const other = try self.newBlock();
@@ -927,7 +928,7 @@ const Lowerer = struct {
                     const err = try self.bind(name, 0);
                     try self.emit(.{ .pos = pos, .what = .make, .def = err });
                 }
-                if (handler.isKind(.@"return")) try self.stmtIn(handler) else try self.jump(handler);
+                if (handler.isKind(.@"return") or handler.isKind(.panic)) try self.stmtIn(handler) else try self.jump(handler);
                 if (binds) try self.popRegion(pos);
                 self.cur = ok;
                 return parts;
@@ -1492,7 +1493,7 @@ const Lowerer = struct {
                     if (alt.isKind(.variant_pattern) and ir.VariantPattern.bindings(alt).len > 0) return abstain("alternatives that bind");
                     if (alt == .src and self.bindsName(alt)) return abstain("alternatives that bind");
                 },
-                .enum_lit, .member, .range_pattern, .neg => {},
+                .enum_lit, .symbol, .member, .range_pattern, .neg => {},
                 else => return abstain("an unusual pattern"),
             },
             else => {},
@@ -1741,6 +1742,16 @@ const Lowerer = struct {
         try self.ret(rs, pos, .no);
     }
 
+    /// `panic(a, b)`: its values are read, and the program ends there,
+    /// running no drop or `defer`: the path ends with no exit.
+    fn panicStmt(self: *Lowerer, s: Sexp) Error!void {
+        if (self.in_defer) return abstain("a `panic` in deferred code");
+        var reads: std.ArrayList(VarId) = .empty;
+        for (ir.Panic.args(s)) |a| if (try self.eval(a, .read, null)) |v| try reads.append(self.a, v);
+        try self.emit(.{ .pos = self.posOf(s), .what = .use, .reads = reads.items });
+        self.cur = null;
+    }
+
     /// Leave the function: every scope's drops and `defer`s, then the
     /// return. Where it may fail, the `errdefer`s run on a path of their
     /// own (SPEC "defer and errdefer").
@@ -1842,7 +1853,7 @@ const Lowerer = struct {
                 } else try self.stmt(last);
                 try self.popRegion(self.posOf(e));
             },
-            .@"return" => try self.stmtIn(e),
+            .@"return", .panic => try self.stmtIn(e),
             .@"break", .@"continue" => try self.jump(e),
             else => try self.storeValue(e, how, j),
         }
@@ -2059,8 +2070,8 @@ const Lowerer = struct {
                 self.cur = x;
                 return t;
             },
-            .enum_lit => return null,
-            .@"return", .@"break", .@"continue" => {
+            .enum_lit, .symbol => return null,
+            .@"return", .@"break", .@"continue", .panic => {
                 try self.valueInto(e, how, undefined);
                 return null;
             },
@@ -2913,7 +2924,7 @@ const Lowerer = struct {
             const sym_id = self.ctx.symbolOf(callee);
             const sym: ?sema.Symbol = if (sym_id) |id| self.ctx.symbols.items[id] else null;
             const builtin = sym == null or sym.?.decl_pos == sema.builtin_decl_pos;
-            if (builtin and std.mem.eql(u8, name, "print")) {
+            if (builtin and (std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "warn"))) {
                 all_read = true;
             } else if (builtin and (std.mem.eql(u8, name, "swap") or std.mem.eql(u8, name, "replace"))) {
                 exchange = true;

@@ -1,0 +1,7 @@
+# `warn` is only special as a direct call; it is no value.
+
+sub main()
+  x = warn
+  x(42)
+
+# error: 4:7: `warn` is called with parentheses: `warn(...)`

@@ -74,10 +74,26 @@ pub fn isNoneLeaf(ctx: *const SemContext, e: Sexp) bool {
     return e == .src and ctx.symbolOf(e) == null and std.mem.eql(u8, srcText(ctx, e), "none");
 }
 
-/// `print(...)`.
-pub fn isPrintCall(ctx: *const SemContext, call: Sexp) bool {
+/// Which of the built-ins that write their values as `print` does a
+/// call is.
+pub const PrintCall = enum {
+    /// `print(...)`, to stdout.
+    print,
+    /// `warn(...)`, to stderr.
+    warn,
+};
+
+/// The built-in `call` is, `print(...)` or `warn(...)`, unless a
+/// declaration hides it.
+pub fn printCall(ctx: *const SemContext, call: Sexp) ?PrintCall {
     const callee = ctx.calleeOf(call);
-    return callee == .src and ctx.symbolOf(callee) == null and std.mem.eql(u8, srcText(ctx, callee), "print");
+    if (callee != .src or ctx.symbolOf(callee) != null) return null;
+    return std.meta.stringToEnum(PrintCall, srcText(ctx, callee));
+}
+
+/// `print(...)` or `warn(...)` (`printCall`).
+pub fn isPrintCall(ctx: *const SemContext, call: Sexp) bool {
+    return printCall(ctx, call) != null;
 }
 
 /// The built-in String operation `call` is: `String(...)`, `!t.add(...)`,
@@ -176,7 +192,7 @@ fn decideIsPureArg(ctx: *const SemContext, e: Sexp) bool {
             };
         },
         .list => return switch (e.kind().?) {
-            .enum_lit => true,
+            .enum_lit, .symbol => true,
             // A view held as a pointer is the name's address; a view
             // held by value (a `?String`'s bytes, a slice, a copy of a
             // number) reads the name where the call runs, after the
@@ -1012,10 +1028,10 @@ fn decideSetOrder(ctx: *const SemContext, set: Sexp) SetOrder {
 }
 
 /// Whether step `e` of an assignment can act when it runs: call, assign,
-/// drop, or leave. Then the order of the steps and the store is
-/// observable.
+/// drop, leave, or end the program. Then the order of the steps and the
+/// store is observable.
 pub fn setActs(e: Sexp) bool {
-    return contains(e, &([_]Tag{ .call, .builtin, .set, .drop } ++ leave_kinds));
+    return contains(e, &([_]Tag{ .call, .builtin, .set, .drop, .panic } ++ leave_kinds));
 }
 
 /// Whether step `e` of an assignment can leave before the store: `!`,
@@ -1456,6 +1472,10 @@ const Planner = struct {
                     _ = printsByAddress(ctx, a);
                 };
                 try p.call(e);
+            },
+            // `panic` reads its message as `print` reads its arguments.
+            .panic => for (ir.Panic.args(e)) |a| {
+                _ = printsByAddress(ctx, a);
             },
             .set => {
                 _ = laneChecked(ctx, e);

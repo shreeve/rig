@@ -775,6 +775,31 @@ the rest in order. A Set's key is optional, and taking one hands it back. The se
 of `.hash()` is fixed, so a program that lets others choose many keys
 that collide can be made slow.
 
+## print, warn, and panic
+
+`print`, `warn`, and `panic` are built in
+([SPEC §17](../SPEC.md#17-printing-and-stopping)), and need no `use`.
+`print(a, b)` writes a line to stdout, `warn(a, b)` the same line to
+stderr, and `panic(a, b)` the line to stderr after the file, line, and
+column it stands at, then ends the program with status 134. Each writes
+out what `print` buffered first, so the two streams read in order.
+
+```rig
+sub main()
+  print("total", 3)
+  warn("slow:", 2.5, "s")
+  panic("lost", ["a\tb"])
+```
+
+```output
+total 3
+```
+
+```stderr exit=134
+slow: 2.5 s
+main.rig:4:3: panic: lost ["a\tb"]
+```
+
 ## List
 
 `List[T]` is built in ([SPEC §10](../SPEC.md)). `!v.reserve(n)` makes room
@@ -922,6 +947,43 @@ warn 2
 info 1
 unknown level trace
 debug 0
+```
+
+## Symbol names
+
+A symbol, `:width`, is a value of the builtin type `Symbol`
+([SPEC, Symbols](../SPEC.md#symbols)), and needs no `use`. `s.text` is
+its name, a `Static`, and `Symbol.from_text(word)` is the program's
+symbol spelled `word`, or `none`; neither allocates. The symbols are
+exactly the names the program writes, so `from_text` finds a name
+written anywhere in the program, std included: a word read from input
+is checked by a `match` whose `_ =>` arm rejects it. A symbol is a key
+of a `hash.Map` or a `hash.Set` ([std.hash](#stdhash)). A name known
+only when the program runs is no symbol; `hash.Symbols` gives it a
+dense id.
+
+```rig
+use std.hash
+use std.text
+
+sub main()
+  counts = hash.Map[Symbol, Int]()
+  for w in text.words("get put get drop")
+    s = Symbol.from_text(w) ?? :other
+    k = :other
+    match s
+      :get, :put => k = s
+      _ => pass
+    n = (!counts).ensure(k, 0)
+    n += 1
+  for e in ?counts.items()
+    print(e.key, e.key.text, e.value)
+```
+
+```output
+:get get 2
+:put put 1
+:other other 1
 ```
 
 ## std.text
@@ -1423,7 +1485,7 @@ ASCII fast path. To move to a newer Unicode, change the pinned version
 and hashes, run the generator, and review the diff of the census test it
 also writes. `tools/verify-unicode.py` compares every code point with the
 database and with Python's `unicodedata`, the identifier classes and
-White_Space both; the deep gate runs both with `RIG_UCD` naming a
+White_Space both; run both with `RIG_UCD` naming a
 directory of the database.
 
 ## std.json

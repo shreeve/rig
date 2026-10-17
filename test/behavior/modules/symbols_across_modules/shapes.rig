@@ -1,0 +1,12 @@
+pub fun sides(s: Symbol) -> Int
+  match s
+    :triangle => 3
+    :square => 4
+    :hexagon => 6
+    _ => 0
+
+pub fun kind() -> Symbol
+  :triangle
+
+pub fun pick(s: Symbol = :circle) -> Symbol
+  s

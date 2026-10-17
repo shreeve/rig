@@ -14,6 +14,7 @@ const ir = parser.ir;
 const rig = @import("rig.zig");
 const diag = @import("diag.zig");
 const emit = @import("emit.zig");
+const symbols = @import("symbols.zig");
 const inlining = @import("inlining.zig");
 const timing = @import("timing.zig");
 const emit_facts = @import("facts.zig");
@@ -808,6 +809,24 @@ const Package = struct {
 
 const PackageFile = struct { path: []const u8, contents: []const u8 };
 
+/// Module `m`'s files, each by its path from the package root: the
+/// directory of the root module, which the program's own modules are
+/// found under.
+fn packageFile(allocator: std.mem.Allocator, graph: *const modules.ModuleGraph, m: *const modules.Module) !diag.File {
+    const parts = try allocator.alloc(diag.Part, m.parts.len);
+    for (m.parts, parts) |p, *out| out.* = .{ .start = p.start, .path = fromPackageRoot(graph, p.path) };
+    return .{ .source = m.source, .path = fromPackageRoot(graph, m.display), .parts = parts };
+}
+
+/// `path` from the package root (`packageFile`), or as it is when it is
+/// outside it.
+fn fromPackageRoot(graph: *const modules.ModuleGraph, path: []const u8) []const u8 {
+    const root = graph.import_dir orelse return path;
+    if (root.len == 0 or std.mem.eql(u8, root, ".")) return path;
+    if (path.len > root.len and std.mem.startsWith(u8, path, root) and path[root.len] == '/') return path[root.len + 1 ..];
+    return path;
+}
+
 /// Emit the runtime and every module. With `RIG_LEAK_TRACE` or
 /// `RIG_SANITIZE` set, the root module asks the runtime for stack-trace
 /// leak reports or the sanitizer; with `RIG_SANITIZE`, emit also poisons
@@ -819,6 +838,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
 
     var root_source: []const u8 = "";
     var links_libc = false;
+    var uses_symbols = false;
     for (graph.modules.items, 0..) |*m, i| {
         var file_buffer: std.Io.Writer.Allocating = .init(allocator);
         var em = emit.Emitter.init(allocator, m.source, &file_buffer.writer, emit_facts.Facts.of(m.sema));
@@ -826,6 +846,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         em.poison = env.sanitize();
         em.no_proofs = env.flag("RIG_NO_PROOFS");
         em.strict_optionals = env.flag("RIG_STRICT_OPTIONALS");
+        em.file = try packageFile(allocator, graph, m);
         // A debug build of the compiler checks that emit writes the units
         // the proof pass walks, in the same order (`proofs.checkUnitOrder`).
         var trace: std.ArrayList(emit.UnitEvent) = .empty;
@@ -841,6 +862,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
             }
         }
         links_libc = links_libc or em.links_libc;
+        uses_symbols = uses_symbols or em.uses_symbols;
         if (i == 0 and (env.leakTrace() or env.sanitize() or env.verifyProofs() or hook)) {
             try file_buffer.writer.writeAll("\n");
             try env.writeRootFlags(&file_buffer.writer, hook);
@@ -848,6 +870,14 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         try files.append(allocator, .{ .path = m.out_basename, .contents = file_buffer.written() });
         for (m.shims.items) |shim| try files.append(allocator, .{ .path = try std.fs.path.join(allocator, &.{ "rig", "std", shim.name }), .contents = shim.source });
         if (i == 0) root_source = file_buffer.written();
+    }
+    // Every symbol of every module, numbered once (`src/symbols.zig`).
+    if (uses_symbols) {
+        const sources = try allocator.alloc(symbols.Source, graph.modules.items.len);
+        for (graph.modules.items, sources) |*m, *s| s.* = .{ .source = m.source, .ir = m.ir };
+        var out: std.Io.Writer.Allocating = .init(allocator);
+        try symbols.write(allocator, &out.writer, try symbols.collect(allocator, sources), emit.runtime_filename);
+        try files.append(allocator, .{ .path = emit.symbols_filename, .contents = out.written() });
     }
     return .{ .files = files, .root_source = root_source, .links_libc = links_libc };
 }
@@ -1485,4 +1515,5 @@ test {
     _ = @import("ownership.zig");
     _ = @import("runtime.zig");
     _ = @import("nametable.zig");
+    _ = @import("symbols.zig");
 }

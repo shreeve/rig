@@ -1,0 +1,8 @@
+# A symbol's `:` touches its name: `: width`, where an operand starts,
+# is no symbol.
+
+sub main()
+  y = : width
+  print(y)
+
+# error: 5:7: a prefix `:` touches its operand: a symbol is written `:width`

@@ -1,0 +1,9 @@
+# A `panic` ends the program, so a statement after it in the same block
+# never runs.
+
+sub main()
+  print(0)
+  panic("a")
+  print(1)
+
+# error: 7:3: unreachable code: this statement follows a `panic`
