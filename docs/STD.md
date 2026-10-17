@@ -683,21 +683,17 @@ sub main()
 0 1 0 none height 2
 ```
 
-The entries are kept in one List, in order, each with its key's hash
-beside it, so no key is hashed twice: not when the table grows, nor
-when an entry is taken. A Map or Set builds a table when it first
-holds more than 8 entries, or when `reserve` makes room for more, and
-keeps it until `clear`; until then, a lookup compares the stored
-hashes in turn, then the key where one matches. The table is
-open-addressed and probed linearly, at most four fifths full; each
-slot holds a one-byte tag, the top seven bits of its key's hash, and
-the index of its entry, so a probe compares a key only when the tag
-matches, and a key that is not there is found missing from the tags
+The entries are kept in one List, in order, and a table finds them
+from the first entry on. The table is open-addressed and probed
+linearly, at most half full; each slot is one `U64`, 0 when free, else
+31 bits of its key's hash over the index of its entry. A slot keeps
+those bits, so no key is hashed twice: not when the table grows, nor
+when an entry is taken. A probe compares a key only when a slot's hash
+bits match, so a key that is not there is found missing from the slots
 alone. A Map's entry holds its key and an optional value (for a
-`Map[U32, U32]`, a `U32` and a `U32?`), and its hash, a `U64`, is kept
-in a List beside the entries; taking one empties its value in place,
-and the next growth drops the entry, key and all, keeping the rest in
-order. A Set's key is optional, and taking one hands it back. The seed
+`Map[U32, U32]`, a `U32` and a `U32?`); taking one empties its value
+in place, and the next growth drops the entry, key and all, keeping
+the rest in order. A Set's key is optional, and taking one hands it back. The seed
 of `.hash()` is fixed, so a program that lets others choose many keys
 that collide can be made slow.
 

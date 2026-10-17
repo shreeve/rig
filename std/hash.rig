@@ -7,16 +7,18 @@
 #
 # The entries are kept in a List, in order; a taken entry's value is
 # `none` (a Set's key), and its key stays until the List is next
-# compacted. Each entry's hash is kept beside it, so no key is hashed
-# twice. A Map or Set builds a `Table` when it first holds more than
-# `SMALL` entries, or when `reserve` makes room for more, and keeps it
-# until `clear`; until then a lookup compares the stored hashes in
-# turn. The `Table` finds an entry: open-addressed, a power of two of slots probed
-# linearly, at most four fifths full. A key's slot is picked by its
-# hash's low bits; `tags[i]` is 0 for a free slot, or the top seven bits
-# of its key's hash with the high bit set (`tag_of`), so a probe compares
-# a key only when its tag matches, and `at[i]` is its entry's index. Taking an entry shifts the slots after it back, so the
-# table keeps no tombstones; growing it drops the entries taken.
+# compacted. A `Table` finds an entry: open-addressed, a power of two of
+# slots probed linearly, at most half full. Each slot is one `U64`: 0
+# when free, else 31 bits of its key's hash, with the top bit set, over
+# its entry's index (`slot_of`). A key's hash is taken with its halves
+# swapped (`mix`), so its low bits, which the runtime's hash spreads its
+# input into best, pick the slot a probe starts from (`home`). A slot
+# keeps those bits, so the table alone places every slot again as it
+# grows, and no key is hashed twice. A probe compares a key only where
+# a slot's hash bits match, so a key that is not there is mostly found
+# missing from the slots alone. Taking an entry shifts the slots after
+# it back, so the table keeps no tombstones; growing it drops the
+# entries taken.
 
 # One entry of a Map, as `items()` gives it: views of its key and value.
 pub obj Item[K, V]
@@ -29,64 +31,88 @@ obj Entry[K, V]
   key: K
   value: V?
 
-# Entries a Map, Set, or Symbols holds before it builds a table: up to
-# this many, a lookup compares the stored hashes of the entries in turn.
-SMALL = 8
+# The high 32 bits of a mixed hash, which a slot keeps, and the low 32,
+# where a slot keeps its entry's index. A used slot has its top bit set,
+# so it is never 0.
+HIGH: U64 = 0xFFFFFFFF00000000
+LOW: U64 = 0xFFFFFFFF
+TOP: U64 = 0x8000000000000000
 
-# The slots that find the entries of a Map, Set, or Symbols once it
-# holds more than `SMALL` of them: none before that.
+# The fewest slots a table has once it has any.
+MIN_SLOTS = 16
+
+# The slots that find the entries of a Map, Set, or Symbols: none until
+# the first entry.
 obj Table
-  tags: List[U8] = List()
-  at: List[U32] = List()
+  slots: List[U64] = List()
 
-  # Point a free slot at entry `j`, whose key hashes to `h`. The table
-  # is never full, so the probe always finds one.
-  sub place(!self, j: Int, h: U64)
-    i = self.free_slot(h)
-    self.tags[i] = tag_of(h)
-    self.at[i] = U32(j)
+  # Point the free slot `i` at entry `j`, whose key's hash has the high
+  # bits `hi`.
+  sub fill(!self, i: Int, hi: U64, j: Int)
+    ss = !self.slots[..]
+    ss[i] = slot_of(hi, j)
 
-  # The first free slot from the one `h` names. Each pass is a loop
-  # whose test is the bounds test, so a step reads a tag with no other
-  # check; past both, -1 would fail the caller's bounds check.
+  # The first free slot from the one `h` names; the table is at most
+  # half full, so there is one.
   fun free_slot(?self, h: U64) -> Int
-    ts = ?self.tags[..]
-    i = Int(h & U64(ts.len - 1))
-    for _ in 0..2
-      while 0 <= i and i < ts.len
-        return i if ts[i] == 0
-        i += 1
-      i = 0
-    -1
+    ss = ?self.slots[..]
+    mask = ss.len - 1
+    i = home(h, ss.len)
+    while ss[i] != 0
+      i = (i + 1) & mask
+    i
 
   # Free the slot of entry `j`, whose key hashes to `h`, shifting back
-  # each slot after it that would otherwise no longer be found from where
-  # its key hashes to; `hs` holds every entry's hash, so no key is
-  # hashed again.
-  sub unlink(!self, j: Int, h: U64, hs: ?List[U64])
-    mask = self.tags.len - 1
-    hole = Int(h & U64(mask))
-    while self.tags[hole] == 0 or self.at[hole] != U32(j)
+  # each slot after it that would otherwise no longer be found from
+  # where its hash places it.
+  sub unlink(!self, j: Int, h: U64)
+    ss = !self.slots[..]
+    mask = ss.len - 1
+    want = slot_of(h & HIGH, j)
+    hole = home(h, ss.len)
+    while ss[hole] != want
       hole = (hole + 1) & mask
     s = (hole + 1) & mask
-    while 0 <= s and s < self.tags.len and self.tags[s] != 0
-      home = Int(hs[Int(self.at[s])] & U64(mask))
-      if ((s - home) & mask) >= ((s - hole) & mask)
-        self.tags[hole] = self.tags[s]
-        self.at[hole] = self.at[s]
+    while ss[s] != 0
+      start = home(ss[s], ss.len)
+      if ((s - start) & mask) >= ((s - hole) & mask)
+        ss[hole] = ss[s]
         hole = s
       s = (s + 1) & mask
-    self.tags[hole] = 0
+    ss[hole] = 0
 
-  # Empty the table, as `n` free slots.
-  sub reset(!self, n: Int)
-    !self.tags.clear()
-    !self.at.clear()
-    !self.tags.reserve(n)
-    !self.at.reserve(n)
-    for _ in 0..n
-      !self.tags.push(0)
-      !self.at.push(0)
+  # The table with `n` slots, each slot placed again where its hash bits
+  # put it; the entries keep their indexes.
+  sub grow_to(!self, n: Int)
+    old_slots = replace(!self.slots, List.filled(n, U64(0)))
+    os = ?old_slots[..]
+    ss = !self.slots[..]
+    mask = n - 1
+    for i in 0..os.len
+      s = os[i]
+      if s != 0
+        k = home(s, n)
+        while ss[k] != 0
+          k = (k + 1) & mask
+        ss[k] = s
+
+  # Point the slot of each entry `j` at its new index, `to[j]`. Only a
+  # live entry has a slot.
+  sub renumber(!self, to: ?List[U32])
+    ss = !self.slots[..]
+    for i in 0..ss.len
+      s = ss[i]
+      if s != 0
+        ss[i] = (s & HIGH) | U64(to[Int(s & LOW)])
+
+  # Point each slot of an entry after `j` at the index one lower, as the
+  # entries after `j` move down by one. Whether a slot's index is past
+  # `j` is bit 32 of the index plus `LOW - j`, so no step branches on
+  # it; a free slot's index, 0, is never past `j`.
+  sub shift_down(!self, j: Int)
+    up = LOW - U64(j)
+    for s in !self.slots
+      s -%= ((s & LOW) +% up) >> 32
 
 # `hash.Map[K, V]()` is an empty Map, which allocates nothing until the
 # first `put`.
@@ -94,7 +120,6 @@ pub obj Map[K, V]
   # How many entries the Map holds.
   pub ?len: Int = 0
   es: List[Entry[K, V]] = List()
-  hs: List[U64] = List()
   table: Table = Table()
 
   # An empty Map, as `Map[K, V]()` is, with room for `capacity` entries.
@@ -107,26 +132,23 @@ pub obj Map[K, V]
   # are sized for them, so the next `n` puts of new keys grow neither.
   pub sub reserve(!self, n: Int)
     !self.es.reserve(n)
-    !self.hs.reserve(n)
-    want = self.es.len + n
-    if want > SMALL
-      size = table_size(want, self.table.tags.len)
-      !self.rebuild(size) if size > self.table.tags.len
+    size = table_size(self.es.len + n, self.table.slots.len)
+    !self.grow_to(size) if n > 0 and size > self.table.slots.len
 
   # Whether the Map holds the key `k`.
   pub fun has(?self, k: ?K) -> Bool
-    self.find(k, k.hash()) != none
+    self.find(k, mix(k.hash())) != none
 
   # The value of the key `k`, viewed where the Map holds it, or `none`.
   pub fun get(?self, k: ?K) -> (?V)? from self
-    if self.find(k, k.hash()) as j
+    if self.find(k, mix(k.hash())) as j
       return ?self.es[j].value
     none
 
   # The value of the key `k`, lent to write where the Map holds it, or
   # `none`.
   pub fun edit(!self, k: ?K) -> (!V)? from self
-    if self.find(k, k.hash()) as j
+    if self.find(k, mix(k.hash())) as j
       if !self.es[j].value as v
         return v
     none
@@ -140,35 +162,36 @@ pub obj Map[K, V]
   # Put `v` under `k`, inserting or overwriting, and hand back the old
   # value, or `none` when `k` is new.
   pub fun replace(!self, k: K, v: V) -> V?
-    h = k.hash()
-    if self.find(?k, h) as j
+    h = mix(k.hash())
+    j = self.probe(?k, h)
+    if j >= 0
       <k
       return replace(!self.es[j].value, <v)
-    !self.add_entry(<k, <v, h)
+    !self.insert(<k, <v, h, -1 - j)
     none
 
   # Put `v` under `k` only when `k` is new: true if it did; otherwise
   # `k` and `v` are dropped.
   pub fun put_new(!self, k: K, v: V) -> Bool
-    h = k.hash()
-    if self.find(?k, h) != none
+    h = mix(k.hash())
+    j = self.probe(?k, h)
+    if j >= 0
       <k
       <v
       return false
-    !self.add_entry(<k, <v, h)
+    !self.insert(<k, <v, h, -1 - j)
     true
 
   # Put `v` under `k` when `k` is new, and lend the value under `k` to
   # write. When `k` is there, `k` and `v` are dropped.
   pub fun ensure(!self, k: K, v: V) -> !V from self, k, v
-    h = k.hash()
-    j = 0
-    if self.find(?k, h) as at
+    h = mix(k.hash())
+    j = self.probe(?k, h)
+    if j >= 0
       <k
       <v
-      j = at
     else
-      j = (!self).add_new(<k, <v, h)
+      j = (!self).add_new(<k, <v, h, -1 - j)
     # The entry at `j` holds a value, so the loop returns at once; it
     # stands where an unwrap that traps would (TODO.md).
     while true
@@ -179,16 +202,14 @@ pub obj Map[K, V]
   # write, with whether `k` was new. When `k` is there, `k` and `v` are
   # dropped.
   pub fun ensure_added(!self, k: K, v: V) -> (!V, Bool) from self, k, v
-    h = k.hash()
-    j = 0
-    added = false
-    if self.find(?k, h) as at
+    h = mix(k.hash())
+    j = self.probe(?k, h)
+    added = j < 0
+    if j >= 0
       <k
       <v
-      j = at
     else
-      j = (!self).add_new(<k, <v, h)
-      added = true
+      j = (!self).add_new(<k, <v, h, -1 - j)
     # As in `ensure`, the entry at `j` holds a value.
     while true
       if !self.es[j].value as w
@@ -198,80 +219,64 @@ pub obj Map[K, V]
   # when `k` is new, so the value is made only then. When `k` is there,
   # `k` is dropped and `make` is not called.
   pub fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k keeps make
-    h = k.hash()
-    j = 0
-    if self.find(?k, h) as at
+    h = mix(k.hash())
+    j = self.probe(?k, h)
+    if j >= 0
       <k
-      j = at
     else
-      j = (!self).add_made(<k, make, h)
+      j = (!self).add_made(<k, make, h, -1 - j)
     # As in `ensure`, the entry at `j` holds a value.
     while true
       if !self.es[j].value as w
         return w
 
   # Add the entry of `k`, whose key is new and hashes to `h`, with the
-  # value `make(k)`, and give its index; out of line, as `add_new`.
-  rarely fun add_made(!self, k: K, make: ?fun(?K) -> V, h: U64) -> Int keeps make
+  # value `make(k)`, at the free slot `free`, and give its index; out of
+  # line, as `add_new`.
+  rarely fun add_made(!self, k: K, make: ?fun(?K) -> V, h: U64, free: Int) -> Int keeps make
     v = make(?k)
-    !self.insert(<k, <v, h)
+    !self.insert(<k, <v, h, free)
     self.es.len - 1
 
-  # Add the entry `k`, `v`, whose key is new and hashes to `h`, and give
-  # its index; out of line, so a lookup that finds its key stays short.
-  rarely fun add_new(!self, k: K, v: V, h: U64) -> Int
-    !self.insert(<k, <v, h)
+  # Add the entry `k`, `v`, whose key is new and hashes to `h`, at the
+  # free slot `free`, and give its index; out of line, so a lookup that
+  # finds its key stays short.
+  rarely fun add_new(!self, k: K, v: V, h: U64, free: Int) -> Int
+    !self.insert(<k, <v, h, free)
     self.es.len - 1
-
-  # Add the entry `k`, `v`, whose key is new and hashes to `h`: what
-  # `put`, `replace` and `put_new` call when the key is new; out of
-  # line, so a write inlined into its caller is the lookup and, on a hit,
-  # the overwrite, and hot, as a loop that puts new keys calls it each time.
-  called sub add_entry(!self, k: K, v: V, h: U64)
-    !self.insert(<k, <v, h)
 
   # Keep the entries for which `f` is true, in order. `f` gets each key
-  # to read and its value to write, in order, and an entry it rejects is
-  # dropped then, not left for compaction as `take` leaves a key. The
-  # entries stay in the Lists the Map has, so they keep their room.
+  # to read and its value to write, in order, and an entry it rejects has
+  # its value dropped then, as `take` takes it. The entries left move
+  # down in place, in the List the Map has, and the entries taken are
+  # dropped.
   pub sub retain(!self, f: ?fun(?K, !V) -> Bool)
-    back: List[Entry[K, V]] = List(capacity: self.es.len)
-    back_hs: List[U64] = List(capacity: self.es.len)
-    while (!self.es).pop() as e
-      !back.push(<e)
-      !back_hs.push((!self.hs).pop() ?? 0)
-    self.len = 0
-    while (!back).pop() as popped
-      new e = <popped
-      h = (!back_hs).pop() ?? 0
-      keep = false
+    es = !self.es[..]
+    for j in 0..es.len
+      e = !es[j]
       if !e.value as v
-        keep = f(?e.key, !v)
-      if keep
-        !self.es.push(<e)
-        !self.hs.push(h)
-        self.len += 1
-      else
-        <e
-    !self.rebuild(self.table.tags.len) if self.table.tags.len > 0
+        if not f(?e.key, !v)
+          self.len -= 1
+          !self.table.unlink(j, mix(e.key.hash()))
+          old = <e.value
+          <old
+    !self.compact() if self.len < self.es.len
 
   # Take the entry of the key `k` out: its value is handed back. Its key
   # is dropped when the entries are next compacted, as the Map grows,
   # or with the Map. `none` when the Map has no such key.
   pub fun take(!self, k: ?K) -> V?
-    h = k.hash()
+    h = mix(k.hash())
     if self.find(k, h) as j
       self.len -= 1
-      !self.table.unlink(j, h, ?self.hs) if self.table.tags.len > 0
+      !self.table.unlink(j, h)
       return <self.es[j].value
     none
 
   # Drop every entry. The Map keeps the memory it has.
   pub sub clear(!self)
     !self.es.clear()
-    !self.hs.clear()
-    !self.table.tags.clear()
-    !self.table.at.clear()
+    !self.table.slots.clear()
     self.len = 0
 
   # The entry at index `i` in the order the keys were first put in: its
@@ -280,20 +285,27 @@ pub obj Map[K, V]
   # the entries were last compacted, as the Map grows; until then, it
   # counts the entries before it.
   pub fun at(?self, i: Int) -> (?K, ?V)? from self
-    return none if i < 0 or i >= self.len
     j = i
     if self.len < self.es.len
-      j = 0
-      n = 0
-      while j < self.es.len
-        if self.es[j].value != none
-          break if n == i
-          n += 1
-        j += 1
+      return none if i < 0 or i >= self.len
+      j = self.nth(i)
+    return none if j < 0 or j >= self.es.len
     v: (?V)? = ?self.es[j].value
     if v as vv
       return ?self.es[j].key, vv
     none
+
+  # The index of the entry at `i` in order, counting the entries before
+  # it, when an entry has been taken: out of line, so `at` stays one step.
+  rarely fun nth(?self, i: Int) -> Int
+    j = 0
+    n = 0
+    while j < self.es.len
+      if self.es[j].value != none
+        return j if n == i
+        n += 1
+      j += 1
+    j
 
   # The entries, in the order their keys were first put in: each an
   # `Item` viewing its key and value.
@@ -318,76 +330,81 @@ pub obj Map[K, V]
       old = replace(!self.es[j].value, <held)
       <old
 
-  # The entry of the key `k`, whose hash is `h`, or `none`: in a small
-  # Map, by the stored hashes in turn; in a larger one, by a probe of
-  # its table from the slot `h` names to the end, then from the start,
-  # each pass a loop whose test is the bounds test.
+  # The entry of the key `k`, whose hash is `h`, or `none`.
   fun find(?self, k: ?K, h: U64) -> Int?
-    if self.table.tags.len == 0
-      hs = ?self.hs[..]
-      j = 0
-      while 0 <= j and j < hs.len
-        if hs[j] == h and self.es[j].value != none
-          return j if self.es[j].key == k
-        j += 1
-      return none
-    ts = ?self.table.tags[..]
-    tag = tag_of(h)
-    i = Int(h & U64(ts.len - 1))
-    for _ in 0..2
-      while 0 <= i and i < ts.len
-        t = ts[i]
-        return none if t == 0
-        if t == tag
-          j = Int(self.table.at[i])
-          return j if self.es[j].key == k
-        i += 1
-      i = 0
+    j = self.probe(k, h)
+    return j if j >= 0
     none
 
-  # Add the entry `k`, `v`, whose key is new and hashes to `h`: the body
-  # of `add_new` and `add_made`.
-  sub insert(!self, k: K, v: V, h: U64)
-    if self.table.tags.len == 0
-      !self.grow() if self.es.len >= SMALL
-    else if (self.es.len + 1) * 5 > self.table.tags.len * 4
+  # Where the key `k`, whose hash is `h`, is: the index of its entry, or,
+  # when the Map has no such key, -1 less the free slot its probe ended
+  # at, where a new entry for it goes. The probe walks the slots from the
+  # one `h` names and compares a key only where a slot's hash bits are
+  # `h`'s; the table is at most half full, so it ends at a free slot. An
+  # empty table gives -1, and the insert that follows grows it first.
+  fun probe(?self, k: ?K, h: U64) -> Int
+    ss = ?self.table.slots[..]
+    return -1 if ss.len == 0
+    mask = ss.len - 1
+    hi = (h & HIGH) | TOP
+    i = home(h, ss.len)
+    while true
+      s = ss[i]
+      return -1 - i if s == 0
+      if (s & HIGH) == hi
+        j = Int(s & LOW)
+        return j if self.es[j].key == k
+      i = (i + 1) & mask
+    -1
+
+  # Add the entry `k`, `v`, whose key is new and hashes to `h`, at the
+  # free slot `free` its probe ended at, or, when the table grows first,
+  # at the one a probe of the new table finds.
+  sub insert(!self, k: K, v: V, h: U64, free: Int)
+    i = free
+    if (self.es.len + 1) * 2 > self.table.slots.len
       !self.grow()
+      i = self.table.free_slot(h)
     !self.es.push(Entry(key: <k, value: <v))
-    !self.hs.push(h)
     self.len += 1
-    !self.table.place(self.es.len - 1, h) if self.table.tags.len > 0
+    !self.table.fill(i, h & HIGH, self.es.len - 1)
 
-  # Make room for one more entry: drop the entries taken, and build the
-  # table, or double it, when the entries left would fill more than two
-  # fifths of it. A Map that has not held more than `SMALL` entries
-  # keeps no table.
+  # Make room for one more entry: drop the entries taken, and double
+  # the table when the entries left would fill more than half of it.
   rarely sub grow(!self)
-    !self.compact() if self.len < self.es.len
-    return if self.table.tags.len == 0 and self.len < SMALL
-    !self.rebuild(table_size(self.len + 1, self.table.tags.len))
+    !self.grow_to(table_size(self.len + 1, self.table.slots.len))
 
-  # Drop the entries taken, keeping the rest in order: every entry is
-  # popped off the end and the live ones pushed back the other way, so
-  # each moves whole.
+  # The table with `n` slots, at least as many as it has, once the
+  # entries taken are dropped.
+  sub grow_to(!self, n: Int)
+    !self.compact() if self.len < self.es.len
+    !self.table.grow_to(n)
+
+  # Drop the entries taken, keeping the rest in order, and the table
+  # follows them. One taken, as a delete leaves, is removed, which moves
+  # the entries after it down in one copy; otherwise each live entry
+  # moves down in place, over the taken ones, which `keep` then drops.
   sub compact(!self)
-    back: List[Entry[K, V]] = List(capacity: self.es.len)
-    back_hs: List[U64] = List(capacity: self.es.len)
-    while (!self.es).pop() as e
-      h = (!self.hs).pop() ?? 0
-      if e.value != none
-        !back.push(<e)
-        !back_hs.push(h)
-    while (!back).pop() as e
-      !self.es.push(<e)
-      !self.hs.push((!back_hs).pop() ?? 0)
-
-  # The table built anew with `n` slots, once the entries taken are
-  # dropped, each entry's slot placed again from its stored hash.
-  sub rebuild(!self, n: Int)
-    !self.compact() if self.len < self.es.len
-    !self.table.reset(n)
-    for j in 0..self.hs.len
-      !self.table.place(j, self.hs[j])
+    if self.len + 1 == self.es.len
+      es = ?self.es[..]
+      d = 0
+      while es[d].value != none
+        d += 1
+      e = (!self.es).remove(d)
+      <e
+      !self.table.shift_down(d)
+      return
+    to: List[U32] = List(capacity: self.es.len)
+    w = 0
+    for j in 0..self.es.len
+      if self.es[j].value != none
+        !self.es.swap(w, j) if w < j
+        !to.push(U32(w))
+        w += 1
+      else
+        !to.push(0)
+    !self.es.keep(w)
+    !self.table.renumber(?to)
 
 # A set of keys, kept in the order they were first added. Its keys are
 # held as a Map's entries are, each a `K?` that is `none` once taken.
@@ -398,7 +415,6 @@ pub obj Set[K]
   # How many keys the Set holds.
   pub ?len: Int = 0
   ks: List[K?] = List()
-  hs: List[U64] = List()
   table: Table = Table()
 
   # An empty Set, as `Set[K]()` is, with room for `capacity` keys.
@@ -411,61 +427,53 @@ pub obj Set[K]
   # sized for them, so the next `n` adds of new keys grow neither.
   pub sub reserve(!self, n: Int)
     !self.ks.reserve(n)
-    !self.hs.reserve(n)
-    want = self.ks.len + n
-    if want > SMALL
-      size = table_size(want, self.table.tags.len)
-      !self.rebuild(size) if size > self.table.tags.len
+    size = table_size(self.ks.len + n, self.table.slots.len)
+    !self.grow_to(size) if n > 0 and size > self.table.slots.len
 
   # Whether the Set holds the key `k`.
   pub fun has(?self, k: ?K) -> Bool
-    self.find(k, k.hash()) != none
+    self.find(k, mix(k.hash())) != none
 
   # Add the key `k`: true when it is new; otherwise `k` is dropped.
   pub fun add(!self, k: K) -> Bool
-    h = k.hash()
-    return false if self.find(?k, h) != none
-    !self.add_new(<k, h)
+    h = mix(k.hash())
+    j = self.probe(?k, h)
+    return false if j >= 0
+    !self.add_new(<k, h, -1 - j)
     true
 
   # Take the key `k` out and hand it back, or `none` when the Set has
   # no such key.
   pub fun take(!self, k: ?K) -> K?
-    h = k.hash()
+    h = mix(k.hash())
     if self.find(k, h) as j
       self.len -= 1
-      !self.table.unlink(j, h, ?self.hs) if self.table.tags.len > 0
+      !self.table.unlink(j, h)
       return <self.ks[j]
     none
 
   # Keep the keys for which `f` is true, in order; a key it rejects is
-  # dropped then. The keys stay in the Lists the Set has, so they keep
-  # their room.
+  # dropped then. The keys left move down in place, in the List the Set
+  # has.
   pub sub retain(!self, f: ?fun(?K) -> Bool)
-    back: List[K] = List(capacity: self.len)
-    back_hs: List[U64] = List(capacity: self.len)
-    while (!self.ks).pop() as slot
-      h = (!self.hs).pop() ?? 0
-      if <slot as k
-        !back.push(<k)
-        !back_hs.push(h)
-    self.len = 0
-    while (!back).pop() as k
-      h = (!back_hs).pop() ?? 0
-      if f(?k)
-        !self.ks.push(<k)
-        !self.hs.push(h)
-        self.len += 1
-      else
-        <k
-    !self.rebuild(self.table.tags.len) if self.table.tags.len > 0
+    for j in 0..self.ks.len
+      keep = true
+      h: U64 = 0
+      k: (?K)? = ?self.ks[j]
+      if k as kk
+        keep = f(kk)
+        if not keep
+          h = mix(kk.hash())
+      if not keep
+        self.len -= 1
+        !self.table.unlink(j, h)
+        <self.ks[j]
+    !self.compact() if self.len < self.ks.len
 
   # Drop every key. The Set keeps the memory it has.
   pub sub clear(!self)
     !self.ks.clear()
-    !self.hs.clear()
-    !self.table.tags.clear()
-    !self.table.at.clear()
+    !self.table.slots.clear()
     self.len = 0
 
   # The keys, in the order they were first added, each viewed where the
@@ -473,68 +481,72 @@ pub obj Set[K]
   pub fun items(?self) -> Members[K] from self
     Members(set: ?self, next_at: 0)
 
+  # The index of the key `k`, whose hash is `h`, or `none`.
   fun find(?self, k: ?K, h: U64) -> Int?
-    if self.table.tags.len == 0
-      hs = ?self.hs[..]
-      j = 0
-      while 0 <= j and j < hs.len
-        if hs[j] == h
-          return j if self.ks[j] == k
-        j += 1
-      return none
-    ts = ?self.table.tags[..]
-    tag = tag_of(h)
-    i = Int(h & U64(ts.len - 1))
-    for _ in 0..2
-      while 0 <= i and i < ts.len
-        t = ts[i]
-        return none if t == 0
-        if t == tag
-          j = Int(self.table.at[i])
-          return j if self.ks[j] == k
-        i += 1
-      i = 0
+    j = self.probe(k, h)
+    return j if j >= 0
     none
 
-  # Add the key `k`, which is new and hashes to `h`; out of line and hot,
-  # as a Map's `add_new` is.
-  called sub add_new(!self, k: K, h: U64)
-    if self.table.tags.len == 0
-      !self.grow() if self.ks.len >= SMALL
-    else if (self.ks.len + 1) * 5 > self.table.tags.len * 4
+  # Where the key `k`, whose hash is `h`, is, as a Map's `probe` finds
+  # an entry: its index, or -1 less the free slot its probe ended at.
+  fun probe(?self, k: ?K, h: U64) -> Int
+    ss = ?self.table.slots[..]
+    return -1 if ss.len == 0
+    mask = ss.len - 1
+    hi = (h & HIGH) | TOP
+    i = home(h, ss.len)
+    while true
+      s = ss[i]
+      return -1 - i if s == 0
+      if (s & HIGH) == hi
+        j = Int(s & LOW)
+        return j if self.ks[j] == k
+      i = (i + 1) & mask
+    -1
+
+  # Add the key `k`, which is new and hashes to `h`, at the free slot
+  # `free`, as a Map's `insert` adds an entry.
+  sub add_new(!self, k: K, h: U64, free: Int)
+    i = free
+    if (self.ks.len + 1) * 2 > self.table.slots.len
       !self.grow()
+      i = self.table.free_slot(h)
     !self.ks.push(<k)
-    !self.hs.push(h)
     self.len += 1
-    !self.table.place(self.ks.len - 1, h) if self.table.tags.len > 0
+    !self.table.fill(i, h & HIGH, self.ks.len - 1)
 
   rarely sub grow(!self)
-    !self.compact() if self.len < self.ks.len
-    return if self.table.tags.len == 0 and self.len < SMALL
-    !self.rebuild(table_size(self.len + 1, self.table.tags.len))
+    !self.grow_to(table_size(self.len + 1, self.table.slots.len))
 
-  # Drop the keys taken, keeping the rest in order, in the Lists the Set
-  # has, so they keep the room they have: every key is popped off the
-  # end and the live ones pushed back the other way.
+  # The table with `n` slots, at least as many as it has, once the keys
+  # taken are dropped.
+  sub grow_to(!self, n: Int)
+    !self.compact() if self.len < self.ks.len
+    !self.table.grow_to(n)
+
+  # Drop the keys taken, keeping the rest in order, as a Map's `compact`
+  # drops its entries taken.
   sub compact(!self)
-    back: List[K] = List(capacity: self.len)
-    back_hs: List[U64] = List(capacity: self.len)
-    while (!self.ks).pop() as slot
-      h = (!self.hs).pop() ?? 0
-      if <slot as k
-        !back.push(<k)
-        !back_hs.push(h)
-    while (!back).pop() as k
-      !self.ks.push(<k)
-      !self.hs.push((!back_hs).pop() ?? 0)
-
-  # The table built anew with `n` slots, once the keys taken are
-  # dropped, each key's slot placed again from its stored hash.
-  sub rebuild(!self, n: Int)
-    !self.compact() if self.len < self.ks.len
-    !self.table.reset(n)
+    if self.len + 1 == self.ks.len
+      ks = ?self.ks[..]
+      d = 0
+      while ks[d] != none
+        d += 1
+      k = (!self.ks).remove(d)
+      <k
+      !self.table.shift_down(d)
+      return
+    to: List[U32] = List(capacity: self.ks.len)
+    w = 0
     for j in 0..self.ks.len
-      !self.table.place(j, self.hs[j])
+      if self.ks[j] != none
+        !self.ks.swap(w, j) if w < j
+        !to.push(U32(w))
+        w += 1
+      else
+        !to.push(0)
+    !self.ks.keep(w)
+    !self.table.renumber(?to)
 
 # A set of strings, each with a dense `U32` id from 0, in the order it
 # was first interned. Their text lives in one String, end to end, so
@@ -546,30 +558,30 @@ pub obj Symbols
   pub ?len: Int = 0
   bytes: String = String()
   ends: List[U32] = List()
-  hs: List[U64] = List()
   table: Table = Table()
 
   # The id of `s`: the one it was given, or a new one, the next after the
   # last, when `s` is new, whose text is then copied in.
   pub fun intern(!self, s: ?String) -> U32
-    h = s.hash()
-    if self.find(s, h) as id
-      return id
+    h = mix(s.hash())
+    p = self.probe(s, h)
+    return U32(p) if p >= 0
     id = U32(self.len)
     !self.bytes.add(s)
     !self.ends.push(U32(self.bytes.len))
-    !self.hs.push(h)
     self.len += 1
-    # A rebuilt table places every id, the new one too.
-    if self.table.tags.len > 0 and self.len * 5 <= self.table.tags.len * 4
-      !self.table.place(Int(id), h)
-    else if self.table.tags.len > 0 or self.len > SMALL
-      !self.rebuild(table_size(self.len, self.table.tags.len))
+    i = -1 - p
+    if self.len * 2 > self.table.slots.len
+      !self.table.grow_to(table_size(self.len, self.table.slots.len))
+      i = self.table.free_slot(h)
+    !self.table.fill(i, h & HIGH, Int(id))
     id
 
   # The id of `s`, or `none` when it was never interned.
   pub fun id(?self, s: ?String) -> U32?
-    self.find(s, s.hash())
+    p = self.probe(s, mix(s.hash()))
+    return U32(p) if p >= 0
+    none
 
   # The text of the id `id`, viewed where the table holds it.
   pub fun text(?self, id: U32) -> ?String from self
@@ -580,58 +592,52 @@ pub obj Symbols
   # Make room for `n` more strings whose text takes `bytes` bytes in all.
   pub sub reserve(!self, n: Int, bytes: Int = 0)
     !self.ends.reserve(n)
-    !self.hs.reserve(n)
     !self.bytes.reserve(bytes) if bytes > 0
-    want = self.len + n
-    if want > SMALL
-      size = table_size(want, self.table.tags.len)
-      !self.rebuild(size) if size > self.table.tags.len
+    size = table_size(self.len + n, self.table.slots.len)
+    !self.table.grow_to(size) if n > 0 and size > self.table.slots.len
 
-  fun find(?self, s: ?String, h: U64) -> U32?
-    if self.table.tags.len == 0
-      hs = ?self.hs[..]
-      j = 0
-      while 0 <= j and j < hs.len
-        if hs[j] == h
-          return U32(j) if self.text(U32(j)) == s
-        j += 1
-      return none
-    ts = ?self.table.tags[..]
-    tag = tag_of(h)
-    i = Int(h & U64(ts.len - 1))
-    for _ in 0..2
-      while 0 <= i and i < ts.len
-        t = ts[i]
-        return none if t == 0
-        if t == tag
-          id = self.table.at[i]
-          return id if self.text(id) == s
-        i += 1
-      i = 0
-    none
+  # Where `s`, whose hash is `h`, is, as a Map's `probe` finds an entry:
+  # its id, or -1 less the free slot its probe ended at.
+  fun probe(?self, s: ?String, h: U64) -> Int
+    ss = ?self.table.slots[..]
+    return -1 if ss.len == 0
+    mask = ss.len - 1
+    hi = (h & HIGH) | TOP
+    i = home(h, ss.len)
+    while true
+      x = ss[i]
+      return -1 - i if x == 0
+      if (x & HIGH) == hi
+        id = Int(x & LOW)
+        return id if self.text(U32(id)) == s
+      i = (i + 1) & mask
+    -1
 
-  sub rebuild(!self, n: Int)
-    !self.table.reset(n)
-    for j in 0..self.hs.len
-      !self.table.place(j, self.hs[j])
-
-# The slots a table needs to hold `want` entries at most two fifths
-# full: a power of two, at least 16, and at least `now`.
+# The slots a table needs to hold `want` entries at most half full: a
+# power of two, at least `MIN_SLOTS`, and at least `now`.
 fun table_size(want: Int, now: Int) -> Int
-  n = 16 if now < 16 else now
-  while want * 5 > n * 2
+  n = MIN_SLOTS if now < MIN_SLOTS else now
+  while want * 2 > n
     n *= 2
   n
 
-# A used slot's tag: the top seven bits of the key's hash, with the high
-# bit set (a free slot's tag is 0). The bits that pick a slot are the
-# hash's low bits under the table's mask, fewer than 57 in any table
-# memory can hold, so they never reach the tag's: keys whose slots are
-# near one another still differ in their tags. Were the two to overlap,
-# the keys probed from one slot would share a tag, and every probe would
-# compare keys.
-fun tag_of(h: U64) -> U8
-  U8(h >> 57) | 0x80
+# The slot of entry `j`, whose key's mixed hash has the high bits `hi`:
+# those bits, with the top one set, over `j`.
+fun slot_of(hi: U64, j: Int) -> U64
+  hi | TOP | U64(U32(j))
+
+# A key's hash with its halves swapped, as a table takes it: the
+# runtime's hash spreads its input best into its low bits, and so those
+# pick a key's slot (`home`) and are the bits its slot keeps.
+fun mix(h: U64) -> U64
+  ((h & LOW) << 32) | (h >> 32)
+
+# The slot a probe for `h`, a mixed hash or a slot, starts from in a
+# table of `n` slots, a power of two: the low bits of `h`'s high 32 under
+# the mask. A slot keeps those 32 bits, so a slot names the same start as
+# its key's hash.
+fun home(h: U64, n: Int) -> Int
+  Int(h >> 32) & (n - 1)
 
 # The entries of a Map, in order (`Map.items`).
 pub obj Items[K, V]
