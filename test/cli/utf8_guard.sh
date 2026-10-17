@@ -124,7 +124,7 @@ expect_eq "$out" "$expected" "release run"
 # The guard page stops a read one byte past the end, in both builds.
 RIG_NO_CRASH_REPORT=1 RIG_STD="$PWD/lib" rig run past.rig >past.txt 2>&1 && fail "debug read past the end exited 0: $(cat past.txt)"
 RIG_STD="$PWD/lib" rig build --release -o past past.rig || fail "release build of past.rig"
-RIG_NO_CRASH_REPORT=1 ./past >past.txt 2>&1 && fail "release read past the end exited 0: $(cat past.txt)"
+quiet ./past >past.txt 2>&1 && fail "release read past the end exited 0: $(cat past.txt)"
 # And the sanitizer stops it at the end of a String.
 RIG_NO_CRASH_REPORT=1 RIG_SANITIZE=1 RIG_STD="$PWD/lib" rig run past_sanitized.rig >past.txt 2>&1 && fail "sanitized read past the end exited 0"
 expect_has "$(cat past.txt)" "access past the end of a 3-byte block" "the sanitizer's report"

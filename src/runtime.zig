@@ -3552,10 +3552,12 @@ pub fn start(init: std.process.Init.Minimal) void {
         std.posix.sigaction(.PIPE, &act, null);
     }
     // RIG_NO_CRASH_REPORT=1, set by a test harness for a program that
-    // panics on purpose: macOS files no crash report when it dies, and
-    // Linux passes it to no crash handler (apport). It still dies by its
-    // signal, its report on stderr unchanged.
-    if (builtin.os.tag.isDarwin() or builtin.os.tag == .linux) {
+    // panics on purpose: Linux passes its death to no crash handler
+    // (apport). It still dies by its signal, its report on stderr
+    // unchanged. On macOS the process that starts it answers its crash
+    // (`rig run`, `rig test`, `cpuq cap --no-crash-report`): clearing its
+    // own handler here would stop only the user's report, and undo theirs.
+    if (builtin.os.tag == .linux) {
         if (init.environ.getPosix("RIG_NO_CRASH_REPORT")) |v| {
             if (std.mem.eql(u8, v, "1")) noCrashReport();
         }
@@ -3581,26 +3583,12 @@ pub fn start(init: std.process.Init.Minimal) void {
 
 fn onBrokenPipe(_: std.posix.SIG) callconv(.c) void {}
 
-extern "c" var mach_task_self_: c_uint;
-extern "c" fn task_set_exception_ports(task: c_uint, mask: c_uint, port: c_uint, behavior: c_int, flavor: c_int) c_int;
-
-/// No crash report for this process's death. macOS: no handler for its
-/// crash exceptions (EXC_MASK_CRASH and EXC_MASK_CORPSE_NOTIFY to
-/// MACH_PORT_NULL, EXCEPTION_DEFAULT, THREAD_STATE_NONE), so ReportCrash
-/// never hears of it. Linux: a core limit of exactly 1, at which the
-/// kernel starts no `core_pattern` pipe (apport) and writes no core: each
-/// crash otherwise waits seconds on the handler. The processes it starts
-/// inherit it.
+/// No crash report for this process's death, on Linux: a core limit of
+/// exactly 1, at which the kernel starts no `core_pattern` pipe (apport)
+/// and writes no core; each crash otherwise waits seconds on the handler.
+/// The processes it starts inherit it.
 fn noCrashReport() void {
-    if (builtin.os.tag == .linux) {
-        std.posix.setrlimit(.CORE, .{ .cur = 1, .max = 1 }) catch {};
-        return;
-    }
-    const exc_mask_crash: c_uint = 1 << 10;
-    const exc_mask_corpse_notify: c_uint = 1 << 13;
-    const exception_default: c_int = 1;
-    const thread_state_none: c_int = if (builtin.cpu.arch == .x86_64) 13 else 5;
-    _ = task_set_exception_ports(mach_task_self_, exc_mask_crash | exc_mask_corpse_notify, 0, exception_default, thread_state_none);
+    std.posix.setrlimit(.CORE, .{ .cur = 1, .max = 1 }) catch {};
 }
 
 /// Free what `start` gathered, at the end of the program or its tests.

@@ -15,12 +15,12 @@ sub main()
 EOF2
 want=$'one\ntwo\nthree\norder.rig:5:3: panic: four\nfive'
 rig build -o order order.rig >/dev/null 2>&1 || fail "build order.rig"
-out=$(./order 2>&1); expect_rc $? 134 "panic exit status"
+out=$(quiet ./order 2>&1); expect_rc $? 134 "panic exit status"
 expect_eq "$out" "$want" "print, warn, and panic in order"
 rig build --release -o order_release order.rig >/dev/null 2>&1 || fail "build --release order.rig"
-out=$(./order_release 2>&1); expect_rc $? 134 "panic exit status in --release"
+out=$(quiet ./order_release 2>&1); expect_rc $? 134 "panic exit status in --release"
 expect_eq "$out" "$want" "print, warn, and panic in order in --release"
-err=$(./order 2>&1 >/dev/null)
+err=$(quiet ./order 2>&1 >/dev/null)
 expect_eq "$err" $'two\norder.rig:5:3: panic: four\nfive' "warn and panic write stderr"
 
 # A runtime panic is the same event, with no location.
@@ -33,7 +33,7 @@ sub main()
   print(xs[os.args().len + 4])
 EOF2
 rig build --release -o index index.rig >/dev/null 2>&1 || fail "build index.rig"
-out=$(./index 2>&1); expect_rc $? 134 "runtime panic exit status"
+out=$(quiet ./index 2>&1); expect_rc $? 134 "runtime panic exit status"
 expect_has "$out" $'before\npanic: index out of bounds' "runtime panic after the output"
 
 # A reader that stops early: no error, status 0, in every build mode.
@@ -80,7 +80,7 @@ mkdir -p p/m
 printf 'use m\n\nsub main()\n  m.stop(2)\n' >p/main.rig
 printf 'pub sub stop(n: Int)\n  panic("stopped at", n)\n' >p/m/b.rig
 rig build -o pm p/main.rig >/dev/null 2>&1 || fail "build p/main.rig"
-out=$(./pm 2>&1); expect_rc $? 134 "panic in a module"
+out=$(quiet ./pm 2>&1); expect_rc $? 134 "panic in a module"
 expect_has "$out" "m/b.rig:2:3: panic: stopped at 2" "path from the package root"
 grep -q "p/m/b.rig" <<<"$out" && fail "path includes the package directory: $out"
 exit 0
