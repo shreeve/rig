@@ -50,14 +50,22 @@ o=$(RIG_BUILD_STORE=$PWD/dstore RIG_BUILD_STORE_DAYS= RIG_TEST_OUT="$out" "$ROOT
 # recently used builds go first (the run's age prune is out of the way
 # with a long RIG_BUILD_STORE_DAYS); 0 means no cap.
 # Random bytes: a compressing filesystem (ZFS) stores zeros in almost no blocks, so `du` would see no size.
-# The stores live in the system's temp directory: ZFS shows a file just
-# written as about 1 KB to `du` until it commits it, seconds later.
+# The stores live in the system's temp directory. ZFS shows a file just
+# written as about 1 KB to `du` until it commits the transaction group, so
+# mkcap syncs, then waits (at most 60 s) until `du` sees the four blobs.
 cd "$(mktemp -d)" || fail "no temp directory"
 mkcap() {
   rm -rf "$1"; mkdir -p "$1"
   for n in a b c d; do mkdir -p "$1/$n/package"; dd if=/dev/urandom of="$1/$n/package/blob" bs=1024 count=1024 2>/dev/null; done
   touch -t "$(ago 4)" "$1/a/used"; touch -t "$(ago 3)" "$1/b/used"
   touch -t "$(ago 2)" "$1/c/used"; touch "$1/d/used"
+  sync
+  local i
+  for i in $(seq 120); do
+    (( $(du -skH "$1" | cut -f1) >= 4096 )) && return 0
+    sleep 0.5; sync
+  done
+  fail "the filesystem never reported the size of $1: $(du -skH "$1")"
 }
 cap() { RIG_BUILD_STORE=$PWD/$1 RIG_BUILD_STORE_DAYS=9999 RIG_BUILD_STORE_MAX_GB=$2 RIG_TEST_OUT="$out" "$ROOT/test/run" --prune 2>&1; }
 mkcap cstore   # four 1 MB builds; 2.5 MB fits two of them
