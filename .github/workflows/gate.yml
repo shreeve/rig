@@ -1,0 +1,93 @@
+name: gate
+
+# The merge checks of every pull request. Burst runs the tests: tools/gate
+# submits the suite, the corpus and the matrix through cpuq and, once all
+# pass, posts the commit status `rig/gate` on the exact commit they
+# tested. This workflow runs no test; it reads that status. It passes when
+# the newest `rig/gate` status on the pull request's head commit
+#   - is a success posted by a trusted login,
+#   - names the matrix job it ran (a `--no-matrix` run is not a merge gate),
+# and the head contains the base branch as it is now. It fails otherwise.
+# tools/gate re-runs it, so the checks turn green seconds after burst
+# finishes.
+#
+# pull_request_target runs this file as the default branch (main) holds
+# it, never a pull request's copy, and nothing here checks out or runs the
+# pull request's code. The token reads statuses, the pull request, and
+# commits, and nothing else.
+#
+# Its two jobs carry the names the ruleset on main requires, test
+# (ubuntu-latest) and test (macos-latest), for every pull request, a
+# fork's too: a fork's passes only once Steve has read it and run
+# tools/gate on it (test/README.md, "The merge gate and CI"). A failing
+# check of a required name blocks the merge even when a workflow of the
+# pull request's own reports the same name passing. Neither job is ever
+# skipped: a skipped required check counts as passing.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  statuses: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  verify:
+    name: test (${{ matrix.os }})
+    # Each job reports its own verdict: neither is cancelled when the
+    # other fails.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    # Both checks make the same test, on the cheapest runner.
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Read rig/gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          # The logins whose rig/gate status counts. Only a user with
+          # write access can post a status at all.
+          TRUSTED: shreeve
+        run: |
+          set -euo pipefail
+          [[ $SHA =~ ^[0-9a-f]{40}$ && $NUMBER =~ ^[0-9]+$ ]] || { echo "::error::not a commit and a pull request: $SHA #$NUMBER"; exit 1; }
+          # The API lists a commit's statuses newest first.
+          all=$(gh api --paginate "repos/$REPO/commits/$SHA/statuses?per_page=100" \
+            --jq '.[] | select(.context == "rig/gate") | [.state, .creator.login, .created_at, .description] | @tsv')
+          newest=${all%%$'\n'*}
+          if [[ -z $newest ]]; then
+            echo "::error::waiting for rig/gate from burst: no rig/gate status on $SHA (tools/gate posts it)"
+            exit 1
+          fi
+          IFS=$'\t' read -r state creator at description <<<"$newest"
+          echo "newest rig/gate on $SHA: $state, by $creator at $at: $description"
+          trusted=""
+          for login in $TRUSTED; do [[ $creator == "$login" ]] && trusted=1; done
+          if [[ -z $trusted ]]; then
+            echo "::error::rig/gate on $SHA was posted by $creator, who is not trusted ($TRUSTED)"
+            exit 1
+          fi
+          if [[ $state != success ]]; then
+            echo "::error::waiting for rig/gate from burst: its newest status on $SHA is $state"
+            exit 1
+          fi
+          if [[ $description == *"no matrix"* || ! $description =~ (^|[ :])matrix\ [0-9a-f]{8}( |$) ]]; then
+            echo "::error::rig/gate on $SHA ran no matrix; run tools/gate without --no-matrix"
+            exit 1
+          fi
+          # The base as it is now, not as the event saw it: the head must
+          # contain it.
+          base=$(gh api "repos/$REPO/pulls/$NUMBER" --jq .base.ref)
+          base_sha=$(gh api "repos/$REPO/git/ref/heads/$base" --jq .object.sha)
+          behind=$(gh api "repos/$REPO/compare/$base_sha...$SHA" --jq .behind_by)
+          if [[ $behind != 0 ]]; then
+            echo "::error::branch is behind $base by $behind commits: merge $base and re-run tools/gate"
+            exit 1
+          fi
+          echo "rig/gate passed on $SHA, which contains $base at ${base_sha:0:12}"

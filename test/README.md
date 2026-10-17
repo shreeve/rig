@@ -235,7 +235,8 @@ the deep gate does. The groups `checker` and `corpus` read third-party
 files that `tools/fetch-json-data.sh` fetches into `test/json/data/` (CI
 fetches them too). Without them those groups are skipped with a note, and
 `JSON_REQUIRE_DATA=1` makes that a failure. A `--delta` run carries a
-group over when the compiler, the cases and the data are unchanged.
+group over when the compiler, the cases, the data, and Python are
+unchanged.
 
 ## The corpus
 
@@ -255,9 +256,8 @@ parser.
 Running every accepted probe builds hundreds of programs, several
 minutes of work, so a plain `./test/run` takes a fixed sample, one
 program in 16 by a hash of its name; `./test/run corpus` (or any filter
-that names corpus programs) takes all of them, as CI should nightly or
-before a merge that touches the checkers or the emitter. A corpus run
-removes each passing program's output; its build stays in the store
+that names corpus programs) takes all of them, as `tools/gate` does
+before every merge. A corpus run removes each passing program's output; its build stays in the store
 (a few gigabytes for the whole corpus, see [Output](#output)), so a
 later run rebuilds only the programs whose emitted Zig changed. Add new review probes here, named `<review>-<probe>.rig`.
 
@@ -527,6 +527,74 @@ The output directory's `.durations` file records how long each test
 took, in whole seconds; the next run starts the longest tests first, so
 it does not end waiting on one of them.
 
+## The merge gate and CI
+
+Every pull request is tested on burst, and GitHub's runners do not test
+it again:
+
+```bash
+tools/gate                 # from the branch's worktree, after merging main and pushing
+tools/gate --no-matrix     # a quicker look, the suite and the corpus: no merge gate
+```
+
+`tools/gate` refuses unless the worktree is clean, holds no ignored file
+that cpuq would ship (cpuq copies everything but a spec's `exclude`), and
+its HEAD is the pull request's pushed head and contains the base branch;
+so the bytes burst tests are exactly that commit's. It refuses a branch
+that changes `tools/gate` or `cpuq/` unless given `--allow-gate-changes`.
+It submits `cpuq/suite.json`, `corpus.json`, and `matrix.json` together,
+each a `--delta` run, which burst runs at once; cancels the rest when one
+fails; and posts the commit status `rig/gate` on the commit: `success`
+with its tree and the job ids when all pass, `failure` when a test
+fails, `error` when a job could not finish. It posts with the Mac's `gh`
+login, and no credential goes to GitHub. Last it re-runs the pull
+request's `gate` workflow, waits for the required checks to pass, and
+prints the time each phase took. With `--no-matrix` its success says it
+ran no matrix and is no merge gate, and it re-runs nothing.
+
+The ruleset on `main` requires the checks `test (ubuntu-latest)` and
+`test (macos-latest)` from GitHub Actions, and `.github/workflows/gate.yml`
+gives them to every pull request. It runs on `pull_request_target`,
+which always runs `main`'s copy of the file, whatever the pull request
+changes; it checks out and runs nothing of the pull request, and reads
+only statuses, the pull request, and commits. It passes when the newest
+`rig/gate` status on the pull request's head commit is a success posted
+by a login it trusts and names the matrix job it ran, and the head
+contains the base branch as it is when the check runs (otherwise:
+`branch is behind main ...: merge main and re-run tools/gate`). A new
+push has no status, so its checks fail until `tools/gate` passes on it,
+and a failing check of a required name blocks the merge even when a
+workflow of the pull request's own reports the same name passing. The
+check is made when it runs: a branch that falls behind after it passed
+stays green until a push or a re-run.
+
+A fork's pull request is gated the same way, by hand, once it has been
+read in full: `tools/gate` runs the pull request's code on burst, beside
+the caches every run there shares, so never gate code you have not read.
+Fetch its head into a local branch and run `main`'s copy of `tools/gate`,
+not the fork's:
+
+```bash
+git fetch origin pull/N/head:pr-N && git switch pr-N
+bash <(git show origin/main:tools/gate) --pr N
+```
+
+The fork's head must already contain `main` (ask its author to merge
+it), and a fork that changes `tools/gate` or `cpuq/` is refused unless
+given `--allow-gate-changes`.
+
+`.github/workflows/test.yml` runs the whole suite cold on GitHub's
+runners, in four shards on Ubuntu and four on macOS
+(`.github/workflows/shards.yml`): nightly on `main`, by hand, and for a
+fork's pull request, as more information beside the gate. Its jobs are
+named `cold (...)`, never a required name, and on a pull request from this
+repository they are skipped. No workflow skips a job under a required
+name, since a skipped required check counts as passing. Each shard builds
+the compiler and the oracle once, in one `zig build`, so the suite's own
+builds find them in Zig's cache; caches are restored on every run and
+saved only by a run on `main` that no pull request started, under keys
+named by their contents.
+
 ## Rerunning only what changed
 
 A program's run passes or fails by its inputs: the package `rig run`
@@ -582,9 +650,21 @@ the run, the key is computed again and must be the same, and `test/run`,
 ones the run started with. A run with no filter removes the records no
 run has used for `RIG_BUILD_STORE_DAYS` days (default 2). The CLI tests run with
 `RIG_RESULTS_CACHE` empty, so they neither fill nor prune the shared
-cache. `test/cli/results_cache.sh` checks that a changed expectation,
-runtime, libc link, driver, harness, Zig, or setting is never carried
-over, and that a change during a run is never recorded.
+cache. `test/cli/results_cache.sh` checks that a changed expectation
+(`# expect:` or `# error:`), runtime, emitted module, standard library
+module or shim, libc link, driver, harness, Zig (another path, or another
+version at the same path), or setting is never carried over; that a
+program whose package did not change is; that every run checks and emits
+every program again, so a change to a diagnostic alone still fails the
+rejection that expects the old words; and that a change during a run is
+never recorded.
+
+A change to the compiler, the grammar or Nexus reaches the key only
+through what the compiler emits: `rig check` and `rig emit` run fresh on
+every program in every run, and only the build and run of a package
+already seen to pass are spared. A compiler change therefore either
+changes a program's package, and that program runs again, or changes no
+package, and no run could differ.
 
 Two inputs are left out of the key. A program whose output depends on
 the clock, randomness, or the machine it runs on is carried over on the

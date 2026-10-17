@@ -1,0 +1,253 @@
+#!/usr/bin/env bash
+# tools/gate: test a pull request's head on burst, and post the verdict to
+# GitHub as the commit status `rig/gate` on that commit.
+#
+#   tools/gate [--pr N] [--no-matrix] [--allow-gate-changes] [--no-wait]
+#
+# Run it from the worktree of a branch with an open pull request, after
+# merging the pull request's base and pushing. It refuses unless the
+# worktree is clean, holds no ignored file that cpuq would ship, its HEAD
+# is the pull request's pushed head, and that head contains the base; so
+# the bytes burst tests are exactly that commit. It then submits the suite,
+# the corpus and the matrix (cpuq/suite.json, corpus.json, matrix.json,
+# each a --delta run) together, and burst runs them at once. Once every
+# one passes it posts `success` on the commit, with its tree and the job
+# ids. A failing test posts `failure`, a job that could not finish
+# `error`, and the jobs still running are cancelled. Last, it re-runs the
+# pull request's gate workflow (.github/workflows/gate.yml), whose two
+# jobs are the required checks, and waits for them to turn green;
+# --no-wait stops once the re-run starts.
+#
+# --pr N gates pull request N, whose head HEAD must be: the way to gate a
+# fork's pull request, from a local branch of its head (test/README.md,
+# "The merge gate and CI").
+# --no-matrix leaves the matrix out, for a quicker look: its status says
+# it is no merge gate, and the gate workflow refuses it.
+# --allow-gate-changes tests a branch that changes this script or
+# cpuq/*.json, which decide what the gate runs; without it such a branch
+# is refused.
+#
+# GATE_REMOTE names the remote of the GitHub repository (default origin).
+# It posts with this machine's `gh` login: no credential goes to GitHub
+# or to burst. Each phase's wall-clock time is printed as it ends.
+# (bash 3.2, as macOS ships it.)
+set -uo pipefail
+
+MATRIX=1 ALLOW_GATE_CHANGES="" WAIT=1 PR=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --pr) [[ ${2:-} =~ ^[0-9]+$ ]] || { echo "tools/gate: --pr takes a pull request's number" >&2; exit 2; }
+            PR=$2; shift ;;
+        --no-matrix) MATRIX="" ;;
+        --allow-gate-changes) ALLOW_GATE_CHANGES=1 ;;
+        --no-wait) WAIT="" ;;
+        -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;;
+        *) echo "tools/gate: unknown option $1 (see --help)" >&2; exit 2 ;;
+    esac
+    shift
+done
+
+START=$(date +%s)
+LAST=$START
+# phase <what>: print the time since the last phase and since the start.
+phase() {
+    local now
+    now=$(date +%s)
+    printf 'gate: %-46s %5ss  (%ss in all)\n' "$1" $((now - LAST)) $((now - START))
+    LAST=$now
+}
+die() { echo "tools/gate: $*" >&2; exit 1; }
+
+cd "$(git rev-parse --show-toplevel)" || die "not in a git worktree"
+for tool in gh cpuq jq python3; do
+    command -v "$tool" >/dev/null || die "needs $tool"
+done
+
+# --- What is tested: exactly the pushed head of the pull request ----------
+
+BRANCH=$(git symbolic-ref --short -q HEAD) || BRANCH=""
+[[ -n $BRANCH || -n $PR ]] || die "HEAD is detached; check out the pull request's branch, or name it with --pr"
+[[ $BRANCH != main ]] || die "main is not gated; run it from a pull request's branch"
+[[ -z $(git status --porcelain --untracked-files=all) ]] ||
+    die "the worktree has changes or untracked files, which cpuq would ship and test; commit or remove them"
+
+# cpuq ships every file but the specs' excludes, ignored ones too. The
+# JSON test data is checked by sha256 when the suite fetches it.
+NAMES="suite corpus"
+[[ -n $MATRIX ]] && NAMES="$NAMES matrix"
+SPECS=""
+for name in $NAMES; do SPECS="$SPECS cpuq/$name.json"; done
+# shellcheck disable=SC2086 # the spec paths hold no spaces
+SHIPPED=$(git ls-files -z -o -i --exclude-standard | python3 -c '
+import json, sys
+excludes = {"test/json/data"}
+for spec in sys.argv[1:]:
+    excludes.update(e.rstrip("/") for e in json.load(open(spec)).get("exclude", []))
+for path in sys.stdin.read().split("\0"):
+    if path and not any(path == e or path.startswith(e + "/") for e in excludes):
+        print(path)
+' $SPECS) || die "cannot read the specs"
+[[ -z $SHIPPED ]] || die "ignored files cpuq would ship and test (remove them):
+$SHIPPED"
+
+# The GitHub repository behind the remote (GATE_REMOTE, default origin).
+REMOTE=${GATE_REMOTE:-origin}
+REPO=$(git remote get-url "$REMOTE" | sed -nE 's#^(git@github\.com:|ssh://git@github\.com/|https://github\.com/)([^/]+/[^/]+)$#\2#p')
+REPO=${REPO%.git}
+[[ -n $REPO ]] || die "the remote $REMOTE is not a GitHub repository"
+PR_JSON=$(gh pr view "${PR:-$BRANCH}" -R "$REPO" --json number,state,headRefOid,baseRefName,isCrossRepository,url) ||
+    die "no pull request for ${PR:-$BRANCH}; open one first (gh pr create --draft)"
+read -r PR STATE HEAD_OID BASE CROSS URL < <(jq -r '[.number, .state, .headRefOid, .baseRefName, .isCrossRepository, .url] | @tsv' <<<"$PR_JSON")
+[[ $STATE == OPEN ]] || die "pull request #$PR is $STATE"
+
+SHA=$(git rev-parse HEAD)
+if [[ $CROSS == true ]]; then
+    # A fork's head is fetched from the pull request itself.
+    git fetch -q "$REMOTE" "$BASE" "pull/$PR/head" || die "cannot fetch $REMOTE"
+    [[ $SHA == "$(git rev-parse FETCH_HEAD)" ]] || die "HEAD is not the head of #$PR (pull/$PR/head)"
+else
+    [[ -n $BRANCH ]] || die "check out #$PR's branch"
+    git fetch -q "$REMOTE" "$BRANCH" "$BASE" || die "cannot fetch $REMOTE"
+    [[ $SHA == "$(git rev-parse "$REMOTE/$BRANCH")" ]] || die "HEAD is not $REMOTE/$BRANCH; push first (or pull)"
+fi
+[[ $SHA == "$HEAD_OID" ]] || die "HEAD is not the head of #$PR ($HEAD_OID)"
+git merge-base --is-ancestor "$REMOTE/$BASE" HEAD || die "HEAD does not contain $REMOTE/$BASE; merge it and push"
+if [[ -z $ALLOW_GATE_CHANGES ]] && ! git diff --quiet "$REMOTE/$BASE" HEAD -- tools/gate cpuq; then
+    die "this branch changes tools/gate or cpuq/, which decide what the gate runs; review them, then pass --allow-gate-changes"
+fi
+TREE=$(git rev-parse "HEAD^{tree}")
+SHORT=${SHA:0:12}
+FROM=""
+[[ $CROSS == true ]] && FROM=", from a fork"
+echo "gate: #$PR ${BRANCH:-HEAD} at $SHORT (tree ${TREE:0:12}), base $BASE$FROM"
+
+# status <state> <description>: post rig/gate on SHA.
+status() {
+    gh api -X POST "repos/$REPO/statuses/$SHA" -f state="$1" -f context=rig/gate \
+        -f description="${2:0:140}" --jq '"gate: posted rig/gate " + .state + " as " + .creator.login' ||
+        die "posting rig/gate $1 failed"
+}
+phase "checked the worktree and #$PR"
+status pending "burst: testing tree ${TREE:0:12}"
+phase "posted pending"
+
+# --- The tests, on burst --------------------------------------------------
+
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/rig-gate.XXXXXX")
+trap 'rm -rf "$WORK"' EXIT
+for name in $NAMES; do
+    cpuq submit "cpuq/$name.json" --note "#$PR gate $SHORT" >"$WORK/$name.log" 2>&1 &
+    echo $! >"$WORK/$name.pid"
+done
+phase "submitted $NAMES"
+
+# job_id <name>: the id cpuq printed on its first line (`job ID`).
+job_id() { sed -n '1s/^job \([0-9a-f]*\).*/\1/p' "$WORK/$1.log" 2>/dev/null; }
+verdict() { tail -n 1 "$WORK/$1.log"; }
+
+# Wait for each job as it ends; at the first that does not pass, cancel
+# the rest. cpuq stops each job at its spec's time limit (150 minutes at
+# most); this loop gives up after 4 hours.
+FAILED="" REMAINING=$NAMES DEADLINE=$((START + 4 * 3600))
+while [[ -n $REMAINING ]]; do
+    (($(date +%s) < DEADLINE)) || die "the jobs did not end within 4 hours: $REMAINING"
+    still=""
+    for name in $REMAINING; do
+        if kill -0 "$(cat "$WORK/$name.pid")" 2>/dev/null; then still="$still $name"; continue; fi
+        wait "$(cat "$WORK/$name.pid")"
+        echo $? >"$WORK/$name.rc"
+        phase "$name: $(verdict "$name" | awk '{print $1}') (job $(job_id "$name"))"
+        if [[ $(cat "$WORK/$name.rc") -ne 0 && -z $FAILED ]]; then
+            FAILED=$name
+            for other in $NAMES; do
+                [[ -f $WORK/$other.rc ]] && continue
+                id=$(job_id "$other")
+                [[ -n $id ]] && cpuq job "$id" --cancel >/dev/null 2>&1 && echo "gate: cancelled $other (job $id)"
+            done
+        fi
+    done
+    REMAINING=${still# }
+    [[ -n $REMAINING ]] && sleep 2
+done
+
+IDS=""
+for name in $NAMES; do IDS="$IDS $name $(job_id "$name")"; done
+IDS=${IDS# }
+if [[ -n $FAILED ]]; then
+    echo "--- $FAILED"
+    tail -n 25 "$WORK/$FAILED.log"
+    # A failing test is a failure (FAIL, OOM, TIMEOUT); a job that could not
+    # finish (NOT RUN, LOST, CANCELLED, CPUQ ERROR, NOT STARTED, RUNNING) is
+    # an error.
+    case $(cat "$WORK/$FAILED.rc") in
+        1|122|124) state=failure ;;
+        *) state=error ;;
+    esac
+    status "$state" "burst: $FAILED $(verdict "$FAILED" | awk '{print $1}'); $IDS"
+    phase "posted $state"
+    exit 1
+fi
+
+# Every verdict is PASS, cpuq records each job as passed, and the worktree
+# is still the commit it was.
+for name in $NAMES; do
+    [[ $(verdict "$name") == PASS* ]] || die "$name exited 0 without a PASS verdict: $(verdict "$name")"
+    id=$(job_id "$name")
+    [[ -n $id ]] && cpuq job "$id" --json 2>/dev/null | jq -e '.verdict == "pass"' >/dev/null ||
+        die "cpuq does not record job $id ($name) as passed"
+done
+[[ $(git rev-parse HEAD) == "$SHA" && -z $(git status --porcelain --untracked-files=all) ]] ||
+    die "the worktree changed while the jobs ran; run tools/gate again"
+
+if [[ -z $MATRIX ]]; then
+    # Not a merge gate: the gate workflow refuses a status without the
+    # matrix, so there is nothing to re-run.
+    status success "no matrix (--no-matrix), not a merge gate; tree ${TREE:0:12}: $IDS"
+    phase "posted success, without the matrix"
+    echo "gate: no merge gate without the matrix; run tools/gate without --no-matrix to merge"
+    exit 0
+fi
+status success "tree ${TREE:0:12}: $IDS"
+phase "posted success"
+
+# --- The required checks --------------------------------------------------
+
+# The newest gate workflow run for this commit. It ran when the commit was
+# pushed, and found no status then; a re-run reads the status anew, with
+# the workflow as main held it then (pull_request_target always runs the
+# default branch's copy).
+RUN="" ATTEMPT="" RUN_STATUS=""
+for _ in $(seq 1 60); do
+    # Nothing when there is no run, or no gate.yml on the default branch.
+    runs=$(gh api "repos/$REPO/actions/workflows/gate.yml/runs?event=pull_request_target&head_sha=$SHA&per_page=1" \
+        --jq '.workflow_runs[0] // empty | [.id, .run_attempt, .status] | @tsv' 2>/dev/null) || runs=""
+    [[ -n $runs ]] || break
+    read -r RUN ATTEMPT RUN_STATUS <<<"$runs"
+    [[ $RUN_STATUS == completed ]] && break
+    sleep 2
+done
+if [[ -z $RUN ]]; then
+    echo "gate: no gate workflow run for $SHORT (none yet, or no gate.yml on the default branch); the next one, as #$PR is pushed or reopened, reads the status"
+    exit 0
+fi
+[[ $RUN_STATUS == completed ]] || die "gate run $RUN did not complete within 2 minutes; re-run it: gh run rerun $RUN -R $REPO"
+gh run rerun "$RUN" -R "$REPO" >/dev/null || die "cannot re-run gate run $RUN"
+phase "re-ran gate run $RUN"
+[[ -n $WAIT ]] || exit 0
+
+# Wait (up to 5 minutes) for the re-run to complete, then read the checks.
+for _ in $(seq 1 100); do
+    read -r now_attempt now_status conclusion < <(gh api "repos/$REPO/actions/runs/$RUN" \
+        --jq '[.run_attempt, .status, (.conclusion // "-")] | @tsv' 2>/dev/null)
+    [[ ${now_attempt:-} =~ ^[0-9]+$ ]] || now_attempt=0
+    [[ $now_attempt -gt $ATTEMPT && $now_status == completed ]] && break
+    sleep 3
+done
+[[ ${now_attempt:-0} -gt $ATTEMPT && $now_status == completed ]] || die "gate run $RUN did not finish within 5 minutes"
+checks=$(gh api "repos/$REPO/commits/$SHA/check-runs?filter=latest&per_page=100" \
+    --jq '[.check_runs[] | select(.app.id == 15368) | select(.name == "test (ubuntu-latest)" or .name == "test (macos-latest)") | .name + ": " + (.conclusion // .status)] | sort | join(", ")')
+[[ $conclusion == success && $checks == "test (macos-latest): success, test (ubuntu-latest): success" ]] ||
+    die "gate run $RUN ended $conclusion; checks: $checks"
+phase "required checks green"
+echo "gate: $checks"
+echo "gate: $URL"

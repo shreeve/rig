@@ -1,52 +1,53 @@
 name: test
 
-# Pull requests and pushes to main: a commit on a pull request's branch
-# runs once, as the pull request.
+# The whole suite on GitHub's runners, from a cold start: nightly and by
+# hand, and for a pull request from a fork, where it adds information to
+# the merge gate but is not it. Every pull request is tested on burst
+# (tools/gate), and its merge checks come from gate.yml.
+#
+# No job here takes a name the ruleset on main requires (test
+# (ubuntu-latest), test (macos-latest)); they are named cold (...). On a
+# pull request from this repository they are skipped, under those names.
 on:
-  push:
-    branches: [main]
   pull_request:
+  schedule:
+    - cron: '17 9 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# A newer commit on a pull request cancels the run it supersedes; runs on
-# main each finish.
+# A newer commit on a pull request cancels the run it supersedes.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ubuntu:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     uses: ./.github/workflows/shards.yml
     with:
       os: ubuntu-latest
 
-  # macOS runs on main only (and by hand): the account's few macOS runners
-  # are shared with other repositories, and every pull request's fast gate
-  # already runs on an Apple Silicon Mac before it merges.
   macos:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     uses: ./.github/workflows/shards.yml
     with:
       os: macos-latest
 
-  # The checks the ruleset on main requires: each passes only when every
-  # shard of its system passed. On a pull request the macOS shards are
-  # skipped, and its check passes on that skip alone.
+  # Each passes only when every shard of its system passed.
   test-ubuntu:
-    name: test (ubuntu-latest)
+    name: cold (ubuntu-latest)
     needs: ubuntu
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
     runs-on: ubuntu-latest
     steps:
       - run: test "${{ needs.ubuntu.result }}" = success
 
   test-macos:
-    name: test (macos-latest)
+    name: cold (macos-latest)
     needs: macos
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
     runs-on: ubuntu-latest
     steps:
-      - run: test "${{ needs.macos.result }}" = success || { test "${{ github.event_name }}" = pull_request && test "${{ needs.macos.result }}" = skipped; }
+      - run: test "${{ needs.macos.result }}" = success

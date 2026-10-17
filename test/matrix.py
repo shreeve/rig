@@ -3941,10 +3941,20 @@ def find_cap():
 
 
 CPUQ = find_cap()
+
+
+def cap_protocol():
+    """What `cpuq cap` does, as cpuq numbers it (`cpuq cap --protocol`, cpuq 0.26.1 and later):
+    it changes only when cap's behavior does, so a cpuq release that leaves cap alone keeps the
+    results cache warm. An older cpuq has no number; its version stands in."""
+    r = subprocess.run([CPUQ, "cap", "--protocol"], capture_output=True, text=True)
+    if r.returncode == 0 and r.stdout.strip().isdigit():
+        return "protocol " + r.stdout.strip()
+    return subprocess.run([CPUQ, "--version"], capture_output=True, text=True).stdout.strip()
+
+
 # How programs are stopped, in the results cache's key.
-CAP_MODE = "watchdog" if not CPUQ else "cap %s %s" % (
-    subprocess.run([CPUQ, "--version"], capture_output=True, text=True).stdout.strip(),
-    "cgroup" if os.environ.get("CPUQ_CGROUP") else "tree")
+CAP_MODE = "watchdog" if not CPUQ else "cap %s %s" % (cap_protocol(), "cgroup" if os.environ.get("CPUQ_CGROUP") else "tree")
 
 
 def run_capped(cmd, env, cap=True):
