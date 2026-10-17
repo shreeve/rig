@@ -148,14 +148,22 @@ leak.
 
 A program that panics on purpose (an `# expect-panic:` test, and the
 CLI tests' panicking programs and `rig test` runs) runs with
-`RIG_NO_CRASH_REPORT=1`. That only stops a crash report for its abort:
-macOS files none (`~/Library/Logs/DiagnosticReports`), and on Linux the
+`RIG_NO_CRASH_REPORT=1`. That only stops a crash report for its abort. On
+macOS, `rig run` and `rig test` answer their program's crash themselves,
+always, with or without it, and
+the CLI tests run a built program through `quiet` (test/cli/_lib.sh), which
+uses `cpuq cap --no-crash-report` where cpuq (cap protocol 3 or later) is on
+PATH: neither the user's ReportCrash (~/Library/Logs/DiagnosticReports) nor
+the system's (/Library/Logs/DiagnosticReports) files one. On Linux the
 program's core limit of exactly 1 keeps the kernel from passing it to the
-`core_pattern` handler (Ubuntu's apport, which made each panic wait
-seconds). It still exits 134 with the same output. `./test/run` sets it
-for those tests alone and clears it for every other program, whose crash
-is still reported; `test/cli/no_crash_report.sh` checks the status and
-output are the same with and without it, and on Linux the core limit.
+`core_pattern` handler (apport). It still exits 134 with the same output.
+`./test/run` sets it for those tests alone and clears it for every other
+program, whose crash is still reported on Linux, and on macOS when it is a
+built program run directly; `test/cli/no_crash_report.sh` checks the status
+and output are the same with and without it, on Linux the core limit, and on
+macOS that both report folders stay empty for a panic run quiet and for one
+under `rig run` without it, while a built program's panic not run quiet still
+files a report.
 
 The suite also builds every program it runs (behavior tests, examples,
 known bugs, doc examples with output, the corpus) with `RIG_SANITIZE=1`,

@@ -23,7 +23,7 @@ check() {
         flag=""; [[ $mode == debug ]] || flag=--$mode
         exe=$name-${mode//=/-}
         rig build $flag -o "$exe" "$name.rig" >build.log 2>&1 || fail "build $name $mode: $(cat build.log)"
-        RIG_NO_CRASH_REPORT=1 "./$exe" >out.txt 2>err.txt; rc=$?
+        quiet "./$exe" >out.txt 2>err.txt; rc=$?
         expect_rc $rc 134 "$name in $mode ($(head -c 300 err.txt))"
         expect_eq "$(cat out.txt)" "$want" "stdout of $name in $mode"
         expect_has "$(cat err.txt)" "$msg" "the message of $name in $mode"

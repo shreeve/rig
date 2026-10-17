@@ -7,6 +7,7 @@
 //! the Zig toolchain.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const build_options = @import("build_options");
 const parser = @import("parser.zig");
 const ir = parser.ir;
@@ -575,7 +576,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     const dashes: []const []const u8 = if (program_args.len > 0) &.{"--"} else &.{};
     const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, emit_bin, libc, dashes, program_args });
     if (opts.command == .build) {
-        const code = try runZig(io, argv, null);
+        const code = try runZig(io, argv);
         if (home) |h| recordSize(allocator, io, h, dir);
         if (code == 0) return;
         std.debug.print("note: emitted Zig is in {s}\n", .{dir});
@@ -683,19 +684,26 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
     return driver.written();
 }
 
-/// Run the Zig toolchain with inherited stdio (and `environ`, when given,
-/// as its environment); return its exit code (128 + the signal number if
-/// a signal ended it), which for `zig run` is the program's once it has
-/// started it.
-fn runZig(io: std.Io, argv: []const []const u8, environ: ?*const std.process.Environ.Map) !u8 {
-    return (try runZigReport(io, argv, environ)).code;
+/// Run the Zig toolchain with inherited stdio; return its exit code (128 +
+/// the signal number if a signal ended it).
+fn runZig(io: std.Io, argv: []const []const u8) !u8 {
+    return (try runZigReport(io, argv, null)).code;
 }
 
 const Ended = struct { code: u8, signal: ?u8 = null };
 
-/// `runZig`, and the signal that ended the process, if one did (for
-/// `zig run`, the program: Zig replaces itself with it).
+/// Run the Zig toolchain with inherited stdio (and `environ`, when given,
+/// as its environment); return its exit code and the signal that ended
+/// it, if one did. For `zig run` (`environ` given) these are the
+/// program's once it has started: Zig replaces itself with it.
 fn runZigReport(io: std.Io, argv: []const []const u8, environ: ?*const std.process.Environ.Map) !Ended {
+    // `zig run` for `rig run` and `rig test`: on macOS this process answers the child's crashes as
+    // handled, so neither the user's nor the system's ReportCrash files one; a panic's message and
+    // trace are on stderr already. Clearing the program's own handler would stop only the user's.
+    // The child is compile and program in one process: a compiler crash in such a run files no
+    // report either, though it still fails the run.
+    var catcher: ?CrashCatcher = null;
+    if (builtin.os.tag.isDarwin() and environ != null) catcher = CrashCatcher.start();
     var child = std.process.spawn(io, .{
         .argv = argv,
         .environ_map = environ,
@@ -706,12 +714,77 @@ fn runZigReport(io: std.Io, argv: []const []const u8, environ: ?*const std.proce
         error.FileNotFound => fatal("error: cannot run `{s}`: install Zig 0.17 and put it on PATH, or set ZIG", .{argv[0]}),
         else => return err,
     };
+    // This process's own handlers back: its own crashes are reported as ever.
+    if (catcher) |*k| k.restore();
     return switch (try child.wait(io)) {
         .exited => |code| .{ .code = code },
         .signal => |sig| .{ .code = 128 +| @as(u8, @truncate(@backingInt(sig))), .signal = @truncate(@backingInt(sig)) },
         else => .{ .code = 1 },
     };
 }
+
+extern "c" var mach_task_self_: c_uint;
+extern "c" fn mach_port_allocate(task: c_uint, right: c_uint, name: *c_uint) c_int;
+extern "c" fn mach_port_insert_right(task: c_uint, name: c_uint, poly: c_uint, poly_type: c_uint) c_int;
+extern "c" fn task_get_exception_ports(task: c_uint, mask: c_uint, masks: [*]c_uint, count: *c_uint, ports: [*]c_uint, behaviors: [*]c_int, flavors: [*]c_int) c_int;
+extern "c" fn task_set_exception_ports(task: c_uint, mask: c_uint, port: c_uint, behavior: c_int, flavor: c_int) c_int;
+extern "c" fn mach_msg(msg: *anyopaque, option: c_int, send_size: c_uint, rcv_size: c_uint, rcv_name: c_uint, timeout: c_uint, notify: c_uint) c_int;
+extern "c" var NDR_record: [8]u8;
+
+/// macOS: answers the crashes of the processes this one starts as handled, so no crash report is
+/// filed for them, by the user's ReportCrash or the system's. Their crash exceptions (EXC_CRASH,
+/// EXC_CORPSE_NOTIFY) come to a port of this process's, which they inherit across spawn and exec,
+/// and a thread replies to each. `restore` puts this process's own handlers back once the child
+/// is started. As cpuq's `cpuq cap --no-crash-report` does (its src/sys.zig).
+const CrashCatcher = struct {
+    const mask: c_uint = (1 << 10) | (1 << 13);
+    const max = 32;
+    port: c_uint = 0,
+    count: c_uint = max,
+    masks: [max]c_uint = undefined,
+    ports: [max]c_uint = undefined,
+    behaviors: [max]c_int = undefined,
+    flavors: [max]c_int = undefined,
+
+    fn start() ?CrashCatcher {
+        if (!builtin.os.tag.isDarwin()) return null;
+        var k: CrashCatcher = .{};
+        if (mach_port_allocate(mach_task_self_, 1, &k.port) != 0) return null; // MACH_PORT_RIGHT_RECEIVE
+        if (mach_port_insert_right(mach_task_self_, k.port, k.port, 20) != 0) return null; // MACH_MSG_TYPE_MAKE_SEND
+        if (task_get_exception_ports(mach_task_self_, mask, &k.masks, &k.count, &k.ports, &k.behaviors, &k.flavors) != 0) return null;
+        const thread_state_none: c_int = if (builtin.cpu.arch == .x86_64) 13 else 5;
+        if (task_set_exception_ports(mach_task_self_, mask, k.port, 1, thread_state_none) != 0) return null; // EXCEPTION_DEFAULT
+        const t = std.Thread.spawn(.{ .stack_size = 64 * 1024 }, serve, .{k.port}) catch {
+            k.restore();
+            return null;
+        };
+        t.detach();
+        return k;
+    }
+
+    fn restore(k: *const CrashCatcher) void {
+        if (!builtin.os.tag.isDarwin()) return;
+        for (0..k.count) |i| _ = task_set_exception_ports(mach_task_self_, k.masks[i], k.ports[i], k.behaviors[i], k.flavors[i]);
+    }
+
+    fn serve(port: c_uint) void {
+        // mach_msg_header_t: bits, size, remote port, local port, voucher port, id.
+        const Header = extern struct { bits: u32, size: u32, remote: u32, local: u32, voucher: u32, id: i32 };
+        const Reply = extern struct { h: Header, ndr: [8]u8, ret: i32 };
+        var req: [4096]u8 align(8) = undefined;
+        while (true) {
+            const h: *Header = @ptrCast(&req);
+            if (mach_msg(&req, 2, 0, req.len, port, 0, 0) != 0) continue; // MACH_RCV_MSG
+            // exception_raise's reply: handled (KERN_SUCCESS), so no one else is told.
+            var rep: Reply = .{
+                .h = .{ .bits = h.bits & 0x1f, .size = @sizeOf(Reply), .remote = h.remote, .local = 0, .voucher = 0, .id = h.id + 100 },
+                .ndr = NDR_record,
+                .ret = 0,
+            };
+            _ = mach_msg(&rep, 1, @sizeOf(Reply), 0, 0, 0, 0); // MACH_SEND_MSG
+        }
+    }
+};
 
 fn declaresMain(m: *const modules.Module) bool {
     if (m.ir == .nil) return false;
