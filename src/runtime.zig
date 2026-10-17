@@ -3494,10 +3494,10 @@ fn switchStack(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     f(arg, run, top);
 }
 
-// The overflow handler. Like the sanitizer's, it restores the handlers
-// it replaced and returns: the access runs again and faults into Zig's
-// handler, which prints the stack trace. Where Zig installs none, it
-// aborts.
+// The overflow handler. It restores the handlers it replaced; in a debug
+// build it then returns, like the sanitizer's, so the access runs again
+// and faults into Zig's handler, which prints the stack trace. An
+// optimized build aborts.
 
 var overflow_previous: [2]std.posix.Sigaction = undefined;
 
@@ -3517,9 +3517,12 @@ fn onOverflow(_: std.posix.SIG, info: *const std.posix.siginfo_t, _: ?*anyopaque
     flushQuietly();
     const msg = "error: rig: stack overflow\n";
     _ = std.posix.system.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
-    // Where Zig installs no handler (`--release=fast`), the fault again
-    // would end the program by the signal; it aborts as a panic does.
-    if (!std.options.enable_segfault_handler) std.process.abort();
+    // Only a debug build returns, into Zig's handler and its trace. An
+    // optimized build aborts as a runtime panic does, with the message
+    // alone: Zig's handler there walks the trace by a frame-pointer
+    // unwinder, which can fault again at the top of the program's stack
+    // and end it by SIGSEGV; and in `--release=fast` there is no handler.
+    if (builtin.mode != .debug or !std.options.enable_segfault_handler) std.process.abort();
 }
 
 /// The address whose access raised the fault `info` describes.
