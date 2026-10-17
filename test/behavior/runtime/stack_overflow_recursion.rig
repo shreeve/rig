@@ -1,6 +1,7 @@
 # Recursion that runs out of stack stops the program with a
-# stack-overflow error, in every build mode. Each level lends its array to
-# the next, so no build can fold the levels into a loop.
+# stack-overflow error. Each level lends its array to the next, so debug
+# and release builds keep a frame per level. `--release=fast` folds the
+# levels into a loop that never ends, so the test does not build it.
 
 fun dive(depth: Int, prev: ?[1000]Int) -> Int
   a = [1000 of depth]

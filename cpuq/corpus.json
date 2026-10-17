@@ -3,7 +3,6 @@
   "setup": "zig build -j\"$CPUQ_CORES\" -Dself-check=true",
   "run": "./test/run -j \"$CPUQ_CORES\" --delta corpus \"$@\"",
   "cores": "8-32",
-  "on": ["burst"],
   "time": "60m",
   "mem": "96G",
   "packs": { "zig": "0.17.0", "nexus": "latest" },

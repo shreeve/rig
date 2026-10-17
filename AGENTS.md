@@ -80,8 +80,9 @@ chosen at random, on this Mac:
 `tools/check 1` is about 40 tests, `tools/check 5` about 200, and
 `tools/check 20` about 800. Use it as often as you like. It runs on
 the Mac by default, not on a remote host: it is how we learn whether a
-change is worth sending to burst at all. `tools/check N --remote` runs
-the same check on burst, through `cpuq submit`, when Steve asks. A bug
+change is worth sending to a remote host at all. `tools/check N --on
+HOST` runs the same check on HOST (burst or pup), through `cpuq submit`,
+when Steve asks. A bug
 fix starts with a test that fails; `./test/run --delta <ids>` reruns
 just the tests you name.
 
@@ -144,21 +145,21 @@ RIG_LEAK_TRACE=1 bin/rig run f.rig # leaks with allocation stack traces
 tools/check 1                      # smoke test on the Mac: branch tests + 1% of the suite
 tools/check 5                      #   ... + 5%
 tools/check 20                     #   ... + 20%
-tools/check 1 --remote             #   the same, on burst (when Steve asks)
+tools/check 1 --on burst           #   the same, on burst (when Steve asks)
 tools/gate                         # a PR on burst (when Steve asks)
 tools/deep                         # all of main on burst (when Steve asks)
 ```
 
 - **Nexus** is co-developed. `zig build` regenerates `src/parser.zig`
   with `../nexus/bin/nexus`, or another binary with `-Dnexus=PATH`.
-- **Shared machines:** cpuq places work by when it will finish, on the
-  Mac, pup, or burst. Run work through `cpuq run --label rig:NAME -- …`
-  with `-j "$CPUQ_CORES"`, and keep the label stable. Add `--local` only
-  for macOS behaviour, timing, or `tools/check`. A suite or matrix goes
-  through `cpuq submit cpuq/suite.json --note "#PR branch"` (or
-  `matrix.json`). Never ssh to pup or burst; use `--spill-to HOST`.
-  Limit test programs with `cpuq cap`, not a watchdog. Under load,
-  rerun a timeout alone before trusting it.
+- **Shared machines:** run work through `cpuq run --label rig:NAME -- …`
+  with `-j "$CPUQ_CORES"`, and keep the label stable. A plain `cpuq run`
+  stays on this Mac; `--on HOST` sends it to pup or burst. A suite or
+  matrix goes through `cpuq submit cpuq/suite.json --note "#PR branch"`
+  (or `matrix.json`), which cpuq places where it finishes first; `--on
+  burst` forces burst. Never ssh to pup or burst. Limit test programs
+  with `cpuq cap`, not a watchdog. Under load, rerun a timeout alone
+  before trusting it.
 
 ## Map
 

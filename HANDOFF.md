@@ -389,14 +389,14 @@ The tiers, cheapest first (test/README.md, "The tiers"):
   the Unicode tables' freshness test with the database present
   (`RIG_UCD=dir ./test/run unicode_tables`; the generator fetches any
   pinned file `dir` lacks), are still run by hand.
-- **The JSON benchmark guard:** on the Mac, `cpuq run --local --cores
+- **The JSON benchmark guard:** on the Mac, `cpuq run --cores
   2-6 --label rig:json -- bench/json/guard.py` builds `rig-safe` for the
   six corpus files and counts instructions retired per byte, which do
   not move with the load. A file more than 2% above its baseline in
   `bench/json/guard.txt` is a regression, and the guard fails. A change
   meant to move the counts commits a new baseline
   (`bench/json/guard.py --update`).
-- **The check-speed guard:** on the Mac, `cpuq run --local --cores 2-6
+- **The check-speed guard:** on the Mac, `cpuq run --cores 2-6
   --label rig:check -- bench/check/guard.py` builds the compiler in
   ReleaseSafe and runs `rig check` on a generated program about the size
   of Trig's parser (`bench/check/gen.py`). It fails when the
@@ -410,7 +410,7 @@ The tiers, cheapest first (test/README.md, "The tiers"):
 
 The machines are shared: everything heavy goes through the job queue,
 cpuq, which shares the CPUs fairly. On the Mac that is `tools/check` and
-targeted runs (`cpuq run --local --cores 2-6 -- …`, with `-j
+targeted runs (`cpuq run --cores 2-6 -- …`, with `-j
 "$CPUQ_CORES"`); the full suite, the corpus, and the matrix go to burst:
 
 ```bash

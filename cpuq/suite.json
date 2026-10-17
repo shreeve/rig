@@ -3,7 +3,6 @@
   "setup": "mkdir -p \"$RIG_JSON_DATA/simd-json\" \"$RIG_JSON_DATA/simdjson\" && for d in simd-json simdjson; do ln -sfn \"$RIG_JSON_DATA/$d\" \"test/json/data/$d\"; done && flock \"$RIG_JSON_DATA/.lock\" tools/fetch-json-data.sh && zig build -j\"$CPUQ_CORES\" -Dself-check=true",
   "run": "./test/run -j \"$CPUQ_CORES\" --delta \"$@\"",
   "cores": "8-32",
-  "on": ["burst"],
   "time": "60m",
   "mem": "96G",
   "packs": { "zig": "0.17.0", "nexus": "latest" },
