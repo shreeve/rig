@@ -1631,6 +1631,8 @@ fn nameOf(comptime x: anytype, comptime names: anytype) []const u8 {
             @compileError("rig.typeName: no Rig name for " ++ @typeName(T)),
         .@"struct", .@"union", .@"enum" => if (comptime isWideMask(T))
             "Simd[" ++ nameOf(bool, names) ++ std.fmt.comptimePrint(", {d}]", .{T.__rig_mask})
+        else if (@hasDecl(T, "__rig_symbol"))
+            "Symbol"
         else if (@hasDecl(T, "__rig_name"))
             qualifier(T.__rig_name.module, names) ++ spell(T.__rig_name.name, .{}, names)
         else if (@hasDecl(T, "__rig_weak"))
@@ -1824,10 +1826,12 @@ pub fn enumFromInt(comptime E: type, n: anytype) Opt(E) {
 /// `e.text`: the Rig name of plain enum value `e`'s variant (`rigName`),
 /// or of the value a write view of it points at.
 pub fn enumText(e: anytype) []const u8 {
-    return rigName(switch (@typeInfo(@TypeOf(e))) {
-        .pointer => @tagName(e.*),
-        else => @tagName(e),
-    });
+    const v = switch (@typeInfo(@TypeOf(e))) {
+        .pointer => e.*,
+        else => e,
+    };
+    if (comptime @hasDecl(@TypeOf(v), "__rig_symbol")) return @TypeOf(v).text(v);
+    return rigName(@tagName(v));
 }
 
 /// `E.from_text(word)`: the variant of plain enum `E` named `word`, or
@@ -4093,7 +4097,10 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
             if (@typeInfo(p.child) == .@"fn") return w.writeAll("<fun>");
             if (p.size != .slice) return writeValue(w, value.*, top);
         },
-        .@"enum" => return w.print(".{s}", .{rigName(@tagName(value))}),
+        .@"enum" => return if (comptime @hasDecl(T, "__rig_symbol"))
+            w.print(":{s}", .{T.text(value)})
+        else
+            w.print(".{s}", .{rigName(@tagName(value))}),
         .error_set => return w.writeAll(errorShown(value)),
         else => {},
     }

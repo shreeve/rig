@@ -953,6 +953,43 @@ unknown level trace
 debug 0
 ```
 
+## Symbol names
+
+A symbol, `:width`, is a value of the builtin type `Symbol`
+([SPEC, Symbols](../SPEC.md#symbols)), and needs no `use`. `s.text` is
+its name, a `Static`, and `Symbol.from_text(word)` is the program's
+symbol spelled `word`, or `none`; neither allocates. The symbols are
+exactly the names the program writes, so `from_text` finds a name
+written anywhere in the program, std included: a word read from input
+is checked by a `match` whose `_ =>` arm rejects it. A symbol is a key
+of a `hash.Map` or a `hash.Set` ([std.hash](#stdhash)). A name known
+only when the program runs is no symbol; `hash.Symbols` gives it a
+dense id.
+
+```rig
+use std.hash
+use std.text
+
+sub main()
+  counts = hash.Map[Symbol, Int]()
+  for w in text.words("get put get drop")
+    s = Symbol.from_text(w) ?? :other
+    k = :other
+    match s
+      :get, :put => k = s
+      _ => pass
+    n = (!counts).ensure(k, 0)
+    n += 1
+  for e in ?counts.items()
+    print(e.key, e.key.text, e.value)
+```
+
+```output
+:get get 2
+:put put 1
+:other other 1
+```
+
 ## std.text
 
 Searching, slicing, splitting, and parsing text, which every function

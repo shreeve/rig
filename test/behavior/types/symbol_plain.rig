@@ -1,0 +1,60 @@
+# A symbol is plain data, as an `Int` is: a bare use copies it, a view
+# reads or writes it in place, and it is boxed, shared, held optional,
+# and kept in a List, a Map (keyed on its id), and a Set like any
+# plain value. Its name, `.text`, is a `Static`, which keeps no loan.
+
+use std.hash
+
+sub bump(s: !Symbol)
+  s = :bumped
+
+fun look(s: ?Symbol) -> Static
+  s.text
+
+fun name_of(s: Symbol) -> Static
+  t = s
+  t.text
+
+sub main()
+  a = :one
+  b = a
+  c = +a
+  !bump(!b)
+  print(a, b, c, look(?a), look(?:lit), name_of(:x))
+  bx = ^:boxed
+  sh = *:shared
+  print(bx, sh)
+  d = <a
+  print(d)
+  xs = List[Symbol]()
+  !xs.push(:x)
+  !xs.push(:y)
+  for s in xs
+    print(s, s.text)
+  o: Symbol? = none
+  print(o ?? :other)
+  o = :some
+  print(o, o ?? :other)
+  m = hash.Map[Symbol, Int]()
+  !m.put(:width, 3)
+  !m.put(:height, 4)
+  !m.put(:width, 5)
+  print(m.get(:width) ?? 0, m.get(:height) ?? 0, m.get(:depth) ?? 0, m.len)
+  set = hash.Set[Symbol]()
+  !set.add(:a)
+  !set.add(:a)
+  print(set.len, set.has(:a), set.has(:b))
+  w = :width
+  print(w.hash() == (:width).hash(), w.hash() == (:height).hash())
+
+# expect:
+# :one :bumped :one one lit x
+# :boxed :shared
+# :one
+# :x x
+# :y y
+# :other
+# :some :some
+# 5 4 0 2
+# 1 true false
+# true false

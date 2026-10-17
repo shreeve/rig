@@ -40,6 +40,7 @@
 #       |+a, b|  ||  *|a|            closure bar list (vs bitwise `|`)
 #       ?? return                    `??` before a jump (vs the operator)
 #       while c : i += 1             a `while` step (vs a keyword argument's `:`)
+#       x = :width                   a symbol's `:`, where an operand starts
 #       a if c else b                ternary vs postfix guard `stmt if c`
 #       if f() as a, b               the names `as` binds (vs a list's `,`)
 #
@@ -193,6 +194,7 @@ tokens
     dotdot_open     # ..  directly before `]`: an open range `xs[a..]`, `xs[..]`
     nullish_jump    # ??  directly before `return`, `break`, or `continue`
     step_colon      # :   the first `:` of a `while` header: its step
+    symbol_colon    # :   where an operand starts, touching a name: a symbol, `:width`
     as_comma        # ,   between the names `as` binds: `if f() as a, b`
     label_at        # @   before a name no `(` touches: a label, `@outer for`, `break @outer`
 
@@ -416,6 +418,7 @@ tokens
     range_pattern               lo hi
     variant_pattern             name:leaf ...bindings
     enum_lit                    name:leaf
+    symbol                      name:leaf
     return                      value?
     break                       value? label:leaf?
     continue                    label:leaf?
@@ -473,7 +476,7 @@ tokens
     POST_IF: "`if`", TERNARY_IF: "`if`", BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`"
     KWARG_NAME: "a keyword argument"
     OF: "`of`", OBJ: "`obj`", INLINE: "`inline`", CALLED: "`called`", RARELY: "`rarely`", UNIQUE: "`unique`", FROM: "`from`", STATIC: "`static`", KEEPS: "`keeps`"
-    DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", STEP_COLON: "`:`", AS_COMMA: "`,`", LABEL_AT: "`@`"
+    DOTDOT_OPEN: "`..`", NULLISH_JUMP: "`??`", STEP_COLON: "`:`", SYMBOL_COLON: "`:`", AS_COMMA: "`,`", LABEL_AT: "`@`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
@@ -535,6 +538,7 @@ tokens
     storage.modifier    [!?] before [A-Za-z0-9_)\]] not after [A-Za-z0-9_(\[=?]
     variable.parameter  [A-Za-z_] [A-Za-z0-9_]* after ':' not before [A-Za-z0-9_.]
     type                [A-Z] [A-Za-z0-9_]* not before [A-Za-z0-9_]
+    constant.symbol     ':' [A-Za-z_] [A-Za-z0-9_]* (('-' | '.') [A-Za-z0-9_]+)* not before [A-Za-z0-9_)\]]
 
     keyword.control     "if" "else" "while" "for" "in" "match" "return" "break" "continue"
                         "pass" "panic" "defer" "errdefer" "catch" "try" "await" "yield"
@@ -1023,6 +1027,7 @@ patatom  = name
          | TRUE
          | FALSE
          | "." name:name                            → (enum_lit)
+         | SYMBOL_COLON name:name                   → (symbol)
          | "." name:name "(" ")"                    → (variant_pattern)
          | "." name:name "(" bindings:pbinds ![","] ")" → (variant_pattern)
 
@@ -1135,6 +1140,7 @@ atom     = name
          | TRUE
          | FALSE
          | "." name:name                            → (enum_lit)
+         | SYMBOL_COLON name:name                   → (symbol)
          | "@" name:name "(" args:args ")"          → (builtin)
          | PANIC "(" args:args ")"                  → (panic)  # a statement or a branch's value (typecheck)
          | "[" [elems:exprs] "]"                    → (array)

@@ -729,6 +729,9 @@
         ^^^^^^ type
                ^ operator
                  ^ punctuation
+>   tag = :content-type
+        ^ operator
+          ^^^^^^^^^^^^^ constant.symbol
 >   ok = true and not false or none == none
        ^ operator
          ^^^^ constant
@@ -768,12 +771,15 @@
     ^^^ keyword
 >     pass
       ^^^^ keyword.control
->   print(ok, b, y, z)
+>   print(ok, b, y, z, tag == :if)
          ^ punctuation
             ^ punctuation
                ^ punctuation
                   ^ punctuation
                      ^ punctuation
+                           ^^ operator
+                              ^^^ constant.symbol
+                                 ^ punctuation
 > 
 > test "area"
   ^^^^ keyword
