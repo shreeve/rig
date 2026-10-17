@@ -60,9 +60,11 @@ These are about the compiler, not the process. They don't bend.
 - **One PR per piece of work, opened early.** Push your first commit
   early and open the PR as a draft, so the checklist has a home. Its
   body is a checklist of the steps; tick each one as it lands. `gh pr
-  list` is the board of work in progress.
+  list` is the board of work in progress. When the work is done, mark
+  it ready with `gh pr ready`; `tools/gate` refuses a draft.
 - **One worktree per branch:** `wt new BRANCH` makes it under
   `~/Data/Code/worktrees/rig/`; `wt done` removes it after the merge.
+  Never work in the main checkout; it's Steve's.
 - **Say what you're doing.** One line when you start a step, one when it
   finishes or fails: what's done, what's next, what you're waiting on.
 - **Stuck? Say so.** After two failed attempts at the same thing, stop
@@ -84,24 +86,29 @@ you name.
 by rule on every PR:
 
 - `tools/gate` tests a PR's pushed head: the suite and the corpus, plus
-  the matrix when the PR touches the classifiers, the proofs, or emit.
-  It skips a PR that touches no code or harness.
+  the matrix when the PR touches a file in `tools/gate`'s
+  `MATRIX_PATHS`: `facts`, `storage`, `proofs`, `emit`, `ownership`,
+  `sema`, and `runtime` in `src/`, and the matrix's own files. It
+  skips a PR that touches no code or harness.
 - `tools/deep` tests everything merged on `main`: the suite, the corpus,
   and the full matrix. When it fails, `tools/deep --bisect` finds the
-  commit, and the fix goes in on a new branch.
+  merge that broke it, and the fix goes in on a new branch.
 
-A full suite never runs on the Mac; `cpuq submit cpuq/suite.json` runs
-it on burst (test/README.md, "The tiers").
+A full suite never runs on the Mac; when Steve asks, `cpuq submit
+cpuq/suite.json` runs it on burst (test/README.md, "The tiers").
+
+Never time on burst, a shared VM: time arm64 on the Mac and x86 on pup,
+through `cpuq lease pup-bench`.
 
 **Nothing else runs unless Steve asks:** no full local suite, corpus,
 matrix, `./test/run json`, benchmark or check-speed guards, review
 agents, or expert panels. Two cases get an offer, not a run:
 
-- A change to `src/ownership.zig`, `src/emit.zig`, or a classifier:
-  offer Steve one review agent. Reviews have caught memory bugs every
-  test passed.
-- Two open PRs that touch the same classifier: say so in both, and
-  before the second merges, offer a gate with the first merged into it.
+- A change to a `src/` file in `MATRIX_PATHS`: offer Steve one review
+  agent. Reviews have caught memory bugs every test passed.
+- Two open PRs that touch the same `MATRIX_PATHS` file: say so in
+  both, and before the second merges, offer a gate with the first
+  merged into it.
 
 ### Spend tokens well
 
@@ -118,8 +125,8 @@ agents, or expert panels. Two cases get an offer, not a run:
 - Commit messages are short and imperative. No AI attribution lines.
 - Before a PR that rejects old syntax merges, send Trig a one-line note
   and a migration script.
-- Only Steve merges. After a merge, delete the branch locally and on
-  GitHub, and `wt done` its worktree.
+- Only Steve merges. After a merge, `wt done` removes the worktree and
+  the local branch; delete the GitHub branch if the merge didn't.
 
 ## Workflow
 
@@ -158,6 +165,8 @@ tools/deep                         # all of main on burst (when Steve asks)
 | `src/main.zig`, `lsp.zig` | CLI and language server |
 | `std/` | The standard library |
 | `test/` | The suite; `test/README.md` explains it |
+| `tools/` | `check`, `gate`, and `deep`: the test tiers |
+| `cpuq/` | The job specs `cpuq submit` runs on burst |
 | `examples/` | Example programs, all run by the suite |
 | `docs/CORE.md` | The ownership model on one page |
 | `docs/INTERNALS.md` | Compiler architecture and the IR |
