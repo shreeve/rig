@@ -97,7 +97,7 @@ proof, and how a Rig programmer copes without it.
 | Raw pointers, `transmute`, inline asm, untagged unions in Rig | An aliasing model for user code | Zig-backed declarations in trusted packages |
 | Guards whose drop keeps the program safe | #41622 and leaked join guards (#24292) | A task group that takes a closure |
 | Threads as a concept, detached `spawn`, thread-locals | `'static` bounds, orphan threads | Tasks spawned in a group that always ends; pass a context |
-| Async functions, futures, and function coloring | Futures that point into themselves | A task runs as a fiber whose frame never moves; code stays straight-line |
+| Async functions, futures, and function coloring | Futures that point into themselves | A task runs on its own stack, which never moves; code stays straight-line |
 | `Mutex`, `Arc`, atomics, and their five orderings | Shared mutable state, and a weak memory model for user code | Channels that move values; a task that owns state answers messages; added later only if measured |
 | `mem::forget` as safe | Leaks counted as safe | A leak is a compiler bug, except a `*T` cycle |
 | Macros, editions, compile-time type functions | Checking code that does not exist until expansion | Libraries in userland; a migrator for each breaking release |
@@ -134,11 +134,11 @@ sub main()
 
 Rust pins a value for four reasons. Rig meets each one without it, so
 the reserved pin sigil `@x` gets no rules and no proof. It stays reserved
-until the probe of task groups confirms this.
+until tasks and channels are built.
 
 | Why Rust pins | Where it goes in Rig |
 |---|---|
-| A future keeps views into its own frame, and the frame may move | A task's frame is a fiber's stack, and it never moves |
+| A future keeps views into its own frame, and the frame may move | A task's frame is on its own stack, a thread's now and a fiber's later, and that stack never moves |
 | A value points into itself | "A value never holds a view of itself"; arenas with IDs |
 | An intrusive list needs nodes that keep their address | Written in trusted Zig, as std's channel keeps its waiters |
 | C or the operating system holds an address | `^T`: moving a box moves the handle, not the value it owns |
@@ -183,10 +183,15 @@ that carry data, `yields !T`) stay as they are.
      default, because deriving them for a library type is how #41622
      happened. `*T`, `~T`, `*fun`, `Cell` and `Signal` do neither.
    - **The engine is Zig's.** Zig 0.17's `std.Io` has futures, groups,
-     `Select`, a thread pool, event loops on io_uring and kqueue, and
-     stackful fibers. Rig adds the surface and the rules, not a
-     scheduler. Its event-loop backends are still partly unimplemented,
-     and each fiber needs its own stack, so a probe comes first.
+     queues and `Select`. Rig adds the surface and the rules, not a
+     scheduler. In Zig 0.17.0 only its threaded backend works: each task
+     is an operating-system thread, cancellation is prompt, and the
+     system's thread limit caps how many tasks run at once (about 8,500
+     on macOS and 97,000 on Linux in a probe). Its event-loop backends,
+     on io_uring, kqueue and Dispatch, do not compile. So tasks and
+     channels are built on the threaded backend first, behind an API
+     narrow enough to move to fibers, and cheap tasks by the hundred
+     thousand, when Zig's event loops work.
    - **Costs.** Fibers are cooperative: a task that computes without
      waiting holds its thread, so heavy work goes in a parallel group. A
      cache many tasks write, or a hot counter, costs a message where an
@@ -194,6 +199,21 @@ that carry data, `yields !T`) stay as they are.
      measurement asks. Deadlock stays possible, as in Rust and Go. A
      parallel checker cannot share a tree of `*T` nodes; it reads one
      through `?` captures, or uses arenas with IDs.
+   - **Actors are a task and its channel.** They live in std, built on
+     round R2's traits, so they add no rule to prove. The channel is the
+     actor's mailbox, and the actor's address is the channel's sending
+     end. A mailbox is typed and bounded, so a sender waits while it is
+     full. `receive` is a `match` on the next message, taken in order;
+     there is no selective receive.
+   - **A supervisor** is a group that restarts a task that ends with an
+     error. The task starts again from fresh state, up to a limit, and
+     past the limit the supervisor fails too. A restart is safe because
+     the task shared nothing and everything it owned was dropped when it
+     ended. A panic stays fatal for the whole program: it means a bug,
+     and Rig runs no cleanup after one. Pony is the precedent.
+   - **Preemption** may come later: a countdown on each loop's back edge
+     that yields when it reaches zero, kept only if the speed rule
+     allows it.
 
    About six weeks after the probe.
 5. **Trusted packages.** Only std may bind declarations to Zig with
@@ -361,7 +381,6 @@ The panel split on these. The default comes first in each.
 
 ## Next step
 
-A probe in Zig: a local and a parallel group, with a channel, on
-`std.Io`'s backends, on macOS and Linux. It measures what a task costs
-and which backends work, before any design round for tasks and
-channels.
+The probe of `std.Io` is done (What to build for reach, item 4). Next is
+the design round for tasks and channels on the threaded backend, and a
+new probe of Zig's event-loop backends at each Zig release.
