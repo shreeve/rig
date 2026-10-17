@@ -534,9 +534,9 @@ it does not end waiting on one of them.
 
 `tools/check N` is a sniff test before a push, run on this Mac through
 the job queue (`cpuq run --local --cores 2`). `N` is a share of the
-suite in percent: 10, 20, 25, 33, 50 or 100, which split it into 10, 5,
-4, 3, 2 or 1 equal parts (any other `N` rounds to the nearest, and the
-tool says so). It runs, each with `--delta`:
+suite in percent, 1 to 100: the suite splits into `100/N` equal parts,
+rounded to a whole number, and one runs (`tools/check 1` is about 40
+tests, `tools/check 5` about 200). It runs, each with `--delta`:
 
 1. The branch's own tests, in full: every test the branch adds or
    changes since its merge-base with `origin/main` (committed or not,
