@@ -3,7 +3,6 @@
   "setup": "zig build -j\"$CPUQ_CORES\"",
   "run": "python3 test/matrix.py -j \"$CPUQ_CORES\" --delta \"$@\"",
   "cores": "8-32",
-  "on": ["burst"],
   "time": "150m",
   "mem": "96G",
   "packs": { "zig": "0.17.0", "nexus": "latest" },
