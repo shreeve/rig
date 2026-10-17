@@ -36,13 +36,13 @@ it (`../nexus`).
    ```
 
 3. Package the VS Code extension. To install it as a newer version, bump
-   `"version"` in `editors/vscode/package.json` first. `npm install`
-   fetches the client library the package holds
-   (`vscode-languageclient`) into `node_modules/`, which is not
+   `"version"` in `editors/vscode/package.json` first. `npm ci`
+   installs the client library (`vscode-languageclient`), at exactly the
+   versions `package-lock.json` pins, into `node_modules/`, which is not
    committed:
 
    ```sh
-   cd editors/vscode && npm install && npx -y @vscode/vsce package --skip-license
+   cd editors/vscode && npm ci && npx -y @vscode/vsce package --skip-license
    ```
 
 4. Install it, then run **Developer: Reload Window** in VS Code:
@@ -60,7 +60,8 @@ from the folder any time.
   symlink is quicker: `ln -s "$PWD/editors/vscode"
   ~/.vscode/extensions/rig-lang.vscode-rig-0.2.0`, then reload the window
   after each regeneration. Use one or the other, not both; the symlinked
-  folder needs `npm install` once for its client.
+  folder needs `npm ci` once for its client (without it, VS Code says so
+  and only colours).
 - **Vim:** add `editors/vim` to the runtime path, e.g. with vim-plug:
   `Plug '~/Data/Code/rig', { 'rtp': 'editors/vim' }`, or
   `set runtimepath+=~/Data/Code/rig/editors/vim`.
