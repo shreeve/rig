@@ -1436,7 +1436,7 @@ fi
 
 printf '%srunning %s tests (-j %s)%s\n' "$D" "$TOTAL" "$JOBS" "$X"
 while IFS=$'\t' read -r id path key; do printf '%s\0%s\0%s\0' "$id" "$path" "$key"; done <"$LIST.sorted" |
-    xargs -0 -n 3 -P "$JOBS" "$SELF" --worker
+    xargs -0 -r -n 3 -P "$JOBS" "$SELF" --worker
 # Keep the times of the tests this run did not select.
 [[ -f "$RESULTS/durations" ]] &&
     awk -F'\t' 'FILENAME == ARGV[1] { ran[$1] = 1; print; next } !($1 in ran)' \
