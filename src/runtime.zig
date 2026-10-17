@@ -3649,8 +3649,7 @@ pub fn failMain(err: anyerror) noreturn {
 // Output. `print` writes to one process-wide buffer. It is flushed
 // when the program finishes, before anything is written to stderr (a
 // `warn`, a panic, an error report), and after every `print` when stdout
-// is a terminal; the standard library flushes it before it reads stdin
-// or starts a process (`flushOutput`).
+// is a terminal.
 
 var stdout_buffer: [8192]u8 = undefined;
 var stdout_writer: ?std.Io.File.Writer = null;
@@ -3669,13 +3668,6 @@ fn stdout() *std.Io.Writer {
 /// the program (`stdoutFailed`).
 fn flush() void {
     if (stdout_writer) |*w| w.interface.flush() catch stdoutFailed();
-}
-
-/// Write out everything `print` has buffered, before the standard
-/// library reads stdin or starts a process, so what the program printed
-/// comes first.
-pub fn flushOutput() void {
-    flush();
 }
 
 /// Write out what `print` has buffered on the way out of a program that
@@ -3777,15 +3769,6 @@ noinline fn stdoutFailed() noreturn {
     std.process.exit(1);
 }
 
-/// A failed write to stderr, where no report can go: a closed pipe ends
-/// the program with status 0, as on stdout, and any other failure with
-/// status 1.
-noinline fn stderrFailed(err: ?std.Io.File.Writer.Error) noreturn {
-    @branchHint(.cold);
-    if (err) |e| if (e == error.BrokenPipe) std.process.exit(0);
-    std.process.exit(1);
-}
-
 /// Why a write failed, as `error: stdout:` says it.
 fn writeFailure(err: std.Io.File.Writer.Error) []const u8 {
     return switch (err) {
@@ -3847,15 +3830,16 @@ noinline fn outValueOf(value: anytype) void {
 
 /// `warn(a, b)`: the line `print` would write, written to stderr after
 /// everything `print` has buffered, in one write when it is at most
-/// 4 KiB.
+/// 4 KiB. A write to stderr that fails is dropped, and the program goes
+/// on: there is nowhere left to report it.
 pub noinline fn warn(pieces: anytype) void {
     flush();
     var buf: [4096]u8 = undefined;
     const ls = std.debug.lockStderr(&buf);
     defer std.debug.unlockStderr();
     const w = &ls.file_writer.interface;
-    writeArgs(w, pieces) catch stderrFailed(ls.file_writer.err);
-    w.flush() catch stderrFailed(ls.file_writer.err);
+    writeArgs(w, pieces) catch return;
+    w.flush() catch {};
 }
 
 /// The pieces of a `print`, written to `w`: what `warn` and `panic`

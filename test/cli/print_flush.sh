@@ -1,8 +1,9 @@
 # What `print` buffers is written out before `warn` or `panic` writes to
 # stderr and on every exit, a panic's included; a reader that closes the
 # pipe early ends the program quietly with status 0, and any other
-# failure to write stdout is reported, with status 1. A panic names its
-# file from the package root, and ends a running test with its report.
+# failure to write stdout is reported, with status 1; a failed write to
+# stderr is dropped. A panic names its file from the package root, and
+# ends a running test with its report.
 source "$ROOT/test/cli/_lib.sh"
 export RIG_NO_CRASH_REPORT=1
 
@@ -55,6 +56,13 @@ printf 'sub main()\n  print("x")\n' >closed.rig
 rig build -o closed closed.rig >/dev/null 2>&1 || fail "build closed.rig"
 out=$(./closed 2>&1 >&-); expect_rc $? 1 "closed stdout exit status"
 expect_eq "$out" "error: stdout: not open for writing" "closed stdout"
+
+# A failed write to stderr is dropped: `warn` writes nothing, and the
+# program goes on.
+printf 'sub main()\n  warn("lost")\n  print("after")\n' >noerr.rig
+rig build -o noerr noerr.rig >/dev/null 2>&1 || fail "build noerr.rig"
+out=$(./noerr 2>&-); expect_rc $? 0 "closed stderr exit status"
+expect_eq "$out" "after" "warn with stderr closed"
 
 # A panic in a test ends the run, naming the test, after its output.
 cat >tested.rig <<'EOF2'
