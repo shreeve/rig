@@ -16,7 +16,7 @@ sub main()
   print(a[rt(3)])
 EOF
 rig build --release=fast -o index index.rig || fail "rig build --release=fast"
-out=$(RIG_NO_CRASH_REPORT=1 ./index 2>&1); rc=$?
+out=$(quiet ./index 2>&1); rc=$?
 expect_has "$out" "index out of bounds" "fast build index check"
 [[ $rc -ne 0 ]] || fail "fast build: out-of-bounds index exited 0"
 
