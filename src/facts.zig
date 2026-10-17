@@ -551,6 +551,9 @@ pub const Facts = struct {
     pub fn isPrintCall(f: Facts, call: Sexp) bool {
         return storage.isPrintCall(f.c(), call);
     }
+    pub fn printCall(f: Facts, call: Sexp) ?storage.PrintCall {
+        return storage.printCall(f.c(), call);
+    }
     pub fn isNoneLeaf(f: Facts, e: Sexp) bool {
         return storage.isNoneLeaf(f.c(), e);
     }

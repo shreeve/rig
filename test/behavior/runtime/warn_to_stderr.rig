@@ -1,0 +1,24 @@
+# `warn(a, b)` writes the line `print` would, to stderr, once what
+# `print` buffered is written out; the program goes on.
+
+obj P
+  x: Int
+  name: ?String
+
+sub main()
+  print("one")
+  warn("careful:", 1.5, [1, 2], P(x: 3, name: "p"))
+  print("two")
+  warn()
+  warn("a\"b", ["a\"b"])
+  print("three")
+
+# release
+# expect:
+# one
+# two
+# three
+# expect-stderr:
+# careful: 1.5 [1, 2] P(x: 3, name: "p")
+#
+# a"b ["a\"b"]

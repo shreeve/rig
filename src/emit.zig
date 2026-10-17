@@ -337,6 +337,9 @@ pub const Emitter = struct {
     /// compiles only if every operation on one goes through the optional
     /// helpers (`RIG_STRICT_OPTIONALS`, `Facts.optionalRouted`).
     strict_optionals: bool = false,
+    /// The module's files, each by its path from the package root, which
+    /// a `panic` names where it stands.
+    file: diag.File = .{ .source = "", .path = "" },
     /// The value being written inside the `rig.pack` of the optional it
     /// becomes (`emitLift`), or written where it is held as itself.
     lifting: Sexp = .nil,
@@ -1460,6 +1463,10 @@ pub const Emitter = struct {
             .@"return" => try self.emitReturn(sexp),
             .@"break" => try self.emitBreak(sexp),
             .@"continue" => try self.emitContinue(sexp),
+            .panic => {
+                try self.emitPanic(sexp);
+                try self.w.writeAll(";");
+            },
             .@"if" => try self.emitIf(sexp),
             .@"while", .@"for" => try self.emitLoop(sexp, "", null),
             .labeled => try self.emitLabeled(sexp),
@@ -4900,6 +4907,8 @@ pub const Emitter = struct {
                 try self.emitStmt(sexp);
                 try self.w.writeAll(" }");
             },
+            // A call Zig types as `noreturn`, which stands for any value.
+            .panic => try self.emitPanic(sexp),
             else => return self.unsupported(sexp, "this expression"),
         }
     }
@@ -6463,7 +6472,10 @@ pub const Emitter = struct {
         const callee = self.facts.calleeOf(sexp);
         const args = ir.Call.args(sexp);
 
-        if (self.isPrintCall(sexp)) return self.emitPrint(args);
+        if (self.facts.printCall(sexp)) |which| return switch (which) {
+            .print => self.emitPrint(args),
+            .warn => self.emitWarn(args),
+        };
         if (self.stringCall(sexp)) |op| return self.emitStringCall(sexp, op);
         if (self.builtinCall(sexp)) |name| return self.emitSwapCall(name, args);
         if (callee == .src and self.facts.symbolOf(callee) == null and facts.syntax.isNumericTypeName(self.srcText(callee))) return self.emitConversion(sexp);
@@ -7250,13 +7262,39 @@ pub const Emitter = struct {
     /// straight-line code once every argument has run.
     fn emitPrint(self: *Emitter, args: []const Sexp) Error!void {
         try self.w.writeAll("rig.print(");
-        try self.emitPrintArgs(args, .{ .sep = "\" \"", .end = "\"\\n\"" });
+        try self.emitPrintArgs(args, print_text);
+        try self.w.writeAll(")");
+    }
+
+    /// `warn(a, b)`: `print`'s pieces, which the runtime writes to
+    /// stderr once stdout is flushed.
+    fn emitWarn(self: *Emitter, args: []const Sexp) Error!void {
+        try self.w.writeAll("rig.warn(");
+        try self.emitPrintArgs(args, print_text);
+        try self.w.writeAll(")");
+    }
+
+    /// `panic(a, b)`: `print`'s pieces after the place it stands
+    /// (`file.rig:L:C: panic: `), which the runtime writes to stderr once
+    /// stdout is flushed, and then ends the program.
+    fn emitPanic(self: *Emitter, node: Sexp) Error!void {
+        const pos = self.facts.startOf(node);
+        const at = self.file.locate(pos);
+        const lc = diag.lineCol(at.text, pos - at.start);
+        const prefix = try self.fmt("{s}:{d}:{d}: panic: ", .{ at.path, lc.line, lc.col });
+        var text = print_text;
+        text.start = try self.fmt("\"{f}\"", .{std.zig.fmtString(prefix)});
+        try self.w.writeAll("rig.fail(");
+        try self.emitPrintArgs(ir.Panic.args(node), text);
         try self.w.writeAll(")");
     }
 
     /// Text `emitPrintArgs` puts among the values, each a Zig string
-    /// literal.
-    const PrintText = struct { sep: ?[]const u8 = null, end: ?[]const u8 = null };
+    /// literal: `start` before the first.
+    const PrintText = struct { start: ?[]const u8 = null, sep: ?[]const u8 = null, end: ?[]const u8 = null };
+
+    /// `print`'s text: a space between two values, and a newline.
+    const print_text: PrintText = .{ .sep = "\" \"", .end = "\"\\n\"" };
 
     /// The tuple of pieces the runtime's writer reads: the values
     /// (`.{ a, &b }`), with `text.sep` between two and `text.end` after
@@ -7264,6 +7302,7 @@ pub const Emitter = struct {
     fn emitPrintArgs(self: *Emitter, args: []const Sexp, text: PrintText) Error!void {
         try self.w.writeAll(".{");
         var n: usize = 0;
+        if (text.start) |start| try self.emitPiece(&n, start);
         for (args, 0..) |a, i| {
             if (i > 0) if (text.sep) |sep| try self.emitPiece(&n, sep);
             try self.w.writeAll(if (n == 0) " " else ", ");
@@ -8417,7 +8456,7 @@ fn partKey(n: Sexp) ?PartKey {
 
 fn isTerminatingStmt(s: Sexp) bool {
     const h = s.kind() orelse return false;
-    return h == .@"return" or h == .@"break" or h == .@"continue";
+    return h == .@"return" or h == .@"break" or h == .@"continue" or h == .panic;
 }
 
 // Emitted code never writes through a const pointer or into const

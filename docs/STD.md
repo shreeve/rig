@@ -701,6 +701,31 @@ order. A Set's key is optional, and taking one hands it back. The seed
 of `.hash()` is fixed, so a program that lets others choose many keys
 that collide can be made slow.
 
+## print, warn, and panic
+
+`print`, `warn`, and `panic` are built in
+([SPEC §17](../SPEC.md#17-printing-and-stopping)), and need no `use`.
+`print(a, b)` writes a line to stdout, `warn(a, b)` the same line to
+stderr, and `panic(a, b)` the line to stderr after the file, line, and
+column it stands at, then ends the program with status 134. Each writes
+out what `print` buffered first, so the two streams read in order.
+
+```rig
+sub main()
+  print("total", 3)
+  warn("slow:", 2.5, "s")
+  panic("lost", ["a\tb"])
+```
+
+```output
+total 3
+```
+
+```stderr exit=134
+slow: 2.5 s
+main.rig:4:3: panic: lost ["a\tb"]
+```
+
 ## List
 
 `List[T]` is built in ([SPEC §10](../SPEC.md)). `!v.reserve(n)` makes room

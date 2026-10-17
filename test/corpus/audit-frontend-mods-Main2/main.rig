@@ -1,6 +1,6 @@
 use rig
 use std
-use panic
+use os
 
 sub main()
-  print(rig.f() + std.K + panic.f())
+  print(rig.f() + std.K + os.f())

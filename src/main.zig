@@ -735,6 +735,24 @@ const Package = struct {
 
 const PackageFile = struct { path: []const u8, contents: []const u8 };
 
+/// Module `m`'s files, each by its path from the package root: the
+/// directory of the root module, which the program's own modules are
+/// found under.
+fn packageFile(allocator: std.mem.Allocator, graph: *const modules.ModuleGraph, m: *const modules.Module) !diag.File {
+    const parts = try allocator.alloc(diag.Part, m.parts.len);
+    for (m.parts, parts) |p, *out| out.* = .{ .start = p.start, .path = fromPackageRoot(graph, p.path) };
+    return .{ .source = m.source, .path = fromPackageRoot(graph, m.display), .parts = parts };
+}
+
+/// `path` from the package root (`packageFile`), or as it is when it is
+/// outside it.
+fn fromPackageRoot(graph: *const modules.ModuleGraph, path: []const u8) []const u8 {
+    const root = graph.import_dir orelse return path;
+    if (root.len == 0 or std.mem.eql(u8, root, ".")) return path;
+    if (path.len > root.len and std.mem.startsWith(u8, path, root) and path[root.len] == '/') return path[root.len + 1 ..];
+    return path;
+}
+
 /// Emit the runtime and every module. With `RIG_LEAK_TRACE` or
 /// `RIG_SANITIZE` set, the root module asks the runtime for stack-trace
 /// leak reports or the sanitizer; with `RIG_SANITIZE`, emit also poisons
@@ -753,6 +771,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         em.poison = env.sanitize();
         em.no_proofs = env.flag("RIG_NO_PROOFS");
         em.strict_optionals = env.flag("RIG_STRICT_OPTIONALS");
+        em.file = try packageFile(allocator, graph, m);
         // A debug build of the compiler checks that emit writes the units
         // the proof pass walks, in the same order (`proofs.checkUnitOrder`).
         var trace: std.ArrayList(emit.UnitEvent) = .empty;

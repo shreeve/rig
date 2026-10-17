@@ -1,0 +1,6 @@
+# A `panic` says what went wrong.
+
+sub main()
+  panic()
+
+# error: 4:3: `panic` needs a message: say what went wrong

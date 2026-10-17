@@ -3261,7 +3261,7 @@ const Sanitizer = struct {
         for (signals, &previous) |sig, *old| std.posix.sigaction(sig, old, null);
         const addr = faultAddress(info);
         if (!sanitizer.owns(addr)) return;
-        flush();
+        flushQuietly();
         var buf: [256]u8 = undefined;
         const msg = if (sanitizer.blockBefore(addr)) |b|
             std.mem.print(&buf, "error: rig: access past the end of a {d}-byte block at 0x{x} (address 0x{x})\n", .{ b.len, b.start, addr })
@@ -3514,7 +3514,7 @@ fn onOverflow(_: std.posix.SIG, info: *const std.posix.siginfo_t, _: ?*anyopaque
     for (Sanitizer.signals, &overflow_previous) |sig, *old| std.posix.sigaction(sig, old, null);
     const addr = faultAddress(info);
     if (addr < stack_guard.lo or addr >= stack_guard.hi) return;
-    flush();
+    flushQuietly();
     const msg = "error: rig: stack overflow\n";
     _ = std.posix.system.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
     // Where Zig installs no handler (`--release=fast`), the fault again
@@ -3539,6 +3539,18 @@ var process_args: []const []const u8 = &.{};
 /// gathered into `Static`s once, freed by `finish`.
 pub fn start(init: std.process.Init.Minimal) void {
     process = init;
+    // A write to a closed pipe (`prog | head`) fails with BrokenPipe,
+    // which `stdoutFailed` ends the program on with status 0, instead of
+    // killing it by SIGPIPE. A handler that does nothing, unlike ignoring
+    // the signal, is reset in a process this one starts.
+    if (std.posix.Sigaction != void and @hasField(std.posix.SIG, "PIPE")) {
+        const act: std.posix.Sigaction = .{
+            .handler = .{ .handler = onBrokenPipe },
+            .mask = std.posix.sigemptyset(),
+            .flags = 0,
+        };
+        std.posix.sigaction(.PIPE, &act, null);
+    }
     // RIG_NO_CRASH_REPORT=1, set by a test harness for a program that
     // panics on purpose: macOS files no crash report when it dies, and
     // Linux passes it to no crash handler (apport). It still dies by its
@@ -3566,6 +3578,8 @@ pub fn start(init: std.process.Init.Minimal) void {
     for (list, init.args.vector) |*arg, c| arg.* = std.mem.sliceTo(c, 0);
     process_args = list;
 }
+
+fn onBrokenPipe(_: std.posix.SIG) callconv(.c) void {}
 
 extern "c" var mach_task_self_: c_uint;
 extern "c" fn task_set_exception_ports(task: c_uint, mask: c_uint, port: c_uint, behavior: c_int, flavor: c_int) c_int;
@@ -3627,14 +3641,16 @@ pub fn finish() void {
 /// A failure that left `main`, after its drops and `finish`: report the
 /// error as a Rig program shows it and exit 1.
 pub fn failMain(err: anyerror) noreturn {
-    flush();
+    flushQuietly();
     std.debug.print("error: {s}\n", .{errorShown(err)});
     std.process.exit(1);
 }
 
-// Output. `print` writes to one process-wide buffer, flushed when the
-// program finishes, before a panic message, and after every `print`
-// when stdout is a terminal.
+// Output. `print` writes to one process-wide buffer. It is flushed
+// when the program finishes, before anything is written to stderr (a
+// `warn`, a panic, an error report), and after every `print` when stdout
+// is a terminal; the standard library flushes it before it reads stdin
+// or starts a process (`flushOutput`).
 
 var stdout_buffer: [8192]u8 = undefined;
 var stdout_writer: ?std.Io.File.Writer = null;
@@ -3649,8 +3665,24 @@ fn stdout() *std.Io.Writer {
     return &stdout_writer.?.interface;
 }
 
-/// Write out everything `print` has buffered.
+/// Write out everything `print` has buffered. A write that fails ends
+/// the program (`stdoutFailed`).
 fn flush() void {
+    if (stdout_writer) |*w| w.interface.flush() catch stdoutFailed();
+}
+
+/// Write out everything `print` has buffered, before the standard
+/// library reads stdin or starts a process, so what the program printed
+/// comes first.
+pub fn flushOutput() void {
+    flush();
+}
+
+/// Write out what `print` has buffered on the way out of a program that
+/// is already ending with its own report (a panic, a failure that left
+/// `main`, a fault): a write that fails is dropped, so the report still
+/// comes.
+fn flushQuietly() void {
     if (stdout_writer) |*w| w.interface.flush() catch {};
 }
 
@@ -3730,11 +3762,42 @@ fn constantText(comptime T: type, comptime v: T) ?[]const u8 {
     };
 }
 
-/// The one place a failed write to stdout lands. It is ignored.
-fn outFailed(err: std.Io.Writer.Error) void {
-    switch (err) {
-        error.WriteFailed => {},
-    }
+/// The one place a failed write to stdout lands. A closed pipe (`prog |
+/// head`) ends the program quietly with status 0; any other failure ends
+/// it with `error: stdout: <reason>` and status 1. Either way it ends as
+/// a panic does: no drop, `defer`, or leak check runs.
+noinline fn stdoutFailed() noreturn {
+    @branchHint(.cold);
+    const err = (if (stdout_writer) |w| w.err else null) orelse error.InputOutput;
+    if (err == error.BrokenPipe) std.process.exit(0);
+    var buf: [128]u8 = undefined;
+    const ls = std.debug.lockStderr(&buf);
+    ls.file_writer.interface.print("error: stdout: {s}\n", .{writeFailure(err)}) catch {};
+    ls.file_writer.interface.flush() catch {};
+    std.process.exit(1);
+}
+
+/// A failed write to stderr, where no report can go: a closed pipe ends
+/// the program with status 0, as on stdout, and any other failure with
+/// status 1.
+noinline fn stderrFailed(err: ?std.Io.File.Writer.Error) noreturn {
+    @branchHint(.cold);
+    if (err) |e| if (e == error.BrokenPipe) std.process.exit(0);
+    std.process.exit(1);
+}
+
+/// Why a write failed, as `error: stdout:` says it.
+fn writeFailure(err: std.Io.File.Writer.Error) []const u8 {
+    return switch (err) {
+        error.NoSpaceLeft => "no space left on the device",
+        error.DiskQuota => "disk quota exceeded",
+        error.FileTooBig => "file too large",
+        error.InputOutput => "input/output error",
+        error.AccessDenied, error.PermissionDenied => "permission denied",
+        error.NoDevice => "no such device",
+        error.NotOpenForWriting => "not open for writing",
+        else => @errorName(err),
+    };
 }
 
 /// Text of a `print`, known at compile time, written by the one writer
@@ -3760,7 +3823,7 @@ noinline fn outFixed(comptime n: usize, comptime ends_line: bool, text: *const [
 
 /// Bytes of a `print`.
 noinline fn outBytes(bytes: []const u8) void {
-    stdout().writeAll(bytes) catch |err| outFailed(err);
+    stdout().writeAll(bytes) catch stdoutFailed();
 }
 
 /// The last text of a `print`, which ends its line: written, then
@@ -3779,22 +3842,92 @@ inline fn outValue(value: anytype) void {
 }
 
 noinline fn outValueOf(value: anytype) void {
-    writeValue(stdout(), value, true) catch |err| outFailed(err);
+    writeValue(stdout(), value, true) catch stdoutFailed();
 }
 
-/// The root panic handler of every emitted program: buffered output
-/// comes first, then the panic message and stack trace on stderr.
+/// `warn(a, b)`: the line `print` would write, written to stderr after
+/// everything `print` has buffered, in one write when it is at most
+/// 4 KiB.
+pub noinline fn warn(pieces: anytype) void {
+    flush();
+    var buf: [4096]u8 = undefined;
+    const ls = std.debug.lockStderr(&buf);
+    defer std.debug.unlockStderr();
+    const w = &ls.file_writer.interface;
+    writeArgs(w, pieces) catch stderrFailed(ls.file_writer.err);
+    w.flush() catch stderrFailed(ls.file_writer.err);
+}
+
+/// The pieces of a `print`, written to `w`: what `warn` and `panic`
+/// write.
+fn writeArgs(w: *std.Io.Writer, pieces: anytype) std.Io.Writer.Error!void {
+    const plan = comptime piecesOf(@TypeOf(pieces));
+    inline for (plan) |p| switch (p) {
+        .text => |t| try w.writeAll(t),
+        .value => |f| try writeValue(w, pieces[f], true),
+    };
+}
+
+/// The root panic handler of every emitted program, for the runtime's
+/// own panics (an index out of range, an overflow): `panic: msg` on
+/// stderr after everything `print` has buffered, with Zig's stack trace
+/// in a debug build, then the end of the program by `abort` (status
+/// 134). It is the same event as a `panic(...)` (`fail`).
 pub const panic = std.debug.FullPanic(panicAfterFlush);
 
-var panicking = false;
+/// How far into a panic the program is: 0 before one, 1 while it is
+/// reported, 2 once a panic came while reporting it.
+var panic_stage: u8 = 0;
+
+/// What every panic does before its report: name the test it ended, if
+/// one is running, with the count so far, and write out what `print`
+/// has buffered. A second panic, while the first is reported, skips it.
+fn beginPanic() void {
+    if (panic_stage > 0) {
+        if (panic_stage > 1) std.process.abort();
+        panic_stage = 2;
+        return;
+    }
+    panic_stage = 1;
+    if (current_test) |t| {
+        stdout().print("FAIL  {f}: panicked\n", .{t}) catch {};
+        stdout().print("{d} passed, {d} failed\n", .{ tests_passed, tests_failed + 1 }) catch {};
+    }
+    flushQuietly();
+}
 
 fn panicAfterFlush(msg: []const u8, first_trace_addr: ?usize) noreturn {
-    if (!panicking) {
-        panicking = true;
-        if (current_test) |t| stdout().print("FAIL  {f}: panicked\n", .{t}) catch {};
-        flush();
+    @branchHint(.cold);
+    beginPanic();
+    {
+        var buf: [256]u8 = undefined;
+        const ls = std.debug.lockStderr(&buf);
+        defer std.debug.unlockStderr();
+        ls.file_writer.interface.print("panic: {s}\n", .{msg}) catch {};
+        ls.file_writer.interface.flush() catch {};
     }
-    std.debug.defaultPanic(msg, first_trace_addr orelse @returnAddress());
+    // The trace names emitted Zig lines. Only the unwinder that cannot
+    // fault walks it: the program runs on a stack the runtime maps
+    // (`onOwnStack`), which the other one faults on.
+    if (builtin.mode == .debug and panic_stage == 1) {
+        std.debug.dumpCurrentStackTrace(.{ .first_address = first_trace_addr orelse @returnAddress() });
+    }
+    std.process.abort();
+}
+
+/// `panic(a, b)`: the report `file.rig:L:C: panic: ` and the line `print`
+/// would write (the emitter puts the location in the first piece), on
+/// stderr after everything `print` has buffered; then the end of the
+/// program by `abort` (status 134). No drop, `defer`, or leak check
+/// runs.
+pub noinline fn fail(pieces: anytype) noreturn {
+    @branchHint(.cold);
+    beginPanic();
+    var buf: [1024]u8 = undefined;
+    const ls = std.debug.lockStderr(&buf);
+    writeArgs(&ls.file_writer.interface, pieces) catch {};
+    ls.file_writer.interface.flush() catch {};
+    std.process.abort();
 }
 
 // Tests. `rig test` builds a driver whose `main` calls `runTests` with
@@ -3840,10 +3973,13 @@ pub fn runTests(modules: []const TestModule) void {
     onOwnStack(runTestsHere, .{modules});
 }
 
+/// The tests `runTests` has passed and failed so far, which a panic
+/// reports.
+var tests_passed: usize = 0;
+var tests_failed: usize = 0;
+
 fn runTestsHere(modules: []const TestModule) void {
     const w = stdout();
-    var passed: usize = 0;
-    var failed: usize = 0;
     for (modules) |m| for (m.tests) |t| {
         const name: TestName = .{ .module = m.module, .name = t.name };
         current_test = name;
@@ -3854,21 +3990,21 @@ fn runTestsHere(modules: []const TestModule) void {
         if (result) |_| {
             if (reportLeaks(before)) {
                 w.print("FAIL  {f}: memory leak\n", .{name}) catch {};
-                failed += 1;
+                tests_failed += 1;
             } else {
                 w.print("ok    {f}\n", .{name}) catch {};
-                passed += 1;
+                tests_passed += 1;
             }
         } else |err| {
             w.print("FAIL  {f}: {s}\n", .{ name, errorShown(err) }) catch {};
-            failed += 1;
+            tests_failed += 1;
         }
         flush();
     };
-    w.print("{d} passed, {d} failed\n", .{ passed, failed }) catch {};
+    w.print("{d} passed, {d} failed\n", .{ tests_passed, tests_failed }) catch {};
     flush();
     releaseProcess();
-    if (failed > 0) std.process.exit(1);
+    if (tests_failed > 0) std.process.exit(1);
 }
 
 /// `?String`: a string literal (`*const [N:0]u8`) or a `?String` slice. An
@@ -3915,27 +4051,24 @@ pub fn rigName(zig: []const u8) []const u8 {
 const max_print_depth = 64;
 var print_depth: u32 = 0;
 
-/// A value as Rig writes it: text as is at the top level and quoted
-/// inside other values, a float with a decimal point, `none` for an
-/// absent optional, `Name(field: v)` for a struct, `.variant` /
-/// `.variant(field: v)` for an enum, and `[a, b]` for arrays and Lists. A
-/// shared handle or a box prints its value, a function `<fun>`.
+/// A value as Rig writes it: text as its bytes at the top level, and
+/// quoted and escaped inside other values (`writeQuoted`); a float in
+/// its shortest form (`writeFloat`), `none` for an absent optional,
+/// `Name(field: v)` for an object, `.variant` / `.variant(field: v)` for
+/// an enum, and `[a, b]` for arrays and Lists. A shared handle or a box
+/// prints its value, a function `<fun>`. `top` is the one flag that
+/// changes how a value is written: text at the top level is written as
+/// is, and quoted everywhere else.
 fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
     const T = @TypeOf(value);
     if (comptime isStringView(T)) {
-        return if (top) w.writeAll(value) else w.print("\"{s}\"", .{value});
+        return if (top) w.writeAll(value) else writeQuoted(w, value);
     }
     if (comptime isOptStruct(T)) return if (some(value)) |v| writeValue(w, v, top) else w.writeAll("none");
     switch (@typeInfo(T)) {
         .int, .comptime_int => return w.print("{d}", .{value}),
-        .float, .comptime_float => {
-            const f: f64 = value;
-            // A NaN's sign bit differs by platform and means nothing.
-            if (std.math.isNan(f)) return w.writeAll("nan");
-            try w.print("{d}", .{value});
-            if (std.math.isFinite(f) and f == @trunc(f)) try w.writeAll(".0");
-            return;
-        },
+        .float => return writeFloat(w, value),
+        .comptime_float => return writeFloat(w, @as(f64, value)),
         .bool => return w.writeAll(if (value) "true" else "false"),
         .@"fn" => return w.writeAll("<fun>"),
         .@"struct" => {
@@ -3979,6 +4112,121 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
         },
         else => try w.print("{any}", .{value}),
     }
+}
+
+/// Text inside another value: in double quotes, escaped so that it reads
+/// back as a Rig string literal of the same bytes, and so that no byte
+/// of it moves the cursor, rings, or reorders what a terminal shows.
+/// `"` and `\` take a backslash; a newline, tab, and carriage return are
+/// `\n`, `\t`, `\r`; any other control byte (C0 and DEL) and every byte
+/// of invalid UTF-8 is `\xHH`; a C1 control (U+0080 to U+009F) and a
+/// bidirectional control (U+061C, U+200E, U+200F, U+202A to U+202E,
+/// U+2066 to U+2069) is `\u{h}`. Every other character is written as is.
+noinline fn writeQuoted(w: *std.Io.Writer, bytes: []const u8) std.Io.Writer.Error!void {
+    try w.writeByte('"');
+    var run: usize = 0;
+    var i: usize = 0;
+    while (i < bytes.len) {
+        const b = bytes[i];
+        if (b >= 0x20 and b < 0x7f and b != '"' and b != '\\') {
+            i += 1;
+            continue;
+        }
+        var rune: ?u21 = null;
+        var seq: usize = 1;
+        if (b >= 0x80) {
+            const n = std.unicode.utf8ByteSequenceLength(b) catch 0;
+            if (n > 1 and i + n <= bytes.len) {
+                if (std.unicode.utf8Decode(bytes[i..][0..n])) |r| {
+                    rune = r;
+                    seq = n;
+                } else |_| {}
+            }
+            if (rune) |r| if (!escapedRune(r)) {
+                i += seq;
+                continue;
+            };
+        }
+        try w.writeAll(bytes[run..i]);
+        if (rune) |r| {
+            try w.print("\\u{{{x}}}", .{r});
+        } else switch (b) {
+            '"' => try w.writeAll("\\\""),
+            '\\' => try w.writeAll("\\\\"),
+            '\n' => try w.writeAll("\\n"),
+            '\t' => try w.writeAll("\\t"),
+            '\r' => try w.writeAll("\\r"),
+            else => try w.print("\\x{x:0>2}", .{b}),
+        }
+        i += seq;
+        run = i;
+    }
+    try w.writeAll(bytes[run..]);
+    try w.writeByte('"');
+}
+
+/// A character `writeQuoted` writes as `\u{h}`: a C1 control, or a
+/// bidirectional control, which reorders the text a terminal shows.
+fn escapedRune(r: u21) bool {
+    return switch (r) {
+        0x80...0x9f, 0x061c, 0x200e, 0x200f, 0x202a...0x202e, 0x2066...0x2069 => true,
+        else => false,
+    };
+}
+
+/// A float as Rig writes it, which reads back as a Rig literal of the
+/// same value: the shortest digits that do (Zig's Ryu, `std.fmt.float`),
+/// laid out by Rig (`floatText`). A NaN is `nan`, the infinities `inf`
+/// and `-inf`.
+fn writeFloat(w: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
+    const T = @TypeOf(value);
+    // A NaN's sign bit differs by platform and means nothing.
+    if (std.math.isNan(value)) return w.writeAll("nan");
+    if (std.math.isInf(value)) return w.writeAll(if (value < 0) "-inf" else "inf");
+    const D = if (@bitSizeOf(T) <= 64) u64 else u128;
+    const tables = if (D == u128)
+        &std.fmt.float.Backend128_Tables
+    else if (builtin.mode == .small)
+        &std.fmt.float.Backend64_TablesSmall
+    else
+        &std.fmt.float.Backend64_TablesFull;
+    const explicit = std.math.floatMantissaBits(T) != std.math.floatFractionalBits(T);
+    const bits: @Int(.unsigned, @bitSizeOf(T)) = @bitCast(value);
+    const d = std.fmt.float.binaryToDecimal(D, bits, std.math.floatMantissaBits(T), std.math.floatExponentBits(T), explicit, tables);
+    var digits: [40]u8 = undefined;
+    const shown = std.fmt.bufPrint(&digits, "{d}", .{d.mantissa}) catch unreachable;
+    const n: i32 = if (d.mantissa == 0) 1 else d.exponent + @as(i32, @intCast(shown.len));
+    var buf: [64]u8 = undefined;
+    try w.writeAll(floatText(&buf, d.sign, shown, n));
+}
+
+/// `writeFloat`'s layout of the shortest `digits` (no trailing zero, or
+/// the one digit `0`), the value being 0.`digits` times ten to the `n`.
+/// From 1e-6 up to below 1e21 it is written in decimal, with a point and
+/// at least one digit after it (`1.0`, `0.001`, `123.5`); any other is
+/// the digits with an exponent (`1e21`, `1.5e300`, `-2.5e-7`). Zero
+/// keeps its sign, `-0.0`.
+noinline fn floatText(buf: []u8, negative: bool, digits: []const u8, n: i32) []const u8 {
+    var out = std.Io.Writer.fixed(buf);
+    const k: i32 = @intCast(digits.len);
+    if (negative) out.writeByte('-') catch unreachable;
+    if (k <= n and n <= 21) {
+        out.writeAll(digits) catch unreachable;
+        out.splatByteAll('0', @intCast(n - k)) catch unreachable;
+        out.writeAll(".0") catch unreachable;
+    } else if (0 < n and n <= 21) {
+        const point: usize = @intCast(n);
+        out.print("{s}.{s}", .{ digits[0..point], digits[point..] }) catch unreachable;
+    } else if (-6 < n and n <= 0) {
+        out.writeAll("0.") catch unreachable;
+        out.splatByteAll('0', @intCast(-n)) catch unreachable;
+        out.writeAll(digits) catch unreachable;
+    } else {
+        out.writeAll(digits[0..1]) catch unreachable;
+        if (k > 1) out.print(".{s}", .{digits[1..]}) catch unreachable;
+        out.print("e{d}", .{n - 1}) catch unreachable;
+    }
+    return out.buffered();
 }
 
 fn writeFields(w: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
@@ -4716,6 +4964,51 @@ test "values print the way Rig writes them" {
     weak.dropWeak();
     closure.__rig_drop();
     try expectNoLeaks(before);
+}
+
+test "a float prints its shortest digits, in decimal from 1e-6 to below 1e21" {
+    const cases = .{
+        .{ @as(f64, 0.0), "0.0" },              .{ @as(f64, -0.0), "-0.0" },
+        .{ @as(f64, 1.0), "1.0" },              .{ @as(f64, 100.0), "100.0" },
+        .{ @as(f64, 0.1), "0.1" },              .{ @as(f64, 123.5), "123.5" },
+        .{ @as(f64, -2.5), "-2.5" },            .{ @as(f64, 0.000001), "0.000001" },
+        .{ @as(f64, 1.5e-6), "0.0000015" },     .{ @as(f64, 1e-7), "1e-7" },
+        .{ @as(f64, -2.5e-7), "-2.5e-7" },      .{ @as(f64, 1e20), "100000000000000000000.0" },
+        .{ @as(f64, 1e21), "1e21" },            .{ @as(f64, 1.5e300), "1.5e300" },
+        .{ @as(f64, 123456789012345680000.0), "123456789012345680000.0" },
+        .{ @as(f64, 5e-324), "5e-324" },        .{ @as(f64, 1.7976931348623157e308), "1.7976931348623157e308" },
+        .{ @as(f64, 0.30000000000000004), "0.30000000000000004" },
+        .{ @as(f32, 0.1), "0.1" },              .{ @as(f32, 1e10), "10000000000.0" },
+        .{ @as(f32, 3.4028235e38), "3.4028235e38" },
+        .{ std.math.inf(f64), "inf" },          .{ -std.math.inf(f64), "-inf" },
+        .{ std.math.nan(f64), "nan" },          .{ 2.0, "2.0" },
+    };
+    inline for (cases) |c| {
+        var buf: [64]u8 = undefined;
+        var w = std.Io.Writer.fixed(&buf);
+        try writeValue(&w, c[0], true);
+        try testing.expectEqualStrings(c[1], w.buffered());
+    }
+}
+
+test "text inside a value prints quoted and escaped" {
+    const cases = .{
+        .{ "plain", "\"plain\"" },
+        .{ "a\"b\\c", "\"a\\\"b\\\\c\"" },
+        .{ "l1\nl2\tx\r", "\"l1\\nl2\\tx\\r\"" },
+        .{ "\x00\x1b[2J\x7f", "\"\\x00\\x1b[2J\\x7f\"" },
+        .{ "caf\u{e9} \u{1F600}", "\"caf\u{e9} \u{1F600}\"" },
+        .{ "\u{85}\u{202e}x\u{2066}\u{200f}\u{61c}", "\"\\u{85}\\u{202e}x\\u{2066}\\u{200f}\\u{61c}\"" },
+        .{ "\xff\xc3", "\"\\xff\\xc3\"" },
+        .{ "\xe2\x82", "\"\\xe2\\x82\"" },
+        .{ "\xed\xa0\x80", "\"\\xed\\xa0\\x80\"" },
+    };
+    inline for (cases) |c| {
+        var buf: [96]u8 = undefined;
+        var w = std.Io.Writer.fixed(&buf);
+        try writeValue(&w, [_][]const u8{c[0]}, true);
+        try testing.expectEqualStrings("[" ++ c[1] ++ "]", w.buffered());
+    }
 }
 
 test "String writes values as print does, and compares and frees its bytes" {

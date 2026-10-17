@@ -1367,6 +1367,8 @@ pub const Decision = struct { node: Sexp, at: Sexp = .nil, answer: u8 };
 pub const TypeMemo = struct {
     /// `runsDropBody` of a type, with nothing yet looked into.
     drop_body: std.AutoHashMapUnmanaged(TypeId, bool) = .empty,
+    /// `printable` of a type.
+    printable: std.AutoHashMapUnmanaged(TypeId, bool) = .empty,
 };
 
 pub const Decided = struct {
@@ -1942,6 +1944,9 @@ pub const Requirement = union(enum) {
     /// that holds the parameter (`@name`), which the runtime spells from
     /// the instance's Zig type.
     named,
+    /// Printable (`printable`): the body prints a value that holds the
+    /// parameter, and a `[]U8` would print as text.
+    printable,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -1964,6 +1969,7 @@ pub const Requirement = union(enum) {
             .not_error => "a fallible return",
             .not_function => "a handle",
             .named => "a type name",
+            .printable => "printing",
         };
     }
 };
@@ -2358,6 +2364,7 @@ pub const SemContext = struct {
         self.decided.map.deinit(self.allocator);
         self.allocator.destroy(self.decided);
         self.type_memo.drop_body.deinit(self.allocator);
+        self.type_memo.printable.deinit(self.allocator);
         self.allocator.destroy(self.type_memo);
         self.arena.deinit();
     }
@@ -4344,9 +4351,9 @@ pub fn returnsNothing(ctx: *const SemContext, ret: TypeId) bool {
 }
 
 /// A built-in function called by name unless a declaration hides it:
-/// `print`, `replace`, `swap`.
+/// `print`, `warn`, `replace`, `swap`.
 pub fn isBuiltinCallName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "replace") or std.mem.eql(u8, name, "swap");
+    return std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "warn") or std.mem.eql(u8, name, "replace") or std.mem.eql(u8, name, "swap");
 }
 
 /// A built-in generic that keeps its values on the heap: a `List[T]` and
@@ -6491,6 +6498,64 @@ pub fn dropRunsBody(ctx: *const SemContext, ty: TypeId) Answer {
     return if (info.holds_type_var or info.poison) .depends else .no;
 }
 
+/// Whether `print` can write a value of `ty`: unless it holds a `[]U8`,
+/// directly or through a wrapper, field, payload, or type argument
+/// (`holdsByteSlice`). A type parameter answers for each instance
+/// (`Requirement.printable`). Worked out once declarations are resolved
+/// (`TypeMemo`).
+pub fn printable(ctx: *const SemContext, ty: TypeId) !bool {
+    if (!ctx.contents_ready) return !try holdsByteSlice(ctx, ty, ctx.allocator);
+    if (ctx.type_memo.printable.get(ty)) |b| return b;
+    const b = !try holdsByteSlice(ctx, ty, ctx.allocator);
+    try ctx.type_memo.printable.put(ctx.allocator, ty, b);
+    return b;
+}
+
+const ByteSliceVisit = struct { ctx: *const SemContext, sym: SymbolId };
+const ByteSliceItem = struct { ctx: *const SemContext, ty: TypeId };
+
+/// Whether a value of `ty` holds a `[]U8`, directly or through a
+/// wrapper, field, payload, or type argument. A `[]U8` and a `?String`
+/// are both Zig `[]const u8`, so `print` cannot tell them apart. The
+/// walk keeps a stack of its own, so a long chain of types, each
+/// holding the next, does not nest it; each declaration is walked once.
+fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator) !bool {
+    var todo: std.ArrayList(ByteSliceItem) = .empty;
+    defer todo.deinit(a);
+    var seen: std.AutoHashMapUnmanaged(ByteSliceVisit, void) = .empty;
+    defer seen.deinit(a);
+    try todo.append(a, .{ .ctx = ctx, .ty = ty });
+    while (todo.pop()) |item| {
+        const c = item.ctx;
+        switch (c.types.get(item.ty)) {
+            .slice => |sl| {
+                switch (c.types.get(sl.elem)) {
+                    .int => |i| if (i.bits == 8 and !i.signed) return true,
+                    else => try todo.append(a, .{ .ctx = c, .ty = sl.elem }),
+                }
+                continue;
+            },
+            .optional, .fallible, .read_view, .write_view, .shared => |inner| {
+                try todo.append(a, .{ .ctx = c, .ty = inner });
+                continue;
+            },
+            .array => |arr| {
+                try todo.append(a, .{ .ctx = c, .ty = arr.elem });
+                continue;
+            },
+            .parameterized_nominal => |pn| for (pn.args) |arg| try todo.append(a, .{ .ctx = c, .ty = arg }),
+            .nominal, .imported_nominal => {},
+            else => continue,
+        }
+        const decl = nominalDecl(c, item.ty) orelse continue;
+        if ((try seen.getOrPut(a, .{ .ctx = decl.ctx, .sym = decl.sym })).found_existing) continue;
+        for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
+            for (dataFields(f)) |d| try todo.append(a, .{ .ctx = decl.ctx, .ty = d.ty });
+        }
+    }
+    return false;
+}
+
 /// `runsDropBody` of `ty`, worked out once declarations are resolved
 /// (`TypeMemo`).
 fn dropBodyOf(ctx: *const SemContext, ty: TypeId) bool {
@@ -8216,7 +8281,7 @@ fn shapeOf(source: []const u8, node: Sexp) Shape {
         .arm, .alt_pattern, .range_pattern, .variant_pattern => .none,
         // Types.
         .optional, .error_union, .read_view, .write_view, .shared, .boxed, .slice, .generic_inst, .array_type, .fun_type, .results_type, .fails, .unique, .fixed => .none,
-        .@"return", .@"break", .@"continue" => .jump,
+        .@"return", .@"break", .@"continue", .panic => .jump,
         .read, .write => .lend,
         .member, .index => .path,
         .@"if", .@"??", .@"catch", .propagate, .propagate_none => if (isBranchingForm(node)) .branches else .none,

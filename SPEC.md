@@ -42,7 +42,7 @@ marked as rejected must fail with the errors shown.
 14. [Modules](#14-modules)
 15. [Raw code and FFI](#15-raw-code-and-ffi)
 16. [Compile-time parameters](#16-compile-time-parameters)
-17. [Printing](#17-printing)
+17. [Printing and stopping](#17-printing-and-stopping)
 18. [Reserved and unsupported forms](#18-reserved-and-unsupported-forms)
 
 The standard library, imported with `use std.NAME`, is described in
@@ -63,7 +63,8 @@ may propagate an error with `!`, and `sub main()!` or `fun main() -> Int!`
 may also return one; a failure that leaves `main` prints
 `error: Set.name` and ends the program with status 1
 ([§13](#13-errors)). Everything `main` owns is dropped, its output
-flushed, and the leak check run before the program exits. Only the
+flushed, and the leak check run before the program exits, unless it
+panics ([§17](#17-printing-and-stopping)). Only the
 program calls `main`: Rig code cannot call it or use it as a value. The
 program's arguments and environment are read through
 [`std.os`](docs/STD.md#stdos).
@@ -93,7 +94,8 @@ that leaks memory reports it and exits with an error. Built with
 `RIG_SANITIZE=1`, it also crashes at any use of freed memory. `--release` builds
 in Zig's safe mode, and `--release=fast` in its fast mode. Integer
 overflow, out-of-bounds indexing and slicing, and a numeric conversion
-whose value does not fit panic in debug and safe builds.
+whose value does not fit panic in debug and safe builds; a panic exits
+with status 134 in every mode ([§17](#panic)).
 The fast mode is the one outside that guarantee: it drops the
 overflow and conversion checks, so there an overflow or an out-of-range
 conversion is undefined behavior. That holds for the lanes of a vector
@@ -7012,7 +7014,7 @@ String. A `?String` is the view of text; a String is where text is built.
 | Member | Meaning |
 |---|---|
 | `String()` | an empty String; nothing is allocated until text is added |
-| `String(a, b, ...)` | a String holding each value as `print` writes it ([§17](#17-printing)), with no separators |
+| `String(a, b, ...)` | a String holding each value as `print` writes it ([§17](#17-printing-and-stopping)), with no separators |
 | `!t.add(a, b, ...)` | append each value the same way; a `U8` is written as a number |
 | `!t.push(b)` | append one byte `b`, a `U8`, given by position |
 | `!t.push[T, e](v)` | append the `@size(T)` bytes of the integer `v`, a `T`, in byte order `e` (`.little` or `.big`), in one write; a one-byte `T` takes no `e`, and `push[U8](b)` is `push(b)` |
@@ -8072,6 +8074,9 @@ must say what happens to the failure, visibly:
   ([§12](#12-optionals)): `f() catch return -1`, `f() catch |e| return e`,
   `f() catch break`, `f() catch continue`.
 
+An error is a value a caller handles. A state the program cannot go on
+from is a bug, for `panic` ([§17](#panic)), which no caller sees.
+
 A bare call to a fallible function is rejected, and so is `!` on a call
 that cannot fail. A `drop` body and a `defer` cannot propagate, and a
 closure propagates only when its type can fail: one checked against
@@ -9076,20 +9081,19 @@ call to extern function `abs` requires `raw` block
 ```
 
 C links a name only as it is spelled, so a C declaration cannot take a
-name the Zig that Rig writes uses itself: `std`, `rig`, `panic`,
-`main`, a name starting with `__rig`, or a name Zig's standard library
+name the Zig that Rig writes uses itself: `std`, `rig`, `main`, a name starting with `__rig`, or a name Zig's standard library
 looks for in a program (`debug`, `os`, `std_options`, `_start`, and
 the like). A name Zig reserves (`var`, `fn`, `u8`) links as spelled.
 
 ```rig reject
-extern fun panic(code: Int) -> Int
+extern fun rig(code: Int) -> Int
 
 sub main()
   print(1)
 ```
 
 ```error
-a C declaration cannot be named `panic`
+a C declaration cannot be named `rig`
 ```
 
 ### Zig-backed declarations
@@ -9250,20 +9254,25 @@ compile-time argument 1 of `show` does arithmetic on a compile-time parameter
 
 ---
 
-## 17. Printing
+## 17. Printing and stopping
 
-`print(a, b, ...)` writes its values separated by single spaces, then a
-newline; `print()` writes an empty line. `print` is only special as a
-direct call; it is not a value.
+`print(a, b, ...)` writes its values to stdout, separated by single
+spaces, then a newline; `print()` writes an empty line. `warn(a, b, ...)`
+writes the same line to stderr, and `panic(a, b, ...)` writes it to
+stderr and ends the program ([below](#panic)). They take values by
+position only: a keyword argument is rejected. `print` and `warn` are
+only special as direct calls; they are not values, and a declaration
+may hide either. `panic` is a keyword.
 
 | Value | Printed as |
 |---|---|
-| numbers, `Bool` | `42`, `-3`, `2.5`, `true`; a whole `Float` keeps its point, `1.0`, and a NaN is `nan` on every platform |
-| `?String`, `String` | its text; inside other values, quoted |
+| integers, `Bool` | `42`, `-3`, `true` |
+| `Float`, `F32` | the shortest digits that read back as the same value: `0.1`, `2.5`, `0.30000000000000004`; a whole number keeps its point, `1.0`; from `1e21` up and below `1e-6` in size, an exponent, `1e21`, `2.5e-7`; `inf`, `-inf`, and `nan` on every platform |
+| `?String`, `String` | its text; inside other values, quoted and escaped (below) |
 | `none` | `none` |
 | enum | `.green`, `.circle(r: 2.5)`, `.rect(w: 2, h: 3)`: payload fields by name, however it was built |
 | error | `Disk.timeout`: its set and its name, without the module |
-| object | `User(name: "ada", age: 36)` |
+| object | `User(name: "ada", age: 36)`: every field, in order |
 | array, slice, `List` | `[1, 2]` |
 | shared handle | the value it holds |
 | `^T` | the value it holds |
@@ -9272,10 +9281,20 @@ direct call; it is not a value.
 | owned closure | `<closure>` |
 | function | `<fun>` |
 
+Text inside another value (an element, a field, a payload, an optional's
+value) is written as a Rig string literal that reads back as the same
+bytes: `"` and `\` take a backslash; a newline, tab, and carriage
+return are `\n`, `\t`, and `\r`; any other control byte, DEL, and each
+byte of invalid UTF-8 are `\xHH`; a C1 control and a bidirectional
+control (`U+202E` and its kin) are `\u{h}`; every other character is
+written as it is. Text printed on its own is written as it is.
+
 A value nested more than 64 levels deep prints its deeper parts as
 `...`. A temporary printed, `print(String("n=", n))` or `print(make())`,
 is dropped when the statement ends ([§7](#temporaries)). A `[]U8` and a `?String` are the same bytes at run time, so
 `print` rejects a value that holds a `[]U8`; print its bytes one by one.
+Whether a type prints is a fact of the type, so a generic body that
+prints a `T` rejects an instance whose `T` holds a `[]U8`.
 
 ```rig
 obj User
@@ -9296,12 +9315,102 @@ sub main()
   w = ~h
   b = ^User(name: "cy", age: 2)
   print(h, w, b, *Cell(5))
+  print("say \"hi\"\n", ["say \"hi\"\n", "tab\t"])
+  print(0.1 + 0.2, 1e20, 1e21, 0.000001, 1e-7, Float.inf())
 ```
 
 ```output
 User(name: "ada", age: 36) none ["a", "b"] 2.5 2.0
 .dot .circle(r: 2.5) .rect(w: 2, h: 3)
 User(name: "bob", age: 1) ~(alive) User(name: "cy", age: 2) Cell(value: 5)
+say "hi"
+
+["say \"hi\"\n", "tab\t"]
+0.30000000000000004 100000000000000000000.0 1e21 0.000001 1e-7 inf
+```
+
+### Output
+
+stdout is buffered: what `print` writes reaches the file when the
+buffer fills, and is written out before anything goes to stderr (a
+`warn`, a `panic`, a runtime panic, a failure that leaves `main`) and on
+every exit, so the two streams read in the order the program wrote
+them.
+
+When stdout is a pipe whose reader has closed it (`prog | head -1`), the
+program ends at once with status 0 and writes nothing more: its drops,
+`defer`s, and leak check do not run. Any other failure to write stdout
+(a full disk, a closed file) ends the program the same way, with
+`error: stdout: <reason>` on stderr and status 1.
+
+```rig
+sub main()
+  print("one")
+  warn("careful:", [1, 2])
+  print("two")
+```
+
+```output
+one
+two
+```
+
+```stderr
+careful: [1, 2]
+```
+
+### panic
+
+`panic(a, b, ...)` is for a bug: a state the program cannot go on from.
+It writes out what `print` buffered, then on stderr the file, line, and
+column it stands at, `panic: `, and the line `print` would write, and
+ends the program with status 134 in every build mode. The file is named
+from the package's root directory, and the column counts runes (code
+points) from 1. Only the first line carries the prefix: a message
+of several lines is written as it is after it. The program ends where it
+stands: no drop, `defer`, `errdefer`, or leak check runs. A runtime
+panic (an index out of range, an overflow) is the same event: it writes
+out the buffered output and writes `panic: ` and its message, with no
+location (and a stack trace in a debug build), and ends with status 134.
+In a test, a panic ends the run after `FAIL  name: panicked` and the
+count so far.
+
+A `panic` needs a message. It gives no value, so it stands where a
+statement can or where a branch's value is taken: as a statement, as a
+branch of `if` or a ternary, as a `match` arm, on the right of `??`, and
+as a `catch` handler. A statement after it in the same block is
+rejected as unreachable, and it cannot stand in a `defer` or
+`errdefer`, which run as a scope ends.
+
+```rig
+fun half(n: Int) -> Int
+  n / 2 if n % 2 == 0 else panic("odd:", n)
+
+sub main()
+  defer print("not reached")
+  print(half(4))
+  o: Int? = none
+  print(o ?? 7)
+  print(half(3))
+```
+
+```output
+2
+7
+```
+
+```stderr exit=134
+main.rig:2:28: panic: odd: 3
+```
+
+```rig reject
+sub main()
+  x = panic("a") + 1
+  print(x)
+```
+
+```error
+`panic` ends the program and gives no value, so it stands as a statement or as a branch's value
 ```
 
 ---
