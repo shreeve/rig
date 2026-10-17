@@ -483,6 +483,7 @@ program; [INTERNALS](docs/INTERNALS.md) describes it.
 | class | `struct` + functions | `class` | `class` / `struct` + methods | `obj` with methods |
 | `this` / `self` | a pointer argument | `self` (implicit in Ruby) | `this` / a receiver | `self`, always written |
 | switch | `switch` | `match` / `case` | `switch` | `match` |
+| a name as a value | an `enum` | a string / `:width` | a string constant | `:width`, a `Symbol` ([SPEC](SPEC.md#symbols)); `f(width: 3)` names an argument |
 | do nothing | `;` | `pass` / `nil` | `{}` | `pass` |
 | exceptions | error codes | `raise` / `try` | `throw` / `error` returns | `T!`, `f()!`, `catch` |
 | several results | out-parameters | `return q, r`, a tuple | an array / `return q, r` | `-> (Int, Int)`, `return q, r`, `q, r = f()` |

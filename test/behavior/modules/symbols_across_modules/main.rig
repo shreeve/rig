@@ -1,0 +1,18 @@
+# Symbols are one set for the whole program: `:triangle` written in two
+# modules is one value, a default argument of another module's function
+# is written where it is called, and a symbol only one module writes is
+# found by `Symbol.from_text` in another.
+
+use shapes
+
+DEFAULT = :square
+
+sub main()
+  print(shapes.sides(:triangle), shapes.sides(DEFAULT), shapes.sides(:blob))
+  print(shapes.kind() == :triangle, shapes.kind(), shapes.pick())
+  print(Symbol.from_text("hexagon") ?? :none, shapes.sides(Symbol.from_text("hexagon") ?? :none))
+
+# expect:
+# 3 4 0
+# true :triangle :circle
+# :hexagon 6

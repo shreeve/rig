@@ -1,0 +1,22 @@
+# A symbol has one spelling, `:name`, and no order: `.width` where a
+# `Symbol` is expected is an enum variant, `<` is not defined, and a
+# symbol's id stays inside the compiler (no `U32(s)`, no
+# `Symbol.from_int`). Its one member is `.text`, which is read-only.
+
+sub main()
+  s: Symbol = .width
+  t = :a
+  print(s, t < :b, t >= :a)
+  print(U32(t), Symbol.from_int(0))
+  t.text = "x"
+  print(t.name, t == .a)
+
+# error: 7:16: `.width` is an enum variant, and a `Symbol` is expected; a symbol is written `:width`
+# error: 9:12: operator `<` is not defined for `Symbol`: a symbol has no order; compare with `==` and `!=`
+# error: 9:20: operator `>=` is not defined for `Symbol`
+# error: 10:13: `U32(x)` converts a number; `x` has type `Symbol`
+# error: 10:24: `Symbol` has no function `from_int`; its one function is `Symbol.from_text(word)`
+# error: 11:5: cannot assign to `.text`; a symbol's name is read-only
+# error: 12:11: a `Symbol` has no field `name`; its one member is its name, `.text`
+# error: 12:23: `.a` is an enum variant, and a `Symbol` is expected; a symbol is written `:a`
+# errors: 8

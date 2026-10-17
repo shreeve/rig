@@ -41,8 +41,9 @@ syn match rigVariableSpecial "\v\w@<!self\w@!"
 syn match rigConstant "\v\w@<!false\w@!|\w@<!none\w@!|\w@<!true\w@!"
 syn match rigKeywordOperator "\v\w@<!and\w@!|\w@<!not\w@!|\w@<!or\w@!"
 syn match rigKeyword "\v\w@<!extern\w@!|\w@<!static\w@!|\w@<!unique\w@!|\w@<!async\w@!|\w@<!const\w@!|\w@<!error\w@!|\w@<!keeps\w@!|\w@<!trait\w@!|\w@<!where\w@!|\w@<!drop\w@!|\w@<!enum\w@!|\w@<!from\w@!|\w@<!impl\w@!|\w@<!test\w@!|\w@<!type\w@!|\w@<!when\w@!|\w@<!fun\w@!|\w@<!pub\w@!|\w@<!raw\w@!|\w@<!sub\w@!|\w@<!use\w@!|\w@<!zig\w@!|\w@<!as\w@!"
-syn match rigKeywordControl "\v\w@<!continue\w@!|\w@<!errdefer\w@!|\w@<!return\w@!|\w@<!await\w@!|\w@<!break\w@!|\w@<!catch\w@!|\w@<!defer\w@!|\w@<!match\w@!|\w@<!while\w@!|\w@<!yield\w@!|\w@<!else\w@!|\w@<!pass\w@!|\w@<!for\w@!|\w@<!try\w@!|\w@<!if\w@!|\w@<!in\w@!"
+syn match rigKeywordControl "\v\w@<!continue\w@!|\w@<!errdefer\w@!|\w@<!return\w@!|\w@<!await\w@!|\w@<!break\w@!|\w@<!catch\w@!|\w@<!defer\w@!|\w@<!match\w@!|\w@<!panic\w@!|\w@<!while\w@!|\w@<!yield\w@!|\w@<!else\w@!|\w@<!pass\w@!|\w@<!for\w@!|\w@<!try\w@!|\w@<!if\w@!|\w@<!in\w@!"
 syn match rigInvalid "\v\=\!%([\x09 ])@!"
+syn match rigConstantSymbol "\v%([)0-9A-Z\]_a-z])@<!\:[A-Z_a-z][0-9A-Z_a-z]*%(%(\-|\.)[0-9A-Z_a-z]+)*"
 syn match rigType "\v%([0-9A-Z_a-z])@<![A-Z][0-9A-Z_a-z]*"
 syn match rigVariableParameter "\v%([.0-9A-Z_a-z])@<![A-Z_a-z][0-9A-Z_a-z]*%(\:)@="
 syn match rigStorageModifier "\v%([)0-9A-Z\]_a-z])@<=[!?]%([(0-9=?A-\x5b_a-z])@!"
@@ -65,6 +66,7 @@ hi def link rigKeywordControl Statement
 hi def link rigKeywordOperator Operator
 hi def link rigConstant Constant
 hi def link rigConstantNumeric Number
+hi def link rigConstantSymbol Constant
 hi def link rigString String
 hi def link rigStringEscape SpecialChar
 hi def link rigComment Comment

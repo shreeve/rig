@@ -147,12 +147,13 @@ sub resources()
   z =! x
   new y =! x * 2
   st: Status = .missing
+  tag = :content-type
   ok = true and not false or none == none
   b: Bool = st == .ok
   print(@size(Point), @align(Point), @name(Point), @variants(Status))
   raw
     pass
-  print(ok, b, y, z)
+  print(ok, b, y, z, tag == :if)
 
 test "area"
   print(shapes(.point))
