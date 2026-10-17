@@ -376,8 +376,8 @@ The tiers, cheapest first (test/README.md, "The tiers"):
   <ids>` for the tests you name. A full suite never runs on the Mac: it
   runs on burst, `cpuq submit cpuq/suite.json` (about 10 minutes), and
   `cpuq submit cpuq/suite.json -- <filters>` runs part of it there.
-- **Once per pull request, when it is ready:** `tools/gate`, the suite
-  and the corpus on burst. It runs only when the pull request touches
+- **A pull request, when Steve asks:** `tools/gate`, the suite and
+  the corpus on burst. It skips a pull request that touches nothing in
   `src/`, `std/`, `rig.grammar`, the build, or the test harness, and adds
   the matrix only when it touches the classifiers, the proofs, or emit.
 - **The deep gate, on `main`:** `tools/deep` runs the suite, the corpus,

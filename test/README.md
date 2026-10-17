@@ -538,8 +538,8 @@ Each tier runs what the one before cannot afford:
    `./test/run --delta <ids>` for the tests you name. A full suite never
    runs on the Mac; it runs on burst, `cpuq submit cpuq/suite.json`, and
    `cpuq submit cpuq/suite.json -- <filters>` runs part of it there.
-2. **Once per pull request, when it is ready:** `tools/gate`, the suite
-   and the corpus on burst (below).
+2. **A pull request, when Steve asks:** `tools/gate`, the suite and the
+   corpus on burst (below).
 3. **On `main`:** `tools/deep`, the deep gate (below), when Steve asks.
 4. **Nightly:** the cold suite on GitHub's runners (`test.yml`, below).
 
@@ -573,9 +573,9 @@ not replace the gate or the deep gate.
 
 ## The merge gate and CI
 
-A pull request is tested on burst once, when it is ready to merge, and
-GitHub's runners do not test it again; the deep gate on `main` tests
-everything that merged, together:
+A pull request is tested on burst only when Steve asks, once it is ready
+to merge, and GitHub's runners do not test it again; the deep gate on
+`main` tests everything that merged, together:
 
 ```bash
 tools/gate                 # from the branch's worktree, after merging main and pushing

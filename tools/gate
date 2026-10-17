@@ -9,7 +9,7 @@
 # Gating is a choice, not a step every pull request takes: the required
 # checks (.github/workflows/gate.yml) pass for a head with no `rig/gate`
 # status, and fail only after a gate on it failed. A pull request is gated
-# once, when it is ready (a draft is refused), and only when it changes
+# when Steve asks, once it is ready (a draft is refused), and only when it changes
 # what burst tests (TESTED, below); for any other it says why and exits 0
 # without posting anything. The deep gate on main (tools/deep) tests the
 # rest, and every merge together.
