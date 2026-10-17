@@ -576,7 +576,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     const dashes: []const []const u8 = if (program_args.len > 0) &.{"--"} else &.{};
     const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, emit_bin, libc, dashes, program_args });
     if (opts.command == .build) {
-        const code = try runZig(io, argv, null);
+        const code = try runZig(io, argv);
         if (home) |h| recordSize(allocator, io, h, dir);
         if (code == 0) return;
         std.debug.print("note: emitted Zig is in {s}\n", .{dir});
@@ -684,28 +684,26 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
     return driver.written();
 }
 
-/// Run the Zig toolchain with inherited stdio (and `environ`, when given,
-/// as its environment); return its exit code (128 + the signal number if
-/// a signal ended it), which for `zig run` is the program's once it has
-/// started it.
-fn runZig(io: std.Io, argv: []const []const u8, environ: ?*const std.process.Environ.Map) !u8 {
-    return (try runZigReport(io, argv, environ)).code;
+/// Run the Zig toolchain with inherited stdio; return its exit code (128 +
+/// the signal number if a signal ended it).
+fn runZig(io: std.Io, argv: []const []const u8) !u8 {
+    return (try runZigReport(io, argv, null)).code;
 }
 
 const Ended = struct { code: u8, signal: ?u8 = null };
 
-/// `runZig`, and the signal that ended the process, if one did (for
-/// `zig run`, the program: Zig replaces itself with it).
+/// Run the Zig toolchain with inherited stdio (and `environ`, when given,
+/// as its environment); return its exit code and the signal that ended
+/// it, if one did. For `zig run` (`environ` given) these are the
+/// program's once it has started: Zig replaces itself with it.
 fn runZigReport(io: std.Io, argv: []const []const u8, environ: ?*const std.process.Environ.Map) !Ended {
-    // RIG_NO_CRASH_REPORT=1 (a harness running a program that panics on purpose): on macOS this
-    // process answers the child's crashes as handled, so neither the user's nor the system's
-    // ReportCrash files one. Clearing the program's own handler stops only the user's. The child
-    // is `zig run`, compile and program in one process: a compiler crash in such a run files no
+    // `zig run` for `rig run` and `rig test`: on macOS this process answers the child's crashes as
+    // handled, so neither the user's nor the system's ReportCrash files one; a panic's message and
+    // trace are on stderr already. Clearing the program's own handler would stop only the user's.
+    // The child is compile and program in one process: a compiler crash in such a run files no
     // report either, though it still fails the run.
     var catcher: ?CrashCatcher = null;
-    if (builtin.os.tag.isDarwin()) if (environ) |e| if (e.get("RIG_NO_CRASH_REPORT")) |v| if (std.mem.eql(u8, v, "1")) {
-        catcher = CrashCatcher.start();
-    };
+    if (builtin.os.tag.isDarwin() and environ != null) catcher = CrashCatcher.start();
     var child = std.process.spawn(io, .{
         .argv = argv,
         .environ_map = environ,
