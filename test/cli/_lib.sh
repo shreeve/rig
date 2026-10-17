@@ -11,6 +11,20 @@ export RIG_RESULTS_CACHE=
 
 fail() { echo "FAIL: $*"; exit 1; }
 
+# quiet <program> [args...]: run a built program that panics on purpose so no crash report is
+# filed for it: RIG_NO_CRASH_REPORT=1 (Linux: no apport), and on macOS, where cpuq's cap answers
+# crashes itself (`cpuq cap --protocol` 3 or later), under `cpuq cap --no-crash-report`, which
+# keeps both the user's and the system's ReportCrash quiet. Elsewhere (CI) it runs as it is.
+quiet() {
+    local proto
+    proto=$(cpuq cap --protocol 2>/dev/null) || proto=0
+    if [[ $proto =~ ^[0-9]+$ ]] && (( proto >= 3 )); then
+        RIG_NO_CRASH_REPORT=1 cpuq cap --no-crash-report -- "$@"
+    else
+        RIG_NO_CRASH_REPORT=1 "$@"
+    fi
+}
+
 # expect_eq <actual> <expected> <what>
 expect_eq() { [[ "$1" == "$2" ]] || fail "$3: expected [$2], got [$1]"; }
 
