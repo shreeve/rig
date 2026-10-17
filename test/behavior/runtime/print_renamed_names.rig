@@ -5,13 +5,13 @@
 enum K
   rig
   std
-  panic
+  os
   debug
   var
 
 enum P
   rig(std: Int, var: Int)
-  panic
+  os
   __rig_x(v: Int)
 
 obj O
@@ -21,8 +21,8 @@ obj O
   u8: Int
 
 sub main()
-  print(K.rig, K.std, K.panic, K.debug, K.var)
-  print(P.rig(std: 1, var: 2), P.panic, P.__rig_x(v: 3))
+  print(K.rig, K.std, K.os, K.debug, K.var)
+  print(P.rig(std: 1, var: 2), P.os, P.__rig_x(v: 3))
   o = O(rig: 1, std: 2, debug: 3, u8: 4)
   print(o)
   print(String(K.rig), String(o))
@@ -30,12 +30,12 @@ sub main()
     print(v)
 
 # expect:
-# .rig .std .panic .debug .var
-# .rig(std: 1, var: 2) .panic .__rig_x(v: 3)
+# .rig .std .os .debug .var
+# .rig(std: 1, var: 2) .os .__rig_x(v: 3)
 # O(rig: 1, std: 2, debug: 3, u8: 4)
 # .rig O(rig: 1, std: 2, debug: 3, u8: 4)
 # .rig
 # .std
-# .panic
+# .os
 # .debug
 # .var

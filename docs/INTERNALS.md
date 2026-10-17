@@ -561,6 +561,18 @@ A few kinds serve more than one surface form:
   right side of `??` and a `catch` handler (`get(k) ?? return none`),
   where the checker types them `noreturn` and the emitter writes a Zig
   block that leaves (`orelse { return null; }`).
+- `panic` is a statement and a branch's value: a block's statement, an
+  `if` or `match` branch, the right side of `??`, or a `catch` handler.
+  Typecheck records where each one stands by that positive list
+  (`placePanics`), types it `noreturn`, and rejects one anywhere else,
+  or in a `defer` or `errdefer`. It desugars to a call that never
+  returns, `rig.fail(.{ "file.rig:L:C: panic: ", a, " ", b, "\n" })`,
+  whose pieces are `print`'s with the location first: a jump out of the
+  program, in the jump list beside `return`, `break`, and `continue`
+  (`rig.leaves`, `Hands.kind` `jump`), so the ownership checker reaches
+  nothing after it and files no loan or drop at it, and the proofs walk
+  carries no fact past it. `warn(a, b)` is `print`'s call to
+  `rig.warn` in place of `rig.print`.
 - `if` is the block `if`, the ternary `a if c else b`, and the guard
   `stmt if c` (whose `then` is a block holding the statement); its
   `cond` may be `(as value name)`, as may a `while`'s, or an `and`
@@ -1054,7 +1066,7 @@ and emit all ask it, and none decides it again from syntax. Its
 | `made` | a call, a constructor, `+x`, `*x`, `~x`, `<x`, an array, a closure, an operator's result, a literal, `none`, an enum literal, a `match`, a block, a loop's value, and a branching value every leaf of which is made there or jumps |
 | `lend` | `?x`, `!x`, and their slices |
 | `branches` | `a if c else b`, `a ?? b`, `e catch h`, `e!`, `e?` with a leaf that is not made there |
-| `jump` | `return`, `break`, `continue` |
+| `jump` | `return`, `break`, `continue`, `panic` |
 | `none` | a statement, a declaration, a type, a pattern |
 
 Whether the value is a view, and whether it lives for the whole
@@ -1840,7 +1852,7 @@ a fact emit and the ownership checker read too:
 | `for` | the source unit; then `L` as for `while`, the body from `L`; a `for` binding gets no facts |
 | statement `match` | the selection unit, then each arm from its exit; a subject the match reads again after picking an arm (`storage.matchRereads`) proves nothing; after it, `E - K(match)` |
 | `break`, `continue` | carries the facts where it runs, less what every pending `defer` of the body writes, to where its `JumpDest` goes; only a step joins them (a head starts from `L`, an exit from the join after the loop) |
-| `return`, a failing `e!` or `e?` | leaves the body, carrying nothing; after a `return`, `break`, or `continue` statement nothing is reached |
+| `return`, a failing `e!` or `e?` | leaves the body, carrying nothing; after a `return`, `break`, `continue`, or `panic` statement nothing is reached |
 | `raw` | opaque: nothing in it is proven, no fact outlives it, and a jump out of it carries none |
 | a closure's body, a `defer` body, a function's body | from no facts |
 
@@ -4119,7 +4131,8 @@ reviewed.
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `FnRef(params, R)` | a callable view: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |
 | `Signal(T)` | a value and a `List` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
-| `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...`. `print` takes a tuple of pieces in order, the spaces between the arguments and the final newline included (`print(n, s)` is `rig.print(.{ n, " ", &s, "\n" })`), so every argument has run before a byte is written. It is `inline`, and `piecesOf` reads the tuple's type at compile time: a field known then whose bytes are too (a string literal, an Int, a Bool) is text, each run of text is joined and copied into the buffer by the one `noinline` writer of its length (`outFixed`), a `?String` or a String among the values is written as its bytes, and each other value goes to the one `noinline` writer of its type (`outValueOf`). A print site is a straight line of calls, about 60 bytes of code in `--release=fast` (`bench/print/guard.py`). `String.of` and `add` append the same way (`appendFixed`, `addValueOf`). A failed write lands in `outFailed`, which ignores it |
+| `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...`. `print` takes a tuple of pieces in order, the spaces between the arguments and the final newline included (`print(n, s)` is `rig.print(.{ n, " ", &s, "\n" })`), so every argument has run before a byte is written. It is `inline`, and `piecesOf` reads the tuple's type at compile time: a field known then whose bytes are too (a string literal, an Int, a Bool) is text, each run of text is joined and copied into the buffer by the one `noinline` writer of its length (`outFixed`), a `?String` or a String among the values is written as its bytes, and each other value goes to the one `noinline` writer of its type (`outValueOf`). A print site is a straight line of calls, about 60 bytes of code in `--release=fast` (`bench/print/guard.py`). `String.of` and `add` append the same way (`appendFixed`, `addValueOf`). Text inside another value is quoted and escaped (`writeQuoted`), and a float is written as its shortest digits (`writeFloat`, on `std.fmt.float.binaryToDecimal`), with an exponent from `1e21` up and below `1e-6`. A failed write lands in `stdoutFailed`: a closed pipe (`BrokenPipe`) exits 0 at once, and any other error writes `error: stdout: <reason>` and exits 1, running no drop. A failed write to stderr in `warn` is dropped, and the program goes on |
+| `warn`, `fail` | `warn(a, b)` and `panic(a, b)`: `flush`, then the pieces `print` takes written to stderr under `std.debug.lockStderr`; `warn` writes through a 4 KiB buffer, so a line up to that size is one write. `fail` reports the test it ended (`beginPanic`) and ends the program by `std.process.abort`, status 134, after the line |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
 | `onOwnStack`, `switchStack` | run `main` and the tests on the program's stack, over its guard, with an overflow handler that names a fault in the guard a stack overflow ([The program's stack](#the-programs-stack)). `test/cli/stack_guard.sh` checks it |
 | `simdRead`, `simdWrite`, `lane`, `withLane`, `maskBits`, `maskFirst`, `maskAny`, `maskAll` | a vector's bytes, lanes, and mask ([Vectors](#vectors)): `simdRead` and `simdWrite` check the offset once, as `readInt` does, and load or store through an `align(1)` pointer, swapping each lane's bytes where its order is not native; `lane` and `withLane` go through `[n]T` with `index`'s check; `maskBits` lowers per target, and `maskFirst` too (below) |
@@ -4137,7 +4150,7 @@ reviewed.
 | `discard`, `discardAt`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`), or, by address, a part of a payload a `match <e` arm leaves unused (deferred, so each exit passes only the address); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body or on a plain enum: numbers by the operator, a plain enum's values by `@intFromEnum`, `?String` values by `std.mem.order`. Outside a generic body a `?String` or `[]U8` ordering is `std.mem.order` itself |
 | `expectShim` | the compile-time check of a Zig-backed declaration: its Zig function's type is exactly the one the Rig signature lowers to, except that a fallible one returns a named error set of the module's errors in place of `anyerror` |
-| `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
+| `panic` | the root panic handler, for a runtime panic: flush `print` output, then `panic: msg` on stderr (and the stack trace in a debug build), then `abort`, as `fail` does |
 | `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
 | `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as `?String` values, gathered once and freed by `finish`; in a package `rig run` or `rig test` built (whose root declares `__rig_run_started`), `start` also creates the file `RIG_PROGRAM_STARTED` names, their evidence that the program ran; `exitStatus` checks the status of `fun main() -> Int`. With `RIG_NO_CRASH_REPORT=1` in its environment, in every build mode, on Linux `start` first sets its core limit to exactly 1 (`RLIMIT_CORE` {1, 1}), at which the kernel passes it to no `core_pattern` pipe (apport) and writes no core. On macOS the program does nothing itself: clearing its own crash handler would stop only the user's ReportCrash, and the system's would still file the crash in /Library/Logs/DiagnosticReports. The process that starts it answers its crash as handled instead: `rig run` and `rig test`, always, with or without the variable (`CrashCatcher` in main.zig, around their `zig run` child; a panic's message and trace are on stderr already), or `cpuq cap --no-crash-report` for a built program a harness runs directly. The trade-off: `zig run` compiles and runs in one process, so inside such a run a compiler crash files no .ips either; it still fails the run loudly (no `RIG_RUN_STARTED`, a nonzero status). It still dies by its signal, its stderr unchanged. A test harness sets it for programs that panic on purpose |
 | `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `SafeAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which `./test/run` sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, List, or closure stores an allocator. Allocation failure panics |
@@ -4305,11 +4318,14 @@ thread's alternate signal stack, which Zig's start code sets (a child
 process forked on macOS loses it, so `onOwnStack` sets it again in one,
 through `pthread_atfork`, where libc is linked). For a fault in the
 guard it flushes `print`'s output and writes `error: rig: stack
-overflow`; then, as the sanitizer's handler does, it restores the
-handlers it replaced and returns, so the access faults again into Zig's
-handler, which prints the stack trace and aborts. In `--release=fast`,
-where Zig installs no handler, it aborts itself, so a stack overflow
-ends with SIGABRT (status 134) in every build mode, as a panic does.
+overflow`, and restores the handlers it replaced. In a debug build it
+then returns, as the sanitizer's handler does, so the access faults
+again into Zig's handler, which prints the stack trace and aborts. An
+optimized build aborts itself with the message alone, as a runtime
+panic does: there Zig's handler walks the trace by frame pointers, which
+can fault again at the top of the program's stack, and `--release=fast`
+installs no handler. So a stack overflow ends with SIGABRT (status 134)
+in every build mode.
 
 **64 MiB.** Four times the 16 MiB Zig gives the main thread: deep
 recursion (a checker's walk of a large tree) has room, and address

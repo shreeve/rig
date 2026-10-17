@@ -65,8 +65,8 @@ test "never runs"
   print("unreachable")
 EOF
 RIG_NO_CRASH_REPORT=1 rig test failing.rig >out.txt 2>err.txt; rc=$?
-[[ $rc -ne 0 ]] || fail "failing tests exited 0"
-expect_eq "$(cat out.txt)" $'fine\nok    test "passes"\nFAIL  test "leaks a cycle": memory leak\n0\nFAIL  test "fails with an error": Bad.oops\nFAIL  test "panics": panicked' "failing report"
+expect_rc $rc 134 "a run a test panicked in"
+expect_eq "$(cat out.txt)" $'fine\nok    test "passes"\nFAIL  test "leaks a cycle": memory leak\n0\nFAIL  test "fails with an error": Bad.oops\nFAIL  test "panics": panicked\n1 passed, 3 failed' "failing report"
 expect_has "$(cat err.txt)" "memory leak detected: 2 allocations" "leak detail"
 expect_has "$(cat err.txt)" "index out of bounds" "panic detail"
 

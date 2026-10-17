@@ -83,8 +83,17 @@ sub main()
   one line of output (`# ` is stripped; a bare `#` is an empty line). The
   block ends at the first non-comment line. With no block, stdout must be
   empty.
-- `# expect-panic: <text>` — the program must exit non-zero with `<text>`
-  on stderr. An `# expect:` block, if present, still checks stdout.
+- `# expect:` and `# expect-stderr:` blocks also end at each other, so
+  a test may give both.
+- `# expect-panic: <text>` — the program must exit 134 (the status of
+  every panic) with `<text>` on stderr. An `# expect:` block, if
+  present, still checks stdout.
+- `# expect-exit: <n>` — the program must exit with status `n` instead
+  of 0 (or 134 for `# expect-panic:`). It must still free what it
+  allocated and use no freed memory.
+- `# expect-stderr:` starts a block, written as `# expect:` is, that
+  stderr must equal. Without one, stderr is not compared. The line
+  `rig run` adds for a program a signal ended is left out.
 - `# error: <text>` — makes the file a rejection test. Repeat the line to
   require several diagnostics. `# error: L:C: <text>` also requires the
   diagnostic to be at line `L`, column `C`.
@@ -109,13 +118,14 @@ compiler. The word after `rig` on the opening fence sets the contract:
 |---|---|
 | ```` ```rig ```` | a program `rig check` accepts |
 | ```` ```rig ```` followed by ```` ```output ```` | run like a behavior test: stdout equals the output block, no leaks |
+| ```` ```rig ```` followed by ```` ```stderr ```` (after the ```` ```output ```` block, if one) | as above, and stderr equals the stderr block; ```` ```stderr exit=N ```` also requires exit status `N` |
 | ```` ```rig reject ```` followed by ```` ```error ```` | `rig check` rejects it; each line of the error block appears in a diagnostic |
 | ```` ```rig fragment ```` | only parsed; for snippets that are not whole programs |
 | ```` ```rig facts ```` followed by ```` ```facts ```` | `rig check --facts` accepts it and prints exactly the facts block |
 | ```` ```rig file=name.rig ```` | module `name.rig`, written next to the next example, which can `use name`; a path, ```` ```rig file=dir/name.rig ````, writes a file of the directory module `dir` |
 | ```` ```rig pending ```` | a rule that is decided but not built yet (see below) |
 
-Blank lines may separate a block from its `output` or `error` block.
+Blank lines may separate a block from its `output`, `stderr`, or `error` block.
 
 A ```` ```rig pending ```` block shows the behavior a decided rule will
 have: followed by an `output` block it is a program that runs and prints
