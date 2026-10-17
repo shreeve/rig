@@ -2,7 +2,8 @@
 # crash handler, apport): a panicking program exits with the same status
 # (134, SIGABRT) and writes the same stdout and stderr with it as without
 # it, in every build mode, and `rig test` reports a panicking test the
-# same. On Linux it is the program's own core limit of exactly 1. It
+# same. On Linux it is the program's own core limit of exactly 1; on
+# macOS, the process that starts it answers its crash (below). It
 # builds in all four modes, which on a loaded machine takes longer than
 # the default limit.
 # timeout: 600
@@ -67,5 +68,39 @@ EOF2
     want=$(core </proc/$$/limits)
     got=$(rig run limits.rig 2>&1 | core)
     expect_eq "$got" "$want" "the core limit without RIG_NO_CRASH_REPORT"
+fi
+
+# macOS: a panic run quiet (the harness's `quiet`, through cpuq's cap) files no crash report,
+# by the user's ReportCrash (~/Library/Logs/DiagnosticReports) or the system's
+# (/Library/Logs/DiagnosticReports); a panic not marked so still files one. Each program is built
+# unique and named for the run (ReportCrash files little for a binary it has seen crash, and
+# reports go by program name). The control shows this Mac files reports at all (a CI runner may
+# not); without one, or without a cpuq that answers crashes (cap protocol 3), it is skipped.
+# (`rig run` and `rig test` answer their child's crashes the same way; their programs all share
+# one name, so a test can't tell their reports apart.)
+proto=$(cpuq cap --protocol 2>/dev/null) || proto=0
+if [[ $(uname -s) == Darwin && $proto =~ ^[0-9]+$ ]] && (( proto >= 3 )); then
+    tag=$RANDOM$RANDOM
+    for k in q c; do
+        cat >"crash_${k}_$tag.rig" <<EOF2
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  print("$k $tag")
+  a = [1, 2, 3]
+  print(a[rt(3)])
+EOF2
+        rig build -o "crash_${k}_$tag" "crash_${k}_$tag.rig" >build.log 2>&1 || fail "build crash_$k: $(cat build.log)"
+    done
+    reports() { ls ~/Library/Logs/DiagnosticReports /Library/Logs/DiagnosticReports 2>/dev/null | grep -c "^$1-"; }
+    quiet "./crash_q_$tag" >/dev/null 2>&1; expect_rc $? 134 "a panic run quiet"
+    "./crash_c_$tag" >/dev/null 2>&1; expect_rc $? 134 "a panic not run quiet"
+    for _ in $(seq 1 40); do (( $(reports "crash_c_$tag") > 0 )) && break; sleep 1; done
+    if (( $(reports "crash_c_$tag") > 0 )); then
+        expect_eq "$(reports "crash_q_$tag")" 0 "crash reports, user and system, for a panic run quiet"
+    else
+        echo "note: this Mac filed no report for the control panic in 40 s: the quiet check is skipped"
+    fi
 fi
 exit 0
