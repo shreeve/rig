@@ -160,9 +160,9 @@ limbs and is never negative. A BigInt owns its limbs, so it moves
 (`b = <a`) and `clone` makes a second one. Its fields are private: a
 BigInt is made by `parse` or `from_int`, or by an operation on others.
 
-Every operation that makes a BigInt allocates its limbs, sized before
-they are filled, and `pow` one more List of the result's size while it
-works; zero allocates nothing. `text` allocates the String it returns,
+Every operation that makes a BigInt allocates one List for its limbs,
+even when the result is zero, and `pow` one more List of the result's
+size while it works. `text` allocates the String it returns,
 and for a number of more than 8 limbs (about 154 digits) a copy of the
 limbs to divide and a List of the 19-digit groups. `compare`, `equals`,
 `sign`, `bit_len`, and `to_f64` only read, and allocate nothing.

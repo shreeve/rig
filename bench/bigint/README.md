@@ -2,8 +2,10 @@
 
 Times `std.bigint` against Trig's port of Go's `math/big`, its 32-bit
 limbs, copied verbatim into `bench.rig` from
-`trig/src/jsnum/gostd.rig` (Trig b2d44c7). It is not part of the test
-suite or CI.
+`trig/src/jsnum/gostd.rig` (Trig b2d44c7). The port has no add or
+shl; the port's versions of those two in `bench.rig` were written for
+this benchmark, not taken from Trig, so their rows say less than the
+others. It is not part of the test suite or CI.
 
 ```sh
 D=$(mktemp -d)
@@ -31,7 +33,8 @@ each include one allocation, and text one String.
 
 `rig build --release` (ReleaseSafe), Zig 0.17.0, 2026-10-16. arm64 is
 an Apple Silicon Mac, shared (load 8 to 10 of 10 cores); x86 is pup
-under the `pup-bench` lease, on core 2.
+under the `pup-bench` lease, on core 2. The arm64 shl 1L row varies
+between runs: a second run measured it 81% faster.
 
 | Operation | Size | arm64 port ns | arm64 std ns | arm64 std is | x86 port ns | x86 std ns | x86 std is |
 |---|---|---|---|---|---|---|---|
