@@ -15,6 +15,14 @@ generation, and linking.
 > the language will change: `main` is heading for v0.3.0, which renames
 > `Box`, `Vec`, `Text`, and `struct` (`tools/migrate-0.3.py` migrates
 > 0.2 programs). See [what works](#status).
+>
+> **Future (planned, not built).** In Rig, concurrency is just tasks
+> that send each other values over channels: there are no async
+> functions, threads, locks or `Pin`, and the compiler guarantees that
+> tasks never share memory. An actor is a task with a mailbox, and a
+> supervisor restarts a task that ends with an error, the way Erlang
+> does, with Zig's `std.Io` as the engine underneath
+> ([FORMAL-RIG](formal/docs/FORMAL-RIG.md)).
 
 ## A short tour
 

@@ -1,0 +1,7 @@
+# A base is 0, for one the text names, or from 2 to 36.
+use std.bigint
+
+sub main()
+  print((bigint.parse("1", 37) catch bigint.from_int(0)).text())
+
+# expect-panic: bigint.parse: the base is not 0 or between 2 and 36

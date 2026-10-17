@@ -1,0 +1,17 @@
+# A BigInt is compared by its methods and made by `parse` and
+# `from_int`: it has no `==` or `<`, and no fields to read or set.
+use std.bigint
+
+sub main()
+  a = bigint.from_int(1)
+  b = bigint.from_int(2)
+  print(a == b)
+  print(a < b)
+  c = bigint.BigInt(neg: false, limbs: List())
+  print(a.neg, c.text())
+
+# error: 8:9: `==` is not defined for `bigint.BigInt`: field `limbs` is a `List[U64]`, which has no `==`
+# error: 9:9: operator `<` orders numbers, plain enums, Strings, and `[]U8` slices; got `bigint.BigInt`
+# error: 10:14: only the standard library's module `std.bigint` can construct `std.bigint.BigInt`: its fields `neg`, `limbs` are private; make one with its `pub` functions
+# error: 11:11: field `neg` of `std.bigint.BigInt` is private to the standard library's module `std.bigint`
+# errors: 4

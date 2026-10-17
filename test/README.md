@@ -149,7 +149,8 @@ leak.
 A program that panics on purpose (an `# expect-panic:` test, and the
 CLI tests' panicking programs and `rig test` runs) runs with
 `RIG_NO_CRASH_REPORT=1`. That only stops a crash report for its abort. On
-macOS, `rig run` and `rig test` answer their program's crash themselves, and
+macOS, `rig run` and `rig test` answer their program's crash themselves,
+always, with or without it, and
 the CLI tests run a built program through `quiet` (test/cli/_lib.sh), which
 uses `cpuq cap --no-crash-report` where cpuq (cap protocol 3 or later) is on
 PATH: neither the user's ReportCrash (~/Library/Logs/DiagnosticReports) nor
@@ -157,10 +158,12 @@ the system's (/Library/Logs/DiagnosticReports) files one. On Linux the
 program's core limit of exactly 1 keeps the kernel from passing it to the
 `core_pattern` handler (apport). It still exits 134 with the same output.
 `./test/run` sets it for those tests alone and clears it for every other
-program, whose crash is still reported; `test/cli/no_crash_report.sh` checks
-the status and output are the same with and without it, on Linux the core
-limit, and on macOS that both report folders stay empty for a panic run
-quiet while one not run quiet still files a report.
+program, whose crash is still reported on Linux, and on macOS when it is a
+built program run directly; `test/cli/no_crash_report.sh` checks the status
+and output are the same with and without it, on Linux the core limit, and on
+macOS that both report folders stay empty for a panic run quiet and for one
+under `rig run` without it, while a built program's panic not run quiet still
+files a report.
 
 The suite also builds every program it runs (behavior tests, examples,
 known bugs, doc examples with output, the corpus) with `RIG_SANITIZE=1`,
@@ -527,49 +530,78 @@ The output directory's `.durations` file records how long each test
 took, in whole seconds; the next run starts the longest tests first, so
 it does not end waiting on one of them.
 
+## A quick local check
+
+`tools/check N` is a sniff test before a push, run on this Mac through
+the job queue (`cpuq run --local --cores 2`). `N` is a share of the
+suite in percent, 1 to 100: the suite splits into `100/N` equal parts,
+rounded to a whole number, and one runs (`tools/check 1` is about 40
+tests, `tools/check 5` about 200). It runs, each with `--delta`:
+
+1. The branch's own tests, in full: every test the branch adds or
+   changes since its merge-base with `origin/main` (committed or not,
+   new files included), found by id from the files it touches under
+   `test/behavior`, `reject`, `known`, `ir`, `torture`, `cli`, `corpus`
+   and `examples/`, and every doc example of a Markdown file whose `rig`
+   blocks changed (`doc/<file>/`, the whole file, since an edit moves
+   lines). A change to a `test/cli/_*` helper runs every CLI test.
+2. One random slice of the suite, `./test/run --delta --shard I/K` with
+   `I` chosen at random, so repeated checks cover more over time. Slice
+   1 also runs the whole-program checks (`unit`, `classify`, `vocab`,
+   `style`), as any first shard does.
+
+`--matrix` adds the same slice of `test/matrix.py --delta --shard I/K`,
+and `--slice I` picks the slice. The report gives the passed and failed
+counts, the slice that ran, and one command that reruns just the
+failures; the exit status is 1 if anything failed. It samples; it does
+not replace `./test/run`, the gate, or the deep gate.
+
 ## The merge gate and CI
 
-Every pull request is tested on burst, and GitHub's runners do not test
-it again:
+A pull request is tested on burst when we ask, and GitHub's runners do
+not test it again; the deep gate on `main` tests everything that merged:
 
 ```bash
 tools/gate                 # from the branch's worktree, after merging main and pushing
-tools/gate --no-matrix     # a quicker look, the suite and the corpus: no merge gate
+tools/gate --no-matrix     # a quicker look, the suite and the corpus
+tools/gate --skip REASON   # test nothing: post success, which clears a failed gate
 ```
 
 `tools/gate` refuses unless the worktree is clean, holds no ignored file
 that cpuq would ship (cpuq copies everything but a spec's `exclude`), and
 its HEAD is the pull request's pushed head and contains the base branch;
 so the bytes burst tests are exactly that commit's. It refuses a branch
-that changes `tools/gate` or `cpuq/` unless given `--allow-gate-changes`.
+that changes `tools/gate` or `cpuq/` unless given `--allow-gate-changes`. A branch that changes `formal/`
+also builds its Lean proofs on this machine first (`cd formal && lake
+build`; burst has no Lean), and fails on an unfinished one, a `sorry`,
+which lake only warns of.
 It submits `cpuq/suite.json`, `corpus.json`, and `matrix.json` together,
 each a `--delta` run, which burst runs at once; cancels the rest when one
 fails; and posts the commit status `rig/gate` on the commit: `success`
 with its tree and the job ids when all pass, `failure` when a test
 fails, `error` when a job could not finish. It posts with the Mac's `gh`
 login, and no credential goes to GitHub. Last it re-runs the pull
-request's `gate` workflow, waits for the required checks to pass, and
-prints the time each phase took. With `--no-matrix` its success says it
-ran no matrix and is no merge gate, and it re-runs nothing.
+request's `gate` workflow and, after a success, waits for the required
+checks to pass, printing the time each phase took. With `--no-matrix` its
+success says it ran no matrix. `--skip REASON` posts `success` with
+"skipped by LOGIN: REASON" on the pull request's pushed head and re-runs
+the checks; it needs no clean worktree and no merge of the base.
 
 The ruleset on `main` requires the checks `test (ubuntu-latest)` and
 `test (macos-latest)` from GitHub Actions, and `.github/workflows/gate.yml`
 gives them to every pull request. It runs on `pull_request_target`,
 which always runs `main`'s copy of the file, whatever the pull request
 changes; it checks out and runs nothing of the pull request, and reads
-only statuses, the pull request, and commits. It passes when the newest
-`rig/gate` status on the pull request's head commit is a success posted
-by a login it trusts and names the matrix job it ran, and the head
-contains the base branch as it is when the check runs (otherwise:
-`branch is behind main ...: merge main and re-run tools/gate`). A new
-push has no status, so its checks fail until `tools/gate` passes on it,
-and a failing check of a required name blocks the merge even when a
-workflow of the pull request's own reports the same name passing. The
-check is made when it runs: a branch that falls behind after it passed
-stays green until a push or a re-run.
+only statuses, the pull request, and commits. On a pull request from a
+branch of this repository it passes when the head commit has no
+`rig/gate` status (it was not gated, the default) or when the newest is
+a success posted by a login it trusts; it fails while a gate is pending
+when it runs, and after a gate failed, until a push, a passing gate, or
+`--skip`. A failing check of a required name blocks the merge even when
+a workflow of the pull request's own reports the same name passing.
 
-A fork's pull request is gated the same way, by hand, once it has been
-read in full: `tools/gate` runs the pull request's code on burst, beside
+A fork's pull request passes only with a trusted success: it is gated
+by hand, once it has been read in full: `tools/gate` runs the pull request's code on burst, beside
 the caches every run there shares, so never gate code you have not read.
 Fetch its head into a local branch and run `main`'s copy of `tools/gate`,
 not the fork's:

@@ -1,15 +1,20 @@
 name: gate
 
-# The merge checks of every pull request. Burst runs the tests: tools/gate
-# submits the suite, the corpus and the matrix through cpuq and, once all
-# pass, posts the commit status `rig/gate` on the exact commit they
-# tested. This workflow runs no test; it reads that status. It passes when
-# the newest `rig/gate` status on the pull request's head commit
-#   - is a success posted by a trusted login,
-#   - names the matrix job it ran (a `--no-matrix` run is not a merge gate),
-# and the head contains the base branch as it is now. It fails otherwise.
-# tools/gate re-runs it, so the checks turn green seconds after burst
-# finishes.
+# The merge checks of every pull request. A pull request is tested on
+# burst only when someone asks: tools/gate submits the suite, the corpus
+# and the matrix through cpuq, posts the commit status `rig/gate` as it
+# starts (pending) and ends (success, failure, or error), and re-runs this
+# workflow. This workflow runs no test; it reads that status. On a pull
+# request from a branch of this repository it passes
+#   - when the head commit has no `rig/gate` status: it was not gated,
+#     which is the default, and
+#   - when its newest `rig/gate` status is a success posted by a trusted
+#     login (a gate that passed, or tools/gate --skip),
+# and fails after a gate failed (or while one is pending, when the check
+# runs then). A fork's pull
+# request passes only with a trusted success: Steve reads it and runs
+# tools/gate on it. The deep gate on main and the nightly cold run catch
+# what an ungated pull request lets through.
 #
 # pull_request_target runs this file as the default branch (main) holds
 # it, never a pull request's copy, and nothing here checks out or runs the
@@ -57,12 +62,18 @@ jobs:
         run: |
           set -euo pipefail
           [[ $SHA =~ ^[0-9a-f]{40}$ && $NUMBER =~ ^[0-9]+$ ]] || { echo "::error::not a commit and a pull request: $SHA #$NUMBER"; exit 1; }
+          # A branch of this repository, or a fork.
+          head_repo=$(gh api "repos/$REPO/pulls/$NUMBER" --jq '.head.repo.full_name // ""')
           # The API lists a commit's statuses newest first.
           all=$(gh api --paginate "repos/$REPO/commits/$SHA/statuses?per_page=100" \
             --jq '.[] | select(.context == "rig/gate") | [.state, .creator.login, .created_at, .description] | @tsv')
           newest=${all%%$'\n'*}
           if [[ -z $newest ]]; then
-            echo "::error::waiting for rig/gate from burst: no rig/gate status on $SHA (tools/gate posts it)"
+            if [[ $head_repo == "$REPO" ]]; then
+              echo "no rig/gate on $SHA: not gated, the default (tools/gate tests it on burst)"
+              exit 0
+            fi
+            echo "::error::a fork's pull request needs rig/gate: Steve reads it and runs tools/gate on it"
             exit 1
           fi
           IFS=$'\t' read -r state creator at description <<<"$newest"
@@ -73,21 +84,8 @@ jobs:
             echo "::error::rig/gate on $SHA was posted by $creator, who is not trusted ($TRUSTED)"
             exit 1
           fi
-          if [[ $state != success ]]; then
-            echo "::error::waiting for rig/gate from burst: its newest status on $SHA is $state"
-            exit 1
-          fi
-          if [[ $description == *"no matrix"* || ! $description =~ (^|[ :])matrix\ [0-9a-f]{8}( |$) ]]; then
-            echo "::error::rig/gate on $SHA ran no matrix; run tools/gate without --no-matrix"
-            exit 1
-          fi
-          # The base as it is now, not as the event saw it: the head must
-          # contain it.
-          base=$(gh api "repos/$REPO/pulls/$NUMBER" --jq .base.ref)
-          base_sha=$(gh api "repos/$REPO/git/ref/heads/$base" --jq .object.sha)
-          behind=$(gh api "repos/$REPO/compare/$base_sha...$SHA" --jq .behind_by)
-          if [[ $behind != 0 ]]; then
-            echo "::error::branch is behind $base by $behind commits: merge $base and re-run tools/gate"
-            exit 1
-          fi
-          echo "rig/gate passed on $SHA, which contains $base at ${base_sha:0:12}"
+          case $state in
+            success) echo "rig/gate passed on $SHA" ;;
+            pending) echo "::error::rig/gate is running on burst for $SHA; tools/gate re-runs this check when it ends"; exit 1 ;;
+            *) echo "::error::rig/gate on $SHA is $state: fix it and run tools/gate again, or tools/gate --skip"; exit 1 ;;
+          esac

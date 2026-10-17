@@ -4310,6 +4310,7 @@ test/reject/ownership/write_view_param_stores_local_view.rig keep
 test/reject/ownership/write_view_result_binding_lent.rig main
 test/reject/ownership/write_view_view_in_loop.rig main
 test/reject/ownership/write_view_while_read_live.rig main
+test/reject/std/bigint_use_after_move.rig main
 test/reject/std/random_holder_moves.rig main
 test/reject/std/random_moves.rig main
 test/reject/std/random_not_copy.rig main
