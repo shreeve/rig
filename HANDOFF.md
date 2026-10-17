@@ -91,23 +91,20 @@ from).
   (docs/json/DESIGN.md, "Open items").
 - **Releases:** every change, fixes included, ships in the current
   line, `v0.3.x`; an earlier line gets no further releases. Rounds land
-  on `main` untagged until the next tag, which is cut only after the
-  deep gate (`tools/deep`, "Testing" below); its release notes
-  include a migration guide for the renames.
+  on `main` untagged until the next tag; its release notes include a
+  migration guide for the renames.
 - **Branches:** `main` is the one long-lived branch. Work lands through
-  short-lived branches and pull requests. The ruleset on `main` requires
-  `test (ubuntu-latest)` and `test (macos-latest)`, and blocks force
-  pushes and deletion.
+  short-lived branches and pull requests: plain git, with no CI,
+  gates, or required checks.
 - **Toolchain:** Zig 0.17.0, pinned in `mise.toml`. Nexus 2.0.0
   generates the parser at every build, from the sibling checkout's
   `nexus/bin/nexus` (AGENTS.md, "Workflow").
   - [docs/zig-0.17.md](docs/zig-0.17.md) covers every Zig API Rig uses.
   - The cross-project Zig guide is `~/Data/Code/zig/docs/ZIG-0.17.md`.
-- **Health:** the last deep gate ("Testing" below) was green on `main`: the
+- **Health:** the last full run was green on `main`: the
   full suite (`./test/run`, with its pending examples the planned Core
   rules), the corpus, `test/matrix.py`, the unit tests, and the oracle
   floors in `test/oracle/coverage`. `test/known/` holds no open bugs.
-  CI and each deep-gate run report the counts.
 
 ## Scope
 
@@ -337,7 +334,7 @@ and run the corpus after.
    `loopfacts` (where loop steps run and jumps go, recorded once; no
    emitted change), then `proofs2`.
 
-**Toward `v0.3.0`:** the docs pass, the deep gate, and the tag with a
+**Toward `v0.3.0`:** the docs pass, a full run, and the tag with a
 migration guide (`tools/migrate-0.3.py`).
 
 **Later:**
@@ -365,69 +362,6 @@ migration guide (`tools/migrate-0.3.py`).
 - The structural address chokepoint.
 - The per-expression "is a view" fact.
 - The held items, as their prerequisites land.
-
-## The gates
-
-The tiers, cheapest first (test/README.md, "The tiers"):
-
-- **While you work, on the Mac:** `tools/check N`, which runs the
-  branch's own tests, the whole-program checks (`oracle`, `classify`,
-  `vocab`, `style`), and N% of the suite; and `./test/run --delta
-  <ids>` for the tests you name. A full suite never runs on the Mac: it
-  runs on burst, `cpuq submit cpuq/suite.json` (about 10 minutes), and
-  `cpuq submit cpuq/suite.json -- <filters>` runs part of it there.
-- **A pull request, when Steve asks:** `tools/gate`, the suite and
-  the corpus on burst. It skips a pull request that touches nothing in
-  `src/`, `std/`, `rig.grammar`, the build, or the test harness, and adds
-  the matrix only when it touches the classifiers, the proofs, or emit.
-- **The deep gate, on `main`:** `tools/deep` runs the suite, the corpus,
-  and the full matrix on burst against `main`'s head from a clean
-  worktree, posts `rig/deep` on that commit, and moves the tag
-  `deep-green` when it passes. It runs when Steve asks. A failure is bisected
-  (`tools/deep --bisect`) and fixed before any new round lands; a tag
-  needs a clean deep gate. Equivalence against the last deep run, and
-  the Unicode tables' freshness test with the database present
-  (`RIG_UCD=dir ./test/run unicode_tables`; the generator fetches any
-  pinned file `dir` lacks), are still run by hand.
-- **The JSON benchmark guard:** on the Mac, `cpuq run --cores
-  2-6 --label rig:json -- bench/json/guard.py` builds `rig-safe` for the
-  six corpus files and counts instructions retired per byte, which do
-  not move with the load. A file more than 2% above its baseline in
-  `bench/json/guard.txt` is a regression, and the guard fails. A change
-  meant to move the counts commits a new baseline
-  (`bench/json/guard.py --update`).
-- **The check-speed guard:** on the Mac, `cpuq run --cores 2-6
-  --label rig:check -- bench/check/guard.py` builds the compiler in
-  ReleaseSafe and runs `rig check` on a generated program about the size
-  of Trig's parser (`bench/check/gen.py`). It fails when the
-  instructions retired are more than 2% above `bench/check/guard.txt`,
-  when a pass of `rig check --time` (best of 7) is more than 20% and
-  0.25 ms slower (skipped above a load of 5), or when checking a program
-  8 times larger along one dimension (modules, variants, fields,
-  functions, statements) grows with an exponent over 1.15. A change
-  meant to move them commits a new baseline (`bench/check/guard.py
-  --update`).
-
-The machines are shared: everything heavy goes through the job queue,
-cpuq, which shares the CPUs fairly. On the Mac that is `tools/check` and
-targeted runs (`cpuq run --cores 2-6 -- …`, with `-j
-"$CPUQ_CORES"`); the full suite, the corpus, and the matrix go to burst:
-
-```bash
-cpuq submit cpuq/suite.json                   # full suite; the sanitizer is on by default
-cpuq submit cpuq/corpus.json                  # every reviewer probe; has caught real use-after-frees
-cpuq submit cpuq/matrix.json                  # form x context x type programs
-cpuq submit cpuq/suite.json -- reject/types   # part of the suite, by filter
-```
-
-- Rerun a timeout failure alone before trusting it: under load,
-  timeouts are often spurious.
-- **Equivalence** proves that a refactor changed nothing:
-  `python3 test/equiv.py OLD_RIG bin/rig` compares the parse, the
-  checks, the facts, and the emitted Zig of every program and doc
-  example, the root module's and the whole sanitized package's. It
-  caches the old compiler's results, so a rerun against the same base
-  runs only the new compiler. Explain every difference it prints.
 
 ## Conventions
 

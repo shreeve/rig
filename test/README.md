@@ -243,10 +243,8 @@ hand-written inputs and compares each parse with Python's `json` module
 one test, `json/<group>`, built and run under the sanitizer. A plain
 `./test/run` takes a fixed, spread-out part of every group (about a tenth
 of the inputs); a run that names any filter, `./test/run json` or
-`./test/run json/floats`, takes every input of the groups it selects, as
-the deep gate does. The groups `checker` and `corpus` read third-party
-files that `tools/fetch-json-data.sh` fetches into `test/json/data/` (CI
-fetches them too). Without them those groups are skipped with a note, and
+`./test/run json/floats`, takes every input of the groups it selects. The groups `checker` and `corpus` read third-party
+files that `tools/fetch-json-data.sh` fetches into `test/json/data/`. Without them those groups are skipped with a note, and
 `JSON_REQUIRE_DATA=1` makes that a failure. A `--delta` run carries a
 group over when the compiler, the cases, the data, and Python are
 unchanged.
@@ -269,8 +267,7 @@ parser.
 Running every accepted probe builds hundreds of programs, several
 minutes of work, so a plain `./test/run` takes a fixed sample, one
 program in 16 by a hash of its name; `./test/run corpus` (or any filter
-that names corpus programs) takes all of them, as `tools/gate` does
-before every merge. A corpus run removes each passing program's output; its build stays in the store
+that names corpus programs) takes all of them. A corpus run removes each passing program's output; its build stays in the store
 (a few gigabytes for the whole corpus, see [Output](#output)), so a
 later run rebuilds only the programs whose emitted Zig changed. Add new review probes here, named `<review>-<probe>.rig`.
 
@@ -476,8 +473,7 @@ runs in debug, where every omitted test is still made as an assertion,
 with `--release`, and with `--release` and `RIG_NO_PROOFS=1`, where emit
 omits nothing. The three runs must print the same, exit the same, and
 panic with the same message, and no proven check may fail. Other tests
-pass untouched. The fast gate runs it on the programs with a proven
-test; the deep gate on every program.
+pass untouched.
 
 ## Known bugs
 
@@ -539,168 +535,6 @@ it never removes files it did not write.
 The output directory's `.durations` file records how long each test
 took, in whole seconds; the next run starts the longest tests first, so
 it does not end waiting on one of them.
-
-## The tiers
-
-Each tier runs what the one before cannot afford:
-
-1. **While you work, on the Mac:** `tools/check N` (below) and
-   `./test/run --delta <ids>` for the tests you name. A full suite never
-   runs on the Mac; it runs on burst, `cpuq submit cpuq/suite.json`, and
-   `cpuq submit cpuq/suite.json -- <filters>` runs part of it there.
-2. **A pull request, when Steve asks:** `tools/gate`, the suite and the
-   corpus on burst (below).
-3. **On `main`:** `tools/deep`, the deep gate (below), when Steve asks.
-4. **Nightly:** the cold suite on GitHub's runners (`test.yml`, below).
-
-## A quick local check
-
-`tools/check N` is a sniff test before a push, run on this Mac through
-the job queue (`cpuq run --cores 2-6`). `N` is a share of the
-suite in percent, 1 to 100: the suite splits into `100/N` equal parts,
-rounded to a whole number, and one runs (`tools/check 1` is about 40
-tests, `tools/check 5` about 200). It runs, each with `--delta`:
-
-1. The whole-program checks, every time: `oracle` (which also finds a
-   test that is missing from `test/oracle/rejections`), `classify`,
-   `vocab`, and `style`, about 15 seconds in all. With them, the
-   branch's own tests, in full: every test the branch adds or changes
-   since its merge-base with `origin/main` (committed or not, new files
-   included), found by id from the files it touches under
-   `test/behavior`, `reject`, `known`, `ir`, `torture`, `cli`, `corpus`
-   and `examples/`, and every doc example of a Markdown file whose `rig`
-   blocks changed (`doc/<file>/`, the whole file, since an edit moves
-   lines). A change to a `test/cli/_*` helper runs every CLI test.
-2. One random slice of the suite, `./test/run --delta --shard I/K` with
-   `I` chosen at random, so repeated checks cover more over time. Slice
-   1 also runs the unit tests, as any first shard does.
-
-`--matrix` adds the same slice of `test/matrix.py --delta --shard I/K`,
-and `--slice I` picks the slice. The report gives the passed and failed
-counts, the slice that ran, and one command that reruns just the
-failures; the exit status is 1 if anything failed. It samples; it does
-not replace the gate or the deep gate.
-
-## The merge gate and CI
-
-A pull request is tested on burst only when Steve asks, once it is ready
-to merge, and GitHub's runners do not test it again; the deep gate on
-`main` tests everything that merged, together:
-
-```bash
-tools/gate                 # from the branch's worktree, after merging main and pushing
-tools/gate --matrix        # with the matrix, whatever the branch changes
-tools/gate --no-matrix     # without it, whatever the branch changes
-tools/gate --force         # gate a branch that changes nothing the gate tests
-tools/gate --skip REASON   # test nothing: post success, which clears a failed gate
-```
-
-It gates only a pull request that is ready (not a draft), and only one
-that changes what burst tests: `src/`, `std/`, `rig.grammar`,
-`build.zig`, or the harness (`test/run`, `test/matrix.py`,
-`test/equiv.py`, `test/hints.py`, `test/cli/_*`, the oracle's
-`test/oracle/*.zig`, `test/json/compare.py` and its template, `cpuq/`,
-`tools/gate`, `tools/fetch-json-data.sh`). For any other it says so and
-exits 0 having posted nothing, which the checks pass: a new test or doc
-example is run by `tools/check`, and the deep gate runs it again. The
-matrix runs when the branch changes a classifier, the proofs, emit, or
-the matrix itself (`src/facts.zig`, `storage.zig`, `proofs.zig`,
-`emit.zig`, `ownership.zig`, `sema.zig`, `runtime.zig`,
-`test/matrix.py`, `cpuq/matrix.json`); `--matrix` and `--no-matrix`
-decide it instead. A newer gate of the same pull request cancels the
-burst jobs of an older one still running for another head.
-
-`tools/gate` refuses unless the worktree is clean, holds no ignored file
-that cpuq would ship (cpuq copies everything but a spec's `exclude`), and
-its HEAD is the pull request's pushed head and contains the base branch;
-so the bytes burst tests are exactly that commit's. It refuses a branch
-that changes `tools/gate` or `cpuq/` unless given `--allow-gate-changes`. A branch that changes `formal/`
-also builds its Lean proofs on this machine first (`cd formal && lake
-build`; burst has no Lean), and fails on an unfinished one, a `sorry`,
-which lake only warns of.
-It submits `cpuq/suite.json` and `corpus.json` (and `matrix.json` when
-the matrix runs) together, each a `--delta` run, which burst runs at
-once; cancels the rest when one fails; and posts the commit status `rig/gate` on the commit: `success`
-with its tree and the job ids when all pass, `failure` when a test
-fails, `error` when a job could not finish. It posts with the Mac's `gh`
-login, and no credential goes to GitHub. Last it re-runs the pull
-request's `gate` workflow and, after a success, waits for the required
-checks to pass, printing the time each phase took. Without the matrix
-its success says so. A branch that changes only `formal/` builds its
-proofs and posts that verdict, without burst. `--skip REASON` posts `success` with
-"skipped by LOGIN: REASON" on the pull request's pushed head and re-runs
-the checks; it needs no clean worktree and no merge of the base.
-
-The ruleset on `main` requires the checks `test (ubuntu-latest)` and
-`test (macos-latest)` from GitHub Actions, and `.github/workflows/gate.yml`
-gives them to every pull request. It runs on `pull_request_target`,
-which always runs `main`'s copy of the file, whatever the pull request
-changes; it checks out and runs nothing of the pull request, and reads
-only statuses, the pull request, and commits. On a pull request from a
-branch of this repository it passes when the head commit has no
-`rig/gate` status (it was not gated, the default) or when the newest is
-a success posted by a login it trusts; it fails while a gate is pending
-when it runs, and after a gate failed, until a push, a passing gate, or
-`--skip`. A failing check of a required name blocks the merge even when
-a workflow of the pull request's own reports the same name passing.
-
-A fork's pull request passes only with a trusted success: it is gated
-by hand, once it has been read in full: `tools/gate` runs the pull request's code on burst, beside
-the caches every run there shares, so never gate code you have not read.
-Fetch its head into a local branch and run `main`'s copy of `tools/gate`,
-not the fork's:
-
-```bash
-git fetch origin pull/N/head:pr-N && git switch pr-N
-bash <(git show origin/main:tools/gate) --pr N
-```
-
-The fork's head must already contain `main` (ask its author to merge
-it), and a fork that changes `tools/gate` or `cpuq/` is refused unless
-given `--allow-gate-changes`.
-
-`.github/workflows/test.yml` runs the whole suite cold on GitHub's
-runners, in four shards on Ubuntu and four on macOS
-(`.github/workflows/shards.yml`): nightly on `main`, by hand, and for a
-fork's pull request, as more information beside the gate. Its jobs are
-named `cold (...)`, never a required name, and on a pull request from this
-repository they are skipped. No workflow skips a job under a required
-name, since a skipped required check counts as passing. Each shard builds
-the compiler and the oracle once, in one `zig build`, so the suite's own
-builds find them in Zig's cache; caches are restored on every run and
-saved only by a run on `main` that no pull request started, under keys
-named by their contents.
-
-## The deep gate
-
-`tools/deep` tests `main`'s head on burst, everything that merged since
-the last run, together:
-
-```bash
-tools/deep                 # now: the suite, the corpus, the full matrix
-tools/deep --bisect        # find the merge that broke the last run
-tools/deep --dry-run       # say what it would do
-```
-
-It runs from a clean worktree of its own,
-`~/Data/Code/worktrees/rig/deep-main` (`DEEP_WORKTREE`), reset hard to
-`origin/main` each time, and submits `cpuq/suite.json`, `corpus.json`,
-and `matrix.json` with no filter and the note `deep <sha>`. It lets every
-job finish, posts the commit status `rig/deep` on the commit, and when
-all pass moves the tag `deep-green` there, on GitHub too. It exits at
-once when `main` has not moved since the last run that passed or failed,
-or while another run holds its lock; `--force` runs it anyway. It takes
-30 to 45 minutes. It runs when Steve asks; nothing starts it on a
-schedule.
-
-A red run keeps its logs and failing ids in the git directory,
-`rig-deep/runs/<sha>/`. `tools/deep --bisect` runs `git bisect
---first-parent` between that commit and `deep-green`, in the deep
-worktree, and at each merge reruns only the failing tests (`cpuq submit
-cpuq/suite.json -- ID...`) and matrix cells (`-- -k CELL`); `--bisect
-SHA -- ID...` names them instead. A merge without the failing tests yet
-counts as good. With the results cache, each step takes about a minute.
-Then revert the merge it names, or fix forward.
 
 ## Rerunning only what changed
 

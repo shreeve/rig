@@ -323,8 +323,7 @@ leaks reports how many allocations it lost and exits 1; set
 `--release` keeps the overflow, conversion, and bounds checks;
 `--release=fast` drops the overflow and conversion checks, for the lanes
 of a vector as for a scalar, which makes overflow undefined behavior. `rig --help` lists every command, option,
-and environment variable. The suite runs on Linux and macOS in
-[CI](.github/workflows/test.yml).
+and environment variable.
 
 ## Status
 
