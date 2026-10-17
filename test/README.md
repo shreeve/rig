@@ -556,7 +556,7 @@ Each tier runs what the one before cannot afford:
 ## A quick local check
 
 `tools/check N` is a sniff test before a push, run on this Mac through
-the job queue (`cpuq run --local --cores 2-6`). `N` is a share of the
+the job queue (`cpuq run --cores 2-6`). `N` is a share of the
 suite in percent, 1 to 100: the suite splits into `100/N` equal parts,
 rounded to a whole number, and one runs (`tools/check 1` is about 40
 tests, `tools/check 5` about 200). It runs, each with `--delta`:

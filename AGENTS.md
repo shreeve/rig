@@ -152,14 +152,14 @@ tools/deep                         # all of main on burst (when Steve asks)
 
 - **Nexus** is co-developed. `zig build` regenerates `src/parser.zig`
   with `../nexus/bin/nexus`, or another binary with `-Dnexus=PATH`.
-- **Shared machines:** cpuq places work by when it will finish, on the
-  Mac, pup, or burst. Run work through `cpuq run --label rig:NAME -- …`
-  with `-j "$CPUQ_CORES"`, and keep the label stable. Add `--local` only
-  for macOS behaviour, timing, or `tools/check`. A suite or matrix goes
-  through `cpuq submit cpuq/suite.json --note "#PR branch"` (or
-  `matrix.json`). Never ssh to pup or burst; use `--spill-to HOST`.
-  Limit test programs with `cpuq cap`, not a watchdog. Under load,
-  rerun a timeout alone before trusting it.
+- **Shared machines:** run work through `cpuq run --label rig:NAME -- …`
+  with `-j "$CPUQ_CORES"`, and keep the label stable. A plain `cpuq run`
+  stays on this Mac; `--on HOST` sends it to pup or burst. A suite or
+  matrix goes through `cpuq submit cpuq/suite.json --note "#PR branch"`
+  (or `matrix.json`), which cpuq places where it finishes first; `--on
+  burst` forces burst. Never ssh to pup or burst. Limit test programs
+  with `cpuq cap`, not a watchdog. Under load, rerun a timeout alone
+  before trusting it.
 
 ## Map
 

@@ -9,8 +9,8 @@ others. It is not part of the test suite or CI.
 
 ```sh
 D=$(mktemp -d)
-cpuq run --local --cores 2 -- bin/rig build --release -o $D/bench bench/bigint/bench.rig
-cpuq run --local --cores 1 -- $D/bench
+cpuq run --cores 2 -- bin/rig build --release -o $D/bench bench/bigint/bench.rig
+cpuq run --cores 1 -- $D/bench
 ```
 
 On x86, time on pup under the bench lease, pinned to one core:

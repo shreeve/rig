@@ -9,7 +9,7 @@
 # parts of about 200 tests, 1 is 100 parts of about 40, 30 is 3 parts), and
 # one part runs. When K parts are not exactly N%, it says what share ran.
 #
-# It runs two things, each through the Mac's job queue (cpuq run --local
+# It runs two things, each through the Mac's job queue (cpuq run
 # --cores 2-6), each with --delta, so a program that passed before with
 # the same inputs is checked but not run again:
 #
@@ -197,9 +197,9 @@ sort -u "$WORK/ids" -o "$WORK/ids"
 # the screen, and its status is returned. With --on HOST, cpuq's spec
 # cpuq/<spec>.json runs the same command on HOST with the args, and the
 # job's log is read back.
-# --local keeps the run on this Mac by default: the smoke test is how we
-# learn whether a change is worth sending to a remote host at all.
-CPUQ_RUN="cpuq run --local --cores 2-6"
+# A plain cpuq run stays on this Mac: the smoke test is how we learn
+# whether a change is worth sending to a remote host at all.
+CPUQ_RUN="cpuq run --cores 2-6"
 run_job() {
     local log=$1 label=$2 spec=$3 script=$4 id st
     shift 4
