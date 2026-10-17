@@ -105,7 +105,8 @@ review rounds.
   minutes: the build, `./test/run --delta`, the round's new tests, a
   targeted grid of the forms it changes, and one independent review run
   in parallel with them; `tools/gate` on burst when the round asks for
-  it ("How merging works" below). A round that changes a soundness
+  it ("How merging works" below). A round runs `tools/check 10` before
+  it opens its pull request. A round that changes a soundness
   classifier (`src/ownership.zig`, the facts or proofs walks, or
   typecheck's classification of expressions) also runs the full
   matrix. The deep gate runs on `main` as it stands, about twice a day:
@@ -142,6 +143,7 @@ bin/rig build --release -o prog file.rig   # optimized executable (safe)
 RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 RIG_NO_CRASH_REPORT=1 ./prog              # no crash report (macOS) or apport (Linux) if it dies (test harnesses)
+tools/check 10             # a random tenth of the suite, plus the branch's own tests, on this Mac
 tools/gate                 # test the pushed head on burst (when asked), and post rig/gate
 ```
 
@@ -221,6 +223,7 @@ request, under names no rule requires.
 | `test/oracle/` | The reference ownership checker, `bin/rig-oracle`, and its classified differences |
 | `test/json/` | `std.json` against Python's `json` module, run by `./test/run json` (see `test/json/README.md`) |
 | `tools/fetch-json-data.sh` | Fetches the third-party JSON files that test reads, pinned by sha256, into the untracked `test/json/data/` |
+| `tools/check` | A quick local sample of the suite before a push: the branch's own tests in full, then one random slice of the rest (`tools/check N`, test/README.md "A quick local check") |
 | `tools/gate` | Tests a pull request's head on burst, when asked, and posts `rig/gate` ("How merging works") |
 | `.github/workflows/` | `gate.yml`, the required checks of every pull request, read from `rig/gate`; `test.yml` and `shards.yml`, the whole suite cold on GitHub's runners (nightly, by hand, and for forks, under names no rule requires) |
 | `bench/json/` | The JSON benchmark: Rig and Zig builds, and the Rust and Zig competitors (not in CI; see `bench/json/README.md`) |
