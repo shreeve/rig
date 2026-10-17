@@ -194,6 +194,21 @@ that carry data, `yields !T`) stay as they are.
      measurement asks. Deadlock stays possible, as in Rust and Go. A
      parallel checker cannot share a tree of `*T` nodes; it reads one
      through `?` captures, or uses arenas with IDs.
+   - **Actors are a task and its channel.** They live in std, built on
+     round R2's traits, so they add no rule to prove. The channel is the
+     actor's mailbox, and the actor's address is the channel's sending
+     end. A mailbox is typed and bounded, so a sender waits while it is
+     full. `receive` is a `match` on the next message, taken in order;
+     there is no selective receive.
+   - **A supervisor** is a group that restarts a task that ends with an
+     error. The task starts again from fresh state, up to a limit, and
+     past the limit the supervisor fails too. A restart is safe because
+     the task shared nothing and everything it owned was dropped when it
+     ended. A panic stays fatal for the whole program: it means a bug,
+     and Rig runs no cleanup after one. Pony is the precedent.
+   - **Preemption** may come later: a countdown on each loop's back edge
+     that yields when it reaches zero, kept only if the speed rule
+     allows it.
 
    About six weeks after the probe.
 5. **Trusted packages.** Only std may bind declarations to Zig with
