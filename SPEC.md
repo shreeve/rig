@@ -9315,7 +9315,7 @@ sub main()
   w = ~h
   b = ^User(name: "cy", age: 2)
   print(h, w, b, *Cell(5))
-  print("say \"hi\"\n", ["say \"hi\"\n", "tab\t"])
+  print("say \"hi\"", ["say \"hi\"\n", "tab\t"])
   print(0.1 + 0.2, 1e20, 1e21, 0.000001, 1e-7, Float.inf())
 ```
 
@@ -9323,9 +9323,7 @@ sub main()
 User(name: "ada", age: 36) none ["a", "b"] 2.5 2.0
 .dot .circle(r: 2.5) .rect(w: 2, h: 3)
 User(name: "bob", age: 1) ~(alive) User(name: "cy", age: 2) Cell(value: 5)
-say "hi"
-
-["say \"hi\"\n", "tab\t"]
+say "hi" ["say \"hi\"\n", "tab\t"]
 0.30000000000000004 100000000000000000000.0 1e21 0.000001 1e-7 inf
 ```
 

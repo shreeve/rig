@@ -1,10 +1,9 @@
 # timeout: 900
 # A runtime panic aborts the program in every build mode: exit status
 # 134 (SIGABRT), what `print` buffered written out first, then the panic
-# message and the trace on stderr: its first frame is where the check
-# failed, and a debug build's trace holds the program's own line (an
-# optimized build may inline that frame away, or call a check that never
-# returns without keeping its return address).
+# message on stderr. A debug build adds Zig's trace: its first frame is
+# where the check failed, and it holds the program's own line. An
+# optimized build prints the message alone.
 # The program runs on the stack the runtime maps (docs/INTERNALS.md,
 # "The program's stack"), and the trace's walk must not fault at its
 # top, which the outermost frame there reaches: a List index (a runtime
@@ -28,9 +27,11 @@ check() {
         expect_eq "$(cat out.txt)" "$want" "stdout of $name in $mode"
         expect_has "$(cat err.txt)" "$msg" "the message of $name in $mode"
         [[ $msg == *"stack overflow"* ]] && continue
-        grep -qE '\.zig:[0-9]+:[0-9]+: 0x[0-9a-f]+ in ' err.txt || fail "no location in the trace of $name in $mode: $(cat err.txt)"
         if [[ $mode == debug ]]; then
+            grep -qE '\.zig:[0-9]+:[0-9]+: 0x[0-9a-f]+ in ' err.txt || fail "no location in the trace of $name in $mode: $(cat err.txt)"
             expect_has "$(cat err.txt)" "__rig_main.zig:" "the program's line in the trace of $name in $mode"
+        else
+            expect_eq "$(cat err.txt)" "$msg" "the stderr of $name in $mode"
         fi
     done
 }

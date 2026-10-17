@@ -46,17 +46,17 @@ UNDERSCORE = "`_` discards a value"
 # Every program here declares `sub main()`, which no other name hides.
 MAIN = "module-level declaration `main`"
 DUPLICATE = "duplicate declaration of `main`"
-# Rig's own keywords (`type`, `drop`) name nothing but a member
+# Rig's own keywords (`type`, `drop`, `panic`) name nothing but a member
 # (SYNTAX.md, "Keywords"); any diagnostic will do.
 KEYWORD = "error:"
-BINDING = {"none": NONE, "_": UNDERSCORE, "type": KEYWORD, "drop": KEYWORD, "main": MAIN}
+BINDING = {"none": NONE, "_": UNDERSCORE, "type": KEYWORD, "drop": KEYWORD, "panic": KEYWORD, "main": MAIN}
 REJECTED = {
     "local": {**BINDING},
     "flag": {**BINDING},
     "method": {**BINDING, "self": "self"},
     "field": {},
-    "variant": {"none": "none", "from_int": "from_int", "type": KEYWORD, "drop": KEYWORD},
-    "error": {"none": "none", "type": KEYWORD, "drop": KEYWORD},
+    "variant": {"none": "none", "from_int": "from_int", "type": KEYWORD, "drop": KEYWORD, "panic": KEYWORD},
+    "error": {"none": "none", "type": KEYWORD, "drop": KEYWORD, "panic": KEYWORD},
     "tparam": {**BINDING, "_": None, "self": "self", "Self": "built-in type"},
     "type": {**BINDING, "self": "self", "new": "new", "main": DUPLICATE},
     "root_const": {**BINDING, "main": DUPLICATE},
