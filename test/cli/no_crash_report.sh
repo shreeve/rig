@@ -23,23 +23,18 @@ sub main()
   print(a[rt(3)])
 EOF2
 # On macOS the variable does nothing for a program run directly, so both
-# runs go through cpuq's cap (`capped`), which answers their crashes, and
+# runs go through cpuq's cap (`cap`), which answers their crashes, and
 # file no report; elsewhere they run as they are.
 proto=$(cpuq cap --protocol 2>/dev/null) || proto=0
 [[ $proto =~ ^[0-9]+$ ]] || proto=0
-capped() {
-    if [[ $(uname -s) == Darwin ]] && (( proto >= 3 )); then
-        cpuq cap --no-crash-report -- "$@"
-    else
-        "$@"
-    fi
-}
+cap=()
+[[ $(uname -s) == Darwin ]] && (( proto >= 3 )) && cap=(cpuq cap --no-crash-report --)
 for mode in debug release release=safe release=fast; do
     flag=""; [[ $mode == debug ]] || flag=--$mode
     exe=boom-${mode//=/-}
     rig build $flag -o "$exe" boom.rig >build.log 2>&1 || fail "build $mode: $(cat build.log)"
-    capped "./$exe" >out.txt 2>err.txt; rc=$?
-    RIG_NO_CRASH_REPORT=1 capped "./$exe" >quiet_out.txt 2>quiet_err.txt; quiet_rc=$?
+    ${cap[@]+"${cap[@]}"} "./$exe" >out.txt 2>err.txt; rc=$?
+    RIG_NO_CRASH_REPORT=1 ${cap[@]+"${cap[@]}"} "./$exe" >quiet_out.txt 2>quiet_err.txt; quiet_rc=$?
     expect_rc $rc 134 "$mode without RIG_NO_CRASH_REPORT"
     expect_rc $quiet_rc 134 "$mode with RIG_NO_CRASH_REPORT=1"
     expect_eq "$(cat quiet_out.txt)" "$(cat out.txt)" "$mode stdout"
