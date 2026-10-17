@@ -4,9 +4,10 @@
 #
 #   tools/check N [--matrix] [--slice I]
 #
-# N is the share of the suite to sample, in percent: 10, 20, 25, 33, 50 or
-# 100, which split the suite into 10, 5, 4, 3, 2 or 1 equal parts. Any other
-# N rounds to the nearest of these (30 becomes 33) and says so.
+# N is the share of the suite to sample, in percent, 1 to 100: the suite
+# splits into K = 100/N equal parts, rounded to a whole number (5 is 20
+# parts of about 200 tests, 1 is 100 parts of about 40, 30 is 3 parts), and
+# one part runs. When K parts are not exactly N%, it says what share ran.
 #
 # It runs two things, each through the Mac's job queue (cpuq run --local
 # --cores 2), each with --delta, so a program that passed before with the
@@ -48,18 +49,15 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
-[[ $N =~ ^[0-9]+$ ]] || { echo "tools/check: needs N, a percent: 10, 20, 25, 33, 50 or 100 (see --help)" >&2; exit 2; }
+[[ $N =~ ^[0-9]+$ ]] || { echo "tools/check: needs N, a percent from 1 to 100 (see --help)" >&2; exit 2; }
 
-# N → the number of slices K, rounding to the nearest share.
-BEST="" BESTD=1000
-for share in 10 20 25 33 50 100; do
-    d=$((N > share ? N - share : share - N))
-    if [[ $d -lt $BESTD ]]; then BEST=$share BESTD=$d; fi
-done
-case $BEST in 10) K=10 ;; 20) K=5 ;; 25) K=4 ;; 33) K=3 ;; 50) K=2 ;; 100) K=1 ;; esac
-[[ $BEST -eq $N ]] || echo "check: $N% is not a share; using $BEST% ($K slices)"
+# N → the number of slices K, the nearest whole number to 100/N.
+(( N >= 1 && N <= 100 )) || { echo "tools/check: N is a percent, 1 to 100" >&2; exit 2; }
+K=$(( (200 + N) / (2 * N) ))
+BEST=$(( (100 + K / 2) / K ))
+[[ $BEST -eq $N ]] || echo "check: $N% of the suite is $K slices of about $BEST% each; running one"
 if [[ -n $SLICE ]]; then
-    [[ $SLICE -le $K ]] || { echo "tools/check: --slice takes 1 to $K for $BEST%" >&2; exit 2; }
+    [[ $SLICE -le $K ]] || { echo "tools/check: --slice takes 1 to $K for $N%" >&2; exit 2; }
     I=$SLICE
 else
     I=$((RANDOM % K + 1))
@@ -268,5 +266,5 @@ fi
 if [[ -n ${RERUN_CELLS// /} ]]; then
     echo "rerun the matrix failures:  cpuq run --local --cores 2 -- bash -c 'test/matrix.py -j \"\$CPUQ_CORES\" \"\$@\"' _ ${RERUN_CELLS% }"
 fi
-[[ -n $RERUN$RERUN_CELLS || $BROKEN -eq 0 ]] || echo "rerun:  tools/check $BEST --slice $I"
+[[ -n $RERUN$RERUN_CELLS || $BROKEN -eq 0 ]] || echo "rerun:  tools/check $N --slice $I"
 exit 1
