@@ -81,6 +81,8 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
     defer c.literal_results.deinit(ctx.allocator);
     defer c.result_hints.deinit(ctx.allocator);
     defer c.jump_targets.deinit(ctx.allocator);
+    defer c.panic_places.deinit(ctx.allocator);
+    try c.placePanics(tree, .value);
     for (ctx.const_order.items) |decl| try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl)) try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| try c.checkLendBases(decl, decl, false, true);
@@ -250,6 +252,9 @@ const Checker = struct {
     /// and that construct (`sema.eachJumpTo`), recorded as the construct
     /// is entered (`enterFrame`).
     jump_targets: std.AutoHashMapUnmanaged(parser.NodeId, Sexp) = .empty,
+    /// Where each `panic` of a body stands (`placePanics`); one absent
+    /// stands where a value is needed.
+    panic_places: std.AutoHashMapUnmanaged(parser.NodeId, PanicPlace) = .empty,
     /// The types inference found for arguments (`argType`).
     arg_types: std.AutoHashMapUnmanaged(parser.NodeId, TypeId) = .empty,
     /// What typing found that the walk over paths reads
@@ -745,7 +750,7 @@ const Checker = struct {
                     try self.checkStmt(s);
                     continue;
                 }
-                if (self.yieldsNoValue(s) and !s.isKind(.@"return")) {
+                if (self.yieldsNoValue(s) and !s.isKind(.@"return") and !s.isKind(.panic)) {
                     try self.checkStmt(s);
                     const what = switch (s.kind().?) {
                         .set => "assignment",
@@ -856,6 +861,7 @@ const Checker = struct {
             },
             .@"break" => try self.checkBreak(stmt),
             .@"continue" => _ = try self.resolveJump(stmt),
+            .panic => _ = try self.checkPanic(stmt),
             .pass => {},
             .@"defer", .@"errdefer" => {
                 if (head == .@"errdefer") try self.checkErrdeferCanRun(stmt);
@@ -2888,7 +2894,7 @@ const Checker = struct {
     fn yieldsNoValue(self: *Checker, e: Sexp) bool {
         const h = e.kind() orelse return false;
         return switch (h) {
-            .set, .@"while", .@"for", .drop, .pass, .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .labeled => !self.isValueLoop(e),
+            .set, .@"while", .@"for", .drop, .pass, .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .panic, .labeled => !self.isValueLoop(e),
             else => false,
         };
     }
@@ -4482,6 +4488,7 @@ const Checker = struct {
                 try self.checkStmt(e);
                 break :blk self.t().noreturn_id;
             },
+            .panic => self.checkPanic(e),
             .as => blk: {
                 try self.errAt(e, "`as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`", .{});
                 _ = try self.synthExpr(ir.As.value(e));
@@ -7458,6 +7465,7 @@ const Checker = struct {
             const name = self.text(callee);
             if (self.lookupQuiet(callee) == null) {
                 if (std.mem.eql(u8, name, "print")) return self.checkPrint(args);
+                if (std.mem.eql(u8, name, "warn")) return self.checkWarn(args);
                 if (std.mem.eql(u8, name, "String")) return self.checkStringNew(node, args);
                 if (std.mem.eql(u8, name, "replace")) return self.checkReplace(callee, args);
                 if (std.mem.eql(u8, name, "swap")) return self.checkSwap(callee, args);
@@ -7754,6 +7762,85 @@ const Checker = struct {
         return self.t().void_id;
     }
 
+    /// `warn(a, b, ...)`: written as `print` writes them, to stderr.
+    fn checkWarn(self: *Checker, args: []const Sexp) Error!TypeId {
+        try self.checkFormatArgs(args, "`warn`", "warn");
+        return self.t().void_id;
+    }
+
+    /// `panic(a, b, ...)`: a message, written as `print` writes it, and
+    /// the end of the program, so it gives no value. It stands where
+    /// `placePanics` allows it.
+    fn checkPanic(self: *Checker, e: Sexp) Error!TypeId {
+        const args = ir.Panic.args(e);
+        const place = self.panic_places.get(nodeId(e)) orelse .value;
+        switch (place) {
+            .statement => {},
+            .value => try self.errAt(e, "`panic` ends the program and gives no value, so it stands as a statement or as a branch's value", .{}),
+            .deferred => try self.errAt(e, "`panic` cannot stand in deferred code, which runs as its scope ends; check before the scope ends instead", .{}),
+        }
+        if (args.len == 0) try self.errAt(e, "`panic` needs a message: say what went wrong", .{});
+        try self.checkFormatArgs(args, "`panic`", "print");
+        // A misplaced `panic` is poison, so what uses it reports nothing more.
+        return if (place == .statement) self.t().noreturn_id else self.t().invalid_id;
+    }
+
+    /// Where a `panic` stands (`placePanics`).
+    const PanicPlace = enum {
+        /// A statement, or a branch's value: allowed.
+        statement,
+        /// Where a value is needed.
+        value,
+        /// In a `defer` or `errdefer`.
+        deferred,
+    };
+
+    /// Record where each `panic` under `e` stands, `e` standing at
+    /// `place`, by a positive list: a block's statement, the value of an
+    /// `if` or `match` branch, the right side of `??`, and the tail of a
+    /// `catch` handler stand as statements, and a body is a block.
+    /// Everything else needs a value. Deferred code keeps `deferred`.
+    fn placePanics(self: *Checker, e: Sexp, place: PanicPlace) Error!void {
+        const kind = e.kind() orelse return;
+        const stmt: PanicPlace = if (place == .deferred) .deferred else .statement;
+        const value: PanicPlace = if (place == .deferred) .deferred else .value;
+        switch (kind) {
+            .panic => {
+                try self.panic_places.put(self.ctx.allocator, nodeId(e), place);
+                for (ir.Panic.args(e)) |a| try self.placePanics(a, value);
+            },
+            .block => for (ir.Block.stmts(e)) |s| try self.placePanics(s, stmt),
+            .@"if" => {
+                try self.placePanics(ir.If.cond(e), value);
+                try self.placePanics(ir.If.then(e), stmt);
+                try self.placePanics(ir.If.@"else"(e), stmt);
+            },
+            .match => {
+                try self.placePanics(ir.Match.subject(e), value);
+                for (ir.Match.arms(e)) |arm| {
+                    try self.placePanics(ir.Arm.pattern(arm), value);
+                    try self.placePanics(ir.Arm.guard(arm), value);
+                    try self.placePanics(ir.Arm.body(arm), stmt);
+                }
+            },
+            .@"??" => {
+                try self.placePanics(ir.@"??".left(e), value);
+                try self.placePanics(ir.@"??".right(e), stmt);
+            },
+            .@"catch" => {
+                try self.placePanics(ir.Catch.value(e), value);
+                try self.placePanics(ir.Catch.handler(e), stmt);
+            },
+            .labeled => try self.placePanics(ir.Labeled.stmt(e), place),
+            .@"defer", .@"errdefer" => try self.placePanics(ir.get(e, .body), .deferred),
+            .fun, .sub, .drop_decl, .@"test", .lambda => {
+                const body = ir.get(e, .body);
+                for (rig.children(e)) |c| try self.placePanics(c, if (sameNode(c, body)) .statement else .value);
+            },
+            else => for (rig.children(e)) |c| try self.placePanics(c, value),
+        }
+    }
+
     /// The values `print`, `String(...)`, and `!t.add(...)` (`who`) write
     /// as text, each as `print` writes it: any value but a `Void`, a
     /// bare `none`, or one holding a `[]U8`, positionally. They are only
@@ -7785,11 +7872,13 @@ const Checker = struct {
                 .void => try self.errAt(a, "{s} needs a value; this expression produces no value (`Void`)", .{who}),
                 .none_literal => try self.errAt(a, "cannot {s} a bare `none`", .{verb}),
                 else => {
-                    if (try holdsByteSlice(self.ctx, ty, self.ctx.allocator)) {
+                    if (!try sema.printable(self.ctx, ty)) {
                         const name = try self.tyName(ty);
                         const direct = std.mem.eql(u8, name, "[]U8");
                         try self.errAt(a, "cannot {s} a `{s}`: {s}would {s} as text, like a `?String`; {s} the bytes one by one", .{ verb, name, if (direct) "it " else "the `[]U8` it holds ", verb, verb });
                     }
+                    // Each instance answers for a type parameter the value holds.
+                    try self.requireOf(ty, .printable, self.startOf(a), verb);
                 },
             }
         }
@@ -8553,51 +8642,6 @@ const Checker = struct {
         }
         if (sameSite(e, self.ternary_cond)) return self.errAt(e, "`{s}` is a mask, `{s}`, not a `Bool`: a ternary runs one side, so pick lanes with `{s}.select(a, b)`, or reduce the mask with `.any()` or `.all()`", .{ shown, ty, recv });
         try self.errAt(e, "`{s}` is a mask, `{s}`, not a `Bool`: write `{s}.any()` or `{s}.all()`", .{ shown, ty, recv, recv });
-    }
-
-    const ByteSliceVisit = struct { ctx: *const SemContext, sym: SymbolId };
-    const ByteSliceItem = struct { ctx: *const SemContext, ty: TypeId };
-
-    /// Whether a value of `ty` holds a `[]U8`, directly or through a
-    /// wrapper, field, payload, or type argument. A `[]U8` and a `?String`
-    /// are both Zig `[]const u8`, so `print` cannot tell them apart. The
-    /// walk keeps a stack of its own, so a long chain of types, each
-    /// holding the next, does not nest it; each declaration is walked once.
-    fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, a: std.mem.Allocator) Error!bool {
-        var todo: std.ArrayList(ByteSliceItem) = .empty;
-        defer todo.deinit(a);
-        var seen: std.AutoHashMapUnmanaged(ByteSliceVisit, void) = .empty;
-        defer seen.deinit(a);
-        try todo.append(a, .{ .ctx = ctx, .ty = ty });
-        while (todo.pop()) |item| {
-            const c = item.ctx;
-            switch (c.types.get(item.ty)) {
-                .slice => |sl| {
-                    switch (c.types.get(sl.elem)) {
-                        .int => |i| if (i.bits == 8 and !i.signed) return true,
-                        else => try todo.append(a, .{ .ctx = c, .ty = sl.elem }),
-                    }
-                    continue;
-                },
-                .optional, .fallible, .read_view, .write_view, .shared => |inner| {
-                    try todo.append(a, .{ .ctx = c, .ty = inner });
-                    continue;
-                },
-                .array => |arr| {
-                    try todo.append(a, .{ .ctx = c, .ty = arr.elem });
-                    continue;
-                },
-                .parameterized_nominal => |pn| for (pn.args) |arg| try todo.append(a, .{ .ctx = c, .ty = arg }),
-                .nominal, .imported_nominal => {},
-                else => continue,
-            }
-            const decl = sema.nominalDecl(c, item.ty) orelse continue;
-            if ((try seen.getOrPut(a, .{ .ctx = decl.ctx, .sym = decl.sym })).found_existing) continue;
-            for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
-                for (sema.dataFields(f)) |d| try todo.append(a, .{ .ctx = decl.ctx, .ty = d.ty });
-            }
-        }
-        return false;
     }
 
     /// What a call needs to know about a callee's parameters beyond its
@@ -11890,7 +11934,7 @@ const Checker = struct {
         try sema.yieldedLeaves(self.ctx.allocator, self.ctx.source, e, &leaves);
         if (leaves.items.len == 0) return false;
         for (leaves.items) |leaf| switch (leaf.kind() orelse return false) {
-            .call, .result_part, .write, .move, .@"return", .@"break", .@"continue" => {},
+            .call, .result_part, .write, .move, .@"return", .@"break", .@"continue", .panic => {},
             else => return false,
         };
         return true;
@@ -13512,7 +13556,7 @@ const Checker = struct {
             if (stmts.len > 0) {
                 for (stmts[0 .. stmts.len - 1]) |s| try self.checkStmt(s);
                 const last = stmts[stmts.len - 1];
-                ends_in_return = last.isKind(.@"return");
+                ends_in_return = last.isKind(.@"return") or last.isKind(.panic);
                 // A closure ending in a statement, or an `if` without
                 // `else`, returns nothing.
                 const no_value = self.yieldsNoValue(last) or ifWithoutValue(last);
@@ -14189,9 +14233,9 @@ fn isWhileTrue(source: []const u8, loop: Sexp) bool {
 
 /// The call whose value `e` is: `e` itself, or the call under a `!`,
 /// `?`, `catch`, or on the left of `??`.
-/// `return`, `break`, or `continue`: a fallback that jumps.
+/// `return`, `break`, `continue`, or `panic`: a fallback that leaves.
 fn isJumpNode(e: Sexp) bool {
-    return e.isKind(.@"return") or e.isKind(.@"break") or e.isKind(.@"continue");
+    return rig.leaves(e);
 }
 
 /// Whether `e` names `name` anywhere in `source`.
@@ -15154,6 +15198,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
+                .printable => try ctx.err(at, cannot ++ "{s}s a value that holds a `{s}`, and {s} would {s} as text, like a `?String`", .{ inst, pname, aname, req.op, pname, if (std.mem.eql(u8, aname, "[]U8")) "a `[]U8`" else try ctx.arena.allocator().print("the `[]U8` a `{s}` holds", .{aname}), req.op }),
                 .whole_division => try ctx.err(at, cannot ++ "gives a `{s}` the division of whole numbers `{s}`, which divides integers, not a `{s}`", .{ inst, pname, aname, pname, req.op, aname }),
                 .not_error => try ctx.err(at, "`{s}` cannot use `{s} = {s}`: a return type `{s}!` would make a failure and a success both `{s}` values", .{ inst, pname, aname, pname, aname }),
                 .not_function => try ctx.err(at, cannot ++ "makes a handle `{s}{s}` of a `{s}`, and `{s}` is a function type: `*{s}` is an owned closure, not a handle of a function. Hold the owned closure itself in a `{s}`: `{s} = *{s}`", .{ inst, pname, aname, req.op[1..2], pname, pname, aname, aname, pname, pname, aname }),
@@ -15177,6 +15222,7 @@ fn checkRequirements(ctx: *SemContext, reqs: *const Requirements, params: []cons
                 .not_error => try ctx.noteIn(req.module_id, req.pos, "`{s}!` returned here", .{pname}),
                 .not_function => try ctx.noteIn(req.module_id, req.pos, "`{s}{s}` here", .{ req.op[1..2], pname }),
                 .named => try ctx.noteIn(req.module_id, req.pos, "`@name` here", .{}),
+                .printable => try ctx.noteIn(req.module_id, req.pos, "written here", .{}),
                 else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
             ok = false;
@@ -15250,6 +15296,7 @@ fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
         .equatable => sema.isEquatable(ctx, ty),
         .hashable => isText(ctx, ty) or ((try sema.notHashable(ctx, ty, null)) == null and !declaresHash(ctx, ty)),
         .whole_division => sema.isInteger(ctx, ty),
+        .printable => try sema.printable(ctx, ty),
         .not_error => ctx.types.get(ty) != .any_error and !sema.isErrorSet(ctx, ty),
         .not_function => ctx.types.get(ty) != .function,
         .named => sema.unnameable(ctx, ty) == null,

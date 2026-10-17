@@ -23,7 +23,7 @@ enum Word
   std
   rig
   main
-  panic
+  os
   fn
   u8
   null
@@ -78,7 +78,7 @@ sub main()
 # .std std true none
 # .rig rig true none
 # .main main true none
-# .panic panic true none
+# .os os true none
 # .fn fn true none
 # .u8 u8 true none
 # .null null true none

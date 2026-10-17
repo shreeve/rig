@@ -1,0 +1,25 @@
+# A Float prints the shortest digits that read back as the same value.
+# It takes an exponent at 1e21 and above and below 1e-6, as JavaScript
+# does, and a whole number keeps its `.0`, so what prints is a Rig float
+# literal. An F32 prints its own shortest digits.
+
+sub main()
+  print(0.0, -0.0, 1.0, -2.5, 0.1, 100.0, 1e20, 1e21, 1.5e21, 123456789012345680000.0)
+  print(0.000001, 0.0000015, 1e-7, 2.5e-10, 1.7976931348623157e308, 5e-324)
+  print(0.1 + 0.2, 1.0 / 3.0, 2.0 / 3.0)
+  f: F32 = 0.1
+  g: F32 = 16777216.0
+  h: F32 = 1e-7
+  print(f, g, h)
+  big = 1e300
+  print(big * big, -big * big, (big * big) - (big * big))
+  print([1.0, 1e22], String(2.5e-7))
+
+# release
+# expect:
+# 0.0 -0.0 1.0 -2.5 0.1 100.0 100000000000000000000.0 1e21 1.5e21 123456789012345680000.0
+# 0.000001 0.0000015 1e-7 2.5e-10 1.7976931348623157e308 5e-324
+# 0.30000000000000004 0.3333333333333333 0.6666666666666666
+# 0.1 16777216.0 1e-7
+# inf -inf nan
+# [1.0, 1e22] 2.5e-7

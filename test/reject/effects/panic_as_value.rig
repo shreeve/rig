@@ -1,0 +1,24 @@
+# `panic` gives no value, so it stands only as a statement or as a
+# branch's value: not as an operand, an argument, a binding's value, a
+# `return` value, or a module constant.
+
+X = panic("module")
+
+sub f(n: Int)
+  print(n)
+
+fun g() -> Int
+  return panic("returned")
+
+sub main()
+  a = panic("a") + 1
+  f(panic("argument"))
+  b = panic("bound")
+  print(a, b, g(), X)
+
+# error: 5:5: `panic` ends the program and gives no value, so it stands as a statement or as a branch's value
+# error: 11:10: `panic` ends the program and gives no value, so it stands as a statement or as a branch's value
+# error: 14:7: `panic` ends the program and gives no value, so it stands as a statement or as a branch's value
+# error: 15:5: `panic` ends the program and gives no value, so it stands as a statement or as a branch's value
+# error: 16:7: `panic` ends the program and gives no value, so it stands as a statement or as a branch's value
+# errors: 5
