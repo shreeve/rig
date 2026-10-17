@@ -73,18 +73,25 @@ These are about the compiler, not the process. They don't bend.
 ### Test in two steps
 
 **1. Smoke test on the Mac, while you work.** `tools/check N` runs the
-branch's own tests plus N% of the suite, chosen at random, on this Mac:
+branch's own tests, the whole-program checks, and N% of the suite,
+chosen at random, on this Mac:
 `tools/check 1` is about 40 tests, `tools/check 5` about 200, and
 `tools/check 20` about 800. Use it as often as you like. A bug fix starts
 with a test that fails; `./test/run --delta <ids>` reruns just the tests
 you name.
 
-**2. Full test on burst, when we're happy.** `tools/gate` runs the whole
-suite, the corpus, and the matrix on burst against the pushed head and
-posts the result on the PR. Run it only when Steve asks, never by rule
-on every PR.
-If `main` ever fails, `git bisect run` with the failing test finds the
-commit, and the fix goes in on a new branch.
+**2. Full test on burst, when we're happy.** Only when Steve asks, never
+by rule on every PR:
+
+- `tools/gate` tests a PR's pushed head: the suite and the corpus, plus
+  the matrix when the PR touches the classifiers, the proofs, or emit.
+  It skips a PR that touches no code or harness.
+- `tools/deep` tests everything merged on `main`: the suite, the corpus,
+  and the full matrix. When it fails, `tools/deep --bisect` finds the
+  commit, and the fix goes in on a new branch.
+
+A full suite never runs on the Mac; `cpuq submit cpuq/suite.json` runs
+it on burst (test/README.md, "The tiers").
 
 **Nothing else runs unless Steve asks:** no full local suite, corpus,
 matrix, `./test/run json`, benchmark or check-speed guards, review
@@ -127,7 +134,8 @@ RIG_LEAK_TRACE=1 bin/rig run f.rig # leaks with allocation stack traces
 tools/check 1                      # smoke test on the Mac: branch tests + 1% of the suite
 tools/check 5                      #   ... + 5%
 tools/check 20                     #   ... + 20%
-tools/gate                         # full test on burst: suite, corpus, matrix (when asked)
+tools/gate                         # a PR on burst (when Steve asks)
+tools/deep                         # all of main on burst (when Steve asks)
 ```
 
 - **Nexus** is co-developed. `zig build` regenerates `src/parser.zig`

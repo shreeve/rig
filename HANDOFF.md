@@ -91,8 +91,8 @@ from).
   (docs/json/DESIGN.md, "Open items").
 - **Releases:** every change, fixes included, ships in the current
   line, `v0.3.x`; an earlier line gets no further releases. Rounds land
-  on `main` untagged until the next tag, which is cut only after a
-  clean full run ("Testing" below); its release notes
+  on `main` untagged until the next tag, which is cut only after the
+  deep gate (`tools/deep`, "Testing" below); its release notes
   include a migration guide for the renames.
 - **Branches:** `main` is the one long-lived branch. Work lands through
   short-lived branches and pull requests. The ruleset on `main` requires
@@ -103,11 +103,11 @@ from).
   `nexus/bin/nexus` (AGENTS.md, "Workflow").
   - [docs/zig-0.17.md](docs/zig-0.17.md) covers every Zig API Rig uses.
   - The cross-project Zig guide is `~/Data/Code/zig/docs/ZIG-0.17.md`.
-- **Health:** the last full run ("Testing" below) was green on `main`: the
+- **Health:** the last deep gate ("Testing" below) was green on `main`: the
   full suite (`./test/run`, with its pending examples the planned Core
   rules), the corpus, `test/matrix.py`, the unit tests, and the oracle
   floors in `test/oracle/coverage`. `test/known/` holds no open bugs.
-  Each full run reports the counts.
+  CI and each deep-gate run report the counts.
 
 ## Scope
 
@@ -337,7 +337,7 @@ and run the corpus after.
    `loopfacts` (where loop steps run and jumps go, recorded once; no
    emitted change), then `proofs2`.
 
-**Toward `v0.3.0`:** the docs pass, a clean full run, and the tag with a
+**Toward `v0.3.0`:** the docs pass, the deep gate, and the tag with a
 migration guide (`tools/migrate-0.3.py`).
 
 **Later:**
@@ -366,51 +366,58 @@ migration guide (`tools/migrate-0.3.py`).
 - The per-expression "is a view" fact.
 - The held items, as their prerequisites land.
 
-## Testing
+## The gates
 
-Two steps (AGENTS.md, "Test in two steps"):
+The tiers, cheapest first (test/README.md, "The tiers"):
 
-- **Smoke test on the Mac, while working:** `tools/check N` runs the
-  branch's own tests plus N% of the suite (`1`, `5`, `20`, …), as often
-  as you like.
-- **Full test on burst, when Steve asks:** `tools/gate` runs the suite,
-  the corpus, and the matrix on the pushed head. A failure on `main` is
-  bisected (`git bisect run`) and fixed on a new branch. A tag needs a
-  clean full run.
-
-Everything else runs only when Steve asks: the guards below,
-equivalence, the unit tests, and the Unicode tables' freshness test
-(`RIG_UCD=dir ./test/run unicode_tables`, which fetches any pinned file
-`dir` lacks).
-
-- **The JSON benchmark guard:** on the Mac, `cpuq run --cores 2 --label
-  rig:json -- bench/json/guard.py` builds `rig-safe` for the six corpus
-  files and counts instructions retired per byte, which do not move
-  with the load. A file more than 2% above its baseline in
+- **While you work, on the Mac:** `tools/check N`, which runs the
+  branch's own tests, the whole-program checks (`oracle`, `classify`,
+  `vocab`, `style`), and N% of the suite; and `./test/run --delta
+  <ids>` for the tests you name. A full suite never runs on the Mac: it
+  runs on burst, `cpuq submit cpuq/suite.json` (about 10 minutes), and
+  `cpuq submit cpuq/suite.json -- <filters>` runs part of it there.
+- **A pull request, when Steve asks:** `tools/gate`, the suite and
+  the corpus on burst. It skips a pull request that touches nothing in
+  `src/`, `std/`, `rig.grammar`, the build, or the test harness, and adds
+  the matrix only when it touches the classifiers, the proofs, or emit.
+- **The deep gate, on `main`:** `tools/deep` runs the suite, the corpus,
+  and the full matrix on burst against `main`'s head from a clean
+  worktree, posts `rig/deep` on that commit, and moves the tag
+  `deep-green` when it passes. It runs when Steve asks. A failure is bisected
+  (`tools/deep --bisect`) and fixed before any new round lands; a tag
+  needs a clean deep gate. Equivalence against the last deep run, and
+  the Unicode tables' freshness test with the database present
+  (`RIG_UCD=dir ./test/run unicode_tables`; the generator fetches any
+  pinned file `dir` lacks), are still run by hand.
+- **The JSON benchmark guard:** on the Mac, `cpuq run --local --cores
+  2-6 --label rig:json -- bench/json/guard.py` builds `rig-safe` for the
+  six corpus files and counts instructions retired per byte, which do
+  not move with the load. A file more than 2% above its baseline in
   `bench/json/guard.txt` is a regression, and the guard fails. A change
   meant to move the counts commits a new baseline
   (`bench/json/guard.py --update`).
-- **The check-speed guard:** on the Mac, `cpuq run --cores 2 --label
-  rig:check -- bench/check/guard.py` builds the compiler in ReleaseSafe
-  and runs `rig check` on a generated program about the size of Trig's
-  parser (`bench/check/gen.py`). It fails when the instructions retired
-  are more than 2% above `bench/check/guard.txt`, when a pass of `rig
-  check --time` (best of 7) is more than 20% and 0.25 ms slower (skipped above a
-  load of 5), or when checking a program 8 times larger along one
-  dimension (modules, variants, fields, functions, statements) grows
-  with an exponent over 1.15. A change meant to move them commits a new
-  baseline (`bench/check/guard.py --update`).
+- **The check-speed guard:** on the Mac, `cpuq run --local --cores 2-6
+  --label rig:check -- bench/check/guard.py` builds the compiler in
+  ReleaseSafe and runs `rig check` on a generated program about the size
+  of Trig's parser (`bench/check/gen.py`). It fails when the
+  instructions retired are more than 2% above `bench/check/guard.txt`,
+  when a pass of `rig check --time` (best of 7) is more than 20% and
+  0.25 ms slower (skipped above a load of 5), or when checking a program
+  8 times larger along one dimension (modules, variants, fields,
+  functions, statements) grows with an exponent over 1.15. A change
+  meant to move them commits a new baseline (`bench/check/guard.py
+  --update`).
 
-The machines are shared: run heavy work through the job queue
-(`cpuq run --cores 2 -- …`, with `-j "$CPUQ_CORES"`), which shares the
-CPUs fairly. Full runs go to the Linux machine, pup, one
-at a time with its spare cores.
+The machines are shared: everything heavy goes through the job queue,
+cpuq, which shares the CPUs fairly. On the Mac that is `tools/check` and
+targeted runs (`cpuq run --local --cores 2-6 -- …`, with `-j
+"$CPUQ_CORES"`); the full suite, the corpus, and the matrix go to burst:
 
 ```bash
-./test/run -j 2                               # full suite; the sanitizer is on by default
-./test/run -j 2 corpus                        # every reviewer probe; has caught real use-after-frees
-python3 test/matrix.py -j 2                   # form x context x type programs
-zig build test --cache-dir "$(mktemp -d)"     # unit tests; a plain rerun replays cached results
+cpuq submit cpuq/suite.json                   # full suite; the sanitizer is on by default
+cpuq submit cpuq/corpus.json                  # every reviewer probe; has caught real use-after-frees
+cpuq submit cpuq/matrix.json                  # form x context x type programs
+cpuq submit cpuq/suite.json -- reject/types   # part of the suite, by filter
 ```
 
 - Rerun a timeout failure alone before trusting it: under load,
