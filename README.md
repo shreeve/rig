@@ -280,7 +280,7 @@ itself runs `$ZIG` instead when it is set.
 
 ```bash
 zig build                  # builds bin/rig in the checkout
-zig build -p ~/.local      # and installs ~/.local/bin/rig
+cp bin/rig ~/.local/bin/   # puts it on PATH
 ```
 
 The test runner also needs bash and either GNU `timeout` or perl

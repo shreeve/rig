@@ -1,7 +1,7 @@
 //! Rig Build Configuration
 //!
 //! Steps:
-//!   zig build              — build bin/rig (with `-p PREFIX`: also PREFIX/bin/rig)
+//!   zig build              — build bin/rig
 //!   zig build parser       — generate src/parser.zig from rig.grammar via Nexus
 //!                            (every other step does this first; it is not tracked)
 //!   zig build run -- ...   — run bin/rig with args
@@ -90,12 +90,11 @@ pub fn build(b: *std.Build) void {
     });
     exe.step.dependOn(parser_gen);
 
-    // bin/rig in the checkout, where ./test/run and the docs expect it,
-    // and PREFIX/bin/rig (zig-out/bin/rig without `-p`).
+    // bin/rig in the checkout, where ./test/run and the docs expect it.
+    // Nothing goes to the install prefix, so no zig-out/ is made.
     const checkout_bin = b.addUpdateSourceFiles();
     checkout_bin.addCopyFileToSource(exe.getEmittedBin(), "bin/rig");
     b.getInstallStep().dependOn(&checkout_bin.step);
-    b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
