@@ -10,10 +10,14 @@
 # one part runs. When K parts are not exactly N%, it says what share ran.
 #
 # It runs two things, each through the Mac's job queue (cpuq run --local
-# --cores 2), each with --delta, so a program that passed before with the
-# same inputs is checked but not run again:
+# --cores 2-6), each with --delta, so a program that passed before with
+# the same inputs is checked but not run again:
 #
-#   1. The branch's own tests, in full: every test the branch adds or
+#   1. The whole-program checks, every time: oracle (the reference
+#      ownership checker over its sets, which also finds a test missing
+#      from test/oracle/rejections), classify, vocab and style, about 15
+#      seconds in all. With them, the branch's own tests, in full: every
+#      test the branch adds or
 #      changes since the merge-base with origin/main (working-tree changes
 #      and new files included), found by test id from the files the diff
 #      touches (test/behavior, reject, known, ir, torture, cli, corpus,
@@ -22,7 +26,7 @@
 #      change to test/cli/_*.sh, which every CLI test shares, runs them all.
 #   2. One random slice of the suite, `./test/run --delta --shard I/K` with
 #      I chosen at random, so repeated checks cover more over time. Slice 1
-#      also runs the whole-program checks (unit, classify, vocab, style).
+#      also runs the unit tests.
 #
 # --matrix adds the same slice of the generated grids
 # (test/matrix.py --delta --shard I/K).
@@ -182,10 +186,12 @@ sort -u "$WORK/ids" -o "$WORK/ids"
 # run_job <log> <label> <script> [args...]: bash runs the script with the
 # args as "$@" under cpuq; its output goes to the log as well as the
 # screen, and its status is returned.
+# --local keeps the run on this Mac; drop it once cpuq places hosts itself.
+CPUQ_RUN="cpuq run --local --cores 2-6"
 run_job() {
     local log=$1 label=$2 script=$3
     shift 3
-    cpuq run --local --cores 2 --label "rig:$label" -- bash -c "$script" _ "$@" 2>&1 | tee "$log"
+    $CPUQ_RUN --label "rig:$label" -- bash -c "$script" _ "$@" 2>&1 | tee "$log"
     return "${PIPESTATUS[0]}"
 }
 
@@ -212,23 +218,20 @@ summarize() {
 failing_tests() { sed -E 's/\x1b\[[0-9;]*m//g' "$1" | sed -nE 's/^  (FAIL|FIXED) +([^ ]+) .*/\2/p'; }
 failing_cells() { sed -nE 's/^fail +([^ ]+) .*/\1/p' "$1"; }
 
-# 1. The branch's own tests.
+# 1. The whole-program checks and the branch's own tests. The checks are
+# bare kind names, so a branch id that matches no test is not an error.
+IDS=(oracle classify vocab style)
 if [[ -s $WORK/ids ]]; then
-    IDS=()
     while IFS= read -r id; do IDS+=("$id"); done <"$WORK/ids"
-    echo "check: the branch's tests: ${IDS[*]}"
-    run_job "$WORK/branch.log" check-branch './test/run --delta -j "$CPUQ_CORES" "$@"' "${IDS[@]}"
-    status=$?
-    if [[ $status -eq 2 ]] && grep -q '^no test matches' "$WORK/branch.log"; then
-        echo "check: no test of the branch's changes was found by id; skipped"
-    else
-        summarize "$WORK/branch.log" $status "the branch's tests"
-        RERUN_TESTS=$(failing_tests "$WORK/branch.log" | tr '\n' ' ')
-    fi
-    phase "the branch's tests"
+    echo "check: the whole-program checks and the branch's tests: ${IDS[*]:4}"
 else
-    echo "check: the branch changes no test or doc example"
+    echo "check: the whole-program checks; the branch changes no test or doc example"
 fi
+run_job "$WORK/branch.log" check-branch './test/run --delta -j "$CPUQ_CORES" "$@"' "${IDS[@]}"
+status=$?
+summarize "$WORK/branch.log" $status "the whole-program checks and the branch's tests"
+RERUN_TESTS=$(failing_tests "$WORK/branch.log" | tr '\n' ' ')
+phase "the whole-program checks and the branch's tests"
 
 # 2. One slice of the suite.
 echo "check: slice $I/$K"
@@ -251,6 +254,7 @@ fi
 
 WHAT="slice $I/$K"
 [[ -z $MATRIX ]] || WHAT="$WHAT, with the matrix"
+WHAT="$WHAT; the whole-program checks"
 echo
 RERUN_TESTS=$(printf '%s\n' $RERUN_TESTS | sort -u | tr '\n' ' ')
 if [[ $FAILED -eq 0 && $BROKEN -eq 0 ]]; then
@@ -260,11 +264,11 @@ fi
 echo "check: $PASSED passed, $FAILED failed ($WHAT; the branch's tests in full)"
 RERUN=""
 if [[ -n ${RERUN_TESTS// /} ]]; then
-    RERUN="cpuq run --local --cores 2 -- bash -c './test/run -j \"\$CPUQ_CORES\" \"\$@\"' _ ${RERUN_TESTS% }"
+    RERUN="$CPUQ_RUN -- bash -c './test/run --delta -j \"\$CPUQ_CORES\" \"\$@\"' _ ${RERUN_TESTS% }"
     echo "rerun the failures:  $RERUN"
 fi
 if [[ -n ${RERUN_CELLS// /} ]]; then
-    echo "rerun the matrix failures:  cpuq run --local --cores 2 -- bash -c 'test/matrix.py -j \"\$CPUQ_CORES\" \"\$@\"' _ ${RERUN_CELLS% }"
+    echo "rerun the matrix failures:  $CPUQ_RUN -- bash -c 'test/matrix.py --delta -j \"\$CPUQ_CORES\" \"\$@\"' _ ${RERUN_CELLS% }"
 fi
 [[ -n $RERUN$RERUN_CELLS || $BROKEN -eq 0 ]] || echo "rerun:  tools/check $N --slice $I"
 exit 1

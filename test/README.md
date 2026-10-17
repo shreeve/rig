@@ -530,42 +530,76 @@ The output directory's `.durations` file records how long each test
 took, in whole seconds; the next run starts the longest tests first, so
 it does not end waiting on one of them.
 
+## The tiers
+
+Each tier runs what the one before cannot afford:
+
+1. **While you work, on the Mac:** `tools/check N` (below) and
+   `./test/run --delta <ids>` for the tests you name. A full suite never
+   runs on the Mac; it runs on burst, `cpuq submit cpuq/suite.json`, and
+   `cpuq submit cpuq/suite.json -- <filters>` runs part of it there.
+2. **Once per pull request, when it is ready:** `tools/gate`, the suite
+   and the corpus on burst (below).
+3. **On `main`:** `tools/deep`, the deep gate (below), every few merges
+   or hours, and by hand.
+4. **Nightly:** the cold suite on GitHub's runners (`test.yml`, below).
+
 ## A quick local check
 
 `tools/check N` is a sniff test before a push, run on this Mac through
-the job queue (`cpuq run --local --cores 2`). `N` is a share of the
+the job queue (`cpuq run --local --cores 2-6`). `N` is a share of the
 suite in percent, 1 to 100: the suite splits into `100/N` equal parts,
 rounded to a whole number, and one runs (`tools/check 1` is about 40
 tests, `tools/check 5` about 200). It runs, each with `--delta`:
 
-1. The branch's own tests, in full: every test the branch adds or
-   changes since its merge-base with `origin/main` (committed or not,
-   new files included), found by id from the files it touches under
+1. The whole-program checks, every time: `oracle` (which also finds a
+   test that is missing from `test/oracle/rejections`), `classify`,
+   `vocab`, and `style`, about 15 seconds in all. With them, the
+   branch's own tests, in full: every test the branch adds or changes
+   since its merge-base with `origin/main` (committed or not, new files
+   included), found by id from the files it touches under
    `test/behavior`, `reject`, `known`, `ir`, `torture`, `cli`, `corpus`
    and `examples/`, and every doc example of a Markdown file whose `rig`
    blocks changed (`doc/<file>/`, the whole file, since an edit moves
    lines). A change to a `test/cli/_*` helper runs every CLI test.
 2. One random slice of the suite, `./test/run --delta --shard I/K` with
    `I` chosen at random, so repeated checks cover more over time. Slice
-   1 also runs the whole-program checks (`unit`, `classify`, `vocab`,
-   `style`), as any first shard does.
+   1 also runs the unit tests, as any first shard does.
 
 `--matrix` adds the same slice of `test/matrix.py --delta --shard I/K`,
 and `--slice I` picks the slice. The report gives the passed and failed
 counts, the slice that ran, and one command that reruns just the
 failures; the exit status is 1 if anything failed. It samples; it does
-not replace `./test/run`, the gate, or the deep gate.
+not replace the gate or the deep gate.
 
 ## The merge gate and CI
 
-A pull request is tested on burst when we ask, and GitHub's runners do
-not test it again; the deep gate on `main` tests everything that merged:
+A pull request is tested on burst once, when it is ready to merge, and
+GitHub's runners do not test it again; the deep gate on `main` tests
+everything that merged, together:
 
 ```bash
 tools/gate                 # from the branch's worktree, after merging main and pushing
-tools/gate --no-matrix     # a quicker look, the suite and the corpus
+tools/gate --matrix        # with the matrix, whatever the branch changes
+tools/gate --no-matrix     # without it, whatever the branch changes
+tools/gate --force         # gate a branch that changes nothing the gate tests
 tools/gate --skip REASON   # test nothing: post success, which clears a failed gate
 ```
+
+It gates only a pull request that is ready (not a draft), and only one
+that changes what burst tests: `src/`, `std/`, `rig.grammar`,
+`build.zig`, or the harness (`test/run`, `test/matrix.py`,
+`test/equiv.py`, `test/hints.py`, `test/cli/_*`, the oracle's
+`test/oracle/*.zig`, `test/json/compare.py` and its template, `cpuq/`,
+`tools/gate`, `tools/fetch-json-data.sh`). For any other it says so and
+exits 0 having posted nothing, which the checks pass: a new test or doc
+example is run by `tools/check`, and the deep gate runs it again. The
+matrix runs when the branch changes a classifier, the proofs, emit, or
+the matrix itself (`src/facts.zig`, `storage.zig`, `proofs.zig`,
+`emit.zig`, `ownership.zig`, `sema.zig`, `runtime.zig`,
+`test/matrix.py`, `cpuq/matrix.json`); `--matrix` and `--no-matrix`
+decide it instead. A newer gate of the same pull request cancels the
+burst jobs of an older one still running for another head.
 
 `tools/gate` refuses unless the worktree is clean, holds no ignored file
 that cpuq would ship (cpuq copies everything but a spec's `exclude`), and
@@ -575,15 +609,16 @@ that changes `tools/gate` or `cpuq/` unless given `--allow-gate-changes`. A bran
 also builds its Lean proofs on this machine first (`cd formal && lake
 build`; burst has no Lean), and fails on an unfinished one, a `sorry`,
 which lake only warns of.
-It submits `cpuq/suite.json`, `corpus.json`, and `matrix.json` together,
-each a `--delta` run, which burst runs at once; cancels the rest when one
-fails; and posts the commit status `rig/gate` on the commit: `success`
+It submits `cpuq/suite.json` and `corpus.json` (and `matrix.json` when
+the matrix runs) together, each a `--delta` run, which burst runs at
+once; cancels the rest when one fails; and posts the commit status `rig/gate` on the commit: `success`
 with its tree and the job ids when all pass, `failure` when a test
 fails, `error` when a job could not finish. It posts with the Mac's `gh`
 login, and no credential goes to GitHub. Last it re-runs the pull
 request's `gate` workflow and, after a success, waits for the required
-checks to pass, printing the time each phase took. With `--no-matrix` its
-success says it ran no matrix. `--skip REASON` posts `success` with
+checks to pass, printing the time each phase took. Without the matrix
+its success says so. A branch that changes only `formal/` builds its
+proofs and posts that verdict, without burst. `--skip REASON` posts `success` with
 "skipped by LOGIN: REASON" on the pull request's pushed head and re-runs
 the checks; it needs no clean worktree and no merge of the base.
 
@@ -626,6 +661,37 @@ the compiler and the oracle once, in one `zig build`, so the suite's own
 builds find them in Zig's cache; caches are restored on every run and
 saved only by a run on `main` that no pull request started, under keys
 named by their contents.
+
+## The deep gate
+
+`tools/deep` tests `main`'s head on burst, everything that merged since
+the last run, together:
+
+```bash
+tools/deep                 # now: the suite, the corpus, the full matrix
+tools/deep --if-due        # only after 6 merges or 4 hours since the last run (for a timer)
+tools/deep --bisect        # find the merge that broke the last run
+tools/deep --dry-run       # say what it would do
+```
+
+It runs from a clean worktree of its own,
+`~/Data/Code/worktrees/rig/deep-main` (`DEEP_WORKTREE`), reset hard to
+`origin/main` each time, and submits `cpuq/suite.json`, `corpus.json`,
+and `matrix.json` with no filter and the note `deep <sha>`. It lets every
+job finish, posts the commit status `rig/deep` on the commit, and when
+all pass moves the tag `deep-green` there, on GitHub too. It exits at
+once when `main` has not moved since the last run that passed or failed,
+or while another run holds its lock; `--force` runs it anyway. It takes
+30 to 45 minutes, and nobody waits on it.
+
+A red run keeps its logs and failing ids in the git directory,
+`rig-deep/runs/<sha>/`. `tools/deep --bisect` runs `git bisect
+--first-parent` between that commit and `deep-green`, in the deep
+worktree, and at each merge reruns only the failing tests (`cpuq submit
+cpuq/suite.json -- ID...`) and matrix cells (`-- -k CELL`); `--bisect
+SHA -- ID...` names them instead. A merge without the failing tests yet
+counts as good. With the results cache, each step takes about a minute.
+Then revert the merge it names, or fix forward.
 
 ## Rerunning only what changed
 

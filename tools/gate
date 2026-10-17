@@ -2,21 +2,28 @@
 # tools/gate: test a pull request's head on burst, and post the verdict to
 # GitHub as the commit status `rig/gate` on that commit.
 #
-#   tools/gate [--pr N] [--no-matrix] [--allow-gate-changes] [--no-wait]
+#   tools/gate [--pr N] [--matrix | --no-matrix] [--force]
+#              [--allow-gate-changes] [--no-wait]
 #   tools/gate --skip REASON [--pr N]
 #
 # Gating is a choice, not a step every pull request takes: the required
 # checks (.github/workflows/gate.yml) pass for a head with no `rig/gate`
-# status, and fail only after a gate on it failed. Run it when a change is
-# worth testing before it merges; the deep gate on main tests the rest.
+# status, and fail only after a gate on it failed. A pull request is gated
+# once, when it is ready (a draft is refused), and only when it changes
+# what burst tests (TESTED, below); for any other it says why and exits 0
+# without posting anything. The deep gate on main (tools/deep) tests the
+# rest, and every merge together.
 #
 # Run it from the worktree of a branch with an open pull request, after
 # merging the pull request's base and pushing. It refuses unless the
 # worktree is clean, holds no ignored file that cpuq would ship, its HEAD
 # is the pull request's pushed head, and that head contains the base; so
-# the bytes burst tests are exactly that commit. It then submits the suite,
-# the corpus and the matrix (cpuq/suite.json, corpus.json, matrix.json,
-# each a --delta run) together, and burst runs them at once. Once every
+# the bytes burst tests are exactly that commit. It cancels the burst jobs
+# of an older gate of the same pull request, for another head, that still
+# run. It then submits the suite and the corpus (cpuq/suite.json,
+# corpus.json, each a --delta run), and the matrix (matrix.json) when the
+# branch changes a file of MATRIX_PATHS (below), together, and burst runs
+# them at once. Once every
 # one passes it posts `success` on the commit, with its tree and the job
 # ids. A failing test posts `failure`, a job that could not finish
 # `error`, and the jobs still running are cancelled. Last, it re-runs the
@@ -27,8 +34,9 @@
 # --pr N gates pull request N, whose head HEAD must be: the way to gate a
 # fork's pull request, from a local branch of its head (test/README.md,
 # "The merge gate and CI").
-# --no-matrix leaves the matrix out, for a quicker look; its status says
-# so.
+# --matrix runs the matrix whatever the branch changes, and --no-matrix
+# leaves it out whatever it changes; a success without it says so.
+# --force gates a branch that changes nothing of TESTED.
 # --allow-gate-changes tests a branch that changes this script or
 # cpuq/*.json, which decide what the gate runs; without it such a branch
 # is refused.
@@ -44,12 +52,14 @@
 # (bash 3.2, as macOS ships it.)
 set -uo pipefail
 
-MATRIX=1 ALLOW_GATE_CHANGES="" WAIT=1 PR="" SKIP=""
+MATRIX="" FORCE="" ALLOW_GATE_CHANGES="" WAIT=1 PR="" SKIP=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         --pr) [[ ${2:-} =~ ^[0-9]+$ ]] || { echo "tools/gate: --pr takes a pull request's number" >&2; exit 2; }
             PR=$2; shift ;;
-        --no-matrix) MATRIX="" ;;
+        --matrix) MATRIX=yes ;;
+        --no-matrix) MATRIX=no ;;
+        --force) FORCE=1 ;;
         --allow-gate-changes) ALLOW_GATE_CHANGES=1 ;;
         --no-wait) WAIT="" ;;
         --skip) [[ -n ${2:-} && $2 != -* ]] || { echo "tools/gate: --skip takes a reason" >&2; exit 2; }
@@ -86,36 +96,17 @@ BRANCH=$(git symbolic-ref --short -q HEAD) || BRANCH=""
 [[ -n $SKIP || -z $(git status --porcelain --untracked-files=all) ]] ||
     die "the worktree has changes or untracked files, which cpuq would ship and test; commit or remove them"
 
-# cpuq ships every file but the specs' excludes, ignored ones too. The
-# JSON test data is checked by sha256 when the suite fetches it.
-NAMES="suite corpus"
-if [[ -z $SKIP ]]; then
-[[ -n $MATRIX ]] && NAMES="$NAMES matrix"
-SPECS=""
-for name in $NAMES; do SPECS="$SPECS cpuq/$name.json"; done
-# shellcheck disable=SC2086 # the spec paths hold no spaces
-SHIPPED=$(git ls-files -z -o -i --exclude-standard | python3 -c '
-import json, sys
-excludes = {"test/json/data", "formal/.lake"}
-for spec in sys.argv[1:]:
-    excludes.update(e.rstrip("/") for e in json.load(open(spec)).get("exclude", []))
-for path in sys.stdin.read().split("\0"):
-    if path and not any(path == e or path.startswith(e + "/") for e in excludes):
-        print(path)
-' $SPECS) || die "cannot read the specs"
-[[ -z $SHIPPED ]] || die "ignored files cpuq would ship and test (remove them):
-$SHIPPED"
-fi
-
 # The GitHub repository behind the remote (GATE_REMOTE, default origin).
 REMOTE=${GATE_REMOTE:-origin}
 REPO=$(git remote get-url "$REMOTE" | sed -nE 's#^(git@github\.com:|ssh://git@github\.com/|https://github\.com/)([^/]+/[^/]+)$#\2#p')
 REPO=${REPO%.git}
 [[ -n $REPO ]] || die "the remote $REMOTE is not a GitHub repository"
-PR_JSON=$(gh pr view "${PR:-$BRANCH}" -R "$REPO" --json number,state,headRefOid,baseRefName,isCrossRepository,url) ||
+PR_JSON=$(gh pr view "${PR:-$BRANCH}" -R "$REPO" --json number,state,isDraft,headRefOid,baseRefName,isCrossRepository,url) ||
     die "no pull request for ${PR:-$BRANCH}; open one first (gh pr create --draft)"
-read -r PR STATE HEAD_OID BASE CROSS URL < <(jq -r '[.number, .state, .headRefOid, .baseRefName, .isCrossRepository, .url] | @tsv' <<<"$PR_JSON")
+read -r PR STATE DRAFT HEAD_OID BASE CROSS URL < <(jq -r '[.number, .state, .isDraft, .headRefOid, .baseRefName, .isCrossRepository, .url] | @tsv' <<<"$PR_JSON")
 [[ $STATE == OPEN ]] || die "pull request #$PR is $STATE"
+[[ -n $SKIP || $DRAFT != true ]] ||
+    die "#$PR is a draft; a pull request is gated once, when it is ready: gh pr ready $PR, then run tools/gate again"
 
 SHA=$(git rev-parse HEAD)
 if [[ $CROSS == true ]]; then
@@ -139,6 +130,87 @@ if [[ -z $SKIP ]] && ! git diff --quiet "$REMOTE/$BASE" HEAD -- formal; then
     command -v lake >/dev/null || die "this branch changes formal/, which needs lake (elan) to build"
     FORMAL=1
 fi
+
+# --- What runs: decided by the paths the branch changes -------------------
+
+# TESTED: what burst's runs depend on. The compiler and the standard
+# library, the grammar and the build, and the harness: the runners, the
+# shared CLI helpers, the reference ownership checker's code (its lists
+# are checked by tools/check), the JSON comparison, the specs and the
+# script that set up and submit the runs. A branch that changes only
+# tests, examples, or docs is not gated: tools/check runs its own tests,
+# and the deep gate runs everything again.
+TESTED='src/*|std/*|rig.grammar|build.zig|build.zig.zon|test/run|test/matrix.py|test/equiv.py|test/hints.py|test/cli/_*|test/oracle/*.zig|test/json/compare.py|test/json/driver.rig.tmpl|cpuq/*|tools/gate|tools/fetch-json-data.sh'
+# MATRIX_PATHS: what decides the verdicts the matrix tests, a form's
+# ownership, loans, storage, proofs and emitted code, and the matrix's own
+# harness. The classifiers: sema.zig (`handsOver`, the one classifier of
+# what an expression hands over), facts.zig and storage.zig (the facts
+# recorded once, AGENTS.md rule 4); the checks: ownership.zig (moves,
+# loans, drops) and proofs.zig (the omitted checks the proof. and unit.
+# grids test); emit: emit.zig and runtime.zig, the Zig every cell runs.
+# typecheck.zig is left out: it changes in most rounds, mostly types, and
+# the suite's reject/ and behavior/ tests cover it; the deep gate runs
+# the matrix over it.
+MATRIX_PATHS='src/facts.zig|src/storage.zig|src/proofs.zig|src/emit.zig|src/ownership.zig|src/sema.zig|src/runtime.zig|test/matrix.py|cpuq/matrix.json'
+# matches <patterns> <file>: the file matches one of the |-separated globs.
+matches() {
+    local pats pat
+    IFS='|' read -r -a pats <<<"$1"
+    for pat in "${pats[@]}"; do
+        # shellcheck disable=SC2053 # a glob, on purpose
+        [[ $2 == $pat ]] && return 0
+    done
+    return 1
+}
+TESTED_HIT="" MATRIX_HIT=""
+if [[ -z $SKIP ]]; then
+    while IFS= read -r f; do
+        [[ -n $f ]] || continue
+        [[ -z $TESTED_HIT ]] && matches "$TESTED" "$f" && TESTED_HIT=$f
+        [[ -z $MATRIX_HIT ]] && matches "$MATRIX_PATHS" "$f" && MATRIX_HIT=$f
+    done < <(git diff --name-only "$REMOTE/$BASE" HEAD)
+fi
+BURST=1
+if [[ -z $SKIP && -z $TESTED_HIT && -z $FORCE ]]; then
+    BURST=""
+    if [[ -z $FORMAL ]]; then
+        echo "gate: #$PR changes nothing burst tests (src/, std/, rig.grammar, build.zig, the harness); not gated."
+        echo "gate: tools/check runs its tests, and the deep gate on main runs everything; --force gates it anyway"
+        exit 0
+    fi
+    echo "gate: #$PR changes formal/ and nothing burst tests; building its proofs only"
+fi
+case $MATRIX in
+    yes) MATRIX=1 ;;
+    no) MATRIX="" ;;
+    *) MATRIX=""
+        if [[ -n $MATRIX_HIT ]]; then
+            MATRIX=1
+            echo "gate: with the matrix: the branch changes $MATRIX_HIT"
+        fi ;;
+esac
+
+# cpuq ships every file but the specs' excludes, ignored ones too. The
+# JSON test data is checked by sha256 when the suite fetches it.
+NAMES="suite corpus"
+if [[ -z $SKIP && -n $BURST ]]; then
+[[ -n $MATRIX ]] && NAMES="$NAMES matrix"
+SPECS=""
+for name in $NAMES; do SPECS="$SPECS cpuq/$name.json"; done
+# shellcheck disable=SC2086 # the spec paths hold no spaces
+SHIPPED=$(git ls-files -z -o -i --exclude-standard | python3 -c '
+import json, sys
+excludes = {"test/json/data", "formal/.lake"}
+for spec in sys.argv[1:]:
+    excludes.update(e.rstrip("/") for e in json.load(open(spec)).get("exclude", []))
+for path in sys.stdin.read().split("\0"):
+    if path and not any(path == e or path.startswith(e + "/") for e in excludes):
+        print(path)
+' $SPECS) || die "cannot read the specs"
+[[ -z $SHIPPED ]] || die "ignored files cpuq would ship and test (remove them):
+$SHIPPED"
+fi
+
 TREE=$(git rev-parse "HEAD^{tree}")
 SHORT=${SHA:0:12}
 FROM=""
@@ -220,8 +292,24 @@ if [[ -n $FORMAL ]]; then
     fi
     phase "formal: lake build, no sorry"
 fi
+if [[ -z $BURST ]]; then
+    status success "formal only: lake build, no sorry; nothing for burst"
+    phase "posted success, formal only"
+    W=""; [[ -n $WAIT ]] && W=wait
+    rerun_checks $W
+    exit 0
+fi
 
 # --- The tests, on burst --------------------------------------------------
+
+# An older gate of this pull request, for another head, is out of date:
+# cancel its jobs that still wait or run (a finished job's state is a
+# verdict in capitals; a live one's is lowercase). Its tools/gate then
+# posts `error` on its own head, which is no longer the pull request's.
+while read -r id label hash word sha state _; do
+    [[ $hash == "#$PR" && $word == gate && $sha != "$SHORT" && $state =~ ^[a-z] ]] || continue
+    cpuq job "$id" --cancel >/dev/null 2>&1 && echo "gate: cancelled $label $id, an older gate of #$PR ($sha)"
+done < <(cpuq jobs --all 2>/dev/null | grep -E '^[0-9a-f]+  rig:')
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/rig-gate.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
@@ -291,7 +379,7 @@ done
     die "the worktree changed while the jobs ran; run tools/gate again"
 
 if [[ -z $MATRIX ]]; then
-    status success "no matrix (--no-matrix); tree ${TREE:0:12}: $IDS"
+    status success "no matrix; tree ${TREE:0:12}: $IDS"
     phase "posted success, without the matrix"
 else
     status success "tree ${TREE:0:12}: $IDS"
