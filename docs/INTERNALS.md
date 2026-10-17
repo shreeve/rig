@@ -4305,9 +4305,11 @@ thread's alternate signal stack, which Zig's start code sets (a child
 process forked on macOS loses it, so `onOwnStack` sets it again in one,
 through `pthread_atfork`, where libc is linked). For a fault in the
 guard it flushes `print`'s output and writes `error: rig: stack
-overflow`; then, as the sanitizer's handler does, it restores the
-handlers it replaced and returns, so the access faults again into Zig's
-handler, which prints the stack trace and aborts. In `--release=fast`,
+overflow`; then it calls the handler it replaced (Zig's, which prints
+the stack trace and aborts) and stays installed. A fault taken while
+that handler walks the stack (on x86_64 Linux the walk from inside
+Zig's stack-probe routine, whose stack pointer is already in the guard,
+reads the guard) comes back to it, and it aborts. In `--release=fast`,
 where Zig installs no handler, it aborts itself, so a stack overflow
 ends with SIGABRT (status 134) in every build mode, as a panic does.
 

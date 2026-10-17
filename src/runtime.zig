@@ -3503,32 +3503,46 @@ fn switchStack(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     f(arg, run, top);
 }
 
-// The overflow handler. Like the sanitizer's, it restores the handlers
-// it replaced and returns: the access runs again and faults into Zig's
-// handler, which prints the stack trace. Where Zig installs none, it
-// aborts.
+// The overflow handler. For a fault in the guard it writes the message
+// and hands the fault to the handler it replaced (Zig's, which prints the
+// stack trace and aborts), keeping itself installed: a fault taken while
+// that handler walks the stack (a probe function's unwind rules read the
+// stack pointer it has already moved into the guard) comes back here and
+// aborts, rather than reaching the default action and ending the program
+// by SIGSEGV. A fault elsewhere restores the replaced handlers, as the
+// sanitizer's does, and returns, so the access faults again into them.
+// Where Zig installs none, it aborts.
 
 var overflow_previous: [2]std.posix.Sigaction = undefined;
+var overflow_handling: bool = false;
 
 fn installOverflowHandler() void {
     const act: std.posix.Sigaction = .{
         .handler = .{ .sigaction = onOverflow },
         .mask = std.posix.sigemptyset(),
-        .flags = std.posix.SA.SIGINFO | std.posix.SA.ONSTACK,
+        .flags = std.posix.SA.SIGINFO | std.posix.SA.ONSTACK | std.posix.SA.NODEFER,
     };
     for (Sanitizer.signals, &overflow_previous) |sig, *old| std.posix.sigaction(sig, &act, old);
 }
 
-fn onOverflow(_: std.posix.SIG, info: *const std.posix.siginfo_t, _: ?*anyopaque) callconv(.c) void {
-    for (Sanitizer.signals, &overflow_previous) |sig, *old| std.posix.sigaction(sig, old, null);
+fn onOverflow(sig: std.posix.SIG, info: *const std.posix.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
+    // A fault inside the handler that prints the trace.
+    if (overflow_handling) std.process.abort();
     const addr = faultAddress(info);
-    if (addr < stack_guard.lo or addr >= stack_guard.hi) return;
+    if (addr < stack_guard.lo or addr >= stack_guard.hi) {
+        for (Sanitizer.signals, &overflow_previous) |s, *old| std.posix.sigaction(s, old, null);
+        return;
+    }
+    overflow_handling = true;
     flush();
     const msg = "error: rig: stack overflow\n";
     _ = std.posix.system.write(std.posix.STDERR_FILENO, msg.ptr, msg.len);
-    // Where Zig installs no handler (`--release=fast`), the fault again
-    // would end the program by the signal; it aborts as a panic does.
-    if (!std.options.enable_segfault_handler) std.process.abort();
+    for (Sanitizer.signals, &overflow_previous) |s, *old| {
+        if (s != sig) continue;
+        const prev = old.handler.sigaction;
+        if (old.flags & std.posix.SA.SIGINFO != 0 and @intFromPtr(prev) > 1) prev.?(sig, info, ctx);
+    }
+    std.process.abort();
 }
 
 /// The address whose access raised the fault `info` describes.
