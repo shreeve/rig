@@ -32,6 +32,8 @@
 # --allow-gate-changes tests a branch that changes this script or
 # cpuq/*.json, which decide what the gate runs; without it such a branch
 # is refused.
+# A branch that changes formal/ also builds its Lean proofs here (burst
+# has no Lean) and fails on an unfinished one (`sorry`).
 # --skip REASON tests nothing: it posts `success` with "skipped: REASON"
 # on the pull request's pushed head and re-runs the checks, which clears a
 # failed gate (the worktree need not be clean or contain the base).
@@ -94,7 +96,7 @@ for name in $NAMES; do SPECS="$SPECS cpuq/$name.json"; done
 # shellcheck disable=SC2086 # the spec paths hold no spaces
 SHIPPED=$(git ls-files -z -o -i --exclude-standard | python3 -c '
 import json, sys
-excludes = {"test/json/data"}
+excludes = {"test/json/data", "formal/.lake"}
 for spec in sys.argv[1:]:
     excludes.update(e.rstrip("/") for e in json.load(open(spec)).get("exclude", []))
 for path in sys.stdin.read().split("\0"):
@@ -129,6 +131,13 @@ fi
 [[ -n $SKIP ]] || git merge-base --is-ancestor "$REMOTE/$BASE" HEAD || die "HEAD does not contain $REMOTE/$BASE; merge it and push"
 if [[ -z $SKIP && -z $ALLOW_GATE_CHANGES ]] && ! git diff --quiet "$REMOTE/$BASE" HEAD -- tools/gate cpuq; then
     die "this branch changes tools/gate or cpuq/, which decide what the gate runs; review them, then pass --allow-gate-changes"
+fi
+# Burst has no Lean: a branch that changes formal/ builds its proofs here,
+# and an unfinished proof (`sorry`, which lake only warns of) fails it.
+FORMAL=""
+if [[ -z $SKIP ]] && ! git diff --quiet "$REMOTE/$BASE" HEAD -- formal; then
+    command -v lake >/dev/null || die "this branch changes formal/, which needs lake (elan) to build"
+    FORMAL=1
 fi
 TREE=$(git rev-parse "HEAD^{tree}")
 SHORT=${SHA:0:12}
@@ -195,6 +204,22 @@ if [[ -n $SKIP ]]; then
 fi
 status pending "burst: testing tree ${TREE:0:12}"
 phase "posted pending"
+if [[ -n $FORMAL ]]; then
+    if ! (cd formal && lake build) >"${TMPDIR:-/tmp}/rig-gate-formal.log" 2>&1; then
+        tail -n 25 "${TMPDIR:-/tmp}/rig-gate-formal.log"
+        status failure "formal: lake build failed"
+        phase "posted failure"
+        rerun_checks
+        exit 1
+    fi
+    if grep -rnw sorry formal/LambdaRig formal/LambdaRig.lean; then
+        status failure "formal: a proof is unfinished (sorry)"
+        phase "posted failure"
+        rerun_checks
+        exit 1
+    fi
+    phase "formal: lake build, no sorry"
+fi
 
 # --- The tests, on burst --------------------------------------------------
 
