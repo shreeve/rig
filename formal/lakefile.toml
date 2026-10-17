@@ -1,0 +1,5 @@
+name = "rig-formal"
+defaultTargets = ["LambdaRig"]
+
+[[lean_lib]]
+name = "LambdaRig"
