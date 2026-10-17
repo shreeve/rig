@@ -55,6 +55,7 @@ A kernel is the stress test for Rig's ownership model, reached in steps:
 - **String building in std.text**: functions that build new text into a `String`, such as an upper-case copy, a replacement, and a join.
 - **`std.json`**: a JSON parser, moving in from the Trig project.
 - **A String API** for part-word appends and windowed writes.
+- **Exact decimals** (`std.decimal`): a number as a big integer times a power of ten, on `std.bigint`, with rounding modes, a precision for division, and exact parsing and printing; probably a fixed 128-bit form first (about 28 digits, no allocation), as money code wants. It needs a short design round first.
 - **A reactive library** in userland, grown from `examples/memo_canary.rig`.
 
 ## Tooling
