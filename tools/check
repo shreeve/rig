@@ -186,7 +186,8 @@ sort -u "$WORK/ids" -o "$WORK/ids"
 # run_job <log> <label> <script> [args...]: bash runs the script with the
 # args as "$@" under cpuq; its output goes to the log as well as the
 # screen, and its status is returned.
-# --local keeps the run on this Mac; drop it once cpuq places hosts itself.
+# --local keeps the run on this Mac, always: the smoke test is how we
+# learn whether a change is worth sending to a remote host at all.
 CPUQ_RUN="cpuq run --local --cores 2-6"
 run_job() {
     local log=$1 label=$2 script=$3

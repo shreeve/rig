@@ -78,7 +78,9 @@ These are about the compiler, not the process. They don't bend.
 branch's own tests, the whole-program checks, and N% of the suite,
 chosen at random, on this Mac:
 `tools/check 1` is about 40 tests, `tools/check 5` about 200, and
-`tools/check 20` about 800. Use it as often as you like. A bug fix starts
+`tools/check 20` about 800. It always runs on the Mac, never on a
+remote host: it is how we learn whether a change is worth sending to
+burst at all. Use it as often as you like. A bug fix starts
 with a test that fails; `./test/run --delta <ids>` reruns just the tests
 you name.
 
