@@ -2,8 +2,8 @@ name: test
 
 # The whole suite on GitHub's runners, from a cold start: nightly and by
 # hand, and for a pull request from a fork, where it adds information to
-# the merge gate but is not it. Every pull request is tested on burst
-# (tools/gate), and its merge checks come from gate.yml.
+# the merge gate but is not it. A pull request is tested on burst when
+# asked (tools/gate), and its merge checks come from gate.yml.
 #
 # No job here takes a name the ruleset on main requires (test
 # (ubuntu-latest), test (macos-latest)); they are named cold (...). On a

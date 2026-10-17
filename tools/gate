@@ -3,6 +3,12 @@
 # GitHub as the commit status `rig/gate` on that commit.
 #
 #   tools/gate [--pr N] [--no-matrix] [--allow-gate-changes] [--no-wait]
+#   tools/gate --skip REASON [--pr N]
+#
+# Gating is a choice, not a step every pull request takes: the required
+# checks (.github/workflows/gate.yml) pass for a head with no `rig/gate`
+# status, and fail only after a gate on it failed. Run it when a change is
+# worth testing before it merges; the deep gate on main tests the rest.
 #
 # Run it from the worktree of a branch with an open pull request, after
 # merging the pull request's base and pushing. It refuses unless the
@@ -21,11 +27,16 @@
 # --pr N gates pull request N, whose head HEAD must be: the way to gate a
 # fork's pull request, from a local branch of its head (test/README.md,
 # "The merge gate and CI").
-# --no-matrix leaves the matrix out, for a quicker look: its status says
-# it is no merge gate, and the gate workflow refuses it.
+# --no-matrix leaves the matrix out, for a quicker look; its status says
+# so.
 # --allow-gate-changes tests a branch that changes this script or
 # cpuq/*.json, which decide what the gate runs; without it such a branch
 # is refused.
+# A branch that changes formal/ also builds its Lean proofs here (burst
+# has no Lean) and fails on an unfinished one (`sorry`).
+# --skip REASON tests nothing: it posts `success` with "skipped: REASON"
+# on the pull request's pushed head and re-runs the checks, which clears a
+# failed gate (the worktree need not be clean or contain the base).
 #
 # GATE_REMOTE names the remote of the GitHub repository (default origin).
 # It posts with this machine's `gh` login: no credential goes to GitHub
@@ -33,7 +44,7 @@
 # (bash 3.2, as macOS ships it.)
 set -uo pipefail
 
-MATRIX=1 ALLOW_GATE_CHANGES="" WAIT=1 PR=""
+MATRIX=1 ALLOW_GATE_CHANGES="" WAIT=1 PR="" SKIP=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         --pr) [[ ${2:-} =~ ^[0-9]+$ ]] || { echo "tools/gate: --pr takes a pull request's number" >&2; exit 2; }
@@ -41,6 +52,8 @@ while [[ $# -gt 0 ]]; do
         --no-matrix) MATRIX="" ;;
         --allow-gate-changes) ALLOW_GATE_CHANGES=1 ;;
         --no-wait) WAIT="" ;;
+        --skip) [[ -n ${2:-} && $2 != -* ]] || { echo "tools/gate: --skip takes a reason" >&2; exit 2; }
+            SKIP=$2; shift ;;
         -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;;
         *) echo "tools/gate: unknown option $1 (see --help)" >&2; exit 2 ;;
     esac
@@ -59,7 +72,9 @@ phase() {
 die() { echo "tools/gate: $*" >&2; exit 1; }
 
 cd "$(git rev-parse --show-toplevel)" || die "not in a git worktree"
-for tool in gh cpuq jq python3; do
+TOOLS="gh jq"
+[[ -n $SKIP ]] || TOOLS="$TOOLS cpuq python3"
+for tool in $TOOLS; do
     command -v "$tool" >/dev/null || die "needs $tool"
 done
 
@@ -68,19 +83,20 @@ done
 BRANCH=$(git symbolic-ref --short -q HEAD) || BRANCH=""
 [[ -n $BRANCH || -n $PR ]] || die "HEAD is detached; check out the pull request's branch, or name it with --pr"
 [[ $BRANCH != main ]] || die "main is not gated; run it from a pull request's branch"
-[[ -z $(git status --porcelain --untracked-files=all) ]] ||
+[[ -n $SKIP || -z $(git status --porcelain --untracked-files=all) ]] ||
     die "the worktree has changes or untracked files, which cpuq would ship and test; commit or remove them"
 
 # cpuq ships every file but the specs' excludes, ignored ones too. The
 # JSON test data is checked by sha256 when the suite fetches it.
 NAMES="suite corpus"
+if [[ -z $SKIP ]]; then
 [[ -n $MATRIX ]] && NAMES="$NAMES matrix"
 SPECS=""
 for name in $NAMES; do SPECS="$SPECS cpuq/$name.json"; done
 # shellcheck disable=SC2086 # the spec paths hold no spaces
 SHIPPED=$(git ls-files -z -o -i --exclude-standard | python3 -c '
 import json, sys
-excludes = {"test/json/data"}
+excludes = {"test/json/data", "formal/.lake"}
 for spec in sys.argv[1:]:
     excludes.update(e.rstrip("/") for e in json.load(open(spec)).get("exclude", []))
 for path in sys.stdin.read().split("\0"):
@@ -89,6 +105,7 @@ for path in sys.stdin.read().split("\0"):
 ' $SPECS) || die "cannot read the specs"
 [[ -z $SHIPPED ]] || die "ignored files cpuq would ship and test (remove them):
 $SHIPPED"
+fi
 
 # The GitHub repository behind the remote (GATE_REMOTE, default origin).
 REMOTE=${GATE_REMOTE:-origin}
@@ -111,9 +128,16 @@ else
     [[ $SHA == "$(git rev-parse "$REMOTE/$BRANCH")" ]] || die "HEAD is not $REMOTE/$BRANCH; push first (or pull)"
 fi
 [[ $SHA == "$HEAD_OID" ]] || die "HEAD is not the head of #$PR ($HEAD_OID)"
-git merge-base --is-ancestor "$REMOTE/$BASE" HEAD || die "HEAD does not contain $REMOTE/$BASE; merge it and push"
-if [[ -z $ALLOW_GATE_CHANGES ]] && ! git diff --quiet "$REMOTE/$BASE" HEAD -- tools/gate cpuq; then
+[[ -n $SKIP ]] || git merge-base --is-ancestor "$REMOTE/$BASE" HEAD || die "HEAD does not contain $REMOTE/$BASE; merge it and push"
+if [[ -z $SKIP && -z $ALLOW_GATE_CHANGES ]] && ! git diff --quiet "$REMOTE/$BASE" HEAD -- tools/gate cpuq; then
     die "this branch changes tools/gate or cpuq/, which decide what the gate runs; review them, then pass --allow-gate-changes"
+fi
+# Burst has no Lean: a branch that changes formal/ builds its proofs here,
+# and an unfinished proof (`sorry`, which lake only warns of) fails it.
+FORMAL=""
+if [[ -z $SKIP ]] && ! git diff --quiet "$REMOTE/$BASE" HEAD -- formal; then
+    command -v lake >/dev/null || die "this branch changes formal/, which needs lake (elan) to build"
+    FORMAL=1
 fi
 TREE=$(git rev-parse "HEAD^{tree}")
 SHORT=${SHA:0:12}
@@ -127,9 +151,75 @@ status() {
         -f description="${2:0:140}" --jq '"gate: posted rig/gate " + .state + " as " + .creator.login' ||
         die "posting rig/gate $1 failed"
 }
+# rerun_checks [wait]: re-run the newest gate workflow run for this commit,
+# which reads rig/gate anew, and with `wait` wait for the required checks
+# to turn green. The run happened when the commit was pushed; a re-run
+# uses the workflow as main held it then (pull_request_target always runs
+# the default branch's copy).
+rerun_checks() {
+    local runs RUN="" ATTEMPT="" RUN_STATUS="" now_attempt now_status conclusion checks
+    for _ in $(seq 1 60); do
+        # Nothing when there is no run, or no gate.yml on the default branch.
+        runs=$(gh api "repos/$REPO/actions/workflows/gate.yml/runs?event=pull_request_target&head_sha=$SHA&per_page=1" \
+            --jq '.workflow_runs[0] // empty | [.id, .run_attempt, .status] | @tsv' 2>/dev/null) || runs=""
+        [[ -n $runs ]] || break
+        read -r RUN ATTEMPT RUN_STATUS <<<"$runs"
+        [[ $RUN_STATUS == completed ]] && break
+        sleep 2
+    done
+    if [[ -z $RUN ]]; then
+        echo "gate: no gate workflow run for $SHORT (none yet, or no gate.yml on the default branch); the next one, as #$PR is pushed or reopened, reads the status"
+        return 0
+    fi
+    [[ $RUN_STATUS == completed ]] || die "gate run $RUN did not complete within 2 minutes; re-run it: gh run rerun $RUN -R $REPO"
+    gh run rerun "$RUN" -R "$REPO" >/dev/null || die "cannot re-run gate run $RUN"
+    phase "re-ran gate run $RUN"
+    [[ -n ${1:-} ]] || return 0
+
+    # Wait (up to 5 minutes) for the re-run to complete, then read the checks.
+    for _ in $(seq 1 100); do
+        read -r now_attempt now_status conclusion < <(gh api "repos/$REPO/actions/runs/$RUN" \
+            --jq '[.run_attempt, .status, (.conclusion // "-")] | @tsv' 2>/dev/null)
+        [[ ${now_attempt:-} =~ ^[0-9]+$ ]] || now_attempt=0
+        [[ $now_attempt -gt $ATTEMPT && $now_status == completed ]] && break
+        sleep 3
+    done
+    [[ ${now_attempt:-0} -gt $ATTEMPT && $now_status == completed ]] || die "gate run $RUN did not finish within 5 minutes"
+    checks=$(gh api "repos/$REPO/commits/$SHA/check-runs?filter=latest&per_page=100" \
+        --jq '[.check_runs[] | select(.app.id == 15368) | select(.name == "test (ubuntu-latest)" or .name == "test (macos-latest)") | .name + ": " + (.conclusion // .status)] | sort | join(", ")')
+    [[ $conclusion == success && $checks == "test (macos-latest): success, test (ubuntu-latest): success" ]] ||
+        die "gate run $RUN ended $conclusion; checks: $checks"
+    phase "required checks green"
+    echo "gate: $checks"
+    echo "gate: $URL"
+}
 phase "checked the worktree and #$PR"
+if [[ -n $SKIP ]]; then
+    login=$(gh api user --jq .login) || die "cannot read the gh login"
+    status success "skipped by $login: $SKIP"
+    phase "posted success, skipped"
+    W=""; [[ -n $WAIT ]] && W=wait
+    rerun_checks $W
+    exit 0
+fi
 status pending "burst: testing tree ${TREE:0:12}"
 phase "posted pending"
+if [[ -n $FORMAL ]]; then
+    if ! (cd formal && lake build) >"${TMPDIR:-/tmp}/rig-gate-formal.log" 2>&1; then
+        tail -n 25 "${TMPDIR:-/tmp}/rig-gate-formal.log"
+        status failure "formal: lake build failed"
+        phase "posted failure"
+        rerun_checks
+        exit 1
+    fi
+    if grep -rnw sorry formal/LambdaRig formal/LambdaRig.lean; then
+        status failure "formal: a proof is unfinished (sorry)"
+        phase "posted failure"
+        rerun_checks
+        exit 1
+    fi
+    phase "formal: lake build, no sorry"
+fi
 
 # --- The tests, on burst --------------------------------------------------
 
@@ -185,6 +275,7 @@ if [[ -n $FAILED ]]; then
     esac
     status "$state" "burst: $FAILED $(verdict "$FAILED" | awk '{print $1}'); $IDS"
     phase "posted $state"
+    rerun_checks
     exit 1
 fi
 
@@ -200,54 +291,12 @@ done
     die "the worktree changed while the jobs ran; run tools/gate again"
 
 if [[ -z $MATRIX ]]; then
-    # Not a merge gate: the gate workflow refuses a status without the
-    # matrix, so there is nothing to re-run.
-    status success "no matrix (--no-matrix), not a merge gate; tree ${TREE:0:12}: $IDS"
+    status success "no matrix (--no-matrix); tree ${TREE:0:12}: $IDS"
     phase "posted success, without the matrix"
-    echo "gate: no merge gate without the matrix; run tools/gate without --no-matrix to merge"
-    exit 0
+else
+    status success "tree ${TREE:0:12}: $IDS"
+    phase "posted success"
 fi
-status success "tree ${TREE:0:12}: $IDS"
-phase "posted success"
+W=""; [[ -n $WAIT ]] && W=wait
+rerun_checks $W
 
-# --- The required checks --------------------------------------------------
-
-# The newest gate workflow run for this commit. It ran when the commit was
-# pushed, and found no status then; a re-run reads the status anew, with
-# the workflow as main held it then (pull_request_target always runs the
-# default branch's copy).
-RUN="" ATTEMPT="" RUN_STATUS=""
-for _ in $(seq 1 60); do
-    # Nothing when there is no run, or no gate.yml on the default branch.
-    runs=$(gh api "repos/$REPO/actions/workflows/gate.yml/runs?event=pull_request_target&head_sha=$SHA&per_page=1" \
-        --jq '.workflow_runs[0] // empty | [.id, .run_attempt, .status] | @tsv' 2>/dev/null) || runs=""
-    [[ -n $runs ]] || break
-    read -r RUN ATTEMPT RUN_STATUS <<<"$runs"
-    [[ $RUN_STATUS == completed ]] && break
-    sleep 2
-done
-if [[ -z $RUN ]]; then
-    echo "gate: no gate workflow run for $SHORT (none yet, or no gate.yml on the default branch); the next one, as #$PR is pushed or reopened, reads the status"
-    exit 0
-fi
-[[ $RUN_STATUS == completed ]] || die "gate run $RUN did not complete within 2 minutes; re-run it: gh run rerun $RUN -R $REPO"
-gh run rerun "$RUN" -R "$REPO" >/dev/null || die "cannot re-run gate run $RUN"
-phase "re-ran gate run $RUN"
-[[ -n $WAIT ]] || exit 0
-
-# Wait (up to 5 minutes) for the re-run to complete, then read the checks.
-for _ in $(seq 1 100); do
-    read -r now_attempt now_status conclusion < <(gh api "repos/$REPO/actions/runs/$RUN" \
-        --jq '[.run_attempt, .status, (.conclusion // "-")] | @tsv' 2>/dev/null)
-    [[ ${now_attempt:-} =~ ^[0-9]+$ ]] || now_attempt=0
-    [[ $now_attempt -gt $ATTEMPT && $now_status == completed ]] && break
-    sleep 3
-done
-[[ ${now_attempt:-0} -gt $ATTEMPT && $now_status == completed ]] || die "gate run $RUN did not finish within 5 minutes"
-checks=$(gh api "repos/$REPO/commits/$SHA/check-runs?filter=latest&per_page=100" \
-    --jq '[.check_runs[] | select(.app.id == 15368) | select(.name == "test (ubuntu-latest)" or .name == "test (macos-latest)") | .name + ": " + (.conclusion // .status)] | sort | join(", ")')
-[[ $conclusion == success && $checks == "test (macos-latest): success, test (ubuntu-latest): success" ]] ||
-    die "gate run $RUN ended $conclusion; checks: $checks"
-phase "required checks green"
-echo "gate: $checks"
-echo "gate: $URL"

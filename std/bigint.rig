@@ -1,0 +1,528 @@
+# std.bigint: integers of any size. A BigInt owns its magnitude, 64 bits
+# a limb, on the heap, so it moves rather than copies, and `clone` makes
+# a second one. Every operation that makes a BigInt returns a new one,
+# which allocates its limbs, sized before they are filled, but none for
+# zero; `pow` allocates one more List while it works. `text` allocates
+# the String it returns, and for a number of more than 8 limbs a copy of
+# the limbs to divide and a List of the groups. Reading one, by
+# `compare`, `equals`, `sign`, `bit_len`, and `to_f64`, allocates
+# nothing.
+
+# Why a parse failed: the text is not an integer as written.
+pub error ParseError
+  invalid
+
+# An integer of any size: a sign and a magnitude.
+pub obj BigInt
+  # Whether the number is below zero; never for zero.
+  neg: Bool
+  # The magnitude, least significant limb first, with no zero limb at
+  # the top, so zero has none.
+  limbs: List[U64]
+
+  # The number as decimal digits, with a `-` when it is negative and no
+  # leading zeros: `0` for zero. Allocates the String, and for more than
+  # 8 limbs (about 154 digits) a copy of the limbs and a List of the
+  # 19-digit groups.
+  pub fun text(?self) -> String
+    n = self.limbs.len
+    out = String()
+    if n <= 1
+      v = self.limbs[0] if n == 1 else U64(0)
+      !out.reserve(21)
+      !out.push(45) if self.neg
+      push_u64(!out, v)
+      return out
+    if n <= 8
+      q = [8 of U64(0)]
+      groups = [10 of U64(0)]
+      !q[..n].copy(?self.limbs)
+      g = to_groups(!q[..n], !groups)
+      write_groups(!out, self.neg, ?groups[..g])
+      return out
+    q: List[U64] = +self.limbs
+    groups: List[U64] = List.filled(n * 64 / 63 + 1, U64(0))
+    g = to_groups(!q, !groups)
+    write_groups(!out, self.neg, ?groups[..g])
+    out
+
+  # A new BigInt of the same number, which `+x` would make if it
+  # cloned a type from another module. Allocates its limbs.
+  pub fun clone(?self) -> BigInt
+    BigInt(neg: self.neg, limbs: +self.limbs)
+
+  # -1, 0, or 1: whether this number is below, equal to, or above
+  # `other`.
+  pub fun compare(?self, other: ?BigInt) -> Int
+    if self.neg != other.neg
+      return -1 if self.neg else 1
+    c = compare_limbs(self.limbs, other.limbs)
+    -c if self.neg else c
+
+  # Whether this number equals `other`.
+  pub fun equals(?self, other: ?BigInt) -> Bool
+    self.neg == other.neg and compare_limbs(self.limbs, other.limbs) == 0
+
+  # -1, 0, or 1: the sign of the number.
+  pub fun sign(?self) -> Int
+    if self.limbs.len == 0
+      return 0
+    -1 if self.neg else 1
+
+  # The bits of the magnitude, without leading zeros: 0 for zero, 64 for
+  # 2^63.
+  pub fun bit_len(?self) -> Int
+    n = self.limbs.len
+    if n == 0
+      return 0
+    n * 64 - self.limbs[n - 1].leading_zeros()
+
+  # The sum. Allocates the result.
+  pub fun add(?self, other: ?BigInt) -> BigInt
+    signed(self.neg, other.neg, self.limbs, other.limbs)
+
+  # The difference, this number less `other`. Allocates the result.
+  pub fun sub(?self, other: ?BigInt) -> BigInt
+    signed(self.neg, not other.neg, self.limbs, other.limbs)
+
+  # The product. Allocates the result.
+  pub fun mul(?self, other: ?BigInt) -> BigInt
+    x = ?self.limbs[..]
+    y = ?other.limbs[..]
+    if x.len == 0 or y.len == 0
+      return zero()
+    z = List.filled(x.len + y.len, U64(0))
+    mul_into(!z, x, y)
+    trim(!z)
+    BigInt(neg: self.neg != other.neg, limbs: <z)
+
+  # This number times 2^n, as `<<` shifts. Panics when `n` is negative.
+  # Allocates the result.
+  pub fun shl(?self, n: Int) -> BigInt
+    if n < 0
+      negative_shift("bigint.shl")
+    x = ?self.limbs[..]
+    if x.len == 0
+      return zero()
+    q = n / 64
+    r = n % 64
+    z: List[U64] = List(capacity: x.len + q + 1)
+    for 0..q
+      !z.push(0)
+    if r == 0
+      for v in x
+        !z.push(v)
+    else
+      up: U64 = 0
+      for v in x
+        !z.push((v <<% r) | up)
+        up = v >> (64 - r)
+      !z.push(up) if up != 0
+    BigInt(neg: self.neg, limbs: <z)
+
+  # This number divided by 2^n, rounded down, as `>>` shifts: toward
+  # minus infinity, so a negative number stays negative, -1 at the least.
+  # Panics when `n` is negative. Allocates the result.
+  pub fun shr(?self, n: Int) -> BigInt
+    if n < 0
+      negative_shift("bigint.shr")
+    x = ?self.limbs[..]
+    q = n / 64
+    r = n % 64
+    if q >= x.len
+      return from_int(-1 if self.neg else 0)
+    # The limbs of `x` from `q` up, shifted down `r` bits. Only the top
+    # one can come out zero, as `x` is normalized.
+    z: List[U64] = List(capacity: x.len - q + (1 if self.neg else 0))
+    if r == 0
+      for v in x[q..]
+        !z.push(v)
+    else
+      low = x[q]
+      i = q + 1
+      while i < x.len : i += 1
+        v = x[i]
+        !z.push((low >> r) | (v <<% (64 - r)))
+        low = v
+      !z.push(low >> r) if low >> r != 0
+    if self.neg
+      # A bit shifted out that is set rounds the result down.
+      lost = r != 0 and x[q] <<% (64 - r) != 0
+      i = 0
+      while not lost and i < q : i += 1
+        lost = x[i] != 0
+      if lost
+        c = add_small(!z, 1)
+        !z.push(c) if c != 0
+    BigInt(neg: self.neg, limbs: <z)
+
+  # This number to the power `e`; 1 when `e` is 0, also for zero. Panics
+  # when `e` is negative. Allocates the result, and while it computes
+  # one more List of the result's size.
+  pub fun pow(?self, e: Int) -> BigInt
+    if e < 0
+      negative_power()
+    neg = self.neg and e % 2 == 1
+    x = ?self.limbs[..]
+    if e == 0
+      return from_int(1)
+    if x.len == 0
+      return zero()
+    # A power of two is a shift.
+    top = x.len - 1
+    if x[top].count_ones() == 1 and is_zero_below(x, top)
+      p = (top * 64 + x[top].trailing_zeros()) * e
+      one = from_int(-1 if neg else 1)
+      return one.shl(p)
+    # Room for the result and one limb more, which a product's slot has.
+    room = (self.bit_len() * e) / 64 + 2
+    z: List[U64] = List(capacity: room)
+    for v in x
+      !z.push(v)
+    t: List[U64] = List(capacity: room)
+    k = 62 - e.leading_zeros()
+    while k >= 0 : k -= 1
+      !t.clear()
+      !t.resize(2 * z.len, 0)
+      mul_into(!t, z, z)
+      trim(!t)
+      if (e >> k) & 1 == 1
+        if x.len == 1
+          c = mul_add(!t, x[0], 0)
+          !t.push(c) if c != 0
+        else
+          !z.clear()
+          !z.resize(t.len + x.len, 0)
+          mul_into(!z, t, x)
+          trim(!z)
+          continue
+      held = <z
+      z = <t
+      t = <held
+    BigInt(neg: neg, limbs: <z)
+
+  # The Float nearest this number, ties to even, as Go's `Float64` and
+  # JavaScript's `Number` round: an infinity when the number is too
+  # large for one.
+  pub fun to_f64(?self) -> Float
+    x = ?self.limbs[..]
+    n = x.len
+    if n == 0
+      return 0.0
+    f = Float(x[0])
+    if n > 1
+      # The top 64 bits, then whether any bit below them is set, which
+      # `Float` rounds by as it rounds the low bit of a 64-bit integer.
+      s = x[n - 1].leading_zeros()
+      hi = x[n - 1]
+      lo = x[n - 2]
+      if s > 0
+        hi = (hi <<% s) | (lo >> (64 - s))
+        lo = lo <<% s
+      below = lo != 0 or not is_zero_below(x, n - 2)
+      # The power of two that scales the top 64 bits.
+      e = n * 64 - s - 64
+      if e > 1023
+        f = Float.inf()
+      else
+        f = Float(hi | U64(1) if below else hi) * Float.from_bits(U64(e + 1023) << 52)
+    -f if self.neg else f
+
+# The BigInt of `n`. Allocates one limb unless `n` is 0.
+pub fun from_int(n: Int) -> BigInt
+  limbs: List[U64] = List()
+  if n != 0
+    !limbs.push(U64.wrap(0 -% n) if n < 0 else U64(n))
+  BigInt(neg: n < 0, limbs: <limbs)
+
+# The integer `s` writes, in base `base`: an optional `+` or `-`, then
+# digits, the letters `a` to `z` in either case for 10 to 35. Base 0
+# reads a prefix as Go's `SetString` and JavaScript do: `0x` or `0X` for
+# 16, `0o` or `0O` for 8, `0b` or `0B` for 2, a bare leading `0` for 8,
+# none for 10; and it allows one `_` between digits, or after a prefix.
+# Fails with `ParseError.invalid` when `s` is anything else. Panics when
+# `base` is not 0 or 2 to 36. Allocates the limbs, once.
+pub fun parse(s: ?String, base: Int = 0) -> BigInt!
+  if base != 0 and (base < 2 or base > 36)
+    bad_base()
+  i = 0
+  neg = false
+  if s.len > 0 and (s[0] == 45 or s[0] == 43)
+    neg = s[0] == 45
+    i = 1
+  b = base
+  # Whether an `_` may come next: a digit or a prefix came last.
+  after = false
+  if base == 0
+    b = 10
+    if i + 1 < s.len and s[i] == 48
+      c = s[i + 1] | 32
+      after = true
+      if c == 120
+        b = 16
+        i += 2
+      else if c == 111
+        b = 8
+        i += 2
+      else if c == 98
+        b = 2
+        i += 2
+      else
+        b = 8
+        i += 1
+  ub = U64(b)
+  # How many digits fill a limb's worth of value, and that power of `b`.
+  per = 19
+  big: U64 = 10000000000000000000
+  if b != 10
+    per = 0
+    big = 1
+    while big <= U64.max / ub
+      big *= ub
+      per += 1
+  limbs: List[U64] = List(capacity: (s.len - i) / per + 1)
+  acc: U64 = 0
+  k = 0
+  digits = 0
+  while i < s.len : i += 1
+    c = s[i]
+    d = digit(c)
+    if d >= ub
+      if c == 95 and base == 0 and after
+        after = false
+        continue
+      return ParseError.invalid
+    acc = acc *% ub +% d
+    k += 1
+    after = true
+    if k == per
+      out = mul_add(!limbs, big, acc)
+      !limbs.push(out) if out != 0
+      digits += k
+      acc = 0
+      k = 0
+  if digits + k == 0 or not after
+    return ParseError.invalid
+  if k > 0
+    p: U64 = 1
+    for 0..k
+      p *= ub
+    out = mul_add(!limbs, p, acc)
+    !limbs.push(out) if out != 0
+  BigInt(neg: neg and limbs.len > 0, limbs: <limbs)
+
+fun zero() -> BigInt
+  BigInt(neg: false, limbs: List())
+
+# The value of the digit `c`, 36 or more for a byte that is no digit.
+fun digit(c: U8) -> U64
+  if c <= 57
+    return U64(c) -% 48
+  l = c | 32
+  if l >= 97 and l <= 122
+    return U64(l - 87)
+  36
+
+# `z` times `m`, plus `a`, in place; returns the limb carried out of the
+# top.
+fun mul_add(z: ![]U64, m: U64, a: U64) -> U64
+  up = a
+  i = 0
+  while i < z.len : i += 1
+    t = U128(z[i]) *% U128(m) +% U128(up)
+    z[i] = U64.wrap(t)
+    up = U64.wrap(t >> 64)
+  up
+
+# `z` plus `a`, in place; returns the limb carried out of the top.
+fun add_small(z: ![]U64, a: U64) -> U64
+  up = a
+  i = 0
+  while up != 0 and i < z.len : i += 1
+    v = z[i] +% up
+    up = U64(1) if v < up else U64(0)
+    z[i] = v
+  up
+
+# `z` plus `x` times `y`, into `z`, which holds `x.len + y.len` limbs.
+sub mul_into(z: ![]U64, x: []U64, y: []U64)
+  i = 0
+  while i < x.len : i += 1
+    a = U128(x[i])
+    up: U64 = 0
+    j = 0
+    while j < y.len : j += 1
+      t = a *% U128(y[j]) +% U128(z[i + j]) +% U128(up)
+      z[i + j] = U64.wrap(t)
+      up = U64.wrap(t >> 64)
+    z[i + y.len] = up
+
+# Drop the zero limbs at the top.
+sub trim(z: !List[U64])
+  n = z.len
+  while n > 0 and z[n - 1] == 0
+    n -= 1
+  !z.keep(n)
+
+# Whether every limb of `x` below `n` is zero.
+fun is_zero_below(x: []U64, n: Int) -> Bool
+  i = 0
+  while i < n and i < x.len : i += 1
+    return false if x[i] != 0
+  true
+
+fun compare_limbs(x: []U64, y: []U64) -> Int
+  if x.len != y.len
+    return -1 if x.len < y.len else 1
+  i = x.len
+  while i > 0
+    i -= 1
+    if x[i] != y[i]
+      return -1 if x[i] < y[i] else 1
+  0
+
+# `x` plus or minus `y`: the sum of two numbers whose signs are `xneg`
+# and `yneg`.
+fun signed(xneg: Bool, yneg: Bool, x: []U64, y: []U64) -> BigInt
+  if xneg == yneg
+    # Both negative, the sum is not zero.
+    if x.len < y.len
+      return BigInt(neg: xneg, limbs: add_limbs(y, x))
+    return BigInt(neg: xneg, limbs: add_limbs(x, y))
+  c = compare_limbs(x, y)
+  if c == 0
+    return zero()
+  if c > 0
+    return BigInt(neg: xneg, limbs: sub_limbs(x, y))
+  BigInt(neg: yneg, limbs: sub_limbs(y, x))
+
+# `x` plus `y`, for `x` at least as long as `y`.
+fun add_limbs(x: []U64, y: []U64) -> List[U64]
+  z: List[U64] = List(capacity: x.len + 1)
+  up: U64 = 0
+  i = 0
+  while i < y.len : i += 1
+    t = U128(x[i]) +% U128(y[i]) +% U128(up)
+    !z.push(U64.wrap(t))
+    up = U64.wrap(t >> 64)
+  while i < x.len : i += 1
+    v = x[i] +% up
+    up = U64(1) if v < up else U64(0)
+    !z.push(v)
+  !z.push(up) if up != 0
+  z
+
+# `x` less `y`, for `x` at least `y`.
+fun sub_limbs(x: []U64, y: []U64) -> List[U64]
+  z: List[U64] = List(capacity: x.len)
+  # 1 when the limb below took one from this one.
+  down: U64 = 0
+  i = 0
+  while i < y.len : i += 1
+    t = U128(x[i]) -% U128(y[i]) -% U128(down)
+    !z.push(U64.wrap(t))
+    down = U64.wrap(t >> 127)
+  while i < x.len : i += 1
+    v = x[i] -% down
+    down = U64(1) if x[i] < down else U64(0)
+    !z.push(v)
+  trim(!z)
+  z
+
+# Divide `z` by 10^19 in place, for `to_groups`; returns the remainder.
+# It multiplies by a reciprocal (Möller and Granlund, "Improved division
+# by invariant integers", 2011), where dividing 128 bits by 64 would
+# call a slow routine.
+fun div_group(z: ![]U64) -> U64
+  d: U64 = 10000000000000000000
+  # floor((2^128 - 1) / d) - 2^64
+  v: U64 = 15581492618384294730
+  r: U64 = 0
+  i = z.len
+  while i > 0
+    i -= 1
+    u = z[i]
+    t = U128(v) *% U128(r) +% ((U128(r) << 64) | U128(u))
+    q = U64.wrap(t >> 64) +% 1
+    low = U64.wrap(t)
+    rest = u -% q *% d
+    if rest > low
+      q -%= 1
+      rest +%= d
+    if rest >= d
+      q +%= 1
+      rest -%= d
+    z[i] = q
+    r = rest
+  r
+
+# Split the number `q`, whose top limb is not zero, into 19-digit groups,
+# least significant first, into `groups`; returns how many. `q` is
+# consumed.
+fun to_groups(q: ![]U64, groups: ![]U64) -> Int
+  n = q.len
+  g = 0
+  while n > 0
+    groups[g] = div_group(!q[..n])
+    g += 1
+    while n > 0 and q[n - 1] == 0
+      n -= 1
+  g
+
+sub write_groups(out: !String, neg: Bool, groups: []U64)
+  !out.reserve(groups.len * 19 + 1)
+  !out.push(45) if neg
+  g = groups.len - 1
+  push_u64(!out, groups[g])
+  while g > 0
+    g -= 1
+    push_group(!out, groups[g])
+
+# The digits of `v`, without leading zeros.
+sub push_u64(out: !String, v: U64)
+  buf = [20 of U8(0)]
+  i = buf.len
+  rest = v
+  while rest >= 100
+    q = rest / 100
+    p = Int(rest - q * 100) * 2
+    i -= 2
+    buf[i] = PAIRS[p]
+    buf[i + 1] = PAIRS[p + 1]
+    rest = q
+  if rest >= 10
+    i -= 2
+    buf[i] = PAIRS[Int(rest) * 2]
+    buf[i + 1] = PAIRS[Int(rest) * 2 + 1]
+  else
+    i -= 1
+    buf[i] = U8(rest) + 48
+  for k in i..buf.len
+    !out.push(buf[k])
+
+# The 19 digits of `v`, below 10^19, leading zeros included.
+sub push_group(out: !String, v: U64)
+  buf = [19 of U8(0)]
+  rest = v
+  i = 19
+  while i > 1
+    q = rest / 100
+    p = Int(rest - q * 100) * 2
+    i -= 2
+    buf[i] = PAIRS[p]
+    buf[i + 1] = PAIRS[p + 1]
+    rest = q
+  buf[0] = U8(rest) + 48
+  for b in buf
+    !out.push(b)
+
+# "00" to "99": the two digits of `r` at `2 * r`.
+PAIRS = "00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899"
+
+extern zig "bigint.zig"
+  # Panics: `parse`'s base is not 0 or 2 to 36.
+  sub bad_base()
+  # Panics: a shift is negative.
+  sub negative_shift(who: ?String)
+  # Panics: `pow`'s power is negative.
+  sub negative_power()

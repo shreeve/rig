@@ -542,47 +542,50 @@ it does not end waiting on one of them.
 
 ## The merge gate and CI
 
-Every pull request is tested on burst, and GitHub's runners do not test
-it again:
+A pull request is tested on burst when we ask, and GitHub's runners do
+not test it again; the deep gate on `main` tests everything that merged:
 
 ```bash
 tools/gate                 # from the branch's worktree, after merging main and pushing
-tools/gate --no-matrix     # a quicker look, the suite and the corpus: no merge gate
+tools/gate --no-matrix     # a quicker look, the suite and the corpus
+tools/gate --skip REASON   # test nothing: post success, which clears a failed gate
 ```
 
 `tools/gate` refuses unless the worktree is clean, holds no ignored file
 that cpuq would ship (cpuq copies everything but a spec's `exclude`), and
 its HEAD is the pull request's pushed head and contains the base branch;
 so the bytes burst tests are exactly that commit's. It refuses a branch
-that changes `tools/gate` or `cpuq/` unless given `--allow-gate-changes`.
+that changes `tools/gate` or `cpuq/` unless given `--allow-gate-changes`. A branch that changes `formal/`
+also builds its Lean proofs on this machine first (`cd formal && lake
+build`; burst has no Lean), and fails on an unfinished one, a `sorry`,
+which lake only warns of.
 It submits `cpuq/suite.json`, `corpus.json`, and `matrix.json` together,
 each a `--delta` run, which burst runs at once; cancels the rest when one
 fails; and posts the commit status `rig/gate` on the commit: `success`
 with its tree and the job ids when all pass, `failure` when a test
 fails, `error` when a job could not finish. It posts with the Mac's `gh`
 login, and no credential goes to GitHub. Last it re-runs the pull
-request's `gate` workflow, waits for the required checks to pass, and
-prints the time each phase took. With `--no-matrix` its success says it
-ran no matrix and is no merge gate, and it re-runs nothing.
+request's `gate` workflow and, after a success, waits for the required
+checks to pass, printing the time each phase took. With `--no-matrix` its
+success says it ran no matrix. `--skip REASON` posts `success` with
+"skipped by LOGIN: REASON" on the pull request's pushed head and re-runs
+the checks; it needs no clean worktree and no merge of the base.
 
 The ruleset on `main` requires the checks `test (ubuntu-latest)` and
 `test (macos-latest)` from GitHub Actions, and `.github/workflows/gate.yml`
 gives them to every pull request. It runs on `pull_request_target`,
 which always runs `main`'s copy of the file, whatever the pull request
 changes; it checks out and runs nothing of the pull request, and reads
-only statuses, the pull request, and commits. It passes when the newest
-`rig/gate` status on the pull request's head commit is a success posted
-by a login it trusts and names the matrix job it ran, and the head
-contains the base branch as it is when the check runs (otherwise:
-`branch is behind main ...: merge main and re-run tools/gate`). A new
-push has no status, so its checks fail until `tools/gate` passes on it,
-and a failing check of a required name blocks the merge even when a
-workflow of the pull request's own reports the same name passing. The
-check is made when it runs: a branch that falls behind after it passed
-stays green until a push or a re-run.
+only statuses, the pull request, and commits. On a pull request from a
+branch of this repository it passes when the head commit has no
+`rig/gate` status (it was not gated, the default) or when the newest is
+a success posted by a login it trusts; it fails while a gate is pending
+when it runs, and after a gate failed, until a push, a passing gate, or
+`--skip`. A failing check of a required name blocks the merge even when
+a workflow of the pull request's own reports the same name passing.
 
-A fork's pull request is gated the same way, by hand, once it has been
-read in full: `tools/gate` runs the pull request's code on burst, beside
+A fork's pull request passes only with a trusted success: it is gated
+by hand, once it has been read in full: `tools/gate` runs the pull request's code on burst, beside
 the caches every run there shares, so never gate code you have not read.
 Fetch its head into a local branch and run `main`'s copy of `tools/gate`,
 not the fork's:

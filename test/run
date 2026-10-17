@@ -1136,7 +1136,7 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
         }
     ' "$1"
 }
-for md in *.md docs/*.md examples/*.md test/*.md; do
+for md in *.md docs/*.md examples/*.md test/*.md formal/docs/*.md; do
     [[ -e "$md" ]] || continue
     extract_docs "$md" "$WORK/doc"
 done >"$WORK/docs"

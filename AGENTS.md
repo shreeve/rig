@@ -104,8 +104,8 @@ review rounds.
 - **Land fast, release deep.** A round lands through the fast gate, in
   minutes: the build, `./test/run --delta`, the round's new tests, a
   targeted grid of the forms it changes, and one independent review run
-  in parallel with them, then `tools/gate`, whose verdict is the merge
-  check ("How merging works" below). A round that changes a soundness
+  in parallel with them; `tools/gate` on burst when the round asks for
+  it ("How merging works" below). A round that changes a soundness
   classifier (`src/ownership.zig`, the facts or proofs walks, or
   typecheck's classification of expressions) also runs the full
   matrix. The deep gate runs on `main` as it stands, about twice a day:
@@ -142,7 +142,7 @@ bin/rig build --release -o prog file.rig   # optimized executable (safe)
 RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 RIG_SANITIZE=1 bin/rig run file.rig        # crash at any use of freed memory
 RIG_NO_CRASH_REPORT=1 ./prog              # no crash report (macOS) or apport (Linux) if it dies (test harnesses)
-tools/gate                 # test the pushed head on burst, and post the merge check rig/gate
+tools/gate                 # test the pushed head on burst (when asked), and post rig/gate
 ```
 
 - Nexus: Rig and Nexus are co-developed. Every `zig build` target
@@ -167,22 +167,23 @@ tools/gate                 # test the pushed head on burst, and post the merge c
 
 ## How merging works
 
-Burst tests every pull request; GitHub's runners do not test it again.
+A pull request is tested on burst only when we ask; the deep gate on
+`main` tests everything that merged.
 
-1. Merge `origin/main` into the branch, push, and open the pull request.
-2. From the branch's clean worktree, run `tools/gate`. It submits the
-   suite, the corpus and the matrix to burst (`cpuq/*.json`, each a
-   `--delta` run), and when all pass it posts the commit status
-   `rig/gate`, success, on the exact commit they tested.
-3. The required checks, `test (ubuntu-latest)` and `test (macos-latest)`,
-   come from `.github/workflows/gate.yml`, which reads that status and
-   nothing else; `tools/gate` re-runs it, so they turn green within
-   seconds. They pass only for a gate that ran the matrix, on a head that
-   contains `main` as it is then. A push after the gate has no status, and
-   its checks fail until `tools/gate` passes on it.
-4. Only Steve merges.
+1. Push the branch and open the pull request. The required checks,
+   `test (ubuntu-latest)` and `test (macos-latest)`, come from
+   `.github/workflows/gate.yml`, which reads the commit status `rig/gate`
+   and nothing else. A head with no status passes, so the checks turn
+   green within seconds of the push.
+2. To test it first, merge `origin/main`, push, and run `tools/gate` from
+   the branch's clean worktree. It submits the suite, the corpus and the
+   matrix to burst (`cpuq/*.json`, each a `--delta` run), posts
+   `rig/gate` on the exact commit they tested, and re-runs the checks: a
+   failed gate blocks the merge until a push, a passing gate, or
+   `tools/gate --skip REASON`.
+3. Only Steve merges.
 
-A fork's pull request is gated the same way, by Steve, by hand, once he
+A fork's pull request needs a passing gate, run by Steve, by hand, once he
 has read it (test/README.md, "The merge gate and CI"). The whole suite
 also runs cold on GitHub's runners (`.github/workflows/test.yml`) on
 `main` nightly, on Ubuntu and macOS, by hand, and for a fork's pull
@@ -220,9 +221,10 @@ request, under names no rule requires.
 | `test/oracle/` | The reference ownership checker, `bin/rig-oracle`, and its classified differences |
 | `test/json/` | `std.json` against Python's `json` module, run by `./test/run json` (see `test/json/README.md`) |
 | `tools/fetch-json-data.sh` | Fetches the third-party JSON files that test reads, pinned by sha256, into the untracked `test/json/data/` |
-| `tools/gate` | Tests a pull request's head on burst and posts the merge check `rig/gate` ("How merging works") |
+| `tools/gate` | Tests a pull request's head on burst, when asked, and posts `rig/gate` ("How merging works") |
 | `.github/workflows/` | `gate.yml`, the required checks of every pull request, read from `rig/gate`; `test.yml` and `shards.yml`, the whole suite cold on GitHub's runners (nightly, by hand, and for forks, under names no rule requires) |
 | `bench/json/` | The JSON benchmark: Rig and Zig builds, and the Rust and Zig competitors (not in CI; see `bench/json/README.md`) |
+| `bench/bigint/` | The BigInt benchmark: `std.bigint` against Trig's port of Go's `math/big` (not in CI; see `bench/bigint/README.md`) |
 | `bench/names/` | The name lookup benchmark: `from_text`'s table against comparing names one by one (not in CI) |
 | `bench/check/` | The check-speed guard: `rig check`'s instructions, pass times (`rig check --time`), and scaling on generated programs (not in CI; see `bench/check/guard.py`) |
 | `bench/print/` | The print-size guard: the machine code one `print` adds in `--release=fast`, against a recorded bound (not in CI; see `bench/print/guard.py`) |
@@ -242,7 +244,8 @@ request, under names no rule requires.
 | `docs/RIG-MANTRAS.md` | The short phrases we steer by: how we choose, build, name, and measure |
 | `docs/BEYOND-RUST.md` | What Rig changes for a Rust programmer |
 | `docs/RUST-TRIAGE.md` | What Rig should take from Rust and what it should leave, sorted by priority: a plan, not a description of the compiler |
-| `docs/FORMAL-RIG.md` | What parity with Rust takes: the features left out so their proofs dissolve, what to build for reach, and the stages of a machine-checked proof (a plan) |
+| `formal/docs/FORMAL-RIG.md` | What parity with Rust takes: the features left out so their proofs dissolve, what to build for reach, and the stages of a machine-checked proof (a plan) |
+| `formal/` | λRig in Lean 4: the core calculus, its interpreter, and the proofs about it (`lake build` there; formal/README.md) |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |
 | `docs/json/` | The JSON parser's design, its open items, and the measurement record |
