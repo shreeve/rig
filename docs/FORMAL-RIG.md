@@ -198,7 +198,10 @@ that carry data, `yields !T`) stay as they are.
      atomic step would do; `Mutex` and `Atomic` come back only if a
      measurement asks. Deadlock stays possible, as in Rust and Go. A
      parallel checker cannot share a tree of `*T` nodes; it reads one
-     through `?` captures, or uses arenas with IDs.
+     through `?` captures, or uses arenas with IDs. A task keeps its own
+     stack, so an idle task costs kilobytes where a Rust future costs
+     hundreds of bytes: the price of having no `Pin` and no async
+     functions, paid in memory per idle connection, not in speed.
    - **Actors are a task and its channel.** They live in std, built on
      round R2's traits, so they add no rule to prove. The channel is the
      actor's mailbox, and the actor's address is the channel's sending
