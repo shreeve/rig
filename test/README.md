@@ -524,12 +524,12 @@ it does not end waiting on one of them.
 
 ## The merge gate and CI
 
-A pull request from a branch of this repository is tested on burst, and
-GitHub's runners do not test it again:
+Every pull request is tested on burst, and GitHub's runners do not test
+it again:
 
 ```bash
 tools/gate                 # from the branch's worktree, after merging main and pushing
-tools/gate --no-matrix     # the suite and the corpus only; the status says so
+tools/gate --no-matrix     # a quicker look, the suite and the corpus: no merge gate
 ```
 
 `tools/gate` refuses unless the worktree is clean, holds no ignored file
@@ -538,36 +538,57 @@ its HEAD is the pull request's pushed head and contains the base branch;
 so the bytes burst tests are exactly that commit's. It refuses a branch
 that changes `tools/gate` or `cpuq/` unless given `--allow-gate-changes`.
 It submits `cpuq/suite.json`, `corpus.json`, and `matrix.json` together,
-each a `--delta` run (cpuq runs one worktree's jobs one at a time on its
-copy), cancels the rest when one fails, and posts the commit status
-`rig/gate` on the commit: `success` with its tree and the job ids when
-all pass, `failure` when a test fails, `error` when a job could not
-finish. It posts with the Mac's `gh` login, and no credential goes to
-GitHub. Last it re-runs the pull request's `gate` workflow, waits for the
-required checks to pass, and prints the time each phase took.
+each a `--delta` run, which burst runs at once; cancels the rest when one
+fails; and posts the commit status `rig/gate` on the commit: `success`
+with its tree and the job ids when all pass, `failure` when a test
+fails, `error` when a job could not finish. It posts with the Mac's `gh`
+login, and no credential goes to GitHub. Last it re-runs the pull
+request's `gate` workflow, waits for the required checks to pass, and
+prints the time each phase took. With `--no-matrix` its success says it
+ran no matrix and is no merge gate, and it re-runs nothing.
 
 The ruleset on `main` requires the checks `test (ubuntu-latest)` and
-`test (macos-latest)` from GitHub Actions. For a pull request from this
-repository they come from `.github/workflows/gate.yml`. It runs on
-`pull_request_target`, which always runs `main`'s copy of the file,
-whatever the pull request changes; it checks out and runs nothing of the
-pull request, reads only statuses, and passes when the newest `rig/gate`
-status on the pull request's head commit is a success posted by a login
-it trusts. A new push has no status, so its checks fail until
-`tools/gate` passes on it, and a failing check of a required name blocks
-the merge even when another workflow reports the same name passing.
+`test (macos-latest)` from GitHub Actions, and `.github/workflows/gate.yml`
+gives them to every pull request. It runs on `pull_request_target`,
+which always runs `main`'s copy of the file, whatever the pull request
+changes; it checks out and runs nothing of the pull request, and reads
+only statuses, the pull request, and commits. It passes when the newest
+`rig/gate` status on the pull request's head commit is a success posted
+by a login it trusts and names the matrix job it ran, and the head
+contains the base branch as it is when the check runs (otherwise:
+`branch is behind main ...: merge main and re-run tools/gate`). A new
+push has no status, so its checks fail until `tools/gate` passes on it,
+and a failing check of a required name blocks the merge even when a
+workflow of the pull request's own reports the same name passing. The
+check is made when it runs: a branch that falls behind after it passed
+stays green until a push or a re-run.
+
+A fork's pull request is gated the same way, by hand, once it has been
+read in full: `tools/gate` runs the pull request's code on burst, beside
+the caches every run there shares, so never gate code you have not read.
+Fetch its head into a local branch and run `main`'s copy of `tools/gate`,
+not the fork's:
+
+```bash
+git fetch origin pull/N/head:pr-N && git switch pr-N
+bash <(git show origin/main:tools/gate) --pr N
+```
+
+The fork's head must already contain `main` (ask its author to merge
+it), and a fork that changes `tools/gate` or `cpuq/` is refused unless
+given `--allow-gate-changes`.
 
 `.github/workflows/test.yml` runs the whole suite cold on GitHub's
 runners, in four shards on Ubuntu and four on macOS
 (`.github/workflows/shards.yml`): nightly on `main`, by hand, and for a
-pull request from a fork. Only for a fork's pull request do its jobs
-carry the required names; elsewhere they are named `cold (...)`, and on a
-pull request from this repository they are skipped. No workflow skips a
-job under a required name, since a skipped required check counts as
-passing. Each shard builds the compiler and the oracle once, in one
-`zig build`, so the suite's own builds find them in Zig's cache; caches
-are restored on every run and saved only by a run on `main` that no pull
-request started, under keys named by their contents.
+fork's pull request, as more information beside the gate. Its jobs are
+named `cold (...)`, never a required name, and on a pull request from this
+repository they are skipped. No workflow skips a job under a required
+name, since a skipped required check counts as passing. Each shard builds
+the compiler and the oracle once, in one `zig build`, so the suite's own
+builds find them in Zig's cache; caches are restored on every run and
+saved only by a run on `main` that no pull request started, under keys
+named by their contents.
 
 ## Rerunning only what changed
 

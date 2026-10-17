@@ -1,17 +1,13 @@
 name: test
 
 # The whole suite on GitHub's runners, from a cold start: nightly and by
-# hand, and for a pull request from a fork. A pull request from a branch
-# of this repository is tested on burst instead (tools/gate), and its
-# merge checks come from gate.yml.
+# hand, and for a pull request from a fork, where it adds information to
+# the merge gate but is not it. Every pull request is tested on burst
+# (tools/gate), and its merge checks come from gate.yml.
 #
-# The checks the ruleset on main requires are named test (ubuntu-latest)
-# and test (macos-latest). Here the jobs carry those names only for a
-# fork's pull request, where they report real results, and cold (...) on
-# every other run. On a pull request from this repository they are
-# skipped, and GitHub names a skipped job by its name expression's text,
-# unevaluated, which is no required name. A skipped required check counts
-# as passing, so no job here is ever skipped under a required name.
+# No job here takes a name the ruleset on main requires (test
+# (ubuntu-latest), test (macos-latest)); they are named cold (...). On a
+# pull request from this repository they are skipped, under those names.
 on:
   pull_request:
   schedule:
@@ -41,7 +37,7 @@ jobs:
 
   # Each passes only when every shard of its system passed.
   test-ubuntu:
-    name: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'test (ubuntu-latest)' || 'cold (ubuntu-latest)' }}
+    name: cold (ubuntu-latest)
     needs: ubuntu
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
     runs-on: ubuntu-latest
@@ -49,7 +45,7 @@ jobs:
       - run: test "${{ needs.ubuntu.result }}" = success
 
   test-macos:
-    name: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'test (macos-latest)' || 'cold (macos-latest)' }}
+    name: cold (macos-latest)
     needs: macos
     if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository)
     runs-on: ubuntu-latest

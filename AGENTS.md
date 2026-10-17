@@ -167,7 +167,7 @@ tools/gate                 # test the pushed head on burst, and post the merge c
 
 ## How merging works
 
-Burst tests a pull request; GitHub's runners do not test it again.
+Burst tests every pull request; GitHub's runners do not test it again.
 
 1. Merge `origin/main` into the branch, push, and open the pull request.
 2. From the branch's clean worktree, run `tools/gate`. It submits the
@@ -177,14 +177,16 @@ Burst tests a pull request; GitHub's runners do not test it again.
 3. The required checks, `test (ubuntu-latest)` and `test (macos-latest)`,
    come from `.github/workflows/gate.yml`, which reads that status and
    nothing else; `tools/gate` re-runs it, so they turn green within
-   seconds. A push after the gate has no status, and its checks fail
-   until `tools/gate` passes on it.
+   seconds. They pass only for a gate that ran the matrix, on a head that
+   contains `main` as it is then. A push after the gate has no status, and
+   its checks fail until `tools/gate` passes on it.
 4. Only Steve merges.
 
-A pull request from a fork is tested in full on GitHub's runners
-(`.github/workflows/test.yml`), which also runs the whole suite cold on
-`main` nightly, on Ubuntu and macOS, and by hand (test/README.md, "The
-merge gate and CI").
+A fork's pull request is gated the same way, by Steve, by hand, once he
+has read it (test/README.md, "The merge gate and CI"). The whole suite
+also runs cold on GitHub's runners (`.github/workflows/test.yml`) on
+`main` nightly, on Ubuntu and macOS, by hand, and for a fork's pull
+request, under names no rule requires.
 
 ## Map
 
@@ -218,8 +220,8 @@ merge gate and CI").
 | `test/oracle/` | The reference ownership checker, `bin/rig-oracle`, and its classified differences |
 | `test/json/` | `std.json` against Python's `json` module, run by `./test/run json` (see `test/json/README.md`) |
 | `tools/fetch-json-data.sh` | Fetches the third-party JSON files that test reads, pinned by sha256, into the untracked `test/json/data/` |
-| `tools/gate` | Tests a pull request's pushed head on burst and posts the merge check `rig/gate` ("How merging works") |
-| `.github/workflows/` | `gate.yml`, the required checks, read from `rig/gate`; `test.yml` and `shards.yml`, the whole suite cold on GitHub's runners (nightly, by hand, and for forks) |
+| `tools/gate` | Tests a pull request's head on burst and posts the merge check `rig/gate` ("How merging works") |
+| `.github/workflows/` | `gate.yml`, the required checks of every pull request, read from `rig/gate`; `test.yml` and `shards.yml`, the whole suite cold on GitHub's runners (nightly, by hand, and for forks, under names no rule requires) |
 | `bench/json/` | The JSON benchmark: Rig and Zig builds, and the Rust and Zig competitors (not in CI; see `bench/json/README.md`) |
 | `bench/names/` | The name lookup benchmark: `from_text`'s table against comparing names one by one (not in CI) |
 | `bench/check/` | The check-speed guard: `rig check`'s instructions, pass times (`rig check --time`), and scaling on generated programs (not in CI; see `bench/check/guard.py`) |

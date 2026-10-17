@@ -1,36 +1,40 @@
 name: gate
 
-# The merge checks of a pull request from a branch of this repository.
-# Burst runs the tests: tools/gate submits the suite, the corpus and the
-# matrix through cpuq and, once all pass, posts the commit status
-# `rig/gate` on the exact commit they tested. This workflow runs no test;
-# it reads that status. It passes when the newest `rig/gate` status on the
-# pull request's head commit is a success posted by a trusted login, and
-# fails otherwise. tools/gate then re-runs it, so the checks turn green
-# seconds after burst finishes.
+# The merge checks of every pull request. Burst runs the tests: tools/gate
+# submits the suite, the corpus and the matrix through cpuq and, once all
+# pass, posts the commit status `rig/gate` on the exact commit they
+# tested. This workflow runs no test; it reads that status. It passes when
+# the newest `rig/gate` status on the pull request's head commit
+#   - is a success posted by a trusted login,
+#   - names the matrix job it ran (a `--no-matrix` run is not a merge gate),
+# and the head contains the base branch as it is now. It fails otherwise.
+# tools/gate re-runs it, so the checks turn green seconds after burst
+# finishes.
 #
 # pull_request_target runs this file as the default branch (main) holds
-# it, whatever the pull request's base, never a pull request's copy; and
-# nothing here checks out or runs the pull request's code. The token
-# reads statuses and nothing else.
+# it, never a pull request's copy, and nothing here checks out or runs the
+# pull request's code. The token reads statuses, the pull request, and
+# commits, and nothing else.
 #
-# The jobs carry the names the ruleset on main requires, test
-# (ubuntu-latest) and test (macos-latest), only for a pull request from
-# this repository. A fork's pull request gets those names from test.yml,
-# which runs the whole suite on GitHub's runners; here its jobs take other
-# names, so they never stand in for those checks. Neither job is ever
-# skipped under a required name: a skipped required check counts as
-# passing.
+# Its two jobs carry the names the ruleset on main requires, test
+# (ubuntu-latest) and test (macos-latest), for every pull request, a
+# fork's too: a fork's passes only once Steve has read it and run
+# tools/gate on it (test/README.md, "The merge gate and CI"). A failing
+# check of a required name blocks the merge even when a workflow of the
+# pull request's own reports the same name passing. Neither job is ever
+# skipped: a skipped required check counts as passing.
 on:
   pull_request_target:
     types: [opened, synchronize, reopened]
 
 permissions:
   statuses: read
+  contents: read
+  pull-requests: read
 
 jobs:
   verify:
-    name: ${{ github.event.pull_request.head.repo.full_name == github.repository && format('test ({0})', matrix.os) || format('gate, not used for a fork ({0})', matrix.os) }}
+    name: test (${{ matrix.os }})
     # Each job reports its own verdict: neither is cancelled when the
     # other fails.
     strategy:
@@ -46,17 +50,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.event.pull_request.head.sha }}
-          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
           # The logins whose rig/gate status counts. Only a user with
           # write access can post a status at all.
           TRUSTED: shreeve
         run: |
           set -euo pipefail
-          if [[ $SAME_REPO != true ]]; then
-            echo "A pull request from a fork: test.yml runs its tests and gives the required checks."
-            exit 0
-          fi
-          [[ $SHA =~ ^[0-9a-f]{40}$ ]] || { echo "::error::not a commit: $SHA"; exit 1; }
+          [[ $SHA =~ ^[0-9a-f]{40}$ && $NUMBER =~ ^[0-9]+$ ]] || { echo "::error::not a commit and a pull request: $SHA #$NUMBER"; exit 1; }
           # The API lists a commit's statuses newest first.
           all=$(gh api --paginate "repos/$REPO/commits/$SHA/statuses?per_page=100" \
             --jq '.[] | select(.context == "rig/gate") | [.state, .creator.login, .created_at, .description] | @tsv')
@@ -77,4 +77,17 @@ jobs:
             echo "::error::waiting for rig/gate from burst: its newest status on $SHA is $state"
             exit 1
           fi
-          echo "rig/gate passed on $SHA"
+          if [[ $description == *"no matrix"* || ! $description =~ (^|[ :])matrix\ [0-9a-f]{8}( |$) ]]; then
+            echo "::error::rig/gate on $SHA ran no matrix; run tools/gate without --no-matrix"
+            exit 1
+          fi
+          # The base as it is now, not as the event saw it: the head must
+          # contain it.
+          base=$(gh api "repos/$REPO/pulls/$NUMBER" --jq .base.ref)
+          base_sha=$(gh api "repos/$REPO/git/ref/heads/$base" --jq .object.sha)
+          behind=$(gh api "repos/$REPO/compare/$base_sha...$SHA" --jq .behind_by)
+          if [[ $behind != 0 ]]; then
+            echo "::error::branch is behind $base by $behind commits: merge $base and re-run tools/gate"
+            exit 1
+          fi
+          echo "rig/gate passed on $SHA, which contains $base at ${base_sha:0:12}"
