@@ -103,7 +103,7 @@ from).
   `nexus/bin/nexus` (AGENTS.md, "Workflow").
   - [docs/zig-0.17.md](docs/zig-0.17.md) covers every Zig API Rig uses.
   - The cross-project Zig guide is `~/Data/Code/zig/docs/ZIG-0.17.md`.
-- **Health:** the gates in "The gates" below are green on `main`: the
+- **Health:** the last deep gate ("Testing" below) was green on `main`: the
   full suite (`./test/run`, with its pending examples the planned Core
   rules), the corpus, `test/matrix.py`, the unit tests, and the oracle
   floors in `test/oracle/coverage`. `test/known/` holds no open bugs.
