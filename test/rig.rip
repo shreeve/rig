@@ -623,7 +623,10 @@ setup = ->
       path = join(root, 'test', 'cli', f)
       limit = readFileSync(path, 'utf8').match(/^# timeout:[ \t]*(\d+)[ \t]*$/m)
       todo("cli.#{f.slice(0, -3)}", JSON.stringify({ file: "test/cli/#{f}", name: f.slice(0, -3), verb: 'script', line: 1, path, opts: { timeout: (if limit then limit[1] else '120') } }))
-  todo('unit', JSON.stringify({ file: 'zig build test', name: 'unit', verb: 'unit', line: 1, opts: { timeout: '900' } })) if wanted('unit')
+  # Its id sorts before every other job's, as Swarm starts them in that
+  # order: the slowest job, a compile of minutes when the compiler changed,
+  # runs beside the rest instead of after them.
+  todo('build.unit', JSON.stringify({ file: 'zig build test', name: 'unit', verb: 'unit', line: 1, opts: { timeout: '600' } })) if wanted('unit')
   {}
 
 # ---- Checking a case -------------------------------------------------------
