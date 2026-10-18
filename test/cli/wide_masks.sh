@@ -48,13 +48,13 @@ ZIG
 
 # asm <name> <mode> <target> <cpu>: the kernels' assembly, in $name.s.
 asm() {
-    (cd "$pkg" && "${ZIG:-zig}" build-obj -O "$2" -target "$3" -mcpu="$4" -femit-asm="$PWD/../$1.s" -fno-emit-bin wm_kernels.zig) >build.log 2>&1 || fail "$1: $(cat build.log)"
+    (cd "$pkg" && zig_once "$PWD/../$1.s" -- . -- "${ZIG:-zig}" build-obj -O "$2" -target "$3" -mcpu="$4" -femit-asm="$PWD/../$1.s" -fno-emit-bin wm_kernels.zig) >build.log 2>&1 || fail "$1: $(cat build.log)"
 }
 asm a64 ReleaseSafe aarch64-macos apple_m1
 asm x64 ReleaseSafe x86_64-linux x86_64
 [[ -n "${WIDE_MASKS_FULL:-}" ]] && asm x64v3 ReleaseSafe x86_64-linux x86_64_v3
 asm wasm ReleaseSafe wasm32-freestanding generic+simd128
-(cd "$pkg" && "${ZIG:-zig}" build-obj -O Debug -target x86_64-linux -fno-emit-asm wm_kernels.zig) >build.log 2>&1 || fail "x86 debug: $(cat build.log)"
+(cd "$pkg" && zig_once wm_kernels.o -- . -- "${ZIG:-zig}" build-obj -O Debug -target x86_64-linux -fno-emit-asm wm_kernels.zig) >build.log 2>&1 || fail "x86 debug: $(cat build.log)"
 
 python3 - "$pkg/.." <<'PY' || exit 1
 import os, re, sys

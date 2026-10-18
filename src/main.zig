@@ -587,12 +587,24 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     if (home) |h| trimCache(allocator, io, h, std.fs.path.basename(dir), cacheCap(env));
 
     const root_zig = try std.fs.path.join(allocator, &.{ dir, root });
-    const emit_bin: []const []const u8 = if (opts.command == .build) &.{try allocator.print("-femit-bin={s}", .{opts.out_path orelse graph.root().name})} else &.{};
+    const out = opts.out_path orelse graph.root().name;
+    const emit_bin: []const []const u8 = if (opts.command == .build) &.{try allocator.print("-femit-bin={s}", .{out})} else &.{};
     const program_args: []const []const u8 = if (opts.command == .run) opts.program_args else &.{};
     const dashes: []const []const u8 = if (program_args.len > 0) &.{"--"} else &.{};
     const argv = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, emit_bin, libc, dashes, program_args });
     if (opts.command == .build) {
+        // `zig build-exe` keeps no cache of its own for an output it is
+        // told to write: the same build again copies the executable the
+        // last one kept (`keptBuild`), and Zig is not run.
+        const zig_args = try std.mem.concat(allocator, []const u8, &.{ &.{ zig, verb, flag, "--cache-dir", zig_cache, root_zig }, libc });
+        const kept = try keptBuild(allocator, io, env, zig_cache, opts.mode, out, zig_args, pkg.files.items);
+        if (kept) |k| if (reuseBuild(allocator, io, k, out)) {
+            if (home) |h| recordSize(allocator, io, h, dir);
+            return;
+        };
+        const objects_before = if (kept != null) zigObjects(allocator, io, zig_cache) else &.{};
         const code = try runZig(io, argv);
+        if (code == 0) if (kept) |k| keepBuild(allocator, io, k, out, zig_cache, objects_before);
         if (home) |h| recordSize(allocator, io, h, dir);
         if (code == 0) return;
         std.debug.print("note: emitted Zig is in {s}\n", .{dir});
@@ -651,10 +663,10 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
 /// main()`, is left out, with its diagnostics on stderr. `DIR/programs`
 /// lists the programs built, `N<TAB>FILE` a line. The status is Zig's, or
 /// 1 when no program could be built. `DIR/inputs` holds a hash of every
-/// file of the batch and how Zig builds it: when it matches and `DIR/bin`
-/// is there, the batch is built already, and Zig is not run (`zig
-/// build-exe` keeps no cache of its own for an output it is told to
-/// write).
+/// file of the batch, how Zig builds it, and which Zig (`zigIdentity`):
+/// when it matches and `DIR/bin` is there, the batch is built already,
+/// and Zig is not run (`zig build-exe` keeps no cache of its own for an
+/// output it is told to write).
 ///
 /// `rig batch run DIR N` runs program `N` of that executable as `rig run`
 /// runs a program: its status, and RIG_RUN_STARTED created only once it
@@ -766,13 +778,15 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     });
 
     const bin = try std.fs.path.join(allocator, &.{ dir, "bin" });
-    for ([_][]const u8{ emit.runtime_source, root.written(), env.zig(), mode.zigFlag(), if (links_libc) "-lc" else "" }) |part| Part.add(&inputs, part);
+    // A Zig that cannot say what it is (`zigIdentity`) builds every time.
+    const zig_identity = zigIdentity(allocator, io, env);
+    for ([_][]const u8{ emit.runtime_source, root.written(), env.zig(), zig_identity orelse "", mode.zigFlag(), if (links_libc) "-lc" else "" }) |part| Part.add(&inputs, part);
     var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
     inputs.final(&digest);
     const hex = std.fmt.bytesToHex(digest, .lower);
     const inputs_path = try std.fs.path.join(allocator, &.{ dir, "inputs" });
     const built_from = std.Io.Dir.cwd().readFileAlloc(io, inputs_path, allocator, .limited(hex.len + 1)) catch "";
-    if (std.mem.eql(u8, built_from, &hex) and exists(io, dir, "bin")) return 0;
+    if (zig_identity != null and std.mem.eql(u8, built_from, &hex) and exists(io, dir, "bin")) return 0;
     std.Io.Dir.cwd().deleteFile(io, inputs_path) catch {};
     // A failed build leaves no executable, so `batch run` never runs an
     // older batch's.
@@ -787,8 +801,126 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         &.{ "--dep", emit.runtime_module, try allocator.print("-Mroot={s}", .{try std.fs.path.join(allocator, &.{ dir, "main.zig" })}), try allocator.print("-M{s}={s}", .{ emit.runtime_module, try std.fs.path.join(allocator, &.{ dir, emit.runtime_filename }) }) },
     });
     const code = try runZig(io, argv);
-    if (code == 0) try writeFile(io, inputs_path, &hex);
+    if (code == 0 and zig_identity != null) try writeFile(io, inputs_path, &hex);
     return code;
+}
+
+/// Where `rig build` keeps the executable it built, so that the same
+/// build again copies it and does not run Zig:
+/// `ZIG_CACHE/rig-build/MODE/HASH/NAME`, NAME the output's file name,
+/// which Zig signs an executable with on macOS, and HASH a hash of every
+/// file of the package, the Zig command but its output, NAME, and Zig
+/// itself (`zigIdentity`). It is used while the object files its build
+/// left are there (`keepBuild`, `reuseBuild`). Each mode keeps its last
+/// build. Null when Zig cannot say what it is: then every build runs Zig.
+fn keptBuild(allocator: std.mem.Allocator, io: std.Io, env: Env, zig_cache: []const u8, mode: Mode, out: []const u8, zig_args: []const []const u8, files: []const PackageFile) !?[]const u8 {
+    const identity = zigIdentity(allocator, io, env) orelse return null;
+    const name = std.fs.path.basename(out);
+    var h = std.crypto.hash.sha2.Sha256.init(.{});
+    const Part = struct {
+        fn add(hash: *std.crypto.hash.sha2.Sha256, bytes: []const u8) void {
+            var len: [8]u8 = undefined;
+            std.mem.writeInt(u64, &len, bytes.len, .little);
+            hash.update(&len);
+            hash.update(bytes);
+        }
+    };
+    Part.add(&h, "rig build kept 1");
+    Part.add(&h, identity);
+    for (zig_args) |arg| Part.add(&h, arg);
+    Part.add(&h, name);
+    for (files) |f| {
+        Part.add(&h, f.path);
+        Part.add(&h, f.contents);
+    }
+    var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
+    h.final(&digest);
+    return try std.fs.path.join(allocator, &.{ zig_cache, "rig-build", @tagName(mode), &std.fmt.bytesToHex(digest[0..16], .lower), name });
+}
+
+/// Keep the executable a build wrote at `out` as `kept` (`keptBuild`),
+/// in place of the mode's last one, with the list of the directories the
+/// build left in the Zig cache's `tmp` (those not in `before`), in
+/// `objects` beside it: on macOS an executable's debug information stays
+/// in the object files there, which its stack traces read. A failure
+/// only means the next build runs Zig.
+fn keepBuild(allocator: std.mem.Allocator, io: std.Io, kept: []const u8, out: []const u8, zig_cache: []const u8, before: []const []const u8) void {
+    const entry = std.fs.path.dirname(kept).?;
+    const mode_dir = std.fs.path.dirname(entry).?;
+    if (std.Io.Dir.cwd().openDir(io, mode_dir, .{ .iterate = true })) |d| {
+        var dir = d;
+        defer dir.close(io);
+        var it = dir.iterate();
+        while (it.next(io) catch null) |e| {
+            if (!eql(e.name, std.fs.path.basename(entry))) dir.deleteTree(io, e.name) catch {};
+        }
+    } else |_| {}
+    var objects: std.Io.Writer.Allocating = .init(allocator);
+    new: for (zigObjects(allocator, io, zig_cache)) |name| {
+        for (before) |old| if (eql(old, name)) continue :new;
+        const path = std.fs.path.join(allocator, &.{ zig_cache, "tmp", name }) catch return;
+        objects.writer.print("{s}\n", .{path}) catch return;
+    }
+    const list = std.fs.path.join(allocator, &.{ entry, "objects" }) catch return;
+    var file = std.Io.Dir.cwd().createFileAtomic(io, list, .{ .make_path = true, .replace = true }) catch return;
+    defer file.deinit(io);
+    file.file.writeStreamingAll(io, objects.written()) catch return;
+    file.replace(io) catch return;
+    std.Io.Dir.cwd().copyFile(out, std.Io.Dir.cwd(), kept, io, .{}) catch {};
+}
+
+/// Copy the executable `rig build` kept (`keptBuild`) to `out`, replacing
+/// it atomically, when it and every object directory its build left
+/// (`keepBuild`) are still there: false if not.
+fn reuseBuild(allocator: std.mem.Allocator, io: std.Io, kept: []const u8, out: []const u8) bool {
+    const list = std.fs.path.join(allocator, &.{ std.fs.path.dirname(kept).?, "objects" }) catch return false;
+    const objects = std.Io.Dir.cwd().readFileAlloc(io, list, allocator, .limited(1 << 20)) catch return false;
+    var lines = std.mem.tokenizeScalar(u8, objects, '\n');
+    while (lines.next()) |path| if (!isDirectory(io, path)) return false;
+    std.Io.Dir.cwd().copyFile(kept, std.Io.Dir.cwd(), out, io, .{}) catch return false;
+    return true;
+}
+
+/// The names in the Zig cache's `tmp`, where `zig build-exe` leaves the
+/// object files of an executable it is told to write.
+fn zigObjects(allocator: std.mem.Allocator, io: std.Io, zig_cache: []const u8) []const []const u8 {
+    var names: std.ArrayList([]const u8) = .empty;
+    const tmp = std.fs.path.join(allocator, &.{ zig_cache, "tmp" }) catch return &.{};
+    var d = std.Io.Dir.cwd().openDir(io, tmp, .{ .iterate = true }) catch return &.{};
+    defer d.close(io);
+    var it = d.iterate();
+    while (it.next(io) catch null) |e| {
+        names.append(allocator, allocator.dupe(u8, e.name) catch return names.items) catch return names.items;
+    }
+    return names.items;
+}
+
+/// What Zig says of itself, for the hash of a build rig keeps: `zig env`
+/// (its version, executable, and library, the native target with the
+/// system's version, and the variables it reads), the size, time, and
+/// inode of its executable, and the host's name, so another Zig, even
+/// one of the same version, another system, or another machine sharing
+/// the directory never reuses a build. Null when Zig does not say.
+fn zigIdentity(allocator: std.mem.Allocator, io: std.Io, env: Env) ?[]const u8 {
+    const r = std.process.run(allocator, io, .{
+        .argv = &.{ env.zig(), "env" },
+        .stdout_limit = .limited(1 << 16),
+        .stderr_limit = .limited(1 << 16),
+    }) catch return null;
+    if (!r.term.success()) return null;
+    if (std.mem.indexOf(u8, r.stdout, ".version = \"") == null) return null;
+    var id: std.Io.Writer.Allocating = .init(allocator);
+    id.writer.writeAll(r.stdout) catch return null;
+    const exe = ".zig_exe = \"";
+    const at = std.mem.indexOf(u8, r.stdout, exe) orelse return null;
+    const path = r.stdout[at + exe.len ..];
+    const st = std.Io.Dir.cwd().statFile(io, path[0 .. std.mem.indexOfScalar(u8, path, '"') orelse return null], .{}) catch return null;
+    id.writer.print("{d} {d} {d}\n", .{ st.size, st.mtime.nanoseconds, st.inode }) catch return null;
+    if (builtin.os.tag != .windows) {
+        const uts = std.posix.uname();
+        id.writer.print("{s}\n", .{std.mem.sliceTo(&uts.nodename, 0)}) catch return null;
+    }
+    return id.written();
 }
 
 /// `rig batch run DIR N` (`batchCommand`).

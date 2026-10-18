@@ -44,3 +44,33 @@ rig() {
     for a in "$@"; do [[ $a == *.rig ]] && root=${a%.rig}; done
     RIG_OUT_DIR="$RIG_OUT_DIR/programs/${root//\//_}" "$RIG" "$@"
 }
+
+# zig_once <output>... -- <input>... -- <zig> <args>...: a Zig command
+# whose point is what it writes, not the build: it is not run again when
+# every <output> is there and its last run here had the same command line,
+# Zig (`zig env`, with its version), and contents of <input> (files, and
+# every .zig file under a directory). The stamp is beside the first
+# output, `<output>.zig-once`, so keep the outputs under $RIG_OUT_DIR,
+# which lasts between runs; it is written only after Zig succeeds. Its
+# status and output are Zig's when it runs.
+zig_once() {
+    local outs=() ins=() a f stamp sum
+    while (($#)) && [[ $1 != -- ]]; do outs+=("$1"); shift; done; shift
+    while (($#)) && [[ $1 != -- ]]; do ins+=("$1"); shift; done; shift
+    ((${#outs[@]} && $#)) || fail "zig_once: no output or no command"
+    stamp=${outs[0]}.zig-once
+    sum=$({
+        printf '%s\n' "$PWD" "$@"
+        "$1" env 2>&1; echo "status $?"
+        for a in "${ins[@]}"; do
+            if [[ -d $a ]]; then find "$a" -name .zig-cache -prune -o -type f -name '*.zig' -print | LC_ALL=C sort; else echo "$a"; fi
+        done | while IFS= read -r f; do printf '%s\n' "$f"; cat "$f" 2>&1; echo "status $?"; done
+    } | if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi)
+    if [[ -f $stamp && $(<"$stamp") == "$sum" ]]; then
+        for a in "${outs[@]}"; do [[ -e $a ]] || break; done
+        [[ -e $a ]] && return 0
+    fi
+    rm -f "$stamp"
+    "$@" || return
+    printf '%s\n' "$sum" >"$stamp"
+}
