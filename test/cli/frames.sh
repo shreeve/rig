@@ -103,7 +103,7 @@ pkg=$RIG_OUT_DIR/programs/ev
 # tests names: naming the table in the module has Zig compile them too,
 # in the one build.
 echo 'comptime { _ = &__rig_tests; }' >>"$pkg/__rig_main.zig"
-(cd "$pkg" && "${ZIG:-zig}" build-obj -O Debug -femit-asm="$PWD/../ev.s" -fno-emit-bin __rig_main.zig) >build.log 2>&1 || fail "asm: $(cat build.log)"
+(cd "$pkg" && zig_once "$PWD/../ev.s" -- . -- "${ZIG:-zig}" build-obj -O Debug -femit-asm="$PWD/../ev.s" -fno-emit-bin __rig_main.zig) >build.log 2>&1 || fail "asm: $(cat build.log)"
 python3 check.py accounts.txt "$pkg/../ev.s" -- 16000 \
     '`gen`=gen__func_\d+' \
     '`drop`=Res\.__rig_user_drop' \
@@ -119,7 +119,7 @@ rig check --facts=frames iv.rig >iv-accounts.txt 2>&1 || fail "facts iv: $(cat i
 rig emit iv.rig >/dev/null 2>&1 || fail "emit iv"
 pkg=$RIG_OUT_DIR/programs/iv
 for mode in Debug ReleaseSafe; do
-    (cd "$pkg" && "${ZIG:-zig}" build-obj -O $mode -femit-asm="$PWD/../iv-$mode.s" -fno-emit-bin __rig_main.zig) >build.log 2>&1 || fail "$mode asm iv: $(cat build.log)"
+    (cd "$pkg" && zig_once "$PWD/../iv-$mode.s" -- . -- "${ZIG:-zig}" build-obj -O $mode -femit-asm="$PWD/../iv-$mode.s" -fno-emit-bin __rig_main.zig) >build.log 2>&1 || fail "$mode asm iv: $(cat build.log)"
     python3 check.py iv-accounts.txt "$pkg/../iv-$mode.s" -- 300000 '`chain`=chain' '`generic`=generic' '`values`=values' '`method`=method' '`loop`=loop' '`byvalue`=byvalue' || fail "$mode"
     # `wrapped` and `piled` check what the rule leaves out of line, which
     # holds the marked functions: in debug Zig inlines only an `inline

@@ -118,7 +118,7 @@ crashes on fails too.
    a pack whose key is unchanged is not built again, so editing only a
    case's expected result rebuilds nothing, and when the key matches it
    runs neither rig nor Zig. `rig batch build` keeps a key of its own, of every
-   file it writes and how Zig builds them, and skips Zig when it matches.
+   file it writes, how Zig builds them, and which Zig, and skips Zig when it matches.
    Changing a case rebuilds its file's packs alone; a new compiler
    rebuilds them all.
 
@@ -139,10 +139,17 @@ Beside the test files, the runner reads the docs' examples, each
 ```` ```rig ```` block of a Markdown file a case (below), and two
 directories of whole programs where they are: `examples/`, each a `test`
 whose `# expect:` block is its result, and `test/torture/`, bad input
-`rig run` must reject with a position and never crash on. It also runs the scripts of
-`test/cli`, each in an empty directory of its own with `RIG`, `ROOT`,
-and `RIG_OUT_DIR` set, passing when it exits 0, and the compiler's own
-Zig tests (`zig build test`).
+`rig run` must reject with a position and never crash on. It also runs
+the scripts of `test/cli`, each in an empty directory of its own with
+`RIG`, `ROOT`, `ZIG`, `RIG_OUT_DIR`, `RIG_TESTS` (the cases as files,
+below), and `TIMEOUT_CMD` set, passing when it exits 0, and the
+compiler's own Zig tests (`zig build test`). `RIG_OUT_DIR` lasts from
+run to run, so a program a script builds unchanged is not compiled
+again: `rig build` copies the executable it kept, and a script's own
+Zig command runs through `zig_once` (`test/cli/_lib.sh`), which skips it
+while its command, Zig, and inputs are the last run's. Every program
+still runs, and is checked, every time. A run in which a job died lists
+each with its reason and exits 1.
 
 The checks come in tiers. `core`, which a run with no names checks, is
 every test file but the probes', the doc examples, the examples, the
@@ -227,8 +234,7 @@ files following as `file` blocks.
 ## Other checks
 
 The runner writes every `test`, `bomb`, and `fail` case out as a file of
-its own, where such a test was kept before test files held them:
-`behavior/<area>/<name>.rig` and `reject/<area>/<name>.rig` (or
+its own: `behavior/<area>/<name>.rig` and `reject/<area>/<name>.rig` (or
 `<name>/main.rig`), under `.zig-cache/rig-tests/tree`. The scripts of
 `test/cli` read them there (`$RIG_TESTS`), `tools/equiv.py` compares two
 compilers over them (`swarm test/rig.rip tree` writes them alone,
@@ -260,11 +266,14 @@ ran them as files of their own:
 | `swarm test/rig.rip`, every pack compiled | 73 s | 386 s |
 | the same, nothing changed | 11 s | 63 s |
 
-With the examples, the torture input, and the unit tests, the core is
-3,293 jobs and takes 11.5 seconds when nothing changed. The scripts of
-`test/cli` add 77 jobs and about three and a half minutes: their job
-time, 2,626 seconds, is 17 times the rest's, and the slowest,
-`inline_budget`, takes 202 seconds alone.
+With the docs' examples, the examples, the torture input, the unit
+tests, and the oracle, the core is about 4,100 jobs and takes about 15
+seconds when nothing changed; `all`, with the 65 scripts of `test/cli`
+and the probes, about 8,200 jobs and a minute. A script keeps only what
+needs the command line and builds nothing it built before, so none takes
+more than about 20 seconds. After a change to the compiler, every pack
+compiles again, once: a run takes about four minutes on cpuq's 5 cores,
+and the first jobs are done within a minute.
 
 The verdicts are the same. A case runs in a few milliseconds; a warm
 run's time is the cases themselves, a few of which are deliberate

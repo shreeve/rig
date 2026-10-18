@@ -110,7 +110,14 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run the Zig unit tests of the compiler, the runtime, and std/char.zig");
     const unit = b.addTest(.{ .root_module = main_mod });
     unit.step.dependOn(parser_gen);
-    test_step.dependOn(&b.addRunArtifact(unit).step);
+    // The unit-order test reads the cases test/rig.rip writes out under
+    // .zig-cache/rig-tests/tree. Zig runs a test binary again only when
+    // the run's own inputs change, so the runner hands it a hash of those
+    // cases (-Dtests-key), and a run with new cases runs the tests again.
+    const tests_key = b.option([]const u8, "tests-key", "A hash of the cases test/rig.rip writes out (set by the runner)") orelse "";
+    const run_unit = b.addRunArtifact(unit);
+    if (tests_key.len > 0) run_unit.setEnvironmentVariable("RIG_TESTS_KEY", tests_key);
+    test_step.dependOn(&run_unit.step);
     // The Zig tests of std/char.zig, the chars of std.text: forward and
     // backward reading agree on random text of every char class and of
     // bytes that are not UTF-8, and runes read backward are those read

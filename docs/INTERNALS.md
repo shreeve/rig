@@ -122,7 +122,17 @@ and exit status 125. A caller's `RIG_RUN_STARTED` is deleted first
 a `rig run` the program starts cannot touch it, and created only once
 the program has started: a test harness's evidence that it ran.
 `build` runs `zig build-exe -femit-bin=...`, which caches nothing, in a
-store entry too, so it compiles the package in full every time. The toolchain is `$ZIG`,
+store entry too, so rig keeps the executable itself, in the Zig cache at
+`rig-build/MODE/HASH/NAME`: HASH covers every file of the package, the
+Zig command but its output, the output's name (which Zig signs a macOS
+executable with), and Zig itself (`zig env`, which names its version,
+executable, library, and native target with the system's version, the
+executable's size and time, and the host's name). The same build again
+copies that executable to the output, and Zig is not run, while every
+object directory the build left in the cache's `tmp/` is still there
+(on macOS an executable's stack traces read their debug information
+from those objects); each mode keeps its last build, and a Zig that
+cannot say what it is builds every time. The toolchain is `$ZIG`,
 else `zig` on `PATH`, run with `-Odebug`, `-Osafe` (`--release`),
 or `-Ofast` (`--release=fast`), and with `-lc` when a module
 declares an `extern`. `emit` prints the root module's Zig and names the
@@ -3636,8 +3646,8 @@ symbols); a query that decides more than that belongs in `Pending`.
   declares `__rig_strict_optional`, and `rig.Opt` of it is a tagged
   struct (`rig.Strict`), so a program compiles only if emit and the
   runtime write every operation on such an optional through the
-  helpers. The suite is run in this mode as a gate, and
-  `test/cli/strict_optionals.sh` runs one program both ways.
+  helpers. Run the suite in this mode after a change to optionals;
+  `test/cli/strict_optionals.sh` runs one program both ways every run.
 - **Cells.** A value whose type holds a Cell by value lives only
   behind a shared handle (Core sentence 9): it is always in the heap
   memory a `*T` points to (`rig.RcBox(T)`), as a `Cell[T]`'s value or

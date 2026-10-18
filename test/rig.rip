@@ -11,7 +11,14 @@
 #                                  (`proofs-all`: of every program)
 #   swarm test/rig.rip std-text    test/rig/std-text.rig.test alone
 #   swarm test/rig.rip doc-SPEC    SPEC.md's examples alone (`doc`: every doc's)
+#   swarm test/rig.rip cli.lsp     test/cli/lsp.sh alone (any script by its name)
+#   swarm test/rig.rip full        by hand: every script with its sweeps whole
+#                                  (`full cli.NAME`: one script's)
+#   swarm test/rig.rip unit        the compiler's Zig tests alone (also `oracle`,
+#                                  `generated`: those jobs alone)
 #   swarm test/rig.rip tree        only write each case out as a program (the mirror)
+#
+# A run with a job that died lists each with its reason and exits 1.
 #
 # Setup builds rig, rig-oracle, and the unit tests in one zig build, reads
 # each file into its cases, writes each case as a program of its own, and
@@ -391,10 +398,10 @@ docFiles = ->
       out.push({ area: 'doc-' + rel.slice(0, -3).replace(/^docs\//, '').replace(/\//g, '-'), rel, file: join(root, rel) })
   out
 
-# The behavior and rejection tests, each where it lived before test/rig:
+# The behavior and rejection tests, each as a file of its own:
 # `test` and `bomb` cases under behavior/, `fail` cases under reject/, in
 # the folder of their file's area (`ownership-match` → `ownership`), named
-# as they were (`<name>.rig`, or `<name>/main.rig` for a program of several
+# for the case (`<name>.rig`, or `<name>/main.rig` for a program of several
 # files). The scripts of test/cli read them there ($RIG_TESTS), and the
 # oracle reads them by those names.
 legacy = (area, c) ->
@@ -411,6 +418,10 @@ legacy = (area, c) ->
 put = (path, text) ->
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, text) unless existsSync(path) and readFileSync(path, 'utf8') is text
+
+# A zig build's -j: inside a cpuq lease, the cores it granted (zig build
+# would otherwise start a thread for every CPU); elsewhere, Zig's own.
+zigJobs = -> if process.env.CPUQ_CORES then ["-j#{process.env.CPUQ_CORES.split('-')[0]}"] else []
 
 # This runner's hash: what it writes changes with it.
 runner = new Bun.CryptoHasher('sha256').update(readFileSync(join(root, 'test', 'rig.rip'))).digest('hex')
@@ -478,8 +489,9 @@ setup = ->
     sources.push({ area, inputs: readdirSync(d).filter((f) -> f.endsWith('.rig')).sort().map((f) -> join(d, f)), read: ((area, d) -> -> programs(area, d))(area, d) }) if wanted(area)
   for doc in docFiles()
     sources.push({ area: doc.area, label: doc.rel, inputs: [doc.file], read: ((file) -> -> docs(file))(doc.file) }) if wanted(doc.area) or names.includes('doc')
-  unknown = names.filter((n) -> n not in ['all', 'core', 'cli', 'probes', 'unit', 'oracle', 'generated', 'doc', 'proofs', 'proofs-all'] and not sources.some((s) -> s.area is n))
-  throw new Error("no test file test/rig/#{unknown[0]}.rig.test") if unknown.length > 0
+  scripts = readdirSync(join(root, 'test', 'cli')).filter((f) -> f.endsWith('.sh') and not f.startsWith('_')).map((f) -> "cli.#{f.slice(0, -3)}")
+  unknown = names.filter((n) -> n not in ['all', 'core', 'cli', 'probes', 'unit', 'oracle', 'generated', 'doc', 'full', 'proofs', 'proofs-all'] and n not in scripts and not sources.some((s) -> s.area is n))
+  throw new Error((if unknown[0].startsWith('cli.') then "no script test/cli/#{unknown[0].slice(4)}.sh" else "no test file test/rig/#{unknown[0]}.rig.test")) if unknown.length > 0
   init()
   # The compiler, with its own consistency checks on; the reference
   # ownership checker, which the oracle's jobs and scripts of test/cli
@@ -488,10 +500,16 @@ setup = ->
   # the compiler changed, and the runner says so. A unit test that fails
   # fails the `unit` job, which runs them again from Zig's cache, not the
   # run: the build is tried again without them.
+  # The cases as their own files come first: the unit-order test reads
+  # them, and their hash, handed to the build, runs the unit tests again
+  # when they change, where Zig would replay a cached pass.
+  tree = join(work, 'tree')
+  listed = mirror(parsed)
+  treeKey = new Bun.CryptoHasher('sha256').update(runner + '\0' + readdirSync(dir).filter((f) -> f.endsWith('.rig.test')).sort().map((f) -> readFileSync(join(work, f.slice(0, -'.rig.test'.length), 'tree.json'), 'utf8')).join('\0')).digest('hex').slice(0, 16)
   started = Date.now()
   timer = setTimeout((-> process.stdout.write("rig.rip: building rig and rig-oracle (zig build)...\n")), 1000)
   zigBuild = (steps) ->
-    zb = Bun.spawn({ cmd: ['zig', 'build', '-Dself-check=true', ...steps], cwd: root, stdout: 'pipe', stderr: 'pipe' })
+    zb = Bun.spawn({ cmd: ['zig', 'build', '-Dself-check=true', "-Dtests-key=#{treeKey}", ...zigJobs(), ...steps], cwd: root, stdout: 'pipe', stderr: 'pipe' })
     text = await new Response(zb.stderr).text()
     { code: await zb.exited, text }
   zb = await zigBuild(['install', 'oracle', ...(if wanted('unit') then ['test'] else [])])
@@ -511,8 +529,11 @@ setup = ->
   # The compiler, and every setting of rig's that changes what it emits or
   # how a program runs (RIG_STRICT_OPTIONALS, RIG_NO_PROOFS, ...), but those
   # that only say where things go.
-  settings = Object.keys(process.env).filter((k) -> k.startsWith('RIG_') and not /^RIG_(OUT_DIR|BUILD_STORE|RESULTS_CACHE|RUN_STARTED|PROGRAM_STARTED|CACHE_MAX_GB)$/.test(k)).sort().map((k) -> "#{k}=#{process.env[k]}")
-  compiler = new Bun.CryptoHasher('sha256').update(readFileSync(rig)).update(settings.join('\n')).digest('hex')
+  settings = Object.keys(process.env).filter((k) -> k.startsWith('RIG_') and not /^RIG_(OUT_DIR|BUILD_STORE|RESULTS_CACHE|RUN_STARTED|PROGRAM_STARTED|CACHE_MAX_GB|UCD|TESTS)$/.test(k)).sort().map((k) -> "#{k}=#{process.env[k]}")
+  # Zig's version is part of it too: a new Zig builds every pack again.
+  zigExe = process.env.ZIG ?? 'zig'
+  zigVersion = Bun.spawnSync({ cmd: [zigExe, 'version'], stdout: 'pipe', stderr: 'pipe' }).stdout.toString().trim()
+  compiler = new Bun.CryptoHasher('sha256').update(readFileSync(rig)).update(settings.join('\n')).update("\nzig #{zigExe} #{zigVersion}").digest('hex')
   # Write case `i` of an area as its program, setting its path. A case's
   # program is named for it, so what it prints about itself (a panic's
   # place) names the case.
@@ -526,56 +547,60 @@ setup = ->
     else
       c.path = join(work, area, 'cases', n, c.opts.file ?? "#{slug}.rig")
     put(c.path, c.source)
+  # Each file is read on every run (all of them take well under a second):
+  # each case is written out as its program, and its `test` and `bomb`
+  # cases go into packs. A file's debug pack is its own. Its release pack
+  # is its own too when it holds more than a few cases; a file with only
+  # a few shares one release pack with the other such files of its area's
+  # family (the area's part before `-`), since a release pack's cost is
+  # mostly compiling the standard library and the runtime again.
+  pool = 5
+  packs = []
+  pooled = {}
   for src in sources
     area = src.area
-    # A source whose files, compiler, and runner are what its packs were
-    # built from is not read again: its jobs, saved then, are queued as
-    # they were.
-    h = new Bun.CryptoHasher('sha256').update(compiler + '\0' + runner + '\0')
-    h.update(f + '\0').update(readFileSync(f)) for f in src.inputs
-    fileKey = h.digest('hex')
-    saved = join(work, area, 'jobs.json')
-    if existsSync(saved)
-      last = JSON.parse(readFileSync(saved, 'utf8'))
-      if last.key is fileKey and last.packs.every((p) -> p.dir? and existsSync(join(p.dir, 'bin')) and existsSync(join(p.dir, 'key')) and readFileSync(join(p.dir, 'key'), 'utf8') is p.key)
-        todo(j.id, j.payload) for j in last.jobs
-        continue
     all = src.read()
     place(area, c, i) for c, i in all when not c.given
     runs = all.filter((c) -> c.verb is 'test' or c.verb is 'bomb')
-    packs = [{ dir: join(work, area, 'debug'), cases: runs, flags: [], env: { RIG_SANITIZE: '1' } }, { dir: join(work, area, 'release'), cases: runs.filter((c) -> c.opts.release is 'true'), flags: ['--release'], env: {} }]
-    for p in packs when p.cases.length > 0
-      h = new Bun.CryptoHasher('sha256')
-      h.update(part + '\0') for part in [compiler, ...p.flags, JSON.stringify(p.env), ...p.cases.flatMap((c) -> [c.path, c.source, ...c.files.flatMap((f) -> [f.path, f.text])])]
-      p.key = h.digest('hex')
-      keyPath = join(p.dir, 'key')
-      continue if existsSync(keyPath) and readFileSync(keyPath, 'utf8') is p.key and existsSync(join(p.dir, 'bin'))
-      rmSync(keyPath, { force: true })
-      rmSync(join(p.dir, 'state'), { force: true })
-      mode = if p.flags.length > 0 then 'release' else 'debug'
-      todo("build.zig.#{area}.#{mode}", JSON.stringify({ file: "#{area} (#{mode})", name: "#{area} #{mode} pack", verb: 'pack', line: 1, dir: p.dir, flags: p.flags, env: p.env, cases: p.cases.map((c) -> c.path), key: p.key, opts: { timeout: '1800' } }))
-      builds++
-    plans.push({ area, file: (if src.inputs.length is 1 then src.inputs[0] else area), label: src.label, all, packs, fileKey })
+    releases = runs.filter((c) -> c.opts.release is 'true')
+    mine = [{ name: area, dir: join(work, area, 'debug'), cases: runs, flags: [], env: { RIG_SANITIZE: '1' } }]
+    if releases.length > pool
+      mine.push({ name: area, dir: join(work, area, 'release'), cases: releases, flags: ['--release'], env: {} })
+    else if releases.length > 0
+      family = "pool-#{area.split('-')[0]}"
+      pooled[family] ?= { name: family, dir: join(work, family, 'release'), cases: [], flags: ['--release'], env: {} }
+      pooled[family].cases.push(...releases)
+    packs.push(...mine)
+    plans.push({ area, file: (if src.inputs.length is 1 then src.inputs[0] else area), label: src.label, all })
+  packs.push(...Object.values(pooled))
+  for p in packs when p.cases.length > 0
+    h = new Bun.CryptoHasher('sha256')
+    h.update(part + '\0') for part in [compiler, ...p.flags, JSON.stringify(p.env), ...p.cases.flatMap((c) -> [c.path, c.source, ...c.files.flatMap((f) -> [f.path, f.text])])]
+    p.key = h.digest('hex')
+    keyPath = join(p.dir, 'key')
+    continue if existsSync(keyPath) and readFileSync(keyPath, 'utf8') is p.key and existsSync(join(p.dir, 'bin'))
+    rmSync(keyPath, { force: true })
+    rmSync(join(p.dir, 'state'), { force: true })
+    mode = if p.flags.length > 0 then 'release' else 'debug'
+    todo("build.zig.#{p.name}.#{mode}", JSON.stringify({ file: "#{p.name} (#{mode})", name: "#{p.name} #{mode} pack", verb: 'pack', line: 1, dir: p.dir, flags: p.flags, env: p.env, cases: p.cases.map((c) -> c.path), key: p.key, opts: { timeout: '1800' } }))
+    builds++
   process.stdout.write("rig.rip: #{builds} pack#{if builds is 1 then '' else 's'} to compile, as jobs\n") if builds > 0
+  # Each case's packs, and its number in each.
+  slots = new Map()
+  for p in packs
+    for c, n in p.cases
+      slots.set(c, []) unless slots.has(c)
+      slots.get(c).push([p, n])
   for plan in plans
-    jobs = []
-    queue = (id, payload) ->
-      todo(id, payload)
-      jobs.push({ id, payload })
     for c, i in plan.all
       job = { file: plan.label ?? basename(plan.file), name: c.name, verb: c.verb, line: c.line, bodyLine: c.bodyLine, args: c.args, opts: c.opts, map: c.map, path: c.path, out: c.out, err: c.err }
       id = "#{plan.area}.#{String(i).padStart(3, '0')}"
       unless c.verb in ['test', 'bomb']
-        queue(id, JSON.stringify(job))
+        todo(id, JSON.stringify(job))
         continue
-      for p in plan.packs when p.cases.includes(c)
+      for [p, n] in (slots.get(c) ?? [])
         release = p.flags.length > 0
-        queue(id + (if release then 'r' else ''), JSON.stringify({ ...job, release, pack: p.dir, packKey: p.key, n: p.cases.indexOf(c) }))
-    built = plan.packs.filter((p) -> p.cases.length > 0)
-    mkdirSync(join(work, plan.area), { recursive: true })
-    writeFileSync(join(work, plan.area, 'jobs.json'), JSON.stringify({ key: plan.fileKey, packs: built.map((p) -> { dir: p.dir, key: p.key }), jobs }))
-  tree = join(work, 'tree')
-  listed = mirror(parsed)
+        todo(id + (if release then 'r' else ''), JSON.stringify({ ...job, release, pack: p.dir, packKey: p.key, n }))
   # The oracle's sets: the tests (the probes of past reviews among them)
   # and the examples, the docs' examples, and the matrix (test/matrix.py). A doc example is named by
   # its doc and a hash of its text, so an edit that only moves it keeps
@@ -625,15 +650,26 @@ setup = ->
       continue unless m
       todo("generated.#{f.slice(0, -'.rig.test'.length)}", JSON.stringify({ file: "test/rig/#{f}", name: m[1], verb: 'generated', line: 1, path: join(root, m[1]), opts: { timeout: '120' } }))
   # The scripts of test/cli, each a job, and the compiler's own Zig tests.
-  if wanted('cli')
-    for f in readdirSync(join(root, 'test', 'cli')).filter((f) -> f.endsWith('.sh') and not f.startsWith('_')).sort()
-      path = join(root, 'test', 'cli', f)
-      limit = readFileSync(path, 'utf8').match(/^# timeout:[ \t]*(\d+)[ \t]*$/m)
-      todo("cli.#{f.slice(0, -3)}", JSON.stringify({ file: "test/cli/#{f}", name: f.slice(0, -3), verb: 'script', line: 1, path, opts: { timeout: (if limit then limit[1] else '120') } }))
+  # `cli.NAME` runs that script alone. `full` runs the scripts (every one,
+  # or those named) with every sweep
+  # whole: each NAME_FULL variable a script reads is set, and each time
+  # limit is ten times the script's own, at most an hour; it runs by hand,
+  # before a release or after a change a sweep covers.
+  full = names.includes('full')
+  picked = names.filter((n) -> n.startsWith('cli.'))
+  for f in readdirSync(join(root, 'test', 'cli')).filter((f) -> f.endsWith('.sh') and not f.startsWith('_')).sort()
+    id = "cli.#{f.slice(0, -3)}"
+    continue unless (if picked.length > 0 then id in picked else wanted('cli') or full)
+    path = join(root, 'test', 'cli', f)
+    text = readFileSync(path, 'utf8')
+    m = text.match(/^# timeout:[ \t]*(\d+)[ \t]*$/m)
+    limit = if m then Number(m[1]) else 120
+    sweeps = if full then [...new Set(text.match(/\b[A-Z0-9_]+_FULL\b/g) ?? [])] else []
+    todo(id, JSON.stringify({ file: "test/cli/#{f}", name: f.slice(0, -3), verb: 'script', line: 1, path, env: Object.fromEntries(sweeps.map((v) -> [v, '1'])), opts: { timeout: String(if full then Math.min(limit * 10, 3600) else limit) } }))
   # Its id sorts before every other job's, as Swarm starts them in that
   # order: the slowest job, a compile of minutes when the compiler changed,
   # runs beside the rest instead of after them.
-  todo('build.unit', JSON.stringify({ file: 'zig build test', name: 'unit', verb: 'unit', line: 1, opts: { timeout: '600' } })) if wanted('unit')
+  todo('build.unit', JSON.stringify({ file: 'zig build test', name: 'unit', verb: 'unit', line: 1, key: treeKey, opts: { timeout: '600' } })) if wanted('unit')
   {}
 
 # ---- Checking a case -------------------------------------------------------
@@ -834,7 +870,7 @@ checkScript = (c) ->
   mkdirSync(join(out, 'work'), { recursive: true })
   seconds = Number(c.opts.timeout)
   timeoutCmd = (Bun.which('timeout') ?? Bun.which('gtimeout')) ?? 'timeout'
-  r = run(['bash', c.path], { ROOT: root, RIG: rig, ZIG: 'zig', RIG_OUT_DIR: out, RIG_TESTS: join(work, 'tree'), TIMEOUT: String(seconds), TIMEOUT_CMD: timeoutCmd }, seconds, join(out, 'work'))
+  r = run(['bash', c.path], { ROOT: root, RIG: rig, ZIG: 'zig', RIG_OUT_DIR: out, RIG_TESTS: join(work, 'tree'), TIMEOUT_CMD: timeoutCmd, ...(c.env ?? {}) }, seconds, join(out, 'work'))
   throw new Error("timed out after #{seconds}s") unless r.code?
   unless r.code is 0
     all = r.out + r.err
@@ -844,21 +880,61 @@ checkScript = (c) ->
 # decides gets the compiler's verdict, or is listed in test/oracle/differences;
 # its rejections are test/oracle/rejections; and the set keeps its floor of
 # decided functions (test/oracle/coverage).
+#
+# A set whose inputs are all as they were when it last passed is not
+# checked again: the oracle and the compiler (their binaries), the
+# oracle's three lists, rig's settings, and every program the set reads,
+# with each module beside it that one of its `use`s names, or the Rig
+# files of the whole folder of a program of several files.
+oracleInputs = (parts, programs) ->
+  h = new Bun.CryptoHasher('sha256')
+  add = (s) -> h.update("#{s.length}:").update(s)
+  add(readFileSync(join(root, 'bin', f))) for f in ['rig-oracle', 'rig']
+  add(readFileSync(join(root, 'test', 'oracle', f))) for f in ['differences', 'rejections', 'coverage']
+  add(Object.keys(process.env).filter((k) -> k.startsWith('RIG_')).sort().map((k) -> "#{k}=#{process.env[k]}").join('\n'))
+  add(String(x)) for x in parts
+  # Rig's sources only: the oracle reads no Zig, and a case's folder also
+  # holds what its runs wrote (NAME.debug/, NAME.release/, ...).
+  folder = (d) ->
+    for f in readdirSync(d, { recursive: true }).map(String).sort() when f.endsWith('.rig') and not /\.(debug|release|out)\//.test(f)
+      add(f)
+      add(readFileSync(join(d, f)))
+  for p in programs
+    add(p)
+    if basename(p) is 'main.rig'
+      folder(dirname(p))
+      continue
+    text = readFileSync(p)
+    add(text)
+    for m in String(text).matchAll(/^use\s+(\w+)/gm) when m[1] isnt 'std'
+      beside = join(dirname(p), m[1])
+      if existsSync(beside + '.rig') then add(readFileSync(beside + '.rig')) else if existsSync(beside) then folder(beside)
+  h.digest('hex')
+
+passedBefore = (c, key) -> existsSync(join(work, 'oracle', "#{c.name}.passed")) and readFileSync(join(work, 'oracle', "#{c.name}.passed"), 'utf8') is key
+passedNow = (c, key) -> writeFileSync(join(work, 'oracle', "#{c.name}.passed"), key)
+
 checkOracle = (c) ->
+  key = oracleInputs([c.name, readFileSync(c.path, 'utf8')], readFileSync(c.path, 'utf8').split('\n').filter((l) -> l isnt '').map((l) -> l.split('\t')[1]))
+  return if passedBefore(c, key)
   r = run([join(root, 'bin', 'rig-oracle'), '--set', c.name, '--allow', 'test/oracle/differences', '--rejects', 'test/oracle/rejections', '--coverage', 'test/oracle/coverage', '--list', c.path], {}, Number(c.opts.timeout))
   throw new Error('timed out') unless r.code?
   unless r.code is 0
     all = (r.out + r.err).split('\n')
     throw new Error(all.find((l) -> /^(DIFF|FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+  passedNow(c, key)
 
 # The matrix's programs (test/matrix.py) under the reference checker,
 # held to the same lists.
 checkMatrix = (c) ->
+  key = oracleInputs([c.name, readFileSync(join(root, 'test', 'matrix.py'))], [])
+  return if passedBefore(c, key)
   r = run(['python3', join(root, 'test', 'matrix.py'), '--oracle'], {}, Number(c.opts.timeout))
   throw new Error('timed out') unless r.code?
   unless r.code is 0
     all = (r.out + r.err).split('\n')
     throw new Error(all.find((l) -> /^(DIFF|FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+  passedNow(c, key)
 
 # The oracle reads no ownership classification of the compiler's (comments
 # aside), and the compiler never imports the oracle.
@@ -878,7 +954,7 @@ checkGenerated = (c) ->
 
 # The compiler's own Zig tests.
 checkUnit = (c) ->
-  r = run(['zig', 'build', 'test', '-Dself-check=true'], {}, Number(c.opts.timeout))
+  r = run(['zig', 'build', 'test', '-Dself-check=true', ...(if c.key? then ["-Dtests-key=#{c.key}"] else []), ...zigJobs()], {}, Number(c.opts.timeout))
   throw new Error('timed out') unless r.code?
   throw new Error("zig build test failed: #{(r.err + r.out).trim().split('\n').slice(-3).join(' / ')}") unless r.code is 0
 
@@ -915,7 +991,10 @@ perform = (task, ctx) ->
   # true`: it passes while it fails, and fails the day it passes, so its
   # mark comes off as the bug is fixed.
   if c.opts?.known is 'true'
-    return if failure?
+    # A run that never got as far as the bug (a program that did not run,
+    # a timeout, a crash of the compiler) is no known failure.
+    return if failure? and not /did not run|timed out|crashed|never built/.test(failure.message)
+    throw new Error("#{where}: a known bug fails for another reason: #{failure.message}") if failure?
     throw new Error("#{where}: a known bug no longer fails: remove `known: true`")
   # A pending doc example states a rule decided but not built: it passes
   # while it fails for want of the rule (rejected, accepted where it must
@@ -926,4 +1005,24 @@ perform = (task, ctx) ->
     throw new Error("#{where}: pending example: #{failure.message}")
   throw new Error("#{where}: #{failure.message}") if failure?
 
-swarm { setup, perform }
+# The run, then its verdict: each job that died, with its reason (the
+# lines of errors.log), and an exit status of 1, so neither a person
+# nor a script reading the status can take a failed run for a passing
+# one. Swarm's folder is .swarm, or .swarm/TAG with `-t TAG`; the
+# verdict is a function, so its names are its own.
+verdict = ->
+  argv = process.argv.slice(2)
+  at = argv.findIndex((a) -> a is '-t' or a is '--tag')
+  tag = if at >= 0 then argv[at + 1] else argv.find((a) -> a.startsWith('--tag='))?.slice(6)
+  here = resolve('.swarm', ...(if tag? then [String(tag)] else []))
+  died = if existsSync(join(here, 'died')) then readdirSync(join(here, 'died')) else []
+  return if died.length is 0
+  reasons = if existsSync(join(here, 'errors.log')) then readFileSync(join(here, 'errors.log'), 'utf8').split('\n').filter((l) -> l.trim() isnt '').sort() else []
+  shown = reasons.slice(0, 40)
+  process.stdout.write("\x1b[31m#{died.length} died:\x1b[0m\n" + shown.map((l) -> "  #{l}\n").join('') + (if reasons.length > shown.length then "  ... and #{reasons.length - shown.length} more in #{relative(process.cwd(), join(here, 'errors.log'))}\n" else ''))
+  process.exit(1)
+
+# Inside a cpuq lease, as many workers as it granted cores; elsewhere,
+# Swarm's own default, one per CPU (`-w N` chooses either way).
+await swarm { setup, perform, workers: (if process.env.CPUQ_CORES then Number(process.env.CPUQ_CORES.split('-')[0]) else undefined) }
+verdict()

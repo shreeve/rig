@@ -2,8 +2,8 @@
 # generates from the pinned Character Database, and every code point's
 # class matches the database (tools/verify-unicode.py). The generator's
 # version is the one std.unicode reports. The database is read from
-# $RIG_UCD, so without it the generated files are not rebuilt (the deep
-# gate sets it, and the generator fetches any file it lacks).
+# $RIG_UCD, so without it the generated files are not rebuilt (set it to
+# run this check; the generator fetches any file it lacks).
 source "$ROOT/test/cli/_lib.sh"
 
 version=$(sed -n 's/^VERSION = "\(.*\)"$/\1/p' "$ROOT/tools/gen-unicode.py")

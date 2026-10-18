@@ -16,13 +16,15 @@ swarm test/rig.rip probes          # the probes of past reviews
 swarm test/rig.rip all             # all three
 swarm test/rig.rip std-text        # test/rig/std-text.rig.test alone
 swarm test/rig.rip doc             # the doc examples alone (doc-SPEC: SPEC.md's)
+swarm test/rig.rip cli.lsp         # one script of test/cli, by its name
+swarm test/rig.rip full            # by hand: every script with its sweeps whole
 swarm test/rig.rip proofs          # by hand: the proven checks' differential run
 test/matrix.py                     # by hand: the form x context x type matrix
 bench/json/check/compare.py        # by hand: std.json against Python's json
 ```
 
 A case that fails lands in `.swarm/died`, with its reason in
-`.swarm/errors.log`.
+`.swarm/errors.log`; the run lists each failure at its end and exits 1.
 
 ## Layout
 
@@ -148,8 +150,8 @@ and never tests with `orelse` or `null` (docs/INTERNALS.md, Emit,
 "Optionals"). A program then compiles only if the compiler writes
 every operation on such an optional through the runtime's optional
 helpers, and prints what it prints in a plain run, so a run in this
-mode that passes shows no optional site was missed. The run is a gate
-for a change to how emit or the runtime handles optionals.
+mode that passes shows no optional site was missed. Run it after a
+change to how emit or the runtime handles optionals.
 `test/cli/strict_optionals.sh` runs one program both ways in every run.
 
 ## CLI tests
@@ -207,10 +209,9 @@ note, and `JSON_REQUIRE_DATA=1` makes that a failure.
 reviews and audits, as cases named after their probes
 (`review-arm-temps-2-m46 last arm index target view local`): a `fail`
 case where the compiler rejects the probe, and a `test` or `bomb` case,
-with what it prints, where it runs. They came from a folder of loose
-programs, `test/corpus`, keeping each probe that gives the reference
-ownership checker a function whose lowered core no other test or kept
-probe has; they give it most of the functions it decides
+with what it prints, where it runs. Each is a probe that gives the
+reference ownership checker a function whose lowered core no other test
+or probe has; they give it most of the functions it decides
 (`oracle.tests`, below). The core skips their own checks, which double
 its time, but its oracle job reads every probe; `swarm test/rig.rip
 probes` (or `all`) checks what each prints or is rejected with. A new

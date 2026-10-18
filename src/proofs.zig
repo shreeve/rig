@@ -1852,8 +1852,9 @@ fn programsIn(a: std.mem.Allocator, dir_path: []const u8, out: *std.ArrayList([]
 test "the unit-order test: emit writes the units the walk visits, nested and ordered alike" {
     // Every program of the `emit` and `proofs` behavior tests, which
     // test/rig.rip writes out under .zig-cache/rig-tests/tree before it
-    // runs the unit tests (skipped where it has not run): the units emit
-    // writes, in the order their code runs, are the ones the
+    // builds and runs the unit tests, with a hash of them that runs the
+    // tests again when they change (skipped where it has not run):
+    // the units emit writes, in the order their code runs, are the ones the
     // walk visits, each in the same unit, and the units of each block in
     // the same order; each unit's code starts once, and each jump is
     // written once and goes where the walk sends its facts. A trace with
