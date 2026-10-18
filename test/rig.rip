@@ -375,11 +375,10 @@ docs = (file) ->
 
 # The Markdown files with ```rig blocks, each an area `doc-NAME`: NAME is
 # its path without `.md` or a leading `docs/`, slashes made dashes
-# (docs/CORE.md is doc-CORE, formal/docs/FORMAL-RIG.md is
-# doc-formal-docs-FORMAL-RIG).
+# (docs/CORE.md is doc-CORE, SPEC.md is doc-SPEC).
 docFiles = ->
   out = []
-  for d in ['', 'docs', 'examples', 'test', 'formal/docs']
+  for d in ['', 'docs', 'examples', 'test']
     continue unless existsSync(join(root, d))
     for f in readdirSync(join(root, d)).filter((f) -> f.endsWith('.md')).sort()
       rel = if d is '' then f else "#{d}/#{f}"

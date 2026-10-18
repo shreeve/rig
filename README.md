@@ -22,7 +22,7 @@ generation, and linking.
 > tasks never share memory. An actor is a task with a mailbox, and a
 > supervisor restarts a task that ends with an error, the way Erlang
 > does, with Zig's `std.Io` as the engine underneath
-> ([FORMAL-RIG](formal/docs/FORMAL-RIG.md)).
+> ([FORMAL-RIG](docs/FORMAL-RIG.md)).
 
 ## A short tour
 
