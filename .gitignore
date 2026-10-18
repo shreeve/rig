@@ -16,3 +16,4 @@ bench/json/rust-bench/*/target/
 bench/json/cbench/upstream/
 bench/json/cbench/prog-*
 bench/json/cbench/*.o
+.swarm/

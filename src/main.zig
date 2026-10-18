@@ -28,6 +28,8 @@ const usage =
     \\
     \\Usage: rig <command> [options] <file.rig>
     \\       rig run [options] <file.rig> -- <program arguments>
+    \\       rig batch build [--release[=safe|fast]] <dir> <file.rig>...
+    \\       rig batch run <dir> <n>
     \\       rig clean
     \\       rig lsp
     \\
@@ -37,6 +39,9 @@ const usage =
     \\  build     Check and build a native executable
     \\  test      Check, build, and run the program's `test` blocks
     \\  emit      Check, then print the root module's Zig to stdout
+    \\  batch     Build many programs into one executable, <dir>/bin, with
+    \\            one copy of the runtime (build), and run program <n> of it
+    \\            as `run` runs a program (run): test/batch.rip's runner
     \\  clean     Remove the programs rig built in its cache (see RIG_OUT_DIR)
     \\  lsp       Serve the language server protocol on stdin and stdout, for
     \\            an editor (editors/README.md)
@@ -211,6 +216,7 @@ pub fn main(init: std.process.Init) !void {
         for (args[2..]) |arg| if (!eql(arg, "--stdio")) usageError("`rig lsp` takes no arguments; it serves on stdin and stdout", .{});
         std.process.exit(lsp.run(io, init.environ_map));
     }
+    if (args.len > 1 and eql(args[1], "batch")) std.process.exit(try batchCommand(allocator, io, env, args[2..]));
     const opts = parseArgs(io, args[@min(1, args.len)..]);
 
     switch (opts.command) {
@@ -475,6 +481,12 @@ fn printFacts(io: std.Io, m: *const modules.Module) !void {
 /// With `times`, add each pass's time to it and print them after the
 /// diagnostics.
 fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8, with_tests: bool, times: ?*timing.Timing) !modules.ModuleGraph {
+    return (try loadChecked(allocator, io, env, path, with_tests, times)) orelse std.process.exit(1);
+}
+
+/// The program at `path`, checked, or `null` when the checkers reject it,
+/// once its diagnostics are on stderr.
+fn loadChecked(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8, with_tests: bool, times: ?*timing.Timing) !?modules.ModuleGraph {
     const t0 = timing.start(times);
     var graph = modules.ModuleGraph.init(allocator, io);
     errdefer graph.deinit();
@@ -500,7 +512,10 @@ fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
         try t.write(&writer.interface, @intCast(@max(t0.?.durationTo(t.now()).nanoseconds, 0)));
         try writer.interface.flush();
     }
-    if (failed) std.process.exit(1);
+    if (failed) {
+        graph.deinit();
+        return null;
+    }
     return graph;
 }
 
@@ -509,7 +524,7 @@ fn loadProject(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
 fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !void {
     var graph = try loadProject(allocator, io, env, path, false, null);
     defer graph.deinit();
-    const pkg = try emitPackage(allocator, env, &graph, false);
+    const pkg = try emitPackage(allocator, env, &graph, .{});
     const dir = try outputDir(allocator, env, graph.root());
     try writePackage(allocator, io, dir, pkg.files.items);
 
@@ -540,7 +555,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     program_pending = opts.command != .build;
     // A program `rig run` builds starts by creating the file
     // RIG_PROGRAM_STARTED names; `rig test`'s driver is its root instead.
-    var pkg = try emitPackage(allocator, env, &graph, opts.command == .run);
+    var pkg = try emitPackage(allocator, env, &graph, .{ .hook = opts.command == .run });
     const root = if (opts.command == .@"test") test_driver else graph.root().out_basename;
     if (opts.command == .@"test") try pkg.files.append(allocator, .{ .path = test_driver, .contents = try testDriver(allocator, env, &graph) });
 
@@ -625,6 +640,180 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
         }
         notRun("`zig run` exited with status {d}, and the program left no sign that it started", .{code});
     }
+}
+
+/// `rig batch build [--release[=safe|fast]] DIR FILE...` builds every
+/// program into one executable, `DIR/bin`, with one Zig compile and one
+/// copy of the runtime: each program's package goes to `DIR/pN` (`N` its
+/// place among the files), the runtime once to `DIR/rig/runtime.zig` as
+/// the Zig module `rig`, and `DIR/main.zig` starts program `N` when its
+/// first argument is `N`, handing the program the rest. A file the checkers reject, or with no `sub
+/// main()`, is left out, with its diagnostics on stderr. `DIR/programs`
+/// lists the programs built, `N<TAB>FILE` a line. The status is Zig's, or
+/// 1 when no program could be built. `DIR/inputs` holds a hash of every
+/// file of the batch and how Zig builds it: when it matches and `DIR/bin`
+/// is there, the batch is built already, and Zig is not run (`zig
+/// build-exe` keeps no cache of its own for an output it is told to
+/// write).
+///
+/// `rig batch run DIR N` runs program `N` of that executable as `rig run`
+/// runs a program: its status, and RIG_RUN_STARTED created only once it
+/// has started.
+fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []const []const u8) !u8 {
+    const what = if (args.len > 0) args[0] else "";
+    if (eql(what, "run")) {
+        if (args.len != 3) usageError("`rig batch run` takes a directory and a program's number", .{});
+        return batchRun(allocator, io, env, args[1], args[2]);
+    }
+    if (!eql(what, "build")) usageError("`rig batch` is `rig batch build` or `rig batch run`", .{});
+    var mode: Mode = .debug;
+    var i: usize = 1;
+    while (i < args.len and args[i].len > 1 and args[i][0] == '-') : (i += 1) {
+        if (eql(args[i], "--release") or eql(args[i], "--release=safe")) {
+            mode = .safe;
+        } else if (eql(args[i], "--release=fast")) {
+            mode = .fast;
+        } else usageError("unknown option `{s}`", .{args[i]});
+    }
+    if (args.len < i + 2) usageError("`rig batch build` takes a directory and at least one .rig file", .{});
+    const dir = args[i];
+    const files = args[i + 1 ..];
+
+    var list: std.Io.Writer.Allocating = .init(allocator);
+    var root: std.Io.Writer.Allocating = .init(allocator);
+    try root.writer.print(
+        \\const std = @import("std");
+        \\const rig = @import("{s}");
+        \\
+        \\pub const panic = rig.panic;
+        \\
+    , .{emit.runtime_module});
+    try env.writeRootFlags(&root.writer, true);
+    try root.writer.writeAll("\nconst programs = .{\n");
+    var links_libc = false;
+    var built: usize = 0;
+    var inputs = std.crypto.hash.sha2.Sha256.init(.{});
+    const Part = struct {
+        fn add(hash: *std.crypto.hash.sha2.Sha256, bytes: []const u8) void {
+            var len: [8]u8 = undefined;
+            std.mem.writeInt(u64, &len, bytes.len, .little);
+            hash.update(&len);
+            hash.update(bytes);
+        }
+    };
+    Part.add(&inputs, "rig batch 1");
+    for (files, 0..) |file, n| {
+        var graph = (loadChecked(allocator, io, env, file, false, null) catch |err| {
+            std.debug.print("error: cannot load `{s}`: {s}\n", .{ file, @errorName(err) });
+            continue;
+        }) orelse continue;
+        defer graph.deinit();
+        if (!declaresMain(graph.root())) {
+            std.debug.print("{s}:1:1: error: no `sub main()` to run\n", .{graph.root().display});
+            continue;
+        }
+        const pkg = try emitPackage(allocator, env, &graph, .{ .batch = true });
+        links_libc = links_libc or pkg.links_libc;
+        const sub = try allocator.print("p{d}", .{n});
+        try writePackage(allocator, io, try std.fs.path.join(allocator, &.{ dir, sub }), pkg.files.items);
+        for (pkg.files.items) |f| {
+            Part.add(&inputs, sub);
+            Part.add(&inputs, f.path);
+            Part.add(&inputs, f.contents);
+        }
+        try list.writer.print("{d}\t{s}\n", .{ n, file });
+        try root.writer.print("    .{{ {d}, @import(\"{s}/{s}\") }},\n", .{ n, sub, graph.root().out_basename });
+        built += 1;
+    }
+    if (built == 0) {
+        std.debug.print("error: rig batch: no program to build\n", .{});
+        return 1;
+    }
+    try root.writer.print(
+        \\}};
+        \\
+        \\// The first argument names the program; it sees the others, after
+        \\// the executable's path, as `rig run` would give them.
+        \\pub fn main(init: std.process.Init.Minimal) void {{
+        \\    const argv = init.args.vector;
+        \\    if (argv.len < 2) {{
+        \\        std.debug.print("error: rig batch: name a program of this batch by its number\n", .{{}});
+        \\        std.process.exit(2);
+        \\    }}
+        \\    const id = std.mem.span(argv[1]);
+        \\    const n = std.fmt.parseInt(usize, id, 10) catch std.math.maxInt(usize);
+        \\    const own = std.heap.page_allocator.alloc([*:0]const u8, argv.len - 1) catch std.process.exit(2);
+        \\    own[0] = argv[0];
+        \\    @memcpy(own[1..], argv[2..]);
+        \\    var program_init = init;
+        \\    program_init.args.vector = own;
+        \\    inline for (programs) |p| {{
+        \\        if (p[0] == n) return p[1].main(program_init);
+        \\    }}
+        \\    std.debug.print("error: rig batch: no program `{{s}}` in this batch\n", .{{id}});
+        \\    std.process.exit(2);
+        \\}}
+        \\
+    , .{});
+    try writePackage(allocator, io, dir, &.{
+        .{ .path = emit.runtime_filename, .contents = emit.runtime_source },
+        .{ .path = "main.zig", .contents = root.written() },
+        .{ .path = "programs", .contents = list.written() },
+    });
+
+    const bin = try std.fs.path.join(allocator, &.{ dir, "bin" });
+    for ([_][]const u8{ emit.runtime_source, root.written(), env.zig(), mode.zigFlag(), if (links_libc) "-lc" else "" }) |part| Part.add(&inputs, part);
+    var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
+    inputs.final(&digest);
+    const hex = std.fmt.bytesToHex(digest, .lower);
+    const inputs_path = try std.fs.path.join(allocator, &.{ dir, "inputs" });
+    const built_from = std.Io.Dir.cwd().readFileAlloc(io, inputs_path, allocator, .limited(hex.len + 1)) catch "";
+    if (std.mem.eql(u8, built_from, &hex) and exists(io, dir, "bin")) return 0;
+    std.Io.Dir.cwd().deleteFile(io, inputs_path) catch {};
+    // A failed build leaves no executable, so `batch run` never runs an
+    // older batch's.
+    std.Io.Dir.cwd().deleteFile(io, bin) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => fatal("error: cannot remove `{s}`: {s}", .{ bin, @errorName(err) }),
+    };
+    const libc: []const []const u8 = if (links_libc) &.{"-lc"} else &.{};
+    const argv = try std.mem.concat(allocator, []const u8, &.{
+        &.{ env.zig(), "build-exe", mode.zigFlag(), "--cache-dir", try std.fs.path.join(allocator, &.{ dir, ".zig-cache" }), try allocator.print("-femit-bin={s}", .{bin}) },
+        libc,
+        &.{ "--dep", emit.runtime_module, try allocator.print("-Mroot={s}", .{try std.fs.path.join(allocator, &.{ dir, "main.zig" })}), try allocator.print("-M{s}={s}", .{ emit.runtime_module, try std.fs.path.join(allocator, &.{ dir, emit.runtime_filename }) }) },
+    });
+    const code = try runZig(io, argv);
+    if (code == 0) try writeFile(io, inputs_path, &hex);
+    return code;
+}
+
+/// `rig batch run DIR N` (`batchCommand`).
+fn batchRun(allocator: std.mem.Allocator, io: std.Io, env: Env, dir: []const u8, id: []const u8) !u8 {
+    _ = std.fmt.parseInt(usize, id, 10) catch usageError("`{s}` is not a program's number", .{id});
+    if (env.get(run_started_var)) |path| {
+        std.Io.Dir.cwd().deleteFile(io, path) catch |err| switch (err) {
+            error.FileNotFound => {},
+            else => notRun("cannot clear RIG_RUN_STARTED `{s}`: {s}", .{ path, @errorName(err) }),
+        };
+    }
+    program_pending = true;
+    const bin = try std.fs.path.join(allocator, &.{ dir, "bin" });
+    _ = std.Io.Dir.cwd().statFile(io, bin, .{}) catch notRun("no batch executable `{s}`: run `rig batch build` first", .{bin});
+    var environ = try env.map.clone(allocator);
+    _ = environ.swapRemove(run_started_var);
+    const started_dir = try std.fs.path.join(allocator, &.{ dir, ".started" });
+    std.Io.Dir.cwd().createDirPath(io, started_dir) catch |err| notRun("cannot create `{s}`: {s}", .{ started_dir, @errorName(err) });
+    var name: [8]u8 = undefined;
+    io.random(&name);
+    const started = try std.fs.path.join(allocator, &.{ started_dir, try allocator.print(".started-{x}", .{&name}) });
+    try environ.put(program_started_var, started);
+    const ended = try runZigReport(io, &.{ bin, id }, &environ);
+    const ran = if (std.Io.Dir.cwd().statFile(io, started, .{})) |st| st.kind == .file else |_| false;
+    std.Io.Dir.cwd().deleteFile(io, started) catch {};
+    if (!ran) notRun("program {s} of `{s}` exited with status {d}, and left no sign that it started", .{ id, bin, ended.code });
+    if (env.get(run_started_var)) |path| try writeFile(io, path, "");
+    if (ended.signal) |sig| std.debug.print("error: rig: the program was killed by signal {d}\n", .{sig});
+    return ended.code;
 }
 
 /// An executable `name` in any of the Zig cache's output directories.
@@ -827,14 +1016,26 @@ fn fromPackageRoot(graph: *const modules.ModuleGraph, path: []const u8) []const 
     return path;
 }
 
+/// How `emitPackage` writes a package.
+const PackageKind = struct {
+    /// `rig run`: the root module names the file the program creates as
+    /// it starts.
+    hook: bool = false,
+    /// `rig batch`: the modules import the runtime as the module the
+    /// batch shares, which the package leaves out, and the batch's root
+    /// declares the runtime's settings.
+    batch: bool = false,
+};
+
 /// Emit the runtime and every module. With `RIG_LEAK_TRACE` or
 /// `RIG_SANITIZE` set, the root module asks the runtime for stack-trace
 /// leak reports or the sanitizer; with `RIG_SANITIZE`, emit also poisons
-/// hidden storage when its scope ends. With `hook` (`rig run`), the root
-/// module names the file the program creates as it starts.
-fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGraph, hook: bool) !Package {
+/// hidden storage when its scope ends.
+fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGraph, kind: PackageKind) !Package {
+    const hook = kind.hook;
+    const runtime_import = if (kind.batch) emit.runtime_module else emit.runtime_filename;
     var files: std.ArrayList(PackageFile) = .empty;
-    try files.append(allocator, .{ .path = emit.runtime_filename, .contents = emit.runtime_source });
+    if (!kind.batch) try files.append(allocator, .{ .path = emit.runtime_filename, .contents = emit.runtime_source });
 
     var root_source: []const u8 = "";
     var links_libc = false;
@@ -846,6 +1047,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         em.poison = env.sanitize();
         em.no_proofs = env.flag("RIG_NO_PROOFS");
         em.strict_optionals = env.flag("RIG_STRICT_OPTIONALS");
+        em.runtime_import = runtime_import;
         em.file = try packageFile(allocator, graph, m);
         // A debug build of the compiler checks that emit writes the units
         // the proof pass walks, in the same order (`proofs.checkUnitOrder`).
@@ -863,12 +1065,17 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         }
         links_libc = links_libc or em.links_libc;
         uses_symbols = uses_symbols or em.uses_symbols;
-        if (i == 0 and (env.leakTrace() or env.sanitize() or env.verifyProofs() or hook)) {
+        if (i == 0 and !kind.batch and (env.leakTrace() or env.sanitize() or env.verifyProofs() or hook)) {
             try file_buffer.writer.writeAll("\n");
             try env.writeRootFlags(&file_buffer.writer, hook);
         }
         try files.append(allocator, .{ .path = m.out_basename, .contents = file_buffer.written() });
-        for (m.shims.items) |shim| try files.append(allocator, .{ .path = try std.fs.path.join(allocator, &.{ "rig", "std", shim.name }), .contents = shim.source });
+        for (m.shims.items) |shim| {
+            // A shim beside the runtime imports it by its path; in a batch
+            // it imports the module the batch shares.
+            const contents = if (kind.batch) try std.mem.replaceOwned(u8, allocator, shim.source, "@import(\"../runtime.zig\")", "@import(\"" ++ emit.runtime_module ++ "\")") else shim.source;
+            try files.append(allocator, .{ .path = try std.fs.path.join(allocator, &.{ "rig", "std", shim.name }), .contents = contents });
+        }
         if (i == 0) root_source = file_buffer.written();
     }
     // Every symbol of every module, numbered once (`src/symbols.zig`).
@@ -876,7 +1083,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         const sources = try allocator.alloc(symbols.Source, graph.modules.items.len);
         for (graph.modules.items, sources) |*m, *s| s.* = .{ .source = m.source, .ir = m.ir };
         var out: std.Io.Writer.Allocating = .init(allocator);
-        try symbols.write(allocator, &out.writer, try symbols.collect(allocator, sources), emit.runtime_filename);
+        try symbols.write(allocator, &out.writer, try symbols.collect(allocator, sources), runtime_import);
         try files.append(allocator, .{ .path = emit.symbols_filename, .contents = out.written() });
     }
     return .{ .files = files, .root_source = root_source, .links_libc = links_libc };
