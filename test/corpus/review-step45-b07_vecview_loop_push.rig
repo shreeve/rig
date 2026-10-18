@@ -1,7 +1,0 @@
-# push a view of a loop-body local each iteration
-sub main()
-  v: List[?String] = List()
-  for i in 0..3
-    t = String("i")
-    !v.push(?t)
-  print(v)

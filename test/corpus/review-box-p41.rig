@@ -1,9 +1,0 @@
-obj P
-  x: Int
-
-fun mk() -> ^?P
-  p = P(x: 1)
-  ^?p
-
-sub main()
-  b = mk()

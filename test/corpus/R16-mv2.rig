@@ -1,7 +1,0 @@
-sub take(v: List[Int], f: ?fun() -> Int)
-  print(f(), v.len)
-
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  take(<v, |?v| v.len)

@@ -1,6 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  s = *Signal(value: P(x: 1))
-  print(s.get())

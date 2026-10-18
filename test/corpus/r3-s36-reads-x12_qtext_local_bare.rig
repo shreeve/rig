@@ -1,8 +1,0 @@
-fun first(s: ?String) -> ?String
-  s[..1]
-
-sub main()
-  t = String("hello")
-  r = ?t
-  print(first(r))
-  print(r.len)

@@ -1,9 +1,0 @@
-# crash min
-fun pick(f: ?fun() -> Int, x: !String, y: !String) -> !String
-  y
-
-sub main()
-  b = String("b")
-  f = || 1
-  w = pick(?f, !b, !b)
-  print(w)

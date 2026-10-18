@@ -1,6 +1,0 @@
-sub main()
-  t = String("hello")
-  v: List[?String] = List()
-  !v.push(?t[..2])
-  !t.add("!")
-  print(v)

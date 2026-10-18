@@ -1,5 +1,0 @@
-pub error E
-  eof
-
-pub fun f() -> Int!
-  return E.eof

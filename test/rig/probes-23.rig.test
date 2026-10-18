@@ -1,0 +1,4345 @@
+# Probes from past reviews and audits, 23 of 41: review-lend-base-3-j-j16 to review-never-data-1-g09_branch_set_vec.
+
+test "review-lend-base-3-j-j16", "1 2 42 2"
+  obj Q
+    x: Int
+
+    sub bump(!self)
+      self.x += 1
+
+  sub inc(n: !Int)
+    n += 1
+
+  arr = [1, 2, 3, 4]
+  qs = [Q(x: 1), Q(x: 2)]
+  c = true
+  _ = c
+  w = !(!qs[..])[0]
+  w.x = 42
+  print(arr[0], arr[1], qs[0].x, qs[1].x)
+
+test "review-lend-base-3-k-k01", "1 5 1 1 1 2 2 2 0 0"
+  obj P
+    x: Int
+    arr: [3]Int
+    items: List[Int]
+
+  fun id(p: !P) -> !P
+    p
+
+  fun mk(n: Int) -> P
+    P(x: n, arr: [n, n, n], items: List[Int]())
+
+  p = mk(1)
+  q = mk(2)
+  c = true
+  d = false
+  _ = c
+  _ = d
+  w = !q
+  (!p if d else <w).x = 5
+  print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
+
+test "review-lend-base-3-k-k02", "1 6 1 1 1 2 2 2 0 0"
+  obj P
+    x: Int
+    arr: [3]Int
+    items: List[Int]
+
+  fun id(p: !P) -> !P
+    p
+
+  fun mk(n: Int) -> P
+    P(x: n, arr: [n, n, n], items: List[Int]())
+
+  p = mk(1)
+  q = mk(2)
+  c = true
+  d = false
+  _ = c
+  _ = d
+  (!p if d else id(!q)).x = 6
+  print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
+
+test "review-lend-base-3-k-k03", "1 7 1 1 1 2 2 2 0 0"
+  obj P
+    x: Int
+    arr: [3]Int
+    items: List[Int]
+
+  fun id(p: !P) -> !P
+    p
+
+  fun mk(n: Int) -> P
+    P(x: n, arr: [n, n, n], items: List[Int]())
+
+  p = mk(1)
+  q = mk(2)
+  c = true
+  d = false
+  _ = c
+  _ = d
+  o: (!P)? = !q
+  (<o ?? !p).x = 7
+  print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
+
+test "review-lend-base-3-k-k04", "1 2 1 8 1 2 2 2 0 0"
+  obj P
+    x: Int
+    arr: [3]Int
+    items: List[Int]
+
+  fun id(p: !P) -> !P
+    p
+
+  fun mk(n: Int) -> P
+    P(x: n, arr: [n, n, n], items: List[Int]())
+
+  p = mk(1)
+  q = mk(2)
+  c = true
+  d = false
+  _ = c
+  _ = d
+  o: (!P)? = none
+  (<o ?? !p).arr[1] = 8
+  print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
+
+test "review-lend-base-3-k-k05", "1 2 1 1 1 2 2 2 0 1"
+  obj P
+    x: Int
+    arr: [3]Int
+    items: List[Int]
+
+  fun id(p: !P) -> !P
+    p
+
+  fun mk(n: Int) -> P
+    P(x: n, arr: [n, n, n], items: List[Int]())
+
+  p = mk(1)
+  q = mk(2)
+  c = true
+  d = false
+  _ = c
+  _ = d
+  !(!p if d else !q).items.push(3)
+  print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
+
+test "review-lend-base-3-k-k06", "1 2 1 1 9 2 2 2 0 0"
+  obj P
+    x: Int
+    arr: [3]Int
+    items: List[Int]
+
+  fun id(p: !P) -> !P
+    p
+
+  fun mk(n: Int) -> P
+    P(x: n, arr: [n, n, n], items: List[Int]())
+
+  p = mk(1)
+  q = mk(2)
+  c = true
+  d = false
+  _ = c
+  _ = d
+  (id(!p) if c else id(!q)).arr[2] = 9
+  print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
+
+test "review-lend-base-3-k-k07", "1 10 1 1 1 2 2 2 0 0"
+  obj P
+    x: Int
+    arr: [3]Int
+    items: List[Int]
+
+  fun id(p: !P) -> !P
+    p
+
+  fun mk(n: Int) -> P
+    P(x: n, arr: [n, n, n], items: List[Int]())
+
+  p = mk(1)
+  q = mk(2)
+  c = true
+  d = false
+  _ = c
+  _ = d
+  ((!p if c else !q) if d else !q).x = 10
+  print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
+
+fail "review-lend-base-3-k-k09", "`?p if c else ?q.items` owns a `List[Int]`, which can't be copied by `=`: write `+?p if c else ?q.items` to clone it or `??p if c else ?q.items` to view it"
+  obj P
+    x: Int
+    arr: [3]Int
+    items: List[Int]
+
+  fun id(p: !P) -> !P
+    p
+
+  fun mk(n: Int) -> P
+    P(x: n, arr: [n, n, n], items: List[Int]())
+
+  p = mk(1)
+  q = mk(2)
+  c = true
+  d = false
+  _ = c
+  _ = d
+  y = (?p if c else ?q).items
+  print(y.len)
+  print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
+
+fail "review-lend-base-3-k-k13", "cannot move out of `(!p if d else !q).items`: it is reached through `!p if d else !q`, a view, which gives up nothing of what it views; exchange the part where it is owned, with `replace`"
+  obj P
+    x: Int
+    arr: [3]Int
+    items: List[Int]
+
+  fun id(p: !P) -> !P
+    p
+
+  fun mk(n: Int) -> P
+    P(x: n, arr: [n, n, n], items: List[Int]())
+
+  p = mk(1)
+  q = mk(2)
+  c = true
+  d = false
+  _ = c
+  _ = d
+  y = <(!p if d else !q).items
+  print(y.len)
+  print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
+
+test "review-lend-base-3-k-k14", '''
+  1
+  1 2 1 1 1 2 2 2 0 0
+'''
+  obj P
+    x: Int
+    arr: [3]Int
+    items: List[Int]
+
+  fun id(p: !P) -> !P
+    p
+
+  fun mk(n: Int) -> P
+    P(x: n, arr: [n, n, n], items: List[Int]())
+
+  p = mk(1)
+  q = mk(2)
+  c = true
+  d = false
+  _ = c
+  _ = d
+  t = (!p if c else !q).arr
+  print(t[0])
+  print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
+
+test "review-lend-base-3-n-n01", "6 3"
+  obj Bag[T]
+    items: List[T]
+    n: Int
+
+    sub add(!self, x: T)
+      (!self.items).push(<x)
+      self.n += 1
+
+    fun count(?self) -> Int
+      self.items.len + self.n
+
+  sub fill[T](b: !Bag[T], x: T, y: T)
+    (!b).add(<x)
+    !b.add(<y)
+
+  b = Bag[Int](items: List(), n: 0)
+  fill(!b, 3, 4)
+  (!b).add(5)
+  print((?b).count(), b.items.len)
+
+test "review-lend-base-3-n-n03", "3"
+  fun firsts[T](xs: []T) -> T
+    (?xs[..])[0]
+
+  a = [3, 4]
+  print(firsts(?a[..]))
+
+test "review-lend-base-3-n-n04", "9"
+  sub setf[T](xs: ![]T, v: T)
+    (!xs[..])[0] = v
+
+  a = [3, 4]
+  setf(!a[..], 9)
+  print(a[0])
+
+test "review-lend-base-3-n-n06", "1 2"
+  sub put[T](v: !List[T], x: T)
+    (!v).push(<x)
+
+  obj Bag[T]
+    items: List[T]
+
+    sub add(!self, x: T)
+      (!self).addraw(<x)
+
+    sub addraw(!self, x: T)
+      !self.items.push(<x)
+
+    fun size(?self) -> Int
+      (?self).count()
+
+    fun count(?self) -> Int
+      self.items.len
+
+  v = List[String]()
+  put(!v, String("a"))
+  b = Bag[String](items: List())
+  (!b).add(String("x"))
+  !b.add(String("y"))
+  print(v.len, b.size())
+
+test "review-lend-base-3-r-r09", '''
+  1
+  1 1 0
+'''
+  obj P
+    x: Int
+    name: String
+    arr: [3]Int
+    items: List[Int]
+
+  obj H
+    r: ?List[Int]
+
+  fun sum(xs: []Int) -> Int
+    t = 0
+    for x in xs
+      t += x
+    t
+
+  fun wsum(xs: ![]Int) -> Int
+    xs[0] = 100
+    xs[0]
+
+  fun show(s: ?String) -> Int
+    print(s)
+    1
+
+  fun cnt(v: ?List[Int]) -> Int
+    v.len
+
+  p = P(x: 1, name: String("nm"), arr: [1, 2, 3], items: List[Int]())
+  vs = List[?List[Int]]()
+  !vs.push(?p.items)
+  print(vs.len)
+  print(p.x, p.arr[0], p.items.len)
+
+test "review-loop-lowering-a02-cond-break-step-reads-binding", "6 6"
+  # Control: a `break` in the condition with a step reading the binding.
+  #
+  # oracle: odd accept
+  # oracle: some accept
+  # oracle: main accept
+  fun odd(i: Int) -> Int?
+    none if i % 2 == 1 else i
+
+  fun some(i: Int) -> Int?
+    i if i < 6 else none
+
+  steps = 0
+  i = 0
+  while some(odd(i) ?? break) as h: steps += h
+    i += 2
+  print(steps, i)
+
+test "review-loop-lowering-a03-cond-continue-in-value-loop", "9 6"
+  # A `continue` that targets a loop nested inside the condition (a loop
+  # used as a value in a call argument), not the `while` itself.
+  #
+  # oracle: some accept
+  # oracle: first accept
+  # oracle: main accept
+  fun some(i: Int) -> Int?
+    i if i < 6 else none
+
+  fun first(i: Int) -> Int
+    w = for t in 0..3
+      continue if t == 0
+      break t + i
+    else
+      0
+    w
+
+  steps = 0
+  i = 0
+  while some(first(i)) as h: steps += h
+    i += 2
+  print(steps, i)
+
+test "review-loop-lowering-b01-value-loop-break-in-step", '''
+  defer 0
+  drop 0
+  defer 1
+  drop 1
+  defer 2
+  drop 2
+  defer 3
+  drop 3
+  a 103 3
+  defer 0
+  drop 10
+  defer 1
+  drop 11
+  defer 2
+  drop 12
+  defer 3
+  drop 13
+  b 203 3
+'''
+  # Control: a `break v` in a step (and `-1` as a statement-loop else) is
+  # rejected by both main and the branch.
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun nxt(i: Int) -> Int?
+    i + 1 if i < 3 else none
+
+  fun some(i: Int) -> Int?
+    i if i < 9 else none
+
+  i = 0
+  a = while i < 10: i = nxt(i) ?? break 100 + i
+    d = D(n: i)
+    defer print("defer", i)
+  else
+    -1
+  print("a", a, i)
+  j = 0
+  b = while some(j) as h: j = nxt(h) ?? break 200 + h
+    d = D(n: 10 + j)
+    defer print("defer", j)
+  else
+    -1
+  print("b", b, j)
+
+test "review-loop-lowering-b02-return-in-step-and-cond", '''
+  defer 0
+  drop 10
+  defer 1
+  drop 11
+  defer 2
+  drop 12
+  drop 1
+  f 7
+  body 50
+  drop 20
+  body 51
+  drop 21
+  drop 2
+  g 8
+  body 50
+  defer 0
+  drop 30
+  body 51
+  defer 1
+  drop 31
+  body 52
+  defer 2
+  drop 32
+  drop 3
+  h 52
+'''
+  # `return` from a step and from a condition, with owned locals before the
+  # loop and in the body.
+  #
+  # oracle: D.drop accept
+  # oracle: nxt accept
+  # oracle: mk accept
+  # oracle: f accept
+  # oracle: h3 accept
+  # oracle: main accept
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun nxt(i: Int) -> Int?
+    i + 1 if i < 2 else none
+
+  fun mk(i: Int) -> Int?
+    50 + i if i < 5 else none
+
+  fun f(lim: Int) -> Int
+    keep = D(n: 1)
+    i = 0
+    while i < 10: i = nxt(i) ?? return 7
+      d = D(n: 10 + i)
+      defer print("defer", i)
+    0
+
+  fun g(lim: Int) -> Int
+    keep = D(n: 2)
+    i = 0
+    while mk(i) as h and (nxt(i) ?? return 8) > 0: i += 1
+      d = D(n: 20 + i)
+      print("body", h)
+    0
+
+  fun h3(lim: Int) -> Int
+    keep = D(n: 3)
+    i = 0
+    while mk(i) as h: i = nxt(h - 50) ?? return h
+      d = D(n: 30 + i)
+      defer print("defer", i)
+      print("body", h)
+    0
+
+  print("f", f(0))
+  print("g", g(0))
+  print("h", h3(0))
+
+test "review-loop-lowering-b03-propagate-from-step-cond-body", '''
+  defer 0
+  drop 10
+  defer 1
+  drop 11
+  defer 2
+  drop 12
+  defer 3
+  drop 13
+  drop 1
+  f 4
+  defer 0
+  drop 10
+  defer 1
+  drop 11
+  defer 2
+  drop 12
+  errdefer f
+  drop 1
+  f -1
+  body 50
+  drop 20
+  drop 50
+  body 51
+  drop 21
+  drop 51
+  body 52
+  drop 22
+  drop 52
+  body 53
+  drop 23
+  drop 53
+  drop 2
+  g 4
+  body 50
+  drop 20
+  drop 50
+  errdefer g
+  drop 2
+  g -1
+  defer 0
+  drop 30
+  defer 1
+  drop 31
+  defer 2
+  drop 32
+  defer 3
+  drop 33
+  drop 3
+  h 4
+  defer 0
+  drop 30
+  defer 1
+  drop 31
+  defer 2
+  drop 32
+  drop 3
+  h -1
+  body 50
+  drop 40
+  drop 50
+  body 51
+  drop 41
+  drop 51
+  body 52
+  drop 42
+  drop 52
+  body 53
+  drop 43
+  drop 53
+  drop 4
+  k 4
+  body 50
+  drop 40
+  drop 50
+  body 51
+  drop 41
+  drop 51
+  drop 4
+  k -1
+'''
+  # `!` and `?` propagation out of a step, a condition, and a body, with a
+  # body `defer`, an `errdefer`, owned locals, and an owning binding.
+  #
+  # oracle: D.drop accept
+  # oracle: nx accept
+  # oracle: mk accept
+  # oracle: opt accept
+  # oracle: f accept
+  # oracle: g accept
+  # oracle: h3 accept
+  # oracle: k accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun nx(i: Int, bad: Int) -> Int!
+    return E.bad if i == bad
+    i + 1
+
+  fun mk(i: Int, bad: Int) -> D?!
+    return E.bad if i == bad
+    D(n: 50 + i) if i < 4 else none
+
+  fun opt(i: Int, gone: Int) -> Int?
+    none if i == gone else i + 1
+
+  fun f(bad: Int) -> Int!
+    keep = D(n: 1)
+    errdefer print("errdefer f")
+    i = 0
+    while i < 4: i = nx(i, bad)!
+      y = D(n: 10 + i)
+      defer print("defer", i)
+    i
+
+  fun g(bad: Int) -> Int!
+    keep = D(n: 2)
+    errdefer print("errdefer g")
+    i = 0
+    while mk(i, bad)! as h: i += 1
+      y = D(n: 20 + i)
+      print("body", h.n)
+    i
+
+  fun h3(bad: Int) -> Int!
+    keep = D(n: 3)
+    i = 0
+    for t in 0..4
+      y = D(n: 30 + t)
+      defer print("defer", t)
+      i = nx(t, bad)!
+    i
+
+  fun k(gone: Int) -> Int?
+    keep = D(n: 4)
+    i = 0
+    while (mk(i, 99) catch none) as h: i = opt(i, gone)?
+      y = D(n: 40 + i)
+      print("body", h.n)
+    i
+
+  print("f", f(9) catch 0 - 1)
+  print("f", f(2) catch 0 - 1)
+  print("g", g(9) catch 0 - 1)
+  print("g", g(1) catch 0 - 1)
+  print("h", h3(9) catch 0 - 1)
+  print("h", h3(2) catch 0 - 1)
+  print("k", k(9) ?? 0 - 1)
+  print("k", k(1) ?? 0 - 1)
+
+test "review-loop-lowering-b04-step-moves-repoints", '''
+  defer 10
+  step 10 0
+  drop 10
+  defer 11
+  step 11 1
+  drop 11
+  defer 12
+  step 12 2
+  drop 12
+  tail 4
+  defer 13
+  step 13 3
+  drop 13
+  o 14
+  t 0
+  view 1
+  t 0
+  view 1
+  t 0
+  view 2
+  t 0
+  view 1
+  k 5
+  drop 14
+'''
+  # Steps that move an owned value and re-point a view, which the body's
+  # `defer` reads, with `continue` from the body, from an inner loop's
+  # `else`, and from a labeled inner loop; a joined condition whose binding
+  # the step reads.
+  #
+  # oracle: D.drop accept
+  # oracle: mv accept
+  # oracle: pick accept
+  # oracle: lim accept
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun mv(d: D, c: Int) -> D
+    print("step", d.n, c)
+    D(n: d.n + 1)
+
+  fun pick(a: ?List[Int], b: ?List[Int], c: Int) -> []Int
+    ?a[..] if c % 2 == 0 else ?b[..]
+
+  fun lim(c: Int, n: Int) -> Int?
+    c if c < n else none
+
+  o = D(n: 10)
+  c = 0
+  @outer while lim(c, 4) as h and h >= 0: o = mv(<o, h)
+    c += 1
+    defer print("defer", o.n)
+    continue if c == 1
+    for t in 0..2
+      continue @outer if c == 3 and t == 1
+    else
+      continue if c == 2
+    print("tail", c)
+  print("o", o.n)
+  a: List[Int] = List()
+  !a.push(1)
+  b: List[Int] = List()
+  !b.push(2)
+  s = pick(?a, ?b, 0)
+  k = 0
+  i = 0
+  while lim(i, 4) as g: s = pick(?a, ?b, g)
+    i += 1
+    defer print("view", s[0])
+    k += s[0]
+    for t in 0..1
+      print("t", t)
+    else
+      continue if i == 2
+  print("k", k)
+
+test "review-loop-lowering-c02-step-closure-reads-binding", '''
+  body 1 0
+  0 1
+'''
+  # The step reads the condition binding only through a closure capture
+  # (`|+h, x: Int| x + h`): no jump in the condition.
+  #
+  # oracle: odd accept
+  # oracle: some accept
+  # oracle: apply accept
+  # oracle: main accept
+  fun odd(i: Int) -> Int?
+    none if i % 2 == 1 else i
+
+  fun some(i: Int) -> Int?
+    i if i < 6 else none
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  steps = 0
+  i = 0
+  while some(odd(i) ?? break) as h: steps = apply(|+h, x: Int| x + h, steps)
+    i += 1
+    print("body", i, h)
+  print(steps, i)
+
+test "review-loop-lowering-d01-constant-conditions", "3"
+  # Loops whose condition is a compile-time constant other than `true`.
+  #
+  # oracle: main accept
+  DONE = false
+
+  sub main()
+    n = 0
+    while false
+      n += 1
+    while DONE
+      n += 10
+    while 1 > 2
+      n += 100
+    k = false
+    while k: n += 1000
+      n += 1000
+    while not true
+      n += 7
+    while (true)
+      n += 1
+      break if n > 2
+    print(n)
+
+test "review-loop-lowering-d02-while-true-else", "6 6"
+  # `while true` with an `else`, which never runs: every `break` leaves the
+  # loop's result block, so nothing leaves the Zig `while (true)` itself.
+  #
+  # oracle: main accept
+  n = 0
+  while true
+    n += 1
+    break if n > 2
+  else
+    print("never")
+  x = while true
+    n += 1
+    break n if n > 5
+  else
+    0
+  print(n, x)
+
+test "review-loop-lowering-d03-while-true-step-else", "3 2"
+  # `while true: step` with an `else` and a `continue`.
+  #
+  # oracle: main accept
+  n = 0
+  k = 0
+  while true: k += 1
+    n += 1
+    continue if n == 1
+    break if n > 2
+  else
+    print("never")
+  print(n, k)
+
+test "review-loop-lowering-d04-loops-in-defer-and-closure", '''
+  defer 0 1
+  defer 1 1
+  6
+  defer 0 1
+  errdefer 1 0
+  errdefer 1 2
+  errdefer 1 3
+  defer 1 1
+  -1
+'''
+  # Loops inside a `defer` block, an `errdefer` block, and a closure, each
+  # with labels that repeat an enclosing loop's and jumps of their own.
+  #
+  # oracle: opt accept
+  # oracle: run accept
+  # oracle: work accept
+  # oracle: main accept
+  error E
+    bad
+
+  fun opt(j: Int) -> Int?
+    j + 1 if j != 1 else none
+
+  fun run(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  fun work(fail: Bool) -> Int!
+    n = 0
+    @a for i in 0..2
+      defer
+        @a for j in 0..3
+          continue @a if j == 0
+          print("defer", i, j)
+          break @a if j == 1
+      errdefer
+        k = 0
+        @a while (opt(k) ?? continue) > 0: k += 1
+          print("errdefer", i, k)
+          break @a if k > 2
+      n += run(x: 3, f: |x: Int|
+        t = 0
+        @a for q in 0..x
+          continue @a if q == 0
+          t += q
+        t
+      )
+      return E.bad if fail and i == 1
+      continue @a
+    n
+
+  print(work(false) catch 0 - 1)
+  print(work(true) catch 0 - 1)
+
+test "review-loop-lowering-e01-jump-in-for-source", '''
+  else range 0
+  after range 0
+  drop 100
+  drop 101
+  else range 2
+  after range 2
+  drop 102
+  else vec 0
+  after vec 0
+  drop 200
+  drop 201
+  else vec 2
+  after vec 2
+  drop 202
+  d 0
+  drop 0
+  d 1
+  drop 1
+  else arr 0
+  after arr 0
+  drop 300
+  drop 301
+  11
+'''
+  # A jump in a `for` source targets the loop around the `for`, for a range,
+  # a List in place, a consumed List a call makes, and an array a call makes;
+  # the inner `for` has an `else` and an owned local in its body.
+  #
+  # oracle: D.drop accept
+  # oracle: opt accept
+  # oracle: vec accept
+  # oracle: arr accept
+  # oracle: main accept
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun opt(i: Int) -> Int?
+    none if i == 1 else i
+
+  fun vec(i: Int) -> List[Int]?
+    if i == 1
+      return none
+    v: List[Int] = List()
+    !v.push(i)
+    !v.push(i + 1)
+    v
+
+  fun arr(i: Int) -> ([2]D)?
+    none if i == 1 else [D(n: 10 * i), D(n: 10 * i + 1)]
+
+  n = 0
+  for i in 0..3
+    y = D(n: 100 + i)
+    for j in (opt(i) ?? continue)..3
+      n += j
+    else
+      print("else range", i)
+    print("after range", i)
+  for i in 0..3
+    y = D(n: 200 + i)
+    for x in (vec(i) ?? continue)
+      n += x
+    else
+      print("else vec", i)
+    print("after vec", i)
+  for i in 0..3
+    y = D(n: 300 + i)
+    for d in (arr(i) ?? break)
+      print("d", d.n)
+    else
+      print("else arr", i)
+    print("after arr", i)
+  print(n)
+
+test "review-loop-lowering-e02-value-loop-owned-break", '''
+  drop 100
+  drop 0
+  drop 101
+  drop 3
+  drop 2
+  a 1
+  drop 10
+  drop 12
+  b 11
+  drop 200
+  drop 20
+  drop 201
+  drop 21
+  drop 202
+  c 22
+  drop 20
+  drop 21
+  drop 22
+  drop 23
+  d 96
+  drop 96
+  drop 22
+  drop 11
+  drop 1
+'''
+  # Loops used as values that hand out an owned value: a consumed List's
+  # element, an element of an array the source makes, and a while binding;
+  # the remaining elements drop when the loop is left.
+  #
+  # oracle: D.drop accept
+  # oracle: mkvec accept
+  # oracle: arr accept
+  # oracle: mk accept
+  # oracle: main accept
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun mkvec(n: Int) -> List[D]
+    v: List[D] = List()
+    for i in 0..n
+      !v.push(D(n: i))
+    v
+
+  fun arr() -> [3]D
+    [D(n: 10), D(n: 11), D(n: 12)]
+
+  fun mk(i: Int) -> D?
+    D(n: 20 + i) if i < 4 else none
+
+  q = mkvec(4)
+  a = for e, i in <q
+    y = D(n: 100 + i)
+    continue if i == 0
+    break <e if i == 1
+  else
+    D(n: 99)
+  print("a", a.n)
+  b = for e in arr()
+    break <e if e.n == 11
+  else
+    D(n: 98)
+  print("b", b.n)
+  i = 0
+  c = while mk(i) as h: i += 1
+    y = D(n: 200 + i)
+    break <h if i == 2
+  else
+    D(n: 97)
+  print("c", c.n)
+  i = 0
+  d = while mk(i) as h: i += 1
+    break <h if i == 9
+  else
+    D(n: 96)
+  print("d", d.n)
+
+test "review-loop-lowering-gen5-s11-0001", '''
+  b0 0 1000
+  b1 0 0
+  b2 0 0 0
+  t2 0 0 0
+  d2 0
+  drop 200
+  b2 0 0 1
+  t2 0 0 1
+  d2 1
+  drop 201
+  e2 0 0
+  w1 0 0
+  t1 0 0
+  s 1 0
+  b1 0 1
+  b2 0 1 0
+  t2 0 1 0
+  d2 0
+  drop 200
+  b2 0 1 1
+  t2 0 1 1
+  d2 1
+  drop 201
+  e2 0 1
+  w1 0 1
+  t1 0 1
+  s 1 1
+  w0 0
+  t0 0
+  drop 0
+  drop 1000
+  s 0 0
+  b0 1 1001
+  b1 1 0
+  b2 1 0 0
+  t2 1 0 0
+  d2 0
+  drop 200
+  b2 1 0 1
+  t2 1 0 1
+  d2 1
+  drop 201
+  e2 1 0
+  w1 1 0
+  t1 1 0
+  s 1 0
+  b1 1 1
+  b2 1 1 0
+  t2 1 1 0
+  d2 0
+  drop 200
+  b2 1 1 1
+  t2 1 1 1
+  d2 1
+  drop 201
+  e2 1 1
+  w1 1 1
+  t1 1 1
+  s 1 1
+  w0 1
+  t0 1
+  drop 1
+  drop 1001
+  s 0 1
+  b0 2 1002
+  b1 2 0
+  b2 2 0 0
+  t2 2 0 0
+  d2 0
+  drop 200
+  b2 2 0 1
+  t2 2 0 1
+  d2 1
+  drop 201
+  e2 2 0
+  w1 2 0
+  t1 2 0
+  s 1 0
+  b1 2 1
+  b2 2 1 0
+  t2 2 1 0
+  d2 0
+  drop 200
+  b2 2 1 1
+  t2 2 1 1
+  d2 1
+  drop 201
+  e2 2 1
+  w1 2 1
+  t1 2 1
+  s 1 1
+  w0 2
+  t0 2
+  drop 2
+  drop 1002
+  s 0 2
+  end
+'''
+  # review-loop-lowering gen5.py --seed 11, program 0001 (base 0a10f99c: ok):
+  # rejected, or prints gen5's model trace (probes/review-loop-lowering).
+  #
+  # oracle: D.drop accept
+  # oracle: st accept
+  # oracle: adv accept
+  # oracle: lim accept
+  # oracle: limf accept
+  # oracle: mkd accept
+  # oracle: gate accept
+  # oracle: mkvec accept
+  # oracle: grow accept
+  # oracle: ints accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun st(n: Int, c: Int) -> Int
+    print("s", n, c)
+    c + 1
+
+  fun adv(n: Int, c: Int, g: Bool) -> Int?
+    print("s", n, c)
+    none if g else c + 1
+
+  fun lim(c: Int, n: Int) -> Int?
+    c if c < n else none
+
+  fun limf(c: Int, n: Int, bad: Bool) -> Int?!
+    return E.bad if bad
+    lim(c, n)
+
+  fun mkd(k: Int, c: Int, n: Int) -> D?
+    D(n: 1000 * (k + 1) + c) if c < n else none
+
+  fun gate(b: Bool) -> Int?
+    none if b else 1
+
+  fun mkvec(k: Int, n: Int) -> List[D]
+    v: List[D] = List()
+    for i in 0..n
+      !v.push(D(n: 2000 * (k + 1) + i))
+    v
+
+  fun grow(v: !List[Int], n: Int, c: Int) -> Int
+    print("s", n, c)
+    for i in 0..20
+      !v.push(i)
+    c + 1
+
+  fun ints(n: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..n
+      !v.push(10 + i)
+    v
+
+  guard = 0
+  c0 = 0
+  p0 = 0
+  @a while mkd(0, c0, 3) as h0: c0 = st(0, c0)
+    guard += 1
+    if guard > 300
+      print("cap")
+      return
+    p0 += 1
+    _ = p0
+    y0 = D(n: 0 + c0)
+    print("b0", c0, h0.n)
+    @a match c0
+      _
+        c1 = 0
+        p1 = 0
+        @a while c1 < 2: c1 = st(1, c1)
+          guard += 1
+          if guard > 300
+            print("cap")
+            return
+          p1 += 1
+          _ = p1
+          print("b1", c0, c1)
+          @a match c1
+            _
+              z2 = "ab"
+              p2 = 0
+              @a for ch2, c2 in z2
+                guard += 1
+                if guard > 300
+                  print("cap")
+                  return
+                p2 += 1
+                _ = p2
+                y2 = D(n: 200 + c2)
+                defer print("d2", c2)
+                _ = ch2
+                print("b2", c0, c1, c2)
+                print("t2", c0, c1, c2)
+              else
+                print("e2", c0, c1)
+              print("w1", c0, c1)
+          print("t1", c0, c1)
+        print("w0", c0)
+    print("t0", c0)
+  print("end")
+
+test "review-loop-lowering-gen5-s11-0186", '''
+  b0 0
+  b1 0 0
+  t1 0 0
+  d1 0
+  drop 100
+  b1 0 1
+  t1 0 1
+  d1 1
+  drop 101
+  e1 0
+  r1 -1
+  t0 0
+  s 0 0
+  b0 1
+  b1 1 0
+  t1 1 0
+  d1 0
+  drop 100
+  b1 1 1
+  d1 1
+  drop 101
+'''
+  # review-loop-lowering gen5.py --seed 11, program 0186 (base 0a10f99c: ok):
+  # rejected, or prints gen5's model trace (probes/review-loop-lowering).
+  #
+  # oracle: D.drop accept
+  # oracle: st accept
+  # oracle: adv accept
+  # oracle: lim accept
+  # oracle: limf accept
+  # oracle: mkd accept
+  # oracle: gate accept
+  # oracle: mkvec accept
+  # oracle: grow accept
+  # oracle: ints accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun st(n: Int, c: Int) -> Int
+    print("s", n, c)
+    c + 1
+
+  fun adv(n: Int, c: Int, g: Bool) -> Int?
+    print("s", n, c)
+    none if g else c + 1
+
+  fun lim(c: Int, n: Int) -> Int?
+    c if c < n else none
+
+  fun limf(c: Int, n: Int, bad: Bool) -> Int?!
+    return E.bad if bad
+    lim(c, n)
+
+  fun mkd(k: Int, c: Int, n: Int) -> D?
+    D(n: 1000 * (k + 1) + c) if c < n else none
+
+  fun gate(b: Bool) -> Int?
+    none if b else 1
+
+  fun mkvec(k: Int, n: Int) -> List[D]
+    v: List[D] = List()
+    for i in 0..n
+      !v.push(D(n: 2000 * (k + 1) + i))
+    v
+
+  fun grow(v: !List[Int], n: Int, c: Int) -> Int
+    print("s", n, c)
+    for i in 0..20
+      !v.push(i)
+    c + 1
+
+  fun ints(n: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..n
+      !v.push(10 + i)
+    v
+
+  guard = 0
+  c0 = 0
+  p0 = 0
+  while c0 < 3: c0 = st(0, c0)
+    guard += 1
+    if guard > 300
+      print("cap")
+      return
+    p0 += 1
+    _ = p0
+    print("b0", c0)
+    p1 = 0
+    r1 = for c1 in 0..2
+      guard += 1
+      if guard > 300
+        print("cap")
+        return
+      p1 += 1
+      _ = p1
+      y1 = D(n: 100 + c1)
+      defer print("d1", c1)
+      print("b1", c0, c1)
+      break 77 if c1 == 99
+      return if c0 == 1 and c1 == 1
+      print("t1", c0, c1)
+    else
+      print("e1", c0)
+      return if c0 == 1
+      -1
+    print("r1", r1)
+    return if c0 == 1
+    print("t0", c0)
+  print("end")
+
+test "review-loop-lowering-gen5-s11-0550", '''
+  b0 0 10
+  b1 0 0 4000
+  t1 0 0
+  d1 0
+  drop 100
+  drop 4000
+  b1 0 1 4001
+  t1 0 1
+  d1 1
+  drop 101
+  drop 4001
+  t0 0
+  drop 0
+  b0 1 11
+  b1 1 0 4000
+  t1 1 0
+  d1 0
+  drop 100
+  drop 4000
+  b1 1 1 4001
+  d1 1
+  drop 101
+  drop 4001
+  drop 1
+'''
+  # review-loop-lowering gen5.py --seed 11, program 0550 (base 0a10f99c: ok):
+  # rejected, or prints gen5's model trace (probes/review-loop-lowering).
+  #
+  # oracle: D.drop accept
+  # oracle: st accept
+  # oracle: adv accept
+  # oracle: lim accept
+  # oracle: limf accept
+  # oracle: mkd accept
+  # oracle: gate accept
+  # oracle: mkvec accept
+  # oracle: grow accept
+  # oracle: ints accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun st(n: Int, c: Int) -> Int
+    print("s", n, c)
+    c + 1
+
+  fun adv(n: Int, c: Int, g: Bool) -> Int?
+    print("s", n, c)
+    none if g else c + 1
+
+  fun lim(c: Int, n: Int) -> Int?
+    c if c < n else none
+
+  fun limf(c: Int, n: Int, bad: Bool) -> Int?!
+    return E.bad if bad
+    lim(c, n)
+
+  fun mkd(k: Int, c: Int, n: Int) -> D?
+    D(n: 1000 * (k + 1) + c) if c < n else none
+
+  fun gate(b: Bool) -> Int?
+    none if b else 1
+
+  fun mkvec(k: Int, n: Int) -> List[D]
+    v: List[D] = List()
+    for i in 0..n
+      !v.push(D(n: 2000 * (k + 1) + i))
+    v
+
+  fun grow(v: !List[Int], n: Int, c: Int) -> Int
+    print("s", n, c)
+    for i in 0..20
+      !v.push(i)
+    c + 1
+
+  fun ints(n: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..n
+      !v.push(10 + i)
+    v
+
+  guard = 0
+  v0 = ints(3)
+  p0 = 0
+  for x0, c0 in v0
+    guard += 1
+    if guard > 300
+      print("cap")
+      return
+    p0 += 1
+    _ = p0
+    y0 = D(n: 0 + c0)
+    print("b0", c0, x0)
+    q1 = mkvec(1, 2)
+    p1 = 0
+    for e1, c1 in <q1
+      guard += 1
+      if guard > 300
+        print("cap")
+        return
+      p1 += 1
+      _ = p1
+      y1 = D(n: 100 + c1)
+      defer print("d1", c1)
+      print("b1", c0, c1, e1.n)
+      return if c0 == 1 and c1 == 1
+      print("t1", c0, c1)
+    continue if c0 == 1
+    print("t0", c0)
+  print("end")
+
+test "review-loop-lowering-gen5-s11-0582", '''
+  b0 0 0
+  b1 0 0 0
+  b2 0 0 0 0
+  t2 0 0 0
+  d2 0
+  s 2 0
+  b2 0 0 1 1
+  t2 0 0 1
+  d2 1
+  s 2 1
+  t1 0 0
+  od1 10
+  s 1 0
+  b1 0 1 1
+  b2 0 1 0 0
+  t2 0 1 0
+  d2 0
+  s 2 0
+  b2 0 1 1 1
+  t2 0 1 1
+  d2 1
+  s 2 1
+  t1 0 1
+  od1 10
+  s 1 1
+  e1 0
+  t0 0
+  d0 0
+  s 0 0
+  b0 1 1
+  b1 1 0 0
+  b2 1 0 0 0
+  t2 1 0 0
+  d2 0
+  s 2 0
+  b2 1 0 1 1
+  t2 1 0 1
+  d2 1
+  s 2 1
+  t1 1 0
+  od1 10
+  s 1 0
+  b1 1 1 1
+  b2 1 1 0 0
+  t2 1 1 0
+  d2 0
+  s 2 0
+  b2 1 1 1 1
+  t2 1 1 1
+  d2 1
+  s 2 1
+  od1 10
+  d0 1
+'''
+  # review-loop-lowering gen5.py --seed 11, program 0582 (base 0a10f99c: FAIL):
+  # rejected, or prints gen5's model trace (probes/review-loop-lowering).
+  #
+  # oracle: D.drop accept
+  # oracle: st accept
+  # oracle: adv accept
+  # oracle: lim accept
+  # oracle: limf accept
+  # oracle: mkd accept
+  # oracle: gate accept
+  # oracle: mkvec accept
+  # oracle: grow accept
+  # oracle: ints accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun st(n: Int, c: Int) -> Int
+    print("s", n, c)
+    c + 1
+
+  fun adv(n: Int, c: Int, g: Bool) -> Int?
+    print("s", n, c)
+    none if g else c + 1
+
+  fun lim(c: Int, n: Int) -> Int?
+    c if c < n else none
+
+  fun limf(c: Int, n: Int, bad: Bool) -> Int?!
+    return E.bad if bad
+    lim(c, n)
+
+  fun mkd(k: Int, c: Int, n: Int) -> D?
+    D(n: 1000 * (k + 1) + c) if c < n else none
+
+  fun gate(b: Bool) -> Int?
+    none if b else 1
+
+  fun mkvec(k: Int, n: Int) -> List[D]
+    v: List[D] = List()
+    for i in 0..n
+      !v.push(D(n: 2000 * (k + 1) + i))
+    v
+
+  fun grow(v: !List[Int], n: Int, c: Int) -> Int
+    print("s", n, c)
+    for i in 0..20
+      !v.push(i)
+    c + 1
+
+  fun ints(n: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..n
+      !v.push(10 + i)
+    v
+
+  guard = 0
+  c0 = 0
+  p0 = 0
+  @l0 while (limf(c0, 3, false) catch none) as h0: c0 = st(0, h0)
+    guard += 1
+    if guard > 300
+      print("cap")
+      return
+    p0 += 1
+    _ = p0
+    defer print("d0", c0)
+    print("b0", c0, h0)
+    o1 = ints(1)
+    c1 = 0
+    p1 = 0
+    @l1 while (limf(c1, 2, false) catch break) as h1: c1 = grow(!o1, 1, h1)
+      guard += 1
+      if guard > 300
+        print("cap")
+        return
+      p1 += 1
+      _ = p1
+      sv1 = ?o1[..]
+      defer print("od1", sv1[0])
+      print("b1", c0, c1, h1)
+      c2 = 0
+      p2 = 0
+      @l2 while lim(c2, 2) as h2: c2 = adv(2, h2, c0 == 1 and c1 == 1 and p2 == 2) ?? return
+        guard += 1
+        if guard > 300
+          print("cap")
+          return
+        p2 += 1
+        _ = p2
+        defer print("d2", c2)
+        print("b2", c0, c1, c2, h2)
+        print("t2", c0, c1, c2)
+      print("t1", c0, c1)
+    else
+      print("e1", c0)
+    print("t0", c0)
+  print("end")
+
+test "review-loop-lowering-gen5-s11-1103", '''
+  b0 0 10
+  b1 0 0 0
+  b2 0 0 0
+  t2 0 0 0
+  b2 0 0 1
+  t2 0 0 1
+  e2 0 0
+  t1 0 0
+  s 1 0
+  b1 0 1 1
+  b2 0 1 0
+  t2 0 1 0
+  b2 0 1 1
+  t2 0 1 1
+  e2 0 1
+  t1 0 1
+  s 1 1
+  e1 0
+  r1 -1
+  w0 0
+  t0 0
+  d0 0
+  drop 0
+  b0 1 11
+  b1 1 0 0
+  b2 1 0 0
+  t2 1 0 0
+  b2 1 0 1
+  t2 1 0 1
+  e2 1 0
+  t1 1 0
+  s 1 0
+  b1 1 1 1
+  b2 1 1 0
+  t2 1 1 0
+  b2 1 1 1
+  t2 1 1 1
+  e2 1 1
+  t1 1 1
+  s 1 1
+  d0 1
+  drop 1
+'''
+  # review-loop-lowering gen5.py --seed 11, program 1103 (base 0a10f99c: ok):
+  # rejected, or prints gen5's model trace (probes/review-loop-lowering).
+  #
+  # oracle: D.drop accept
+  # oracle: st accept
+  # oracle: adv accept
+  # oracle: lim accept
+  # oracle: limf accept
+  # oracle: mkd accept
+  # oracle: gate accept
+  # oracle: mkvec accept
+  # oracle: grow accept
+  # oracle: ints accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun st(n: Int, c: Int) -> Int
+    print("s", n, c)
+    c + 1
+
+  fun adv(n: Int, c: Int, g: Bool) -> Int?
+    print("s", n, c)
+    none if g else c + 1
+
+  fun lim(c: Int, n: Int) -> Int?
+    c if c < n else none
+
+  fun limf(c: Int, n: Int, bad: Bool) -> Int?!
+    return E.bad if bad
+    lim(c, n)
+
+  fun mkd(k: Int, c: Int, n: Int) -> D?
+    D(n: 1000 * (k + 1) + c) if c < n else none
+
+  fun gate(b: Bool) -> Int?
+    none if b else 1
+
+  fun mkvec(k: Int, n: Int) -> List[D]
+    v: List[D] = List()
+    for i in 0..n
+      !v.push(D(n: 2000 * (k + 1) + i))
+    v
+
+  fun grow(v: !List[Int], n: Int, c: Int) -> Int
+    print("s", n, c)
+    for i in 0..20
+      !v.push(i)
+    c + 1
+
+  fun ints(n: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..n
+      !v.push(10 + i)
+    v
+
+  guard = 0
+  v0 = ints(3)
+  p0 = 0
+  @a for x0, c0 in v0
+    guard += 1
+    if guard > 300
+      print("cap")
+      return
+    p0 += 1
+    _ = p0
+    y0 = D(n: 0 + c0)
+    defer print("d0", c0)
+    print("b0", c0, x0)
+    @w0 match c0
+      _
+        c1 = 0
+        p1 = 0
+        r1 = while lim(c1, 2) as h1: c1 = adv(1, c1, c0 == 1 and p1 == 2) ?? return
+          guard += 1
+          if guard > 300
+            print("cap")
+            return
+          p1 += 1
+          _ = p1
+          print("b1", c0, c1, h1)
+          break 77 if c1 == 99
+          z2 = "ab"
+          p2 = 0
+          @a for ch2, c2 in z2
+            guard += 1
+            if guard > 300
+              print("cap")
+              return
+            p2 += 1
+            _ = p2
+            _ = ch2
+            print("b2", c0, c1, c2)
+            print("t2", c0, c1, c2)
+          else
+            print("e2", c0, c1)
+          print("t1", c0, c1)
+        else
+          print("e1", c0)
+          -1
+        print("r1", r1)
+        print("w0", c0)
+    print("t0", c0)
+  print("end")
+
+test "review-loop-lowering-gen5-s11-1162", '''
+  b0 0
+  b1 0 0
+  b2 0 0 0 0
+  t2 0 0 0
+  drop 200
+  s 2 0
+  b2 0 0 1 1
+  t2 0 0 1
+  drop 201
+  s 2 1
+  e2 0 0
+  t1 0 0
+  d1 0
+  b1 0 1
+  b2 0 1 0 0
+  t2 0 1 0
+  drop 200
+  s 2 0
+  b2 0 1 1 1
+  t2 0 1 1
+  drop 201
+  s 2 1
+  e2 0 1
+  t1 0 1
+  d1 1
+  t0 0
+  d0 0
+  drop 0
+  b0 1
+  b1 1 0
+  b2 1 0 0 0
+  t2 1 0 0
+  drop 200
+  s 2 0
+  b2 1 0 1 1
+  t2 1 0 1
+  drop 201
+  s 2 1
+  e2 1 0
+  t1 1 0
+  d1 0
+  b1 1 1
+  d1 1
+  d0 1
+  drop 1
+  b0 2
+  b1 2 0
+  b2 2 0 0 0
+  t2 2 0 0
+  drop 200
+  s 2 0
+  b2 2 0 1 1
+  t2 2 0 1
+  drop 201
+  s 2 1
+  e2 2 0
+  t1 2 0
+  d1 0
+  b1 2 1
+  b2 2 1 0 0
+  t2 2 1 0
+  drop 200
+  s 2 0
+  b2 2 1 1 1
+  t2 2 1 1
+  drop 201
+  s 2 1
+  e2 2 1
+  t1 2 1
+  d1 1
+  t0 2
+  d0 2
+  drop 2
+  end
+'''
+  # review-loop-lowering gen5.py --seed 11, program 1162 (base 0a10f99c: DIFF):
+  # rejected, or prints gen5's model trace (probes/review-loop-lowering).
+  #
+  # oracle: D.drop accept
+  # oracle: st accept
+  # oracle: adv accept
+  # oracle: lim accept
+  # oracle: limf accept
+  # oracle: mkd accept
+  # oracle: gate accept
+  # oracle: mkvec accept
+  # oracle: grow accept
+  # oracle: ints accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun st(n: Int, c: Int) -> Int
+    print("s", n, c)
+    c + 1
+
+  fun adv(n: Int, c: Int, g: Bool) -> Int?
+    print("s", n, c)
+    none if g else c + 1
+
+  fun lim(c: Int, n: Int) -> Int?
+    c if c < n else none
+
+  fun limf(c: Int, n: Int, bad: Bool) -> Int?!
+    return E.bad if bad
+    lim(c, n)
+
+  fun mkd(k: Int, c: Int, n: Int) -> D?
+    D(n: 1000 * (k + 1) + c) if c < n else none
+
+  fun gate(b: Bool) -> Int?
+    none if b else 1
+
+  fun mkvec(k: Int, n: Int) -> List[D]
+    v: List[D] = List()
+    for i in 0..n
+      !v.push(D(n: 2000 * (k + 1) + i))
+    v
+
+  fun grow(v: !List[Int], n: Int, c: Int) -> Int
+    print("s", n, c)
+    for i in 0..20
+      !v.push(i)
+    c + 1
+
+  fun ints(n: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..n
+      !v.push(10 + i)
+    v
+
+  guard = 0
+  z0 = "abc"
+  p0 = 0
+  @l0 for ch0, c0 in z0
+    guard += 1
+    if guard > 300
+      print("cap")
+      return
+    p0 += 1
+    _ = p0
+    y0 = D(n: 0 + c0)
+    defer print("d0", c0)
+    _ = ch0
+    print("b0", c0)
+    z1 = "ab"
+    p1 = 0
+    @l1 for ch1, c1 in z1
+      guard += 1
+      if guard > 300
+        print("cap")
+        return
+      p1 += 1
+      _ = p1
+      defer print("d1", c1)
+      _ = ch1
+      print("b1", c0, c1)
+      continue @l0 if c0 == 1 and c1 == 1
+      c2 = 0
+      p2 = 0
+      @l2 while (limf(c2, 2, false) catch break) as h2: c2 = st(2, h2)
+        guard += 1
+        if guard > 300
+          print("cap")
+          return
+        p2 += 1
+        _ = p2
+        y2 = D(n: 200 + c2)
+        print("b2", c0, c1, c2, h2)
+        print("t2", c0, c1, c2)
+      else
+        print("e2", c0, c1)
+      print("t1", c0, c1)
+    print("t0", c0)
+  print("end")
+
+test "review-loop-lowering-gen5-s23-d3-0000", '''
+  b0 0
+  b1 0 0 0
+  b2 0 0 0
+  t2 0 0 0
+  s 2 0
+  b2 0 0 1
+  t2 0 0 1
+  s 2 1
+  e2 0 0
+  w1 0 0
+  t1 0 0
+  od1 10
+  drop 100
+  s 1 0
+  b1 0 1 1
+  b2 0 1 0
+  t2 0 1 0
+  s 2 0
+  b2 0 1 1
+  t2 0 1 1
+  s 2 1
+  e2 0 1
+  w1 0 1
+  t1 0 1
+  od1 10
+  drop 101
+  s 1 1
+  e1 0
+  w0 0
+  t0 0
+  d0 0
+  b0 1
+  b1 1 0 0
+  b2 1 0 0
+  t2 1 0 0
+  s 2 0
+  b2 1 0 1
+  t2 1 0 1
+  s 2 1
+  e2 1 0
+  w1 1 0
+  t1 1 0
+  od1 10
+  drop 100
+  s 1 0
+  b1 1 1 1
+  b2 1 1 0
+  t2 1 1 0
+  s 2 0
+  od1 10
+  drop 101
+  d0 1
+'''
+  # review-loop-lowering gen5.py --seed 23 --depth 3, program 0000:
+  # rejected, or prints gen5's model trace (probes/review-loop-lowering).
+  #
+  # oracle: D.drop accept
+  # oracle: st accept
+  # oracle: adv accept
+  # oracle: lim accept
+  # oracle: limf accept
+  # oracle: mkd accept
+  # oracle: gate accept
+  # oracle: mkvec accept
+  # oracle: grow accept
+  # oracle: ints accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun st(n: Int, c: Int) -> Int
+    print("s", n, c)
+    c + 1
+
+  fun adv(n: Int, c: Int, g: Bool) -> Int?
+    print("s", n, c)
+    none if g else c + 1
+
+  fun lim(c: Int, n: Int) -> Int?
+    c if c < n else none
+
+  fun limf(c: Int, n: Int, bad: Bool) -> Int?!
+    return E.bad if bad
+    lim(c, n)
+
+  fun mkd(k: Int, c: Int, n: Int) -> D?
+    D(n: 1000 * (k + 1) + c) if c < n else none
+
+  fun gate(b: Bool) -> Int?
+    none if b else 1
+
+  fun mkvec(k: Int, n: Int) -> List[D]
+    v: List[D] = List()
+    for i in 0..n
+      !v.push(D(n: 2000 * (k + 1) + i))
+    v
+
+  fun grow(v: !List[Int], n: Int, c: Int) -> Int
+    print("s", n, c)
+    for i in 0..20
+      !v.push(i)
+    c + 1
+
+  fun ints(n: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..n
+      !v.push(10 + i)
+    v
+
+  guard = 0
+  z0 = "abc"
+  p0 = 0
+  for ch0, c0 in z0
+    guard += 1
+    if guard > 300
+      print("cap")
+      return
+    p0 += 1
+    _ = p0
+    defer print("d0", c0)
+    _ = ch0
+    print("b0", c0)
+    @a match c0
+      _
+        o1 = ints(1)
+        c1 = 0
+        p1 = 0
+        @l1 while (limf(c1, 2, false) catch continue) as h1: c1 = grow(!o1, 1, c1)
+          guard += 1
+          if guard > 300
+            print("cap")
+            return
+          p1 += 1
+          _ = p1
+          y1 = D(n: 100 + c1)
+          sv1 = ?o1[..]
+          defer print("od1", sv1[0])
+          print("b1", c0, c1, h1)
+          @a match c1
+            _
+              c2 = 0
+              p2 = 0
+              while c2 < 2 and (gate(c0 == 1 and c1 == 1 and c2 == 1) ?? return) > 0: c2 = st(2, c2)
+                guard += 1
+                if guard > 300
+                  print("cap")
+                  return
+                p2 += 1
+                _ = p2
+                print("b2", c0, c1, c2)
+                print("t2", c0, c1, c2)
+              else
+                print("e2", c0, c1)
+              print("w1", c0, c1)
+          print("t1", c0, c1)
+        else
+          print("e1", c0)
+          continue if c0 == 1
+        print("w0", c0)
+    print("t0", c0)
+  print("end")
+
+test "review-loop-lowering-gen5-s23-d3-1250", '''
+  b0 0 0
+  b1 0 0 0
+  b2 0 0 0 0
+  t2 0 0 0
+  od2 10
+  s 2 0
+  b2 0 0 1 1
+  t2 0 0 1
+  od2 10
+  s 2 1
+  w1 0 0
+  t1 0 0
+  s 1 0
+  b1 0 1 1
+  b2 0 1 0 0
+  t2 0 1 0
+  od2 10
+  s 2 0
+  b2 0 1 1 1
+  t2 0 1 1
+  od2 10
+  s 2 1
+  w1 0 1
+  t1 0 1
+  s 1 1
+  t0 0
+  s 0 0
+  b0 1 1
+  s 0 1
+  b0 1 1
+  s 0 1
+  b0 2 2
+  b1 2 0 0
+  b2 2 0 0 0
+  t2 2 0 0
+  od2 10
+  s 2 0
+  b2 2 0 1 1
+  t2 2 0 1
+  od2 10
+  s 2 1
+  w1 2 0
+  t1 2 0
+  s 1 0
+  b1 2 1 1
+  b2 2 1 0 0
+  t2 2 1 0
+  od2 10
+  s 2 0
+  b2 2 1 1 1
+  t2 2 1 1
+  od2 10
+  s 2 1
+  w1 2 1
+  t1 2 1
+  s 1 1
+  t0 2
+  s 0 2
+  end
+'''
+  # review-loop-lowering gen5.py --seed 23 --depth 3, program 1250:
+  # rejected, or prints gen5's model trace (probes/review-loop-lowering).
+  #
+  # oracle: D.drop accept
+  # oracle: st accept
+  # oracle: adv accept
+  # oracle: lim accept
+  # oracle: limf accept
+  # oracle: mkd accept
+  # oracle: gate accept
+  # oracle: mkvec accept
+  # oracle: grow accept
+  # oracle: ints accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun st(n: Int, c: Int) -> Int
+    print("s", n, c)
+    c + 1
+
+  fun adv(n: Int, c: Int, g: Bool) -> Int?
+    print("s", n, c)
+    none if g else c + 1
+
+  fun lim(c: Int, n: Int) -> Int?
+    c if c < n else none
+
+  fun limf(c: Int, n: Int, bad: Bool) -> Int?!
+    return E.bad if bad
+    lim(c, n)
+
+  fun mkd(k: Int, c: Int, n: Int) -> D?
+    D(n: 1000 * (k + 1) + c) if c < n else none
+
+  fun gate(b: Bool) -> Int?
+    none if b else 1
+
+  fun mkvec(k: Int, n: Int) -> List[D]
+    v: List[D] = List()
+    for i in 0..n
+      !v.push(D(n: 2000 * (k + 1) + i))
+    v
+
+  fun grow(v: !List[Int], n: Int, c: Int) -> Int
+    print("s", n, c)
+    for i in 0..20
+      !v.push(i)
+    c + 1
+
+  fun ints(n: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..n
+      !v.push(10 + i)
+    v
+
+  guard = 0
+  c0 = 0
+  p0 = 0
+  @a while (limf(c0, 3, false) catch continue) as h0: c0 = adv(0, c0, p0 == 2) ?? continue
+    guard += 1
+    if guard > 300
+      print("cap")
+      return
+    p0 += 1
+    _ = p0
+    print("b0", c0, h0)
+    continue @a if c0 == 1
+    c1 = 0
+    p1 = 0
+    @a while (limf(c1, 2, false) catch none) as h1: c1 = st(1, h1)
+      guard += 1
+      if guard > 300
+        print("cap")
+        return
+      p1 += 1
+      _ = p1
+      print("b1", c0, c1, h1)
+      @a match c1
+        _
+          o2 = ints(1)
+          c2 = 0
+          p2 = 0
+          @a while (limf(c2, 2, false) catch break) as h2: c2 = grow(!o2, 2, h2)
+            guard += 1
+            if guard > 300
+              print("cap")
+              return
+            p2 += 1
+            _ = p2
+            sv2 = ?o2[..]
+            defer print("od2", sv2[0])
+            print("b2", c0, c1, c2, h2)
+            print("t2", c0, c1, c2)
+          print("w1", c0, c1)
+      print("t1", c0, c1)
+    print("t0", c0)
+  print("end")
+
+test "review-move-done-2-e02 take index effects", "false 101"
+  # A take whose index writes the List it takes from.
+  fun mkv(n: Int) -> List[Int]
+    xs: List[Int] = List()
+    !xs.push(n)
+    xs
+
+  fun grow(v: !List[List[Int]?]) -> Int
+    for i in 0..100
+      !v.push(mkv(i))
+    0
+
+  v: List[List[Int]?] = List()
+  !v.push(mkv(1))
+  x = <v[grow(!v)]
+  print(x == none, v.len)
+
+  # oracle: mkv accept
+  # oracle: grow accept
+
+fail "review-move-done-2-e05 take args order", "cannot lend `s.o` to write while a read loan is live"
+  # A take beside a lend of the same place in one call.
+  obj S
+    o: List[Int]?
+
+    sub set(!self, x: List[Int]?)
+      self.o = <x
+
+  fun mkv(n: Int) -> List[Int]
+    xs: List[Int] = List()
+    !xs.push(n)
+    xs
+
+  fun both(a: ?List[Int]?, b: List[Int]?) -> Int
+    n = 0
+    if a as x
+      n += x.len
+    if b as y
+      n += y.len
+    n
+
+  fun both2(b: List[Int]?, a: ?S) -> Int
+    n = 0
+    if b as y
+      n += y.len
+    if a.o as x
+      n += x.len
+    n
+
+  sub one()
+    s = S(o: mkv(1))
+    print(both(?s.o, <s.o))
+
+  sub two()
+    s = S(o: mkv(1))
+    print(both2(<s.o, ?s))
+
+  sub three()
+    s = S(o: mkv(1))
+    !s.set(<s.o)
+    print(s.o == none)
+
+  sub four()
+    v: List[List[Int]?] = List()
+    !v.push(mkv(1))
+    !v.push(<v[0])
+    print(v.len, v[0] == none)
+
+  one()
+  two()
+  three()
+  four()
+
+  # oracle: S.set accept
+  # oracle: mkv accept
+  # oracle: both accept
+  # oracle: both2 accept
+  # oracle: one reject C4
+  # oracle: two accept
+  # oracle: three reject C4
+  # oracle: four reject C4
+  # oracle: main accept
+
+fail "review-move-done-2-g03 generic leaf", "`<` here would copy `a` out without moving it; move it inside the branch: `<a`"
+  # Generic leaves: `<(a if c else b)` with T params, `<(o ?? a)`.
+  fun pick[T](c: Bool, a: T, b: T) -> T
+    <(a if c else b)
+
+  fun orr[T](o: T?, a: T) -> T
+    <(o ?? a)
+
+  fun mkv(n: Int) -> List[Int]
+    xs: List[Int] = List()
+    !xs.push(n)
+    xs
+
+  print(pick(true, mkv(1), mkv(2)).len)
+  print(orr(mkv(1), mkv(2)).len)
+
+  # oracle: pick reject C3
+  # oracle: orr reject C3
+  # oracle: mkv accept
+
+test "review-move-done-2-grid drop brlend.paren.ret", '''
+  drop 5
+  drop 4
+  drop 3
+  drop 2
+  drop 4
+  drop 3
+  drop 1
+  2
+  46 86
+  drop 2
+  drop 23
+  drop 22
+  drop 21
+  drop 20
+  drop 13
+  drop 12
+  drop 11
+  drop 10
+  10 14
+  drop 5
+  drop 4
+  drop 3
+  drop 2
+  drop 4
+  drop 3
+  drop 2
+  drop 1
+  5
+  46 86
+  drop 5
+  drop 23
+  drop 22
+  drop 21
+  drop 20
+  drop 13
+  drop 12
+  drop 11
+  drop 10
+'''
+  obj D
+    v: Int
+
+    drop(!self)
+      print("drop", self.v)
+
+    fun into(<self) -> Int
+      self.v
+
+  error E
+    bad
+
+  obj W
+    f: D
+    o: D?
+
+  obj S
+    f: D
+    o: D?
+    w: W
+
+  obj R
+    f: D
+
+  obj RO
+    f: D?
+
+  fun mk(n: Int) -> D
+    D(v: n)
+
+  fun mko(n: Int) -> D?
+    mk(n)
+
+  fun mks(n: Int) -> S
+    S(f: mk(n), o: mk(n + 1), w: W(f: mk(n + 2), o: mk(n + 3)))
+
+  fun fail(c: Bool) -> D!
+    return E.bad if c
+    mk(7)
+
+  fun failo(c: Bool) -> D?!
+    return E.bad if c
+    mko(7)
+
+  fun lk(x: ?D) -> Int
+    x.v
+
+  fun lko(x: ?D?) -> Int
+    if x as y
+      lk(y)
+    else
+      0
+
+  fun lks(s: ?S) -> Int
+    lk(?s.f) + lko(?s.o) + lk(?s.w.f) + lko(?s.w.o)
+
+  fun eat(x: D) -> Int
+    lk(?x)
+
+  fun eato(x: D?) -> Int
+    lko(?x)
+
+  sub eats(x: D)
+    print(lk(?x))
+
+  sub eatso(x: D?)
+    print(lko(?x))
+
+  fun idf(x: D) -> D
+    x
+
+  fun gw(s: !S) -> !S
+    s
+
+  fun gr(s: ?S) -> ?S
+    s
+
+  fun cell(c: Bool, p: ?S, q: !S) -> D?
+    s = mks(1)
+    s2 = mks(2)
+    return <((!s if c else !s2).o) if c
+    print(lks(?s), lks(?s2))
+    mko(5)
+
+  for c in [true, false]
+    s0 = mks(10)
+    s1 = mks(20)
+    r = cell(c, ?s0, !s1)
+    print(lko(?r))
+    print(lks(?s0), lks(?s1))
+
+  # oracle: D.drop accept
+  # oracle: D.into accept
+  # oracle: mk accept
+  # oracle: mko accept
+  # oracle: mks accept
+  # oracle: fail accept
+  # oracle: failo accept
+  # oracle: lk accept
+  # oracle: lko accept
+  # oracle: lks accept
+  # oracle: eat accept
+  # oracle: eato accept
+  # oracle: eats accept
+  # oracle: eatso accept
+  # oracle: idf accept
+  # oracle: gw accept
+  # oracle: gr accept
+  # oracle: cell accept
+  # oracle: main accept
+
+fail "review-move-done-2-grid vec brelem.catch.arg", "`<` here would copy `(v if c else v2)[0]` out without moving it, and the binding its branch reads would still drop it; exchange the part where it is owned, with `replace`"
+  error E
+    bad
+
+  obj W
+    f: List[Int]
+    o: List[Int]?
+
+  obj S
+    f: List[Int]
+    o: List[Int]?
+    w: W
+
+  obj R
+    f: List[Int]
+
+  obj RO
+    f: List[Int]?
+
+  fun mk(n: Int) -> List[Int]
+    xs: List[Int] = List()
+    !xs.push(n)
+    xs
+
+  fun mko(n: Int) -> List[Int]?
+    mk(n)
+
+  fun mks(n: Int) -> S
+    S(f: mk(n), o: mk(n + 1), w: W(f: mk(n + 2), o: mk(n + 3)))
+
+  fun fail(c: Bool) -> List[Int]!
+    return E.bad if c
+    mk(7)
+
+  fun failo(c: Bool) -> List[Int]?!
+    return E.bad if c
+    mko(7)
+
+  fun lk(x: ?List[Int]) -> Int
+    x[0] + x.len
+
+  fun lko(x: ?List[Int]?) -> Int
+    if x as y
+      lk(y)
+    else
+      0
+
+  fun lks(s: ?S) -> Int
+    lk(?s.f) + lko(?s.o) + lk(?s.w.f) + lko(?s.w.o)
+
+  fun eat(x: List[Int]) -> Int
+    lk(?x)
+
+  fun eato(x: List[Int]?) -> Int
+    lko(?x)
+
+  sub eats(x: List[Int])
+    print(lk(?x))
+
+  sub eatso(x: List[Int]?)
+    print(lko(?x))
+
+  fun idf(x: List[Int]) -> List[Int]
+    x
+
+  fun gw(s: !S) -> !S
+    s
+
+  fun gr(s: ?S) -> ?S
+    s
+
+  fun cell(c: Bool, p: ?S, q: !S) -> Int
+    v: List[List[Int]] = List()
+    !v.push(mk(1))
+    v2: List[List[Int]] = List()
+    !v2.push(mk(2))
+    print(eat(<(fail(c) catch (v if c else v2)[0])))
+    print(lk(?v[0]), lk(?v2[0]))
+    0
+
+  for c in [true, false]
+    s0 = mks(10)
+    s1 = mks(20)
+    print(cell(c, ?s0, !s1))
+    print(lks(?s0), lks(?s1))
+
+  # oracle: mk accept
+  # oracle: mko accept
+  # oracle: mks accept
+  # oracle: fail accept
+  # oracle: failo accept
+  # oracle: lk accept
+  # oracle: lko accept
+  # oracle: lks accept
+  # oracle: eat accept
+  # oracle: eato accept
+  # oracle: eats accept
+  # oracle: eatso accept
+  # oracle: idf accept
+  # oracle: gw accept
+  # oracle: gr accept
+  # oracle: cell reject C3
+  # oracle: main accept
+
+test "review-move-done-2-grid vec brlend.none.bind", '''
+  3
+  11 18
+  0
+  50 90
+  4
+  14 14
+  0
+  50 90
+'''
+  error E
+    bad
+
+  obj W
+    f: List[Int]
+    o: List[Int]?
+
+  obj S
+    f: List[Int]
+    o: List[Int]?
+    w: W
+
+  obj R
+    f: List[Int]
+
+  obj RO
+    f: List[Int]?
+
+  fun mk(n: Int) -> List[Int]
+    xs: List[Int] = List()
+    !xs.push(n)
+    xs
+
+  fun mko(n: Int) -> List[Int]?
+    mk(n)
+
+  fun mks(n: Int) -> S
+    S(f: mk(n), o: mk(n + 1), w: W(f: mk(n + 2), o: mk(n + 3)))
+
+  fun fail(c: Bool) -> List[Int]!
+    return E.bad if c
+    mk(7)
+
+  fun failo(c: Bool) -> List[Int]?!
+    return E.bad if c
+    mko(7)
+
+  fun lk(x: ?List[Int]) -> Int
+    x[0] + x.len
+
+  fun lko(x: ?List[Int]?) -> Int
+    if x as y
+      lk(y)
+    else
+      0
+
+  fun lks(s: ?S) -> Int
+    lk(?s.f) + lko(?s.o) + lk(?s.w.f) + lko(?s.w.o)
+
+  fun eat(x: List[Int]) -> Int
+    lk(?x)
+
+  fun eato(x: List[Int]?) -> Int
+    lko(?x)
+
+  sub eats(x: List[Int])
+    print(lk(?x))
+
+  sub eatso(x: List[Int]?)
+    print(lko(?x))
+
+  fun idf(x: List[Int]) -> List[Int]
+    x
+
+  fun gw(s: !S) -> !S
+    s
+
+  fun gr(s: ?S) -> ?S
+    s
+
+  fun cell(c: Bool, p: ?S, q: !S) -> Int
+    s = mks(1)
+    s2 = mks(2)
+    x = <(!s if c else !s2).o
+    print(lko(?x))
+    print(lks(?s), lks(?s2))
+    0
+
+  for c in [true, false]
+    s0 = mks(10)
+    s1 = mks(20)
+    print(cell(c, ?s0, !s1))
+    print(lks(?s0), lks(?s1))
+
+  # oracle: mk accept
+  # oracle: mko accept
+  # oracle: mks accept
+  # oracle: fail accept
+  # oracle: failo accept
+  # oracle: lk accept
+  # oracle: lko accept
+  # oracle: lks accept
+  # oracle: eat accept
+  # oracle: eato accept
+  # oracle: eats accept
+  # oracle: eatso accept
+  # oracle: idf accept
+  # oracle: gw accept
+  # oracle: gr accept
+  # oracle: cell accept
+  # oracle: main accept
+
+test "review-move-done-2-m05 recv copy param views", "4 4 4 4 4"
+  # A consuming method on a read-view parameter, a write-view parameter,
+  # and a part through each.
+  obj P
+    v: Int
+
+    fun into(<self) -> Int
+      self.v
+
+  obj S
+    p: P
+
+  fun r1(p: ?P) -> Int
+    p.into()
+
+  fun r2(s: ?S) -> Int
+    s.p.into()
+
+  fun w1(p: !P) -> Int
+    p.into()
+
+  fun w2(s: !S) -> Int
+    s.p.into()
+
+  s = S(p: P(v: 4))
+  print(r1(?s.p), r2(?s), w1(!s.p), w2(!s), s.p.v)
+
+  # oracle: P.into accept
+  # oracle: r1 accept
+  # oracle: r2 accept
+  # oracle: w1 accept
+  # oracle: w2 accept
+  # oracle: main accept
+
+test "review-move-done-2-p01 payload and loop takes", '''
+  false
+  true
+  false
+  false
+  1 true
+'''
+  # Takes through match payload views and loop bindings; `while <e as x`.
+  obj S
+    o: List[Int]?
+
+  enum E
+    none_
+    one(s: S)
+
+  fun mkv(n: Int) -> List[Int]
+    xs: List[Int] = List()
+    !xs.push(n)
+    xs
+
+  sub a()
+    e: E = .one(s: S(o: mkv(1)))
+    match !e
+      .one(s) => print(<s.o == none)
+      .none_ => print(0)
+    match e
+      .one(s) => print(s.o == none)
+      .none_ => print(0)
+
+  sub b()
+    v: List[S] = List()
+    !v.push(S(o: mkv(1)))
+    !v.push(S(o: mkv(2)))
+    for s in <v
+      x = <s.o
+      print(x == none)
+
+  sub c()
+    s = S(o: mkv(3))
+    k = 0
+    while <s.o as x
+      k += x.len
+    print(k, s.o == none)
+
+  a()
+  b()
+  c()
+
+  # oracle: mkv accept
+  # oracle: a accept
+  # oracle: b accept
+  # oracle: c accept
+  # oracle: main accept
+
+test "review-move-done-2-v01 branch of view bindings", '''
+  false true false
+  false true true
+'''
+  # A take through a branching value whose leaves are write views held in
+  # bindings, and through a view binding's field. (A read lend of `s` before
+  # `<(!s if c else !t).o` is rejected, as it should be: not kept here.)
+  obj S
+    o: List[Int]?
+
+  fun mkv(n: Int) -> List[Int]
+    xs: List[Int] = List()
+    !xs.push(n)
+    xs
+
+  sub a(c: Bool)
+    s = S(o: mkv(1))
+    t = S(o: mkv(2))
+    r1 = !s
+    r2 = !t
+    x = <(r1 if c else r2).o
+    print(x == none, r1.o == none, r2.o == none)
+
+  sub d(c: Bool)
+    s = S(o: mkv(1))
+    r1 = !s
+    x = <r1.o
+    y = <(r1).o
+    print(x == none, y == none, s.o == none)
+
+  a(true)
+  d(true)
+
+  # oracle: mkv accept
+  # oracle: a accept
+  # oracle: d accept
+  # oracle: main accept
+
+fail "review-move-done-p02 ifblock part owner", "`a` owns an `S`, which can't be copied by `=`: write `<a` to move it, `+a` to clone it, or `?a` to view it"
+  # multi-line if-expression used as base of a part move
+  obj S
+    n: Int
+    v: List[Int]
+
+  a = S(n: 1, v: List())
+  b = S(n: 2, v: List())
+  !a.v.push(1)
+  c = a.n == 1
+  x = if c
+    a
+  else
+    b
+  w = <x.v
+  print(w.len)
+
+  # oracle: main reject C2
+
+fail "review-move-done-p03 coalesce part", "cannot move out of `(o ?? b).v`: `o ?? b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`"
+  obj S
+    n: Int
+    v: List[Int]
+
+  o: S? = S(n: 1, v: List())
+  b = S(n: 2, v: List())
+  !b.v.push(1)
+  w = <(o ?? b).v
+  print(w.len, b.v.len)
+
+  # oracle: main reject C3
+
+fail "review-move-done-p04 catch part", "cannot move out of `(mk(true) catch b).v`: `mk(true) catch b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`"
+  error E
+    bad
+
+  obj S
+    n: Int
+    v: List[Int]
+
+  fun mk(f: Bool) -> S!
+    if f
+      return E.bad
+    S(n: 1, v: List())
+
+  b = S(n: 2, v: List())
+  !b.v.push(1)
+  w = <(mk(true) catch b).v
+  print(w.len, b.v.len)
+
+  # oracle: mk accept
+  # oracle: main reject C3
+
+fail "review-move-done-p05 nested paren", "cannot move out of `((a if c else b).i).v`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`"
+  obj In
+    v: List[Int]
+
+  obj S
+    i: In
+
+  a = S(i: In(v: List()))
+  b = S(i: In(v: List()))
+  !a.i.v.push(1)
+  c = a.i.v.len == 1
+  w = <((a if c else b).i).v
+  x = <(((a if c else b))).i.v
+  print(w.len, x.len, a.i.v.len)
+
+  # oracle: main reject C3
+
+fail "review-move-done-p06 branch index", "cannot move out of `(a if c else b)[0]`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`"
+  a: List[List[Int]] = List()
+  b: List[List[Int]] = List()
+  r: List[Int] = List()
+  !r.push(1)
+  !a.push(<r)
+  c = a.len == 1
+  w = <(a if c else b)[0]
+  print(w.len, a.len)
+
+  # oracle: main reject C3
+
+fail "review-move-done-p07 branch opt take", "cannot take out of `(a if c else b).o`: `a if c else b` reads a binding where it stands; take it inside each branch"
+  # take of an optional field through a branching value: emptied in which?
+  obj S
+    o: List[Int]?
+
+  v: List[Int] = List()
+  !v.push(1)
+  a = S(o: <v)
+  b = S(o: none)
+  c = true
+  w = <(a if c else b).o
+  print(w, a.o)
+
+  # oracle: main reject C7
+
+test "review-move-done-p12 take through result view", "[1] none"
+  # take of optional through a read view: must be rejected (it writes)
+  obj S
+    o: List[Int]?
+
+  fun rget(s: ?S) -> ?S
+    s
+
+  fun wget(s: !S) -> !S
+    s
+
+  v: List[Int] = List()
+  !v.push(1)
+  s = S(o: <v)
+  w = <wget(!s).o
+  print(w, s.o)
+
+  # oracle: rget accept
+  # oracle: wget accept
+  # oracle: main accept
+
+fail "review-move-done-p22 elems", "cannot move out of `vv[0]`: elements cannot be moved out of their container"
+  obj S
+    v: List[Int]
+
+  sub e1()
+    vv: List[List[Int]] = List()
+    w = <vv[0]
+    print(w.len)
+
+  sub e2()
+    vs: List[S] = List()
+    w = <vs[0]
+    print(w.v.len)
+
+  sub e3()
+    vs: List[S] = List()
+    w = <vs[0].v
+    print(w.len)
+
+  sub e4()
+    a = [S(v: List()), S(v: List())]
+    w = <a[0]
+    print(w.v.len)
+
+  sub e5()
+    a = [S(v: List()), S(v: List())]
+    sl = !a[..]
+    w = <sl[0]
+    print(w.v.len)
+
+  e1()
+
+  # oracle: e1 reject C3
+  # oracle: e2 reject C3
+  # oracle: e3 reject C3
+  # oracle: e4 reject C3
+  # oracle: e5 reject C3
+  # oracle: main accept
+
+test "review-move-done-p23 opt elem", '''
+  [1] none 2
+  0 true
+  0 true
+  none none
+'''
+  # optional elements holding owners: taken and emptied
+  obj S
+    v: List[Int]
+
+  fun len_of(o: S?) -> Int
+    if o as s
+      return s.v.len
+    -1
+
+  vv: List[List[Int]?] = List()
+  r: List[Int] = List()
+  !r.push(1)
+  !vv.push(<r)
+  !vv.push(none)
+  w = <vv[0]
+  print(w, vv[0], vv.len)
+  a: [2]S? = [S(v: List()), none]
+  x = <a[0]
+  print(len_of(<x), a[0] == none)
+  vs: List[S?] = List()
+  !vs.push(S(v: List()))
+  sl = !vs[..]
+  y = <sl[0]
+  print(len_of(<y), vs[0] == none)
+  i = 0
+  z = <vv[i]
+  print(z, vv[0])
+
+  # oracle: len_of accept
+  # oracle: main accept
+
+fail "review-move-done-p30 mod", "cannot move function `geo.mk`: a function lives for the whole program; remove the `<` to use it"
+  use geo
+
+  KO: Int? = 3
+
+  sub main()
+    a = <geo.Color.red
+    b = <geo.mk
+    c = geo.KO
+    d = <KO
+    e = <geo.KA[0][1]
+    f = <geo.KA[0]
+    print(a, b(), c, d, e, f)
+
+  # oracle: main reject C3
+
+  file "geo.rig"
+    pub K = 5
+    pub KO: Int? = 3
+    pub KA = [[1, 2], [3, 4]]
+
+    pub enum Color
+      red
+      blue
+
+    pub fun mk() -> Int
+      4
+
+fail "review-move-done-p46 branch copy leaf", "`<` here would copy `n` out without moving it; move it inside the branch: `<n`"
+  # `<` of a branching value whose leaf is a name or part that copies:
+  # the source is left as it was.
+  obj S
+    n: Int
+
+  fun f(k: Int) -> Int!
+    k
+
+  n = 1
+  s = S(n: 2)
+  o: Int? = 3
+  c = n == 1
+  a = <(n if c else 5)
+  b = <(s.n if c else 5)
+  d = <(o ?? n)
+  e = <(f(1) catch n)
+  g = <(s if c else S(n: 4))
+  print(a, b, d, e, g.n, n, s.n, o)
+
+  # oracle: f accept
+  # oracle: main reject C3
+
+fail "review-move-done-p47 propagate copy", "`<` here would copy `o` out without moving it; move it before the `?` or `!`: `(<o)?`"
+  # `<o?` and `<e!` of copying places: SPEC says `<o?` is rejected
+  error E
+    bad
+
+  obj S
+    o: Int?
+    n: Int
+
+  fun f(o: Int?) -> Int?
+    x = <o?
+    print(o)
+    x
+
+  fun g(s: S) -> Int?
+    y = <s.o?
+    print(s.o)
+    y
+
+  fun k(n: Int) -> Int!
+    n
+
+  fun h(n: Int) -> Int!
+    z = <k(n)!
+    z
+
+  print(f(3), g(S(o: 4, n: 1)), h(5) catch 0)
+
+  # oracle: f reject C3
+  # oracle: g reject C3
+  # oracle: k accept
+  # oracle: h accept
+  # oracle: main accept
+
+fail "review-move-done-p48 parens", "cannot move out of `s.n`: it copies, so `<` would leave it as it was; remove the `<` to copy it"
+  obj S
+    n: Int
+
+  s = S(n: 1)
+  n = 2
+  a = <(s.n)
+  b = <((n))
+  print(a, b, s.n)
+
+  # oracle: main reject C3
+
+fail "review-move-done-p50 carriers branch owner", "cannot move out of `(a if c else b).v`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`"
+  # owning part of a branching value, in every carrier
+  obj S
+    n: Int
+    v: List[Int]
+
+  obj W
+    v: List[Int]
+
+  sub eat(v: List[Int])
+    print(v.len)
+
+  fun r1(a: S, b: S, c: Bool) -> List[Int]
+    return <(a if c else b).v
+
+  sub r2(a: S, b: S, c: Bool)
+    eat(<(a if c else b).v)
+
+  sub r3(a: S, b: S, c: Bool)
+    w = W(v: <(a if c else b).v)
+    print(w.v.len)
+
+  sub r4(a: S, b: S, c: Bool)
+    xs = [<(a if c else b).v]
+    print(xs.len)
+
+  sub r5(a: S, b: S, c: Bool)
+    match <(a if c else b).n
+      1 => print("one")
+      _ => print("other")
+
+  sub r6(a: S, b: S, c: Bool)
+    for x in <(a if c else b).v
+      print(x)
+
+  sub r7(a: S, b: S, c: Bool)
+    i = 0
+    w = while i < 1 : i += 1
+      break <(a if c else b).v
+    else
+      List[Int]()
+    print(w.len)
+
+  sub r8(a: S, b: S, c: Bool)
+    h = *<(a if c else b).v
+    print(h.len)
+
+  sub r9(a: S, b: S, c: Bool)
+    print((<(a if c else b).v).len)
+
+  sub r10(a: S, b: S, c: Bool)
+    defer eat(<(a if c else b).v)
+    print("x")
+
+  r2(S(n: 1, v: List()), S(n: 1, v: List()), true)
+
+  # oracle: eat accept
+  # oracle: r1 reject C3
+  # oracle: r2 reject C3
+  # oracle: r3 reject C3
+  # oracle: r4 reject C3
+  # oracle: r5 reject C3
+  # oracle: r6 reject C3
+  # oracle: r7 reject C3
+  # oracle: r8 reject C3
+  # oracle: r10 reject C3
+  # oracle: main accept
+
+fail "review-move-done-p51 closures", "cannot move out of `s.n`: it copies, so `<` would leave it as it was; remove the `<` to copy it"
+  obj S
+    n: Int
+    v: List[Int]
+    o: List[Int]?
+
+  sub c1()
+    s = S(n: 1, v: List(), o: none)
+    f = |?s| <s.n
+    print(f())
+
+  sub c2()
+    s = S(n: 1, v: List(), o: none)
+    f = *|<s| (<s.v).len
+    print(f())
+
+  sub c3()
+    s = S(n: 1, v: List(), o: none)
+    f = |!s| <s.o
+    print(f())
+    print(s.o)
+
+  sub c4()
+    s = S(n: 1, v: List(), o: none)
+    f = *|<s| <s.n
+    print(f())
+
+  sub c5()
+    s = S(n: 1, v: List(), o: none)
+    f = *|<s| (<s).n
+    print(f())
+
+  c3()
+
+  # oracle: c1 reject C3
+  # oracle: c3 accept
+  # oracle: c4 reject C3
+  # oracle: main accept
+
+test "review-move-done-p52 closure take", '''
+  [1]
+  none
+  none
+'''
+  obj S
+    n: Int
+    o: List[Int]?
+
+  v: List[Int] = List()
+  !v.push(1)
+  s = S(n: 1, o: <v)
+  f = |!s| <s.o
+  print(f())
+  print(f())
+  print(s.o)
+
+  # oracle: main accept
+
+fail "review-move-done-p53 loops", "cannot move out of `x.n`: it copies, so `<` would leave it as it was; remove the `<` to copy it"
+  obj S
+    n: Int
+    v: List[Int]
+    o: List[Int]?
+
+  fun mk() -> S
+    S(n: 1, v: List(), o: none)
+
+  sub l1()
+    vs: List[S] = List()
+    !vs.push(mk())
+    for x in vs
+      print(<x.n)
+
+  sub l2()
+    vs: List[S] = List()
+    !vs.push(mk())
+    for x in !vs
+      w = <x.v
+      print(w.len)
+
+  sub l3()
+    vs: List[S] = List()
+    !vs.push(mk())
+    for x in <vs
+      w = <x.v
+      print(w.len)
+
+  sub l4()
+    vs: List[S] = List()
+    !vs.push(mk())
+    for x in !vs
+      w = <x.o
+      print(w)
+
+  sub l5()
+    vs: List[S] = List()
+    !vs.push(mk())
+    for x in <vs
+      w = <x.n
+      print(w)
+
+  sub l6()
+    o: S? = mk()
+    if o as x
+      w = <x.v
+      print(w.len)
+
+  sub l7()
+    o: S? = mk()
+    if <o as x
+      w = <x.v
+      print(w.len)
+
+  l4()
+
+  # oracle: mk accept
+  # oracle: l1 reject C3
+  # oracle: l2 reject C3
+  # oracle: l3 reject C3
+  # oracle: l4 accept
+  # oracle: l5 reject C3
+  # oracle: l6 reject C3
+  # oracle: l7 reject C3
+  # oracle: main accept
+
+fail "review-move-done-p54 match subject", "cannot move out of `s.e`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.e, v)`"
+  enum E
+    full(v: List[Int])
+    empty
+
+  obj S
+    e: E
+    n: Int
+
+  obj D
+    v: List[Int]
+
+    fun into(<self) -> Int
+      self.v.len
+
+  obj H
+    d: D
+
+  sub s1()
+    s = S(e: E.empty, n: 1)
+    match <s.e
+      .full(v) => print(v.len)
+      .empty => print("e")
+
+  sub s2(c: Bool)
+    a = S(e: E.empty, n: 1)
+    b = S(e: E.empty, n: 1)
+    match <(a if c else b).e
+      .full(v) => print(v.len)
+      .empty => print("e")
+
+  sub s4()
+    h = H(d: D(v: List()))
+    print(<h.d.into())
+
+  s1()
+
+  # oracle: D.into accept
+  # oracle: s1 reject C3
+  # oracle: s2 reject C3
+  # oracle: s4 reject C3
+  # oracle: main accept
+
+fail "review-move-done-p65 bare branch made part", "`mk().v` owns a `List[Int]`, which can't be copied by `=`: write `+mk().v` to clone it or `?mk().v` to view it"
+  # no `<`: a binding of a branching value one of whose leaves is an
+  # owning part of a value made there
+  obj S
+    v: List[Int]
+
+  fun mk() -> S
+    v: List[Int] = List()
+    !v.push(7)
+    S(v: <v)
+
+  c = true
+  x = mk().v if c else List[Int]()
+  print(x.len)
+  y = mk().v
+  print(y.len)
+
+  # oracle: mk accept
+  # oracle: main reject C2
+
+test "review-move-done-p70 consume receiver copy", "2 3"
+  # a method taking <self on a plain field: with and without `<`
+  obj P
+    x: Int
+
+    fun into(<self) -> Int
+      self.x
+
+  obj S
+    p: P
+
+  s = S(p: P(x: 2))
+  v: List[P] = List()
+  !v.push(P(x: 3))
+  print(s.p.into(), v[0].into())
+
+  # oracle: P.into accept
+  # oracle: main accept
+
+fail "review-move-done-p71 consume receiver copy lt", "cannot move out of `s.p`: it copies, so `<` would leave it as it was; remove the `<` to copy it"
+  obj P
+    x: Int
+
+    fun into(<self) -> Int
+      self.x
+
+  obj S
+    p: P
+
+  s = S(p: P(x: 2))
+  v: List[P] = List()
+  !v.push(P(x: 3))
+  print(<s.p.into(), <v[0].into())
+
+  # oracle: P.into accept
+  # oracle: main reject C3
+
+test "review-move-done-p72 consume receiver workarounds", "2 2 2"
+  obj P
+    x: Int
+
+    fun into(<self) -> Int
+      self.x
+
+  obj S
+    p: P
+
+  s = S(p: P(x: 2))
+  a = (+s.p).into()
+  q = s.p
+  b = <q.into()
+  c = P.into(s.p)
+  print(a, b, c)
+
+  # oracle: P.into accept
+  # oracle: main accept
+
+test "review-move-done-p73 advice works", '''
+  1
+  one
+  3
+  4
+  1 1 1 5 1
+  1
+'''
+  # the advised fix ("drop the `<`") for each carrier the reject test covers
+  obj P
+    x: Int
+
+  obj S
+    n: Int
+    p: P
+    arr: [2]Int
+
+  sub show(n: Int)
+    print(n)
+
+  fun ret(s: ?S) -> Int
+    return s.n
+
+  s = S(n: 1, p: P(x: 2), arr: [3, 4])
+  show(s.n)
+  match s.n
+    1 => print("one")
+    _ => print("other")
+  q = S(n: s.n, p: s.p, arr: [s.n, 0])
+  i = 0
+  j = while i < 2 : i += 1
+    break s.n
+  else
+    0
+  for x in s.arr
+    print(x)
+  h = *S(n: 5, p: P(x: 6), arr: [0, 0])
+  print(q.n, j, ret(?s), h.n, s.n)
+  print(s.n)
+
+  # oracle: show accept
+  # oracle: ret accept
+  # oracle: main accept
+
+fail "review-move-done-p74 print read then write lend", "cannot lend `s` to write while a read loan is live"
+  # aside (pre-existing, not this branch): a copied-out read of `id(?s).n`
+  # keeps `s` lent for the rest of the call's arguments
+  obj S
+    n: Int
+
+  fun bump(s: !S) -> Int
+    s.n += 1
+    s.n
+
+  fun id(s: ?S) -> ?S
+    s
+
+  s = S(n: 1)
+  print(id(?s).n, bump(!s))
+
+  # oracle: main accept
+
+test "review-needs50-equality", '''
+  false true true true
+  true false false true
+  false false false false
+  true true
+'''
+  # A variant literal compared with a `?Q` view on either side of `==`
+  # and `!=`, bare and with a payload, after being lent as the argument
+  # that made the view. Runs sanitizer-clean.
+  enum Q
+    Num(n: Int)
+    Str(s: String)
+    Empty
+
+  sub check(v: ?Q)
+    print(v == .Empty, v == .Num(n: 3), .Num(n: 3) == v, v != .Str(s: String("x")))
+
+  check(.Num(n: 3))
+  check(.Empty)
+  check(.Str(s: String("x")))
+  q = Q.Num(n: 3)
+  print(q == .Num(n: 3), ?q == .Num(n: 3))
+
+test "review-needs50-generic-enum", '''
+  some 2
+  nothing
+  some 3
+  nothing
+'''
+  # A variant literal of a generic enum, bare and with a payload, lent
+  # where `?Opt[List[Int]]` and `?Opt[Int]` go. Runs sanitizer-clean.
+  enum Opt[T]
+    Some(v: T)
+    Nothing
+
+  fun three() -> List[Int]
+    xs = List[Int]()
+    !xs.push(1)
+    !xs.push(2)
+    return <xs
+
+  sub show(o: ?Opt[List[Int]])
+    match o
+      .Some(v) => print("some", v.len)
+      .Nothing => print("nothing")
+
+  sub count(o: ?Opt[Int])
+    match o
+      .Some(v) => print("some", v)
+      .Nothing => print("nothing")
+
+  show(.Some(v: three()))
+  show(.Nothing)
+  count(.Some(v: 3))
+  count(.Nothing)
+
+test "review-needs50-generic-view", '''
+  2 1 0
+  true false
+  .Str(s: "id")
+'''
+  # A variant literal lent where a generic `?T` goes once `T` is known:
+  # from an earlier argument, from a generic object's receiver, and from
+  # the view the call's result is lent to. Runs sanitizer-clean.
+  enum Q
+    Num(n: Int)
+    Str(s: String)
+    Empty
+
+  obj Box[T]
+    x: T
+
+  fun Box[T].same(?self, y: ?T) -> Bool
+    self.x == y
+
+  fun count[T](xs: ?List[T], x: ?T) -> Int
+    n = 0
+    for y in xs
+      n += 1 if y == x
+    return n
+
+  fun id[T](x: ?T) -> ?T
+    return x
+
+  sub show(q: ?Q)
+    print(q)
+
+  xs = List[Q]()
+  !xs.push(.Num(n: 1))
+  !xs.push(.Str(s: String("a")))
+  !xs.push(.Num(n: 1))
+  print(count(?xs, .Num(n: 1)), count(?xs, .Str(s: String("a"))), count(?xs, .Empty))
+  b = Box[Q](x: .Str(s: String("z")))
+  print(b.same(.Str(s: String("z"))), b.same(.Empty))
+  show(id(.Str(s: String("id"))))
+
+test "review-needs50-jumps", '''
+  table 3
+  num 0
+  table 3
+  num 2
+  table 3
+  num 0
+  table 3
+  num 2
+  -1 2
+'''
+  # A variant literal lent to a `?Val` argument, owning a List, is made
+  # before a later argument jumps out of the statement (`continue`,
+  # `break`, `return` through `??`): the temporary is dropped on every
+  # path. Runs sanitizer-clean.
+  enum Val
+    Num(n: Int)
+    Table(m: List[Int])
+
+  fun three() -> List[Int]
+    xs = List[Int]()
+    !xs.push(1)
+    !xs.push(2)
+    !xs.push(3)
+    return <xs
+
+  sub show(v: ?Val)
+    match v
+      .Num(n) => print("num", n)
+      .Table(m) => print("table", m.len)
+
+  fun both(a: ?Val, b: ?Val) -> Int
+    show(a)
+    show(b)
+    2
+
+  fun opt(i: Int) -> Int?
+    none if i == 1 else i
+
+  fun early(i: Int) -> Int
+    return both(.Table(m: three()), .Num(n: opt(i) ?? return -1))
+
+  for i in 0..3
+    _ = both(.Table(m: three()), .Num(n: opt(i) ?? continue))
+  for i in 0..3
+    _ = both(.Table(m: three()), .Num(n: opt(i) ?? break))
+  print(early(1), early(2))
+
+test "review-needs50-module", '''
+  a 1
+  drop 1
+  b 0
+  c
+  a 2
+  drop 2
+  some 3
+  drop 3
+  none
+  end
+'''
+  # A variant literal of an enum imported from another module, plain and
+  # generic, lent where `?lib.E` and `?lib.G[lib.R]` go, also by keyword.
+  # Runs sanitizer-clean, dropping each `lib.R` at its statement's end.
+  use lib
+
+  sub mine(e: ?lib.E, k: Int = 0)
+    lib.look(e)
+
+  sub main()
+    lib.look(.A(r: lib.R(n: 1)))
+    lib.look(.B(xs: List()))
+    lib.look(.C)
+    mine(k: 2, e: .A(r: lib.R(n: 2)))
+    lib.lookg(.Some(v: lib.R(n: 3)))
+    lib.lookg(.None_)
+    print("end")
+
+  file "lib.rig"
+    pub obj R
+      pub n: Int
+
+      drop(!self)
+        print("drop", self.n)
+
+    pub enum E
+      A(r: R)
+      B(xs: List[Int])
+      C
+
+    pub enum G[T]
+      Some(v: T)
+      None_
+
+    pub sub look(e: ?E)
+      match e
+        .A(r) => print("a", r.n)
+        .B(xs) => print("b", xs.len)
+        .C => print("c")
+
+    pub sub lookg(g: ?G[R])
+      match g
+        .Some(v) => print("some", v.n)
+        .None_ => print("none")
+
+test "review-needs50-nested", '''
+  box 1
+  pair 3 0
+  pair 1 1
+  4
+  6
+'''
+  # Nested variant literals under a view: an outer literal lent to
+  # `?Outer` whose owned payloads are themselves literals (with keyword
+  # arguments reordered), and a tree of boxed literals lent to `?Tree`.
+  # Runs sanitizer-clean.
+  enum Outer
+    Box(v: Inner)
+    Pair(a: Inner, b: Inner)
+
+  enum Inner
+    L(xs: List[Int])
+    S(s: String)
+    E
+
+  enum Tree
+    Leaf(n: Int)
+    Node(l: ^Tree, r: ^Tree, tag: String)
+
+  fun mk() -> List[Int]
+    xs = List[Int]()
+    !xs.push(4)
+    return <xs
+
+  fun inner(i: ?Inner) -> Int
+    match i
+      .L(xs) => xs.len
+      .S(s) => s.len
+      .E => 0
+
+  sub look(o: ?Outer)
+    match o
+      .Box(v) => print("box", inner(v))
+      .Pair(a, b) => print("pair", inner(a), inner(b))
+
+  fun sum(t: ?Tree) -> Int
+    match t
+      .Leaf(n) => n
+      .Node(l, r, _) => sum(l) + sum(r)
+
+  look(.Box(v: .L(xs: mk())))
+  look(.Pair(a: .S(s: String("hey")), b: .E))
+  look(.Pair(b: .L(xs: mk()), a: .L(xs: mk())))
+  print(inner(.S(s: String("abcd"))))
+  print(sum(.Node(l: ^.Leaf(n: 1), r: ^.Node(l: ^.Leaf(n: 2), r: ^.Leaf(n: 3), tag: String("in")), tag: String("out"))))
+
+test "review-needs50-payload-kinds", '''
+  sh 1
+  sh 1
+  bx 2
+  st hi
+  rs 3
+  drop 3
+  after
+  vw view
+  rs 4
+  drop 4
+  rs 5
+  drop 5
+  end
+'''
+  # A variant literal lent to a `?H` argument, for each kind of payload:
+  # a `*T` cloned and moved, a `^T`, a String, an object with a `drop`, a
+  # `?String`, and a box of a nested literal. Each temporary is dropped
+  # at the end of its statement. Runs sanitizer-clean.
+  obj N
+    n: Int
+
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum H
+    Sh(p: *N)
+    Bx(b: ^N)
+    St(s: String)
+    Rs(r: R)
+    Vw(s: ?String)
+    Nest(h: ^H)
+
+  sub look(x: ?H)
+    match x
+      .Sh(p) => print("sh", p.n)
+      .Bx(b) => print("bx", b.n)
+      .St(s) => print("st", s)
+      .Rs(r) => print("rs", r.n)
+      .Vw(s) => print("vw", s)
+      .Nest(h) => look(h)
+
+  p = *N(n: 1)
+  look(.Sh(p: +p))
+  look(.Sh(p: <p))
+  look(.Bx(b: ^N(n: 2)))
+  look(.St(s: String("hi")))
+  look(.Rs(r: R(n: 3)))
+  print("after")
+  look(.Vw(s: "view"))
+  look(.Nest(h: ^H.Rs(r: R(n: 4))))
+  look(.Nest(h: ^.Rs(r: R(n: 5))))
+  print("end")
+
+test "review-needs50-positions", '''
+  closure 3
+  4 3
+  postfix 3
+  loop 0
+  loop 1
+  loop 2
+  9
+  3
+  defer 3
+'''
+  # A variant literal owning a List, lent to a `?Val` view in statement
+  # positions other than a plain call: a closure and an owned closure, a
+  # `?fun` value, a `defer`, a postfix `if`, a `while` condition and step,
+  # a method's argument by keyword, and a view the call returns, read in
+  # the same statement. Runs sanitizer-clean.
+  enum Val
+    Num(n: Int)
+    Table(m: List[Int])
+
+  obj Bag
+    n: Int
+
+  fun three() -> List[Int]
+    xs = List[Int]()
+    !xs.push(1)
+    !xs.push(2)
+    !xs.push(3)
+    return <xs
+
+  fun size(v: ?Val) -> Int
+    match v
+      .Table(m) => m.len
+      .Num(n) => n
+
+  fun keep(v: ?Val) -> ?Val
+    return v
+
+  fun apply(f: ?fun(?Val) -> Int) -> Int
+    f(.Table(m: three()))
+
+  fun Bag.size(?self, v: ?Val, extra: Int = 0) -> Int
+    size(v) + extra + self.n
+
+  defer print("defer", size(.Table(m: three())))
+  c = true
+  f = |v: ?Val| print("closure", size(v))
+  f(.Table(m: three()))
+  g = *|v: ?Val| size(v) + 1
+  print(g(.Table(m: three())), apply(size))
+  print("postfix", size(.Table(m: three()))) if c
+  i = 0
+  while size(.Table(m: three())) > i: i += size(.Num(n: 1))
+    print("loop", i)
+  b = Bag(n: 1)
+  print(b.size(extra: 5, v: .Table(m: three())))
+  print(size(keep(.Table(m: three()))))
+
+fail "review-needs50-view-escapes", "a view of the temporary `.Table(m: List())` outlives its statement, which drops it; bind the value to a name first"
+  # A view of a variant literal lent to a call, returned by that call, may
+  # not outlive the statement that drops the literal: bound by `if ... as`,
+  # read by the arms of `match`, or iterated by `for`. Rejected.
+  enum Val
+    Num(n: Int)
+    Table(m: List[Int])
+
+  fun keep(v: ?Val) -> ?Val
+    return v
+
+  fun keep2(v: ?Val) -> (?Val)?
+    return v
+
+  fun items(v: ?Val, other: ?List[Int]) -> ?List[Int]
+    match v
+      .Table(m) => m
+      .Num(_) => other
+
+  ys = List[Int]()
+  if keep2(.Table(m: List())) as v
+    print(v)
+  match keep(.Table(m: List()))
+    .Table(m) => print("t", m.len)
+    .Num(n) => print(n)
+  for x in items(.Table(m: List()), ?ys)
+    print(x)
+
+fail "review-never-data-1-a01 field copy out", "`h.c` is a unique `Cell[Int]`, which can't be copied by `=`: write `?h.c` to view it"
+  obj S
+    c: Cell[Int] = Cell(0)
+
+  h = *S()
+  x = h.c
+  !x.set(5)
+  print(h.c.get())
+
+fail "review-never-data-1-a02 inner copy out", "`h.inner` is a unique `Inner`, which can't be copied by `=`: write `?h.inner` to view it"
+  obj Inner
+    c: Cell[Int] = Cell(0)
+
+  obj S
+    inner: Inner
+
+  h = *S(inner: Inner())
+  !h.inner.c.set(3)
+  y = h.inner
+  !y.c.set(7)
+  print(h.inner.c.get())
+
+test "review-never-data-1-a06 enum payload", "9"
+  enum E
+    a(c: Cell[Int])
+    b
+
+  e = *E.a(c: Cell(1))
+  match !e
+    .a(c)
+      !c.set(9)
+    .b
+      pass
+  match e
+    .a(c)
+      print(c.get())
+    .b
+      pass
+
+test "review-never-data-1-a11 generic struct cell", "7"
+  obj W[T]
+    c: Cell[T]
+
+    sub put(!self, x: T)
+      !self.c.set(x)
+
+  sub bump[T](w: !W[T], x: T)
+    !w.put(x)
+
+  w = *W(c: Cell(1))
+  bump(!w, 5)
+  !w.put(6)
+  bump(!w, 7)
+  print(w.c.get())
+
+test "review-never-data-1-a12 weak", "1"
+  obj Counter
+    hits: Cell[Int] = Cell(0)
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+  k = *Counter()
+  w = ~k
+  if *w as s
+    !s.hit()
+  print(k.hits.get())
+
+test "review-never-data-1-a13 view return", "5"
+  obj Counter
+    hits: Cell[Int] = Cell(0)
+
+  fun hits(k: !Counter) -> !Cell[Int]
+    !k.hits
+
+  k = *Counter()
+  c = hits(!k)
+  !c.set(4)
+  n = c.get() + 1
+  (!hits(!k)).set(n)
+  print(k.hits.get())
+
+test "review-never-data-1-a15 nested field struct method", "7 1"
+  obj Counter
+    hits: Cell[Int] = Cell(0)
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+  obj Outer
+    a: Counter
+    b: Counter
+
+  h = *Outer(a: Counter(hits: Cell(5)), b: Counter())
+  !h.a.hit()
+  !h.b.hit()
+  r = !h.a
+  !r.hit()
+  print(h.a.hits.get(), h.b.hits.get())
+
+test "review-never-data-1-a17 match payload view", "1"
+  obj Counter
+    hits: Cell[Int] = Cell(0)
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+  enum E
+    a(k: Counter)
+    b
+
+  e = *E.a(k: Counter())
+  match !e
+    .a(k)
+      !k.hit()
+      !k.hit()
+    .b
+      pass
+  match !e
+    .a(k)
+      !k.hit()
+    .b
+      pass
+  print(1)
+
+test "review-never-data-1-c05 branch bound stored", "1 2"
+  obj Opt[T]
+    v: T
+
+  a = 1
+  b = 2
+  c = a < b
+  x = (!a if c else !b)
+  o = Opt(v: x)
+  o.v += 10
+  print(a, b)
+
+fail "review-never-data-1-c08 closure env wv", "closure `g` cannot be moved, returned, stored, or copied; call it as `g()`, lend it to a call as `?g`, or make the literal owned (`*|...| body`) to pass it around"
+  sub run(f: sub())
+    f()
+
+  n = 1
+  w = !n
+  g = |!w| w += 5
+  run(g)
+  g()
+  print(n)
+
+fail "review-never-data-1-c09 owned closure wv", "an owned closure cannot capture a view of `w`: it can be stored anywhere, so it could outlive `w`; capture an owned value, or use a stack closure (`|...|`)"
+  n = 1
+  w = !n
+  g: *sub() = *|!w| w += 5
+  g()
+  print(n)
+
+test "review-never-data-1-d03 text place", "S(c: Cell(value: [1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]))5"
+  obj S
+    c: Cell[List[Int]]
+
+  obj O
+    s: S
+
+  fun grow(s: !S) -> Int
+    for i in 0..100
+      !s.c.push(i)
+    5
+
+  fun growc(c: !Cell[List[Int]]) -> Int
+    for i in 0..100
+      !c.push(i)
+    5
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = true
+  _ = k
+  a2 = +a
+  !a.s.c.push(1)
+  print(String(a.s, grow(!a2.s)))
+
+test "review-never-data-1-d04 print handle", "O(s: S(c: Cell(value: [1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]))) 5"
+  obj S
+    c: Cell[List[Int]]
+
+  obj O
+    s: S
+
+  fun grow(s: !S) -> Int
+    for i in 0..100
+      !s.c.push(i)
+    5
+
+  fun growc(c: !Cell[List[Int]]) -> Int
+    for i in 0..100
+      !c.push(i)
+    5
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = true
+  _ = k
+  a2 = +a
+  !a.s.c.push(1)
+  print(a, grow(!a2.s))
+
+test "review-never-data-1-d08 interp branch", "#{a.s if k else b.s} #{grow(?a.s)}"
+  obj S
+    c: Cell[List[Int]]
+
+  obj O
+    s: S
+
+  fun grow(s: !S) -> Int
+    for i in 0..100
+      !s.c.push(i)
+    5
+
+  fun growc(c: !Cell[List[Int]]) -> Int
+    for i in 0..100
+      !c.push(i)
+    5
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = true
+  _ = k
+  !a.s.c.push(1)
+  print("#{a.s if k else b.s} #{grow(?a.s)}")
+
+test "review-never-data-1-d09 cmp", "false"
+  obj S
+    c: Cell[List[Int]]
+
+  obj O
+    s: S
+
+  fun grow(s: !S) -> Int
+    for i in 0..100
+      !s.c.push(i)
+    5
+
+  fun growc(c: !Cell[List[Int]]) -> Int
+    for i in 0..100
+      !c.push(i)
+    5
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = true
+  _ = k
+  !a.s.c.push(1)
+  print(a.s.c.len == grow(!a.s))
+
+test "review-never-data-1-d11 print shared cell", '''
+  Cell(value: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]) 5
+  Cell(value: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]) 5
+'''
+  obj S
+    c: Cell[List[Int]]
+
+  obj O
+    s: S
+
+  fun grow(s: !S) -> Int
+    for i in 0..100
+      !s.c.push(i)
+    5
+
+  fun growc(c: !Cell[List[Int]]) -> Int
+    for i in 0..100
+      !c.push(i)
+    5
+
+  sub x()
+    pass
+
+  c = *Cell(List[Int]())
+  c2 = +c
+  print(c, growc(!c2))
+  print(c if true else c, growc(!c2))
+
+test "review-never-data-1-e11 branch readview method cell", "2 0"
+  obj Counter
+    hits: Cell[Int] = Cell(0)
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+  obj O
+    k: Counter
+
+  h = *O(k: Counter())
+  g = *O(k: Counter())
+  c = true
+  (!h.k if c else !g.k).hit()
+  !(h if c else g).k.hit()
+  print(h.k.hits.get(), g.k.hits.get())
+
+test "review-never-data-1-g01 branch push", "52 0"
+  obj S
+    c: Cell[List[Int]]
+
+    sub grow(!self)
+      for i in 0..50
+        !self.c.push(i)
+
+  obj O
+    s: S
+
+  fun peek(o: ?O) -> ?S
+    ?o.s
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = a.s.c.len == 0
+  !a.s.c.push(1)
+  !(!a.s if k else !b.s).c.push(5)
+  (!a.s if k else !b.s).grow()
+  print(a.s.c.len, b.s.c.len)
+
+test "review-never-data-1-g06 branch in arg then change", "1 0 true 2"
+  obj S
+    c: Cell[List[Int]]
+
+    sub grow(!self)
+      for i in 0..50
+        !self.c.push(i)
+
+  obj O
+    s: S
+
+  fun peek(o: ?O) -> ?S
+    ?o.s
+
+  fun f(x: Int, s: ?S) -> Int
+    x + s.c.len
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = a.s.c.len == 0
+  !a.s.c.push(1)
+  print(a.s.c.len, b.s.c.len, k, f(1, ?a.s))
+
+test "review-never-data-1-g08 branch cell pop", '''
+  1
+  0 0
+'''
+  obj S
+    c: Cell[List[Int]]
+
+    sub grow(!self)
+      for i in 0..50
+        !self.c.push(i)
+
+  obj O
+    s: S
+
+  fun peek(o: ?O) -> ?S
+    ?o.s
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = a.s.c.len == 0
+  !a.s.c.push(1)
+  print((!(!a.s if k else !b.s).c).pop() ?? -1)
+  print(a.s.c.len, b.s.c.len)
+
+test "review-never-data-1-g09 branch set vec", "0 0"
+  obj S
+    c: Cell[List[Int]]
+
+    sub grow(!self)
+      for i in 0..50
+        !self.c.push(i)
+
+  obj O
+    s: S
+
+  fun peek(o: ?O) -> ?S
+    ?o.s
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = a.s.c.len == 0
+  !a.s.c.push(1)
+  !(!a.s if k else !b.s).c.set(List())
+  print(a.s.c.len, b.s.c.len)

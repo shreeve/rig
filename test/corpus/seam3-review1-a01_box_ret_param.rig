@@ -1,9 +1,0 @@
-fun wrap(v: ?List[Int]) -> ^?List[Int]
-  ^v
-
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  b = wrap(?v)
-  !v.push(2)
-  print(b.len)

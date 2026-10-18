@@ -1,8 +1,0 @@
-fun firstof(v: ?List[String]) -> ?String
-  ?v[0]
-
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  s = firstof(?v)
-  print(s)

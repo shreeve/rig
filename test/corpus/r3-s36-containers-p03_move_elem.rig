@@ -1,5 +1,0 @@
-sub main()
-  v: List[Int?] = List()
-  !v.push(3)
-  x = <v[0]
-  print(x, v)

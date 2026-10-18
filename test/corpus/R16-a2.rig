@@ -1,7 +1,0 @@
-sub walk(v: !List[Int], f: ?sub(Int))
-  !v.push(1)
-  f(1)
-
-sub main()
-  v: List[Int] = List()
-  walk(!v, |?v, n| print(v.len + n))

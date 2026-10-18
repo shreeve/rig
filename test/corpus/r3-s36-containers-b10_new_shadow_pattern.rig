@@ -1,4 +1,0 @@
-sub main()
-  x = 1
-  new x = ?x
-  print(x)

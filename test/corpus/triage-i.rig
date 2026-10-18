@@ -1,5 +1,0 @@
-sub main()
-  invoke = 3
-  f = || print("x")
-  f()
-  print(invoke)

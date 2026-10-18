@@ -1,9 +1,0 @@
-fun get(f: ?fun() -> ?List[Int]) -> Int
-  g = f
-  r = g()
-  r.len
-
-sub main()
-  c: List[Int] = List()
-  !c.push(42)
-  print(get(|?c| c))

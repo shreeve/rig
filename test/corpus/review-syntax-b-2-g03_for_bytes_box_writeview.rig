@@ -1,9 +1,0 @@
-sub f(w: !^String)
-  for b in w
-    if b == 104
-      w = ^String("x")
-    print(b)
-
-sub main()
-  t = ^String("hello")
-  f(!t)

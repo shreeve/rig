@@ -1,3 +1,0 @@
-pub error IoError
-  closed
-  eof

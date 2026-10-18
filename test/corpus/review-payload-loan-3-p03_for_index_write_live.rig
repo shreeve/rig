@@ -1,7 +1,0 @@
-sub main()
-  v: List[String] = List()
-  !v.push(String("hello"))
-  for b, i in !v
-    s = ?b[1..]
-    !b.add(" and more and more and more text to realloc the buffer")
-    print(s, i)

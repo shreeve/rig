@@ -1,9 +1,0 @@
-sub keep(v: !List[?Int], x: ?Int) keeps x
-  !v.push(x)
-
-sub main()
-  a = 1
-  v: List[?Int] = List()
-  keep(!v, ?a)
-  a = 2
-  print(v.len)

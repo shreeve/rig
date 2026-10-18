@@ -18,8 +18,8 @@ started:
   it needs a new reach fact (what a lent parameter's own view target is,
   apart from what it reaches through the views it holds) and a call rule
   that stores the argument's held loans instead of its lend. Probes:
-  `test/corpus/corekeeps-p4_store_through_view.rig`,
-  `test/corpus/corekeeps-p4b_keeps_through_view.rig`.
+  the cases `corekeeps-p4 store through view` and `corekeeps-p4b keeps
+  through view` of test/rig/probes-08.rig.test.
 - Several results, after v1 (SPEC "Several results"):
   - small results in registers: pack results of up to two words of
     integers, `Bool`s, and pointers into a `u128`, which Zig's default
@@ -66,7 +66,7 @@ started:
   `test/cli/frame_reach.sh` checks, and a form Zig copies that reach
   does not model could exceed it. Two did in #230's review, both fixed:
   a payload part a `match <e` arm drops, passed by value at each exit
-  (`test/corpus/rev230-discard-exits.rig`); and the same at 12,000
+  (the case `rev230-discard-exits` of test/rig/probes-16.rig.test); and the same at 12,000
   exits, whose 48 GB frame made Zig's aarch64 build fail with `fixup
   value out of range` (`test/cli/discard_build.sh`; a frame over 4 GiB
   draws Zig's warning, and one that large fails to build).
@@ -82,12 +82,12 @@ started:
   | 100 | 10 MB |
   | 200 | 24 MB |
   | 400 | 74 MB |
-  | 12,000 | 52 GiB (`--set corpus`, measured on Linux) |
+  | 12,000 | 52 GiB (measured on Linux) |
 
   At 12,000 exits it took down a 7 GB CI runner, so that program is a
   CLI test (`test/cli/discard_build.sh`), which the checker never sees,
-  rather than a corpus probe. Make it linear, then the program can
-  return to the corpus.
+  rather than a case of test/rig. Make it linear, then the program can
+  become a case.
 - Switching to Nexus's `Span.text`.
 - `text.ByteSet`, a byte set built once when the program runs and
   searched with `set.find(s, at)`: the run-time sibling of

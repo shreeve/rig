@@ -1,7 +1,0 @@
-fun mk() -> String
-  String("abc")
-
-sub main()
-  n = mk().len
-  print(n, mk() == "abc")
-  print(String("x", 1))

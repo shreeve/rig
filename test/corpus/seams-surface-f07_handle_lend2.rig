@@ -1,9 +1,0 @@
-obj P
-  x: Int
-
-fun rd(p: ?P) -> Int
-  p.x
-
-sub main()
-  h = *P(x: 1)
-  print(rd(h))

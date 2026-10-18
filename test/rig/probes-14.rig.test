@@ -1,0 +1,1554 @@
+# Probes from past reviews and audits, 14 of 41: r3-s36-loans-text_st02_loop_view_into_vec to r3-s36-reads-x04_text_for_q.
+
+use std.text
+
+fail "r3-s36-loans-text st02 loop view into vec", "`t` does not live long enough"
+  names: List[?String] = List()
+  for i in 0..3
+    t = String("n", i)
+    !names.push(?t[..])
+  print(names)
+
+fail "r3-s36-loans-text st03 payload copy keeps loan", "cannot lend `t` to write while a read loan is live"
+  enum H
+    has(s: ?String)
+    no
+
+  t = String("abc")
+  h: H = .has(s: ?t[..])
+  match h
+    .has(s)
+      w = s
+      <h
+      !t.add("d")
+      print(w)
+    .no => print("no")
+
+fail "r3-s36-loans-text st04 closure view then mutate", "cannot lend `t` to write while a read loan is live"
+  t = String("abc")
+  s: ?String = ?t[..]
+  f = |?s| print(s)
+  !t.add("d")
+  f()
+
+fail "r3-s36-loans-text st05 over lend key", "cannot lend `k` to write while a read loan is live"
+  # Over-lending with Strings: the result can only view `hay`, but it
+  # views the key's Text too.
+  fun after(hay: ?String, key: ?String) -> ?String
+    hay[key.len..]
+
+  doc = String("key=value")
+  k = String("key=")
+  v = after(?doc, ?k)
+  !k.add("x")
+  print(v)
+
+fail "r3-s36-loans-text st07 defer view at propagate", "cannot drop `x` while it is lent"
+  error E
+    bad
+
+  fun maybe(ok: Bool) -> Int!
+    return E.bad if not ok
+    1
+
+  fun f(ok: Bool) -> Int!
+    keep = String("keep")
+    x = String("x")
+    r: ?String = ?x[..]
+    defer r = ?keep[..]
+    k = maybe(ok)!
+    <x
+    print(r, k)
+    k
+
+  print(f(true) catch 0)
+
+fail "r3-s36-loans-text st08 for view elems push", "cannot lend `t` to write while a read loan is live"
+  t = String("a b")
+  names: List[?String] = List()
+  !names.push(?t[0..1])
+  for s in ?names
+    !t.add("!")
+    print(s)
+
+fail "r3-s36-loans-text st09 optional view coalesce", "cannot lend `t` to write while a read loan is live"
+  fun find(hay: ?String, b: U8) -> (?String)?
+    for c, i in hay
+      return hay[i..] if c == b
+    none
+
+  t = String("a=b")
+  rest = find(?t, 61) ?? ""
+  !t.add("c")
+  print(rest)
+
+fail "r3-s36-loans-text st10 match temp view", "a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first"
+  fun mk() -> String
+    String("temp")
+
+  s: ?String = "x"
+  s = ?mk()[..]
+  print(s)
+
+test "r3-s36-n03 tail match drops", '''
+  drop 2
+  1
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun pick(k: Int) -> R
+    a = R(n: 1)
+    b = R(n: 2)
+    match k
+      0 => a
+      _ => b
+
+  x = pick(0)
+  print(x.n)
+
+fail "r3-s36-n06 box lend then reassign", "cannot reassign `b` while it is lent"
+  obj S
+    n: Int
+
+  fun get(s: ?S) -> ?S
+    s
+
+  b = ^S(n: 1)
+  r = get(?b)
+  b = ^S(n: 2)
+  print(r.n)
+
+fail "r3-s36-n07 match box payload reassign", "cannot reassign `b` while it is lent"
+  enum Sh
+    circle(r: List[Int])
+    dot
+
+  v: List[Int] = List()
+  !v.push(1)
+  b = ^Sh.circle(<v)
+  match ?b
+    .circle(r)
+      b = ^Sh.dot
+      print(r.len)
+    .dot => print("dot")
+
+fail "r3-s36-n10 for vec box push in body", "cannot lend `v` to write while a read loan is live"
+  obj P
+    n: Int
+
+  v: List[^P] = List()
+  !v.push(^P(n: 1))
+  for x in ?v
+    !v.push(^P(n: 2))
+    print(x.n)
+
+fail "r3-s36-n11 fixed view then push", "cannot lend `v` to write while a read loan is live"
+  v: List[Int] = List()
+  !v.push(1)
+  r =! ?v[..]
+  !v.push(2)
+  print(r.len)
+
+fail "r3-s36-n13 new shadow wb old alive", "`w` is assigned but never read; use it, or discard the value with `_ = ...`"
+  m = 1
+  n = 2
+  w = !m
+  new w = !n
+  w = 5
+  print(w, n)
+
+test "r3-s36-n14 local wb write through bare", "7 7"
+  m = 1
+  n = 7
+  w = !m
+  w = n
+  print(m, n)
+
+test "r3-s36-n18 block tail owner bare", '''
+  1
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  c = true
+  x = if c
+    r = R(n: 1)
+    r
+  else
+    R(n: 2)
+  print(x.n)
+
+test "r3-s36-n19 clone vec field struct", "1 1"
+  obj H
+    h: *List[Int]
+
+  v: List[Int] = List()
+  !v.push(1)
+  a = H(h: *<v)
+  b = +a
+  print(a.h.len, b.h.len)
+
+test "r3-s36-n22 shared member after drop", "3"
+  obj S
+    v: List[Int]
+
+  fun first(h: ?*S) -> Int
+    h.v[0]
+
+  v: List[Int] = List()
+  !v.push(3)
+  h = *S(v: <v)
+  print(first(?h))
+
+test "r3-s36-n23 wb param reassign write through", "4"
+  sub set(w: !Int, k: Int)
+    w = k
+
+  m = 1
+  set(!m, 4)
+  print(m)
+
+test "r3-s36-n24 overlend counter", "5 2"
+  fun find(xs: ?List[Int], n: !Int) -> ?Int
+    n += 1
+    ?xs[0]
+
+  v: List[Int] = List()
+  !v.push(5)
+  n = 0
+  r = find(?v, !n)
+  n += 1
+  print(r, n)
+
+fail "r3-s36-n25 match value bare owner", "`a` owns an `R`, which can't be copied by `=`: write `<a` to move it or `?a` to view it"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  k = 1
+  a = R(n: 1)
+  b = R(n: 2)
+  x = match k
+    0 => a
+    _ => b
+  print(x.n)
+
+fail "r3-s36-n26 ternary value bare owner", "`a` owns an `R`, which can't be copied by `=`: write `<a` to move it or `?a` to view it"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  c = true
+  a = R(n: 1)
+  b = R(n: 2)
+  x = a if c else b
+  print(x.n)
+
+fail "r3-s36-n27 if value outer owner bare", "`a` owns an `R`, which can't be copied by `=`: write `<a` to move it or `?a` to view it"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  c = true
+  a = R(n: 1)
+  x = if c
+    a
+  else
+    R(n: 2)
+  print(x.n)
+  print(a.n)
+
+test "r3-s36-n28 break outer owner", '''
+  5
+  drop 5
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  a = R(n: 5)
+  x = while true
+    break <a
+  print(x.n)
+
+test "r3-s36-n29 block tail shadow copy outer", '''
+  1 5
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  c = true
+  r = 5
+  x = if c
+    new r = R(n: 1)
+    r
+  else
+    R(n: 2)
+  print(x.n, r)
+
+test "r3-s36-n31 match arm block local tail", '''
+  1
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  k = 0
+  x = match k
+    0
+      r = R(n: 1)
+      r
+    _ => R(n: 2)
+  print(x.n)
+
+fail "r3-s36-n32 block local tail then defer", "use of `r` after move"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  c = true
+  x = if c
+    r = R(n: 1)
+    defer print("defer sees", r.n)
+    r
+  else
+    R(n: 2)
+  print(x.n)
+
+fail "r3-s36-n33c block tail move defer drop", "a `defer` body cannot move or drop `r`; it runs when the scope exits"
+  obj R
+    v: List[Int]
+
+  c = true
+  x = if c
+    r = R(v: List())
+    !r.v.push(1)
+    defer <r
+    r
+  else
+    R(v: List())
+  print(x.v.len, x.v[0])
+
+fail "r3-s36-n33d block tail move vec defer drop", "a `defer` body cannot move or drop `v`; it runs when the scope exits"
+  c = true
+  x = if c
+    v: List[Int] = List()
+    !v.push(1)
+    defer <v
+    v
+  else
+    w: List[Int] = List()
+    w
+  print(x.len, x[0])
+
+fail "r3-s36-n33h break move defer", "use of `v` after move"
+  x = while true
+    v: List[Int] = List()
+    !v.push(1)
+    defer
+      for i in 0..100
+        !v.push(i)
+    break <v
+  !x.push(3)
+  print(x.len, x[0])
+
+fail "r3-s36-n33i assign move defer", "use of `v` after move"
+  x: List[Int] = List()
+  if true
+    v: List[Int] = List()
+    !v.push(1)
+    defer
+      for i in 0..100
+        !v.push(i)
+    x = <v
+  !x.push(3)
+  print(x.len, x[0])
+
+fail "r3-s36-n33m closure tail defer", "use of `v` after move"
+  mk: fun() -> List[Int] = ||
+    v: List[Int] = List()
+    !v.push(1)
+    defer
+      for i in 0..100
+        !v.push(i)
+    v
+  x = mk()
+  !x.push(3)
+  print(x.len, x[0])
+
+test "r3-s36-n33o errdefer tail block", "1"
+  error E
+    bad
+
+  fun g(c: Bool) -> List[Int]!
+    x = if c
+      v: List[Int] = List()
+      !v.push(1)
+      errdefer !v.push(2)
+      v
+    else
+      return E.bad
+    x
+
+  x = g(true)!
+  print(x.len)
+
+fail "r3-s36-n33q fun tail block local defer direct", "use of `v` after move"
+  fun mk() -> List[Int]
+    v: List[Int] = List()
+    !v.push(1)
+    defer
+      for i in 0..100
+        !v.push(i)
+    v
+
+  x = mk()
+  !x.push(3)
+  print(x.len, x[0])
+
+fail "r3-s36-n34 return move defer writes", "use of `r` after move"
+  obj R
+    v: List[Int]
+
+  fun mk() -> R
+    r = R(v: List())
+    !r.v.push(1)
+    defer !r.v.push(2)
+    r
+
+  x = mk()
+  !x.v.push(3)
+  print(x.v.len, x.v[0])
+
+fail "r3-s36-n36 read field repoint inner", "`b` does not live long enough"
+  obj H
+    r: ?List[Int]
+
+  a: List[Int] = List()
+  h = H(r: ?a)
+  if true
+    b: List[Int] = List()
+    !b.push(1)
+    h.r = ?b
+  print(h.r.len)
+
+fail "r3-s36-n38 read local repoint loop", "`b` does not live long enough"
+  a: List[Int] = List()
+  r = ?a
+  for i in 0..2
+    b: List[Int] = List()
+    !b.push(i)
+    r = ?b
+  print(r.len)
+
+test "r3-s36-n40 local read repoint releases", '''
+  1
+  2 10
+'''
+  a = 1
+  b = 2
+  r = ?a
+  print(r)
+  r = ?b
+  a = 10
+  print(r, a)
+
+test "r3-s36-n41 pending view places", "1 5"
+  m = 1
+  n = 2
+  w = !m
+  w = !n
+  w = 5
+  print(m, n)
+
+test "r3-s36-n42 vec text", "1"
+  v: List[String] = List()
+  !v.push(String("a"))
+  print(v.len)
+
+test "r3-s36-reads-a05 arg vec field bare", '''
+  1
+  1
+'''
+  obj Bag
+    v: List[Int]
+
+  fun count(v: ?List[Int]) -> Int
+    v.len
+
+  b = Bag(v: List())
+  !b.v.push(3)
+  print(count(b.v))
+  print(count(?b.v))
+
+test "r3-s36-reads-c03 closure q capture", '''
+  3
+  3
+'''
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  b = mk(3)
+  f = |?b| print(b.n)
+  f()
+  print(b.n)
+
+test "r3-s36-reads-d01 field read", "3 1"
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  b = mk(3)
+  n = b.n
+  l = b.v.len
+  print(n, l)
+
+fail "r3-s36-reads-d02 field owner bind", "`b.v` owns a `List[Int]`, which can't be copied by `=`: write `+b.v` to clone it or `?b.v` to view it"
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  b = mk(3)
+  w = b.v
+  print(w.len)
+
+test "r3-s36-reads-d04 bind view", "3 3"
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  b = mk(3)
+  c = ?b
+  print(c.n, b.n)
+
+test "r3-s36-reads-e04 eq text temp", "true true true"
+  fun mk() -> String
+    String("a")
+
+  t = String("a")
+  print(t == mk(), mk() == t, t == t)
+
+test "r3-s36-reads-e05 eq opt none", '''
+  false
+  0
+'''
+  obj S
+    v: List[Int]
+
+  o: S? = S(v: List())
+  print(o == none)
+  if ?o as x
+    print(x.v.len)
+
+test "r3-s36-reads-f01b for vec q", '''
+  1
+  2
+  2
+'''
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  for x in ?v
+    print(x)
+  print(v.len)
+
+test "r3-s36-reads-f03 for field bare", '''
+  5
+  5
+'''
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  b = mk(5)
+  for x in b.v
+    print(x)
+  print(b.n)
+
+test "r3-s36-reads-f04 for call", "5"
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  for x in mk(5).v
+    print(x)
+
+test "r3-s36-reads-f05 for vec of owner bare", '''
+  1
+  1
+  drop 1
+'''
+  obj B
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[*B] = List()
+  !v.push(*B(n: 1))
+  for h in v
+    print(h.n)
+  print(v.len)
+
+fail "r3-s36-reads-f06 for array write in body", "cannot assign to `a[0]` while `a` is lent"
+  a = [1, 2, 3]
+  for x in a
+    a[0] = 9
+    print(x)
+  print(a[0])
+
+test "r3-s36-reads-g02 generic value param", "4 4"
+  fun id[T](x: T) -> T
+    x
+
+  k = 4
+  r = ?k
+  print(id(r), id(k))
+
+test "r3-s36-reads-i01b ifas q", '''
+  2
+  2
+'''
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  o: Bag? = mk(2)
+  if ?o as x
+    print(x.n)
+  if ?o as y
+    print(y.n)
+
+test "r3-s36-reads-i01c ifas move", "2"
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  o: Bag? = mk(2)
+  if <o as x
+    print(x.n)
+
+test "r3-s36-reads-i02 ifas call", "9"
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  fun maybe() -> Bag?
+    mk(9)
+
+  if maybe() as x
+    print(x.n)
+
+fail "r3-s36-reads-k03 take push bare", "`b` owns a `Bag`, which can't be copied into a box: write `<b` to move it or `+b` to clone it"
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  sub eat(b: Bag)
+    print(b.n)
+
+  obj Hold
+    b: Bag
+
+  b = mk(1)
+  hs: List[^Bag] = List()
+  !hs.push(^b)
+  print(hs.len)
+
+fail "r3-s36-reads-k04 take assign field bare", "`b` owns a `Bag`, which can't be copied into a field: write `<b` to move it or `+b` to clone it"
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  sub eat(b: Bag)
+    print(b.n)
+
+  obj Hold
+    b: Bag
+
+  b = mk(1)
+  h = Hold(b: mk(2))
+  h.b = b
+  print(h.b.n)
+
+test "r3-s36-reads-k05 take arg call", "1"
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  sub eat(b: Bag)
+    print(b.n)
+
+  obj Hold
+    b: Bag
+
+  eat(mk(1))
+
+fail "r3-s36-reads-k07 take handle arg", "`h` is a `*Bag` handle, which can't be copied into an argument: write `<h` to move it or `+h` for another handle"
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  sub eat(b: Bag)
+    print(b.n)
+
+  obj Hold
+    b: Bag
+
+  h = *mk(1)
+  hs: List[*Bag] = List()
+  !hs.push(h)
+  print(hs.len)
+
+test "r3-s36-reads-l03b array wslice", "[0, 5] [0]"
+  sub zero(xs: ![]Int)
+    xs[0] = 0
+
+  a = [4, 5]
+  zero(!a)
+  v: List[Int] = List()
+  !v.push(4)
+  zero(!v[..])
+  print(a, v)
+
+test "r3-s36-reads-l04c handle member", "3 3"
+  obj S
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+  h = *S(n: 3)
+  print(h.n, h.get())
+
+test "r3-s36-reads-l05 box view", "4 4"
+  obj S
+    n: Int
+    v: List[Int]
+
+  fun get(s: ?S) -> Int
+    s.n
+
+  sub bump(s: !S)
+    s.n += 1
+
+  b = ^S(n: 3, v: List())
+  bump(!b)
+  print(get(?b), b.n)
+
+test "r3-s36-reads-l06 opt view", "3"
+  obj S
+    n: Int
+    v: List[Int]
+
+  fun get(s: (?S)?) -> Int
+    if s as x
+      return x.n
+    0
+
+  o: S? = S(n: 3, v: List())
+  print(get(?o))
+
+test "r3-s36-reads-l06b opt view ifas", "3"
+  obj S
+    n: Int
+    v: List[Int]
+
+  o: S? = S(n: 3, v: List())
+  r = ?o
+  if r as x
+    print(x.n)
+
+test "r3-s36-reads-l07 vec opt slice", "1"
+  fun sum(xs: ([]Int)?) -> Int
+    if xs as s
+      return s.len
+    0
+
+  v: List[Int] = List()
+  !v.push(4)
+  o: List[Int]? = <v
+  print(sum(?o))
+
+test "r3-s36-reads-l08 callable", "3 12 20"
+  fun twice(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(f(x))
+
+  fun inc(x: Int) -> Int
+    x + 1
+
+  k = 10
+  add = |?k, x: Int| x + k
+  print(twice(inc, 1), twice(|x: Int| x * 2, 3), twice(?add, 0))
+
+test "r3-s36-reads-l11 box array slice", "6"
+  fun sum(xs: []Int) -> Int
+    s = 0
+    for x in xs
+      s += x
+    s
+
+  b = ^[1, 2, 3]
+  print(sum(?b))
+
+test "r3-s36-reads-l15 handle text member", "3 true"
+  h = *String("abc")
+  print(h.len, ?h == "abc")
+
+test "r3-s36-reads-l16 owned closure lend", '''
+  3
+  3
+'''
+  fun twice(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(f(x))
+
+  cb = *|x: Int| x + 1
+  print(twice(?cb, 1))
+  print(twice(cb, 1))
+
+test "r3-s36-reads-m02 match enum bare", '''
+  p 1
+  p 1
+'''
+  enum Shape
+    circle(r: Int)
+    poly(pts: List[Int])
+
+  pts: List[Int] = List()
+  !pts.push(1)
+  s = Shape.poly(pts: <pts)
+  match s
+    .circle(r) => print("c", r)
+    .poly(ps) => print("p", ps.len)
+  match s
+    .circle(r) => print("c", r)
+    .poly(ps) => print("p", ps.len)
+
+test "r3-s36-reads-m03 match box bare", '''
+  p 1
+  p 1
+'''
+  enum Shape
+    circle(r: Int)
+    poly(pts: List[Int])
+
+  pts: List[Int] = List()
+  !pts.push(1)
+  b = ^Shape.poly(pts: <pts)
+  match b
+    .circle(r) => print("c", r)
+    .poly(ps) => print("p", ps.len)
+  match ?b
+    .circle(r) => print("c", r)
+    .poly(ps) => print("p", ps.len)
+
+test "r3-s36-reads-m04 match call", "p 1"
+  enum Shape
+    circle(r: Int)
+    poly(pts: List[Int])
+
+  fun mk() -> Shape
+    pts: List[Int] = List()
+    !pts.push(1)
+    Shape.poly(pts: <pts)
+
+  match mk()
+    .circle(r) => print("c", r)
+    .poly(ps) => print("p", ps.len)
+
+test "r3-s36-reads-m05 match handle", "p 1"
+  enum Shape
+    circle(r: Int)
+    poly(pts: List[Int])
+
+  pts: List[Int] = List()
+  !pts.push(1)
+  h = *Shape.poly(pts: <pts)
+  match h
+    .circle(r) => print("c", r)
+    .poly(ps) => print("p", ps.len)
+
+test "r3-s36-reads-p01 print bare", '''
+  [3]
+  1 4
+  3
+'''
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  b = mk(3)
+  print(b.v)
+  print(b.v.len, b.total())
+  print(b.n)
+
+test "r3-s36-reads-p02 print owner", '''
+  Bag(n: 3, v: [3])
+  3
+'''
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  b = mk(3)
+  print(b)
+  print(b.n)
+
+test "r3-s36-reads-q01 print ternary names", '''
+  1
+  1 2
+  drop 2
+  drop 1
+'''
+  obj B
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> B
+    B(n: n)
+
+  fun mko(n: Int) -> B?
+    B(n: n)
+
+  a = mk(1)
+  b = mk(2)
+  c = true
+  print((a if c else b).n)
+  print(a.n, b.n)
+
+test "r3-s36-reads-q02 print optprop name", '''
+  1
+  B(n: 1)
+  drop 1
+  1
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun show() -> Int?
+    o: B? = B(n: 1)
+    print(o?.n)
+    print(o?)
+    o?.n
+
+  print(show() ?? 0)
+
+test "r3-s36-reads-q03 print coalesce name", '''
+  1
+  drop 1
+  9
+  drop 9
+'''
+  obj B
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> B
+    B(n: n)
+
+  fun mko(n: Int) -> B?
+    B(n: n)
+
+  d = mk(9)
+  print((mko(1) ?? d).n)
+  print(d.n)
+
+test "r3-s36-reads-q05 receiver temp paren", '''
+  5
+  drop 5
+'''
+  obj B
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> B
+    B(n: n)
+
+  fun mko(n: Int) -> B?
+    B(n: n)
+
+  print((?mk(5)).get())
+
+test "r3-s36-reads-q06 cond drop timing", '''
+  drop 1
+  then-body
+  after
+'''
+  obj B
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> B
+    B(n: n)
+
+  fun mko(n: Int) -> B?
+    B(n: n)
+
+  if mk(1).n == 1
+    print("then-body")
+  print("after")
+
+test "r3-s36-reads-q07 while drop timing", '''
+  drop 10
+  body 0
+  drop 11
+  body 1
+  drop 12
+  after
+'''
+  obj B
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> B
+    B(n: n)
+
+  fun mko(n: Int) -> B?
+    B(n: n)
+
+  i = 0
+  while mk(10 + i).n < 12
+    print("body", i)
+    i += 1
+  print("after")
+
+fail "r3-s36-reads-q08 ifas header view", "a view of the temporary `mk(3)` outlives its statement, which drops it; bind the value to a name first"
+  obj B
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> B
+    B(n: n)
+
+  fun mko(n: Int) -> B?
+    B(n: n)
+
+  fun idp(b: ?B) -> (?B)?
+    b
+
+  if idp(?mk(3)) as r
+    print("body", r.n)
+  print("after")
+
+test "r3-s36-reads-q09 match temp move", '''
+  kept 1
+  drop 1
+  after
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    one(b: B)
+    zero
+
+  fun mk() -> E
+    E.one(b: B(n: 1))
+
+  sub keep(b: B)
+    print("kept", b.n)
+
+  match mk()
+    .one(b) => keep(<b)
+    .zero => pass
+  print("after")
+
+test "r3-s36-reads-q10 match temp read", '''
+  arm 1
+  drop 1
+  after
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    one(b: B)
+    zero
+
+  fun mk() -> E
+    E.one(b: B(n: 1))
+
+  match mk()
+    .one(b) => print("arm", b.n)
+    .zero => pass
+  print("after")
+
+test "r3-s36-reads-q12 print temp", '''
+  4 B(n: 5)
+  drop 5
+  drop 4
+  after
+'''
+  obj B
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> B
+    B(n: n)
+
+  fun mko(n: Int) -> B?
+    B(n: n)
+
+  print(mk(4).n, mk(5))
+  print("after")
+
+test "r3-s36-reads-q13 coalesce bind", '''
+  0
+  drop 0
+'''
+  obj B
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> B
+    B(n: n)
+
+  fun mko(n: Int) -> B?
+    B(n: n)
+
+  d = mko(0) ?? mk(3)
+  print(d.n)
+
+test "r3-s36-reads-q14 lend temp arg", '''
+  7
+  drop 7
+  after
+'''
+  obj B
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> B
+    B(n: n)
+
+  fun mko(n: Int) -> B?
+    B(n: n)
+
+  fun idp2(b: ?B) -> Int
+    b.n
+
+  print(idp2(?mk(7)))
+  print("after")
+
+fail "r3-s36-reads-q15 while as header view", "a view of the temporary `B(n: i)` outlives its statement, which drops it; bind the value to a name first"
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun idp(b: ?B) -> (?B)?
+    b if b.n < 3 else none
+
+  i = 0
+  while idp(?B(n: i)) as r
+    print("body", r.n)
+    i += 1
+  print("after")
+
+fail "r3-s36-reads-q16 cut header", "a view of the temporary `String(\"k=\", n)` outlives its statement, which drops it; bind the value to a name first"
+  n = 5
+  if text.cut(?String("k=", n), "=") as kv
+    print(kv.before, kv.after)
+
+test "r3-s36-reads-r01 receiver bare", '''
+  4
+  3
+'''
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  b = mk(3)
+  print(b.total())
+  print(b.n)
+
+test "r3-s36-reads-r01b receiver q", '''
+  4
+  4
+'''
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  b = mk(3)
+  print((?b).total())
+  print(?b.total())
+
+test "r3-s36-reads-r02 receiver call", "4"
+  obj Bag
+    n: Int
+    v: List[Int]
+
+    fun total(?self) -> Int
+      self.n + self.v.len
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(n: n, v: <v)
+
+  fun size(b: ?Bag) -> Int
+    b.n + b.v.len
+
+  print(mk(3).total())
+
+test "r3-s36-reads-r05 receiver box method", "3 3"
+  obj S
+    n: Int
+    v: List[Int]
+
+    fun get(?self) -> Int
+      self.n
+
+  b = ^S(n: 3, v: List())
+  print(b.get(), b.n)
+
+test "r3-s36-reads-t01 return bare", "0 0 0 0"
+  obj Bag
+    v: List[Int]
+
+  fun mk() -> Bag
+    b = Bag(v: List())
+    return b
+
+  fun mk2() -> Bag
+    b = Bag(v: List())
+    b
+
+  fun mk4(c: Bool) -> Bag
+    b = Bag(v: List())
+    d = Bag(v: List())
+    b if c else d
+
+  fun mk5(c: Bool) -> Bag
+    b = Bag(v: List())
+    d = Bag(v: List())
+    if c
+      b
+    else
+      d
+
+  a = mk()
+  b = mk2()
+  c = mk4(false)
+  d = mk5(true)
+  print(a.v.len, b.v.len, c.v.len, d.v.len)
+
+test "r3-s36-reads-t03 return param view", "0"
+  obj Bag
+    v: List[Int]
+
+  fun pick(a: ?Bag) -> ?Bag
+    a
+
+  b = Bag(v: List())
+  print(pick(?b).v.len)
+
+test "r3-s36-reads-v01 copy plain struct through view", "1"
+  obj P
+    x: Int
+
+  fun get(r: ?P) -> P
+    r
+
+  p = P(x: 1)
+  print(get(?p).x)
+
+fail "r3-s36-reads-v02 view plain temp bind", "a view of the temporary `P(x: 1)` outlives its statement, which drops it; bind the value to a name first"
+  obj P
+    x: Int
+
+  r = ?P(x: 1)
+  print(r.x)
+
+test "r3-s36-reads-x01 text reads", '''
+  hello
+  <hello> true 5
+  h
+  hello
+'''
+  fun first(s: ?String) -> ?String
+    s[..1]
+
+  t = String("hello")
+  print(t)
+  u = String("<", t, ">")
+  print(u, t == "hello", t.len)
+  print(first(?t))
+  print(t)
+
+test "r3-s36-reads-x04 text for q", '''
+  104
+  105
+'''
+  t = String("hi")
+  for b in ?t
+    print(b)

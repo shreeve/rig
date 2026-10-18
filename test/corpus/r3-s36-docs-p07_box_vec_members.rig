@@ -1,4 +1,0 @@
-# Core §4 Box row vs SPEC §10 Box: a Box of a List reaches no members
-sub main()
-  b = ^List[Int]()
-  print(b.len)

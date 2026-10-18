@@ -1,6 +1,0 @@
-sub main()
-  h = *String("hello")
-  r = ?h
-  s = r[1..]
-  h = *String("other")
-  print(s)

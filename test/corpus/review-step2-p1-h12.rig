@@ -1,8 +1,0 @@
-fun grow(t: !String) -> String
-  for _ in 0..100
-    !t.add("abcdefgh")
-  String("x")
-
-sub main()
-  a = String("a")
-  print(a == grow(!a))

@@ -1,4 +1,0 @@
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  print(v.len)

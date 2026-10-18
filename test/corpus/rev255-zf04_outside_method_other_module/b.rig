@@ -1,5 +1,0 @@
-pub obj P
-  pub src: ?String
-
-pub sub P.watch(!self, s: ?String)
-  self.src = s

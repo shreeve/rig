@@ -1,8 +1,0 @@
-# for x in !v: assign x = Text(...) drops old each element
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  !v.push(String("b"))
-  for x in !v
-    x = String(x, "!")
-  print(v)

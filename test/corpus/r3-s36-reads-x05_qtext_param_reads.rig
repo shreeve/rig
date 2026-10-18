@@ -1,9 +1,0 @@
-fun head(t: ?String) -> ?String
-  t[0..2]
-
-fun whole(t: ?String) -> ?String
-  t
-
-sub main()
-  t = String("hello")
-  print(head(?t), whole(?t))

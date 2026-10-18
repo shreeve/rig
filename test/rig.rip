@@ -553,8 +553,8 @@ setup = ->
     mkdirSync(join(work, area), { recursive: true })
     writeFileSync(record, JSON.stringify({ key, list }))
     listed.push(...list)
-  # The oracle's sets: the tests and the examples, the corpus, the docs'
-  # examples, and the matrix (test/matrix.py). A doc example is named by
+  # The oracle's sets: the tests (the probes of past reviews among them)
+  # and the examples, the docs' examples, and the matrix (test/matrix.py). A doc example is named by
   # its doc and a hash of its text, so an edit that only moves it keeps
   # its name in test/oracle/rejections; two the same in a doc are told
   # apart by a count.
@@ -563,12 +563,6 @@ setup = ->
     tests = listed.map((t) -> "#{t.name}\t#{join(tree, t.file)}")
     tests.push("examples/#{f}\t#{join(root, 'examples', f)}") for f in readdirSync(join(root, 'examples')).filter((f) -> f.endsWith('.rig')).sort()
     writeFileSync(join(work, 'oracle', 'tests.list'), tests.join('\n') + '\n')
-    corpus = []
-    for f in readdirSync(join(root, 'test', 'corpus')).sort()
-      p = join(root, 'test', 'corpus', f)
-      if f.endsWith('.rig') then corpus.push("test/corpus/#{f}\t#{p}")
-      else if existsSync(join(p, 'main.rig')) then corpus.push("test/corpus/#{f}\t#{join(p, 'main.rig')}")
-    writeFileSync(join(work, 'oracle', 'corpus.list'), corpus.join('\n') + '\n')
     examples = []
     for doc in docFiles()
       count = {}
@@ -580,12 +574,12 @@ setup = ->
         key += "-#{count[key]}" if count[key] > 1
         examples.push("#{key}\t#{c.path}")
     writeFileSync(join(work, 'oracle', 'docs.list'), examples.join('\n') + '\n')
-    for set in ['tests', 'corpus', 'docs']
+    for set in ['tests', 'docs']
       todo("oracle.#{set}", JSON.stringify({ file: 'test/oracle', name: set, verb: 'oracle', line: 1, path: join(work, 'oracle', "#{set}.list"), opts: { timeout: '900' } }))
     todo('oracle.matrix', JSON.stringify({ file: 'test/matrix.py', name: 'matrix', verb: 'matrix', line: 1, opts: { timeout: '900' } }))
     todo('oracle.lint', JSON.stringify({ file: 'test/oracle', name: 'lint', verb: 'lint', line: 1, opts: {} }))
-  # The proven checks' differential runs: each program of the tests,
-  # examples/, and test/corpus that the compiler proves a check of (with
+  # The proven checks' differential runs: each program of the tests and
+  # examples/ that the compiler proves a check of (with
   # `proofs-all`, every one) runs in debug, with --release, and with
   # --release and RIG_NO_PROOFS=1.
   if names.includes('proofs') or names.includes('proofs-all')
@@ -596,9 +590,6 @@ setup = ->
       for c in parsed(join(dir, f)) when c.verb in ['test', 'bomb'] and c.opts.known isnt 'true'
         progs.push(join(tree, legacy(area, c).file))
     progs.push(join(root, 'examples', f)) for f in readdirSync(join(root, 'examples')).filter((f) -> f.endsWith('.rig')).sort()
-    for f in readdirSync(join(root, 'test', 'corpus')).sort()
-      p = join(root, 'test', 'corpus', f)
-      if f.endsWith('.rig') then progs.push(p) else if existsSync(join(p, 'main.rig')) then progs.push(join(p, 'main.rig'))
     for p, i in progs
       todo("proofs.#{String(i).padStart(5, '0')}", JSON.stringify({ file: relative(root, p), name: 'proofs', verb: 'proofs', line: 1, path: p, every, opts: { timeout: '600' } }))
   # The scripts of test/cli, each a job, and the compiler's own Zig tests.

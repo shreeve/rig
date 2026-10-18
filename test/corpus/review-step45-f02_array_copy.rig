@@ -1,5 +1,0 @@
-# bare copy of an array of Text must be rejected
-sub main()
-  a = [String("a"), String("b")]
-  b = a
-  print(a, b)

@@ -1,4 +1,0 @@
-sub main()
-  x: Int? = 3
-  if x as v and v > 1
-    print(v)

@@ -1,0 +1,1359 @@
+# Probes from past reviews and audits, 32 of 41: review-step45-f01_struct_array_copy to review-step45-r2-a14_while_for_forms_rejected.
+
+use std.sort
+
+fail "review-step45-f01 struct array copy", "`s` owns an `S`, which can't be copied by `=`: write `<s` to move it, `+s` to clone it, or `?s` to view it"
+  # a struct holding an array of Text is owning: bare copy must be rejected
+  obj S
+    arr: [2]String
+
+  s = S(arr: [String("a"), String("b")])
+  t = s
+  print(t.arr, s.arr)
+
+test "review-step45-f03 write slice assign", '''
+  ["z"] ["z", "q"]
+'''
+  # assign through a write slice of owners drops the old element
+  sub set(s: ![]String)
+    s[0] = String("z")
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  set(!v)
+  a = [String("p"), String("q")]
+  set(!a)
+  print(v, a)
+
+fail "review-step45-f05 read slice copy", "`s[0]` owns a `String`, which can't be copied out by `return`: write `+s[0]` to clone it"
+  # copying an owner out of a read slice must be rejected
+  fun first(s: []String) -> String
+    s[0]
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  print(first(?v))
+
+test "review-step45-f06 sort by owners", '''
+  xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxxxxxxxxxxx xxxxxxxxxxxxxxxxxxxxxxxxxxxx 33
+  3 2 1
+'''
+  # sort_by on List[Text] and on an array of Box
+
+  obj P
+    n: Int
+
+  fun longer(a: ?String, b: ?String) -> Bool
+    a.len > b.len
+
+  fun bigger(a: ?^P, b: ?^P) -> Bool
+    a.n > b.n
+
+  v: List[String] = List()
+  for i in 0..30
+    t = String("")
+    for _ in 0..(30 - i)
+      !t.add("x")
+    !v.push(<t)
+  !v.push(String("a"))
+  !v.push(String("ccc"))
+  !v.push(String("bb"))
+  sort.sort_by(!v, longer)
+  print(v[0], v[1], v[2], v.len)
+  a = [^P(n: 1), ^P(n: 3), ^P(n: 2)]
+  sort.sort_by(!a, bigger)
+  print(a[0].n, a[1].n, a[2].n)
+
+fail "review-step45-f07 slice of vec then push", "cannot lend `v` to write while a read loan is live"
+  # slice view of a List[Text] held, then push (must reject)
+  v: List[String] = List()
+  !v.push(String("a"))
+  s = ?v[..]
+  !v.push(String("b"))
+  print(s)
+
+test "review-step45-f08 write slice elem view escape", '''
+  ["ab"]
+'''
+  # view of an element through a write slice returned
+  fun first(s: ![]String) -> !String
+    !s[0]
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  t = first(!v)
+  !t.add("b")
+  print(v)
+
+test "review-step45-f09 slice swap", '''
+  ["b", "a"]
+'''
+  # swap through a write slice of owners
+  sub flip(s: ![]String)
+    !s.swap(0, 1)
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  flip(!v)
+  print(v)
+
+fail "review-step45-g01 repoint lend on uaf", "cannot reassign `w` while it is lent"
+  # w = !m; r = ?w; w = !n (re-point) then replace m while r still views m
+  m = String("mmmm")
+  n = String("nnnn")
+  w = !m
+  r = ?w
+  w = !n
+  m = String("zzzz")
+  print(r)
+  w = String("x")
+  print(n)
+
+fail "review-step45-g02 repoint branch", "cannot reassign `m` while it is lent"
+  # re-point in one branch only, then write m while w may still view it
+  m = String("m")
+  n = String("n")
+  c = n.len == 1
+  w = !m
+  if c
+    w = !n
+  m = String("zz")
+  !w.add("!")
+  print(m, n)
+
+test "review-step45-g03 repoint then use old", "M n2"
+  # re-point, then use the old target freely (sound), w then written
+  m = String("m")
+  n = String("n")
+  w = !m
+  !w.add("1")
+  w = !n
+  m = String("M")
+  !w.add("2")
+  print(m, n)
+
+fail "review-step45-g04 repoint inner scope", "`k` does not live long enough"
+  # re-point at an inner-scope local, then write after it is gone
+  m = String("m")
+  w = !m
+  if true
+    k = String("k")
+    w = !k
+  !w.add("!")
+  print(m)
+
+test "review-step45-g05 repoint loop elems", '''
+  ["a!", "b!"] m
+'''
+  # re-point at each element of a List in a loop
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  m = String("m")
+  w = !m
+  for i in 0..v.len
+    w = !v[i]
+    !w.add("!")
+  print(v, m)
+
+fail "review-step45-g06 repoint loop then push", "use of `v` while a write loan is live"
+  # re-point at an element in a loop, then push to the List, then write through w
+  v: List[String] = List()
+  !v.push(String("a"))
+  m = String("m")
+  w = !m
+  for i in 0..v.len
+    w = !v[i]
+  !v.push(String("b"))
+  !w.add("!")
+  print(v)
+
+test "review-step45-g07 repoint move view", "m n!"
+  # w = <w2 moves a write view
+  m = String("m")
+  n = String("n")
+  w = !m
+  w2 = !n
+  w = <w2
+  !w.add("!")
+  print(m, n)
+
+test "review-step45-g08 repoint fn result", '''
+  ["a", "b!"] m
+'''
+  # w = f(!v) re-points at a returned element view
+  fun last(v: !List[String]) -> !String
+    !v[v.len - 1]
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  m = String("m")
+  w = !m
+  w = last(!v)
+  !w.add("!")
+  print(v, m)
+
+fail "review-step45-g09 repoint closure", "cannot reassign `w` while it is lent"
+  # a closure captures w (write), then w re-pointed while the closure lives
+  m = 1
+  n = 2
+  w = !m
+  f = |!w| w += 10
+  w = !n
+  f()
+  print(m, n)
+
+test "review-step45-g10 repoint loop while view live", "axx bxx"
+  # within a loop, re-point; the loan from the previous iteration must end
+  a = String("a")
+  b = String("b")
+  w = !a
+  for i in 0..4
+    if i % 2 == 0
+      w = !b
+    else
+      w = !a
+    !w.add("x")
+  print(a, b)
+
+test "review-step45-h06 wview int rhs", "2 9"
+  # w = w2 for !Int: plain value writes through (sound), check meaning
+  a = 1
+  b = 2
+  w = !a
+  w2 = !b
+  w = w2
+  w2 = 9
+  print(a, b)
+
+test "review-step45-i01 clone view param", '''
+  ["a"] ["a", "b"]
+'''
+  # +v where v is a read view of a List[Text]
+  fun dup(v: ?List[String]) -> List[String]
+    +v
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  w = dup(?v)
+  !w.push(String("b"))
+  print(v, w)
+
+test "review-step45-i02 clone struct with view", "own viewed"
+  # +s where s owns a Text and holds a read view of another Text
+  obj S
+    own: String
+    see: ?String
+
+  t = String("viewed")
+  s = S(own: String("own"), see: ?t)
+  c = +s
+  <s
+  print(c.own, c.see)
+
+fail "review-step45-i03 clone vec views loans", "cannot drop `t` while it is lent"
+  # +v of a List of views must carry the views' loans
+  t = String("viewed")
+  v: List[?String] = List()
+  !v.push(?t)
+  w = +v
+  <v
+  <t
+  print(w)
+
+test "review-step45-i04 clone vec handles", '''
+  v gone
+  drop 1
+  end
+'''
+  # +v of List[*D]: each handle counted again; D dropped once, after the last
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  a = *D(n: 1)
+  v: List[*D] = List()
+  !v.push(+a)
+  !v.push(+a)
+  w = +v
+  <a
+  <v
+  print("v gone")
+  <w
+  print("end")
+
+test "review-step45-i05 clone recursive", '''
+  2
+  a
+'''
+  # +l of a recursive Box list
+  enum Chain
+    nil
+    cons(head: String, tail: ^Chain)
+
+  fun len(l: ?Chain) -> Int
+    match l
+      .nil => 0
+      .cons(_, t) => 1 + len(?t)
+
+  l = Chain.cons(head: String("a"), tail: ^Chain.cons(head: String("b"), tail: ^Chain.nil))
+  c = +l
+  <l
+  print(len(?c))
+  match c
+    .cons(h, _) => print(h)
+    .nil => print("nil")
+
+test "review-step45-i08 clone weak", '''
+  still 1
+  drop 1
+  gone
+  end
+'''
+  # +v of List[~D] and optionals of handles
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  a = *D(n: 1)
+  v: List[~D] = List()
+  !v.push(~a)
+  w = +v
+  o: (*D)? = +a
+  p = +o
+  <a
+  <o
+  print("still", w.len)
+  <p
+  if *w[0] as h
+    print("alive", h.n)
+  else
+    print("gone")
+  <v
+  <w
+  print("end")
+
+test "review-step45-i09 clone generic struct", "x x! y"
+  # +p of a generic struct instance Pair[Text]
+  obj Pair[T]
+    a: T
+    b: T
+
+  p = Pair(a: String("x"), b: String("y"))
+  q = +p
+  !q.a.add("!")
+  print(p.a, q.a, q.b)
+
+test "review-step45-i10 clone array opt owners", '''
+  ["a", none] [1, 2]
+'''
+  # +a of [2]Text? and of [2]^Int
+  a: [2]String? = [String("a"), none]
+  b = +a
+  c = [^1, ^2]
+  d = +c
+  <a
+  <c
+  print(b, d)
+
+test "review-step45-i11 clone elem", '''
+  ["a"] [["a", "b"]]
+'''
+  # +v[0] where v: List[List[Text]]
+  v: List[List[String]] = List()
+  r: List[String] = List()
+  !r.push(String("a"))
+  !v.push(<r)
+  c = +v[0]
+  !v[0].push(String("b"))
+  print(c, v)
+
+test "review-step45-i12 clone struct with ptr view", '''
+  own ["x"] 5
+'''
+  # +s where s owns Text and holds a read view ?List[Text] (a pointer in Zig)
+  obj S
+    own: String
+    see: ?List[String]
+    box: ?^Int
+
+  v: List[String] = List()
+  !v.push(String("x"))
+  b = ^5
+  s = S(own: String("own"), see: ?v, box: ?b)
+  c = +s
+  <s
+  print(c.own, c.see, c.box)
+
+test "review-step45-i13 clone vec of ptr views", '''
+  [["x"]]
+'''
+  # +w where w: List[?List[Text]] holds pointer views
+  v: List[String] = List()
+  !v.push(String("x"))
+  w: List[?List[String]] = List()
+  !w.push(?v)
+  c = +w
+  <w
+  print(c)
+
+test "review-step45-i14 clone opt view", "x"
+  # +o where o: (?Text)? 
+  t = String("x")
+  o: (?String)? = ?t
+  p = +o
+  print(p)
+
+test "review-step45-j03 shared cell vec", '''
+  ["a"]
+'''
+  # *Cell[List[Text]] shared by two handles; replace through one
+  v: List[String] = List()
+  !v.push(String("a"))
+  c = *Cell(<v)
+  d = +c
+  w: List[String] = List()
+  !w.push(String("b"))
+  old = (!d).replace(<w)
+  print(old)
+
+fail "review-step45-k01 closure elem view", "cannot lend `v` to write while a read loan is live"
+  # a closure capturing an element view; push to the List, then call it
+  v: List[String] = List()
+  !v.push(String("a"))
+  x = ?v[0]
+  f = |?x| print(x)
+  !v.push(String("b"))
+  f()
+
+fail "review-step45-k02 closure capture vec write elem", "cannot lend `v` to read while a write loan is live"
+  # a closure capturing !v writes an element; elem view held across
+  v: List[String] = List()
+  !v.push(String("a"))
+  f = |!v| v[0] = String("z")
+  x = ?v[0]
+  f()
+  print(x)
+
+fail "review-step45-k03 defer elem", "use of `v` after move"
+  # defer reads an element; the List is moved out before scope end
+  fun take(v: List[String]) -> Int
+    v.len
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  defer print(v[0])
+  print(take(<v))
+
+fail "review-step45-k04 defer elem write", "cannot lend `v` to write while a read loan is live"
+  # defer writes an element; a view of the element is still live at defer? 
+  v: List[String] = List()
+  !v.push(String("a"))
+  defer !v[0].add("!")
+  x = ?v[0]
+  print(x)
+
+fail "review-step45-k04b defer push plain", "cannot lend `v` to write while a read loan is live"
+  # defer writes v (plain List[Int]) while a later read view is used before scope end
+  v: List[Int] = List()
+  !v.push(1)
+  defer !v.push(2)
+  x = ?v
+  print(x)
+
+fail "review-step45-k05 break with elem view", "cannot lend `v` to write while a read loan is live"
+  # a loop breaks with a view of an element; then the List is changed
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  r = while true
+    break ?v[1]
+  !v.push(String("c"))
+  print(r)
+
+fail "review-step45-k06 for elem place source push", "cannot lend `m` to write while a read loan is live"
+  # for over an element place source (List[List[Text]]), push to outer inside
+  m: List[List[String]] = List()
+  row: List[String] = List()
+  !row.push(String("q"))
+  !m.push(<row)
+  for t in m[0]
+    !m.push(List())
+    print(t)
+
+fail "review-step45-k07 for write elem source", "use of `m` while a write loan is live"
+  # for t in !m[0] and read m inside
+  m: List[List[String]] = List()
+  row: List[String] = List()
+  !row.push(String("q"))
+  !m.push(<row)
+  for t in !m[0]
+    print(m.len)
+    !t.add("!")
+
+test "review-step45-k08 for write elem assign", '''
+  ["a!", "b!"]
+'''
+  # for x in !v: assign x = Text(...) drops old each element
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  for x in !v
+    x = String(x, "!")
+  print(v)
+
+fail "review-step45-k09 for read then take elem", "cannot lend `v` to write while a read loan is live"
+  # for x in v (List[Text?]); inside take <v[0]
+  v: List[String?] = List()
+  !v.push(String("a"))
+  for x in v
+    t = <v[0]
+    print(x, t)
+
+test "review-step45-k10 match take elem", '''
+  hi
+  [none]
+'''
+  # match <v[0] on List[E?]... and match on an optional element taken
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  v: List[E?] = List()
+  !v.push(E.a(t: String("hi")))
+  if <v[0] as e
+    match <e
+      .a(t) => print(t)
+      .b(n) => print(n)
+  print(v)
+
+test "review-step45-k11 match elem guard", "long hi"
+  # guarded match on an element place, payload used in arm
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  v: List[E] = List()
+  !v.push(E.a(t: String("hi")))
+  match v[0]
+    .a(t) if t.len > 1 => print("long", t)
+    .a(t) => print("short", t)
+    .b(n) => print(n)
+
+test "review-step45-k13 break take elem", '''
+  b ["a", none]
+'''
+  # a loop breaks with a taken optional element; loop over a List[Text?]
+  v: List[String?] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  i = 0
+  r = while i < v.len : i += 1
+    break <v[i] if i == 1
+  else
+    none
+  print(r, v)
+
+test "review-step45-k14 break loop body owner", "x"
+  # break with an owner local to the loop body (5.4 bare move?)
+  r = while true
+    t = String("x")
+    break <t
+  print(r)
+
+fail "review-step45-l01 nested vec views push", "cannot drop `t` while it is lent"
+  # !m[0].push(?t) where m: List[List[String]]; then drop t, then use m
+  m: List[List[?String]] = List()
+  !m.push(List())
+  t = String("x")
+  !m[0].push(?t)
+  <t
+  print(m)
+
+fail "review-step45-l02 nested assign views", "cannot drop `t` while it is lent"
+  # m[0] = <inner where inner holds ?t; then drop t
+  m: List[List[?String]] = List()
+  !m.push(List())
+  t = String("x")
+  inner: List[?String] = List()
+  !inner.push(?t)
+  m[0] = <inner
+  <t
+  print(m)
+
+fail "review-step45-l03 wrap views through call", "cannot drop `t` while it is lent"
+  # a List of views passed by value through a function and returned
+  fun wrap(v: List[?String]) -> List[?String]
+    <v
+
+  t = String("x")
+  v: List[?String] = List()
+  !v.push(?t)
+  w = wrap(<v)
+  <t
+  print(w)
+
+fail "review-step45-l04 method stores view", "cannot drop `t` while it is lent"
+  # a method stores a view into self's List field; then the source dropped
+  obj Bag
+    items: List[?String]
+
+    sub add(!self, s: ?String) keeps s
+      !self.items.push(s)
+
+  b = Bag(items: List())
+  t = String("x")
+  !b.add(?t)
+  <t
+  print(b.items)
+
+fail "review-step45-l05 copy view elem out", "cannot drop `t` while it is lent"
+  # s = w[0] copies a String view out of a List[String]; drop w then t
+  t = String("x")
+  w: List[?String] = List()
+  !w.push(?t)
+  s = w[0]
+  <w
+  <t
+  print(s)
+
+fail "review-step45-l06 vec views struct moved", "cannot drop `t` while it is lent"
+  # struct holding a List of views moved into a List of structs, then source dropped
+  obj Bag
+    items: List[?String]
+
+  t = String("x")
+  b = Bag(items: List())
+  !b.items.push(?t)
+  bags: List[Bag] = List()
+  !bags.push(<b)
+  <t
+  print(bags[0].items)
+
+fail "review-step45-l07 vec views in opt elem take", "cannot drop `t` while it is lent"
+  # take a List of views out of an optional element, then drop the source
+  t = String("x")
+  inner: List[?String] = List()
+  !inner.push(?t)
+  outer: List[List[?String]?] = List()
+  !outer.push(<inner)
+  if <outer[0] as got
+    <t
+    print(got)
+
+fail "review-step45-l08 swap views vecs", "cannot drop `t` while it is lent"
+  # swap of elements carrying different loans
+  t = String("x")
+  m: List[List[?String]] = List()
+  !m.push(List())
+  !m.push(List())
+  !m[0].push(?t)
+  !m.swap(0, 1)
+  <t
+  print(m)
+
+test "review-step45-m01 elem receivers", '''
+  4 4 false 2 2
+  1 2
+  12 x+
+  a+bb
+'''
+  # elements as receivers, operands and args
+  obj Rec
+    name: String
+    n: Int
+
+    fun show(?self) -> Int
+      self.name.len + self.n
+
+    sub bump(!self)
+      self.n += 1
+      !self.name.add("+")
+
+  fun size(v: ?List[Int]) -> Int
+    v.len
+
+  fun nm(s: ?String) -> Int
+    s.len
+
+  rs: List[Rec] = List()
+  !rs.push(Rec(name: String("a"), n: 1))
+  !rs.push(Rec(name: String("bb"), n: 2))
+  !rs[0].bump()
+  print(rs[0].show(), rs[1].show(), rs[0].name == rs[1].name, nm(rs[1].name), nm(?rs[0].name))
+  vv: List[List[Int]] = List()
+  !vv.push(List())
+  !vv[0].push(vv.len)
+  print(size(vv[0]), vv[0][0] + vv[0][0])
+  arr = [^Rec(name: String("x"), n: 3)]
+  arr[0].n = 9
+  !arr[0].bump()
+  print(arr[0].show(), arr[0].name)
+  if rs[0].n > 1
+    print(String(rs[0].name, rs[1].name))
+
+fail "review-step45-m02 elem move field out", "`rs[0].name` owns a `String`, which can't be copied into an argument: write `+rs[0].name` to pass a clone"
+  # rs[0] = Rec(name: rs[0].name, ...) must be rejected (copies Text out)
+  obj Rec
+    name: String
+    n: Int
+
+  rs: List[Rec] = List()
+  !rs.push(Rec(name: String("a"), n: 1))
+  rs[0] = Rec(name: rs[0].name, n: 2)
+  print(rs[0].name)
+
+fail "review-step45-m03 elem arg owned param", "`eat` takes ownership of a `List[Int]`, and `vv[0]` can't be copied: write `+vv[0]` to pass a clone; if `eat` only reads it, make its parameter a `?List[Int]`"
+  # passing an owning element bare to a parameter that owns it: reject
+  fun eat(v: List[Int]) -> Int
+    v.len
+
+  vv: List[List[Int]] = List()
+  !vv.push(List())
+  print(eat(vv[0]))
+
+fail "review-step45-m04 push take elem arg", "cannot lend `v` to write while a read loan is live"
+  # !v.push(<v[0]) : take an element in the argument of a write call on v
+  v: List[String?] = List()
+  !v.push(String("a"))
+  !v.push(<v[0])
+  print(v)
+
+fail "review-step45-m05 elem consuming method", "cannot move out of `v[0]`: elements cannot be moved out of their container"
+  # consuming method on an element (unbox) must be rejected for non-optional
+  v: List[^Int] = List()
+  !v.push(^1)
+  x = <v[0].unbox()
+  print(x)
+
+test "review-step45-m06 box elem unbox opt", '''
+  1
+  [none]
+'''
+  # take an optional Box element and unbox it
+  v: List[^Int?] = List()
+  !v.push(^1)
+  if <v[0] as b
+    print(<b.unbox())
+  print(v)
+
+fail "review-step45-m07 ifas elem view text", "cannot assign to `v[0]` while `v` is lent"
+  # if v[0] as t on List[Text?], the binding escapes to an outer view
+  v: List[String?] = List()
+  !v.push(String("hi"))
+  s: ?String = "none"
+  if v[0] as t
+    s = ?t
+  v[0] = none
+  print(s)
+
+test "review-step45-m08 while as elem", '''
+  a
+  b
+  [none, none]
+'''
+  # while <v[i] as t: take elements in a loop
+  v: List[String?] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  i = 0
+  while i < v.len
+    if <v[i] as t
+      print(t)
+    i += 1
+  print(v)
+
+fail "review-step45-m09 take while other elem lent", "cannot lend `v` to write while a read loan is live"
+  # <v[1] while ?v[0] is live (take writes v)
+  v: List[String?] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  r = ?v[0]
+  t = <v[1]
+  print(r, t)
+
+test "review-step45-m13 take elem write loop", '''
+  a
+  [[none]]
+'''
+  # take an element of a write loop binding (for row in !v)
+  v: List[List[String?]] = List()
+  r: List[String?] = List()
+  !r.push(String("a"))
+  !v.push(<r)
+  for row in !v
+    t = <row[0]
+    print(t)
+  print(v)
+
+test "review-step45-n09 return match error owners", '''
+  defer
+  errdefer
+  caught
+  defer
+  one
+  defer
+  held
+'''
+  # return of a match whose arms yield an error value or an owner, with errdefer
+  error Bad
+    oops
+
+  fun f(k: Int) -> String!
+    held = String("held")
+    errdefer print("errdefer")
+    defer print("defer")
+    return match k
+      0 => Bad.oops
+      1 => String("one")
+      _ => <held
+
+  print(f(0) catch String("caught"))
+  print(f(1) catch String("caught"))
+  print(f(2) catch String("caught"))
+
+test "review-step45-n10 return block error owner", '''
+  errdefer
+  []
+  ["a"]
+'''
+  # return of a value-if whose branches build owners before an error
+  error Bad
+    oops
+
+  fun f(c: Bool) -> List[String]!
+    v: List[String] = List()
+    !v.push(String("a"))
+    errdefer print("errdefer")
+    return (Bad.oops if c else <v)
+
+  print(f(true) catch List[String]())
+  print(f(false) catch List[String]())
+
+test "review-step45-o01 temp array elem print", '''
+  b
+  1
+'''
+  # index a temporary array literal of owners; temporaries dropped
+  print([String("a"), String("b")][1])
+  print([^1, ^2][0])
+
+fail "review-step45-o02 temp array elem bind", "`[String(\"a\"), String(\"b\")][1]` owns a `String`, which can't be copied by `=`: write `+[String(\"a\"), String(\"b\")][1]` to clone it or `?[String(\"a\"), String(\"b\")][1]` to view it"
+  # bind an owning element of a temporary array literal
+  x = [String("a"), String("b")][1]
+  print(x)
+
+fail "review-step45-o04 temp vec elem bind", "`mk()[0]` owns a `String`, which can't be copied by `=`: write `+mk()[0]` to clone it or `?mk()[0]` to view it"
+  # bind an owning element of a temporary List (copy out of a temp)
+  fun mk() -> List[String]
+    v: List[String] = List()
+    !v.push(String("a"))
+    <v
+
+  x = mk()[0]
+  print(x)
+
+fail "review-step45-o05 temp vec elem view escape", "a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first"
+  # a view of an element of a temporary escapes its statement
+  fun mk() -> List[String]
+    v: List[String] = List()
+    !v.push(String("a"))
+    <v
+
+  s = ?mk()[0]
+  print(s)
+
+test "review-step45-o06 match temp elem", "hi"
+  # match on an element of a temporary List of enums with owner payloads
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  fun mk() -> List[E]
+    v: List[E] = List()
+    !v.push(E.a(t: String("hi")))
+    <v
+
+  match mk()[0]
+    .a(t) => print(t)
+    .b(n) => print(n)
+
+test "review-step45-o07 ifas temp elem", "a"
+  # if mk()[0] as t: binding outlives the header (temp)
+  fun mk() -> List[String?]
+    v: List[String?] = List()
+    !v.push(String("a"))
+    <v
+
+  if mk()[0] as t
+    print(t)
+
+test "review-step45-p01 array reassign whole", '''
+  drop 2
+  drop 1
+  mid
+  [["p", "q"]]
+  drop 4
+  drop 3
+'''
+  # reassign an array of owners whole, and an element of a List of arrays
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  a = [D(n: 1), D(n: 2)]
+  a = [D(n: 3), D(n: 4)]
+  print("mid")
+  v: List[[2]String] = List()
+  !v.push([String("a"), String("b")])
+  v[0][1] = String("z")
+  v[0] = [String("p"), String("q")]
+  print(v)
+
+fail "review-step45-p02 for take vec elem array", "cannot move out of `v[0]`: elements cannot be moved out of their container"
+  # for x in <v[0] with v: List[[2]Text] (non-optional element): reject
+  v: List[[2]String] = List()
+  !v.push([String("a"), String("b")])
+  for x in <v[0]
+    print(x)
+
+fail "review-step45-p03 array move then use", "use of `a` after move"
+  # use after move of an array of owners: reject
+  a = [String("a"), String("b")]
+  b = <a
+  print(a, b)
+
+test "review-step45-p05 array swap owners", '''
+  c ["c", "b", "a"]
+'''
+  # swap on an array of owners, then elements lent
+  a = [String("a"), String("b"), String("c")]
+  !a.swap(0, 2)
+  r = ?a[0]
+  print(r, a)
+
+test "review-step45-p06 array param elem assign", '''
+  ["a", "z", "c"]
+  3
+'''
+  # array of owners by write view param: assign element; by value param dropped
+  sub set(a: ![3]String)
+    a[1] = String("z")
+
+  fun total(a: [3]String) -> Int
+    a[0].len + a[1].len + a[2].len
+
+  a = [String("a"), String("b"), String("c")]
+  set(!a)
+  print(a)
+  print(total(<a))
+
+fail "review-step45-p08 array elem as arg owned", "`eat` takes ownership of a `String`, and `a[0]` can't be copied: write `+a[0]` to pass a clone; if `eat` only reads it, make its parameter a `?String`"
+  # pass an owning element of an array bare to an owning param: reject
+  fun eat(t: String) -> Int
+    t.len
+
+  a = [String("a"), String("b")]
+  print(eat(a[0]))
+
+fail "review-step45-q01 shared elem view drop", "cannot drop `h` while it is lent"
+  # view of an element in a shared handle's List; drop the only handle
+  obj S
+    v: List[String]
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  h = *S(v: <v)
+  r = ?h.v[0]
+  <h
+  print(r)
+
+fail "review-step45-q02 upgrade elem view escape", "`g` does not live long enough"
+  # element view through an upgraded weak handle escapes the if
+  obj S
+    v: List[String]
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  h = *S(v: <v)
+  w = ~h
+  s: ?String = "none"
+  if *w as g
+    s = ?g.v[0]
+  <h
+  print(s)
+
+test "review-step45-q04 box vec elem", '''
+  b
+  z ["z", none]
+'''
+  # elements of a List inside a Box: assign, lend, take
+  obj S
+    v: List[String?]
+
+  v: List[String?] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  b = ^S(v: <v)
+  b.v[0] = String("z")
+  if <b.v[1] as t
+    print(t)
+  r = ?b.v[0]
+  print(r, b.v)
+
+fail "review-step45-r03 coalesce elem owner", "`v[0]` owns a `String?`, which can't be copied by `=`: write `<v[0]` to take it out (leaving `none`), `+v[0]` to clone it, or `?v[0]` to view it"
+  # v[0] ?? Text("d") would move/copy an owning element out: reject
+  v: List[String?] = List()
+  !v.push(String("a"))
+  t = v[0] ?? String("d")
+  print(t, v)
+
+test "review-step45-r04 ifas elem move binding", '''
+  a
+  ["a"]
+'''
+  # if v[0] as t then <t: the binding views the element; reject
+  v: List[String?] = List()
+  !v.push(String("a"))
+  if v[0] as t
+    k = <t
+    print(k)
+  print(v)
+
+test "review-step45-r06 arrayiter drop x", '''
+  drop 1
+  after
+  drop 2
+  after
+'''
+  # for x in <a with -x in the body: no double drop
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  a = [D(n: 1), D(n: 2)]
+  for x in <a
+    <x
+    print("after")
+
+test "review-step45-r10 vec pop remove insert", '''
+  a b ["z"]
+  0
+'''
+  # pop / remove / insert on List[Text] and List[^Text]
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  !v.insert(0, String("z"))
+  x = (!v).remove(1)
+  if (!v).pop() as y
+    print(x, y, v)
+  w: List[^String] = List()
+  !w.push(^String("q"))
+  !w.clear()
+  print(w.len)
+
+test "review-step45-r13 match elem header temp text", '''
+  long hello
+  1
+'''
+  # guarded match on an element with a header temporary; owner payload view used in arm
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[E] = List()
+  !v.push(E.a(t: String("hello")))
+  match v[idx(?String("a"))]
+    .a(t) if t.len > 2 => print("long", t)
+    .a(t) => print("short", t)
+    .b(n) => print(n)
+  print(v.len)
+
+test "review-step45-r15 match write elem header temp", "322"
+  # match !v[idx(?Text("a"))] with a guard: a write payload grows the Text in the arm
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[E] = List()
+  !v.push(E.a(t: String("hi")))
+  match !v[idx(?String("a"))]
+    .a(t) if t.len > 0
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .a(t)
+      !t.add("?")
+    .b(n)
+      print(n)
+  match v[0]
+    .a(t) => print(t.len)
+    .b(n) => print(n)
+
+test "review-step45-r15b match write elem temp noguard", "322"
+  # match !v[idx(?Text("a"))] WITHOUT a guard: a write payload grows the Text in the arm
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[E] = List()
+  !v.push(E.a(t: String("hi")))
+  match !v[idx(?String("a"))]
+    .a(t)
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .b(n)
+      print(n)
+  match v[0]
+    .a(t) => print(t.len)
+    .b(n) => print(n)
+
+test "review-step45-r15c match write elem guard notemp", "322"
+  # match !v[0] with a guard, no header temporary: a write payload grows the Text in the arm
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[E] = List()
+  !v.push(E.a(t: String("hi")))
+  match !v[0]
+    .a(t) if t.len > 0
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .a(t)
+      !t.add("?")
+    .b(n)
+      print(n)
+  match v[0]
+    .a(t) => print(t.len)
+    .b(n) => print(n)
+
+test "review-step45-r15d match write local header temp", "322"
+  # guarded write match on a local enum (not an element) whose header has a temporary
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  e = E.a(t: String("hi"))
+  k = 0
+  match !e if idx(?String("a")) == k else !e
+    .a(t) if t.len > 0
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .a(t)
+      !t.add("?")
+    .b(n)
+      print(n)
+  match e
+    .a(t) => print(t.len)
+    .b(n) => print(n)
+
+test "review-step45-r17 match write arr elem header temp", "[.a(n: 50)]"
+  # base-comparable: guarded write match on a struct field reached through an index with a temp
+  enum E
+    a(n: Int)
+    b(n: Int)
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  arr = [E.a(n: 1)]
+  match !arr[idx(?String("a"))]
+    .a(n) if n > 0
+      n = 50
+    .a(n)
+      n = 60
+    .b(n)
+      print(n)
+  print(arr)
+
+test "review-step45-r19 ifas write elem header temp", "321"
+  # if !v[idx(?Text("a"))] as t: write binding of an optional element, header temporary
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("q"))
+  if !v[idx(?String("a"))] as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+  if v[0] as t
+    print(t.len)
+
+test "review-step45-r19b ifas write arr elem header temp plain", "[50]"
+  # base-comparable: if !arr[idx(?Text("a"))] as n over [1]Int?: the write must land
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  arr: [1]Int? = [1]
+  if !arr[idx(?String("a"))] as n
+    n = 50
+  print(arr)
+
+fail "review-step45-r2-a05 method receiver path", "this `match` reads the view its subject returns after its header drops the temporary `!s` it points into; bind `!s` to a name first"
+  # match on a field of a view returned by a method whose argument is a temp
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  obj S
+    es: List[E]
+
+    fun at(!self, s: ?String) -> !E
+      !self.es[s.len - 1]
+
+  s = S(es: List())
+  !s.es.push(E.a(t: String("hi")))
+  match (!(!s)).at(?String("a"))
+    .a(t) if t.len > 0
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .a(t)
+      !t.add("?")
+    .b(n)
+      print(n)
+  match s.es[0]
+    .a(t) => print(t.len)
+    .b(n) => print(n)
+
+test "review-step45-r2-a06 field after index temp", "qx"
+  # if !v[idx(?Text("a"))].o as t : field after an index with a temp (must reject)
+  obj S
+    o: String?
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[S] = List()
+  !v.push(S(o: String("q")))
+  if !v[idx(?String("a"))].o as t
+    !t.add("x")
+  print(v[0].o)
+
+test "review-step45-r2-a07 box path temp", "1"
+  # match !b.v[idx(?Text("a"))] through a Box: must reject
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  obj S
+    v: List[E]
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  b = ^S(v: List())
+  !b.v.push(E.a(t: String("hi")))
+  match !b.v[idx(?String("a"))]
+    .a(t) if t.len > 0 => !t.add("!")
+    .a(t) => !t.add("?")
+    .b(n) => print(n)
+  print(b.v.len)
+
+test "review-step45-r2-a09 deep call arg temp", "1"
+  # temp deep inside an index expression: v[k(idx(?Text("a")))]
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun k(n: Int) -> Int
+    n
+
+  v: List[E] = List()
+  !v.push(E.a(t: String("hi")))
+  match !v[k(idx(?String("a")))]
+    .a(t) if t.len > 0 => !t.add("!")
+    .a(t) => !t.add("?")
+    .b(n) => print(n)
+  print(v.len)
+
+test "review-step45-r2-a10 slice bounds temp array elem", "321"
+  # for x in !a[idx(?Text("a"))][0..2] : exempt slice source whose object is an array element through a temp
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  a = [[String("p"), String("q")]]
+  for x in !a[idx(?String("a"))][0..2]
+    for _ in 0..40
+      !x.add("xxxxxxxx")
+  print(a[0][0].len)
+
+test "review-step45-r2-a11 slice bounds temp", "321 1"
+  # for x in !v[0..idx(?Text("ab"))] : temp in slice bound (exempt)
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String] = List()
+  !v.push(String("p"))
+  !v.push(String("q"))
+  for x in !v[0..idx(?String("ab"))]
+    for _ in 0..40
+      !x.add("xxxxxxxx")
+  print(v[0].len, v[1].len)
+
+test "review-step45-r2-a12 slice of vec elem temp", "321"
+  # for x in !m[idx(?Text("a"))][0..1] : slice of a List element reached through a temp
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  m: List[List[String]] = List()
+  r: List[String] = List()
+  !r.push(String("p"))
+  !m.push(<r)
+  for x in !m[idx(?String("a"))][0..1]
+    for _ in 0..40
+      !x.add("xxxxxxxx")
+  print(m[0][0].len)
+
+test "review-step45-r2-a14 while for forms rejected", '''
+  q
+  q
+'''
+  # while-as / for read / for write over a place through a temp: each
+  # header points at the place, so each binds the place's own
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("q"))
+  m: List[List[String]] = List()
+  !m.push(List())
+  while v[idx(?String("a"))] as t
+    print(t)
+    break
+  for x in m[idx(?String("a"))]
+    print(x)
+  for x in !m[idx(?String("a"))]
+    !x.add("!")
+  if v[idx(?String("a"))] as t
+    print(t)
+  else
+    print("none")

@@ -1,4 +1,0 @@
-sub main()
-  a: [2]Int? = [1, none]
-  x = <a[0]
-  print(x, a)

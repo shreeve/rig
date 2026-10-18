@@ -1,8 +1,0 @@
-sub main()
-  v: List[String] = List()
-  !v.push(String("hello"))
-  w = !v[..]
-  s = ?w[0][1..]
-  for _ in 0..50
-    !v[0].add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
-  print(s)

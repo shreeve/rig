@@ -1,6 +1,0 @@
-sub main()
-  v: List[?Int] = List()
-  for i in 0..3
-    x = i
-    !v.push(?x)
-  print(v)

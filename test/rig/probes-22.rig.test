@@ -1,0 +1,1855 @@
+# Probes from past reviews and audits, 22 of 41: review-errors-m7-main4 to review-lend-base-3-j-j14.
+
+test "review-errors-m7-main4", '''
+  alias full
+  true
+  0 Disk.full Disk.full
+'''
+  use lib
+
+  type D = lib.Disk
+
+  sub main()
+    x = lib.fail() catch |e|
+      match e
+        D.full => print("alias full")
+        _ => print("other")
+      print(e == D.full)
+      0
+    d: D = .full
+    print(x, d, D.full)
+
+  file "lib.rig"
+    pub error Disk
+      full
+
+    pub DEF = Disk.full
+
+    pub fun fail() -> Int!
+      return Disk.full
+
+test "review-errors-m8", '''
+  E.eof true
+  1
+'''
+  use b
+
+  error Mine
+    other
+
+  sub main()
+    x = b.g() catch |e|
+      print(e, e == .eof)
+      match e
+        .eof => 1
+        _ => 2
+    print(x)
+
+  file "a.rig"
+    pub error E
+      eof
+
+    pub fun f() -> Int!
+      return E.eof
+
+  file "b.rig"
+    use a
+
+    pub fun g() -> Int!
+      a.f()! + 1
+
+test "review-errors-m9", '''
+  true
+  1 Disk.full
+'''
+  use lib
+
+  sub main()
+    x = lib.f() catch |e|
+      print(e == lib.D.full)
+      match e
+        lib.D.full => 1
+        _ => 2
+    print(x, lib.D.full)
+
+  file "lib.rig"
+    pub error Disk
+      full
+
+    pub type D = Disk
+
+    pub fun f() -> Int!
+      return D.full
+
+fail "review-header-paths-1-o01 store readview of self into arg", "cannot reassign `h` while it is lent"
+  obj H
+    n: Int
+    v: List[Int]
+
+    sub put(!self, dst: !List[?List[Int]]) keeps self
+      !self.v.push(1)
+      !dst.push(?self.v)
+
+  v: List[Int] = List()
+  h = H(n: 1, v: <v)
+  d: List[?List[Int]] = List()
+  (!h).put(!d)
+  h = H(n: 2, v: List())
+  print(d.len)
+  print(d[0])
+
+fail "review-header-paths-1-t01 for branch part readview local owner", "cannot lend `z` to write while a read loan is live"
+  obj RV
+    rv: ?List[Int]
+    n: Int
+
+  z: List[Int] = List()
+  !z.push(1)
+  !z.push(2)
+  q: List[Int] = List()
+  !q.push(3)
+  x = RV(rv: ?z, n: 1)
+  y = RV(rv: ?q, n: 2)
+  a = !x
+  b = !y
+  c = true
+  n = 0
+  for e in (a if c else b).rv
+    for _ in 0..100
+      !z.push(1)
+    n += e
+  print(n)
+
+fail "review-header-paths-1-t02 match branch part slice local owner", "cannot lend `z` to write while a read loan is live"
+  obj SV
+    sl: []Int
+    n: Int
+
+  z: List[Int] = List()
+  !z.push(1)
+  !z.push(2)
+  q: List[Int] = List()
+  !q.push(3)
+  x = SV(sl: ?z[..], n: 1)
+  y = SV(sl: ?q[..], n: 2)
+  a = !x
+  b = !y
+  c = true
+  t = (a if c else b).sl
+  for _ in 0..100
+    !z.push(1)
+  print(t[0])
+
+fail "review-header-paths-1-t03 as branch part optreadview local owner", "cannot lend `z` to write while a read loan is live"
+  obj OV
+    ov: (?List[Int])?
+
+  z: List[Int] = List()
+  !z.push(1)
+  q: List[Int] = List()
+  !q.push(3)
+  x = OV(ov: ?z)
+  y = OV(ov: ?q)
+  a = !x
+  b = !y
+  c = true
+  if (a if c else b).ov as v
+    s = ?v[..]
+    for _ in 0..100
+      !z.push(1)
+    print(s[0])
+
+fail "review-header-paths-1-t05 for read plain array part local", "use of `xs` while a write loan is live"
+  obj A3
+    arr: [3]Int
+
+  xs: List[A3] = List()
+  !xs.push(A3(arr: [1, 2, 3]))
+  ys: List[A3] = List()
+  !ys.push(A3(arr: [4, 5, 6]))
+  a = !xs[0]
+  b = !ys[0]
+  c = true
+  n = 0
+  for x in (a if c else b).arr
+    for _ in 0..100
+      !xs.push(A3(arr: [0, 0, 0]))
+    n += x
+  print(n)
+
+test "review-header-paths-1-t06 as plain opt part local", "1"
+  obj A3
+    o: Int?
+
+  xs: List[A3] = List()
+  !xs.push(A3(o: 1))
+  ys: List[A3] = List()
+  !ys.push(A3(o: 2))
+  a = !xs[0]
+  b = !ys[0]
+  c = true
+  if (a if c else b).o as x
+    for _ in 0..100
+      !xs.push(A3(o: 0))
+    print(x)
+
+fail "review-hotfix7-p13-nested-take-call-payload", "cannot move out of `inner`: it is a view of `get(o)`"
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj W[T]
+    o: Opt[T]
+    p: T?
+
+  fun get[T](o: ?Opt[T]) -> ?Opt[T] from o
+    o
+
+  fun getw[T](w: ?W[T]) -> ?W[T] from w
+    w
+
+  fun nest[T](o: ?Opt[Opt[T]], d: T) -> T
+    match get(o)
+      .some(inner)
+        match <inner
+          .some(v) => v
+          .nothing => <d
+      .nothing => <d
+
+  o: Opt[Opt[String]] = .some(v: .some(v: String("x")))
+  print(nest(?o, String("d")))
+  match o
+    .some(i)
+      match i
+        .some(v) => print(v)
+        .nothing => pass
+    .nothing => pass
+
+test "review-hotfix7-p14-nested-place-payload", "5"
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj W[T]
+    o: Opt[T]
+    p: T?
+
+  fun get[T](o: ?Opt[T]) -> ?Opt[T] from o
+    o
+
+  fun getw[T](w: ?W[T]) -> ?W[T] from w
+    w
+
+  fun nest[T](o: ?Opt[Opt[T]], d: T) -> T
+    match o
+      .some(inner)
+        match inner
+          .some(v) => v
+          .nothing => <d
+      .nothing => <d
+
+  o: Opt[Opt[Int]] = .some(v: .some(v: 5))
+  print(nest(?o, 0))
+
+test "review-labels-1-c10 break postif", "5"
+  c = true
+  @outer for i in 0..3
+    for j in 0..3
+      break @outer if c
+      print(i, j)
+  print(5)
+
+test "review-labels-1-c17b break label bang lend", "2"
+  sub bump(n: !Int)
+    n += 1
+
+  n = 1
+  @outer while true
+    while true
+      bump(!n)
+      break @outer
+  print(n)
+
+test "review-labels-1-c19 break no space", '''
+  0 0
+  9
+'''
+  @outer for i in 0..2
+    for j in 0..2
+      print(i, j)
+      break@outer
+  print(9)
+
+test "review-labels-1-h01 header break outer defer", '''
+  0 0
+  e 0
+  0 1
+  e 1
+  d 0
+  9
+'''
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 2 else none
+
+  @o for k in 0..3
+    defer print("d", k)
+    i = 0
+    while get(i) ?? break @o : i += 1
+      defer print("e", i)
+      print(k, i)
+    print("after", k)
+  print(9)
+
+test "review-labels-1-h02 header continue outer defer", '''
+  0 0
+  0 1
+  d 0
+  1 0
+  1 1
+  d 1
+  2 0
+  2 1
+  d 2
+  9
+'''
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 2 else none
+
+  @o for k in 0..3
+    defer print("d", k)
+    i = 0
+    while get(i) ?? continue @o : i += 1
+      print(k, i)
+    print("never", k)
+  print(9)
+
+test "review-labels-1-h04 header break outer drops owned", '''
+  0 0 x
+  0 1 x
+  9
+'''
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 2 else none
+
+  @o for k in 0..3
+    s = String("x")
+    i = 0
+    while get(i) ?? break @o : i += 1
+      print(k, i, s)
+  print(9)
+
+fail "review-labels-1-h05 header move then jump", "use of `s` after move"
+  fun pick(s: String, i: Int) -> Bool?
+    (s.len > 0) if i < 2 else none
+
+  @o for k in 0..2
+    s = String("x")
+    i = 0
+    while pick(<s, i) ?? break @o : i += 1
+      print(k, i)
+  print(9)
+
+test "review-labels-1-h06 header loan then mutate", '''
+  0 0
+  0 1
+  2
+'''
+  fun first(v: ?List[Int], i: Int) -> Int?
+    v[i] if i < v.len else none
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  @o for k in 0..2
+    i = 0
+    while (first(?v, i) ?? break @o) > 0 : i += 1
+      print(k, i)
+    !v.push(3)
+  print(v.len)
+
+test "review-labels-1-h06b header view then mutate", '''
+  0 0
+  0 1
+  3
+'''
+  fun first(v: ?List[Int], i: Int) -> (?Int)?
+    ?v[i] if i < v.len else none
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  @o for k in 0..2
+    i = 0
+    while (first(?v, i) ?? break @o) > 0 : i += 1
+      print(k, i)
+    !v.push(3)
+  !v.push(4)
+  print(v.len)
+
+fail "review-labels-1-h06c header view held across jump", "cannot lend `v` to write while a read loan is live"
+  fun first(v: ?List[Int], i: Int) -> (?Int)?
+    ?v[i] if i < v.len else none
+
+  v: List[Int] = List()
+  !v.push(1)
+  @o for k in 0..2
+    i = 0
+    w = ?v[0]
+    while (first(?v, i) ?? break @o) > 0 : !v.push(i)
+      print(k, i, w)
+      i += 1
+      break if i > 2
+  print(v.len)
+
+test "review-labels-1-h07 header label names own while", "3 3"
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 3 else none
+
+  i = 0
+  n = 0
+  @a while get(i) ?? break @a : i += 1
+    n += 1
+  print(i, n)
+
+test "review-labels-1-h08 header continue own while", "4 3"
+  fun get(i: Int) -> Bool?
+    (i < 9) if i != 1 else none
+
+  i = 0
+  n = 0
+  @a while (get(i) ?? continue @a) and i < 4 : i += 1
+    n += 1
+  print(i, n)
+
+test "review-labels-1-h09 header shadow same name", '''
+  0 0
+  0 1
+  after 0
+  1 0
+  1 1
+  after 1
+  2 0
+  2 1
+  after 2
+  9
+'''
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 2 else none
+
+  @a for k in 0..3
+    i = 0
+    @a while get(i) ?? break @a : i += 1
+      print(k, i)
+    print("after", k)
+  print(9)
+
+test "review-labels-1-h10 header catch continue outer", '''
+  0 0
+  1 0
+  1 1
+  2 0
+  2 1
+  2 2
+  9
+'''
+  error E
+    bad
+
+  fun get(i: Int, k: Int) -> Bool!
+    return E.bad if i > k
+    true
+
+  @o for k in 0..3
+    i = 0
+    while get(i, k) catch continue @o : i += 1
+      print(k, i)
+  print(9)
+
+test "review-labels-1-h11 while as header jump", '''
+  0 0
+  1 0
+  9
+'''
+  error E
+    bad
+
+  fun pick(i: Int) -> Int?!
+    return E.bad if i > 2
+    i * 10 if i != 1 else none
+
+  @o for k in 0..2
+    i = 0
+    while (pick(i) catch break @o) as v : i += 1
+      print(k, v)
+  print(9)
+
+test "review-labels-1-h12 header step reads binding", '''
+  0 1 0
+  0 2 1
+  0 3 3
+  0 4 6
+  0 5 10
+  1 1 0
+  1 2 1
+  1 3 3
+  1 4 6
+  1 5 10
+  9
+'''
+  fun pick(i: Int) -> Int?
+    i * 10 if i < 3 else none
+
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 5 else none
+
+  @o for k in 0..2
+    i = 0
+    t = 0
+    while get(i) ?? continue @o : t += i
+      i += 1
+      print(k, i, t)
+  print(9)
+
+test "review-labels-1-h13 header nested two levels", '''
+  0 0 0
+  0 0 1
+  1 0 0
+  9
+'''
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 2 else none
+
+  @x for a in 0..2
+    @y for b in 0..2
+      i = 0
+      while get(i + a + b) ?? continue @x : i += 1
+        print(a, b, i)
+  print(9)
+
+test "review-labels-1-h20 header continue outer runs outer step", '''
+  0 0
+  0 1
+  1 0
+  3 6
+'''
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 2 else none
+
+  fun mk(i: Int) -> Int?
+    i if i < 3 else none
+
+  k = 0
+  steps = 0
+  @o while mk(k) as v : steps += v + 1
+    k += 1
+    i = 0
+    while get(i + v) ?? continue @o : i += 1
+      print(v, i)
+  print(k, steps)
+
+fail "review-labels-1-h21 header move continue outer reuse", "use of `s` after move"
+  fun take(s: String, i: Int) -> Bool?
+    (s.len > 0) if i < 1 else none
+
+  s = String("x")
+  @o for k in 0..2
+    print(k, s)
+    i = 0
+    while take(<s, i) ?? continue @o : i += 1
+      print(i)
+      break @o
+
+fail "review-labels-1-h22 header move break outer use after", "use of `s` after move"
+  fun take(s: String, i: Int) -> Bool?
+    (s.len > 0) if i < 1 else none
+
+  s = String("x")
+  @o for k in 0..2
+    i = 0
+    while take(<s, i) ?? break @o : i += 1
+      print(k, i)
+      s = String("y")
+      break
+    s = String("z")
+  print(s)
+
+test "review-labels-1-h22b header move break outer reassigned", '''
+  0 0
+  w
+'''
+  fun take(s: String, i: Int) -> Bool?
+    (s.len > 0) if i != 1 else none
+
+  s = String("x")
+  @o for k in 0..3
+    i = k
+    while take(<s, i) ?? break @o : i += 1
+      print(k, i)
+      s = String("y")
+      break
+    s = String("z")
+  s = String("w")
+  print(s)
+
+test "review-labels-1-h23 header write lend then outer step", '''
+  0 1
+  0 2
+  2 1
+  2 2
+  6 1
+  6 2
+  6 12
+'''
+  fun bump(n: !Int) -> Bool?
+    n += 1
+    (n > 0) if n < 3 else none
+
+  n = 0
+  t = 0
+  @o while t < 10 : t += n
+    m = 0
+    while bump(!m) ?? continue @o : n += 1
+      print(t, m)
+  print(n, t)
+
+test "review-labels-1-h24 header view continue outer mutate", '''
+  0 0
+  0 1
+  1 0
+  1 1
+  1 2
+  2 0
+  2 1
+  2 2
+  2 3
+  4
+'''
+  fun first(v: ?List[Int], i: Int) -> (?Int)?
+    ?v[i] if i < v.len else none
+
+  v: List[Int] = List()
+  !v.push(1)
+  @o for k in 0..3
+    !v.push(k + 2)
+    i = 0
+    while (first(?v, i) ?? continue @o) > 0 : i += 1
+      print(k, i)
+  print(v.len)
+
+test "review-labels-1-n01 same name nested", '''
+  0 0
+  1 0
+  2 0
+  9
+'''
+  @a for i in 0..3
+    @a for j in 0..3
+      break @a if j == 1
+      print(i, j)
+  print(9)
+
+test "review-labels-1-n05 label match break", '''
+  1
+  9
+'''
+  k = 2
+  @m match k
+    2
+      print(1)
+      break @m if k > 1
+      print(2)
+    _ => print(3)
+  print(9)
+
+test "review-labels-1-n12 label in arm body loop", '''
+  0 0
+  9
+'''
+  k = 1
+  match k
+    1
+      @a for i in 0..3
+        for j in 0..3
+          break @a if j == 1
+          print(i, j)
+    _ => print(0)
+  print(9)
+
+test "review-labels-1-n14 label in island closure", '''
+  0 0 0
+  1 0 0
+  9
+'''
+  sub each(n: Int, f: ?sub(Int))
+    for i in 0..n
+      f(i)
+
+  each(2, |k: Int|
+    @a for i in 0..3
+      for j in 0..3
+        break @a if j == 1
+        print(k, i, j)
+  )
+  print(9)
+
+test "review-labels-1-n21 member break label like", '''
+  1
+  1
+'''
+  obj K
+    break: Int
+
+  k = K(break: 1)
+  for _ in 0..2
+    print(k.break)
+
+test "review-labels-1-n22 label nested match in loop break", '''
+  0
+  9
+'''
+  @o for i in 0..3
+    @m match i
+      1
+        break @o
+      _
+        break @m
+    print(i)
+  print(9)
+
+test "review-labels-1-n23 label name shadows var", '''
+  0 5
+  9
+'''
+  a = 5
+  @a for i in 0..3
+    break @a if i == a - 4
+    print(i, a)
+  print(9)
+
+test "review-labels-1-n24 label on while as", '''
+  0 0
+  1 0
+  2 0
+  9
+'''
+  fun get(i: Int) -> Int?
+    i if i < 3 else none
+
+  i = 0
+  @a while get(i) as v : i += 1
+    for j in 0..2
+      continue @a if j == 1
+      print(v, j)
+  print(9)
+
+test "review-labels-1-n37 label zig kw", "0 0"
+  @blk for i in 0..2
+    @comptime for j in 0..2
+      print(i, j)
+      break @blk
+
+test "review-labels-1-n38 label emitted name collision", '''
+  0 0
+  0 1
+'''
+  @a for i in 0..2
+    a = i
+    @i for j in 0..2
+      print(a, j)
+      break @a if j == 1
+
+test "review-labels-1-w01 header label step", '''
+  0 0
+  0 1
+  1 0
+  1 1
+  2 0
+  2 1
+  9
+'''
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 3 else none
+
+  @o for k in 0..3
+    i = 0
+    while get(i) ?? break @o : i += 1
+      print(k, i)
+      if i == 1
+        break
+  print(9)
+
+test "review-labels-1-w01b header label step continue", '''
+  0 0
+  0 1
+  1 0
+  9
+'''
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 2 else none
+
+  @o for k in 0..3
+    i = 0
+    while get(i + k) ?? continue @o : i += 1
+      print(k, i)
+  print(9)
+
+test "review-labels-1-w02 header label no step", '''
+  0 0
+  0 1
+  0 2
+  3
+'''
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 3 else none
+
+  i = 0
+  @o for k in 0..2
+    while get(i) ?? break @o
+      print(k, i)
+      i += 1
+  print(i)
+
+test "review-labels-1-w04 header bare jump call step", '''
+  0
+  1
+  2
+  9
+'''
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 3 else none
+
+  sub tick(n: !Int)
+    n += 1
+
+  i = 0
+  while get(i) ?? break : tick(!i)
+    print(i)
+  print(9)
+
+test "review-labels-1-w07c header old label named like var", '''
+  0 0
+  0 1
+  0 2
+  9
+'''
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 3 else none
+
+  sub tick(n: !Int)
+    n += 1
+
+  i = 0
+  @o for k in 0..2
+    while get(i) ?? break :tick(!i)
+      print(k, i)
+  print(9)
+
+test "review-labels-1-w08 header label continue step call", '''
+  0 0
+  0 1
+  1 0
+  9
+'''
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 2 else none
+
+  sub tick(n: !Int)
+    n += 1
+
+  @o for k in 0..3
+    i = 0
+    while get(i + k) ?? continue @o : tick(!i)
+      print(k, i)
+  print(9)
+
+test "review-labels-1-w09 header step has label jump", '''
+  0 0
+  0 1
+  0 2
+  9
+'''
+  fun idx(i: Int) -> Int?
+    i if i < 3 else none
+
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 3 else none
+
+  @o for k in 0..2
+    i = 0
+    while i < 5 : i = idx(i + 1) ?? break @o
+      print(k, i)
+  print(9)
+
+test "review-labels-1-w14 header bare jump tight colon", '''
+  0
+  1
+  2
+  9
+'''
+  fun get(i: Int) -> Bool?
+    (i < 9) if i < 3 else none
+
+  i = 0
+  while get(i) ?? break: i += 1
+    print(i)
+  print(9)
+
+test "review-labels-1-w15 header kwarg then label", '''
+  0 0
+  0 1
+  9
+'''
+  fun get(i: Int, lim: Int) -> Bool?
+    (i < 9) if i < lim else none
+
+  @o for k in 0..2
+    i = 0
+    while get(i, lim: 2) ?? break @o : i += 1
+      print(k, i)
+  print(9)
+
+test "review-labels-1-x03 defer block label", '''
+  0
+  0 0
+'''
+  defer
+    @a for i in 0..3
+      for j in 0..3
+        break @a if j == 1
+        print(i, j)
+  print(0)
+
+test "review-labels-1-x10 continue label postif value", '''
+  0 0
+  1 0
+  2 0
+  9
+'''
+  @a for i in 0..3
+    for j in 0..3
+      continue @a if j == 1
+      print(i, j)
+  print(9)
+
+test "review-labels-1-x15 match arm jump label", '''
+  0
+  9
+'''
+  @o for i in 0..3
+    match i
+      1 => break @o
+      _ => print(i)
+  print(9)
+
+test "review-labels-1-x16 match arm continue label", '''
+  0 0
+  1 0
+  2 0
+  9
+'''
+  @o for i in 0..3
+    for j in 0..3
+      match j
+        1 => continue @o
+        _ => print(i, j)
+  print(9)
+
+test "review-labels-1-x17 label tab", "0"
+  @a	for i in 0..2
+    print(i)
+    break	@a
+
+test "review-labels-1-x21 nullish continue label in arg", '''
+  0 0 0
+  0 1 0
+  2 0 2
+  2 1 2
+  9
+'''
+  fun get(i: Int) -> Int?
+    i if i != 1 else none
+
+  @a for i in 0..3
+    for j in 0..2
+      print(i, j, get(i) ?? continue @a)
+  print(9)
+
+test "review-lang4-c1", '''
+  2
+  P(x: 2, y: 2)
+'''
+  obj P
+    x: Int
+    y: Int
+
+  p = P(x: 1, y: 2)
+  w = !p.x
+  print(p.y)
+  w += 1
+  print(p)
+
+test "review-lang4-c2", '''
+  0
+  [1]
+'''
+  obj P
+    x: List[Int]
+    y: List[Int]
+
+  p = P(x: List(), y: List())
+  w = !p.x
+  print(p.y.len)
+  !w.push(1)
+  print(p.x)
+
+fail "review-lang4-c3", "use of `n` while a write loan is live"
+  sub bump(a: !Int, b: Int)
+    a += b
+
+  n = 1
+  bump(!n, n)
+  w = !n
+  w += 1
+  x = n
+  print(x)
+
+test "review-lang4-c4", "4"
+  n = 1
+  w = !n
+  w = w + 1
+  w += w
+  print(n)
+
+test "review-lang4-c7", "5"
+  sub bump2(b: Int, a: !Int)
+    a += b
+
+  n = 1
+  bump2(n, !n)
+  bump2(n + 1, !n)
+  print(n)
+
+test "review-lang4-c8", '''
+  6 5
+  2
+'''
+  sub inc(a: !Int)
+    a += 1
+
+  n = 0
+  while n < 3
+    w = !n
+    w += 1
+  for _ in 0..n
+    inc(!n)
+  m = 0
+  while m < 5 : inc(!m)
+    pass
+  k = 0
+  f = |!k| k += 1
+  f()
+  f()
+  print(n, m)
+  print(k)
+
+fail "review-lang4-fx", "cannot reassign fixed binding `w`"
+  n = 1
+  w =! !n
+  w += 1
+  print(n)
+
+test "review-lang4-l1", '''
+  1 -1
+  5
+  9
+'''
+  fun find(xs: []Int, t: Int) -> Int
+    @outer for i in 0..xs.len
+      for j in 0..2
+        break @outer i if xs[i] == t + j
+    else
+      -1
+
+  sub kind(n: Int)
+    @m match n
+      0 => print(5)
+      _
+        break @m if n > 2
+        print(9)
+
+  xs = [1, 5, 9]
+  print(find(?xs[..], 5), find(?xs[..], 100))
+  @w while true
+    break @w
+  @r raw
+    break @r
+  @mm match 3
+    3 => break @mm
+    _ => pass
+  kind(0)
+  kind(3)
+  kind(1)
+
+test "review-lang4-q2", "0"
+  for i in 0..3
+    continue if i == 1
+    break if i == 2
+    print(i)
+  return if true
+
+test "review-lang4-q3", "3"
+  obj S
+    n: Int
+
+    sub hook(!self, k: Int)
+      pass
+
+  sub f()!
+    pass
+
+  sub cb(n: Int, xs: List[Int])
+    pass
+
+  f()!
+  cb(1, List())
+  s = S(n: 1)
+  !s.hook(3)
+  t: sub(Int) = |k|
+    pass
+  t(1)
+  i = 0
+  while i < 3 : i += 1
+    pass
+  print(i)
+
+test "review-lend-base-2-p-a09", "[1, 7]"
+  obj Set
+    items: List[Int]
+
+    fun insert(!self, k: Int) -> Bool
+      !self.items.push(k)
+      true
+
+    fun count(?self) -> Int
+      self.items.len
+
+    sub put[k: Int](!self, x: Int)
+      !self.items.push(x * k)
+
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+    fun get(?self) -> Int
+      self.n
+
+  obj P
+    x: Int
+    o: Int?
+    a: [2]Int
+    v: List[Int]
+    q: Q
+    s: Set
+
+  fun mk() -> P
+    P(x: 1, o: 3, a: [1, 2], v: List(), q: Q(n: 1), s: Set(items: List()))
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  (<(!v[..]))[1] += 5
+  print(v)
+
+test "review-lend-base-2-p-f06", "[0, 0, 0]"
+  arr = [1, 2, 3]
+  (!arr).fill(0)
+  print(arr)
+
+test "review-lend-base-2-p-f09", "2"
+  arr = [1, 2, 3]
+  x = (?arr).get(1)
+  print(x ?? 0)
+
+test "review-lend-base-2-p-f10", "2"
+  arr = [1, 2, 3]
+  x = (<(!arr)).get(1)
+  print(x ?? 0)
+
+test "review-lend-base-2-p-g02", "5 1"
+  error E
+    bad
+
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: Int?
+    a: [2]Int
+    v: List[Int]
+    q: Q
+
+  fun mk() -> P
+    P(x: 1, o: 3, a: [1, 2], v: List(), q: Q(n: 1))
+
+  fun pick(p: !P, b: Bool) -> (!P)?
+    return none if b
+    p
+
+  fun fail(p: !P, b: Bool) -> (!P)!
+    return E.bad if b
+    p
+
+  p = mk()
+  q = mk()
+  (fail(!q, true) catch !p).x = 5
+  print(p.x, q.x)
+
+test "review-lend-base-2-p-g03", "[1, 7] [6, 2]"
+  error E
+    bad
+
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: Int?
+    a: [2]Int
+    v: List[Int]
+    q: Q
+
+  fun mk() -> P
+    P(x: 1, o: 3, a: [1, 2], v: List(), q: Q(n: 1))
+
+  fun pick(p: !P, b: Bool) -> (!P)?
+    return none if b
+    p
+
+  fun fail(p: !P, b: Bool) -> (!P)!
+    return E.bad if b
+    p
+
+  p = mk()
+  q = mk()
+  (fail(!q, true) catch !p).a[1] += 5
+  (pick(!q, false) ?? !p).a[0] += 5
+  print(p.a, q.a)
+
+test "review-lend-base-2-p-g04", "1"
+  error E
+    bad
+
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: Int?
+    a: [2]Int
+    v: List[Int]
+    q: Q
+
+  fun mk() -> P
+    P(x: 1, o: 3, a: [1, 2], v: List(), q: Q(n: 1))
+
+  fun pick(p: !P, b: Bool) -> (!P)?
+    return none if b
+    p
+
+  fun fail(p: !P, b: Bool) -> (!P)!
+    return E.bad if b
+    p
+
+  p = mk()
+  q = mk()
+  y = (pick(!q, true) ?? !p).x
+  print(y)
+
+test "review-lend-base-2-p-g07", "1 5"
+  error E
+    bad
+
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: Int?
+    a: [2]Int
+    v: List[Int]
+    q: Q
+
+  fun mk() -> P
+    P(x: 1, o: 3, a: [1, 2], v: List(), q: Q(n: 1))
+
+  fun pick(p: !P, b: Bool) -> (!P)?
+    return none if b
+    p
+
+  fun fail(p: !P, b: Bool) -> (!P)!
+    return E.bad if b
+    p
+
+  fun go(p: !P, q: !P) -> Int?
+    (pick(!q, false)?).x = 5
+    1
+
+  p = mk()
+  q = mk()
+  n = go(!p, !q) ?? 0
+  print(n, q.x)
+
+test "review-lend-base-2-p-g09", "3 none"
+  error E
+    bad
+
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: Int?
+    a: [2]Int
+    v: List[Int]
+    q: Q
+
+  fun mk() -> P
+    P(x: 1, o: 3, a: [1, 2], v: List(), q: Q(n: 1))
+
+  fun pick(p: !P, b: Bool) -> (!P)?
+    return none if b
+    p
+
+  fun fail(p: !P, b: Bool) -> (!P)!
+    return E.bad if b
+    p
+
+  p = mk()
+  q = mk()
+  y = <(pick(!q, true) ?? !p).o
+  print(y, p.o)
+
+test "review-lend-base-2-p-g10", "[4]"
+  error E
+    bad
+
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: Int?
+    a: [2]Int
+    v: List[Int]
+    q: Q
+
+  fun mk() -> P
+    P(x: 1, o: 3, a: [1, 2], v: List(), q: Q(n: 1))
+
+  fun pick(p: !P, b: Bool) -> (!P)?
+    return none if b
+    p
+
+  fun fail(p: !P, b: Bool) -> (!P)!
+    return E.bad if b
+    p
+
+  p = mk()
+  q = mk()
+  !(pick(!q, true) ?? !p).v.push(4)
+  print(p.v)
+
+fail "review-lend-base-2-p-g13", "cannot lend `q` to write while a write loan is live"
+  error E
+    bad
+
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: Int?
+    a: [2]Int
+    v: List[Int]
+    q: Q
+
+  fun mk() -> P
+    P(x: 1, o: 3, a: [1, 2], v: List(), q: Q(n: 1))
+
+  fun pick(p: !P, b: Bool) -> (!P)?
+    return none if b
+    p
+
+  fun fail(p: !P, b: Bool) -> (!P)!
+    return E.bad if b
+    p
+
+  p = mk()
+  q = mk()
+  c = true
+  (!p if c else pick(!q, true) ?? !q).x = 7
+  print(p.x)
+
+test "review-lend-base-2-p-h01", "[8, none]"
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: [2]Int?
+    a: [2]Int
+    v: List[Int]
+    qs: [2]Q
+    t: String
+
+  fun mk() -> P
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    P(x: 1, o: [3, none], a: [1, 2], v: <v, qs: [Q(n: 1), Q(n: 2)], t: String("hey"))
+
+  p = mk()
+  if !(!p.o[..])[0] as k
+    k += 5
+  print(p.o)
+
+test "review-lend-base-2-p-h02", '''
+  3
+  [none, none]
+'''
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: [2]Int?
+    a: [2]Int
+    v: List[Int]
+    qs: [2]Q
+    t: String
+
+  fun mk() -> P
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    P(x: 1, o: [3, none], a: [1, 2], v: <v, qs: [Q(n: 1), Q(n: 2)], t: String("hey"))
+
+  p = mk()
+  if <(!p.o[..])[0] as k
+    print(k)
+  print(p.o)
+
+test "review-lend-base-2-p-h03", "3 [none, none]"
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: [2]Int?
+    a: [2]Int
+    v: List[Int]
+    qs: [2]Q
+    t: String
+
+  fun mk() -> P
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    P(x: 1, o: [3, none], a: [1, 2], v: <v, qs: [Q(n: 1), Q(n: 2)], t: String("hey"))
+
+  p = mk()
+  y = <(!p.o[..])[0]
+  print(y, p.o)
+
+test "review-lend-base-2-p-h07", "1"
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: [2]Int?
+    a: [2]Int
+    v: List[Int]
+    qs: [2]Q
+    t: String
+
+  fun mk() -> P
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    P(x: 1, o: [3, none], a: [1, 2], v: <v, qs: [Q(n: 1), Q(n: 2)], t: String("hey"))
+
+  (!mk().a[..])[1] = 5
+  print(1)
+
+test "review-lend-base-2-p-h08", "2"
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: [2]Int?
+    a: [2]Int
+    v: List[Int]
+    qs: [2]Q
+    t: String
+
+  fun mk() -> P
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    P(x: 1, o: [3, none], a: [1, 2], v: <v, qs: [Q(n: 1), Q(n: 2)], t: String("hey"))
+
+  n = (?mk().v[..])[1]
+  print(n)
+
+test "review-lend-base-2-p-h09", "101 2"
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: [2]Int?
+    a: [2]Int
+    v: List[Int]
+    qs: [2]Q
+    t: String
+
+  fun mk() -> P
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    P(x: 1, o: [3, none], a: [1, 2], v: <v, qs: [Q(n: 1), Q(n: 2)], t: String("hey"))
+
+  p = mk()
+  print((?p.t[..])[1], (?p.t[1..]).len)
+
+test "review-lend-base-2-p-h12", "4"
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: [2]Int?
+    a: [2]Int
+    v: List[Int]
+    qs: [2]Q
+    t: String
+
+  fun mk() -> P
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    P(x: 1, o: [3, none], a: [1, 2], v: <v, qs: [Q(n: 1), Q(n: 2)], t: String("hey"))
+
+  p = mk()
+  bump(!(!p.qs[..])[0])
+  print(p.qs[0].n)
+
+  sub bump(q: !Q)
+    q.n += 3
+
+fail "review-lend-base-2-p-h15", "cannot lend `p.v` to write while a read loan is live"
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: [2]Int?
+    a: [2]Int
+    v: List[Int]
+    qs: [2]Q
+    t: String
+
+  fun mk() -> P
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    P(x: 1, o: [3, none], a: [1, 2], v: <v, qs: [Q(n: 1), Q(n: 2)], t: String("hey"))
+
+  p = mk()
+  (!p.v[..])[0] = (?p.v[..])[1]
+  print(p.v)
+
+test "review-lend-base-2-p-h17", "[1]"
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: [2]Int?
+    a: [2]Int
+    v: List[Int]
+    qs: [2]Q
+    t: String
+
+  fun mk() -> P
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    P(x: 1, o: [3, none], a: [1, 2], v: <v, qs: [Q(n: 1), Q(n: 2)], t: String("hey"))
+
+  p = mk()
+  s = ?(?p.v[..])[0..1]
+  print(s)
+
+test "review-lend-base-2-p-h18", "[4, 2]"
+  obj Q
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj P
+    x: Int
+    o: [2]Int?
+    a: [2]Int
+    v: List[Int]
+    qs: [2]Q
+    t: String
+
+  fun mk() -> P
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    P(x: 1, o: [3, none], a: [1, 2], v: <v, qs: [Q(n: 1), Q(n: 2)], t: String("hey"))
+
+  p = mk()
+  s = !(!p.v[..])[0..1]
+  s[0] = 4
+  print(p.v)
+
+test "review-lend-base-3-a-a06", '''
+  1
+  1 1 1
+'''
+  obj P
+    x: Int
+    arr: [3]Int
+    v: List[Int]
+
+  sub show(p: ?P)
+    print(p.x, p.arr[0], p.v.len)
+
+  p = P(x: 1, arr: [1, 2, 3], v: List[Int]())
+  !p.v.push(9)
+  y = (+(?p)).x
+  print(y)
+  show(?p)
+
+test "review-lend-base-3-j-j01", "11 2 1 2"
+  obj Q
+    x: Int
+
+    sub bump(!self)
+      self.x += 1
+
+  sub inc(n: !Int)
+    n += 1
+
+  arr = [1, 2, 3, 4]
+  qs = [Q(x: 1), Q(x: 2)]
+  c = true
+  _ = c
+  (!arr[..])[0] += 10
+  print(arr[0], arr[1], qs[0].x, qs[1].x)
+
+test "review-lend-base-3-j-j02", "1 3 1 2"
+  obj Q
+    x: Int
+
+    sub bump(!self)
+      self.x += 1
+
+  sub inc(n: !Int)
+    n += 1
+
+  arr = [1, 2, 3, 4]
+  qs = [Q(x: 1), Q(x: 2)]
+  c = true
+  _ = c
+  inc(!(!arr[..])[1])
+  print(arr[0], arr[1], qs[0].x, qs[1].x)
+
+test "review-lend-base-3-j-j03", "1 2 2 2"
+  obj Q
+    x: Int
+
+    sub bump(!self)
+      self.x += 1
+
+  sub inc(n: !Int)
+    n += 1
+
+  arr = [1, 2, 3, 4]
+  qs = [Q(x: 1), Q(x: 2)]
+  c = true
+  _ = c
+  !(!qs[..])[0].bump()
+  print(arr[0], arr[1], qs[0].x, qs[1].x)
+
+test "review-lend-base-3-j-j04", "1 2 1 9"
+  obj Q
+    x: Int
+
+    sub bump(!self)
+      self.x += 1
+
+  sub inc(n: !Int)
+    n += 1
+
+  arr = [1, 2, 3, 4]
+  qs = [Q(x: 1), Q(x: 2)]
+  c = true
+  _ = c
+  (!qs[..])[1].x = 9
+  print(arr[0], arr[1], qs[0].x, qs[1].x)
+
+test "review-lend-base-3-j-j05", '''
+  1
+  7 2 1 2
+'''
+  obj Q
+    x: Int
+
+    sub bump(!self)
+      self.x += 1
+
+  sub inc(n: !Int)
+    n += 1
+
+  arr = [1, 2, 3, 4]
+  qs = [Q(x: 1), Q(x: 2)]
+  c = true
+  _ = c
+  y = replace(!(!arr[..])[0], 7)
+  print(y)
+  print(arr[0], arr[1], qs[0].x, qs[1].x)
+
+test "review-lend-base-3-j-j07", "5 2 1 2"
+  obj Q
+    x: Int
+
+    sub bump(!self)
+      self.x += 1
+
+  sub inc(n: !Int)
+    n += 1
+
+  arr = [1, 2, 3, 4]
+  qs = [Q(x: 1), Q(x: 2)]
+  c = true
+  _ = c
+  (!arr[..])[0] = 5 if c
+  print(arr[0], arr[1], qs[0].x, qs[1].x)
+
+test "review-lend-base-3-j-j08", '''
+  4
+  1 2 1 2
+'''
+  obj Q
+    x: Int
+
+    sub bump(!self)
+      self.x += 1
+
+  sub inc(n: !Int)
+    n += 1
+
+  arr = [1, 2, 3, 4]
+  qs = [Q(x: 1), Q(x: 2)]
+  c = true
+  _ = c
+  defer (!arr[..])[3] = 0
+  print(arr[3])
+  print(arr[0], arr[1], qs[0].x, qs[1].x)
+
+test "review-lend-base-3-j-j09", "1 2 1 2"
+  obj Q
+    x: Int
+
+    sub bump(!self)
+      self.x += 1
+
+  sub inc(n: !Int)
+    n += 1
+
+  arr = [1, 2, 3, 4]
+  qs = [Q(x: 1), Q(x: 2)]
+  c = true
+  _ = c
+  f = |!arr| (!arr[..])[2] += 1
+  f()
+  print(arr[0], arr[1], qs[0].x, qs[1].x)
+
+test "review-lend-base-3-j-j14", '''
+  2
+  1 2 1 2
+'''
+  obj Q
+    x: Int
+
+    sub bump(!self)
+      self.x += 1
+
+  sub inc(n: !Int)
+    n += 1
+
+  arr = [1, 2, 3, 4]
+  qs = [Q(x: 1), Q(x: 2)]
+  c = true
+  _ = c
+  y = (?arr[..])[0..2][1]
+  print(y)
+  print(arr[0], arr[1], qs[0].x, qs[1].x)

@@ -1,0 +1,2478 @@
+# Probes from past reviews and audits, 18 of 41: review-b4b-1-p14_wm_generic to review-box-p133.
+
+test "review-b4b-1-p14 wm generic", '''
+  .some(x: 9) .some(x: "b")
+'''
+  # generic write match on a List element. Expect accept, clean.
+  enum O[T]
+    some(x: T)
+    nothing
+
+  sub setall[T](v: !List[O[T]], i: Int, x: T)
+    match !v[i]
+      .some(y) => y = <x
+      .nothing => pass
+
+  v: List[O[Int]] = List()
+  !v.push(O.some(x: 1))
+  setall(!v, 0, 9)
+  w: List[O[String]] = List()
+  !w.push(O.some(x: String("a")))
+  setall(!w, 0, String("b"))
+  print(v[0], w[0])
+
+test "review-b4b-1-p15 wm box elem", '''
+  .a(n: 2, t: "vx")
+'''
+  # write match on a Box element of a List, and on a handle element. Expect accept, clean.
+  enum E
+    a(n: Int, t: String)
+    b
+
+  v: List[^E] = List()
+  !v.push(^E.a(n: 1, t: String("v")))
+  i = 0
+  match !v[i]
+    .a(n, t)
+      n += 1
+      !t.add("x")
+    .b => pass
+  print(v[0])
+
+test "review-b4b-1-p16 wm catchall", '''
+  .a(n: 7, t: "new") .b
+'''
+  # write match on List element with a catch-all binding the whole element, then assigning it. Expect accept, clean.
+  enum E
+    a(n: Int, t: String)
+    b
+
+  v: List[E] = List()
+  !v.push(E.b)
+  !v.push(E.a(n: 1, t: String("v")))
+  i = 0
+  match !v[i]
+    .a(n, _) => n += 1
+    x => x = E.a(n: 7, t: String("new"))
+  match !v[1]
+    x => x = E.b
+  print(v[0], v[1])
+
+fail "review-b4b-1-p17 wm vecvec push inner", "use of `vv` while a write loan is live"
+  # write match on vv[0][i]; arm pushes to vv (outer) then writes payload. Expect reject.
+  enum E
+    a(n: Int)
+    b
+
+  vv: List[List[E]] = List()
+  w: List[E] = List()
+  !w.push(E.a(n: 4))
+  !vv.push(<w)
+  i = 0
+  match !vv[0][i]
+    .a(n)
+      for _ in 0..64
+        x: List[E] = List()
+        !vv.push(<x)
+      n = 5
+    .b => pass
+  print(vv[0][0])
+
+fail "review-b4b-1-p18 wm vecvec push inner2", "use of `vv` while a write loan is live"
+  # write match on vv[0][i]; arm pushes to vv[0] (inner) then writes payload. Expect reject.
+  enum E
+    a(n: Int)
+    b
+
+  vv: List[List[E]] = List()
+  w: List[E] = List()
+  !w.push(E.a(n: 4))
+  !vv.push(<w)
+  i = 0
+  match !vv[0][i]
+    .a(n)
+      for _ in 0..64
+        !vv[0].push(E.b)
+      n = 5
+    .b => pass
+  print(vv[0][0])
+
+fail "review-b4b-1-p20 index mutates base", "cannot lend `vv` to write in an index of a place it is lending"
+  # subject vv[0][grow(!vv, ?Text("a"))]: the index grows the outer List while
+  # the element pointer of vv[0] may already be computed. Expect reject (or clean run).
+  fun grow(vv: !List[[2]Int?], s: ?String) -> Int
+    for _ in 0..64
+      !vv.push([1, 2])
+    s.len - 1
+
+  vv: List[[2]Int?] = List()
+  !vv.push([5, 6])
+  if !vv[0][grow(!vv, ?String("a"))] as n
+    n = 50
+  print(vv[0], vv.len)
+
+fail "review-b4b-1-p21 index mutates base notemp", "cannot lend `vv` to write in an index of a place it is lending"
+  # same as p20 without the temporary. Expect reject (or clean run).
+  fun grow(vv: !List[[2]Int?]) -> Int
+    for _ in 0..64
+      !vv.push([1, 2])
+    0
+
+  vv: List[[2]Int?] = List()
+  !vv.push([5, 6])
+  if !vv[0][grow(!vv)] as n
+    n = 50
+  print(vv[0], vv.len)
+
+fail "review-b4b-1-p22 match index mutates", "cannot lend `vv` to write in an index of a place it is lending"
+  # match on vv[0][grow(!vv, ?Text)] with Text payloads. Expect reject (or clean).
+  enum E
+    a(t: String)
+    b
+
+  fun grow(vv: !List[[1]E], s: ?String) -> Int
+    for _ in 0..64
+      !vv.push([E.b])
+    s.len - 1
+
+  vv: List[[1]E] = List()
+  !vv.push([E.a(t: String("x"))])
+  match !vv[0][grow(!vv, ?String("a"))]
+    .a(t) => !t.add("y")
+    .b => pass
+  print(vv[0], vv.len)
+
+fail "review-b4b-1-p24 view call mutating index", "cannot lend `h` to write while a write loan is live"
+  # view-returning call base, index mutates the owner. Expect reject.
+  enum E
+    a(t: String)
+    b
+
+  obj H
+    es: List[E]
+
+  fun get(h: !H) -> !H from h
+    h
+
+  fun grow(h: !H, s: ?String) -> Int
+    for _ in 0..64
+      !h.es.push(E.b)
+    s.len - 1
+
+  h = H(es: List())
+  !h.es.push(E.a(t: String("x")))
+  match !get(!h).es[grow(!h, ?String("a"))]
+    .a(t) => !t.add("y")
+    .b => pass
+  print(h.es[0])
+
+test "review-b4b-1-p36 generic view base", '''
+  2001 41 42
+  2001 7 42
+  [Q(a: 7, b: 42), none]
+  2001 xy
+  ["xy", none]
+'''
+  # base is a generic function's returned view (`?T`, `!T`), indexed with a temp-making index. Expect clean, correct.
+  obj Q
+    a: Int
+    b: Int
+
+  fun first[T](v: ?List[T]) -> ?T from v
+    ?v[0]
+
+  fun firstw[T](v: !List[T]) -> !T from v
+    !v[0]
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7, n, n, n, n, n, n, n, n]
+    a[1] + a[15]
+
+  vv: List[[2]Q?] = List()
+  !vv.push([Q(a: 41, b: 42), none])
+  if first(?vv)[idx(?String("a"))] as q
+    print(clobber(1000), q.a, q.b)
+  if !firstw(!vv)[idx(?String("a"))] as q
+    q.a = 7
+    print(clobber(1000), q.a, q.b)
+  print(vv[0])
+  tv: List[[2]String?] = List()
+  !tv.push([String("x"), none])
+  if !firstw(!tv)[idx(?String("a"))] as t
+    !t.add("y")
+  if first(?tv)[idx(?String("a"))] as t
+    print(clobber(1000), t)
+  print(tv[0])
+
+test "review-b4b-1-p40 generic header", '''
+  q
+  4
+  ["b"]
+  5
+  5
+'''
+  # generic bodies: headers through a temp index over List[T?] and List[O[T]], read/write/return a view. Expect accept, clean.
+  enum O[T]
+    some(x: T)
+    nothing
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  sub at[T](v: ?List[O[T]])
+    match ?v[idx(?String("a"))]
+      .some(x) => print(x)
+      .nothing => pass
+
+  sub setw[T](v: !List[T?], x: T)
+    if !v[idx(?String("a"))] as y
+      y = <x
+
+  sub show[T](v: ?List[T?])
+    if v[idx(?String("a"))] as y
+      print(y)
+    while v[idx(?String("a"))] as y
+      print(y)
+      break
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  v: List[O[String]] = List()
+  !v.push(O.some(x: String("q")))
+  at(?v)
+  print(clobber(3))
+  w: List[String?] = List()
+  !w.push(String("a"))
+  setw(!w, String("b"))
+  print(w)
+  n: List[Int?] = List()
+  !n.push(4)
+  setw(!n, 5)
+  show(?n)
+
+test "review-b4b-1-p41 while repoint", '''
+  a
+  b
+  b
+  b
+  4
+'''
+  # while-as re-evaluated each iteration while the body re-points the view it goes through. Expect accept, clean.
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  a: List[String?] = List()
+  !a.push(String("a"))
+  b: List[String?] = List()
+  !b.push(String("b"))
+  !b.push(none)
+  r = ?a
+  k = 0
+  while r[idx(?String("a"))] as t
+    print(t)
+    r = ?b
+    k += 1
+    break if k > 3
+  print(k)
+
+fail "review-b4b-1-p42 while repoint use", "cannot move `a` while a read loan is live"
+  # while-as: body re-points the view, then uses t, then moves old owner. Expect reject at the move or clean.
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  sub eat(v: List[String?])
+    print(v.len)
+
+  a: List[String?] = List()
+  !a.push(String("a"))
+  b: List[String?] = List()
+  !b.push(String("b"))
+  r = ?a
+  while r[idx(?String("a"))] as t
+    r = ?b
+    eat(<a)
+    print(t)
+    break
+
+fail "review-b4b-1-p43 while move owner", "use of `a` after move"
+  # while-as over an element via temp index; body moves the owner after using t. Expect reject (moved in loop).
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  sub eat(v: List[String?])
+    print(v.len)
+
+  a: List[String?] = List()
+  !a.push(String("a"))
+  while a[idx(?String("a"))] as t
+    print(t)
+    eat(<a)
+
+test "review-b4b-1-p44 while move owner break", '''
+  a
+  1
+'''
+  # while-as; body moves owner then breaks (no reuse). Expect accept, clean.
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  sub eat(v: List[String?])
+    print(v.len)
+
+  a: List[String?] = List()
+  !a.push(String("a"))
+  while a[idx(?String("a"))] as t
+    print(t)
+    eat(<a)
+    break
+
+test "review-b4b-1-p45 while set elem", "[none] 1"
+  # while !… as with the body assigning the element itself (place the binding points at). Expect reject or clean.
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  a: List[String?] = List()
+  !a.push(String("a"))
+  k = 0
+  while !a[idx(?String("a"))] as t
+    !t.add("x")
+    a[0] = none
+    k += 1
+  print(a, k)
+
+fail "review-b4b-1-p46 while set elem use", "cannot assign to `a[0]` while `a` is lent"
+  # while !… as: body sets the element to none, then uses t. Expect reject.
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  a: List[String?] = List()
+  !a.push(String("a"))
+  while !a[idx(?String("a"))] as t
+    a[0] = none
+    !t.add("x")
+  print(a)
+
+test "review-b4b-1-p53 wm handle vec", "x"
+  # read match through a shared handle element with a temp index; arm drops other handles. Expect accept, clean.
+  enum E
+    a(t: String)
+    b
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  h: *E = *E.a(t: String("x"))
+  hs = [+h, +h]
+  match hs[idx(?String("a"))]
+    .a(t)
+      <h
+      print(t)
+    .b => pass
+
+test "review-b4b-1-p54 wm option elem", '''
+  [.a(t: "xy")]
+'''
+  # write match on an optional element via a temp index (enum in an optional in a List). Expect accept, clean.
+  enum E
+    a(t: String)
+    b
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[E?] = List()
+  !v.push(E.a(t: String("x")))
+  if !v[idx(?String("a"))] as e
+    match !e
+      .a(t) => !t.add("y")
+      .b => pass
+  print(v)
+
+fail "review-b4b-1-p55 handle elem reassign", "cannot assign to `hs[0]` while `hs` is lent"
+  # read match through a handle element via temp index; arm replaces the element (dropping the last handle) then uses t. Expect reject.
+  enum E
+    a(t: String)
+    b
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  hs: List[*E] = List()
+  !hs.push(*E.a(t: String("x")))
+  match hs[idx(?String("a"))]
+    .a(t)
+      hs[0] = *E.b
+      print(t)
+    .b => pass
+
+fail "review-b4b-1-p56 handle elem drop vec", "cannot drop `hs` while it is lent"
+  # read match through a handle element via temp index; arm drops the List then uses t. Expect reject.
+  enum E
+    a(t: String)
+    b
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  hs: List[*E] = List()
+  !hs.push(*E.a(t: String("x")))
+  match hs[idx(?String("a"))]
+    .a(t)
+      <hs
+      print(t)
+    .b => pass
+
+test "review-b4b-1-p60 branch variants", '''
+  2 u
+  ["v12", "u"] w
+  2 u
+  ["v121", "u"] w2
+  2 u2
+  ["v1211", "u2"] w2
+  2 v121112
+  ["v121112", "u2"] w2
+'''
+  # branching `as` subjects: temp in the condition, nested if leaves, read leaves. Expect accept, clean, correct.
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun yes(s: ?String) -> Bool
+    s.len > 0
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  sub f(v: !List[String?], w: !String?, c: Int)
+    if (!v[0] if yes(?String("a")) else !w) as t
+      !t.add("1")
+    if (!v[idx(?String("a"))] if c > 1 else (!w if c > 0 else !v[1])) as t
+      !t.add("2")
+    if (?v[idx(?String("a"))] if c > 5 else ?v[idx(?String("ab"))]) as t
+      print(clobber(1), t)
+
+  v: List[String?] = List()
+  !v.push(String("v"))
+  !v.push(String("u"))
+  w: String? = String("w")
+  f(!v, !w, 2)
+  print(v, w)
+  f(!v, !w, 1)
+  print(v, w)
+  f(!v, !w, 0)
+  print(v, w)
+  f(!v, !w, 9)
+  print(v, w)
+
+test "review-b4b-1-p62 wm box vec", '''
+  [.a(n: 10, t: "o")] .a(n: 4, t: "hp")
+'''
+  # write match on an element of a List in a Box, an array in a Box, a List reached through `if !o as v`, and a `!H` param's field. Expect clean, correct.
+  enum E
+    a(n: Int, t: String)
+    b
+
+  obj H
+    f: List[E]
+
+  sub viaparam(h: !H, i: Int)
+    match !h.f[i]
+      .a(n, t)
+        n += 1
+        !t.add("p")
+      .b => pass
+
+  i = 0
+  o: List[E]? = List()
+  if !o as v
+    !v.push(E.a(n: 9, t: String("o")))
+    match !v[i]
+      .a(n, _) => n += 1
+      .b => pass
+  h = H(f: List())
+  !h.f.push(E.a(n: 3, t: String("h")))
+  viaparam(!h, i)
+  print(o, h.f[0])
+
+fail "review-b4b-1-p63 binding escapes", "cannot lend `v` to write while a read loan is live"
+  # a binding of a header that points escapes into an outer name / is returned; then the owner is grown. Expect reject at the push.
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("a"))
+  r: (?String)? = none
+  if v[idx(?String("a"))] as t
+    r = t
+  for _ in 0..64
+    !v.push(String("zzzzzzzzzzzzzzzzzzzzzzzzz"))
+  print(r)
+
+test "review-b4b-1-p64 binding returned", "2 a"
+  # a header binding that points is returned from the function. Expect accept, clean.
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun get(v: ?List[String?]) -> (?String)? from v
+    if v[idx(?String("a"))] as t
+      return t
+    none
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  v: List[String?] = List()
+  !v.push(String("a"))
+  r = get(?v)
+  print(clobber(1), r)
+
+fail "review-b4b-1-p65 binding returned grow", "cannot lend `v` to write while a read loan is live"
+  # returned header binding, then the owner grows while the view lives. Expect reject.
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun get(v: ?List[String?]) -> (?String)? from v
+    if v[idx(?String("a"))] as t
+      return t
+    none
+
+  v: List[String?] = List()
+  !v.push(String("a"))
+  r = get(?v)
+  for _ in 0..64
+    !v.push(String("zzzzzzzzzzzzzzzzzzzzzzzzz"))
+  print(r)
+
+test "review-b4b-1-p66 propagate in index", '''
+  1 none
+  1 0
+  ["aof"]
+'''
+  # a temp-making index that propagates failure / none out of the function, inside a pointing header. Expect leak-free, correct.
+  fun idxo(s: ?String) -> Int?
+    return none if s.len > 3
+    s.len - 1
+
+  error Bad
+    long
+
+  fun idxf(s: ?String) -> Int!
+    return Bad.long if s.len > 3
+    s.len - 1
+
+  fun go(v: !List[String?], w: String) -> Int?
+    if !v[idxo(?String(w))?] as t
+      !t.add("o")
+    1
+
+  fun gof(v: !List[String?], w: String) -> Int!
+    if !v[idxf(?String(w))!] as t
+      !t.add("f")
+    1
+
+  v: List[String?] = List()
+  !v.push(String("a"))
+  print(go(!v, String("a")), go(!v, String("abcd")))
+  print(gof(!v, String("a")) catch 0, gof(!v, String("abcd")) catch 0)
+  print(v)
+
+test "review-b4b-1-p67 nested headers", '''
+  [["ay", "bxz"]]
+'''
+  # nested pointing headers: the inner subject is reached from the outer binding with its own temp index. Expect clean, correct.
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  vv: List[[2]String?] = List()
+  !vv.push([String("a"), String("b")])
+  for row in !vv[idx(?String("a"))..1]
+    if !row[idx(?String("ab"))] as t
+      !t.add("x")
+  if !vv[idx(?String("a"))][idx(?String("a"))] as t
+    !t.add("y")
+    if !vv[0][idx(?String("ab"))] as u
+      !u.add("z")
+  print(vv)
+
+fail "review-b4b-1-p70 box catchall escape", "cannot assign to `bs[0]` while `bs` is lent"
+  # catch-all over a lent Box element (plain enum inside) escapes into r; the box is then replaced (old box freed) and r read. Expect reject or r reads a valid value.
+  enum E
+    a(xs: [4]Int)
+    b
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  bs = [^E.a(xs: [7, 7, 7, 7]), ^E.b]
+  z = E.b
+  r = ?z
+  match ?bs[idx(?String("a"))]
+    x => r = x
+  bs[0] = ^E.a(xs: [9, 9, 9, 9])
+  print(clobber(1))
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")
+
+fail "review-b4b-1-p71 box catchall escape notemp", "cannot assign to `bs[0]` while `bs` is lent"
+  # p70 without the temp. Expect reject or r reads a valid value.
+  enum E
+    a(xs: [4]Int)
+    b
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  bs = [^E.a(xs: [7, 7, 7, 7]), ^E.b]
+  z = E.b
+  r = ?z
+  i = 0
+  match ?bs[i]
+    x => r = x
+  bs[0] = ^E.a(xs: [9, 9, 9, 9])
+  print(clobber(1))
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")
+
+fail "review-b4b-1-p72 box catchall escape guard", "cannot assign to `bs[0]` while `bs` is lent"
+  # guarded catch-all over a lent Box element escapes into r; the box is then replaced. Expect reject or valid.
+  enum E
+    a(xs: [4]Int)
+    b
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  bs = [^E.a(xs: [7, 7, 7, 7]), ^E.b]
+  z = E.b
+  r = ?z
+  k = 3
+  match ?bs[idx(?String("a"))]
+    x if k > 2 => r = x
+    _ => pass
+  bs[0] = ^E.a(xs: [9, 9, 9, 9])
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")
+
+fail "review-b4b-1-p75 consume elem temp", "cannot move out of `v[idx(?String(\"a\"))]`: elements cannot be moved out of their container"
+  # match < on an element through a temp index. Expect reject or correct (no double free).
+  enum E
+    a(t: String)
+    b
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[E] = List()
+  !v.push(E.a(t: String("q")))
+  match <v[idx(?String("a"))]
+    .a(t) => print(t)
+    .b => pass
+  print(v.len)
+
+fail "review-b4b-2-p01 vec push after", "`i` is bound but never read; name it `_` to ignore the value"
+  # Payload view of a List element escapes the arm; the List then grows. Expect reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  v: List[E] = List()
+  !v.push(E.a(r: Res(n: 1, t: String("one"))))
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match v[0]
+    .a(r) => saved = ?r
+    .b => pass
+  for i in 0..100
+    !v.push(E.b)
+  print(clobber(1))
+  print(saved.t)
+
+test "review-b4b-2-p02 vec elem ok", '''
+  2
+  one 1
+'''
+  # Payload view of a List element escapes the arm; used while the List is unchanged. Expect accept, prints one.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  v: List[E] = List()
+  !v.push(E.a(r: Res(n: 1, t: String("one"))))
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  i = 0
+  match v[i]
+    .a(r) => saved = ?r
+    .b => pass
+  print(clobber(1))
+  print(saved.t, saved.n)
+
+fail "review-b4b-2-p03 repoint view subject", "cannot reassign `e1` while it is lent"
+  # Subject is a view local; it is re-pointed after the match, then the original owner is reassigned. Expect reject at reassign of e1.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e1 = E.a(r: Res(n: 1, t: String("one")))
+  e2 = E.a(r: Res(n: 2, t: String("two")))
+  p = ?e1
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match p
+    .a(r) => saved = ?r
+    .b => pass
+  p = ?e2
+  e1 = E.b
+  print(clobber(1))
+  print(saved.t)
+
+test "review-b4b-2-p04 repoint view ok", '''
+  2
+  one .a(r: Res(n: 2, t: "two"))
+'''
+  # Subject is a view local re-pointed after the match; saved still views e1, which lives. Expect accept, prints one.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e1 = E.a(r: Res(n: 1, t: String("one")))
+  e2 = E.a(r: Res(n: 2, t: String("two")))
+  p = ?e1
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match p
+    .a(r) => saved = ?r
+    .b => pass
+  p = ?e2
+  print(clobber(1))
+  print(saved.t, p)
+
+fail "review-b4b-2-p05 break out of loop", "cannot reassign `e` while it is lent"
+  # A payload view carried out of a loop through break, then the subject is reassigned. Expect reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e = E.a(r: Res(n: 1, t: String("one")))
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  while true
+    match e
+      .a(r)
+        saved = ?r
+        break
+      .b => break
+  e = E.b
+  print(clobber(1))
+  print(saved.t)
+
+test "review-b4b-2-p06 loop value break", '''
+  2
+  one
+'''
+  # A payload view carried out of a loop through break (ok use). Expect accept, prints one.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  es = [E.b, E.a(r: Res(n: 1, t: String("one")))]
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  for e in es
+    match e
+      .a(r)
+        saved = ?r
+        break
+      .b => pass
+  print(clobber(1))
+  print(saved.t)
+
+fail "review-b4b-2-p07 return then push", "cannot lend `v` to write while a read loan is live"
+  # A function returns a payload view of a List element; the caller then pushes. Expect reject at the push.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun first(v: ?List[E]) -> ?Res from v
+    match v[0]
+      .a(r) => ?r
+      .b(r) => ?r
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  v: List[E] = List()
+  !v.push(E.a(r: Res(n: 1, t: String("one"))))
+  f = first(?v)
+  for i in 0..100
+    !v.push(E.b(r: Res(n: i, t: String("x"))))
+  print(clobber(1))
+  print(f.t)
+
+test "review-b4b-2-p08 return ok", '''
+  2
+  one 1 two
+'''
+  # A function returns a payload view of a List element, guarded match. Expect accept, prints one 1.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun first(v: ?List[E], i: Int) -> ?Res from v
+    match v[i]
+      .a(r) if r.n > 0 => ?r
+      .a(r) => ?r
+      .b(r) => ?r
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  v: List[E] = List()
+  !v.push(E.a(r: Res(n: 1, t: String("one"))))
+  !v.push(E.b(r: Res(n: 2, t: String("two"))))
+  f = first(?v, 0)
+  g = first(?v, 1)
+  print(clobber(1))
+  print(f.t, f.n, g.t)
+
+test "review-b4b-2-p11 branching subject", '''
+  2
+  two
+'''
+  # Subject is a branching value of views; payload view escapes. Expect accept, prints two then reject variant separately.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e1 = E.a(r: Res(n: 1, t: String("one")))
+  e2 = E.b(r: Res(n: 2, t: String("two")))
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match ?e1 if false else ?e2
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  print(clobber(1))
+  print(saved.t)
+
+fail "review-b4b-2-p12 branching then mutate", "cannot reassign `e2` while it is lent"
+  # Subject is a branching value of views; payload view escapes; then one owner is reassigned. Expect reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e1 = E.a(r: Res(n: 1, t: String("one")))
+  e2 = E.b(r: Res(n: 2, t: String("two")))
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match ?e1 if false else ?e2
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  e2 = E.a(r: Res(n: 9, t: String("nine")))
+  print(clobber(1))
+  print(saved.t)
+
+fail "review-b4b-2-p13 held header escape", "a view of the temporary `mkh()` outlives its statement, which drops it; bind the value to a name first"
+  # Subject is a part of a value the header makes (held); the view escapes the match. Expect reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  obj HE
+    e: E
+
+  fun mkh() -> HE
+    HE(e: E.a(r: Res(n: 1, t: String("held"))))
+
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match mkh().e
+    .a(r) if r.n > 0 => saved = ?r
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  print(clobber(1))
+  print(saved.t)
+
+fail "review-b4b-2-p15 box vec elem reassign", "cannot assign to `bs[0]` while `bs` is lent"
+  # Box element of a List via a view param; view escapes; element replaced. Expect reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  bs = [^E.a(r: Res(n: 1, t: String("box"))), ^E.b(r: Res(n: 2, t: String("b2")))]
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match bs[idx(?String("a"))]
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  bs[0] = ^E.b(r: Res(n: 3, t: String("other")))
+  print(clobber(1))
+  print(saved.t)
+
+fail "review-b4b-2-p16 handle reassign", "cannot reassign `h` while it is lent"
+  # Shared handle subject; view escapes; the handle is reassigned (last strong ref). Expect reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  h = *E.a(r: Res(n: 1, t: String("handle")))
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match h
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  h = *E.b(r: Res(n: 2, t: String("other")))
+  print(clobber(1))
+  print(saved.t)
+
+fail "review-b4b-2-p17 handle drop", "cannot drop `h` while it is lent"
+  # Shared handle subject; view escapes; the handle is dropped. Expect reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  h = *E.a(r: Res(n: 1, t: String("handle")))
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match h
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  <h
+  print(clobber(1))
+  print(saved.t)
+
+test "review-b4b-2-p18 handle clone ok", '''
+  2
+  handle .a(r: Res(n: 1, t: "handle"))
+'''
+  # Shared handle; view escapes; a clone kept; ok. Expect accept, prints handle.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  h = *E.a(r: Res(n: 1, t: String("handle")))
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match h
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  g = +h
+  print(clobber(1))
+  print(saved.t, g)
+
+fail "review-b4b-2-p20 for elem then push", "cannot lend `v` to write while a read loan is live"
+  # for element binding matched; view escapes the loop; the List then grows. Expect reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  v: List[E] = List()
+  !v.push(E.a(r: Res(n: 1, t: String("one"))))
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  for e in v
+    match e
+      .a(r) => saved = ?r
+      .b(r) => saved = ?r
+  for _ in 0..100
+    !v.push(E.b(r: Res(n: 2, t: String("x"))))
+  print(clobber(1))
+  print(saved.t)
+
+fail "review-b4b-2-p21 store vec then drop", "`e` does not live long enough"
+  # Payload views pushed into a List of views; the subject List then dropped. Expect reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  es = [E.a(r: Res(n: 1, t: String("one"))), E.b(r: Res(n: 2, t: String("two")))]
+  views: List[?Res] = List()
+  for e in es
+    match e
+      .a(r) => !views.push(?r)
+      .b(r) => !views.push(?r)
+  <es
+  print(clobber(1))
+  for x in views
+    print(x.t)
+
+fail "review-b4b-2-p22 store vec ok", "`e` does not live long enough"
+  # Payload views pushed into a List of views; ok. Expect accept, prints one two.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  es = [E.a(r: Res(n: 1, t: String("one"))), E.b(r: Res(n: 2, t: String("two")))]
+  views: List[?Res] = List()
+  for e in es
+    match e
+      .a(r) => !views.push(?r)
+      .b(r) => !views.push(?r)
+  print(clobber(1))
+  for x in views
+    print(x.t)
+
+fail "review-b4b-2-p23 nested match", "cannot reassign `e` while it is lent"
+  # Nested match: view of an inner payload escapes both matches, then the outer subject is reassigned. Expect reject.
+  enum In
+    x(t: String)
+    y
+
+  obj Res
+    n: Int
+    i: In
+
+  enum E
+    a(r: Res)
+    b
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e = E.a(r: Res(n: 1, i: In.x(t: String("inner"))))
+  k = String("k")
+  saved = ?k
+  match e
+    .a(r)
+      match r.i
+        .x(t) => saved = ?t
+        .y => pass
+    .b => pass
+  e = E.b
+  print(clobber(1))
+  print(saved)
+
+fail "review-b4b-2-p24 nested match ok", "`r` does not live long enough"
+  # Nested match: view of an inner payload (Text) escapes both matches; ok. Expect accept, prints inner.
+  enum In
+    x(t: String)
+    y
+
+  obj Res
+    n: Int
+    i: In
+
+  enum E
+    a(r: Res)
+    b
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun deep(e: ?E, d: ?String) -> ?String from e, d
+    match e
+      .a(r)
+        match r.i
+          .x(t) => ?t
+          .y => d
+      .b => d
+
+  e = E.a(r: Res(n: 1, i: In.x(t: String("inner"))))
+  k = String("k")
+  saved = ?k
+  match e
+    .a(r)
+      match r.i
+        .x(t) => saved = ?t
+        .y => pass
+    .b => pass
+  d = deep(?e, ?k)
+  print(clobber(1))
+  print(saved, d)
+
+fail "review-b4b-2-p25 nested on binding", "`i` does not live long enough"
+  # Inner match on the outer payload binding itself (match i, i: In), view returned. Known stricter: reject expected per handoff.
+  enum In
+    x(t: String)
+    y
+
+  enum E
+    a(i: In)
+    b
+
+  fun deep(e: ?E, d: ?String) -> ?String from e, d
+    match e
+      .a(i)
+        match i
+          .x(t) => ?t
+          .y => d
+      .b => d
+
+  e = E.a(i: In.x(t: String("inner")))
+  k = String("k")
+  print(deep(?e, ?k))
+
+fail "review-b4b-2-p26 multi field", "`s` is bound but never read; name it `_` to ignore the value"
+  # Multi-field payload; views of each escape; then subject moved. Expect reject at the move.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res, s: Res, n: Int)
+    b
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e = E.a(r: Res(n: 1, t: String("r")), s: Res(n: 2, t: String("s")), n: 3)
+  k = Res(n: 0, t: String("k"))
+  s1 = ?k
+  s2 = ?k
+  match e
+    .a(r, s, n) if n > 0
+      s1 = ?r
+    .a(_, s, _) => s2 = ?s
+    .b => pass
+  f = <e
+  print(clobber(1))
+  print(s1.t, s2.t, f)
+
+test "review-b4b-2-p27 multi field ok", '''
+  2
+  r s
+'''
+  # Multi-field payload with guard; views of each escape. Expect accept, prints r s.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res, s: Res, n: Int)
+    b
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e = E.a(r: Res(n: 1, t: String("r")), s: Res(n: 2, t: String("s")), n: 3)
+  k = Res(n: 0, t: String("k"))
+  s1 = ?k
+  s2 = ?k
+  match e
+    .a(r, s, n) if n > 0
+      s1 = ?r
+      s2 = ?s
+    .a(_, s, _) => s2 = ?s
+    .b => pass
+  print(clobber(1))
+  print(s1.t, s2.t)
+
+fail "review-b4b-2-p32 generic catchall made", "`x` does not live long enough"
+  # Generic body: catch-all of a made subject escapes the arm. Expect reject.
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  fun mk[T](a: T) -> Opt[T]
+    Opt.some(v: <a)
+
+  sub g[T](a: T, b: T)
+    w = Opt.some(v: <b)
+    ws = ?w
+    match mk(<a)
+      .nothing => pass
+      x => ws = ?x
+    print(ws)
+
+  g(1, 2)
+
+test "review-b4b-2-p35 nonggeneric catchall", '''
+  .a(r: Res(n: 1, t: "x"))
+'''
+  # Non-generic catch-all of a place: by-copy capture, so arm-local. Expect reject (conservative), never a dangling view.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  e = E.a(r: Res(n: 1, t: String("x")))
+  f = E.b
+  saved = ?f
+  match e
+    .b => pass
+    x => saved = ?x
+  print(saved)
+
+fail "review-b4b-2-p40 write view param", "cannot reassign `w` while it is lent"
+  # Subject is a write-view param read by match; view escapes; then assigned through. Expect reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  sub f(w: !E)
+    k = Res(n: 0, t: String("k"))
+    saved = ?k
+    match w
+      .a(r) => saved = ?r
+      .b(r) => saved = ?r
+    w = E.b(r: Res(n: 9, t: String("over")))
+    print(clobber(1))
+    print(saved.t)
+
+  e = E.a(r: Res(n: 1, t: String("one")))
+  f(!e)
+
+fail "review-b4b-2-p41 write view local writethrough", "cannot reassign `w` while it is lent"
+  # Subject is a write-view local; view escapes; then a value is assigned through it. Expect reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e = E.a(r: Res(n: 1, t: String("one")))
+  w = !e
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match w
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  w = E.b(r: Res(n: 9, t: String("over")))
+  print(clobber(1))
+  print(saved.t)
+
+fail "review-b4b-2-p42 write view local repoint", "cannot reassign `w` while it is lent"
+  # Write-view local re-pointed after the match, then the first owner reassigned. Expect reject at e1 reassign.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e1 = E.a(r: Res(n: 1, t: String("one")))
+  e2 = E.a(r: Res(n: 2, t: String("two")))
+  w = !e1
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match w
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  w = !e2
+  e1 = E.b(r: Res(n: 9, t: String("over")))
+  print(clobber(1))
+  print(saved.t, w)
+
+fail "review-b4b-2-p43 write view local repoint ok", "cannot reassign `w` while it is lent"
+  # Write-view local re-pointed after the match; e1 untouched. Expect accept, prints one.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e1 = E.a(r: Res(n: 1, t: String("one")))
+  e2 = E.a(r: Res(n: 2, t: String("two")))
+  w = !e1
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match w
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  w = !e2
+  w = E.b(r: Res(n: 9, t: String("over")))
+  print(clobber(1))
+  print(saved.t, e2)
+
+fail "review-b4b-2-p44 closure capture", "cannot reassign `e` while it is lent"
+  # A closure captures a payload view; the subject is then reassigned and the closure called. Expect reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e = E.a(r: Res(n: 1, t: String("one")))
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match e
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  f = |?saved| print(saved.t)
+  e = E.b(r: Res(n: 9, t: String("over")))
+  print(clobber(1))
+  f()
+
+test "review-b4b-2-p45 owned closure view", '''
+  2
+  one
+'''
+  # An owned closure made in the arm copies a String view of the payload; the subject is then reassigned. Expect reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e = E.a(r: Res(n: 1, t: String("one")))
+  f = match e
+    .a(r) => *|+r| print(r.t)
+    .b(r) => *|+r| print(r.t)
+  e = E.b(r: Res(n: 9, t: String("over")))
+  print(clobber(1))
+  f()
+
+fail "review-b4b-2-p47 closure plus capture", "cannot reassign `e` while it is lent"
+  # A closure made in the arm captures the payload binding view `s` with |?s|; the subject is then reassigned. Expect reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e = E.a(r: Res(n: 1, t: String("one")))
+  s: ?String = "s"
+  match e
+    .a(r) => s = ?r.t
+    .b(r) => s = ?r.t
+  f = |?s| print(s)
+  e = E.b(r: Res(n: 9, t: String("over")))
+  print(clobber(1))
+  f()
+
+test "review-b4b-2-p60 guarded field of call view", '''
+  2
+  one
+'''
+  # Guarded match on a field of a view a call returns (no header temporaries): the payload view escapes the arm. Expect accept and the view is h's own (prints one), or reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  obj H
+    e: E
+
+  fun get(h: ?H) -> ?H from h
+    h
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  h = H(e: E.a(r: Res(n: 1, t: String("one"))))
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match get(?h).e
+    .a(r) if r.n > 5 => saved = ?r
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  print(clobber(1))
+  print(saved.t)
+
+fail "review-b4b-2-p71 field of branch guarded", "cannot reassign `h2` while it is lent"
+  # Guarded match on a field of a branching value of views; the payload view escapes; then h2 reassigned. Expect reject at the reassign.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  obj H
+    e: E
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  h1 = H(e: E.a(r: Res(n: 1, t: String("one"))))
+  h2 = H(e: E.b(r: Res(n: 2, t: String("two"))))
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match (?h1 if clobber(0) > 5 else ?h2).e
+    .a(r) if r.n > 7 => saved = ?r
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  h2 = H(e: E.b(r: Res(n: 3, t: String("three"))))
+  print(clobber(1))
+  print(saved.t)
+
+test "review-b4b-2-p72 field of branch guarded ok", '''
+  2
+  two two
+'''
+  # Guarded and unguarded match on a field of a branching value of views; the payload view escapes. Expect accept, prints two two.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  obj H
+    e: E
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  h1 = H(e: E.a(r: Res(n: 1, t: String("one"))))
+  h2 = H(e: E.b(r: Res(n: 2, t: String("two"))))
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  s2 = ?k
+  match (?h1 if clobber(0) > 5 else ?h2).e
+    .a(r) if r.n > 7 => saved = ?r
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  match (?h1 if clobber(0) > 5 else ?h2).e
+    .a(r) => s2 = ?r
+    .b(r) => s2 = ?r
+  print(clobber(1))
+  print(saved.t, s2.t)
+
+fail "review-b4b-2-p73 branch views guarded", "cannot reassign `e2` while it is lent"
+  # Guarded match on a branching value of views; view escapes; then e2 reassigned. Expect reject.
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  obj H
+    e: E
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e1 = E.a(r: Res(n: 1, t: String("one")))
+  e2 = E.b(r: Res(n: 2, t: String("two")))
+  k = Res(n: 0, t: String("k"))
+  saved = ?k
+  match ?e1 if clobber(0) > 5 else ?e2
+    .a(r) if r.n > 7 => saved = ?r
+    .a(r) => saved = ?r
+    .b(r) => saved = ?r
+  e2 = E.b(r: Res(n: 3, t: String("three")))
+  print(clobber(1))
+  print(saved.t)
+
+test "review-b4b-2-p75 generic elem temp guarded", '''
+  2
+  two two two two two two two two
+  2
+  2
+'''
+  # Generic: guarded match on a List element with a header temporary; the view escapes. Expect accept, prints the element, and a push after is rejected (see p76).
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj Hd[T]
+    o: Opt[T]
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  sub g[T](a: T, b: T, k: T)
+    v: List[Opt[T]] = List()
+    !v.push(Opt.some(v: <a))
+    !v.push(Opt.some(v: <b))
+    saved = ?k
+    match v[idx(?String("ab"))]
+      .some(x) if clobber(2) > 100 => print(x)
+      .some(x) => saved = ?x
+      .nothing => pass
+    print(clobber(1))
+    print(saved)
+
+  g(String("one"), String("two two two two two two two two"), String("k"))
+  g(1, 2, 3)
+
+fail "review-b4b-2-p76 generic elem temp push", "cannot lend `v` to write while a read loan is live"
+  # As p75 then the List grows. Expect reject.
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj Hd[T]
+    o: Opt[T]
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  sub g[T](a: T, b: T, c: T, k: T)
+    v: List[Opt[T]] = List()
+    !v.push(Opt.some(v: <a))
+    !v.push(Opt.some(v: <b))
+    saved = ?k
+    match v[idx(?String("ab"))]
+      .some(x) if clobber(2) > 100 => print(x)
+      .some(x) => saved = ?x
+      .nothing => pass
+    !v.push(Opt.some(v: <c))
+    print(saved)
+
+  g(String("one"), String("two"), String("three"), String("k"))
+
+fail "review-b4b-2-p77 generic box", "cannot reassign `bx` while it is lent"
+  # Generic: guarded match on a Box of a generic enum; view escapes; then box reassigned. Expect reject.
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj Hd[T]
+    o: Opt[T]
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  sub g[T](a: T, b: T, k: T)
+    bx = ^Opt.some(v: <a)
+    saved = ?k
+    match bx
+      .some(x) if clobber(2) > 100 => print(x)
+      .some(x) => saved = ?x
+      .nothing => pass
+    bx = ^Opt.some(v: <b)
+    print(saved)
+
+  g(String("one"), String("two"), String("k"))
+
+test "review-b4b-2-p79 generic guarded catchall return", '''
+  15
+  .some(v: Pt(x: 3, y: 4))
+  19
+  .some(v: "two two two two two two two two")
+'''
+  # Generic: guarded match with a catch-all whose view is returned. The guarded emit binds `const x = o.*` (a copy in the callee's frame) and returns &x. Expect accept printing the caller's value, or reject.
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj Pt
+    x: Int
+    y: Int
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun big(n: Int) -> Int
+    a = [64 of n]
+    b = [64 of n + 1]
+    a[3] + b[5]
+
+  fun pick[T](o: ?Opt[T], d: ?Opt[T]) -> ?Opt[T] from o, d
+    match o
+      .nothing if clobber(2) > 100 => d
+      x => ?x
+
+  o = Opt.some(v: Pt(x: 3, y: 4))
+  d = Opt[Pt].nothing
+  p = pick(?o, ?d)
+  print(big(7))
+  print(p)
+  t = Opt.some(v: String("two two two two two two two two"))
+  dt = Opt[String].nothing
+  q = pick(?t, ?dt)
+  print(big(9))
+  print(q)
+
+test "review-b4b-2-p80 generic guarded catchall writeparam", '''
+  15
+  .some(v: Pt(x: 3, y: 4))
+  19
+  .some(v: "two two two two two two two two")
+'''
+  # Generic: guarded read match on a `!Opt[T]` parameter with a catch-all whose view is returned. Expect accept with the view into the caller's value, or reject.
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj Pt
+    x: Int
+    y: Int
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun big(n: Int) -> Int
+    a = [64 of n]
+    b = [64 of n + 1]
+    a[3] + b[5]
+
+  fun pick[T](o: !Opt[T], d: ?Opt[T]) -> ?Opt[T] from o, d
+    match o
+      .nothing if clobber(2) > 100 => d
+      x => ?x
+
+  o = Opt.some(v: Pt(x: 3, y: 4))
+  d = Opt[Pt].nothing
+  p = pick(!o, ?d)
+  print(big(7))
+  print(p)
+  t = Opt.some(v: String("two two two two two two two two"))
+  dt = Opt[String].nothing
+  q = pick(!t, ?dt)
+  print(big(9))
+  print(q)
+
+fail "review-box-bug as temp loan", "cannot reassign `h` while it is lent"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj H2
+    r: ^R?
+
+  obj H
+    h2: H2
+
+  fun inner(h: ?H) -> ?H2
+    ?h.h2
+
+  h = H(h2: H2(r: ^R(n: 1)))
+  if ?inner(?h).r as x
+    h = H(h2: H2(r: none))
+    print(x.n)
+
+test "review-box-bug generic return", "5"
+  fun peek[T](b: ?^T) -> ?T
+    ?b
+
+  i = ^5
+  print(peek(?i))
+
+test "review-box-bug hoist", "7"
+  obj S
+    b: ^Int
+
+  fun add(x: ?Int, y: Int) -> Int
+    x + y
+
+  s = S(b: ^5)
+  n = 1
+  print(add(y: n + 1, x: ?s.b))
+
+fail "review-box-p01", "cannot reassign `o` while it is lent"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  o: R? = R(n: 1)
+  if !o as x
+    o = R(n: 2)
+    print(x.n)
+
+test "review-box-p02", '''
+  drop 1
+  5
+  R(n: 5)
+  drop 5
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  o: R? = R(n: 1)
+  if !o as x
+    x = R(n: 5)
+    print(x.n)
+  print(o)
+
+fail "review-box-p04", "cannot move `o` while a read loan is live"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  o: R? = R(n: 1)
+  if ?o as x
+    y = <o
+    print(x.n)
+
+fail "review-box-p06", "cannot reassign `h` while it is lent"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj H
+    r: R?
+
+  fun get(h: ?H) -> ?R?
+    ?h.r
+
+  h = H(r: R(n: 1))
+  if get(?h) as x
+    h = H(r: none)
+    print(x.n)
+
+test "review-box-p07", '''
+  1
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj H
+    r: R?
+
+  fun get(h: ?H) -> ?R?
+    ?h.r
+
+  h = H(r: R(n: 1))
+  if get(?h) as x
+    print(x.n)
+  else
+    h = H(r: none)
+  <h
+
+fail "review-box-p08", "cannot assign to `h.r` while `h` is lent"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj H
+    r: R?
+
+  h = H(r: R(n: 1))
+  p = !h
+  if !p.r as x
+    h.r = none
+    print(x.n)
+
+fail "review-box-p09", "cannot lend `o` to read while a write loan is live"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  o: R? = R(n: 1)
+  if !o as x
+    if ?o as y
+      x = R(n: 9)
+      print(y.n)
+
+test "review-box-p10", '''
+  3
+  2
+  1
+'''
+  obj Node
+    v: Int
+    next: ^Node?
+
+  head: ^Node? = none
+  for i in [1, 2, 3]
+    head = ^Node(v: i, next: <head)
+  cur = ?head
+  while cur as n
+    print(n.v)
+    cur = ?n.next
+
+test "review-box-p100", '''
+  13 8 2
+  x is {s.b.x}
+  P(x: 5, v: [], arr: [2, 2, 3])
+  2
+  2
+  3
+'''
+  obj P
+    x: Int
+    v: List[Int]
+    arr: [3]Int
+
+    fun vr(?self) -> ?List[Int]
+      ?self.v
+
+  obj S
+    b: ^P
+
+  fun rd(s: ?S) -> Int
+    s.b.x + s.b.v.len + s.b.arr[1]
+
+  sub wr(s: !S)
+    s.b.x += 1
+    !s.b.v.push(4)
+    s.b.arr[1] = 9
+    s.b.v[0] = 8
+
+  s = S(b: ^P(x: 1, v: List(), arr: [1, 2, 3]))
+  !s.b.v.push(1)
+  wr(!s)
+  print(rd(?s), s.b.v[0], s.b.vr().len)
+  print("x is {s.b.x}")
+  b = ^P(x: 1, v: List(), arr: [1, 2, 3])
+  b.x *= 5
+  b.arr[0] += 1
+  print(b)
+  for e in ?b.arr
+    print(e)
+
+test "review-box-p101", '''
+  0
+  42
+  R(n: 42)
+  drop 42
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun rd(o: ?R?) -> Int
+    if o as x
+      x.n
+    else
+      0
+
+  sub wr(o: !R?)
+    o = R(n: 42)
+
+  b: ^(R?) = ^none
+  print(rd(?b))
+  wr(!b)
+  print(rd(?b))
+  print(b)
+
+test "review-box-p107", '''
+  drop 1
+  eat 2
+  drop 2
+  eat 3
+  drop 3
+  drop 4
+  end
+  drop 30
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub eat(b: ^R)
+    print("eat", b.n)
+
+  b = ^R(n: 1)
+  <b
+  b = ^R(n: 2)
+  flag = b.n > 1
+  if flag
+    eat(<b)
+  c = ^R(n: 3)
+  i = 0
+  while i < 3
+    if i == 1
+      eat(<c)
+      c = ^R(n: 30)
+    i += 1
+  o: ^R? = ^R(n: 4)
+  if flag
+    x = <o
+  print("end")
+
+test "review-box-p108", '''
+  c 2
+  s 3
+  s 3
+  2 6
+  pc 2
+'''
+  enum Sh
+    c(r: Int)
+    s(k: Int)
+
+  obj H
+    b: ^Sh
+
+  fun area(b: ?^Sh) -> Int
+    match b
+      .c(r) => r * 3
+      .s(k) => k * k
+
+  h = H(b: ^Sh.c(r: 2))
+  match ?h.b
+    .c(r) => print("c", r)
+    .s(k) => print("s", k)
+  v: List[^Sh] = List()
+  !v.push(^Sh.s(k: 3))
+  for x in ?v
+    match ?x
+      .c(r) => print("c", r)
+      .s(k) => print("s", k)
+  for x in !v
+    match x
+      .c(r) => print("c", r)
+      .s(k) => print("s", k)
+  n = match ?h.b
+    .c(r) => r
+    .s(k) => k
+  print(n, area(?h.b))
+  p = ?h
+  match ?p.b
+    .c(r) => print("pc", r)
+    .s(k) => print("ps", k)
+
+fail "review-box-p11", "cannot reassign `cur` while it is lent"
+  obj Node
+    v: Int
+    next: ^Node?
+
+  head: ^Node? = none
+  for i in [1, 2, 3]
+    head = ^Node(v: i, next: <head)
+  cur = !head
+  while !cur as n
+    n.v += 10
+    cur = !n.next
+  print(head)
+
+fail "review-box-p117", "bare use of loop view `x` in binding would carry the viewed handle past the loop; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[^R] = List()
+  !v.push(^R(n: 1))
+  for x in ?v
+    y = x
+    print(y.n)
+  print("end")
+
+fail "review-box-p12", "cannot reassign `head` while it is lent"
+  obj Node
+    v: Int
+    next: ^Node?
+
+  head: ^Node? = none
+  for i in [1, 2, 3]
+    head = ^Node(v: i, next: <head)
+  cur = ?head
+  while cur as n
+    print(n.v)
+    cur = ?n.next
+    head = none
+
+test "review-box-p122", '''
+  20
+  P(x: 9, y: 7) 16
+  yo
+'''
+  obj P
+    x: Int
+    y: Int
+
+  sub inc(o: !Int?)
+    if !o as v
+      v += 1
+
+  sub setp(o: !P?)
+    if !o as p
+      p.x = 9
+      p = P(x: p.x, y: 7)
+
+  fun rd(o: ?P?) -> Int
+    if o as p
+      p.x + p.y
+    else
+      0
+
+  a: Int? = 1
+  inc(!a)
+  if !a as v
+    v *= 10
+  print(a)
+  q: P? = P(x: 1, y: 2)
+  setp(!q)
+  print(q, rd(?q))
+  s: (?String)? = "hi"
+  if !s as t
+    t = "yo"
+  print(s)
+
+test "review-box-p123", '''
+  0 R(n: 6) R(n: 50)
+  drop 50
+  drop 6
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  o: R? = none
+  p: R? = R(n: 5)
+  n = if ?o as x
+    x.n
+  else
+    0
+  if !o as x
+    x.n = 1
+  else if !p as y
+    o = R(n: y.n + 1)
+    y.n = 50
+  else
+    o = R(n: 3)
+  print(n, o, p)
+
+test "review-box-p124", '''
+  36 Node(v: 11, next: Node(v: 12, next: Node(v: 13, next: none)))
+  40
+  12
+'''
+  obj Node
+    v: Int
+    next: ^Node?
+
+    fun sum(?self) -> Int
+      if ?self.next as n
+        self.v + n.sum()
+      else
+        self.v
+
+    sub add(!self, k: Int)
+      self.v += k
+      if !self.next as n
+        !n.add(k)
+
+    sub append(!self, v: Int)
+      if !self.next as n
+        !n.append(v)
+      else
+        self.next = ^Node(v: v, next: none)
+
+    fun len(?self) -> Int
+      if ?self.next as n
+        1 + n.len()
+      else
+        1
+
+  n = Node(v: 1, next: none)
+  !n.append(2)
+  !n.append(3)
+  !n.add(10)
+  print(n.sum(), n)
+  b = ^<n
+  !b.append(4)
+  print(b.sum())
+  r = ?b
+  if ?r.next as z
+    print(z.v)
+
+fail "review-box-p125", "`x` is bound but never read; name it `_` to ignore the value"
+  obj Node
+    v: Int
+    next: ^Node?
+
+  sub two(a: !Node, b: !^Node?)
+    b = none
+    print(a.next)
+
+  sub two2(a: !Node, b: ?Node)
+    a.next = none
+    print(b.v)
+
+  b = ^Node(v: 1, next: ^Node(v: 2, next: none))
+  two(!b, !b.next)
+  two2(!b, ?b)
+  o: ^Node? = ^Node(v: 1, next: none)
+  if !o as x
+    if ?o as y
+      print(y.v)
+
+test "review-box-p127", '''
+  true
+  drop 1
+  drop 2
+  R(n: 7) R(n: 8)
+  drop 8
+  drop 7
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun has[T](o: ?T?) -> Bool
+    if o as _
+      true
+    else
+      false
+
+  fun has2[T](o: ?T?) -> Bool
+    o != none
+
+  sub put[T](o: !T?, v: T)
+    if !o as x
+      x = <v
+    else
+      o = <v
+
+  r: R? = R(n: 1)
+  print(has2(?r))
+  b: ^R? = ^R(n: 2)
+  put(!r, R(n: 7))
+  put(!b, ^R(n: 8))
+  print(r, b)
+
+test "review-box-p128", '''
+  5
+  5
+  5
+  1
+  R(n: 1)
+  R(n: 1)
+  drop 1
+  6 R(n: 2)
+  drop 2
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun peek[T](b: ?^T) -> ?T
+    ?b
+
+  sub show[T](x: ?T)
+    print(x)
+
+  sub showb[T](b: ?^T)
+    show(?b)
+    show(b)
+
+  sub wr[T](p: !T, v: T)
+    p = <v
+
+  sub setb[T](b: !^T, v: T)
+    wr[T](!b, <v)
+
+  i = ^5
+  print(peek(?i))
+  showb(?i)
+  r = ^R(n: 1)
+  print(peek(?r).n)
+  showb(?r)
+  setb(!i, 6)
+  setb(!r, R(n: 2))
+  print(i, r)
+
+test "review-box-p129", '''
+  5
+  0
+'''
+  fun peek(b: ?^Int) -> ?Int
+    ?b
+
+  fun peekv(b: ?^List[Int]) -> ?List[Int]
+    ?b
+
+  i = ^5
+  print(peek(?i))
+  v = ^List[Int]()
+  print(peekv(?v).len)
+
+fail "review-box-p13", "cannot reassign `cur` while it is lent"
+  obj Node
+    v: Int
+    next: ^Node?
+
+  head: ^Node? = none
+  for i in [1, 2, 3]
+    head = ^Node(v: i, next: <head)
+  cur = !head
+  while !cur as n
+    cur = !n.next
+    n.next = none
+  print(head)
+
+test "review-box-p133", '''
+  built
+  dropped
+  drop q 200000
+  drop q 100000
+  drop q 0
+  done
+'''
+  obj T
+    k: Int
+    kids: List[^T]
+
+  obj Q
+    k: Int
+    a: ^Q?
+    s: *Q2?
+
+    drop(!self)
+      if self.k % 100000 == 0
+        print("drop q", self.k)
+
+  obj Q2
+    q: ^Q?
+
+  root = ^T(k: 0, kids: List())
+  i = 1
+  while i < 300000
+    root = ^T(k: i, kids: List())
+    i += 1
+  deep: ^T? = none
+  i = 0
+  while i < 300000
+    kids: List[^T] = List()
+    if <deep as d
+      !kids.push(<d)
+    deep = ^T(k: i, kids: <kids)
+    i += 1
+  print("built")
+  deep = none
+  print("dropped")
+  q: ^Q? = none
+  i = 0
+  while i < 300000
+    if i % 2 == 0
+      q = ^Q(k: i, a: <q, s: none)
+    else
+      q = ^Q(k: i, a: none, s: *Q2(q: <q))
+    i += 1
+  q = none
+  print("done")

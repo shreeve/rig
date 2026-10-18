@@ -1,6 +1,0 @@
-sub main()
-  v = List[Int]()
-  !v.push(1)
-  !v.push(2)
-  for x in ?v
-    !v.insert(0, x)

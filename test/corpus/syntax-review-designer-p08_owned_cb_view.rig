@@ -1,7 +1,0 @@
-obj Event
-  code: Int
-
-sub main()
-  cb: *sub(?Event) = *|e| print(e.code)
-  ev = Event(code: 3)
-  cb(?ev)

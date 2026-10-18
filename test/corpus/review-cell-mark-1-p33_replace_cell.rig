@@ -1,4 +1,0 @@
-sub main()
-  a: *Cell[List[Int]] = *Cell(List())
-  old = replace(!a, *Cell(List()))
-  print(old.len)

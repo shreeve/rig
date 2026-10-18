@@ -1,0 +1,1719 @@
+# Probes from past reviews and audits, 24 of 41: review-never-data-1-g10_branch_replace to review-payload-loan-4-e06_branch_live_lend_e.
+
+test "review-never-data-1-g10 branch replace", '''
+  1
+  0 0
+'''
+  obj S
+    c: Cell[List[Int]]
+
+    sub grow(!self)
+      for i in 0..50
+        !self.c.push(i)
+
+  obj O
+    s: S
+
+  fun peek(o: ?O) -> ?S
+    ?o.s
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = a.s.c.len == 0
+  !a.s.c.push(1)
+  old = (!(!a.s if k else !b.s).c).replace(List())
+  print(old.len)
+  print(a.s.c.len, b.s.c.len)
+
+test "review-never-data-1-h05 place then alias", "Cell(value: [1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]) 5"
+  obj S
+    c: Cell[List[Int]]
+
+    fun growi(!self) -> Int
+      for i in 0..100
+        !self.c.push(i)
+      5
+
+  obj O
+    s: S
+
+  fun grow(s: !S) -> Int
+    for i in 0..100
+      !s.c.push(i)
+    5
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = a.s.c.len == 0
+  !a.s.c.push(1)
+  _ = k
+  a2 = +a
+  print(a.s.c, grow(!a2.s))
+
+fail "review-never-data-1-h07 ctor from place", "`k` is assigned but never read; use it, or discard the value with `_ = ...`"
+  obj S
+    c: Cell[List[Int]]
+
+  obj O
+    s: S
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = a.s.c.len == 0
+  !a.s.c.push(1)
+  n = *O(s: a.s)
+  print(n.s.c.len)
+
+fail "review-never-data-1-h09 shared from branch", "`a.s` owns an `S`, which can't be copied into a counted handle, has no clone, and can't be moved out of its parent"
+  obj S
+    c: Cell[List[Int]]
+
+  obj O
+    s: S
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = a.s.c.len == 0
+  !a.s.c.push(1)
+  n = *(a.s if k else b.s)
+  !n.c.push(2)
+  print(a.s.c.len, n.c.len)
+
+fail "review-never-data-1-h10 cell from branch", "`a.s.c` owns a `Cell[List[Int]]`, which can't be copied into a counted handle, has no clone, and can't be moved out of its parent"
+  obj S
+    c: Cell[List[Int]]
+
+  obj O
+    s: S
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = a.s.c.len == 0
+  !a.s.c.push(1)
+  n = *(a.s.c if k else b.s.c)
+  !n.push(2)
+  print(a.s.c.len, n.len)
+
+fail "review-never-data-1-h11 vec push branch", "`a.s` owns an `S`, which can't be copied into a counted handle, has no clone, and can't be moved out of its parent"
+  obj S
+    c: Cell[List[Int]]
+
+  obj O
+    s: S
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = a.s.c.len == 0
+  !a.s.c.push(1)
+  v: List[*S] = List()
+  !v.push(*(a.s if k else b.s))
+  print(v.len)
+
+test "review-never-data-1-h15 shared cell branch", "Cell(value: [1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]) 5"
+  obj S
+    c: Cell[List[Int]]
+
+  obj O
+    s: S
+
+  fun grow(s: !S) -> Int
+    for i in 0..100
+      !s.c.push(i)
+    5
+
+  fun growc(c: !Cell[List[Int]]) -> Int
+    for i in 0..100
+      !c.push(i)
+    5
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = a.s.c.len == 0
+  !a.s.c.push(1)
+  a2 = +a
+  _ = ?a2
+  x = *Cell(List[Int]())
+  y = *Cell(List[Int]())
+  !x.push(1)
+  x2 = +x
+  print(x if k else y, growc(!x2))
+
+test "review-never-data-1-h16 handle branch field cell", "Cell(value: [1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]) 5"
+  obj S
+    c: Cell[List[Int]]
+
+  obj O
+    s: S
+
+  fun grow(s: !S) -> Int
+    for i in 0..100
+      !s.c.push(i)
+    5
+
+  fun growc(c: !Cell[List[Int]]) -> Int
+    for i in 0..100
+      !c.push(i)
+    5
+
+  a = *O(s: S(c: Cell(List())))
+  b = *O(s: S(c: Cell(List())))
+  k = a.s.c.len == 0
+  !a.s.c.push(1)
+  a2 = +a
+  print((a if k else b).s.c, growc(!a2.s.c))
+
+test "review-never-data-1-i01 generic readT infer", '''
+  1
+  1
+  0
+'''
+  obj Counter
+    hits: Cell[Int] = Cell(0)
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+  sub poke[T](x: ?T)
+    print(1)
+
+  k = *Counter()
+  poke(?k)
+  poke(k)
+  print(k.hits.get())
+
+fail "review-never-data-1-j01 branch receiver view result", "`i` is bound but never read; name it `_` to ignore the value"
+  obj H
+    v: List[String]
+
+    fun first(?self) -> ?String
+      ?self.v[0]
+
+  a = H(v: List())
+  b = H(v: List())
+  !a.v.push(String("a"))
+  !b.v.push(String("b"))
+  c = a.v.len > 0
+  r = (a if c else b).first()
+  for i in 0..100
+    !a.v.push(String("z"))
+  print(r)
+
+fail "review-never-data-1-j02 branch receiver drop", "cannot drop `a` while it is lent"
+  obj H
+    v: List[String]
+
+    fun first(?self) -> ?String
+      ?self.v[0]
+
+  a = H(v: List())
+  b = H(v: List())
+  !a.v.push(String("a"))
+  !b.v.push(String("b"))
+  c = a.v.len > 0
+  r = (a if c else b).first()
+  <a
+  print(r)
+
+fail "review-never-data-1-j09 branch coalesce receiver", "cannot drop `b` while it is lent"
+  obj H
+    v: List[String]
+
+    fun first(?self) -> ?String
+      ?self.v[0]
+
+  a: H? = H(v: List())
+  b = H(v: List())
+  !b.v.push(String("b"))
+  r = (a ?? b).first()
+  <b
+  print(r)
+
+test "review-never-data-1-k02 handle ptr siblings", '''
+  5
+  1 4
+  5 8
+  8 11
+  7 3
+'''
+  obj Q
+    n: Int
+
+    fun get(?self, j: Int, k: Int) -> Int
+      self.n + j + k
+
+  obj W
+    h: *Q
+
+  fun g(k: Int) -> Int
+    k
+
+  qs: List[*Q] = List()
+  !qs.push(*Q(n: 1))
+  !qs.push(*Q(n: 2))
+  print(qs[g(1)].get(k: g(1), j: g(2)))
+  print(?qs[g(0)].n, (?qs[0]).get(k: g(1), j: g(2)))
+  w1 = W(h: *Q(n: 5))
+  w2 = W(h: *Q(n: 6))
+  c = g(1) == 1
+  print((?w1 if c else ?w2).h.n, (?w1 if c else ?w2).h.get(k: g(1), j: g(2)))
+  h1 = *Q(n: 8)
+  h2 = *Q(n: 9)
+  x = (?h1 if c else ?h2)
+  print(x.n, x.get(k: g(1), j: g(2)))
+  arr = [*Q(n: 3), *Q(n: 4)]
+  print(arr[g(1)].get(k: g(1), j: g(2)), (?arr[0] if c else ?arr[1]).n)
+
+test "review-never-data-1-k03 view loop siblings", '''
+  3 pp
+  4 qq
+  3
+  qq
+  0 3
+  1 4
+  3 pp
+  4
+  pp
+  qq
+  1 5
+'''
+  obj P
+    n: Int
+    t: String
+
+  enum E
+    a(p: ?P)
+    b
+
+  p = P(n: 3, t: String("pp"))
+  q = P(n: 4, t: String("qq"))
+  rv: List[?P] = List()
+  !rv.push(?p)
+  !rv.push(?q)
+  for x in ?rv
+    print(x.n, x.t)
+  for x in ?rv[0..1]
+    print(x.n)
+  for x in ?rv[1..2]
+    print(x.t)
+  for x, i in rv
+    print(i, x.n)
+  e = E.a(?p)
+  match e
+    .a(r) => print(r.n, r.t)
+    .b => print(0)
+  o: (?P)? = ?q
+  if o as r
+    print(r.n)
+  arr = [?p, ?q]
+  for x in arr
+    print(x.t)
+  vv: List[?List[Int]] = List()
+  ints: List[Int] = List()
+  !ints.push(5)
+  !vv.push(?ints)
+  for x in vv
+    print(x.len, x[0])
+
+test "review-never-data-1-k04 closure capture wv", '''
+  3
+  2
+  2 ab
+  2
+'''
+  obj P
+    n: Int
+    t: String
+
+  sub viaw(w: !P)
+    f = |?w| w.n + w.t.len
+    print(f())
+    g = |!w| w.n += 1
+    g()
+
+  sub gen[T](w: !T, f: sub(?T))
+    h = |?w, ?f| f(w)
+    h()
+
+  sub show(p: ?P)
+    print(p.n, p.t)
+
+  p = P(n: 1, t: String("ab"))
+  viaw(!p)
+  w = !p
+  k = |?w| w.n
+  print(k())
+  gen(!p, show)
+  print(p.n)
+
+fail "review-never-data-1-k07 generic capture wv local", "bare use of write view `v` in binding would copy a write view, which is unique; use `<v` to move it"
+  obj P
+    n: Int
+    t: String
+
+  sub gen[T](v: !T, f: sub(?T))
+    w = v
+    h = |?w, ?f| f(w)
+    h()
+
+  sub show(p: ?P)
+    print(p.n, p.t)
+
+  p = P(n: 1, t: String("ab"))
+  gen(!p, show)
+
+test "review-never-data-1-k08 nongeneric capture wv pass", "1 ab"
+  obj P
+    n: Int
+    t: String
+
+  sub show(p: ?P)
+    print(p.n, p.t)
+
+  sub viaw(w: !P)
+    h = |?w| show(w)
+    h()
+
+  p = P(n: 1, t: String("ab"))
+  viaw(!p)
+
+test "review-never-data-1-l01 generic nested cell", "6"
+  obj In[T]
+    c: Cell[T]
+
+    sub put(!self, x: T)
+      !self.c.set(x)
+
+  obj W[T]
+    i: In[T]
+    n: Int
+
+    sub put2(!self, x: T)
+      !self.i.put(x)
+
+  sub bump[T](w: !W[T], x: T)
+    !w.i.c.set(x)
+    !w.i.put(x)
+    !w.put2(x)
+    r = !w.i
+    !r.put(x)
+
+  w = *W(i: In(c: Cell(1)), n: 0)
+  bump(!w, 5)
+  bump(!w, 6)
+  print(w.i.c.get())
+
+test "review-never-data-1-l02 generic enum cell", "8"
+  enum E[T]
+    a(c: Cell[T])
+    b
+
+  sub f[T](e: !E[T], x: T)
+    match !e
+      .a(c) => !c.set(x)
+      .b => pass
+
+  e = *E.a(c: Cell(1))
+  f(!e, 7)
+  f(!e, 8)
+  match e
+    .a(c) => print(c.get())
+    .b => print(0)
+
+test "review-never-data-1-l04 generic vec cellvec", "80"
+  obj W[T]
+    c: Cell[List[T]]
+
+    sub add(!self, x: T)
+      !self.c.push(x)
+
+  sub fill[T](w: !W[T], x: T, n: Int)
+    for _ in 0..n
+      !w.add(x)
+      !w.c.push(x)
+
+  v: List[Int] = List()
+  w = *W(c: Cell(<v))
+  fill(!w, 3, 40)
+  print(w.c.len)
+
+test "review-never-data-1-n03", "3 1 5"
+  use lib
+
+  sub bump(c: !lib.Counter)
+    !c.hit()
+
+  sub main()
+    k = lib.mk()
+    !k.hit()
+    bump(!k)
+    bump(!k)
+    j = *lib.Counter()
+    !j.hit()
+    c = *lib.Counter(hits: Cell(4))
+    !c.hit()
+    print(k.hits.get(), j.hits.get(), c.hits.get())
+
+  file "lib.rig"
+    pub obj Counter
+      pub hits: Cell[Int] = Cell(0)
+
+      pub sub hit(!self)
+        !self.hits.set(self.hits.get() + 1)
+
+    pub type C = Cell[Int]
+
+    pub obj Wrap[T]
+      pub v: T
+
+    pub fun mk() -> *Counter
+      *Counter()
+
+test "review-never-data-1-o02 result branch wv", "1 12 1 0"
+  fun pick(a: !Int, b: !Int, c: Bool) -> !Int
+    a if c else b
+
+  fun pickv(a: !List[Int], b: !List[Int], c: Bool) -> !List[Int]
+    return a if c else b
+
+  x = 1
+  y = 2
+  w = pick(!x, !y, false)
+  w += 10
+  u: List[Int] = List()
+  v: List[Int] = List()
+  pickv(!u, !v, true).push(3)
+  print(x, y, u.len, v.len)
+
+fail "review-payload-loan-1-p03 generic payload", "cannot reassign `v` while it is lent"
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  sub f[T](o: !Opt[T], x: T)
+    match !o
+      .some(v)
+        s = ?v
+        v = <x
+        print(s)
+      .nothing => pass
+
+  o = Opt.some(String("hello"))
+  f(!o, String("other"))
+
+fail "review-payload-loan-1-p05 nested in for", "cannot lend `t` to write while a read loan is live"
+  enum E
+    a(t: String)
+    b
+
+  v: List[E] = List()
+  !v.push(E.a(String("hello")))
+  for x in !v
+    match !x
+      .a(t)
+        s = ?t[1..]
+        for _ in 0..50
+          !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+      .b => pass
+
+fail "review-payload-loan-1-p06 in closure", "cannot lend `t` to write while a read loan is live"
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  f = |!e|
+    match !e
+      .a(t)
+        s = ?t[1..]
+        for _ in 0..50
+          !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+      .b => print("b")
+  f()
+
+fail "review-payload-loan-1-p07 catchall named field", "cannot lend `q.t` to write while a read loan is live"
+  obj P
+    t: String
+    xs: List[Int]
+
+  enum S
+    a(p: P)
+    b
+
+  e = S.a(P(t: String("hello"), xs: List()))
+  match !e
+    x
+      match !x
+        .a(p: q)
+          s = ?q.t[1..]
+          for _ in 0..50
+            !q.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+          print(s)
+        .b => pass
+
+fail "review-payload-loan-1-p10 call returns write bare", "cannot lend `t` to write while a read loan is live"
+  enum E
+    a(t: String)
+    b
+
+  obj H
+    e: E
+
+  fun get(h: !H) -> !E
+    !h.e
+
+  h = H(e: E.a(String("hello")))
+  match get(!h)
+    .a(t)
+      s = ?t[1..]
+      for _ in 0..50
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass
+
+fail "review-payload-loan-1-p11 nested path", "cannot lend `t` to write while a read loan is live"
+  enum E
+    a(t: String)
+    b
+
+  obj H
+    e: E
+
+  obj G
+    h: H
+
+  sub f(p: !G)
+    match !p.h.e
+      .a(t)
+        s = ?t[1..]
+        for _ in 0..50
+          !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+      .b => pass
+
+  g = G(h: H(e: E.a(String("hello"))))
+  f(!g)
+
+fail "review-payload-loan-1-p14 defer in arm", "cannot lend `t` to write while a read loan is live"
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  match !e
+    .a(t)
+      s = ?t[1..]
+      defer print(s)
+      for _ in 0..50
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    .b => pass
+
+fail "review-payload-loan-1-p15 defer write after view", "cannot lend `t` to write while a read loan is live"
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  match !e
+    .a(t)
+      defer !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      s = ?t[1..]
+      print(s)
+    .b => pass
+
+fail "review-payload-loan-1-q02 consume vec payload", "cannot lend `xs` to write while a read loan is live"
+  enum V
+    a(xs: List[Int])
+    b
+
+  v: List[Int] = List()
+  !v.push(1)
+  e = V.a(<v)
+  match <e
+    .a(xs)
+      s = ?xs[..]
+      for i in 0..50
+        !xs.push(i)
+      print(s)
+    .b => pass
+
+fail "review-payload-loan-1-q05 move binding", "cannot move out of `t`: it is a view of `e`"
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  match !e
+    .a(t)
+      s = ?t[1..]
+      w2 = <t
+      for _ in 0..50
+        !w2.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass
+
+fail "review-payload-loan-1-q07 capture write", "cannot lend `t` to write while a read loan is live"
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  match !e
+    .a(t)
+      s = ?t[1..]
+      f = |!t|
+        for _ in 0..50
+          !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      f()
+      print(s)
+    .b => pass
+
+fail "review-payload-loan-1-q08 catchall whole reassign", "cannot reassign `x` while it is lent"
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  match !e
+    .b => pass
+    x
+      match x
+        .a(t)
+          s = ?t[1..]
+          x = E.a(String("other"))
+          print(s)
+        .b => pass
+
+fail "review-payload-loan-1-q09 inner read match of write binding", "cannot reassign `i` while it is lent"
+  enum O
+    a(e: E)
+    b
+
+  enum E
+    a(t: String)
+    b
+
+  o = O.a(E.a(String("hello")))
+  match !o
+    .a(i)
+      match i
+        .a(t)
+          s = ?t[1..]
+          i = E.b
+          print(s)
+        .b => pass
+    .b => pass
+
+fail "review-payload-loan-1-q10 vec payload index write", "cannot assign to `xs[0]` while `xs` is lent"
+  enum V
+    a(xs: List[String])
+    b
+
+  v: List[String] = List()
+  !v.push(String("hello"))
+  e = V.a(<v)
+  match !e
+    .a(xs)
+      s = ?xs[0][1..]
+      xs[0] = String("other")
+      print(s)
+    .b => pass
+
+fail "review-payload-loan-1-s01 catchall then inner write", "cannot lend `x` to write while a read loan is live"
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  match !e
+    x
+      r = ?x
+      match !x
+        .a(t)
+          for _ in 0..50
+            !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        .b => pass
+      print(r)
+
+fail "review-payload-loan-1-s02 two write lends", "cannot lend `t` to write while a write loan is live"
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  match !e
+    .a(t)
+      w1 = !t
+      w2 = !t
+      !w1.add("a")
+      !w2.add("b")
+      print(w1)
+    .b => pass
+
+fail "review-payload-loan-1-s03 index subject", "cannot lend `t` to write while a read loan is live"
+  enum E
+    a(t: String)
+    b
+
+  v: List[E] = List()
+  !v.push(E.a(String("hello")))
+  match !v[0]
+    .a(t)
+      s = ?t[1..]
+      for _ in 0..50
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => pass
+
+fail "review-payload-loan-1-s05 ifas then match", "cannot lend `t` to write while a read loan is live"
+  enum E
+    a(t: String)
+    b
+
+  o: E? = E.a(String("hello"))
+  if !o as e
+    match !e
+      .a(t)
+        s = ?t[1..]
+        for _ in 0..50
+          !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+      .b => pass
+
+fail "review-payload-loan-1-s06 write lend then read binding", "use of `t` while a write loan is live"
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  match !e
+    .a(t)
+      w = !t
+      print(t)
+      !w.add("a")
+    .b => pass
+
+fail "review-payload-loan-1-s08 vec payload for read", "cannot reassign `xs` while it is lent"
+  enum V
+    a(xs: List[String])
+    b
+
+  v: List[String] = List()
+  !v.push(String("hello"))
+  e = V.a(<v)
+  match !e
+    .a(xs)
+      for x in xs
+        xs = List()
+        print(x)
+    .b => pass
+
+fail "review-payload-loan-1-v01 return write of payload", "`t` does not live long enough"
+  enum E
+    a(t: String)
+    b
+
+  fun get(e: !E, d: !String) -> !String
+    match !e
+      .a(t) => !t
+      .b => !d
+
+  e = E.a(String("hello"))
+  d = String("d")
+  w = get(!e, !d)
+  !w.add("!")
+  print(w)
+
+fail "review-payload-loan-1-v02 return read of payload", "`t` does not live long enough"
+  enum E
+    a(t: String)
+    b
+
+  fun head(e: !E) -> ?String
+    match !e
+      .a(t)
+        !t.add("!")
+        ?t[..3]
+      .b => ""
+
+  e = E.a(String("hello"))
+  print(head(!e))
+
+fail "review-payload-loan-1-v04 if as return", "cannot return a view of `t`, which this function was not lent"
+  fun head(o: !String?) -> ?String
+    if !o as t
+      return ?t[..3]
+    ""
+
+  o: String? = String("hello")
+  print(head(!o))
+
+test "review-payload-loan-1-v05 view after write in arm", '''
+  ello
+  hello!
+  .a(t: "hello!")
+'''
+  enum E
+    a(t: String)
+    b
+
+  fun keep(s: ?String) -> ?String
+    s
+
+  e = E.a(String("hello"))
+  match !e
+    .a(t)
+      s = keep(?t[1..])
+      print(s)
+      !t.add("!")
+      s2 = ?t[..]
+      print(s2)
+    .b => pass
+  print(e)
+
+test "review-payload-loan-1-v06 write payload vec field view other field", "ello 1"
+  obj P
+    t: String
+    xs: List[Int]
+
+  enum S
+    a(p: P)
+    b
+
+  e = S.a(P(t: String("hello"), xs: List()))
+  match !e
+    .a(p)
+      s = ?p.t[1..]
+      !p.xs.push(1)
+      print(s, p.xs.len)
+    .b => pass
+
+fail "review-payload-loan-1-v08 return whole view of payload", "`t` does not live long enough"
+  enum E
+    a(t: String)
+    b
+
+  fun peek(e: !E, d: ?String) -> ?String
+    match !e
+      .a(t) => ?t
+      .b => d
+
+  e = E.a(String("hello"))
+  d = String("d")
+  print(peek(!e, ?d))
+
+fail "review-payload-loan-1-v10 loop outer var", "cannot lend `e` to write while a read loan is live"
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  s: ?String = ""
+  for i in 0..2
+    match !e
+      .a(t)
+        s = ?t[i..]
+        print(s)
+        !t.add("!")
+      .b => pass
+  print(e)
+
+test "review-payload-loan-1-v11 tail value used in arm only", '''
+  4 .a(t: "hello!")
+'''
+  enum E
+    a(t: String)
+    b
+
+  fun keep(s: ?String) -> ?String
+    s
+
+  e = E.a(String("hello"))
+  n = match !e
+    .a(t)
+      s = keep(?t[1..])
+      k = s.len
+      !t.add("!")
+      k
+    .b => 0
+  print(n, e)
+
+test "review-payload-loan-1-v12 struct payload view then write after", '''
+  []
+  hello! 1
+'''
+  obj P
+    t: String
+    xs: List[Int]
+
+  enum S
+    a(p: P)
+    b
+
+  e = S.a(P(t: String("hello"), xs: List()))
+  match !e
+    .a(p)
+      r = ?p.xs[..]
+      print(r)
+      !p.xs.push(1)
+      !p.t.add("!")
+      print(p.t, p.xs.len)
+    .b => pass
+
+fail "review-payload-loan-1-v15 defer param", "cannot lend `t` to write while a read loan is live"
+  sub f(t: !String)
+    defer !t.add("x")
+    s = ?t[1..]
+    print(s)
+
+  t = String("hello")
+  f(!t)
+  print(t)
+
+fail "review-payload-loan-1-v15b defer ifas", "cannot lend `t` to write while a read loan is live"
+  o: String? = String("hello")
+  if !o as t
+    defer !t.add("x")
+    s = ?t[1..]
+    print(s)
+  print(o ?? String("none"))
+
+test "review-payload-loan-1-w01 disjoint local", "ello 1"
+  obj P
+    t: String
+    xs: List[Int]
+
+  p = P(t: String("hello"), xs: List())
+  s = ?p.t[1..]
+  !p.xs.push(1)
+  print(s, p.xs.len)
+
+test "review-payload-loan-1-w02 disjoint param", "ello 1"
+  obj P
+    t: String
+    xs: List[Int]
+
+  sub f(p: !P)
+    s = ?p.t[1..]
+    !p.xs.push(1)
+    print(s, p.xs.len)
+
+  p = P(t: String("hello"), xs: List())
+  f(!p)
+
+test "review-payload-loan-1-w03 disjoint ifas", "ello 1"
+  obj P
+    t: String
+    xs: List[Int]
+
+  o: P? = P(t: String("hello"), xs: List())
+  if !o as p
+    s = ?p.t[1..]
+    !p.xs.push(1)
+    print(s, p.xs.len)
+
+test "review-payload-loan-1-w04 disjoint for", "ello 1"
+  obj P
+    t: String
+    xs: List[Int]
+
+  v: List[P] = List()
+  !v.push(P(t: String("hello"), xs: List()))
+  for p in !v
+    s = ?p.t[1..]
+    !p.xs.push(1)
+    print(s, p.xs.len)
+
+fail "review-payload-loan-1-w05 ifas return write", "cannot return a view of `t`, which this function was not lent"
+  fun get(o: !String?, d: !String) -> !String
+    if !o as t
+      return !t
+    !d
+
+  o: String? = String("hello")
+  d = String("d")
+  w = get(!o, !d)
+  !w.add("!")
+  print(w)
+
+test "review-payload-loan-1-w06 alt read match return", "hello"
+  enum E
+    a(t: String)
+    b
+
+  fun peek(e: !E, d: ?String) -> ?String
+    match e
+      .a(t) => ?t
+      .b => d
+
+  e = E.a(String("hello"))
+  d = String("d")
+  print(peek(!e, ?d))
+
+fail "review-payload-loan-1-w07 for return write", "cannot return a view of `t`, which this function was not lent"
+  fun first(v: !List[String], d: !String) -> !String
+    for t in !v
+      return !t
+    !d
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  d = String("d")
+  w = first(!v, !d)
+  !w.add("!")
+  print(w)
+
+test "review-payload-loan-2-g09 baseline if value int view", "1"
+  x = 1
+  d = 0
+  c = true
+  r = if c
+    ?x
+  else
+    ?d
+  x = 5
+  print(r)
+
+fail "review-payload-loan-2-g10 baseline match value int view", "`n` is bound but never read; name it `_` to ignore the value"
+  enum E
+    a(n: Int)
+    b
+
+  x = 1
+  d = 0
+  e = E.a(n: 2)
+  r = match e
+    .a(n) => ?x
+    .b => ?d
+  x = 5
+  print(r)
+
+fail "review-payload-loan-2-g11 writeview local int view", "cannot reassign `x` while it is lent"
+  x = 1
+  w = !x
+  r = ?w
+  x = 5
+  print(r)
+
+fail "review-payload-loan-2-h04 ifas escape then owner", "use of `x` while a write loan is live"
+  x = String("hello")
+  o: (!String)? = !x
+  d = String("d")
+  r = ?d[..]
+  if o as w
+    r = ?w[1..]
+  for _ in 0..50
+    !x.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(r)
+
+fail "review-payload-loan-3-a01 slice local relend", "cannot lend `v` to write while a read loan is live"
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  s = ?v[..]
+  t = ?s[..1]
+  !v.push(3)
+  print(t)
+
+fail "review-payload-loan-3-a02 slice payload relend", "cannot lend `v` to write while a read loan is live"
+  enum E
+    a(s: []Int)
+    b
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  e = E.a(?v[..])
+  match e
+    .a(s)
+      t = ?s[..1]
+      !v.push(3)
+      print(t)
+    .b => pass
+
+fail "review-payload-loan-3-a03 slice payload copy", "cannot lend `v` to write while a read loan is live"
+  enum E
+    a(s: []Int)
+    b
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  e = E.a(?v[..])
+  match e
+    .a(s)
+      t = s
+      !v.push(3)
+      print(t)
+    .b => pass
+
+fail "review-payload-loan-3-a04 string payload relend", "cannot lend `x` to write while a read loan is live"
+  enum E
+    a(s: ?String)
+    b
+
+  x = String("hello")
+  e = E.a(?x)
+  match e
+    .a(s)
+      t = ?s[1..]
+      !x.add(" world, long enough to realloc")
+      print(t)
+    .b => pass
+
+fail "review-payload-loan-3-a05 for slice elem relend", "cannot lend `v` to write while a read loan is live"
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  ss: List[[]Int] = List()
+  !ss.push(?v[..])
+  for s in ss
+    t = ?s[..1]
+    !v.push(3)
+    print(t)
+
+fail "review-payload-loan-3-a06 ifas slice relend", "cannot lend `v` to write while a read loan is live"
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  o: ([]Int)? = ?v[..]
+  if o as s
+    t = ?s[..1]
+    !v.push(3)
+    print(t)
+
+fail "review-payload-loan-3-c01 readmatch owner reassign", "cannot reassign `o` while it is lent"
+  enum Opt
+    some(t: String)
+    nothing
+
+  o = Opt.some(String("hello"))
+  match o
+    .some(x)
+      r = ?x
+      o = Opt.nothing
+      print(r)
+    .nothing => pass
+
+fail "review-payload-loan-3-c02 generic readmatch reassign", "cannot reassign `o` while it is lent"
+  enum Opt[T]
+    some(t: T)
+    nothing
+
+  fun f[T](a: Opt[T], d: Opt[T]) -> Int
+    o = <a
+    match o
+      .some(x)
+        r = ?x
+        o = <d
+        print(r)
+      .nothing => pass
+    0
+
+  print(f(Opt.some(String("hello")), Opt[String].nothing))
+
+fail "review-payload-loan-3-c03 generic catchall reassign", "cannot reassign `o` while it is lent"
+  enum Opt[T]
+    some(t: T)
+    nothing
+
+  fun f[T](a: Opt[T], d: Opt[T]) -> Int
+    o = <a
+    match o
+      .some(x)
+        r = ?x
+        t = r
+        o = <d
+        print(t)
+      .nothing => pass
+    0
+
+  print(f(Opt.some(String("hello")), Opt[String].nothing))
+
+fail "review-payload-loan-3-c04 generic writematch lend", "cannot reassign `x` while it is lent"
+  enum Opt[T]
+    some(t: T)
+    nothing
+
+  fun f[T](a: Opt[T], d: T) -> Int
+    o = <a
+    match !o
+      .some(x)
+        r = ?x
+        x = <d
+        print(r)
+      .nothing => pass
+    0
+
+  print(f(Opt.some(String("hello")), String("bye")))
+
+fail "review-payload-loan-3-f01 write binding moved out match value", "cannot reassign `e` while it is lent"
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  d = String("dflt")
+  r = match !e
+    .a(t) => t
+    .b => !d
+  e = E.b
+  !r.add("x")
+  print(r)
+
+fail "review-payload-loan-3-f02 write binding break out", "bare use of write view `t` in `break` value would copy a write view, which is unique; use `<t` to move it"
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  d = String("dflt")
+  r = while true
+    match !e
+      .a(t) => break t
+      .b => break !d
+  else
+    !d
+  e = E.b
+  print(r)
+
+fail "review-payload-loan-3-f02b write binding break move", "cannot move out of `t`: it is a view of `e`"
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  d = String("dflt")
+  r = while true
+    match !e
+      .a(t) => break <t
+      .b => break !d
+  else
+    !d
+  e = E.b
+  print(r)
+
+fail "review-payload-loan-3-f03 ifas write moved out", "cannot reassign `o` while it is lent"
+  o: String? = String("hello")
+  d = String("dflt")
+  r = if !o as t
+    t
+  else
+    !d
+  o = none
+  print(r)
+
+fail "review-payload-loan-3-f04 for write moved out", "bare use of write view `t` in `break` value would copy a write view, which is unique; use `<t` to move it"
+  v: List[String] = List()
+  !v.push(String("hello"))
+  d = String("dflt")
+  r = for t in !v
+    break t
+  else
+    !d
+  !v.clear()
+  print(r)
+
+fail "review-payload-loan-3-f04b for write break move", "use of `v` while a write loan is live"
+  v: List[String] = List()
+  !v.push(String("hello"))
+  d = String("dflt")
+  r = for t in !v
+    break <t
+  else
+    !d
+  !v.clear()
+  print(r)
+
+fail "review-payload-loan-3-f05 write binding return", "cannot reassign `e` while it is lent"
+  enum E
+    a(t: String)
+    b
+
+  fun pick(e: !E, d: !String) -> !String
+    match !e
+      .a(t) => t
+      .b => d
+
+  e = E.a(String("hello"))
+  d = String("dflt")
+  r = pick(!e, !d)
+  e = E.b
+  print(r)
+
+fail "review-payload-loan-3-g01 self write view return", "cannot assign to `self.t` while `self.t` is lent"
+  obj S
+    t: String
+    n: Int
+
+    fun tail(!self) -> ?String
+      self.n += 1
+      ?self.t[1..]
+
+    fun peek(?self) -> ?String
+      ?self.t[1..]
+
+    sub hold(!self)
+      r = ?self.t[1..]
+      self.t = String("other")
+      print(r)
+
+  s = S(t: String("hello"), n: 0)
+  print((!s).tail(), s.peek())
+
+test "review-payload-loan-3-g02 self write hold then write ok", '''
+  ello ello
+  ello
+  other
+'''
+  obj S
+    t: String
+    n: Int
+
+    fun tail(!self) -> ?String
+      self.n += 1
+      ?self.t[1..]
+
+    fun peek(?self) -> ?String
+      ?self.t[1..]
+
+    sub hold(!self)
+      r = ?self.t[1..]
+      print(r)
+      self.t = String("other")
+      q = ?self
+      print(q.t)
+
+  s = S(t: String("hello"), n: 0)
+  print((!s).tail(), s.peek())
+  !s.hold()
+
+test "review-payload-loan-3-i08 local opt writeview read as", '''
+  5
+  6
+'''
+  obj P
+    t: String
+    n: Int
+
+  fun show(q: ?P) -> Int
+    q.t.len
+
+  p = P(t: String("hello"), n: 3)
+  o: (!P)? = !p
+  if o as x
+    print(show(x))
+  n = 5
+  no: (!Int)? = !n
+  if no as k
+    print(k + 1)
+
+fail "review-payload-loan-3-l04 as lend branches", "cannot assign to `x.t` while `x.t` is lent"
+  obj P
+    t: String
+
+  p = P(t: String("hello"))
+  q = P(t: String("bye"))
+  o1: (!P)? = !p
+  o2: (!P)? = !q
+  c = true
+  if (!o1 if c else !o2) as x
+    r = ?x.t[1..]
+    x.t = String("other")
+    print(r)
+
+test "review-payload-loan-3-l07 as lend branches after", "other"
+  obj P
+    t: String
+
+  p = P(t: String("hello"))
+  q = P(t: String("bye"))
+  o1: (!P)? = !p
+  o2: (!P)? = !q
+  c = true
+  if (!o1 if c else !o2) as x
+    x.t = String("other")
+  if o1 as y
+    print(y.t)
+
+test "review-payload-loan-3-m01 local opt wv print field", "hello"
+  obj P
+    t: String
+
+  p = P(t: String("hello"))
+  o: (!P)? = !p
+  if o as y
+    print(y.t)
+
+test "review-payload-loan-3-m02 local opt wv int", "5"
+  n = 5
+  o: (!Int)? = !n
+  if o as y
+    print(y)
+
+test "review-payload-loan-3-m03 local opt wv while", "hello 1"
+  obj P
+    t: String
+    n: Int
+
+  p = P(t: String("hello"), n: 1)
+  o: (!P)? = !p
+  while o as y
+    print(y.t, y.n)
+    break
+
+test "review-payload-loan-3-n02 local readas reads", '''
+  3 1
+  3 2
+  3 bc
+'''
+  obj P
+    t: String
+    n: Int
+    xs: List[Int]
+
+  xs: List[Int] = List()
+  !xs.push(7)
+  p = P(t: String("hello"), n: 3, xs: <xs)
+  o: (!P)? = !p
+  if o as x
+    print(x.n, x.xs.len)
+  a = [1, 2, 3]
+  so: (![]Int)? = !a[..]
+  if so as s
+    print(s.len, s[1])
+  tt = String("abc")
+  to: (!String)? = !tt
+  if to as t
+    print(t.len, t[1..])
+
+fail "review-payload-loan-3-o02 defer lend live", "cannot lend `t` to write while a read loan is live"
+  enum E
+    a(t: String)
+    z
+
+  e = E.a(String("hello"))
+  defer
+    match !e
+      .a(t)
+        s = ?t[1..]
+        !t.add(" and more and more and more text to realloc the buffer")
+        print(s)
+      .z => pass
+  print("x")
+
+fail "review-payload-loan-3-o03 labeled break value binding", "`t` does not live long enough"
+  enum E
+    a(t: String)
+    z
+
+  e = E.a(String("hello"))
+  s = while true
+    match !e
+      .a(t)
+        r = ?t[1..]
+        break r
+      .z => break "z"
+  else
+    "none"
+  e = E.z
+  print(s)
+
+fail "review-payload-loan-3-o04 method self match write", "cannot lend `t` to write while a read loan is live"
+  enum E
+    a(t: String)
+    z
+
+    sub grow(!self)
+      match !self
+        .a(t)
+          s = ?t[1..]
+          !t.add(" and more and more and more text to realloc the buffer")
+          print(s)
+        .z => pass
+
+  e = E.a(String("hello"))
+  !e.grow()
+
+fail "review-payload-loan-3-p01 if as writeparam live", "cannot lend `b` to write while a read loan is live"
+  sub f(o: !(String?))
+    if !o as b
+      s = ?b[1..]
+      !b.add(" and more and more and more text to realloc the buffer")
+      print(s)
+
+  y: String? = String("hello")
+  f(!y)
+
+test "review-payload-loan-3-p02 if as writeparam after", '''
+  ello
+  hello!
+  hello!
+'''
+  sub f(o: !(String?))
+    if !o as b
+      s = ?b[1..]
+      print(s)
+      !b.add("!")
+      print(b)
+
+  y: String? = String("hello")
+  f(!y)
+  print(y ?? String("none"))
+
+fail "review-payload-loan-3-p03 for index write live", "cannot lend `b` to write while a read loan is live"
+  v: List[String] = List()
+  !v.push(String("hello"))
+  for b, i in !v
+    s = ?b[1..]
+    !b.add(" and more and more and more text to realloc the buffer")
+    print(s, i)
+
+fail "review-payload-loan-4-e03 call live reassign", "cannot reassign `e` while it is lent"
+  obj Res
+    n: Int
+    v: List[Int]
+
+  enum E
+    a(r: Res)
+    b
+
+  error Bad
+    nope
+
+  fun mk(n: Int) -> E
+    v: List[Int] = List()
+    !v.push(n)
+    E.a(r: Res(n: n, v: <v))
+
+  fun getw(e: !E) -> !E
+    e
+
+  fun tryw(e: !E, ok: Bool) -> (!E)!
+    return Bad.nope if not ok
+    e
+
+  fun optw(e: !E, ok: Bool) -> (!E)?
+    return none if not ok
+    e
+
+  e = mk(1)
+  match getw(!e)
+    .a(r)
+      s = ?r.v[..]
+      e = mk(5)
+      print(s[0])
+    .b => pass
+
+fail "review-payload-loan-4-e04 call live read owner", "use of `e` while a write loan is live"
+  obj Res
+    n: Int
+    v: List[Int]
+
+  enum E
+    a(r: Res)
+    b
+
+  error Bad
+    nope
+
+  fun mk(n: Int) -> E
+    v: List[Int] = List()
+    !v.push(n)
+    E.a(r: Res(n: n, v: <v))
+
+  fun getw(e: !E) -> !E
+    e
+
+  fun tryw(e: !E, ok: Bool) -> (!E)!
+    return Bad.nope if not ok
+    e
+
+  fun optw(e: !E, ok: Bool) -> (!E)?
+    return none if not ok
+    e
+
+  e = mk(1)
+  match getw(!e)
+    .a(r)
+      print(e)
+      r.n = 4
+    .b => pass
+
+fail "review-payload-loan-4-e05 branch live write other", "cannot reassign `d` while it is lent"
+  obj Res
+    n: Int
+    v: List[Int]
+
+  enum E
+    a(r: Res)
+    b
+
+  error Bad
+    nope
+
+  fun mk(n: Int) -> E
+    v: List[Int] = List()
+    !v.push(n)
+    E.a(r: Res(n: n, v: <v))
+
+  fun getw(e: !E) -> !E
+    e
+
+  fun tryw(e: !E, ok: Bool) -> (!E)!
+    return Bad.nope if not ok
+    e
+
+  fun optw(e: !E, ok: Bool) -> (!E)?
+    return none if not ok
+    e
+
+  e = mk(1)
+  d = mk(2)
+  c = true
+  match (!e if c else !d)
+    .a(r)
+      s = ?r.v[..]
+      d = mk(9)
+      print(s[0])
+    .b => pass
+
+fail "review-payload-loan-4-e06 branch live lend e", "cannot lend `e` to write while a write loan is live"
+  obj Res
+    n: Int
+    v: List[Int]
+
+  enum E
+    a(r: Res)
+    b
+
+  error Bad
+    nope
+
+  fun mk(n: Int) -> E
+    v: List[Int] = List()
+    !v.push(n)
+    E.a(r: Res(n: n, v: <v))
+
+  fun getw(e: !E) -> !E
+    e
+
+  fun tryw(e: !E, ok: Bool) -> (!E)!
+    return Bad.nope if not ok
+    e
+
+  fun optw(e: !E, ok: Bool) -> (!E)?
+    return none if not ok
+    e
+
+  e = mk(1)
+  d = mk(2)
+  c = true
+  match (!e if c else !d)
+    .a(r)
+      match !e
+        .a(r2) => r2.n = 3
+        .b => pass
+      r.n = 4
+    .b => pass

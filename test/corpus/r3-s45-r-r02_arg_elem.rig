@@ -1,7 +1,0 @@
-sub take(t: String)
-  print(t)
-
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  take(v[0])

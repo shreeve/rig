@@ -1,8 +1,0 @@
-fun both[T](a: T, b: !List[Int]) -> T
-  !b.push(1)
-  a
-
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  print(both(v[..], !v))

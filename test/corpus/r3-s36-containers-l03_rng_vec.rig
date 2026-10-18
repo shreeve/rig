@@ -1,5 +1,0 @@
-use std.random
-
-sub main()
-  rs = [random.Random.seeded(1), random.Random.seeded(2)]
-  print(rs.len)

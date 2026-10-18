@@ -1,4 +1,0 @@
-sub main()
-  a = String("aaaa")
-  defer print(String("deferred"), ?a)
-  print(a)

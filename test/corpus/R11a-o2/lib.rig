@@ -1,9 +1,0 @@
-pub obj Two[A, B]
-  a: A
-  b: B
-
-  fun make(a: A, b: B) -> Self
-    Two(a: <a, b: <b)
-
-pub fun two[A, B](a: A, b: B) -> Two[A, B]
-  Two(a: <a, b: <b)

@@ -1,7 +1,0 @@
-# defer writes v (plain List[Int]) while a later read view is used before scope end
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  defer !v.push(2)
-  x = ?v
-  print(x)

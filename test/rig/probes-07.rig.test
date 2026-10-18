@@ -1,0 +1,1411 @@
+# Probes from past reviews and audits, 7 of 41: audit-tests-probes-c19_else_if to copies-fill-f12.
+
+test "audit-tests-probes-c19 else if", "mid"
+  x = 3
+  if x > 5
+    print("big")
+  else if x > 1
+    print("mid")
+
+fail "audit-tests-probes-rg03 use after move", "use of `s` after move"
+  obj S
+    v: List[Int]
+
+  sub take(s: S)
+    print(s.v.len)
+
+  s = S(v: List())
+  take(<s)
+  print(s.v.len)
+
+fail "audit-tests-probes-rg04 implicit move", "`take` takes ownership of an `S`, and `s` can't be copied: write `<s` to move it or `+s` to pass a clone; if `take` only reads it, make its parameter an `?S`"
+  obj S
+    v: List[Int]
+
+  sub take(s: S)
+    print(s.v.len)
+
+  s = S(v: List())
+  take(s)
+
+fail "audit-tests-probes-rg105 move then reassign ok", "use of `s` after move"
+  obj S
+    v: List[Int]
+
+  s = S(v: List())
+  t = <s
+  print(s.v.len, t.v.len)
+
+fail "audit-tests-probes-rg10 fixed reassign", "cannot reassign fixed binding `x`"
+  x =! 1
+  x = 2
+  print(x)
+
+fail "audit-tests-probes-rg17 return view of local", "cannot return a view of `s`, which this function was not lent"
+  obj S
+    n: Int
+
+  fun mk() -> ?S
+    s = S(n: 1)
+    ?s
+
+  print(mk().n)
+
+test "audit-tests-probes-rg19 clone copy", "5"
+  x = 5
+  y = +x
+  print(y)
+
+fail "audit-tests-probes-rg36 view of temp stored", "a view of the temporary `S(n: 1)` outlives its statement, which drops it; bind the value to a name first"
+  obj S
+    n: Int
+
+  obj H
+    s: ?S
+
+  h = H(s: ?S(n: 1))
+  print(h.s.n)
+
+fail "audit-tests-probes-rg45 write view twice", "cannot lend `x` to write while a write loan is live"
+  sub two(a: !Int, b: !Int)
+    a += b
+
+  x = 1
+  two(!x, !x)
+  print(x)
+
+fail "audit-tests-probes-rg46 move in loop", "`i` is bound but never read; name it `_` to ignore the value"
+  obj S
+    v: List[Int]
+
+  sub take(s: S)
+    print(s.v.len)
+
+  s = S(v: List())
+  for i in 0..2
+    take(<s)
+
+test "audit-tests-probes-rg49 catch no e", "0"
+  error E
+    bad
+
+  fun f() -> Int!
+    return E.bad
+
+  x = f() catch |e| 0
+  print(x)
+
+test "audit-tests-probes-rg52 compare optional none eq", "none"
+  fun f() -> Int?
+    none
+
+  if f() == none
+    print("none")
+
+test "audit-tests-probes-rg53 for index order", '''
+  10 0
+  20 1
+'''
+  xs = [10, 20]
+  for i, x in xs
+    print(i, x)
+
+fail "audit-tests-probes-rg86 vec index owning", "`xs[0]` owns an `S`, which can't be copied by `=`: write `+xs[0]` to clone it or `?xs[0]` to view it"
+  obj S
+    v: List[Int]
+
+  xs: List[S] = List()
+  !xs.push(S(v: List()))
+  y = xs[0]
+  print(y.v.len)
+
+test "audit-tests-probes-rg91 optional param default none", "0"
+  fun f(n: Int? = none) -> Int
+    n ?? 0
+
+  print(f())
+
+fail "audit-tests-probes-rg95 unused param ok but unused for", "`i` is bound but never read; name it `_` to ignore the value"
+  for i in 0..3
+    print("x")
+
+fail "audit-tests-probes-w push in loop", "cannot lend `v` to write while a read loan is live"
+  v: List[Int] = List()
+  !v.push(1)
+  for x in ?v
+    !v.push(x)
+  print(v.len)
+
+test "audit-tests-probes-w return view param wrong", "2"
+  obj S
+    n: Int
+
+  fun first(a: ?S, b: ?S) -> ?S
+    a if a.n > b.n else b
+
+  x = S(n: 1)
+  y = S(n: 2)
+  print(first(?x, ?y).n)
+
+test "audit-tests-probes-w struct copy assign", "1 2"
+  obj P
+    x: Int
+
+  a = P(x: 1)
+  b = a
+  b.x = 2
+  print(a.x, b.x)
+
+test "audit-tests-probes-w vec of string push moved", "a 1"
+  v: List[?String] = List()
+  s = "a"
+  !v.push(s)
+  print(s, v.len)
+
+fail "audit-tests-probes-x19 move copy", "use of `x` after move"
+  x = 5
+  y = <x
+  print(x, y)
+
+test "audit-tests-probes-x20 clone then use", "0 0"
+  obj S
+    v: List[Int]
+
+  s = S(v: List())
+  t = +s
+  print(s.v.len, t.v.len)
+
+test "audit-tests-probes-y01 errdefer", '''
+  defer
+  drop 1
+  1
+  defer
+  errdefer 1
+  drop 1
+  -1
+'''
+  error E
+    bad
+
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun make(fail: Bool) -> Int!
+    r = R(n: 1)
+    errdefer print("errdefer", r.n)
+    defer print("defer")
+    return E.bad if fail
+    r.n
+
+  print(make(false)!)
+  print(make(true) catch -1)
+
+fail "audit-tests-probes-y04 errdefer moves", "a `defer` body cannot move or drop `r`; it runs when the scope exits"
+  error E
+    bad
+
+  obj R
+    v: List[Int]
+
+  sub eat(r: R)
+    print(r.v.len)
+
+  fun f() -> Int!
+    r = R(v: List())
+    errdefer eat(<r)
+    return E.bad
+
+fail "audit-tests-probes-y05 temp view rt", "a view of the temporary `mk(rt(7))` outlives its statement, which drops it; bind the value to a name first"
+  obj S
+    n: Int
+    v: List[Int]
+
+  obj H
+    s: ?S
+
+  fun rt(n: Int) -> Int
+    n
+
+  fun mk(n: Int) -> S
+    s = S(n: n, v: List())
+    !s.v.push(n)
+    s
+
+  h = H(s: ?mk(rt(7)))
+  x = [rt(1), rt(2), rt(3), rt(4)]
+  print(h.s.n, h.s.v.len, x[0])
+
+fail "audit-tests-probes-y06 temp view plain", "cannot return a view of `S(n: rt(n), m: rt(n + 1))`, which this function was not lent"
+  obj S
+    n: Int
+    m: Int
+
+  obj H
+    s: ?S
+
+  fun rt(n: Int) -> Int
+    n
+
+  fun clobber(a: Int) -> Int
+    x = [a, a, a, a, a, a, a, a]
+    x[0] + x[7]
+
+  fun mk(n: Int) -> H
+    H(s: ?S(n: rt(n), m: rt(n + 1)))
+
+  h = H(s: ?S(n: rt(7), m: rt(8)))
+  print(clobber(99))
+  print(h.s.n, h.s.m)
+
+fail "audit-tests-probes-y07 dangling return", "cannot return a view of `S(n: rt(n), m: rt(n + 1))`, which this function was not lent"
+  obj S
+    n: Int
+    m: Int
+
+  obj H
+    s: ?S
+
+  fun rt(n: Int) -> Int
+    n
+
+  fun clobber(a: Int) -> Int
+    x = [a, a, a, a, a, a, a, a, a, a, a, a, a, a, a, a]
+    x[0] + x[15]
+
+  fun mk(n: Int) -> H
+    H(s: ?S(n: rt(n), m: rt(n + 1)))
+
+  h = mk(7)
+  print(clobber(99))
+  print(h.s.n, h.s.m)
+
+fail "audit-tests-probes-y08 local view return", "cannot return a view of `s`, which this function was not lent"
+  obj S
+    n: Int
+
+  obj H
+    s: ?S
+
+  fun mk(n: Int) -> H
+    s = S(n: n)
+    H(s: ?s)
+
+  h = mk(7)
+  print(h.s.n)
+
+fail "audit-tests-probes-y09 temp view scope", "a view of the temporary `S(n: rt(1), m: rt(2))` outlives its statement, which drops it; bind the value to a name first"
+  obj S
+    n: Int
+    m: Int
+
+  obj H
+    s: ?S
+
+  fun rt(n: Int) -> Int
+    n
+
+  fun clobber(a: Int) -> Int
+    x = [a, a, a, a, a, a, a, a, a, a, a, a, a, a, a, a]
+    x[0] + x[15]
+
+  h = H(s: ?S(n: rt(1), m: rt(2)))
+  if rt(1) == 1
+    new h = H(s: ?S(n: rt(7), m: rt(8)))
+    print(h.s.n)
+  print(clobber(5))
+  print(h.s.n, h.s.m)
+
+test "audit-typecheck-chain250", "251"
+  fun f(x: Int) -> Int
+    y = x + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1
+    y
+
+  print(f(1))
+
+test "audit-typecheck-chain500", "501"
+  fun f(x: Int) -> Int
+    y = x + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1
+    y
+
+  print(f(1))
+
+test "audit-typecheck-chain700", "701"
+  fun f(x: Int) -> Int
+    y = x + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1
+    y
+
+  print(f(1))
+
+test "audit-typecheck-chain900", "901"
+  fun f(x: Int) -> Int
+    y = x + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1
+    y
+
+  print(f(1))
+
+test "audit-typecheck-chain990", "991"
+  fun f(x: Int) -> Int
+    y = x + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1
+    y
+
+  print(f(1))
+
+test "audit-typecheck-chainc700", "702"
+  fun f(x: Int) -> Int
+    y = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + x
+    y
+
+  print(f(1))
+
+test "audit-typecheck-chainc900", "902"
+  fun f(x: Int) -> Int
+    y = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + x
+    y
+
+  print(f(1))
+
+test "audit-typecheck-chainc990", "992"
+  fun f(x: Int) -> Int
+    y = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + x
+    y
+
+  print(f(1))
+
+test "audit-typecheck-exp16", "16"
+  fun f(x: Int) -> Int
+    k =! x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+    k
+
+  print(f(1))
+
+test "audit-typecheck-exp20", "20"
+  fun f(x: Int) -> Int
+    k =! x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+    k
+
+  print(f(1))
+
+test "audit-typecheck-exp22", "22"
+  fun f(x: Int) -> Int
+    k =! x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+    k
+
+  print(f(1))
+
+test "audit-typecheck-exp24", "24"
+  fun f(x: Int) -> Int
+    k =! x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x + x
+    k
+
+  print(f(1))
+
+test "audit-typecheck-f2", '''
+  16777216.0
+  inf
+'''
+  y = F32(16777217)
+  print(y)
+  z = F32(Float.max)
+  print(z)
+
+test "audit-typecheck-g1", '''
+  6
+  2.0
+'''
+  match 5
+    1 => print(1)
+    n => print(n + 1)
+  x = match 3
+    0 => 1.5
+    _ => 2
+  print(x)
+
+fail "audit-typecheck-m5-main7", "`q` is assigned but never read; use it, or discard the value with `_ = ...`"
+  use util3
+
+  sub main()
+    p = util3.PA.mk()
+    print(p.n)
+    q = util3.PA(n: 2)
+
+  file "util3.rig"
+    pub enum Mode
+      a
+      b
+
+    pub type M = Mode
+
+    pub obj P
+      pub n: Int
+
+      pub fun mk() -> P
+        P(n: 1)
+
+    pub type PA = P
+
+fail "audit-typecheck-q3", "cannot lend `a` to write while a write loan is live"
+  a = 1
+  swap(!a, !a)
+  v = [1, 2, 3]
+  swap(!v[0], !v[1])
+  print(a, v[0])
+
+test "audit-typecheck-q4", '''
+  1 9
+  4 9
+'''
+  a: [3]Int? = [1, none, 3]
+  x = <a[0]
+  print(x ?? 0, a[0] ?? 9)
+  v = List[Int?]()
+  (!v).push(4)
+  y = <v[0]
+  print(y ?? 0, v[0] ?? 9)
+  (!v).clear()
+
+test "audit-typecheck-s1", '''
+  0
+  0
+'''
+  obj Holder
+    v: List[Int]
+
+  sub reset(p: !Holder)
+    p = Holder(v: List[Int]())
+
+  h = Holder(v: List[Int]())
+  (!h.v).push(1)
+  reset(!h)
+  print(h.v.len)
+  w = !h
+  w = Holder(v: List[Int]())
+  print(h.v.len)
+
+test "audit-typecheck-s2"
+  obj Holder
+    v: List[Int]
+
+  a = [Holder(v: List[Int]())]
+
+test "audit-typecheck-t1", '''
+  255
+  255 0
+'''
+  type Byte = U8
+
+  sub f(n: U8 = Byte.max)
+    print(n)
+
+  K = Byte.max
+
+  obj S
+    b: U8 = Byte.min
+
+  sub main()
+    f()
+    print(K, S().b)
+
+test "audit-typecheck-t3", "1"
+  obj P
+    x: Int
+
+    fun mk() -> P
+      P(x: 1)
+
+  k =! P.mk
+  print(k().x)
+
+fail "audit-typecheck-w1", "`w.f` is a `*N` handle, which can't be copied by `=`: write `+w.f` for another handle or `?w.f` to view it"
+  obj N
+    v: Int
+
+  obj S
+    f: *N
+
+  sub take(w: ?S)
+    x = w.f
+    y = <w.f
+    print(x.v)
+
+  s = S(f: *N(v: 1))
+  take(?s)
+
+test "audit-typecheck-x2", '''
+  5
+  9
+'''
+  sub t(s: ![]Int?)
+    y = <s[0]
+    print(y ?? 0)
+
+  a: [2]Int? = [5, 6]
+  t(!a)
+  print(a[0] ?? 9)
+
+test "audit-typecheck-y1", "3 9 5"
+  obj S
+    f: Int?
+    g: Int
+
+  b = ^S(f: 3, g: 1)
+  y = <b.f
+  b.g = 5
+  print(y ?? 0, b.f ?? 9, b.g)
+
+test "bang-b", '''
+  1
+  false
+'''
+  obj S
+    n: Int
+
+    fun add(!self, x: Int) -> Bool
+      self.n += x
+      self.n > 3
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+  s = S(n: 0)
+  print((!s).bump())
+  print((!s).add(2))
+
+test "big-r", "7"
+  fun deep(x: ?[1000000]Int, n: Int) -> Int
+    return x[0] if n == 0
+    deep(x, n - 1)
+
+  a: [1000000]Int = [1000000 of 7]
+  print(deep(?a, 50))
+
+test "big-small", "3 5"
+  obj Pair
+    a: Int
+    b: Int
+
+  fun sum(p: ?Pair) -> Int
+    p.a + p.b
+
+  fun inc(n: ?Int) -> Int
+    n + 1
+
+  p = Pair(a: 1, b: 2)
+  x = 4
+  print(sum(?p), inc(?x))
+
+fail "box-a2", "`b` owns a `^P`, which can't be copied by `=`: write `<b` to move it, `+b` to clone it, or `?b` to view it"
+  obj P
+    x: Int
+
+  b = ^P(x: 1)
+  c = b
+  print(c.x, b.x)
+
+test "box-c1", '''
+  eat 1
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+    sub eat(<self)
+      print("eat", self.n)
+
+  b = ^R(n: 1)
+  <b.eat()
+
+test "box-c3", '''
+  14
+  .add(l: .num(n: 2), r: .mul(l: .num(n: 3), r: .num(n: 4)))
+'''
+  enum Expr
+    num(n: Int)
+    add(l: ^Expr, r: ^Expr)
+    mul(l: ^Expr, r: ^Expr)
+
+  fun eval(e: ?Expr) -> Int
+    match e
+      .num(n) => n
+      .add(l, r) => eval(?l) + eval(?r)
+      .mul(l, r) => eval(?l) * eval(?r)
+
+  fun num(n: Int) -> ^Expr
+    ^.num(n)
+
+  e = Expr.add(l: num(2), r: ^Expr.mul(l: num(3), r: num(4)))
+  print(eval(?e))
+  print(e)
+
+test "box-c4", '''
+  7 7
+  9 H(b: Wrap(v: 9))
+  1
+'''
+  obj Wrap[T]
+    v: T
+
+    fun get(?self) -> T
+      self.v
+
+  obj H
+    b: ^Wrap[Int]
+
+  b = ^Wrap(v: 7)
+  print(b.v, b.get())
+  h = H(b: <b)
+  h.b.v = 9
+  print(h.b.get(), h)
+  h.b = ^Wrap(v: 1)
+  print(h.b.v)
+  <h
+
+fail "box-d1", "cannot reassign `root` while it is lent"
+  obj Node
+    key: Int
+    left: ^Node?
+
+  root: ^Node? = ^Node(key: 1, left: none)
+  if !root as n
+    root = none
+    print(n.key)
+
+fail "box-d3", "cannot reassign `root` while it is lent"
+  obj Node
+    key: Int
+    left: ^Node?
+
+  fun leftmost(n: ?Node) -> ?Node
+    if n.left as l
+      return leftmost(?l)
+    n
+
+  root = ^Node(key: 1, left: ^Node(key: 0, left: none))
+  m = leftmost(?root)
+  print(m.key)
+  root = ^Node(key: 5, left: none)
+  print(m.key)
+
+test "box-d3b", "0"
+  obj Node
+    key: Int
+    left: ^Node?
+
+  fun leftmost(n: ?Node) -> ?Node
+    if ?n.left as l
+      return leftmost(?l)
+    n
+
+  root = ^Node(key: 1, left: ^Node(key: 0, left: none))
+  m = leftmost(?root)
+  print(m.key)
+
+fail "box-d4", "cannot drop `a` while it is lent"
+  obj Node
+    key: Int
+    next: ^Node?
+
+  a = ^Node(key: 1, next: none)
+  r = ?a
+  <a
+  print(r.key)
+
+fail "box-d5", "cannot reassign `a` while it is lent"
+  obj Node
+    key: Int
+    next: ^Node?
+
+  fun first(n: ?^Node) -> ?Node
+    ?n
+
+  a = ^Node(key: 1, next: none)
+  f = first(?a)
+  a = ^Node(key: 2, next: none)
+  print(f.key)
+
+test "box-f1", '''
+  12
+  circle 2
+'''
+  enum Shape
+    circle(r: Int)
+    square(s: Int)
+
+    fun area(?self) -> Int
+      match self
+        .circle(r) => 3 * r * r
+        .square(s) => s * s
+
+  b = ^Shape.circle(r: 2)
+  print(b.area())
+  match b
+    .circle(r) => print("circle", r)
+    .square(s) => print("square", s)
+
+test "box-p1", '''
+  1
+  1
+  drop 1
+'''
+  obj N
+    k: Int
+
+    drop(!self)
+      print("drop", self.k)
+
+  fun peek(o: ?N?) -> Int
+    if o as n
+      n.k
+    else
+      0
+
+  o: N? = N(k: 1)
+  if ?o as n
+    print(n.k)
+  print(peek(?o))
+
+fail "c12-g", "cannot store a view of `w` through captured `v`: `v` outlives every call of the closure, and the closure's parameters and own values last one call at most"
+  obj View
+    w: ?List[Int]
+
+  sub run[T](x: ?T, f: ?sub(?T))
+    f(x)
+
+  a: List[Int] = List()
+  v = View(w: ?a)
+  if true
+    local: List[Int] = List()
+    run(?local, |!v, w| v.w = w)
+  print(v.w.len)
+
+test "c1v-e", '''
+  true false false true true
+  true true true true pear
+  1 2
+'''
+  obj Point
+    x: Int
+    y: Float
+
+  enum Shape
+    circle(r: Float)
+    square(side: Int)
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun index_of[T](xs: ?[3]T, x: T) -> Int
+    for v, i in xs
+      return i if v == x
+    -1
+
+  p = Point(x: 1, y: 2.5)
+  q = Point(x: 1, y: 2.5)
+  nan = 0.0 / 0.0
+  n = Point(x: 1, y: nan)
+  s: Shape = .circle(r: 1.0)
+  o: Point? = none
+  pts = [p, Point(x: 2, y: 0.0), q]
+  print(p == q, p != q, n == n, s == .circle(r: 1.0), o == none)
+  print("abc" < "abd", "ab" < "abc", "" < "a", "é" > "z", max("pear", "apple"))
+  print(index_of(?pts, Point(x: 2, y: 0.0)), index_of(?["a", "b", "c"], "c"))
+
+test "c2", '''
+  5 5 255 true 0 true
+  255 true 0
+'''
+  use util
+
+  K = util.Byte.max - 250
+  M = util.Byte.max
+  F = util.Real.min
+
+  obj D
+    b: util.Byte = util.Byte.max
+    r: util.Real = util.Real.max
+
+  fun f(x: util.Byte = util.Byte.min) -> Int
+    Int(x)
+
+  sub main()
+    a: [K]Bool? = [5 of none]
+    print(K, a.len, M, F < -3.0e38, util.Byte.min, util.Real.max > 3.0e38)
+    d = D()
+    print(d.b, d.r > 3.0e38, f())
+
+  file "util.rig"
+    pub type Byte = U8
+    pub type Real = F32
+    type Hidden = U16
+
+test "c3", "255 true true true"
+  use lib
+
+  sub main()
+    s = lib.S()
+    print(s.b, s.r < -3.0e38, s.q > 3.0e38, lib.f())
+
+  file "lib.rig"
+    use util
+
+    type R = F32
+
+    pub obj S
+      pub b: util.Byte = util.Byte.max
+      pub r: util.Real = util.Real.min
+      pub q: R = R.max
+
+    pub fun f(x: util.Byte = util.Byte.max, y: R = R.min) -> Bool
+      x == 255 and y < -3.0e38
+
+  file "util.rig"
+    pub type Byte = U8
+    pub type Real = F32
+    type Hidden = U16
+
+test "c5-m2", '''
+  3
+  1
+  5 0 6 5 200 4 255
+  7
+  light
+'''
+  use lib
+  use util
+
+  obj Wrap[T]
+    v: T
+
+    fun get(?self) -> T
+      self.v
+
+  type IW = Wrap[Int]
+  type IV = List[Int]
+  type B2 = lib.Byte
+  type Q = B2
+  type LUP = lib.UP
+
+  K = Q.max - 250
+
+  sub main()
+    w = IW(v: 3)
+    print(w.get())
+    v: IV = IV()
+    !v.push(4)
+    print(v.len)
+    p = lib.UP(x: 5)
+    o = lib.UP.origin()
+    l = LUP(x: 6)
+    s = lib.US.dark(n: 7)
+    t: lib.US = lib.US.light
+    a: [K]Int = [K of 1]
+    print(p.x, o.x, l.x, a.len, lib.Byte(200), Q(3) + 1, B2.max)
+    match s
+      .dark(n) => print(n)
+      _ => print("light")
+    match t
+      .light => print("light")
+      _ => print("dark")
+
+  file "lib.rig"
+    use util
+
+    pub type UP = util.Point
+    pub type US = util.Shade
+    pub type Byte = U8
+
+  file "util.rig"
+    pub obj Point
+      pub x: Int
+
+      pub fun origin() -> Point
+        Point(x: 0)
+
+    pub enum Shade
+      light
+      dark(n: Int)
+
+test "c9", "3 2 4 6 1.5"
+  use lib
+
+  obj Wrap[T]
+    v: T
+
+    fun make(n: T) -> Wrap[T]
+      Wrap(v: n)
+
+  type IW = Wrap[Int]
+  type LIP = lib.IP
+
+  sub main()
+    w = IW.make(3)
+    p = lib.IP(a: 1, b: 2)
+    q = lib.IP.twin(4)
+    r = LIP(a: 5, b: 6)
+    f = lib.Real(1.5)
+    print(w.v, p.b, q.a, r.b, f)
+
+  file "lib.rig"
+    pub obj Pair[T]
+      pub a: T
+      pub b: T
+
+      pub fun twin(x: T) -> Pair[T]
+        Pair(a: x, b: x)
+
+    pub type IP = Pair[Int]
+    pub type Real = F32
+
+test "ca-a4", '''
+  drop 1
+  2
+  2
+  drop 2
+  7
+  2
+'''
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  fun hold[T](x: T) -> Int
+    apply(|<x, a| a + 1, 1)
+
+  fun peek[T](x: ?T, f: ?fun(?T) -> Int) -> Int
+    f(x)
+
+  fun look[T](x: T) -> Int
+    n = peek(?x, |v| 7)
+    n
+
+  print(hold(Res(id: 1)))
+  print(hold(5))
+  print(look(Res(id: 2)))
+  print(peek(?[1, 2], |a| a.len))
+
+test "ca-a6", '''
+  1
+  20
+  5
+'''
+  both = |a: ?sub(Int), b: ?sub(Int)|
+    a(1)
+    b(2)
+  total = 0
+  both(|n| print(n), |!total, n| print(n * 10))
+  (|f: ?fun(Int) -> Int| print(f(4)))(|x| x + 1)
+
+test "ca-as", "5 3"
+  sub each(xs: ?List[Int], f: ?sub(Int))
+    for x in xs
+      f(x)
+
+  v: List[Int] = List()
+  !v.push(2)
+  !v.push(3)
+  total = 0
+  each(?v, |!total, n| total += n)
+  last = 0
+  each(?v, |!last, n| last = n)
+  print(total, last)
+
+test "ca-as2", "3 9"
+  obj W
+    n: Int
+
+  total = 0
+  add = |!total, k: Int| total += k
+  add(3)
+  w = W(n: 1)
+  set = |!w, k: Int| w.n = k
+  set(9)
+  print(total, w.n)
+
+test "ca-c1", '''
+  7
+  6 6
+  50
+  hi rig
+'''
+  obj Wrap
+    n: Int
+
+  total = 0
+  add = |!total, k: Int|
+    total += k
+  add(3)
+  add(4)
+  print(total)
+  w = Wrap(n: 5)
+  peek = |?w| w.n + 1
+  print(peek(), peek())
+  bump = |!w|
+    w.n *= 10
+  bump()
+  print(w.n)
+  name = "rig"
+  greet = |?name, p: ?String| print(p, name)
+  greet("hi")
+
+test "ca-e1", '''
+  9
+  5
+  5
+  drop 1
+  6
+  drop 1
+  -1
+  42
+'''
+  error Bad
+    boom
+
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  obj Tree
+    vals: List[Int]
+
+    sub each(?self, f: ?sub(Int))
+      for v in ?self.vals
+        f(v)
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  fun pick(a: ?fun(Int) -> Int, b: ?fun(Int) -> Int, first: Bool) -> ?fun(Int) -> Int
+    if first
+      return a
+    b
+
+  fun num(ok: Bool) -> Int!
+    if not ok
+      return Bad.boom
+    5
+
+  fun both(f: ?fun(Int) -> Int, n: Int) -> Int
+    f(n)
+
+  fun run(ok: Bool) -> Int!
+    r = Res(id: 1)
+    v = both(|<r, a| a + r.id, num(ok)!)
+    v
+
+  t = Tree(vals: List())
+  !t.vals.push(4)
+  !t.vals.push(5)
+  sum = 0
+  t.each(|!sum, n|
+    sum += n
+  )
+  print(sum)
+  print(apply(x: 4, f: |a| a + 1))
+  one = |a: Int| a + 1
+  two = |a: Int| a + 2
+  print(pick(?one, ?two, false)(3))
+  print(run(true) catch 0)
+  print(run(false) catch -1)
+  outer = |k: Int| apply(|a| a * 2, k)
+  print(outer(21))
+
+test "ca-e2", '''
+  <closure>
+  1
+'''
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    print(f)
+    f(x)
+
+  print(apply(|a| a, 1))
+
+fail "ca-r2", "use of `c` while a write loan is live"
+  c = 0
+  add = |!c|
+    c += 1
+  add()
+  print(c)
+  add()
+
+fail "ca-r3", "use of `c.n` while a write loan on `c` is live"
+  obj Wrap
+    n: Int
+
+  c = Wrap(n: 0)
+  add = |!c|
+    c.n += 1
+  add()
+  print(c.n)
+  add()
+
+test "ca-t1", '''
+  5
+  8
+  7
+  104
+  6
+  13
+'''
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  sub each(xs: ?List[Int], f: ?sub(Int))
+    for x in xs
+      f(x)
+
+  fun twice(n: Int) -> Int
+    n * 2
+
+  k = 3
+  print(apply(|a| a + 1, 4))
+  print(apply(twice, 4))
+  add_k = |+k, a: Int| a + k
+  print(apply(?add_k, 4))
+  inc: *fun(Int) -> Int = *|a| a + 100
+  print(apply(?inc, 4))
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  !v.push(3)
+  total = 0
+  each(?v, |!total, n|
+    total += n
+  )
+  print(total)
+  g = ?add_k
+  print(g(10))
+
+test "cav-c", '''
+  [1, 3, 5, 9] ["apple", "fig", "pear"] [8, 4, 2] 18 [5, 3, 4]
+'''
+  sub sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+    i = 1
+    while i < xs.len
+      j = i
+      while j > 0 and less(?xs[j], ?xs[j - 1])
+        !xs.swap(j, j - 1)
+        j -= 1
+      i += 1
+
+  sub each(xs: []Int, f: ?sub(Int))
+    for x in xs
+      f(x)
+
+  fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> List[U]
+    out = List[U]()
+    for x in xs
+      !out.push(f(?x))
+    out
+
+  fun desc(a: ?Int, b: ?Int) -> Bool
+    a > b
+
+  v = [5, 3, 9, 1]
+  sort(!v, |a, b| a < b)
+  names = ["pear", "apple", "fig"]
+  sort(!names, |a, b| a < b)
+  w = [2, 8, 4]
+  sort(!w, desc)
+  total = 0
+  each(?v, |!total, n| total += n)
+  lens = map(?names, |s| s.len)
+  print(v, names, w, total, lens)
+
+test "copies-alias-generic-plain-copies", "1 1 2"
+  obj Pair[T]
+    a: T
+    b: T
+
+  type IP = Pair[Int]
+
+  p: IP = Pair(a: 1, b: 2)
+  a = [2 of ?p]
+  f = |+p| p.a
+  r = ?p
+  g = |+r| r.b
+  print(a[1].a, f(), g())
+
+test "copies-clone-capture-array-of-handles", '''
+  1
+  7
+'''
+  obj N
+    v: Int
+
+  a = [*N(v: 1), *N(v: 2)]
+  f = |+a| a[0].v
+  print(f())
+  b = [~a[0], ~a[1]]
+  g = |+b| 7
+  print(g())
+
+fail "copies-clone-capture-optional-text-escapes", "`r` is captured by the closure, which keeps it for every call, so a return value can't take it; write `+r` for a clone"
+  x: String? = String("a")
+  r = ?x
+  f = |+r| r
+  print(f())
+
+test "copies-clone-capture-read-view-struct", "1"
+  obj P
+    x: Int
+    y: Int
+
+  a = P(x: 1, y: 2)
+  r = ?a
+  f = |+r| r.x
+  print(f())
+
+test "copies-clone-capture-vec", "1 1"
+  v: List[Int] = List()
+  !v.push(1)
+  f = |+v| v.len
+  print(f(), v.len)
+
+test "copies-clone-capture-view-holder-after-use", '''
+  1
+  2
+'''
+  obj S
+    r: ?List[Int]
+
+  v: List[Int] = List()
+  !v.push(1)
+  s = S(r: ?v)
+  f = |+s| s.r.len
+  print(f())
+  !v.push(2)
+  print(v.len)
+
+fail "copies-clone-capture-view-holder-loan", "cannot lend `v` to write while a read loan is live"
+  obj S
+    r: ?List[Int]
+
+  v: List[Int] = List()
+  !v.push(1)
+  s = S(r: ?v)
+  f = |+s| s.r.len
+  !v.push(2)
+  print(f())
+
+test "copies-copy-out-array-optional", '''
+  [1, 2]
+  3
+'''
+  a = [1, 2]
+  r = ?a
+  b: [2]Int = r
+  print(b)
+  o: Int? = 3
+  q = ?o
+  p: Int? = q
+  print(p)
+
+test "copies-copy-out-in-loop-and-defer", '''
+  3
+  1
+'''
+  obj P
+    x: Int
+
+  fun take(p: P) -> Int
+    p.x
+
+  ps: List[P] = List()
+  !ps.push(P(x: 1))
+  !ps.push(P(x: 2))
+  total = 0
+  for p in ?ps
+    total += take(p)
+  r = ?ps[0]
+  defer print(take(r))
+  print(total)
+
+test "copies-copy-out-match-payload-view", "4"
+  obj P
+    x: Int
+
+  enum E
+    one(p: P)
+    none_
+
+  fun first(e: ?E) -> P
+    match e
+      .one(p) => p
+      .none_ => P(x: 0)
+
+  e = E.one(p: P(x: 4))
+  print(first(?e).x)
+
+test "copies-copy-out-param", "1"
+  obj P
+    x: Int
+    y: Int
+
+  fun copy(p: ?P) -> P
+    p
+
+  a = P(x: 1, y: 2)
+  b = copy(?a)
+  print(b.x)
+
+test "copies-copy-out-typed-binding", "1 9"
+  obj P
+    x: Int
+    y: Int
+
+  a = P(x: 1, y: 2)
+  r = ?a
+  b: P = r
+  b.x = 9
+  print(a.x, b.x)
+
+test "copies-fill-f1", '''
+  1
+  5
+'''
+  n = 1
+  a = [3 of ?n]
+  print(a[2])
+  n = 5
+  print(n)
+
+fail "copies-fill-f10", "cannot return a view of `n`, which this function was not lent"
+  fun mk() -> [3]?Int
+    n = 4
+    [3 of ?n]
+
+  a = mk()
+  print(a[1])
+
+test "copies-fill-f11", "[4, 4]"
+  v: List[?Int] = List()
+  n = 3
+  m = 4
+  !v.push(?n)
+  !v.push(?n)
+  w = !v[..]
+  !w.fill(?m)
+  print(v)
+  m = 9
+
+fail "copies-fill-f12", "cannot reassign `m` while it is lent"
+  v: List[?Int] = List()
+  n = 3
+  m = 4
+  !v.push(?n)
+  w = !v[..]
+  !w.fill(?m)
+  m = 9
+  print(v)

@@ -1,8 +1,0 @@
-obj Row
-  cells: List[Int]
-
-sub main()
-  grid: List[^List[Int]] = List()
-  !grid.push(^List[Int]())
-  rows: List[Row] = List()
-  print(grid.len)

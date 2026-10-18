@@ -1,5 +1,0 @@
-sub main()
-  a = [String("x"), String("y")]
-  r = ?a[0]
-  a[1] = String("z")
-  print(r, a)

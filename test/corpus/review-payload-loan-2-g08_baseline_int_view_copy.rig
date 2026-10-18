@@ -1,5 +1,0 @@
-sub main()
-  x = 1
-  r = ?x
-  x = 5
-  print(r)

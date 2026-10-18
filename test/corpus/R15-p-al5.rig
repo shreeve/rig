@@ -1,3 +1,0 @@
-sub main()
-  List = 3
-  print(List)

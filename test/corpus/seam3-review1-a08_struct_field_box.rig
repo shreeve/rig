@@ -1,9 +1,0 @@
-obj S
-  b: ^?List[Int]
-
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  s = S(b: ^?v)
-  !v.push(2)
-  print(s.b.len)

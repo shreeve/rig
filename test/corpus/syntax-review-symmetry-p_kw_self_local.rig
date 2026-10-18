@@ -1,3 +1,0 @@
-sub main()
-  self = 1
-  print(self)

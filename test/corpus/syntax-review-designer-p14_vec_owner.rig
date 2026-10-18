@@ -1,8 +1,0 @@
-obj Player
-  name: ?String
-  scores: List[Int]
-
-sub main()
-  ps: List[Player] = List()
-  !ps.push(Player(name: "a", scores: List()))
-  print(ps.len)

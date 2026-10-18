@@ -1,0 +1,1778 @@
+# Probes from past reviews and audits, 31 of 41: review-step3-l13_handle_in_field to review-step45-e12_arrayiter_vec_elems.
+
+fail "review-step3-l13 handle in field", "cannot assign to `w.h` while `w.h` is lent"
+  obj S
+    n: Int
+    t: String
+
+  obj W
+    h: *S
+
+  fun keep(s: ?S) -> ?S
+    s
+
+  w = W(h: *S(n: 1, t: String("a")))
+  k = keep(?w.h)
+  w.h = *S(n: 2, t: String("b"))
+  print(k.n)
+
+test "review-step3-l14 handle in vec loop", '''
+  1
+  1
+'''
+  obj S
+    n: Int
+    t: String
+
+  fun keep(s: ?S) -> ?S
+    s
+
+  v: List[*S] = List()
+  !v.push(*S(n: 1, t: String("a")))
+  for h in v
+    k = keep(h)
+    print(k.n)
+  e: ?S = keep(?v[0])
+  print(e.n)
+
+test "review-step3-m01 held match break", '''
+  drop 0
+  got 1
+  drop 1
+  i 1
+  drop 2
+  drop 5
+  5
+  end
+'''
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    a(r: Res)
+    b
+
+  obj H
+    e: E
+    tag: Int
+
+  fun mkh(n: Int) -> H
+    H(e: E.a(r: Res(n: n)), tag: n)
+
+  fun run() -> Int
+    match mkh(5).e
+      .a(r)
+        if r.n == 5
+          return r.n
+        print("no")
+      .b => pass
+    0
+
+  for i in 0..3
+    match mkh(i).e
+      .a(r)
+        if r.n == 0
+          continue
+        if r.n == 2
+          break
+        print("got", r.n)
+      .b => pass
+    print("i", i)
+  print(run())
+  print("end")
+
+test "review-step3-m02 held guard", '''
+  small 5
+  drop 5
+  end
+'''
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    a(r: Res)
+    b
+
+  obj H
+    e: E
+
+  fun mkh(n: Int) -> H
+    H(e: E.a(r: Res(n: n)))
+
+  match mkh(5).e
+    .a(r) if r.n > 9 => print("big", r.n)
+    .a(r) => print("small", r.n)
+    .b => pass
+  print("end")
+
+test "review-step3-m03 held value pos", '''
+  drop 5
+  5
+'''
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    a(r: Res)
+    b
+
+  obj H
+    e: E
+
+  fun mkh(n: Int) -> H
+    H(e: E.a(r: Res(n: n)))
+
+  x = match mkh(5).e
+    .a(r) => r.n
+    .b => 0
+  print(x)
+
+fail "review-step3-m04 held escape value", "a view of the temporary `mkh(5)` outlives its statement, which drops it; bind the value to a name first"
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  obj H
+    e: E
+
+  fun mkh(n: Int) -> H
+    H(e: E.a(r: Res(n: n, t: String("x"))))
+
+  x = match mkh(5).e
+    .a(r) => ?r
+    .b(r) => ?r
+  print(x.n)
+
+fail "review-step3-m05 held escape bare", "a view of the temporary `mkh(5)` outlives its statement, which drops it; bind the value to a name first"
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  obj H
+    e: E
+
+  fun mkh(n: Int) -> H
+    H(e: E.a(r: Res(n: n, t: String("x"))))
+
+  x = match mkh(5).e
+    .a(r) => r
+    .b(r) => r
+  print(x.n)
+
+test "review-step3-m06 held nested", '''
+  in 5 51
+  drop 51
+  drop 50
+  mid 5
+  drop 6
+  drop 5
+  end
+'''
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    a(r: Res)
+    b
+
+  obj H
+    e: E
+    f: E
+
+  fun mkh(n: Int) -> H
+    H(e: E.a(r: Res(n: n)), f: E.a(r: Res(n: n + 1)))
+
+  match mkh(5).e
+    .a(r)
+      match mkh(r.n * 10).f
+        .a(s) => print("in", r.n, s.n)
+        .b => pass
+      print("mid", r.n)
+    .b => pass
+  print("end")
+
+fail "review-step3-m07 held ifas res", "a view of the temporary `mk(1)` outlives its statement, which drops it; bind the value to a name first"
+  obj Res
+    n: Int
+    t: String
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj Bag
+    o: Res?
+    p: Res?
+
+  fun mk(n: Int) -> Bag
+    Bag(o: Res(n: n, t: String("a")), p: none)
+
+  keep = Res(n: 0, t: String("k"))
+  saved = ?keep
+  if mk(1).o as r
+    print("in", r.n)
+    saved = r
+  print(saved.n)
+
+fail "review-step3-m10 held base loans", "cannot drop `x` while it is lent"
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: ?Res)
+    b
+
+  obj H
+    e: E
+
+  fun mkh(r: ?Res) -> H
+    H(e: E.a(r: r))
+
+  x = Res(n: 1, t: String("a"))
+  match mkh(?x).e
+    .a(r)
+      <x
+      print(r.n)
+    .b => pass
+
+fail "review-step3-m11 held base loans2", "cannot reassign `x` while it is lent"
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: ?Res)
+    b
+
+  obj H
+    e: E
+
+  fun mkh(r: ?Res) -> H
+    H(e: E.a(r: r))
+
+  x = Res(n: 1, t: String("a"))
+  match mkh(?x).e
+    .a(r)
+      x = Res(n: 2, t: String("b"))
+      print(r.n)
+    .b => pass
+
+fail "review-step3-m12 held base loans ifas", "cannot drop `x` while it is lent"
+  obj Res
+    n: Int
+    t: String
+
+  obj H
+    o: (?Res)?
+
+  fun mkh(r: ?Res) -> H
+    H(o: r)
+
+  x = Res(n: 1, t: String("a"))
+  if mkh(?x).o as r
+    <x
+    print(r.n)
+
+test "review-step3-o02 owner alias escape", '''
+  154
+  1 hello
+  176
+  2 boxed
+'''
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  fun pad(n: Int) -> Int
+    arr = [n, n, n, n, n, n, n, n, n, n, n, n, n, n, n, n]
+    arr[3] + arr[7]
+
+  e = E.a(r: Res(n: 1, t: String("hello")))
+  keep = Res(n: 0, t: String("k"))
+  saved = ?keep
+  match e
+    .a(r) => saved = ?r
+    .b => pass
+  print(pad(77))
+  print(saved.n, saved.t)
+  b = ^E.a(r: Res(n: 2, t: String("boxed")))
+  match b
+    .a(r) => saved = ?r
+    .b => pass
+  print(pad(88))
+  print(saved.n, saved.t)
+
+fail "review-step3-o05 plain payload escape", "`p` does not live long enough"
+  obj P
+    x: Int
+    y: Int
+
+  enum E
+    a(p: P)
+    b(p: P)
+
+  fun inner(e: ?E) -> ?P
+    match e
+      .a(p) => ?p
+      .b(p) => ?p
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1] + b[2]
+
+  e = E.a(p: P(x: 1, y: 2))
+  x = inner(?e)
+  print(clobber(1000))
+  print(x.x, x.y)
+
+fail "review-step3-o06 loop elem escape", "cannot return a view of `p`, which this function was not lent"
+  obj P
+    x: Int
+    y: Int
+
+  fun first(a: ?[2]P) -> ?P
+    for p in a
+      return ?p
+    ?a[0]
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1] + b[2]
+
+  arr = [P(x: 1, y: 2), P(x: 3, y: 4)]
+  x = first(?arr)
+  print(clobber(1000))
+  print(x.x, x.y)
+
+fail "review-step3-o07 ifas plain escape", "cannot return a view of `p`, which this function was not lent"
+  obj P
+    x: Int
+    y: Int
+
+  obj H
+    o: P?
+    d: P
+
+  fun get(h: ?H) -> ?P
+    if h.o as p
+      return ?p
+    ?h.d
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  h = H(o: P(x: 1, y: 2), d: P(x: 0, y: 0))
+  x = get(?h)
+  print(clobber(1000))
+  print(x.x, x.y)
+
+test "review-step3-o08 owner elem box", '''
+  1001
+  5 five
+'''
+  obj Res
+    n: Int
+    t: String
+
+  fun first(v: ?List[^Res]) -> ?Res
+    for b in v
+      return ?b
+    ?v[0]
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  v: List[^Res] = List()
+  !v.push(^Res(n: 5, t: String("five")))
+  x = first(?v)
+  print(clobber(1000))
+  print(x.n, x.t)
+
+test "review-step3-o09 owner ifas res", '''
+  1001
+  1 x
+'''
+  obj Res
+    n: Int
+    t: String
+
+  obj H
+    o: Res?
+    d: Res
+
+  fun get(h: ?H) -> ?Res
+    if h.o as r
+      return ?r
+    ?h.d
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  h = H(o: Res(n: 1, t: String("x")), d: Res(n: 0, t: String("d")))
+  x = get(?h)
+  print(clobber(1000))
+  print(x.n, x.t)
+
+test "review-step3-o12 owner shared match", '''
+  1001
+  1 hello
+'''
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun inner(h: ?*E) -> ?Res
+    match h
+      .a(r) => ?r
+      .b(r) => ?r
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  h = *E.a(r: Res(n: 1, t: String("hello")))
+  x = inner(?h)
+  print(clobber(1000))
+  print(x.n, x.t)
+
+fail "review-step3-o13 owner inline keep", "`i` is bound but never read; name it `_` to ignore the value"
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  e = E.a(r: Res(n: 1, t: String("hello")))
+  keep = Res(n: 0, t: String("k"))
+  saved = ?keep
+  for i in 0..2
+    match e
+      .a(r) => saved = ?r
+      .b(r) => saved = ?r
+  arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  print(arr[3])
+  print(saved.n, saved.t)
+
+test "review-step3-o14 loop box elem escape", '''
+  1001
+  5 five
+  1001
+  6 six
+'''
+  obj Res
+    n: Int
+    t: String
+
+  fun first(v: ?List[^Res], d: ?^Res) -> ?^Res
+    for b in v
+      return ?b
+    d
+
+  fun firsth(v: ?List[*Res], d: ?*Res) -> ?*Res
+    for h in v
+      return ?h
+    d
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  v: List[^Res] = List()
+  !v.push(^Res(n: 5, t: String("five")))
+  d = ^Res(n: 0, t: String("d"))
+  x = first(?v, ?d)
+  print(clobber(1000))
+  print(x.n, x.t)
+  hv: List[*Res] = List()
+  !hv.push(*Res(n: 6, t: String("six")))
+  hd = *Res(n: 0, t: String("d"))
+  y = firsth(?hv, ?hd)
+  print(clobber(1000))
+  print(y.n, y.t)
+
+test "review-step3-o15b", '''
+  1001
+  .a(r: Res(n: 1, t: "hello"))
+'''
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(n: Int)
+
+  fun whole(e: ?E) -> ?E
+    match e
+      .b(_) => e
+      x => ?x
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e = E.a(r: Res(n: 1, t: String("hello")))
+  x = whole(?e)
+  print(clobber(1000))
+  print(x)
+
+test "review-step3-o16 whole local", '''
+  3
+  .a(r: Res(n: 1, t: "hello"))
+'''
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(n: Int)
+
+  e = E.a(r: Res(n: 1, t: String("hello")))
+  k = E.b(n: 0)
+  saved = ?k
+  match e
+    .b(_) => pass
+    x => saved = ?x
+  arr = [1, 2, 3, 4, 5, 6, 7, 8]
+  print(arr[2])
+  print(saved)
+
+test "review-step3-q93b", "3"
+  obj P
+    x: Int
+    y: Int
+
+  enum E
+    a(p: P, q: ?P)
+    b
+
+  obj H
+    e: E
+
+  base = P(x: 3, y: 4)
+  saved = ?base
+  match H(e: E.a(p: P(x: 1, y: 2), q: ?base)).e
+    .a(_, q) => saved = q
+    .b => pass
+  print(saved.x)
+
+test "review-step3-r2-g11 guard place escape", '''
+  1001
+  1 hello 2 boxed
+'''
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun inner(e: ?E) -> ?Res
+    match e
+      .a(r) if r.n > 0 => r
+      .a(r) => r
+      .b(r) => r
+
+  fun inner_box(b: ?^E) -> ?Res
+    match b
+      .a(r) if r.n > 0 => r
+      .a(r) => r
+      .b(r) => r
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e = E.a(r: Res(n: 1, t: String("hello")))
+  x = inner(?e)
+  b = ^E.a(r: Res(n: 2, t: String("boxed")))
+  y = inner_box(?b)
+  print(clobber(1000))
+  print(x.n, x.t, y.n, y.t)
+
+test "review-step3-r2-g12b", '''
+  1001
+  7 seven
+'''
+  obj Res
+    n: Int
+    t: String
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  fun peek[T](o: ?Opt[T], d: ?T) -> ?T
+    match o
+      .some(v) => ?v
+      .nothing => d
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  o: Opt[Res] = .some(v: Res(n: 7, t: String("seven")))
+  d = Res(n: 0, t: String("d"))
+  x = peek(?o, ?d)
+  print(clobber(1000))
+  print(x.n, x.t)
+
+test "review-step3-r2-g13 generic whole escape", '''
+  .some(v: Res(n: 7, t: "seven"))
+'''
+  obj Res
+    n: Int
+    t: String
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  fun whole[T](o: ?Opt[T]) -> ?Opt[T]
+    match o
+      .nothing => o
+      x => ?x
+
+  o: Opt[Res] = .some(v: Res(n: 7, t: String("seven")))
+  x = whole(?o)
+  print(x)
+
+test "review-step3-r2-g14x", '''
+  1001
+  1 hello 1 hello 1 hello
+'''
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  fun get(e: ?E) -> ?E
+    e
+
+  fun get2(e: ?E, n: Int) -> ?E
+    e
+
+  fun inner(e: ?E) -> ?Res
+    match get(e)
+      .a(r) => r
+      .b(r) => r
+
+  fun inner2(e: ?E) -> ?Res
+    match get2(e, String("xyz").len)
+      .a(r) => r
+      .b(r) => r
+
+  fun inner3(e: ?E) -> ?Res
+    match get2(e, String("xyz").len)
+      .a(r) if r.n > 0 => r
+      .a(r) => r
+      .b(r) => r
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  e = E.a(r: Res(n: 1, t: String("hello")))
+  x = inner(?e)
+  y = inner2(?e)
+  z = inner3(?e)
+  print(clobber(1000))
+  print(x.n, x.t, y.n, y.t, z.n, z.t)
+
+test "review-step3-r2-g15x", '''
+  2
+  .a(r: Res(n: 1, t: "hello"))
+'''
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(n: Int)
+
+  fun get(e: ?E) -> ?E
+    e
+
+  fun whole(e: ?E) -> ?E
+    match get(e)
+      .b(n) if n > 0 => e
+      x => x
+
+  e = E.a(r: Res(n: 1, t: String("hello")))
+  x = whole(?e)
+  arr = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+  print(arr[1])
+  print(x)
+
+test "review-step3-r2-g17 generic concrete payload", '''
+  2002
+  7 seven
+'''
+  obj Res
+    n: Int
+    t: String
+
+  enum Pair[T]
+    a(r: Res, v: T)
+    b(r: Res)
+
+  fun peek[T](o: ?Pair[T]) -> ?Res
+    match o
+      .a(r, _) => r
+      .b(r) => r
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1] + b[1]
+
+  o: Pair[Int] = .a(r: Res(n: 7, t: String("seven")), v: 1)
+  x = peek(?o)
+  print(clobber(1000))
+  print(x.n, x.t)
+
+test "review-step3-r2-g18 write guard lend", '''
+  .a(r: Res(n: 50, t: "x"))
+  .a(r: Res(n: 70, t: "x"))
+'''
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  fun getw(e: !E) -> !E
+    e
+
+  e = E.a(r: Res(n: 1, t: String("x")))
+  match getw(!e)
+    .a(r) if r.n > 0 => r.n = 50
+    .a(r) => r.n = 60
+    .b => pass
+  print(e)
+  match getw(!e)
+    .a(r) => r.n = 70
+    .b => pass
+  print(e)
+
+fail "review-step3-r2-gen03 payload box", "cannot drop `o` while it is lent"
+  obj Res
+    n: Int
+    t: String
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  fun peek[T](o: ?Opt[T], d: ?T) -> ?T
+    match o
+      .some(v) => ?v
+      .nothing => d
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  o: Opt[^Res] = .some(v: ^Res(n: 7, t: String("seven")))
+  d = ^Res(n: 0, t: String("d"))
+  x = peek(?o, ?d)
+  print(clobber(1000))
+  print(x.n, x.t)
+  <o
+  print(x.n)
+
+test "review-step3-r2-i10 ifas lend escape", '''
+  1001
+  4 four 4 four
+'''
+  obj Res
+    n: Int
+    t: String
+
+  obj H
+    o: Res?
+
+  fun get(h: ?H) -> ?Res?
+    ?h.o
+
+  fun pick(h: ?H, d: ?Res) -> ?Res
+    if get(h) as r
+      return r
+    d
+
+  fun pick2(h: ?H, d: ?Res) -> ?Res
+    x = d
+    while get(h) as r
+      x = r
+      break
+    x
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  h = H(o: Res(n: 4, t: String("four")))
+  d = Res(n: 0, t: String("d"))
+  x = pick(?h, ?d)
+  y = pick2(?h, ?d)
+  print(clobber(1000))
+  print(x.n, x.t, y.n, y.t)
+
+fail "review-step3-r2-n10 nested payload", "`i` does not live long enough"
+  obj Res
+    n: Int
+    t: String
+
+  enum In
+    x(r: Res)
+    y
+
+  enum Out
+    w(i: In, t: String)
+    z
+
+  fun deep(o: ?Out, d: ?Res) -> ?Res
+    match o
+      .w(i, t) if t.len > 0
+        match i
+          .x(r) if r.n > 0 => r
+          .x(r) => r
+          .y => d
+      .w(i, _)
+        match i
+          .x(r) => r
+          .y => d
+      .z => d
+
+  o = Out.w(i: In.x(r: Res(n: 3, t: String("three"))), t: String("t"))
+  dd = Res(n: 0, t: String("d"))
+  r = deep(?o, ?dd)
+  arr = [1, 2, 3, 4, 5, 6, 7, 8]
+  print(arr[2])
+  print(r.n, r.t)
+
+test "review-step3-r2-n11 loop payload", '''
+  small 1
+  3
+  2 two
+'''
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  fun find(v: ?List[^E], d: ?Res) -> ?Res
+    found = d
+    for e in v
+      match e
+        .a(r) if r.n > 1 => found = r
+        .a(r) => print("small", r.n)
+        .b => pass
+    found
+
+  v: List[^E] = List()
+  !v.push(^E.a(r: Res(n: 1, t: String("one"))))
+  !v.push(^E.a(r: Res(n: 2, t: String("two"))))
+  d = Res(n: 0, t: String("d"))
+  x = find(?v, ?d)
+  arr = [1, 2, 3, 4, 5, 6, 7, 8]
+  print(arr[2])
+  print(x.n, x.t)
+
+fail "review-step3-r2-n12 view escape then mutate", "cannot reassign `e` while it is lent"
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  e = E.a(r: Res(n: 1, t: String("x")))
+  keep = Res(n: 0, t: String("k"))
+  saved = ?keep
+  match e
+    .a(r) => saved = r
+    .b => pass
+  e = E.b
+  print(saved.n)
+
+fail "review-step3-r2-n13 view escape then drop box", "cannot drop `b` while it is lent"
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  b = ^E.a(r: Res(n: 1, t: String("x")))
+  keep = Res(n: 0, t: String("k"))
+  saved = ?keep
+  match b
+    .a(r) if r.n > 0 => saved = r
+    _ => pass
+  <b
+  print(saved.n)
+
+test "review-step3-r2-n15 take match", '''
+  eat 1
+  drop 1
+  drop 2
+  end
+'''
+  obj Res
+    n: Int
+    t: String
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    a(r: Res, s: Res)
+    b
+
+  sub eat(r: Res)
+    print("eat", r.n)
+
+  e = E.a(r: Res(n: 1, t: String("x")), s: Res(n: 2, t: String("y")))
+  match <e
+    .a(r, s) if r.n > 5 => eat(<r)
+    .a(r, _) => eat(<r)
+    .b => pass
+  print("end")
+
+test "review-step3-s03 shared match", "hello"
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  h = *E.a(r: Res(n: 1, t: String("hello")))
+  g = +h
+  match h
+    .a(r)
+      print(r.t)
+    .b => pass
+
+fail "review-step3-s04 view param loop", "cannot lend `s.v` to write while a read loan on `s` is live"
+  obj S
+    v: List[Int]
+
+  fun total(s: ?S) -> Int
+    n = 0
+    for x in s.v
+      n += x
+    n
+
+  fun get(s: ?S) -> ?List[Int]
+    ?s.v
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  s = S(v: <v)
+  print(total(s))
+  for x in get(s)
+    print(x)
+  for x in get(?s)
+    !s.v.push(x)
+
+fail "review-step3-t03 for views temp", "a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first"
+  fun first(v: ?List[Int]) -> ?List[Int]
+    v
+
+  fun mk() -> List[Int]
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    v
+
+  for x in first(mk())
+    print(x)
+  for x in first(?mk())
+    print(x)
+
+fail "review-step3-t04 ifas lends temp", "a view of the temporary `mkres(1)` outlives its statement, which drops it; bind the value to a name first"
+  obj Res
+    n: Int
+    t: String
+
+  fun opt(r: ?Res) -> (?Res)?
+    r
+
+  fun mkres(n: Int) -> Res
+    Res(n: n, t: String("abc"))
+
+  if opt(mkres(1)) as r
+    print(r.n, r.t)
+  while opt(mkres(1)) as r
+    print(r.n, r.t)
+    break
+
+fail "review-step3-v01 for unused push", "cannot lend `v` to write while a read loan is live"
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  n = 0
+  for _ in v
+    n += 1
+    if n < 50
+      !v.push(n)
+  for x in v
+    print(x)
+    if n < 50
+      !v.push(n)
+  print(v.len)
+
+fail "review-step3-v02 for unused reassign", "`x` is bound but never read; name it `_` to ignore the value"
+  obj S
+    v: List[Int]
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  s = S(v: <v)
+  for x in s.v
+    s = S(v: List())
+  print(s.v.len)
+
+fail "review-step3-v03 for unused drop", "cannot drop `v` while it is lent"
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  for _ in v
+    <v
+    break
+  t = String("abc")
+  for _ in t
+    t = String("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  o: List[Int]? = List()
+  if o as _
+    o = none
+  print("x")
+
+fail "review-step3-v04 for field write", "cannot lend `s.v` to write while a read loan is live"
+  obj S
+    v: List[Int]
+    w: List[Int]
+
+  s = S(v: List(), w: List())
+  !s.v.push(1)
+  !s.v.push(2)
+  for x in s.v
+    !s.w.push(x)
+  for x in s.v
+    !s.v.push(x)
+  print(s.w.len)
+
+fail "review-step3-v07 for text add", "`b` is bound but never read; name it `_` to ignore the value"
+  t = String("abc")
+  n = 0
+  for b in t
+    n += 1
+    !t.add("x")
+  print(n)
+
+test "review-step3-v08 ifas vec unused", '''
+  0
+  ok
+'''
+  o: List[Int]? = List()
+  if o as x
+    print(x.len)
+    o = none
+  print("ok")
+
+test "review-step3-v09 while as reeval", '''
+  0 1
+  0 2
+  end
+'''
+  obj Node
+    n: Int
+    next: ^Node?
+
+  o: List[Int]? = List()
+  k = 0
+  while o as x
+    k += 1
+    print(x.len, k)
+    if k == 2
+      o = none
+    else
+      o = List()
+  print("end")
+
+fail "review-step3-v10 match box drop", "cannot reassign `b` while it is lent"
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  b = ^E.a(r: Res(n: 1, t: String("x")))
+  match b
+    .a(r)
+      b = ^E.b
+      print(r.n)
+    .b => pass
+
+fail "review-step3-v11 match place move", "cannot move `e` while a read loan is live"
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  e = E.a(r: Res(n: 1, t: String("x")))
+  match e
+    .a(r)
+      f = <e
+      print(r.n)
+    .b => pass
+
+fail "review-step3-w01 while move", "use of `o` after move"
+  sub eat(v: List[Int]?)
+    print("eat")
+
+  o: List[Int]? = List()
+  while o as x
+    print(x.len)
+    eat(<o)
+
+fail "review-step3-w02 while reassign live", "`k` is assigned but never read; use it, or discard the value with `_ = ...`"
+  o: List[Int]? = List()
+  k = 0
+  while o as x
+    o = none
+    print(x.len)
+    k += 1
+
+test "review-step3-w03 while move reinit", '''
+  0 0
+  eat
+  0 1
+  eat
+  0 2
+  eat
+  end
+'''
+  sub eat(v: List[Int]?)
+    print("eat")
+
+  o: List[Int]? = List()
+  k = 0
+  while o as x
+    print(x.len, k)
+    eat(<o)
+    k += 1
+    if k < 3
+      o = List()
+    else
+      o = none
+  print("end")
+
+fail "review-step3-x05 handle text view", "cannot drop `h` while it is lent"
+  fun first(s: ?String) -> ?String
+    s
+
+  h = *String("abc")
+  g = +h
+  r = first(?h)
+  <h
+  print(r)
+  print(g)
+
+fail "review-step3-x06 handle text view drop other", "cannot drop `g` while it is lent"
+  fun first(s: ?String) -> ?String
+    s
+
+  h = *String("abc")
+  g = +h
+  r = first(?g)
+  <h
+  <g
+  print(r)
+
+fail "review-step3-y01 view root loop", "cannot lend `s.v` to write while a read loan on `s` is live"
+  obj S
+    v: List[Int]
+
+  s = S(v: List())
+  !s.v.push(1)
+  r = ?s
+  for x in r.v
+    if x < 50
+      !s.v.push(x + 1)
+    print(x)
+
+fail "review-step3-y02 view root ifas", "cannot assign to `s.o` while `s` is lent"
+  obj S
+    o: String?
+
+  s = S(o: String("abc"))
+  r = ?s
+  if r.o as t
+    s.o = none
+    print(t)
+
+fail "review-step3-y03 view root match", "cannot assign to `s.e` while `s` is lent"
+  obj Res
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  obj S
+    e: E
+
+  s = S(e: E.a(r: Res(t: String("abc"))))
+  p = ?s
+  match p.e
+    .a(r)
+      s.e = E.b
+      print(r.t)
+    .b => pass
+
+fail "review-step3-y04 view root box match", "cannot reassign `b` while it is lent"
+  obj Res
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  b = ^E.a(r: Res(t: String("abc")))
+  p = ?b
+  match p
+    .a(r)
+      b = ^E.b
+      print(r.t)
+    .b => pass
+
+fail "review-step3-y05 write view loop", "cannot lend `w.v` to write while a read loan is live"
+  obj S
+    v: List[Int]
+
+  sub go(w: !S)
+    for x in w.v
+      if x < 50
+        !w.v.push(x + 1)
+      print(x)
+
+  s = S(v: List())
+  !s.v.push(1)
+  go(!s)
+
+test "review-step45-a02 assign elem reads v", '''
+  ["b", "b"]
+'''
+  # v[0] = x where x reads v (clone of v[1])
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  v[0] = +v[1]
+  v[1] = +v[1]
+  print(v)
+
+test "review-step45-a03 assign elem self", '''
+  ["a"]
+'''
+  # v[0] = <v[0]? and v[0] = v[0]
+  v: List[String?] = List()
+  !v.push(String("a"))
+  v[0] = <v[0]
+  print(v)
+
+fail "review-step45-a04 elem view then assign", "cannot assign to `v[0]` while `v` is lent"
+  # view of element, then assign the element (drop old) while view live
+  v: List[String] = List()
+  !v.push(String("a"))
+  s = ?v[0]
+  v[0] = String("b")
+  print(s)
+
+fail "review-step45-a05 elem view other index assign", "cannot assign to `v[1]` while `v` is lent"
+  # view of v[0], assign v[1]
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  s = ?v[0]
+  v[1] = String("c")
+  print(s)
+
+fail "review-step45-a06 write elem then read other", "cannot lend `v` to read while a write loan is live"
+  # !v[0] and ?v[1] in the same call -- aliasing if i==j
+  sub both(a: !String, b: ?String)
+    !a.add(b)
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  both(!v[0], ?v[0])
+  print(v)
+
+fail "review-step45-a07 take elem nonopt", "cannot move out of `v[0]`: elements cannot be moved out of their container"
+  # <v[0] of a non-optional owner must be rejected
+  v: List[String] = List()
+  !v.push(String("a"))
+  t = <v[0]
+  print(t, v)
+
+fail "review-step45-a09 clear while lent", "cannot lend `v` to write while a read loan is live"
+  # clear while an element view is live
+  v: List[List[Int]] = List()
+  r: List[Int] = List()
+  !r.push(1)
+  !v.push(<r)
+  e = ?v[0]
+  !v.clear()
+  print(e.len)
+
+fail "review-step45-b01 vecview drop source", "cannot drop `t` while it is lent"
+  # List of String views of a Text; drop the Text, then read the List
+  t = String("hello")
+  v: List[?String] = List()
+  !v.push(?t)
+  <t
+  print(v)
+
+fail "review-step45-b02 vecview reassign source", "cannot reassign `t` while it is lent"
+  # List of views; reassign the source Text (drops old buffer)
+  t = String("hello")
+  v: List[?String] = List()
+  !v.push(?t)
+  t = String("world")
+  print(v)
+
+fail "review-step45-b03 vecview via fn", "cannot drop `t` while it is lent"
+  # a view stored into a List through a function, then the source dropped
+  sub keep(v: !List[?String], x: ?String) keeps x
+    !v.push(x)
+
+  t = String("hello")
+  v: List[?String] = List()
+  keep(!v, ?t)
+  <t
+  print(v)
+
+fail "review-step45-b04 vecview inner scope", "`t` does not live long enough"
+  # a view of an inner-scope Text pushed to an outer List
+  v: List[?String] = List()
+  if true
+    t = String("inner")
+    !v.push(?t)
+  print(v)
+
+fail "review-step45-b05 vecview field inner scope", "`e` does not live long enough"
+  # a view of an inner-scope Int pushed to an outer struct's List field
+  obj Bag
+    items: List[?Int]
+
+  bag = Bag(items: List())
+  if true
+    e = 8
+    !bag.items.push(?e)
+  print(bag.items)
+
+fail "review-step45-b06 vecview return local", "cannot return a view of `t`, which this function was not lent"
+  # return a List holding a view of a local
+  fun mk() -> List[?String]
+    t = String("x")
+    v: List[?String] = List()
+    !v.push(?t)
+    <v
+
+  print(mk())
+
+fail "review-step45-b07 vecview loop push", "`i` is bound but never read; name it `_` to ignore the value"
+  # push a view of a loop-body local each iteration
+  v: List[?String] = List()
+  for i in 0..3
+    t = String("i")
+    !v.push(?t)
+  print(v)
+
+fail "review-step45-b08 vecview elem assign", "`t2` does not live long enough"
+  # v[0] = ?t2 where t2 is inner-scoped
+  t = String("a")
+  v: List[?String] = List()
+  !v.push(?t)
+  if true
+    t2 = String("b")
+    v[0] = ?t2
+  print(v)
+
+test "review-step45-c03 generic view elem", "b"
+  # generic fn returning a view of an element; instantiated with Text
+  fun at[T](v: ?List[T], i: Int) -> ?T
+    ?v[i]
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  t = at(?v, 1)
+  print(t)
+
+fail "review-step45-c04 generic view elem then push", "cannot lend `v` to write while a read loan is live"
+  # generic view of element held, then push (must reject)
+  fun at[T](v: ?List[T], i: Int) -> ?T
+    ?v[i]
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  t = at(?v, 0)
+  !v.push(String("b"))
+  print(t)
+
+test "review-step45-c08 generic for take", "2"
+  # generic loop that takes elements: for x in <v, T = Text
+  fun eat[T](v: List[T]) -> Int
+    n = 0
+    for x in <v
+      keep = <x
+      n += 1
+    n
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  print(eat(<v))
+
+test "review-step45-c09 generic take elem", "a [none]"
+  # generic take of an optional element; T = Text
+  fun grab[T](v: !List[T?], i: Int) -> T?
+    <v[i]
+
+  v: List[String?] = List()
+  !v.push(String("a"))
+  t = grab(!v, 0)
+  print(t, v)
+
+test "review-step45-d01 match elem escape", "hi"
+  # match on an element of List[E] with an owner payload; payload view escapes arm
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  v: List[E] = List()
+  !v.push(E.a(t: String("hi")))
+  s: ?String = "none"
+  match v[0]
+    .a(t) => s = ?t
+    .b(n) => print(n)
+  print(s)
+
+fail "review-step45-d03 ifas elem then assign", "cannot assign to `v[0]` while `v` is lent"
+  # if v[0] as t (optional element), then v[0] = none inside
+  v: List[String?] = List()
+  !v.push(String("hi"))
+  if v[0] as t
+    v[0] = none
+    print(t)
+
+test "review-step45-d04 ifas take elem sideeffect index", '''
+  b 1
+  ["a", none, "c"]
+'''
+  # <v[next(!i)] evaluates the index once
+  fun next(i: !Int) -> Int
+    i += 1
+    i
+
+  v: List[String?] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  !v.push(String("c"))
+  i = 0
+  if <v[next(!i)] as t
+    print(t, i)
+  print(v)
+
+test "review-step45-d05 assign elem sideeffect index", '''
+  ["a", "z", "c"] 1
+'''
+  # v[next(!i)] = Text(...) evaluates index once, drops old once
+  fun next(i: !Int) -> Int
+    i += 1
+    i
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  !v.push(String("c"))
+  i = 0
+  v[next(!i)] = String("z")
+  print(v, i)
+
+test "review-step45-d06 assign elem rhs pushes", "new 21"
+  # v[0] = f(!v), f pushes (reallocates) and returns a Text
+  fun grow(v: !List[String]) -> String
+    for _ in 0..20
+      !v.push(String("p"))
+    String("new")
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  v[0] = grow(!v)
+  print(v[0], v.len)
+
+test "review-step45-d07 assign elem rhs reads old", '''
+  ["a!"]
+'''
+  # v[0] = Text(v[0], "!") reads the old value then drops it
+  v: List[String] = List()
+  !v.push(String("a"))
+  v[0] = String(v[0], "!")
+  print(v)
+
+test "review-step45-d08 assign elem fail", '''
+  0
+  ["a"]
+  1
+  ["new"]
+'''
+  # v[0] = mk()! where mk fails: no drop of old, no leak
+  error Bad
+    oops
+
+  fun mk(ok: Bool) -> String!
+    if not ok
+      return Bad.oops
+    String("new")
+
+  fun run(v: !List[String], ok: Bool) -> Int!
+    v[0] = mk(ok)!
+    1
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  print(run(!v, false) catch 0)
+  print(v)
+  print(run(!v, true) catch 0)
+  print(v)
+
+fail "review-step45-d09 match elem push arm", "cannot lend `v` to write while a read loan is live"
+  # match on element, push inside the arm (block arm)
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  v: List[E] = List()
+  !v.push(E.a(t: String("hi")))
+  match v[0]
+    .a(t)
+      !v.push(E.b(n: 1))
+      print(t)
+    .b(n)
+      print(n)
+
+test "review-step45-e01 arrayiter break", '''
+  a
+  b
+  end
+'''
+  # for x in <a over [3]Text with break: rest dropped once
+  a = [String("a"), String("b"), String("c")]
+  for x in <a
+    print(x)
+    if x == "b"
+      break
+  print("end")
+
+test "review-step45-e02 arrayiter continue keep", '''
+  ["a", "c"]
+'''
+  # continue, and moving x into a List
+  a = [String("a"), String("b"), String("c")]
+  keep: List[String] = List()
+  for x in <a
+    if x == "b"
+      continue
+    !keep.push(<x)
+  print(keep)
+
+test "review-step45-e03 arrayiter return", "b"
+  # early return from inside the consuming loop
+  fun find(a: [3]String) -> String
+    for x in <a
+      if x == "b"
+        return <x
+    String("none")
+
+  print(find([String("a"), String("b"), String("c")]))
+
+test "review-step45-e04 arrayiter error", "-1"
+  # error propagation inside the consuming loop
+  error Bad
+    oops
+
+  fun check(t: ?String) -> Int!
+    if t == "b"
+      return Bad.oops
+    1
+
+  fun walk(a: [3]String) -> Int!
+    n = 0
+    for x in <a
+      n += check(x)!
+    n
+
+  print(walk([String("a"), String("b"), String("c")]) catch -1)
+
+test "review-step45-e05 arrayiter made", '''
+  a
+  b
+  1
+  2
+'''
+  # loop over a made array of owners (no storage)
+  for x in [String("a"), String("b")]
+    print(x)
+  for b in [^1, ^2]
+    print(b)
+
+test "review-step45-e06 arrayiter indexed", '''
+  0 a
+  1 b
+'''
+  # indexed consuming loop over array of owners with break
+  a = [String("a"), String("b"), String("c")]
+  for x, i in <a
+    print(i, x)
+    if i == 1
+      break
+
+fail "review-step45-e07 arrayiter field", "cannot move out of `s.arr`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.arr, v)`"
+  # consuming a struct's array field
+  obj S
+    arr: [2]String
+    n: Int
+
+  s = S(arr: [String("a"), String("b")], n: 1)
+  for x in <s.arr
+    print(x)
+  print(s.n)
+
+test "review-step45-e08 array read loop", '''
+  a
+  b
+  ["a!", "b!"]
+'''
+  # read loop over an array of owners, then the array is used
+  a = [String("a"), String("b")]
+  for x in a
+    print(x)
+  for x in !a
+    !x.add("!")
+  print(a)
+
+test "review-step45-e09 array optional owners", '''
+  a
+  none
+'''
+  # array of optional owners, consuming loop
+  a: [2]String? = [String("a"), none]
+  for x in <a
+    if x as t
+      print(t)
+    else
+      print("none")
+
+test "review-step45-e10 arrayiter drop body", '''
+  see 1
+  drop 1
+  drop 3
+  drop 2
+  end
+'''
+  # array of types with a drop body; break mid-way, check order and count
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  a = [D(n: 1), D(n: 2), D(n: 3)]
+  for x in <a
+    print("see", x.n)
+    if x.n == 1
+      break
+  print("end")
+
+test "review-step45-e11 arrayiter nested", "a"
+  # nested consuming loops over [2][2]Text with breaks at both levels
+  a = [[String("a"), String("b")], [String("c"), String("d")]]
+  for row in <a
+    for x in <row
+      print(x)
+      break
+    if row_done(1)
+      break
+
+  fun row_done(n: Int) -> Bool
+    n == 1
+
+test "review-step45-e12 arrayiter vec elems", "2"
+  # consuming loop over an array of List[Text], moving some into an outer List, break midway
+  a = [List[String](), List[String](), List[String]()]
+  keep: List[List[String]] = List()
+  for v, i in <a
+    if i == 2
+      break
+    !keep.push(<v)
+  print(keep.len)

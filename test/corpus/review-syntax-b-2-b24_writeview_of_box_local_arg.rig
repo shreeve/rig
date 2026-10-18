@@ -1,9 +1,0 @@
-fun keep(s: ?String) -> ?String
-  s
-
-sub main()
-  b = ^String("hello")
-  w = !b
-  s = keep(?w[1..])
-  w = ^String("x")
-  print(s)

@@ -1,9 +1,0 @@
-fun grow(v: !List[Int]) -> Int
-  !v.push(7)
-  v[0] = 0
-  v.len
-
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  print(v, grow(!v), v)

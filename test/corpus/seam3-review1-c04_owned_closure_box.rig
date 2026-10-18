@@ -1,7 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  b = ^?v
-  f: *fun() -> Int = *|<b| b.len
-  <v
-  print(f())

@@ -1,8 +1,0 @@
-use b
-
-sub main()
-  p = b.P(src: "")
-  t = String("hello")
-  !p.watch(?t)
-  <t
-  print(p.src)

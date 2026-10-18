@@ -1,6 +1,0 @@
-fun peek[T](b: ?^T) -> ?T
-  ?b
-
-sub main()
-  i = ^5
-  print(peek(?i))

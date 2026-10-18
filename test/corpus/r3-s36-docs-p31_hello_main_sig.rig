@@ -1,3 +1,0 @@
-# WELCOME "What a program becomes": `sub main` is `pub fn main() void`
-sub main()
-  print("hi")

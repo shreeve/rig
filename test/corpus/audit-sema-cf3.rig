@@ -1,6 +1,0 @@
-K: I8 = -1
-N = K << 7
-S = K >> 1
-
-sub main()
-  print(N, S)

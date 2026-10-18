@@ -1,8 +1,0 @@
-obj S
-  v: List[Int]
-
-sub main()
-  xs: List[S] = List()
-  !xs.push(S(v: List()))
-  y = xs[0]
-  print(y.v.len)

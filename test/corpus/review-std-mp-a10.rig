@@ -1,4 +1,0 @@
-use std.math as rig
-
-sub main()
-  print(rig.gcd(4, 6))

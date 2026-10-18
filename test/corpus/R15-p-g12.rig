@@ -1,5 +1,0 @@
-sub main()
-  a = [1, 2, 3]
-  w = !a[..]
-  !w[..1].copy(?w[2..])
-  print(a)

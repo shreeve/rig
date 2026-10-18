@@ -1,0 +1,6631 @@
+# Probes from past reviews and audits, 4 of 41: audit-emit-q2 to audit-fuzz-pf2-accepted-6bc0b88552.
+
+fail "audit-emit-q2", "`peek[^R]` cannot use `T = ^R`: the generic body copies a `T`, which would duplicate the resource `^R` owns"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop R", self.n)
+
+  fun peek[T](o: T?) -> Int
+    if o as v
+      print("some")
+      return 1
+    0
+
+  obj Holder[T]
+    o: T?
+
+    fun has(?self) -> Bool
+      if self.o as v
+        return true
+      false
+
+  print(peek(^R(n: 1)))
+  h = Holder(o: ^R(n: 2))
+  print(h.has())
+
+test "audit-emit-tt", "m"
+  error E
+    bad
+
+  fun f(k: Int) -> Int!
+    return E.bad if k > 0
+    k
+
+  test "ok"
+    print(f(0)!)
+
+  test "fails"
+    print(f(1)!)
+
+  test "leaks \"quoted\""
+    v: List[Int] = List()
+    !v.push(1)
+
+  test "last"
+    xs = [1]
+    i = 3
+    i += 0
+    print(xs[i])
+
+  sub main()
+    print("m")
+
+test "audit-emit-v4", exit: 1, '''
+  m 1
+  drop R 1
+'''
+  error E
+    bad
+
+  obj R
+    n: Int
+    drop(!self)
+      print("drop R", self.n)
+
+  sub main()!
+    r = R(n: 1)
+    print("m", r.n)
+    return E.bad if r.n > 0
+    print("x")
+
+test "audit-emit-z1", '''
+  side 1 1
+  side 2 3
+  21
+  side 3 6
+  side 4 10
+  43
+  6 10
+'''
+  obj C
+    n: Int
+
+    fun sub2(!self, a: Int, b: Int) -> Int
+      self.n += 1
+      a * 10 + b
+
+  fun side(c: !C, k: Int) -> Int
+    c.n += k
+    print("side", k, c.n)
+    k
+
+  fun pair[T](a: T, b: T) -> T
+    a * 10 + b
+
+  fun idx(c: !C) -> Int
+    print("idx")
+    c.n = 0
+    0
+
+  c = C(n: 0)
+  print(pair[Int](b: side(!c, 1), a: side(!c, 2)))
+  cs = [C(n: 5), C(n: 6)]
+  k = 0
+  print((!cs[k]).sub2(b: side(!c, 3), a: side(!c, 4)))
+  print(cs[0].n, c.n)
+
+test "audit-emit-z2", '''
+  27
+  105 6 1
+'''
+  obj C
+    n: Int
+
+    fun sub2(!self, a: Int, b: Int) -> Int
+      self.n += 100
+      a * 10 + b
+
+  fun bump(k: !Int) -> Int
+    k += 1
+    7
+
+  fun two() -> Int
+    2
+
+  cs = [C(n: 5), C(n: 6)]
+  k = 0
+  print((!cs[k]).sub2(b: bump(!k), a: two()))
+  print(cs[0].n, cs[1].n, k)
+
+test "audit-emit-z3", '''
+  27
+  105 6 1
+'''
+  obj C
+    n: Int
+
+    fun sub2(!self, a: Int, b: Int) -> Int
+      self.n += 100
+      a * 10 + b
+
+  fun bump(k: !Int) -> Int
+    k += 1
+    7
+
+  fun two() -> Int
+    2
+
+  cs = [C(n: 5), C(n: 6)]
+  k = 0
+  print((!cs[k]).sub2(two(), bump(!k)))
+  print(cs[0].n, cs[1].n, k)
+
+test "audit-emit-z4", '''
+  12
+  5 6 1
+'''
+  obj C
+    n: Int
+
+    fun sub2(!self, a: Int, b: Int) -> Int
+      self.n += 100
+      a * 10 + b
+
+  fun bump(k: !Int) -> Int
+    k += 1
+    7
+
+  fun two() -> Int
+    2
+
+  cs = [C(n: 5), C(n: 6)]
+  k = 0
+  print(cs[k].n + bump(!k))
+  print(cs[0].n, cs[1].n, k)
+
+test "audit-emit-z5", "5 7 1"
+  obj C
+    n: Int
+
+    fun sub2(!self, a: Int, b: Int) -> Int
+      self.n += 100
+      a * 10 + b
+
+  fun bump(k: !Int) -> Int
+    k += 1
+    7
+
+  fun two() -> Int
+    2
+
+  cs = [C(n: 5), C(n: 6)]
+  k = 0
+  cs[k] = C(n: bump(!k))
+  print(cs[0].n, cs[1].n, k)
+
+test "audit-emit-z6", "5 13 1"
+  obj C
+    n: Int
+
+    fun sub2(!self, a: Int, b: Int) -> Int
+      self.n += 100
+      a * 10 + b
+
+  fun bump(k: !Int) -> Int
+    k += 1
+    7
+
+  fun two() -> Int
+    2
+
+  cs = [C(n: 5), C(n: 6)]
+  k = 0
+  cs[k].n += bump(!k)
+  print(cs[0].n, cs[1].n, k)
+
+test "audit-emit-z7", "[1, 7] 1"
+  obj N
+    n: Int
+
+  fun bump(k: !Int) -> Int
+    k += 1
+    7
+
+  w: List[Int] = List()
+  !w.push(1)
+  !w.push(2)
+  j = 0
+  w[j] = bump(!j)
+  print(w, j)
+
+test "audit-emit-z8", "112 6 1"
+  error E
+    bad
+
+  obj C
+    n: Int
+
+    sub put(!self, v: List[Int], b: Int)
+      self.n += 100 + v.len + b
+
+  fun bump(k: !Int) -> Int!
+    return E.bad if k > 5
+    k += 1
+    7
+
+  sub run()!
+    cs = [C(n: 5), C(n: 6)]
+    k = 0
+    !cs[k].put(List(), bump(!k)!)
+    print(cs[0].n, cs[1].n, k)
+
+  run() catch print("e")
+
+test "audit-frontend-a2", "2"
+  y = [1,2][0] * 2
+  print(y)
+
+test "audit-frontend-a4", "6"
+  a = 2
+  b = [3][0]*a
+  print(b)
+
+test "audit-frontend-a7", "6"
+  n = 3
+  b = [2][0] * [n][0]
+  print(b)
+
+test "audit-frontend-b1", "-3"
+  y = 3
+  x = while true
+    break match y
+      3 => -y
+      _ => 0
+  print(x)
+
+fail "audit-frontend-b3", "`y` is assigned but never read; use it, or discard the value with `_ = ...`"
+  y = 3
+  g = |a: Int|
+    -a
+  print(g(2))
+
+test "audit-frontend-b4", "-3"
+  y = 3
+  x = if true
+    -y
+  else
+    0
+  print(x)
+
+test "audit-frontend-b5", "-3"
+  fun f(y: Int) -> Int
+    return match y
+      3 => -y
+      _ => 0
+
+  print(f(3))
+
+fail "audit-frontend-b9", "`i` is bound but never read; name it `_` to ignore the value"
+  y = 3
+  x = for i in 0..3
+    break match y
+      3 => -y
+      _ => 0
+  else
+    1
+  print(x)
+
+test "audit-frontend-c1", "0"
+  y = 3
+  x = for i in 0..3
+    break i
+  else
+    -y
+  print(x)
+
+test "audit-frontend-c2", "-3"
+  y = 3
+  x = while y > 5
+    break y
+  else
+    -y
+  print(x)
+
+test "audit-frontend-c3", "0"
+  y = 3
+  x = for i in 0..3
+    break i
+  else
+    y
+  print(x)
+
+test "audit-frontend-d1", '''
+  7
+  2
+'''
+  fun g(a: Int?, b: Int?) -> Int
+    x = a ?? b ?? return 7
+    x
+
+  print(g(none, none))
+  print(g(none, 2))
+
+test "audit-frontend-e1", "2"
+  xs: [2]*(Int?) = [*(1), *(none)]
+  print(xs.len)
+
+test "audit-frontend-e2", "3"
+  fun f(xs: []*(Int?)) -> Int
+    3
+
+  h: *(Int?) = *(3)
+  xs = [<h]
+  print(f(?xs))
+
+test "audit-frontend-e7", "3"
+  fun f(xs: [2]~(Int)) -> Int
+    3
+
+  a = *1
+  print(f([~a, ~a]))
+
+test "audit-frontend-f5", '''
+  1
+  -1
+'''
+  x = [1, 2]
+  print(x[0]) # ok
+  y = -x[0] if true else 0
+  print(y)
+
+fail "audit-frontend-mods-Main2", "cannot read module `std`", "no such file; a module of the standard library is `use std.NAME`"
+  use rig
+  use std
+  use os
+
+  sub main()
+    print(rig.f() + std.K + os.f())
+
+  file "os.rig"
+    pub K = 3
+
+    pub fun f() -> Int
+      K
+
+  file "rig.rig"
+    pub K = 3
+
+    pub fun f() -> Int
+      K
+
+test "audit-fuzz-c-cf-cf00440", '''
+  none 16
+  8 0 -11
+  none 16
+  8 0 -11
+  none -64
+  22
+  11 2 4
+  4
+  22
+  11 2 4
+  5
+  2
+  19
+  defer -9
+  ret 12
+  defer -8
+  8
+  ret 15
+'''
+  fun f0(a0: Int) -> Int
+    new a0 = a0
+    b0 = 4
+    c0 = 8
+    w1 = 0
+    @l1 while w1 < 2 : w1 += 1
+      o2: Int? = (c0 * b0) if (15 + c0) <= (-6) else none
+      if o2 as o2x
+        print("some", o2x)
+      else
+        print("none", o2 ?? 16)
+      print(((a0 - (-6)) + (0 * b0)), (a0 * (b0 % 2)), (((-7) % 4) - c0))
+      b0 = (a0 % 4) % 1000
+      if (b0 * 1) <= (c0 % 8)
+        @l2 for i3 in 1..(-1)
+          print(i3)
+          return ((a0 + i3) * (19 % 9)) if i3 < c0
+        w4 = 0
+        while w4 < 0 : w4 += 1
+          print(w1)
+        v5 = for i6 in 0..2
+          break ((-3) - b0) if (i6 >= 0) and (b0 < (w1 + c0))
+        else
+          (-6)
+        print("lv", v5)
+    a0 = a0 % 1000
+    w7 = 0
+    @l4 while w7 < 0 : w7 += 1
+      match (b0 / 6)
+        0
+          @l5 for i8 in 0..1
+            print(i8)
+            continue if b0 <= (b0 * 12)
+            a0 = (10 / 6) % 1000
+            c0 -= ((a0 - 1) * ((-2) / 6))
+            c0 = c0 % 1000
+            print((w7 + (-6)))
+          a0 = ((a0 + a0) - w7) % 1000
+          if ((18 + 19) <= (9 % 7)) and ((19 + 1) < c0)
+            b0 += ((c0 / 2) - (b0 * b0))
+            b0 = b0 % 1000
+            return 15 if (0 + a0) == 7
+            a0 -= ((17 % 2) * w7)
+            a0 = a0 % 1000
+          else if ((c0 / 9) == (14 + 5)) and ((c0 - a0) < b0)
+            break if (8 / 7) != (b0 - 15)
+          v9 = for i10 in 0..2
+            break ((-7) - b0) if (i10 >= 1) and ((c0 % 3) != (-9))
+          else
+            w7
+          print("lv", v9)
+        m11 if m11 == 8
+          match (b0 + a0)
+            2..6
+              c0 -= 19
+              c0 = c0 % 1000
+              c0 -= w7
+              c0 = c0 % 1000
+            m12 if m12 < 10
+              break if (8 < (c0 % 6)) and (a0 < b0)
+              return ((b0 / 4) + (m12 + m11)) if (-5) >= (w7 - 11)
+              c0 = ((m11 - 6) - (a0 - w7)) % 1000
+              continue if (b0 < (a0 - m12)) and ((6 / 1) < (c0 % 4))
+            _
+              break if w7 <= ((-1) - c0)
+              c0 += a0
+              c0 = c0 % 1000
+              break @l4 if (a0 * w7) != (m11 - b0)
+              a0 += c0
+              a0 = a0 % 1000
+        m13 if m13 > 1
+          for i14 in 2..3
+            print(i14)
+            print((-5))
+            b0 = (a0 % 7) % 1000
+            c0 -= ((b0 + a0) * ((-8) % 9))
+            c0 = c0 % 1000
+        _
+          match ((-4) % 7)
+            14
+              a0 += (16 + (a0 % 3))
+              a0 = a0 % 1000
+            -5, -1
+              print(a0, ((c0 * a0) + (2 + (-1))), ((a0 % 4) * (2 - 14)))
+              a0 -= ((-1) + w7)
+              a0 = a0 % 1000
+              a0 += ((15 + w7) - (a0 * c0))
+              a0 = a0 % 1000
+              a0 -= (w7 / 4)
+              a0 = a0 % 1000
+            m15 if m15 < (-5)
+              print(((w7 % 3) * 0))
+            _
+              b0 += (14 / 2)
+              b0 = b0 % 1000
+              print(((-4) + (c0 / 1)))
+              b0 = (a0 * 0) % 1000
+          w16 = 0
+          @l7 while w16 < 4 : w16 += 1
+            b0 = ((1 + 10) / 1) % 1000
+            print(((b0 * a0) + (w16 - c0)))
+          else
+            print((10 - c0), ((-2) / 2), 7)
+            print((w7 - b0))
+            b0 -= ((-2) * ((-7) + (-5)))
+            b0 = b0 % 1000
+      if (b0 * w7) != (a0 + a0)
+        if (12 < (w7 + b0)) and ((7 + c0) > (-6))
+          print(((w7 - (-3)) / 2))
+        else if ((-8) * 11) == (a0 * a0)
+          a0 -= ((4 % 6) + ((-2) + 6))
+          a0 = a0 % 1000
+        else
+          b0 -= a0
+          b0 = b0 % 1000
+          c0 += ((15 - (-9)) % 4)
+          c0 = c0 % 1000
+          print((((-7) * 4) / 5), ((b0 % 8) % 5), ((c0 - c0) - 14))
+        w20 = 0
+        while w20 < 5 : w20 += 1
+          a0 += w20
+          a0 = a0 % 1000
+        else
+          b0 -= w7
+          b0 = b0 % 1000
+          a0 += ((b0 * c0) + (b0 % 5))
+          a0 = a0 % 1000
+        if ((17 % 6) != w7) or ((16 / 3) < (c0 - 15))
+          print(c0, (-1), b0)
+          b0 -= ((b0 / 7) / 8)
+          b0 = b0 % 1000
+        else if 17 == (-4)
+          c0 -= (-8)
+          c0 = c0 % 1000
+        for i21 in 1..5
+          print(i21)
+          print(((5 % 5) + (i21 + c0)))
+      else if 2 > (c0 + 14)
+        v17 = for i18 in 0..1
+          break ((-8) % 7) if (i18 >= 4) and (((w7 - c0) <= (-3)) or (w7 < ((-2) % 8)))
+        else
+          (w7 - a0)
+        print("lv", v17)
+      else
+        @l8 for i19 in (-2)..(-1)
+          print(i19)
+          b0 -= ((w7 % 3) * (i19 - a0))
+          b0 = b0 % 1000
+          b0 = (17 / 6) % 1000
+        else
+          b0 = ((0 + w7) - (w7 * c0)) % 1000
+          a0 = c0 % 1000
+          print(w7, (((-2) + a0) % 6))
+          a0 += b0
+          a0 = a0 % 1000
+      a0 = (17 % 3) % 1000
+      @l11 for i22 in 2..4
+        print(i22)
+        defer print("defer", a0)
+        for i23 in (-2)..2
+          print(i23)
+          print(((c0 * c0) * ((-5) / 2)), (((-6) * (-7)) / 2))
+        else
+          print((14 / 4))
+          b0 = ((12 + (-2)) % 7) % 1000
+          a0 = (a0 * (-3)) % 1000
+          c0 += 19
+          c0 = c0 % 1000
+        print(((b0 * (-8)) - (w7 * w7)), ((i22 * w7) + (2 + (-8))))
+        match (w7 + 14)
+          7..13
+            print((13 + i22), b0, i22)
+          -1..2
+            print(i22, (9 % 3))
+            b0 += (c0 % 1)
+            b0 = b0 % 1000
+          3, 13
+            b0 = i22 % 1000
+          4
+            print(((i22 * 2) + (b0 * 6)))
+            print(1)
+            b0 += ((13 % 5) * a0)
+            b0 = b0 % 1000
+          _
+            c0 = ((w7 % 2) % 3) % 1000
+      else
+        a0 -= w7
+        a0 = a0 % 1000
+        match a0
+          -2, 11, 13
+            c0 -= ((c0 + a0) * (w7 / 5))
+            c0 = c0 % 1000
+            a0 -= ((-2) * (15 / 3))
+            a0 = a0 % 1000
+            b0 += ((a0 - 3) / 5)
+            b0 = b0 % 1000
+          m24 if m24 < 1
+            c0 = (a0 % 5) % 1000
+          m25 if m25 < (-3)
+            c0 = 16 % 1000
+            print(((c0 + m25) - (-9)), (b0 % 2), ((a0 - c0) / 2))
+            c0 = ((w7 * 3) / 3) % 1000
+            break @l4 if (m25 / 1) != (17 * c0)
+          2, 6, 10
+            print(w7, w7, (b0 / 6))
+          _
+            b0 = a0 % 1000
+    else
+      w26 = 0
+      @l13 while w26 < 5 : w26 += 1
+        b0 -= ((11 + b0) - (c0 + 14))
+        b0 = b0 % 1000
+      w27 = 0
+      while w27 < 0 : w27 += 1
+        c0 += (b0 + (a0 + b0))
+        c0 = c0 % 1000
+        if c0 > ((-5) / 1)
+          print(((w27 / 2) / 4), (b0 % 9), ((a0 % 4) / 5))
+          c0 -= (w27 % 5)
+          c0 = c0 % 1000
+        else if a0 < c0
+          b0 -= 5
+          b0 = b0 % 1000
+        c0 = (b0 - (c0 - w27)) % 1000
+        c0 = ((c0 * c0) / 4) % 1000
+      else
+        o28: Int? = (a0 / 1) if ((a0 + b0) == (13 + b0)) and ((c0 * (-4)) < (a0 / 8)) else none
+        if o28 as o28x
+          print("some", o28x)
+        else
+          print("none", o28 ?? (16 * (-4)))
+        w29 = 0
+        @l15 while w29 < 2 : w29 += 1
+          print((b0 + b0))
+          print(b0, ((c0 / 4) + (a0 / 7)), ((c0 / 2) * (a0 + (-1))))
+          print((w29 - (a0 * (-2))))
+          a0 += ((c0 % 7) / 8)
+          a0 = a0 % 1000
+        else
+          print(a0)
+          print(((19 - (-8)) - c0))
+          a0 += ((b0 - b0) - (b0 / 5))
+          a0 = a0 % 1000
+          c0 = (((-9) + 12) / 3) % 1000
+      defer print("defer", ((-7) + (-2)))
+    a0 + b0 + c0
+
+  fun f1(a1: Int) -> Int
+    new a1 = a1
+    b1 = 8
+    c1 = -1
+    if 9 != (a1 % 9)
+      defer print("defer", (c1 * a1))
+    else
+      o30: Int? = (b1 * c1) if ((-3) - b1) <= (16 + 19) else none
+      if o30 as o30x
+        print("some", o30x)
+      else
+        print("none", o30 ?? b1)
+      a1 += c1
+      a1 = a1 % 1000
+      v31 = for i32 in 0..1
+        break ((-2) / 7) if (i32 >= 2) and ((-6) == (18 + b1))
+      else
+        (13 - b1)
+      print("lv", v31)
+    print(b1)
+    a1 + b1 + c1
+
+  print("ret", f0(2))
+  print("ret", f1(8))
+
+test "audit-fuzz-c-ctx-.chk-c1376", "-32768"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t1376()
+    mk1376 = rt_int(2)
+    mz1376: I16 = match mk1376
+      1 => I16.max
+      _ => (-32768)
+    print(mz1376)
+
+  t1376()
+
+test "audit-fuzz-c-ctx-.chk-c193", "-9"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t193()
+    cl193 = |x: I128| x
+    mk193 = rt_int(0)
+    mz193: I128 = match mk193
+      1 => cl193(170141183460469231731687303715884105727)
+      _ => (-9)
+    print(mz193)
+
+  t193()
+
+test "audit-fuzz-c-ctx-.chk-c538", "-2.0 W538(f: -2.0, g: 1)"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  obj W538
+    f: F32
+    g: Int = 1
+
+  sub t538()
+    o538: F32? = none
+    flag538 = rt_bool(true)
+    w538 = W538(f: (o538 ?? ((-2) if flag538 else 10.25)))
+    print(w538.f, w538)
+
+  t538()
+
+test "audit-fuzz-c-ctx-.chk-c928", "-5593548366059344594"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  fun take928(a: Int) -> Int
+    a
+
+  sub t928()
+    k928 = rt_int(1)
+    z928: Int = match k928
+        1 => (-5593548366059344594)
+        2, 3 => (-10)
+        _ => 9219368874745701483
+    y928 = take928(z928)
+    print(y928)
+
+  t928()
+
+test "audit-fuzz-c-ctx2-.chk-c1084", "191694661597162117"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  fun fal1084(ok: Bool) -> Int!
+    return Err1084.bad if not ok
+    (-9223372036854775808)
+
+  error Err1084
+    bad
+
+  obj FA1084
+    f: Int
+
+  sub t1084()
+    fa1084 = FA1084(f: 0)
+    fa1084.f = (fal1084(false) catch 191694661597162117)
+    print(fa1084.f)
+
+  t1084()
+
+test "audit-fuzz-c-ctx2-.chk-c1147", "541"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t1147()
+    cl1147 = |x: U128| x
+    mk1147 = rt_int(2)
+    mz1147: U128 = match mk1147
+      1 => cl1147(0)
+      _ => 541
+    print(mz1147)
+
+  t1147()
+
+test "audit-fuzz-c-ctx2-.chk-c1339", "10.25"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t1339()
+    gv1339: List[Float] = List()
+    qo1339: Float? = id_float(10.25)
+    print(qo1339 ?? (gv1339.get(0) ?? (-2)))
+
+  t1339()
+
+test "audit-fuzz-c-ctx2-.chk-c1706", "128"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t1706()
+    o1706: U8? = none
+    flag1706 = rt_bool(true)
+    wb1706: U8 = id_u8(109)
+    print(wb1706 +% (o1706 ?? (19 if flag1706 else 204)))
+
+  t1706()
+
+test "audit-fuzz-c-ctx2-.chk-c1745", "3"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t1745()
+    gv1745: List[U64] = List()
+    !gv1745.push(3)
+    x1745: U64 = (gv1745.get(0) ?? 18446744073709551615)
+    print(x1745)
+
+  t1745()
+
+test "audit-fuzz-c-ctx2-.chk-c1777", "29257"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  fun cf1777(ok: Bool) -> I16!
+    return CE1777.no if not ok
+    14113
+
+  error CE1777
+    no
+
+  sub t1777()
+    o1777: I16? = none
+    flag1777 = rt_bool(true)
+    print(cf1777(false) catch (o1777 ?? (29257 if flag1777 else (-6))))
+
+  t1777()
+
+test "audit-fuzz-c-ctx2-.chk-c1967", "-3.0"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t1967()
+    acc1967: F32 = id_f32((-1.5))
+    acc1967 += gid((-1.5))
+    print(acc1967)
+
+  t1967()
+
+test "audit-fuzz-c-ctx2-.chk-c2047", "-5"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  obj Bx2047
+    f: I128
+
+  obj FA2047
+    f: I128
+
+  sub t2047()
+    bx2047 = Bx2047(f: (-5))
+    fa2047 = FA2047(f: 0)
+    fa2047.f = bx2047.f
+    print(fa2047.f)
+
+  t2047()
+
+test "audit-fuzz-c-ctx2-.chk-c2118", "2147483647 W2118(f: 2147483647, g: 1)"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  obj W2118
+    f: I32
+    g: Int = 1
+
+  sub t2118()
+    flag2118 = rt_bool(false)
+    tv2118: I32 = id_i32(2147483647)
+    w2118 = W2118(f: (4 if flag2118 else tv2118))
+    print(w2118.f, w2118)
+
+  t2118()
+
+test "audit-fuzz-c-ctx2-.chk-c223", "-170141183460469231731687303715884105728"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t223()
+    cl223 = |x: I128| x
+    x223: I128 = cl223((-170141183460469231731687303715884105728))
+    print(x223)
+
+  t223()
+
+test "audit-fuzz-c-ctx2-.chk-c2293", "false false true"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t2293()
+    vv2293: List[I128] = List()
+    !vv2293.push(161304225842132170300261283235495780437)
+    cmp2293: I128 = id_i128(16)
+    print(cmp2293 == vv2293[0], vv2293[0] < cmp2293, vv2293[0] >= cmp2293)
+
+  t2293()
+
+test "audit-fuzz-c-ctx2-.chk-c3011", "-128"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t3011()
+    qo3011: I8? = none
+    print(qo3011 ?? I8((-128)))
+
+  t3011()
+
+test "audit-fuzz-c-ctx2-.chk-c4191", "2.5 0.0"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  fun fal4191(ok: Bool) -> F32!
+    return Err4191.bad if not ok
+    1
+
+  error Err4191
+    bad
+
+  fun ri4191(go: Bool) -> F32
+    if go
+
+      return (fal4191(false) catch 2.5)
+    0
+
+  sub t4191()
+    print(ri4191(true), ri4191(false))
+
+  t4191()
+
+test "audit-fuzz-c-ctx2-.chk-c4248", "-9859"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t4248()
+    k4248 = rt_int(2)
+    mk4248 = rt_int(0)
+    mz4248: I16 = match mk4248
+      1
+        match k4248
+          1 => (-32768)
+          2, 3 => (-15679)
+          _ => 25908
+      _ => (-9859)
+    print(mz4248)
+
+  t4248()
+
+test "audit-fuzz-c-ctx2-.chk-c4291", "340282366920938463463374607431768211455 [0, 0, 340282366920938463463374607431768211455]"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t4291()
+    cst4291: U128 =! 340282366920938463463374607431768211455
+    av4291: List[U128] = List()
+    !av4291.push(0)
+    av4291[0] = cst4291
+    aa4291: [3]U128 = [3 of 0]
+    aa4291[rt_int(2)] = cst4291
+    print(av4291[0], aa4291)
+
+  t4291()
+
+test "audit-fuzz-c-ctx2-.chk-c4521", "[-5]"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t4521()
+    vec4521: List[Int] = List()
+    !vec4521.push((gsome((-5)) ?? 14))
+    print(vec4521)
+
+  t4521()
+
+test "audit-fuzz-c-ctx2-.chk-c4532", "4"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  fun fal4532(ok: Bool) -> I32!
+    return Err4532.bad if not ok
+    (-850796890)
+
+  error Err4532
+    bad
+
+  sub t4532()
+    mk4532 = rt_int(1)
+    mz4532: I32 = match mk4532
+      1 => (fal4532(false) catch 4)
+      _ => 3
+    print(mz4532)
+
+  t4532()
+
+test "audit-fuzz-c-ctx2-.chk-c4646", "127 5"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t4646()
+    flag4646 = rt_bool(true)
+    tf4646 = rt_bool(true)
+    tv4646: I8 = id_i8(5)
+    tz4646: I8 = (127 if flag4646 else (-65)) if tf4646 else tv4646
+    print(tz4646, tv4646 if tf4646 else (127 if flag4646 else (-65)))
+
+  t4646()
+
+test "audit-fuzz-c-ctx2-.chk-c472", "6 [0, 0, 6]"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  obj Bx472
+    f: I32
+
+  sub t472()
+    bx472 = Bx472(f: 6)
+    av472: List[I32] = List()
+    !av472.push(0)
+    av472[0] = bx472.f
+    aa472: [3]I32 = [3 of 0]
+    aa472[rt_int(2)] = bx472.f
+    print(av472[0], aa472)
+
+  t472()
+
+test "audit-fuzz-c-ctx2-.chk-c5129", "18"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  obj GP5129[T]
+    f: T
+
+  sub t5129()
+    k5129 = rt_int(2)
+    gz5129: U8 = match k5129
+        1 => 44
+        2, 3 => 18
+        _ => 226
+    gp5129: GP5129[U8] = GP5129(f: gz5129)
+    print(gp5129.f)
+
+  t5129()
+
+test "audit-fuzz-c-ctx2-.chk-c5213", "129158169027848300914956498531366630129"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t5213()
+    qo5213: U128? = none
+    print(qo5213 ?? gmax(6, 129158169027848300914956498531366630129))
+
+  t5213()
+
+test "audit-fuzz-c-ctx2-.chk-c526", ".some(v: 1.0)"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  enum Op526
+    some(v: Float)
+    nothing
+
+  sub t526()
+    flag526 = rt_bool(true)
+    en526: Op526 = .some((gid(1) if flag526 else 0))
+    print(en526)
+
+  t526()
+
+test "audit-fuzz-c-ctx2-.chk-c531", "3.0"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t531()
+    qo531: F32? = id_f32(3.0)
+    print(qo531 ?? 3)
+
+  t531()
+
+test "audit-fuzz-c-ctx2-.chk-c5449", "30 30"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  fun fal5449(ok: Bool) -> U32!
+    return Err5449.bad if not ok
+    20
+
+  error Err5449
+    bad
+
+  sub t5449()
+    b5449: U32 = id_u32(10)
+    print(b5449 + (fal5449(true) catch 20), (fal5449(true) catch 20) + b5449)
+
+  t5449()
+
+test "audit-fuzz-c-ctx2-.chk-c5551", "4 4"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t5551()
+    o5551: U32? = none
+    b5551: U32 = id_u32(4)
+    print(b5551 + (o5551 ?? 0), (o5551 ?? 0) + b5551)
+
+  t5551()
+
+test "audit-fuzz-c-ctx2-.chk-c5806", "-7"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  fun take5806(a: Int) -> Int
+    a
+
+  sub t5806()
+    k5806 = rt_int(2)
+    z5806: Int = match k5806
+        1 => 9223372036854775807
+        2, 3 => (-7)
+        _ => 2933215257125436034
+    y5806 = take5806(z5806)
+    print(y5806)
+
+  t5806()
+
+test "audit-fuzz-c-ctx2-.chk-c5859", "[19]"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t5859()
+    vw5859: List[I128] = List()
+    pushit5859 = |!vw5859, x: I128| !vw5859.push(x)
+    pushit5859((gsome(19) ?? (-4)))
+    print(vw5859)
+
+  t5859()
+
+test "audit-fuzz-c-ctx2-p00333", '''
+  [-1.5]
+  [18098824267028067248]
+  0.5
+  48455
+  .some(v: 19)
+  -1.5
+  3
+  0
+  0
+  5
+  2.5
+  247082430125122878275228786794844851034 W387(f: 247082430125122878275228786794844851034, g: 1)
+  false true false
+  3.0
+  2
+'''
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  obj GP3713[T]
+    f: T
+
+  fun cf18(ok: Bool) -> U16!
+    return CE18.no if not ok
+    11482
+
+  error CE18
+    no
+
+  fun fo5013(s: Bool) -> U64?
+    return none if not s
+    18446744073709551615
+
+  fun fu5013(s: Bool) -> U64?
+    x = fo5013(s)?
+    x
+
+  enum Op5013
+    some(v: U64)
+    nothing
+
+  obj FA1759
+    f: Float
+
+  obj Bx1497
+    f: U64
+
+  obj FA1218
+    f: U8
+
+  fun fal3588(ok: Bool) -> U32!
+    return Err3588.bad if not ok
+    4
+
+  error Err3588
+    bad
+
+  fun fal387(ok: Bool) -> U128!
+    return Err387.bad if not ok
+    247082430125122878275228786794844851034
+
+  error Err387
+    bad
+
+  obj W387
+    f: U128
+    g: Int = 1
+
+  sub t408()
+    arr408: [2]F32 = [0, (-1.5)]
+    vec408: List[F32] = List()
+    !vec408.push(arr408[1])
+    print(vec408)
+
+  sub t5652()
+    o5652: U64? = id_u64(18098824267028067248)
+    vw5652: List[U64] = List()
+    pushit5652 = |!vw5652, x: U64| !vw5652.push(x)
+    pushit5652((o5652 ?? 2))
+    print(vw5652)
+
+  sub t3713()
+    gp3713: GP3713[F32] = GP3713(f: gid(0.5))
+    print(gp3713.f)
+
+  sub t18()
+    o18: U16? = none
+    flag18 = rt_bool(false)
+    print(cf18(false) catch (o18 ?? (53771 if flag18 else 48455)))
+
+  sub t5013()
+    en5013: Op5013 = .some((fu5013(false) ?? 19))
+    print(en5013)
+
+  sub t1759()
+    fa1759 = FA1759(f: 0)
+    fa1759.f = Float((-1.5))
+    print(fa1759.f)
+
+  sub t1497()
+    bx1497 = Bx1497(f: 18446744073709551615)
+    qo1497: U64? = id_u64(3)
+    print(qo1497 ?? bx1497.f)
+
+  sub t1218()
+    fa1218 = FA1218(f: 0)
+    fa1218.f = 0
+    print(fa1218.f)
+
+  sub t2456()
+    mk2456 = rt_int(0)
+    mz2456: U16 = match mk2456
+      1 => U16.min
+      _ => 0
+    print(mz2456)
+
+  sub t3588()
+    gy3588: U32 = gid((fal3588(false) catch 5))
+    print(gy3588)
+
+  sub t201()
+    x201: Float = gmax(2.5, 0.5)
+    print(x201)
+
+  sub t387()
+    w387 = W387(f: (fal387(true) catch 182303071622359499255022518865723165525))
+    print(w387.f, w387)
+
+  sub t241()
+    cmp241: U128 = id_u128(66597)
+    print(cmp241 == 17, 17 < cmp241, 17 >= cmp241)
+
+  sub t645()
+    x645: Float = gmax(3, (-2))
+    print(x645)
+
+  sub t1102()
+    gv1102: List[I8] = List()
+    !gv1102.push(2)
+    qo1102: I8? = none
+    print(qo1102 ?? (gv1102.get(0) ?? 0))
+
+  t408()
+  t5652()
+  t3713()
+  t18()
+  t5013()
+  t1759()
+  t1497()
+  t1218()
+  t2456()
+  t3588()
+  t201()
+  t387()
+  t241()
+  t645()
+  t1102()
+
+test "audit-fuzz-c-gen-g00000", '''
+  new 10
+  use 10
+  new 20
+  new 21
+  use 20
+  use 21
+  int 30
+  new 40
+  new 50
+  use 50
+  use 40
+  new 60
+  new 70
+  rel 70
+  use 60
+  rel 60
+  rel 40
+  rel 50
+  rel 21
+  rel 20
+  rel 10
+  new 80
+  new 90
+  rel 90
+  use 80
+  new 100
+  use 100
+  str s110
+  str s120
+  rel 100
+  rel 80
+  int 130
+  new 150
+  use 150
+  rel 150
+'''
+  obj R
+    id: Int
+
+    drop(!self)
+      print("rel", self.id)
+
+  obj P
+    a: R
+    b: R
+
+  enum HR
+    one(r: R)
+    empty
+
+  error E
+    bad
+
+  fun mk(id: Int) -> R
+    print("new", id)
+    R(id: id)
+
+  fun optr(id: Int) -> R?
+    return none if id % 3 == 0
+    mk(id)
+
+  sub look(r: ?R)
+    print("use", r.id)
+
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun pick[T](a: T, b: T, first: Bool) -> T
+    if first
+      return <a
+    <b
+
+  fun keep_first[T](a: T, b: T) -> T
+    a
+
+  fun ident[T](x: T) -> T
+    x
+
+  fun cycle[T](x: T, n: Int) -> T
+    cur = <x
+    for _ in 0..n
+      cur = ident(<cur)
+    cur
+
+  fun wrap[T](x: T) -> T?
+    x
+
+  fun unwrap_or[T](o: T?, d: T) -> T
+    if <o as v
+      return <v
+    <d
+
+  fun first_some[T](a: T?, b: T?) -> T?
+    if <a as x
+      return <x
+    <b
+
+  fun must[T](o: T?) -> T!
+    if <o as x
+      return <x
+    return E.bad
+
+  fun chain[T](o: T?) -> T?
+    x = (<o)?
+    x
+
+  sub swap_gen[T](a: !T, b: !T) keeps a, b
+    swap(!a, !b)
+
+  fun first_ref[T, U](p: ?Pair[T, U]) -> ?T
+    ?p.first
+
+  obj Pair[T, U]
+    first: T
+    second: U
+
+    fun left(?self) -> ?T
+      ?self.first
+
+  obj Shelf[T]
+    items: List[T]
+
+    sub add(!self, x: T)
+      !self.items.push(<x)
+
+    fun take(!self) -> T?
+      (!self.items).pop()
+
+  enum Maybe[T]
+    just(v: T)
+    nada
+
+  fun get_or[T](m: Maybe[T], d: T) -> T
+    match <m
+      .just(v) => v
+      .nada => d
+
+  fun fill_shelf[T](a: T, b: T) -> Shelf[T]
+    s = Shelf[T](items: List())
+    !s.add(<a)
+    !s.add(<b)
+    s
+
+  sub h0()
+    o1: R? = none
+    r1 = unwrap_or(<o1, mk(10))
+    look(?r1)
+    r3 = ident(ident(P(a: mk(20), b: mk(21))))
+    look(?r3.a)
+    look(?r3.b)
+    o5: Int? = 30
+    r5 = chain(<o5)
+    if ?r5 as w6
+      print("int", w6)
+    a8 = optr(40)
+    b8 = optr(50)
+    swap_gen(!a8, !b8)
+    if ?a8 as y9
+      print("use", y9.id)
+    if ?b8 as y10
+      print("use", y10.id)
+    o11: ^R? = ^mk(60)
+    r11 = unwrap_or(<o11, ^mk(70))
+    print("use", r11.id)
+
+  sub h1()!
+    o13: ^R? = ^mk(80)
+    r13 = unwrap_or(<o13, ^mk(90))
+    print("use", r13.id)
+    r15 = ident(ident(*mk(100)))
+    print("use", r15.id)
+    o17: (?String)? = "s110"
+    r17 = chain(<o17)
+    if ?r17 as w18
+      print("str", w18)
+    o20: (?String)? = "s120"
+    r20 = must(<o20)!
+    print("str", r20)
+
+  sub h2()
+    o22: P? = none
+    r22 = chain(<o22)
+    if ?r22 as w23
+      look(?w23.a)
+      look(?w23.b)
+    r25 = pick(130, 140, rt_bool(true))
+    print("int", r25)
+    m27: Maybe[*R] = .nada
+    r27 = get_or(<m27, *mk(150))
+    print("use", r27.id)
+
+  h0()
+  h1() catch |e| print("caught", e)
+  h2()
+
+test "audit-fuzz-c-gen-g00327", '''
+  str s10
+  new 20
+  use 20
+  new 30
+  new 31
+  new 40
+  new 41
+  rel 41
+  rel 40
+  use 30
+  use 31
+  new 50
+  use 50
+  new 60
+  use 60
+  rel 60
+  rel 50
+  rel 31
+  rel 30
+  rel 20
+  new 70
+  new 80
+  rel 80
+  use 70
+  new 90
+  use 90
+  rel 90
+  rel 70
+'''
+  obj R
+    id: Int
+
+    drop(!self)
+      print("rel", self.id)
+
+  obj P
+    a: R
+    b: R
+
+  enum HR
+    one(r: R)
+    empty
+
+  error E
+    bad
+
+  fun mk(id: Int) -> R
+    print("new", id)
+    R(id: id)
+
+  fun optr(id: Int) -> R?
+    return none if id % 3 == 0
+    mk(id)
+
+  sub look(r: ?R)
+    print("use", r.id)
+
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun pick[T](a: T, b: T, first: Bool) -> T
+    if first
+      return <a
+    <b
+
+  fun keep_first[T](a: T, b: T) -> T
+    a
+
+  fun ident[T](x: T) -> T
+    x
+
+  fun cycle[T](x: T, n: Int) -> T
+    cur = <x
+    for _ in 0..n
+      cur = ident(<cur)
+    cur
+
+  fun wrap[T](x: T) -> T?
+    x
+
+  fun unwrap_or[T](o: T?, d: T) -> T
+    if <o as v
+      return <v
+    <d
+
+  fun first_some[T](a: T?, b: T?) -> T?
+    if <a as x
+      return <x
+    <b
+
+  fun must[T](o: T?) -> T!
+    if <o as x
+      return <x
+    return E.bad
+
+  fun chain[T](o: T?) -> T?
+    x = (<o)?
+    x
+
+  sub swap_gen[T](a: !T, b: !T) keeps a, b
+    swap(!a, !b)
+
+  fun first_ref[T, U](p: ?Pair[T, U]) -> ?T
+    ?p.first
+
+  obj Pair[T, U]
+    first: T
+    second: U
+
+    fun left(?self) -> ?T
+      ?self.first
+
+  obj Shelf[T]
+    items: List[T]
+
+    sub add(!self, x: T)
+      !self.items.push(<x)
+
+    fun take(!self) -> T?
+      (!self.items).pop()
+
+  enum Maybe[T]
+    just(v: T)
+    nada
+
+  fun get_or[T](m: Maybe[T], d: T) -> T
+    match <m
+      .just(v) => v
+      .nada => d
+
+  fun fill_shelf[T](a: T, b: T) -> Shelf[T]
+    s = Shelf[T](items: List())
+    !s.add(<a)
+    !s.add(<b)
+    s
+
+  sub h0()
+    m1: Maybe[?String] = .nada
+    r1 = get_or(<m1, "s10")
+    print("str", r1)
+    r3 = cycle(^mk(20), rt_int(1))
+    print("use", r3.id)
+    m5: Maybe[P] = .just(P(a: mk(30), b: mk(31)))
+    r5 = get_or(<m5, P(a: mk(40), b: mk(41)))
+    look(?r5.a)
+    look(?r5.b)
+    r7 = cycle(^mk(50), rt_int(0))
+    print("use", r7.id)
+    r9 = wrap(mk(60))
+    if ?r9 as w10
+      look(?w10)
+
+  sub h1()!
+    r12 = keep_first(^mk(70), ^mk(80))
+    print("use", r12.id)
+    o14: R? = mk(90)
+    r14 = chain(<o14)
+    if ?r14 as w15
+      look(?w15)
+
+  h0()
+  h1() catch |e| print("caught", e)
+
+test "audit-fuzz-c-int-int00018", '''
+  false false true
+  49
+  0
+  316496562298888906289930557505553309188
+'''
+  M2: I16 = 561
+  M3: I16 = (-8)
+  M8: U32 = 25
+  M11: U32 = 149
+  M14: U128 = 125400267848409331167981171295510787288
+  M19: U128 = 55244240199736627965964435113840799741
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_i64(x: I64) -> I64
+    x
+
+  sub main()
+    v1: I16 = id_i16((-2))
+    v4: I16 = id_i16((-424))
+    v5: I16 = id_i16((-13737))
+    c6: I16 = 868
+    print(((((M2) if (v1) <= (I16.min) else (M3)) -% (32766 -% 5))) < (((v4 | v5) & (7 +% c6))), ((((M2) if (v1) <= (I16.min) else (M3)) -% (32766 -% 5))) == (((v4 | v5) & (7 +% c6))), ((((M2) if (v1) <= (I16.min) else (M3)) -% (32766 -% 5))) >= (((v4 | v5) & (7 +% c6))))
+    acc7: U32 = id_u32(0x78262ae2)
+    acc7 *%= 20
+    acc7 >>= M8
+    print(acc7)
+    v9: U8 = id_u8(23)
+    v10: U32 = id_u32(0x2cb)
+    r12: U32 = (((13) >> v9) * (v10 % M11))
+    print(r12)
+    acc13: U128 = id_u128(17)
+    acc13 &= M14
+    a15: [2]U128 = [1, 1]
+    acc13 += (0xee1b054a26aa690e861066c1dbb81df3 * a15[1])
+    v18: U128 = id_u128(0b10100)
+    acc13 -= (91 & v18)
+    a20: [2]U128 = [17, 17]
+    acc13 +%= (M19 & a20[1])
+    print(acc13)
+
+test "audit-fuzz-c-int-int00098", '''
+  18446744073709536256
+  6
+  3154350054
+  148257185830376869525594812137715853961
+  125
+'''
+  M2: U64 = 0
+  M8: U32 = 904
+  M16: I8 = 125
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_i64(x: I64) -> I64
+    x
+
+  sub main()
+    acc1: U64 = id_u64(60)
+    acc1 <<= 8
+    c3: Int = 42
+    acc1 ^= ((M2) << c3)
+    v4: U64 = id_u64(18446744073709551615)
+    acc1 *%= v4
+    print(acc1)
+    v5: Int = id_int(6)
+    r6: Int = v5
+    print(r6)
+    acc7: U32 = id_u32(4294967295)
+    v9: U32 = id_u32(3069546554)
+    acc7 *%= (M8 | v9)
+    v10: U32 = id_u32(4294967295)
+    acc7 ^= (v10 - 183901279)
+    v11: U32 = id_u32(1542358335)
+    v12: U32 = id_u32(1198393066)
+    v13: U32 = id_u32(0x1)
+    acc7 *%= ((v13) if (v11) > (v12) else (U32.min))
+    print(acc7)
+    acc14: U128 = id_u128(148257185830376869525594812137715853961)
+    v15: U128 = id_u128(490)
+    acc14 ^= ((v15) >> 108)
+    print(acc14)
+    r17: I8 = M16
+    print(r17)
+
+test "audit-fuzz-c-int-int00274", '''
+  14165
+  18
+  -167272613987918256351572595578690703698
+  475994493979698530056655985331
+'''
+  M6: I8 = (-12)
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_i64(x: I64) -> I64
+    x
+
+  sub main()
+    c1: U16 = 14165
+    r2: U16 = (c1 + U16.min)
+    print(r2)
+    a5: [2]I8 = [(-127), (-127)]
+    v7: I8 = id_i8((-8))
+    v10: I8 = id_i8(55)
+    a11: [2]I8 = [87, 87]
+    r12: I8 = (((I8.max / a5[1]) - (M6 +% v7)) & ((v10 *% 93) ^ (a11[1] *% 3)))
+    print(r12)
+    v14: I128 = id_i128(1)
+    a15: [2]I128 = [(-5), (-5)]
+    c16: Int = (-27)
+    v17: I128 = id_i128((-59204192911892866969906723476099272207))
+    r18: I128 = ((-(v17)) if (((v14 & a15[1]) & ((-4) ^ 274))) != (((0 | 16) / I128(c16))) else ((-167272613987918256351572595578690703698)))
+    print(r18)
+    c19: I128 = 63886899522464814829144077628738142413
+    v20: I128 = id_i128(27)
+    r21: I128 = ((c19) >> v20)
+    print(r21)
+
+test "audit-fuzz-c-lit-.chk-c2862", "[127, 127]"
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gmin[T](a: T, b: T) -> T
+    a if a < b else b
+
+  fun gadd[T](a: T, b: T) -> T
+    a + b
+
+  fun gdbl[T](a: T) -> T
+    a * 2
+
+  fun ghalf[T](a: T) -> T
+    a / 2
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun gnone[T]() -> T?
+    none
+
+  fun gpick[T](a: T, b: T, first: Bool) -> T
+    a if first else b
+
+  fun gfail[T](a: T, ok: Bool) -> T!
+    return GE.bad if not ok
+    a
+
+  error GE
+    bad
+
+  obj Wrap[T]
+    v: T
+
+    fun get(?self) -> T
+      self.v
+
+    fun make(x: T) -> Wrap[T]
+      Wrap(v: x)
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+    fun or(?self, d: T) -> T
+      match self
+        .some(v) => v
+        .nothing => d
+
+  obj Pair[T, U]
+    a: T
+    b: U
+
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun take_u8(x: U8) -> U8
+    x
+
+  fun take_i8(x: I8) -> I8
+    x
+
+  fun take_i16(x: I16) -> I16
+    x
+
+  fun take_u16(x: U16) -> U16
+    x
+
+  fun take_i32(x: I32) -> I32
+    x
+
+  fun take_u32(x: U32) -> U32
+    x
+
+  fun take_int(x: Int) -> Int
+    x
+
+  fun take_u64(x: U64) -> U64
+    x
+
+  fun take_i128(x: I128) -> I128
+    x
+
+  fun take_u128(x: U128) -> U128
+    x
+
+  fun take_float(x: Float) -> Float
+    x
+
+  fun take_f32(x: F32) -> F32
+    x
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t2862()
+    xs2862: [2]U8 = [(gfail(127, true) catch 200), (gfail(127, true) catch 200)]
+    print(xs2862)
+
+  t2862()
+
+test "audit-fuzz-c-lit-.chk-c891", "-32768"
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gmin[T](a: T, b: T) -> T
+    a if a < b else b
+
+  fun gadd[T](a: T, b: T) -> T
+    a + b
+
+  fun gdbl[T](a: T) -> T
+    a * 2
+
+  fun ghalf[T](a: T) -> T
+    a / 2
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun gnone[T]() -> T?
+    none
+
+  fun gpick[T](a: T, b: T, first: Bool) -> T
+    a if first else b
+
+  fun gfail[T](a: T, ok: Bool) -> T!
+    return GE.bad if not ok
+    a
+
+  error GE
+    bad
+
+  obj Wrap[T]
+    v: T
+
+    fun get(?self) -> T
+      self.v
+
+    fun make(x: T) -> Wrap[T]
+      Wrap(v: x)
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+    fun or(?self, d: T) -> T
+      match self
+        .some(v) => v
+        .nothing => d
+
+  obj Pair[T, U]
+    a: T
+    b: U
+
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun take_u8(x: U8) -> U8
+    x
+
+  fun take_i8(x: I8) -> I8
+    x
+
+  fun take_i16(x: I16) -> I16
+    x
+
+  fun take_u16(x: U16) -> U16
+    x
+
+  fun take_i32(x: I32) -> I32
+    x
+
+  fun take_u32(x: U32) -> U32
+    x
+
+  fun take_int(x: Int) -> Int
+    x
+
+  fun take_u64(x: U64) -> U64
+    x
+
+  fun take_i128(x: I128) -> I128
+    x
+
+  fun take_u128(x: U128) -> U128
+    x
+
+  fun take_float(x: Float) -> Float
+    x
+
+  fun take_f32(x: F32) -> F32
+    x
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t891()
+    print(take_i16(gid(gid((-32768)))))
+
+  t891()
+
+test "audit-fuzz-c-lit-p00005", '''
+  200
+  107
+  [510, 510]
+  -1
+  0 Wrap(v: 0)
+  2
+  100 Wrap(v: 100)
+  3.0
+  4.0
+  170141183460469231731687303715884105727
+  3.0
+  127
+  -100
+  100
+  100
+'''
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gmin[T](a: T, b: T) -> T
+    a if a < b else b
+
+  fun gadd[T](a: T, b: T) -> T
+    a + b
+
+  fun gdbl[T](a: T) -> T
+    a * 2
+
+  fun ghalf[T](a: T) -> T
+    a / 2
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun gnone[T]() -> T?
+    none
+
+  fun gpick[T](a: T, b: T, first: Bool) -> T
+    a if first else b
+
+  fun gfail[T](a: T, ok: Bool) -> T!
+    return GE.bad if not ok
+    a
+
+  error GE
+    bad
+
+  obj Wrap[T]
+    v: T
+
+    fun get(?self) -> T
+      self.v
+
+    fun make(x: T) -> Wrap[T]
+      Wrap(v: x)
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+    fun or(?self, d: T) -> T
+      match self
+        .some(v) => v
+        .nothing => d
+
+  obj Pair[T, U]
+    a: T
+    b: U
+
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun take_u8(x: U8) -> U8
+    x
+
+  fun take_i8(x: I8) -> I8
+    x
+
+  fun take_i16(x: I16) -> I16
+    x
+
+  fun take_u16(x: U16) -> U16
+    x
+
+  fun take_i32(x: I32) -> I32
+    x
+
+  fun take_u32(x: U32) -> U32
+    x
+
+  fun take_int(x: Int) -> Int
+    x
+
+  fun take_u64(x: U64) -> U64
+    x
+
+  fun take_i128(x: I128) -> I128
+    x
+
+  fun take_u128(x: U128) -> U128
+    x
+
+  fun take_float(x: Float) -> Float
+    x
+
+  fun take_f32(x: F32) -> F32
+    x
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  fun ret24() -> U32
+    2
+
+  fun ret2197() -> F32
+    gid(gid((gnone() ?? 3)))
+
+  fun ret1473() -> I16
+    (gsome(100) ?? 255)
+
+  sub t2276()
+    p2276: Pair[I16, Int] = Pair(a: gmax(0, 200), b: 1)
+    print(p2276.a)
+
+  sub t2099()
+    p2099: Pair[I128, Int] = Pair(a: gadd(7, 100), b: 1)
+    print(p2099.a)
+
+  sub t1742()
+    xs1742: [2]U64 = [gdbl(255), gdbl(255)]
+    print(xs1742)
+
+  sub t2266()
+    o2266: Opt[I128] = .some(gid((-1)))
+    print(o2266.or((-170141183460469231731687303715884105728)))
+
+  sub t2173()
+    w2173: Wrap[U64] = Wrap(v: 0)
+    print(w2173.v, w2173)
+
+  sub t24()
+    print(ret24())
+
+  sub t17()
+    w17: Wrap[U64] = Wrap(v: ghalf(gid(200)))
+    print(w17.v, w17)
+
+  sub t1959()
+    print(take_float((gfail(3, false) catch 3)))
+
+  sub t1411()
+    v1411: List[Float] = List()
+    !v1411.push(4)
+    print(v1411[0])
+
+  sub t1721()
+    x1721: I128 = 170141183460469231731687303715884105727
+    print(x1721)
+
+  sub t2197()
+    print(ret2197())
+
+  sub t162()
+    b162: I128 = id_i128(0)
+    print(b162 + 127)
+
+  sub t254()
+    q254: I8? = (gnone() ?? (-100))
+    print(q254)
+
+  sub t1849()
+    p1849: Pair[I32, Int] = Pair(a: gmax(gpick((-1), 2147483647, rt_bool(true)), gid(100)), b: 1)
+    print(p1849.a)
+
+  sub t1473()
+    print(ret1473())
+
+  t2276()
+  t2099()
+  t1742()
+  t2266()
+  t2173()
+  t24()
+  t17()
+  t1959()
+  t1411()
+  t1721()
+  t2197()
+  t162()
+  t254()
+  t1849()
+  t1473()
+
+test "audit-fuzz-c-mut-b2a5846d3c"
+  # A lambda literal inside an array literal escapes its scope and is
+  # rejected.
+
+  count: *Cell[Int] = *Cell(0)
+
+test "audit-fuzz-c-mut-c1a5565a76", '''
+  2 -1
+  1
+'''
+  fun index_of(xs: ?[4]Int, target: Int) -> Int
+    for x, i in xs
+      break i if x == target
+    else
+      -1
+
+  xs = [3, 1, 4, 1]
+  print(index_of(?xs, 4), index_of(?xs, 9))
+  n = 27
+  steps = 0
+  last = while true
+    break steps if n == 1
+    n = n / 2 if n % 2 == 0 else 3 * n + 1
+    steps = 1
+  print(last)
+
+bomb "audit-fuzz-c-ovf-v00441", "integer overflow", prints: "before"
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  print("before")
+  x: I32 = (-2147483648)
+  x -= 1
+  print("after", x)
+
+test "audit-fuzz-c-tmp-t00027", '''
+  val 1
+  val 2
+  new 1
+  new 2
+  use 1
+  rel 2
+  rel 1
+  val 2
+  new 3
+  new 3004
+  rel 3
+  new 5
+  new 6
+  use 6
+  rel 6
+  use 5
+  rel 5
+  use 3004
+  val 12
+  rel 3004
+  got 0
+  new 17
+  new 18
+  rel 17
+  new 19
+  new 20
+  use 20
+  use 19
+  rel 20
+  rel 19
+  use 18
+  val 19
+  new 21
+  new 22
+  new 23
+  new 24
+  new 25
+  new 26
+  new 27
+  use 26
+  rel 27
+  rel 26
+  new 3028
+  use 25
+  use 3028
+  rel 3028
+  rel 25
+  new 29
+  use 24
+  use 29
+  rel 29
+  rel 24
+  val 2
+  rel 23
+  rel 22
+  rel 21
+  rel 18
+  got 0
+  new 40
+  new 41
+  new 4042
+  val 2
+  new 43
+  new 44
+  new 3045
+  rel 3045
+  rel 44
+  rel 43
+  rel 4042
+  rel 41
+  rel 40
+  got 0
+  new 56
+  new 4057
+  val 2
+  new 58
+  new 59
+  val 3
+  new 60
+  rel 60
+  rel 59
+  rel 58
+  rel 4057
+  rel 56
+  got none
+'''
+  obj R
+    id: Int
+
+    drop(!self)
+      print("rel", self.id)
+
+    fun look(?self) -> Int
+      print("use", self.id)
+      self.id
+
+  obj P
+    a: R
+    b: R
+
+  obj Q
+    h: *R
+    o: R?
+
+  enum HR
+    one(r: R)
+    two(a: R, b: *R)
+    empty
+
+  obj M
+    r: R
+
+    fun with(<self, n: Int) -> Int
+      print("use", self.r.id)
+      n + self.r.id
+
+    fun peek(?self, n: Int) -> Int
+      print("use", self.r.id)
+      n
+
+    sub put(!self, r: R)
+      self.r = <r
+
+  error E
+    bad
+
+  fun mk(id: Int) -> R
+    print("new", id)
+    R(id: id)
+
+  fun mkm(id: Int) -> M
+    M(r: mk(id))
+
+  fun mayr(k: Int) -> R!
+    return E.bad if k == 0
+    mk(k)
+
+  fun may(k: Int) -> Int!
+    return E.bad if k == 0
+    k
+
+  fun optr(k: Int) -> R?
+    return none if k == 0
+    mk(k)
+
+  fun opt(k: Int) -> Int?
+    return none if k == 0
+    k
+
+  fun two(a: R, b: R) -> Int
+    print("use", a.id)
+    print("use", b.id)
+    a.id + b.id
+
+  fun one(a: R, n: Int) -> Int
+    print("use", a.id)
+    a.id + n
+
+  fun take3(a: R, n: Int, b: R) -> Int
+    print("use", a.id)
+    print("use", b.id)
+    n
+
+  fun hand(h: *R, n: Int) -> Int
+    print("use", h.id)
+    n
+
+  fun bx(b: ^R, n: Int) -> Int
+    print("use", b.id)
+    n
+
+  fun pp(p: P) -> Int
+    print("use", p.a.id)
+    print("use", p.b.id)
+    1
+
+  fun qq(q: Q) -> Int
+    print("use", q.h.id)
+    2
+
+  fun hr(e: HR) -> Int
+    match <e
+      .one(r) => r.look()
+      .two(a, b)
+        print("use", b.id)
+        a.look()
+      .empty => 0
+
+  fun ints(xs: [2]Int) -> Int
+    xs[0] + xs[1]
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun h0() -> Int?
+    b0 = [1, opt(rt_int(5))?]
+    print("val", b0[0])
+    print("val", opt(rt_int(2))?)
+    print("val", qq(Q(h: *mk(1), o: mk(2))))
+    m4 = M(r: mk(3))
+    !m4.put(optr(rt_int(3004))?)
+    print("val", m4.peek(one(mk(5), bx(^mk(6), 7))))
+    0
+
+  fun h1() -> Int?
+    m0 = M(r: mk(17))
+    !m0.put(mk(18))
+    print("val", m0.peek(hr(HR.two(a: mk(19), b: *mk(20)))))
+    v3: List[*R] = List()
+    !v3.push(*mk(21))
+    !v3.push(*mk(22))
+    !v3.push(*mk(23))
+    print("val", take3(mk(24), take3(mk(25), qq(Q(h: *mk(26), o: mk(27))), optr(rt_int(3028))?), mk(29)))
+    0
+
+  fun h2() -> Int?
+    x0 = mk(40)
+    q1 = Q(h: *mk(41), o: optr(rt_int(4042))?)
+    print("val", opt(rt_int(2))?)
+    p3 = P(a: mk(43), b: mk(44))
+    x4 = optr(rt_int(3045))?
+    0
+
+  fun h3() -> Int?
+    v0: List[*R] = List()
+    !v0.push(*mk(56))
+    x2 = optr(rt_int(4057))?
+    print("val", opt(rt_int(2))?)
+    p4 = P(a: mk(58), b: mk(59))
+    print("val", 3)
+    print("val", one(mk(60), one(optr(rt_int(0))?, 5)))
+    0
+
+  print("got", h0())
+  print("got", h1())
+  print("got", h2())
+  print("got", h3())
+
+test "audit-fuzz-c-tmp-t00148", '''
+  caught E.bad
+  new 16
+  rel 16
+  caught E.bad
+  val 0
+  new 4036
+  new 37
+  new 38
+  new 39
+  rel 39
+  rel 38
+  rel 37
+  rel 4036
+  got 0
+'''
+  obj R
+    id: Int
+
+    drop(!self)
+      print("rel", self.id)
+
+    fun look(?self) -> Int
+      print("use", self.id)
+      self.id
+
+  obj P
+    a: R
+    b: R
+
+  obj Q
+    h: *R
+    o: R?
+
+  enum HR
+    one(r: R)
+    two(a: R, b: *R)
+    empty
+
+  obj M
+    r: R
+
+    fun with(<self, n: Int) -> Int
+      print("use", self.r.id)
+      n + self.r.id
+
+    fun peek(?self, n: Int) -> Int
+      print("use", self.r.id)
+      n
+
+    sub put(!self, r: R)
+      self.r = <r
+
+  error E
+    bad
+
+  fun mk(id: Int) -> R
+    print("new", id)
+    R(id: id)
+
+  fun mkm(id: Int) -> M
+    M(r: mk(id))
+
+  fun mayr(k: Int) -> R!
+    return E.bad if k == 0
+    mk(k)
+
+  fun may(k: Int) -> Int!
+    return E.bad if k == 0
+    k
+
+  fun optr(k: Int) -> R?
+    return none if k == 0
+    mk(k)
+
+  fun opt(k: Int) -> Int?
+    return none if k == 0
+    k
+
+  fun two(a: R, b: R) -> Int
+    print("use", a.id)
+    print("use", b.id)
+    a.id + b.id
+
+  fun one(a: R, n: Int) -> Int
+    print("use", a.id)
+    a.id + n
+
+  fun take3(a: R, n: Int, b: R) -> Int
+    print("use", a.id)
+    print("use", b.id)
+    n
+
+  fun hand(h: *R, n: Int) -> Int
+    print("use", h.id)
+    n
+
+  fun bx(b: ^R, n: Int) -> Int
+    print("use", b.id)
+    n
+
+  fun pp(p: P) -> Int
+    print("use", p.a.id)
+    print("use", p.b.id)
+    1
+
+  fun qq(q: Q) -> Int
+    print("use", q.h.id)
+    2
+
+  fun hr(e: HR) -> Int
+    match <e
+      .one(r) => r.look()
+      .two(a, b)
+        print("use", b.id)
+        a.look()
+      .empty => 0
+
+  fun ints(xs: [2]Int) -> Int
+    xs[0] + xs[1]
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  sub h0()!
+    b0 = [may(rt_int(0))!, 1]
+    print("val", b0[0])
+    b2 = [hr(HR.two(a: mk(1), b: *mk(2))), pp(P(a: mayr(rt_int(3003))!, b: mk(4)))]
+    print("val", b2[0])
+    v4: List[*R] = List()
+    !v4.push(*mk(5))
+    print("val", may(rt_int(5))!)
+    print("val", 4)
+
+  sub h1()!
+    v0: List[*R] = List()
+    !v0.push(*mk(16))
+    !v0.push(*mayr(rt_int(0))!)
+    !v0.push(*mk(18))
+    e4 = HR.one(r: mk(19))
+    b5 = [6, M(r: mk(20)).with(take3(mk(21), 4, mk(22)))]
+    print("val", b5[0])
+    q7 = Q(h: *mk(23), o: mk(24))
+    x8 = mayr(rt_int(4025))!
+
+  fun h2() -> Int?
+    print("val", 0)
+    x1 = optr(rt_int(4036))?
+    q2 = Q(h: *mk(37), o: mk(38))
+    x3 = mk(39)
+    0
+
+  h0() catch |e| print("caught", e)
+  h1() catch |e| print("caught", e)
+  print("got", h2())
+
+test "audit-fuzz-c-tmp-t00214", '''
+  new 1
+  new 3002
+  use 1
+  rel 3002
+  rel 1
+  val 2
+  new 3
+  use 3
+  rel 3
+  val 8
+  new 4
+  new 5
+  new 6
+  new 7
+  new 8
+  rel 7
+  use 8
+  val 5
+  rel 8
+  rel 6
+  rel 5
+  rel 4
+  got 0
+  got none
+  new 3034
+  val 2
+  new 35
+  new 36
+  new 37
+  new 38
+  use 38
+  use 37
+  rel 38
+  rel 37
+  rel 36
+  rel 35
+  rel 3034
+  got none
+  new 51
+  new 4052
+  new 53
+  new 54
+  use 53
+  use 54
+  rel 54
+  rel 53
+  val 1
+  new 55
+  new 56
+  new 57
+  use 57
+  rel 57
+  new 58
+  use 56
+  use 58
+  rel 58
+  rel 56
+  use 55
+  rel 55
+  val 58
+  new 59
+  new 4060
+  rel 4060
+  rel 59
+  rel 4052
+  rel 51
+  got 0
+'''
+  obj R
+    id: Int
+
+    drop(!self)
+      print("rel", self.id)
+
+    fun look(?self) -> Int
+      print("use", self.id)
+      self.id
+
+  obj P
+    a: R
+    b: R
+
+  obj Q
+    h: *R
+    o: R?
+
+  enum HR
+    one(r: R)
+    two(a: R, b: *R)
+    empty
+
+  obj M
+    r: R
+
+    fun with(<self, n: Int) -> Int
+      print("use", self.r.id)
+      n + self.r.id
+
+    fun peek(?self, n: Int) -> Int
+      print("use", self.r.id)
+      n
+
+    sub put(!self, r: R)
+      self.r = <r
+
+  error E
+    bad
+
+  fun mk(id: Int) -> R
+    print("new", id)
+    R(id: id)
+
+  fun mkm(id: Int) -> M
+    M(r: mk(id))
+
+  fun mayr(k: Int) -> R!
+    return E.bad if k == 0
+    mk(k)
+
+  fun may(k: Int) -> Int!
+    return E.bad if k == 0
+    k
+
+  fun optr(k: Int) -> R?
+    return none if k == 0
+    mk(k)
+
+  fun opt(k: Int) -> Int?
+    return none if k == 0
+    k
+
+  fun two(a: R, b: R) -> Int
+    print("use", a.id)
+    print("use", b.id)
+    a.id + b.id
+
+  fun one(a: R, n: Int) -> Int
+    print("use", a.id)
+    a.id + n
+
+  fun take3(a: R, n: Int, b: R) -> Int
+    print("use", a.id)
+    print("use", b.id)
+    n
+
+  fun hand(h: *R, n: Int) -> Int
+    print("use", h.id)
+    n
+
+  fun bx(b: ^R, n: Int) -> Int
+    print("use", b.id)
+    n
+
+  fun pp(p: P) -> Int
+    print("use", p.a.id)
+    print("use", p.b.id)
+    1
+
+  fun qq(q: Q) -> Int
+    print("use", q.h.id)
+    2
+
+  fun hr(e: HR) -> Int
+    match <e
+      .one(r) => r.look()
+      .two(a, b)
+        print("use", b.id)
+        a.look()
+      .empty => 0
+
+  fun ints(xs: [2]Int) -> Int
+    xs[0] + xs[1]
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun h0() -> Int?
+    print("val", qq(Q(h: *mk(1), o: optr(rt_int(3002))?)))
+    print("val", one(mk(3), opt(rt_int(5))?))
+    p2 = P(a: mk(4), b: mk(5))
+    v3: List[*R] = List()
+    !v3.push(*mk(6))
+    m5 = M(r: mk(7))
+    !m5.put(mk(8))
+    print("val", m5.peek(5))
+    0
+
+  fun h1() -> Int?
+    print("val", qq(Q(h: *optr(rt_int(0))?, o: optr(rt_int(4020))?)))
+    q1 = Q(h: *mk(21), o: mk(22))
+    q2 = Q(h: *optr(rt_int(4023))?, o: none)
+    0
+
+  fun h2() -> Int?
+    e0 = HR.one(r: optr(rt_int(3034))?)
+    print("val", opt(rt_int(2))?)
+    p2 = P(a: mk(35), b: mk(36))
+    b3 = [ints([2, hr(HR.two(a: mk(37), b: *mk(38)))]), two(optr(rt_int(0))?, mk(40))]
+    print("val", b3[0])
+    0
+
+  fun h3() -> Int?
+    v0: List[*R] = List()
+    !v0.push(*mk(51))
+    !v0.push(*optr(rt_int(4052))?)
+    print("val", pp(P(a: mk(53), b: mk(54))))
+    print("val", bx(^mk(55), take3(mk(56), M(r: mk(57)).with(1), mk(58))))
+    p5 = P(a: mk(59), b: optr(rt_int(4060))?)
+    0
+
+  print("got", h0())
+  print("got", h1())
+  print("got", h2())
+  print("got", h3())
+
+test "audit-fuzz-c-tmp-t00237", '''
+  new 1
+  new 4002
+  use 1
+  use 4002
+  rel 4002
+  rel 1
+  new 3
+  new 4
+  use 3
+  use 4
+  rel 4
+  rel 3
+  val 4003
+  new 5
+  new 6
+  new 7
+  rel 7
+  rel 6
+  rel 5
+  got 0
+  new 3018
+  use 3018
+  rel 3018
+  val 8
+  new 19
+  new 20
+  new 21
+  new 22
+  new 23
+  new 24
+  use 23
+  use 24
+  rel 24
+  rel 23
+  val 3
+  rel 22
+  rel 21
+  rel 20
+  rel 19
+  got 0
+  new 35
+  new 36
+  rel 36
+  rel 35
+  caught E.bad
+  new 50
+  new 51
+  new 52
+  use 52
+  use 51
+  rel 52
+  rel 51
+  use 50
+  rel 50
+  val 101
+  new 53
+  new 3054
+  rel 3054
+  rel 53
+'''
+  obj R
+    id: Int
+
+    drop(!self)
+      print("rel", self.id)
+
+    fun look(?self) -> Int
+      print("use", self.id)
+      self.id
+
+  obj P
+    a: R
+    b: R
+
+  obj Q
+    h: *R
+    o: R?
+
+  enum HR
+    one(r: R)
+    two(a: R, b: *R)
+    empty
+
+  obj M
+    r: R
+
+    fun with(<self, n: Int) -> Int
+      print("use", self.r.id)
+      n + self.r.id
+
+    fun peek(?self, n: Int) -> Int
+      print("use", self.r.id)
+      n
+
+    sub put(!self, r: R)
+      self.r = <r
+
+  error E
+    bad
+
+  fun mk(id: Int) -> R
+    print("new", id)
+    R(id: id)
+
+  fun mkm(id: Int) -> M
+    M(r: mk(id))
+
+  fun mayr(k: Int) -> R!
+    return E.bad if k == 0
+    mk(k)
+
+  fun may(k: Int) -> Int!
+    return E.bad if k == 0
+    k
+
+  fun optr(k: Int) -> R?
+    return none if k == 0
+    mk(k)
+
+  fun opt(k: Int) -> Int?
+    return none if k == 0
+    k
+
+  fun two(a: R, b: R) -> Int
+    print("use", a.id)
+    print("use", b.id)
+    a.id + b.id
+
+  fun one(a: R, n: Int) -> Int
+    print("use", a.id)
+    a.id + n
+
+  fun take3(a: R, n: Int, b: R) -> Int
+    print("use", a.id)
+    print("use", b.id)
+    n
+
+  fun hand(h: *R, n: Int) -> Int
+    print("use", h.id)
+    n
+
+  fun bx(b: ^R, n: Int) -> Int
+    print("use", b.id)
+    n
+
+  fun pp(p: P) -> Int
+    print("use", p.a.id)
+    print("use", p.b.id)
+    1
+
+  fun qq(q: Q) -> Int
+    print("use", q.h.id)
+    2
+
+  fun hr(e: HR) -> Int
+    match <e
+      .one(r) => r.look()
+      .two(a, b)
+        print("use", b.id)
+        a.look()
+      .empty => 0
+
+  fun ints(xs: [2]Int) -> Int
+    xs[0] + xs[1]
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun h0() -> Int?
+    b0 = [two(mk(1), optr(rt_int(4002))?), pp(P(a: mk(3), b: mk(4)))]
+    print("val", b0[0])
+    x2 = mk(5)
+    v3: List[*R] = List()
+    !v3.push(*mk(6))
+    !v3.push(*mk(7))
+    0
+
+  fun h1() -> Int?
+    b0 = [8, bx(^optr(rt_int(3018))?, opt(rt_int(2))?)]
+    print("val", b0[0])
+    x2 = mk(19)
+    q3 = Q(h: *mk(20), o: none)
+    p4 = P(a: mk(21), b: mk(22))
+    print("val", take3(mk(23), 3, mk(24)))
+    0
+
+  sub h2()!
+    x0 = mk(35)
+    m1 = M(r: mk(36))
+    !m1.put(mayr(rt_int(0))!)
+    print("val", m1.peek(4))
+    q4 = Q(h: *mk(38), o: mk(39))
+
+  sub h3()!
+    b0 = [one(mk(50), hr(HR.two(a: mk(51), b: *mk(52)))), 4]
+    print("val", b0[0])
+    e2 = HR.one(r: mk(53))
+    e3 = HR.one(r: mayr(rt_int(3054))!)
+
+  print("got", h0())
+  print("got", h1())
+  h2() catch |e| print("caught", e)
+  h3() catch |e| print("caught", e)
+
+test "audit-fuzz-c-tmp-t00260", '''
+  new 4001
+  new 2
+  new 3
+  rel 3
+  rel 2
+  rel 4001
+  caught E.bad
+  new 23
+  rel 23
+  caught E.bad
+'''
+  obj R
+    id: Int
+
+    drop(!self)
+      print("rel", self.id)
+
+    fun look(?self) -> Int
+      print("use", self.id)
+      self.id
+
+  obj P
+    a: R
+    b: R
+
+  obj Q
+    h: *R
+    o: R?
+
+  enum HR
+    one(r: R)
+    two(a: R, b: *R)
+    empty
+
+  obj M
+    r: R
+
+    fun with(<self, n: Int) -> Int
+      print("use", self.r.id)
+      n + self.r.id
+
+    fun peek(?self, n: Int) -> Int
+      print("use", self.r.id)
+      n
+
+    sub put(!self, r: R)
+      self.r = <r
+
+  error E
+    bad
+
+  fun mk(id: Int) -> R
+    print("new", id)
+    R(id: id)
+
+  fun mkm(id: Int) -> M
+    M(r: mk(id))
+
+  fun mayr(k: Int) -> R!
+    return E.bad if k == 0
+    mk(k)
+
+  fun may(k: Int) -> Int!
+    return E.bad if k == 0
+    k
+
+  fun optr(k: Int) -> R?
+    return none if k == 0
+    mk(k)
+
+  fun opt(k: Int) -> Int?
+    return none if k == 0
+    k
+
+  fun two(a: R, b: R) -> Int
+    print("use", a.id)
+    print("use", b.id)
+    a.id + b.id
+
+  fun one(a: R, n: Int) -> Int
+    print("use", a.id)
+    a.id + n
+
+  fun take3(a: R, n: Int, b: R) -> Int
+    print("use", a.id)
+    print("use", b.id)
+    n
+
+  fun hand(h: *R, n: Int) -> Int
+    print("use", h.id)
+    n
+
+  fun bx(b: ^R, n: Int) -> Int
+    print("use", b.id)
+    n
+
+  fun pp(p: P) -> Int
+    print("use", p.a.id)
+    print("use", p.b.id)
+    1
+
+  fun qq(q: Q) -> Int
+    print("use", q.h.id)
+    2
+
+  fun hr(e: HR) -> Int
+    match <e
+      .one(r) => r.look()
+      .two(a, b)
+        print("use", b.id)
+        a.look()
+      .empty => 0
+
+  fun ints(xs: [2]Int) -> Int
+    xs[0] + xs[1]
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  sub h0()!
+    p0 = P(a: mayr(rt_int(4001))!, b: mk(2))
+    v1: List[*R] = List()
+    !v1.push(*mk(3))
+    !v1.push(*mayr(rt_int(0))!)
+    v4: List[*R] = List()
+    !v4.push(*mk(5))
+    !v4.push(*mk(6))
+    !v4.push(*mk(7))
+    print("val", ints([hr(HR.two(a: mk(8), b: *mk(9))), pp(P(a: mk(10), b: mk(11)))]))
+    x9 = mk(12)
+
+  sub h1()!
+    p0 = P(a: mk(23), b: mayr(rt_int(0))!)
+    b1 = [may(rt_int(2))!, ints([7, qq(Q(h: *mk(25), o: mk(26)))])]
+    print("val", b1[0])
+    b3 = [M(r: mk(27)).with(qq(Q(h: *mk(28), o: mk(29)))), 0]
+    print("val", b3[0])
+
+  h0() catch |e| print("caught", e)
+  h1() catch |e| print("caught", e)
+
+test "audit-fuzz-pf1-accepted-49de5b5de7", '''
+  drop 2
+  dropped b early
+  end of run
+  drop 1
+  end of run
+  drop 2
+  drop 1
+'''
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  sub run(early: Bool)
+    a = Noisy(id: 1)
+    b = Noisy(id: 2)
+    if early
+      <b
+      print("dropped b early")
+    print("end of run")
+
+  run(true)
+  run(false)
+
+test "audit-fuzz-pf1-accepted-718565b254", '''
+  80
+  [7, 3, 30, 40]
+'''
+  fun total(xs: []Int) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  sub scale(s: ![]Int, k: Int)
+    for x in !s
+
+      x *= k
+
+  fun rest(s: ![]Int) -> ![]Int
+    !s[1..]
+
+  a = [1, 2, 3, 4]
+  scale(!a[2..], 10)
+  w = !a[..]
+  w[0] = 7
+  r = rest(!w[..])
+  r[0] += 1
+  print(total(w))
+  print(a)
+
+test "audit-fuzz-pf1-accepted-abca6d5a73", '''
+  2
+  2
+  -18
+'''
+  M5: I8 = (-6)
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_i64(x: I64) -> I64
+    x
+
+  sub main()
+    acc1: I8 = id_i8((-13))
+    v2: I8 = id_i8((-19))
+    v3: I8 = id_i8(33)
+    a4: [2]I8 = [20, 20]
+    acc1 ^= ((a4[1]) if (v2) < (v3) else (M5))
+    v7: I8 = id_i8(80)
+    acc1 *%= (v7 & 4)
+    v8: I8 = id_i8(58)
+    v9: I8 = id_i8((-60))
+    acc1 -= (v8 +% v9)
+    print(acc1)
+    v10: U128 = id_u128(2)
+    r11: U128 = v10
+    print(r11)
+    r12: I32 = (-18)
+    print(r12)
+
+test "audit-fuzz-pf1-accepted-d20598854b", "3 3.5 3.5"
+  fun half[T](x: T) -> T
+    x / 2
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  f: Float = half(7)
+  print(half(7), f, max(half(7), 2.5))
+
+fail "audit-fuzz-pf1-accepted-ef0d28d8d2", "cannot move out of `pair.name`: it copies, so `<` would leave it as it was; remove the `<` to copy it"
+  # Only `?`, `!`, and `<` reach a method's receiver. The other prefix
+  # sigils, and `?` / `!` / `<` before a place with no method call after
+
+  # it, apply to the whole expression; `?(p.m())` views a call's result.
+
+  obj Point
+    x: Int
+    fun origin() -> Point
+      Point(x: 0)
+    fun shifted(?self, d: Int) -> Point
+      Point(x: self.x + d)
+
+  obj Leaf
+    n: Int
+
+  obj Tree
+    leaf: *Leaf
+    fun first(?self) -> ?*Leaf
+      ?self.leaf
+
+  obj Pair
+    v: List[Int]
+    name: ?String
+
+  sub fill(v: !List[Int])
+    !v.push(1)
+
+  sub show(p: ?Point)
+    print(p.x)
+
+  shared = *Point.origin()
+  print(shared.x)
+  tree = Tree(leaf: *Leaf(n: 3))
+  copy = +tree.first()
+  weak = ~copy
+  print(copy.n, *weak != none)
+  p = Point(x: 4)
+  print(-p.x, -p.shifted(1).x)
+  show(?(p.shifted(2)))
+  pair = Pair(v: List(), name: "pair")
+  fill(!pair.v)
+  print(pair.v.len)
+  name = <pair.name
+  print(name)
+  xs = [1, 2, 3]
+  first = ?xs[0]
+  q = <p
+  print(first, q.x)
+
+  # oracle: main reject C3
+
+test "audit-fuzz-pf2-accepted-04f43a2a81", "10.0 2.0 -12950.0 300.0 225"
+  # A hex literal's `e` is a digit, not an exponent.
+
+  big = 1.0e10
+  small = 2e-3
+  mid = -129.5E+2
+  typed: Float = 3e2
+  hex = 0xE1
+  print(big / 1e9, small * 1000.0, mid, typed, hex)
+
+test "audit-fuzz-pf2-accepted-0bb6dd2b9b", '''
+  true
+  false
+  true false
+  1
+  long form
+  4
+'''
+  # A call that lends its receiver to write whose value is a `Bool` takes the short form
+  # `!s.add(x)` wherever its `!` cannot read as negation: a binding, an
+  # argument, a return value, a body's value.
+
+  obj Set
+    items: List[Int]
+    fun insert(!self, k: Int) -> Bool
+      for x in ?self.items
+        return false if x == k
+      !self.items.push(k)
+      true
+    fun checked(!self, k: Int) -> Bool!
+      (!self).insert(k)
+
+  fun add(s: !Set, k: Int) -> Bool
+    return (!s).insert(k)
+
+  fun again(s: !Set, k: Int) -> Bool
+    (!s).insert(k)
+
+  fun fill(s: !Set) -> Int!
+    added = (!s).checked(3)!
+    1 if added else 0
+
+  # 1
+  set = Set(items: List())
+  fresh = (!set).insert(1)
+  print(fresh)
+  print((!set).insert(1))
+  print(add(!set, 2), again(!set, 2))
+  print(fill(!set) catch 0)
+  if (!set).insert(4) and not (!set).insert(4)
+    print("long form")
+  print(set.items.len)
+
+
+  # long form
+  # 4
+
+test "audit-fuzz-pf2-accepted-1203e26d53", "200 -7 3.5 256"
+  fun average(total: Int, count: Int) -> Float
+    Float(total) / Float(count)
+
+
+  big = 300
+  print(U8(big - 100), Int(-7.9), average(7, 2), I32(U8(255)) + 1)
+
+test "audit-fuzz-pf2-accepted-142f3b6e69", '''
+  1
+  2
+  end
+  2
+'''
+  # Assigning a field through `!self` drops the old value and keeps the new
+  # one in the caller's struct.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  obj Slot
+    held: *Noisy
+
+    sub put(!self, n: *Noisy)
+      self.held = +n
+
+  s = Slot(held: *Noisy(id: 1))
+  !s.put(*Noisy(id: 2))
+  print(s.held.id)
+  print("end")
+
+test "audit-fuzz-pf2-accepted-1fda7c156c", '''
+  [10, 20, 30]
+  after
+  saw 0
+  drop 0
+  kept 1
+  drop 1
+  saw 2
+  drop 2
+  after
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub keep(b: *B)
+    print("kept", b.n)
+
+  xs = [1, 2, 3]
+  for x in !xs
+    x *= 10
+  print(xs)
+  v: List[*B] = List()
+
+  print("after")
+  for i in 0..3
+    !v.push(*B(n: i))
+  for b, i in <v
+    if i == 1
+      keep(<b)
+      continue
+    print("saw", b.n)
+  print("after")
+
+test "audit-fuzz-pf2-accepted-2173e5e6f5", "10.25 0.0"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  fun ri729(go: Bool) -> F32
+    if go
+
+      return gid(10.25)
+    0
+
+  sub t729()
+    print(ri729(true), ri729(false))
+
+  t729()
+
+test "audit-fuzz-pf2-accepted-28965b4750", "14"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  obj Bx819
+    f: I8
+
+  sub t819()
+    bx819 = Bx819(f: 14)
+    gy819: I8 = gid(bx819.f)
+    print(gy819)
+
+  t819()
+
+test "audit-fuzz-pf2-accepted-38eb257bac", '''
+  new 10
+  new 11
+  new 20
+  new 21
+  use 20
+  use 21
+  use 10
+  use 11
+  new 40
+  new 50
+  rel 50
+  use 40
+  new 60
+  new 61
+  new 70
+  new 71
+  rel 71
+  rel 70
+  use 60
+  use 61
+  new 80
+  new 90
+  use 80
+  use 90
+  rel 90
+  rel 80
+  rel 61
+  rel 60
+  rel 40
+  rel 11
+  rel 10
+  rel 21
+  rel 20
+  new 100
+  new 110
+  use 100
+  use 110
+  new 120
+  new 130
+  rel 130
+  use 120
+  new 140
+  use 140
+  new 150
+  int 1
+  use 150
+  new 160
+  new 161
+  use 160
+  use 161
+  new 170
+  use 170
+  rel 170
+  rel 161
+  rel 160
+  rel 150
+  rel 140
+  rel 120
+  rel 110
+  rel 100
+  new 180
+  new 190
+  use 190
+  use 180
+  rel 180
+  rel 190
+'''
+  obj R
+    id: Int
+
+    drop(!self)
+      print("rel", self.id)
+
+  obj P
+    a: R
+    b: R
+
+  enum HR
+    one(r: R)
+    empty
+
+  error E
+    bad
+
+  fun mk(id: Int) -> R
+    print("new", id)
+    R(id: id)
+
+  fun optr(id: Int) -> R?
+    return none if id % 3 == 0
+    mk(id)
+
+  sub look(r: ?R)
+    print("use", r.id)
+
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun pick[T](a: T, b: T, first: Bool) -> T
+    if first
+      return <a
+    <b
+
+  fun keep_first[T](a: T, b: T) -> T
+    a
+
+  fun ident[T](x: T) -> T
+    x
+
+  fun cycle[T](x: T, n: Int) -> T
+    cur = <x
+    for _ in 0..n
+      cur = ident(<cur)
+    cur
+
+  fun wrap[T](x: T) -> T?
+    x
+
+  fun unwrap_or[T](o: T?, d: T) -> T
+    if <o as v
+      return <v
+    <d
+
+  fun first_some[T](a: T?, b: T?) -> T?
+    if <a as x
+      return <x
+    <b
+
+  fun must[T](o: T?) -> T!
+    if <o as x
+      return <x
+    return E.bad
+
+  fun chain[T](o: T?) -> T?
+    x = (<o)?
+    x
+
+  sub swap_gen[T](a: !T, b: !T) keeps a, b
+    swap(!a, !b)
+
+  fun first_ref[T, U](p: ?Pair[T, U]) -> ?T
+    ?p.first
+
+  obj Pair[T, U]
+    first: T
+    second: U
+
+    fun left(?self) -> ?T
+      ?self.first
+
+  obj Shelf[T]
+    items: List[T]
+
+    sub add(!self, x: T)
+      !self.items.push(<x)
+
+    fun take(!self) -> T?
+      (!self.items).pop()
+
+  enum Maybe[T]
+    just(v: T)
+    nada
+
+  fun get_or[T](m: Maybe[T], d: T) -> T
+    match <m
+      .just(v) => v
+      .nada => d
+
+  fun fill_shelf[T](a: T, b: T) -> Shelf[T]
+    s = Shelf[T](items: List())
+    !s.add(<a)
+    !s.add(<b)
+    s
+
+  sub h0()
+    a1 = P(a: mk(10), b: mk(11))
+    b1 = P(a: mk(20), b: mk(21))
+    swap_gen(!a1, !b1)
+    look(?a1.a)
+    look(?a1.b)
+    look(?b1.a)
+    look(?b1.b)
+    r4 = cycle(optr(30), rt_int(3))
+    if ?r4 as y5
+      print("use", y5.id)
+    r6 = keep_first(^mk(40), ^mk(50))
+    print("use", r6.id)
+    o8: P? = P(a: mk(60), b: mk(61))
+    r8 = unwrap_or(<o8, P(a: mk(70), b: mk(71)))
+    look(?r8.a)
+    look(?r8.b)
+    r10 = Pair(first: mk(80), second: HR.one(r: mk(90)))
+    f10 = first_ref(?r10)
+    look(?f10)
+    match ?r10.second
+      .one(z12) => look(?z12)
+      .empty => print("empty")
+
+  sub h1()
+    r13 = Pair(first: ^mk(100), second: mk(110))
+    f13 = first_ref(?r13)
+    print("use", f13.id)
+    look(?r13.second)
+    r16 = pick(*mk(120), *mk(130), rt_bool(true))
+    print("use", r16.id)
+    r18 = wrap(mk(140))
+    if ?r18 as w19
+      look(?w19)
+    r21 = mk(150)
+    c21 = |x: ?R| 1
+    print("int", c21(?r21))
+    look(?r21)
+    a23: P? = P(a: mk(160), b: mk(161))
+    b23: P? = none
+    r23 = first_some(<a23, <b23)
+    if ?r23 as w24
+      look(?w24.a)
+      look(?w24.b)
+    r26 = ident(ident(optr(170)))
+    if ?r26 as y27
+      print("use", y27.id)
+
+  sub h2()!
+    o28: *R? = none
+    r28 = chain(<o28)
+    if ?r28 as w29
+      print("use", w29.id)
+    a31 = HR.one(r: mk(180))
+    b31 = HR.one(r: mk(190))
+    swap_gen(!a31, !b31)
+    match ?a31
+      .one(z32) => look(?z32)
+      .empty => print("empty")
+    match ?b31
+      .one(z33) => look(?z33)
+      .empty => print("empty")
+
+  h0()
+  h1()
+  h2() catch |e| print("caught", e)
+
+test "audit-fuzz-pf2-accepted-46de4c483e", '''
+  got none
+  caught E.bad
+  new 38
+  use 38
+  rel 38
+  new 39
+  new 40
+  use 39
+  rel 40
+  rel 39
+  val 42
+  val 3
+  new 41
+  new 3042
+  use 41
+  use 3042
+  rel 3042
+  rel 41
+  new 4043
+  use 4043
+  rel 4043
+  val 1
+  new 44
+  rel 44
+  val 0
+  new 55
+  new 3056
+  val 1
+  rel 3056
+  rel 55
+  got 0
+'''
+  obj R
+    id: Int
+
+    drop(!self)
+      print("rel", self.id)
+
+    fun look(?self) -> Int
+      print("use", self.id)
+      self.id
+
+  obj P
+    a: R
+    b: R
+
+  obj Q
+    h: *R
+    o: R?
+
+  enum HR
+    one(r: R)
+    two(a: R, b: *R)
+    empty
+
+  obj M
+    r: R
+
+    fun with(<self, n: Int) -> Int
+      print("use", self.r.id)
+      n + self.r.id
+
+    fun peek(?self, n: Int) -> Int
+      print("use", self.r.id)
+      n
+
+    sub put(!self, r: R)
+      self.r = <r
+
+  error E
+    bad
+
+  fun mk(id: Int) -> R
+    print("new", id)
+    R(id: id)
+
+  fun mkm(id: Int) -> M
+    M(r: mk(id))
+
+  fun mayr(k: Int) -> R!
+    return E.bad if k == 0
+    mk(k)
+
+  fun may(k: Int) -> Int!
+    return E.bad if k == 0
+    k
+
+  fun optr(k: Int) -> R?
+    return none if k == 0
+    mk(k)
+
+  fun opt(k: Int) -> Int?
+    return none if k == 0
+    k
+
+  fun two(a: R, b: R) -> Int
+    print("use", a.id)
+    print("use", b.id)
+    a.id + b.id
+
+  fun one(a: R, n: Int) -> Int
+    print("use", a.id)
+    a.id + n
+
+  fun take3(a: R, n: Int, b: R) -> Int
+    print("use", a.id)
+    print("use", b.id)
+    n
+
+  fun hand(h: *R, n: Int) -> Int
+    print("use", h.id)
+    n
+
+  fun bx(b: ^R, n: Int) -> Int
+    print("use", b.id)
+    n
+  # `if m as v` runs its branch with `v` bound to the value inside the
+
+  fun pp(p: P) -> Int
+    print("use", p.a.id)
+    print("use", p.b.id)
+    1
+
+  fun qq(q: Q) -> Int
+    print("use", q.h.id)
+    2
+
+  fun hr(e: HR) -> Int
+    match <e
+      .one(r) => r.look()
+      .two(a, b)
+        print("use", b.id)
+        a.look()
+      .empty => 0
+
+  fun ints(xs: [2]Int) -> Int
+    xs[0] + xs[1]
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun h0() -> Int?
+    q0 = Q(h: *optr(rt_int(0))?, o: mk(2))
+    print("val", 3)
+    print("val", opt(rt_int(5))?)
+    print("val", bx(^optr(rt_int(4003))?, two(mk(4), mk(5))))
+    q4 = Q(h: *optr(rt_int(4006))?, o: none)
+    e5 = HR.one(r: mk(7))
+    0
+
+  sub h1()!
+    q0 = Q(h: *mayr(rt_int(0))!, o: mk(19))
+    x1 = mayr(rt_int(3020))!
+    print("val", may(rt_int(1))!)
+    print("val", pp(P(a: mk(21), b: mk(22))))
+    m4 = M(r: mayr(rt_int(3023))!)
+    !m4.put(mk(24))
+    print("val", m4.peek((may(rt_int(0))! + one(mk(25), 1))))
+    print("val", one(mk(26), one(mk(27), ints([2, 1]))))
+
+  sub h2()!
+    print("val", ints([one(mk(38), may(rt_int(2))!), qq(Q(h: *mk(39), o: mk(40)))]))
+    print("val", 3)
+    b2 = [pp(P(a: mk(41), b: mayr(rt_int(3042))!)), one(mayr(rt_int(4043))!, may(rt_int(1))!)]
+    print("val", b2[0])
+    q4 = Q(h: *mk(44), o: none)
+
+  fun h3() -> Int?
+    print("val", 0)
+    q1 = Q(h: *mk(55), o: optr(rt_int(3056))?)
+    print("val", opt(rt_int(1))?)
+    0
+
+  print("got", h0())
+  h1() catch |e| print("caught", e)
+  h2() catch |e| print("caught", e)
+  print("got", h3())
+
+test "audit-fuzz-pf2-accepted-4a0f1351aa", '''
+  lv 3
+  -1 -1 12
+  0
+  ret 1
+  -2
+  defer -4
+  -1
+  defer -4
+  1001 144
+  -996 -2527
+  lv 7
+  10
+  ret 870
+  -2
+  defer -10
+  -1
+  defer -10
+  1001 144
+  -996 -2527
+  lv 7
+  10
+  ret 870
+'''
+  fun f0(a0: Int) -> Int
+    new a0 = a0
+    b0 = -1
+    c0 = 3
+    v1 = for i2 in 0..3
+      break 16 if (i2 >= 2) and (((-4) + a0) < (-9))
+    else
+      (c0 / 1)
+    print("lv", v1)
+    match 15
+      m3 if m3 < (-5)
+        if not (((-1) - (-3)) < (a0 - m3))
+          print(13)
+        if (9 % 7) < (17 + c0)
+          @l6 for i10 in 1..4
+            print(i10)
+            print(((0 - 16) % 3))
+            b0 = c0 % 1000
+            return ((10 + c0) - a0) if not ((2 / 1) > (m3 * 1))
+            continue if (i10 - i10) == (15 % 6)
+          @l7 for i11 in (-2)..5
+            print(i11)
+            continue if (5 - c0) >= ((-6) / 5)
+        else if ((b0 % 6) != (7 % 7)) and (4 < (m3 / 1))
+          o4: Int? = ((-4) - m3) if (-2) != (b0 + c0) else none
+          if o4 as o4x
+            print("some", o4x)
+          else
+            print("none", o4 ?? (b0 * 2))
+        else if ((m3 + b0) == (a0 - (-2))) or ((b0 - m3) < (a0 / 5))
+          for i5 in 1..4
+            print(i5)
+            print((i5 % 2))
+            print(((18 - a0) - b0), 5, 9)
+            print(((16 % 4) + a0))
+            print(i5, b0)
+          w6 = 0
+          @l2 while w6 < 3 : w6 += 1
+            continue @l2 if 18 < (w6 - b0)
+            c0 -= ((c0 % 6) / 4)
+            c0 = c0 % 1000
+          w7 = 0
+          @l3 while w7 < 3 : w7 += 1
+            print(19)
+            continue if not ((m3 / 4) >= (c0 - 12))
+            print(((9 + a0) - (m3 - m3)))
+            c0 += (-8)
+            c0 = c0 % 1000
+          else
+            print(((c0 / 1) / 2))
+            b0 += ((a0 + c0) * (5 + a0))
+            b0 = b0 % 1000
+            print(((m3 * 11) + (14 * (-4))))
+        else
+          @l4 for i8 in (-2)..(-1)
+            print(i8)
+            c0 += m3
+            c0 = c0 % 1000
+            b0 -= 19
+            b0 = b0 % 1000
+          else
+            print(c0)
+            print(((7 + 19) + (b0 + 7)), (c0 - ((-2) - (-3))), c0)
+            return 17 if (m3 * c0) >= (17 * m3)
+          for i9 in 2..5
+            print(i9)
+            print((b0 - (-1)), ((c0 * b0) + (0 * (-3))), (m3 * (2 / 1)))
+            c0 -= 8
+            c0 = c0 % 1000
+            print((m3 % 2))
+            print((-4), ((b0 * m3) % 5), b0)
+      _
+        print((-1), ((a0 - a0) + a0), 12)
+        print((c0 * (4 / 9)))
+    a0 + b0 + c0
+
+  fun f1(a1: Int) -> Int
+    new a1 = a1
+    b1 = 2
+    c1 = -5
+    @l8 for i12 in (-2)..0
+      print(i12)
+      defer print("defer", (a1 + c1))
+    else
+      b1 = 1000
+      w13 = 0
+      while w13 < 0 : w13 += 1
+        defer print("defer", a1)
+        print(15)
+      else
+        c1 += (0 + (6 % 8))
+        c1 = c1 % 1000
+        w14 = 0
+        while w14 < 3 : w14 += 1
+          c1 += b1
+          c1 = c1 % 1000
+          a1 = (19 * (-7)) % 1000
+        @l11 for i15 in 1..0
+          print(i15)
+          print(b1, c1)
+          print(((c1 * b1) * (c1 + 5)))
+          c1 += b1
+          c1 = c1 % 1000
+          a1 = 17 % 1000
+        else
+          print(((5 % 4) + b1), (9 * (17 - c1)))
+          print(((c1 - b1) + (c1 - (-2))), ((19 * a1) - (c1 / 8)))
+        v16 = for i17 in 0..5
+          break (c1 * 7) if (i17 >= 4) and ((7 / 9) <= (18 * i17))
+        else
+          (-3)
+        print("lv", v16)
+    c1 = ((c1 % 4) * (19 / 5)) % 1000
+    print(10)
+    if 11 == (a1 % 3)
+      b1 -= c1
+      b1 = b1 % 1000
+      if (18 + a1) <= (a1 % 3)
+        v20 = for i21 in 0..4
+          break c1 if (i21 >= 1) and ((14 / 7) > (-7))
+        else
+          (10 + c1)
+        print("lv", v20)
+      else if (b1 + (-1)) <= c1
+        match 18
+          m18 if m18 < 8
+            return ((18 - a1) % 8) if (m18 % 8) > (a1 + 18)
+            print(m18, (1 % 8), (c1 / 9))
+            a1 -= (c1 + (4 - c1))
+            a1 = a1 % 1000
+            print(((m18 / 5) - (m18 * 15)))
+          m19 if m19 == 14
+            a1 = (-4) % 1000
+            print(((18 * m19) % 4))
+            print(c1)
+            print(((a1 / 4) + a1))
+          10..12
+            c1 = ((a1 / 8) / 6) % 1000
+            print(((8 % 7) + (-2)), (-3))
+          4
+            a1 -= (a1 / 5)
+            a1 = a1 % 1000
+          _
+            print(((15 - a1) / 3))
+            a1 = ((c1 + a1) % 3) % 1000
+            print(((14 / 9) % 9))
+        b1 = c1 % 1000
+        print(((c1 + c1) + (c1 - (-4))), b1)
+      v22 = for i23 in 0..0
+        break (14 / 4) if (i23 >= 0) and (not ((a1 - 10) == (18 * a1)))
+      else
+        ((-3) * a1)
+      print("lv", v22)
+    a1 + b1 + c1
+
+  print("ret", f0((-1)))
+  print("ret", f1(1))
+  print("ret", f1((-5)))
+
+test "audit-fuzz-pf2-accepted-4af8d2d2c7", '''
+  3 4 7 25
+  5 10
+  0 1
+  1
+  moved 1
+  drop 2
+  drop 1
+'''
+  # ^T owns one T on the heap. Fields and methods of a boxed struct are
+  # reached through the box; `?b` and `!b` lend the value as `?T` / `!T`;
+  # `<b.unbox()` moves the value out and frees the box.
+
+  obj Point
+    x: Int
+    y: Int
+
+    fun sum(?self) -> Int
+      self.x + self.y
+
+    sub shift(!self, d: Int)
+      self.x += d
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun norm(p: ?Point) -> Int
+    p.x * p.x + p.y * p.y
+
+  sub reset(p: !Point)
+    p = Point(x: 0, y: 1)
+
+  b = ^Point(x: 3, y: 4)
+  print(b.x, b.y, b.sum(), norm(?b))
+  b.y = 10
+  !b.shift(2)
+  print(b.x, b.y)
+  reset(!b)
+  print(b.x, b.y)
+  p = <b.unbox()
+  print(p.sum())
+  r = ^Res(n: 1)
+  s = <r
+  print("moved", s.n)
+  t: ^Res = ^Res(n: 2)
+  u = <t.unbox()
+
+test "audit-fuzz-pf2-accepted-52e968d706", "-12 [0, 0, -12]"
+  fun rt_bol(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  sub t4860()
+    av4860: List[I8] = List()
+    !av4860.push(0)
+    av4860[0] = (-12)
+    aa4860: [3]I8 = [3 of 0]
+    aa4860[rt_int(2)] = (-12)
+    print(av4860[0], aa4860)
+
+  t4860()
+
+test "audit-fuzz-pf2-accepted-5c5fefb2e3", "6"
+  type UserId = Int
+
+  obj Point
+    x: Int
+
+  type P = Point
+
+  id: UserId = 5
+  p = P(x: id)
+  print(p.x + 1)
+
+test "audit-fuzz-pf2-accepted-5f14120516", "2"
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun gid[T](a: T) -> T
+    a
+
+  fun gmax[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun gsome[T](a: T) -> T?
+    a
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  fun id_f32(x: F32) -> F32
+    x
+
+  obj Bx484
+    f: Int
+
+  sub t484()
+    bx484 = Bx484(f: 2)
+    mk484 = rt_int(1)
+    mz484: Int = match mk484
+      1 => bx484.f
+      _ => (-7)
+    print(mz484)
+
+  t484()
+
+bomb "audit-fuzz-pf2-accepted-60d98f4539", "division by zero", prints: "before"
+  fun id_i8(x: I8) -> I8
+    x
+
+  fun id_i16(x: I16) -> I16
+    x
+
+  fun id_i32(x: I32) -> I32
+    x
+
+  fun id_int(x: Int) -> Int
+    x
+
+  fun id_i128(x: I128) -> I128
+    x
+
+  fun id_u8(x: U8) -> U8
+    x
+
+  fun id_u16(x: U16) -> U16
+    x
+
+  fun id_u32(x: U32) -> U32
+    x
+
+  fun id_u64(x: U64) -> U64
+    x
+
+  fun id_u128(x: U128) -> U128
+    x
+
+  fun id_float(x: Float) -> Float
+    x
+
+  print("before")
+  x: U8 = id_u8(255)
+  x /= id_u8(0)
+  print("after", x)
+
+test "audit-fuzz-pf2-accepted-63d05e3672", '''
+  new 10
+  use 10
+  int 20
+  new 40
+  new 41
+  new 50
+  new 51
+  rel 51
+  rel 50
+  use 40
+  use 41
+  new 60
+  use 60
+  new 70
+  new 80
+  rel 80
+  use 70
+  str s90
+  rel 70
+  rel 60
+  rel 41
+  rel 40
+  rel 10
+  new 100
+  use 100
+  new 110
+  new 120
+  rel 120
+  use 110
+  new 130
+  use 130
+  str s140
+  new 150
+  new 160
+  rel 160
+  use 150
+  int 170
+  new 180
+  use 180
+  rel 180
+  rel 150
+  rel 130
+  rel 110
+  rel 100
+'''
+  obj R
+    id: Int
+
+    drop(!self)
+      print("rel", self.id)
+
+  obj P
+    a: R
+    b: R
+
+  enum HR
+    one(r: R)
+    empty
+
+  error E
+    bad
+
+  fun mk(id: Int) -> R
+    print("new", id)
+    R(id: id)
+
+  fun optr(id: Int) -> R?
+    return none if id % 3 == 0
+    mk(id)
+
+  sub look(r: ?R)
+    print("use", r.id)
+
+  fun rt_bool(b: Bool) -> Bool
+    b
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun pick[T](a: T, b: T, first: Bool) -> T
+    if first
+      return <a
+    <b
+
+  fun keep_first[T](a: T, b: T) -> T
+    a
+
+  fun ident[T](x: T) -> T
+    x
+
+  fun cycle[T](x: T, n: Int) -> T
+    cur = <x
+    for _ in 0..n
+      cur = ident(<cur)
+    cur
+
+  fun wrap[T](x: T) -> T?
+    x
+
+  fun unwrap_or[T](o: T?, d: T) -> T
+    if <o as v
+      return <v
+    <d
+
+  fun first_some[T](a: T?, b: T?) -> T?
+    if <a as x
+      return <x
+    <b
+
+  fun must[T](o: T?) -> T!
+    if <o as x
+      return <x
+    return E.bad
+
+  fun chain[T](o: T?) -> T?
+    x = (<o)?
+    x
+
+  sub swap_gen[T](a: !T, b: !T) keeps a, b
+    swap(!a, !b)
+
+  fun first_ref[T, U](p: ?Pair[T, U]) -> ?T
+    ?p.first
+
+  obj Pair[T, U]
+    first: T
+    second: U
+
+    fun left(?self) -> ?T
+      ?self.first
+
+  obj Shelf[T]
+    items: List[T]
+
+    sub add(!self, x: T)
+      !self.items.push(<x)
+
+    fun take(!self) -> T?
+      (!self.items).pop()
+    a11: (?String)? = none
+
+  enum Maybe[T]
+    just(v: T)
+    nada
+
+  fun get_or[T](m: Maybe[T], d: T) -> T
+    match <m
+      .just(v) => v
+      .nada => d
+
+  fun fill_shelf[T](a: T, b: T) -> Shelf[T]
+    s = Shelf[T](items: List())
+    !s.add(<a)
+    !s.add(<b)
+    s
+
+  sub h0()
+    o1: R? = none
+    r1 = unwrap_or(<o1, mk(10))
+    look(?r1)
+    m3: Maybe[Int] = .just(20)
+    r3 = get_or(<m3, 30)
+    print("int", r3)
+    o5: P? = P(a: mk(40), b: mk(41))
+    r5 = unwrap_or(<o5, P(a: mk(50), b: mk(51)))
+    look(?r5.a)
+    look(?r5.b)
+    r7 = ident(ident(HR.one(r: mk(60))))
+    match ?r7
+      .one(z8) => look(?z8)
+      .empty => print("empty")
+    o9: *R? = *mk(70)
+    r9 = unwrap_or(<o9, *mk(80))
+    print("use", r9.id)
+    a11: (?String)? = none
+    b11: (?String)? = "s90"
+    r11 = first_some(<a11, <b11)
+    if ?r11 as w12
+      print("str", w12)
+
+  sub h1()
+    r14 = cycle(^mk(100), rt_int(2))
+    print("use", r14.id)
+    r16 = pick(^mk(110), ^mk(120), rt_bool(true))
+    print("use", r16.id)
+    r18 = Pair(first: *mk(130), second: "s140")
+    f18 = first_ref(?r18)
+    print("use", f18.id)
+    print("str", r18.second)
+    r21 = keep_first(mk(150), mk(160))
+    look(?r21)
+    r23 = wrap(170)
+    if ?r23 as w24
+      print("int", w24)
+    r26 = ident(ident(HR.one(r: mk(180))))
+    match ?r26
+      .one(z27) => look(?z27)
+      .empty => print("empty")
+
+  h0()
+  h1()
+
+test "audit-fuzz-pf2-accepted-65d1ddaa89", '''
+  new 1
+  new 2
+  use 2
+  use 1
+  rel 2
+  rel 1
+  val 1
+  new 3
+  new 4004
+  rel 3
+  new 3005
+  new 6
+  new 7
+  use 6
+  use 7
+  rel 7
+  rel 6
+  use 3005
+  rel 3005
+  use 4004
+  val 6
+  rel 4004
+  got 0
+  val 5
+  new 18
+  new 19
+  new 20
+  new 3021
+  use 20
+  rel 3021
+  rel 20
+  use 19
+  rel 19
+  val 2
+  new 22
+  new 23
+  rel 23
+  rel 22
+  rel 18
+  new 34
+  new 35
+  use 34
+  use 35
+  rel 35
+  rel 34
+  val 69
+  caught E.bad
+'''
+  obj R
+    id: Int
+
+    drop(!self)
+  # Sigil-prefixed names (`?x`) are sugar for `self` parameters only, not
+      print("rel", self.id)
+
+    fun look(?self) -> Int
+      print("use", self.id)
+      self.id
+
+  obj P
+    a: R
+    b: R
+
+  obj Q
+    h: *R
+    o: R?
+
+  enum HR
+    one(r: R)
+    two(a: R, b: *R)
+    empty
+
+  obj M
+    r: R
+
+    fun with(<self, n: Int) -> Int
+      print("use", self.r.id)
+      n + self.r.id
+
+    fun peek(?self, n: Int) -> Int
+      print("use", self.r.id)
+      n
+
+    sub put(!self, r: R)
+      self.r = <r
+
+  error E
+    bad
+
+  fun mk(id: Int) -> R
+    print("new", id)
+    R(id: id)
+
+  fun mkm(id: Int) -> M
+    M(r: mk(id))
+
+  fun mayr(k: Int) -> R!
+    return E.bad if k == 0
+    mk(k)
+
+  fun may(k: Int) -> Int!
+    return E.bad if k == 0
+    k
+
+  fun optr(k: Int) -> R?
+    return none if k == 0
+    mk(k)
+
+  fun opt(k: Int) -> Int?
+    return none if k == 0
+    k
+
+  fun two(a: R, b: R) -> Int
+    print("use", a.id)
+    print("use", b.id)
+    a.id + b.id
+
+  fun one(a: R, n: Int) -> Int
+    print("use", a.id)
+    a.id + n
+
+  fun take3(a: R, n: Int, b: R) -> Int
+    print("use", a.id)
+    print("use", b.id)
+    n
+
+  fun hand(h: *R, n: Int) -> Int
+    print("use", h.id)
+    n
+
+  fun bx(b: ^R, n: Int) -> Int
+    print("use", b.id)
+    n
+
+  fun pp(p: P) -> Int
+    print("use", p.a.id)
+    print("use", p.b.id)
+    1
+
+  fun qq(q: Q) -> Int
+    print("use", q.h.id)
+    2
+
+  fun hr(e: HR) -> Int
+    match <e
+      .one(r) => r.look()
+      .two(a, b)
+        print("use", b.id)
+        a.look()
+      .empty => 0
+
+  fun ints(xs: [2]Int) -> Int
+    xs[0] + xs[1]
+
+  fun rt_int(n: Int) -> Int
+    n
+
+  fun h0() -> Int?
+    print("val", hr(HR.two(a: mk(1), b: *mk(2))))
+    m1 = M(r: mk(3))
+    !m1.put(optr(rt_int(4004))?)
+    print("val", m1.peek(bx(^optr(rt_int(3005))?, take3(mk(6), 6, mk(7)))))
+    0
+
+  sub h1()!
+    print("val", may(rt_int(5))!)
+    q1 = Q(h: *mk(18), o: none)
+    print("val", hand(*mk(19), qq(Q(h: *mk(20), o: mayr(rt_int(3021))!))))
+    v3: List[*R] = List()
+    !v3.push(*mk(22))
+    !v3.push(*mk(23))
+
+  sub h2()!
+    print("val", two(mk(34), mk(35)))
+    b1 = [qq(Q(h: *mayr(rt_int(0))!, o: mayr(rt_int(0))!)), ints([6, ints([5, 2])])]
+    print("val", b1[0])
+    v3: List[*R] = List()
+    !v3.push(*mk(38))
+    !v3.push(*mk(39))
+    m6 = M(r: mk(40))
+    !m6.put(mk(41))
+    print("val", m6.peek(hand(*mk(42), take3(mk(43), 4, mk(44)))))
+    print("val", two(mk(45), mk(46)))
+
+  print("got", h0())
+  h1() catch |e| print("caught", e)
+  h2() catch |e| print("caught", e)
+
+test "audit-fuzz-pf2-accepted-6bc0b88552", '''
+  [9, 8, 7, 4, 5, 6]
+  [9, 8, 7, 0, 0, 0]
+  [0, 8, 7, 0, 0, 9]
+  [0, 4, 4, 4, 4, 4]
+  [8, 7]
+  1 2
+  [1.5, 1.5, 1.5]
+  2
+  1
+'''
+  # `!dst.copy(src)` copies a `[]T` of the same length into the elements,
+  # `!s.fill(v)` sets every element, and `!s.swap(i, j)` exchanges two, on a
+  # `![]T`, an array, or a List. `swap` also moves handles in a List of them.
+
+  obj P
+    x: Int
+
+  a = [1, 2, 3, 4, 5, 6]
+  b = [9, 8, 7]
+  !a[..3].copy(?b[..])
+  print(a)
+  !a[3..].fill(0)
+  print(a)
+  !a.swap(0, 5)
+  print(a)
+  w = !a[1..]
+  !w.swap(0, 1)
+  !w.fill(4)
+  print(a)
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  !v.swap(0, 1)
+  !v.fill(3)
+  !v.copy(?b[1..])
+  print(v)
+  ps = [P(x: 1), P(x: 2)]
+  print(ps[0].x, ps[1].x)
+  f: [3]F32 = [1.0, 2.0, 3.0]
+  !f.fill(1.5)
+  print(f)
+  hs: List[*P] = List()
+  !hs.push(*P(x: 1))
+  !hs.push(*P(x: 2))
+  !hs.swap(0, 1)
+  for h in ?hs
+    print(h.x)

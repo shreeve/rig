@@ -1,0 +1,906 @@
+# Probes from past reviews and audits, 41 of 41: t-mv4 to viewvalue-f2.
+
+use std.hash
+use std.random
+
+fail "t-mv4", "cannot move out of `v[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it"
+  obj P
+    n: Int
+
+  sub eat(p: P)
+    print(p.n)
+
+  v: List[P] = List()
+  !v.push(P(n: 7))
+  eat(<v[0])
+
+  # oracle: main reject C3
+
+test "t-p2", "2 1 2"
+  obj P
+    x: Int
+    y: Int
+
+  obj S
+    a: List[Int]
+    b: Int
+
+  obj Q
+    a: P
+    b: Int
+
+  fun grow(v: !List[Int]) -> Int
+    !v.push(7)
+    2
+
+  fun bump(p: !P) -> Int
+    p.x += 1
+    0
+
+  fun rd(v: ?List[Int], n: Int) -> Int
+    v.len + n
+
+  fun rp(p: P, n: Int) -> Int
+    p.x + n
+
+  fun rs(s: []Int, n: Int) -> Int
+    s.len + n
+
+  v: List[Int] = List()
+  !v.push(0)
+  print(rd(?v, v.len), v.len, grow(!v))
+
+test "t-p3", '''
+  1
+  P(x: 2, y: 2) 0 P(x: 3, y: 2)
+'''
+  obj P
+    x: Int
+    y: Int
+
+  obj S
+    a: List[Int]
+    b: Int
+
+  obj Q
+    a: P
+    b: Int
+
+  fun grow(v: !List[Int]) -> Int
+    !v.push(7)
+    2
+
+  fun bump(p: !P) -> Int
+    p.x += 1
+    0
+
+  fun rd(v: ?List[Int], n: Int) -> Int
+    v.len + n
+
+  fun rp(p: P, n: Int) -> Int
+    p.x + n
+
+  fun rs(s: []Int, n: Int) -> Int
+    s.len + n
+
+  p = P(x: 1, y: 2)
+  print(rp(p, bump(!p)))
+  print(p, bump(!p), p)
+
+test "t-p6", "[0, 1]"
+  obj P
+    x: Int
+    y: Int
+
+  obj S
+    a: List[Int]
+    b: Int
+
+  obj Q
+    a: P
+    b: Int
+
+  fun grow(v: !List[Int]) -> Int
+    !v.push(7)
+    2
+
+  fun bump(p: !P) -> Int
+    p.x += 1
+    0
+
+  fun rd(v: ?List[Int], n: Int) -> Int
+    v.len + n
+
+  fun rp(p: P, n: Int) -> Int
+    p.x + n
+
+  fun rs(s: []Int, n: Int) -> Int
+    s.len + n
+
+  v: List[Int] = List()
+  !v.push(0)
+  !v.push(v.len)
+  print(v)
+
+fail "t-p7", "use of `p.x` while a write loan on `p` is live"
+  obj P
+    x: Int
+
+  p = P(x: 1)
+  w = !p
+  w.x += p.x
+  print(p.x)
+
+fail "t-q1", "cannot move `v` while an earlier argument's read of it is in use"
+  obj P
+    x: Int
+    y: Int
+
+  obj S
+    a: List[Int]
+    b: Int
+
+  obj Q
+    a: P
+    b: Int
+
+  fun grow(v: !List[Int]) -> Int
+    !v.push(7)
+    2
+
+  fun bump(p: !P) -> Int
+    p.x += 1
+    0
+
+  fun rd(v: ?List[Int], n: Int) -> Int
+    v.len + n
+
+  fun rp(p: P, n: Int) -> Int
+    p.x + n
+
+  fun rs(s: []Int, n: Int) -> Int
+    s.len + n
+
+  fun eat(v: List[Int]) -> Int
+    v.len
+
+  v: List[Int] = List()
+  !v.push(0)
+  print(v, eat(<v))
+
+fail "t-q3", "`v` owns a `List[Int]`, which can't be copied into an argument: write `<v` to move it or `+v` to pass a clone"
+  obj P
+    x: Int
+    y: Int
+
+  obj S
+    a: List[Int]
+    b: Int
+
+  obj Q
+    a: P
+    b: Int
+
+  fun grow(v: !List[Int]) -> Int
+    !v.push(7)
+    2
+
+  fun bump(p: !P) -> Int
+    p.x += 1
+    0
+
+  fun rd(v: ?List[Int], n: Int) -> Int
+    v.len + n
+
+  fun rp(p: P, n: Int) -> Int
+    p.x + n
+
+  fun rs(s: []Int, n: Int) -> Int
+    s.len + n
+
+  v: List[Int] = List()
+  !v.push(0)
+  s = S(a: v, b: grow(!v))
+
+test "t-q5", "{v} {grow(!v)}"
+  obj P
+    x: Int
+    y: Int
+
+  obj S
+    a: List[Int]
+    b: Int
+
+  obj Q
+    a: P
+    b: Int
+
+  fun grow(v: !List[Int]) -> Int
+    !v.push(7)
+    2
+
+  fun bump(p: !P) -> Int
+    p.x += 1
+    0
+
+  fun rd(v: ?List[Int], n: Int) -> Int
+    v.len + n
+
+  fun rp(p: P, n: Int) -> Int
+    p.x + n
+
+  fun rs(s: []Int, n: Int) -> Int
+    s.len + n
+
+  v: List[Int] = List()
+  !v.push(0)
+  print("{v} {grow(!v)}")
+
+fail "t-q6", "cannot lend `t` to write while a read loan is live"
+  obj P
+    x: Int
+    y: Int
+
+  obj S
+    a: List[Int]
+    b: Int
+
+  obj Q
+    a: P
+    b: Int
+
+  fun grow(v: !List[Int]) -> Int
+    !v.push(7)
+    2
+
+  fun bump(p: !P) -> Int
+    p.x += 1
+    0
+
+  fun rd(v: ?List[Int], n: Int) -> Int
+    v.len + n
+
+  fun rp(p: P, n: Int) -> Int
+    p.x + n
+
+  fun rs(s: []Int, n: Int) -> Int
+    s.len + n
+
+  obj T
+    x: Int
+    fun get(?self, n: Int) -> Int
+      self.x + n
+
+  fun bt(t: !T) -> Int
+    t.x += 10
+    0
+
+  t = T(x: 1)
+  print(t.get(bt(!t)))
+
+fail "t-q7", "cannot lend `w` to write while an earlier argument's read of it is in use"
+  obj P
+    x: Int
+    y: Int
+
+  obj S
+    a: List[Int]
+    b: Int
+
+  obj Q
+    a: P
+    b: Int
+
+  fun grow(v: !List[Int]) -> Int
+    !v.push(7)
+    2
+
+  fun bump(p: !P) -> Int
+    p.x += 1
+    0
+
+  fun rd(v: ?List[Int], n: Int) -> Int
+    v.len + n
+
+  fun rp(p: P, n: Int) -> Int
+    p.x + n
+
+  fun rs(s: []Int, n: Int) -> Int
+    s.len + n
+
+  v: List[Int] = List()
+  !v.push(0)
+  w = !v
+  print(w, grow(!w), w)
+
+fail "t-q8", "cannot lend `s.a` to write while an earlier argument's read of `s` is in use"
+  obj P
+    x: Int
+    y: Int
+
+  obj S
+    a: List[Int]
+    b: Int
+
+  obj Q
+    a: P
+    b: Int
+
+  fun grow(v: !List[Int]) -> Int
+    !v.push(7)
+    2
+
+  fun bump(p: !P) -> Int
+    p.x += 1
+    0
+
+  fun rd(v: ?List[Int], n: Int) -> Int
+    v.len + n
+
+  fun rp(p: P, n: Int) -> Int
+    p.x + n
+
+  fun rs(s: []Int, n: Int) -> Int
+    s.len + n
+
+  s = S(a: List(), b: 1)
+  !s.a.push(0)
+  print(s, grow(!s.a))
+  print(s.a, grow(!s.a))
+  print(s.b, grow(!s.a))
+
+fail "t-r1", "cannot lend `rc` to write while an earlier argument's read of it is in use"
+  obj Node
+    n: Int
+
+  fun clear(ns: !List[*Node]) -> Int
+    ns = List()
+    0
+
+  fun reset(r: !*Node) -> Int
+    r = *Node(n: 9)
+    0
+
+  fun rebox(b: !^Int) -> Int
+    b = ^5
+    0
+
+  fun clears(ss: !List[?String]) -> Int
+    ss = List()
+    0
+
+  ns: List[*Node] = List()
+  !ns.push(*Node(n: 1))
+  rc = *Node(n: 1)
+  print(rc, reset(!rc))
+  b = ^3
+  print(b, rebox(!b))
+  ss: List[?String] = List()
+  !ss.push("hi")
+  print(ss[0], clears(!ss))
+
+fail "t-wb1", "`r` is assigned but never read; use it, or discard the value with `_ = ...`"
+  n = 1
+  w = !n
+  print(n)
+  m = n + 1
+  r = ?n
+  w += 1
+  print(m)
+
+test "t1-ex", exit: 3, '''
+  hi
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun main() -> Int
+    r = R(n: 1)
+    print("hi")
+    3
+
+test "t1-ex2", "0", exit: 7
+  error E
+    bad
+
+  fun f(x: Int) -> Int!
+    if x > 0
+      return E.bad
+    x
+
+  fun main() -> Int
+    print(f(0)!)
+    if f(0)! == 0
+      return 7
+    f(1)!
+
+test "t1-ex4"
+  fun main() -> Int
+    v: List[Int] = List()
+    !v.push(1)
+    0
+
+  test "t"
+    print(1)
+
+test "t1-ex6", exit: 1
+  error E
+    bad
+
+  fun f(x: Int) -> Int!
+    if x > 0
+      return E.bad
+    x
+
+  fun main() -> Int
+    f(1)!
+
+test "t1-lo", '''
+  [2, 1, 3]
+  [1, 2, 3]
+  3
+'''
+  obj R
+    s: U64
+
+    sub touch(!self, xs: ![]Int)
+      self.s += 1
+      !xs.swap(0, 1)
+
+    sub gtouch[T](!self, xs: ![]T)
+      self.s += 1
+      !xs.swap(0, 1)
+
+  r = R(s: 1)
+  a = [1, 2, 3]
+  !r.touch(!a)
+  print(a)
+  !r.gtouch(!a)
+  print(a)
+  print(r.s)
+
+test "t1-lo2", '''
+  [2, 1, 3]
+  [1, 2, 3]
+  [2, 1, 3]
+  1
+'''
+  obj R
+    s: U64
+
+  sub t1(xs: ![]Int)
+    !xs.swap(0, 1)
+
+  sub t2(r: !R, xs: ![]Int)
+    !xs.swap(0, 1)
+
+  r = R(s: 1)
+  a = [1, 2, 3]
+  t1(!a)
+  print(a)
+  t2(!r, !a)
+  print(a)
+  t2(!r, !a[..])
+  print(a)
+  print(r.s)
+
+fail "t1-pv", "cannot lend `v` to write while an earlier argument's read of it is in use"
+  fun grow(v: !List[Int]) -> Int
+    !v.push(7)
+    v[0] = 0
+    v.len
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(v, grow(!v), v)
+
+bomb "t1-r0", "random: empty range 3..3", prints: "16294208416658607535"
+  r = random.Random.seeded(0)
+  print((!r).next())
+  !r.int(3, 3)
+
+test "t1-r1", "[1016, 906, 973, 1045, 1017, 1056, 993, 1015, 990, 989]"
+  r = random.Random.seeded(1)
+  xs: [0]Int = []
+  !r.shuffle(!xs)
+  n = 0
+  seen = [10 of 0]
+  while n < 10000 : n += 1
+    k = (!r).int(0, 10)
+    seen[k] += 1
+  print(seen)
+
+test "t1-rn", '''
+  13679457532755275413 2949826092126892291
+  8 -1 0.03803016854024621
+  [3, 4, 2, 5, 6, 1]
+  [5, 3, 8, 1, 0, 2, 4, 6, 9, 7]
+  true
+'''
+  r = random.Random.seeded(42)
+  print((!r).next(), (!r).next())
+  print((!r).int(0, 10), (!r).int(-5, 5), (!r).float())
+  a = [1, 2, 3, 4, 5, 6]
+  !r.shuffle(!a)
+  print(a)
+  v: List[Int] = List()
+  for i in 0..10
+    !v.push(i)
+  !r.shuffle(!v[..])
+  print(v)
+  o = random.Random.new()
+  x = (!o).int(1, 7)
+  print(x >= 1 and x < 7)
+
+fail "t1-vi", "cannot lend `v` to write while an earlier argument's read of it is in use"
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[Int] = List()
+  !v.insert(0, 3)
+  !v.insert(0, 1)
+  !v.insert(2, 5)
+  !v.insert(1, 2)
+  print(v, (!v).remove(0), v)
+  bs: List[*B] = List()
+  !bs.push(*B(n: 1))
+  !bs.insert(0, *B(n: 2))
+  b = *B(n: 3)
+  !bs.insert(1, <b)
+  r = (!bs).remove(1)
+  print("removed", r.n, bs.len)
+  xs: List[^B] = List()
+  !xs.insert(0, ^B(n: 9))
+  y = (!xs).remove(0)
+  print(y.n)
+
+bomb "t1-vq", "index out of bounds"
+  v: List[Int] = List()
+  x = (!v).remove(0)
+  print(x)
+
+test "take-p3", '''
+  Node(v: 1, next: none) Node(v: 2, next: none)
+  4 W(x: none)
+'''
+  obj Node
+    v: Int
+    next: ^Node?
+
+    drop(!self)
+      cur = <self.next
+      while <cur as n
+        cur = <n.next
+
+  obj W[T]
+    x: T?
+
+    fun grab(!self) -> T?
+      <self.x
+
+  head: ^Node? = none
+  i = 0
+  while i < 100000 : i += 1
+    head = ^Node(v: i, next: <head)
+  b = ^Node(v: 1, next: ^Node(v: 2, next: none))
+  rest = <b.next
+  print(b, rest)
+  w = W[Int](x: 4)
+  print((!w).grab(), w)
+
+test "take-r4", "P(a: Q(x: 1), b: Q(x: 2))"
+  obj Q
+    x: Int
+
+  obj P
+    a: Q
+    b: Q
+
+  p = P(a: Q(x: 1), b: Q(x: 2))
+  swap(!p.a, !p.b)
+  swap(!p.a.x, !p.b.x)
+  print(p)
+
+test "take-s1", "P(a: 2, b: 1)"
+  obj P
+    a: Int
+    b: Int
+
+  sub sw(x: !Int, y: !Int)
+    t = x
+    x = y
+    y = t
+
+  p = P(a: 1, b: 2)
+  sw(!p.a, !p.b)
+  print(p)
+
+test "tc-big", "170141183460469231731687303715884105729 2 3.0"
+  fun rt(b: Bool) -> Bool
+    b
+
+  f = rt(true)
+  a: U128 = (170141183460469231731687303715884105728 if f else 1) + 1
+  b = (1 if f else 2) + 1
+  c = (1.5 if f else 2) * 2
+  print(a, b, c)
+
+test "tc-h1-d", '''
+  4
+  4
+  3
+'''
+  o: Int? = 4
+  k = 0
+  while ?o as x : print(x)
+    k += 1
+    break if k == 3
+  print(k)
+
+test "tc-i189", "true false false"
+  fun id_i16(x: I16) -> I16
+    x
+
+  v20: I16 = id_i16(2)
+  print((((79 - 3) *% (((-16)) << v20))) < (0), (((79 - 3) *% (((-16)) << v20))) == (0), (((79 - 3) *% (((-16)) << v20))) >= (0))
+
+test "tc-tc1ok", '''
+  1
+  1
+'''
+  obj N
+    v: Int
+
+  sub take_read(o: ?*N?)
+    n = +o ?? return
+    print(n.v)
+
+  h: *N? = *N(v: 1)
+  take_read(?h)
+  take_read(?h)
+  v: *N? = none
+  take_read(?v)
+
+test "triage-i", '''
+  x
+  3
+'''
+  invoke = 3
+  f = || print("x")
+  f()
+  print(invoke)
+
+bomb "triage-n", "integer part of floating point value out of bounds"
+  x = 0.0 / 0.0
+  print(Int(x))
+
+test "triage-x", "2"
+  xs = [1, 2, 3]
+  i: I128 = 1
+  print(xs[i])
+
+test "v9-p1", "[2, 3] [1, 2]"
+  a = [1, 2]
+  out = a
+  for x in !out
+    x += 1
+  print(out, a)
+
+fail "viewvalue-a6", "a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first"
+  obj Bag
+    items: List[Int]
+    name: String
+
+    fun label(!self) -> !String
+      !self.name
+
+  fun mk() -> Bag
+    Bag(items: List(), name: String("a"))
+
+  w = (!mk()).label()
+  w = String("zzz")
+  print("ok")
+
+test "viewvalue-b1", '''
+  handler Bad.oops
+  handler Bad.worse
+  h2 Bad.oops
+  1 50 -1 1 -1
+  7 99 8 3 [Bad.oops]
+'''
+  error Bad
+    oops
+    worse
+
+  obj P
+    x: Int
+
+  fun pick(r: ?P, n: Int) -> (?P)! from r
+    return Bad.oops if n == 1
+    return Bad.worse if n == 2
+    r
+
+  fun wpick(r: !P, n: Int) -> (!P)! from r
+    return Bad.oops if n == 1
+    r
+
+  fun go(a: ?P, n: Int) -> Int
+    q = pick(a, n) catch |e|
+      print("handler", e)
+      return -1 if e == Bad.worse
+      P(x: 50)
+    q.x
+
+  fun go2(a: ?P, n: Int) -> Int
+    q = pick(a, n) catch |e|
+      print("h2", e)
+      return -1
+    q.x
+
+  a = P(x: 1)
+  seen: List[error] = List()
+  print(go(?a, 0), go(?a, 1), go(?a, 2), go2(?a, 0), go2(?a, 1))
+  b = pick(?a, 1) catch |e|
+    !seen.push(<e)
+    P(x: 7)
+  c = wpick(!a, 0) catch P(x: 8)
+  c.x = 99
+  d = wpick(!a, 1) catch P(x: 8)
+  a.x = 3
+  print(b.x, c.x, d.x, a.x, seen)
+
+fail "viewvalue-c2", "cannot lend `v` to write while a read loan is live"
+  obj N
+    name: String
+    s: ?String
+
+  fun nslot(v: !List[N], i: Int) -> !N from v
+    !v[i]
+
+  v: List[N] = List()
+  !v.push(N(name: String("a"), s: "x"))
+  !v.push(N(name: String("b"), s: "y"))
+  nslot(!v, 0).s = ?v[1].name
+  !v.push(N(name: String("c"), s: "z"))
+  print(v[0].s)
+
+fail "viewvalue-c3", "cannot assign to `v[0].s` while `v` is lent"
+  obj N
+    name: String
+    s: ?String
+
+  v: List[N] = List()
+  !v.push(N(name: String("a"), s: "x"))
+  !v.push(N(name: String("b"), s: "y"))
+  v[0].s = ?v[1].name
+  !v.push(N(name: String("c"), s: "z"))
+  print(v[0].s)
+
+test "viewvalue-c6", '''
+  P(x: 1, y: 2) P(x: 1, y: 2) P(x: 3, y: 4) P(x: 9, y: 9)
+  1
+  1
+  1
+'''
+  error Bad
+    oops
+
+  obj P
+    x: Int
+    y: Int
+
+  fun mk() -> hash.Map[String, P]
+    q = hash.Map[String, P]()
+    !q.put(String("a"), P(x: 1, y: 2))
+    q
+
+  fun head(v: ?List[P]) -> (?P)! from v
+    return Bad.oops if v.len == 0
+    ?v[0]
+
+  fun mkl() -> List[P]
+    l: List[P] = List()
+    !l.push(P(x: 3, y: 4))
+    l
+
+  x = mk().get("a") ?? P(x: 0, y: 0)
+  y = (!mk()).edit("a") ?? P(x: 0, y: 0)
+  z = head(?mkl()) catch P(x: 9, y: 9)
+  w = head(?List[P]()) catch P(x: 9, y: 9)
+  print(x, y, z, w)
+  for _ in 0..3
+    t = mk().get("a") ?? P(x: 0, y: 0)
+    print(t.x)
+
+test "viewvalue-d7", '''
+  4928
+  .rect(w: 2, h: 3) .circle(r: 9)
+'''
+  enum Shape
+    circle(r: Int)
+    rect(w: Int, h: Int)
+    point
+
+  fun noise(n: Int) -> Int
+    a: [64]Int = [64 of n]
+    s = 0
+    for k in 0..64
+      s += a[k]
+    s
+
+  m = hash.Map[String, Shape]()
+  !m.put(String("a"), .rect(w: 2, h: 3))
+  a = ?m.get("a") ?? .point
+  b = ?m.get("b") ?? .circle(r: 9)
+  print(noise(77))
+  print(a, b)
+
+fail "viewvalue-e5", "cannot drop `s` while it is lent"
+  error Bad
+    oops
+
+  obj H
+    s: ?String
+
+  fun pick(r: ?H, ok: Bool) -> (?H)! from r
+    return Bad.oops if not ok
+    r
+
+  fun wpick(r: !H, ok: Bool) -> (!H)! from r
+    return Bad.oops if not ok
+    r
+
+  s = String("abc")
+  h = H(s: ?s)
+  c = pick(?h, true) catch H(s: "x")
+  d = wpick(!h, true) catch H(s: "y")
+  h = H(s: "z")
+  <s
+  print(c.s, d.s)
+
+test "viewvalue-e7", '''
+  f
+  2 new value long enough!!
+'''
+  error Bad
+    oops
+
+  obj O
+    n: Int
+    s: String
+
+  fun of(o: !O, ok: Bool) -> (!O)! from o
+    return Bad.oops if not ok
+    o
+
+  sub put(o: !O, ok: Bool)!
+    of(!o, ok)!.s = String("new value long enough!!")
+    of(!o, ok)!.n += 1
+
+  o = O(n: 1, s: String("a"))
+  put(!o, true) catch print("f")
+  put(!o, false) catch print("f")
+  print(o.n, o.s)
+
+test "viewvalue-f2", ".point"
+  error Bad
+    oops
+
+  enum Shape
+    circle(r: Int)
+    point
+
+  fun pick(r: ?Shape, ok: Bool) -> (?Shape)! from r
+    return Bad.oops if not ok
+    r
+
+  s: Shape = .circle(r: 1)
+  a: Shape = pick(?s, false) catch .point
+  print(a)

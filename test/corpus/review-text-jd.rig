@@ -1,8 +1,0 @@
-sub main()
-  e: List[Int] = List()
-  s = ?e[..]
-  if true
-    v: List[Int] = List()
-    !v.push(7)
-    defer s = ?v[..]
-  print(s)

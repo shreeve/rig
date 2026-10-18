@@ -1,3 +1,0 @@
-sub main()
-  b = ^String("hello")
-  print(b.len)

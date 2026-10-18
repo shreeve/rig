@@ -1,6 +1,0 @@
-fun show(s: (?String)?) -> ?String
-  s ?? "none"
-
-sub main()
-  o: String? = String("hi")
-  print(show(?o))

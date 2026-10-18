@@ -1,0 +1,2639 @@
+# Probes from past reviews and audits, 36 of 41: review-take-p53 to review-while-step-w37-fallible-cond.
+
+use std.text
+
+fail "review-take-p53", "cannot lend `s.a` to write while a read loan on `s` is live"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  s = S(a: R(n: 1))
+  r = ?s
+  defer
+    x = <s.a
+    print("deferred", x)
+  print(r)
+
+fail "review-take-p54", "cannot lend `s.a` to write while a write loan on `s` is live"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  s = S(a: R(n: 1))
+  defer print(<s.a)
+  w = !s
+  defer print(w)
+  print("end")
+
+test "review-take-p55", '''
+  0 1
+  1002
+'''
+  obj Node
+    value: Int
+    next: ^Node?
+
+  obj Stack
+    top: ^Node?
+
+    sub push(!self, v: Int)
+      self.top = ^Node(value: v, next: <self.top)
+
+    fun pop(!self) -> Int?
+      if <self.top as n
+        self.top = <n.next
+        return n.value
+      none
+
+    sub reverse(!self)
+      cur = <self.top
+      prev: ^Node? = none
+      while <cur as n
+        cur = <n.next
+        n.next = <prev
+        prev = <n
+      self.top = <prev
+
+  s = Stack(top: none)
+  i = 0
+  while i < 300000 : i += 1
+    !s.push(i)
+  !s.reverse()
+  print((!s).pop(), (!s).pop())
+  j = 0
+  while j < 1000 : j += 1
+    _ = !s.pop()
+  print((!s).pop())
+
+fail "review-take-p56", "use of `cur` after move"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  cur: R? = R(n: 1)
+  while <cur as n
+    print(n)
+  print("end")
+
+test "review-take-p57", '''
+  R(n: 1)
+  drop 1
+  R(n: 2)
+  drop 2
+  R(n: 2)
+  drop 2
+  S(a: none)
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  s = S(a: R(n: 1))
+  i = 0
+  while <s.a as n
+    print(n)
+    i += 1
+    s.a = R(n: 2) if i < 3
+  print(s)
+
+test "review-take-p60", '''
+  user replace
+  5 0
+  closure swap 1 2
+'''
+  fun replace(a: !Int, b: Int) -> Int
+    print("user replace")
+    a = b
+    0
+
+  x = 1
+  y = replace(!x, 5)
+  print(x, y)
+  swap = |a: Int, b: Int| print("closure swap", a, b)
+  swap(1, 2)
+
+test "review-take-p61", "P(a: 2, b: 1) 3"
+  obj P
+    a: Int
+    b: Int
+
+    sub swap(!self)
+      t = self.a
+      self.a = self.b
+      self.b = t
+
+    fun replace(?self, v: Int) -> Int
+      v
+
+  p = P(a: 1, b: 2)
+  !p.swap()
+  print(p, p.replace(3))
+
+test "review-take-p71", '''
+  Tree(key: 1, left: none, right: none)
+  Tree(key: 2, left: Tree(key: 3, left: none, right: none), right: none)
+  none Tree(key: 2, left: Tree(key: 3, left: none, right: none), right: none)
+  drop 2
+  drop 3
+  drop 1
+'''
+  obj Tree
+    key: Int
+    left: ^Tree?
+    right: ^Tree?
+
+    drop(!self)
+      print("drop", self.key)
+
+  fun leaf(k: Int) -> ^Tree?
+    ^Tree(key: k, left: none, right: none)
+
+  fun cut(b: !^Tree) -> ^Tree?
+    <b.left
+
+  fun cut2(slot: !^Tree?) -> ^Tree?
+    if !slot as t
+      return <t.right
+    none
+
+  b = ^Tree(key: 2, left: leaf(1), right: leaf(3))
+  l = cut(!b)
+  print(l)
+  swap(!b.left, !b.right)
+  print(b)
+  o: ^Tree? = <b
+  r = cut2(!o)
+  print(r, o)
+
+fail "review-take-p72", "cannot take out of `o?.a`: `o?` reads a binding where it stands, and `<` takes only out of a place"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  fun f() -> Int?
+    o: S? = S(a: R(n: 1))
+    t = <o?.a
+    print(t)
+    print(o)
+    1
+
+  print(f())
+
+fail "review-take-p76", "cannot take out of `o?.a`: `o?` reads a binding where it stands, and `<` takes only out of a place"
+  obj S
+    a: Int?
+
+  fun f() -> Int?
+    o: S? = S(a: 1)
+    t = <o?.a
+    print(t, o)
+    1
+
+  print(f())
+
+test "review-take-p80", '''
+  1
+  [S(a: none)]
+  3
+  [3]
+'''
+  obj S
+    a: Int?
+
+  v: List[S] = List()
+  !v.push(S(a: 1))
+  for x in !v
+    y = <x.a
+    print(y)
+  print(v)
+  w: List[Int?] = List()
+  !w.push(3)
+  for x in !w
+    print(<x)
+  print(w)
+
+fail "review-take-p82", "cannot lend `v` to write in an index of a place it is lending"
+  fun grow(v: !List[Int?]) -> Int
+    i = 0
+    while i < 100 : i += 1
+      !v.push(i)
+    0
+
+  v: List[Int?] = List()
+  !v.push(7)
+  t = replace(!v[grow(!v)], 5)
+  print(t, v.len)
+
+fail "review-take-p83", "cannot lend `v` to write while a read loan is live"
+  v: List[Int?] = List()
+  !v.push(7)
+  for x in ?v
+    t = <v[0]
+    print(x, t)
+
+test "review-take-p85", '''
+  R(n: 2) S(a: R(n: 1), b: none)
+  none S(a: R(n: 1), b: R(n: 3))
+  drop 1
+  false S(a: none, b: R(n: 3))
+  drop 2
+  drop 3
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+    b: R?
+
+  s = S(a: R(n: 1), b: R(n: 2))
+  c = true
+  y = <s.b if c else <s.a
+  print(y, s)
+  s.b = R(n: 3)
+  z = <s.b if not c else none
+  print(z, s)
+  q = (c and <s.a == none)
+  print(q, s)
+
+test "review-take-p87", '''
+  R(n: 1) S(a: none, v: [])
+  drop 1
+  end
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: *R?
+    v: List[Int]
+
+  sub bump(s: !S)
+    !s.v.push(1)
+
+  o: S? = S(a: *R(n: 1), v: List())
+  if <o as x
+    y = <x.a
+    bump(!x)
+    x.v = List[Int]()
+    print(y, x)
+  print("end")
+
+test "review-take-p88", '''
+  1 2
+  [none, 9, 3]
+  a
+  [none, "b"]
+'''
+  sub f(v: ![]Int?)
+    t = <v[0]
+    u = replace(!v[1], 9)
+    print(t, u)
+
+  a: [3]Int? = [1, 2, 3]
+  f(!a[..])
+  print(a)
+  w: List[(?String)?] = List()
+  !w.push("a")
+  !w.push("b")
+  f2(!w)
+  print(w)
+
+  sub f2(w: !List[(?String)?])
+    x = <w[0]
+    print(x)
+
+fail "review-take-p89", "cannot lend `v` to write while a write loan is live: to swap two elements of `v`, write `!v.swap(0, 1)`"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[*R?] = List()
+  !v.push(*R(n: 1))
+  !v.push(none)
+  x = <v[0]
+  print(x, v)
+  b: List[^R?] = List()
+  !b.push(^R(n: 2))
+  y = <b[0]
+  z = replace(!b[0], ^R(n: 3))
+  print(y, z, b)
+  swap(!v[0], !v[1])
+  print("end")
+
+test "review-take-p91", '''
+  R(n: 2) [R(n: 3)]
+  drop 2
+  drop 3
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  b: List[*R] = List()
+  !b.push(*R(n: 2))
+  z = replace(!b[0], *R(n: 3))
+  print(z, b)
+
+test "review-take-p93", '''
+  R(n: 1)
+  R(n: 2)
+  R(n: 9)
+  drop 9
+  drop 2
+  R(n: 7)
+  drop 1
+  drop 7
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  sub put(r: !R)
+    old = replace(!r, R(n: 9))
+    print(old)
+    q = R(n: 7)
+    swap(!r, !q)
+    print(q)
+
+  x = R(n: 1)
+  w = !x
+  old = replace(!w, R(n: 2))
+  print(old)
+  put(!x)
+  print(x)
+
+test "review-take-p94", '''
+  drop 2
+  R(n: 1)
+  drop 1
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+    b: R?
+
+    fun into2(<self) -> R?
+      s = <self
+      <s.a
+
+  s = S(a: R(n: 1), b: R(n: 2))
+  x = <s.into2()
+  print(x)
+
+fail "review-take-p95", "cannot move `s` while a write loan on `s.a` is live"
+  obj S
+    n: Int
+    a: ^S?
+
+  s = S(n: 1, a: none)
+  old = replace(!s.a, ^<s)
+  print(old)
+
+test "review-take-p96", '''
+  S(n: 1, a: S(n: 0, a: S(n: 2, a: none)))
+  S(n: 0, a: S(n: 2, a: none)) S(n: 1, a: none)
+'''
+  obj S
+    n: Int
+    a: ^S?
+
+  s = S(n: 1, a: ^S(n: 2, a: none))
+  t = S(n: 0, a: <s.a)
+  s.a = ^<t
+  print(s)
+  u = <s.a
+  print(u, s)
+
+test "review-take-p98", '''
+  in R(n: 1)
+  drop 1
+  in none
+  S(a: none)
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  s = S(a: R(n: 1))
+  w = !s
+  f = |!w|
+    x = <w.a
+    print("in", x)
+  f()
+  f()
+  print(s)
+
+test "review-take-q4", "3 S(a: none)"
+  obj N
+    v: Int
+
+  obj S
+    a: ^N?
+
+  fun f(s: !S) -> Int?
+    b = (<s.a)?
+    b.v
+
+  s = S(a: ^N(v: 3))
+  print(f(!s), s)
+
+fail "review-text-a2", "cannot lend `t` to write while a read loan is live"
+  t = String("abcdefgh")
+  s = ?t[..]
+  !t.add(s)
+  print(t)
+
+fail "review-text-a4", "cannot lend `t` to write while a read loan is live"
+  t = String("abcdefgh")
+  !t.add(?t)
+  print(t)
+
+fail "review-text-b2", "cannot lend `h.t` to write while an earlier argument's read of `h` is in use"
+  obj H
+    t: String
+
+  h = H(t: String("abcdefghijklmnop"))
+  !h.t.add(h)
+  print(h)
+
+fail "review-text-b3", "cannot lend `v` to write while a read loan is live"
+  v: List[String] = List()
+  !v.push(String("abcdefghijklmnop"))
+  !v[0].add(?v[0])
+  print(v)
+
+fail "review-text-c1", "`t` does not live long enough"
+  obj S
+    s: ?String
+
+  out = S(s: "lit")
+  if true
+    t = String("scoped text here")
+    out = S(s: ?t[..])
+  print(out)
+
+test "review-text-k8", "lit other"
+  s = "lit"
+  r = ?s
+  o = r
+  s = "other"
+  print(o, s)
+
+test "review-text-k9", "lit other"
+  s = "lit"
+  r = ?s
+  o: ?String = r
+  s = "other"
+  print(o, s)
+
+test "review-text-w1", "a"
+  v: List[?String] = List()
+  !v.push("a")
+  !v.push("b")
+  s = v[0]
+  <v
+  print(s)
+
+test "review-text-w3", "Ann Bob"
+  obj Person
+    name: ?String
+    age: Int
+
+  fun greet(p: ?Person) -> ?String
+    p.name
+
+  p = Person(name: "Ann", age: 3)
+  n = greet(?p)
+  p = Person(name: "Bob", age: 4)
+  print(n, p.name)
+
+test "review-text-w4", "small"
+  fun label(n: Int) -> ?String
+    "big" if n > 10 else "small"
+
+  obj Tag
+    name: ?String
+
+  tags: List[Tag] = List()
+  !tags.push(Tag(name: label(3)))
+  !tags.push(Tag(name: "x"))
+  first = tags[0].name
+  <tags
+  print(first)
+
+test "review-text-wa", "Ann [1]"
+  obj Person
+    name: ?String
+    tags: List[Int]
+
+    fun label(?self) -> ?String
+      self.name
+
+  p = Person(name: "Ann", tags: List())
+  l = ?p.label()
+  !p.tags.push(1)
+  print(l, p.tags)
+
+test "review-text-wb", "num"
+  obj Tok
+    kind: ?String
+    n: Int
+
+  fun tok(kind: ?String, n: Int) -> Tok
+    Tok(kind: kind, n: n)
+
+  toks: List[Tok] = List()
+  !toks.push(tok("num", 1))
+  !toks.push(tok("op", 2))
+  k = toks[0].kind
+  <toks
+  print(k)
+
+test "review-text-wc", "a []"
+  names = ["a", "b"]
+  v: List[?String] = List()
+  for n in names
+    !v.push(n)
+  first = v[0]
+  !v.clear()
+  print(first, v)
+
+test "review-text-wd", '''
+  x ["x", "y"]
+'''
+  obj Reg
+    names: List[?String]
+
+    sub add(!self, n: ?String) keeps n
+      !self.names.push(n)
+
+    fun first(?self) -> ?String
+      self.names[0]
+
+  r = Reg(names: List())
+  !r.add("x")
+  f = ?r.first()
+  !r.add("y")
+  print(f, r.names)
+
+test "review-text2-a1", '''
+  drop 0
+  drop 1
+  drop 2
+  i 3
+  drop 10
+  drop 10
+  end
+'''
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun mk(i: Int) -> N
+    N(id: i)
+
+  fun get(n: ?N) -> Int
+    n.id
+
+  i = 0
+  while get(?mk(i)) < 5
+    i += 1
+    if i == 2
+      continue
+    if i == 3
+      break
+  print("i", i)
+  @outer for k in 0..2
+    j = 0
+    while get(?mk(10 + j)) < 12
+      j += 1
+      if k == 1
+        break @outer
+      if j == 1
+        continue @outer
+  print("end")
+
+test "review-text2-a2", '''
+  drop 0
+  -1
+  drop 0
+  drop 1
+  drop 2
+  2
+  drop 0
+  drop 1
+  drop 2
+  -5
+  101
+  drop 51
+  drop 50
+  drop 61
+  drop 60
+  false
+  drop 71
+  drop 70
+  true
+  drop 80
+  drop 81
+  81
+'''
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  error Bad
+    no
+
+  fun mk(i: Int) -> N
+    N(id: i)
+
+  fun get(n: ?N) -> Int
+    n.id
+
+  fun f(x: Int) -> Int!
+    if x > 1
+      return Bad.no
+    x
+
+  fun g(o: Int?) -> Int
+    i = 0
+    while get(?mk(i)) < (o ?? return -1)
+      i += 1
+    i
+
+  fun h(n: Int) -> Int!
+    i = 0
+    while get(?mk(i)) + f(i)! < n
+      i += 1
+    i
+
+  print(g(none))
+  print(g(2))
+  print(h(10) catch -5)
+  print(get(?mk(50)) + (f(5) catch get(?mk(51))))
+  x = get(?mk(60)) > 0 and get(?mk(61)) > 100 and get(?mk(62)) > 0
+  print(x)
+  y = get(?mk(70)) < 0 or get(?mk(71)) > 0
+  print(y)
+  z = get(?mk(81)) if get(?mk(80)) > 0 else get(?mk(82))
+  print(z)
+
+test "review-text2-a3", '''
+  drop 3
+  4
+  drop 20
+  20
+  drop 5
+  9
+  drop 7
+  drop 8
+  seven 9
+  drop 9
+  done
+  deferred 99
+  drop 99
+'''
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun mk(i: Int) -> N
+    N(id: i)
+
+  fun get(n: ?N) -> Int
+    n.id
+
+  fun twice[T](x: T, f: ?fun(T) -> Int) -> Int
+    f(x) + get(?mk(5))
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  c = |x: Int|
+    get(?mk(x)) + 1
+  print(c(3))
+  print(apply(|x| get(?mk(x * 10)), 2))
+  print(twice(4, |x| x))
+  defer print("deferred", get(?mk(99)))
+  match get(?mk(7))
+    7 if get(?mk(8)) == 8 => print("seven", get(?mk(9)))
+    _ => print("other")
+  print("done")
+
+test "review-text2-a5", '''
+  drop 1
+  1
+  1
+'''
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun mk[T](x: T) -> T
+    x
+
+  fun show[T](x: ?T) -> Int
+    1
+
+  fun gen[T](x: T) -> Int
+    a = show(?mk(<x))
+    a
+
+  print(gen(N(id: 1)))
+  print(gen(String("t")))
+
+test "review-text2-d1", '''
+  consume 1
+  drop 1
+  a
+  2
+  drop 2
+  b
+  consume 3
+  drop 3
+  consume 2
+  drop 2
+  consume 1
+  drop 1
+  c
+  5
+  drop 5
+  4
+  drop 4
+  d
+  e
+  drop 7
+'''
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun maybe(i: Int) -> N?
+    if i > 0
+      return N(id: i)
+    none
+
+  sub consume(n: N)
+    print("consume", n.id)
+
+  if maybe(1) as n
+    consume(<n)
+  print("a")
+  if maybe(2) as n
+    print(n.id)
+  print("b")
+  i = 3
+  while maybe(i) as n
+    consume(<n)
+    i -= 1
+  print("c")
+  j = 5
+  while maybe(j) as n
+    print(n.id)
+    j -= 1
+    if j == 3
+      break
+  print("d")
+  v: List[^N] = List()
+  if maybe(7) as n
+    !v.push(^<n)
+  print("e")
+
+fail "review-text2-e10", "cannot store a view of `t` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one"
+  fun mk() -> *Cell[List[?String]]
+    cv: *Cell[List[?String]] = *Cell(List())
+    !cv.push("lit")
+    cv
+
+  t = String("abcdefghijklmnop")
+  cv = mk()
+  keep = +cv
+  (!cv)[0] = ?t[..3]
+  <cv
+  <t
+  print(keep[0])
+
+fail "review-text2-e11", "cannot store a view of `t` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one"
+  t = String("abcdefghijklmnop")
+  cv: *Cell[List[?String]] = *Cell(List())
+  keep = +cv
+  !cv.push(?t[..3])
+  <cv
+  <t
+  print(keep[0])
+
+fail "review-text2-e15", "cannot store a view of `s` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which carries no loan"
+  sub put(c: !Cell[List[?String]], s: ?String)
+    !c.set(List())
+    !c.push("a")
+    c[0] = s
+
+  print(1)
+
+fail "review-text2-e16", "cannot drop `t` while it is lent"
+  obj P
+    s: ?String
+
+  sub put(c: !List[P], s: ?String) keeps s
+    c[0] = P(s: s)
+
+  t = String("abcdefghijklmnop")
+  v: List[P] = List()
+  !v.push(P(s: "x"))
+  put(!v, ?t[..3])
+  <t
+  print(v)
+
+test "review-text2-s1", '''
+  drop 1
+  false
+  drop 1
+  is a
+  drop 2
+  drop 2
+  false true
+  drop 1
+  false
+'''
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  enum M
+    a(n: N)
+    b
+
+  fun mk() -> M
+    M.a(n: N(id: 1))
+
+  fun maybe() -> N?
+    N(id: 2)
+
+  print(mk() == .b)
+  if mk() != .b
+    print("is a")
+  print(maybe() == none, maybe() != none)
+  x = mk() == .b
+  print(x)
+
+test "review-text2-t8", '''
+  N(id: 1, v: [])
+  1 4
+  1
+  drop 4
+  drop 1
+'''
+  obj N
+    id: Int
+    v: List[Int]
+
+    drop(!self)
+      print("drop", self.id)
+
+  enum M
+    a(n: Int)
+    b
+
+  a = N(id: 1, v: List())
+  print((a))
+  d = N(id: 4, v: List())
+  print(a.id, d.id)
+  m1 = M.a(n: 1)
+  m2 = M.b
+  match (m1 if true else m2)
+    .a(n) => print(n)
+    .b => print("b")
+
+fail "review-text2-t9", "`a` owns an `N`, which can't be copied by `=`: write `<a` to move it or `?a` to view it"
+  obj N
+    id: Int
+    v: List[Int]
+
+    drop(!self)
+      print("drop", self.id)
+
+  a = N(id: 1, v: List())
+  b = N(id: 2, v: List())
+  x = a if true else b
+  print(x.id, a.id)
+
+fail "review-text3-b1", "`s` is bound but never read; name it `_` to ignore the value"
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  enum M
+    a(n: N, s: ?String)
+    b
+
+  fun mk(s: ?String) -> M
+    M.a(n: N(id: 1), s: s)
+
+  sub take(n: N)
+    print("took", n.id)
+
+  t = String("hello")
+  match mk(?t[..])
+    .a(n, s) => take(<n)
+    .b => print("b")
+  print("end")
+
+test "review-text3-b10", '''
+  kept
+  drop 1
+  end
+  drop 1
+'''
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  enum M
+    a(n: N)
+    c
+
+  fun mk() -> M
+    M.a(n: N(id: 1))
+
+  sub keep(m: M)
+    print("kept")
+
+  match mk()
+    .c => print("c")
+    other => keep(<other)
+  x = match mk()
+    .c => M.c
+    other => other
+  print("end")
+
+test "review-text3-b11", '''
+  took 1
+  drop 1
+  end
+'''
+  obj N
+    id: Int
+    t: String
+
+    drop(!self)
+      print("drop", self.id)
+
+  enum M
+    a(n: N, s: ?String, r: ?String)
+    c
+
+  fun mk(s: ?String, r: ?String) -> M
+    M.a(n: N(id: 1, t: String("owned")), s: s, r: r)
+
+  sub take(n: N)
+    print("took", n.id)
+
+  t = String("hello")
+  u = String("world")
+  match mk(?t[..], ?u[..])
+    .a(n, _, _) => take(<n)
+    .c => print("c")
+  print("end")
+
+test "review-text3-b3", '''
+  took
+  drop 1
+  end
+'''
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  enum Inner
+    x(n: N)
+    y
+
+  enum M
+    a(i: Inner)
+    c
+
+  fun mk() -> M
+    M.a(i: Inner.x(n: N(id: 1)))
+
+  sub take(i: Inner)
+    print("took")
+
+  match mk()
+    .a(i) => take(<i)
+    .c => print("c")
+  print("end")
+
+test "review-text3-b4", '''
+  took 1
+  drop 1
+  end
+'''
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun mk() -> N?
+    N(id: 1)
+
+  sub take(n: N)
+    print("took", n.id)
+
+  if mk() as n
+    take(<n)
+  print("end")
+
+test "review-text3-b5", '''
+  took 1
+  drop 1
+  end
+'''
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  enum M
+    a(n: N)
+    c
+
+  fun mk() -> M
+    M.a(n: N(id: 1))
+
+  sub take(n: N)
+    print("took", n.id)
+
+  f = ||
+    match mk()
+      .a(n) => take(<n)
+      .c => print("c")
+  f()
+  print("end")
+
+test "review-text3-d11", '''
+  hello world
+  11
+  1
+  end
+'''
+  fun f(o: String?) -> Int?
+    print(o?)
+    print(o?.len)
+    1
+
+  x: String? = String("hello world")
+  print(f(<x) ?? 0)
+  print("end")
+
+fail "review-text3-d14", "`o` owns a `String?`, which can't be copied by `=`: write `<o` to move it, `+o` to clone it, or `?o` to view it"
+  sub take(t: String)
+    print(t)
+
+  fun f(o: String?) -> Int?
+    _ = o?
+    take(o?)
+    1
+
+  x: String? = String("hello")
+  print(f(<x) ?? 0)
+
+test "review-text3-d8", '''
+  N(id: 1)
+  N(id: 1)
+  end
+  drop 1
+'''
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun mk() -> N
+    N(id: 9)
+
+  o: N? = N(id: 1)
+  c = false
+  print(mk() if c else (o ?? mk()))
+  print(o)
+  print("end")
+
+fail "review-text3-e7", "a view of the temporary `maybe(1) ?? N(id: 4, t: String(\"dd\"))` outlives its statement, which drops it; bind the value to a name first"
+  obj N
+    id: Int
+    t: String
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun maybe(k: Int) -> N?
+    N(id: k, t: String("aaaa")) if k > 0 else none
+
+  print(text.trim(?(maybe(1) ?? N(id: 2, t: String("bb"))).t))
+  print((maybe(0) ?? N(id: 3, t: String("cc"))).t)
+  s = text.trim(?(maybe(1) ?? N(id: 4, t: String("dd"))).t)
+  print(s)
+
+fail "review-text3-f1", "cannot move `b` while a read loan is live"
+  b = ^String("boxed")
+  s = ?b[1..]
+  t = <b.unbox()
+  print(s, t)
+
+fail "review-text3-f2", "cannot move `b` while a read loan is live"
+  b = ^String("boxed")
+  s = ?b[1..]
+  c = <b
+  print(s, c)
+
+fail "review-text3-f3", "cannot lend `b` to write while a read loan is live"
+  b = ^String("boxed")
+  s = ?b[1..]
+  !b.add(" more text that forces a realloc of the buffer")
+  print(s)
+
+fail "review-text4-a3", "`n` owns an `N`, which can't be copied into a counted handle: write `<n` to move it"
+  obj N
+    id: Int
+    drop(!self)
+      print("drop", self.id)
+
+  n = N(id: 1)
+  print(*n)
+  print(n.id)
+
+fail "review-text4-e6", "`h` is a `*N` handle, which can't be copied into an argument: write `<h` to move it or `+h` for another handle"
+  obj N
+    id: Int
+    drop(!self)
+      print("drop", self.id)
+
+  obj P
+    a: *N
+    b: *N
+
+  h = *N(id: 1)
+  print(P(a: h, b: h).a.id)
+  print(h.id)
+
+test "review-text4-q1", '''
+  N(id: 1)
+  drop 1
+  mid
+  N(id: 3)
+  drop 3
+  end run
+  --
+  N(id: 2)
+  drop 2
+  mid
+  N(id: 3)
+  drop 3
+  end run
+  drop 1
+'''
+  obj N
+    id: Int
+    drop(!self)
+      print("drop", self.id)
+
+  fun mo(k: Int) -> N?
+    N(id: k) if k > 0 else none
+
+  sub run(c: Bool)
+    a = N(id: 1)
+    print(<a if c else N(id: 2))
+    print("mid")
+    o = N(id: 3)
+    print(mo(0) ?? <o)
+    print("end run")
+
+  run(true)
+  print("--")
+  run(false)
+
+test "review-text4-q2", '''
+  N(id: 5)
+  drop 5
+  N(id: 6)
+  drop 6
+  8
+  end
+  drop 8
+  drop 7
+  drop 4
+  drop 3
+'''
+  obj N
+    id: Int
+    drop(!self)
+      print("drop", self.id)
+
+  fun mo(k: Int) -> N?
+    N(id: k) if k > 0 else none
+
+  fun mf(k: Int) -> N!
+    N(id: k)
+
+  o = N(id: 3)
+  print(mo(5) ?? <o)
+  p = N(id: 4)
+  print(mf(6) catch <p)
+  q = N(id: 7)
+  x = mo(8) ?? <q
+  print(x.id)
+  print("end")
+
+test "review-while-step-2-gen2-matchvalue-catchbreak-catchbreak", '''
+  step 0 0
+  step 9 0
+  drop 101
+  mdefer 1 1
+  step 2 6
+  drop 102
+  mdefer 1 2
+  step 2 7
+  drop 103
+  mdefer 1 3
+  step 2 8
+  drop 104
+  mdefer 1 4
+  step 2 9
+  after mid 1 4
+  drop 1
+  odefer 1
+  step 1 6
+  step 9 0
+  drop 101
+  mdefer 2 1
+  step 2 6
+  drop 102
+  mdefer 2 2
+  drop 2
+  odefer 2
+  step 1 7
+  step 9 0
+  drop 101
+  mdefer 3 1
+  step 2 6
+  drop 102
+  mdefer 3 2
+  step 2 7
+  drop 103
+  mdefer 3 3
+  step 2 8
+  drop 104
+  mdefer 3 4
+  step 2 9
+  after mid 3 4
+  drop 3
+  odefer 3
+  step 1 8
+  step 9 0
+  drop 101
+  mdefer 4 1
+  step 2 6
+  drop 102
+  mdefer 4 2
+  drop 4
+  odefer 4
+  step 1 9
+  end 275 4
+'''
+  # review-while-step-2 gen2 cell matchvalue.catchbreak.catchbreak: steps, defers and drops must
+  # print what the plain.plain cell prints.
+  #
+  # oracle: D.drop accept
+  # oracle: mk accept
+  # oracle: mkf accept
+  # oracle: fresh accept
+  # oracle: take accept
+  # oracle: odd accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj S
+    s: []Int
+
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 4
+      return S(s: ?v[..])
+    none
+
+  fun mkf(v: ?List[Int], i: Int, bad: Int) -> S?!
+    return E.bad if i == bad
+    mk(v, i)
+
+  fun fresh(t: Int, n: Int) -> List[Int]
+    print("step", t, n)
+    a: List[Int] = List()
+    !a.push(n)
+    a
+
+  fun take(a: List[Int]) -> Int
+    a[0]
+
+  fun odd(j: Int) -> Int?
+    j if j % 2 == 1 else none
+
+  v: List[Int] = List()
+  !v.push(5)
+  a = fresh(0, 0)
+  k = 0
+  i = 0
+  @outer while (mkf(?v, i, 99) catch break) as h: a = fresh(1, h.s[0] + i)
+    i += 1
+    defer print("odefer", i)
+    x = D(n: i)
+    k += take(<a)
+    m = 0
+    b = fresh(9, 0)
+    @mid while (mkf(?v, m, 99) catch break) as g: b = fresh(2, g.s[0] + m)
+      m += 1
+      defer print("mdefer", i, m)
+      y = D(n: 100 + m)
+      k += take(<b)
+      w = match m
+        1 => 10
+        2
+          continue @outer if i % 2 == 0
+          20
+        _ => 30
+      k += w
+    print("after mid", i, m)
+  print("end", k, i)
+
+test "review-while-step-2-gen2-matchvalue-catchbreak-plain", '''
+  step 0 0
+  step 9 0
+  drop 101
+  mdefer 1 1
+  step 2 6
+  drop 102
+  mdefer 1 2
+  step 2 7
+  drop 103
+  mdefer 1 3
+  step 2 8
+  drop 104
+  mdefer 1 4
+  step 2 9
+  after mid 1 4
+  drop 1
+  odefer 1
+  step 1 6
+  step 9 0
+  drop 101
+  mdefer 2 1
+  step 2 6
+  drop 102
+  mdefer 2 2
+  drop 2
+  odefer 2
+  step 1 7
+  step 9 0
+  drop 101
+  mdefer 3 1
+  step 2 6
+  drop 102
+  mdefer 3 2
+  step 2 7
+  drop 103
+  mdefer 3 3
+  step 2 8
+  drop 104
+  mdefer 3 4
+  step 2 9
+  after mid 3 4
+  drop 3
+  odefer 3
+  step 1 8
+  step 9 0
+  drop 101
+  mdefer 4 1
+  step 2 6
+  drop 102
+  mdefer 4 2
+  drop 4
+  odefer 4
+  step 1 9
+  end 275 4
+'''
+  # review-while-step-2 gen2 cell matchvalue.catchbreak.plain: steps, defers and drops must
+  # print what the plain.plain cell prints.
+  #
+  # oracle: D.drop accept
+  # oracle: mk accept
+  # oracle: mkf accept
+  # oracle: fresh accept
+  # oracle: take accept
+  # oracle: odd accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj S
+    s: []Int
+
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 4
+      return S(s: ?v[..])
+    none
+
+  fun mkf(v: ?List[Int], i: Int, bad: Int) -> S?!
+    return E.bad if i == bad
+    mk(v, i)
+
+  fun fresh(t: Int, n: Int) -> List[Int]
+    print("step", t, n)
+    a: List[Int] = List()
+    !a.push(n)
+    a
+
+  fun take(a: List[Int]) -> Int
+    a[0]
+
+  fun odd(j: Int) -> Int?
+    j if j % 2 == 1 else none
+
+  v: List[Int] = List()
+  !v.push(5)
+  a = fresh(0, 0)
+  k = 0
+  i = 0
+  @outer while (mkf(?v, i, 99) catch break) as h: a = fresh(1, h.s[0] + i)
+    i += 1
+    defer print("odefer", i)
+    x = D(n: i)
+    k += take(<a)
+    m = 0
+    b = fresh(9, 0)
+    @mid while mk(?v, m) as g: b = fresh(2, g.s[0] + m)
+      m += 1
+      defer print("mdefer", i, m)
+      y = D(n: 100 + m)
+      k += take(<b)
+      w = match m
+        1 => 10
+        2
+          continue @outer if i % 2 == 0
+          20
+        _ => 30
+      k += w
+    print("after mid", i, m)
+  print("end", k, i)
+
+test "review-while-step-2-gen2-matchvalue-catchnone-catchbreak", '''
+  step 0 0
+  step 9 0
+  drop 101
+  mdefer 1 1
+  step 2 6
+  drop 102
+  mdefer 1 2
+  step 2 7
+  drop 103
+  mdefer 1 3
+  step 2 8
+  drop 104
+  mdefer 1 4
+  step 2 9
+  after mid 1 4
+  drop 1
+  odefer 1
+  step 1 6
+  step 9 0
+  drop 101
+  mdefer 2 1
+  step 2 6
+  drop 102
+  mdefer 2 2
+  drop 2
+  odefer 2
+  step 1 7
+  step 9 0
+  drop 101
+  mdefer 3 1
+  step 2 6
+  drop 102
+  mdefer 3 2
+  step 2 7
+  drop 103
+  mdefer 3 3
+  step 2 8
+  drop 104
+  mdefer 3 4
+  step 2 9
+  after mid 3 4
+  drop 3
+  odefer 3
+  step 1 8
+  step 9 0
+  drop 101
+  mdefer 4 1
+  step 2 6
+  drop 102
+  mdefer 4 2
+  drop 4
+  odefer 4
+  step 1 9
+  end 275 4
+'''
+  # review-while-step-2 gen2 cell matchvalue.catchnone.catchbreak: steps, defers and drops must
+  # print what the plain.plain cell prints.
+  #
+  # oracle: D.drop accept
+  # oracle: mk accept
+  # oracle: mkf accept
+  # oracle: fresh accept
+  # oracle: take accept
+  # oracle: odd accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj S
+    s: []Int
+
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 4
+      return S(s: ?v[..])
+    none
+
+  fun mkf(v: ?List[Int], i: Int, bad: Int) -> S?!
+    return E.bad if i == bad
+    mk(v, i)
+
+  fun fresh(t: Int, n: Int) -> List[Int]
+    print("step", t, n)
+    a: List[Int] = List()
+    !a.push(n)
+    a
+
+  fun take(a: List[Int]) -> Int
+    a[0]
+
+  fun odd(j: Int) -> Int?
+    j if j % 2 == 1 else none
+
+  v: List[Int] = List()
+  !v.push(5)
+  a = fresh(0, 0)
+  k = 0
+  i = 0
+  @outer while (mkf(?v, i, 99) catch none) as h: a = fresh(1, h.s[0] + i)
+    i += 1
+    defer print("odefer", i)
+    x = D(n: i)
+    k += take(<a)
+    m = 0
+    b = fresh(9, 0)
+    @mid while (mkf(?v, m, 99) catch break) as g: b = fresh(2, g.s[0] + m)
+      m += 1
+      defer print("mdefer", i, m)
+      y = D(n: 100 + m)
+      k += take(<b)
+      w = match m
+        1 => 10
+        2
+          continue @outer if i % 2 == 0
+          20
+        _ => 30
+      k += w
+    print("after mid", i, m)
+  print("end", k, i)
+
+test "review-while-step-2-gen2-matchvalue-catchnone-plain", '''
+  step 0 0
+  step 9 0
+  drop 101
+  mdefer 1 1
+  step 2 6
+  drop 102
+  mdefer 1 2
+  step 2 7
+  drop 103
+  mdefer 1 3
+  step 2 8
+  drop 104
+  mdefer 1 4
+  step 2 9
+  after mid 1 4
+  drop 1
+  odefer 1
+  step 1 6
+  step 9 0
+  drop 101
+  mdefer 2 1
+  step 2 6
+  drop 102
+  mdefer 2 2
+  drop 2
+  odefer 2
+  step 1 7
+  step 9 0
+  drop 101
+  mdefer 3 1
+  step 2 6
+  drop 102
+  mdefer 3 2
+  step 2 7
+  drop 103
+  mdefer 3 3
+  step 2 8
+  drop 104
+  mdefer 3 4
+  step 2 9
+  after mid 3 4
+  drop 3
+  odefer 3
+  step 1 8
+  step 9 0
+  drop 101
+  mdefer 4 1
+  step 2 6
+  drop 102
+  mdefer 4 2
+  drop 4
+  odefer 4
+  step 1 9
+  end 275 4
+'''
+  # review-while-step-2 gen2 cell matchvalue.catchnone.plain: steps, defers and drops must
+  # print what the plain.plain cell prints.
+  #
+  # oracle: D.drop accept
+  # oracle: mk accept
+  # oracle: mkf accept
+  # oracle: fresh accept
+  # oracle: take accept
+  # oracle: odd accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj S
+    s: []Int
+
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 4
+      return S(s: ?v[..])
+    none
+
+  fun mkf(v: ?List[Int], i: Int, bad: Int) -> S?!
+    return E.bad if i == bad
+    mk(v, i)
+
+  fun fresh(t: Int, n: Int) -> List[Int]
+    print("step", t, n)
+    a: List[Int] = List()
+    !a.push(n)
+    a
+
+  fun take(a: List[Int]) -> Int
+    a[0]
+
+  fun odd(j: Int) -> Int?
+    j if j % 2 == 1 else none
+
+  v: List[Int] = List()
+  !v.push(5)
+  a = fresh(0, 0)
+  k = 0
+  i = 0
+  @outer while (mkf(?v, i, 99) catch none) as h: a = fresh(1, h.s[0] + i)
+    i += 1
+    defer print("odefer", i)
+    x = D(n: i)
+    k += take(<a)
+    m = 0
+    b = fresh(9, 0)
+    @mid while mk(?v, m) as g: b = fresh(2, g.s[0] + m)
+      m += 1
+      defer print("mdefer", i, m)
+      y = D(n: 100 + m)
+      k += take(<b)
+      w = match m
+        1 => 10
+        2
+          continue @outer if i % 2 == 0
+          20
+        _ => 30
+      k += w
+    print("after mid", i, m)
+  print("end", k, i)
+
+test "review-while-step-2-gen2-matchvalue-plain-catchbreak", '''
+  step 0 0
+  step 9 0
+  drop 101
+  mdefer 1 1
+  step 2 6
+  drop 102
+  mdefer 1 2
+  step 2 7
+  drop 103
+  mdefer 1 3
+  step 2 8
+  drop 104
+  mdefer 1 4
+  step 2 9
+  after mid 1 4
+  drop 1
+  odefer 1
+  step 1 6
+  step 9 0
+  drop 101
+  mdefer 2 1
+  step 2 6
+  drop 102
+  mdefer 2 2
+  drop 2
+  odefer 2
+  step 1 7
+  step 9 0
+  drop 101
+  mdefer 3 1
+  step 2 6
+  drop 102
+  mdefer 3 2
+  step 2 7
+  drop 103
+  mdefer 3 3
+  step 2 8
+  drop 104
+  mdefer 3 4
+  step 2 9
+  after mid 3 4
+  drop 3
+  odefer 3
+  step 1 8
+  step 9 0
+  drop 101
+  mdefer 4 1
+  step 2 6
+  drop 102
+  mdefer 4 2
+  drop 4
+  odefer 4
+  step 1 9
+  end 275 4
+'''
+  # review-while-step-2 gen2 cell matchvalue.plain.catchbreak: steps, defers and drops must
+  # print what the plain.plain cell prints.
+  #
+  # oracle: D.drop accept
+  # oracle: mk accept
+  # oracle: mkf accept
+  # oracle: fresh accept
+  # oracle: take accept
+  # oracle: odd accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj S
+    s: []Int
+
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 4
+      return S(s: ?v[..])
+    none
+
+  fun mkf(v: ?List[Int], i: Int, bad: Int) -> S?!
+    return E.bad if i == bad
+    mk(v, i)
+
+  fun fresh(t: Int, n: Int) -> List[Int]
+    print("step", t, n)
+    a: List[Int] = List()
+    !a.push(n)
+    a
+
+  fun take(a: List[Int]) -> Int
+    a[0]
+
+  fun odd(j: Int) -> Int?
+    j if j % 2 == 1 else none
+
+  v: List[Int] = List()
+  !v.push(5)
+  a = fresh(0, 0)
+  k = 0
+  i = 0
+  @outer while mk(?v, i) as h: a = fresh(1, h.s[0] + i)
+    i += 1
+    defer print("odefer", i)
+    x = D(n: i)
+    k += take(<a)
+    m = 0
+    b = fresh(9, 0)
+    @mid while (mkf(?v, m, 99) catch break) as g: b = fresh(2, g.s[0] + m)
+      m += 1
+      defer print("mdefer", i, m)
+      y = D(n: 100 + m)
+      k += take(<b)
+      w = match m
+        1 => 10
+        2
+          continue @outer if i % 2 == 0
+          20
+        _ => 30
+      k += w
+    print("after mid", i, m)
+  print("end", k, i)
+
+fail "review-while-step-gen-catchbreak-match-grow", "cannot lend `v` to write while a read loan is live"
+  # oracle: mk accept
+  # oracle: mkf accept
+  # oracle: grow accept
+  # oracle: main reject C4
+
+  error E
+    bad
+
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], n: Int) -> S?
+    if n < 4
+      return S(s: ?v[..])
+    none
+
+  fun mkf(v: ?List[Int], n: Int) -> S?!
+    return E.bad if n == 70
+    mk(v, n)
+
+  sub grow(v: !List[Int])
+    for i in 0..50
+      !v.push(i)
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  n = 0
+  @outer while (mkf(?v, n) catch break) as h: k += h.s[0]
+    n += 1
+    match n
+      1
+        j = 0
+        while j < 2: j += 1
+          grow(!v)
+          continue @outer
+      _
+        grow(!v)
+  print(k, n)
+
+test "review-while-step-gen-catchbreak-match-read", "4004 4"
+  # oracle: mk accept
+  # oracle: mkf accept
+  # oracle: grow accept
+  # oracle: main accept
+
+  error E
+    bad
+
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], n: Int) -> S?
+    if n < 4
+      return S(s: ?v[..])
+    none
+
+  fun mkf(v: ?List[Int], n: Int) -> S?!
+    return E.bad if n == 70
+    mk(v, n)
+
+  sub grow(v: !List[Int])
+    for i in 0..50
+      !v.push(i)
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  n = 0
+  @outer while (mkf(?v, n) catch break) as h: k += h.s[0]
+    n += 1
+    match n
+      1
+        j = 0
+        while j < 2: j += 1
+          k += 1000
+          continue @outer
+      _
+        k += 1000
+  print(k, n)
+
+test "review-while-step-gen-catchbreak-whileas-read", "4004 4"
+  # oracle: mk accept
+  # oracle: mkf accept
+  # oracle: grow accept
+  # oracle: main accept
+
+  error E
+    bad
+
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], n: Int) -> S?
+    if n < 4
+      return S(s: ?v[..])
+    none
+
+  fun mkf(v: ?List[Int], n: Int) -> S?!
+    return E.bad if n == 70
+    mk(v, n)
+
+  sub grow(v: !List[Int])
+    for i in 0..50
+      !v.push(i)
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  n = 0
+  @outer while (mkf(?v, n) catch break) as h: k += h.s[0]
+    n += 1
+    while mk(?v, 0) as g
+      k += g.s[0] - 1
+      k += 1000
+      continue @outer
+  print(k, n)
+
+fail "review-while-step-gen-catchnone-whilefor-grow", "cannot lend `v` to write while a read loan is live"
+  # oracle: mk accept
+  # oracle: mkf accept
+  # oracle: grow accept
+  # oracle: main reject C4
+
+  error E
+    bad
+
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], n: Int) -> S?
+    if n < 4
+      return S(s: ?v[..])
+    none
+
+  fun mkf(v: ?List[Int], n: Int) -> S?!
+    return E.bad if n == 70
+    mk(v, n)
+
+  sub grow(v: !List[Int])
+    for i in 0..50
+      !v.push(i)
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  n = 0
+  @outer while (mkf(?v, n) catch none) as h: k += h.s[0]
+    n += 1
+    j = 0
+    while j < 2: j += 1
+      for _ in 0..1
+        grow(!v)
+        continue @outer
+  print(k, n)
+
+test "review-while-step-gen-plain-whilecond-read", "4004 4"
+  # oracle: mk accept
+  # oracle: mkf accept
+  # oracle: grow accept
+  # oracle: main accept
+
+  error E
+    bad
+
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], n: Int) -> S?
+    if n < 4
+      return S(s: ?v[..])
+    none
+
+  fun mkf(v: ?List[Int], n: Int) -> S?!
+    return E.bad if n == 70
+    mk(v, n)
+
+  sub grow(v: !List[Int])
+    for i in 0..50
+      !v.push(i)
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  n = 0
+  @outer while mk(?v, n) as h: k += h.s[0]
+    n += 1
+    j = 0
+    while j < 2
+      j += 1
+      k += 1000
+      continue @outer if j > 0
+  print(k, n)
+
+test "review-while-step-w04-labeled-continue-inner-while", "25 5"
+  # `continue @outer` from an inner `while` must run the outer step,
+  # which reads the outer condition's binding.
+  #
+  # oracle: mk accept
+  # oracle: main accept
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 5
+      return S(s: ?v[..])
+    none
+
+  v: List[Int] = List()
+  !v.push(5)
+  k = 0
+  i = 0
+  @outer while mk(?v, i) as h: k += h.s[0]
+    i += 1
+    j = 0
+    while j < 3: j += 1
+      continue @outer if j == 2
+    k += 100
+  print(k, i)
+
+  # expect: 25 5
+
+fail "review-while-step-w06-body-local-repoint", "`local` does not live long enough"
+  # The body re-points an outer view at a body-local List, which drops
+  # at the body's end; the step then reads the view.
+  #
+  # oracle: main reject C5
+  w: List[Int] = List()
+  !w.push(7)
+  s = ?w[..]
+  k = 0
+  i = 0
+  while i < 3: k += s[0]
+    local: List[Int] = List()
+    !local.push(i)
+    s = ?local[..]
+    i += 1
+  print(k)
+
+fail "review-while-step-w07-body-defer-reads-h", "cannot lend `v` to write while a read loan is live"
+  # oracle: mk accept
+  # oracle: main reject C4
+
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int]) -> S?
+    if v.len < 40
+      return S(s: ?v[..])
+    none
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h: k += 1
+    defer k += h.s[0]
+    !v.push(2)
+  print(k)
+
+fail "review-while-step-w08-step-grows-outer-view-live", "cannot lend `v` to write while a read loan is live"
+  # The step grows the List an outer view reads in the body.
+  #
+  # oracle: main reject C4
+  v: List[Int] = List()
+  !v.push(1)
+  s = ?v[..]
+  k = 0
+  i = 0
+  while i < 40: !v.push(i)
+    k += s[0]
+    i += 1
+  print(k)
+
+fail "review-while-step-w09-cond-grows-outer-view-step", "cannot lend `w` to write while a read loan is live"
+  # oracle: grow accept
+  # oracle: main reject C4
+
+  fun grow(v: !List[Int]) -> Bool
+    !v.push(1)
+    v.len < 40
+
+  w: List[Int] = List()
+  !w.push(1)
+  s = ?w[..]
+  k = 0
+  while grow(!w): k += s[0]
+    k += 1
+  print(k)
+
+fail "review-while-step-w10-closure-step", "cannot lend `v` to write while a read loan is live"
+  # oracle: main reject C4
+
+  v: List[Int] = List()
+  !v.push(1)
+  s = ?v[..]
+  f = |?s| s[0]
+  k = 0
+  i = 0
+  while i < 40: k += f()
+    i += 1
+    !v.push(2)
+  print(k)
+
+fail "review-while-step-w11-body-stores-h-step-grows", "cannot lend `v` to write while a read loan is live"
+  # oracle: mk accept
+  # oracle: main reject C4
+
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 40
+      return S(s: ?v[..])
+    none
+
+  v: List[Int] = List()
+  !v.push(1)
+  e: List[Int] = List()
+  !e.push(0)
+  last = S(s: ?e[..])
+  k = 0
+  i = 0
+  while mk(?v, i) as h: !v.push(2)
+    last = h
+    i += 1
+    k += last.s[0]
+  print(k, last.s[0])
+
+test "review-while-step-w13-labeled-continue-skips-step-plain", "21 5"
+  # The same with a plain (not joined) condition, which emits Zig's own
+  # continue expression.
+  #
+  # oracle: mk accept
+  # oracle: fresh accept
+  # oracle: take accept
+  # oracle: main accept
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 5
+      return S(s: ?v[..])
+    none
+
+  fun fresh(n: Int) -> List[Int]
+    a: List[Int] = List()
+    !a.push(n)
+    a
+
+  fun take(a: List[Int]) -> Int
+    a[0]
+
+  v: List[Int] = List()
+  !v.push(5)
+  a = fresh(1)
+  k = 0
+  i = 0
+  @outer while mk(?v, i) as h: a = fresh(h.s[0])
+    i += 1
+    k += take(<a)
+    j = 0
+    while j < 3: j += 1
+      break @outer if i > 100
+      continue @outer if j == 2
+  print(k, i)
+
+  # expect: 21 5
+
+test "review-while-step-w15-catchbreak-continue-skips-step-uaf", "21 5"
+  # The same as w14 through a single (not joined) condition with a jump
+  # in it, `catch break`, which also takes the joined lowering.
+  #
+  # oracle: mk accept
+  # oracle: fresh accept
+  # oracle: take accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], i: Int) -> S?!
+    return E.bad if i > 70
+    if i < 5
+      return S(s: ?v[..])
+    none
+
+  fun fresh(n: Int) -> List[Int]
+    a: List[Int] = List()
+    !a.push(n)
+    a
+
+  fun take(a: List[Int]) -> Int
+    a[0]
+
+  v: List[Int] = List()
+  !v.push(5)
+  a = fresh(1)
+  k = 0
+  i = 0
+  @outer while (mk(?v, i) catch break) as h: a = fresh(h.s[0])
+    i += 1
+    k += take(<a)
+    continue if i > 200
+    j = 0
+    while j < 3: j += 1
+      break @outer if i > 100
+      continue @outer if j == 2
+  print(k, i)
+
+  # expect: 21 5
+
+fail "review-while-step-w23-reassign-source", "cannot reassign `v` while it is lent"
+  # oracle: mk accept
+  # oracle: main reject C4
+
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int]) -> S?
+    if v.len < 40
+      return S(s: ?v[..])
+    none
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h: k += h.s[0]
+    v = List()
+    !v.push(2)
+  print(k)
+
+fail "review-while-step-w24-move-source", "cannot move `v` while a read loan is live"
+  # oracle: mk accept
+  # oracle: eat accept
+  # oracle: main reject C4
+
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int]) -> S?
+    if v.len < 40
+      return S(s: ?v[..])
+    none
+
+  fun eat(v: List[Int]) -> Int
+    v.len
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h: k += h.s[0]
+    k += eat(<v)
+    v = List()
+    !v.push(2)
+  print(k)
+
+fail "review-while-step-w25-drop-source", "cannot drop `v` while it is lent"
+  # oracle: mk accept
+  # oracle: main reject C4
+
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int]) -> S?
+    if v.len < 40
+      return S(s: ?v[..])
+    none
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h: k += h.s[0]
+    <v
+    v = List()
+    !v.push(2)
+  print(k)
+
+fail "review-while-step-w26-shared-reassign", "cannot reassign `x` while it is lent"
+  # A slice of a shared List; the body replaces the handle (the last one),
+  # freeing the List the step's slice views.
+  #
+  # oracle: all accept
+  # oracle: main reject C4
+  fun all(v: ?List[Int]) -> []Int
+    ?v[..]
+
+  x = *List[Int]()
+  s = all(?x)
+  k = 0
+  i = 0
+  while i < 3: k += s.len
+    x = *List[Int]()
+    i += 1
+  print(k)
+
+fail "review-while-step-w27-shared-view-binding", "cannot reassign `r` while it is lent"
+  # oracle: all accept
+  # oracle: mkn accept
+  # oracle: main reject C4
+
+  obj Node
+    vals: List[Int]
+
+  fun all(n: ?Node, i: Int) -> ([]Int)?
+    if i < 4
+      return ?n.vals[..]
+    none
+
+  fun mkn(x: Int) -> *Node
+    v: List[Int] = List()
+    !v.push(x)
+    *Node(vals: <v)
+
+  r = mkn(1)
+  k = 0
+  i = 0
+  while all(?r, i) as s: k += s[0]
+    r = mkn(i)
+    i += 1
+  print(k)
+
+test "review-while-step-w29-weak-step", "0 1"
+  # The step upgrades a weak handle whose strong handle the body
+  # replaces: the upgrade fails safely.
+  #
+  # oracle: count accept
+  # oracle: main accept
+  obj Node
+    val: Int
+
+  fun count(w: ?~Node) -> Int
+    if *w as n
+      return n.val
+    0
+
+  s = *Node(val: 5)
+  w = ~s
+  k = 0
+  i = 0
+  while i < 3: k += count(?w)
+    s = *Node(val: 1)
+    i += 1
+  print(k, s.val)
+
+  # expect: 0 1
+
+fail "review-while-step-w30-enclosing-defer", "cannot lend `v` to write while a read loan is live"
+  # A defer of the enclosing scope reads an outer view; the step grows
+  # the List it views.
+  #
+  # oracle: main reject C4
+  v: List[Int] = List()
+  !v.push(1)
+  s = ?v[..]
+  defer print(s[0])
+  i = 0
+  while i < 40: !v.push(i)
+    i += 1
+  print(v.len)
+
+fail "review-while-step-w31-repoint-write-view-local", "`y` does not live long enough"
+  # The body re-points an outer write view at a body-local value; the
+  # step writes through it after the local's scope ended.
+  #
+  # oracle: main reject C5
+  x = 1
+  p = !x
+  i = 0
+  while i < 3: p += 1
+    y = 5
+    p = !y
+    i += 1
+  print(x)
+
+fail "review-while-step-w32-outer-repoint-after-grow-ok", "cannot lend `v` to write while a read loan is live"
+  # Valid: the body grows the List, then re-points the outer slice at it
+  # before the step reads it. (Textual liveness may over-reject.)
+  #
+  # oracle: main accept
+  v: List[Int] = List()
+  !v.push(1)
+  s = ?v[..]
+  k = 0
+  i = 0
+  while i < 5: k += s[0]
+    !v.push(2)
+    s = ?v[..]
+    i += 1
+  print(k)
+
+  # expect: 5
+
+test "review-while-step-w33-shared-view-binding-clone-ok", "12"
+  # Valid: the body clones the handle and drops the clone; the step reads
+  # the slice the condition bound.
+  #
+  # oracle: all accept
+  # oracle: main accept
+  obj Node
+    vals: List[Int]
+
+  fun all(n: ?Node, i: Int) -> ([]Int)?
+    if i < 4
+      return ?n.vals[..]
+    none
+
+  v: List[Int] = List()
+  !v.push(3)
+  r = *Node(vals: <v)
+  k = 0
+  i = 0
+  while all(?r, i) as s: k += s[0]
+    c = +r
+    <c
+    i += 1
+  print(k)
+
+  # expect: 12
+
+fail "review-while-step-w34-cond-temp-view", "a view of the temporary `mkv(i)` outlives its statement, which drops it; bind the value to a name first"
+  # The condition binds a view of a temporary List made in the condition;
+  # the step reads it.
+  #
+  # oracle: mkv accept
+  # oracle: first accept
+  # oracle: main reject C5
+  fun mkv(i: Int) -> List[Int]
+    v: List[Int] = List()
+    !v.push(i)
+    v
+
+  fun first(v: ?List[Int], i: Int) -> ([]Int)?
+    if i < 3
+      return ?v[..]
+    none
+
+  k = 0
+  i = 0
+  while first(?mkv(i), i) as h: k += h[0]
+    i += 1
+  print(k)
+
+fail "review-while-step-w35-step-reassigns-view-body-stale", "cannot lend `v` to write while a read loan is live"
+  # The step re-points an outer slice; the body grows the List and then
+  # reads the slice the step made before the growth.
+  #
+  # oracle: all accept
+  # oracle: main reject C4
+  fun all(v: ?List[Int]) -> []Int
+    ?v[..]
+
+  v: List[Int] = List()
+  !v.push(1)
+  e = [0]
+  s: []Int = ?e[..]
+  k = 0
+  i = 0
+  while i < 40: s = all(?v)
+    !v.push(2)
+    k += s[0]
+    i += 1
+  print(k)
+
+test "review-while-step-w36-cond-writes-step-reads", "510 6"
+  # The condition writes `v` and binds a view of it; the step reads the
+  # view; the body only reads `v` through `h`.
+  #
+  # oracle: nx accept
+  # oracle: main accept
+  obj S
+    s: []Int
+
+  fun nx(v: !List[Int]) -> S?
+    !v.push(v.len)
+    if v.len < 6
+      return S(s: ?v[..])
+    none
+
+  v: List[Int] = List()
+  k = 0
+  while nx(!v) as h: k += h.s[h.s.len - 1]
+    k += 100
+  print(k, v.len)
+
+  # expect: 510 6
+
+fail "review-while-step-w37-fallible-cond", "cannot lend `v` to write while a read loan is live"
+  # oracle: mk accept
+  # oracle: run reject C4
+  # oracle: main accept
+
+  error E
+    bad
+
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int]) -> S?!
+    return E.bad if v.len > 100
+    if v.len < 40
+      return S(s: ?v[..])
+    none
+
+  fun run() -> Int!
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    while mk(?v)! as h: k += h.s[0]
+      !v.push(2)
+    k
+
+  print(run() catch 0)

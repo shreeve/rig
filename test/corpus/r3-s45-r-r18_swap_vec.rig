@@ -1,9 +1,0 @@
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  !v.push(String("b"))
-  !v.swap(0, 1)
-  print(v)
-  a = [String("x"), String("y")]
-  !a.swap(0, 1)
-  print(a)

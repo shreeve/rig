@@ -1,9 +1,0 @@
-# defer reads an element; the List is moved out before scope end
-fun take(v: List[String]) -> Int
-  v.len
-
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  defer print(v[0])
-  print(take(<v))

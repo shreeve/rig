@@ -1,8 +1,0 @@
-# List element array reached two ways
-sub main()
-  vs: List[[3]Int] = List()
-  !vs.push([1, 2, 3])
-  w = !vs[0][..]
-  u = !vs[0][..]
-  w[0] = 1
-  u[0] = 2

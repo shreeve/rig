@@ -1,8 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  w: List[Int] = List()
-  !v.push(1)
-  a = [<v, <w]
-  print(a[0].len)
-  for x in ?a
-    print(x.len)

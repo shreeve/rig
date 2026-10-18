@@ -1,8 +1,0 @@
-sub main()
-  vv: List[List[String]] = List()
-  v: List[String] = List()
-  !v.push(String("a"))
-  !vv.push(<v)
-  for x in vv[0]
-    <x
-  print(vv)

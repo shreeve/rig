@@ -1,9 +1,0 @@
-# consuming loop over an array of List[Text], moving some into an outer List, break midway
-sub main()
-  a = [List[String](), List[String](), List[String]()]
-  keep: List[List[String]] = List()
-  for v, i in <a
-    if i == 2
-      break
-    !keep.push(<v)
-  print(keep.len)

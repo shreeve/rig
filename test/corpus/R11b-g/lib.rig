@@ -1,8 +1,0 @@
-pub obj Wrap[T]
-  v: T
-
-pub obj Pt
-  x: Int
-
-pub fun max[T](a: T, b: T) -> T
-  a

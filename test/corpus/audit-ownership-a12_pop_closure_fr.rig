@@ -1,7 +1,0 @@
-sub main()
-  v: List[*sub()] = List()
-  !v.push(*|| print("hi"))
-  f = (!v).pop()
-  print(v.len)
-  if <f as g
-    g()

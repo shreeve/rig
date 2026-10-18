@@ -1,7 +1,0 @@
-obj Hold[T]
-  v: T
-
-sub main()
-  x = 5
-  h = Hold(v: ?x)
-  print(h.v)

@@ -1,8 +1,0 @@
-obj S
-  n: Int
-  a: ^S?
-
-sub main()
-  s = S(n: 1, a: none)
-  old = replace(!s.a, ^<s)
-  print(old)

@@ -1,8 +1,0 @@
-fun parse(s: ?String) -> Int!
-  s.len
-
-fun apply(f: ?fun(?String) -> Int!, s: ?String) -> Int!
-  f(s)!
-
-sub main()
-  print(apply(|s| parse(s)! + 1, "abc")!)

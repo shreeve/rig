@@ -1,8 +1,0 @@
-sub set(a: !Int)
-  w = <a
-  w = 5
-
-sub main()
-  z = 0
-  set(!z)
-  print(z)

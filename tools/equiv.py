@@ -3,8 +3,8 @@
 
     tools/equiv.py OLD_RIG NEW_RIG [-j N] [--keep DIR] [--no-cache]
 
-Runs both compilers over every tracked program (tests, examples, std,
-corpus) and every ```rig block in the Markdown docs, and compares what
+Runs both compilers over every tracked `.rig` program (examples, std,
+torture input, CLI fixtures) and every ```rig block in the Markdown docs, and compares what
 each prints for `parse`, `normalize`, `check`, `check --facts`, and, for
 a program `check` accepts, `check --facts=sema`, `check --facts=storage`,
 `emit`, and `pkg`: a hash of the whole package `RIG_SANITIZE=1 rig emit`

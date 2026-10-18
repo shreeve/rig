@@ -1,9 +1,0 @@
-# continue, and moving x into a List
-sub main()
-  a = [String("a"), String("b"), String("c")]
-  keep: List[String] = List()
-  for x in <a
-    if x == "b"
-      continue
-    !keep.push(<x)
-  print(keep)

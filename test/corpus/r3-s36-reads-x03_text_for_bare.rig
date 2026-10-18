@@ -1,4 +1,0 @@
-sub main()
-  t = String("hi")
-  for b in t
-    print(b)

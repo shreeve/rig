@@ -1,4 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  w = +v
-  print(w)

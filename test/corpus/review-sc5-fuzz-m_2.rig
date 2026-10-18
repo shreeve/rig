@@ -1,6 +1,0 @@
-K: U16 = 3
-
-sub main()
-  v: U16 = 5
-  x: U16 = K
-  print(x, v, K)

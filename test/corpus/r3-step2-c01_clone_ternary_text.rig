@@ -1,6 +1,0 @@
-sub main()
-  a = String("x")
-  b = String("y")
-  c = true
-  d = +(a if c else b)
-  print(d, a)

@@ -1,7 +1,0 @@
-obj R
-  n: Int
-
-sub main()
-  v: List[[]*R] = List()
-  w: [2][2]*R = [[*R(n: 1), *R(n: 2)], [*R(n: 3), *R(n: 4)]]
-  print(w[1][0].n)

@@ -1,4 +1,0 @@
-# bind an owning element of a temporary array literal
-sub main()
-  x = [String("a"), String("b")][1]
-  print(x)

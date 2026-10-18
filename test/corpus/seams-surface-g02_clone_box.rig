@@ -1,3 +1,0 @@
-sub main()
-  b = ^5
-  c = +b

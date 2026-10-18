@@ -1,3 +1,0 @@
-sub main()
-  cb = *|f: ?fun(Int) -> Int| f(1)
-  print(cb(|a| a + 1))

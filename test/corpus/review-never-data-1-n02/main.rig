@@ -1,6 +1,0 @@
-use lib
-
-sub main()
-  w: lib.Wrap[lib.C]? = none
-  v: List[lib.C] = List()
-  print(v.len)

@@ -1,4 +1,0 @@
-sub main()
-  x = *Signal[Int](value: 1)
-  y: Signal[Int]? = none
-  print(x.get())

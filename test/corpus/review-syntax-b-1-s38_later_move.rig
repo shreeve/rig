@@ -1,7 +1,0 @@
-fun g(xs: []Int, v: List[Int]) -> Int
-  xs.len + v.len
-
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  print(g(v[..], <v))

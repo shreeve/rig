@@ -1,7 +1,0 @@
-use lib
-
-sub main()
-  e = ^lib.E.a(r: lib.R(n: 3))
-  match ?e
-    .a(r) => print(r.n)
-    .b => print("b")

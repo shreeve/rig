@@ -1,6 +1,0 @@
-# <v[0] of a non-optional owner must be rejected
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  t = <v[0]
-  print(t, v)

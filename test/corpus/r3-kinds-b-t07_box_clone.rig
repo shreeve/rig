@@ -1,4 +1,0 @@
-sub main()
-  b = ^String("x")
-  c = +b
-  print(?c)

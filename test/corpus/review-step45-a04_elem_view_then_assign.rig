@@ -1,7 +1,0 @@
-# view of element, then assign the element (drop old) while view live
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  s = ?v[0]
-  v[0] = String("b")
-  print(s)

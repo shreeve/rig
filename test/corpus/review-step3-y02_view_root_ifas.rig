@@ -1,9 +1,0 @@
-obj S
-  o: String?
-
-sub main()
-  s = S(o: String("abc"))
-  r = ?s
-  if r.o as t
-    s.o = none
-    print(t)

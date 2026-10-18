@@ -1,3 +1,0 @@
-pub enum Level
-  high = 9
-  low = 1

@@ -1,3 +1,0 @@
-sub main()
-  a = 7
-  print(a / 2, a % 3, Float(a), Int(2.5))

@@ -1,0 +1,1643 @@
+# Probes from past reviews and audits, 39 of 41: seams-surface-e03_vec_handle_idx to syntax-review-designer-p11_owned_cb_struct.
+
+test "seams-surface-e03 vec handle idx", "1"
+  obj N
+    n: Int
+
+  v: List[*N] = List()
+  !v.push(*N(n: 1))
+  print(v[0].n)
+
+test "seams-surface-e03b vec handle view", "1"
+  obj N
+    n: Int
+
+  fun rd(x: ?*N) -> Int
+    x.n
+
+  v: List[*N] = List()
+  !v.push(*N(n: 1))
+  print(rd(?v[0]))
+  h = +v[0]
+
+test "seams-surface-e06 empty drop hack", '''
+  1
+  1
+'''
+  obj Token
+    id: Int
+
+  sub use_it(t: Token)
+    print(t.id)
+
+  t = Token(id: 1)
+  use_it(t)
+  use_it(t)
+
+test "seams-surface-e07 catch return", "7 2"
+  error E
+    bad
+
+  fun f() -> Int!
+    return E.bad
+
+  fun g() -> Int
+    n = f() catch |e|
+      return 7
+    n
+
+  h = |x: Int|
+    return x + 1
+  print(g(), h(1))
+
+test "seams-surface-f06 receiver sigils", "-4 4 4 3 none"
+  obj P
+    v: List[Int]
+    f: Int?
+    fun first(?self) -> Int
+      self.v[0]
+
+  p = P(v: List(), f: 3)
+  !p.v.push(4)
+  x = -p.first()
+  y = +p.first()
+  z = ?p.first()
+  w = <p.f
+  print(x, y, z, w, p.f)
+
+test "seams-surface-f08 handle lend3", "1 1"
+  obj P
+    x: Int
+
+  fun rd(p: ?P) -> Int
+    p.x
+
+  h = *P(x: 1)
+  for q in [1]
+    print(rd(?h), q)
+
+test "seams-surface-g02 clone box"
+  b = ^5
+  c = +b
+
+test "seams-surface-g04 copy neg", "5"
+  n = 5
+  m = <n
+  p = <m
+  print(p)
+
+test "seams-surface-h01 vec slice", "[[1, 2]]"
+  a = [1, 2, 3]
+  v: List[[]Int] = List()
+  !v.push(?a[..2])
+  print(v)
+
+test "seams-surface-h05 match box", "1"
+  enum E
+    a(n: Int)
+    b
+
+  x = ^E.a(1)
+  match x
+    .a(n) => print(n)
+    .b => pass
+
+test "seams-temps-m1", '''
+  1
+  drop 1
+  2
+  drop 2
+  3
+  drop 3
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> B
+    B(n: n)
+
+  fun get(b: ?B) -> Int
+    b.n
+
+  fun opt(n: Int) -> B?
+    if n > 0
+      return B(n: n)
+    none
+
+  print(get(?mk(1)))
+  if opt(2) as b
+    print(b.n)
+  x = opt(0) ?? mk(3)
+  print(x.n)
+
+fail "static-owned closure string param", "an owned closure cannot capture a view of `s`: it can be stored anywhere, so it could outlive `s`; capture an owned value, or use a stack closure (`|...|`)"
+  fun later(s: ?String) -> *sub()
+    *|?s| print(s)
+
+  t = String("abc")
+  f = later(?t[..])
+  <t
+  f()
+
+test "static-static runs clean after text dropped", '''
+  tagged
+  b t tagged
+'''
+  obj Tag
+    name: Static
+
+  fun label(t: Tag) -> *sub()
+    *|+t| print(t.name)
+
+  t = String("abc")
+  c = *Cell("one")
+  pieces = ["a", "b", "c"]
+  !c.set(pieces[1])
+  tag = Tag(name: "tagged")
+  f = label(tag)
+  sig = *Signal("s")
+  !sig.set("t")
+  <t
+  f()
+  print(c.get(), sig.get(), tag.name)
+
+test "stdlib-probe-g2", '''
+  1
+  drop 1
+'''
+  obj B
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[*B] = List()
+  !v.push(*B(n: 1))
+  print(v[0].n)
+
+test "stdlib-probe-g7", '''
+  4
+  drop 4
+'''
+  obj Wrap[T]
+    items: List[T]
+
+    fun get(?self, i: Int) -> (?T)?
+      return none if i >= self.items.len
+      ?self.items[i]
+
+  obj B
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  w = Wrap[*B](items: List())
+  !w.items.push(*B(n: 4))
+  if w.get(0) as b
+    print(b.n)
+
+test "stdlib-probe-h2", "3 none"
+  obj Pair[K, V]
+    k: K
+    v: V
+
+  obj Map[K, V]
+    slots: List[Pair[K, V]]
+
+    fun get(?self, k: K) -> V?
+      for p in ?self.slots
+        return p.v if p.k == k
+      none
+
+    sub put(!self, k: K, v: V)
+      for p in !self.slots
+        if p.k == k
+          p.v = v
+          return
+      !self.slots.push(Pair(k: k, v: v))
+
+  m = Map[?String, Int](slots: List())
+  !m.put("a", 1)
+  !m.put("b", 2)
+  !m.put("a", 3)
+  print(m.get("a"), m.get("c"))
+
+test "stdlib-probe-h4", "11"
+  fun hash(s: ?String) -> U64
+    h: U64 = 14695981039346656037
+    for b in s
+      h = (h ^ U64(b)) *% 1099511628211
+    h
+
+  print(hash("abc") % 16)
+
+test "stdlib-probe-h5", '''
+  [1, 3, 2]
+  none
+  0
+'''
+  v: List[Int] = List()
+  !v.push(3)
+  !v.push(1)
+  !v.push(2)
+  s = !v[..]
+  !s.swap(0, 1)
+  print(v)
+  x = v.get(5)
+  print(x)
+  w: List[^Int] = List()
+  print(w.len)
+
+test "stdlib-probe-i1", '''
+  1
+  2
+  3
+'''
+  obj Iter[T]
+    xs: []T
+    i: Int = 0
+
+    fun next(!self) -> T?
+      return none if self.i >= self.xs.len
+      self.i += 1
+      self.xs[self.i - 1]
+
+  a = [1, 2, 3]
+  it = Iter(xs: ?a[..])
+  while (!it).next() as x
+    print(x)
+
+test "stdlib-probe-i2", '''
+  the
+  quick
+  fox
+  3
+'''
+  obj Words
+    s: ?String
+    i: Int = 0
+
+    fun next(!self) -> (?String)?
+      while self.i < self.s.len and self.s[self.i] == 32
+        self.i += 1
+      return none if self.i >= self.s.len
+      start = self.i
+      while self.i < self.s.len and self.s[self.i] != 32
+        self.i += 1
+      self.s[start..self.i]
+
+  w = Words(s: "  the quick  fox ")
+  n = 0
+  while (!w).next() as x
+    print(x)
+    n += 1
+  print(n)
+
+test "stdlib-probe-i3", "13 91"
+  obj Random
+    s: U64
+
+    fun next(!self) -> U64
+      self.s = self.s +% 0x9E3779B97F4A7C15
+      z = self.s
+      z = (z ^ (z >> 30)) *% 0xBF58476D1CE4E5B9
+      z = (z ^ (z >> 27)) *% 0x94D049BB133111EB
+      z ^ (z >> 31)
+
+    fun below(!self, n: U64) -> U64
+      (!self).next() % n
+
+  r = Random(s: 42)
+  print((!r).below(100), (!r).below(100))
+
+test "stdlib-probe-i4", "2 2 1"
+  fun lower_bound[T](xs: []T, x: T) -> Int
+    lo = 0
+    hi = xs.len
+    while lo < hi
+      mid = (lo + hi) / 2
+      if xs[mid] < x
+        lo = mid + 1
+      else
+        hi = mid
+    lo
+
+  a = [1, 3, 5, 7]
+  print(lower_bound(?a[..], 5), lower_bound(?a[..], 4), lower_bound(["a", "c"], "b"))
+
+test "stdlib-probe-j1", '''
+  2
+  true
+'''
+  fun lines_n(s: ?String) -> Int?!
+    return none if s.len == 0
+    s.len
+
+  if lines_n("ab")! as n
+    print(n)
+  x: Float = 0.0
+  print(x == x)
+
+test "stdlib-probe-m3", '''
+  3
+  5
+'''
+  fun first[T](xs: []T) -> T?
+    return none if xs.len == 0
+    xs[0]
+
+  a = [3, 4]
+  print(first(?a))
+  h = *Cell(5)
+  print(h.get())
+
+test "stdlib-rig-g10b", '''
+  x 3
+  x= 3
+
+'''
+  x = 3
+  print("x", x)
+  print("x=" , x)
+  print()
+
+test "stdlib-rig-g12b bits", "1 13 4 20 2 250"
+  x: U8 = 5
+  print(x & 3, x | 8, x ^ 1, x << 2, x >> 1, x ^ U8.max)
+
+test "stdlib-rig-g12c", "-6"
+  x: I32 = 5
+  print(x ^ -1)
+
+test "stdlib-rig-g14b find", "1 9 1"
+  fun index_of[T](xs: []T, x: T) -> Int?
+    i = 0
+    for y in xs
+      if y == x
+        return i
+      i += 1
+    none
+
+  fun max_of[T](xs: []T) -> T?
+    if xs.len == 0
+      return none
+    m = xs[0]
+    for y in xs
+      if y > m
+        m = y
+    m
+
+  a = [3, 9, 2]
+  print(index_of(?a, 9), max_of(?a), index_of(["a", "b"], "b"))
+
+test "stdlib-rig-g17 wrap", "11613906214716018861 12344"
+  x: U64 = 12345
+  print(x *% 11400714819323198485, x +% U64.max)
+
+test "stdlib-rig-g18 hashfn", "0 none"
+  obj Map[K, V]
+    keys: List[K]
+    vals: List[V]
+
+    pub fun find(?self, k: K, h: ?fun(K) -> U64) -> Int?
+      hk = h(k)
+      i = 0
+      for x in ?self.keys
+        if h(x) == hk and x == k
+          return i
+        i += 1
+      none
+
+  fun hs(s: ?String) -> U64
+    U64(s.len)
+
+  m = Map[?String, Int](keys: List(), vals: List())
+  !m.keys.push("a")
+  !m.vals.push(1)
+  print(m.find("a", hs), m.find("b", |s| U64(s.len)))
+
+test "stdlib-rig-g22b", "1"
+  obj P
+    x: Int
+
+  obj Chain[T]
+    items: List[T]
+    fun at(?self, i: Int) -> ?T
+      ?self.items[i]
+
+  l = Chain[*P](items: List())
+  !l.items.push(*P(x: 1))
+  print(l.at(0).x)
+
+test "stdlib-rig-g24", '''
+  1
+  0 [P(x: 7), P(x: 2)]
+'''
+  obj P
+    x: Int
+
+  fun remove_at[T](v: !List[T], i: Int) -> T?
+    j = i
+    while j + 1 < v.len : j += 1
+      !v.swap(j, j + 1)
+    (!v).pop()
+
+  sub insert_at[T](v: !List[T], i: Int, x: T)
+    !v.push(<x)
+    j = v.len - 1
+    while j > i : j -= 1
+      !v.swap(j - 1, j)
+
+  v: List[*P] = List()
+  !v.push(*P(x: 1))
+  !v.push(*P(x: 2))
+  old = *P(x: 0)
+  insert_at(!v, 0, *P(x: 7))
+  if remove_at(!v, 1) as r
+    print(r.x)
+  print(old.x, v)
+
+bomb "stdlib-rig-g25", "boom"
+  panic("boom")
+
+fail "stdlib-rig-g2 vec owning index", "`b` is assigned but never read; use it, or discard the value with `_ = ...`"
+  obj N
+    v: List[Int]
+
+  xs: List[*N] = List()
+  !xs.push(*N(v: List()))
+  a = xs[0]
+  b = ?xs[0]
+  print(xs.len)
+
+test "stdlib-rig-g2b vec box index", '''
+  1
+  1
+'''
+  obj N
+    k: Int
+
+  xs: List[^N] = List()
+  !xs.push(^N(k: 1))
+  print(xs[0].k)
+  for b in ?xs
+    print(b.k)
+
+test "stdlib-rig-g3b vecboxvec", "1"
+  obj Row
+    cells: List[Int]
+
+  grid: List[^List[Int]] = List()
+  !grid.push(^List[Int]())
+  rows: List[Row] = List()
+  print(grid.len)
+
+test "stdlib-rig-g3c vecstructowning", '''
+  [4]
+  1
+'''
+  obj Row
+    cells: List[Int]
+
+  rows: List[^Row] = List()
+  !rows.push(^Row(cells: List()))
+  for r in !rows
+    !r.cells.push(4)
+  for r in ?rows
+    print(r.cells)
+  if (!rows).pop() as last
+    print(last.cells.len)
+
+test "stdlib-rig-g4 shared as read", '''
+  5
+  5
+'''
+  obj U
+    n: Int
+
+  fun peek(u: ?U) -> Int
+    u.n
+
+  h = *U(n: 5)
+  print(peek(?h))
+  print(peek(h))
+
+test "stdlib-rig-g4b shared method", "5 5 5 1"
+  obj U
+    n: Int
+    fun get(?self) -> Int
+      self.n
+
+  fun peek2(u: ?*U) -> Int
+    u.n
+
+  fun generic_peek[T](u: ?T) -> Int
+    1
+
+  h = *U(n: 5)
+  print(h.get(), h.n, peek2(?h), generic_peek(?h))
+
+test "stdlib-rig-g5 errors", "0"
+  use io
+  use parse
+
+  fun read() -> Int!
+    return io.IoError.eof
+
+  sub main()
+    n = read() catch |e|
+      if e == parse.ParseError.eof
+        print("confused: io eof equals parse eof")
+      0
+    print(n)
+
+  file "io.rig"
+    pub error IoError
+      closed
+      eof
+
+  file "parse.rig"
+    pub error ParseError
+      eof
+      bad
+
+fail "stdlib-rig-g9c str", "`x` is assigned but never read; use it, or discard the value with `_ = ...`"
+  x = 42
+  s = "x = {x}"
+  print(s, "#{x}")
+
+test "stdlib-zig-closures", '''
+  7
+  10
+  2
+'''
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  fun keep(f: *fun(Int) -> Int) -> *fun(Int) -> Int
+    f
+
+  fun parse(s: ?String) -> Int!
+    s.len
+
+  k = 3
+  print(apply(|+k, x| x + k, 4))
+  g = keep(*|x| x * 2)
+  print(g(5))
+  print(parse("ab")!)
+
+fail "step3-adv1-rej", "method `new_stack` of `lib.Stack` is private to module `lib`; declare it `pub fun new_stack` there to call it from here"
+  use lib
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj Loop
+    s: lib.Stack[Loop]
+
+  obj Holds
+    b: lib.View[Int]
+
+  fun boxed[T](x: T) -> lib.Stack[T]
+    lib.wrap(<x)
+
+  sub main()
+    s = lib.Stack[Res].new_stack()
+    t = boxed(Res(n: 3))
+    u = lib.wrap(Res(n: 4))
+    print(s.size(), t.size(), u.size())
+
+  file "lib.rig"
+    pub obj Stack[T]
+      items: List[T]
+
+      fun new_stack() -> Self
+        Stack(items: List())
+
+      sub push(!self, x: T, note: ?String = "pushed")
+        !self.items.push(<x)
+        print(note)
+
+      fun size(?self) -> Int
+        self.items.len
+
+    pub obj Slot[T]
+      c: Cell[T]
+
+      fun swap(!self, x: T) -> T
+        (!self.c).replace(<x)
+
+    pub fun wrap[T](x: T, label: ?String = "w") -> Stack[T]
+      s = Stack[T].new_stack()
+      !s.push(<x)
+      print(label)
+      s
+
+    pub obj View[T]
+      r: ?T
+
+fail "step3-bagt", "only module `bag` can construct `bag.Bag`: its field `items` is private; declare every field `pub` there, or make the value with a `pub` function of `bag`"
+  use bag
+
+  sub main()
+    b = bag.Bag[Int](items: List())
+    !b.add(3)
+    !b.add(4)
+    print(bag.largest(?b, 0), b.items.len)
+
+  file "bag.rig"
+    pub obj Bag[T]
+      items: List[T]
+
+      sub add(!self, x: T)
+        !self.items.push(<x)
+
+    pub fun largest[T](b: ?Bag[T], start: T) -> T
+      t = start
+      for x in b.items
+        if x > t
+          t = x
+      t
+
+test "subctor-t", '''
+  ok 1
+  ok 2
+  stopped Bad.neg
+  ok 4
+'''
+  error Bad
+    neg
+
+  sub check(n: Int)!
+    return Bad.neg if n < 0
+    print("ok", n)
+
+  sub each(xs: []Int, f: ?sub(Int)!)!
+    for x in xs
+      f(x)!
+
+  a = [1, 2, -3]
+  each(?a, check) catch |e|
+    print("stopped", e)
+  h: sub(Int)! = check
+  h(4)!
+
+test "syntax-review-complete-b1", '''
+  1
+  5
+'''
+  obj P
+    x: Int
+
+  obj Bag
+    items: List[P]
+
+    fun at(?self, i: Int) -> ?P
+      ?self.items[i]
+
+    fun at_mut(!self, i: Int) -> !P
+      !self.items[i]
+
+  b = Bag(items: List())
+  !b.items.push(P(x: 1))
+  r = ?b.at(0)
+  print(r.x)
+  w = (!b).at_mut(0)
+  w.x = 5
+  print(b.items[0].x)
+
+test "syntax-review-complete-b2", "1"
+  obj Node
+    v: Int
+
+  v: List[*Node] = List()
+  !v.push(*Node(v: 1))
+  r = ?v[0]
+  print(r.v)
+
+test "syntax-review-complete-b3", '''
+  1
+  1
+'''
+  obj Node
+    v: Int
+    kids: List[Int]
+
+  v: List[^Node] = List()
+  !v.push(^Node(v: 1, kids: List()))
+  for n in ?v
+    print(n.v)
+  for n in !v
+    !n.kids.push(3)
+  print(v.len)
+
+test "syntax-review-complete-bt1", "1"
+  obj Node
+    keys: List[Int]
+    kids: List[^Node]
+
+  fun count(n: ?Node) -> Int
+    total = n.keys.len
+    for k in ?n.kids
+      total += count(?k)
+    total
+
+  sub add(n: !Node, i: Int, key: Int)
+    for k, j in !n.kids
+      if j == i
+        !k.keys.push(key)
+
+  root = Node(keys: List(), kids: List())
+  !root.kids.push(^Node(keys: List(), kids: List()))
+  add(!root, 0, 5)
+  print(count(?root))
+
+test "syntax-review-complete-bt2"
+  obj Node
+    keys: List[Int]
+    kids: List[^Node]
+
+  root = Node(keys: List(), kids: List())
+  !root.kids.push(^Node(keys: List(), kids: List()))
+  c = !root.kids[0]
+  !c.keys.push(1)
+
+test "syntax-review-complete-bt3", "[1, 3]"
+  obj Node
+    keys: List[Int]
+    kids: List[^Node]
+
+  root = Node(keys: List(), kids: List())
+  !root.kids.push(^Node(keys: List(), kids: List()))
+  !root.kids.insert(0, ^Node(keys: List(), kids: List()))
+  x = (!root.kids).remove(0)
+  !root.keys.push(3)
+  !root.keys.insert(0, 1)
+  print(root.keys)
+
+test "syntax-review-complete-bt4", "three none"
+  obj Node[K, V]
+    keys: List[K]
+    vals: List[V]
+    kids: List[^Node[K, V]]
+
+    fun leaf() -> Self
+      Node(keys: List(), vals: List(), kids: List())
+
+    fun find(?self, k: K) -> V?
+      i = 0
+      while i < self.keys.len and self.keys[i] < k
+        i += 1
+      if i < self.keys.len and self.keys[i] == k
+        return self.vals[i]
+      return none if self.kids.len == 0
+      j = 0
+      for c in ?self.kids
+        if j == i
+          return c.find(k)
+        j += 1
+      none
+
+  n = Node[Int, ?String].leaf()
+  !n.keys.push(3)
+  !n.vals.push("three")
+  print(n.find(3), n.find(4))
+
+test "syntax-review-complete-by1", '''
+  77
+  5 77
+  1
+'''
+  obj Page
+    buf: [4096]U8
+    used: Int
+
+    sub put(!self, at: Int, key: U64)
+      !self.buf.write[U64, .little](at, key)
+
+    fun key(?self, at: Int) -> U64
+      self.buf.read[U64, .little](at)
+
+    fun bytes(?self, a: Int, b: Int) -> []U8
+      ?self.buf[a..b]
+
+  p = Page(buf: [4096 of 0], used: 0)
+  !p.put(8, 77)
+  print(p.key(8))
+  v: List[U8] = List()
+  for _ in 0..16
+    !v.push(0)
+  !v.write[U32, .big](0, 5)
+  !v[4..8].copy(p.bytes(8, 12))
+  print(v.read[U32, .big](0), v[4])
+  pages: List[^Page] = List()
+  !pages.push(^<p)
+  print(pages.len)
+
+test "syntax-review-complete-by2", "4 9"
+  obj Page
+    buf: List[U8]
+
+    fun bytes(?self, a: Int, b: Int) -> []U8
+      ?self.buf[a..b]
+
+    fun wbytes(!self, a: Int, b: Int) -> ![]U8
+      !self.buf[a..b]
+
+  p = Page(buf: List())
+  for _ in 0..16
+    !p.buf.push(1)
+  w = (!p).wbytes(0, 4)
+  w[0] = 9
+  print(p.bytes(0, 4).len, p.buf[0])
+
+test "syntax-review-complete-by3", "9"
+  obj Page
+    buf: [16]U8
+
+    fun wbytes(!self, a: Int, b: Int) -> ![]U8
+      !self.buf[a..b]
+
+  p = Page(buf: [16 of 0])
+  w = (!p).wbytes(0, 4)
+  w[0] = 9
+  print(p.buf[0])
+
+test "syntax-review-complete-d2", "-1 none -1"
+  obj C
+    m: Int = -1
+    e: Int? = none
+
+  fun f(x: Int = -1, y: Float = 1.5) -> Int
+    x
+
+  c = C()
+  print(c.m, c.e, f())
+
+test "syntax-review-complete-df1", '''
+  3
+  6
+'''
+  obj S
+    a: List[Int]
+    b: Int
+
+    sub go(!self)
+      for x in ?self.a
+        self.b += x
+
+  s = S(a: List(), b: 0)
+  !s.a.push(3)
+  !s.go()
+  print(s.b)
+  for x in ?s.a
+    s.b += x
+  print(s.b)
+
+test "syntax-review-complete-df2", "[3]"
+  obj S
+    a: List[Int]
+    c: List[Int]
+
+  s = S(a: List(), c: List())
+  !s.a.push(3)
+  for x in s.a
+    !s.c.push(x)
+  print(s.c)
+  swap(!s.a, !s.c)
+
+test "syntax-review-complete-e2", "line 3 empty"
+  enum ParseResult[T]
+    ok(value: T)
+    err(line: Int, msg: ?String)
+
+  fun parse(s: ?String) -> ParseResult[Int]
+    return .err(line: 3, msg: "empty") if s.len == 0
+    .ok(s.len)
+
+  match parse("")
+    .ok(v) => print(v)
+    .err(l, m) => print("line", l, m)
+
+test "syntax-review-complete-e3", '''
+  3 5
+  -1
+'''
+  error IoError
+    eof
+
+  fun get(n: Int) -> Int?!
+    return IoError.eof if n < 0
+    return none if n == 0
+    n
+
+  fun use_it(n: Int) -> Int!
+    x = get(n)! ?? 5
+    x
+
+  print(use_it(3)!, use_it(0)!)
+  print(use_it(-1) catch -1)
+
+test "syntax-review-complete-en1", "404"
+  enum Status
+    ok = 200
+    missing = 404
+
+  s: Status = .missing
+  print(Int(s))
+
+fail "syntax-review-complete-g1", "cannot return a view of `e`, which this function was not lent"
+  obj Entry
+    k: ?String
+    v: Int
+
+  obj Map
+    es: List[Entry]
+
+    fun get(?self, k: ?String) -> (?Int)?
+      for e in ?self.es
+        if e.k == k
+          return ?e.v
+      none
+
+  m = Map(es: List())
+  !m.es.push(Entry(k: "a", v: 1))
+  if m.get("a") as v
+    print(v)
+  print(m.get("b") == none)
+
+test "syntax-review-complete-g10", '''
+  4
+  [5, 2]
+'''
+  obj P
+    x: Int
+    ys: [2]Int
+
+  fun fx(p: ?P) -> ?Int
+    ?p.x
+
+  fun el(xs: ![]Int) -> !Int
+    !xs[0]
+
+  fun inner(p: ?P) -> []Int
+    ?p.ys[..]
+
+  p = P(x: 4, ys: [1, 2])
+  print(fx(?p))
+  a = [1, 2]
+  w = el(!a[..])
+  w = 5
+  print(a)
+
+test "syntax-review-complete-g2", '''
+  1
+  9
+'''
+  obj Entry
+    k: ?String
+    v: Int
+
+  obj Map
+    es: List[Entry]
+
+    fun get(?self, k: ?String) -> (?Entry)?
+      for e, i in self.es
+        if e.k == k
+          return ?self.es[i]
+      none
+
+    fun get_mut(!self, k: ?String) -> (!Entry)?
+      i = 0
+      while i < self.es.len : i += 1
+        if self.es[i].k == k
+          return !self.es[i]
+      none
+
+  m = Map(es: List())
+  !m.es.push(Entry(k: "a", v: 1))
+  if m.get("a") as v
+    print(v.v)
+  if (!m).get_mut("a") as w
+    w.v = 9
+  print(m.es[0].v)
+
+fail "syntax-review-complete-g3", "cannot return a view of `e`, which this function was not lent"
+  obj Val
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj Map
+    es: List[^Val]
+
+    fun find(?self, n: Int) -> (?Val)?
+      for e in ?self.es
+        if e.n == n
+          return ?e
+      none
+
+    fun find_mut(!self, n: Int) -> (!Val)?
+      for e in !self.es
+        if e.n == n
+          return !e
+      none
+
+  m = Map(es: List())
+  !m.es.push(^Val(n: 1))
+  if m.find(1) as v
+    print(v.n)
+  if (!m).find_mut(1) as w
+    w.n = 7
+  print(m.es.len)
+
+test "syntax-review-complete-g4", '''
+  1 none
+  true
+'''
+  obj Entry
+    k: ?String
+    v: Int
+
+  obj Map
+    es: List[Entry]
+
+    fun get(?self, k: ?String) -> (?Entry)?
+      for e, i in self.es
+        if e.k == k
+          return ?self.es[i]
+      none
+
+  fun lookup(m: ?Map, k: ?String) -> Int?
+    m.get(k)?.v
+
+  m = Map(es: List())
+  !m.es.push(Entry(k: "a", v: 1))
+  print(lookup(?m, "a"), lookup(?m, "z"))
+  print(m.get("a") != none)
+
+test "syntax-review-complete-g6", '''
+  3
+  3
+  drop 3
+'''
+  obj Val
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj Slot
+    v: Val?
+
+  obj Map
+    slots: List[^Slot]
+    one: Val?
+
+    fun first(?self) -> ?Val?
+      ?self.one
+
+    fun val(?self) -> (?Val)?
+      if ?self.one as v
+        return v
+      none
+
+  m = Map(slots: List(), one: Val(n: 3))
+  if m.first() as v
+    print(v.n)
+  if m.val() as v
+    print(v.n)
+
+fail "syntax-review-complete-g7", "bare use of loop view `e` in return value would carry the viewed handle past the loop; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  obj Val
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj Map
+    es: List[^Val]
+
+    fun find(?self, n: Int) -> (?^Val)?
+      for e in ?self.es
+        if e.n == n
+          return e
+      none
+
+  m = Map(es: List())
+  !m.es.push(^Val(n: 1))
+  if m.find(1) as v
+    print(v.n)
+
+fail "syntax-review-complete-g8", "cannot return a view of `x`, which this function was not lent"
+  obj Val
+    n: Int
+
+  fun first(xs: []Val) -> ?Val
+    for x in xs
+      return ?x
+    ?xs[0]
+
+  a = [Val(n: 1)]
+  print(first(?a).n)
+
+test "syntax-review-complete-g9", '''
+  1
+  1 [2]
+'''
+  obj Val
+    n: Int
+
+  fun first(xs: []Val) -> ?Val
+    ?xs[0]
+
+  fun firsti(xs: []Int) -> ?Int
+    ?xs[0]
+
+  fun sub1(xs: []Int) -> []Int
+    xs[1..]
+
+  a = [Val(n: 1)]
+  print(first(?a).n)
+  b = [1, 2]
+  print(firsti(?b), sub1(?b))
+
+test "syntax-review-complete-gb3", '''
+  5
+  drop 5
+'''
+  obj Holder[V]
+    one: V?
+
+    fun val(!self) -> (!V)?
+      if !self.one as v
+        return v
+      none
+
+  obj N
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  h = Holder[N](one: N(n: 1))
+  if (!h).val() as v
+    v.n = 5
+  if ?h.one as w
+    print(w.n)
+
+test "syntax-review-complete-gm1", '''
+  drop 1
+  a 3
+  b 2
+  true
+  drop 2
+  drop 3
+'''
+  obj Entry[K, V]
+    k: K
+    v: V
+
+  obj Map[K, V]
+    es: List[^Entry[K, V]]
+
+    sub put(!self, k: K, v: V)
+      for e in !self.es
+        if e.k == k
+          e.v = <v
+          return
+      !self.es.push(^Entry(k: k, v: <v))
+
+    sub each(?self, f: ?sub(?K, ?V))
+      for e in ?self.es
+        f(?e.k, ?e.v)
+
+    fun has(?self, k: ?K) -> Bool
+      for e in ?self.es
+        return true if e.k == k
+      false
+
+  obj Node
+    id: Int
+    drop(!self)
+      print("drop", self.id)
+
+  m = Map[?String, *Node](es: List())
+  !m.put("a", *Node(id: 1))
+  !m.put("b", *Node(id: 2))
+  !m.put("a", *Node(id: 3))
+  m.each(|k, v| print(k, v.id))
+  print(m.has(?"b"))
+
+test "syntax-review-complete-h3", "5"
+  obj Map[K, V]
+    keys: List[K?]
+    vals: List[V?]
+    hash: fun(?K) -> U64
+
+    fun new(h: fun(?K) -> U64) -> Self
+      Map(keys: List(), vals: List(), hash: h)
+
+    fun slot(?self, k: ?K) -> Int
+      h = self.hash(k)
+      Int(h % 16)
+
+  fun hash_int(k: ?Int) -> U64
+    U64(k) if k >= 0 else 0
+
+  m = Map[Int, ?String].new(hash_int)
+  five = 5
+  print(m.slot(?five))
+
+test "syntax-review-complete-hm4", '''
+  3
+  3
+'''
+  fun hs(s: ?String) -> U64
+    U64(s.len)
+
+  print(hs(?"abc"))
+  k = "abc"
+  print(hs(?k))
+
+test "syntax-review-complete-hm6", "11 2 none 2"
+  obj Map[K, V]
+    keys: List[K?]
+    vals: List[V?]
+    hash: fun(?K) -> U64
+    len: Int
+
+    fun new(h: fun(?K) -> U64) -> Self
+      m: Self = Map(keys: List(), vals: List(), hash: h, len: 0)
+      for _ in 0..8
+        !m.keys.push(none)
+        !m.vals.push(none)
+      m
+
+    fun find(?self, k: ?K) -> Int?
+      cap = self.keys.len
+      i = Int(self.hash(k) % U64(cap))
+      for _ in 0..cap
+        if self.keys[i] as kk
+          return i if kk == k
+        else
+          return none
+        i = (i + 1) % cap
+      none
+
+    fun get(?self, k: ?K) -> (?V)?
+      i = self.find(k)?
+      ?self.vals[i]
+
+    sub put(!self, k: K, v: V)
+      cap = self.keys.len
+      f = self.hash
+      i = Int(f(?k) % U64(cap))
+      while self.keys[i] != none and self.keys[i] != k
+        i = (i + 1) % cap
+      self.len += 1 if self.keys[i] == none
+      self.keys[i] = k
+      self.vals[i] = <v
+
+  fun hash_str(s: ?String) -> U64
+    h: U64 = 5381
+    for b in s
+      h = (h * 33 + U64(b)) % 1000000007
+    h
+
+  m = Map[?String, Int].new(hash_str)
+  !m.put("one", 1)
+  !m.put("two", 2)
+  !m.put("one", 11)
+  print(m.get(?"one"), m.get(?"two"), m.get(?"three"), m.len)
+
+test "syntax-review-complete-it2", '''
+  1
+  2
+  1
+  2
+'''
+  obj Bag
+    items: List[Int]
+
+    fun slice(?self) -> []Int
+      ?self.items[..]
+
+  b = Bag(items: List())
+  !b.items.push(1)
+  !b.items.push(2)
+  for x in b.slice()
+    print(x)
+  for x in b.items
+    print(x)
+
+test "syntax-review-complete-it3", '''
+  0
+  1
+  2
+'''
+  obj Iter
+    i: Int
+    n: Int
+
+    fun next(!self) -> Int?
+      return none if self.i >= self.n
+      self.i += 1
+      self.i - 1
+
+  it = Iter(i: 0, n: 3)
+  while (!it).next() as x
+    print(x)
+
+test "syntax-review-complete-it4", '''
+  1
+  1
+'''
+  obj Node
+    v: Int
+
+  obj Bag
+    items: List[*Node]
+
+    fun at(?self, i: Int) -> ?*Node
+      ?self.items[i]
+
+  b = Bag(items: List())
+  !b.items.push(*Node(v: 1))
+  for x in ?b.items
+    print(x.v)
+  r = ?b.at(0)
+  print(r.v)
+
+test "syntax-review-complete-it6", "0"
+  n = 0
+  for _ in 10..0
+    n += 1
+  print(n)
+
+test "syntax-review-complete-k1", '''
+  false
+  false
+  true false
+'''
+  fun less(a: ?List[U8], b: ?List[U8]) -> Bool
+    ?a[..] < ?b[..]
+
+  fun bytes(s: ?String) -> List[U8]
+    v: List[U8] = List()
+    for c in s
+      !v.push(c)
+    v
+
+  keys: List[^List[U8]] = List()
+  !keys.push(^bytes("pear"))
+  !keys.push(^bytes("apple"))
+  for k in ?keys
+    print(less(?k, ?k))
+  a = bytes("a")
+  b = bytes("b")
+  print(less(?a, ?b), ?a[..] == ?b[..])
+
+test "syntax-review-complete-m2", "big"
+  enum E
+    n(v: Int)
+    z
+
+  e: E = .n(5)
+  match e
+    .n(v) if v > 3 => print("big")
+    .n(v) => print(v)
+    .z => print("z")
+
+test "syntax-review-complete-m3", "x"
+  c: U8 = 5
+  match c
+    1, 2, 3 => print("low")
+    _ => print("x")
+
+test "syntax-review-complete-oc1", "3"
+  fun f(a: Int?) -> Int
+    x = a ?? return 0
+    x
+
+  print(f(3))
+
+test "syntax-review-complete-p3", '''
+  P(x: 1)
+  0.3333333333333333
+  255
+'''
+  obj P
+    x: Int
+    fun show(?self) -> ?String
+      "P"
+
+  p = P(x: 1)
+  print(p)
+  f = 1.0 / 3.0
+  print(f)
+  print(255)
+
+test "syntax-review-complete-pg", "0"
+  obj Page
+    buf: [4096]U8
+
+    fun key(?self, at: Int) -> U64
+      self.buf.read[U64, .little](at)
+
+  p = Page(buf: [4096 of 0])
+  print(p.key(8))
+
+test "syntax-review-complete-pg2", "0 1"
+  obj Page
+    buf: [4096]U8
+
+  fun key(p: ?Page, at: Int) -> U64
+    p.buf.read[U64, .little](at)
+
+  fun sum(xs: ?[4]Int) -> Int
+    xs[0]
+
+  p = Page(buf: [4096 of 0])
+  a = [1, 2, 3, 4]
+  print(key(?p, 8), sum(?a))
+
+test "syntax-review-complete-r2", '''
+  5
+  a
+'''
+  fun lo(x: U64) -> U32
+    raw
+      @truncate(x)
+
+  big: U64 = 0x1_0000_0005
+  print(lo(big))
+  z = if true
+    1
+  else
+    2
+  w = match z
+    1 => "a"
+    _ => "b"
+  print(w)
+
+test "syntax-review-complete-r3", "2"
+  x = for i in 0..3
+    break i if i == 2
+  else
+    -1
+  print(x)
+
+test "syntax-review-complete-ra4", '''
+  1
+  2
+  3
+  4
+'''
+  n: U32 = 3
+  xs = [1, 2, 3, 4]
+  for i in 0..n
+    print(xs[i])
+  v: List[Int] = List()
+  !v.push(4)
+  k: U8 = 0
+  print(v[k])
+
+bomb "syntax-review-complete-sh1", "left shift overflowed bits"
+  fun rot(h: U64) -> U64
+    (h << 5) | (h >> 59)
+
+  x: U64 = 0xF000_0000_0000_0001
+  print(rot(x))
+
+fail "syntax-review-complete-so2", "`s` is assigned but never read; use it, or discard the value with `_ = ...`"
+  obj P
+    n: Int
+
+  v: List[*P] = List()
+  s = ?v[..]
+
+test "syntax-review-complete-vo1"
+  obj Node
+    id: Int
+
+  a: List[*Node?] = List()
+  b: List[^Node?] = List()
+  c: List[List[Int]] = List()
+  d: List[(*Node)?] = List()
+
+test "syntax-review-complete-vo2", '''
+  1
+  drop 1
+'''
+  obj Node
+    id: Int
+    drop(!self)
+      print("drop", self.id)
+
+  obj Slot[V]
+    v: V?
+
+  a: List[^Slot[*Node]] = List()
+  !a.push(^Slot(v: *Node(id: 1)))
+  for s in ?a
+    if ?s.v as n
+      print(n.id)
+
+test "syntax-review-complete-vw1", '''
+  4
+  5
+'''
+  obj Bag[T]
+    items: List[T]
+
+    fun iter(?self) -> BagIter[T]
+      BagIter(bag: self, i: 0)
+
+  obj BagIter[T]
+    bag: ?Bag[T]
+    i: Int
+
+    fun next(!self) -> T?
+      return none if self.i >= self.bag.items.len
+      self.i += 1
+      self.bag.items[self.i - 1]
+
+  b = Bag[Int](items: List())
+  !b.items.push(4)
+  !b.items.push(5)
+  it = ?b.iter()
+  while (!it).next() as x
+    print(x)
+
+fail "syntax-review-complete-vw2", "bare use of loop view `x` in return value would carry the viewed handle past the loop; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  obj Node
+    n: Int
+
+  obj Bag
+    items: List[*Node]
+
+    fun iter(?self) -> BagIter
+      BagIter(bag: self, i: 0)
+
+  obj BagIter
+    bag: ?Bag
+    i: Int
+
+    fun next(!self) -> (?*Node)?
+      j = 0
+      for x in ?self.bag.items
+        if j == self.i
+          self.i += 1
+          return x
+        j += 1
+      none
+
+  b = Bag(items: List())
+  !b.items.push(*Node(n: 4))
+  it = ?b.iter()
+  while (!it).next() as x
+    print(x.n)
+
+test "syntax-review-designer-p03 vecview", "2"
+  obj P
+    x: Int
+
+  a = P(x: 1)
+  b = P(x: 2)
+  v: List[?P] = List()
+  !v.push(?a)
+  !v.push(?b)
+  print(v.len)
+
+test "syntax-review-designer-p05 guard match", "big"
+  n = 5
+  match n
+    x if x > 3 => print("big")
+    _ => print("small")
+
+test "syntax-review-designer-p08 owned cb view", "3"
+  obj Event
+    code: Int
+
+  cb: *sub(?Event) = *|e| print(e.code)
+  ev = Event(code: 3)
+  cb(?ev)
+
+test "syntax-review-designer-p09 closure prop", "4"
+  fun parse(s: ?String) -> Int!
+    s.len
+
+  fun apply(f: ?fun(?String) -> Int!, s: ?String) -> Int!
+    f(s)!
+
+  print(apply(|s| parse(s)! + 1, "abc")!)
+
+test "syntax-review-designer-p11 owned cb struct", "3"
+  obj Event
+    code: Int
+
+  cb: *sub(Event) = *|e| print(e.code)
+  cb(Event(code: 3))

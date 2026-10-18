@@ -1,3 +1,0 @@
-sub main()
-  __rig_whole = 3
-  print(__rig_whole)

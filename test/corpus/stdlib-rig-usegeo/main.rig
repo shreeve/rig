@@ -1,5 +1,0 @@
-use io
-
-sub main()
-  e: io.IoError = .eof
-  print(e)

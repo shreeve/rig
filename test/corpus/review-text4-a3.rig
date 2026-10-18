@@ -1,9 +1,0 @@
-obj N
-  id: Int
-  drop(!self)
-    print("drop", self.id)
-
-sub main()
-  n = N(id: 1)
-  print(*n)
-  print(n.id)

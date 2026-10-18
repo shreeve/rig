@@ -1,7 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  o: (^?List[Int])? = ^?v
-  if o as b
-    !v.push(2)
-    print(b.len)

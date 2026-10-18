@@ -1,5 +1,0 @@
-use lib
-
-sub main()
-  s = lib.S399(v: 2)
-  print(lib.f1199(1, 2), s.get())

@@ -1,6 +1,0 @@
-sub main()
-  o: List[Int]? = List()
-  if ?o as x
-    if !o as y
-      !y.push(1)
-      print(x.len)

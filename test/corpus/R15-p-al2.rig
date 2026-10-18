@@ -1,3 +1,0 @@
-sub main()
-  Endian = 3
-  print(Endian)

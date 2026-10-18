@@ -1,6 +1,0 @@
-sub main()
-  s = "héllo"
-  print(s[0], s.len)
-  for c in s
-    print(c)
-    break

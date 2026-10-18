@@ -1,6 +1,0 @@
-sub main()
-  v: List[List[Int]] = List()
-  inner: List[Int] = List()
-  !inner.push(1)
-  !v.push(<inner)
-  print(v.len)

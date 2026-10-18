@@ -1,7 +1,0 @@
-obj N
-  n: Int
-
-sub main()
-  b = ^N(n: 1)
-  c = +b
-  print(c.n)

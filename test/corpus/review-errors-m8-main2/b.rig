@@ -1,4 +1,0 @@
-use a
-
-pub fun g() -> Int!
-  a.f()! + 1

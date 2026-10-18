@@ -1,6 +1,0 @@
-# break with an owner local to the loop body (5.4 bare move?)
-sub main()
-  r = while true
-    t = String("x")
-    break <t
-  print(r)

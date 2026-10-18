@@ -1,0 +1,8359 @@
+# Probes from past reviews and audits, 29 of 41: review-seam2-r2-z08_view_local_assign to review-std-v8.
+
+use std.math
+use std.math as std
+use std.os
+use std.random
+use std.sort
+use std.time
+
+fail "review-seam2-r2-z08 view local assign", "a view of the temporary `mkh()` outlives its statement, which drops it; bind the value to a name first"
+  # Review probe r2/z08_view_local_assign.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: wrap accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    r: ?String
+    rs: List[?String]
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.r, self.rs)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(r: "init", rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  w = wrap(!mkh())
+  print(w.r)
+
+fail "review-seam2-r2-z10 elem temp assign", "`s` does not live long enough"
+  # Review probe r2/z10_elem_temp_assign.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: wrap accept
+  # oracle: wv accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    r: ?String
+    rs: List[?String]
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.r, self.rs)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(r: "init", rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  fun wv(v: !List[H]) -> !List[H]
+    v
+
+  v: List[H] = List()
+  !v.push(mkh())
+  if true
+    s = mk(3)
+    wv(!v)[0].r = ?s.t
+  print("end")
+
+fail "review-seam2-r2-z13 arg part temp", "a view of the temporary `mk(1)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first"
+  # Review probe r2/z13_arg_part_temp.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: wrap accept
+  # oracle: put accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    r: ?String
+    rs: List[?String]
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.r, self.rs)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(r: "init", rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  sub put(v: !List[?String], r: ?String) keeps r
+    !v.push(r)
+
+  put(!mkh().rs, ?mk(1).t)
+  print("end")
+
+test "review-seam2-r2-z15 swap temp", '''
+  dropH sees init ["hello world, long enough to be on the heap 1"]
+  end
+  dropS 1
+'''
+  # Review probe r2/z15_swap_temp.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: wrap accept
+  # oracle: main accept
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    r: ?String
+    rs: List[?String]
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.r, self.rs)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(r: "init", rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  s = mk(1)
+  v: List[?String] = List()
+  !v.push(?s.t)
+  swap(!mkh().rs, !v)
+  print("end")
+
+test "review-seam2-s01 two same", '''
+  2 3
+  drop 3
+  drop 2
+  31 6
+  drop 6
+  drop 31
+  drop 3
+  51
+  drop 51
+  drop 5
+'''
+  # Review probe s01_two_same.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: two accept
+  # oracle: mk2 accept
+  # oracle: main accept
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  sub two(a: !Int, b: !Int)
+    a += 1
+    b += 2
+    print(a, b)
+
+  fun mk2(r: ?S) -> S
+    S(n: r.n * 10, items: List())
+
+  two((!mk(1)).at(), (!mk(1)).at())
+  two((!mk2(?mk(3))).at(), (!mk(4)).at())
+  print((!mk2(?mk(5))).pop())
+
+test "review-seam2-t01 generic body", "1 1 1 1 0"
+  # Review probe t01_generic_body.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: Box2.bump accept
+  # oracle: mkb accept
+  # oracle: go accept
+  # oracle: go2 accept
+  # oracle: go3 accept
+  # oracle: main accept
+  obj Box2[T]
+    v: T
+    n: Int
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+  fun mkb[T](v: T) -> Box2[T]
+    Box2(v: <v, n: 0)
+
+  fun go[T](x: T) -> Int
+    (!mkb(<x)).bump()
+
+  fun go2[T](x: T, y: T) -> Int
+    c = true
+    (!(mkb(<x) if c else mkb(<y))).bump()
+
+  fun go3[T](x: T) -> Int
+    List[T]().len
+
+  print(go(1), go(String("t")), go2(String("a"), String("b")), go2(3, 4), go3(1))
+
+test "review-seam2-u01 conditional temps", '''
+  true false true
+  drop 2
+  drop 5
+  5
+  drop 7
+  7 7
+  drop 11
+  drop 12
+  2
+'''
+  # Review probe u01_conditional_temps.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: f accept
+  # oracle: opt accept
+  # oracle: main accept
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun f(n: Int) -> Int
+    n
+
+  fun opt(n: Int) -> Int?
+    return none if n == 0
+    n
+
+  c = f(1) == 1
+  print(c and (!mk(1)).pop() > 1, not c and (!mk(2)).pop() > 1, c or (!mk(3)).pop() > 0)
+  x = (!mk(4)).pop() if c else (!mk(5)).pop()
+  print(x)
+  y = opt(0) ?? (!mk(6)).pop()
+  z = opt(7) ?? (!mk(8)).pop()
+  print(y, z)
+  i = 0
+  while i < 2 and (!mk(10 + i)).pop() > 0
+    i += 1
+  print(i)
+
+test "review-seam2b-fixes-diag-d11 paren ok", '''
+  6 6 2
+  105
+'''
+  # Review probe diag/d11_paren_ok.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: U.bump accept
+  # oracle: U.me accept
+  # oracle: U.make accept
+  # oracle: Wrap.bump accept
+  # oracle: Wrap.make accept
+  # oracle: sete accept
+  # oracle: grow accept
+  # oracle: growu accept
+  # oracle: main accept
+  use lib
+
+  obj U
+    n: Int
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun me(!self) -> !U
+      self
+
+    fun make() -> U
+      U(n: 1)
+
+  obj Wrap[T]
+    v: T
+
+    fun bump(!self) -> Int
+      1
+
+    fun make(v: T) -> Wrap[T]
+      Wrap(v: v)
+
+  enum E
+    a(s: ?String)
+    b
+
+  sub sete(e: !E)
+    print(e)
+    e = .b
+
+  sub grow(u: !lib.T)
+    u.n += 100
+    print(u.n)
+
+  sub growu(u: !U)
+    u.n += 100
+    print(u.n)
+
+  sub main()
+    print((!(lib.mk())).bump(), (!(lib.mk())).me().bump(), (!(U.make())).me().bump())
+    grow(!(lib.mk()))
+
+  file "lib.rig"
+    pub obj T
+      pub n: Int
+
+      pub fun bump(!self) -> Int
+        self.n += 1
+        self.n
+
+      pub fun me(!self) -> !T
+        self
+
+      pub fun make() -> T
+        T(n: 1)
+
+    pub enum E
+      a(s: ?String)
+      b
+
+    pub fun mk() -> T
+      T(n: 5)
+
+    pub fun ok() -> Bool
+      true
+
+test "review-seam2b-fixes-emit-e01 swap two temps", '''
+  make 3
+  make 6
+  dropS 6 text long enough for the heap 6 [3, 1] [3, 2, 1] 3 6 .circle(r: 6)
+  dropS 0 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  true
+'''
+  # Review probe emit/e01_swap_two_temps.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  swap(!(mk(3) if c else mk(4)).n, !(mkopt(0) ?? mk(6)).kk.n)
+  print(c)
+
+test "review-seam2b-fixes-emit-e02 prop head", '''
+  make 7
+  make 8
+  dropS 8 text long enough for the heap 8 [3, 1] [3, 2, 1] 7 8 .circle(r: 8)
+  dropS 0 text long enough for the heap 7 [3, 1] [3, 2, 1] 0 7 .circle(r: 7)
+  make 9
+  3
+  dropS 9 text long enough for the heap 9 [3, 1] [5, 2, 1] 0 9 .circle(r: 9)
+  make 10
+  dropS 10 text long enough for the heap 10 [3, 1] [1, 2, 3] 0 10 .circle(r: 10)
+  make 11
+  dropS 11 text long enough for the heap 11 [3, 1] [3, 2, 1] 32 11 .circle(r: 11)
+'''
+  # Review probe emit/e02_prop_head.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: g accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  fun g(c: Bool) -> Int!
+    swap(!(mkf(7)!).n, !(mkf(8)!).kk.n)
+    print(replace(!(mkf(9)!).arr[0], 5))
+    sort.sort(!(mkf(10)!).arr[..])
+    !(mkf(11)!).kk.put2(b: f(2), a: f(3))
+    0
+
+  _ = g(true) catch 0
+
+test "review-seam2b-fixes-emit-e03 opt head", '''
+  make 7
+  make 8
+  dropS 8 text long enough for the heap 8 [3, 1] [3, 2, 1] 7 8 .circle(r: 8)
+  dropS 0 text long enough for the heap 7 [3, 1] [3, 2, 1] 0 7 .circle(r: 7)
+  make 9
+  3
+  dropS 9 text long enough for the heap 9 [3, 1] [5, 2, 1] 0 9 .circle(r: 9)
+  make 10
+  dropS 10 text long enough for the heap 10 [3, 1] [1, 2, 3] 0 10 .circle(r: 10)
+  make 11
+  dropS 11 text long enough for the heap 11 [3, 1] [3, 2, 1] 32 11 .circle(r: 11)
+'''
+  # Review probe emit/e03_opt_head.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: g accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  fun g(c: Bool) -> Int?
+    swap(!(mkopt(7)?).n, !(mkopt(8)?).kk.n)
+    print(replace(!(mkopt(9)?).arr[0], 5))
+    sort.sort(!(mkopt(10)?).arr[..])
+    !(mkopt(11)?).kk.put2(b: f(2), a: f(3))
+    0
+
+  _ = g(true)
+
+test "review-seam2b-fixes-emit-e04 generic body", '''
+  make 1
+  dropS 3 text long enough for the heap 1 [3, 1] [3, 2, 1] 0 1 .circle(r: 1)
+  1
+'''
+  # Review probe emit/e04_generic_body.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: gsw accept
+  # oracle: seln accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  sub gsw[T](mkx: fun(Int) -> T, sel: fun(!T) -> !Int)
+    k = 3
+    swap(sel(!mkx(1)), !k)
+    print(k)
+
+  fun seln(s: !S) -> !Int
+    !s.n
+
+  gsw(mk, seln)
+
+test "review-seam2b-fixes-emit-e07 kwargs branch arg", '''
+  make 3
+  dropS 21 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  make 3
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 21 3 .circle(r: 3)
+'''
+  # Review probe emit/e07_kwargs_branch_arg.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: put3 accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  sub put3(a: !Int, b: Int, c: Int)
+    a = b * 10 + c
+
+  c = f(1) == 1
+  put3(c: f(1), b: f(2), a: !(mk(3) if c else mk(4)).n)
+  put3(c: f(1), b: f(2), a: !(mk(3) if c else mk(4)).kk.n)
+
+test "review-seam2b-fixes-emit-e10 elem of branch arr", '''
+  make 3
+  make 4
+  dropS 4 text long enough for the heap 4 [3, 1] [3, 2, 1] 3 4 .circle(r: 4)
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  0
+  1
+'''
+  # Review probe emit/e10_elem_of_branch_arr.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  k = 3
+  swap(!([mk(3), mk(4)] if c else [mk(5), mk(6)])[f(1)].kk.n, !k)
+  print(k)
+  print(replace(!([1, 2] if c else [3, 4])[0], 9))
+
+test "review-seam2b-fixes-emit-e17 box branch", '''
+  make 1
+  dropS 3 text long enough for the heap 1 [3, 1] [3, 2, 1] 0 1 .circle(r: 1)
+  1
+'''
+  # Review probe emit/e17_box_branch.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  k = 3
+  swap(!(^mk(1) if c else ^mk(2)).n, !k)
+  print(k)
+
+test "review-seam2b-fixes-emit-e18 whole array branch", '''
+  [1, 2, 9]
+  [1, 9]
+  [1, 9]
+  make 5
+  [1, 2, 3]
+  dropS 5 text long enough for the heap 5 [3, 1] [1, 2, 3] 0 5 .circle(r: 5)
+  [9, 1, 2]
+  2
+  9
+'''
+  # Review probe emit/e18_whole_array_branch.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: arr3 accept
+  # oracle: vec3 accept
+  # oracle: show accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  fun arr3(n: Int) -> [3]Int
+    [n, 1, 2]
+
+  fun vec3(n: Int) -> List[Int]
+    v: List[Int] = List()
+    !v.push(n)
+    !v.push(1)
+    v
+
+  sub show(xs: ![]Int)
+    sort.sort(!xs)
+    print(xs)
+
+  c = f(1) == 1
+  show(!(arr3(9) if c else arr3(8))[..])
+  show(!(vec3(9) if c else vec3(8))[..])
+  show(!(arr3(9) if c else arr3(8))[0..2])
+  show(!(mkopt(0) ?? mk(5)).arr[..])
+  print(replace(!(arr3(9) if c else arr3(8)), [0, 0, 0]))
+  k = 4
+  swap(!(arr3(9) if c else arr3(8))[2], !k)
+  print(k)
+  swap(!(vec3(9) if c else vec3(8))[0], !k)
+  print(k)
+
+test "review-seam2b-fixes-emit-e19 generic branch", '''
+  1
+  1
+  1
+  8
+'''
+  # Review probe emit/e19_generic_branch.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: seln accept
+  # oracle: main accept
+  # oracle: mkk accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  obj GW[T]
+    v: T
+    k: Int
+
+  sub gsw[T](mkx: fun(Int) -> T, sel: fun(!T) -> !Int, c: Bool)
+    k = 3
+    swap(sel(!(mkx(1) if c else mkx(2))), !k)
+    print(k)
+    print(replace(!(GW(v: mkx(4), k: 1) if c else GW(v: mkx(5), k: 2)).k, 9))
+    swap(!(GW(v: mkx(6), k: 1) if c else GW(v: mkx(7), k: 2)).k, !k)
+    print(k)
+    swap(sel(!(GW(v: mkx(8), k: 1) if c else GW(v: mkx(9), k: 2)).v), !k)
+    print(k)
+
+  fun seln(s: !K2) -> !Int
+    !s.n
+
+  gsw(mkk, seln, f(1) == 1)
+
+  fun mkk(n: Int) -> K2
+    K2(n: n)
+
+test "review-seam2b-fixes-fuzz-p-branch2  fillarr", '''
+  make 4
+  dropS 4 text long enough for the heap 4 [3, 1] [0, 0, 0] 0 4 .circle(r: 4)
+  true 3
+  --- named
+  make 4
+  true 3
+  dropS 4 text long enough for the heap 4 [3, 1] [0, 0, 0] 0 4 .circle(r: 4)
+  --- end
+'''
+  # Review probe fuzz/p/branch2__fillarr.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    !(mk(3) if not c else mk(4)).arr[..].fill(0)
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = (mk(3) if not c else mk(4))
+    !tt.arr[..].fill(0)
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-branch2  replace", '''
+  make 4
+  4
+  dropS 7 text long enough for the heap 4 [3, 1] [3, 2, 1] 0 4 .circle(r: 4)
+  true 3
+  --- named
+  make 4
+  4
+  true 3
+  dropS 7 text long enough for the heap 4 [3, 1] [3, 2, 1] 0 4 .circle(r: 4)
+  --- end
+'''
+  # Review probe fuzz/p/branch2__replace.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: viatemp accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    print(replace(!(mk(3) if not c else mk(4)).n, 7))
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = (mk(3) if not c else mk(4))
+    print(replace(!tt.n, 7))
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-branch  meb", '''
+  make 3
+  4
+  dropS 4 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  true 3
+  --- named
+  make 3
+  4
+  true 3
+  dropS 4 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  --- end
+'''
+  # Review probe fuzz/p/branch__meb.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: viatemp accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    print((!(mk(3) if c else mk(4))).me().bump())
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = (mk(3) if c else mk(4))
+    print((!tt).me().bump())
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-branch  swapitems", '''
+  make 3
+  dropS 3 text long enough for the heap 3 [3, 3] [3, 2, 1] 0 3 .circle(r: 3)
+  1
+  true 1
+  --- named
+  make 3
+  1
+  true 1
+  dropS 3 text long enough for the heap 3 [3, 3] [3, 2, 1] 0 3 .circle(r: 3)
+  --- end
+'''
+  # Review probe fuzz/p/branch__swapitems.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: viatemp accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    swap(!(mk(3) if c else mk(4)).items[1], !k)
+    print(k)
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = (mk(3) if c else mk(4))
+    swap(!tt.items[1], !k)
+    print(k)
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-brelem2  sortitems", '''
+  make 3
+  make 4
+  dropS 4 text long enough for the heap 4 [1, 3] [3, 2, 1] 0 4 .circle(r: 4)
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  true 3
+  --- named
+  make 3
+  make 4
+  true 3
+  dropS 4 text long enough for the heap 4 [1, 3] [3, 2, 1] 0 4 .circle(r: 4)
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  --- end
+'''
+  # Review probe fuzz/p/brelem2__sortitems.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    sort.sort(!([mk(3), mk(4)] if c else [mk(5), mk(6)])[f(1)].items[..])
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = ([mk(3), mk(4)] if c else [mk(5), mk(6)])
+    sort.sort(!tt[f(1)].items[..])
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-brelem  at", '''
+  make 3
+  make 4
+  4
+  dropS 4 text long enough for the heap 4 [3, 1] [3, 2, 1] 0 4 .circle(r: 4)
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  true 3
+  --- named
+  make 3
+  make 4
+  4
+  true 3
+  dropS 4 text long enough for the heap 4 [3, 1] [3, 2, 1] 0 4 .circle(r: 4)
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  --- end
+'''
+  # Review probe fuzz/p/brelem__at.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: viatemp accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    print((![mk(3), mk(4)][f(1)]).at())
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = [mk(3), mk(4)]
+    print((!tt[f(1)]).at())
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-brpart  replarr", '''
+  make 3
+  make 4
+  3
+  dropS 4 text long enough for the heap 4 [3, 1] [9, 2, 1] 0 4 .circle(r: 4)
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  true 3
+  --- named
+  make 3
+  make 4
+  3
+  true 3
+  dropS 4 text long enough for the heap 4 [3, 1] [9, 2, 1] 0 4 .circle(r: 4)
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  --- end
+'''
+  # Review probe fuzz/p/brpart__replarr.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: viatemp accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    print(replace(!(mkpair(3) if c else mkpair(5)).b.arr[0], 9))
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = (mkpair(3) if c else mkpair(5))
+    print(replace(!tt.b.arr[0], 9))
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-call  cond", '''
+  make 1
+  dropS 1 text long enough for the heap 1 [3, 1] [3, 2, 1] 1 1 .circle(r: 1)
+  true 3
+  --- named
+  make 1
+  true 3
+  dropS 1 text long enough for the heap 1 [3, 1] [3, 2, 1] 1 1 .circle(r: 1)
+  --- end
+'''
+  # Review probe fuzz/p/call__cond.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: viatemp accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    if c
+      inc(!mk(1).kk.n)
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = mk(1)
+    if c
+      inc(!tt.kk.n)
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-call  push", '''
+  make 1
+  dropS 1 text long enough for the heap 1 [3, 1, 1] [3, 2, 1] 0 1 .circle(r: 1)
+  true 3
+  --- named
+  make 1
+  true 3
+  dropS 1 text long enough for the heap 1 [3, 1, 1] [3, 2, 1] 0 1 .circle(r: 1)
+  --- end
+'''
+  # Review probe fuzz/p/call__push.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: viatemp accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    !mk(1).items.push(1)
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = mk(1)
+    !tt.items.push(1)
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-call  swapkk", '''
+  make 1
+  dropS 1 text long enough for the heap 1 [3, 1] [3, 2, 1] 3 1 .circle(r: 1)
+  0
+  true 0
+  --- named
+  make 1
+  0
+  true 0
+  dropS 1 text long enough for the heap 1 [3, 1] [3, 2, 1] 3 1 .circle(r: 1)
+  --- end
+'''
+  # Review probe fuzz/p/call__swapkk.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: viatemp accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    swap(!mk(1).kk.n, !k)
+    print(k)
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = mk(1)
+    swap(!tt.kk.n, !k)
+    print(k)
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-catch0  swap", '''
+  make 8
+  dropS 3 text long enough for the heap 8 [3, 1] [3, 2, 1] 0 8 .circle(r: 8)
+  8
+  true 8
+  --- named
+  make 8
+  8
+  true 8
+  dropS 3 text long enough for the heap 8 [3, 1] [3, 2, 1] 0 8 .circle(r: 8)
+  --- end
+'''
+  # Review probe fuzz/p/catch0__swap.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: viatemp accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    swap(!(mkf(0) catch mk(8)).n, !k)
+    print(k)
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = (mkf(0) catch mk(8))
+    swap(!tt.n, !k)
+    print(k)
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-catch  bump", '''
+  make 7
+  8
+  dropS 8 text long enough for the heap 7 [3, 1] [3, 2, 1] 0 7 .circle(r: 7)
+  true 3
+  --- named
+  make 7
+  8
+  true 3
+  dropS 8 text long enough for the heap 7 [3, 1] [3, 2, 1] 0 7 .circle(r: 7)
+  --- end
+'''
+  # Review probe fuzz/p/catch__bump.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: viatemp accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    print((!(mkf(7) catch mk(8))).bump())
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = (mkf(7) catch mk(8))
+    print((!tt).bump())
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-catch  sortarr", '''
+  make 7
+  dropS 7 text long enough for the heap 7 [3, 1] [1, 2, 3] 0 7 .circle(r: 7)
+  true 3
+  --- named
+  make 7
+  true 3
+  dropS 7 text long enough for the heap 7 [3, 1] [1, 2, 3] 0 7 .circle(r: 7)
+  --- end
+'''
+  # Review probe fuzz/p/catch__sortarr.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    sort.sort(!(mkf(7) catch mk(8)).arr[..])
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = (mkf(7) catch mk(8))
+    sort.sort(!tt.arr[..])
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-coal0  hoist", '''
+  make 6
+  dropS 32 text long enough for the heap 6 [3, 1] [3, 2, 1] 0 6 .circle(r: 6)
+  true 3
+  --- named
+  make 6
+  true 3
+  dropS 32 text long enough for the heap 6 [3, 1] [3, 2, 1] 0 6 .circle(r: 6)
+  --- end
+'''
+  # Review probe fuzz/p/coal0__hoist.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: viatemp accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    !(mkopt(0) ?? mk(6)).put2(b: f(2), a: f(3))
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = (mkopt(0) ?? mk(6))
+    !tt.put2(b: f(2), a: f(3))
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-coal0  setg", '''
+  make 6
+  dropS 42 text long enough for the heap 6 [3, 1] [3, 2, 1] 0 6 .circle(r: 6)
+  true 3
+  --- named
+  make 6
+  true 3
+  dropS 42 text long enough for the heap 6 [3, 1] [3, 2, 1] 0 6 .circle(r: 6)
+  --- end
+'''
+  # Review probe fuzz/p/coal0__setg.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    setg(!(mkopt(0) ?? mk(6)).n, 42)
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = (mkopt(0) ?? mk(6))
+    setg(!tt.n, 42)
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-coal  replitems", '''
+  make 5
+  3
+  dropS 5 text long enough for the heap 5 [9, 1] [3, 2, 1] 0 5 .circle(r: 5)
+  true 3
+  --- named
+  make 5
+  3
+  true 3
+  dropS 5 text long enough for the heap 5 [9, 1] [3, 2, 1] 0 5 .circle(r: 5)
+  --- end
+'''
+  # Review probe fuzz/p/coal__replitems.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: viatemp accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    print(replace(!(mkopt(5) ?? mk(6)).items[0], 9))
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = (mkopt(5) ?? mk(6))
+    print(replace(!tt.items[0], 9))
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-nest  defer", '''
+  in
+  make 3
+  dropS 4 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  true 3
+  --- named
+  make 3
+  in
+  true 3
+  dropS 4 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  --- end
+'''
+  # Review probe fuzz/p/nest__defer.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    if c
+      defer inc(!((mk(3) if c else mk(4)) if c else mk(5)).n)
+      print("in")
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = ((mk(3) if c else mk(4)) if c else mk(5))
+    if c
+      defer inc(!tt.n)
+      print("in")
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-nest  putkk", '''
+  make 3
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 32 3 .circle(r: 3)
+  true 3
+  --- named
+  make 3
+  true 3
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 32 3 .circle(r: 3)
+  --- end
+'''
+  # Review probe fuzz/p/nest__putkk.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    !((mk(3) if c else mk(4)) if c else mk(5)).kk.put2(a: f(3), b: f(2))
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = ((mk(3) if c else mk(4)) if c else mk(5))
+    !tt.kk.put2(a: f(3), b: f(2))
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-nest  swapt", '''
+  make 3
+  dropS 3 swapped in text long [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  text long enough for the heap 3
+  true 3
+  --- named
+  make 3
+  text long enough for the heap 3
+  true 3
+  dropS 3 swapped in text long [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  --- end
+'''
+  # Review probe fuzz/p/nest__swapt.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: viatemp accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    tx = String("swapped in text long")
+    swap(!((mk(3) if c else mk(4)) if c else mk(5)).t, !tx)
+    print(tx)
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = ((mk(3) if c else mk(4)) if c else mk(5))
+    tx = String("swapped in text long")
+    swap(!tt.t, !tx)
+    print(tx)
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-p-nestcoal  swaparr", '''
+  make 6
+  dropS 6 text long enough for the heap 6 [3, 1] [3, 2, 3] 0 6 .circle(r: 6)
+  1
+  true 1
+  --- named
+  make 6
+  1
+  true 1
+  dropS 6 text long enough for the heap 6 [3, 1] [3, 2, 3] 0 6 .circle(r: 6)
+  --- end
+'''
+  # Review probe fuzz/p/nestcoal__swaparr.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: viatemp accept
+  # oracle: vianame accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  sub viatemp()
+    c = f(1) == 1
+    k = 3
+    swap(!((mkopt(0) ?? mk(6)) if c else mk(5)).arr[2], !k)
+    print(k)
+    print(c, k)
+
+  sub vianame()
+    c = f(1) == 1
+    k = 3
+    tt = ((mkopt(0) ?? mk(6)) if c else mk(5))
+    swap(!tt.arr[2], !k)
+    print(k)
+    print(c, k)
+
+  viatemp()
+  print("--- named")
+  vianame()
+  print("--- end")
+
+test "review-seam2b-fixes-fuzz-pc-and  branch  at", '''
+  make 3
+  true
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  --- end true
+'''
+  # Review probe fuzz/pc/and__branch__at.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print(c and (!(mk(3) if c else mk(4))).at() > 0)
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-and  call  incrarr", '''
+  make 1
+  true
+  dropS 1 text long enough for the heap 1 [3, 1] [3, 3, 1] 0 1 .circle(r: 1)
+  --- end true
+'''
+  # Review probe fuzz/pc/and__call__incrarr.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print(c and incr(!mk(1).arr[1]) > 0)
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-and  catch  repl", '''
+  make 7
+  true
+  dropS 7 text long enough for the heap 7 [3, 1] [3, 2, 1] 0 7 .circle(r: 7)
+  --- end true
+'''
+  # Review probe fuzz/pc/and__catch__repl.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print(c and replace(!(mkf(7) catch mk(8)).n, 7) > 0)
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-cassign  coal0  replkk", '''
+  make 6
+  dropS 6 text long enough for the heap 6 [3, 1] [3, 2, 1] 8 6 .circle(r: 6)
+  1
+  --- end true
+'''
+  # Review probe fuzz/pc/cassign__coal0__replkk.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  z = 1
+  z += replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n
+  print(z)
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-defer  branch  at", '''
+  in
+  make 3
+  3
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  --- end true
+'''
+  # Review probe fuzz/pc/defer__branch__at.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  if c
+    defer print((!(mk(3) if c else mk(4))).at())
+    print("in")
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-defer  call  incrarr", '''
+  in
+  make 1
+  3
+  dropS 1 text long enough for the heap 1 [3, 1] [3, 3, 1] 0 1 .circle(r: 1)
+  --- end true
+'''
+  # Review probe fuzz/pc/defer__call__incrarr.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  if c
+    defer print(incr(!mk(1).arr[1]))
+    print("in")
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-defer  catch  repl", '''
+  in
+  make 7
+  7
+  dropS 7 text long enough for the heap 7 [3, 1] [3, 2, 1] 0 7 .circle(r: 7)
+  --- end true
+'''
+  # Review probe fuzz/pc/defer__catch__repl.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  if c
+    defer print(replace(!(mkf(7) catch mk(8)).n, 7))
+    print("in")
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-elif  coal0  replkk", '''
+  make 6
+  dropS 6 text long enough for the heap 6 [3, 1] [3, 2, 1] 8 6 .circle(r: 6)
+  --- end true
+'''
+  # Review probe fuzz/pc/elif__coal0__replkk.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  if f(0) == 1
+    print("a")
+  else if replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n > 0
+    print("b")
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-for  branch  at", '''
+  make 3
+  0 3
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  make 3
+  1 3
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  --- end true
+'''
+  # Review probe fuzz/pc/for__branch__at.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  for i in 0..2
+    print(i, (!(mk(3) if c else mk(4))).at())
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-for  call  incrarr", '''
+  make 1
+  0 3
+  dropS 1 text long enough for the heap 1 [3, 1] [3, 3, 1] 0 1 .circle(r: 1)
+  make 1
+  1 3
+  dropS 1 text long enough for the heap 1 [3, 1] [3, 3, 1] 0 1 .circle(r: 1)
+  --- end true
+'''
+  # Review probe fuzz/pc/for__call__incrarr.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  for i in 0..2
+    print(i, incr(!mk(1).arr[1]))
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-for  catch  repl", '''
+  make 7
+  0 7
+  dropS 7 text long enough for the heap 7 [3, 1] [3, 2, 1] 0 7 .circle(r: 7)
+  make 7
+  1 7
+  dropS 7 text long enough for the heap 7 [3, 1] [3, 2, 1] 0 7 .circle(r: 7)
+  --- end true
+'''
+  # Review probe fuzz/pc/for__catch__repl.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  for i in 0..2
+    print(i, replace(!(mkf(7) catch mk(8)).n, 7))
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-idx  coal0  replkk", '''
+  make 6
+  dropS 6 text long enough for the heap 6 [3, 1] [3, 2, 1] 8 6 .circle(r: 6)
+  [0, 0]
+  --- end true
+'''
+  # Review probe fuzz/pc/idx__coal0__replkk.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  a2 = [0, 0]
+  a2[f(1)] = replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n
+  print(a2)
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-ifcond  branch  at", '''
+  make 3
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  y
+  --- end true
+'''
+  # Review probe fuzz/pc/ifcond__branch__at.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  if (!(mk(3) if c else mk(4))).at() > 0
+    print("y")
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-ifcond  call  incrarr", '''
+  make 1
+  dropS 1 text long enough for the heap 1 [3, 1] [3, 3, 1] 0 1 .circle(r: 1)
+  y
+  --- end true
+'''
+  # Review probe fuzz/pc/ifcond__call__incrarr.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  if incr(!mk(1).arr[1]) > 0
+    print("y")
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-ifcond  catch  repl", '''
+  make 7
+  dropS 7 text long enough for the heap 7 [3, 1] [3, 2, 1] 0 7 .circle(r: 7)
+  y
+  --- end true
+'''
+  # Review probe fuzz/pc/ifcond__catch__repl.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  if replace(!(mkf(7) catch mk(8)).n, 7) > 0
+    print("y")
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-kw  coal0  replkk", '''
+  make 6
+  0
+  dropS 6 text long enough for the heap 6 [3, 1] [3, 2, 1] 8 6 .circle(r: 6)
+  --- end true
+'''
+  # Review probe fuzz/pc/kw__coal0__replkk.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print(K3(n: replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n).n)
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-match  branch  at", '''
+  make 3
+  3
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  --- end true
+'''
+  # Review probe fuzz/pc/match__branch__at.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  match f(1)
+    1 => print((!(mk(3) if c else mk(4))).at())
+    _ => pass
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-match  call  incrarr", '''
+  make 1
+  3
+  dropS 1 text long enough for the heap 1 [3, 1] [3, 3, 1] 0 1 .circle(r: 1)
+  --- end true
+'''
+  # Review probe fuzz/pc/match__call__incrarr.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  match f(1)
+    1 => print(incr(!mk(1).arr[1]))
+    _ => pass
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-match  catch  repl", '''
+  make 7
+  7
+  dropS 7 text long enough for the heap 7 [3, 1] [3, 2, 1] 0 7 .circle(r: 7)
+  --- end true
+'''
+  # Review probe fuzz/pc/match__catch__repl.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  match f(1)
+    1 => print(replace(!(mkf(7) catch mk(8)).n, 7))
+    _ => pass
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-nested  coal0  replkk", '''
+  make 6
+  1
+  dropS 6 text long enough for the heap 6 [3, 1] [3, 2, 1] 8 6 .circle(r: 6)
+  --- end true
+'''
+  # Review probe fuzz/pc/nested__coal0__replkk.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print(f2(replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n))
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-or  branch  at", '''
+  make 3
+  true
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  --- end true
+'''
+  # Review probe fuzz/pc/or__branch__at.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print(not c or (!(mk(3) if c else mk(4))).at() > 0)
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-or  call  incrarr", '''
+  make 1
+  true
+  dropS 1 text long enough for the heap 1 [3, 1] [3, 3, 1] 0 1 .circle(r: 1)
+  --- end true
+'''
+  # Review probe fuzz/pc/or__call__incrarr.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print(not c or incr(!mk(1).arr[1]) > 0)
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-or  catch  repl", '''
+  make 7
+  true
+  dropS 7 text long enough for the heap 7 [3, 1] [3, 2, 1] 0 7 .circle(r: 7)
+  --- end true
+'''
+  # Review probe fuzz/pc/or__catch__repl.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print(not c or replace(!(mkf(7) catch mk(8)).n, 7) > 0)
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-stmt  coal0  replkk", '''
+  make 6
+  0
+  dropS 6 text long enough for the heap 6 [3, 1] [3, 2, 1] 8 6 .circle(r: 6)
+  --- end true
+'''
+  # Review probe fuzz/pc/stmt__coal0__replkk.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print(replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n)
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-tern2  branch  at", '''
+  make 3
+  3
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  --- end true
+'''
+  # Review probe fuzz/pc/tern2__branch__at.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print(0 if not c else (!(mk(3) if c else mk(4))).at())
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-tern2  call  incrarr", '''
+  make 1
+  3
+  dropS 1 text long enough for the heap 1 [3, 1] [3, 3, 1] 0 1 .circle(r: 1)
+  --- end true
+'''
+  # Review probe fuzz/pc/tern2__call__incrarr.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print(0 if not c else incr(!mk(1).arr[1]))
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-tern2  catch  repl", '''
+  make 7
+  7
+  dropS 7 text long enough for the heap 7 [3, 1] [3, 2, 1] 0 7 .circle(r: 7)
+  --- end true
+'''
+  # Review probe fuzz/pc/tern2__catch__repl.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print(0 if not c else replace(!(mkf(7) catch mk(8)).n, 7))
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-tern  coal0  replkk", '''
+  make 6
+  0
+  dropS 6 text long enough for the heap 6 [3, 1] [3, 2, 1] 8 6 .circle(r: 6)
+  --- end true
+'''
+  # Review probe fuzz/pc/tern__coal0__replkk.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print(replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n if c else 0)
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-two  branch  at", '''
+  make 3
+  make 3
+  3 3
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  dropS 3 text long enough for the heap 3 [3, 1] [3, 2, 1] 0 3 .circle(r: 3)
+  --- end true
+'''
+  # Review probe fuzz/pc/two__branch__at.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print((!(mk(3) if c else mk(4))).at(), (!(mk(3) if c else mk(4))).at())
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-two  call  incrarr", '''
+  make 1
+  make 1
+  3 3
+  dropS 1 text long enough for the heap 1 [3, 1] [3, 3, 1] 0 1 .circle(r: 1)
+  dropS 1 text long enough for the heap 1 [3, 1] [3, 3, 1] 0 1 .circle(r: 1)
+  --- end true
+'''
+  # Review probe fuzz/pc/two__call__incrarr.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print(incr(!mk(1).arr[1]), incr(!mk(1).arr[1]))
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-two  catch  repl", '''
+  make 7
+  make 7
+  7 7
+  dropS 7 text long enough for the heap 7 [3, 1] [3, 2, 1] 0 7 .circle(r: 7)
+  dropS 7 text long enough for the heap 7 [3, 1] [3, 2, 1] 0 7 .circle(r: 7)
+  --- end true
+'''
+  # Review probe fuzz/pc/two__catch__repl.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  print(replace(!(mkf(7) catch mk(8)).n, 7), replace(!(mkf(7) catch mk(8)).n, 7))
+  print("--- end", c)
+
+test "review-seam2b-fixes-fuzz-pc-while  coal0  replkk", '''
+  make 6
+  dropS 6 text long enough for the heap 6 [3, 1] [3, 2, 1] 8 6 .circle(r: 6)
+  --- end true
+'''
+  # Review probe fuzz/pc/while__coal0__replkk.rig (seam2b fixes): rejected, or runs sanitizer-clean.
+  # oracle: K2.put2 accept
+  # oracle: K2.put2v accept
+  # oracle: S.bump accept
+  # oracle: S.put2 accept
+  # oracle: S.at accept
+  # oracle: S.me accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: mkf accept
+  # oracle: mkpair accept
+  # oracle: setg accept
+  # oracle: grow accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: incr accept
+  # oracle: sortv accept
+  # oracle: f2 accept
+  # oracle: main accept
+
+  error Bad
+    no
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun put2v(!self, a: Int, b: Int) -> Int
+      self.n = a * 10 + b
+      self.n
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+    arr: [3]Int
+    kk: K2
+    oi: Int?
+    e: Sh
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun me(!self) -> !S
+      self
+
+    drop(!self)
+      print("dropS", self.n, self.t, self.items, self.arr, self.kk.n, self.oi, self.e)
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    print("make", n)
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    S(n: n, t: String("text long enough for the heap ", n), items: <v, arr: [3, 2, 1], kk: K2(n: 0), oi: n, e: .circle(r: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: mk(n), b: mk(n + 1))
+
+  sub setg[T](x: !T, v: T)
+    x = v
+
+  sub grow(s: !S)
+    s.n += 100
+
+  sub inc(x: !Int)
+    x += 1
+
+  fun f(n: Int) -> Int
+    n
+
+  fun incr(x: !Int) -> Int
+    x += 1
+    x
+
+  fun sortv(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    xs[0]
+
+  obj K3
+    n: Int
+
+  fun f2(n: Int) -> Int
+    n + 1
+
+  c = f(1) == 1
+  i = 0
+  while i < 2 and replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n > 0
+    i += 1
+  print("--- end", c)
+
+bomb "review-simd-comptime-array-overflow", "integer overflow"
+  a = Simd[U8, 4]([250, 1, 2, 3]) + 10
+  print(a)
+
+bomb "review-simd-comptime-select-overflow", "integer overflow"
+  m = Simd[U8, 4].splat(200) == 200
+  print(m.select(Simd[U8, 4].splat(255), 0) + 1)
+
+bomb "review-simd-comptime-splat-overflow", "integer overflow"
+  v = Simd[U64, 2].splat(1)
+  w = v - 2
+  print(w)
+
+test "review-std-al", "true true"
+  use std.random
+  use dice
+
+  sub main()
+    r = random.Random.seeded(1)
+    x = dice.roll(!r)
+    dice.wait()
+    f: random.Random = dice.fresh()
+    s = random.Random.seeded(1)
+    print(x >= 1 and x <= 6, (!f).next() == (!s).next())
+
+  file "dice.rig"
+    use std.random as rnd
+    use std.time as t
+
+    pub fun roll(r: !rnd.Random, n: Int = 6) -> Int
+      (!r).int(1, n + 1)
+
+    pub sub wait(ns: Int = t.MS)
+      t.sleep(ns)
+
+    pub fun fresh() -> rnd.Random
+      rnd.Random.seeded(1)
+
+fail "review-std-b11", "cannot let this call store a view of `a` in `v`: `v` outlives it"
+  obj View
+    xs: []Int
+
+    sub point(!self, ys: []Int) keeps ys
+      self.xs = ys
+
+  sub f(v: !View)
+    a = [1, 2, 3]
+    !v.point(?a)
+
+  b = [4, 5]
+  v = View(xs: ?b)
+  f(!v)
+  print(v.xs)
+
+fail "review-std-b14", "`a` does not live long enough"
+  obj Counter
+    n: Int
+
+    fun keep(!self, xs: []Int) -> []Int
+      self.n += 1
+      xs
+
+  c = Counter(n: 0)
+  z = [0]
+  s: []Int = ?z
+  if true
+    a = [1, 2, 3]
+    s = (!c).keep(?a)
+  print(s)
+
+fail "review-std-b16", "`a` does not live long enough"
+  obj View
+    xs: []Int
+
+  obj Counter
+    n: Int
+
+    sub stash(!self, v: !View, ys: []Int) keeps ys
+      self.n += 1
+      v.xs = ys
+
+  b = [9]
+  v = View(xs: ?b)
+  c = Counter(n: 0)
+  if true
+    a = [1, 2, 3]
+    !c.stash(!v, ?a)
+  print(v.xs)
+
+fail "review-std-b8", "`a` does not live long enough"
+  obj View
+    xs: []Int
+
+  obj Holder
+    b: ^View
+
+    sub put(!self, ys: []Int) keeps ys
+      self.b.xs = ys
+
+  q = [9]
+  h = Holder(b: ^View(xs: ?q))
+  if true
+    a = [1, 2, 3]
+    !h.put(?a)
+  print(h.b.xs)
+
+fail "review-std-b9", "`a` does not live long enough"
+  obj Holder
+    v: List[[]Int]
+
+    sub put(!self, ys: []Int) keeps ys
+      !self.v.push(ys)
+
+  h = Holder(v: List())
+  if true
+    a = [1, 2, 3]
+    !h.put(?a)
+  print(h.v.len)
+
+bomb "review-std-e -1", "exit status -1 is not in 0..255", prints: "hi"
+  fun main() -> Int
+    print("hi")
+    -1
+
+test "review-std-e defer", exit: 7, '''
+  body
+  deferred
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun main() -> Int
+    r = R(n: 1)
+    defer print("deferred")
+    print("body")
+    7
+
+test "review-std-e early", exit: 9
+  fun main() -> Int
+    v = List[Int]()
+    !v.push(1)
+    if v.len > 0
+      return 9
+    0
+
+test "review-std-e fail", "drop 1", exit: 1
+  error E
+    bad
+
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun f(x: Int) -> Int!
+    return E.bad if x > 0
+    x
+
+  fun main() -> Int
+    r = R(n: 1)
+    n = f(1)!
+    n
+
+bomb "review-std-e panic", "index out of bounds"
+  fun main() -> Int
+    v = List[Int]()
+    v[3]
+
+test "review-std-f1", '''
+  4.0 2.0
+  1.0
+  3.0
+  true
+'''
+  fun apply(f: ?fun(Float) -> Float, x: Float) -> Float
+    f(x)
+
+  fun apply2(f: fun(Float) -> Float, x: Float) -> Float
+    f(x)
+
+  print(apply(math.sqrt, 16.0), apply2(math.floor, 2.5))
+  g = math.cos
+  print(g(0.0))
+  h = *|x: Float| math.sqrt(x)
+  print(h(9.0))
+  s = time.sleep
+  s(1)
+  e = os.env
+  print(e("NOPE_X") == none)
+
+test "review-std-mp-a14", '''
+  2
+  [1]
+'''
+  print(std.gcd(4, 6))
+  x = [1]
+  print(x)
+
+test "review-std-o1"
+  # It prints its own path, which differs from build to build: the case
+  # checks only that it runs cleanly.
+  obj Keep
+    a: []?String
+
+    drop(!self)
+      print("drop sees", self.a.len, self.a[self.a.len - 1])
+
+  sub main()
+    k = Keep(a: os.args())
+    for a, i in os.args()
+      print(i, a)
+    print(os.env("HOME") != none, os.env("NOPE_NOT_SET_XYZ"))
+    s = os.args()[0]
+    print(s.len > 0)
+
+  test "args in test"
+    print(os.args().len)
+
+test "review-std-r1", '''
+  -1 9223372036854775806 -9223372036854775808
+  [7]
+  0
+  true
+'''
+  r = random.Random.seeded(1)
+  print((!r).int(-1, 0), (!r).int(Int.max - 1, Int.max), (!r).int(Int.min, Int.min + 1))
+  e: [0]Int = []
+  !r.shuffle(!e)
+  one = [7]
+  !r.shuffle(!one)
+  print(one)
+  v = List[Int]()
+  !r.shuffle(!v[..])
+  print(v.len)
+  f = (!r).float()
+  print(f >= 0.0 and f < 1.0)
+
+test "review-std-r2", "1227844342346046656"
+  r = random.Random.seeded(1)
+  print((!r).int(-1, Int.max))
+
+fail "review-std-r5", "`r` is a unique `random.Random`, which can't be copied by `=`: write `<r` to move it or `?r` to view it"
+  fun roll(r: random.Random) -> Int
+    x = r
+    (!x).int(1, 1000000)
+
+  r = random.Random.new()
+  print(roll(r) == roll(r))
+  a = r
+  print((!a).next() == (!r).next())
+
+fail "review-std-s6", "cannot lend `xs` to read while a write loan is live"
+  xs = [3, 1, 2]
+  sort.sort_by(!xs, |?xs, a, b| xs[0] < 1)
+  print(xs)
+
+test "review-std-s7", "bad 0"
+  obj P
+    k: Int
+    id: Int
+
+  r = random.Random.seeded(7)
+  bad = 0
+  n = 0
+  while n < 400 : n += 1
+    for mk in [1, 3, 50, 1000000]
+      v = List[P]()
+      i = 0
+      while i < n : i += 1
+        !v.push(P(k: (!r).int(0, mk), id: i))
+      sort.sort_by(!v[..], |a, b| a.k < b.k)
+      j = 1
+      while j < v.len : j += 1
+        if v[j - 1].k > v[j].k or (v[j - 1].k == v[j].k and v[j - 1].id > v[j].id)
+          bad += 1
+      # permutation check: ids sum
+      s = 0
+      for p in ?v
+        s += p.id
+      if s != n * (n - 1) / 2
+        bad += 1
+  print("bad", bad)
+
+test "review-std-s8", "bad 0"
+  obj P
+    k: Int
+    id: Int
+
+  r = random.Random.seeded(7)
+  bad = 0
+
+  for n in [5000, 10007, 20480]
+    for mk in [1, 3, 50, 1000000]
+      v = List[P]()
+      i = 0
+      while i < n : i += 1
+        !v.push(P(k: (!r).int(0, mk), id: i))
+      sort.sort_by(!v[..], |a, b| a.k < b.k)
+      j = 1
+      while j < v.len : j += 1
+        if v[j - 1].k > v[j].k or (v[j - 1].k == v[j].k and v[j - 1].id > v[j].id)
+          bad += 1
+      # permutation check: ids sum
+      s = 0
+      for p in ?v
+        s += p.id
+      if s != n * (n - 1) / 2
+        bad += 1
+  print("bad", bad)
+
+test "review-std-v1", '''
+  drop 3
+  after discard
+  got 4
+  len 3
+  drop 4
+  drop 5
+  drop 2
+  drop 1
+'''
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v = List[*Res]()
+  !v.push(*Res(n: 1))
+  !v.push(*Res(n: 2))
+  !v.insert(1, *Res(n: 3))
+  h = *Res(n: 4)
+  !v.insert(0, <h)
+  _ = !v.remove(2)
+  print("after discard")
+  r = (!v).remove(0)
+  print("got", r.n)
+  x = *Res(n: 5)
+  !v.insert(v.len, <x)
+  print("len", v.len)
+
+bomb "review-std-v2", "index out of bounds", prints: "1 1"
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v = List[^Res]()
+  !v.push(^Res(n: 1))
+  !v.insert(0, ^Res(n: 2))
+  b = (!v).remove(1)
+  print(b.n, v.len)
+  _ = !v.remove(5)
+
+bomb "review-std-v3", "index out of bounds"
+  v = List[Int]()
+  !v.insert(-1, 3)
+
+bomb "review-std-v4", "index out of bounds"
+  v = List[Int]()
+  !v.push(1)
+  !v.remove(-1)
+
+fail "review-std-v5", "cannot lend `v` to write while a read loan is live"
+  v = List[Int]()
+  !v.push(1)
+  !v.push(2)
+  for x in ?v
+    !v.insert(0, x)
+
+fail "review-std-v6", "cannot lend `v` to write while a read loan is live"
+  v = List[Int]()
+  !v.push(1)
+  s = ?v[..]
+  !v.insert(0, 5)
+  print(s)
+
+fail "review-std-v7", "cannot lend `v` to write while a read loan is live"
+  v = List[Int]()
+  !v.push(1)
+  !v.push(2)
+  !v.insert(0, v[1])
+  !v.insert(0, (!v).remove(2))
+  !v.insert(v.len, v.len)
+  print(v)
+
+fail "review-std-v8", "cannot lend `v` to write while a read loan is live"
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v = List[^Res]()
+  !v.push(^Res(n: 1))
+  !v.push(^Res(n: 2))
+  !v.insert(0, (!v).remove(1))
+  print(v[0].n)

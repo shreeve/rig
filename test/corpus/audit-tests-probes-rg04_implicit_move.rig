@@ -1,9 +1,0 @@
-obj S
-  v: List[Int]
-
-sub take(s: S)
-  print(s.v.len)
-
-sub main()
-  s = S(v: List())
-  take(s)

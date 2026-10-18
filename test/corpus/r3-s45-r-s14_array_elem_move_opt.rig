@@ -1,5 +1,0 @@
-sub main()
-  a: [2]String? = [String("x"), none]
-  if <a[0] as t
-    print(t)
-  print(a)

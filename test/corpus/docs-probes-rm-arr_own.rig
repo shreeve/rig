@@ -1,3 +1,0 @@
-sub main()
-  a: [2]List[Int] = [List(), List()]
-  print(a[0].len)

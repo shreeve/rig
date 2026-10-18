@@ -1,5 +1,0 @@
-sub main()
-  vs = List[List[Int]]()
-  !vs.push(List[Int]())
-  !vs[0].push(vs.len)
-  print(vs[0][0])

@@ -1,0 +1,2370 @@
+# Probes from past reviews and audits, 11 of 41: purity-newbie-optional_fail to r3-or-fit-f7_parser_cursor.
+
+use std.random
+use std.text
+
+test "purity-newbie-optional fail", '''
+  found at 1
+  none
+  5
+  error: MathError.DivideByZero
+  0
+'''
+  # An optional-returning function and a fallible one, TS/Python habits
+  fun find_index(xs: ?List[?String], target: ?String) -> Int?
+    for x, i in ?xs
+      if x == target
+        return i
+    return none
+
+  error MathError
+    DivideByZero
+
+  fun divide(a: Int, b: Int) -> Int!
+    if b == 0
+      return MathError.DivideByZero
+    a / b
+
+  names: List[?String] = List()
+  !names.push("ann")
+  !names.push("bob")
+  idx = find_index(?names, "bob")
+  if idx != none
+    print("found at", idx)
+  missing = find_index(?names, "zed")
+  print(missing)
+  print(divide(10, 2) catch -1)
+  q = divide(1, 0) catch |e|
+    print("error:", e)
+    0
+  print(q)
+
+test "purity-newbie-probe sharedmatch", "-4.0"
+  enum Expr
+    num(value: Float)
+    neg(inner: *Expr)
+
+  fun eval(e: *Expr) -> Float
+    match e
+      .num(v) => v
+      .neg(x) => -eval(+x)
+
+  e = *Expr.neg(*Expr.num(4))
+  print(eval(<e))
+
+test "purity-newbie-probe sharedmatch2", "-4.0"
+  enum Expr
+    num(value: Float)
+    neg(inner: *Expr)
+
+  fun eval(e: ?Expr) -> Float
+    match e
+      .num(v) => v
+      .neg(x) => -eval(x)
+
+  e = Expr.neg(*Expr.num(4))
+  print(eval(?e))
+
+test "purity-newbie-probe str2", '''
+  102 3 oo true
+  102
+  111
+  111
+  1 3.5
+'''
+  a = "foo"
+  print(a[0], a.len, a[1..], a == "foo")
+  for c in a
+    print(c)
+  print(3 / 2, 7.0 / 2)
+
+test "purity-newbie-shared", '''
+  left clicked; total now 1
+  right clicked; total now 2
+  right clicked; total now 3
+  total clicks: 3
+'''
+  # A counter shared between two owners, attempt 3: a shared Cell
+  obj Clicker
+    name: ?String
+    counter: *Cell[Int]
+
+    sub click(!self)
+      !self.counter.set(self.counter.get() + 1)
+      print(self.name, "clicked; total now", self.counter.get())
+
+  counter = *Cell(0)
+  left = Clicker(name: "left", counter: +counter)
+  right = Clicker(name: "right", counter: +counter)
+  !left.click()
+  !right.click()
+  !right.click()
+  print("total clicks:", counter.get())
+
+test "purity-newbie-shared v1 silent copy", "total clicks: 0"
+  # A counter shared between two owners, Python habits: two objects
+  # holding a reference to the same counter object.
+  obj Counter
+    count: Int = 0
+
+    sub increment(!self)
+      self.count += 1
+
+  obj Clicker
+    name: ?String
+    counter: Counter
+
+    sub click(!self)
+      !self.counter.increment()
+
+  counter = Counter()
+  left = Clicker(name: "left", counter: counter)
+  right = Clicker(name: "right", counter: counter)
+  !left.click()
+  !right.click()
+  !right.click()
+  print("total clicks:", counter.count)
+
+test "purity-newbie-todo", '''
+  0 [ ] buy milk
+  1 [x] write rig program
+  2 [ ] walk the dog
+'''
+  # To-do list, first attempt, Python/TS habits
+  obj Todo
+    title: ?String
+    done: Bool = false
+
+  obj TodoList
+    items: List[Todo]
+
+    sub add(!self, title: ?String) keeps title
+      !self.items.push(Todo(title: title))
+
+    sub complete(!self, index: Int)
+      self.items[index].done = true
+
+    sub show(?self)
+      for item, i in ?self.items
+        mark = "[x]" if item.done else "[ ]"
+        print(i, mark, item.title)
+
+  todos = TodoList(items: List[Todo]())
+  !todos.add("buy milk")
+  !todos.add("write rig program")
+  !todos.add("walk the dog")
+  !todos.complete(1)
+  todos.show()
+
+bomb "purity-newbie-todo extra", "index out of bounds", prints: "2\nleft: 2"
+  obj Todo
+    title: ?String
+    done: Bool = false
+
+  items: List[Todo] = List()
+  !items.push(Todo(title: "a"))
+  !items.push(Todo(title: "b"))
+  print(items.len)
+  left = 0
+  for t in ?items
+    if not t.done
+      left += 1
+  print("left:", left)
+  items[5].done = true
+
+test "purity-principles-p01 copy", '''
+  7 1
+  3000
+'''
+  obj Big
+    a: [1000]Int
+
+  fun first(b: Big) -> Int
+    b.a[0]
+
+  x = Big(a: [1000 of 7])
+  y = x
+  y.a[0] = 1
+  print(first(x), y.a[0])
+  arr = [1000 of 3]
+  s = 0
+  for e in arr
+    s += e
+  print(s)
+
+test "purity-principles-p02 assign drop", '''
+  drop 1
+  after reassign
+  drop 3
+  after field reassign
+  after new
+  drop 5
+  drop 4
+  drop 2
+'''
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj Holder
+    r: Res
+
+  a = Res(n: 1)
+  a = Res(n: 2)
+  print("after reassign")
+  h = Holder(r: Res(n: 3))
+  h.r = Res(n: 4)
+  print("after field reassign")
+  new a = Res(n: 5)
+  print("after new")
+
+test "purity-principles-p03 writethrough", '''
+  drop 1
+  9 42
+  drop 9
+'''
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub f(w: !Res, k: !Int)
+    w = Res(n: 9)
+    k = 42
+
+  r = Res(n: 1)
+  n = 0
+  f(!r, !n)
+  print(r.n, n)
+
+test "purity-principles-p05 signal", "1000"
+  count: *Cell[Int] = *Cell(0)
+  sig: *Signal[Int] = *Signal(0)
+  !sig.subscribe(*|+count| !count.set(count.get() + 1000))
+  !sig.set(1)
+  print(count.get())
+
+test "purity-principles-p07 print", '''
+  [1] Res(n: 3) Res(n: 4) Res(n: 5)
+  3 4 5
+  drop 5
+  drop 4
+  drop 3
+'''
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[Int] = List()
+  !v.push(1)
+  r = Res(n: 3)
+  h = *Res(n: 4)
+  b = ^Res(n: 5)
+  print(v, r, h, b)
+  print(r.n, h.n, b.n)
+
+test "purity-principles-p08 handles", '''
+  1
+  2 2 2
+  0 false
+  1 false
+'''
+  obj Node
+    id: Int
+    next: *Node?
+
+  fun id_of(n: ?*Node) -> Int
+    n.id
+
+  fun take(n: *Node) -> Int
+    n.id
+
+  a = *Node(id: 1, next: none)
+  b = *Node(id: 2, next: +a)
+  x = b.id
+  y = id_of(?b)
+  z = take(+b)
+  if ?b.next as nx
+    print(nx.id)
+  print(x, y, z)
+  for k in 0..2
+    print(k, b.next == none)
+
+test "purity-principles-p09 box", "16 16"
+  obj P
+    x: Int
+
+    sub bump(!self)
+      self.x += 1
+
+  fun read(p: ?P) -> Int
+    p.x
+
+  sub write(p: !P)
+    p.x += 10
+
+  b = ^P(x: 1)
+  b.x = 5
+  !b.bump()
+  write(!b)
+  print(read(?b), b.x)
+
+test "purity-principles-p12 closure", '''
+  18 19
+  20
+  drop 7
+'''
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  k = 10
+  r = Res(n: 7)
+  add = |+k, ?r, a: Int| a + k + r.n
+  print(add(1), apply(?add, 2))
+  owned: *fun(Int) -> Int = *|+k, a| a + k * 2
+  print(owned(0))
+
+test "purity-principles-p13 match", "1"
+  obj Big
+    a: [100]Int
+
+  enum Shape
+    blob(b: Big)
+    dot
+
+  s: Shape = .blob(b: Big(a: [100 of 1]))
+  match s
+    .blob(b) => print(b.a[0])
+    .dot => print("dot")
+
+test "purity-principles-p14 vec", '''
+  1
+  2
+  0
+'''
+  obj Config
+    tags: List[Int] = List()
+
+  fun make() -> List[Int]
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    v
+
+  c = Config()
+  for x in make()
+    print(x)
+  print(c.tags.len)
+
+test "purity-principles-p15 generic", '''
+  drop 1
+  2 4
+  drop 2
+'''
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun keep[T](a: T, b: T) -> T
+    b
+
+  r = keep(Res(n: 1), Res(n: 2))
+  print(r.n, keep(3, 4))
+
+test "purity-principles-p17 prop", '''
+  drop 2
+  defer in both
+  drop 1
+  3
+  defer in both
+  drop 3
+  -1
+'''
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  error E
+    bad
+
+  fun mk(n: Int) -> Res!
+    return E.bad if n < 0
+    Res(n: n)
+
+  fun both(a: Int, b: Int) -> Int!
+    x = mk(a)!
+    defer print("defer in both")
+    y = mk(b)!
+    x.n + y.n
+
+  print(both(1, 2) catch -1)
+  print(both(3, -1) catch -1)
+
+test "purity-principles-p18 notbang", '''
+  dup? true
+  dup? false
+'''
+  obj Set
+    items: List[Int]
+
+    fun insert(!self, k: Int) -> Bool
+      for x in ?self.items
+        return false if x == k
+      !self.items.push(k)
+      true
+
+  s = Set(items: List())
+  dup = (!s).insert(1)
+  print("dup?", dup)
+  print("dup?", (!s).insert(1))
+
+test "purity-principles-p19 fixed", "1 6"
+  y = 1
+  x =! y
+  z = !y
+  z += 5
+  print(x, y)
+
+test "purity-principles-p21 retmove", '''
+  drop 2
+  drop 3
+  1 4 5
+  drop 5
+  drop 4
+  drop 1
+'''
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun pick(c: Bool) -> Res
+    a = Res(n: 1)
+    b = Res(n: 2)
+    if c
+      a
+    else
+      b
+
+  fun pick2(c: Bool) -> Res
+    a = Res(n: 3)
+    b = Res(n: 4)
+    a if c else b
+
+  fun loopy() -> Res
+    a = Res(n: 5)
+    r = while true
+      break <a
+    r
+
+  x = pick(true)
+  y = pick2(false)
+  z = loopy()
+  print(x.n, y.n, z.n)
+
+test "purity-principles-p25 ownedcall", '''
+  30
+  1
+'''
+  obj Node
+    id: Int
+
+  hs: List[*fun(Int) -> Int] = List()
+  !hs.push(*|x| x * 10)
+  for h in ?hs
+    print(h(3))
+  ns: List[*Node] = List()
+  !ns.push(*Node(id: 1))
+  for n in ?ns
+    k = +n
+    print(k.id)
+
+test "purity-principles-p26 implicitread", '''
+  match reads 1
+  as reads 2
+  drop 2
+  drop 1
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    full(b: B)
+    empty
+
+  s: Slot = .full(b: B(n: 1))
+  match s
+    .full(b) => print("match reads", b.n)
+    .empty => pass
+  m: B? = B(n: 2)
+  if ?m as x
+    print("as reads", x.n)
+  v: List[Int] = List()
+  for x in ?v
+    print(x)
+
+test "purity-principles-p27 tempview", '''
+  drop 2
+  drop 1
+  sum 3
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun peek(r: ?R) -> Int
+    r.n
+
+  x = peek(?R(n: 1)) + peek(?R(n: 2))
+  print("sum", x)
+
+test "purity-principles-p30 bang ne", "true 2"
+  a = 1
+  b = 2
+  c =! b
+  print(a != b, c)
+
+test "purity-rustzig-bench-bst bench", "21480720689328"
+  obj Node
+    key: Int
+    left: ^Node?
+    right: ^Node?
+
+  sub insert(slot: !^Node?, key: Int)
+    if !slot as n
+      insert(!n.left, key) if key < n.key else insert(!n.right, key)
+    else
+      slot = ^Node(key: key, left: none, right: none)
+
+  fun total(slot: ?^Node?) -> Int
+    if slot as n
+      return total(?n.left) + n.key + total(?n.right)
+    0
+
+  root: ^Node? = none
+  x = 12345
+  i = 0
+  while i < 20000 : i += 1
+    x = (x * 1103515245 + 12345) % 2147483648
+    insert(!root, x)
+  print(total(?root))
+
+test "purity-rustzig-bst", '''
+  20
+  30
+  35
+  40
+  50
+  60
+  70
+  80
+  [20, 30, 35, 40, 50, 60, 70, 80] 8
+'''
+  # A binary search tree of Ints with owned children.
+
+  obj Node
+    key: Int
+    left: ^Node?
+    right: ^Node?
+
+    sub insert(!self, key: Int)
+      if key < self.key
+        if !self.left as l
+          !l.insert(key)
+        else
+          self.left = ^Node(key: key, left: none, right: none)
+      else
+        if !self.right as r
+          !r.insert(key)
+        else
+          self.right = ^Node(key: key, left: none, right: none)
+
+    sub walk(?self, visit: ?sub(Int))
+      if ?self.left as l
+        l.walk(visit)
+      visit(self.key)
+      if ?self.right as r
+        r.walk(visit)
+
+  obj Tree
+    root: ^Node?
+    size: Int
+
+    sub insert(!self, key: Int)
+      if !self.root as n
+        !n.insert(key)
+      else
+        self.root = ^Node(key: key, left: none, right: none)
+      self.size += 1
+
+    sub each(?self, visit: ?sub(Int))
+      if ?self.root as n
+        n.walk(visit)
+
+    fun sorted(?self) -> List[Int]
+      out: List[Int] = List()
+      self.each(|!out, k| !out.push(k))
+      out
+
+  t = Tree(root: none, size: 0)
+  for k in [50, 30, 70, 20, 40, 60, 80, 35]
+    !t.insert(k)
+  t.each(|k| print(k))
+  keys = t.sorted()
+  print(keys, t.size)
+
+fail "purity-rustzig-family", "cannot store a view of `name` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which carries no loan"
+  # A tree with back-pointers: parents own their children through shared
+  # handles, and each child points up weakly, so the cycle does not leak.
+
+  obj Node
+    name: ?String
+    parent: ~Node?
+    children: Cell[List[*Node]]
+
+    drop(!self)
+      print("free", self.name)
+
+  # Make a child of `parent` and hand back a handle to it.
+  fun child(parent: ?*Node, name: ?String) -> *Node
+    up = +parent
+    kid = *Node(name: name, parent: ~up, children: Cell(List()))
+    !parent.children.push(+kid)
+    kid
+
+  # Walk up through the weak parent links.
+  fun depth(n: ?*Node) -> Int
+    d = 0
+    cur = +n
+    while ?cur.parent as w
+      up = *w ?? break
+      cur = <up
+      d += 1
+    d
+
+  fun has_parent(n: ?*Node) -> Bool
+    if ?n.parent as w
+      return *w != none
+    false
+
+  root = *Node(name: "root", parent: none, children: Cell(List()))
+  a = child(?root, "a")
+  b = child(?root, "b")
+  a1 = child(?a, "a1")
+  print("depth", a1.name, depth(?a1))
+  print("root has", root.children.len, "children")
+  <a
+  <b
+  print("a1 still has a parent:", has_parent(?a1))
+  <root
+  print("a1 after root dropped:", has_parent(?a1))
+
+test "purity-rustzig-probes-bst iter", "true false"
+  obj Node
+    key: Int
+    left: ^Node?
+    right: ^Node?
+
+  fun contains(root: ?^Node?, key: Int) -> Bool
+    cur = root
+    while cur as n
+      if key == n.key
+        return true
+      cur = ?n.left if key < n.key else ?n.right
+    false
+
+  sub insert(slot: !^Node?, key: Int)
+    if !slot as n
+      insert(!n.left, key) if key < n.key else insert(!n.right, key)
+    else
+      slot = ^Node(key: key, left: none, right: none)
+
+  root: ^Node? = none
+  for k in [5, 2, 8, 1]
+    insert(!root, k)
+  print(contains(?root, 8), contains(?root, 3))
+
+fail "purity-rustzig-probes-p3 box", "cannot reassign `root` while it is lent"
+  obj Node
+    key: Int
+    left: ^Node?
+
+  root: ^Node? = ^Node(key: 1, left: none)
+  if ?root as n
+    root = none
+    print(n.key)
+
+fail "purity-rustzig-probes-p4 ret", "cannot lend `v` to write while a read loan is live"
+  obj P
+    x: Int
+
+  fun first(v: ?List[P]) -> ?P
+    ?v[0]
+
+  v: List[P] = List()
+  !v.push(P(x: 1))
+  r = first(?v)
+  !v.push(P(x: 2))
+  print(r.x)
+
+bomb "purity-rustzig-probes-p5 overflow", "integer overflow"
+  x: U8 = 250
+  i = 0
+  while i < 10 : i += 1
+    x += 1
+  print(x)
+
+test "purity-rustzig-probes-p6 mainfail", "1", exit: 1
+  error E
+    boom
+
+  fun f(n: Int) -> Int!
+    return E.boom if n > 1
+    n
+
+  print(f(1)!)
+  print(f(2)!)
+
+bomb "purity-rustzig-probes-p8 index", "index out of bounds"
+  v: List[Int] = List()
+  !v.push(1)
+  i = 3
+  print(v[i])
+
+fail "purity-rustzig-probes-q1 handle view", "cannot drop `h` while it is lent"
+  obj U
+    name: ?String
+    n: Int
+
+  fun peek(u: ?U) -> ?U
+    u
+
+  h = *U(name: "a", n: 1)
+  r = peek(?h)
+  <h
+  print(r.n)
+
+fail "purity-rustzig-probes-q2 elem", "use of `v` while a write loan is live"
+  obj P
+    x: Int
+
+  v: List[P] = List()
+  !v.push(P(x: 1))
+  e = !v[0]
+  !v.push(P(x: 2))
+  e.x = 5
+
+test "purity-rustzig-probes-q3 resurrect", '''
+  dropping h
+  gone
+  end
+'''
+  obj H
+    name: ?String
+    cb: Cell[(*sub())?]
+
+    drop(!self)
+      print("dropping", self.name)
+      if (!self.cb).replace(none) as f
+        f()
+
+  h = *H(name: "h", cb: Cell(none))
+  !h.cb.set(*|~h|
+    if *h as s
+      print("upgraded during drop", s.name)
+    else
+      print("gone")
+  )
+  <h
+  print("end")
+
+fail "purity-rustzig-probes-q5 moveloop", "use of `r` after move"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub eat(r: R)
+    print("ate", r.n)
+
+  r = R(n: 1)
+  i = 0
+  while i < 2 : i += 1
+    eat(<r)
+
+test "purity-rustzig-probes-q6 condmove", '''
+  ate 1
+  drop 1
+  end
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub eat(r: R)
+    print("ate", r.n)
+
+  r = R(n: 1)
+  flag = 3 > 2
+  if flag
+    eat(<r)
+  print("end")
+
+fail "purity-rustzig-probes-r1 closure alias", "`x` is bound but never read; name it `_` to ignore the value"
+  v: List[Int] = List()
+  !v.push(1)
+  f = |!v| !v.push(2)
+  for x in ?v
+    f()
+
+test "purity-rustzig-stock", '''
+  bolt left 6
+  nut short
+  gear unknown
+  x2 is not a number
+  bolt left 0
+  shipped 10
+  nut left 2
+'''
+  # A stock room: methods that change it through a write view, fallible
+  # operations, and callers that propagate or handle each failure.
+
+  error StockError
+    unknown
+    short
+    bad_qty
+
+  obj Item
+    name: ?String
+    qty: Int
+
+  obj Stock
+    items: List[Item]
+    shipped: Int = 0
+
+    sub add(!self, name: ?String, qty: Int) keeps name
+      !self.items.push(Item(name: name, qty: qty))
+
+    fun find(?self, name: ?String) -> Int?
+      for it, i in ?self.items
+        return i if it.name == name
+      none
+
+    # Take `qty` of `name`: fails when the item is unknown or short.
+    fun take(!self, name: ?String, qty: Int) -> Int!
+      i = self.find(name) ?? return StockError.unknown
+      return StockError.short if self.items[i].qty < qty
+      self.items[i].qty -= qty
+      self.shipped += qty
+      self.items[i].qty
+
+  # Parse a quantity like "12": fails on anything but digits.
+  fun parse_qty(s: ?String) -> Int!
+    return StockError.bad_qty if s.len == 0
+    n = 0
+    for b in s
+      return StockError.bad_qty if b < 48 or b > 57
+      n = n * 10 + Int(b - 48)
+    n
+
+  # One order: parse, then take. Either failure propagates.
+  fun ship(stock: !Stock, name: ?String, qty: ?String) -> Int!
+    n = parse_qty(qty)!
+    (!stock).take(name, n)!
+
+  s = Stock(items: List())
+  !s.add("bolt", 10)
+  !s.add("nut", 3)
+  orders = [["bolt", "4"], ["nut", "5"], ["gear", "1"], ["bolt", "x2"], ["bolt", "6"]]
+  for o in orders
+    left = ship(!s, o[0], o[1]) catch |e|
+      match e
+        .short => print(o[0], "short")
+        .unknown => print(o[0], "unknown")
+        _ => print(o[1], "is not a number")
+      continue
+    print(o[0], "left", left)
+  print("shipped", s.shipped)
+  ship(!s, "nut", "1")!
+  print("nut left", s.items[1].qty)
+
+test "purity-rustzig-words", '''
+  The 4
+  fox 3
+  dog 3
+  11 distinct words
+'''
+  # Count words in a fixed text and print the most frequent ones.
+  # No hash map, no string building: words are views into TEXT, counted
+  # in a List with a linear scan, and compared without regard to case.
+
+  TEXT = "The quick brown fox jumps over the lazy dog. The dog sleeps; the fox runs. A quick fox, a lazy dog!"
+
+  obj Entry
+    word: ?String
+    count: Int
+
+  fun is_letter(b: U8) -> Bool
+    (b >= 97 and b <= 122) or (b >= 65 and b <= 90)
+
+  fun lower(b: U8) -> U8
+    b + 32 if b >= 65 and b <= 90 else b
+
+  fun same_word(a: ?String, b: ?String) -> Bool
+    return false if a.len != b.len
+    for x, i in a
+      return false if lower(x) != lower(b[i])
+    true
+
+  sub add(counts: !List[Entry], word: ?String) keeps word
+    for e in !counts
+      if same_word(e.word, word)
+        e.count += 1
+        return
+    !counts.push(Entry(word: word, count: 1))
+
+  fun tally(text: ?String) -> List[Entry]
+    counts: List[Entry] = List()
+    start = 0
+    for b, i in text
+      if not is_letter(b)
+        add(!counts, text[start..i]) if i > start
+        start = i + 1
+    add(!counts, text[start..]) if start < text.len
+    counts
+
+  # Insertion sort: most frequent first, ties in first-seen order.
+  sub rank(xs: !List[Entry])
+    i = 1
+    while i < xs.len : i += 1
+      j = i
+      while j > 0 and xs[j - 1].count < xs[j].count : j -= 1
+        !xs.swap(j - 1, j)
+
+  sub main()
+    counts = tally(TEXT)
+    rank(!counts)
+    for e in ?counts[..3]
+      print(e.word, e.count)
+    print(counts.len, "distinct words")
+
+test "q2-ok", '''
+  x equal
+  z not equal
+'''
+  x = 33
+  z = 35
+  if x == 33
+    print("x equal")
+  if z != 33
+    print("z not equal")
+
+test "r3-kinds-b-t01 text kinds", "ab abc x"
+  t = String("ab")
+  u = +t
+  !u.add("c")
+  b = ^String("x")
+  print(t, u, ?b)
+
+fail "r3-kinds-b-t04 shared cell string view", "cannot store a view of `s` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which carries no loan"
+  sub stash(c: *Cell[?String], s: ?String)
+    !c.set(s)
+
+  c: *Cell[?String] = *Cell("lit")
+  t = String("hello")
+  stash(+c, ?t[..])
+  <t
+  print(c.get())
+
+test "r3-kinds-b-t05 static string return", "static h"
+  fun name() -> ?String
+    "static"
+
+  fun first(s: ?String) -> ?String
+    s[0..1]
+
+  t = String("hello")
+  v = first(?t)
+  print(name(), v)
+
+fail "r3-kinds-b-t06 struct string copy", "cannot lend `t` to write while a read loan is live"
+  obj Tag
+    s: ?String
+
+  t = String("hello")
+  a = Tag(s: ?t[..])
+  b = a
+  !t.add("!")
+  print(a, b)
+
+test "r3-kinds-b-t07 box clone", "x"
+  b = ^String("x")
+  c = +b
+  print(?c)
+
+fail "r3-kinds-b-t08 signal string view", "cannot store a view of `t` in a `Signal`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one"
+  sig: *Signal[?String] = *Signal("lit")
+  t = String("hello")
+  !sig.set(?t[..])
+  <t
+  print(sig.get())
+
+test "r3-kinds-b-t09 text clone how", "x"
+  obj Named
+    name: String
+
+  a = Named(name: String("x"))
+  b = +a
+  print(b.name)
+
+test "r3-kinds-n01 payload kinds", '''
+  1
+  5
+'''
+  obj P
+    x: Int
+
+  enum E
+    a(p: P)
+    b(n: Int)
+
+  fun f(e: ?E) -> Int
+    match e
+      .a(p) => p.x
+      .b(n) => n
+
+  e = E.a(p: P(x: 1))
+  match e
+    .a(p) => print(p.x)
+    .b(n) => print(n)
+  match !e
+    .a(p) => p.x = 5
+    .b(n) => print(n)
+  print(f(?e))
+
+test "r3-kinds-n02b write view int read", "1"
+  sub paint(w: !Int)
+    c = w
+    print(c)
+
+  x = 1
+  paint(!x)
+
+fail "r3-kinds-n04b global array reassign", "cannot reassign constant `N`"
+  XS = [1, 2]
+  N = 0
+
+  sub main()
+    N = 3
+    XS = [3, 4]
+    print(N, XS)
+
+test "r3-kinds-n16b as take rng then write", '''
+  true 4
+  true
+'''
+  obj G
+    r: random.Random
+    n: Int
+
+  o: G? = G(r: random.Random.seeded(1), n: 0)
+  if <o as g
+    g.n = 4
+    print((!g.r).next() != 0, g.n)
+  p: random.Random? = random.Random.seeded(1)
+  if <p as r
+    print((!r).next() != 0)
+
+test "r3-or-arm-unsound", '''
+  1
+  e
+  o
+'''
+  # The neighbours of r3-or-arm-sound, once unsound while emit matched a
+  # copy of the subject: a view of a read match's binding that is no plain
+  # data given as the match's value, returned from a guarded arm, or from
+  # a generic body. Emit matches each subject where it is, so the view
+  # carries the subject's loan (INTERNALS "Header subjects").
+  #
+  # oracle: yielded accept
+  # oracle: guarded_return accept
+  # oracle: Opt.peek accept
+
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+    fun peek(?self, d: ?T) -> ?T
+      match self
+        .some(v) => ?v
+        .nothing => d
+
+  sub yielded(e: ?E, k: ?Res)
+    r = match e
+      .a(p) => ?p
+      .b => k
+    print(r.n)
+
+  fun guarded_return(e: ?E, k: ?Res) -> ?Res
+    match e
+      .a(p) if p.n > 0
+        return ?p
+      _ => pass
+    k
+
+  k = Res(n: 0, t: String("k"))
+  e = E.a(r: Res(n: 1, t: String("e")))
+  yielded(?e, ?k)
+  print(guarded_return(?e, ?k).t)
+  o = Opt.some(v: String("o"))
+  d = String("d")
+  print(o.peek(?d))
+
+fail "r3-or-branch-part-receiver-unsound", "cannot reassign `wa` while it is lent"
+  # A view of a part (a field, an element) of a branching receiver keeps a
+  # loan on every name a leaf names: writing to one while the view lives
+  # is rejected (C4), as it is for a view of the whole receiver. A leaf
+  # that makes a value is read where it is too, a temporary of the
+  # statement: a view of it held past the statement is rejected (C5),
+  # whichever branch made it.
+  #
+  # oracle: field_write reject C4
+  # oracle: elem_write reject C4
+  # oracle: nested_write reject C4
+  # oracle: made_part reject C5
+  # oracle: made_whole reject C5
+  # oracle: made_fallback reject C5
+
+  obj S
+    t: String
+    xs: [4]Int
+
+    fun inner(?self) -> ?String
+      ?self.t
+
+  obj W
+    s: S
+
+  obj P
+    xs: [4]Int
+
+    fun arr(?self) -> ?[4]Int
+      ?self.xs
+
+  fun mk(n: Int) -> W
+    W(s: S(t: String("a text long enough to live on the heap:", n), xs: [n, n, n, n]))
+
+  fun maybe(n: Int) -> W?
+    return mk(n) if n > 0 else none
+
+  sub field_write(c: Bool)
+    wa = mk(1)
+    wb = mk(2)
+    z = (wa if c else wb).s.inner()
+    wa = mk(3)
+    print(z)
+
+  sub elem_write(c: Bool)
+    vs: List[P] = List()
+    !vs.push(P(xs: [1, 1, 1, 1]))
+    ws: List[P] = List()
+    !ws.push(P(xs: [2, 2, 2, 2]))
+    y = (vs if c else ws)[0].arr()
+    !vs.push(P(xs: [3, 3, 3, 3]))
+    print(y)
+
+  sub nested_write(c: Bool, d: Bool)
+    wa = mk(1)
+    wb = mk(2)
+    wc = mk(3)
+    z = (wa if c else (wb if d else wc)).s.inner()
+    wc = mk(4)
+    print(z)
+
+  sub made_part(c: Bool)
+    a = mk(1)
+    z = (a if c else mk(2)).s.inner()
+    print(z)
+
+  sub made_whole(c: Bool)
+    a = mk(1)
+    z = (a.s if c else mk(2).s).inner()
+    print(z)
+
+  sub made_fallback()
+    a = mk(1)
+    z = (maybe(1) ?? a).s.inner()
+    print(z)
+
+  field_write(true)
+  elem_write(true)
+  nested_write(false, false)
+  made_part(false)
+  made_whole(false)
+  made_fallback()
+
+test "r3-or-branch-part-receiver", '''
+  41
+  a text long enough to live on the heap:1
+  41
+  a text long enough to live on the heap:2
+  51
+  [1, 1, 1, 1]
+  51
+  [2, 2, 2, 2]
+  61
+  a text long enough to live on the heap:1
+  61
+  a text long enough to live on the heap:2
+  61
+  a text long enough to live on the heap:3
+  a text long enough to live on the heap:1 71
+  a text long enough to live on the heap:3 81
+  a text long enough to live on the heap:2 71
+  a text long enough to live on the heap:3 81
+'''
+  # A method whose result may keep a view of a part (a field, an element)
+  # of a branching receiver lends each leaf where it is: the view keeps a
+  # loan on every name a leaf names, not on a temporary, so it may be held
+  # past its statement and used while those names live unchanged. A leaf
+  # that makes a value is a temporary of the statement, which a view of it
+  # is used within. (A write to a leaf while the view lives, or a view of a
+  # made leaf held past its statement, is rejected:
+  # `r3-or-branch-part-receiver-unsound.rig`.)
+  #
+  # oracle: field_held accept
+  # oracle: elem_held accept
+  # oracle: nested_held accept
+  # oracle: made_in_stmt accept
+
+  obj S
+    t: String
+    xs: [4]Int
+
+    fun inner(?self) -> ?String
+      ?self.t
+
+  obj W
+    s: S
+
+  obj P
+    xs: [4]Int
+
+    fun arr(?self) -> ?[4]Int
+      ?self.xs
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun mk(n: Int) -> W
+    W(s: S(t: String("a text long enough to live on the heap:", n), xs: [n, n, n, n]))
+
+  fun maybe(n: Int) -> W?
+    return mk(n) if n > 0 else none
+
+  sub field_held(c: Bool)
+    wa = mk(1)
+    wb = mk(2)
+    z = (wa if c else wb).s.inner()
+    print(clobber(40))
+    print(z)
+
+  sub elem_held(c: Bool)
+    vs: List[P] = List()
+    !vs.push(P(xs: [1, 1, 1, 1]))
+    ws: List[P] = List()
+    !ws.push(P(xs: [2, 2, 2, 2]))
+    y = (vs if c else ws)[0].arr()
+    print(clobber(50))
+    print(y)
+
+  sub nested_held(c: Bool, d: Bool)
+    wa = mk(1)
+    wb = mk(2)
+    wc = mk(3)
+    z = (wa if c else (wb if d else wc)).s.inner()
+    print(clobber(60))
+    print(z)
+
+  sub made_in_stmt(c: Bool)
+    a = mk(1)
+    print((a if c else mk(2)).s.inner(), clobber(70))
+    print((maybe(0) ?? mk(3)).s.inner(), clobber(80))
+
+  c = clobber(1) == 2
+  field_held(c)
+  field_held(not c)
+  elem_held(c)
+  elem_held(not c)
+  nested_held(c, c)
+  nested_held(not c, c)
+  nested_held(not c, not c)
+  made_in_stmt(c)
+  made_in_stmt(not c)
+
+fail "r3-or-break-planned", "`r` owns a `Bag`, which can't be copied out by `break`: write `<r` to move it or `+r` to clone it"
+  # Core s1: a bare `break x` of an owner declared in the loop it leaves
+  # moves it, as `return x` moves a local; one from outside that loop
+  # still takes `<x`, and a `defer` that reads the name runs after it
+  # moved.
+
+  obj Bag
+    v: List[Int]
+
+  sub loop_local()
+    x = while true
+      b = Bag(v: List())
+      break b
+    print(x.v.len)
+
+  sub for_element()
+    v: List[Bag] = List()
+    !v.push(Bag(v: List()))
+    y = for e in <v
+      break e if e.v.len == 0
+    else
+      Bag(v: List())
+    print(y.v.len)
+
+  sub outer_name()
+    r = Bag(v: List())
+    x = while true
+      break r
+    print(x.v.len)
+
+  sub outer_loop()
+    x = for _ in 0..2
+      r = Bag(v: List())
+      y = for _ in 0..2
+        break r
+      else
+        Bag(v: List())
+      break y
+    else
+      Bag(v: List())
+    print(x.v.len)
+
+  sub deferred_read()
+    i = 0
+    z = while i < 3
+      q = Bag(v: List())
+      defer print(q.v.len)
+      i += 1
+      break q if i == 2
+    else
+      Bag(v: List())
+    print(z.v.len)
+
+  loop_local()
+
+  # oracle: loop_local accept
+  # oracle: for_element accept
+  # oracle: outer_name reject C2
+  # oracle: outer_loop reject C2
+  # oracle: deferred_read reject C1
+
+fail "r3-or-carry-match string payload text changed", "cannot lend `t` to write while a read loan is live"
+  # A String payload of `match ?h` carries the String's loan on the Text it
+  # views: the Text cannot change while the payload is used.
+
+  enum H
+    has(s: ?String)
+    no
+
+  t = String("abc")
+  h: H = .has(s: ?t)
+  match ?h
+    .has(s)
+      h = .no
+      !t.add("x")
+      print(s)
+    .no => print("no")
+
+fail "r3-or-carry-match text payload", "cannot reassign `h` while it is lent"
+  # An owned Text payload of `match ?h` is seen through the lend of `h`: `h`
+  # cannot change while the payload is used.
+
+  enum H
+    has(t: String)
+    no
+
+  h: H = .has(t: String("a"))
+  match ?h
+    .has(t)
+      h = .no
+      print(t)
+    .no => print("no")
+
+fail "r3-or-carry-match write string payload", "cannot reassign `h` while it is lent"
+  # A payload of `match !h` is a write view: it carries the write loan on `h`.
+
+  enum H
+    has(s: ?String)
+    no
+
+  h: H = .has(s: "a")
+  match !h
+    .has(s)
+      h = .no
+      print(s)
+    .no => print("no")
+
+test "r3-or-carry-owned text through write", "ab"
+  # A String sliced from a Text the holder owns, through `!self`, lends
+  # `self.src`: that field cannot change while the String is used, and the
+  # holder's other fields can (Core §5, "A field is a place of its own").
+
+  obj P
+    src: String
+    pos: Int
+
+    fun word(!self) -> ?String
+      w = ?self.src[..2]
+      self.pos += 1
+      w
+
+  p = P(src: String("abc"), pos: 0)
+  a = (!p).word()
+  print(a)
+
+test "r3-or-carry-owned vec through write", "1"
+  # An element of a List the holder owns, reached through `!self`, lends
+  # `self.toks`: that field cannot change while the view is used, and the
+  # holder's other fields can (Core §5, "A field is a place of its own").
+
+  obj Tok
+    kind: Int
+
+  obj P
+    toks: List[Tok]
+    pos: Int
+
+    fun next(!self) -> ?Tok
+      t = ?self.toks[self.pos]
+      self.pos += 1
+      t
+
+  p = P(toks: List(), pos: 0)
+  !p.toks.push(Tok(kind: 1))
+  a = (!p).next()
+  print(a.kind)
+
+test "r3-or-carry-result string of slice holder", "a 5"
+  # A String a method makes from the holder's String field views only Text
+  # bytes: the holder's slice of an array stays free to change.
+
+  obj P
+    src: ?String
+    toks: []Int
+
+    fun head(?self) -> ?String
+      self.src[0..1]
+
+  t = String("abc")
+  a = [1, 2]
+  p = P(src: ?t, toks: ?a[..])
+  s = ?p.head()
+  a[0] = 5
+  print(s, a[0])
+
+fail "r3-or-carry-result string text changed", "cannot lend `t` to write while a read loan is live"
+  # A String a method makes from the holder's String field carries that
+  # String's loan on the Text.
+
+  obj P
+    src: ?String
+    toks: []Int
+
+    fun head(?self) -> ?String
+      self.src[0..1]
+
+  t = String("abc")
+  a = [1, 2]
+  p = P(src: ?t, toks: ?a[..])
+  s = ?p.head()
+  !t.add("x")
+  print(s)
+
+test "r3-or-carry-slice field holder write after", "1 1"
+  # A view reached through a slice field carries the slice's loans, not a
+  # loan on the holder: the holder's other fields stay writable.
+
+  obj Tok
+    kind: Int
+
+  obj P
+    toks: []Tok
+    pos: Int
+
+  a = [Tok(kind: 1), Tok(kind: 2)]
+  p = P(toks: ?a[..], pos: 0)
+  t = ?p.toks[0]
+  p.pos = 1
+  print(t.kind, p.pos)
+
+fail "r3-or-carry-slice field local write after", "cannot assign to `a[0]` while `a` is lent"
+  # A view reached through a slice field carries the slice's loan on the
+  # array it views.
+
+  obj Tok
+    kind: Int
+
+  obj P
+    toks: []Tok
+
+  a = [Tok(kind: 1), Tok(kind: 2)]
+  p = P(toks: ?a[..])
+  t = ?p.toks[0]
+  a[0] = Tok(kind: 9)
+  print(t.kind)
+
+test "r3-or-carry-slice field through local write view", "1 1"
+  # A view reached through a slice field of what a local write view sees
+  # carries the slice's loans, not the write loan on the holder.
+
+  obj Tok
+    kind: Int
+
+  obj P
+    toks: []Tok
+    pos: Int
+
+  a = [Tok(kind: 1), Tok(kind: 2)]
+  p = P(toks: ?a[..], pos: 0)
+  w = !p
+  t = ?w.toks[0]
+  p.pos = 1
+  print(t.kind, p.pos)
+
+fail "r3-or-carry-slice field through write view then write", "cannot assign to `a[1]` while `a` is lent"
+  # A view reached through a slice field of what a write view sees still
+  # carries the slice's loan on the array.
+
+  obj Tok
+    kind: Int
+
+  obj P
+    toks: []Tok
+    pos: Int
+
+  a = [Tok(kind: 1), Tok(kind: 2)]
+  p = P(toks: ?a[..], pos: 0)
+  w = !p
+  t = ?w.toks[0]
+  a[1] = Tok(kind: 7)
+  print(t.kind)
+
+fail "r3-or-carry-string field text changed", "cannot lend `t` to write while a read loan is live"
+  # A String sliced from a String field through `!self` carries the field's
+  # loan on the Text.
+
+  obj P
+    src: ?String
+    pos: Int
+
+    fun word(!self) -> ?String
+      w = self.src[0..1]
+      self.pos += 1
+      w
+
+  t = String("abc")
+  p = P(src: ?t, pos: 0)
+  a = (!p).word()
+  !t.add("d")
+  print(a)
+
+test "r3-or-carry-string field through write self", "a 5"
+  # A String sliced from a String field through `!self` carries the field's
+  # loans, not a loan on `self`.
+
+  obj P
+    src: ?String
+    pos: Int
+
+    fun word(!self) -> ?String
+      w = self.src[0..1]
+      self.pos += 1
+      w
+
+  t = String("abc")
+  p = P(src: ?t, pos: 0)
+  a = (!p).word()
+  p.pos = 5
+  print(a, p.pos)
+
+test "r3-or-clone-sound", '''
+  [1]
+  [1, 2]
+'''
+  # `+x` of a List, a box, or a struct of owners is a new owner, part by
+  # part (Core s2): it carries the loans of the views its value holds, and
+  # none on `x`.
+
+  fun mk() -> List[Int]
+    v: List[Int] = List()
+    !v.push(1)
+    v
+
+  sub of_owner()
+    v: List[Int] = List()
+    !v.push(1)
+    w = +v
+    !v.push(2)
+    <v
+    print(w)
+
+  sub of_made()
+    c = +mk()
+    !c.push(2)
+    print(c)
+
+  of_owner()
+  of_made()
+
+
+  # oracle: of_owner accept
+  # oracle: of_made accept
+
+test "r3-or-clone-strict", "1 2"
+  # `+r` of a `?T` is a new `T` (SPEC "Clone"), which carries the loans
+  # of the views it holds and none on what `r` sees (Core s2, s7): `bag`
+  # may change while the clone lives. The compiler keeps the clone's loan
+  # on `bag` (test/oracle/differences).
+
+  obj Bag
+    v: List[?Int]
+
+  a = 1
+  bag = Bag(v: List())
+  !bag.v.push(?a)
+  r = ?bag
+  c = +r
+  !bag.v.push(?a)
+  print(c.v.len, bag.v.len)
+
+  # oracle: main accept
+
+fail "r3-or-clone-unsound", "cannot reassign `a` while it is lent"
+  # A clone of a value that holds views carries their loans (Core s2, s6).
+
+  obj Bag
+    v: List[?Int]
+
+  sub views_kept()
+    a = 1
+    v: List[?Int] = List()
+    !v.push(?a)
+    w = +v
+    <v
+    a = 2
+    print(w)
+
+  sub through_view_kept()
+    a = 1
+    bag = Bag(v: List())
+    !bag.v.push(?a)
+    r = ?bag
+    c = +r
+    <bag
+    a = 2
+    print(c.v.len)
+
+  views_kept()
+  through_view_kept()
+
+  # oracle: views_kept reject C4
+  # oracle: through_view_kept reject C4
+
+fail "r3-or-closure-param-store", "cannot store a view of `v` in `out.r`: `out` outlives it"
+  # What one call of a closure receives is the caller's, which may outlive
+  # the closure: storing what the closure captured there would let the
+  # view outlive its loan, since a call passes on none of what a closure
+  # that returns no view captured (Core §7). Storing one parameter's view
+  # in another is the caller's business, as for any function.
+  #
+  # oracle: param_to_param accept
+  # oracle: capture_to_param reject C6
+  # oracle: lent_capture_to_param reject C6
+
+  obj H
+    r: (?List[Int])?
+
+  sub run(h: !H, f: ?sub(!H))
+    f(!h)
+
+  sub param_to_param()
+    v: List[Int] = List()
+    !v.push(1)
+    h = H(r: none)
+    put = |out: !H, x: ?List[Int]| out.r = x
+    put(!h, ?v)
+    if h.r as r
+      print(r.len)
+
+  sub capture_to_param()
+    v: List[Int] = List()
+    !v.push(1)
+    h = H(r: none)
+    f = |?v, out: !H| out.r = v
+    f(!h)
+    !v.push(2)
+    if h.r as r
+      print(r.len)
+
+  sub lent_capture_to_param()
+    v: List[Int] = List()
+    !v.push(1)
+    h = H(r: none)
+    run(!h, |?v, out: !H| out.r = v)
+    !v.push(2)
+    if h.r as r
+      print(r.len)
+
+  param_to_param()
+
+test "r3-or-closure-sound", '''
+  5
+  1
+  2
+  3
+  8 9
+  101 111
+  14
+  14
+  1
+'''
+  # Closures (Core §7): a capture `?x` or `!x` lends `x` for the closure's
+  # life, which ends at its last use; `<x` moves `x` in, and `+x` copies it
+  # or adds a count. A stack closure is called, or lent as `?fun`; an
+  # owned closure (`*fun`) holds only values that carry no loan (s9). The
+  # body is checked as a function whose captures the caller lent.
+  #
+  # oracle: write_capture accept
+  # oracle: read_capture_then_write accept
+  # oracle: literal_argument accept
+  # oracle: move_capture accept
+  # oracle: owned_counter accept
+  # oracle: nested accept
+  # oracle: lent_closure accept
+  # oracle: returns_captured_view accept
+
+  obj Res
+    id: Int
+
+  sub each(xs: ?List[Int], f: ?sub(Int))
+    for x in xs
+      f(x)
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  sub write_capture()
+    total = 0
+    add = |!total, k: Int| total += k
+    add(2)
+    add(3)
+    print(total)
+
+  sub read_capture_then_write()
+    v: List[Int] = List()
+    !v.push(1)
+    size = |?v| v.len
+    print(size())
+    !v.push(2)
+    print(v.len)
+
+  sub literal_argument()
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    total = 0
+    each(?v, |!total, n| total += n)
+    print(total)
+
+  sub move_capture()
+    r = Res(id: 7)
+    g = |<r, a: Int| a + r.id
+    print(g(1), g(2))
+
+  fun make_counter(start: Int) -> *fun(Int) -> Int
+    count: *Cell[Int] = *Cell(start)
+    *|+count, step|
+      !count.set(count.get() + step)
+      count.get()
+
+  sub owned_counter()
+    next = make_counter(100)
+    print(next(1), next(10))
+
+  sub nested()
+    total: *Cell[Int] = *Cell(0)
+    add = |+total, k: Int|
+      step = |+total, +k| !total.set(total.get() + k)
+      step()
+      step()
+    add(3)
+    add(4)
+    print(total.get())
+
+  sub lent_closure()
+    k = 10
+    add_k = |+k, a: Int| a + k
+    print(apply(?add_k, 4))
+
+  sub returns_captured_view()
+    v: List[Int] = List()
+    !v.push(5)
+    get = |?v| v
+    print(get().len)
+    !v.push(6)
+
+  write_capture()
+  read_capture_then_write()
+  literal_argument()
+  move_capture()
+  owned_counter()
+  nested()
+  lent_closure()
+  returns_captured_view()
+
+test "r3-or-defer-sound", '''
+  2
+  0 1
+  1 1
+  2 1
+  0
+  failed 0
+  1 -1
+  failed 1
+  1 -1
+  0
+  failed 0
+  2 -1
+  body
+  1
+'''
+  # A `defer` runs at every exit of its scope, after the values declared
+  # after it are dropped, and an `errdefer` only where the function fails
+  # (Core §7): the oracle inlines each body there and checks it as written.
+  #
+  # oracle: reads_at_end accept
+  # oracle: in_a_loop accept
+  # oracle: errdefer_failing_only accept
+  # oracle: errdefer_maybe accept
+  # oracle: errdefer_propagate accept
+  # oracle: declares_and_moves accept
+
+  error E
+    bad
+
+  sub take(v: List[Int])
+    print(v.len)
+
+  sub reads_at_end()
+    v: List[Int] = List()
+    defer print(v.len)
+    !v.push(1)
+    !v.push(2)
+
+  sub in_a_loop()
+    k = 0
+    while k < 4 : k += 1
+      v: List[Int] = List()
+      defer print(k, v.len)
+      !v.push(k)
+      continue if k == 1
+      break if k == 2
+
+  fun errdefer_failing_only(ok: Bool) -> Int!
+    v: List[Int] = List()
+    errdefer print("failed", v.len)
+    if ok
+      take(<v)
+      return 1
+    return E.bad
+
+  fun errdefer_maybe(n: Int) -> Int!
+    v: List[Int] = List()
+    errdefer print("failed", v.len)
+    !v.push(n)
+    return n if n > 0 else E.bad
+
+  fun half(n: Int) -> Int!
+    return n / 2 if n % 2 == 0 else E.bad
+
+  fun errdefer_propagate(n: Int) -> Int!
+    v: List[Int] = List()
+    errdefer print("failed", v.len)
+    h = half(n)!
+    take(<v)
+    h
+
+  sub declares_and_moves()
+    defer
+      v: List[Int] = List()
+      !v.push(1)
+      take(<v)
+    print("body")
+
+  reads_at_end()
+  in_a_loop()
+  print(errdefer_failing_only(true) catch -1, errdefer_failing_only(false) catch -1)
+  print(errdefer_maybe(1) catch -1, errdefer_maybe(0) catch -1)
+  print(errdefer_propagate(4) catch -1, errdefer_propagate(3) catch -1)
+  declares_and_moves()
+
+fail "r3-or-defer-strict", "use of `v` while a write loan is live"
+  # A `defer` written before a lend runs after the view is done: the
+  # view `w` is declared after it, so it is dropped before the deferred
+  # code runs (Core §7; SPEC "defer and errdefer"). The compiler checks
+  # deferred code where it is written as well, and rejects this.
+  #
+  # oracle: main accept
+
+  v: List[Int] = List()
+  defer !v.push(3)
+  w = !v
+  !w.push(1)
+  print(v.len)
+
+fail "r3-or-defer-unsound", "use of `v` after move"
+  # The unsound neighbours of r3-or-defer-sound: deferred code that reads
+  # a value moved before the exit it runs at, reads a value declared
+  # after it through a view, writes what a later defer still views, or
+  # moves what it did not declare (Core §7).
+  #
+  # oracle: moved_before_exit reject C1
+  # oracle: moved_before_failing reject C1
+  # oracle: moved_before_propagate reject C1
+  # oracle: views_a_later_value reject C5
+  # oracle: writes_while_viewed reject C4
+  # oracle: moves_outer reject B2
+  # oracle: drops_outer reject B2
+
+  error E
+    bad
+
+  obj H
+    s: ?String
+
+  sub take(v: List[Int])
+    print(v.len)
+
+  fun half(n: Int) -> Int!
+    return n / 2 if n % 2 == 0 else E.bad
+
+  sub moved_before_exit()
+    v: List[Int] = List()
+    defer print(v.len)
+    take(<v)
+
+  fun moved_before_failing() -> Int!
+    v: List[Int] = List()
+    errdefer print(v.len)
+    take(<v)
+    return E.bad
+
+  fun moved_before_propagate(n: Int) -> Int!
+    v: List[Int] = List()
+    errdefer print(v.len)
+    take(<v)
+    half(n)!
+
+  sub views_a_later_value()
+    h = H(s: "x")
+    defer print(h.s)
+    t = String("abc")
+    h.s = ?t
+
+  sub writes_while_viewed()
+    v: List[Int] = List()
+    r = ?v
+    defer print(r.len)
+    defer !v.push(3)
+    print("body")
+
+  sub moves_outer()
+    v: List[Int] = List()
+    defer take(<v)
+    print("body")
+
+  sub drops_outer()
+    v: List[Int] = List()
+    defer <v
+    print("body")
+
+  moved_before_exit()
+
+test "r3-or-fit-f1 prefix loop", '''
+  ["ada"]
+'''
+  line = String("name=ada")
+  names = ["id", "name", "age"]
+  found: List[?String] = List()
+  for name in names
+    key = String(name, "=")
+    if text.strip_prefix(?line, ?key) as v
+      !found.push(v)
+  print(found)
+
+test "r3-or-fit-f1b prefix tmp", "ada"
+  line = String("name=ada")
+  name = "name"
+  key = String(name, "=")
+  v = text.strip_prefix(?line, ?key) ?? ""
+  <key
+  print(v)
+
+fail "r3-or-fit-f2 lookup", "`q` does not live long enough"
+  obj Var
+    name: ?String
+    value: ?String
+
+  obj Env
+    vars: [3]Var
+
+    fun get(?self, name: ?String) -> (?String)?
+      for v in ?self.vars
+        if v.name == name
+          return v.value
+      none
+
+  env = Env(vars: [Var(name: "a", value: "1"), Var(name: "b", value: "2"), Var(name: "c", value: "3")])
+  out: List[?String] = List()
+  for n in ["a", "c"]
+    q = String(n)
+    if env.get(?q) as v
+      !out.push(v)
+  print(out)
+
+fail "r3-or-fit-f2b lookup struct", "cannot assign to `probe.id` while `probe` is lent"
+  obj Entry
+    id: Int
+    score: Int
+
+  obj Table
+    rows: [3]Entry
+
+    fun find(?self, key: ?Entry) -> (?Entry)?
+      for i in 0..3
+        if self.rows[i].id == key.id
+          return ?self.rows[i]
+      none
+
+  t = Table(rows: [Entry(id: 1, score: 10), Entry(id: 2, score: 20), Entry(id: 3, score: 30)])
+  probe = Entry(id: 2, score: 0)
+  if t.find(?probe) as hit
+    probe.id = 3
+    print(hit.score, probe.id)
+
+test "r3-or-fit-f2c lookup key", "20 3"
+  obj Key
+    id: Int
+
+  obj Entry
+    id: Int
+    score: Int
+
+  obj Table
+    rows: [3]Entry
+
+    fun find(?self, key: ?Key) -> (?Entry)?
+      for i in 0..3
+        if self.rows[i].id == key.id
+          return ?self.rows[i]
+      none
+
+  t = Table(rows: [Entry(id: 1, score: 10), Entry(id: 2, score: 20), Entry(id: 3, score: 30)])
+  k = Key(id: 2)
+  if t.find(?k) as hit
+    k.id = 3
+    print(hit.score, k.id)
+
+fail "r3-or-fit-f2d lookup print", "cannot drop `q` while it is lent"
+  obj Var
+    name: ?String
+    value: ?String
+
+  obj Env
+    vars: [3]Var
+
+    fun get(?self, name: ?String) -> (?String)?
+      for v in ?self.vars
+        if v.name == name
+          return v.value
+      none
+
+  env = Env(vars: [Var(name: "a", value: "1"), Var(name: "b", value: "2"), Var(name: "c", value: "3")])
+  q = String("a")
+  v = ?env.get(?q) ?? "?"
+  <q
+  print(v)
+
+test "r3-or-fit-f2e lookup loop print", '''
+  1
+  3
+  a
+'''
+  obj Var
+    name: ?String
+    value: ?String
+
+  obj Env
+    vars: [3]Var
+
+    fun get(?self, name: ?String) -> (?String)?
+      for v in ?self.vars
+        if v.name == name
+          return v.value
+      none
+
+  env = Env(vars: [Var(name: "a", value: "1"), Var(name: "b", value: "2"), Var(name: "c", value: "3")])
+  for n in ["a", "c"]
+    q = String(n)
+    if env.get(?q) as v
+      print(v)
+  print(env.vars[0].name)
+
+test "r3-or-fit-f2f lookup free fn", '''
+  1
+  3
+  a
+'''
+  obj Var
+    name: ?String
+    value: ?String
+
+  obj Env
+    vars: [3]Var
+
+  fun get(env: ?Env, name: ?String) -> (?String)?
+    for v in ?env.vars
+      if v.name == name
+        return v.value
+    none
+
+  env = Env(vars: [Var(name: "a", value: "1"), Var(name: "b", value: "2"), Var(name: "c", value: "3")])
+  for n in ["a", "c"]
+    q = String(n)
+    if get(?env, ?q) as v
+      print(v)
+  print(env.vars[0].name)
+
+fail "r3-or-fit-f3 two buffers", "cannot assign to `b[1]` while `b` is lent"
+  obj Diff
+    old: []Int
+    cur: []Int
+
+    fun old_at(?self, i: Int) -> Int
+      self.old[i]
+
+    fun old_view(?self) -> []Int
+      self.old
+
+  a = [1, 2, 3]
+  b = [1, 5, 3]
+  d = Diff(old: ?a, cur: ?b)
+  o = ?d.old_view()
+  b[1] = 9
+  print(o[1], b[1])
+
+test "r3-or-fit-f4 callback", "2 5"
+  obj Item
+    id: Int
+
+  fun find_by(xs: []Item, pred: ?fun(?Item) -> Bool) -> (?Item)?
+    for i in 0..xs.len
+      if pred(?xs[i])
+        return ?xs[i]
+    none
+
+  items = [Item(id: 1), Item(id: 2)]
+  want = 2
+  hit = find_by(?items, |?want, it: ?Item| it.id == want)
+  want = 5
+  if hit as h
+    print(h.id, want)
+
+fail "r3-or-fit-f4b callback ret", "cannot drop `w` while it is lent"
+  obj Wrap
+    n: Int
+    v: List[Int]
+
+  fun call(f: ?fun() -> ?Wrap) -> ?Wrap
+    f()
+
+  w = Wrap(n: 1, v: List())
+  r = call(|?w| w)
+  <w
+  print(r.n)
+
+test "r3-or-fit-f4c pick by", "2 10"
+  obj Wrap
+    n: Int
+    v: List[Int]
+
+  fun better(a: ?Wrap, b: ?Wrap, score: ?fun(?Wrap) -> Int) -> ?Wrap
+    if score(a) >= score(b)
+      a
+    else
+      b
+
+  x = Wrap(n: 1, v: List())
+  y = Wrap(n: 2, v: List())
+  bias = 0
+  r = better(?x, ?y, |?bias, w: ?Wrap| w.n + bias)
+  bias = 10
+  print(r.n, bias)
+
+test "r3-or-fit-f4d pick by wrap", "2 10"
+  obj Wrap
+    n: Int
+    v: List[Int]
+
+  fun better(a: ?Wrap, b: ?Wrap, score: ?fun(?Wrap) -> Int) -> ?Wrap
+    if score(a) >= score(b)
+      a
+    else
+      b
+
+  x = Wrap(n: 1, v: List())
+  y = Wrap(n: 2, v: List())
+  bias = Wrap(n: 0, v: List())
+  r = better(?x, ?y, |?bias, w: ?Wrap| w.n + bias.n)
+  bias.n = 10
+  print(r.n, bias.n)
+
+test "r3-or-fit-f5 sub store", '''
+  1 2
+  1
+'''
+  obj In
+    n: Int
+
+  obj View
+    b: ?In
+
+  sub show(v: !View, b: ?In)
+    print(v.b.n, b.n)
+
+  a = In(n: 1)
+  v = View(b: ?a)
+  if true
+    y = In(n: 2)
+    show(!v, ?y)
+  print(v.b.n)
+
+test "r3-or-fit-f5c sub log temp", '''
+  app 1 step 0
+  app 2 step 1
+  app 3 step 2
+  3
+'''
+  obj Ctx
+    name: ?String
+    count: Int
+
+  sub log(ctx: !Ctx, msg: ?String)
+    ctx.count += 1
+    print(ctx.name, ctx.count, msg)
+
+  ctx = Ctx(name: "app", count: 0)
+  for i in 0..3
+    log(!ctx, ?String("step ", i))
+  print(ctx.count)
+
+test "r3-or-fit-f5d method log", '''
+  app: ada
+  app: done
+  2
+'''
+  obj Logger
+    prefix: ?String
+    lines: Int
+
+    sub say(!self, msg: ?String)
+      self.lines += 1
+      print(self.prefix, msg)
+
+  log = Logger(prefix: "app:", lines: 0)
+  name = String("ada")
+  !log.say(?name)
+  <name
+  !log.say("done")
+  print(log.lines)
+
+test "r3-or-fit-f6 split next", "a b"
+  line = String("a,b,c")
+  parts = text.split(?line, ",")
+  a = (!parts).next() ?? ""
+  b = (!parts).next() ?? ""
+  print(a, b)
+
+fail "r3-or-fit-f6b split sep", "cannot drop `sep` while it is lent"
+  line = String("a;b;c")
+  sep = String(";")
+  firsts: List[?String] = List()
+  parts = text.split(?line, ?sep)
+  if (!parts).next() as p
+    !firsts.push(p)
+  <sep
+  print(firsts)
+
+test "r3-or-fit-f7 parser cursor", "1 2"
+  obj Tok
+    kind: Int
+    start: Int
+    len: Int
+
+  obj Parser
+    src: ?String
+    toks: []Tok
+    pos: Int
+
+    fun next(!self) -> ?Tok
+      t = ?self.toks[self.pos]
+      self.pos += 1
+      t
+
+    fun text(?self, t: ?Tok) -> ?String
+      self.src[t.start..t.start + t.len]
+
+  src = String("let x")
+  toks = [Tok(kind: 1, start: 0, len: 3), Tok(kind: 2, start: 4, len: 1)]
+  p = Parser(src: ?src, toks: ?toks, pos: 0)
+  a = (!p).next()
+  b = (!p).next()
+  print(a.kind, b.kind)

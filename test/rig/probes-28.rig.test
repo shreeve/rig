@@ -1,0 +1,3780 @@
+# Probes from past reviews and audits, 28 of 41: review-sc5-c6 to review-seam2-r2-z07_me_assign.
+
+test "review-sc5-c6", '''
+  see 7 1
+  drop R 7
+  run failed Parse.empty
+  see2 8 1
+  see2 8 2
+  end
+  drop R 8
+'''
+  error Parse
+    empty
+
+  obj R
+    n: Int
+    drop(!self)
+      print("drop R", self.n)
+
+  fun parse(s: ?String) -> Int!
+    if s.len == 0
+      return Parse.empty
+    s.len
+
+  sub each(xs: []?String, f: ?sub(?String)!)!
+    for x in xs
+      f(x)!
+
+  sub run()!
+    r = R(n: 7)
+    each(["a", "", "c"], |<r, s| print("see", r.n, parse(s)!))!
+    print("unreachable")
+
+  run() catch |e| print("run failed", e)
+  r2 = R(n: 8)
+  each(["a", "bb"], |?r2, s| print("see2", r2.n, parse(s)!)) catch print("no")
+  print("end")
+
+test "review-sc5-c7", "3 0 -5"
+  error E
+    bad
+
+  fun parse(s: ?String) -> Int!
+    if s.len == 0
+      return E.bad
+    s.len
+
+  fun use2(f: ?fun(?String) -> Int!) -> Int
+    f("") catch -5
+
+  f: fun(?String) -> Int! = |s| parse(s)! + 1
+  print(f("ab") catch 0, f("") catch 0, use2(?f))
+
+test "review-sc5-dv", '''
+  true 105 10
+  113427455640312821154458202477256070490
+  255
+'''
+  x: U8 = 5
+  print(x > 7 / 2, x + 300 / 3, x * (10 % 4))
+  y: I128 = 5
+  print(y + 340282366920938463463374607431768211455 / 3)
+  z: U8 = 1
+  z += 510 / 2 - 1
+  print(z)
+
+bomb "review-sc5-e1", "integer does not fit in destination type", prints: "404 200 4294967295 4294967295 4294967295\n200 200 404 200\n0 201\n200"
+  enum Status
+    ok = 200
+    missing = 404
+    big = 4294967295
+
+  enum Small
+    a
+    b = 200
+
+  fun conv(s: ?Status) -> Int
+    Int(s)
+
+  fun convw(s: !Small) -> U8
+    U8(s)
+
+  st: Status = .missing
+  print(Int(st), U16(Status.ok), U32(Status.big), U128(Status.big), I64(Status.big))
+  sm: Small = .b
+  print(U8(sm), I16(sm), conv(?st), convw(!sm))
+  print(I8(Small.a), Int(Small.b) + 1)
+  o: Small? = .b
+  print(Int(o ?? .a))
+  print(U8(st))
+
+bomb "review-sc5-fc", "integer part of floating point value out of bounds", prints: "99999999999999997748809823456034029568 -150000000000000006067947700923341471744"
+  fun big() -> Float
+    1e39
+
+  print(U128(1e38), I128(-1.5e38))
+  print(U128(big()))
+
+test "review-sc5-fuzz-acc 9 429", "1 2 3"
+  fun f(a: Int) -> Int
+    a
+
+  a = 1
+  b = 2
+  x = 3
+  #c
+
+  print(a, b, x)
+
+test "review-sc5-fuzz-m 32", "0 5 3"
+  K: I32 = 3
+
+  sub main()
+    v: I32 = 5
+    x: I32 = (((K & v) / 1) >> 31)
+    print(x, v, K)
+
+test "review-sc5-fuzz-m 36", "32768 5 3"
+  K: I32 = 3
+
+  sub main()
+    v: I32 = 5
+    x: I32 = (I32.max & (I32.max / 65535))
+    print(x, v, K)
+
+test "review-sc5-fuzz-m 4", "-2147483547 5 3"
+  K: I32 = 3
+
+  sub main()
+    v: I32 = 5
+    x: I32 = ((100 | I32.min) -% -1)
+    print(x, v, K)
+
+test "review-sc5-fuzz-m 42", "130 5 3"
+  K: I128 = 3
+
+  sub main()
+    v: I128 = 5
+    x: I128 = ((1 << 7) ^ (v % K))
+    print(x, v, K)
+
+test "review-sc5-fuzz-m 47", "-257 5 3"
+  K: Int = 3
+
+  sub main()
+    v: Int = 5
+    x: Int = (((-1 % Int.min) + (Int.max ^ Int.min)) - ((Int.max - Int.max) + 255))
+    print(x, v, K)
+
+test "review-sc5-fuzz-m 48", "5 5 3"
+  K: U64 = 3
+
+  sub main()
+    v: U64 = 5
+    x: U64 = v
+    print(x, v, K)
+
+test "review-sc5-fuzz-m 5", "0 5 3"
+  K: I8 = 3
+
+  sub main()
+    v: I8 = 5
+    x: I8 = (0 & K)
+    print(x, v, K)
+
+test "review-sc5-fuzz-m 6", "7 5 3"
+  K: I8 = 3
+
+  sub main()
+    v: I8 = 5
+    x: I8 = 7
+    print(x, v, K)
+
+fail "review-sc5-fuzz-n 2", "`v` is assigned but never read; use it, or discard the value with `_ = ...`"
+  K: U64 = 3
+
+  sub main()
+    v: U64 = 5
+    x: U64 = U64(127)
+    print(x)
+
+test "review-sc5-fuzz-n 21", "11"
+  K: I32 = 3
+
+  sub main()
+    v: I32 = 5
+    x: I32 = (((K -% K) | (2 % v)) +% (K * K))
+    print(x)
+
+fail "review-sc5-fuzz-n 23", "`v` is assigned but never read; use it, or discard the value with `_ = ...`"
+  K: U64 = 3
+
+  sub main()
+    v: U64 = 5
+    print(K)
+
+fail "review-sc5-k1", "cannot reassign constant `LIMIT`"
+  LIMIT = 4
+  NAMES = ["a", "b"]
+  V = LIMIT * 2
+
+  fun show() -> Int
+    LIMIT
+
+  sub main()
+    LIMIT = 5
+    print(LIMIT, show(), V)
+
+test "review-sc5-k3", '''
+  340282366920938463463374607431768211455 -170141183460469231731687303715884105728 250 3 4 0 [1, 2, 3]
+  255
+  4 170141183460469231731687303715884105727 170141183460469231731687303715884105727
+  3.402823669209385e38 0.75
+'''
+  use lib
+
+  LOCAL: U8 = lib.SMALL +% 10
+  W = lib.BIG +% 1
+
+  sub main()
+    print(lib.BIG, lib.NEG, lib.SMALL, lib.HALF, LOCAL, W, lib.ARR)
+    print(lib.SMALL + 5)
+    x = lib.SMALL
+    print(x +% 10, lib.BIG / 2, lib.NEG +% -1)
+    print(Float(lib.BIG), lib.F / 2)
+
+  file "lib.rig"
+    pub BIG: U128 = U128.max
+    pub NEG: I128 = I128.min
+    pub SMALL: U8 = 250
+    pub HALF = 7 / 2
+    pub F: Float = 1.5
+    pub ARR: [3]U8 = [1, 2, 3]
+
+test "review-sc5-p3", "-3 3"
+  enum K
+    a
+    b
+
+  fun f(k: K, n: Int) -> Int
+    match k
+      .a => -n
+      .b => n
+
+  print(f(.a, 3), f(.b, 3))
+
+test "review-sc5-pd", "12 22"
+  use lib
+
+  sub main()
+    print(lib.f(), lib.T().g())
+
+  file "lib.rig"
+    use other
+
+    pub fun f(x: Int = other.K, m: other.Mode = .slow) -> Int
+      x + (1 if m == .slow else 0)
+
+    pub obj T
+      pub v: Int = other.K
+
+      pub fun g(?self, k: Int = other.K) -> Int
+        self.v + k
+
+  file "other.rig"
+    pub K = 11
+    PRIV = 5
+
+    pub enum Mode
+      fast
+      slow
+
+test "review-sc5-pub1", '''
+  14 14
+  2
+  y
+  14 6
+'''
+  use lib
+
+  sub main()
+    c = lib.Counter.make("a")
+    print(c.twice(1), lib.peekof(?c, "s"))
+    p = lib.pair(1, 2)
+    print(p.both())
+    q = lib.pair("x", "y")
+    print(q.both())
+    print(lib.scaled(2), lib.opened(2))
+
+  file "lib.rig"
+    SECRET = 7
+    pub OPEN = 3
+
+    pub obj Counter
+      pub label: ?String
+      count: Int
+
+      pub fun make(label: ?String) -> Counter
+        Counter(label: label, count: SECRET)
+
+      fun peek(?self) -> Int
+        self.count
+
+      pub fun twice[T](?self, t: T) -> Int
+        self.peek() * 2
+
+    pub obj Pair[T]
+      pub a: T
+      b: T
+
+      pub fun both(?self) -> T
+        self.second()
+
+      fun second(?self) -> T
+        self.b
+
+    pub fun pair[T](a: T, b: T) -> Pair[T]
+      Pair(a: a, b: b)
+
+    pub fun peekof[T](c: ?Counter, t: T) -> Int
+      c.count + c.peek()
+
+    pub fun scaled(x: Int, k: Int = SECRET) -> Int
+      x * k
+
+    pub fun opened(x: Int, k: Int = OPEN) -> Int
+      x * k
+
+test "review-sc5-pub4", '''
+  1 2 3 4 1
+  drop 5 9
+  drop 4 9
+  drop 3 9
+  drop 2 9
+  drop 1 9
+'''
+  use lib
+
+  sub main()
+    r = lib.mk(1)
+    b = ^lib.mk(2)
+    s = *lib.mk(3)
+    h = lib.hold(lib.mk(4))
+    print(r.n, b.n, s.n, h.v.n, h.peek())
+    v = List[^lib.Res]()
+    !v.push(^lib.mk(5))
+
+  file "lib.rig"
+    pub obj Res
+      pub n: Int
+      secret: Int = 9
+
+      drop(!self)
+        self.log()
+
+      sub log(?self)
+        print("drop", self.n, self.secret)
+
+    pub fun mk(n: Int) -> Res
+      Res(n: n)
+
+    pub obj Holder[T]
+      pub v: T
+      hidden: Int = 0
+
+      pub fun peek(?self) -> Int
+        self.hidden + self.bump()
+
+      fun bump(?self) -> Int
+        1
+
+    pub fun hold[T](v: T) -> Holder[T]
+      Holder(v: <v)
+
+test "review-sc5-q2", "3"
+  obj R
+    n: Int
+
+  v: List[[]*R] = List()
+  w: [2][2]*R = [[*R(n: 1), *R(n: 2)], [*R(n: 3), *R(n: 4)]]
+  print(w[1][0].n)
+
+test "review-sc5-q3", "3 3 3"
+  obj R
+    n: Int
+
+  w: [2]([2]*R) = [[*R(n: 1), *R(n: 2)], [*R(n: 3), *R(n: 4)]]
+  print(w[1][0].n, [1, 2][0] * 3, [1, 2][0]*3)
+
+test "review-sc5-sh", "4 4 99"
+  LIMIT = 4
+
+  fun f(k: Int = LIMIT) -> Int
+    k
+
+  obj S
+    v: Int = LIMIT
+
+  sub main()
+    new LIMIT = 99
+    print(f(), S().v, LIMIT)
+
+fail "review-sc5-sw", "cannot lend `v` to write while a write loan is live: to swap two elements of `v`, write `!v.swap(0, 1)`"
+  obj P
+    a: Int
+    b: Int
+
+  v = List[Int]()
+  !v.push(1)
+  !v.push(2)
+  swap(!v[0], !v[1])
+  arr = [1, 2]
+  swap(!arr[0], !arr[1])
+  i = 0
+  swap(!arr[i], !arr[i])
+  p = P(a: 1, b: 2)
+  swap(!p.a, !p.b)
+  print(v, arr, p.a)
+
+test "review-sc5-sw2", '''
+  [2, 1] ["c", "b", "a"]
+'''
+  obj H
+    xs: [3]?String
+
+  arr = [1, 2]
+  !arr.swap(0, 1)
+  h = H(xs: ["a", "b", "c"])
+  !h.xs.swap(0, 2)
+  print(arr, h.xs)
+
+test "review-sc5-w1", '''
+  -128 -2 127
+  0 1 340282366920938463463374607431768211455
+  170141183460469231731687303715884105727 -170141183460469231731687303715884105728 -170141183460469231731687303715884105728 -170141183460469231731687303715884105728
+  4
+  12
+  18
+  340282366920938463463374607431768211455 -170141183460469231731687303715884105728 170141183460469231731687303715884105727
+  3.402823669209385e38 -1.7014118346046923e38
+  0 -2 -2
+  56713727820156410577229101238628035242 1 134217727 170141183460469231731687303715884105728
+  -170141183460469231731687303715884105728
+  340282366920938463463374607431768211455 18446744073709551615
+'''
+  a: I8 = 127
+  print(a +% 1, a *% 2, I8.min -% 1)
+  b: U128 = U128.max
+  print(b +% 1, b *% b, U128(0) -% 1)
+  c: I128 = I128.min
+  print(c -% 1, c *% -1, I128.max +% 1, c)
+  d: U8 = 250
+  d +%= 10
+  print(d)
+  d *%= 3
+  print(d)
+  d -%= 250
+  print(d)
+  print(U128.max, I128.min, I128.max)
+  print(Float(U128.max), Float(I128.min))
+  print(U8.max +% 1, I8.max +% I8.max, Int.max *% 2)
+  x = I128.max
+  print(x / 3, x % 7, x >> 100, U128(1) << 127)
+  print(-I128.max - 1)
+  big: U128 = 340282366920938463463374607431768211455
+  print(big, U64(big >> 64))
+
+test "review-sc5-w2", '''
+  44
+  1
+  5
+  170141183460469231731687303715884105728
+  -1
+  25 -5 -5 2 2.5
+  12345678901234567890123456789
+  18446744073709551616 6148914691236517205 616
+  -2 -3
+'''
+  obj S
+    n: U8
+
+  fun sh(x: U128, n: Int) -> U128
+    x << n
+
+  fun shi(x: I128, n: U8) -> I128
+    x >> n
+
+  x: U8 = 200 +% 100
+  print(x)
+  s = S(n: 255)
+  s.n +%= 2
+  print(s.n)
+  arr = [U8(250), 251]
+  arr[1] +%= 10
+  print(arr[1])
+  print(sh(1, 127))
+  print(shi(I128.min, 127))
+  y: I128 = 5
+  print(y * y, y - 10, -y, y / 2, Float(y) / 2.0)
+  z: I128 = 12345678901234567890123456789
+  print(z)
+  w: U128 = 18446744073709551616
+  print(w, w / 3, w % 1000)
+  print(I128(-5) % 3, I128(-7) / 2)
+
+test "review-sc5-w4", "44 -170141183460469231731687303715884105728 88"
+  fun wr[T](a: T, b: T) -> T
+    a +% b
+
+  fun wm[T](a: T) -> T
+    a *% 3
+
+  a: U8 = 200
+  print(wr(a, 100), wr(I128.max, 1), wm(a))
+
+test "review-sc5-w6", '''
+  zero max small other
+  -1 1
+  [340282366920938463463374607431768211455] true #{v[0]}
+  true 25 85070591730234615865843651857942052863
+  18446744073709551615 -5 inf
+'''
+  fun cls(x: U128) -> ?String
+    match x
+      0 => "zero"
+      340282366920938463463374607431768211455 => "max"
+      1..100 => "small"
+      _ => "other"
+
+  fun ci(x: I128) -> Int
+    match x
+      -170141183460469231731687303715884105728 => -1
+      _ => 1
+
+  print(cls(0), cls(U128.max), cls(5), cls(1000))
+  print(ci(I128.min), ci(0))
+  v = List[U128]()
+  !v.push(U128.max)
+  print(v, v[0] == U128.max, "#{v[0]}")
+  y: I128 = -5
+  print(y < 0, U128(y * y), I128(U128.max / 4))
+  z: U64 = U64(U128.max >> 64)
+  print(z, I8(y), F32(U128.max))
+
+test "review-sc5-w7", '''
+  44
+  44 170141183460469231731687303715884105727
+  0
+  4
+'''
+  obj C
+    n: U8
+    big: I128
+
+  sub bump(x: !U8)
+    x +%= 200
+
+  sub bumpc(c: !C)
+    c.n *%= 3
+    c.big -%= 1
+
+  a: U8 = 100
+  bump(!a)
+  print(a)
+  c = C(n: 100, big: I128.min)
+  bumpc(!c)
+  print(c.n, c.big)
+  b = ^C(n: 255, big: 0)
+  b.n +%= 1
+  print(b.n)
+  v = List[U8]()
+  !v.push(250)
+  v[0] +%= 10
+  print(v[0])
+
+test "review-sc5-wl", '''
+  -9223372036854775808 -1
+  8 255 -9223372036854775806 -9223372036854775808
+'''
+  print(9223372036854775807 +% 1, 0 -% 1)
+  x = 5 +% 3
+  y: U8 = 0 -% 1
+  z = 3
+  print(x, y, z +% 9223372036854775807, 2 *% 4611686018427387904)
+
+test "review-sc5-wr8", "3"
+  x: I8 = (-128 | 2) -% (127 ^ 0)
+  print(x)
+
+test "review-sc5-wr9", "3 3 255"
+  x: I8 = (-128 | 2) -% 127
+  y: I8 = -126 -% (127 | 0)
+  z: U8 = (1 | 2) -% (4 ^ 0)
+  print(x, y, z)
+
+test "review-sc5-wrap128", "18446744073709551617 18446744073709551616 9223372036854775809"
+  a: U128 = 1 + (4294967296 *% 4294967296)
+  b: U128 = 4294967296 *% 4294967296
+  c: I128 = 1 + (9223372036854775807 +% 1)
+  print(a, b, c)
+
+test "review-sc5-wrapnest", "22 10"
+  v: U8 = 5
+  a: U8 = (200 +% 100) / 2
+  b: U8 = v + (1 + (250 +% 10))
+  print(a, b)
+
+test "review-sc5-wrapsilent", "9223372036854775810 9223372036854775809 9223372036854775808"
+  x: I128 = 1 + (1 + (9223372036854775807 +% 1))
+  y: I128 = 1 + (9223372036854775807 +% 1)
+  z: I128 = 9223372036854775807 +% 1
+  print(x, y, z)
+
+test "review-seam2-a01 generic id", '''
+  drop 1
+  1
+'''
+  # Review probe a01_generic_id.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: id accept
+  # oracle: main accept
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun id[T](x: T) -> T
+    x
+
+  r = id((!mk(1)).at())
+  print(r)
+
+test "review-seam2-a01b generic id clobber", '''
+  78
+  6
+'''
+  # Review probe a01b_generic_id_clobber.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.at accept
+  # oracle: S.rd accept
+  # oracle: mk accept
+  # oracle: id accept
+  # oracle: clobber accept
+  # oracle: main accept
+  obj S
+    n: Int
+    big: [8]Int
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun rd(?self) -> ?Int
+      ?self.n
+
+  fun mk(n: Int) -> S
+    S(n: n, big: [n, n, n, n, n, n, n, n])
+
+  fun id[T](x: T) -> T
+    x
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7, n, n, n, n, n, n, n, n]
+    a[1]
+
+  r = id((!mk(1)).at())
+  print(clobber(77))
+  r += 5
+  print(r)
+
+test "review-seam2-a01c generic id read", '''
+  78
+  1
+'''
+  # Review probe a01c_generic_id_read.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.rd accept
+  # oracle: mk accept
+  # oracle: id accept
+  # oracle: clobber accept
+  # oracle: main accept
+  obj S
+    n: Int
+    big: [8]Int
+
+    fun rd(?self) -> ?Int
+      ?self.n
+
+  fun mk(n: Int) -> S
+    S(n: n, big: [n, n, n, n, n, n, n, n])
+
+  fun id[T](x: T) -> T
+    x
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7, n, n, n, n, n, n, n, n]
+    a[1]
+
+  r = id(mk(1).rd())
+  print(clobber(77))
+  print(r)
+
+test "review-seam2-a02 generic holder", '''
+  drop 1
+  1
+'''
+  # Review probe a02_generic_holder.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: main accept
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  obj Hold[T]
+    x: T
+
+  h = Hold(x: (!mk(1)).at())
+  print(h.x)
+
+fail "review-seam2-a05 closure capture", "`w` is assigned but never read; use it, or discard the value with `_ = ...`"
+  # Review probe a05_closure_capture.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: main accept
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  w = 0
+  f = || print((!mk(1)).pop())
+  f()
+  g = *|| print((!mk(2)).pop())
+  g()
+
+test "review-seam2-a07 defer", '''
+  body 4
+  drop 3
+  2
+  drop 2
+'''
+  # Review probe a07_defer.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: main accept
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  defer print((!mk(1)).pop())
+  defer !mk(2).bump()
+  print("body", clobber(3))
+
+fail "review-seam2-a08 propagate view", "a view of the temporary `mk(1)` outlives its statement, which drops it; bind the value to a name first"
+  # Review probe a08_propagate_view.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.tryat accept
+  # oracle: S.trypop accept
+  # oracle: S.maybe accept
+  # oracle: S.at accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: main reject C5
+  error E
+    bad
+
+  obj S
+    n: Int
+    items: List[Int]
+
+    fun tryat(!self, ok: Bool) -> (!Int)!
+      return E.bad if not ok
+      !self.n
+
+    fun trypop(!self, ok: Bool) -> Int!
+      self.n += 1
+      return E.bad if not ok
+      self.n
+
+    fun maybe(!self, ok: Bool) -> (!Int)?
+      return none if not ok
+      !self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  r = (!mk(1)).tryat(true)!
+  print(r)
+
+test "review-seam2-a09 propagate ok", '''
+  5
+  drop 2
+  6
+  drop 2
+  drop 3
+  4
+  drop 2
+  failed E.bad
+'''
+  # Review probe a09_propagate_ok.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.tryat accept
+  # oracle: S.trypop accept
+  # oracle: S.maybe accept
+  # oracle: S.at accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: go accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj S
+    n: Int
+    items: List[Int]
+
+    fun tryat(!self, ok: Bool) -> (!Int)!
+      return E.bad if not ok
+      !self.n
+
+    fun trypop(!self, ok: Bool) -> Int!
+      self.n += 1
+      return E.bad if not ok
+      self.n
+
+    fun maybe(!self, ok: Bool) -> (!Int)?
+      return none if not ok
+      !self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  sub go(ok: Bool)!
+    print((!mk(1)).trypop(ok)! + clobber(2))
+    print((!mk(2)).tryat(ok)! + clobber(3))
+    w = (!mk(3)).tryat(ok)! + 1
+    print(w)
+
+  go(true)!
+  go(false) catch |e| print("failed", e)
+
+fail "review-seam2-a10 catch view", "a view of the temporary `mk(1)` outlives its statement, which drops it; bind the value to a name first"
+  # Review probe a10_catch_view.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.tryat accept
+  # oracle: S.trypop accept
+  # oracle: S.maybe accept
+  # oracle: S.at accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: main reject C5
+  error E
+    bad
+
+  obj S
+    n: Int
+    items: List[Int]
+
+    fun tryat(!self, ok: Bool) -> (!Int)!
+      return E.bad if not ok
+      !self.n
+
+    fun trypop(!self, ok: Bool) -> Int!
+      self.n += 1
+      return E.bad if not ok
+      self.n
+
+    fun maybe(!self, ok: Bool) -> (!Int)?
+      return none if not ok
+      !self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  d = 5
+  r = (!mk(1)).tryat(false) catch !d
+  print(r)
+
+fail "review-seam2-a11 optional view", "a view of the temporary `mk(1)` outlives its statement, which drops it; bind the value to a name first"
+  # Review probe a11_optional_view.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.tryat accept
+  # oracle: S.trypop accept
+  # oracle: S.maybe accept
+  # oracle: S.at accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: main reject C5
+  error E
+    bad
+
+  obj S
+    n: Int
+    items: List[Int]
+
+    fun tryat(!self, ok: Bool) -> (!Int)!
+      return E.bad if not ok
+      !self.n
+
+    fun trypop(!self, ok: Bool) -> Int!
+      self.n += 1
+      return E.bad if not ok
+      self.n
+
+    fun maybe(!self, ok: Bool) -> (!Int)?
+      return none if not ok
+      !self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  r = (!mk(1)).maybe(true) ?? return
+  print(r)
+
+fail "review-seam2-a12 optional header", "a view of the temporary `mk(1)` outlives its statement, which drops it; bind the value to a name first"
+  # Review probe a12_optional_header.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.tryat accept
+  # oracle: S.trypop accept
+  # oracle: S.maybe accept
+  # oracle: S.at accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: main reject C5
+  error E
+    bad
+
+  obj S
+    n: Int
+    items: List[Int]
+
+    fun tryat(!self, ok: Bool) -> (!Int)!
+      return E.bad if not ok
+      !self.n
+
+    fun trypop(!self, ok: Bool) -> Int!
+      self.n += 1
+      return E.bad if not ok
+      self.n
+
+    fun maybe(!self, ok: Bool) -> (!Int)?
+      return none if not ok
+      !self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  if (!mk(1)).maybe(true) as x
+    print(clobber(4))
+    x = 9
+    print(x)
+
+fail "review-seam2-a13 optional prop", "a view of the temporary `mk(1)` outlives its statement, which drops it; bind the value to a name first"
+  # Review probe a13_optional_prop.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.tryat accept
+  # oracle: S.trypop accept
+  # oracle: S.maybe accept
+  # oracle: S.at accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: go reject C5
+  # oracle: main accept
+  error E
+    bad
+
+  obj S
+    n: Int
+    items: List[Int]
+
+    fun tryat(!self, ok: Bool) -> (!Int)!
+      return E.bad if not ok
+      !self.n
+
+    fun trypop(!self, ok: Bool) -> Int!
+      self.n += 1
+      return E.bad if not ok
+      self.n
+
+    fun maybe(!self, ok: Bool) -> (!Int)?
+      return none if not ok
+      !self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun go() -> Int?
+    x = (!mk(1)).maybe(true)?
+    x
+
+  print(go() ?? 0)
+
+fail "review-seam2-a14 match header", "this `match` reads the view its subject returns after its header drops the temporary `mk(1)` it points into; bind `mk(1)` to a name first"
+  # Review probe a14_match_header.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.tryat accept
+  # oracle: S.trypop accept
+  # oracle: S.maybe accept
+  # oracle: S.at accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  error E
+    bad
+
+  obj S
+    n: Int
+    items: List[Int]
+
+    fun tryat(!self, ok: Bool) -> (!Int)!
+      return E.bad if not ok
+      !self.n
+
+    fun trypop(!self, ok: Bool) -> Int!
+      self.n += 1
+      return E.bad if not ok
+      self.n
+
+    fun maybe(!self, ok: Bool) -> (!Int)?
+      return none if not ok
+      !self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  match (!mk(1)).at()
+    x => print(x + clobber(2))
+
+test "review-seam2-a15 catch ok in stmt", '''
+  9
+  drop 1
+  4
+  drop 2
+  drop 3
+  107
+'''
+  # Review probe a15_catch_ok_in_stmt.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.tryat accept
+  # oracle: S.trypop accept
+  # oracle: S.maybe accept
+  # oracle: S.at accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: inc accept
+  # oracle: clobber accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj S
+    n: Int
+    items: List[Int]
+
+    fun tryat(!self, ok: Bool) -> (!Int)!
+      return E.bad if not ok
+      !self.n
+
+    fun trypop(!self, ok: Bool) -> Int!
+      self.n += 1
+      return E.bad if not ok
+      self.n
+
+    fun maybe(!self, ok: Bool) -> (!Int)?
+      return none if not ok
+      !self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  sub inc(v: !Int)
+    v += 100
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  d = 7
+  w = !d
+  print(((!mk(1)).tryat(false) catch w) + clobber(1))
+  print(((!mk(2)).tryat(true) catch w) + clobber(1))
+  inc((!mk(3)).tryat(false) catch !d)
+  print(d)
+
+test "review-seam2-b01 nested", '''
+  drop 3
+  drop 2
+  7
+  drop 5
+  drop 4
+  6
+  drop 6
+  drop 7
+  809
+  drop 9
+  drop 8
+'''
+  # Review probe b01_nested.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: wrap accept
+  # oracle: mk2 accept
+  # oracle: main accept
+  # oracle: show2 accept
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun wrap(s: !S) -> !S
+    s
+
+  fun mk2(k: Int) -> S
+    mk(k)
+
+  !mk((!mk(1)).pop()).bump()
+  print((!mk((!mk(3)).pop())).pop() + clobber(1))
+  print((!wrap(!mk(5))).pop())
+  !wrap(!mk(6)).bump()
+  print(show2((!wrap(!mk(7))).at(), (!mk2(8)).at()))
+
+  fun show2(a: !Int, b: !Int) -> Int
+    a += 1
+    b += 1
+    a * 100 + b
+
+fail "review-seam2-b02 nested escape", "a view of the temporary `mk(1)` outlives its statement, which drops it; bind the value to a name first"
+  # Review probe b02_nested_escape.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: wrap accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun wrap(s: !S) -> !S
+    s
+
+  w = wrap(!mk(1))
+  print(w.n)
+
+test "review-seam2-b03 kwargs hoist", '''
+  7
+  drop 6
+  drop 3
+  dropT 7
+  36
+  dropT 26
+  dropT 36
+'''
+  # Review probe b03_kwargs_hoist.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: T.two accept
+  # oracle: T.drop accept
+  # oracle: mkt accept
+  # oracle: main accept
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  obj T
+    k: Int
+
+    fun two(!self, a: !Int, b: Int) -> Int
+      a += b
+      self.k += a
+      self.k
+
+    drop(!self)
+      print("dropT", self.k)
+
+  fun mkt(k: Int) -> T
+    T(k: k)
+
+  print((!mkt(1)).two(b: (!mk(2)).pop(), a: (!mk(3)).at()))
+  print((!mkt(10)).two(b: clobber(5), a: !mkt(20).k))
+
+test "review-seam2-c01 steal", '''
+  drop 1 []
+  [1]
+'''
+  # Review probe c01_steal.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.steal accept
+  # oracle: S.into accept
+  # oracle: S.at accept
+  # oracle: S.rd accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: main accept
+  obj S
+    n: Int
+    items: List[Int]
+
+    fun steal(!self) -> List[Int]
+      replace(!self.items, List())
+
+    fun into(<self) -> Int
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun rd(?self) -> Int
+      self.n
+
+    drop(!self)
+      print("drop", self.n, self.items)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  v = (!mk(1)).steal()
+  print(v)
+
+fail "review-seam2-c03 move lent", "a view of the temporary `mk(1)` outlives its statement, which drops it; bind the value to a name first"
+  # Review probe c03_move_lent.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.steal accept
+  # oracle: S.into accept
+  # oracle: S.at accept
+  # oracle: S.rd accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    items: List[Int]
+
+    fun steal(!self) -> List[Int]
+      replace(!self.items, List())
+
+    fun into(<self) -> Int
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun rd(?self) -> Int
+      self.n
+
+    drop(!self)
+      print("drop", self.n, self.items)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  x = <(!mk(1))
+  print(x.n)
+
+fail "review-seam2-c07 move whole while lent", "cannot move `s` while a write loan on `s.n` is live"
+  # Review probe c07_move_whole_while_lent.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.at accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: both accept
+  # oracle: main reject C4
+  obj S
+    n: Int
+    items: List[Int]
+
+    fun at(!self) -> !Int
+      !self.n
+
+    drop(!self)
+      print("drop", self.n, self.items)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  sub both(a: !Int, b: S)
+    a += 1
+    print(b.n)
+
+  s = mk(1)
+  both(!s.n, <s)
+
+fail "review-seam2-c13 move part named plain", "cannot move out of `s.items`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.items, v)`"
+  # Review probe c13_move_part_named_plain.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: main reject C3
+  obj S
+    n: Int
+    items: List[Int]
+
+  s = S(n: 1, items: List())
+  !s.items.push(1)
+  x = <s.items
+  print(x)
+
+test "review-seam2-d01 branch types", '''
+  105
+  102
+  2
+  5
+  6
+  7
+  12
+'''
+  # Review probe d01_branch_types.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: inc accept
+  # oracle: f accept
+  # oracle: mks accept
+  # oracle: opt accept
+  # oracle: main accept
+  obj S
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+  sub inc(v: !Int)
+    v += 100
+    print(v)
+
+  fun f(n: Int) -> Int
+    n
+
+  fun mks(n: Int) -> S
+    S(n: n)
+
+  fun opt(n: Int) -> S?
+    return none if n == 0
+    S(n: n)
+
+  c = f(1) == 1
+  inc(!(5 if c else f(1)))
+  inc(!(f(2) if c else 7))
+  print((!(S(n: 1) if c else mks(2))).pop())
+  print((!(mks(3) if not c else S(n: 4))).pop())
+  print((!(opt(0) ?? mks(5))).pop())
+  print((!(opt(6) ?? S(n: 9))).pop())
+  m = f(2)
+  print((!(S(n: 10) if m == 1 else mks(11))).pop())
+
+test "review-seam2-d02 text branch", '''
+  p!
+  lit!
+  [7, 8, 9]
+  0
+'''
+  # Review probe d02_text_branch.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: mkt accept
+  # oracle: f accept
+  # oracle: mkv accept
+  # oracle: arr accept
+  # oracle: fill accept
+  # oracle: main accept
+  fun mkt(s: ?String) -> String
+    String(s)
+
+  fun f(n: Int) -> Int
+    n
+
+  fun mkv() -> List[Int]
+    v: List[Int] = List()
+    !v.push(1)
+    v
+
+  fun arr() -> [3]Int
+    [7, 8, 9]
+
+  sub fill(t: !String)
+    !t.add("!")
+    print(t)
+
+  c = f(1) == 1
+  !mkt("a").add("b")
+  !(String("x") if c else mkt("y")).add("z")
+  fill(!(mkt("p") if c else String("q")))
+  fill(!String("lit"))
+  !(mkv() if c else List[Int]()).push(2)
+  !([1, 2, 3] if c else arr()).fill(0)
+  print(?(arr() if c else [4, 5, 6])[..])
+  !(arr() if c else [4, 5, 6])[0..2].fill(3)
+  print((mkv() if not c else List[Int]()).len)
+
+test "review-seam2-g01 wrap view recv", '''
+  101
+  102
+'''
+  # Review probe g01_wrap_view_recv.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.at accept
+  # oracle: S.pop accept
+  # oracle: wrap accept
+  # oracle: inc accept
+  # oracle: main accept
+  obj S
+    n: Int
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+  fun wrap(s: !S) -> !S
+    s
+
+  sub inc(v: !Int)
+    v += 100
+
+  s = S(n: 1)
+  inc((!wrap(!s)).at())
+  print(s.n)
+  wrap(!s).pop()
+  print(s.n)
+
+fail "review-seam2-h07 store via view recv bang", "`s` does not live long enough"
+  # Review probe h07_store_via_view_recv_bang.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.keep accept
+  # oracle: H.drop accept
+  # oracle: mk accept
+  # oracle: wrap accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    sub keep(!self, r: ?String) keeps r
+      !self.rs.push(r)
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap"))
+
+  fun wrap(h: !H) -> !H
+    h
+
+  h = H(rs: List())
+  if true
+    s = mk(1)
+    !wrap(!h).keep(?s.t)
+  print("end")
+
+fail "review-seam2-h08 push into temp field", "a view of the temporary `mk(1)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first"
+  # Review probe h08_push_into_temp_field.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.drop accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap"))
+
+  fun mkh() -> H
+    H(rs: List())
+
+  !mkh().rs.push(?mk(1).t)
+  print("end")
+
+test "review-seam2-i01 early exit", '''
+  two 0
+  drop 0
+  after 1
+  drop 2
+  two 4
+  drop 4
+  after 3
+  two 9
+  drop 9
+  drop 11
+  done
+'''
+  # Review probe i01_early_exit.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: opt accept
+  # oracle: two accept
+  # oracle: main accept
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun opt(n: Int) -> Int?
+    return none if n == 0
+    n
+
+  sub two(a: !Int, b: Int)
+    a += b
+    print("two", a)
+
+  i = 0
+  while i < 3
+    i += 1
+    two((!mk(i)).at(), opt(i - 2) ?? continue)
+    print("after", i)
+  for k in 0..3
+    two((!mk(10 + k)).at(), opt(k - 1) ?? break)
+  print("done")
+
+test "review-seam2-k03 for range", '''
+  drop 2
+  0 3
+  1 3
+  drop 6
+  drop 8
+  yes
+'''
+  # Review probe k03_for_range.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: main accept
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  for i in 0..(!mk(1)).pop()
+    print(i, clobber(2))
+  while (!mk(5)).pop() < 3
+    print("never")
+  if (!mk(7)).pop() > 3
+    print("yes")
+
+test "review-seam2-l01 branch move", '''
+  drop 2
+  drop 201
+  end
+  drop 100
+'''
+  # Review probe l01_branch_move.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: f accept
+  # oracle: main accept
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun f(n: Int) -> Int
+    n
+
+  s = mk(100)
+  t = mk(200)
+  c = f(1) == 1
+  !(mk(1) if c else <s).bump()
+  !(mk(2) if not c else <t).bump()
+  print("end")
+
+fail "review-seam2-l02 branch move use", "use of `s` after move"
+  # Review probe l02_branch_move_use.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: f accept
+  # oracle: main reject C1
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun f(n: Int) -> Int
+    n
+
+  s = mk(100)
+  c = f(1) == 1
+  !(mk(1) if c else <s).bump()
+  print(s.n)
+
+test "review-seam2-m01 text", '''
+  dropH ab
+  dropH cd
+  dropH e
+  app g+
+  dropH g+
+  app h+
+  dropH h+
+  app i+
+  dropH i+
+  dropH km
+  q ["q0"]
+  1
+  dropH q
+  app s0+
+  dropH s
+  app v+
+  1
+  dropH w
+'''
+  # Review probe m01_text.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: H.tv accept
+  # oracle: H.show accept
+  # oracle: H.drop accept
+  # oracle: mkh accept
+  # oracle: mkt accept
+  # oracle: f accept
+  # oracle: app accept
+  obj H
+    t: String
+    ts: List[String]
+
+    fun tv(!self) -> !String
+      !self.t
+
+    fun show(!self) -> Int
+      print(self.t, self.ts)
+      self.t.len
+
+    drop(!self)
+      print("dropH", self.t)
+
+  fun mkh(s: ?String) -> H
+    h = H(t: String(s), ts: List())
+    !h.ts.push(String(s, "0"))
+    h
+
+  fun mkt(s: ?String) -> String
+    String(s)
+
+  fun f(n: Int) -> Int
+    n
+
+  sub app(t: !String)
+    !t.add("+")
+    print("app", t)
+
+  c = f(1) == 1
+  !mkh("a").t.add("b")
+  (!mkh("c")).tv().add("d")
+  !mkh("e").ts[0].add("f")
+  app(!mkh("g").t)
+  app((!mkh("h")).tv())
+  app(!(mkh("i") if c else mkh("j")).t)
+  !(mkh("k") if c else mkh("l")).t.add("m")
+  !(mkt("n") if c else mkt("o")).add("p")
+  print((!(mkh("q") if c else mkh("r"))).show())
+  app(!mkh("s").ts[0])
+  app(![mkt("u"), mkt("v")][1])
+  print((!mkh("w")).tv().len)
+
+test "review-seam2-m02 text view fn", '''
+  3
+  3
+  abc
+  2
+  [1, 2]
+  hi [3]
+'''
+  # Review probe m02_text_view_fn.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: wt accept
+  # oracle: wv accept
+  # oracle: wh accept
+  # oracle: main accept
+  obj H
+    t: String
+    v: List[Int]
+
+  fun wt(t: !String) -> !String
+    t
+
+  fun wv(v: !List[Int]) -> !List[Int]
+    v
+
+  fun wh(h: !H) -> !H
+    h
+
+  t = String("a")
+  !wt(!t).add("b")
+  wt(!t).add("c")
+  print(wt(!t).len)
+  print(wt(!t).len)
+  print(t)
+  v: List[Int] = List()
+  !wv(!v).push(1)
+  wv(!v).push(2)
+  print(wv(!v).len)
+  print(v)
+  h = H(t: String("h"), v: List())
+  !wh(!h).t.add("i")
+  !wh(!h).v.push(3)
+  print(h.t, h.v)
+
+fail "review-seam2-n01 parse meaning", "`x` is assigned but never read; use it, or discard the value with `_ = ...`"
+  # Review probe n01_parse_meaning.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.all accept
+  # oracle: wrap accept
+  # oracle: main accept
+  obj S
+    n: Int
+
+    fun all(!self) -> !S
+      self
+
+  fun wrap(s: !S) -> !S
+    s
+
+  s = S(n: 1)
+  x = (!wrap(!s)).all().n
+  x += 10
+  print(s.n)
+
+test "review-seam2-n04 opt chain hint", '''
+  2 -1
+  2 -1
+'''
+  # Review probe n04_opt_chain_hint.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.pop accept
+  # oracle: mkopt accept
+  # oracle: mkerr accept
+  # oracle: go accept
+  # oracle: go2 accept
+  # oracle: main accept
+  error E
+    bad
+
+  obj S
+    n: Int
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    S(n: n)
+
+  fun mkerr(n: Int) -> S!
+    return E.bad if n == 0
+    S(n: n)
+
+  fun go(n: Int) -> Int?
+    (!(mkopt(n)?)).pop()
+
+  fun go2(n: Int) -> Int!
+    (!(mkerr(n)!)).pop()
+
+  print(go(1) ?? -1, go(0) ?? -1)
+  print(go2(1) catch -1, go2(0) catch -1)
+
+test "review-seam2-o01 write place leak", '''
+  2
+  drop 2
+  4
+  drop 4
+  4
+  drop 4
+  3
+  drop 3
+  8
+  drop 8
+  6
+  drop 6
+  2
+  drop 2
+'''
+  # Review probe o01_write_place_leak.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.pop accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkp accept
+  # oracle: f accept
+  # oracle: g accept
+  # oracle: main accept
+  obj P
+    k: Int
+    s: ?String
+
+  obj S
+    n: Int
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    S(n: n)
+
+  fun mkp(k: Int) -> P
+    P(k: k, s: "p")
+
+  fun f(n: Int) -> Int
+    n
+
+  fun g(s: ?String) -> Int
+    s.len
+
+  c = f(1) == 1
+  print((!mk((mkp(1) if c else mkp(2)).k)).pop())
+  print((!mk((P(k: 3, s: "x") if c else mkp(4)).k)).pop())
+  print((!mk(g((P(k: 3, s: "xyz") if c else mkp(4)).s))).pop())
+  print((!mk(g(("ab" if c else "cde")))).pop())
+  a = mkp(7)
+  print((!mk((a if c else mkp(8)).k)).pop())
+  print((!mk([1, 2][0] + ([3, 4] if c else [5, 6])[1])).pop())
+  print((!mk(f(1) if c else 9)).pop())
+
+test "review-seam2-o02 hoisted branch", '''
+  arg 1
+  arg 3
+  arg 4
+  t1!
+  44
+  drop 44 t1!
+  arg 7
+  arg 8
+  t6!
+  93
+  drop 93 t6!
+'''
+  # Review probe o02_hoisted_branch.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.pick accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: f accept
+  # oracle: main accept
+  obj S
+    n: Int
+    t: String
+
+    fun pick(!self, x: Int, y: Int) -> Int
+      self.n += x * 10 + y
+      !self.t.add("!")
+      print(self.t)
+      self.n
+
+    drop(!self)
+      print("drop", self.n, self.t)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("t", n))
+
+  fun f(n: Int) -> Int
+    print("arg", n)
+    n
+
+  c = f(1) == 1
+  print((!(mk(1) if c else mk(2))).pick(y: f(3), x: f(4)))
+  print((!(mk(5) if not c else mk(6))).pick(y: f(7), x: f(8)))
+
+test "review-seam2-p01 handles", '''
+  drop 11
+  drop 10
+  10
+  drop 10
+'''
+  # Review probe p01_handles.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.drop accept
+  # oracle: mkh accept
+  # oracle: mkb accept
+  # oracle: main accept
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mkh() -> *S
+    *S(n: 1, items: List())
+
+  fun mkb() -> ^S
+    ^S(n: 10, items: List())
+
+  !mkb().bump()
+  !mkb().items.push(3)
+  print(?mkb().n)
+
+test "review-seam2-q01 tail return", '''
+  drop 2
+  drop 3
+  drop 21
+  2 5 21
+'''
+  # Review probe q01_tail_return.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: t1 accept
+  # oracle: t2 accept
+  # oracle: t3 accept
+  # oracle: main accept
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun t1() -> Int
+    (!mk(1)).pop()
+
+  fun t2() -> Int
+    return (!mk(2)).pop() + clobber(1)
+
+  fun t3() -> Int
+    i = 0
+    r = while i < 5
+      i += 1
+      break (!mk(i * 10)).pop() if i == 2
+    else
+      0
+    r
+
+  print(t1(), t2(), t3())
+
+test "review-seam2-q02 stmt", '''
+  drop 1
+  drop 2
+  drop 3
+  3
+'''
+  # Review probe q02_stmt.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: main accept
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  !mk(1)
+  _ = !mk(2)
+  x = mk(3).n
+  print(x)
+
+fail "review-seam2-r01 repoint", "a view of the temporary `mk(5)` outlives its statement, which drops it; bind the value to a name first"
+  # Review probe r01_repoint.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  n = 1
+  w = !n
+  w = (!mk(5)).at()
+  print(clobber(9))
+  print(w)
+
+fail "review-seam2-r02 repoint slice", "a view of the temporary `mk(5)` outlives its statement, which drops it; bind the value to a name first"
+  # Review probe r02_repoint_slice.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  a = [1, 2]
+  w = !a[..]
+  w = (!mk(5)).vs()
+  print(clobber(9))
+  print(w)
+
+fail "review-seam2-r04 repoint whole", "a view of the temporary `mk(5)` outlives its statement, which drops it; bind the value to a name first"
+  # Review probe r04_repoint_whole.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.bump accept
+  # oracle: S.pop accept
+  # oracle: S.at accept
+  # oracle: S.all accept
+  # oracle: S.vs accept
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: clobber accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  t = mk(1)
+  w = !t
+  w = !mk(5)
+  print(w.n)
+
+fail "review-seam2-r2-w15 branch temp lends", "cannot move out of `(!mk(1) if c else !mk(2)).items`: it is reached through `!mk(1) if c else !mk(2)`, a view, which gives up nothing of what it views; exchange the part where it is owned, with `replace`"
+  # Review probe r2/w15_branch_temp_lends.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: mk accept
+  # oracle: mkopt accept
+  # oracle: f accept
+  # oracle: main reject C3
+  obj S
+    n: Int
+    items: List[Int]
+    o: List[Int]?
+    b: ^List[Int]
+
+    drop(!self)
+      print("drop", self.n, self.items, self.o)
+
+  fun mk(n: Int) -> S
+    v: List[Int] = List()
+    !v.push(n)
+    w: List[Int] = List()
+    !w.push(n * 10)
+    S(n: n, items: <v, o: <w, b: ^List[Int]())
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun f(n: Int) -> Int
+    n
+
+  c = f(1) == 1
+  x = <(!mk(1) if c else !mk(2)).items
+  print(x)
+
+fail "review-seam2-r2-x01 bracket named", "`s` does not live long enough"
+  # Review probe r2/x01_bracket_named.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.keep accept
+  # oracle: H.keep2 accept
+  # oracle: H.keepg accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: HH.in accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: mkhh accept
+  # oracle: mkhopt accept
+  # oracle: wrap accept
+  # oracle: f accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    sub keep(!self, r: ?String) keeps r
+      !self.rs.push(r)
+
+    sub keep2(!self, a: ?String, b: ?String) keeps a, b
+      !self.rs.push(a)
+      !self.rs.push(b)
+
+    sub keepg[T](!self, r: ?String, k: T) keeps r
+      !self.rs.push(r)
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  obj HH
+    inner: H
+    hs: List[H]
+
+    fun in(!self) -> !H
+      !self.inner
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(rs: List())
+
+  fun mkhh() -> HH
+    hh = HH(inner: H(rs: List()), hs: List())
+    !hh.hs.push(H(rs: List()))
+    hh
+
+  fun mkhopt(n: Int) -> H?
+    return none if n == 0
+    H(rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  fun f(n: Int) -> Int
+    n
+
+  h = mkh()
+  if true
+    s = mk(1)
+    !h.keepg[Int](?s.t, 1)
+  print("end")
+
+fail "review-seam2-r2-x04 kwargs hoist", "a view of the temporary `mk(2)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first"
+  # Review probe r2/x04_kwargs_hoist.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.keep accept
+  # oracle: H.keep2 accept
+  # oracle: H.keepg accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: HH.in accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: mkhh accept
+  # oracle: mkhopt accept
+  # oracle: wrap accept
+  # oracle: f accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    sub keep(!self, r: ?String) keeps r
+      !self.rs.push(r)
+
+    sub keep2(!self, a: ?String, b: ?String) keeps a, b
+      !self.rs.push(a)
+      !self.rs.push(b)
+
+    sub keepg[T](!self, r: ?String, k: T) keeps r
+      !self.rs.push(r)
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  obj HH
+    inner: H
+    hs: List[H]
+
+    fun in(!self) -> !H
+      !self.inner
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(rs: List())
+
+  fun mkhh() -> HH
+    hh = HH(inner: H(rs: List()), hs: List())
+    !hh.hs.push(H(rs: List()))
+    hh
+
+  fun mkhopt(n: Int) -> H?
+    return none if n == 0
+    H(rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  fun f(n: Int) -> Int
+    n
+
+  !mkh().keep2(b: ?mk(1).t, a: ?mk(2).t)
+  print("end")
+
+fail "review-seam2-r2-x05 branch recv", "a view of the temporary `mk(1)` is held by `mkh() if c else mkh()`, a temporary its statement drops after it; bind the value to a name first"
+  # Review probe r2/x05_branch_recv.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.keep accept
+  # oracle: H.keep2 accept
+  # oracle: H.keepg accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: HH.in accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: mkhh accept
+  # oracle: mkhopt accept
+  # oracle: wrap accept
+  # oracle: f accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    sub keep(!self, r: ?String) keeps r
+      !self.rs.push(r)
+
+    sub keep2(!self, a: ?String, b: ?String) keeps a, b
+      !self.rs.push(a)
+      !self.rs.push(b)
+
+    sub keepg[T](!self, r: ?String, k: T) keeps r
+      !self.rs.push(r)
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  obj HH
+    inner: H
+    hs: List[H]
+
+    fun in(!self) -> !H
+      !self.inner
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(rs: List())
+
+  fun mkhh() -> HH
+    hh = HH(inner: H(rs: List()), hs: List())
+    !hh.hs.push(H(rs: List()))
+    hh
+
+  fun mkhopt(n: Int) -> H?
+    return none if n == 0
+    H(rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  fun f(n: Int) -> Int
+    n
+
+  c = f(1) == 1
+  !(mkh() if c else mkh()).keep(?mk(1).t)
+  print("end")
+
+fail "review-seam2-r2-x06 branch named recv", "`s` does not live long enough"
+  # Review probe r2/x06_branch_named_recv.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.keep accept
+  # oracle: H.keep2 accept
+  # oracle: H.keepg accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: HH.in accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: mkhh accept
+  # oracle: mkhopt accept
+  # oracle: wrap accept
+  # oracle: f accept
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    sub keep(!self, r: ?String) keeps r
+      !self.rs.push(r)
+
+    sub keep2(!self, a: ?String, b: ?String) keeps a, b
+      !self.rs.push(a)
+      !self.rs.push(b)
+
+    sub keepg[T](!self, r: ?String, k: T) keeps r
+      !self.rs.push(r)
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  obj HH
+    inner: H
+    hs: List[H]
+
+    fun in(!self) -> !H
+      !self.inner
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(rs: List())
+
+  fun mkhh() -> HH
+    hh = HH(inner: H(rs: List()), hs: List())
+    !hh.hs.push(H(rs: List()))
+    hh
+
+  fun mkhopt(n: Int) -> H?
+    return none if n == 0
+    H(rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  fun f(n: Int) -> Int
+    n
+
+  c = f(1) == 1
+  h1 = mkh()
+  h2 = mkh()
+  if true
+    s = mk(1)
+    (!h1 if c else !h2).keep(?s.t)
+  print("end")
+
+fail "review-seam2-r2-x07 opt recv", "a view of the temporary `mk(1)` is held by `mkhopt(1)?`, a temporary its statement drops after it; bind the value to a name first"
+  # Review probe r2/x07_opt_recv.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.keep accept
+  # oracle: H.keep2 accept
+  # oracle: H.keepg accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: HH.in accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: mkhh accept
+  # oracle: mkhopt accept
+  # oracle: wrap accept
+  # oracle: f accept
+  # oracle: go reject C5
+  # oracle: main accept
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    sub keep(!self, r: ?String) keeps r
+      !self.rs.push(r)
+
+    sub keep2(!self, a: ?String, b: ?String) keeps a, b
+      !self.rs.push(a)
+      !self.rs.push(b)
+
+    sub keepg[T](!self, r: ?String, k: T) keeps r
+      !self.rs.push(r)
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  obj HH
+    inner: H
+    hs: List[H]
+
+    fun in(!self) -> !H
+      !self.inner
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(rs: List())
+
+  fun mkhh() -> HH
+    hh = HH(inner: H(rs: List()), hs: List())
+    !hh.hs.push(H(rs: List()))
+    hh
+
+  fun mkhopt(n: Int) -> H?
+    return none if n == 0
+    H(rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  fun f(n: Int) -> Int
+    n
+
+  fun go() -> Int?
+    !(mkhopt(1)?).keep(?mk(1).t)
+    0
+
+  print(go() ?? 1)
+
+fail "review-seam2-r2-x11 me chain", "a view of the temporary `mk(1)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first"
+  # Review probe r2/x11_me_chain.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.keep accept
+  # oracle: H.keep2 accept
+  # oracle: H.keepg accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: HH.in accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: mkhh accept
+  # oracle: mkhopt accept
+  # oracle: wrap accept
+  # oracle: f accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    sub keep(!self, r: ?String) keeps r
+      !self.rs.push(r)
+
+    sub keep2(!self, a: ?String, b: ?String) keeps a, b
+      !self.rs.push(a)
+      !self.rs.push(b)
+
+    sub keepg[T](!self, r: ?String, k: T) keeps r
+      !self.rs.push(r)
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  obj HH
+    inner: H
+    hs: List[H]
+
+    fun in(!self) -> !H
+      !self.inner
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(rs: List())
+
+  fun mkhh() -> HH
+    hh = HH(inner: H(rs: List()), hs: List())
+    !hh.hs.push(H(rs: List()))
+    hh
+
+  fun mkhopt(n: Int) -> H?
+    return none if n == 0
+    H(rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  fun f(n: Int) -> Int
+    n
+
+  (!mkh()).me().keep(?mk(1).t)
+  print("end")
+
+fail "review-seam2-r2-x12 wrap temp", "a view of the temporary `mk(1)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first"
+  # Review probe r2/x12_wrap_temp.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.keep accept
+  # oracle: H.keep2 accept
+  # oracle: H.keepg accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: HH.in accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: mkhh accept
+  # oracle: mkhopt accept
+  # oracle: wrap accept
+  # oracle: f accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    sub keep(!self, r: ?String) keeps r
+      !self.rs.push(r)
+
+    sub keep2(!self, a: ?String, b: ?String) keeps a, b
+      !self.rs.push(a)
+      !self.rs.push(b)
+
+    sub keepg[T](!self, r: ?String, k: T) keeps r
+      !self.rs.push(r)
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  obj HH
+    inner: H
+    hs: List[H]
+
+    fun in(!self) -> !H
+      !self.inner
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(rs: List())
+
+  fun mkhh() -> HH
+    hh = HH(inner: H(rs: List()), hs: List())
+    !hh.hs.push(H(rs: List()))
+    hh
+
+  fun mkhopt(n: Int) -> H?
+    return none if n == 0
+    H(rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  fun f(n: Int) -> Int
+    n
+
+  wrap(!mkh()).keep(?mk(1).t)
+  print("end")
+
+fail "review-seam2-r2-x13 named me chain", "`s` does not live long enough"
+  # Review probe r2/x13_named_me_chain.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.keep accept
+  # oracle: H.keep2 accept
+  # oracle: H.keepg accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: HH.in accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: mkhh accept
+  # oracle: mkhopt accept
+  # oracle: wrap accept
+  # oracle: f accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    sub keep(!self, r: ?String) keeps r
+      !self.rs.push(r)
+
+    sub keep2(!self, a: ?String, b: ?String) keeps a, b
+      !self.rs.push(a)
+      !self.rs.push(b)
+
+    sub keepg[T](!self, r: ?String, k: T) keeps r
+      !self.rs.push(r)
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  obj HH
+    inner: H
+    hs: List[H]
+
+    fun in(!self) -> !H
+      !self.inner
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(rs: List())
+
+  fun mkhh() -> HH
+    hh = HH(inner: H(rs: List()), hs: List())
+    !hh.hs.push(H(rs: List()))
+    hh
+
+  fun mkhopt(n: Int) -> H?
+    return none if n == 0
+    H(rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  fun f(n: Int) -> Int
+    n
+
+  h = mkh()
+  if true
+    s = mk(1)
+    (!h).me().keep(?s.t)
+  print("end")
+
+test "review-seam2-r2-x14 order safe", '''
+  dropH sees ["hello world, long enough to be on the heap 1"]
+  dropS 1
+  end
+'''
+  # Review probe r2/x14_order_safe.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.keep accept
+  # oracle: H.keep2 accept
+  # oracle: H.keepg accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: HH.in accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: mkhh accept
+  # oracle: mkhopt accept
+  # oracle: wrap accept
+  # oracle: f accept
+  # oracle: put accept
+  # oracle: main accept
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    sub keep(!self, r: ?String) keeps r
+      !self.rs.push(r)
+
+    sub keep2(!self, a: ?String, b: ?String) keeps a, b
+      !self.rs.push(a)
+      !self.rs.push(b)
+
+    sub keepg[T](!self, r: ?String, k: T) keeps r
+      !self.rs.push(r)
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  obj HH
+    inner: H
+    hs: List[H]
+
+    fun in(!self) -> !H
+      !self.inner
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(rs: List())
+
+  fun mkhh() -> HH
+    hh = HH(inner: H(rs: List()), hs: List())
+    !hh.hs.push(H(rs: List()))
+    hh
+
+  fun mkhopt(n: Int) -> H?
+    return none if n == 0
+    H(rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  fun f(n: Int) -> Int
+    n
+
+  sub put(r: ?String, h: !H) keeps r
+    !h.rs.push(r)
+
+  put(?mk(1).t, !mkh())
+  print("end")
+
+fail "review-seam2-r2-x15 named vec elem", "`s` does not live long enough"
+  # Review probe r2/x15_named_vec_elem.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.keep accept
+  # oracle: H.keep2 accept
+  # oracle: H.keepg accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: HH.in accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: mkhh accept
+  # oracle: mkhopt accept
+  # oracle: wrap accept
+  # oracle: f accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    sub keep(!self, r: ?String) keeps r
+      !self.rs.push(r)
+
+    sub keep2(!self, a: ?String, b: ?String) keeps a, b
+      !self.rs.push(a)
+      !self.rs.push(b)
+
+    sub keepg[T](!self, r: ?String, k: T) keeps r
+      !self.rs.push(r)
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  obj HH
+    inner: H
+    hs: List[H]
+
+    fun in(!self) -> !H
+      !self.inner
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(rs: List())
+
+  fun mkhh() -> HH
+    hh = HH(inner: H(rs: List()), hs: List())
+    !hh.hs.push(H(rs: List()))
+    hh
+
+  fun mkhopt(n: Int) -> H?
+    return none if n == 0
+    H(rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  fun f(n: Int) -> Int
+    n
+
+  hh = mkhh()
+  if true
+    s = mk(1)
+    !hh.hs[0].keep(?s.t)
+    w = (!hh).in()
+    !w.keep(?s.t)
+  print("end")
+
+fail "review-seam2-r2-x16 named view binding", "`s` does not live long enough"
+  # Review probe r2/x16_named_view_binding.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.keep accept
+  # oracle: H.keep2 accept
+  # oracle: H.keepg accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: HH.in accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: mkhh accept
+  # oracle: mkhopt accept
+  # oracle: wrap accept
+  # oracle: f accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    sub keep(!self, r: ?String) keeps r
+      !self.rs.push(r)
+
+    sub keep2(!self, a: ?String, b: ?String) keeps a, b
+      !self.rs.push(a)
+      !self.rs.push(b)
+
+    sub keepg[T](!self, r: ?String, k: T) keeps r
+      !self.rs.push(r)
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  obj HH
+    inner: H
+    hs: List[H]
+
+    fun in(!self) -> !H
+      !self.inner
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(rs: List())
+
+  fun mkhh() -> HH
+    hh = HH(inner: H(rs: List()), hs: List())
+    !hh.hs.push(H(rs: List()))
+    hh
+
+  fun mkhopt(n: Int) -> H?
+    return none if n == 0
+    H(rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  fun f(n: Int) -> Int
+    n
+
+  hh = mkhh()
+  if true
+    s = mk(1)
+    w = (!hh).in()
+    !w.keep(?s.t)
+  print("end")
+
+fail "review-seam2-r2-y04 generic method body", "a view of the temporary `mk(1)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first"
+  # Review probe r2/y04_generic_method_body.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.keep accept
+  # oracle: H.drop accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: go reject C5
+  # oracle: main accept
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    sub keep(!self, r: ?String) keeps r
+      !self.rs.push(r)
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap"))
+
+  fun mkh() -> H
+    H(rs: List())
+
+  sub go[T](x: T)
+    !mkh().keep(?mk(1).t)
+
+  go(1)
+  print("end")
+
+fail "review-seam2-r2-y05 generic recv named", "`s` does not live long enough"
+  # Review probe r2/y05_generic_recv_named.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.drop accept
+  # oracle: W.put accept
+  # oracle: mk accept
+  # oracle: wrapw accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  obj W[V]
+    h: H
+    xs: List[V]
+
+    sub put(!self, r: ?String, v: V) keeps r
+      !self.h.rs.push(r)
+      !self.xs.push(v)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap"))
+
+  fun wrapw[V](w: !W[V]) -> !W[V]
+    w
+
+  w = W(h: H(rs: List()), xs: List[Int]())
+  if true
+    s = mk(2)
+    wrapw(!w).put(?s.t, 1)
+  print("end")
+
+fail "review-seam2-r2-y06 generic fn recv", "a view of the temporary `mk(1)` is held by `mkw[V]()`, a temporary its statement drops after it; bind the value to a name first"
+  # Review probe r2/y06_generic_fn_recv.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.drop accept
+  # oracle: W.put accept
+  # oracle: mk accept
+  # oracle: mkw accept
+  # oracle: go reject C5
+  # oracle: main accept
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    rs: List[?String]
+
+    drop(!self)
+      print("dropH sees", self.rs)
+
+  obj W[V]
+    h: H
+    xs: List[V]
+
+    sub put(!self, r: ?String, v: V) keeps r
+      !self.h.rs.push(r)
+      !self.xs.push(v)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap"))
+
+  fun mkw[V]() -> W[V]
+    W(h: H(rs: List()), xs: List[V]())
+
+  sub go[V](v: V)
+    !mkw[V]().put(?mk(1).t, <v)
+
+  go(5)
+  print("end")
+
+test "review-seam2-r2-z01 assign through view", '''
+  dropH sees hello world, long enough to be on the heap 1 []
+  dropS 1
+  end
+'''
+  # Review probe r2/z01_assign_through_view.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: wrap accept
+  # oracle: main accept
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    r: ?String
+    rs: List[?String]
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.r, self.rs)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(r: "init", rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  wrap(!mkh()).r = ?mk(1).t
+  print("end")
+
+fail "review-seam2-r2-z02 assign through view named", "`s` does not live long enough"
+  # Review probe r2/z02_assign_through_view_named.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: wrap accept
+  # oracle: main reject C5
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    r: ?String
+    rs: List[?String]
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.r, self.rs)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(r: "init", rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  h = mkh()
+  if true
+    s = mk(2)
+    wrap(!h).r = ?s.t
+  print("end")
+
+test "review-seam2-r2-z06 elem assign", '''
+  dropH sees init []
+  end
+  dropH sees init ["a"]
+'''
+  # Review probe r2/z06_elem_assign.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: wrap accept
+  # oracle: main accept
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    r: ?String
+    rs: List[?String]
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.r, self.rs)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(r: "init", rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  h = mkh()
+  !h.rs.push("a")
+  wrap(!mkh()).rs = List()
+  print("end")
+
+test "review-seam2-r2-z07 me assign", '''
+  dropH sees hello world, long enough to be on the heap 1 []
+  dropS 1
+  end
+'''
+  # Review probe r2/z07_me_assign.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
+  # oracle: S.drop accept
+  # oracle: H.me accept
+  # oracle: H.drop accept
+  # oracle: mk accept
+  # oracle: mkh accept
+  # oracle: wrap accept
+  # oracle: main accept
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    r: ?String
+    rs: List[?String]
+
+    fun me(!self) -> !H
+      self
+
+    drop(!self)
+      print("dropH sees", self.r, self.rs)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("hello world, long enough to be on the heap ", n))
+
+  fun mkh() -> H
+    H(r: "init", rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  ((!mkh()).me()).r = ?mk(1).t
+  print("end")

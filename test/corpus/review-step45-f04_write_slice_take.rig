@@ -1,9 +1,0 @@
-# take from a write slice of optional owners
-fun grab(s: ![]String?) -> String?
-  <s[0]
-
-sub main()
-  v: List[String?] = List()
-  !v.push(String("a"))
-  t = grab(!v)
-  print(t, v)

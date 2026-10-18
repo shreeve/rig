@@ -1,9 +1,0 @@
-obj Node
-  keys: List[Int]
-  kids: List[^Node]
-
-sub main()
-  root = Node(keys: List(), kids: List())
-  !root.kids.push(^Node(keys: List(), kids: List()))
-  c = !root.kids[0]
-  !c.keys.push(1)

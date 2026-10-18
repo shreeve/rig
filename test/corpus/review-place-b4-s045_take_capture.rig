@@ -1,9 +1,0 @@
-obj P
-  o: (?String)?
-
-sub main()
-  p = P(o: "a")
-  f = |!p|
-    x = <p.o
-    print(x ?? "-")
-  f()

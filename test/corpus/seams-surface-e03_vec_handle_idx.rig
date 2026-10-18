@@ -1,7 +1,0 @@
-obj N
-  n: Int
-
-sub main()
-  v: List[*N] = List()
-  !v.push(*N(n: 1))
-  print(v[0].n)

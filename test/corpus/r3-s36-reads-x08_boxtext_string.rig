@@ -1,8 +1,0 @@
-fun first(s: ?String) -> ?String
-  s[..1]
-
-sub main()
-  b = ^String("hello")
-  print(first(?b))
-  print(b[1..3])
-  print(b == "hello")

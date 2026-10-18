@@ -1,8 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  a = [^P(x: 1), ^P(x: 2)]
-  print(a[0].x)
-  for p in ?a
-    print(p.x)

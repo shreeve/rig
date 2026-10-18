@@ -1,9 +1,0 @@
-obj Bag
-  v: List[Int]
-
-fun pick(a: ?Bag) -> ?Bag
-  a
-
-sub main()
-  b = Bag(v: List())
-  print(pick(?b).v.len)

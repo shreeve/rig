@@ -1,9 +1,0 @@
-# p73's read line without the temp: `if (?v[i..2])[1] as t`. Oracle vs production.
-sub main()
-  v: List[String?] = List()
-  !v.push(String("a"))
-  !v.push(String("b"))
-  i = 0
-  if (?v[i..2])[1] as t
-    print(t)
-  print(v)

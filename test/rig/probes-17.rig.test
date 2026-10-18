@@ -1,0 +1,2031 @@
+# Probes from past reviews and audits, 17 of 41: review-arm-temps-2-m11_name_writeview_compound to review-b4b-1-p12_wm_value_pos.
+
+fail "review-arm-temps-2-m11 name writeview compound", "cannot lend `v` to write while a write loan is live"
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0]
+  k = 0
+  w += match k
+    0
+      grow(!v)
+    _ => 3
+  print(v[0])
+
+fail "review-arm-temps-2-m12 nested set owner reassigned", "cannot reassign `v` while it is lent"
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  k = 0
+  w[0] = match k
+    0
+      v = List()
+      !v.push(9)
+      3
+    _ => 3
+  print(v[0])
+
+fail "review-arm-temps-2-m15 readview repoint overreject", "cannot lend `v` to write while a read loan is live"
+  # A read-view local re-pointed from a value whose arm grows its old referent.
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..3
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  u: List[Int] = List()
+  !u.push(8)
+  r = ?v[0..1]
+  print(r[0])
+  k = 0
+  r = match k
+    0
+      grow(!v)
+      ?u[0..1]
+    _ => ?u[0..1]
+  print(r[0], v.len)
+
+test "review-arm-temps-2-m16 writeview repoint", "9 6 4"
+  # A write-view local re-pointed from a value whose arm grows its old referent.
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..3
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  u: List[Int] = List()
+  !u.push(8)
+  r = !v[0..1]
+  r[0] = 6
+  k = 0
+  r = match k
+    0
+      grow(!v)
+      !u[0..1]
+    _ => !u[0..1]
+  r[0] = 9
+  print(u[0], v[0], v.len)
+
+fail "review-arm-temps-2-m17 defer set match", "cannot lend `v` to write while a write loan is live"
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  k = 0
+  defer w[0] = match k
+    0 => grow(!v)
+    _ => 3
+  print("x")
+
+fail "review-arm-temps-2-m18 loop set arm", "cannot lend `v` to write while a write loan is live"
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  for k in 0..2
+    w[0] = match k
+      0 => 1
+      _ => grow(!v)
+  print(v[0])
+
+fail "review-arm-temps-2-m20 set value while step", "cannot lend `v` to write while a write loan is live"
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  i = 0
+  while i < 2 : i += 1
+    w[0] = if i == 1
+      grow(!v)
+    else
+      2
+  print(v[0])
+
+fail "review-arm-temps-2-m21 name target old drop reads view", "cannot lend `v` to write while a read loan is live"
+  # The store drops the old value of `h`, whose `drop` reads what it views,
+  # after the arm grows that owner.
+  obj H
+    v: ?List[Int]
+
+    drop(!self)
+      print("drop", self.v[0])
+
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  u: List[Int] = List()
+  !u.push(8)
+  h = H(v: ?v)
+  k = 0
+  h = match k
+    0
+      grow(!v)
+      H(v: ?u)
+    _ => H(v: ?u)
+  print("end")
+
+test "review-arm-temps-2-m23 arm repoints target view", "7 3"
+  # The arm re-points the write view the target writes through; the store
+  # goes through the new view, as emit evaluates the target after the value.
+  v: List[Int] = List()
+  !v.push(7)
+  u: List[Int] = List()
+  !u.push(8)
+  w = !v[0..1]
+  k = 0
+  w[0] = match k
+    0
+      w = !u[0..1]
+      3
+    _ => 4
+  print(v[0], u[0])
+
+test "review-arm-temps-2-m24 arm local view of name target", '''
+  drop 1
+  s 2
+  drop 2
+'''
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  s = D(n: 1)
+  k = 0
+  s = match k
+    0
+      r = ?s
+      D(n: r.n + 1)
+    _ => D(n: 5)
+  print("s", s.n)
+
+fail "review-arm-temps-2-m25 outer view of name target set in arm", "cannot reassign `s` while it is lent"
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  t = D(n: 9)
+  s = D(n: 1)
+  r = ?t
+  k = 0
+  s = match k
+    0
+      r = ?s
+      D(n: 2)
+    _ => D(n: 5)
+  print(r.n)
+
+fail "review-arm-temps-2-m26 for iter view body grows", "cannot lend `v` to write while a read loan is live"
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  !v.push(8)
+  w = ?v[0..2]
+  for x in w
+    print(x, grow(!v))
+
+test "review-arm-temps-2-m27 catch block name moved", '''
+  drop 1
+  s 11
+  drop 11
+  drop 1
+  s 3
+  drop 3
+'''
+  error E
+    bad
+
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> D!
+    return E.bad if n < 0
+    D(n: n)
+
+  fun sink(d: D) -> D
+    D(n: d.n + 10)
+
+  sub run(k: Int)
+    s = D(n: 1)
+    s = mk(k) catch |_|
+      sink(<s)
+    print("s", s.n)
+
+  run(-1)
+  run(3)
+
+test "review-arm-temps-2-m28 if block name moved", '''
+  drop 1
+  s 11
+  drop 11
+  drop 1
+  s 4
+  drop 4
+'''
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun sink(d: D) -> D
+    D(n: d.n + 10)
+
+  sub run(k: Bool)
+    s = D(n: 1)
+    s = if k
+      sink(<s)
+    else
+      D(n: 4)
+    print("s", s.n)
+
+  run(true)
+  run(false)
+
+test "review-arm-temps-2-m29 target index temp lend after grow", "4 4"
+  # The target's index lends `v` (a temporary) after the value grows it: the
+  # checker walks the target after the value, as emit evaluates it.
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..3
+      !v.push(1)
+    v.len
+
+  fun at(v: ?List[Int]) -> Int
+    v.len - 1
+
+  v: List[Int] = List()
+  !v.push(7)
+  u: List[Int] = List()
+  for _ in 0..10
+    !u.push(0)
+  k = 0
+  u[at(?v)] = match k
+    0 => grow(!v)
+    _ => 3
+  print(u[3], v.len)
+
+test "review-arm-temps-2-m30 nested set target in arm", "5 201"
+  # A set nested in the value whose own target views the owner the outer
+  # value grows afterwards in the same arm.
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  u: List[Int] = List()
+  !u.push(1)
+  w = !v[0..1]
+  k = 0
+  u[0] = match k
+    0
+      w[0] = match k
+        0 => 5
+        _ => 6
+      grow(!v)
+    _ => 3
+  print(v[0], u[0])
+
+fail "review-arm-temps-2-m33 slice holder drop reads", "cannot lend `v` to write while a read loan is live"
+  # The store drops the old `h`, whose `drop` reads a slice of `v`, after the
+  # arm grows `v`.
+  obj H
+    v: []Int
+
+    drop(!self)
+      print("drop", self.v[0])
+
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  u: List[Int] = List()
+  !u.push(8)
+  h = H(v: ?v[0..1])
+  k = 0
+  h = match k
+    0
+      grow(!v)
+      H(v: ?u[0..1])
+    _ => H(v: ?u[0..1])
+  print("end")
+
+fail "review-arm-temps-2-m34 slice holder drop reads plain", "cannot lend `v` to write while a read loan is live"
+  # The same as m33 with no nested statement: the right side grows `v`, then
+  # the store drops the old `h`, whose `drop` reads a slice of `v`.
+  obj H
+    v: []Int
+
+    drop(!self)
+      print("drop", self.v[0])
+
+  fun growh(v: !List[Int], u: ?List[Int]) -> H
+    for _ in 0..200
+      !v.push(1)
+    H(v: ?u[0..1])
+
+  v: List[Int] = List()
+  !v.push(7)
+  u: List[Int] = List()
+  !u.push(8)
+  h = H(v: ?v[0..1])
+  h = growh(!v, ?u)
+  print("end")
+
+test "review-arm-temps-2-m35 owner place target grow in arm", "602 401"
+  # The target is the owner's own place, evaluated after the value: growing
+  # the owner in an arm is fine.
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  k = 0
+  v[0] = match k
+    0
+      grow(!v)
+    _ => 3
+  v[0] += if k == 0
+    grow(!v)
+  else
+    3
+  print(v[0], v.len)
+
+test "review-arm-temps-2-m36 self field target grow in arm", "201 201"
+  obj B
+    v: List[Int]
+
+    fun grow(!self) -> Int
+      for _ in 0..200
+        !self.v.push(1)
+      self.v.len
+
+    sub set(!self, k: Int)
+      self.v[0] = match k
+        0 => (!self).grow()
+        _ => 3
+
+  b = B(v: List())
+  !b.v.push(7)
+  !b.set(0)
+  print(b.v[0], b.v.len)
+
+fail "review-arm-temps-2-m37 payload binding target", "cannot lend `b` to write while a write loan is live"
+  # The target writes through a payload binding of the enclosing match; the
+  # value's arm lends the subject's owner.
+  obj D
+    v: List[Int]
+
+  enum Bx
+    has(d: D)
+    nothing
+
+  fun grow(b: !Bx) -> Int
+    b = Bx.nothing
+    0
+
+  b = Bx.has(D(v: List()))
+  k = 0
+  match !b
+    .has(d)
+      !d.v.push(1)
+      d.v[0] = match k
+        0 => grow(!b)
+        _ => 3
+    .nothing => pass
+
+test "review-arm-temps-2-m38 arm repoints then grows old", "7 201 201"
+  # The arm re-points the target's write view, then grows its old referent:
+  # the store goes through the new view.
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  u: List[Int] = List()
+  !u.push(8)
+  w = !v[0..1]
+  k = 0
+  w[0] = match k
+    0
+      w = !u[0..1]
+      grow(!v)
+    _ => 3
+  print(v[0], u[0], v.len)
+
+fail "review-arm-temps-2-m39 arm repoints to arm local", "`u` does not live long enough"
+  # The arm re-points the target's write view at a List local to the arm; the
+  # store then writes through it after the arm drops that List.
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  k = 0
+  w[0] = match k
+    0
+      u: List[Int] = List()
+      !u.push(1)
+      w = !u[0..1]
+      3
+    _ => 4
+  print(v[0])
+
+fail "review-arm-temps-2-m40 if block repoints to local", "`u` does not live long enough"
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  k = true
+  w[0] = if k
+    u: List[Int] = List()
+    !u.push(1)
+    w = !u[0..1]
+    3
+  else
+    4
+  print(v[0])
+
+fail "review-arm-temps-2-m41 name target repointed to arm local", "`u` does not live long enough"
+  # A write-view name target the value re-points at an arm-local List; the
+  # store then writes 3 through it after the arm drops that List.
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0]
+  k = 0
+  w = match k
+    0
+      u: List[Int] = List()
+      !u.push(1)
+      w = !u[0]
+      3
+    _ => 4
+  print(v[0])
+
+fail "review-arm-temps-2-m42 catch block repoints to local", "`u` does not live long enough"
+  error E
+    bad
+
+  fun fail(n: Int) -> Int!
+    return E.bad if n < 0
+    n
+
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = fail(-1) catch |_|
+    u: List[Int] = List()
+    !u.push(1)
+    w = !u[0..1]
+    3
+  print(v[0])
+
+fail "review-arm-temps-2-m43 last arm repoints to arm local", "`u` does not live long enough"
+  # m39 with the re-pointing arm last: its scope ends where the assignment
+  # ends, at the position the target's uses are recorded.
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  k = 0
+  w[0] = match k
+    1 => 4
+    _
+      u: List[Int] = List()
+      !u.push(1)
+      w = !u[0..1]
+      3
+  print(v[0])
+
+fail "review-arm-temps-2-m44 else block repoints to local", "`u` does not live long enough"
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  k = false
+  w[0] = if k
+    4
+  else
+    u: List[Int] = List()
+    !u.push(1)
+    w = !u[0..1]
+    3
+  print(v[0])
+
+fail "review-arm-temps-2-m45 last arm name target repointed", "`u` does not live long enough"
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0]
+  k = 0
+  w = match k
+    1 => 4
+    _
+      u: List[Int] = List()
+      !u.push(1)
+      w = !u[0]
+      3
+  print(v[0])
+
+fail "review-arm-temps-2-m46 last arm index target view local", "`u` does not live long enough"
+  # The target's index reads a view the last arm re-points at an arm-local List.
+  v: List[Int] = List()
+  !v.push(2)
+  t: List[Int] = List()
+  for _ in 0..5
+    !t.push(0)
+  w = ?v[0..1]
+  k = 0
+  t[w[0]] = match k
+    1 => 4
+    _
+      u: List[Int] = List()
+      !u.push(3)
+      w = ?u[0..1]
+      9
+  print(t[2], t[3])
+
+test "review-arm-temps-2-m47 name target repointed then grows old", "7 201 201"
+  # A write-view name target re-pointed inside the value, which then grows
+  # the old referent. The source stores through the new view (u[0]); the
+  # emitted `w.* = switch ...` takes `w` before the value runs.
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  u: List[Int] = List()
+  !u.push(8)
+  w = !v[0]
+  k = 0
+  w = match k
+    0
+      w = !u[0]
+      grow(!v)
+    _ => 3
+  print(v[0], u[0], v.len)
+
+test "review-arm-temps-2-m48 name target repointed no grow", "7 3"
+  # The value re-points the write-view name target; the store must go
+  # through the new view (u[0]), as for an element target (m23).
+  v: List[Int] = List()
+  !v.push(7)
+  u: List[Int] = List()
+  !u.push(8)
+  w = !v[0]
+  k = 0
+  w = match k
+    0
+      w = !u[0]
+      3
+    _ => 4
+  print(v[0], u[0])
+
+test "review-arm-temps-2-m49 rls alias struct swap", '''
+  2 1
+  4 3
+  3 4
+  4 3
+'''
+  # A store whose value reads the place it replaces: the value is computed
+  # first, then stored (Zig result-location aliasing would break this).
+  obj P
+    a: Int
+    b: Int
+
+  p = P(a: 1, b: 2)
+  p = P(a: p.b, b: p.a)
+  print(p.a, p.b)
+  v: List[P] = List()
+  !v.push(P(a: 3, b: 4))
+  v[0] = P(a: v[0].b, b: v[0].a)
+  print(v[0].a, v[0].b)
+  w = !v[0]
+  w = P(a: w.b, b: w.a)
+  print(w.a, w.b)
+  k = 0
+  w = match k
+    0
+      P(a: w.b, b: w.a)
+    _ => P(a: 0, b: 0)
+  print(v[0].a, v[0].b)
+
+test "review-arm-temps-2-m50 block last set target view of local", '''
+  3
+  5
+'''
+  # Valid: a set is the last line of a block, and its target writes through
+  # a view re-pointed at the block's local; nothing uses the view after.
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = 5
+  k = true
+  if k
+    u: List[Int] = List()
+    !u.push(1)
+    w = !u[0..1]
+    w[0] = 3
+    print(u[0])
+  print(v[0])
+
+test "review-arm-temps-2-m51 block last line set", "5"
+  # Valid: as m50 with the set as the block's very last line.
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = 5
+  k = true
+  if k
+    u: List[Int] = List()
+    !u.push(1)
+    w = !u[0..1]
+    w[0] = 3
+  print(v[0])
+
+fail "review-arm-temps-l02 binding view grow block", "cannot lend `v` to write while a write loan is live"
+  enum Sh
+    name(t: String)
+    point
+
+  fun grow(v: !List[Sh]) -> Int
+    for _ in 0..50
+      !v.push(.point)
+    v.len
+
+  v: List[Sh] = List()
+  !v.push(.name(t: String("abc")))
+  x = !v
+  match ?x[0]
+    .name(t)
+      print("block", grow(!v), t.len)
+    .point => pass
+  print(v.len)
+
+fail "review-arm-temps-l03 place subject grow", "cannot lend `v` to write while a read loan is live"
+  enum Sh
+    name(t: String)
+    point
+
+  fun grow(v: !List[Sh]) -> Int
+    for _ in 0..50
+      !v.push(.point)
+    v.len
+
+  v: List[Sh] = List()
+  !v.push(.name(t: String("abc")))
+  match v[0]
+    .name(t) => print("simple", grow(!v), t.len)
+    .point => pass
+  print(v.len)
+
+fail "review-arm-temps-l04 write view used in later stmt", "cannot lend `v` to write while a read loan is live"
+  # A write view taken before the match, used after it: a write lend in an
+  # arm must still conflict.
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..50
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  x = ?v[0..1]
+  k = 1
+  match k
+    1 => print(grow(!v))
+    _ => pass
+  print(x[0])
+
+fail "review-arm-temps-l05 view in loop earlier arm", "cannot lend `v` to write while a read loan is live"
+  # A view used in an earlier arm, in a loop: the arm of the next iteration
+  # reads it after a later arm lent to write.
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..50
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  x = ?v[0..1]
+  for i in 0..2
+    match i
+      0 => print(x[0])
+      _ => print(grow(!v))
+
+fail "review-arm-temps-l06 view in loop earlier arm rev", "cannot lend `v` to write while a read loan is live"
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..50
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  x = ?v[0..1]
+  for i in 0..2
+    match 1 - i
+      0 => print(x[0])
+      _ => print(grow(!v))
+
+fail "review-arm-temps-l07 subject viewed by guard after", "cannot lend `v` to write while a read loan is live"
+  # The subject views v; a later arm's guard reads it through x after a
+  # write lend in an earlier-tested arm? Guards run before the arm body.
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..50
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  x = ?v[0..1]
+  k = 0
+  r = match k
+    0 => grow(!v)
+    _ if x[0] > 0 => 1
+    _ => 2
+  print(r)
+
+fail "review-arm-temps-l08 while step reads view", "cannot lend `v` to write while a read loan is live"
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..50
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  x = ?v[0..1]
+  i = 0
+  while i < 2 : i += x[0]
+    match i
+      0 => print(grow(!v))
+      _ => pass
+
+fail "review-arm-temps-l11 compound target grow", "cannot lend `v` to write while a write loan is live"
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  k = 0
+  w[0] += match k
+    0 => grow(!v)
+    _ => 3
+  print(v[0], v.len)
+
+fail "review-arm-temps-l12 field target grow", "cannot lend `v` to write while a write loan is live"
+  obj S
+    n: Int
+
+  fun grow(v: !List[S]) -> Int
+    for _ in 0..200
+      !v.push(S(n: 1))
+    v.len
+
+  v: List[S] = List()
+  !v.push(S(n: 7))
+  w = !v[0]
+  k = 0
+  w.n = match k
+    0 => grow(!v)
+    _ => 3
+  print(v[0].n, v.len)
+
+fail "review-arm-temps-l13 assign target view grow block", "cannot lend `v` to write while a write loan is live"
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  k = 0
+  w[0] = match k
+    0
+      grow(!v)
+    _ => 3
+  print(v[0], v.len)
+
+fail "review-arm-temps-l14 assign target if block grow", "cannot lend `v` to write while a write loan is live"
+  # Same class with an `if` whose branch is a block: the branch's lines are
+  # statements of their own, so the target's view looks dead there.
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  k = true
+  w[0] = if k
+    grow(!v)
+  else
+    3
+  print(v[0], v.len)
+
+fail "review-arm-temps-l15 assign target ternary", "cannot lend `v` to write while a write loan is live"
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  k = true
+  w[0] = grow(!v) if k else 3
+  print(v[0], v.len)
+
+fail "review-arm-temps-l16 assign target catch block", "cannot lend `v` to write while a write loan is live"
+  error E
+    bad
+
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  fun f(n: Int) -> Int!
+    return E.bad if n < 0
+    n
+
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = f(-1) catch |_|
+    grow(!v)
+  print(v[0], v.len)
+
+fail "review-arm-temps-l17 assign target match view read", "cannot lend `v` to read while a write loan is live"
+  # The same with a read: the target is a write view, an arm reads v through
+  # a read lend (allowed only if w is dead) and the store follows.
+  fun look(v: ?List[Int]) -> Int
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  k = 0
+  w[0] = match k
+    0 => look(?v)
+    _ => 3
+  print(v[0], v.len)
+
+fail "review-arm-temps-l18 assign target match move", "cannot move `v` while a write loan is live"
+  # The arm moves the owner the target views.
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  k = 0
+  w[0] = match k
+    0 => sink(<v)
+    _ => 3
+  print("done")
+
+  fun sink(v: List[Int]) -> Int
+    v.len
+
+fail "review-arm-temps-l20 assign field of moved owner", "use of `s` after move"
+  obj S
+    n: Int
+    t: String
+
+  fun sink(s: S) -> Int
+    s.t.len
+
+  s = S(n: 1, t: String("abc"))
+  k = 0
+  s.n = match k
+    0 => sink(<s)
+    _ => 3
+  print("done")
+
+fail "review-arm-temps-l21 assign target index view", "cannot lend `v` to write while a read loan is live"
+  # The view is read in the target's index, not its base.
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(0)
+  u: List[Int] = List()
+  !u.push(5)
+  !u.push(6)
+  w = ?v[0..1]
+  k = 0
+  u[w[0]] = match k
+    0 => grow(!v)
+    _ => 3
+  print(u[0], u[1])
+
+test "review-assign-desugar-n01 return in value target views local", "3"
+  # Valid: a `return` in the value never reaches the target; the target's
+  # view of a local must not make the return's drops an error.
+  sub run(k: Int)
+    v: List[Int] = List()
+    !v.push(7)
+    w = !v[0..1]
+    w[0] = match k
+      0 => return
+      _ => 3
+    print(v[0])
+
+  run(0)
+  run(1)
+
+test "review-assign-desugar-n02 propagate in value", '''
+  4
+  9
+'''
+  # Valid: `w[0] = fail(n)!` where `w` views a local; the error path leaves.
+  error E
+    bad
+
+  fun fail(n: Int) -> Int!
+    return E.bad if n < 0
+    n
+
+  fun run(n: Int) -> Int!
+    v: List[Int] = List()
+    !v.push(7)
+    w = !v[0..1]
+    w[0] = fail(n)!
+    v[0]
+
+  print(run(4) catch |_| 0)
+  print(run(-1) catch |_| 9)
+
+test "review-assign-desugar-n03 break in value loop", "20"
+  # Valid: a `break` out of the value (and the loop around the assignment).
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  for i in 0..5
+    w[0] = match i
+      3 => break
+      _ => i * 10
+  print(v[0])
+
+test "review-assign-desugar-n06 nested index value grows outer", "201 101 201"
+  # Valid: `a[i][j] = grow(!a)`: the value grows the outer List before the
+  # target is found, so the store lands in the moved inner List.
+  fun grow(a: !List[List[Int]]) -> Int
+    for _ in 0..100
+      !a.push(List())
+    a.len
+
+  a: List[List[Int]] = List()
+  !a.push(List())
+  !a[0].push(0)
+  !a[0].push(0)
+  k = 0
+  a[0][1] = match k
+    0
+      grow(!a)
+    _ => 3
+  a[0][0] += grow(!a)
+  print(a[0][0], a[0][1], a.len)
+
+fail "review-assign-desugar-n07 name view drop referent last arm", "cannot drop `v` while it is lent"
+  # `w = match` through a write view whose last arm drops the referent.
+  sub run(k: Int)
+    v: List[Int] = List()
+    !v.push(7)
+    w = !v[0]
+    w = match k
+      1 => 4
+      _
+        <v
+        3
+
+  run(0)
+
+test "review-assign-desugar-n09 local compound value sets target", "13 105"
+  # Valid: the value assigns the target before the compound store reads it.
+  x = 1
+  k = 0
+  x += match k
+    0
+      x = 10
+      3
+    _ => 4
+  v: List[Int] = List()
+  !v.push(1)
+  v[0] += match k
+    0
+      v[0] = 20
+      3
+    _ => 4
+  w = !v[0]
+  w += match k
+    0
+      w = 100
+      5
+    _ => 4
+  print(x, v[0])
+
+fail "review-assign-desugar-n10 name view move referent first arm", "cannot move `v` while a write loan is live"
+  # `w = match` through a write view whose first arm moves the referent.
+  fun sink(v: List[Int]) -> Int
+    v.len
+
+  sub run(k: Int)
+    v: List[Int] = List()
+    !v.push(7)
+    w = !v[0]
+    w = match k
+      0 => sink(<v)
+      _ => 3
+
+  run(0)
+
+fail "review-assign-desugar-n11 view value held into struct", "cannot lend `v` to write while a read loan is live"
+  # A value that is a view, made in __v and stored into a struct local:
+  # the struct's loan on `v` lasts, so a later grow must be rejected.
+  obj H
+    r: ?Int
+
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  t: List[Int] = List()
+  !t.push(1)
+  h = H(r: ?t[0])
+  k = 0
+  h = match k
+    0
+      grow(!v)
+      H(r: ?v[0])
+    _ => H(r: ?t[0])
+  grow(!v)
+  print(h.r)
+
+test "review-assign-desugar-n12 value types", '''
+  tick 1
+  tick 2
+  tick 3
+  tick 4
+  tick 5
+  tick 6
+  tick 7
+  tick 8
+  tick 9
+  2 2.5 true true b false 2 2.0 true true
+'''
+  # Valid: name stores of many value types through `__v` (a call in the
+  # value), to a plain local and through a write view.
+  enum Color
+    red
+    green
+
+  obj P
+    a: Int
+    b: Float
+
+  fun tick(n: Int) -> Int
+    print("tick", n)
+    n
+
+  k = 0
+  i = 1
+  i = match k
+    0
+      tick(1)
+      2
+    _ => 3
+  f = 1.5
+  f = if k == 0
+    tick(2)
+    2.5
+  else
+    3.5
+  c = Color.red
+  c = match k
+    0
+      tick(3)
+      .green
+    _ => .red
+  o: Int? = 4
+  o = match k
+    0
+      tick(4)
+      none
+    _ => 5
+  s = "a"
+  s = match k
+    0
+      tick(5)
+      "b"
+    _ => "c"
+  b = true
+  b = match k
+    0 => tick(6) == 7
+    _ => true
+  p = P(a: 1, b: 1.0)
+  wp = !p
+  wp = match k
+    0
+      tick(7)
+      P(a: 2, b: 2.0)
+    _ => P(a: 0, b: 0.0)
+  vc: List[Color] = List()
+  !vc.push(Color.red)
+  wc = !vc[0]
+  wc = match k
+    0
+      tick(8)
+      .green
+    _ => .red
+  vo: List[Int?] = List()
+  !vo.push(1)
+  wo = !vo[0]
+  wo = match k
+    0
+      tick(9)
+      none
+    _ => 3
+  print(i, f, c == Color.green, o == none, s, b, p.a, p.b, vc[0] == Color.green, vo[0] == none)
+
+fail "review-assign-desugar-n13 payload binding name target", "cannot lend `b` to write while a write loan is live"
+  # A write payload binding as a name target; the value replaces the subject.
+  enum Bx
+    has(n: Int)
+    nothing
+
+  fun grow(b: !Bx) -> Int
+    b = Bx.nothing
+    0
+
+  b = Bx.has(1)
+  k = 0
+  match !b
+    .has(d)
+      d = match k
+        0 => grow(!b)
+        _ => 3
+    .nothing => pass
+
+fail "review-assign-desugar-n14 payload vec binding name target", "cannot lend `b` to write while a write loan is live"
+  # A write payload binding holding a List, as a name target: the value
+  # replaces the subject, which drops the List the store writes into.
+  enum Bx
+    has(v: List[Int])
+    nothing
+
+  fun grow(b: !Bx) -> Int
+    b = Bx.nothing
+    0
+
+  b = Bx.has(List())
+  k = 0
+  match !b
+    .has(d)
+      d = match k
+        0
+          grow(!b)
+          List()
+        _ => List()
+    .nothing => pass
+
+fail "review-assign-desugar-n15 view value then index grows", "cannot lend `v` to write while a read loan is live"
+  # The value is a view (made in __v); the target's index then grows what
+  # it views. The loan of __v must be live across the index.
+  obj H
+    r: ?Int
+
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    0
+
+  v: List[Int] = List()
+  !v.push(7)
+  t = 5
+  hs: List[H] = List()
+  !hs.push(H(r: ?t))
+  hs[grow(!v)] = H(r: ?v[0])
+  print(hs[0].r)
+
+fail "review-assign-desugar-n16 loop body local repoint", "`u` does not live long enough"
+  # The value's arm re-points the target at a loop-body local.
+  sub run(k: Int)
+    v: List[Int] = List()
+    !v.push(7)
+    w = !v[0..1]
+    w[0] = match k
+      1 => 4
+      _
+        for i in 0..2
+          u: List[Int] = List()
+          !u.push(i)
+          w = !u[0..1]
+        3
+    print(v[0])
+
+  run(0)
+
+fail "review-assign-desugar-n17 nested set inner last arm", "`u` does not live long enough"
+  # A nested assignment inside the value; the inner one's last arm
+  # re-points the OUTER target at its local.
+  sub run(k: Int)
+    v: List[Int] = List()
+    !v.push(7)
+    x = 0
+    w = !v[0..1]
+    w[0] = match k
+      1 => 4
+      _
+        x = match k
+          1 => 5
+          _
+            u: List[Int] = List()
+            !u.push(1)
+            w = !u[0..1]
+            6
+        3
+    print(v[0], x)
+
+  run(0)
+
+fail "review-assign-desugar-n18 break then target after", "`u` does not live long enough"
+  # A jump in an inner loop of the value does not leave the assignment.
+  sub run(k: Int)
+    v: List[Int] = List()
+    !v.push(7)
+    w = !v[0..1]
+    w[0] = match k
+      1 => 4
+      _
+        for _ in 0..3
+          u: List[Int] = List()
+          !u.push(1)
+          w = !u[0..1]
+          break
+        3
+    print(v[0])
+
+  run(0)
+
+test "review-assign-desugar-n19 call target value grows", "201 201"
+  # Valid: a call in the target, after a value that grows what it returns
+  # a view into.
+  fun first(v: !List[Int]) -> !Int
+    !v[0]
+
+  fun grow(v: !List[Int]) -> Int
+    for _ in 0..200
+      !v.push(1)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(7)
+  k = 0
+  first(!v) = match k
+    0 => grow(!v)
+    _ => 3
+  print(v[0], v.len)
+
+test "review-assign-desugar-n20 continue outer label", "3"
+  # Valid: continue the loop around the assignment from inside its value;
+  # on the other path the target is stored.
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  for i in 0..4
+    w[0] = if i % 2 == 0
+      continue
+    else
+      i
+  print(v[0])
+
+fail "review-assign-desugar-n21 while step target", "`u` does not live long enough"
+  # The value's last scope re-points a view the while step reads.
+  sub run(k: Int)
+    v: List[Int] = List()
+    !v.push(7)
+    w = !v[0..1]
+    n = 0
+    while n < 2 : n += w[0]
+      w[0] = match k
+        1 => 4
+        _
+          u: List[Int] = List()
+          !u.push(1)
+          w = !u[0..1]
+          3
+
+  run(0)
+
+fail "review-assign-desugar-n22 target index view repoint if", "`u` does not live long enough"
+  # The target's nested index reads a view the value's else block re-points
+  # at its own local.
+  sub run(k: Bool)
+    v: List[Int] = List()
+    !v.push(0)
+    a: List[List[Int]] = List()
+    !a.push(List())
+    !a[0].push(0)
+    r = ?v[0..1]
+    a[r[0]][r[0]] = if k
+      4
+    else
+      u: List[Int] = List()
+      !u.push(0)
+      r = ?u[0..1]
+      9
+    print(a[0][0])
+
+  run(false)
+
+test "review-assign-desugar-n23 rls if struct swap", '''
+  2 1
+  1 2
+  4 3
+  3 4
+  2 1
+  1 2
+'''
+  # Valid: pure values (no call) that read the place they replace, through
+  # an `if`, a `match`, an array literal, and a write view. Zig result-
+  # location aliasing must not show through: __v semantics.
+  obj P
+    a: Int
+    b: Int
+
+  k = 0
+  p = P(a: 1, b: 2)
+  p = P(a: p.b, b: p.a) if k == 0 else p
+  print(p.a, p.b)
+  p = match k
+    0 => P(a: p.b, b: p.a)
+    _ => p
+  print(p.a, p.b)
+  v: List[P] = List()
+  !v.push(P(a: 3, b: 4))
+  v[0] = P(a: v[0].b, b: v[0].a) if k == 0 else v[0]
+  print(v[0].a, v[0].b)
+  w = !v[0]
+  w = match k
+    0 => P(a: w.b, b: w.a)
+    _ => P(a: 0, b: 0)
+  print(v[0].a, v[0].b)
+  arr = [1, 2]
+  arr = [arr[1], arr[0]]
+  print(arr[0], arr[1])
+  wa = !arr
+  wa = [wa[1], wa[0]]
+  print(arr[0], arr[1])
+
+test "review-assign-desugar-n24 rls enum payload swap", '''
+  4 3 2 1
+  4 3 2 1
+  1 2 3 4
+'''
+  # Valid: a match on the place being assigned, whose arm builds the new
+  # value from the payload; the payload must be read before the store.
+  obj P
+    a: Int
+    b: Int
+    c: Int
+    d: Int
+
+  enum Pr
+    pair(p: P)
+    empty
+
+  e = Pr.pair(P(a: 1, b: 2, c: 3, d: 4))
+  e = match e
+    .pair(p) => Pr.pair(P(a: p.d, b: p.c, c: p.b, d: p.a))
+    .empty => Pr.empty
+  match e
+    .pair(p) => print(p.a, p.b, p.c, p.d)
+    .empty => pass
+  v: List[Pr] = List()
+  !v.push(Pr.pair(P(a: 1, b: 2, c: 3, d: 4)))
+  v[0] = match v[0]
+    .pair(p) => Pr.pair(P(a: p.d, b: p.c, c: p.b, d: p.a))
+    .empty => Pr.empty
+  match v[0]
+    .pair(p) => print(p.a, p.b, p.c, p.d)
+    .empty => pass
+  w = !v[0]
+  w = match w
+    .pair(p) => Pr.pair(P(a: p.d, b: p.c, c: p.b, d: p.a))
+    .empty => Pr.empty
+  match v[0]
+    .pair(p) => print(p.a, p.b, p.c, p.d)
+    .empty => pass
+
+test "review-assign-desugar-n25 value temp drop order", '''
+  index
+  drop 5
+  5
+  drop 6
+  index2
+  6
+'''
+  # Order: does a temporary the value makes drop before the target's
+  # index runs ({ __v = value; place = __v }), or after the store?
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> D
+    D(n: n)
+
+  fun at(i: Int, what: ?String) -> Int
+    print(what)
+    i
+
+  v: List[Int] = List()
+  !v.push(0)
+  v[at(0, "index")] = mk(5).n
+  print(v[0])
+  k = 0
+  v[at(0, "index2")] = match k
+    0 => mk(6).n
+    _ => 1
+  print(v[0])
+
+test "review-assign-desugar-n26 generic writeview repoint", '''
+  1 9 201
+  a z 201
+'''
+  # A write-view local of a generic element type, re-pointed in the value,
+  # which then grows the old referent; the store goes to y[0].
+  fun grow[T](v: !List[T], x: T) -> Int
+    for _ in 0..200
+      !v.push(x)
+    v.len
+
+  sub run[T](x: !List[T], y: !List[T], a: T, k: Int)
+    w = !x[0]
+    w = match k
+      0
+        w = !y[0]
+        grow(!x, a)
+        a
+      _ => a
+
+  x: List[Int] = List()
+  !x.push(1)
+  y: List[Int] = List()
+  !y.push(2)
+  run(!x, !y, 9, 0)
+  print(x[0], y[0], x.len)
+  xs: List[?String] = List()
+  !xs.push("a")
+  ys: List[?String] = List()
+  !ys.push("b")
+  run(!xs, !ys, "z", 0)
+  print(xs[0], ys[0], xs.len)
+
+test "review-assign-desugar-n27 owning writeview repoint", "201 0 201"
+  # A write view of an owning struct, re-pointed in the value, which then
+  # grows the old List: the old value at y[0] is dropped and replaced.
+  obj S
+    items: List[Int]
+
+  fun grow(v: !List[S]) -> Int
+    for _ in 0..200
+      !v.push(S(items: List()))
+    v.len
+
+  x: List[S] = List()
+  !x.push(S(items: List()))
+  y: List[S] = List()
+  !y.push(S(items: List()))
+  !y[0].items.push(5)
+  w = !x[0]
+  k = 0
+  w = match k
+    0
+      w = !y[0]
+      n = grow(!x)
+      t: List[Int] = List()
+      !t.push(n)
+      S(items: <t)
+    _ => S(items: List())
+  print(x.len, x[0].items.len, y[0].items[0])
+
+fail "review-assign-desugar-n28 defer block assign repoint", "`u` does not live long enough"
+  # A deferred block holding an assignment whose value's last arm
+  # re-points the target at the arm's local.
+  sub run(k: Int)
+    v: List[Int] = List()
+    !v.push(7)
+    w = !v[0..1]
+    defer
+      w[0] = match k
+        1 => 4
+        _
+          u: List[Int] = List()
+          !u.push(1)
+          w = !u[0..1]
+          3
+    print(v[0])
+
+  run(0)
+
+test "review-assign-desugar-n29 defer block assign valid", '''
+  7
+  tick 3
+  deferred 3
+'''
+  # Valid: a deferred block holding an assignment whose value has a block
+  # arm that calls; it runs at scope exit, before `v` drops.
+  fun tick(n: Int) -> Int
+    print("tick", n)
+    n
+
+  sub run(k: Int)
+    v: List[Int] = List()
+    !v.push(7)
+    w = !v[0..1]
+    defer
+      w[0] = match k
+        0
+          tick(3)
+        _ => 4
+      print("deferred", w[0])
+    print(w[0])
+
+  run(0)
+
+test "review-assign-desugar-n30 labeled break value", "12"
+  # Valid: a `break` out of a `for` inside the value, and a `break` out of
+  # the outer loop from the value's last arm.
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  for i in 0..5
+    w[0] = match i
+      4 => 0
+      _
+        n = 0
+        for j in 0..10
+          n = j
+          break if j == i
+        break if i == 3
+        n + 10
+  print(v[0])
+
+fail "review-assign-desugar-n32 repoint at owned payload", "`p` does not live long enough"
+  # The value's last arm re-points the target at an owned payload the arm
+  # binds from a made subject; the payload drops at the arm's end.
+  enum Bx
+    has(v: List[Int])
+    nothing
+
+  fun mk() -> Bx
+    v: List[Int] = List()
+    !v.push(1)
+    Bx.has(<v)
+
+  sub run(k: Int)
+    v: List[Int] = List()
+    !v.push(7)
+    w = !v[0..1]
+    w[0] = match k
+      1 => 4
+      _
+        match mk()
+          .has(p)
+            w = !p[0..1]
+            3
+          .nothing => 5
+    print(v[0])
+
+  run(0)
+
+fail "review-assign-desugar-n33 repoint at outer payload", "`p` does not live long enough"
+  # Valid: the value's last arm re-points the target at the payload of an
+  # outer value (`match !o`); the store lands there.
+  enum Bx
+    has(v: List[Int])
+    nothing
+
+  o = Bx.has(List())
+  match !o
+    .has(q) => !q.push(1)
+    .nothing => pass
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  k = 0
+  w[0] = match k
+    1 => 4
+    _
+      match !o
+        .has(p)
+          w = !p[0..1]
+          3
+        .nothing => 5
+  print(v[0])
+  match o
+    .has(p) => print(p[0])
+    .nothing => pass
+
+fail "review-assign-desugar-n34 repoint at subject payload last arm", "`p` does not live long enough"
+  # The value is a match on a made subject whose last arm re-points the
+  # target at the payload. The payload (or the subject temporary holding
+  # it) dies at the arm's end or at the statement's end.
+  enum Bx
+    nothing
+    has(v: List[Int])
+
+  fun mk() -> Bx
+    v: List[Int] = List()
+    !v.push(1)
+    Bx.has(<v)
+
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0..1]
+  w[0] = match mk()
+    .nothing => 5
+    .has(p)
+      w = !p[0..1]
+      3
+  print(v[0])
+
+test "review-assign-desugar-n37 field target owner replaced", "11 0"
+  # Valid: the value moves the target's owner and makes a new one; the
+  # field store lands in the new owner.
+  obj S
+    items: List[Int]
+    n: Int
+
+  fun sink(s: S) -> Int
+    s.items.len
+
+  s = S(items: List(), n: 1)
+  !s.items.push(4)
+  k = 0
+  s.n = match k
+    1 => 2
+    _
+      m = sink(<s)
+      s = S(items: List(), n: 0)
+      m + 10
+  print(s.n, s.items.len)
+
+test "review-assign-desugar-n38 order prints", '''
+  arm
+  i
+  j
+  value
+  i2
+  j2
+  w-arm
+  w-value
+  10
+'''
+  # Order: the value (with its arm) runs first, then the target's indexes,
+  # outermost first; identical on main and the branch.
+  fun at(i: Int, what: ?String) -> Int
+    print(what)
+    i
+
+  a: List[List[Int]] = List()
+  !a.push(List())
+  !a[0].push(0)
+  k = 0
+  a[at(0, "i")][at(0, "j")] = match k
+    0
+      at(5, "arm")
+    _ => 1
+  a[at(0, "i2")][at(0, "j2")] += at(2, "value")
+  w = !a[0][0]
+  w = match k
+    0 => at(9, "w-arm")
+    _ => 1
+  w += at(1, "w-value")
+  print(a[0][0])
+
+fail "review-assign-desugar-n39 field compound last arm repoint", "`u` does not live long enough"
+  # Field compound target; the last arm re-points the view at its local.
+  obj S
+    n: Int
+
+  v: List[S] = List()
+  !v.push(S(n: 7))
+  w = !v[0]
+  k = 0
+  w.n += match k
+    1 => 4
+    _
+      u: List[S] = List()
+      !u.push(S(n: 1))
+      w = !u[0]
+      3
+  print(v[0].n)
+
+fail "review-assign-desugar-n40 name catch block repoint", "`u` does not live long enough"
+  # Name target through a write view; the catch block re-points it at its
+  # local.
+  error E
+    bad
+
+  fun fail(n: Int) -> Int!
+    return E.bad if n < 0
+    n
+
+  v: List[Int] = List()
+  !v.push(7)
+  w = !v[0]
+  w = fail(-1) catch |_|
+    u: List[Int] = List()
+    !u.push(1)
+    w = !u[0]
+    3
+  print(v[0])
+
+fail "review-assign-desugar-n41 nested index view last arm grow", "cannot lend `a` to write while a write loan is live"
+  # `wv[0][0] = match` through a slice of a List of Vecs; the last arm
+  # grows the outer List, which the slice views.
+  fun grow(a: !List[List[Int]]) -> Int
+    for _ in 0..100
+      !a.push(List())
+    a.len
+
+  a: List[List[Int]] = List()
+  !a.push(List())
+  !a[0].push(0)
+  wv = !a[0..1]
+  k = 0
+  wv[0][0] = match k
+    1 => 4
+    _
+      grow(!a)
+  print(a[0][0])
+
+test "review-assign-desugar-n42 nested index view last arm repoint outer", "0 3"
+  # Valid: `wv[0][0] = match` whose last arm re-points the slice at another
+  # outer List of Vecs; the store lands there.
+  a: List[List[Int]] = List()
+  !a.push(List())
+  !a[0].push(0)
+  b: List[List[Int]] = List()
+  !b.push(List())
+  !b[0].push(0)
+  wv = !a[0..1]
+  k = 0
+  wv[0][0] = match k
+    1 => 4
+    _
+      wv = !b[0..1]
+      3
+  print(a[0][0], b[0][0])
+
+fail "review-assign-desugar-n43 index in index view last arm", "`t` does not live long enough"
+  # `u[w[0]][w[1]] = ` where the last arm re-points `w` at its own local.
+  v: List[Int] = List()
+  !v.push(0)
+  !v.push(0)
+  u: List[List[Int]] = List()
+  !u.push(List())
+  !u[0].push(0)
+  w = ?v[0..2]
+  k = 0
+  u[w[0]][w[1]] = match k
+    1 => 4
+    _
+      t: List[Int] = List()
+      !t.push(0)
+      !t.push(0)
+      w = ?t[0..2]
+      3
+  print(u[0][0])
+
+fail "review-b4b-1-p01 read as push in body", "cannot lend `v` to write while a read loan is live"
+  # read `if … as` over a List element through a temporary index; body
+  # grows the List and then uses the binding (dangling). Expect reject.
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("a"))
+  if v[idx(?String("a"))] as t
+    for _ in 0..64
+      !v.push(String("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"))
+    print(t)
+
+fail "review-b4b-1-p02 write as push in body", "use of `v` while a write loan is live"
+  # write `if !… as` over List element via temp index; body pushes then writes t. Expect reject.
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("a"))
+  if !v[idx(?String("a"))] as t
+    for _ in 0..64
+      !v.push(String("zz"))
+    !t.add("x")
+  print(v)
+
+fail "review-b4b-1-p03 match write push in arm", "use of `v` while a write loan is live"
+  # write match on List element through temp index; arm pushes then writes payload. Expect reject.
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[E] = List()
+  !v.push(E.a(t: String("q")))
+  match !v[idx(?String("a"))]
+    .a(t)
+      for _ in 0..64
+        !v.push(E.b(n: 5))
+      !t.add("x")
+    .b(n) => n += 1
+  print(v.len)
+
+fail "review-b4b-1-p04 match write push in arm notemp", "use of `v` while a write loan is live"
+  # 2d47a2db: write match on List element (no temp); arm pushes then writes payload. Expect reject.
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  v: List[E] = List()
+  !v.push(E.a(t: String("q")))
+  i = 0
+  match !v[i]
+    .a(t)
+      for _ in 0..64
+        !v.push(E.b(n: 5))
+      !t.add("x")
+    .b(n) => n += 1
+  print(v.len)
+
+fail "review-b4b-1-p05 match write push then int", "use of `v` while a write loan is live"
+  # write match on List element; arm pushes then writes Int payload n. Expect reject.
+  enum E
+    a(n: Int)
+    b(n: Int)
+
+  v: List[E] = List()
+  !v.push(E.a(n: 1))
+  i = 0
+  match !v[i]
+    .a(n)
+      for _ in 0..64
+        !v.push(E.b(n: 5))
+      n = 99
+    .b(n) => n += 1
+  print(v[0])
+
+test "review-b4b-1-p06 match write push no later use", ".a(n: 99) 65"
+  # write match on List element; arm writes payload then pushes (no later use). Expect accept, runs clean.
+  enum E
+    a(n: Int)
+    b(n: Int)
+
+  v: List[E] = List()
+  !v.push(E.a(n: 1))
+  i = 0
+  match !v[i]
+    .a(n)
+      n = 99
+      for _ in 0..64
+        !v.push(E.b(n: 5))
+    .b(n) => n += 1
+  print(v[0], v.len)
+
+fail "review-b4b-1-p07 read match move owner", "cannot move `v` while a read loan is live"
+  # read match through temp index, arm moves the owner then uses payload. Expect reject.
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  sub eat(v: List[E])
+    print(v.len)
+
+  v: List[E] = List()
+  !v.push(E.a(t: String("q")))
+  match v[idx(?String("a"))]
+    .a(t)
+      eat(<v)
+      print(t)
+    .b(n) => print(n)
+
+fail "review-b4b-1-p08 for elem push", "use of `m` while a write loan is live"
+  # for over element (array) of a List via temp index; body pushes. Expect reject.
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  m: List[[2]Int] = List()
+  !m.push([1, 2])
+  for x in !m[idx(?String("k"))]
+    !m.push([3, 4])
+    x *= 10
+  print(m)
+
+test "review-b4b-1-p09 while as push", "axxx 193"
+  # while-as over List element via temp index, body pushes after using t (each iteration re-evaluates). Expect accept + clean.
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("a"))
+  k = 0
+  while !v[idx(?String("a"))] as t
+    !t.add("x")
+    for _ in 0..64
+      !v.push(String("zzzzzzzzzzzzzzzzzzz"))
+    k += 1
+    break if k > 2
+  print(v[0], v.len)
+
+fail "review-b4b-1-p10 while as push use after", "use of `v` while a write loan is live"
+  # while-as over List element via temp index; push then use t. Expect reject.
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("a"))
+  k = 0
+  while !v[idx(?String("a"))] as t
+    for _ in 0..64
+      !v.push(String("zzzzzzzzzzzzzzzzzzz"))
+    !t.add("x")
+    k += 1
+    break if k > 2
+  print(v[0], v.len)
+
+test "review-b4b-1-p12 wm value pos", '''
+  2 .a(n: 2, t: "vg")
+  .a(n: 7, t: "vg")
+'''
+  # write match on List element in value position, with a guard. Expect accept, clean.
+  enum E
+    a(n: Int, t: String)
+    b
+
+  v: List[E] = List()
+  !v.push(E.a(n: 1, t: String("v")))
+  i = 0
+  k = 3
+  r = match !v[i]
+    .a(n, t) if k > 2
+      n += 1
+      !t.add("g")
+      n
+    .a(n, _) => n
+    .b => 0
+  print(r, v[0])
+  match !v[i]
+    .a(n, _) => n += 5
+    .b => pass
+  print(v[0])

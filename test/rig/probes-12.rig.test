@@ -1,0 +1,1784 @@
+# Probes from past reviews and audits, 12 of 41: r3-or-fit-f7b_parser_text to r3-s36-containers-b16_read_slice_repoint.
+
+use std.os
+use std.sort
+use std.text
+
+test "r3-or-fit-f7b parser text", "x 9"
+  obj Tok
+    kind: Int
+    start: Int
+    len: Int
+
+  obj Parser
+    src: ?String
+    toks: []Tok
+    pos: Int
+
+    fun text(?self, t: ?Tok) -> ?String
+      self.src[t.start..t.start + t.len]
+
+  src = String("let x")
+  toks = [Tok(kind: 1, start: 0, len: 3), Tok(kind: 2, start: 4, len: 1)]
+  p = Parser(src: ?src, toks: ?toks, pos: 0)
+  name = ?p.text(?toks[1])
+  p.pos = 1
+  toks[0].kind = 9
+  print(name, toks[0].kind)
+
+test "r3-or-fit-f7c parser text only", "x 9"
+  obj Tok
+    kind: Int
+    start: Int
+    len: Int
+
+  fun text(src: ?String, t: ?Tok) -> ?String
+    src[t.start..t.start + t.len]
+
+  src = String("let x")
+  toks = [Tok(kind: 1, start: 0, len: 3), Tok(kind: 2, start: 4, len: 1)]
+  name = text(?src, ?toks[1])
+  toks[0].kind = 9
+  print(name, toks[0].kind)
+
+test "r3-or-fit-f8 env static", "true"
+  t = String("HO", "ME")
+  v = os.env(?t) ?? "unset"
+  <t
+  print(v.len > 0)
+
+fail "r3-or-formal-closure ret", "cannot assign to `y.n` while `y` is lent"
+  obj Item
+    n: Int
+
+  fun call(f: ?fun(?Item) -> ?Item, k: ?Item) -> ?Item
+    f(k)
+
+  x = Item(n: 1)
+  y = Item(n: 2)
+  f = |?x, k: ?Item| x
+  r = call(?f, ?y)
+  y.n = 3
+  print(r.n, y.n)
+
+test "r3-or-formal-cursor", "1 2"
+  obj Item
+    n: Int
+
+  obj Cursor
+    items: ?List[Item]
+    i: Int
+
+    fun next(!self) -> ?Item
+      k = self.i
+      self.i += 1
+      ?self.items[k]
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  !v.push(Item(n: 2))
+  c = Cursor(items: ?v, i: 0)
+  a = (!c).next()
+  b = (!c).next()
+  print(a.n, b.n)
+
+test "r3-or-formal-cut", "v =x"
+  t = String("k=v")
+  sep = String("=")
+  if text.cut(?t, ?sep) as kv
+    !sep.add("x")
+    print(kv.after, sep)
+
+fail "r3-or-formal-deep1", "cannot lend `x` to write while a read loan is live"
+  obj Pair
+    a: ?List[Int]
+
+  fun geta(p: ?Pair) -> ?List[Int]
+    p.a
+
+  x: List[Int] = List()
+  p = Pair(a: ?x)
+  r = geta(?p)
+  !x.push(1)
+  print(r.len)
+
+test "r3-or-formal-deep2", "1 1"
+  obj Pair
+    a: ?List[Int]
+
+  fun geta(p: ?Pair) -> ?List[Int]
+    p.a
+
+  x: List[Int] = List()
+  !x.push(4)
+  p = Pair(a: ?x)
+  r = geta(?p)
+  p = Pair(a: ?x)
+  print(r.len, p.a.len)
+
+test "r3-or-formal-disjoint", "5 6"
+  obj Point
+    x: Int
+    y: Int
+
+  p = Point(x: 1, y: 2)
+  a: !Int = !p.x
+  b: !Int = !p.y
+  a = 5
+  b = 6
+  print(p.x, p.y)
+
+test "r3-or-formal-disjoint2", "3 2"
+  obj Point
+    x: Int
+    y: Int
+
+  sub add(a: !Int, b: !Int)
+    a += b
+
+  p = Point(x: 1, y: 2)
+  add(!p.x, !p.y)
+  print(p.x, p.y)
+
+fail "r3-or-formal-firstmut", "cannot assign to `y.n` while `y` is lent"
+  obj Item
+    n: Int
+
+  fun pick(a: !Item, b: !Item) -> !Item
+    b.n += 1
+    a
+
+  x = Item(n: 1)
+  y = Item(n: 2)
+  r = pick(!x, !y)
+  y.n = 7
+  r.n = 9
+  print(x.n, y.n)
+
+fail "r3-or-formal-generic", "cannot lend `y` to write while a read loan is live"
+  fun first[T](a: ?T, b: ?T) -> ?T
+    a
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  r = first(?x, ?y)
+  !y.push(1)
+  print(r.len, y.len)
+
+fail "r3-or-formal-hr store", "cannot store a view of `x` through captured `h`: `h` outlives every call of the closure, and the closure's parameters and own values last one call at most"
+  obj Item
+    n: Int
+
+  obj Holder
+    r: ?Item
+
+  sub each(v: ?[2]Item, f: ?sub(?Item))
+    f(?v[0])
+
+  g = Item(n: 1)
+  h = Holder(r: ?g)
+  f = |!h, x: ?Item| h.r = x
+  if true
+    arr = [2 of Item(n: 5)]
+    each(?arr, ?f)
+  print(h.r.n)
+
+test "r3-or-formal-lend on2", '''
+  7
+  2 7
+'''
+  obj Point
+    x: Int
+    y: Int
+
+  sub bump(v: !List[Int])
+    !v.push(1)
+
+  sub twice(v: !List[Int])
+    bump(!v)
+    bump(!v)
+
+  fun fx(p: !Point) -> !Int
+    !p.x
+
+  v: List[Int] = List()
+  twice(!v)
+  p = Point(x: 1, y: 2)
+  r: !Int = fx(!p)
+  r += 6
+  print(r)
+  print(v.len, p.x)
+
+test "r3-or-formal-lexer", "a b"
+  obj Lexer
+    src: ?String
+    pos: Int
+
+    fun next(!self) -> ?String
+      start = self.pos
+      self.pos += 1
+      self.src[start..self.pos]
+
+  t = String("abc")
+  lx = Lexer(src: ?t, pos: 0)
+  a = (!lx).next()
+  b = (!lx).next()
+  print(a, b)
+
+test "r3-or-formal-method key", "3 2"
+  obj Item
+    n: Int
+
+  obj Table
+    items: [4]Item
+
+    fun get(?self, k: ?Int) -> ?Item
+      ?self.items[k]
+
+  t = Table(items: [4 of Item(n: 3)])
+  k = 1
+  r = ?t.get(?k)
+  k = 2
+  print(r.n, k)
+
+fail "r3-or-formal-mkpair", "cannot lend `y` to write while a read loan is live"
+  obj Pair
+    a: ?List[Int]
+    b: ?List[Int]
+
+  fun mk(a: ?List[Int], b: ?List[Int]) -> Pair
+    Pair(a: a, b: b)
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  p = mk(?x, ?y)
+  print(p.b.len)
+  !y.push(1)
+  print(p.a.len)
+
+fail "r3-or-formal-owned closure", "an owned closure cannot capture a view of `x`: it can be stored anywhere, so it could outlive `x`; capture an owned value, or use a stack closure (`|...|`)"
+  obj Item
+    n: Int
+
+  x = Item(n: 4)
+  f = *|?x| x.n
+  print(f())
+
+test "r3-or-formal-prefix", "1 5"
+  obj Item
+    n: Int
+
+  obj Cursor
+    items: ?[2]Item
+    i: Int
+
+  v = [2 of Item(n: 1)]
+  c = Cursor(items: ?v, i: 0)
+  r = ?c.items[0]
+  c.i = 5
+  print(r.n, c.i)
+
+test "r3-or-formal-prefix2", "1 1"
+  obj Item
+    n: Int
+
+  obj Cursor
+    items: ?[2]Item
+    i: Int
+
+  v = [2 of Item(n: 1)]
+  c = Cursor(items: ?v, i: 0)
+  r = c.items
+  c = Cursor(items: ?v, i: 1)
+  print(r[0].n, c.i)
+
+test "r3-or-formal-produces", "5 3"
+  obj Item
+    n: Int
+
+  fun at(v: ?[4]Item, k: !Int) -> ?Item
+    k += 1
+    ?v[k - 1]
+
+  a = [4 of Item(n: 5)]
+  k = 0
+  r = at(?a, !k)
+  k = 3
+  print(r.n, k)
+
+fail "r3-or-formal-recur", "cannot assign to `y.n` while `y` is lent"
+  obj Item
+    n: Int
+
+  fun pick(a: ?Item, b: ?Item, n: Int) -> ?Item
+    if n == 0
+      return a
+    pick(a, b, n - 1)
+
+  x = Item(n: 1)
+  y = Item(n: 2)
+  r = pick(?x, ?y, 3)
+  y.n = 5
+  print(r.n, y.n)
+
+fail "r3-or-formal-selfref", "cannot store in `self.items` a view of `self.own`: a value never holds a view of itself"
+  obj Item
+    n: Int
+
+  obj S
+    own: [2]Item
+    items: ?[2]Item
+
+    sub fix(!self)
+      self.items = ?self.own
+
+  g = [2 of Item(n: 1)]
+  s = S(own: [2 of Item(n: 5)], items: ?g)
+  !s.fix()
+  print(s.items[0].n)
+
+fail "r3-or-formal-selfref2", "cannot assign to `b.own[0]` while `b` is lent"
+  obj Item
+    n: Int
+
+  obj S
+    own: [2]Item
+    items: ?[2]Item
+
+  sub fix(s: !S, t: !S) keeps t
+    s.items = ?t.own
+
+  g = [2 of Item(n: 1)]
+  a = S(own: [2 of Item(n: 5)], items: ?g)
+  b = S(own: [2 of Item(n: 6)], items: ?g)
+  fix(!a, !b)
+  b.own[0] = Item(n: 9)
+  print(a.items[0].n)
+
+fail "r3-or-formal-split", "cannot lend `sep` to write while a read loan is live"
+  line = String("a,b")
+  sep = String(",")
+  parts = text.split(?line, ?sep)
+  if (!parts).next() as first
+    !sep.add(";")
+    print(first, sep)
+
+test "r3-or-formal-store", '''
+  2
+  1 9
+'''
+  obj Item
+    n: Int
+
+  obj Holder
+    r: ?Item
+
+  sub set(h: !Holder, x: ?Item, y: ?Item) keeps x
+    h.r = x
+    print(y.n)
+
+  a = Item(n: 1)
+  b = Item(n: 2)
+  c = Item(n: 3)
+  h = Holder(r: ?c)
+  set(!h, ?a, ?b)
+  b.n = 9
+  print(h.r.n, b.n)
+
+test "r3-or-formal-strip", "bc ax"
+  t = String("abc")
+  p = String("a")
+  r = text.strip_prefix(?t, ?p)
+  !p.add("x")
+  print(r ?? "", p)
+
+fail "r3-or-generic-loopcopy", "`x` does not live long enough"
+  # A generic loop over a `?List[T]` binds a copy of each element, which
+  # the iteration holds (SPEC "Generic bodies"): `?x` lends that copy, so
+  # a view of it may not outlive the iteration (Core s6); one used within
+  # the iteration is fine.
+
+  fun lastref[T](v: ?List[T]) -> ?T
+    r = ?v[0]
+    for x in v
+      r = ?x
+    r
+
+  sub look[T](r: ?T)
+    pass
+
+  fun count[T](v: ?List[T]) -> Int
+    n = 0
+    for x in v
+      r = ?x
+      look(r)
+      n += 1
+    n
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  print(count(?v))
+
+  # oracle: lastref reject C5
+  # oracle: look accept
+  # oracle: count accept
+  # oracle: main accept
+
+test "r3-or-generic-sound", "3 2 1"
+  # A generic body is checked once, a type parameter owning and holding no
+  # view (SPEC "Generic bodies"); a copy of a `T` is each instance's
+  # question. A call of a generic function at plain data is checked by
+  # its signature.
+  #
+  # oracle: first accept
+  # oracle: Pair.left accept
+  # oracle: Pair.put accept
+  # oracle: take_both accept
+  # oracle: main accept
+
+  obj Pair[T]
+    a: T
+    b: T
+
+    fun left(?self) -> T
+      self.a
+
+    sub put(!self, x: T)
+      self.a = <x
+
+  fun first[T](v: ?List[T]) -> T
+    v[0]
+
+  fun take_both[T](x: T, y: T) -> List[T]
+    out: List[T] = List()
+    !out.push(<x)
+    !out.push(<y)
+    out
+
+  v: List[Int] = List()
+  !v.push(3)
+  p = Pair[Int](a: 1, b: 2)
+  !p.put(first(?v))
+  w = take_both(4, 5)
+  print(p.left(), w.len, v.len)
+
+fail "r3-or-generic-unsound", "cannot return a view of `w`, which this function was not lent"
+  # The unsound neighbours of r3-or-generic-sound: a generic body's views
+  # and moves follow the Core as any other body's do.
+  #
+  # oracle: local_view reject C5
+  # oracle: used_after_move reject C1
+  # oracle: grows_while_viewed reject C4
+
+  fun local_view[T](x: T) -> ?T
+    w: List[T] = List()
+    !w.push(<x)
+    ?w[0]
+
+  fun used_after_move[T](x: T) -> List[T]
+    out: List[T] = List()
+    !out.push(<x)
+    !out.push(<x)
+    out
+
+  fun look[T](r: ?T) -> Int
+    1
+
+  sub grows_while_viewed[T](v: !List[T], x: T)
+    r = ?v[0]
+    !v.push(<x)
+    print(look(r))
+
+  print(used_after_move(1).len)
+
+test "r3-or-handle-sound", '''
+  ada
+  ada
+  bob
+  cy
+  cy
+  1 1
+  2
+  gone
+  new
+'''
+  # Handles (Core s8, s9): `*<x` moves `x` into a counted box, `*S(...)`
+  # boxes a new value, `+h` adds a count, `~h` holds the box weakly, and
+  # `*h` is the way back. What a handle holds is read through it
+  # while the handle lives, and every handle carries its contents' loans.
+  #
+  # oracle: boxes accept
+  # oracle: view_of_contents accept
+  # oracle: clone_outlives accept
+  # oracle: carries_then_done accept
+  # oracle: weak_after_drop accept
+  # oracle: lends_the_handle accept
+
+  obj User
+    name: ?String
+
+  obj Holder
+    r: ?List[Int]
+
+  sub show(u: ?User)
+    print(u.name)
+
+  sub reset(h: !*User)
+    h = *User(name: "new")
+
+  sub boxes()
+    u = User(name: "ada")
+    a = *<u
+    b = +a
+    show(?a)
+    <a
+    print(b.name)
+
+  sub view_of_contents()
+    a = *User(name: "bob")
+    r = ?a.name
+    b = +a
+    <b
+    print(r)
+
+  sub clone_outlives()
+    a = *User(name: "cy")
+    b = +a
+    w = ~a
+    <a
+    if *w as h
+      print(h.name)
+    print(b.name)
+
+  sub carries_then_done()
+    v: List[Int] = List()
+    !v.push(1)
+    h = *Holder(r: ?v)
+    g = +h
+    print(g.r.len, h.r.len)
+    <h
+    <g
+    !v.push(2)
+    print(v.len)
+
+  sub weak_after_drop()
+    a = *User(name: "dee")
+    w = ~a
+    <a
+    if *w as h
+      print("still", h.name)
+    else
+      print("gone")
+
+  sub lends_the_handle()
+    a = *User(name: "old")
+    reset(!a)
+    print(a.name)
+
+  boxes()
+  view_of_contents()
+  clone_outlives()
+  carries_then_done()
+  weak_after_drop()
+  lends_the_handle()
+
+fail "r3-or-handle-unsound", "cannot drop `a` while it is lent"
+  # The unsound neighbours of r3-or-handle-sound: a view of a box's
+  # contents outliving the handle it was reached through, and a loan the
+  # contents carry outliving a change to what they view, on a clone or a
+  # weak handle (Core s8, s9).
+  #
+  # oracle: drop_while_viewed reject C4
+  # oracle: lend_then_drop reject C4
+  # oracle: clone_carries reject C4
+  # oracle: weak_carries reject C4
+  # oracle: moved_handle reject C1
+
+  obj User
+    name: String
+
+  obj Holder
+    r: ?List[Int]
+
+  sub drop_while_viewed()
+    a = *User(name: String("bob"))
+    r = ?a.name
+    <a
+    print(r)
+
+  sub lend_then_drop()
+    a = *User(name: String("eve"))
+    u = ?a
+    <a
+    print(u.name)
+
+  sub clone_carries()
+    v: List[Int] = List()
+    !v.push(1)
+    h = *Holder(r: ?v)
+    g = +h
+    <h
+    !v.push(2)
+    print(g.r.len)
+
+  sub weak_carries()
+    v: List[Int] = List()
+    !v.push(1)
+    h = *Holder(r: ?v)
+    g = +h
+    w = ~h
+    <h
+    !v.push(2)
+    if *w as k
+      print(k.r.len)
+
+  sub moved_handle()
+    a = *User(name: String("fay"))
+    b = <a
+    print(a.name, b.name)
+
+  drop_while_viewed()
+
+fail "r3-or-held-unsound", "a view of the temporary `mkh()` outlives its statement, which drops it; bind the value to a name first"
+  # The unsound neighbours of r3-or-held-sound: a view of a held part's
+  # payload kept past its arm, and a view of a held optional's value kept
+  # past the `if`, whose held value it views.
+  #
+  # oracle: payload_kept reject C5
+  # oracle: value_kept reject C5
+
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  obj H
+    e: E
+    o: Res?
+
+  fun mkh() -> H
+    H(e: E.a(r: Res(n: 1, t: String("a"))), o: Res(n: 2, t: String("b")))
+
+  sub payload_kept()
+    keep = Res(n: 0, t: String("k"))
+    saved = ?keep
+    match mkh().e
+      .a(r) => saved = ?r
+      .b => pass
+    print(saved.n)
+
+  sub value_kept()
+    keep = Res(n: 0, t: String("k"))
+    saved = ?keep
+    if mkh().o as r
+      saved = ?r
+    print(saved.n)
+
+  payload_kept()
+
+test "r3-or-impl-cursor own", "1"
+  obj Item
+    n: Int
+
+  obj Cursor
+    items: ?List[Item]
+    scratch: List[Item]
+    i: Int
+
+    fun next(!self) -> ?Item
+      k = self.i
+      self.i += 1
+      ?self.items[k]
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  !v.push(Item(n: 2))
+  c = Cursor(items: ?v, scratch: List(), i: 0)
+  a = (!c).next()
+  print(a.n)
+
+test "r3-or-impl-hdr sep temp", "v"
+  t = String("k=v")
+  if text.cut(?t, ?String("=")) as kv
+    print(kv.after)
+
+fail "r3-or-impl-kw args", "cannot lend `y` to write while a read loan is live"
+  fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
+    a
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  r = first(b: ?y, a: ?x)
+  !y.push(1)
+  print(r.len)
+
+fail "r3-or-impl-self store", "cannot store in `p.r` a view of `p.own`: a value never holds a view of itself"
+  obj P
+    own: List[Int]
+    r: ?List[Int]
+
+  v: List[Int] = List()
+  p = P(own: List(), r: ?v)
+  p.r = ?p.own
+  print(p.r.len)
+
+test "r3-or-impl-two temp stmt", "0 0"
+  fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
+    a
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  print(first(?x, ?y).len, y.len)
+
+fail "r3-or-impl-u10 temp ok", "a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first"
+  fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
+    a
+
+  fun mk() -> List[Int]
+    v: List[Int] = List()
+    !v.push(3)
+    v
+
+  x: List[Int] = List()
+  !x.push(1)
+  r = first(?x, ?mk())
+  print(r.len, r[0])
+
+fail "r3-or-impl-u1 paths", "cannot lend `y` to write while a read loan is live"
+  fun pick(a: ?List[Int], b: ?List[Int], c: Bool) -> ?List[Int]
+    if c
+      return b
+    a
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  r = pick(?x, ?y, true)
+  !y.push(1)
+  print(r.len)
+
+fail "r3-or-impl-u2 struct", "cannot lend `x` to write while a read loan is live"
+  obj Pair
+    a: ?List[Int]
+    b: ?List[Int]
+
+  fun second(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
+    h = Pair(a: a, b: b)
+    h.b
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  r = second(?x, ?y)
+  !x.push(1)
+  !y.push(1)
+  print(r.len)
+
+fail "r3-or-impl-u3b swap ok", "cannot lend `x` to write while a read loan is live"
+  fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
+    a
+
+  fun swapped(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
+    first(b, a)
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  !y.push(7)
+  r = swapped(?x, ?y)
+  !x.push(1)
+  print(r.len, r[0])
+
+fail "r3-or-impl-u4 loop", "cannot lend `y` to write while a read loan is live"
+  fun last(a: ?List[Int], b: ?List[Int], n: Int) -> ?List[Int]
+    r = a
+    i = 0
+    while i < n
+      r = b
+      i += 1
+    r
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  r = last(?x, ?y, 2)
+  !y.push(1)
+  print(r.len)
+
+fail "r3-or-impl-u5 closure", "cannot lend `y` to write while a read loan is live"
+  fun via(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
+    g = |?b, k: Int| b
+    g(1)
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  r = via(?x, ?y)
+  !y.push(1)
+  print(r.len)
+
+fail "r3-or-impl-u7 mutual", "cannot lend `y` to write while a read loan is live"
+  fun ping(a: ?List[Int], b: ?List[Int], n: Int) -> ?List[Int]
+    if n == 0
+      return a
+    pong(a, b, n - 1)
+
+  fun pong(a: ?List[Int], b: ?List[Int], n: Int) -> ?List[Int]
+    if n == 1
+      return b
+    ping(a, b, n - 1)
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  r = ping(?x, ?y, 3)
+  !y.push(1)
+  print(r.len)
+
+fail "r3-or-impl-u8 byval", "cannot lend `y` to write while a read loan is live"
+  obj Pair
+    a: ?List[Int]
+    b: ?List[Int]
+
+  fun getb(n: Int, p: Pair) -> ?List[Int]
+    p.b
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  r = getb(1, Pair(a: ?x, b: ?y))
+  !y.push(1)
+  print(r.len)
+
+fail "r3-or-impl-u9 temp", "a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first"
+  fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
+    a
+
+  fun mk() -> List[Int]
+    v: List[Int] = List()
+    !v.push(3)
+    v
+
+  y: List[Int] = List()
+  r = first(?mk(), ?y)
+  print(r.len)
+
+test "r3-or-pa-downgrade", '''
+  1
+  0
+'''
+  obj Counter
+    n: Int
+    items: List[Int]
+
+  fun bump(c: !Counter) -> ?List[Int]
+    c.n += 1
+    ?c.items
+
+  c = Counter(n: 0, items: List())
+  r = bump(!c)
+  print(c.n)
+  print(r.len)
+
+test "r3-or-pa-funval", "0"
+  fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
+    a
+
+  fun apply(f: ?fun(?List[Int], ?List[Int]) -> ?List[Int], x: ?List[Int], y: ?List[Int]) -> ?List[Int]
+    f(x, y)
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  r = apply(?first, ?x, ?y)
+  print(r.len)
+
+test "r3-or-pa-index", "1 0"
+  obj Row
+    a: Int
+    b: Int
+
+  fun pick(rows: ?[2]Row, i: ?Int) -> ?Row
+    ?rows[i]
+
+  rows = [2 of Row(a: 1, b: 2)]
+  i = 1
+  r = pick(?rows, ?i)
+  i = 0
+  print(r.a, i)
+
+test "r3-or-pa-index2", "ello 2"
+  fun pick(s: ?String, k: ?Int) -> ?String
+    s[k..]
+
+  t = String("hello")
+  k = 1
+  r = pick(?t, ?k)
+  k = 2
+  print(r, k)
+
+test "r3-or-pa-nested", "0 0"
+  obj Pair
+    a: ?List[Int]
+    b: ?List[Int]
+
+  fun left(p: ?Pair) -> ?List[Int]
+    p.a
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  p = Pair(a: ?x, b: ?y)
+  r = left(?p)
+  p = Pair(a: ?y, b: ?y)
+  print(r.len, p.a.len)
+
+test "r3-or-pa-store", "1"
+  obj Holder
+    v: ?List[Int]
+
+  sub put(h: !Holder, x: ?List[Int]) keeps x
+    h.v = x
+
+  a: List[Int] = List()
+  b: List[Int] = List()
+  !b.push(1)
+  h = Holder(v: ?a)
+  put(!h, ?b)
+  print(h.v.len)
+
+fail "r3-or-pa-store2", "cannot lend `b` to write while a read loan is live"
+  obj Holder
+    v: ?List[Int]
+
+  sub put(h: !Holder, x: ?List[Int]) keeps x
+    h.v = x
+
+  a: List[Int] = List()
+  b: List[Int] = List()
+  !b.push(1)
+  h = Holder(v: ?a)
+  put(!h, ?b)
+  !b.push(2)
+  print(h.v.len)
+
+fail "r3-or-pa-store3", "cannot lend `a` to write while a read loan is live"
+  obj Holder
+    v: ?List[Int]
+
+  sub put(h: !Holder, x: ?List[Int]) keeps x
+    h.v = x
+
+  a: List[Int] = List()
+  b: List[Int] = List()
+  !b.push(1)
+  h = Holder(v: ?a)
+  put(!h, ?b)
+  !a.push(2)
+  print(h.v.len)
+
+test "r3-or-planned-as sound", '''
+  1
+  drop 1
+  true
+  2
+  2
+  drop 2
+  5
+  3
+  drop 3
+  4 true
+  drop 5
+'''
+  # Core s1: a bare owning place an `if … as` or `while … as` binds is
+  # read where it stands, as `?p`, and the binding is a view: the place
+  # may change once the view is done. A `match` on a place reads it in
+  # place, and an optional of plain data copies.
+  #
+  # oracle: if_as accept
+  # oracle: while_as accept
+  # oracle: field_as accept
+  # oracle: match_place accept
+  # oracle: plain_copies accept
+
+  obj N
+    v: Int
+
+    drop(!self)
+      print("drop", self.v)
+
+  enum E
+    one(b: ^N)
+    nothing
+
+  sub if_as()
+    o: ^N? = ^N(v: 1)
+    if o as x
+      print(x.v)
+    o = none
+    print(o == none)
+
+  sub while_as()
+    o: ^N? = ^N(v: 2)
+    k = 0
+    while o as x
+      print(x.v)
+      k += 1
+      break if k > 1
+
+  sub field_as(h: ?Holder)
+    if h.o as x
+      print(x.v)
+
+  obj Holder
+    o: ^N?
+
+  sub match_place()
+    e = E.one(b: ^N(v: 3))
+    match e
+      .one(n) => print(n.v)
+      .nothing => pass
+    e = E.nothing
+
+  sub plain_copies()
+    n: Int? = 4
+    if n as x
+      n = none
+      print(x, n == none)
+
+  if_as()
+  while_as()
+  h = Holder(o: ^N(v: 5))
+  field_as(?h)
+  match_place()
+  plain_copies()
+
+test "r3-or-power-logger", '''
+  app step 0
+  app step 1
+  app step 2
+  3
+'''
+  # The store channel: a logger whose context holds a String field.
+  # Today `m` stays lent because `log` is assumed to keep `msg` in `ctx`.
+  # Fixed only by `into` (stores default to nothing) or inference.
+  obj Ctx
+    name: ?String
+    count: Int
+
+  sub log(ctx: !Ctx, msg: ?String)
+    ctx.count += 1
+    print(ctx.name, msg)
+
+  ctx = Ctx(name: "app", count: 0)
+  for i in 0..3
+    m = String("step ", i)
+    log(!ctx, ?m)
+  print(ctx.count)
+
+fail "r3-or-power-parser scratch", "cannot lend `p` to write while a read loan is live"
+  # Parser that views a token slice and also owns a scratch List[Tok].
+  # L0 alone keeps `p` lent after `next` (Parser can own a Tok itself,
+  # in `scratch`); `from self.toks` frees it. Rust: `-> &'a Tok` in
+  # `impl<'a> Parser<'a>` accepts the twin.
+  obj Tok
+    kind: Int
+    start: Int
+
+  obj Parser
+    toks: []Tok
+    scratch: List[Tok]
+    pos: Int
+
+    fun next(!self) -> ?Tok
+      t = ?self.toks[self.pos]
+      self.pos += 1
+      t
+
+  ts = [Tok(kind: 1, start: 0), Tok(kind: 2, start: 3)]
+  p = Parser(toks: ?ts[..], scratch: List(), pos: 0)
+  a = (!p).next()
+  b = (!p).next()
+  print(a.kind, b.kind)
+
+fail "r3-or-power-table get free", "cannot lend `q` to write while a read loan is live"
+  # Same as table_get, as a free function: isolates the read-receiver bug.
+  obj Env
+    keys: []?String
+    vals: []?String
+
+  fun get(e: ?Env, name: ?String) -> (?String)?
+    for i in 0..e.keys.len
+      if e.keys[i] == name
+        return e.vals[i]
+    none
+
+  ks = ["HOME", "PATH"]
+  vs = ["/h", "/bin"]
+  env = Env(keys: ?ks[..], vals: ?vs[..])
+  q = String("HO", "ME")
+  v = get(?env, ?q) ?? "?"
+  !q.add("X")
+  print(v, q)
+
+test "r3-or-red-c2 wcap call twice lent", '''
+  1 2
+  3 4
+  4
+'''
+  sub call(f: ?fun(Int) -> Int)
+    print(f(1), f(2))
+
+  v: List[Int] = List()
+  add = |!v, k: Int|
+    !v.push(k)
+    v.len
+  call(?add)
+  a = ?add
+  b = ?add
+  print(a(3), b(4))
+  print(v.len)
+
+fail "r3-or-red-c3 wcap ret view", "cannot return a view of `v`, which this function was not lent"
+  obj Item
+    n: Int
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  g = |!v|
+    !v.push(Item(n: 2))
+    ?v[0]
+  r = g()
+  s = g()
+  print(r.n, s.n)
+
+test "r3-or-red-c4 rcap ret view", "1"
+  obj Item
+    n: Int
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  g = |?v| ?v[0]
+  r = g()
+  print(r.n)
+
+fail "r3-or-red-d2 repoint", "`b` does not live long enough"
+  # Must stay rejected under D2 depth tokens: after `self.src = other`,
+  # a projection of `self.src` is not `ext(self, src)` alone.
+  obj Tok
+    n: Int
+
+  obj Parser
+    src: ?List[Tok]
+    scratch: List[Tok]
+
+    fun next(!self, other: ?List[Tok]) -> ?Tok keeps other
+      self.src = other
+      ?self.src[0]
+
+  a: List[Tok] = List()
+  !a.push(Tok(n: 1))
+  p = Parser(src: ?a, scratch: List())
+  t = ?a[0]
+  if true
+    b: List[Tok] = List()
+    !b.push(Tok(n: 2))
+    t = (!p).next(?b)
+  print(t.n)
+
+fail "r3-or-red-f1 fun reassign", "cannot reassign closure binding `g`; closure bindings are fixed"
+  obj Item
+    n: Int
+
+  fun call(f: ?fun(?Item, ?Item) -> ?Item, a: ?Item, b: ?Item) -> ?Item
+    f(a, b)
+
+  x = Item(n: 1)
+  y = Item(n: 2)
+  g = |a: ?Item, b: ?Item| a
+  if y.n > 1
+    g = |a: ?Item, b: ?Item| b
+  r = call(?g, ?x, ?y)
+  print(r.n)
+
+fail "r3-or-red-f2 fun lent var", "cannot assign to `y.n` while `y` is lent"
+  # Must stay rejected once `left` says `from a` and `right` says `from b`:
+  # a `?fun` local re-pointed in a branch holds the join of both.
+  obj Item
+    n: Int
+
+  fun left(a: ?Item, b: ?Item) -> ?Item
+    a
+
+  fun right(a: ?Item, b: ?Item) -> ?Item
+    b
+
+  x = Item(n: 1)
+  y = Item(n: 2)
+  h = ?left
+  if y.n > 1
+    h = ?right
+  r = h(?x, ?y)
+  y.n = 5
+  print(r.n)
+
+fail "r3-or-red-f4 fun result", "cannot assign to `y.n` while `y` is lent"
+  # Must stay rejected once `left` says `from a` and `right` says `from b`:
+  # `choose`'s result type must not take `left`'s narrower origins.
+  obj Item
+    n: Int
+
+  fun left(a: ?Item, b: ?Item) -> ?Item
+    a
+
+  fun right(a: ?Item, b: ?Item) -> ?Item
+    b
+
+  fun choose(c: Bool) -> ?fun(?Item, ?Item) -> ?Item
+    if c
+      return ?left
+    ?right
+
+  x = Item(n: 1)
+  y = Item(n: 2)
+  h = choose(y.n > 1)
+  r = h(?x, ?y)
+  y.n = 5
+  print(r.n)
+
+fail "r3-or-red-r10 main local holder", "cannot lend `b` to write while a read loan is live"
+  obj Holder
+    r: []Int
+
+  fun f(b: !List[Int]) -> Int
+    x = [9, 9]
+    h = Holder(r: ?x[..])
+    h.r = ?b[..]
+    for i in 0..100
+      !b.push(i)
+    h.r[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(f(!v))
+
+fail "r3-or-red-r11 param selfloan", "cannot store in `a.r` a view of `a.own`: a value never holds a view of itself"
+  obj Holder
+    r: []Int
+    own: List[Int]
+
+  sub f(a: !Holder)
+    a.r = ?a.own[..]
+
+  x = [9, 9]
+  h = Holder(r: ?x[..], own: List())
+  !h.own.push(1)
+  f(!h)
+  for i in 0..100
+    !h.own.push(i)
+  print(h.r[0])
+
+fail "r3-or-red-r12 param selfloan in body", "cannot store in `a.r` a view of `a.own`: a value never holds a view of itself"
+  obj Holder
+    r: []Int
+    own: List[Int]
+
+  fun f(a: !Holder) -> Int
+    !a.own.push(1)
+    a.r = ?a.own[..]
+    for i in 0..100
+      !a.own.push(i)
+    a.r[0]
+
+  x = [9, 9]
+  h = Holder(r: ?x[..], own: List())
+  print(f(!h))
+
+fail "r3-or-red-r2 store then return", "cannot assign to `y.n` while `y` is lent"
+  obj Item
+    n: Int
+
+  obj Holder
+    r: ?Item
+
+  fun f(a: !Holder, b: ?Item) -> ?Item keeps b
+    a.r = b
+    a.r
+
+  x = Item(n: 1)
+  h = Holder(r: ?x)
+  y = Item(n: 2)
+  r = f(!h, ?y)
+  y.n = 7
+  print(r.n)
+
+fail "r3-or-red-r4 local writeview", "cannot lend `v` to write while a read loan is live"
+  obj Holder
+    r: []Int
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  a = !h
+  a.r = ?v[..]
+  for i in 0..100
+    !v.push(i)
+  print(a.r[0])
+
+fail "r3-or-red-r5 param owner local", "cannot store a view of `b` in `a.r`: `a` outlives it"
+  obj Holder
+    r: []Int
+
+  fun f(a: !Holder) -> Int
+    b: List[Int] = List()
+    !b.push(1)
+    a.r = ?b[..]
+    0
+
+  x = [9, 9]
+  h = Holder(r: ?x[..])
+  print(f(!h))
+
+fail "r3-or-red-r9 store readparam", "cannot lend `c` to write while a read loan is live"
+  # TODAY: accepted, and RIG_SANITIZE=1 crashes (use of freed memory).
+  # A view of write parameter `b` (or `c`) stored into write parameter
+  # `a` does not keep `b` lent inside the callee, so `!b.push` reallocs
+  # under the stored view. Base compiler (rig-base) accepts it too.
+  obj Holder
+    r: []Int
+
+  fun f(a: !Holder, b: []Int, c: !List[Int]) -> Int keeps c
+    a.r = ?c[..]
+    t = a.r
+    for i in 0..100
+      !c.push(i)
+    t[0]
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  print(f(!h, ?x[..], !v))
+
+fail "r3-or-red-s3 closure store", "`w` does not live long enough"
+  obj Item
+    n: Int
+
+  obj Holder
+    r: ?Item
+
+  sub put(h: !Holder, y: ?Item) keeps y
+    g = |!h, ?y| h.r = y
+    g()
+
+  x = Item(n: 1)
+  h = Holder(r: ?x)
+  if true
+    w = Item(n: 2)
+    put(!h, ?w)
+  print(h.r.n)
+
+fail "r3-or-red-s4 defer store", "`w` does not live long enough"
+  obj Item
+    n: Int
+
+  obj Holder
+    r: ?Item
+
+  sub put(h: !Holder, y: ?Item) keeps y
+    defer h.r = y
+    print(1)
+
+  x = Item(n: 1)
+  h = Holder(r: ?x)
+  if true
+    w = Item(n: 2)
+    put(!h, ?w)
+  print(h.r.n)
+
+fail "r3-or-red-s5 closure store local", "cannot let this call store a view of `w` in `h`: `h` outlives it"
+  obj Item
+    n: Int
+
+  obj Holder
+    r: ?Item
+
+  sub put(h: !Holder)
+    w = Item(n: 2)
+    g = |!h, ?w| h.r = w
+    g()
+
+  x = Item(n: 1)
+  h = Holder(r: ?x)
+  put(!h)
+  print(h.r.n)
+
+fail "r3-or-red-s6 defer store local", "cannot store a view of `w` in `h.r`: `h` outlives it"
+  obj Item
+    n: Int
+
+  obj Holder
+    r: ?Item
+
+  sub put(h: !Holder)
+    w = Item(n: 2)
+    defer h.r = ?w
+    print(1)
+
+  x = Item(n: 1)
+  h = Holder(r: ?x)
+  put(!h)
+  print(h.r.n)
+
+test "r3-or-repoint-sound", '''
+  2
+  7
+  1 5
+  2 2
+'''
+  # Assigning a new write view to a `!T` local re-points it: the local
+  # then holds the new loan only, so the old place is free again (Core §6
+  # "View places"). A bare write view on the right is read as its value.
+
+  sub old_place_free()
+    m = 1
+    n = 2
+    w = !m
+    w += 1
+    w = !n
+    print(m)
+    w = 7
+    print(n)
+
+  sub moved_in()
+    m = 1
+    n = 2
+    w = !m
+    w2 = !n
+    w = <w2
+    w = 5
+    print(m, n)
+
+  sub bare_value()
+    m = 1
+    n = 2
+    w = !m
+    w3 = !n
+    w = w3
+    print(m, n)
+
+  old_place_free()
+  moved_in()
+  bare_value()
+
+
+  # oracle: old_place_free accept
+  # oracle: moved_in accept
+  # oracle: bare_value accept
+
+fail "r3-or-repoint-unsound", "use of `n` while a write loan is live"
+  # Re-pointing a `!T` local hands it the new place's loan (Core §6), and
+  # a view taken of it before keeps the old place's.
+
+  sub new_place_held()
+    m = 1
+    n = 2
+    w = !m
+    w = !n
+    print(n)
+    w = 3
+
+  sub old_view_kept()
+    m = String("m")
+    n = String("n")
+    w = !m
+    r = ?w
+    w = !n
+    !m.add("!")
+    print(r)
+
+  new_place_held()
+  old_view_kept()
+
+  # oracle: new_place_held reject C4
+  # oracle: old_view_kept reject C4
+
+test "r3-or-simp-s2 from ident", "5"
+  # `from` is an ordinary name today: the clause must be contextual.
+  obj Move
+    from: Int
+    to: Int
+
+  fun span(from: Int, to: Int) -> Int
+    to - from
+
+  m = Move(from: 2, to: 7)
+  print(span(m.from, m.to))
+
+fail "r3-or-simp-s4 static lit", "cannot drop `t` while it is lent"
+  # A result that views only literals: accepted today with any argument.
+  fun label(k: Int, name: ?String) -> ?String
+    if k > 0
+      return "pos"
+    "neg"
+
+  t = String("x")
+  s = label(1, ?t)
+  <t
+  print(s)
+
+test "r3-or-vec-owners sound", '''
+  ["ccc", "bb", "a"]
+  ["a", "bb", "ccc"] 3
+  ccc
+  2
+'''
+  # Containers of owners handed to generic code: a generic body that never
+  # copies a `T` serves a `T` that owns (SPEC "Generic bodies"), so
+  # `sort.sort_by` sorts a List of Texts, and `swap` exchanges owners
+  # (Core §5).
+
+  fun longer(a: ?String, b: ?String) -> Bool
+    a.len > b.len
+
+  fun count[T](xs: ?List[T]) -> Int
+    n = 0
+    for x in xs
+      n += 1
+    n
+
+  fun last[T](xs: !List[T]) -> T?
+    (!xs).pop()
+
+  obj Stack[T]
+    items: List[T]
+
+    sub push(!self, x: T)
+      !self.items.push(<x)
+
+    fun size(?self) -> Int
+      self.items.len
+
+  sub sorted()
+    v: List[String] = List()
+    !v.push(String("ccc"))
+    !v.push(String("a"))
+    !v.push(String("bb"))
+    sort.sort_by(!v, longer)
+    print(v)
+    !v.swap(0, 2)
+    print(v, count(?v))
+    if last(!v) as t
+      print(t)
+
+  sub stacked()
+    s: Stack[String] = Stack(items: List())
+    !s.push(String("x"))
+    !s.push(String("y"))
+    print(s.size())
+
+  sorted()
+  stacked()
+
+
+  # oracle: sorted accept
+  # oracle: stacked accept
+  # oracle: count accept
+  # oracle: last accept
+
+test "r3-origins-nll3b", "7"
+  obj Item
+    n: Int
+
+  obj Bag
+    items: [4]Item
+
+  fun get_or_add(b: !Bag) -> ?Item
+    r = ?b.items[0]
+    if r.n > 0
+      return r
+    b.items[0] = Item(n: 7)
+    ?b.items[0]
+
+  b = Bag(items: [4 of Item(n: 0)])
+  r = get_or_add(!b)
+  print(r.n)
+
+fail "r3-origins-nll3c", "cannot assign to `b.items[0]` while `b.items` is lent"
+  obj Item
+    n: Int
+
+  obj Bag
+    items: [4]Item
+
+  fun get_and_add(b: !Bag) -> ?Item
+    r = ?b.items[0]
+    b.items[0] = Item(n: 7)
+    r
+
+fail "r3-origins-pair", "cannot lend `y` to write while a read loan is live"
+  obj Pair
+    a: ?List[Int]
+    b: ?List[Int]
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  p = Pair(a: ?x, b: ?y)
+  !y.push(1)
+  print(p.a.len)
+
+fail "r3-review1-p33b vec store opt", "bare use of loop view `k` in binding would carry the viewed handle past the loop; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  obj P
+    n: Int
+
+  v: List[*P] = List()
+  !v.push(*P(n: 4))
+  saved: (?*P)? = none
+  for k in ?v
+    saved = k
+  if saved as s
+    print(s.n)
+
+test "r3-s36-containers-a01 array box", '''
+  1
+  1
+  2
+'''
+  obj P
+    x: Int
+
+  a = [^P(x: 1), ^P(x: 2)]
+  print(a[0].x)
+  for p in ?a
+    print(p.x)
+
+test "r3-s36-containers-a02 array vec", '''
+  1
+  1
+  0
+'''
+  v: List[Int] = List()
+  w: List[Int] = List()
+  !v.push(1)
+  a = [<v, <w]
+  print(a[0].len)
+  for x in ?a
+    print(x.len)
+
+test "r3-s36-containers-a04 array owner swap", '''
+  2
+  1
+'''
+  obj P
+    x: Int
+
+  a = [^P(x: 1), ^P(x: 2)]
+  !a.swap(0, 1)
+  for p in ?a
+    print(p.x)
+
+test "r3-s36-containers-a05 array drop struct", '''
+  1
+  2
+  2
+  drop 1
+  drop 2
+'''
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  a = [D(n: 1), D(n: 2)]
+  print(a[0].n)
+  r = ?a[1]
+  print(r.n)
+  !a.swap(0, 1)
+  print(a[0].n)
+
+fail "r3-s36-containers-a06 array move elem", "cannot move out of `a[0]`: elements cannot be moved out of their container"
+  v: List[Int] = List()
+  w: List[Int] = List()
+  a = [<v, <w]
+  x = <a[0]
+  print(x.len)
+
+test "r3-s36-containers-a07 array views", "3"
+  a = 1
+  b = 2
+  xs = [?a, ?b]
+  print(xs[0] + xs[1])
+
+test "r3-s36-containers-a08 array slices", "3"
+  a = [1, 2]
+  b = [3]
+  xs = [?a[..], ?b[..]]
+  print(xs[0].len + xs[1].len)
+
+test "r3-s36-containers-b01 local repoint", "5 6"
+  m = 1
+  n = 2
+  w = !m
+  w = 5
+  w = !n
+  w = 6
+  print(m, n)
+
+test "r3-s36-containers-b03 read repoint", '''
+  1
+  2
+'''
+  a = 1
+  b = 2
+  r = ?a
+  print(r)
+  r = ?b
+  print(r)
+
+test "r3-s36-containers-b04 read field repoint", '''
+  1
+  2
+'''
+  obj H
+    r: ?Int
+
+  a = 1
+  b = 2
+  h = H(r: ?a)
+  print(h.r)
+  h.r = ?b
+  print(h.r)
+
+test "r3-s36-containers-b07 param repoint", '''
+  2
+  2 2
+'''
+  sub f(w: !Int, other: !Int)
+    w = 5
+    w = other
+    print(w)
+
+  m = 1
+  n = 2
+  f(!m, !n)
+  print(m, n)
+
+test "r3-s36-containers-b10 new shadow pattern", "1"
+  x = 1
+  new x = ?x
+  print(x)
+
+test "r3-s36-containers-b15 slice local repoint", "[9, 2] [8, 4]"
+  a = [1, 2]
+  b = [3, 4]
+  s = !a
+  s[0] = 9
+  s = !b
+  s[0] = 8
+  print(a, b)
+
+test "r3-s36-containers-b16 read slice repoint", '''
+  [1, 2]
+  [3, 4]
+'''
+  a = [1, 2]
+  b = [3, 4]
+  s: []Int = ?a
+  print(s)
+  s = ?b
+  print(s)

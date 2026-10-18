@@ -1,6 +1,0 @@
-sub main()
-  a = [String("a"), String("b")]
-  keep: List[String] = List()
-  for t in <a
-    !keep.push(<t)
-  print(keep)

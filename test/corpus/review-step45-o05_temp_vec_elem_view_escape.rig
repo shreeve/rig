@@ -1,9 +1,0 @@
-# a view of an element of a temporary escapes its statement
-fun mk() -> List[String]
-  v: List[String] = List()
-  !v.push(String("a"))
-  <v
-
-sub main()
-  s = ?mk()[0]
-  print(s)

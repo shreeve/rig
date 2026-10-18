@@ -1,7 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  b = [0]
-  !b.copy(?v[..])
-  !v.push(3)
-  print(v, b)

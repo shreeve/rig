@@ -1,6 +1,0 @@
-use rig
-use std
-use os
-
-sub main()
-  print(rig.f() + std.K + os.f())

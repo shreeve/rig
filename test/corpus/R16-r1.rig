@@ -1,8 +1,0 @@
-fun mk(x: ?List[Int]) -> ?fun() -> Int
-  l = |?x| x.len
-  ?l
-
-sub main()
-  v: List[Int] = List()
-  f = mk(?v)
-  print(f())

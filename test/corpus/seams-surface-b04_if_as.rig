@@ -1,9 +1,0 @@
-obj R
-  n: Int
-  drop(!self)
-    pass
-
-sub main()
-  o: R? = R(n: 1)
-  if o as r
-    print(r.n)

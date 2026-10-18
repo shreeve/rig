@@ -1,6 +1,0 @@
-sub main()
-  a = 1
-  v: List[?Int] = List()
-  !v.insert(0, ?a)
-  a = 3
-  print(v)

@@ -1,6 +1,0 @@
-obj W
-  n: Int
-
-sub main()
-  w = W(3)
-  print(w.n)

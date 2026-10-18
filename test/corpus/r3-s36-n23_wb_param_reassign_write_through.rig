@@ -1,7 +1,0 @@
-sub set(w: !Int, k: Int)
-  w = k
-
-sub main()
-  m = 1
-  set(!m, 4)
-  print(m)

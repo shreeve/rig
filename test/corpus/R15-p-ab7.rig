@@ -1,7 +1,0 @@
-fun items(v: List[Int]) -> []Int
-  ?v[..]
-
-sub main()
-  b: List[Int] = List()
-  it = items(b)
-  print(it.len)

@@ -1,7 +1,0 @@
-enum C
-  red
-  blue
-
-sub main()
-  c: C = .red
-  print(c == .red, .blue == c)

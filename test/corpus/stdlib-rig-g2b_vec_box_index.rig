@@ -1,9 +1,0 @@
-obj N
-  k: Int
-
-sub main()
-  xs: List[^N] = List()
-  !xs.push(^N(k: 1))
-  print(xs[0].k)
-  for b in ?xs
-    print(b.k)

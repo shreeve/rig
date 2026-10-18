@@ -1,5 +1,0 @@
-K: I32 = 3
-
-sub main()
-  v: I32 = 5
-  print(7)

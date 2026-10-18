@@ -1,9 +1,0 @@
-use std.text
-
-sub main()
-  v: List[^String] = List()
-  !v.push(^String("b"))
-  !v.push(^String("a"))
-  for t in ?v
-    print(text.contains(?t, "a"))
-  print(v[0])

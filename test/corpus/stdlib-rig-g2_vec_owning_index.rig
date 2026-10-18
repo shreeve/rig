@@ -1,9 +1,0 @@
-obj N
-  v: List[Int]
-
-sub main()
-  xs: List[*N] = List()
-  !xs.push(*N(v: List()))
-  a = xs[0]
-  b = ?xs[0]
-  print(xs.len)

@@ -1,9 +1,0 @@
-obj K
-  f: sub()
-
-sub main()
-  n = 1
-  g = |!n| n += 5
-  k = K(f: g)
-  k.f()
-  print(n)

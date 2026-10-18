@@ -1,8 +1,0 @@
-# !m[0].push(?t) where m: List[List[String]]; then drop t, then use m
-sub main()
-  m: List[List[?String]] = List()
-  !m.push(List())
-  t = String("x")
-  !m[0].push(?t)
-  <t
-  print(m)

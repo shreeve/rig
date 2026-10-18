@@ -1,5 +1,0 @@
-sub main()
-  t = String("abc")
-  b = ^?t
-  !t.add("d")
-  print(b)

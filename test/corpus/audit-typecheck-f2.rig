@@ -1,5 +1,0 @@
-sub main()
-  y = F32(16777217)
-  print(y)
-  z = F32(Float.max)
-  print(z)

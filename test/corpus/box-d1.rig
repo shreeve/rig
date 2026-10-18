@@ -1,9 +1,0 @@
-obj Node
-  key: Int
-  left: ^Node?
-
-sub main()
-  root: ^Node? = ^Node(key: 1, left: none)
-  if !root as n
-    root = none
-    print(n.key)

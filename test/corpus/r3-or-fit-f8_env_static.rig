@@ -1,7 +1,0 @@
-use std.os
-
-sub main()
-  t = String("HO", "ME")
-  v = os.env(?t) ?? "unset"
-  <t
-  print(v.len > 0)

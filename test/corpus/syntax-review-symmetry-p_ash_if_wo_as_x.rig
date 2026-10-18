@@ -1,8 +1,0 @@
-obj R
-  n: Int
-
-sub main()
-  a = *R(n: 1)
-  o: *R? = +a
-  if !o as x
-    print(x.n)

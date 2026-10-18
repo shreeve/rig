@@ -1,7 +1,0 @@
-sub main()
-  c = 0
-  add = |!c|
-    c += 1
-  add()
-  print(c)
-  add()

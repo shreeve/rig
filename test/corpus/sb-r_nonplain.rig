@@ -1,5 +1,0 @@
-sub f(s: ![]List[Int])
-  print(1)
-
-sub main()
-  print(1)

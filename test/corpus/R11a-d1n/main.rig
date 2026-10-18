@@ -1,8 +1,0 @@
-use lib
-
-sub main()
-  v = List[?String]()
-  !v.push("a")
-  f = lib.first(?v)
-  !v.push("b")
-  print(f)

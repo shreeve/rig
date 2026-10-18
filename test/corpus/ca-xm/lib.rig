@@ -1,5 +1,0 @@
-pub fun peek[T](x: ?T) -> Int
-  1
-
-pub fun call(f: ?fun(Int) -> Int) -> Int
-  f(2)

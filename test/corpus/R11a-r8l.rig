@@ -1,6 +1,0 @@
-obj Tag[T]
-  n: Int
-
-sub main()
-  t = Tag[Int](n: 1)
-  print(t.n)

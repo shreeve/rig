@@ -1,7 +1,0 @@
-fun n(x: Int) -> Int
-  x
-
-sub main()
-  v: List[U8] = List()
-  !v.push(1)
-  print(v.read[U16, .little](n(0)))

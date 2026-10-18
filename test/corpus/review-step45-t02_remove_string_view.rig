@@ -1,9 +1,0 @@
-# remove a String view from List[String], drop the List, drop the source, use the view
-sub main()
-  t = String("hello")
-  w: List[?String] = List()
-  !w.push(?t)
-  s = (!w).remove(0)
-  <w
-  <t
-  print(s)

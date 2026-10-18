@@ -1,0 +1,1292 @@
+# Probes from past reviews and audits, 38 of 41: sb-cl to seams-surface-d06_read_repoint.
+
+use std.sort
+
+test "sb-cl", "[1, 0, 0]"
+  sub zap(w: ![]Int)
+    v = <w
+    f = |<v, i: Int|
+      v[i] = 0
+    f(1)
+    f(2)
+
+  a = [1, 2, 3]
+  zap(!a[..])
+  print(a)
+
+test "sb-open", '''
+  world hello hello, world 
+  [2, 3, 4] [1, 2] [1, 2, 3, 4] []
+  [20, 30] [10] [10, 20, 30]
+  [3, 4] [2] [2, 3, 4]
+  lo, world [3, 4] hell
+'''
+  s = "hello, world"
+  print(s[7..], s[..5], s[..], s[s.len..])
+  a = [1, 2, 3, 4]
+  print(a[1..], a[..2], a[..], a[4..])
+  v: List[Int] = List()
+  !v.push(10)
+  !v.push(20)
+  !v.push(30)
+  print(v[1..], v[..1], v[..])
+  t = ?a[1..]
+  print(t[1..], t[..1], t[..])
+  k = 2
+  print(s[k + 1..], a[k..], s[..k * 2])
+
+test "sb-r a2"
+  obj S
+    a: List[Int]
+    b: List[Int]
+
+  s = S(a: List(), b: List())
+  !s.a.push(1)
+  w = !s.a[..]
+  !s.b.push(2)
+  w[0] = 5
+
+fail "sb-r a3", "cannot drop `v` while it is lent"
+  v: List[Int] = List()
+  !v.push(1)
+  w = !v[..]
+  <v
+  w[0] = 5
+
+fail "sb-r a5", "use of `y` while a write loan is live"
+  fun pick(a: ![]Int, b: ![]Int, first: Bool) -> ![]Int
+    if first
+      <a
+    else
+      <b
+
+  x = [1]
+  y = [2]
+  r = pick(!x[..], !y[..], true)
+  print(y)
+  r[0] = 9
+
+fail "sb-r a6", "use of `w` while a write loan is live"
+  a = [1, 2, 3]
+  w = !a[..]
+  for x in !w
+    print(w.len)
+    x = 0
+
+test "sb-r arr3", "1"
+  v: List[Int] = List()
+  a = [<v]
+  print(a.len)
+
+fail "sb-r asfield", "cannot assign to `w[0]` while `w` is lent"
+  obj View
+    xs: []Int
+
+  a = [1, 2]
+  w = !a[..]
+  v = View(xs: w)
+  w[0] = 5
+  print(v.xs)
+
+test "sb-r av3", "[9, 2, 3]"
+  fun f(a: ![3]Int) -> ![]Int
+    !a
+
+  b = [1, 2, 3]
+  w = f(!b)
+  w[0] = 9
+  print(b)
+
+fail "sb-r av4", "cannot lend `b` to read while a write loan is live"
+  sub z(s: ![]Int, t: []Int)
+    s[0] = t[0]
+
+  b = [1, 2, 3]
+  z(!b, ?b)
+
+fail "sb-r av6", "a view of the temporary `[7]` outlives its statement, which drops it; bind the value to a name first"
+  obj B
+    xs: []Int
+    sub set(!self, s: []Int) keeps s
+      self.xs = s
+
+  a = [1]
+  b = B(xs: ?a)
+  !b.set([7])
+  print(b.xs)
+
+test "sb-r cap2", "2"
+  a = [1, 2]
+  w = !a[..]
+  f = |<w| w.len
+  print(f())
+
+fail "sb-r cl2", "an owned closure cannot capture `w`, which holds a view of `a`; capture an owned value, or use a stack closure (`|...|`)"
+  a = [1, 2, 3]
+  w = !a[..]
+  f = *|<w, i: Int|
+    w[i] = 0
+  f(1)
+
+fail "sb-r cl3", "use of `a` while a write loan is live"
+  a = [1, 2, 3]
+  w = !a[..]
+  f = |<w, i: Int|
+    w[i] = 0
+  print(a)
+  f(1)
+
+test "sb-r clone0", "1"
+  obj P
+    x: Int
+
+  p = P(x: 1)
+  r = !p
+  t = +r
+  r.x = 5
+  print(t.x)
+
+test "sb-r eqs", "true"
+  a = [1, 2]
+  b = [1, 2]
+  w = !a[..]
+  print(w == ?b[..])
+
+fail "sb-r retlocal", "cannot return a view of `a`, which this function was not lent"
+  fun f() -> ![]Int
+    a = [1, 2]
+    !a[..]
+
+  print(f().len)
+
+fail "sb-r same2", "cannot lend `w` to write while a read loan is live"
+  a = [1, 2, 3, 4]
+  w = !a[..]
+  !w[..2].copy(?w[2..])
+  print(a)
+
+fail "sb-r same4", "cannot lend `a` to write while a read loan is live"
+  a = [1, 2, 3, 4]
+  !a.copy(?a[..])
+  print(a)
+
+test "sb-r temp", "[1, 5]"
+  fun f(a: ![2]Int) -> ![]Int
+    !a[..]
+
+  a = [1, 2]
+  w = !f(!a)[1..]
+  w[0] = 5
+  print(a)
+
+test "sb-rb2", '''
+  [1, 2, 3] [4, 5, 6]
+  2
+  [9, 5, 6]
+'''
+  sub g(p: !Int, q: !Int)
+    p = q
+
+  a = [1, 2, 3]
+  b = [4, 5, 6]
+
+  print(a, b)
+  x = 1
+  y = 2
+  g(!x, !y)
+  print(x)
+  w = !a[..]
+  w = !b[..]
+  w[0] = 9
+  print(b)
+
+test "sb-rw", '''
+  239 190 173 222 18 52
+  3735928559 4660 13330
+  3.5
+  -2 4294967294
+  .big .little
+  16909060
+  1
+  [1, 0, 1, 2]
+  0
+'''
+  page: [4096]U8 = [4096 of 0]
+  !page.write[U32, .little](0, 0xdeadbeef)
+  !page.write[U16, .big](4, 0x1234)
+  print(page[0], page[1], page[2], page[3], page[4], page[5])
+  print(page.read[U32, .little](0), page.read[U16, .big](4), page.read[U16, .little](4))
+  x: F64 = 3.5
+  !page.write[F64, .big](8, x)
+  print(page.read[F64, .big](8))
+  w = !page[100..]
+  !w.write[I32, .little](0, -2)
+  print(w.read[I32, .little](0), w.read[U32, .little](0))
+  e: Endian = .big
+  print(e, Endian.little)
+  s = "\x01\x02\x03\x04"
+  print(s.read[U32, .big](0))
+  v: List[U8] = List()
+  bs: [4]U8 = [1, 0, 0, 0]
+  for b in bs
+    !v.push(b)
+  print(v.read[U32, .little](0))
+  !v.write[U16, .big](2, 258)
+  print(v)
+  print(page.read[U8](4095))
+
+test "sb-s1", '''
+  [1, 2, 3, 4] 67305985
+  [0, 16, 32, 48, 64, 80, 96, 112]
+'''
+  obj Frame
+    buf: List[U8]
+
+  sub put(f: !Frame, v: U32)
+    !f.buf.write[U32, .big](0, v)
+
+  f = Frame(buf: List())
+  for i in 0..4
+    !f.buf.push(U8(i))
+  put(!f, 0x01020304)
+  print(f.buf, f.buf.read[U32, .little](0))
+  page: [8]U8 = [8 of 0]
+  for i in 0..8
+    !page.write[U8](i, U8(i * 16))
+  print(page)
+
+test "sbv-q", '''
+  [1, 2, 3, 5, 7, 8, 9] true 4660 18 52
+  world hello 7
+  [9, 7, 7]
+'''
+  sub qsort(xs: ![]Int)
+    return if xs.len < 2
+    p = xs[xs.len - 1]
+    i = 0
+    j = 0
+    while j < xs.len - 1
+      if xs[j] < p
+        !xs.swap(i, j)
+        i += 1
+      j += 1
+    !xs.swap(i, xs.len - 1)
+    qsort(!xs[..i])
+    qsort(!xs[i + 1..])
+
+  a = [5, 3, 9, 1, 7, 2, 8]
+  qsort(!a[..])
+  page: [64]U8 = [64 of 0]
+  !page.write[U32, .little](0, 0xDEADBEEF)
+  !page.write[U16, .big](4, 0x1234)
+  print(a, page.read[U32, .little](0) == 0xDEADBEEF, page.read[U16, .big](4), page[4], page[5])
+  s = "hello world"
+  print(s[6..], s[..5], a.len)
+  b = [0, 0, 0]
+  !b[1..].fill(7)
+  !b[..1].copy([9])
+  print(b)
+
+fail "sc2-p", "`x` is assigned but never read; use it, or discard the value with `_ = ...`"
+  x = 1
+
+test "sc2-s", "0 3 0 1"
+  fun first(xs: []Int?) -> Int
+    xs[0] ?? 0
+
+  fun maybe(xs: ([]Int)?) -> Int
+    if xs as s
+      return s.len
+    0
+
+  fun count(x: !Int?) -> Int
+    1 if x != none else 0
+
+  a: [2]Int? = [none, 3]
+  b = [1, 2, 3]
+  n: Int? = 4
+  print(first(?a[0..2]), maybe(?b[0..3]), maybe(none), count(!n))
+
+test "sc2v-s", "true [[7, 7, 7], [7, 7, 7]] [0, 0] true [9, 9, 9] 1"
+  obj Node
+    n: Int
+    next: *Node?
+
+    fun total(<self) -> Int
+      self.n
+
+  enum Opt
+    some(value: Int)
+    nothing
+
+  fun zeros[n: Int]() -> [n]Int
+    [n of 0]
+
+  tail = *Node(n: 2, next: none)
+  head = Node(n: 1, next: +tail)
+  grid: [2][3]Int = [2 of [3 of 7]]
+  o: Opt = .some(5)
+  of = 9
+  xs = [3 of of]
+  print(head.next != none, grid, zeros[2](), o == .some(5), xs, <head.total())
+
+test "sc3-d", '''
+  drop 1
+  after -5
+  drop 2
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun neg(x: Int) -> Int
+    -x
+
+  a = R(n: 1)
+  b = R(n: 2)
+  <a
+  print("after", neg(5))
+
+test "sc4-m", '''
+  .circle(r: 12)
+  big 5
+  ate 7
+  drop 7
+  x 1
+  9
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Shape
+    circle(r: Int)
+    sq(s: Int)
+    held(res: R)
+
+  sub eat(r: R)
+    print("ate", r.n)
+
+  e = Shape.circle(r: 2)
+  match !e
+    .circle(r) => r += 10
+    _ => print("other")
+  print(e)
+  n = 5
+  match n
+    1, 2 => print("small")
+    x if x > 3 => print("big", x)
+    _ => print("mid")
+  h = Shape.held(res: R(n: 7))
+  match <h
+    .held(res) => eat(<res)
+    _ => print("none")
+  v: List[Int] = List()
+  !v.push(1)
+  for x in ?v
+    print("x", x)
+  w = !n
+  w = 9
+  print(n)
+
+test "sc5-t", "none 3 7 7"
+  a: [2][3]Int? = [2 of [3 of none]]
+  c = [[1, 2], [3, 4]][1][0]
+  n = 7
+  d: [2]?Int = [?n, ?n]
+  e: [2][3]?Int = [2 of [3 of ?n]]
+  print(a[1][2], c, d[0], e[1][2])
+
+test "seam3-cellstr-b", '''
+  local
+  5
+'''
+  t = String("local")
+  b = ^?t[..]
+  print(b)
+  x = 5
+  bi = ^?x
+  print(bi)
+
+test "seam3-cellstr-c", "5"
+  fun id[T](x: T) -> T
+    x
+
+  x = 5
+  r = id(?x)
+  print(r)
+
+test "seam3-cellstr-d", "5"
+  x = 5
+  o: (?Int)? = ?x
+  if o as v
+    print(v)
+
+test "seam3-cellstr-e", "5"
+  obj Hold[T]
+    v: T
+
+  x = 5
+  h = Hold(v: ?x)
+  print(h.v)
+
+test "seam3-cellstr-h", "1"
+  v: List[Int] = List()
+  !v.push(1)
+  b = ^?v
+  print(b.len)
+
+test "seam3-cellstr-i", "1"
+  v: List[Int] = List()
+  !v.push(1)
+  o: (?List[Int])? = ?v
+  if o as w
+    print(w.len)
+
+fail "seam3-holder-stack", "cannot lend `v` to write while a read loan is live"
+  obj Stack[T]
+    items: List[T]
+
+    sub push(!self, x: T)
+      !self.items.push(x)
+
+    fun top(?self) -> T?
+      if self.items.len == 0
+        none
+      else
+        self.items[self.items.len - 1]
+
+  v: List[Int] = List()
+  !v.push(1)
+  s: Stack[?List[Int]] = Stack(items: List())
+  !s.push(?v)
+  if s.top() as t
+    print(t.len)
+  !v.push(2)
+  print(s.items.len)
+
+fail "seam3-holder-text", "cannot lend `t` to write while a read loan is live"
+  t = String("abc")
+  b = ^?t
+  !t.add("d")
+  print(b)
+
+fail "seam3-review1-a01 box ret param", "cannot lend `v` to write while a read loan is live"
+  fun wrap(v: ?List[Int]) -> ^?List[Int]
+    ^v
+
+  v: List[Int] = List()
+  !v.push(1)
+  b = wrap(?v)
+  !v.push(2)
+  print(b.len)
+
+fail "seam3-review1-a02 box ret drop", "cannot drop `v` while it is lent"
+  fun wrap(v: ?List[Int]) -> ^?List[Int]
+    ^v
+
+  v: List[Int] = List()
+  !v.push(1)
+  b = wrap(?v)
+  <v
+  print(b.len)
+
+fail "seam3-review1-a03 box ret local", "cannot return a view of `v`, which this function was not lent"
+  fun wrap() -> ^?List[Int]
+    v: List[Int] = List()
+    !v.push(1)
+    ^?v
+
+  b = wrap()
+  print(b.len)
+
+fail "seam3-review1-a05 box ret two params", "cannot lend `c` to write while a read loan is live"
+  fun pick(a: ?List[Int], b: ?List[Int]) -> ^?List[Int]
+    ^b
+
+  a: List[Int] = List()
+  c: List[Int] = List()
+  !c.push(1)
+  b = pick(?a, ?c)
+  !c.push(2)
+  print(b.len)
+
+fail "seam3-review1-a08 struct field box", "cannot lend `v` to write while a read loan is live"
+  obj S
+    b: ^?List[Int]
+
+  v: List[Int] = List()
+  !v.push(1)
+  s = S(b: ^?v)
+  !v.push(2)
+  print(s.b.len)
+
+fail "seam3-review1-a09 struct field box drop", "cannot drop `v` while it is lent"
+  obj S
+    b: ^?List[Int]
+
+  v: List[Int] = List()
+  !v.push(1)
+  s = S(b: ^?v)
+  <v
+  print(s.b.len)
+
+fail "seam3-review1-a10 vec of box push later", "cannot lend `v` to write while a read loan is live"
+  v: List[Int] = List()
+  !v.push(1)
+  bs: List[^?List[Int]] = List()
+  !bs.push(^?v)
+  !v.push(2)
+  print(bs[0].len)
+
+fail "seam3-review1-c01 closure lend box", "cannot lend `v` to write while a read loan is live"
+  v: List[Int] = List()
+  !v.push(1)
+  b = ^?v
+  f = |?b| b.len
+  !v.push(2)
+  print(f())
+
+fail "seam3-review1-c02 closure move box", "cannot lend `v` to write while a read loan is live"
+  v: List[Int] = List()
+  !v.push(1)
+  b = ^?v
+  f = |<b| b.len
+  !v.push(2)
+  print(f())
+
+fail "seam3-review1-c04 owned closure box", "an owned closure cannot capture `b`, which holds a view of `v`; capture an owned value, or use a stack closure (`|...|`)"
+  v: List[Int] = List()
+  !v.push(1)
+  b = ^?v
+  f: *fun() -> Int = *|<b| b.len
+  <v
+  print(f())
+
+test "seam3-review1-c07 closure lend ok", '''
+  1
+  2
+'''
+  v: List[Int] = List()
+  !v.push(1)
+  b = ^?v
+  f = |?b| b.len
+  print(f())
+  !v.push(2)
+  print(v.len)
+
+fail "seam3-review1-d02 gen closure box", "`mk[?List[Int]]` cannot use `T = ?List[Int]`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan, and a view keeps what it views lent"
+  fun mk[T](x: T) -> *fun() -> Int
+    b = ^x
+    *|<b| 1
+
+  v: List[Int] = List()
+  f = mk(?v)
+  <v
+  print(f())
+
+fail "seam3-review1-d04 gen struct closure", "`mk[?List[Int]]` cannot use `T = ?List[Int]`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan, and a view keeps what it views lent"
+  obj Hold[T]
+    v: T
+
+  fun mk[T](x: T) -> *fun() -> Int
+    h = Hold(v: x)
+    *|<h| 1
+
+  v: List[Int] = List()
+  f = mk(?v)
+  <v
+  print(f())
+
+fail "seam3-review1-d08 gen opt closure", "`mk[?List[Int]]` cannot use `T = ?List[Int]`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan, and a view keeps what it views lent"
+  fun mk[T](x: T) -> *fun() -> Int
+    o: T? = x
+    *|<o| 1
+
+  v: List[Int] = List()
+  f = mk(?v)
+  <v
+  print(f())
+
+fail "seam3-review1-e12 gen vec cell string base", "`keep[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan, and a `?String` may view a String (a `Static` carries no loan)"
+  fun keep[T](x: T) -> *Cell[List[T]]
+    xs: List[T] = List()
+    !xs.push(x)
+    *Cell(<xs)
+
+  t = String("hello")
+  !t.add(" world, a long text that lives on the heap")
+  c = keep(?t[..])
+  <t
+  old = (!c).replace(List())
+  print(old[0])
+
+fail "seam3-review1-e13 gen vec closure string base", "`mk[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan, and a `?String` may view a String (a `Static` carries no loan)"
+  fun mk[T](x: T) -> *sub()
+    xs: List[T] = List()
+    !xs.push(x)
+    *|<xs| print(xs[0])
+
+  t = String("hello")
+  !t.add(" world, a long text that lives on the heap")
+  f = mk(?t[..])
+  <t
+  f()
+
+fail "seam3-review1-e15 gen shared closure box owner", "`mk[?^String]` cannot use `T = ?^String`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan, and a view keeps what it views lent"
+  obj Hold[T]
+    v: T
+
+  fun mk[T](x: T) -> *sub()
+    h = *Hold(v: x)
+    *|<h| print(h.v)
+
+  b = ^String("hello")
+  f = mk(?b)
+  <b
+  f()
+
+fail "seam3-review1-e16 gen weak closure", "`mk[?^String]` cannot use `T = ?^String`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan, and a view keeps what it views lent"
+  obj Hold[T]
+    v: T
+
+  fun mk[T](x: T) -> *sub()
+    h = *Hold(v: x)
+    w = ~h
+    *|<w, <h| print(h.v)
+
+  b = ^String("hello")
+  f = mk(?b)
+  <b
+  f()
+
+fail "seam3-review1-f01 ifas payload live", "cannot lend `v` to write while a read loan is live"
+  v: List[Int] = List()
+  !v.push(1)
+  o: (^?List[Int])? = ^?v
+  if o as b
+    !v.push(2)
+    print(b.len)
+
+fail "seam3-review1-f05b opt opt", "cannot drop `v` while it is lent"
+  v: List[Int] = List()
+  !v.push(1)
+  o: ((?List[Int])?)? = ?v
+  <v
+  if o as a
+    if a as b
+      print(b.len)
+
+fail "seam3-review1-f06 moved holder", "cannot lend `v` to write while a read loan is live"
+  v: List[Int] = List()
+  !v.push(1)
+  b = ^?v
+  c = <b
+  !v.push(2)
+  print(c.len)
+
+fail "seam3-review1-f07 moved into vec", "cannot drop `v` while it is lent"
+  v: List[Int] = List()
+  !v.push(1)
+  b = ^?v
+  bs: List[^?List[Int]] = List()
+  !bs.push(<b)
+  <v
+  print(bs[0].len)
+
+test "seam3-review1-g05 emit box param", "4 4"
+  obj P
+    x: Int
+
+  fun f(b: ?^?P) -> Int
+    b.x
+
+  fun g(b: ^?P) -> Int
+    b.x
+
+  p = P(x: 4)
+  b = ^?p
+  print(f(?b), g(<b))
+
+test "seam3-review1-g06 emit opt box", '''
+  4
+  3 abc
+'''
+  obj P
+    x: Int
+
+  p = P(x: 4)
+  o: (^?P)? = ^?p
+  if o as b
+    print(b.x)
+  t = String("abc")
+  ot: (^?String)? = ^?t
+  if ot as bt
+    print(bt.len, bt)
+
+test "seam3-review1-g08 emit box view eq", "true true"
+  t = String("abc")
+  u = String("abc")
+  b = ^<t
+  c = ^<u
+  print(b == c, b.len == 3)
+
+test "seam3-review1-g10 emit struct field box match", '''
+  s 2
+  1 q
+'''
+  enum Shape
+    circle(r: Int)
+    sq(s: Int)
+
+  obj W
+    b: ^?Shape
+
+  s = Shape.sq(s: 2)
+  w = W(b: ^?s)
+  match w.b
+    .circle(r)
+      print("c", r)
+    .sq(x)
+      print("s", x)
+  t = String("q")
+  ws: List[^?String] = List()
+  !ws.push(^?t)
+  print(ws[0].len, ws[0])
+
+fail "seam3-review1-i01 loop elem box", "cannot lend `vs` to write while a read loan is live"
+  vs: List[List[Int]] = List()
+  !vs.push(List())
+  bs: List[^?List[Int]] = List()
+  for x in vs
+    !bs.push(^?x)
+  !vs.push(List())
+  print(bs[0].len)
+
+fail "seam3-review1-i02 field box", "cannot lend `s.items` to write while a read loan is live"
+  obj S
+    items: List[Int]
+
+  s = S(items: List())
+  !s.items.push(1)
+  b = ^?s.items
+  !s.items.push(2)
+  print(b.len)
+
+fail "seam3-review1-i03 slice box", "cannot lend `v` to write while a read loan is live"
+  v: List[Int] = List()
+  !v.push(1)
+  b = ^?v[..]
+  !v.push(2)
+  print(b.len)
+
+fail "seam3-review1-i05 box reassign", "cannot drop `v` while it is lent"
+  v: List[Int] = List()
+  w: List[Int] = List()
+  !v.push(1)
+  new b = ^?w
+  b = ^?v
+  <v
+  print(b.len)
+
+fail "seam3-review1-i07 cond holder", "cannot drop `v` while it is lent"
+  v: List[Int] = List()
+  w: List[Int] = List()
+  !v.push(1)
+  b = ^?v if v.len > 0 else ^?w
+  <v
+  print(b.len)
+
+fail "seam3-review1-i08 holder in tuple array", "cannot drop `v` while it is lent"
+  v: List[Int] = List()
+  !v.push(1)
+  a = [^?v, ^?v]
+  <v
+  print(a[0].len)
+
+fail "seam3-review1-j02 gen cell set vec", "`stash[?^String]` cannot use `T = ?^String`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan, and a view keeps what it views lent"
+  sub stash[T](c: *Cell[List[T]], x: T)
+    xs: List[T] = List()
+    !xs.push(x)
+    _ = (!c).replace(<xs)
+
+  c: *Cell[List[?^String]] = *Cell(List())
+  b = ^String("hello")
+  stash(+c, ?b)
+  <b
+  old = (!c).replace(List())
+  print(old[0])
+
+test "seams-mprobes-m01", "7 101"
+  fun grow(v: !List[Int]) -> Int
+    for i in 0..100
+      !v.push(i)
+    0
+
+  v: List[Int] = List()
+  !v.push(7)
+  v[0] += grow(!v)
+  print(v[0], v.len)
+
+test "seams-mprobes-m02", "0 101"
+  fun grow(v: !List[Int]) -> Int
+    for i in 0..100
+      !v.push(i)
+    0
+
+  v: List[Int] = List()
+  !v.push(7)
+  v[0] = grow(!v)
+  print(v[0], v.len)
+
+test "seams-mprobes-m04", "8 101"
+  obj P
+    a: List[Int]
+    n: Int
+
+  fun grow(p: !P) -> Int
+    for i in 0..100
+      !p.a.push(i)
+    1
+
+  p = P(a: List(), n: 0)
+  !p.a.push(7)
+  p.a[0] += grow(!p)
+  print(p.a[0], p.a.len)
+
+test "seams-mprobes-m05", "7"
+  fun grow(v: !List[Int]) -> Int
+    for i in 0..100
+      !v.push(i)
+    0
+
+  v: List[Int] = List()
+  !v.push(7)
+  x = v[0] + grow(!v)
+  print(x)
+
+test "seams-mprobes-m07", "1 0"
+  obj Q
+    v: List[Int]
+
+  fun grow(v: !List[Int]) -> Int
+    for i in 0..100
+      !v.push(i)
+    0
+
+  v: List[Int] = List()
+  !v.push(7)
+  q = Q(v: +v)
+  n = grow(!v)
+  print(q.v.len, n)
+
+test "seams-mprobes-m08", '''
+  v[0] is 5 expected 5
+  w[0] is 6 expected 6
+'''
+  fun grow(v: !List[Int]) -> Int
+    for i in 0..100
+      !v.push(i)
+    5
+
+  v: List[Int] = List()
+  !v.push(7)
+  v[0] = grow(!v)
+  print("v[0] is", v[0], "expected 5")
+  w: List[Int] = List()
+  !w.push(1)
+  w[0] += grow(!w)
+  print("w[0] is", w[0], "expected 6")
+
+test "seams-mprobes-m09", "v[0].total is 11 expected 11"
+  obj Acc
+    total: Int
+
+  fun spill(v: !List[Acc]) -> Int
+    for i in 0..100
+      !v.push(Acc(total: i))
+    1
+
+  v: List[Acc] = List()
+  !v.push(Acc(total: 10))
+  v[0].total += spill(!v)
+  print("v[0].total is", v[0].total, "expected 11")
+
+test "seams-mprobes-m11", "1"
+  obj H
+    v: List[Int]
+
+  fun f(h: !H) -> List[Int]
+    !h.v.push(1)
+    n: List[Int] = List()
+    !n.push(h.v.len)
+    n
+
+  h = H(v: List())
+  h.v = f(!h)
+  print(h.v[0])
+
+fail "seams-mprobes-m12", "cannot lend `v` to write while a write loan is live: to swap two elements of `v`, write `!v.swap(0, 1)`"
+  fun grow(v: !List[Int]) -> Int
+    for i in 0..100
+      !v.push(i)
+    2
+
+  v: List[Int] = List()
+  !v.push(7)
+  !v.push(8)
+  swap(!v[0], !v[1])
+  print(v[0])
+  a = [1, 2, 3]
+  a[0] = a[1] + grow(!v)
+  print(a[0])
+
+test "seams-probes-p01", '''
+  aaaa
+  deferred aaaa
+'''
+  a = String("aaaa")
+  defer print(String("deferred"), ?a)
+  print(a)
+
+test "seams-probes-p03", '''
+  0
+  2
+'''
+  fun size(s: ?String) -> Int
+    s.len
+
+  i = 0
+  while i < 3 : i += size(?String("ab"))
+    print(i)
+
+test "seams-probes-p04", "1"
+  fun size(s: ?String) -> Int
+    s.len
+
+  v: List[Int] = List()
+  !v.push(1)
+  n = for x in ?v
+    if size(?String("abc")) == 3
+      break x
+  else
+    0
+  print(n)
+
+test "seams-probes-p05", "guard"
+  fun size(s: ?String) -> Int
+    s.len
+
+  k = 3
+  match k
+    3 if size(?String("abc")) == 3 => print("guard")
+    _ => print("other")
+
+test "seams-probes-p17", '''
+  1
+  1
+'''
+  obj B
+    v: List[Int]
+
+  fun mk() -> B
+    b = B(v: List())
+    !b.v.push(5)
+    <b
+
+  a = mk()
+  c = true
+  print((a if c else mk()).v.len)
+  print(a.v.len)
+
+test "seams-strategy-probe3", '''
+  a
+  b
+'''
+  obj Task
+    name: String
+    priority: Int
+
+  board: List[^Task] = List()
+  !board.push(^Task(name: String("a"), priority: 2))
+  !board.push(^Task(name: String("b"), priority: 1))
+  sort.sort_by(!board[..], |a, b| a.priority < b.priority)
+  !board.swap(0, 1)
+  for t in ?board
+    print(t.name)
+
+test "seams-strategy-probe4", '''
+  [Row(name: "a", n: 1)]
+  x
+'''
+  obj Row
+    name: ?String
+    n: Int
+
+  fun parse(t: ?String) -> List[Row]
+    rows: List[Row] = List()
+    !rows.push(Row(name: t[0..1], n: 1))
+    rows
+
+  t = String("abc")
+  rows = parse(?t)
+  print(rows)
+  label = String("x")
+  name: ?String = ?label
+  print(name)
+
+test "seams-strategy-tasks", '''
+  tasks: 5
+  [x] job-2 (p4)
+  [ ] job-4 (p3)
+  [ ] job-1 (p2)
+  [ ] job-3 (p1)
+  [ ] job-0 (p0)
+
+'''
+  # A tiny task board: tasks with owned names, sorted by priority,
+  # with a text report.
+
+  obj Task
+    name: String
+    priority: Int
+    done: Bool = false
+
+  fun make_task(prefix: ?String, n: Int, priority: Int) -> Task
+    Task(name: String(prefix, "-", n), priority: priority)
+
+  fun report(tasks: ?List[Task]) -> String
+    out = String("tasks: ", tasks.len, "\n")
+    for t in tasks
+      mark = "x" if t.done else " "
+      !out.add("[", mark, "] ", t.name, " (p", t.priority, ")\n")
+    out
+
+  board: List[Task] = List()
+  i = 0
+  while i < 5 : i += 1
+    !board.push(make_task("job", i, (i * 7) % 5))
+  board[2].done = true
+  sort.sort_by(!board[..], |a, b| a.priority > b.priority)
+  print(report(?board))
+
+test "seams-strategy-tasks box", '''
+  tasks: 5
+  [ ] job-0 (p0)
+  [ ] job-1 (p2)
+  [x] job-2 (p4)
+  [ ] job-3 (p1)
+  [ ] job-4 (p3)
+
+'''
+  # The same board, with the workaround the compiler allows: boxed tasks.
+  obj Task
+    name: String
+    priority: Int
+    done: Bool = false
+
+  fun make_task(prefix: ?String, n: Int, priority: Int) -> ^Task
+    ^Task(name: String(prefix, "-", n), priority: priority)
+
+  fun report(tasks: ?List[^Task]) -> String
+    out = String("tasks: ", tasks.len, "\n")
+    for t in ?tasks
+      mark = "x" if t.done else " "
+      !out.add("[", mark, "] ", t.name, " (p", t.priority, ")\n")
+    out
+
+  board: List[^Task] = List()
+  i = 0
+  while i < 5 : i += 1
+    !board.push(make_task("job", i, (i * 7) % 5))
+  for t, j in !board
+    t.done = true if j == 2
+  print(report(?board))
+
+test "seams-surface-a01 bool short", "dup? true false"
+  obj Set
+    items: List[Int]
+
+    fun insert(!self, k: Int) -> Bool
+      for x in ?self.items
+        return false if x == k
+      !self.items.push(k)
+      true
+
+  s = Set(items: List())
+  dup = (!s).insert(1)
+  print("dup?", dup, (!s).insert(1))
+
+test "seams-surface-a03 fail by binding", "1 -1"
+  error E
+    bad
+
+  fun f(k: Int) -> Int!
+    e = E.bad
+    return 1 if k == 0
+    return e
+
+  print(f(0) catch -1, f(1) catch -1)
+
+test "seams-surface-a06 tail moves", '''
+  drop 2
+  1
+  drop 1
+  drop 3
+  4
+  drop 4
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun pick(a: R, b: R, c: Bool) -> R
+    if c
+      a
+    else
+      b
+
+  fun tern(a: R, b: R, c: Bool) -> R
+    a if c else b
+
+  print(pick(R(n: 1), R(n: 2), true).n)
+  x = tern(R(n: 3), R(n: 4), false)
+  print(x.n)
+
+test "seams-surface-b01 reads", '''
+  P(v: []) 0 0
+  b
+  4
+  0
+'''
+  obj P
+    v: List[Int]
+
+    fun n(?self) -> Int
+      self.v.len
+
+  enum E
+    a(v: List[Int])
+    b
+
+  fun size(p: ?P) -> Int
+    p.v.len
+
+  fun sizei(n: ?Int) -> Int
+    n + 1
+
+  p = P(v: List())
+  e: E = .b
+  print(p, p.n(), p.v.len)
+  match e
+    .a(v) => print(v.len)
+    .b => print("b")
+  k = 3
+  print(sizei(?k))
+  print(size(p))
+
+test "seams-surface-b04 if as", "1"
+  obj R
+    n: Int
+    drop(!self)
+      pass
+
+  o: R? = R(n: 1)
+  if o as r
+    print(r.n)
+
+test "seams-surface-b07 array vec slice", '''
+  6 [1, 2, 3]
+  4
+'''
+  fun total(xs: []Int) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  a = [3, 1, 2]
+  v: List[Int] = List()
+  !v.push(3)
+  !v.push(1)
+  sort.sort(!a)
+  print(total(?a), a)
+  print(total(?v))
+  sort.sort(!v)
+
+test "seams-surface-c02 text param", "he he hello 5"
+  fun head(t: ?String) -> ?String
+    t[0..2]
+
+  fun head2(t: ?String) -> ?String
+    ?t[0..2]
+
+  fun whole(t: ?String) -> ?String
+    t
+
+  fun len_of(s: ?String) -> Int
+    s.len
+
+  t = String("hello")
+  print(head(?t), head2(?t), whole(?t), len_of(?t))
+
+test "seams-surface-c13 temp receiver", '''
+  0 0
+  0
+'''
+  obj Log
+    lines: List[Int]
+
+    fun count(?self) -> Int
+      self.lines.len
+
+  fun make() -> Log
+    Log(lines: List())
+
+  fun count_of(l: ?Log) -> Int
+    l.lines.len
+
+  print(count_of(?make()), make().lines.len)
+  print(?make().count())
+
+test "seams-surface-c14 temp receiver2", '''
+  0
+  0
+'''
+  obj Log
+    lines: List[Int]
+
+    fun count(?self) -> Int
+      self.lines.len
+
+  fun make() -> Log
+    Log(lines: List())
+
+  print(Log.count(?make()))
+  print((?make()).count())
+
+test "seams-surface-d05 repoint"
+  n = 1
+  m = 10
+  w = !n
+  w += 1
+  w = !m
+
+test "seams-surface-d06 read repoint", '''
+  1
+  2
+'''
+  obj P
+    x: Int
+
+  a = P(x: 1)
+  b = P(x: 2)
+  r = ?a
+  print(r.x)
+  r = ?b
+  print(r.x)

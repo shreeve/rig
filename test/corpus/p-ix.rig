@@ -1,5 +1,0 @@
-sub main()
-  t = String("abc")
-  print((?t[..])[0])
-  for b in ?t[..]
-    print(b)

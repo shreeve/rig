@@ -1,6 +1,0 @@
-fun mk() -> [3]?String
-  t = String("a long heap allocated text here")
-  [3 of ?t]
-
-sub main()
-  print(mk()[0])

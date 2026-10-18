@@ -1,7 +1,0 @@
-sub main()
-  a: [2]?String = ["x", "y"]
-  if true
-    t = String("a long heap allocated text here")
-    b: [2]?String = [?t, ?t]
-    !a.copy(?b[..])
-  print(a[0])

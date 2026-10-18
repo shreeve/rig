@@ -1,7 +1,0 @@
-sub main()
-  a: List[Int] = List()
-  b: List[Int] = List()
-  !a.push(1)
-  c = true
-  print((a if c else b).len)
-  print(a[0])

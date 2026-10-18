@@ -1,7 +1,0 @@
-# push while a view of an element (Text) is live
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  s = ?v[0]
-  !v.push(String("b"))
-  print(s)

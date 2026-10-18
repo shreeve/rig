@@ -1,4 +1,0 @@
-use lib
-
-pub fun first[T](v: ?List[T]) -> T?
-  lib.each_first(v)

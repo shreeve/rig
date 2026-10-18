@@ -1,9 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  r = ?v
-  i = 0
-  while i < 3 : print(r[0])
-    i += 1
-    !v.clear()
-  print(v.len)

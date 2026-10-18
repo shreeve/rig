@@ -1,8 +1,0 @@
-obj S
-  v: List[Int]
-
-sub main()
-  h: *S = *S(v: List())
-  r = ?h.v[..]
-  h = *S(v: List())
-  print(r.len)

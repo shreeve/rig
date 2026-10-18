@@ -1,0 +1,2846 @@
+# Probes from past reviews and audits, 37 of 41: review-while-step-w38-value-loop-step to sb-adv2.
+
+test "review-while-step-w38-value-loop-step", "7 209 4"
+  # A loop used as a value whose step reads the condition's binding.
+  #
+  # oracle: mk accept
+  # oracle: main accept
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 5
+      return S(s: ?v[..])
+    none
+
+  v: List[Int] = List()
+  !v.push(3)
+  k = 0
+  i = 0
+  x = while mk(?v, i) as h: k += h.s[0]
+    i += 1
+    break 7 if i == 4
+    continue if i == 2
+    k += 100
+  else
+    9
+  print(x, k, i)
+
+  # expect: 7 209 4
+
+test "review-while-step-w41-joined-drop-binding-step-grows-ok", '''
+  drop 2
+  drop 2
+  drop 2
+  3 4
+'''
+  # Valid: the step reads no binding, so it runs after `x` dropped.
+  #
+  # oracle: D.drop accept
+  # oracle: mkd accept
+  obj D
+    s: []Int
+    drop(!self)
+      print("drop", self.s[0])
+
+  fun mkd(w: ?List[Int], i: Int) -> D?
+    if i < 3
+      return D(s: ?w[..])
+    none
+
+  w: List[Int] = List()
+  !w.push(2)
+  i = 0
+  while i >= 0 and mkd(?w, i) as x: !w.push(9)
+    i += 1
+  print(i, w.len)
+
+fail "review-while-step-w42-step-temp-view", "a view of the temporary `mkv(i)` outlives its statement, which drops it; bind the value to a name first"
+  # The step stores a view of a temporary in an outer slice, which the
+  # body reads on the next iteration.
+  #
+  # oracle: mkv accept
+  # oracle: all accept
+  # oracle: main reject C5
+  fun mkv(i: Int) -> List[Int]
+    v: List[Int] = List()
+    !v.push(i)
+    v
+
+  fun all(v: ?List[Int]) -> []Int
+    ?v[..]
+
+  e = [0]
+  s: []Int = ?e[..]
+  k = 0
+  i = 0
+  while i < 3: s = all(?mkv(i))
+    k += s[0]
+    i += 1
+  print(k)
+
+test "review-while-step-w46-body-shadows-h", "303"
+  # The body shadows `h` with `new h`, viewing a body-local List; the step's
+  # `h` must be the condition's binding.
+  #
+  # oracle: mk accept
+  # oracle: main accept
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 3
+      return S(s: ?v[..])
+    none
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  i = 0
+  while mk(?v, i) as h: k += h.s[0]
+    local: List[Int] = List()
+    !local.push(100)
+    new h = S(s: ?local[..])
+    k += h.s[0]
+    i += 1
+  print(k)
+
+  # expect: 303
+
+fail "review-while-step-w48-grow-then-return-ok", "cannot lend `v` to write while a read loan is live"
+  # Valid: the body grows `v` only on a path that returns, which never
+  # reaches the step.
+  #
+  # oracle: mk accept
+  # oracle: run accept
+  # oracle: main accept
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 5
+      return S(s: ?v[..])
+    none
+
+  fun run() -> Int
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    i = 0
+    while mk(?v, i) as h: k += h.s[0]
+      i += 1
+      if i == 3
+        !v.push(2)
+        return k + v.len
+    k
+
+  print(run())
+
+  # expect: 4
+
+fail "review-while-step-w51-step-stores-h-via-call", "cannot lend `v` to write while a read loan is live"
+  # The step passes `h` to a function that stores it in `last`; after the
+  # loop, `v` grows and `last` is read.
+  #
+  # oracle: mk accept
+  # oracle: keep accept
+  # oracle: main reject C4
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 3
+      return S(s: ?v[..])
+    none
+
+  sub keep(o: !S, h: S)
+    o.s = h.s
+
+  v: List[Int] = List()
+  !v.push(1)
+  e = [0]
+  last = S(s: ?e[..])
+  i = 0
+  while mk(?v, i) as h: keep(!last, h)
+    i += 1
+  !v.push(2)
+  print(last.s[0])
+
+fail "review-while-step-w54-step-grows-via-h-cond-reads", "cannot lend `w` to write while a read loan is live"
+  # The step writes `w` through a call, while `h` views `w` and the step
+  # reads `h` after the call in the same statement.
+  #
+  # oracle: mk accept
+  # oracle: grow accept
+  # oracle: main reject C4
+  obj S
+    s: []Int
+
+  fun mk(w: ?List[Int], i: Int) -> S?
+    if i < 3
+      return S(s: ?w[..])
+    none
+
+  fun grow(w: !List[Int]) -> Int
+    for j in 0..40
+      !w.push(j)
+    0
+
+  w: List[Int] = List()
+  !w.push(1)
+  k = 0
+  i = 0
+  while mk(?w, i) as h: k += grow(!w) + h.s[0]
+    i += 1
+  print(k)
+
+fail "review-while-step-w55-optional-view-binding", "cannot lend `v` to write while a read loan is live"
+  # The condition binds an optional slice; the step reads through it with
+  # `??`; the body grows the List.
+  #
+  # oracle: mk accept
+  # oracle: first accept
+  # oracle: main reject C4
+  fun mk(v: ?List[Int], i: Int) -> (([]Int)?)?
+    if i < 40
+      return ?v[..]
+    none
+
+  fun first(s: ([]Int)?) -> Int?
+    if s as t
+      return t[0]
+    none
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  i = 0
+  while mk(?v, i) as h: k += first(h) ?? 0
+    i += 1
+    !v.push(2)
+  print(k)
+
+test "review258-p04 order", '''
+  [1, 99]
+  [3, 99, 99]
+'''
+  fun pushslot(v: !List[Int]) -> !Int from v
+    !v.push(99)
+    !v[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  pushslot(!v) = v.len
+  print(v)
+  pushslot(!v) += v.len
+  print(v)
+
+test "review258-p08 shared field", '''
+  2
+  2
+'''
+  obj P
+    x: Int
+
+  obj H
+    s: *P
+
+  fun sl(h: !H) -> !(*P) from h
+    !h.s
+
+  h = H(s: *P(x: 1))
+  sl(!h) = *P(x: 2)
+  print(h.s.x)
+  sl(!h) = +h.s
+  print(h.s.x)
+
+test "review258-p09 box field", "2 b"
+  obj P
+    x: Int
+    name: String
+
+  obj H
+    s: ^P
+
+  fun sl(h: !H) -> !(^P) from h
+    !h.s
+
+  h = H(s: ^P(x: 1, name: String("a")))
+  sl(!h) = ^P(x: 2, name: String("b"))
+  print(h.s.x, h.s.name)
+
+test "review258-p100 generic compound", "[3]"
+  fun gslot[T](v: !List[T], i: Int) -> !T from v
+    !v[i]
+
+  sub bump[T](v: !List[T], x: T)
+    gslot(!v, 0) += x
+
+  v: List[Int] = List()
+  !v.push(1)
+  bump(!v, 2)
+  print(v)
+
+test "review258-p102 opt copy", '''
+  [none]
+  [4]
+'''
+  fun sl(v: !List[Int?], i: Int) -> !(Int?) from v
+    !v[i]
+
+  v: List[Int?] = List()
+  !v.push(1)
+  sl(!v, 0) = none
+  print(v)
+  sl(!v, 0) = 4
+  print(v)
+
+test "review258-p103 enum payload", "y"
+  enum E
+    a(s: String)
+    b
+
+  fun es(v: !List[E]) -> !E from v
+    !v[0]
+
+  v: List[E] = List()
+  !v.push(E.a(s: String("x")))
+  es(!v) = E.b
+  es(!v) = E.a(s: String("y"))
+  match v[0]
+    .a(s) => print(s)
+    .b => print("b")
+
+fail "review258-p108 generic assign nomove", "`setit[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns"
+  fun gslot[T](v: !List[T], i: Int) -> !T from v
+    !v[i]
+
+  sub setit[T](v: !List[T], x: T)
+    gslot(!v, 0) = x
+    print(x)
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  setit(!v, String("b"))
+  print(v)
+
+test "review258-p10 optional owning", '''
+  ["b"]
+'''
+  fun sl(v: !List[String?], i: Int) -> !(String?) from v
+    !v[i]
+
+  v: List[String?] = List()
+  !v.push(String("a"))
+  sl(!v, 0) = none
+  sl(!v, 0) = String("b")
+  print(v)
+
+fail "review258-p111 generic assign twice", "use of `x` after move"
+  fun gslot[T](v: !List[T], i: Int) -> !T from v
+    !v[i]
+
+  sub setit[T](v: !List[T], x: T)
+    gslot(!v, 0) = <x
+    gslot(!v, 1) = <x
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("a"))
+  setit(!v, String("b"))
+  print(v)
+
+test "review258-p115 array view", "[7, 18, 9]"
+  obj A
+    a: [3]Int
+
+  fun arr(h: !A) -> ![3]Int from h
+    !h.a
+
+  h = A(a: [1, 2, 3])
+  arr(!h) = [7, 8, 9]
+  arr(!h)[1] += 10
+  print(h.a)
+
+test "review258-p116 box deref target", "2 b"
+  obj P
+    x: Int
+    s: String
+
+  fun bx(h: !^P) -> !P from h
+    h
+
+  b = ^P(x: 1, s: String("a"))
+  bx(!b) = P(x: 2, s: String("b"))
+  print(b.x, b.s)
+
+test "review258-p117b weak slot", "2"
+  obj P
+    x: Int
+
+  fun wk(h: !List[~P]) -> !(~P) from h
+    !h[0]
+
+  a = *P(x: 1)
+  b = *P(x: 2)
+  v: List[~P] = List()
+  !v.push(~a)
+  wk(!v) = ~b
+  if *v[0] as p
+    print(p.x)
+
+test "review258-p122 lambda returns view call", "[3]"
+  fun sl(v: !List[Int]) -> !Int from v
+    !v[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  f = |w: !List[Int]| sl(!w) += 1
+  f(!v)
+  f(!v)
+  print(v)
+
+test "review258-p123 closure capture store outer", "u"
+  obj H
+    s: ?String
+
+  fun slot(v: !List[H]) -> !H from v
+    !v[0]
+
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  u = String("u")
+  f = |!v, ?u| slot(!v) = H(s: u)
+  f()
+  print(v[0].s)
+
+fail "review258-p124 closure capture store shorter", "`u` does not live long enough"
+  obj H
+    s: ?String
+
+  fun slot(v: !List[H]) -> !H from v
+    !v[0]
+
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  if t.len > 0
+    u = String("u")
+    f = |!v, ?u| slot(!v) = H(s: u)
+    f()
+  print(v[0].s)
+
+fail "review258-p125 closure store then mutate", "cannot lend `u` to write while a read loan is live"
+  obj H
+    s: ?String
+
+  fun slot(v: !List[H]) -> !H from v
+    !v[0]
+
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  u = String("u")
+  f = |!v, ?u| slot(!v) = H(s: u)
+  f()
+  !u.add("x")
+  print(v[0].s)
+
+fail "review258-p126 store then drop source", "cannot drop `u` while it is lent"
+  obj H
+    s: ?String
+
+  fun slot(v: !List[H]) -> !H from v
+    !v[0]
+
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  u = String("u")
+  slot(!v) = H(s: ?u)
+  <u
+  print(v[0].s)
+
+fail "review258-p12 generic readview local", "cannot store a view of `d` through `gslot(!v, 0)`: `v` outlives it"
+  fun gslot[T](v: !List[T], i: Int) -> !T from v
+    !v[i]
+
+  sub put(v: !List[?String])
+    d = String("local")
+    gslot(!v, 0) = ?d
+
+  a = String("a")
+  v: List[?String] = List()
+  !v.push(?a)
+  put(!v)
+  print(v)
+
+fail "review258-p130 summary plain", "`go` stores a view of `u` in `v`, which its caller reaches, but its signature does not keep `u`; say so: `keeps u`"
+  obj H
+    s: ?String
+
+  fun slot(v: !List[H]) -> !H from v
+    !v[0]
+
+  sub go(v: !List[H], u: ?String)
+    slot(!v) = H(s: u)
+
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  u = String("u")
+  go(!v, ?u)
+  !u.add("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+  print(v[0].s)
+
+fail "review258-p131 summary opt", "`go` stores a view of `u` in `v`, which its caller reaches, but its signature does not keep `u`; say so: `keeps u`"
+  obj H
+    s: ?String
+
+  fun pick(v: !List[H]) -> (!H)? from v
+    return none if v.len == 0
+    !v[0]
+
+  fun go(v: !List[H], u: ?String) -> Int?
+    pick(!v)? = H(s: u)
+    0
+
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  u = String("u")
+  print(go(!v, ?u) ?? 1)
+  <u
+  print(v[0].s)
+
+fail "review258-p132 summary fallible", "`go` stores a view of `u` in `v`, which its caller reaches, but its signature does not keep `u`; say so: `keeps u`"
+  error Bad
+    oops
+
+  obj H
+    s: ?String
+
+  fun must(v: !List[H]) -> (!H)! from v
+    return Bad.oops if v.len == 0
+    !v[0]
+
+  fun go(v: !List[H], u: ?String) -> Int!
+    must(!v)! = H(s: u)
+    0
+
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  u = String("u")
+  print(go(!v, ?u) catch 1)
+  <u
+  print(v[0].s)
+
+fail "review258-p134 summary method", "`set` stores a view of `u` in `self`, which its caller reaches, but its signature does not keep `u`; say so: `keeps u`"
+  obj H
+    s: ?String
+
+  obj Bag
+    items: List[H]
+
+    fun first(!self) -> !H
+      !self.items[0]
+
+    sub set(!self, u: ?String)
+      (!self).first() = H(s: u)
+
+  t = String("t")
+  b = Bag(items: List())
+  !b.items.push(H(s: ?t))
+  u = String("u")
+  !b.set(?u)
+  <u
+  print(b.items[0].s)
+
+fail "review258-p136b loop binding", "cannot drop `u` while it is lent"
+  obj H
+    s: ?String
+
+  fun wrap(h: !H) -> !H from h
+    h
+
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  u = String("u")
+  for x in !v
+    wrap(!x) = H(s: ?u)
+  <u
+  print(v[0].s)
+
+fail "review258-p137 if as binding", "cannot drop `u` while it is lent"
+  obj H
+    s: ?String
+
+  fun wrap(h: !H) -> !H from h
+    h
+
+  t = String("t")
+  o: H? = H(s: ?t)
+  u = String("u")
+  if !o as p
+    wrap(!p) = H(s: ?u)
+  <u
+  if o as q
+    print(q.s)
+
+fail "review258-p138 match binding", "cannot drop `u` while it is lent"
+  obj H
+    s: ?String
+
+  enum E
+    a(h: H)
+    b
+
+  fun wrap(h: !H) -> !H from h
+    h
+
+  t = String("t")
+  e = E.a(h: H(s: ?t))
+  u = String("u")
+  match !e
+    .a(h) => wrap(!h) = H(s: ?u)
+    .b => pass
+  <u
+  match e
+    .a(h) => print(h.s)
+    .b => pass
+
+fail "review258-p139b loop binding local", "`u` does not live long enough"
+  obj H
+    s: ?String
+
+  fun wrap(h: !H) -> !H from h
+    h
+
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  for x in !v
+    u = String("u")
+    wrap(!x) = H(s: ?u)
+  print(v[0].s)
+
+fail "review258-p140 callable summary", "`go` stores a view of `u` in `v`, which its caller reaches, but its signature does not keep `u`; say so: `keeps u`"
+  obj H
+    s: ?String
+
+  fun slot(v: !List[H]) -> !H from v
+    !v[0]
+
+  sub go(g: ?fun(!List[H]) -> !H, v: !List[H], u: ?String)
+    g(!v) = H(s: u)
+
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  u = String("u")
+  go(?slot, !v, ?u)
+  <u
+  print(v[0].s)
+
+test "review258-p141 loop binding ok", "u 10 20"
+  obj H
+    s: ?String
+    n: Int
+
+  fun wrap(h: !H) -> !H from h
+    h
+
+  t = String("t")
+  u = String("u")
+  v: List[H] = List()
+  !v.push(H(s: ?t, n: 1))
+  !v.push(H(s: ?t, n: 2))
+  for x in !v
+    wrap(!x) = H(s: ?u, n: x.n * 10)
+  print(v[0].s, v[0].n, v[1].n)
+
+bomb "review258-p142 wrap ops", "left shift overflowed bits", prints: "4\n250\n238"
+  fun sl(v: !List[U8], i: Int) -> !U8 from v
+    !v[i]
+
+  fun nx(c: !Int) -> Int
+    c += 1
+    c
+
+  v: List[U8] = List()
+  !v.push(U8(250))
+  sl(!v, 0) +%= 10
+  print(v[0])
+  sl(!v, 0) -%= 10
+  print(v[0])
+  sl(!v, 0) *%= 3
+  print(v[0])
+  c = 0
+  sl(!v, 0) <<= nx(!c)
+  print(v[0], c)
+  sl(!v, 0) +|= 250
+  print(v[0])
+
+bomb "review258-p144 shift var held", "index out of bounds"
+  fun sl(v: !List[I64], i: Int) -> !I64 from v
+    !v[i]
+
+  fun nx(c: !Int) -> Int
+    c += 1
+    c
+
+  v: List[I64] = List()
+  !v.push(1)
+  !v.push(1)
+  c = 0
+  sl(!v, nx(!c)) <<= nx(!c)
+  print(v, c)
+  sl(!v, nx(!c) - 3) >>= 1
+  print(v, c)
+
+test "review258-p145 value propagates", "none 6"
+  fun sl(v: !List[Int], i: Int) -> !Int from v
+    !v[i]
+
+  fun go(v: !List[Int], o: Int?) -> Int?
+    sl(!v, 0) += o?
+    v[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(go(!v, none), go(!v, 5))
+
+fail "review258-p15 generic body local", "cannot store a view of `x` through `gslot(!v, 0)`: `v` outlives it"
+  fun gslot[T](v: !List[T], i: Int) -> !T from v
+    !v[i]
+
+  sub setit[T](v: !List[?T], x: T)
+    gslot(!v, 0) = ?x
+
+  a = String("a")
+  b = String("b")
+  v: List[?String] = List()
+  !v.push(?a)
+  setit(!v, <b)
+  print(v)
+
+fail "review258-p20 generic opt readview", "`go` stores a view of `b` in `v`, which its caller reaches, but its signature does not keep `b`; say so: `keeps b`"
+  obj P
+    x: Int
+    n: String
+
+  fun gslot[T](v: !List[T], i: Int) -> (!T)? from v
+    return none if i >= v.len
+    !v[i]
+
+  fun go(v: !List[?P], b: ?P) -> Int?
+    gslot(!v, 0)? = b
+    0
+
+  a = P(x: 1, n: String("a"))
+  b = P(x: 2, n: String("b"))
+  v: List[?P] = List()
+  !v.push(?a)
+  print(go(!v, ?b))
+  print(v[0].n)
+
+fail "review258-p23 string generic body readview", "`setit` stores a view of `x` in `v`, which its caller reaches, but its signature does not keep `x`; say so: `keeps x`"
+  fun gslot[U](v: !List[U], i: Int) -> !U from v
+    !v[i]
+
+  sub setit(v: !List[?String], x: ?String)
+    gslot(!v, 0) = x
+
+  a = String("a")
+  b = String("b")
+  v: List[?String] = List()
+  !v.push(?a)
+  setit(!v, ?b)
+  print(v)
+
+fail "review258-p30 gbody int", "`setit` stores a view of `x` in `v`, which its caller reaches, but its signature does not keep `x`; say so: `keeps x`"
+  fun gslot[U](v: !List[U], i: Int) -> !U from v
+    !v[i]
+
+  sub setit[T](v: !List[?T], x: ?T)
+    gslot(!v, 0) = x
+
+  a = 1
+  b = 2
+  v: List[?Int] = List()
+  !v.push(?a)
+  setit(!v, ?b)
+  print(v[0], a, b)
+
+test "review258-p31 optional none owning", '''
+  0 1
+  ["newx"]
+'''
+  fun pick(v: !List[String], i: Int) -> (!String)? from v
+    return none if i >= v.len
+    !v[i]
+
+  fun put(v: !List[String], i: Int) -> Int?
+    pick(!v, i)? = String("new", "x")
+    1
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  print(put(!v, 5) ?? 0, put(!v, 0) ?? 0)
+  print(v)
+
+test "review258-p32 temp wrap", "ok"
+  obj H
+    s: String
+
+  fun wrap(h: !H) -> !H from h
+    h
+
+  wrap(!H(s: String("tmp"))) = H(s: String("new"))
+  print("ok")
+
+test "review258-p33 temp method", "ok"
+  obj H
+    s: String
+
+    fun me(!self) -> !String
+      !self.s
+
+  fun make() -> H
+    H(s: String("tmp"))
+
+  (!make()).me() = String("new2")
+  print("ok")
+
+fail "review258-p34 selfview", "cannot lend `h` to write while a read loan on `h.t` is live"
+  obj H
+    t: String
+    s: ?String
+
+  fun slot(h: !H) -> !H from h
+    h
+
+  x = String("x")
+  h = H(t: String("a"), s: ?x)
+  slot(!h) = H(t: String("b"), s: ?h.t)
+  print(h.s)
+
+fail "review258-p35 selfview elem", "cannot lend `v` to write while a read loan is live"
+  obj H
+    t: String
+    s: ?String
+
+  fun slot(h: !List[H], i: Int) -> !H from h
+    !h[i]
+
+  x = String("x")
+  v: List[H] = List()
+  !v.push(H(t: String("a"), s: ?x))
+  slot(!v, 0) = H(t: String("b"), s: ?v[0].t)
+  print(v[0].s)
+
+test "review258-p36 selfview str", "0 x"
+  fun slot(h: !List[String], i: Int) -> !String from h
+    !h[i]
+
+  obj Q
+    a: List[String]
+    b: ?String
+
+  fun qa(q: !Q) -> !List[String] from q
+    !q.a
+
+  x = String("x")
+  q = Q(a: List(), b: ?x)
+  !q.a.push(String("z"))
+  qa(!q) = List()
+  print(q.a.len, q.b)
+
+test "review258-p37 closure assign", "[6]"
+  fun slot(v: !List[Int], i: Int) -> !Int from v
+    !v[i]
+
+  v: List[Int] = List()
+  !v.push(1)
+  f = |!v, k: Int| slot(!v, 0) += k
+  f(2)
+  f(3)
+  print(v)
+
+fail "review258-p38 closure store view", "`k` does not live long enough"
+  obj H
+    s: ?String
+
+  fun slot(v: !List[H], i: Int) -> !H from v
+    !v[i]
+
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  f = |!v, k: ?String| slot(!v, 0) = H(s: k)
+  u = String("u")
+  f(?u)
+  print(v[0].s)
+
+fail "review258-p39 closure store local", "`d` does not live long enough"
+  obj H
+    s: ?String
+
+  fun slot(v: !List[H], i: Int) -> !H from v
+    !v[i]
+
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  f = |!v|
+    d = String("d")
+    slot(!v, 0) = H(s: ?d)
+  f()
+  print(v[0].s)
+
+test "review258-p40 callable view", "[10]"
+  fun slot(v: !List[Int]) -> !Int from v
+    !v[0]
+
+  sub go(g: ?fun(!List[Int]) -> !Int, v: !List[Int])
+    g(!v) = 9
+    g(!v) += 1
+
+  v: List[Int] = List()
+  !v.push(1)
+  go(?slot, !v)
+  print(v)
+
+fail "review258-p41 callable view store", "cannot store a view of `d` through `g(!v)`: `v` outlives it"
+  obj H
+    s: ?String
+
+  fun slot(v: !List[H]) -> !H from v
+    !v[0]
+
+  sub go(g: ?fun(!List[H]) -> !H, v: !List[H])
+    d = String("d")
+    g(!v) = H(s: ?d)
+
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  go(?slot, !v)
+  print(v[0].s)
+
+fail "review258-p42 multi from inner", "`d` does not live long enough"
+  obj H
+    s: ?String
+
+  fun pick(a: !H, b: !H, c: Bool) -> !H from a, b
+    return a if c
+    b
+
+  x = String("x")
+  l1 = H(s: ?x)
+  l2 = H(s: ?x)
+  if l1.s.len > 0
+    d = String("d")
+    pick(!l1, !l2, false) = H(s: ?d)
+  print(l1.s, l2.s)
+
+fail "review258-p43 multi from param", "cannot store a view of `d` through `pick(!l, !a, false)`: `a` outlives it"
+  obj H
+    s: ?String
+
+  fun pick(a: !H, b: !H, c: Bool) -> !H from a, b
+    return a if c
+    b
+
+  sub put(a: !H)
+    x = String("x")
+    l = H(s: ?x)
+    d = String("d")
+    pick(!l, !a, false) = H(s: ?d)
+
+  x = String("x")
+  h = H(s: ?x)
+  put(!h)
+  print(h.s)
+
+test "review258-p50 fallible owning err", '''
+  failed
+  new
+'''
+  error Bad
+    oops
+
+  obj R
+    s: String
+
+  fun sf(v: !List[R], ok: Bool) -> (!R)! from v
+    return Bad.oops if not ok
+    !v[0]
+
+  sub put(v: !List[R], ok: Bool)!
+    sf(!v, ok)! = R(s: String("new"))
+
+  v: List[R] = List()
+  !v.push(R(s: String("a")))
+  put(!v, false) catch print("failed")
+  put(!v, true) catch print("failed")
+  print(v[0].s)
+
+test "review258-p51 value pops", '''
+  ["b"]
+'''
+  fun slot(v: !List[String], i: Int) -> !String from v
+    !v[i]
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  slot(!v, 0) = (!v).pop() ?? String("z")
+  print(v)
+
+fail "review258-p52 value moves lent", "use of `v` after move"
+  fun slot(v: !List[Int], i: Int) -> !Int from v
+    !v[i]
+
+  fun take(v: List[Int]) -> Int
+    v.len
+
+  v: List[Int] = List()
+  !v.push(5)
+  slot(!v, 0) = take(<v)
+  print(v)
+
+test "review258-p53 value break", '''
+  ["x"] 2
+'''
+  fun slot(v: !List[String], i: Int) -> !String from v
+    !v[i]
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  src: List[String] = List()
+  !src.push(String("x"))
+  i = 0
+  while i < 3
+    i += 1
+    slot(!v, 0) = (!src).pop() ?? break
+  print(v, i)
+
+test "review258-p54 value return", '''
+  1 ["x"]
+'''
+  fun slot(v: !List[String], i: Int) -> !String from v
+    !v[i]
+
+  fun go(v: !List[String], src: !List[String]) -> Int
+    while true
+      slot(!v, 0) = (!src).pop() ?? return v.len
+    0
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  src: List[String] = List()
+  !src.push(String("x"))
+  !src.push(String("y"))
+  print(go(!v, !src), v)
+
+test "review258-p55 fail after value", '''
+  failed
+  1 ["a"]
+'''
+  error Bad
+    oops
+
+  fun sf(v: !List[String], ok: Bool) -> (!String)! from v
+    return Bad.oops if not ok
+    !v[0]
+
+  fun mk(n: !Int) -> String
+    n += 1
+    String("m")
+
+  sub put(v: !List[String], n: !Int, ok: Bool)!
+    sf(!v, ok)! = mk(!n)
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  n = 0
+  put(!v, !n, false) catch print("failed")
+  print(n, v)
+
+test "review258-p56 arg side effect order", "[0, 0, 1] 2"
+  fun slot(v: !List[Int], i: Int) -> !Int from v
+    !v[i]
+
+  fun nx(c: !Int) -> Int
+    c += 1
+    c
+
+  v: List[Int] = List()
+  !v.push(0)
+  !v.push(0)
+  !v.push(0)
+  c = 0
+  slot(!v, nx(!c)) = nx(!c)
+  print(v, c)
+
+test "review258-p62c simd compound only", '''
+  [10, 11, 126, -119]
+  [12, 12, 12, 12]
+'''
+  fun vs(v: !List[Simd[I8, 4]], i: Int) -> !Simd[I8, 4] from v
+    !v[i]
+
+  v: List[Simd[I8, 4]] = List()
+  !v.push(Simd[I8, 4]([1, 2, 120, -128]))
+  vs(!v, 0) +|= 10
+  vs(!v, 0) -|= Simd[I8, 4].splat(1)
+  print(v[0])
+  vs(!v, 0) = Simd[I8, 4].splat(3)
+  vs(!v, 0) += vs(!v, 0)
+  vs(!v, 0) <<= 1
+  print(v[0])
+
+test "review258-p63 shift wrap", '''
+  144
+  72
+'''
+  fun sl(v: !List[U8], i: Int) -> !U8 from v
+    !v[i]
+
+  v: List[U8] = List()
+  !v.push(U8(200))
+  sl(!v, 0) <<%= 1
+  print(v[0])
+  sl(!v, 0) >>= 1
+  print(v[0])
+
+test "review258-p66 defer assign", '''
+  ["body"]
+  ["deferred"]
+'''
+  fun sl(v: !List[String], i: Int) -> !String from v
+    !v[i]
+
+  sub go(v: !List[String])
+    defer sl(!v, 0) = String("deferred")
+    sl(!v, 0) = String("body")
+    print(v)
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  go(!v)
+  print(v)
+
+test "review258-p67 float compound", "[1.75]"
+  fun sl(v: !List[Float], i: Int) -> !Float from v
+    !v[i]
+
+  v: List[Float] = List()
+  !v.push(1.5)
+  sl(!v, 0) *= 2.0
+  sl(!v, 0) /= 4.0
+  sl(!v, 0) += 1
+  print(v)
+
+fail "review258-p70 closure returns view", "cannot return a view of `v`, which this function was not lent"
+  v: List[Int] = List()
+  !v.push(1)
+  g = |!v| !v[0]
+  g() = 5
+  g() += 1
+  print(v)
+
+fail "review258-p71 closure ret store local", "cannot return a view of `v`, which this function was not lent"
+  obj H
+    s: ?String
+
+  t = String("t")
+  v: List[H] = List()
+  !v.push(H(s: ?t))
+  g = |!v| !v[0]
+  if t.len > 0
+    d = String("d")
+    g() = H(s: ?d)
+  print(v[0].s)
+
+test "review258-p74 paren call", "[10]"
+  fun sl(v: !List[Int], i: Int) -> !Int from v
+    !v[i]
+
+  v: List[Int] = List()
+  !v.push(1)
+  (sl(!v, 0)) = 5
+  (sl(!v, 0)) += 5
+  print(v)
+
+test "review258-p76 field of assign through", "2 b"
+  obj P
+    x: Int
+    s: String
+
+  fun ps(v: !List[P], i: Int) -> !P from v
+    !v[i]
+
+  v: List[P] = List()
+  !v.push(P(x: 1, s: String("a")))
+  ps(!v, 0) = P(x: ps(!v, 0).x + 1, s: String("b"))
+  print(v[0].x, v[0].s)
+
+test "review258-p77 value reads old owning", '''
+  ["ab"]
+'''
+  fun sl(v: !List[String], i: Int) -> !String from v
+    !v[i]
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  sl(!v, 0) = String(sl(!v, 0), "b")
+  sl(!v, 0) = +v[0]
+  print(v)
+
+fail "review258-p78 value view of old", "cannot lend `v` to write while a read loan is live"
+  obj H
+    t: String
+    s: ?String
+
+  fun hs(v: !List[H], i: Int) -> !H from v
+    !v[i]
+
+  x = String("x")
+  v: List[H] = List()
+  !v.push(H(t: String("a"), s: ?x))
+  !v.push(H(t: String("b"), s: ?x))
+  hs(!v, 0) = H(t: String("c"), s: ?v[1].t)
+  print(v[0].s)
+
+bomb "review258-p79 value moves out elem", "index out of bounds"
+  obj H
+    t: String
+
+  fun hs(v: !List[H], i: Int) -> !H from v
+    !v[i]
+
+  v: List[H] = List()
+  !v.push(H(t: String("a")))
+  !v.push(H(t: String("b")))
+  hs(!v, 0) = (!v).pop() ?? H(t: String("z"))
+  hs(!v, 0) = (!v).pop() ?? H(t: String("z"))
+  print(v.len)
+
+test "review258-p80 arg fails after value", '''
+  failed
+  ["new"]
+'''
+  error Bad
+    oops
+
+  fun sf(v: !List[String], i: Int) -> (!String)! from v
+    !v[i]
+
+  fun idx(ok: Bool) -> Int!
+    return Bad.oops if not ok
+    0
+
+  sub put(v: !List[String], ok: Bool)!
+    sf(!v, idx(ok)!)! = String("new")
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  put(!v, false) catch print("failed")
+  put(!v, true) catch print("failed")
+  print(v)
+
+test "review258-p81 arg returns after value", '''
+  7 0
+  ["new"]
+'''
+  fun sl(v: !List[String], i: Int) -> !String from v
+    !v[i]
+
+  fun put(v: !List[String], o: Int?) -> Int
+    sl(!v, o ?? return 7) = String("new")
+    0
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  print(put(!v, none), put(!v, 0))
+  print(v)
+
+test "review258-p82 arg break after value", '''
+  ["n"]
+'''
+  fun sl(v: !List[String], i: Int) -> !String from v
+    !v[i]
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  os: List[Int?] = List()
+  !os.push(0)
+  !os.push(none)
+  for o in os
+    sl(!v, o ?? break) = String("n")
+  print(v)
+
+fail "review258-p86 nested wrap param", "cannot store a view of `d` through `wrap(!wrap(!h))`: `h` outlives it"
+  obj H
+    s: ?String
+
+  fun wrap(h: !H) -> !H from h
+    h
+
+  sub put(h: !H)
+    d = String("d")
+    wrap(!wrap(!h)) = H(s: ?d)
+
+  x = String("x")
+  h = H(s: ?x)
+  put(!h)
+  print(h.s)
+
+fail "review258-p87 method self param", "cannot store a view of `d` through `(!h).me()`: `h` outlives it"
+  obj H
+    s: ?String
+
+    fun me(!self) -> !H
+      self
+
+  sub put(h: !H)
+    d = String("d")
+    (!h).me() = H(s: ?d)
+
+  x = String("x")
+  h = H(s: ?x)
+  put(!h)
+  print(h.s)
+
+test "review258-p88 paren prop", '''
+  0
+  [6]
+'''
+  error Bad
+    oops
+
+  fun sf(v: !List[Int]) -> (!Int)! from v
+    !v[0]
+
+  fun go(v: !List[Int]) -> Int!
+    ((sf(!v))!) = 5
+    (sf(!v))! += 1
+    0
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(go(!v) catch 0)
+  print(v)
+
+fail "review258-p89 local view outer", "`d` does not live long enough"
+  obj H
+    s: ?String
+
+  fun wrap(h: !H) -> !H from h
+    h
+
+  x = String("x")
+  h = H(s: ?x)
+  w = !h
+  if x.len > 0
+    d = String("d")
+    wrap(!w) = H(s: ?d)
+  print(h.s)
+
+fail "review258-p90 view param into local ok", "`put` stores a view of `k` in `h`, which its caller reaches, but its signature does not keep `k`; say so: `keeps k`"
+  obj H
+    s: ?String
+
+  fun wrap(h: !H) -> !H from h
+    h
+
+  sub put(h: !H, k: ?String)
+    wrap(!h) = H(s: k)
+
+  x = String("x")
+  y = String("y")
+  h = H(s: ?x)
+  put(!h, ?y)
+  print(h.s)
+
+test "review258-p91 value name call writes", '''
+  [1] 11
+  [12] 21
+'''
+  fun slot2(v: !List[Int], x: !Int) -> !Int from v
+    x += 10
+    !v[0]
+
+  v: List[Int] = List()
+  !v.push(0)
+  x = 1
+  slot2(!v, !x) = x
+  print(v, x)
+  slot2(!v, !x) += x
+  print(v, x)
+
+test "review258-p92 value field call writes", '''
+  [1] 11
+  [-10] 21
+'''
+  obj Q
+    n: Int
+
+  fun slot2(v: !List[Int], q: !Q) -> !Int from v
+    q.n += 10
+    !v[0]
+
+  v: List[Int] = List()
+  !v.push(0)
+  q = Q(n: 1)
+  slot2(!v, !q) = q.n
+  print(v, q.n)
+  slot2(!v, !q) -= q.n
+  print(v, q.n)
+
+test "review258-p93 value elem call writes", '''
+  [1, 101]
+  [102, 201]
+'''
+  fun slot(v: !List[Int]) -> !Int from v
+    v[1] += 100
+    !v[0]
+
+  v: List[Int] = List()
+  !v.push(0)
+  !v.push(1)
+  slot(!v) = v[1]
+  print(v)
+  slot(!v) += v[1]
+  print(v)
+
+test "review258-p94 value same place", '''
+  [102]
+  [102]
+'''
+  fun slot(v: !List[Int]) -> !Int from v
+    v[0] += 100
+    !v[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  slot(!v) += 1
+  print(v)
+  slot(!v) = v[0]
+  print(v)
+
+fail "review258-p95 loop local stored", "`i` is bound but never read; name it `_` to ignore the value"
+  obj H
+    s: ?String
+
+  fun slot(v: !List[H], i: Int) -> !H from v
+    !v[i]
+
+  x = String("x")
+  v: List[H] = List()
+  !v.push(H(s: ?x))
+  for i in 0..2
+    d = String("d")
+    slot(!v, 0) = H(s: ?d)
+  print(v[0].s)
+
+test "review258-p98 drop order", '''
+  make 2
+  call
+  drop 1
+  after
+  drop 2
+'''
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> D
+    print("make", n)
+    D(n: n)
+
+  fun sl(v: !List[D]) -> !D from v
+    print("call")
+    !v[0]
+
+  v: List[D] = List()
+  !v.push(D(n: 1))
+  sl(!v) = mk(2)
+  print("after")
+
+test "rt-a", '''
+  98 2 none
+  a
+  b
+
+  c
+  6 true a
+'''
+  obj Split
+    rest: ?String
+    sep: ?String
+    done: Bool
+
+    pub fun next(!self) -> (?String)?
+      if self.done
+        return none
+      i = find(self.rest, self.sep) ?? -1
+      if i < 0
+        self.done = true
+        return self.rest
+      part = self.rest[0..i]
+      self.rest = self.rest[i + self.sep.len..]
+      part
+
+  fun find(s: ?String, pat: ?String) -> Int?
+    if pat.len > s.len
+      return none
+    i = 0
+    while i + pat.len <= s.len : i += 1
+      if s[i..i + pat.len] == pat
+        return i
+    none
+
+  fun split(s: ?String, sep: ?String) -> Split
+    Split(rest: s, sep: sep, done: false)
+
+  b: U8 = "abc"[1]
+  print(b, find("hello", "ll"), find("x", "yy"))
+  it = split("a,b,,c", ",")
+  while (!it).next() as part
+    print(part)
+  x = "héllo"
+  print(x.len, x < "i", 'a')
+
+fail "rust164250-repoint-declared-first", "cannot drop `l` while it is lent"
+  # rust-lang/rust#164250's Rig analog: a struct whose drop body reads a
+  # read-view field re-pointed at a shorter-lived local must be rejected.
+
+  obj Q
+    f: ?String
+
+    drop(!self)
+      print(self.f)
+
+  l = String("inner")
+  s = String("outer")
+  q = Q(f: ?s)
+  q.f = ?l
+  <l
+
+fail "rust164250-repoint-drop-local", "cannot drop `l` while it is lent"
+  # rust-lang/rust#164250's Rig analog: a struct whose drop body reads a
+  # read-view field re-pointed at a shorter-lived local must be rejected.
+
+  obj Q
+    f: ?String
+
+    drop(!self)
+      print(self.f)
+
+  s = String("outer")
+  q = Q(f: ?s)
+  l = String("inner")
+  q.f = ?l
+  <l
+  print("end")
+
+fail "rust164250-repoint-scope-end", "`l` does not live long enough"
+  # rust-lang/rust#164250's Rig analog: a struct whose drop body reads a
+  # read-view field re-pointed at a shorter-lived local must be rejected.
+
+  obj Q
+    f: ?String
+
+    drop(!self)
+      print(self.f)
+
+  s = String("outer")
+  q = Q(f: ?s)
+  if true
+    l = String("inner")
+    q.f = ?l
+  print("end")
+
+test "rv-sema-cg300", "S4(x: S5(x: S6(x: S7(x: S8(x: S9(x: S10(x: S11(x: S12(x: S13(x: S14(x: S15(x: S16(x: S17(x: S18(x: S19(x: S20(x: S21(x: S22(x: S23(x: S24(x: S25(x: S26(x: S27(x: S28(x: S29(x: S30(x: S31(x: S32(x: S33(x: S34(x: S35(x: S36(x: S37(x: S38(x: S39(x: S40(x: S41(x: S42(x: S43(x: S44(x: S45(x: S46(x: S47(x: S48(x: S49(x: S50(x: S51(x: S52(x: S53(x: S54(x: S55(x: S56(x: S57(x: S58(x: S59(x: S60(x: S61(x: S62(x: S63(x: S64(x: S65(x: S66(x: S67(x: ...))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))"
+  obj S0
+    x: S1
+
+  obj S1
+    x: S2
+
+  obj S2
+    x: S3
+
+  obj S3
+    x: S4
+
+  obj S4
+    x: S5
+
+  obj S5
+    x: S6
+
+  obj S6
+    x: S7
+
+  obj S7
+    x: S8
+
+  obj S8
+    x: S9
+
+  obj S9
+    x: S10
+
+  obj S10
+    x: S11
+
+  obj S11
+    x: S12
+
+  obj S12
+    x: S13
+
+  obj S13
+    x: S14
+
+  obj S14
+    x: S15
+
+  obj S15
+    x: S16
+
+  obj S16
+    x: S17
+
+  obj S17
+    x: S18
+
+  obj S18
+    x: S19
+
+  obj S19
+    x: S20
+
+  obj S20
+    x: S21
+
+  obj S21
+    x: S22
+
+  obj S22
+    x: S23
+
+  obj S23
+    x: S24
+
+  obj S24
+    x: S25
+
+  obj S25
+    x: S26
+
+  obj S26
+    x: S27
+
+  obj S27
+    x: S28
+
+  obj S28
+    x: S29
+
+  obj S29
+    x: S30
+
+  obj S30
+    x: S31
+
+  obj S31
+    x: S32
+
+  obj S32
+    x: S33
+
+  obj S33
+    x: S34
+
+  obj S34
+    x: S35
+
+  obj S35
+    x: S36
+
+  obj S36
+    x: S37
+
+  obj S37
+    x: S38
+
+  obj S38
+    x: S39
+
+  obj S39
+    x: S40
+
+  obj S40
+    x: S41
+
+  obj S41
+    x: S42
+
+  obj S42
+    x: S43
+
+  obj S43
+    x: S44
+
+  obj S44
+    x: S45
+
+  obj S45
+    x: S46
+
+  obj S46
+    x: S47
+
+  obj S47
+    x: S48
+
+  obj S48
+    x: S49
+
+  obj S49
+    x: S50
+
+  obj S50
+    x: S51
+
+  obj S51
+    x: S52
+
+  obj S52
+    x: S53
+
+  obj S53
+    x: S54
+
+  obj S54
+    x: S55
+
+  obj S55
+    x: S56
+
+  obj S56
+    x: S57
+
+  obj S57
+    x: S58
+
+  obj S58
+    x: S59
+
+  obj S59
+    x: S60
+
+  obj S60
+    x: S61
+
+  obj S61
+    x: S62
+
+  obj S62
+    x: S63
+
+  obj S63
+    x: S64
+
+  obj S64
+    x: S65
+
+  obj S65
+    x: S66
+
+  obj S66
+    x: S67
+
+  obj S67
+    x: S68
+
+  obj S68
+    x: S69
+
+  obj S69
+    x: S70
+
+  obj S70
+    x: S71
+
+  obj S71
+    x: S72
+
+  obj S72
+    x: S73
+
+  obj S73
+    x: S74
+
+  obj S74
+    x: S75
+
+  obj S75
+    x: S76
+
+  obj S76
+    x: S77
+
+  obj S77
+    x: S78
+
+  obj S78
+    x: S79
+
+  obj S79
+    x: S80
+
+  obj S80
+    x: S81
+
+  obj S81
+    x: S82
+
+  obj S82
+    x: S83
+
+  obj S83
+    x: S84
+
+  obj S84
+    x: S85
+
+  obj S85
+    x: S86
+
+  obj S86
+    x: S87
+
+  obj S87
+    x: S88
+
+  obj S88
+    x: S89
+
+  obj S89
+    x: S90
+
+  obj S90
+    x: S91
+
+  obj S91
+    x: S92
+
+  obj S92
+    x: S93
+
+  obj S93
+    x: S94
+
+  obj S94
+    x: S95
+
+  obj S95
+    x: S96
+
+  obj S96
+    x: S97
+
+  obj S97
+    x: S98
+
+  obj S98
+    x: S99
+
+  obj S99
+    x: S100
+
+  obj S100
+    x: S101
+
+  obj S101
+    x: S102
+
+  obj S102
+    x: S103
+
+  obj S103
+    x: S104
+
+  obj S104
+    x: S105
+
+  obj S105
+    x: S106
+
+  obj S106
+    x: S107
+
+  obj S107
+    x: S108
+
+  obj S108
+    x: S109
+
+  obj S109
+    x: S110
+
+  obj S110
+    x: S111
+
+  obj S111
+    x: S112
+
+  obj S112
+    x: S113
+
+  obj S113
+    x: S114
+
+  obj S114
+    x: S115
+
+  obj S115
+    x: S116
+
+  obj S116
+    x: S117
+
+  obj S117
+    x: S118
+
+  obj S118
+    x: S119
+
+  obj S119
+    x: S120
+
+  obj S120
+    x: S121
+
+  obj S121
+    x: S122
+
+  obj S122
+    x: S123
+
+  obj S123
+    x: S124
+
+  obj S124
+    x: S125
+
+  obj S125
+    x: S126
+
+  obj S126
+    x: S127
+
+  obj S127
+    x: S128
+
+  obj S128
+    x: S129
+
+  obj S129
+    x: S130
+
+  obj S130
+    x: S131
+
+  obj S131
+    x: S132
+
+  obj S132
+    x: S133
+
+  obj S133
+    x: S134
+
+  obj S134
+    x: S135
+
+  obj S135
+    x: S136
+
+  obj S136
+    x: S137
+
+  obj S137
+    x: S138
+
+  obj S138
+    x: S139
+
+  obj S139
+    x: S140
+
+  obj S140
+    x: S141
+
+  obj S141
+    x: S142
+
+  obj S142
+    x: S143
+
+  obj S143
+    x: S144
+
+  obj S144
+    x: S145
+
+  obj S145
+    x: S146
+
+  obj S146
+    x: S147
+
+  obj S147
+    x: S148
+
+  obj S148
+    x: S149
+
+  obj S149
+    x: S150
+
+  obj S150
+    x: S151
+
+  obj S151
+    x: S152
+
+  obj S152
+    x: S153
+
+  obj S153
+    x: S154
+
+  obj S154
+    x: S155
+
+  obj S155
+    x: S156
+
+  obj S156
+    x: S157
+
+  obj S157
+    x: S158
+
+  obj S158
+    x: S159
+
+  obj S159
+    x: S160
+
+  obj S160
+    x: S161
+
+  obj S161
+    x: S162
+
+  obj S162
+    x: S163
+
+  obj S163
+    x: S164
+
+  obj S164
+    x: S165
+
+  obj S165
+    x: S166
+
+  obj S166
+    x: S167
+
+  obj S167
+    x: S168
+
+  obj S168
+    x: S169
+
+  obj S169
+    x: S170
+
+  obj S170
+    x: S171
+
+  obj S171
+    x: S172
+
+  obj S172
+    x: S173
+
+  obj S173
+    x: S174
+
+  obj S174
+    x: S175
+
+  obj S175
+    x: S176
+
+  obj S176
+    x: S177
+
+  obj S177
+    x: S178
+
+  obj S178
+    x: S179
+
+  obj S179
+    x: S180
+
+  obj S180
+    x: S181
+
+  obj S181
+    x: S182
+
+  obj S182
+    x: S183
+
+  obj S183
+    x: S184
+
+  obj S184
+    x: S185
+
+  obj S185
+    x: S186
+
+  obj S186
+    x: S187
+
+  obj S187
+    x: S188
+
+  obj S188
+    x: S189
+
+  obj S189
+    x: S190
+
+  obj S190
+    x: S191
+
+  obj S191
+    x: S192
+
+  obj S192
+    x: S193
+
+  obj S193
+    x: S194
+
+  obj S194
+    x: S195
+
+  obj S195
+    x: S196
+
+  obj S196
+    x: S197
+
+  obj S197
+    x: S198
+
+  obj S198
+    x: S199
+
+  obj S199
+    x: S200
+
+  obj S200
+    x: S201
+
+  obj S201
+    x: S202
+
+  obj S202
+    x: S203
+
+  obj S203
+    x: S204
+
+  obj S204
+    x: S205
+
+  obj S205
+    x: S206
+
+  obj S206
+    x: S207
+
+  obj S207
+    x: S208
+
+  obj S208
+    x: S209
+
+  obj S209
+    x: S210
+
+  obj S210
+    x: S211
+
+  obj S211
+    x: S212
+
+  obj S212
+    x: S213
+
+  obj S213
+    x: S214
+
+  obj S214
+    x: S215
+
+  obj S215
+    x: S216
+
+  obj S216
+    x: S217
+
+  obj S217
+    x: S218
+
+  obj S218
+    x: S219
+
+  obj S219
+    x: S220
+
+  obj S220
+    x: S221
+
+  obj S221
+    x: S222
+
+  obj S222
+    x: S223
+
+  obj S223
+    x: S224
+
+  obj S224
+    x: S225
+
+  obj S225
+    x: S226
+
+  obj S226
+    x: S227
+
+  obj S227
+    x: S228
+
+  obj S228
+    x: S229
+
+  obj S229
+    x: S230
+
+  obj S230
+    x: S231
+
+  obj S231
+    x: S232
+
+  obj S232
+    x: S233
+
+  obj S233
+    x: S234
+
+  obj S234
+    x: S235
+
+  obj S235
+    x: S236
+
+  obj S236
+    x: S237
+
+  obj S237
+    x: S238
+
+  obj S238
+    x: S239
+
+  obj S239
+    x: S240
+
+  obj S240
+    x: S241
+
+  obj S241
+    x: S242
+
+  obj S242
+    x: S243
+
+  obj S243
+    x: S244
+
+  obj S244
+    x: S245
+
+  obj S245
+    x: S246
+
+  obj S246
+    x: S247
+
+  obj S247
+    x: S248
+
+  obj S248
+    x: S249
+
+  obj S249
+    x: S250
+
+  obj S250
+    x: S251
+
+  obj S251
+    x: S252
+
+  obj S252
+    x: S253
+
+  obj S253
+    x: S254
+
+  obj S254
+    x: S255
+
+  obj S255
+    x: S256
+
+  obj S256
+    x: S257
+
+  obj S257
+    x: S258
+
+  obj S258
+    x: S259
+
+  obj S259
+    x: S260
+
+  obj S260
+    x: S261
+
+  obj S261
+    x: S262
+
+  obj S262
+    x: S263
+
+  obj S263
+    x: S264
+
+  obj S264
+    x: S265
+
+  obj S265
+    x: S266
+
+  obj S266
+    x: S267
+
+  obj S267
+    x: S268
+
+  obj S268
+    x: S269
+
+  obj S269
+    x: S270
+
+  obj S270
+    x: S271
+
+  obj S271
+    x: S272
+
+  obj S272
+    x: S273
+
+  obj S273
+    x: S274
+
+  obj S274
+    x: S275
+
+  obj S275
+    x: S276
+
+  obj S276
+    x: S277
+
+  obj S277
+    x: S278
+
+  obj S278
+    x: S279
+
+  obj S279
+    x: S280
+
+  obj S280
+    x: S281
+
+  obj S281
+    x: S282
+
+  obj S282
+    x: S283
+
+  obj S283
+    x: S284
+
+  obj S284
+    x: S285
+
+  obj S285
+    x: S286
+
+  obj S286
+    x: S287
+
+  obj S287
+    x: S288
+
+  obj S288
+    x: S289
+
+  obj S289
+    x: S290
+
+  obj S290
+    x: S291
+
+  obj S291
+    x: S292
+
+  obj S292
+    x: S293
+
+  obj S293
+    x: S294
+
+  obj S294
+    x: S295
+
+  obj S295
+    x: S296
+
+  obj S296
+    x: S297
+
+  obj S297
+    x: S298
+
+  obj S298
+    x: S299
+
+  obj S299
+    x: S300
+
+  obj S300
+    x: *Int
+
+  s300 = S300(x: *3)
+  s299 = S299(x: <s300)
+  s298 = S298(x: <s299)
+  s297 = S297(x: <s298)
+  s296 = S296(x: <s297)
+  s295 = S295(x: <s296)
+  s294 = S294(x: <s295)
+  s293 = S293(x: <s294)
+  s292 = S292(x: <s293)
+  s291 = S291(x: <s292)
+  s290 = S290(x: <s291)
+  s289 = S289(x: <s290)
+  s288 = S288(x: <s289)
+  s287 = S287(x: <s288)
+  s286 = S286(x: <s287)
+  s285 = S285(x: <s286)
+  s284 = S284(x: <s285)
+  s283 = S283(x: <s284)
+  s282 = S282(x: <s283)
+  s281 = S281(x: <s282)
+  s280 = S280(x: <s281)
+  s279 = S279(x: <s280)
+  s278 = S278(x: <s279)
+  s277 = S277(x: <s278)
+  s276 = S276(x: <s277)
+  s275 = S275(x: <s276)
+  s274 = S274(x: <s275)
+  s273 = S273(x: <s274)
+  s272 = S272(x: <s273)
+  s271 = S271(x: <s272)
+  s270 = S270(x: <s271)
+  s269 = S269(x: <s270)
+  s268 = S268(x: <s269)
+  s267 = S267(x: <s268)
+  s266 = S266(x: <s267)
+  s265 = S265(x: <s266)
+  s264 = S264(x: <s265)
+  s263 = S263(x: <s264)
+  s262 = S262(x: <s263)
+  s261 = S261(x: <s262)
+  s260 = S260(x: <s261)
+  s259 = S259(x: <s260)
+  s258 = S258(x: <s259)
+  s257 = S257(x: <s258)
+  s256 = S256(x: <s257)
+  s255 = S255(x: <s256)
+  s254 = S254(x: <s255)
+  s253 = S253(x: <s254)
+  s252 = S252(x: <s253)
+  s251 = S251(x: <s252)
+  s250 = S250(x: <s251)
+  s249 = S249(x: <s250)
+  s248 = S248(x: <s249)
+  s247 = S247(x: <s248)
+  s246 = S246(x: <s247)
+  s245 = S245(x: <s246)
+  s244 = S244(x: <s245)
+  s243 = S243(x: <s244)
+  s242 = S242(x: <s243)
+  s241 = S241(x: <s242)
+  s240 = S240(x: <s241)
+  s239 = S239(x: <s240)
+  s238 = S238(x: <s239)
+  s237 = S237(x: <s238)
+  s236 = S236(x: <s237)
+  s235 = S235(x: <s236)
+  s234 = S234(x: <s235)
+  s233 = S233(x: <s234)
+  s232 = S232(x: <s233)
+  s231 = S231(x: <s232)
+  s230 = S230(x: <s231)
+  s229 = S229(x: <s230)
+  s228 = S228(x: <s229)
+  s227 = S227(x: <s228)
+  s226 = S226(x: <s227)
+  s225 = S225(x: <s226)
+  s224 = S224(x: <s225)
+  s223 = S223(x: <s224)
+  s222 = S222(x: <s223)
+  s221 = S221(x: <s222)
+  s220 = S220(x: <s221)
+  s219 = S219(x: <s220)
+  s218 = S218(x: <s219)
+  s217 = S217(x: <s218)
+  s216 = S216(x: <s217)
+  s215 = S215(x: <s216)
+  s214 = S214(x: <s215)
+  s213 = S213(x: <s214)
+  s212 = S212(x: <s213)
+  s211 = S211(x: <s212)
+  s210 = S210(x: <s211)
+  s209 = S209(x: <s210)
+  s208 = S208(x: <s209)
+  s207 = S207(x: <s208)
+  s206 = S206(x: <s207)
+  s205 = S205(x: <s206)
+  s204 = S204(x: <s205)
+  s203 = S203(x: <s204)
+  s202 = S202(x: <s203)
+  s201 = S201(x: <s202)
+  s200 = S200(x: <s201)
+  s199 = S199(x: <s200)
+  s198 = S198(x: <s199)
+  s197 = S197(x: <s198)
+  s196 = S196(x: <s197)
+  s195 = S195(x: <s196)
+  s194 = S194(x: <s195)
+  s193 = S193(x: <s194)
+  s192 = S192(x: <s193)
+  s191 = S191(x: <s192)
+  s190 = S190(x: <s191)
+  s189 = S189(x: <s190)
+  s188 = S188(x: <s189)
+  s187 = S187(x: <s188)
+  s186 = S186(x: <s187)
+  s185 = S185(x: <s186)
+  s184 = S184(x: <s185)
+  s183 = S183(x: <s184)
+  s182 = S182(x: <s183)
+  s181 = S181(x: <s182)
+  s180 = S180(x: <s181)
+  s179 = S179(x: <s180)
+  s178 = S178(x: <s179)
+  s177 = S177(x: <s178)
+  s176 = S176(x: <s177)
+  s175 = S175(x: <s176)
+  s174 = S174(x: <s175)
+  s173 = S173(x: <s174)
+  s172 = S172(x: <s173)
+  s171 = S171(x: <s172)
+  s170 = S170(x: <s171)
+  s169 = S169(x: <s170)
+  s168 = S168(x: <s169)
+  s167 = S167(x: <s168)
+  s166 = S166(x: <s167)
+  s165 = S165(x: <s166)
+  s164 = S164(x: <s165)
+  s163 = S163(x: <s164)
+  s162 = S162(x: <s163)
+  s161 = S161(x: <s162)
+  s160 = S160(x: <s161)
+  s159 = S159(x: <s160)
+  s158 = S158(x: <s159)
+  s157 = S157(x: <s158)
+  s156 = S156(x: <s157)
+  s155 = S155(x: <s156)
+  s154 = S154(x: <s155)
+  s153 = S153(x: <s154)
+  s152 = S152(x: <s153)
+  s151 = S151(x: <s152)
+  s150 = S150(x: <s151)
+  s149 = S149(x: <s150)
+  s148 = S148(x: <s149)
+  s147 = S147(x: <s148)
+  s146 = S146(x: <s147)
+  s145 = S145(x: <s146)
+  s144 = S144(x: <s145)
+  s143 = S143(x: <s144)
+  s142 = S142(x: <s143)
+  s141 = S141(x: <s142)
+  s140 = S140(x: <s141)
+  s139 = S139(x: <s140)
+  s138 = S138(x: <s139)
+  s137 = S137(x: <s138)
+  s136 = S136(x: <s137)
+  s135 = S135(x: <s136)
+  s134 = S134(x: <s135)
+  s133 = S133(x: <s134)
+  s132 = S132(x: <s133)
+  s131 = S131(x: <s132)
+  s130 = S130(x: <s131)
+  s129 = S129(x: <s130)
+  s128 = S128(x: <s129)
+  s127 = S127(x: <s128)
+  s126 = S126(x: <s127)
+  s125 = S125(x: <s126)
+  s124 = S124(x: <s125)
+  s123 = S123(x: <s124)
+  s122 = S122(x: <s123)
+  s121 = S121(x: <s122)
+  s120 = S120(x: <s121)
+  s119 = S119(x: <s120)
+  s118 = S118(x: <s119)
+  s117 = S117(x: <s118)
+  s116 = S116(x: <s117)
+  s115 = S115(x: <s116)
+  s114 = S114(x: <s115)
+  s113 = S113(x: <s114)
+  s112 = S112(x: <s113)
+  s111 = S111(x: <s112)
+  s110 = S110(x: <s111)
+  s109 = S109(x: <s110)
+  s108 = S108(x: <s109)
+  s107 = S107(x: <s108)
+  s106 = S106(x: <s107)
+  s105 = S105(x: <s106)
+  s104 = S104(x: <s105)
+  s103 = S103(x: <s104)
+  s102 = S102(x: <s103)
+  s101 = S101(x: <s102)
+  s100 = S100(x: <s101)
+  s99 = S99(x: <s100)
+  s98 = S98(x: <s99)
+  s97 = S97(x: <s98)
+  s96 = S96(x: <s97)
+  s95 = S95(x: <s96)
+  s94 = S94(x: <s95)
+  s93 = S93(x: <s94)
+  s92 = S92(x: <s93)
+  s91 = S91(x: <s92)
+  s90 = S90(x: <s91)
+  s89 = S89(x: <s90)
+  s88 = S88(x: <s89)
+  s87 = S87(x: <s88)
+  s86 = S86(x: <s87)
+  s85 = S85(x: <s86)
+  s84 = S84(x: <s85)
+  s83 = S83(x: <s84)
+  s82 = S82(x: <s83)
+  s81 = S81(x: <s82)
+  s80 = S80(x: <s81)
+  s79 = S79(x: <s80)
+  s78 = S78(x: <s79)
+  s77 = S77(x: <s78)
+  s76 = S76(x: <s77)
+  s75 = S75(x: <s76)
+  s74 = S74(x: <s75)
+  s73 = S73(x: <s74)
+  s72 = S72(x: <s73)
+  s71 = S71(x: <s72)
+  s70 = S70(x: <s71)
+  s69 = S69(x: <s70)
+  s68 = S68(x: <s69)
+  s67 = S67(x: <s68)
+  s66 = S66(x: <s67)
+  s65 = S65(x: <s66)
+  s64 = S64(x: <s65)
+  s63 = S63(x: <s64)
+  s62 = S62(x: <s63)
+  s61 = S61(x: <s62)
+  s60 = S60(x: <s61)
+  s59 = S59(x: <s60)
+  s58 = S58(x: <s59)
+  s57 = S57(x: <s58)
+  s56 = S56(x: <s57)
+  s55 = S55(x: <s56)
+  s54 = S54(x: <s55)
+  s53 = S53(x: <s54)
+  s52 = S52(x: <s53)
+  s51 = S51(x: <s52)
+  s50 = S50(x: <s51)
+  s49 = S49(x: <s50)
+  s48 = S48(x: <s49)
+  s47 = S47(x: <s48)
+  s46 = S46(x: <s47)
+  s45 = S45(x: <s46)
+  s44 = S44(x: <s45)
+  s43 = S43(x: <s44)
+  s42 = S42(x: <s43)
+  s41 = S41(x: <s42)
+  s40 = S40(x: <s41)
+  s39 = S39(x: <s40)
+  s38 = S38(x: <s39)
+  s37 = S37(x: <s38)
+  s36 = S36(x: <s37)
+  s35 = S35(x: <s36)
+  s34 = S34(x: <s35)
+  s33 = S33(x: <s34)
+  s32 = S32(x: <s33)
+  s31 = S31(x: <s32)
+  s30 = S30(x: <s31)
+  s29 = S29(x: <s30)
+  s28 = S28(x: <s29)
+  s27 = S27(x: <s28)
+  s26 = S26(x: <s27)
+  s25 = S25(x: <s26)
+  s24 = S24(x: <s25)
+  s23 = S23(x: <s24)
+  s22 = S22(x: <s23)
+  s21 = S21(x: <s22)
+  s20 = S20(x: <s21)
+  s19 = S19(x: <s20)
+  s18 = S18(x: <s19)
+  s17 = S17(x: <s18)
+  s16 = S16(x: <s17)
+  s15 = S15(x: <s16)
+  s14 = S14(x: <s15)
+  s13 = S13(x: <s14)
+  s12 = S12(x: <s13)
+  s11 = S11(x: <s12)
+  s10 = S10(x: <s11)
+  s9 = S9(x: <s10)
+  s8 = S8(x: <s9)
+  s7 = S7(x: <s8)
+  s6 = S6(x: <s7)
+  s5 = S5(x: <s6)
+  s4 = S4(x: <s5)
+  s3 = S3(x: <s4)
+  s2 = S2(x: <s3)
+  s1 = S1(x: <s2)
+  s0 = S0(x: <s1)
+  print(s0.x.x.x.x)
+
+bomb "rvtests-w1-bytes", "byte read out of range: 4 bytes at offset 1 of 4"
+  fun rt(n: Int) -> Int
+    n
+
+  b: [4]U8 = [1, 2, 3, 4]
+  print(b.read[U32, .big](rt(1)))
+
+bomb "rvtests-w1-convert", "integer does not fit in destination type"
+  fun rt(n: Int) -> Int
+    n
+
+  print(I8(rt(300)))
+
+bomb "rvtests-w1-copy", "copy between slices of different lengths"
+  fun rt(n: Int) -> Int
+    n
+
+  a = [1, 2, 3]
+  b = [4, 5, 6]
+  !a.copy(?b[..rt(2)])
+
+bomb "rvtests-w1-index", "index out of bounds"
+  fun rt(n: Int) -> Int
+    n
+
+  a = [1, 2, 3]
+  print(a[rt(3)])
+
+bomb "rvtests-w1-slice", "slice bounds out of range"
+  fun rt(n: Int) -> Int
+    n
+
+  s = "abc"
+  print(s[0..rt(4)])
+
+bomb "rvtests-w1-swap", "index out of bounds"
+  fun rt(n: Int) -> Int
+    n
+
+  a = [1, 2, 3]
+  !a.swap(0, rt(3))
+
+test "sb-adv2", '''
+  5 30 40
+  7
+'''
+  obj P
+    x: Int
+
+    sub bump(!self)
+      self.x += 1
+
+  sub inc(n: !Int)
+    n += 1
+
+  sub go(s: ![]P)
+    s[0].x = 5
+    !s[1].bump()
+    inc(!s[2].x)
+    for p in !s[1..]
+      p.x *= 10
+
+  ps = [P(x: 1), P(x: 2), P(x: 3)]
+  go(!ps[..])
+  print(ps[0].x, ps[1].x, ps[2].x)
+  w = !ps[..]
+  w[2] = P(x: 7)
+  print(w[2].x)

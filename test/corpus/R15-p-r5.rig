@@ -1,8 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  w = !v[..]
-  r: []Int = w
-  !v.push(2)
-  !v.push(3)
-  print(r)

@@ -1,0 +1,2541 @@
+# Probes from past reviews and audits, 27 of 41: review-revamp-rest-p6-g04 to review-sc5-c5.
+
+test "review-revamp-rest-p6-g04", "8"
+  obj W[T]
+    v: T
+    fun apply(?self, f: ?fun(T) -> T) -> T
+      f(self.v)
+
+  fun dbl(x: Int) -> Int
+    x * 2
+
+  w = W[Int](v: 4)
+  print(w.apply(?dbl))
+
+test "review-revamp-rest-p6-z1", "1"
+  x = 1
+  _ = +x
+  print(x)
+
+test "review-revamp-rest-p7-al5", ".red .blue true"
+  enum Color
+    red
+    blue
+
+  type C = Color
+
+  a = C.red
+  b: C = .blue
+  print(a, b, C.blue == b)
+
+test "review-revamp-rest-p7-al8", "3.0 2 true -32768"
+  type F = F32
+  type I = I16
+
+  a = F(3)
+  b = I(2.9)
+  c = F.max
+  d = I.min
+  print(a, b, c > 1.0, d)
+
+test "review-revamp-rest-p7-e1", "true true true"
+  use lib
+
+  obj Local
+    p: lib.Pt
+    w: lib.W[lib.Pt]
+
+  sub main()
+    a = lib.Pt(x: 1, y: 2)
+    b = lib.Pt(x: 1, y: 2)
+    l1 = Local(p: a, w: lib.W[lib.Pt](v: b))
+    l2 = Local(p: b, w: lib.W[lib.Pt](v: a))
+    print(a == b, l1 == l2, lib.Sh.c(r: 1) == lib.Sh.c(r: 1))
+
+  file "lib.rig"
+    pub obj Pt
+      pub x: Int
+      pub y: Int
+
+    pub obj Big
+      pub a: [300000]Int
+
+    pub obj W[T]
+      pub v: T
+
+    pub enum Sh
+      c(r: Int)
+      s(w: Int)
+
+test "review-revamp-rest-p7-n2", '''
+  2
+  2
+'''
+  N = 2.5
+
+  sub main()
+    print(I8(N))
+    a: [3]F32 = [1.5, 2.5, 3.5]
+    print(U8(a[1]))
+
+test "review-revamp-rest-p8-c1", "42"
+  obj P
+    n: Int
+    fun plus(?self, k: Int) -> Int
+      self.n + k
+
+  fun grow(c: !*Cell[List[P]]) -> Int
+    for i in 0..1000
+      !c.push(P(n: i))
+    1
+
+  c = *Cell[List[P]](value: List())
+  !c.push(P(n: 41))
+  d = +c
+  print(c[0].plus(grow(!d)))
+
+test "review-revamp-rest-p8-c3", "42"
+  error E
+    bad
+
+  obj P
+    n: Int
+    fun plus(?self, k: Int) -> Int
+      self.n + k
+
+  fun grow(c: !*Cell[List[P]]) -> Int!
+    for i in 0..10000
+      !c.push(P(n: i))
+    1
+
+  fun run(c: ?*Cell[List[P]], d: !*Cell[List[P]]) -> Int!
+    c[0].plus(grow(!d)!)
+
+  c = *Cell[List[P]](value: List())
+  !c.push(P(n: 41))
+  d = +c
+  print(run(c, !d) catch 0)
+
+fail "review-revamp-rest-p8-c4", "cannot lend `v` to write while a read loan is live"
+  obj P
+    n: Int
+    fun plus(?self, k: Int) -> Int
+      self.n + k
+
+  fun grow(v: !List[P]) -> Int?
+    for i in 0..10000
+      !v.push(P(n: i))
+    1
+
+  fun run(v: !List[P]) -> Int?
+    v[0].plus(grow(!v)?)
+
+  v = List[P]()
+  !v.push(P(n: 41))
+  print(run(!v) ?? 0)
+
+test "review-revamp-rest-p8-c5", "43"
+  error E
+    bad
+
+  obj P
+    n: Int
+    fun use(?self, a: List[Int], b: List[Int]) -> Int
+      self.n + a.len + b.len
+
+  fun mk(c: !*Cell[List[P]]) -> List[Int]!
+    for i in 0..10000
+      !c.push(P(n: i))
+    v = List[Int]()
+    !v.push(1)
+    v
+
+  fun run(c: ?*Cell[List[P]], d: !*Cell[List[P]]) -> Int!
+    c[0].use(mk(!d)!, mk(!d)!)
+
+  c = *Cell[List[P]](value: List())
+  !c.push(P(n: 41))
+  d = +c
+  print(run(c, !d) catch 0)
+
+test "review-revamp-rest-p8-c7", "4 2 2"
+  error E
+    bad
+
+  obj P
+    n: Int
+    fun use(!self, a: List[Int], b: List[Int]) -> Int
+      self.n += 1
+      self.n + a.len + b.len
+
+  fun mk(n: Int) -> List[Int]!
+    return E.bad if n < 0
+    v = List[Int]()
+    !v.push(n)
+    v
+
+  fun run(ps: ![2]P, i: !Int) -> Int!
+    (!ps[i]).use(mk(1)!, mk(2)!)
+
+  ps = [P(n: 1), P(n: 2)]
+  i = 0
+  print(run(!ps, !i) catch 0, ps[0].n, ps[1].n)
+
+test "review-revamp-rest-p8-w1", '''
+  3
+  0
+  1
+  0
+  1
+'''
+  sub run(f: ?fun() -> Int)
+    print(f())
+
+  run(||
+    i = 0
+    n = 0
+    while i < 3 : i += 1
+      n += i
+    n
+  )
+  j = 0
+  @outer while j < 2 : j += 1
+    k = 0
+    while k < 5 : k += 1
+      x: Int? = none if k == 2 else k
+      v = x ?? continue @outer
+      print(v)
+
+test "review-rule2-cell-handle-alias", '''
+  2 0
+  q
+'''
+  sub alias(a: *Cell[List[String]], b: *Cell[List[String]])
+    swap(!a, !b)
+    (!b).push(String("y"))
+    old = (!a).replace(List())
+    print(old.len, b.len)
+
+  sub alias2(a: *Cell[String], b: *Cell[String])
+    swap(!a, !b)
+    (!a).set(String("q"))
+
+  c: *Cell[List[String]] = *Cell(List())
+  !c.push(String("a"))
+  alias(+c, +c)
+  s: *Cell[String] = *Cell(String("a"))
+  alias2(+s, +s)
+  print((!s).replace(String("")))
+
+test "review-rule2-cell-handle-forms", '''
+  20 2
+  2
+  30 3
+  2 7
+  1102 1107
+  2 1 1
+  9 1 1
+  6 5
+'''
+  obj H
+    h: *Cell[List[Int]]
+
+  sub viaOwned(o: H)
+    h = +o.h
+    (!h)[0] = 20
+    (!h).push(21)
+
+  sub viaOpt(h: (*Cell[List[Int]])?)
+    if h as x
+      print(x.len)
+    y = <h ?? return
+    (!y)[0] = 30
+    (!y).push(31)
+
+  sub generic[T](c: *Cell[T], d: *Cell[T], v: T)
+    (!c).set(v)
+    swap(!c, !d)
+
+  sub viaLoop(cs: List[*Cell[Int]])
+    for c in <cs
+      (!c).set(c.get() + 100)
+
+  sub viaLoopView(cs: ?List[*Cell[Int]])
+    for c in cs
+      d = +c
+      (!d).set(d.get() + 1000)
+
+  sub swapLocals()
+    a: *Cell[Int] = *Cell(1)
+    b: *Cell[Int] = *Cell(2)
+    a2 = +a
+    swap(!a, !b)
+    print(a.get(), b.get(), a2.get())
+    !a.set(9)
+    print(a.get(), b.get(), a2.get())
+
+  sub fixed()
+    a =! *Cell(5)
+    b =! *Cell(6)
+    swap(!a, !b)
+    print(a.get(), b.get())
+
+  c: *Cell[List[Int]] = *Cell(List())
+  !c.push(1)
+  viaOwned(H(h: +c))
+  print(c[0], c.len)
+  viaOpt(+c)
+  print(c[0], c.len)
+  viaOpt(none)
+  x: *Cell[Int] = *Cell(1)
+  y: *Cell[Int] = *Cell(2)
+  generic(+x, +y, 7)
+  print(x.get(), y.get())
+  cs: List[*Cell[Int]] = List()
+  !cs.push(+x)
+  !cs.push(+y)
+  viaLoopView(?cs)
+  viaLoop(<cs)
+  print(x.get(), y.get())
+  swapLocals()
+  fixed()
+
+test "review-rule2-cell-handle-lend-binding", '''
+  2
+  6 2
+  6 2 8 2
+  77
+  3 2 77
+  2 3
+'''
+  sub viaBinding(c: *Cell[List[Int]])
+    w = !c
+    !w.push(5)
+    w[0] = 6
+    print(w.len)
+
+  sub viaTernary(c: *Cell[List[Int]], d: *Cell[List[Int]], k: Bool)
+    (!c if k else !d).push(7)
+    (!c if k else !d)[0] = 8
+
+  sub viaCapture(c: *Cell[Int])
+    f = |+c| (!c).set(77)
+    f()
+
+  sub swapTernary(a: *Cell[Int], b: *Cell[Int], c: *Cell[Int], k: Bool)
+    swap(!a if k else !b, !c)
+
+  sub cellSwapMember(a: *Cell[Int], b: *Cell[Int])
+    x = (!a).replace(b.get())
+    (!b).set(x)
+
+  c: *Cell[List[Int]] = *Cell(List())
+  !c.push(1)
+  viaBinding(+c)
+  print(c[0], c.len)
+  d: *Cell[List[Int]] = *Cell(List())
+  !d.push(1)
+  viaTernary(+c, +d, false)
+  print(c[0], c.len, d[0], d.len)
+  i: *Cell[Int] = *Cell(1)
+  viaCapture(+i)
+  print(i.get())
+  j: *Cell[Int] = *Cell(2)
+  k: *Cell[Int] = *Cell(3)
+  swapTernary(+i, +j, +k, true)
+  print(i.get(), j.get(), k.get())
+  cellSwapMember(+i, +j)
+  print(i.get(), j.get())
+
+test "review-rule2-cell-handle-module", '''
+  4 2
+  b a
+  1 0
+  8
+'''
+  use lib
+
+  sub local(c: *Cell[List[Int]])
+    lib.trade(+c, +c)
+
+  sub main()
+    c: *Cell[List[Int]] = *Cell(List())
+    !c.push(1)
+    lib.put(+c, 4)
+    print(c[0], c.len)
+    a: *Cell[String] = *Cell(String("a"))
+    b: *Cell[String] = *Cell(String("b"))
+    lib.trade(+a, +b)
+    print((!a).replace(String("")), (!b).replace(String("")))
+    local(+c)
+    s: *Cell[List[String]] = *Cell(List())
+    lib.through(+s)
+    bx = lib.Box[Int](c: *Cell(1))
+    bx.put(8)
+    print(bx.c.get())
+
+  file "lib.rig"
+    pub obj Box[T]
+      pub c: *Cell[T]
+
+      pub sub put(?self, v: T)
+        h = +self.c
+        (!h).set(v)
+
+    pub sub put(c: *Cell[List[Int]], v: Int)
+      (!c)[0] = v
+      (!c).push(v)
+
+    pub sub trade[T](a: *Cell[T], b: *Cell[T])
+      swap(!a, !b)
+
+    pub sub touch[T](x: !T)
+      print(@name(T))
+
+    pub sub through(c: *Cell[List[String]])
+      (!c).push(String("n"))
+      old = (!c).replace(List())
+      print(old.len, c.len)
+
+test "review-rule2-cell-handle-param-ops", '''
+  1
+  11
+  10
+  3 3
+  2
+  0
+  0
+  5
+  5 6
+  hi
+  6
+  2 6
+  b
+  2 6
+  z yo
+'''
+  sub fill(xs: !Cell[List[Int]])
+    !xs.push(7)
+    xs[0] = 3
+
+  sub ops(c: *Cell[List[Int]])
+    (!c)[0] = 10
+    print(c.len)
+    (!c).push(11)
+    print((!c).pop() ?? -1)
+    (!c).push(12)
+    print(c.get(0) ?? -1)
+    fill(!c)
+    print(c.len, c[0])
+    (!c).keep(2)
+    print(c.len)
+    (!c).clear()
+    print(c.len)
+
+  sub cellops(c: *Cell[Int], s: *Cell[String])
+    (!c).set(5)
+    print(c.get())
+    old = (!c).replace(6)
+    print(old, c.get())
+    (!s).set(String("hi"))
+    t = (!s).replace(String("yo"))
+    print(t)
+
+  sub builtins(c: *Cell[Int], d: *Cell[Int], s: *Cell[String], t: *Cell[String])
+    swap(!c, !d)
+    print(c.get(), d.get())
+    swap(!s, !t)
+    u = (!s).replace(String("z"))
+    print(u)
+
+  c: *Cell[List[Int]] = *Cell(List())
+  !c.push(1)
+  ops(+c)
+  print(c.len)
+  i: *Cell[Int] = *Cell(1)
+  s: *Cell[String] = *Cell(String("a"))
+  cellops(+i, +s)
+  print(i.get())
+  j: *Cell[Int] = *Cell(2)
+  t: *Cell[String] = *Cell(String("b"))
+  builtins(+i, +j, +s, +t)
+  print(i.get(), j.get())
+  print((!s).replace(String("")), (!t).replace(String("")))
+
+test "review-rule2-name-module", '''
+  (Node?)? (Node?)?
+  *(Node?) *(Node?)
+  (P?)? (lib.P?)?
+  *(P?) *(lib.P?)
+  ((Node?)?)?
+  Box[(Int?)?]? lib.Box[(Int?)?]?
+  lib (P?)? Box[P?]?
+'''
+  use lib
+
+  obj Node
+    v: Int
+
+  type NN = (Node?)?
+
+  type HN = *(Node?)
+
+  type LPP = (lib.P?)?
+
+  type HP = *(lib.P?)
+
+  type BX = lib.Box[(Int?)?]?
+
+  sub main()
+    n: Node? = none
+    print(lib.nm(n), @name(NN))
+    print(lib.hnm(n), @name(HN))
+    p: lib.P? = none
+    print(lib.nm(p), @name(LPP))
+    print(lib.hnm(p), @name(HP))
+    print(lib.deeper(n))
+    i: (Int?)? = none
+    b = lib.Box(v: i)
+    print(b.self_name(), @name(BX))
+    lib.local_names()
+
+  file "lib.rig"
+    pub obj P
+      pub v: Int
+
+    pub obj Box[T]
+      pub v: T
+
+      pub fun self_name(?self) -> ?String
+        @name(Self?)
+
+    pub fun nm[T](x: T) -> ?String
+      @name(T?)
+
+    pub fun hnm[T](x: T) -> ?String
+      @name(*T)
+
+    pub fun deeper[T](x: T) -> ?String
+      y: T? = none
+      nm(y)
+
+    pub type LP = (P?)?
+
+    pub sub local_names()
+      print("lib", @name(LP), @name(Box[P?]?))
+
+fail "review-rule2-name-view-deep-import", "`lib.f9[(?Node)?]` cannot use `T = (?Node)?`: the generic body names a type that holds a `T` with `@name`, which spells no view or slice in a type parameter's instance but a `?String`, and `(?Node)?` holds `?Node`"
+  use lib
+
+  obj Node
+    v: Int
+
+  sub main()
+    n = Node(v: 1)
+    r: (?Node)? = ?n
+    print(lib.f0(?r))
+
+  file "lib.rig"
+    pub fun f0[T](x: ?T) -> Int
+      f1(x) + 1
+
+    pub fun f1[T](x: ?T) -> Int
+      f2(x) + 1
+
+    pub fun f2[T](x: ?T) -> Int
+      f3(x) + 1
+
+    pub fun f3[T](x: ?T) -> Int
+      f4(x) + 1
+
+    pub fun f4[T](x: ?T) -> Int
+      f5(x) + 1
+
+    pub fun f5[T](x: ?T) -> Int
+      f6(x) + 1
+
+    pub fun f6[T](x: ?T) -> Int
+      f7(x) + 1
+
+    pub fun f7[T](x: ?T) -> Int
+      f8(x) + 1
+
+    pub fun f8[T](x: ?T) -> Int
+      f9(x) + 1
+
+    pub fun f9[T](x: ?T) -> Int
+      print(@name(T))
+      0
+
+test "review-rule2-proof-addend-cycle", '''
+  3 2
+  4 3
+  5 4
+'''
+  fun k() -> Int
+    2
+
+  fun j() -> Int
+    if false
+      return 3
+    k()
+
+  fun c1() -> Int
+    if false
+      return c2()
+    1
+
+  fun c2() -> Int
+    if false
+      return c1()
+    9
+
+  sub walk(s: []Int)
+    i = 0
+    while i + 4 <= s.len
+      print(s[i + j()], s[i + c1()])
+      i += 1
+
+  xs = [1, 2, 3, 4, 5, 6]
+  walk(xs[..])
+
+bomb "review-rule2-proof-call-cycles", "index out of bounds", prints: "2"
+  obj P
+    k: Int
+
+  fun f(n: Int) -> Int
+    if n > 0
+      return g(n - 1)
+    2
+
+  fun g(n: Int) -> Int
+    if n == 0
+      return 10
+    f(n)
+
+  fun h(n: Int) -> Int
+    if n > 0
+      return h(n - 1)
+    1
+
+  fun a(n: Int) -> P
+    if n > 0
+      return b(n - 1)
+    P(k: 1)
+
+  fun b(n: Int) -> P
+    if n == 0
+      return P(k: 9)
+    a(n)
+
+  fun c() -> Int
+    d()
+
+  fun d() -> Int
+    if true
+      return c()
+    0
+
+  xs = [1, 2, 3]
+  print(xs[h(4)])
+  print(xs[a(5).k])
+  print(xs[f(1)])
+
+test "review-rule2-swap-writable-handles", '''
+  3 2 1 1
+  2 1 1 2
+  2 40
+  1
+'''
+  obj H
+    h: *Cell[Int]
+
+  a: *Cell[Int] = *Cell(1)
+  b: *Cell[Int] = *Cell(2)
+  c: *Cell[Int] = *Cell(3)
+  a2 = +a
+  k = a.get() == 1
+  swap(!a if k else !b, !c)
+  print(a.get(), b.get(), c.get(), a2.get())
+  o = H(h: +a2)
+  q = H(h: +b)
+  swap(!o.h, !q.h)
+  print(o.h.get(), q.h.get(), a2.get(), b.get())
+  r = replace(!o.h, *Cell(40))
+  print(r.get(), o.h.get())
+  print(c.get())
+
+fail "review-sc3-b9", "cannot lend `o` to write while a read loan is live"
+  o: List[Int]? = List()
+  if ?o as x
+    if !o as y
+      !y.push(1)
+      print(x.len)
+
+test "review-sc3-c1", '''
+  drop 2
+  drop 0
+  4 -9
+  1 none
+  2 -1 3
+  s 1 51
+  drop 51
+  drop 50
+  caught E.worse
+'''
+  error E
+    bad
+    worse
+
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun p(k: Int) -> Int!
+    return E.bad if k == 0
+    return E.worse if k < 0
+    k
+
+  fun q(k: Int) -> Int!
+    r = Res(id: k)
+    n = p(k) catch |e| return e
+    n + r.id
+
+  fun opt(k: Int) -> Int?
+    n = p(k) catch return none
+    n
+
+  fun chain(a: Int?, b: Int?) -> Int
+    a ?? (b ?? return -1)
+
+  sub s(k: Int)!
+    r = Res(id: 50 + k)
+    n = p(k) catch |e| return E.worse if e == E.bad else e
+    print("s", n, r.id)
+
+  print(q(2) catch -9, q(0) catch -9)
+  print(opt(1), opt(0))
+  print(chain(none, 2), chain(none, none), chain(3, none))
+  s(1)!
+  s(0) catch |e| print("caught", e)
+
+test "review-sc3-c2", '''
+  eat 1
+  drop 1
+  else
+  eat 2
+  drop 2
+  body 3
+  drop 3
+  eat 2
+  drop 2
+  else
+  drop 1
+  u else
+  u body 5
+  drop 5
+  u else
+'''
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun make(k: Int) -> Res?
+    Res(id: k) if k > 0 else none
+
+  fun eat(r: Res) -> Bool
+    print("eat", r.id)
+    r.id > 1
+
+  sub t(k: Int, j: Int)
+    if make(k) as a and eat(<a) and make(j) as b
+      print("body", b.id)
+    else
+      print("else")
+
+  sub u(k: Int)
+    p: Res? = make(k)
+    if <p as a and a.id > 2
+      print("u body", a.id)
+    else
+      print("u else")
+
+  t(1, 3)
+  t(2, 3)
+  t(2, 0)
+  u(1)
+  u(5)
+  u(0)
+
+test "review-sc3-cs", '''
+  s 0
+  after 0
+  s 2
+  after 2
+  s 0
+  s 0
+  0 -1
+'''
+  error E
+    bad
+
+  sub s(k: Int)!
+    return E.bad if k == 1
+    print("s", k)
+
+  fun t(k: Int) -> Int
+    s(k) catch return -1
+    k
+
+  for i in 0..3
+    s(i) catch continue
+    print("after", i)
+  for i in 0..3
+    s(i) catch break
+  print(t(0), t(1))
+
+test "review-sc3-cw", '''
+  i 0 0
+  i 1 1
+  i 2 2
+  done
+'''
+  error E
+    bad
+
+  fun p(k: Int) -> Int!
+    return E.bad if k == 0
+    k
+
+  for i in 0..3
+    n = 3
+    while (p(n) catch break) > i
+      n -= 1
+    print("i", i, n)
+  print("done")
+
+test "review-sc3-dr14", '''
+  1
+  drop 1
+'''
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  obj H
+    r: Res
+
+  sub rd(r: ?Res)
+    print(r.id)
+
+  xs = [Res(id: 1)]
+  print(1)
+
+test "review-sc3-ed", '''
+  defer 2
+  3
+  defer 1
+  100
+  defer 0
+  errdefer 0
+  -1
+'''
+  error E
+    missing
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  fun f(k: Int) -> Int!
+    errdefer print("errdefer", k)
+    defer print("defer", k)
+    x = get(k) ?? return E.missing
+    y = get(k - 1) ?? return 100
+    x + y
+
+  print(f(2) catch -1)
+  print(f(1) catch -1)
+  print(f(0) catch -1)
+
+test "review-sc3-ei", '''
+  drop 2
+  drop 1
+  drop 3
+  drop 1
+  drop 1
+  2 30 0
+  drop 2
+  drop 1
+  3
+  drop 4
+  4
+  -1
+'''
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  obj Node
+    next: Res?
+    alt: Res?
+
+    fun take2(!self) -> Int
+      if <self.next as a and <self.alt as b
+        a.id + b.id
+      else if <self.alt as c and c.id > 0
+        c.id
+      else
+        -1
+
+  fun make(k: Int) -> Res?
+    Res(id: k) if k > 0 else none
+
+  fun pick(i: Int, j: Int) -> Int
+    v = if make(i) as a and a.id > 1
+      a.id
+    else if make(j) as b and b.id > 1
+      b.id * 10
+    else
+      0
+    v
+
+  print(pick(2, 3), pick(1, 3), pick(1, 1))
+  n = Node(next: Res(id: 1), alt: Res(id: 2))
+  print((!n).take2())
+  m = Node(next: none, alt: Res(id: 4))
+  print((!m).take2())
+  print((!m).take2())
+
+test "review-sc3-fb", '''
+  n 1
+  drop 1
+  drop 2
+  drop 4
+  drop 3
+  out 99
+  drop 99
+'''
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun get(k: Int) -> Int?
+    k if k != 2 else none
+
+  xs: List[^Res] = List()
+  for i in 1..5
+    !xs.push(^Res(id: i))
+  keep = Res(id: 99)
+  out = for b in <xs
+    n = get(b.id) ?? break <keep
+    print("n", n)
+  else
+    Res(id: -1)
+  print("out", out.id)
+
+test "review-sc3-j10", '''
+  3
+  2
+  1
+  done 1
+'''
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  n = 3
+  while n > -5 : n = get(n - 1) ?? break
+    print(n)
+  print("done", n)
+
+test "review-sc3-j11", '''
+  1 0
+  2 0
+  2 1
+  done
+'''
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  for k in 0..3
+    for i in 0..(get(k) ?? continue)
+      print(k, i)
+  print("done")
+
+test "review-sc3-j2", '''
+  drop 6
+  u 7
+  drop 6
+  drop 7
+  w 8
+  drop 7
+  end
+'''
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  fun both(r: ?Res, n: Int) -> Int
+    r.id + n
+
+  fun own(r: Res, n: Int) -> Int
+    r.id + n
+
+  sub u(k: Int)
+    x = own(Res(id: 6), get(k) ?? return)
+    print("u", x)
+
+  sub w(k: Int)
+    r = Res(id: 7)
+    x = own(<r, get(k) ?? return)
+    print("w", x)
+
+  u(1)
+  u(0)
+  w(1)
+  w(0)
+  print("end")
+
+test "review-sc3-j3", '''
+  a
+  b
+  t 2
+  a
+  b
+'''
+  fun a() -> Int
+    print("a")
+    1
+
+  fun b(k: Int) -> Int?
+    print("b")
+    k if k > 0 else none
+
+  fun add(x: Int, y: Int) -> Int
+    x + y
+
+  sub t(k: Int)
+    x = add(a(), b(k) ?? return)
+    print("t", x)
+
+  t(1)
+  t(0)
+
+fail "review-sc3-j4", "use of `r` after move"
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  fun own(r: Res, n: Res) -> Int
+    r.id + n.id
+
+  fun w(k: Int) -> Res
+    r = Res(id: 7)
+    x = own(<r, Res(id: get(k) ?? return <r))
+    Res(id: x)
+
+  a = w(1)
+  b = w(0)
+  print(a.id, b.id)
+
+test "review-sc3-j5", '''
+  6 -1
+  2 5
+  3 5
+  s 3
+'''
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  fun app(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  f: fun(Int) -> Int = |k|
+    n = get(k) ?? return -1
+    n * 2
+  print(f(3), f(0))
+  print(app(|k| (get(k) ?? return 5) + 1, 1), app(|k| (get(k) ?? return 5) + 1, 0))
+  h = |k: Int| (get(k) ?? return 5) + 1
+  print(h(2), h(0))
+  s = |k: Int|
+    n = get(k) ?? return
+    print("s", n)
+  s(3)
+  s(0)
+
+test "review-sc3-j6", '''
+  drop 1
+  drop 2
+  drop 3
+  drop 4
+  total 8
+  r 1
+  drop 1
+  drop 100
+  r 2
+  drop 2
+  drop 100
+  drop 100
+  got 100
+  v 1
+  drop 14
+  drop 13
+  drop 12
+  drop 11
+'''
+  error E
+    bad
+
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun parse(r: ?Res) -> Int!
+    return E.bad if r.id == 2
+    r.id
+
+  fun mk(i: Int) -> Res!
+    return E.bad if i == 3
+    Res(id: i)
+
+  xs: List[^Res] = List()
+  for i in 1..5
+    !xs.push(^Res(id: i))
+  total = 0
+  for b in <xs
+    n = parse(?b) catch continue
+    total += n
+  print("total", total)
+  ys: List[*Res] = List()
+  for i in 1..5
+    !ys.push(*Res(id: 10 + i))
+  got = for y in ?ys
+    tmp = Res(id: 100)
+    r = mk(y.id - 10) catch break tmp.id
+    print("r", r.id)
+  else
+    0
+  print("got", got)
+  v = while true
+    q = mk(3) catch |e| break (1 if e == E.bad else 2)
+    print(q.id)
+  print("v", v)
+
+test "review-sc3-j7", '''
+  in 0 2
+  in 0 1
+  in 0 0
+  after while 0
+  in 1 2
+  in 1 1
+  after while 1
+  in 2 2
+  after while 2
+  done
+'''
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  for i in 0..3
+    n = 3
+    while (get(n) ?? break) > i
+      n -= 1
+      print("in", i, n)
+    print("after while", i)
+  print("done")
+
+test "review-sc3-j8", "done 0"
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  n = 3
+  while (get(n) ?? break) > 0
+    n -= 1
+  print("done", n)
+
+test "review-sc3-k1", "5 false"
+  enum Ev
+    at(when: Int, async: Bool)
+    none_yet
+
+  e = Ev.at(when: 5, async: false)
+  match e
+    .at(when: w, async: a) => print(w, a)
+    .none_yet => print("n")
+
+test "review-sc3-mv3", "false false"
+  a = 1
+  b = 2
+  print(a < -b, a<-b)
+
+test "review-sc3-mv4", "[1]"
+  a: List[Int] = List()
+  b: List[Int] = List()
+  !b.push(1)
+  a = <b
+  print(a)
+
+test "review-sc3-n1", '''
+  true
+  m true
+  [true, false]
+  3
+'''
+  obj Set
+    items: List[Int]
+    fun insert(!self, k: Int) -> Bool
+      for x in ?self.items
+        return false if x == k
+      !self.items.push(k)
+      true
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  set = Set(items: List())
+  a = true == (!set).insert(1)
+  print(a)
+  match (!set).insert(4)
+    true => print("m true")
+    false => print("m false")
+  v = [(!set).insert(5), (!set).insert(5)]
+  print(v)
+  print(set.items.len)
+
+test "review-sc3-ng10", "-3.5"
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  x = 3.5
+  print(-x)
+
+test "review-sc3-ng12", "-3"
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  x = 3
+  v = while true
+    break -x
+  print(v)
+
+test "review-sc3-ng2", "drop 1"
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  a = Res(id: 1)
+  <a
+
+test "review-sc3-ng4", "-3"
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun f(x: Int, c: Bool) -> Int
+    if c
+      -x
+    else
+      x
+
+  print(f(3, true))
+
+test "review-sc3-ng5", "-1"
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun f(x: Int) -> Int
+    match x
+      1 => -x
+      _ => x
+
+  print(f(1))
+
+test "review-sc3-nh3", "-3"
+  x = 3
+  y = if x > 0
+    -x
+  else
+    x
+  print(y)
+
+fail "review-sc3-oo", "`o` owns an `N?`, which can't be copied by `=`: write `<o` to move it or `?o` to view it"
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  sub t(k: Int)
+    o: N? = N(id: k) if k > 0 else none
+    r = o ?? return
+    print(r.id)
+
+  sub u(k: Int)
+    o: N? = N(id: k) if k > 0 else none
+    r = <o ?? return
+    print(r.id)
+
+  u(1)
+  u(0)
+
+test "review-sc3-oo2", '''
+  1
+  drop 1
+  0
+  drop 0
+'''
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun make(k: Int) -> N?
+    N(id: k) if k > 0 else none
+
+  sub u(k: Int)
+    r = make(k) ?? return
+    print(r.id)
+
+  sub w(k: Int)
+    r = make(k) ?? N(id: 0)
+    print(r.id)
+
+  u(1)
+  u(0)
+  w(0)
+
+test "review-sc3-pp", '''
+  set 1
+  else
+  1
+  drop 1
+  drop 1
+'''
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  sub f(o: ?(Res?), p: !(Res?))
+    if o as a and !p as b and a.id < b.id
+      b.id = a.id
+      print("set", b.id)
+    else
+      print("else")
+
+  x: Res? = Res(id: 1)
+  y: Res? = Res(id: 5)
+  f(?x, !y)
+  f(?x, !y)
+  if ?y as q
+    print(q.id)
+
+test "review-sc3-ra", "2 0 1"
+  fun f(a: Int?, b: Int?) -> Int
+    a ?? b ?? 0
+
+  print(f(none, 2), f(none, none), f(1, none))
+
+test "review-sc3-s5", '''
+  1
+  false true
+  1
+'''
+  obj P
+    x: Int
+
+  xs = [P(x: 1), P(x: 2)]
+  if xs.get(0) as p
+    print(p.x)
+  sl = ?xs[..]
+  print(sl.get(1) == none, sl.get(5) == none)
+  fun_on = |i: Int| i
+  print(fun_on(1))
+
+test "review-sc3-sl", '''
+  t 1
+  drop 1
+  drop 1
+  u 1
+  drop 2
+  drop 2
+  v 1
+  drop 1
+  w 3 1
+  drop 1
+  drop 3
+  drop 3
+  end
+'''
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  obj Pair
+    a: Res
+    b: Int
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  sub t(k: Int)
+    p = Pair(a: Res(id: 1), b: get(k) ?? return)
+    print("t", p.b)
+
+  sub u(k: Int)
+    r = Res(id: 2)
+    p = Pair(a: <r, b: get(k) ?? return)
+    print("u", p.b)
+
+  sub v(k: Int)
+    xs: List[^Res] = List()
+    !xs.push(^Res(id: get(k) ?? return))
+    print("v", xs.len)
+
+  sub w(k: Int)
+    b = ^Res(id: 3)
+    c = ^Res(id: get(k) ?? return)
+    print("w", b.id, c.id)
+
+  t(1)
+  t(0)
+  u(1)
+  u(0)
+  v(1)
+  v(0)
+  w(1)
+  w(0)
+  print("end")
+
+test "review-sc3-st", '''
+  1 3
+  2 2
+  3 1
+  4 1
+  5 1
+  6 1
+  done
+'''
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  n = 3
+  c = 0
+  while c < 6 : n = get(n - 1) ?? continue
+    c += 1
+    print(c, n)
+  print("done")
+
+test "review-sc3-tp", '''
+  t 1
+  t 0
+  drop 9
+  u 9
+  drop 9
+  u 0
+  drop 10
+  w 0
+  drop 11
+  w 0
+  end
+'''
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+    fun val(?self, k: Int) -> Int?
+      self.id if k > 0 else none
+
+  fun mkv(k: Int) -> List[Int]
+    v: List[Int] = List()
+    !v.push(k) if k > 0
+    v
+
+  sub t(k: Int)
+    n = mkv(k).get(0) ?? 0
+    print("t", n)
+
+  sub u(k: Int)
+    n = Res(id: 9).val(k) ?? 0
+    print("u", n)
+
+  sub w(k: Int)
+    for i in 0..2
+      n = Res(id: 10 + i).val(k) ?? 0
+      print("w", n)
+
+  t(1)
+  t(0)
+  u(1)
+  u(0)
+  w(0)
+  print("end")
+
+test "review-sc3-ws2", '''
+  3
+  2
+  1
+  done
+'''
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  n = 3
+  while get(n) as x : n = x - 1
+    print(x)
+  print("done")
+
+test "review-sc4-a1b", '''
+  drop 1
+  drop 2
+  drop 5
+  20 6
+  1 2
+  drop 6
+  drop 20
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun next(b: ?B) -> B
+    B(n: b.n + 1)
+
+  x = B(n: 1)
+  w = !x
+  w = next(?w)
+  w = B(n: w.n * 10)
+  s = *B(n: 5)
+  sw = !s
+  sw = +sw
+  sw = *B(n: sw.n + 1)
+  print(x.n, s.n)
+  v: List[Int] = List()
+  vw = !v
+  !vw.push(1)
+  vw = List()
+  !vw.push(2)
+  print(v.len, v[0])
+
+fail "review-sc4-b2", "cannot reassign `w` while it is lent"
+  x = 1
+  w = !x
+  w2 = !w
+  w = 5
+  w2 = 6
+  print(x)
+
+fail "review-sc4-b3", "cannot reassign `w` while it is lent"
+  x = 1
+  w = !x
+  f = |!w| w = 3
+  w = 5
+  f()
+  print(x)
+
+test "review-sc4-bx", '''
+  three 1
+  drop 2
+  20
+  opt 7
+  end
+  drop 7
+  drop 20
+  drop 1
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    full(b: *B, k: Int)
+    empty
+
+  obj H
+    s: ^Slot
+
+  sub edit(h: !H)
+    match !h.s
+      .full(b, k) if k > 0 => b = *B(n: 20)
+      .full(_, k) => k = 5
+      _ => print("e")
+
+  fun peek(h: ?H) -> Int
+    match ?h.s
+      .full(b, k) if k > 0 => b.n
+      _ => 0
+
+  bx = ^Slot.full(b: *B(n: 1), k: 0)
+  match !bx
+    .full(b, k) if b.n > 0 => k = 3
+    _ => print("e")
+  match ?bx
+    .full(b, k) if k == 3 => print("three", b.n)
+    _ => print("e")
+  h = H(s: ^Slot.full(b: *B(n: 2), k: 0))
+  edit(!h)
+  edit(!h)
+  print(peek(?h))
+  o: Slot? = .full(b: *B(n: 7), k: 1)
+  if ?o as s
+    match s
+      .full(b, k) if k > 0 => print("opt", b.n)
+      _ => print("e")
+  print("end")
+
+test "review-sc4-c1", '''
+  kept 10
+  drop 10
+  drop 0
+  kept 1
+  drop 1
+  drop 11
+  kept 12
+  drop 12
+  drop 2
+  drop 51
+  drop 60
+  50 61
+  drop 70
+  71
+  end
+  drop 71
+  drop 61
+  drop 50
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Pair
+    two(a: *B, b: *B)
+    nothing
+
+  sub keep(b: *B)
+    print("kept", b.n)
+
+  fun pick(p: Pair, first: Bool) -> *B
+    match <p
+      .two(a, b)
+        if first
+          return <a
+        <b
+      .nothing => *B(n: 0)
+
+  i = 0
+  while i < 3
+    p: Pair = .two(a: *B(n: i), b: *B(n: i + 10))
+    match <p
+      .two(a, b)
+        if i == 1
+          keep(<a)
+        else
+          keep(<b)
+      .nothing => print("none")
+    i += 1
+  x = pick(.two(a: *B(n: 50), b: *B(n: 51)), true)
+  y = pick(.two(a: *B(n: 60), b: *B(n: 61)), false)
+  print(x.n, y.n)
+  q: Pair = .two(a: *B(n: 70), b: *B(n: 71))
+  q2 = match <q
+    .two(a, b) if a.n > 100 => <a
+    .two(a, b) => <b
+    .nothing => *B(n: 0)
+  print(q2.n)
+  print("end")
+
+test "review-sc4-cw", '''
+  7
+  drop 10
+  5 11
+  drop 11
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj H
+    n: Int
+    b: B
+
+  x = 1
+  w = !x
+  f = |!w| w = 3
+  f()
+  g = |!w| w += 4
+  g()
+  print(x)
+  h = H(n: 1, b: B(n: 10))
+  hw = !h.b
+  k = |!hw| hw = B(n: 11)
+  k()
+  hn = !h.n
+  hn *= 5
+  print(h.n, h.b.n)
+
+fail "review-sc4-d2", "`eat` takes ownership of a `*B`, and `o` can't be copied: write `<o` to move it or `+o` for another handle; if `eat` only reads it, make its parameter a `?*B`"
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    full(b: *B)
+    empty
+
+  fun eat(b: *B) -> Bool
+    b.n > 0
+
+  s: Slot = .full(b: *B(n: 1))
+  o = *B(n: 5)
+  match <s
+    .full(b) if eat(o) => print("a")
+    _ => print("other")
+  print("end")
+
+fail "review-sc4-dg", "`b` does not live long enough"
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    full(b: B)
+    empty
+
+  s: Slot = .full(b: B(n: 1))
+  z = B(n: 0)
+  x = match <s
+    .full(b) => ?b
+    .empty => ?z
+  print(x.n)
+
+fail "review-sc4-dg2", "`v` does not live long enough"
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    full(b: B, v: List[Int])
+    empty
+
+  s: Slot = .full(b: B(n: 1), v: List())
+  z: List[Int] = List()
+  x = match <s
+    .full(b, v) if b.n > 0 => ?v[..]
+    _ => ?z[..]
+  print(x.len)
+
+fail "review-sc4-dg3", "`b` does not live long enough"
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj V
+    b: ?B
+
+  enum Slot
+    full(b: B)
+    empty
+
+  s: Slot = .full(b: B(n: 1))
+  z = B(n: 0)
+  h = V(b: ?z)
+  match <s
+    .full(b)
+      h = V(b: ?b)
+    .empty => print("e")
+  print(h.b.n)
+
+test "review-sc4-e1", '''
+  next
+  mid
+  next
+  .circle(r: 99)
+  next
+  b 2
+'''
+  enum Shape
+    circle(r: Int)
+    point
+
+  fun next() -> Int
+    print("next")
+    1
+
+  xs: [3]Shape = [.point, .circle(r: 5), .point]
+  match xs[next()]
+    .circle(r) if r > 10 => print("big")
+    .circle(r) if r > 3 => print("mid")
+    _ => print("other")
+  match !xs[next()]
+    .circle(r) if r > 10 => r = 0
+    .circle(r) => r = 99
+    _ => print("other")
+  print(xs[1])
+  match (next() * 2)
+    n if n > 5 => print("a")
+    n if n > 1 => print("b", n)
+    _ => print("c")
+
+fail "review-sc4-f1", "cannot move out of `h.s`: `h` would still drop it (partial moves are not supported); move `h` whole, or exchange the field: `replace(!h.s, v)`"
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    full(b: *B)
+    empty
+
+  obj H
+    s: Slot
+    t: Slot
+
+  sub keep(b: *B)
+    print("kept", b.n)
+
+  h = H(s: .full(b: *B(n: 1)), t: .full(b: *B(n: 2)))
+  match <h.s
+    .full(b) => keep(<b)
+    .empty => print("e")
+  print("mid")
+
+test "review-sc4-gen1", '''
+  drop 2
+  1
+  0
+  7
+  drop 3
+  drop 4
+  7
+  end
+  drop 1
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  enum Tree
+    leaf(b: *B)
+    node(l: ^Tree, r: ^Tree)
+
+  fun unwrap[T](o: Opt[T], d: T) -> T
+    match <o
+      .some(v) if true => v
+      .some(v) => v
+      .nothing => <d
+
+  fun count(t: ?Tree) -> Int
+    match t
+      .leaf(b) => b.n
+      .node(l, r) => count(?l) + count(?r)
+
+  fun sum(t: Tree) -> Int
+    match <t
+      .leaf(b) => b.n
+      .node(l, r)
+        a = <l.unbox()
+        c = <r.unbox()
+        sum(<a) + sum(<c)
+
+  o: Opt[*B] = .some(v: *B(n: 1))
+  x = unwrap(<o, *B(n: 2))
+  print(x.n)
+  o2: Opt[List[Int]] = .nothing
+  v = unwrap(<o2, List())
+  print(v.len)
+  t: Tree = .node(l: ^Tree.leaf(b: *B(n: 3)), r: ^Tree.leaf(b: *B(n: 4)))
+  print(count(?t))
+  print(sum(<t))
+  print("end")
+
+test "review-sc4-in2", "0"
+  n = 5
+  match !n
+    k if k > 3 => k = 0
+    k => k = 1
+  print(n)
+
+test "review-sc4-k1", "1 11"
+  obj Counter
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  sub bump(c: !Counter)
+    !c.bump()
+
+  c = Counter(n: 0)
+  d = Counter(n: 10)
+  f = |!c| bump(!c)
+  f()
+  g = |!d| !d.bump()
+  g()
+  print(c.n, d.n)
+
+test "review-sc4-k2", '''
+  10
+  5 0
+'''
+  obj Counter
+    n: Int
+
+  sub pair(a: !Counter, b: !Counter)
+    swap(!a, !b)
+    x = replace(!a, Counter(n: 5))
+    print(x.n)
+
+  c = Counter(n: 0)
+  d = Counter(n: 10)
+  pair(!c, !d)
+  print(c.n, d.n)
+
+test "review-sc4-k3", "3"
+  obj Counter
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  v: List[Counter] = List()
+  !v.push(Counter(n: 1))
+  w = !v
+  !w[0].bump()
+  for x in !w
+    !x.bump()
+  print(v[0].n)
+
+test "review-sc4-lp", '''
+  saw 1
+  drop 1
+  kept 2
+  drop 2
+  saw 3
+  drop 3
+  end
+  drop 4
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    full(b: *B)
+    empty
+
+  sub keep(b: *B)
+    print("kept", b.n)
+
+  s: Slot = .full(b: *B(n: 1))
+  i = 0
+  while i < 3
+    match <s
+      .full(b) if b.n == 2 => keep(<b)
+      .full(b) => print("saw", b.n)
+      .empty => print("e")
+    i += 1
+    s = .full(b: *B(n: i + 1))
+  print("end")
+
+fail "review-sc4-p2", "cannot reassign `b` while it is lent"
+  enum Shape
+    circle(r: Int)
+    point
+
+  b = ^Shape.circle(r: 2)
+  w = !b
+  match !w
+    .circle(r) => r = 9
+    _ => print("y")
+  match !b
+    .circle(r)
+      b = ^Shape.point
+      r = 3
+    _ => print("y")
+  print(b)
+
+test "review-sc4-q1", '''
+  drop 1
+  2 1
+  small 2
+  drop 2
+  after inner
+  end
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Inner
+    one(b: *B)
+    zero
+
+  enum Outer
+    wrap(i: Inner, k: Int)
+    nada
+
+  sub keep(b: *B)
+    print("kept", b.n)
+
+  o: Outer = .wrap(i: .one(b: *B(n: 1)), k: 0)
+  match !o
+    .wrap(i, k)
+      k += 1
+      match !i
+        .one(b) => b = *B(n: 2)
+        .zero => print("z")
+    .nada => print("n")
+  match o
+    .wrap(i, k)
+      match i
+        .one(b) => print(b.n, k)
+        .zero => print("z")
+    .nada => print("n")
+  match <o
+    .wrap(i, _)
+      match <i
+        .one(b) if b.n > 5 => keep(<b)
+        .one(b) => print("small", b.n)
+        .zero => print("z")
+      print("after inner")
+    .nada => print("n")
+  print("end")
+
+test "review-sc4-r2", '''
+  b 2
+  drop 2
+  2
+  2
+  drop 2
+  2
+  drop 2
+  end
+  drop 2
+  drop 1
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+    fun twin(?self) -> B
+      B(n: self.n * 2)
+
+    fun get(?self) -> Int
+      self.n
+
+  sub show_b(b: ?B)
+    print("b", b.n)
+
+  p = B(n: 1)
+  show_b(?(p.twin()))
+  x = ?p.twin()
+  print(x.n)
+  print(?p.twin().get())
+  print(?(p.twin()).get())
+  print("end")
+
+test "review-sc4-rt", '''
+  11
+  .circle(r: 11) 0
+'''
+  enum Shape
+    circle(r: Int)
+    point
+
+  fun get(s: !Shape, d: !Int) -> !Int
+    match !s
+      .circle(r) if r > 0 => r
+      _ => d
+
+  c: Shape = .circle(r: 4)
+  z = 0
+  p = get(!c, !z)
+  p += 7
+  print(p)
+  print(c, z)
+
+fail "review-sc4-s2", "cannot lend `h.v` to read while a write loan on `h` is live"
+  obj V
+    n: Int
+
+  obj H
+    r: ?V
+    v: V
+
+  a = V(n: 1)
+  h = H(r: ?a, v: V(n: 5))
+  w = !h
+  w = H(r: ?h.v, v: V(n: 6))
+  print(h.r.n)
+
+test "review-sc4-sa", '''
+  1
+  drop 1
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  b = B(n: 1)
+  w = !b
+  w = <w
+  print(b.n)
+
+test "review-sc4-sa2", '''
+  drop 1
+  drop 3
+  2
+  drop 2
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  b = B(n: 1)
+  c = B(n: 2)
+  w = !b
+  w = <c
+  w = replace(!w, B(n: 3))
+  print(b.n)
+
+test "review-sc4-sf", '''
+  drop 1
+  11
+  drop 99
+  11
+  end
+  drop 11
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    full(b: *B)
+    empty
+
+    fun take(<self, d: *B) -> *B
+      match <self
+        .full(b) if b.n > 0 => b
+        _ => <d
+
+    sub bump(!self)
+      match !self
+        .full(b) if b.n < 10 => b = *B(n: b.n + 10)
+        _ => print("big")
+
+    fun peek(?self) -> Int
+      match self
+        .full(b) if b.n > 0 => b.n
+        _ => 0
+
+  s: Slot = .full(b: *B(n: 1))
+  !s.bump()
+  print(s.peek())
+  x = <s.take(*B(n: 99))
+  print(x.n)
+  print("end")
+
+test "review-sc4-t1", '''
+  consume 1
+  consume 1
+  d 1
+  drop 1
+  end
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    full(b: *B)
+    empty
+
+  fun consume(b: *B) -> Bool
+    print("consume", b.n)
+    false
+
+  fun fresh(n: Int) -> B
+    B(n: n)
+
+  s: Slot = .full(b: *B(n: 1))
+  match <s
+    .full(b) if consume(+b) => print("a")
+    .full(b) if consume(+b) => print("c")
+    .full(b) => print("d", b.n)
+    .empty => print("e")
+  print("end")
+
+test "review-sc4-t2", '''
+  drop 1
+  -1
+  drop 2
+  -2
+  end
+'''
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    full(b: *B)
+    empty
+
+  error Bad
+    nope
+
+  fun check(n: Int) -> Bool!
+    return Bad.nope if n > 0
+    true
+
+  fun go(s: Slot) -> Int!
+    match <s
+      .full(b) if check(b.n)! => b.n
+      .full(b) => 0 - b.n
+      .empty => 0
+
+  fun lookup(n: Int) -> Int?
+    return none if n > 0
+    n
+
+  fun go2(s: Slot) -> Int?
+    match <s
+      .full(b) if lookup(b.n)? > 100 => b.n
+      _ => 0
+
+  r = go(.full(b: *B(n: 1))) catch -1
+  print(r)
+  r2 = go2(.full(b: *B(n: 2))) ?? -2
+  print(r2)
+  print("end")
+
+fail "review-sc4-tr", "`r` is bound but never read; name it `_` to ignore the value"
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Tree
+    leaf(b: *B)
+    node(l: ^Tree, r: ^Tree)
+
+  fun count(t: ?Tree) -> Int
+    match t
+      .leaf(b) if b.n > 100 => 100
+      .leaf(b) => b.n
+      .node(l, r) if count(?l) > 5 => 99
+      .node(l, r) => count(?l) + count(?r)
+
+  fun sum(t: Tree) -> Int
+    match <t
+      .leaf(b) if b.n > 3 => b.n * 10
+      .node(l, r) if count(?l) > 2
+        a = <l.unbox()
+        sum(<a)
+      .node(l, r)
+        a = <l.unbox()
+        c = <r.unbox()
+        sum(<a) + sum(<c)
+      _ => 0
+
+  sub edit(t: !Tree)
+    match !t
+      .leaf(b) if b.n == 3 => b = *B(n: 30)
+      .node(l, r) if count(?l) > 0
+        edit(!l)
+        edit(!r)
+      _ => print("x")
+
+  t: Tree = .node(l: ^Tree.leaf(b: *B(n: 3)), r: ^Tree.leaf(b: *B(n: 4)))
+  print(count(?t))
+  edit(!t)
+  print(count(?t))
+  print(sum(<t))
+  print("end")
+
+test "review-sc4-u1", "5"
+  n = 1
+  w = !n
+  w = 5
+  print(n)
+
+test "review-sc4-u10", '''
+  5
+  5
+  5
+'''
+  obj C
+    n: Int
+
+  sub set(a: !C)
+    w = <a
+    w = C(n: 5)
+    print(w.n)
+
+  sub seti(a: !Int)
+    w: !Int = <a
+    w = 5
+
+  z = C(n: 0)
+  set(!z)
+  print(z.n)
+  i = 0
+  seti(!i)
+  print(i)
+
+fail "review-sc4-u2", "`q` is assigned but never read; use it, or discard the value with `_ = ...`"
+  enum Shape
+    circle(r: Int)
+    point
+
+  c2: Shape = .circle(r: 4)
+  z = 0
+  new q = !z
+  match !c2
+    .circle(r)
+      new q = r
+    .point => print("p")
+  c2 = .point
+  q = 11
+  print(c2, z)
+
+fail "review-sc4-u3", "`q` is assigned but never read; use it, or discard the value with `_ = ...`"
+  z = 0
+  y = 0
+  q = !z
+  if true
+    new q = !y
+  q = 11
+  print(z, y)
+
+test "review-sc4-u4", "7"
+  fun get(a: !Int) -> !Int
+    a
+
+  z = 0
+  p = get(!z)
+  p = 7
+  print(z)
+
+test "review-sc4-u5", ".circle(r: 11) 0"
+  enum Shape
+    circle(r: Int)
+    point
+
+  fun get(s: !Shape, d: !Int) -> !Int
+    match !s
+      .circle(r) => r
+      .point => d
+
+  c: Shape = .circle(r: 4)
+  z = 0
+  p = get(!c, !z)
+  p += 7
+  print(c, z)
+
+test "review-sc4-u6", "3 11"
+  z = 0
+  y = 0
+  q = !z
+  q = 3
+  new q = !y
+  q = 11
+  print(z, y)
+
+test "review-sc4-u9", '''
+  5
+  5
+'''
+  sub set(a: !Int)
+    w = <a
+    w = 5
+    print(w)
+
+  z = 0
+  set(!z)
+  print(z)
+
+fail "review-sc4-w3", "cannot reassign `s` while it is lent"
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    full(b: *B)
+    empty
+
+  s: Slot = .full(b: *B(n: 1))
+  match !s
+    .full(b)
+      s = .empty
+      print(b.n)
+    .empty => print("e")
+
+test "review-sc5-big2", "18446744073709551615 55340232221128654845 55340232221128654848"
+  v: I128 = 2
+  v = 3
+  x: I128 = 1 + (9223372036854775807 * 2)
+  y: I128 = v * (1 + (9223372036854775807 * 2))
+  w: I128 = v * (1 + (18446744073709551615 | 0))
+  print(x, y, w)
+
+test "review-sc5-c2", '''
+  drop R 1
+  drop R 105
+  105
+  drop R 2
+  -1
+  -9
+  102
+  98
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop R", self.n)
+
+  fun first(s: ?String) -> U8?
+    s.get(0)
+
+  fun lead(s: ?String, f: ?fun(?String) -> R?) -> Int
+    if f(s) as r
+      return r.n
+    -1
+
+  fun nested(s: ?String, f: ?fun(?String) -> Int!) -> Int
+    f(s) catch -9
+
+  error E
+    bad
+
+  fun fail(n: Int) -> Int!
+    if n == 0
+      return E.bad
+    n
+
+  print(lead("hi", |s|
+    a = R(n: 1)
+    R(n: Int(first(s)?) + a.n)
+  ))
+  print(lead("", |s|
+    a = R(n: 2)
+    R(n: Int(first(s)?) + a.n)
+  ))
+  print(nested("x", |s|
+    g: *fun(Int) -> Int! = *|k| fail(k)! + 1
+    g(s.len - 1)! + 100
+  ))
+  print(nested("xy", |s|
+    g: *fun(Int) -> Int! = *|k| fail(k)! + 1
+    g(s.len - 1)! + 100
+  ))
+  k: *fun(Int) -> U8? = *|n| first("abc"[n..])?
+  print(k(1) ?? 0)
+
+test "review-sc5-c5", '''
+  g 3
+  8 -2
+  true
+'''
+  error E
+    bad
+
+  fun fail(n: Int) -> Int!
+    if n == 0
+      return E.bad
+    n
+
+  obj S
+    f: *fun(Int) -> Int!
+    g: *sub(Int)!
+
+  fun run(s: ?S, n: Int) -> Int!
+    s.g(n)!
+    s.f(n)! * 2
+
+  s = S(f: *|n| fail(n)! + 1, g: *|n| print("g", fail(n)!))
+  print(run(?s, 3) catch -1, run(?s, 0) catch -2)
+  o: (*fun(Int) -> Int!)? = none
+  print(o == none)

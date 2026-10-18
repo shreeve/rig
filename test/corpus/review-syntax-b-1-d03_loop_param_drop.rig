@@ -1,9 +1,0 @@
-sub f(v: ?List[String])
-  for x in v
-    <x
-
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  f(?v)
-  print(v)

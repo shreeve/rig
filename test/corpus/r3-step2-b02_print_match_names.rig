@@ -1,9 +1,0 @@
-sub main()
-  a: List[Int] = List()
-  b: List[Int] = List()
-  !a.push(1)
-  k = 1
-  x = match k
-    1 => a
-    _ => b
-  print(x.len)

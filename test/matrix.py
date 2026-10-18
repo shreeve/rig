@@ -53,8 +53,8 @@ runs, in debug and with `--release`, and prints what the values compare
 as, and over the same pairings that values `==` calls equal have equal
 `.hash()`es (`cmp.`), and a variant literal whose enum comes from
 where it goes, in each place a view of that enum goes, lent as the
-value `T.V(...)` is, or rejected (`vlit.`). The rule is
-the corpus's: `rig check` rejects the program with a file:line:col
+value `T.V(...)` is, or rejected (`vlit.`). The rule for each:
+`rig check` rejects the program with a file:line:col
 diagnostic, or it runs, and runs clean under the sanitizer (no leak, no
 use of freed memory, no Zig compile error, no crash). A `payload.`
 program that runs must also print what the payload holds, a `lendw.`

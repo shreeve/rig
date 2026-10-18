@@ -1,8 +1,0 @@
-sub main()
-  names = ["a", "b"]
-  v: List[?String] = List()
-  for n in names
-    !v.push(n)
-  first = v[0]
-  !v.clear()
-  print(first, v)

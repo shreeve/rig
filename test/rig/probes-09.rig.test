@@ -1,0 +1,3251 @@
+# Probes from past reviews and audits, 9 of 41: fold-grid-for-vec-drop to optwrite-review-a02-cross-param-ifas-ok.
+
+fail "fold-grid-for-vec-drop", "cannot drop `o` while it is lent"
+  # The fold: a String that views a Text slot (for-vec-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o: List[String] = List()
+  !o.push(String("hello"))
+  keep: ?String = ""
+  for x in ?o
+    keep = ?x
+  <o
+  print(keep)
+
+fail "fold-grid-for-vec-push", "cannot lend `o` to write while a read loan is live"
+  # The fold: a String that views a Text slot (for-vec-push): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o: List[String] = List()
+  !o.push(String("hello"))
+  keep: ?String = ""
+  for x in ?o
+    keep = ?x
+  !o.push(String("q"))
+  print(keep)
+
+fail "fold-grid-generic-add", "cannot lend `o` to write while a read loan is live"
+  # The fold: a String that views a Text slot (generic-add): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o = String("hello")
+  keep: ?String = ""
+  keep = id(?o)
+  !o.add("xyz")
+  print(keep)
+
+fail "fold-grid-generic-assign", "cannot reassign `o` while it is lent"
+  # The fold: a String that views a Text slot (generic-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o = String("hello")
+  keep: ?String = ""
+  keep = id(?o)
+  o = String("zzzz")
+  print(keep)
+
+fail "fold-grid-generic-drop", "cannot drop `o` while it is lent"
+  # The fold: a String that views a Text slot (generic-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o = String("hello")
+  keep: ?String = ""
+  keep = id(?o)
+  <o
+  print(keep)
+
+fail "fold-grid-if-as-add", "cannot reassign `o` while it is lent"
+  # The fold: a String that views a Text slot (if-as-add): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o: String? = String("hello")
+  keep: ?String = ""
+  if ?o as p
+    keep = p
+  o = String("zz")
+  print(keep)
+
+fail "fold-grid-if-as-assign", "cannot reassign `o` while it is lent"
+  # The fold: a String that views a Text slot (if-as-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o: String? = String("hello")
+  keep: ?String = ""
+  if ?o as p
+    keep = p
+  o = none
+  print(keep)
+
+fail "fold-grid-if-as-drop", "cannot drop `o` while it is lent"
+  # The fold: a String that views a Text slot (if-as-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o: String? = String("hello")
+  keep: ?String = ""
+  if ?o as p
+    keep = p
+  <o
+  print(keep)
+
+fail "fold-grid-match-bare-assign", "cannot reassign `o` while it is lent"
+  # The fold: a String that views a Text slot (match-bare-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o = E.full(t: String("hello"))
+  keep: ?String = ""
+  match ?o
+    .full(p) => keep = p
+    .empty => pass
+  o = E.empty
+  print(keep)
+
+fail "fold-grid-match-drop", "cannot drop `o` while it is lent"
+  # The fold: a String that views a Text slot (match-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o = E.full(t: String("hello"))
+  keep: ?String = ""
+  match ?o
+    .full(p) => keep = ?p
+    .empty => pass
+  <o
+  print(keep)
+
+fail "fold-grid-slice-add", "cannot lend `o` to write while a read loan is live"
+  # The fold: a String that views a Text slot (slice-add): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o = String("hello")
+  keep: ?String = ""
+  keep = ?o[1..]
+  !o.add("xyz")
+  print(keep)
+
+fail "fold-grid-slice-assign", "cannot reassign `o` while it is lent"
+  # The fold: a String that views a Text slot (slice-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o = String("hello")
+  keep: ?String = ""
+  keep = ?o[1..]
+  o = String("zzzz")
+  print(keep)
+
+fail "fold-grid-slice-drop", "cannot drop `o` while it is lent"
+  # The fold: a String that views a Text slot (slice-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o = String("hello")
+  keep: ?String = ""
+  keep = ?o[1..]
+  <o
+  print(keep)
+
+fail "fold-grid-struct-store-add", "cannot lend `o` to write while a read loan is live"
+  # The fold: a String that views a Text slot (struct-store-add): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o = String("hello")
+  keep: ?String = ""
+  s = S(name: ?o)
+  keep = s.name
+  !o.add("xyz")
+  print(keep)
+
+fail "fold-grid-struct-store-assign", "cannot reassign `o` while it is lent"
+  # The fold: a String that views a Text slot (struct-store-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o = String("hello")
+  keep: ?String = ""
+  s = S(name: ?o)
+  keep = s.name
+  o = String("zzzz")
+  print(keep)
+
+fail "fold-grid-struct-store-drop", "cannot drop `o` while it is lent"
+  # The fold: a String that views a Text slot (struct-store-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o = String("hello")
+  keep: ?String = ""
+  s = S(name: ?o)
+  keep = s.name
+  <o
+  print(keep)
+
+fail "fold-grid-vec-get-assign", "cannot assign to `o[0]` while `o` is lent"
+  # The fold: a String that views a Text slot (vec-get-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o: List[String] = List()
+  !o.push(String("hello"))
+  keep: ?String = ""
+  keep = first(?o)
+  o[0] = String("zzz")
+  print(keep)
+
+fail "fold-grid-vec-get-clear", "cannot lend `o` to write while a read loan is live"
+  # The fold: a String that views a Text slot (vec-get-clear): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o: List[String] = List()
+  !o.push(String("hello"))
+  keep: ?String = ""
+  keep = first(?o)
+  !o.clear()
+  print(keep)
+
+fail "fold-grid-vec-get-drop", "cannot drop `o` while it is lent"
+  # The fold: a String that views a Text slot (vec-get-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o: List[String] = List()
+  !o.push(String("hello"))
+  keep: ?String = ""
+  keep = first(?o)
+  <o
+  print(keep)
+
+fail "fold-grid-vec-get-push", "cannot lend `o` to write while a read loan is live"
+  # The fold: a String that views a Text slot (vec-get-push): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o: List[String] = List()
+  !o.push(String("hello"))
+  keep: ?String = ""
+  keep = first(?o)
+  !o.push(String("q"))
+  print(keep)
+
+fail "fold-grid-vec-store-add", "cannot lend `o` to write while a read loan is live"
+  # The fold: a String that views a Text slot (vec-store-add): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o = String("hello")
+  vs: List[?String] = List()
+  keep: ?String = ""
+  !vs.push(?o)
+  keep = vs[0]
+  !o.add("xyz")
+  print(keep)
+
+fail "fold-grid-vec-store-assign", "cannot reassign `o` while it is lent"
+  # The fold: a String that views a Text slot (vec-store-assign): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o = String("hello")
+  vs: List[?String] = List()
+  keep: ?String = ""
+  !vs.push(?o)
+  keep = vs[0]
+  o = String("zzzz")
+  print(keep)
+
+fail "fold-grid-vec-store-drop", "cannot drop `o` while it is lent"
+  # The fold: a String that views a Text slot (vec-store-drop): rejected where the Text changes or ends while it is used, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj S
+    name: ?String
+
+  obj H
+    t: String
+
+  fun id[T](x: ?T) -> ?T from x
+    x
+
+  fun first(v: ?List[String]) -> ?String from v
+    ?v[0]
+
+  o = String("hello")
+  vs: List[?String] = List()
+  keep: ?String = ""
+  !vs.push(?o)
+  keep = vs[0]
+  <o
+  print(keep)
+
+fail "fold-guard", "cannot reassign `e` while it is lent"
+  # The fold: a String that views a Text slot (guard): rejected, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj H
+    t: String
+
+  e = E.full(t: String("hello"))
+  keep: ?String = ""
+  match ?e
+    .full(p) if p.len > 2 => keep = p
+    _ => pass
+  e = E.empty
+  print(keep)
+
+fail "fold-oracle-b05-ifas-field-assign", "cannot reassign `h` while `h.o` is lent"
+  # bad: if ?h.o as p, keep bytes, reassign holder
+  obj H
+    o: String?
+
+  h = H(o: String("abc"))
+  keep: ?String = ""
+  if ?h.o as p
+    keep = p
+  h = H(o: none)
+  print(keep)
+
+fail "fold-oracle-b06-whileas-assign-in-loop", "cannot reassign `o` while it is lent"
+  # bad: while ?o as p, reassign o inside body while p used after
+  o: String? = String("a")
+  n = 0
+  while ?o as p
+    o = String("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+    print(p)
+    n += 1
+    if n > 2
+      break
+
+fail "fold-oracle-b12-optional-coalesce", "cannot reassign `o` while it is lent"
+  # bad: if ?o as p ... else "d" value, then o = none
+  o: String? = String("abc")
+  s: ?String = if ?o as p
+    p
+  else
+    "d"
+  o = none
+  print(s)
+
+fail "fold-oracle-f03-ifas-ret-field", "cannot return a view of `h`, which this function was not lent"
+  # bad: return bytes bound by if ?h.o as p of a local holder
+  obj H
+    o: String?
+
+  fun f() -> ?String
+    h = H(o: String("abc"))
+    if ?h.o as p
+      return p
+    "none"
+
+  print(f())
+
+fail "fold-oracle-f04-whileas-field-drop", "cannot drop `h` while `h.o` is lent"
+  # bad: while ?h.o as p keeps bytes, then drop h
+  obj H
+    o: String?
+
+  h = H(o: String("abc"))
+  keep: ?String = ""
+  while ?h.o as p
+    keep = p
+    break
+  <h
+  print(keep)
+
+fail "fold-oracle-f06-ifas-vec-opt-elem", "cannot lend `v` to write while a read loan is live"
+  # bad: if ?v[0] as p over List[Text?], keep, then clear
+  v: List[String?] = List()
+  !v.push(String("abc"))
+  keep: ?String = ""
+  if ?v[0] as p
+    keep = p
+  !v.clear()
+  print(keep)
+
+test "fold-order-i01c-named-args-qtext-param", '''
+  8046 1
+  abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+'''
+  # order (fold regression): a `?String` parameter; main emitted &t (safe), the fold emits t.bytes() before grow
+  fun grow(t: !String) -> Int
+    for _ in 0..200
+      !t.add("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+    1
+
+  sub show(s: ?String, n: Int)
+    print(s.len, n)
+    print(s)
+
+  t = String("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
+  show(n: grow(!t), s: ?t)
+
+fail "fold-ret-closure-bad", "an owned closure cannot capture a view of `t`: it can be stored anywhere, so it could outlive `t`; capture an owned value, or use a stack closure (`|...|`)"
+  # The fold: a String that views a Text slot (ret-closure-bad): rejected, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj H
+    t: String
+
+  fun f() -> *sub()
+    t = String("a")
+    *|?t| print(t)
+
+  g = f()
+  g()
+
+fail "fold-ret-ifas-local-bad", "cannot return a view of `o`, which this function was not lent"
+  # The fold: a String that views a Text slot (ret-ifas-local-bad): rejected, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj H
+    t: String
+
+  fun f() -> ?String
+    o: String? = String("a")
+    if ?o as p
+      return p
+    ""
+
+  print(f())
+
+test "fold-ret-ifas-param-ok", "a"
+  # The fold: a String that views a Text slot (ret-ifas-param-ok): rejected, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj H
+    t: String
+
+  fun f(o: ?String?) -> ?String from o
+    if o as p
+      return p
+    ""
+
+  o: String? = String("a")
+  print(f(?o))
+
+fail "fold-ret-loop-local-bad", "cannot return a view of `v`, which this function was not lent"
+  # The fold: a String that views a Text slot (ret-loop-local-bad): rejected, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj H
+    t: String
+
+  fun f() -> ?String
+    v: List[String] = List()
+    !v.push(String("a"))
+    for x in ?v
+      return ?x
+    ""
+
+  print(f())
+
+test "fold-ret-loop-param-ok", "a"
+  # The fold: a String that views a Text slot (ret-loop-param-ok): rejected, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj H
+    t: String
+
+  fun f(v: ?List[String]) -> ?String from v
+    for x in ?v
+      return ?x
+    ""
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  print(f(?v))
+
+fail "fold-ret-match-local-bad", "cannot return a view of `e`, which this function was not lent"
+  # The fold: a String that views a Text slot (ret-match-local-bad): rejected, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj H
+    t: String
+
+  fun f() -> ?String
+    e = E.full(t: String("a"))
+    match ?e
+      .full(p) => ?p
+      .empty => ""
+
+  print(f())
+
+test "fold-ret-match-param-ok", "a"
+  # The fold: a String that views a Text slot (ret-match-param-ok): rejected, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj H
+    t: String
+
+  fun f(e: ?E) -> ?String from e
+    match e
+      .full(p) => ?p
+      .empty => ""
+
+  e = E.full(t: String("a"))
+  print(f(?e))
+
+fail "fold-while-as", "cannot reassign `o` while it is lent"
+  # The fold: a String that views a Text slot (while-as): rejected, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj H
+    t: String
+
+  o: String? = String("a")
+  keep: ?String = ""
+  while ?o as p
+    keep = p
+    break
+  o = none
+  print(keep)
+
+test "fold-write-match-ok", '''
+  .full(t: "ab")
+'''
+  # The fold: a String that views a Text slot (write-match-ok): rejected, or runs sanitizer-clean.
+  enum E
+    full(t: String)
+    empty
+
+  obj H
+    t: String
+
+  e = E.full(t: String("a"))
+  match !e
+    .full(p) => !p.add("b")
+    .empty => pass
+  print(e)
+
+test "fr2", '''
+  3.4028235e38 255 -3.4028235e38
+  0
+'''
+  use util
+
+  sub main()
+    p = util.P()
+    print(p.a, p.b, p.c)
+    print(util.f())
+
+  sub g()
+    print(util.Real.max)
+
+  file "util.rig"
+    pub type Real = F32
+    pub type Byte = U8
+
+    pub obj P
+      pub a: F32 = F32.max
+      pub b: U8 = Byte.max
+      pub c: F32 = F32.min
+
+    pub fun f(x: U8 = Byte.min) -> U8
+      x
+
+test "frameowners-defer-exits", '''
+  2
+  1
+'''
+  # A `defer` body is written at each exit it covers: one call of a helper
+  # the rule would inline there, at 1,200 exits, ran off the stack.
+  fun w(i: Int) -> Int
+    t = [7000 of 0]
+    for k in 0..7000
+      t[k] = k + i
+    t[i % 7000]
+
+  fun exits(i: Int) -> Int
+    defer print(w(i))
+    return 1 if i == 10001
+    return 2 if i == 10002
+    return 3 if i == 10003
+    return 4 if i == 10004
+    return 5 if i == 10005
+    return 6 if i == 10006
+    return 7 if i == 10007
+    return 8 if i == 10008
+    return 9 if i == 10009
+    return 10 if i == 10010
+    return 11 if i == 10011
+    return 12 if i == 10012
+    return 13 if i == 10013
+    return 14 if i == 10014
+    return 15 if i == 10015
+    return 16 if i == 10016
+    return 17 if i == 10017
+    return 18 if i == 10018
+    return 19 if i == 10019
+    return 20 if i == 10020
+    return 21 if i == 10021
+    return 22 if i == 10022
+    return 23 if i == 10023
+    return 24 if i == 10024
+    return 25 if i == 10025
+    return 26 if i == 10026
+    return 27 if i == 10027
+    return 28 if i == 10028
+    return 29 if i == 10029
+    return 30 if i == 10030
+    return 31 if i == 10031
+    return 32 if i == 10032
+    return 33 if i == 10033
+    return 34 if i == 10034
+    return 35 if i == 10035
+    return 36 if i == 10036
+    return 37 if i == 10037
+    return 38 if i == 10038
+    return 39 if i == 10039
+    return 40 if i == 10040
+    return 41 if i == 10041
+    return 42 if i == 10042
+    return 43 if i == 10043
+    return 44 if i == 10044
+    return 45 if i == 10045
+    return 46 if i == 10046
+    return 47 if i == 10047
+    return 48 if i == 10048
+    return 49 if i == 10049
+    return 50 if i == 10050
+    return 51 if i == 10051
+    return 52 if i == 10052
+    return 53 if i == 10053
+    return 54 if i == 10054
+    return 55 if i == 10055
+    return 56 if i == 10056
+    return 57 if i == 10057
+    return 58 if i == 10058
+    return 59 if i == 10059
+    return 60 if i == 10060
+    return 61 if i == 10061
+    return 62 if i == 10062
+    return 63 if i == 10063
+    return 64 if i == 10064
+    return 65 if i == 10065
+    return 66 if i == 10066
+    return 67 if i == 10067
+    return 68 if i == 10068
+    return 69 if i == 10069
+    return 70 if i == 10070
+    return 71 if i == 10071
+    return 72 if i == 10072
+    return 73 if i == 10073
+    return 74 if i == 10074
+    return 75 if i == 10075
+    return 76 if i == 10076
+    return 77 if i == 10077
+    return 78 if i == 10078
+    return 79 if i == 10079
+    return 80 if i == 10080
+    return 81 if i == 10081
+    return 82 if i == 10082
+    return 83 if i == 10083
+    return 84 if i == 10084
+    return 85 if i == 10085
+    return 86 if i == 10086
+    return 87 if i == 10087
+    return 88 if i == 10088
+    return 89 if i == 10089
+    return 90 if i == 10090
+    return 91 if i == 10091
+    return 92 if i == 10092
+    return 93 if i == 10093
+    return 94 if i == 10094
+    return 95 if i == 10095
+    return 96 if i == 10096
+    return 97 if i == 10097
+    return 98 if i == 10098
+    return 99 if i == 10099
+    return 100 if i == 10100
+    return 101 if i == 10101
+    return 102 if i == 10102
+    return 103 if i == 10103
+    return 104 if i == 10104
+    return 105 if i == 10105
+    return 106 if i == 10106
+    return 107 if i == 10107
+    return 108 if i == 10108
+    return 109 if i == 10109
+    return 110 if i == 10110
+    return 111 if i == 10111
+    return 112 if i == 10112
+    return 113 if i == 10113
+    return 114 if i == 10114
+    return 115 if i == 10115
+    return 116 if i == 10116
+    return 117 if i == 10117
+    return 118 if i == 10118
+    return 119 if i == 10119
+    return 120 if i == 10120
+    return 121 if i == 10121
+    return 122 if i == 10122
+    return 123 if i == 10123
+    return 124 if i == 10124
+    return 125 if i == 10125
+    return 126 if i == 10126
+    return 127 if i == 10127
+    return 128 if i == 10128
+    return 129 if i == 10129
+    return 130 if i == 10130
+    return 131 if i == 10131
+    return 132 if i == 10132
+    return 133 if i == 10133
+    return 134 if i == 10134
+    return 135 if i == 10135
+    return 136 if i == 10136
+    return 137 if i == 10137
+    return 138 if i == 10138
+    return 139 if i == 10139
+    return 140 if i == 10140
+    return 141 if i == 10141
+    return 142 if i == 10142
+    return 143 if i == 10143
+    return 144 if i == 10144
+    return 145 if i == 10145
+    return 146 if i == 10146
+    return 147 if i == 10147
+    return 148 if i == 10148
+    return 149 if i == 10149
+    return 150 if i == 10150
+    return 151 if i == 10151
+    return 152 if i == 10152
+    return 153 if i == 10153
+    return 154 if i == 10154
+    return 155 if i == 10155
+    return 156 if i == 10156
+    return 157 if i == 10157
+    return 158 if i == 10158
+    return 159 if i == 10159
+    return 160 if i == 10160
+    return 161 if i == 10161
+    return 162 if i == 10162
+    return 163 if i == 10163
+    return 164 if i == 10164
+    return 165 if i == 10165
+    return 166 if i == 10166
+    return 167 if i == 10167
+    return 168 if i == 10168
+    return 169 if i == 10169
+    return 170 if i == 10170
+    return 171 if i == 10171
+    return 172 if i == 10172
+    return 173 if i == 10173
+    return 174 if i == 10174
+    return 175 if i == 10175
+    return 176 if i == 10176
+    return 177 if i == 10177
+    return 178 if i == 10178
+    return 179 if i == 10179
+    return 180 if i == 10180
+    return 181 if i == 10181
+    return 182 if i == 10182
+    return 183 if i == 10183
+    return 184 if i == 10184
+    return 185 if i == 10185
+    return 186 if i == 10186
+    return 187 if i == 10187
+    return 188 if i == 10188
+    return 189 if i == 10189
+    return 190 if i == 10190
+    return 191 if i == 10191
+    return 192 if i == 10192
+    return 193 if i == 10193
+    return 194 if i == 10194
+    return 195 if i == 10195
+    return 196 if i == 10196
+    return 197 if i == 10197
+    return 198 if i == 10198
+    return 199 if i == 10199
+    return 200 if i == 10200
+    return 201 if i == 10201
+    return 202 if i == 10202
+    return 203 if i == 10203
+    return 204 if i == 10204
+    return 205 if i == 10205
+    return 206 if i == 10206
+    return 207 if i == 10207
+    return 208 if i == 10208
+    return 209 if i == 10209
+    return 210 if i == 10210
+    return 211 if i == 10211
+    return 212 if i == 10212
+    return 213 if i == 10213
+    return 214 if i == 10214
+    return 215 if i == 10215
+    return 216 if i == 10216
+    return 217 if i == 10217
+    return 218 if i == 10218
+    return 219 if i == 10219
+    return 220 if i == 10220
+    return 221 if i == 10221
+    return 222 if i == 10222
+    return 223 if i == 10223
+    return 224 if i == 10224
+    return 225 if i == 10225
+    return 226 if i == 10226
+    return 227 if i == 10227
+    return 228 if i == 10228
+    return 229 if i == 10229
+    return 230 if i == 10230
+    return 231 if i == 10231
+    return 232 if i == 10232
+    return 233 if i == 10233
+    return 234 if i == 10234
+    return 235 if i == 10235
+    return 236 if i == 10236
+    return 237 if i == 10237
+    return 238 if i == 10238
+    return 239 if i == 10239
+    return 240 if i == 10240
+    return 241 if i == 10241
+    return 242 if i == 10242
+    return 243 if i == 10243
+    return 244 if i == 10244
+    return 245 if i == 10245
+    return 246 if i == 10246
+    return 247 if i == 10247
+    return 248 if i == 10248
+    return 249 if i == 10249
+    return 250 if i == 10250
+    return 251 if i == 10251
+    return 252 if i == 10252
+    return 253 if i == 10253
+    return 254 if i == 10254
+    return 255 if i == 10255
+    return 256 if i == 10256
+    return 257 if i == 10257
+    return 258 if i == 10258
+    return 259 if i == 10259
+    return 260 if i == 10260
+    return 261 if i == 10261
+    return 262 if i == 10262
+    return 263 if i == 10263
+    return 264 if i == 10264
+    return 265 if i == 10265
+    return 266 if i == 10266
+    return 267 if i == 10267
+    return 268 if i == 10268
+    return 269 if i == 10269
+    return 270 if i == 10270
+    return 271 if i == 10271
+    return 272 if i == 10272
+    return 273 if i == 10273
+    return 274 if i == 10274
+    return 275 if i == 10275
+    return 276 if i == 10276
+    return 277 if i == 10277
+    return 278 if i == 10278
+    return 279 if i == 10279
+    return 280 if i == 10280
+    return 281 if i == 10281
+    return 282 if i == 10282
+    return 283 if i == 10283
+    return 284 if i == 10284
+    return 285 if i == 10285
+    return 286 if i == 10286
+    return 287 if i == 10287
+    return 288 if i == 10288
+    return 289 if i == 10289
+    return 290 if i == 10290
+    return 291 if i == 10291
+    return 292 if i == 10292
+    return 293 if i == 10293
+    return 294 if i == 10294
+    return 295 if i == 10295
+    return 296 if i == 10296
+    return 297 if i == 10297
+    return 298 if i == 10298
+    return 299 if i == 10299
+    return 300 if i == 10300
+    return 301 if i == 10301
+    return 302 if i == 10302
+    return 303 if i == 10303
+    return 304 if i == 10304
+    return 305 if i == 10305
+    return 306 if i == 10306
+    return 307 if i == 10307
+    return 308 if i == 10308
+    return 309 if i == 10309
+    return 310 if i == 10310
+    return 311 if i == 10311
+    return 312 if i == 10312
+    return 313 if i == 10313
+    return 314 if i == 10314
+    return 315 if i == 10315
+    return 316 if i == 10316
+    return 317 if i == 10317
+    return 318 if i == 10318
+    return 319 if i == 10319
+    return 320 if i == 10320
+    return 321 if i == 10321
+    return 322 if i == 10322
+    return 323 if i == 10323
+    return 324 if i == 10324
+    return 325 if i == 10325
+    return 326 if i == 10326
+    return 327 if i == 10327
+    return 328 if i == 10328
+    return 329 if i == 10329
+    return 330 if i == 10330
+    return 331 if i == 10331
+    return 332 if i == 10332
+    return 333 if i == 10333
+    return 334 if i == 10334
+    return 335 if i == 10335
+    return 336 if i == 10336
+    return 337 if i == 10337
+    return 338 if i == 10338
+    return 339 if i == 10339
+    return 340 if i == 10340
+    return 341 if i == 10341
+    return 342 if i == 10342
+    return 343 if i == 10343
+    return 344 if i == 10344
+    return 345 if i == 10345
+    return 346 if i == 10346
+    return 347 if i == 10347
+    return 348 if i == 10348
+    return 349 if i == 10349
+    return 350 if i == 10350
+    return 351 if i == 10351
+    return 352 if i == 10352
+    return 353 if i == 10353
+    return 354 if i == 10354
+    return 355 if i == 10355
+    return 356 if i == 10356
+    return 357 if i == 10357
+    return 358 if i == 10358
+    return 359 if i == 10359
+    return 360 if i == 10360
+    return 361 if i == 10361
+    return 362 if i == 10362
+    return 363 if i == 10363
+    return 364 if i == 10364
+    return 365 if i == 10365
+    return 366 if i == 10366
+    return 367 if i == 10367
+    return 368 if i == 10368
+    return 369 if i == 10369
+    return 370 if i == 10370
+    return 371 if i == 10371
+    return 372 if i == 10372
+    return 373 if i == 10373
+    return 374 if i == 10374
+    return 375 if i == 10375
+    return 376 if i == 10376
+    return 377 if i == 10377
+    return 378 if i == 10378
+    return 379 if i == 10379
+    return 380 if i == 10380
+    return 381 if i == 10381
+    return 382 if i == 10382
+    return 383 if i == 10383
+    return 384 if i == 10384
+    return 385 if i == 10385
+    return 386 if i == 10386
+    return 387 if i == 10387
+    return 388 if i == 10388
+    return 389 if i == 10389
+    return 390 if i == 10390
+    return 391 if i == 10391
+    return 392 if i == 10392
+    return 393 if i == 10393
+    return 394 if i == 10394
+    return 395 if i == 10395
+    return 396 if i == 10396
+    return 397 if i == 10397
+    return 398 if i == 10398
+    return 399 if i == 10399
+    return 400 if i == 10400
+    return 401 if i == 10401
+    return 402 if i == 10402
+    return 403 if i == 10403
+    return 404 if i == 10404
+    return 405 if i == 10405
+    return 406 if i == 10406
+    return 407 if i == 10407
+    return 408 if i == 10408
+    return 409 if i == 10409
+    return 410 if i == 10410
+    return 411 if i == 10411
+    return 412 if i == 10412
+    return 413 if i == 10413
+    return 414 if i == 10414
+    return 415 if i == 10415
+    return 416 if i == 10416
+    return 417 if i == 10417
+    return 418 if i == 10418
+    return 419 if i == 10419
+    return 420 if i == 10420
+    return 421 if i == 10421
+    return 422 if i == 10422
+    return 423 if i == 10423
+    return 424 if i == 10424
+    return 425 if i == 10425
+    return 426 if i == 10426
+    return 427 if i == 10427
+    return 428 if i == 10428
+    return 429 if i == 10429
+    return 430 if i == 10430
+    return 431 if i == 10431
+    return 432 if i == 10432
+    return 433 if i == 10433
+    return 434 if i == 10434
+    return 435 if i == 10435
+    return 436 if i == 10436
+    return 437 if i == 10437
+    return 438 if i == 10438
+    return 439 if i == 10439
+    return 440 if i == 10440
+    return 441 if i == 10441
+    return 442 if i == 10442
+    return 443 if i == 10443
+    return 444 if i == 10444
+    return 445 if i == 10445
+    return 446 if i == 10446
+    return 447 if i == 10447
+    return 448 if i == 10448
+    return 449 if i == 10449
+    return 450 if i == 10450
+    return 451 if i == 10451
+    return 452 if i == 10452
+    return 453 if i == 10453
+    return 454 if i == 10454
+    return 455 if i == 10455
+    return 456 if i == 10456
+    return 457 if i == 10457
+    return 458 if i == 10458
+    return 459 if i == 10459
+    return 460 if i == 10460
+    return 461 if i == 10461
+    return 462 if i == 10462
+    return 463 if i == 10463
+    return 464 if i == 10464
+    return 465 if i == 10465
+    return 466 if i == 10466
+    return 467 if i == 10467
+    return 468 if i == 10468
+    return 469 if i == 10469
+    return 470 if i == 10470
+    return 471 if i == 10471
+    return 472 if i == 10472
+    return 473 if i == 10473
+    return 474 if i == 10474
+    return 475 if i == 10475
+    return 476 if i == 10476
+    return 477 if i == 10477
+    return 478 if i == 10478
+    return 479 if i == 10479
+    return 480 if i == 10480
+    return 481 if i == 10481
+    return 482 if i == 10482
+    return 483 if i == 10483
+    return 484 if i == 10484
+    return 485 if i == 10485
+    return 486 if i == 10486
+    return 487 if i == 10487
+    return 488 if i == 10488
+    return 489 if i == 10489
+    return 490 if i == 10490
+    return 491 if i == 10491
+    return 492 if i == 10492
+    return 493 if i == 10493
+    return 494 if i == 10494
+    return 495 if i == 10495
+    return 496 if i == 10496
+    return 497 if i == 10497
+    return 498 if i == 10498
+    return 499 if i == 10499
+    return 500 if i == 10500
+    return 501 if i == 10501
+    return 502 if i == 10502
+    return 503 if i == 10503
+    return 504 if i == 10504
+    return 505 if i == 10505
+    return 506 if i == 10506
+    return 507 if i == 10507
+    return 508 if i == 10508
+    return 509 if i == 10509
+    return 510 if i == 10510
+    return 511 if i == 10511
+    return 512 if i == 10512
+    return 513 if i == 10513
+    return 514 if i == 10514
+    return 515 if i == 10515
+    return 516 if i == 10516
+    return 517 if i == 10517
+    return 518 if i == 10518
+    return 519 if i == 10519
+    return 520 if i == 10520
+    return 521 if i == 10521
+    return 522 if i == 10522
+    return 523 if i == 10523
+    return 524 if i == 10524
+    return 525 if i == 10525
+    return 526 if i == 10526
+    return 527 if i == 10527
+    return 528 if i == 10528
+    return 529 if i == 10529
+    return 530 if i == 10530
+    return 531 if i == 10531
+    return 532 if i == 10532
+    return 533 if i == 10533
+    return 534 if i == 10534
+    return 535 if i == 10535
+    return 536 if i == 10536
+    return 537 if i == 10537
+    return 538 if i == 10538
+    return 539 if i == 10539
+    return 540 if i == 10540
+    return 541 if i == 10541
+    return 542 if i == 10542
+    return 543 if i == 10543
+    return 544 if i == 10544
+    return 545 if i == 10545
+    return 546 if i == 10546
+    return 547 if i == 10547
+    return 548 if i == 10548
+    return 549 if i == 10549
+    return 550 if i == 10550
+    return 551 if i == 10551
+    return 552 if i == 10552
+    return 553 if i == 10553
+    return 554 if i == 10554
+    return 555 if i == 10555
+    return 556 if i == 10556
+    return 557 if i == 10557
+    return 558 if i == 10558
+    return 559 if i == 10559
+    return 560 if i == 10560
+    return 561 if i == 10561
+    return 562 if i == 10562
+    return 563 if i == 10563
+    return 564 if i == 10564
+    return 565 if i == 10565
+    return 566 if i == 10566
+    return 567 if i == 10567
+    return 568 if i == 10568
+    return 569 if i == 10569
+    return 570 if i == 10570
+    return 571 if i == 10571
+    return 572 if i == 10572
+    return 573 if i == 10573
+    return 574 if i == 10574
+    return 575 if i == 10575
+    return 576 if i == 10576
+    return 577 if i == 10577
+    return 578 if i == 10578
+    return 579 if i == 10579
+    return 580 if i == 10580
+    return 581 if i == 10581
+    return 582 if i == 10582
+    return 583 if i == 10583
+    return 584 if i == 10584
+    return 585 if i == 10585
+    return 586 if i == 10586
+    return 587 if i == 10587
+    return 588 if i == 10588
+    return 589 if i == 10589
+    return 590 if i == 10590
+    return 591 if i == 10591
+    return 592 if i == 10592
+    return 593 if i == 10593
+    return 594 if i == 10594
+    return 595 if i == 10595
+    return 596 if i == 10596
+    return 597 if i == 10597
+    return 598 if i == 10598
+    return 599 if i == 10599
+    return 600 if i == 10600
+    return 601 if i == 10601
+    return 602 if i == 10602
+    return 603 if i == 10603
+    return 604 if i == 10604
+    return 605 if i == 10605
+    return 606 if i == 10606
+    return 607 if i == 10607
+    return 608 if i == 10608
+    return 609 if i == 10609
+    return 610 if i == 10610
+    return 611 if i == 10611
+    return 612 if i == 10612
+    return 613 if i == 10613
+    return 614 if i == 10614
+    return 615 if i == 10615
+    return 616 if i == 10616
+    return 617 if i == 10617
+    return 618 if i == 10618
+    return 619 if i == 10619
+    return 620 if i == 10620
+    return 621 if i == 10621
+    return 622 if i == 10622
+    return 623 if i == 10623
+    return 624 if i == 10624
+    return 625 if i == 10625
+    return 626 if i == 10626
+    return 627 if i == 10627
+    return 628 if i == 10628
+    return 629 if i == 10629
+    return 630 if i == 10630
+    return 631 if i == 10631
+    return 632 if i == 10632
+    return 633 if i == 10633
+    return 634 if i == 10634
+    return 635 if i == 10635
+    return 636 if i == 10636
+    return 637 if i == 10637
+    return 638 if i == 10638
+    return 639 if i == 10639
+    return 640 if i == 10640
+    return 641 if i == 10641
+    return 642 if i == 10642
+    return 643 if i == 10643
+    return 644 if i == 10644
+    return 645 if i == 10645
+    return 646 if i == 10646
+    return 647 if i == 10647
+    return 648 if i == 10648
+    return 649 if i == 10649
+    return 650 if i == 10650
+    return 651 if i == 10651
+    return 652 if i == 10652
+    return 653 if i == 10653
+    return 654 if i == 10654
+    return 655 if i == 10655
+    return 656 if i == 10656
+    return 657 if i == 10657
+    return 658 if i == 10658
+    return 659 if i == 10659
+    return 660 if i == 10660
+    return 661 if i == 10661
+    return 662 if i == 10662
+    return 663 if i == 10663
+    return 664 if i == 10664
+    return 665 if i == 10665
+    return 666 if i == 10666
+    return 667 if i == 10667
+    return 668 if i == 10668
+    return 669 if i == 10669
+    return 670 if i == 10670
+    return 671 if i == 10671
+    return 672 if i == 10672
+    return 673 if i == 10673
+    return 674 if i == 10674
+    return 675 if i == 10675
+    return 676 if i == 10676
+    return 677 if i == 10677
+    return 678 if i == 10678
+    return 679 if i == 10679
+    return 680 if i == 10680
+    return 681 if i == 10681
+    return 682 if i == 10682
+    return 683 if i == 10683
+    return 684 if i == 10684
+    return 685 if i == 10685
+    return 686 if i == 10686
+    return 687 if i == 10687
+    return 688 if i == 10688
+    return 689 if i == 10689
+    return 690 if i == 10690
+    return 691 if i == 10691
+    return 692 if i == 10692
+    return 693 if i == 10693
+    return 694 if i == 10694
+    return 695 if i == 10695
+    return 696 if i == 10696
+    return 697 if i == 10697
+    return 698 if i == 10698
+    return 699 if i == 10699
+    return 700 if i == 10700
+    return 701 if i == 10701
+    return 702 if i == 10702
+    return 703 if i == 10703
+    return 704 if i == 10704
+    return 705 if i == 10705
+    return 706 if i == 10706
+    return 707 if i == 10707
+    return 708 if i == 10708
+    return 709 if i == 10709
+    return 710 if i == 10710
+    return 711 if i == 10711
+    return 712 if i == 10712
+    return 713 if i == 10713
+    return 714 if i == 10714
+    return 715 if i == 10715
+    return 716 if i == 10716
+    return 717 if i == 10717
+    return 718 if i == 10718
+    return 719 if i == 10719
+    return 720 if i == 10720
+    return 721 if i == 10721
+    return 722 if i == 10722
+    return 723 if i == 10723
+    return 724 if i == 10724
+    return 725 if i == 10725
+    return 726 if i == 10726
+    return 727 if i == 10727
+    return 728 if i == 10728
+    return 729 if i == 10729
+    return 730 if i == 10730
+    return 731 if i == 10731
+    return 732 if i == 10732
+    return 733 if i == 10733
+    return 734 if i == 10734
+    return 735 if i == 10735
+    return 736 if i == 10736
+    return 737 if i == 10737
+    return 738 if i == 10738
+    return 739 if i == 10739
+    return 740 if i == 10740
+    return 741 if i == 10741
+    return 742 if i == 10742
+    return 743 if i == 10743
+    return 744 if i == 10744
+    return 745 if i == 10745
+    return 746 if i == 10746
+    return 747 if i == 10747
+    return 748 if i == 10748
+    return 749 if i == 10749
+    return 750 if i == 10750
+    return 751 if i == 10751
+    return 752 if i == 10752
+    return 753 if i == 10753
+    return 754 if i == 10754
+    return 755 if i == 10755
+    return 756 if i == 10756
+    return 757 if i == 10757
+    return 758 if i == 10758
+    return 759 if i == 10759
+    return 760 if i == 10760
+    return 761 if i == 10761
+    return 762 if i == 10762
+    return 763 if i == 10763
+    return 764 if i == 10764
+    return 765 if i == 10765
+    return 766 if i == 10766
+    return 767 if i == 10767
+    return 768 if i == 10768
+    return 769 if i == 10769
+    return 770 if i == 10770
+    return 771 if i == 10771
+    return 772 if i == 10772
+    return 773 if i == 10773
+    return 774 if i == 10774
+    return 775 if i == 10775
+    return 776 if i == 10776
+    return 777 if i == 10777
+    return 778 if i == 10778
+    return 779 if i == 10779
+    return 780 if i == 10780
+    return 781 if i == 10781
+    return 782 if i == 10782
+    return 783 if i == 10783
+    return 784 if i == 10784
+    return 785 if i == 10785
+    return 786 if i == 10786
+    return 787 if i == 10787
+    return 788 if i == 10788
+    return 789 if i == 10789
+    return 790 if i == 10790
+    return 791 if i == 10791
+    return 792 if i == 10792
+    return 793 if i == 10793
+    return 794 if i == 10794
+    return 795 if i == 10795
+    return 796 if i == 10796
+    return 797 if i == 10797
+    return 798 if i == 10798
+    return 799 if i == 10799
+    return 800 if i == 10800
+    return 801 if i == 10801
+    return 802 if i == 10802
+    return 803 if i == 10803
+    return 804 if i == 10804
+    return 805 if i == 10805
+    return 806 if i == 10806
+    return 807 if i == 10807
+    return 808 if i == 10808
+    return 809 if i == 10809
+    return 810 if i == 10810
+    return 811 if i == 10811
+    return 812 if i == 10812
+    return 813 if i == 10813
+    return 814 if i == 10814
+    return 815 if i == 10815
+    return 816 if i == 10816
+    return 817 if i == 10817
+    return 818 if i == 10818
+    return 819 if i == 10819
+    return 820 if i == 10820
+    return 821 if i == 10821
+    return 822 if i == 10822
+    return 823 if i == 10823
+    return 824 if i == 10824
+    return 825 if i == 10825
+    return 826 if i == 10826
+    return 827 if i == 10827
+    return 828 if i == 10828
+    return 829 if i == 10829
+    return 830 if i == 10830
+    return 831 if i == 10831
+    return 832 if i == 10832
+    return 833 if i == 10833
+    return 834 if i == 10834
+    return 835 if i == 10835
+    return 836 if i == 10836
+    return 837 if i == 10837
+    return 838 if i == 10838
+    return 839 if i == 10839
+    return 840 if i == 10840
+    return 841 if i == 10841
+    return 842 if i == 10842
+    return 843 if i == 10843
+    return 844 if i == 10844
+    return 845 if i == 10845
+    return 846 if i == 10846
+    return 847 if i == 10847
+    return 848 if i == 10848
+    return 849 if i == 10849
+    return 850 if i == 10850
+    return 851 if i == 10851
+    return 852 if i == 10852
+    return 853 if i == 10853
+    return 854 if i == 10854
+    return 855 if i == 10855
+    return 856 if i == 10856
+    return 857 if i == 10857
+    return 858 if i == 10858
+    return 859 if i == 10859
+    return 860 if i == 10860
+    return 861 if i == 10861
+    return 862 if i == 10862
+    return 863 if i == 10863
+    return 864 if i == 10864
+    return 865 if i == 10865
+    return 866 if i == 10866
+    return 867 if i == 10867
+    return 868 if i == 10868
+    return 869 if i == 10869
+    return 870 if i == 10870
+    return 871 if i == 10871
+    return 872 if i == 10872
+    return 873 if i == 10873
+    return 874 if i == 10874
+    return 875 if i == 10875
+    return 876 if i == 10876
+    return 877 if i == 10877
+    return 878 if i == 10878
+    return 879 if i == 10879
+    return 880 if i == 10880
+    return 881 if i == 10881
+    return 882 if i == 10882
+    return 883 if i == 10883
+    return 884 if i == 10884
+    return 885 if i == 10885
+    return 886 if i == 10886
+    return 887 if i == 10887
+    return 888 if i == 10888
+    return 889 if i == 10889
+    return 890 if i == 10890
+    return 891 if i == 10891
+    return 892 if i == 10892
+    return 893 if i == 10893
+    return 894 if i == 10894
+    return 895 if i == 10895
+    return 896 if i == 10896
+    return 897 if i == 10897
+    return 898 if i == 10898
+    return 899 if i == 10899
+    return 900 if i == 10900
+    return 901 if i == 10901
+    return 902 if i == 10902
+    return 903 if i == 10903
+    return 904 if i == 10904
+    return 905 if i == 10905
+    return 906 if i == 10906
+    return 907 if i == 10907
+    return 908 if i == 10908
+    return 909 if i == 10909
+    return 910 if i == 10910
+    return 911 if i == 10911
+    return 912 if i == 10912
+    return 913 if i == 10913
+    return 914 if i == 10914
+    return 915 if i == 10915
+    return 916 if i == 10916
+    return 917 if i == 10917
+    return 918 if i == 10918
+    return 919 if i == 10919
+    return 920 if i == 10920
+    return 921 if i == 10921
+    return 922 if i == 10922
+    return 923 if i == 10923
+    return 924 if i == 10924
+    return 925 if i == 10925
+    return 926 if i == 10926
+    return 927 if i == 10927
+    return 928 if i == 10928
+    return 929 if i == 10929
+    return 930 if i == 10930
+    return 931 if i == 10931
+    return 932 if i == 10932
+    return 933 if i == 10933
+    return 934 if i == 10934
+    return 935 if i == 10935
+    return 936 if i == 10936
+    return 937 if i == 10937
+    return 938 if i == 10938
+    return 939 if i == 10939
+    return 940 if i == 10940
+    return 941 if i == 10941
+    return 942 if i == 10942
+    return 943 if i == 10943
+    return 944 if i == 10944
+    return 945 if i == 10945
+    return 946 if i == 10946
+    return 947 if i == 10947
+    return 948 if i == 10948
+    return 949 if i == 10949
+    return 950 if i == 10950
+    return 951 if i == 10951
+    return 952 if i == 10952
+    return 953 if i == 10953
+    return 954 if i == 10954
+    return 955 if i == 10955
+    return 956 if i == 10956
+    return 957 if i == 10957
+    return 958 if i == 10958
+    return 959 if i == 10959
+    return 960 if i == 10960
+    return 961 if i == 10961
+    return 962 if i == 10962
+    return 963 if i == 10963
+    return 964 if i == 10964
+    return 965 if i == 10965
+    return 966 if i == 10966
+    return 967 if i == 10967
+    return 968 if i == 10968
+    return 969 if i == 10969
+    return 970 if i == 10970
+    return 971 if i == 10971
+    return 972 if i == 10972
+    return 973 if i == 10973
+    return 974 if i == 10974
+    return 975 if i == 10975
+    return 976 if i == 10976
+    return 977 if i == 10977
+    return 978 if i == 10978
+    return 979 if i == 10979
+    return 980 if i == 10980
+    return 981 if i == 10981
+    return 982 if i == 10982
+    return 983 if i == 10983
+    return 984 if i == 10984
+    return 985 if i == 10985
+    return 986 if i == 10986
+    return 987 if i == 10987
+    return 988 if i == 10988
+    return 989 if i == 10989
+    return 990 if i == 10990
+    return 991 if i == 10991
+    return 992 if i == 10992
+    return 993 if i == 10993
+    return 994 if i == 10994
+    return 995 if i == 10995
+    return 996 if i == 10996
+    return 997 if i == 10997
+    return 998 if i == 10998
+    return 999 if i == 10999
+    return 1000 if i == 11000
+    return 1001 if i == 11001
+    return 1002 if i == 11002
+    return 1003 if i == 11003
+    return 1004 if i == 11004
+    return 1005 if i == 11005
+    return 1006 if i == 11006
+    return 1007 if i == 11007
+    return 1008 if i == 11008
+    return 1009 if i == 11009
+    return 1010 if i == 11010
+    return 1011 if i == 11011
+    return 1012 if i == 11012
+    return 1013 if i == 11013
+    return 1014 if i == 11014
+    return 1015 if i == 11015
+    return 1016 if i == 11016
+    return 1017 if i == 11017
+    return 1018 if i == 11018
+    return 1019 if i == 11019
+    return 1020 if i == 11020
+    return 1021 if i == 11021
+    return 1022 if i == 11022
+    return 1023 if i == 11023
+    return 1024 if i == 11024
+    return 1025 if i == 11025
+    return 1026 if i == 11026
+    return 1027 if i == 11027
+    return 1028 if i == 11028
+    return 1029 if i == 11029
+    return 1030 if i == 11030
+    return 1031 if i == 11031
+    return 1032 if i == 11032
+    return 1033 if i == 11033
+    return 1034 if i == 11034
+    return 1035 if i == 11035
+    return 1036 if i == 11036
+    return 1037 if i == 11037
+    return 1038 if i == 11038
+    return 1039 if i == 11039
+    return 1040 if i == 11040
+    return 1041 if i == 11041
+    return 1042 if i == 11042
+    return 1043 if i == 11043
+    return 1044 if i == 11044
+    return 1045 if i == 11045
+    return 1046 if i == 11046
+    return 1047 if i == 11047
+    return 1048 if i == 11048
+    return 1049 if i == 11049
+    return 1050 if i == 11050
+    return 1051 if i == 11051
+    return 1052 if i == 11052
+    return 1053 if i == 11053
+    return 1054 if i == 11054
+    return 1055 if i == 11055
+    return 1056 if i == 11056
+    return 1057 if i == 11057
+    return 1058 if i == 11058
+    return 1059 if i == 11059
+    return 1060 if i == 11060
+    return 1061 if i == 11061
+    return 1062 if i == 11062
+    return 1063 if i == 11063
+    return 1064 if i == 11064
+    return 1065 if i == 11065
+    return 1066 if i == 11066
+    return 1067 if i == 11067
+    return 1068 if i == 11068
+    return 1069 if i == 11069
+    return 1070 if i == 11070
+    return 1071 if i == 11071
+    return 1072 if i == 11072
+    return 1073 if i == 11073
+    return 1074 if i == 11074
+    return 1075 if i == 11075
+    return 1076 if i == 11076
+    return 1077 if i == 11077
+    return 1078 if i == 11078
+    return 1079 if i == 11079
+    return 1080 if i == 11080
+    return 1081 if i == 11081
+    return 1082 if i == 11082
+    return 1083 if i == 11083
+    return 1084 if i == 11084
+    return 1085 if i == 11085
+    return 1086 if i == 11086
+    return 1087 if i == 11087
+    return 1088 if i == 11088
+    return 1089 if i == 11089
+    return 1090 if i == 11090
+    return 1091 if i == 11091
+    return 1092 if i == 11092
+    return 1093 if i == 11093
+    return 1094 if i == 11094
+    return 1095 if i == 11095
+    return 1096 if i == 11096
+    return 1097 if i == 11097
+    return 1098 if i == 11098
+    return 1099 if i == 11099
+    return 1100 if i == 11100
+    return 1101 if i == 11101
+    return 1102 if i == 11102
+    return 1103 if i == 11103
+    return 1104 if i == 11104
+    return 1105 if i == 11105
+    return 1106 if i == 11106
+    return 1107 if i == 11107
+    return 1108 if i == 11108
+    return 1109 if i == 11109
+    return 1110 if i == 11110
+    return 1111 if i == 11111
+    return 1112 if i == 11112
+    return 1113 if i == 11113
+    return 1114 if i == 11114
+    return 1115 if i == 11115
+    return 1116 if i == 11116
+    return 1117 if i == 11117
+    return 1118 if i == 11118
+    return 1119 if i == 11119
+    return 1120 if i == 11120
+    return 1121 if i == 11121
+    return 1122 if i == 11122
+    return 1123 if i == 11123
+    return 1124 if i == 11124
+    return 1125 if i == 11125
+    return 1126 if i == 11126
+    return 1127 if i == 11127
+    return 1128 if i == 11128
+    return 1129 if i == 11129
+    return 1130 if i == 11130
+    return 1131 if i == 11131
+    return 1132 if i == 11132
+    return 1133 if i == 11133
+    return 1134 if i == 11134
+    return 1135 if i == 11135
+    return 1136 if i == 11136
+    return 1137 if i == 11137
+    return 1138 if i == 11138
+    return 1139 if i == 11139
+    return 1140 if i == 11140
+    return 1141 if i == 11141
+    return 1142 if i == 11142
+    return 1143 if i == 11143
+    return 1144 if i == 11144
+    return 1145 if i == 11145
+    return 1146 if i == 11146
+    return 1147 if i == 11147
+    return 1148 if i == 11148
+    return 1149 if i == 11149
+    return 1150 if i == 11150
+    return 1151 if i == 11151
+    return 1152 if i == 11152
+    return 1153 if i == 11153
+    return 1154 if i == 11154
+    return 1155 if i == 11155
+    return 1156 if i == 11156
+    return 1157 if i == 11157
+    return 1158 if i == 11158
+    return 1159 if i == 11159
+    return 1160 if i == 11160
+    return 1161 if i == 11161
+    return 1162 if i == 11162
+    return 1163 if i == 11163
+    return 1164 if i == 11164
+    return 1165 if i == 11165
+    return 1166 if i == 11166
+    return 1167 if i == 11167
+    return 1168 if i == 11168
+    return 1169 if i == 11169
+    return 1170 if i == 11170
+    return 1171 if i == 11171
+    return 1172 if i == 11172
+    return 1173 if i == 11173
+    return 1174 if i == 11174
+    return 1175 if i == 11175
+    return 1176 if i == 11176
+    return 1177 if i == 11177
+    return 1178 if i == 11178
+    return 1179 if i == 11179
+    return 1180 if i == 11180
+    return 1181 if i == 11181
+    return 1182 if i == 11182
+    return 1183 if i == 11183
+    return 1184 if i == 11184
+    return 1185 if i == 11185
+    return 1186 if i == 11186
+    return 1187 if i == 11187
+    return 1188 if i == 11188
+    return 1189 if i == 11189
+    return 1190 if i == 11190
+    return 1191 if i == 11191
+    return 1192 if i == 11192
+    return 1193 if i == 11193
+    return 1194 if i == 11194
+    return 1195 if i == 11195
+    return 1196 if i == 11196
+    return 1197 if i == 11197
+    return 1198 if i == 11198
+    return 1199 if i == 11199
+    return 1200 if i == 11200
+    i
+
+  print(exits(1))
+
+test "frameowners-drop-pile", '''
+  0
+  1688700
+'''
+  # A `drop` body is a frame owner: 1,300 calls of a helper the rule would
+  # inline there ran off the stack.
+  fun w(i: Int) -> Int
+    t = [7000 of 0]
+    for k in 0..7000
+      t[k] = k + i
+    t[i % 7000]
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      i = self.n
+      s = 0
+      s += w(i + 0) + w(i + 1) + w(i + 2) + w(i + 3) + w(i + 4) + w(i + 5) + w(i + 6) + w(i + 7) + w(i + 8) + w(i + 9)
+      s += w(i + 10) + w(i + 11) + w(i + 12) + w(i + 13) + w(i + 14) + w(i + 15) + w(i + 16) + w(i + 17) + w(i + 18) + w(i + 19)
+      s += w(i + 20) + w(i + 21) + w(i + 22) + w(i + 23) + w(i + 24) + w(i + 25) + w(i + 26) + w(i + 27) + w(i + 28) + w(i + 29)
+      s += w(i + 30) + w(i + 31) + w(i + 32) + w(i + 33) + w(i + 34) + w(i + 35) + w(i + 36) + w(i + 37) + w(i + 38) + w(i + 39)
+      s += w(i + 40) + w(i + 41) + w(i + 42) + w(i + 43) + w(i + 44) + w(i + 45) + w(i + 46) + w(i + 47) + w(i + 48) + w(i + 49)
+      s += w(i + 50) + w(i + 51) + w(i + 52) + w(i + 53) + w(i + 54) + w(i + 55) + w(i + 56) + w(i + 57) + w(i + 58) + w(i + 59)
+      s += w(i + 60) + w(i + 61) + w(i + 62) + w(i + 63) + w(i + 64) + w(i + 65) + w(i + 66) + w(i + 67) + w(i + 68) + w(i + 69)
+      s += w(i + 70) + w(i + 71) + w(i + 72) + w(i + 73) + w(i + 74) + w(i + 75) + w(i + 76) + w(i + 77) + w(i + 78) + w(i + 79)
+      s += w(i + 80) + w(i + 81) + w(i + 82) + w(i + 83) + w(i + 84) + w(i + 85) + w(i + 86) + w(i + 87) + w(i + 88) + w(i + 89)
+      s += w(i + 90) + w(i + 91) + w(i + 92) + w(i + 93) + w(i + 94) + w(i + 95) + w(i + 96) + w(i + 97) + w(i + 98) + w(i + 99)
+      s += w(i + 100) + w(i + 101) + w(i + 102) + w(i + 103) + w(i + 104) + w(i + 105) + w(i + 106) + w(i + 107) + w(i + 108) + w(i + 109)
+      s += w(i + 110) + w(i + 111) + w(i + 112) + w(i + 113) + w(i + 114) + w(i + 115) + w(i + 116) + w(i + 117) + w(i + 118) + w(i + 119)
+      s += w(i + 120) + w(i + 121) + w(i + 122) + w(i + 123) + w(i + 124) + w(i + 125) + w(i + 126) + w(i + 127) + w(i + 128) + w(i + 129)
+      s += w(i + 130) + w(i + 131) + w(i + 132) + w(i + 133) + w(i + 134) + w(i + 135) + w(i + 136) + w(i + 137) + w(i + 138) + w(i + 139)
+      s += w(i + 140) + w(i + 141) + w(i + 142) + w(i + 143) + w(i + 144) + w(i + 145) + w(i + 146) + w(i + 147) + w(i + 148) + w(i + 149)
+      s += w(i + 150) + w(i + 151) + w(i + 152) + w(i + 153) + w(i + 154) + w(i + 155) + w(i + 156) + w(i + 157) + w(i + 158) + w(i + 159)
+      s += w(i + 160) + w(i + 161) + w(i + 162) + w(i + 163) + w(i + 164) + w(i + 165) + w(i + 166) + w(i + 167) + w(i + 168) + w(i + 169)
+      s += w(i + 170) + w(i + 171) + w(i + 172) + w(i + 173) + w(i + 174) + w(i + 175) + w(i + 176) + w(i + 177) + w(i + 178) + w(i + 179)
+      s += w(i + 180) + w(i + 181) + w(i + 182) + w(i + 183) + w(i + 184) + w(i + 185) + w(i + 186) + w(i + 187) + w(i + 188) + w(i + 189)
+      s += w(i + 190) + w(i + 191) + w(i + 192) + w(i + 193) + w(i + 194) + w(i + 195) + w(i + 196) + w(i + 197) + w(i + 198) + w(i + 199)
+      s += w(i + 200) + w(i + 201) + w(i + 202) + w(i + 203) + w(i + 204) + w(i + 205) + w(i + 206) + w(i + 207) + w(i + 208) + w(i + 209)
+      s += w(i + 210) + w(i + 211) + w(i + 212) + w(i + 213) + w(i + 214) + w(i + 215) + w(i + 216) + w(i + 217) + w(i + 218) + w(i + 219)
+      s += w(i + 220) + w(i + 221) + w(i + 222) + w(i + 223) + w(i + 224) + w(i + 225) + w(i + 226) + w(i + 227) + w(i + 228) + w(i + 229)
+      s += w(i + 230) + w(i + 231) + w(i + 232) + w(i + 233) + w(i + 234) + w(i + 235) + w(i + 236) + w(i + 237) + w(i + 238) + w(i + 239)
+      s += w(i + 240) + w(i + 241) + w(i + 242) + w(i + 243) + w(i + 244) + w(i + 245) + w(i + 246) + w(i + 247) + w(i + 248) + w(i + 249)
+      s += w(i + 250) + w(i + 251) + w(i + 252) + w(i + 253) + w(i + 254) + w(i + 255) + w(i + 256) + w(i + 257) + w(i + 258) + w(i + 259)
+      s += w(i + 260) + w(i + 261) + w(i + 262) + w(i + 263) + w(i + 264) + w(i + 265) + w(i + 266) + w(i + 267) + w(i + 268) + w(i + 269)
+      s += w(i + 270) + w(i + 271) + w(i + 272) + w(i + 273) + w(i + 274) + w(i + 275) + w(i + 276) + w(i + 277) + w(i + 278) + w(i + 279)
+      s += w(i + 280) + w(i + 281) + w(i + 282) + w(i + 283) + w(i + 284) + w(i + 285) + w(i + 286) + w(i + 287) + w(i + 288) + w(i + 289)
+      s += w(i + 290) + w(i + 291) + w(i + 292) + w(i + 293) + w(i + 294) + w(i + 295) + w(i + 296) + w(i + 297) + w(i + 298) + w(i + 299)
+      s += w(i + 300) + w(i + 301) + w(i + 302) + w(i + 303) + w(i + 304) + w(i + 305) + w(i + 306) + w(i + 307) + w(i + 308) + w(i + 309)
+      s += w(i + 310) + w(i + 311) + w(i + 312) + w(i + 313) + w(i + 314) + w(i + 315) + w(i + 316) + w(i + 317) + w(i + 318) + w(i + 319)
+      s += w(i + 320) + w(i + 321) + w(i + 322) + w(i + 323) + w(i + 324) + w(i + 325) + w(i + 326) + w(i + 327) + w(i + 328) + w(i + 329)
+      s += w(i + 330) + w(i + 331) + w(i + 332) + w(i + 333) + w(i + 334) + w(i + 335) + w(i + 336) + w(i + 337) + w(i + 338) + w(i + 339)
+      s += w(i + 340) + w(i + 341) + w(i + 342) + w(i + 343) + w(i + 344) + w(i + 345) + w(i + 346) + w(i + 347) + w(i + 348) + w(i + 349)
+      s += w(i + 350) + w(i + 351) + w(i + 352) + w(i + 353) + w(i + 354) + w(i + 355) + w(i + 356) + w(i + 357) + w(i + 358) + w(i + 359)
+      s += w(i + 360) + w(i + 361) + w(i + 362) + w(i + 363) + w(i + 364) + w(i + 365) + w(i + 366) + w(i + 367) + w(i + 368) + w(i + 369)
+      s += w(i + 370) + w(i + 371) + w(i + 372) + w(i + 373) + w(i + 374) + w(i + 375) + w(i + 376) + w(i + 377) + w(i + 378) + w(i + 379)
+      s += w(i + 380) + w(i + 381) + w(i + 382) + w(i + 383) + w(i + 384) + w(i + 385) + w(i + 386) + w(i + 387) + w(i + 388) + w(i + 389)
+      s += w(i + 390) + w(i + 391) + w(i + 392) + w(i + 393) + w(i + 394) + w(i + 395) + w(i + 396) + w(i + 397) + w(i + 398) + w(i + 399)
+      s += w(i + 400) + w(i + 401) + w(i + 402) + w(i + 403) + w(i + 404) + w(i + 405) + w(i + 406) + w(i + 407) + w(i + 408) + w(i + 409)
+      s += w(i + 410) + w(i + 411) + w(i + 412) + w(i + 413) + w(i + 414) + w(i + 415) + w(i + 416) + w(i + 417) + w(i + 418) + w(i + 419)
+      s += w(i + 420) + w(i + 421) + w(i + 422) + w(i + 423) + w(i + 424) + w(i + 425) + w(i + 426) + w(i + 427) + w(i + 428) + w(i + 429)
+      s += w(i + 430) + w(i + 431) + w(i + 432) + w(i + 433) + w(i + 434) + w(i + 435) + w(i + 436) + w(i + 437) + w(i + 438) + w(i + 439)
+      s += w(i + 440) + w(i + 441) + w(i + 442) + w(i + 443) + w(i + 444) + w(i + 445) + w(i + 446) + w(i + 447) + w(i + 448) + w(i + 449)
+      s += w(i + 450) + w(i + 451) + w(i + 452) + w(i + 453) + w(i + 454) + w(i + 455) + w(i + 456) + w(i + 457) + w(i + 458) + w(i + 459)
+      s += w(i + 460) + w(i + 461) + w(i + 462) + w(i + 463) + w(i + 464) + w(i + 465) + w(i + 466) + w(i + 467) + w(i + 468) + w(i + 469)
+      s += w(i + 470) + w(i + 471) + w(i + 472) + w(i + 473) + w(i + 474) + w(i + 475) + w(i + 476) + w(i + 477) + w(i + 478) + w(i + 479)
+      s += w(i + 480) + w(i + 481) + w(i + 482) + w(i + 483) + w(i + 484) + w(i + 485) + w(i + 486) + w(i + 487) + w(i + 488) + w(i + 489)
+      s += w(i + 490) + w(i + 491) + w(i + 492) + w(i + 493) + w(i + 494) + w(i + 495) + w(i + 496) + w(i + 497) + w(i + 498) + w(i + 499)
+      s += w(i + 500) + w(i + 501) + w(i + 502) + w(i + 503) + w(i + 504) + w(i + 505) + w(i + 506) + w(i + 507) + w(i + 508) + w(i + 509)
+      s += w(i + 510) + w(i + 511) + w(i + 512) + w(i + 513) + w(i + 514) + w(i + 515) + w(i + 516) + w(i + 517) + w(i + 518) + w(i + 519)
+      s += w(i + 520) + w(i + 521) + w(i + 522) + w(i + 523) + w(i + 524) + w(i + 525) + w(i + 526) + w(i + 527) + w(i + 528) + w(i + 529)
+      s += w(i + 530) + w(i + 531) + w(i + 532) + w(i + 533) + w(i + 534) + w(i + 535) + w(i + 536) + w(i + 537) + w(i + 538) + w(i + 539)
+      s += w(i + 540) + w(i + 541) + w(i + 542) + w(i + 543) + w(i + 544) + w(i + 545) + w(i + 546) + w(i + 547) + w(i + 548) + w(i + 549)
+      s += w(i + 550) + w(i + 551) + w(i + 552) + w(i + 553) + w(i + 554) + w(i + 555) + w(i + 556) + w(i + 557) + w(i + 558) + w(i + 559)
+      s += w(i + 560) + w(i + 561) + w(i + 562) + w(i + 563) + w(i + 564) + w(i + 565) + w(i + 566) + w(i + 567) + w(i + 568) + w(i + 569)
+      s += w(i + 570) + w(i + 571) + w(i + 572) + w(i + 573) + w(i + 574) + w(i + 575) + w(i + 576) + w(i + 577) + w(i + 578) + w(i + 579)
+      s += w(i + 580) + w(i + 581) + w(i + 582) + w(i + 583) + w(i + 584) + w(i + 585) + w(i + 586) + w(i + 587) + w(i + 588) + w(i + 589)
+      s += w(i + 590) + w(i + 591) + w(i + 592) + w(i + 593) + w(i + 594) + w(i + 595) + w(i + 596) + w(i + 597) + w(i + 598) + w(i + 599)
+      s += w(i + 600) + w(i + 601) + w(i + 602) + w(i + 603) + w(i + 604) + w(i + 605) + w(i + 606) + w(i + 607) + w(i + 608) + w(i + 609)
+      s += w(i + 610) + w(i + 611) + w(i + 612) + w(i + 613) + w(i + 614) + w(i + 615) + w(i + 616) + w(i + 617) + w(i + 618) + w(i + 619)
+      s += w(i + 620) + w(i + 621) + w(i + 622) + w(i + 623) + w(i + 624) + w(i + 625) + w(i + 626) + w(i + 627) + w(i + 628) + w(i + 629)
+      s += w(i + 630) + w(i + 631) + w(i + 632) + w(i + 633) + w(i + 634) + w(i + 635) + w(i + 636) + w(i + 637) + w(i + 638) + w(i + 639)
+      s += w(i + 640) + w(i + 641) + w(i + 642) + w(i + 643) + w(i + 644) + w(i + 645) + w(i + 646) + w(i + 647) + w(i + 648) + w(i + 649)
+      s += w(i + 650) + w(i + 651) + w(i + 652) + w(i + 653) + w(i + 654) + w(i + 655) + w(i + 656) + w(i + 657) + w(i + 658) + w(i + 659)
+      s += w(i + 660) + w(i + 661) + w(i + 662) + w(i + 663) + w(i + 664) + w(i + 665) + w(i + 666) + w(i + 667) + w(i + 668) + w(i + 669)
+      s += w(i + 670) + w(i + 671) + w(i + 672) + w(i + 673) + w(i + 674) + w(i + 675) + w(i + 676) + w(i + 677) + w(i + 678) + w(i + 679)
+      s += w(i + 680) + w(i + 681) + w(i + 682) + w(i + 683) + w(i + 684) + w(i + 685) + w(i + 686) + w(i + 687) + w(i + 688) + w(i + 689)
+      s += w(i + 690) + w(i + 691) + w(i + 692) + w(i + 693) + w(i + 694) + w(i + 695) + w(i + 696) + w(i + 697) + w(i + 698) + w(i + 699)
+      s += w(i + 700) + w(i + 701) + w(i + 702) + w(i + 703) + w(i + 704) + w(i + 705) + w(i + 706) + w(i + 707) + w(i + 708) + w(i + 709)
+      s += w(i + 710) + w(i + 711) + w(i + 712) + w(i + 713) + w(i + 714) + w(i + 715) + w(i + 716) + w(i + 717) + w(i + 718) + w(i + 719)
+      s += w(i + 720) + w(i + 721) + w(i + 722) + w(i + 723) + w(i + 724) + w(i + 725) + w(i + 726) + w(i + 727) + w(i + 728) + w(i + 729)
+      s += w(i + 730) + w(i + 731) + w(i + 732) + w(i + 733) + w(i + 734) + w(i + 735) + w(i + 736) + w(i + 737) + w(i + 738) + w(i + 739)
+      s += w(i + 740) + w(i + 741) + w(i + 742) + w(i + 743) + w(i + 744) + w(i + 745) + w(i + 746) + w(i + 747) + w(i + 748) + w(i + 749)
+      s += w(i + 750) + w(i + 751) + w(i + 752) + w(i + 753) + w(i + 754) + w(i + 755) + w(i + 756) + w(i + 757) + w(i + 758) + w(i + 759)
+      s += w(i + 760) + w(i + 761) + w(i + 762) + w(i + 763) + w(i + 764) + w(i + 765) + w(i + 766) + w(i + 767) + w(i + 768) + w(i + 769)
+      s += w(i + 770) + w(i + 771) + w(i + 772) + w(i + 773) + w(i + 774) + w(i + 775) + w(i + 776) + w(i + 777) + w(i + 778) + w(i + 779)
+      s += w(i + 780) + w(i + 781) + w(i + 782) + w(i + 783) + w(i + 784) + w(i + 785) + w(i + 786) + w(i + 787) + w(i + 788) + w(i + 789)
+      s += w(i + 790) + w(i + 791) + w(i + 792) + w(i + 793) + w(i + 794) + w(i + 795) + w(i + 796) + w(i + 797) + w(i + 798) + w(i + 799)
+      s += w(i + 800) + w(i + 801) + w(i + 802) + w(i + 803) + w(i + 804) + w(i + 805) + w(i + 806) + w(i + 807) + w(i + 808) + w(i + 809)
+      s += w(i + 810) + w(i + 811) + w(i + 812) + w(i + 813) + w(i + 814) + w(i + 815) + w(i + 816) + w(i + 817) + w(i + 818) + w(i + 819)
+      s += w(i + 820) + w(i + 821) + w(i + 822) + w(i + 823) + w(i + 824) + w(i + 825) + w(i + 826) + w(i + 827) + w(i + 828) + w(i + 829)
+      s += w(i + 830) + w(i + 831) + w(i + 832) + w(i + 833) + w(i + 834) + w(i + 835) + w(i + 836) + w(i + 837) + w(i + 838) + w(i + 839)
+      s += w(i + 840) + w(i + 841) + w(i + 842) + w(i + 843) + w(i + 844) + w(i + 845) + w(i + 846) + w(i + 847) + w(i + 848) + w(i + 849)
+      s += w(i + 850) + w(i + 851) + w(i + 852) + w(i + 853) + w(i + 854) + w(i + 855) + w(i + 856) + w(i + 857) + w(i + 858) + w(i + 859)
+      s += w(i + 860) + w(i + 861) + w(i + 862) + w(i + 863) + w(i + 864) + w(i + 865) + w(i + 866) + w(i + 867) + w(i + 868) + w(i + 869)
+      s += w(i + 870) + w(i + 871) + w(i + 872) + w(i + 873) + w(i + 874) + w(i + 875) + w(i + 876) + w(i + 877) + w(i + 878) + w(i + 879)
+      s += w(i + 880) + w(i + 881) + w(i + 882) + w(i + 883) + w(i + 884) + w(i + 885) + w(i + 886) + w(i + 887) + w(i + 888) + w(i + 889)
+      s += w(i + 890) + w(i + 891) + w(i + 892) + w(i + 893) + w(i + 894) + w(i + 895) + w(i + 896) + w(i + 897) + w(i + 898) + w(i + 899)
+      s += w(i + 900) + w(i + 901) + w(i + 902) + w(i + 903) + w(i + 904) + w(i + 905) + w(i + 906) + w(i + 907) + w(i + 908) + w(i + 909)
+      s += w(i + 910) + w(i + 911) + w(i + 912) + w(i + 913) + w(i + 914) + w(i + 915) + w(i + 916) + w(i + 917) + w(i + 918) + w(i + 919)
+      s += w(i + 920) + w(i + 921) + w(i + 922) + w(i + 923) + w(i + 924) + w(i + 925) + w(i + 926) + w(i + 927) + w(i + 928) + w(i + 929)
+      s += w(i + 930) + w(i + 931) + w(i + 932) + w(i + 933) + w(i + 934) + w(i + 935) + w(i + 936) + w(i + 937) + w(i + 938) + w(i + 939)
+      s += w(i + 940) + w(i + 941) + w(i + 942) + w(i + 943) + w(i + 944) + w(i + 945) + w(i + 946) + w(i + 947) + w(i + 948) + w(i + 949)
+      s += w(i + 950) + w(i + 951) + w(i + 952) + w(i + 953) + w(i + 954) + w(i + 955) + w(i + 956) + w(i + 957) + w(i + 958) + w(i + 959)
+      s += w(i + 960) + w(i + 961) + w(i + 962) + w(i + 963) + w(i + 964) + w(i + 965) + w(i + 966) + w(i + 967) + w(i + 968) + w(i + 969)
+      s += w(i + 970) + w(i + 971) + w(i + 972) + w(i + 973) + w(i + 974) + w(i + 975) + w(i + 976) + w(i + 977) + w(i + 978) + w(i + 979)
+      s += w(i + 980) + w(i + 981) + w(i + 982) + w(i + 983) + w(i + 984) + w(i + 985) + w(i + 986) + w(i + 987) + w(i + 988) + w(i + 989)
+      s += w(i + 990) + w(i + 991) + w(i + 992) + w(i + 993) + w(i + 994) + w(i + 995) + w(i + 996) + w(i + 997) + w(i + 998) + w(i + 999)
+      s += w(i + 1000) + w(i + 1001) + w(i + 1002) + w(i + 1003) + w(i + 1004) + w(i + 1005) + w(i + 1006) + w(i + 1007) + w(i + 1008) + w(i + 1009)
+      s += w(i + 1010) + w(i + 1011) + w(i + 1012) + w(i + 1013) + w(i + 1014) + w(i + 1015) + w(i + 1016) + w(i + 1017) + w(i + 1018) + w(i + 1019)
+      s += w(i + 1020) + w(i + 1021) + w(i + 1022) + w(i + 1023) + w(i + 1024) + w(i + 1025) + w(i + 1026) + w(i + 1027) + w(i + 1028) + w(i + 1029)
+      s += w(i + 1030) + w(i + 1031) + w(i + 1032) + w(i + 1033) + w(i + 1034) + w(i + 1035) + w(i + 1036) + w(i + 1037) + w(i + 1038) + w(i + 1039)
+      s += w(i + 1040) + w(i + 1041) + w(i + 1042) + w(i + 1043) + w(i + 1044) + w(i + 1045) + w(i + 1046) + w(i + 1047) + w(i + 1048) + w(i + 1049)
+      s += w(i + 1050) + w(i + 1051) + w(i + 1052) + w(i + 1053) + w(i + 1054) + w(i + 1055) + w(i + 1056) + w(i + 1057) + w(i + 1058) + w(i + 1059)
+      s += w(i + 1060) + w(i + 1061) + w(i + 1062) + w(i + 1063) + w(i + 1064) + w(i + 1065) + w(i + 1066) + w(i + 1067) + w(i + 1068) + w(i + 1069)
+      s += w(i + 1070) + w(i + 1071) + w(i + 1072) + w(i + 1073) + w(i + 1074) + w(i + 1075) + w(i + 1076) + w(i + 1077) + w(i + 1078) + w(i + 1079)
+      s += w(i + 1080) + w(i + 1081) + w(i + 1082) + w(i + 1083) + w(i + 1084) + w(i + 1085) + w(i + 1086) + w(i + 1087) + w(i + 1088) + w(i + 1089)
+      s += w(i + 1090) + w(i + 1091) + w(i + 1092) + w(i + 1093) + w(i + 1094) + w(i + 1095) + w(i + 1096) + w(i + 1097) + w(i + 1098) + w(i + 1099)
+      s += w(i + 1100) + w(i + 1101) + w(i + 1102) + w(i + 1103) + w(i + 1104) + w(i + 1105) + w(i + 1106) + w(i + 1107) + w(i + 1108) + w(i + 1109)
+      s += w(i + 1110) + w(i + 1111) + w(i + 1112) + w(i + 1113) + w(i + 1114) + w(i + 1115) + w(i + 1116) + w(i + 1117) + w(i + 1118) + w(i + 1119)
+      s += w(i + 1120) + w(i + 1121) + w(i + 1122) + w(i + 1123) + w(i + 1124) + w(i + 1125) + w(i + 1126) + w(i + 1127) + w(i + 1128) + w(i + 1129)
+      s += w(i + 1130) + w(i + 1131) + w(i + 1132) + w(i + 1133) + w(i + 1134) + w(i + 1135) + w(i + 1136) + w(i + 1137) + w(i + 1138) + w(i + 1139)
+      s += w(i + 1140) + w(i + 1141) + w(i + 1142) + w(i + 1143) + w(i + 1144) + w(i + 1145) + w(i + 1146) + w(i + 1147) + w(i + 1148) + w(i + 1149)
+      s += w(i + 1150) + w(i + 1151) + w(i + 1152) + w(i + 1153) + w(i + 1154) + w(i + 1155) + w(i + 1156) + w(i + 1157) + w(i + 1158) + w(i + 1159)
+      s += w(i + 1160) + w(i + 1161) + w(i + 1162) + w(i + 1163) + w(i + 1164) + w(i + 1165) + w(i + 1166) + w(i + 1167) + w(i + 1168) + w(i + 1169)
+      s += w(i + 1170) + w(i + 1171) + w(i + 1172) + w(i + 1173) + w(i + 1174) + w(i + 1175) + w(i + 1176) + w(i + 1177) + w(i + 1178) + w(i + 1179)
+      s += w(i + 1180) + w(i + 1181) + w(i + 1182) + w(i + 1183) + w(i + 1184) + w(i + 1185) + w(i + 1186) + w(i + 1187) + w(i + 1188) + w(i + 1189)
+      s += w(i + 1190) + w(i + 1191) + w(i + 1192) + w(i + 1193) + w(i + 1194) + w(i + 1195) + w(i + 1196) + w(i + 1197) + w(i + 1198) + w(i + 1199)
+      s += w(i + 1200) + w(i + 1201) + w(i + 1202) + w(i + 1203) + w(i + 1204) + w(i + 1205) + w(i + 1206) + w(i + 1207) + w(i + 1208) + w(i + 1209)
+      s += w(i + 1210) + w(i + 1211) + w(i + 1212) + w(i + 1213) + w(i + 1214) + w(i + 1215) + w(i + 1216) + w(i + 1217) + w(i + 1218) + w(i + 1219)
+      s += w(i + 1220) + w(i + 1221) + w(i + 1222) + w(i + 1223) + w(i + 1224) + w(i + 1225) + w(i + 1226) + w(i + 1227) + w(i + 1228) + w(i + 1229)
+      s += w(i + 1230) + w(i + 1231) + w(i + 1232) + w(i + 1233) + w(i + 1234) + w(i + 1235) + w(i + 1236) + w(i + 1237) + w(i + 1238) + w(i + 1239)
+      s += w(i + 1240) + w(i + 1241) + w(i + 1242) + w(i + 1243) + w(i + 1244) + w(i + 1245) + w(i + 1246) + w(i + 1247) + w(i + 1248) + w(i + 1249)
+      s += w(i + 1250) + w(i + 1251) + w(i + 1252) + w(i + 1253) + w(i + 1254) + w(i + 1255) + w(i + 1256) + w(i + 1257) + w(i + 1258) + w(i + 1259)
+      s += w(i + 1260) + w(i + 1261) + w(i + 1262) + w(i + 1263) + w(i + 1264) + w(i + 1265) + w(i + 1266) + w(i + 1267) + w(i + 1268) + w(i + 1269)
+      s += w(i + 1270) + w(i + 1271) + w(i + 1272) + w(i + 1273) + w(i + 1274) + w(i + 1275) + w(i + 1276) + w(i + 1277) + w(i + 1278) + w(i + 1279)
+      s += w(i + 1280) + w(i + 1281) + w(i + 1282) + w(i + 1283) + w(i + 1284) + w(i + 1285) + w(i + 1286) + w(i + 1287) + w(i + 1288) + w(i + 1289)
+      s += w(i + 1290) + w(i + 1291) + w(i + 1292) + w(i + 1293) + w(i + 1294) + w(i + 1295) + w(i + 1296) + w(i + 1297) + w(i + 1298) + w(i + 1299)
+      print(s)
+
+  r = Res(n: 0)
+  print(r.n)
+
+test "h1-b", "4 4"
+  sub f(w2: !Int)
+    new w = w2
+    w += 1
+    w2 += 1
+    print(w, w2)
+
+  m = 3
+  f(!m)
+
+fail "h1-c", "bare use of write view `w2` in binding would copy a write view, which is unique; use `<w2` to move it"
+  sub f(w2: !Int)
+    w: !Int = w2
+    w += 1
+    w2 += 1
+
+  m = 3
+  f(!m)
+  print(m)
+
+test "h1-k", '''
+  4 3
+  3
+  3
+'''
+  sub f(w2: !Int)
+    x = w2
+    x += 1
+    print(x, w2 + 0)
+    y: Int = w2
+    print(y)
+
+  m = 3
+  f(!m)
+  print(m)
+
+test "h1-p", '''
+  2 3 3 1 2
+  1 2
+'''
+  sub f(w2: !Int, w3: !Int, c: Bool)
+    x = while true
+      break w2
+    y = for _ in 0..3
+      break w3 if c
+    else
+      w2
+    z: Int = while true
+      break w3
+    x += 1
+    y += 1
+    z += 1
+    print(x, y, z, w2, w3)
+
+  n = 1
+  m = 2
+  f(!n, !m, true)
+  print(n, m)
+
+test "hf6-generic-read-view-rebound", "5"
+  # A generic method `left(?self, other: ?T) -> ?T` at `T = Int`, its result
+  # bound to a name that held a lend of a place.
+  obj Pair[T]
+    x: T
+
+    fun left(?self, other: ?T) -> ?T
+      ?self.x
+
+  p = Pair(x: 5)
+  q = ?p.x
+  o = 6
+  q = ?p.left(?o)
+  print(q)
+
+test "lamassign-t", "18 4"
+  sub each(xs: []Int, f: ?sub(Int))
+    for x in xs
+      f(x)
+
+  v = [5, 3, 9, 1]
+  total = 0
+  each(?v, |!total, n| total += n)
+  count = 0
+  each(?v, |!count, n| count = count + 1)
+  print(total, count)
+
+test "lead-s45-f1 for write temp path", "abcdefghijklmnopqrstuvwxyz0123456789"
+  fun idx(s: ?String) -> Int
+    0
+
+  v: List[List[String]] = List()
+  inner: List[String] = List()
+  !inner.push(String("a"))
+  !v.push(<inner)
+  for t in !v[idx(?String("k"))]
+    !t.add("bcdefghijklmnopqrstuvwxyz0123456789")
+  for t in v[0]
+    print(t)
+
+test "lead-s45-f4 for write temp path array", "9 9"
+  fun idx(s: ?String) -> Int
+    0
+
+  v: List[[2]Int] = List()
+  !v.push([1, 2])
+  for x in !v[idx(?String("k"))]
+    x = 9
+  print(v[0][0], v[0][1])
+
+test "lead-s45-f5 for write temp path array text", "abcdefghijklmnopqrstuvwxyz0123456789"
+  fun idx(s: ?String) -> Int
+    0
+
+  v: List[[1]String] = List()
+  !v.push([String("a")])
+  for t in !v[idx(?String("k"))]
+    !t.add("bcdefghijklmnopqrstuvwxyz0123456789")
+  print(v[0][0])
+
+test "lead-s45-f7 for temp path nested array", "9 9"
+  fun idx(s: ?String) -> Int
+    0
+
+  a = [[1, 2], [3, 4]]
+  for x in !a[idx(?String("k"))]
+    x = 9
+  print(a[0][0], a[0][1])
+
+fail "lead-s45-g1 push loop elem", "`copy_all[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns"
+  sub copy_all[T](v: ?List[T], out: !List[T]) keeps v
+    for x in v
+      !out.push(x)
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  out: List[String] = List()
+  copy_all(?v, !out)
+  print(out.len)
+
+fail "lead-s45-g3 store loop elem", "`keep[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns"
+  obj Keep[T]
+    item: T?
+
+  sub keep[T](v: ?List[T], k: !Keep[T]) keeps v
+    for x in v
+      k.item = x
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  k = Keep[String](item: none)
+  keep(?v, !k)
+  print(v.len)
+
+test "optwrite-ok03-ifas-param", "new"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?, v: ?String) keeps v
+    if <w as x
+      x.s = v
+      !x.keep(v)
+
+  t = String("outer")
+  u = String("new")
+  h = H(s: ?t)
+  set(!h, ?u)
+  print(h.s)
+
+test "optwrite-ok05-local-copy", '''
+  outer
+  outer
+'''
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?)
+    d = String("local")
+    if <w as x
+      k = H(s: ?d)
+      k.s = x.s
+      print(k.s)
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+test "optwrite-ok07-own-field", "outer"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?)
+    if <w as x
+      x.s = x.s
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+test "optwrite-ok08-returned", "y"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  fun set(w: (!H)?) -> (!H)?
+    x = <w ?? return none
+    x.s = "s"
+    x
+
+  t = String("outer")
+  h = H(s: ?t)
+  if set(!h) as y
+    y.s = "y"
+  print(h.s)
+
+test "optwrite-ok10-closure-param-view", "new"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?, v: ?String) keeps v
+    f = |<w, ?v| (w ?? return).s = v
+    f()
+
+  t = String("outer")
+  u = String("new")
+  h = H(s: ?t)
+  set(!h, ?u)
+  print(h.s)
+
+test "optwrite-ok11-closure-unwrapped-param-view", "new"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?, v: ?String) keeps v
+    x = <w ?? return
+    f = |<x, ?v| x.s = v
+    f()
+
+  t = String("outer")
+  u = String("new")
+  h = H(s: ?t)
+  set(!h, ?u)
+  print(h.s)
+
+test "optwrite-ok12-closure-static", "static"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?, v: ?String)
+    f = |<w| (w ?? return).s = "static"
+    f()
+
+  t = String("outer")
+  u = String("new")
+  h = H(s: ?t)
+  set(!h, ?u)
+  print(h.s)
+
+fail "optwrite-p01-closure-capture", "cannot let this call store a view of `d` in `w`: `w` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: !H)
+    d = String("local")
+    f = |!w, ?d| w.s = d
+    f()
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-p02-local-lend-on", "cannot store a view of `d` through `y`: `w` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: !H)
+    d = String("local")
+    y = !w
+    y.s = ?d
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-p03-swap", "cannot let this call store a view of `d` in `w`: `w` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: !H)
+    d = String("local")
+    k = H(s: ?d)
+    swap(!w, !k)
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-r02b-fallible-bang", "cannot store a view of `d` through `must(<w)!`: `w` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  error E
+    bad
+
+  fun must(w: (!H)?) -> (!H)!
+    <w ?? return E.bad
+
+  fun set(w: (!H)?) -> Int!
+    d = String("local")
+    must(<w)!.s = ?d
+    0
+
+  t = String("outer")
+  h = H(s: ?t)
+  print(set(!h) catch 1)
+  print(h.s)
+
+fail "optwrite-r03-nullish", "cannot store a view of `d` through `w ?? return`: `w` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?)
+    d = String("local")
+    (w ?? return).s = ?d
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-r04-catch", "cannot store a view of `d` through `must(<w) catch return`: `w` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  error E
+    bad
+
+  fun must(w: (!H)?) -> (!H)!
+    <w ?? return E.bad
+
+  sub set(w: (!H)?)
+    d = String("local")
+    (must(<w) catch return).s = ?d
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-r06b-match-unwrapped", "cannot store a view of `d` through `s`: `w` outlives it"
+  enum E
+    a(s: ?String)
+    b
+
+  obj H
+    e: E
+
+  sub set(w: (!H)?)
+    d = String("local")
+    if <w as x
+      match !x.e
+        .a(s) => s = ?d
+        .b => pass
+
+  t = String("outer")
+  h = H(e: E.a(s: ?t))
+  set(!h)
+  match h.e
+    .a(s) => print(s)
+    .b => pass
+
+fail "optwrite-r06c-store-in-arm", "cannot store a view of `d` through `w ?? return`: `w` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?)
+    d = String("local")
+    match d.len
+      5 => (w ?? return).s = ?d
+      _ => pass
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-r07-nested", "cannot store a view of `d` through `w ?? return`: `w` outlives it"
+  obj In
+    s: ?String
+
+  obj H
+    a: In
+
+  sub set(w: (!H)?)
+    d = String("local")
+    (w ?? return).a.s = ?d
+
+  t = String("outer")
+  h = H(a: In(s: ?t))
+  set(!h)
+  print(h.a.s)
+
+fail "optwrite-r07b-nested-prop", "cannot store a view of `d` through `w?`: `w` outlives it"
+  obj In
+    s: ?String
+
+  obj H
+    a: In
+
+  fun set(w: (!H)?) -> Int?
+    d = String("local")
+    w?.a.s = ?d
+    0
+
+  t = String("outer")
+  h = H(a: In(s: ?t))
+  print(set(!h))
+  print(h.a.s)
+
+fail "optwrite-r08b-method-nullish", "cannot let this call store a view of `d` in `w`: `w` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?)
+    d = String("local")
+    (w ?? return).keep(?d)
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-r08c-method-ifas", "cannot let this call store a view of `d` in `w`: `w` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?)
+    d = String("local")
+    if <w as x
+      !x.keep(?d)
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-r09b-list-push-ifas", "cannot let this call store a view of `d` in `w`: `w` outlives it"
+  obj H
+    items: List[?String]
+
+  sub set(w: (!H)?)
+    d = String("local")
+    if <w as x
+      !x.items.push(?d)
+
+  h = H(items: List())
+  set(!h)
+  print(h.items)
+
+fail "optwrite-r10-list-elem", "cannot store a view of `d` through `w ?? return`: `w` outlives it"
+  obj H
+    items: List[?String]
+
+  sub set(w: (!H)?)
+    d = String("local")
+    (w ?? return).items[0] = ?d
+
+  h = H(items: List())
+  !h.items.push("x")
+  set(!h)
+  print(h.items)
+
+fail "optwrite-r11-closure-capture", "cannot let this call store a view of `d` in `w`: `w` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?)
+    d = String("local")
+    f = |<w, ?d| (w ?? return).s = d
+    f()
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-r11b-closure-unwrapped", "cannot let this call store a view of `d` in `w`: `w` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?)
+    d = String("local")
+    x = <w ?? return
+    f = |<x, ?d| x.s = d
+    f()
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-r11c-closure-param", "cannot store a view of `v` through captured `x`: `x` outlives every call of the closure, and the closure's parameters and own values last one call at most"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?)
+    d = String("local")
+    x = <w ?? return
+    f = |<x, v: ?String| x.s = v
+    f(?d)
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-r13-local-opt", "cannot store a view of `d` through `x ?? return`: `w` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?)
+    d = String("local")
+    x = <w
+    (x ?? return).s = ?d
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-r13b-local-opt-prop-ifas", "cannot store a view of `d` in `y.s`: `y` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?)
+    d = String("local")
+    x = <w
+    if <x as y
+      y.s = ?d
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-r18-call-stores", "cannot let this call store a view of `d` in `w`: `w` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub put(w: (!H)?, v: ?String) keeps v
+    (w ?? return).s = v
+
+  sub set(w: (!H)?)
+    d = String("local")
+    put(<w, ?d)
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-r19-call-stores-unwrapped", "cannot let this call store a view of `d` in `w`: `w` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub put(w: !H, v: ?String) keeps v
+    w.s = v
+
+  sub set(w: (!H)?)
+    d = String("local")
+    put(<w ?? return, ?d)
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-r20-method-on-moved", "cannot let this call store a view of `d` in `w`: `w` outlives it"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?)
+    d = String("local")
+    (<w ?? return).keep(?d)
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "optwrite-r21-caller-sees-store", "`u` does not live long enough"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?, v: ?String) keeps v
+    (w ?? return).s = v
+
+  t = String("outer")
+  h = H(s: ?t)
+  if true
+    u = String("new")
+    set(!h, ?u)
+  print(h.s)
+
+fail "optwrite-r22-caller-sees-store-write", "cannot lend `u` to write while a read loan is live"
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?, v: ?String) keeps v
+    (w ?? return).s = v
+
+  t = String("outer")
+  u = String("new")
+  h = H(s: ?t)
+  set(!h, ?u)
+  !u.add("x")
+  print(h.s)
+
+fail "optwrite-relax-p01-closure-store", "cannot store a view of `v` through captured `h`: `h` outlives every call of the closure, and the closure's parameters and own values last one call at most"
+  obj H
+    s: ?String
+
+  t = String("outer")
+  h = H(s: ?t)
+  if true
+    d = String("local")
+    f = |!h, v: ?String| h.s = v
+    f(?d)
+  print(h.s)
+
+fail "optwrite-relax-p02-for-write", "`d` does not live long enough"
+  obj K
+    a: ?String
+
+    sub put(!self, v: ?String) keeps v
+      self.a = v
+
+  t = String("outer")
+  l: List[K] = List()
+  !l.push(K(a: ?t))
+  for x in !l
+    d = String("local")
+    !x.put(?d)
+  print(l[0].a)
+
+fail "optwrite-relax-p03-for-write-chain", "`d` does not live long enough"
+  obj K
+    a: ?String
+
+    sub put(!self, v: ?String) keeps v
+      self.a = v
+
+  t = String("outer")
+  l: List[K] = List()
+  !l.push(K(a: ?t))
+  for x in !l
+    w = !x
+    d = String("local")
+    !w.put(?d)
+  print(l[0].a)
+
+fail "optwrite-relax-p04-match-write-chain", "`d` does not live long enough"
+  obj K
+    a: ?String
+
+    sub put(!self, v: ?String) keeps v
+      self.a = v
+
+  enum E
+    one(k: K)
+    nothing
+
+  t = String("outer")
+  e: E = .one(k: K(a: ?t))
+  match !e
+    .one(k: x)
+      w = !x
+      d = String("local")
+      !w.put(?d)
+    .nothing => pass
+  match e
+    .one(k: y) => print(y.a)
+    .nothing => pass
+
+fail "optwrite-relax-p05-match-via-view", "`d` does not live long enough"
+  obj K
+    a: ?String
+
+    sub put(!self, v: ?String) keeps v
+      self.a = v
+
+  enum E
+    one(k: K)
+    nothing
+
+  sub putk(k: !K, v: ?String) keeps v
+    k.a = v
+
+  t = String("outer")
+  e: E = .one(k: K(a: ?t))
+  if true
+    w = !e
+    match !w
+      .one(k: x)
+        d = String("local")
+        !x.put(?d)
+      .nothing => pass
+  if true
+    w = !e
+    match !w
+      .one(k: x)
+        d = String("local2")
+        putk(!x, ?d)
+      .nothing => pass
+  match e
+    .one(k: y) => print(y.a)
+    .nothing => pass
+
+fail "optwrite-relax-p06-closure-capture-binding", "`d` does not live long enough"
+  obj K
+    a: ?String
+
+    sub put(!self, v: ?String) keeps v
+      self.a = v
+
+  enum E
+    one(k: K)
+    nothing
+
+  t = String("outer")
+  e: E = .one(k: K(a: ?t))
+  if true
+    w = !e
+    match !w
+      .one(k: x)
+        d = String("local")
+        f = |!x, ?d| !x.put(d)
+        f()
+      .nothing => pass
+  match e
+    .one(k: y) => print(y.a)
+    .nothing => pass
+
+fail "optwrite-relax-p08-slice", "`d` does not live long enough"
+  sub setfirst(s: ![]?String, v: ?String) keeps v
+    s[0] = v
+
+  t = String("outer")
+  l: List[?String] = List()
+  !l.push(?t)
+  if true
+    s = !l[0..1]
+    d = String("local")
+    setfirst(!s, ?d)
+  print(l)
+
+fail "optwrite-relax-p09-slice-fill", "`d` does not live long enough"
+  t = String("outer")
+  l: List[?String] = List()
+  !l.push(?t)
+  if true
+    s = !l[0..1]
+    d = String("local")
+    !s.fill(?d)
+  print(l)
+
+fail "optwrite-relax-p10-headers", "`d` does not live long enough"
+  obj K
+    a: ?String
+
+    sub put(!self, v: ?String) keeps v
+      self.a = v
+
+  t = String("outer")
+  o: K? = K(a: ?t)
+  arr: [2]K = [K(a: ?t), K(a: ?t)]
+  l: List[K] = List()
+  !l.push(K(a: ?t))
+  if true
+    w = !o
+    if !w as x
+      y = !x
+      d = String("d1")
+      !y.put(?d)
+  if true
+    w = !arr
+    for x in !w
+      y = !x
+      d = String("d2")
+      !y.put(?d)
+  if true
+    w = !o
+    while !w as x
+      d = String("d4")
+      !x.put(?d)
+      break
+  print(o, arr[0].a, l[0].a)
+
+fail "optwrite-relax-p12-closure-body", "`d` does not live long enough"
+  obj K
+    a: ?String
+
+    sub put(!self, v: ?String) keeps v
+      self.a = v
+
+  t = String("outer")
+  k = K(a: ?t)
+  f = |!k|
+    d = String("d1")
+    !k.put(?d)
+  f()
+  g = |!k|
+    d = String("d2")
+    y = !k
+    !y.put(?d)
+  g()
+  h = |!k|
+    d = String("d3")
+    inner = |!k, ?d| !k.put(d)
+    inner()
+  h()
+  print(k.a)
+
+test "optwrite-relax-p13-accept-mix", '''
+  outer local1
+  outer
+  local2 outer
+  local3 outer
+  outer local4
+  outer
+'''
+  obj H
+    s: ?String
+
+  obj K
+    a: ?String
+    b: ?String
+
+    sub put(!self, v: ?String) keeps v
+      self.b = v
+
+  fun mk(w: !H) -> K
+    K(a: w.s, b: "")
+
+  sub viaReturn(h: !H)
+    if true
+      k = mk(!h)
+      d = String("local1")
+      !k.put(?d)
+      print(k.a, k.b)
+    print(h.s)
+
+  sub viaSwap(w: !H)
+    d = String("local2")
+    a = K(a: w.s, b: "")
+    b = K(a: ?d, b: ?d)
+    swap(!a, !b)
+    print(a.a, b.a)
+
+  sub viaReplace(w: !H)
+    d = String("local3")
+    a = K(a: w.s, b: "")
+    old = replace(!a, K(a: ?d, b: ""))
+    print(a.a, old.a)
+
+  sub viaOpt(w: (!H)?)
+    d = String("local4")
+    if w as r
+      k = K(a: r.s, b: "")
+      !k.put(?d)
+      print(k.a, k.b)
+
+  t = String("outer")
+  h = H(s: ?t)
+  viaReturn(!h)
+  viaSwap(!h)
+  viaReplace(!h)
+  viaOpt(!h)
+  print(h.s)
+
+test "optwrite-relax-p14-view-of-copy", '''
+  outer local
+  outer
+'''
+  obj H
+    s: ?String
+
+  obj K
+    a: ?String
+    b: ?String
+
+    sub put(!self, v: ?String) keeps v
+      self.b = v
+
+  sub ok(p: !H)
+    d = String("local")
+    k = K(a: p.s, b: "")
+    w = !k
+    !w.put(?d)
+    print(k.a, k.b)
+
+  t = String("outer")
+  h = H(s: ?t)
+  ok(!h)
+  print(h.s)
+
+fail "optwrite-review-a01-cross-param-ok", "cannot store a view of `x` through `g ?? return`: `g` outlives it"
+  obj H
+    n: String
+
+  obj G
+    r: ?String
+
+  sub set(w: (!H)?, g: (!G)?)
+    x = <w ?? return
+    (g ?? return).r = ?x.n
+
+  h = H(n: String("caller"))
+  g = G(r: "")
+  set(!h, !g)
+  print(g.r)
+
+fail "optwrite-review-a02-cross-param-ifas-ok", "cannot store a view of `x` in `y.r`: `y` outlives it"
+  obj H
+    n: String
+
+  obj G
+    r: ?String
+
+  sub set(w: (!H)?, g: (!G)?)
+    if <w as x
+      if <g as y
+        y.r = ?x.n
+
+  h = H(n: String("caller"))
+  g = G(r: "")
+  set(!h, !g)
+  print(g.r)

@@ -1,3 +1,0 @@
-pub error ParseError
-  eof
-  bad

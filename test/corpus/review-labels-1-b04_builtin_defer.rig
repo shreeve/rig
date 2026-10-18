@@ -1,6 +1,0 @@
-sub show(n: Int)
-  print(n)
-
-sub main()
-  defer show(@size(Int))
-  print(0)

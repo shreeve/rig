@@ -1,0 +1,1765 @@
+# Probes from past reviews and audits, 33 of 41: review-step45-r2-a15_take_branch_temp to review-syntax-b-1-d05_loop_moved_source_drop.
+
+fail "review-step45-r2-a15 take branch temp", "use of `w` after move"
+  # if (<v[idx(?Text("a"))] if c else <w) as t: takes through a temp in a branch (exempt form)
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("q"))
+  w: String? = String("w")
+  c = v.len == 1
+  if (<v[idx(?String("a"))] if c else <w) as t
+    !t.add("!")
+    print(t)
+  print(v, w)
+
+test "review-step45-r2-b06 match call write temp", "322"
+  # match getw(!e, ?Text("a")) guarded: a write view of an enum returned by a call with a temp argument
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  fun getw(e: !E, s: ?String) -> !E
+    e
+
+  e = E.a(t: String("hi"))
+  match getw(!e, ?String("a"))
+    .a(t) if t.len > 0
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .a(t)
+      !t.add("?")
+    .b(n)
+      print(n)
+  match e
+    .a(t) => print(t.len)
+    .b(n) => print(n)
+
+test "review-step45-r2-c01 branch subject temp write", "qxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx w"
+  # if (!v[idx(?Text("a"))] if c else !w) as t: branching subject, one leaf through a temp; grow t
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("q"))
+  w: String? = String("w")
+  c = v.len == 1
+  if (!v[idx(?String("a"))] if c else !w) as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+  print(v[0], w)
+
+test "review-step45-r2-c01b branch subject temp plain", "[50] 2"
+  # base-comparable c01: if (!arr[idx(?Text("a"))] if c else !w) as n over [1]Int?: the write must land
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  arr: [1]Int? = [1]
+  w: Int? = 2
+  c = w != none
+  if (!arr[idx(?String("a"))] if c else !w) as n
+    n = 50
+  print(arr, w)
+
+test "review-step45-r2-c01c branch subject temp noindex", "qxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx w"
+  # branching if-as subject where the temp is elsewhere in the leaf: (!o if f(?Text("a")) else !w)
+  fun f(s: ?String) -> Bool
+    s.len == 1
+
+  o: String? = String("q")
+  w: String? = String("w")
+  if (!o if f(?String("a")) else !w) as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+  print(o, w)
+
+test "review-step45-r2-c03 branch match temp write", "322"
+  # match (!v[idx(?Text("a"))] if c else !v[0]) guarded; grow payload
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[E] = List()
+  !v.push(E.a(t: String("hi")))
+  c = v.len == 1
+  match (!v[idx(?String("a"))] if c else !v[0])
+    .a(t) if t.len > 0
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .a(t)
+      !t.add("?")
+    .b(n)
+      print(n)
+  match v[0]
+    .a(t) => print(t.len)
+    .b(n) => print(n)
+
+test "review-step45-r2-c08 branch while temp write", "qxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx w"
+  # while (!v[idx(?Text("a"))] if c else !w) as t: re-evaluated each iteration
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("q"))
+  w: String? = String("w")
+  c = v.len == 1
+  n = 0
+  while (!v[idx(?String("a"))] if c else !w) as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+    n += 1
+    if n == 2
+      break
+  print(v[0], w)
+
+test "review-step45-r2-c09 branch field temp write", "qxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  # if (!s.f[idx(?Text("a"))].o if c else !w) as t : field after index, inside a branch
+  obj S
+    o: String?
+
+  obj H
+    f: List[S]
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  h = H(f: List())
+  !h.f.push(S(o: String("q")))
+  w: String? = String("w")
+  c = h.f.len == 1
+  if (!h.f[idx(?String("a"))].o if c else !w) as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+  print(h.f[0].o)
+
+test "review-step45-r2-c10 branch rhs only temp write", "wxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  # if (!w if c else !v[idx(?Text("a"))]) as t with c true: does the w leaf still bind a copy?
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("q"))
+  w: String? = String("w")
+  c = v.len == 1
+  if (!w if c else !v[idx(?String("a"))]) as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+  print(w)
+
+test "review-step45-r2-c11 branch read escape", '''
+  2003
+  1 [42]
+'''
+  # if (?v[idx(?Text("a"))] if c else ?w) as t over List[Int]?: a view of t escapes the if
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1] + b[2]
+
+  v: List[List[Int]?] = List()
+  inner: List[Int] = List()
+  !inner.push(42)
+  !v.push(<inner)
+  w: List[Int]? = none
+  c = v.len == 1
+  dummy: List[Int] = List()
+  r = ?dummy
+  if (?v[idx(?String("a"))] if c else ?w) as t
+    r = ?t
+  print(clobber(1000))
+  print(r.len, r)
+
+test "review-step45-r2-c11b branch read escape reuse", '''
+  2003
+  [2, 2, 2]
+  1 [42]
+'''
+  # if (?v[idx(?Text("a"))] if c else ?w) as t over List[Int]?: a view of t escapes the if
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1] + b[2]
+
+  v: List[List[Int]?] = List()
+  inner: List[Int] = List()
+  !inner.push(42)
+  !v.push(<inner)
+  w: List[Int]? = none
+  c = v.len == 1
+  dummy: List[Int] = List()
+  r = ?dummy
+  if (?v[idx(?String("a"))] if c else ?w) as t
+    r = ?t
+  print(clobber(1000))
+  big: List[Int]? = none
+  for k in 0..3
+    q: List[Int] = List()
+    !q.push(k)
+    !q.push(k)
+    !q.push(k)
+    big = <q
+  print(big)
+  print(r.len, r)
+
+test "review-step45-r2-c12 match value subject temp", "qxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  # if-as over a match value whose arm lends an element through a temp; grow t
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("q"))
+  w: String? = String("w")
+  k = 1
+  o = match k
+    1 => !v[idx(?String("a"))]
+    _ => !w
+  if !o as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+  print(v[0])
+
+test "review-step45-r2-c13 branch temp in cond plain leaves", "qxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx w"
+  # if (!a if f(?Text("x")) else !b) as t: temp only in the branch condition (c01c), List leaf
+  fun f(s: ?String) -> Bool
+    s.len == 1
+
+  v: List[String?] = List()
+  !v.push(String("q"))
+  w: String? = String("w")
+  if (!v[0] if f(?String("x")) else !w) as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+  print(v[0], w)
+
+fail "review-step45-r2-d01 repoint via lend on move", "cannot reassign `w` while it is lent"
+  # w = !a; w2 = !w; w = <w2: the right side doesn't name w but carries w's view of a
+  a = String("a")
+  b = String("b")
+  w = !a
+  w2 = !w
+  w = <w2
+  a = String("A")
+  !w.add("!")
+  print(a, b)
+
+fail "review-step45-r2-d02 repoint via fn of lend on", "cannot reassign `w` while it is lent"
+  # w2 = id(!w); w = <w2 : re-point to a view derived from w through a call
+  fun id(x: !String) -> !String
+    x
+
+  a = String("a")
+  w = !a
+  w2 = id(!w)
+  w = <w2
+  a = String("A")
+  !w.add("!")
+  print(a)
+
+test "review-step45-r2-d04b closure arg ok", "4"
+  # minimal: pass a stack closure to a ?fun() -> Int parameter, result bound
+  fun pick(f: ?fun() -> Int, y: Int) -> Int
+    y + f()
+
+  n = 1
+  f = |?n| n + 1
+  r = pick(f, 2)
+  print(r)
+
+test "review-step45-r2-d04c capture read of wview ok", "1"
+  # minimal crash: a closure captures ?w where w is a write-view local
+  a = String("a")
+  w = !a
+  f = |?w| w.len
+  print(f())
+
+fail "review-step45-r2-d04f crash double write arg after fn", "cannot lend `b` to write while a write loan is live"
+  # crash min
+  fun pick(f: ?fun() -> Int, x: !String, y: !String) -> !String
+    y
+
+  b = String("b")
+  f = || 1
+  w = pick(?f, !b, !b)
+  print(w)
+
+fail "review-step45-r2-d06 repoint loop continue", "cannot reassign `a` while it is lent"
+  # re-point in a loop with continue and break, old target used after the loop
+  a = String("a")
+  b = String("b")
+  c = String("c")
+  w = !a
+  for i in 0..6
+    if i % 3 == 0
+      w = !b
+      continue
+    if i == 5
+      break
+    w = !c
+    !w.add("x")
+  a = String("A")
+  !w.add("!")
+  print(a, b, c)
+
+fail "review-step45-r2-d07 repoint branch then old used", "cannot reassign `a` while it is lent"
+  # re-point inside a branch; after the join the old target is written while w may still view it
+  a = String("a")
+  b = String("b")
+  w = !a
+  if b.len == 1
+    w = !b
+  a = String("A")
+  !w.add("!")
+  print(a, b)
+
+fail "review-step45-r2-d08 repoint defer uses w", "use of `b` while a write loan is live"
+  # defer writes through w; w re-pointed after; old target dropped before scope end
+  b = String("b")
+  w = !b
+  if true
+    a = String("a")
+    w = !a
+    defer !w.add("d")
+    w = !b
+  print(b)
+
+test "review-step45-r2-d09 repoint rhs reads old target", "a b!"
+  # right side reads the old target a directly (allowed only if w's loan ended): w = pick(?a, !b)
+  fun pick(x: ?String, y: !String) -> !String
+    y
+
+  a = String("a")
+  b = String("b")
+  w = !a
+  w = pick(?a, !b)
+  !w.add("!")
+  print(a, b)
+
+test "review-step45-r2-d10 repoint rhs drops old target", "replaced b!"
+  # right side drops/replaces the old target through a function that takes ownership-ish ops
+  fun swapin(x: !String, y: !String) -> !String
+    x = String("replaced")
+    y
+
+  a = String("a")
+  b = String("b")
+  w = !a
+  w = swapin(!a, !b)
+  !w.add("!")
+  print(a, b)
+
+test "review-step45-r2-d11 repoint slice loop", '''
+  ["z", "c"] ["z"]
+'''
+  # re-point a ![]Text local in a loop at different Vecs, push the old one after re-point
+  v: List[String] = List()
+  !v.push(String("a"))
+  u: List[String] = List()
+  !u.push(String("b"))
+  s = !v[..]
+  for i in 0..3
+    s = !u[..] if i % 2 == 0 else !v[..]
+    s[0] = String("z")
+  !v.push(String("c"))
+  print(v, u)
+
+fail "review-step45-r2-d12 repoint after push through", "cannot drop `t` while it is lent"
+  # push a view through w into its target List, re-point w, then drop the viewed Text
+  inner: List[?String] = List()
+  other: List[?String] = List()
+  w = !inner
+  t = String("t")
+  !w.push(?t)
+  w = !other
+  <t
+  print(inner)
+
+fail "review-step45-r2-d14 repoint view copy read", "cannot reassign `w` while it is lent"
+  # s = ?w (a read view through w, carries w's loans), then re-point w, then write a
+  a = String("a")
+  b = String("b")
+  w = !a
+  s: ?String = ?w
+  w = !b
+  a = String("A")
+  print(s)
+
+fail "review-step45-r2-d15 repoint closure moved w", "cannot reassign `a` while it is lent"
+  # move w into an owned-ish closure capture <w, re-point w, write a, call closure
+  a = String("a")
+  b = String("b")
+  w = !a
+  f = |<w| !w.add("!")
+  w = !b
+  a = String("A")
+  f()
+  print(a, b)
+
+fail "review-step45-r2-e02 field", "`hold[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns"
+  # H3: generic loop over ?List[T], body: store into a struct field
+  obj S
+    t: String
+
+  obj Holder[T]
+    x: T?
+
+  fun hold[T](v: ?List[T]) -> Holder[T]
+    h = Holder[T](x: none)
+    for x in v
+      h.x = x
+    <h
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  print(hold(?v).x)
+
+fail "review-step45-r2-e03 arg", "`all[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns"
+  # H3: generic loop over ?List[T], body: pass by value to a T param
+  obj S
+    t: String
+
+  obj Holder[T]
+    x: T?
+
+  fun eat[T](x: T) -> Int
+    1
+
+  fun all[T](v: ?List[T]) -> Int
+    n = 0
+    for x in v
+      n += eat(x)
+    n
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  print(all(?v))
+
+fail "review-step45-r2-e04 closure", "`cap[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns"
+  # H3: generic loop over ?List[T], body: capture <x in a closure
+  obj S
+    t: String
+
+  obj Holder[T]
+    x: T?
+
+  fun cap[T](v: ?List[T]) -> Int
+    n = 0
+    for x in v
+      f = |<x| 1
+      n += f()
+    n
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  print(cap(?v))
+
+fail "review-step45-r2-e07 box", "`bx[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns"
+  # H3: generic loop over ?List[T], body: ^x
+  obj S
+    t: String
+
+  obj Holder[T]
+    x: T?
+
+  fun bx[T](v: ?List[T]) -> Int
+    n = 0
+    for x in v
+      b = ^x
+      n += 1
+    n
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  print(bx(?v))
+
+fail "review-step45-r2-e08 bind copy", "`last[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns"
+  # H3: generic loop over ?List[T], body: y = x then return y
+  obj S
+    t: String
+
+  obj Holder[T]
+    x: T?
+
+  fun last[T](v: ?List[T]) -> T?
+    r: T? = none
+    for x in v
+      r = x
+    r
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  print(last(?v))
+
+fail "review-step45-r2-e10 swap in loop", "cannot lend `v` to write while a read loan is live"
+  # H3: generic loop over ?List[T], body: swap the List while looping
+  obj S
+    t: String
+
+  obj Holder[T]
+    x: T?
+
+  sub sw[T](v: !List[T])
+    for x in v
+      !v.swap(0, 1)
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  sw(!v)
+  print(v)
+
+fail "review-step45-r2-e14 match", "`cnt[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns"
+  # H3: generic loop over ?List[T], body: match x on T? binding
+  obj S
+    t: String
+
+  obj Holder[T]
+    x: T?
+
+  fun cnt[T](v: ?List[T?]) -> Int
+    n = 0
+    for x in v
+      if x as y
+        n += 1
+    n
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  o: List[String?] = List()
+  !o.push(String("q"))
+  print(cnt(?o))
+
+fail "review-step45-r2-e15 take from opt", "`grab[String]` cannot use `T = String`: the generic body copies a `T`, which would duplicate the resource `String` owns"
+  # H3: generic loop over ?List[T], body: if <x as y : take out of the T? loop binding
+  obj S
+    t: String
+
+  obj Holder[T]
+    x: T?
+
+  fun grab[T](v: ?List[T?]) -> T?
+    for x in v
+      if <x as y
+        return <y
+    none
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  o: List[String?] = List()
+  !o.push(String("q"))
+  r = grab(?o)
+  <o
+  print(r)
+
+fail "review-step45-r2-e16b view of loop copy escape int", "`x` does not live long enough"
+  # same with T = Int, and non-generic Int (base-comparable)
+  fun lastref[T](v: ?List[T]) -> ?T
+    r = ?v[0]
+    for x in v
+      r = ?x
+    r
+
+  fun lastint(v: ?List[Int]) -> ?Int
+    r = ?v[0]
+    for x in v
+      r = ?x
+    r
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  print(lastref(?v), lastint(?v))
+
+test "review-step45-r2-e18 generic write loop assign", '''
+  ["z"]
+'''
+  # H3 sibling: generic write loop over !List[T] assigning a moved value (T = Text)
+  sub fill[T](v: !List[T], x: T)
+    for e in !v
+      e = <x
+      return
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  fill(!v, String("z"))
+  print(v)
+
+test "review-step45-r2-f03 guarded match readview elem", "5"
+  # guarded match on an element of a ?List[E] parameter, Text payload, no Cell
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  fun f(v: ?List[E]) -> Int
+    match v[0]
+      .a(t) if t.len > 1 => t.len
+      .a(_) => 1
+      .b(n) => n
+
+  e: List[E] = List()
+  !e.push(E.a(t: String("hello")))
+  print(f(?e))
+
+test "review-step45-r2-f04 guarded match readview elem plain", "5"
+  # guarded match on an element of a ?List[E] parameter, plain payload (base-comparable)
+  enum E
+    a(n: Int)
+    b(n: Int)
+
+  fun f(v: ?List[E]) -> Int
+    match v[0]
+      .a(n) if n > 1 => n
+      .a(_) => 1
+      .b(n) => n
+
+  e: List[E] = List()
+  !e.push(E.a(n: 5))
+  print(f(?e))
+
+test "review-step45-r2-f05 guarded match readview array elem", "5"
+  # guarded match on an element of a ?[1]E array parameter with Text payload
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  fun f(v: ?[1]E) -> Int
+    match v[0]
+      .a(t) if t.len > 1 => t.len
+      .a(_) => 1
+      .b(n) => n
+
+  e = [E.a(t: String("hello"))]
+  print(f(?e))
+
+test "review-step45-r2-f06 readview elem forms", "20"
+  # element of a read-view List in each form: while-as, lends of fields, implicit lend args, ?self method
+  obj R
+    t: String
+    n: Int
+
+    fun len(?self) -> Int
+      self.t.len + self.n
+
+  fun tl(s: ?String) -> Int
+    s.len
+
+  fun rl(r: ?R) -> Int
+    r.n
+
+  fun f(v: ?List[R], o: ?List[Int?]) -> Int
+    k = 0
+    i = 0
+    while o[i] as x
+      k += x
+      i += 1
+      if i == o.len
+        break
+    k + tl(?v[0].t) + tl(v[0].t) + rl(v[0]) + rl(?v[0]) + v[0].len()
+
+  v: List[R] = List()
+  !v.push(R(t: String("abc"), n: 2))
+  o: List[Int?] = List()
+  !o.push(5)
+  print(f(?v, ?o))
+
+test "review-step45-r2-f07 guarded match slice elem", "5 7"
+  # guarded match on an element of a []E slice parameter and a ?[1]E, plain payload
+  enum E
+    a(n: Int)
+    b(n: Int)
+
+  fun f(v: []E) -> Int
+    match v[0]
+      .a(n) if n > 1 => n
+      .a(_) => 1
+      .b(n) => n
+
+  fun g(v: ?[1]E) -> Int
+    match v[0]
+      .a(n) if n > 1 => n
+      .a(_) => 1
+      .b(n) => n
+
+  e: List[E] = List()
+  !e.push(E.a(n: 5))
+  a = [E.a(n: 7)]
+  print(f(?e), g(?a))
+
+test "review-step45-r2-f08 guarded match local view elem", "5"
+  # guarded match on an element of a local read view of a List
+  enum E
+    a(n: Int)
+    b(n: Int)
+
+  e: List[E] = List()
+  !e.push(E.a(n: 5))
+  r = ?e
+  match r[0]
+    .a(n) if n > 1 => print(n)
+    .a(_) => print(1)
+    .b(n) => print(n)
+
+test "review-step45-r2-f09 guarded match shared elem", "hi"
+  # guarded match on an element of a List in a shared handle
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  obj S
+    v: List[E]
+
+  e: List[E] = List()
+  !e.push(E.a(t: String("hi")))
+  h = *S(v: <e)
+  match h.v[0]
+    .a(t) if t.len > 1 => print(t)
+    .a(_) => print(1)
+    .b(n) => print(n)
+
+test "review-step45-r20 take elem header temp", '''
+  q
+  [none]
+'''
+  # if <v[idx(?Text("a"))] as t: take an optional element, header temporary
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("q"))
+  if <v[idx(?String("a"))] as t
+    print(t)
+  print(v)
+
+test "review-step45-r21 for read elem header temp", "q"
+  # for t in m[idx(?Text("a"))] read loop over an element List of owners, header temp
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  m: List[List[String]] = List()
+  r: List[String] = List()
+  !r.push(String("q"))
+  !m.push(<r)
+  for t in m[idx(?String("a"))]
+    print(t)
+
+test "review-step45-r22 match read elem header temp noguard", "hi"
+  # unguarded read match on element with a header temporary (r11 sibling, no Cell)
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[E] = List()
+  !v.push(E.a(t: String("hi")))
+  match v[idx(?String("a"))]
+    .a(t) => print(t)
+    .b(n) => print(n)
+
+test "review-step45-r23 stmt temp index forms", '''
+  322
+  p [none]
+  [6]
+  322
+'''
+  # statement temporaries inside an element index in every statement form
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  sub grow(t: !String)
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+
+  v: List[String] = List()
+  !v.push(String("q"))
+  v[idx(?String("a"))] = String("z")
+  !v[idx(?String("a"))].add("!")
+  grow(!v[idx(?String("a"))])
+  print(v[0].len)
+  o: List[String?] = List()
+  !o.push(String("p"))
+  t = <o[idx(?String("a"))]
+  print(t, o)
+  n: List[Int] = List()
+  !n.push(1)
+  n[idx(?String("a"))] += 5
+  print(n)
+  s = ?v[idx(?String("a"))]
+  print(s.len)
+
+test "review-step45-r24 match write elem field header temp", "322"
+  # match !v[idx(?Text("a"))].e (field of an element), guarded, grows a Text payload
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  obj S
+    e: E
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[S] = List()
+  !v.push(S(e: E.a(t: String("hi"))))
+  match !v[idx(?String("a"))].e
+    .a(t) if t.len > 0
+      for _ in 0..40
+        !t.add("xxxxxxxx")
+    .a(t)
+      !t.add("?")
+    .b(n)
+      print(n)
+  match v[0].e
+    .a(t) => print(t.len)
+    .b(n) => print(n)
+
+test "review-step45-r25 while write elem header temp", "641"
+  # while !v[idx(?Text("a"))] as t: write binding with a header temporary, grows the Text
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("q"))
+  n = 0
+  while !v[idx(?String("a"))] as t
+    for _ in 0..40
+      !t.add("xxxxxxxx")
+    n += 1
+    if n == 2
+      break
+  if v[0] as t
+    print(t.len)
+
+test "review-step45-s01 repoint branch rhs", "m a! b"
+  # w = !a if c else !b re-points to a branching view
+  m = String("m")
+  a = String("a")
+  b = String("b")
+  w = !m
+  c = a.len == 1
+  w = !a if c else !b
+  !w.add("!")
+  print(m, a, b)
+
+test "review-step45-s02 repoint slice local", '''
+  ["A", "c"] ["B"]
+'''
+  # re-point a ![]Text local at another List, then push the old one
+  v: List[String] = List()
+  !v.push(String("a"))
+  u: List[String] = List()
+  !u.push(String("b"))
+  s = !v[..]
+  s[0] = String("A")
+  s = !u[..]
+  !v.push(String("c"))
+  s[0] = String("B")
+  print(v, u)
+
+fail "review-step45-s03 repoint slice then old push live", "use of `v` while a write loan is live"
+  # re-point a ![]Text local only in a branch; then push the old List and use s
+  v: List[String] = List()
+  !v.push(String("a"))
+  u: List[String] = List()
+  !u.push(String("b"))
+  s = !v[..]
+  if u.len == 1
+    s = !u[..]
+  !v.push(String("c"))
+  s[0] = String("B")
+  print(v, u)
+
+test "review-step45-s04 repoint annotated", "a b!"
+  # a write-view local declared with a type annotation, then re-pointed via a match value
+  a = String("a")
+  b = String("b")
+  w: !String = !a
+  k = 2
+  w = match k
+    1 => !a
+    _ => !b
+  !w.add("!")
+  print(a, b)
+
+fail "review-step45-t02 remove string view", "cannot drop `t` while it is lent"
+  # remove a String view from List[String], drop the List, drop the source, use the view
+  t = String("hello")
+  w: List[?String] = List()
+  !w.push(?t)
+  s = (!w).remove(0)
+  <w
+  <t
+  print(s)
+
+fail "review-step45-t03 vec views moved in struct returned", "cannot drop `t` while it is lent"
+  # a function returns a struct holding a List of views of its param
+  obj Bag
+    items: List[?String]
+
+  fun bag(t: ?String) -> Bag
+    b = Bag(items: List())
+    !b.items.push(?t)
+    <b
+
+  t = String("x")
+  b = bag(?t)
+  <t
+  print(b.items)
+
+fail "review-step45-t04 vec views elem assign loans", "cannot drop `u` while it is lent"
+  # w[0] = ?u replaces a view element: old source t freed while w live (sound if loans union)
+  t = String("t")
+  u = String("u")
+  w: List[?String] = List()
+  !w.push(?t)
+  w[0] = ?u
+  <u
+  print(w)
+
+fail "review-step45-t05 vec views insert", "cannot drop `t` while it is lent"
+  # insert a view, then drop its source
+  w: List[?String] = List()
+  t = String("t")
+  !w.insert(0, ?t)
+  <t
+  print(w)
+
+fail "review-step45-t06 vec views take elem opt", "cannot drop `t` while it is lent"
+  # List[String?]: take a view element, drop the List, then drop the source and use the taken view
+  t = String("t")
+  w: List[(?String)?] = List()
+  !w.push(?t)
+  x = <w[0]
+  <w
+  <t
+  print(x)
+
+test "review-subctor-a1", '''
+  acc 3
+  e Bad.neg
+  ate 3
+'''
+  error Bad
+    neg
+
+  obj Acc
+    n: Int
+
+    sub bump(!self, k: Int)!
+      return Bad.neg if k < 0
+      self.n += k
+
+    sub show(?self)!
+      return Bad.neg if self.n < 0
+      print("acc", self.n)
+
+    sub eat(<self)!
+      return Bad.neg if self.n > 100
+      print("ate", self.n)
+
+  a = Acc(n: 1)
+  !a.bump(2)!
+  a.show()!
+  !a.bump(-1) catch |e|
+    print("e", e)
+  <a.eat()!
+
+test "review-subctor-a2", '''
+  1
+  e Bad.neg
+'''
+  error Bad
+    neg
+
+  sub g[T](x: T, ok: Bool)!
+    return Bad.neg if not ok
+    print(x)
+
+  g(1, true)!
+  g("s", false) catch |e|
+    print("e", e)
+
+test "review-subctor-a6", '''
+  ok 1
+  e Bad.neg
+'''
+  error Bad
+    neg
+
+  sub check(n: Int)!
+    return Bad.neg if n < 0
+    print("ok", n)
+
+  f: *sub(Int)! = *|x: Int| check(x)!
+  f(1)!
+  f(-1) catch |e|
+    print("e", e)
+
+test "review-subctor-a7", "ok 1"
+  error Bad
+    neg
+
+  sub check(n: Int)!
+    return Bad.neg if n < 0
+    print("ok", n)
+
+  f: *sub(Int)! = *|x: Int| check(x) catch |e| print("c", e)
+  f(1)!
+
+test "review-subctor-a9", '''
+  2
+  1
+  defer 1
+  defer 2
+  errdefer2 0
+  errdefer2 1
+  errdefer2 2
+  e Bad.neg
+'''
+  error Bad
+    neg
+
+  sub rec(n: Int)!
+    return Bad.neg if n < 0
+    return if n == 0
+    print(n)
+    defer print("defer", n)
+    errdefer print("errdefer", n)
+    rec(n - 1)!
+
+  sub rec2(n: Int)!
+    errdefer print("errdefer2", n)
+    return Bad.neg if n == 0
+    rec2(n - 1)!
+
+  rec(2)!
+  rec2(2) catch |e|
+    print("e", e)
+
+test "review-subctor-aa", '''
+  acc 3
+  acc 5
+  acc 8
+  e Bad.neg
+'''
+  error Bad
+    neg
+
+  obj Acc
+    n: Int
+
+    sub bump(!self, k: Int)!
+      return Bad.neg if k < 0
+      self.n += k
+
+    sub show(?self)!
+      return Bad.neg if self.n < 0
+      print("acc", self.n)
+
+  b = ^Acc(1)
+  !b.bump(2)!
+  b.show()!
+  s = *Acc(5)
+  s.show()!
+  v = List[Acc]()
+  !v.push(Acc(7))
+  !v[0].bump(1)!
+  v[0].show()!
+  !v[0].bump(-1) catch |e|
+    print("e", e)
+
+test "review-subctor-b2", '''
+  ok 3
+  e1 Bad.neg
+'''
+  error Bad
+    neg
+
+  sub run(f: ?sub(Int)!)!
+    f(3)!
+    f(-3)!
+
+  run(|x|
+    return Bad.neg if x < 0
+    print("ok", x)
+  ) catch |e|
+    print("e1", e)
+
+test "review-subctor-b8", '''
+  f 1
+  e Bad.neg
+  f 2
+'''
+  error Bad
+    neg
+
+  f: *sub(Int)! = *|x: Int|
+    return Bad.neg if x < 0
+    print("f", x)
+  f(1)!
+  f(-1) catch |e|
+    print("e", e)
+  g = +f
+  g(2)!
+
+test "review-subctor-b9", '''
+  f 1
+  e Bad.neg
+'''
+  error Bad
+    neg
+
+  fun mk() -> *sub(Int)!
+    *|x: Int|
+      return Bad.neg if x < 0
+      print("f", x)
+
+  f = mk()
+  f(1)!
+  f(-1) catch |e|
+    print("e", e)
+
+test "review-subctor-bp", "4"
+  error Bad
+    neg
+
+  fun get(n: Int) -> Int!
+    return Bad.neg if n < 0
+    n
+
+  fun run(f: ?fun(Int) -> Int!) -> Int!
+    f(3)!
+
+  print(run(|x| get(x)! + 1)!)
+
+test "review-subctor-c2", "chk 1"
+  error Bad
+    neg
+
+  sub chk(n: Int)!
+    return Bad.neg if n < 0
+    print("chk", n)
+
+  fun pick() -> sub(Int)!
+    chk
+
+  f = pick()
+  f(1)!
+
+test "review-subctor-d1", '''
+  q 1
+  q 2
+'''
+  sub quiet(n: Int)!
+    print("q", n)
+
+  quiet(1)!
+  h: sub(Int)! = quiet
+  h(2)!
+
+test "review-subctor-e1", '''
+  D(n: 9) D(n: 7)
+  3 R(items: [1, 2])
+'''
+  obj D
+    n: Int = 7
+
+  obj R
+    items: List[Int]
+
+    fun total(?self) -> Int
+      t = 0
+      for x in ?self.items
+        t += x
+      t
+
+  d = D(9)
+  d2 = D()
+  print(d, d2)
+  v = List[Int]()
+  !v.push(1)
+  !v.push(2)
+  r = R(<v)
+  print(r.total(), r)
+
+test "review-subctor-e3", '''
+  [3]
+  none
+'''
+  x = List[Int]()
+  !x.push(3)
+  bx = ^<x
+  print(bx)
+  c: ^(Int?) = ^none
+  print(c)
+
+test "review-subctor-e8", "true true"
+  obj M
+    v: Float
+
+  a = M(1.5)
+  b = M(v: 1.5)
+  print(a == b, a != M(2.0))
+
+fail "review-subctor-g5", "`n` is a `*Node` handle, which can't be copied into an argument: write `<n` to move it or `+n` for another handle"
+  obj Node
+    v: Int
+
+  obj Holder
+    h: *Node
+
+  n = *Node(1)
+  c = Holder(n)
+  print(c, n)
+
+test "review-subctor-i1", '''
+  Wrap(item: 3) Wrap(item: "a") Wrap(item: 3)
+  M(v: 4)
+  9
+  M(v: 8)
+  M(v: 5)
+'''
+  obj Wrap[T]
+    item: T
+
+    fun rewrap(?self) -> Wrap[T]
+      Wrap(self.item)
+
+  obj M
+    v: Int
+
+    fun twice(?self) -> M
+      M(self.v * 2)
+
+  fun mk[T](x: T) -> Wrap[T]
+    Wrap(x)
+
+  fun mk2[T](x: T) -> Wrap[T]
+    Wrap[T](x)
+
+  fun boxit[T](x: T) -> ^T
+    ^x
+
+  w = mk(3)
+  print(w, mk2("a"), w.rewrap())
+  m = M(2)
+  print(m.twice())
+  b = boxit(9)
+  print(b)
+  sm = *M(4)
+  print(sm.twice())
+  bm = ^M(5)
+  print(bm)
+
+test "review-subctor-k1", '''
+  pos
+  e 1
+  d Bad.neg
+  e Bad.neg
+  a Bad.neg
+'''
+  error Bad
+    neg
+
+  fun get(n: Int) -> Int!
+    return Bad.neg if n < 0
+    n
+
+  sub a(n: Int)!
+    get(n)!
+
+  sub b(n: Int)!
+    _ = get(n)!
+
+  sub c(n: Int)!
+    get(n) catch 0
+
+  sub d(n: Int)!
+    if n > 0
+      print("pos")
+    else
+      return Bad.neg
+
+  sub e(n: Int)!
+    match n
+      0 => return Bad.neg
+      _ => print("e", n)
+
+  b(1)!
+  d(1)!
+  e(1)!
+  d(-1) catch |x|
+    print("d", x)
+  e(0) catch |x|
+    print("e", x)
+  a(2)!
+  a(-2) catch |x|
+    print("a", x)
+  c(-1)!
+
+test "review-subctor-k4"
+  error Bad
+    neg
+
+  fun get(n: Int) -> Int!
+    return Bad.neg if n < 0
+    n
+
+  sub a(n: Int)!
+    get(n)!
+    return
+
+  sub q(n: Int)!
+    if n > 0
+      get(n)!
+    else
+      print("neg")
+
+  a(1)!
+  q(1)!
+
+test "review-subctor-k6", '''
+  sq 3
+  []
+'''
+  fun sq(n: Int) -> Int
+    print("sq", n)
+    n * n
+
+  sub a(n: Int)!
+    sq(n)
+
+  sub b(v: !List[Int])!
+    !v.push(1)
+    !v.pop()
+
+  a(3)!
+  v = List[Int]()
+  b(!v)!
+  print(v)
+
+fail "review-subctor-m1", "only module `lib` can construct `lib.M`: its field `v` is private; declare every field `pub` there, or make the value with a `pub` function of `lib`"
+  use lib
+
+  sub main()
+    lib.check(1)!
+    lib.check(-1) catch |e|
+      print("e", e)
+    m = lib.M(3)
+    !m.bump(2)!
+    print(m)
+    w = lib.W(4)
+    w2 = lib.W[?String]("s")
+    print(w, w2)
+    r = lib.Res(List())
+    print(r)
+    d = lib.D(9)
+    print(d)
+    a = [1, 2]
+    n = lib.each(?a, lib.check)!
+    print(n)
+    h: sub(Int)! = lib.check
+    h(5)!
+
+  file "lib.rig"
+    pub error Bad
+      neg
+
+    pub sub check(n: Int)!
+      return Bad.neg if n < 0
+      print("ok", n)
+
+    pub obj M
+      v: Int
+
+      sub bump(!self, k: Int)!
+        return Bad.neg if k < 0
+        self.v += k
+
+    pub obj W[T]
+      item: T
+
+    pub obj Res
+      items: List[Int]
+
+    pub obj D
+      n: Int = 7
+
+    pub fun each(xs: []Int, f: ?sub(Int)!) -> Int!
+      for x in xs
+        f(x)!
+      xs.len
+
+test "review-subctor-n2", '''
+  g 3
+  e1 Bad.neg
+  lam 13
+  e3 Bad.neg
+'''
+  error Bad
+    neg
+
+  sub run(f: ?sub(Int)!)!
+    f(3)!
+    f(-3)!
+
+  g: *sub(Int)! = *|x: Int|
+    return Bad.neg if x < 0
+    print("g", x)
+  run(?g) catch |e|
+    print("e1", e)
+  k = 10
+  run(|?k, x|
+    return Bad.neg if x < 0
+    print("lam", x + k)
+  ) catch |e|
+    print("e3", e)
+
+test "review-subctor-n3"
+  error Bad
+    neg
+
+  fun sq(n: Int) -> Int
+    n * n
+
+  sub run(f: ?sub(Int)!)!
+    f(3)!
+
+  sub runp(f: ?sub(Int))
+    f(3)
+
+  run(|x| sq(x))!
+  runp(|x| sq(x))
+  g: *sub(Int)! = *|x: Int| sq(x)
+  g(2)!
+
+fail "review-subctor-o1", "use of `n` after move"
+  obj Node
+    v: Int
+
+  obj Holder
+    h: *Node
+
+  n = *Node(1)
+  c = Holder(<n)
+  print(c, n)
+
+fail "review-subctor-o3", "`w` is a `~Node` handle, which can't be copied into an argument: write `<w` to move it or `+w` for another handle"
+  obj Node
+    v: Int
+
+  n = *Node(1)
+  w = ~n
+  c = *Cell(w)
+  d = *Cell(~n)
+  print(c, d)
+
+test "review-subctor-q1", '''
+  ok 3
+  e Bad.neg
+  lam s
+  wrap 1
+  wrap x
+'''
+  error Bad
+    neg
+
+  sub check(n: Int)!
+    return Bad.neg if n < 0
+    print("ok", n)
+
+  sub apply[T](x: T, f: ?sub(T)!)!
+    f(x)!
+
+  sub wrap[T](x: T)!
+    print("wrap", x)
+
+  apply(3, check)!
+  apply(-3, check) catch |e|
+    print("e", e)
+  apply("s", |s|
+    print("lam", s)
+  )!
+  wrap(1)!
+  wrap[?String]("x")!
+
+test "review-subctor-r1", "x"
+  error Bad
+    neg
+
+  fun get(n: Int) -> Int!
+    return Bad.neg if n < 0
+    n
+
+  sub main()!
+    print("x")
+    get(1)!
+
+test "review-subctor-r2", "[1]", exit: 1
+  error Bad
+    neg
+
+  sub main()!
+    v = List[Int]()
+    !v.push(1)
+    print(v)
+    return Bad.neg
+
+test "review-subctor-r3", "[1]"
+  sub main()!
+    v = List[Int]()
+    !v.push(1)
+    print(v)
+
+test "review-subctor-t7", '''
+  zero7
+  e Bad.neg
+'''
+  error Bad
+    neg
+
+  sub t7(n: Int)!
+    if n < 0
+      return Bad.neg
+    else if n == 0
+      print("zero7")
+
+  t7(0)!
+  t7(1)!
+  t7(-1) catch |e|
+    print("e", e)
+
+test "review-subctor-t7c", "zero7"
+  sub t7(n: Int)
+    if n < 0
+      print("neg")
+    else if n == 0
+      print("zero7")
+
+  t7(0)
+
+test "review-subctor-tail", '''
+  t1
+  t1 defer
+  zero
+  zero7
+  done 3
+'''
+  error Bad
+    neg
+
+  sub t1()!
+    print("t1")
+    defer print("t1 defer")
+
+  sub t2()!
+    v = List[Int]()
+    !v.push(1)
+    <v
+
+  sub t3(n: Int)!
+    i = 0
+    while i < n
+      i += 1
+
+  sub t4(n: Int)!
+    match n
+      0 => print("zero")
+      _ => return Bad.neg
+
+  sub t5(n: Int)!
+    return Bad.neg if n < 0
+    errdefer print("t5 errdefer")
+
+  sub t6(c: !Int)!
+    c = 3
+
+  sub t7(n: Int)!
+    raise_it = n < 0
+    if raise_it
+      return Bad.neg
+    else if n == 0
+      print("zero7")
+
+  sub t8()!
+    for i in 0..3
+      break if i == 1
+
+  t1()!
+  t2()!
+  t3(3)!
+  t4(0)!
+  t5(1)!
+  c = 0
+  t6(!c)!
+  t7(0)!
+  t8()!
+  print("done", c)
+
+test "review-subctor-tail2", '''
+  t1
+  t1 defer
+  zero
+  t7
+  done 3
+'''
+  error Bad
+    neg
+
+  sub t1()!
+    print("t1")
+    defer print("t1 defer")
+
+  sub t2()!
+    v = List[Int]()
+    !v.push(1)
+    <v
+
+  sub t3(n: Int)!
+    i = 0
+    while i < n
+      i += 1
+
+  sub t4(n: Int)!
+    match n
+      0 => print("zero")
+      _ => return Bad.neg
+
+  sub t5(n: Int)!
+    return Bad.neg if n < 0
+    errdefer print("t5 errdefer")
+
+  sub t6(c: !Int)!
+    c = 3
+
+  sub t7(n: Int)!
+    raise_it = n < 0
+    if raise_it
+      return Bad.neg
+    print("t7")
+
+  sub t8()!
+    for i in 0..3
+      break if i == 1
+
+  t1()!
+  t2()!
+  t3(3)!
+  t4(0)!
+  t5(1)!
+  c = 0
+  t6(!c)!
+  t7(0)!
+  t8()!
+  print("done", c)
+
+test "review-subctor-v2", '''
+  1
+  2
+'''
+  error Bad
+    neg
+
+  sub inner(f: ?sub(Int)!)!
+    f(1)!
+
+  sub outer(f: ?sub(Int)!)!
+    inner(f)!
+    f(2)!
+
+  outer(|x| print(x))!
+
+test "review-subctor-x1", '''
+  f 1 0 1
+  e Bad.neg
+  f 1 0 2
+'''
+  error Bad
+    neg
+
+  obj Node
+    v: Int
+
+  n = *Node(1)
+  v = List[Int]()
+  f: *sub(Int)! = *|+n, <v, x: Int|
+    tmp = *Node(x)
+    return Bad.neg if x < 0
+    print("f", n.v, v.len, tmp.v)
+  f(1)!
+  f(-1) catch |e|
+    print("e", e)
+  g = +f
+  <f
+  g(2)!
+
+test "review-subctor-z1", '''
+  0 5 6 s
+  1.0
+'''
+  a = *Signal[Int](0)
+  x = 5
+  b: *Signal[Int] = *Signal(x)
+  c = *Signal(b.get() + 1)
+  d = *Signal[?String]("s")
+  print(a.get(), b.get(), c.get(), d.get())
+  e = *Signal[Float](1)
+  print(e.get())
+
+fail "review-syntax-b-1-d01 loop paren drop", "cannot drop loop view `x`; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  v: List[String] = List()
+  !v.push(String("a"))
+  for x in (v)
+    <x
+  print(v)
+
+fail "review-syntax-b-1-d02 loop read drop", "cannot drop loop view `x`; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  v: List[String] = List()
+  !v.push(String("a"))
+  for x in ?v
+    <x
+  print(v)
+
+fail "review-syntax-b-1-d03 loop param drop", "cannot drop loop view `x`; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  sub f(v: ?List[String])
+    for x in v
+      <x
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  f(?v)
+  print(v)
+
+fail "review-syntax-b-1-d04 loop field drop", "cannot drop loop view `x`; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  obj B
+    items: List[String]
+
+  b = B(items: List())
+  !b.items.push(String("a"))
+  for x in b.items
+    <x
+  print(b.items)
+
+test "review-syntax-b-1-d05 loop moved source drop", "1"
+  v: List[String] = List()
+  !v.push(String("a"))
+  for x in <v
+    <x
+  print(1)

@@ -1,7 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  b = ^P(x: 1)
-  c = b
-  print(c.x, b.x)

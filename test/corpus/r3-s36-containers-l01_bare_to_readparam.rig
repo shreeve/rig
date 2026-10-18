@@ -1,9 +1,0 @@
-obj P
-  x: Int
-
-fun get(p: ?P) -> Int
-  p.x
-
-sub main()
-  p = P(x: 1)
-  print(get(p))

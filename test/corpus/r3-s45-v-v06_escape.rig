@@ -1,8 +1,0 @@
-fun mk() -> List[?Int]
-  a = 1
-  v: List[?Int] = List()
-  !v.push(?a)
-  v
-
-sub main()
-  print(mk().len)

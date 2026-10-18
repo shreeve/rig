@@ -1,6 +1,0 @@
-sub main()
-  a = [1, 2, 3]
-  w = !a[..]
-  r: []Int = w
-  w[0] = 9
-  print(r)
