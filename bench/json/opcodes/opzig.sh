@@ -3,7 +3,7 @@
 # variant such as ws_tbl+utf8_kl) to each emitted package's json.zig once,
 # then runs zig. To check a patch against the JSON tests:
 #   OP_PATCH=ws_tbl ZIG=$PWD/bench/json/opcodes/opzig.sh RIG_BUILD_STORE=$(mktemp -d) \
-#     test/json/compare.py
+#     bench/json/check/compare.py
 H=$(cd "$(dirname "$0")" && pwd)
 for a in "$@"; do
   case "$a" in

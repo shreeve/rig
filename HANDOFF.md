@@ -83,9 +83,9 @@ from).
     string, `obj`).
 - **`std.json` (experimental):** a one-pass, validating JSON parser in
   safe Rig (`std/json.rig`) that builds a tape, with a tiered string
-  scan (SWAR, then `Simd[U8, 16]`). `test/json/compare.py` checks it against
-  Python's `json` module on 10,511 inputs; `tools/fetch-json-data.sh`
-  fetches the third-party files those read. `bench/json/` times it
+  scan (SWAR, then `Simd[U8, 16]`). `bench/json/check/compare.py`
+  checks it against Python's `json` module on 10,511 inputs;
+  `tools/fetch-json-data.sh` fetches the third-party files those read. `bench/json/` times it
   against Zig's `std.json`, serde_json, simd-json, sonic-rs and
   zimdjson (docs/json/RESULTS.md). Its API is not settled
   (docs/json/DESIGN.md, "Open items").

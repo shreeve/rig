@@ -29,7 +29,7 @@ def strings(data):
         i = j + 1
 
 def main():
-    paths = sys.argv[1:] or [os.path.join(ROOT, "test", "json", "data", "simd-json", f + ".json") for f in FILES]
+    paths = sys.argv[1:] or [os.path.join(ROOT, "bench", "json", "check", "data", "simd-json", f + ".json") for f in FILES]
     print("| file | kind | count | <=16 | <=32 | <=64 | <=128 | mean | bytes in >32 | escaped | non-ASCII |")
     print("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for p in paths:

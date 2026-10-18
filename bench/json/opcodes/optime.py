@@ -16,7 +16,7 @@ import json, os, platform, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
-DATA = os.path.join(ROOT, "test", "json", "data", "simd-json")
+DATA = os.path.join(ROOT, "bench", "json", "check", "data", "simd-json")
 MAC = platform.system() == "Darwin"
 
 

@@ -5,7 +5,7 @@ import os, re, subprocess, sys
 d, files, variants = sys.argv[1], sys.argv[2].split(","), sys.argv[3].split(",")
 reps = int(sys.argv[4]) if len(sys.argv) > 4 else 11
 ms = int(sys.argv[5]) if len(sys.argv) > 5 else 250
-DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "test", "json", "data", "simd-json")
+DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "check", "data", "simd-json")
 size = {f: os.path.getsize(os.path.join(DATA, f + ".json")) for f in files}
 def run(f, v, n):
     exe = os.path.join(d, "%s-%s" % (f, v), "prog")

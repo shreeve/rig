@@ -32,7 +32,7 @@ it (`../nexus`).
    ```sh
    python3 ../nexus/test/lib/highlight ../nexus/docs/GRAMMAR.md \
      editors/vscode/syntaxes/rig.tmLanguage.json editors/highlightjs/rig.js \
-     editors/vim/syntax/rig.vim test/highlight/sample.rig test/highlight/sample.rig.hl
+     editors/vim/syntax/rig.vim editors/highlight/sample.rig editors/highlight/sample.rig.hl
    ```
 
 3. Package the VS Code extension. To install it as a newer version, bump

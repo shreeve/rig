@@ -1,7 +1,7 @@
 #!/bin/sh
 # usage: smoke.sh [N]  -- every binary x flavor x corpus file; rough MB/s only
 B=$(cd "$(dirname "$0")" && pwd)
-D="$B/../../../test/json/data/simd-json"
+D="$B/../check/data/simd-json"
 N=${1:-20}
 for fl in native generic; do
   for p in serde_json_value serde_json_value_fr simdjson_tape simdjson_value; do

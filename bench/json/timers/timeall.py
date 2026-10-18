@@ -2,7 +2,7 @@
 calibrate each to ~MS ms, interleave REPS runs across all variants, keep the fastest."""
 import os, re, subprocess, sys
 S = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "test", "json", "data", "simd-json")
+DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "check", "data", "simd-json")
 FILES = ["twitter", "canada", "citm_catalog", "gsoc-2018", "github_events"]
 B = os.environ.get("BENCH_OUT", "")  # the --out directory of bench-json
 R = os.path.join(S, "rust-bench")

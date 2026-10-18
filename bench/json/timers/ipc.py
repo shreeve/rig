@@ -16,7 +16,7 @@ follows the core the program runs on and its clock, so judge time by
 """
 import os, re, subprocess, sys
 
-DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "test", "json", "data", "simd-json")
+DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "check", "data", "simd-json")
 FILES = ["twitter", "twitterescaped", "canada", "citm_catalog", "gsoc-2018", "github_events"]
 
 def counters(cmd, n):

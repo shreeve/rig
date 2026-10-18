@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check std.json against Python's json module on valid and invalid JSON.
 
-usage: test/json/compare.py [-j N] [-v] [--subset] [--tmp DIR] [--groups]
+usage: bench/json/check/compare.py [-j N] [-v] [--subset] [--tmp DIR] [--groups]
                             [GROUP ...] [--only SUBSTRING]
 
 Groups (default: all):
@@ -25,7 +25,7 @@ Groups (default: all):
 quick run; every group is still represented.
 
 The checker and corpus groups read third-party files that
-tools/fetch-json-data.sh puts in test/json/data/. Without them (or with
+tools/fetch-json-data.sh puts in bench/json/check/data/. Without them (or with
 a file that differs from its pinned sha256) those groups are skipped,
 with a note and exit status 3 when nothing else ran; JSON_REQUIRE_DATA=1
 makes that a failure.
@@ -42,7 +42,7 @@ import argparse, decimal, hashlib, json, math, os, random, shutil, struct, subpr
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(os.path.dirname(HERE))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
 DATA = os.path.join(HERE, "data")
 FETCH = os.path.join(ROOT, "tools", "fetch-json-data.sh")

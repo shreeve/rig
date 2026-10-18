@@ -16,7 +16,7 @@ swarm test/rig.rip std-text        # test/rig/std-text.rig.test alone
 swarm test/rig.rip doc             # the doc examples alone (doc-SPEC: SPEC.md's)
 swarm test/rig.rip proofs          # by hand: the proven checks' differential run
 test/matrix.py                     # by hand: the form x context x type matrix
-test/json/compare.py               # by hand: std.json against Python's json
+bench/json/check/compare.py        # by hand: std.json against Python's json
 ```
 
 A case that fails lands in `.swarm/died`, with its reason in
@@ -31,10 +31,12 @@ A case that fails lands in `.swarm/died`, with its reason in
 | `test/torture/<name>.rig` | bad input `rig run` must reject with a `file:line:col` diagnostic, never crashing |
 | `test/corpus/<name>.rig` | a reviewer's probe (below) |
 | `test/oracle/` | the reference ownership checker and its lists (below) |
-| `test/lanes/`, `test/names/` | the grids of programs some CLI scripts generate and check |
-| `test/json/` | `std.json`'s comparison with Python's `json` module (below) |
-| `test/highlight/` | the editors' syntax highlighting fixtures |
-| `test/matrix.py`, `test/equiv.py`, `test/hints.py` | the matrix, the refactor check, and the lend hints' check (below) |
+| `test/lanes/` | the SIMD lane grids `test/cli/lane_grid.sh` generates and checks |
+| `test/matrix.py`, `test/hints.py` | the matrix and the lend hints' check (below) |
+
+Beside them, by hand: `bench/json/check/` compares `std.json` with
+Python's `json` module, and `tools/equiv.py` proves a refactor changed
+nothing (below).
 
 ## Examples
 
@@ -173,13 +175,13 @@ the output directory is what the test is about.
 
 ## The JSON tests
 
-`test/json/compare.py` runs `std.json` over 10,511 generated and
+`bench/json/check/compare.py` runs `std.json` over 10,511 generated and
 hand-written inputs and compares each parse with Python's `json` module
-(`test/json/README.md` says how, and lists the groups). It runs by hand,
+(`bench/json/check/README.md` says how, and lists the groups). It runs by hand,
 when `std.json` changes: with no group it takes every group, and
 `--subset` a fixed, spread-out part of each. The groups `checker` and
 `corpus` read third-party files that `tools/fetch-json-data.sh` fetches
-into `test/json/data/`. Without them those groups are skipped with a
+into `bench/json/check/data/`. Without them those groups are skipped with a
 note, and `JSON_REQUIRE_DATA=1` makes that a failure.
 
 ## The corpus
@@ -371,7 +373,7 @@ bin/rig-oracle --sema -v file.rig     # also functions the compiler's
 ## Proving a refactor changed nothing
 
 ```bash
-test/equiv.py OLD_RIG NEW_RIG [-j N] [--keep DIR] [--no-cache]
+tools/equiv.py OLD_RIG NEW_RIG [-j N] [--keep DIR] [--no-cache]
 ```
 
 runs two compilers over every tracked program and every ```` ```rig ````

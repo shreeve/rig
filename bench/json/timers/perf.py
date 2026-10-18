@@ -9,7 +9,7 @@ import os, re, subprocess, sys
 d, files, variants = sys.argv[1], sys.argv[2].split(","), sys.argv[3].split(",")
 cpu = sys.argv[4] if len(sys.argv) > 4 else "6"
 H = os.path.dirname(os.path.abspath(__file__))
-DATA = os.path.join(H, "..", "..", "..", "test", "json", "data", "simd-json")
+DATA = os.path.join(H, "..", "check", "data", "simd-json")
 R = os.path.join(H, "..", "rust-bench", "target-native", "release")
 EXT = {"sonic-rs": "sonic_value", "serde_json": "serde_json_value", "simd-json-tape": "simdjson_tape"}
 EV = os.environ.get("PERF_EVENTS", "cpu_core/cycles/,cpu_core/instructions/")

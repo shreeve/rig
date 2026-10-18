@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prove a refactor changed nothing: compare two Rig compilers.
 
-    test/equiv.py OLD_RIG NEW_RIG [-j N] [--keep DIR] [--no-cache]
+    tools/equiv.py OLD_RIG NEW_RIG [-j N] [--keep DIR] [--no-cache]
 
 Runs both compilers over every tracked program (tests, examples, std,
 corpus) and every ```rig block in the Markdown docs, and compares what
