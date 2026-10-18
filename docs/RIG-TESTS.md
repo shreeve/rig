@@ -140,17 +140,21 @@ and `RIG_OUT_DIR` set, passing when it exits 0, and the compiler's own
 Zig tests (`zig build test`).
 
 The checks come in tiers. `core`, which a run with no names checks, is
-every test file, the doc examples, the examples, the torture input, the
-unit tests, and the reference ownership checker, and takes seconds. The
-scripts of `test/cli` take minutes, since several build dozens of
-programs one by one, and run when named. `proofs`, the differential run
+every test file but the probes', the doc examples, the examples, the
+torture input, the unit tests, and the reference ownership checker, and
+takes seconds. The scripts of `test/cli` take minutes, since several
+build dozens of programs one by one, and run when named. `probes` is
+the cases of `test/rig/probes-*.rig.test`, the probes of past reviews:
+they would double the core's time, and what the core wants of them, the
+oracle's verdicts, its oracle job checks anyway. `proofs`, the differential run
 of the proven checks, builds each program three times, and runs only
 when named, by hand, after a change to the proofs:
 
 ```bash
 swarm test/rig.rip              # core
 swarm test/rig.rip cli          # the scripts of test/cli
-swarm test/rig.rip all          # core and cli
+swarm test/rig.rip probes       # the probes of past reviews
+swarm test/rig.rip all          # core, cli, and probes
 swarm test/rig.rip std-text     # test/rig/std-text.rig.test alone
 swarm test/rig.rip doc-SPEC     # SPEC.md's examples alone (doc: every doc's)
 swarm test/rig.rip proofs       # by hand (proofs-all: every program)

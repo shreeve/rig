@@ -4,14 +4,16 @@
 ([docs/RIG-TESTS.md](../docs/RIG-TESTS.md) is its spec): the cases of
 `test/rig/*.rig.test` (every behavior and rejection test), every
 ```` ```rig ```` block of the docs, `examples/`, `test/torture/`, the
-unit tests, and the reference ownership checker's sets in its core, and
-the scripts of `test/cli/` as `cli`. Run it through `cpuq run`
+unit tests, and the reference ownership checker's sets in its core; the
+scripts of `test/cli/` as `cli`; and the probes of past reviews,
+`test/rig/probes-*.rig.test`, as `probes`. Run it through `cpuq run`
 (AGENTS.md):
 
 ```bash
 swarm test/rig.rip                 # the core
 swarm test/rig.rip cli             # the scripts of test/cli
-swarm test/rig.rip all             # both
+swarm test/rig.rip probes          # the probes of past reviews
+swarm test/rig.rip all             # all three
 swarm test/rig.rip std-text        # test/rig/std-text.rig.test alone
 swarm test/rig.rip doc             # the doc examples alone (doc-SPEC: SPEC.md's)
 swarm test/rig.rip proofs          # by hand: the proven checks' differential run
@@ -194,8 +196,11 @@ with what it prints, where it runs. They came from a folder of loose
 programs, `test/corpus`, keeping each probe that gives the reference
 ownership checker a function whose lowered core no other test or kept
 probe has; they give it most of the functions it decides
-(`oracle.tests`, below). A new review adds its probes as cases, to a
-probes file or to the test file of the area it probes.
+(`oracle.tests`, below). The core skips their own checks, which double
+its time, but its oracle job reads every probe; `swarm test/rig.rip
+probes` (or `all`) checks what each prints or is rejected with. A new
+review adds its probes as cases, to a probes file or to the test file
+of the area it probes.
 
 Probe batches started by hand should set `RIG_OUT_DIR=$(mktemp -d)` and
 delete it afterwards, so they never write to the user cache.
