@@ -1,8 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  p = P(x: 1)
-  r = !p
-  t = *r
-  print(t)

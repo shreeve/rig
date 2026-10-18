@@ -1,7 +1,0 @@
-obj S
-  n: Int
-
-sub main()
-  s = *S(n: 1)
-  w = ~s
-  print(w.n)

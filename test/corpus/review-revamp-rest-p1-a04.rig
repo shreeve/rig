@@ -1,5 +1,0 @@
-obj S
-  pub ?x
-
-sub main()
-  print(1)

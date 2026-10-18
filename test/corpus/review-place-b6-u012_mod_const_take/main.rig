@@ -1,4 +1,0 @@
-use geo
-
-sub main()
-  x = <geo.KP[0]

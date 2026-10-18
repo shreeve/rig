@@ -1,7 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  p = P(x: 1)
-  defer (!p).x = 4
-  print(p.x)

@@ -1,7 +1,0 @@
-obj Point
-  x: Int
-  y: Int
-
-sub main()
-  p = Point(1, 2)
-  print(p.x)

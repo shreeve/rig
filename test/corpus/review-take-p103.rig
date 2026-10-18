@@ -1,6 +1,0 @@
-sub apply(f: ?fun(!Int, Int) -> Int)
-  x = 1
-  print(f(!x, 2))
-
-sub main()
-  apply(replace)

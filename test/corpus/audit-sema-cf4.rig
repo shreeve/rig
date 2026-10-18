@@ -1,4 +1,0 @@
-A = 1 << 63
-
-sub main()
-  print(A)

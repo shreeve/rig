@@ -1,9 +1,0 @@
-obj Wrap[T]
-  item: T
-
-  drop(!self)
-    print("drop wrap")
-
-sub main()
-  g = Wrap(5)
-  print(g.item)

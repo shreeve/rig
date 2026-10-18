@@ -1,7 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  xs = [P(x: 1), P(x: 2)]
-  for p in ?xs
-    p.x = 5

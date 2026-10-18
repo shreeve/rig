@@ -1,9 +1,0 @@
-fun keep(s: ?String) -> ?String
-  s
-
-sub main()
-  t = String("hello")
-  v: List[!String] = List()
-  !v.push(!t)
-  s = keep(v[0][1..])
-  print(s)

@@ -1,9 +1,0 @@
-fun keep(s: ?String) -> ?String
-  s
-
-sub main()
-  c = *Cell(String("hello"))
-  d = +c
-  s = keep(c)
-  !d.set(String("x"))
-  print(s)

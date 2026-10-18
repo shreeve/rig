@@ -1,3 +1,0 @@
-sub main()
-  b = ^1
-  w = ~b

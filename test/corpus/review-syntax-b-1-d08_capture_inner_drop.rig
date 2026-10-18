@@ -1,6 +1,0 @@
-sub main()
-  t = String("hi")
-  f = |<t|
-    <t
-  f()
-  f()

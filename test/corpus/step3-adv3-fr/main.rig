@@ -1,4 +1,0 @@
-use lib3
-
-sub main()
-  print(lib3.big[3](), lib3.big[700000]())

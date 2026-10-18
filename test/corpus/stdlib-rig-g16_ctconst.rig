@@ -1,8 +1,0 @@
-A = "a"[0]
-
-sub main()
-  x: U8 = 97
-  match x
-    97 => print("a")
-    _ => print("other")
-  print(A)

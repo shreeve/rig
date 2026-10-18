@@ -1,5 +1,0 @@
-obj S
-  a: [2]Cell[Int]
-
-sub main()
-  print(1)

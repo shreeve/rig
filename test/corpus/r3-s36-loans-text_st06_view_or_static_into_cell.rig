@@ -1,8 +1,0 @@
-sub main()
-  t = String("abc")
-  c: Cell[?String] = Cell("x")
-  s = "lit"
-  if t.len > 5
-    s = ?t[..]
-  !c.set(s)
-  print(c.get())

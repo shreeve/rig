@@ -1,9 +1,0 @@
-obj U
-  name: ?String
-
-fun find(k: Int) -> U?
-  U(name: "a") if k > 0 else none
-
-sub main()
-  n = find(1)?.name
-  print(n)

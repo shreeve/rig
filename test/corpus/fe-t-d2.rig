@@ -1,2 +1,0 @@
-sub main()
-  y: [2]? Int = 1

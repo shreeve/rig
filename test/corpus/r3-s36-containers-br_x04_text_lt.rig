@@ -1,6 +1,0 @@
-use std.sort
-
-sub main()
-  a = String("b")
-  b = String("a")
-  print(a < b)

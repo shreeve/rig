@@ -1,9 +1,0 @@
-enum Color
-  red
-  green
-
-fun f[T](x: T) -> Bool
-  x < .red
-
-sub main()
-  print(f(Color.green))

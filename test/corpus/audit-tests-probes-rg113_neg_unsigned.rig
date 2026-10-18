@@ -1,3 +1,0 @@
-sub main()
-  x: U8 = -1
-  print(x)

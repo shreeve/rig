@@ -1,5 +1,0 @@
-enum E
-  a = 7 / 0
-
-sub main()
-  print(Int(E.a))

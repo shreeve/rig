@@ -1,7 +1,0 @@
-enum Size
-  small
-  large
-
-sub main()
-  s = Size.small
-  print(not .small < s)

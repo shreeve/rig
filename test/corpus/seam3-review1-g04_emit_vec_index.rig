@@ -1,8 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  !v.push(10)
-  !v.push(20)
-  b = ^?v
-  print(b.len)
-  for x in b
-    print(x)

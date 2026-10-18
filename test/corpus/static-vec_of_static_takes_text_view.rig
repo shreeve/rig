@@ -1,6 +1,0 @@
-sub main()
-  t = String("abcdef")
-  v: List[Static] = List()
-  !v.push(?t[..2])
-  <t
-  print(v)

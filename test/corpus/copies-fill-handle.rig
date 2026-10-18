@@ -1,7 +1,0 @@
-obj N
-  v: Int
-
-sub main()
-  h = *N(v: 1)
-  a = [2 of h]
-  print(a[0].v)

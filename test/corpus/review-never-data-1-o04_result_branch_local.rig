@@ -1,7 +1,0 @@
-fun pick(c: Bool) -> ?String
-  a = String("aa")
-  b = String("bb")
-  a if c else b
-
-sub main()
-  print(pick(true))

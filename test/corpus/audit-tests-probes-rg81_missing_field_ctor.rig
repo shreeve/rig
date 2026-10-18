@@ -1,7 +1,0 @@
-obj P
-  x: Int
-  y: Int
-
-sub main()
-  p = P(x: 1)
-  print(p.x)

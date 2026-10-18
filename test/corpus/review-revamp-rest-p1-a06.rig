@@ -1,6 +1,0 @@
-enum C
-  pub red
-  green
-
-sub main()
-  print(1)

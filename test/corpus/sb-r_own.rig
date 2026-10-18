@@ -1,6 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  hs: List[*P] = List()
-  !hs.fill(*P(x: 1))

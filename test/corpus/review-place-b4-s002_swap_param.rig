@@ -1,9 +1,0 @@
-obj P
-  a: ?String
-  b: ?String
-
-sub f(p: P)
-  swap(!p.a, !p.b)
-
-sub main()
-  f(P(a: "x", b: "y"))

@@ -1,5 +1,0 @@
-sub main()
-  a = [1, 2, 3]
-  v: List[![]Int] = List()
-  !v.push(!a[..])
-  print(v.len)

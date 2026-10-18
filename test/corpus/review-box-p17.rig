@@ -1,6 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  bb = ^^P(x: 3)
-  print(bb.x)

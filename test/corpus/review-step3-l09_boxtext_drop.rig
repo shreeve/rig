@@ -1,8 +1,0 @@
-fun keep(s: ?String) -> ?String
-  s
-
-sub main()
-  b = ^^String("abc")
-  s = keep(?b)
-  <b
-  print(s)

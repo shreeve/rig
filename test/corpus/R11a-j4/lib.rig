@@ -1,8 +1,0 @@
-pub enum Opt[T]
-  some(value: T)
-  nothing
-  other(a: Int, b: T)
-
-pub enum Color[T]
-  red
-  green

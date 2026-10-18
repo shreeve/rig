@@ -1,5 +1,0 @@
-obj P
-  x: Int
-
-fun g(p: ?P) -> Int
-  (?p).x

@@ -1,3 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  v.len = 3

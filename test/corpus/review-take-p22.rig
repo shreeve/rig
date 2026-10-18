@@ -1,8 +1,0 @@
-obj S
-  a: Int?
-
-sub main()
-  o: S? = S(a: 1)
-  if <o as x
-    y = <x.a
-    print(y, x)

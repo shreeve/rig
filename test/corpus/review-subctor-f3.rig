@@ -1,7 +1,0 @@
-obj Wrap[T]
-  item: T
-
-sub main()
-  w = Wrap(none)
-  u = Wrap(List())
-  print(w, u)

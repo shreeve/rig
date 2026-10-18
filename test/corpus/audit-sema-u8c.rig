@@ -1,9 +1,0 @@
-obj I16
-  x: Int
-
-fun f(v: I16) -> Int
-  v.x
-
-sub main()
-  v = I16(x: 1)
-  print(v.x)

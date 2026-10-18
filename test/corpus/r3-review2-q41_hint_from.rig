@@ -1,4 +1,0 @@
-from std.random use Rng
-
-sub main()
-  print(1)

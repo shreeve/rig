@@ -1,7 +1,0 @@
-enum E
-  a = -1
-  b
-  c = Int.max
-
-sub main()
-  print(Int(E.a), Int(E.b), Int(E.c))

@@ -1,9 +1,0 @@
-obj H
-  w: !List[Int]
-
-sub main()
-  v: List[Int] = List()
-  h = H(w: !v)
-  h.w += 1
-  h.w = 5
-  h.w = ?v

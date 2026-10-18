@@ -1,6 +1,0 @@
-fun get(o: ?List[Int]?) -> List[Int]?
-  o
-
-sub main()
-  x: List[Int]? = List()
-  print(get(?x))

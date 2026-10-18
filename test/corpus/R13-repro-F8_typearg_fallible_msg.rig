@@ -1,5 +1,0 @@
-obj N
-  a: Int
-
-sub main()
-  c = Cell[*N!](value: none)

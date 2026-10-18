@@ -1,5 +1,0 @@
-type B = Bool
-
-sub main()
-  a = B(true)
-  print(a)

@@ -1,9 +1,0 @@
-obj R
-  v: List[Int]
-  n: Int
-
-sub main()
-  o: R? = R(v: List(), n: 1)
-  if <o as r
-    r = R(v: List(), n: 8)
-    print(r.n)

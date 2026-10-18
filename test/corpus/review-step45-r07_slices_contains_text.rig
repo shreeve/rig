@@ -1,9 +1,0 @@
-# std.slices.contains / index_of over List[Text]
-use std.slices
-
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  !v.push(String("b"))
-  print(slices.contains(?v, String("b")))
-  print(slices.index_of(?v, String("b")))

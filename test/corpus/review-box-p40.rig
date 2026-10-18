@@ -1,7 +1,0 @@
-fun mk(k: Int) -> ^fun(Int) -> Int
-  f = |x: Int| x + k
-  ^f
-
-sub main()
-  b = mk(3)
-  print("ok")

@@ -1,9 +1,0 @@
-obj T
-  seen: List[Int]
-
-  fun total(<self) -> Int
-    self.seen.len
-
-sub main()
-  t = T(seen: List())
-  print(t.total())

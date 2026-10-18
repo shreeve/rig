@@ -1,5 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  P(x: 1).x = 5

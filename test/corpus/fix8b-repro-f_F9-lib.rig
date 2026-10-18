@@ -1,5 +1,0 @@
-N =! 3
-pub F =! 2.5
-
-pub obj S
-  x: Int

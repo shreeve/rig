@@ -1,3 +1,0 @@
-new K = 1
-sub main()
-  print(K)

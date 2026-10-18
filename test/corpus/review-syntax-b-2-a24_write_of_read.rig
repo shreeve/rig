@@ -1,8 +1,0 @@
-sub main()
-  t = String("hello")
-  u = String("other")
-  r = ?t
-  w = !r
-  s = w[1..]
-  w = ?u
-  print(s, r)

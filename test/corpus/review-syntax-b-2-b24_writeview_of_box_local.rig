@@ -1,6 +1,0 @@
-sub main()
-  b = ^String("hello")
-  w = !b
-  s = w[1..]
-  w = ^String("x")
-  print(s)

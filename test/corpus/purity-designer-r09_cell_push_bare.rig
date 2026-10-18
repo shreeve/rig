@@ -1,5 +1,0 @@
-sub main()
-  c = Cell[List[Int]](List())
-  c.push(1)
-  v: List[Int] = List()
-  v.push(1)

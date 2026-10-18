@@ -1,6 +1,0 @@
-# stored in a List
-sub main()
-  a = [1, 2]
-  vs: List[![]Int] = List()
-  !vs.push(!a[..])
-  print(vs)

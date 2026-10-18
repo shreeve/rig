@@ -1,8 +1,0 @@
-fun same[T](x: T) -> T
-  x
-
-sub main()
-  v: List[Int] = List()
-  b = ^!v
-  r = same(!v)
-  print(b.len, r.len)

@@ -1,8 +1,0 @@
-obj P
-  x: Int
-  s: ?String
-
-sub main()
-  p = P(x: 1, s: "a")
-  f = |<p| p.x = 2
-  f()

@@ -1,4 +1,0 @@
-sub main()
-  x: Int? = 1
-  match x
-    _ => print(1)

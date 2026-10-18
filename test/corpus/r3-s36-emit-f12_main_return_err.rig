@@ -1,7 +1,0 @@
-# `return E.bad` in sub main
-error E
-  bad
-
-sub main()
-  print("start")
-  return E.bad

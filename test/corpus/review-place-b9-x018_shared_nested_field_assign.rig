@@ -1,9 +1,0 @@
-obj P
-  x: Int
-
-obj N
-  h: *P
-
-sub main()
-  n = N(h: *P(x: 1))
-  n.h.x = 2

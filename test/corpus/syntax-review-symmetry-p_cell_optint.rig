@@ -1,4 +1,0 @@
-sub main()
-  c = Cell[Int?](value: none)
-  c.set(3)
-  print(c.get())

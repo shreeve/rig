@@ -1,6 +1,0 @@
-fun keep(s: ?String) -> Static
-  s
-
-sub main()
-  t = String("abc")
-  print(keep(?t[..]))

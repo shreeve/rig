@@ -1,8 +1,0 @@
-sub main()
-  a: List[Int] = List(capacity: 10)
-  !a.push(3)
-  !a.truncate(0)
-  !a.reserve(20)
-  b = +a
-  c = a.clone()
-  !a.extend(?b[..])

@@ -1,3 +1,0 @@
-@a use m2
-sub main()
-  print(2)

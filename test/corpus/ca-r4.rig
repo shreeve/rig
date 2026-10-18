@@ -1,9 +1,0 @@
-sub bump(c: !Int)
-  c += 1
-
-sub main()
-  c = 0
-  w = !c
-  print(c)
-  bump(w)
-  print(c)

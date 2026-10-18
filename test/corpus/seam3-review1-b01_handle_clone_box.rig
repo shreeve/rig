@@ -1,8 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  h = *^?v
-  h2 = +h
-  <h
-  !v.push(2)
-  print(h2.len)

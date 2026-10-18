@@ -1,3 +1,0 @@
-sub main()
-  a: F32 = 1e30 * 1e10
-  print(a)

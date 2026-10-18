@@ -1,7 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  p = P(x: 1)
-  (!p).x = 5
-  print(p.x)

@@ -1,9 +1,0 @@
-obj Rng unique
-  s: Int
-
-fun out(p: ?Rng) -> Rng
-  p
-
-sub main()
-  r = Rng(s: 1)
-  print(out(?r).s)

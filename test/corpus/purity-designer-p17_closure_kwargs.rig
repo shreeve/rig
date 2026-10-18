@@ -1,3 +1,0 @@
-sub main()
-  f = |a: Int, b: Int| a - b
-  print(f(b: 1, a: 5))

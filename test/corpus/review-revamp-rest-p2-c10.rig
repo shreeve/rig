@@ -1,6 +1,0 @@
-enum E
-  a = 3
-  b = E.a
-
-sub main()
-  print(Int(E.b))

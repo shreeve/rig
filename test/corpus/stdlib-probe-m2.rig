@@ -1,8 +1,0 @@
-obj String
-  bytes: List[U8]
-
-sub main()
-  v: List[^String] = List()
-  !v.push(^String(bytes: List()))
-  for t in ?v
-    print(t.bytes.len)

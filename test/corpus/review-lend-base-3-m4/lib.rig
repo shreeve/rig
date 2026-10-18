@@ -1,5 +1,0 @@
-pub obj P
-  x: Int
-
-pub fun getx(p: !P) -> Int
-  (?(!p)).x

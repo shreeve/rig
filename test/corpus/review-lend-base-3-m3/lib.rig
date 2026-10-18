@@ -1,6 +1,0 @@
-pub obj P
-  x: Int
-  s: String
-
-pub fun gets(p: ?P) -> Int
-  (?p).s.len

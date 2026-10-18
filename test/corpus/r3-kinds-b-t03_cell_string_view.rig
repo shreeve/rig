@@ -1,6 +1,0 @@
-sub main()
-  c: Cell[?String] = Cell("lit")
-  t = String("hello")
-  !c.set(?t[..])
-  <t
-  print(c.get())

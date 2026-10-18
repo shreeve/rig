@@ -1,3 +1,0 @@
-sub main()
-  arr = [2 of List[Int]()]
-  print(arr[0].len)

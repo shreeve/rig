@@ -1,6 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  w = !v
-  add = |<w, x: Int| w.push(x)
-  add(1)
-  print(v.len)

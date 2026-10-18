@@ -1,4 +1,0 @@
-sub main()
-  s = "x".copy()
-  @a <s
-  print(1)

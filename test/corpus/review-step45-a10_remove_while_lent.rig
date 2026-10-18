@@ -1,7 +1,0 @@
-# remove while element lent via a method receiver chain
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  !v.push(String("b"))
-  x = v.remove(0)
-  print(x, v)

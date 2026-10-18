@@ -1,8 +1,0 @@
-obj Wrap[T]
-  v: T
-
-pub fun f[T](x: T) -> Int
-  g(x)
-
-fun g[T](x: T) -> Int
-  f(Wrap(v: x))

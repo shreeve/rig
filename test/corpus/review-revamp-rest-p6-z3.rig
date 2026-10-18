@@ -1,6 +1,0 @@
-fun peek(m: ?(Int?)) -> Int
-  m ?? 0
-
-sub main()
-  x: Int? = 3
-  print(peek(!x))

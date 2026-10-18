@@ -1,4 +1,0 @@
-sub main()
-  a = [String("a"), String("b")]
-  !a[..].fill(String("z"))
-  print(a)

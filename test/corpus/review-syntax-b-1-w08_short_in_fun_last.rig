@@ -1,7 +1,0 @@
-fun take(v: !List[Int]) -> Int?
-  !v.pop()
-
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  print(take(!v))

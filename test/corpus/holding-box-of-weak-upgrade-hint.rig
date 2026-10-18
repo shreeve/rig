@@ -1,8 +1,0 @@
-obj S
-  n: Int
-
-sub main()
-  h = *S(n: 1)
-  a: ^~S = ^~h
-  if *a as x
-    print(x.n)

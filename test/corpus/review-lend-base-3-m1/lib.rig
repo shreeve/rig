@@ -1,9 +1,0 @@
-pub obj P
-  x: Int
-  items: List[Int]
-
-pub fun getx(p: ?P) -> Int
-  (?p).x
-
-pub sub setx(p: !P)
-  (!p).x = 7

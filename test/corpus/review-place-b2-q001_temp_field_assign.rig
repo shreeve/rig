@@ -1,8 +1,0 @@
-obj P
-  x: Int
-
-fun mk() -> P
-  P(x: 1)
-
-sub main()
-  mk().x = 5

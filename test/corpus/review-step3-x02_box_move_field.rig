@@ -1,8 +1,0 @@
-obj S
-  n: Int
-  t: String
-
-sub main()
-  b = ^^S(n: 1, t: String("x"))
-  t = <b.t
-  print(t)

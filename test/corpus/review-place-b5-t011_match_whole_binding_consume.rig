@@ -1,9 +1,0 @@
-obj R
-  v: List[Int]
-
-sub main()
-  r = R(v: List())
-  match <r
-    whole
-      whole = R(v: List())
-      print(whole.v.len)

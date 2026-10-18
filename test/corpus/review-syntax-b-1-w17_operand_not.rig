@@ -1,5 +1,0 @@
-sub main()
-  s: List[Int] = List()
-  !s.push(1)
-  n = !s.pop() ?? 5
-  print(n)

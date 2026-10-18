@@ -1,9 +1,0 @@
-obj N
-  v: Int
-
-sub main()
-  v = List[*N?]()
-  (!v).push(*N(v: 1))
-  c = Cell(<v)
-  y = <c[0]
-  print(1)

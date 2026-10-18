@@ -1,9 +1,0 @@
-obj B
-  v: List[Int]
-  fun items(<self) -> ![]Int
-    !self.v[..]
-
-sub main()
-  b = B(v: List())
-  it = <b.items()
-  print(it.len)

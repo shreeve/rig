@@ -1,8 +1,0 @@
-fun inner(b: ?^List[Int]) -> ^?List[Int]
-  ^?b.value
-
-sub main()
-  ob = ^List[Int]()
-  r = inner(?ob)
-  <ob
-  print(r.len)

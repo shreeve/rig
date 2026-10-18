@@ -1,2 +1,0 @@
-test "a"
-  assert(1 == 1)

@@ -1,5 +1,0 @@
-sub main()
-  o = "init"
-  for s in ?String("abc")[..]
-    print(s)
-  print(o)

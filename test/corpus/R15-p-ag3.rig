@@ -1,8 +1,0 @@
-obj V
-  s: ![]Int
-
-sub main()
-  a = [1, 2]
-  v = V(s: !a[..])
-  v.s.len = 9
-  v.s = !a[..]

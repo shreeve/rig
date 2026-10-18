@@ -1,4 +1,0 @@
-sub main()
-  arr = [1, 2, 3]
-  (<(!arr[..])).fill(4)
-  print(arr)

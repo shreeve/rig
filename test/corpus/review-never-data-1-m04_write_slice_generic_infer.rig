@@ -1,8 +1,0 @@
-obj G[T]
-  v: T
-
-sub main()
-  a = [1, 2, 3]
-  g = G(v: !a[..])
-  g.v[0] = 9
-  print(a[0])

@@ -1,8 +1,0 @@
-sub main()
-  c = *Cell[List[String]](List())
-  !c.push(String("hello"))
-  d = +c
-  for x in c
-    s = x[1..]
-    !d.clear()
-    print(s)

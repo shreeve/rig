@@ -1,3 +1,0 @@
-sub main()
-  a = "x"
-  print(a + "b")

@@ -1,9 +1,0 @@
-# assign an element through a read view: reject
-fun set(v: ?List[String])
-  v[0] = String("z")
-
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  set(?v)
-  print(v)

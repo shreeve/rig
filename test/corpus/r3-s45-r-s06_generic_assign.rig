@@ -1,8 +1,0 @@
-sub put[T](xs: !List[T], x: T)
-  xs[0] = <x
-
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  put(!v, String("b"))
-  print(v)

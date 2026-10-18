@@ -1,6 +1,0 @@
-sub main()
-  c: Cell[List[Int]] = Cell(List())
-  f = |<c|
-    !c.push(3)
-    print(c[0])
-  f()

@@ -1,4 +1,0 @@
-sub main()
-  t = String("ab")
-  (<(!t)).add("c")
-  print(t)

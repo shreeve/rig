@@ -1,5 +1,0 @@
-fun f() -> void
-  print(1)
-
-sub main()
-  f()

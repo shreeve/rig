@@ -1,9 +1,0 @@
-obj S
-  n: Int
-
-fun get(s: ?S) -> Int
-  s.n
-
-sub main()
-  b = ^^S(n: 2)
-  print(get(?b))

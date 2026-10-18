@@ -1,7 +1,0 @@
-sub main()
-  o: String? = String("hello")
-  s = ""
-  while o as r
-    s = r[1..]
-    o = none
-  print(s)

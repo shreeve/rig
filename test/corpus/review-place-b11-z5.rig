@@ -1,4 +1,0 @@
-sub main()
-  cs = [Cell[List[Int]](List())]
-  for c in cs
-    (<c).push(1)

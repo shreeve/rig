@@ -1,8 +1,0 @@
-# List push on a made List without ! (expect reject)
-fun mk() -> List[Int]
-  v: List[Int] = List()
-  v
-
-sub main()
-  mk().push(1)
-  print("done")

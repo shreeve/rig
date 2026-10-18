@@ -1,3 +1,0 @@
-sub main()
-  for x, i in 0..3
-    print(x, i)

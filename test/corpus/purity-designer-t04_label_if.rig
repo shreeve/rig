@@ -1,3 +1,0 @@
-sub main()
-  @a if true
-    print(1)

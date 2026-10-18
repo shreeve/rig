@@ -1,9 +1,0 @@
-sub flip(b: !Bool)
-  b = not b
-
-sub main()
-  x = true
-  flip(!x)
-  w = !x
-  w = false
-  print(x)

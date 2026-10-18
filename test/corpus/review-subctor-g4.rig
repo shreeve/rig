@@ -1,7 +1,0 @@
-obj Node
-  v: Int
-
-sub main()
-  n = *Node(1)
-  c = Cell(n)
-  print(c, n)

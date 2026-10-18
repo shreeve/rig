@@ -1,8 +1,0 @@
-sub main()
-  o1: String? = String("hello")
-  o2: String? = String("bye")
-  c = true
-  if (o1 if c else o2) as x
-    r = ?x[1..]
-    o1 = none
-    print(r)

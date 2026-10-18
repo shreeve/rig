@@ -1,9 +1,0 @@
-obj H
-  w: !Int
-
-sub f(b: ^H)
-  b.w = 6
-
-sub main()
-  n = 1
-  f(^H(w: !n))

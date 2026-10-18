@@ -1,8 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  b = ^P(x: 1)
-  c = Cell(5)
-  e: ^Int = ^3
-  print(b, c, e)

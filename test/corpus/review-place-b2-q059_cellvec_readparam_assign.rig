@@ -1,8 +1,0 @@
-sub f(c: !Cell[List[Int]])
-  !c.push(1)
-  c[0] = 4
-
-sub main()
-  c: Cell[List[Int]] = Cell(List())
-  f(!c)
-  print(c[0])

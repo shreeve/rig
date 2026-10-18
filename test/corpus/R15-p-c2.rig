@@ -1,6 +1,0 @@
-fun g(s: []Int) -> ![]Int
-  !s[..]
-
-sub main()
-  a = [1, 2]
-  print(g(?a[..]))

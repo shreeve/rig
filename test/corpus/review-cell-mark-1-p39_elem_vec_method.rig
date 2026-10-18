@@ -1,6 +1,0 @@
-sub main()
-  c: *Cell[List[List[Int]]] = *Cell(List())
-  w = List[Int]()
-  !w.push(1)
-  !c.push(<w)
-  print(c[0].len, c[0].get(0) ?? 9)

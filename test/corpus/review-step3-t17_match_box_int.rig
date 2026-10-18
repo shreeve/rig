@@ -1,8 +1,0 @@
-sub main()
-  b = ^3
-  match b
-    3 => print("three")
-    _ => print("other")
-  match ?b
-    3 => print("three")
-    _ => print("other")

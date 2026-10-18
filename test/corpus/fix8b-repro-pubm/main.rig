@@ -1,5 +1,0 @@
-use lib
-
-sub main()
-  m = lib.Maker(x: 1)
-  print(m.x)

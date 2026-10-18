@@ -1,9 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  h: *List[?List[Int]] = *List()
-  h2 = +h
-  !h.push(?v)
-  <h
-  !v.push(2)
-  print(h2[0].len)

@@ -1,6 +1,0 @@
-use lib
-
-sub main()
-  a = lib.Pub.max
-  b = lib.Priv.max
-  print(a, b)

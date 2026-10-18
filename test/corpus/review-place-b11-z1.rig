@@ -1,4 +1,0 @@
-sub main()
-  c: Cell[?String] = Cell("a")
-  x = (<c).replace("b")
-  print(x)

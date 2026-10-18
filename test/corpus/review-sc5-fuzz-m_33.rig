@@ -1,6 +1,0 @@
-K: Int = 3
-
-sub main()
-  v: Int = 5
-  x: Int = (((7 | K) % (K - K)) % ((256 -% v) | -128))
-  print(x, v, K)

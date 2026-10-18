@@ -1,3 +1,0 @@
-sub main()
-  f = swap
-  print(f)

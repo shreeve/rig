@@ -1,8 +1,0 @@
-sub main()
-  t = String("hello")
-  f = |!t|
-    s = t[1..]
-    for _ in 0..50
-      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
-    print(s)
-  f()

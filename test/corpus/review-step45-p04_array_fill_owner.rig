@@ -1,4 +1,0 @@
-# [n of x] with an owner: reject
-sub main()
-  a = [2 of String("a")]
-  print(a)

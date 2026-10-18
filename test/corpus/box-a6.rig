@@ -1,7 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  a = ^P(x: 1)
-  b = ^P(x: 1)
-  print(a == b)

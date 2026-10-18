@@ -1,8 +1,0 @@
-sub main()
-  t = String("hello")
-  s: ?String = ?t[..]
-  w = !s
-  x = w[1..]
-  for _ in 0..50
-    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
-  print(x)

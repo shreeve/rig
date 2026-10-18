@@ -1,8 +1,0 @@
-sub main()
-  a = 1
-  v: List[!Int] = List()
-  !v.push(!a)
-  if (!v).pop() as w
-    w = 4
-  <v
-  print(a)

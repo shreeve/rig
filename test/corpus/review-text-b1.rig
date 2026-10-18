@@ -1,8 +1,0 @@
-obj H
-  t: String
-
-sub main()
-  p = *H(t: String("abcdefghijklmnop"))
-  q = p
-  !p.t.add(?q.t[..])
-  print(p.t)

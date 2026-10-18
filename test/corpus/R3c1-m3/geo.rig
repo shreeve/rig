@@ -1,7 +1,0 @@
-pub obj Point
-  x: Int
-  y: Int
-
-pub enum Shape
-  dot(at: Point)
-  empty

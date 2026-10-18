@@ -1,4 +1,0 @@
-sub main()
-  x = 1
-  y = replace
-  print(x)

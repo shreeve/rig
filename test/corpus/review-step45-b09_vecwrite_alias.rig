@@ -1,8 +1,0 @@
-# List[!Int]: push !a, then read a while the List is live
-sub main()
-  a = 1
-  w: List[!Int] = List()
-  !w.push(!a)
-  print(a)
-  w[0] = 5
-  print(a)

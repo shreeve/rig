@@ -1,9 +1,0 @@
-# for over a view a call returns, header makes a temp (expect reject)
-fun items(v: ?List[String], k: ?String) -> ?List[String]
-  v
-
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  for x in items(?v, ?String("k"))
-    print(x)

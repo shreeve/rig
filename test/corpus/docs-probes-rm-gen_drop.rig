@@ -1,9 +1,0 @@
-obj W[T]
-  v: T
-
-  drop(!self)
-    print(1)
-
-sub main()
-  w = W(v: 1)
-  print(w.v)

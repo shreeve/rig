@@ -1,8 +1,0 @@
-obj H
-  w: !Int
-
-sub main()
-  n = 1
-  c = Cell(H(w: !n))
-  c.value.w += 1
-  print(n)

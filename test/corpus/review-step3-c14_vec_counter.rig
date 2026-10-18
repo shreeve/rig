@@ -1,9 +1,0 @@
-obj Counter
-  hits: Cell[Int]
-
-sub main()
-  v: List[Counter] = List()
-  !v.push(Counter(hits: Cell(1)))
-  x = v.get(0)
-  y = v[0]
-  print(x, y)

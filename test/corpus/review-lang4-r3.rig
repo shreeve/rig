@@ -1,9 +1,0 @@
-obj H
-  w: !List[Int]
-
-sub main()
-  v: List[Int] = List()
-  !v.push(4)
-  h = H(w: !v)
-  h.w = <v
-  print(h.w)

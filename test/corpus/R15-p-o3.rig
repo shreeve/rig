@@ -1,5 +1,0 @@
-sub main()
-  c: Cell[List[Int]] = Cell(value: List())
-  !c.push(1)
-  !c.push(2)
-  !c.swap(0, 1)
