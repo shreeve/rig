@@ -241,7 +241,10 @@ so an edit that only moves it keeps its name in
 `test/oracle/rejections`), its `matrix` set (`test/matrix.py --oracle`),
 and its `lint` check are jobs of the core. A `fail` case whose
 diagnostic suggests a lend of a place as a path's base also has each
-hint checked (`test/hints.py`).
+hint checked (`test/hints.py`). A test file a tool writes names the tool
+on its first line (`written by tools/NAME.py`), and a core job,
+`generated.<file>`, runs the tool's `--check`, which fails when the file
+is not what the tool would write now.
 
 ## Why
 
