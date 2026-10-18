@@ -874,21 +874,61 @@ checkScript = (c) ->
 # decides gets the compiler's verdict, or is listed in test/oracle/differences;
 # its rejections are test/oracle/rejections; and the set keeps its floor of
 # decided functions (test/oracle/coverage).
+#
+# A set whose inputs are all as they were when it last passed is not
+# checked again: the oracle and the compiler (their binaries), the
+# oracle's three lists, rig's settings, and every program the set reads,
+# with each module beside it that one of its `use`s names, or the Rig
+# files of the whole folder of a program of several files.
+oracleInputs = (parts, programs) ->
+  h = new Bun.CryptoHasher('sha256')
+  add = (s) -> h.update("#{s.length}:").update(s)
+  add(readFileSync(join(root, 'bin', f))) for f in ['rig-oracle', 'rig']
+  add(readFileSync(join(root, 'test', 'oracle', f))) for f in ['differences', 'rejections', 'coverage']
+  add(Object.keys(process.env).filter((k) -> k.startsWith('RIG_')).sort().map((k) -> "#{k}=#{process.env[k]}").join('\n'))
+  add(String(x)) for x in parts
+  # Rig's sources only: the oracle reads no Zig, and a case's folder also
+  # holds what its runs wrote (NAME.debug/, NAME.release/, ...).
+  folder = (d) ->
+    for f in readdirSync(d, { recursive: true }).map(String).sort() when f.endsWith('.rig') and not /\.(debug|release|out)\//.test(f)
+      add(f)
+      add(readFileSync(join(d, f)))
+  for p in programs
+    add(p)
+    if basename(p) is 'main.rig'
+      folder(dirname(p))
+      continue
+    text = readFileSync(p)
+    add(text)
+    for m in String(text).matchAll(/^use\s+(\w+)/gm) when m[1] isnt 'std'
+      beside = join(dirname(p), m[1])
+      if existsSync(beside + '.rig') then add(readFileSync(beside + '.rig')) else if existsSync(beside) then folder(beside)
+  h.digest('hex')
+
+passedBefore = (c, key) -> existsSync(join(work, 'oracle', "#{c.name}.passed")) and readFileSync(join(work, 'oracle', "#{c.name}.passed"), 'utf8') is key
+passedNow = (c, key) -> writeFileSync(join(work, 'oracle', "#{c.name}.passed"), key)
+
 checkOracle = (c) ->
+  key = oracleInputs([c.name, readFileSync(c.path, 'utf8')], readFileSync(c.path, 'utf8').split('\n').filter((l) -> l isnt '').map((l) -> l.split('\t')[1]))
+  return if passedBefore(c, key)
   r = run([join(root, 'bin', 'rig-oracle'), '--set', c.name, '--allow', 'test/oracle/differences', '--rejects', 'test/oracle/rejections', '--coverage', 'test/oracle/coverage', '--list', c.path], {}, Number(c.opts.timeout))
   throw new Error('timed out') unless r.code?
   unless r.code is 0
     all = (r.out + r.err).split('\n')
     throw new Error(all.find((l) -> /^(DIFF|FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+  passedNow(c, key)
 
 # The matrix's programs (test/matrix.py) under the reference checker,
 # held to the same lists.
 checkMatrix = (c) ->
+  key = oracleInputs([c.name, readFileSync(join(root, 'test', 'matrix.py'))], [])
+  return if passedBefore(c, key)
   r = run(['python3', join(root, 'test', 'matrix.py'), '--oracle'], {}, Number(c.opts.timeout))
   throw new Error('timed out') unless r.code?
   unless r.code is 0
     all = (r.out + r.err).split('\n')
     throw new Error(all.find((l) -> /^(DIFF|FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+  passedNow(c, key)
 
 # The oracle reads no ownership classification of the compiler's (comments
 # aside), and the compiler never imports the oracle.
