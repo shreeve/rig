@@ -926,4 +926,22 @@ perform = (task, ctx) ->
     throw new Error("#{where}: pending example: #{failure.message}")
   throw new Error("#{where}: #{failure.message}") if failure?
 
-swarm { setup, perform }
+# The run, then its verdict: each job that died, with its reason (the
+# lines of errors.log), and an exit status of 1, so neither a person
+# nor a script reading the status can take a failed run for a passing
+# one. Swarm's folder is .swarm, or .swarm/TAG with `-t TAG`; the
+# verdict is a function, so its names are its own.
+verdict = ->
+  argv = process.argv.slice(2)
+  at = argv.findIndex((a) -> a is '-t' or a is '--tag')
+  tag = if at >= 0 then argv[at + 1] else argv.find((a) -> a.startsWith('--tag='))?.slice(6)
+  here = resolve('.swarm', ...(if tag? then [String(tag)] else []))
+  died = if existsSync(join(here, 'died')) then readdirSync(join(here, 'died')) else []
+  return if died.length is 0
+  reasons = if existsSync(join(here, 'errors.log')) then readFileSync(join(here, 'errors.log'), 'utf8').split('\n').filter((l) -> l.trim() isnt '').sort() else []
+  shown = reasons.slice(0, 40)
+  process.stdout.write("\x1b[31m#{died.length} died:\x1b[0m\n" + shown.map((l) -> "  #{l}\n").join('') + (if reasons.length > shown.length then "  ... and #{reasons.length - shown.length} more in #{relative(process.cwd(), join(here, 'errors.log'))}\n" else ''))
+  process.exit(1)
+
+await swarm { setup, perform }
+verdict()
