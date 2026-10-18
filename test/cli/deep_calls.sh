@@ -2,9 +2,11 @@
 # compiler nesting once per call: each pass that follows calls keeps a
 # stack of its own (the result bounds of `proofs.Summaries`, the frames
 # and expansions `inlining` finds, its search for cycles, and the
-# proxies `sema.importSymbol` makes of another module's generics). Each
-# chain is longer than the one that overflowed the compiler's stack.
-# timeout: 300
+# proxies `sema.importSymbol` makes of another module's generics), and
+# so does the emitter. Each chain is longer than the one that overflowed
+# the compiler's stack. What short chains print is the cases of
+# test/rig/proofs-deep-calls.rig.test.
+# timeout: 120
 source "$ROOT/test/cli/_lib.sh"
 
 # chain <n> <head> <step> <last> <main>: functions 0..n-1, each `head`
@@ -23,8 +25,8 @@ chain() {
 # An `Int` chain, whose result bounds the proofs find from the last one up.
 chain 20000 'fun f%d(x: Int) -> Int' 'f%d(x)' 'x' 'sub main()\n  print(f0(1))' >ints.rig
 out=$("$TIMEOUT_CMD" 120 "$RIG" check ints.rig 2>&1); expect_rc $? 0 "a chain of 20,000 Int calls: $out"
-out=$(rig run ints.rig 2>&1); expect_rc $? 0 "run a chain of 20,000 Int calls: $out"
-expect_eq "$out" 1 "a chain of 20,000 Int calls"
+out=$(rig emit ints.rig 2>&1 >/dev/null); expect_rc $? 0 "emit a chain of 20,000 Int calls: $out"
+grep -q 'fn f19999(' "$RIG_OUT_DIR/programs/ints/__rig_main.zig" || fail "the emitted chain of 20,000 Int calls has no last function"
 
 # A chain whose result bounds a field: a constructor at its end.
 {
