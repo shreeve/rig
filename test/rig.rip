@@ -412,6 +412,10 @@ put = (path, text) ->
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, text) unless existsSync(path) and readFileSync(path, 'utf8') is text
 
+# A zig build's -j: inside a cpuq lease, the cores it granted (zig build
+# would otherwise start a thread for every CPU); elsewhere, Zig's own.
+zigJobs = -> if process.env.CPUQ_CORES then ["-j#{process.env.CPUQ_CORES.split('-')[0]}"] else []
+
 # This runner's hash: what it writes changes with it.
 runner = new Bun.CryptoHasher('sha256').update(readFileSync(join(root, 'test', 'rig.rip'))).digest('hex')
 
@@ -488,10 +492,16 @@ setup = ->
   # the compiler changed, and the runner says so. A unit test that fails
   # fails the `unit` job, which runs them again from Zig's cache, not the
   # run: the build is tried again without them.
+  # The cases as their own files come first: the unit-order test reads
+  # them, and their hash, handed to the build, runs the unit tests again
+  # when they change, where Zig would replay a cached pass.
+  tree = join(work, 'tree')
+  listed = mirror(parsed)
+  treeKey = new Bun.CryptoHasher('sha256').update(runner + '\0' + readdirSync(dir).filter((f) -> f.endsWith('.rig.test')).sort().map((f) -> readFileSync(join(work, f.slice(0, -'.rig.test'.length), 'tree.json'), 'utf8')).join('\0')).digest('hex').slice(0, 16)
   started = Date.now()
   timer = setTimeout((-> process.stdout.write("rig.rip: building rig and rig-oracle (zig build)...\n")), 1000)
   zigBuild = (steps) ->
-    zb = Bun.spawn({ cmd: ['zig', 'build', '-Dself-check=true', ...steps], cwd: root, stdout: 'pipe', stderr: 'pipe' })
+    zb = Bun.spawn({ cmd: ['zig', 'build', '-Dself-check=true', "-Dtests-key=#{treeKey}", ...zigJobs(), ...steps], cwd: root, stdout: 'pipe', stderr: 'pipe' })
     text = await new Response(zb.stderr).text()
     { code: await zb.exited, text }
   zb = await zigBuild(['install', 'oracle', ...(if wanted('unit') then ['test'] else [])])
@@ -577,8 +587,6 @@ setup = ->
     built = plan.packs.filter((p) -> p.cases.length > 0)
     mkdirSync(join(work, plan.area), { recursive: true })
     writeFileSync(join(work, plan.area, 'jobs.json'), JSON.stringify({ key: plan.fileKey, packs: built.map((p) -> { dir: p.dir, key: p.key }), jobs }))
-  tree = join(work, 'tree')
-  listed = mirror(parsed)
   # The oracle's sets: the tests (the probes of past reviews among them)
   # and the examples, the docs' examples, and the matrix (test/matrix.py). A doc example is named by
   # its doc and a hash of its text, so an edit that only moves it keeps
@@ -636,7 +644,7 @@ setup = ->
   # Its id sorts before every other job's, as Swarm starts them in that
   # order: the slowest job, a compile of minutes when the compiler changed,
   # runs beside the rest instead of after them.
-  todo('build.unit', JSON.stringify({ file: 'zig build test', name: 'unit', verb: 'unit', line: 1, opts: { timeout: '600' } })) if wanted('unit')
+  todo('build.unit', JSON.stringify({ file: 'zig build test', name: 'unit', verb: 'unit', line: 1, key: treeKey, opts: { timeout: '600' } })) if wanted('unit')
   {}
 
 # ---- Checking a case -------------------------------------------------------
@@ -881,7 +889,7 @@ checkGenerated = (c) ->
 
 # The compiler's own Zig tests.
 checkUnit = (c) ->
-  r = run(['zig', 'build', 'test', '-Dself-check=true'], {}, Number(c.opts.timeout))
+  r = run(['zig', 'build', 'test', '-Dself-check=true', ...(if c.key? then ["-Dtests-key=#{c.key}"] else []), ...zigJobs()], {}, Number(c.opts.timeout))
   throw new Error('timed out') unless r.code?
   throw new Error("zig build test failed: #{(r.err + r.out).trim().split('\n').slice(-3).join(' / ')}") unless r.code is 0
 
