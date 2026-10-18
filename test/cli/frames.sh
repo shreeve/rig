@@ -1,4 +1,4 @@
-# timeout: 900
+# timeout: 120
 # Each frame owner's account (`rig check --facts=frames`: its own reach,
 # what the calls of functions marked `inline` add, and what the functions
 # the rule inlines into it add) against the stack Zig's code reserves for
@@ -18,13 +18,18 @@
 # the assembly Zig writes for aarch64, so the test runs on an aarch64 Mac
 # only. Debug checks every owner; --release checks only owners whose
 # callees are all marked, since LLVM inlines a function the rule leaves
-# out of line of its own accord, which no count of Rig's models.
+# out of line of its own accord, which no count of Rig's models. The two
+# programs are cases of test/rig/emit-frames.rig.test, which check what
+# they print; this reads them from the cases' tree ($RIG_TESTS).
 source "$ROOT/test/cli/_lib.sh"
 
 if [[ $(uname -s) != Darwin || $(uname -m) != arm64 ]]; then
     echo "skipped: reads aarch64 assembly"
     exit 0
 fi
+[[ -n ${RIG_TESTS:-} ]] || fail "RIG_TESTS is not set: run this script with test/rig.rip"
+cp "$RIG_TESTS/behavior/emit/frames_every_owner.rig" ev.rig || fail "no case \`frames every owner\` in $RIG_TESTS"
+cp "$RIG_TESTS/behavior/emit/frames_inline_callers.rig" iv.rig || fail "no case \`frames inline callers\` in $RIG_TESTS"
 
 # check.py <accounts> <asm> [asm...] -- <least> <label>=<pattern>...:
 # each owner `label`'s account against the stack the functions matching
@@ -88,63 +93,18 @@ if bad:
     sys.exit(1)
 PY
 
-cat >ev.rig <<'RIG'
-fun v(i: Int) -> Int
-  t = [2000 of 0]
-  for k in 0..2000
-    t[k] = k + i
-  t[i % 2000]
-
-fun gen[T](x: T, i: Int) -> Int
-  y = x
-  v(i) + v(i + 1) + v(i + 2)
-
-obj Res
-  n: Int
-
-  drop(!self)
-    print(v(self.n) + v(self.n + 1) + v(self.n + 2))
-
-called fun plain(i: Int) -> Int
-  v(i) + v(i + 1) + v(i + 2)
-
-called fun closure(i: Int) -> Int
-  f = |+i|
-    v(i) + v(i + 1) + v(i + 2)
-  f()
-
-called fun later(i: Int) -> Int
-  defer print(v(i))
-  return 1 if i == 5
-  return 2 if i == 6
-  i
-
-called fun arm(i: Int) -> Int
-  match i
-    0 => v(i) + v(i + 1) + v(i + 2)
-    _ => 1
-
-test "pile"
-  print(v(0) + v(1) + v(2))
-
-sub main()
-  r = Res(n: 0)
-  print(plain(0), closure(0), later(0), arm(0), gen(1, 0), gen(true, 0))
-  print(v(0) + v(1) + v(2))
-RIG
-out=$(rig run ev.rig 2>&1) || fail "run: $out"
-expect_eq "$out" $'0\n6 6 0 6 6 6\n6\n6' "run"
+# An owner of every kind; its test block passes under `rig test`.
 out=$(rig test ev.rig 2>&1) || fail "test: $out"
 expect_has "$out" "1 passed, 0 failed" "test"
 rig check --tests --facts=frames ev.rig >accounts.txt 2>&1 || fail "facts: $(cat accounts.txt)"
 rig emit ev.rig >/dev/null 2>&1 || fail "emit"
 pkg=$RIG_OUT_DIR/programs/ev
 # The emitted module holds its tests' functions, which only the table of
-# tests names: a root that names the table has Zig compile them too.
-echo 'comptime { _ = &@import("__rig_main.zig").__rig_tests; }' >"$pkg/__rig_frames_tests.zig"
-(cd "$pkg" && "${ZIG:-zig}" build-obj -O Debug -femit-asm="$PWD/../ev-main.s" -fno-emit-bin __rig_main.zig) >build.log 2>&1 || fail "asm: $(cat build.log)"
-(cd "$pkg" && "${ZIG:-zig}" build-obj -O Debug -femit-asm="$PWD/../ev-test.s" -fno-emit-bin __rig_frames_tests.zig) >build.log 2>&1 || fail "test asm: $(cat build.log)"
-python3 check.py accounts.txt "$pkg/../ev-main.s" "$pkg/../ev-test.s" -- 16000 \
+# tests names: naming the table in the module has Zig compile them too,
+# in the one build.
+echo 'comptime { _ = &__rig_tests; }' >>"$pkg/__rig_main.zig"
+(cd "$pkg" && "${ZIG:-zig}" build-obj -O Debug -femit-asm="$PWD/../ev.s" -fno-emit-bin __rig_main.zig) >build.log 2>&1 || fail "asm: $(cat build.log)"
+python3 check.py accounts.txt "$pkg/../ev.s" -- 16000 \
     '`gen`=gen__func_\d+' \
     '`drop`=Res\.__rig_user_drop' \
     '`plain`=plain' \
@@ -155,122 +115,6 @@ python3 check.py accounts.txt "$pkg/../ev-main.s" "$pkg/../ev-test.s" -- 16000 \
     '`main`=__rig_run_main' || exit 1
 
 # Owners that call marked `inline` functions.
-cat >iv.rig <<'RIG'
-inline fun big(i: Int) -> Int
-  t = [100000 of 0]
-  for k in 0..100000
-    t[k] = k * i
-  t[(i * 7 + 1) % 100000]
-
-inline fun mid(i: Int) -> Int
-  big(i) + big(i + 1)
-
-inline fun gen[T](x: T, i: Int) -> Int
-  t = [50000 of 0]
-  for k in 0..50000
-    t[k] = k + i
-  u = [x, x, x, x]
-  t[(i * 3 + 2) % 50000] + 4
-
-inline fun bign[n: Int](i: Int) -> Int
-  t = [80000 of n]
-  for k in 0..80000
-    t[k] += k * i
-  t[(i * 5) % 80000]
-
-obj G[T]
-  v: T
-
-  inline fun deep(?self, i: Int) -> Int
-    t = [60000 of 0]
-    for k in 0..60000
-      t[k] = k - i
-    t[(i * 11) % 60000]
-
-obj Count
-  n: Int
-
-  inline fun next(!self) -> Int?
-    t = [40000 of 0]
-    for k in 0..40000
-      t[k] = k + self.n
-    self.n += 1
-    return none if self.n > 2
-    t[(self.n * 13) % 40000]
-
-# Unmarked: the rule must not inline them, since the marked functions
-# they hold land in their callers.
-fun wrap(i: Int) -> Int
-  gen(1, i)
-
-fun small(i: Int) -> Int
-  t = [7000 of 0]
-  for k in 0..7000
-    t[k] = k + i
-  t[(i * 3) % 7000]
-
-inline fun holds(i: Int) -> Int
-  small(i) + 1
-
-called sub wrapped(i: Int)
-  print(wrap(i) + wrap(i + 1) + wrap(i + 2) + wrap(i + 3))
-
-called sub piled(i: Int)
-  print(holds(i) + holds(i + 1) + holds(i + 2) + holds(i + 3) + holds(i + 4) + holds(i + 5) + holds(i + 6) + holds(i + 7) + holds(i + 8) + holds(i + 9) + holds(i + 10) + holds(i + 11))
-
-called sub chain(i: Int)
-  print(mid(i) + big(i))
-
-called sub generic(i: Int)
-  print(gen(1, i) + gen(true, i))
-
-called sub values(i: Int)
-  print(bign[1](i) + bign[2](i))
-
-called sub method(i: Int)
-  g = G[Int](v: 1)
-  b = ^G[Int](v: 2)
-  print(g.deep(i) + b.deep(i))
-
-called sub loop()
-  c = Count(n: 0)
-  for x in !c
-    print(x)
-
-# Parameters by value: an inlined function's code copies each into a
-# local of its own (`rig.rt`), beside the argument and the parameter.
-obj Big
-  a: [20000]Int
-
-obj Mid
-  a: [2600]Int
-
-inline fun take(b: Big, i: Int) -> Int
-  b.a[i % 20000]
-
-fun pick(m: Mid, i: Int) -> Int
-  m.a[i % 2600]
-
-called fun byvalue(b: ?Big, i: Int) -> Int
-  take(b, i) + take(b, i + 1)
-
-called fun byrule(m: ?Mid, i: Int) -> Int
-  pick(m, i)
-
-sub main()
-  chain(1)
-  generic(1)
-  values(1)
-  method(1)
-  loop()
-  wrapped(1)
-  piled(1)
-  hb = ^Big(a: [20000 of 1])
-  hm = ^Mid(a: [2600 of 3])
-  print(byvalue(hb, 1), byrule(hm, 1))
-RIG
-out=$(rig run iv.rig 2>&1) || fail "run iv: $out"
-expect_eq "$out" $'46\n20\n13\n20\n13\n27\n64\n324\n2 3' "run iv"
 rig check --facts=frames iv.rig >iv-accounts.txt 2>&1 || fail "facts iv: $(cat iv-accounts.txt)"
 rig emit iv.rig >/dev/null 2>&1 || fail "emit iv"
 pkg=$RIG_OUT_DIR/programs/iv

@@ -5,18 +5,24 @@ emitter or Zig's standard library uses (`std`, `rig`, `panic`, `debug`,
 `os`, `std_options`, `__rig_x`), and `_`, at every place a name stands.
 
   test/cli/_name_grid.py <rig> [--jobs N] [--keep DIR] [SITE...]
+  test/cli/_name_grid.py --cases FILE
 
-Each site is one program with a block for every name, so a site builds
-once: its locals, parameters, captures, and bindings; an owned local
+Each site is a block for every name, and the sites are built as a few
+programs (GROUPS): its locals, parameters, captures, and bindings; an owned local
 whose drop a flag guards, beside a later local named like it; methods, and the
 locals and parameters beside a method of the same name; fields and
 payload fields; variants; errors and labels; generic parameters; type
 names; module constants and functions; static methods; module members;
 modules and `use ... as` aliases. The program must pass `rig check`,
 run sanitizer-clean, and print, for each name, what the name's block
-says. A name the site rejects is listed in REJECTED with the diagnostic
-`rig check` must give it, and is checked in a program of its own.
-Prints each failure and exits 1 if any.
+says. Prints each failure and exits 1 if any. A program's root module is
+Zig's root, where Zig's standard library looks up its hooks, so it is
+built with `rig run` and not in a test file's pack.
+
+A name the site rejects is listed in REJECTED with the diagnostic `rig
+check` must give it. `--cases FILE` writes each as a `fail` case of a
+program of its own to FILE, test/rig/names-name-grid.rig.test, which
+test/cli/name_grid.sh keeps equal to what this writes.
 """
 import argparse, concurrent.futures as cf, os, re, shutil, subprocess, sys, tempfile
 
@@ -494,28 +500,42 @@ SITES = {
 }
 
 
-def program(site, names):
-    """The site's files for `names`: {path: source}, the expected output,
-    and the line range of each name's block in main.rig."""
-    files, parts, want, spans, line = {}, [], [], [], 1
+# The programs a run builds: the sites whose names stand inside a
+# declaration share one, each block numbered apart; a site that declares
+# its names at the module's top, or imports them, has one of its own.
+GROUPS = [["local", "flag", "method", "field", "variant", "error", "tparam", "static"],
+          ["type"], ["root_const"], ["root_fun"], ["module"], ["alias"]]
+assert sorted(s for g in GROUPS for s in g) == sorted(SITES)
+
+
+def program(sites, names):
+    """The files of one program holding each site's blocks for its names
+    (`names[site]`): {path: source}, the expected output, and the line
+    range of each block in main.rig, with its site and name. The `j`th
+    name of the `k`th site has block number 1000 * k + j."""
+    files, parts, want, spans, calls, line = {}, [], [], [], [], 1
     head = ""
-    if site == "module":
-        head = "use lib\n" + "".join(f"use {n}\n" for n in names) + "\n"
-        files["lib.rig"] = "\n".join(module_lib(n, i) for i, n in enumerate(names))
-        for n in names:
-            files[f"{n}.rig"] = "pub fun two() -> Int\n  2\n"
-    elif site == "alias":
-        head = "".join(f"use small as {n}\n" for n in names) + "\n"
-        files["small.rig"] = "pub fun two() -> Int\n  2\n\npub obj Box\n  pub v: Int = 4\n"
+    for k, site in enumerate(sites):
+        ns = names[site]
+        if site == "module":
+            head += "use lib\n" + "".join(f"use {n}\n" for n in ns) + "\n"
+            files["lib.rig"] = "\n".join(module_lib(n, 1000 * k + j) for j, n in enumerate(ns))
+            for n in ns:
+                files[f"{n}.rig"] = "pub fun two() -> Int\n  2\n"
+        elif site == "alias":
+            head += "".join(f"use small as {n}\n" for n in ns) + "\n"
+            files["small.rig"] = "pub fun two() -> Int\n  2\n\npub obj Box\n  pub v: Int = 4\n"
     line += head.count("\n")
-    for i, n in enumerate(names):
-        src, out = SITES[site](n, i)
-        spans.append((line, line + src.count("\n"), n))
-        line += src.count("\n") + 1
-        parts.append(src)
-        want.append(out)
-    main = "sub main()\n" + "".join(f"  t{i}()\n" for i in range(len(names)))
-    files["main.rig"] = head + "\n".join(parts) + "\n" + main
+    for k, site in enumerate(sites):
+        for j, n in enumerate(names[site]):
+            i = 1000 * k + j
+            src, out = SITES[site](n, i)
+            spans.append((line, line + src.count("\n"), f"{site} {n}"))
+            line += src.count("\n") + 1
+            parts.append(src)
+            want.append(out)
+            calls.append(f"  t{i}()\n")
+    files["main.rig"] = head + "\n".join(parts) + "\n" + "sub main()\n" + "".join(calls)
     return files, "\n".join(want), spans
 
 
@@ -541,60 +561,83 @@ def blame(text, spans):
     return sorted(hit)
 
 
-def check_site(rig_bin, work, site):
-    rejected = {n: why for n, why in REJECTED.get(site, {}).items() if why is not None}
-    names = [n for n in NAMES if n not in rejected]
-    files, want, spans = program(site, names)
-    d = os.path.join(work, site)
+def rejected_of(site):
+    return {n: why for n, why in REJECTED.get(site, {}).items() if why is not None}
+
+
+def check_group(rig_bin, work, sites):
+    names = {site: [n for n in NAMES if n not in rejected_of(site)] for site in sites}
+    files, want, spans = program(sites, names)
+    label = "+".join(sites)
+    d = os.path.join(work, sites[0])
     path = write(d, files)
     bad = []
-    r = rig(rig_bin, "check", path, os.path.join(d, "out"))
-    if r.returncode:
-        bad.append(f"{site}: rejected, names {blame(r.stderr + r.stdout, spans)}\n  " + (r.stderr + r.stdout)[:2000])
-    else:
-        r = rig(rig_bin, "run", path, os.path.join(d, "out"))
-        got = r.stdout.rstrip("\n")
-        if r.returncode or got != want:
-            g, w = got.split("\n"), want.split("\n")
-            diff = next((k for k in range(max(len(g), len(w))) if k >= len(g) or k >= len(w) or g[k] != w[k]), None)
-            where = f" first difference at output line {diff + 1}: got {g[diff] if diff is not None and diff < len(g) else None!r}, want {w[diff] if diff is not None and diff < len(w) else None!r}" if diff is not None else ""
-            bad.append(f"{site}: exit {r.returncode}{where}\n  " + r.stderr[-2000:])
-    for n, why in rejected.items():
-        files, _, _ = program(site, [n])
-        dn = os.path.join(work, f"{site}-reject", n)
-        p = write(dn, files)
-        r = rig(rig_bin, "check", p, os.path.join(dn, "out"))
-        text = r.stderr + r.stdout
-        if r.returncode == 0:
-            bad.append(f"{site} {n}: accepted, but expected rejected ({why})")
-        elif why not in text or not re.search(r"\.rig:\d+:\d+: error", text):
-            bad.append(f"{site} {n}: rejected without `{why}`:\n  {text[:600]}")
-    return bad, len(names), len(rejected)
+    # `rig run` checks the program first; a rejection names the blocks
+    # its diagnostics point into.
+    r = rig(rig_bin, "run", path, os.path.join(d, "out"))
+    got = r.stdout.rstrip("\n")
+    blamed = blame(r.stderr, spans)
+    if r.returncode and blamed:
+        bad.append(f"{label}: rejected, names {blamed}\n  " + r.stderr[:2000])
+    elif r.returncode or got != want:
+        g, w = got.split("\n"), want.split("\n")
+        diff = next((k for k in range(max(len(g), len(w))) if k >= len(g) or k >= len(w) or g[k] != w[k]), None)
+        where = f" first difference at output line {diff + 1}: got {g[diff] if diff is not None and diff < len(g) else None!r}, want {w[diff] if diff is not None and diff < len(w) else None!r}" if diff is not None else ""
+        bad.append(f"{label}: exit {r.returncode}{where}\n  " + r.stderr[-2000:])
+    return bad, sum(len(ns) for ns in names.values())
+
+
+def cases():
+    """The test file of the rejected names: a `fail` case for each, its
+    program's other files after it."""
+    out = ["# names: each name a place where a name stands rejects, with the",
+           "# diagnostic it gives. Written by test/cli/_name_grid.py --cases;",
+           "# test/cli/name_grid.sh checks it is what that writes. A keyword of",
+           "# Rig's own may draw any diagnostic, \"\".", ""]
+    for site in SITES:
+        for n, why in rejected_of(site).items():
+            files, _, _ = program([site], {site: [n]})
+            out.append(f'fail "name grid {site} {n}", "{"" if why == KEYWORD else why}"')
+            for name in ["main.rig"] + sorted(f for f in files if f != "main.rig"):
+                if name != "main.rig":
+                    out.append(f'  file "{name}"')
+                for line in files[name].rstrip("\n").split("\n"):
+                    pad = "  " if name == "main.rig" else "    "
+                    out.append(pad + line if line else "")
+            out.append("")
+    return "\n".join(out)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("rig")
+    ap.add_argument("rig", nargs="?")
     ap.add_argument("--jobs", type=int, default=2)
     ap.add_argument("--keep", help="write the programs here and keep them")
+    ap.add_argument("--cases", help="write the rejected names' cases to this file")
     ap.add_argument("sites", nargs="*")
     a = ap.parse_args()
-    sites = a.sites or list(SITES)
+    if a.cases:
+        with open(a.cases, "w") as f:
+            f.write(cases())
+        return
+    if not a.rig:
+        ap.error("the rig to check is missing")
+    groups = [[s for s in g if not a.sites or s in a.sites] for g in GROUPS]
+    groups = [g for g in groups if g]
     work = a.keep or tempfile.mkdtemp(prefix="name_grid_")
     if a.keep:
         shutil.rmtree(work, ignore_errors=True)
     try:
         with cf.ThreadPoolExecutor(a.jobs) as ex:
-            results = list(ex.map(lambda s: check_site(a.rig, work, s), sites))
+            results = list(ex.map(lambda g: check_group(a.rig, work, g), groups))
     finally:
         if not a.keep:
             shutil.rmtree(work, ignore_errors=True)
-    bad = [line for res, _, _ in results for line in res]
+    bad = [line for res, _ in results for line in res]
     for line in bad:
         print(line)
-    accepted = sum(n for _, n, _ in results)
-    rejected = sum(r for _, _, r in results)
-    print(f"{len(sites)} sites, {len(NAMES)} names: {accepted} run, {rejected} rejected, {len(bad)} bad")
+    accepted = sum(n for _, n in results)
+    print(f"{sum(map(len, groups))} sites in {len(groups)} programs, {len(NAMES)} names: {accepted} run, {len(bad)} bad")
     sys.exit(1 if bad else 0)
 
 

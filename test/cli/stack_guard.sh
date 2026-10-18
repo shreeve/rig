@@ -1,29 +1,16 @@
-# timeout: 600
+# timeout: 120
 # The program runs on a stack the runtime maps itself, 64 MiB over a
-# guard of 64 GiB (docs/INTERNALS.md, "The program's stack"). This checks what reaches the program through
-# it: the exit status, a failure out of `main`, and `rig test`'s tests,
-# which run there too; that a frame of 100 MiB, larger than the whole
-# stack, stops with a stack-overflow error in every build mode;
-# and, on Linux, that a program that cannot reserve its stack stops before
-# it runs.
+# guard of 64 GiB (docs/INTERNALS.md, "The program's stack"). This checks
+# what needs the command line: that `rig test`'s tests run there too;
+# that a frame of 100 MiB, larger than the whole stack, stops with a
+# stack-overflow error in the release modes, where only a hand-written
+# frame reaches that size; and, on Linux, that a program that cannot
+# reserve its stack stops before it runs. The exit status and a failure
+# out of `main`, which reach the program through that stack too, are
+# cases of test/rig/runtime-stack-guard.rig.test, in debug and release
+# builds; a debug build's 100 MiB frame is the case `stack overflow
+# frame` of test/rig/runtime-misc.rig.test.
 source "$ROOT/test/cli/_lib.sh"
-
-# The exit status and a failure pass through unchanged.
-printf 'fun main() -> Int\n  7\n' >status.rig
-cat >fails.rig <<'EOF2'
-error Bad
-  broken
-
-sub main()!
-  print("before")
-  return Bad.broken
-EOF2
-for mode in "" --release; do
-    rig run $mode status.rig >/dev/null 2>&1; expect_rc $? 7 "the exit status $mode"
-    out=$(rig run $mode fails.rig 2>err.txt); expect_rc $? 1 "a failure out of main $mode"
-    expect_eq "$out" "before" "stdout of a failing main $mode"
-    expect_has "$(cat err.txt)" "error: Bad.broken" "the failure $mode"
-done
 
 # A test runs on the program's stack: this one goes 20 MB deep, more than
 # the 16 MiB a thread's stack holds by default.
@@ -45,9 +32,9 @@ expect_has "$out" '1 passed, 0 failed' "rig test on the program's stack"
 
 # A frame of 100 MiB, written by hand into the emitted package, so it
 # is as large in a release build as in a debug one: a debug build of an
-# accepted program reaches that size
-# (the case `stack overflow frame` of test/rig), but a release build
-# shares one slot among values that are never live together.
+# accepted program reaches that size (the case `stack overflow frame` of
+# test/rig/runtime-misc.rig.test), but a release build shares one slot
+# among values that are never live together.
 cat >big.rig <<'EOF2'
 called fun big(i: Int) -> Int
   i + 1
@@ -60,7 +47,7 @@ rig emit big.rig >/dev/null 2>&1 || fail "emit big.rig"
 pkg=$RIG_OUT_DIR/programs/big
 perl -0pi -e 's/(pub noinline fn big\(i: i64\) i64 \{).*?\n\}/$1\n    var a: [13107200]i64 = undefined;\n    a[\@intCast(i)] = i;\n    std.mem.doNotOptimizeAway(&a);\n    return a[\@intCast(i)];\n}/s' "$pkg/__rig_main.zig"
 grep -q '13107200' "$pkg/__rig_main.zig" || fail "the 100 MiB frame was not written into the package"
-for mode in Debug ReleaseSafe ReleaseFast; do
+for mode in ReleaseSafe ReleaseFast; do
     (cd "$pkg" && "${ZIG:-zig}" build-exe -O $mode -femit-bin="$PWD/../big-$mode" __rig_main.zig) >build.log 2>&1 || fail "build big $mode: $(cat build.log)"
     out=$(quiet "$RIG_OUT_DIR/programs/big-$mode" 2>err.txt); rc=$?
     expect_rc $rc 134 "a 100 MiB frame in $mode ($(head -c 300 err.txt))"

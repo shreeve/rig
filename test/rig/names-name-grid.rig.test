@@ -1,0 +1,2623 @@
+# names: each name a place where a name stands rejects, with the
+# diagnostic it gives. Written by test/cli/_name_grid.py --cases;
+# test/cli/name_grid.sh checks it is what that writes. A keyword of
+# Rig's own may draw any diagnostic, "".
+
+fail "name grid local none", "`none` is the absent optional"
+  error LE0
+    bad
+
+  fun lfail0() -> Int!
+    return LE0.bad
+
+  enum LP0
+    pp(v: Int)
+    qq
+
+  fun lp0(none: Int) -> Int
+    none + 1
+
+  fun lf0() -> Int
+    s = 0
+    for none in 0..3
+      s += none
+    s
+
+  fun lo0(o: Int?) -> Int
+    if o as none
+      return none
+    0
+
+  fun lc0() -> Int
+    none = 41
+    g = |+none| none + 1
+    g()
+
+  fun lm0(p: LP0) -> Int
+    match p
+      .pp(v: none) => none
+      .qq => 0
+
+  sub lb0(none: !Int)
+    none += 1
+
+  sub t0()
+    x = lfail0() catch |none|
+      print(none)
+      7
+    k = 1
+    lb0(!k)
+    print(lp0(41), lf0(), lo0(5), lc0(), x, lm0(.pp(v: 9)), k)
+
+  sub main()
+    t0()
+
+fail "name grid local _", "`_` discards a value"
+  error LE0
+    bad
+
+  fun lfail0() -> Int!
+    return LE0.bad
+
+  enum LP0
+    pp(v: Int)
+    qq
+
+  fun lp0(_: Int) -> Int
+    _ + 1
+
+  fun lf0() -> Int
+    s = 0
+    for _ in 0..3
+      s += _
+    s
+
+  fun lo0(o: Int?) -> Int
+    if o as _
+      return _
+    0
+
+  fun lc0() -> Int
+    _ = 41
+    g = |+_| _ + 1
+    g()
+
+  fun lm0(p: LP0) -> Int
+    match p
+      .pp(v: _) => _
+      .qq => 0
+
+  sub lb0(_: !Int)
+    _ += 1
+
+  sub t0()
+    x = lfail0() catch |_|
+      print(_)
+      7
+    k = 1
+    lb0(!k)
+    print(lp0(41), lf0(), lo0(5), lc0(), x, lm0(.pp(v: 9)), k)
+
+  sub main()
+    t0()
+
+fail "name grid local type", ""
+  error LE0
+    bad
+
+  fun lfail0() -> Int!
+    return LE0.bad
+
+  enum LP0
+    pp(v: Int)
+    qq
+
+  fun lp0(type: Int) -> Int
+    type + 1
+
+  fun lf0() -> Int
+    s = 0
+    for type in 0..3
+      s += type
+    s
+
+  fun lo0(o: Int?) -> Int
+    if o as type
+      return type
+    0
+
+  fun lc0() -> Int
+    type = 41
+    g = |+type| type + 1
+    g()
+
+  fun lm0(p: LP0) -> Int
+    match p
+      .pp(v: type) => type
+      .qq => 0
+
+  sub lb0(type: !Int)
+    type += 1
+
+  sub t0()
+    x = lfail0() catch |type|
+      print(type)
+      7
+    k = 1
+    lb0(!k)
+    print(lp0(41), lf0(), lo0(5), lc0(), x, lm0(.pp(v: 9)), k)
+
+  sub main()
+    t0()
+
+fail "name grid local drop", ""
+  error LE0
+    bad
+
+  fun lfail0() -> Int!
+    return LE0.bad
+
+  enum LP0
+    pp(v: Int)
+    qq
+
+  fun lp0(drop: Int) -> Int
+    drop + 1
+
+  fun lf0() -> Int
+    s = 0
+    for drop in 0..3
+      s += drop
+    s
+
+  fun lo0(o: Int?) -> Int
+    if o as drop
+      return drop
+    0
+
+  fun lc0() -> Int
+    drop = 41
+    g = |+drop| drop + 1
+    g()
+
+  fun lm0(p: LP0) -> Int
+    match p
+      .pp(v: drop) => drop
+      .qq => 0
+
+  sub lb0(drop: !Int)
+    drop += 1
+
+  sub t0()
+    x = lfail0() catch |drop|
+      print(drop)
+      7
+    k = 1
+    lb0(!k)
+    print(lp0(41), lf0(), lo0(5), lc0(), x, lm0(.pp(v: 9)), k)
+
+  sub main()
+    t0()
+
+fail "name grid local panic", ""
+  error LE0
+    bad
+
+  fun lfail0() -> Int!
+    return LE0.bad
+
+  enum LP0
+    pp(v: Int)
+    qq
+
+  fun lp0(panic: Int) -> Int
+    panic + 1
+
+  fun lf0() -> Int
+    s = 0
+    for panic in 0..3
+      s += panic
+    s
+
+  fun lo0(o: Int?) -> Int
+    if o as panic
+      return panic
+    0
+
+  fun lc0() -> Int
+    panic = 41
+    g = |+panic| panic + 1
+    g()
+
+  fun lm0(p: LP0) -> Int
+    match p
+      .pp(v: panic) => panic
+      .qq => 0
+
+  sub lb0(panic: !Int)
+    panic += 1
+
+  sub t0()
+    x = lfail0() catch |panic|
+      print(panic)
+      7
+    k = 1
+    lb0(!k)
+    print(lp0(41), lf0(), lo0(5), lc0(), x, lm0(.pp(v: 9)), k)
+
+  sub main()
+    t0()
+
+fail "name grid local main", "module-level declaration `main`"
+  error LE0
+    bad
+
+  fun lfail0() -> Int!
+    return LE0.bad
+
+  enum LP0
+    pp(v: Int)
+    qq
+
+  fun lp0(main: Int) -> Int
+    main + 1
+
+  fun lf0() -> Int
+    s = 0
+    for main in 0..3
+      s += main
+    s
+
+  fun lo0(o: Int?) -> Int
+    if o as main
+      return main
+    0
+
+  fun lc0() -> Int
+    main = 41
+    g = |+main| main + 1
+    g()
+
+  fun lm0(p: LP0) -> Int
+    match p
+      .pp(v: main) => main
+      .qq => 0
+
+  sub lb0(main: !Int)
+    main += 1
+
+  sub t0()
+    x = lfail0() catch |main|
+      print(main)
+      7
+    k = 1
+    lb0(!k)
+    print(lp0(41), lf0(), lo0(5), lc0(), x, lm0(.pp(v: 9)), k)
+
+  sub main()
+    t0()
+
+fail "name grid flag none", "`none` is the absent optional"
+  fun take0(s: String) -> Int
+    s.len
+
+  fun fl0(c: Bool) -> Int
+    none = String("ab")
+    k = 0
+    if c
+      k += take0(<none)
+    none_2 = String("cde")
+    if not c
+      k += take0(<none_2)
+    k
+
+  sub t0()
+    print(fl0(true), fl0(false))
+
+  sub main()
+    t0()
+
+fail "name grid flag _", "`_` discards a value"
+  fun take0(s: String) -> Int
+    s.len
+
+  fun fl0(c: Bool) -> Int
+    _ = String("ab")
+    k = 0
+    if c
+      k += take0(<_)
+    __2 = String("cde")
+    if not c
+      k += take0(<__2)
+    k
+
+  sub t0()
+    print(fl0(true), fl0(false))
+
+  sub main()
+    t0()
+
+fail "name grid flag type", ""
+  fun take0(s: String) -> Int
+    s.len
+
+  fun fl0(c: Bool) -> Int
+    type = String("ab")
+    k = 0
+    if c
+      k += take0(<type)
+    type_2 = String("cde")
+    if not c
+      k += take0(<type_2)
+    k
+
+  sub t0()
+    print(fl0(true), fl0(false))
+
+  sub main()
+    t0()
+
+fail "name grid flag drop", ""
+  fun take0(s: String) -> Int
+    s.len
+
+  fun fl0(c: Bool) -> Int
+    drop = String("ab")
+    k = 0
+    if c
+      k += take0(<drop)
+    drop_2 = String("cde")
+    if not c
+      k += take0(<drop_2)
+    k
+
+  sub t0()
+    print(fl0(true), fl0(false))
+
+  sub main()
+    t0()
+
+fail "name grid flag panic", ""
+  fun take0(s: String) -> Int
+    s.len
+
+  fun fl0(c: Bool) -> Int
+    panic = String("ab")
+    k = 0
+    if c
+      k += take0(<panic)
+    panic_2 = String("cde")
+    if not c
+      k += take0(<panic_2)
+    k
+
+  sub t0()
+    print(fl0(true), fl0(false))
+
+  sub main()
+    t0()
+
+fail "name grid flag main", "module-level declaration `main`"
+  fun take0(s: String) -> Int
+    s.len
+
+  fun fl0(c: Bool) -> Int
+    main = String("ab")
+    k = 0
+    if c
+      k += take0(<main)
+    main_2 = String("cde")
+    if not c
+      k += take0(<main_2)
+    k
+
+  sub t0()
+    print(fl0(true), fl0(false))
+
+  sub main()
+    t0()
+
+fail "name grid method none", "`none` is the absent optional"
+  obj M0
+    v: Int
+
+    fun none(?self) -> Int
+      self.v
+
+    fun b(?self) -> Int
+      none = self.v + 1
+      none + self.none()
+
+    fun c(?self, none: Int) -> Int
+      none + self.none()
+
+    fun d(?self) -> Int
+      g = |?self|
+        none = self.v + 2
+        none
+      g()
+
+    sub none2(!self)
+      self.v += 1
+
+  obj GM0[T]
+    v: T
+
+    fun none(?self) -> Int
+      1
+
+    fun b(?self, none: Int) -> Int
+      none + self.none()
+
+  sub t0()
+    m = M0(v: 1)
+    !m.none2()
+    h = |?m| m.none()
+    print(m.none(), m.b(), m.c(10), m.d(), h(), GM0[Int](v: 0).b(5))
+
+  sub main()
+    t0()
+
+fail "name grid method _", "`_` discards a value"
+  obj M0
+    v: Int
+
+    fun _(?self) -> Int
+      self.v
+
+    fun b(?self) -> Int
+      _ = self.v + 1
+      _ + self._()
+
+    fun c(?self, _: Int) -> Int
+      _ + self._()
+
+    fun d(?self) -> Int
+      g = |?self|
+        _ = self.v + 2
+        _
+      g()
+
+    sub _2(!self)
+      self.v += 1
+
+  obj GM0[T]
+    v: T
+
+    fun _(?self) -> Int
+      1
+
+    fun b(?self, _: Int) -> Int
+      _ + self._()
+
+  sub t0()
+    m = M0(v: 1)
+    !m._2()
+    h = |?m| m._()
+    print(m._(), m.b(), m.c(10), m.d(), h(), GM0[Int](v: 0).b(5))
+
+  sub main()
+    t0()
+
+fail "name grid method type", ""
+  obj M0
+    v: Int
+
+    fun type(?self) -> Int
+      self.v
+
+    fun b(?self) -> Int
+      type = self.v + 1
+      type + self.type()
+
+    fun c(?self, type: Int) -> Int
+      type + self.type()
+
+    fun d(?self) -> Int
+      g = |?self|
+        type = self.v + 2
+        type
+      g()
+
+    sub type2(!self)
+      self.v += 1
+
+  obj GM0[T]
+    v: T
+
+    fun type(?self) -> Int
+      1
+
+    fun b(?self, type: Int) -> Int
+      type + self.type()
+
+  sub t0()
+    m = M0(v: 1)
+    !m.type2()
+    h = |?m| m.type()
+    print(m.type(), m.b(), m.c(10), m.d(), h(), GM0[Int](v: 0).b(5))
+
+  sub main()
+    t0()
+
+fail "name grid method drop", ""
+  obj M0
+    v: Int
+
+    fun drop(?self) -> Int
+      self.v
+
+    fun b(?self) -> Int
+      drop = self.v + 1
+      drop + self.drop()
+
+    fun c(?self, drop: Int) -> Int
+      drop + self.drop()
+
+    fun d(?self) -> Int
+      g = |?self|
+        drop = self.v + 2
+        drop
+      g()
+
+    sub drop2(!self)
+      self.v += 1
+
+  obj GM0[T]
+    v: T
+
+    fun drop(?self) -> Int
+      1
+
+    fun b(?self, drop: Int) -> Int
+      drop + self.drop()
+
+  sub t0()
+    m = M0(v: 1)
+    !m.drop2()
+    h = |?m| m.drop()
+    print(m.drop(), m.b(), m.c(10), m.d(), h(), GM0[Int](v: 0).b(5))
+
+  sub main()
+    t0()
+
+fail "name grid method panic", ""
+  obj M0
+    v: Int
+
+    fun panic(?self) -> Int
+      self.v
+
+    fun b(?self) -> Int
+      panic = self.v + 1
+      panic + self.panic()
+
+    fun c(?self, panic: Int) -> Int
+      panic + self.panic()
+
+    fun d(?self) -> Int
+      g = |?self|
+        panic = self.v + 2
+        panic
+      g()
+
+    sub panic2(!self)
+      self.v += 1
+
+  obj GM0[T]
+    v: T
+
+    fun panic(?self) -> Int
+      1
+
+    fun b(?self, panic: Int) -> Int
+      panic + self.panic()
+
+  sub t0()
+    m = M0(v: 1)
+    !m.panic2()
+    h = |?m| m.panic()
+    print(m.panic(), m.b(), m.c(10), m.d(), h(), GM0[Int](v: 0).b(5))
+
+  sub main()
+    t0()
+
+fail "name grid method main", "module-level declaration `main`"
+  obj M0
+    v: Int
+
+    fun main(?self) -> Int
+      self.v
+
+    fun b(?self) -> Int
+      main = self.v + 1
+      main + self.main()
+
+    fun c(?self, main: Int) -> Int
+      main + self.main()
+
+    fun d(?self) -> Int
+      g = |?self|
+        main = self.v + 2
+        main
+      g()
+
+    sub main2(!self)
+      self.v += 1
+
+  obj GM0[T]
+    v: T
+
+    fun main(?self) -> Int
+      1
+
+    fun b(?self, main: Int) -> Int
+      main + self.main()
+
+  sub t0()
+    m = M0(v: 1)
+    !m.main2()
+    h = |?m| m.main()
+    print(m.main(), m.b(), m.c(10), m.d(), h(), GM0[Int](v: 0).b(5))
+
+  sub main()
+    t0()
+
+fail "name grid method self", "self"
+  obj M0
+    v: Int
+
+    fun self(?self) -> Int
+      self.v
+
+    fun b(?self) -> Int
+      self = self.v + 1
+      self + self.self()
+
+    fun c(?self, self: Int) -> Int
+      self + self.self()
+
+    fun d(?self) -> Int
+      g = |?self|
+        self = self.v + 2
+        self
+      g()
+
+    sub self2(!self)
+      self.v += 1
+
+  obj GM0[T]
+    v: T
+
+    fun self(?self) -> Int
+      1
+
+    fun b(?self, self: Int) -> Int
+      self + self.self()
+
+  sub t0()
+    m = M0(v: 1)
+    !m.self2()
+    h = |?m| m.self()
+    print(m.self(), m.b(), m.c(10), m.d(), h(), GM0[Int](v: 0).b(5))
+
+  sub main()
+    t0()
+
+fail "name grid variant none", "none"
+  enum K0
+    zz
+    none
+
+  enum V0
+    aa = 3
+    none = 7
+
+  enum P0
+    pp(v: Int)
+    none(w: Int)
+
+  enum G0[T]
+    gg(v: T)
+    none(w: T)
+
+  obj B0
+    k: K0 = .none
+    v: V0 = .none
+
+  fun pick0(k: K0 = .none) -> Int
+    Int(k)
+
+  fun pv0(p: P0) -> Int
+    match p
+      .none(w: x) => x
+      .pp(v) => v
+
+  fun gv0(g: G0[Int]) -> Int
+    match g
+      .none(w) => w
+      _ => 0
+
+  sub t0()
+    b = B0()
+    k: K0 = .none
+    print(Int(b.k), Int(b.v), pick0(), pick0(.zz), k == .none, k == K0.none, b.v == .none)
+    match k
+      .none => print("m1")
+      .zz => print("m0")
+    print(Int(V0.from_int(7) ?? V0.aa), pv0(P0.none(w: 5)), pv0(.pp(v: 6)), gv0(G0[Int].none(w: 8)))
+    n = 0
+    for x in @variants(V0)
+      n += Int(x)
+    print(n, K0.none, V0.none, P0.none(w: 1), String(k))
+    for x in @variants(K0)
+      print(x)
+
+  sub main()
+    t0()
+
+fail "name grid variant from_int", "from_int"
+  enum K0
+    zz
+    from_int
+
+  enum V0
+    aa = 3
+    from_int = 7
+
+  enum P0
+    pp(v: Int)
+    from_int(w: Int)
+
+  enum G0[T]
+    gg(v: T)
+    from_int(w: T)
+
+  obj B0
+    k: K0 = .from_int
+    v: V0 = .from_int
+
+  fun pick0(k: K0 = .from_int) -> Int
+    Int(k)
+
+  fun pv0(p: P0) -> Int
+    match p
+      .from_int(w: x) => x
+      .pp(v) => v
+
+  fun gv0(g: G0[Int]) -> Int
+    match g
+      .from_int(w) => w
+      _ => 0
+
+  sub t0()
+    b = B0()
+    k: K0 = .from_int
+    print(Int(b.k), Int(b.v), pick0(), pick0(.zz), k == .from_int, k == K0.from_int, b.v == .from_int)
+    match k
+      .from_int => print("m1")
+      .zz => print("m0")
+    print(Int(V0.from_int(7) ?? V0.aa), pv0(P0.from_int(w: 5)), pv0(.pp(v: 6)), gv0(G0[Int].from_int(w: 8)))
+    n = 0
+    for x in @variants(V0)
+      n += Int(x)
+    print(n, K0.from_int, V0.from_int, P0.from_int(w: 1), String(k))
+    for x in @variants(K0)
+      print(x)
+
+  sub main()
+    t0()
+
+fail "name grid variant type", ""
+  enum K0
+    zz
+    type
+
+  enum V0
+    aa = 3
+    type = 7
+
+  enum P0
+    pp(v: Int)
+    type(w: Int)
+
+  enum G0[T]
+    gg(v: T)
+    type(w: T)
+
+  obj B0
+    k: K0 = .type
+    v: V0 = .type
+
+  fun pick0(k: K0 = .type) -> Int
+    Int(k)
+
+  fun pv0(p: P0) -> Int
+    match p
+      .type(w: x) => x
+      .pp(v) => v
+
+  fun gv0(g: G0[Int]) -> Int
+    match g
+      .type(w) => w
+      _ => 0
+
+  sub t0()
+    b = B0()
+    k: K0 = .type
+    print(Int(b.k), Int(b.v), pick0(), pick0(.zz), k == .type, k == K0.type, b.v == .type)
+    match k
+      .type => print("m1")
+      .zz => print("m0")
+    print(Int(V0.from_int(7) ?? V0.aa), pv0(P0.type(w: 5)), pv0(.pp(v: 6)), gv0(G0[Int].type(w: 8)))
+    n = 0
+    for x in @variants(V0)
+      n += Int(x)
+    print(n, K0.type, V0.type, P0.type(w: 1), String(k))
+    for x in @variants(K0)
+      print(x)
+
+  sub main()
+    t0()
+
+fail "name grid variant drop", ""
+  enum K0
+    zz
+    drop
+
+  enum V0
+    aa = 3
+    drop = 7
+
+  enum P0
+    pp(v: Int)
+    drop(w: Int)
+
+  enum G0[T]
+    gg(v: T)
+    drop(w: T)
+
+  obj B0
+    k: K0 = .drop
+    v: V0 = .drop
+
+  fun pick0(k: K0 = .drop) -> Int
+    Int(k)
+
+  fun pv0(p: P0) -> Int
+    match p
+      .drop(w: x) => x
+      .pp(v) => v
+
+  fun gv0(g: G0[Int]) -> Int
+    match g
+      .drop(w) => w
+      _ => 0
+
+  sub t0()
+    b = B0()
+    k: K0 = .drop
+    print(Int(b.k), Int(b.v), pick0(), pick0(.zz), k == .drop, k == K0.drop, b.v == .drop)
+    match k
+      .drop => print("m1")
+      .zz => print("m0")
+    print(Int(V0.from_int(7) ?? V0.aa), pv0(P0.drop(w: 5)), pv0(.pp(v: 6)), gv0(G0[Int].drop(w: 8)))
+    n = 0
+    for x in @variants(V0)
+      n += Int(x)
+    print(n, K0.drop, V0.drop, P0.drop(w: 1), String(k))
+    for x in @variants(K0)
+      print(x)
+
+  sub main()
+    t0()
+
+fail "name grid variant panic", ""
+  enum K0
+    zz
+    panic
+
+  enum V0
+    aa = 3
+    panic = 7
+
+  enum P0
+    pp(v: Int)
+    panic(w: Int)
+
+  enum G0[T]
+    gg(v: T)
+    panic(w: T)
+
+  obj B0
+    k: K0 = .panic
+    v: V0 = .panic
+
+  fun pick0(k: K0 = .panic) -> Int
+    Int(k)
+
+  fun pv0(p: P0) -> Int
+    match p
+      .panic(w: x) => x
+      .pp(v) => v
+
+  fun gv0(g: G0[Int]) -> Int
+    match g
+      .panic(w) => w
+      _ => 0
+
+  sub t0()
+    b = B0()
+    k: K0 = .panic
+    print(Int(b.k), Int(b.v), pick0(), pick0(.zz), k == .panic, k == K0.panic, b.v == .panic)
+    match k
+      .panic => print("m1")
+      .zz => print("m0")
+    print(Int(V0.from_int(7) ?? V0.aa), pv0(P0.panic(w: 5)), pv0(.pp(v: 6)), gv0(G0[Int].panic(w: 8)))
+    n = 0
+    for x in @variants(V0)
+      n += Int(x)
+    print(n, K0.panic, V0.panic, P0.panic(w: 1), String(k))
+    for x in @variants(K0)
+      print(x)
+
+  sub main()
+    t0()
+
+fail "name grid error none", "none"
+  error E0
+    zz
+    none
+
+  fun f0(k: Int) -> Int!
+    if k == 1
+      return E0.none
+    if k == 2
+      return E0.zz
+    k
+
+  sub t0()
+    t = 0
+    @none for a in 0..3
+      for j in 0..3
+        if j == 2
+          continue @none
+        if a == 2
+          break @none
+        t += 1
+    print(t)
+    _ = f0(1) catch |e|
+      print(e, e == E0.none, e == E0.zz)
+      0
+    c = f0(1) catch |e|
+      match e
+        E0.none => 7
+        _ => 8
+    print(c)
+
+  sub main()
+    t0()
+
+fail "name grid error type", ""
+  error E0
+    zz
+    type
+
+  fun f0(k: Int) -> Int!
+    if k == 1
+      return E0.type
+    if k == 2
+      return E0.zz
+    k
+
+  sub t0()
+    t = 0
+    @type for a in 0..3
+      for j in 0..3
+        if j == 2
+          continue @type
+        if a == 2
+          break @type
+        t += 1
+    print(t)
+    _ = f0(1) catch |e|
+      print(e, e == E0.type, e == E0.zz)
+      0
+    c = f0(1) catch |e|
+      match e
+        E0.type => 7
+        _ => 8
+    print(c)
+
+  sub main()
+    t0()
+
+fail "name grid error drop", ""
+  error E0
+    zz
+    drop
+
+  fun f0(k: Int) -> Int!
+    if k == 1
+      return E0.drop
+    if k == 2
+      return E0.zz
+    k
+
+  sub t0()
+    t = 0
+    @drop for a in 0..3
+      for j in 0..3
+        if j == 2
+          continue @drop
+        if a == 2
+          break @drop
+        t += 1
+    print(t)
+    _ = f0(1) catch |e|
+      print(e, e == E0.drop, e == E0.zz)
+      0
+    c = f0(1) catch |e|
+      match e
+        E0.drop => 7
+        _ => 8
+    print(c)
+
+  sub main()
+    t0()
+
+fail "name grid error panic", ""
+  error E0
+    zz
+    panic
+
+  fun f0(k: Int) -> Int!
+    if k == 1
+      return E0.panic
+    if k == 2
+      return E0.zz
+    k
+
+  sub t0()
+    t = 0
+    @panic for a in 0..3
+      for j in 0..3
+        if j == 2
+          continue @panic
+        if a == 2
+          break @panic
+        t += 1
+    print(t)
+    _ = f0(1) catch |e|
+      print(e, e == E0.panic, e == E0.zz)
+      0
+    c = f0(1) catch |e|
+      match e
+        E0.panic => 7
+        _ => 8
+    print(c)
+
+  sub main()
+    t0()
+
+fail "name grid tparam none", "`none` is the absent optional"
+  obj GT0[none]
+    x: none
+
+    fun first(?self) -> none
+      self.x
+
+  enum HT0[none]
+    one(v: none)
+    two
+
+  fun id0[none](x: none) -> none
+    x
+
+  fun sz0[none]() -> Int
+    @size(none)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, @name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam type", ""
+  obj GT0[type]
+    x: type
+
+    fun first(?self) -> type
+      self.x
+
+  enum HT0[type]
+    one(v: type)
+    two
+
+  fun id0[type](x: type) -> type
+    x
+
+  fun sz0[type]() -> Int
+    @size(type)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, @name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam drop", ""
+  obj GT0[drop]
+    x: drop
+
+    fun first(?self) -> drop
+      self.x
+
+  enum HT0[drop]
+    one(v: drop)
+    two
+
+  fun id0[drop](x: drop) -> drop
+    x
+
+  fun sz0[drop]() -> Int
+    @size(drop)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, @name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam panic", ""
+  obj GT0[panic]
+    x: panic
+
+    fun first(?self) -> panic
+      self.x
+
+  enum HT0[panic]
+    one(v: panic)
+    two
+
+  fun id0[panic](x: panic) -> panic
+    x
+
+  fun sz0[panic]() -> Int
+    @size(panic)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, @name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam main", "module-level declaration `main`"
+  obj GT0[main]
+    x: main
+
+    fun first(?self) -> main
+      self.x
+
+  enum HT0[main]
+    one(v: main)
+    two
+
+  fun id0[main](x: main) -> main
+    x
+
+  fun sz0[main]() -> Int
+    @size(main)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, @name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam self", "self"
+  obj GT0[self]
+    x: self
+
+    fun first(?self) -> self
+      self.x
+
+  enum HT0[self]
+    one(v: self)
+    two
+
+  fun id0[self](x: self) -> self
+    x
+
+  fun sz0[self]() -> Int
+    @size(self)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, @name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid tparam Self", "built-in type"
+  obj GT0[Self]
+    x: Self
+
+    fun first(?self) -> Self
+      self.x
+
+  enum HT0[Self]
+    one(v: Self)
+    two
+
+  fun id0[Self](x: Self) -> Self
+    x
+
+  fun sz0[Self]() -> Int
+    @size(Self)
+
+  sub t0()
+    g = GT0[Int](x: 4)
+    h = HT0[Int].one(v: 7)
+    match h
+      .one(v) => print(v)
+      .two => print("two")
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, @name(GT0[Int]))
+
+  sub main()
+    t0()
+
+fail "name grid type none", "`none` is the absent optional"
+  obj none
+    v: Int
+
+    fun get2(?self) -> Int
+      self.v
+
+  enum noneE
+    a
+    b
+
+  error noneErr
+    bad
+
+  fun mk0(v: Int) -> none
+    none(v: v)
+
+  fun fails0() -> Int!
+    return noneErr.bad
+
+  sub t0()
+    o = none(v: 3)
+    print(o.get2(), o, @name(none), mk0(2).v, noneE.b)
+    x = fails0() catch |e|
+      print(e)
+      0
+    print(x)
+
+  sub main()
+    t0()
+
+fail "name grid type _", "`_` discards a value"
+  obj _
+    v: Int
+
+    fun get2(?self) -> Int
+      self.v
+
+  enum _E
+    a
+    b
+
+  error _Err
+    bad
+
+  fun mk0(v: Int) -> _
+    _(v: v)
+
+  fun fails0() -> Int!
+    return _Err.bad
+
+  sub t0()
+    o = _(v: 3)
+    print(o.get2(), o, @name(_), mk0(2).v, _E.b)
+    x = fails0() catch |e|
+      print(e)
+      0
+    print(x)
+
+  sub main()
+    t0()
+
+fail "name grid type type", ""
+  obj type
+    v: Int
+
+    fun get2(?self) -> Int
+      self.v
+
+  enum typeE
+    a
+    b
+
+  error typeErr
+    bad
+
+  fun mk0(v: Int) -> type
+    type(v: v)
+
+  fun fails0() -> Int!
+    return typeErr.bad
+
+  sub t0()
+    o = type(v: 3)
+    print(o.get2(), o, @name(type), mk0(2).v, typeE.b)
+    x = fails0() catch |e|
+      print(e)
+      0
+    print(x)
+
+  sub main()
+    t0()
+
+fail "name grid type drop", ""
+  obj drop
+    v: Int
+
+    fun get2(?self) -> Int
+      self.v
+
+  enum dropE
+    a
+    b
+
+  error dropErr
+    bad
+
+  fun mk0(v: Int) -> drop
+    drop(v: v)
+
+  fun fails0() -> Int!
+    return dropErr.bad
+
+  sub t0()
+    o = drop(v: 3)
+    print(o.get2(), o, @name(drop), mk0(2).v, dropE.b)
+    x = fails0() catch |e|
+      print(e)
+      0
+    print(x)
+
+  sub main()
+    t0()
+
+fail "name grid type panic", ""
+  obj panic
+    v: Int
+
+    fun get2(?self) -> Int
+      self.v
+
+  enum panicE
+    a
+    b
+
+  error panicErr
+    bad
+
+  fun mk0(v: Int) -> panic
+    panic(v: v)
+
+  fun fails0() -> Int!
+    return panicErr.bad
+
+  sub t0()
+    o = panic(v: 3)
+    print(o.get2(), o, @name(panic), mk0(2).v, panicE.b)
+    x = fails0() catch |e|
+      print(e)
+      0
+    print(x)
+
+  sub main()
+    t0()
+
+fail "name grid type main", "duplicate declaration of `main`"
+  obj main
+    v: Int
+
+    fun get2(?self) -> Int
+      self.v
+
+  enum mainE
+    a
+    b
+
+  error mainErr
+    bad
+
+  fun mk0(v: Int) -> main
+    main(v: v)
+
+  fun fails0() -> Int!
+    return mainErr.bad
+
+  sub t0()
+    o = main(v: 3)
+    print(o.get2(), o, @name(main), mk0(2).v, mainE.b)
+    x = fails0() catch |e|
+      print(e)
+      0
+    print(x)
+
+  sub main()
+    t0()
+
+fail "name grid type self", "self"
+  obj self
+    v: Int
+
+    fun get2(?self) -> Int
+      self.v
+
+  enum selfE
+    a
+    b
+
+  error selfErr
+    bad
+
+  fun mk0(v: Int) -> self
+    self(v: v)
+
+  fun fails0() -> Int!
+    return selfErr.bad
+
+  sub t0()
+    o = self(v: 3)
+    print(o.get2(), o, @name(self), mk0(2).v, selfE.b)
+    x = fails0() catch |e|
+      print(e)
+      0
+    print(x)
+
+  sub main()
+    t0()
+
+fail "name grid type new", "new"
+  obj new
+    v: Int
+
+    fun get2(?self) -> Int
+      self.v
+
+  enum newE
+    a
+    b
+
+  error newErr
+    bad
+
+  fun mk0(v: Int) -> new
+    new(v: v)
+
+  fun fails0() -> Int!
+    return newErr.bad
+
+  sub t0()
+    o = new(v: 3)
+    print(o.get2(), o, @name(new), mk0(2).v, newE.b)
+    x = fails0() catch |e|
+      print(e)
+      0
+    print(x)
+
+  sub main()
+    t0()
+
+fail "name grid root_const none", "`none` is the absent optional"
+  none = 10
+  nones = [none, 2]
+
+  obj RC0
+    v: Int = none
+
+  fun rc0(x: Int = none) -> Int
+    x + none
+
+  sub t0()
+    print(none, nones, RC0().v, rc0())
+
+  sub main()
+    t0()
+
+fail "name grid root_const _", "`_` discards a value"
+  _ = 10
+  _s = [_, 2]
+
+  obj RC0
+    v: Int = _
+
+  fun rc0(x: Int = _) -> Int
+    x + _
+
+  sub t0()
+    print(_, _s, RC0().v, rc0())
+
+  sub main()
+    t0()
+
+fail "name grid root_const type", ""
+  type = 10
+  types = [type, 2]
+
+  obj RC0
+    v: Int = type
+
+  fun rc0(x: Int = type) -> Int
+    x + type
+
+  sub t0()
+    print(type, types, RC0().v, rc0())
+
+  sub main()
+    t0()
+
+fail "name grid root_const drop", ""
+  drop = 10
+  drops = [drop, 2]
+
+  obj RC0
+    v: Int = drop
+
+  fun rc0(x: Int = drop) -> Int
+    x + drop
+
+  sub t0()
+    print(drop, drops, RC0().v, rc0())
+
+  sub main()
+    t0()
+
+fail "name grid root_const panic", ""
+  panic = 10
+  panics = [panic, 2]
+
+  obj RC0
+    v: Int = panic
+
+  fun rc0(x: Int = panic) -> Int
+    x + panic
+
+  sub t0()
+    print(panic, panics, RC0().v, rc0())
+
+  sub main()
+    t0()
+
+fail "name grid root_const main", "duplicate declaration of `main`"
+  main = 10
+  mains = [main, 2]
+
+  obj RC0
+    v: Int = main
+
+  fun rc0(x: Int = main) -> Int
+    x + main
+
+  sub t0()
+    print(main, mains, RC0().v, rc0())
+
+  sub main()
+    t0()
+
+fail "name grid root_fun none", "`none` is the absent optional"
+  fun none(x: Int) -> Int
+    x * 2
+
+  sub t0()
+    f = none
+    print(none(4), f(5))
+
+  sub main()
+    t0()
+
+fail "name grid root_fun _", "`_` discards a value"
+  fun _(x: Int) -> Int
+    x * 2
+
+  sub t0()
+    f = _
+    print(_(4), f(5))
+
+  sub main()
+    t0()
+
+fail "name grid root_fun type", ""
+  fun type(x: Int) -> Int
+    x * 2
+
+  sub t0()
+    f = type
+    print(type(4), f(5))
+
+  sub main()
+    t0()
+
+fail "name grid root_fun drop", ""
+  fun drop(x: Int) -> Int
+    x * 2
+
+  sub t0()
+    f = drop
+    print(drop(4), f(5))
+
+  sub main()
+    t0()
+
+fail "name grid root_fun panic", ""
+  fun panic(x: Int) -> Int
+    x * 2
+
+  sub t0()
+    f = panic
+    print(panic(4), f(5))
+
+  sub main()
+    t0()
+
+fail "name grid root_fun main", "duplicate declaration of `main`"
+  fun main(x: Int) -> Int
+    x * 2
+
+  sub t0()
+    f = main
+    print(main(4), f(5))
+
+  sub main()
+    t0()
+
+fail "name grid static from_int", "from_int"
+  obj PS0
+    x: Int
+
+  fun PS0.from_int() -> PS0
+    PS0(x: 4)
+
+  sub PS0.from_int2(!self)
+    self.x += 1
+
+  enum KS0
+    a
+    b
+
+    fun from_int(?self) -> Int
+      Int(self) + 7
+
+  fun KS0.from_int3() -> KS0
+    .b
+
+  sub t0()
+    p = PS0.from_int()
+    !p.from_int2()
+    print(p.x, KS0.a.from_int(), Int(KS0.from_int3()))
+
+  sub main()
+    t0()
+
+fail "name grid module none", "`none` is the absent optional"
+  use lib
+  use none
+
+  fun pv0(p: lib.P0) -> Int
+    match p
+      .none(w) => w
+      .pp(v) => v
+
+  fun gv0(g: lib.G0[Int]) -> Int
+    match g
+      .none(w: x) => x
+      _ => 0
+
+  sub t0()
+    b = lib.Box0()
+    print(Int(b.k), b.none, b.none2(), lib.pick0(), lib.pick0(.zz), lib.none(1), none.two())
+    k: lib.K0 = .none
+    print(k == lib.K0.none, k == .none)
+    match k
+      .none => print("m")
+      .zz => print("z")
+    print(pv0(lib.P0.none(w: 5)), gv0(lib.G0[Int].none(w: 6)))
+    x = lib.fails0(0) catch |e|
+      print(e == lib.E0.none, e)
+      -1
+    print(x, lib.Box0(none: 9).none)
+
+  sub main()
+    t0()
+  file "lib.rig"
+    pub enum K0
+      zz
+      none
+
+    pub enum P0
+      pp(v: Int)
+      none(w: Int)
+
+    pub enum G0[T]
+      gg(v: T)
+      none(w: T)
+
+    pub obj Box0
+      pub k: K0 = .none
+      pub none: Int = 4
+
+      pub fun none2(?self) -> Int
+        self.none + 1
+
+    pub error E0
+      zz
+      none
+
+    pub fun pick0(k: K0 = .none) -> Int
+      Int(k)
+
+    pub fun fails0(k: Int) -> Int!
+      if k == 0
+        return E0.none
+      k
+
+    pub fun none(x: Int) -> Int
+      x + 100
+  file "none.rig"
+    pub fun two() -> Int
+      2
+
+fail "name grid module type", ""
+  use lib
+  use type
+
+  fun pv0(p: lib.P0) -> Int
+    match p
+      .type(w) => w
+      .pp(v) => v
+
+  fun gv0(g: lib.G0[Int]) -> Int
+    match g
+      .type(w: x) => x
+      _ => 0
+
+  sub t0()
+    b = lib.Box0()
+    print(Int(b.k), b.type, b.type2(), lib.pick0(), lib.pick0(.zz), lib.type(1), type.two())
+    k: lib.K0 = .type
+    print(k == lib.K0.type, k == .type)
+    match k
+      .type => print("m")
+      .zz => print("z")
+    print(pv0(lib.P0.type(w: 5)), gv0(lib.G0[Int].type(w: 6)))
+    x = lib.fails0(0) catch |e|
+      print(e == lib.E0.type, e)
+      -1
+    print(x, lib.Box0(type: 9).type)
+
+  sub main()
+    t0()
+  file "lib.rig"
+    pub enum K0
+      zz
+      type
+
+    pub enum P0
+      pp(v: Int)
+      type(w: Int)
+
+    pub enum G0[T]
+      gg(v: T)
+      type(w: T)
+
+    pub obj Box0
+      pub k: K0 = .type
+      pub type: Int = 4
+
+      pub fun type2(?self) -> Int
+        self.type + 1
+
+    pub error E0
+      zz
+      type
+
+    pub fun pick0(k: K0 = .type) -> Int
+      Int(k)
+
+    pub fun fails0(k: Int) -> Int!
+      if k == 0
+        return E0.type
+      k
+
+    pub fun type(x: Int) -> Int
+      x + 100
+  file "type.rig"
+    pub fun two() -> Int
+      2
+
+fail "name grid module drop", ""
+  use lib
+  use drop
+
+  fun pv0(p: lib.P0) -> Int
+    match p
+      .drop(w) => w
+      .pp(v) => v
+
+  fun gv0(g: lib.G0[Int]) -> Int
+    match g
+      .drop(w: x) => x
+      _ => 0
+
+  sub t0()
+    b = lib.Box0()
+    print(Int(b.k), b.drop, b.drop2(), lib.pick0(), lib.pick0(.zz), lib.drop(1), drop.two())
+    k: lib.K0 = .drop
+    print(k == lib.K0.drop, k == .drop)
+    match k
+      .drop => print("m")
+      .zz => print("z")
+    print(pv0(lib.P0.drop(w: 5)), gv0(lib.G0[Int].drop(w: 6)))
+    x = lib.fails0(0) catch |e|
+      print(e == lib.E0.drop, e)
+      -1
+    print(x, lib.Box0(drop: 9).drop)
+
+  sub main()
+    t0()
+  file "drop.rig"
+    pub fun two() -> Int
+      2
+  file "lib.rig"
+    pub enum K0
+      zz
+      drop
+
+    pub enum P0
+      pp(v: Int)
+      drop(w: Int)
+
+    pub enum G0[T]
+      gg(v: T)
+      drop(w: T)
+
+    pub obj Box0
+      pub k: K0 = .drop
+      pub drop: Int = 4
+
+      pub fun drop2(?self) -> Int
+        self.drop + 1
+
+    pub error E0
+      zz
+      drop
+
+    pub fun pick0(k: K0 = .drop) -> Int
+      Int(k)
+
+    pub fun fails0(k: Int) -> Int!
+      if k == 0
+        return E0.drop
+      k
+
+    pub fun drop(x: Int) -> Int
+      x + 100
+
+fail "name grid module panic", ""
+  use lib
+  use panic
+
+  fun pv0(p: lib.P0) -> Int
+    match p
+      .panic(w) => w
+      .pp(v) => v
+
+  fun gv0(g: lib.G0[Int]) -> Int
+    match g
+      .panic(w: x) => x
+      _ => 0
+
+  sub t0()
+    b = lib.Box0()
+    print(Int(b.k), b.panic, b.panic2(), lib.pick0(), lib.pick0(.zz), lib.panic(1), panic.two())
+    k: lib.K0 = .panic
+    print(k == lib.K0.panic, k == .panic)
+    match k
+      .panic => print("m")
+      .zz => print("z")
+    print(pv0(lib.P0.panic(w: 5)), gv0(lib.G0[Int].panic(w: 6)))
+    x = lib.fails0(0) catch |e|
+      print(e == lib.E0.panic, e)
+      -1
+    print(x, lib.Box0(panic: 9).panic)
+
+  sub main()
+    t0()
+  file "lib.rig"
+    pub enum K0
+      zz
+      panic
+
+    pub enum P0
+      pp(v: Int)
+      panic(w: Int)
+
+    pub enum G0[T]
+      gg(v: T)
+      panic(w: T)
+
+    pub obj Box0
+      pub k: K0 = .panic
+      pub panic: Int = 4
+
+      pub fun panic2(?self) -> Int
+        self.panic + 1
+
+    pub error E0
+      zz
+      panic
+
+    pub fun pick0(k: K0 = .panic) -> Int
+      Int(k)
+
+    pub fun fails0(k: Int) -> Int!
+      if k == 0
+        return E0.panic
+      k
+
+    pub fun panic(x: Int) -> Int
+      x + 100
+  file "panic.rig"
+    pub fun two() -> Int
+      2
+
+fail "name grid module main", "cyclic import"
+  use lib
+  use main
+
+  fun pv0(p: lib.P0) -> Int
+    match p
+      .main(w) => w
+      .pp(v) => v
+
+  fun gv0(g: lib.G0[Int]) -> Int
+    match g
+      .main(w: x) => x
+      _ => 0
+
+  sub t0()
+    b = lib.Box0()
+    print(Int(b.k), b.main, b.main2(), lib.pick0(), lib.pick0(.zz), lib.main(1), main.two())
+    k: lib.K0 = .main
+    print(k == lib.K0.main, k == .main)
+    match k
+      .main => print("m")
+      .zz => print("z")
+    print(pv0(lib.P0.main(w: 5)), gv0(lib.G0[Int].main(w: 6)))
+    x = lib.fails0(0) catch |e|
+      print(e == lib.E0.main, e)
+      -1
+    print(x, lib.Box0(main: 9).main)
+
+  sub main()
+    t0()
+  file "lib.rig"
+    pub enum K0
+      zz
+      main
+
+    pub enum P0
+      pp(v: Int)
+      main(w: Int)
+
+    pub enum G0[T]
+      gg(v: T)
+      main(w: T)
+
+    pub obj Box0
+      pub k: K0 = .main
+      pub main: Int = 4
+
+      pub fun main2(?self) -> Int
+        self.main + 1
+
+    pub error E0
+      zz
+      main
+
+    pub fun pick0(k: K0 = .main) -> Int
+      Int(k)
+
+    pub fun fails0(k: Int) -> Int!
+      if k == 0
+        return E0.main
+      k
+
+    pub fun main(x: Int) -> Int
+      x + 100
+
+fail "name grid module from_int", "from_int"
+  use lib
+  use from_int
+
+  fun pv0(p: lib.P0) -> Int
+    match p
+      .from_int(w) => w
+      .pp(v) => v
+
+  fun gv0(g: lib.G0[Int]) -> Int
+    match g
+      .from_int(w: x) => x
+      _ => 0
+
+  sub t0()
+    b = lib.Box0()
+    print(Int(b.k), b.from_int, b.from_int2(), lib.pick0(), lib.pick0(.zz), lib.from_int(1), from_int.two())
+    k: lib.K0 = .from_int
+    print(k == lib.K0.from_int, k == .from_int)
+    match k
+      .from_int => print("m")
+      .zz => print("z")
+    print(pv0(lib.P0.from_int(w: 5)), gv0(lib.G0[Int].from_int(w: 6)))
+    x = lib.fails0(0) catch |e|
+      print(e == lib.E0.from_int, e)
+      -1
+    print(x, lib.Box0(from_int: 9).from_int)
+
+  sub main()
+    t0()
+  file "from_int.rig"
+    pub fun two() -> Int
+      2
+  file "lib.rig"
+    pub enum K0
+      zz
+      from_int
+
+    pub enum P0
+      pp(v: Int)
+      from_int(w: Int)
+
+    pub enum G0[T]
+      gg(v: T)
+      from_int(w: T)
+
+    pub obj Box0
+      pub k: K0 = .from_int
+      pub from_int: Int = 4
+
+      pub fun from_int2(?self) -> Int
+        self.from_int + 1
+
+    pub error E0
+      zz
+      from_int
+
+    pub fun pick0(k: K0 = .from_int) -> Int
+      Int(k)
+
+    pub fun fails0(k: Int) -> Int!
+      if k == 0
+        return E0.from_int
+      k
+
+    pub fun from_int(x: Int) -> Int
+      x + 100
+
+fail "name grid module self", "module-level declaration `self`"
+  use lib
+  use self
+
+  fun pv0(p: lib.P0) -> Int
+    match p
+      .self(w) => w
+      .pp(v) => v
+
+  fun gv0(g: lib.G0[Int]) -> Int
+    match g
+      .self(w: x) => x
+      _ => 0
+
+  sub t0()
+    b = lib.Box0()
+    print(Int(b.k), b.self, b.self2(), lib.pick0(), lib.pick0(.zz), lib.self(1), self.two())
+    k: lib.K0 = .self
+    print(k == lib.K0.self, k == .self)
+    match k
+      .self => print("m")
+      .zz => print("z")
+    print(pv0(lib.P0.self(w: 5)), gv0(lib.G0[Int].self(w: 6)))
+    x = lib.fails0(0) catch |e|
+      print(e == lib.E0.self, e)
+      -1
+    print(x, lib.Box0(self: 9).self)
+
+  sub main()
+    t0()
+  file "lib.rig"
+    pub enum K0
+      zz
+      self
+
+    pub enum P0
+      pp(v: Int)
+      self(w: Int)
+
+    pub enum G0[T]
+      gg(v: T)
+      self(w: T)
+
+    pub obj Box0
+      pub k: K0 = .self
+      pub self: Int = 4
+
+      pub fun self2(?self) -> Int
+        self.self + 1
+
+    pub error E0
+      zz
+      self
+
+    pub fun pick0(k: K0 = .self) -> Int
+      Int(k)
+
+    pub fun fails0(k: Int) -> Int!
+      if k == 0
+        return E0.self
+      k
+
+    pub fun self(x: Int) -> Int
+      x + 100
+  file "self.rig"
+    pub fun two() -> Int
+      2
+
+fail "name grid module __rig", "reserved for the compiler"
+  use lib
+  use __rig
+
+  fun pv0(p: lib.P0) -> Int
+    match p
+      .__rig(w) => w
+      .pp(v) => v
+
+  fun gv0(g: lib.G0[Int]) -> Int
+    match g
+      .__rig(w: x) => x
+      _ => 0
+
+  sub t0()
+    b = lib.Box0()
+    print(Int(b.k), b.__rig, b.__rig2(), lib.pick0(), lib.pick0(.zz), lib.__rig(1), __rig.two())
+    k: lib.K0 = .__rig
+    print(k == lib.K0.__rig, k == .__rig)
+    match k
+      .__rig => print("m")
+      .zz => print("z")
+    print(pv0(lib.P0.__rig(w: 5)), gv0(lib.G0[Int].__rig(w: 6)))
+    x = lib.fails0(0) catch |e|
+      print(e == lib.E0.__rig, e)
+      -1
+    print(x, lib.Box0(__rig: 9).__rig)
+
+  sub main()
+    t0()
+  file "__rig.rig"
+    pub fun two() -> Int
+      2
+  file "lib.rig"
+    pub enum K0
+      zz
+      __rig
+
+    pub enum P0
+      pp(v: Int)
+      __rig(w: Int)
+
+    pub enum G0[T]
+      gg(v: T)
+      __rig(w: T)
+
+    pub obj Box0
+      pub k: K0 = .__rig
+      pub __rig: Int = 4
+
+      pub fun __rig2(?self) -> Int
+        self.__rig + 1
+
+    pub error E0
+      zz
+      __rig
+
+    pub fun pick0(k: K0 = .__rig) -> Int
+      Int(k)
+
+    pub fun fails0(k: Int) -> Int!
+      if k == 0
+        return E0.__rig
+      k
+
+    pub fun __rig(x: Int) -> Int
+      x + 100
+
+fail "name grid module __rig_x", "reserved for the compiler"
+  use lib
+  use __rig_x
+
+  fun pv0(p: lib.P0) -> Int
+    match p
+      .__rig_x(w) => w
+      .pp(v) => v
+
+  fun gv0(g: lib.G0[Int]) -> Int
+    match g
+      .__rig_x(w: x) => x
+      _ => 0
+
+  sub t0()
+    b = lib.Box0()
+    print(Int(b.k), b.__rig_x, b.__rig_x2(), lib.pick0(), lib.pick0(.zz), lib.__rig_x(1), __rig_x.two())
+    k: lib.K0 = .__rig_x
+    print(k == lib.K0.__rig_x, k == .__rig_x)
+    match k
+      .__rig_x => print("m")
+      .zz => print("z")
+    print(pv0(lib.P0.__rig_x(w: 5)), gv0(lib.G0[Int].__rig_x(w: 6)))
+    x = lib.fails0(0) catch |e|
+      print(e == lib.E0.__rig_x, e)
+      -1
+    print(x, lib.Box0(__rig_x: 9).__rig_x)
+
+  sub main()
+    t0()
+  file "__rig_x.rig"
+    pub fun two() -> Int
+      2
+  file "lib.rig"
+    pub enum K0
+      zz
+      __rig_x
+
+    pub enum P0
+      pp(v: Int)
+      __rig_x(w: Int)
+
+    pub enum G0[T]
+      gg(v: T)
+      __rig_x(w: T)
+
+    pub obj Box0
+      pub k: K0 = .__rig_x
+      pub __rig_x: Int = 4
+
+      pub fun __rig_x2(?self) -> Int
+        self.__rig_x + 1
+
+    pub error E0
+      zz
+      __rig_x
+
+    pub fun pick0(k: K0 = .__rig_x) -> Int
+      Int(k)
+
+    pub fun fails0(k: Int) -> Int!
+      if k == 0
+        return E0.__rig_x
+      k
+
+    pub fun __rig_x(x: Int) -> Int
+      x + 100
+
+fail "name grid module __rig_tmp_1", "reserved for the compiler"
+  use lib
+  use __rig_tmp_1
+
+  fun pv0(p: lib.P0) -> Int
+    match p
+      .__rig_tmp_1(w) => w
+      .pp(v) => v
+
+  fun gv0(g: lib.G0[Int]) -> Int
+    match g
+      .__rig_tmp_1(w: x) => x
+      _ => 0
+
+  sub t0()
+    b = lib.Box0()
+    print(Int(b.k), b.__rig_tmp_1, b.__rig_tmp_12(), lib.pick0(), lib.pick0(.zz), lib.__rig_tmp_1(1), __rig_tmp_1.two())
+    k: lib.K0 = .__rig_tmp_1
+    print(k == lib.K0.__rig_tmp_1, k == .__rig_tmp_1)
+    match k
+      .__rig_tmp_1 => print("m")
+      .zz => print("z")
+    print(pv0(lib.P0.__rig_tmp_1(w: 5)), gv0(lib.G0[Int].__rig_tmp_1(w: 6)))
+    x = lib.fails0(0) catch |e|
+      print(e == lib.E0.__rig_tmp_1, e)
+      -1
+    print(x, lib.Box0(__rig_tmp_1: 9).__rig_tmp_1)
+
+  sub main()
+    t0()
+  file "__rig_tmp_1.rig"
+    pub fun two() -> Int
+      2
+  file "lib.rig"
+    pub enum K0
+      zz
+      __rig_tmp_1
+
+    pub enum P0
+      pp(v: Int)
+      __rig_tmp_1(w: Int)
+
+    pub enum G0[T]
+      gg(v: T)
+      __rig_tmp_1(w: T)
+
+    pub obj Box0
+      pub k: K0 = .__rig_tmp_1
+      pub __rig_tmp_1: Int = 4
+
+      pub fun __rig_tmp_12(?self) -> Int
+        self.__rig_tmp_1 + 1
+
+    pub error E0
+      zz
+      __rig_tmp_1
+
+    pub fun pick0(k: K0 = .__rig_tmp_1) -> Int
+      Int(k)
+
+    pub fun fails0(k: Int) -> Int!
+      if k == 0
+        return E0.__rig_tmp_1
+      k
+
+    pub fun __rig_tmp_1(x: Int) -> Int
+      x + 100
+
+fail "name grid module __rig_Self", "reserved for the compiler"
+  use lib
+  use __rig_Self
+
+  fun pv0(p: lib.P0) -> Int
+    match p
+      .__rig_Self(w) => w
+      .pp(v) => v
+
+  fun gv0(g: lib.G0[Int]) -> Int
+    match g
+      .__rig_Self(w: x) => x
+      _ => 0
+
+  sub t0()
+    b = lib.Box0()
+    print(Int(b.k), b.__rig_Self, b.__rig_Self2(), lib.pick0(), lib.pick0(.zz), lib.__rig_Self(1), __rig_Self.two())
+    k: lib.K0 = .__rig_Self
+    print(k == lib.K0.__rig_Self, k == .__rig_Self)
+    match k
+      .__rig_Self => print("m")
+      .zz => print("z")
+    print(pv0(lib.P0.__rig_Self(w: 5)), gv0(lib.G0[Int].__rig_Self(w: 6)))
+    x = lib.fails0(0) catch |e|
+      print(e == lib.E0.__rig_Self, e)
+      -1
+    print(x, lib.Box0(__rig_Self: 9).__rig_Self)
+
+  sub main()
+    t0()
+  file "__rig_Self.rig"
+    pub fun two() -> Int
+      2
+  file "lib.rig"
+    pub enum K0
+      zz
+      __rig_Self
+
+    pub enum P0
+      pp(v: Int)
+      __rig_Self(w: Int)
+
+    pub enum G0[T]
+      gg(v: T)
+      __rig_Self(w: T)
+
+    pub obj Box0
+      pub k: K0 = .__rig_Self
+      pub __rig_Self: Int = 4
+
+      pub fun __rig_Self2(?self) -> Int
+        self.__rig_Self + 1
+
+    pub error E0
+      zz
+      __rig_Self
+
+    pub fun pick0(k: K0 = .__rig_Self) -> Int
+      Int(k)
+
+    pub fun fails0(k: Int) -> Int!
+      if k == 0
+        return E0.__rig_Self
+      k
+
+    pub fun __rig_Self(x: Int) -> Int
+      x + 100
+
+fail "name grid module __rig_module", "reserved for the compiler"
+  use lib
+  use __rig_module
+
+  fun pv0(p: lib.P0) -> Int
+    match p
+      .__rig_module(w) => w
+      .pp(v) => v
+
+  fun gv0(g: lib.G0[Int]) -> Int
+    match g
+      .__rig_module(w: x) => x
+      _ => 0
+
+  sub t0()
+    b = lib.Box0()
+    print(Int(b.k), b.__rig_module, b.__rig_module2(), lib.pick0(), lib.pick0(.zz), lib.__rig_module(1), __rig_module.two())
+    k: lib.K0 = .__rig_module
+    print(k == lib.K0.__rig_module, k == .__rig_module)
+    match k
+      .__rig_module => print("m")
+      .zz => print("z")
+    print(pv0(lib.P0.__rig_module(w: 5)), gv0(lib.G0[Int].__rig_module(w: 6)))
+    x = lib.fails0(0) catch |e|
+      print(e == lib.E0.__rig_module, e)
+      -1
+    print(x, lib.Box0(__rig_module: 9).__rig_module)
+
+  sub main()
+    t0()
+  file "__rig_module.rig"
+    pub fun two() -> Int
+      2
+  file "lib.rig"
+    pub enum K0
+      zz
+      __rig_module
+
+    pub enum P0
+      pp(v: Int)
+      __rig_module(w: Int)
+
+    pub enum G0[T]
+      gg(v: T)
+      __rig_module(w: T)
+
+    pub obj Box0
+      pub k: K0 = .__rig_module
+      pub __rig_module: Int = 4
+
+      pub fun __rig_module2(?self) -> Int
+        self.__rig_module + 1
+
+    pub error E0
+      zz
+      __rig_module
+
+    pub fun pick0(k: K0 = .__rig_module) -> Int
+      Int(k)
+
+    pub fun fails0(k: Int) -> Int!
+      if k == 0
+        return E0.__rig_module
+      k
+
+    pub fun __rig_module(x: Int) -> Int
+      x + 100
+
+fail "name grid alias none", "`none` is the absent optional"
+  use small as none
+
+  sub t0()
+    print(none.two(), none.Box().v)
+
+  sub main()
+    t0()
+  file "small.rig"
+    pub fun two() -> Int
+      2
+
+    pub obj Box
+      pub v: Int = 4
+
+fail "name grid alias type", ""
+  use small as type
+
+  sub t0()
+    print(type.two(), type.Box().v)
+
+  sub main()
+    t0()
+  file "small.rig"
+    pub fun two() -> Int
+      2
+
+    pub obj Box
+      pub v: Int = 4
+
+fail "name grid alias drop", ""
+  use small as drop
+
+  sub t0()
+    print(drop.two(), drop.Box().v)
+
+  sub main()
+    t0()
+  file "small.rig"
+    pub fun two() -> Int
+      2
+
+    pub obj Box
+      pub v: Int = 4
+
+fail "name grid alias panic", ""
+  use small as panic
+
+  sub t0()
+    print(panic.two(), panic.Box().v)
+
+  sub main()
+    t0()
+  file "small.rig"
+    pub fun two() -> Int
+      2
+
+    pub obj Box
+      pub v: Int = 4
+
+fail "name grid alias main", "`main` is a declaration of this module"
+  use small as main
+
+  sub t0()
+    print(main.two(), main.Box().v)
+
+  sub main()
+    t0()
+  file "small.rig"
+    pub fun two() -> Int
+      2
+
+    pub obj Box
+      pub v: Int = 4
