@@ -135,16 +135,16 @@ in `errors.log`, in `died/`. Swarm runs a job per CPU at once (`-w N`
 chooses another number; more than the CPUs is slower, as each job waits
 on a process of its own), and each job's time goes to `.swarm/times`.
 
-Beside the test files, the runner reads the docs' examples, each ````
-```rig ```` block of a Markdown file a case (below), and two directories
-of whole programs where they are: `examples/`, each a `test` whose `#
-expect:` block is its result, and `test/torture/`, bad input `rig run`
-must reject with a position and never crash on. It also runs the scripts
-of `test/cli`, each in an empty directory of its own with `RIG`, `ROOT`,
-`ZIG`, `RIG_OUT_DIR`, `RIG_TESTS` (the cases as files, below), and
-`TIMEOUT_CMD` set, passing when it exits 0, and the compiler's own Zig
-tests (`zig build test`). A run in which a job died lists each with its
-reason and exits 1.
+Beside the test files, the runner reads the docs' examples, each
+```` ```rig ```` block of a Markdown file a case (below), and two
+directories of whole programs where they are: `examples/`, each a `test`
+whose `# expect:` block is its result, and `test/torture/`, bad input
+`rig run` must reject with a position and never crash on. It also runs
+the scripts of `test/cli`, each in an empty directory of its own with
+`RIG`, `ROOT`, `ZIG`, `RIG_OUT_DIR`, `RIG_TESTS` (the cases as files,
+below), and `TIMEOUT_CMD` set, passing when it exits 0, and the
+compiler's own Zig tests (`zig build test`). A run in which a job died
+lists each with its reason and exits 1.
 
 The checks come in tiers. `core`, which a run with no names checks, is
 every test file but the probes', the doc examples, the examples, the

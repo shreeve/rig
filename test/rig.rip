@@ -547,54 +547,60 @@ setup = ->
     else
       c.path = join(work, area, 'cases', n, c.opts.file ?? "#{slug}.rig")
     put(c.path, c.source)
+  # Each file is read on every run (all of them take well under a second):
+  # each case is written out as its program, and its `test` and `bomb`
+  # cases go into packs. A file's debug pack is its own. Its release pack
+  # is its own too when it holds more than a few cases; a file with only
+  # a few shares one release pack with the other such files of its area's
+  # family (the area's part before `-`), since a release pack's cost is
+  # mostly compiling the standard library and the runtime again.
+  pool = 5
+  packs = []
+  pooled = {}
   for src in sources
     area = src.area
-    # A source whose files, compiler, and runner are what its packs were
-    # built from is not read again: its jobs, saved then, are queued as
-    # they were.
-    h = new Bun.CryptoHasher('sha256').update(compiler + '\0' + runner + '\0')
-    h.update(f + '\0').update(readFileSync(f)) for f in src.inputs
-    fileKey = h.digest('hex')
-    saved = join(work, area, 'jobs.json')
-    if existsSync(saved)
-      last = JSON.parse(readFileSync(saved, 'utf8'))
-      if last.key is fileKey and last.packs.every((p) -> p.dir? and existsSync(join(p.dir, 'bin')) and existsSync(join(p.dir, 'key')) and readFileSync(join(p.dir, 'key'), 'utf8') is p.key)
-        todo(j.id, j.payload) for j in last.jobs
-        continue
     all = src.read()
     place(area, c, i) for c, i in all when not c.given
     runs = all.filter((c) -> c.verb is 'test' or c.verb is 'bomb')
-    packs = [{ dir: join(work, area, 'debug'), cases: runs, flags: [], env: { RIG_SANITIZE: '1' } }, { dir: join(work, area, 'release'), cases: runs.filter((c) -> c.opts.release is 'true'), flags: ['--release'], env: {} }]
-    for p in packs when p.cases.length > 0
-      h = new Bun.CryptoHasher('sha256')
-      h.update(part + '\0') for part in [compiler, ...p.flags, JSON.stringify(p.env), ...p.cases.flatMap((c) -> [c.path, c.source, ...c.files.flatMap((f) -> [f.path, f.text])])]
-      p.key = h.digest('hex')
-      keyPath = join(p.dir, 'key')
-      continue if existsSync(keyPath) and readFileSync(keyPath, 'utf8') is p.key and existsSync(join(p.dir, 'bin'))
-      rmSync(keyPath, { force: true })
-      rmSync(join(p.dir, 'state'), { force: true })
-      mode = if p.flags.length > 0 then 'release' else 'debug'
-      todo("build.zig.#{area}.#{mode}", JSON.stringify({ file: "#{area} (#{mode})", name: "#{area} #{mode} pack", verb: 'pack', line: 1, dir: p.dir, flags: p.flags, env: p.env, cases: p.cases.map((c) -> c.path), key: p.key, opts: { timeout: '1800' } }))
-      builds++
-    plans.push({ area, file: (if src.inputs.length is 1 then src.inputs[0] else area), label: src.label, all, packs, fileKey })
+    releases = runs.filter((c) -> c.opts.release is 'true')
+    mine = [{ name: area, dir: join(work, area, 'debug'), cases: runs, flags: [], env: { RIG_SANITIZE: '1' } }]
+    if releases.length > pool
+      mine.push({ name: area, dir: join(work, area, 'release'), cases: releases, flags: ['--release'], env: {} })
+    else if releases.length > 0
+      family = "pool-#{area.split('-')[0]}"
+      pooled[family] ?= { name: family, dir: join(work, family, 'release'), cases: [], flags: ['--release'], env: {} }
+      pooled[family].cases.push(...releases)
+    packs.push(...mine)
+    plans.push({ area, file: (if src.inputs.length is 1 then src.inputs[0] else area), label: src.label, all })
+  packs.push(...Object.values(pooled))
+  for p in packs when p.cases.length > 0
+    h = new Bun.CryptoHasher('sha256')
+    h.update(part + '\0') for part in [compiler, ...p.flags, JSON.stringify(p.env), ...p.cases.flatMap((c) -> [c.path, c.source, ...c.files.flatMap((f) -> [f.path, f.text])])]
+    p.key = h.digest('hex')
+    keyPath = join(p.dir, 'key')
+    continue if existsSync(keyPath) and readFileSync(keyPath, 'utf8') is p.key and existsSync(join(p.dir, 'bin'))
+    rmSync(keyPath, { force: true })
+    rmSync(join(p.dir, 'state'), { force: true })
+    mode = if p.flags.length > 0 then 'release' else 'debug'
+    todo("build.zig.#{p.name}.#{mode}", JSON.stringify({ file: "#{p.name} (#{mode})", name: "#{p.name} #{mode} pack", verb: 'pack', line: 1, dir: p.dir, flags: p.flags, env: p.env, cases: p.cases.map((c) -> c.path), key: p.key, opts: { timeout: '1800' } }))
+    builds++
   process.stdout.write("rig.rip: #{builds} pack#{if builds is 1 then '' else 's'} to compile, as jobs\n") if builds > 0
+  # Each case's packs, and its number in each.
+  slots = new Map()
+  for p in packs
+    for c, n in p.cases
+      slots.set(c, []) unless slots.has(c)
+      slots.get(c).push([p, n])
   for plan in plans
-    jobs = []
-    queue = (id, payload) ->
-      todo(id, payload)
-      jobs.push({ id, payload })
     for c, i in plan.all
       job = { file: plan.label ?? basename(plan.file), name: c.name, verb: c.verb, line: c.line, bodyLine: c.bodyLine, args: c.args, opts: c.opts, map: c.map, path: c.path, out: c.out, err: c.err }
       id = "#{plan.area}.#{String(i).padStart(3, '0')}"
       unless c.verb in ['test', 'bomb']
-        queue(id, JSON.stringify(job))
+        todo(id, JSON.stringify(job))
         continue
-      for p in plan.packs when p.cases.includes(c)
+      for [p, n] in (slots.get(c) ?? [])
         release = p.flags.length > 0
-        queue(id + (if release then 'r' else ''), JSON.stringify({ ...job, release, pack: p.dir, packKey: p.key, n: p.cases.indexOf(c) }))
-    built = plan.packs.filter((p) -> p.cases.length > 0)
-    mkdirSync(join(work, plan.area), { recursive: true })
-    writeFileSync(join(work, plan.area, 'jobs.json'), JSON.stringify({ key: plan.fileKey, packs: built.map((p) -> { dir: p.dir, key: p.key }), jobs }))
+        todo(id + (if release then 'r' else ''), JSON.stringify({ ...job, release, pack: p.dir, packKey: p.key, n }))
   # The oracle's sets: the tests (the probes of past reviews among them)
   # and the examples, the docs' examples, and the matrix (test/matrix.py). A doc example is named by
   # its doc and a hash of its text, so an edit that only moves it keeps
