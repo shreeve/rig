@@ -478,7 +478,7 @@ setup = ->
     sources.push({ area, inputs: readdirSync(d).filter((f) -> f.endsWith('.rig')).sort().map((f) -> join(d, f)), read: ((area, d) -> -> programs(area, d))(area, d) }) if wanted(area)
   for doc in docFiles()
     sources.push({ area: doc.area, label: doc.rel, inputs: [doc.file], read: ((file) -> -> docs(file))(doc.file) }) if wanted(doc.area) or names.includes('doc')
-  unknown = names.filter((n) -> n not in ['all', 'core', 'cli', 'probes', 'unit', 'oracle', 'doc', 'proofs', 'proofs-all'] and not sources.some((s) -> s.area is n))
+  unknown = names.filter((n) -> n not in ['all', 'core', 'cli', 'probes', 'unit', 'oracle', 'generated', 'doc', 'proofs', 'proofs-all'] and not sources.some((s) -> s.area is n))
   throw new Error("no test file test/rig/#{unknown[0]}.rig.test") if unknown.length > 0
   init()
   # The compiler, with its own consistency checks on; the reference
@@ -615,6 +615,15 @@ setup = ->
     progs.push(join(root, 'examples', f)) for f in readdirSync(join(root, 'examples')).filter((f) -> f.endsWith('.rig')).sort()
     for p, i in progs
       todo("proofs.#{String(i).padStart(5, '0')}", JSON.stringify({ file: relative(root, p), name: 'proofs', verb: 'proofs', line: 1, path: p, every, opts: { timeout: '600' } }))
+  # A test file a tool writes says so on its first line (`written by
+  # tools/NAME.py`), and the tool's `--check` fails when the file is not
+  # what it would write: a job each, so an edit to the file that the tool
+  # would undo, or to the tool that the file lacks, fails the run.
+  if wanted('generated')
+    for f in readdirSync(dir).filter((f) -> f.endsWith('.rig.test')).sort()
+      m = readFileSync(join(dir, f), 'utf8').split('\n', 1)[0].match(/written by (tools\/[\w-]+\.py)/)
+      continue unless m
+      todo("generated.#{f.slice(0, -'.rig.test'.length)}", JSON.stringify({ file: "test/rig/#{f}", name: m[1], verb: 'generated', line: 1, path: join(root, m[1]), opts: { timeout: '120' } }))
   # The scripts of test/cli, each a job, and the compiler's own Zig tests.
   if wanted('cli')
     for f in readdirSync(join(root, 'test', 'cli')).filter((f) -> f.endsWith('.sh') and not f.startsWith('_')).sort()
@@ -861,6 +870,12 @@ checkLint = (c) ->
   for f in readdirSync(join(root, 'src')).filter((f) -> f.endsWith('.zig') and f isnt 'lib.zig')
     throw new Error("src/#{f} imports the oracle's library or test code") if /@import\("(lib\.zig|\.\.\/test\/[^"]*)"\)/.test(readFileSync(join(root, 'src', f), 'utf8'))
 
+# A generated test file is what its tool writes now.
+checkGenerated = (c) ->
+  r = run(['python3', c.path, '--check'], {}, Number(c.opts.timeout))
+  throw new Error('timed out') unless r.code?
+  throw new Error(firstLine(r.out + r.err).split(root + '/tools/../').join('').split(root + '/').join('')) unless r.code is 0
+
 # The compiler's own Zig tests.
 checkUnit = (c) ->
   r = run(['zig', 'build', 'test', '-Dself-check=true'], {}, Number(c.opts.timeout))
@@ -882,6 +897,7 @@ perform = (task, ctx) ->
       when 'unit' then checkUnit(c)
       when 'oracle' then checkOracle(c)
       when 'lint' then checkLint(c)
+      when 'generated' then checkGenerated(c)
       when 'matrix' then checkMatrix(c)
       when 'accept' then checkAccept(c)
       when 'parse' then checkParse(c)
