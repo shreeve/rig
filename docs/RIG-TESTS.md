@@ -163,23 +163,22 @@ blocks.
 
 ## Why
 
-One Zig compile per area replaces one per case, and a pack is compiled
-only when it changes. `test/rig/text.rig.test` holds the 43 tests of
-`std.text`, `std.utf8`, `std.utf16`, and `std.unicode` that `test/run`
-runs one by one. On the Mac, with 4 cores and the compiler built:
+One Zig compile per file replaces one per case, and a pack is compiled
+only when it changes. The 2,964 behavior and rejection tests of
+`test/behavior` and `test/reject`, in the 55 files of `test/rig`, with
+the release runs 3,257 jobs, on the Mac with cpuq's 4 cores:
 
-| | Wall time |
-|---|---|
-| `test/run` | 38 s (132 CPU-seconds) |
-| `swarm test/rig.rip -w 4 text`, packs compiled | 12 s (20 CPU-seconds) |
-| the same, one case changed | 5 s |
-| the same, nothing changed | 2.7 s |
+| | Wall time | CPU time |
+|---|---|---|
+| `./test/run behavior/ reject/`, no caches | 744 s | 2,891 s |
+| `swarm test/rig.rip -w 20`, every pack compiled | 73 s | 386 s |
+| the same, nothing changed | 11 s | 63 s |
 
-The verdicts are the same, and the release runs are included. A case
-runs in a few milliseconds; nearly all of the 2.7 seconds is two cases
-that walk Unicode's tables in a debug build under the sanitizer.
-Every case still runs alone, so isolation is unchanged, and `code` and
-`fail` cases build nothing at all.
+The verdicts are the same. A case runs in a few milliseconds; a warm
+run's time is the cases themselves, a few of which are deliberate
+sweeps (`text find any` searches 2.4 million times in a debug build
+under the sanitizer). Every case still runs alone, so isolation is
+unchanged, and `code` and `fail` cases build nothing at all.
 
 Errors and panics are tested differently because Rig makes them
 different. An error is a value a `T!` function returns, and a caller
