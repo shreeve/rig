@@ -1,0 +1,15 @@
+# runtime: what reaches a program through the stack the runtime maps for
+# it (test/cli/stack_guard.sh checks the rest): its exit status and a
+# failure out of `main`, in debug and release builds.
+
+test "the exit status passes through the program's stack", exit: 7, release: true
+  fun main() -> Int
+    7
+
+test "a failure out of main passes through the program's stack", "before", exit: 1, stderr: "error: Bad.broken", release: true
+  error Bad
+    broken
+
+  sub main()!
+    print("before")
+    return Bad.broken
