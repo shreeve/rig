@@ -1,6 +1,8 @@
 # Helpers sourced by the CLI tests. Each test runs in its own empty
-# directory with $RIG (the compiler), $ROOT (the checkout), and
-# $RIG_OUT_DIR set; it passes when it exits 0.
+# directory with $RIG (the compiler), $ROOT (the checkout), $ZIG,
+# $RIG_OUT_DIR (kept between runs; only its work/ starts empty),
+# $RIG_TESTS (the cases of test/rig as files), and $TIMEOUT_CMD set; it
+# passes when it exits 0.
 
 set -uo pipefail
 

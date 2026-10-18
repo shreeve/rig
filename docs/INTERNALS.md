@@ -3636,8 +3636,8 @@ symbols); a query that decides more than that belongs in `Pending`.
   declares `__rig_strict_optional`, and `rig.Opt` of it is a tagged
   struct (`rig.Strict`), so a program compiles only if emit and the
   runtime write every operation on such an optional through the
-  helpers. The suite is run in this mode as a gate, and
-  `test/cli/strict_optionals.sh` runs one program both ways.
+  helpers. Run the suite in this mode after a change to optionals;
+  `test/cli/strict_optionals.sh` runs one program both ways every run.
 - **Cells.** A value whose type holds a Cell by value lives only
   behind a shared handle (Core sentence 9): it is always in the heap
   memory a `*T` points to (`rig.RcBox(T)`), as a `Cell[T]`'s value or

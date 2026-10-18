@@ -11,7 +11,14 @@
 #                                  (`proofs-all`: of every program)
 #   swarm test/rig.rip std-text    test/rig/std-text.rig.test alone
 #   swarm test/rig.rip doc-SPEC    SPEC.md's examples alone (`doc`: every doc's)
+#   swarm test/rig.rip cli.lsp     test/cli/lsp.sh alone (any script by its name)
+#   swarm test/rig.rip full        by hand: every script with its sweeps whole
+#                                  (`full cli.NAME`: one script's)
+#   swarm test/rig.rip unit        the compiler's Zig tests alone (also `oracle`,
+#                                  `generated`: those jobs alone)
 #   swarm test/rig.rip tree        only write each case out as a program (the mirror)
+#
+# A run with a job that died lists each with its reason and exits 1.
 #
 # Setup builds rig, rig-oracle, and the unit tests in one zig build, reads
 # each file into its cases, writes each case as a program of its own, and
@@ -391,10 +398,10 @@ docFiles = ->
       out.push({ area: 'doc-' + rel.slice(0, -3).replace(/^docs\//, '').replace(/\//g, '-'), rel, file: join(root, rel) })
   out
 
-# The behavior and rejection tests, each where it lived before test/rig:
+# The behavior and rejection tests, each as a file of its own:
 # `test` and `bomb` cases under behavior/, `fail` cases under reject/, in
 # the folder of their file's area (`ownership-match` → `ownership`), named
-# as they were (`<name>.rig`, or `<name>/main.rig` for a program of several
+# for the case (`<name>.rig`, or `<name>/main.rig` for a program of several
 # files). The scripts of test/cli read them there ($RIG_TESTS), and the
 # oracle reads them by those names.
 legacy = (area, c) ->
@@ -482,8 +489,9 @@ setup = ->
     sources.push({ area, inputs: readdirSync(d).filter((f) -> f.endsWith('.rig')).sort().map((f) -> join(d, f)), read: ((area, d) -> -> programs(area, d))(area, d) }) if wanted(area)
   for doc in docFiles()
     sources.push({ area: doc.area, label: doc.rel, inputs: [doc.file], read: ((file) -> -> docs(file))(doc.file) }) if wanted(doc.area) or names.includes('doc')
-  unknown = names.filter((n) -> n not in ['all', 'core', 'cli', 'probes', 'unit', 'oracle', 'generated', 'doc', 'proofs', 'proofs-all'] and not sources.some((s) -> s.area is n))
-  throw new Error("no test file test/rig/#{unknown[0]}.rig.test") if unknown.length > 0
+  scripts = readdirSync(join(root, 'test', 'cli')).filter((f) -> f.endsWith('.sh') and not f.startsWith('_')).map((f) -> "cli.#{f.slice(0, -3)}")
+  unknown = names.filter((n) -> n not in ['all', 'core', 'cli', 'probes', 'unit', 'oracle', 'generated', 'doc', 'full', 'proofs', 'proofs-all'] and n not in scripts and not sources.some((s) -> s.area is n))
+  throw new Error((if unknown[0].startsWith('cli.') then "no script test/cli/#{unknown[0].slice(4)}.sh" else "no test file test/rig/#{unknown[0]}.rig.test")) if unknown.length > 0
   init()
   # The compiler, with its own consistency checks on; the reference
   # ownership checker, which the oracle's jobs and scripts of test/cli
@@ -636,11 +644,22 @@ setup = ->
       continue unless m
       todo("generated.#{f.slice(0, -'.rig.test'.length)}", JSON.stringify({ file: "test/rig/#{f}", name: m[1], verb: 'generated', line: 1, path: join(root, m[1]), opts: { timeout: '120' } }))
   # The scripts of test/cli, each a job, and the compiler's own Zig tests.
-  if wanted('cli')
-    for f in readdirSync(join(root, 'test', 'cli')).filter((f) -> f.endsWith('.sh') and not f.startsWith('_')).sort()
-      path = join(root, 'test', 'cli', f)
-      limit = readFileSync(path, 'utf8').match(/^# timeout:[ \t]*(\d+)[ \t]*$/m)
-      todo("cli.#{f.slice(0, -3)}", JSON.stringify({ file: "test/cli/#{f}", name: f.slice(0, -3), verb: 'script', line: 1, path, opts: { timeout: (if limit then limit[1] else '120') } }))
+  # `cli.NAME` runs that script alone. `full` runs the scripts (every one,
+  # or those named) with every sweep
+  # whole: each NAME_FULL variable a script reads is set, and each time
+  # limit is ten times the script's own, at most an hour; it runs by hand,
+  # before a release or after a change a sweep covers.
+  full = names.includes('full')
+  picked = names.filter((n) -> n.startsWith('cli.'))
+  for f in readdirSync(join(root, 'test', 'cli')).filter((f) -> f.endsWith('.sh') and not f.startsWith('_')).sort()
+    id = "cli.#{f.slice(0, -3)}"
+    continue unless (if picked.length > 0 then id in picked else wanted('cli') or full)
+    path = join(root, 'test', 'cli', f)
+    text = readFileSync(path, 'utf8')
+    m = text.match(/^# timeout:[ \t]*(\d+)[ \t]*$/m)
+    limit = if m then Number(m[1]) else 120
+    sweeps = if full then [...new Set(text.match(/\b[A-Z0-9_]+_FULL\b/g) ?? [])] else []
+    todo(id, JSON.stringify({ file: "test/cli/#{f}", name: f.slice(0, -3), verb: 'script', line: 1, path, env: Object.fromEntries(sweeps.map((v) -> [v, '1'])), opts: { timeout: String(if full then Math.min(limit * 10, 3600) else limit) } }))
   # Its id sorts before every other job's, as Swarm starts them in that
   # order: the slowest job, a compile of minutes when the compiler changed,
   # runs beside the rest instead of after them.
@@ -845,7 +864,7 @@ checkScript = (c) ->
   mkdirSync(join(out, 'work'), { recursive: true })
   seconds = Number(c.opts.timeout)
   timeoutCmd = (Bun.which('timeout') ?? Bun.which('gtimeout')) ?? 'timeout'
-  r = run(['bash', c.path], { ROOT: root, RIG: rig, ZIG: 'zig', RIG_OUT_DIR: out, RIG_TESTS: join(work, 'tree'), TIMEOUT: String(seconds), TIMEOUT_CMD: timeoutCmd }, seconds, join(out, 'work'))
+  r = run(['bash', c.path], { ROOT: root, RIG: rig, ZIG: 'zig', RIG_OUT_DIR: out, RIG_TESTS: join(work, 'tree'), TIMEOUT_CMD: timeoutCmd, ...(c.env ?? {}) }, seconds, join(out, 'work'))
   throw new Error("timed out after #{seconds}s") unless r.code?
   unless r.code is 0
     all = r.out + r.err
@@ -926,7 +945,10 @@ perform = (task, ctx) ->
   # true`: it passes while it fails, and fails the day it passes, so its
   # mark comes off as the bug is fixed.
   if c.opts?.known is 'true'
-    return if failure?
+    # A run that never got as far as the bug (a program that did not run,
+    # a timeout, a crash of the compiler) is no known failure.
+    return if failure? and not /did not run|timed out|crashed|never built/.test(failure.message)
+    throw new Error("#{where}: a known bug fails for another reason: #{failure.message}") if failure?
     throw new Error("#{where}: a known bug no longer fails: remove `known: true`")
   # A pending doc example states a rule decided but not built: it passes
   # while it fails for want of the rule (rejected, accepted where it must
@@ -954,5 +976,7 @@ verdict = ->
   process.stdout.write("\x1b[31m#{died.length} died:\x1b[0m\n" + shown.map((l) -> "  #{l}\n").join('') + (if reasons.length > shown.length then "  ... and #{reasons.length - shown.length} more in #{relative(process.cwd(), join(here, 'errors.log'))}\n" else ''))
   process.exit(1)
 
-await swarm { setup, perform }
+# Inside a cpuq lease, as many workers as it granted cores; elsewhere,
+# Swarm's own default, one per CPU (`-w N` chooses either way).
+await swarm { setup, perform, workers: (if process.env.CPUQ_CORES then Number(process.env.CPUQ_CORES.split('-')[0]) else undefined) }
 verdict()

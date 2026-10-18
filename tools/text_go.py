@@ -2,8 +2,8 @@
 """Record what Go's unicode/utf8, unicode/utf16, and unicode.IsSpace give
 for the strings and values the case `std.utf8, std.utf16, and is_space
 agree with Go` of test/rig/std-text-go.rig.test reads, as that case's
-expected result. It is named for the script of test/cli it replaces,
-text_go.sh.
+expected result. TEXT_GO_FULL=1 test/cli/text_go.sh (or `swarm
+test/rig.rip full cli.text_go`) checks the recorded answers are still Go's.
 
     tools/text_go.py            write test/rig/std-text-go.rig.test
     tools/text_go.py --check    fail when that file is not what it writes

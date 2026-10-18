@@ -119,13 +119,16 @@ swarm test/rig.rip                 # the core: every test file, the docs, exampl
 swarm test/rig.rip std-text        # one test file, test/rig/std-text.rig.test
 swarm test/rig.rip all             # the core, the scripts of test/cli, and the probes
 swarm test/rig.rip doc             # the doc examples
+swarm test/rig.rip cli.lsp         # one script of test/cli
 RIG_LEAK_TRACE=1 bin/rig run f.rig # leaks with allocation stack traces
 ```
 
 - **Nexus** is co-developed. `zig build` regenerates `src/parser.zig`
   with `../nexus/bin/nexus`, or another binary with `-Dnexus=PATH`.
 - **Shared machines:** run work through `cpuq run --label rig:NAME -- …`
-  with `-j "$CPUQ_CORES"`, and keep the label stable. A plain `cpuq run`
+  with `-j "$CPUQ_CORES"`, and keep the label stable. `test/rig.rip`
+  sizes itself to the lease (its workers and its zig builds), so
+  `cpuq run --label rig:test --cores 5 -- swarm test/rig.rip` needs no `-w`. A plain `cpuq run`
   stays on this Mac; `--on HOST` sends it to pup or burst. Never ssh to pup or burst. Limit test programs
   with `cpuq cap`, not a watchdog. Under load, rerun a timeout alone
   before trusting it.
