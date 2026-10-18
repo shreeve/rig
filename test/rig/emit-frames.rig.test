@@ -1,0 +1,178 @@
+# emit: what the programs of test/cli/frames.sh print, whose frame
+# owners' accounts that script checks against the stack Zig's code
+# reserves: an owner of every kind, each calling a 16 KB helper the rule
+# inlines; and owners that call functions marked `inline` in every way a
+# call can. The script reads these programs from the cases' tree.
+
+test "frames every owner", ''', whole: true
+  0
+  6 6 0 6 6 6
+  6
+  6
+'''
+  fun v(i: Int) -> Int
+    t = [2000 of 0]
+    for k in 0..2000
+      t[k] = k + i
+    t[i % 2000]
+
+  fun gen[T](x: T, i: Int) -> Int
+    y = x
+    v(i) + v(i + 1) + v(i + 2)
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print(v(self.n) + v(self.n + 1) + v(self.n + 2))
+
+  called fun plain(i: Int) -> Int
+    v(i) + v(i + 1) + v(i + 2)
+
+  called fun closure(i: Int) -> Int
+    f = |+i|
+      v(i) + v(i + 1) + v(i + 2)
+    f()
+
+  called fun later(i: Int) -> Int
+    defer print(v(i))
+    return 1 if i == 5
+    return 2 if i == 6
+    i
+
+  called fun arm(i: Int) -> Int
+    match i
+      0 => v(i) + v(i + 1) + v(i + 2)
+      _ => 1
+
+  test "pile"
+    print(v(0) + v(1) + v(2))
+
+  sub main()
+    r = Res(n: 0)
+    print(plain(0), closure(0), later(0), arm(0), gen(1, 0), gen(true, 0))
+    print(v(0) + v(1) + v(2))
+
+test "frames inline callers", ''', whole: true
+  46
+  20
+  13
+  20
+  13
+  27
+  64
+  324
+  2 3
+'''
+  inline fun big(i: Int) -> Int
+    t = [100000 of 0]
+    for k in 0..100000
+      t[k] = k * i
+    t[(i * 7 + 1) % 100000]
+
+  inline fun mid(i: Int) -> Int
+    big(i) + big(i + 1)
+
+  inline fun gen[T](x: T, i: Int) -> Int
+    t = [50000 of 0]
+    for k in 0..50000
+      t[k] = k + i
+    u = [x, x, x, x]
+    t[(i * 3 + 2) % 50000] + 4
+
+  inline fun bign[n: Int](i: Int) -> Int
+    t = [80000 of n]
+    for k in 0..80000
+      t[k] += k * i
+    t[(i * 5) % 80000]
+
+  obj G[T]
+    v: T
+
+    inline fun deep(?self, i: Int) -> Int
+      t = [60000 of 0]
+      for k in 0..60000
+        t[k] = k - i
+      t[(i * 11) % 60000]
+
+  obj Count
+    n: Int
+
+    inline fun next(!self) -> Int?
+      t = [40000 of 0]
+      for k in 0..40000
+        t[k] = k + self.n
+      self.n += 1
+      return none if self.n > 2
+      t[(self.n * 13) % 40000]
+
+  # Unmarked: the rule must not inline them, since the marked functions
+  # they hold land in their callers.
+  fun wrap(i: Int) -> Int
+    gen(1, i)
+
+  fun small(i: Int) -> Int
+    t = [7000 of 0]
+    for k in 0..7000
+      t[k] = k + i
+    t[(i * 3) % 7000]
+
+  inline fun holds(i: Int) -> Int
+    small(i) + 1
+
+  called sub wrapped(i: Int)
+    print(wrap(i) + wrap(i + 1) + wrap(i + 2) + wrap(i + 3))
+
+  called sub piled(i: Int)
+    print(holds(i) + holds(i + 1) + holds(i + 2) + holds(i + 3) + holds(i + 4) + holds(i + 5) + holds(i + 6) + holds(i + 7) + holds(i + 8) + holds(i + 9) + holds(i + 10) + holds(i + 11))
+
+  called sub chain(i: Int)
+    print(mid(i) + big(i))
+
+  called sub generic(i: Int)
+    print(gen(1, i) + gen(true, i))
+
+  called sub values(i: Int)
+    print(bign[1](i) + bign[2](i))
+
+  called sub method(i: Int)
+    g = G[Int](v: 1)
+    b = ^G[Int](v: 2)
+    print(g.deep(i) + b.deep(i))
+
+  called sub loop()
+    c = Count(n: 0)
+    for x in !c
+      print(x)
+
+  # Parameters by value: an inlined function's code copies each into a
+  # local of its own (`rig.rt`), beside the argument and the parameter.
+  obj Big
+    a: [20000]Int
+
+  obj Mid
+    a: [2600]Int
+
+  inline fun take(b: Big, i: Int) -> Int
+    b.a[i % 20000]
+
+  fun pick(m: Mid, i: Int) -> Int
+    m.a[i % 2600]
+
+  called fun byvalue(b: ?Big, i: Int) -> Int
+    take(b, i) + take(b, i + 1)
+
+  called fun byrule(m: ?Mid, i: Int) -> Int
+    pick(m, i)
+
+  sub main()
+    chain(1)
+    generic(1)
+    values(1)
+    method(1)
+    loop()
+    wrapped(1)
+    piled(1)
+    hb = ^Big(a: [20000 of 1])
+    hm = ^Mid(a: [2600 of 3])
+    print(byvalue(hb, 1), byrule(hm, 1))
