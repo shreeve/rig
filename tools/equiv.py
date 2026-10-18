@@ -4,7 +4,9 @@
     tools/equiv.py OLD_RIG NEW_RIG [-j N] [--keep DIR] [--no-cache]
 
 Runs both compilers over every tracked `.rig` program (examples, std,
-torture input, CLI fixtures) and every ```rig block in the Markdown docs, and compares what
+torture input, CLI fixtures), every case of test/rig (as `swarm
+test/rig.rip tree` writes each one out, under .zig-cache/rig-tests/tree),
+and every ```rig block in the Markdown docs, and compares what
 each prints for `parse`, `normalize`, `check`, `check --facts`, and, for
 a program `check` accepts, `check --facts=sema`, `check --facts=storage`,
 `emit`, and `pkg`: a hash of the whole package `RIG_SANITIZE=1 rig emit`
@@ -47,6 +49,28 @@ ACCEPTED = (
 )
 # The environment that changes what a compiler prints.
 ENV_KEYS = ("RIG_SANITIZE", "RIG_LEAK_TRACE", "RIG_STD")
+# What to call a program in the report, where its path is not its name:
+# a test/rig case is named as test/rig.rip names it.
+LABELS = {}
+
+
+def cases():
+    """Every case of test/rig as a program of its own, relative to ROOT:
+    `swarm test/rig.rip tree` writes them out, each file's again only when
+    it changed, and lists them."""
+    try:
+        p = subprocess.run(["swarm", "test/rig.rip", "tree"], cwd=ROOT, capture_output=True, text=True)
+    except FileNotFoundError:
+        sys.exit("equiv: swarm (Rip's Swarm) is needed to write test/rig's cases out")
+    if p.returncode != 0:
+        sys.exit("equiv: swarm test/rig.rip tree failed:\n" + p.stdout + p.stderr)
+    out = []
+    for line in open(os.path.join(ROOT, ".zig-cache", "rig-tests", "tree.list")).read().splitlines():
+        name, path = line.split("\t")
+        f = os.path.relpath(path, ROOT)
+        LABELS[f] = name
+        out.append(f)
+    return out
 
 
 def programs(docdir):
@@ -59,6 +83,7 @@ def programs(docdir):
         if d.startswith("test/") and os.path.basename(f) != "main.rig" and os.path.exists(os.path.join(ROOT, d, "main.rig")):
             continue
         progs.append(f)
+    progs += cases()
     for md in git("*.md"):
         lines = open(os.path.join(ROOT, md)).read().split("\n")
         modules, i = {}, 0
@@ -264,7 +289,7 @@ def main():
             for f, diffs in ex.map(lambda f: compare(old, new, f, tmp), progs):
                 if diffs:
                     changed += 1
-                    print("%s: %s" % (f, " ".join(diffs)))
+                    print("%s: %s" % (LABELS.get(f, f), " ".join(diffs)))
                     if keep:
                         for name, args in SECTIONS + ACCEPTED:
                             if name in diffs or name + "(failed)" in diffs:
