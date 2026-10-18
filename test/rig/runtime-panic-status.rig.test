@@ -1,0 +1,131 @@
+# A runtime panic aborts the program in every build mode: exit status
+# 134, what `print` buffered written out first, then the panic message on
+# stderr (test/cli/panic_status.sh checks Zig's trace, and the modes a
+# test file does not build).
+
+bomb "panic status list past the end", "panic: index out of bounds", prints: "before", release: true
+  # A constant distance past a List's end, the reviewer's program: no
+  # `defer` or drop runs.
+
+  obj Res
+    name: ?String
+    drop(!self)
+      print("dropping", self.name)
+
+  sub main()
+    r = Res(name: "r")
+    defer print("deferred")
+    v: List[Int] = List()
+    !v.push(1)
+    print("before")
+    i = v.len + 3
+    print(v[i])
+    print("after")
+
+bomb "panic status list index", "panic: index out of bounds", prints: "before", release: true
+  # A List index, a runtime function's check.
+
+  use std.os
+
+  sub main()
+    v: List[Int] = List()
+    !v.push(1)
+    print("before")
+    print(v[v.len + os.args().len + 2])
+    print("after")
+
+bomb "panic status live values", "panic: index out of bounds", prints: "before\n3 5", release: true
+  # Values live across calls: on aarch64 macOS the first frame saves all
+  # five register pairs.
+
+  use std.os
+
+  sub main()
+    n = os.args().len
+    a = n * 3
+    b = n * 5
+    v: List[Int] = List()
+    !v.push(a)
+    print("before")
+    print(a, b)
+    i = v.len + 3
+    print(a + b + v[i])
+
+bomb "panic status array index", "panic: index out of bounds", prints: "before", release: true
+  # A fixed array's index, an inline check.
+
+  use std.os
+
+  sub main()
+    a = [1, 2, 3]
+    print("before")
+    print(a[os.args().len + 2])
+
+bomb "panic status slice", "panic: slice bounds out of range", prints: "before", release: true
+  use std.os
+
+  sub main()
+    s = "abc"
+    print("before")
+    print(s[0..os.args().len + 3])
+
+bomb "panic status filled", "panic: negative size", prints: "before", release: true
+  use std.os
+
+  sub main()
+    print("before")
+    v = List.filled(0 - os.args().len, 0)
+    print(v.len)
+
+bomb "panic status exit status 301", "panic: exit status 301 is not in 0..255", prints: "before", release: true
+  use std.os
+
+  fun main() -> Int
+    print("before")
+    300 + os.args().len
+
+bomb "panic status out of memory", "panic: out of memory", prints: "before", release: true
+  use std.os
+
+  sub main()
+    print("before")
+    v = List.filled(os.args().len << 60, 0)
+    print(v.len)
+
+bomb "panic status overflow", "panic: integer overflow", prints: "before", release: true
+  use std.os
+
+  sub main()
+    print("before")
+    n: I8 = 120
+    n += I8(os.args().len * 10)
+    print(n)
+
+bomb "panic status convert", "panic: integer does not fit in destination type", prints: "before", release: true
+  use std.os
+
+  sub main()
+    print("before")
+    print(U8(os.args().len * 1000))
+
+bomb "panic status divide", "panic: division by zero", prints: "before", release: true
+  use std.os
+
+  sub main()
+    print("before")
+    print(10 / (os.args().len - 1))
+
+bomb "panic status recurse", "error: rig: stack overflow", prints: "before", release: true
+  # Recursion that runs into the guard below the stack.
+
+  use std.os
+
+  fun down(n: Int) -> Int
+    a = [64 of n]
+    if n == 0
+      return a[3]
+    down(n - 1) + a[os.args().len]
+
+  sub main()
+    print("before")
+    print(down(100000000))
