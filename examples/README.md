@@ -2,8 +2,8 @@
 
 Short programs that show what Rig looks like, from the smallest program
 to a small reactive library. Each file ends with the output it prints,
-in an `# expect:` block, and `./test/run` runs every one of them
-leak-checked. Run one with:
+in an `# expect:` block, and the test suite (`swarm test/rig.rip`) runs
+every one of them leak-checked. Run one with:
 
 ```bash
 bin/rig run examples/ownership_tour.rig

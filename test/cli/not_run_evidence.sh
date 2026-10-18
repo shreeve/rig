@@ -1,7 +1,6 @@
 # The evidence that a program ran cannot be faked by what sits at a path,
-# shared by another run, or lost to a nested run; and a test that never
-# ran, or a program a signal killed, never passes, is never reported as
-# the known bug, and never holds a pending example.
+# shared by another run, or lost to a nested run; and a matrix program
+# that never ran, or that a signal killed, never passes.
 source "$ROOT/test/cli/_lib.sh"
 ZIG_REAL=$(command -v "${ZIG:-zig}")
 printf 'sub main()\n  print("ran")\n' >ok.rig
@@ -39,17 +38,10 @@ out=$(RIG_BUILD_STORE=$store "$RIG" run ok.rig 2>&1); expect_eq "$out" "ran" "fi
 find "$store" -path '*/o/*' -name __rig_main -type f | while IFS= read -r b; do rm -rf "$(dirname "$b")"; done
 out=$(RIG_BUILD_STORE=$store "$RIG" run ok.rig 2>/dev/null); expect_eq "$out" "ran" "an entry whose binary is gone"
 
-# test/run: a directory where the started file used to go fools nothing.
-mkdir -p out/corpus/R11a-d1s.started/.zig-cache && : >out/.rig-test
-o=$(RIG_BUILD_STORE=$bad RIG_TEST_OUT=$PWD/out "$ROOT/test/run" corpus/R11a-d1s 2>&1); expect_rc $? 1 "a corpus program behind a directory"
-expect_has "$o" "FAIL   corpus/R11a-d1s — the program did not run" "a corpus program behind a directory"
-
 # A program a signal kills after it started, with nothing on stderr, fails
-# in the corpus and the matrix.
+# in the matrix.
 printf '#!/bin/sh\nif [ "$1" = run ]; then "%s" "$@"; kill -KILL $$; fi\nexec "%s" "$@"\n' "$ZIG_REAL" "$ZIG_REAL" >killzig
 chmod +x killzig
-o=$(ZIG=$PWD/killzig RIG_BUILD_STORE= RIG_TEST_OUT=$PWD/out2 "$ROOT/test/run" corpus/R11a-d1s 2>&1); expect_rc $? 1 "a corpus program killed by a signal"
-expect_has "$o" "killed by signal 9" "a corpus program killed by a signal"
 o=$(ZIG=$PWD/killzig RIG_BUILD_STORE= python3 "$ROOT/test/matrix.py" -k int.print.place 2>&1); expect_rc $? 1 "a matrix program killed by a signal"
 expect_has "$o" "killed by signal 9" "a matrix program killed by a signal"
 # A program's own status above 128 is not a signal.
@@ -65,18 +57,4 @@ o=$(python3 "$ROOT/test/matrix.py" --keep "$PWD/kept" -k int.print.place 2>&1); 
 expect_has "$o" "waiting for the matrix run in" "a kept matrix run waits for the one holding DIR"
 wait
 
-# A known bug or a pending example whose program never ran fails: it is
-# neither the known failure nor the rule still missing. A checkout of its
-# own holds one of each; its Zig builds nothing and runs nothing, and says
-# so in words that look like a rejection.
-mkdir -p fake/test/known/x fake/bin
-cp "$ROOT/test/run" fake/test/run
-ln -s "$RIG" fake/bin/rig
-printf 'sub main()\n  print(1)\n\n# expect:\n# 2\n' >fake/test/known/x/k.rig
-printf '# Doc\n\n```rig pending\nsub main()\n  print(1)\n```\n\n```output\n2\n```\n' >fake/README.md
-printf '#!/bin/sh\n[ "$1" = build ] && exit 0\necho "error: unexpected errno 5" >&2\nexit 1\n' >fakezig
-chmod +x fakezig
-o=$(ZIG=$PWD/fakezig RIG_BUILD_STORE= RIG_TEST_OUT=$PWD/out3 fake/test/run known doc 2>&1); expect_rc $? 1 "a known bug and a pending example that never ran: $o"
-expect_has "$o" "FAIL   known/x/k — the program did not run" "a known bug that never ran"
-expect_has "$o" "FAIL   doc/README/L3 — pending example: the program did not run" "a pending example that never ran"
 exit 0

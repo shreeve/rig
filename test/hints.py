@@ -8,7 +8,7 @@ its line is replaced by the rewrite, or by the binding and the rewrite
 where a temporary is bound first. The rewritten lines must then draw no
 error. A diagnostic that gives no rewrite is skipped. With --run, each
 rewritten program must also run sanitizer-clean, in debug and with
---release, and print EXPECT. `./test/run` runs it on every reject test
+--release, and print EXPECT. `test/rig.rip` runs it on every `fail` case
 that has such a diagnostic. Exits 1, listing each bad hint, if any is.
 """
 import os, re, shutil, subprocess, sys, tempfile

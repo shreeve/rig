@@ -20,9 +20,10 @@ this reference states today's rule.
 **view**, and the owner keeps a **loan**, which limits it while it is
 live.
 
-Every example is run by `./test/run`: a program followed by an `output`
-block must print exactly that output with no leaks, and a program
-marked as rejected must fail with the errors shown.
+Every example is run by the test suite (`swarm test/rig.rip doc`): a
+program followed by an `output` block must print exactly that output
+with no leaks, and a program marked as rejected must fail with the
+errors shown.
 
 ## Contents
 

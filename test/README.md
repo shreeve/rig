@@ -1,60 +1,40 @@
 # Rig test suite
 
-Rig is tested by two runners. `test/rig.rip` ([docs/RIG-TESTS.md](../docs/RIG-TESTS.md))
-runs the cases of `test/rig/*.rig.test` (every behavior and rejection
-test), `examples/`, `test/torture/`, the unit tests, the oracle's
-`lint`, `tests`, and `corpus` sets, and, as `cli`, the scripts of
-`test/cli/`: `swarm test/rig.rip all`. `./test/run`, below, runs the
-rest: the doc examples, the IR snapshots, the JSON comparison, the
-corpus programs, the oracle's `docs` and `matrix` sets, and the
-whole-program checks.
+`test/rig.rip` runs Rig's tests with Rip's Swarm
+([docs/RIG-TESTS.md](../docs/RIG-TESTS.md) is its spec): the cases of
+`test/rig/*.rig.test` (every behavior and rejection test), every
+```` ```rig ```` block of the docs, `examples/`, `test/torture/`, the
+unit tests, and the reference ownership checker's sets in its core, and
+the scripts of `test/cli/` as `cli`. Run it through `cpuq run`
+(AGENTS.md):
 
 ```bash
-./test/run                 # everything (parallel)
-./test/run doc/SPEC        # only tests whose id contains "doc/SPEC"
-./test/run --update ir     # rewrite IR snapshots after an intended grammar change
-./test/run corpus          # every corpus program (a plain run takes a sample)
-./test/run json            # all 10,511 inputs of std.json's comparison (a plain run takes a part)
-./test/run --shard 2/4     # the second of four disjoint shards of a run
-./test/run --prune         # only remove the output of tests that are gone
-test/matrix.py             # generate and run the form x context x type matrix
-test/matrix.py --shard 2/4 # the second of four disjoint shards of the matrix
-./test/run --delta corpus  # check every program; run only those whose run
-test/matrix.py --delta     # could differ from one that passed (below)
+swarm test/rig.rip                 # the core
+swarm test/rig.rip cli             # the scripts of test/cli
+swarm test/rig.rip all             # both
+swarm test/rig.rip std-text        # test/rig/std-text.rig.test alone
+swarm test/rig.rip doc             # the doc examples alone (doc-SPEC: SPEC.md's)
+swarm test/rig.rip proofs          # by hand: the proven checks' differential run
+test/matrix.py                     # by hand: the form x context x type matrix
+test/json/compare.py               # by hand: std.json against Python's json
 ```
 
-A shard takes the selected tests whose id hashes to it, so the N shards
-of a run, on one machine or several, run each test once; the first also
-runs the whole-program checks (`unit`, `classify`, `vocab`,
-`style`).
-
-The summary line reads `N passed, M failed, K known, P pending`. The
-suite is green when nothing fails and no pending doc example has
-started passing. A filter that selects nothing exits 2. The runner
-works from any directory.
-
-The runner needs bash and either GNU `timeout` or perl (stock macOS has
-perl). `ZIG` names the Zig executable, `RIG_TEST_TIMEOUT` the seconds
-each test may take (default 120), `RIG_TEST_OUT` the directory for
-each test's output, `RIG_BUILD_STORE` where programs build (see
-[Output](#output)), `RIG_RESULTS_CACHE` where passing runs are recorded
-(see [Rerunning only what changed](#rerunning-only-what-changed)), and
-`RIG_SANITIZE=0` turns off the sanitizer (see
-[below](#leak-checking-and-the-sanitizer)).
+A case that fails lands in `.swarm/died`, with its reason in
+`.swarm/errors.log`.
 
 ## Layout
 
-| Path | Contract |
+| Path | What it holds |
 |---|---|
-| `test/ir/<name>.rig` | raw and semantic IR snapshots (`<name>.raw.sexp`, `<name>.sem.sexp`) |
-| `test/corpus/<name>.rig` | a reviewer's probe: `rig check` rejects it with a `file:line:col` diagnostic, or it runs sanitizer-clean (see below) |
-| `unit` | `zig build test` |
-| `classify` | no pass in `src/` keeps a classifier of what an expression hands over beside `sema.handsOver` (`isPlaceExpr`, `isPlace`, `makesValue`, `isBranching`, `readLeaves`, `classifyReceiverShape`), and emit names hidden storage only through its storage facts (`Emitter.hiddenStorage`) |
-| `vocab` | the docs, std/, the string literals in `src/`, and `# error:` lines say lend, view, and loan (docs/CORE.md, "Three words"): Rust's word for all three appears only in the lines `test/vocabulary-allow.txt` lists, each as `path: line text`, and in no path; an entry that matches no such line, or appears twice, fails |
-| `style` | the Rig in `test/` (but `test/torture/`), `examples/`, `std/`, and the docs' ```` ```rig ```` blocks is written one way: a definition writes its parameter list (`sub main()`); one blank line goes between top-level declarations, though one-line ones (`use`, constants, `extern`, `type`) may stand together; no two blank lines run together; a file or block neither starts nor ends with a blank line, and a file ends with a newline; no line of code ends in spaces. A file or block whose expected errors are the definition rule's own may break that rule |
-| `json/<group>` | a group of `std.json`'s comparison with Python's `json` module (`test/json/README.md`): a part of it in a plain run, all of it when the run names a filter; the data of two groups is fetched by `tools/fetch-json-data.sh` |
-| `doc/<file>/L<n>` | the ```` ```rig ```` block at line `n` of a Markdown file (see below) |
-| `oracle/<set>` | the reference ownership checker agrees with the compiler over a set of programs (see below) |
+| `test/rig/<area>.rig.test` | the behavior and rejection tests, as cases (docs/RIG-TESTS.md) |
+| `test/cli/<name>.sh` | a script that drives the `rig` command line (below) |
+| `test/torture/<name>.rig` | bad input `rig run` must reject with a `file:line:col` diagnostic, never crashing |
+| `test/corpus/<name>.rig` | a reviewer's probe (below) |
+| `test/oracle/` | the reference ownership checker and its lists (below) |
+| `test/lanes/`, `test/names/` | the grids of programs some CLI scripts generate and check |
+| `test/json/` | `std.json`'s comparison with Python's `json` module (below) |
+| `test/highlight/` | the editors' syntax highlighting fixtures |
+| `test/matrix.py`, `test/equiv.py`, `test/hints.py` | the matrix, the refactor check, and the lend hints' check (below) |
 
 ## Examples
 
@@ -66,7 +46,7 @@ prints. `test/rig.rip` runs each as a `test` case. The cases of
 ## Doc examples
 
 Every ```` ```rig ```` block in the Markdown files (`*.md`, `docs/`,
-`examples/`, `test/`) is a test, so the docs cannot drift from the
+`examples/`, `test/`, `formal/docs/`) is a test, so the docs cannot drift from the
 compiler. The word after `rig` on the opening fence sets the contract:
 
 | Fence | Contract |
@@ -91,12 +71,13 @@ missing: the program is rejected, accepted where it should be rejected,
 rejected with other messages, or prints something else. A timeout, a
 compiler crash, or an accepted program that fails to compile, leaks, or
 uses freed memory still fails it, as it would any example. Once the
-rule is built and the example passes, the suite fails with `FIXED`, and
+rule is built and the example passes, the suite fails, and
 the change that built the rule marks the block ```` ```rig ```` (or
 ```` ```rig reject ````). So the docs state planned rules only as
 tests, and no example claims behavior the compiler does not have. A
-failure is reported with the id `doc/<file>/L<line>`, naming the line of
-the opening fence; `./test/run doc` runs only the doc examples.
+failure names the doc and the line of the opening fence (`SPEC.md:160`).
+Each doc is an area, `doc-<name>` (`doc-SPEC`, `doc-CORE` for
+docs/CORE.md), and `doc` names them all.
 
 ## Leak checking and the sanitizer
 
@@ -111,8 +92,8 @@ allocated, run the test again by hand with
 through Zig's `SafeAllocator`, which prints a stack trace for each
 leak.
 
-A program that panics on purpose (an `# expect-panic:` test, and the
-CLI tests' panicking programs and `rig test` runs) runs with
+A program that panics on purpose (a `bomb` case, one that gives its
+`exit:`, and the CLI tests' panicking programs and `rig test` runs) runs with
 `RIG_NO_CRASH_REPORT=1`. That only stops a crash report for its abort. On
 macOS, `rig run` and `rig test` answer their program's crash themselves,
 always, with or without it, and
@@ -122,7 +103,7 @@ PATH: neither the user's ReportCrash (~/Library/Logs/DiagnosticReports) nor
 the system's (/Library/Logs/DiagnosticReports) files one. On Linux the
 program's core limit of exactly 1 keeps the kernel from passing it to the
 `core_pattern` handler (apport). It still exits 134 with the same output.
-`./test/run` sets it for those tests alone and clears it for every other
+`test/rig.rip` sets it for those cases alone and clears it for every other
 program, whose crash is still reported on Linux, and on macOS when it is a
 built program run directly; `test/cli/no_crash_report.sh` checks the status
 and output are the same with and without it, on Linux the core limit, and on
@@ -130,8 +111,8 @@ macOS that both report folders stay empty for a panic run quiet and for one
 under `rig run` without it, while a built program's panic not run quiet still
 files a report.
 
-The suite also builds every program it runs (behavior tests, examples,
-known bugs, doc examples with output, the corpus) with `RIG_SANITIZE=1`,
+The suite also builds every program it runs (`test` and `bomb` cases,
+examples, doc examples with output) with `RIG_SANITIZE=1`,
 which puts the sanitizing allocator under the leak checker. Each block
 gets pages of its own, a free makes them inaccessible, and no address
 is handed out twice, so reading or writing freed memory, or past the end
@@ -145,10 +126,9 @@ stale value. A behavior test therefore fails on any leak, double free,
 or use of freed memory, and on most reads of dead hidden storage. Run a
 failing program by hand with
 `RIG_SANITIZE=1 bin/rig run file.rig`. The sanitizer costs a few
-system calls and two pages of address space per allocation: the suite
-takes about 15% longer, and an allocation-heavy program runs several
-times slower, so a plain `rig run` keeps only the leak checker.
-`RIG_SANITIZE=0 ./test/run` runs the suite without it. Each live
+system calls and two pages of address space per allocation, and an
+allocation-heavy program runs several times slower, so a plain `rig
+run` keeps only the leak checker. Each live
 guarded block is a memory mapping, and Linux caps those per process
 (`vm.max_map_count`); past about half that many live blocks (or
 `RIG_SANITIZE_BLOCKS`, which tests set to reach the cap), the sanitizer
@@ -158,7 +138,7 @@ freed. Leak checking still covers every block.
 
 ## Strict optionals
 
-`RIG_STRICT_OPTIONALS=1 ./test/run` runs the suite with every object's
+`RIG_STRICT_OPTIONALS=1 swarm test/rig.rip` runs the suite with every object's
 optional held as a tagged struct, which Zig never lifts a value into
 and never tests with `orelse` or `null` (docs/INTERNALS.md, Emit,
 "Optionals"). A program then compiles only if the compiler writes
@@ -193,23 +173,20 @@ the output directory is what the test is about.
 
 ## The JSON tests
 
-`./test/run json` runs `std.json` over 10,511 generated and
+`test/json/compare.py` runs `std.json` over 10,511 generated and
 hand-written inputs and compares each parse with Python's `json` module
-(`test/json/README.md` says how, and lists the groups). Each group is
-one test, `json/<group>`, built and run under the sanitizer. A plain
-`./test/run` takes a fixed, spread-out part of every group (about a tenth
-of the inputs); a run that names any filter, `./test/run json` or
-`./test/run json/floats`, takes every input of the groups it selects. The groups `checker` and `corpus` read third-party
-files that `tools/fetch-json-data.sh` fetches into `test/json/data/`. Without them those groups are skipped with a note, and
-`JSON_REQUIRE_DATA=1` makes that a failure. A `--delta` run carries a
-group over when the compiler, the cases, the data, and Python are
-unchanged.
+(`test/json/README.md` says how, and lists the groups). It runs by hand,
+when `std.json` changes: with no group it takes every group, and
+`--subset` a fixed, spread-out part of each. The groups `checker` and
+`corpus` read third-party files that `tools/fetch-json-data.sh` fetches
+into `test/json/data/`. Without them those groups are skipped with a
+note, and `JSON_REQUIRE_DATA=1` makes that a failure.
 
 ## The corpus
 
 `test/corpus/` keeps the probe programs written by past reviews and
 audits, deduplicated by content. Each program either is rejected by
-`rig check` with a `file:line:col` diagnostic, or runs (see [Output](#output)) under the
+`rig check` with a `file:line:col` diagnostic, or runs under the
 sanitizer with no leak, no use of freed memory, no Zig compile error,
 no crash, and no Zig safety check that means emitted code went wrong
 (`reached unreachable`, a wrong union field, ...). A probe need not
@@ -220,12 +197,10 @@ have, loop forever, or leak through a cycle of strong handles (the one
 leak Rig allows) are left out, and so are those rejected only by the
 parser.
 
-Running every accepted probe builds hundreds of programs, several
-minutes of work, so a plain `./test/run` takes a fixed sample, one
-program in 16 by a hash of its name; `./test/run corpus` (or any filter
-that names corpus programs) takes all of them. A corpus run removes each passing program's output; its build stays in the store
-(a few gigabytes for the whole corpus, see [Output](#output)), so a
-later run rebuilds only the programs whose emitted Zig changed. Add new review probes here, named `<review>-<probe>.rig`.
+The suite's core checks every probe with the reference ownership
+checker (`oracle.corpus`, below), and `swarm test/rig.rip proofs` runs
+each one the compiler proves a check of. Add new review probes here,
+named `<review>-<probe>.rig`.
 
 Probe batches started by hand should set `RIG_OUT_DIR=$(mktemp -d)` and
 delete it afterwards, so they never write to the user cache.
@@ -322,6 +297,11 @@ which reserves far more than it uses), or past 1 MB of output. `--rig`
 tests another compiler.
 It writes to a temporary directory
 and commits nothing; `-k` picks cells by id and `-v` lists every result.
+Its programs build in `rig-build-store` in the repository's git
+directory (or `$RIG_BUILD_STORE`), and a passing run is recorded in
+`rig-results-cache` beside it (or `$RIG_RESULTS_CACHE`), so `--delta`
+runs only the programs whose emitted Zig changed. The suite's core runs
+the reference checker over its programs (`oracle.matrix`).
 
 ## The reference ownership checker
 
@@ -333,19 +313,16 @@ never imports). It lowers each function to a small core with its
 statement temporaries and evaluation order written out, then checks
 moves, loans, and drops with a dataflow over the function's control
 flow. Each function gets its verdict, accept or reject, or none when
-the function uses a form the oracle does not model yet. The test kind
-`oracle` runs it over five sets:
+the function uses a form the oracle does not model yet. The suite's
+core runs it over four sets, and checks it with a lint:
 
 | Id | Programs |
 |---|---|
-| `oracle/lint` | none: `test/oracle/` uses none of the compiler's ownership classifications, and `src/` imports neither `lib.zig` nor `test/` |
-| `oracle/tests` | the behavior and rejection tests, as `test/rig.rip` writes them out, and `examples` |
-| `oracle/corpus` | every corpus program (no sample) |
-| `oracle/docs` | every doc example but fragments |
-| `oracle/matrix` | the matrix programs (`test/matrix.py --oracle`) |
-
-`test/rig.rip` runs `lint`, `tests`, and `corpus` in its core;
-`./test/run` runs `docs` and `matrix`.
+| `oracle.lint` | none: `test/oracle/` uses none of the compiler's ownership classifications, and `src/` imports neither `lib.zig` nor `test/` |
+| `oracle.tests` | the behavior and rejection tests, as `test/rig.rip` writes them out, and `examples` |
+| `oracle.corpus` | every corpus program |
+| `oracle.docs` | every doc example but fragments |
+| `oracle.matrix` | the matrix programs (`test/matrix.py --oracle`) |
 
 A set fails when the compiler accepts a function the oracle rejects:
 that may be a soundness hole, and it can never be allowlisted. It also
@@ -354,10 +331,9 @@ oracle rejects is listed in `test/oracle/rejections` (`program
 function`), and a set fails on one not listed (`UNLISTED`: add it) and
 on a listed one the oracle decides and no longer rejects (`LOST`: the
 reference checker was weakened, whatever the compiler decides). A doc
-example is listed by its file and the checksum of its text
-(`doc/SPEC/3641359913`), as its output directory is named, so an edit
-that only moves it keeps its entry; one that changes its text renames
-it. So a change to the oracle that loses a rejection shows, though a
+example is listed by its doc and a hash of its text
+(`doc/SPEC/0f3c9a1b2d4e`), so an edit that only moves it keeps its
+entry; one that changes its text renames it. So a change to the oracle that loses a rejection shows, though a
 stricter compiler alone would only be reported
 (`test/cli/oracle_rejections.sh` checks that both fire). When the
 compiler rejects a function the oracle accepts, the run reports it
@@ -421,18 +397,19 @@ compiler runs only the new one. `--no-cache` runs both.
 ## The differential run of the proven checks
 
 ```bash
-./test/run --proofs-diff [filter...]        # programs with a proven test
-./test/run --proofs-diff=all [filter...]    # every program
+swarm test/rig.rip proofs        # programs with a proven test
+swarm test/rig.rip proofs-all    # every program
 ```
 
-replaces each behavior, example, and corpus program's own checks with
-the differential run of the tests the compiler omits (docs/INTERNALS.md,
-"Proven checks"): a program `rig check --facts=proofs` lists a test for
-runs in debug, where every omitted test is still made as an assertion,
-with `--release`, and with `--release` and `RIG_NO_PROOFS=1`, where emit
+runs the tests the compiler omits (docs/INTERNALS.md, "Proven checks")
+three ways, for each `test` and `bomb` case (but known bugs), example,
+and corpus program that `rig check --facts=proofs` lists a test for: in
+debug, where every omitted test is still made as an assertion, with
+`--release`, and with `--release` and `RIG_NO_PROOFS=1`, where emit
 omits nothing. The three runs must print the same, exit the same, and
-panic with the same message, and no proven check may fail. Other tests
-pass untouched.
+panic with the same message, and no proven check may fail. It builds
+each program three times, so it runs by hand, after a change to the
+proofs (`src/proofs.zig`), and neither `core` nor `all` includes it.
 
 ## Known bugs
 
@@ -441,134 +418,3 @@ what goes wrong today in its first comment, and marked `known: true`:
 the case passes while it fails, and fails the day it passes. Fix the
 bug, and the case says to take the mark off; take it off, and the
 comment about the bug, in the same commit.
-
-## Output
-
-`rig run` writes emitted Zig to `$RIG_OUT_DIR` when set. The suite uses
-`.zig-cache/rig-test/<id>/`, or `$RIG_TEST_OUT/<id>/` (a CLI test's
-scratch directory is its `work/` subdirectory), so emitted code for a
-failing test can be inspected there, and repeated runs hit Zig's build
-cache. A doc example's directory is `doc/<file>/<checksum>/`, named by
-its text rather than its line, so an edit that moves it keeps its cache.
-A run with no filter removes the directories of tests that no longer
-exist, and keeps those of every corpus program though it runs only a
-sample; `./test/run --prune` does only that.
-
-A test that runs a program (behavior, example, known bug, doc example
-with output, corpus, matrix) passes only on positive evidence that the
-program ran: `rig run` creates the file the harness names in
-`RIG_RUN_STARTED`, a fresh path in the run's private results directory
-(test/matrix.py: a private directory of its own), only once the program
-has started. Without a regular file there, or with rig's `the program
-did not run`, the test fails with `the program did not run`, whatever
-the exit status or output; so does a known bug or a pending example, so
-a failure in rig, Zig, or the build store never passes, holds, or counts
-as the known failure. In the corpus and the matrix, a program a signal
-ended (`rig: the program was killed by signal N`) fails too, unless it
-is a Rig panic: an abort (signal 6) after its `panic:` report. A status
-above 128 alone is the program's own.
-
-Programs build in a store shared by every worktree of the repository,
-`rig-build-store` in its git directory (`git rev-parse
---git-common-dir`), or `$RIG_BUILD_STORE`; `RIG_BUILD_STORE=` (empty)
-builds each in its test's output directory instead. `rig run` builds a
-package in the store's entry named by a hash of everything the build
-reads (docs/INTERNALS.md), so a program built before, in this worktree
-or another, by this compiler or another that emits the same package, is
-not built again; a new branch's first run rebuilds only the programs
-whose package it changed. Zig still checks every input of a cached
-build. A run with no filter removes the entries no run has used for
-`RIG_BUILD_STORE_DAYS` days (default 2), each renamed into the store's
-trash in one step and then deleted. The same run also caps the store's
-size: over `RIG_BUILD_STORE_MAX_GB` (default 15, 0 for no cap), it removes
-the least recently used entries (by their `used` file) until the store
-fits, by the same rules. The size is one `du` over the store per
-unfiltered run. `test/matrix.py` builds in the
-same store. One run at a time uses an output directory; a second run waits
-for the first, unless `RIG_TEST_OUT` gives it a directory of its own.
-The runner marks an output directory as its own with a `.rig-test`
-file, and refuses a `RIG_TEST_OUT` that is not empty and lacks it, so
-it never removes files it did not write.
-
-The output directory's `.durations` file records how long each test
-took, in whole seconds; the next run starts the longest tests first, so
-it does not end waiting on one of them.
-
-## Rerunning only what changed
-
-A program's run passes or fails by its source code, the Zig source the
-current compiler generates for it: the package `rig run` builds (every
-module, the standard library's shims, and the runtime), together with
-how rig runs it, Zig, and what the test expects. The test's own `.rig`
-file is always compiled again; only the build and run are skipped. A change that leaves
-all of them as they were, such as a diagnostic's wording or a fix in
-the checker that rejects nothing new, cannot change the verdict, so the
-run need not be repeated.
-
-Each passing run of a behavior test, example, doc example with output,
-corpus program, or matrix program is recorded in the results cache,
-`rig-results-cache` in the repository's git directory beside the build
-store (or `$RIG_RESULTS_CACHE`; empty records nothing). Its key is a
-hash of:
-
-- the package `RIG_SANITIZE=1 rig emit` writes for the program, every
-  file by its path and contents (the package `rig run` builds is this
-  one with the line naming its start hook), and whether Zig links it
-  with libc, which `rig emit` notes;
-- the entry file, so the program's directives (`# expect:`,
-  `# expect-panic:`, `# release`, `# timeout:`) and, for a matrix
-  program, what it must print and whether it is also built with
-  `--release`;
-- what judges the run: `test/run` itself, or the functions of
-  `test/matrix.py` that run and judge a program;
-- the driver that runs it, `src/main.zig`, which `bin/rig` is built
-  from first (`test/run` always builds it, and `test/matrix.py` does
-  when the cache is on);
-- `zig env` (Zig's version, its standard library, and the target), the
-  `ZIG` named, the test's time limit, and every `RIG_` variable but
-  those that name a place (`RIG_RESULTS_CACHE`, `RIG_BUILD_STORE`,
-  `RIG_BUILD_STORE_DAYS`, `RIG_TEST_OUT`, `RIG_OUT_DIR`): the sanitizer
-  and its knobs, `RIG_LEAK_TRACE`, `RIG_STD`, and any a program reads.
-
-With `--delta`, `./test/run` and `test/matrix.py` check every program as
-always, but do not run one whose key is recorded: it passes, carried
-over, and the summary says how many were (`2841 passed (2790 carried
-over)`). Everything else runs: a program whose package changed, any
-program after a change to the runtime, the driver, the harness, or Zig,
-and every test whose verdict is not a run's (rejections, IR snapshots,
-CLI scripts, the whole-program checks, the oracle). Known bugs and
-pending examples are never carried over. A run without `--delta`
-records its passes but carries nothing over, so the merge gates at a
-pull request's head run in full and fill the cache for the next round.
-`test/matrix.py --rig` neither reads nor writes the cache.
-
-A record is an empty file named by its key, so runs in every worktree
-share it. A failing run records nothing, and neither does a passing run
-the sanitizer stopped guarding (`rig: sanitizer: mapping limit
-reached`), or one during which something its key names changed: after
-the run, the key is computed again and must be the same, and `test/run`,
-`src/main.zig`, and `bin/rig` (which a `zig build` replaces) must be the
-ones the run started with. A run with no filter removes the records no
-run has used for `RIG_BUILD_STORE_DAYS` days (default 2). The CLI tests run with
-`RIG_RESULTS_CACHE` empty, so they neither fill nor prune the shared
-cache. `test/cli/results_cache.sh` checks that a changed expectation
-(`# expect:` or `# error:`), runtime, emitted module, standard library
-module or shim, libc link, driver, harness, Zig (another path, or another
-version at the same path), or setting is never carried over; that a
-program whose package did not change is; that every run checks and emits
-every program again, so a change to a diagnostic alone still fails the
-rejection that expects the old words; and that a change during a run is
-never recorded.
-
-A change to the compiler, the grammar or Nexus reaches the key only
-through what the compiler emits: `rig check` and `rig emit` run fresh on
-every program in every run, and only the build and run of a package
-already seen to pass are spared. A compiler change therefore either
-changes a program's package, and that program runs again, or changes no
-package, and no run could differ.
-
-Two inputs are left out of the key. A program whose output depends on
-the clock, randomness, or the machine it runs on is carried over on the
-strength of one passing run; and so is one that reads an environment
-variable not named `RIG_` (`os.env`), since hashing the whole
-environment (`PWD`, `TMPDIR`, ...) would match no record.

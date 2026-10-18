@@ -303,7 +303,7 @@ bin/rig check file.rig                 # check only
 bin/rig emit file.rig                  # print the emitted Zig
 bin/rig clean                          # remove the cache of built programs
 bin/rig lsp                            # the language server, for an editor (editors/README.md)
-./test/run                             # the whole test suite
+swarm test/rig.rip all                 # the whole test suite (test/README.md)
 ```
 
 `rig run`, `build`, and `test` build each program in a directory of

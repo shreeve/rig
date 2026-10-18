@@ -24,7 +24,7 @@ compare across them only by the ratios within one table.
 
 ## Correctness
 
-``./test/run json``: **10,511 of 10,511 cases pass** (test/json/README.md):
+``test/json/compare.py``: **10,511 of 10,511 cases pass** (test/json/README.md):
 181 cases in `cases.txt` (119 with an exact error kind and offset), 1298
 block-edge string cases, 4192 edge cases for the other word-at-a-time
 paths (UTF-8 runs, digit runs, escapes; 3768 with an exact error kind
@@ -290,7 +290,7 @@ The U64 kernel stays fastest (2-6%), so `std/json.rig` keeps `SCAN = 8`.
 
 Changes to `std/json.rig` taken from the sonic-rs and simdjson studies,
 one at a time, each kept only if it gained or was neutral and simpler.
-Every one passes ``./test/run json`` (5894 of 5894, sanitizer-clean).
+Every one passes ``test/json/compare.py`` (5894 of 5894, sanitizer-clean).
 Variants are rig-safe builds of scratch copies (`src=NAME`), timed in
 one interleaved session on one core. The machine was loaded (load
 average 16-20) and exclusive runs are off, so besides wall time the
@@ -381,7 +381,7 @@ per thousand cycles, and gsoc-2018 from -1% to +1% in two sessions.
   The float path gains 3-6% on canada in cycles over three sessions
   (fastest of 15, 15 and 41), with 4% fewer instructions; the other
   files move within noise. With the guards too, canada moved -3% to +8%
-  over four sessions. Beyond ``./test/run json``, 2.1 million generated
+  over four sessions. Beyond ``test/json/compare.py``, 2.1 million generated
   numbers (ties near every power of two to 2^63, 15- to 19-digit
   numbers next to halfway points, exponents at the path's edges)
   matched Python bit for bit.
@@ -1215,7 +1215,7 @@ A string's non-ASCII text is checked a block at a time with SIMD round
 as simdjson's lookup4), up to the string's next quote, backslash, or
 control byte; the sequence-at-a-time check runs only near the end of
 the input or to place an error. Results are unchanged: all 10,511
-inputs of `./test/run json`, and 864 strings that put each valid and
+inputs of `test/json/compare.py`, and 864 strings that put each valid and
 invalid sequence around the block edges
 (the case `json utf8 blocks` of test/rig/std-misc.rig.test), whose expected errors come
 from Python's decoder. A string whose stop lies in the input's last 15

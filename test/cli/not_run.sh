@@ -2,7 +2,7 @@
 # started: any failure before that prints `rig: the program did not run`
 # and exits 125. The file RIG_RUN_STARTED names, which rig creates only
 # once the program has started, is the positive evidence of a run that
-# test/run and test/matrix.py require, so a program that never ran never
+# the test suite and test/matrix.py require, so a program that never ran never
 # passes (see also not_run_evidence.sh).
 source "$ROOT/test/cli/_lib.sh"
 
@@ -46,11 +46,8 @@ grep -rq -e RIG_RUN_STARTED -e "pub const __rig_run_started" emitted && fail "ri
 RIG_BUILD_STORE=$PWD/bstore "$RIG" build -o built2 ok.rig >/dev/null 2>&1 || fail "build ok.rig in a store"
 grep -rq -e RIG_RUN_STARTED -e "pub const __rig_run_started" bstore && fail "rig build's package in the store has the hook"
 
-# The suite and the matrix fail a program that never ran.
+# The matrix fails a program that never ran.
 bad=$PWD/afile/store
-o=$(RIG_BUILD_STORE=$bad RIG_TEST_OUT=$PWD/out "$ROOT/test/run" corpus/R11a-d1s examples/hello 2>&1); expect_rc $? 1 "test/run over an unusable store"
-expect_has "$o" "FAIL   corpus/R11a-d1s — the program did not run" "a corpus program that did not run"
-expect_has "$o" "FAIL   examples/hello — the program did not run" "an example that did not run"
 o=$(RIG_BUILD_STORE=$bad python3 "$ROOT/test/matrix.py" -k int.print.place 2>&1); expect_rc $? 1 "matrix over an unusable store"
 expect_has "$o" "the program did not run" "a matrix program that did not run"
 exit 0

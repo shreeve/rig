@@ -103,9 +103,10 @@ build. The hash only chooses the directory: Zig still checks every
 input of a cached build. Zig keys a cached build by its root's path,
 taken relative to the current directory unless it lies inside the
 cache, so the package lives inside the cache, and a build from any
-directory finds it. Each use rewrites the entry's `used` file, by which
-`./test/run` removes entries unused for 2 days (`RIG_BUILD_STORE_DAYS`), each renamed out of the
-store in one step before it is deleted, so no build sees half an entry.
+directory finds it. Each use rewrites the entry's `used` file, so a
+cleanup can remove the entries no build has used for a while, each
+renamed out of the store in one step before it is deleted, so no build
+sees half an entry.
 An entry whose manifests (`h/`) outlived the binary they name (no
 executable named after the root in `o/`) sends Zig to run a binary that
 is gone; `run` and `test` then drop the manifests and build once more. `run` and `test` go
@@ -526,9 +527,7 @@ sub main()
 ```
 
 `rig normalize` prints the IR on one line; here it is broken for
-reading. The checked reference is `test/ir/`, where the suite pins the
-raw (`.raw.sexp`) and semantic (`.sem.sexp`) IR of a program for each
-area of the language.
+reading.
 
 ```text
 $ rig normalize packet.rig
@@ -1734,7 +1733,7 @@ i + c  ==>  test that i + c fits unless no_overflow is proven; i + c
 An omitted test is one the program already made, so the program means
 what it meant. A debug build still makes it, as an assertion ("rig: a
 proven check failed (compiler bug)"), so every test that runs checks the
-proofs it reaches; `./test/run`, the corpus, and the matrix fail on that
+proofs it reaches; the test suite and the matrix fail on that
 message even where a panic is expected. An optimized build makes it too
 when `RIG_VERIFY_PROOFS=1` is set as it is built (the root module then
 declares `__rig_verify_proofs`), and `RIG_NO_PROOFS=1` makes emit write
@@ -1866,7 +1865,7 @@ fail a run rather than a proof:
 
 - Emit enters each unit as it writes the unit's code (`enterUnit`), and
   asserts, in every self-checking build of the compiler (a debug build,
-  or `-Dself-check=true`, as ./test/run builds), that each check, write,
+  or `-Dself-check=true`, as test/rig.rip builds), that each check, write,
   expression, and hidden storage location it writes lies in the unit
   that holds it (`Emitter.inUnit`): no hoist carries a check or a write
   into another unit's code unseen.
@@ -1881,11 +1880,11 @@ fail a run rather than a proof:
   it over the programs of the `emit` and `proofs` behavior tests, and checks
   that a swapped pair of units, a unit written twice, a paused unit
   taken up again after a later unit, or a misdirected jump fails it.
-- The differential run (`./test/run --proofs-diff`): each program with
+- The differential run (`swarm test/rig.rip proofs`): each program with
   a proven test runs in debug (every omitted test asserted), with
   `--release`, and with `--release` and `RIG_NO_PROOFS=1`; all three
   must print the same, exit the same, and panic the same, and no proven
-  check may fail. `--proofs-diff=all` runs every program.
+  check may fail. `proofs-all` runs every program.
 
 `rig check --facts=proofs` prints each node with a test known to pass,
 `L:C KIND TESTS` (`index`, `read`, `write`, `+`, or `+=`, then `lower`,
@@ -4204,7 +4203,7 @@ reviewed.
 | `panic` | the root panic handler, for a runtime panic: flush `print` output, then `panic: msg` on stderr (and the stack trace in a debug build), then `abort`, as `fail` does |
 | `io` | the `std.Io` the runtime and the standard library's Zig files use: `std.Io.Threaded.global_single_threaded`, synchronous on the calling thread |
 | `start`, `process`, `processArgs`, `exitStatus` | what the process started with, stored by the emitted `main` (and `rig test`'s): `std.process.Init.Minimal`, and the arguments as `?String` values, gathered once and freed by `finish`; in a package `rig run` or `rig test` built (whose root declares `__rig_run_started`), `start` also creates the file `RIG_PROGRAM_STARTED` names, their evidence that the program ran; `exitStatus` checks the status of `fun main() -> Int`. With `RIG_NO_CRASH_REPORT=1` in its environment, in every build mode, on Linux `start` first sets its core limit to exactly 1 (`RLIMIT_CORE` {1, 1}), at which the kernel passes it to no `core_pattern` pipe (apport) and writes no core. On macOS the program does nothing itself: clearing its own crash handler would stop only the user's ReportCrash, and the system's would still file the crash in /Library/Logs/DiagnosticReports. The process that starts it answers its crash as handled instead: `rig run` and `rig test`, always, with or without the variable (`CrashCatcher` in main.zig, around their `zig run` child; a panic's message and trace are on stderr already), or `cpuq cap --no-crash-report` for a built program a harness runs directly. The trade-off: `zig run` compiles and runs in one process, so inside such a run a compiler crash files no .ips either; it still fails the run loudly (no `RIG_RUN_STARTED`, a nonzero status). It still dies by its signal, its stderr unchanged. A test harness sets it for programs that panic on purpose |
-| `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `SafeAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which `./test/run` sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, List, or closure stores an allocator. Allocation failure panics |
+| `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `SafeAllocator`, which prints the stack trace of each leak. With `__rig_sanitize` (`RIG_SANITIZE=1`, which the test suite sets), it sits on `Sanitizer` instead: each block gets pages of its own and ends where they end, a free makes its pages inaccessible, and no address is used twice, so a use of freed memory, or a read or write past a block's end, crashes at the access with `error: rig: use of freed memory at address 0x...` and a stack trace. Past the live blocks the process may map (half of Linux's `vm.max_map_count`, or `RIG_SANITIZE_BLOCKS`), it notes once that further blocks are not guarded and takes them from `smp_allocator`, poisoning each on free. Release builds use `smp_allocator` directly. No box, List, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, on the program's stack, checks it for leaks (Debug), reports it |
 
 ### Frame owners
@@ -4391,11 +4390,13 @@ runs on that code's stack, unguarded by this.
 
 ## Tests
 
-`./test/run` is the whole suite: behavior tests (run, compare stdout,
-leak-checked under the sanitizing allocator), rejection tests, known bugs, IR snapshots, torture
-inputs, CLI scripts, the Zig unit tests, a parser-freshness check, and
-every `rig` example in the documentation. [test/README.md](../test/README.md)
-describes each kind and its directives.
+`swarm test/rig.rip all` is the whole suite: the cases of
+`test/rig/*.rig.test` (behavior tests, run and their output compared,
+leak-checked under the sanitizing allocator; rejection tests; known
+bugs), every `rig` example in the documentation, the examples, torture
+inputs, CLI scripts, the Zig unit tests, and the reference ownership
+checker. [docs/RIG-TESTS.md](RIG-TESTS.md) is the format, and
+[test/README.md](../test/README.md) describes each kind.
 
 To fix a bug: write a failing case first (marked `known: true` if it
 will not be fixed in the same change), make it pass, and keep the suite

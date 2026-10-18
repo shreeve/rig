@@ -1,7 +1,7 @@
 # JSON tests
 
-`./test/run json` checks `std.json` (`std/json.rig`) against Python's
-`json` module. `test/json/compare.py` does the work. Rig programs cannot
+`test/json/compare.py` checks `std.json` (`std/json.rig`) against
+Python's `json` module, by hand, when `std.json` changes. Rig programs cannot
 read files yet, so the inputs become generated Rig programs
 (`driver.rig.tmpl`), each input one string literal in a table. Consecutive
 groups share a program, since each program compiles the parser afresh; a
@@ -14,34 +14,28 @@ bounds checks (the sanitizer's guard page lies past the `String`'s
 capacity, which is larger than the input).
 
 ```sh
-./test/run json                  # every input of every group (10,511), whole
-./test/run                       # the suite: a fixed, spread-out part of each group
-./test/run json/floats           # one group, whole
-test/json/compare.py --subset    # the part the suite takes, outside test/run
-test/json/compare.py cases scan  # some groups, by hand
+test/json/compare.py             # every input of every group (10,511), whole
+test/json/compare.py floats      # one group, whole
+test/json/compare.py cases scan  # some groups
+test/json/compare.py --subset    # a fixed, spread-out part of each group
 test/json/compare.py --only num- # cases whose name contains a string
 JSON=path/to/json.rig test/json/compare.py   # another parser, such as an experiment
 ```
 
-A run with filters takes every input of the groups it selects; a run
-without takes the part `--subset` keeps (about a tenth of the inputs, in
-every group), so the full suite stays quick. `./test/run json` is the full
-check. `--delta` carries a group over when neither
-the compiler, the cases, nor the data changed.
+`--subset` keeps about a tenth of the inputs, in every group, for a
+quick run; with no option every input runs.
 
 ## Third-party data
 
 The `checker` and `corpus` groups read files from other projects.
 `tools/fetch-json-data.sh` downloads them into `test/json/data/`, which
 git ignores, each pinned by commit and sha256; `data/README.md` says where
-they come from and under what license. CI fetches them, and caches them by
-the script's hash. The two groups read exactly the files the script
+they come from and under what license. The two groups read exactly the files the script
 pins, and a group with no cases fails. Without the data those two
 groups are skipped. The skip is noted on the run's output, in `-v`, and
 in the summary's count of skipped groups. `JSON_REQUIRE_DATA=1` makes a
-missing or changed file a failure instead. `./test/run` always checks
-`std.json`. The `JSON` variable, which points `compare.py` at another
-parser, does not reach it.
+missing or changed file a failure instead. The `JSON` variable points
+`compare.py` at another parser.
 
 ## Groups
 

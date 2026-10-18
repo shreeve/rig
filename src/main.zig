@@ -107,7 +107,7 @@ const usage =
     \\                   allocation with its stack trace (slower)
     \\  RIG_SANITIZE     Set to 1 when building a Debug program to make
     \\                   any use of freed memory crash where it happens
-    \\                   (much slower; `./test/run` sets it)
+    \\                   (much slower; the test suite sets it)
     \\  RIG_NO_PROOFS    Set to 1 to make every test, as if the compiler
     \\                   proved none: the differential run of the proofs
     \\  RIG_VERIFY_PROOFS
@@ -733,8 +733,9 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         \\}};
         \\
         \\// The first argument names the program; it sees the others, after
-        \\// the executable's path, as `rig run` would give them.
-        \\pub fn main(init: std.process.Init.Minimal) void {{
+        \\// the executable's path, as `rig run` would give them. A program whose
+        \\// `main` returns an Int exits with it, as it does alone.
+        \\pub fn main(init: std.process.Init.Minimal) u8 {{
         \\    const argv = init.args.vector;
         \\    if (argv.len < 2) {{
         \\        std.debug.print("error: rig batch: name a program of this batch by its number\n", .{{}});
@@ -748,7 +749,10 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         \\    var program_init = init;
         \\    program_init.args.vector = own;
         \\    inline for (programs) |p| {{
-        \\        if (p[0] == n) return p[1].main(program_init);
+        \\        if (p[0] == n) {{
+        \\            const status = p[1].main(program_init);
+        \\            return if (@TypeOf(status) == void) 0 else status;
+        \\        }}
         \\    }}
         \\    std.debug.print("error: rig batch: no program `{{s}}` in this batch\n", .{{id}});
         \\    std.process.exit(2);

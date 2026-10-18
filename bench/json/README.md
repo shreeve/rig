@@ -9,7 +9,7 @@ Every program reads one file, untimed, then parses it N times and prints
 
 ## Data
 
-The corpus files are the third-party ones `./test/run json` reads. Fetch
+The corpus files are the third-party ones `test/json/compare.py` reads. Fetch
 them once from the repository root:
 
 ```sh

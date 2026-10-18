@@ -2,7 +2,7 @@
 
 `tools/fetch-json-data.sh` downloads these files here. Git ignores them
 (only this README is tracked), and the script checks each against the
-sha256 it pins. The `checker` and `corpus` groups of `./test/run json` read
+sha256 it pins. The `checker` and `corpus` groups of `test/json/compare.py` read
 them (`test/json/README.md`).
 
 | Directory | Files | Source | Pinned commit | License |

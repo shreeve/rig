@@ -123,31 +123,70 @@ crashes on fails too.
    rebuilds them all.
 
 `test/rig.rip` does this with Rip's Swarm. Its setup builds the
-compiler as `./test/run` does, reads the files, and builds the packs;
+compiler with its own checks on (`-Dself-check=true`), reads the files,
+and builds the packs;
 each job checks one case and lands in `done/` or, with its reason in
 `errors.log`, in `died/`. Swarm runs a job per CPU at once (`-w N`
 chooses another number; more than the CPUs is slower, as each job waits
 on a process of its own), and each job's time goes to `.swarm/times`.
 
-Beside the test files, the runner reads two directories of whole
-programs where they are: `examples/`, each a `test` whose `# expect:`
-block is its result, and `test/torture/`, bad input `rig run` must
-reject with a position and never crash on. It also runs the scripts of
+Beside the test files, the runner reads the docs' examples, each
+```` ```rig ```` block of a Markdown file a case (below), and two
+directories of whole programs where they are: `examples/`, each a `test`
+whose `# expect:` block is its result, and `test/torture/`, bad input
+`rig run` must reject with a position and never crash on. It also runs the scripts of
 `test/cli`, each in an empty directory of its own with `RIG`, `ROOT`,
 and `RIG_OUT_DIR` set, passing when it exits 0, and the compiler's own
 Zig tests (`zig build test`).
 
-The checks come in two tiers. `core`, which a run with no names
-checks, is every test file, the examples, the torture input, and the
-unit tests, and takes seconds. The scripts of `test/cli` take minutes,
-since several build dozens of programs one by one, and run when named:
+The checks come in tiers. `core`, which a run with no names checks, is
+every test file, the doc examples, the examples, the torture input, the
+unit tests, and the reference ownership checker, and takes seconds. The
+scripts of `test/cli` take minutes, since several build dozens of
+programs one by one, and run when named. `proofs`, the differential run
+of the proven checks, builds each program three times, and runs only
+when named, by hand, after a change to the proofs:
 
 ```bash
 swarm test/rig.rip              # core
 swarm test/rig.rip cli          # the scripts of test/cli
 swarm test/rig.rip all          # core and cli
 swarm test/rig.rip std-text     # test/rig/std-text.rig.test alone
+swarm test/rig.rip doc-SPEC     # SPEC.md's examples alone (doc: every doc's)
+swarm test/rig.rip proofs       # by hand (proofs-all: every program)
 ```
+
+## Doc examples
+
+Every ```` ```rig ```` block in the Markdown files at the root and in
+`docs/`, `examples/`, `test/`, and `formal/docs/` is a case, so the docs
+cannot drift from the compiler. Each doc is an area, `doc-<name>`: its
+path without `.md` or a leading `docs/`, slashes made dashes
+(`doc-SPEC`, `doc-CORE` for docs/CORE.md). The words after `rig` on the
+opening fence, and the block that follows, give the contract:
+
+| Block | Case |
+|---|---|
+| ```` ```rig ```` and an ```` ```output ```` block | a `test`: it prints exactly the output, sanitizer-clean; a ```` ```stderr ```` block after it (or alone) is its stderr, and ```` ```stderr exit=N ```` its exit status |
+| ```` ```rig ```` alone | `rig check` accepts it |
+| ```` ```rig reject ```` and an ```` ```error ```` block | a `fail`: each line of the error block is in a diagnostic, `L:C: text` pinning its place in the block |
+| ```` ```rig fragment ```` | it parses |
+| ```` ```rig facts ```` and a ```` ```facts ```` block | `rig check --facts` prints exactly the facts |
+| ```` ```rig file=m.rig ```` | module `m.rig` of the next example's program; `file=dir/m.rig` is a file of the directory module `dir` |
+| ```` ```rig pending ```` | a rule decided but not built (below) |
+
+A block's program is named `main.rig`. Its `test` cases go into the
+doc's pack like any file's.
+
+A ```` ```rig pending ```` block shows a decided rule's behavior: with an
+`output` block a program that prints it, with an `error` block one the
+check rejects, alone one the check accepts. It passes while it fails for
+want of the rule (rejected, accepted where it must be rejected, rejected
+with other messages, or printing something else), fails on any other
+failure (a timeout, a crash, a leak, a program that did not run), and
+fails the day it works, saying to make it ```` ```rig ````. A block that
+breaks these rules (an unknown word, an unclosed fence, an `output`
+block after `reject`) is a case that fails, saying how.
 
 ## The pack
 
@@ -184,7 +223,10 @@ its own, where such a test was kept before test files held them:
 `test/cli` read them there (`$RIG_TESTS`), the compiler's unit test of
 emit's unit order reads the `emit` and `proofs` programs there, and the
 oracle (`test/oracle`) reads them by those names: its `tests` set, with
-the examples, its `corpus` set, and its `lint` check are jobs of the
+the examples, its `corpus` set, its `docs` set (every doc example but
+fragments, each named by its doc and a hash of its text, so an edit that
+only moves it keeps its name in `test/oracle/rejections`), its `matrix`
+set (`test/matrix.py --oracle`), and its `lint` check are jobs of the
 core. A `fail` case whose diagnostic suggests a lend of a place as a
 path's base also has each hint checked (`test/hints.py`).
 
@@ -193,12 +235,12 @@ path's base also has each hint checked (`test/hints.py`).
 One Zig compile per file replaces one per case, and a pack is compiled
 only when it changes. The 2,964 behavior and rejection tests, in the 55
 files of `test/rig` and with the release runs 3,257 jobs, measured on
-the Mac with cpuq's 4 cores, against `./test/run` running them as files
-of their own:
+the Mac with cpuq's 4 cores, against the bash runner it replaced, which
+ran them as files of their own:
 
 | | Wall time | CPU time |
 |---|---|---|
-| `./test/run`, each a file, no caches | 744 s | 2,891 s |
+| the bash runner, each a file, no caches | 744 s | 2,891 s |
 | `swarm test/rig.rip`, every pack compiled | 73 s | 386 s |
 | the same, nothing changed | 11 s | 63 s |
 
