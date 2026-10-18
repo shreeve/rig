@@ -464,7 +464,7 @@ fn pictBefore(s: []const u8, i: usize) bool {
 }
 
 // ---- Tests -------------------------------------------------------------------
-// `zig test std/char.zig` (test/cli/char_zig.sh): forward and
+// `zig test std/char.zig` (run by `zig build test`): forward and
 // backward agree on random text built from runes of every class and bytes
 // that are not UTF-8.
 

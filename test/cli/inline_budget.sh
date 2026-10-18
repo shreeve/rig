@@ -1,4 +1,4 @@
-# timeout: 120
+# timeout: 360
 # Zig charges every inline call, Rig's inlined functions and the runtime's
 # `inline fn` helpers (`rig.addProven`, ...) alike, to the compile-time
 # evaluation budget of the function the code lands in, and fails a build

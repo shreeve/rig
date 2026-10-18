@@ -175,6 +175,21 @@ executable itself is not under test.) Call `"$RIG"` directly for
 commands that build nothing (`check`, `emit`, usage errors) and when
 the output directory is what the test is about.
 
+A script keeps only what needs the command line: the `rig` command's
+own exit status, the files and caches it writes, environment variables,
+signals, pipes, the language server's stdio. What a program prints,
+panics with, or is rejected with is a case of `test/rig` instead, built
+in a pack. A script about rig's caches or its store runs most of its
+checks against a stand-in Zig, keeping a real build or two. A sweep
+checks by default the part that holds the bug it was written for, and
+the whole of it with its variable set: `LANE_GRID_FULL`,
+`INLINE_BUDGET_FULL`, `LSP_CHECK_FULL`, `NO_CRASH_REPORT_FULL`,
+`PANIC_STATUS_FULL`, `TEXT_GO_FULL`, `UTF8_GUARD_FULL`, `UTF8_ZIG_FULL`,
+`WIDE_MASKS_FULL` (`LANE_GRID_FULL=1 swarm test/rig.rip cli`). A
+comparison with Go or with Zig's own library checks answers recorded
+in a case, which a tool in `tools/` writes and the variable checks are
+still the reference's.
+
 ## The JSON tests
 
 `bench/json/check/compare.py` runs `std.json` over 10,511 generated and

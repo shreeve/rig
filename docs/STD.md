@@ -1250,8 +1250,9 @@ how runes fit with bytes, units, and chars.
 | `push_rune(out: !String, r: Int)` | append the bytes of `r`, or of `REPLACEMENT` when `r` is not a rune | `AppendRune` |
 
 The case `utf8 go` of `test/rig/std-misc.rig.test` runs Go's own test tables, and
-`test/cli/text_go.sh` compares every function with Go's on generated
-text when `go` is installed.
+`test/rig/std-text-go.rig.test` compares every function with Go's answers
+on generated text, recorded by `tools/text_go.py` (`TEXT_GO_FULL=1
+test/cli/text_go.sh` asks Go again, when it is installed).
 
 - **Size 1:** where the bytes are not valid UTF-8 (a stray continuation
   byte, a truncated or overlong sequence, an encoded surrogate, or
