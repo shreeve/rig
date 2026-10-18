@@ -122,11 +122,16 @@ crashes on fails too.
    Changing a case rebuilds its file's packs alone; a new compiler
    rebuilds them all.
 
-`test/rig.rip` does this with Rip's Swarm. Its setup builds the
-compiler with its own checks on (`-Dself-check=true`), reads the files,
-and builds the packs;
-each job checks one case and lands in `done/` or, with its reason in
-`errors.log`, in `died/`. Swarm runs a job per CPU at once (`-w N`
+`test/rig.rip` does this with Rip's Swarm. Its setup builds the compiler
+with its own checks on (`-Dself-check=true`), the reference ownership
+checker, and the unit tests, in one `zig build` that compiles them at
+once, then reads the files. A pack that needs building is a job of its
+own, `build.zig.<file>.debug` or `.release`, which Swarm starts before
+every other job but `build.unit`: the jobs that need no pack (the
+scripts of `test/cli`, the oracle, `fail` and `code` cases) run while
+the packs compile, and a `test` or `bomb` case waits only for its own
+pack. Each job checks one case and lands in `done/` or, with its reason
+in `errors.log`, in `died/`. Swarm runs a job per CPU at once (`-w N`
 chooses another number; more than the CPUs is slower, as each job waits
 on a process of its own), and each job's time goes to `.swarm/times`.
 
