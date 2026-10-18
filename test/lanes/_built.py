@@ -27,7 +27,11 @@ def key(parts):
 
 
 def fresh(exe, parts):
-    """Whether `exe` was built from exactly these inputs."""
+    """Whether `exe` was built from exactly these inputs. Under RIG_STD,
+    rig reads the standard library from that folder, which the stamp does
+    not hash, so every program is built again."""
+    if os.environ.get("RIG_STD"):
+        return False
     stamp = exe + ".inputs"
     try:
         return os.path.exists(exe) and open(stamp).read() == key(parts)
