@@ -10,8 +10,8 @@ work. It removes the place where the bugs live, so the verification
 problem **dissolves** instead of being solved.
 
 This page is a plan, not a description of the compiler. What is built is
-in [CORE](../../docs/CORE.md) and [SPEC](../../SPEC.md). What Rig takes from Rust and
-what it leaves, feature by feature, is in [RUST-TRIAGE](../../docs/RUST-TRIAGE.md);
+in [CORE](CORE.md) and [SPEC](../SPEC.md). What Rig takes from Rust and
+what it leaves, feature by feature, is in [RUST-TRIAGE](RUST-TRIAGE.md);
 this page builds on it and says where it should change. It comes from a
 panel of six reviewers (Rust soundness, formal methods, types and traits,
 systems and foreign code, concurrency, simplicity and assurance),
@@ -263,7 +263,7 @@ kills its read tags, and using a dead tag stops the program. It runs the
 suite, the corpus and the matrix. It catches what the sanitizer cannot:
 a read view that sees its owner change when nothing was freed (CORE §4).
 It replaces `bin/rig-oracle` over time rather than becoming a third
-checker. Its first slice is built: [`formal/`](../README.md) has λRig
+checker. Its first slice is built: [`formal/`](../formal/README.md) has λRig
 with boxes, plain numbers and views, an interpreter, an ownership
 checker, and a proof (`accepts_runs`) that every program the checker
 accepts runs without a fault or a leak (stage 3 for that slice). A cheaper version of the same check also goes into the emitted
