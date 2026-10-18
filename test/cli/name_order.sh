@@ -65,7 +65,7 @@ out=$(rig run ok.rig 2>&1); expect_rc $? 0 "name in another module"
 expect_eq "$out" "2" "name in another module"
 
 # Clash errors print in source order among the module's other errors.
-cp "$ROOT/test/reject/names/errors_in_source_order.rig" order.rig
+cp "$ROOT/test/cli/fixtures/errors_in_source_order.rig" order.rig
 out=$("$RIG" check order.rig 2>&1)
 where=$(sed -n 's/^order.rig:\([0-9]*:[0-9]*\): error:.*/\1/p' <<<"$out" | tr '\n' ' ')
 expect_eq "$where" "1:7 7:5 17:7 17:19 " "clash errors in source order"

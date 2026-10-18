@@ -1249,7 +1249,7 @@ how runes fit with bytes, units, and chars.
 | `ascii_end(s: ?String, i: Int) -> Int` | the index of the first byte at or after the cursor `i` that is 0x80 or more, or `s.len`: `s[i..ascii_end(s, i)]` is the run of ASCII from `i`, each byte a whole rune | |
 | `push_rune(out: !String, r: Int)` | append the bytes of `r`, or of `REPLACEMENT` when `r` is not a rune | `AppendRune` |
 
-`test/behavior/std/utf8_go.rig` runs Go's own test tables, and
+The case `utf8 go` of `test/rig/std-misc.rig.test` runs Go's own test tables, and
 `test/cli/text_go.sh` compares every function with Go's on generated
 text when `go` is installed.
 
@@ -1438,7 +1438,7 @@ true false true
 128512 65533
 ```
 
-`test/behavior/std/utf16_go.rig` runs Go's `unicode/utf16` test tables.
+The case `utf16 go` of `test/rig/std-misc.rig.test` runs Go's `unicode/utf16` test tables.
 
 ## std.unicode
 

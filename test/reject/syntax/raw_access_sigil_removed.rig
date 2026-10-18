@@ -1,9 +1,0 @@
-# Rig has no raw-pointer access: `%` is only the remainder operator,
-# even inside a `raw` block.
-
-sub main()
-  x = 7
-  raw
-    r = %x
-
-# error: 7:9: unexpected `%`; expected an expression

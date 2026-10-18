@@ -1,6 +1,0 @@
-# A name followed by a string is no call: calls take parentheses.
-
-sub main()
-  print"hi"
-
-# error: 4:8: unexpected `"hi"`

@@ -29,7 +29,7 @@ sub main()
 # expect:
 # 3
 EOF
-cp "$ROOT/test/behavior/effects/extern_fun_call.rig" co/test/behavior/a/libc.rig
+cp "$ROOT/test/cli/fixtures/extern_fun_call.rig" co/test/behavior/a/libc.rig
 cat >co/test/corpus/probe.rig <<'EOF'
 sub main()
   s = "probe"
@@ -287,7 +287,7 @@ cat >m.rig <<'EOF'
 sub main()
   print(1)
 EOF
-cp "$ROOT/test/behavior/effects/extern_fun_call.rig" libc.rig
+cp "$ROOT/test/cli/fixtures/extern_fun_call.rig" libc.rig
 cp "$RIG" rigcopy
 python3 - "$ROOT" "$RIG" "$PWD/co/bin/rig" "$PWD" <<'EOF' || fail "matrix keys"
 import importlib.util, os, re, sys

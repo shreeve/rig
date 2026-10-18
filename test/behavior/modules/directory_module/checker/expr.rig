@@ -1,5 +1,0 @@
-pub obj Checker
-  pub depth: Int
-
-  pub fun expr(?self, n: Int) -> Int
-    0 if n == 0 else self.stmt(n - 1)

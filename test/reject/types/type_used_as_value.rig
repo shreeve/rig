@@ -1,9 +1,0 @@
-# A type name is not a value.
-
-obj P
-  x: Int
-
-sub main()
-  print(P)
-
-# error: `P` is a type, not a value

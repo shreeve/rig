@@ -1,2 +1,0 @@
-pub fun bump(n: Int) -> Int
-  n + 1

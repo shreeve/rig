@@ -1,9 +1,0 @@
-# Payload fields are checked against their declared types.
-
-enum Shape
-  circle(radius: Int)
-
-sub main()
-  s: Shape = .circle(radius: "nope")
-
-# error: type mismatch: expected `Int`, got `Static`

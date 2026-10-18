@@ -1,7 +1,0 @@
-# `else` is a Rig keyword and cannot name a local binding.
-
-sub main()
-  else = 3
-  print(else)
-
-# error: 4:3: unexpected keyword `else`; expected a statement or the end of the block

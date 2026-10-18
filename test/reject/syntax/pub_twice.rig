@@ -1,9 +1,0 @@
-# `pub` marks a member once.
-
-obj S
-  pub pub x: Int
-
-sub main()
-  print(S(x: 1).x)
-
-# error: 4:7: `pub` is written once

@@ -1,6 +1,0 @@
-type Hidden = U16
-
-pub obj P
-  pub n: Int
-
-type PH = P

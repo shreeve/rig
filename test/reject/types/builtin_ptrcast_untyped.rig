@@ -1,9 +1,0 @@
-# `@ptrCast` is not supported: Rig has no pointer types to cast to.
-
-sub main()
-  x = 42
-  raw
-    y = @ptrCast(x)
-    print(y)
-
-# error: 6:10: builtin `@ptrCast` is not supported

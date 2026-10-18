@@ -1,7 +1,0 @@
-# A BigInt has no fractions, so a negative power panics, even of 1.
-use std.bigint
-
-sub main()
-  print(bigint.from_int(1).pow(-1).text())
-
-# expect-panic: bigint.pow: the power is negative

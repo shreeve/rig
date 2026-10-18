@@ -88,7 +88,9 @@ code "a call into std.text calls the module's function", "__rig_m2_std_text.is_d
   `stderr: "TEXT"` (what a `test` writes to stderr), `whole: true` (the
   body is a whole program, used as written), `file: "NAME.rig"` (the
   name of the case's program file, by default its name, `split_on_a_space.rig`;
-  what a program prints about its own place names it).
+  what a program prints about its own place names it), `known: true` (a
+  known bug: the case is written as Rig should behave, passes while it
+  fails, and fails the day it passes, to have the mark taken off).
 
 Every case that runs is held to the sanitizer: a leak or a use of freed
 memory fails it, and so does a panic in a `test`. A `fail` the compiler
@@ -159,35 +161,44 @@ from expectations built into the pack.
 
 ## Converting tests
 
-`tools/to-rig-test.py --all test/rig` writes every test of
-`test/behavior` and `test/reject` into test files by area: each area's
-tests are grouped by the first word of their names (`types-simd`,
-`ownership-match`), the rest of an area shares one file
-(`ownership-misc`), and a file of more than 120 cases that run is split.
-`tools/to-rig-test.py OUT.rig.test "TITLE" TEST...` writes the tests
-named into one file.
+`tools/to-rig-test.py OUT.rig.test "TITLE" TEST...` writes tests written
+the older way, each a program of its own file (`<name>.rig`, or
+`<name>/main.rig` with its other files beside it) with its expectations
+in directives, into one test file. A test under a `reject/` folder
+becomes a `fail` case, one with `# expect-panic:` a `bomb` case, and any
+other a `test` case. Its directives become the header's result and
+options, its `sub main()` goes, and the positions its `# error:` lines
+pin move with its statements. A test keeps its whole program where
+removing `main` would change it: top-level code other than
+declarations, a line of `main` less than two spaces in, a declaration
+nested in `main`, a position pinned to `main` itself, or a comparison
+of stderr. A test of several files keeps its program too, its other
+files following as `file` blocks.
 
-A test under `test/reject/` becomes a `fail` case, a behavior test with
-`# expect-panic:` a `bomb` case, and any other a `test` case. Its
-directives become the header's result and options, its `sub main()`
-goes, and the positions its `# error:` lines pin move with its
-statements. A test keeps its whole program where removing `main` would
-change it: top-level code other than declarations, a line of `main`
-less than two spaces in, a declaration nested in `main`, a position
-pinned to `main` itself, or a comparison of stderr. A test of several
-files keeps its program too, its other files following as `file`
-blocks.
+## Other checks
+
+The runner writes every `test`, `bomb`, and `fail` case out as a file of
+its own, where such a test was kept before test files held them:
+`behavior/<area>/<name>.rig` and `reject/<area>/<name>.rig` (or
+`<name>/main.rig`), under `.zig-cache/rig-tests/tree`. The scripts of
+`test/cli` read them there (`$RIG_TESTS`), the compiler's unit test of
+emit's unit order reads the `emit` and `proofs` programs there, and the
+oracle (`test/oracle`) reads them by those names: its `tests` set, with
+the examples, its `corpus` set, and its `lint` check are jobs of the
+core. A `fail` case whose diagnostic suggests a lend of a place as a
+path's base also has each hint checked (`test/hints.py`).
 
 ## Why
 
 One Zig compile per file replaces one per case, and a pack is compiled
-only when it changes. The 2,964 behavior and rejection tests of
-`test/behavior` and `test/reject`, in the 55 files of `test/rig`, with
-the release runs 3,257 jobs, on the Mac with cpuq's 4 cores:
+only when it changes. The 2,964 behavior and rejection tests, in the 55
+files of `test/rig` and with the release runs 3,257 jobs, measured on
+the Mac with cpuq's 4 cores, against `./test/run` running them as files
+of their own:
 
 | | Wall time | CPU time |
 |---|---|---|
-| `./test/run behavior/ reject/`, no caches | 744 s | 2,891 s |
+| `./test/run`, each a file, no caches | 744 s | 2,891 s |
 | `swarm test/rig.rip`, every pack compiled | 73 s | 386 s |
 | the same, nothing changed | 11 s | 63 s |
 

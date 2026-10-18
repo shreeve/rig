@@ -1,5 +1,6 @@
 # The diagnostics `rig lsp` publishes are the compiler's own: for every
-# program of test/reject (`<name>.rig` or `<name>/main.rig`), opening its
+# program of the rejection tests (`fail` cases, which test/rig.rip writes
+# out under $RIG_TESTS/reject as `<name>.rig` or `<name>/main.rig`), opening its
 # root in the server publishes, in each file, exactly the diagnostics
 # `rig check` prints for it (the line, the column in UTF-16 units, the
 # severity, and the message), a note in the standard library built into
@@ -20,13 +21,17 @@ sys.path.insert(0, os.path.join(root, "test", "cli"))
 import _lsp
 
 roots = []
-for p in sorted(glob.glob(os.path.join(root, "test", "reject", "*", "*"))):
+tests = os.environ.get("RIG_TESTS")
+if not tests:
+    print("FAIL: RIG_TESTS is not set: run this script with test/rig.rip")
+    sys.exit(1)
+for p in sorted(glob.glob(os.path.join(tests, "reject", "*", "*"))):
     if p.endswith(".rig"):
         roots.append(p)
     elif os.path.isfile(os.path.join(p, "main.rig")):
         roots.append(os.path.join(p, "main.rig"))
 if len(roots) < 1000:
-    print(f"FAIL: only {len(roots)} programs in test/reject")
+    print(f"FAIL: only {len(roots)} rejection programs in {tests}")
     sys.exit(1)
 
 c = _lsp.Client(rig)

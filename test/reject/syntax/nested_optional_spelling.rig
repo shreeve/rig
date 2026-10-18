@@ -1,8 +1,0 @@
-# `??` is one token, the fallback operator; an optional of an optional
-# is written with parentheses.
-
-sub main()
-  x: Int?? = none
-  print(x)
-
-# error: 5:9: an optional of an optional is written `(T?)?`

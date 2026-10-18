@@ -1,9 +1,0 @@
-# A shared `Cell[Int]` is built from its value, and its Copy payload is
-# read with `get()`.
-
-sub main()
-  c: *Cell[Int] = *Cell(7)
-  print(c.get())
-
-# expect:
-# 7

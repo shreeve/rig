@@ -9522,7 +9522,7 @@ sub main()
 ## 18. Reserved and unsupported forms
 
 These forms are rejected, with a diagnostic that says what to write
-instead; each is proven by a test in `test/reject/`. The first group do
+instead; each is proven by a `fail` case in `test/rig`. The first group do
 not parse, and their words and sigils stay reserved:
 
 | Form | Diagnostic |

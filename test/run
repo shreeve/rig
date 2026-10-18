@@ -961,7 +961,7 @@ LIST="$WORK/list" DISCOVERED="$WORK/discovered"
 # find follows symbolic links, as the globs of the oracle's sets do; a
 # directory it cannot read, or a link that loops, stops the run.
 ROOTS=()
-for d in test/behavior test/reject test/known examples test/ir test/torture test/cli test/corpus; do
+for d in test/behavior test/reject test/known examples test/ir test/corpus; do
     [[ -e $d ]] && ROOTS+=("$d")
 done
 : >"$WORK/found"
@@ -990,7 +990,7 @@ awk -F/ -v OFS='\t' '
         next
     }
     END {
-        n = split("lint tests corpus docs matrix", sets, " "); for (i = 1; i <= n; i++) print 8, i, "oracle/" sets[i], "test/oracle", "oracle/" sets[i]
+        n = split("docs matrix", sets, " "); for (i = 1; i <= n; i++) print 8, i, "oracle/" sets[i], "test/oracle", "oracle/" sets[i]
         # The groups of test/json/compare.py (its --list says them).
         n = split("cases scan edges blocks spaces floats checker deep corpus", sets, " "); for (i = 1; i <= n; i++) print 10, i, "json/" sets[i], "test/json", "json/" sets[i]
     }
@@ -1281,7 +1281,8 @@ fi
 # The vocabulary (docs/CORE.md, "Three words"): what users read says
 # lend, view, and loan, never Rust's single word for all three. The
 # check reads the Markdown docs, std/, the string literals in src/, and
-# the `# error:` lines of tests and examples, and fails on that word, on
+# the `# error:` lines of tests and examples, and the expected errors
+# on the headers of `fail` cases (test/rig), and fails on that word, on
 # the forms the three words never take (a hyphenated read or write lend
 # as a verb, lending "again", a loan used as a verb), and on a path that
 # contains the word. test/vocabulary-allow.txt lists the only lines
@@ -1312,7 +1313,8 @@ if selected vocab; then
             my $std = $path =~ m{^std/};
             my $src = $path =~ m{^src/.*\.zig$};
             my $exp = $path =~ m{^(test|examples)/.*\.rig$};
-            next unless $md || $std || $src || $exp;
+            my $cases = $path =~ m{^test/rig/.*\.rig\.test$};
+            next unless $md || $std || $src || $exp || $cases;
             open(my $fh, "<", $path) or next;
             while (my $line = <$fh>) {
                 chomp $line;
@@ -1323,6 +1325,9 @@ if selected vocab; then
                     $text = join("\n", @lits);
                 } elsif ($exp) {
                     $text = $line =~ /^\s*#\s*error:(.*)$/ ? $1 : "";
+                } elsif ($cases) {
+                    # The expected errors of a `fail` case, on its header.
+                    $text = $line =~ /^fail "/ ? $line : "";
                 }
                 next unless $text =~ $word || $text =~ $forms;
                 my $key = "$path: $line";

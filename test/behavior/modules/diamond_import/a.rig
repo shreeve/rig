@@ -1,2 +1,0 @@
-pub fun base() -> Int
-  10

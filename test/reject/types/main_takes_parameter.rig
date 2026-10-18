@@ -1,6 +1,0 @@
-# The program's entry point takes no parameters.
-
-sub main(x: Int)
-  print(x)
-
-# error: `main` must be `sub main()`, or `fun main() -> Int`

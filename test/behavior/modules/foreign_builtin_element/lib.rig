@@ -1,4 +1,0 @@
-pub fun keep[T](x: T) -> Int
-  v = List[T]()
-  !v.push(<x)
-  v.len

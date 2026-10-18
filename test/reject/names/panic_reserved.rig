@@ -1,9 +1,0 @@
-# `panic` is a keyword, so nothing declares it.
-
-fun panic(n: Int) -> Int
-  n
-
-sub main()
-  print(panic(1))
-
-# error: 3:5: unexpected keyword `panic`; expected a name

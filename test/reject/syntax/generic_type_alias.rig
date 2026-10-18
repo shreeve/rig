@@ -1,5 +1,0 @@
-# A type alias takes no type parameters.
-
-type A[T] = List[T]
-
-# error: 3:7: a type alias takes no type parameters; generic aliases are not supported

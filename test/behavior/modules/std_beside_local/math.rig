@@ -1,5 +1,0 @@
-pub fun abs(n: Int) -> Int
-  n
-
-pub fun twice(n: Int) -> Int
-  2 * n

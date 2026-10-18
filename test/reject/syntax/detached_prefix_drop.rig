@@ -1,8 +1,0 @@
-# A drop statement is written against the dropped name: `<v`.
-
-sub main()
-  v = List[Int]()
-  < v
-  print(1)
-
-# error: 5:3: a prefix `<` touches its operand: write `<v`

@@ -1,9 +1,0 @@
-pub obj Point
-  pub x: Int
-  pub y: Int
-
-  pub fun sum(?self) -> Int
-    self.x + self.y
-
-pub fun origin() -> Point
-  Point(x: 0, y: 0)

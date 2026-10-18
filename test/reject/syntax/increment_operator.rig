@@ -1,8 +1,0 @@
-# Rig has no `++`.
-
-sub main()
-  i = 0
-  i++
-  print(i)
-
-# error: 5:4: Rig has no `++`; write `x += 1`

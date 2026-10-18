@@ -1,7 +1,0 @@
-# A shift is never negative: shr panics rather than shift left.
-use std.bigint
-
-sub main()
-  print(bigint.from_int(8).shr(-1).text())
-
-# expect-panic: bigint.shr: the shift is negative

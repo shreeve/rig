@@ -2,7 +2,7 @@
 
 use std.sort
 
-test "list clear reuse", '''
+test "list clear reuse", release: true, '''
   3 0 2
   0
   43 0 42
@@ -530,7 +530,7 @@ test "list owners by move", '''
   pair = [+x, +x]
   print(made, words, pair)
 
-test "list push growth", '''
+test "list push growth", release: true, '''
   0 0 0
   1 1 0
   3 3 3

@@ -1,6 +1,0 @@
-# In a type, type arguments go in brackets: `List[Int]`, not `List(Int)`.
-
-sub main()
-  v: List(Int) = List()
-
-# error: 4:10: type arguments go in brackets: `List[...]`

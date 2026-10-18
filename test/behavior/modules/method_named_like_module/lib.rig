@@ -1,7 +1,0 @@
-pub limit = 7
-
-pub obj P
-  pub x: Int
-
-pub fun twice(n: Int) -> Int
-  n * 2

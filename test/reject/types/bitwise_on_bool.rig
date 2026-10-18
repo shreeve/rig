@@ -1,6 +1,0 @@
-# Bitwise operators need integer operands.
-
-sub main()
-  print(true & false)
-
-# error: requires integer operands; got `Bool`

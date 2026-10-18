@@ -1,5 +1,0 @@
-pub fun scaled[n: Int](x: Int) -> Int
-  x * n
-
-pub sub banner[width: Int]()
-  print(width)

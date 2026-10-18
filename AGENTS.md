@@ -38,7 +38,7 @@ These are about the compiler, not the process. They don't bend.
 2. **Safe code cannot corrupt memory.** Use-after-move, double-free,
    use-after-free, dangling views, and leaks in safe Rig are compiler
    bugs. Only `raw` code may break this. "Runs clean" means clean under
-   `RIG_SANITIZE=1`, which `./test/run` sets.
+   `RIG_SANITIZE=1`, which the test runners set.
 3. **Effects stay visible.** Every sigil survives as a named node in the
    IR. No feature hides a move, clone, allocation, failure, or mutation.
 4. **One classifier per fact.** Whether an expression is a place, a fresh
@@ -74,10 +74,15 @@ These are about the compiler, not the process. They don't bend.
 
 ### Testing
 
-Run the tests your change touches, `./test/run --delta <ids>`, through
-`cpuq run` (below). A bug fix starts with a test that fails. There are
-no gates, tiers or required runs: run more of the suite when you judge
-the change needs it. Never time on burst, a shared VM: time arm64 on
+Tests are cases in `test/rig/*.rig.test` (docs/RIG-TESTS.md): `code`,
+`fail`, `test`, and `bomb`, each a few lines of Rig and its result. Run
+them with `swarm test/rig.rip`, through `cpuq run` (below): a run with no
+names is the core, every file and the unit tests, in seconds when little
+changed; name files to run just those, `cli` for the scripts of
+`test/cli` (minutes), `all` for both. `./test/run` runs the doc examples
+and the rest `test/README.md` lists. A bug fix starts with a case that
+fails. There are no gates or required runs: run more when you judge the
+change needs it. Never time on burst, a shared VM: time arm64 on
 the Mac and x86 on pup, through `cpuq lease pup-bench`.
 
 ### Spend tokens well
@@ -108,7 +113,10 @@ zig build                          # bin/rig (ReleaseSafe; -Doptimize=debug for 
 bin/rig run file.rig               # compile and run (debug, leak-checked)
 bin/rig emit file.rig              # the emitted Zig
 bin/rig check --time file.rig      # time per compiler pass
-./test/run --delta <ids>           # the tests you name, skipping unchanged passes
+swarm test/rig.rip                 # the core: every test file, examples, unit tests
+swarm test/rig.rip std-text        # one test file, test/rig/std-text.rig.test
+swarm test/rig.rip all             # the core and the scripts of test/cli
+./test/run doc                     # the doc examples
 RIG_LEAK_TRACE=1 bin/rig run f.rig # leaks with allocation stack traces
 ```
 
@@ -132,7 +140,8 @@ RIG_LEAK_TRACE=1 bin/rig run f.rig # leaks with allocation stack traces
 | `src/emit.zig`, `runtime.zig` | Zig code generation and runtime |
 | `src/main.zig`, `lsp.zig` | CLI and language server |
 | `std/` | The standard library |
-| `test/` | The suite; `test/README.md` explains it |
+| `test/rig/` | The tests, as `.rig.test` files (docs/RIG-TESTS.md), run by `test/rig.rip` |
+| `test/` | The rest of the suite; `test/README.md` explains it |
 | `tools/` | Generators and migration scripts |
 | `examples/` | Example programs, all run by the suite |
 | `docs/CORE.md` | The ownership model on one page |

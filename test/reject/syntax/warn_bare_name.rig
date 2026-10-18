@@ -1,7 +1,0 @@
-# `warn` is only a call: written without its parentheses, before a
-# string, a negation, or a list, it is named with the fix.
-
-sub main()
-  warn -1
-
-# error: 5:8: `warn` is called with parentheses: `warn(-1)`

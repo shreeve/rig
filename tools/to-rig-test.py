@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
 """Write behavior and rejection tests as Rig test files (docs/RIG-TESTS.md):
 
-    tools/to-rig-test.py OUT.rig.test "TITLE" TEST...   the tests named, in one file
-    tools/to-rig-test.py --all DIR                      every test of test/behavior and
-                                                        test/reject, in files by area
+    tools/to-rig-test.py OUT.rig.test "TITLE" TEST...
 
-A TEST is a `.rig` file or a directory holding `main.rig`. With --all,
-each area's tests are grouped by the first word of their names: a group
-of 15 or more is a file of its own (`ownership-match.rig.test`), the rest
-of the area shares one (`ownership-misc.rig.test`), and a file of more
-than MAX_RUNS cases that run is split in parts.
+A TEST is a test written the older way, a `.rig` file, or a directory
+holding `main.rig`, with its expectations in directives.
 
-A file under test/reject/ becomes a `fail` case, a behavior test with an
+A test under a reject/ folder becomes a `fail` case, a behavior test with an
 `# expect-panic:` line a `bomb` case, and any other a `test` case, named
 by its file with `_` as a space. Every `use` of the standard library
 moves to the top of the file, once, where it serves every case (Rig
@@ -28,8 +23,6 @@ import re
 import sys
 
 DECL = re.compile(r"^(pub )?(inline )?(fun|sub|obj|enum|error|type|use|extern) [A-Za-z_\"]")
-MAX_RUNS = 120
-OWN_FILE = 15
 BLOCKS = ("# expect:", "# expect-stderr:")
 
 
@@ -223,61 +216,7 @@ def write(out, title, tests):
     print(f"{out}: {len(tests)} cases")
 
 
-def runs(path):
-    return "/reject/" not in path
-
-
-def write_all(out_dir):
-    os.makedirs(out_dir, exist_ok=True)
-    areas = {}
-    for kind in ("behavior", "reject"):
-        root = os.path.join("test", kind)
-        for area in sorted(os.listdir(root)):
-            d = os.path.join(root, area)
-            if not os.path.isdir(d):
-                continue
-            for t in sorted(os.listdir(d)):
-                path = os.path.join(d, t)
-                if t.endswith(".rig") or os.path.exists(os.path.join(path, "main.rig")):
-                    areas.setdefault(area, []).append(path)
-    for area, paths in sorted(areas.items()):
-        # A test and a rejection of the same name keep apart by their names.
-        stems = {}
-        for p in paths:
-            stems.setdefault(os.path.basename(p).removesuffix(".rig"), []).append(p)
-        named = []
-        for stem, ps in sorted(stems.items()):
-            for p in sorted(ps, key=lambda p: not runs(p)):
-                name = stem.replace("_", " ")
-                if len(ps) > 1 and not runs(p):
-                    name += " is rejected"
-                named.append((p, name))
-        groups = {}
-        for p, name in named:
-            groups.setdefault(name.split(" ")[0], []).append((p, name))
-        files = {}
-        for word, tests in sorted(groups.items()):
-            key = word if len(tests) >= OWN_FILE else "misc"
-            files.setdefault(key, []).extend(tests)
-        for key, tests in sorted(files.items()):
-            chunks, cur, n = [], [], 0
-            for t in tests:
-                if n >= MAX_RUNS and runs(t[0]):
-                    chunks.append(cur)
-                    cur, n = [], 0
-                cur.append(t)
-                n += runs(t[0])
-            chunks.append(cur)
-            for k, chunk in enumerate(chunks):
-                stem = f"{area}-{key}" + (f"-{k + 1}" if len(chunks) > 1 else "")
-                what = f"tests whose names start `{key}`" if key != "misc" else "the rest of its tests"
-                write(os.path.join(out_dir, stem + ".rig.test"), f"{area}: {what}" + (f", part {k + 1}" if len(chunks) > 1 else "") + ".", chunk)
-
-
 def main():
-    if len(sys.argv) == 3 and sys.argv[1] == "--all":
-        write_all(sys.argv[2])
-        return
     if len(sys.argv) < 4:
         sys.exit(__doc__)
     write(sys.argv[1], sys.argv[2], [(p, None) for p in sys.argv[3:]])

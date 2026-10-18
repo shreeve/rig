@@ -1,9 +1,0 @@
-# A List's length is `v.len`, as for arrays, slices, and strings; there
-# is no `length()` method.
-
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  print(v.length())
-
-# error: 7:11: a List has no `length()`; its length is `.len`, as for an array: `v.len`

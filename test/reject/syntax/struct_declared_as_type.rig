@@ -1,9 +1,0 @@
-# A struct is declared with `obj`; `type` declares only an alias.
-
-type Foo
-  bar: Int
-
-sub main()
-  print("done")
-
-# error: 4:3: an object is declared with `obj`: `obj Foo`

@@ -1,7 +1,0 @@
-# The program's entry point is `sub main`, or `fun main -> Int`, whose
-# value is the exit status: no other result type.
-
-fun main() -> ?String
-  "done"
-
-# error: `main` must be `sub main()`, or `fun main() -> Int` returning the exit status

@@ -1,8 +1,0 @@
-# A symbol is `:` and a name; a `:` before a digit or a quote, where an
-# operand starts, is none.
-
-sub main()
-  y = :1st
-  print(y)
-
-# error: 5:7: a symbol is `:` and a name: `:width`, `:content-type`

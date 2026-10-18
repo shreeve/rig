@@ -1,7 +1,0 @@
-# Only structs have fields.
-
-sub main()
-  x = 3
-  print(x.size)
-
-# error: type `Int` has no field `size`

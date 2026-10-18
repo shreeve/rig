@@ -1850,8 +1850,10 @@ fn programsIn(a: std.mem.Allocator, dir_path: []const u8, out: *std.ArrayList([]
 }
 
 test "the unit-order test: emit writes the units the walk visits, nested and ordered alike" {
-    // Every program of test/behavior/emit and test/behavior/proofs: the
-    // units emit writes, in the order their code runs, are the ones the
+    // Every program of the `emit` and `proofs` behavior tests, which
+    // test/rig.rip writes out under .zig-cache/rig-tests/tree before it
+    // runs the unit tests (skipped where it has not run): the units emit
+    // writes, in the order their code runs, are the ones the
     // walk visits, each in the same unit, and the units of each block in
     // the same order; each unit's code starts once, and each jump is
     // written once and goes where the walk sends its facts. A trace with
@@ -1866,8 +1868,10 @@ test "the unit-order test: emit writes the units the walk visits, nested and ord
     var arena_all = std.heap.ArenaAllocator.init(a);
     defer arena_all.deinit();
     var names: std.ArrayList([]const u8) = .empty;
-    try programsIn(arena_all.allocator(), "test/behavior/emit", &names);
-    try programsIn(arena_all.allocator(), "test/behavior/proofs", &names);
+    const tree = ".zig-cache/rig-tests/tree/behavior";
+    std.Io.Dir.cwd().access(io, tree, .{}) catch return error.SkipZigTest;
+    try programsIn(arena_all.allocator(), tree ++ "/emit", &names);
+    try programsIn(arena_all.allocator(), tree ++ "/proofs", &names);
     var compared: usize = 0;
     var units: usize = 0;
     var swapped: usize = 0;

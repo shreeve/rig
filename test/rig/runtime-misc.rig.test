@@ -1973,7 +1973,7 @@ test "string add shapes", '''
   !t.add(?s[..])
   print(t)
 
-test "string push boundaries", '''
+test "string push boundaries", release: true, '''
   true
   120860
 '''

@@ -255,8 +255,27 @@ programs = (area, dir) ->
     opts.prints = expect.join('\n') if panic and expect?
     { verb, name, line: 1, args: results, opts, files: [], path, source: text, map: text.split('\n').map((_, k) -> [k + 1, 0]), given: true }
 
+# The behavior and rejection tests, each where it lived before test/rig:
+# `test` and `bomb` cases under behavior/, `fail` cases under reject/, in
+# the folder of their file's area (`ownership-match` → `ownership`), named
+# as they were (`<name>.rig`, or `<name>/main.rig` for a program of several
+# files). The scripts of test/cli read them there ($RIG_TESTS), and the
+# oracle reads them by those names.
+legacy = (area, c) ->
+  return null unless c.verb in ['test', 'bomb', 'fail']
+  kind = if c.verb is 'fail' then 'reject' else 'behavior'
+  stem = c.name.replace(/ is rejected$/, '').replace(/ /g, '_').replace(/\//g, '_')
+  rel = join(kind, area.split('-')[0])
+  if c.files.length > 0 or c.opts.file is 'main.rig'
+    { name: "test/#{rel}/#{stem}", file: join(rel, stem, 'main.rig'), dir: join(rel, stem) }
+  else
+    { name: "test/#{rel}/#{stem}.rig", file: join(rel, "#{stem}.rig"), dir: null }
+
 setup = ->
   names = args()
+  # Each test file read at most once a run.
+  seen = {}
+  parsed = (file) -> seen[file] ?= cases(file)
   dir = join(root, 'test', 'rig')
   # Two tiers: `core`, which a run with no names checks (every test
   # file, examples, torture, and the unit tests), and `cli`, the scripts of
@@ -268,26 +287,30 @@ setup = ->
   for f in readdirSync(dir).filter((f) -> f.endsWith('.rig.test')).sort()
     area = f.slice(0, -'.rig.test'.length)
     file = join(dir, f)
-    sources.push({ area, inputs: [file], read: ((file) -> -> cases(file))(file) }) if wanted(area)
+    sources.push({ area, inputs: [file], read: ((file) -> -> parsed(file))(file) }) if wanted(area)
   for [area, d] in [['examples', join(root, 'examples')], ['torture', join(root, 'test', 'torture')]]
     sources.push({ area, inputs: readdirSync(d).filter((f) -> f.endsWith('.rig')).sort().map((f) -> join(d, f)), read: ((area, d) -> -> programs(area, d))(area, d) }) if wanted(area)
-  unknown = names.filter((n) -> n not in ['all', 'core', 'cli', 'unit'] and not sources.some((s) -> s.area is n))
+  unknown = names.filter((n) -> n not in ['all', 'core', 'cli', 'unit', 'oracle'] and not sources.some((s) -> s.area is n))
   throw new Error("no test file test/rig/#{unknown[0]}.rig.test") if unknown.length > 0
   init()
   # The compiler, built as ./test/run builds it, so a script that runs
   # ./test/run finds it built and leaves it as it is.
   built = Bun.spawnSync({ cmd: ['zig', 'build', '-Dself-check=true'], cwd: root, stdout: 'pipe', stderr: 'pipe' })
   throw new Error("zig build failed:\n#{built.stderr.toString()}") unless built.exitCode is 0
-  # The reference ownership checker, which scripts of test/cli run.
-  if wanted('cli')
-    oracle = Bun.spawnSync({ cmd: ['zig', 'build', '-Dself-check=true', 'oracle'], cwd: root, stdout: 'pipe', stderr: 'pipe' })
-    throw new Error("zig build oracle failed:\n#{oracle.stderr.toString()}") unless oracle.exitCode is 0
+  # The reference ownership checker, which the oracle's jobs and scripts
+  # of test/cli run.
+  oracle = Bun.spawnSync({ cmd: ['zig', 'build', '-Dself-check=true', 'oracle'], cwd: root, stdout: 'pipe', stderr: 'pipe' })
+  throw new Error("zig build oracle failed:\n#{oracle.stderr.toString()}") unless oracle.exitCode is 0
   # The packs and Zig's caches stay between runs: a pack whose cases and
   # compiler are unchanged is not compiled again, and when neither has
   # changed since the pack was built, rig is not run at all.
   builds = []
   plans = []
-  compiler = new Bun.CryptoHasher('sha256').update(readFileSync(rig)).digest('hex')
+  # The compiler, and every setting of rig's that changes what it emits or
+  # how a program runs (RIG_STRICT_OPTIONALS, RIG_NO_PROOFS, ...), but those
+  # that only say where things go.
+  settings = Object.keys(process.env).filter((k) -> k.startsWith('RIG_') and not /^RIG_(OUT_DIR|BUILD_STORE|BUILD_STORE_DAYS|BUILD_STORE_MAX_GB|RESULTS_CACHE|TEST_OUT|RUN_STARTED|PROGRAM_STARTED|CACHE_MAX_GB)$/.test(k)).sort().map((k) -> "#{k}=#{process.env[k]}")
+  compiler = new Bun.CryptoHasher('sha256').update(readFileSync(rig)).update(settings.join('\n')).digest('hex')
   runner = new Bun.CryptoHasher('sha256').update(readFileSync(join(root, 'test', 'rig.rip'))).digest('hex')
   put = (path, text) ->
     mkdirSync(dirname(path), { recursive: true })
@@ -370,6 +393,46 @@ setup = ->
     alone = plan.all.some((c) -> (c.verb is 'test' or c.verb is 'bomb') and built.some((p) -> p.cases.includes(c) and not p.built.includes(c.path)))
     mkdirSync(join(work, plan.area), { recursive: true })
     writeFileSync(join(work, plan.area, 'jobs.json'), JSON.stringify({ key: plan.fileKey, packs: built.map((p) -> p.dir), jobs })) unless alone
+  # The tests as their own files (`legacy`), for whatever this run checks:
+  # a file's are written again only when it changed, and the ones it no
+  # longer has go.
+  tree = join(work, 'tree')
+  listed = []
+  for f in readdirSync(dir).filter((f) -> f.endsWith('.rig.test')).sort()
+    area = f.slice(0, -'.rig.test'.length)
+    file = join(dir, f)
+    key = new Bun.CryptoHasher('sha256').update(runner + '\0').update(readFileSync(file)).digest('hex')
+    record = join(work, area, 'tree.json')
+    last = if existsSync(record) then JSON.parse(readFileSync(record, 'utf8')) else null
+    if last?.key is key and last.list.every((t) -> existsSync(join(tree, t.file)))
+      listed.push(...last.list)
+      continue
+    rmSync(join(tree, t.dir ?? t.file), { recursive: true, force: true }) for t in (last?.list ?? [])
+    list = []
+    for c in parsed(file)
+      t = legacy(area, c)
+      continue unless t?
+      put(join(tree, t.file), c.source)
+      put(join(tree, t.dir, x.path), x.text) for x in c.files
+      list.push(t)
+    mkdirSync(join(work, area), { recursive: true })
+    writeFileSync(record, JSON.stringify({ key, list }))
+    listed.push(...list)
+  # The oracle's sets: the tests and the examples, and the corpus.
+  if wanted('oracle')
+    mkdirSync(join(work, 'oracle'), { recursive: true })
+    tests = listed.map((t) -> "#{t.name}\t#{join(tree, t.file)}")
+    tests.push("examples/#{f}\t#{join(root, 'examples', f)}") for f in readdirSync(join(root, 'examples')).filter((f) -> f.endsWith('.rig')).sort()
+    writeFileSync(join(work, 'oracle', 'tests.list'), tests.join('\n') + '\n')
+    corpus = []
+    for f in readdirSync(join(root, 'test', 'corpus')).sort()
+      p = join(root, 'test', 'corpus', f)
+      if f.endsWith('.rig') then corpus.push("test/corpus/#{f}\t#{p}")
+      else if existsSync(join(p, 'main.rig')) then corpus.push("test/corpus/#{f}\t#{join(p, 'main.rig')}")
+    writeFileSync(join(work, 'oracle', 'corpus.list'), corpus.join('\n') + '\n')
+    for set in ['tests', 'corpus']
+      todo("oracle.#{set}", JSON.stringify({ file: 'test/oracle', name: set, verb: 'oracle', line: 1, path: join(work, 'oracle', "#{set}.list"), opts: { timeout: '900' } }))
+    todo('oracle.lint', JSON.stringify({ file: 'test/oracle', name: 'lint', verb: 'lint', line: 1, opts: {} }))
   # The scripts of test/cli, each a job, and the compiler's own Zig tests.
   if wanted('cli')
     for f in readdirSync(join(root, 'test', 'cli')).filter((f) -> f.endsWith('.sh') and not f.startsWith('_')).sort()
@@ -417,6 +480,11 @@ checkFail = (c) ->
   if c.opts.errors?
     got = all.split('\n').filter((l) -> /(^|\.rig:\d+:\d+: )error: /.test(l)).length
     throw new Error("expected #{c.opts.errors} error(s), got #{got}") unless got is Number(c.opts.errors)
+  # A lend of a place as a path's base: every hint it gives, applied
+  # alone, draws no error the program did not draw at the same place.
+  if /write a lend on the whole path, not its base|only reads the place it reaches/.test(all)
+    h = run(['python3', join(root, 'test', 'hints.py'), rig, c.path], {}, 300)
+    throw new Error("a hint does not compile: #{firstLine(h.out + h.err)}") unless h.code is 0
 
 checkCode = (c) ->
   throw new Error('a `code` case gives the Zig it must emit') unless c.args.length > 0
@@ -476,16 +544,39 @@ checkTorture = (c) ->
 # directory of its own, with RIG, ROOT, and RIG_OUT_DIR set, as
 # ./test/run runs it.
 checkScript = (c) ->
+  # Its output directory stays between runs, as Zig's caches of the
+  # programs it builds do; its working directory starts empty.
   out = join(work, 'cli', c.name)
-  rmSync(out, { recursive: true, force: true })
+  rmSync(join(out, 'work'), { recursive: true, force: true })
   mkdirSync(join(out, 'work'), { recursive: true })
   seconds = Number(c.opts.timeout)
   timeoutCmd = (Bun.which('timeout') ?? Bun.which('gtimeout')) ?? 'timeout'
-  r = run(['bash', c.path], { ROOT: root, RIG: rig, ZIG: 'zig', RIG_OUT_DIR: out, TIMEOUT: String(seconds), TIMEOUT_CMD: timeoutCmd }, seconds, join(out, 'work'))
+  r = run(['bash', c.path], { ROOT: root, RIG: rig, ZIG: 'zig', RIG_OUT_DIR: out, RIG_TESTS: join(work, 'tree'), TIMEOUT: String(seconds), TIMEOUT_CMD: timeoutCmd }, seconds, join(out, 'work'))
   throw new Error("timed out after #{seconds}s") unless r.code?
   unless r.code is 0
     all = r.out + r.err
     throw new Error(all.split('\n').find((l) -> l.startsWith('FAIL')) ?? "exit #{r.code}: #{all.trim().split('\n').pop()}")
+
+# The reference ownership checker (test/oracle) over one set: every function it
+# decides gets the compiler's verdict, or is listed in test/oracle/differences;
+# its rejections are test/oracle/rejections; and the set keeps its floor of
+# decided functions (test/oracle/coverage).
+checkOracle = (c) ->
+  r = run([join(root, 'bin', 'rig-oracle'), '--set', c.name, '--allow', 'test/oracle/differences', '--rejects', 'test/oracle/rejections', '--coverage', 'test/oracle/coverage', '--list', c.path], {}, Number(c.opts.timeout))
+  throw new Error('timed out') unless r.code?
+  unless r.code is 0
+    all = (r.out + r.err).split('\n')
+    throw new Error(all.find((l) -> /^(DIFF|FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+
+# The oracle reads no ownership classification of the compiler's (comments
+# aside), and the compiler never imports the oracle.
+forbidden = new RegExp("ownership\\.zig|typecheck\\.zig|storage\\.zig|\\b(storageOf|recordStorage|Storage|StorageKind|StorageBy|StorageLife|copiesHeader|header_copies|dropsTemp|temp_drops|readsInPlace|in_place_reads|takesSubject|taken_subjects|readsThrough|readsAsView|unboxes|unboxed|arrayViewOf|array_views|lendsText|text_lends|takes|recordTake|moveSource|MoveSource|moveLeaves|MoveLeaf|writesThrough|through_writes|lendsCellTemp|cell_temps|handsOver)\\b|facts\\.(reads|views)")
+checkLint = (c) ->
+  for f in readdirSync(join(root, 'test', 'oracle')).filter((f) -> f.endsWith('.zig')).sort()
+    for l, k in readFileSync(join(root, 'test', 'oracle', f), 'utf8').split('\n')
+      throw new Error("test/oracle/#{f}:#{k + 1} uses a forbidden compiler fact: #{l.trim()}") if forbidden.test(l.replace(/\/\/.*/, ''))
+  for f in readdirSync(join(root, 'src')).filter((f) -> f.endsWith('.zig') and f isnt 'lib.zig')
+    throw new Error("src/#{f} imports the oracle's library or test code") if /@import\("(lib\.zig|\.\.\/test\/[^"]*)"\)/.test(readFileSync(join(root, 'src', f), 'utf8'))
 
 # The compiler's own Zig tests.
 checkUnit = (c) ->
@@ -498,6 +589,7 @@ perform = (task, ctx) ->
   # Each job's time goes to .swarm/times, `MS<TAB>JOB` a line, so the
   # slowest are easy to find: `sort -rn .swarm/times | head`.
   started = Date.now()
+  failure = null
   try
     switch c.verb
       when 'fail' then checkFail(c)
@@ -505,10 +597,20 @@ perform = (task, ctx) ->
       when 'torture' then checkTorture(c)
       when 'script' then checkScript(c)
       when 'unit' then checkUnit(c)
+      when 'oracle' then checkOracle(c)
+      when 'lint' then checkLint(c)
       else checkRun(c)
   catch err
-    throw new Error("#{c.file}:#{c.line} #{c.verb} \"#{c.name}\": #{err.message}")
+    failure = err
   finally
     appendFileSync(join(root, '.swarm', 'times'), "#{Date.now() - started}\t#{basename(task)}\n")
+  where = "#{c.file}:#{c.line} #{c.verb} \"#{c.name}\""
+  # A known bug is a case written as Rig should behave, marked `known:
+  # true`: it passes while it fails, and fails the day it passes, so its
+  # mark comes off as the bug is fixed.
+  if c.opts?.known is 'true'
+    return if failure?
+    throw new Error("#{where}: a known bug no longer fails: remove `known: true`")
+  throw new Error("#{where}: #{failure.message}") if failure?
 
 swarm { setup, perform }

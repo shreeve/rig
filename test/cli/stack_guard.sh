@@ -46,7 +46,7 @@ expect_has "$out" '1 passed, 0 failed' "rig test on the program's stack"
 # A frame of 100 MiB, written by hand into the emitted package, so it
 # is as large in a release build as in a debug one: a debug build of an
 # accepted program reaches that size
-# (test/behavior/runtime/stack_overflow_frame.rig), but a release build
+# (the case `stack overflow frame` of test/rig), but a release build
 # shares one slot among values that are never live together.
 cat >big.rig <<'EOF2'
 called fun big(i: Int) -> Int

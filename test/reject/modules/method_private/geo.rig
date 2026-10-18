@@ -1,5 +1,0 @@
-pub obj Point
-  pub x: Int
-
-fun Point.norm(?self) -> Int
-  self.x

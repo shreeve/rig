@@ -3,12 +3,12 @@
 # "Proven checks"), one per line in source order: `L:C KIND TESTS`.
 source "$ROOT/test/cli/_lib.sh"
 
-# The loops of test/behavior/proofs/swar.rig, line by line: every test in
+# The loops of test/cli/fixtures/swar.rig, line by line: every test in
 # `skip_space`'s loop but the sign of `s[i]`, which needs `0 <= at`; in
 # the loops that start at `at`, the upper bound of each access and every
 # `+=`, but not the 8-byte guard's own `i + 8` or the reads' sign tests;
 # and all of the loop that starts at 0 but its guard's add.
-swar="$ROOT/test/behavior/proofs/swar.rig"
+swar="$ROOT/test/cli/fixtures/swar.rig"
 "$RIG" check --facts=proofs "$swar" >facts.txt 2>err.txt || fail "rig check --facts=proofs: $(cat err.txt)"
 expected='11:9 index upper
 12:20 + no_overflow
@@ -28,14 +28,16 @@ $(cat diff.txt)"
 "$RIG" check --facts=proofs "$swar" >again.txt 2>/dev/null
 cmp -s facts.txt again.txt || fail "two dumps of one program differ"
 
-# Each program in test/behavior/proofs/ marks its use: `# proves: KIND
+# Each program of the proofs tests (the `proofs` cases of test/rig, as
+# the runner writes them out under $RIG_TESTS/behavior/proofs) marks its use: `# proves: KIND
 # TEST...` where a node of KIND on that line has every TEST proven, and
 # `# keeps: KIND TEST...` where none of KIND has any of them, so the test
 # is still made. Each program that keeps a test is one where that test
 # fails, at least on one path the guard does not cover. A program of
 # several modules is a directory, whose root `main.rig` holds the marks.
 marked=0
-for f in "$ROOT"/test/behavior/proofs/*.rig "$ROOT"/test/behavior/proofs/*/main.rig; do
+[[ -n ${RIG_TESTS:-} ]] || fail "RIG_TESTS is not set: run this script with test/rig.rip"
+for f in "$RIG_TESTS"/behavior/proofs/*.rig "$RIG_TESTS"/behavior/proofs/*/main.rig; do
     dump=$("$RIG" check --facts=proofs "$f" 2>err.txt) || fail "rig check --facts=proofs $f: $(cat err.txt)"
     while IFS= read -r m; do
         line=${m%%:*}
@@ -52,7 +54,7 @@ for f in "$ROOT"/test/behavior/proofs/*.rig "$ROOT"/test/behavior/proofs/*/main.
         marked=$((marked + 1))
     done < <(grep -nE '# (proves|keeps): ' "$f")
 done
-[[ $marked -ge 48 ]] || fail "only $marked marked uses in test/behavior/proofs/"
+[[ $marked -ge 48 ]] || fail "only $marked marked uses in the proofs tests"
 
 # A check of the program alone prints nothing more.
 cat >plain.rig <<'EOF2'

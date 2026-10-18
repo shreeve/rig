@@ -1217,7 +1217,7 @@ control byte; the sequence-at-a-time check runs only near the end of
 the input or to place an error. Results are unchanged: all 10,511
 inputs of `./test/run json`, and 864 strings that put each valid and
 invalid sequence around the block edges
-(test/behavior/std/json_utf8_blocks.rig), whose expected errors come
+(the case `json utf8 blocks` of test/rig/std-misc.rig.test), whose expected errors come
 from Python's decoder. A string whose stop lies in the input's last 15
 bytes, past the last block the loop can read, resumes the
 sequence-at-a-time check at that block, not at the text's start: a 3 MB
@@ -1317,7 +1317,7 @@ i += 16
 ```
 
 Its results were the same as main's (11,987,148 direct comparisons, and
-test/behavior/std/json_space_blocks.rig). Instructions per byte fell,
+the case `json space blocks` of test/rig/std-misc.rig.test). Instructions per byte fell,
 and time rose:
 
 | file | instructions (Mac) | time (Mac, MB/s, main → variant) | cycles (x86) | IPC (x86, main → variant) |

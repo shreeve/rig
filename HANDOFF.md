@@ -102,9 +102,10 @@ from).
   - [docs/zig-0.17.md](docs/zig-0.17.md) covers every Zig API Rig uses.
   - The cross-project Zig guide is `~/Data/Code/zig/docs/ZIG-0.17.md`.
 - **Health:** the last full run was green on `main`: the
-  full suite (`./test/run`, with its pending examples the planned Core
-  rules), the corpus, `test/matrix.py`, the unit tests, and the oracle
-  floors in `test/oracle/coverage`. `test/known/` holds no open bugs.
+  full suite (`swarm test/rig.rip all`, and `./test/run` for the doc
+  examples, with their pending examples the planned Core rules), the corpus, `test/matrix.py`, the unit tests, and the oracle
+  floors in `test/oracle/coverage`. No case is marked `known: true`: no
+  bug is open.
 
 ## Scope
 
@@ -232,16 +233,16 @@ and run the corpus after.
   held by pointer). One that reaches no place copies a value made in the
   header (`copiesHeader`, the storage fact `header_copy`) and is
   rejected, unless it takes its subject or binds plain data of a value
-  made there. Tests: `test/behavior/ownership/header_points_through_temporary.rig`,
-  `header_temporary_points.rig`, `header_branch_points.rig`, and
-  `test/reject/ownership/header_temporary_rejected.rig`.
+  made there. Tests: the cases `header points through temporary`,
+  `header temporary points`, `header branch points`, and
+  `header temporary rejected` of `test/rig/ownership-header.rig.test`.
   - *Resolved in B4a:* a place inside a view of a value the header
     makes (`id(?mk()).e`, `(?mk()).e`, `idh(?mkh()).xs`) lives in the
     header's own temporary, so the header copies it and stays rejected;
     pointing there would read the temporary after the header drops it.
     Tests: the `sema` unit test "storage: a header points at a place its
-    temporaries reach, never into one" and
-    `test/reject/ownership/header_place_inside_temporary.rig`.
+    temporaries reach, never into one" and the case
+    `header place inside temporary` of `test/rig/ownership-header.rig.test`.
 - **Payload views.** A read match's binding that is no plain data views
   the subject where emit matches it (`storage.matchesInPlace`: a place,
   a held part, a view a call returns, a value branching over views,
@@ -249,16 +250,16 @@ and run the corpus after.
   loan past the arm. Where a read match matches a copy, such a binding
   is usable within its arm only (`SymbolFlags.arm_view`); every such
   subject with a header temporary is also rejected (`rejectHeaderCopy`).
-  Tests: `test/behavior/ownership/match_payload_view_outlives_arm.rig`
-  and `test/reject/ownership/match_payload_view_escapes.rig`.
+  Tests: the cases `match payload view outlives arm` and
+  `match payload view escapes` of `test/rig/ownership-match.rig.test`.
   - *Resolved in B4a:* a generic read view a field or an element holds
     on the subject's path (`match w.r`, `match arr[1]`) is reached in
     place, `rig.viewedPtr(T, &w.r).*`, never through a `rig.viewed`
     copy whose payload a pointer would outlive. Tests:
     `test/cli/emit_shapes.sh` (no `&rig.viewed(` and no switch on a
-    `rig.viewed(` copy), `test/behavior/emit/generic_view_field_subject.rig`,
-    `test/behavior/emit/generic_view_field_guard.rig`, and the escape
-    `test/behavior/ownership/generic_view_field_escape.rig`.
+    `rig.viewed(` copy), the cases `generic view field subject` and
+    `generic view field guard` of `test/rig/emit-generic.rig.test`, and the
+    escape, `generic view field escape` of `test/rig/ownership-generic.rig.test`.
 - **Addresses of Zig rvalues.** `emitLeafPtr`'s `&@as(T, value)` and a
   temporary array lent to a call are the storage fact `zig_temp`. Emit
   still takes the address of two kinds of Zig rvalue no fact names: a

@@ -131,7 +131,7 @@ lib.rig:2:8:   note: \`>\` used on \`T\` here (ordering comparison)
 # Each note in another module's file names that file: a requirement
 # reached through a chain (in `util.rig`), a copy, an array length, an
 # array made, and a generic type's declaration.
-m="$ROOT/test/reject/modules"
+m="$ROOT/test/cli/fixtures"
 out=$("$RIG" check "$m/foreign_chain_requirement/main.rig" 2>&1)
 expect_has "$out" "$m/foreign_chain_requirement/util.rig:2:3:   note: \`+\` used on \`T\` here" "a note through a chain names its file"
 out=$("$RIG" check "$m/foreign_instance_ownership/main.rig" 2>&1)
