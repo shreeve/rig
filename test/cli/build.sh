@@ -1,7 +1,8 @@
 # `rig build` writes a native executable: ./<name> by default, or -o;
-# Zig's debug mode by default, its safe mode with --release, its fast
-# mode with --release=fast. The safe mode keeps overflow checks.
-# timeout: 600
+# Zig's debug mode by default, its safe mode with --release, which keeps
+# overflow checks. Its fast mode, with --release=fast, is built and run
+# by release_checks.sh.
+# timeout: 120
 source "$ROOT/test/cli/_lib.sh"
 
 cat >sum.rig <<'EOF'
@@ -32,13 +33,6 @@ out=$(bin/sum-safe 2>&1); rc=$?
 expect_has "$out" "total 135" "release build"
 expect_has "$out" "integer overflow" "release build keeps overflow checks"
 [[ $rc -ne 0 ]] || fail "release build: overflow exited 0"
-
-cat >fast.rig <<'EOF'
-sub main()
-  print("fast", 6 * 7)
-EOF
-rig build --release=fast -o bin/fast fast.rig || fail "rig build --release=fast"
-expect_eq "$(bin/fast)" "fast 42" "fast build"
 
 cat >lib.rig <<'EOF'
 pub fun twice(n: Int) -> Int
