@@ -13,6 +13,12 @@ source "$ROOT/test/cli/_lib.sh"
 jobs=${CPUQ_CORES:-2}
 jobs=${jobs%%-*}
 
+# Each grid builds in a folder of its own beside this script's output,
+# kept between runs, and builds a program again only when something its
+# build reads changed (test/lanes/_built.py): an unchanged run only runs
+# and checks the cells.
+keep=$RIG_OUT_DIR/lanes
+
 # The default run checks the miscompile itself, where it was: byte lanes,
 # of every count, in an optimized build, in the runtime's helpers and in
 # the programs rig emits; and lanes held in places. It takes seconds.
@@ -20,19 +26,19 @@ jobs=${jobs%%-*}
 # --release, and takes minutes: every lane type and build mode of the
 # runtime's helpers, with more seeds, and the mask and SIMD round 2 grids.
 if [[ -z "${LANE_GRID_FULL:-}" ]]; then
-    python3 "$ROOT/test/lanes/lane_grid.py" --impl rig --modes ReleaseSafe --types u8,i8 --jobs "$jobs" --zig "${ZIG:-zig}" || fail "the Zig lane grid"
-    python3 "$ROOT/test/lanes/rig_grid.py" "$RIG" --release --jobs "$jobs" --types U8,I8 || fail "the Rig lane grid with --release"
-    python3 "$ROOT/test/lanes/place_grid.py" "$RIG" --release --jobs "$jobs" || fail "the place grid with --release"
+    python3 "$ROOT/test/lanes/lane_grid.py" --impl rig --modes ReleaseSafe --types u8,i8 --jobs "$jobs" --zig "${ZIG:-zig}" --keep "$keep/zig" || fail "the Zig lane grid"
+    python3 "$ROOT/test/lanes/rig_grid.py" "$RIG" --release --jobs "$jobs" --types U8,I8 --keep "$keep/rig" || fail "the Rig lane grid with --release"
+    python3 "$ROOT/test/lanes/place_grid.py" "$RIG" --release --jobs "$jobs" --keep "$keep/place" || fail "the place grid with --release"
     exit 0
 fi
 
-python3 "$ROOT/test/lanes/lane_grid.py" --impl rig --seeds 4 --jobs "$jobs" --zig "${ZIG:-zig}" || fail "the Zig lane grid"
+python3 "$ROOT/test/lanes/lane_grid.py" --impl rig --seeds 4 --jobs "$jobs" --zig "${ZIG:-zig}" --keep "$keep/zig" || fail "the Zig lane grid"
 types=U8,I8,U16,I16,U32,I32,U64,I64
 for release in --release ""; do
     how=${release:+with --release}
     how=${how:-in debug}
-    python3 "$ROOT/test/lanes/rig_grid.py" "$RIG" $release --jobs "$jobs" --types "$types" || fail "the Rig lane grid $how"
-    python3 "$ROOT/test/lanes/place_grid.py" "$RIG" $release --jobs "$jobs" || fail "the place grid $how"
+    python3 "$ROOT/test/lanes/rig_grid.py" "$RIG" $release --jobs "$jobs" --types "$types" --keep "$keep/rig" || fail "the Rig lane grid $how"
+    python3 "$ROOT/test/lanes/place_grid.py" "$RIG" $release --jobs "$jobs" --keep "$keep/place" || fail "the place grid $how"
     python3 "$ROOT/test/lanes/mask_rig_grid.py" "$RIG" $release --jobs "$jobs" || fail "the mask grid $how"
     python3 "$ROOT/test/lanes/simd2_rig_grid.py" "$RIG" $release --jobs "$jobs" || fail "the SIMD round 2 grid $how"
 done

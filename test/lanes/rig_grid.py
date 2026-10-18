@@ -30,6 +30,7 @@ stop with the panic `integer overflow`:
 Prints each cell that fails and exits 1 if any does.
 """
 import argparse, concurrent.futures as cf, math, os, subprocess, sys, tempfile
+import _built
 
 TYPES = {"U8": (8, False), "I8": (8, True), "U16": (16, False), "I16": (16, True),
          "U32": (32, False), "I32": (32, True), "U64": (64, False), "I64": (64, True)}
@@ -206,12 +207,15 @@ def check_type(rig, release, work, ty, lanes, jobs):
     path = os.path.join(work, f"lanes_{ty}.rig")
     with open(path, "w") as f:
         f.write(src)
-    exe = os.path.join(work, f"lanes_{ty}")
+    exe = os.path.join(work, f"lanes_{ty}{'_release' if release else ''}")
     env = dict(os.environ, RIG_OUT_DIR=os.path.join(work, f"out_{ty}"))
-    b = subprocess.run([rig, "build"] + (["--release"] if release else []) + ["-o", exe, path],
-                       capture_output=True, text=True, env=env)
-    if b.returncode:
-        return [f"{ty}: build failed\n  {b.stderr[:1500]}"], 0
+    inputs = [src, release, _built.file(rig), _built.zig_version(os.environ.get("ZIG", "zig")), *_built.settings()]
+    if not _built.fresh(exe, inputs):
+        b = subprocess.run([rig, "build"] + (["--release"] if release else []) + ["-o", exe, path],
+                           capture_output=True, text=True, env=env)
+        if b.returncode:
+            return [f"{ty}: build failed\n  {b.stderr[:1500]}"], 0
+        _built.record(exe, inputs)
     bad = []
     r = run(exe, "clean")
     if r.returncode or r.stdout.split("\n")[:-1] != [f"ok {c}" for c in clean]:
@@ -237,7 +241,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=2)
     ap.add_argument("--types", default=",".join(TYPES))
     ap.add_argument("--lanes", default=",".join(map(str, LANES)))
-    ap.add_argument("--keep", help="write the programs here and keep them")
+    ap.add_argument("--keep", help="write the programs here and keep them, built again only when an input changes")
     a = ap.parse_args()
     types = a.types.split(",")
     lanes = [int(n) for n in a.lanes.split(",")]
