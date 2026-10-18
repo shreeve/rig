@@ -86,10 +86,10 @@ the cell.
 
 Nothing it writes is committed: programs go to a temporary directory,
 and each run's output is removed after it passes. Programs build in
-test/run's store (RIG_BUILD_STORE, test/README.md), so a program built
+the build store (RIG_BUILD_STORE, test/README.md), so a program built
 before, by any worktree, is not built again.
 
-A program whose runs pass is recorded in test/run's results cache
+A program whose runs pass is recorded in the results cache
 (RIG_RESULTS_CACHE, test/README.md) under a key that hashes everything
 the verdict depends on: the code below that runs and judges it, the
 compiler's driver (src/main.zig), Zig, the RIG_ settings, the program,
@@ -149,7 +149,7 @@ def optn(ty, n):
 
 
 def build_store():
-    """Where programs build: RIG_BUILD_STORE, else test/run's default, the
+    """Where programs build: RIG_BUILD_STORE, else the
     store in the repository's git directory that its worktrees share;
     empty builds each program in its own output directory."""
     if "RIG_BUILD_STORE" in os.environ:
@@ -165,7 +165,7 @@ STORE = build_store()
 
 
 def results_cache():
-    """test/run's results cache: RIG_RESULTS_CACHE, else rig-results-cache
+    """The results cache: RIG_RESULTS_CACHE, else rig-results-cache
     in the repository's git directory; None when empty or outside git."""
     if "RIG_RESULTS_CACHE" in os.environ:
         return os.environ["RIG_RESULTS_CACHE"] or None
@@ -212,8 +212,8 @@ def package_listing(rig, path, tmp):
 
 
 # The RIG_ variables that name where things go; every other one is a
-# setting of the run (test/run's RIG_LOCATIONS).
-RIG_LOCATIONS = re.compile(r"RIG_(RESULTS_CACHE|BUILD_STORE|BUILD_STORE_DAYS|TEST_OUT|OUT_DIR|RUN_STARTED|PROGRAM_STARTED)$")
+# setting of the run.
+RIG_LOCATIONS = re.compile(r"RIG_(RESULTS_CACHE|BUILD_STORE|OUT_DIR|RUN_STARTED|PROGRAM_STARTED)$")
 
 
 def fixed_inputs():
@@ -226,8 +226,8 @@ def fixed_inputs():
 
 class Results:
     """The results cache: one empty file per recorded key, in a directory
-    named by the key's first two digits; a hit touches it, so test/run's
-    prune keeps what runs still use."""
+    named by the key's first two digits; a hit touches it, so a cleanup
+    can keep what runs still use."""
 
     def __init__(self, path, delta, tmp):
         self.path, self.delta, self.tmp = path, delta, tmp
@@ -280,7 +280,7 @@ class Results:
 
 RESULTS = None
 
-# What a sound program never does when it runs (test/run's CORPUS_BAD_RE).
+# What a sound program never does when it runs.
 BAD = re.compile(
     r"rig: a proven check failed|rig: memory leak detected|rig: use of freed memory|rig: access past the end|rig: double free"
     r"|\.zig:\d+:\d+: error|\.rig:\d+:\d+: error|Segmentation fault|Bus error|General protection"
@@ -4075,7 +4075,7 @@ def run_built(path, keep, started_dir, expect, flags, unguarded):
     which guards no more allocations, is noted in `unguarded`."""
     outdir = path[:-4] + (".release" if flags else "") + ".out"
     # rig creates `started` once the program has started: the evidence
-    # that it ran (test/run's run_program). Each attempt has a fresh path
+    # that it ran. Each attempt has a fresh path
     # in this run's private directory, which no other run shares.
     started = os.path.join(started_dir, os.path.basename(path)[:-4] + "." + uuid.uuid4().hex)
     env = dict(os.environ, RIG_SANITIZE="1", RIG_OUT_DIR=outdir, RIG_BUILD_STORE=STORE, RIG_RUN_STARTED=started)

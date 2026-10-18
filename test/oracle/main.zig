@@ -44,7 +44,7 @@
 //! A verdict that differs, or no verdict, fails the run: these are the
 //! oracle's own tests, one shape each. The oracle reads only the IR,
 //! symbols, and types; it never
-//! reads the compiler's ownership classifications (see test/run's lint).
+//! reads the compiler's ownership classifications (see the lint in test/rig.rip).
 
 const std = @import("std");
 const lib = @import("rig_lib");

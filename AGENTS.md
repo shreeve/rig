@@ -48,7 +48,7 @@ These are about the compiler, not the process. They don't bend.
    fits `docs/CORE.md` in a paragraph, or changes the Core first.
 6. **Never edit `src/parser.zig`.** It is generated from `rig.grammar`.
 7. **Docs claim only what runs.** Every `rig` example in the docs is run
-   by `./test/run`; a planned rule uses a ```` ```rig pending ```` block.
+   by `swarm test/rig.rip`; a planned rule uses a ```` ```rig pending ```` block.
 8. **Words:** lend, view, loan, ownership checker; never "borrow". A
    Rig `obj` is an "object", never a "struct". Comments describe the
    code as it is; history belongs in git.
@@ -77,10 +77,11 @@ These are about the compiler, not the process. They don't bend.
 Tests are cases in `test/rig/*.rig.test` (docs/RIG-TESTS.md): `code`,
 `fail`, `test`, and `bomb`, each a few lines of Rig and its result. Run
 them with `swarm test/rig.rip`, through `cpuq run` (below): a run with no
-names is the core, every file and the unit tests, in seconds when little
-changed; name files to run just those, `cli` for the scripts of
-`test/cli` (minutes), `all` for both. `./test/run` runs the doc examples
-and the rest `test/README.md` lists. A bug fix starts with a case that
+names is the core, every file, the doc examples, and the unit tests, in
+seconds when little changed; name files to run just those, `doc` for
+the doc examples, `cli` for the scripts of `test/cli` (minutes), `all`
+for both, and `proofs` by hand after a change to the proofs
+(`test/README.md`). A bug fix starts with a case that
 fails. There are no gates or required runs: run more when you judge the
 change needs it. Never time on burst, a shared VM: time arm64 on
 the Mac and x86 on pup, through `cpuq lease pup-bench`.
@@ -113,10 +114,10 @@ zig build                          # bin/rig (ReleaseSafe; -Doptimize=debug for 
 bin/rig run file.rig               # compile and run (debug, leak-checked)
 bin/rig emit file.rig              # the emitted Zig
 bin/rig check --time file.rig      # time per compiler pass
-swarm test/rig.rip                 # the core: every test file, examples, unit tests
+swarm test/rig.rip                 # the core: every test file, the docs, examples, unit tests
 swarm test/rig.rip std-text        # one test file, test/rig/std-text.rig.test
 swarm test/rig.rip all             # the core and the scripts of test/cli
-./test/run doc                     # the doc examples
+swarm test/rig.rip doc             # the doc examples
 RIG_LEAK_TRACE=1 bin/rig run f.rig # leaks with allocation stack traces
 ```
 

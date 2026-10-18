@@ -1,5 +1,5 @@
 # The fewest functions bin/rig-oracle must decide in each set of
-# test/run's oracle tests; raise a floor when the oracle grows.
+# the oracle's jobs in test/rig.rip; raise a floor when the oracle grows.
 # The oracle decides header subjects that are made values, parts of
 # made values, and branching values, `unique` types, Cells and Signals,
 # `defer` and `errdefer` bodies, inlined at each exit of their scope,

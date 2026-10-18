@@ -83,7 +83,7 @@ from).
     string, `obj`).
 - **`std.json` (experimental):** a one-pass, validating JSON parser in
   safe Rig (`std/json.rig`) that builds a tape, with a tiered string
-  scan (SWAR, then `Simd[U8, 16]`). `./test/run json` checks it against
+  scan (SWAR, then `Simd[U8, 16]`). `test/json/compare.py` checks it against
   Python's `json` module on 10,511 inputs; `tools/fetch-json-data.sh`
   fetches the third-party files those read. `bench/json/` times it
   against Zig's `std.json`, serde_json, simd-json, sonic-rs and
@@ -102,8 +102,8 @@ from).
   - [docs/zig-0.17.md](docs/zig-0.17.md) covers every Zig API Rig uses.
   - The cross-project Zig guide is `~/Data/Code/zig/docs/ZIG-0.17.md`.
 - **Health:** the last full run was green on `main`: the
-  full suite (`swarm test/rig.rip all`, and `./test/run` for the doc
-  examples, with their pending examples the planned Core rules), the corpus, `test/matrix.py`, the unit tests, and the oracle
+  full suite (`swarm test/rig.rip all`, with the doc examples, their
+  pending examples the planned Core rules), the corpus, `test/matrix.py`, the unit tests, and the oracle
   floors in `test/oracle/coverage`. No case is marked `known: true`: no
   bug is open.
 
@@ -173,8 +173,8 @@ structural weak spots, which these steps removed (the evidence is in
     hidden storage, and the ownership checker walks what a call holds.
 
 Alongside them, a reference ownership checker built from the Core alone
-(`bin/rig-oracle`, `test/oracle/`) checks the compiler: `./test/run
-oracle` fails when the compiler accepts a function the Core rejects,
+(`bin/rig-oracle`, `test/oracle/`) checks the compiler: its jobs in `swarm
+test/rig.rip` fail when the compiler accepts a function the Core rejects,
 and when the oracle decides fewer functions than the floors in
 `test/oracle/coverage`.
 
@@ -322,7 +322,7 @@ and run the corpus after.
   - Whether an expression is a view is not one fact yet (CORE §9,
     *planned*): a loop over a call's returned view of a List of owners is
     rejected as if the List were made there.
-  - `bin/rig-oracle` in a worktree goes stale; `./test/run` rebuilds it,
+  - `bin/rig-oracle` in a worktree goes stale; `test/rig.rip` rebuilds it,
     so rebuild before using it by hand.
 
 ## What comes next
@@ -371,8 +371,6 @@ migration guide (`tools/migrate-0.3.py`).
   - view: the value handed over;
   - loan: the owner-side record.
 
-  The `vocab` test fails on Rust's word; `test/vocabulary-allow.txt`
-  lists the few lines that must name it.
 - **Commits:** short, imperative, with no AI attribution.
 - **Comments:** timeless, describing the code as it is. History belongs
   in git.

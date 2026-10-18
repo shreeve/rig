@@ -3,7 +3,6 @@
 
 usage: test/json/compare.py [-j N] [-v] [--subset] [--tmp DIR] [--groups]
                             [GROUP ...] [--only SUBSTRING]
-Run it through `./test/run json`, which also sets up the build store.
 
 Groups (default: all):
   cases     cases.txt: hand-written cases, many from serde_json's
@@ -22,8 +21,8 @@ Groups (default: all):
   deep      nesting at and past the depth limit (1024)
   corpus    the benchmark files and simdjson's examples, whole
 
---subset keeps a fixed, spread-out part of every group (below), so the
-default `./test/run` stays fast; every group is still represented.
+--subset keeps a fixed, spread-out part of every group (below), for a
+quick run; every group is still represented.
 
 The checker and corpus groups read third-party files that
 tools/fetch-json-data.sh puts in test/json/data/. Without them (or with

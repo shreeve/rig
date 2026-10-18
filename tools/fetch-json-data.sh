@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fetch the third-party JSON files the `checker` and `corpus` groups of
-# `./test/run json` read (test/json/README.md) into test/json/data/,
+# `test/json/compare.py` reads (test/json/README.md) into test/json/data/,
 # which git ignores. Each file is pinned by the commit it comes from and
 # its sha256; a file that is present and matches is not fetched again,
 # and one that does not match after a fetch fails the script. The

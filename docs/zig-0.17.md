@@ -1175,7 +1175,7 @@ and `expectEqualSlices` print a diff on failure.
 `.zig-cache/tmp`, removed by `cleanup()`.
 
 `zig build test` runs the compiler's and the runtime's unit tests;
-`./test/run` runs it as the `unit` test. When nothing the tests depend
+`test/rig.rip` runs it as the `unit` job. When nothing the tests depend
 on has changed, `zig build test` replays the cached result: no test
 runs, `--summary all` shows `run test cached`, and the summary counts
 no tests. To run

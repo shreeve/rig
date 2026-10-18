@@ -1,11 +1,14 @@
 # test/rig.rip: run Rig's tests (docs/RIG-TESTS.md) with Swarm.
 #
 #   swarm test/rig.rip             the core (or `core`): every test/rig/*.rig.test,
-#                                        examples, test/torture, and the unit tests, a job per CPU
-#                                        at once
+#                                  the docs' ```rig examples, examples/, test/torture,
+#                                  the unit tests, and the oracle, a job per CPU at once
 #   swarm test/rig.rip cli         the scripts of test/cli, which take minutes
 #   swarm test/rig.rip all         the core and the scripts
+#   swarm test/rig.rip proofs      by hand: the proven checks' differential runs
+#                                  (`proofs-all`: of every program)
 #   swarm test/rig.rip std-text    test/rig/std-text.rig.test alone
+#   swarm test/rig.rip doc-SPEC    SPEC.md's examples alone (`doc`: every doc's)
 #
 # Setup reads each file into its cases, writes each case as a program of
 # its own, and builds the file's `test` and `bomb` cases into its packs
@@ -18,7 +21,7 @@
 
 import { swarm, init, todo, args } from 'rip/swarm'
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, readdirSync, rmSync } from 'fs'
-import { join, resolve, basename, dirname } from 'path'
+import { join, resolve, basename, dirname, relative } from 'path'
 
 root = resolve(import.meta.dir, '..')
 rig  = join(root, 'bin', 'rig')
@@ -255,6 +258,135 @@ programs = (area, dir) ->
     opts.prints = expect.join('\n') if panic and expect?
     { verb, name, line: 1, args: results, opts, files: [], path, source: text, map: text.split('\n').map((_, k) -> [k + 1, 0]), given: true }
 
+# The examples of a Markdown doc: each ```rig block is a case, the words
+# after `rig` its contract (docs/RIG-TESTS.md, "Doc examples"):
+#
+#   ```rig             `rig check` accepts it; followed by an ```output
+#                      block (and a ```stderr block, `exit=N` on it), it
+#                      runs and prints exactly that
+#   ```rig reject      `rig check` rejects it; the ```error block after it
+#                      gives text each diagnostic must contain, one a line
+#   ```rig fragment    only parsed
+#   ```rig facts       `rig check --facts` prints exactly the ```facts
+#                      block after it
+#   ```rig pending     a rule decided but not built: like ```rig, or like
+#                      ```rig reject when an ```error block follows, but it
+#                      must fail today, and fails the day it works
+#   ```rig file=m.rig  module `m.rig` of the next example's program
+#
+# A block that breaks these rules is a case that fails, saying how.
+docs = (file) ->
+  lines = readFileSync(file, 'utf8').split('\n')
+  out = []
+  modules = []
+  i = 0
+  # The lines of the block whose fence is at `i`, to its closing fence;
+  # `i` ends past it.
+  fenced = ->
+    text = []
+    i++
+    while i < lines.length and lines[i] isnt '```'
+      text.push(lines[i])
+      i++
+    closed = i < lines.length
+    i++
+    [text, closed]
+  # The line of the next fence, past blank lines, when it matches `re`.
+  after = (re) ->
+    j = i
+    j++ while j < lines.length and lines[j].trim() is ''
+    if j < lines.length and re.test(lines[j]) then j else -1
+  joined = (ls) -> ls.map((l) -> l + '\n').join('')
+  while i < lines.length
+    unless /^```rig([ \t]|$)/.test(lines[i])
+      i++
+      continue
+    start = i + 1
+    mode = 'check'
+    fname = null
+    pend = false
+    bad = null
+    flaw = (msg) -> bad ?= msg
+    for w in lines[i].slice(6).split(/[ \t]+/) when w isnt ''
+      if w in ['reject', 'fragment', 'facts'] then mode = w
+      else if w is 'pending' then pend = true
+      else if /^file=([A-Za-z_]\w*\/)*[A-Za-z_]\w*\.rig$/.test(w) then fname = w.slice(5)
+      else flaw("unknown word `#{w}` after ```rig")
+    [body, closed] = fenced()
+    flaw('unterminated ```rig block') unless closed
+    kind = null
+    extra = null
+    status = null
+    err = null
+    j = after(/^```(output|error|facts)$/)
+    if j >= 0
+      kind = lines[j].slice(3)
+      i = j
+      [extra] = fenced()
+    j = after(/^```stderr([ \t]|$)/)
+    if j >= 0
+      for w in lines[j].slice(9).split(/[ \t]+/) when w isnt ''
+        if /^exit=\d+$/.test(w) then status = w.slice(5) else flaw("unknown word `#{w}` after ```stderr")
+      i = j
+      [err] = fenced()
+      if not kind? then kind = 'output'
+      else if kind isnt 'output' then flaw('```stderr follows a program or its ```output block')
+    if pend
+      if mode isnt 'check' or fname? then flaw('```rig pending takes no other word')
+      else if kind is 'error' then mode = 'reject'
+    if fname?
+      if kind? or mode isnt 'check' then flaw('a file= block stands alone')
+      else
+        modules.push({ path: fname, text: joined(body), line: start })
+        continue
+    if kind is 'output'
+      if mode is 'check' then mode = 'run' else flaw('```output follows a program')
+    else if kind is 'error'
+      flaw('```error follows a ```rig reject block') unless mode is 'reject'
+    else if kind is 'facts'
+      flaw('```facts follows a ```rig facts block') unless mode is 'facts'
+    else if mode is 'reject' then flaw('```rig reject needs an ```error block')
+    else if mode is 'facts' then flaw('```rig facts needs a ```facts block')
+    c = { name: "L#{start}", line: start, args: [], opts: { file: 'main.rig' }, files: modules, source: joined(body), map: body.map((_, k) -> [k + 1, 0]) }
+    modules = []
+    if bad?
+      c.verb = 'convention'
+      c.opts.reason = bad
+    else
+      c.opts.pending = 'true' if pend
+      switch mode
+        when 'run'
+          c.verb = 'test'
+          c.out = joined(extra ?? [])
+          c.err = joined(err) if err?
+          c.opts.exit = status if status?
+        when 'check' then c.verb = 'accept'
+        when 'reject'
+          c.verb = 'fail'
+          c.args = extra.filter((l) -> l isnt '').map((l) -> { heredoc: l })
+        when 'fragment' then c.verb = 'parse'
+        when 'facts'
+          c.verb = 'facts'
+          c.out = joined(extra)
+    out.push(c)
+  if modules.length > 0
+    out.push({ verb: 'convention', name: "L#{modules[0].line}", line: modules[0].line, args: [], opts: { file: 'main.rig', reason: "file=#{modules[0].path} is not followed by a program" }, files: modules, source: '', map: [] })
+  out
+
+# The Markdown files with ```rig blocks, each an area `doc-NAME`: NAME is
+# its path without `.md` or a leading `docs/`, slashes made dashes
+# (docs/CORE.md is doc-CORE, formal/docs/FORMAL-RIG.md is
+# doc-formal-docs-FORMAL-RIG).
+docFiles = ->
+  out = []
+  for d in ['', 'docs', 'examples', 'test', 'formal/docs']
+    continue unless existsSync(join(root, d))
+    for f in readdirSync(join(root, d)).filter((f) -> f.endsWith('.md')).sort()
+      rel = if d is '' then f else "#{d}/#{f}"
+      continue unless /^```rig([ \t]|$)/m.test(readFileSync(join(root, rel), 'utf8'))
+      out.push({ area: 'doc-' + rel.slice(0, -3).replace(/^docs\//, '').replace(/\//g, '-'), rel, file: join(root, rel) })
+  out
+
 # The behavior and rejection tests, each where it lived before test/rig:
 # `test` and `bomb` cases under behavior/, `fail` cases under reject/, in
 # the folder of their file's area (`ownership-match` → `ownership`), named
@@ -277,12 +409,13 @@ setup = ->
   seen = {}
   parsed = (file) -> seen[file] ?= cases(file)
   dir = join(root, 'test', 'rig')
-  # Two tiers: `core`, which a run with no names checks (every test
-  # file, examples, torture, and the unit tests), and `cli`, the scripts of
-  # test/cli, which take minutes; `all` is both.
+  # The tiers: `core`, which a run with no names checks (every test file,
+  # the docs' examples, examples/, torture, the unit tests, and the
+  # oracle); `cli`, the scripts of test/cli, which take minutes; `all`,
+  # both; and `proofs`, which only a run that names it checks.
   everything = names.includes('all')
   core = names.length is 0 or names.includes('core')
-  wanted = (n) -> everything or names.includes(n) or (core and n isnt 'cli')
+  wanted = (n) -> names.includes(n) or (everything and n not in ['proofs', 'proofs-all']) or (core and n not in ['cli', 'proofs', 'proofs-all'])
   sources = []
   for f in readdirSync(dir).filter((f) -> f.endsWith('.rig.test')).sort()
     area = f.slice(0, -'.rig.test'.length)
@@ -290,11 +423,12 @@ setup = ->
     sources.push({ area, inputs: [file], read: ((file) -> -> parsed(file))(file) }) if wanted(area)
   for [area, d] in [['examples', join(root, 'examples')], ['torture', join(root, 'test', 'torture')]]
     sources.push({ area, inputs: readdirSync(d).filter((f) -> f.endsWith('.rig')).sort().map((f) -> join(d, f)), read: ((area, d) -> -> programs(area, d))(area, d) }) if wanted(area)
-  unknown = names.filter((n) -> n not in ['all', 'core', 'cli', 'unit', 'oracle'] and not sources.some((s) -> s.area is n))
+  for doc in docFiles()
+    sources.push({ area: doc.area, label: doc.rel, inputs: [doc.file], read: ((file) -> -> docs(file))(doc.file) }) if wanted(doc.area) or names.includes('doc')
+  unknown = names.filter((n) -> n not in ['all', 'core', 'cli', 'unit', 'oracle', 'doc', 'proofs', 'proofs-all'] and not sources.some((s) -> s.area is n))
   throw new Error("no test file test/rig/#{unknown[0]}.rig.test") if unknown.length > 0
   init()
-  # The compiler, built as ./test/run builds it, so a script that runs
-  # ./test/run finds it built and leaves it as it is.
+  # The compiler, with its own consistency checks on.
   built = Bun.spawnSync({ cmd: ['zig', 'build', '-Dself-check=true'], cwd: root, stdout: 'pipe', stderr: 'pipe' })
   throw new Error("zig build failed:\n#{built.stderr.toString()}") unless built.exitCode is 0
   # The reference ownership checker, which the oracle's jobs and scripts
@@ -309,12 +443,25 @@ setup = ->
   # The compiler, and every setting of rig's that changes what it emits or
   # how a program runs (RIG_STRICT_OPTIONALS, RIG_NO_PROOFS, ...), but those
   # that only say where things go.
-  settings = Object.keys(process.env).filter((k) -> k.startsWith('RIG_') and not /^RIG_(OUT_DIR|BUILD_STORE|BUILD_STORE_DAYS|BUILD_STORE_MAX_GB|RESULTS_CACHE|TEST_OUT|RUN_STARTED|PROGRAM_STARTED|CACHE_MAX_GB)$/.test(k)).sort().map((k) -> "#{k}=#{process.env[k]}")
+  settings = Object.keys(process.env).filter((k) -> k.startsWith('RIG_') and not /^RIG_(OUT_DIR|BUILD_STORE|RESULTS_CACHE|RUN_STARTED|PROGRAM_STARTED|CACHE_MAX_GB)$/.test(k)).sort().map((k) -> "#{k}=#{process.env[k]}")
   compiler = new Bun.CryptoHasher('sha256').update(readFileSync(rig)).update(settings.join('\n')).digest('hex')
   runner = new Bun.CryptoHasher('sha256').update(readFileSync(join(root, 'test', 'rig.rip'))).digest('hex')
   put = (path, text) ->
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, text) unless existsSync(path) and readFileSync(path, 'utf8') is text
+  # Write case `i` of an area as its program, setting its path. A case's
+  # program is named for it, so what it prints about itself (a panic's
+  # place) names the case.
+  place = (area, c, i) ->
+    n = String(i).padStart(3, '0')
+    slug = c.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') or 'case'
+    slug = 't_' + slug if /^[0-9]/.test(slug)
+    if c.files.length > 0
+      c.path = join(work, area, 'cases', n, 'main.rig')
+      put(join(work, area, 'cases', n, f.path), f.text) for f in c.files
+    else
+      c.path = join(work, area, 'cases', n, c.opts.file ?? "#{slug}.rig")
+    put(c.path, c.source)
   for src in sources
     area = src.area
     # A source whose files, compiler, and runner are what its packs were
@@ -330,18 +477,7 @@ setup = ->
         todo(j.id, j.payload) for j in last.jobs
         continue
     all = src.read()
-    for c, i in all when not c.given
-      n = String(i).padStart(3, '0')
-      # A case's program is named for it, so what it prints about itself
-      # (a panic's place) names the case.
-      slug = c.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') or 'case'
-      slug = 't_' + slug if /^[0-9]/.test(slug)
-      if c.files.length > 0
-        c.path = join(work, area, 'cases', n, 'main.rig')
-        put(join(work, area, 'cases', n, f.path), f.text) for f in c.files
-      else
-        c.path = join(work, area, 'cases', n, c.opts.file ?? "#{slug}.rig")
-      put(c.path, c.source)
+    place(area, c, i) for c, i in all when not c.given
     runs = all.filter((c) -> c.verb is 'test' or c.verb is 'bomb')
     packs = [{ dir: join(work, area, 'debug'), cases: runs, flags: [], env: { RIG_SANITIZE: '1' } }, { dir: join(work, area, 'release'), cases: runs.filter((c) -> c.opts.release is 'true'), flags: ['--release'], env: {} }]
     for p in packs when p.cases.length > 0
@@ -354,7 +490,7 @@ setup = ->
         continue
       rmSync(keyPath, { force: true })
       builds.push({ pack: p, start: ((p) -> -> Bun.spawn({ cmd: [rig, 'batch', 'build', ...p.flags, p.dir, ...p.cases.map((c) -> c.path)], env: { ...process.env, ...p.env }, stdout: 'ignore', stderr: 'ignore' }))(p) })
-    plans.push({ area, file: (if src.inputs.length is 1 then src.inputs[0] else area), all, packs, fileKey })
+    plans.push({ area, file: (if src.inputs.length is 1 then src.inputs[0] else area), label: src.label, all, packs, fileKey })
   # The packs that need it are built a few at a time: each is one Zig
   # compile, and as many at once as there are cores is enough.
   pending = builds.filter((b) -> b.start?)
@@ -379,9 +515,9 @@ setup = ->
       todo(id, payload)
       jobs.push({ id, payload })
     for c, i in plan.all
-      job = { file: basename(plan.file), name: c.name, verb: c.verb, line: c.line, bodyLine: c.bodyLine, args: c.args, opts: c.opts, map: c.map, path: c.path }
+      job = { file: plan.label ?? basename(plan.file), name: c.name, verb: c.verb, line: c.line, bodyLine: c.bodyLine, args: c.args, opts: c.opts, map: c.map, path: c.path, out: c.out, err: c.err }
       id = "#{plan.area}.#{String(i).padStart(3, '0')}"
-      if c.verb in ['fail', 'code', 'torture']
+      unless c.verb in ['test', 'bomb']
         queue(id, JSON.stringify(job))
         continue
       for p in plan.packs when p.cases.includes(c)
@@ -418,7 +554,11 @@ setup = ->
     mkdirSync(join(work, area), { recursive: true })
     writeFileSync(record, JSON.stringify({ key, list }))
     listed.push(...list)
-  # The oracle's sets: the tests and the examples, and the corpus.
+  # The oracle's sets: the tests and the examples, the corpus, the docs'
+  # examples, and the matrix (test/matrix.py). A doc example is named by
+  # its doc and a hash of its text, so an edit that only moves it keeps
+  # its name in test/oracle/rejections; two the same in a doc are told
+  # apart by a count.
   if wanted('oracle')
     mkdirSync(join(work, 'oracle'), { recursive: true })
     tests = listed.map((t) -> "#{t.name}\t#{join(tree, t.file)}")
@@ -430,9 +570,38 @@ setup = ->
       if f.endsWith('.rig') then corpus.push("test/corpus/#{f}\t#{p}")
       else if existsSync(join(p, 'main.rig')) then corpus.push("test/corpus/#{f}\t#{join(p, 'main.rig')}")
     writeFileSync(join(work, 'oracle', 'corpus.list'), corpus.join('\n') + '\n')
-    for set in ['tests', 'corpus']
+    examples = []
+    for doc in docFiles()
+      count = {}
+      for c, i in docs(doc.file)
+        place(doc.area, c, i)
+        continue if c.verb in ['parse', 'convention']
+        key = "doc/#{doc.area.slice(4)}/#{new Bun.CryptoHasher('sha256').update(c.source).digest('hex').slice(0, 12)}"
+        count[key] = (count[key] ?? 0) + 1
+        key += "-#{count[key]}" if count[key] > 1
+        examples.push("#{key}\t#{c.path}")
+    writeFileSync(join(work, 'oracle', 'docs.list'), examples.join('\n') + '\n')
+    for set in ['tests', 'corpus', 'docs']
       todo("oracle.#{set}", JSON.stringify({ file: 'test/oracle', name: set, verb: 'oracle', line: 1, path: join(work, 'oracle', "#{set}.list"), opts: { timeout: '900' } }))
+    todo('oracle.matrix', JSON.stringify({ file: 'test/matrix.py', name: 'matrix', verb: 'matrix', line: 1, opts: { timeout: '900' } }))
     todo('oracle.lint', JSON.stringify({ file: 'test/oracle', name: 'lint', verb: 'lint', line: 1, opts: {} }))
+  # The proven checks' differential runs: each program of the tests,
+  # examples/, and test/corpus that the compiler proves a check of (with
+  # `proofs-all`, every one) runs in debug, with --release, and with
+  # --release and RIG_NO_PROOFS=1.
+  if names.includes('proofs') or names.includes('proofs-all')
+    every = names.includes('proofs-all')
+    progs = []
+    for f in readdirSync(dir).filter((f) -> f.endsWith('.rig.test')).sort()
+      area = f.slice(0, -'.rig.test'.length)
+      for c in parsed(join(dir, f)) when c.verb in ['test', 'bomb'] and c.opts.known isnt 'true'
+        progs.push(join(tree, legacy(area, c).file))
+    progs.push(join(root, 'examples', f)) for f in readdirSync(join(root, 'examples')).filter((f) -> f.endsWith('.rig')).sort()
+    for f in readdirSync(join(root, 'test', 'corpus')).sort()
+      p = join(root, 'test', 'corpus', f)
+      if f.endsWith('.rig') then progs.push(p) else if existsSync(join(p, 'main.rig')) then progs.push(join(p, 'main.rig'))
+    for p, i in progs
+      todo("proofs.#{String(i).padStart(5, '0')}", JSON.stringify({ file: relative(root, p), name: 'proofs', verb: 'proofs', line: 1, path: p, every, opts: { timeout: '600' } }))
   # The scripts of test/cli, each a job, and the compiler's own Zig tests.
   if wanted('cli')
     for f in readdirSync(join(root, 'test', 'cli')).filter((f) -> f.endsWith('.sh') and not f.startsWith('_')).sort()
@@ -523,13 +692,68 @@ checkRun = (c) ->
   if c.opts.stderr?
     shown = r.err.split('\n').filter((l) -> not /^error: rig: the program was killed by signal \d+$/.test(l)).join('\n')
     throw new Error("stderr differs#{mode}") unless shown is c.opts.stderr + '\n'
-  want = if c.verb is 'test' and c.args.length > 0 then printed(c.args[0]) + '\n' else (if c.opts.prints? then c.opts.prints + '\n' else null)
+  if c.err?
+    shown = r.err.split('\n').filter((l) -> not /^error: rig: the program was killed by signal \d+$/.test(l)).join('\n')
+    throw new Error("stderr differs#{mode}") unless shown is c.err
+  want = if c.out? then c.out else if c.verb is 'test' and c.args.length > 0 then printed(c.args[0]) + '\n' else (if c.opts.prints? then c.opts.prints + '\n' else null)
   if want? and r.out isnt want
     w = want.split('\n')
     g = r.out.split('\n')
     k = 0
     k++ while k < w.length and w[k] is g[k]
     throw new Error("output differs#{mode} at line #{k + 1}: expected #{JSON.stringify(w[k] ?? '')}, got #{JSON.stringify(g[k] ?? '')}")
+
+# A doc example `rig check` accepts.
+checkAccept = (c) ->
+  r = run([rig, 'check', c.path], {}, 120)
+  all = r.out + r.err
+  throw new Error('timed out') unless r.code?
+  return if r.code is 0
+  throw new Error("the compiler crashed: #{firstLine(all)}") if r.code > 128 or /panic:|reached unreachable|Segmentation fault/.test(all)
+  throw new Error("rejected: #{firstLine(all)}")
+
+# A doc example that is only parsed.
+checkParse = (c) ->
+  r = run([rig, 'parse', c.path], {}, 120)
+  throw new Error('timed out') unless r.code?
+  throw new Error("does not parse: #{firstLine(r.err)}") unless r.code is 0
+
+# A doc example whose facts, `rig check --facts`, are exactly its
+# ```facts block.
+checkFacts = (c) ->
+  r = run([rig, 'check', '--facts', c.path], {}, 120)
+  all = r.out + r.err
+  throw new Error('timed out') unless r.code?
+  throw new Error("rejected: #{firstLine(all)}") unless r.code is 0
+  throw new Error('facts differ from the facts block') unless all.replace(/\n+$/, '') + '\n' is c.out
+
+# A program the compiler proves a check of (or any, with `proofs-all`)
+# runs in debug, where each proven check is still made, as an assertion;
+# with --release; and with --release and RIG_NO_PROOFS=1, every check
+# made. All three print the same, exit the same, and panic the same.
+checkProofs = (c) ->
+  seconds = Number(c.opts.timeout)
+  facts = run([rig, 'check', '--facts=proofs', c.path], {}, seconds)
+  throw new Error('rig check timed out') unless facts.code?
+  return unless facts.code is 0
+  return if facts.out.trim() is '' and not c.every
+  out = join(work, 'proofs', new Bun.CryptoHasher('sha256').update(c.path).digest('hex').slice(0, 16))
+  first = null
+  for how in ['debug', 'release', 'plain']
+    env = { RIG_SANITIZE: '1', RIG_NO_CRASH_REPORT: '1', RIG_OUT_DIR: join(out, how) }
+    env.RIG_NO_PROOFS = '1' if how is 'plain'
+    r = run([rig, 'run', ...(if how is 'debug' then [] else ['--release']), c.path], env, seconds)
+    throw new Error("#{how}: timed out after #{seconds}s") unless r.code?
+    throw new Error("#{how}: did not run: #{firstLine(r.err)}") if r.code is 125 or r.err.includes('rig: the program did not run')
+    throw new Error("#{how}: a proven check failed") if r.err.includes('rig: a proven check failed')
+    m = r.err.match(/panic: .*/)
+    now = { how, code: r.code, out: r.out, panic: (if m then m[0] else 'no panic') }
+    unless first?
+      first = now
+      continue
+    throw new Error("#{how} exits #{now.code}, #{first.how} #{first.code}") unless now.code is first.code
+    throw new Error("#{how} prints other than #{first.how}") unless now.out is first.out
+    throw new Error("#{how}: #{now.panic}; #{first.how}: #{first.panic}") unless now.panic is first.panic
 
 # Bad input: `rig run` rejects it with a position, and never crashes.
 checkTorture = (c) ->
@@ -541,8 +765,7 @@ checkTorture = (c) ->
   throw new Error("rejected without a file:line:col diagnostic: #{firstLine(all)}") unless /\.rig:\d+:\d+/.test(all)
 
 # A script of test/cli: it passes when it exits 0. It runs in an empty
-# directory of its own, with RIG, ROOT, and RIG_OUT_DIR set, as
-# ./test/run runs it.
+# directory of its own, with RIG, ROOT, RIG_OUT_DIR, and RIG_TESTS set.
 checkScript = (c) ->
   # Its output directory stays between runs, as Zig's caches of the
   # programs it builds do; its working directory starts empty.
@@ -563,6 +786,15 @@ checkScript = (c) ->
 # decided functions (test/oracle/coverage).
 checkOracle = (c) ->
   r = run([join(root, 'bin', 'rig-oracle'), '--set', c.name, '--allow', 'test/oracle/differences', '--rejects', 'test/oracle/rejections', '--coverage', 'test/oracle/coverage', '--list', c.path], {}, Number(c.opts.timeout))
+  throw new Error('timed out') unless r.code?
+  unless r.code is 0
+    all = (r.out + r.err).split('\n')
+    throw new Error(all.find((l) -> /^(DIFF|FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+
+# The matrix's programs (test/matrix.py) under the reference checker,
+# held to the same lists.
+checkMatrix = (c) ->
+  r = run(['python3', join(root, 'test', 'matrix.py'), '--oracle'], {}, Number(c.opts.timeout))
   throw new Error('timed out') unless r.code?
   unless r.code is 0
     all = (r.out + r.err).split('\n')
@@ -599,6 +831,12 @@ perform = (task, ctx) ->
       when 'unit' then checkUnit(c)
       when 'oracle' then checkOracle(c)
       when 'lint' then checkLint(c)
+      when 'matrix' then checkMatrix(c)
+      when 'accept' then checkAccept(c)
+      when 'parse' then checkParse(c)
+      when 'facts' then checkFacts(c)
+      when 'proofs' then checkProofs(c)
+      when 'convention' then throw new Error("doc convention: #{c.opts.reason}")
       else checkRun(c)
   catch err
     failure = err
@@ -611,6 +849,13 @@ perform = (task, ctx) ->
   if c.opts?.known is 'true'
     return if failure?
     throw new Error("#{where}: a known bug no longer fails: remove `known: true`")
+  # A pending doc example states a rule decided but not built: it passes
+  # while it fails for want of the rule (rejected, accepted where it must
+  # be rejected, or printing something else), and fails the day it works.
+  if c.opts?.pending is 'true'
+    throw new Error("#{where}: the pending example now works: change ```rig pending to ```rig") unless failure?
+    return if /^(rejected|output differs|accepted \(|no diagnostic|expected \d+ error\(s\), got)/.test(failure.message)
+    throw new Error("#{where}: pending example: #{failure.message}")
   throw new Error("#{where}: #{failure.message}") if failure?
 
 swarm { setup, perform }

@@ -5,7 +5,7 @@
 //!   zig build parser       — generate src/parser.zig from rig.grammar via Nexus
 //!                            (every other step does this first; it is not tracked)
 //!   zig build run -- ...   — run bin/rig with args
-//!   zig build test         — run the Zig unit tests (./test/run runs these too)
+//!   zig build test         — run the Zig unit tests (test/rig.rip runs these too)
 //!   zig build oracle       — build bin/rig-oracle, the test suite's reference
 //!                            ownership checker (test/oracle/)
 //!
@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
     };
     // The compiler's own consistency checks (facts.check_units, sema's
     // binding-access check): on in a debug build, and wherever
-    // `-Dself-check=true` asks for them, as ./test/run does.
+    // `-Dself-check=true` asks for them, as test/rig.rip does.
     const self_check = b.option(bool, "self-check", "Run the compiler's own consistency checks (default: in debug builds)") orelse (optimize == .debug);
 
     // -----------------------------------------------------------------
@@ -90,7 +90,7 @@ pub fn build(b: *std.Build) void {
     });
     exe.step.dependOn(parser_gen);
 
-    // bin/rig in the checkout, where ./test/run and the docs expect it.
+    // bin/rig in the checkout, where test/rig.rip and the docs expect it.
     // Nothing goes to the install prefix, so no zig-out/ is made.
     const checkout_bin = b.addUpdateSourceFiles();
     checkout_bin.addCopyFileToSource(exe.getEmittedBin(), "bin/rig");

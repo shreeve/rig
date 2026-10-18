@@ -2,7 +2,7 @@
 
 Bad inputs that could plausibly crash the compiler.
 
-**Contract enforced by `test/run`**: for every `*.rig` file in this
+**Contract enforced by `test/rig.rip`**: for every `*.rig` file in this
 directory, `bin/rig run <file>` must exit non-zero with at least one
 `file:line:col` diagnostic, and must not crash (no signal, and none of
 `Segmentation fault`, `panic:`, `reached unreachable code`, `index out of

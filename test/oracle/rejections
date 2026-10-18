@@ -2,8 +2,8 @@
 # one a line:
 #
 #   <program> <function>
-# A program is its test path, a doc example's file and the checksum of
-# its text (doc/CORE/3641359913, as test/run names its output), or a
+# A program is its test path, a doc example's doc and a hash of its
+# text (doc/CORE/0f3c9a1b2d4e, as test/rig.rip names it), or a
 # matrix cell. The oracle's sets fail on a rejection not listed here
 # (UNLISTED) and on a listed function the oracle decides and no longer
 # rejects (LOST): a weaker reference checker shows, whatever the
@@ -325,59 +325,49 @@ cell.list_push.ternary run
 cell.write_held.call run
 cell.write_held.ctor run
 cell.write_held.move run
-doc/BEYOND-RUST/1016591654 get_and_add
-doc/BEYOND-RUST/3707937623 get_and_add
-doc/CORE/2024799561 main
-doc/CORE/66886843 main
-doc/CORE/2156986764 main
-doc/CORE/2438532286 main
-doc/CORE/262306878 main
-doc/CORE/1652697729 main
-doc/CORE/1844418493 main
-doc/CORE/3361952641 main
-doc/CORE/574900970 show
-doc/CORE/1494286010 main
-doc/CORE/3143210043 main
-doc/CORE/1554482471 pick
-doc/CORE/3565084399 main
-doc/CORE/3713229220 main
-doc/CORE/4128932284 main
-doc/CORE/1623032805 main
-doc/SPEC/1040995820 keep
-doc/SPEC/115450776 main
-doc/SPEC/3761951699 main
-doc/SPEC/1719082925 main
-doc/SPEC/685908142 main
-doc/SPEC/1961172340 keep
-doc/SPEC/357060511 main
-doc/SPEC/2230264097 keep
-doc/SPEC/86191133 main
-doc/SPEC/4067922064 main
-doc/SPEC/3687934557 main
-doc/SPEC/385648819 main
-doc/SPEC/1795220611 main
-doc/SPEC/1796458252 Scanner.number
-doc/SPEC/2814596663 Parser.step
-doc/SPEC/2844625505 main
-doc/SPEC/2966152045 make
-doc/SPEC/2997169906 main
-doc/SPEC/1926043251 local
-doc/SPEC/1926043251 main
-doc/SPEC/3447732714 main
-doc/SPEC/543281173 main
-doc/SPEC/436816579 main
-doc/SPEC/3641359913 main
-doc/SPEC/3752778851 first
-doc/SPEC/3933322529 main
-doc/SPEC/3950821439 main
-doc/SPEC/4183316461 main
-doc/SPEC/184557515 main
-doc/SPEC/4275476149 main
-doc/SPEC/3013343188 main
-doc/SPEC/4126780903 main
-doc/SPEC/1087455456 main
-doc/WELCOME/533534831 main
-doc/WELCOME/3847832144 main
+doc/BEYOND-RUST/d79ce98f5e7a get_and_add
+doc/CORE/c869095ccc51 main
+doc/CORE/57f23c583463 main
+doc/CORE/80b6a0a71e8a main
+doc/CORE/6febd040b2bd main
+doc/CORE/3145163c83ff main
+doc/CORE/7fd4cb3f1ac9 main
+doc/CORE/ee2342fcbe4a show
+doc/CORE/689bea0d1cef main
+doc/CORE/b1b6fbcac801 main
+doc/CORE/d251df077eee pick
+doc/CORE/b79d09dc3fc0 main
+doc/CORE/9706c95012fc main
+doc/SPEC/04dc002dec7e main
+doc/SPEC/130809a39003 main
+doc/SPEC/139ce610c32d main
+doc/SPEC/5d3748c13a79 main
+doc/SPEC/ef726ef0d8e0 keep
+doc/SPEC/056961638121 main
+doc/SPEC/af3c7aa74f75 main
+doc/SPEC/741bb9be7063 main
+doc/SPEC/5dde915751d9 main
+doc/SPEC/24f31618fa02 main
+doc/SPEC/74abe86394d5 Scanner.number
+doc/SPEC/536dd585853a Parser.step
+doc/SPEC/d9701d82208d main
+doc/SPEC/dfa907146602 make
+doc/SPEC/745b84c60a9d main
+doc/SPEC/dd39ebcb4575 local
+doc/SPEC/dd39ebcb4575 main
+doc/SPEC/a344f37f018b main
+doc/SPEC/80008abbdc08 main
+doc/SPEC/5a71096e0fea main
+doc/SPEC/2143979f62cf main
+doc/SPEC/0bfb5f961eed first
+doc/SPEC/e5e5a7782751 main
+doc/SPEC/64dcebfff8e9 main
+doc/SPEC/dfa26a1fe51c main
+doc/SPEC/e67517560478 main
+doc/SPEC/0d2b2f7ac401 main
+doc/SPEC/dde4938b3ca6 main
+doc/SPEC/3f113cf696b6 main
+doc/WELCOME/cc4366420141 main
 drop.arg_then_write.catch run
 drop.arg_then_write.destructure run
 drop.arg_then_write.destructure_branch run
@@ -4907,7 +4897,6 @@ list.write_held.call run
 list.write_held.clone run
 list.write_held.ctor run
 list.write_held.move run
-doc/SPEC/2197009321 keep
 test/reject/ownership/cell_mark_lends_the_handle.rig main
 test/corpus/review-cell-mark-1-p21_same_handle_twice.rig main
 test/corpus/review-cell-mark-1-p23_wv_holder_take.rig f
@@ -5038,12 +5027,12 @@ test/reject/ownership/owned_closure_callee_write_self.rig Checker.run_as
 test/reject/ownership/owned_closure_callee_write_self.rig Checker.run_view
 test/reject/ownership/owned_closure_result_views_env.rig main
 test/reject/ownership/owned_closure_stores_env_view.rig main
-doc/CORE/293868418 main
-doc/CORE/1109445535 main
-doc/CORE/1969971791 Binder.set_src
-doc/SPEC/2591928739 main
-doc/SPEC/761548706 main
-doc/SPEC/2733322368 main
+doc/CORE/df75b74aab6c main
+doc/CORE/620ee5af009f main
+doc/CORE/08bea4de4d42 Binder.set_src
+doc/SPEC/75c715adfdce main
+doc/SPEC/27b8e2c056e4 main
+doc/SPEC/018c07bd1110 main
 error.arg_then_write.destructure run
 error.arg_then_write.destructure_branch run
 error.arg_then_write.destructure_view run
