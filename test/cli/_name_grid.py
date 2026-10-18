@@ -4,7 +4,7 @@ Zig: a name Zig reserves (`var`, `fn`, `u8`, `null`), a name the
 emitter or Zig's standard library uses (`std`, `rig`, `panic`, `debug`,
 `os`, `std_options`, `__rig_x`), and `_`, at every place a name stands.
 
-  test/names/name_grid.py <rig> [--jobs N] [--keep DIR] [SITE...]
+  test/cli/_name_grid.py <rig> [--jobs N] [--keep DIR] [SITE...]
 
 Each site is one program with a block for every name, so a site builds
 once: its locals, parameters, captures, and bindings; an owned local

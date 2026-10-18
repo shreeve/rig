@@ -1576,7 +1576,7 @@ float 3.5
 eof at byte 5
 ```
 
-`test/json/compare.py` checks it against Python's `json` module on 10,511
-inputs, sanitizer-clean (`test/json/README.md`); the design and the
+`bench/json/check/compare.py` checks it against Python's `json` module on 10,511
+inputs, sanitizer-clean (`bench/json/check/README.md`); the design and the
 measurements are in [json/DESIGN.md](json/DESIGN.md) and
 [json/RESULTS.md](json/RESULTS.md).

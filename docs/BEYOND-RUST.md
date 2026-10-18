@@ -145,7 +145,7 @@ rule from several independent directions ([test/README](../test/README.md)):
   expression form (a name, a ternary, `o?`, `??`, a call, `<x`, ...) in
   each context (an argument, a binding, a receiver, a block's tail, a
   `match` subject, ...) for each kind of type.
-- **An equivalence check.** `test/equiv.py` runs two compilers over
+- **An equivalence check.** `tools/equiv.py` runs two compilers over
   every program and doc example and compares the parse tree, the
   semantic IR, the diagnostics, sema's facts, and the emitted Zig, so a
   refactor proves it changed nothing.

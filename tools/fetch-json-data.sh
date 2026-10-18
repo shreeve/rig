@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Fetch the third-party JSON files the `checker` and `corpus` groups of
-# `test/json/compare.py` reads (test/json/README.md) into test/json/data/,
-# which git ignores. Each file is pinned by the commit it comes from and
+# `bench/json/check/compare.py` reads (bench/json/check/README.md) into
+# bench/json/check/data/, which git ignores. Each file is pinned by the commit it comes from and
 # its sha256; a file that is present and matches is not fetched again,
 # and one that does not match after a fetch fails the script. The
-# sources and their licenses are in test/json/data/README.md.
+# sources and their licenses are in bench/json/check/data/README.md.
 #
 # Usage: tools/fetch-json-data.sh [-j N]       (N parallel downloads, default 8)
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-DEST="$ROOT/test/json/data"
+DEST="$ROOT/bench/json/check/data"
 JOBS=8
 if [[ ${1:-} == -j ]]; then JOBS=${2:?-j needs a number}; fi
 
@@ -20,7 +20,7 @@ SIMDJSON=https://raw.githubusercontent.com/simdjson/simdjson/7f6f8dca84c3c9129b8
 if command -v sha256sum >/dev/null; then sha() { sha256sum "$1" | cut -d' ' -f1; }
 else sha() { shasum -a 256 "$1" | cut -d' ' -f1; }; fi
 
-# fetch_one <sha256> <path under test/json/data/>
+# fetch_one <sha256> <path under bench/json/check/data/>
 fetch_one() {
     local want=$1 rel=$2 url file="$DEST/$2"
     case $rel in
@@ -205,4 +205,4 @@ LIST
 }
 
 MANIFEST | xargs -P "$JOBS" -L 1 bash -c 'fetch_one "$0" "$1"'
-echo "test/json/data: $(MANIFEST | wc -l | tr -d ' ') files present and verified"
+echo "bench/json/check/data: $(MANIFEST | wc -l | tr -d ' ') files present and verified"

@@ -5,7 +5,7 @@ in a bench-json --out dir: (instructions of N parses - instructions of 1)
 import os, re, subprocess, sys
 d, files, variants = sys.argv[1], sys.argv[2].split(","), sys.argv[3].split(",")
 n = int(sys.argv[4]) if len(sys.argv) > 4 else 21
-DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "test", "json", "data", "simd-json")
+DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "check", "data", "simd-json")
 def ins(f, v, k):
     p = subprocess.run(["/usr/bin/time", "-l", os.path.join(d, "%s-%s" % (f, v), "prog"), str(k)],
                        capture_output=True, text=True)

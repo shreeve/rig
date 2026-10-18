@@ -9,11 +9,11 @@ Every program reads one file, untimed, then parses it N times and prints
 
 ## Data
 
-The corpus files are the third-party ones `test/json/compare.py` reads. Fetch
-them once from the repository root:
+The corpus files are the third-party ones `bench/json/check/compare.py`
+reads. Fetch them once from the repository root:
 
 ```sh
-tools/fetch-json-data.sh        # into test/json/data/ (untracked)
+tools/fetch-json-data.sh        # into bench/json/check/data/ (untracked)
 ```
 
 ## Rig and Zig variants: `bench-json`

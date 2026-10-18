@@ -1,6 +1,6 @@
 # JSON tests
 
-`test/json/compare.py` checks `std.json` (`std/json.rig`) against
+`bench/json/check/compare.py` checks `std.json` (`std/json.rig`) against
 Python's `json` module, by hand, when `std.json` changes. Rig programs cannot
 read files yet, so the inputs become generated Rig programs
 (`driver.rig.tmpl`), each input one string literal in a table. Consecutive
@@ -14,12 +14,12 @@ bounds checks (the sanitizer's guard page lies past the `String`'s
 capacity, which is larger than the input).
 
 ```sh
-test/json/compare.py             # every input of every group (10,511), whole
-test/json/compare.py floats      # one group, whole
-test/json/compare.py cases scan  # some groups
-test/json/compare.py --subset    # a fixed, spread-out part of each group
-test/json/compare.py --only num- # cases whose name contains a string
-JSON=path/to/json.rig test/json/compare.py   # another parser, such as an experiment
+bench/json/check/compare.py              # every input of every group (10,511), whole
+bench/json/check/compare.py floats       # one group, whole
+bench/json/check/compare.py cases scan   # some groups
+bench/json/check/compare.py --subset     # a fixed, spread-out part of each group
+bench/json/check/compare.py --only num-  # cases whose name contains a string
+JSON=path/to/json.rig bench/json/check/compare.py  # another parser, such as an experiment
 ```
 
 `--subset` keeps about a tenth of the inputs, in every group, for a
@@ -28,7 +28,7 @@ quick run; with no option every input runs.
 ## Third-party data
 
 The `checker` and `corpus` groups read files from other projects.
-`tools/fetch-json-data.sh` downloads them into `test/json/data/`, which
+`tools/fetch-json-data.sh` downloads them into `bench/json/check/data/`, which
 git ignores, each pinned by commit and sha256; `data/README.md` says where
 they come from and under what license. The two groups read exactly the files the script
 pins, and a group with no cases fails. Without the data those two

@@ -30,7 +30,7 @@ only sizes what a feature would give.
     of the target, as the Rig operation would (`patches/_common.py`). On
     NEON that is `tbl` and `ext`; on x86 it is `pshufb` and `palignr`;
     elsewhere it falls back to portable lanes.
-- **Correctness.** Every variant timed here passes `test/json/compare.py`,
+- **Correctness.** Every variant timed here passes `bench/json/check/compare.py`,
   all 10,511 inputs with the sanitizer on (`optest.sh`).
   - On pup the tests are built optimized (`OP_MODE=-Osafe`). An x86
     Debug build uses Zig's own backend, where the patches take their

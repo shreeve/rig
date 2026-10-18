@@ -4418,7 +4418,7 @@ sentence implies. Its verdict per function is accept, reject, or none
 rejects, the suite fails: that may be a soundness hole, found when the
 program is checked rather than when it happens to touch freed memory.
 It sees the program's meaning, not the emitted Zig, so emit-side bugs
-stay with the sanitizer and `test/equiv.py`.
+stay with the sanitizer and `tools/equiv.py`.
 
 Beyond straight-line code it inlines each `defer` and `errdefer` body
 at every exit of its scope, after the values declared after it are

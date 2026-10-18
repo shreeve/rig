@@ -3,7 +3,7 @@
 
 usage: build.py OUT FILES VARIANTS [--dsym] [--fast]
 
-  FILES     comma-separated corpus files (test/json/data/simd-json/NAME.json)
+  FILES     comma-separated corpus files (bench/json/check/data/simd-json/NAME.json)
   VARIANTS  comma-separated; each is `base` or patch names joined by `+`
             (patches/NAME.py, each a `patch(json_zig) -> json_zig`), led
             optionally by `src:NAME`, a parser in src/NAME.rig
@@ -23,7 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, os.path.join(ROOT, "bench", "json"))
 RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
-DATA = os.path.join(ROOT, "test", "json", "data", "simd-json")
+DATA = os.path.join(ROOT, "bench", "json", "check", "data", "simd-json")
 
 
 def bench_json():

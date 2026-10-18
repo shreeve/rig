@@ -5,8 +5,8 @@ bin/
 .equiv-docs/
 __pycache__/
 src/parser.zig
-test/json/data/*
-!test/json/data/README.md
+bench/json/check/data/*
+!bench/json/check/data/README.md
 bench/json/zimdjson/upstream/
 bench/json/zimdjson/.zc/
 bench/json/zimdjson/.zgc/
