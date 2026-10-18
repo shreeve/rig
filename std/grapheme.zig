@@ -9,7 +9,7 @@
 //! (`State`, run as the table `Dfa` built from it); backward,
 //! `isBoundary` decides one position by the rules as UAX #29 writes them,
 //! looking left only as far as GB9c, GB11, GB12, and GB13 need. Both are checked against Unicode's GraphemeBreakTest.txt
-//! (test/behavior/std/text_chars_conformance.rig) and against each other
+//! (the case `text chars conformance` of test/rig/std-unicode-tables.rig.test) and against each other
 //! (the tests below). Text where an ASCII byte follows an ASCII byte breaks
 //! between them unless they are CR LF, so a run of ASCII is counted 32
 //! bytes at a time.

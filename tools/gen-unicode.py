@@ -45,7 +45,9 @@ PINNED = {
 }
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TABLES = os.path.join(ROOT, "std", "unicode_tables.zig")
-CENSUS = os.path.join(ROOT, "test", "behavior", "std", "unicode_ids_table.rig")
+# The generated tests are one test file of three cases, written through
+# tools/to-rig-test.py from the programs below.
+TESTS = os.path.join(ROOT, "test", "rig", "std-unicode-tables.rig.test")
 LIMIT = 0x110000
 
 
@@ -283,7 +285,6 @@ sub main()
 # ---- Chars: extended grapheme clusters (UAX #29) -------------------------
 
 GRAPHEME_TABLES = os.path.join(ROOT, "std", "grapheme_tables.zig")
-GRAPHEME_TEST = os.path.join(ROOT, "test", "behavior", "std", "text_chars_conformance.rig")
 
 # The grapheme classes, in the order of their numbers: each is a
 # Grapheme_Cluster_Break value, split where Extended_Pictographic (GB11) or
@@ -493,7 +494,6 @@ const blocks: [128][128]u8 = .{{
         index_rows=rows(index, 16, "%d"), block_rows=block_rows)
 
 
-GRAPHEME_CENSUS = os.path.join(ROOT, "test", "behavior", "std", "text_chars_table.rig")
 
 # The texts around a code point X whose char counts tell every grapheme
 # class apart: (the code points before X, those after X).
@@ -639,6 +639,32 @@ sub main()
 """.format(version=VERSION, calls=calls, count=len(tests))
 
 
+def tests_source(programs):
+    """The test file of the generated programs, `{name: source}`: each a
+    behavior test, converted by tools/to-rig-test.py as any test written
+    as a program of its own is."""
+    import importlib.util
+    import tempfile
+    spec = importlib.util.spec_from_file_location("to_rig_test", os.path.join(ROOT, "tools", "to-rig-test.py"))
+    conv = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(conv)
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = []
+        for name, source in programs.items():
+            path = os.path.join(tmp, "behavior", "std", name + ".rig")
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(source)
+            paths.append((path, None))
+        out = os.path.join(tmp, "out.rig.test")
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):
+            conv.write(out, "std.unicode and std.text: the tests tools/gen-unicode.py generates from the pinned Character Database. Regenerate this file; never edit it.", paths)
+        with open(out, encoding="utf-8", newline="") as f:
+            return f.read()
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--ucd", help="directory of the pinned UCD files")
@@ -649,10 +675,10 @@ def main():
         ucd_file(ucd, name)
     v = classes(ucd)
     g = grapheme_classes(ucd)
-    outputs = [(TABLES, tables_source(v)), (CENSUS, census_source(v)),
-               (GRAPHEME_TABLES, grapheme_tables_source(g)),
-               (GRAPHEME_TEST, grapheme_test_source(break_tests(ucd, g))),
-               (GRAPHEME_CENSUS, grapheme_census_source(g))]
+    outputs = [(TABLES, tables_source(v)), (GRAPHEME_TABLES, grapheme_tables_source(g)),
+               (TESTS, tests_source({"unicode_ids_table": census_source(v),
+                                     "text_chars_conformance": grapheme_test_source(break_tests(ucd, g)),
+                                     "text_chars_table": grapheme_census_source(g)}))]
     bad = False
     for path, text in outputs:
         if args.check:

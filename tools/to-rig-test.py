@@ -222,4 +222,5 @@ def main():
     write(sys.argv[1], sys.argv[2], [(p, None) for p in sys.argv[3:]])
 
 
-main()
+if __name__ == "__main__":
+    main()
