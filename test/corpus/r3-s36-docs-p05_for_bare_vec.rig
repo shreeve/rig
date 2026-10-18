@@ -1,6 +1,0 @@
-# Core sentence 1 vs SPEC §6 for: `for x in v` over a List binding is rejected
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  for x in v
-    print(x)

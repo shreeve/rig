@@ -1,4 +1,0 @@
-sub main()
-  b = ^String("x")
-  !b.add("y")
-  print(b)

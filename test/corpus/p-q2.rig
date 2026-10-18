@@ -1,8 +1,0 @@
-obj Note
-  title: String
-
-sub main()
-  n = Note(title: String("a"))
-  v = ?n.title[..]
-  !n.title.add("b")
-  print(v)

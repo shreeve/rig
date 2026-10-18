@@ -1,2 +1,0 @@
-pub fun order2(w: ?String) -> Endian?
-  Endian.from_text(w)

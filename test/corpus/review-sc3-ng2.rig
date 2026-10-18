@@ -1,9 +1,0 @@
-obj Res
-  id: Int
-
-  drop(!self)
-    print("drop", self.id)
-
-sub main()
-  a = Res(id: 1)
-  <a

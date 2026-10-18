@@ -1,5 +1,0 @@
-sub main()
-  x: String? = String("a")
-  r = ?x
-  f = |+r| r
-  print(f())

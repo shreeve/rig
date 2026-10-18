@@ -1,7 +1,0 @@
-fun main() -> Int
-  v: List[Int] = List()
-  !v.push(1)
-  x = <v
-  raw
-    print(1)
-  4

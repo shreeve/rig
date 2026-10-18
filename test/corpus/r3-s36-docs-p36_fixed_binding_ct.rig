@@ -1,7 +1,0 @@
-# Core §6 (`=!`): SPEC §16 uses a `=!` binding as a compile-time argument
-sub show[n: Int]()
-  print(n)
-
-sub main()
-  k =! 3
-  show[k]()

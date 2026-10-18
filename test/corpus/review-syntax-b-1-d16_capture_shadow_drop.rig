@@ -1,9 +1,0 @@
-sub main()
-  t = String("hi")
-  f = |+t|
-    print(t)
-    new t = String("local")
-    <t
-    print(1)
-  f()
-  print(t)

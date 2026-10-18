@@ -1,9 +1,0 @@
-sub f(r: ?String, h: *String)
-  s = r[1..]
-  <h
-  print(s)
-
-sub main()
-  a = *String("hello")
-  b = +a
-  f(?a, <b)

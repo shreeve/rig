@@ -1,5 +1,0 @@
-# C habit: `ok =! done` means `ok = !done` (not). Rig: a fixed binding of `done`.
-sub main()
-  done = false
-  ok =! done
-  print(ok)

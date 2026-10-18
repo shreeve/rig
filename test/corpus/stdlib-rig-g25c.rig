@@ -1,5 +1,0 @@
-extern sub exit(code: I32)
-
-sub main()
-  raw
-    exit(3)

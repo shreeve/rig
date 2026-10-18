@@ -1,8 +1,0 @@
-# SPEC §10 List: elements exclude owning values other than handles and boxes
-obj Row
-  cells: List[Int]
-
-sub main()
-  rows: List[List[Int]] = List()
-  recs: List[Row] = List()
-  print(rows.len, recs.len)

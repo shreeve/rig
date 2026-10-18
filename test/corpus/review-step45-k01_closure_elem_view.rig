@@ -1,8 +1,0 @@
-# a closure capturing an element view; push to the List, then call it
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  x = ?v[0]
-  f = |?x| print(x)
-  !v.push(String("b"))
-  f()

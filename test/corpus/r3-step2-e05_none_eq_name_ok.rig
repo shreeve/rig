@@ -1,8 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  a: List[Int]? = <v
-  if a != none
-    print("some")
-  if ?a as x
-    print(x[0])

@@ -1,8 +1,0 @@
-fun mv() -> List[Int]
-  v: List[Int] = List()
-  !v.push(1)
-  v
-
-sub main()
-  for x in mv()
-    print(x)

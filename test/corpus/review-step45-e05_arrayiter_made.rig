@@ -1,6 +1,0 @@
-# loop over a made array of owners (no storage)
-sub main()
-  for x in [String("a"), String("b")]
-    print(x)
-  for b in [^1, ^2]
-    print(b)

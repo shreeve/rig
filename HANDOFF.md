@@ -103,7 +103,7 @@ from).
   - The cross-project Zig guide is `~/Data/Code/zig/docs/ZIG-0.17.md`.
 - **Health:** the last full run was green on `main`: the
   full suite (`swarm test/rig.rip all`, with the doc examples, their
-  pending examples the planned Core rules), the corpus, `test/matrix.py`, the unit tests, and the oracle
+  pending examples the planned Core rules), `test/matrix.py`, the unit tests, and the oracle
   floors in `test/oracle/coverage`. No case is marked `known: true`: no
   bug is open.
 
@@ -225,7 +225,7 @@ These belong to the design owner; `.git/revamp/r3/rig-questions.md`
 ## Weak spots
 
 Reviewers keep finding problems in these areas. Change them carefully,
-and run the corpus after.
+and run the suite after.
 
 - **Statement temporaries** (Core §3). A header whose subject makes a
   temporary and reaches a place outside it binds the place's own: emit
@@ -302,8 +302,9 @@ and run the corpus after.
   anything (`print(gfirst(!v).n, v.len)` is rejected); per-instance
   origins are a later refinement.
 - **Review findings not fixed:**
-  - Over-rejections main has too (review of B4b part 2, probes
-    `test/corpus/review-b4b-2-p22`, `p24`, `p25`, `p43`): a payload
+  - Over-rejections main has too (review of B4b part 2, the cases
+    `review-b4b-2-p22`, `p24`, `p25`, and `p43` of
+    test/rig/probes-18.rig.test): a payload
     view pushed into a List inside a `for` stays rooted on the loop
     binding; a view returned from a `match` nested on an outer payload
     binding (`match r.i` in `.a(r)`) is rooted on that binding; and a

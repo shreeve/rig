@@ -1,6 +1,0 @@
-fun mk() -> String
-  String("a")
-
-sub main()
-  t = String("a")
-  print(t == mk(), mk() == t, t == t)

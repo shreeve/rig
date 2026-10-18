@@ -1,5 +1,0 @@
-# An owned closure capturing a literal String (static on main).
-sub main()
-  name = "rig"
-  f = *|+name| print("hi", name)
-  f()

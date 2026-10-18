@@ -222,13 +222,14 @@ its own, where such a test was kept before test files held them:
 `<name>/main.rig`), under `.zig-cache/rig-tests/tree`. The scripts of
 `test/cli` read them there (`$RIG_TESTS`), the compiler's unit test of
 emit's unit order reads the `emit` and `proofs` programs there, and the
-oracle (`test/oracle`) reads them by those names: its `tests` set, with
-the examples, its `corpus` set, its `docs` set (every doc example but
-fragments, each named by its doc and a hash of its text, so an edit that
-only moves it keeps its name in `test/oracle/rejections`), its `matrix`
-set (`test/matrix.py --oracle`), and its `lint` check are jobs of the
-core. A `fail` case whose diagnostic suggests a lend of a place as a
-path's base also has each hint checked (`test/hints.py`).
+oracle (`test/oracle`) reads them by those names: its `tests` set (the
+probes of past reviews among them), with the examples, its `docs` set
+(every doc example but fragments, each named by its doc and a hash of
+its text, so an edit that only moves it keeps its name in
+`test/oracle/rejections`), its `matrix` set (`test/matrix.py --oracle`),
+and its `lint` check are jobs of the core. A `fail` case whose
+diagnostic suggests a lend of a place as a path's base also has each
+hint checked (`test/hints.py`).
 
 ## Why
 

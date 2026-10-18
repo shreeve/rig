@@ -1,8 +1,0 @@
-obj Node
-  id: Int
-
-sub main()
-  a: List[*Node?] = List()
-  b: List[^Node?] = List()
-  c: List[List[Int]] = List()
-  d: List[(*Node)?] = List()

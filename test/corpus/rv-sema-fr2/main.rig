@@ -1,8 +1,0 @@
-use util
-
-enum E
-  a = util.Byte.max
-  b = util.Byte.min
-
-sub main()
-  print(Int(E.a), Int(E.b))

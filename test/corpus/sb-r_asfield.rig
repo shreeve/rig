@@ -1,9 +1,0 @@
-obj View
-  xs: []Int
-
-sub main()
-  a = [1, 2]
-  w = !a[..]
-  v = View(xs: w)
-  w[0] = 5
-  print(v.xs)

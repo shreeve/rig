@@ -1,7 +1,0 @@
-sub main()
-  a = 1
-  v: List[?Int] = List()
-  !v.push(?a)
-  w = <v
-  a = 2
-  print(w)

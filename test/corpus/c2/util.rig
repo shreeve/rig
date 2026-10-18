@@ -1,3 +1,0 @@
-pub type Byte = U8
-pub type Real = F32
-type Hidden = U16

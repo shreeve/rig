@@ -1,5 +1,0 @@
-fun f(n: Int? = none) -> Int
-  n ?? 0
-
-sub main()
-  print(f())

@@ -1,9 +1,0 @@
-obj B
-  n: Int
-  drop(!self)
-    print("drop", self.n)
-
-sub main()
-  v: List[*B] = List()
-  !v.push(*B(n: 1))
-  print(v[0].n)

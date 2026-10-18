@@ -1,6 +1,0 @@
-sub main()
-  t = String("abc")
-  u = String("abc")
-  b = ^<t
-  c = ^<u
-  print(b == c, b.len == 3)

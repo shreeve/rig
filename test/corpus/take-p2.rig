@@ -1,8 +1,0 @@
-sub main()
-  v: List[Int?] = List()
-  !v.push(5)
-  a = <v[0]
-  print(a, v)
-  arr: [2]Int? = [1, 2]
-  b = <arr[1]
-  print(b, arr)

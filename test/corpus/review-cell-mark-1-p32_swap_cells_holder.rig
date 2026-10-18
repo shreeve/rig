@@ -1,8 +1,0 @@
-obj H
-  log: Cell[List[Int]]
-
-sub main()
-  a = *H(log: Cell(List()))
-  b = *H(log: Cell(List()))
-  swap(!a.log, !b.log)
-  print(a.log.len)

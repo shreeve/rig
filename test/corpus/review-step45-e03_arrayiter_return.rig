@@ -1,9 +1,0 @@
-# early return from inside the consuming loop
-fun find(a: [3]String) -> String
-  for x in <a
-    if x == "b"
-      return <x
-  String("none")
-
-sub main()
-  print(find([String("a"), String("b"), String("c")]))

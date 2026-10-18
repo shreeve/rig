@@ -1,5 +1,0 @@
-sub f(Endian: Int)
-  print(Endian)
-
-sub main()
-  f(1)

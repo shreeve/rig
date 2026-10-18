@@ -1,8 +1,0 @@
-sub main()
-  a: List[Int] = List()
-  r = ?a
-  for i in 0..2
-    b: List[Int] = List()
-    !b.push(i)
-    r = ?b
-  print(r.len)

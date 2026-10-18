@@ -19,7 +19,7 @@ source "$ROOT/test/cli/_lib.sh"
 
 # The probes of the review that found the class.
 for p in budget_proven_adds_plain_fn:26 budget_runtime_inline_helpers:0 regress_ct_instance_proven_adds:0; do
-    f=$ROOT/test/corpus/rev154-${p%%:*}.rig
+    f=$ROOT/test/cli/fixtures/${p%%:*}.rig
     cp "$f" "${p%%:*}.rig"
     out=$(rig run "${p%%:*}.rig" 2>&1) || fail "debug ${p%%:*}: $out"
     expect_eq "$out" "${p##*:}" "debug ${p%%:*}"

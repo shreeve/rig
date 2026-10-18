@@ -1,4 +1,0 @@
-sub main()
-  b = ^String("hello")
-  !b.add("!")
-  print(b)

@@ -1,5 +1,0 @@
-sub main()
-  a = [1, 2]
-  b = [3]
-  xs = [?a[..], ?b[..]]
-  print(xs[0].len + xs[1].len)

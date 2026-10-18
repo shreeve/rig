@@ -1,9 +1,0 @@
-obj H
-  c: *Cell[Int]
-
-sub main()
-  v: List[H] = List()
-  !v.push(H(c: *Cell(value: 1)))
-  !v.push(H(c: *Cell(value: 2)))
-  !v.swap(0, 1)
-  print(v[0].c.get())

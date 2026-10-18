@@ -1,9 +1,0 @@
-enum E
-  a
-  b
-
-sub main()
-  e: E = .a
-  match e
-    .a => print(1)
-    .b => pass

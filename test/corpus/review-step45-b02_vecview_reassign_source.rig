@@ -1,7 +1,0 @@
-# List of views; reassign the source Text (drops old buffer)
-sub main()
-  t = String("hello")
-  v: List[?String] = List()
-  !v.push(?t)
-  t = String("world")
-  print(v)

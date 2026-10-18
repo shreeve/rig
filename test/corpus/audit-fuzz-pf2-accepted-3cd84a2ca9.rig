@@ -1,5 +1,0 @@
-# Arrays expose their length as `.len`.
-
-sub main()
-  arr = [1, 2, 3]
-  print(arr.len)

@@ -1,0 +1,4016 @@
+# Probes from past reviews and audits, 15 of 41: r3-s36-reads-x05_qtext_param_reads to rev210-i06_param_chain.
+
+use std.utf16
+use std.utf8
+
+test "r3-s36-reads-x05 qtext param reads", "he hello"
+  fun head(t: ?String) -> ?String
+    t[0..2]
+
+  fun whole(t: ?String) -> ?String
+    t
+
+  t = String("hello")
+  print(head(?t), whole(?t))
+
+fail "r3-s36-reads-x05b qtext param for", "`b` is bound but never read; name it `_` to ignore the value"
+  fun loopit(t: ?String) -> Int
+    n = 0
+    for b in t
+      n += 1
+    n
+
+  t = String("hello")
+  print(loopit(?t))
+
+test "r3-s36-reads-x08 boxtext string", '''
+  h
+  el
+  true
+'''
+  fun first(s: ?String) -> ?String
+    s[..1]
+
+  b = ^String("hello")
+  print(first(?b))
+  print(b[1..3])
+  print(b == "hello")
+
+test "r3-s36-reads-x09 boxtext add", "hello!"
+  b = ^String("hello")
+  !b.add("!")
+  print(b)
+
+test "r3-s36-reads-x10 handletext string", "h"
+  fun first(s: ?String) -> ?String
+    s[..1]
+
+  h = *String("hello")
+  print(first(?h))
+
+test "r3-s36-reads-x12 qtext local bare", '''
+  h
+  5
+'''
+  fun first(s: ?String) -> ?String
+    s[..1]
+
+  t = String("hello")
+  r = ?t
+  print(first(r))
+  print(r.len)
+
+test "r3-s36-reads-x13 text temp bind", '''
+  3 true
+  x1
+'''
+  fun mk() -> String
+    String("abc")
+
+  n = mk().len
+  print(n, mk() == "abc")
+  print(String("x", 1))
+
+test "r3-s45-b-b01", '''
+  drop 0
+  1
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  i = 0
+  x = while i < 3
+    r = R(n: i)
+    i += 1
+    if i == 2
+      break r
+  else
+    R(n: 99)
+  print(x.n)
+
+test "r3-s45-b-b02", '''
+  drop 2
+  1
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[R] = List()
+  !v.push(R(n: 1))
+  !v.push(R(n: 2))
+  x = for r in <v
+    break r if r.n == 1
+  else
+    R(n: 0)
+  print(x.n)
+
+fail "r3-s45-b-b03", "use of `r` after move"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  i = 0
+  x = while i < 3
+    r = R(n: i)
+    defer print("defer", r.n)
+    i += 1
+    if i == 2
+      break r
+  else
+    R(n: 99)
+  print(x.n)
+
+test "r3-s45-b-b04", '''
+  drop 0
+  drop 7
+  1
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  i = 0
+  x = while i < 3
+    r = R(n: i)
+    i += 1
+    if i == 2
+      s = R(n: 7)
+      break r
+  else
+    R(n: 99)
+  print(x.n)
+
+test "r3-s45-c-c01", '''
+  1 2
+  x x
+  n [3] n! [3, 4] 5 ob
+  [["q"]] [["qz"]] ["q"]
+  3
+  ["a1", "a2"]
+  [1]
+'''
+  obj H
+    name: String
+    tags: List[Int]
+    h: *Int
+    o: ^String?
+
+  enum E
+    a(t: String)
+    b(n: Int)
+    c
+
+  v: List[Int] = List()
+  !v.push(1)
+  w = +v
+  !w.push(2)
+  print(v.len, w.len)
+  b = ^String("x")
+  c = +b
+  print(b, c)
+  h = H(name: String("n"), tags: List(), h: *5, o: ^String("ob"))
+  !h.tags.push(3)
+  g = +h
+  !g.tags.push(4)
+  !g.name.add("!")
+  print(h.name, h.tags, g.name, g.tags, g.h, g.o)
+  vs: List[List[String]] = List()
+  row: List[String] = List()
+  !row.push(String("q"))
+  !vs.push(<row)
+  ws = +vs
+  !ws[0][0].add("z")
+  print(vs, ws, +vs[0])
+  es: List[E] = List()
+  !es.push(E.a(t: String("ea")))
+  !es.push(E.b(n: 2))
+  !es.push(.c)
+  fs = +es
+  print(fs.len)
+  arr = [String("a1"), String("a2")]
+  arr2 = +arr
+  print(arr2)
+  r = ?v
+  print(+r)
+
+test "r3-s45-c-c04 recursive", "3 3"
+  enum Tree
+    leaf(n: Int)
+    node(l: ^Tree, r: ^Tree)
+
+  fun sum(t: ?Tree) -> Int
+    match t
+      .leaf(n) => n
+      .node(l, r) => sum(l) + sum(r)
+
+  t = Tree.node(l: ^Tree.leaf(n: 1), r: ^Tree.leaf(n: 2))
+  u = +t
+  print(sum(?t), sum(?u))
+
+test "r3-s45-c-c08 signal", "x"
+  obj S
+    sig: *Signal[Int]
+    t: String
+
+  s = S(sig: *Signal(1), t: String("x"))
+  u = +s
+  print(u.t)
+
+fail "r3-s45-r-r11 write two", "cannot lend `v` to write while a write loan is live"
+  sub both(a: !String, b: !String)
+    !a.add("1")
+    !b.add("2")
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  both(!v[0], !v[1])
+  print(v)
+
+test "r3-s45-r-r12 assign realloc", '''
+  ["new", "x", "y", "z", "w", "q"]
+'''
+  fun grow(v: !List[String]) -> String
+    !v.push(String("x"))
+    !v.push(String("y"))
+    !v.push(String("z"))
+    !v.push(String("w"))
+    !v.push(String("q"))
+    String("new")
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  v[0] = grow(!v)
+  print(v)
+
+test "r3-s45-r-r14 drop once", '''
+  drop 1
+  after
+  drop 5
+  end
+  drop 6
+  drop 4
+  drop 2
+  drop 3
+'''
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[D] = List()
+  !v.push(D(n: 1))
+  !v.push(D(n: 2))
+  v[0] = D(n: 3)
+  print("after")
+  a = [D(n: 4), D(n: 5)]
+  a[1] = D(n: 6)
+  print("end")
+
+test "r3-s45-r-r17 match elem", '''
+  hi
+  2
+'''
+  enum E
+    a(t: String)
+    b
+
+  v: List[E] = List()
+  !v.push(E.a(String("hi")))
+  match v[0]
+    .a(t) => print(t)
+    .b => print("b")
+  !v.push(.b)
+  print(v.len)
+
+test "r3-s45-r-r18 swap vec", '''
+  ["b", "a"]
+  ["y", "x"]
+'''
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  !v.swap(0, 1)
+  print(v)
+  a = [String("x"), String("y")]
+  !a.swap(0, 1)
+  print(a)
+
+test "r3-s45-r-r19 return view elem", "a"
+  fun firstof(v: ?List[String]) -> ?String
+    ?v[0]
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  s = firstof(?v)
+  print(s)
+
+fail "r3-s45-r-r20 elem of temp", "`mk()[0]` owns a `String`, which can't be copied by `=`: write `+mk()[0]` to clone it or `?mk()[0]` to view it"
+  fun mk() -> List[String]
+    v: List[String] = List()
+    !v.push(String("a"))
+    v
+
+  print(mk()[0])
+  x = mk()[0]
+  print(x)
+
+test "r3-s45-r-r22 eq elems", "true"
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("a"))
+  print(v[0] == v[1])
+
+test "r3-s45-r-r23 nested write", '''
+  [["q!"]]
+  [["r"]] 1
+'''
+  m: List[List[String]] = List()
+  row: List[String] = List()
+  !m.push(<row)
+  !m[0].push(String("q"))
+  !m[0][0].add("!")
+  print(m)
+  m[0][0] = String("r")
+  print(m, m[0][0].len)
+
+test "r3-s45-r-r24 for move array keep", '''
+  ["a", "b"]
+'''
+  a = [String("a"), String("b")]
+  keep: List[String] = List()
+  for t in <a
+    !keep.push(<t)
+  print(keep)
+
+test "r3-s45-r-r25 for made array keep", '''
+  ["a", "b"]
+'''
+  fun mk() -> [2]String
+    [String("a"), String("b")]
+
+  keep: List[String] = List()
+  for t in mk()
+    !keep.push(<t)
+  print(keep)
+
+test "r3-s45-r-r26 for made array read", '''
+  a
+  b
+  c
+'''
+  fun mk() -> [2]String
+    [String("a"), String("b")]
+
+  for t in mk()
+    print(t)
+  for t in [String("c")]
+    print(t)
+
+test "r3-s45-r-s01 for elem vec", '''
+  a
+  [["a!"]]
+'''
+  m: List[List[String]] = List()
+  row: List[String] = List()
+  !row.push(String("a"))
+  !m.push(<row)
+  for t in m[0]
+    print(t)
+  for t in !m[0]
+    !t.add("!")
+  print(m)
+
+test "r3-s45-r-s02 ifas elem", '''
+  a
+  none
+'''
+  v: List[String?] = List()
+  !v.push(String("a"))
+  !v.push(none)
+  if v[0] as t
+    print(t)
+  if v[1] as t
+    print(t)
+  else
+    print("none")
+
+fail "r3-s45-r-s03 write and vec", "cannot lend `v` to write while a write loan is live"
+  sub f(a: !String, v: !List[String])
+    !v.push(String("x"))
+    !a.add("y")
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  f(!v[0], !v)
+
+fail "r3-s45-r-s07 print grow", "cannot lend `v` to write while an earlier argument's read of it is in use"
+  fun grow(v: !List[String]) -> Int
+    !v.push(String("z"))
+    1
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  print(v[0], grow(!v))
+
+test "r3-s45-r-s08 clone elem", '''
+  ["a"] ab
+'''
+  v: List[String] = List()
+  !v.push(String("a"))
+  c = +v[0]
+  !c.add("b")
+  print(v, c)
+
+fail "r3-s45-r-s11 elem field lend push", "cannot lend `v` to write while a read loan is live"
+  obj R
+    name: String
+
+  v: List[R] = List()
+  !v.push(R(name: String("a")))
+  s = ?v[0].name
+  !v.push(R(name: String("b")))
+  print(s)
+
+test "r3-s45-r-s12 match payload escape", "hi"
+  enum E
+    a(t: String)
+    b
+
+  fun pick(v: ?List[E]) -> ?String
+    match v[0]
+      .a(t) => ?t
+      .b => "b"
+
+  v: List[E] = List()
+  !v.push(E.a(String("hi")))
+  print(pick(?v))
+
+fail "r3-s45-r-s13 array assign lent", "cannot assign to `a[1]` while `a` is lent"
+  a = [String("x"), String("y")]
+  r = ?a[0]
+  a[1] = String("z")
+  print(r, a)
+
+test "r3-s45-r-s14 array elem move opt", '''
+  x
+  [none, none]
+'''
+  a: [2]String? = [String("x"), none]
+  if <a[0] as t
+    print(t)
+  print(a)
+
+fail "r3-s45-r-s16 handle elems", "`v[0]` is a `*P` handle, which can't be copied by `=`: write `+v[0]` for another handle or `?v[0]` to view it"
+  obj P
+    n: Int
+
+  v: List[*P] = List()
+  !v.push(*P(n: 1))
+  h = +v[0]
+  print(h.n, v[0].n)
+  x = v[0]
+
+fail "r3-s45-r-s17 shared into elem alias", "use of `v` while a write loan is live"
+  v: List[List[Int]] = List()
+  w: List[Int] = List()
+  !v.push(<w)
+  r = !v[0]
+  !r.push(1)
+  !v.push(List())
+  !r.push(2)
+
+test "r3-s45-v-t4", "5 6"
+  a = 1
+  b = 2
+  v: List[?Int] = List()
+  !v.push(?a)
+  !v.push(?b)
+  <v
+  a = 5
+  b = 6
+  print(a, b)
+
+test "r3-s45-v-v03 read elems", '''
+  3 [1, 2]
+  1
+  2
+  5
+'''
+  a = 1
+  b = 2
+  v: List[?Int] = List()
+  !v.push(?a)
+  !v.push(?b)
+  print(v[0] + v[1], v)
+  for x in v
+    print(x)
+  <v
+  a = 5
+  print(a)
+
+fail "r3-s45-v-v05 struct vec views", "cannot reassign `a` while it is lent"
+  obj Bag
+    items: List[?Int]
+
+  a = 1
+  bag = Bag(items: List())
+  !bag.items.push(?a)
+  a = 3
+  print(bag.items.len)
+
+fail "r3-s45-v-v07 param store", "cannot reassign `a` while it is lent"
+  sub keep(v: !List[?Int], x: ?Int) keeps x
+    !v.push(x)
+
+  a = 1
+  v: List[?Int] = List()
+  keep(!v, ?a)
+  a = 2
+  print(v.len)
+
+test "r3-s45-v-v08 param store ok", '''
+  1
+  2
+'''
+  sub keep(v: !List[?Int], x: ?Int) keeps x
+    !v.push(x)
+
+  a = 1
+  v: List[?Int] = List()
+  keep(!v, ?a)
+  print(v[0])
+  <v
+  a = 2
+  print(a)
+
+test "r3-s45-v-v14 slices in vec", "[[1, 2], [2, 3]]"
+  a = [1, 2, 3]
+  v: List[[]Int] = List()
+  !v.push(?a[..2])
+  !v.push(?a[1..])
+  print(v)
+  a[0] = 9
+
+fail "r3-s45-v-v15 strings text", "cannot lend `t` to write while a read loan is live"
+  t = String("hello")
+  v: List[?String] = List()
+  !v.push(?t[..2])
+  !t.add("!")
+  print(v)
+
+fail "r3-s45-v-v16 vec of view struct", "cannot reassign `a` while it is lent"
+  obj View
+    n: ?Int
+
+  a = 1
+  v: List[View] = List()
+  !v.push(View(n: ?a))
+  a = 2
+  print(v.len)
+
+fail "r3-s45-v-v18 temp view", "a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first"
+  fun mk() -> Int
+    3
+
+  v: List[?Int] = List()
+  !v.push(?mk())
+  print(v)
+
+fail "r3-s45-v-v19 view of vec elem push", "cannot lend `a` to write while a read loan is live"
+  a: List[Int] = List()
+  !a.push(1)
+  v: List[?Int] = List()
+  !v.push(?a[0])
+  !a.push(2)
+  print(v)
+
+fail "r3-s45-v-v21 loop local", "`x` does not live long enough"
+  v: List[?Int] = List()
+  for i in 0..3
+    x = i
+    !v.push(?x)
+  print(v)
+
+fail "r3-s45-v-v22 insert view", "cannot reassign `a` while it is lent"
+  a = 1
+  v: List[?Int] = List()
+  !v.insert(0, ?a)
+  a = 3
+  print(v)
+
+fail "r3-s45-v-v23 assign view elem", "cannot reassign `b` while it is lent"
+  a = 1
+  b = 2
+  v: List[?Int] = List()
+  !v.push(?a)
+  v[0] = ?b
+  b = 3
+  print(v)
+
+test "r3-s45-v-v24 assign view elem ok", '''
+  [2]
+  5 6
+'''
+  a = 1
+  b = 2
+  v: List[?Int] = List()
+  !v.push(?a)
+  v[0] = ?b
+  print(v)
+  <v
+  a = 5
+  b = 6
+  print(a, b)
+
+fail "r3-s45-v-v26 inner scope", "`x` does not live long enough"
+  v: List[?Int] = List()
+  if true
+    x = 5
+    !v.push(?x)
+  print(v)
+
+test "r3-s45-v-v27 vec view param return", "[1, 2]"
+  fun firsts(a: ?Int, b: ?Int) -> List[?Int]
+    v: List[?Int] = List()
+    !v.push(a)
+    !v.push(b)
+    v
+
+  x = 1
+  y = 2
+  v = firsts(?x, ?y)
+  print(v)
+  x = 3
+
+fail "r3-s45-v-v28 vec view moved", "cannot reassign `a` while it is lent"
+  a = 1
+  v: List[?Int] = List()
+  !v.push(?a)
+  w = <v
+  a = 2
+  print(w)
+
+fail "r3-s45-v-v29 pop view keeps loan", "cannot reassign `a` while it is lent"
+  a = 1
+  v: List[?Int] = List()
+  !v.push(?a)
+  r = (!v).pop()
+  <v
+  a = 2
+  print(r)
+
+test "r3-s45-w-a1", '''
+  2 ["a", "b"]
+  1
+  1
+  [1, 2]
+  a
+  b
+  1
+  2
+  b
+  ["a"]
+'''
+  obj Rec
+    name: String
+    n: Int
+
+  v: List[String] = List()
+  t = String("a")
+  !v.push(<t)
+  !v.push(String("b"))
+  print(v.len, v)
+  rows: List[List[Int]] = List()
+  r: List[Int] = List()
+  !r.push(5)
+  !rows.push(<r)
+  print(rows.len)
+  rs: List[Rec] = List()
+  !rs.push(Rec(name: String("x"), n: 1))
+  print(rs.len)
+  bs = [^1, ^2]
+  print(bs)
+  for x in v
+    print(x)
+  for b in bs
+    print(b)
+  if (!v).pop() as last
+    print(last)
+  print(v)
+
+test "r3-s45-w-a2", '''
+  x
+  y
+  [3, 4]
+  2
+'''
+  a = [String("x"), String("y")]
+  for t in <a
+    print(t)
+  b = [^3, ^4]
+  c = <b
+  print(c)
+  s = ?c[..]
+  print(s.len)
+
+fail "r3-s45-w-core558", "`rows[0]` owns a `List[Int]`, which can't be copied by `=`: write `+rows[0]` to clone it or `?rows[0]` to view it"
+  rows: List[List[Int]] = List()
+  r: List[Int] = List()
+  !r.push(5)
+  !rows.push(<r)
+  print(rows.len, rows[0].len)
+  x = rows[0]
+
+test "r3-s45-w-e1", '''
+  1 1
+  [5, 6] 2 2
+  [[]]
+  ab 2
+  ["zz"]
+  y 4
+  o
+  [none]
+'''
+  obj Rec
+    name: String
+    n: Int
+
+  fun size(v: ?List[Int]) -> Int
+    v.len
+
+  rows: List[List[Int]] = List()
+  r: List[Int] = List()
+  !r.push(5)
+  !rows.push(<r)
+  print(rows.len, rows[0].len)
+  !rows[0].push(6)
+  print(rows[0], size(?rows[0]), size(rows[0]))
+  q: List[Int] = List()
+  rows[0] = <q
+  print(rows)
+  ts: List[String] = List()
+  !ts.push(String("a"))
+  !ts[0].add("b")
+  print(ts[0], ts[0].len)
+  ts[0] = String("zz")
+  print(ts)
+  rs: List[Rec] = List()
+  !rs.push(Rec(name: String("x"), n: 1))
+  rs[0].n = 4
+  rs[0].name = String("y")
+  print(rs[0].name, rs[0].n)
+  os: List[String?] = List()
+  !os.push(String("o"))
+  if <os[0] as t
+    print(t)
+  print(os)
+
+fail "r3-step2-b02 print match names", "`a` owns a `List[Int]`, which can't be copied by `=`: write `<a` to move it, `+a` to clone it, or `?a` to view it"
+  a: List[Int] = List()
+  b: List[Int] = List()
+  !a.push(1)
+  k = 1
+  x = match k
+    1 => a
+    _ => b
+  print(x.len)
+
+test "r3-step2-b03 print inline names", '''
+  1
+  1
+'''
+  a: List[Int] = List()
+  b: List[Int] = List()
+  !a.push(1)
+  c = true
+  print((a if c else b).len)
+  print(a[0])
+
+test "r3-step2-c01 clone ternary text", "x x"
+  a = String("x")
+  b = String("y")
+  c = true
+  d = +(a if c else b)
+  print(d, a)
+
+test "r3-step2-e05 none eq name ok", '''
+  some
+  1
+'''
+  v: List[Int] = List()
+  !v.push(1)
+  a: List[Int]? = <v
+  if a != none
+    print("some")
+  if ?a as x
+    print(x[0])
+
+test "r3-step2-e07 variant eq call ok", "line"
+  enum Shape
+    dot
+    line(v: List[Int])
+
+  fun mk() -> Shape
+    p: List[Int] = List()
+    !p.push(1)
+    .line(v: <p)
+
+  if mk() != .dot
+    print("line")
+
+test "r3-step2-m02 match temp field binding", "1"
+  enum Shape
+    dot
+    line(v: List[Int])
+
+  obj H
+    s: Shape
+
+  fun mk() -> H
+    p: List[Int] = List()
+    !p.push(1)
+    H(s: .line(v: <p))
+
+  match mk().s
+    .line(v) => print(v[0])
+    .dot => print("dot")
+
+fail "r3-step2-r05 consume nullish recv", "`o` owns a `Bag?`, which can't be copied into an argument: write `<o` to move it or `+o` to pass a clone"
+  obj Bag
+    items: List[Int]
+
+    fun total(<self) -> Int
+      self.items.len
+
+  b = Bag(items: List())
+  !b.items.push(3)
+  o: Bag? = <b
+  d = Bag(items: List())
+  print((o ?? d).total())
+  if ?o as x
+    print(x.items[0])
+
+test "r3-step2-r08 consume ternary moved ok", "1"
+  obj Bag
+    items: List[Int]
+
+    fun total(<self) -> Int
+      self.items.len
+
+  a = Bag(items: List())
+  b = Bag(items: List())
+  !a.items.push(1)
+  c = true
+  print((<a if c else <b).total())
+
+test "r3-step2-r09 read recv mixed", '''
+  2
+  1
+  2
+'''
+  obj Bag
+    items: List[Int]
+
+    fun total(?self) -> Int
+      self.items.len
+
+  fun mk() -> Bag
+    b = Bag(items: List())
+    !b.items.push(7)
+    b
+
+  a = Bag(items: List())
+  !a.items.push(1)
+  !a.items.push(2)
+  for i in 0..2
+    c = i == 0
+    print((a if c else mk()).total())
+  print(a.items[1])
+
+test "r3-step2-r10 read recv mixed index", '''
+  1
+  7
+  2
+'''
+  obj Bag
+    items: List[Int]
+
+    fun at(?self, i: Int) -> Int
+      self.items[i]
+
+  fun mk() -> Bag
+    b = Bag(items: List())
+    !b.items.push(7)
+    b
+
+  a = Bag(items: List())
+  !a.items.push(1)
+  !a.items.push(2)
+  v = [0, 1]
+  for i in 0..2
+    c = i == 0
+    print((a if c else mk()).at(v[0]))
+  print(a.items[1])
+
+test "r3-step2-r12 read recv catch owner", '''
+  1
+  0
+  4
+'''
+  error E
+    bad
+
+  obj Bag
+    items: List[Int]
+
+    fun total(?self) -> Int
+      self.items.len
+
+  fun mk(ok: Bool) -> Bag!
+    if not ok
+      return E.bad
+    Bag(items: List())
+
+  d = Bag(items: List())
+  !d.items.push(4)
+  print((mk(false) catch d).total())
+  print((mk(true) catch d).total())
+  print(d.items[0])
+
+fail "r3-step2-s01 discard ternary owners", "`a` owns a `List[Int]`, which can't be copied by `=`: write `<a` to move it, `+a` to clone it, or `?a` to view it"
+  a: List[Int] = List()
+  b: List[Int] = List()
+  !a.push(1)
+  c = true
+  _ = a if c else b
+  print(a[0])
+
+fail "r3-step2-s02 discard catch owner", "`d` owns a `List[Int]`, which can't be copied by `=`: write `<d` to move it, `+d` to clone it, or `?d` to view it"
+  error E
+    bad
+
+  fun mk(ok: Bool) -> List[Int]!
+    if not ok
+      return E.bad
+    List()
+
+  d: List[Int] = List()
+  !d.push(1)
+  _ = mk(false) catch d
+  print(d[0])
+
+fail "r3-step2-s03 discard name", "`a` owns a `List[Int]`, which can't be copied by `=`: write `<a` to move it, `+a` to clone it, or `?a` to view it"
+  a: List[Int] = List()
+  !a.push(1)
+  _ = a
+  print(a[0])
+
+fail "r3-step2-x02 catch handler break stores", "`i` is bound but never read; name it `_` to ignore the value"
+  error E
+    bad
+
+  fun mk(ok: Bool) -> Int!
+    if not ok
+      return E.bad
+    1
+
+  obj H
+    r: ?List[Int]
+
+  z: List[Int] = List()
+  h = H(r: ?z)
+  for i in 0..2
+    n = mk(false) catch |_|
+      inner: List[Int] = List()
+      !inner.push(9)
+      h.r = ?inner
+      break
+    print(n)
+  print(h.r[0])
+
+test "r3-step2-x04 labeled match guard stores", "0"
+  obj H
+    r: ?List[Int]
+
+  fun store(h: !H, r: ?List[Int]) -> Bool keeps r
+    h.r = r
+    false
+
+  z: List[Int] = List()
+  h = H(r: ?z)
+  k = 3
+  @m match k
+    3 if store(!h, ?z) => break @m
+    _ => pass
+  print(h.r.len)
+
+test "rb-t", '''
+  6
+  1
+'''
+  fun total(xs: ?[3]Int) -> Int
+    xs[0] + xs[1] + xs[2]
+
+  a = [1, 2, 3]
+  print(total(?a))
+  b = ?a
+  print(b[0])
+
+test "rev154-budget proven adds plain fn", "26"
+  fun big(s: ?String) -> Int
+    i = 0
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    i
+
+  print(big("abcdefghijklmnopqrstuvwxyz"))
+
+test "rev154-budget runtime inline helpers", "0"
+  fun bump(s: ?String, at: Int) -> Int
+    i = at
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    if i + 1 <= s.len
+      i += 1
+    i
+
+  s = "abcdefghijklmnopqrstuvwxyz"
+  n = 0
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  n = bump(s, 0) + n - bump(s, 0)
+  print(n)
+
+test "rev193-utf8-counts-fuzz", "14800 0"
+  # Review of #193 (std.utf8's block counting): random strings of valid
+  # and invalid UTF-8 and random bytes, up to 200 long, and every length 0
+  # to 200 of each piece repeated, so a sequence is cut at every block
+  # end. Each compares `rune_count`, `utf16.unit_count`, `is_valid`, and
+  # `ascii_end` at every cursor with a reference read rune by rune, and
+  # checks that `byte_index` inverts `unit_count` at every rune start.
+
+  obj Gen
+    x: Int
+
+  fun next(g: !Gen) -> Int
+    g.x = (g.x *% 6364136223846793005 +% 1442695040888963407)
+    (g.x >> 33) & 0x7FFFFFFF
+
+  fun reference(s: ?String, wide: Bool) -> Int
+    n = 0
+    i = 0
+    while i < s.len
+      d = utf8.rune_after(s, i)
+      n += 2 if wide and d.size == 4 else 1
+      i += d.size
+    n
+
+  fun ref_valid(s: ?String) -> Bool
+    i = 0
+    while i < s.len
+      d = utf8.rune_after(s, i)
+      return false if d.size == 1 and s[i] >= 0x80
+      i += d.size
+    true
+
+  fun ref_end(s: ?String, i: Int) -> Int
+    j = i
+    while j < s.len and s[j] < 0x80
+      j += 1
+    j
+
+  PIECES = ["\xc3\xa9", "\xe4\xb8\xad", "\xf0\x9f\x98\x80", "\xed\x9f\xbf", "\xee\x80\x80", "\xf4\x8f\xbf\xbf", "\x80", "\xbf", "\xc0\x80", "\xc1\xbf", "\xe0\x9f\xbf", "\xed\xa0\x80", "\xed\xbf\xbf", "\xf0\x8f\xbf\xbf", "\xf4\x90\x80\x80", "\xf5\x80\x80\x80", "\xfe", "\xff", "\xe0", "\xf0\x9f", "\xf0\x9f\x98", "\xc3"]
+
+  sub check(s: ?String, bad: !Int)
+    r = reference(s, false)
+    u = reference(s, true)
+    if utf8.rune_count(s) != r or utf16.unit_count(s) != u
+      bad += 1
+      print("COUNT", s.len, utf8.rune_count(s), r, utf16.unit_count(s), u)
+    if utf8.is_valid(s) != ref_valid(s)
+      bad += 1
+      print("VALID", s.len)
+    for i in 0..s.len + 1
+      if utf8.ascii_end(s, i) != ref_end(s, i)
+        bad += 1
+        print("END", s.len, i, utf8.ascii_end(s, i), ref_end(s, i))
+    # byte_index inverts unit_count at every rune start
+    i = 0
+    while i < s.len
+      k = utf16.unit_count(s[..i])
+      if utf16.byte_index(s, k) != i
+        bad += 1
+        print("BYTEINDEX", s.len, i, utf16.byte_index(s, k))
+      i += utf8.rune_after(s, i).size
+
+  sub main()
+    g = Gen(x: 193)
+    bad = 0
+    total = 0
+    t = String()
+    for _ in 0..6000
+      !t.clear()
+      len = next(!g) % 200
+      mode = next(!g) % 4
+      while t.len < len
+        k = next(!g) % 100
+        if mode == 0
+          !t.push(U8(next(!g) % 256))
+        else if k < 60 + mode * 10
+          !t.push(U8(0x20 + next(!g) % 90))
+        else
+          !t.add(PIECES[next(!g) % PIECES.len])
+      check(t, !bad)
+      total += 1
+    # every exact length 0..200 of each piece pattern, ending cut
+    for p in PIECES
+      for len in 0..200
+        !t.clear()
+        while t.len < len
+          !t.add(p)
+        check(t, !bad)
+        check(t[..len], !bad)
+        total += 2
+    print(total, bad)
+
+fail "rev203-b01b closure dropped", "cannot drop `h` while it is lent"
+  obj S
+    text: ?String
+    value: String
+
+  obj H
+    s: S
+
+  src = String("abc")
+  h = H(s: S(text: ?src, value: String()))
+  f = |!h| replace(!h.s, S(text: "", value: String()))
+  t = f()
+  <f
+  <h
+  <src
+  print(t.text)
+
+fail "rev203-c02 view local in block", "cannot drop `src` while it is lent"
+  obj S
+    text: ?String
+    value: String
+
+  obj H
+    s: S
+
+  src = String("abc")
+  h = H(s: S(text: ?src, value: String()))
+  out: List[S] = List()
+  if src.len > 0
+    w = !h.s
+    !out.push(replace(!w, S(text: "", value: String())))
+  <src
+  print(out[0].text)
+
+test "rev203-e09 failing guard between", '''
+  got 1
+  h 10
+  drop 1
+  drop 10
+  got 99
+  h 11
+  drop 99
+  drop 11
+  got 99
+  h 12
+  drop 99
+  drop 12
+'''
+  error Bad
+    no
+
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj Hd
+    d: D
+
+  fun chk(x: Int) -> Int!
+    return Bad.no if x > 1
+    x
+
+  fun go(h: !Hd, x: Int) -> D!
+    t = replace(!h.d, D(n: 10 + x))
+    _ = chk(x)!
+    return Bad.no if x == 1
+    t
+
+  h = Hd(d: D(n: 1))
+  for i in 0..3
+    r = go(!h, i) catch D(n: 99)
+    print("got", r.n)
+    print("h", h.d.n)
+
+fail "rev203-e10 loop break continue", "`tmp` does not live long enough"
+  obj S
+    text: ?String
+    value: String
+
+  obj H
+    s: S
+
+  out: List[S] = List()
+  keep = String("k")
+  for i in 0..4
+    tmp = String("t", i)
+    s = S(text: ?keep, value: String())
+    s.text = ?tmp if i == 1
+    continue if i == 2
+    t = replace(!s, S(text: "", value: String()))
+    break if i == 3
+    !out.push(<t)
+  print(out[0].text)
+
+test "rev203-f06 closure writes h while t", "abc v n"
+  obj S
+    text: ?String
+    value: String
+
+  obj H
+    s: S
+
+  src = String("abc")
+  h = H(s: S(text: ?src, value: String("v")))
+  f = |!h| replace(!h.s, S(text: "", value: String("n")))
+  t = f()
+  u = f()
+  print(t.text, t.value, u.value)
+
+fail "rev203-h04 put back then drop viewed", "cannot drop `src` while it is lent"
+  obj S
+    text: ?String
+    value: String
+
+  obj H
+    s: S
+
+  src = String("abc")
+  src2 = String("def")
+  h = H(s: S(text: ?src, value: String()))
+  w = !h.s
+  t = replace(!w, S(text: ?src2, value: String()))
+  _ = replace(!w, <t)
+  <src
+  print(h.s.text)
+
+fail "rev203-h06 swap after take", "cannot drop `src` while it is lent"
+  obj S
+    text: ?String
+    value: String
+
+  obj H
+    s: S
+
+  src = String("abc")
+  h = H(s: S(text: ?src, value: String()))
+  t = replace(!h.s, S(text: "", value: String()))
+  h = H(s: S(text: "", value: String()))
+  <src
+  print(t.text)
+
+test "rev203-j01 closure take twice in fn", '''
+  v n
+  abc v n
+'''
+  # A closure that captures `h` to write and hands back what `replace`
+  # takes from it: each result views `src`, never `h`, so `f` may be
+  # called again while it lives. Production accepts; the oracle rejects
+  # (C6, "a view of `h` ... leaves each call").
+  obj S
+    text: ?String
+    value: String
+
+  obj H
+    s: S
+
+  fun useh(h: !H) -> S
+    f = |!h| replace(!h.s, S(text: "", value: String("n")))
+    a = f()
+    b = f()
+    print(a.value, b.value)
+    <a
+
+  src = String("abc")
+  h = H(s: S(text: ?src, value: String("v")))
+  t = useh(!h)
+  print(t.text, t.value, h.s.value)
+
+fail "rev206-b09 chain", "cannot lend `b.xs` to write while a read loan on `b` is live"
+  obj C2
+    xs: ?List[Int]
+    i: Int
+
+    fun next(!self) -> Int?
+      return none if self.i >= self.xs.len
+      self.i += 1
+      self.xs[self.i - 1]
+
+    fun skip1(<self) -> C2 from self
+      C2(xs: self.xs, i: self.i + 1)
+
+  obj CBag
+    xs: List[Int]
+
+    fun each(?self) -> C2 from self
+      C2(xs: ?self.xs, i: 0)
+
+  b = CBag(xs: List())
+  for _ in 0..3
+    !b.xs.push(1)
+  for x in ?b.each().skip1()
+    for _ in 0..100
+      !b.xs.push(x)
+
+fail "rev206-d08 defer slice cond only", "cannot lend `v` to write while a read loan is live"
+  obj SCur
+    xs: []Int
+    i: Int
+
+    fun next(!self) -> Int?
+      return none if self.i >= self.xs.len
+      self.i += 1
+      self.xs[self.i - 1]
+
+  fun smk(v: ?List[Int]) -> SCur from v
+    SCur(xs: ?v[0..v.len], i: 0)
+
+  sub grow(v: !List[Int])
+    for _ in 0..100
+      !v.push(1)
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  s = ?v[0..2]
+  i = 0
+  while s[i] > 0 : i += 1
+    defer grow(!v)
+    print(i)
+    break if i == 1
+
+fail "rev206-f01 fallible each", "cannot lend `b.xs` to write while a read loan on `b` is live"
+  obj Cur
+    xs: ?List[Int]
+    i: Int
+
+    fun next(!self) -> Int?
+      return none if self.i >= self.xs.len
+      self.i += 1
+      self.xs[self.i - 1]
+
+  fun mk(v: ?List[Int]) -> Cur from v
+    Cur(xs: v, i: 0)
+
+  obj Bag
+    xs: List[Int]
+
+    fun each(?self) -> Cur from self
+      Cur(xs: ?self.xs, i: 0)
+
+  sub fill(v: !List[Int])
+    for _ in 0..3
+      !v.push(1)
+
+  error E
+    bad
+
+  obj FB
+    xs: List[Int]
+
+    fun each(?self) -> Cur! from self
+      return E.bad if self.xs.len == 0
+      Cur(xs: ?self.xs, i: 0)
+
+  fun go(b: !FB) -> Int!
+    for x in ?b.each()!
+      !b.xs.push(x)
+    0
+
+  b = FB(xs: List())
+  fill(!b.xs)
+  print(go(!b) catch -1)
+
+fail "rev206-x09 lent drop break", "cannot lend `b.xs` to write while a read loan on `b` is live"
+  obj Cur
+    xs: ?List[Int]
+    i: Int
+
+    fun next(!self) -> Int?
+      return none if self.i >= self.xs.len
+      self.i += 1
+      self.xs[self.i - 1]
+
+  fun mk(v: ?List[Int]) -> Cur from v
+    Cur(xs: v, i: 0)
+
+  obj Bag
+    xs: List[Int]
+
+    fun each(?self) -> Cur from self
+      Cur(xs: ?self.xs, i: 0)
+
+  sub fill(v: !List[Int])
+    for _ in 0..3
+      !v.push(1)
+
+  obj DCur
+    xs: ?List[Int]
+    i: Int
+
+    fun next(!self) -> Int?
+      return none if self.i >= self.xs.len
+      self.i += 1
+      self.xs[self.i - 1]
+
+    drop(!self)
+      print("drop", self.xs[0])
+
+  fun dmk(v: ?List[Int]) -> DCur from v
+    DCur(xs: v, i: 0)
+
+  obj Bag2
+    xs: List[Int]
+
+    fun each(?self) -> DCur from self
+      DCur(xs: ?self.xs, i: 0)
+
+  b = Bag2(xs: List())
+  fill(!b.xs)
+  for x in ?b.each()
+    for _ in 0..100
+      !b.xs.push(x)
+    break
+
+test "rev210-a05 boxfield disjoint", "id 3 4"
+  # Reviewer probe for #210 (field loans): A box field lent beside writes
+  # of a sibling and of the box's other field.
+
+  obj Node
+    name: String
+    n: Int
+
+  obj P
+    bx: ^Node
+    k: Int
+
+  p = P(bx: ^Node(name: String("id"), n: 0), k: 0)
+  r = ?p.bx.name
+  p.k = 3
+  p.bx.n = 4
+  print(r, p.k, p.bx.n)
+
+fail "rev210-c15 wa reads wb", "cannot store in `p.a` a view of `p.b`: a value never holds a view of itself"
+  # Reviewer probe for #210 (field loans): Storing through a write view of
+  # `p.a` a view of a write view of `p.b`.
+
+  obj Holder
+    t: ?String
+
+    sub keep(!self, t: ?String) keeps t
+      self.t = t
+
+  obj P
+    a: Holder
+    b: String
+    views: List[?String]
+    arr: [2]?String
+    bx: ^Holder
+    hs: List[Holder]
+
+  p = P(a: Holder(t: ""), b: String("x"), views: List(), arr: ["", ""], bx: ^Holder(t: ""), hs: List())
+  wa = !p.a
+  wb = !p.b
+  wa.t = ?wb
+  !wb.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(p.a.t)
+
+test "rev210-e03 w across backedge ok", "3 [0, 1, 2]"
+  # Reviewer probe for #210 (field loans): A write view of `p.a` live
+  # across a loop that pushes to `p.b`.
+
+  obj A
+    n: Int
+    s: String
+
+  obj P
+    a: A
+    b: List[Int]
+    items: List[Int]
+    name: String
+
+  p = P(a: A(n: 0, s: String("x")), b: List(), items: List(), name: String("nm"))
+  !p.items.push(1)
+  !p.items.push(2)
+  w = !p.a
+  i = 0
+  while i < 3
+    w.n += 1
+    !p.b.push(i)
+    i += 1
+  print(p.a.n, p.b)
+
+fail "rev210-f13 read beside write arg", "cannot lend `p.a` to write while a read loan on `p.a.s` is live"
+  # Reviewer probe for #210 (field loans): An argument reading `p.a.s`
+  # beside a write lend of `p.a`.
+
+  obj Holder
+    t: ?String
+    s: String
+
+    sub add(!self, x: ?String)
+      !self.s.add(x)
+
+    fun view(!self) -> ?String from self
+      ?self.s[0..1]
+
+  obj P
+    a: Holder
+    b: String
+    c: ?String
+    q: Holder
+
+  sub rw(s: ?String, h: !Holder)
+    h.s = String("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(s)
+
+  p = P(a: Holder(t: "", s: String("aa")), b: String("x"), c: "", q: Holder(t: "", s: String("qq")))
+  rw(p.a.s, !p.a)
+  print(p.a.s)
+
+fail "rev210-f16 print grow same", "cannot lend `p.a` to write while an earlier argument's read of `p.a.s` is in use"
+  # Reviewer probe for #210 (field loans): `print(p.a.s, grow(!p.a))`: a
+  # read held while the same place is lent to write.
+
+  obj Holder
+    t: ?String
+    s: String
+
+    sub add(!self, x: ?String)
+      !self.s.add(x)
+
+    fun view(!self) -> ?String from self
+      ?self.s[0..1]
+
+  obj P
+    a: Holder
+    b: String
+    c: ?String
+    q: Holder
+
+  fun grow(h: !Holder) -> Int
+    !h.s.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    h.s.len
+
+  p = P(a: Holder(t: "", s: String("aa")), b: String("x"), c: "", q: Holder(t: "", s: String("qq")))
+  print(p.a.s, grow(!p.a))
+  print(p.a.s)
+
+fail "rev210-h02 match write payload selfview", "cannot store in `p.sl` a view of `p.b`: a value never holds a view of itself"
+  # Reviewer probe for #210 (field loans): A `match !p.sl` payload given a
+  # view of `p.b`.
+
+  obj Holder
+    t: ?String
+
+  enum Slot
+    hold(h: Holder)
+    empty
+
+  obj P
+    hs: List[Holder]
+    b: String
+    sl: Slot
+    o: Holder?
+
+  p = P(hs: List(), b: String("x"), sl: .hold(h: Holder(t: "")), o: Holder(t: ""))
+  !p.hs.push(Holder(t: ""))
+  match !p.sl
+    .hold(h) => h.t = ?p.b
+    .empty => pass
+  p.b = String("zzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(p.sl)
+
+fail "rev210-h03 if write opt selfview", "cannot store in `p.o` a view of `p.b`: a value never holds a view of itself"
+  # Reviewer probe for #210 (field loans): An `if !p.o as w` binding given
+  # a view of `p.b`.
+
+  obj Holder
+    t: ?String
+
+  enum Slot
+    hold(h: Holder)
+    empty
+
+  obj P
+    hs: List[Holder]
+    b: String
+    sl: Slot
+    o: Holder?
+
+  p = P(hs: List(), b: String("x"), sl: .hold(h: Holder(t: "")), o: Holder(t: ""))
+  !p.hs.push(Holder(t: ""))
+  if !p.o as w
+    w.t = ?p.b
+  p.b = String("zzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(p.o)
+
+fail "rev210-i05 chain2 call", "cannot let this call store a view of `p.b` in `p.m`: a value never holds a view of itself"
+  # Reviewer probe for #210 (field loans): A store through a chain of
+  # write views of `p.m` of a view of `p.b`.
+
+  obj Holder
+    t: ?String
+
+  obj Mid
+    h: Holder
+    k: Int
+
+  obj P
+    hs: List[Holder]
+    m: Mid
+    b: String
+
+  sub set(h: !Holder, s: ?String) keeps s
+    h.t = s
+
+  p = P(hs: List(), m: Mid(h: Holder(t: ""), k: 0), b: String("x"))
+  !p.hs.push(Holder(t: ""))
+  w1 = !p.m
+  w2 = !w1.h
+  set(!w2, ?p.b)
+  p.b = String("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(p.m.h.t)
+
+fail "rev210-i06 param chain", "cannot let this call store a view of `q.b` in `q.m.h`: a value never holds a view of itself"
+  # Reviewer probe for #210 (field loans): The same chain through a
+  # write-view parameter.
+
+  obj Holder
+    t: ?String
+
+  obj Mid
+    h: Holder
+    k: Int
+
+  obj P
+    hs: List[Holder]
+    m: Mid
+    b: String
+
+  sub go(q: !P)
+    w = !q.m.h
+    set(!w, ?q.b)
+    q.b = String("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+
+  sub set(h: !Holder, s: ?String) keeps s
+    h.t = s
+
+  p = P(hs: List(), m: Mid(h: Holder(t: ""), k: 0), b: String("x"))
+  !p.hs.push(Holder(t: ""))
+  go(!p)
+  print(p.m.h.t)

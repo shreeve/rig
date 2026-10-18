@@ -1,9 +1,0 @@
-sub main()
-  a = [String("x"), String("y")]
-  for t in <a
-    print(t)
-  b = [^3, ^4]
-  c = <b
-  print(c)
-  s = ?c[..]
-  print(s.len)

@@ -1,8 +1,0 @@
-sub main()
-  t = String("abcdefghijklmnop")
-  cv: *Cell[List[?String]] = *Cell(List())
-  keep = +cv
-  !cv.push(?t[..3])
-  <cv
-  <t
-  print(keep[0])

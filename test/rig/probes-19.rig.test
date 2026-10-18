@@ -1,0 +1,2136 @@
+# Probes from past reviews and audits, 19 of 41: review-box-p135 to review-copies-2-g-E-optcatch-argopt.
+
+test "review-box-p135", '''
+  0 0
+  5 .a(n: 5)
+  3
+'''
+  enum E
+    a(n: Int)
+    b
+
+    fun get(?self) -> Int
+      match self
+        .a(n) => n
+        .b => 0
+
+    sub set(!self, k: Int)
+      self = .a(n: k)
+
+    fun eat(<self) -> Int
+      3
+
+  fun g(e: ?^E) -> Int
+    e.get()
+
+  e = ^E.b
+  print(e.get(), g(?e))
+  !e.set(5)
+  print(e.get(), e)
+  print(<e.eat())
+
+test "review-box-p136", "5 4 5"
+  obj P
+    value: Int
+    take: Int
+
+    fun init(?self) -> Int
+      self.value
+
+  b = ^P(value: 3, take: 4)
+  b.value = 5
+  print(b.value, b.take, b.init())
+
+test "review-box-p138", '''
+  1 2 1
+  1
+  1
+  drop 2
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun rd(r: ?R) -> Int
+    r.n
+
+  fun pick(k: Int, b: ?^R, c: ?^R) -> ?R
+    if k > 0
+      ?b
+    else
+      ?c
+
+  fun pick2(k: Int, b: ?^R, c: ?R) -> ?R
+    match k
+      1 => ?b
+      _ => c
+
+  b = ^R(n: 1)
+  c = ^R(n: 2)
+  print(pick(1, ?b, ?c).n, pick(0, ?b, ?c).n, pick2(1, ?b, ?c).n)
+  k = 1
+  print(rd(?b if k > 0 else ?c))
+  r: ?R = ?b if k > 0 else ?c
+  print(r.n)
+
+test "review-box-p140", '''
+  1
+  found 8
+'''
+  obj Node
+    key: Int
+    left: ^Node?
+    right: ^Node?
+
+  sub insert(slot: !^Node?, key: Int)
+    if !slot as n
+      if key < n.key
+        insert(!n.left, key)
+      else
+        insert(!n.right, key)
+    else
+      slot = ^Node(key: key, left: none, right: none)
+
+  fun find(root: ?^Node?, k: Int) -> (?^Node)?
+    cur = root
+    while cur as n
+      if n.key == k
+        return n
+      cur = ?n.left if k < n.key else ?n.right
+    none
+
+  fun min(root: ?^Node?) -> Int
+    cur = root
+    best = -1
+    while cur as n
+      best = n.key
+      cur = ?n.left
+    best
+
+  root: ^Node? = none
+  for k in [5, 2, 8, 1, 9, 3]
+    insert(!root, k)
+  print(min(?root))
+  if find(?root, 8) as f
+    print("found", f.key)
+  if find(?root, 7) as _
+    print("bad")
+
+fail "review-box-p142", "bare use of loop view `x` in binding would carry the viewed handle past the loop; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[^R] = List()
+  !v.push(^R(n: 1))
+  for x in ?v
+    new x = x
+    print(x.n)
+
+test "review-box-p145", '''
+  10
+  21
+  7
+'''
+  obj S
+    b: ^Int
+
+  fun add(x: ?Int, f: ?fun(Int) -> Int) -> Int
+    f(x)
+
+  fun add2(x: ?Int, y: Int) -> Int
+    x + y
+
+  s = S(b: ^5)
+  print(add(?s.b, |k: Int| k * 2))
+  b = ^7
+  print(add(?b, |k: Int| k * 3))
+  n = 1
+  print(add2(y: n + 1, x: ?s.b))
+
+test "review-box-p146", "7"
+  obj R
+    n: Int
+
+  obj S
+    b: ^R
+
+  fun add(x: ?R, y: Int) -> Int
+    x.n + y
+
+  s = S(b: ^R(n: 5))
+  n = 1
+  print(add(y: n + 1, x: ?s.b))
+
+fail "review-box-p149", "use of `b` after move"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub eat(b: ^R)
+    print("eat", b.n)
+
+  b = ^R(n: 5)
+  defer print("deferred", b.n)
+  eat(<b)
+
+test "review-box-p150", '''
+  drop 5
+  deferred 6
+  end
+  drop 6
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  o: ^R? = ^R(n: 5)
+  if !o as x
+    defer print("deferred", x.n)
+    x = ^R(n: 6)
+  print("end")
+
+test "review-box-p151", '''
+  3
+  drop 4
+  3
+'''
+  obj W[T]
+    v: T
+
+    fun eat(<self) -> Int
+      3
+
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  b = ^W(v: 3)
+  print(<b.eat())
+  c = ^W(v: R(n: 4))
+  print(<c.eat())
+
+test "review-box-p153", '''
+  drop 2
+  1 9
+  drop 1
+  drop 2
+  1 -1
+  drop 9
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  error E
+    bad
+
+  fun mk(k: Int) -> ^R!
+    b = ^R(n: k)
+    return E.bad if k > 1
+    b
+
+  fun usex(k: Int) -> Int!
+    b = mk(k)!
+    b.n
+
+  b = mk(1) catch ^R(n: 0)
+  c = mk(2) catch ^R(n: 9)
+  print(b.n, c.n)
+  print(usex(1) catch -1, usex(2) catch -1)
+
+fail "review-box-p155", "cannot reassign `h` while it is lent"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj H2
+    r: R?
+
+  obj H
+    h2: H2
+
+    fun inner(!self) -> !H2
+      !self.h2
+
+    fun rinner(?self) -> ?H2
+      ?self.h2
+
+  h = H(h2: H2(r: R(n: 1)))
+  if ?h.rinner().r as x
+    h = H(h2: H2(r: none))
+    print(x.n)
+
+fail "review-box-p158", "`h.rinner().r` owns a `^R?`, which can't be copied by `=`: write `?h.rinner().r` to view it"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj H2
+    r: ^R?
+
+  obj H
+    h2: H2
+
+    fun rinner(?self) -> ?H2
+      ?self.h2
+
+  fun rin(h: ?H) -> ?H2
+    ?h.h2
+
+  h = H(h2: H2(r: ^R(n: 1)))
+  x = ?h.rinner().r
+  h = H(h2: H2(r: none))
+  if x as y
+    print(y.n)
+
+test "review-box-p16", "5"
+  a = ^5
+  b = +a
+  print(b)
+
+fail "review-box-p160", "cannot reassign `h` while it is lent"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj H2
+    r: R?
+
+  obj H
+    h2: H2
+
+  fun inner(h: ?H) -> ?H2
+    ?h.h2
+
+  h = H(h2: H2(r: R(n: 1)))
+  if inner(?h).r as x
+    h = H(h2: H2(r: none))
+    print(x)
+
+test "review-box-p163", '''
+  f 1
+  2
+  drop 2
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub f(p: !R?)
+    if ?p as x
+      print("f", x.n)
+    if !p as y
+      y.n += 1
+
+  fun g(p: ?R?) -> Int
+    if ?p as x
+      x.n
+    else
+      0
+
+  o: R? = R(n: 1)
+  f(!o)
+  print(g(?o))
+
+test "review-box-p164", '''
+  true 1.5 .b
+  b
+  3
+'''
+  enum K
+    a
+    b
+
+  t = ^true
+  f = ^1.5
+  k = ^K.b
+  print(t, f, k)
+  match ?k
+    .a => print("a")
+    .b => print("b")
+  u8b: ^U8 = ^3
+  print(u8b)
+
+test "review-box-p165", '''
+  1 1
+  1
+  drop 1
+  R(n: 7)
+  42
+  drop 7
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun rs(r: ?*R) -> Int
+    r.n
+
+  o: *R? = *R(n: 1)
+  if ?o as x
+    print(x.n, rs(x))
+    y = +x
+    print(y.n)
+  if !o as z
+    z = *R(n: 7)
+  print(o)
+  f: (*fun() -> Int)? = *|| 42
+  if ?f as g
+    print(g())
+
+test "review-box-p166", '''
+  1
+  drop 1
+  2
+  drop 2
+  drop 3
+  end
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[^R] = List()
+  !v.push(^R(n: 1))
+  !v.push(^R(n: 2))
+  !v.push(^R(n: 3))
+  for x in <v
+    print(x.n)
+    if x.n == 2
+      break
+  print("end")
+
+fail "review-box-p167", "`o` owns a `^R?`, which can't be copied by `=`: write `<o` to move it or `?o` to view it"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun isnil(o: ?^R?) -> Bool
+    o == none
+
+  o: ^R? = ^R(n: 1)
+  print(o == none, o != none, isnil(?o))
+  x = o ?? ^R(n: 2)
+
+test "review-box-p168", "1"
+  obj Wrap
+    n: Int
+
+  obj Rd
+    t: ?Wrap
+
+  b = ^Wrap(n: 1)
+  c = Wrap(n: 2)
+  r = Rd(t: ?c)
+  r.t = ?b
+  print(r.t.n)
+
+test "review-box-p169", '''
+  R(n: 1)
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  o: ^R? = ^R(n: 1)
+  if !o as x
+    <x
+  if ?o as y
+    <y
+  print(o)
+
+fail "review-box-p171", "cannot move `b` while a read loan is live"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub g(r: ?R, b: ^R)
+    print(r.n, b.n)
+
+  sub h(b: ^R, r: ?R)
+    print(r.n, b.n)
+
+  b = ^R(n: 1)
+  g(?b, <b)
+  c = ^R(n: 2)
+  h(<c, ?c)
+
+test "review-box-p24", '''
+  4
+  drop 4
+  drop 4
+  4
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+    fun get(?self) -> Int
+      self.n
+
+  fun mk() -> ^R
+    ^R(n: 4)
+
+  print(mk().get())
+  x = mk().n
+  print(x)
+
+fail "review-box-p25", "cannot move out of `s.b`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.b, v)`"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+    fun eat(<self) -> Int
+      self.n
+
+  obj S
+    b: ^R
+
+  s = S(b: ^R(n: 1))
+  print(<s.b.eat())
+
+fail "review-box-p28", "use of `b` after move"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+    fun eat(<self) -> Int
+      self.n
+
+  b = ^R(n: 1)
+  print(<b.eat())
+  print(b.n)
+
+test "review-box-p35", '''
+  1
+  .full(b: R(n: 5))
+  drop 5
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    empty
+    full(b: ^R)
+
+  sub eat(b: ^R)
+    print("eat", b.n)
+
+  e = E.full(b: ^R(n: 1))
+  match ?e
+    .empty => print("empty")
+    .full(b) => print(b.n)
+  match !e
+    .empty => print("empty")
+    .full(b) => b.n = 5
+  print(e)
+
+test "review-box-p36", '''
+  1
+  drop 1
+  .full(b: R(n: 7))
+  drop 7
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    empty
+    full(b: ^R)
+
+  sub eat(b: ^R)
+    print("eat", b.n)
+
+  e = ^E.full(b: ^R(n: 1))
+  match ?e
+    .empty => print("empty")
+    .full(b) => print(b.n)
+  match !e
+    .empty => print("empty")
+    .full(b) => b = ^R(n: 7)
+  print(e)
+
+test "review-box-p39", '''
+  built
+  done
+'''
+  obj A
+    n: Int
+    next: *B?
+
+  obj B
+    n: Int
+    next: ^A?
+
+  head: ^A? = none
+  i = 0
+  while i < 150000
+    b = *B(n: i, next: <head)
+    head = ^A(n: i, next: <b)
+    i += 1
+  print("built")
+  head = none
+  print("done")
+
+fail "review-box-p41", "cannot return a view of `p`, which this function was not lent"
+  obj P
+    x: Int
+
+  fun mk() -> ^?P
+    p = P(x: 1)
+    ^?p
+
+  b = mk()
+
+fail "review-box-p46", "cannot move `b` while a write loan is live"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  b = ^R(n: 1)
+  r: !R = !b
+  c = <b
+  print(r.n)
+
+test "review-box-p48", '''
+  drop 1
+  9
+  drop 9
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun pick(b: !^R) -> !R
+    !b
+
+  b = ^R(n: 1)
+  r = pick(!b)
+  r = R(n: 9)
+  print(b.n)
+
+test "review-box-p49", '''
+  1 1
+  4
+  drop 4
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  b = ^R(n: 1)
+  r: ?R = ?b
+  print(r.n, b.n)
+  s: !R = !b
+  s.n = 4
+  print(b.n)
+
+fail "review-box-p50", "cannot lend `b` to read while a write loan is live"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  b = ^R(n: 1)
+  s: !R = !b
+  t: ?R = ?b
+  s.n = 4
+  print(t.n)
+
+test "review-box-p51", '''
+  4
+  drop 4
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  b = ^R(n: 1)
+  s: !R = !b
+  s.n = 4
+  print(b.n)
+
+test "review-box-p52", '''
+  3 3
+  drop 3
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun pick(b: !^R) -> !R
+    !b
+
+  fun rpick(b: ?^R) -> ?R
+    b
+
+  fun rpick2(b: ?^R) -> ?R
+    ?b
+
+  b = ^R(n: 1)
+  r = pick(!b)
+  r.n = 3
+  print(rpick(?b).n, rpick2(?b).n)
+
+test "review-box-p54", '''
+  1
+  drop 2
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  b = ^R(n: 1)
+  c = ^R(n: 2)
+  r: ?R = ?c
+  r = ?b
+  print(r.n)
+
+test "review-box-p55", "2"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  b = ^1
+  r: ?Int = ?b
+  print(r + 1)
+
+test "review-box-p56", '''
+  1
+  1
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun rd(r: ?R) -> Int
+    r.n
+
+  b = ^R(n: 1)
+  f = |?b| rd(?b)
+  print(f())
+  g = |?b| rd(b)
+  print(g())
+
+test "review-box-p58", '''
+  drop 1
+  drop 2
+  11
+  12
+  drop 12
+  drop 11
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[^R] = List()
+  !v.push(^R(n: 1))
+  !v.push(^R(n: 2))
+  for x in !v
+    x = ^R(n: x.n + 10)
+  for x in ?v
+    print(x.n)
+
+fail "review-box-p59", "`x` is bound but never read; name it `_` to ignore the value"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[^R] = List()
+  !v.push(^R(n: 1))
+  for x in !v
+    !v.push(^R(n: 2))
+
+fail "review-box-p61", "`v[0]` owns a `^R`, which can't be copied by `=`: write `?v[0]` to view it"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[^R] = List()
+  !v.push(^R(n: 1))
+  b = v[0]
+  print(b.n)
+
+test "review-box-p62", '''
+  drop 1
+  5
+  6
+  drop 6
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[^R] = List()
+  !v.push(^R(n: 1))
+  v[0] = ^R(n: 5)
+  print(v[0].n)
+  v[0].n = 6
+  print(v[0].n)
+
+test "review-box-p64", '''
+  R(n: 3)
+  6
+  6
+  drop 6
+  drop 3
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  o: R? = R(n: 1)
+  if !o as x
+    f = |!x| x.n += 1
+    f()
+    f()
+  print(o)
+  b = ^R(n: 5)
+  g = |!b| b.n += 1
+  g()
+  print(b.n)
+  h = |?b| print(b.n)
+  h()
+
+fail "review-box-p65", "an owned closure cannot capture a view of `x`: it can be stored anywhere, so it could outlive `x`; capture an owned value, or use a stack closure (`|...|`)"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(o: ?R?) -> *fun() -> Int
+    if o as x
+      *|?x| x.n
+    else
+      *|| 0
+
+  o: R? = R(n: 1)
+  f = mk(?o)
+  o = none
+  print(f())
+
+fail "review-box-p66", "an owned closure cannot capture a view of `b`: it can be stored anywhere, so it could outlive `b`; capture an owned value, or use a stack closure (`|...|`)"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  b = ^R(n: 5)
+  f = *|?b| b.n
+  <b
+  print(f())
+
+fail "review-box-p76", "cannot drop `t` while it is lent"
+  obj Leaf
+    n: Int
+
+    drop(!self)
+      print("drop leaf", self.n)
+
+  enum Ex
+    lit(l: Leaf)
+    neg(a: ^Ex)
+
+  t = ^Ex.neg(a: ^Ex.lit(l: Leaf(n: 2)))
+  match ?t
+    .lit(l) => print(l.n)
+    .neg(a)
+      <t
+      print(a)
+
+fail "review-box-p82", "cannot assign to `h.r` while `h` is lent"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj H
+    r: R?
+
+    fun get(?self) -> ?R?
+      ?self.r
+
+  h = H(r: R(n: 1))
+  if h.get() as x
+    h.r = none
+    print(x.n)
+
+fail "review-box-p83", "cannot assign to `h.r` while `h` is lent"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj H
+    r: R?
+
+  h = H(r: R(n: 1))
+  p = ?h
+  if ?p.r as x
+    h.r = none
+    print(x.n)
+
+fail "review-box-p84", "cannot assign to `a[0]` while `a` is lent"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  a: [2]R? = [R(n: 1), R(n: 2)]
+  i = 0
+  if !a[i] as x
+    a[0] = none
+    print(x.n)
+
+test "review-box-p85", '''
+  H(r: R(n: 5))
+  drop 5
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj H
+    r: R?
+
+    fun get(!self) -> !R?
+      !self.r
+
+  h = H(r: R(n: 1))
+  if (!h).get() as x
+    x.n = 5
+  print(h)
+
+test "review-box-p87", '''
+  H(r: R(n: 5))
+  drop 5
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj H
+    r: R?
+
+    fun get(!self) -> !R?
+      !self.r
+
+  h = H(r: R(n: 1))
+  g = (!h).get()
+  if !g as x
+    x.n = 5
+  print(h)
+
+test "review-box-p88", '''
+  R(n: 5)
+  drop 5
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun get(h: !R?) -> !R?
+    !h
+
+  h: R? = R(n: 1)
+  if get(!h) as x
+    x.n = 5
+  print(h)
+
+fail "review-box-p90", "cannot drop `t` while it is lent"
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj H
+    r: ^R?
+
+  s = *H(r: ^R(n: 1))
+  w = ~s
+  if ?s.r as x
+    print(x.n)
+  if *w as t
+    if ?t.r as y
+      <t
+      print(y.n)
+
+test "review-box-p91", '''
+  1
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj H
+    r: R?
+
+  fun f(s: ?*H) -> Int
+    if ?s.r as x
+      x.n
+    else
+      0
+
+  s = *H(r: R(n: 1))
+  print(f(?s))
+
+test "review-box-p92", '''
+  drop 1
+  1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+    fun eat(<self) -> Int
+      self.n
+
+  b = ^R(n: 1)
+  print(<b.eat())
+
+test "review-box-p97", '''
+  1
+  S drop 1
+  drop 60
+  drop 50
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    b: ^R
+    o: ^R?
+
+    drop(!self)
+      print("S drop", self.b.n)
+      self.b.n = 50
+      if !self.o as x
+        x.n = 60
+      self.o = none
+
+  s = S(b: ^R(n: 1), o: ^R(n: 2))
+  print(s.b.n)
+
+test "review-box-p98", '''
+  deferred 99
+  drop 99
+  drop 1
+  1
+  deferred 12
+  drop 12
+  drop 2
+  -1
+  deferred 12
+  drop 12
+  drop 2
+  drop 22
+  -1
+  drop 5
+  drop 5
+  drop 1
+  11
+  drop 2
+  0
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  error Bad
+    oops
+
+  fun f(k: Int) -> Int!
+    b = ^R(n: k)
+    o: ^R? = ^R(n: k + 10)
+    if !o as x
+      defer print("deferred", x.n)
+      return Bad.oops if k > 1
+      x.n = 99
+    b.n
+
+  fun h(k: Int) -> Int!
+    o: ^R? = ^R(n: k + 20)
+    if !o as x
+      x.n = f(k)!
+      return x.n
+    0
+
+  fun mkopt(k: Int) -> ^R?
+    return none if k > 1
+    ^R(n: 5)
+
+  fun g(k: Int) -> Int?
+    b = ^R(n: k)
+    o = mkopt(k)
+    if ?o as y
+      q = mkopt(k)?
+      return y.n + q.n + b.n
+    0
+
+  print(f(1) catch -1)
+  print(f(2) catch -1)
+  print(h(2) catch -1)
+  print(g(1) ?? -1)
+  print(g(2) ?? -1)
+
+test "review-box-p99", '''
+  drop 7
+  drop 1
+  1
+  drop 7
+  -1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mkopt(k: Int) -> ^R?
+    return none if k > 1
+    ^R(n: k)
+
+  fun g(k: Int) -> Int?
+    o: ^R? = ^R(n: 7)
+    if !o as y
+      q = mkopt(k)?
+      y = <q
+    z = (<o)?
+    z.n
+
+  print(g(1) ?? -1)
+  print(g(2) ?? -1)
+
+test "review-box-repro-h3 typed view local", "1"
+  obj R
+    n: Int
+
+  b = ^R(n: 1)
+  r: ?R = ?b
+  print(r.n)
+
+test "review-box-repro-h6 field named take", "4"
+  obj P
+    take: Int
+
+  b = ^P(take: 4)
+  print(b.take)
+
+test "review-box-repro-m3 bad as diag", '''
+  1
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun get(h: !R?) -> !R?
+    !h
+
+  h: R? = R(n: 1)
+  if get(!h) as x
+    print(x.n)
+
+test "review-box-repro-m4 vec box loop type", "s 3"
+  enum Sh
+    c(r: Int)
+    s(k: Int)
+
+  v: List[^Sh] = List()
+  !v.push(^Sh.s(k: 3))
+  for x in ?v
+    match x
+      .c(r) => print("c", r)
+      .s(k) => print("s", k)
+
+test "review-box-repro-m5 box not lent into optional", "1"
+  obj Node
+    key: Int
+    left: ^Node?
+
+  fun find(cur: ?^Node?, k: Int) -> (?Node)?
+    if cur as n
+      if n.key == k
+        return ?n
+    none
+
+  root: ^Node? = ^Node(key: 1, left: none)
+  if find(?root, 1) as f
+    print(f.key)
+
+test "review-box-repro-m6 write box as read", "1"
+  obj R
+    n: Int
+
+  fun rd(r: ?R) -> Int
+    r.n
+
+  sub g(w: !^R)
+    print(rd(w))
+
+  b = ^R(n: 1)
+  g(!b)
+
+test "review-c-rules-r2-cf generic ok", '''
+  7 1 1
+  1
+  1 1
+'''
+  # cf4e2c4b: a generic read result read in the same statement as the List.
+  obj Item
+    n: Int
+
+  fun gfirst[T](v: !List[T]) -> ?T
+    ?v[0]
+
+  fun count[T](v: ?List[T]) -> Int
+    v.len
+
+  sub inner[T](v: !List[T])
+    r = gfirst(!v)
+    print(count(?v))
+    print(count(?v), count(?v))
+    _ = r
+
+  v: List[Item] = List()
+  !v.push(Item(n: 7))
+  print(gfirst(!v).n, v.len, count(?v))
+  inner(!v)
+
+test "review-cell-mark-1-p12 signal sub sets", "2"
+  s = *Signal(0)
+  c = *Cell(0)
+  !s.subscribe(*|+c| !c.set(c.get() + 1))
+  !s.set(1)
+  !s.set(2)
+  print(c.get())
+
+test "review-cell-mark-1-p16 holder vec field view", "0 1"
+  obj H
+    log: Cell[List[Int]]
+    items: List[Int]
+
+  h = *H(log: Cell(List()), items: List())
+  g = +h
+  r = ?h.items
+  !g.log.push(1)
+  print(r.len, h.log.len)
+
+test "review-cell-mark-1-p20 two writeviews alias", "0"
+  obj H
+    log: Cell[List[Int]]
+
+  sub f(x: !H, y: !H)
+    !x.log.push(1)
+    !y.log.clear()
+    print(x.log.len)
+
+  h = *H(log: Cell(List()))
+  g = +h
+  f(!h, !g)
+
+fail "review-cell-mark-1-p21 same handle twice", "cannot lend `h` to read while a write loan is live"
+  obj H
+    log: Cell[List[Int]]
+
+  sub f(x: !H, y: ?H)
+    !x.log.push(1)
+    print(y.log.len)
+
+  h = *H(log: Cell(List()))
+  f(!h, ?h)
+
+fail "review-cell-mark-1-p23 wv holder take", "cannot move out of `x.items`: `x` is a view; exchange it instead: `replace(!x.items, v)`"
+  obj H
+    log: Cell[List[Int]]
+    items: List[Int]
+
+  fun f(x: !H) -> List[Int]
+    <x.items
+
+  h = *H(log: Cell(List()), items: List())
+  v = f(!h)
+  print(v.len)
+
+bomb "review-cell-mark-1-p26 signal reentrant subscribe", "Signal.subscribe called while notifying subscribers"
+  s = *Signal(0)
+  w = ~s
+  n = *Cell(0)
+  !s.subscribe(*|+w, +n|
+    !n.set(n.get() + 1)
+    if *w as h
+      if n.get() < 50
+        !h.subscribe(*|| print("x"))
+  )
+  !s.set(1)
+  print(n.get())
+
+test "review-cell-mark-1-p27 signal reentrant set", "3"
+  s = *Signal(0)
+  w = ~s
+  !s.subscribe(*|+w|
+    if *w as h
+      if h.get() < 3
+        !h.set(h.get() + 1)
+  )
+  !s.set(1)
+  print(s.get())
+
+test "review-cell-mark-1-p29 push arg realloc", "201"
+  fun grow(c: !Cell[List[?String]]) -> ?String
+    for _ in 0..200
+      !c.push("x")
+    "y"
+
+  c: *Cell[List[?String]] = *Cell(List())
+  d = +c
+  !c.push(grow(!d))
+  print(c.len)
+
+test "review-cell-mark-1-p32 swap cells holder", "0"
+  obj H
+    log: Cell[List[Int]]
+
+  a = *H(log: Cell(List()))
+  b = *H(log: Cell(List()))
+  swap(!a.log, !b.log)
+  print(a.log.len)
+
+test "review-cell-mark-1-p33 replace cell", "0"
+  a: *Cell[List[Int]] = *Cell(List())
+  old = replace(!a, *Cell(List()))
+  print(old.len)
+
+test "review-cell-mark-1-p34 swap cell through view", "2"
+  sub f(a: !Cell[Int], b: !Cell[Int])
+    swap(!a, !b)
+
+  a = *Cell(1)
+  b = *Cell(2)
+  f(!a, !b)
+  print(a.get())
+
+test "review-cell-mark-1-p35 swap cell same", "1"
+  sub f(a: !Cell[List[Int]], b: !Cell[List[Int]])
+    swap(!a, !b)
+
+  a: *Cell[List[Int]] = *Cell(List())
+  !a.push(1)
+  b = +a
+  f(!a, !b)
+  print(a.len)
+
+test "review-cell-mark-1-p43 holder qself method cellmark", "5"
+  obj H
+    n: Cell[Int]
+
+    sub show(?self, other: !*H)
+      !other.n.set(5)
+      print(self.n.get())
+
+  h = *H(n: Cell(1))
+  g = +h
+  h.show(!g)
+
+test "review-cell-mark-1-p63 recv capture", "1"
+  obj C
+    n: Cell[Int]
+    log: Cell[List[Int]]
+
+    sub hit(!self)
+      !self.n.set(self.n.get() + 1)
+      !self.log.push(self.n.get())
+
+  obj S
+    h: *C
+
+  k = *C(n: Cell(0), log: Cell(List()))
+  f = |!k| !k.hit()
+  f()
+  print(k.n.get())
+
+test "review-cell-mark-1-p68 recv fixed field shared", "2"
+  obj C
+    n: Cell[Int]
+    log: Cell[List[Int]]
+
+    sub hit(!self)
+      !self.n.set(self.n.get() + 1)
+      !self.log.push(self.n.get())
+
+  obj S
+    h: *C
+
+  k = *C(n: Cell(0), log: Cell(List()))
+  s = *S(h: +k)
+  t =! +s
+  !t.h.hit()
+  !s.h.hit()
+  print(k.n.get())
+
+fail "review-cell-mark-1-p72 view into holder cellvec", "cannot store a view of `s` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which carries no loan"
+  obj H
+    log: Cell[List[?String]]
+
+  sub put(x: !H, s: ?String)
+    (!x.log)[0] = s
+
+  sub put2(h: ?*H, s: ?String)
+    (!h.log)[0] = s
+
+  h = *H(log: Cell(List()))
+  !h.log.push("a")
+  if true
+    t = String("abcdefghijklmnop")
+    put(!h, ?t[..3])
+    put2(?h, ?t[..4])
+  print(h.log[0])
+
+test "review-cell-temp-x02 oracle opt view coalesce text", '''
+  5
+  x
+'''
+  # The same shape with a type holding a Text and no Cell.
+  #
+  # oracle: T.opt accept
+  # oracle: mkt accept
+  # oracle: main accept
+  obj T
+    t: String
+    n: Int
+
+    fun opt(?self) -> (?T)?
+      self
+
+  fun mkt(n: Int) -> T
+    T(t: String("x"), n: n)
+
+  print((mkt(5).opt() ?? ?mkt(0)).n)
+  print((mkt(6).opt() ?? ?mkt(0)).t)
+
+test "review-cell-temp-x04 oracle coalesce plain", "5"
+  # Minimal: a view of a temporary through `??` with another lent temporary,
+  # read within the statement. No Cell, no receiver.
+  #
+  # oracle: opt accept
+  # oracle: mkt accept
+  # oracle: main accept
+  obj T
+    t: String
+    n: Int
+
+  fun opt(p: ?T) -> (?T)?
+    p
+
+  fun mkt(n: Int) -> T
+    T(t: String("x"), n: n)
+
+  print((opt(?mkt(5)) ?? ?mkt(0)).n)
+
+test "review-cell-temp-x05 oracle coalesce named left", "1"
+  # `(opt(?b) ?? ?mkt(0)).n`,
+  # a lent temporary on the right of `??`, read within its statement.
+  #
+  # oracle: opt accept
+  # oracle: mkt accept
+  # oracle: main accept
+  obj T
+    t: String
+    n: Int
+
+  fun opt(p: ?T) -> (?T)?
+    p
+
+  fun mkt(n: Int) -> T
+    T(t: String("x"), n: n)
+
+  b = mkt(1)
+  print((opt(?b) ?? ?mkt(0)).n)
+
+test "review-cell-temp2-2-q07 arm view regression", '''
+  arm 6
+  arm2 2 5
+  none
+  none
+  5 5 -2
+'''
+  # A temporary made in a `match` arm that views the arm's binding: the
+  # arm's body is a statement of its own, so the temporary ends with the
+  # arm, inside the binding's scope.
+  obj P
+    n: Int
+
+  obj HT
+    v: ?P
+    t: String
+
+  fun len2(h: ?HT) -> Int
+    h.v.n + h.t.len
+
+  fun mkht(v: ?P) -> HT
+    HT(v: v, t: String("ab"))
+
+  enum Bx
+    has(p: P)
+    nothing
+
+  sub arms(b: ?Bx)
+    match b
+      .has(x) => print("arm", len2(?HT(v: ?x, t: String("abc"))))
+      .nothing => print("none")
+    match b
+      .has(x) => print("arm2", mkht(?x).t.len, len2(?mkht(?x)))
+      .nothing => print("none")
+
+  fun arms3(b: ?Bx) -> Int
+    r = match b
+      .has(x) => len2(?mkht(?x))
+      .nothing => 0
+    r
+
+  fun arms4(n: Int) -> Int
+    match n
+      m if m > 0 => len2(?HT(v: ?P(n: m), t: String("q")))
+      m => m
+
+  b = Bx.has(P(n: 3))
+  arms(?b)
+  arms(?Bx.nothing)
+  print(arms3(?b), arms4(4), arms4(-2))
+
+test "review-cell-temp2-2-q12 arm binding view drop", '''
+  zero
+  m 12
+  drop hi 10
+  m 22
+  drop hi 20
+  x 10
+  drop hp 7
+'''
+  # A temporary made in a `match` arm whose drop reads a view of the arm's
+  # binding. Where emit keeps the arm's temporary past the arm, the drop
+  # would read a binding whose scope has ended.
+  obj P
+    n: Int
+
+  obj HI
+    v: ?Int
+    t: String
+
+    drop(!self)
+      print("drop hi", self.v)
+
+  obj HP
+    v: ?P
+    t: String
+
+    drop(!self)
+      print("drop hp", self.v.n)
+
+  enum Bx
+    has(p: P)
+    nothing
+
+  fun showi(h: ?HI) -> Int
+    h.v + h.t.len
+
+  fun showp(h: ?HP) -> Int
+    h.v.n + h.t.len
+
+  fun mkbx(n: Int) -> Bx
+    return Bx.nothing if n < 0
+    Bx.has(P(n: n))
+
+  for i in 0..3
+    match i * 10
+      0 => print("zero")
+      m => print("m", showi(?HI(v: ?m, t: String("ab"))))
+  match mkbx(7)
+    .has(x) => print("x", showp(?HP(v: ?x, t: String("abc"))))
+    .nothing => print("none")
+
+test "review-cell-temp2-p14 none leaf plain", '''
+  v 2
+  q 0
+  q -1
+'''
+  # A `none` leaf of an optional that branches, unwrapped with `?` and read
+  # by a field, for a type with no Cell: emitted as the address of a
+  # `null` literal, a Zig compile error (main and branch).
+  #
+  # oracle: mk accept
+  # oracle: opt accept
+  # oracle: main accept
+  obj Q
+    n: Int
+    t: String
+
+  fun mk(n: Int) -> Q
+    Q(n: n, t: String("x"))
+
+  fun opt(k: Bool) -> Int?
+    o: Q? = mk(2)
+    print("v", (o if k else none)?.n)
+    0
+
+  print("q", opt(true) ?? -1)
+  print("q", opt(false) ?? -1)
+
+test "review-cell-temp2-p21 unique named leaf", '''
+  1 1
+  1
+  5 6
+  7
+'''
+  # A `unique` type without a Cell: a read lend of a branch beside a name's
+  # value (rejected now: it would copy the unique value into the slot), a
+  # `?self` method on such a branch, and a read of a field.
+  #
+  # oracle: R.get accept
+  # oracle: mkr accept
+  # oracle: look accept
+  # oracle: go accept
+  # oracle: main accept
+  obj R unique
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+  fun mkr(n: Int) -> R
+    R(n: n)
+
+  fun look(r: ?R) -> Int
+    r.n
+
+  sub go(k: Bool)
+    r = mkr(1)
+    print((r if k else mkr(5)).get(), (r if k else mkr(6)).n)
+    print(look(?r if k else ?mkr(7)))
+
+  go(true)
+  go(false)
+
+test "review-cell-temp2-p22 all none branch", '''
+  2
+  1
+'''
+  # A branch whose every leaf is `none`, beside a name's optional, as the
+  # left of `??`: emit stops with "cannot emit a value of this type".
+  #
+  # oracle: mk accept
+  # oracle: go accept
+  # oracle: main accept
+  obj Q
+    n: Int
+    t: String
+
+  fun mk(n: Int) -> Q
+    Q(n: n, t: String("x"))
+
+  sub go(k: Bool, j: Bool)
+    a = mk(1)
+    o: Q? = mk(2)
+    print(((o if j else (none if k else none)) ?? a).n)
+
+  go(true, true)
+  go(true, false)
+
+test "review-copies-2-g-E-catchfail-argopt", "false"
+  error Bad
+    oops
+
+  enum T
+    a
+    b
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T.a
+  b = T.b
+  c = unopt(get(?a, false) catch ?b, b)
+  print((c == T.a))
+
+test "review-copies-2-g-E-catchfail-fieldopt", "false"
+  error Bad
+    oops
+
+  enum T
+    a
+    b
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T.a
+  b = T.b
+  h = HO(t: get(?a, false) catch ?b)
+  print((unopt(h.t, b) == T.a))
+
+test "review-copies-2-g-E-catchfail-typedopt", "false"
+  error Bad
+    oops
+
+  enum T
+    a
+    b
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T.a
+  b = T.b
+  c: T? = get(?a, false) catch ?b
+  print((unopt(c, b) == T.a))
+
+test "review-copies-2-g-E-chain-argopt", "true"
+  error Bad
+    oops
+
+  enum T
+    a
+    b
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T.a
+  b = T.b
+  o: (?T)? = ?a
+  n: (?T)? = none
+  c = unopt(n ?? o ?? ?b, b)
+  print((c == T.a))
+
+test "review-copies-2-g-E-chain-fieldopt", "true"
+  error Bad
+    oops
+
+  enum T
+    a
+    b
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T.a
+  b = T.b
+  o: (?T)? = ?a
+  n: (?T)? = none
+  h = HO(t: n ?? o ?? ?b)
+  print((unopt(h.t, b) == T.a))
+
+test "review-copies-2-g-E-chain-typedopt", "true"
+  error Bad
+    oops
+
+  enum T
+    a
+    b
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T.a
+  b = T.b
+  o: (?T)? = ?a
+  n: (?T)? = none
+  c: T? = n ?? o ?? ?b
+  print((unopt(c, b) == T.a))
+
+test "review-copies-2-g-E-coalesce-argopt", "true"
+  error Bad
+    oops
+
+  enum T
+    a
+    b
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T.a
+  b = T.b
+  o: (?T)? = ?a
+  c = unopt(o ?? ?b, b)
+  print((c == T.a))
+
+test "review-copies-2-g-E-coalesce-fieldopt", "true"
+  error Bad
+    oops
+
+  enum T
+    a
+    b
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T.a
+  b = T.b
+  o: (?T)? = ?a
+  h = HO(t: o ?? ?b)
+  print((unopt(h.t, b) == T.a))
+
+test "review-copies-2-g-E-coalesce-typedopt", "true"
+  error Bad
+    oops
+
+  enum T
+    a
+    b
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T.a
+  b = T.b
+  o: (?T)? = ?a
+  c: T? = o ?? ?b
+  print((unopt(c, b) == T.a))
+
+test "review-copies-2-g-E-optcatch-argopt", "true"
+  error Bad
+    oops
+
+  enum T
+    a
+    b
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T.a
+  b = T.b
+  c = unopt((opt(?a, 2) catch ?b) ?? ?b, b)
+  print((c == T.a))

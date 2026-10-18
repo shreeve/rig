@@ -1,7 +1,0 @@
-sub main()
-  a = [1, 2, 3]
-  v: List[[]Int] = List()
-  !v.push(?a[..2])
-  !v.push(?a[1..])
-  print(v)
-  a[0] = 9

@@ -1,9 +1,0 @@
-obj R
-  name: String
-
-sub main()
-  v: List[R] = List()
-  !v.push(R(name: String("a")))
-  s = ?v[0].name
-  !v.push(R(name: String("b")))
-  print(s)

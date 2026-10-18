@@ -1,8 +1,0 @@
-# view of v[0], assign v[1]
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  !v.push(String("b"))
-  s = ?v[0]
-  v[1] = String("c")
-  print(s)

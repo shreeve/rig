@@ -1,7 +1,0 @@
-fun get(xs: ?List[Int], i: Int) -> Int
-  xs[i]
-
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  print(get(?v, 3))

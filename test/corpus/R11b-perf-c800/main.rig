@@ -1,4 +1,0 @@
-use lib
-
-sub main()
-  print(lib.f799(1, 2))

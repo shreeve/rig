@@ -1,9 +1,0 @@
-sub f(xs: []Int, s: ?String, w: ![]Int)
-  <xs
-  <s
-  <w
-
-sub main()
-  a = [1, 2]
-  t = String("x")
-  f(?a, ?t, !a)

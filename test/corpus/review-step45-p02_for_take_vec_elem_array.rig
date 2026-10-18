@@ -1,6 +1,0 @@
-# for x in <v[0] with v: List[[2]Text] (non-optional element): reject
-sub main()
-  v: List[[2]String] = List()
-  !v.push([String("a"), String("b")])
-  for x in <v[0]
-    print(x)

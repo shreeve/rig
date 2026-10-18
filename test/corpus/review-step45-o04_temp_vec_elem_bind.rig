@@ -1,9 +1,0 @@
-# bind an owning element of a temporary List (copy out of a temp)
-fun mk() -> List[String]
-  v: List[String] = List()
-  !v.push(String("a"))
-  <v
-
-sub main()
-  x = mk()[0]
-  print(x)

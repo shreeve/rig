@@ -1,0 +1,2976 @@
+# Probes from past reviews and audits, 20 of 41: review-copies-2-g-E-optcatch-fieldopt to review-copies-2-q08b-nested-opt-fallible-return.
+
+test "review-copies-2-g-E-optcatch-fieldopt", "true"
+  error Bad
+    oops
+
+  enum T
+    a
+    b
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T.a
+  b = T.b
+  h = HO(t: (opt(?a, 2) catch ?b) ?? ?b)
+  print((unopt(h.t, b) == T.a))
+
+test "review-copies-2-g-E-optcatch-typedopt", "true"
+  error Bad
+    oops
+
+  enum T
+    a
+    b
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T.a
+  b = T.b
+  c: T? = (opt(?a, 2) catch ?b) ?? ?b
+  print((unopt(c, b) == T.a))
+
+test "review-copies-2-g-P-catchfail-argopt", "2"
+  error Bad
+    oops
+
+  obj T
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(x: 1)
+  b = T(x: 2)
+  c = unopt(get(?a, false) catch ?b, b)
+  print(c.x)
+
+test "review-copies-2-g-P-catchfail-assign", "2"
+  error Bad
+    oops
+
+  obj T
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(x: 1)
+  b = T(x: 2)
+  c = T(x: 2)
+  c = get(?a, false) catch ?b
+  print(c.x)
+
+test "review-copies-2-g-P-catchfail-fieldopt", "2"
+  error Bad
+    oops
+
+  obj T
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(x: 1)
+  b = T(x: 2)
+  h = HO(t: get(?a, false) catch ?b)
+  print(unopt(h.t, b).x)
+
+test "review-copies-2-g-P-catchfail-typedopt", "2"
+  error Bad
+    oops
+
+  obj T
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(x: 1)
+  b = T(x: 2)
+  c: T? = get(?a, false) catch ?b
+  print(unopt(c, b).x)
+
+test "review-copies-2-g-P-chain-argopt", "1"
+  error Bad
+    oops
+
+  obj T
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(x: 1)
+  b = T(x: 2)
+  o: (?T)? = ?a
+  n: (?T)? = none
+  c = unopt(n ?? o ?? ?b, b)
+  print(c.x)
+
+test "review-copies-2-g-P-chain-fieldopt", "1"
+  error Bad
+    oops
+
+  obj T
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(x: 1)
+  b = T(x: 2)
+  o: (?T)? = ?a
+  n: (?T)? = none
+  h = HO(t: n ?? o ?? ?b)
+  print(unopt(h.t, b).x)
+
+test "review-copies-2-g-P-chain-typedopt", "1"
+  error Bad
+    oops
+
+  obj T
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(x: 1)
+  b = T(x: 2)
+  o: (?T)? = ?a
+  n: (?T)? = none
+  c: T? = n ?? o ?? ?b
+  print(unopt(c, b).x)
+
+test "review-copies-2-g-P-coalesce-argopt", "1"
+  error Bad
+    oops
+
+  obj T
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(x: 1)
+  b = T(x: 2)
+  o: (?T)? = ?a
+  c = unopt(o ?? ?b, b)
+  print(c.x)
+
+test "review-copies-2-g-P-coalesce-fieldopt", "1"
+  error Bad
+    oops
+
+  obj T
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(x: 1)
+  b = T(x: 2)
+  o: (?T)? = ?a
+  h = HO(t: o ?? ?b)
+  print(unopt(h.t, b).x)
+
+test "review-copies-2-g-P-coalesce-ret", "1"
+  error Bad
+    oops
+
+  obj T
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(x: 1)
+  b = T(x: 2)
+  o2: (?T)? = ?a
+  c = retv(o2, ?a, ?b)
+  print(c.x)
+
+test "review-copies-2-g-P-coalesce-typedopt", "1"
+  error Bad
+    oops
+
+  obj T
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(x: 1)
+  b = T(x: 2)
+  o: (?T)? = ?a
+  c: T? = o ?? ?b
+  print(unopt(c, b).x)
+
+test "review-copies-2-g-P-optcatch-argopt", "1"
+  error Bad
+    oops
+
+  obj T
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(x: 1)
+  b = T(x: 2)
+  c = unopt((opt(?a, 2) catch ?b) ?? ?b, b)
+  print(c.x)
+
+test "review-copies-2-g-P-optcatch-fieldopt", "1"
+  error Bad
+    oops
+
+  obj T
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(x: 1)
+  b = T(x: 2)
+  h = HO(t: (opt(?a, 2) catch ?b) ?? ?b)
+  print(unopt(h.t, b).x)
+
+test "review-copies-2-g-P-optcatch-typedopt", "1"
+  error Bad
+    oops
+
+  obj T
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(x: 1)
+  b = T(x: 2)
+  c: T? = (opt(?a, 2) catch ?b) ?? ?b
+  print(unopt(c, b).x)
+
+test "review-copies-2-g-S-catch-branch", "1"
+  error Bad
+    oops
+
+  obj T
+    s: ?String
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(s: "a", x: 1)
+  b = T(s: "b", x: 2)
+  k = true
+  c: T = (get(?a, true) catch ?b) if k else T(s: "b", x: 2)
+  print(c.x)
+
+test "review-copies-2-g-S-catchfail-argopt", "2"
+  error Bad
+    oops
+
+  obj T
+    s: ?String
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(s: "a", x: 1)
+  b = T(s: "b", x: 2)
+  c = unopt(get(?a, false) catch ?b, b)
+  print(c.x)
+
+test "review-copies-2-g-S-catchfail-fieldopt", "2"
+  error Bad
+    oops
+
+  obj T
+    s: ?String
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(s: "a", x: 1)
+  b = T(s: "b", x: 2)
+  h = HO(t: get(?a, false) catch ?b)
+  print(unopt(h.t, b).x)
+
+test "review-copies-2-g-S-catchfail-typedopt", "2"
+  error Bad
+    oops
+
+  obj T
+    s: ?String
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(s: "a", x: 1)
+  b = T(s: "b", x: 2)
+  c: T? = get(?a, false) catch ?b
+  print(unopt(c, b).x)
+
+test "review-copies-2-g-S-chain-argopt", "1"
+  error Bad
+    oops
+
+  obj T
+    s: ?String
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(s: "a", x: 1)
+  b = T(s: "b", x: 2)
+  o: (?T)? = ?a
+  n: (?T)? = none
+  c = unopt(n ?? o ?? ?b, b)
+  print(c.x)
+
+test "review-copies-2-g-S-chain-fieldopt", "1"
+  error Bad
+    oops
+
+  obj T
+    s: ?String
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(s: "a", x: 1)
+  b = T(s: "b", x: 2)
+  o: (?T)? = ?a
+  n: (?T)? = none
+  h = HO(t: n ?? o ?? ?b)
+  print(unopt(h.t, b).x)
+
+test "review-copies-2-g-S-chain-typedopt", "1"
+  error Bad
+    oops
+
+  obj T
+    s: ?String
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(s: "a", x: 1)
+  b = T(s: "b", x: 2)
+  o: (?T)? = ?a
+  n: (?T)? = none
+  c: T? = n ?? o ?? ?b
+  print(unopt(c, b).x)
+
+test "review-copies-2-g-S-coalesce-argopt", "1"
+  error Bad
+    oops
+
+  obj T
+    s: ?String
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(s: "a", x: 1)
+  b = T(s: "b", x: 2)
+  o: (?T)? = ?a
+  c = unopt(o ?? ?b, b)
+  print(c.x)
+
+test "review-copies-2-g-S-coalesce-fieldopt", "1"
+  error Bad
+    oops
+
+  obj T
+    s: ?String
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(s: "a", x: 1)
+  b = T(s: "b", x: 2)
+  o: (?T)? = ?a
+  h = HO(t: o ?? ?b)
+  print(unopt(h.t, b).x)
+
+test "review-copies-2-g-S-coalesce-typedopt", "1"
+  error Bad
+    oops
+
+  obj T
+    s: ?String
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(s: "a", x: 1)
+  b = T(s: "b", x: 2)
+  o: (?T)? = ?a
+  c: T? = o ?? ?b
+  print(unopt(c, b).x)
+
+test "review-copies-2-g-S-optcatch-argopt", "1"
+  error Bad
+    oops
+
+  obj T
+    s: ?String
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(s: "a", x: 1)
+  b = T(s: "b", x: 2)
+  c = unopt((opt(?a, 2) catch ?b) ?? ?b, b)
+  print(c.x)
+
+test "review-copies-2-g-S-optcatch-fieldopt", "1"
+  error Bad
+    oops
+
+  obj T
+    s: ?String
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(s: "a", x: 1)
+  b = T(s: "b", x: 2)
+  h = HO(t: (opt(?a, 2) catch ?b) ?? ?b)
+  print(unopt(h.t, b).x)
+
+test "review-copies-2-g-S-optcatch-typedopt", "1"
+  error Bad
+    oops
+
+  obj T
+    s: ?String
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  a = T(s: "a", x: 1)
+  b = T(s: "b", x: 2)
+  c: T? = (opt(?a, 2) catch ?b) ?? ?b
+  print(unopt(c, b).x)
+
+test "review-copies-2-g-V-catchfail-argopt", "2"
+  error Bad
+    oops
+
+  obj T
+    r: ?List[Int]
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  gv: List[Int] = List()
+  a = T(r: ?gv, x: 1)
+  b = T(r: ?gv, x: 2)
+  c = unopt(get(?a, false) catch ?b, b)
+  print(c.x)
+
+test "review-copies-2-g-V-catchfail-fieldopt", "2"
+  error Bad
+    oops
+
+  obj T
+    r: ?List[Int]
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  gv: List[Int] = List()
+  a = T(r: ?gv, x: 1)
+  b = T(r: ?gv, x: 2)
+  h = HO(t: get(?a, false) catch ?b)
+  print(unopt(h.t, b).x)
+
+test "review-copies-2-g-V-catchfail-typedopt", "2"
+  error Bad
+    oops
+
+  obj T
+    r: ?List[Int]
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  gv: List[Int] = List()
+  a = T(r: ?gv, x: 1)
+  b = T(r: ?gv, x: 2)
+  c: T? = get(?a, false) catch ?b
+  print(unopt(c, b).x)
+
+test "review-copies-2-g-V-chain-argopt", "1"
+  error Bad
+    oops
+
+  obj T
+    r: ?List[Int]
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  gv: List[Int] = List()
+  a = T(r: ?gv, x: 1)
+  b = T(r: ?gv, x: 2)
+  o: (?T)? = ?a
+  n: (?T)? = none
+  c = unopt(n ?? o ?? ?b, b)
+  print(c.x)
+
+test "review-copies-2-g-V-chain-fieldopt", "1"
+  error Bad
+    oops
+
+  obj T
+    r: ?List[Int]
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  gv: List[Int] = List()
+  a = T(r: ?gv, x: 1)
+  b = T(r: ?gv, x: 2)
+  o: (?T)? = ?a
+  n: (?T)? = none
+  h = HO(t: n ?? o ?? ?b)
+  print(unopt(h.t, b).x)
+
+test "review-copies-2-g-V-chain-typedopt", "1"
+  error Bad
+    oops
+
+  obj T
+    r: ?List[Int]
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  gv: List[Int] = List()
+  a = T(r: ?gv, x: 1)
+  b = T(r: ?gv, x: 2)
+  o: (?T)? = ?a
+  n: (?T)? = none
+  c: T? = n ?? o ?? ?b
+  print(unopt(c, b).x)
+
+test "review-copies-2-g-V-chain-vec", "1"
+  error Bad
+    oops
+
+  obj T
+    r: ?List[Int]
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  gv: List[Int] = List()
+  a = T(r: ?gv, x: 1)
+  b = T(r: ?gv, x: 2)
+  o: (?T)? = ?a
+  n: (?T)? = none
+  vs: List[T] = List()
+  !vs.push(n ?? o ?? ?b)
+  print(vs[0].x)
+
+test "review-copies-2-g-V-coalesce-argopt", "1"
+  error Bad
+    oops
+
+  obj T
+    r: ?List[Int]
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  gv: List[Int] = List()
+  a = T(r: ?gv, x: 1)
+  b = T(r: ?gv, x: 2)
+  o: (?T)? = ?a
+  c = unopt(o ?? ?b, b)
+  print(c.x)
+
+test "review-copies-2-g-V-coalesce-fieldopt", "1"
+  error Bad
+    oops
+
+  obj T
+    r: ?List[Int]
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  gv: List[Int] = List()
+  a = T(r: ?gv, x: 1)
+  b = T(r: ?gv, x: 2)
+  o: (?T)? = ?a
+  h = HO(t: o ?? ?b)
+  print(unopt(h.t, b).x)
+
+test "review-copies-2-g-V-coalesce-typedopt", "1"
+  error Bad
+    oops
+
+  obj T
+    r: ?List[Int]
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  gv: List[Int] = List()
+  a = T(r: ?gv, x: 1)
+  b = T(r: ?gv, x: 2)
+  o: (?T)? = ?a
+  c: T? = o ?? ?b
+  print(unopt(c, b).x)
+
+test "review-copies-2-g-V-optcatch-argopt", "1"
+  error Bad
+    oops
+
+  obj T
+    r: ?List[Int]
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  gv: List[Int] = List()
+  a = T(r: ?gv, x: 1)
+  b = T(r: ?gv, x: 2)
+  c = unopt((opt(?a, 2) catch ?b) ?? ?b, b)
+  print(c.x)
+
+test "review-copies-2-g-V-optcatch-fieldopt", "1"
+  error Bad
+    oops
+
+  obj T
+    r: ?List[Int]
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  gv: List[Int] = List()
+  a = T(r: ?gv, x: 1)
+  b = T(r: ?gv, x: 2)
+  h = HO(t: (opt(?a, 2) catch ?b) ?? ?b)
+  print(unopt(h.t, b).x)
+
+test "review-copies-2-g-V-optcatch-typedopt", "1"
+  error Bad
+    oops
+
+  obj T
+    r: ?List[Int]
+    x: Int
+
+  obj H
+    t: T
+
+  obj HO
+    t: T?
+
+  fun get(r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?T, k: Int) -> (?T)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun idv(t: T) -> T
+    t
+
+  fun unopt(t: T?, d: T) -> T
+    if t as v
+      return v
+    d
+
+  fun retv(o: (?T)?, a: ?T, b: ?T) -> T
+    o ?? b
+
+  gv: List[Int] = List()
+  a = T(r: ?gv, x: 1)
+  b = T(r: ?gv, x: 2)
+  c: T? = (opt(?a, 2) catch ?b) ?? ?b
+  print(unopt(c, b).x)
+
+fail "review-copies-2-q01b-return-local-view-fallible-direct", "cannot return a view of `p`, which this function was not lent"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun leak(ok: Bool) -> (?P)!
+    p = P(x: 7)
+    return Bad.oops if not ok
+    ?p
+
+  v = leak(true)!
+  print(v.x)
+
+fail "review-copies-2-q01c-return-local-write-view-fallible", "cannot return a view of `p`, which this function was not lent"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun leak(ok: Bool) -> (!P)!
+    p = P(x: 7)
+    w = !p
+    return Bad.oops if not ok
+    w
+
+  v = leak(true)!
+  v.x = 3
+  print(v.x)
+
+fail "review-copies-2-q01d-return-local-view-opt-fallible", "cannot return a view of `p`, which this function was not lent"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun leak(ok: Bool) -> (?P)?!
+    p = P(x: 7)
+    r = ?p
+    return Bad.oops if not ok
+    r
+
+  v = leak(true)!
+  if v as q
+    print(q.x)
+
+fail "review-copies-2-q02-catch-result-keeps-loans", "cannot assign to `a.x` while `a` is lent"
+  # The view a `catch` gives carries the loans of both sides.
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  v = get(?a, true) catch ?b
+  a.x = 5
+  print(v.x)
+
+fail "review-copies-2-q02b-catch-result-keeps-handler-loan", "cannot assign to `b.x` while `b` is lent"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  v = get(?a, false) catch ?b
+  b.x = 5
+  print(v.x)
+
+fail "review-copies-2-q02d-write-catch-two-writers", "cannot assign to `b.x` while `b` is lent"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun wget(w: !P, ok: Bool) -> (!P)!
+    return Bad.oops if not ok
+    w
+
+  a = P(x: 1)
+  b = P(x: 2)
+  w = wget(!b, true) catch !a
+  b.x = 7
+  w.x = 9
+  print(a.x, b.x)
+
+fail "review-copies-2-q02e-write-catch-read-owner", "use of `a.x` while a write loan on `a` is live"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun wget(w: !P, ok: Bool) -> (!P)!
+    return Bad.oops if not ok
+    w
+
+  a = P(x: 1)
+  b = P(x: 2)
+  w = wget(!b, false) catch !a
+  print(a.x)
+  w.x = 9
+  print(a.x, b.x)
+
+test "review-copies-2-q03b-ret-field-lend", "4 2"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun pf(q: ?Q, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    ?q.p
+
+  q = Q(p: P(x: 4), n: 0)
+  b = P(x: 2)
+  v = pf(?q, true) catch ?b
+  u = pf(?q, false) catch ?b
+  print(v.x, u.x)
+
+test "review-copies-2-q03d-ret-if-branches", "1 2 1"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun pick(a: ?P, b: ?P, c: Bool, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    a if c else b
+
+  a = P(x: 1)
+  b = P(x: 2)
+  v = pick(?a, ?b, true, true) catch ?b
+  u = pick(?a, ?b, false, true) catch ?a
+  t = pick(?a, ?b, false, false) catch ?a
+  print(v.x, u.x, t.x)
+
+test "review-copies-2-q03g-ret-catch-inside", "1 2"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun two(r: ?P, s: ?P, ok: Bool) -> (?P)!
+    get(r, ok) catch s
+
+  a = P(x: 1)
+  b = P(x: 2)
+  v = two(?a, ?b, true)!
+  u = two(?a, ?b, false)!
+  print(v.x, u.x)
+
+test "review-copies-2-q03h-ret-catch-e-rethrow", "1 2"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun two(r: ?P, ok: Bool) -> (?P)!
+    get(r, ok) catch |e| return e
+
+  a = P(x: 1)
+  b = P(x: 2)
+  v = two(?a, true) catch ?b
+  u = two(?a, false) catch |e| (?b if e == Bad.oops else ?a)
+  print(v.x, u.x)
+
+test "review-copies-2-q03i-ret-coalesce", "1 2"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun two(o: (?P)?, s: ?P) -> (?P)!
+    o ?? s
+
+  a = P(x: 1)
+  b = P(x: 2)
+  o: (?P)? = ?a
+  v = two(o, ?b) catch ?b
+  u = two(none, ?b) catch ?a
+  print(v.x, u.x)
+
+test "review-copies-2-q03j-ret-coalesce-return", "1 2"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun two(o: (?P)?) -> (?P)!
+    r = o ?? return Bad.oops
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  o: (?P)? = ?a
+  v = two(o) catch ?b
+  u = two(none) catch ?b
+  print(v.x, u.x)
+
+test "review-copies-2-q03k-ret-int-write-view", '''
+  11 2
+  11 102
+'''
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun wi(w: !Int, ok: Bool) -> (!Int)!
+    return Bad.oops if not ok
+    w
+
+  n = 1
+  m = 2
+  w = wi(!n, true) catch !m
+  w += 10
+  print(n, m)
+  u = wi(!n, false) catch !m
+  u += 100
+  print(n, m)
+
+test "review-copies-2-q03l-ret-int-read-view", "1 2"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun ri(r: ?Int, ok: Bool) -> (?Int)!
+    return Bad.oops if not ok
+    r
+
+  n = 1
+  m = 2
+  v = ri(?n, true) catch ?m
+  u = ri(?n, false) catch ?m
+  print(v, u)
+
+test "review-copies-2-q03m-ret-opt-fallible-forms", '''
+  2
+  none
+  1
+'''
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun opt(r: ?P, k: Int) -> (?P)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  for k in 0..3
+    q = opt(?a, k) catch ?b
+    if q as p
+      print(p.x)
+    else
+      print("none")
+
+test "review-copies-2-q03n-ret-opt-fallible-propagate", '''
+  2 -1
+  -1 -1
+  1 1
+'''
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun opt(r: ?P, k: Int) -> (?P)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  fun via(r: ?P, k: Int) -> (?P)?!
+    opt(r, k)!
+
+  fun via2(r: ?P, k: Int) -> (?P)?!
+    q = opt(r, k)!
+    q
+
+  a = P(x: 1)
+  b = P(x: 2)
+  for k in 0..3
+    q = via(?a, k) catch ?b
+    s = via2(?a, k) catch none
+    x = -1
+    y = -1
+    if q as p
+      x = p.x
+    if s as p
+      y = p.x
+    print(x, y)
+
+test "review-copies-2-q03o-ret-write-holder-opt", "11"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun wopt(w: !P, k: Int) -> (!P)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    w
+
+  a = P(x: 1)
+  for k in 0..3
+    q = wopt(!a, k) catch none
+    if !q as p
+      p.x += 10
+  print(a.x)
+
+test "review-copies-2-q04a-catch-owned-fallback", "1 9 5"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?P, k: Int) -> (?P)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  a = P(x: 1)
+  v = get(?a, true) catch P(x: 9)
+  u = get(?a, false) catch P(x: 9)
+  a.x = 5
+  print(v.x, u.x, a.x)
+
+test "review-copies-2-q04b-catch-owned-fallback-typed", "1 5"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?P, k: Int) -> (?P)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  a = P(x: 1)
+  v: P = get(?a, true) catch P(x: 9)
+  a.x = 5
+  print(v.x, a.x)
+
+test "review-copies-2-q04c-catch-view-typed-copy", "1"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?P, k: Int) -> (?P)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  v: P = get(?a, true) catch ?b
+  a.x = 5
+  b.x = 6
+  print(v.x)
+
+test "review-copies-2-q04d-catch-view-untyped-mutate", '''
+  1
+  5 6
+'''
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?P, k: Int) -> (?P)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  v = get(?a, true) catch ?b
+  print(v.x)
+  a.x = 5
+  b.x = 6
+  print(a.x, b.x)
+
+test "review-copies-2-q04e-catch-e-view", "2 2"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?P, k: Int) -> (?P)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  v = get(?a, false) catch |e| (?b if e == Bad.oops else ?a)
+  w: P = get(?a, false) catch |e| (?b if e == Bad.oops else ?a)
+  print(v.x, w.x)
+
+test "review-copies-2-q04f-catch-block-handler", '''
+  failed true
+  failed2 true
+  2 2
+'''
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?P, k: Int) -> (?P)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  v = get(?a, false) catch |e|
+    print("failed", e == Bad.oops)
+    ?b
+  w: P = get(?a, false) catch |e|
+    print("failed2", e == Bad.oops)
+    ?b
+  print(v.x, w.x)
+
+test "review-copies-2-q04h-catch-opt-then-coalesce", '''
+  2
+  2
+  1
+'''
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?P, k: Int) -> (?P)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  for k in 0..3
+    c: P = (opt(?a, k) catch ?b) ?? ?b
+    print(c.x)
+
+test "review-copies-2-q04i-coalesce-chain", "1 1"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?P, k: Int) -> (?P)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  o1: (?P)? = none
+  o2: (?P)? = ?a
+  c: P = o1 ?? o2 ?? ?b
+  f: P = o1 ?? (o2 ?? ?b)
+  a.x = 5
+  b.x = 6
+  print(c.x, f.x)
+
+test "review-copies-2-q04j-coalesce-mixed-owned-first", "1 1"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?P, k: Int) -> (?P)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  a = P(x: 1)
+  o: P? = none
+  r = ?a
+  c = o ?? r
+  d: P = o ?? r
+  a.x = 5
+  print(c.x, d.x)
+
+test "review-copies-2-q04k-coalesce-break", "1"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?P, k: Int) -> (?P)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  a = P(x: 1)
+  os: List[(?P)?] = List()
+  !os.push(?a)
+  !os.push(none)
+  !os.push(?a)
+  t = 0
+  for o in os
+    c: P = o ?? break
+    t += c.x
+  print(t)
+
+test "review-copies-2-q04l-coalesce-return-sub", "4"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun opt(r: ?P, k: Int) -> (?P)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    r
+
+  sub show(o: (?P)?)
+    c: P = o ?? return
+    print(c.x)
+
+  a = P(x: 4)
+  show(?a)
+  show(none)
+
+fail "review-copies-2-q05a-catch-copyout-string-holder-text-dropped", "cannot drop `t` while it is lent"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  t = String("hello", 3)
+  n = N(s: ?t, k: 1)
+  b = N(s: "zz", k: 2)
+  c: N = get(?n, true) catch ?b
+  <t
+  print(c.s, c.k)
+
+fail "review-copies-2-q05b-coalesce-copyout-string-holder-text-dropped", "cannot drop `t` while it is lent"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  t = String("hello", 3)
+  n = N(s: ?t, k: 1)
+  b = N(s: "zz", k: 2)
+  o: (?N)? = ?n
+  c: N = o ?? ?b
+  <t
+  print(c.s, c.k)
+
+test "review-copies-2-q05c-catch-copyout-holder-repointed", "hello3 1 other"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  t = String("hello", 3)
+  n = N(s: ?t, k: 1)
+  b = N(s: "zz", k: 2)
+  c: N = get(?n, true) catch ?b
+  n = N(s: "other", k: 9)
+  print(c.s, c.k, n.s)
+  <t
+
+fail "review-copies-2-q05d-catch-view-of-temp", "a view of the temporary `N(s: \"tmp\", k: 7)` outlives its statement, which drops it; bind the value to a name first"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  b = N(s: "zz", k: 2)
+  v = get(?N(s: "tmp", k: 7), true) catch ?b
+  print(v.s, v.k)
+
+test "review-copies-2-q05e-catch-copyout-view-of-temp", "tmp 7"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  b = N(s: "zz", k: 2)
+  v: N = get(?N(s: "tmp", k: 7), true) catch ?b
+  print(v.s, v.k)
+
+fail "review-copies-2-q05f-catch-handler-temp", "a view of the temporary `N(s: \"tmp\", k: 7)` outlives its statement, which drops it; bind the value to a name first"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  a = N(s: "aa", k: 1)
+  v = get(?a, false) catch ?N(s: "tmp", k: 7)
+  print(v.s, v.k)
+
+test "review-copies-2-q05g-catch-copyout-handler-temp", "tmp 7"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  a = N(s: "aa", k: 1)
+  v: N = get(?a, false) catch ?N(s: "tmp", k: 7)
+  print(v.s, v.k)
+
+fail "review-copies-2-q05h-coalesce-copyout-temp-text", "a view of the temporary `mk(3)` outlives its statement, which drops it; bind the value to a name first"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  fun mk(n: Int) -> String
+    String("q", n)
+
+  o: (?N)? = none
+  v: N = o ?? ?N(s: ?mk(3), k: 7)
+  print(v.s, v.k)
+
+fail "review-copies-2-q05i-catch-copyout-temp-text", "a view of the temporary `mk(3)` outlives its statement, which drops it; bind the value to a name first"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  fun mk(n: Int) -> String
+    String("q", n)
+
+  a = N(s: "aa", k: 1)
+  v: N = get(?a, false) catch ?N(s: ?mk(3), k: 7)
+  print(v.s, v.k)
+
+fail "review-copies-2-q05j-catch-view-temp-arg-text", "a view of the temporary `mk(4)` outlives its statement, which drops it; bind the value to a name first"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  fun mk(n: Int) -> String
+    String("q", n)
+
+  b = N(s: "zz", k: 2)
+  v: N = get(?N(s: ?mk(4), k: 7), true) catch ?b
+  print(v.s, v.k)
+
+test "review-copies-2-q05k-coalesce-copyout-handler-temp", "tmp 7"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  o: (?N)? = none
+  v: N = o ?? ?N(s: "tmp", k: 7)
+  print(v.s, v.k)
+
+test "review-copies-2-q05l-branch-copyout-temp", "tmp 7"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  b = N(s: "zz", k: 2)
+  c = true
+  v: N = ?N(s: "tmp", k: 7) if c else ?b
+  print(v.s, v.k)
+
+fail "review-copies-2-q06a-catch-handler-block-local-copyout", "`loc` does not live long enough"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  a = N(s: "aa", k: 1)
+  v: N = get(?a, false) catch |e|
+    loc = N(s: "loc", k: 3 if e == Bad.oops else 4)
+    ?loc
+  w = 0
+  x = N(s: "junk", k: 99)
+  print(v.s, v.k, x.k, w)
+
+fail "review-copies-2-q06b-catch-handler-block-local-view", "`loc` does not live long enough"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  a = N(s: "aa", k: 1)
+  v = get(?a, false) catch |e|
+    loc = N(s: "loc", k: 3 if e == Bad.oops else 4)
+    ?loc
+  print(v.s, v.k)
+
+test "review-copies-2-q06c-if-block-local-copyout", "loc 3 99"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  b = N(s: "zz", k: 2)
+  c = true
+  v: N = if c
+    loc = N(s: "loc", k: 3)
+    ?loc
+  else
+    ?b
+  x = N(s: "junk", k: 99)
+  print(v.s, v.k, x.k)
+
+fail "review-copies-2-q06e-catch-handler-block-local-text", "`loc` does not live long enough"
+  error Bad
+    oops
+
+  obj N
+    s: ?String
+    k: Int
+
+  fun get(r: ?N, ok: Bool) -> (?N)!
+    return Bad.oops if not ok
+    r
+
+  fun mk(n: Int) -> String
+    String("q", n)
+
+  a = N(s: "aa", k: 1)
+  v: N = get(?a, false) catch |e|
+    t = mk(3)
+    loc = N(s: ?t, k: 3 if e == Bad.oops else 4)
+    ?loc
+  print(v.s, v.k)
+
+fail "review-copies-2-q06f-catch-handler-block-int-copyout", "`loc` does not live long enough"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  a = P(x: 1)
+  v: P = get(?a, false) catch |e|
+    loc = P(x: 3 if e == Bad.oops else 4)
+    ?loc
+  x = P(x: 99)
+  print(v.x, x.x)
+
+test "review-copies-2-q07c-generic-readview-param", "1 2 5 6 1"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun first[T](r: ?T, ok: Bool) -> (?T)!
+    return Bad.oops if not ok
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  v = first(?a, true) catch ?b
+  u = first(?a, false) catch ?b
+  n = 5
+  m = 6
+  i = first(?n, true) catch ?m
+  j = first(?n, false) catch ?m
+  vs: List[Int] = List()
+  !vs.push(3)
+  ws: List[Int] = List()
+  k = first(?vs, true) catch ?ws
+  print(v.x, u.x, i, j, k.len)
+
+test "review-copies-2-q07d-generic-writeview-param", "107 2"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun first[T](r: !T, ok: Bool) -> (!T)!
+    return Bad.oops if not ok
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  v = first(!a, true) catch !b
+  v.x = 7
+  u = first(!b, false) catch !a
+  u.x += 100
+  vs: List[Int] = List()
+  print(a.x, b.x)
+
+test "review-copies-2-q07e-closure-fallible-view", "1 2"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  f: fun(?P, Bool) -> (?P)! = |r, ok|
+    return Bad.oops if not ok
+    r
+  v = f(?a, true) catch ?b
+  u = f(?a, false) catch ?b
+  print(v.x, u.x)
+
+test "review-copies-2-q07f-method-fallible-view", '''
+  4
+  40 20
+'''
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+    fun pick(?self, ok: Bool) -> (?P)!
+      return Bad.oops if not ok
+      ?self.p
+
+    fun wpick(!self, ok: Bool) -> (!P)!
+      return Bad.oops if not ok
+      !self.p
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  q = Q(p: P(x: 4), n: 0)
+  b = P(x: 2)
+  v = ?q.pick(true) catch ?b
+  print(v.x)
+  w = (!q).wpick(true) catch !b
+  w.x = 40
+  u = (!q).wpick(false) catch !b
+  u.x = 20
+  print(q.p.x, b.x)
+
+test "review-copies-2-q07g-store-in-struct-and-vec", "1 2 1 1 2 2"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  obj S
+    r: ?P
+
+  a = P(x: 1)
+  b = P(x: 2)
+  s = S(r: get(?a, true) catch ?b)
+  vs: List[?P] = List()
+  !vs.push(get(?a, false) catch ?b)
+  cs: List[P] = List()
+  !cs.push(get(?a, true) catch ?b)
+  arr: [2]P = [get(?a, true) catch ?b, get(?a, false) catch ?b]
+  t = S(r: ?a)
+  t.r = get(?b, true) catch ?a
+  print(s.r.x, vs[0].x, cs[0].x, arr[0].x, arr[1].x, t.r.x)
+
+fail "review-copies-2-q07h-store-in-struct-loan", "cannot assign to `a.x` while `a` is lent"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  obj S
+    r: ?P
+
+  a = P(x: 1)
+  b = P(x: 2)
+  s = S(r: get(?a, true) catch ?b)
+  a.x = 5
+  print(s.r.x)
+
+fail "review-copies-2-q07i-store-in-vec-loan", "cannot assign to `b.x` while `b` is lent"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  vs: List[?P] = List()
+  !vs.push(get(?a, false) catch ?b)
+  b.x = 5
+  print(vs[0].x)
+
+test "review-copies-2-q07j-copyout-into-vec-no-loan", "1"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  cs: List[P] = List()
+  !cs.push(get(?a, true) catch ?b)
+  a.x = 5
+  b.x = 6
+  print(cs[0].x)
+
+fail "review-copies-2-q07k-assign-field-loan", "cannot assign to `a.x` while `a` is lent"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  obj S
+    r: ?P
+
+  a = P(x: 1)
+  b = P(x: 2)
+  t = S(r: ?b)
+  t.r = get(?a, true) catch ?b
+  a.x = 5
+  print(t.r.x)
+
+fail "review-copies-2-q07l-write-catch-same-owner", "cannot lend `vs` to write while a write loan is live"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  obj Q
+    p: P
+    n: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun first[T](r: !T, ok: Bool) -> (!T)!
+    return Bad.oops if not ok
+    r
+
+  vs: List[Int] = List()
+  k = first(!vs, false) catch !vs
+  !k.push(1)
+  print(vs.len)
+
+test "review-copies-2-q08a-nested-opt-coalesce", "1 2 1"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun px(o: P?) -> Int
+    if o as p
+      return p.x
+    -1
+
+  fun vx(o: (?P)?) -> Int
+    if o as p
+      return p.x
+    -1
+
+  a = P(x: 1)
+  b = P(x: 2)
+  i: (?P)? = ?a
+  o: ((?P)?)? = i
+  n: ((?P)?)? = none
+  c: P = (o ?? none) ?? ?b
+  d: P = (n ?? none) ?? ?b
+  f: P? = i ?? ?b
+  print(c.x, d.x, px(f))
+
+test "review-copies-2-q08b-nested-opt-fallible-return", '''
+  0 none
+  1 none
+  2 inner none
+  3 1
+'''
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun g(r: ?P, k: Int) -> ((?P)?)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    i: (?P)? = none
+    return i if k == 2
+    r
+
+  a = P(x: 1)
+  for k in 0..4
+    o = g(?a, k) catch none
+    if o as i
+      if i as p
+        print(k, p.x)
+      else
+        print(k, "inner none")
+    else
+      print(k, "none")

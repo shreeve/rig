@@ -1,7 +1,0 @@
-use util
-
-pub fun f[T](x: T) -> T
-  util.dup(<x)
-
-pub fun g[T](v: ?List[T]) -> Int
-  util.firsts(v)

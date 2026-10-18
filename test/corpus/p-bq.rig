@@ -1,8 +1,0 @@
-fun cmp(b: ?^String) -> Bool
-  b == "boxed"
-
-sub main()
-  b = ^String("boxed")
-  c = ^String("boxed")
-  t = String("boxed")
-  print(?b == "boxed", b == "no", b == c, t == b, cmp(?b))

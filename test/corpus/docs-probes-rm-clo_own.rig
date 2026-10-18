@@ -1,3 +1,0 @@
-sub main()
-  f: *fun(List[Int]) -> Int = *|v: List[Int]| v.len
-  print(f(List()))

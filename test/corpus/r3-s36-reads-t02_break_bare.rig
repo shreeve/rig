@@ -1,8 +1,0 @@
-obj Bag
-  v: List[Int]
-
-sub main()
-  x = while true
-    b = Bag(v: List())
-    break b
-  print(x.v.len)

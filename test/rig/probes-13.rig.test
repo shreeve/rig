@@ -1,0 +1,1391 @@
+# Probes from past reviews and audits, 13 of 41: r3-s36-containers-br_t01_vec_text to r3-s36-loans-t11_owned_closure_args.
+
+use std.math
+use std.os
+use std.random
+use std.sort
+use std.text
+
+test "r3-s36-containers-br t01 vec text", '''
+  ["a"]
+'''
+  v: List[String] = List()
+  !v.push(String("a"))
+  print(v)
+
+test "r3-s36-containers-br t02 vec box text ops", '''
+  false
+  true
+  b
+'''
+  v: List[^String] = List()
+  !v.push(^String("b"))
+  !v.push(^String("a"))
+  for t in ?v
+    print(text.contains(?t, "a"))
+  print(v[0])
+
+test "r3-s36-containers-br t05 struct text field", "1"
+  obj Rec
+    name: String
+    n: Int
+
+  v: List[Rec] = List()
+  !v.push(Rec(name: String("x"), n: 1))
+  print(v.len)
+
+test "r3-s36-containers-br t06 array text", '''
+  ["x", "y"]
+'''
+  a = [String("x"), String("y")]
+  print(a)
+
+test "r3-s36-containers-br t07 text swap box", '''
+  ["a!", "b!"]
+  a!
+'''
+  v: List[^String] = List()
+  !v.push(^String("b"))
+  !v.push(^String("a"))
+  !v.swap(0, 1)
+  for t in !v
+    !t.add("!")
+  print(v)
+  x = (!v).remove(0)
+  print(x)
+
+test "r3-s36-containers-br x01 env text name", "unset RIG_NOPEX"
+  name = String("RIG_", "NOPE")
+  v = os.env(?name) ?? "unset"
+  !name.add("X")
+  print(v, name)
+
+test "r3-s36-containers-br x05 text field struct vec box", "x 1"
+  obj Rec
+    name: String
+    n: Int
+
+  v: List[^Rec] = List()
+  !v.push(^Rec(name: String("x"), n: 1))
+  for r in ?v
+    print(r.name, r.n)
+
+test "r3-s36-containers-br x07 field text lend", '''
+  true el
+  true
+'''
+  obj Rec
+    name: String
+
+  r = Rec(name: String("hello"))
+  print(text.contains(?r.name, "ell"), r.name[1..3])
+  b = ^Rec(name: String("boxed"))
+  print(text.contains(?b.name, "ox"))
+
+test "r3-s36-containers-br x10 split ifas", '''
+  a
+  b
+  c
+'''
+  obj Split
+    rest: ?String
+    sep: ?String
+    done: Bool
+
+    fun next(!self) -> (?String)?
+      return none if self.done
+      if text.find(self.rest, self.sep) as at
+        part = self.rest[..at]
+        self.rest = self.rest[at + self.sep.len..]
+        return part
+      self.done = true
+      self.rest
+
+  t = String("a,b,c")
+  s = Split(rest: ?t, sep: ",", done: false)
+  while (!s).next() as p
+    print(p)
+
+test "r3-s36-containers-br x11 parse bool bare", "true false"
+  print(text.parse_bool("true") catch false, text.parse_bool("x") catch false)
+
+fail "r3-s36-containers-f02 field take", "`h.d` owns a `D`, which can't be copied by `=`: write `?h.d` to view it"
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj H
+    d: D
+    o: D?
+
+  h = H(d: D(n: 1), o: D(n: 2))
+  h.d = D(n: 3)
+  print("assigned")
+  t = <h.o
+  print("took")
+  x = h.d
+
+test "r3-s36-containers-f03 field owner ok", '''
+  1 1
+  drop 1
+  assigned
+  took true
+  2
+  drop 2
+  drop 3
+'''
+  obj D
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj H
+    d: D
+    o: D?
+
+  fun n_of(d: ?D) -> Int
+    d.n
+
+  h = H(d: D(n: 1), o: D(n: 2))
+  print(h.d.n, n_of(?h.d))
+  h.d = D(n: 3)
+  print("assigned")
+  t = <h.o
+  print("took", h.o == none)
+  if ?t as d
+    print(d.n)
+
+test "r3-s36-containers-g01 lit to readparam", '''
+  true
+  true
+'''
+  fun f[T](xs: []T, x: ?T) -> Bool
+    for e in xs
+      if e == x
+        return true
+    false
+
+  a = [1, 2, 3]
+  n = 2
+  print(f(?a, ?n))
+  print(f(?a, 2))
+
+test "r3-s36-containers-h01 handle ops", "1"
+  obj P
+    x: Int
+
+  fun get(p: ?P) -> Int
+    p.x
+
+  v: List[*P] = List()
+  !v.push(*P(x: 1))
+  !v.push(*P(x: 2))
+  print(v[0].x)
+
+test "r3-s36-containers-h03 handle swap", '''
+  2
+  1
+  2
+  1
+  2 2
+'''
+  obj P
+    x: Int
+
+  v: List[*P] = List()
+  !v.push(*P(x: 1))
+  !v.push(*P(x: 2))
+  !v.swap(0, 1)
+  for p in ?v
+    print(p.x)
+  for p in !v
+    print(p.x)
+  !v.insert(0, *P(x: 0))
+  r = (!v).remove(1)
+  print(r.x, v.len)
+
+test "r3-s36-containers-h04 handle clone elem", "1"
+  obj P
+    x: Int
+
+  v: List[*P] = List()
+  !v.push(*P(x: 1))
+  h = +v[0]
+  print(h.x)
+
+test "r3-s36-containers-h06 for consume", '''
+  11
+  12
+'''
+  obj P
+    x: Int
+
+  v: List[^P] = List()
+  !v.push(^P(x: 1))
+  !v.push(^P(x: 2))
+  for b in !v
+    b.x += 10
+  for b in <v
+    print(b.x)
+
+test "r3-s36-containers-h07 for view store", "1"
+  obj P
+    x: Int
+
+  fun px(p: ?P) -> Int
+    p.x
+
+  v: List[^P] = List()
+  !v.push(^P(x: 1))
+  for b in ?v
+    print(px(?b))
+
+test "r3-s36-containers-l03 rng vec", "2"
+  rs = [random.Random.seeded(1), random.Random.seeded(2)]
+  print(rs.len)
+
+test "r3-s36-containers-l06 shuffle vec", "2"
+  r = random.Random.seeded(1)
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  !r.shuffle(!v)
+  print(v.len)
+
+test "r3-s36-containers-l08 math min text", '''
+  2
+  a
+'''
+  print(math.min(3, 2))
+  s = "b"
+  print(math.min(s, "a"))
+
+test "r3-s36-containers-o02 order more", '''
+  value self-vec
+  index self-vec
+  value self-compound
+  value borrowed-vec
+  index borrowed-vec
+  value optional-binding
+  value match-payload
+  value local-wb-vec
+  index local-wb-vec
+  1 [2] P(x: 3, v: []) .a(n: 4) [5]
+'''
+  obj P
+    x: Int
+    v: List[Int]
+
+    sub set(!self)
+      self.v[ix(0, "self-vec")] = val(1, "self-vec")
+      self.x += val(1, "self-compound")
+
+  enum E
+    a(n: Int)
+    b
+
+  fun val(n: Int, what: ?String) -> Int
+    print("value", what)
+    n
+
+  fun ix(i: Int, what: ?String) -> Int
+    print("index", what)
+    i
+
+  sub through_vec(w: !List[Int])
+    w[ix(0, "borrowed-vec")] = val(2, "borrowed-vec")
+
+  p = P(x: 0, v: List())
+  !p.v.push(0)
+  !p.set()
+  through_vec(!p.v)
+  o: P? = P(x: 0, v: List())
+  if !o as q
+    q.x = val(3, "optional-binding")
+  e = E.a(n: 0)
+  match !e
+    .a(n) => n = val(4, "match-payload")
+    .b => pass
+  ws: List[Int] = List()
+  !ws.push(0)
+  w = !ws
+  w[ix(0, "local-wb-vec")] += val(5, "local-wb-vec")
+  print(p.x, p.v, o, e, ws)
+
+fail "r3-s36-containers-o03 order moves root", "use of `v` after move"
+  fun take(v: List[Int]) -> Int
+    v.len
+
+  v: List[Int] = List()
+  !v.push(0)
+  v[0] = take(<v)
+
+test "r3-s36-containers-p01 plain ops", '''
+  3 P(x: 2, y: 0)
+  3
+  102
+  1
+  3
+  102
+  P(x: 1, y: 9) 2
+  P(x: 102, y: 9)
+  [P(x: 3, y: 9)]
+'''
+  obj P
+    x: Int
+    y: Int
+
+  sub bump(p: !P)
+    p.x += 100
+
+  fun get(p: ?P) -> Int
+    p.x
+
+  v: List[P] = List()
+  !v.push(P(x: 3, y: 0))
+  !v.push(P(x: 1, y: 0))
+  !v.insert(1, P(x: 2, y: 0))
+  print(v[0].x, v.get(1))
+  print(get(?v[0]))
+  bump(!v[1])
+  print(v[1].x)
+  !v.swap(0, 2)
+  sort.sort_by(!v[..], |a, b| a.x < b.x)
+  for p in ?v
+    print(p.x)
+  for p in !v
+    p.y = 9
+  r = (!v).remove(0)
+  print(r, v.len)
+  if (!v).pop() as q
+    print(q)
+  print(v)
+
+test "r3-s36-containers-p03 move elem", "3 [none]"
+  v: List[Int?] = List()
+  !v.push(3)
+  x = <v[0]
+  print(x, v)
+
+test "r3-s36-containers-p04 vec sort direct", "[1, 2, 3]"
+  a = [3, 1, 2]
+  sort.sort(!a)
+  sort.sort(!a[..2])
+  print(a)
+
+test "r3-s36-containers-s01 slice owner", "2"
+  obj P
+    x: Int
+
+  sub touch(xs: ![]^P)
+    !xs.swap(0, 1)
+    print(xs[0].x)
+
+  a = [^P(x: 1), ^P(x: 2)]
+  touch(!a)
+
+test "r3-s36-containers-s02 slice handle", "2"
+  obj P
+    x: Int
+
+  sub touch(xs: ![]*P)
+    !xs.swap(0, 1)
+    print(xs[0].x)
+
+  v: List[*P] = List()
+  !v.push(*P(x: 1))
+  !v.push(*P(x: 2))
+  touch(!v[..])
+
+test "r3-s36-containers-v02 vec owner struct", "1"
+  obj R
+    name: ^Int
+
+  v: List[R] = List()
+  !v.push(R(name: ^1))
+  print(v.len)
+
+test "r3-s36-containers-v04 vec box", '''
+  1
+  1
+  1
+  2
+  2
+  1 0
+'''
+  obj P
+    x: Int
+
+  v: List[^P] = List()
+  !v.push(^P(x: 1))
+  !v.push(^P(x: 2))
+  print(v[0].x)
+  b = ?v[0]
+  print(b.x)
+  for p in ?v
+    print(p.x)
+  if (!v).pop() as last
+    print(last.x)
+  x = (!v).remove(0)
+  print(x.x, v.len)
+
+test "r3-s36-containers-v05 vec view", "1 2"
+  a = 1
+  b = 2
+  v: List[?Int] = List()
+  !v.push(?a)
+  !v.push(?b)
+  print(v[0], v.len)
+
+test "r3-s36-containers-v06 vec slice view", "[1, 2, 3] 1"
+  a = [1, 2, 3]
+  v: List[[]Int] = List()
+  !v.push(?a)
+  print(v[0], v.len)
+
+test "r3-s36-docs-p01 readme std", "6 [1, 2, 3]"
+  # README "Status": "There is no standard library ... yet"
+
+  xs = [3, 1, 2]
+  sort.sort(!xs)
+  print(math.gcd(12, 18), xs)
+
+test "r3-s36-docs-p02 return bare moves", '''
+  1
+  drop 1
+'''
+  # WELCOME "From Rust and Zig": "a bare name never moves an owning value"
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun make(n: Int) -> Res
+    r = Res(n: n)
+    r
+
+  fun pass_on(r: Res) -> Res
+    return r
+
+  a = pass_on(make(1))
+  print(a.n)
+
+fail "r3-s36-docs-p10 star bare name", "`x` owns an `S`, which can't be copied into a counted handle: write `<x` to move it"
+  # Core sentence 8 says `*x` moves x; SPEC §9 requires `*<x` for a named owner
+  obj S
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  x = S(n: 1)
+  h = *x
+  print(h.n)
+
+test "r3-s36-docs-p13 sort vec bare lend", "[1, 2]"
+  # Core §4: `sort.sort(!v)` works for a List as for an array
+
+  v: List[Int] = List()
+  !v.push(2)
+  !v.push(1)
+  sort.sort(!v)
+  print(v)
+
+test "r3-s36-docs-p15 plus vec", "[1]"
+  # Core sentence 2: `+v` of a List is a deep copy (decided, not built)
+  v: List[Int] = List()
+  !v.push(1)
+  w = +v
+  print(w)
+
+test "r3-s36-docs-p17 handle lends view", '''
+  4 9
+  16
+'''
+  # Core §4: one `fun area(s: ?Shape)` serves a Shape, a ^Shape, and a *Shape
+  obj Shape
+    w: Int
+
+  fun area(s: ?Shape) -> Int
+    s.w * s.w
+
+  a = Shape(w: 2)
+  b = ^Shape(w: 3)
+  h = *Shape(w: 4)
+  print(area(?a), area(?b))
+  print(area(?h))
+
+test "r3-s36-docs-p19 print ternary owners", '''
+  R(n: 1)
+  1 2
+  drop 2
+  drop 1
+'''
+  # Core §3: `print(a if c else b)` moves nothing
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  a = R(n: 1)
+  b = R(n: 2)
+  c = true
+  print(a if c else b)
+  print(a.n, b.n)
+
+test "r3-s36-docs-p20 print nullish owner", '''
+  R(n: 1)
+  false
+  drop 1
+'''
+  # Core §3: `print(o ?? d)` moves nothing
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  o: R? = R(n: 1)
+  print(o ?? R(n: 9))
+  print(o == none)
+
+test "r3-s36-docs-p21 bare read lend", "3"
+  # Core sentence 1/4: a read lend may go unwritten
+  obj Packet
+    size: Int
+
+  fun size_of(p: ?Packet) -> Int
+    p.size
+
+  p = Packet(size: 3)
+  print(size_of(p))
+
+test "r3-s36-docs-p24 take optional element", '''
+  took 1
+  drop 1
+  true
+'''
+  # Core §5: `<v[i]` takes an optional element
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[*B?] = List()
+  !v.push(*B(n: 1))
+  if <v[0] as b
+    print("took", b.n)
+  print(v[0] == none)
+
+test "r3-s36-docs-p26 array owning", "1"
+  # Core §5: arrays hold anything (decided); SPEC §18 rejects arrays of owning values
+  obj B
+    n: Int
+
+  hs = [*B(n: 1), *B(n: 2)]
+  print(hs[0].n)
+
+test "r3-s36-docs-p28 slice owning elements", "1"
+  # SPEC §2 Slices: a slice's elements are plain data
+  obj B
+    n: Int
+
+  fun count(xs: []*B) -> Int
+    xs.len
+
+  v: List[*B] = List()
+  !v.push(*B(n: 1))
+  print(count(?v[..]))
+
+test "r3-s36-docs-p29 swap vec handles", "2"
+  # SPEC §2: `swap` moves the handles of a List of them; Core §5: swap and sort work for any element type
+  obj B
+    n: Int
+
+  v: List[*B] = List()
+  !v.push(*B(n: 1))
+  !v.push(*B(n: 2))
+  !v.swap(0, 1)
+  print(v[0].n)
+
+test "r3-s36-docs-p30 zig static view", "true"
+  # Core sentence 7 has no static exception; std.os.args() returns a view of nothing lent
+
+  fun first() -> ?String
+    args = os.args()
+    args[0]
+
+  print(first().len > 0)
+
+test "r3-s36-docs-p33 take optional vec element", "1"
+  # SPEC §7 Moves: "An optional field or element is the exception: `<p.f` takes"
+  obj N
+    v: Int
+
+  v: List[^N?] = List()
+  !v.push(^N(v: 1))
+  if <v[0] as b
+    print(b.v)
+
+test "r3-s36-docs-p37 take optional array element", "1 true"
+  # SPEC §7 Moves: `<xs[i]` of an optional element, for plain data
+  xs: [2]Int? = [1, none]
+  if <xs[0] as n
+    print(n, xs[0] == none)
+
+test "r3-s36-docs-p38 assign index order", '''
+  value
+  first index
+  second index
+  [[0, 0], [5, 0]]
+'''
+  # SPEC §4 / Core §6: "indexes are evaluated outside in" -- which order is that?
+  fun at(i: Int, what: ?String) -> Int
+    print(what)
+    i
+
+  g: [2][2]Int = [[0, 0], [0, 0]]
+  g[at(1, "first index")][at(0, "second index")] = at(5, "value")
+  print(g)
+
+test "r3-s36-emit-f09 return binding", "-1"
+  # `return e` where e is an error binding: fails, but reads as returning a value.
+  error E
+    bad
+
+  fun f() -> Int!
+    e = E.bad
+    return e
+
+  print(f() catch -1)
+
+test "r3-s36-emit-f13 main fail", exit: 1, '''
+  1
+  drop 1
+'''
+  # A failure that leaves main prints `error: E.name` and exits 1, after drops.
+  error E
+    bad
+
+  obj N
+    id: Int
+    drop(!self)
+      print("drop", self.id)
+
+  fun g() -> Int!
+    return E.bad
+
+  a = N(id: 1)
+  print(a.id)
+  x = g()!
+  print("never", x)
+
+test "r3-s36-emit-f24 dot name", ".ok .bad .ok"
+  # A bare `.bad` where `Int!` is expected: rejected per SPEC; but in a value of an enum type?
+  error E
+    bad
+
+  enum C
+    bad
+    ok
+
+  fun f(n: Int) -> C!
+    return E.bad if n < 0
+    .bad if n == 0 else .ok
+
+  print(f(-1) catch .ok, f(0) catch .ok, f(1) catch .ok)
+
+test "r3-s36-emit-g03 for source", "1"
+  error E
+    bad
+
+  fun a() -> List[Int]!
+    v = List[Int]()
+    !v.push(1)
+    <v
+
+  for x in a() catch List[Int]()
+    print(x)
+
+test "r3-s36-emit-g05 opt fallible", '''
+  1
+  0
+  99
+'''
+  error E
+    bad
+
+  fun a(n: Int) -> Int?!
+    return E.bad if n < 0
+    return none if n == 0
+    n
+
+  print(a(1)! ?? 0)
+  print(a(0)! ?? 0)
+  x = a(-1) catch 99
+  print(x ?? 0)
+
+test "r3-s36-emit-g06 method", '''
+  0
+  -1
+'''
+  error E
+    bad
+
+  obj S
+    n: Int
+    fun take(!self) -> Int!
+      return E.bad if self.n == 0
+      self.n -= 1
+      self.n
+
+  s = S(n: 1)
+  print((!s).take() catch -1)
+  print((!s).take() catch -1)
+
+test "r3-s36-emit-s18 eqbang not", "false"
+  # C habit: `ok =! done` means `ok = !done` (not). Rig: a fixed binding of `done`.
+  done = false
+  ok =! done
+  print(ok)
+
+test "r3-s36-kinds-k05 clone plain", "3 P(x: 1) P(x: 7) hi"
+  obj P
+    x: Int
+
+  n = 3
+  m = +n
+  p = P(x: 1)
+  q = +p
+  q.x = 7
+  s = "hi"
+  t = +s
+  print(m, p, q, t)
+
+test "r3-s36-kinds-k06 clone handle", '''
+  1 true
+  drop 1
+'''
+  obj N
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  h = *N(n: 1)
+  g = +h
+  w = ~h
+  w2 = +w
+  o: *N? = +h
+  o2 = +o
+  print(g.n, o2 != none)
+
+test "r3-s36-kinds-k08 clone box", "1"
+  obj N
+    n: Int
+
+  b = ^N(n: 1)
+  c = +b
+  print(c.n)
+
+test "r3-s36-kinds-k09 clone glue struct", "1"
+  obj N
+    n: Int
+
+  obj H
+    h: *N
+
+  a = H(h: *N(n: 1))
+  b = +a
+  print(b.h.n)
+
+test "r3-s36-kinds-k41 clone struct of handles", "1 2"
+  obj N
+    n: Int
+
+  obj Pair
+    a: *N
+    b: *N
+
+  p = Pair(a: *N(n: 1), b: *N(n: 2))
+  q = Pair(a: +p.a, b: +p.b)
+  print(q.a.n, q.b.n)
+
+fail "r3-s36-loans-a01 int read then write", "cannot reassign `n` while it is lent"
+  # Sentence 5 for numbers: a read loan excludes a write.
+  n = 1
+  r = ?n
+  n += 1
+  print(r)
+
+fail "r3-s36-loans-a03 int field read then write", "cannot assign to `p.x` while `p.x` is lent"
+  obj P
+    x: Int
+
+  p = P(x: 1)
+  r = ?p.x
+  p.x = 5
+  print(r)
+
+fail "r3-s36-loans-a04 vec int elem view then push", "cannot lend `v` to write while a read loan is live"
+  # A read view of a List[Int] element, then a push that may realloc.
+  v: List[Int] = List()
+  !v.push(1)
+  r = ?v[0]
+  for i in 0..100
+    !v.push(i)
+  print(r)
+
+fail "r3-s36-loans-a05 int closure read then write", "cannot reassign `n` while it is lent"
+  n = 1
+  f = |?n| n + 1
+  n = 7
+  print(f())
+
+fail "r3-s36-loans-a06 vec of views", "cannot reassign `n` while it is lent"
+  # A loan carried into a List element lasts while the List is used.
+  n = 1
+  v: List[?Int] = List()
+  !v.push(?n)
+  n = 2
+  print(v[0])
+
+fail "r3-s36-loans-a07 optional of view", "cannot reassign `n` while it is lent"
+  n = 1
+  o: (?Int)? = ?n
+  n = 2
+  if o as r
+    print(r)
+
+test "r3-s36-loans-a08 result of view", "1"
+  fun id(a: ?Int) -> ?Int
+    a
+
+  n = 1
+  r = id(?n)
+  n = 2
+  print(r)
+
+fail "r3-s36-loans-a09 match binding of view", "cannot reassign `n` while it is lent"
+  enum H
+    has(r: ?Int)
+    no
+
+  n = 1
+  h: H = .has(r: ?n)
+  match h
+    .has(r)
+      n = 2
+      print(r)
+    .no => print("no")
+
+fail "r3-s36-loans-a10 loop var of views", "cannot reassign `a` while it is lent"
+  a = 1
+  b = 2
+  xs = [?a, ?b]
+  for r in xs
+    a = 5
+    print(r)
+
+test "r3-s36-loans-a11 fallible result view", "1"
+  error E
+    bad
+
+  fun pick(a: ?Int, ok: Bool) -> (?Int)!
+    return E.bad if not ok
+    a
+
+  n = 1
+  r = pick(?n, true) catch return
+  n = 2
+  print(r)
+
+fail "r3-s36-loans-a12 write loan number twice", "cannot lend `n` to write while a write loan is live"
+  n = 1
+  w1 = !n
+  w2 = !n
+  w1 += 1
+  w2 += 1
+  print(n)
+
+fail "r3-s36-loans-a13 fallible view result", "cannot drop `x` while it is lent"
+  error E
+    bad
+
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun pick(a: ?R, ok: Bool) -> (?R)!
+    return E.bad if not ok
+    a
+
+  fun find(a: ?R, ok: Bool) -> (?R)?
+    return none if not ok
+    a
+
+  x = R(n: 1)
+  r = pick(?x, true) catch return
+  s = find(?x, true) ?? return
+  <x
+  print(r.n, s.n)
+
+test "r3-s36-loans-c01 share struct with view", '''
+  1
+  drop 1
+'''
+  # `*x` makes a counted box any handle reaches: a value holding a loan
+  # may not go in.
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj V
+    r: ?R
+
+  a = R(n: 1)
+  h = *V(r: ?a)
+  print(h.r.n)
+
+fail "r3-s36-loans-c02 share escapes scope", "`a` does not live long enough"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj V
+    r: ?R
+
+  h2: *V? = none
+  if true
+    a = R(n: 1)
+    vv = V(r: ?a)
+    h = *(<vv)
+    h2 = +h
+  if h2 as h3
+    print(h3.r.n)
+
+fail "r3-s36-loans-c06 owned closure captures view holder", "an owned closure cannot capture `vv`, which holds a view of `a`; capture an owned value, or use a stack closure (`|...|`)"
+  obj R
+    n: Int
+
+  obj V
+    r: ?R
+
+  a = R(n: 1)
+  vv = V(r: ?a)
+  f = *|<vv| vv.r.n
+  print(f())
+
+test "r3-s36-loans-c07 owned closure literal string", "hi rig"
+  # An owned closure capturing a literal String (static on main).
+  name = "rig"
+  f = *|+name| print("hi", name)
+  f()
+
+fail "r3-s36-loans-c12 shared view weak upgrade", "`a` does not live long enough"
+  # A weak handle to a box holding a view, upgraded after the viewed
+  # value's scope ended.
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj V
+    r: ?R
+
+  keep = R(n: 0)
+  w: ~V? = none
+  hold = *V(r: ?keep)
+  if true
+    a = R(n: 1)
+    h = *V(r: ?a)
+    w = ~h
+    hold = +h
+  if w as ww
+    if *ww as s
+      print(s.r.n)
+  print(hold.r.n)
+
+fail "r3-s36-loans-c13 shared view in vec", "`a` does not live long enough"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj V
+    r: ?R
+
+  hs: List[*V] = List()
+  if true
+    a = R(n: 1)
+    !hs.push(*V(r: ?a))
+  print(hs[0].r.n)
+
+fail "r3-s36-loans-c14 owned closure captures shared view", "an owned closure cannot capture `h`, which holds a view of `a`; capture an owned value, or use a stack closure (`|...|`)"
+  obj R
+    n: Int
+
+  obj V
+    r: ?R
+
+  a = R(n: 1)
+  h = *V(r: ?a)
+  f = *|+h| h.r.n
+  print(f())
+
+fail "r3-s36-loans-c16 shared view through fn", "`a` does not live long enough"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj V
+    r: ?R
+
+  obj Keep
+    h: *V
+
+  fun wrap(h: *V) -> Keep
+    Keep(h: <h)
+
+  k: Keep? = none
+  if true
+    a = R(n: 1)
+    k = wrap(*V(r: ?a))
+  if k as kk
+    print(kk.h.r.n)
+
+fail "r3-s36-loans-f01 coalesce return keeps loan", "cannot drop `r` while it is lent"
+  # `?? return` leaves; the rest stays reachable and a loan taken
+  # before it must stay in force after.
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun f(o: Int?) -> Int
+    r = R(n: 1)
+    b = ?r
+    k = o ?? return 0
+    <r
+    print(b.n, k)
+    k
+
+  print(f(3))
+
+fail "r3-s36-loans-f02 labeled break stores inner view", "`inner` does not live long enough"
+  # A labeled block's break leaves a scope; a view of a var declared
+  # in it, stored into an outer var before the break, must be reported.
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj V
+    r: ?R
+
+  keep = R(n: 0)
+  v = V(r: ?keep)
+  @blk match 1
+    1
+      inner = R(n: 7)
+      v = V(r: ?inner)
+      break @blk
+    _ => print("x")
+  print(v.r.n)
+
+fail "r3-s36-loans-f03 continue stores body view", "`inner` does not live long enough"
+  # `continue` leaves the body scope: a view of a body local held by
+  # an outer var is used on the next iteration.
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj V
+    r: ?R
+
+  keep = R(n: 0)
+  v = V(r: ?keep)
+  i = 0
+  while i < 3 : i += 1
+    print(v.r.n)
+    inner = R(n: i + 10)
+    v = V(r: ?inner)
+    if i < 5
+      continue
+
+fail "r3-s36-loans-f04 catch handler view", "`inner` does not live long enough"
+  # A catch handler's local, viewed into an outer var.
+  error E
+    bad
+
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj V
+    r: ?R
+
+  fun fail() -> Int!
+    return E.bad
+
+  keep = R(n: 0)
+  v = V(r: ?keep)
+  k = fail() catch |err|
+    inner = R(n: 5)
+    v = V(r: ?inner)
+    0
+  print(v.r.n, k)
+
+fail "r3-s36-loans-f07 while as view escapes", "`r` does not live long enough"
+  # `while … as` binding's view stored outward then the iteration ends.
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj V
+    r: ?R
+
+  fun next(i: !Int) -> R?
+    i += 1
+    if i < 3
+      R(n: i)
+    else
+      none
+
+  keep = R(n: 0)
+  v = V(r: ?keep)
+  i = 0
+  while next(!i) as r
+    v = V(r: ?r)
+  print(v.r.n)
+
+fail "r3-s36-loans-f08 defer stores later local", "`a` does not live long enough"
+  # A defer that stores a view of a local declared after it.
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj V
+    r: ?R
+
+  keep = R(n: 0)
+  v = V(r: ?keep)
+  if true
+    a = R(n: 1)
+    defer v = V(r: ?a)
+    print("in")
+  print(v.r.n)
+
+test "r3-s36-loans-f12 and rhs move", '''
+  end
+  drop 1
+'''
+  # `and` runs its right side only sometimes: a move there is a move on
+  # one path only. The checker treats it as always moved; does the
+  # emitted code drop `x` when the move did not happen?
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun take(r: R) -> Bool
+    print("take", r.n)
+    true
+
+  x = R(n: 1)
+  c = false
+  if c and take(<x)
+    print("both")
+  print("end")
+
+fail "r3-s36-loans-m01 match write copy payload", "cannot reassign `h` while it is lent"
+  # A `match !h` payload of plain data is a write view into `h`; `h`
+  # may not be replaced while it is live.
+  enum H
+    has(n: Int)
+    no
+
+  h: H = .has(n: 1)
+  match !h
+    .has(n)
+      h = .no
+      n += 1
+    .no => print("no")
+  print(h)
+
+fail "r3-s36-loans-m02 if write as copy", "cannot reassign `o` while it is lent"
+  o: Int? = 1
+  if !o as v
+    o = none
+    v += 1
+  print(o)
+
+test "r3-s36-loans-m03 match read string payload", "a"
+  enum H
+    has(s: ?String)
+    no
+
+  h: H = .has(s: "a")
+  match ?h
+    .has(s)
+      h = .no
+      print(s)
+    .no => print("no")
+
+test "r3-s36-loans-m04 match read int payload", "1"
+  # Sentence 5 says a read loan excludes a write "for numbers too", but a
+  # `match ?h` payload of plain data is a copy and holds no loan.
+  enum H
+    has(n: Int)
+    no
+
+  h: H = .has(n: 1)
+  match ?h
+    .has(n)
+      h = .no
+      print(n)
+    .no => print("no")
+
+fail "r3-s36-loans-m05 for read int elem", "cannot assign to `xs[0]` while `xs` is lent"
+  # Loop element of a read loop over plain data: a copy; the source stays
+  # lent to read for the loop.
+  xs = [1, 2, 3]
+  for x in ?xs
+    xs[0] = 9
+    print(x)
+
+test "r3-s36-loans-o01 plain read through then grow", "7 7 65"
+  # A read-through of plain data ends its loan at once; a later argument
+  # may then grow the List. Does the call still read the old element?
+  obj P
+    a: Int
+    b: Int
+    c: Int
+    d: Int
+    e: Int
+    f: Int
+    g: Int
+    h: Int
+
+  fun at0(ps: ?List[P]) -> ?P
+    ?ps[0]
+
+  fun grow(ps: !List[P]) -> Int
+    for i in 0..64
+      !ps.push(P(a: i, b: i, c: i, d: i, e: i, f: i, g: i, h: i))
+    ps.len
+
+  sub show(p: P, n: Int)
+    print(p.a, p.h, n)
+
+  ps: List[P] = List()
+  !ps.push(P(a: 7, b: 7, c: 7, d: 7, e: 7, f: 7, g: 7, h: 7))
+  show(at0(?ps), grow(!ps))
+
+test "r3-s36-loans-r01 overlend key", "b 2"
+  # Sentence 7 over-lends: the result views `key` too, though no
+  # `?Entry` can come from a `?Key`. Editing the key while the entry is
+  # in use is rejected.
+  obj Entry
+    name: ?String
+    hits: Int
+
+  obj Key
+    id: Int
+
+  obj Table
+    rows: [3]Entry
+
+  fun lookup(t: ?Table, k: ?Key) -> ?Entry
+    ?t.rows[k.id]
+
+  t = Table(rows: [Entry(name: "a", hits: 1), Entry(name: "b", hits: 2), Entry(name: "c", hits: 3)])
+  k = Key(id: 1)
+  e = lookup(?t, ?k)
+  k.id = 2
+  print(e.name, k.id)
+
+test "r3-s36-loans-r02 overlend int param", "a 1"
+  # The result views the `?Int` argument as well.
+  obj Entry
+    name: ?String
+
+  obj Table
+    rows: [2]Entry
+
+  fun at(t: ?Table, i: ?Int) -> ?Entry
+    ?t.rows[i]
+
+  t = Table(rows: [Entry(name: "a"), Entry(name: "b")])
+  i = 0
+  e = at(?t, ?i)
+  i += 1
+  print(e.name, i)
+
+test "r3-s36-loans-r03 overlend method arg", "a 1"
+  # A `?self` method whose result can only view self still views
+  # every viewed argument.
+  obj Entry
+    name: ?String
+
+  obj Pick
+    which: Int
+
+  obj Table
+    rows: [2]Entry
+
+    fun get(?self, p: ?Pick) -> ?Entry
+      ?self.rows[p.which]
+
+  t = Table(rows: [Entry(name: "a"), Entry(name: "b")])
+  p = Pick(which: 0)
+  e = ?t.get(?p)
+  p.which = 1
+  print(e.name, p.which)
+
+test "r3-s36-loans-r04 overlend write arg", '''
+  1
+  b
+'''
+  # A lent to write counter argument stays lent to write while the
+  # result lives, so it cannot even be read.
+  obj Entry
+    name: ?String
+
+  obj Table
+    rows: [2]Entry
+
+  fun get_counted(t: ?Table, i: Int, count: !Int) -> ?Entry
+    count += 1
+    ?t.rows[i]
+
+  t = Table(rows: [Entry(name: "a"), Entry(name: "b")])
+  n = 0
+  e = get_counted(?t, 1, !n)
+  print(n)
+  print(e.name)
+
+test "r3-s36-loans-t04 closure captures module const", "hello"
+  GREETING = "hello"
+
+  sub main()
+    f = *|| print(GREETING)
+    f()
+
+test "r3-s36-loans-t11 owned closure args", "true"
+  args = os.args()
+  first = args[0]
+  g = *|+first| print(first != "")
+  g()

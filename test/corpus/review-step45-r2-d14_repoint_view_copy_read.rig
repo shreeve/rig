@@ -1,9 +1,0 @@
-# s = ?w (a read view through w, carries w's loans), then re-point w, then write a
-sub main()
-  a = String("a")
-  b = String("b")
-  w = !a
-  s: ?String = ?w
-  w = !b
-  a = String("A")
-  print(s)

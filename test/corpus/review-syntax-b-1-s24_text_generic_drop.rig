@@ -1,8 +1,0 @@
-fun id[T](x: T) -> T
-  x
-
-sub main()
-  t = String("hello")
-  s = id(?t[1..])
-  !t.add("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
-  print(s)

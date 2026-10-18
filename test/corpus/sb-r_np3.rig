@@ -1,5 +1,0 @@
-obj W
-  s: []List[Int]
-
-sub main()
-  print(1)

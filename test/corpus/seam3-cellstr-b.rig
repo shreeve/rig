@@ -1,7 +1,0 @@
-sub main()
-  t = String("local")
-  b = ^?t[..]
-  print(b)
-  x = 5
-  bi = ^?x
-  print(bi)

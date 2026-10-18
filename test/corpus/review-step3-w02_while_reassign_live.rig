@@ -1,7 +1,0 @@
-sub main()
-  o: List[Int]? = List()
-  k = 0
-  while o as x
-    o = none
-    print(x.len)
-    k += 1

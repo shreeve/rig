@@ -1,7 +1,0 @@
-use util
-
-pub fun unbox[T](b: ?util.Box[T]) -> T
-  b.get()
-
-pub fun cmp[T](a: T, b: T) -> Bool
-  util.big(a, b) == a

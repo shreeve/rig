@@ -1,9 +1,0 @@
-obj R
-  v: List[Int]
-
-sub main()
-  o: R? = R(v: List())
-  if <o as r
-    g = |!r| !r.v.push(1)
-    g()
-    print(r.v.len)

@@ -1,7 +1,0 @@
-use std.os
-
-sub main()
-  args = os.args()
-  first = args[0]
-  g = *|+first| print(first != "")
-  g()

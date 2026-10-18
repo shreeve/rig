@@ -1,4 +1,0 @@
-# index a temporary array literal of owners; temporaries dropped
-sub main()
-  print([String("a"), String("b")][1])
-  print([^1, ^2][0])

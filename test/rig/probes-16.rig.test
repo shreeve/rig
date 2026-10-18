@@ -1,0 +1,2875 @@
+# Probes from past reviews and audits, 16 of 41: rev210-j02_repoint_field_then_write to review-arm-temps-2-m03_name_target_dropped_in_arm.
+
+use std.hash
+use std.text
+
+test "rev210-j02 repoint field then write", '''
+  a
+  a z
+'''
+  # Reviewer probe for #210 (field loans): A write view re-pointed after a
+  # view of its field ended.
+
+  obj S
+    s: String
+    k: Int
+
+  obj Node
+    name: String
+    next: ^Node?
+
+  a = S(s: String("a"), k: 0)
+  b = S(s: String("b"), k: 0)
+  w = !a
+  r = ?w.s
+  w.k = 2
+  print(r)
+  w = !b
+  w.s = String("z")
+  print(a.s, b.s)
+
+fail "rev210-k03 generic box inst", "cannot assign to `p.a` while `p.a.name` is lent"
+  # Reviewer probe for #210 (field loans): Fields through a box in a
+  # generic struct instance.
+
+  obj Node
+    name: String
+    n: Int
+
+  obj Pair[T]
+    a: T
+    b: T
+
+  p = Pair[^Node](a: ^Node(name: String("a"), n: 0), b: ^Node(name: String("b"), n: 0))
+  r = ?p.a.name
+  p.a.n = 3
+  p.b = ^Node(name: String("c"), n: 0)
+  p.a = ^Node(name: String("d"), n: 0)
+  print(r)
+
+fail "rev215-a01 ret object view and t", "`mk` returns a view of `x`, but its signature says it views only `c`"
+  # A generic result type holding both a view and a T: the T part carries
+  # what reached it, but the result type may hold a view, so the generic
+  # taint is never counted.
+  obj P[T]
+    s: ?String
+    v: T
+
+  fun mk[T](x: T, c: ?String) -> P[T] from c
+    P(s: c, v: x)
+
+  t = String("abc")
+  u = String("u")
+  p = mk(?t, ?u)
+  <t
+  print(p.v)
+
+fail "rev215-a04 closure local", "`pick` returns a view of `f`, but its signature says it views only `b`"
+  # Review probe (#215): a loan reaching a generic body's T; rejected, or runs sanitizer-clean.
+  obj K
+    s: ?String
+
+  fun pick[T](f: ?fun(?String) -> T, a: ?String, b: ?String) -> T from b
+    g = |?f, ?a| f(a)
+    g()
+
+  t = String("abc")
+  u = String("u")
+  k = pick(|s: ?String| K(s: s), ?t, ?u)
+  <t
+  print(k.s)
+
+fail "rev215-a12 recursion swap", "`g` returns a view of `xs`, but its signature says it views only `ys`"
+  # Review probe (#215): a loan reaching a generic body's T; rejected, or runs sanitizer-clean.
+  fun g[T](xs: []T, ys: []T, n: Int) -> T from ys
+    if n == 0
+      return ys[0]
+    g(ys, xs, n - 1)
+
+  t = String("abc")
+  u = String("u")
+  a = [?t]
+  b = [?u]
+  r = g(?a[..], ?b[..], 1)
+  <t
+  print(r)
+
+fail "rev215-a13 method box", "`pick` returns a view of `self`, but its signature says it views only `other`"
+  # Review probe (#215): a loan reaching a generic body's T; rejected, or runs sanitizer-clean.
+  obj Box[T]
+    v: T
+
+    fun pick(?self, other: ?Box[T]) -> T from other
+      self.v
+
+  t = String("abc")
+  u = String("u")
+  b1 = Box(v: ?t)
+  b2 = Box(v: ?u)
+  r = b1.pick(?b2)
+  <b1
+  <t
+  print(r)
+
+fail "rev215-a14 match", "`g` returns a view of `o`, but its signature says it views only `d`"
+  # Review probe (#215): a loan reaching a generic body's T; rejected, or runs sanitizer-clean.
+  enum Opt[T]
+    some(value: T)
+    nothing
+
+  fun g[T](o: ?Opt[T], d: T) -> T from d
+    match o
+      .some(v) => v
+      .nothing => d
+
+  t = String("abc")
+  u = String("u")
+  o = Opt[?String].some(?t)
+  r = g(?o, ?u)
+  <o
+  <t
+  print(r)
+
+fail "rev215-a19 match object payload", "`g` returns a view of `o`, but its signature says it views only `d`"
+  # The payload binding of a match on a read view, in a body returning T.
+  obj K
+    s: ?String
+
+  enum Opt[T]
+    some(value: T)
+    nothing
+
+  fun g[T](o: ?Opt[T], d: T) -> T from d
+    match o
+      .some(v)
+        w = v
+        w
+      .nothing => d
+
+  t = String("abc")
+  u = String("u")
+  o = Opt[K].some(K(s: ?t))
+  r = g(?o, K(s: ?u))
+  <o
+  <t
+  print(r.s)
+
+fail "rev215-a23 ret object K", "`mk` returns a view of `x`, but its signature says it views only `c`"
+  # a01 with T an object holding a view.
+  obj K
+    s: ?String
+
+  obj P[T]
+    s: ?String
+    v: T
+
+  fun mk[T](x: T, c: ?String) -> P[T] from c
+    P(s: c, v: x)
+
+  t = String("abc")
+  u = String("u")
+  p = mk(K(s: ?t), ?u)
+  <t
+  print(p.v.s)
+
+fail "rev220-cell-set", "cannot lend `self` to write in an index of `self.c`, a place being lent"
+  obj K
+    c: Cell[List[Int]]
+
+    fun get(!self) -> Int
+      self.c[reset(!self)]
+
+  fun reset(k: !K) -> Int
+    n: List[Int] = List()
+    for i in 0..100
+      !n.push(i + 50)
+    !k.c.set(<n)
+    0
+
+  k = *K(c: Cell(List()))
+  !k.c.push(7)
+  print((!k).get())
+  cc: *Cell[List[Int]] = *Cell(List())
+  !cc.push(1)
+  print(cc[reset2(!cc)])
+
+  fun reset2(c: !Cell[List[Int]]) -> Int
+    n: List[Int] = List()
+    !n.push(42)
+    !c.set(<n)
+    0
+
+fail "rev220-handle-field", "cannot lend `p` to write in an index of `p.hl`, a place being lent"
+  obj P
+    hl: *List[Int]
+
+  fun reh(p: !P) -> Int
+    n: List[Int] = List()
+    for i in 0..100
+      !n.push(i + 50)
+    p.hl = *<n
+    0
+
+  v: List[Int] = List()
+  !v.push(7)
+  p = P(hl: *<v)
+  print(p.hl[reh(!p)])
+
+fail "rev220-handle-local", "cannot lend `h` to write in an index of a place it is lending"
+  fun reh(h: !*List[Int]) -> Int
+    n: List[Int] = List()
+    for i in 0..100
+      !n.push(i + 50)
+    h = *<n
+    0
+
+  v: List[Int] = List()
+  !v.push(7)
+  h = *<v
+  print(h[reh(!h)])
+
+fail "rev220-handle-root", "cannot lend `h` to write in an index of a place it is lending"
+  obj P
+    hl: *List[Int]
+
+  fun reh(h: !*List[Int]) -> Int
+    n: List[Int] = List()
+    !n.push(50)
+    h = *<n
+    0
+
+  fun rep(p: !P) -> Int
+    n: List[Int] = List()
+    !n.push(50)
+    p.hl = *<n
+    0
+
+  fun rea(h: !*[3]Int) -> Int
+    h = *[4, 5, 6]
+    0
+
+  fun rec(c: !*Cell[List[Int]]) -> Int
+    c = *Cell(List())
+    !c.push(9)
+    0
+
+  v: List[Int] = List()
+  !v.push(7)
+  h = *<v
+  print(h[reh(!h)])
+  w: List[Int] = List()
+  !w.push(7)
+  p = P(hl: *<w)
+  print(p.hl[rep(!p)])
+  a: *[3]Int = *[1, 2, 3]
+  print(a[rea(!a)])
+  c: *Cell[List[Int]] = *Cell(List())
+  !c.push(7)
+  print(c[rec(!c)])
+
+test "rev220-in-root", '''
+  40 101 77
+  218
+'''
+  obj G[T]
+    items: List[T]
+    pair: [2]List[T]
+
+  obj P
+    arr: [2][2]Int
+    g: G[Int]
+
+  fun bump(p: !P) -> Int
+    p.arr[0][1] = 40
+    n: List[Int] = List()
+    for i in 0..50
+      !n.push(i + 100)
+    p.g.items = <n
+    m: List[Int] = List()
+    !m.push(77)
+    p.g.pair[1] = <m
+    1
+
+  fun inner(p: !P) -> Int
+    p.arr[0][bump(!p)] + p.g.items[bump(!p)] + p.g.pair[1][bump(!p) - 1]
+
+  l: List[Int] = List()
+  !l.push(1)
+  !l.push(2)
+  q: List[Int] = List()
+  !q.push(3)
+  p = P(arr: [[1, 2], [3, 4]], g: G(items: <l, pair: [List(), <q]))
+  print(p.arr[0][bump(!p)], p.g.items[bump(!p)], p.g.pair[1][bump(!p) - 1])
+  print(inner(!p))
+
+test "rev220-slice-root", "1"
+  fun bump(xs: ![]Int) -> Int
+    xs[0] = 1
+    0
+
+  fun at(xs: ![]Int) -> Int
+    xs[bump(!xs)]
+
+  v: List[Int] = List()
+  !v.push(7)
+  !v.push(8)
+  print(at(!v[..]))
+
+test "rev224-called-rarely", '''
+  5 8 3.0 6 8
+  2 9 6
+  safe 2
+  safe 500
+  7 5 -1 100
+  ok 1
+  checked 1
+  checked -1
+  failed -1
+  caught
+  0
+  1 8 4.0
+'''
+  # Review of #224's split: `called` and `rarely` on functions, methods,
+  # generic and compile-time-parameter functions, fallible ones with
+  # `defer` and `errdefer`, function values, and across modules.
+
+  use lib
+  use std.math
+
+  error E
+    bad
+
+  called fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  rarely fun safe(n: Int) -> Int!
+    return E.bad if n == 0
+    defer print("safe", n)
+    if n > 100
+      return 100
+    10 / n
+
+  rarely sub check(n: Int)!
+    errdefer print("failed", n)
+    defer print("checked", n)
+    return E.bad if n < 0
+    print("ok", n)
+
+  obj Acc
+    items: List[Int]
+
+    called sub add(!self, x: Int)
+      !self.items.push(x)
+
+    rarely fun first(?self) -> Int?
+      return none if self.items.len == 0
+      self.items[0]
+
+  called fun Acc.count(?self) -> Int
+    self.items.len
+
+  called fun tiny(x: Int) -> Int
+    x
+
+  rarely fun sq(x: Float) -> Float
+    math.sqrt(x)
+
+  sub main()
+    b = lib.Box[Int](v: 3)
+    !b.set(5)
+    print(b.get(), lib.twice(4), lib.twice(1.5), lib.scaled[3](2), lib.scaled[4](2))
+    print(apply(lib.inc, 1), apply(tiny, 9), apply(|x: Int| x * 2, 3))
+    g = tiny
+    print(g(7), safe(2) catch -1, safe(0) catch -1, safe(500) catch -1)
+    check(1) catch print("x")
+    check(-1) catch print("caught")
+    a = Acc(items: List[Int]())
+    print(a.first() ?? 0)
+    !a.add(8)
+    print(a.count(), a.first() ?? 0, sq(16.0))
+
+  file "lib.rig"
+    pub obj Box[T]
+      pub v: T
+
+      pub called fun get(?self) -> T
+        self.v
+
+      pub rarely sub set(!self, v: T)
+        self.v = v
+
+    pub called fun twice[T](x: T) -> T
+      x + x
+
+    pub rarely fun scaled[k: Int](x: Int) -> Int
+      x * k
+
+    pub called fun inc(x: Int) -> Int
+      x + 1
+
+fail "rev224-generic-cycle", "`G.a` is `inline` and calls itself through `G.b`, also `inline`, so no call of it can be inlined; drop `inline` from one of them"
+  # Review of #224: a cycle of `inline` methods of a generic object type,
+  # and one through an `inline` generic function, are rejected.
+
+  obj G[T]
+    v: T
+
+    inline fun a(?self, n: Int) -> Int
+      0 if n == 0 else self.b(n - 1)
+
+    inline fun b(?self, n: Int) -> Int
+      0 if n == 0 else self.a(n - 1)
+
+  obj H
+    n: Int
+
+    inline fun step(?self, k: Int) -> Int
+      0 if k == 0 else via[Int](self, k - 1)
+
+  inline fun via[T](x: ?H, k: Int) -> Int
+    x.step(k)
+
+  g = G[Int](v: 1)
+  h = H(n: 1)
+  print(g.a(3), h.step(2))
+
+test "rev224-inline-views", '''
+  a
+  az
+  0 3
+  bag
+'''
+  # Review of #224: `inline` functions and methods that move, lend, and hand
+  # back views run as they do when called.
+
+  obj Bag
+    items: List[String]
+    name: String
+
+    inline fun into_name(<self) -> String
+      new b = <self
+      replace(!b.name, String("x"))
+
+    inline fun first(?self) -> ?String
+      ?self.items[0]
+
+    inline fun slot(!self) -> !String
+      !self.items[0]
+
+  inline fun head(xs: ?List[Int]) -> ?Int
+    ?xs[0]
+
+  inline fun make(n: Int) -> List[Int]
+    out = List[Int]()
+    for i in 0..n
+      !out.push(i)
+    out
+
+  b = Bag(items: List[String](), name: String("bag"))
+  !b.items.push(String("a"))
+  print(b.first())
+  s = (!b).slot()
+  !s.add("z")
+  print(b.first())
+  xs = make(3)
+  h = head(?xs)
+  print(h, xs.len)
+  n = <b.into_name()
+  print(n)
+
+test "rev224-std-wrapper", "1 7"
+  # Review of #224: an `inline` function that calls a method of a built-in
+  # type, or one through a handle, of its own name, calls no Rig function of
+  # that name, so it is no cycle.
+
+  inline sub push(xs: !List[Int], x: Int)
+    !xs.push(x)
+
+  obj Holder
+    c: *Cell[Int]
+
+    inline fun get(?self) -> Int
+      self.c.get()
+
+  xs = List[Int]()
+  push(!xs, 1)
+  h = Holder(c: *Cell[Int](7))
+  print(xs.len, h.get())
+
+test "rev227-empty-defaults", '''
+  42
+  1 0 0
+  Zero()
+  drop 7 0
+  drop 7 0
+  drop 7 0
+'''
+  # `T()` from another module, as a local and as field defaults, of
+  # objects with private defaulted fields, a resource with a `drop`, a
+  # `unique` object, a generic one, nested defaults, and an object with no
+  # fields.
+
+  use lib
+
+  obj Holder
+    a: lib.Res = lib.Res()
+    n: lib.Nest = lib.Nest()
+    b: lib.Box[List[Int]] = lib.Box[List[Int]]()
+    z: lib.Zero = lib.Zero()
+    l: lib.Lim = lib.Lim()
+
+  sub main()
+    r = lib.Res()
+    s = lib.Seed()
+    print(s.get())
+    h1 = Holder()
+    h2 = Holder()
+    l = List[Int]()
+    !l.push(1)
+    !h1.b.put(<l)
+    print(h1.b.count, h2.b.count, h1.l.s.len)
+    z = lib.Zero()
+    print(z)
+
+  file "lib.rig"
+    pub obj Res
+      id: Int = 7
+      log: List[String] = List()
+
+      drop(!self)
+        print("drop", self.id, self.log.len)
+
+    pub obj Seed unique
+      s: Int = 42
+
+      pub fun get(?self) -> Int
+        self.s
+
+    pub obj Half
+      n: Int
+
+    pub obj Box[T]
+      items: List[T] = List()
+      pub ?count: Int = 0
+      pub sub put(!self, x: T)
+        !self.items.push(<x)
+        self.count += 1
+
+    pub obj Nest
+      inner: Box[String] = Box[String]()
+      more: List[Box[Int]] = List()
+
+    pub obj Zero
+      pub fun one(?self) -> Int
+        1
+
+    pub obj Lim
+      n: Int = Int.max
+      pub ?s: String = String()
+
+test "rev227-empty-generic-field", "1 0 1 0"
+  # `T[A]()` of another module's generic object as a field default inside
+  # a generic object.
+
+  use lib
+
+  obj Outer[T]
+    inner: lib.Box[T] = lib.Box[T]()
+    more: List[T] = List()
+
+  sub main()
+    o = Outer[String]()
+    !o.more.push(String("x"))
+    !o.inner.put(String("y"))
+    p = Outer[String]()
+    print(o.inner.count, p.inner.count, o.more.len, p.more.len)
+
+  file "lib.rig"
+    pub obj Res
+      id: Int = 7
+      log: List[String] = List()
+
+      drop(!self)
+        print("drop", self.id, self.log.len)
+
+    pub obj Seed unique
+      s: Int = 42
+
+      pub fun get(?self) -> Int
+        self.s
+
+    pub obj Half
+      n: Int
+
+    pub obj Box[T]
+      items: List[T] = List()
+      pub ?count: Int = 0
+      pub sub put(!self, x: T)
+        !self.items.push(<x)
+        self.count += 1
+
+    pub obj Nest
+      inner: Box[String] = Box[String]()
+      more: List[Box[Int]] = List()
+
+    pub obj Zero
+      pub fun one(?self) -> Int
+        1
+
+    pub obj Lim
+      n: Int = Int.max
+      pub ?s: String = String()
+
+fail "rev227-ro-while", "cannot lend `t.last` to write: field `last` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?last`"
+  # A while header that lends a read-only field to write is rejected.
+
+  use lib
+
+  sub main()
+    t = lib.Tally()
+    !t.bump(3)
+    while !t.last as l
+      l = 2
+      break
+    print(t.tags, t.inner.n, t.shape, t.last)
+
+  file "lib.rig"
+    pub obj Inner
+      pub n: Int = 0
+      pub sub inc(!self)
+        self.n += 1
+
+    pub enum Shape
+      dot
+      rect(w: Int, h: Int)
+
+    pub obj Tally
+      pub ?tags: List[Int] = List()
+      pub ?inner: Inner = Inner()
+      pub ?shape: Shape = .dot
+      pub ?last: Int? = none
+
+      pub sub bump(!self, tag: Int)
+        !self.tags.push(tag)
+        self.shape = Shape.rect(w: tag, h: tag)
+        self.last = tag
+
+    pub obj Pile[T]
+      pub ?n: Int = 0
+
+fail "rev228-taken-capture", "cannot move captured `s`: the closure keeps what it captures for every call; write `+s` for another weak handle"
+  obj S
+    n: Int
+
+  s = *S(n: 1)
+  f = *|~s|
+    if *<s as p
+      print(p.n)
+  f()
+  f()
+
+test "rev228-temp-parts", '''
+  1
+  2
+  true
+  true
+'''
+  obj S
+    n: Int
+
+  obj H
+    w: ~S
+    ws: List[~S]
+
+  fun mk(s: *S) -> H
+    ws: List[~S] = List()
+    !ws.push(~s)
+    H(w: ~s, ws: <ws)
+
+  s = *S(n: 1)
+  if *mk(+s).w as p
+    print(p.n)
+  if *mk(+s).ws[0] as p
+    print(p.n + 1)
+  print(*mk(+s).w != none)
+  <s
+  print(*mk(*S(n: 2)).w == none)
+
+test "rev229-chain-pile", "91200"
+  # Step 3 of the frame owners round: `a`, which the rule inlines, calls
+  # `g`, marked `inline`, which calls `w`, which the rule inlines, 56 KB of
+  # values; `near` calls `a` 300 times. Each call of `a` lands `g` and `w`
+  # in `near`'s frame, so `w`'s frame counts in `near`'s account through
+  # both, and the rule stops before the frame passes 64 KiB.
+
+  fun w(i: Int) -> Int
+    t = [7000 of 0]
+    for k in 0..7000
+      t[k] = k + i
+    t[i % 7000]
+
+  inline fun g(i: Int) -> Int
+    w(i) + 1
+
+  fun a(i: Int) -> Int
+    g(i)
+
+  fun near(i: Int) -> Int
+    a(i + 0) + a(i + 1) + a(i + 2) + a(i + 3) + a(i + 4) + a(i + 5) + a(i + 6) + a(i + 7) + a(i + 8) + a(i + 9) + \
+    a(i + 10) + a(i + 11) + a(i + 12) + a(i + 13) + a(i + 14) + a(i + 15) + a(i + 16) + a(i + 17) + a(i + 18) + a(i + 19) + \
+    a(i + 20) + a(i + 21) + a(i + 22) + a(i + 23) + a(i + 24) + a(i + 25) + a(i + 26) + a(i + 27) + a(i + 28) + a(i + 29) + \
+    a(i + 30) + a(i + 31) + a(i + 32) + a(i + 33) + a(i + 34) + a(i + 35) + a(i + 36) + a(i + 37) + a(i + 38) + a(i + 39) + \
+    a(i + 40) + a(i + 41) + a(i + 42) + a(i + 43) + a(i + 44) + a(i + 45) + a(i + 46) + a(i + 47) + a(i + 48) + a(i + 49) + \
+    a(i + 50) + a(i + 51) + a(i + 52) + a(i + 53) + a(i + 54) + a(i + 55) + a(i + 56) + a(i + 57) + a(i + 58) + a(i + 59) + \
+    a(i + 60) + a(i + 61) + a(i + 62) + a(i + 63) + a(i + 64) + a(i + 65) + a(i + 66) + a(i + 67) + a(i + 68) + a(i + 69) + \
+    a(i + 70) + a(i + 71) + a(i + 72) + a(i + 73) + a(i + 74) + a(i + 75) + a(i + 76) + a(i + 77) + a(i + 78) + a(i + 79) + \
+    a(i + 80) + a(i + 81) + a(i + 82) + a(i + 83) + a(i + 84) + a(i + 85) + a(i + 86) + a(i + 87) + a(i + 88) + a(i + 89) + \
+    a(i + 90) + a(i + 91) + a(i + 92) + a(i + 93) + a(i + 94) + a(i + 95) + a(i + 96) + a(i + 97) + a(i + 98) + a(i + 99) + \
+    a(i + 100) + a(i + 101) + a(i + 102) + a(i + 103) + a(i + 104) + a(i + 105) + a(i + 106) + a(i + 107) + a(i + 108) + a(i + 109) + \
+    a(i + 110) + a(i + 111) + a(i + 112) + a(i + 113) + a(i + 114) + a(i + 115) + a(i + 116) + a(i + 117) + a(i + 118) + a(i + 119) + \
+    a(i + 120) + a(i + 121) + a(i + 122) + a(i + 123) + a(i + 124) + a(i + 125) + a(i + 126) + a(i + 127) + a(i + 128) + a(i + 129) + \
+    a(i + 130) + a(i + 131) + a(i + 132) + a(i + 133) + a(i + 134) + a(i + 135) + a(i + 136) + a(i + 137) + a(i + 138) + a(i + 139) + \
+    a(i + 140) + a(i + 141) + a(i + 142) + a(i + 143) + a(i + 144) + a(i + 145) + a(i + 146) + a(i + 147) + a(i + 148) + a(i + 149) + \
+    a(i + 150) + a(i + 151) + a(i + 152) + a(i + 153) + a(i + 154) + a(i + 155) + a(i + 156) + a(i + 157) + a(i + 158) + a(i + 159) + \
+    a(i + 160) + a(i + 161) + a(i + 162) + a(i + 163) + a(i + 164) + a(i + 165) + a(i + 166) + a(i + 167) + a(i + 168) + a(i + 169) + \
+    a(i + 170) + a(i + 171) + a(i + 172) + a(i + 173) + a(i + 174) + a(i + 175) + a(i + 176) + a(i + 177) + a(i + 178) + a(i + 179) + \
+    a(i + 180) + a(i + 181) + a(i + 182) + a(i + 183) + a(i + 184) + a(i + 185) + a(i + 186) + a(i + 187) + a(i + 188) + a(i + 189) + \
+    a(i + 190) + a(i + 191) + a(i + 192) + a(i + 193) + a(i + 194) + a(i + 195) + a(i + 196) + a(i + 197) + a(i + 198) + a(i + 199) + \
+    a(i + 200) + a(i + 201) + a(i + 202) + a(i + 203) + a(i + 204) + a(i + 205) + a(i + 206) + a(i + 207) + a(i + 208) + a(i + 209) + \
+    a(i + 210) + a(i + 211) + a(i + 212) + a(i + 213) + a(i + 214) + a(i + 215) + a(i + 216) + a(i + 217) + a(i + 218) + a(i + 219) + \
+    a(i + 220) + a(i + 221) + a(i + 222) + a(i + 223) + a(i + 224) + a(i + 225) + a(i + 226) + a(i + 227) + a(i + 228) + a(i + 229) + \
+    a(i + 230) + a(i + 231) + a(i + 232) + a(i + 233) + a(i + 234) + a(i + 235) + a(i + 236) + a(i + 237) + a(i + 238) + a(i + 239) + \
+    a(i + 240) + a(i + 241) + a(i + 242) + a(i + 243) + a(i + 244) + a(i + 245) + a(i + 246) + a(i + 247) + a(i + 248) + a(i + 249) + \
+    a(i + 250) + a(i + 251) + a(i + 252) + a(i + 253) + a(i + 254) + a(i + 255) + a(i + 256) + a(i + 257) + a(i + 258) + a(i + 259) + \
+    a(i + 260) + a(i + 261) + a(i + 262) + a(i + 263) + a(i + 264) + a(i + 265) + a(i + 266) + a(i + 267) + a(i + 268) + a(i + 269) + \
+    a(i + 270) + a(i + 271) + a(i + 272) + a(i + 273) + a(i + 274) + a(i + 275) + a(i + 276) + a(i + 277) + a(i + 278) + a(i + 279) + \
+    a(i + 280) + a(i + 281) + a(i + 282) + a(i + 283) + a(i + 284) + a(i + 285) + a(i + 286) + a(i + 287) + a(i + 288) + a(i + 289) + \
+    a(i + 290) + a(i + 291) + a(i + 292) + a(i + 293) + a(i + 294) + a(i + 295) + a(i + 296) + a(i + 297) + a(i + 298) + a(i + 299)
+
+  print(near(2))
+
+test "rev229-closure-pile-inline", "90600"
+  # Second review of #229, as the reviewer wrote it: a closure calls an
+  # `inline` function `g` 300 times, and `g` calls a 56 KB helper the rule
+  # would inline, so each call of `g` lands the helper in the closure's
+  # frame, 16.8 MB in all. The closure is a frame owner of its own, and
+  # what the rule inlines through `g` is held to its account: the rule
+  # leaves the helper a call.
+
+  fun w(i: Int) -> Int
+    t = [7000 of 0]
+    for k in 0..7000
+      t[k] = k + i
+    t[i % 7000]
+
+  inline fun g(i: Int) -> Int
+    w(i) + 1
+
+  fun near(i: Int) -> Int
+    f = |+i|
+      g(i + 0) + g(i + 1) + g(i + 2) + g(i + 3) + g(i + 4) + g(i + 5) + g(i + 6) + g(i + 7) + g(i + 8) + g(i + 9) + \
+      g(i + 10) + g(i + 11) + g(i + 12) + g(i + 13) + g(i + 14) + g(i + 15) + g(i + 16) + g(i + 17) + g(i + 18) + g(i + 19) + \
+      g(i + 20) + g(i + 21) + g(i + 22) + g(i + 23) + g(i + 24) + g(i + 25) + g(i + 26) + g(i + 27) + g(i + 28) + g(i + 29) + \
+      g(i + 30) + g(i + 31) + g(i + 32) + g(i + 33) + g(i + 34) + g(i + 35) + g(i + 36) + g(i + 37) + g(i + 38) + g(i + 39) + \
+      g(i + 40) + g(i + 41) + g(i + 42) + g(i + 43) + g(i + 44) + g(i + 45) + g(i + 46) + g(i + 47) + g(i + 48) + g(i + 49) + \
+      g(i + 50) + g(i + 51) + g(i + 52) + g(i + 53) + g(i + 54) + g(i + 55) + g(i + 56) + g(i + 57) + g(i + 58) + g(i + 59) + \
+      g(i + 60) + g(i + 61) + g(i + 62) + g(i + 63) + g(i + 64) + g(i + 65) + g(i + 66) + g(i + 67) + g(i + 68) + g(i + 69) + \
+      g(i + 70) + g(i + 71) + g(i + 72) + g(i + 73) + g(i + 74) + g(i + 75) + g(i + 76) + g(i + 77) + g(i + 78) + g(i + 79) + \
+      g(i + 80) + g(i + 81) + g(i + 82) + g(i + 83) + g(i + 84) + g(i + 85) + g(i + 86) + g(i + 87) + g(i + 88) + g(i + 89) + \
+      g(i + 90) + g(i + 91) + g(i + 92) + g(i + 93) + g(i + 94) + g(i + 95) + g(i + 96) + g(i + 97) + g(i + 98) + g(i + 99) + \
+      g(i + 100) + g(i + 101) + g(i + 102) + g(i + 103) + g(i + 104) + g(i + 105) + g(i + 106) + g(i + 107) + g(i + 108) + g(i + 109) + \
+      g(i + 110) + g(i + 111) + g(i + 112) + g(i + 113) + g(i + 114) + g(i + 115) + g(i + 116) + g(i + 117) + g(i + 118) + g(i + 119) + \
+      g(i + 120) + g(i + 121) + g(i + 122) + g(i + 123) + g(i + 124) + g(i + 125) + g(i + 126) + g(i + 127) + g(i + 128) + g(i + 129) + \
+      g(i + 130) + g(i + 131) + g(i + 132) + g(i + 133) + g(i + 134) + g(i + 135) + g(i + 136) + g(i + 137) + g(i + 138) + g(i + 139) + \
+      g(i + 140) + g(i + 141) + g(i + 142) + g(i + 143) + g(i + 144) + g(i + 145) + g(i + 146) + g(i + 147) + g(i + 148) + g(i + 149) + \
+      g(i + 150) + g(i + 151) + g(i + 152) + g(i + 153) + g(i + 154) + g(i + 155) + g(i + 156) + g(i + 157) + g(i + 158) + g(i + 159) + \
+      g(i + 160) + g(i + 161) + g(i + 162) + g(i + 163) + g(i + 164) + g(i + 165) + g(i + 166) + g(i + 167) + g(i + 168) + g(i + 169) + \
+      g(i + 170) + g(i + 171) + g(i + 172) + g(i + 173) + g(i + 174) + g(i + 175) + g(i + 176) + g(i + 177) + g(i + 178) + g(i + 179) + \
+      g(i + 180) + g(i + 181) + g(i + 182) + g(i + 183) + g(i + 184) + g(i + 185) + g(i + 186) + g(i + 187) + g(i + 188) + g(i + 189) + \
+      g(i + 190) + g(i + 191) + g(i + 192) + g(i + 193) + g(i + 194) + g(i + 195) + g(i + 196) + g(i + 197) + g(i + 198) + g(i + 199) + \
+      g(i + 200) + g(i + 201) + g(i + 202) + g(i + 203) + g(i + 204) + g(i + 205) + g(i + 206) + g(i + 207) + g(i + 208) + g(i + 209) + \
+      g(i + 210) + g(i + 211) + g(i + 212) + g(i + 213) + g(i + 214) + g(i + 215) + g(i + 216) + g(i + 217) + g(i + 218) + g(i + 219) + \
+      g(i + 220) + g(i + 221) + g(i + 222) + g(i + 223) + g(i + 224) + g(i + 225) + g(i + 226) + g(i + 227) + g(i + 228) + g(i + 229) + \
+      g(i + 230) + g(i + 231) + g(i + 232) + g(i + 233) + g(i + 234) + g(i + 235) + g(i + 236) + g(i + 237) + g(i + 238) + g(i + 239) + \
+      g(i + 240) + g(i + 241) + g(i + 242) + g(i + 243) + g(i + 244) + g(i + 245) + g(i + 246) + g(i + 247) + g(i + 248) + g(i + 249) + \
+      g(i + 250) + g(i + 251) + g(i + 252) + g(i + 253) + g(i + 254) + g(i + 255) + g(i + 256) + g(i + 257) + g(i + 258) + g(i + 259) + \
+      g(i + 260) + g(i + 261) + g(i + 262) + g(i + 263) + g(i + 264) + g(i + 265) + g(i + 266) + g(i + 267) + g(i + 268) + g(i + 269) + \
+      g(i + 270) + g(i + 271) + g(i + 272) + g(i + 273) + g(i + 274) + g(i + 275) + g(i + 276) + g(i + 277) + g(i + 278) + g(i + 279) + \
+      g(i + 280) + g(i + 281) + g(i + 282) + g(i + 283) + g(i + 284) + g(i + 285) + g(i + 286) + g(i + 287) + g(i + 288) + g(i + 289) + \
+      g(i + 290) + g(i + 291) + g(i + 292) + g(i + 293) + g(i + 294) + g(i + 295) + g(i + 296) + g(i + 297) + g(i + 298) + g(i + 299)
+    f()
+
+  print(near(1))
+
+test "rev229-closure-self", "3"
+  # Review of #229: an `inline` function's closure calling it is a call of
+  # its own, no cycle.
+
+  inline fun go(n: Int) -> Int
+    return 0 if n <= 0
+    f = |+n| go(n - 1)
+    f() + 1
+
+  print(go(3))
+
+fail "rev229-cycle-objects", "`A.go` is `inline` and calls itself through `B.go`, also `inline`, so no call of it can be inlined; drop `inline` from one of them"
+  # Review of #229: a cycle of `inline` methods of two object types names
+  # each by its type.
+
+  obj A[T]
+    v: T
+
+    inline fun go(?self, n: Int) -> Int
+      return 0 if n <= 0
+      b = B[T](v: 1)
+      b.go(n - 1) + 1
+
+  obj B[T]
+    v: Int
+
+    inline fun go(?self, n: Int) -> Int
+      a = A[Int](v: 2)
+      a.go(n - 1) + 1
+
+  a = A[Bool](v: true)
+  print(a.go(3))
+
+test "rev229-generic-member-module", "1688700"
+  # The residual of #229's first review after #237, across modules: the
+  # only instance of `lib.Box.w`, a generic type's member with 56 KB of
+  # values, is made here, where `main` calls it 1,300 times (73 MB, more
+  # than the program's stack). The instance's frame, counted here, is the
+  # member's, so the rule leaves it a call.
+
+  use lib
+
+  sub main()
+    b = lib.Box[Int](v: 1)
+    i = 0
+    s = 0
+    s += b.w(i + 0) + b.w(i + 1) + b.w(i + 2) + b.w(i + 3) + b.w(i + 4) + b.w(i + 5) + b.w(i + 6) + b.w(i + 7) + b.w(i + 8) + b.w(i + 9)
+    s += b.w(i + 10) + b.w(i + 11) + b.w(i + 12) + b.w(i + 13) + b.w(i + 14) + b.w(i + 15) + b.w(i + 16) + b.w(i + 17) + b.w(i + 18) + b.w(i + 19)
+    s += b.w(i + 20) + b.w(i + 21) + b.w(i + 22) + b.w(i + 23) + b.w(i + 24) + b.w(i + 25) + b.w(i + 26) + b.w(i + 27) + b.w(i + 28) + b.w(i + 29)
+    s += b.w(i + 30) + b.w(i + 31) + b.w(i + 32) + b.w(i + 33) + b.w(i + 34) + b.w(i + 35) + b.w(i + 36) + b.w(i + 37) + b.w(i + 38) + b.w(i + 39)
+    s += b.w(i + 40) + b.w(i + 41) + b.w(i + 42) + b.w(i + 43) + b.w(i + 44) + b.w(i + 45) + b.w(i + 46) + b.w(i + 47) + b.w(i + 48) + b.w(i + 49)
+    s += b.w(i + 50) + b.w(i + 51) + b.w(i + 52) + b.w(i + 53) + b.w(i + 54) + b.w(i + 55) + b.w(i + 56) + b.w(i + 57) + b.w(i + 58) + b.w(i + 59)
+    s += b.w(i + 60) + b.w(i + 61) + b.w(i + 62) + b.w(i + 63) + b.w(i + 64) + b.w(i + 65) + b.w(i + 66) + b.w(i + 67) + b.w(i + 68) + b.w(i + 69)
+    s += b.w(i + 70) + b.w(i + 71) + b.w(i + 72) + b.w(i + 73) + b.w(i + 74) + b.w(i + 75) + b.w(i + 76) + b.w(i + 77) + b.w(i + 78) + b.w(i + 79)
+    s += b.w(i + 80) + b.w(i + 81) + b.w(i + 82) + b.w(i + 83) + b.w(i + 84) + b.w(i + 85) + b.w(i + 86) + b.w(i + 87) + b.w(i + 88) + b.w(i + 89)
+    s += b.w(i + 90) + b.w(i + 91) + b.w(i + 92) + b.w(i + 93) + b.w(i + 94) + b.w(i + 95) + b.w(i + 96) + b.w(i + 97) + b.w(i + 98) + b.w(i + 99)
+    s += b.w(i + 100) + b.w(i + 101) + b.w(i + 102) + b.w(i + 103) + b.w(i + 104) + b.w(i + 105) + b.w(i + 106) + b.w(i + 107) + b.w(i + 108) + b.w(i + 109)
+    s += b.w(i + 110) + b.w(i + 111) + b.w(i + 112) + b.w(i + 113) + b.w(i + 114) + b.w(i + 115) + b.w(i + 116) + b.w(i + 117) + b.w(i + 118) + b.w(i + 119)
+    s += b.w(i + 120) + b.w(i + 121) + b.w(i + 122) + b.w(i + 123) + b.w(i + 124) + b.w(i + 125) + b.w(i + 126) + b.w(i + 127) + b.w(i + 128) + b.w(i + 129)
+    s += b.w(i + 130) + b.w(i + 131) + b.w(i + 132) + b.w(i + 133) + b.w(i + 134) + b.w(i + 135) + b.w(i + 136) + b.w(i + 137) + b.w(i + 138) + b.w(i + 139)
+    s += b.w(i + 140) + b.w(i + 141) + b.w(i + 142) + b.w(i + 143) + b.w(i + 144) + b.w(i + 145) + b.w(i + 146) + b.w(i + 147) + b.w(i + 148) + b.w(i + 149)
+    s += b.w(i + 150) + b.w(i + 151) + b.w(i + 152) + b.w(i + 153) + b.w(i + 154) + b.w(i + 155) + b.w(i + 156) + b.w(i + 157) + b.w(i + 158) + b.w(i + 159)
+    s += b.w(i + 160) + b.w(i + 161) + b.w(i + 162) + b.w(i + 163) + b.w(i + 164) + b.w(i + 165) + b.w(i + 166) + b.w(i + 167) + b.w(i + 168) + b.w(i + 169)
+    s += b.w(i + 170) + b.w(i + 171) + b.w(i + 172) + b.w(i + 173) + b.w(i + 174) + b.w(i + 175) + b.w(i + 176) + b.w(i + 177) + b.w(i + 178) + b.w(i + 179)
+    s += b.w(i + 180) + b.w(i + 181) + b.w(i + 182) + b.w(i + 183) + b.w(i + 184) + b.w(i + 185) + b.w(i + 186) + b.w(i + 187) + b.w(i + 188) + b.w(i + 189)
+    s += b.w(i + 190) + b.w(i + 191) + b.w(i + 192) + b.w(i + 193) + b.w(i + 194) + b.w(i + 195) + b.w(i + 196) + b.w(i + 197) + b.w(i + 198) + b.w(i + 199)
+    s += b.w(i + 200) + b.w(i + 201) + b.w(i + 202) + b.w(i + 203) + b.w(i + 204) + b.w(i + 205) + b.w(i + 206) + b.w(i + 207) + b.w(i + 208) + b.w(i + 209)
+    s += b.w(i + 210) + b.w(i + 211) + b.w(i + 212) + b.w(i + 213) + b.w(i + 214) + b.w(i + 215) + b.w(i + 216) + b.w(i + 217) + b.w(i + 218) + b.w(i + 219)
+    s += b.w(i + 220) + b.w(i + 221) + b.w(i + 222) + b.w(i + 223) + b.w(i + 224) + b.w(i + 225) + b.w(i + 226) + b.w(i + 227) + b.w(i + 228) + b.w(i + 229)
+    s += b.w(i + 230) + b.w(i + 231) + b.w(i + 232) + b.w(i + 233) + b.w(i + 234) + b.w(i + 235) + b.w(i + 236) + b.w(i + 237) + b.w(i + 238) + b.w(i + 239)
+    s += b.w(i + 240) + b.w(i + 241) + b.w(i + 242) + b.w(i + 243) + b.w(i + 244) + b.w(i + 245) + b.w(i + 246) + b.w(i + 247) + b.w(i + 248) + b.w(i + 249)
+    s += b.w(i + 250) + b.w(i + 251) + b.w(i + 252) + b.w(i + 253) + b.w(i + 254) + b.w(i + 255) + b.w(i + 256) + b.w(i + 257) + b.w(i + 258) + b.w(i + 259)
+    s += b.w(i + 260) + b.w(i + 261) + b.w(i + 262) + b.w(i + 263) + b.w(i + 264) + b.w(i + 265) + b.w(i + 266) + b.w(i + 267) + b.w(i + 268) + b.w(i + 269)
+    s += b.w(i + 270) + b.w(i + 271) + b.w(i + 272) + b.w(i + 273) + b.w(i + 274) + b.w(i + 275) + b.w(i + 276) + b.w(i + 277) + b.w(i + 278) + b.w(i + 279)
+    s += b.w(i + 280) + b.w(i + 281) + b.w(i + 282) + b.w(i + 283) + b.w(i + 284) + b.w(i + 285) + b.w(i + 286) + b.w(i + 287) + b.w(i + 288) + b.w(i + 289)
+    s += b.w(i + 290) + b.w(i + 291) + b.w(i + 292) + b.w(i + 293) + b.w(i + 294) + b.w(i + 295) + b.w(i + 296) + b.w(i + 297) + b.w(i + 298) + b.w(i + 299)
+    s += b.w(i + 300) + b.w(i + 301) + b.w(i + 302) + b.w(i + 303) + b.w(i + 304) + b.w(i + 305) + b.w(i + 306) + b.w(i + 307) + b.w(i + 308) + b.w(i + 309)
+    s += b.w(i + 310) + b.w(i + 311) + b.w(i + 312) + b.w(i + 313) + b.w(i + 314) + b.w(i + 315) + b.w(i + 316) + b.w(i + 317) + b.w(i + 318) + b.w(i + 319)
+    s += b.w(i + 320) + b.w(i + 321) + b.w(i + 322) + b.w(i + 323) + b.w(i + 324) + b.w(i + 325) + b.w(i + 326) + b.w(i + 327) + b.w(i + 328) + b.w(i + 329)
+    s += b.w(i + 330) + b.w(i + 331) + b.w(i + 332) + b.w(i + 333) + b.w(i + 334) + b.w(i + 335) + b.w(i + 336) + b.w(i + 337) + b.w(i + 338) + b.w(i + 339)
+    s += b.w(i + 340) + b.w(i + 341) + b.w(i + 342) + b.w(i + 343) + b.w(i + 344) + b.w(i + 345) + b.w(i + 346) + b.w(i + 347) + b.w(i + 348) + b.w(i + 349)
+    s += b.w(i + 350) + b.w(i + 351) + b.w(i + 352) + b.w(i + 353) + b.w(i + 354) + b.w(i + 355) + b.w(i + 356) + b.w(i + 357) + b.w(i + 358) + b.w(i + 359)
+    s += b.w(i + 360) + b.w(i + 361) + b.w(i + 362) + b.w(i + 363) + b.w(i + 364) + b.w(i + 365) + b.w(i + 366) + b.w(i + 367) + b.w(i + 368) + b.w(i + 369)
+    s += b.w(i + 370) + b.w(i + 371) + b.w(i + 372) + b.w(i + 373) + b.w(i + 374) + b.w(i + 375) + b.w(i + 376) + b.w(i + 377) + b.w(i + 378) + b.w(i + 379)
+    s += b.w(i + 380) + b.w(i + 381) + b.w(i + 382) + b.w(i + 383) + b.w(i + 384) + b.w(i + 385) + b.w(i + 386) + b.w(i + 387) + b.w(i + 388) + b.w(i + 389)
+    s += b.w(i + 390) + b.w(i + 391) + b.w(i + 392) + b.w(i + 393) + b.w(i + 394) + b.w(i + 395) + b.w(i + 396) + b.w(i + 397) + b.w(i + 398) + b.w(i + 399)
+    s += b.w(i + 400) + b.w(i + 401) + b.w(i + 402) + b.w(i + 403) + b.w(i + 404) + b.w(i + 405) + b.w(i + 406) + b.w(i + 407) + b.w(i + 408) + b.w(i + 409)
+    s += b.w(i + 410) + b.w(i + 411) + b.w(i + 412) + b.w(i + 413) + b.w(i + 414) + b.w(i + 415) + b.w(i + 416) + b.w(i + 417) + b.w(i + 418) + b.w(i + 419)
+    s += b.w(i + 420) + b.w(i + 421) + b.w(i + 422) + b.w(i + 423) + b.w(i + 424) + b.w(i + 425) + b.w(i + 426) + b.w(i + 427) + b.w(i + 428) + b.w(i + 429)
+    s += b.w(i + 430) + b.w(i + 431) + b.w(i + 432) + b.w(i + 433) + b.w(i + 434) + b.w(i + 435) + b.w(i + 436) + b.w(i + 437) + b.w(i + 438) + b.w(i + 439)
+    s += b.w(i + 440) + b.w(i + 441) + b.w(i + 442) + b.w(i + 443) + b.w(i + 444) + b.w(i + 445) + b.w(i + 446) + b.w(i + 447) + b.w(i + 448) + b.w(i + 449)
+    s += b.w(i + 450) + b.w(i + 451) + b.w(i + 452) + b.w(i + 453) + b.w(i + 454) + b.w(i + 455) + b.w(i + 456) + b.w(i + 457) + b.w(i + 458) + b.w(i + 459)
+    s += b.w(i + 460) + b.w(i + 461) + b.w(i + 462) + b.w(i + 463) + b.w(i + 464) + b.w(i + 465) + b.w(i + 466) + b.w(i + 467) + b.w(i + 468) + b.w(i + 469)
+    s += b.w(i + 470) + b.w(i + 471) + b.w(i + 472) + b.w(i + 473) + b.w(i + 474) + b.w(i + 475) + b.w(i + 476) + b.w(i + 477) + b.w(i + 478) + b.w(i + 479)
+    s += b.w(i + 480) + b.w(i + 481) + b.w(i + 482) + b.w(i + 483) + b.w(i + 484) + b.w(i + 485) + b.w(i + 486) + b.w(i + 487) + b.w(i + 488) + b.w(i + 489)
+    s += b.w(i + 490) + b.w(i + 491) + b.w(i + 492) + b.w(i + 493) + b.w(i + 494) + b.w(i + 495) + b.w(i + 496) + b.w(i + 497) + b.w(i + 498) + b.w(i + 499)
+    s += b.w(i + 500) + b.w(i + 501) + b.w(i + 502) + b.w(i + 503) + b.w(i + 504) + b.w(i + 505) + b.w(i + 506) + b.w(i + 507) + b.w(i + 508) + b.w(i + 509)
+    s += b.w(i + 510) + b.w(i + 511) + b.w(i + 512) + b.w(i + 513) + b.w(i + 514) + b.w(i + 515) + b.w(i + 516) + b.w(i + 517) + b.w(i + 518) + b.w(i + 519)
+    s += b.w(i + 520) + b.w(i + 521) + b.w(i + 522) + b.w(i + 523) + b.w(i + 524) + b.w(i + 525) + b.w(i + 526) + b.w(i + 527) + b.w(i + 528) + b.w(i + 529)
+    s += b.w(i + 530) + b.w(i + 531) + b.w(i + 532) + b.w(i + 533) + b.w(i + 534) + b.w(i + 535) + b.w(i + 536) + b.w(i + 537) + b.w(i + 538) + b.w(i + 539)
+    s += b.w(i + 540) + b.w(i + 541) + b.w(i + 542) + b.w(i + 543) + b.w(i + 544) + b.w(i + 545) + b.w(i + 546) + b.w(i + 547) + b.w(i + 548) + b.w(i + 549)
+    s += b.w(i + 550) + b.w(i + 551) + b.w(i + 552) + b.w(i + 553) + b.w(i + 554) + b.w(i + 555) + b.w(i + 556) + b.w(i + 557) + b.w(i + 558) + b.w(i + 559)
+    s += b.w(i + 560) + b.w(i + 561) + b.w(i + 562) + b.w(i + 563) + b.w(i + 564) + b.w(i + 565) + b.w(i + 566) + b.w(i + 567) + b.w(i + 568) + b.w(i + 569)
+    s += b.w(i + 570) + b.w(i + 571) + b.w(i + 572) + b.w(i + 573) + b.w(i + 574) + b.w(i + 575) + b.w(i + 576) + b.w(i + 577) + b.w(i + 578) + b.w(i + 579)
+    s += b.w(i + 580) + b.w(i + 581) + b.w(i + 582) + b.w(i + 583) + b.w(i + 584) + b.w(i + 585) + b.w(i + 586) + b.w(i + 587) + b.w(i + 588) + b.w(i + 589)
+    s += b.w(i + 590) + b.w(i + 591) + b.w(i + 592) + b.w(i + 593) + b.w(i + 594) + b.w(i + 595) + b.w(i + 596) + b.w(i + 597) + b.w(i + 598) + b.w(i + 599)
+    s += b.w(i + 600) + b.w(i + 601) + b.w(i + 602) + b.w(i + 603) + b.w(i + 604) + b.w(i + 605) + b.w(i + 606) + b.w(i + 607) + b.w(i + 608) + b.w(i + 609)
+    s += b.w(i + 610) + b.w(i + 611) + b.w(i + 612) + b.w(i + 613) + b.w(i + 614) + b.w(i + 615) + b.w(i + 616) + b.w(i + 617) + b.w(i + 618) + b.w(i + 619)
+    s += b.w(i + 620) + b.w(i + 621) + b.w(i + 622) + b.w(i + 623) + b.w(i + 624) + b.w(i + 625) + b.w(i + 626) + b.w(i + 627) + b.w(i + 628) + b.w(i + 629)
+    s += b.w(i + 630) + b.w(i + 631) + b.w(i + 632) + b.w(i + 633) + b.w(i + 634) + b.w(i + 635) + b.w(i + 636) + b.w(i + 637) + b.w(i + 638) + b.w(i + 639)
+    s += b.w(i + 640) + b.w(i + 641) + b.w(i + 642) + b.w(i + 643) + b.w(i + 644) + b.w(i + 645) + b.w(i + 646) + b.w(i + 647) + b.w(i + 648) + b.w(i + 649)
+    s += b.w(i + 650) + b.w(i + 651) + b.w(i + 652) + b.w(i + 653) + b.w(i + 654) + b.w(i + 655) + b.w(i + 656) + b.w(i + 657) + b.w(i + 658) + b.w(i + 659)
+    s += b.w(i + 660) + b.w(i + 661) + b.w(i + 662) + b.w(i + 663) + b.w(i + 664) + b.w(i + 665) + b.w(i + 666) + b.w(i + 667) + b.w(i + 668) + b.w(i + 669)
+    s += b.w(i + 670) + b.w(i + 671) + b.w(i + 672) + b.w(i + 673) + b.w(i + 674) + b.w(i + 675) + b.w(i + 676) + b.w(i + 677) + b.w(i + 678) + b.w(i + 679)
+    s += b.w(i + 680) + b.w(i + 681) + b.w(i + 682) + b.w(i + 683) + b.w(i + 684) + b.w(i + 685) + b.w(i + 686) + b.w(i + 687) + b.w(i + 688) + b.w(i + 689)
+    s += b.w(i + 690) + b.w(i + 691) + b.w(i + 692) + b.w(i + 693) + b.w(i + 694) + b.w(i + 695) + b.w(i + 696) + b.w(i + 697) + b.w(i + 698) + b.w(i + 699)
+    s += b.w(i + 700) + b.w(i + 701) + b.w(i + 702) + b.w(i + 703) + b.w(i + 704) + b.w(i + 705) + b.w(i + 706) + b.w(i + 707) + b.w(i + 708) + b.w(i + 709)
+    s += b.w(i + 710) + b.w(i + 711) + b.w(i + 712) + b.w(i + 713) + b.w(i + 714) + b.w(i + 715) + b.w(i + 716) + b.w(i + 717) + b.w(i + 718) + b.w(i + 719)
+    s += b.w(i + 720) + b.w(i + 721) + b.w(i + 722) + b.w(i + 723) + b.w(i + 724) + b.w(i + 725) + b.w(i + 726) + b.w(i + 727) + b.w(i + 728) + b.w(i + 729)
+    s += b.w(i + 730) + b.w(i + 731) + b.w(i + 732) + b.w(i + 733) + b.w(i + 734) + b.w(i + 735) + b.w(i + 736) + b.w(i + 737) + b.w(i + 738) + b.w(i + 739)
+    s += b.w(i + 740) + b.w(i + 741) + b.w(i + 742) + b.w(i + 743) + b.w(i + 744) + b.w(i + 745) + b.w(i + 746) + b.w(i + 747) + b.w(i + 748) + b.w(i + 749)
+    s += b.w(i + 750) + b.w(i + 751) + b.w(i + 752) + b.w(i + 753) + b.w(i + 754) + b.w(i + 755) + b.w(i + 756) + b.w(i + 757) + b.w(i + 758) + b.w(i + 759)
+    s += b.w(i + 760) + b.w(i + 761) + b.w(i + 762) + b.w(i + 763) + b.w(i + 764) + b.w(i + 765) + b.w(i + 766) + b.w(i + 767) + b.w(i + 768) + b.w(i + 769)
+    s += b.w(i + 770) + b.w(i + 771) + b.w(i + 772) + b.w(i + 773) + b.w(i + 774) + b.w(i + 775) + b.w(i + 776) + b.w(i + 777) + b.w(i + 778) + b.w(i + 779)
+    s += b.w(i + 780) + b.w(i + 781) + b.w(i + 782) + b.w(i + 783) + b.w(i + 784) + b.w(i + 785) + b.w(i + 786) + b.w(i + 787) + b.w(i + 788) + b.w(i + 789)
+    s += b.w(i + 790) + b.w(i + 791) + b.w(i + 792) + b.w(i + 793) + b.w(i + 794) + b.w(i + 795) + b.w(i + 796) + b.w(i + 797) + b.w(i + 798) + b.w(i + 799)
+    s += b.w(i + 800) + b.w(i + 801) + b.w(i + 802) + b.w(i + 803) + b.w(i + 804) + b.w(i + 805) + b.w(i + 806) + b.w(i + 807) + b.w(i + 808) + b.w(i + 809)
+    s += b.w(i + 810) + b.w(i + 811) + b.w(i + 812) + b.w(i + 813) + b.w(i + 814) + b.w(i + 815) + b.w(i + 816) + b.w(i + 817) + b.w(i + 818) + b.w(i + 819)
+    s += b.w(i + 820) + b.w(i + 821) + b.w(i + 822) + b.w(i + 823) + b.w(i + 824) + b.w(i + 825) + b.w(i + 826) + b.w(i + 827) + b.w(i + 828) + b.w(i + 829)
+    s += b.w(i + 830) + b.w(i + 831) + b.w(i + 832) + b.w(i + 833) + b.w(i + 834) + b.w(i + 835) + b.w(i + 836) + b.w(i + 837) + b.w(i + 838) + b.w(i + 839)
+    s += b.w(i + 840) + b.w(i + 841) + b.w(i + 842) + b.w(i + 843) + b.w(i + 844) + b.w(i + 845) + b.w(i + 846) + b.w(i + 847) + b.w(i + 848) + b.w(i + 849)
+    s += b.w(i + 850) + b.w(i + 851) + b.w(i + 852) + b.w(i + 853) + b.w(i + 854) + b.w(i + 855) + b.w(i + 856) + b.w(i + 857) + b.w(i + 858) + b.w(i + 859)
+    s += b.w(i + 860) + b.w(i + 861) + b.w(i + 862) + b.w(i + 863) + b.w(i + 864) + b.w(i + 865) + b.w(i + 866) + b.w(i + 867) + b.w(i + 868) + b.w(i + 869)
+    s += b.w(i + 870) + b.w(i + 871) + b.w(i + 872) + b.w(i + 873) + b.w(i + 874) + b.w(i + 875) + b.w(i + 876) + b.w(i + 877) + b.w(i + 878) + b.w(i + 879)
+    s += b.w(i + 880) + b.w(i + 881) + b.w(i + 882) + b.w(i + 883) + b.w(i + 884) + b.w(i + 885) + b.w(i + 886) + b.w(i + 887) + b.w(i + 888) + b.w(i + 889)
+    s += b.w(i + 890) + b.w(i + 891) + b.w(i + 892) + b.w(i + 893) + b.w(i + 894) + b.w(i + 895) + b.w(i + 896) + b.w(i + 897) + b.w(i + 898) + b.w(i + 899)
+    s += b.w(i + 900) + b.w(i + 901) + b.w(i + 902) + b.w(i + 903) + b.w(i + 904) + b.w(i + 905) + b.w(i + 906) + b.w(i + 907) + b.w(i + 908) + b.w(i + 909)
+    s += b.w(i + 910) + b.w(i + 911) + b.w(i + 912) + b.w(i + 913) + b.w(i + 914) + b.w(i + 915) + b.w(i + 916) + b.w(i + 917) + b.w(i + 918) + b.w(i + 919)
+    s += b.w(i + 920) + b.w(i + 921) + b.w(i + 922) + b.w(i + 923) + b.w(i + 924) + b.w(i + 925) + b.w(i + 926) + b.w(i + 927) + b.w(i + 928) + b.w(i + 929)
+    s += b.w(i + 930) + b.w(i + 931) + b.w(i + 932) + b.w(i + 933) + b.w(i + 934) + b.w(i + 935) + b.w(i + 936) + b.w(i + 937) + b.w(i + 938) + b.w(i + 939)
+    s += b.w(i + 940) + b.w(i + 941) + b.w(i + 942) + b.w(i + 943) + b.w(i + 944) + b.w(i + 945) + b.w(i + 946) + b.w(i + 947) + b.w(i + 948) + b.w(i + 949)
+    s += b.w(i + 950) + b.w(i + 951) + b.w(i + 952) + b.w(i + 953) + b.w(i + 954) + b.w(i + 955) + b.w(i + 956) + b.w(i + 957) + b.w(i + 958) + b.w(i + 959)
+    s += b.w(i + 960) + b.w(i + 961) + b.w(i + 962) + b.w(i + 963) + b.w(i + 964) + b.w(i + 965) + b.w(i + 966) + b.w(i + 967) + b.w(i + 968) + b.w(i + 969)
+    s += b.w(i + 970) + b.w(i + 971) + b.w(i + 972) + b.w(i + 973) + b.w(i + 974) + b.w(i + 975) + b.w(i + 976) + b.w(i + 977) + b.w(i + 978) + b.w(i + 979)
+    s += b.w(i + 980) + b.w(i + 981) + b.w(i + 982) + b.w(i + 983) + b.w(i + 984) + b.w(i + 985) + b.w(i + 986) + b.w(i + 987) + b.w(i + 988) + b.w(i + 989)
+    s += b.w(i + 990) + b.w(i + 991) + b.w(i + 992) + b.w(i + 993) + b.w(i + 994) + b.w(i + 995) + b.w(i + 996) + b.w(i + 997) + b.w(i + 998) + b.w(i + 999)
+    s += b.w(i + 1000) + b.w(i + 1001) + b.w(i + 1002) + b.w(i + 1003) + b.w(i + 1004) + b.w(i + 1005) + b.w(i + 1006) + b.w(i + 1007) + b.w(i + 1008) + b.w(i + 1009)
+    s += b.w(i + 1010) + b.w(i + 1011) + b.w(i + 1012) + b.w(i + 1013) + b.w(i + 1014) + b.w(i + 1015) + b.w(i + 1016) + b.w(i + 1017) + b.w(i + 1018) + b.w(i + 1019)
+    s += b.w(i + 1020) + b.w(i + 1021) + b.w(i + 1022) + b.w(i + 1023) + b.w(i + 1024) + b.w(i + 1025) + b.w(i + 1026) + b.w(i + 1027) + b.w(i + 1028) + b.w(i + 1029)
+    s += b.w(i + 1030) + b.w(i + 1031) + b.w(i + 1032) + b.w(i + 1033) + b.w(i + 1034) + b.w(i + 1035) + b.w(i + 1036) + b.w(i + 1037) + b.w(i + 1038) + b.w(i + 1039)
+    s += b.w(i + 1040) + b.w(i + 1041) + b.w(i + 1042) + b.w(i + 1043) + b.w(i + 1044) + b.w(i + 1045) + b.w(i + 1046) + b.w(i + 1047) + b.w(i + 1048) + b.w(i + 1049)
+    s += b.w(i + 1050) + b.w(i + 1051) + b.w(i + 1052) + b.w(i + 1053) + b.w(i + 1054) + b.w(i + 1055) + b.w(i + 1056) + b.w(i + 1057) + b.w(i + 1058) + b.w(i + 1059)
+    s += b.w(i + 1060) + b.w(i + 1061) + b.w(i + 1062) + b.w(i + 1063) + b.w(i + 1064) + b.w(i + 1065) + b.w(i + 1066) + b.w(i + 1067) + b.w(i + 1068) + b.w(i + 1069)
+    s += b.w(i + 1070) + b.w(i + 1071) + b.w(i + 1072) + b.w(i + 1073) + b.w(i + 1074) + b.w(i + 1075) + b.w(i + 1076) + b.w(i + 1077) + b.w(i + 1078) + b.w(i + 1079)
+    s += b.w(i + 1080) + b.w(i + 1081) + b.w(i + 1082) + b.w(i + 1083) + b.w(i + 1084) + b.w(i + 1085) + b.w(i + 1086) + b.w(i + 1087) + b.w(i + 1088) + b.w(i + 1089)
+    s += b.w(i + 1090) + b.w(i + 1091) + b.w(i + 1092) + b.w(i + 1093) + b.w(i + 1094) + b.w(i + 1095) + b.w(i + 1096) + b.w(i + 1097) + b.w(i + 1098) + b.w(i + 1099)
+    s += b.w(i + 1100) + b.w(i + 1101) + b.w(i + 1102) + b.w(i + 1103) + b.w(i + 1104) + b.w(i + 1105) + b.w(i + 1106) + b.w(i + 1107) + b.w(i + 1108) + b.w(i + 1109)
+    s += b.w(i + 1110) + b.w(i + 1111) + b.w(i + 1112) + b.w(i + 1113) + b.w(i + 1114) + b.w(i + 1115) + b.w(i + 1116) + b.w(i + 1117) + b.w(i + 1118) + b.w(i + 1119)
+    s += b.w(i + 1120) + b.w(i + 1121) + b.w(i + 1122) + b.w(i + 1123) + b.w(i + 1124) + b.w(i + 1125) + b.w(i + 1126) + b.w(i + 1127) + b.w(i + 1128) + b.w(i + 1129)
+    s += b.w(i + 1130) + b.w(i + 1131) + b.w(i + 1132) + b.w(i + 1133) + b.w(i + 1134) + b.w(i + 1135) + b.w(i + 1136) + b.w(i + 1137) + b.w(i + 1138) + b.w(i + 1139)
+    s += b.w(i + 1140) + b.w(i + 1141) + b.w(i + 1142) + b.w(i + 1143) + b.w(i + 1144) + b.w(i + 1145) + b.w(i + 1146) + b.w(i + 1147) + b.w(i + 1148) + b.w(i + 1149)
+    s += b.w(i + 1150) + b.w(i + 1151) + b.w(i + 1152) + b.w(i + 1153) + b.w(i + 1154) + b.w(i + 1155) + b.w(i + 1156) + b.w(i + 1157) + b.w(i + 1158) + b.w(i + 1159)
+    s += b.w(i + 1160) + b.w(i + 1161) + b.w(i + 1162) + b.w(i + 1163) + b.w(i + 1164) + b.w(i + 1165) + b.w(i + 1166) + b.w(i + 1167) + b.w(i + 1168) + b.w(i + 1169)
+    s += b.w(i + 1170) + b.w(i + 1171) + b.w(i + 1172) + b.w(i + 1173) + b.w(i + 1174) + b.w(i + 1175) + b.w(i + 1176) + b.w(i + 1177) + b.w(i + 1178) + b.w(i + 1179)
+    s += b.w(i + 1180) + b.w(i + 1181) + b.w(i + 1182) + b.w(i + 1183) + b.w(i + 1184) + b.w(i + 1185) + b.w(i + 1186) + b.w(i + 1187) + b.w(i + 1188) + b.w(i + 1189)
+    s += b.w(i + 1190) + b.w(i + 1191) + b.w(i + 1192) + b.w(i + 1193) + b.w(i + 1194) + b.w(i + 1195) + b.w(i + 1196) + b.w(i + 1197) + b.w(i + 1198) + b.w(i + 1199)
+    s += b.w(i + 1200) + b.w(i + 1201) + b.w(i + 1202) + b.w(i + 1203) + b.w(i + 1204) + b.w(i + 1205) + b.w(i + 1206) + b.w(i + 1207) + b.w(i + 1208) + b.w(i + 1209)
+    s += b.w(i + 1210) + b.w(i + 1211) + b.w(i + 1212) + b.w(i + 1213) + b.w(i + 1214) + b.w(i + 1215) + b.w(i + 1216) + b.w(i + 1217) + b.w(i + 1218) + b.w(i + 1219)
+    s += b.w(i + 1220) + b.w(i + 1221) + b.w(i + 1222) + b.w(i + 1223) + b.w(i + 1224) + b.w(i + 1225) + b.w(i + 1226) + b.w(i + 1227) + b.w(i + 1228) + b.w(i + 1229)
+    s += b.w(i + 1230) + b.w(i + 1231) + b.w(i + 1232) + b.w(i + 1233) + b.w(i + 1234) + b.w(i + 1235) + b.w(i + 1236) + b.w(i + 1237) + b.w(i + 1238) + b.w(i + 1239)
+    s += b.w(i + 1240) + b.w(i + 1241) + b.w(i + 1242) + b.w(i + 1243) + b.w(i + 1244) + b.w(i + 1245) + b.w(i + 1246) + b.w(i + 1247) + b.w(i + 1248) + b.w(i + 1249)
+    s += b.w(i + 1250) + b.w(i + 1251) + b.w(i + 1252) + b.w(i + 1253) + b.w(i + 1254) + b.w(i + 1255) + b.w(i + 1256) + b.w(i + 1257) + b.w(i + 1258) + b.w(i + 1259)
+    s += b.w(i + 1260) + b.w(i + 1261) + b.w(i + 1262) + b.w(i + 1263) + b.w(i + 1264) + b.w(i + 1265) + b.w(i + 1266) + b.w(i + 1267) + b.w(i + 1268) + b.w(i + 1269)
+    s += b.w(i + 1270) + b.w(i + 1271) + b.w(i + 1272) + b.w(i + 1273) + b.w(i + 1274) + b.w(i + 1275) + b.w(i + 1276) + b.w(i + 1277) + b.w(i + 1278) + b.w(i + 1279)
+    s += b.w(i + 1280) + b.w(i + 1281) + b.w(i + 1282) + b.w(i + 1283) + b.w(i + 1284) + b.w(i + 1285) + b.w(i + 1286) + b.w(i + 1287) + b.w(i + 1288) + b.w(i + 1289)
+    s += b.w(i + 1290) + b.w(i + 1291) + b.w(i + 1292) + b.w(i + 1293) + b.w(i + 1294) + b.w(i + 1295) + b.w(i + 1296) + b.w(i + 1297) + b.w(i + 1298) + b.w(i + 1299)
+    print(s)
+
+  file "lib.rig"
+    pub obj Box[T]
+      pub v: T
+
+      pub fun w(?self, i: Int) -> Int
+        t = [7000 of 0]
+        for k in 0..7000
+          t[k] = k + i
+        t[i % 7000]
+
+test "rev229-generic-member-nested", "1688700"
+  # The residual of #229's first review after #237: a member of a generic
+  # type is inlined by the rule per instance, under the largest frame of
+  # its instances. `Box.w` keeps 56 KB of values, and its only instance is
+  # made inside another generic function's body, which calls it 1,300
+  # times (73 MB, more than the program's stack): its frame is counted at
+  # that instance, so the rule leaves it a call there.
+
+  obj Box[T]
+    v: T
+
+    fun w(?self, i: Int) -> Int
+      t = [7000 of 0]
+      for k in 0..7000
+        t[k] = k + i
+      t[i % 7000]
+
+  fun outer[T](x: T, i: Int) -> Int
+    b = Box[T](v: x)
+    s = 0
+    s += b.w(i + 0) + b.w(i + 1) + b.w(i + 2) + b.w(i + 3) + b.w(i + 4) + b.w(i + 5) + b.w(i + 6) + b.w(i + 7) + b.w(i + 8) + b.w(i + 9)
+    s += b.w(i + 10) + b.w(i + 11) + b.w(i + 12) + b.w(i + 13) + b.w(i + 14) + b.w(i + 15) + b.w(i + 16) + b.w(i + 17) + b.w(i + 18) + b.w(i + 19)
+    s += b.w(i + 20) + b.w(i + 21) + b.w(i + 22) + b.w(i + 23) + b.w(i + 24) + b.w(i + 25) + b.w(i + 26) + b.w(i + 27) + b.w(i + 28) + b.w(i + 29)
+    s += b.w(i + 30) + b.w(i + 31) + b.w(i + 32) + b.w(i + 33) + b.w(i + 34) + b.w(i + 35) + b.w(i + 36) + b.w(i + 37) + b.w(i + 38) + b.w(i + 39)
+    s += b.w(i + 40) + b.w(i + 41) + b.w(i + 42) + b.w(i + 43) + b.w(i + 44) + b.w(i + 45) + b.w(i + 46) + b.w(i + 47) + b.w(i + 48) + b.w(i + 49)
+    s += b.w(i + 50) + b.w(i + 51) + b.w(i + 52) + b.w(i + 53) + b.w(i + 54) + b.w(i + 55) + b.w(i + 56) + b.w(i + 57) + b.w(i + 58) + b.w(i + 59)
+    s += b.w(i + 60) + b.w(i + 61) + b.w(i + 62) + b.w(i + 63) + b.w(i + 64) + b.w(i + 65) + b.w(i + 66) + b.w(i + 67) + b.w(i + 68) + b.w(i + 69)
+    s += b.w(i + 70) + b.w(i + 71) + b.w(i + 72) + b.w(i + 73) + b.w(i + 74) + b.w(i + 75) + b.w(i + 76) + b.w(i + 77) + b.w(i + 78) + b.w(i + 79)
+    s += b.w(i + 80) + b.w(i + 81) + b.w(i + 82) + b.w(i + 83) + b.w(i + 84) + b.w(i + 85) + b.w(i + 86) + b.w(i + 87) + b.w(i + 88) + b.w(i + 89)
+    s += b.w(i + 90) + b.w(i + 91) + b.w(i + 92) + b.w(i + 93) + b.w(i + 94) + b.w(i + 95) + b.w(i + 96) + b.w(i + 97) + b.w(i + 98) + b.w(i + 99)
+    s += b.w(i + 100) + b.w(i + 101) + b.w(i + 102) + b.w(i + 103) + b.w(i + 104) + b.w(i + 105) + b.w(i + 106) + b.w(i + 107) + b.w(i + 108) + b.w(i + 109)
+    s += b.w(i + 110) + b.w(i + 111) + b.w(i + 112) + b.w(i + 113) + b.w(i + 114) + b.w(i + 115) + b.w(i + 116) + b.w(i + 117) + b.w(i + 118) + b.w(i + 119)
+    s += b.w(i + 120) + b.w(i + 121) + b.w(i + 122) + b.w(i + 123) + b.w(i + 124) + b.w(i + 125) + b.w(i + 126) + b.w(i + 127) + b.w(i + 128) + b.w(i + 129)
+    s += b.w(i + 130) + b.w(i + 131) + b.w(i + 132) + b.w(i + 133) + b.w(i + 134) + b.w(i + 135) + b.w(i + 136) + b.w(i + 137) + b.w(i + 138) + b.w(i + 139)
+    s += b.w(i + 140) + b.w(i + 141) + b.w(i + 142) + b.w(i + 143) + b.w(i + 144) + b.w(i + 145) + b.w(i + 146) + b.w(i + 147) + b.w(i + 148) + b.w(i + 149)
+    s += b.w(i + 150) + b.w(i + 151) + b.w(i + 152) + b.w(i + 153) + b.w(i + 154) + b.w(i + 155) + b.w(i + 156) + b.w(i + 157) + b.w(i + 158) + b.w(i + 159)
+    s += b.w(i + 160) + b.w(i + 161) + b.w(i + 162) + b.w(i + 163) + b.w(i + 164) + b.w(i + 165) + b.w(i + 166) + b.w(i + 167) + b.w(i + 168) + b.w(i + 169)
+    s += b.w(i + 170) + b.w(i + 171) + b.w(i + 172) + b.w(i + 173) + b.w(i + 174) + b.w(i + 175) + b.w(i + 176) + b.w(i + 177) + b.w(i + 178) + b.w(i + 179)
+    s += b.w(i + 180) + b.w(i + 181) + b.w(i + 182) + b.w(i + 183) + b.w(i + 184) + b.w(i + 185) + b.w(i + 186) + b.w(i + 187) + b.w(i + 188) + b.w(i + 189)
+    s += b.w(i + 190) + b.w(i + 191) + b.w(i + 192) + b.w(i + 193) + b.w(i + 194) + b.w(i + 195) + b.w(i + 196) + b.w(i + 197) + b.w(i + 198) + b.w(i + 199)
+    s += b.w(i + 200) + b.w(i + 201) + b.w(i + 202) + b.w(i + 203) + b.w(i + 204) + b.w(i + 205) + b.w(i + 206) + b.w(i + 207) + b.w(i + 208) + b.w(i + 209)
+    s += b.w(i + 210) + b.w(i + 211) + b.w(i + 212) + b.w(i + 213) + b.w(i + 214) + b.w(i + 215) + b.w(i + 216) + b.w(i + 217) + b.w(i + 218) + b.w(i + 219)
+    s += b.w(i + 220) + b.w(i + 221) + b.w(i + 222) + b.w(i + 223) + b.w(i + 224) + b.w(i + 225) + b.w(i + 226) + b.w(i + 227) + b.w(i + 228) + b.w(i + 229)
+    s += b.w(i + 230) + b.w(i + 231) + b.w(i + 232) + b.w(i + 233) + b.w(i + 234) + b.w(i + 235) + b.w(i + 236) + b.w(i + 237) + b.w(i + 238) + b.w(i + 239)
+    s += b.w(i + 240) + b.w(i + 241) + b.w(i + 242) + b.w(i + 243) + b.w(i + 244) + b.w(i + 245) + b.w(i + 246) + b.w(i + 247) + b.w(i + 248) + b.w(i + 249)
+    s += b.w(i + 250) + b.w(i + 251) + b.w(i + 252) + b.w(i + 253) + b.w(i + 254) + b.w(i + 255) + b.w(i + 256) + b.w(i + 257) + b.w(i + 258) + b.w(i + 259)
+    s += b.w(i + 260) + b.w(i + 261) + b.w(i + 262) + b.w(i + 263) + b.w(i + 264) + b.w(i + 265) + b.w(i + 266) + b.w(i + 267) + b.w(i + 268) + b.w(i + 269)
+    s += b.w(i + 270) + b.w(i + 271) + b.w(i + 272) + b.w(i + 273) + b.w(i + 274) + b.w(i + 275) + b.w(i + 276) + b.w(i + 277) + b.w(i + 278) + b.w(i + 279)
+    s += b.w(i + 280) + b.w(i + 281) + b.w(i + 282) + b.w(i + 283) + b.w(i + 284) + b.w(i + 285) + b.w(i + 286) + b.w(i + 287) + b.w(i + 288) + b.w(i + 289)
+    s += b.w(i + 290) + b.w(i + 291) + b.w(i + 292) + b.w(i + 293) + b.w(i + 294) + b.w(i + 295) + b.w(i + 296) + b.w(i + 297) + b.w(i + 298) + b.w(i + 299)
+    s += b.w(i + 300) + b.w(i + 301) + b.w(i + 302) + b.w(i + 303) + b.w(i + 304) + b.w(i + 305) + b.w(i + 306) + b.w(i + 307) + b.w(i + 308) + b.w(i + 309)
+    s += b.w(i + 310) + b.w(i + 311) + b.w(i + 312) + b.w(i + 313) + b.w(i + 314) + b.w(i + 315) + b.w(i + 316) + b.w(i + 317) + b.w(i + 318) + b.w(i + 319)
+    s += b.w(i + 320) + b.w(i + 321) + b.w(i + 322) + b.w(i + 323) + b.w(i + 324) + b.w(i + 325) + b.w(i + 326) + b.w(i + 327) + b.w(i + 328) + b.w(i + 329)
+    s += b.w(i + 330) + b.w(i + 331) + b.w(i + 332) + b.w(i + 333) + b.w(i + 334) + b.w(i + 335) + b.w(i + 336) + b.w(i + 337) + b.w(i + 338) + b.w(i + 339)
+    s += b.w(i + 340) + b.w(i + 341) + b.w(i + 342) + b.w(i + 343) + b.w(i + 344) + b.w(i + 345) + b.w(i + 346) + b.w(i + 347) + b.w(i + 348) + b.w(i + 349)
+    s += b.w(i + 350) + b.w(i + 351) + b.w(i + 352) + b.w(i + 353) + b.w(i + 354) + b.w(i + 355) + b.w(i + 356) + b.w(i + 357) + b.w(i + 358) + b.w(i + 359)
+    s += b.w(i + 360) + b.w(i + 361) + b.w(i + 362) + b.w(i + 363) + b.w(i + 364) + b.w(i + 365) + b.w(i + 366) + b.w(i + 367) + b.w(i + 368) + b.w(i + 369)
+    s += b.w(i + 370) + b.w(i + 371) + b.w(i + 372) + b.w(i + 373) + b.w(i + 374) + b.w(i + 375) + b.w(i + 376) + b.w(i + 377) + b.w(i + 378) + b.w(i + 379)
+    s += b.w(i + 380) + b.w(i + 381) + b.w(i + 382) + b.w(i + 383) + b.w(i + 384) + b.w(i + 385) + b.w(i + 386) + b.w(i + 387) + b.w(i + 388) + b.w(i + 389)
+    s += b.w(i + 390) + b.w(i + 391) + b.w(i + 392) + b.w(i + 393) + b.w(i + 394) + b.w(i + 395) + b.w(i + 396) + b.w(i + 397) + b.w(i + 398) + b.w(i + 399)
+    s += b.w(i + 400) + b.w(i + 401) + b.w(i + 402) + b.w(i + 403) + b.w(i + 404) + b.w(i + 405) + b.w(i + 406) + b.w(i + 407) + b.w(i + 408) + b.w(i + 409)
+    s += b.w(i + 410) + b.w(i + 411) + b.w(i + 412) + b.w(i + 413) + b.w(i + 414) + b.w(i + 415) + b.w(i + 416) + b.w(i + 417) + b.w(i + 418) + b.w(i + 419)
+    s += b.w(i + 420) + b.w(i + 421) + b.w(i + 422) + b.w(i + 423) + b.w(i + 424) + b.w(i + 425) + b.w(i + 426) + b.w(i + 427) + b.w(i + 428) + b.w(i + 429)
+    s += b.w(i + 430) + b.w(i + 431) + b.w(i + 432) + b.w(i + 433) + b.w(i + 434) + b.w(i + 435) + b.w(i + 436) + b.w(i + 437) + b.w(i + 438) + b.w(i + 439)
+    s += b.w(i + 440) + b.w(i + 441) + b.w(i + 442) + b.w(i + 443) + b.w(i + 444) + b.w(i + 445) + b.w(i + 446) + b.w(i + 447) + b.w(i + 448) + b.w(i + 449)
+    s += b.w(i + 450) + b.w(i + 451) + b.w(i + 452) + b.w(i + 453) + b.w(i + 454) + b.w(i + 455) + b.w(i + 456) + b.w(i + 457) + b.w(i + 458) + b.w(i + 459)
+    s += b.w(i + 460) + b.w(i + 461) + b.w(i + 462) + b.w(i + 463) + b.w(i + 464) + b.w(i + 465) + b.w(i + 466) + b.w(i + 467) + b.w(i + 468) + b.w(i + 469)
+    s += b.w(i + 470) + b.w(i + 471) + b.w(i + 472) + b.w(i + 473) + b.w(i + 474) + b.w(i + 475) + b.w(i + 476) + b.w(i + 477) + b.w(i + 478) + b.w(i + 479)
+    s += b.w(i + 480) + b.w(i + 481) + b.w(i + 482) + b.w(i + 483) + b.w(i + 484) + b.w(i + 485) + b.w(i + 486) + b.w(i + 487) + b.w(i + 488) + b.w(i + 489)
+    s += b.w(i + 490) + b.w(i + 491) + b.w(i + 492) + b.w(i + 493) + b.w(i + 494) + b.w(i + 495) + b.w(i + 496) + b.w(i + 497) + b.w(i + 498) + b.w(i + 499)
+    s += b.w(i + 500) + b.w(i + 501) + b.w(i + 502) + b.w(i + 503) + b.w(i + 504) + b.w(i + 505) + b.w(i + 506) + b.w(i + 507) + b.w(i + 508) + b.w(i + 509)
+    s += b.w(i + 510) + b.w(i + 511) + b.w(i + 512) + b.w(i + 513) + b.w(i + 514) + b.w(i + 515) + b.w(i + 516) + b.w(i + 517) + b.w(i + 518) + b.w(i + 519)
+    s += b.w(i + 520) + b.w(i + 521) + b.w(i + 522) + b.w(i + 523) + b.w(i + 524) + b.w(i + 525) + b.w(i + 526) + b.w(i + 527) + b.w(i + 528) + b.w(i + 529)
+    s += b.w(i + 530) + b.w(i + 531) + b.w(i + 532) + b.w(i + 533) + b.w(i + 534) + b.w(i + 535) + b.w(i + 536) + b.w(i + 537) + b.w(i + 538) + b.w(i + 539)
+    s += b.w(i + 540) + b.w(i + 541) + b.w(i + 542) + b.w(i + 543) + b.w(i + 544) + b.w(i + 545) + b.w(i + 546) + b.w(i + 547) + b.w(i + 548) + b.w(i + 549)
+    s += b.w(i + 550) + b.w(i + 551) + b.w(i + 552) + b.w(i + 553) + b.w(i + 554) + b.w(i + 555) + b.w(i + 556) + b.w(i + 557) + b.w(i + 558) + b.w(i + 559)
+    s += b.w(i + 560) + b.w(i + 561) + b.w(i + 562) + b.w(i + 563) + b.w(i + 564) + b.w(i + 565) + b.w(i + 566) + b.w(i + 567) + b.w(i + 568) + b.w(i + 569)
+    s += b.w(i + 570) + b.w(i + 571) + b.w(i + 572) + b.w(i + 573) + b.w(i + 574) + b.w(i + 575) + b.w(i + 576) + b.w(i + 577) + b.w(i + 578) + b.w(i + 579)
+    s += b.w(i + 580) + b.w(i + 581) + b.w(i + 582) + b.w(i + 583) + b.w(i + 584) + b.w(i + 585) + b.w(i + 586) + b.w(i + 587) + b.w(i + 588) + b.w(i + 589)
+    s += b.w(i + 590) + b.w(i + 591) + b.w(i + 592) + b.w(i + 593) + b.w(i + 594) + b.w(i + 595) + b.w(i + 596) + b.w(i + 597) + b.w(i + 598) + b.w(i + 599)
+    s += b.w(i + 600) + b.w(i + 601) + b.w(i + 602) + b.w(i + 603) + b.w(i + 604) + b.w(i + 605) + b.w(i + 606) + b.w(i + 607) + b.w(i + 608) + b.w(i + 609)
+    s += b.w(i + 610) + b.w(i + 611) + b.w(i + 612) + b.w(i + 613) + b.w(i + 614) + b.w(i + 615) + b.w(i + 616) + b.w(i + 617) + b.w(i + 618) + b.w(i + 619)
+    s += b.w(i + 620) + b.w(i + 621) + b.w(i + 622) + b.w(i + 623) + b.w(i + 624) + b.w(i + 625) + b.w(i + 626) + b.w(i + 627) + b.w(i + 628) + b.w(i + 629)
+    s += b.w(i + 630) + b.w(i + 631) + b.w(i + 632) + b.w(i + 633) + b.w(i + 634) + b.w(i + 635) + b.w(i + 636) + b.w(i + 637) + b.w(i + 638) + b.w(i + 639)
+    s += b.w(i + 640) + b.w(i + 641) + b.w(i + 642) + b.w(i + 643) + b.w(i + 644) + b.w(i + 645) + b.w(i + 646) + b.w(i + 647) + b.w(i + 648) + b.w(i + 649)
+    s += b.w(i + 650) + b.w(i + 651) + b.w(i + 652) + b.w(i + 653) + b.w(i + 654) + b.w(i + 655) + b.w(i + 656) + b.w(i + 657) + b.w(i + 658) + b.w(i + 659)
+    s += b.w(i + 660) + b.w(i + 661) + b.w(i + 662) + b.w(i + 663) + b.w(i + 664) + b.w(i + 665) + b.w(i + 666) + b.w(i + 667) + b.w(i + 668) + b.w(i + 669)
+    s += b.w(i + 670) + b.w(i + 671) + b.w(i + 672) + b.w(i + 673) + b.w(i + 674) + b.w(i + 675) + b.w(i + 676) + b.w(i + 677) + b.w(i + 678) + b.w(i + 679)
+    s += b.w(i + 680) + b.w(i + 681) + b.w(i + 682) + b.w(i + 683) + b.w(i + 684) + b.w(i + 685) + b.w(i + 686) + b.w(i + 687) + b.w(i + 688) + b.w(i + 689)
+    s += b.w(i + 690) + b.w(i + 691) + b.w(i + 692) + b.w(i + 693) + b.w(i + 694) + b.w(i + 695) + b.w(i + 696) + b.w(i + 697) + b.w(i + 698) + b.w(i + 699)
+    s += b.w(i + 700) + b.w(i + 701) + b.w(i + 702) + b.w(i + 703) + b.w(i + 704) + b.w(i + 705) + b.w(i + 706) + b.w(i + 707) + b.w(i + 708) + b.w(i + 709)
+    s += b.w(i + 710) + b.w(i + 711) + b.w(i + 712) + b.w(i + 713) + b.w(i + 714) + b.w(i + 715) + b.w(i + 716) + b.w(i + 717) + b.w(i + 718) + b.w(i + 719)
+    s += b.w(i + 720) + b.w(i + 721) + b.w(i + 722) + b.w(i + 723) + b.w(i + 724) + b.w(i + 725) + b.w(i + 726) + b.w(i + 727) + b.w(i + 728) + b.w(i + 729)
+    s += b.w(i + 730) + b.w(i + 731) + b.w(i + 732) + b.w(i + 733) + b.w(i + 734) + b.w(i + 735) + b.w(i + 736) + b.w(i + 737) + b.w(i + 738) + b.w(i + 739)
+    s += b.w(i + 740) + b.w(i + 741) + b.w(i + 742) + b.w(i + 743) + b.w(i + 744) + b.w(i + 745) + b.w(i + 746) + b.w(i + 747) + b.w(i + 748) + b.w(i + 749)
+    s += b.w(i + 750) + b.w(i + 751) + b.w(i + 752) + b.w(i + 753) + b.w(i + 754) + b.w(i + 755) + b.w(i + 756) + b.w(i + 757) + b.w(i + 758) + b.w(i + 759)
+    s += b.w(i + 760) + b.w(i + 761) + b.w(i + 762) + b.w(i + 763) + b.w(i + 764) + b.w(i + 765) + b.w(i + 766) + b.w(i + 767) + b.w(i + 768) + b.w(i + 769)
+    s += b.w(i + 770) + b.w(i + 771) + b.w(i + 772) + b.w(i + 773) + b.w(i + 774) + b.w(i + 775) + b.w(i + 776) + b.w(i + 777) + b.w(i + 778) + b.w(i + 779)
+    s += b.w(i + 780) + b.w(i + 781) + b.w(i + 782) + b.w(i + 783) + b.w(i + 784) + b.w(i + 785) + b.w(i + 786) + b.w(i + 787) + b.w(i + 788) + b.w(i + 789)
+    s += b.w(i + 790) + b.w(i + 791) + b.w(i + 792) + b.w(i + 793) + b.w(i + 794) + b.w(i + 795) + b.w(i + 796) + b.w(i + 797) + b.w(i + 798) + b.w(i + 799)
+    s += b.w(i + 800) + b.w(i + 801) + b.w(i + 802) + b.w(i + 803) + b.w(i + 804) + b.w(i + 805) + b.w(i + 806) + b.w(i + 807) + b.w(i + 808) + b.w(i + 809)
+    s += b.w(i + 810) + b.w(i + 811) + b.w(i + 812) + b.w(i + 813) + b.w(i + 814) + b.w(i + 815) + b.w(i + 816) + b.w(i + 817) + b.w(i + 818) + b.w(i + 819)
+    s += b.w(i + 820) + b.w(i + 821) + b.w(i + 822) + b.w(i + 823) + b.w(i + 824) + b.w(i + 825) + b.w(i + 826) + b.w(i + 827) + b.w(i + 828) + b.w(i + 829)
+    s += b.w(i + 830) + b.w(i + 831) + b.w(i + 832) + b.w(i + 833) + b.w(i + 834) + b.w(i + 835) + b.w(i + 836) + b.w(i + 837) + b.w(i + 838) + b.w(i + 839)
+    s += b.w(i + 840) + b.w(i + 841) + b.w(i + 842) + b.w(i + 843) + b.w(i + 844) + b.w(i + 845) + b.w(i + 846) + b.w(i + 847) + b.w(i + 848) + b.w(i + 849)
+    s += b.w(i + 850) + b.w(i + 851) + b.w(i + 852) + b.w(i + 853) + b.w(i + 854) + b.w(i + 855) + b.w(i + 856) + b.w(i + 857) + b.w(i + 858) + b.w(i + 859)
+    s += b.w(i + 860) + b.w(i + 861) + b.w(i + 862) + b.w(i + 863) + b.w(i + 864) + b.w(i + 865) + b.w(i + 866) + b.w(i + 867) + b.w(i + 868) + b.w(i + 869)
+    s += b.w(i + 870) + b.w(i + 871) + b.w(i + 872) + b.w(i + 873) + b.w(i + 874) + b.w(i + 875) + b.w(i + 876) + b.w(i + 877) + b.w(i + 878) + b.w(i + 879)
+    s += b.w(i + 880) + b.w(i + 881) + b.w(i + 882) + b.w(i + 883) + b.w(i + 884) + b.w(i + 885) + b.w(i + 886) + b.w(i + 887) + b.w(i + 888) + b.w(i + 889)
+    s += b.w(i + 890) + b.w(i + 891) + b.w(i + 892) + b.w(i + 893) + b.w(i + 894) + b.w(i + 895) + b.w(i + 896) + b.w(i + 897) + b.w(i + 898) + b.w(i + 899)
+    s += b.w(i + 900) + b.w(i + 901) + b.w(i + 902) + b.w(i + 903) + b.w(i + 904) + b.w(i + 905) + b.w(i + 906) + b.w(i + 907) + b.w(i + 908) + b.w(i + 909)
+    s += b.w(i + 910) + b.w(i + 911) + b.w(i + 912) + b.w(i + 913) + b.w(i + 914) + b.w(i + 915) + b.w(i + 916) + b.w(i + 917) + b.w(i + 918) + b.w(i + 919)
+    s += b.w(i + 920) + b.w(i + 921) + b.w(i + 922) + b.w(i + 923) + b.w(i + 924) + b.w(i + 925) + b.w(i + 926) + b.w(i + 927) + b.w(i + 928) + b.w(i + 929)
+    s += b.w(i + 930) + b.w(i + 931) + b.w(i + 932) + b.w(i + 933) + b.w(i + 934) + b.w(i + 935) + b.w(i + 936) + b.w(i + 937) + b.w(i + 938) + b.w(i + 939)
+    s += b.w(i + 940) + b.w(i + 941) + b.w(i + 942) + b.w(i + 943) + b.w(i + 944) + b.w(i + 945) + b.w(i + 946) + b.w(i + 947) + b.w(i + 948) + b.w(i + 949)
+    s += b.w(i + 950) + b.w(i + 951) + b.w(i + 952) + b.w(i + 953) + b.w(i + 954) + b.w(i + 955) + b.w(i + 956) + b.w(i + 957) + b.w(i + 958) + b.w(i + 959)
+    s += b.w(i + 960) + b.w(i + 961) + b.w(i + 962) + b.w(i + 963) + b.w(i + 964) + b.w(i + 965) + b.w(i + 966) + b.w(i + 967) + b.w(i + 968) + b.w(i + 969)
+    s += b.w(i + 970) + b.w(i + 971) + b.w(i + 972) + b.w(i + 973) + b.w(i + 974) + b.w(i + 975) + b.w(i + 976) + b.w(i + 977) + b.w(i + 978) + b.w(i + 979)
+    s += b.w(i + 980) + b.w(i + 981) + b.w(i + 982) + b.w(i + 983) + b.w(i + 984) + b.w(i + 985) + b.w(i + 986) + b.w(i + 987) + b.w(i + 988) + b.w(i + 989)
+    s += b.w(i + 990) + b.w(i + 991) + b.w(i + 992) + b.w(i + 993) + b.w(i + 994) + b.w(i + 995) + b.w(i + 996) + b.w(i + 997) + b.w(i + 998) + b.w(i + 999)
+    s += b.w(i + 1000) + b.w(i + 1001) + b.w(i + 1002) + b.w(i + 1003) + b.w(i + 1004) + b.w(i + 1005) + b.w(i + 1006) + b.w(i + 1007) + b.w(i + 1008) + b.w(i + 1009)
+    s += b.w(i + 1010) + b.w(i + 1011) + b.w(i + 1012) + b.w(i + 1013) + b.w(i + 1014) + b.w(i + 1015) + b.w(i + 1016) + b.w(i + 1017) + b.w(i + 1018) + b.w(i + 1019)
+    s += b.w(i + 1020) + b.w(i + 1021) + b.w(i + 1022) + b.w(i + 1023) + b.w(i + 1024) + b.w(i + 1025) + b.w(i + 1026) + b.w(i + 1027) + b.w(i + 1028) + b.w(i + 1029)
+    s += b.w(i + 1030) + b.w(i + 1031) + b.w(i + 1032) + b.w(i + 1033) + b.w(i + 1034) + b.w(i + 1035) + b.w(i + 1036) + b.w(i + 1037) + b.w(i + 1038) + b.w(i + 1039)
+    s += b.w(i + 1040) + b.w(i + 1041) + b.w(i + 1042) + b.w(i + 1043) + b.w(i + 1044) + b.w(i + 1045) + b.w(i + 1046) + b.w(i + 1047) + b.w(i + 1048) + b.w(i + 1049)
+    s += b.w(i + 1050) + b.w(i + 1051) + b.w(i + 1052) + b.w(i + 1053) + b.w(i + 1054) + b.w(i + 1055) + b.w(i + 1056) + b.w(i + 1057) + b.w(i + 1058) + b.w(i + 1059)
+    s += b.w(i + 1060) + b.w(i + 1061) + b.w(i + 1062) + b.w(i + 1063) + b.w(i + 1064) + b.w(i + 1065) + b.w(i + 1066) + b.w(i + 1067) + b.w(i + 1068) + b.w(i + 1069)
+    s += b.w(i + 1070) + b.w(i + 1071) + b.w(i + 1072) + b.w(i + 1073) + b.w(i + 1074) + b.w(i + 1075) + b.w(i + 1076) + b.w(i + 1077) + b.w(i + 1078) + b.w(i + 1079)
+    s += b.w(i + 1080) + b.w(i + 1081) + b.w(i + 1082) + b.w(i + 1083) + b.w(i + 1084) + b.w(i + 1085) + b.w(i + 1086) + b.w(i + 1087) + b.w(i + 1088) + b.w(i + 1089)
+    s += b.w(i + 1090) + b.w(i + 1091) + b.w(i + 1092) + b.w(i + 1093) + b.w(i + 1094) + b.w(i + 1095) + b.w(i + 1096) + b.w(i + 1097) + b.w(i + 1098) + b.w(i + 1099)
+    s += b.w(i + 1100) + b.w(i + 1101) + b.w(i + 1102) + b.w(i + 1103) + b.w(i + 1104) + b.w(i + 1105) + b.w(i + 1106) + b.w(i + 1107) + b.w(i + 1108) + b.w(i + 1109)
+    s += b.w(i + 1110) + b.w(i + 1111) + b.w(i + 1112) + b.w(i + 1113) + b.w(i + 1114) + b.w(i + 1115) + b.w(i + 1116) + b.w(i + 1117) + b.w(i + 1118) + b.w(i + 1119)
+    s += b.w(i + 1120) + b.w(i + 1121) + b.w(i + 1122) + b.w(i + 1123) + b.w(i + 1124) + b.w(i + 1125) + b.w(i + 1126) + b.w(i + 1127) + b.w(i + 1128) + b.w(i + 1129)
+    s += b.w(i + 1130) + b.w(i + 1131) + b.w(i + 1132) + b.w(i + 1133) + b.w(i + 1134) + b.w(i + 1135) + b.w(i + 1136) + b.w(i + 1137) + b.w(i + 1138) + b.w(i + 1139)
+    s += b.w(i + 1140) + b.w(i + 1141) + b.w(i + 1142) + b.w(i + 1143) + b.w(i + 1144) + b.w(i + 1145) + b.w(i + 1146) + b.w(i + 1147) + b.w(i + 1148) + b.w(i + 1149)
+    s += b.w(i + 1150) + b.w(i + 1151) + b.w(i + 1152) + b.w(i + 1153) + b.w(i + 1154) + b.w(i + 1155) + b.w(i + 1156) + b.w(i + 1157) + b.w(i + 1158) + b.w(i + 1159)
+    s += b.w(i + 1160) + b.w(i + 1161) + b.w(i + 1162) + b.w(i + 1163) + b.w(i + 1164) + b.w(i + 1165) + b.w(i + 1166) + b.w(i + 1167) + b.w(i + 1168) + b.w(i + 1169)
+    s += b.w(i + 1170) + b.w(i + 1171) + b.w(i + 1172) + b.w(i + 1173) + b.w(i + 1174) + b.w(i + 1175) + b.w(i + 1176) + b.w(i + 1177) + b.w(i + 1178) + b.w(i + 1179)
+    s += b.w(i + 1180) + b.w(i + 1181) + b.w(i + 1182) + b.w(i + 1183) + b.w(i + 1184) + b.w(i + 1185) + b.w(i + 1186) + b.w(i + 1187) + b.w(i + 1188) + b.w(i + 1189)
+    s += b.w(i + 1190) + b.w(i + 1191) + b.w(i + 1192) + b.w(i + 1193) + b.w(i + 1194) + b.w(i + 1195) + b.w(i + 1196) + b.w(i + 1197) + b.w(i + 1198) + b.w(i + 1199)
+    s += b.w(i + 1200) + b.w(i + 1201) + b.w(i + 1202) + b.w(i + 1203) + b.w(i + 1204) + b.w(i + 1205) + b.w(i + 1206) + b.w(i + 1207) + b.w(i + 1208) + b.w(i + 1209)
+    s += b.w(i + 1210) + b.w(i + 1211) + b.w(i + 1212) + b.w(i + 1213) + b.w(i + 1214) + b.w(i + 1215) + b.w(i + 1216) + b.w(i + 1217) + b.w(i + 1218) + b.w(i + 1219)
+    s += b.w(i + 1220) + b.w(i + 1221) + b.w(i + 1222) + b.w(i + 1223) + b.w(i + 1224) + b.w(i + 1225) + b.w(i + 1226) + b.w(i + 1227) + b.w(i + 1228) + b.w(i + 1229)
+    s += b.w(i + 1230) + b.w(i + 1231) + b.w(i + 1232) + b.w(i + 1233) + b.w(i + 1234) + b.w(i + 1235) + b.w(i + 1236) + b.w(i + 1237) + b.w(i + 1238) + b.w(i + 1239)
+    s += b.w(i + 1240) + b.w(i + 1241) + b.w(i + 1242) + b.w(i + 1243) + b.w(i + 1244) + b.w(i + 1245) + b.w(i + 1246) + b.w(i + 1247) + b.w(i + 1248) + b.w(i + 1249)
+    s += b.w(i + 1250) + b.w(i + 1251) + b.w(i + 1252) + b.w(i + 1253) + b.w(i + 1254) + b.w(i + 1255) + b.w(i + 1256) + b.w(i + 1257) + b.w(i + 1258) + b.w(i + 1259)
+    s += b.w(i + 1260) + b.w(i + 1261) + b.w(i + 1262) + b.w(i + 1263) + b.w(i + 1264) + b.w(i + 1265) + b.w(i + 1266) + b.w(i + 1267) + b.w(i + 1268) + b.w(i + 1269)
+    s += b.w(i + 1270) + b.w(i + 1271) + b.w(i + 1272) + b.w(i + 1273) + b.w(i + 1274) + b.w(i + 1275) + b.w(i + 1276) + b.w(i + 1277) + b.w(i + 1278) + b.w(i + 1279)
+    s += b.w(i + 1280) + b.w(i + 1281) + b.w(i + 1282) + b.w(i + 1283) + b.w(i + 1284) + b.w(i + 1285) + b.w(i + 1286) + b.w(i + 1287) + b.w(i + 1288) + b.w(i + 1289)
+    s += b.w(i + 1290) + b.w(i + 1291) + b.w(i + 1292) + b.w(i + 1293) + b.w(i + 1294) + b.w(i + 1295) + b.w(i + 1296) + b.w(i + 1297) + b.w(i + 1298) + b.w(i + 1299)
+    s
+
+  print(outer(1, 0))
+
+test "rev229-wrap-generic", "150"
+  # Review of #229: an unmarked wrapper of a generic `inline` function was
+  # inlined by the automatic rule, which counted the `inline` function's
+  # frame as none, so `main` ran off its stack. A frame the rule cannot
+  # know keeps the wrapper a call.
+
+  inline fun big[T](x: T, i: Int) -> Int
+    t = [1000000 of 0]
+    for q in 0..1000000
+      t[q] = q + i
+    t[i % 1000000]
+
+  fun h(i: Int) -> Int
+    big(1, i)
+
+  sub k(i: Int)
+    print(h(i) + h(i + 1) + h(i + 2) + h(i + 3) + h(i + 4) + h(i + 5) + h(i + 6) + h(i + 7) + h(i + 8) + h(i + 9))
+
+  k(3)
+
+test "rev230-discard-exits", "5"
+  obj H
+    s: String
+    a: [100000]Int
+
+  enum E
+    one(h: H, n: Int)
+    two
+
+  fun arm(e: E, i: Int) -> Int
+    match <e
+      .one(_, n)
+        return 0 if i == 100
+        return 1 if i == 101
+        return 2 if i == 102
+        return 3 if i == 103
+        return 4 if i == 104
+        return 5 if i == 105
+        return 6 if i == 106
+        return 7 if i == 107
+        return 8 if i == 108
+        return 9 if i == 109
+        return 10 if i == 110
+        return 11 if i == 111
+        return 12 if i == 112
+        return 13 if i == 113
+        return 14 if i == 114
+        return 15 if i == 115
+        return 16 if i == 116
+        return 17 if i == 117
+        return 18 if i == 118
+        return 19 if i == 119
+        return 20 if i == 120
+        return 21 if i == 121
+        return 22 if i == 122
+        return 23 if i == 123
+        return 24 if i == 124
+        return 25 if i == 125
+        return 26 if i == 126
+        return 27 if i == 127
+        return 28 if i == 128
+        return 29 if i == 129
+        n
+      .two => 0
+
+  print(arm(E.one(h: H(s: String("x"), a: [100000 of 1]), n: 5), 1))
+
+test "rev230-inline-copies", "200"
+  fun take(a: [30000]Int, k: Int) -> Int
+    a[k]
+
+  fun g(a: ?[30000]Int, k: Int) -> Int
+    take(a, k)
+
+  called fun many(i: Int) -> Int
+    a = [30000 of i]
+    s = 0
+    s += g(?a, 0)
+    s += g(?a, 1)
+    s += g(?a, 2)
+    s += g(?a, 3)
+    s += g(?a, 4)
+    s += g(?a, 5)
+    s += g(?a, 6)
+    s += g(?a, 7)
+    s += g(?a, 8)
+    s += g(?a, 9)
+    s += g(?a, 10)
+    s += g(?a, 11)
+    s += g(?a, 12)
+    s += g(?a, 13)
+    s += g(?a, 14)
+    s += g(?a, 15)
+    s += g(?a, 16)
+    s += g(?a, 17)
+    s += g(?a, 18)
+    s += g(?a, 19)
+    s += g(?a, 20)
+    s += g(?a, 21)
+    s += g(?a, 22)
+    s += g(?a, 23)
+    s += g(?a, 24)
+    s += g(?a, 25)
+    s += g(?a, 26)
+    s += g(?a, 27)
+    s += g(?a, 28)
+    s += g(?a, 29)
+    s += g(?a, 30)
+    s += g(?a, 31)
+    s += g(?a, 32)
+    s += g(?a, 33)
+    s += g(?a, 34)
+    s += g(?a, 35)
+    s += g(?a, 36)
+    s += g(?a, 37)
+    s += g(?a, 38)
+    s += g(?a, 39)
+    s += g(?a, 40)
+    s += g(?a, 41)
+    s += g(?a, 42)
+    s += g(?a, 43)
+    s += g(?a, 44)
+    s += g(?a, 45)
+    s += g(?a, 46)
+    s += g(?a, 47)
+    s += g(?a, 48)
+    s += g(?a, 49)
+    s += g(?a, 50)
+    s += g(?a, 51)
+    s += g(?a, 52)
+    s += g(?a, 53)
+    s += g(?a, 54)
+    s += g(?a, 55)
+    s += g(?a, 56)
+    s += g(?a, 57)
+    s += g(?a, 58)
+    s += g(?a, 59)
+    s += g(?a, 60)
+    s += g(?a, 61)
+    s += g(?a, 62)
+    s += g(?a, 63)
+    s += g(?a, 64)
+    s += g(?a, 65)
+    s += g(?a, 66)
+    s += g(?a, 67)
+    s += g(?a, 68)
+    s += g(?a, 69)
+    s += g(?a, 70)
+    s += g(?a, 71)
+    s += g(?a, 72)
+    s += g(?a, 73)
+    s += g(?a, 74)
+    s += g(?a, 75)
+    s += g(?a, 76)
+    s += g(?a, 77)
+    s += g(?a, 78)
+    s += g(?a, 79)
+    s += g(?a, 80)
+    s += g(?a, 81)
+    s += g(?a, 82)
+    s += g(?a, 83)
+    s += g(?a, 84)
+    s += g(?a, 85)
+    s += g(?a, 86)
+    s += g(?a, 87)
+    s += g(?a, 88)
+    s += g(?a, 89)
+    s += g(?a, 90)
+    s += g(?a, 91)
+    s += g(?a, 92)
+    s += g(?a, 93)
+    s += g(?a, 94)
+    s += g(?a, 95)
+    s += g(?a, 96)
+    s += g(?a, 97)
+    s += g(?a, 98)
+    s += g(?a, 99)
+    s += g(?a, 100)
+    s += g(?a, 101)
+    s += g(?a, 102)
+    s += g(?a, 103)
+    s += g(?a, 104)
+    s += g(?a, 105)
+    s += g(?a, 106)
+    s += g(?a, 107)
+    s += g(?a, 108)
+    s += g(?a, 109)
+    s += g(?a, 110)
+    s += g(?a, 111)
+    s += g(?a, 112)
+    s += g(?a, 113)
+    s += g(?a, 114)
+    s += g(?a, 115)
+    s += g(?a, 116)
+    s += g(?a, 117)
+    s += g(?a, 118)
+    s += g(?a, 119)
+    s += g(?a, 120)
+    s += g(?a, 121)
+    s += g(?a, 122)
+    s += g(?a, 123)
+    s += g(?a, 124)
+    s += g(?a, 125)
+    s += g(?a, 126)
+    s += g(?a, 127)
+    s += g(?a, 128)
+    s += g(?a, 129)
+    s += g(?a, 130)
+    s += g(?a, 131)
+    s += g(?a, 132)
+    s += g(?a, 133)
+    s += g(?a, 134)
+    s += g(?a, 135)
+    s += g(?a, 136)
+    s += g(?a, 137)
+    s += g(?a, 138)
+    s += g(?a, 139)
+    s += g(?a, 140)
+    s += g(?a, 141)
+    s += g(?a, 142)
+    s += g(?a, 143)
+    s += g(?a, 144)
+    s += g(?a, 145)
+    s += g(?a, 146)
+    s += g(?a, 147)
+    s += g(?a, 148)
+    s += g(?a, 149)
+    s += g(?a, 150)
+    s += g(?a, 151)
+    s += g(?a, 152)
+    s += g(?a, 153)
+    s += g(?a, 154)
+    s += g(?a, 155)
+    s += g(?a, 156)
+    s += g(?a, 157)
+    s += g(?a, 158)
+    s += g(?a, 159)
+    s += g(?a, 160)
+    s += g(?a, 161)
+    s += g(?a, 162)
+    s += g(?a, 163)
+    s += g(?a, 164)
+    s += g(?a, 165)
+    s += g(?a, 166)
+    s += g(?a, 167)
+    s += g(?a, 168)
+    s += g(?a, 169)
+    s += g(?a, 170)
+    s += g(?a, 171)
+    s += g(?a, 172)
+    s += g(?a, 173)
+    s += g(?a, 174)
+    s += g(?a, 175)
+    s += g(?a, 176)
+    s += g(?a, 177)
+    s += g(?a, 178)
+    s += g(?a, 179)
+    s += g(?a, 180)
+    s += g(?a, 181)
+    s += g(?a, 182)
+    s += g(?a, 183)
+    s += g(?a, 184)
+    s += g(?a, 185)
+    s += g(?a, 186)
+    s += g(?a, 187)
+    s += g(?a, 188)
+    s += g(?a, 189)
+    s += g(?a, 190)
+    s += g(?a, 191)
+    s += g(?a, 192)
+    s += g(?a, 193)
+    s += g(?a, 194)
+    s += g(?a, 195)
+    s += g(?a, 196)
+    s += g(?a, 197)
+    s += g(?a, 198)
+    s += g(?a, 199)
+    s
+
+  sub main()
+    print(many(1))
+
+test "rev236-fuzz", "true true"
+  obj Pair
+    key: String
+    value: String
+    live: Bool
+
+  obj Model
+    pairs: List[Pair] = List()
+    len: Int = 0
+
+    fun find(?self, k: ?String) -> Int?
+      for p, i in ?self.pairs
+        return i if p.live and p.key == k
+      none
+
+  obj Rand
+    s: U64
+
+    fun next(!self, n: Int) -> Int
+      self.s = self.s *% 6364136223846793005 +% 1442695040888963407
+      Int((self.s >> 33) % U64(n))
+
+  fun mk(k: Int) -> String
+    String("k", k, "-long-enough-to-allocate-on-heap")
+
+  sub addone(k: ?String, v: !String)
+    !v.add("+")
+
+  fun agree(m: ?hash.Map[String, String], ref: ?Model, span: Int) -> Bool
+    return false if m.len != ref.len
+    for x in 0..span
+      k = mk(x)
+      if ref.find(?k) as i
+        if m.get(?k) as v
+          return false if v != ref.pairs[i].value
+        else
+          return false
+      else
+        return false if m.has(?k)
+    i = 0
+    for e in ?m.items()
+      while i < ref.pairs.len and not ref.pairs[i].live
+        i += 1
+      return false if i >= ref.pairs.len
+      return false if ref.pairs[i].key != e.key or ref.pairs[i].value != e.value
+      i += 1
+    while i < ref.pairs.len and not ref.pairs[i].live
+      i += 1
+    i == ref.pairs.len
+
+  fun run(seed: U64, span: Int, steps: Int) -> Bool
+    r = Rand(s: seed)
+    m = hash.Map[String, String].new(capacity: (!r).next(20))
+    ref = Model()
+    for step in 0..steps
+      op = (!r).next(20)
+      x = (!r).next(span)
+      if op < 8
+        v = String("v", step)
+        found = ref.find(?mk(x))
+        old = (!m).replace(mk(x), +v)
+        if found as i
+          if old as o
+            return false if o != ref.pairs[i].value
+          else
+            return false
+          ref.pairs[i].value = <v
+        else
+          return false if old != none
+          !ref.pairs.push(Pair(key: mk(x), value: <v, live: true))
+          ref.len += 1
+      else if op < 15
+        got = (!m).take(?mk(x))
+        if ref.find(?mk(x)) as i
+          if got as g
+            return false if g != ref.pairs[i].value
+          else
+            return false
+          ref.pairs[i].live = false
+          ref.len -= 1
+        else
+          return false if got != none
+      else if op < 16
+        !m.reserve((!r).next(30))
+      else if op < 17
+        !m.update(addone)
+        for p in !ref.pairs
+          !p.value.add("+") if p.live
+      else if op < 18
+        if (!m).edit(?mk(x)) as v
+          !v.add("e")
+          if ref.find(?mk(x)) as i
+            !ref.pairs[i].value.add("e")
+          else
+            return false
+      else if (!r).next(30) == 0
+        !m.clear()
+        !ref.pairs.clear()
+        ref.len = 0
+      if not agree(?m, ?ref, span)
+        print("disagree at", step)
+        return false
+    true
+
+  ok = true
+  for seed in 1..9
+    span = 3 + Int(seed % 25)
+    if not run(U64(seed), span, 300)
+      print("fail", seed)
+      ok = false
+  print(run(99, 200, 800), ok)
+
+test "rev236-sfuzz", "true true"
+  obj Rand
+    s: U64
+
+    fun next(!self, n: Int) -> Int
+      self.s = self.s *% 6364136223846793005 +% 1442695040888963407
+      Int((self.s >> 33) % U64(n))
+
+  fun mk(k: Int) -> String
+    String("k", k, "-long-enough-to-allocate-on-heap")
+
+  fun run(seed: U64, span: Int, steps: Int) -> Bool
+    r = Rand(s: seed)
+    s = hash.Set[String].new(capacity: (!r).next(20))
+    ref: List[String] = List()
+    for _ in 0..steps
+      op = (!r).next(20)
+      x = (!r).next(span)
+      k = mk(x)
+      at: Int? = none
+      for e, i in ?ref
+        at = i if e == k
+      if op < 9
+        added = (!s).add(+k)
+        return false if added != (at == none)
+        !ref.push(<k) if at == none
+      else if op < 17
+        got = (!s).take(?k)
+        if at as i
+          if got as g
+            return false if g != k
+          else
+            return false
+          _ = (!ref).remove(i)
+        else
+          return false if got != none
+      else if op < 18
+        !s.reserve((!r).next(30))
+      else if (!r).next(20) == 0
+        !s.clear()
+        !ref.clear()
+      return false if s.len != ref.len
+      i = 0
+      for e in ?s.items()
+        return false if i >= ref.len or ref[i] != e
+        i += 1
+      return false if i != ref.len
+      for y in 0..span
+        kk = mk(y)
+        inref = false
+        for e in ?ref
+          inref = true if e == kk
+        return false if s.has(?kk) != inref
+    true
+
+  ok = true
+  for seed in 1..9
+    if not run(U64(seed), 3 + Int(seed % 25), 300)
+      print("fail", seed)
+      ok = false
+  print(run(77, 200, 800), ok)
+
+test "rev236-sym", '''
+  0 1 2
+  503 0
+  9 8 0 q8
+'''
+  n = hash.Symbols()
+  print((!n).intern("a"), (!n).intern("b"), (!n).intern("c"))
+  !n.reserve(100, bytes: 400)
+  bad = 0
+  for i in 0..500
+    t = String("s", i)
+    id = (!n).intern(?t)
+    bad += 1 if id != U32(i + 3)
+  for i in 0..500
+    t = String("s", i)
+    bad += 1 if n.id(?t) != U32(i + 3)
+    bad += 1 if n.text(U32(i + 3)) != t
+  bad += 1 if n.id("a") != U32(0) or n.id("c") != U32(2) or n.id("zz") != none
+  !n.reserve(5000)
+  for i in 0..500
+    t = String("s", i)
+    bad += 1 if (!n).intern(?t) != U32(i + 3)
+  print(n.len, bad)
+  e = hash.Symbols()
+  for i in 0..9
+    _ = (!e).intern(String("q", i))
+  print(e.len, e.id("q8"), e.id("q0"), e.text(8))
+
+test "rev240-d04 direct call", "[1]"
+  v: List[Int] = List()
+  !(!v).push(1)
+  print(v)
+
+test "rev240-d08 inner index", "[[1]]"
+  vs: List[List[Int]] = List()
+  !vs.push(List())
+  !(!vs[0]).push(1)
+  print(vs)
+
+test "rev240-d11 param view", "[1]"
+  sub f(b: !List[Int])
+    !(!b).push(1)
+
+  v: List[Int] = List()
+  f(!v)
+  print(v)
+
+test "rev240-d16 double bang arg", "[1, 2]"
+  sub bump(v: !List[Int])
+    !v.push(1)
+
+  v: List[Int] = List()
+  bump(!(!v))
+  w = !(!v)
+  !w.push(2)
+  print(v)
+
+test "rev240-fix d07 inner field on view", "[1]"
+  obj W
+    v: List[Int] = List()
+
+    fun inner(!self) -> !List[Int] from self
+      !self.v
+
+  w = W()
+  (!w).inner().push(1)
+  print(w.v)
+
+test "rev240-fix d08 inner index", "[[1]]"
+  vs: List[List[Int]] = List()
+  !vs.push(List())
+  (!vs[0]).push(1)
+  print(vs)
+
+fail "rev240-g01 view of closure outlives drop", "cannot drop `f` while it is lent"
+  fun id(f: ?fun(Int) -> Int) -> ?fun(Int) -> Int from f
+    f
+
+  s = String("hello")
+  f = |<s, x: Int| x + s.len
+  g = id(?f)
+  <f
+  print(g(1))
+
+fail "rev240-g02 view of closure direct", "cannot drop `f` while it is lent"
+  s = String("hello")
+  f = |<s, x: Int| x + s.len
+  g = ?f
+  <f
+  print(g(1))
+
+test "rev240-g03 from closure int view", "2"
+  fun pick(a: !Int, f: ?fun(Int) -> Int) -> !Int from a, f
+    a
+
+  n = 1
+  s = String("hello")
+  f = |<s, x: Int| x + s.len
+  r = pick(!n, ?f)
+  <f
+  r += 1
+  print(n)
+
+test "rev240-m01 drop counting", "true true true 0"
+  # Every value made is dropped exactly once through put_new, ensure,
+  # ensure_with, retain, take, put, and clear, on small and large Maps.
+
+  obj Res
+    n: Int
+    live: *Cell[Int]
+
+    drop(!self)
+      !self.live.set(self.live.get() - 1)
+
+  fun mk(n: Int, live: ?*Cell[Int]) -> Res
+    c = +live
+    !c.set(c.get() + 1)
+    Res(n: n, live: <c)
+
+  obj Rand
+    s: U64
+
+    fun next(!self, n: Int) -> Int
+      self.s = self.s *% 6364136223846793005 +% 1442695040888963407
+      Int((self.s >> 33) % U64(n))
+
+  fun run(seed: U64, span: Int, steps: Int, live: ?*Cell[Int]) -> Int
+    r = Rand(s: seed)
+    m = hash.Map[String, Res].new()
+    for step in 0..steps
+      op = (!r).next(12)
+      k = String("k", (!r).next(span))
+      if op < 3
+        _ = (!m).put_new(<k, mk(step, live))
+      else if op < 5
+        c = (!m).ensure(<k, mk(step, live))
+        c.n += 1
+      else if op < 7
+        c = (!m).ensure_with(<k, |?live, kk| mk(kk.len, live))
+        c.n += 1
+      else if op < 9
+        t = (!m).take(k)
+        <t
+      else if op < 10
+        !m.put(<k, mk(step, live))
+      else if op < 11
+        !m.retain(|kk, v| bumpkeep(kk, !v))
+      else if (!r).next(20) == 0
+        !m.clear()
+    n = 0
+    for e in ?m.items()
+      n += e.value.n
+    n
+
+  fun bumpkeep(k: ?String, v: !Res) -> Bool
+    v.n += 1
+    (v.n + k.len) % 3 != 0
+
+  live = *Cell(0)
+  a = run(1, 5, 500, ?live)
+  b = run(2, 40, 3000, ?live)
+  c = run(3, 300, 6000, ?live)
+  print(a > 0, b > 0, c > 0, live.get())
+
+test "rev240-m02 string model", '''
+  -1 -1 -1 -1 -1
+  -1 -1 -1
+'''
+  # Map[String, List[Int]] and Set[String] against a List-of-pairs model,
+  # through put_new, ensure, ensure_with, retain (writing values), take,
+  # put, reserve, and clear; checks len, get, has, and walk order each step.
+
+  obj Pair
+    key: String
+    value: List[Int]
+    live: Bool
+
+  obj Model
+    pairs: List[Pair] = List()
+    len: Int = 0
+
+    fun find(?self, k: ?String) -> Int?
+      for p, i in ?self.pairs
+        return i if p.live and p.key == k
+      none
+
+    sub add(!self, k: ?String, v: Int)
+      !self.pairs.push(Pair(key: String(k), value: one(v), live: true))
+      self.len += 1
+
+  fun one(n: Int) -> List[Int]
+    l = List[Int]()
+    !l.push(n)
+    l
+
+  obj Rand
+    s: U64
+
+    fun next(!self, n: Int) -> Int
+      self.s = self.s *% 6364136223846793005 +% 1442695040888963407
+      Int((self.s >> 33) % U64(n))
+
+  fun keep(k: ?String, v: !List[Int]) -> Bool
+    !v.push(k.len)
+    (v[0] + v.len) % 3 != 0
+
+  fun same(a: ?List[Int], b: ?List[Int]) -> Bool
+    return false if a.len != b.len
+    for x, i in a
+      return false if x != b[i]
+    true
+
+  fun agree(m: ?hash.Map[String, List[Int]], ref: ?Model, span: Int) -> Bool
+    return false if m.len != ref.len
+    for x in 0..span
+      k = String("key", x)
+      got = m.get(k)
+      if ref.find(k) as i
+        if got as g
+          return false if not same(g, ref.pairs[i].value)
+        else
+          return false
+      else
+        return false if got != none or m.has(k)
+    i = 0
+    for e in ?m.items()
+      while i < ref.pairs.len and not ref.pairs[i].live
+        i += 1
+      return false if i >= ref.pairs.len or ref.pairs[i].key != e.key
+      i += 1
+    while i < ref.pairs.len and not ref.pairs[i].live
+      i += 1
+    i == ref.pairs.len
+
+  fun run(seed: U64, span: Int, steps: Int, reserve: Int) -> Int
+    r = Rand(s: seed)
+    m = hash.Map[String, List[Int]].new(capacity: reserve)
+    ref = Model()
+    for step in 0..steps
+      op = (!r).next(20)
+      k = String("key", (!r).next(span))
+      if op < 4
+        isnew = ref.find(k) == none
+        !ref.add(k, step) if isnew
+        return step if (!m).put_new(<k, one(step)) != isnew
+      else if op < 7
+        !ref.add(k, step) if ref.find(k) == none
+        i = ref.find(k) ?? 0
+        !ref.pairs[i].value.push(-1)
+        c = (!m).ensure(<k, one(step))
+        !c.push(-1)
+      else if op < 10
+        !ref.add(k, k.len) if ref.find(k) == none
+        i = ref.find(k) ?? 0
+        !ref.pairs[i].value.push(-2)
+        c = (!m).ensure_with(<k, |kk| one(kk.len))
+        !c.push(-2)
+      else if op < 14
+        got = (!m).take(k)
+        if ref.find(k) as i
+          ref.pairs[i].live = false
+          ref.len -= 1
+          return step if got == none
+        else
+          return step if got != none
+      else if op < 16
+        if ref.find(k) as i
+          ref.pairs[i].value = one(step)
+        else
+          !ref.add(k, step)
+        !m.put(<k, one(step))
+      else if op < 18
+        kept: List[Pair] = List()
+        while (!ref.pairs).pop() as p
+          !kept.push(<p)
+        ref.len = 0
+        while (!kept).pop() as p
+          new q = <p
+          if q.live
+            if keep(q.key, !q.value)
+              !ref.pairs.push(<q)
+              ref.len += 1
+        !m.retain(|kk, v| keep(kk, !v))
+      else if op < 19
+        !m.reserve((!r).next(40))
+      else if (!r).next(10) == 0
+        !m.clear()
+        !ref.pairs.clear()
+        ref.len = 0
+      return step if not agree(?m, ?ref, span)
+    -1
+
+  fun run_set(seed: U64, span: Int, steps: Int) -> Int
+    r = Rand(s: seed)
+    s = hash.Set[String]()
+    ref = Model()
+    for step in 0..steps
+      op = (!r).next(10)
+      k = String("key", (!r).next(span))
+      if op < 5
+        isnew = ref.find(k) == none
+        !ref.add(k, 0) if isnew
+        return step if (!s).add(<k) != isnew
+      else if op < 7
+        got = (!s).take(k)
+        if ref.find(k) as i
+          ref.pairs[i].live = false
+          ref.len -= 1
+          return step if got == none
+        else
+          return step if got != none
+      else if op < 8
+        !s.retain(|kk| kk.len % 2 == 0)
+        for p in !ref.pairs
+          if p.live and p.key.len % 2 != 0
+            p.live = false
+            ref.len -= 1
+      else if op < 9
+        !s.reserve((!r).next(30))
+      return step if s.len != ref.len
+      for x in 0..span
+        kk = String("key", x)
+        return step if s.has(kk) != (ref.find(kk) != none)
+      i = 0
+      for kk in ?s.items()
+        while i < ref.pairs.len and not ref.pairs[i].live
+          i += 1
+        return step if i >= ref.pairs.len or ref.pairs[i].key != kk
+        i += 1
+    -1
+
+  print(run(1, 5, 300, 0), run(2, 12, 400, 0), run(3, 60, 400, 0), run(4, 200, 300, 0), run(5, 30, 300, 50))
+  print(run_set(6, 5, 300), run_set(7, 14, 400), run_set(8, 200, 300))
+
+test "rev240-m03 value kinds", '''
+  6 48 false
+  10
+  1
+  10 62
+  beta
+  gamma
+  alpha gamma
+  gamma alpha
+  6 ["a", "al", "alph", "alpha", "beta", "alp"]
+'''
+  # ensure, ensure_with, put_new, and retain with boxed, shared, enum, and
+  # view values and keys, crossing the small-map limit.
+
+  obj Node
+    name: String
+    n: Int
+
+  enum Shape
+    dot
+    line(len: Int)
+    label(text: String)
+
+  fun shape_of(k: ?Int) -> Shape
+    if k % 3 == 0
+      return Shape.dot
+    if k % 3 == 1
+      return Shape.line(len: k)
+    Shape.label(text: String("L", k))
+
+  fun box_of(k: ?Int) -> ^Node
+    ^Node(name: String("n", k), n: k)
+
+  fun weight(s: ?Shape) -> Int
+    match s
+      .dot => return 1
+      .line(len) => return len
+      .label(text) => return text.len
+
+  boxes = hash.Map[Int, ^Node].new()
+  for i in 0..30
+    b = (!boxes).ensure_with(i % 13, box_of)
+    b.n += 1
+  _ = (!boxes).put_new(1, ^Node(name: String("dup"), n: 0))
+  !boxes.retain(|k, b| b.n % 2 == 1)
+  t = 0
+  for e in ?boxes.items()
+    t += e.value.n
+  print(boxes.len, t, boxes.get(1) != none)
+
+  shared = hash.Map[String, *Node].new()
+  one = *Node(name: String("one"), n: 1)
+  for i in 0..20
+    _ = (!shared).ensure(String("s", i % 11), +one)
+  !shared.retain(|k, s| k.len == 2)
+  print(shared.len)
+  <shared
+  print(one.n)
+
+  shapes = hash.Map[Int, Shape].new()
+  for i in 0..25
+    _ = (!shapes).ensure_with(i % 17, shape_of)
+  !shapes.retain(|k, s| weight(s) > 1)
+  w = 0
+  for e in ?shapes.items()
+    w += weight(e.value)
+  print(shapes.len, w)
+
+  a = String("alpha")
+  b = String("beta")
+  c = String("gamma")
+  views = hash.Map[?String, ?String].new()
+  x = (!views).ensure(?a, ?b)
+  print(x)
+  x = ?c
+  y = (!views).ensure(?a, ?c)
+  print(y)
+  _ = (!views).put_new(?c, ?a)
+  !views.retain(|k, v| k.len == 5)
+  for e in ?views.items()
+    print(e.key, e.value)
+
+  vs = hash.Set[?String]()
+  for i in 0..20
+    _ = (!vs).add(?a[0..(i % 5) + 1])
+  !vs.retain(|k| k.len != 3)
+  !vs.reserve(100)
+  _ = (!vs).add(?b)
+  _ = (!vs).add(?a[0..3])
+  out = List[?String]()
+  for k in ?vs.items()
+    !out.push(k)
+  print(vs.len, out)
+
+test "rev240-m05 retain drop interleaving", '''
+  f 0
+  f 1
+  drop 1
+  f 2
+  f 3
+  drop 3
+  after 2
+  drop 2
+  drop 0
+'''
+  # retain drops each entry f rejects as it goes, before f sees the next.
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun keep(k: ?Int, r: !Res) -> Bool
+    print("f", k)
+    k % 2 == 0
+
+  m = hash.Map[Int, Res].new()
+  for i in 0..4
+    !m.put(i, Res(n: i))
+  !m.retain(|k, r| keep(k, !r))
+  print("after", m.len)
+
+fail "rev240-p03 ensure with view across take", "use of `m` while a write loan is live"
+  fun mk(k: ?Int) -> String
+    String("v")
+
+  m = hash.Map[Int, String].new()
+  c = (!m).ensure_with(1, mk)
+  t = (!m).take(1)
+  !c.add("x")
+  print(t)
+
+fail "rev240-p10 return ensure view of local map", "cannot return a view of `m`, which this function was not lent"
+  fun grab() -> !Int
+    m = hash.Map[Int, Int].new()
+    (!m).ensure(1, 0)
+
+  r = grab()
+  r += 1
+  print(r)
+
+test "rev240-s01 ensure with write capture read early", '''
+  1
+  1
+'''
+  fun mk(k: ?Int, count: !Int) -> Int
+    count += 1
+    0
+
+  count = 0
+  m = hash.Map[Int, Int].new()
+  c = (!m).ensure_with(1, |!count, k| mk(k, !count))
+  print(count)
+  c += 1
+  print(m.get(1))
+
+test "rev240-s10 reuse fn value for two maps", "30 20 2"
+  count = 0
+  a = hash.Map[Int, Int].new()
+  b = hash.Map[Int, Int].new()
+  f = |!count, k: ?Int| tick(k, !count)
+  x = (!a).ensure_with(1, ?f)
+  y = (!b).ensure_with(2, ?f)
+  x += y
+  print(a.get(1), b.get(2), count)
+
+  fun tick(k: ?Int, count: !Int) -> Int
+    count += 1
+    k * 10
+
+fail "rev255-a05 nested generic keeps", "cannot drop `n` while it is lent"
+  obj Inner[W]
+    w: (?W)?
+
+  obj Outer[V]
+    i: Inner[V]
+
+  sub put(o: !Outer[String], x: ?String) keeps x
+    o.i.w = x
+
+  o = Outer[String](i: Inner[String](w: none))
+  n = String("4")
+  put(!o, ?n)
+  <n
+  print(o.i.w)
+
+fail "rev255-c03 optional write", "`f` stores a view of `s` in `w`, which its caller reaches, but its signature does not keep `s`; say so: `keeps s`"
+  obj In
+    src: ?String
+
+  sub f(w: (!In)?, s: ?String)
+    if <w as x
+      x.src = s
+
+  i = In(src: "")
+  t = String("hello")
+  f(!i, ?t)
+  <t
+  print(i.src)
+
+fail "rev255-c04 coalesce return", "`f` stores a view of `s` in `w`, which its caller reaches, but its signature does not keep `s`; say so: `keeps s`"
+  obj In
+    src: ?String
+
+  sub f(w: (!In)?, s: ?String)
+    x = <w ?? return
+    x.src = s
+
+  i = In(src: "")
+  t = String("hello")
+  f(!i, ?t)
+  <t
+  print(i.src)
+
+fail "rev255-e10 cb with write param", "`fill` stores a view of `s` in `p`, which its caller reaches, but its signature does not keep `s`; say so: `keeps s`"
+  obj P
+    src: ?String
+
+  sub fill(p: !P, s: ?String, set: ?sub(!P, ?String))
+    set(!p, s)
+
+  p = P(src: "")
+  t = String("hello")
+  fill(!p, ?t, |q, s| q.src = s)
+  <t
+  print(p.src)
+
+fail "rev255-f11 generic mk store", "`fill` stores a view of `s` in `out`, which its caller reaches, but its signature does not keep `s`; say so: `keeps s, mk`"
+  sub fill[T](out: !List[T], s: ?String, mk: ?fun(?String) -> T)
+    !out.push(mk(s))
+
+  out: List[?String] = List()
+  t = String("hello")
+  fill(!out, ?t, |x| x)
+  <t
+  print(out[0])
+
+fail "rev255-f26 nested generic view wrap", "cannot drop `t` while it is lent"
+  obj Inner[W]
+    w: (?W)?
+
+  obj Outer[V]
+    i: Inner[V]
+
+  t = String("hello")
+  o = Outer[String](i: Inner[String](w: ?t))
+  <t
+  if o.i.w as w
+    print(w)
+
+fail "rev255-h07 for write holder", "cannot drop `t` while it is lent"
+  obj P
+    src: ?String
+
+    sub watch(!self, s: ?String) keeps s
+      self.src = s
+
+  xs: List[P] = List()
+  !xs.push(P(src: ""))
+  t = String("hello")
+  for x in !xs
+    !x.watch(?t)
+  <t
+  print(xs[0].src)
+
+fail "rev255-h07d for write direct store", "cannot store a view of `t` in `x.src`: `x` views `xs`, which outlives it"
+  obj P
+    src: ?String
+
+  xs: List[P] = List()
+  !xs.push(P(src: ""))
+  t = String("hello")
+  for x in !xs
+    x.src = ?t
+  <t
+  print(xs[0].src)
+
+fail "rev255-i01 keyword reorder", "cannot drop `t` while it is lent"
+  obj P
+    src: ?String
+
+    sub watch(!self, a: ?String, b: ?String) keeps b
+      print(a)
+      self.src = b
+
+  p = P(src: "")
+  t = String("tee")
+  u = String("you")
+  !p.watch(b: ?t, a: ?u)
+  <t
+  print(p.src)
+
+fail "rev255-i03 comptime param method", "cannot drop `t` while it is lent"
+  obj P
+    src: ?String
+
+    sub watch[n: Int](!self, a: ?String, b: ?String) keeps b
+      print(n, a)
+      self.src = b
+
+  p = P(src: "")
+  t = String("tee")
+  u = String("you")
+  !p.watch[3](?u, ?t)
+  <t
+  print(p.src)
+
+fail "rev255-i08 method called as fn", "cannot drop `t` while it is lent"
+  obj P
+    src: ?String
+
+    sub watch(!self, a: ?String, b: ?String) keeps b
+      print(a)
+      self.src = b
+
+  p = P(src: "")
+  t = String("tee")
+  u = String("you")
+  P.watch(!p, ?u, ?t)
+  <t
+  print(p.src)
+
+fail "rev255-j02 temp array fnvalue", "a view of the temporary `[a, a + 1, a + 2]` outlives its statement, which drops it; bind the value to a name first"
+  sub put(out: !List[[]Int], xs: []Int) keeps xs
+    !out.push(xs)
+
+  out: List[[]Int] = List()
+  f = put
+  a = 5
+  f(!out, [a, a + 1, a + 2])
+  junk = [9, 9, 9, 9, 9, 9]
+  print(out[0], junk)
+
+fail "rev255-j03 temp array fntype", "cannot let this call store a view of `[a, a + 1, a + 2]` in `out`: `out` outlives it"
+  sub put(out: !List[[]Int], xs: []Int) keeps xs
+    !out.push(xs)
+
+  sub apply(out: !List[[]Int], g: ?sub(!List[[]Int], []Int))
+    a = 5
+    g(!out, [a, a + 1, a + 2])
+
+  out: List[[]Int] = List()
+  apply(!out, put)
+  print(out.len)
+
+fail "rev255-k01 store held view of read param", "`absorb` stores a view of `other` in `self`, which its caller reaches, but its signature does not keep `other`; say so: `keeps other`"
+  obj P
+    src: ?String
+
+    sub absorb(!self, other: ?P)
+      self.src = other.src
+
+  t = String("hello")
+  p = P(src: ?t)
+  q = P(src: "")
+  !q.absorb(?p)
+  <p
+  <t
+  print(q.src)
+
+test "rev255-k03 keeps held view drop holder ok", "hello"
+  obj P
+    src: ?String
+
+    sub absorb(!self, other: ?P) keeps other
+      self.src = other.src
+
+  t = String("hello")
+  p = P(src: ?t)
+  q = P(src: "")
+  !q.absorb(?p)
+  <p
+  print(q.src)
+
+fail "rev255-k07 store held view optional param", "`absorb` stores a view of `o` in `out`, which its caller reaches, but its signature does not keep `o`; say so: `keeps o`"
+  obj P
+    src: ?String
+
+  sub absorb(out: !List[?String], o: (?P)?)
+    if o as p
+      !out.push(p.src)
+
+  t = String("hello")
+  p = P(src: ?t)
+  out: List[?String] = List()
+  absorb(!out, ?p)
+  <p
+  <t
+  print(out[0])
+
+fail "rev255-k11 store held view match", "`absorb` stores a view of `e` in `out`, which its caller reaches, but its signature does not keep `e`; say so: `keeps e`"
+  enum E
+    a(s: ?String)
+    b
+
+  sub absorb(out: !List[?String], e: ?E)
+    match e
+      .a(s)
+        !out.push(s)
+      .b
+        pass
+
+  t = String("hello")
+  e: E = .a(?t)
+  out: List[?String] = List()
+  absorb(!out, ?e)
+  <e
+  <t
+  print(out[0])
+
+fail "rev255-m01", "cannot drop `n` while it is lent"
+  use b
+
+  sub main()
+    n = String("4")
+    bag = b.Bag[String](last: none)
+    !bag.put(?n)
+    <n
+    print(bag.last)
+
+  file "b.rig"
+    pub obj Bag[T]
+      pub last: (?T)?
+
+      pub sub put(!self, x: ?T) keeps x
+        self.last = x
+
+      pub sub peek(!self, x: ?T)
+        print(x)
+
+    pub sub push_into[T](out: !List[?T], x: ?T) keeps x
+      !out.push(x)
+
+    pub sub look[T](out: !List[?T], x: ?T)
+      print(out.len)
+
+    pub obj W
+      pub src: ?String
+
+      pub sub watch(!self, a: ?String, s: ?String) keeps s
+        self.src = s
+
+fail "rev255-m03", "cannot drop `n` while it is lent"
+  use b
+
+  sub main()
+    n = String("4")
+    out: List[?String] = List()
+    b.push_into(!out, ?n)
+    <n
+    print(out[0])
+
+  file "b.rig"
+    pub sub push_into[T](out: !List[?T], x: ?T) keeps x
+      !out.push(x)
+
+fail "rev255-q02 swap between write params keeps one", "`sw` stores a view of `a` in `b`, which its caller reaches, but its signature does not keep `a`; say so: `keeps a, b`"
+  obj H
+    s: ?String
+
+  sub sw(a: !H, b: !H) keeps b
+    swap(!a, !b)
+
+  t1 = String("one")
+  t2 = String("two")
+  x = H(s: ?t1)
+  y = H(s: ?t2)
+  sw(!x, !y)
+  <x
+  <t1
+  print(y.s)
+
+fail "rev255-q07 generic swap self receiver", "`take_all` stores a view of `self` in `other`, which its caller reaches, but its signature does not keep `self`; say so: `keeps self, other`"
+  obj Bag[T]
+    items: List[T]
+
+    sub take_all(!self, other: !Bag[T])
+      swap(!self.items, !other.items)
+
+  t = String("hello")
+  b = Bag[?String](items: List())
+  !b.items.push(?t)
+  a = Bag[?String](items: List())
+  !a.take_all(!b)
+  <b
+  <t
+  print(a.items[0])
+
+test "rev255-q10 swap keeps both then write", "z one"
+  obj H
+    s: ?String
+
+  sub sw(a: !H, b: !H) keeps a, b
+    swap(!a, !b)
+
+  t1 = String("one")
+  t2 = String("two")
+  x = H(s: ?t1)
+  y = H(s: ?t2)
+  sw(!x, !y)
+  x.s = "z"
+  print(x.s, y.s)
+
+fail "rev255-q11 swap keeps both drop t1", "cannot drop `t1` while it is lent"
+  obj H
+    s: ?String
+
+  sub sw(a: !H, b: !H) keeps a, b
+    swap(!a, !b)
+
+  t1 = String("one")
+  t2 = String("two")
+  x = H(s: ?t1)
+  y = H(s: ?t2)
+  sw(!x, !y)
+  <x
+  <t1
+  print(y.s)
+
+test "rev255-q13 list keeps then mutate source", "hello 2"
+  sub copy_first(out: !List[?String], xs: ?List[?String]) keeps xs
+    !out.push(xs[0])
+
+  t = String("hello")
+  xs: List[?String] = List()
+  !xs.push(?t)
+  out: List[?String] = List()
+  copy_first(!out, ?xs)
+  !xs.push("more")
+  print(out[0], xs.len)
+
+fail "rev255-r01 write self kept then write", "cannot assign to `p.name` while `p` is lent"
+  obj P
+    name: String
+
+    sub reg(!self, out: !List[?String]) keeps self
+      !out.push(?self.name)
+
+  p = P(name: String("first"))
+  out: List[?String] = List()
+  !p.reg(!out)
+  p.name = String("second")
+  print(out[0])
+
+fail "rev255-r04 write slice kept then write", "cannot assign to `a[0]` while `a` is lent"
+  sub reg(xs: ![]String, out: !List[?String]) keeps xs
+    !out.push(?xs[0])
+
+  a = [String("first")]
+  out: List[?String] = List()
+  reg(!a[..], !out)
+  a[0] = String("second")
+  print(out[0])
+
+fail "rev255-v04 write chain keeps 17", "cannot let this call store a view of `out` in `out`: a value never holds a view of itself"
+  sub put(out: !List[?String], x: ?String) keeps x
+    w0 = !out
+    w1 = !w0
+    w2 = !w1
+    w3 = !w2
+    w4 = !w3
+    w5 = !w4
+    w6 = !w5
+    w7 = !w6
+    w8 = !w7
+    w9 = !w8
+    w10 = !w9
+    w11 = !w10
+    w12 = !w11
+    w13 = !w12
+    w14 = !w13
+    w15 = !w14
+    w16 = !w15
+    !w16.push(x)
+
+  out: List[?String] = List()
+  t = String("hello")
+  put(!out, ?t)
+  print(out[0])
+
+fail "rev255-y01 self view via keeps", "cannot let this call store a view of `o.h2` in `o.h`: a value never holds a view of itself"
+  obj H2
+    name: String
+
+  obj H
+    r: (?H2)?
+
+  obj O
+    h: H
+    h2: H2
+
+  sub link(a: !H, b: !H2) keeps b
+    a.r = ?b
+
+  o = O(h: H(r: none), h2: H2(name: String("x")))
+  link(!o.h, !o.h2)
+  q = <o
+  if q.h.r as r
+    print(r.name)
+
+fail "rev255-y04 keeps self into own field list", "cannot let this call store a view of `o.a` in `o.out`: a value never holds a view of itself"
+  obj N
+    n: Int
+
+    sub reg(?self, out: !List[?N]) keeps self
+      !out.push(self)
+
+  obj O
+    a: N
+    out: List[?N]
+
+  o = O(a: N(n: 1), out: List())
+  ?o.a.reg(!o.out)
+  q = <o
+  print(q.out[0].n)
+
+fail "rev255-y05 keeps self receiver moved", "cannot move `a` while a read loan is live"
+  obj N
+    n: String
+
+    sub reg(?self, out: !List[?N]) keeps self
+      !out.push(self)
+
+  out: List[?N] = List()
+  a = N(n: String("a"))
+  ?a.reg(!out)
+  b = <a
+  print(out[0].n, b.n)
+
+fail "rev255-z01 holder used via view", "cannot drop `t` while it is lent"
+  obj P
+    src: ?String
+
+    sub watch(!self, s: ?String) keeps s
+      self.src = s
+
+  p = P(src: "")
+  t = String("hello")
+  !p.watch(?t)
+  hv = ?p
+  <t
+  print(hv.src)
+
+fail "rev255-z05 holder used via moved closure", "cannot drop `t` while it is lent"
+  obj P
+    src: ?String
+
+    sub watch(!self, s: ?String) keeps s
+      self.src = s
+
+  p = P(src: "")
+  t = String("hello")
+  !p.watch(?t)
+  f = |<p| print(p.src)
+  <t
+  f()
+
+fail "rev255-za01 temp holder drop reads temp", "a view of the temporary `String(\"hello\")` is held by `P(src: \"\")`, a temporary its statement drops after it; bind the value to a name first"
+  obj P
+    src: ?String
+
+    sub watch(!self, s: ?String) keeps s
+      self.src = s
+
+    drop(!self)
+      print("drop", self.src)
+
+  !P(src: "").watch(?String("hello"))
+  print("end")
+
+fail "rev255-zb01 shared receiver kept", "cannot drop `a` while it is lent"
+  obj N
+    n: String
+
+    sub reg(?self, out: !List[?N]) keeps self
+      !out.push(self)
+
+  a = *N(n: String("x"))
+  out: List[?N] = List()
+  ?a.reg(!out)
+  <a
+  print(out[0].n)
+
+test "rev255-zb02 shared receiver kept clone", "x"
+  obj N
+    n: String
+
+    sub reg(?self, out: !List[?N]) keeps self
+      !out.push(self)
+
+  a = *N(n: String("x"))
+  b = +a
+  out: List[?N] = List()
+  ?b.reg(!out)
+  <a
+  print(out[0].n)
+
+fail "rev255-zb03 weak upgrade kept", "`s` does not live long enough"
+  obj N
+    n: String
+
+    sub reg(?self, out: !List[?N]) keeps self
+      !out.push(self)
+
+  a = *N(n: String("x"))
+  w = ~a
+  out: List[?N] = List()
+  if *w as s
+    ?s.reg(!out)
+  <a
+  print(out[0].n)
+
+fail "rev255-zc04 keeper in match guard", "cannot drop `t` while it is lent"
+  obj P
+    src: ?String
+
+    fun watch(!self, s: ?String) -> Bool keeps s
+      self.src = s
+      true
+
+  p = P(src: "")
+  t = String("hello")
+  n = 3
+  match n
+    3 if (!p).watch(?t)
+      print("three")
+    _
+      print("other")
+  <t
+  print(p.src)
+
+fail "rev255-zc07 keeper in catch handler", "cannot drop `t` while it is lent"
+  error Bad
+    oops
+
+  obj P
+    src: ?String
+
+    fun watch(!self, s: ?String) -> Int keeps s
+      self.src = s
+      1
+
+  fun fails() -> Int!
+    return Bad.oops
+
+  p = P(src: "")
+  t = String("hello")
+  x = fails() catch (!p).watch(?t)
+  <t
+  print(x, p.src)
+
+fail "rev255-zc10 keeper in and short circuit", "cannot drop `t` while it is lent"
+  obj P
+    src: ?String
+
+    fun watch(!self, s: ?String) -> Bool keeps s
+      self.src = s
+      true
+
+  p = P(src: "")
+  t = String("hello")
+  c = true
+  if c and (!p).watch(?t)
+    print("y")
+  <t
+  print(p.src)
+
+test "rev255-zd01 nonkept copies", "hellohello 5 2 static hello zzzzzzzz"
+  obj P
+    owned: String
+    n: Int
+    pos: Int
+    src: ?String
+    names: List[String]
+
+    sub note(!self, s: ?String)
+      self.owned = String(s)
+      self.n += s.len
+      !self.owned.add(s)
+      self.pos = text.find(s, "l") ?? -1
+      self.src = "static"
+      !self.names.push(String(s))
+
+  p = P(owned: String(""), n: 0, pos: 0, src: "", names: List())
+  t = String("hello")
+  !p.note(?t)
+  <t
+  u = String("zzzzzzzz")
+  print(p.owned, p.n, p.pos, p.src, p.names[0], u)
+
+test "rev255-zh01 generic keeps self", "2 1 2"
+  obj Bag[T]
+    v: T
+
+    sub reg(?self, out: !List[?Bag[T]]) keeps self
+      !out.push(self)
+
+  a = Bag[Int](v: 1)
+  b = Bag[Int](v: 2)
+  out: List[?Bag[Int]] = List()
+  ?a.reg(!out)
+  ?b.reg(!out)
+  print(out.len, out[0].v, out[1].v)
+
+test "rev255-zh03 keeps generic two params", '''
+  s
+  u
+'''
+  obj Pair[A, B]
+    a: (?A)?
+    b: (?B)?
+
+    sub set(!self, x: ?A, y: ?B) keeps y
+      self.b = y
+      print(x)
+
+  p = Pair[String, String](a: none, b: none)
+  s = String("s")
+  u = String("u")
+  !p.set(?s, ?u)
+  <s
+  print(p.b)
+
+test "rev255-zi05 enum generic keeps overstrict", "hello"
+  enum Maybe[T]
+    some(v: ?T)
+    nothing
+
+  sub put(m: !Maybe[String], s: ?String) keeps s
+    m = .some(s)
+
+  m: Maybe[String] = .nothing
+  t = String("hello")
+  put(!m, ?t)
+  match m
+    .some(v)
+      print(v)
+    .nothing
+      print("none")
+
+fail "rev255-zj04 table entry generic method", "cannot drop `x` while it is lent"
+  obj Entry[K, V]
+    k: K
+    v: V
+
+  obj Table[K, V]
+    entries: List[Entry[K, V]]
+
+    sub put(!self, k: K, v: V)
+      !self.entries.push(Entry[K, V](k: k, v: v))
+
+  t = Table[Int, ?String](entries: List())
+  x = String("hello")
+  !t.put(1, ?x)
+  <x
+  print(t.entries[0].v)
+
+test "review-arm-temps-2-m01 name target moved in arm", '''
+  sink 0
+  drop 0
+  s 10
+  drop 10
+  drop 1
+  s 5
+  drop 5
+'''
+  # `s = match k` whose arm moves `s`: the store must not drop the moved value.
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun sink(d: D) -> D
+    print("sink", d.n)
+    D(n: d.n + 10)
+
+  sub run(k: Int)
+    s = D(n: k)
+    s = match k
+      0 => sink(<s)
+      _ => D(n: 5)
+    print("s", s.n)
+
+  run(0)
+  run(1)
+
+fail "review-arm-temps-2-m02 field target moved in arm", "cannot move out of `o.d`: `o` would still drop it (partial moves are not supported); move `o` whole, or exchange the field: `replace(!o.d, v)`"
+  # `o.d = match k` whose arm moves `o.d` out: a conditional partial move,
+  # then the store reinitializes it.
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj O
+    d: D
+
+  fun sink(d: D) -> D
+    print("sink", d.n)
+    D(n: d.n + 10)
+
+  sub run(k: Int)
+    o = O(d: D(n: k))
+    o.d = match k
+      0 => sink(<o.d)
+      _ => D(n: 5)
+    print("o", o.d.n)
+
+  run(0)
+  run(1)
+
+test "review-arm-temps-2-m03 name target dropped in arm", '''
+  drop 0
+  s 20
+  drop 20
+  drop 1
+  s 5
+  drop 5
+'''
+  # `s = match k` whose block arm drops `s` now: the store must not drop it again.
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub run(k: Int)
+    s = D(n: k)
+    s = match k
+      0
+        <s
+        D(n: 20)
+      _ => D(n: 5)
+    print("s", s.n)
+
+  run(0)
+  run(1)

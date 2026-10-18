@@ -1,3 +1,0 @@
-fun main() -> Int
-  print("hi")
-  255

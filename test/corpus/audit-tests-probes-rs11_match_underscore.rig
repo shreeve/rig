@@ -1,5 +1,0 @@
-sub main()
-  n = 3
-  match n
-    1 => print("one")
-    _ => print("other")

@@ -1,9 +1,0 @@
-fun loopit(t: ?String) -> Int
-  n = 0
-  for b in t
-    n += 1
-  n
-
-sub main()
-  t = String("hello")
-  print(loopit(?t))

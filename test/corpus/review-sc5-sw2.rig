@@ -1,9 +1,0 @@
-obj H
-  xs: [3]?String
-
-sub main()
-  arr = [1, 2]
-  !arr.swap(0, 1)
-  h = H(xs: ["a", "b", "c"])
-  !h.xs.swap(0, 2)
-  print(arr, h.xs)

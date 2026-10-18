@@ -1,9 +1,0 @@
-fun slot(a: !List[Int]) -> !List[Int]
-  a
-
-sub main()
-  v: List[Int] = List()
-  a = slot(!v)
-  b = slot(!v)
-  !a.push(1)
-  !b.push(2)

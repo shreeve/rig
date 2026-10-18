@@ -4328,7 +4328,7 @@ too. The real frame is at most
 `sema.reach_factor` (4) times the reach in every form
 `test/cli/frame_reach.sh` measures, but a form Zig copies that reach does
 not model could exceed it, as a payload part a `match <e` arm dropped by
-value at each exit did (`test/corpus/rev230-discard-exits.rig`;
+value at each exit did (the case `rev230-discard-exits` of test/rig/probes-16.rig.test;
 `rig.discardAt` now passes it by address). Destination-passing, planned
 (TODO.md), makes the bound hold by construction.
 

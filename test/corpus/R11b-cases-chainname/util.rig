@@ -1,2 +1,0 @@
-pub fun g[T](x: T) -> T
-  x + x

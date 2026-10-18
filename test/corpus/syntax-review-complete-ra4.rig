@@ -1,9 +1,0 @@
-sub main()
-  n: U32 = 3
-  xs = [1, 2, 3, 4]
-  for i in 0..n
-    print(xs[i])
-  v: List[Int] = List()
-  !v.push(4)
-  k: U8 = 0
-  print(v[k])

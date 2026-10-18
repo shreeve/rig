@@ -1,6 +1,0 @@
-obj P
-  xs: List[Int]
-
-sub main()
-  v: List[P] = List()
-  print(v.len)

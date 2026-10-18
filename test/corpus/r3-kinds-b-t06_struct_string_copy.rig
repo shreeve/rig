@@ -1,9 +1,0 @@
-obj Tag
-  s: ?String
-
-sub main()
-  t = String("hello")
-  a = Tag(s: ?t[..])
-  b = a
-  !t.add("!")
-  print(a, b)

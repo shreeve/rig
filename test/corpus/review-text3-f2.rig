@@ -1,5 +1,0 @@
-sub main()
-  b = ^String("boxed")
-  s = ?b[1..]
-  c = <b
-  print(s, c)

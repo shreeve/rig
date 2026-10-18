@@ -1,0 +1,1154 @@
+# Probes from past reviews and audits, 34 of 41: review-syntax-b-1-d06_param_slice_drop to review-syntax-b-2-b24_writeview_of_box_local_arg.
+
+use std.text
+
+fail "review-syntax-b-1-d06 param slice drop", "cannot drop view parameter `w`; the caller owns what it views"
+  sub f(xs: []Int, s: ?String, w: ![]Int)
+    <xs
+    <s
+    <w
+
+  a = [1, 2]
+  t = String("x")
+  f(?a, ?t, !a)
+
+test "review-syntax-b-1-d07 capture clone drop", "2"
+  t = String("hi")
+  f = |+t| t.len
+  print(f())
+  <t
+
+fail "review-syntax-b-1-d11 loop index drop", "cannot drop loop view `x`; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  vv: List[List[String]] = List()
+  v: List[String] = List()
+  !v.push(String("a"))
+  !vv.push(<v)
+  for x in vv[0]
+    <x
+  print(vv)
+
+fail "review-syntax-b-1-d12 loop param bang drop", "cannot drop loop view `x`; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  sub f(v: !List[String])
+    for x in v
+      <x
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  f(!v)
+  print(v)
+
+test "review-syntax-b-1-d15 generic loop drop int", "[1]"
+  sub f[T](v: ?List[T])
+    for x in v
+      <x
+
+  w: List[Int] = List()
+  !w.push(1)
+  f(w)
+  print(w)
+
+test "review-syntax-b-1-d16 capture shadow drop", '''
+  hi
+  1
+  hi
+'''
+  t = String("hi")
+  f = |+t|
+    print(t)
+    new t = String("local")
+    <t
+    print(1)
+  f()
+  print(t)
+
+test "review-syntax-b-1-d17 closure param drop", "1"
+  f = |t: String|
+    <t
+    print(1)
+  f(String("a"))
+
+fail "review-syntax-b-1-d19 generic capture", "cannot move captured `x`: the closure keeps what it captures for every call"
+  sub run[T](x: T)
+    f = |+x|
+      <x
+    f()
+
+  run(1)
+
+test "review-syntax-b-1-d20 closure local drop", "1"
+  f = ||
+    u = String("x")
+    <u
+    print(1)
+  f()
+
+test "review-syntax-b-1-h02 hints followed", '''
+  4
+  [1, 0, 3] hello
+'''
+  fun name(t: String) -> Int
+    t.len
+
+  sub zero(w: ![]Int)
+    w[0] = 0
+
+  t = String("hello")
+  a = [1, 2, 3]
+  print(name(String(t[1..])))
+  zero(!a[1..])
+  print(a, t)
+
+fail "review-syntax-b-1-s02 vec drop alive", "cannot drop `v` while it is lent"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  r = keep(?v[..])
+  <v
+  print(r)
+
+fail "review-syntax-b-1-s03 vec move alive", "cannot move `v` while a read loan is live"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  r = keep(?v[..])
+  u = <v
+  print(r, u)
+
+test "review-syntax-b-1-s05 order grow rev", "1"
+  fun grow(v: !List[Int]) -> Int
+    for i in 0..100
+      !v.push(i)
+    0
+
+  fun two(n: Int, xs: []Int) -> Int
+    xs[0] + n
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(two(grow(!v), v[0..1]))
+
+fail "review-syntax-b-1-s06 method ret view", "cannot assign to `a[1]` while `a` is lent"
+  obj B
+    n: Int
+
+    fun pick(?self, xs: []Int) -> []Int
+      xs
+
+  a = [1, 2, 3, 4]
+  b = B(n: 1)
+  r = b.pick(?a[1..])
+  a[1] = 9
+  print(r)
+
+fail "review-syntax-b-1-s07 nested", "cannot lend `v` to write while a read loan is live"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  v: List[Int] = List()
+  !v.push(1)
+  r = keep(keep(?v[..]))
+  !v.push(2)
+  print(r)
+
+fail "review-syntax-b-1-s08 closure ret", "cannot lend `v` to write while a read loan is live"
+  v: List[Int] = List()
+  !v.push(1)
+  f = |xs: []Int| xs
+  r = f(?v[..])
+  !v.push(2)
+  print(r)
+
+test "review-syntax-b-1-s100 literal slice", '''
+  5
+  [5, 6]
+  3
+'''
+  fun total(xs: []Int) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  print(total([1, 2, 3][1..]))
+  print(keep([4, 5, 6][1..]))
+  t: List[String] = List()
+  !t.push(String("a"))
+  print(total([t.len, 2][..]))
+
+fail "review-syntax-b-1-s101 literal slice keep", "a view of the temporary `[4, 5, 6]` outlives its statement, which drops it; bind the value to a name first"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  r = keep([4, 5, 6][1..])
+  print(r)
+
+test "review-syntax-b-1-s102 text literal vec", "2"
+  fun count(xs: []String) -> Int
+    xs.len
+
+  print(count([String("a"), String("b")][..]))
+
+test "review-syntax-b-1-s11 temp vec ok", '''
+  3
+  2
+'''
+  fun mkv() -> List[Int]
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    v
+
+  fun total(xs: []Int) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  print(total(mkv()[..]))
+  n = total(mkv()[1..])
+  print(n)
+
+fail "review-syntax-b-1-s16 bang param", "cannot lend `v` to write while a read loan is live"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  sub z(v: !List[Int])
+    r = keep(?v[..])
+    !v.push(3)
+    print(r)
+
+  v: List[Int] = List()
+  !v.push(1)
+  z(!v)
+
+fail "review-syntax-b-1-s17 disjoint write", "cannot lend `a` to write while a read loan is live"
+  fun two(xs: []Int, w: ![]Int) -> Int
+    w[0] = 5
+    xs[0]
+
+  a = [1, 2, 3, 4]
+  print(two(a[..2], !a[2..]))
+  print(a)
+
+fail "review-syntax-b-1-s18 write then read", "cannot lend `v` to read while a write loan is live"
+  fun g(v: !List[Int], xs: []Int) -> Int
+    !v.push(1)
+    xs.len
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(g(!v, v[..]))
+
+fail "review-syntax-b-1-s21 for source", "cannot lend `v` to write while a read loan is live"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  for x in keep(v[..])
+    !v.push(x)
+  print(v)
+
+fail "review-syntax-b-1-s22 writeview local", "cannot assign to `w[1]` while `w` is lent"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  a = [1, 2, 3, 4]
+  w = !a[..]
+  r = keep(?w[1..])
+  w[1] = 7
+  print(r)
+
+fail "review-syntax-b-1-s23 nested vec", "cannot lend `vv` to write while a read loan is live"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  vv: List[List[Int]] = List()
+  v: List[Int] = List()
+  !v.push(1)
+  !vv.push(<v)
+  r = keep(?vv[0][..])
+  !vv[0].push(5)
+  print(r)
+
+fail "review-syntax-b-1-s26 value if", "cannot assign to `b[0]` while `b` is lent"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  a = [1, 2, 3, 4]
+  b = [5, 6]
+  c = a[3] > 2
+  r = keep(?a[..2]) if c else keep(?b[..1])
+  b[0] = 9
+  print(r)
+  a[0] = 9
+  print(r)
+
+test "review-syntax-b-1-s27 generic put", "1"
+  fun put[T](xs: []T, x: T) -> Int
+    xs.len
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  print(put(v[..], String("b")))
+
+fail "review-syntax-b-1-s32 self method alias", "cannot lend `b` to write while a read loan on `b.items` is live"
+  obj B
+    items: List[Int]
+
+    sub add_all(!self, xs: []Int)
+      for x in xs
+        !self.items.push(x)
+
+  b = B(items: List())
+  !b.items.push(1)
+  !b.items.push(2)
+  !b.add_all(b.items[..])
+  print(b.items)
+
+fail "review-syntax-b-1-s33 vec push slice", "cannot assign to `arr[0]` while `arr` is lent"
+  s: List[[]Int] = List()
+  arr = [1, 2, 3]
+  !s.push(?arr[..2])
+  arr[0] = 9
+  print(s)
+
+fail "review-syntax-b-1-s35 store concrete", "cannot assign to `arr[0]` while `arr` is lent"
+  sub store(v: !List[[]Int], x: []Int) keeps x
+    !v.push(x)
+
+  s: List[[]Int] = List()
+  arr = [1, 2, 3]
+  store(!s, ?arr[..2])
+  arr[0] = 9
+  print(s)
+
+fail "review-syntax-b-1-s36 return local", "cannot return a view of `v`, which this function was not lent"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  fun bad() -> []Int
+    v: List[Int] = List()
+    !v.push(1)
+    keep(?v[..])
+
+  print(bad())
+
+test "review-syntax-b-1-s37 return param ok", "[2]"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  fun ok(v: ?List[Int]) -> []Int
+    keep(?v[1..])
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  print(ok(v))
+
+fail "review-syntax-b-1-s38 later move", "cannot move `v` while a read loan is live"
+  fun g(xs: []Int, v: List[Int]) -> Int
+    xs.len + v.len
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(g(v[..], <v))
+
+fail "review-syntax-b-1-s39 later move field", "cannot move `b` while a read loan on `b.items` is live"
+  obj B
+    items: List[Int]
+
+  fun g(xs: []Int, b: B) -> Int
+    xs.len + b.items.len
+
+  b = B(items: List())
+  !b.items.push(1)
+  print(g(b.items[..], <b))
+
+test "review-syntax-b-1-s40 temp struct", "4 9"
+  obj B
+    items: List[Int]
+    name: String
+
+  fun mk() -> B
+    b = B(items: List(), name: String("hello world"))
+    !b.items.push(4)
+    b
+
+  fun total(xs: []Int) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  fun size(s: ?String) -> Int
+    s.len
+
+  print(total(mk().items[..]), size(mk().name[2..]))
+
+test "review-syntax-b-1-s41 temp text", '''
+  10
+  ello world
+'''
+  fun mkt() -> String
+    String("hello world")
+
+  fun size(s: ?String) -> Int
+    s.len
+
+  fun word(s: ?String) -> ?String
+    s
+
+  print(size(mkt()[1..]))
+  print(word(mkt()[1..]))
+
+fail "review-syntax-b-1-s44 if as", "cannot lend `v` to write while a read loan is live"
+  fun find(xs: []Int) -> ([]Int)?
+    if xs.len > 0
+      xs
+    else
+      none
+
+  v: List[Int] = List()
+  !v.push(1)
+  if find(v[..]) as x
+    !v.push(2)
+    print(x)
+
+fail "review-syntax-b-1-s47 closure param fn", "`apply` returns a view of `f`, but its signature says it views only `xs`"
+  fun apply(f: ?fun([]Int) -> []Int, xs: []Int) -> []Int from xs
+    f(xs)
+
+  v: List[Int] = List()
+  !v.push(1)
+  r = apply(|xs: []Int| xs, ?v[..])
+  !v.push(2)
+  print(r)
+
+fail "review-syntax-b-1-s48 self field", "cannot lend `self.items` to write while a read loan is live"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  obj B
+    items: List[Int]
+
+    sub go(!self)
+      r = keep(?self.items[..])
+      !self.items.push(9)
+      print(r)
+
+  b = B(items: List())
+  !b.items.push(1)
+  !b.go()
+
+fail "review-syntax-b-1-s49 text split", "cannot lend `t` to write while a read loan is live"
+  t = String("a,b,c")
+  it = text.split(?t[..], ",")
+  !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  while (!it).next() as w
+    print(w)
+
+fail "review-syntax-b-1-s53 slice of slice param", "cannot assign to `a[1]` while `a` is lent"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  a = [1, 2, 3, 4]
+  x = ?a[..]
+  r = keep(x[1..])
+  a[1] = 9
+  print(r)
+
+fail "review-syntax-b-1-s54 array view param", "cannot assign to `a[1]` while `a` is lent"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  fun f(p: ?[4]Int) -> []Int
+    keep(?p[1..])
+
+  a = [1, 2, 3, 4]
+  r = f(?a)
+  a[1] = 9
+  print(r)
+
+fail "review-syntax-b-1-s58 bang text local", "cannot lend `w` to write while a read loan is live"
+  fun word(s: ?String) -> ?String
+    s
+
+  t = String("hello")
+  w = !t
+  s = word(?w[1..])
+  for _ in 0..50
+    !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-1-s64 generic two args order", "cannot lend `v` to write while a read loan is live"
+  fun both[T](a: T, b: !List[Int]) -> T
+    !b.push(1)
+    a
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(both(v[..], !v))
+
+test "review-syntax-b-1-s65 closure capture read", '''
+  1
+  [1, 2]
+'''
+  fun total(xs: []Int) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  v: List[Int] = List()
+  !v.push(1)
+  f = |?v| total(v[..])
+  print(f())
+  !v.push(2)
+  print(v)
+
+fail "review-syntax-b-1-s66 closure capture read live", "cannot lend `v` to write while a read loan is live"
+  fun total(xs: []Int) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  v: List[Int] = List()
+  !v.push(1)
+  f = |?v| total(v[..])
+  !v.push(2)
+  print(f())
+
+fail "review-syntax-b-1-s68 closure owned capture view written", "cannot return a view of `v`, which this function was not lent"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  v: List[Int] = List()
+  !v.push(1)
+  f = |+v| keep(?v[..])
+  r = f()
+  <f
+  print(r)
+
+fail "review-syntax-b-1-s70 closure move capture", "cannot return a view of `v`, which this function was not lent"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  v: List[Int] = List()
+  !v.push(1)
+  f = |<v| keep(?v[..])
+  r = f()
+  print(r)
+
+fail "review-syntax-b-1-s73 branch views", "cannot assign to `a[0]` while `a` is lent"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  a = [1, 2, 3]
+  b = [4, 5, 6]
+  c = a[0] > 0
+  r = keep(?(?a if c else ?b)[..2])
+  a[0] = 7
+  print(r)
+
+fail "review-syntax-b-1-s74 view call obj", "cannot lend `v` to write while a read loan is live"
+  fun getv(v: ?List[Int]) -> ?List[Int]
+    v
+
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  v: List[Int] = List()
+  !v.push(1)
+  r = keep(?getv(?v)[..])
+  !v.push(2)
+  print(r)
+
+fail "review-syntax-b-1-s76 block obj", "a view of the temporary `mkv() if c else mkv()` outlives its statement, which drops it; bind the value to a name first"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  fun mkv() -> List[Int]
+    v: List[Int] = List()
+    !v.push(1)
+    v
+
+  c = true
+  r = keep((mkv() if c else mkv())[..])
+  print(r)
+
+test "review-syntax-b-1-s77 branch vec temp ok", "1"
+  fun total(xs: []Int) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  fun mkv() -> List[Int]
+    v: List[Int] = List()
+    !v.push(1)
+    v
+
+  c = mkv().len > 0
+  print(total((mkv() if c else mkv())[..]))
+
+fail "review-syntax-b-1-s78 writeview call obj", "a view reached through `getw(!v)` outlives its statement, which holds `getw(!v)`, itself a view, only while it runs; bind `getw(!v)` to a name first"
+  fun getw(v: !List[Int]) -> !List[Int]
+    v
+
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  v: List[Int] = List()
+  !v.push(1)
+  r = keep(?getw(!v)[..])
+  !v.push(2)
+  print(r)
+
+fail "review-syntax-b-1-s79 text view call obj", "a view reached through `gett(!t)` outlives its statement, which holds `gett(!t)`, itself a view, only while it runs; bind `gett(!t)` to a name first"
+  fun gett(t: !String) -> !String
+    t
+
+  fun word(s: ?String) -> ?String
+    s
+
+  t = String("hello")
+  r = word(?gett(!t)[1..])
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(r)
+
+fail "review-syntax-b-1-s80 readview text local", "cannot lend `t` to write while a read loan is live"
+  fun word(s: ?String) -> ?String
+    s
+
+  t = String("hello")
+  r = ?t
+  s = word(r[1..])
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-1-s81 writeslice local owner", "use of `v` while a write loan is live"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  v: List[Int] = List()
+  !v.push(1)
+  w = !v[..]
+  s = keep(?w[..])
+  for i in 0..50
+    !v.push(i)
+  print(s)
+
+fail "review-syntax-b-1-s82 bang vec param ret", "cannot lend `v` to write while a read loan is live"
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  fun f(v: !List[Int]) -> []Int
+    keep(?v[..])
+
+  v: List[Int] = List()
+  !v.push(1)
+  s = f(!v)
+  for i in 0..50
+    !v.push(i)
+  print(s)
+
+fail "review-syntax-b-1-s83 bang text param ret", "cannot lend `t` to write while a read loan is live"
+  fun word(s: ?String) -> ?String
+    s
+
+  fun f(t: !String) -> ?String
+    word(?t[1..])
+
+  t = String("hello")
+  s = f(!t)
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-1-s87 defer slice written", "use of `v` after move"
+  fun total(xs: []Int) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  v: List[Int] = List()
+  !v.push(5)
+  defer print(total(?v[..]))
+  u = <v
+  print(u)
+
+fail "review-syntax-b-1-s88 temp part keep", "a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first"
+  obj B
+    items: List[Int]
+
+  fun mk() -> B
+    b = B(items: List())
+    !b.items.push(4)
+    b
+
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  r = keep(mk().items[..])
+  print(r)
+
+fail "review-syntax-b-1-s96 store temp text", "a view of the temporary `mkt()` outlives its statement, which drops it; bind the value to a name first"
+  sub store(v: !List[?String], x: ?String) keeps x
+    !v.push(x)
+
+  fun mkt() -> String
+    String("hello world")
+
+  s: List[?String] = List()
+  store(!s, mkt()[1..])
+  print(s)
+
+fail "review-syntax-b-1-s97 holder keep", "cannot lend `v` to write while a read loan is live"
+  obj H
+    xs: []Int
+
+    sub keep(!self, xs: []Int) keeps xs
+      self.xs = xs
+
+  v: List[Int] = List()
+  !v.push(1)
+  e = [0]
+  h = H(xs: ?e[..])
+  !h.keep(?v[..])
+  for i in 0..50
+    !v.push(i)
+  print(h.xs)
+
+fail "review-syntax-b-1-s98 holder keep text", "cannot lend `t` to write while a read loan is live"
+  obj H
+    s: ?String
+
+    sub keep(!self, s: ?String) keeps s
+      self.s = s
+
+  t = String("hello")
+  h = H(s: "x")
+  !h.keep(?t[1..])
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(h.s)
+
+test "review-syntax-b-1-s99 holder keep text ok", '''
+  ello
+  hellozz
+'''
+  obj H
+    s: ?String
+
+    sub keep(!self, s: ?String) keeps s
+      self.s = s
+
+  t = String("hello")
+  h = H(s: "x")
+  !h.keep(?t[1..])
+  print(h.s)
+  !t.add("zz")
+  print(t)
+
+test "review-syntax-b-1-w01 postfix if stmt", "[]"
+  v: List[Int] = List()
+  !v.push(1)
+  c = v.len > 0
+  !v.pop() if c
+  print(v)
+
+test "review-syntax-b-1-w02 match arm stmt", "[]"
+  v: List[Int] = List()
+  !v.push(1)
+  n = v.len
+  match n
+    1 => !v.pop()
+    _ => !v.push(2)
+  print(v)
+
+test "review-syntax-b-1-w03 match arm stmt both", "[]"
+  v: List[Int] = List()
+  !v.push(1)
+  n = v.len
+  match n
+    1 => !v.pop()
+    _ => !v.pop()
+  print(v)
+
+test "review-syntax-b-1-w06 if value stmt", "[] [1]"
+  v: List[Int] = List()
+  w: List[Int] = List()
+  !v.push(1)
+  !w.push(1)
+  c = v.len > 0
+  if c
+    !v.pop()
+  else
+    !w.pop()
+  print(v, w)
+
+test "review-syntax-b-1-w07 defer", "[1]"
+  v: List[Int] = List()
+  !v.push(1)
+  defer !v.pop()
+  print(v)
+
+test "review-syntax-b-1-w16 while as new only", '''
+  1
+  2
+  3
+  3
+'''
+  obj It
+    n: Int
+
+    fun next(!self) -> Int?
+      return none if self.n >= 3
+      self.n += 1
+      self.n
+
+  it = It(n: 0)
+  while (!it).next() as x
+    print(x)
+  print(it.n)
+
+test "review-syntax-b-1-w19 prop none stmt", "7"
+  fun f(v: !List[Int]) -> Int?
+    !v.pop()?
+    7
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(f(!v))
+
+test "review-syntax-b-1-w20 underscore", "[]"
+  v: List[Int] = List()
+  !v.push(1)
+  _ = !v.pop()
+  print(v)
+
+test "review-syntax-b-1-w24 stmt paren long", "[1]"
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  (!v).pop()
+  print(v)
+
+test "review-syntax-b-1-w33 for source long", '''
+  1
+  1
+'''
+  obj C
+    n: Int
+
+    fun next(!self) -> [2]Int
+      self.n += 1
+      [self.n, self.n]
+
+  c = C(n: 0)
+  for x in (!c).next()
+    print(x)
+
+test "review-syntax-b-1-w35 return postfix", "3"
+  obj C
+    n: Int
+
+    fun next(!self) -> Int
+      self.n += 1
+      self.n
+
+  fun f(c: !C) -> Int
+    !c.next() if c.n > 5
+    3
+
+  c = C(n: 0)
+  print(f(!c))
+
+test "review-syntax-b-1-w36 stmt unwrap fail", "2"
+  error E
+    bad
+
+  obj C
+    n: Int
+
+    fun take(!self) -> Int!
+      return E.bad if self.n > 5
+      self.n += 1
+      self.n
+
+  fun run(c: !C) -> Int!
+    !c.take()!
+    !c.take()!
+    c.n
+
+  c = C(n: 0)
+  print(run(!c) catch 0)
+
+fail "review-syntax-b-2-a01 field readview slice", "cannot lend `t` to write while a read loan is live"
+  obj R
+    f: ?String
+
+  t = String("hello")
+  r = R(f: ?t)
+  s = r.f[1..]
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-2-a02 writeholder readfield ret", "cannot lend `t` to write while a read loan is live"
+  obj R
+    f: ?String
+
+  fun cut(r: !R) -> ?String
+    r.f[1..]
+
+  t = String("hello")
+  r = R(f: ?t)
+  s = cut(!r)
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-2-a04 readview of slice", "cannot lend `v` to write while a read loan is live"
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  xs = ?v[..]
+  r = ?xs
+  s = r[1..]
+  for i in 0..100
+    !v.push(i)
+  print(s)
+
+fail "review-syntax-b-2-a05 readview of string", "cannot lend `t` to write while a read loan is live"
+  t = String("hello")
+  xs = ?t[..]
+  r = ?xs
+  s = r[1..]
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-2-a06 for readview push", "cannot lend `texts` to write while a read loan is live"
+  texts: List[String] = List()
+  !texts.push(String("hello"))
+  !texts.push(String("world"))
+  out: List[?String] = List()
+  for t in ?texts
+    !out.push(t[1..])
+  !texts.clear()
+  print(out)
+
+fail "review-syntax-b-2-a08 if as read then reassign", "cannot reassign `o` while it is lent"
+  o: String? = String("hello")
+  if o as r
+    s = r[1..]
+    o = none
+    print(s)
+
+fail "review-syntax-b-2-a09 closure read capture ret", "cannot lend `t` to write while a read loan is live"
+  t = String("hello")
+  f = |?t| t[1..]
+  s = f()
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-2-a13 shared readview reassign", "cannot reassign `h` while it is lent"
+  h = *String("hello")
+  r = ?h
+  s = r[1..]
+  h = *String("other")
+  print(s)
+
+test "review-syntax-b-2-a14 shared two handles", '''
+  ello
+  other
+'''
+  sub f(r: ?*String, h: !*String)
+    s = r[1..]
+    h = *String("other")
+    print(s)
+
+  a = *String("hello")
+  b = +a
+  f(?a, !b)
+  print(b)
+
+test "review-syntax-b-2-a15 shared drop other", "ello"
+  sub f(r: ?String, h: *String)
+    s = r[1..]
+    <h
+    print(s)
+
+  a = *String("hello")
+  b = +a
+  f(?a, <b)
+
+fail "review-syntax-b-2-a22 if bang as arg", "cannot lend `w` to write while a read loan is live"
+  fun keep(s: ?String) -> ?String
+    s
+
+  o: String? = String("hello")
+  if !o as w
+    s = keep(?w[1..])
+    for _ in 0..50
+      !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(s)
+
+fail "review-syntax-b-2-a23 read of write", "cannot lend `w` to write while a read loan is live"
+  t = String("hello")
+  w = !t
+  r = ?w
+  s = r[1..]
+  for _ in 0..50
+    !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-2-a26 ret readview struct", "cannot assign to `p.t` while `p` is lent"
+  obj P
+    t: String
+
+  fun name(p: ?P) -> ?String
+    ?p.t
+
+  p = P(t: String("hello"))
+  s = name(?p)[1..]
+  p.t = String("x")
+  print(s)
+
+fail "review-syntax-b-2-a28 shared struct field", "cannot drop `p` while it is lent"
+  obj S
+    t: String
+
+  p = *S(t: String("hello"))
+  q = +p
+  r = ?p.t
+  s = r[1..]
+  <q
+  <p
+  print(s)
+
+fail "review-syntax-b-2-a29 method ret read", "cannot lend `h.t` to write while a read loan on `h` is live"
+  obj H
+    t: String
+
+    fun get(!self) -> ?String
+      ?self.t
+
+  h = H(t: String("hello"))
+  r = (!h).get()
+  s = r[1..]
+  for _ in 0..50
+    !h.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-2-b01 closure write capture slice arg", "cannot lend `t` to write while a read loan is live"
+  fun keep(s: ?String) -> ?String
+    s
+
+  t = String("hello")
+  f = |!t|
+    s = keep(?t[1..])
+    for _ in 0..50
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(s)
+  f()
+
+fail "review-syntax-b-2-b02 match write payload arg", "cannot lend `t` to write while a read loan is live"
+  fun keep(s: ?String) -> ?String
+    s
+
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  match !e
+    .a(t)
+      s = keep(?t[1..])
+      for _ in 0..50
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => print("b")
+
+fail "review-syntax-b-2-b05 vec of readviews", "cannot lend `t` to write while a read loan is live"
+  t = String("hello")
+  v: List[?String] = List()
+  !v.push(?t)
+  s = v[0][1..]
+  !v.clear()
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-2-b07 writeslice text elem", "use of `v` while a write loan is live"
+  v: List[String] = List()
+  !v.push(String("hello"))
+  w = !v[..]
+  s = ?w[0][1..]
+  for _ in 0..50
+    !v[0].add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-2-b09 shared struct readfn", "cannot reassign `h` while it is lent"
+  obj S
+    t: String
+
+  fun name(p: ?S) -> ?String
+    ?p.t
+
+  h = *S(t: String("hello"))
+  s = name(?h)[1..]
+  h = *S(t: String("x"))
+  print(s)
+
+fail "review-syntax-b-2-b18 write closure param text arg", "cannot lend `w` to write while a read loan is live"
+  fun keep(s: ?String) -> ?String
+    s
+
+  sub f(w: !String)
+    g = |!w|
+      s = keep(?w[1..])
+      for _ in 0..50
+        !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    g()
+
+  t = String("hello")
+  f(!t)
+
+fail "review-syntax-b-2-b19 defer slice", "cannot lend `w` to write while a read loan is live"
+  sub f(w: !String)
+    s = ?w[1..]
+    defer print(s)
+    for _ in 0..50
+      !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+
+  t = String("hello")
+  f(!t)
+
+fail "review-syntax-b-2-b24 writeview of box local arg", "cannot reassign `w` while it is lent"
+  fun keep(s: ?String) -> ?String
+    s
+
+  b = ^String("hello")
+  w = !b
+  s = keep(?w[1..])
+  w = ^String("x")
+  print(s)

@@ -1,8 +1,0 @@
-sub main()
-  vs: List[List[Int]] = List()
-  !vs.push(List())
-  bs: List[^?List[Int]] = List()
-  for x in vs
-    !bs.push(^?x)
-  !vs.push(List())
-  print(bs[0].len)

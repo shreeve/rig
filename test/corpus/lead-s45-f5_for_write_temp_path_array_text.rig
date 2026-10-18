@@ -1,9 +1,0 @@
-fun idx(s: ?String) -> Int
-  0
-
-sub main()
-  v: List[[1]String] = List()
-  !v.push([String("a")])
-  for t in !v[idx(?String("k"))]
-    !t.add("bcdefghijklmnopqrstuvwxyz0123456789")
-  print(v[0][0])

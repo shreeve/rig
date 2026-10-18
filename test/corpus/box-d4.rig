@@ -1,9 +1,0 @@
-obj Node
-  key: Int
-  next: ^Node?
-
-sub main()
-  a = ^Node(key: 1, next: none)
-  r = ?a
-  <a
-  print(r.key)

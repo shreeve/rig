@@ -1,5 +1,0 @@
-# use after move of an array of owners: reject
-sub main()
-  a = [String("a"), String("b")]
-  b = <a
-  print(a, b)

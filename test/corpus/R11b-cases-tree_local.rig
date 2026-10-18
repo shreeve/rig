@@ -1,7 +1,0 @@
-obj Tree[T]
-  kids: List[Tree[T]]
-  v: T
-
-sub main()
-  t = Tree[Int](kids: List(), v: 1)
-  print(t.v)

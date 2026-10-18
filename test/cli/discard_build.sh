@@ -2,7 +2,7 @@
 # of the arm, by address (`rig.discardAt`). Dropped by value, each of
 # this arm's 12,000 exits held a copy of the 4 MB part: a 48 GB frame,
 # which made Zig's aarch64 build fail with `fixup value out of range`.
-# The program is written here, not kept in test/corpus/, since the
+# The program is written here, not kept as a case of test/rig, since the
 # reference checker takes memory quadratic in an arm's exits (TODO.md).
 source "$ROOT/test/cli/_lib.sh"
 

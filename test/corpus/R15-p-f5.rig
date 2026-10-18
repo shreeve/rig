@@ -1,4 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  s = !v[1..]
-  print(s.len)

@@ -1,6 +1,0 @@
-sub main()
-  s = String("hello")
-  f = |<s, x: Int| x + s.len
-  g = ?f
-  <f
-  print(g(1))

@@ -1,9 +1,0 @@
-sub f[T](v: ?List[T])
-  for x in v
-    <x
-
-sub main()
-  w: List[Int] = List()
-  !w.push(1)
-  f(w)
-  print(w)

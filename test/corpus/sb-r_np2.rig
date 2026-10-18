@@ -1,6 +1,0 @@
-fun f[T](s: []T) -> Int
-  s.len
-
-sub main()
-  v: List[List[Int]] = List()
-  print(f(?v[..]))

@@ -1,9 +1,0 @@
-sub add(v: !List[Int])
-  !v.push(3)
-
-sub main()
-  v: List[Int] = List()
-  w = !v
-  add(!w)
-  !w.push(4)
-  print(v)

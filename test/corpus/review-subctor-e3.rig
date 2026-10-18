@@ -1,7 +1,0 @@
-sub main()
-  x = List[Int]()
-  !x.push(3)
-  bx = ^<x
-  print(bx)
-  c: ^(Int?) = ^none
-  print(c)

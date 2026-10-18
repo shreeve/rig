@@ -1,9 +1,0 @@
-# List[String?]: take a view element, drop the List, then drop the source and use the taken view
-sub main()
-  t = String("t")
-  w: List[(?String)?] = List()
-  !w.push(?t)
-  x = <w[0]
-  <w
-  <t
-  print(x)

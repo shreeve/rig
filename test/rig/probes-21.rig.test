@@ -1,0 +1,2140 @@
+# Probes from past reviews and audits, 21 of 41: review-copies-2-q08c-opt-into-optional-copy to review-errors-m7.
+
+use std.text
+
+test "review-copies-2-q08c-opt-into-optional-copy", "1"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun px(o: P?) -> Int
+    if o as p
+      return p.x
+    -1
+
+  fun vx(o: (?P)?) -> Int
+    if o as p
+      return p.x
+    -1
+
+  a = P(x: 1)
+  b = P(x: 2)
+  o: P? = get(?a, true) catch ?b
+  a.x = 9
+  b.x = 9
+  print(px(o))
+
+test "review-copies-2-q08d-fallible-return-optional-arg", "1 1 -1"
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(o: (?P)?, ok: Bool) -> (?P)?!
+    return Bad.oops if not ok
+    o
+
+  fun get2(o: (?P)?, ok: Bool) -> (?P)?!
+    return Bad.oops if not ok
+    r = o?
+    r
+
+  fun px(o: P?) -> Int
+    if o as p
+      return p.x
+    -1
+
+  fun vx(o: (?P)?) -> Int
+    if o as p
+      return p.x
+    -1
+
+  a = P(x: 1)
+  o: (?P)? = ?a
+  x = get(o, true) catch none
+  y = get2(o, true) catch none
+  z = get2(none, true) catch none
+  print(vx(x), vx(y), vx(z))
+
+test "review-copies-2-q08e-error-value-of-other-errset", '''
+  2
+  1
+  1
+'''
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  error Other
+    nope
+
+  fun get(r: ?P, k: Int) -> (?P)!
+    return Bad.oops if k == 0
+    return Other.nope if k == 1
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  for k in 0..3
+    v = get(?a, k) catch |e| (?b if e == Bad.oops else ?a)
+    print(v.x)
+
+test "review-copies-2-q09a-coalesce-copyout-into-optional", "1"
+  # `??` whose value is a view, where an optional of its value is expected.
+  obj P
+    x: Int
+
+  fun px(o: P?) -> Int
+    if o as p
+      return p.x
+    -1
+
+  a = P(x: 1)
+  b = P(x: 2)
+  i: (?P)? = ?a
+  f: P? = i ?? ?b
+  a.x = 9
+  print(px(f))
+
+test "review-copies-2-q09b-catch-copyout-into-optional", "1"
+  # `catch` whose value is a view, where an optional of its value is expected.
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun px(o: P?) -> Int
+    if o as p
+      return p.x
+    -1
+
+  a = P(x: 1)
+  b = P(x: 2)
+  o: P? = get(?a, true) catch ?b
+  a.x = 9
+  print(px(o))
+
+test "review-copies-2-q09c-coalesce-copyout-optional-sites", '''
+  1
+  1 1
+'''
+  # The same copy-out into `P?` at an argument, a return, a field.
+  obj P
+    x: Int
+
+  obj S
+    o: P?
+
+  fun px(o: P?) -> Int
+    if o as p
+      return p.x
+    -1
+
+  fun pick(i: (?P)?, r: ?P) -> P?
+    i ?? r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  i: (?P)? = ?a
+  print(px(i ?? ?b))
+  s = S(o: i ?? ?b)
+  print(px(pick(i, ?b)), px(s.o))
+
+test "review-copies-2-q09d-branch-copyout-into-optional", "1 1"
+  # Siblings: a branch and a bare view into `P?`.
+  obj P
+    x: Int
+
+  fun px(o: P?) -> Int
+    if o as p
+      return p.x
+    -1
+
+  a = P(x: 1)
+  b = P(x: 2)
+  c = true
+  r = ?a
+  f: P? = r
+  g: P? = ?a if c else ?b
+  print(px(f), px(g))
+
+test "review-copies-2-q09e-coalesce-none-into-optional", "1 -1"
+  # `?? none` and `catch none` where an optional of the viewed value is expected.
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    r
+
+  fun px(o: P?) -> Int
+    if o as p
+      return p.x
+    -1
+
+  a = P(x: 1)
+  i: (?P)? = ?a
+  f: P? = i ?? none
+  g: P? = get(?a, false) catch none
+  print(px(f), px(g))
+
+test "review-copies-2-q09g-coalesce-read-view-int-into-optional", "1 1"
+  # A read view of an Int is held by value, so this one compiles.
+  fun ix(o: Int?) -> Int
+    if o as p
+      return p
+    -1
+
+  n = 1
+  m = 2
+  i: (?Int)? = ?n
+  f: Int? = i ?? none
+  g: Int? = i ?? ?m
+  print(ix(f), ix(g))
+
+test "review-copies-2-q09h-coalesce-moved-write-view-into-optional", "1 1"
+  # A moved optional write view, coalesced where an optional Int is expected.
+  fun ix(o: Int?) -> Int
+    if o as p
+      return p
+    -1
+
+  n = 1
+  i: (!Int)? = !n
+  f: Int? = <i ?? none
+  print(ix(f), n)
+
+test "review-copies-2-q11b-clone-write-view-int", "1 2 2 5"
+  # `+w` of a write view of an Int reads the Int (Core sentence 1).
+  obj P
+    x: Int
+
+  n = 1
+  w = !n
+  c = +w
+  a = P(x: 2)
+  v = !a
+  d = +v
+  w += 1
+  v.x = 5
+  print(c, d.x, n, a.x)
+
+test "review-copies-2-q11d-clone-read-view-holder", "1 s 1"
+  # A value holding only read views copies, so it clones.
+  obj R
+    r: ?Int
+    s: ?String
+
+  n = 1
+  h = R(r: ?n, s: "s")
+  c = +h
+  f = |+h| h.r
+  print(c.r, c.s, f())
+
+test "review-copies-2-q13a-ret-write-as-read-fallible", '''
+  3 1
+  7
+'''
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun ri(w: !Int, ok: Bool) -> (?Int)!
+    return Bad.oops if not ok
+    w
+
+  fun rp(w: !P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    w
+
+  fun ro(w: !P, k: Int) -> (?P)?!
+    return Bad.oops if k == 0
+    return none if k == 1
+    w
+
+  n = 3
+  m = 4
+  a = P(x: 1)
+  b = P(x: 2)
+  x = ri(!n, true) catch ?m
+  y = rp(!a, true) catch ?b
+  print(x, y.x)
+  c = P(x: 7)
+  z = ro(!c, 2) catch none
+  if z as zz
+    print(zz.x)
+
+test "review-copies-2-q13b-ret-write-as-read-fallible-loan", '''
+  1
+  1
+'''
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun rp(w: !P, ok: Bool) -> (?P)!
+    return Bad.oops if not ok
+    w
+
+  a = P(x: 1)
+  b = P(x: 2)
+  y = rp(!a, true) catch ?b
+  print(a.x)
+  print(y.x)
+
+test "review-copies-2-q14a-closure-inside-fallible-view-fn", "1 2"
+  # A closure inside a function that returns a fallible view returns its
+  # own type; the closure's `return` is not the function's.
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, k: Int) -> (?P)!
+    f: fun(Int) -> Int = |n|
+      return n + 1 if n > 0
+      0
+    g: fun(Int) -> Int! = |n|
+      return Bad.oops if n < 0
+      n
+    return Bad.oops if f(k) == 0
+    _ = g(k)!
+    r
+
+  a = P(x: 1)
+  b = P(x: 2)
+  v = get(?a, 1) catch ?b
+  u = get(?a, 0) catch ?b
+  print(v.x, u.x)
+
+test "review-copies-2-q14b-fallible-view-fn-inside-closure", "1 2"
+  # A closure returning a fallible view, inside a function returning an Int.
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun outer(a: ?P, b: ?P, k: Int) -> Int
+    f: fun(?P, Int) -> (?P)! = |r, n|
+      return Bad.oops if n == 0
+      r
+    v = f(a, k) catch b
+    v.x
+
+  a = P(x: 1)
+  b = P(x: 2)
+  print(outer(?a, ?b, 1), outer(?a, ?b, 0))
+
+fail "review-copies-p02-copy-out-view-holder-loan", "cannot lend `xs` to write while a read loan is live"
+  obj S
+    v: ?List[Int]
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  s = S(v: ?xs)
+  r = ?s
+  c: S = r
+  !xs.push(2)
+  print(c.v.len)
+
+fail "review-copies-p03-write-view-read-holder-loan", "cannot lend `xs` to write while a read loan is live"
+  obj S
+    v: ?List[Int]
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  s = S(v: ?xs)
+  w = !s
+  c = w
+  !xs.push(2)
+  print(c.v.len)
+
+fail "review-copies-p04-clone-capture-view-string-text-dropped", "cannot drop `t` while it is lent"
+  obj S
+    s: ?String
+
+  fun mk() -> Int
+    t = String("a heap string of some length")
+    s = S(s: ?t)
+    r = ?s
+    f = |+r| r.s.len
+    <t
+    f()
+
+  print(mk())
+
+test "review-copies-p05-clone-capture-vec-paths", '''
+  5 5
+  5
+  unused 1
+  7 7 7
+  drop 7
+'''
+  obj N
+    v: Int
+    drop(!self)
+      print("drop", self.v)
+
+  fun build() -> *fun() -> Int
+    v: List[String] = List()
+    !v.push(String("aa"))
+    !v.push(String("bbb"))
+    f = *|+v| v.len + v[1].len
+    !v.push(String("c"))
+    f
+
+  sub unused()
+    v: List[String] = List()
+    !v.push(String("zz"))
+    f = |+v| v.len
+    if v.len > 5
+      print(f())
+    print("unused", v.len)
+
+  sub many()
+    hs: List[*N] = List()
+    !hs.push(*N(v: 7))
+    f = |+hs| hs[0].v
+    <hs
+    print(f(), f(), f())
+
+  g = build()
+  print(g(), g())
+  h = +g
+  <g
+  print(h())
+  unused()
+  many()
+
+fail "review-copies-p06-fill-read-view-mutate", "cannot reassign `n` while it is lent"
+  n = 1
+  m = 2
+  a = [?m, ?m, ?m]
+  !a.fill(?n)
+  n = 5
+  print(a[0])
+
+fail "review-copies-p08-copy-read-views-mutate", "cannot reassign `n` while it is lent"
+  n = 1
+  m = 2
+  src = [?n, ?n]
+  dst = [?m, ?m]
+  !dst.copy(?src[..])
+  n = 9
+  print(dst[0])
+
+fail "review-copies-p09-owned-closure-returns-string-struct-of-capture", "cannot return a view of `t`, which this function was not lent"
+  # An owned closure returns a plain struct whose String views its own
+  # captured Text; the closure is then dropped.
+  obj P
+    s: ?String
+
+  t = String("hello world, a heap string")
+  f = *|<t| P(s: ?t)
+  p = f()
+  <f
+  print(p.s)
+
+fail "review-copies-p18-branch-copy-out-view-holder", "cannot lend `xs` to write while a read loan is live"
+  # A branch whose arms are a read view of S and an S: the view is copied
+  # out; the copy carries the loan of the view S holds.
+  obj S
+    v: ?List[Int]
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  ys: List[Int] = List()
+  s = S(v: ?xs)
+  r = ?s
+  flag = xs.len > 0
+  c = r if flag else S(v: ?ys)
+  s = S(v: ?ys)
+  !xs.push(2)
+  print(c.v.len)
+
+test "review-copies-p18ok-branch-copy-out-view-holder", "1"
+  # A branch whose arms are a read view of S and an S: the view is copied
+  # out; the copy carries the loan of the view S holds.
+  obj S
+    v: ?List[Int]
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  ys: List[Int] = List()
+  s = S(v: ?xs)
+  r = ?s
+  flag = xs.len > 0
+  c = r if flag else S(v: ?ys)
+  s = S(v: ?ys)
+  print(c.v.len)
+
+fail "review-copies-p19-coalesce-copy-out-view-holder", "cannot lend `xs` to write while a read loan is live"
+  obj S
+    v: ?List[Int]
+
+  fun pick(r: ?S?, d: S) -> S
+    r ?? d
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  ys: List[Int] = List()
+  o: S? = S(v: ?xs)
+  c = pick(?o, S(v: ?ys))
+  o = none
+  !xs.push(2)
+  print(c.v.len)
+
+test "review-copies-p19ok-coalesce-copy-out-view-holder", "1"
+  obj S
+    v: ?List[Int]
+
+  fun pick(r: ?S?, d: S) -> S
+    r ?? d
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  ys: List[Int] = List()
+  o: S? = S(v: ?xs)
+  c = pick(?o, S(v: ?ys))
+  o = none
+  print(c.v.len)
+
+fail "review-copies-p20-coalesce-local-copy-out-view-holder", "cannot lend `xs` to write while a read loan is live"
+  obj S
+    v: ?List[Int]
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  ys: List[Int] = List()
+  o: S? = S(v: ?xs)
+  r = ?o
+  c: S = r ?? S(v: ?ys)
+  o = none
+  !xs.push(2)
+  print(c.v.len)
+
+test "review-copies-p20ok-coalesce-local-copy-out-view-holder", "1"
+  obj S
+    v: ?List[Int]
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  ys: List[Int] = List()
+  o: S? = S(v: ?xs)
+  r = ?o
+  c: S = r ?? S(v: ?ys)
+  o = none
+  print(c.v.len)
+
+fail "review-copies-p21-array-copy-out-view-holder", "cannot lend `xs` to write while a read loan is live"
+  xs: List[Int] = List()
+  !xs.push(1)
+  a = [?xs, ?xs]
+  r = ?a
+  c: [2]?List[Int] = r
+  a = [?xs, ?xs]
+  !xs.push(2)
+  print(c[0].len)
+
+test "review-copies-p21ok-array-copy-out-view-holder", "1"
+  xs: List[Int] = List()
+  !xs.push(1)
+  a = [?xs, ?xs]
+  r = ?a
+  c: [2]?List[Int] = r
+  a = [?xs, ?xs]
+  print(c[0].len)
+
+fail "review-copies-p22-result-copy-out-then-holder-changes", "cannot lend `xs` to write while a read loan is live"
+  # The copy out of a view keeps the loans of the views S holds, not the
+  # loan on s: s may change, xs may not.
+  obj S
+    v: ?List[Int]
+
+  fun keep(r: ?S) -> S
+    r
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  ys: List[Int] = List()
+  s = S(v: ?xs)
+  t = keep(?s)
+  s = S(v: ?ys)
+  print(t.v.len, s.v.len)
+  !ys.push(3)
+  !xs.push(2)
+  print(t.v.len)
+
+test "review-copies-p22ok-result-copy-out-then-holder-changes", '''
+  1 0
+  1
+'''
+  # The copy out of a view keeps the loans of the views S holds, not the
+  # loan on s: s may change, xs may not.
+  obj S
+    v: ?List[Int]
+
+  fun keep(r: ?S) -> S
+    r
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  ys: List[Int] = List()
+  s = S(v: ?xs)
+  t = keep(?s)
+  s = S(v: ?ys)
+  print(t.v.len, s.v.len)
+  !ys.push(3)
+  print(t.v.len)
+
+fail "review-copies-p23-string-holder-copy-out-text-dropped", "cannot drop `t` while it is lent"
+  obj S
+    s: ?String
+
+  fun keep(r: ?S) -> S
+    r
+
+  t = String("a heap allocated text that is long")
+  s = S(s: ?t)
+  c = keep(?s)
+  <t
+  print(c.s)
+
+fail "review-copies-p25-write-view-struct-literal-field", "cannot lend `w` to write while a write loan is live"
+  # A bare write view of a plain struct read as a field value: Core
+  # sentence 1 says it reads the value it sees.
+  obj P
+    x: Int
+    y: Int
+
+  obj Q
+    p: P
+    o: P?
+
+  a = P(x: 1, y: 2)
+  w = !a
+  q = Q(p: w, o: w)
+  w.x = 5
+  print(q.p.x, a.x)
+
+fail "review-copies-p25b-write-view-int-struct-literal-field", "cannot lend `w` to write while a write loan is live"
+  obj Q
+    p: Int
+    o: Int?
+
+  a = 1
+  w = !a
+  q = Q(p: w, o: w)
+  w = 5
+  print(q.p, a)
+
+fail "review-copies-p32-clone-capture-through-view-vec-of-slices", "cannot assign to `a[1]` while `a` is lent"
+  # `|+r|` deep-clones a List of slices through a view: the clone keeps
+  # the slices' loan on `a`, not the view's loan on `x`.
+  a = [1, 2, 3]
+  x: List[[]Int] = List()
+  !x.push(?a[..2])
+  r = ?x
+  f = |+r| r[0][1]
+  <x
+  a[1] = 9
+  print(f())
+
+test "review-copies-p32ok-clone-capture-through-view-vec-of-slices", '''
+  2
+  [1, 9, 3]
+'''
+  a = [1, 2, 3]
+  x: List[[]Int] = List()
+  !x.push(?a[..2])
+  r = ?x
+  f = |+r| r[0][1]
+  <x
+  print(f())
+  a[1] = 9
+  print(a)
+
+fail "review-copies-p33-clone-capture-vec-of-text-views", "cannot drop `t` while it is lent"
+  # `|+v|` deep-clones a List of Strings viewing a Text; the Text is
+  # then dropped while the closure lives.
+  t = String("a long heap allocated text here")
+  v: List[?String] = List()
+  !v.push(?t)
+  f = |+v| v[0].len
+  <v
+  <t
+  print(f())
+
+test "review-copies-p34-clone-capture-escape-and-fail", '''
+  6
+  12
+  drop 1
+  2
+  drop 5
+  -1
+'''
+  # Deep-cloned closure environments on every exit path: returned from a
+  # function that was only lent the source, stored in a List, cloned,
+  # captured into another closure, and dropped on a failing path.
+  error Bad
+    oops
+
+  obj N
+    v: Int
+
+    drop(!self)
+      print("drop", self.v)
+
+  fun mk(v: ?List[String]) -> *fun() -> Int
+    *|+v| v.len + v[0].len
+
+  fun risky(n: Int) -> Int!
+    if n > 1
+      return Bad.oops
+    n
+
+  fun run(n: Int) -> Int!
+    hs: List[*N] = List()
+    !hs.push(*N(v: n))
+    f = |+hs| hs[0].v
+    k = risky(n)!
+    f() + k
+
+  ts: List[String] = List()
+  !ts.push(String("hello"))
+  g = mk(?ts)
+  <ts
+  print(g())
+  fs: List[*fun() -> Int] = List()
+  !fs.push(+g)
+  !fs.push(<g)
+  print(fs[0]() + fs[1]())
+  print(run(1) catch -1)
+  print(run(5) catch -1)
+
+fail "review-copies-p36-owned-closure-string-result", "cannot drop `t` while it is lent"
+  f = *|s: ?String| s
+  t = String("a long heap allocated text here")
+  p = f(?t)
+  <t
+  print(p)
+
+fail "review-copies-p37-owned-closure-struct-param-stored", "cannot store a view of `p` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which carries no loan"
+  # An owned closure stores a String-holding struct param into a captured
+  # Cell it shares; the Text dies before the Cell is read.
+  obj P
+    s: ?String
+
+  c = *Cell(P(s: "init"))
+  d = +c
+  f = *|<c, p: P| !c.set(P(s: p.s))
+  if true
+    t = String("a long heap allocated text here")
+    f(P(s: ?t))
+  print(d.get().s)
+
+test "review-copies-p38-owned-closure-big-values", '''
+  z 9 P(s: "y", n: 2, a: [4, 5, 6])
+  x
+'''
+  obj P
+    s: ?String
+    n: Int
+    a: [3]Int
+
+  obj Q
+    ps: [4]P
+    o: P?
+
+  f = *|q: Q, k: Int| Q(ps: [q.ps[3], q.ps[2], q.ps[1], q.ps[0]], o: q.ps[k])
+  p = P(s: "x", n: 1, a: [1, 2, 3])
+  q = Q(ps: [p, P(s: "y", n: 2, a: [4, 5, 6]), p, P(s: "z", n: 4, a: [7, 8, 9])], o: none)
+  r = f(q, 1)
+  print(r.ps[0].s, r.ps[0].a[2], r.o)
+  g = +f
+  print(g(r, 0).ps[0].s)
+
+fail "review-copies-p39-fill-through-slice-param-scope", "`n` does not live long enough"
+  # A callee fills a caller's array of views through a write slice with a
+  # view of a local that dies before the array is read.
+  sub fillit(s: ![]?Int, x: ?Int) keeps x
+    !s.fill(x)
+
+  m = 1
+  a = [?m, ?m, ?m]
+  if true
+    n = 5
+    fillit(!a[..], ?n)
+  print(a[0])
+
+fail "review-copies-p40-copy-through-slice-param-scope", "`b` does not live long enough"
+  sub copyit(d: ![]?Int, s: []?Int) keeps s
+    !d.copy(s)
+
+  m = 1
+  a = [?m, ?m]
+  if true
+    n = 5
+    b = [?n, ?n]
+    copyit(!a[..], ?b[..])
+  print(a[0])
+
+fail "review-copies-p41-fill-local-scope", "`n` does not live long enough"
+  m = 1
+  a = [?m, ?m, ?m]
+  if true
+    n = 5
+    !a.fill(?n)
+  print(a[0])
+
+fail "review-copies-p42-copy-local-scope", "`n` does not live long enough"
+  m = 1
+  a = [?m, ?m]
+  if true
+    n = 5
+    b = [?n, ?n]
+    !a.copy(?b[..])
+  print(a[0])
+
+fail "review-copies-p43-copy-text-views-drop", "`t` does not live long enough"
+  a: [2]?String = ["x", "y"]
+  if true
+    t = String("a long heap allocated text here")
+    b: [2]?String = [?t, ?t]
+    !a.copy(?b[..])
+  print(a[0])
+
+fail "review-copies-p44-n-of-text-view-drop", "cannot return a view of `t`, which this function was not lent"
+  fun mk() -> [3]?String
+    t = String("a long heap allocated text here")
+    [3 of ?t]
+
+  print(mk()[0])
+
+fail "review-copies-p45-boundary-pols", "cannot assign to `a.x` while `a` is lent"
+  # The kept boundary: how a read view of a plain struct reads in each
+  # form, beside a write view of one and a read view of an Int.
+  obj P
+    x: Int
+
+  fun id[T](v: T) -> T
+    v
+
+  a = P(x: 1)
+  r = ?a
+  b = r
+  a.x = 2
+  print(b.x)
+
+test "review-copies-p45b-boundary-branch", "1"
+  obj P
+    x: Int
+
+  a = P(x: 1)
+  p = P(x: 9)
+  r = ?a
+  b = r if a.x > 0 else p
+  a.x = 2
+  print(b.x)
+
+test "review-copies-p45c-boundary-write-view", "1 2"
+  obj P
+    x: Int
+
+  a = P(x: 1)
+  w = !a
+  b = w
+  w.x = 2
+  print(b.x, a.x)
+
+test "review-copies-p45e-boundary-eq", "true"
+  obj P
+    x: Int
+
+  a = P(x: 1)
+  r = ?a
+  print(r == P(x: 1))
+
+test "review-copies-p45f-boundary-coalesce", "1"
+  obj P
+    x: Int
+
+  o: P? = P(x: 1)
+  r = ?o
+  b = r ?? P(x: 9)
+  o = none
+  print(b.x)
+
+test "review-copies-p46-generic-copies-instances", '''
+  a 2 [1, 2] 7
+  d
+  7 [5, 5, 5]
+'''
+  # Generic bodies that copy a T (Requirement.copies), instantiated with
+  # plain structs, arrays, optionals, and String holders.
+  obj P
+    s: ?String
+    n: Int
+
+  fun first[T](xs: ?[2]T) -> T
+    xs[0]
+
+  fun three[T](x: T) -> [3]T
+    [3 of x]
+
+  fun dup[T](x: T) -> [2]T
+    a = [x, x]
+    !a.fill(x)
+    a
+
+  fun cap[T](x: T) -> Int
+    f = |+x| 7
+    f()
+
+  fun pick[T](o: ?T?, d: T) -> T
+    o ?? d
+
+  ps = [P(s: "a", n: 1), P(s: "b", n: 2)]
+  print(first(?ps).s, three(ps[1])[2].n, dup([1, 2])[1], cap(P(s: "c", n: 3)))
+  o: P? = P(s: "d", n: 4)
+  print(pick(?o, ps[0]).s)
+  oo: (Int?)? = 5
+  print(cap(oo), three(oo))
+
+fail "review-copies-p49b-while-step-uses-slice-after-push", "cannot lend `v` to write while a read loan is live"
+  # The step reads a slice the condition binds... rejected: a view
+  # binding may not be used by the step.
+  #
+  # oracle: mk accept
+  # oracle: main reject C4
+  fun mk(v: ?List[Int]) -> ([]Int)?
+    if v.len < 40
+      return ?v[..]
+    none
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  while mk(?v) as h: k += h[0]
+    !v.push(2)
+  print(k, v.len)
+
+fail "review-copies-p49c-while-step-outer-slice", "cannot lend `v` to write while a read loan is live"
+  # A plain `while c: step` whose step reads a slice declared before the
+  # loop, after the body grew the List.
+  #
+  # oracle: main reject C4
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  i = 0
+  s = ?v[..]
+  while i < 40: k += s[0]
+    i += 1
+    !v.push(2)
+  print(k, v.len)
+
+fail "review-copies-p49d-while-step-text-holder", "cannot lend `t` to write while a read loan is live"
+  # oracle: mk accept
+  # oracle: main reject C4
+
+
+  # The step reads a String the condition's binding holds, after the
+  # body grew the Text it views.
+  obj S
+    s: ?String
+
+  fun mk(t: ?String) -> S?
+    if t.len < 200
+      return S(s: ?t)
+    none
+
+  t = String("abc")
+  k = 0
+  while mk(?t) as h: k += (1 if text.ends_with(h.s, "9") else 0)
+    !t.add("0123456789")
+  print(k, t.len)
+
+test "review-copies-p49e-while-step-struct-reads-only", "12"
+  # Same shape, but the body does not write `v`: accepted, runs clean.
+  #
+  # oracle: mk accept
+  # oracle: main accept
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 3
+      return S(s: ?v[..])
+    none
+
+  v: List[Int] = List()
+  !v.push(4)
+  k = 0
+  i = 0
+  while mk(?v, i) as h: k += h.s[0]
+    i += 1
+  print(k)
+
+fail "review-copies-p49f-while-step-outer-repointed", "cannot lend `v` to write while a read loan is live"
+  # The step reads an outer slice the body re-points at a List, after the
+  # body grew that List.
+  #
+  # oracle: main reject C4
+  w = [7, 7]
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  i = 0
+  s = ?w[..]
+  while i < 40: k += s[0]
+    s = ?v[..]
+    !v.push(2)
+    i += 1
+  print(k, v.len)
+
+fail "review-copies-p50-defer-reads-slice-after-push", "cannot lend `v` to write while a read loan is live"
+  # A defer reads a slice at scope end, after the List it views grew.
+  #
+  # oracle: main reject C4
+  v: List[Int] = List()
+  !v.push(1)
+  s = ?v[..]
+  defer print(s[0])
+  !v.push(2)
+  !v.push(3)
+  print(v.len)
+
+fail "review-copies-p50b-defer-reads-struct-slice-after-push", "cannot lend `v` to write while a read loan is live"
+  # oracle: main reject C4
+
+  obj S
+    s: []Int
+
+  v: List[Int] = List()
+  !v.push(1)
+  h = S(s: ?v[..])
+  defer print(h.s[0])
+  !v.push(2)
+  !v.push(3)
+  print(v.len)
+
+test "review-copies-p50c-while-step-copy-out", "465"
+  # The step reads, through a copy out of a view, a struct whose slice
+  # views a List the body grows.
+  #
+  # oracle: main accept
+  obj S
+    s: []Int
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  i = 0
+  while i < 30: k += i
+    h = S(s: ?v[..])
+    i += h.s[0]
+    !v.push(2)
+  print(k)
+
+test "review-copies-p51-coalesce-view-result-copy-out", "1 2 3"
+  # `o ?? r` gives a `?P`, copied out where a `P` is expected.
+  obj P
+    x: Int
+    y: Int
+
+  fun pick(o: (?P)?, r: ?P) -> P
+    o ?? r
+
+  a = P(x: 1, y: 2)
+  b = P(x: 3, y: 4)
+  o: (?P)? = ?a
+  c: P = o ?? ?b
+  d = pick(o, ?b)
+  e = pick(none, ?b)
+  print(c.x, d.y, e.x)
+
+test "review-copies-p51b-coalesce-view-int-copy-out", "1 1 3"
+  # The same shape with an Int: `o ?? ?m` gives a `?Int`, read where an
+  # Int is expected.
+  fun pick(o: (?Int)?, r: ?Int) -> Int
+    o ?? r
+
+  n = 1
+  m = 3
+  o: (?Int)? = ?n
+  c: Int = o ?? ?m
+  print(c, pick(o, ?m), pick(none, ?m))
+
+test "review-copies-p52b-return-view-into-fallible", "1"
+  # A function returning a `(?P)!` whose last value is its `?P` parameter.
+  error Bad
+    oops
+
+  obj P
+    x: Int
+
+  fun get(r: ?P, ok: Bool) -> (?P)!
+    if not ok
+      return Bad.oops
+    r
+
+  a = P(x: 1)
+  v = get(?a, true) catch ?a
+  print(v.x)
+
+test "review-copies-p53-branch-match-views-copy-out", "1 2 2 1"
+  # Branching values whose every arm is a `?P`, where a `P` is expected:
+  # a branch, a match, a block, and a `??` whose fallback is a view too.
+  obj P
+    x: Int
+
+  fun two(a: ?P, b: ?P, f: Bool) -> P
+    a if f else b
+
+  fun arm(a: ?P, b: ?P, k: Int) -> P
+    match k
+      0 => a
+      _ => b
+
+  a = P(x: 1)
+  b = P(x: 2)
+  f = a.x > 0
+  c: P = ?a if f else ?b
+  d: P = match a.x
+    1 => ?b
+    _ => ?a
+  print(c.x, d.x, two(?a, ?b, false).x, arm(?a, ?b, 0).x)
+
+fail "review-copies-p54-fill-temp-text-view", "a view of the temporary `String(\"hello\", \" world, long enough to allocate\")` outlives its statement, which drops it; bind the value to a name first"
+  # `fill` stores a view of a temporary Text that ends with the statement.
+  a: [2]?String = ["x", "y"]
+  !a.fill(?String("hello", " world, long enough to allocate"))
+  print(a[0])
+
+fail "review-copies-p56-n-of-temp-view", "a view of the temporary `String(\"hello world, long enough to allocate\")` outlives its statement, which drops it; bind the value to a name first"
+  a = [3 of ?String("hello world, long enough to allocate")]
+  print(a[0])
+
+test "review-copies-p57-clone-capture-copy-through-views", '''
+  1 5 2 7
+  2 7 9
+'''
+  # `|+x|` copies a value that copies through a read or write view: the
+  # closure keeps the value it saw, and the owner may then change.
+  obj P
+    x: Int
+
+  fun ox(o: P?) -> Int
+    if o as p
+      return p.x
+    0
+
+  a = P(x: 1)
+  w = !a
+  f = |+w| w.x
+  w.x = 5
+  arr = [1, 2]
+  ra = ?arr
+  g = |+ra| ra[1]
+  o: P? = P(x: 7)
+  ro = ?o
+  h = |+ro| ox(ro)
+  print(f(), a.x, g(), h())
+  arr[1] = 9
+  o = none
+  print(g(), h(), arr[1])
+
+test "review-copies-p58-clone-capture-through-write-view-keeps-loan", "2 1"
+  # `|+w|` deep-clones the List a write view sees; the closure owns its
+  # clone, so the List may be used while the closure lives (Core §7: the
+  # capture carries what the copied value holds, not the view's loan).
+  xs: List[Int] = List()
+  !xs.push(1)
+  w = !xs
+  f = |+w| w.len
+  !xs.push(2)
+  print(xs.len, f())
+
+test "review-copies-p58b-clone-capture-through-read-view-plain", "2 1"
+  obj P
+    x: Int
+
+  a = P(x: 1)
+  r = ?a
+  f = |+r| r.x
+  a.x = 2
+  print(a.x, f())
+
+test "review-copies-p59-branch-view-and-optional", "1 1 3"
+  # A branch of a `?P` and a `P?`: the view is copied out into the
+  # optional.
+  obj P
+    x: Int
+
+  fun ox(o: P?) -> Int
+    if o as p
+      return p.x
+    0
+
+  a = P(x: 1)
+  o: P? = none
+  r = ?a
+  c = r if a.x > 0 else o
+  d = o if a.x > 5 else r
+  a.x = 3
+  print(ox(c), ox(d), a.x)
+
+test "review-enumtext-args-hidden", '''
+  .red .blue
+  .red .blue
+  .red
+  .blue
+  .red none
+  .blue
+  true
+'''
+  # `from_text` of temporaries lent with `?`, List elements, loop views, a nested `from_text`, and chained `??`.
+  enum Color
+    red
+    blue
+
+  fun mk(n: Int) -> String
+    String("bl", "ue") if n > 0 else String("x")
+
+  fun nested(w: ?String) -> Color?
+    Color.from_text(Color.from_text(w)?.text)
+
+  print(Color.from_text(?String("re", "d")), Color.from_text(?mk(1)))
+  xs = List[String]()
+  !xs.push(String("red"))
+  !xs.push(mk(1))
+  print(Color.from_text(?xs[0]), Color.from_text(xs[1]))
+  for s in ?xs
+    print(Color.from_text(s))
+  print(nested("red"), nested("zzz"))
+  print(Color.from_text(mk(0)) ?? Color.from_text(mk(1)) ?? .red)
+  ok = Color.from_text(mk(1)) == .blue and Color.from_text(mk(0)) == none
+  print(ok)
+
+test "review-enumtext-closure-views", '''
+  dark_red
+  dark_red
+  dark_red
+  dark_red
+  dark_red
+  red 0
+  dark_red
+  red
+  red
+  dark_red
+  red
+  dark_red
+  dark_red
+'''
+  # `e.text` of a view captured by a closure, a write view passed on, and loop and `as` bindings that are views.
+  enum Color
+    red
+    dark_red
+
+  sub f(c: !Color)
+    g = |!c| c.text
+    print(g())
+    h = |?c| c.text
+    print(h())
+    k = |+c| c.text
+    print(k())
+
+  fun r(c: ?Color) -> Static
+    g = |?c| c.text
+    g()
+
+  sub w(c: !Color)
+    inner(!c)
+    for i in 0..1
+      print(c.text, i)
+
+  sub inner(c: !Color)
+    print(c.text)
+    c = .red
+
+  c: Color = .dark_red
+  !f(!c)
+  print(r(?c))
+  !w(!c)
+  o: Color? = .dark_red
+  if !o as v
+    print(v.text)
+    v = .red
+  if ?o as v
+    print(v.text)
+  xs = [Color.red, Color.dark_red]
+  for x in ?xs
+    print(x.text)
+  for x in !xs
+    print(x.text)
+  ys: []Color = ?xs
+  print(ys[1].text)
+
+test "review-enumtext-comptime", '''
+  strict loose .loose none
+  strict strict
+'''
+  # `.text` of a compile-time enum parameter and `from_text` of a compile-time `?String` parameter.
+  enum Mode
+    strict
+    loose
+
+  fun name[mode: Mode]() -> Static
+    mode.text
+
+  fun parse[w: ?String]() -> Mode?
+    Mode.from_text(w)
+
+  print(name[.strict](), name[Mode.loose](), parse["loose"](), parse["x"]())
+  m =! Mode.strict
+  print(m.text, name[m]())
+
+test "review-enumtext-deep-receivers", '''
+  blue
+  blue
+  red
+  red
+  red blue red blue
+  blue
+  blue
+  blue
+  red red
+  red
+  blue
+'''
+  # `e.text` through boxes and shared handles behind read and write views, fields of objects reached through views, and closures lending them.
+  enum Color
+    red
+    blue
+
+  obj Pen
+    color: Color
+    boxed: ^Color
+    shared: *Color
+    opt: Color?
+    list: List[Color]
+
+  sub wbox(b: !^Color)
+    print(b.text)
+
+  fun rbox(b: ?^Color) -> Static
+    b.text
+
+  sub wsh(h: !*Color)
+    print(h.text)
+
+  fun rsh(h: ?*Color) -> Static
+    h.text
+
+  sub wpen(p: !Pen)
+    print(p.color.text, p.boxed.text, p.shared.text, p.list[0].text)
+    if p.opt as o
+      print(o.text)
+    for x in !p.list
+      print(x.text)
+
+  fun rpen(p: ?Pen) -> Static
+    p.boxed.text
+
+  b = ^Color.blue
+  !wbox(!b)
+  print(rbox(?b))
+  h = *Color.red
+  !wsh(!h)
+  print(rsh(?h))
+  l = List[Color]()
+  !l.push(.blue)
+  p = Pen(color: .red, boxed: ^Color.blue, shared: *Color.red, opt: .blue, list: <l)
+  !wpen(!p)
+  print(rpen(?p))
+  r = ?p
+  print(r.color.text, r.shared.text)
+  f = |!p| p.color.text
+  print(f())
+  g = |?b| b.text
+  print(g())
+
+test "review-enumtext-dirmodule", '''
+  .blue none .big .little
+  1 two .dark_red .big
+  little red
+'''
+  # A directory module: a plain enum declared in one file and looked up
+  # by `from_text` in another, a private enum's table, and `Endian`'s
+  # module-level table needed by two files of the module and the root.
+  use shapes
+
+  sub main()
+    print(shapes.parse("blue"), shapes.parse("x"), shapes.order("big"), shapes.order2("little"))
+    print(shapes.from_b("two"), shapes.hid(1), shapes.Color.from_text("dark_red"), Endian.from_text("big"))
+    e: Endian = .little
+    print(e.text, shapes.Color.red.text)
+
+  file "shapes/a.rig"
+    pub enum Color
+      red
+      dark_red
+      blue
+
+    enum Hidden
+      one
+      two
+
+    pub fun from_b(w: ?String) -> Int
+      Int(Hidden.from_text(w) ?? .one)
+
+  file "shapes/b.rig"
+    pub fun parse(w: ?String) -> Color?
+      Color.from_text(w)
+
+    pub fun order(w: ?String) -> Endian?
+      Endian.from_text(w)
+
+    pub fun hid(h: Int) -> Static
+      (Hidden.from_int(h) ?? .one).text
+
+  file "shapes/c.rig"
+    pub fun order2(w: ?String) -> Endian?
+      Endian.from_text(w)
+
+test "review-enumtext-match-payload", '''
+  red
+  red
+  blue blue
+  blue .blue
+'''
+  # `c.text` of a plain enum bound by a match on a payload enum, through read and write views.
+  enum Color
+    red
+    blue
+
+  enum Shape
+    dot
+    circle(c: Color)
+    pair(a: Color, b: Color)
+
+  fun name(s: ?Shape) -> Static
+    match s
+      .dot => "dot"
+      .circle(c) => c.text
+      .pair(_, b) => b.text
+
+  sub recolor(s: !Shape)
+    match !s
+      .circle(c)
+        print(c.text)
+        c = .blue
+      _ => pass
+
+  s: Shape = .circle(c: .red)
+  print(name(?s))
+  !recolor(!s)
+  print(name(?s), name(Shape.pair(a: .red, b: .blue)))
+  match ?s
+    .circle(c) => print(c.text, Color.from_text(c.text))
+    _ => pass
+
+test "review-enumtext-module-const", '''
+  blue blue red
+  red .red
+  blue .blue
+  red
+'''
+  # `.text` of module constants (an element of `@variants`, a variant, an array element) and of a Signal's value.
+  enum Color
+    red
+    blue
+
+  all = @variants(Color)
+  fav = Color.blue
+  pair = [Color.blue, Color.red]
+
+  sub main()
+    print(all[1].text, fav.text, pair[1].text)
+    for c in all
+      print(c.text, Color.from_text(c.text))
+    s = *Signal(Color.red)
+    print(s.get().text)
+
+test "review-enumtext-positions", '''
+  .blue none
+  red
+  b
+  .red
+  .red
+  .dark_red
+  .red
+  .blue
+  .blue
+  .dark_red
+  .red none
+'''
+  # `from_text` in `if as`, a match subject with `??`, `?? return`, `catch`, a closure, an owned closure, a write view lent on as `?s`, and a test block.
+  enum Color
+    red
+    dark_red
+    blue
+
+  fun mk(n: Int) -> String
+    String("bl", "ue") if n > 0 else String("x")
+
+  fun opt(n: Int) -> String?
+    return none if n == 0
+    String("red")
+
+  fun fail(n: Int) -> String!
+    return E.bad if n == 0
+    String("dark_red")
+
+  error E
+    bad
+
+  fun parse(w: ?String) -> Color!
+    Color.from_text(w) ?? return E.bad
+
+  sub take(s: !String)
+    print(Color.from_text(?s))
+
+  sub main()
+    print(Color.from_text(mk(1)), Color.from_text(mk(0)))
+    if Color.from_text(String("re", "d")) as c
+      print(c.text)
+    match Color.from_text("blue") ?? .red
+      .red => print("r")
+      .blue => print("b")
+      _ => print("other")
+    s = opt(1) ?? String("none")
+    print(Color.from_text(s))
+    if opt(1) as o
+      print(Color.from_text(o))
+    t = fail(1) catch String("q")
+    print(Color.from_text(t))
+    print(parse("red") catch Color.blue)
+    print(parse("nope") catch Color.blue)
+    ws = String("blue")
+    !take(!ws)
+    f = |w: ?String| Color.from_text(w)
+    print(f("dark_red"))
+    h: *fun(?String) -> Color? = *|w| Color.from_text(w)
+    print(h("red"), h("x"))
+
+  test "from_text in a test"
+    print(Color.from_text("red") == Color.red, Color.blue.text == "blue")
+    print(Color.from_text(Color.dark_red.text))
+
+test "review-enumtext-self", '''
+  dark_red .dark_red .red dark_red dark_red
+  dark_red
+  red
+  red
+'''
+  # `self.text` in `?self`, `!self`, and `<self` methods, and `from_text` in associated functions and a method declared outside the body.
+  enum Color
+    red
+    dark_red
+
+    fun name(?self) -> Static
+      self.text
+
+    sub flip(!self)
+      print(self.text)
+      self = Color.from_text("red") ?? .dark_red
+      print(self.text)
+
+    fun parse(w: ?String) -> Self?
+      Color.from_text(w)
+
+    fun parse2(w: ?String) -> Color?
+      Color.from_text(w)
+
+    fun owned(<self) -> Static
+      self.text
+
+  fun Color.outside(?self) -> Static
+    self.text
+
+  c: Color = .dark_red
+  print(c.name(), Color.parse("dark_red"), Color.parse2("red"), c.outside(), c.owned())
+  !c.flip()
+  print(c.text)
+
+test "review-enumtext-temp-owner", '''
+  dark_red
+  drop pen0
+  dark_red
+  drop pen2
+  drop pen1
+  dark_red
+  drop pen3
+  dark_red
+  drop pen4
+  drop pen5
+  dark_red
+  .dark_red
+  drop pen6
+  none
+  drop pen7
+  none
+  drop pen8
+'''
+  # `.text` of a field of a temporary that owns a resource (an object, a List element, a box, a shared handle): each is dropped once; `from_text` of a temporary String.
+  enum Color
+    red
+    dark_red
+
+  obj Pen
+    color: Color
+    label: String
+
+    drop(!self)
+      print("drop", self.label)
+
+  fun make(n: Int) -> Pen
+    Pen(color: .dark_red, label: String("pen", n))
+
+  fun pens() -> List[Pen]
+    xs = List[Pen]()
+    !xs.push(make(1))
+    !xs.push(make(2))
+    xs
+
+  fun boxed() -> ^Pen
+    ^make(3)
+
+  fun shared() -> *Pen
+    *make(4)
+
+  print(make(0).color.text)
+  print(pens()[1].color.text)
+  print(boxed().color.text)
+  print(shared().color.text)
+  t = make(5).color.text
+  print(t)
+  print(Color.from_text(make(6).color.text))
+  print(Color.from_text(make(7).label))
+  print(Color.from_text(?make(8).label))
+
+test "review-enumtext-values", '''
+  blue none red none 8
+  other ["dark_red", "red"] true true false
+  dark_red dark true
+  dark_red-red 12
+  ["dark_red"]
+  ["dark_red", "red", "blue"] 3
+  100
+  dark_red
+  .dark_red .dark_red
+'''
+  # `.text` as a value: `?.` on an optional, a ternary, List[Static] and List[?String], comparisons, slices, hash, String building, iteration, and `from_text` of it.
+  enum Color
+    red
+    dark_red
+    blue
+
+  fun name_of(c: Color?) -> Static?
+    c?.text
+
+  fun parse_name(w: ?String) -> Static?
+    Color.from_text(w)?.text
+
+  fun len_of(w: ?String) -> Int?
+    Color.from_text(w)?.text.len
+
+  fun echo(s: ?String) -> ?String
+    s
+
+  print(name_of(.blue), name_of(none), parse_name("red"), parse_name("x"), len_of("dark_red"))
+  c: Color = .dark_red
+  d: Color = .red
+  k = false
+  x = c.text if k else "other"
+  names: List[Static] = List()
+  !names.push(c.text)
+  !names.push(d.text)
+  print(x, names, names[0] == "dark_red", c.text < d.text, c.text == d.text)
+  print(echo(c.text), c.text[0..4], c.text.hash() == "dark_red".hash())
+  s = String(c.text, "-", d.text)
+  print(s, s.len)
+  views: List[?String] = List()
+  !views.push(c.text)
+  print(views)
+  arr = [c.text, d.text, Color.blue.text]
+  print(arr, arr.len)
+  for ch in c.text
+    print(ch)
+    break
+  m = match c
+    .dark_red => c.text
+    _ => "?"
+  print(m)
+  y = Color.from_text(c.text) ?? .blue
+  z = Color.from_text(?s[0..8])
+  print(y, z)
+
+test "review-errors-a1", '''
+  Rec(e: Disk.full, f: none)
+  Disk.timeout Disk.timeout none
+  [Disk.full, Disk.timeout] Disk.timeout Disk.full
+  true true
+'''
+  error Disk
+    timeout
+    full
+
+  error Net
+    timeout
+
+  obj Rec
+    e: Disk = .full
+    f: Disk? = none
+
+  fun opt(n: Int) -> Disk?
+    return .timeout if n == 0
+    none
+
+  fun dflt(e: Disk = .timeout) -> Disk
+    e
+
+  r = Rec()
+  print(r)
+  o: Disk? = .timeout
+  print(o, opt(0), opt(1))
+  v = List[Disk]()
+  !v.push(.full)
+  !v.push(Disk.timeout)
+  print(v, dflt(), dflt(.full))
+  print(r.e == .full, r.e != Disk.timeout)
+  <v
+
+test "review-errors-a2", '''
+  f t
+  nt-flag net disk net ok
+'''
+  error Disk
+    timeout
+    full
+
+  error Net
+    timeout
+    refused
+
+  fun name(d: Disk) -> ?String
+    match d
+      Disk.timeout => "t"
+      .full => "f"
+
+  fun fetch(n: Int) -> Int!
+    return Net.timeout if n == 1
+    return Disk.timeout if n == 2
+    return Net.refused if n == 3
+    n
+
+  fun cls(n: Int, flag: Bool) -> ?String
+    _ = fetch(n) catch |e|
+      s = match e
+        Net.timeout if flag => "nt-flag"
+        Net.timeout, Net.refused => "net"
+        Disk.timeout, Disk.full => "disk"
+        _ => "?"
+      return s
+    "ok"
+
+  print(name(.full), name(Disk.timeout))
+  print(cls(1, true), cls(1, false), cls(2, true), cls(3, false), cls(4, false))
+
+test "review-errors-a4", '''
+  true false true false
+  0
+'''
+  error Disk
+    timeout
+
+  error Net
+    timeout
+
+  fun fetch(n: Int) -> Int!
+    return Net.timeout if n == 1
+    return Disk.timeout if n == 2
+    n
+
+  d: Disk = .timeout
+  n: Net = .timeout
+  x = fetch(2) catch |e|
+    print(e == d, e == n, d == e, e != d)
+    0
+  print(x)
+
+test "review-errors-a6", '''
+  3 0
+  .missing .red
+  rethrowing Bad.bad
+  errdefer ran
+  -1 1
+'''
+  error Bad
+    bad
+    missing
+
+  enum Color
+    red
+    missing
+
+  fun parse[T](ok: Bool, x: T) -> T!
+    return Bad.bad if not ok
+    x
+
+  fun cb(f: ?fun(Int) -> Color!) -> Color
+    f(1) catch .red
+
+  fun rethrow(n: Int) -> Int!
+    x = parse(n > 0, n) catch |e|
+      print("rethrowing", e)
+      return e
+    x
+
+  fun withdefer(n: Int) -> Int!
+    errdefer print("errdefer ran")
+    r = rethrow(n)!
+    r
+
+  print(parse(true, 3) catch 0, parse(false, 3) catch 0)
+  print(cb(|x| .missing), cb(|x|
+    return Bad.bad if x == 1
+    .missing
+  ))
+  print(withdefer(0) catch -1, withdefer(1) catch -1)
+
+fail "review-errors-b3", "`e` owns an `error`, which can't be copied into an array: write `<e` to move it or `+e` to clone it"
+  error Disk
+    full
+
+  fun f() -> Int!
+    return Disk.full
+
+  obj Holder
+    e: Disk
+    n: Int
+
+  x = f() catch |e|
+    print([e, e], e)
+    0
+  h = Holder(e: .full, n: 1)
+  v: List[Disk?] = List()
+  !v.push(.full)
+  !v.push(none)
+  print(h, v, [Disk.full])
+  <v
+  print(x)
+
+test "review-errors-b4", '''
+  true true false true
+  0
+'''
+  error Disk
+    full
+
+  error Net
+    down
+
+  fun f() -> Int!
+    return Disk.full
+
+  x = f() catch |e|
+    print(.full == e, Disk.full == e, Net.down == e, .down != e)
+    0
+  print(x)
+
+test "review-errors-b6", ".red .missing none .red"
+  enum Color
+    red
+    missing
+
+  error Lookup
+    missing
+
+  fun pick(n: Int) -> Color?!
+    return Lookup.missing if n < 0
+    return none if n == 1
+    return .missing if n == 0
+    .red
+
+  print(pick(2) catch .red, pick(0) catch .red, pick(1) catch .red, pick(-1) catch .red)
+
+test "review-errors-b9", '''
+  alias full
+  true
+  0 Disk.full
+'''
+  error Disk
+    full
+
+  type D = Disk
+
+  fun f() -> Int!
+    return D.full
+
+  x = f() catch |e|
+    match e
+      D.full => print("alias full")
+      _ => print("other")
+    print(e == D.full)
+    0
+  print(x, D.full)
+
+test "review-errors-c1", "e"
+  error Disk
+    full
+    empty
+
+  fun k3(d: ?Disk) -> ?String
+    match d
+      Disk.full => "f"
+      .empty => "e"
+
+  d: Disk = .empty
+  print(k3(?d))
+
+test "review-errors-m10", '''
+  Bx(v: 1, e: Disk.full)
+  .bad(e: Disk.full) .bad(e: Disk.empty)
+  true true
+'''
+  use lib
+
+  sub main()
+    b = lib.Bx[Int](v: 1)
+    print(b)
+    r: lib.R = .bad(.full)
+    print(r, lib.mk(0))
+    match lib.mk(0)
+      .bad(e) => print(e == .empty, e == lib.Disk.empty)
+      .ok(v) => print(v)
+
+  file "lib.rig"
+    pub error Disk
+      full
+      empty
+
+    pub obj Bx[T]
+      pub v: T
+      pub e: Disk = .full
+
+    pub enum R
+      ok(v: Int)
+      bad(e: Disk)
+
+    pub fun mk(n: Int) -> R
+      return .bad(.empty) if n == 0
+      .ok(n)
+
+test "review-errors-m2", '''
+  Rec(e: Disk.full, g: Disk.timeout) Disk.timeout Disk.full Disk.full
+  Disk.timeout true true
+  1
+  Disk.full true true false
+  7
+  f
+'''
+  use lib
+
+  sub main()
+    r = lib.Rec()
+    print(r, lib.dflt(), lib.dflt(.full), lib.dflt(lib.Disk.full))
+    print(lib.opt(0), r.e == .full, r.e == lib.Disk.full)
+    x = lib.fail(1) catch 5
+    print(x)
+    y = lib.fail(0) catch |e|
+      print(e, e == .full, e == lib.Disk.full, e == .timeout)
+      7
+    print(y)
+    match r.e
+      .timeout => print("t")
+      lib.Disk.full => print("f")
+
+  file "lib.rig"
+    pub error Disk
+      timeout
+      full
+
+    pub obj Rec
+      pub e: Disk = .full
+      pub g: Disk? = .timeout
+
+    pub fun dflt(e: Disk = .timeout) -> Disk
+      e
+
+    pub fun opt(n: Int) -> Disk?
+      return .timeout if n == 0
+      none
+
+    pub fun fail(n: Int) -> Int!
+      return Disk.full if n == 0
+      1
+
+fail "review-errors-m3-main5", "`y` is assigned but never read; use it, or discard the value with `_ = ...`"
+  use b
+
+  sub main()
+    x = b.h(0) catch |e|
+      match e
+        b.Mid.timeout => 1
+        _ => 2
+    print(x)
+    y = b.h(0) catch |e| 1 if e == .timeout else 2
+
+  file "a.rig"
+    error Hidden
+      timeout
+
+    pub fun f(n: Int) -> Int!
+      return Hidden.timeout if n == 0
+      n
+
+  file "b.rig"
+    use a
+
+    pub error Mid
+      timeout
+
+    pub fun h(n: Int) -> Int!
+      return Mid.timeout if n == 1
+      a.f(n)!
+
+test "review-errors-m4", "hi"
+  use util
+
+  error M
+    worse
+
+  test "main fails"
+    util.f(0)!
+
+  test "catch in test"
+    x = util.f(0) catch |e|
+      print(e == .bad, e)
+      0
+    print(x)
+
+  sub main()
+    print("hi")
+
+  file "util.rig"
+    pub error U
+      bad
+
+    pub fun f(n: Int) -> Int!
+      return U.bad if n == 0
+      n
+
+    test "util fails"
+      f(0)!
+
+test "review-errors-m5", "local in out"
+  use lib
+
+  LO2 = 1
+  HI2 = 5
+
+  fun r(n: Int) -> ?String
+    match n
+      LO2..HI2 => "local"
+      _ => "no"
+
+  fun q(n: Int) -> ?String
+    match n
+      lib.LO..lib.HI => "in"
+      _ => "out"
+
+  sub main()
+    print(r(2), q(2), q(7))
+
+  file "lib.rig"
+    pub LO = 1
+    pub HI = 5
+
+    pub error E
+      a
+      b
+
+test "review-errors-m6", '''
+  Disk.full Disk.empty Disk.empty
+  true false true
+  0
+  e
+'''
+  use lib
+
+  LOCAL: lib.Disk = .empty
+
+  sub main()
+    print(lib.DEF, lib.DEF2, LOCAL)
+    x = lib.fail(lib.DEF) catch |e|
+      print(e == lib.DEF, e == LOCAL, e == .full)
+      0
+    print(x)
+    match LOCAL
+      .empty => print("e")
+      .full => print("f")
+
+  file "lib.rig"
+    pub error Disk
+      full
+      empty
+
+    pub DEF: Disk = .full
+    pub DEF2 = Disk.empty
+
+    pub fun fail(e: Disk) -> Int!
+      return e
+
+test "review-errors-m7", '''
+  Disk.full
+  true
+  0
+'''
+  use lib
+
+  sub main()
+    print(lib.DEF)
+    x = lib.fail() catch |e|
+      print(e == lib.DEF)
+      0
+    print(x)
+
+  file "lib.rig"
+    pub error Disk
+      full
+
+    pub DEF = Disk.full
+
+    pub fun fail() -> Int!
+      return Disk.full

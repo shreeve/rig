@@ -1,9 +1,0 @@
-# Core §4: `sort.sort(!v)` works for a List as for an array
-use std.sort
-
-sub main()
-  v: List[Int] = List()
-  !v.push(2)
-  !v.push(1)
-  sort.sort(!v)
-  print(v)

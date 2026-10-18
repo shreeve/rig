@@ -1,6 +1,0 @@
-obj Text2
-  t: String
-
-sub main()
-  String = 3
-  print(String)

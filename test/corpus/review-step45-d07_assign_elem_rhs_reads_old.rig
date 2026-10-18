@@ -1,6 +1,0 @@
-# v[0] = Text(v[0], "!") reads the old value then drops it
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  v[0] = String(v[0], "!")
-  print(v)

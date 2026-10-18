@@ -1,4 +1,0 @@
-sub main()
-  o: String? = String("x")
-  p = +o
-  print(p)

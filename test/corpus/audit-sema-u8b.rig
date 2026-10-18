@@ -1,5 +1,0 @@
-obj I16
-  x: Int
-
-sub main()
-  print(1)

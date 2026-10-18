@@ -1,4 +1,0 @@
-sub main()
-  s = 'it''s'
-  t = "tab\there\n\x41\u{1F600}"
-  print(s, t)

@@ -1,4 +1,0 @@
-# Branch SPEC §10 Text: `List[String]` rejected, `List[^String]` the workaround (run on rig-text only)
-sub main()
-  v: List[String] = List()
-  print(v.len)

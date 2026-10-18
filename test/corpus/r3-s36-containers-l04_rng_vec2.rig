@@ -1,6 +1,0 @@
-use std.random
-
-sub main()
-  rs: List[random.Random] = List()
-  !rs.push(random.Random.seeded(1))
-  print(rs.len)

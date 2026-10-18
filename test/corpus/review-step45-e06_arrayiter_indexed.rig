@@ -1,7 +1,0 @@
-# indexed consuming loop over array of owners with break
-sub main()
-  a = [String("a"), String("b"), String("c")]
-  for x, i in <a
-    print(i, x)
-    if i == 1
-      break

@@ -1,8 +1,0 @@
-# struct literal field takes an array of owners bare (copy): reject
-obj S
-  arr: [2]String
-
-sub main()
-  a = [String("a"), String("b")]
-  s = S(arr: a)
-  print(s.arr, a)

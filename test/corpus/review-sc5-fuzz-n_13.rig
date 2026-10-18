@@ -1,6 +1,0 @@
-K: Int = 3
-
-sub main()
-  v: Int = 5
-  x: Int = (v *% 0)
-  print(x)

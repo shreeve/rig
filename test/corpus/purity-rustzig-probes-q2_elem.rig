@@ -1,9 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  v: List[P] = List()
-  !v.push(P(x: 1))
-  e = !v[0]
-  !v.push(P(x: 2))
-  e.x = 5

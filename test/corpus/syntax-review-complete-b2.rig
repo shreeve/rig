@@ -1,8 +1,0 @@
-obj Node
-  v: Int
-
-sub main()
-  v: List[*Node] = List()
-  !v.push(*Node(v: 1))
-  r = ?v[0]
-  print(r.v)

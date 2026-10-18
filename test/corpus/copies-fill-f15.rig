@@ -1,5 +1,0 @@
-sub main()
-  t = String("abc")
-  a = [2 of ?t]
-  !t.add("d")
-  print(a[0])

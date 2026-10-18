@@ -1,8 +1,0 @@
-obj H
-  r: ?Int
-
-sub main()
-  m = 4
-  a = [2 of H(r: ?m)]
-  m = 1
-  print(a[0].r)

@@ -1,7 +1,0 @@
-fun take(v: List[Int]) -> Int
-  v.len
-
-sub main()
-  v: List[Int] = List()
-  !v.push(0)
-  v[0] = take(<v)

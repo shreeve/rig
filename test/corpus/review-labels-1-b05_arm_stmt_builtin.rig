@@ -1,5 +1,0 @@
-sub main()
-  k = 3
-  match k
-    3 => print(@size(Int))
-    _ => print(@align(Int))

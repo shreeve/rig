@@ -1,3 +1,0 @@
-sub main()
-  errdefer print("never")
-  print("ok")

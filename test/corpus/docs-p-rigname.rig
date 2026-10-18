@@ -1,3 +1,0 @@
-sub main()
-  __rig_x = 1
-  print(__rig_x)

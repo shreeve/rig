@@ -1,9 +1,0 @@
-obj P
-  own: List[Int]
-  r: ?List[Int]
-
-sub main()
-  v: List[Int] = List()
-  p = P(own: List(), r: ?v)
-  p.r = ?p.own
-  print(p.r.len)

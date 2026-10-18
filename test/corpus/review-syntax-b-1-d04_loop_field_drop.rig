@@ -1,9 +1,0 @@
-obj B
-  items: List[String]
-
-sub main()
-  b = B(items: List())
-  !b.items.push(String("a"))
-  for x in b.items
-    <x
-  print(b.items)

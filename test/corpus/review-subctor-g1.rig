@@ -1,7 +1,0 @@
-obj R
-  items: List[Int]
-
-sub main()
-  v = List[Int]()
-  r = R(v)
-  print(r, v)

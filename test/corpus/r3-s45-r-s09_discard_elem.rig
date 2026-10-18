@@ -1,5 +1,0 @@
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  _ = v[0]
-  print(v)

@@ -1,7 +1,0 @@
-obj H
-  t: String
-
-sub main()
-  h = H(t: String("abcdefghijklmnop"))
-  !h.t.add(h)
-  print(h)

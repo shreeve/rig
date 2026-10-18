@@ -1,4 +1,0 @@
-# Core §1 and §4 mark Text as built
-sub main()
-  t = String("a")
-  print(t)

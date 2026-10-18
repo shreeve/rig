@@ -1,4 +1,0 @@
-sub main()
-  v = List[Int]()
-  b = ^v
-  print(b, v)

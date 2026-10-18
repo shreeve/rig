@@ -1,6 +1,0 @@
-obj T
-  none: Int
-
-sub main()
-  t = T(none: 1)
-  print(t.none)

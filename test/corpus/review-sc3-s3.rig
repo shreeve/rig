@@ -1,3 +1,0 @@
-sub main()
-  e: [0]Int = []
-  print(e.get(0))

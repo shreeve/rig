@@ -1,7 +1,0 @@
-# take an optional Box element and unbox it
-sub main()
-  v: List[^Int?] = List()
-  !v.push(^1)
-  if <v[0] as b
-    print(<b.unbox())
-  print(v)

@@ -1,4 +1,0 @@
-use lib
-
-pub fun top() -> lib.Level
-  lib.Level.high

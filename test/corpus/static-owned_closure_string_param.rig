@@ -1,8 +1,0 @@
-fun later(s: ?String) -> *sub()
-  *|?s| print(s)
-
-sub main()
-  t = String("abc")
-  f = later(?t[..])
-  <t
-  f()

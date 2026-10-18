@@ -1,8 +1,0 @@
-# passing an owning element bare to a parameter that owns it: reject
-fun eat(v: List[Int]) -> Int
-  v.len
-
-sub main()
-  vv: List[List[Int]] = List()
-  !vv.push(List())
-  print(eat(vv[0]))

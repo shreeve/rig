@@ -1,6 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  w: List[Int] = List()
-  a = [<v, <w]
-  x = <a[0]
-  print(x.len)

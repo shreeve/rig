@@ -1,7 +1,0 @@
-# for x in v (List[Text?]); inside take <v[0]
-sub main()
-  v: List[String?] = List()
-  !v.push(String("a"))
-  for x in v
-    t = <v[0]
-    print(x, t)

@@ -1,9 +1,0 @@
-# +v of a List of views must carry the views' loans
-sub main()
-  t = String("viewed")
-  v: List[?String] = List()
-  !v.push(?t)
-  w = +v
-  <v
-  <t
-  print(w)

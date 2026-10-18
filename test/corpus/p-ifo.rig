@@ -1,9 +1,0 @@
-fun f(o: String?) -> Int
-  if ?o as x
-    print(x)
-  if <o as y
-    print(y)
-  1
-
-sub main()
-  print(f(String("a")))

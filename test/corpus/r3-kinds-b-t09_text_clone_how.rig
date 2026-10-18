@@ -1,7 +1,0 @@
-obj Named
-  name: String
-
-sub main()
-  a = Named(name: String("x"))
-  b = +a
-  print(b.name)

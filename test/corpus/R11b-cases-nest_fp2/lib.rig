@@ -1,9 +1,0 @@
-obj Wrap[T]
-  v: T
-
-  fun tag[U](?self, u: U) -> Wrap[Wrap[U]]
-    Wrap(v: Wrap(v: u))
-
-pub fun make[T](x: T) -> Int
-  w = Wrap(v: x)
-  1

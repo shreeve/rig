@@ -1,6 +1,0 @@
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  c = +v[0]
-  !c.add("b")
-  print(v, c)

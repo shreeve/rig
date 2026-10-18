@@ -1,9 +1,0 @@
-obj B
-  n: Int
-
-fun look(b: ?B) -> Int
-  b.n
-
-sub main()
-  h = *B(n: 3)
-  print(look(?h))

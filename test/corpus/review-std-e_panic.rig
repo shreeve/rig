@@ -1,3 +1,0 @@
-fun main() -> Int
-  v = List[Int]()
-  v[3]

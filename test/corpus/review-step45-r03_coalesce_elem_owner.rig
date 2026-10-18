@@ -1,6 +1,0 @@
-# v[0] ?? Text("d") would move/copy an owning element out: reject
-sub main()
-  v: List[String?] = List()
-  !v.push(String("a"))
-  t = v[0] ?? String("d")
-  print(t, v)

@@ -1,6 +1,0 @@
-sub main()
-  v: List[Int?] = List()
-  !v.push(7)
-  for x in ?v
-    t = <v[0]
-    print(x, t)

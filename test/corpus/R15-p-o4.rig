@@ -1,4 +1,0 @@
-sub main()
-  v: List[*Cell[Int]] = List()
-  !v.push(*Cell(value: 1))
-  w = !v[..]

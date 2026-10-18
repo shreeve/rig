@@ -13,8 +13,7 @@
 # programs that hold either by value stop in sema, before either
 # checker decides them. A header whose subject makes a temporary and
 # reaches no place is rejected in sema (`rejectHeaderCopy`), so the
-# corpus programs that have one stop there too.
-tests 3663
-corpus 16829
+# programs that have one stop there too.
+tests 20031
 docs 450
 matrix 23361

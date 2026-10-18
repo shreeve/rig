@@ -1,8 +1,0 @@
-fun id[T](x: T) -> T
-  x
-
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  r = id(?v)
-  print(r.len)

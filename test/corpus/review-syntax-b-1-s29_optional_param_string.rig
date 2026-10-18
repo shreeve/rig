@@ -1,8 +1,0 @@
-fun h(s: (?String)?) -> ?String
-  s ?? "none"
-
-sub main()
-  t = String("hello")
-  r = h(?t[1..])
-  !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
-  print(r)

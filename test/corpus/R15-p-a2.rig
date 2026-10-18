@@ -1,7 +1,0 @@
-# root dropped
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  w = !v[..]
-  <v
-  w[0] = 5

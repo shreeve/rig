@@ -1,9 +1,0 @@
-# !v[0] and ?v[1] in the same call -- aliasing if i==j
-sub both(a: !String, b: ?String)
-  !a.add(b)
-
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  both(!v[0], ?v[0])
-  print(v)

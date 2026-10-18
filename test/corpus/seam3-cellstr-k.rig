@@ -1,7 +1,0 @@
-sub main()
-  t = String("hello")
-  r = id(?t[..])
-  print(r)
-
-fun id[T](x: T) -> T
-  x

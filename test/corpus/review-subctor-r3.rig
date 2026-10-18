@@ -1,4 +1,0 @@
-sub main()!
-  v = List[Int]()
-  !v.push(1)
-  print(v)

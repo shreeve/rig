@@ -1,8 +1,0 @@
-# array of optional owners, consuming loop
-sub main()
-  a: [2]String? = [String("a"), none]
-  for x in <a
-    if x as t
-      print(t)
-    else
-      print("none")

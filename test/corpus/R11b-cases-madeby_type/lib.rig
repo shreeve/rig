@@ -1,8 +1,0 @@
-fun helper[T](x: T) -> T
-  x + x
-
-pub obj Wrap[T]
-  v: T
-
-  fun dbl(?self) -> T
-    helper(self.v)

@@ -1,6 +1,0 @@
-sub main()
-  t = String("ab")
-  u = +t
-  !u.add("c")
-  b = ^String("x")
-  print(t, u, ?b)

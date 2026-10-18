@@ -1,8 +1,0 @@
-use a
-
-sub main()
-  x = a.f(0) catch |e|
-    match e
-      a.Hidden.timeout => 1
-      _ => 2
-  print(x)

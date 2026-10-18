@@ -1,5 +1,0 @@
-sub main()
-  t = String("hi")
-  f = |+t| t.len
-  print(f())
-  <t

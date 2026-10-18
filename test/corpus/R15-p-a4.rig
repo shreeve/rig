@@ -1,7 +1,0 @@
-# clear / pop
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  w = !v[..]
-  !v.clear()
-  w[0] = 5

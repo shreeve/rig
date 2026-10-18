@@ -1,5 +1,0 @@
-sub main()
-  f = |t: String|
-    <t
-    print(1)
-  f(String("a"))

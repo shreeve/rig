@@ -1,7 +1,0 @@
-sub main()
-  t = String("abc")
-  n = 0
-  for b in t
-    n += 1
-    !t.add("x")
-  print(n)

@@ -1,4 +1,0 @@
-sub main()
-  t = String("a")
-  a = [t, String("b")]
-  print(a, t)

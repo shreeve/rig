@@ -1,9 +1,0 @@
-enum Option[T]
-  some(value: T)
-  nothing
-
-sub main()
-  v: List[Int] = List()
-  o: Option[List[Int]] = .some(v)
-  p = Option.some(v)
-  print(v.len)

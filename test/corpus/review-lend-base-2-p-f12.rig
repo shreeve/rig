@@ -1,4 +1,0 @@
-sub main()
-  s = "abc"
-  x = (<(?s)).get(0)
-  print(x ?? 0)

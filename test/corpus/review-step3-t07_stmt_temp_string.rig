@@ -1,9 +1,0 @@
-fun first(s: ?String) -> ?String
-  s[..1]
-
-fun mk() -> String
-  String("hello")
-
-sub main()
-  s = first(mk())
-  print(s)

@@ -1,9 +1,0 @@
-fun pick(s: ?String, k: ?Int) -> ?String
-  s[k..]
-
-sub main()
-  t = String("hello")
-  k = 1
-  r = pick(?t, ?k)
-  k = 2
-  print(r, k)

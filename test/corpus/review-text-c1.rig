@@ -1,9 +1,0 @@
-obj S
-  s: ?String
-
-sub main()
-  out = S(s: "lit")
-  if true
-    t = String("scoped text here")
-    out = S(s: ?t[..])
-  print(out)

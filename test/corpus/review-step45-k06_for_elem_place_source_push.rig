@@ -1,9 +1,0 @@
-# for over an element place source (List[List[Text]]), push to outer inside
-sub main()
-  m: List[List[String]] = List()
-  row: List[String] = List()
-  !row.push(String("q"))
-  !m.push(<row)
-  for t in m[0]
-    !m.push(List())
-    print(t)

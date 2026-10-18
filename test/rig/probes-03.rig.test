@@ -1,0 +1,4569 @@
+# Probes from past reviews and audits, 3 of 41: R3c1-f_nan_slice to audit-emit-q1.
+
+test "R3c1-f nan slice", "false false false false"
+  obj S
+    v: Float
+
+  nan = 0.0 / 0.0
+  xs = [nan, 1.0]
+  ys = [nan, 1.0]
+  ss = [S(v: nan)]
+  print(xs == xs, ?xs[0..2] == ?xs[0..2], ?xs[0..2] == ?ys[0..2], ?ss[0..1] == ?ss[0..1])
+
+fail "R3c1-m2", "`==` is not defined for `[1]?T`: `?T` is a view"
+  use geo
+
+  obj Wrap[T]
+    item: T
+
+  fun eqT[T](a: ?T, b: ?T) -> Bool
+    a == b
+
+  fun wrapEq[T](a: ?T, b: ?T) -> Bool
+    x: T? = none
+    x == none and [a] == [b]
+
+  sub main()
+    t = geo.Tagged(id: 1, h: *geo.Node(n: 1))
+    print(eqT(?t, ?t))
+    n = *geo.Node(n: 1)
+    print(wrapEq(?n, ?n))
+
+  file "geo.rig"
+    pub obj Node
+      n: Int
+
+    obj Wrap[T]
+      item: T
+      id: Int
+
+    enum Opt[T]
+      some(value: T)
+      nothing
+
+    pub obj Point
+      x: Int
+      y: Int
+
+    pub obj Tagged
+      id: Int
+      h: *Node
+
+    fun same[T](a: T, b: T) -> Bool
+      Wrap(item: a, id: 1) == Wrap(item: b, id: 1)
+
+    pub fun check(a: Point, b: Point) -> Bool
+      o: Opt[Point] = .some(value: a)
+      p: Opt[Point] = .some(value: b)
+      o == p and same(a, b) and Wrap(item: [a], id: 2) == Wrap(item: [b], id: 2)
+
+test "R3c1-t01 nested", '''
+  true false false true true false
+  true false true true
+  true true
+  true true
+  true false
+'''
+  obj Tag
+    name: ?String
+    code: U8
+
+  enum Box
+    full(items: [2]Tag)
+    empty
+
+  obj Holder
+    b: Box?
+    arr: [2]Box
+
+  t1 = Tag(name: "a", code: 1)
+  t2 = Tag(name: "b", code: 2)
+  x: Box? = .full(items: [t1, t2])
+  y: Box? = .full(items: [t1, t2])
+  z: Box? = .full(items: [t2, t1])
+  e: Box? = none
+  print(x == y, x == z, x == e, e == none, x != none, x != y)
+  h1 = Holder(b: x, arr: [.empty, .full(items: [t1, t1])])
+  h2 = Holder(b: y, arr: [.empty, .full(items: [t1, t1])])
+  h3 = Holder(b: none, arr: [.empty, .full(items: [t1, t1])])
+  print(h1 == h2, h1 == h3, h3 == h3, h1 != h3)
+  hs = [h1, h2]
+  gs = [h2, h1]
+  print(?hs[0..2] == ?gs[0..2], hs == gs)
+  print(t1 == Tag(name: "a", code: 1), Tag(name: "a", code: 1) == t1)
+  print(x == .full(items: [t1, t2]), .empty == x)
+
+test "R3c1-t02 err", '''
+  true true false true true false
+  true false true
+  true false false false
+  false false false
+  true false
+  0 0
+'''
+  error E
+    bad
+    worse
+
+  error F
+    bad
+
+  obj R
+    e: E
+    oe: E?
+
+  fun fail(n: Int) -> Int!
+    return E.bad if n < 0
+    return F.bad if n == 0
+    n
+
+  a: E = .bad
+  b: E? = .bad
+  c: E? = none
+  print(a == b, b == a, b == c, c == none, b == .bad, b == E.worse)
+  r1 = R(e: .bad, oe: .worse)
+  r2 = R(e: .bad, oe: .worse)
+  r3 = R(e: .bad, oe: none)
+  print(r1 == r2, r1 == r3, r3 == R(e: .bad, oe: none))
+  x = fail(-1) catch |err|
+    print(err == E.bad, err == F.bad, err == .worse, err != a)
+    0
+  y = fail(0) catch |err|
+    print(err == E.bad, err == a, a == err)
+    0
+  opts = [b, c]
+  print(opts == [b, c], opts == [c, b])
+  print(x, y)
+
+test "R3c1-t03 float", '''
+  true true
+  false true true
+  false true
+  false false true
+  true false
+  false false
+  false true true true
+  true
+'''
+  obj F
+    v: Float
+    w: F32
+
+  obj B
+    b: U8
+    i: I64
+
+  enum Val
+    num(x: Float)
+    pair(a: U8, b: U8)
+
+  nan = 0.0 / 0.0
+  z = 0.0
+  nz = -0.0
+  print(F(v: z, w: 0.0) == F(v: nz, w: -0.0), F(v: nan, w: 1.0) != F(v: nan, w: 1.0))
+  fa = [nan, 1.0]
+  print(fa == fa, fa != fa, [z] == [nz])
+  print(?fa[0..2] == ?fa[0..2], ?fa[1..2] == ?fa[1..2])
+  o: Float? = nan
+  print(o == o, o == nan, o != o)
+  bb = B(b: 255, i: -1)
+  print(bb == B(b: 255, i: -1), bb == B(b: 254, i: -1))
+  v1: Val = .num(x: nan)
+  print(v1 == v1, v1 == .num(x: nan))
+  p1: Val = .pair(a: 1, b: 2)
+  p2: Val = .pair(a: 1, b: 3)
+  p3: Val = .pair(a: 1, b: 2)
+  print(p1 == p2, p1 == p3, p1 == .pair(a: 1, b: 2), p1 != .pair(a: 2, b: 1))
+  n0: Val = .num(x: 0.0)
+  print(n0 == .num(x: -0.0))
+
+test "R3c1-t04 str", '''
+  false true false true false true
+  false true true false 3
+  true false true true true true
+  false true
+  true false false true
+  true false false
+  false true true
+'''
+  obj W
+    s: ?String
+
+  a = "abc"
+  b = "abcd"
+  z1 = "a\x00b"
+  z2 = "a\x00c"
+  z3 = "a"
+  print(a == b, a < b, b < a, a <= a, a >= b, b > a)
+  print(z1 == z2, z1 < z2, z3 < z1, z1 == z3, z1.len)
+  e = "é"
+  f = "z"
+  print(e > f, e < f, "" < "a", "" == "", "" <= "", "a" > "")
+  print(W(s: z1) == W(s: z2), W(s: z1) == W(s: "a\x00b"))
+  print("ab" < "abc", "abc" < "ab", "b" < "abc", "B" < "a")
+  print("a" == "a", "ab" != "ab", "a" < "a")
+  xs: [3]U8 = [1, 2, 3]
+  ys: [2]U8 = [1, 2]
+  print(?xs[0..3] < ?ys[0..2], ?xs[0..2] <= ?ys[0..2], ?xs[0..3] > ?ys[0..2])
+
+test "R3c1-t05 view", '''
+  true true true true true
+  true
+  true
+  true
+  true
+'''
+  obj P
+    x: Int
+    y: Int
+
+  enum S
+    c(p: P)
+    n
+
+  fun eqb(a: ?P, b: ?P) -> Bool
+    a == b
+
+  fun eqm(a: !P, b: P) -> Bool
+    a == b and b == a
+
+  fun ords(a: ?String, b: ?String) -> Bool
+    a < b and not (b < a) and a <= ?b
+
+  fun eqs(a: ?S, b: ?S) -> Bool
+    a == b and a != .n
+
+  fun eqarr(a: ?[2]P, b: [2]P) -> Bool
+    a == b
+
+  fun eqopt(a: ?P?, b: P) -> Bool
+    a == b and b == a and a != none
+
+  p = P(x: 1, y: 2)
+  q = P(x: 1, y: 2)
+  print(eqb(?p, ?q), eqm(!p, q), p == ?q, ?p == q, ?p == ?q)
+  print(ords(?"a", "b"))
+  s: S = .c(p: p)
+  print(eqs(?s, ?s))
+  arr = [p, q]
+  print(eqarr(?arr, arr))
+  o: P? = p
+  print(eqopt(?o, q))
+
+test "R3c1-t06 side", '''
+  mk a
+  mk b
+  false
+  name x
+  name y
+  name p
+  name q
+  true true
+  true
+  true
+  true
+  true true false
+'''
+  error E
+    bad
+
+  obj P
+    x: Int
+    s: ?String
+
+  fun mk(tag: ?String, x: Int) -> P
+    print("mk", tag)
+    P(x: x, s: tag)
+
+  fun name(tag: ?String) -> ?String
+    print("name", tag)
+    tag
+
+  fun get(n: Int) -> P!
+    return E.bad if n < 0
+    P(x: n, s: "g")
+
+  fun getS(n: Int) -> (?String)!
+    return E.bad if n < 0
+    "s"
+
+  fun getO(n: Int) -> P?
+    return none if n < 0
+    P(x: n, s: "g")
+
+  fun run() -> Bool!
+    a = get(1)! == get(1)!
+    b = getS(1)! <= getS(2)!
+    c = get(1)! != P(x: 1, s: "g")
+    a and b and not c
+
+  fun runo() -> Bool?
+    getO(1)? == getO(1)?
+
+  print(mk("a", 1) == mk("b", 1))
+  print(name("x") < name("y"), name("p") != name("q"))
+  print(run() catch false)
+  print(runo() == true)
+  print((get(1) catch P(x: 0, s: "")) == P(x: 1, s: "g"))
+  print(getO(2) == P(x: 2, s: "g"), getO(-1) == none, getO(-1) == P(x: 1, s: "g"))
+
+test "R3c1-t07 retview", '''
+  true false false
+  true true
+  true true
+  true true true
+'''
+  obj P
+    x: Int
+    s: ?String
+
+  obj Bag
+    items: List[P]
+
+    fun first(?self) -> ?P
+      ?self.items[0]
+
+  fun pick(a: ?P, b: ?P, f: Bool) -> ?P
+    a if f else b
+
+  fun slot(a: !P) -> !P
+    a
+
+  fun pickS(a: ?String, b: ?String) -> ?String
+    a
+
+  p = P(x: 1, s: "a")
+  q = P(x: 1, s: "a")
+  r = P(x: 2, s: "b")
+  print(pick(?p, ?r, true) == pick(?q, ?r, true), pick(?p, ?r, false) == q, p == pick(?p, ?r, false))
+  print(slot(!p) == q, q != slot(!r))
+  u = "u"
+  v = "v"
+  print(pickS(?u, ?v) < pickS(?v, ?u), pickS(?u, ?v) == "u")
+  bag = Bag(items: List[P]())
+  !bag.items.push(P(x: 1, s: "a"))
+  print(bag.first() == p, bag.items[0] == p, ?bag.items[0] == ?p)
+
+test "R3c1-t08 vec", '''
+  true true true true
+  true true true true
+  true true
+  true
+'''
+  obj P
+    x: Int
+    s: ?String
+
+  v = List[P]()
+  !v.push(P(x: 1, s: "a"))
+  !v.push(P(x: 1, s: "a"))
+  w = List[?String]()
+  !w.push("hi")
+  !w.push("hi")
+  b = List[U8]()
+  !b.push(1)
+  !b.push(2)
+  print(?v[0..1] == ?v[1..2], ?w[0..1] == ?w[1..2], ?b[0..1] < ?b[1..2], ?b[0..2] == ?b[0..2])
+  s = "hello"
+  t = s[1..3]
+  k = P(x: 0, s: t)
+  print(k == P(x: 0, s: "el"), t < s, s[0..0] == "", s[0..5] == s)
+  e: [0]Int = []
+  f: [0]Int = []
+  print(e == f, ?e[0..0] == ?f[0..0])
+  empty = List[P]()
+  print(?empty[0..0] == ?v[0..0])
+
+test "R3c1-t11b", '''
+  false true
+  true
+'''
+  obj N
+    n: Int
+
+  obj S
+    p: *N
+
+  o: S? = S(p: *N(n: 1))
+  print(o == none, o != none)
+  v: List[Int]? = none
+  print(v == none)
+
+test "R3c1-t12 ctx2", '''
+  true
+  false true
+  drop 1
+'''
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum A
+    v(items: List[Int])
+    e
+
+  enum D
+    r(res: R)
+    e
+
+  a: A = .e
+  print(a == .e)
+  d: D = .r(res: R(n: 1))
+  print(d == .e, .e != d)
+
+test "R3c1-t13 drop", "1"
+  obj R
+    n: Int
+
+    sub drop(!self)
+      print("drop", self.n)
+
+  enum D
+    r(res: R)
+    e
+
+  d: D = .r(res: R(n: 1))
+  match d
+    .r(res) => print(res.n)
+    .e => print("e")
+
+test "R3c1-t13b", '''
+  5
+  false
+'''
+  obj R
+    n: Int
+
+    sub drop(!self)
+      print("drop", self.n)
+
+  enum D
+    r(res: R)
+    e
+
+  x = R(n: 5)
+  print(x.n)
+  d: D = .r(res: R(n: 1))
+  print(d == .e)
+
+test "R3c1-t19 ctx", '''
+  if-eq
+  elif-lt
+  2 d
+  guard
+  yes
+  true false true
+  true false
+  true
+  true
+  true
+  2
+  true
+'''
+  obj P
+    x: Int
+    s: ?String
+
+  obj Flags
+    same: Bool
+    less: Bool
+
+  enum K
+    a(p: P)
+    b
+
+  p = P(x: 1, s: "a")
+  q = P(x: 1, s: "a")
+  if p == q
+    print("if-eq")
+  if p != q
+    print("bad")
+  else if "a" < "b"
+    print("elif-lt")
+  s = "a"
+  n = 0
+  while s <= "c" and n < 3 : n += 1
+    s = "d" if n == 1 else "b"
+  print(n, s)
+  print("guard") if [p] == [q]
+  t = "yes" if p == q and not ("x" >= "y") else "no"
+  print(t)
+  f = Flags(same: p == q, less: p.s < q.s)
+  print(f.same, f.less, f == Flags(same: true, less: false))
+  print((p == q) == ("a" < "b"), not (p == q))
+  eq: fun(P, P) -> Bool = |a, b| a == b
+  print(eq(p, q))
+  k: K = .a(p: p)
+  print(k == .a(p: q) and k != .b)
+  m = match k
+    .a(r) => r == p
+    .b => false
+  print(m)
+  cnt = 0
+  for c in [p, q, P(x: 2, s: "z")]
+    cnt += 1 if c == p else 0
+  print(cnt)
+  xs = [P(x: 0, s: "")]
+  xs[0] = p if xs[0] == P(x: 0, s: "") else q
+  print(xs[0] == p)
+
+test "R3c1-t21 deep", "true"
+  obj S0
+    v: ?String
+    o: Int?
+
+  enum E1
+    some(x: S0)
+    empty
+
+  obj S1
+    e: E1?
+    s: U8
+
+  enum E2
+    some(x: S1)
+    empty
+
+  obj S2
+    e: E2?
+    s: U8
+
+  enum E3
+    some(x: S2)
+    empty
+
+  obj S3
+    e: E3?
+    s: U8
+
+  enum E4
+    some(x: S3)
+    empty
+
+  obj S4
+    e: E4?
+    s: U8
+
+  enum E5
+    some(x: S4)
+    empty
+
+  obj S5
+    e: E5?
+    s: U8
+
+  enum E6
+    some(x: S5)
+    empty
+
+  obj S6
+    e: E6?
+    s: U8
+
+  enum E7
+    some(x: S6)
+    empty
+
+  obj S7
+    e: E7?
+    s: U8
+
+  enum E8
+    some(x: S7)
+    empty
+
+  obj S8
+    e: E8?
+    s: U8
+
+  enum E9
+    some(x: S8)
+    empty
+
+  obj S9
+    e: E9?
+    s: U8
+
+  enum E10
+    some(x: S9)
+    empty
+
+  obj S10
+    e: E10?
+    s: U8
+
+  enum E11
+    some(x: S10)
+    empty
+
+  obj S11
+    e: E11?
+    s: U8
+
+  enum E12
+    some(x: S11)
+    empty
+
+  obj S12
+    e: E12?
+    s: U8
+
+  enum E13
+    some(x: S12)
+    empty
+
+  obj S13
+    e: E13?
+    s: U8
+
+  enum E14
+    some(x: S13)
+    empty
+
+  obj S14
+    e: E14?
+    s: U8
+
+  enum E15
+    some(x: S14)
+    empty
+
+  obj S15
+    e: E15?
+    s: U8
+
+  enum E16
+    some(x: S15)
+    empty
+
+  obj S16
+    e: E16?
+    s: U8
+
+  enum E17
+    some(x: S16)
+    empty
+
+  obj S17
+    e: E17?
+    s: U8
+
+  enum E18
+    some(x: S17)
+    empty
+
+  obj S18
+    e: E18?
+    s: U8
+
+  enum E19
+    some(x: S18)
+    empty
+
+  obj S19
+    e: E19?
+    s: U8
+
+  enum E20
+    some(x: S19)
+    empty
+
+  obj S20
+    e: E20?
+    s: U8
+
+  enum E21
+    some(x: S20)
+    empty
+
+  obj S21
+    e: E21?
+    s: U8
+
+  enum E22
+    some(x: S21)
+    empty
+
+  obj S22
+    e: E22?
+    s: U8
+
+  enum E23
+    some(x: S22)
+    empty
+
+  obj S23
+    e: E23?
+    s: U8
+
+  enum E24
+    some(x: S23)
+    empty
+
+  obj S24
+    e: E24?
+    s: U8
+
+  enum E25
+    some(x: S24)
+    empty
+
+  obj S25
+    e: E25?
+    s: U8
+
+  enum E26
+    some(x: S25)
+    empty
+
+  obj S26
+    e: E26?
+    s: U8
+
+  enum E27
+    some(x: S26)
+    empty
+
+  obj S27
+    e: E27?
+    s: U8
+
+  enum E28
+    some(x: S27)
+    empty
+
+  obj S28
+    e: E28?
+    s: U8
+
+  enum E29
+    some(x: S28)
+    empty
+
+  obj S29
+    e: E29?
+    s: U8
+
+  enum E30
+    some(x: S29)
+    empty
+
+  obj S30
+    e: E30?
+    s: U8
+
+  enum E31
+    some(x: S30)
+    empty
+
+  obj S31
+    e: E31?
+    s: U8
+
+  enum E32
+    some(x: S31)
+    empty
+
+  obj S32
+    e: E32?
+    s: U8
+
+  enum E33
+    some(x: S32)
+    empty
+
+  obj S33
+    e: E33?
+    s: U8
+
+  enum E34
+    some(x: S33)
+    empty
+
+  obj S34
+    e: E34?
+    s: U8
+
+  enum E35
+    some(x: S34)
+    empty
+
+  obj S35
+    e: E35?
+    s: U8
+
+  enum E36
+    some(x: S35)
+    empty
+
+  obj S36
+    e: E36?
+    s: U8
+
+  enum E37
+    some(x: S36)
+    empty
+
+  obj S37
+    e: E37?
+    s: U8
+
+  enum E38
+    some(x: S37)
+    empty
+
+  obj S38
+    e: E38?
+    s: U8
+
+  enum E39
+    some(x: S38)
+    empty
+
+  obj S39
+    e: E39?
+    s: U8
+
+  enum E40
+    some(x: S39)
+    empty
+
+  obj S40
+    e: E40?
+    s: U8
+
+  enum E41
+    some(x: S40)
+    empty
+
+  obj S41
+    e: E41?
+    s: U8
+
+  enum E42
+    some(x: S41)
+    empty
+
+  obj S42
+    e: E42?
+    s: U8
+
+  enum E43
+    some(x: S42)
+    empty
+
+  obj S43
+    e: E43?
+    s: U8
+
+  enum E44
+    some(x: S43)
+    empty
+
+  obj S44
+    e: E44?
+    s: U8
+
+  enum E45
+    some(x: S44)
+    empty
+
+  obj S45
+    e: E45?
+    s: U8
+
+  enum E46
+    some(x: S45)
+    empty
+
+  obj S46
+    e: E46?
+    s: U8
+
+  enum E47
+    some(x: S46)
+    empty
+
+  obj S47
+    e: E47?
+    s: U8
+
+  enum E48
+    some(x: S47)
+    empty
+
+  obj S48
+    e: E48?
+    s: U8
+
+  enum E49
+    some(x: S48)
+    empty
+
+  obj S49
+    e: E49?
+    s: U8
+
+  enum E50
+    some(x: S49)
+    empty
+
+  obj S50
+    e: E50?
+    s: U8
+
+  enum E51
+    some(x: S50)
+    empty
+
+  obj S51
+    e: E51?
+    s: U8
+
+  enum E52
+    some(x: S51)
+    empty
+
+  obj S52
+    e: E52?
+    s: U8
+
+  enum E53
+    some(x: S52)
+    empty
+
+  obj S53
+    e: E53?
+    s: U8
+
+  enum E54
+    some(x: S53)
+    empty
+
+  obj S54
+    e: E54?
+    s: U8
+
+  enum E55
+    some(x: S54)
+    empty
+
+  obj S55
+    e: E55?
+    s: U8
+
+  enum E56
+    some(x: S55)
+    empty
+
+  obj S56
+    e: E56?
+    s: U8
+
+  enum E57
+    some(x: S56)
+    empty
+
+  obj S57
+    e: E57?
+    s: U8
+
+  enum E58
+    some(x: S57)
+    empty
+
+  obj S58
+    e: E58?
+    s: U8
+
+  enum E59
+    some(x: S58)
+    empty
+
+  obj S59
+    e: E59?
+    s: U8
+
+  enum E60
+    some(x: S59)
+    empty
+
+  obj S60
+    e: E60?
+    s: U8
+
+  enum E61
+    some(x: S60)
+    empty
+
+  obj S61
+    e: E61?
+    s: U8
+
+  enum E62
+    some(x: S61)
+    empty
+
+  obj S62
+    e: E62?
+    s: U8
+
+  enum E63
+    some(x: S62)
+    empty
+
+  obj S63
+    e: E63?
+    s: U8
+
+  enum E64
+    some(x: S63)
+    empty
+
+  obj S64
+    e: E64?
+    s: U8
+
+  enum E65
+    some(x: S64)
+    empty
+
+  obj S65
+    e: E65?
+    s: U8
+
+  enum E66
+    some(x: S65)
+    empty
+
+  obj S66
+    e: E66?
+    s: U8
+
+  enum E67
+    some(x: S66)
+    empty
+
+  obj S67
+    e: E67?
+    s: U8
+
+  enum E68
+    some(x: S67)
+    empty
+
+  obj S68
+    e: E68?
+    s: U8
+
+  enum E69
+    some(x: S68)
+    empty
+
+  obj S69
+    e: E69?
+    s: U8
+
+  enum E70
+    some(x: S69)
+    empty
+
+  obj S70
+    e: E70?
+    s: U8
+
+  enum E71
+    some(x: S70)
+    empty
+
+  obj S71
+    e: E71?
+    s: U8
+
+  enum E72
+    some(x: S71)
+    empty
+
+  obj S72
+    e: E72?
+    s: U8
+
+  enum E73
+    some(x: S72)
+    empty
+
+  obj S73
+    e: E73?
+    s: U8
+
+  enum E74
+    some(x: S73)
+    empty
+
+  obj S74
+    e: E74?
+    s: U8
+
+  enum E75
+    some(x: S74)
+    empty
+
+  obj S75
+    e: E75?
+    s: U8
+
+  enum E76
+    some(x: S75)
+    empty
+
+  obj S76
+    e: E76?
+    s: U8
+
+  enum E77
+    some(x: S76)
+    empty
+
+  obj S77
+    e: E77?
+    s: U8
+
+  enum E78
+    some(x: S77)
+    empty
+
+  obj S78
+    e: E78?
+    s: U8
+
+  enum E79
+    some(x: S78)
+    empty
+
+  obj S79
+    e: E79?
+    s: U8
+
+  enum E80
+    some(x: S79)
+    empty
+
+  obj S80
+    e: E80?
+    s: U8
+
+  enum E81
+    some(x: S80)
+    empty
+
+  obj S81
+    e: E81?
+    s: U8
+
+  enum E82
+    some(x: S81)
+    empty
+
+  obj S82
+    e: E82?
+    s: U8
+
+  enum E83
+    some(x: S82)
+    empty
+
+  obj S83
+    e: E83?
+    s: U8
+
+  enum E84
+    some(x: S83)
+    empty
+
+  obj S84
+    e: E84?
+    s: U8
+
+  enum E85
+    some(x: S84)
+    empty
+
+  obj S85
+    e: E85?
+    s: U8
+
+  enum E86
+    some(x: S85)
+    empty
+
+  obj S86
+    e: E86?
+    s: U8
+
+  enum E87
+    some(x: S86)
+    empty
+
+  obj S87
+    e: E87?
+    s: U8
+
+  enum E88
+    some(x: S87)
+    empty
+
+  obj S88
+    e: E88?
+    s: U8
+
+  enum E89
+    some(x: S88)
+    empty
+
+  obj S89
+    e: E89?
+    s: U8
+
+  enum E90
+    some(x: S89)
+    empty
+
+  obj S90
+    e: E90?
+    s: U8
+
+  enum E91
+    some(x: S90)
+    empty
+
+  obj S91
+    e: E91?
+    s: U8
+
+  enum E92
+    some(x: S91)
+    empty
+
+  obj S92
+    e: E92?
+    s: U8
+
+  enum E93
+    some(x: S92)
+    empty
+
+  obj S93
+    e: E93?
+    s: U8
+
+  enum E94
+    some(x: S93)
+    empty
+
+  obj S94
+    e: E94?
+    s: U8
+
+  enum E95
+    some(x: S94)
+    empty
+
+  obj S95
+    e: E95?
+    s: U8
+
+  enum E96
+    some(x: S95)
+    empty
+
+  obj S96
+    e: E96?
+    s: U8
+
+  enum E97
+    some(x: S96)
+    empty
+
+  obj S97
+    e: E97?
+    s: U8
+
+  enum E98
+    some(x: S97)
+    empty
+
+  obj S98
+    e: E98?
+    s: U8
+
+  enum E99
+    some(x: S98)
+    empty
+
+  obj S99
+    e: E99?
+    s: U8
+
+  enum E100
+    some(x: S99)
+    empty
+
+  obj S100
+    e: E100?
+    s: U8
+
+  enum E101
+    some(x: S100)
+    empty
+
+  obj S101
+    e: E101?
+    s: U8
+
+  enum E102
+    some(x: S101)
+    empty
+
+  obj S102
+    e: E102?
+    s: U8
+
+  enum E103
+    some(x: S102)
+    empty
+
+  obj S103
+    e: E103?
+    s: U8
+
+  enum E104
+    some(x: S103)
+    empty
+
+  obj S104
+    e: E104?
+    s: U8
+
+  enum E105
+    some(x: S104)
+    empty
+
+  obj S105
+    e: E105?
+    s: U8
+
+  enum E106
+    some(x: S105)
+    empty
+
+  obj S106
+    e: E106?
+    s: U8
+
+  enum E107
+    some(x: S106)
+    empty
+
+  obj S107
+    e: E107?
+    s: U8
+
+  enum E108
+    some(x: S107)
+    empty
+
+  obj S108
+    e: E108?
+    s: U8
+
+  enum E109
+    some(x: S108)
+    empty
+
+  obj S109
+    e: E109?
+    s: U8
+
+  enum E110
+    some(x: S109)
+    empty
+
+  obj S110
+    e: E110?
+    s: U8
+
+  enum E111
+    some(x: S110)
+    empty
+
+  obj S111
+    e: E111?
+    s: U8
+
+  enum E112
+    some(x: S111)
+    empty
+
+  obj S112
+    e: E112?
+    s: U8
+
+  enum E113
+    some(x: S112)
+    empty
+
+  obj S113
+    e: E113?
+    s: U8
+
+  enum E114
+    some(x: S113)
+    empty
+
+  obj S114
+    e: E114?
+    s: U8
+
+  enum E115
+    some(x: S114)
+    empty
+
+  obj S115
+    e: E115?
+    s: U8
+
+  enum E116
+    some(x: S115)
+    empty
+
+  obj S116
+    e: E116?
+    s: U8
+
+  enum E117
+    some(x: S116)
+    empty
+
+  obj S117
+    e: E117?
+    s: U8
+
+  enum E118
+    some(x: S117)
+    empty
+
+  obj S118
+    e: E118?
+    s: U8
+
+  enum E119
+    some(x: S118)
+    empty
+
+  obj S119
+    e: E119?
+    s: U8
+
+  enum E120
+    some(x: S119)
+    empty
+
+  obj S120
+    e: E120?
+    s: U8
+
+  enum E121
+    some(x: S120)
+    empty
+
+  obj S121
+    e: E121?
+    s: U8
+
+  enum E122
+    some(x: S121)
+    empty
+
+  obj S122
+    e: E122?
+    s: U8
+
+  enum E123
+    some(x: S122)
+    empty
+
+  obj S123
+    e: E123?
+    s: U8
+
+  enum E124
+    some(x: S123)
+    empty
+
+  obj S124
+    e: E124?
+    s: U8
+
+  enum E125
+    some(x: S124)
+    empty
+
+  obj S125
+    e: E125?
+    s: U8
+
+  enum E126
+    some(x: S125)
+    empty
+
+  obj S126
+    e: E126?
+    s: U8
+
+  enum E127
+    some(x: S126)
+    empty
+
+  obj S127
+    e: E127?
+    s: U8
+
+  enum E128
+    some(x: S127)
+    empty
+
+  obj S128
+    e: E128?
+    s: U8
+
+  enum E129
+    some(x: S128)
+    empty
+
+  obj S129
+    e: E129?
+    s: U8
+
+  enum E130
+    some(x: S129)
+    empty
+
+  obj S130
+    e: E130?
+    s: U8
+
+  enum E131
+    some(x: S130)
+    empty
+
+  obj S131
+    e: E131?
+    s: U8
+
+  enum E132
+    some(x: S131)
+    empty
+
+  obj S132
+    e: E132?
+    s: U8
+
+  enum E133
+    some(x: S132)
+    empty
+
+  obj S133
+    e: E133?
+    s: U8
+
+  enum E134
+    some(x: S133)
+    empty
+
+  obj S134
+    e: E134?
+    s: U8
+
+  enum E135
+    some(x: S134)
+    empty
+
+  obj S135
+    e: E135?
+    s: U8
+
+  enum E136
+    some(x: S135)
+    empty
+
+  obj S136
+    e: E136?
+    s: U8
+
+  enum E137
+    some(x: S136)
+    empty
+
+  obj S137
+    e: E137?
+    s: U8
+
+  enum E138
+    some(x: S137)
+    empty
+
+  obj S138
+    e: E138?
+    s: U8
+
+  enum E139
+    some(x: S138)
+    empty
+
+  obj S139
+    e: E139?
+    s: U8
+
+  enum E140
+    some(x: S139)
+    empty
+
+  obj S140
+    e: E140?
+    s: U8
+
+  enum E141
+    some(x: S140)
+    empty
+
+  obj S141
+    e: E141?
+    s: U8
+
+  enum E142
+    some(x: S141)
+    empty
+
+  obj S142
+    e: E142?
+    s: U8
+
+  enum E143
+    some(x: S142)
+    empty
+
+  obj S143
+    e: E143?
+    s: U8
+
+  enum E144
+    some(x: S143)
+    empty
+
+  obj S144
+    e: E144?
+    s: U8
+
+  enum E145
+    some(x: S144)
+    empty
+
+  obj S145
+    e: E145?
+    s: U8
+
+  enum E146
+    some(x: S145)
+    empty
+
+  obj S146
+    e: E146?
+    s: U8
+
+  enum E147
+    some(x: S146)
+    empty
+
+  obj S147
+    e: E147?
+    s: U8
+
+  enum E148
+    some(x: S147)
+    empty
+
+  obj S148
+    e: E148?
+    s: U8
+
+  enum E149
+    some(x: S148)
+    empty
+
+  obj S149
+    e: E149?
+    s: U8
+
+  enum E150
+    some(x: S149)
+    empty
+
+  obj S150
+    e: E150?
+    s: U8
+
+  enum E151
+    some(x: S150)
+    empty
+
+  obj S151
+    e: E151?
+    s: U8
+
+  enum E152
+    some(x: S151)
+    empty
+
+  obj S152
+    e: E152?
+    s: U8
+
+  enum E153
+    some(x: S152)
+    empty
+
+  obj S153
+    e: E153?
+    s: U8
+
+  enum E154
+    some(x: S153)
+    empty
+
+  obj S154
+    e: E154?
+    s: U8
+
+  enum E155
+    some(x: S154)
+    empty
+
+  obj S155
+    e: E155?
+    s: U8
+
+  enum E156
+    some(x: S155)
+    empty
+
+  obj S156
+    e: E156?
+    s: U8
+
+  enum E157
+    some(x: S156)
+    empty
+
+  obj S157
+    e: E157?
+    s: U8
+
+  enum E158
+    some(x: S157)
+    empty
+
+  obj S158
+    e: E158?
+    s: U8
+
+  enum E159
+    some(x: S158)
+    empty
+
+  obj S159
+    e: E159?
+    s: U8
+
+  enum E160
+    some(x: S159)
+    empty
+
+  obj S160
+    e: E160?
+    s: U8
+
+  enum E161
+    some(x: S160)
+    empty
+
+  obj S161
+    e: E161?
+    s: U8
+
+  enum E162
+    some(x: S161)
+    empty
+
+  obj S162
+    e: E162?
+    s: U8
+
+  enum E163
+    some(x: S162)
+    empty
+
+  obj S163
+    e: E163?
+    s: U8
+
+  enum E164
+    some(x: S163)
+    empty
+
+  obj S164
+    e: E164?
+    s: U8
+
+  enum E165
+    some(x: S164)
+    empty
+
+  obj S165
+    e: E165?
+    s: U8
+
+  enum E166
+    some(x: S165)
+    empty
+
+  obj S166
+    e: E166?
+    s: U8
+
+  enum E167
+    some(x: S166)
+    empty
+
+  obj S167
+    e: E167?
+    s: U8
+
+  enum E168
+    some(x: S167)
+    empty
+
+  obj S168
+    e: E168?
+    s: U8
+
+  enum E169
+    some(x: S168)
+    empty
+
+  obj S169
+    e: E169?
+    s: U8
+
+  enum E170
+    some(x: S169)
+    empty
+
+  obj S170
+    e: E170?
+    s: U8
+
+  enum E171
+    some(x: S170)
+    empty
+
+  obj S171
+    e: E171?
+    s: U8
+
+  enum E172
+    some(x: S171)
+    empty
+
+  obj S172
+    e: E172?
+    s: U8
+
+  enum E173
+    some(x: S172)
+    empty
+
+  obj S173
+    e: E173?
+    s: U8
+
+  enum E174
+    some(x: S173)
+    empty
+
+  obj S174
+    e: E174?
+    s: U8
+
+  enum E175
+    some(x: S174)
+    empty
+
+  obj S175
+    e: E175?
+    s: U8
+
+  enum E176
+    some(x: S175)
+    empty
+
+  obj S176
+    e: E176?
+    s: U8
+
+  enum E177
+    some(x: S176)
+    empty
+
+  obj S177
+    e: E177?
+    s: U8
+
+  enum E178
+    some(x: S177)
+    empty
+
+  obj S178
+    e: E178?
+    s: U8
+
+  enum E179
+    some(x: S178)
+    empty
+
+  obj S179
+    e: E179?
+    s: U8
+
+  enum E180
+    some(x: S179)
+    empty
+
+  obj S180
+    e: E180?
+    s: U8
+
+  enum E181
+    some(x: S180)
+    empty
+
+  obj S181
+    e: E181?
+    s: U8
+
+  enum E182
+    some(x: S181)
+    empty
+
+  obj S182
+    e: E182?
+    s: U8
+
+  enum E183
+    some(x: S182)
+    empty
+
+  obj S183
+    e: E183?
+    s: U8
+
+  enum E184
+    some(x: S183)
+    empty
+
+  obj S184
+    e: E184?
+    s: U8
+
+  enum E185
+    some(x: S184)
+    empty
+
+  obj S185
+    e: E185?
+    s: U8
+
+  enum E186
+    some(x: S185)
+    empty
+
+  obj S186
+    e: E186?
+    s: U8
+
+  enum E187
+    some(x: S186)
+    empty
+
+  obj S187
+    e: E187?
+    s: U8
+
+  enum E188
+    some(x: S187)
+    empty
+
+  obj S188
+    e: E188?
+    s: U8
+
+  enum E189
+    some(x: S188)
+    empty
+
+  obj S189
+    e: E189?
+    s: U8
+
+  enum E190
+    some(x: S189)
+    empty
+
+  obj S190
+    e: E190?
+    s: U8
+
+  enum E191
+    some(x: S190)
+    empty
+
+  obj S191
+    e: E191?
+    s: U8
+
+  enum E192
+    some(x: S191)
+    empty
+
+  obj S192
+    e: E192?
+    s: U8
+
+  enum E193
+    some(x: S192)
+    empty
+
+  obj S193
+    e: E193?
+    s: U8
+
+  enum E194
+    some(x: S193)
+    empty
+
+  obj S194
+    e: E194?
+    s: U8
+
+  enum E195
+    some(x: S194)
+    empty
+
+  obj S195
+    e: E195?
+    s: U8
+
+  enum E196
+    some(x: S195)
+    empty
+
+  obj S196
+    e: E196?
+    s: U8
+
+  enum E197
+    some(x: S196)
+    empty
+
+  obj S197
+    e: E197?
+    s: U8
+
+  enum E198
+    some(x: S197)
+    empty
+
+  obj S198
+    e: E198?
+    s: U8
+
+  enum E199
+    some(x: S198)
+    empty
+
+  obj S199
+    e: E199?
+    s: U8
+
+  enum E200
+    some(x: S199)
+    empty
+
+  obj S200
+    e: E200?
+    s: U8
+
+  enum E201
+    some(x: S200)
+    empty
+
+  obj S201
+    e: E201?
+    s: U8
+
+  enum E202
+    some(x: S201)
+    empty
+
+  obj S202
+    e: E202?
+    s: U8
+
+  enum E203
+    some(x: S202)
+    empty
+
+  obj S203
+    e: E203?
+    s: U8
+
+  enum E204
+    some(x: S203)
+    empty
+
+  obj S204
+    e: E204?
+    s: U8
+
+  enum E205
+    some(x: S204)
+    empty
+
+  obj S205
+    e: E205?
+    s: U8
+
+  enum E206
+    some(x: S205)
+    empty
+
+  obj S206
+    e: E206?
+    s: U8
+
+  enum E207
+    some(x: S206)
+    empty
+
+  obj S207
+    e: E207?
+    s: U8
+
+  enum E208
+    some(x: S207)
+    empty
+
+  obj S208
+    e: E208?
+    s: U8
+
+  enum E209
+    some(x: S208)
+    empty
+
+  obj S209
+    e: E209?
+    s: U8
+
+  enum E210
+    some(x: S209)
+    empty
+
+  obj S210
+    e: E210?
+    s: U8
+
+  enum E211
+    some(x: S210)
+    empty
+
+  obj S211
+    e: E211?
+    s: U8
+
+  enum E212
+    some(x: S211)
+    empty
+
+  obj S212
+    e: E212?
+    s: U8
+
+  enum E213
+    some(x: S212)
+    empty
+
+  obj S213
+    e: E213?
+    s: U8
+
+  enum E214
+    some(x: S213)
+    empty
+
+  obj S214
+    e: E214?
+    s: U8
+
+  enum E215
+    some(x: S214)
+    empty
+
+  obj S215
+    e: E215?
+    s: U8
+
+  enum E216
+    some(x: S215)
+    empty
+
+  obj S216
+    e: E216?
+    s: U8
+
+  enum E217
+    some(x: S216)
+    empty
+
+  obj S217
+    e: E217?
+    s: U8
+
+  enum E218
+    some(x: S217)
+    empty
+
+  obj S218
+    e: E218?
+    s: U8
+
+  enum E219
+    some(x: S218)
+    empty
+
+  obj S219
+    e: E219?
+    s: U8
+
+  enum E220
+    some(x: S219)
+    empty
+
+  obj S220
+    e: E220?
+    s: U8
+
+  enum E221
+    some(x: S220)
+    empty
+
+  obj S221
+    e: E221?
+    s: U8
+
+  enum E222
+    some(x: S221)
+    empty
+
+  obj S222
+    e: E222?
+    s: U8
+
+  enum E223
+    some(x: S222)
+    empty
+
+  obj S223
+    e: E223?
+    s: U8
+
+  enum E224
+    some(x: S223)
+    empty
+
+  obj S224
+    e: E224?
+    s: U8
+
+  enum E225
+    some(x: S224)
+    empty
+
+  obj S225
+    e: E225?
+    s: U8
+
+  enum E226
+    some(x: S225)
+    empty
+
+  obj S226
+    e: E226?
+    s: U8
+
+  enum E227
+    some(x: S226)
+    empty
+
+  obj S227
+    e: E227?
+    s: U8
+
+  enum E228
+    some(x: S227)
+    empty
+
+  obj S228
+    e: E228?
+    s: U8
+
+  enum E229
+    some(x: S228)
+    empty
+
+  obj S229
+    e: E229?
+    s: U8
+
+  enum E230
+    some(x: S229)
+    empty
+
+  obj S230
+    e: E230?
+    s: U8
+
+  enum E231
+    some(x: S230)
+    empty
+
+  obj S231
+    e: E231?
+    s: U8
+
+  enum E232
+    some(x: S231)
+    empty
+
+  obj S232
+    e: E232?
+    s: U8
+
+  enum E233
+    some(x: S232)
+    empty
+
+  obj S233
+    e: E233?
+    s: U8
+
+  enum E234
+    some(x: S233)
+    empty
+
+  obj S234
+    e: E234?
+    s: U8
+
+  enum E235
+    some(x: S234)
+    empty
+
+  obj S235
+    e: E235?
+    s: U8
+
+  enum E236
+    some(x: S235)
+    empty
+
+  obj S236
+    e: E236?
+    s: U8
+
+  enum E237
+    some(x: S236)
+    empty
+
+  obj S237
+    e: E237?
+    s: U8
+
+  enum E238
+    some(x: S237)
+    empty
+
+  obj S238
+    e: E238?
+    s: U8
+
+  enum E239
+    some(x: S238)
+    empty
+
+  obj S239
+    e: E239?
+    s: U8
+
+  enum E240
+    some(x: S239)
+    empty
+
+  obj S240
+    e: E240?
+    s: U8
+
+  enum E241
+    some(x: S240)
+    empty
+
+  obj S241
+    e: E241?
+    s: U8
+
+  enum E242
+    some(x: S241)
+    empty
+
+  obj S242
+    e: E242?
+    s: U8
+
+  enum E243
+    some(x: S242)
+    empty
+
+  obj S243
+    e: E243?
+    s: U8
+
+  enum E244
+    some(x: S243)
+    empty
+
+  obj S244
+    e: E244?
+    s: U8
+
+  enum E245
+    some(x: S244)
+    empty
+
+  obj S245
+    e: E245?
+    s: U8
+
+  enum E246
+    some(x: S245)
+    empty
+
+  obj S246
+    e: E246?
+    s: U8
+
+  enum E247
+    some(x: S246)
+    empty
+
+  obj S247
+    e: E247?
+    s: U8
+
+  enum E248
+    some(x: S247)
+    empty
+
+  obj S248
+    e: E248?
+    s: U8
+
+  enum E249
+    some(x: S248)
+    empty
+
+  obj S249
+    e: E249?
+    s: U8
+
+  enum E250
+    some(x: S249)
+    empty
+
+  obj S250
+    e: E250?
+    s: U8
+
+  enum E251
+    some(x: S250)
+    empty
+
+  obj S251
+    e: E251?
+    s: U8
+
+  enum E252
+    some(x: S251)
+    empty
+
+  obj S252
+    e: E252?
+    s: U8
+
+  enum E253
+    some(x: S252)
+    empty
+
+  obj S253
+    e: E253?
+    s: U8
+
+  enum E254
+    some(x: S253)
+    empty
+
+  obj S254
+    e: E254?
+    s: U8
+
+  enum E255
+    some(x: S254)
+    empty
+
+  obj S255
+    e: E255?
+    s: U8
+
+  enum E256
+    some(x: S255)
+    empty
+
+  obj S256
+    e: E256?
+    s: U8
+
+  enum E257
+    some(x: S256)
+    empty
+
+  obj S257
+    e: E257?
+    s: U8
+
+  enum E258
+    some(x: S257)
+    empty
+
+  obj S258
+    e: E258?
+    s: U8
+
+  enum E259
+    some(x: S258)
+    empty
+
+  obj S259
+    e: E259?
+    s: U8
+
+  enum E260
+    some(x: S259)
+    empty
+
+  obj S260
+    e: E260?
+    s: U8
+
+  enum E261
+    some(x: S260)
+    empty
+
+  obj S261
+    e: E261?
+    s: U8
+
+  enum E262
+    some(x: S261)
+    empty
+
+  obj S262
+    e: E262?
+    s: U8
+
+  enum E263
+    some(x: S262)
+    empty
+
+  obj S263
+    e: E263?
+    s: U8
+
+  enum E264
+    some(x: S263)
+    empty
+
+  obj S264
+    e: E264?
+    s: U8
+
+  enum E265
+    some(x: S264)
+    empty
+
+  obj S265
+    e: E265?
+    s: U8
+
+  enum E266
+    some(x: S265)
+    empty
+
+  obj S266
+    e: E266?
+    s: U8
+
+  enum E267
+    some(x: S266)
+    empty
+
+  obj S267
+    e: E267?
+    s: U8
+
+  enum E268
+    some(x: S267)
+    empty
+
+  obj S268
+    e: E268?
+    s: U8
+
+  enum E269
+    some(x: S268)
+    empty
+
+  obj S269
+    e: E269?
+    s: U8
+
+  enum E270
+    some(x: S269)
+    empty
+
+  obj S270
+    e: E270?
+    s: U8
+
+  enum E271
+    some(x: S270)
+    empty
+
+  obj S271
+    e: E271?
+    s: U8
+
+  enum E272
+    some(x: S271)
+    empty
+
+  obj S272
+    e: E272?
+    s: U8
+
+  enum E273
+    some(x: S272)
+    empty
+
+  obj S273
+    e: E273?
+    s: U8
+
+  enum E274
+    some(x: S273)
+    empty
+
+  obj S274
+    e: E274?
+    s: U8
+
+  enum E275
+    some(x: S274)
+    empty
+
+  obj S275
+    e: E275?
+    s: U8
+
+  enum E276
+    some(x: S275)
+    empty
+
+  obj S276
+    e: E276?
+    s: U8
+
+  enum E277
+    some(x: S276)
+    empty
+
+  obj S277
+    e: E277?
+    s: U8
+
+  enum E278
+    some(x: S277)
+    empty
+
+  obj S278
+    e: E278?
+    s: U8
+
+  enum E279
+    some(x: S278)
+    empty
+
+  obj S279
+    e: E279?
+    s: U8
+
+  enum E280
+    some(x: S279)
+    empty
+
+  obj S280
+    e: E280?
+    s: U8
+
+  enum E281
+    some(x: S280)
+    empty
+
+  obj S281
+    e: E281?
+    s: U8
+
+  enum E282
+    some(x: S281)
+    empty
+
+  obj S282
+    e: E282?
+    s: U8
+
+  enum E283
+    some(x: S282)
+    empty
+
+  obj S283
+    e: E283?
+    s: U8
+
+  enum E284
+    some(x: S283)
+    empty
+
+  obj S284
+    e: E284?
+    s: U8
+
+  enum E285
+    some(x: S284)
+    empty
+
+  obj S285
+    e: E285?
+    s: U8
+
+  enum E286
+    some(x: S285)
+    empty
+
+  obj S286
+    e: E286?
+    s: U8
+
+  enum E287
+    some(x: S286)
+    empty
+
+  obj S287
+    e: E287?
+    s: U8
+
+  enum E288
+    some(x: S287)
+    empty
+
+  obj S288
+    e: E288?
+    s: U8
+
+  enum E289
+    some(x: S288)
+    empty
+
+  obj S289
+    e: E289?
+    s: U8
+
+  enum E290
+    some(x: S289)
+    empty
+
+  obj S290
+    e: E290?
+    s: U8
+
+  enum E291
+    some(x: S290)
+    empty
+
+  obj S291
+    e: E291?
+    s: U8
+
+  enum E292
+    some(x: S291)
+    empty
+
+  obj S292
+    e: E292?
+    s: U8
+
+  enum E293
+    some(x: S292)
+    empty
+
+  obj S293
+    e: E293?
+    s: U8
+
+  enum E294
+    some(x: S293)
+    empty
+
+  obj S294
+    e: E294?
+    s: U8
+
+  enum E295
+    some(x: S294)
+    empty
+
+  obj S295
+    e: E295?
+    s: U8
+
+  enum E296
+    some(x: S295)
+    empty
+
+  obj S296
+    e: E296?
+    s: U8
+
+  enum E297
+    some(x: S296)
+    empty
+
+  obj S297
+    e: E297?
+    s: U8
+
+  enum E298
+    some(x: S297)
+    empty
+
+  obj S298
+    e: E298?
+    s: U8
+
+  enum E299
+    some(x: S298)
+    empty
+
+  obj S299
+    e: E299?
+    s: U8
+
+  a: S299? = none
+  b: S299? = none
+  print(a == b)
+
+test "R3c1-t26 lit", '''
+  true true false
+  true true
+  true
+  true
+'''
+  obj B
+    b: U8
+
+  o: U8? = 5
+  print(o == 5, 5 == o, o == none)
+  f: Float? = 1.0
+  print(f == 1, 1 == f)
+  bb = B(b: 7)
+  print(bb == B(b: 7))
+  arr = [bb]
+  print(arr == [B(b: 7)])
+
+test "R3c1-t27 opt", '''
+  true true false true true true
+  true true true false true
+  true false true
+  true true false
+  true true
+  true
+'''
+  obj P
+    x: Int
+
+  fun sl(xs: []Int, n: Int) -> ([]Int)?
+    return none if n < 0
+    xs[0..n]
+
+  a: ([2]Int)? = [1, 2]
+  b: ([2]Int)? = none
+  two = [1, 2]
+  print(a == two, two == a, a == b, b == none, none == b, a != [2, 1])
+  s: (?String)? = "hi"
+  print(s == "hi", "hi" == s, s != "ho", s == none, none != s)
+  p: P? = none
+  q: P? = none
+  print(p == q, p == P(x: 1), P(x: 1) != p)
+  arr = [1, 2, 3]
+  print(sl(?arr[0..3], 2) == sl(?arr[0..3], 2), sl(?arr[0..3], -1) == none, sl(?arr[0..3], 2) == sl(?arr[0..3], 3))
+  ps: [2]P? = [P(x: 1), none]
+  print(ps[1] == none, ps[0] == P(x: 1))
+  qs: [2]P? = [P(x: 1), none]
+  print(ps == qs)
+
+test "R3c1-t28 num", '''
+  true true true true true
+  false
+  true false
+  true true
+'''
+  fun f(n: ?Int, m: !U8) -> Bool
+    n < 3 and m >= 2 and 1 < n and n <= 9
+
+  fun g[T](a: ?T, b: T) -> Bool
+    a < b and b > a and a <= 5
+
+  x: U8 = 3
+  y: I8 = -3
+  print(x < 4, 2 < x, y < 0, 3 < 4, 3.5 > 2)
+  k = 3
+  z: U8 = 2
+  print(f(?k, !z))
+  print(g(?k, 7), g(?x, x))
+  big: U64 = 18446744073709551615
+  print(big > 1, big == 18446744073709551615)
+
+test "R3c1-t31 ring", '''
+  true true false true
+  false true true
+'''
+  obj Ring[T, n: Int]
+    items: [n]T
+    len: Int
+
+    fun same(?self, o: ?Self) -> Bool
+      self == o and self.items == o.items
+
+  enum Res[T, E]
+    ok(v: T)
+    err(e: E)
+
+  error Bad
+    no
+
+  a = Ring(items: [1, 2, 3], len: 3)
+  b = Ring(items: [1, 2, 3], len: 3)
+  c = Ring(items: ["x", "y"], len: 2)
+  print(a == b, a.same(?b), c == Ring(items: ["x", "z"], len: 2), c.same(?c))
+  r: Res[Int, Bad] = .ok(v: 1)
+  s: Res[Int, Bad] = .err(e: .no)
+  print(r == s, s == .err(e: Bad.no), r != .ok(v: 2))
+
+test "R3c1-t32 ctn", '''
+  true false
+  false true
+  true true true
+'''
+  fun f[n: Int](a: [n]Int, b: [n]Int) -> Bool
+    a == b
+
+  fun g[T, n: Int](a: [n]T, b: [n]T) -> Bool
+    a != b
+
+  fun h[T](a: T?, b: T) -> Bool
+    a != none
+
+  print(f([1, 2], [1, 2]), f([1], [2]))
+  print(g(["a", "b"], ["a", "b"]), g([1.5], [2.5]))
+  x: Int? = 3
+  s: (?String)? = "s"
+  print(h(x, 3), h(s, "s"), h(s, "t"))
+
+test "R3c1-t36b", "false true"
+  obj P
+    x: Int
+
+    fun eq(?self, o: ?P) -> Bool
+      true
+
+  a = P(x: 1)
+  b = P(x: 2)
+  print(a == b, a.eq(?b))
+
+test "R3c1-t37 prec", '''
+  false true true false
+  false true false
+  true true false true true
+  ok
+  1
+'''
+  obj P
+    x: Int
+
+  fun g[T](a: T, b: T) -> Bool
+    not (a < b) and not (a == b) or a >= b
+
+  s = "a"
+  t = "b"
+  print(not (s < t), not (s > t), (s < t) == (t > s), (s < t) != true)
+  p = P(x: 1)
+  print(not (p == p), not (p != p), (p == p) == (p != p))
+  x = s < t
+  y = p == P(x: 1) if s < t else false
+  print(x, y, g(1, 2), g("b", "a"), g(2.0, 2.0))
+  if not (s >= t)
+    print("ok")
+  z = 1 if "a" < "b" else 2
+  print(z)
+
+test "R3c1-t39 optenum", "true false false true true"
+  enum C
+    red
+    blue
+
+  o: C? = .red
+  n: C? = none
+  print(o == .red, .blue == o, n == .red, n != .blue, o == C.red)
+
+test "R3c1-t41 genall", '''
+  true false
+  true false true
+  true false
+  true false
+  true false true
+  true
+'''
+  error E
+    bad
+    worse
+
+  obj P
+    x: Int
+    s: ?String
+
+  enum K
+    a(p: P)
+    b
+
+  fun same[T](a: T, b: T) -> Bool
+    a == b and not (a != b)
+
+  fun sameB[T](a: ?T, b: !T) -> Bool
+    a == b
+
+  k1: K = .a(p: P(x: 1, s: "q"))
+  k2: K = .a(p: P(x: 1, s: "r"))
+  print(same(k1, k1), same(k1, k2))
+  o1: P? = P(x: 1, s: "q")
+  o2: P? = none
+  print(same(o1, o1), same(o1, o2), same(o2, o2))
+  print(same(["a", "b"], ["a", "b"]), same(["a"], ["b"]))
+  e1: E = .bad
+  e2: E = .worse
+  print(same(e1, e1), same(e1, e2))
+  ee: E? = .bad
+  print(same(ee, ee), same(true, false), same(1.5, 1.5))
+  z = k1
+  print(sameB(?k1, !z))
+
+test "R3c1-t45", '''
+  false
+  true
+'''
+  obj N
+    n: Int
+
+  enum Slot
+    held(p: *N)
+    empty
+
+  o: Slot? = .held(p: *N(n: 1))
+  print(o == .empty)
+  e: Slot? = .empty
+  print(e == .empty)
+
+test "assignthrough-b1", "[3, 100, 100]"
+  fun slot(v: !List[Int], i: Int) -> !Int from v
+    !v[i]
+
+  fun grow(v: !List[Int]) -> Int
+    !v.push(100)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(10)
+  slot(!v, 0) += 1
+  slot(!v, 0) += grow(!v)
+  slot(!v, 0) = grow(!v)
+  print(v)
+
+fail "assignthrough-b18", "cannot store a view of `d` through `w`: what `w` views outlives it"
+  obj H
+    s: ?String
+
+  sub set(w: !H)
+    d = String("local")
+    w = H(s: ?d)
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+test "assignthrough-b2", '''
+  [2, 7]
+  [2, 7, 7]
+  [10, 7, 7, 7]
+'''
+  fun slot(v: !List[Int], i: Int) -> !Int from v
+    !v.push(7)
+    !v[i]
+
+  v: List[Int] = List()
+  !v.push(1)
+  slot(!v, 0) += v.len
+  print(v)
+  slot(!v, 0) = v.len
+  print(v)
+  n = v.len
+  slot(!v, 0) = n + v[1]
+  print(v)
+
+fail "assignthrough-b20", "cannot store a view of `d` through `w ?? return`: `w` outlives it"
+  obj H
+    s: ?String
+
+  sub set(w: (!H)?)
+    d = String("local")
+    (w ?? return).s = ?d
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "assignthrough-b21", "cannot store a view of `d` through `w ?? return`: `h` outlives it"
+  obj H
+    s: ?String
+
+  sub set(h: !H)
+    w: (!H)? = <h
+    d = String("local")
+    (w ?? return).s = ?d
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+test "assignthrough-b6", "[3]"
+  fun slot(v: !List[Int], i: Int) -> !Int from v
+    !v[i]
+
+  v: List[Int] = List()
+  !v.push(1)
+  (slot(!v, 0)) += 1
+  w = slot(!v, 0)
+  w += 1
+  print(v)
+
+fail "assignthrough-b8", "cannot store a view of `d` through `slot(!h)`: `h` outlives it"
+  obj H
+    r: ?Int
+
+  fun slot(h: !H) -> !H from h
+    h
+
+  sub set(h: !H)
+    d = 4
+    slot(!h) = H(r: ?d)
+
+  n = 1
+  h = H(r: ?n)
+  set(!h)
+  print(h.r)
+
+fail "assignthrough-b9", "cannot store a view of `d` through `pick(!h)?`: `h` outlives it"
+  obj H
+    r: ?Int
+
+  fun pick(h: !H) -> (!H)? from h
+    h
+
+  fun set(h: !H) -> Int?
+    d = 4
+    pick(!h)? = H(r: ?d)
+    0
+
+  n = 1
+  h = H(r: ?n)
+  print(set(!h))
+  print(h.r)
+
+test "assignthrough-exb", "[4, 5]"
+  fun slot(v: !List[Int], i: Int) -> !Int from v
+    !v[i]
+
+  fun grow(v: !List[Int]) -> Int
+    !v.push(5)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(1)
+  slot(!v, 0) += 1
+  slot(!v, 0) += grow(!v)
+  print(v)
+
+fail "assignthrough-exb2", "cannot lend `v` to write while a write loan is live"
+  fun slot(v: !List[Int], i: Int) -> !Int from v
+    !v[i]
+
+  fun grow(v: !List[Int]) -> Int
+    !v.push(5)
+    v.len
+
+  v: List[Int] = List()
+  !v.push(1)
+  w = slot(!v, 0)
+  w += grow(!v)
+  print(v)
+
+test "assignthrough-p04", '''
+  none 1 ["new"]
+'''
+  fun pick(v: !List[String], ok: Bool) -> (!String)? from v
+    return none if not ok
+    !v[0]
+
+  fun put(v: !List[String], ok: Bool) -> Int?
+    pick(!v, ok)? = String("new")
+    1
+
+  v: List[String] = List()
+  !v.push(String("old"))
+  print(put(!v, false), put(!v, true), v)
+
+fail "assignthrough-p12", "cannot lend `v` to write while a read loan is live"
+  fun slot(v: !List[Int], i: Int) -> !Int from v
+    !v[i]
+
+  v: List[Int] = List()
+  !v.push(1)
+  r = ?v
+  slot(!v, 0) = r[0] + 1
+  print(v, r)
+
+test "assignthrough-p13", "[6]"
+  fun slot(v: !List[Int], i: Int) -> !Int from v
+    !v[i]
+
+  v: List[Int] = List()
+  !v.push(1)
+  slot(!v, 0) += slot(!v, 0)
+  slot(!v, 0) = slot(!v, 0) * 3
+  print(v)
+
+test "assignthrough-p15", "[9]"
+  fun mk(v: !List[Int]) -> !List[Int] from v
+    v
+
+  v: List[Int] = List()
+  !v.push(1)
+  mk(!v) = List()
+  !mk(!v).push(4)
+  mk(!v)[0] = 9
+  print(v)
+
+fail "assignthrough-p16", "cannot return a view of `w`, which this function was not lent"
+  obj W
+    w: Int
+
+  fun f() -> !Int
+    w = W(w: 1)
+    !w.w
+
+  f() = 3
+
+fail "assignthrough-q03", "cannot lend `h` to write while a read loan on `h.t` is live"
+  obj H
+    t: String
+    s: ?String
+
+  fun slot(h: !H) -> !H from h
+    h
+
+  h = H(t: String("a"), s: "x")
+  slot(!h) = H(t: String("b"), s: ?h.t)
+  print(h.s)
+
+test "assignthrough-q07", "8 none"
+  fun slot(v: !List[Int], i: Int) -> !Int from v
+    !v[i]
+
+  fun run(o: Int?) -> Int?
+    v: List[Int] = List()
+    !v.push(1)
+    slot(!v, 0) = (o ?? return none)
+    slot(!v, 0) += o?
+    v[0]
+
+  print(run(4), run(none))
+
+fail "assignthrough-q09", "`d` does not live long enough"
+  obj H
+    s: ?String
+
+  fun slot(h: !H) -> !H from h
+    h
+
+  h = H(s: "x")
+  if true
+    d = String("inner")
+    slot(!h) = H(s: ?d)
+  print(h.s)
+
+test "assignthrough-q10", "[2]"
+  sub apply(f: ?fun(!List[Int]) -> !Int, v: !List[Int])
+    f(!v) += 1
+
+  fun first(v: !List[Int]) -> !Int from v
+    !v[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  apply(first, !v)
+  print(v)
+
+fail "assignthrough-q14", "`e` does not live long enough"
+  obj H
+    s: ?String
+
+  fun slot(h: !H) -> !H from h
+    h
+
+  h = H(s: "x")
+  f = |!h|
+    e = String("e")
+    slot(!h) = H(s: ?e)
+  f()
+  print(h.s)
+
+test "audit-docs-p-c2", "1"
+  v: List[Int] = List()
+  add = |!v, x: Int| !v.push(x)
+  add(1)
+  print(v.len)
+
+test "audit-docs-p-e1", "200 1 255 [300, 300, 300, 300] 4 7 nan"
+  enum D
+    a
+    b
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  x = 300
+  y = U8(x - 100)
+  d: D = .b
+  z = Int(d)
+  m = U8.max
+  arr = [4 of x]
+  w: U8 = 250
+  nan = 0.0 / 0.0
+  print(y, z, m, arr, w +% 10, max(3, 7), nan)
+
+test "audit-docs-p-o2", "2 0"
+  error E
+    bad
+
+  fun p(n: Int) -> Int!
+    return E.bad if n < 0
+    n
+
+  f: *fun(Int) -> Int! = *|n| p(n)! + 1
+  print(f(1) catch 0, f(-1) catch 0)
+
+test "audit-docs-p-packet", '''
+  512
+  3
+  512
+'''
+  obj Packet
+    size: Int
+
+  fun size_of(p: ?Packet) -> Int
+    p.size
+
+  sub send(p: Packet)
+    print(p.size)
+
+  p = Packet(size: 512)
+  print(size_of(?p))
+  count = 1
+  f = |+count, a: Int| a + count
+  print(f(2))
+  send(<p)
+
+test "audit-docs-p-q11", "2"
+  sub f(p: !Int)
+    q = <p
+    q += 1
+
+  n = 1
+  f(!n)
+  print(n)
+
+test "audit-docs-p-q2", "2"
+  x = 1
+  x += 1 if x > 0
+  print(x)
+  v: List[Int] = List()
+  <v if x > 5
+
+test "audit-docs-p-q4", "0"
+  v: List[Int] = List()
+  w = +v
+  print(w.len)
+
+test "audit-docs-p-q8", "some"
+  fun g(k: Int) -> Int?
+    k if k > 0 else none
+
+  if g(1) as _
+    print("some")
+
+test "audit-docs-p-q9", "3"
+  obj T
+    n: Int
+    fun total(<self) -> Int
+      self.n
+
+  print(T(n: 3).total())
+
+test "audit-docs-p-rb", "1 1"
+  obj P
+    x: Int
+
+  fun f(p: ?P) -> Int
+    p.x
+
+  fun g(a: ?[3]Int) -> Int
+    a[0]
+
+  p = P(x: 1)
+  a = [1, 2, 3]
+  print(f(?p), g(?a))
+
+test "audit-docs-p-v", "5 7 5"
+  a = 5
+  b: U8 = 7
+  c = U8(a)
+  print(a, b, c)
+
+test "audit-emit-a1", '''
+  1
+  e
+'''
+  error E
+    bad
+
+  obj Node
+    n: Int
+
+  fun f(k: Int) -> Int!
+    return E.bad if k > 0
+    k
+
+  sub g(k: Int)!
+    v: List[*Node] = List()
+    !v.push(*Node(n: f(k)!))
+    print(v.len)
+
+  g(0) catch print("e")
+  g(1) catch print("e")
+
+test "audit-emit-a2", '''
+  1
+  0
+  e
+'''
+  error E
+    bad
+
+  obj Node
+    n: Int
+
+  fun f(k: Int) -> Int!
+    return E.bad if k > 0
+    k
+
+  obj Pair
+    a: *Node
+    b: Int
+
+  sub g(k: Int)!
+    p = Pair(a: *Node(n: 1), b: f(k)!)
+    print(p.a.n)
+    q = Pair(b: f(k)!, a: *Node(n: 1))
+    print(q.b)
+
+  g(0) catch print("e")
+  g(1) catch print("e")
+
+test "audit-emit-a3", '''
+  Node(n: 1)
+  2
+'''
+  obj Node
+    n: Int
+
+  print(*Node(n: 1))
+  x = *Node(n: 2)
+  print(x.n)
+
+fail "audit-emit-a4", "`o` owns a `List[Int]?`, which can't be copied out by `return`: write `<o` to move it or `+o` to clone it"
+  fun pick(o: List[Int]?, d: List[Int]) -> List[Int]
+    o ?? <d
+
+  d: List[Int] = List()
+  !d.push(1)
+  e: List[Int] = List()
+  !e.push(2)
+  r = pick(none, <d)
+  print(r)
+  o: List[Int]? = none
+  s = o ?? <e
+  print(s)
+
+test "audit-emit-a5", '''
+  false false
+  e
+'''
+  error E
+    bad
+
+  obj Node
+    n: Int
+
+  fun f(k: Int) -> Int!
+    return E.bad if k > 0
+    k
+
+  enum Sh
+    one(a: *Node, b: Int)
+    two
+
+  sub g(k: Int)!
+    s: Sh = .one(a: *Node(n: 1), b: f(k)!)
+    s2 = Sh.one(a: *Node(n: 1), b: f(k)!)
+    print(s == .two, s2 == .two)
+
+  g(0) catch print("e")
+  g(1) catch print("e")
+
+test "audit-emit-aa1", '''
+  6 4
+  40
+  20
+  true true
+'''
+  obj Big
+    a: Int
+    b: Int
+    c: Int
+
+  obj Two
+    x: Big
+    y: Big
+
+    fun pick(?self, first: Bool) -> ?Big
+      ?self.x if first else ?self.y
+
+    fun pickw(!self, first: Bool) -> !Big
+      if first
+        !self.x
+      else
+        !self.y
+
+  fun total(b: ?Big) -> Int
+    b.a + b.b + b.c
+
+  t = Two(x: Big(a: 1, b: 2, c: 3), y: Big(a: 4, b: 5, c: 6))
+  print(total(t.pick(true)), t.pick(false).a)
+  w = (!t).pickw(false)
+  w.a = 40
+  print(t.y.a)
+  ((!t).pickw(true)).b = 20
+  print(t.x.b)
+  r = ?t.pick(true)
+  print(r == t.x, r.a == 1)
+
+test "audit-emit-b1", '''
+  20 30
+  5
+  99
+'''
+  xs = [10, 20, 30]
+  i: I128 = 1
+  j: U128 = 2
+  print(xs[i], xs[j])
+  v: List[Int] = List()
+  !v.push(5)
+  k: U128 = 0
+  print(v[k])
+  s = "abc"
+  print(s[j])
+
+test "audit-emit-b2", '''
+  .a 4294967295
+  4294967295 4294967295
+  1
+'''
+  enum E
+    a = 1
+    b = 4294967295
+
+  print(E.a, Int(E.b))
+  x = E.b
+  print(U32(x), I64(x))
+  y: U8 = U8(E.a)
+  print(y)
+
+test "audit-emit-b3", '''
+  4
+  170141183460469231731687303715884105727
+  340282366920938463463374607431768211455 340282366920938463463374607431768211454 0
+  -128
+  340282366920938463463374607431768211455 -170141183460469231731687303715884105728
+  9223372036854775808
+'''
+  a: U8 = 250
+  b = a +% 10
+  print(b)
+  c: I128 = 170141183460469231731687303715884105727
+  print(c)
+  d: U128 = 340282366920938463463374607431768211455
+  print(d, d -% 1, d +% 1)
+  e: I8 = -128
+  print(e)
+  print(U128.max, I128.min)
+  x: U64 = 1 << 63
+  print(x)
+
+test "audit-emit-b4", '''
+  [20, 30]
+  [10, 20]
+  1
+'''
+  xs = [10, 20, 30]
+  i: I128 = 1
+  print(xs[i..])
+  j: U128 = 2
+  print(xs[0..j])
+  b: [8]U8 = [0, 0, 0, 0, 0, 0, 0, 0]
+  !b.write[U16, .big](j, 258)
+  print(b.read[U16, .big](i))
+  !b.swap(i, j)
+
+test "audit-emit-bb2", '''
+  4
+  1
+  100
+  3
+  100
+  Signal(value: P(x: 3, y: 0))
+'''
+  obj P
+    x: Int
+    y: Int
+
+  s: *Signal[P] = *Signal(P(x: 0, y: 0))
+  log: *Cell[List[Int]] = *Cell(List())
+  !s.subscribe(*|+log, ~s|
+    if *s as h
+      v = h.get()
+      !log.push(v.x)
+      if v.x == 1
+        !h.set(P(x: 2, y: 0))
+        !h.set(P(x: 3, y: 0))
+  )
+  !s.subscribe(*|+log| !log.push(100))
+  !s.set(P(x: 1, y: 1))
+  print(log.len)
+  for i in 0..log.len
+    print(log[i])
+  print(s)
+
+test "audit-emit-c1", '''
+  true true true
+  false false false
+  true
+'''
+  obj P
+    x: Int
+    y: Int
+
+  obj Q
+    name: ?String
+    v: List[Int]
+
+  fun same(a: ?P, b: ?P) -> Bool
+    a == b
+
+  fun sameq(a: ?Q, b: ?Q) -> Bool
+    a.name == b.name
+
+  fun eqopt(a: ?P?, b: ?P?) -> Bool
+    a == b
+
+  p = P(x: 1, y: 2)
+  q = P(x: 1, y: 2)
+  print(same(?p, ?q), p == q, ?p == ?q)
+  o: P? = p
+  n: P? = none
+  print(eqopt(?o, ?n), o == n, o == none)
+  a = Q(name: "a", v: List())
+  b = Q(name: "a", v: List())
+  print(sameq(?a, ?b))
+
+test "audit-emit-d1", '''
+  mk 1
+  small
+  mk 0
+  tall 2 3
+  .rect(w: 10, h: 1)
+  pos 1
+'''
+  enum Sh
+    circle(r: Int)
+    rect(w: Int, h: Int)
+    dot
+
+  obj Box2
+    s: Sh
+    tag: ?String
+
+  fun mk(k: Int) -> Sh
+    print("mk", k)
+    .circle(r: k) if k > 0 else .rect(w: 2, h: 3)
+
+  res = match mk(1)
+    .circle(r) if r > 5 => "big"
+    .circle(r) if r > 0 => "small"
+    .rect(w, h) if w == h => "square"
+    _ => "other"
+  print(res)
+  match mk(0)
+    .circle(r) if r > 5 => print("big")
+    .rect(w, h) if w < h => print("tall", w, h)
+    _ => print("other")
+  b = Box2(s: .circle(r: 9), tag: "t")
+  b.s = .rect(w: 1, h: 1)
+  match !b.s
+    .rect(w, _) if w == 1 => w = 10
+    _ => print("x")
+  print(b.s)
+  xs = [1, 2, 3]
+  i = 0
+  match xs[i]
+    x if x > 0 => print("pos", x)
+    _ => print("np")
+
+test "audit-emit-dd1", '''
+  10
+  60
+  30
+  8
+  75 6.0
+  [7, 8, 9]
+'''
+  obj P
+    x: Int
+    y: Int
+
+  obj W[T]
+    v: T
+
+    fun with(?self, f: ?fun(?T) -> Int) -> Int
+      f(?self.v)
+
+  fun apply[T](xs: []T, f: ?fun(?T) -> Int) -> Int
+    t = 0
+    for x in xs
+      t += f(?x)
+    t
+
+  fun twice[T](x: T, f: ?fun(T) -> T) -> T
+    g = |?f, a: T| f(f(a))
+    g(x)
+
+  arr = [P(x: 1, y: 2), P(x: 3, y: 4)]
+  print(apply(?arr[..], |p| p.x + p.y))
+  nums = [1, 2, 3]
+  k = 10
+  print(apply(?nums[..], |+k, n| n * k))
+  w = W(v: P(x: 5, y: 6))
+  print(w.with(|p| p.x * p.y))
+  wi = W(v: 7)
+  print(wi.with(|n| n + 1))
+  print(twice(3, |n| n * 5), twice(1.5, |f| f * 2))
+  buf = [0, 0, 0]
+  s = !buf[..]
+  fill = |!s, v: Int|
+    for i in 0..s.len
+      s[i] = v + i
+  fill(7)
+  print(buf)
+
+test "audit-emit-ee", "3"
+  sub each(n: Int, f: ?sub(Int))
+    for i in 0..n
+      f(i)
+
+  total = 0
+  each(3, |!total, invoke| total += invoke)
+  print(total)
+
+test "audit-emit-ee2", "3"
+  obj W[T]
+    v: T
+
+    fun get(?self) -> Int
+      Self = 3
+      Self
+
+  w = W(v: 1)
+  print(w.get())
+
+test "audit-emit-ee4", '''
+  3
+  x
+'''
+  invoke = 3
+  print(invoke)
+  f = || print("x")
+  f()
+
+test "audit-emit-ee5", '''
+  x
+  3
+'''
+  sub apply(f: ?sub())
+    f()
+
+  invoke = 3
+  apply(|| print("x"))
+  print(invoke)
+
+test "audit-emit-ee6", "201"
+  fun invoke(x: Int) -> Int
+    x * 100
+
+  f = |a: Int| invoke(a) + 1
+  print(f(2))
+
+test "audit-emit-ee8", "9"
+  fun invoke() -> Int
+    7
+
+  f = *|a: Int| invoke() + a
+  print(f(2))
+
+test "audit-emit-f1", '''
+  2 3
+  12
+  12
+  2
+  15
+  102 -1
+  15
+  drop 1
+'''
+  error E
+    bad
+
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj H
+    cb: *fun(Int) -> Int
+    name: ?String
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  fun mkv(k: Int) -> List[Int]!
+    return E.bad if k < 0
+    v: List[Int] = List()
+    !v.push(k)
+    v
+
+  fun use3(v: List[Int], f: ?fun(Int) -> Int, w: List[Int]) -> Int
+    f(v.len + w.len)
+
+  fun run(k: Int) -> Int!
+    base = 100
+    use3(mkv(1)!, |+base, x| x + base, mkv(k)!)
+
+  r = R(n: 1)
+  f = |<r, x: Int| x + r.n
+  print(f(1), f(2))
+  g = |?f, x: Int| f(x) * 2
+  print(g(5))
+  h = H(cb: *|x| x * 3, name: "h")
+  print(h.cb(4))
+  v: List[*fun(Int) -> Int] = List()
+  !v.push(*|x| x + 1)
+  for c in ?v
+    print(c(1))
+  print(apply(?h.cb, 5))
+  print(run(1) catch -1, run(-1) catch -1)
+  outer = 7
+  nest = |+outer, a: Int|
+    inner = |+outer, b: Int| b + outer
+    inner(a) + outer
+  print(nest(1))
+
+test "audit-emit-ff", '''
+  0 0
+  1 0
+  2 0
+  10
+'''
+  @fn for i in 0..3
+    @u8 for j in 0..3
+      continue @fn if j > i
+      break @u8 if j == 1
+      print(i, j)
+  var = 1
+  fn = 2
+  comptime = 3
+  i32 = 4
+  print(var + fn + comptime + i32)
+
+test "audit-emit-g1", '''
+  2 2 4
+  20
+  23
+  20
+  7
+  5 5
+  drop R 7
+  drop R 2
+  drop R 1
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop R", self.n)
+
+  obj Node
+    v: Int
+    r: R
+    next: ^Node?
+
+    sub bump(!self)
+      self.v += 1
+
+    fun total(?self) -> Int
+      t = self.v
+      if ?self.next as n
+        t += n.total()
+      t
+
+  fun read(n: ?Node) -> Int
+    n.v
+
+  sub write(n: !Node)
+    n.v *= 10
+
+  obj W[T]
+    item: T
+
+    fun get(?self) -> ?T
+      ?self.item
+
+  fun first[T](w: ?W[T]) -> ?T
+    w.get()
+
+  b = ^Node(v: 1, r: R(n: 1), next: ^Node(v: 2, r: R(n: 2), next: none))
+  !b.bump()
+  print(b.v, read(?b), b.total())
+  write(!b)
+  print(b.v)
+  if !b.next as n
+    !n.bump()
+  print(b.total())
+  node = <b.unbox()
+  print(node.v)
+  w = W(item: ^R(n: 7))
+  print(first(?w).n)
+  wb = ^W(item: 5)
+  print(wb.item, wb.get())
+
+test "audit-emit-h1", '''
+  1 10
+  4
+  3
+  false true
+  20 10
+  2 1
+  true
+  drop R 10
+  drop R 2
+  drop R 1
+  drop R 3
+  drop R 4
+  drop R 12
+  drop R 20
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop R", self.n)
+
+  obj S
+    a: ^R
+    b: R?
+    xs: List[^R]
+
+  s = S(a: ^R(n: 1), b: R(n: 2), xs: List())
+  !s.xs.push(^R(n: 3))
+  !s.xs.push(^R(n: 4))
+  old = replace(!s.a, ^R(n: 10))
+  print(old.n, s.a.n)
+  !s.xs.swap(0, 1)
+  for e in ?s.xs
+    print(e.n)
+  t = <s.b
+  print(t == none, s.b == none)
+  u = ^R(n: 20)
+  swap(!s.a, !u)
+  print(s.a.n, u.n)
+  x = 1
+  y = 2
+  swap(!x, !y)
+  print(x, y)
+  q = replace(!s.b, R(n: 12))
+  print(q == none)
+
+fail "audit-emit-i1", "`a` owns an `R`, which can't be copied out by `break`: write `<a` to move it"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop R", self.n)
+
+  a = R(n: 1)
+  r = for i in 0..3
+    if i == 1
+      break a
+  else
+    R(n: 9)
+  print(r.n)
+
+fail "audit-emit-i3", "`a` owns an `R`, which can't be copied out by `break`: write `<a` to move it"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop R", self.n)
+
+  a = R(n: 1)
+  r = while true
+    break a
+  print(r.n)
+
+test "audit-emit-i4", '''
+  drop R 2
+  1
+  5
+  drop R 5
+  drop R 1
+'''
+  error E
+    bad
+
+  obj R
+    n: Int
+    drop(!self)
+      print("drop R", self.n)
+
+  fun mk(k: Int) -> R!
+    return E.bad if k < 0
+    R(n: k)
+
+  fun pick(c: Bool) -> R
+    a = R(n: 1)
+    b = R(n: 2)
+    if c
+      a
+    else
+      b
+
+  p = pick(true)
+  print(p.n)
+  d = R(n: 5)
+  x = mk(-1) catch <d
+  print(x.n)
+
+fail "audit-emit-ii", "use of `v` after move"
+  fun f() -> List[Int]
+    v: List[Int] = List()
+    defer print(v.len)
+    !v.push(1)
+    v
+
+  x = f()
+  print(x)
+
+fail "audit-emit-ii2", "a `defer` body cannot move or drop `r`; it runs when the scope exits"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun f() -> R
+    r = R(n: 1)
+    defer <r
+    r
+
+  x = f()
+  print(x.n)
+
+test "audit-emit-j1", '''
+  2 3
+  h
+'''
+  limit = 3
+
+  fun f(n: Int) -> Int
+    while true
+      return n if n > 0
+    0
+
+  fun g(n: Int) -> Int
+    while limit > 0
+      return n
+    1
+
+  sub h()
+    if limit > 5
+      return
+    print("h")
+
+  sub main()
+    print(f(2), g(3))
+    h()
+
+test "audit-emit-j2", '''
+  x
+  after
+  4
+'''
+  sub loop()
+    while true
+      print("x")
+      break
+    print("after")
+
+  fun spin() -> Int
+    n = 0
+    while true
+      n += 1
+      return n if n > 3
+
+  loop()
+  print(spin())
+
+test "audit-emit-k1", '''
+  1 0
+  3 0
+  3 1
+  5 0
+  5 1
+  5 3
+  7 0
+  7 1
+  7 3
+  9 0
+  9 1
+  9 3
+  9 7
+  i 10
+  k 1
+  k 3
+  k 5
+  k 7
+  k end 9
+  m 0
+  m 1
+  m end 5
+'''
+  fun odd(i: Int) -> Int?
+    return none if i % 2 == 0
+    i
+
+  fun lim(i: Int) -> Int?
+    return none if i > 6
+    i
+
+  i = 0
+  @outer while i < 10 : i += 1
+    j = 0
+    while (odd(i) ?? continue) > j : j += (lim(j) ?? break) + 1
+      print(i, j)
+  print("i", i)
+  k = 0
+  while (odd(k) ?? continue) < 9 : k += 1
+    print("k", k)
+  print("k end", k)
+  m = 0
+  while m < 5 : m += (lim(m * 3) ?? break) + 1
+    print("m", m)
+  print("m end", m)
+
+test "audit-emit-k2", '''
+  k 1
+  k 3
+  k 5
+  k 7
+  1
+'''
+  fun odd(i: Int) -> Int?
+    return none if i % 2 == 0
+    i
+
+  k = 0
+  while (odd(k) ?? continue) < 9 : k += 1
+    print("k", k)
+  x = odd(1) ?? return
+  print(x)
+
+test "audit-emit-k3", '''
+  2
+  4
+'''
+  fun odd(i: Int) -> Int?
+    return none if i % 2 == 0
+    i
+
+  for k in 0..5
+    y = (odd(k) ?? continue) + 1
+    print(y)
+
+test "audit-emit-kk", '''
+  200 170141183460469231731687303715884105727 340282366920938463463374607431768211455
+  1
+'''
+  x: U8 = 200
+  y: I128 = 170141183460469231731687303715884105727
+  z: U128 = 340282366920938463463374607431768211455
+  print(x, y, z)
+  print(z *% z)
+
+test "audit-emit-ll", '''
+  200 -128 250
+  0
+'''
+  lim: U8 = 250
+
+  sub main()
+    a: U8 =! 200
+    b: I8 =! -128
+    c = lim
+    print(a, b, c)
+    print(b *% b)
+
+test "audit-emit-mm", '''
+  3 2
+  drop 1
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  enum Sh
+    c(r: R, k: Int)
+    d
+
+  s = Sh.c(r: R(n: 1), k: 2)
+  match <s
+    .c(_, k)
+      payload_1 = k + 1
+      whole_2 = k
+      print(payload_1, whole_2)
+    .d => print(0)
+
+test "audit-emit-mod", '''
+  10 .green x 0.5 [] 18446744073709551615
+  26 8 4
+  4 s
+  3 3.0
+  6 13
+'''
+  use lib
+
+  limit = 3
+
+  fun local(x: Int, by: Int = limit) -> Int
+    x + by
+
+  sub main()
+    c = lib.Cfg()
+    print(c.n, c.c, c.s, c.f, c.v, c.m)
+    print(lib.scale(2), lib.scale(2, by: 1), local(1))
+    print(lib.ident(4), lib.ident("s"))
+    p = lib.Pair(a: 1, b: 2)
+    print(p.sum(), lib.Pair[Float](a: 1, b: 2).sum())
+    k: U8 = U8(lib.Color.blue)
+    print(k, lib.limit + limit)
+
+  file "lib.rig"
+    pub limit = 10
+    pub big: U64 = 18446744073709551615
+
+    pub enum Color
+      red
+      green = 5
+      blue
+
+    pub obj Cfg
+      pub n: Int = limit
+      pub c: Color = .green
+      pub s: ?String = "x"
+      pub f: Float = .5
+      pub v: List[Int] = List()
+      pub m: U64 = big
+
+    pub fun scale(x: Int, by: Int = limit, c: Color = .blue, top: U64 = big) -> Int
+      x * by + Int(c)
+
+    pub fun ident[T](x: T) -> T
+      x
+
+    pub obj Pair[T]
+      pub a: T
+      pub b: T
+
+      pub fun sum(?self) -> T
+        self.a + self.b
+
+test "audit-emit-mod3", "-3.4028235e38 1.7976931348623157e308"
+  use lib
+
+  sub main()
+    print(lib.b(), lib.d())
+
+  file "lib.rig"
+    pub fun b(x: F32 = F32.min, y: U8 = U8.max, z: I64 = Int.min) -> F32
+      x + F32(y) + F32(z)
+
+    pub fun d(x: Float = Float.max) -> Float
+      x
+
+test "audit-emit-nn", '''
+  err 2
+  skip
+  minor
+  7
+  2.5 2.5
+  dflt .err(code: 1)
+  P(x: 1) P(x: 1)
+  5
+'''
+  enum Res[T]
+    ok(v: T)
+    err(code: Int)
+
+    fun get_or(?self, d: T) -> T
+      match self
+        .ok(v) if v != d => v
+        _ => d
+
+    fun code_of(?self) -> Int
+      match self
+        .err(c) if c > 3 => c
+        .err(c) => -c
+        .ok(_) => 0
+
+  fun total[T](rs: ?List[Res[T]], zero: T) -> T
+    t = zero
+    for r in rs
+      match r
+        .ok(v) if v > zero => t = t + v
+        .ok(_) => print("skip")
+        .err(c) if c > 1 => print("err", c)
+        .err(_) => print("minor")
+    t
+
+  v: List[Res[Int]] = List()
+  !v.push(.ok(v: 3))
+  !v.push(.err(code: 2))
+  !v.push(.ok(v: -1))
+  !v.push(.err(code: 0))
+  !v.push(Res[Int].ok(v: 4))
+  print(total(?v, 0))
+  r = Res[Float].ok(v: 2.5)
+  print(r.get_or(2.5), r.get_or(1.0))
+  e = Res[?String].err(code: 1)
+  print(e.get_or("dflt"), e)
+  p = Res[P].ok(v: P(x: 1))
+  print(p.get_or(P(x: 9)), p.get_or(P(x: 1)))
+  b = Res[P].err(code: 5)
+  print(b.code_of())
+
+  obj P
+    x: Int
+
+test "audit-emit-oo2"
+  error E
+    bad
+
+  fun odd(i: Int) -> Int!
+    return E.bad if i % 2 == 0
+    i
+
+  @outer for i in 0..3
+    for j in 0..3
+      x = odd(j) catch continue @outer
+      print(i, x)
+
+test "audit-emit-p1", '''
+  popped 2
+  drop R 2
+  1
+  3
+  drop R 4
+  5
+  9
+  b
+  1.5
+  drop R 5
+  drop R 3
+  drop R 1
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop R", self.n)
+
+  obj Stack[T]
+    items: List[T]
+
+    sub push(!self, x: T)
+      !self.items.push(<x)
+
+    fun pop(!self) -> T?
+      (!self.items).pop()
+
+    fun size(?self) -> Int
+      self.items.len
+
+  fun keep[T](x: T) -> T
+    x
+
+  fun choose[T](a: T, b: T, first: Bool) -> T
+    if first
+      <a
+    else
+      <b
+
+  fun largest[T](xs: ?List[T]) -> T?
+    best: T? = none
+    for x in xs
+      if best as b
+        best = x if x > b else b
+      else
+        best = x
+    best
+
+  s = Stack[^R](items: List())
+  !s.push(^R(n: 1))
+  !s.push(^R(n: 2))
+  if (!s).pop() as top
+    print("popped", top.n)
+  print(s.size())
+  k = keep(R(n: 3))
+  print(k.n)
+  c = choose(R(n: 4), R(n: 5), false)
+  print(c.n)
+  v: List[Int] = List()
+  !v.push(3)
+  !v.push(9)
+  !v.push(4)
+  print(largest(?v))
+  w: List[?String] = List()
+  !w.push("b")
+  !w.push("a")
+  print(largest(?w))
+  f = choose(1.5, 2, true)
+  print(f)
+
+test "audit-emit-q1", '''
+  x 1
+  drop R 1
+  after
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop R", self.n)
+
+  fun mk(k: Int) -> R?
+    return none if k < 0
+    R(n: k)
+
+  r: R? = R(n: 1)
+  if <r as x
+    print("x", x.n)
+  print("after")

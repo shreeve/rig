@@ -1,9 +1,0 @@
-fun keep(s: ?String) -> ?String
-  s
-
-fun id(r: ?^String) -> ?^String
-  r
-
-sub main()
-  s = keep(id(?^String("hello"))[1..])
-  print(s)

@@ -1,8 +1,0 @@
-obj Rec
-  name: String
-  n: Int
-
-sub main()
-  v: List[Rec] = List()
-  !v.push(Rec(name: String("x"), n: 1))
-  print(v.len)

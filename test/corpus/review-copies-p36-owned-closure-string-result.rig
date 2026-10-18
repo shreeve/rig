@@ -1,6 +1,0 @@
-sub main()
-  f = *|s: ?String| s
-  t = String("a long heap allocated text here")
-  p = f(?t)
-  <t
-  print(p)

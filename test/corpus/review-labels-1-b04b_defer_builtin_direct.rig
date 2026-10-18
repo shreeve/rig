@@ -1,3 +1,0 @@
-sub main()
-  defer @size(Int)
-  print(0)

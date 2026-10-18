@@ -1,9 +1,0 @@
-sub main()
-  t = String("hello")
-  v: List[?String] = List()
-  !v.push(?t)
-  s = v[0][1..]
-  !v.clear()
-  for _ in 0..50
-    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
-  print(s)

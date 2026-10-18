@@ -29,7 +29,7 @@ A case that fails lands in `.swarm/died`, with its reason in
 | `test/rig/<area>.rig.test` | the behavior and rejection tests, as cases (docs/RIG-TESTS.md) |
 | `test/cli/<name>.sh` | a script that drives the `rig` command line (below) |
 | `test/torture/<name>.rig` | bad input `rig run` must reject with a `file:line:col` diagnostic, never crashing |
-| `test/corpus/<name>.rig` | a reviewer's probe (below) |
+| `test/rig/probes-*.rig.test` | the probes of past reviews, as cases (below) |
 | `test/oracle/` | the reference ownership checker and its lists (below) |
 | `test/lanes/` | the SIMD lane grids `test/cli/lane_grid.sh` generates and checks |
 | `test/matrix.py`, `test/hints.py` | the matrix and the lend hints' check (below) |
@@ -184,18 +184,18 @@ when `std.json` changes: with no group it takes every group, and
 into `bench/json/check/data/`. Without them those groups are skipped with a
 note, and `JSON_REQUIRE_DATA=1` makes that a failure.
 
-## The corpus
+## The probes of past reviews
 
-`test/corpus/` keeps the probe programs written by past reviews and
-audits, deduplicated by content, that reach the ownership checker: the
-reference ownership checker reads every one (`oracle.corpus`, below),
-and they give it most of the functions it decides. A probe need not run
-cleanly or print anything in particular. A multi-module probe is a
-directory with `main.rig`. A probe the compiler rejects before ownership
-checking gives the oracle nothing, so it belongs in `test/rig` as a
-`fail` case instead. `swarm test/rig.rip proofs` also runs each probe
-the compiler proves a check of. Add new review probes here, named
-`<review>-<probe>.rig`.
+`test/rig/probes-*.rig.test` hold the probe programs written by past
+reviews and audits, as cases named after their probes
+(`review-arm-temps-2-m46 last arm index target view local`): a `fail`
+case where the compiler rejects the probe, and a `test` or `bomb` case,
+with what it prints, where it runs. They came from a folder of loose
+programs, `test/corpus`, keeping each probe that gives the reference
+ownership checker a function whose lowered core no other test or kept
+probe has; they give it most of the functions it decides
+(`oracle.tests`, below). A new review adds its probes as cases, to a
+probes file or to the test file of the area it probes.
 
 Probe batches started by hand should set `RIG_OUT_DIR=$(mktemp -d)` and
 delete it afterwards, so they never write to the user cache.
@@ -208,7 +208,8 @@ element assignment, a `match` subject, a `for` source, a consuming
 receiver, a test against `none` or a bare `.variant`) for each of
 several types (Int, `?String`, `String`, `List`, `*T`, `^T`, an object with a `drop`,
 a payload enum, and in a few cells an object holding a Cell, which must
-be rejected), and holds each to the corpus's rule; a slice of the
+be rejected), and holds each to one rule: `rig check` rejects it with a
+`file:line:col` diagnostic, or it runs clean under the sanitizer; a slice of the
 value, written with no lend, stands as an argument where a `[]T` or a
 `?String` goes, also while a later argument writes what it slices; and a
 slice of an array, a List, a String, or a `?String` held owned, through a
@@ -309,13 +310,12 @@ statement temporaries and evaluation order written out, then checks
 moves, loans, and drops with a dataflow over the function's control
 flow. Each function gets its verdict, accept or reject, or none when
 the function uses a form the oracle does not model yet. The suite's
-core runs it over four sets, and checks it with a lint:
+core runs it over three sets, and checks it with a lint:
 
 | Id | Programs |
 |---|---|
 | `oracle.lint` | none: `test/oracle/` uses none of the compiler's ownership classifications, and `src/` imports neither `lib.zig` nor `test/` |
 | `oracle.tests` | the behavior and rejection tests, as `test/rig.rip` writes them out, and `examples` |
-| `oracle.corpus` | every corpus program |
 | `oracle.docs` | every doc example but fragments |
 | `oracle.matrix` | the matrix programs (`test/matrix.py --oracle`) |
 
@@ -358,7 +358,7 @@ wrong. By hand:
 ```bash
 bin/rig-oracle -v file.rig            # every function's two verdicts
 bin/rig-oracle --explain main file.rig  # the lowered core of `main`
-bin/rig-oracle --stats test/corpus/*  # why it abstains, by count
+bin/rig-oracle --stats --list .zig-cache/rig-tests/oracle/tests.list  # why it abstains, by count
 bin/rig-oracle --sema -v file.rig     # also functions the compiler's
                                       # semantic checks rejected
 ```
@@ -397,8 +397,8 @@ swarm test/rig.rip proofs-all    # every program
 ```
 
 runs the tests the compiler omits (docs/INTERNALS.md, "Proven checks")
-three ways, for each `test` and `bomb` case (but known bugs), example,
-and corpus program that `rig check --facts=proofs` lists a test for: in
+three ways, for each `test` and `bomb` case (but known bugs) and example
+that `rig check --facts=proofs` lists a test for: in
 debug, where every omitted test is still made as an assertion, with
 `--release`, and with `--release` and `RIG_NO_PROOFS=1`, where emit
 omits nothing. The three runs must print the same, exit the same, and

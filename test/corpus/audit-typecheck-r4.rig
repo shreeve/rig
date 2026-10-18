@@ -1,6 +1,0 @@
-sub main()
-  a = [1, 2]
-  s = ?a[..]
-  print(s)
-  g = |n: Int| n + 1
-  print(g)

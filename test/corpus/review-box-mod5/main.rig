@@ -1,8 +1,0 @@
-use lib
-
-fun g(b: ?^lib.R) -> Int
-  <b.eat()
-
-sub main()
-  b = lib.mk(1)
-  print(g(?b))

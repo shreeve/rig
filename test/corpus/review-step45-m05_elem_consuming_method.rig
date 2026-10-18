@@ -1,6 +1,0 @@
-# consuming method on an element (unbox) must be rejected for non-optional
-sub main()
-  v: List[^Int] = List()
-  !v.push(^1)
-  x = <v[0].unbox()
-  print(x)

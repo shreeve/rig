@@ -1,9 +1,0 @@
-obj W[T]
-  v: T
-
-  fun get(?self, Self: Int) -> Int
-    Self
-
-sub main()
-  w = W(v: 1)
-  print(w.get(2))

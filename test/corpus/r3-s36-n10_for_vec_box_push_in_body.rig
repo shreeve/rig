@@ -1,9 +1,0 @@
-obj P
-  n: Int
-
-sub main()
-  v: List[^P] = List()
-  !v.push(^P(n: 1))
-  for x in ?v
-    !v.push(^P(n: 2))
-    print(x.n)

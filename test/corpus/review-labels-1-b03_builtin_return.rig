@@ -1,5 +1,0 @@
-fun g() -> Int
-  return @size(Int)
-
-sub main()
-  print(g())

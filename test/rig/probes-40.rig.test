@@ -1,0 +1,1421 @@
+# Probes from past reviews and audits, 40 of 41: syntax-review-designer-p13_vec_vec to t-mv3.
+
+test "syntax-review-designer-p13 vec vec", "1"
+  grid: List[List[Int]] = List()
+  row: List[Int] = List()
+  !row.push(1)
+  !grid.push(<row)
+  print(grid.len)
+
+test "syntax-review-designer-p14 vec owner", "1"
+  obj Player
+    name: ?String
+    scores: List[Int]
+
+  ps: List[Player] = List()
+  !ps.push(Player(name: "a", scores: List()))
+  print(ps.len)
+
+test "syntax-review-designer-p15 ret elem", "9"
+  obj P
+    x: Int
+
+  obj Bag
+    items: List[P]
+
+    fun first(?self) -> ?P
+      ?self.items[0]
+
+    fun first_mut(!self) -> !P
+      !self.items[0]
+
+  b = Bag(items: List())
+  !b.items.push(P(x: 1))
+  f = (!b).first_mut()
+  f.x = 9
+  print(b.first().x)
+
+test "syntax-review-designer-p16 view iter", '''
+  1
+  2
+  3
+  4
+'''
+  obj Bag
+    items: [4]Int
+
+  obj Iter
+    bag: ?Bag
+    i: Int
+
+    fun next(!self) -> Int?
+      if self.i >= 4
+        return none
+      self.i += 1
+      self.bag.items[self.i - 1]
+
+  fun iter(b: ?Bag) -> Iter
+    Iter(bag: b, i: 0)
+
+  b = Bag(items: [1, 2, 3, 4])
+  it = iter(?b)
+  while (!it).next() as x
+    print(x)
+
+fail "syntax-review-designer-p17 split", "cannot lend `a` to write while a write loan is live"
+  a = [1, 2, 3, 4]
+  l = !a[..2]
+  r = !a[2..]
+  l[0] = r[0]
+  print(a)
+
+test "syntax-review-designer-p20 str index", '''
+  104 6
+  104
+'''
+  s = "héllo"
+  print(s[0], s.len)
+  for c in s
+    print(c)
+    break
+
+test "syntax-review-designer-p21 expr", "3"
+  enum Expr
+    num(v: Int)
+    add(l: ^Expr, r: ^Expr)
+
+  fun eval(e: ?Expr) -> Int
+    match e
+      .num(v) => v
+      .add(l, r) => eval(?l) + eval(?r)
+
+  e: Expr = .add(l: ^Expr.num(1), r: ^Expr.num(2))
+  print(eval(?e))
+
+test "syntax-review-designer-p23 vec box", '''
+  a
+  a 1
+'''
+  obj Player
+    name: ?String
+    scores: List[Int]
+
+  ps: List[^Player] = List()
+  p = Player(name: "a", scores: List())
+  !p.scores.push(3)
+  !ps.push(^<p)
+  print(ps[0].name)
+  for q in ?ps
+    print(q.name, q.scores.len)
+  for q in !ps
+    !q.scores.push(4)
+
+test "syntax-review-designer-p27 fixed", "3 4"
+  x =! 3
+  y = 4
+  print(x, y)
+
+test "syntax-review-designer-p31 over", "7"
+  obj P
+    x: Int
+
+  obj Key
+    k: Int
+
+  obj Bag
+    items: List[P]
+
+    fun find(?self, key: ?Key) -> ?P
+      ?self.items[key.k]
+
+  b = Bag(items: List())
+  !b.items.push(P(x: 7))
+  key = Key(k: 0)
+  r = ?b.find(?key)
+  key.k = 5
+  print(r.x)
+
+fail "syntax-review-designer-p32 getmut two", "use of `v` while a write loan is live"
+  obj P
+    x: Int
+
+  v: List[P] = List()
+  !v.push(P(x: 1))
+  !v.push(P(x: 2))
+  a = !v[0]
+  a.x = v[1].x
+  print(v)
+
+test "syntax-review-designer-p33 cell vec view", "3"
+  obj Node
+    kids: List[*Node]
+    val: Int
+
+  leaf = *Node(kids: List(), val: 2)
+  root = Node(kids: List(), val: 1)
+  !root.kids.push(<leaf)
+  total = root.val
+  for k in ?root.kids
+    total += k.val
+  print(total)
+
+test "syntax-review-designer-p34 generic eq fn", "1 none"
+  obj Map[K, V]
+    keys: List[K]
+    vals: List[V]
+
+    fun get(?self, k: K) -> V?
+      for key, i in self.keys
+        if key == k
+          return self.vals[i]
+      none
+
+    sub put(!self, k: K, v: V)
+      !self.keys.push(k)
+      !self.vals.push(v)
+
+  m = Map[?String, Int](keys: List(), vals: List())
+  !m.put("a", 1)
+  print(m.get("a"), m.get("b"))
+
+test "syntax-review-designer-p35 idx box", '''
+  a
+  b
+'''
+  obj Player
+    name: ?String
+    scores: List[Int]
+
+  fun name_of(p: ?Player) -> ?String
+    p.name
+
+  ps: List[^Player] = List()
+  !ps.push(^Player(name: "a", scores: List()))
+  print(name_of(?ps[0]))
+  q = !ps[0]
+  !q.scores.push(1)
+  hs: List[*Player] = List()
+  !hs.push(*Player(name: "b", scores: List()))
+  h = +hs[0]
+  print(h.name)
+
+test "syntax-review-designer-p36 while down", "x"
+  for i in 5..0
+    print(i)
+  print("x")
+
+test "syntax-review-designer-p37 or", "warm"
+  enum C
+    r
+    g
+    b
+
+  c: C = .g
+  match c
+    .r, .g => print("warm")
+    .b => print("cool")
+
+test "syntax-review-designer-p38 setbool", "3"
+  obj S
+    n: Int
+    fun add(!self, k: Int) -> Bool
+      self.n += k
+      true
+
+  s = S(n: 0)
+  if (!s).add(1) and (!s).add(2)
+    print(s.n)
+
+test "syntax-review-readability-closures", '''
+  clicked 2
+  clicked 3
+  ok 5
+  2
+  171
+  5
+'''
+  obj Button
+    label: ?String
+    handlers: List[*sub(Int)]
+
+    sub on_click(!self, h: *sub(Int))
+      !self.handlers.push(<h)
+
+    sub click(?self, times: Int)
+      for h in ?self.handlers
+        h(times)
+
+  fun count_if(xs: []Int, keep: ?fun(Int) -> Bool) -> Int
+    n = 0
+    for x in xs
+      n += 1 if keep(x)
+    n
+
+  fun sum_by(xs: []Int, f: ?fun(Int) -> Int) -> Int
+    total = 0
+    for x in xs
+      total += f(x)
+    total
+
+  clicks: *Cell[Int] = *Cell(value: 0)
+  b = Button(label: "ok", handlers: List())
+  !b.on_click(*|+clicks, n| !clicks.set(clicks.get() + n))
+  !b.on_click(*|n| print("clicked", n))
+  b.click(2)
+  b.click(3)
+  print(b.label, clicks.get())
+
+  xs = [3, 8, 1, 9, 4]
+  limit = 4
+  print(count_if(?xs, |+limit, x| x > limit))
+  print(sum_by(?xs, |x| x * x))
+  seen = 0
+  _ = sum_by(?xs, |!seen, x|
+    seen += 1
+    x
+  )
+  print(seen)
+
+test "syntax-review-readability-list", '''
+  5 15
+  15
+  14
+  13
+  12
+  11
+  15 4
+'''
+  obj Node
+    value: Int
+    next: ^Node?
+
+  obj Chain
+    head: ^Node? = none
+    len: Int = 0
+
+    sub push(!self, v: Int)
+      self.head = ^Node(value: v, next: <self.head)
+      self.len += 1
+
+    fun pop(!self) -> Int?
+      if <self.head as n
+        self.head = <n.next
+        self.len -= 1
+        return n.value
+      none
+
+    fun sum(?self) -> Int
+      total = 0
+      cur = ?self.head
+      while cur as n
+        total += n.value
+        cur = ?n.next
+      total
+
+    sub each(?self, f: ?sub(Int))
+      cur = ?self.head
+      while cur as n
+        f(n.value)
+        cur = ?n.next
+
+    sub bump_all(!self, by: Int)
+      bump(!self.head, by)
+
+  sub bump(slot: !^Node?, by: Int)
+    if !slot as n
+      n.value += by
+      bump(!n.next, by)
+
+  l = Chain()
+  for v in 1..6
+    !l.push(v)
+  print(l.len, l.sum())
+  !l.bump_all(10)
+  l.each(|x| print(x))
+  print((!l).pop() ?? 0, l.len)
+
+test "syntax-review-readability-p4", "2 3"
+  s = "  hi"
+  a = 0
+  while a < s.len and s[a] == 32
+    a += 1
+  x: Int? = 3
+  y = x ?? return
+  print(a, y)
+
+test "syntax-review-symmetry-p arr get", "2 none"
+  a = [1, 2, 3]
+  print(a.get(1), a.get(7))
+
+test "syntax-review-symmetry-p as w assign", "7"
+  o: Int? = 1
+  if !o as x
+    x = 7
+  print(o)
+
+test "syntax-review-symmetry-p as while qo as x", '''
+  1
+  drop 1
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  o: R? = R(n: 1)
+  while ?o as x
+    print(x.n)
+    break
+
+test "syntax-review-symmetry-p as while wo as x", '''
+  1
+  drop 1
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  o: R? = R(n: 1)
+  while !o as x
+    print(x.n)
+    break
+
+test "syntax-review-symmetry-p ash if co as x", "1"
+  obj R
+    n: Int
+
+  a = *R(n: 1)
+  o: *R? = +a
+  if +o as x
+    print(x.n)
+
+test "syntax-review-symmetry-p ash if mo as x", "1"
+  obj R
+    n: Int
+
+  a = *R(n: 1)
+  o: *R? = +a
+  if <o as x
+    print(x.n)
+
+test "syntax-review-symmetry-p ash if qo as x", "1"
+  obj R
+    n: Int
+
+  a = *R(n: 1)
+  o: *R? = +a
+  if ?o as x
+    print(x.n)
+
+test "syntax-review-symmetry-p ash if wo as x", "1"
+  obj R
+    n: Int
+
+  a = *R(n: 1)
+  o: *R? = +a
+  if !o as x
+    print(x.n)
+
+test "syntax-review-symmetry-p box pos", "5"
+  b = ^5
+  print(<b.unbox())
+
+test "syntax-review-symmetry-p box replace", "1 2"
+  b = ^1
+  old = replace(!b, ^2)
+  print(<old.unbox(), <b.unbox())
+
+test "syntax-review-symmetry-p clone weak", "true"
+  obj P
+    x: Int
+
+  h = *P(x: 1)
+  w = ~h
+  w2 = +w
+  print(*w2 != none)
+
+test "syntax-review-symmetry-p discard move", '''
+  drop 1
+  after
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  r = R(n: 1)
+  _ = <r
+  print("after")
+
+test "syntax-review-symmetry-p fixed vs ne", "false"
+  y = 2
+  x =! y
+  print(x != y)
+
+test "syntax-review-symmetry-p for arr cxs", '''
+  1
+  2
+'''
+  xs = [1, 2]
+  for x in +xs
+    print(x)
+
+test "syntax-review-symmetry-p for arr mxs", '''
+  1
+  2
+'''
+  xs = [1, 2]
+  for x in <xs
+    print(x)
+
+test "syntax-review-symmetry-p for arr qxs", '''
+  1
+  2
+'''
+  xs = [1, 2]
+  for x in ?xs
+    print(x)
+
+test "syntax-review-symmetry-p for arr wxs", '''
+  1
+  2
+'''
+  xs = [1, 2]
+  for x in !xs
+    print(x)
+
+test "syntax-review-symmetry-p for arr xs", '''
+  1
+  2
+'''
+  xs = [1, 2]
+  for x in xs
+    print(x)
+
+test "syntax-review-symmetry-p for elem clone", "1"
+  obj P
+    x: Int
+
+  v: List[*P] = List()
+  !v.push(*P(x: 1))
+  keep: List[*P] = List()
+  for x in ?v
+    !keep.push(+x)
+  print(keep.len)
+
+test "syntax-review-symmetry-p for vec cv", "1"
+  v: List[Int] = List()
+  !v.push(1)
+  for x in +v
+    print(x)
+
+test "syntax-review-symmetry-p for vec mv", "1"
+  v: List[Int] = List()
+  !v.push(1)
+  for x in <v
+    print(x)
+
+test "syntax-review-symmetry-p for vec qv", "1"
+  v: List[Int] = List()
+  !v.push(1)
+  for x in ?v
+    print(x)
+
+test "syntax-review-symmetry-p for vec wv", "1"
+  v: List[Int] = List()
+  !v.push(1)
+  for x in !v
+    print(x)
+
+test "syntax-review-symmetry-p for vech mv", "1"
+  obj R
+    n: Int
+
+  v: List[*R] = List()
+  !v.push(*R(n: 1))
+  for x in <v
+    print(x.n)
+
+test "syntax-review-symmetry-p for vech qv", "1"
+  obj R
+    n: Int
+
+  v: List[*R] = List()
+  !v.push(*R(n: 1))
+  for x in ?v
+    print(x.n)
+
+test "syntax-review-symmetry-p last neg sub", '''
+  drop 1
+  3
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  fun f(r: R) -> Int
+    <r
+    3
+
+  print(f(R(n: 1)))
+
+test "syntax-review-symmetry-p match box write", '''
+  5
+  drop 5
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    full(r: R)
+    empty
+
+  sub eat(r: R)
+    print("ate", r.n)
+
+  b = ^E.full(R(n: 1))
+  match !b
+    .full(r)
+      r.n = 5
+    .empty => print("none")
+  match ?b
+    .full(r) => print(r.n)
+    _ => print("x")
+
+test "syntax-review-symmetry-p match guard", "big"
+  match 3
+    x if x > 2 => print("big")
+    _ => print("small")
+
+test "syntax-review-symmetry-p match me", '''
+  1
+  drop 1
+  after
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    full(r: R)
+    empty
+
+  e = E.full(R(n: 1))
+  match <e
+    .full(r) => print(r.n)
+    .empty => print("none")
+  print("after")
+
+test "syntax-review-symmetry-p match or", "other"
+  match 3
+    1, 2 => print("low")
+    _ => print("other")
+
+test "syntax-review-symmetry-p match qe", '''
+  1
+  after
+  drop 1
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    full(r: R)
+    empty
+
+  e = E.full(R(n: 1))
+  match ?e
+    .full(r) => print(r.n)
+    .empty => print("none")
+  print("after")
+
+test "syntax-review-symmetry-p match we", '''
+  1
+  after
+  drop 1
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    full(r: R)
+    empty
+
+  e = E.full(R(n: 1))
+  match !e
+    .full(r) => print(r.n)
+    .empty => print("none")
+  print("after")
+
+test "syntax-review-symmetry-p match write payload", '''
+  5
+  drop 5
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    full(r: R)
+    empty
+
+  e = E.full(R(n: 1))
+  match !e
+    .full(r)
+      r.n = 5
+    .empty => print("none")
+  match ?e
+    .full(r) => print(r.n)
+    _ => print("x")
+
+test "syntax-review-symmetry-p pattern kw", "3 2"
+  enum S
+    rect(w: Int, h: Int)
+
+  s = S.rect(w: 2, h: 3)
+  match s
+    .rect(h: a, w: b) => print(a, b)
+
+test "syntax-review-symmetry-p qparam bare", "1 2"
+  obj P
+    x: Int
+
+  fun g(p: ?P) -> Int
+    p.x
+
+  fun h(n: ?Int) -> Int
+    n
+
+  p = P(x: 1)
+  n = 2
+  print(g(p), h(n))
+
+test "syntax-review-symmetry-p replace elem", "1 [9, 2]"
+  a = [1, 2]
+  old = replace(!a[0], 9)
+  print(old, a)
+
+test "syntax-review-symmetry-p replace local", "1 2"
+  x = 1
+  old = replace(!x, 2)
+  print(old, x)
+
+test "syntax-review-symmetry-p rparam pass both", "2"
+  fun h(n: ?Int) -> Int
+    n
+
+  fun g(n: ?Int) -> Int
+    h(?n) + h(n)
+
+  a = 1
+  print(g(?a))
+
+test "syntax-review-symmetry-p share named copy", "1 1"
+  obj P
+    x: Int
+
+  p = P(x: 1)
+  h = *p
+  print(h.x, p.x)
+
+test "syntax-review-symmetry-p sig move cb", "hi"
+  s = *Signal(value: 1)
+  cb: *sub() = *|| print("hi")
+  !s.subscribe(<cb)
+  !s.set(2)
+
+test "syntax-review-symmetry-p signal struct", "P(x: 1)"
+  obj P
+    x: Int
+
+  s = *Signal(value: P(x: 1))
+  print(s.get())
+
+test "syntax-review-symmetry-p slice get", "2"
+  a = [1, 2, 3]
+  s = ?a[..]
+  print(s.get(1))
+
+test "syntax-review-symmetry-p str qslice", "he"
+  s = "hello"
+  t = ?s[0..2]
+  print(t)
+
+fail "syntax-review-symmetry-p swap elems", "cannot lend `a` to write while a write loan is live: to swap two elements of `a`, write `!a.swap(0, 1)`"
+  a = [1, 2]
+  swap(!a[0], !a[1])
+  print(a)
+
+test "syntax-review-symmetry-p take arr elem", "1 [none, none]"
+  a: [2]Int? = [1, none]
+  x = <a[0]
+  print(x, a)
+
+fail "syntax-review-symmetry-p take optlocal", "use of `o` after move"
+  a = *Cell(value: 1)
+  o: *Cell[Int]? = <a
+  x = <o
+  print(o)
+
+test "syntax-review-symmetry-p vec clone", "[]"
+  v: List[Int] = List()
+  w = +v
+  print(w)
+
+test "syntax-review-symmetry-p vec fill swap", "[9, 9]"
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  !v.swap(0, 1)
+  !v.fill(9)
+  print(v)
+
+test "syntax-review-symmetry-p vec struct", "P(x: 1)"
+  obj P
+    x: Int
+
+  v: List[P] = List()
+  !v.push(P(x: 1))
+  print(v[0])
+
+test "syntax-review-symmetry-p wcapture assign", "5"
+  n = 1
+  f = |!n| n = 5
+  f()
+  print(n)
+
+test "syntax-review-symmetry-p while as else", '''
+  1
+  done
+'''
+  v: List[Int] = List()
+  !v.push(1)
+  while (!v).pop() as x
+    print(x)
+  else
+    print("done")
+
+test "syntax-review-symmetry-p wlocal moved capture", "5"
+  n = 1
+  w = !n
+  f = |<w| w = 5
+  f()
+  print(n)
+
+test "syntax-review-symmetry-p wlocal rebind", "2 3"
+  n = 1
+  m = 2
+  w = !n
+  w += 1
+  w = !m
+  w += 1
+  print(n, m)
+
+test "syntax-review-ux-c1b", "11831194018420276491"
+  fun fnv1a(s: ?String) -> U64
+    h: U64 = 0xcbf29ce484222325
+    for b in s
+      h ^= U64(b)
+      h = h *% 0x100000001b3
+    h
+
+  print(fnv1a("hello"))
+
+test "syntax-review-ux-c1e", "11831194018420276491"
+  fun mulw(a: U64, b: U64) -> U64
+    wide: U128 = U128(a) * U128(b)
+    raw
+      r: U64 = @truncate(wide)
+      r
+
+  fun fnv1a(s: ?String) -> U64
+    h: U64 = 0xcbf29ce484222325
+    for b in s
+      h ^= U64(b)
+      h = mulw(h, 0x100000001b3)
+    h
+
+  print(fnv1a("hello"))
+
+test "syntax-review-ux-c2", "0 0 0"
+  # count lines, words, bytes on stdin (wc), via libc getchar
+  extern fun getchar() -> I32
+
+  fun next_byte() -> I32
+    raw
+      getchar()
+
+  lines = 0
+  words = 0
+  bytes = 0
+  in_word = false
+  while true
+    c = next_byte()
+    break if c < 0
+    bytes += 1
+    if c == 10
+      lines += 1
+    if c == 32 or c == 10 or c == 9
+      in_word = false
+    else if not in_word
+      in_word = true
+      words += 1
+  print(lines, words, bytes)
+
+test "syntax-review-ux-c3", '''
+  full at 7
+  full at 8
+  full at 9
+  0 0
+  3 2
+  6 2
+  9 2
+  12 2
+  15 4
+  18 2
+  24
+'''
+  obj Ring[n: Int]
+    buf: [n]U8
+    head: Int = 0
+    tail: Int = 0
+
+    fun empty(?self) -> Bool
+      self.head == self.tail
+
+    fun push(!self, b: U8) -> Bool
+      next = (self.tail + 1) % n
+      return false if next == self.head
+      self.buf[self.tail] = b
+      self.tail = next
+      true
+
+    fun pop(!self) -> U8?
+      return none if self.empty()
+      b = self.buf[self.head]
+      self.head = (self.head + 1) % n
+      b
+
+  fun popcount(x: U32) -> Int
+    c = 0
+    v = x
+    while v != 0
+      c += Int(v & 1)
+      v >>= 1
+    c
+
+  r = Ring[8](buf: [8 of 0])
+  for i in 0..10
+    ok = (!r).push(U8(i * 3))
+    print("full at", i) if not ok
+  while (!r).pop() as b
+    print(b, popcount(U32(b)))
+  print(@size(R8))
+
+  type R8 = Ring[8]
+
+test "syntax-review-ux-py6b", exit: 1, '''
+  123
+  -1
+  60
+  bad input: ParseError.empty
+  0
+'''
+  error ParseError
+    bad_digit
+    empty
+
+  fun parse_int(s: ?String) -> Int!
+    return ParseError.empty if s.len == 0
+    n = 0
+    for ch in s
+      if ch < "0"[0] or ch > "9"[0]
+        return ParseError.bad_digit
+      n = n * 10 + Int(ch - "0"[0])
+    n
+
+  fun sum_csv(line: ?String) -> Int!
+    total = 0
+    start = 0
+    for ch, i in line
+      if ch == ","[0]
+        total += parse_int(line[start..i])!
+        start = i + 1
+    total += parse_int(line[start..])!
+    total
+
+  print(parse_int("123")!)
+  print(parse_int("12x") catch -1)
+  print(sum_csv("10,20,30")!)
+  r = sum_csv("10,,30") catch |e|
+    print("bad input:", e)
+    0
+  print(r)
+  print(sum_csv("1,2,x")!)
+
+test "syntax-review-ux-py7b", '''
+  15
+  2
+'''
+  fun make_adder(n: Int) -> *fun(Int) -> Int
+    *|+n, x| x + n
+
+  add5 = make_adder(5)
+  print(add5(10))
+  counter = 0
+  bump = |!counter| counter += 1
+  bump()
+  bump()
+  print(counter)
+
+test "syntax-review-ux-py7c", "1"
+  sub each(xs: ?List[Int], f: ?sub(Int))
+    for x in xs
+      f(x)
+
+  v: List[Int] = List()
+  !v.push(1)
+  total = 0
+  each(?v, |!total, x| total += x)
+  print(total)
+
+test "syntax-review-ux-py8b", "[72, 69, 76, 76, 79, 44, 32, 82, 73, 71]"
+  fun upper(s: ?String) -> List[U8]
+    out: List[U8] = List()
+    for b in s
+      if b >= 97 and b <= 122
+        !out.push(b - 32)
+      else
+        !out.push(b)
+    out
+
+  u = upper("hello, rig")
+  print(u)
+
+test "syntax-review-ux-py8c", '''
+  after
+  end
+  HELLO, RIG
+  HEL
+'''
+  extern fun putchar(c: I32) -> I32
+
+  sub puts(bytes: []U8)
+    for b in bytes
+      raw
+        _ = putchar(I32(b))
+    raw
+      _ = putchar(10)
+
+  fun upper(s: ?String) -> List[U8]
+    out: List[U8] = List()
+    for b in s
+      !out.push(b - 32 if b >= 97 and b <= 122 else b)
+    out
+
+  u = upper("hello, rig")
+  puts(?u[..])
+  print("after")
+  puts(?u[..3])
+  print("end")
+
+test "syntax-review-ux-py9", "count 0 sum 0 max 0"
+  extern fun getchar() -> I32
+
+  error InputError
+    bad_number
+
+  fun read_line(buf: !List[U8]) -> Bool
+    !buf.clear()
+    while true
+      c: I32 = 0
+      raw
+        c = getchar()
+      return buf.len > 0 if c < 0
+      return true if c == 10
+      !buf.push(U8(c))
+
+  fun parse(line: []U8) -> Int!
+    n = 0
+    for b in line
+      return InputError.bad_number if b < 48 or b > 57
+      n = n * 10 + Int(b - 48)
+    n
+
+  line: List[U8] = List()
+  total = 0
+  count = 0
+  biggest: Int? = none
+  while read_line(!line)
+    n = parse(?line[..]) catch |e|
+      print("skipping bad line:", e)
+      continue
+    total += n
+    count += 1
+    biggest = n if n > (biggest ?? n - 1) else biggest
+  print("count", count, "sum", total, "max", biggest ?? 0)
+  print("avg", Float(total) / Float(count)) if count > 0
+
+test "syntax-review-ux-rs1", '''
+  20
+  -1
+'''
+  # Rust dev: a tiny expression evaluator with errors
+  enum Token
+    num(v: Int)
+    plus
+    minus
+    star
+
+  error EvalError
+    unexpected
+    trailing_op
+
+  fun apply(op: ?Token, a: Int, b: Int) -> Int!
+    match op
+      .plus => a + b
+      .minus => a - b
+      .star => a * b
+      .num(_) => return EvalError.unexpected
+
+  fun eval(toks: ?List[Token]) -> Int!
+    acc = 0
+    pending: Token? = none
+    first = true
+    for t in toks
+      match t
+        .num(v)
+          if first
+            acc = v
+            first = false
+          else if pending as op
+            acc = apply(?op, acc, v)!
+            pending = none
+          else
+            return EvalError.unexpected
+        _ => pending = t
+    return EvalError.trailing_op if pending != none
+    acc
+
+  toks: List[Token] = List()
+  !toks.push(.num(2))
+  !toks.push(.plus)
+  !toks.push(.num(3))
+  !toks.push(.star)
+  !toks.push(.num(4))
+  print(eval(?toks)!)
+  !toks.push(.minus)
+  print(eval(?toks) catch |e| -1 if e == EvalError.trailing_op else -2)
+
+test "syntax-review-ux-rs2", '''
+  [1, 4, 9, 16, 25, 36, 49, 64, 81, 100] [4, 16, 36, 64, 100] 220
+  [64, 81, 100]
+'''
+  # generic helpers + closures, the way a Rust dev would write them
+  fun map[T, U](xs: ?List[T], f: ?fun(?T) -> U) -> List[U]
+    out: List[U] = List()
+    for x in xs
+      !out.push(f(?x))
+    out
+
+  fun filter[T](xs: ?List[T], keep: ?fun(?T) -> Bool) -> List[T]
+    out: List[T] = List()
+    for x in xs
+      if keep(?x)
+        !out.push(x)
+    out
+
+  fun fold[T, A](xs: ?List[T], init: A, f: ?fun(A, ?T) -> A) -> A
+    acc = init
+    for x in xs
+      acc = f(acc, ?x)
+    acc
+
+  v: List[Int] = List()
+  for i in 1..11
+    !v.push(i)
+  squares = map(?v, |x| x * x)
+  evens = filter(?squares, |x| x % 2 == 0)
+  total = fold(?evens, 0, |acc, x| acc + x)
+  print(squares, evens, total)
+  threshold = 50
+  big = filter(?squares, |+threshold, x| x > threshold)
+  print(big)
+
+test "syntax-review-ux-rs4", '''
+  5 10
+  4 4
+'''
+  obj Node
+    val: Int
+    next: ^Node?
+
+  obj Chain
+    head: ^Node?
+    len: Int = 0
+
+    sub push(!self, v: Int)
+      old = <self.head
+      self.head = ^Node(val: v, next: <old)
+      self.len += 1
+
+    fun pop(!self) -> Int?
+      if <self.head as b
+        n = <b.unbox()
+        self.head = <n.next
+        self.len -= 1
+        return n.val
+      none
+
+    fun sum(?self) -> Int
+      total = 0
+      cur = ?self.head
+      while cur as n
+        total += n.val
+        cur = ?n.next
+      total
+
+  l = Chain(head: none)
+  for i in 0..5
+    !l.push(i)
+  print(l.len, l.sum())
+  print((!l).pop() ?? -1, l.len)
+
+test "syntax-review-ux-rs5", '''
+  a a
+  2
+'''
+  obj Doc
+    title: ?String
+    words: List[?String]
+
+  obj View
+    doc: ?Doc
+    pos: Int
+
+  fun longest(a: ?Doc, b: ?Doc) -> ?Doc
+    a if a.words.len > b.words.len else b
+
+  d1 = Doc(title: "a", words: List())
+  !d1.words.push("x")
+  d2 = Doc(title: "b", words: List())
+  v = View(doc: ?d1, pos: 0)
+  w = longest(?d1, ?d2)
+  print(v.doc.title, w.title)
+  !d1.words.push("y")
+  print(d1.words.len)
+
+fail "syntax-review-ux-rs5b", "cannot lend `d1.words` to write while a read loan on `d1` is live"
+  obj Doc
+    title: ?String
+    words: List[?String]
+
+  obj View
+    doc: ?Doc
+    pos: Int
+
+  d1 = Doc(title: "a", words: List())
+  v = View(doc: ?d1, pos: 0)
+  !d1.words.push("y")
+  print(v.doc.title)
+
+fail "syntax-review-ux-rs5c", "a view of the temporary `make()` outlives its statement, which drops it; bind the value to a name first"
+  obj Doc
+    title: ?String
+    words: List[?String]
+
+  fun make() -> Doc
+    Doc(title: "t", words: List())
+
+  r = ?make()
+  print(r.title)
+
+test "syntax-review-ux-rs7", '''
+  1
+  free 2
+  free 1
+'''
+  obj Job
+    id: Int
+    drop(!self)
+      print("free", self.id)
+
+  jobs: List[*Job] = List()
+  !jobs.push(*Job(id: 1))
+  !jobs.push(*Job(id: 2))
+  keep: List[*Job] = List()
+  for j in ?jobs
+    !keep.push(+j) if j.id > 1
+  print(keep.len)
+
+test "syntax-review-ux-rs8", '''
+  ada ["member", "admin"]
+  bob ["member"]
+'''
+  obj Person
+    name: ?String
+    tags: List[?String]
+
+  people: List[^Person] = List()
+  for n in ["ada", "bob"]
+    !people.push(^Person(name: n, tags: List()))
+  for p, i in !people
+    !p.tags.push("member")
+    !p.tags.push("admin") if i == 0
+  for p in ?people
+    print(p.name, p.tags)
+
+fail "t-b", "`p` is assigned but never read; use it, or discard the value with `_ = ...`"
+  # A `break` value may not lend what the loop declared: it goes out of
+  # scope as the loop ends.
+
+  obj P
+    n: Int
+
+  q = P(n: 0)
+  x = for i in 0..3
+    p = P(n: i)
+    break ?q if i == 2
+  else
+    ?q
+  print(x.n)
+
+test "t-c", "7"
+  # An element cannot be moved out of a List: the List still owns the slot.
+
+  obj P
+    n: Int
+
+  sub eat(p: P)
+    print(p.n)
+
+  v: List[P] = List()
+  !v.push(P(n: 7))
+  eat(v[0])
+
+fail "t-c3", "closures cannot escape their defining scope; bind the closure to a local (`f = |...| ...`) and call `f()`, or make it owned (`*|...| body`) to pass, store, or return it"
+  fun make() -> fun() -> Int
+    x = 1
+    return |+x|
+      x + 1
+
+  f = make()
+  print(f())
+
+test "t-f1", '''
+  16777216.0
+  16777216.0
+'''
+  print(F32(16777217))
+  n = 16777217
+  print(F32(n))
+
+test "t-m1", '''
+  0 2 1
+  [7, 1, 2]
+  Q(a: P(x: 1, y: 2), b: 0) P(x: 2, y: 2)
+  [] []
+'''
+  obj P
+    x: Int
+    y: Int
+
+  obj S
+    a: List[Int]
+    b: Int
+
+    fun count(?self, n: Int) -> Int
+      self.a.len + n
+
+    sub add(!self, n: Int)
+      !self.a.push(n)
+
+  fun grow(v: !List[Int]) -> Int
+    !v.push(7)
+    2
+
+  fun bump(p: !P) -> Int
+    p.x += 1
+    0
+
+  obj Q
+    a: P
+    b: Int
+
+  s = S(a: List(), b: 1)
+  print(s.count(0), grow(!s.a), s.count(0))
+  !s.add(s.count(0))
+  !s.add(s.a.len)
+  print(s.a)
+  p = P(x: 1, y: 2)
+  q = Q(a: p, b: bump(!p))
+  print(q, p)
+  o: List[Int]? = List()
+  print(o, o)
+
+fail "t-m2", "cannot lend `s.a` to write while a read loan on `s` is live"
+  obj S
+    a: List[Int]
+    b: Int
+
+    fun count(?self, n: Int) -> Int
+      self.a.len + n
+
+  fun grow(v: !List[Int]) -> Int
+    !v.push(7)
+    2
+
+  fun grows(s: !S) -> Int
+    !s.a.push(7)
+    2
+
+  fun growo(o: !List[Int]?) -> Int
+    o = none
+    2
+
+  s = S(a: List(), b: 1)
+  print(s.count(grow(!s.a)))
+  print(s.count(grows(!s)))
+  !s.a.push(grow(!s.a))
+  o: List[Int]? = List()
+  print(o, growo(!o))
+
+fail "t-mv1", "cannot move out of `v[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it"
+  sub eat(c: ?String)
+    print(c)
+
+  v: List[?String] = List()
+  !v.push("a")
+  eat(<v[0])
+
+  # oracle: main reject C3
+
+fail "t-mv2", "cannot move out of `v[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it"
+  sub eat(c: Int)
+    print(c)
+
+  v: List[Int] = List()
+  !v.push(1)
+  eat(<v[0])
+
+  # oracle: main reject C3
+
+fail "t-mv3", "cannot move out of `v[0]`: elements cannot be moved out of their container"
+  sub eat(c: *Cell[Int])
+    print(c.get())
+
+  c1: *Cell[Int] = *Cell(7)
+  v: List[*Cell[Int]] = List()
+  !v.push(<c1)
+  x = <v[0]
+  eat(<x)

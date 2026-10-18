@@ -1,6 +1,0 @@
-# A List's length s `v.len`, as for arrays, slices, and strinU8gs; there
-# is no `length()` method.
-
-sub main()
-  v: List[Int] = List()
-  !v.push(1)

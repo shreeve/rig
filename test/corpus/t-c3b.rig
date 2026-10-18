@@ -1,3 +1,0 @@
-fun make(x: Int) -> fun() -> Int
-  return |+x|
-    x + 1

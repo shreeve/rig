@@ -1,0 +1,1446 @@
+# Probes from past reviews and audits, 2 of 41: R15-p-i5 to R3c1-f_ctx_handle.
+
+bomb "R15-p-i5", "byte read out of range: 2 bytes at offset 7 of 8", prints: "7523094288207667809 104"
+  s = "abcdefgh"
+  print(s.read[U64, .little](0), s.read[U8](7))
+  print(s.read[U16, .big](7))
+
+bomb "R15-p-i7", "byte read out of range: 2 bytes at offset 0 of 1"
+  fun n(x: Int) -> Int
+    x
+
+  v: List[U8] = List()
+  !v.push(1)
+  print(v.read[U16, .little](n(0)))
+
+bomb "R15-p-j2", "index out of bounds"
+  fun n(x: Int) -> Int
+    x
+
+  b: [8]U8 = [8 of 0]
+  w = !b[..]
+  w[n(8)] = 1
+  print(b)
+
+bomb "R15-p-j3", "slice bounds out of range"
+  fun n(x: Int) -> Int
+    x
+
+  b: [8]U8 = [8 of 0]
+  w = !b[..]
+  t = !w[n(3)..n(9)]
+  t[0] = 1
+  print(b)
+
+bomb "R15-p-j4", "index out of bounds"
+  fun n(x: Int) -> Int
+    x
+
+  b = [1, 2, 3]
+  w = !b[..]
+  !w.swap(0, n(3))
+  print(b)
+
+bomb "R15-p-j5", "copy between slices of different lengths"
+  fun n(x: Int) -> Int
+    x
+
+  b = [1, 2, 3]
+  c = [1, 2]
+  w = !b[..n(3)]
+  !w.copy(?c[..])
+  print(b)
+
+test "R15-p-k1", '''
+  [4, 3, 2, 1]
+  [0.5, 0.5]
+  [4, 3, 2, 1]
+'''
+  sub rev[T](s: ![]T)
+    i = 0
+    j = s.len - 1
+    while i < j
+      !s.swap(i, j)
+      i += 1
+      j -= 1
+
+  sub fillall[T](s: ![]T, v: T)
+    !s.fill(v)
+
+  sub cp[T](d: ![]T, s: []T)
+    !d.copy(s)
+
+  a = [1, 2, 3, 4]
+  rev(!a[..])
+  print(a)
+  f = [1.5, 2.5]
+  fillall(!f[..], 0.5)
+  print(f)
+  b = [0, 0, 0, 0]
+  cp(!b[..], ?a[..])
+  print(b)
+
+test "R15-p-k2", '''
+  [1, 2, 3, 4, 0, 0, 0, 0]
+  16909060 1027
+'''
+  fun get[T, e: Endian](b: []U8, at: Int) -> T
+    b.read[T, e](at)
+
+  sub put[T, e: Endian](b: ![]U8, at: Int, v: T)
+    !b.write[T, e](at, v)
+
+  buf: [8]U8 = [8 of 0]
+  put[U32, .big](!buf[..], 0, 0x01020304)
+  print(buf)
+  print(get[U32, .big](?buf[..], 0), get[U16, .little](?buf[..], 2))
+
+fail "R15-p-m1", "`b` does not live long enough"
+  fun t() -> Bool
+    true
+
+  a = [1, 2]
+  w = !a[..]
+  if t()
+    b = [3, 4]
+    w = !b[..]
+  w[0] = 9
+  print(w)
+
+fail "R15-p-m2", "`s` does not live long enough"
+  obj S
+    arr: [2]Int
+
+  vs: List[S] = List()
+  !vs.push(S(arr: [1, 2]))
+  a = [0, 0]
+  w = !a[..]
+  for s in !vs
+    w = !s.arr[..]
+  w[0] = 9
+  print(vs[0].arr)
+
+fail "R15-p-m3", "`s` does not live long enough"
+  obj S
+    arr: [2]Int
+
+  vs: List[S] = List()
+  !vs.push(S(arr: [1, 2]))
+  a = [0, 0]
+  w = !a[..]
+  for s in !vs
+    w = !s.arr[..]
+  !vs.push(S(arr: [3, 4]))
+  w[0] = 9
+
+test "R15-p-n1", '''
+  n
+  n
+  n
+  12 18 [9, 9]
+'''
+  obj P
+    x: Int
+    arr: [2]Int
+    sub bump(!self)
+      self.x += 1
+
+  sub inc(p: !P)
+    p.x += 100
+
+  fun n(i: Int) -> Int
+    print("n")
+    i
+
+  ps = [P(x: 1, arr: [0, 0]), P(x: 2, arr: [0, 0])]
+  s = !ps[..]
+  s[n(0)].x = 5
+  s[n(1)].arr[n(1)] += 7
+  !s[0].bump()
+  inc(!s[1])
+  s[1] = P(x: 9, arr: [9, 9])
+  for p in !s
+    p.x *= 2
+  print(ps[0].x, ps[1].x, ps[1].arr)
+
+test "R15-p-o1", '''
+  2
+  1
+  2
+  1
+'''
+  v: List[*Cell[Int]] = List()
+  !v.push(*Cell(value: 1))
+  !v.push(*Cell(value: 2))
+  !v.swap(0, 1)
+  for c in ?v
+    print(c.get())
+  !v.swap(1, 1)
+  for c in ?v
+    print(c.get())
+
+fail "R15-p-o4", "`w` is assigned but never read; use it, or discard the value with `_ = ...`"
+  v: List[*Cell[Int]] = List()
+  !v.push(*Cell(value: 1))
+  w = !v[..]
+
+test "R15-p-o6", "2"
+  obj H
+    c: *Cell[Int]
+
+  v: List[H] = List()
+  !v.push(H(c: *Cell(value: 1)))
+  !v.push(H(c: *Cell(value: 2)))
+  !v.swap(0, 1)
+  print(v[0].c.get())
+
+test "R15-p-o7", '''
+  []
+  [1]
+'''
+  v: List[List[Int]] = List()
+  a: List[Int] = List()
+  !a.push(1)
+  !v.push(<a)
+  b: List[Int] = List()
+  !v.push(<b)
+  !v.swap(0, 1)
+  for x in ?v
+    print(x)
+
+test "R15-p-qs", "true 0 999 2000"
+  sub qsort(s: ![]Int)
+    if s.len < 2
+      return
+    p = s[s.len - 1]
+    i = 0
+    j = 0
+    while j < s.len - 1 : j += 1
+      if s[j] < p
+        !s.swap(i, j)
+        i += 1
+    !s.swap(i, s.len - 1)
+    qsort(!s[..i])
+    qsort(!s[i + 1..])
+
+  sub msort(s: ![]Int, tmp: ![]Int)
+    if s.len < 2
+      return
+    m = s.len / 2
+    msort(!s[..m], !tmp[..m])
+    msort(!s[m..], !tmp[m..])
+    i = 0
+    j = m
+    k = 0
+    while k < s.len : k += 1
+      if j >= s.len or (i < m and s[i] <= s[j])
+        tmp[k] = s[i]
+        i += 1
+      else
+        tmp[k] = s[j]
+        j += 1
+    !s.copy(?tmp[..s.len])
+
+  v: List[Int] = List()
+  x = 12345
+  n = 0
+  while n < 2000 : n += 1
+    x = (x * 1103515245 + 12345) % 2147483648
+    !v.push(x % 1000)
+  w: List[Int] = List()
+  t: List[Int] = List()
+  for e in v
+    !w.push(e)
+    !t.push(0)
+  qsort(!v[..])
+  msort(!w[..], !t[..])
+  ok = true
+  k = 1
+  while k < v.len : k += 1
+    if v[k - 1] > v[k] or v[k] != w[k]
+      ok = false
+  print(ok, v[0], v[v.len - 1], v.len)
+
+fail "R15-p-r5", "bare use of write view `w` in binding would copy a write view, which is unique; use `<w` to move it"
+  v: List[Int] = List()
+  !v.push(1)
+  w = !v[..]
+  r: []Int = w
+  !v.push(2)
+  !v.push(3)
+  print(r)
+
+test "R15-p-r6", "[2, 3]"
+  a = [1, 2, 3]
+  w = !a[..]
+  print(w[1..])
+
+fail "R15-p-s5", "use of `w` after move"
+  a = [1, 2]
+  w = !a[..]
+  x = <w
+  x[0] = 5
+  w[0] = 6
+
+fail "R15-p-s6", "cannot drop view parameter `s`; the caller owns what it views"
+  sub f(s: ![]Int)
+    <s
+
+  a = [1, 2]
+  f(!a[..])
+
+test "R15-p-s7", "[3, 2]"
+  a = [1, 2]
+  w = !a[..]
+  <w
+  a[0] = 3
+  print(a)
+
+test "R15-p-u4", "[7, 8]"
+  sub load(s: ![]Int)
+    c = [7, 8]
+    t = !s[..]
+    !t.copy(?c[..])
+
+  a = [1, 2]
+  load(!a[..])
+  print(a)
+
+test "R15-p-u5", "7 8"
+  sub load(s: ![]U8)
+    c: [2]U8 = [7, 8]
+    !s.fill(c[0])
+    !s.write[U8](1, c[1])
+
+  a: [2]U8 = [1, 2]
+  load(!a[..])
+  print(a[0], a[1])
+
+test "R15-p-u6", "7"
+  obj P
+    x: Int
+    sub set(!self, s: []Int)
+      self.x = s[0]
+
+  sub load(p: !P)
+    c = [7, 8]
+    !p.set(?c[..])
+
+  p = P(x: 0)
+  load(!p)
+  print(p.x)
+
+test "R15-p-v3", "[1, 2]"
+  obj R
+    s: []Int
+
+  a = [1, 2]
+  b = [3, 4]
+  rs = [R(s: ?a[..]), R(s: ?b[..])]
+  !rs.fill(R(s: ?a[..]))
+  print(rs[1].s)
+
+fail "R15-p-v5", "cannot store a view of `loc` in `rs[0]`: `rs` outlives it"
+  obj R
+    s: []Int
+
+  sub f(rs: ![]R)
+    loc = [7, 7]
+    rs[0] = R(s: ?loc[..])
+
+  a = [1, 2]
+  rs = [R(s: ?a[..]), R(s: ?a[..])]
+  f(!rs[..])
+  print(rs[0].s)
+
+test "R15-p-x1", '''
+  5 3 0
+  257 7 [1, 1, 1, 1]
+'''
+  obj Pkt
+    hdr: [4]U8
+    body: List[U8]
+    fun len(?self) -> U16
+      self.hdr.read[U16, .big](0)
+    fun tag(?self) -> U8
+      self.body.read[U8](0)
+    sub set(!self, n: U16)
+      !self.hdr.write[U16, .big](0, n)
+      !self.body.write[U8](0, 7)
+      !self.hdr.fill(1)
+      !self.body.swap(0, 0)
+
+  fun peek(p: ?Pkt) -> U16
+    p.hdr.read[U16, .little](2)
+
+  b: List[U8] = List()
+  !b.push(3)
+  p = Pkt(hdr: [0, 5, 0, 0], body: <b)
+  print(p.len(), p.tag(), peek(?p))
+  !p.set(258)
+  print(p.len(), p.tag(), p.hdr)
+
+test "R15-p-y5", "[[7, 8], [7, 8]]"
+  grid = [[1, 2], [3, 4]]
+  for row in !grid
+    !row.fill(7)
+    w = !row[1..]
+    w[0] = 8
+  print(grid)
+
+bomb "R15-p-z3", "byte read out of range: 1 bytes at offset 4 of 4"
+  fun n(x: Int) -> Int
+    x
+
+  s = "abcd"
+  print(s.read[U8](n(4)))
+
+test "R15-repro-copy array source", "[9, 2, 3]"
+  b = [1, 2, 3]
+  !b[..1].copy([9])
+  print(b)
+
+test "R15-repro-copy keeps source lent", "[9, 2, 3] [1, 2, 3]"
+  # After `!b.copy(?a[..])`, `a` stays lent to read for as long as `b` lives.
+  a = [1, 2, 3]
+  b = [0, 0, 0]
+  !b.copy(?a[..])
+  a[0] = 9
+  print(a, b)
+
+fail "R16-a1", "cannot lend `v` to write while a read loan is live"
+  sub walk(v: !List[Int], f: ?sub(Int))
+    !v.push(1)
+    f(1)
+
+  v: List[Int] = List()
+  l = |?v, n: Int| print(v.len + n)
+  walk(!v, ?l)
+
+fail "R16-a2", "cannot lend `v` to read while a write loan is live"
+  sub walk(v: !List[Int], f: ?sub(Int))
+    !v.push(1)
+    f(1)
+
+  v: List[Int] = List()
+  walk(!v, |?v, n| print(v.len + n))
+
+fail "R16-a3", "cannot lend `v` to write while a read loan is live"
+  sub walk(f: ?sub(Int), v: !List[Int])
+    !v.push(1)
+    f(1)
+
+  v: List[Int] = List()
+  walk(|?v, n| print(v.len + n), !v)
+
+test "R16-c1", "3"
+  x = 1
+  f = |!x|
+    x += 1
+  g = |?f| f()
+  g()
+  g()
+  print(x)
+
+test "R16-c3", "2"
+  sub run(f: ?sub())
+    f()
+
+  x = 1
+  f = |!x|
+    x += 1
+  g = |?f| run(?f)
+  g()
+  print(x)
+
+test "R16-c5", '''
+  31
+  10
+'''
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  sub outer(f: ?fun(Int) -> Int)
+    g = |?f, a: Int| apply(f, a) + 1
+    print(apply(?g, 3))
+    h = |?f| f(1)
+    print(h())
+
+  outer(|a| a * 10)
+
+fail "R16-c6", "cannot move-capture view parameter `f`; the caller still owns what it views. Capture the view with `|?f|`"
+  sub outer(f: ?fun(Int) -> Int)
+    h = |<f| f(1)
+    print(h())
+
+  outer(|a| a * 10)
+
+test "R16-ctx1", '''
+  chk 0
+  chk 1
+  chk 2
+  chk 3
+  3
+  true
+  6
+  two
+  drop 1
+  2
+  drop 9
+  14
+  7
+'''
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun chk(f: ?fun(Int) -> Bool, x: Int) -> Bool
+    print("chk", x)
+    f(x)
+
+  fun val(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  fun pos(n: Int) -> Int?
+    n if n > 0 else none
+
+  fun first() -> Int
+    r = Res(id: 1)
+    return val(|<r, a| a + r.id, 1)
+
+  n = 0
+  while chk(|a| a < 3, n)
+    n += 1
+  print(n)
+  if false and chk(|a| a > 0, 99)
+    print("no")
+  b = true or chk(|a| a > 0, 98)
+  print(b)
+  o = pos(-1) ?? val(|a| a * 3, 2)
+  print(o)
+  match val(|a| a + 1, 1)
+    2 => print("two")
+    _ => print("other")
+  print(first())
+  defer print(val(|a| a + 7, 0))
+  x = 5
+  c = Res(id: 9)
+  y = val(|<c, a| a + c.id, x) if x > 3 else 0
+  print(y)
+
+fail "R16-d1", "cannot reassign `x` while it is lent"
+  x = 1
+  f = |!x|
+    x += 1
+  defer f()
+  x = 5
+  print(x)
+
+fail "R16-d2", "cannot reassign `x` while it is lent"
+  x = 1
+  f = |?x| print(x)
+  defer f()
+  x = 5
+  print(x)
+
+fail "R16-d3", "cannot reassign `x` while it is lent"
+  sub run(f: ?sub())
+    f()
+
+  x = 1
+  f = |!x|
+    x += 1
+  defer run(?f)
+  x = 5
+  print(x)
+
+fail "R16-d4", "cannot drop `v` while it is lent"
+  v: List[Int] = List()
+  !v.push(1)
+  f = |?v| print(v.len)
+  errdefer f()
+  <v
+  print(1)
+
+fail "R16-d5", "use of `x` while a write loan is live"
+  x = 1
+  f = |!x|
+    x += 1
+  defer
+    f()
+    print(x)
+  f()
+
+test "R16-dg10", "2"
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  cb = *|a: Int| a + 1
+  print(apply(?+cb, 1))
+
+test "R16-dg12", "6"
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  fun mk() -> *fun(Int) -> Int
+    *|a: Int| a + 5
+
+  print(apply(?mk(), 1))
+
+test "R16-dg6", '''
+  2
+  2
+'''
+  fun double(n: Int) -> Int
+    n * 2
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  print(apply(?double, 1))
+  g = double
+  print(apply(?g, 1))
+
+test "R16-dg9", '''
+  2
+  2
+'''
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  cb = *|a: Int| a + 1
+  print(apply(+cb, 1))
+  print(apply(<cb, 1))
+
+fail "R16-e2", "`l` does not live long enough"
+  fun double(n: Int) -> Int
+    n * 2
+
+  h: ?fun(Int) -> Int = double
+  for i in 0..3
+    l = |+i, a: Int| a + i
+    h = ?l
+  print(h(1))
+
+fail "R16-e4", "`l` does not live long enough"
+  fun double(n: Int) -> Int
+    n * 2
+
+  h: ?fun(Int) -> Int = double
+  if true
+    x = 5
+    l = |?x, a: Int| a + x
+    g: ?fun(Int) -> Int = ?l
+    h = g
+  print(h(1))
+
+fail "R16-e5", "cannot reassign `x` while it is lent"
+  fun double(n: Int) -> Int
+    n * 2
+
+  h: ?fun(Int) -> Int = double
+  x = 5
+  l = |!x, a: Int| a + x
+  h = ?l
+  x = 7
+  print(h(1))
+
+test "R16-em2", '''
+  drop 3
+  8
+  drop 0
+  -1
+'''
+  error E
+    bad
+
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun may(n: Int) -> Int!
+    return E.bad if n < 0
+    n
+
+  fun apply(x: Int, f: ?fun(Int) -> Int, y: Int) -> Int
+    f(x + y)
+
+  fun go(n: Int) -> Int!
+    r = Res(id: n)
+    apply(may(n)!, |<r, a| a + r.id, may(n - 1)!)
+
+  print(go(3) catch -1)
+  print(go(0) catch -1)
+
+test "R16-em3", '''
+  4
+  -1
+  3
+  3
+  99
+  7
+'''
+  error E
+    bad
+
+  fun may(n: Int) -> Int!
+    return E.bad if n < 0
+    n
+
+  fun apply(f: ?fun(Int) -> Int!, x: Int) -> Int!
+    f(x)!
+
+  fun appo(f: ?fun(Int) -> Int?, x: Int) -> Int
+    f(x) ?? 99
+
+  fun appq(f: ?fun(Int) -> Int?, x: Int) -> Int?
+    f(x)? + 1
+
+  print(apply(|a| a + 1, 3) catch -1)
+  print(apply(may, -3) catch -1)
+  print(apply(may, 3) catch -1)
+  print(appo(|a| a if a > 0 else none, 3))
+  print(appo(|a| a if a > 0 else none, -3))
+  print(appq(|a| a if a > 0 else none, -3) ?? 7)
+
+test "R16-fm1", "2"
+  obj Bag
+    items: List[Int]
+
+  b = Bag(items: List())
+  add = |!b, n: Int|
+    !b.items.push(n)
+  add(1)
+  add(2)
+  print(b.items.len)
+
+test "R16-g7", '''
+  8
+  a
+'''
+  fun call_it[T](x: T, f: ?fun(T) -> T) -> T
+    f(x)
+
+  fun twice[T](x: T, f: ?fun(T) -> T) -> T
+    call_it(call_it(x, f), f)
+
+  fun thrice[T](x: T, f: ?fun(T) -> T) -> T
+    twice(call_it(x, f), f)
+
+  k = 2
+  print(thrice(1, |+k, a| a * k))
+  print(thrice("a", |s| s))
+
+test "R16-gg1", '''
+  3 6
+  false true
+  6
+
+  zero
+  101
+'''
+  fun map[T, U](xs: []T, f: ?fun(T) -> U) -> List[U]
+    out: List[U] = List()
+    for x in xs
+      !out.push(f(x))
+    out
+
+  fun map2[T, U](xs: []T, f: ?fun(T) -> U) -> List[U]
+    map(xs, f)
+
+  fun map3[T, U](xs: []T, f: ?fun(T) -> U) -> List[U]
+    k = 1
+    map2(xs, |?f, +k, x| f(x))
+
+  fun fold[T, A](xs: []T, init: A, f: ?fun(A, T) -> A) -> A
+    acc = init
+    for x in xs
+      acc = f(acc, x)
+    acc
+
+  sub apply0(f: ?sub())
+    f()
+
+  a = [1, 2, 3]
+  m = map3(?a[..], |x| x * 2)
+  print(m.len, m[2])
+  s = map3(?a[..], |x| x > 1)
+  print(s[0], s[2])
+  print(fold(?a[..], 0, |acc, x| acc + x))
+  print(fold(?a[..], "", |acc, x| acc))
+  apply0(|| print("zero"))
+  n = map(xs: ?a[..], f: |x| x + 100)
+  print(n[0])
+
+test "R16-inf1", '''
+  yes
+  yes
+'''
+  fun pipe[A, B, C](a: A, f: ?fun(A) -> B, g: ?fun(B) -> C) -> C
+    g(f(a))
+
+  fun rpipe[A, B, C](a: A, g: ?fun(B) -> C, f: ?fun(A) -> B) -> C
+    g(f(a))
+
+  print(pipe(3, |x| x > 2, |b| "yes" if b else "no"))
+  print(rpipe(3, |b| "yes" if b else "no", |x| x > 2))
+
+test "R16-inf3", "1"
+  fun apply[T](f: ?fun() -> T) -> T
+    f()
+
+  v: List[Int] = List()
+  !v.push(3)
+  r = apply(|?v| v)
+  print(r.len)
+
+test "R16-k3", "5"
+  obj P
+    n: Int
+
+  sub run(f: ?sub())
+    f()
+
+  p = P(n: 1)
+  run(|!p|
+    p = P(n: 5)
+  )
+  print(p.n)
+
+test "R16-k5", "1"
+  obj View
+    w: ?List[Int]
+
+  a: List[Int] = List()
+  b: List[Int] = List()
+  !b.push(1)
+  v = View(w: ?a)
+  f = |!v, ?b|
+    v.w = b
+  f()
+  print(v.w.len)
+
+test "R16-k6", "3"
+  obj View
+    w: ?List[Int]
+    n: Int
+
+  a: List[Int] = List()
+  v = View(w: ?a, n: 0)
+  f = |!v|
+    v.n = 3
+  f()
+  print(v.n)
+
+fail "R16-l1", "cannot reassign `x` while it is lent"
+  x = 1
+  f = |!x|
+    x += 1
+  g = |?f| f()
+  x = 5
+  g()
+  print(x)
+
+fail "R16-l2", "`i` is bound but never read; name it `_` to ignore the value"
+  x = 0
+  f = |!x|
+    x += 1
+  for i in 0..3
+    f()
+    x = 10
+  print(x)
+
+fail "R16-l3", "use of `x` while a write loan is live"
+  x = 0
+  f = |!x|
+    x += 1
+  i = 0
+  while i < 3
+    f()
+    print(x)
+    i += 1
+
+fail "R16-l3c", "use of `x` while a write loan is live"
+  x = 0
+  f = |!x|
+    x += 1
+  for _ in 0..3
+    f()
+    print(x)
+
+fail "R16-l4", "cannot reassign closure binding `add`; closure bindings are fixed"
+  a = 0
+  b = 0
+  add = |!a|
+    a += 1
+  add()
+  add = |!b|
+    b += 1
+  print(a)
+  add()
+  print(b)
+
+fail "R16-lf11", "`l` does not live long enough"
+  a: List[Int] = List()
+  !a.push(1)
+  r = ?a
+  if true
+    c: List[Int] = List()
+    !c.push(42)
+    !c.push(43)
+    l = |?c| c
+    g = ?l
+    r = g()
+  print(r.len, r[0])
+
+fail "R16-lf12", "`a` is assigned but never read; use it, or discard the value with `_ = ...`"
+  obj Wrap
+    n: Int
+
+  a = Wrap(n: 1)
+  if true
+    c = Wrap(n: 3)
+    l = |?c| c
+    g = ?l
+    r = g()
+    print(r.n)
+
+test "R16-lf15", "1"
+  fun get(f: ?fun() -> ?List[Int]) -> Int
+    g = f
+    r = g()
+    r.len
+
+  c: List[Int] = List()
+  !c.push(42)
+  print(get(|?c| c))
+
+fail "R16-lf16", "cannot return a view of `l`, which this function was not lent"
+  fun bad(a: ?List[Int]) -> ?List[Int]
+    c: List[Int] = List()
+    !c.push(42)
+    !c.push(43)
+    l = |?c| c
+    g = ?l
+    g()
+
+  a: List[Int] = List()
+  r = bad(?a)
+  print(r.len)
+
+test "R16-ls1", '''
+  101
+  6
+  6
+  103
+  1
+'''
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  obj H
+    cb: *fun(Int) -> Int
+
+  fun viaparam(g: fun(Int) -> Int) -> Int
+    apply(g, 1) + apply(?g, 2)
+
+  fun viaref(f: ?fun(Int) -> Int) -> Int
+    apply(f, 1) + apply(?f, 2)
+
+  fun viahandle(c: ?*fun(Int) -> Int) -> Int
+    apply(?c, 3)
+
+  fun double(n: Int) -> Int
+    n * 2
+
+  h = H(cb: *|a| a + 100)
+  print(apply(?h.cb, 1))
+  print(viaparam(double))
+  print(viaref(double))
+  print(viahandle(?h.cb))
+  w = ~h.cb
+  print(1)
+
+test "R16-m1", '''
+  3
+  2 20
+  6
+  42
+  s
+'''
+  obj Bag[T]
+    items: List[T]
+
+    sub each(?self, f: ?sub(T))
+      for x in ?self.items
+        f(x)
+
+    fun map[U](?self, f: ?fun(T) -> U) -> List[U]
+      out: List[U] = List()
+      for x in ?self.items
+        !out.push(f(x))
+      out
+
+    sub mutate(!self, f: ?fun(T) -> T) keeps f
+      i = 0
+      while i < self.items.len
+        self.items[i] = f(self.items[i])
+        i += 1
+
+  obj Counter
+    n: Int
+
+    sub bump(!self, f: ?fun(Int) -> Int)
+      self.n = f(self.n)
+
+  b = Bag[Int](items: List())
+  !b.items.push(1)
+  !b.items.push(2)
+  total = 0
+  b.each(|!total, x|
+    total += x
+  )
+  print(total)
+  m = b.map(|x| x * 10)
+  print(m.len, m[1])
+  k = 5
+  !b.mutate(|+k, x| x + k)
+  print(b.items[0])
+  c = Counter(n: 1)
+  !c.bump(|a| a + 41)
+  print(c.n)
+  s = ?b.map(|x| "s")
+  print(s[0])
+
+fail "R16-mv1", "cannot move `v` while a read loan is live"
+  sub take(f: ?fun() -> Int, v: List[Int])
+    print(f(), v.len)
+
+  v: List[Int] = List()
+  !v.push(1)
+  take(|?v| v.len, <v)
+
+fail "R16-mv2", "use of `v` after move"
+  sub take(v: List[Int], f: ?fun() -> Int)
+    print(f(), v.len)
+
+  v: List[Int] = List()
+  !v.push(1)
+  take(<v, |?v| v.len)
+
+fail "R16-mv3", "use of `v` after move"
+  sub take(f: ?fun() -> Int, v: List[Int])
+    print(f(), v.len)
+
+  v: List[Int] = List()
+  !v.push(1)
+  take(|<v| v.len, <v)
+
+fail "R16-mv4", "cannot move-capture `v` while a read loan is live"
+  sub take(f: ?fun() -> Int, g: ?fun() -> Int)
+    print(f(), g())
+
+  v: List[Int] = List()
+  !v.push(1)
+  take(|?v| v.len, |<v| v.len)
+
+test "R16-n1", '''
+  6
+  90
+'''
+  sub rec(n: Int, f: ?sub(Int))
+    if n == 0
+      f(0)
+    else
+      rec(n - 1, |?f, +n, k| f(k + n))
+
+  sub each(xs: ?List[Int], f: ?sub(Int))
+    for x in xs
+      f(x)
+
+  total = 0
+  rec(3, |!total, k|
+    total += k
+  )
+  print(total)
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  w: List[Int] = List()
+  !w.push(10)
+  !w.push(20)
+  sum = 0
+  each(?v, |?w, !sum, a|
+    each(?w, |!sum, +a, b|
+      sum += a * b
+    )
+  )
+  print(sum)
+
+test "R16-oc1", "2"
+  cb = *|f: ?fun(Int) -> Int| f(1)
+  print(cb(|a| a + 1))
+
+test "R16-oc2", '''
+  6
+  4
+  3
+'''
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  k = 3
+  both = |+k, f: ?fun(Int) -> Int| f(k)
+  print(both(|a| a * 2))
+  x = 0
+  print(both(|!x, a|
+    x = a
+    x + 1
+  ))
+  print(x)
+
+fail "R16-oc4", "an owned closure cannot capture a view of `x`: it can be stored anywhere, so it could outlive `x`; capture an owned value, or use a stack closure (`|...|`)"
+  s = *Signal(value: 0)
+  x = 1
+  !s.subscribe(*|?x| print(x))
+
+test "R16-od3", "2"
+  cb = *|a: Int| a + 1
+  p: ?fun(Int) -> Int = ?cb
+  print(p(1))
+
+test "R16-ord1", '''
+  22
+  arg 5
+  body
+  5
+'''
+  fun bump(k: !Int) -> Int
+    k += 10
+    k
+
+  fun apply2(x: Int, f: ?fun(Int) -> Int) -> Int
+    f(x)
+
+  fun trace(n: Int) -> Int
+    print("arg", n)
+    n
+
+  k = 1
+  print(apply2(bump(!k), |+k, a| a + k))
+  print(apply2(trace(5), |a|
+    print("body")
+    a
+  ))
+
+fail "R16-pw1", "cannot assign to `w.n` while `w` is lent"
+  obj Wrap
+    n: Int
+
+  sub f(w: !Wrap)
+    g = |?w| w.n
+    w.n = 5
+    print(g())
+
+  a = Wrap(n: 1)
+  f(!a)
+
+test "R16-pw2", '''
+  1
+  5
+  6
+  6
+'''
+  obj Wrap
+    n: Int
+
+  sub f(w: !Wrap)
+    g = |?w| w.n
+    print(g())
+    w.n = 5
+    h = |?w| w.n
+    print(h())
+    k = |!w|
+      w.n += 1
+    k()
+    print(w.n)
+
+  a = Wrap(n: 1)
+  f(!a)
+  print(a.n)
+
+fail "R16-r1", "cannot return a view of `l`, which this function was not lent"
+  fun mk(x: ?List[Int]) -> ?fun() -> Int
+    l = |?x| x.len
+    ?l
+
+  v: List[Int] = List()
+  f = mk(?v)
+  print(f())
+
+fail "R16-r2", "cannot return a view of `l`, which this function was not lent"
+  fun id(f: ?fun() -> Int) -> ?fun() -> Int
+    f
+
+  fun mk(x: ?List[Int]) -> ?fun() -> Int
+    l = |?x| x.len
+    id(?l)
+
+  v: List[Int] = List()
+  f = mk(?v)
+  print(f())
+
+test "R16-rs1", '''
+  drop 1
+  drop 2
+  drop 3
+  mid 3
+  0
+  drop 3
+  end
+  drop 4
+'''
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  sub run(f: ?sub())
+    f()
+
+  r = Res(id: 1)
+  r = Res(id: 2)
+  swap = |!r|
+    r = Res(id: 3)
+  swap()
+  swap()
+  print("mid", r.id)
+  v: List[Int] = List()
+  !v.push(1)
+  run(|!v|
+    v = List()
+  )
+  print(v.len)
+  run(|!r|
+    r = Res(id: 4)
+  )
+  print("end")
+
+fail "R16-rs3", "cannot drop captured view `r`; the closure holds it for every call. Use it through the view, or pass it to a call"
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  r = Res(id: 1)
+  r = Res(id: 2)
+  f = |!r|
+    <r
+    print("dropped")
+  f()
+  print("end")
+
+fail "R16-rs5", "cannot move out of `b.r`: `b` is a view; exchange it instead: `replace(!b.r, v)`"
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  obj Box
+    r: Res
+
+  b = Box(r: Res(id: 1))
+  b = Box(r: Res(id: 2))
+  g = |!b|
+    x = <b.r
+    print(x.id)
+  g()
+  print("end")
+
+fail "R16-rv2", "cannot lend `b` to write while a read loan is live"
+  obj Bag
+    items: List[Int]
+
+    sub grow(!self, f: ?fun(Int) -> Int)
+      n = self.items.len
+      i = 0
+      while i < n
+        !self.items.push(f(i))
+        i += 1
+
+  b = Bag(items: List())
+  !b.items.push(1)
+  !b.grow(|?b, n| b.items.len + n)
+  print(b.items.len)
+
+test "R16-rw1", "2"
+  obj Wrap
+    n: Int
+
+  a = Wrap(n: 1)
+  b = Wrap(n: 2)
+  r = ?a
+  l = |?b| b
+  g = ?l
+  r = g()
+  print(r.n)
+
+test "R16-rw2", "2"
+  obj Wrap
+    n: Int
+
+  fun pick(f: ?fun() -> ?Wrap, a: ?Wrap) -> ?Wrap
+    r = a
+    r = f()
+    r
+
+  a = Wrap(n: 1)
+  b = Wrap(n: 2)
+  print(pick(|?b| b, ?a).n)
+
+test "R16-rw3", '''
+  2
+  2
+'''
+  obj Wrap
+    n: Int
+
+  fun get(w: ?Wrap) -> ?Wrap
+    w
+
+  a = Wrap(n: 1)
+  b = Wrap(n: 2)
+  r = ?a
+  r = get(?b)
+  print(r.n)
+  l = |?b| b
+  s = ?a
+  s = l()
+  print(s.n)
+
+test "R16-sc3", "2"
+  fun ret(f: ?fun(Int) -> Int) -> ?fun(Int) -> Int
+    f
+
+  fun twice(g: fun(?fun(Int) -> Int) -> ?fun(Int) -> Int) -> Int
+    k = 1
+    l = |+k, a: Int| a + k
+    h = g(?l)
+    h(1)
+
+  print(twice(ret))
+
+fail "R16-sc4", "cannot return a view of `l`, which this function was not lent"
+  fun ret(f: ?fun(Int) -> Int) -> ?fun(Int) -> Int
+    f
+
+  fun twice(g: fun(?fun(Int) -> Int) -> ?fun(Int) -> Int) -> ?fun(Int) -> Int
+    k = 1
+    l = |+k, a: Int| a + k
+    g(?l)
+
+  print(twice(ret)(1))
+
+test "R16-ty1", '''
+  23
+  9
+  9
+  3
+  -1
+  -1
+  3
+  8
+  .green
+  xyz
+'''
+  obj P
+    n: Int
+
+  enum Color
+    red
+    green
+
+  sub fill(xs: ![]Int)
+    f = |!xs|
+      xs[0] = 9
+    f()
+    g = |?xs| xs[0]
+    print(g())
+
+  arr = [1, 2, 3]
+  fa = |!arr|
+    arr[1] = 20
+  fa()
+  ga = |?arr| arr[1] + arr.len
+  print(ga())
+  fill(!arr[..])
+  print(arr[0])
+  s = ?arr[..]
+  gs = |?s| s.len
+  print(gs())
+  o: Int? = 4
+  fo = |!o|
+    o = none
+  fo()
+  go = |?o| o ?? -1
+  print(go())
+  print(o ?? -1)
+  h = *P(n: 2)
+  h = *P(n: 3)
+  gh = |?h| h.n
+  print(gh())
+  fh = |!h|
+    h = *P(n: 8)
+  fh()
+  print(h.n)
+  c = Color.red
+  fc = |!c|
+    c = .green
+  fc()
+  print(c)
+  st = "abc"
+  fs = |!st|
+    st = "xyz"
+  fs()
+  print(st)
+
+fail "R16-x1b", "cannot store a view of `w` through captured `v`: `v` outlives every call of the closure, and the closure's parameters and own values last one call at most"
+  obj View
+    w: ?List[Int]
+
+  sub run(f: ?sub(?List[Int]))
+    local: List[Int] = List()
+    !local.push(7)
+    !local.push(8)
+    f(?local)
+
+  a: List[Int] = List()
+  v = View(w: ?a)
+  v = View(w: ?a)
+  run(|!v, w|
+    v.w = w
+  )
+  print(v.w.len)
+
+test "R3c1-f array literal adapt", "true true"
+  xs: [2]U8 = [1, 2]
+  fs: [2]Float = [1.0, 2.0]
+  print(xs == [1, 2], fs == [1, 2])
+
+test "R3c1-f ctx handle", "false"
+  obj N
+    n: Int
+
+  enum Slot
+    held(p: *N)
+    empty
+
+  s: Slot = .held(p: *N(n: 1))
+  print(s == .empty)

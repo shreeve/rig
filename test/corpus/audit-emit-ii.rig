@@ -1,9 +1,0 @@
-fun f() -> List[Int]
-  v: List[Int] = List()
-  defer print(v.len)
-  !v.push(1)
-  v
-
-sub main()
-  x = f()
-  print(x)

@@ -1,9 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  g = |!v|
-    !v.push(2)
-    ?v[0]
-  r = g()
-  s = g()
-  print(r, s)

@@ -1,9 +1,0 @@
-fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
-  a
-
-sub main()
-  x: List[Int] = List()
-  y: List[Int] = List()
-  r = first(b: ?y, a: ?x)
-  !y.push(1)
-  print(r.len)

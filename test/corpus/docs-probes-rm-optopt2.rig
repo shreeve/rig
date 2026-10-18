@@ -1,4 +1,0 @@
-sub main()
-  x: (Int?)? = none
-  y: (Int?)? = 3
-  print(x, y)

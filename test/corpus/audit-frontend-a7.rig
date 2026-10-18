@@ -1,4 +1,0 @@
-sub main()
-  n = 3
-  b = [2][0] * [n][0]
-  print(b)

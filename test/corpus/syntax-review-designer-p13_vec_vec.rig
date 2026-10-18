@@ -1,6 +1,0 @@
-sub main()
-  grid: List[List[Int]] = List()
-  row: List[Int] = List()
-  !row.push(1)
-  !grid.push(<row)
-  print(grid.len)

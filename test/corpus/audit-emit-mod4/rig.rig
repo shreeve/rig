@@ -1,2 +1,0 @@
-pub fun g() -> Int
-  2

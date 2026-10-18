@@ -1,9 +1,0 @@
-sub f(t: !String)
-  defer !t.add("x")
-  s = ?t[1..]
-  print(s)
-
-sub main()
-  t = String("hello")
-  f(!t)
-  print(t)

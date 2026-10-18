@@ -1,7 +1,0 @@
-fun mk() -> Int
-  3
-
-sub main()
-  v: List[?Int] = List()
-  !v.push(?mk())
-  print(v)

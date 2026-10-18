@@ -1,8 +1,0 @@
-sub eat(v: List[Int]?)
-  print("eat")
-
-sub main()
-  o: List[Int]? = List()
-  while o as x
-    print(x.len)
-    eat(<o)

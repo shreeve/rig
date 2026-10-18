@@ -1,8 +1,0 @@
-sub main()
-  x = 1
-  f = |!x|
-    x += 1
-  defer
-    f()
-    print(x)
-  f()

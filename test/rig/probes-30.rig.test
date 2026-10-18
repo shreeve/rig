@@ -1,0 +1,2234 @@
+# Probes from past reviews and audits, 30 of 41: review-stdjson-dangle_drop to review-step3-l12_handle_in_vec.
+
+use std.json
+use std.random
+use std.random as rnd
+
+fail "review-stdjson-dangle drop", "cannot drop `s` while it is lent"
+  doc = json.new_doc()
+  s = String("[\"abc\"]")
+  if (!doc).parse(?s)
+    <s
+    print(doc.get_str(1))
+
+fail "review-stdjson-dangle loop", "`s` does not live long enough"
+  doc = json.new_doc()
+  for _ in 0..2
+    s = String("[\"abc\"]")
+    ok = (!doc).parse(?s)
+    print(ok)
+  print(doc.get_str(1))
+
+fail "review-stdjson-dangle mutate", "cannot lend `s` to write while a read loan is live"
+  doc = json.new_doc()
+  s = String("[\"abc\"]")
+  if (!doc).parse(?s)
+    !s.clear()
+    print(doc.get_str(1))
+
+fail "review-stdjson-dangle reparse", "cannot let this call store a view of `s` in `doc`: `doc` outlives it"
+  sub keep(doc: !json.Doc)
+    s = String("[\"abc\"]")
+    print((!doc).parse(?s))
+
+  doc = json.new_doc()
+  keep(!doc)
+  print(doc.get_str(1))
+
+fail "review-stdjson-dangle return", "cannot return a view of `s`, which this function was not lent"
+  fun make() -> json.Doc
+    s = String("[\"abc\"]")
+    doc = json.new_doc()
+    print((!doc).parse(?s))
+    doc
+
+  doc = make()
+  print(doc.get_str(1))
+
+fail "review-stdjson-stale view", "cannot lend `doc` to write while a read loan is live"
+  doc = json.new_doc()
+  a = "[\"a\\n\"]"
+  b = "[\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n\"]"
+  print((!doc).parse(?a))
+  v = ?doc.get_str(1)
+  print((!doc).parse(?b))
+  print(v)
+
+fail "review-step1-p1 store return writeparam", "cannot lend `v` to write while a read loan is live"
+  # Inferred or declared result origins must see that `a.r` now views `b`.
+  # Today the union default rejects the caller; a recorder that reads the
+  # returned value's loans sees only `a` if the store is not in `a`'s flow.
+  obj Holder
+    r: []Int
+
+  fun f(a: !Holder, b: !List[Int]) -> []Int keeps b
+    a.r = ?b[..]
+    a.r
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  s = f(!h, !v)
+  for i in 0..100
+    !v.push(i)
+  print(s[0])
+
+fail "review-step1-p29 rng", "`o` is a unique `random.Random?`, which can't be copied by `=`: write `<o` to move it or `?o` to view it"
+  obj Wrap[T]
+    item: T
+
+  fun dup[T](x: T) -> Int
+    y = x
+    1
+
+  r = random.Random.seeded(3)
+  o: random.Random? = random.Random.seeded(4)
+  p = o
+  w = Wrap(item: random.Random.seeded(5))
+  v = w
+  print(dup(<r))
+
+fail "review-step1-p2 store return readparam", "cannot lend `v` to write while a read loan is live"
+  obj Holder
+    r: []Int
+
+  fun f(a: !Holder, b: []Int) -> []Int keeps b
+    a.r = b
+    a.r
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  s = f(!h, ?v[..])
+  for i in 0..100
+    !v.push(i)
+  print(s[0])
+
+fail "review-step1-p33b vec store opt", "bare use of loop view `k` in binding would carry the viewed handle past the loop; a `for x in ?list` element is a read view of the List slot and cannot be cloned, moved, dropped, or stored"
+  obj P
+    n: Int
+
+  v: List[*P] = List()
+  !v.push(*P(n: 4))
+  saved: (?*P)? = none
+  for k in ?v
+    saved = k
+  if saved as s
+    print(s.n)
+
+test "review-step1-p34d plain", "1"
+  obj P
+    x: Int
+    y: Int
+
+  a = P(x: 1, y: 2)
+  r = ?a
+  saved: (?P)? = none
+  saved = r
+  if saved as s
+    print(s.x)
+
+test "review-step1-p36 payload copy", '''
+  1 4
+  9 9
+  .b(n: 5)
+'''
+  obj P
+    x: Int
+    y: Int
+    z: Int
+    w: Int
+
+  enum E
+    a(p: P)
+    b(n: Int)
+
+  e = E.a(p: P(x: 1, y: 2, z: 3, w: 4))
+  match e
+    .a(p)
+      e = E.a(p: P(x: 9, y: 9, z: 9, w: 9))
+      print(p.x, p.w)
+    .b(n) => print(n)
+  match e
+    .a(p)
+      e = E.b(n: 5)
+      print(p.x, p.w)
+    .b(n) => print(n)
+  print(e)
+
+test "review-step1-p43 clone view", "P(x: 1, y: 2) P(x: 1, y: 2)"
+  obj P
+    x: Int
+    y: Int
+
+  fun dup(r: ?P) -> P
+    +r
+
+  a = P(x: 1, y: 2)
+  b = dup(?a)
+  w = !a
+  c = +w
+  print(b, c)
+
+fail "review-step1-p45 grammar", "`w` is a unique `W[Int]`, which can't be copied by `=`: write `<w` to move it or `?w` to view it"
+  obj unique
+    n: Int
+
+  pub obj S unique # comment
+    unique: Int
+
+    fun get(?self) -> Int
+      self.unique
+
+  obj W[T] unique
+    item: T
+
+  obj Z
+    unique: Bool
+
+  u = unique(n: 1)
+  s = S(unique: 2)
+  w = W(item: 3)
+  v = <w
+  z = Z(unique: true)
+  print(u.n, s.get(), v.item, z.unique)
+  t = <s
+  print(t.unique)
+  x = w
+
+test "review-step1-round2-q06 made loop rng", '''
+  5
+  0
+  5
+  0
+  Random(state: 11400714819323198486)
+  Random(state: 11400714819323198487)
+  9
+  [Random(state: 11400714819323198487), Random(state: 4354685564936845355)]
+'''
+  obj Counter
+    hits: Cell[Int]
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+
+  for r in [random.Random.seeded(1), random.Random.seeded(2)]
+    print((!r).next() % 10)
+  a = [random.Random.seeded(1), random.Random.seeded(2)]
+  for r in !a
+    print((!r).next() % 10)
+  for r in a
+    print(r)
+  print((!a[0]).next() % 10)
+  !a.swap(0, 1)
+  print(a)
+
+test "review-step1-round2-q32 lift more", '''
+  1
+  2
+  1
+  1
+  1
+'''
+  obj Counter
+    hits: Cell[Int]
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+  obj P
+    x: Int
+    y: Int
+
+  fun show(o: (?P)?) -> Int
+    if o as s
+      return s.x
+    -1
+
+  fun many(a: (?P)?, b: (?P)?) -> Int
+    show(a) + show(b)
+
+  p = P(x: 1, y: 2)
+  r = ?p
+  x = 5
+  t: (?P)? = r if x > 3 else none
+  print(show(t))
+  print(many(r, ?p))
+  arr = [r, r]
+  print(arr[1].x)
+  oarr: [2](?P)? = [r, none]
+  print(show(oarr[0]))
+  k = |?p| show(?p)
+  print(k())
+
+test "review-step1-round2-q34 lift nested optional", "P(x: 1, y: 2)"
+  obj P
+    x: Int
+    y: Int
+
+  p = P(x: 1, y: 2)
+  r = ?p
+  l: ((?P)?)? = r
+  print(l)
+
+test "review-step1-round2-q40 hint", "Random(state: 1)"
+  obj S
+    r: random.Random?
+    h: *random.Random
+
+  fun f(x: [2]rnd.Random) -> Int
+    1
+
+  r = rnd.Random.seeded(1)
+  print(random.Random.seeded(1))
+
+fail "review-step1-round2-q70 rng slices", "`s[0]` is a unique `random.Random`, which can't be copied out by `return`, has no clone, and can't be moved out of what holds it"
+  fun firsts(s: []random.Random) -> random.Random
+    s[0]
+
+  sub adv(w: ![]random.Random)
+    for r in !w
+      print((!r).next() % 100)
+    x = w[0]
+    print(x)
+
+  a = [random.Random.seeded(1), random.Random.seeded(2)]
+  adv(!a)
+
+test "review-step1-round2-q71 rng slices ok", '''
+  65
+  10
+  87
+  Random(state: 11400714819323198492)
+  Random(state: 11400714819323198487)
+  2
+  Random(state: 11400714819323198492)
+  Random(state: 11400714819323198487)
+'''
+  sub adv(w: ![]random.Random)
+    for r in !w
+      print((!r).next() % 100)
+    w[0] = random.Random.seeded(7)
+    print((!w[0]).next() % 100)
+
+  fun peek(s: []random.Random) -> Int
+    n = 0
+    for r in s
+      print(r)
+      n += 1
+    n
+
+  a = [random.Random.seeded(1), random.Random.seeded(2)]
+  adv(!a)
+  print(peek(?a))
+  for r in a
+    print(r)
+
+fail "review-step1-round2-q93 match temp plain", "`p` is bound but never read; name it `_` to ignore the value"
+  obj P
+    x: Int
+    y: Int
+
+  enum E
+    a(p: P, q: ?P)
+    b
+
+  obj H
+    e: E
+
+  base = P(x: 3, y: 4)
+  saved = ?base
+  match H(e: E.a(p: P(x: 1, y: 2), q: ?base)).e
+    .a(p, q) => saved = q
+    .b => pass
+  print(saved.x)
+
+fail "review-step10-a01 leaf made coalesce", "a view of the temporary `mko(5) ?? b` outlives its statement, which drops it; bind the value to a name first"
+  # leaf storage: `(mko() ?? b).me()` -- the left leaf is a made optional
+  # (a Zig rvalue); `|*__rig_leaf|` captures a pointer into it. Does the
+  # checker let the view outlive the statement?
+  obj Q
+    a: Int
+    n: Int
+
+    fun me(?self) -> ?Q
+      self
+
+  fun mko(k: Int) -> Q?
+    if k > 0
+      return Q(a: k, n: k * 10)
+    none
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  b = Q(a: 0, n: 0)
+  print((mko(4) ?? b).me().n)
+  r = (mko(5) ?? b).me()
+  print(clobber(9))
+  print(r.n)
+
+fail "review-step10-a03 as header copy view escape", "`x` does not live long enough"
+  # header_value + as_value copy: `if pick(?h, ?String("k")) as x` makes a
+  # header temporary, so the binding views a copy (plain data accepted).
+  # Store a view of x in an outer var and read it after the body.
+  obj P
+    xs: [4]Int
+
+  obj H
+    q: P?
+
+  fun pick(h: ?H, k: ?String) -> ?P? from h
+    ?h.q
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  h = H(q: P(xs: [1, 2, 3, 4]))
+  z = P(xs: [0, 0, 0, 0])
+  r = ?z
+  if pick(?h, ?String("k")) as x
+    r = ?x
+  print(clobber(3))
+  print(r.xs[0], r.xs[3])
+
+test "review-step10-a05 match place hdrtemp plain view", '''
+  2
+  7 7
+'''
+  # subject copy of a PLACE: `match ?v[idx(?String("a"))]` makes a header
+  # temporary, so the guarded match copies the element into
+  # `__rig_subject_N` (plain data is accepted by rejectHeaderCopy). The
+  # catch-all `x: ?E` is plain data, so not arm-local, and the checker
+  # roots it at `v`. Store it in `r` and read it after the match.
+  enum E
+    a(xs: [4]Int)
+    b
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  v = [E.a(xs: [7, 7, 7, 7]), E.b]
+  z = E.b
+  r = ?z
+  k = 3
+  match ?v[idx(?String("a"))]
+    x if k > 2 => r = x
+    _ => print(0)
+  print(clobber(1))
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")
+
+test "review-step10-a06 match place hdrtemp unguarded", '''
+  2
+  7 7
+'''
+  # header_value copy: unguarded form of a05. The match switches on the
+  # value the header block yields (a copy of the element); the catch-all
+  # `x: ?E` (plain data, not arm-local) views it, and the checker roots it
+  # at `v`. Store it in `r` and read it after the match.
+  enum E
+    a(xs: [4]Int)
+    b
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  v = [E.a(xs: [7, 7, 7, 7]), E.b]
+  z = E.b
+  r = ?z
+  match ?v[idx(?String("a"))]
+    x => r = x
+  print(clobber(1))
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")
+
+test "review-step10-a07 match hdrtemp loop wrong", "7 7"
+  # a06 made observable without poisoning, in a loop: the catch-all view
+  # `r` taken in pass 0 of `match ?v[idx(...)]` must read pass 0's
+  # element after the loop, 7 7. The header points at the element, so it
+  # does (test/behavior/ownership/header_points_view_escapes.rig).
+  enum E
+    a(xs: [4]Int)
+    b
+
+  fun idx(s: ?String, i: Int) -> Int
+    s.len - 1 + i
+
+  v = [E.a(xs: [7, 7, 7, 7]), E.a(xs: [8, 8, 8, 8])]
+  z = E.b
+  r = ?z
+  for i in 0..2
+    match ?v[idx(?String("a"), i)]
+      x => if i == 0
+        r = x
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")
+
+test "review-step10-a08 guarded match loop wrong", '''
+  skip
+  7 7
+'''
+  # a05 in a loop, guarded: the catch-all view `r` taken in pass 0 must
+  # read pass 0's element after the loop, 7 7, not a later pass's copy in
+  # `__rig_subject_N`. The guarded match holds the element's address, so
+  # it does (test/behavior/ownership/header_points_view_escapes.rig).
+  enum E
+    a(xs: [4]Int)
+    b
+
+  fun idx(s: ?String, i: Int) -> Int
+    s.len - 1 + i
+
+  v = [E.a(xs: [7, 7, 7, 7]), E.a(xs: [8, 8, 8, 8])]
+  z = E.b
+  r = ?z
+  for i in 0..2
+    match ?v[idx(?String("a"), i)]
+      x if i == 0 => r = x
+      _ => print("skip")
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")
+
+test "review-step10-a15 hoisted arg text explicit", '''
+  g
+  hello world, long enough to be on the heap
+'''
+  # a13 with an explicit lend `?String(...)`: keyword arguments written out of order hoist each
+  # argument into `__rig_arg_N_k`. A Text temporary lent as a `?String`
+  # parameter is declared `var __rig_arg: rig.Text = keep(...).bytes()`
+  # with a drop: the fact says owned, but the value is a view of the
+  # statement's slot. Accepted; the Zig does not compile.
+  fun g(k: Int) -> Int
+    print("g")
+    k
+
+  fun pick(s: ?String, n: Int) -> ?String
+    if n > 0
+      return s
+    "none"
+
+  print(pick(n: g(1), s: ?String("hello world, long enough to be on the heap")))
+
+test "review-step10-a16 hoisted arg plain made lend", "5 6"
+  # argument (`owned`, not walked by B3): a plain made value implicitly
+  # lent to a `?Q` parameter in a hoisted call is `&mkq()`, the address of
+  # a Zig rvalue in the call's block; the result views it after the block.
+  obj Q
+    xs: [4]Int
+    n: Int
+
+  fun g(k: Int) -> Int
+    k
+
+  fun mkq(k: Int) -> Q
+    Q(xs: [k, k, k, k], n: k)
+
+  fun pick(q: ?Q, n: Int) -> ?Q
+    q
+
+  print(pick(n: g(1), q: mkq(5)).xs[3], pick(n: g(1), q: ?mkq(6)).xs[3])
+
+test "review-step10-a17 slot compound realloc", '''
+  2 101
+  107 101
+'''
+  # slot (pointer): `v[0] %= grow(!v)` lowers to a builtin that assigns its
+  # result, so its place is found once in `__rig_slot`. If the slot is
+  # taken before the value runs, growing `v` frees the buffer it points to.
+  fun grow(v: !List[Int]) -> Int
+    for i in 0..100
+      !v.push(i)
+    7
+
+  v: List[Int] = List()
+  !v.push(100)
+  v[0] %= grow(!v)
+  print(v[0], v.len)
+  w: List[Int] = List()
+  !w.push(100)
+  w[0] += grow(!w)
+  print(w[0], w.len)
+
+test "review-step10-a18 lent optional made", '''
+  3
+  4
+'''
+  # lent (pointer): `?mko(k)` where a `(?Q)?` is expected lends the value
+  # inside the made optional, captured `|*__rig_lent_N|`. Is the operand an
+  # lvalue (a slot) or a Zig rvalue? The result views it after the call.
+  obj Q
+    xs: [4]Int
+    n: Int
+
+  fun mko(k: Int) -> Q?
+    if k > 0
+      return Q(xs: [k, k, k, k], n: k)
+    none
+
+  fun first(o: (?Q)?, d: ?Q) -> ?Q
+    o ?? d
+
+  fun g(k: Int) -> Int
+    k
+
+  d = Q(xs: [0, 0, 0, 0], n: 0)
+  print(first(?mko(3), ?d).xs[3])
+  print(first(d: ?d, o: ?mko(g(4))).xs[3])
+
+test "review-step10-a20 branch temp view", '''
+  a long text that lives on the heap, hello
+  41
+'''
+  # temp in a value branch: a single-expression branch with a temporary is
+  # emitted as a labelled block `__rig_blk_N` holding its temp slot, which
+  # ends with the block, while the Core keeps the temporary until the
+  # statement ends. The branch yields a String view of the Text temporary.
+  fun pick(s: ?String) -> ?String
+    s
+
+  c = pick("x").len == 1
+  print(pick(?String("a long text that lives on the heap, hello")) if c else "d")
+  n = (pick(?String("a long text that lives on the heap, hello")) if c else "d").len
+  print(n)
+
+test "review-step10-a24 defer temp", '''
+  body
+  deferred 2 text that is long enough for the heap
+  deferred text that is long enough for the heap
+'''
+  # temp in a `defer` body, and a hoisted call (keyword arguments out of
+  # order) in a `defer` body with a Text temporary lent as `?String`.
+  fun g(k: Int) -> Int
+    k
+
+  fun pick(s: ?String, n: Int) -> ?String
+    s
+
+  defer print(pick(n: g(1), s: ?String("deferred text that is long enough for the heap")))
+  defer print(pick(?String("deferred 2 text that is long enough for the heap"), 1))
+  print("body")
+
+fail "review-step10-a26 taken array of places", "`a` owns a `String`, which can't be copied into an array: write `<a` to move it or `+a` to clone it"
+  # taken: `for x in [a, b]` over an array literal of Text places. The
+  # array is made there and taken into `__rig_src_N`; are `a` and `b`
+  # moved, copied (double drop), or read?
+  a = String("a long text on the heap, number one")
+  b = String("a long text on the heap, number two")
+  for x in [a, b]
+    print(x)
+  print(a, b)
+
+test "review-step10-a27b v014 form", '''
+  3
+  8 8
+'''
+  # (a27 without `from`, for v0.1.4)
+  # a05 sibling: the catch-all view of a header subject through a
+  # temporary leaves the function as the match's value. The caller must
+  # read the List's element, 8 8, never the callee's dead frame; the header
+  # points at the element, so it does.
+  enum E
+    a(xs: [4]Int)
+    b
+
+  fun idx(s: ?String, i: Int) -> Int
+    s.len - 1 + i
+
+  fun at2(v: ?List[E], i: Int) -> ?E
+    match ?v[idx(?String("a"), i)]
+      x => x
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  v: List[E] = List()
+  !v.push(E.a(xs: [7, 7, 7, 7]))
+  !v.push(E.a(xs: [8, 8, 8, 8]))
+  s = at2(?v, 1)
+  print(clobber(2))
+  match s
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")
+
+test "review-step10-a28 leaf made branch", "5"
+  # leaf: a branching receiver `(mkq(5) if c else b)` with a made leaf and
+  # a place leaf, read where its leaves are (`reachesLeaf`). Is the made
+  # leaf in a slot, or `&mkq(5)`, the address of a Zig rvalue? A hoisted
+  # call (keyword arguments out of order) holds it in `__rig_recv_N`.
+  obj Q
+    xs: [4]Int
+
+    fun me(?self) -> ?Q
+      self
+
+    fun pick(?self, k: Int, j: Int) -> ?Q
+      self
+
+  fun mkq(k: Int) -> Q
+    Q(xs: [k, k, k, k])
+
+  fun g(k: Int) -> Int
+    k
+
+  b = Q(xs: [0, 0, 0, 0])
+  c = g(1) == 1
+  print((mkq(5) if c else b).me().xs[3])
+
+test "review-step10-a31 generic field subject", '''
+  4
+  7 7
+  7 7
+'''
+  # generic: in a generic body, `w: ?Wrap[T]` is read through
+  # `rig.viewed(Wrap(T), w)`, a copy. A guarded `match ?w.e` on a plain
+  # field holds `&<w.e>` as its subject; the plain catch-all `x: ?E` is
+  # not arm-local and is returned. Is the address into the copy?
+  enum E
+    a(xs: [4]Int)
+    b
+
+  obj Wrap[T]
+    e: E
+    v: T
+
+  fun f[T](w: ?Wrap[T], d: ?E, k: Int) -> ?E from w, d
+    r = d
+    match ?w.e
+      x if k > 0 => r = x
+      _ => r = d
+    r
+
+  fun h[T](w: ?Wrap[T]) -> ?E from w
+    ?w.e
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  w = Wrap(e: E.a(xs: [7, 7, 7, 7]), v: 5)
+  d = E.b
+  r = f(?w, ?d, 1)
+  s = h(?w)
+  print(clobber(3))
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")
+  match s
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")
+
+test "review-step10-a32 q05 in hoisted call", "5"
+  # q05 class: `mkq(5).me()`, a `?self` method on a made value no slot
+  # keeps, takes `&` of a Zig rvalue. As an argument of a hoisted call
+  # (keyword arguments out of order) the rvalue is made inside the call's
+  # block `__rig_call_N`, and the call's result, a view of it, is read
+  # after that block ends. (Latent: Zig keeps the rvalue's stack slot.)
+  obj Q
+    xs: [4]Int
+
+    fun me(?self) -> ?Q
+      self
+
+  fun mkq(k: Int) -> Q
+    Q(xs: [k, k, k, k])
+
+  fun g(k: Int) -> Int
+    k
+
+  fun pick(q: ?Q, n: Int) -> ?Q
+    q
+
+  print(pick(n: g(1), q: mkq(5).me()).xs[3])
+
+test "review-step10-a33 q05 two blocks", "56"
+  # a32 with two such call blocks in one statement, the first's result read
+  # after the second block runs: if Zig reused the first block's rvalue
+  # slot, `r` would read 6. Expected 5 6.
+  obj Q
+    xs: [4]Int
+
+    fun me(?self) -> ?Q
+      self
+
+  fun mkq(k: Int) -> Q
+    Q(xs: [k, k, k, k])
+
+  fun g(k: Int) -> Int
+    k
+
+  fun pick(q: ?Q, n: Int) -> ?Q
+    q
+
+  fun both(a: ?Q, b: ?Q) -> Int
+    a.xs[3] * 10 + b.xs[3]
+
+  print(both(pick(n: g(1), q: mkq(5).me()), pick(n: g(1), q: mkq(6).me())))
+
+test "review-step10-a34 armview loop carried", '''
+  1
+  a payload text long enough for the heap
+  1
+'''
+  # subject copy + arm_view: a guarded match on a call's made value holds
+  # it in `__rig_subject_N`; the non-plain payload view `p` is arm-local.
+  # Store it through `keep(p, !h)`, and read `h` only on the next
+  # iteration (loop-carried), after the arm and the subject have ended.
+  obj P
+    t: String
+
+  enum E
+    a(p: P)
+    b
+
+  obj Holder
+    r: (?P)?
+
+  fun mk(k: Int) -> E
+    E.a(p: P(t: String("a payload text long enough for the heap")))
+
+  fun keep(p: ?P, h: !Holder) -> Int keeps p
+    h.r = p
+    1
+
+  h = Holder(r: none)
+  e = mk(1)
+  k = 1
+  for _ in 0..2
+    if h.r as q
+      print(q.t)
+    match ?e
+      .a(p) if k > 0 => print(keep(p, !h))
+      _ => print(0)
+
+fail "review-step10-a36b v014 form", "cannot return a view of `mk(42)`, which this function was not lent"
+  # (a36 without `from`, for v0.1.4)
+  # B3 "discarded" rule, function tail: the tail call of a function is its
+  # statement, so `endCallHeld` drops the result's loans on what the call
+  # holds, and the function returns a view of `__rig_recv_N` (a value of
+  # `mk()` the call holds while it runs) with no loan left to check.
+  obj S
+    n: Int
+    m: Int
+
+    fun at(!self) -> !Int
+      !self.n
+
+  fun mk(k: Int) -> S
+    S(n: k, m: 6)
+
+  fun view(d: !Int) -> !Int
+    (!mk(42)).at()
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  z = 0
+  r = view(!z)
+  print(clobber(1))
+  print(r)
+
+test "review-step10-a37 match box hdrtemp", '''
+  2
+  7 7
+'''
+  # a05 sibling through a Box: `match ?bs[idx(?String("a"))]` on a
+  # `[2]^E` lends the boxed E (lend table). Guarded, the header
+  # temporary makes the match copy its subject; the plain catch-all view
+  # escapes into `r`.
+  enum E
+    a(xs: [4]Int)
+    b
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  bs = [^E.a(xs: [7, 7, 7, 7]), ^E.b]
+  z = E.b
+  r = ?z
+  k = 3
+  match ?bs[idx(?String("a"))]
+    x if k > 2 => r = x
+    _ => print(0)
+  print(clobber(1))
+  match r
+    .a(xs) => print(xs[0], xs[3])
+    .b => print("b")
+
+test "review-step10-a38 match box hdrtemp noescape", '''
+  7
+  8
+'''
+  # a37 without any escape: a guarded `match ?bs[idx(?String("a"))]` on an
+  # element of an array of ^E. The subject once was copied into a
+  # `__rig_subject_N` typed `rig.Box(E)` and assigned the boxed `E`, which
+  # Zig rejected; the guarded match now holds the boxed value's address.
+  enum E
+    a(xs: [4]Int)
+    b
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  bs = [^E.a(xs: [7, 7, 7, 7]), ^E.b]
+  k = 3
+  match ?bs[idx(?String("a"))]
+    .a(xs) if k > 2 => print(xs[0])
+    _ => print(0)
+  v: List[^E] = List()
+  !v.push(^E.a(xs: [8, 8, 8, 8]))
+  match ?v[idx(?String("a"))]
+    .a(xs) if k > 2 => print(xs[0])
+    _ => print(0)
+
+test "review-step10-a39 match handle hdrtemp", '''
+  7
+  7
+'''
+  # a38 with a shared handle: a guarded `match ?hs[idx(?String("a"))]` on an
+  # element of an array of `*E` reads the E the handle holds; the header
+  # temporary makes the match copy its subject.
+  enum E
+    a(xs: [4]Int)
+    b
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  hs = [*E.a(xs: [7, 7, 7, 7]), *E.b]
+  k = 3
+  match ?hs[idx(?String("a"))]
+    .a(xs) if k > 2 => print(xs[0])
+    _ => print(0)
+  match ?hs[idx(?String("a"))]
+    .a(xs) => print(xs[3])
+    _ => print(0)
+
+test "review-step10-a40 match handle hdrtemp unguarded", '''
+  7
+  8
+'''
+  # a39, unguarded only: `match ?hs[idx(?String("a"))]` over `*E` handles,
+  # and over ^E, with a header temporary.
+  enum E
+    a(xs: [4]Int)
+    b
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  hs = [*E.a(xs: [7, 7, 7, 7]), *E.b]
+  match ?hs[idx(?String("a"))]
+    .a(xs) => print(xs[3])
+    _ => print(0)
+  bs = [^E.a(xs: [8, 8, 8, 8]), ^E.b]
+  match ?bs[idx(?String("a"))]
+    .a(xs) => print(xs[3])
+    _ => print(0)
+
+fail "review-step10-r2-c01 match view of header temp", "this `match` reads the view its subject returns after its header drops the temporary `mkh(7)` it points into; bind `mkh(7)` to a name first"
+  # Header rule exception "a match on a call's returned view held as a
+  # pointer": the view points INTO the header's own temporary
+  # (`pick(?mkh(7))` returns `?E from h`), which ends with the header; the
+  # arms read it through the catch-all and a payload.
+  enum E
+    a(xs: [4]Int)
+    b
+
+  obj H
+    e: E
+    n: Int
+
+  fun mkh(k: Int) -> H
+    H(e: E.a(xs: [k, k, k, k]), n: k)
+
+  fun pick(h: ?H) -> ?E from h
+    ?h.e
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  k = 1
+  match pick(?mkh(7))
+    .a(xs) if k > 0 => print(clobber(1), xs[0], xs[3])
+    _ => print(clobber(2))
+  match pick(?mkh(8))
+    .a(xs) => print(clobber(1), xs[0], xs[3])
+    _ => print(0)
+
+fail "review-step10-r2-c02 match view of header temp text", "this `match` reads the view its subject returns after its header drops the temporary `mkh(7)` it points into; bind `mkh(7)` to a name first"
+  # c01 with a Text payload: the made `mkh(7)` owns a Text and is dropped
+  # when the header ends; the arm reads the payload through the view the
+  # call returned. (Plain `n` copied in the arm; `t` viewed.)
+  enum E
+    a(n: Int, t: String)
+    b
+
+  obj H
+    e: E
+
+  fun mkh(k: Int) -> H
+    H(e: E.a(n: k, t: String("a payload text long enough for the heap")))
+
+  fun pick(h: ?H) -> ?E
+    ?h.e
+
+  match pick(?mkh(7))
+    .a(n, _) => print(n)
+    _ => print(0)
+  match pick(?mkh(8))
+    .a(_, t) => print(t)
+    _ => print(0)
+
+fail "review-step10-r2-c03 match view dispatch dead", "this `match` reads the view its subject returns after its header drops the temporary `mkh(7)` it points into; bind `mkh(7)` to a name first"
+  # c01, minimal and v0.1.4-compatible: `match pick(?mkh(k))`, where `pick`
+  # returns a view into the header's own temporary. The match reads the
+  # tag and the plain payload in the arms, after the header block ended
+  # (and, here, after `mkh(k)`, which owns a Text, was dropped).
+  enum E
+    a(n: Int)
+    b
+
+  obj H
+    e: E
+    t: String
+
+  fun mkh(k: Int) -> H
+    H(e: E.a(n: k), t: String("a text long enough to live on the heap"))
+
+  fun pick(h: ?H) -> ?E
+    ?h.e
+
+  match pick(?mkh(7))
+    .a(n) => print("a", n)
+    .b => print("b")
+
+fail "review-step10-r2-c04b v014 form", "this `match` reads the view its subject returns after its header drops the temporary `mkh(?String(\"a text long enough to live on the heap\"))` it points into; bind `mkh(?String(\"a text long enough to live on the heap\"))` to a name first"
+  # (c04 without `from`, for v0.1.4)
+  # c03 with a String payload that views a Text temporary of the header:
+  # does the arm's copy of the String read freed memory?
+  enum E
+    a(s: ?String)
+    b
+
+  obj H
+    e: E
+
+  fun mkh(s: ?String) -> H
+    H(e: E.a(s: s))
+
+  fun pick(h: ?H) -> ?E
+    ?h.e
+
+  match pick(?mkh(?String("a text long enough to live on the heap")))
+    .a(s) => print(s)
+    .b => print("b")
+
+fail "review-step10-r2-c05 for slice into header temp", "a view of the temporary `mkv(5)` outlives its statement, which drops it; bind the value to a name first"
+  # Header exception "slices": `for x in sl(?mkv(5))`, where `sl` returns a
+  # slice of the List temporary the header makes (dropped when the header
+  # ends), and `for x in ?mkv(6)[1..]`, a slice of the temporary itself.
+  fun mkv(k: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..40
+      !v.push(k + i)
+    v
+
+  fun sl(v: ?List[Int]) -> []Int from v
+    ?v[1..3]
+
+  for x in sl(?mkv(5))
+    print(x)
+
+fail "review-step10-r2-c07 ifas view into header temp", "a view of the temporary `String(\"a text long enough to live on the heap\")` outlives its statement, which drops it; bind the value to a name first"
+  # Header exception, `if … as` sibling of c04: `pick(?mkh(?String(..)))`
+  # returns `?Q?`, a view of an optional inside the header's temporary
+  # `mkh(...)`; the plain-data binding copies it when the body starts.
+  obj Q
+    s: ?String
+    n: Int
+
+  obj H
+    q: Q?
+
+  fun mkh(s: ?String) -> H from s
+    H(q: Q(s: s, n: 7))
+
+  fun pick(h: ?H) -> ?Q? from h
+    ?h.q
+
+  if pick(?mkh(?String("a text long enough to live on the heap"))) as x
+    print(x.n, x.s)
+
+fail "review-step10-r2-c09 made header string payload", "a view of the temporary `String(\"a second text long enough for the heap\")` outlives its statement, which drops it; bind the value to a name first"
+  # Header exception "a value made in the header whose bindings are plain
+  # data": `match mke(?String(..))` makes an E whose String payload views the
+  # header's Text temporary, dropped when the header ends.
+  enum E
+    a(s: ?String)
+    b
+
+  fun mke(s: ?String) -> E from s
+    E.a(s: s)
+
+  match mke(?String("a second text long enough for the heap"))
+    x => print(x)
+
+test "review-step10-r2-c10 ifas plain view into header temp", '''
+  7 7
+  8 8
+'''
+  # c03's `if … as` and `while … as` siblings: `pick(?mkh(k))` returns
+  # `?Q?`, a view of an optional inside the header's own temporary (which
+  # owns a Text, dropped when the header ends); the plain-data binding
+  # copies the value out of it after the header block.
+  obj Q
+    xs: [4]Int
+
+  obj H
+    q: Q?
+    t: String
+
+  fun mkh(k: Int) -> H
+    H(q: Q(xs: [k, k, k, k]), t: String("a text long enough to live on the heap"))
+
+  fun pick(h: ?H) -> ?Q?
+    ?h.q
+
+  if pick(?mkh(7)) as x
+    print(x.xs[0], x.xs[3])
+  n = 0
+  while pick(?mkh(8)) as y
+    print(y.xs[0], y.xs[3])
+    n += 1
+    if n > 0
+      break
+
+test "review-step10-r2-c11 take through temp path", '''
+  first text long enough to live on the heap
+  true
+  an enum text long enough for the heap
+  1
+  3
+  true
+'''
+  # Header exception "takes": `<p` through a path that makes a header
+  # temporary. The place must be left empty (none), the value owned by the
+  # construct, no leak and no double drop.
+  enum E
+    a(t: String)
+    b
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("first text long enough to live on the heap"))
+  if <v[idx(?String("a"))] as t
+    print(t)
+  print(v[0] == none)
+  w: List[E?] = List()
+  !w.push(E.a(t: String("an enum text long enough for the heap")))
+  if <w[idx(?String("a"))] as e
+    match <e
+      .a(t) => print(t)
+      .b => print("b")
+  print(w.len)
+  o: [1](List[Int]?) = [none]
+  vv: List[Int] = List()
+  !vv.push(3)
+  o[0] = <vv
+  while <o[idx(?String("a"))] as xs
+    for x in xs
+      print(x)
+  print(o[0] == none)
+
+test "review-step10-r2-c12 slice headers with temps", '''
+  [10, 20, 3, 4]
+  [[1, 2, 3, 4], [5, 0, 0, 8]]
+  [1, 1, 1, 1] [2, 2, 2, 2]
+'''
+  # Header exception "slices": `for` over a slice whose bounds make a
+  # header temporary: of a place, of an element, and of a field of a
+  # branching value of places, written through `!`. Every write must land.
+  obj P
+    xs: [4]Int
+
+  fun idx(s: ?String) -> Int
+    s.len
+
+  v = [1, 2, 3, 4]
+  for x in !v[0..idx(?String("ab"))]
+    x = x * 10
+  print(v)
+  arrs = [[1, 2, 3, 4], [5, 6, 7, 8]]
+  for x in !arrs[idx(?String("a"))][1..3]
+    x = 0
+  print(arrs)
+  a = P(xs: [1, 1, 1, 1])
+  b = P(xs: [2, 2, 2, 2])
+  print(a.xs, b.xs)
+
+test "review-step10-r2-c13 for made vec header temp", '''
+  0
+  1
+  2
+  2
+  3
+  4
+'''
+  # Header exception "a value made in the header": `for` over a List made
+  # by a call whose argument is a header temporary (plain elements, and
+  # Text elements taken), and over a made array of plain data.
+  fun idx(s: ?String) -> Int
+    s.len
+
+  fun mkv(k: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..k
+      !v.push(i)
+    v
+
+  fun mkt(s: ?String) -> List[String]
+    v: List[String] = List()
+    !v.push(String(s, " one, long enough for the heap"))
+    !v.push(String(s, " two, long enough for the heap"))
+    v
+
+  fun mka(k: Int) -> [3]Int
+    [k, k + 1, k + 2]
+
+  for x in mkv(idx(?String("abc")))
+    print(x)
+  for y in mka(idx(?String("ab")))
+    print(y)
+
+test "review-step10-r2-h01 lent string opt", "hello, a text long enough for the heap"
+  # H1: a Text temporary lent as `(?String)?`, as an argument of a hoisted call (keyword
+  # arguments out of order), held as the view its parameter expects.
+  obj Q
+    xs: [4]Int
+    t: String
+
+  fun g(k: Int) -> Int
+    k
+
+  fun mkq(k: Int) -> Q
+    Q(xs: [k, k, k, k], t: String("a long text that lives on the heap"))
+
+  fun mkv(k: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..4
+      !v.push(k + i)
+    v
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun pick(s: (?String)?, n: Int) -> (?String)? from s
+    s
+
+  print(pick(n: g(1), s: String("hello, a text long enough for the heap")) ?? "none")
+
+test "review-step10-r2-h03 lent write slice", "5 [5, 99, 7, 8]"
+  # H1: a List place lent as `![]Int`, as an argument of a hoisted call (keyword
+  # arguments out of order), held as the view its parameter expects.
+  obj Q
+    xs: [4]Int
+    t: String
+
+  fun g(k: Int) -> Int
+    k
+
+  fun mkq(k: Int) -> Q
+    Q(xs: [k, k, k, k], t: String("a long text that lives on the heap"))
+
+  fun mkv(k: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..4
+      !v.push(k + i)
+    v
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun pick(s: ![]Int, n: Int) -> Int
+    s[n] = 99
+    s[0]
+
+  v = mkv(5)
+  print(pick(n: g(1), s: !v), v)
+
+test "review-step10-r2-h05 lent handle", "a long text that lives on the heap"
+  # H1: a shared handle temporary lent as `?Q`, as an argument of a hoisted call (keyword
+  # arguments out of order), held as the view its parameter expects.
+  obj Q
+    xs: [4]Int
+    t: String
+
+  fun g(k: Int) -> Int
+    k
+
+  fun mkq(k: Int) -> Q
+    Q(xs: [k, k, k, k], t: String("a long text that lives on the heap"))
+
+  fun mkv(k: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..4
+      !v.push(k + i)
+    v
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun pick(q: ?Q, n: Int) -> ?Q from q
+    q
+
+  print(pick(n: g(1), q: *mkq(5)).t)
+
+test "review-step10-r2-h06 lent struct", "a long text that lives on the heap"
+  # H1: a made struct lent as `?Q`, as an argument of a hoisted call (keyword
+  # arguments out of order), held as the view its parameter expects.
+  obj Q
+    xs: [4]Int
+    t: String
+
+  fun g(k: Int) -> Int
+    k
+
+  fun mkq(k: Int) -> Q
+    Q(xs: [k, k, k, k], t: String("a long text that lives on the heap"))
+
+  fun mkv(k: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..4
+      !v.push(k + i)
+    v
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun pick(q: ?Q, n: Int) -> ?Q from q
+    q
+
+  print(pick(n: g(1), q: mkq(5)).t)
+
+test "review-step10-r2-h07 lent text place", "place text long enough for the heap"
+  # H1: a Text place lent as `?String`, as an argument of a hoisted call (keyword
+  # arguments out of order), held as the view its parameter expects.
+  obj Q
+    xs: [4]Int
+    t: String
+
+  fun g(k: Int) -> Int
+    k
+
+  fun mkq(k: Int) -> Q
+    Q(xs: [k, k, k, k], t: String("a long text that lives on the heap"))
+
+  fun mkv(k: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..4
+      !v.push(k + i)
+    v
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun pick(s: ?String, n: Int) -> ?String from s
+    s
+
+  t = String("place text long enough for the heap")
+  print(pick(n: g(1), s: t))
+
+test "review-step10-r2-h08 lent optional inside", "5 6 7"
+  # H1: a made `Q?` lent as `(?Q)?`, as an argument of a hoisted call (keyword
+  # arguments out of order), held as the view its parameter expects.
+  obj Q
+    xs: [4]Int
+    t: String
+
+  fun g(k: Int) -> Int
+    k
+
+  fun mkq(k: Int) -> Q
+    Q(xs: [k, k, k, k], t: String("a long text that lives on the heap"))
+
+  fun mkv(k: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..4
+      !v.push(k + i)
+    v
+
+  fun mko(k: Int) -> Q?
+    if k > 0
+      return mkq(k)
+    none
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun pick(q: (?Q)?, n: Int) -> Int
+    if q as x
+      return x.xs[3]
+    0
+
+  o: Q? = mkq(5)
+  print(pick(n: g(1), q: ?o), pick(n: g(1), q: ?mko(6)), pick(n: g(1), q: mko(7)))
+
+test "review-step10-r2-h09 lent generic", "a long text that lives on the heap 7"
+  # H1: a made value lent to a generic `?T`, as an argument of a hoisted call (keyword
+  # arguments out of order), held as the view its parameter expects.
+  obj Q
+    xs: [4]Int
+    t: String
+
+  fun g(k: Int) -> Int
+    k
+
+  fun mkq(k: Int) -> Q
+    Q(xs: [k, k, k, k], t: String("a long text that lives on the heap"))
+
+  fun mkv(k: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..4
+      !v.push(k + i)
+    v
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun pick[T](q: ?T, n: Int) -> ?T from q
+    q
+
+  print(pick(n: g(1), q: mkq(5)).t, pick(n: g(1), q: g(7)))
+
+test "review-step10-r2-h10 lent array slice", "[2, 3, 4] [5, 5]"
+  # H1: an array place lent as `[]Int`, and a field array of a temporary, as an argument of a hoisted call (keyword
+  # arguments out of order), held as the view its parameter expects.
+  obj Q
+    xs: [4]Int
+    t: String
+
+  fun g(k: Int) -> Int
+    k
+
+  fun mkq(k: Int) -> Q
+    Q(xs: [k, k, k, k], t: String("a long text that lives on the heap"))
+
+  fun mkv(k: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..4
+      !v.push(k + i)
+    v
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun pick(s: []Int, n: Int) -> []Int from s
+    s[n..]
+
+  a = [1, 2, 3, 4]
+  print(pick(n: g(1), s: a), pick(n: g(2), s: mkq(5).xs))
+
+test "review-step10-r2-h12 lent box place write", "9 9"
+  # H1: a Box place lent as `!Q`, as an argument of a hoisted call (keyword
+  # arguments out of order), held as the view its parameter expects.
+  obj Q
+    xs: [4]Int
+    t: String
+
+  fun g(k: Int) -> Int
+    k
+
+  fun mkq(k: Int) -> Q
+    Q(xs: [k, k, k, k], t: String("a long text that lives on the heap"))
+
+  fun mkv(k: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..4
+      !v.push(k + i)
+    v
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun pick(q: !Q, n: Int) -> Int
+    q.xs[0] = n
+    q.xs[0]
+
+  b = ^mkq(5)
+  print(pick(n: g(9), q: !b), b.xs[0])
+
+test "review-step10-r2-h13 lent generic body", '''
+  5 6
+  1
+  [1, 2] [3, 4]
+  1
+  [2]
+  handle text long enough for the heap
+'''
+  # H1: inside a generic body, a `T` local and a `?T` parameter lent to a
+  # `?T` parameter of a hoisted call (keyword arguments out of order); and
+  # a `?List[Int]` parameter lent as `[]Int`, a `*Q` place as `?Q`.
+  obj Q
+    xs: [4]Int
+    t: String
+
+  fun g(k: Int) -> Int
+    k
+
+  fun pick[T](q: ?T, n: Int) -> ?T from q
+    q
+
+  fun outer[T](x: T, y: ?T) -> Int
+    a = pick(n: g(1), q: ?x)
+    b = pick(n: g(2), q: y)
+    print(a, b)
+    1
+
+  fun sl(s: []Int, n: Int) -> []Int from s
+    s[n..]
+
+  fun pq(q: ?Q, n: Int) -> ?Q from q
+    q
+
+  fun viaview(v: ?List[Int]) -> []Int from v
+    sl(n: g(1), s: v)
+
+  print(outer(5, ?g(6)))
+  print(outer([1, 2], ?[3, 4]))
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  print(viaview(?v))
+  h = *Q(xs: [1, 2, 3, 4], t: String("handle text long enough for the heap"))
+  print(pq(n: g(1), q: h).t)
+
+test "review-step10-r2-h15 lent generic local explicit", '''
+  5
+  1
+  5
+  1
+'''
+  # h14 with an explicit `?x`: a generic `T` local lent to `?T`, directly
+  # and in a hoisted call.
+  fun g(k: Int) -> Int
+    k
+
+  fun pick[T](q: ?T, n: Int) -> ?T from q
+    q
+
+  fun direct[T](x: T) -> Int
+    print(pick(?x, 1))
+    1
+
+  fun hoisted[T](x: T) -> Int
+    print(pick(n: g(1), q: ?x))
+    1
+
+  print(direct(5))
+  print(hoisted(5))
+
+fail "review-step2-p1-h1", "cannot lend `a` to write while the receiver's read of it is in use"
+  obj P
+    v: List[Int]
+
+    fun peek(?self, other: !P) -> Int
+      for i in 0..100
+        !other.v.push(i)
+      self.v[0]
+
+  fun mk(k: Int) -> P
+    v: List[Int] = List()
+    !v.push(k)
+    P(v: <v)
+
+  a = mk(1)
+  b = mk(2)
+  c = true
+  print((a if c else b).peek(!a))
+  print(a.v.len)
+
+fail "review-step2-p1-h15", "cannot lend `a` to write while an earlier argument's read of it is in use"
+  fun grow(t: !String) -> Int
+    for _ in 0..100
+      !t.add("abcdefgh")
+    1
+
+  a = String("a")
+  print(a, grow(!a))
+
+fail "review-step2-p1-h16", "cannot lend `a` to write while a read loan is live"
+  fun grow(t: !String) -> Int
+    for _ in 0..100
+      !t.add("abcdefgh")
+    1
+
+  fun two(x: ?String, n: Int) -> Int
+    x.len + n
+
+  a = String("a")
+  b = String("b")
+  c = true
+  print(two(?a if c else ?b, grow(!a)))
+
+fail "review-step2-p1-h3", "cannot lend `a` to write while a read loan is live"
+  fun peek(p: ?List[Int], other: !List[Int]) -> Int
+    for i in 0..100
+      !other.push(i)
+    p[0]
+
+  a: List[Int] = List()
+  !a.push(1)
+  b: List[Int] = List()
+  !b.push(2)
+  c = true
+  print(peek(?a if c else ?b, !a))
+
+fail "review-step2-p1-h6", "cannot lend `a` to write while an earlier argument's read of it is in use"
+  fun grow(v: !List[Int]) -> Int
+    for i in 0..100
+      !v.push(i)
+    0
+
+  a: List[Int] = List()
+  !a.push(1)
+  b: List[Int] = List()
+  c = true
+  print(a if c else b, grow(!a))
+
+fail "review-step2-p1-h8", "cannot lend `a` to write while a read loan is live"
+  obj P
+    v: List[Int]
+
+    fun peek(?self, other: !P) -> Int
+      for i in 0..100
+        !other.v.push(i)
+      self.v[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  a = P(v: <v)
+  print(a.peek(!a))
+
+fail "review-step2-p1-h9", "cannot lend `a` to write while the left operand's read of it is in use"
+  fun grow(t: !String) -> String
+    for _ in 0..100
+      !t.add("abcdefgh")
+    String("x")
+
+  a = String("a")
+  b = String("b")
+  c = true
+  print((a if c else b) == grow(!a))
+  print(a.len)
+
+test "review-step3-a01 temp conditional", '''
+  0
+  false
+  5
+  mk 4
+  4
+  drop 4
+  true
+  end
+'''
+  obj Bag
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun size(b: ?Bag) -> Int
+    b.n
+
+  fun mk(n: Int) -> Bag
+    print("mk", n)
+    Bag(n: n)
+
+  c = false
+  print(size(mk(1)) if c else 0)
+  print(c and size(mk(2)) > 0)
+  o: Int? = 5
+  print(o ?? size(mk(3)))
+  d = true
+  print(size(mk(4)) if d else size(mk(5)))
+  print(d or size(mk(6)) > 0)
+  print("end")
+
+test "review-step3-a02 temp while", '''
+  drop 0
+  drop 1
+  drop 2
+  drop 3
+  i 3
+  drop 9
+  nine
+  drop 8
+  eight
+  end
+  defer 7
+  drop 7
+'''
+  obj Bag
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun size(b: ?Bag) -> Int
+    b.n
+
+  fun mk(n: Int) -> Bag
+    Bag(n: n)
+
+  i = 0
+  while size(mk(i)) < 3
+    i += 1
+  print("i", i)
+  match size(mk(9))
+    9 => print("nine")
+    _ => print("other")
+  if size(mk(8)) == 8
+    print("eight")
+  defer
+    print("defer", size(mk(7)))
+  print("end")
+
+test "review-step3-a05 temp guard", '''
+  drop 1
+  drop 2
+  two
+'''
+  obj Bag
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    a(n: Int)
+    b
+
+  fun size(b: ?Bag) -> Int
+    b.n
+
+  fun mk(n: Int) -> Bag
+    Bag(n: n)
+
+  e = E.a(n: 2)
+  match e
+    .a(n) if n == size(mk(1)) => print("one")
+    .a(n) if n == size(mk(2)) => print("two")
+    _ => print("other")
+
+test "review-step3-a06b", '''
+  mk 2
+  mk 1
+  12
+  drop 1
+  drop 2
+  mk 1
+  15
+  drop 1
+  mk 7
+  57
+  drop 7
+  mk 4
+  7
+  drop 4
+  mk 4
+  5
+  drop 4
+  drop 5
+'''
+  obj Bag
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun two(a: ?Bag, b: ?Bag) -> Int
+    a.n * 10 + b.n
+
+  fun mk(n: Int) -> Bag
+    print("mk", n)
+    Bag(n: n)
+
+  fun dflt(a: ?Bag, k: Int = 3) -> Int
+    a.n + k
+
+  print(two(b: ?mk(2), a: ?mk(1)))
+  x = Bag(n: 5)
+  print(two(b: x, a: ?mk(1)))
+  print(two(b: ?mk(7), a: x))
+  print(dflt(?mk(4)))
+  print(dflt(k: 1, a: ?mk(4)))
+
+test "review-step3-a08 receiver temp", '''
+  5
+  drop 3
+  drop 2
+  9
+  drop 5
+  drop 1
+  drop 1
+  2
+  drop 1
+  -1
+  drop 4
+'''
+  obj Bag
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+    fun plus(?self, o: ?Bag) -> Int
+      self.n + o.n
+
+  fun mk(n: Int) -> Bag
+    Bag(n: n)
+
+  error Bad
+    boom
+
+  fun mkf(n: Int) -> Bag!
+    if n > 5
+      return Bad.boom
+    Bag(n: n)
+
+  fun run(n: Int) -> Int!
+    mk(1).plus(mkf(n)!)
+
+  print(mk(2).plus(mk(3)))
+  b = Bag(n: 4)
+  print(b.plus(mk(5)))
+  print(run(1) catch -1)
+  print(run(9) catch -1)
+
+test "review-step3-a09 temp positions", '''
+  drop 1
+  drop 2
+  1 2
+  drop 3
+  3
+  drop 4
+  4
+  drop 5
+  5
+  w 0
+  drop 6
+  w 1
+  drop 6
+  drop 7
+  7
+'''
+  obj Bag
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  error Bad
+    boom
+
+  fun size(b: ?Bag) -> Int
+    b.n
+
+  fun mk(n: Int) -> Bag
+    Bag(n: n)
+
+  fun ret() -> Int
+    return size(mk(1))
+
+  fun tail() -> Int
+    size(mk(2))
+
+  fun fail(n: Int) -> Int!
+    if n > 0
+      return Bad.boom
+    n
+
+  print(ret(), tail())
+  x = for i in 0..3
+    if i == 1
+      break size(mk(3))
+  else
+    0
+  print(x)
+  c = true
+  y = if c
+    size(mk(4))
+  else
+    0
+  print(y)
+  z = fail(1) catch size(mk(5))
+  print(z)
+  i = 0
+  while i < 2 : i += size(mk(6)) - 5
+    print("w", i)
+  o: Int? = none
+  w = o ?? size(mk(7))
+  print(w)
+
+fail "review-step3-b01 kwargs conflict", "cannot lend `n` to write while a read loan is live"
+  sub add(a: !Int, b: ?Int)
+    a += b
+
+  sub addv(a: !List[Int], b: ?List[Int])
+    !a.push(b.len)
+
+  n = 1
+  add(b: n, a: !n)
+  add(a: !n, b: n)
+  v: List[Int] = List()
+  addv(b: v, a: !v)
+  addv(!v, v)
+  print(n)
+
+test "review-step3-b03 generic infer view", '''
+  4 1
+  q
+'''
+  fun first[T](xs: []T) -> ?T
+    ?xs[0]
+
+  fun keep[T](x: ?T) -> ?T
+    x
+
+  v: List[Int] = List()
+  !v.push(4)
+  a = [1, 2]
+  print(first(v), first(a))
+  t = String("q")
+  k = keep(?t)
+  print(k)
+  !t.add("z")
+
+fail "review-step3-b04 copy arg loan", "cannot lend `p` to read while a write loan is live"
+  obj P
+    x: Int
+
+  sub setp(a: !P, b: ?P)
+    a.x = b.x + 1
+
+  sub seti(a: !Int, b: Int)
+    a += b
+
+  p = P(x: 1)
+  setp(!p, p)
+  n = 2
+  seti(!n, n)
+  print(p.x, n)
+
+fail "review-step3-b05", "use of `n` while a write loan is live"
+  sub seti(a: !Int, b: Int)
+    a += b
+
+  n = 2
+  seti(!n, n)
+  print(n)
+
+test "review-step3-d02 ifas local drop", '''
+  in 1
+  after
+  end
+  drop 1
+'''
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  o: Res? = Res(n: 1)
+  if o as x
+    print("in", x.n)
+  print("after")
+  print("end")
+
+test "review-step3-d03 match local drop", '''
+  in 1
+  after
+  in 2
+  end
+  drop 2
+  drop 1
+'''
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    a(r: Res)
+    b
+
+  e = E.a(r: Res(n: 1))
+  match e
+    .a(r) => print("in", r.n)
+    .b => pass
+  print("after")
+  b = ^E.a(r: Res(n: 2))
+  match ?b
+    .a(r) => print("in", r.n)
+    .b => pass
+  print("end")
+
+test "review-step3-f02 held vec int", '''
+  x 10
+  3
+'''
+  obj Bag
+    v: List[Int]
+    w: List[Int]
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    Bag(v: <v, w: List())
+
+  for x in mk(10).v
+    print("x", x)
+  x = for y in mk(3).v
+    break y
+  else
+    0
+  print(x)
+
+test "review-step3-f03 text forms", '''
+  97
+  98
+  99
+  100
+  101
+  102
+'''
+  bt = ^String("ab")
+  for b in bt
+    print(b)
+  h = *String("cd")
+  for b in h
+    print(b)
+  o: String? = String("ef")
+  if o as s
+    for b in s
+      print(b)
+
+fail "review-step3-k01 closure lend move", "an owned closure cannot capture a view of `k`: it can be stored anywhere, so it could outlive `k`; capture an owned value, or use a stack closure (`|...|`)"
+  fun twice(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(f(x))
+
+  fun eat(f: *fun(Int) -> Int) -> Int
+    f(0)
+
+  k = 2
+  cb = *|?k, x: Int| x * k
+  print(twice(cb, eat(<cb)))
+
+fail "review-step3-k02 vec lend then move", "cannot move `v` while a read loan is live"
+  fun total(xs: []Int, n: Int) -> Int
+    t = n
+    for x in xs
+      t += x
+    t
+
+  fun eat(v: List[Int]) -> Int
+    v.len
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(total(v, eat(<v)))
+
+fail "review-step3-k03 vec lend then write", "cannot lend `v` to write while a read loan is live"
+  fun total(xs: []Int, n: Int) -> Int
+    t = n
+    for x in xs
+      t += x
+    t
+
+  fun grow(v: !List[Int]) -> Int
+    for i in 0..100
+      !v.push(i)
+    0
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(total(v, grow(!v)))
+
+fail "review-step3-k04 text lend then write", "cannot lend `t` to write while a read loan is live"
+  fun both(s: ?String, n: Int) -> Int
+    s.len + n
+
+  fun grow(t: !String) -> Int
+    !t.add("0123456789012345678901234567890123456789")
+    0
+
+  t = String("abc")
+  print(both(t, grow(!t)))
+  b = ^String("abc")
+  print(both(b, grow(!b)))
+
+fail "review-step3-k05 handle lend then drop", "cannot move `h` while a read loan is live"
+  obj S
+    n: Int
+    t: String
+
+  fun get(s: ?S, n: Int) -> Int
+    s.n + n
+
+  fun eat(h: *S) -> Int
+    0
+
+  h = *S(n: 1, t: String("x"))
+  print(get(h, eat(<h)))
+
+fail "review-step3-l01 opt loans", "cannot reassign `o` while it is lent"
+  obj S
+    n: Int
+    t: String
+
+  fun keep(s: (?S)?) -> (?S)?
+    s
+
+  o: S? = S(n: 5, t: String("a"))
+  k = keep(?o)
+  o = none
+  if k as x
+    print(x.n)
+
+fail "review-step3-l02 opt loans bare", "cannot drop `o` while it is lent"
+  obj S
+    n: Int
+    t: String
+
+  fun keep(s: (?S)?) -> (?S)?
+    s
+
+  o: S? = S(n: 5, t: String("a"))
+  k = keep(?o)
+  <o
+  if k as x
+    print(x.n)
+
+test "review-step3-l03 opt temp", '''
+  1 -1
+  drop 1
+  2
+  drop 2
+  3
+  drop 3
+'''
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun maybe(s: (?S)?) -> Int
+    if s as x
+      return x.n
+    -1
+
+  fun mko(n: Int) -> S?
+    if n > 5
+      return none
+    S(n: n, t: String("a"))
+
+  print(maybe(mko(1)), maybe(mko(9)))
+  print(maybe(?mko(2)))
+  o: S? = S(n: 3, t: String("o"))
+  print(maybe(o))
+
+fail "review-step3-l05 handle loans", "cannot drop `h` while it is lent"
+  obj S
+    n: Int
+    t: String
+
+  fun keep(s: ?S) -> ?S
+    s
+
+  h = *S(n: 5, t: String("a"))
+  k = keep(?h)
+  <h
+  print(k.n)
+
+fail "review-step3-l06 handle loans2", "cannot reassign `h` while it is lent"
+  obj S
+    n: Int
+    t: String
+
+  fun keep(s: ?S) -> ?S
+    s
+
+  h = *S(n: 5, t: String("a"))
+  k = keep(?h)
+  h = *S(n: 6, t: String("b"))
+  print(k.n)
+
+fail "review-step3-l07 handle move", "cannot move `h` while a read loan is live"
+  obj S
+    n: Int
+    t: String
+
+  fun keep(s: ?S) -> ?S
+    s
+
+  sub eat(h: *S)
+    print("eat", h.n)
+
+  h = *S(n: 5, t: String("a"))
+  k = keep(?h)
+  eat(<h)
+  print(k.n)
+
+fail "review-step3-l12 handle in vec", "cannot lend `v` to write while a read loan is live"
+  obj S
+    n: Int
+    t: String
+
+  fun keep(s: ?S) -> ?S
+    s
+
+  v: List[*S] = List()
+  !v.push(*S(n: 1, t: String("a")))
+  k = keep(?v[0])
+  !v.clear()
+  print(k.n)

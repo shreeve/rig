@@ -1,8 +1,0 @@
-fun get(k: Int) -> Int?
-  k if k > 0 else none
-
-sub main()
-  n = 3
-  while get(n) as x : n = x - 1
-    print(x)
-  print("done")

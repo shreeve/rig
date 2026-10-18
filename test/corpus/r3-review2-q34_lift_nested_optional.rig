@@ -1,9 +1,0 @@
-obj P
-  x: Int
-  y: Int
-
-sub main()
-  p = P(x: 1, y: 2)
-  r = ?p
-  l: ((?P)?)? = r
-  print(l)

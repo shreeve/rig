@@ -1,0 +1,1600 @@
+# Probes from past reviews and audits, 35 of 41: review-syntax-b-2-b26_array_text_elem_writeview to review-take-p52.
+
+use std.text
+
+fail "review-syntax-b-2-b26 array text elem writeview", "cannot assign to `a[0]` while `a` is lent"
+  fun keep(s: ?String) -> ?String
+    s
+
+  sub f(a: ![2]String)
+    s = keep(?a[0][1..])
+    a[0] = String("x")
+    print(s)
+
+  a = [String("hello"), String("world")]
+  f(!a)
+
+fail "review-syntax-b-2-c03 call ret write arg", "a view reached through `get(!h)` outlives its statement, which holds `get(!h)`, itself a view, only while it runs; bind `get(!h)` to a name first"
+  fun keep(s: ?String) -> ?String
+    s
+
+  obj H
+    t: String
+
+  fun get(h: !H) -> !String
+    !h.t
+
+  h = H(t: String("hello"))
+  s = keep(?get(!h)[1..])
+  for _ in 0..50
+    !h.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-2-c05 call ret write ok", "a view reached through `get(!h)` outlives its statement, which holds `get(!h)`, itself a view, only while it runs; bind `get(!h)` to a name first"
+  fun keep(s: ?String) -> ?String
+    s
+
+  obj H
+    t: String
+
+  fun get(h: !H) -> !String
+    !h.t
+
+  h = H(t: String("hello"))
+  s = keep(?get(!h)[1..])
+  print(s)
+  !h.t.add("x")
+  print(h.t)
+
+fail "review-syntax-b-2-c07 branch lends write", "a view reached through `!x if c else !y` outlives its statement, which holds `!x if c else !y`, itself a view, only while it runs; bind `!x if c else !y` to a name first"
+  fun keep(s: ?String) -> ?String
+    s
+
+  x = String("hello")
+  y = String("world")
+  c = true
+  s = keep(?(!x if c else !y)[1..])
+  for _ in 0..50
+    !x.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-2-c08 method ret write view", "a view reached through `(!h).get()` outlives its statement, which holds `(!h).get()`, itself a view, only while it runs; bind `(!h).get()` to a name first"
+  fun keep(s: ?String) -> ?String
+    s
+
+  obj H
+    t: String
+
+    fun get(!self) -> !String
+      !self.t
+
+  h = H(t: String("hello"))
+  s = keep(?(!h).get()[1..])
+  for _ in 0..50
+    !h.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-2-c12 writeview moved slice", "cannot move `w` while a read loan is live"
+  fun keep(s: ?String) -> ?String
+    s
+
+  sub g(w: !String)
+    !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+
+  sub f(w: !String)
+    s = keep(?w[1..])
+    g(<w)
+    print(s)
+
+  t = String("hello")
+  f(!t)
+
+fail "review-syntax-b-2-c13 writeview relend slice", "cannot lend `w` to write while a read loan is live"
+  fun keep(s: ?String) -> ?String
+    s
+
+  sub g(w: !String)
+    for _ in 0..50
+      !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+
+  sub f(w: !String)
+    s = keep(?w[1..])
+    g(!w)
+    print(s)
+
+  t = String("hello")
+  f(!t)
+
+fail "review-syntax-b-2-c19 closure ret write slice", "cannot return a view of `t`, which this function was not lent"
+  fun keep(s: ?String) -> ?String
+    s
+
+  t = String("hello")
+  f = |!t| keep(?t[1..])
+  s = f()
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-2-d05 writeslice slice of slice", "cannot assign to `w[0]` while `w` is lent"
+  sub f(w: ![]String)
+    s = ?w[0..1]
+    t = s[0..1]
+    u = ?t[0][1..]
+    w[0] = String("other")
+    print(u)
+
+  v: List[String] = List()
+  !v.push(String("hello"))
+  f(!v[..])
+
+fail "review-syntax-b-2-e01 readview of temp bind", "a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first"
+  fun keep(s: ?String) -> ?String
+    s
+
+  fun mk() -> String
+    String("hello")
+
+  fun id(r: ?String) -> ?String
+    r
+
+  s = id(?mk())[1..]
+  print(s)
+
+fail "review-syntax-b-2-e03 readview of temp implicit", "a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first"
+  fun keep(s: ?String) -> ?String
+    s
+
+  fun mk() -> String
+    String("hello")
+
+  fun id(r: ?String) -> ?String
+    r
+
+  s = keep(id(mk())[1..])
+  print(s)
+
+test "review-syntax-b-2-e04 readview of temp stmt ok", "ello"
+  fun keep(s: ?String) -> ?String
+    s
+
+  fun mk() -> String
+    String("hello")
+
+  fun id(r: ?String) -> ?String
+    r
+
+  print(keep(id(?mk())[1..]))
+
+fail "review-syntax-b-2-e06 box temp readview", "a view of the temporary `^String(\"hello\")` outlives its statement, which drops it; bind the value to a name first"
+  fun keep(s: ?String) -> ?String
+    s
+
+  fun id(r: ?^String) -> ?^String
+    r
+
+  s = keep(id(?^String("hello"))[1..])
+  print(s)
+
+fail "review-syntax-b-2-e07 struct temp field", "a view of the temporary `H(t: String(\"hello\"))` outlives its statement, which drops it; bind the value to a name first"
+  fun keep(s: ?String) -> ?String
+    s
+
+  fun mk() -> String
+    String("hello")
+
+  fun id(r: ?String) -> ?String
+    r
+
+  obj H
+    t: String
+
+  fun name(h: ?H) -> ?String
+    ?h.t
+
+  s = keep(name(?H(t: String("hello")))[1..])
+  print(s)
+
+fail "review-syntax-b-2-e08 writeview of temp", "a view reached through `wid(!mk())` outlives its statement, which holds `wid(!mk())`, itself a view, only while it runs; bind `wid(!mk())` to a name first"
+  fun keep(s: ?String) -> ?String
+    s
+
+  fun mk() -> String
+    String("hello")
+
+  fun wid(w: !String) -> !String
+    w
+
+  s = keep(?wid(!mk())[1..])
+  print(s)
+
+fail "review-syntax-b-2-f02 trim writeview slice", "cannot lend `w` to write while a read loan is live"
+  sub f(w: !String)
+    s = text.trim(?w[1..])
+    for _ in 0..50
+      !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(s)
+
+  t = String(" hello ")
+  f(!t)
+
+fail "review-syntax-b-2-f03 split writeview", "cannot lend `w` to write while a read loan is live"
+  sub f(w: !String)
+    it = text.split(?w[0..], " ")
+    for _ in 0..50
+      !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    while (!it).next() as p
+      print(p)
+
+  t = String("a b c")
+  f(!t)
+
+test "review-syntax-b-2-f05 writeview print ok", '''
+  hello
+   hello !
+'''
+  sub f(w: !String)
+    print(text.trim(w[1..]))
+    !w.add("!")
+    print(w)
+
+  t = String(" hello ")
+  f(!t)
+
+fail "review-syntax-b-2-g01 for bytes writeview add", "cannot lend `w` to write while a read loan is live"
+  sub f(w: !String)
+    for b in w
+      if b == 104
+        for _ in 0..50
+          !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(b)
+
+  t = String("hello")
+  f(!t)
+
+fail "review-syntax-b-2-g02 for vec writeview push", "cannot lend `w` to write while a read loan is live"
+  sub f(w: !List[Int])
+    for x in w
+      if x == 1
+        for i in 0..100
+          !w.push(i)
+      print(x)
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  f(!v)
+
+fail "review-syntax-b-2-g03 for bytes box writeview", "cannot reassign `w` while it is lent"
+  sub f(w: !^String)
+    for b in w
+      if b == 104
+        w = ^String("x")
+      print(b)
+
+  t = ^String("hello")
+  f(!t)
+
+fail "review-syntax-b-2-m02 match bang bound written", "cannot lend `t` to write while a read loan is live"
+  fun keep(s: ?String) -> ?String
+    s
+
+  fun keepv(s: []Int) -> []Int
+    s
+
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  match !e
+    .a(t)
+      s = ?t[1..]
+      for _ in 0..50
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => print("b")
+
+fail "review-syntax-b-2-m03 match bang readlend", "cannot lend `t` to write while a read loan is live"
+  fun keep(s: ?String) -> ?String
+    s
+
+  fun keepv(s: []Int) -> []Int
+    s
+
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  match !e
+    .a(t)
+      r = ?t
+      !t.add("x")
+      print(r)
+    .b => print("b")
+
+fail "review-syntax-b-2-m04 match bang vec payload", "cannot lend `xs` to write while a read loan is live"
+  fun keepv(s: []Int) -> []Int
+    s
+
+  enum V
+    a(v: List[Int])
+    b
+
+  v: List[Int] = List()
+  !v.push(1)
+  e = V.a(<v)
+  match !e
+    .a(xs)
+      s = keepv(?xs[..])
+      for i in 0..100
+        !xs.push(i)
+      print(s)
+    .b => print("b")
+
+fail "review-syntax-b-2-m05 match bang param", "cannot lend `t` to write while a read loan is live"
+  fun keep(s: ?String) -> ?String
+    s
+
+  fun keepv(s: []Int) -> []Int
+    s
+
+  enum E
+    a(t: String)
+    b
+
+  sub f(e: !E)
+    match !e
+      .a(t)
+        s = keep(?t[1..])
+        for _ in 0..50
+          !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+      .b => print("b")
+
+  x = E.a(String("hello"))
+  f(!x)
+
+fail "review-syntax-b-2-m06 match bang reassign payload", "cannot reassign `t` while it is lent"
+  fun keep(s: ?String) -> ?String
+    s
+
+  fun keepv(s: []Int) -> []Int
+    s
+
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  match !e
+    .a(t)
+      s = keep(?t[1..])
+      t = String("other")
+      print(s)
+    .b => print("b")
+
+fail "review-syntax-b-2-m07 match bang reassign subject", "cannot reassign `e` while it is lent"
+  fun keep(s: ?String) -> ?String
+    s
+
+  fun keepv(s: []Int) -> []Int
+    s
+
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  match !e
+    .a(t)
+      s = keep(?t[1..])
+      e = E.b
+      print(s)
+    .b => print("b")
+
+fail "review-syntax-b-2-m09 match bang struct payload", "cannot lend `p.t` to write while a read loan is live"
+  fun keep(s: ?String) -> ?String
+    s
+
+  obj P
+    t: String
+
+  enum F
+    a(p: P)
+    b
+
+  e = F.a(P(t: String("hello")))
+  match !e
+    .a(p)
+      s = keep(?p.t[1..])
+      for _ in 0..50
+        !p.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => print("b")
+
+fail "review-syntax-b-2-m10 match bang box payload", "cannot reassign `b` while it is lent"
+  fun keep(s: ?String) -> ?String
+    s
+
+  enum B
+    a(b: ^String)
+    z
+
+  e = B.a(^String("hello"))
+  match !e
+    .a(b)
+      s = keep(?b[1..])
+      b = ^String("other")
+      print(s)
+    .z => print("z")
+
+fail "review-syntax-b-2-m11 for bang binding", "cannot lend `t` to write while a read loan is live"
+  v: List[String] = List()
+  !v.push(String("hello"))
+  for t in !v
+    s = ?t[1..]
+    for _ in 0..50
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(s)
+
+fail "review-syntax-b-2-m12 if bang as written", "cannot lend `w` to write while a read loan is live"
+  o: String? = String("hello")
+  if !o as w
+    s = ?w[1..]
+    for _ in 0..50
+      !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(s)
+
+fail "review-syntax-b-2-m13 match bang box subject", "cannot lend `t` to write while a read loan is live"
+  enum E
+    a(t: String)
+    b
+
+  e = ^E.a(String("hello"))
+  match !e
+    .a(t)
+      s = ?t[1..]
+      for _ in 0..50
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    .b => print("b")
+
+fail "review-syntax-b-2-m14 match bang vec written", "cannot lend `xs` to write while a read loan is live"
+  enum V
+    a(v: List[Int])
+    b
+
+  v: List[Int] = List()
+  !v.push(1)
+  e = V.a(<v)
+  match !e
+    .a(xs)
+      r = ?xs
+      for i in 0..100
+        !xs.push(i)
+      print(r.len)
+      s = ?xs[..]
+      for i in 0..100
+        !xs.push(i)
+      print(s)
+    .b => print("b")
+
+fail "review-syntax-b-2-m15 match bang named payload", "cannot lend `x` to write while a read loan is live"
+  enum E
+    a(t: String, n: Int)
+    b
+
+  e = E.a(t: String("hello"), n: 1)
+  match !e
+    .a(t: x)
+      s = ?x[1..]
+      for _ in 0..50
+        !x.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+      print(s)
+    _ => pass
+
+fail "review-syntax-b-2-m17 match bang arrow call", "cannot lend `t` to read while a write loan is live"
+  fun grow(t: !String, s: ?String) -> ?String
+    for _ in 0..50
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    s
+
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  match !e
+    .a(t) => print(grow(!t, ?t[1..]))
+    .b => pass
+
+test "review-syntax-b-2-o02 write holder slice field reassign", '''
+  [2, 3]
+  [4, 5, 6]
+'''
+  obj R
+    xs: []Int
+
+  sub g(w: !R, u: []Int) keeps u
+    s = w.xs[1..]
+    w.xs = u
+    print(s)
+
+  a = [1, 2, 3]
+  b = [4, 5, 6]
+  r = R(xs: ?a[..])
+  g(!r, ?b[..])
+  print(r.xs)
+
+test "review-syntax-b-2-o03 write vec of slices", '''
+  [2, 3]
+  [[4, 5, 6]]
+'''
+  sub g(w: !List[[]Int], u: []Int) keeps u
+    s = w[0][1..]
+    w[0] = u
+    print(s)
+
+  a = [1, 2, 3]
+  b = [4, 5, 6]
+  v: List[[]Int] = List()
+  !v.push(?a[..])
+  g(!v, ?b[..])
+  print(v)
+
+test "review-syntax-b-2-o04 write holder string field reassign", '''
+  ello
+  other
+'''
+  obj R
+    f: ?String
+
+  sub g(w: !R)
+    s = w.f[1..]
+    w.f = "other"
+    print(s)
+
+  t = String("hello")
+  r = R(f: ?t[..])
+  g(!r)
+  print(r.f)
+
+fail "review-syntax-b-2-o05 write holder readview bad", "cannot lend `t` to write while a read loan is live"
+  obj R
+    f: ?String
+
+  t = String("hello")
+  r = R(f: ?t)
+  w = !r
+  s = w.f[1..]
+  for _ in 0..50
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  print(s)
+
+fail "review-syntax-b-2-o06 closure read of writeview", "cannot lend `w` to write while a read loan is live"
+  sub f(w: !String)
+    g = |?w| w[1..]
+    s = g()
+    for _ in 0..50
+      !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(s)
+
+  t = String("hello")
+  f(!t)
+
+fail "review-syntax-b-2-o08 read of write then move", "cannot move `w` while a read loan is live"
+  sub g(w: !String)
+    for _ in 0..50
+      !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+
+  t = String("hello")
+  w = !t
+  r = ?w
+  s = r[1..]
+  g(<w)
+  print(s)
+
+fail "review-syntax-b-2-o13 callable view write capture", "cannot lend `t` to read while a write loan is live"
+  sub f(r: ?String, g: ?sub())
+    s = r[1..]
+    g()
+    print(s)
+
+  t = String("hello")
+  g = |!t|
+    for _ in 0..50
+      !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+  f(?t, g)
+
+test "review-syntax-b-2-o17 write holder shared readview field", "ello"
+  obj R
+    f: ?*String
+
+  sub g(w: !R, u: ?*String) keeps u
+    s = w.f[1..]
+    w.f = u
+    print(s)
+
+  t = *String("hello")
+  u = *String("other")
+  r = R(f: ?t)
+  g(!r, ?u)
+
+test "review-syntax-b-2-o18 local write holder readview field", "ello"
+  obj R
+    f: ?String
+
+  t = String("hello")
+  u = String("other")
+  r = R(f: ?t)
+  w = !r
+  s = w.f[1..]
+  w.f = ?u
+  print(s)
+
+test "review-syntax-b-2-o19 write vec of readviews", "ello"
+  sub g(w: !List[?String], u: ?String) keeps u
+    s = w[0][1..]
+    w[0] = u
+    print(s)
+
+  t = String("hello")
+  u = String("other")
+  v: List[?String] = List()
+  !v.push(?t)
+  g(!v, ?u)
+
+fail "review-syntax-b-2-v01 call ret write written", "a view reached through `get(!h)` outlives its statement, which holds `get(!h)`, itself a view, only while it runs; bind `get(!h)` to a name first"
+  fun keep(s: ?String) -> ?String
+    s
+
+  obj H
+    t: String
+
+  fun get(h: !H) -> !String
+    !h.t
+
+  h = H(t: String("hello"))
+  s = keep(?get(!h)[1..])
+  print(s)
+  !h.t.add("x")
+  print(h.t)
+
+test "review-syntax-b-2-v02 call ret write bound", '''
+  ello
+  hellox
+'''
+  fun keep(s: ?String) -> ?String
+    s
+
+  obj H
+    t: String
+
+  fun get(h: !H) -> !String
+    !h.t
+
+  h = H(t: String("hello"))
+  w = get(!h)
+  s = keep(?w[1..])
+  print(s)
+  !h.t.add("x")
+  print(h.t)
+
+fail "review-syntax-b-2-v05 if bang as escape ok", "`r` does not live long enough"
+  fun keep(s: ?String) -> ?String
+    s
+
+  sub f(w: !String?)
+    s: ?String = ""
+    if !w as r
+      !r.add("!")
+      s = keep(?r[1..])
+    print(s)
+
+  o: String? = String("hello")
+  f(!o)
+
+fail "review-syntax-b-2-v06 if bang as escape written", "`r` does not live long enough"
+  fun keep(s: ?String) -> ?String
+    s
+
+  sub f(w: !String?)
+    s: ?String = ""
+    if !w as r
+      !r.add("!")
+      s = keep(?r[1..])
+    print(s)
+
+  o: String? = String("hello")
+  f(!o)
+
+fail "review-syntax-b-2-v07 method ret write ok", "a view reached through `(!h).get()` outlives its statement, which holds `(!h).get()`, itself a view, only while it runs; bind `(!h).get()` to a name first"
+  fun keep(s: ?String) -> ?String
+    s
+
+  obj H
+    t: String
+
+    fun get(!self) -> !String
+      !self.t
+
+  h = H(t: String("hello"))
+  print(keep((!h).get()[1..]))
+  s = keep(?(!h).get()[1..])
+  print(s)
+
+test "review-syntax-b-2-v08 branch read ok", "ello"
+  fun keep(s: ?String) -> ?String
+    s
+
+  sub f(a: ?String, b: ?String, c: Bool)
+    s = keep((a if c else b)[1..])
+    print(s)
+
+  x = String("hello")
+  y = String("world")
+  f(?x, ?y, true)
+
+fail "review-syntax-b-2-v09 match bang escape ok", "`t` does not live long enough"
+  fun keep(s: ?String) -> ?String
+    s
+
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(String("hello"))
+  s: ?String = ""
+  match !e
+    .a(t) => s = keep(?t[1..])
+    .b => pass
+  print(s)
+
+fail "review-syntax-b-2-v11 if bang as owned escape", "`r` does not live long enough"
+  fun keep(s: ?String) -> ?String
+    s
+
+  o: String? = String("hello")
+  s: ?String = ""
+  if !o as r
+    !r.add("!")
+    s = keep(?r[1..])
+  print(s)
+
+fail "review-syntax-b-2-v12 match bang param escape", "`t` does not live long enough"
+  fun keep(s: ?String) -> ?String
+    s
+
+  enum E
+    a(t: String)
+    b
+
+  sub f(e: !E)
+    s: ?String = ""
+    match !e
+      .a(t) => s = keep(?t[1..])
+      .b => pass
+    print(s)
+
+  x = E.a(String("hello"))
+  f(!x)
+
+test "review-take-h1", "1 S(a: none)"
+  obj S
+    a: Int?
+
+  fun mk() -> S
+    S(a: 1)
+
+  s = mk()
+  t = <s.a
+  print(t, s)
+
+test "review-take-h4", '''
+  R(n: 1) S(t: T(a: none), z: 0)
+  drop 1
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj T
+    a: R?
+
+  obj S
+    t: T
+    z: Int
+
+  fun mk() -> S
+    S(t: T(a: R(n: 1)), z: 0)
+
+  s = mk()
+  t = <s.t.a
+  print(t, s)
+
+fail "review-take-p01", "cannot lend `s.a` to write while a read loan is live"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+    b: R?
+
+  s = S(a: R(n: 1), b: R(n: 2))
+  if ?s.a as x
+    t = <s.a
+    print(x.n)
+  print("end")
+
+fail "review-take-p02", "cannot lend `s.a` to write while a read loan is live"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+    b: R?
+
+  s = S(a: R(n: 1), b: R(n: 2))
+  r = ?s.a
+  t = <s.a
+  print(r)
+  print("end")
+
+test "review-take-p03", '''
+  S(a: R(n: 2), b: R(n: 1))
+  end
+  drop 1
+  drop 2
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+    b: R?
+
+  s = S(a: R(n: 1), b: R(n: 2))
+  s = S(a: <s.b, b: <s.a)
+  print(s)
+  print("end")
+
+fail "review-take-p04", "cannot lend `s.b` to write while a write loan on `s` is live"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+    b: R?
+
+  sub eat(x: R?, s: !S)
+    print(x, s)
+
+  sub eat2(s: !S, x: R?)
+    print(x, s)
+
+  s = S(a: R(n: 1), b: R(n: 2))
+  eat(<s.a, !s)
+  eat2(!s, <s.b)
+  print("end")
+
+test "review-take-p06", '''
+  in R(n: 1)
+  drop 1
+  in none
+  S(a: none)
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  s = S(a: R(n: 1))
+  f = |!s|
+    x = <s.a
+    print("in", x)
+  f()
+  f()
+  print(s)
+
+test "review-take-p07", '''
+  drop 1
+  end
+  deferred R(n: 2)
+  drop 2
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  s = S(a: R(n: 1))
+  defer
+    x = <s.a
+    print("deferred", x)
+  s.a = R(n: 2)
+  print("end")
+
+test "review-take-p08", '''
+  R(n: 1)
+  drop 1
+  [S(a: none)]
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  v: List[^S] = List()
+  !v.push(^S(a: R(n: 1)))
+  for x in !v
+    y = <x.a
+    print(y)
+  print(v)
+
+test "review-take-p09", '''
+  R(n: 1) [S(a: none)]
+  drop 1
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  v: List[^S] = List()
+  !v.push(^S(a: R(n: 1)))
+  y = <v[0].a
+  print(y, v)
+
+test "review-take-p10", '''
+  drop 1
+  R(n: 2) [S(a: none)]
+  drop 2
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  v: List[^S] = List()
+  !v.push(^S(a: R(n: 1)))
+  v[0].a = R(n: 2)
+  x = replace(!v[0].a, none)
+  print(x, v)
+
+test "review-take-p106", "5 2"
+  sub run(swap: ?sub(!Int, !Int))
+    a = 1
+    b = 2
+    swap(!a, !b)
+    print(a, b)
+
+  run(|x: !Int, y: !Int| x = 5)
+
+fail "review-take-p108", "`<` here would copy `s.a` out without moving it; take it before the `?` or `!`: `(<s.a)?`"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  fun f(s: !S) -> Int?
+    r = <s.a?
+    print(r)
+    1
+
+  s = S(a: R(n: 1))
+  print(f(!s))
+  print(s)
+
+fail "review-take-p109", "`<` here would copy `s.a` out without moving it; take it before the `?` or `!`: `(<s.a)?`"
+  obj S
+    a: Int?
+
+  fun f(s: !S) -> Int?
+    r = <s.a?
+    print(r)
+    1
+
+  s = S(a: 1)
+  print(f(!s))
+  print(s)
+
+  # oracle: f reject C3
+
+test "review-take-p11", '''
+  R(n: 1)
+  drop 1
+  S(a: none)
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  o: S? = S(a: R(n: 1))
+  if !o as x
+    y = <x.a
+    print(y)
+  print(o)
+
+fail "review-take-p110", "`<` here would copy `s.a` out without moving it; take it before the `?` or `!`: `(<s.a)?`"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  fun f() -> Int?
+    s = S(a: R(n: 1))
+    r = <s.a?
+    print(r)
+    1
+
+  print(f())
+  s = S(a: R(n: 2))
+  print(s)
+
+test "review-take-p112", "N(v: 1) S(a: none)"
+  obj N
+    v: Int
+
+  obj S
+    a: ^N?
+
+  s = S(a: ^N(v: 1))
+  b = <(s.a)
+  print(b, s)
+
+fail "review-take-p113", "`<` here would copy `s.a` out without moving it; take it before the `?` or `!`: `(<s.a)?`"
+  obj N
+    v: Int
+
+  obj S
+    a: ^N?
+
+  fun f(s: !S) -> Int?
+    b = <(s.a)?
+    b.v
+
+  s = S(a: ^N(v: 1))
+  print(f(!s))
+  print(s)
+
+fail "review-take-p114", "`<` here would copy `s.a` out without moving it; take it inside the branch: `<s.a`"
+  obj N
+    v: Int
+
+  obj S
+    a: ^N?
+
+  s = S(a: ^N(v: 1))
+  c = true
+  b = <(s.a if c else none)
+  print(b, s)
+
+fail "review-take-p115", "`<` here would copy `s.a` out without moving it, and a field that is not optional cannot be moved out; exchange it: `replace(!s.a, v)`"
+  obj N
+    v: Int
+
+  obj S
+    a: ^N
+    b: ^N
+
+  s = S(a: ^N(v: 1), b: ^N(v: 2))
+  c = true
+  x = <(s.a if c else s.b)
+  print(x, s)
+
+test "review-take-p116", "[R(n: 5)]"
+  obj R
+    n: Int
+
+  sub put(b: !^R)
+    b.n = 5
+
+  b: List[^R] = List()
+  !b.push(^R(n: 2))
+  put(!b[0])
+  print(b)
+
+test "review-take-p117", '''
+  drop 4
+  drop 3
+  drop 2
+  none
+  Stack(top: Node(value: 1, next: none))
+  drop 1
+  1
+  Stack(top: none)
+'''
+  obj Node
+    value: Int
+    next: ^Node?
+
+    drop(!self)
+      print("drop", self.value)
+
+  obj Stack
+    top: ^Node?
+
+    fun find(!self, k: Int) -> Int?
+      while <self.top as n
+        if n.value == k
+          return n.value
+        self.top = <n.next
+        continue if n.value == 99
+        break if n.value == 2
+      none
+
+  s = Stack(top: none)
+  for v in [1, 2, 3, 4]
+    s.top = ^Node(value: v, next: <s.top)
+  print((!s).find(9))
+  print(s)
+  print((!s).find(1))
+  print(s)
+
+fail "review-take-p118", "`x` owns an `R`, which can't be copied into an argument: write `<x` to move it"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R
+
+  s = S(a: R(n: 1))
+  x = R(n: 2)
+  old = replace(!s.a, x)
+  print(old, x)
+
+fail "review-take-p119", "use of `y` after move"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R
+
+  s = S(a: R(n: 1))
+  x = R(n: 2)
+  old = replace(!s.a, <x)
+  print(old, s)
+  y = R(n: 3)
+  i = 0
+  while i < 2 : i += 1
+    o2 = replace(!s.a, <y)
+    print(o2)
+
+test "review-take-p120", '''
+  7 R(n: 0)
+  R(n: 0)
+  5
+'''
+  obj R
+    n: Int
+
+    fun take(!self) -> Int
+      self.n = 0
+      7
+
+    fun unbox(<self) -> Int
+      self.n
+
+  b = ^R(n: 3)
+  print((!b).take(), b)
+  r = <b.unbox()
+  print(r)
+  c = ^5
+  print(<c.unbox())
+
+test "review-take-p123", '''
+  got 2
+  Tree(key: 2, left: none)
+'''
+  obj Tree
+    key: Int
+    left: ^Tree?
+
+  sub rotate(slot: !^Tree?)
+    if <slot as t
+      print("got", t.key)
+
+  root: ^Tree? = ^Tree(key: 2, left: none)
+  rotate(!root)
+  print(root)
+
+test "review-take-p125", "2 S(a: none)"
+  obj S
+    a: Int?
+
+  x = 1
+  replace(!x, 2)
+  s = S(a: 1)
+  _ = <s.a
+  print(x, s)
+
+test "review-take-p13", '''
+  R(n: 1)
+  drop 1
+  .one(s: S(a: none))
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  enum E
+    one(s: S)
+    two
+
+  e = E.one(s: S(a: R(n: 1)))
+  match !e
+    .one(s)
+      y = <s.a
+      print(y)
+    .two => print("two")
+  print(e)
+
+fail "review-take-p15", "cannot move out of `s`: it is a view of `e`"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    one(s: R?)
+    two
+
+  e = E.one(s: R(n: 1))
+  match !e
+    .one(s)
+      y = <s
+      print(y)
+    .two => print("two")
+  print(e)
+
+test "review-take-p17", '''
+  drop 1
+  R(n: 5)
+  drop 5
+  .one(s: S(a: none))
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  enum E
+    one(s: S)
+    two
+
+  e = E.one(s: S(a: R(n: 1)))
+  match !e
+    .one(s)
+      s.a = R(n: 5)
+      x = replace(!s.a, none)
+      print(x)
+    .two => print("two")
+  print(e)
+
+test "review-take-p23", '''
+  R(n: 1) S(a: none)
+  drop 1
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  o: S? = S(a: R(n: 1))
+  if <o as x
+    y = <x.a
+    print(y, x)
+
+test "review-take-p24", '''
+  R(n: 1) S(a: none)
+  drop 1
+  R(n: 1) S(a: R(n: 7))
+  drop 1
+  drop 7
+  R(n: 1) S(a: R(n: 7))
+  drop 1
+  drop 7
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  fun make() -> S?
+    S(a: R(n: 1))
+
+  if make() as x
+    y = <x.a
+    print(y, x)
+  i = 0
+  while make() as z
+    w = <z.a
+    z.a = R(n: 7)
+    print(w, z)
+    i += 1
+    break if i > 1
+
+test "review-take-p27", '''
+  R(n: 1) G(x: none)
+  3 G(x: none)
+  drop 1
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj G[T]
+    x: T
+
+  g = G[R?](x: R(n: 1))
+  y = <g.x
+  print(y, g)
+  h = G[Int?](x: 3)
+  z = <h.x
+  print(z, h)
+
+test "review-take-p29", '''
+  R(n: 1) S(h: none, w: none)
+  weak
+  end
+  drop 1
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    h: *R?
+    w: ~R?
+
+  r = *R(n: 1)
+  s = S(h: +r, w: ~r)
+  a = <s.h
+  b = <s.w
+  print(a, s)
+  if <b as bb
+    print("weak")
+  print("end")
+
+fail "review-take-p32", "cannot lend `s.a` to write while a write loan is live"
+  obj S
+    a: Int
+    b: Int
+
+  s = S(a: 1, b: 2)
+  swap(!s.a, !s.a)
+  swap(!s, !s)
+  x = 1
+  swap(!x, !x)
+  print(s, x)
+
+fail "review-take-p33", "`s.a` owns an `R`, which can't be copied into an argument, has no clone, and can't be moved out of its parent"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R
+    b: R
+
+  s = S(a: R(n: 1), b: R(n: 2))
+  old = replace(!s.a, s.a)
+  print(old, s)
+
+fail "review-take-p34", "cannot move out of `s.b`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.b, v)`"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R
+    b: R
+
+  s = S(a: R(n: 1), b: R(n: 2))
+  old = replace(!s.a, <s.b)
+  print(old)
+
+test "review-take-p35", '''
+  R(n: 1) S(a: R(n: 2), b: none)
+  drop 1
+  drop 2
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+    b: R?
+
+  s = S(a: R(n: 1), b: R(n: 2))
+  old = replace(!s.a, <s.b)
+  print(old, s)
+
+fail "review-take-p36", "use of `x` while a write loan is live"
+  x = 1
+  old = replace(!x, x + 1)
+  print(old, x)
+
+fail "review-take-p37", "use of `v` while a write loan is live"
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  old = replace(!v[0], v[1])
+  print(old, v)
+  swap(!v[0], !v[1])
+  print(v)
+
+fail "review-take-p38", "cannot lend `a` to write while a write loan is live: to swap two elements of `a`, write `!a.swap(0, 2)`"
+  a: [3]Int = [1, 2, 3]
+  swap(!a[0], !a[2])
+  print(a)
+  i = 0
+  j = 0
+  swap(!a[i], !a[j])
+  print(a)
+
+test "review-take-p46", '''
+  R(n: 1) 1
+  drop 1
+  S(a: none)
+  R(n: 2) 0
+  drop 2
+  R(n: 3) 0
+  drop 3
+  S(a: none)
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  fun peek(s: ?S) -> Int
+    if ?s.a as r
+      return r.n
+    0
+
+  sub f(x: R?, y: Int)
+    print(x, y)
+
+  s = S(a: R(n: 1))
+  f(y: peek(?s), x: <s.a)
+  print(s)
+  s.a = R(n: 2)
+  f(y: 0, x: <s.a)
+  s.a = R(n: 3)
+  f(x: <s.a, y: peek(?s))
+  print(s)
+
+fail "review-take-p47", "cannot lend `s.a` to write while a write loan on `s` is live"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  fun slot(s: !S) -> !R?
+    !s.a
+
+  s = S(a: R(n: 1))
+  w = slot(!s)
+  t = <s.a
+  print(w, t)
+
+fail "review-take-p48", "use of `s` while a write loan is live"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  fun slot(s: !S) -> !R?
+    !s.a
+
+  s = S(a: R(n: 1))
+  w = slot(!s)
+  t = <w
+  print(t, s)
+
+test "review-take-p49", '''
+  R(n: 1) S(a: none)
+  drop 1
+'''
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  fun slot(s: !S) -> !S
+    s
+
+  s = S(a: R(n: 1))
+  t = <slot(!s).a
+  print(t, s)
+
+fail "review-take-p52", "use of `s` after move"
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+
+  sub eat(s: S)
+    print("eat", s)
+
+  s = S(a: R(n: 1))
+  defer
+    x = <s.a
+    print("deferred", x)
+  eat(<s)
+  print("end")

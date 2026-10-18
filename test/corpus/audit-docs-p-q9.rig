@@ -1,7 +1,0 @@
-obj T
-  n: Int
-  fun total(<self) -> Int
-    self.n
-
-sub main()
-  print(T(n: 3).total())

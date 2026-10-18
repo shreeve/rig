@@ -1,6 +1,0 @@
-sub main()
-  t = String("abc")
-  !t.add(?t[..])
-  s = ?t[1..]
-  !t.add(s)
-  print(t)

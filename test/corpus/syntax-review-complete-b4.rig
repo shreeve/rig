@@ -1,7 +1,0 @@
-obj Node
-  v: Int
-  kids: List[Int]
-
-sub main()
-  v: List[Node] = List()
-  print(v.len)

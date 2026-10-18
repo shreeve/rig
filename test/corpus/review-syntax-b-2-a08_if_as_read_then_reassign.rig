@@ -1,6 +1,0 @@
-sub main()
-  o: String? = String("hello")
-  if o as r
-    s = r[1..]
-    o = none
-    print(s)

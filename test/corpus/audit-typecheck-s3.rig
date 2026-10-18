@@ -1,8 +1,0 @@
-sub main()
-  o: List[Int]? = List[Int]()
-  if !o as v
-    (!v).push(3)
-  n = 0
-  while o as v and n < 1 : n += 1
-    print(n)
-  print(1)

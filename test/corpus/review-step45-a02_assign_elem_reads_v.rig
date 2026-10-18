@@ -1,8 +1,0 @@
-# v[0] = x where x reads v (clone of v[1])
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  !v.push(String("b"))
-  v[0] = +v[1]
-  v[1] = +v[1]
-  print(v)

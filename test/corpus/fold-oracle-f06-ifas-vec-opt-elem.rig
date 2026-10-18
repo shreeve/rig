@@ -1,9 +1,0 @@
-# bad: if ?v[0] as p over List[Text?], keep, then clear
-sub main()
-  v: List[String?] = List()
-  !v.push(String("abc"))
-  keep: ?String = ""
-  if ?v[0] as p
-    keep = p
-  !v.clear()
-  print(keep)

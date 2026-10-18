@@ -1,6 +1,0 @@
-sub main()
-  a: List[Int] = List()
-  b: List[Int] = List()
-  !b.push(1)
-  a = <b
-  print(a)
