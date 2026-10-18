@@ -3,6 +3,8 @@
 # and its `*_test.rig` files. The tests of the modules X imports, a
 # directory module, a file module, or std, are not run, and a directory
 # module's `*_test.rig` files are not even read when it is only imported.
+# What the alias and diamond program below prints is the case `test scope
+# alias and diamond` (test/rig/modules-test-scope.rig.test).
 source "$ROOT/test/cli/_lib.sh"
 
 mkdir -p p/m p/n
@@ -29,7 +31,10 @@ expect_has "$out" '0 passed, 2 failed' "a directory module's tests"
 # the file module's.
 printf 'use f\n\npub fun uno() -> Int\n  f.one()\n\ntest "n inline"\n  print(uno())\n' >p/n/a.rig
 printf 'test "n file"\n  print(uno())\n' >p/n/a_test.rig
-out=$(rig test p/n 2>&1); expect_rc $? 0 "directory module with imports: $out"
+# Every spelling of the directory builds in one output directory, so the
+# spellings after the first find its build.
+pn=$RIG_OUT_DIR/programs/p_n
+out=$(RIG_OUT_DIR=$pn "$RIG" test p/n 2>&1); expect_rc $? 0 "directory module with imports: $out"
 expect_has "$out" '2 passed, 0 failed' "a directory module's tests only"
 case "$out" in *"f inline"*) fail "an imported file module's test ran: $out" ;; esac
 
@@ -37,7 +42,7 @@ case "$out" in *"f inline"*) fail "an imported file module's test ran: $out" ;; 
 # is not seen from the program, and is seen from the module itself.
 printf 'test "typed"\n  n: Int = "text"\n  print(n)\n' >p/m/b_test.rig
 out=$("$RIG" check --tests p/main.rig 2>&1); expect_rc $? 0 "check --tests of the program: $out"
-out=$("$RIG" test p/main.rig 2>&1); expect_rc $? 0 "test of the program: $out"
+out=$(rig test p/main.rig 2>&1); expect_rc $? 0 "test of the program: $out"
 out=$("$RIG" check --tests p/m 2>&1); expect_rc $? 1 "check --tests of the module"
 expect_has "$out" "p/m/b_test.rig:2:12: error:" "check --tests of the module reads its test files"
 out=$("$RIG" test p/m 2>&1); expect_rc $? 1 "test of the module"
@@ -51,13 +56,13 @@ ln -s n p/linked
 for spelling in p/n p/n/ ./p/n p/../p/n p/linked; do
     out=$("$RIG" check --tests "$spelling" 2>&1); expect_rc $? 0 "check --tests $spelling: $out"
 done
-out=$(rig test p/n/ 2>&1); expect_rc $? 0 "test p/n/: $out"
+out=$(RIG_OUT_DIR=$pn "$RIG" test p/n/ 2>&1); expect_rc $? 0 "test p/n/: $out"
 expect_has "$out" '2 passed, 0 failed' "test p/n/"
 out=$(cd p/n && "$RIG" check --tests . 2>&1); expect_rc $? 0 "check --tests .: $out"
 out=$(cd p/n && "$RIG" check --tests ./ 2>&1); expect_rc $? 0 "check --tests ./: $out"
 out=$(cd p/n && "$RIG" check --tests ../n 2>&1); expect_rc $? 0 "check --tests ../n: $out"
 out=$(cd p && "$RIG" check --tests n 2>&1); expect_rc $? 0 "check --tests n: $out"
-out=$(cd p/n && RIG_OUT_DIR="$RIG_OUT_DIR/programs/dot" "$RIG" test . 2>&1); expect_rc $? 0 "test .: $out"
+out=$(cd p/n && RIG_OUT_DIR=$pn "$RIG" test . 2>&1); expect_rc $? 0 "test .: $out"
 expect_has "$out" '2 passed, 0 failed' "test ."
 # A link elsewhere to a module whose siblings are in the real parent.
 mkdir -p q
@@ -85,7 +90,5 @@ printf 'use a1\nuse b1\nuse leaf as q\n\nsub main()\n  print(a1.a() + b1.b() + q
 out=$(rig test d/main.rig 2>&1); expect_rc $? 0 "alias and diamond: $out"
 expect_has "$out" '1 passed, 0 failed' "alias and diamond"
 case "$out" in *"leaf"*) fail "a shared module's tests ran: $out" ;; esac
-out=$(rig run d/main.rig 2>&1); expect_rc $? 0 "alias and diamond run: $out"
-expect_eq "$out" "4" "alias and diamond run"
 out=$("$RIG" test d/leaf 2>&1); expect_rc $? 1 "the shared module's own tests"
 expect_has "$out" '0 passed, 2 failed' "the shared module's own tests"

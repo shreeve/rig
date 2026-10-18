@@ -1,0 +1,20 @@
+# What `print` buffers is written out before a panic writes to stderr,
+# and a panic names its place, its file from the package root
+# (test/cli/print_flush.sh checks the order of stdout and stderr on one
+# pipe, and pipes and descriptors that close).
+
+bomb "print flush panic names its place", "panic: four", prints: "one\nthree", stderr: "two\norder.rig:5:3: panic: four\nfive", file: "order.rig", release: true
+  sub main()
+    print("one")
+    warn("two")
+    print("three")
+    panic("four\nfive")
+
+bomb "print flush panic in a module names its file from the package root", "panic: stopped at 2", stderr: "m/b.rig:2:3: panic: stopped at 2", release: true
+  use m
+
+  sub main()
+    m.stop(2)
+  file "m/b.rig"
+    pub sub stop(n: Int)
+      panic("stopped at", n)

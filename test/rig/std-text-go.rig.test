@@ -1,0 +1,134 @@
+# std: std.utf8, std.utf16, and std.unicode's white space against Go's
+# unicode/utf8, unicode/utf16, and unicode.IsSpace, which define them.
+# Written by tools/text_go.py from Go's answers: run it to write this
+# file again after a change to the program, which it holds.
+
+test "std.utf8, std.utf16, and is_space agree with Go", ''', whole: true, release: true, timeout: 300
+  strings 20000 117582238
+  values 22442 320441986
+  pairs 20144 896253900
+  every value 473633560
+'''
+  use std.os
+  use std.utf8
+  use std.utf16
+  use std.unicode
+
+  PIECES = ["\x61", "\x00", "\x7f", "\x5a", "\x61\x62\x63\x64\x65\x66\x67\x68", "\xc2\x80", "\xdf\xbf", "\xc3\xa9", "\xe0\xa0\x80", "\xed\x9f\xbf", "\xee\x80\x80", "\xef\xbf\xbd", "\xef\xbf\xbf", "\xe4\xb8\xad", "\xf0\x90\x80\x80", "\xf4\x8f\xbf\xbf", "\xf0\x9f\x98\x80", "\x80", "\xbf", "\xc0", "\xc1", "\xc2", "\xe0", "\xe0\x80", "\xed\xa0", "\xed\xa0\x80", "\xf0", "\xf0\x8f", "\xf0\x9f\x98", "\xf4\x90", "\xf5", "\xf8", "\xff", "\xfe"]
+  EDGES = [0xD7FF, 0xD800, 0xD801, 0xDBFF, 0xDC00, 0xDC01, 0xDFFF, 0xE000, 0, -1, 0x10000, 0xFFFD]
+  SPOTS = [0x7F, 0x80, 0x7FF, 0x800, 0xD7FF, 0xD800, 0xDBFF, 0xDC00, 0xDFFF, 0xE000, 0xFFFD, 0xFFFF, 0x10000, 0x10FFFF, 0x110000]
+  M = 1000000007
+
+  # A linear congruential generator, the same as the Go program's.
+  obj Gen
+    x: Int
+
+  # The next number of `g`, 0 to 32767.
+  fun next(g: !Gen) -> Int
+    g.x = (g.x * 1103515245 + 12345) % 2147483648
+    g.x / 65536
+
+  # A section's lines: printed, or counted and hashed, each line's bytes
+  # and then a newline.
+  obj Lines
+    print: Bool
+    n: Int = 0
+    h: Int = 0
+
+  sub take(d: !Lines, line: ?String)
+    if d.print
+      print(line)
+      return
+    for x in line
+      d.h = (d.h * 31 + Int(x)) % M
+    d.h = (d.h * 31 + 10) % M
+    d.n += 1
+
+  sub value(d: !Lines, r: Int)
+    b = String()
+    utf8.push_rune(!b, r)
+    line = String()
+    !line.add(r, " ", utf8.size(r) ?? -1, " ", utf16.size(r) ?? -1, " ")
+    for x in b
+      !line.add(Int(x), ".")
+    p = utf16.pair_from_rune(r)
+    !line.add(" ", utf16.is_surrogate(r), " ", p.hi, " ", p.lo, " ", unicode.is_space(r))
+    take(!d, ?line)
+
+  sub text_line(d: !Lines, s: ?String)
+    line = String()
+    !line.add(s.len, " ", utf8.rune_count(s), " ", utf8.is_valid(s), " ", utf8.is_ascii(s), " ", utf16.unit_count(s), " |")
+    for i in 0..s.len + 1
+      e = utf8.rune_after(s, i)
+      f = utf8.rune_before(s, i)
+      !line.add(" ", e.rune, "/", e.size, "/", f.rune, "/", f.size, "/", utf8.rune_size(s, i) ?? 0)
+    !line.add(" |")
+    for r in utf8.runes(s)
+      !line.add(" ", r)
+    !line.add(" |")
+    for u in -1..utf16.unit_count(s) + 3
+      !line.add(" ", utf16.byte_index(s, u))
+    take(!d, ?line)
+
+  sub pair(d: !Lines, hi: Int, lo: Int)
+    line = String()
+    !line.add(hi, " ", lo, " ", utf16.rune_from_pair(hi, lo))
+    take(!d, ?line)
+
+  # One hash of every value's results from -3 to 0x110003.
+  fun hash_all() -> Int
+    h = 0
+    b = String()
+    r = -3
+    while r <= 0x110003 : r += 1
+      !b.clear()
+      utf8.push_rune(!b, r)
+      for x in b
+        h = (h * 31 + Int(x)) % M
+      p = utf16.pair_from_rune(r)
+      f = (utf8.size(r) ?? -1) + 2 + 8 * ((utf16.size(r) ?? -1) + 2)
+      f = f + (64 if utf16.is_surrogate(r) else 0) + (128 if unicode.is_space(r) else 0)
+      h = (h * 31 + f) % M
+      h = (h * 31 + p.hi) % M
+      h = (h * 31 + p.lo) % M
+    h
+
+  sub main()
+    args = os.args()
+    lines = args.len > 1 and args[1] == "lines"
+    g = Gen(x: 42)
+    texts = Lines(print: lines)
+    for _ in 0..20000
+      s = String()
+      pieces = next(!g) % 13
+      for _ in 0..pieces
+        k = next(!g)
+        if k % 6 == 0
+          !s.push(U8(next(!g) % 256))
+        else
+          !s.add(PIECES[next(!g) % PIECES.len])
+      text_line(!texts, ?s)
+    values = Lines(print: lines)
+    for r in -3..0x900
+      value(!values, r)
+    for c in SPOTS
+      for d in -4..5
+        value(!values, c + d)
+    for _ in 0..20000
+      a = next(!g)
+      value(!values, (a * 32768 + next(!g)) % 0x110020 - 8)
+    pairs = Lines(print: lines)
+    for hi in EDGES
+      for lo in EDGES
+        pair(!pairs, hi, lo)
+    for _ in 0..20000
+      hi = 0xD700 + next(!g) % 0xA00
+      lo = 0xD700 + next(!g) % 0xA00
+      pair(!pairs, hi, lo)
+    if lines
+      print(hash_all())
+      return
+    print("strings", texts.n, texts.h)
+    print("values", values.n, values.h)
+    print("pairs", pairs.n, pairs.h)
+    print("every value", hash_all())

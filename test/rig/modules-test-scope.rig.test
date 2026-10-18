@@ -1,0 +1,47 @@
+# modules: a module imported through an alias and by two modules.
+
+test "test scope alias and diamond", "4"
+  # A module imported through an alias, and by two modules (a diamond), is
+  # one module: each import reaches the same functions. Its tests, inline
+  # and in a `_test.rig` file, are not the program's (test/cli/test_scope.sh
+  # runs `rig test` on it).
+  use a1
+  use b1
+  use leaf as q
+
+  sub main()
+    print(a1.a() + b1.b() + q.f())
+
+  test "root"
+    print(a1.a())
+
+  file "leaf/x.rig"
+    pub fun f() -> Int
+      1
+
+    test "leaf inline"
+      print(boom()!)
+
+  file "leaf/y.rig"
+    error Bad
+      oops
+
+    fun boom() -> Int!
+      return Bad.oops if 1 > 0
+      1
+
+  file "leaf/x_test.rig"
+    test "leaf file"
+      print(boom()!)
+
+  file "a1.rig"
+    use leaf as L
+
+    pub fun a() -> Int
+      L.f()
+
+  file "b1.rig"
+    use leaf
+
+    pub fun b() -> Int
+      leaf.f() + 1

@@ -11,6 +11,15 @@
 # root's text, whole and cut short, has semantic tokens in order and
 # apart, symbols whose names lie in their ranges, and folds of two lines
 # or more, with no error from the server.
+#
+# The default run checks the programs where the server's view and the
+# compiler's are likeliest to part: every program of the syntax tests
+# (most of those that do not parse), every program of several files,
+# every one with text past ASCII (a column in UTF-16 units differs from
+# one in characters), every one that uses the standard library (a note
+# in it is related information), and every eighth of the rest.
+# LSP_CHECK_FULL=1 checks every program.
+# timeout: 300
 source "$ROOT/test/cli/_lib.sh"
 
 python3 - "$RIG" "$ROOT" <<'PY' || exit 1
@@ -33,6 +42,18 @@ for p in sorted(glob.glob(os.path.join(tests, "reject", "*", "*"))):
 if len(roots) < 1000:
     print(f"FAIL: only {len(roots)} rejection programs in {tests}")
     sys.exit(1)
+
+
+def likely(path):
+    with open(path, "rb") as f:
+        text = f.read()
+    area = os.path.relpath(path, os.path.join(tests, "reject")).split(os.sep)[0]
+    return area == "syntax" or os.path.basename(path) == "main.rig" or any(b > 127 for b in text) or b"use std" in text
+
+
+every = len(roots)
+if not os.environ.get("LSP_CHECK_FULL"):
+    roots = [p for i, p in enumerate(roots) if i % 8 == 0 or likely(p)]
 
 c = _lsp.Client(rig)
 c.request("initialize", {"capabilities": {}})
@@ -139,6 +160,6 @@ if status != 0 or err:
 if typed < 100:
     failed += 1
     print(f"FAIL: only {typed} programs fail to parse; the as-typed check proves little")
-print(f"{len(roots)} programs, {typed} of them parse errors as typed, {failed} failed")
+print(f"{len(roots)} of {every} programs, {typed} of them parse errors as typed, {failed} failed")
 sys.exit(1 if failed else 0)
 PY

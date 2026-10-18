@@ -1,0 +1,130 @@
+# proofs: what chains of calls print, as the long chains of
+# test/cli/deep_calls.sh are built: result bounds the proofs find from the
+# last call up, a field a constructor at the end bounds, and small
+# fallible functions the rule inlines, each into the one before.
+
+test "a chain of Int calls", "1"
+  fun f0(x: Int) -> Int
+    f1(x)
+
+  fun f1(x: Int) -> Int
+    f2(x)
+
+  fun f2(x: Int) -> Int
+    f3(x)
+
+  fun f3(x: Int) -> Int
+    f4(x)
+
+  fun f4(x: Int) -> Int
+    f5(x)
+
+  fun f5(x: Int) -> Int
+    f6(x)
+
+  fun f6(x: Int) -> Int
+    f7(x)
+
+  fun f7(x: Int) -> Int
+    f8(x)
+
+  fun f8(x: Int) -> Int
+    f9(x)
+
+  fun f9(x: Int) -> Int
+    f10(x)
+
+  fun f10(x: Int) -> Int
+    f11(x)
+
+  fun f11(x: Int) -> Int
+    x
+
+  print(f0(1))
+
+test "a chain of calls bounding a field", "4"
+  obj P
+    k: Int
+
+  fun f0() -> P
+    f1()
+
+  fun f1() -> P
+    f2()
+
+  fun f2() -> P
+    f3()
+
+  fun f3() -> P
+    f4()
+
+  fun f4() -> P
+    f5()
+
+  fun f5() -> P
+    f6()
+
+  fun f6() -> P
+    f7()
+
+  fun f7() -> P
+    f8()
+
+  fun f8() -> P
+    f9()
+
+  fun f9() -> P
+    f10()
+
+  fun f10() -> P
+    f11()
+
+  fun f11() -> P
+    P(k: 3)
+
+  xs = [1, 2, 3, 4]
+  print(xs[f0().k])
+
+test "a chain of inlined fallible calls", "1 0"
+  error E
+    bad
+
+  fun f0(x: Int) -> Int!
+    f1(x)!
+
+  fun f1(x: Int) -> Int!
+    f2(x)!
+
+  fun f2(x: Int) -> Int!
+    f3(x)!
+
+  fun f3(x: Int) -> Int!
+    f4(x)!
+
+  fun f4(x: Int) -> Int!
+    f5(x)!
+
+  fun f5(x: Int) -> Int!
+    f6(x)!
+
+  fun f6(x: Int) -> Int!
+    f7(x)!
+
+  fun f7(x: Int) -> Int!
+    f8(x)!
+
+  fun f8(x: Int) -> Int!
+    f9(x)!
+
+  fun f9(x: Int) -> Int!
+    f10(x)!
+
+  fun f10(x: Int) -> Int!
+    f11(x)!
+
+  fun f11(x: Int) -> Int!
+    if x > 5
+      return E.bad
+    x
+
+  print(f0(1) catch 0, f0(9) catch 0)

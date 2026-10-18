@@ -3918,8 +3918,9 @@ symbols); a query that decides more than that belongs in `Pending`.
   The checker walks the same function, and the optimizer folds `rig.rt`
   away. The panic is the same one at the same line.
   The `inline` cases of `test/rig/emit-misc-1.rig.test` run calls with literal arguments in
-  debug and `--release`, `test/cli/inline_grid.sh` runs every shape of
-  result against every use in both, `test/cli/inline.sh` checks which
+  debug and `--release`, `test/rig/emit-inline-grid.rig.test` (written by
+  `tools/inline_grid.py`) runs every shape of result against every use in
+  both, `test/cli/inline.sh` checks which
   functions are inlined, and the case `value size limit` of
   `test/rig/types-misc-2.rig.test` holds the frames to their limit.
 

@@ -107,10 +107,21 @@ pub fn build(b: *std.Build) void {
     // tests
     // -----------------------------------------------------------------
 
-    const test_step = b.step("test", "Run the Zig unit tests of the compiler and the runtime");
+    const test_step = b.step("test", "Run the Zig unit tests of the compiler, the runtime, and std/char.zig");
     const unit = b.addTest(.{ .root_module = main_mod });
     unit.step.dependOn(parser_gen);
     test_step.dependOn(&b.addRunArtifact(unit).step);
+    // The Zig tests of std/char.zig, the chars of std.text: forward and
+    // backward reading agree on random text of every char class and of
+    // bytes that are not UTF-8, and runes read backward are those read
+    // forward. The compiler embeds the file as source, so its tests are
+    // not the compiler's.
+    const char_unit = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("std/char.zig"),
+        .target = target,
+        .optimize = optimize,
+    }) });
+    test_step.dependOn(&b.addRunArtifact(char_unit).step);
 
     // -----------------------------------------------------------------
     // the reference ownership checker (test only)

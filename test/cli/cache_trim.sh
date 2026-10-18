@@ -6,8 +6,10 @@
 # CACHEDIR.TAG, and is no link), remove only what rig makes there, and
 # skip a package whose lock is held, however its run ended. A relative
 # XDG_CACHE_HOME or HOME is ignored, and a RIG_OUT_DIR is never trimmed.
-# Every cache here is in this test's own directory.
-# timeout: 600
+# Every cache here is in this test's own directory. Rig does all of this
+# before it starts Zig and after Zig returns, so after a first run with
+# Zig, the runs use a stand-in (`zigstub`) that builds nothing.
+# timeout: 120
 source "$ROOT/test/cli/_lib.sh"
 
 # Zig's own cache stays where it is, so programs build warm.
@@ -24,6 +26,48 @@ cat >hello.rig <<'EOF'
 sub main()
   print("hi")
 EOF
+# The stand-in Zig: `run` checks that the package it is handed is whole,
+# creates the file RIG_PROGRAM_STARTED names, as a program rig builds does
+# when it starts, and does what the program does (prints, or sleeps);
+# `build-exe` writes an executable that prints what the program does. A
+# run of p1 to p4 takes as long as a build, and checks its package again
+# at its end: no other run's trim may take it away meanwhile.
+cat >zigstub <<'EOF'
+#!/bin/sh
+verb=$1
+root="" out=""
+for a in "$@"; do
+    case $a in
+        -femit-bin=*) out=${a#-femit-bin=} ;;
+        *.zig) root=$a ;;
+    esac
+done
+pkg=$(dirname "$root")
+whole() { [ -f "$root" ] && [ -f "$pkg/rig/runtime.zig" ]; }
+whole || { echo "zigstub: no whole package at $pkg" >&2; exit 1; }
+# The package is named for its program.
+name=$(basename "$pkg")
+case $name in
+    hello-*) say=hi ;;
+    grow-*) say=1 ;;
+    p[1-4]-*) say=${name#p}; say=${say%%-*} ;;
+    *) say="" ;;
+esac
+case $verb in
+    run)
+        : >"$RIG_PROGRAM_STARTED" || exit 1
+        case $name in
+            sleeper-*) exec sleep 60 ;;
+            p[1-4]-*) sleep 0.5; whole || { echo "zigstub: $pkg went during the run" >&2; exit 1; } ;;
+        esac
+        [ -n "$say" ] && echo "$say"
+        exit 0 ;;
+    build-exe)
+        printf '#!/bin/sh\necho %s\n' "$say" >"$out" && chmod +x "$out" ;;
+    *) echo "zigstub: no $verb" >&2; exit 1 ;;
+esac
+EOF
+chmod +x zigstub
 cat >sleeper.rig <<'EOF'
 use std.time
 
@@ -72,6 +116,7 @@ out=$("$RIG" run hello.rig 2>&1); rc=$?
 expect_rc "$rc" 0 "run in a home of trash: $out"
 [[ ! -e "$home/CACHEDIR.TAG" ]] || fail "rig tagged a home holding only trash-named entries"
 [[ -f "$home/.trash-0123456789abcdef/notes.txt" ]] || fail "rig removed a trash-named directory it did not make"
+export ZIG=$PWD/zigstub
 rm -rf "$home" && mkdir -p "$home"
 out=$("$RIG" run hello.rig 2>&1); rc=$?
 expect_rc "$rc" 0 "run in an empty home: $out"

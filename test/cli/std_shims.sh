@@ -6,19 +6,7 @@ source "$ROOT/test/cli/_lib.sh"
 
 mkdir lib
 printf 'use std.half\n\nsub main()\n  print(half.half(8))\n' >main.rig
-
-# A shim whose function has the Rig signature's type builds and runs.
-printf 'extern zig "half.zig"\n  pub fun half(x: Int) -> Int\n' >lib/half.rig
 printf 'pub fn half(x: i64) i64 {\n    return @divTrunc(x, 2);\n}\n' >lib/half.zig
-out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 0 "matching shim: $out"
-expect_eq "$out" "4" "matching shim"
-
-# One whose type differs fails the build, naming the declaration, so
-# the program does not run.
-printf 'pub fn half(x: i32) i64 {\n    return @divTrunc(x, 2);\n}\n' >lib/half.zig
-out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 125 "mismatched shim"
-expect_has "$out" "rig: the program did not run" "mismatched shim"
-expect_has "$out" "rig: the Zig function of \`std.half.half\` has type fn (i32) i64, but its Rig signature lowers to fn (i64) i64" "mismatched shim"
 
 # The checker rejects a generic Zig-backed function, a fallible one in
 # a module that declares no error set, and a Zig file that is missing
@@ -45,7 +33,8 @@ expect_has "$out" "half.rig:1:12: error: the standard library has no Zig file \`
 # error sets, which its Zig function names as the emitter does:
 # `error.@"std.half.Odd.odd"`. The failure is an ordinary Rig error: it
 # propagates, is caught, compared, and matched, and the function is a
-# value of its Rig type.
+# value of its Rig type. Beside it, a shim that cannot fail, whose
+# function has the type its Rig signature lowers to, builds and runs.
 cat >lib/half.rig <<'EOF2'
 pub error Odd
   odd
@@ -56,9 +45,14 @@ error Unused
 extern zig "half.zig"
   pub fun half(x: Int) -> Int!
   pub sub even(x: Int)!
+  pub fun third(x: Int) -> Int
 EOF2
 cat >lib/half.zig <<'EOF2'
 const Odd = error{@"std.half.Odd.odd"};
+
+pub fn third(x: i64) i64 {
+    return @divTrunc(x, 3);
+}
 
 pub fn half(x: i64) Odd!i64 {
     if (@rem(x, 2) != 0) return error.@"std.half.Odd.odd";
@@ -85,22 +79,46 @@ sub main()!
       half.Odd.odd => print("odd", n)
       _ => print("other")
   half.even(4)!
+  print(half.third(9))
   print(twice(half.half, 6)!)
 EOF2
 out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 1 "fallible shim: $out"
-expect_eq "$out" $'4 3\nOdd.odd true\nodd -1\nerror: Odd.odd' "fallible shim"
+expect_eq "$out" $'4 3\nOdd.odd true\nodd -1\n3\nerror: Odd.odd' "fallible shim"
 
-# Its Zig function must name the errors it returns, each an error of
-# the module's error sets; the build fails otherwise, and the program
-# does not run (exit status 125).
-printf 'use std.half\n\nsub main()!\n  print(half.half(8)!)\n' >main.rig
-printf 'pub fn half(x: i64) error{Oops}!i64 {\n    return if (x == 0) error.Oops else x;\n}\npub fn even(x: i64) error{}!void {\n    _ = x;\n}\n' >lib/half.zig
-out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 125 "undeclared error"
-expect_has "$out" "rig: the Zig function of \`std.half.half\` returns \`error.Oops\`, which is not an error of module \`std.half\`" "undeclared error"
-printf 'pub fn half(x: i64) anyerror!i64 {\n    return x;\n}\npub fn even(x: i64) error{}!void {\n    _ = x;\n}\n' >lib/half.zig
-out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 125 "anyerror"
-expect_has "$out" "rig: the Zig function of \`std.half.half\` returns \`anyerror\`; it must name the errors it returns" "anyerror"
-printf 'pub fn half(x: i64) i64 {\n    return x;\n}\npub fn even(x: i64) error{}!void {\n    _ = x;\n}\n' >lib/half.zig
-out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 125 "cannot fail"
-expect_has "$out" "rig: the Zig function of \`std.half.half\` has type fn (i64) i64, but its Rig signature lowers to fn (i64) E!i64, for an error set E of module \`std.half\`" "cannot fail"
+# A shim whose function's type differs from what its Rig signature
+# lowers to fails the build, naming the declaration, so the program does
+# not run (exit status 125); and a fallible one's Zig function must name
+# the errors it returns, each an error of the module's error sets. Zig
+# reports each in one build.
+cat >lib/half.rig <<'EOF2'
+pub error Odd
+  odd
+
+extern zig "half.zig"
+  pub fun narrow(x: Int) -> Int
+  pub fun oops(x: Int) -> Int!
+  pub fun any(x: Int) -> Int!
+  pub fun sure(x: Int) -> Int!
+EOF2
+cat >lib/half.zig <<'EOF2'
+pub fn narrow(x: i32) i64 {
+    return @divTrunc(x, 2);
+}
+pub fn oops(x: i64) error{Oops}!i64 {
+    return if (x == 0) error.Oops else x;
+}
+pub fn any(x: i64) anyerror!i64 {
+    return x;
+}
+pub fn sure(x: i64) i64 {
+    return x;
+}
+EOF2
+printf 'use std.half\n\nsub main()!\n  print(half.narrow(8), half.oops(8)!, half.any(8)!, half.sure(8)!)\n' >main.rig
+out=$(RIG_STD="$PWD/lib" rig run main.rig 2>&1); expect_rc $? 125 "broken shims"
+expect_has "$out" "rig: the program did not run" "broken shims"
+expect_has "$out" "rig: the Zig function of \`std.half.narrow\` has type fn (i32) i64, but its Rig signature lowers to fn (i64) i64" "mismatched shim"
+expect_has "$out" "rig: the Zig function of \`std.half.oops\` returns \`error.Oops\`, which is not an error of module \`std.half\`" "undeclared error"
+expect_has "$out" "rig: the Zig function of \`std.half.any\` returns \`anyerror\`; it must name the errors it returns" "anyerror"
+expect_has "$out" "rig: the Zig function of \`std.half.sure\` has type fn (i64) i64, but its Rig signature lowers to fn (i64) E!i64, for an error set E of module \`std.half\`" "cannot fail"
 exit 0

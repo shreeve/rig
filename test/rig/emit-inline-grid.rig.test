@@ -1,0 +1,975 @@
+# The inline grid, written by tools/inline_grid.py (edit it, not this
+# file): what an inlined function hands back is a run-time value to its
+# caller, so Zig folds no use of it into a compile error in code that
+# never runs, and the same use, run, panics.
+
+test "inline grid const unreached", release: true, '''
+  3
+  ok
+'''
+  # Every use of a constant, in a branch that never runs, builds.
+
+  use std.os
+
+  fun c_div() -> Int
+    0
+
+  fun c_overflow() -> Int
+    9223372036854775807
+
+  fun c_overflow8() -> U8
+    U8(255)
+
+  fun c_narrow() -> Int
+    300
+
+  fun c_shift() -> Int
+    70
+
+  fun c_index() -> Int
+    7
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 50
+      z_div = c_div()
+      print(10 / z_div)
+      z_overflow = c_overflow()
+      print(1 + z_overflow)
+      z_overflow8 = c_overflow8()
+      print(z_overflow8 + U8(1))
+      z_narrow = c_narrow()
+      print(U8(z_narrow))
+      z_shift = c_shift()
+      print(1 << z_shift)
+      z_index = c_index()
+      print(xs[z_index])
+    print("ok")
+
+test "inline grid ignored unreached", release: true, '''
+  3
+  ok
+'''
+  # Every use of a constant, its parameter ignored, in a branch that never runs, builds.
+
+  use std.os
+
+  fun c_div(n: Int) -> Int
+    0
+
+  fun c_overflow(n: Int) -> Int
+    9223372036854775807
+
+  fun c_overflow8(n: Int) -> U8
+    U8(255)
+
+  fun c_narrow(n: Int) -> Int
+    300
+
+  fun c_shift(n: Int) -> Int
+    70
+
+  fun c_index(n: Int) -> Int
+    7
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 50
+      z_div = c_div(1)
+      print(10 / z_div)
+      z_overflow = c_overflow(1)
+      print(1 + z_overflow)
+      z_overflow8 = c_overflow8(1)
+      print(z_overflow8 + U8(1))
+      z_narrow = c_narrow(1)
+      print(U8(z_narrow))
+      z_shift = c_shift(1)
+      print(1 << z_shift)
+      z_index = c_index(1)
+      print(xs[z_index])
+    print("ok")
+
+test "inline grid transitive unreached", release: true, '''
+  3
+  ok
+'''
+  # Every use of another inlined call's constant, in a branch that never runs, builds.
+
+  use std.os
+
+  fun c_div() -> Int
+    0
+
+  fun t_div(n: Int) -> Int
+    c_div()
+
+  fun c_overflow() -> Int
+    9223372036854775807
+
+  fun t_overflow(n: Int) -> Int
+    c_overflow()
+
+  fun c_overflow8() -> U8
+    U8(255)
+
+  fun t_overflow8(n: Int) -> U8
+    c_overflow8()
+
+  fun c_narrow() -> Int
+    300
+
+  fun t_narrow(n: Int) -> Int
+    c_narrow()
+
+  fun c_shift() -> Int
+    70
+
+  fun t_shift(n: Int) -> Int
+    c_shift()
+
+  fun c_index() -> Int
+    7
+
+  fun t_index(n: Int) -> Int
+    c_index()
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 50
+      z_div = t_div(1)
+      print(10 / z_div)
+      z_overflow = t_overflow(1)
+      print(1 + z_overflow)
+      z_overflow8 = t_overflow8(1)
+      print(z_overflow8 + U8(1))
+      z_narrow = t_narrow(1)
+      print(U8(z_narrow))
+      z_shift = t_shift(1)
+      print(1 << z_shift)
+      z_index = t_index(1)
+      print(xs[z_index])
+    print("ok")
+
+test "inline grid ctbool unreached", release: true, '''
+  3
+  ok
+'''
+  # Every use of a compile-time Bool instance's constant, in a branch that never runs, builds.
+
+  use std.os
+
+  fun c_div[b: Bool](n: Int) -> Int
+    0 if b else 0
+
+  fun c_overflow[b: Bool](n: Int) -> Int
+    9223372036854775807 if b else 9223372036854775807
+
+  fun c_overflow8[b: Bool](n: Int) -> U8
+    U8(255) if b else U8(255)
+
+  fun c_narrow[b: Bool](n: Int) -> Int
+    300 if b else 300
+
+  fun c_shift[b: Bool](n: Int) -> Int
+    70 if b else 70
+
+  fun c_index[b: Bool](n: Int) -> Int
+    7 if b else 7
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 50
+      z_div = c_div[true](1)
+      print(10 / z_div)
+      z_overflow = c_overflow[true](1)
+      print(1 + z_overflow)
+      z_overflow8 = c_overflow8[true](1)
+      print(z_overflow8 + U8(1))
+      z_narrow = c_narrow[true](1)
+      print(U8(z_narrow))
+      z_shift = c_shift[true](1)
+      print(1 << z_shift)
+      z_index = c_index[true](1)
+      print(xs[z_index])
+    print("ok")
+
+test "inline grid ctint unreached", release: true, '''
+  3
+  ok
+'''
+  # Every use of a compile-time Int instance's constant, in a branch that never runs, builds.
+
+  use std.os
+
+  fun c_div[k: Int](n: Int) -> Int
+    0
+
+  fun c_overflow[k: Int](n: Int) -> Int
+    9223372036854775807
+
+  fun c_overflow8[k: Int](n: Int) -> U8
+    U8(255)
+
+  fun c_narrow[k: Int](n: Int) -> Int
+    300
+
+  fun c_shift[k: Int](n: Int) -> Int
+    70
+
+  fun c_index[k: Int](n: Int) -> Int
+    7
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 50
+      z_div = c_div[3](1)
+      print(10 / z_div)
+      z_overflow = c_overflow[3](1)
+      print(1 + z_overflow)
+      z_overflow8 = c_overflow8[3](1)
+      print(z_overflow8 + U8(1))
+      z_narrow = c_narrow[3](1)
+      print(U8(z_narrow))
+      z_shift = c_shift[3](1)
+      print(1 << z_shift)
+      z_index = c_index[3](1)
+      print(xs[z_index])
+    print("ok")
+
+test "inline grid ctenum unreached", release: true, '''
+  3
+  ok
+'''
+  # Every use of a compile-time enum instance's constant, in a branch that never runs, builds.
+
+  use std.os
+
+  enum M_div
+    a
+    b
+
+  fun c_div[m: M_div](n: Int) -> Int
+    0
+
+  enum M_overflow
+    a
+    b
+
+  fun c_overflow[m: M_overflow](n: Int) -> Int
+    9223372036854775807
+
+  enum M_overflow8
+    a
+    b
+
+  fun c_overflow8[m: M_overflow8](n: Int) -> U8
+    U8(255)
+
+  enum M_narrow
+    a
+    b
+
+  fun c_narrow[m: M_narrow](n: Int) -> Int
+    300
+
+  enum M_shift
+    a
+    b
+
+  fun c_shift[m: M_shift](n: Int) -> Int
+    70
+
+  enum M_index
+    a
+    b
+
+  fun c_index[m: M_index](n: Int) -> Int
+    7
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 50
+      z_div = c_div[.b](1)
+      print(10 / z_div)
+      z_overflow = c_overflow[.b](1)
+      print(1 + z_overflow)
+      z_overflow8 = c_overflow8[.b](1)
+      print(z_overflow8 + U8(1))
+      z_narrow = c_narrow[.b](1)
+      print(U8(z_narrow))
+      z_shift = c_shift[.b](1)
+      print(1 << z_shift)
+      z_index = c_index[.b](1)
+      print(xs[z_index])
+    print("ok")
+
+test "inline grid ctthrough unreached", release: true, '''
+  3
+  ok
+'''
+  # Every use of an inlined call's constant, through an instance, in a branch that never runs, builds.
+
+  use std.os
+
+  fun c_div() -> Int
+    0
+
+  fun t_div[b: Bool](n: Int) -> Int
+    c_div()
+
+  fun c_overflow() -> Int
+    9223372036854775807
+
+  fun t_overflow[b: Bool](n: Int) -> Int
+    c_overflow()
+
+  fun c_overflow8() -> U8
+    U8(255)
+
+  fun t_overflow8[b: Bool](n: Int) -> U8
+    c_overflow8()
+
+  fun c_narrow() -> Int
+    300
+
+  fun t_narrow[b: Bool](n: Int) -> Int
+    c_narrow()
+
+  fun c_shift() -> Int
+    70
+
+  fun t_shift[b: Bool](n: Int) -> Int
+    c_shift()
+
+  fun c_index() -> Int
+    7
+
+  fun t_index[b: Bool](n: Int) -> Int
+    c_index()
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 50
+      z_div = t_div[false](1)
+      print(10 / z_div)
+      z_overflow = t_overflow[false](1)
+      print(1 + z_overflow)
+      z_overflow8 = t_overflow8[false](1)
+      print(z_overflow8 + U8(1))
+      z_narrow = t_narrow[false](1)
+      print(U8(z_narrow))
+      z_shift = t_shift[false](1)
+      print(1 << z_shift)
+      z_index = t_index[false](1)
+      print(xs[z_index])
+    print("ok")
+
+test "inline grid optional unreached", "ok", release: true
+  # An empty optional's fallback, divided by in a branch that never runs, builds.
+
+  use std.os
+
+  fun nothing() -> Int?
+    none
+
+  sub main()
+    if os.args().len > 50
+      z = nothing() ?? 0
+      print(10 / z)
+    print("ok")
+
+test "inline grid failing unreached", "ok", release: true
+  # An error's fallback, divided by in a branch that never runs, builds.
+
+  use std.os
+
+  error Oops
+    bad
+
+  fun fails() -> Int!
+    return Oops.bad
+
+  sub main()
+    if os.args().len > 50
+      z = fails() catch 0
+      print(10 / z)
+    print("ok")
+
+test "inline grid var unreached", "ok", release: true
+  # A constant held in a second name, divided by in a branch that never runs, builds.
+
+  use std.os
+
+  fun zero() -> Int
+    0
+
+  sub main()
+    if os.args().len > 50
+      z = zero()
+      var_ = z
+      print(10 / var_)
+    print("ok")
+
+test "inline grid ct values", release: true, '''
+  15 5 3 6
+  20 10
+'''
+  # Instances that compute from run-time arguments, call helpers, and recurse
+  # through an instance, against the values worked out by hand.
+
+  use std.os
+
+  enum Mode
+    strict
+    loose
+
+  fun step(i: Int) -> Int
+    i + 1
+
+  fun scale[k: Int](x: Int) -> Int
+    step(x) * k
+
+  fun pick[m: Mode](x: Int) -> Int
+    x + 1 if m == .strict else x - 1
+
+  fun flip[b: Bool](x: Int) -> Int
+    x if x <= 0 else flip[not b](x - 1) + (1 if b else 2)
+
+  fun sum[dense: Bool](n: Int) -> Int
+    total = 0
+    i = 0
+    while i < n
+      total += scale[2](i) if dense else step(i)
+      i += 1
+    total
+
+  sub main()
+    n = os.args().len + 3
+    print(scale[3](n), pick[.strict](n), pick[.loose](n), flip[true](n))
+    print(sum[true](n), sum[false](n))
+
+bomb "inline grid const div reached", "panic: division by zero", prints: "3", release: true
+  # The div use of a constant, run, panics.
+
+  use std.os
+
+  fun c_div() -> Int
+    0
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_div = c_div()
+      print(10 / z_div)
+    print("ok")
+
+bomb "inline grid const overflow reached", "panic: integer overflow", prints: "3", release: true
+  # The overflow use of a constant, run, panics.
+
+  use std.os
+
+  fun c_overflow() -> Int
+    9223372036854775807
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_overflow = c_overflow()
+      print(1 + z_overflow)
+    print("ok")
+
+bomb "inline grid const overflow8 reached", "panic: integer overflow", prints: "3", release: true
+  # The overflow8 use of a constant, run, panics.
+
+  use std.os
+
+  fun c_overflow8() -> U8
+    U8(255)
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_overflow8 = c_overflow8()
+      print(z_overflow8 + U8(1))
+    print("ok")
+
+bomb "inline grid const narrow reached", "panic: integer does not fit in destination type", prints: "3", release: true
+  # The narrow use of a constant, run, panics.
+
+  use std.os
+
+  fun c_narrow() -> Int
+    300
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_narrow = c_narrow()
+      print(U8(z_narrow))
+    print("ok")
+
+bomb "inline grid const shift reached", "panic: integer does not fit in destination type", prints: "3", release: true
+  # The shift use of a constant, run, panics.
+
+  use std.os
+
+  fun c_shift() -> Int
+    70
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_shift = c_shift()
+      print(1 << z_shift)
+    print("ok")
+
+bomb "inline grid const index reached", "panic: index out of bounds", prints: "3", release: true
+  # The index use of a constant, run, panics.
+
+  use std.os
+
+  fun c_index() -> Int
+    7
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_index = c_index()
+      print(xs[z_index])
+    print("ok")
+
+bomb "inline grid ignored div reached", "panic: division by zero", prints: "3", release: true
+  # The div use of a constant, its parameter ignored, run, panics.
+
+  use std.os
+
+  fun c_div(n: Int) -> Int
+    0
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_div = c_div(1)
+      print(10 / z_div)
+    print("ok")
+
+bomb "inline grid ignored overflow reached", "panic: integer overflow", prints: "3", release: true
+  # The overflow use of a constant, its parameter ignored, run, panics.
+
+  use std.os
+
+  fun c_overflow(n: Int) -> Int
+    9223372036854775807
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_overflow = c_overflow(1)
+      print(1 + z_overflow)
+    print("ok")
+
+bomb "inline grid ignored overflow8 reached", "panic: integer overflow", prints: "3", release: true
+  # The overflow8 use of a constant, its parameter ignored, run, panics.
+
+  use std.os
+
+  fun c_overflow8(n: Int) -> U8
+    U8(255)
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_overflow8 = c_overflow8(1)
+      print(z_overflow8 + U8(1))
+    print("ok")
+
+bomb "inline grid ignored narrow reached", "panic: integer does not fit in destination type", prints: "3", release: true
+  # The narrow use of a constant, its parameter ignored, run, panics.
+
+  use std.os
+
+  fun c_narrow(n: Int) -> Int
+    300
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_narrow = c_narrow(1)
+      print(U8(z_narrow))
+    print("ok")
+
+bomb "inline grid ignored shift reached", "panic: integer does not fit in destination type", prints: "3", release: true
+  # The shift use of a constant, its parameter ignored, run, panics.
+
+  use std.os
+
+  fun c_shift(n: Int) -> Int
+    70
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_shift = c_shift(1)
+      print(1 << z_shift)
+    print("ok")
+
+bomb "inline grid ignored index reached", "panic: index out of bounds", prints: "3", release: true
+  # The index use of a constant, its parameter ignored, run, panics.
+
+  use std.os
+
+  fun c_index(n: Int) -> Int
+    7
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_index = c_index(1)
+      print(xs[z_index])
+    print("ok")
+
+bomb "inline grid transitive div reached", "panic: division by zero", prints: "3", release: true
+  # The div use of another inlined call's constant, run, panics.
+
+  use std.os
+
+  fun c_div() -> Int
+    0
+
+  fun t_div(n: Int) -> Int
+    c_div()
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_div = t_div(1)
+      print(10 / z_div)
+    print("ok")
+
+bomb "inline grid transitive overflow reached", "panic: integer overflow", prints: "3", release: true
+  # The overflow use of another inlined call's constant, run, panics.
+
+  use std.os
+
+  fun c_overflow() -> Int
+    9223372036854775807
+
+  fun t_overflow(n: Int) -> Int
+    c_overflow()
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_overflow = t_overflow(1)
+      print(1 + z_overflow)
+    print("ok")
+
+bomb "inline grid transitive overflow8 reached", "panic: integer overflow", prints: "3", release: true
+  # The overflow8 use of another inlined call's constant, run, panics.
+
+  use std.os
+
+  fun c_overflow8() -> U8
+    U8(255)
+
+  fun t_overflow8(n: Int) -> U8
+    c_overflow8()
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_overflow8 = t_overflow8(1)
+      print(z_overflow8 + U8(1))
+    print("ok")
+
+bomb "inline grid transitive narrow reached", "panic: integer does not fit in destination type", prints: "3", release: true
+  # The narrow use of another inlined call's constant, run, panics.
+
+  use std.os
+
+  fun c_narrow() -> Int
+    300
+
+  fun t_narrow(n: Int) -> Int
+    c_narrow()
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_narrow = t_narrow(1)
+      print(U8(z_narrow))
+    print("ok")
+
+bomb "inline grid transitive shift reached", "panic: integer does not fit in destination type", prints: "3", release: true
+  # The shift use of another inlined call's constant, run, panics.
+
+  use std.os
+
+  fun c_shift() -> Int
+    70
+
+  fun t_shift(n: Int) -> Int
+    c_shift()
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_shift = t_shift(1)
+      print(1 << z_shift)
+    print("ok")
+
+bomb "inline grid transitive index reached", "panic: index out of bounds", prints: "3", release: true
+  # The index use of another inlined call's constant, run, panics.
+
+  use std.os
+
+  fun c_index() -> Int
+    7
+
+  fun t_index(n: Int) -> Int
+    c_index()
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_index = t_index(1)
+      print(xs[z_index])
+    print("ok")
+
+bomb "inline grid ctbool div reached", "panic: division by zero", prints: "3", release: true
+  # The div use of a compile-time Bool instance's constant, run, panics.
+
+  use std.os
+
+  fun c_div[b: Bool](n: Int) -> Int
+    0 if b else 0
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_div = c_div[true](1)
+      print(10 / z_div)
+    print("ok")
+
+bomb "inline grid ctbool overflow8 reached", "panic: integer overflow", prints: "3", release: true
+  # The overflow8 use of a compile-time Bool instance's constant, run, panics.
+
+  use std.os
+
+  fun c_overflow8[b: Bool](n: Int) -> U8
+    U8(255) if b else U8(255)
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_overflow8 = c_overflow8[true](1)
+      print(z_overflow8 + U8(1))
+    print("ok")
+
+bomb "inline grid ctbool index reached", "panic: index out of bounds", prints: "3", release: true
+  # The index use of a compile-time Bool instance's constant, run, panics.
+
+  use std.os
+
+  fun c_index[b: Bool](n: Int) -> Int
+    7 if b else 7
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_index = c_index[true](1)
+      print(xs[z_index])
+    print("ok")
+
+bomb "inline grid ctint div reached", "panic: division by zero", prints: "3", release: true
+  # The div use of a compile-time Int instance's constant, run, panics.
+
+  use std.os
+
+  fun c_div[k: Int](n: Int) -> Int
+    0
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_div = c_div[3](1)
+      print(10 / z_div)
+    print("ok")
+
+bomb "inline grid ctint overflow8 reached", "panic: integer overflow", prints: "3", release: true
+  # The overflow8 use of a compile-time Int instance's constant, run, panics.
+
+  use std.os
+
+  fun c_overflow8[k: Int](n: Int) -> U8
+    U8(255)
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_overflow8 = c_overflow8[3](1)
+      print(z_overflow8 + U8(1))
+    print("ok")
+
+bomb "inline grid ctint index reached", "panic: index out of bounds", prints: "3", release: true
+  # The index use of a compile-time Int instance's constant, run, panics.
+
+  use std.os
+
+  fun c_index[k: Int](n: Int) -> Int
+    7
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_index = c_index[3](1)
+      print(xs[z_index])
+    print("ok")
+
+bomb "inline grid ctenum div reached", "panic: division by zero", prints: "3", release: true
+  # The div use of a compile-time enum instance's constant, run, panics.
+
+  use std.os
+
+  enum M_div
+    a
+    b
+
+  fun c_div[m: M_div](n: Int) -> Int
+    0
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_div = c_div[.b](1)
+      print(10 / z_div)
+    print("ok")
+
+bomb "inline grid ctenum overflow8 reached", "panic: integer overflow", prints: "3", release: true
+  # The overflow8 use of a compile-time enum instance's constant, run, panics.
+
+  use std.os
+
+  enum M_overflow8
+    a
+    b
+
+  fun c_overflow8[m: M_overflow8](n: Int) -> U8
+    U8(255)
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_overflow8 = c_overflow8[.b](1)
+      print(z_overflow8 + U8(1))
+    print("ok")
+
+bomb "inline grid ctenum index reached", "panic: index out of bounds", prints: "3", release: true
+  # The index use of a compile-time enum instance's constant, run, panics.
+
+  use std.os
+
+  enum M_index
+    a
+    b
+
+  fun c_index[m: M_index](n: Int) -> Int
+    7
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_index = c_index[.b](1)
+      print(xs[z_index])
+    print("ok")
+
+bomb "inline grid ctthrough div reached", "panic: division by zero", prints: "3", release: true
+  # The div use of an inlined call's constant, through an instance, run, panics.
+
+  use std.os
+
+  fun c_div() -> Int
+    0
+
+  fun t_div[b: Bool](n: Int) -> Int
+    c_div()
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_div = t_div[false](1)
+      print(10 / z_div)
+    print("ok")
+
+bomb "inline grid ctthrough overflow8 reached", "panic: integer overflow", prints: "3", release: true
+  # The overflow8 use of an inlined call's constant, through an instance, run, panics.
+
+  use std.os
+
+  fun c_overflow8() -> U8
+    U8(255)
+
+  fun t_overflow8[b: Bool](n: Int) -> U8
+    c_overflow8()
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_overflow8 = t_overflow8[false](1)
+      print(z_overflow8 + U8(1))
+    print("ok")
+
+bomb "inline grid ctthrough index reached", "panic: index out of bounds", prints: "3", release: true
+  # The index use of an inlined call's constant, through an instance, run, panics.
+
+  use std.os
+
+  fun c_index() -> Int
+    7
+
+  fun t_index[b: Bool](n: Int) -> Int
+    c_index()
+
+  sub main()
+    xs = [1, 2, 3]
+    print(xs.len)
+    if os.args().len > 0
+      z_index = t_index[false](1)
+      print(xs[z_index])
+    print("ok")
