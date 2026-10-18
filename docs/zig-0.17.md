@@ -1271,8 +1271,11 @@ pub fn build(b: *std.Build) void {
   `--cache-dir DIR` for a fresh cache (§13).
 - `zig run`, `zig test`, and `zig build` reuse cached work; `zig
   build-exe` compiles in full every time, with or without
-  `-femit-bin=`. `rig build` runs `zig build-exe`, so it pays a full
-  compile on every call.
+  `-femit-bin=`. `rig build` runs `zig build-exe`, so it keeps the
+  executable itself and copies it while nothing the build reads has
+  changed (docs/INTERNALS.md). On macOS such an executable's debug
+  information stays in the object files Zig leaves in the cache's
+  `tmp/`, which its stack traces read.
 
 ---
 

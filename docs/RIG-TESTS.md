@@ -118,7 +118,7 @@ crashes on fails too.
    a pack whose key is unchanged is not built again, so editing only a
    case's expected result rebuilds nothing, and when the key matches it
    runs neither rig nor Zig. `rig batch build` keeps a key of its own, of every
-   file it writes and how Zig builds them, and skips Zig when it matches.
+   file it writes, how Zig builds them, and which Zig, and skips Zig when it matches.
    Changing a case rebuilds its file's packs alone; a new compiler
    rebuilds them all.
 
@@ -143,8 +143,13 @@ whose `# expect:` block is its result, and `test/torture/`, bad input
 the scripts of `test/cli`, each in an empty directory of its own with
 `RIG`, `ROOT`, `ZIG`, `RIG_OUT_DIR`, `RIG_TESTS` (the cases as files,
 below), and `TIMEOUT_CMD` set, passing when it exits 0, and the
-compiler's own Zig tests (`zig build test`). A run in which a job died
-lists each with its reason and exits 1.
+compiler's own Zig tests (`zig build test`). `RIG_OUT_DIR` lasts from
+run to run, so a program a script builds unchanged is not compiled
+again: `rig build` copies the executable it kept, and a script's own
+Zig command runs through `zig_once` (`test/cli/_lib.sh`), which skips it
+while its command, Zig, and inputs are the last run's. Every program
+still runs, and is checked, every time. A run in which a job died lists
+each with its reason and exits 1.
 
 The checks come in tiers. `core`, which a run with no names checks, is
 every test file but the probes', the doc examples, the examples, the

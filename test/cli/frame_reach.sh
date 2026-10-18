@@ -186,7 +186,7 @@ if [[ $how == asm ]]; then
     rig emit grid.rig >/dev/null 2>&1 || fail "emit grid.rig"
     pkg=$RIG_OUT_DIR/programs/grid
     for mode in Debug ReleaseSafe; do
-        (cd "$pkg" && "${ZIG:-zig}" build-obj -O $mode -femit-asm="$PWD/../grid-$mode.s" -fno-emit-bin __rig_main.zig) >build.log 2>&1 || fail "$mode assembly: $(cat build.log)"
+        (cd "$pkg" && zig_once "$PWD/../grid-$mode.s" -- . -- "${ZIG:-zig}" build-obj -O $mode -femit-asm="$PWD/../grid-$mode.s" -fno-emit-bin __rig_main.zig) >build.log 2>&1 || fail "$mode assembly: $(cat build.log)"
         python3 "$ROOT/test/cli/_frames.py" "$RIG_OUT_DIR/programs/grid-$mode.s" >"real-$mode.txt"
     done
 else
