@@ -120,14 +120,31 @@ crashes on fails too.
    Changing a case rebuilds its file's packs alone; a new compiler
    rebuilds them all.
 
-`test/rig.rip` does this with Rip's Swarm. Its setup reads the files and
-builds the packs; each job checks one case and lands in `done/` or, with
-its reason in `errors.log`, in `died/`. `-w N` is Swarm's number of jobs
-at once:
+`test/rig.rip` does this with Rip's Swarm. Its setup builds the
+compiler as `./test/run` does, reads the files, and builds the packs;
+each job checks one case and lands in `done/` or, with its reason in
+`errors.log`, in `died/`. Swarm runs a job per CPU at once (`-w N`
+chooses another number; more than the CPUs is slower, as each job waits
+on a process of its own), and each job's time goes to `.swarm/times`.
+
+Beside the test files, the runner reads two directories of whole
+programs where they are: `examples/`, each a `test` whose `# expect:`
+block is its result, and `test/torture/`, bad input `rig run` must
+reject with a position and never crash on. It also runs the scripts of
+`test/cli`, each in an empty directory of its own with `RIG`, `ROOT`,
+and `RIG_OUT_DIR` set, passing when it exits 0, and the compiler's own
+Zig tests (`zig build test`).
+
+The checks come in two tiers. `core`, which a run with no names
+checks, is every test file, the examples, the torture input, and the
+unit tests, and takes seconds. The scripts of `test/cli` take minutes,
+since several build dozens of programs one by one, and run when named:
 
 ```bash
-swarm test/rig.rip -w 6              # every test/rig/*.rig.test
-swarm test/rig.rip -w 6 text json    # test/rig/text.rig.test and json.rig.test
+swarm test/rig.rip              # core
+swarm test/rig.rip cli          # the scripts of test/cli
+swarm test/rig.rip all          # core and cli
+swarm test/rig.rip std-text     # test/rig/std-text.rig.test alone
 ```
 
 ## The pack
@@ -171,8 +188,14 @@ the release runs 3,257 jobs, on the Mac with cpuq's 4 cores:
 | | Wall time | CPU time |
 |---|---|---|
 | `./test/run behavior/ reject/`, no caches | 744 s | 2,891 s |
-| `swarm test/rig.rip -w 20`, every pack compiled | 73 s | 386 s |
+| `swarm test/rig.rip`, every pack compiled | 73 s | 386 s |
 | the same, nothing changed | 11 s | 63 s |
+
+With the examples, the torture input, and the unit tests, the core is
+3,293 jobs and takes 11.5 seconds when nothing changed. The scripts of
+`test/cli` add 77 jobs and about three and a half minutes: their job
+time, 2,626 seconds, is 17 times the rest's, and the slowest,
+`inline_budget`, takes 202 seconds alone.
 
 The verdicts are the same. A case runs in a few milliseconds; a warm
 run's time is the cases themselves, a few of which are deliberate
