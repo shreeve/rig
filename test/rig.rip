@@ -13,11 +13,13 @@
 #   swarm test/rig.rip doc-SPEC    SPEC.md's examples alone (`doc`: every doc's)
 #   swarm test/rig.rip tree        only write each case out as a program (the mirror)
 #
-# Setup reads each file into its cases, writes each case as a program of
-# its own, and builds the file's `test` and `bomb` cases into its packs
-# (`rig batch build`): one in debug, with the sanitizer, and one in Zig's
-# safe mode for the cases marked `release: true`. A case Zig or rig will
-# not build into a pack runs alone, with `rig run`. Each job then checks
+# Setup builds rig, rig-oracle, and the unit tests in one zig build, reads
+# each file into its cases, writes each case as a program of its own, and
+# queues a job to build the file's `test` and `bomb` cases into each pack
+# that changed (`rig batch build`): one in debug, with the sanitizer, and
+# one in Zig's safe mode for the cases marked `release: true`. A case
+# waits for its pack; one Zig or rig will not build into it runs alone,
+# with `rig run`. Each job then checks
 # one case: `fail` and `code` with the compiler, `test` and `bomb` by
 # running it. A case that fails lands in .swarm/died, its reason in
 # .swarm/errors.log.
@@ -479,17 +481,32 @@ setup = ->
   unknown = names.filter((n) -> n not in ['all', 'core', 'cli', 'probes', 'unit', 'oracle', 'doc', 'proofs', 'proofs-all'] and not sources.some((s) -> s.area is n))
   throw new Error("no test file test/rig/#{unknown[0]}.rig.test") if unknown.length > 0
   init()
-  # The compiler, with its own consistency checks on.
-  built = Bun.spawnSync({ cmd: ['zig', 'build', '-Dself-check=true'], cwd: root, stdout: 'pipe', stderr: 'pipe' })
-  throw new Error("zig build failed:\n#{built.stderr.toString()}") unless built.exitCode is 0
-  # The reference ownership checker, which the oracle's jobs and scripts
-  # of test/cli run.
-  oracle = Bun.spawnSync({ cmd: ['zig', 'build', '-Dself-check=true', 'oracle'], cwd: root, stdout: 'pipe', stderr: 'pipe' })
-  throw new Error("zig build oracle failed:\n#{oracle.stderr.toString()}") unless oracle.exitCode is 0
+  # The compiler, with its own consistency checks on; the reference
+  # ownership checker, which the oracle's jobs and scripts of test/cli
+  # run; and, when this run has the unit tests, their build too: one zig
+  # build, which compiles them at once. Each takes most of a minute when
+  # the compiler changed, and the runner says so. A unit test that fails
+  # fails the `unit` job, which runs them again from Zig's cache, not the
+  # run: the build is tried again without them.
+  started = Date.now()
+  timer = setTimeout((-> process.stdout.write("rig.rip: building rig and rig-oracle (zig build)...\n")), 1000)
+  zigBuild = (steps) ->
+    zb = Bun.spawn({ cmd: ['zig', 'build', '-Dself-check=true', ...steps], cwd: root, stdout: 'pipe', stderr: 'pipe' })
+    text = await new Response(zb.stderr).text()
+    { code: await zb.exited, text }
+  zb = await zigBuild(['install', 'oracle', ...(if wanted('unit') then ['test'] else [])])
+  zb = await zigBuild(['install', 'oracle']) if zb.code isnt 0 and wanted('unit')
+  clearTimeout(timer)
+  throw new Error("zig build failed:\n#{zb.text}") unless zb.code is 0
+  process.stdout.write("rig.rip: built rig and rig-oracle in #{Math.round((Date.now() - started) / 1000)} s\n") if Date.now() - started > 1000
   # The packs and Zig's caches stay between runs: a pack whose cases and
   # compiler are unchanged is not compiled again, and when neither has
-  # changed since the pack was built, rig is not run at all.
-  builds = []
+  # changed since the pack was built, rig is not run at all. A pack that
+  # needs building is a job of its own, which Swarm starts before the
+  # other jobs but the unit tests', so the jobs that need no pack (the
+  # scripts of test/cli, the oracle, `fail` and `code` cases) run while
+  # the packs compile, and a case waits only for its own pack.
+  builds = 0
   plans = []
   # The compiler, and every setting of rig's that changes what it emits or
   # how a program runs (RIG_STRICT_OPTIONALS, RIG_NO_PROOFS, ...), but those
@@ -520,7 +537,7 @@ setup = ->
     saved = join(work, area, 'jobs.json')
     if existsSync(saved)
       last = JSON.parse(readFileSync(saved, 'utf8'))
-      if last.key is fileKey and last.packs.every((d) -> existsSync(join(d, 'bin')))
+      if last.key is fileKey and last.packs.every((p) -> p.dir? and existsSync(join(p.dir, 'bin')) and existsSync(join(p.dir, 'key')) and readFileSync(join(p.dir, 'key'), 'utf8') is p.key)
         todo(j.id, j.payload) for j in last.jobs
         continue
     all = src.read()
@@ -532,30 +549,14 @@ setup = ->
       h.update(part + '\0') for part in [compiler, ...p.flags, JSON.stringify(p.env), ...p.cases.flatMap((c) -> [c.path, c.source, ...c.files.flatMap((f) -> [f.path, f.text])])]
       p.key = h.digest('hex')
       keyPath = join(p.dir, 'key')
-      if existsSync(keyPath) and readFileSync(keyPath, 'utf8') is p.key and existsSync(join(p.dir, 'bin'))
-        builds.push({ pack: p, start: null })
-        continue
+      continue if existsSync(keyPath) and readFileSync(keyPath, 'utf8') is p.key and existsSync(join(p.dir, 'bin'))
       rmSync(keyPath, { force: true })
-      builds.push({ pack: p, start: ((p) -> -> Bun.spawn({ cmd: [rig, 'batch', 'build', ...p.flags, p.dir, ...p.cases.map((c) -> c.path)], env: { ...process.env, ...p.env }, stdout: 'ignore', stderr: 'ignore' }))(p) })
+      rmSync(join(p.dir, 'state'), { force: true })
+      mode = if p.flags.length > 0 then 'release' else 'debug'
+      todo("build.zig.#{area}.#{mode}", JSON.stringify({ file: "#{area} (#{mode})", name: "#{area} #{mode} pack", verb: 'pack', line: 1, dir: p.dir, flags: p.flags, env: p.env, cases: p.cases.map((c) -> c.path), key: p.key, opts: { timeout: '1800' } }))
+      builds++
     plans.push({ area, file: (if src.inputs.length is 1 then src.inputs[0] else area), label: src.label, all, packs, fileKey })
-  # The packs that need it are built a few at a time: each is one Zig
-  # compile, and as many at once as there are cores is enough.
-  pending = builds.filter((b) -> b.start?)
-  limit = Number(process.env.CPUQ_CORES ?? Math.max(1, Math.floor(navigator.hardwareConcurrency / 2)))
-  next = 0
-  builder = ->
-    while next < pending.length
-      b = pending[next]
-      next++
-      b.code = await b.start().exited
-  await Promise.all([1..limit].map(-> builder()))
-  # A pack holds the cases its `programs` lists; one rig rejects is left
-  # out, and runs alone, so it reports the compiler's own error.
-  for b in builds
-    ok = if b.start? then b.code is 0 else true
-    writeFileSync(join(b.pack.dir, 'key'), b.pack.key) if ok and b.start?
-    listed = join(b.pack.dir, 'programs')
-    b.pack.built = if ok and existsSync(listed) then readFileSync(listed, 'utf8').split('\n').filter((l) -> l isnt '').map((l) -> l.split('\t')[1]) else []
+  process.stdout.write("rig.rip: #{builds} pack#{if builds is 1 then '' else 's'} to compile, as jobs\n") if builds > 0
   for plan in plans
     jobs = []
     queue = (id, payload) ->
@@ -569,13 +570,10 @@ setup = ->
         continue
       for p in plan.packs when p.cases.includes(c)
         release = p.flags.length > 0
-        queue(id + (if release then 'r' else ''), JSON.stringify({ ...job, release, pack: (if p.built.includes(c.path) then p.dir else null), n: p.cases.indexOf(c) }))
-    # Saved only when every case is in a pack, so a case that runs alone
-    # is read and tried again next time.
+        queue(id + (if release then 'r' else ''), JSON.stringify({ ...job, release, pack: p.dir, packKey: p.key, n: p.cases.indexOf(c) }))
     built = plan.packs.filter((p) -> p.cases.length > 0)
-    alone = plan.all.some((c) -> (c.verb is 'test' or c.verb is 'bomb') and built.some((p) -> p.cases.includes(c) and not p.built.includes(c.path)))
     mkdirSync(join(work, plan.area), { recursive: true })
-    writeFileSync(join(work, plan.area, 'jobs.json'), JSON.stringify({ key: plan.fileKey, packs: built.map((p) -> p.dir), jobs })) unless alone
+    writeFileSync(join(work, plan.area, 'jobs.json'), JSON.stringify({ key: plan.fileKey, packs: built.map((p) -> { dir: p.dir, key: p.key }), jobs }))
   tree = join(work, 'tree')
   listed = mirror(parsed)
   # The oracle's sets: the tests (the probes of past reviews among them)
@@ -686,11 +684,46 @@ checkCode = (c) ->
     need = printed(a).split('\n').map(norm).filter((l) -> l isnt '').join('\n')
     throw new Error("the emitted Zig has no #{JSON.stringify(need.split('\n')[0])}") unless got.includes(need)
 
+# A pack's job: one Zig compile of the cases of a file (`rig batch build`).
+# Its `state` says which build it records, and whether it built, for the
+# cases that wait on it. A pack none of whose cases rig accepts builds
+# nothing, and its cases run alone, each reporting its own error; a pack
+# Zig will not build fails here, and its cases run alone too.
+checkPack = (c) ->
+  r = run([rig, 'batch', 'build', ...c.flags, c.dir, ...c.cases], c.env, Number(c.opts.timeout))
+  empty = r.code is 1 and r.err.includes('rig batch: no program to build')
+  writeFileSync(join(c.dir, 'key'), c.key) if r.code is 0
+  mkdirSync(c.dir, { recursive: true })
+  writeFileSync(join(c.dir, 'state'), "#{c.key}\t#{if r.code is 0 then 'built' else if empty then 'empty' else 'failed'}\n")
+  throw new Error('timed out') unless r.code?
+  return if r.code is 0 or empty
+  throw new Error("the pack did not build, so its cases run alone: #{firstLine(r.err.split('\n').filter((l) -> /error/.test(l)).join('\n') or r.err)}")
+
+# The cases a case's pack holds, once its build is the one the case was
+# queued for: built in an earlier run (its key), or by its job in this one
+# (its state). None when the build failed or held nothing.
+packed = (c) ->
+  state = join(c.pack, 'state')
+  waited = Date.now()
+  while true
+    if existsSync(state)
+      [key, how] = readFileSync(state, 'utf8').trim().split('\t')
+      if key is c.packKey
+        return new Set() unless how is 'built'
+        return new Set(readFileSync(join(c.pack, 'programs'), 'utf8').split('\n').filter((l) -> l isnt '').map((l) -> l.split('\t')[1]))
+    if existsSync(join(c.pack, 'key')) and readFileSync(join(c.pack, 'key'), 'utf8') is c.packKey and existsSync(join(c.pack, 'bin'))
+      return new Set(readFileSync(join(c.pack, 'programs'), 'utf8').split('\n').filter((l) -> l isnt '').map((l) -> l.split('\t')[1]))
+    throw new Error('its pack was never built') if Date.now() - waited > 1800 * 1000
+    await Bun.sleep(100)
+
 checkRun = (c) ->
   panic = if c.verb is 'bomb' then (if c.args.length > 0 then printed(c.args[0]) else null) else null
   throw new Error('a `bomb` names its panic') if c.verb is 'bomb' and not panic?
   seconds = Number(c.opts.timeout ?? 120)
-  cmd = if c.pack? then [rig, 'batch', 'run', c.pack, String(c.n)] else [rig, 'run', ...(if c.release then ['--release'] else []), c.path]
+  # A case its pack left out (one rig rejects) runs alone, so it reports
+  # the compiler's own error.
+  inPack = c.pack? and (await packed(c)).has(c.path)
+  cmd = if inPack then [rig, 'batch', 'run', c.pack, String(c.n)] else [rig, 'run', ...(if c.release then ['--release'] else []), c.path]
   # As the suite always has, a case that ends a program on purpose runs
   # with RIG_NO_CRASH_REPORT=1.
   quiet = if c.verb is 'bomb' or c.opts.exit? then { RIG_NO_CRASH_REPORT: '1' } else {}
@@ -698,7 +731,7 @@ checkRun = (c) ->
   mode = if c.release then ' (release)' else ''
   throw new Error("timed out after #{seconds}s#{mode}") unless r.code?
   rejected = r.err.match(/(\S+\.rig):(\d+):(\d+): error: (.*)/)
-  throw new Error("rejected by rig at #{bodyAt(c, rejected[1], Number(rejected[2]), Number(rejected[3]))}: #{rejected[4]}") if rejected and r.code is 1 and not c.pack?
+  throw new Error("rejected by rig at #{bodyAt(c, rejected[1], Number(rejected[2]), Number(rejected[3]))}: #{rejected[4]}") if rejected and r.code is 1 and not inPack
   throw new Error("did not run#{mode}: #{firstLine(r.err)}") if r.code is 125 or r.err.includes('rig: the program did not run')
   throw new Error("a proven check failed#{mode}") if r.err.includes('rig: a proven check failed')
   if panic?
@@ -855,7 +888,8 @@ perform = (task, ctx) ->
       when 'facts' then checkFacts(c)
       when 'proofs' then checkProofs(c)
       when 'convention' then throw new Error("doc convention: #{c.opts.reason}")
-      else checkRun(c)
+      when 'pack' then checkPack(c)
+      else await checkRun(c)
   catch err
     failure = err
   finally
