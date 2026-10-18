@@ -507,7 +507,7 @@ setup = ->
   listed = mirror(parsed)
   treeKey = new Bun.CryptoHasher('sha256').update(runner + '\0' + readdirSync(dir).filter((f) -> f.endsWith('.rig.test')).sort().map((f) -> readFileSync(join(work, f.slice(0, -'.rig.test'.length), 'tree.json'), 'utf8')).join('\0')).digest('hex').slice(0, 16)
   started = Date.now()
-  timer = setTimeout((-> process.stdout.write("rig.rip: building rig and rig-oracle (zig build)...\n")), 1000)
+  timer = setTimeout((-> process.stdout.write("building rig and rig-oracle (zig build)...\n")), 1000)
   zigBuild = (steps) ->
     zb = Bun.spawn({ cmd: ['zig', 'build', '-Dself-check=true', "-Dtests-key=#{treeKey}", ...zigJobs(), ...steps], cwd: root, stdout: 'pipe', stderr: 'pipe' })
     text = await new Response(zb.stderr).text()
