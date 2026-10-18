@@ -11,6 +11,7 @@
 #                                  (`proofs-all`: of every program)
 #   swarm test/rig.rip std-text    test/rig/std-text.rig.test alone
 #   swarm test/rig.rip doc-SPEC    SPEC.md's examples alone (`doc`: every doc's)
+#   swarm test/rig.rip tree        only write each case out as a program (the mirror)
 #
 # Setup reads each file into its cases, writes each case as a program of
 # its own, and builds the file's `test` and `bomb` cases into its packs
@@ -404,11 +405,58 @@ legacy = (area, c) ->
   else
     { name: "test/#{rel}/#{stem}.rig", file: join(rel, "#{stem}.rig"), dir: null }
 
+# Write `text` at `path`, making its directory, unless it holds that already.
+put = (path, text) ->
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, text) unless existsSync(path) and readFileSync(path, 'utf8') is text
+
+# This runner's hash: what it writes changes with it.
+runner = new Bun.CryptoHasher('sha256').update(readFileSync(join(root, 'test', 'rig.rip'))).digest('hex')
+
+# The tests as their own files (`legacy`), under .zig-cache/rig-tests/tree:
+# a file's are written again only when it changed, and the ones it no
+# longer has go. The scripts of test/cli, the oracle, the compiler's unit
+# test of emit's unit order, and tools/equiv.py read them there. Returns
+# each one's `{ name, file, dir }`.
+mirror = (parsed) ->
+  dir = join(root, 'test', 'rig')
+  tree = join(work, 'tree')
+  listed = []
+  for f in readdirSync(dir).filter((f) -> f.endsWith('.rig.test')).sort()
+    area = f.slice(0, -'.rig.test'.length)
+    file = join(dir, f)
+    key = new Bun.CryptoHasher('sha256').update(runner + '\0').update(readFileSync(file)).digest('hex')
+    record = join(work, area, 'tree.json')
+    last = if existsSync(record) then JSON.parse(readFileSync(record, 'utf8')) else null
+    if last?.key is key and last.list.every((t) -> existsSync(join(tree, t.file)))
+      listed.push(...last.list)
+      continue
+    rmSync(join(tree, t.dir ?? t.file), { recursive: true, force: true }) for t in (last?.list ?? [])
+    list = []
+    for c in parsed(file)
+      t = legacy(area, c)
+      continue unless t?
+      put(join(tree, t.file), c.source)
+      put(join(tree, t.dir, x.path), x.text) for x in c.files
+      list.push(t)
+    mkdirSync(join(work, area), { recursive: true })
+    writeFileSync(record, JSON.stringify({ key, list }))
+    listed.push(...list)
+  listed
+
 setup = ->
   names = args()
   # Each test file read at most once a run.
   seen = {}
   parsed = (file) -> seen[file] ?= cases(file)
+  # `tree` only writes the mirror, and its list (`tree.list`, `name<TAB>path`
+  # a line), for a tool that reads the tests as files (tools/equiv.py),
+  # and ends the run there: it builds nothing, queues no job, and leaves
+  # .swarm as it was.
+  if names.length is 1 and names[0] is 'tree'
+    listed = mirror(parsed)
+    writeFileSync(join(work, 'tree.list'), listed.map((t) -> "#{t.name}\t#{join(work, 'tree', t.file)}").join('\n') + '\n')
+    process.exit(0)
   dir = join(root, 'test', 'rig')
   # The tiers: `core`, which a run with no names checks (every test file
   # but the probes', the docs' examples, examples/, torture, the unit
@@ -448,10 +496,6 @@ setup = ->
   # that only say where things go.
   settings = Object.keys(process.env).filter((k) -> k.startsWith('RIG_') and not /^RIG_(OUT_DIR|BUILD_STORE|RESULTS_CACHE|RUN_STARTED|PROGRAM_STARTED|CACHE_MAX_GB)$/.test(k)).sort().map((k) -> "#{k}=#{process.env[k]}")
   compiler = new Bun.CryptoHasher('sha256').update(readFileSync(rig)).update(settings.join('\n')).digest('hex')
-  runner = new Bun.CryptoHasher('sha256').update(readFileSync(join(root, 'test', 'rig.rip'))).digest('hex')
-  put = (path, text) ->
-    mkdirSync(dirname(path), { recursive: true })
-    writeFileSync(path, text) unless existsSync(path) and readFileSync(path, 'utf8') is text
   # Write case `i` of an area as its program, setting its path. A case's
   # program is named for it, so what it prints about itself (a panic's
   # place) names the case.
@@ -532,31 +576,8 @@ setup = ->
     alone = plan.all.some((c) -> (c.verb is 'test' or c.verb is 'bomb') and built.some((p) -> p.cases.includes(c) and not p.built.includes(c.path)))
     mkdirSync(join(work, plan.area), { recursive: true })
     writeFileSync(join(work, plan.area, 'jobs.json'), JSON.stringify({ key: plan.fileKey, packs: built.map((p) -> p.dir), jobs })) unless alone
-  # The tests as their own files (`legacy`), for whatever this run checks:
-  # a file's are written again only when it changed, and the ones it no
-  # longer has go.
   tree = join(work, 'tree')
-  listed = []
-  for f in readdirSync(dir).filter((f) -> f.endsWith('.rig.test')).sort()
-    area = f.slice(0, -'.rig.test'.length)
-    file = join(dir, f)
-    key = new Bun.CryptoHasher('sha256').update(runner + '\0').update(readFileSync(file)).digest('hex')
-    record = join(work, area, 'tree.json')
-    last = if existsSync(record) then JSON.parse(readFileSync(record, 'utf8')) else null
-    if last?.key is key and last.list.every((t) -> existsSync(join(tree, t.file)))
-      listed.push(...last.list)
-      continue
-    rmSync(join(tree, t.dir ?? t.file), { recursive: true, force: true }) for t in (last?.list ?? [])
-    list = []
-    for c in parsed(file)
-      t = legacy(area, c)
-      continue unless t?
-      put(join(tree, t.file), c.source)
-      put(join(tree, t.dir, x.path), x.text) for x in c.files
-      list.push(t)
-    mkdirSync(join(work, area), { recursive: true })
-    writeFileSync(record, JSON.stringify({ key, list }))
-    listed.push(...list)
+  listed = mirror(parsed)
   # The oracle's sets: the tests (the probes of past reviews among them)
   # and the examples, the docs' examples, and the matrix (test/matrix.py). A doc example is named by
   # its doc and a hash of its text, so an edit that only moves it keeps

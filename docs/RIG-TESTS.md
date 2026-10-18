@@ -157,6 +157,7 @@ swarm test/rig.rip probes       # the probes of past reviews
 swarm test/rig.rip all          # core, cli, and probes
 swarm test/rig.rip std-text     # test/rig/std-text.rig.test alone
 swarm test/rig.rip doc-SPEC     # SPEC.md's examples alone (doc: every doc's)
+swarm test/rig.rip tree         # only write the cases out as programs (below)
 swarm test/rig.rip proofs       # by hand (proofs-all: every program)
 ```
 
@@ -224,12 +225,14 @@ The runner writes every `test`, `bomb`, and `fail` case out as a file of
 its own, where such a test was kept before test files held them:
 `behavior/<area>/<name>.rig` and `reject/<area>/<name>.rig` (or
 `<name>/main.rig`), under `.zig-cache/rig-tests/tree`. The scripts of
-`test/cli` read them there (`$RIG_TESTS`), the compiler's unit test of
-emit's unit order reads the `emit` and `proofs` programs there, and the
-oracle (`test/oracle`) reads them by those names: its `tests` set (the
-probes of past reviews among them), with the examples, its `docs` set
-(every doc example but fragments, each named by its doc and a hash of
-its text, so an edit that only moves it keeps its name in
+`test/cli` read them there (`$RIG_TESTS`), `tools/equiv.py` compares two
+compilers over them (`swarm test/rig.rip tree` writes them alone,
+building and running nothing), the compiler's unit test of emit's unit
+order reads the `emit` and `proofs` programs there, and the oracle
+(`test/oracle`) reads them by those names: its `tests` set (the probes
+of past reviews among them), with the examples, its `docs` set (every
+doc example but fragments, each named by its doc and a hash of its text,
+so an edit that only moves it keeps its name in
 `test/oracle/rejections`), its `matrix` set (`test/matrix.py --oracle`),
 and its `lint` check are jobs of the core. A `fail` case whose
 diagnostic suggests a lend of a place as a path's base also has each
