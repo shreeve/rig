@@ -14,6 +14,7 @@ applies `op` through `place` to an overflowing lane, and must print
 1 if any fails.
 """
 import argparse, concurrent.futures as cf, os, subprocess, sys, tempfile
+import _built
 
 TYPES = {"U8": (8, False), "I8": (8, True), "I32": (32, True), "U64": (64, False), "I64": (64, True)}
 OPS = {"+": "add", "-": "sub", "*": "mul"}
@@ -85,12 +86,15 @@ def check_type(rig, release, work, ty, jobs):
     path = os.path.join(work, f"places_{ty}.rig")
     with open(path, "w") as f:
         f.write(src)
-    exe = os.path.join(work, f"places_{ty}")
+    exe = os.path.join(work, f"places_{ty}{'_release' if release else ''}")
     env = dict(os.environ, RIG_OUT_DIR=os.path.join(work, f"out_{ty}"))
-    b = subprocess.run([rig, "build"] + (["--release"] if release else []) + ["-o", exe, path],
-                       capture_output=True, text=True, env=env)
-    if b.returncode:
-        return [f"{ty}: build failed\n  {b.stderr[:1500]}"]
+    inputs = [src, release, _built.file(rig), _built.zig_version(os.environ.get("ZIG", "zig")), *_built.settings()]
+    if not _built.fresh(exe, inputs):
+        b = subprocess.run([rig, "build"] + (["--release"] if release else []) + ["-o", exe, path],
+                           capture_output=True, text=True, env=env)
+        if b.returncode:
+            return [f"{ty}: build failed\n  {b.stderr[:1500]}"]
+        _built.record(exe, inputs)
     bad = []
     r = subprocess.run([exe, "clean"], capture_output=True, text=True)
     want = [str(expected(op, *operands(op, ty, False))) for op in OPS for _ in PLACES]
@@ -112,8 +116,11 @@ def main():
     ap.add_argument("rig")
     ap.add_argument("--release", action="store_true")
     ap.add_argument("--jobs", type=int, default=2)
+    ap.add_argument("--keep", help="build here and keep the builds, built again only when an input changes")
     a = ap.parse_args()
-    with tempfile.TemporaryDirectory() as work, cf.ThreadPoolExecutor(a.jobs) as ex:
+    with tempfile.TemporaryDirectory() as tmp, cf.ThreadPoolExecutor(a.jobs) as ex:
+        work = a.keep or tmp
+        os.makedirs(work, exist_ok=True)
         bad = [line for res in ex.map(lambda ty: check_type(a.rig, a.release, work, ty, a.jobs), TYPES) for line in res]
     for line in bad:
         print(line)

@@ -12,6 +12,7 @@ does. ReleaseFast has no checks, so its `ovf` cells are not run: it checks
 only that clean cells give the right values. `rig` is the default.
 """
 import argparse, concurrent.futures as cf, os, subprocess, sys, tempfile
+import _built
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -23,13 +24,18 @@ def build(mode, out, zig, impls):
     listing = os.path.join(os.path.dirname(out), "impls.zig")
     with open(listing, "w") as f:
         f.write("pub const list = .{ " + ", ".join(f".{i}" for i in impls) + " };\n")
+    # Zig's own global cache keeps its library and compiler_rt between
+    # runs; the stamp skips a build whose inputs are all unchanged.
     cmd = [zig, "build-exe", "-O", mode, f"-femit-bin={out}", "--dep", "rig", "--dep", "impls",
            f"-Mroot={HERE}/lane_grid.zig", f"-Mrig={ROOT}/src/runtime.zig", f"-Mimpls={listing}",
-           "--cache-dir", os.path.join(os.path.dirname(out), "cache"),
-           "--global-cache-dir", os.path.join(os.path.dirname(out), "gcache")]
+           "--cache-dir", os.path.join(os.path.dirname(out), "cache")]
+    inputs = [*cmd, _built.zig_version(zig), _built.file(f"{HERE}/lane_grid.zig"), _built.file(f"{ROOT}/src/runtime.zig"), _built.file(listing)]
+    if _built.fresh(out, inputs):
+        return
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode:
         sys.exit(f"build failed ({mode}):\n{r.stderr[:2000]}")
+    _built.record(out, inputs)
 
 def run(exe, args):
     r = subprocess.run([exe] + [str(a) for a in args], capture_output=True, text=True)
@@ -71,12 +77,16 @@ def main():
     ap.add_argument("--seeds", type=int, default=4)
     ap.add_argument("--jobs", type=int, default=int(os.environ.get("CPUQ_CORES", "2").split("-")[0] or 2))
     ap.add_argument("--zig", default="zig")
+    ap.add_argument("--keep", help="build here and keep the builds, built again only when an input changes")
     a = ap.parse_args()
     failures = 0
     cells = 0
     with tempfile.TemporaryDirectory() as tmp:
+        work = a.keep or tmp
+        os.makedirs(work, exist_ok=True)
         for mode in a.modes.split(","):
-            out = os.path.join(tmp, f"grid-{mode}")
+            out = os.path.join(work, mode, "grid")
+            os.makedirs(os.path.dirname(out), exist_ok=True)
             build(mode, out, a.zig, a.impl.split(","))
             jobs = [(impl, op, ty, int(n)) for impl in a.impl.split(",") for op in a.ops.split(",")
                     for ty in a.types.split(",") for n in a.lanes.split(",")]
