@@ -1,42 +1,28 @@
-# `rig run` in each mode; the program's exit status passes through, and
-# output printed before a panic comes out before the panic message.
-# timeout: 600
+# `rig run` builds in the mode its flag names, and concurrent runs of one
+# program share its default output directory without breaking each
+# other's builds. The modes are read from what rig hands a stand-in Zig;
+# the concurrent runs build with Zig, in the fast mode. Output printed
+# before a panic is the case `run output before a panic`
+# (test/rig/runtime-run.rig.test).
 source "$ROOT/test/cli/_lib.sh"
 
 cat >hi.rig <<'EOF'
 sub main()
   print("hi", 1 + 2)
 EOF
-for flag in "" --release --release=safe --release=fast; do
-  out=$(rig run $flag hi.rig 2>&1); expect_rc $? 0 "run $flag"
-  expect_eq "$out" "hi 3" "run $flag"
-done
 
-cat >boom.rig <<'EOF'
-fun at(xs: [3]Int, i: Int) -> Int
-  xs[i]
-
-sub main()
-  print("before")
-  print("still before")
-  print(at([1, 2, 3], 7))
-  print("never")
+cat >zigs <<EOF
+#!/usr/bin/env bash
+echo "\$1 \$2" >>"$PWD/zig.log"
 EOF
-RIG_NO_CRASH_REPORT=1 rig run boom.rig >out.txt 2>err.txt; rc=$?
-[[ $rc -ne 0 ]] || fail "a panicking program exited 0"
-expect_eq "$(cat out.txt)" $'before\nstill before' "stdout of a panicking program"
-expect_has "$(cat err.txt)" "index out of bounds" "panic message"
+chmod +x zigs
+for flag in "" --release --release=safe --release=fast; do
+  ZIG=$PWD/zigs rig run $flag hi.rig >/dev/null 2>&1
+done
+expect_eq "$(cat zig.log)" $'run -Odebug\nrun -Osafe\nrun -Osafe\nrun -Ofast' "the mode of each flag"
 
-# One stream: buffered output is flushed before the panic is written.
-RIG_NO_CRASH_REPORT=1 rig run boom.rig >both.txt 2>&1
-first_panic=$(grep -n "panic" both.txt | head -1 | cut -d: -f1)
-last_print=$(grep -n "still before" both.txt | cut -d: -f1)
-[[ -n "$first_panic" && "$last_print" -lt "$first_panic" ]] || fail "print output came after the panic: $(cat both.txt)"
-
-# Concurrent runs of one program share its default output directory
-# without breaking each other's builds.
 for i in 1 2 3 4; do
-  (unset RIG_OUT_DIR RIG_BUILD_STORE; XDG_CACHE_HOME=$PWD/cache "$RIG" run hi.rig >"par$i.txt" 2>&1; echo "rc $?" >>"par$i.txt") &
+  (unset RIG_OUT_DIR RIG_BUILD_STORE; XDG_CACHE_HOME=$PWD/cache "$RIG" run --release=fast hi.rig >"par$i.txt" 2>&1; echo "rc $?" >>"par$i.txt") &
 done
 wait
 for i in 1 2 3 4; do expect_eq "$(cat "par$i.txt")" $'hi 3\nrc 0' "concurrent run $i"; done

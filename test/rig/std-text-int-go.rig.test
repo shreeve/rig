@@ -1,0 +1,193 @@
+# std: std.text's parse_int and format_int against Go's strconv.
+
+test "text int go", "lines 462386 invalid 56368 overflow 18082 digest 1923786210 559323481", release: true
+  # std.text's parse_int and format_int against Go's strconv.ParseInt(s,
+  # base, 64) and FormatInt, recorded: tools/text_int_go.go generates the
+  # same strings in Go and prints the digest of its lines this prints.
+  # Each line is the base, the string's bytes in hex, and the value,
+  # `invalid`, or `overflow`. The strings: random digits of every length
+  # up to past Int's, Int.max and Int.min with one digit changed, leading
+  # zeros, long runs with one bad byte, random bytes, signs alone or
+  # doubled, and formatted values in either case; then, in every base,
+  # Int.max, Int.min, 2^63 with and without a sign, each with leading
+  # zeros, and every byte alone and after a `1`. Where the digits
+  # overflow before a bad byte, Go reports the overflow and std the bad
+  # byte, as `parse_int` documents, and the Go program writes `invalid`
+  # for any string that is not a sign and digits. Then format_int writes,
+  # in every base and both cases, the powers of 10 and of the base and
+  # their neighbors, the ends of Int, and random values of every
+  # magnitude. A change to the strings here is made in the Go program
+  # too, and `go run tools/text_int_go.go` gives the new result.
+  use std.text
+
+  CASES = 120000
+  COMMON = [2, 8, 10, 16]
+  CHARS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+-_ x./:@[`{\x80\xff\x00"
+  BAD = " _x.+-/:@[`{\x80\xff\x00"
+  ODD = ["", "+", "-", "+-1", "-+1", "--1", "++1", " 1", "1 ", "0x1", "0b1", "1_0", "-0", "+0", "00", "-00", "+ 1"]
+  HEX = "0123456789abcdef"
+
+  # A linear congruential generator, the same as the Go program's.
+  obj Gen
+    x: Int
+
+  # The next number of `g`, 0 to 32767.
+  fun next(g: !Gen) -> Int
+    g.x = (g.x * 1103515245 + 12345) % 2147483648
+    g.x / 65536
+
+  # A random digit of `base`, a letter in either case.
+  fun digit(g: !Gen, base: Int) -> U8
+    d = next(!g) % base
+    return U8(48 + d) if d < 10
+    up = next(!g) % 2 == 0
+    U8(55 + d) if up else U8(87 + d)
+
+  sub sign(g: !Gen, s: !String)
+    k = next(!g) % 3
+    !s.push(43) if k == 1
+    !s.push(45) if k == 2
+
+  sub digits(g: !Gen, s: !String, base: Int, n: Int)
+    for _ in 0..n
+      !s.push(digit(!g, base))
+
+  # Sets `s` to a random case in `base`.
+  sub random_case(g: !Gen, s: !String, base: Int)
+    !s.clear()
+    kind = next(!g) % 8
+    if kind == 0
+      sign(!g, !s)
+      n = 1 + next(!g) % (text.format_int(Int.max, base).len + 3)
+      digits(!g, !s, base, n)
+    else if kind == 1 or kind == 2
+      t = text.format_int(Int.max if kind == 1 else Int.min, base)
+      tv = ?t[..]
+      pos = kind - 1 + next(!g) % (t.len - kind + 1)
+      for i in 0..t.len
+        if i == pos
+          !s.push(digit(!g, base))
+        else
+          !s.push(tv[i])
+    else if kind == 3
+      n = next(!g) % 26
+      for _ in 0..n
+        !s.push(CHARS[next(!g) % CHARS.len])
+    else if kind == 4
+      sign(!g, !s)
+      z = next(!g) % 70
+      for _ in 0..z
+        !s.push(48)
+      n = next(!g) % 22
+      digits(!g, !s, base, n)
+    else if kind == 5
+      sign(!g, !s)
+      n = 15 + next(!g) % 60
+      pos = next(!g) % (n + 1)
+      for i in 0..n + 1
+        if i == pos
+          !s.push(BAD[next(!g) % BAD.len])
+        else
+          !s.push(digit(!g, base))
+    else if kind == 6
+      !s.add(ODD[next(!g) % ODD.len])
+    else
+      v = next(!g) * 35184372088832 + next(!g) * 1073741824 + next(!g) * 32768 + next(!g)
+      v = v >> (next(!g) % 63)
+      v = -v if next(!g) % 2 == 0 else v
+      up = next(!g) % 2 == 0
+      !s.push(43) if v >= 0 and next(!g) % 4 == 0
+      !s.add(text.format_int(v, base, upper: up))
+
+  # The digest of the lines Go's program writes: two polynomial hashes of
+  # every byte of every line, its newline included, each byte counted as
+  # itself plus one; and the number of lines, and of those that end in
+  # `invalid` and in `overflow`.
+  obj Digest
+    a: Int
+    b: Int
+    lines: Int
+    invalid: Int
+    overflow: Int
+
+  sub take(d: !Digest, line: ?String)
+    for c in line
+      d.a = (d.a * 257 + Int(c) + 1) % 2147483647
+      d.b = (d.b * 263 + Int(c) + 1) % 2147483629
+    d.a = (d.a * 257 + 11) % 2147483647
+    d.b = (d.b * 263 + 11) % 2147483629
+    d.lines += 1
+
+  sub check(d: !Digest, line: !String, base: Int, s: ?String)
+    !line.clear()
+    !line.add(base, " x")
+    for b in s
+      !line.push(HEX[Int(b) >> 4])
+      !line.push(HEX[Int(b) & 15])
+    v = text.parse_int(s, base) catch |err|
+      over = err == text.ParseError.overflow
+      !line.add(" ", "overflow" if over else "invalid")
+      d.overflow += 1 if over else 0
+      d.invalid += 0 if over else 1
+      take(!d, ?line)
+      return
+    !line.add(" ", v)
+    take(!d, ?line)
+
+  sub main()
+    d = Digest(a: 0, b: 0, lines: 0, invalid: 0, overflow: 0)
+    line = String()
+    s = String()
+    g = Gen(x: 7)
+    for _ in 0..CASES
+      pick = next(!g)
+      base = 2 + next(!g) % 35
+      base = COMMON[pick / 2 % 4] if pick % 2 == 0 else base
+      random_case(!g, !s, base)
+      check(!d, !line, base, ?s)
+    zeros = String()
+    for _ in 0..70
+      !zeros.push(48)
+    for base in 2..37
+      max = text.format_int(Int.max, base)
+      min = text.format_int(Int.min, base)
+      edges = [String(max), String(min), String(min[1..]), String("+", min[1..]), String("-", max),
+               String(max, "0"), String(min, "0"), String(zeros, max), String("-", zeros, min[1..]),
+               String("+", zeros, min[1..]), String(min, "1")]
+      for e in edges
+        check(!d, !line, base, ?e)
+      for b in 0..256
+        one = String()
+        !one.push(U8(b))
+        check(!d, !line, base, ?one)
+        !one.clear()
+        !one.push(49)
+        !one.push(U8(b))
+        check(!d, !line, base, ?one)
+    values: List[Int] = List()
+    for v in [0, 1, 9, 10, 11, 99, 100, 101, 999, 1000, 35, 36, 37, Int.max, Int.max - 1]
+      !values.push(v)
+    p = 1
+    while p <= Int.max / 10
+      p *= 10
+      !values.push(p - 1)
+      !values.push(p)
+    for _ in 0..3000
+      v = next(!g) * 35184372088832 + next(!g) * 1073741824 + next(!g) * 32768 + next(!g)
+      !values.push(v >> (next(!g) % 63))
+    for base in 2..37
+      q = 1
+      while q <= Int.max / base
+        q *= base
+        !values.push(q - 1)
+        !values.push(q)
+      for v in values
+        for w in [v, -v, -v - 1]
+          !line.clear()
+          !line.add(base, " ", text.format_int(w, base), " ", text.format_int(w, base, upper: true))
+          take(!d, ?line)
+      while values.len > 0 and q > 1
+        q /= base
+        _ = !values.pop()
+        _ = !values.pop()
+    print("lines", d.lines, "invalid", d.invalid, "overflow", d.overflow, "digest", d.a, d.b)

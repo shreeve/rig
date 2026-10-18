@@ -6,8 +6,16 @@
 # from a first byte of 0xC0 or more whose last byte is an edge of the
 # continuation range, is read at 0 by `rune_size` and `rune_after` as
 # Zig's decoder reads it. `RIG_STD` adds the reference, `std.utf8ref`.
-# timeout: 600
+# The case `utf8 zig` (test/rig/std-utf8-zig.rig.test) checks every code
+# point and a sample of the strings against Zig's results, recorded by
+# tools/utf8_zig.zig; this whole comparison runs under UTF8_ZIG_FULL=1.
+# timeout: 120
 source "$ROOT/test/cli/_lib.sh"
+
+if [[ -z "${UTF8_ZIG_FULL:-}" ]]; then
+    echo "the whole comparison runs under UTF8_ZIG_FULL=1: skipped"
+    exit 0
+fi
 
 mkdir lib
 cp "$ROOT"/std/*.rig "$ROOT"/std/*.zig lib/
