@@ -1,0 +1,12 @@
+# runtime: what a program run by `rig run` shows.
+
+bomb "run output before a panic", "index out of bounds", prints: "before\nstill before", release: true
+  # Output printed before a panic comes out, and the panic ends the
+  # program there.
+  fun at(xs: [3]Int, i: Int) -> Int
+    xs[i]
+
+  print("before")
+  print("still before")
+  print(at([1, 2, 3], 7))
+  print("never")

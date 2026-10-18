@@ -1,0 +1,100 @@
+# std: std.utf8 against Zig's std.unicode.
+
+test "utf8 zig", "0 834832 1601181413 1085834100", release: true
+  # std.utf8 against Zig's std.unicode, recorded: tools/utf8_zig.zig reads
+  # the same code points and strings with Zig's std.unicode and prints the
+  # digest this prints. Every code point is written by `push_rune` in
+  # `size` bytes, its length and bytes taken into the digest, and read
+  # back by `rune_after`, `rune_before`, and `rune_size`; `size` encodes
+  # no surrogate and nothing past U+10FFFF. Every string of one or two
+  # bytes, every three-byte one whose last byte is an edge of the
+  # continuation range, and every four-byte one from a first byte of 0xC0
+  # or more whose last two bytes are edges, is read at 0 by `rune_size`
+  # and `rune_after`, as Zig reads it: the size, and Zig's code point, or
+  # none and `REPLACEMENT` of size 1 where Zig decodes none. A four-byte
+  # string's second byte is any byte after the first bytes that narrow
+  # its range (0xE0, 0xED, 0xF0, 0xF4), and an edge after the others. The
+  # first number counts the code points that do not read back. A change
+  # to the strings here is made in the Zig program too, and `zig run
+  # tools/utf8_zig.zig` gives the new result; `UTF8_ZIG_FULL=1` on
+  # test/cli/utf8_zig.sh compares every string of up to three bytes with
+  # Zig.
+  use std.utf8
+
+  EDGE = [0x00, 0x7F, 0x80, 0x81, 0xBF, 0xC0, 0xFF]
+  BOUND = [0x00, 0x7F, 0x80, 0x8F, 0x90, 0x9F, 0xA0, 0xBF, 0xC0, 0xFF]
+
+  # Two polynomial hashes of the numbers taken, each counted as itself
+  # plus two, and how many strings were read.
+  obj Digest
+    a: Int
+    b: Int
+    n: Int
+
+  sub take(d: !Digest, x: Int)
+    d.a = (d.a * 257 + x + 2) % 2147483647
+    d.b = (d.b * 263 + x + 2) % 2147483629
+
+  fun bound(x: Int) -> Bool
+    for y in BOUND
+      return true if x == y
+    false
+
+  fun wide(a: Int) -> Bool
+    a == 0xE0 or a == 0xED or a == 0xF0 or a == 0xF4
+
+  # The code points that do not read back as they were written.
+  fun code_points(d: !Digest) -> Int
+    bad = 0
+    out = String()
+    c = 0
+    while c <= 0x10FFFF : c += 1
+      if c >= 0xD800 and c <= 0xDFFF
+        bad += 1 if utf8.size(c) != none else 0
+        continue
+      !out.clear()
+      utf8.push_rune(!out, c)
+      n = out.len
+      take(!d, n)
+      for x in out
+        take(!d, Int(x))
+      r = utf8.rune_after(?out, 0)
+      b = utf8.rune_before(?out, n)
+      if r.rune != c or r.size != n or b.rune != c or b.size != n or (utf8.rune_size(?out, 0) ?? 0) != n or (utf8.size(c) ?? 0) != n
+        bad += 1
+    if utf8.size(0x110000) != none or utf8.size(-1) != none
+      bad += 1
+    bad
+
+  # Reads `s` at 0.
+  sub read(d: !Digest, s: ?String)
+    d.n += 1
+    take(!d, utf8.rune_size(s, 0) ?? -1)
+    r = utf8.rune_after(s, 0)
+    take(!d, r.rune)
+    take(!d, r.size)
+
+  # Sets `s` to the bytes of `b`.
+  sub set(s: !String, b: []Int)
+    !s.clear()
+    for x in b
+      !s.push(U8(x))
+
+  sub main()
+    d = Digest(a: 0, b: 0, n: 0)
+    bad = code_points(!d)
+    s = String()
+    for a in 0..256
+      set(!s, [a])
+      read(!d, ?s)
+      for b in 0..256
+        set(!s, [a, b])
+        read(!d, ?s)
+        for x in BOUND
+          set(!s, [a, b, x])
+          read(!d, ?s)
+          if a >= 0xC0 and (wide(a) or bound(b))
+            for y in EDGE
+              set(!s, [a, b, x, y])
+              read(!d, ?s)
+    print(bad, d.n, d.a, d.b)
