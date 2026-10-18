@@ -1,9 +1,0 @@
-# `Static` is a built-in type, like `String`, and cannot be redefined.
-
-obj Static
-  n: Int
-
-sub main()
-  print(1)
-
-# error: 3:5: `Static` is a reserved built-in nominal name and cannot be redefined

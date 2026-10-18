@@ -1,8 +1,0 @@
-# A bare copy of a `List` is rejected: both bindings would free the same
-# buffer.
-
-sub main()
-  v: List[Int] = List()
-  v2: List[Int] = v
-
-# error: `v` owns a `List[Int]`, which can't be copied by `=`: write `<v` to move it, `+v` to clone it, or `?v` to view it

@@ -1,0 +1,592 @@
+# emit: tests whose names start `generic`.
+
+test "generic bare variant lent", '''
+  nothing
+  nothing
+  nothing
+'''
+  # A bare variant of a generic enum, written with its type, lent where a
+  # view of the enum goes: the constant is reached through the instance
+  # its type names (`Opt(i64).nothing`), never as an element of a bracket
+  # list. The context-typed `.nothing` is a value made there.
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  sub show(o: ?Opt[Int])
+    match o
+      .some(v) => print("some", v)
+      .nothing => print("nothing")
+
+  sub showl(o: ?Opt[List[Int]])
+    match o
+      .some(v) => print("some", v.len)
+      .nothing => print("nothing")
+
+  show(Opt[Int].nothing)
+  showl(Opt[List[Int]].nothing)
+  show(.nothing)
+
+test "generic closure calls fun with capture", "4"
+  # A generic closure calls a captured `fun(?T)` with a `|?w|` capture.
+
+  obj P
+    n: Int
+    t: String
+
+    fun len(?self) -> Int
+      self.t.len
+
+  fun gen[T](w: !T, f: fun(?T) -> Int) -> Int
+    h = |?w, ?f| f(w) + f(w)
+    h()
+
+  fun ln(p: ?P) -> Int
+    p.len()
+
+  p = P(n: 1, t: String("ab"))
+  print(gen(!p, ln))
+
+test "generic closure passes match binding capture", "4 x"
+  # A generic closure passes on a `|?x|` capture of a match binding to a function taking `?T`.
+
+  obj P
+    n: Int
+    t: String
+
+  enum G[T]
+    a(x: T)
+    b
+
+  sub poke[T](g: !G[T], f: sub(?T))
+    match !g
+      .a(x)
+        h = |?x, ?f| f(x)
+        h()
+      .b => pass
+
+  sub show(p: ?P)
+    print(p.n, p.t)
+
+  g2: G[P] = G.a(P(n: 4, t: String("x")))
+  poke(!g2, show)
+
+test "generic closure passes read view capture", "1 ab"
+  # A generic closure passes on a `|?w|` capture of a read view to a function taking `?T`.
+
+  obj P
+    n: Int
+    t: String
+
+  sub gen[T](w: ?T, f: sub(?T))
+    h = |?w, ?f| f(w)
+    h()
+
+  sub show(p: ?P)
+    print(p.n, p.t)
+
+  p = P(n: 1, t: String("ab"))
+  gen(?p, show)
+
+test "generic closure passes write view capture", "1 ab"
+  # A generic closure passes on a `|?w|` capture of a write view to a function taking `?T`.
+
+  obj P
+    n: Int
+    t: String
+
+  sub gen[T](w: !T, f: sub(?T))
+    h = |?w, ?f| f(w)
+    h()
+
+  sub show(p: ?P)
+    print(p.n, p.t)
+
+  p = P(n: 1, t: String("ab"))
+  gen(!p, show)
+
+test "generic enum drop glue", '''
+  some
+  6
+'''
+  # A generic enum instantiated with a handle (`Maybe[*Noisy]`) drops the
+  # handle it holds.
+
+  enum Maybe[T]
+    some(value: T)
+    nothing
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  n = *Noisy(id: 6)
+  m: Maybe[*Noisy] = .some(value: <n)
+  match m
+    .some => print("some")
+    .nothing => print("none")
+
+test "generic eq nested optional", '''
+  false false false false
+  false false true true true
+  false false false true true
+  false true false
+  false true false false
+'''
+  # A generic `==` over nested optionals compares `none` at each level
+  # before unwrapping, so a `none` held inside a `some` differs from the
+  # outer `none`. A side with fewer levels counts as `some` at the rest.
+
+  fun eq[K](a: K?, b: K?) -> Bool
+    a == b
+
+  fun eq2[K](a: (K?)?, b: (K?)?) -> Bool
+    a == b
+
+  fun mixed[K](a: K?, b: (K?)?) -> Bool
+    a == b
+
+  fun mixed3[K](a: (K?)?, b: ((K?)?)?) -> Bool
+    a == b
+
+  b: Int? = none
+  d: (Int?)? = b
+  a: (Int?)? = none
+  print(d == none, d == a, eq[Int?](d, none), eq[Int?](d, a))
+  c: (Int?)? = 3
+  print(c == a, c == d, c == c, a == a, d == d)
+  e: ((Int?)?)? = d
+  f: ((Int?)?)? = none
+  g: ((Int?)?)? = a
+  print(eq2[Int?](e, f), eq2[Int?](e, g), eq2[Int?](g, f), eq2[Int?](f, f), eq2[Int?](e, e))
+  print(mixed[Int](b, a), mixed[Int](b, d), mixed[Int](b, c))
+  o: (Int?)? = 4
+  print(mixed3[Int](a, f), mixed3[Int](d, e), mixed3[Int](d, g), mixed3[Int](o, e))
+
+test "generic eq optional view", '''
+  true false false
+  false true true
+  true false
+  true false
+'''
+  # A generic `==` beside an optional compares the value inside, whatever
+  # form the other operand has: an optional `String` and a view of one,
+  # a List element and a view, and `none`.
+
+  fun same[K](a: ?K?, k: ?K) -> Bool
+    a == k
+
+  fun differ[K](a: ?K?, k: ?K) -> Bool
+    a != k
+
+  fun find[K](xs: ?List[K?], k: ?K) -> Bool
+    xs[0] == k
+
+  fun held[K](a: K?, b: ?K) -> Bool
+    a == b
+
+  o: String? = String("a")
+  n: String? = none
+  t = String("a")
+  u = String("b")
+  print(same[String](?o, ?t), same[String](?o, ?u), same[String](?n, ?t))
+  print(differ[String](?o, ?t), differ[String](?o, ?u), differ[String](?n, ?t))
+  v: List[String?] = List()
+  !v.push(String("a"))
+  !v.push(none)
+  print(find[String](?v, ?t), find[String](?v, ?u))
+  m: String? = String("b")
+  print(held[String](<o, ?t), held[String](<m, ?t))
+
+test "generic local lent implicitly", '''
+  5 5
+  6 6
+  1 2
+  P(t: "p") P(t: "p")
+  P(t: "q") P(t: "q")
+  1 2
+'''
+  # A `T` local lent where a `?T` is expected is lent as `?x` lends it, in
+  # a generic body as anywhere: implicitly or written, in a call that
+  # evaluates its arguments first or not, for an instance read by value and
+  # one read by address.
+
+  fun g(k: Int) -> Int
+    k
+
+  fun pick[T](q: ?T, n: Int) -> ?T from q
+    q
+
+  fun direct[T](x: T) -> Int
+    print(pick(x, 1), pick(?x, 2))
+    1
+
+  fun hoisted[T](x: T) -> Int
+    print(pick(n: g(1), q: x), pick(n: g(2), q: ?x))
+    2
+
+  obj P
+    t: String
+
+  print(direct(5), hoisted(6))
+  print(direct(P(t: String("p"))), hoisted(P(t: String("q"))))
+
+test "generic match switches in place", "1 1 0 11 11 10"
+  # A `match` on a generic read view a name holds (`?self` of a generic
+  # type) switches on the value the view reaches, where it is: a binding
+  # captured by pointer views that value, in every instance.
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+    fun get(?self) -> Int
+      match self
+        .some(v) => size(?v)
+        .nothing => 0
+
+    fun all(?self) -> Int
+      match self
+        x => x.get() + 10
+
+  fun size[T](v: ?T) -> Int
+    1
+
+  a = Opt.some(v: 3)
+  b: Opt[String] = Opt.some(v: String("x"))
+  n: Opt[String] = .nothing
+  print(a.get(), b.get(), n.get(), a.all(), b.all(), n.all())
+
+test "generic param in function types", "1 7 4"
+  # A type parameter used only in a closure's parameter types, or in the
+  # parameters of a function type, is still used, and a compile-time
+  # parameter may be named `_`.
+
+  fun zero[T](x: Int) -> Int
+    f = |y: Int, z: T?| y
+    f(x, none)
+
+  fun seven[T](x: Int) -> Int
+    f: fun(T?) -> Int = |y| 7
+    f(none)
+
+  fun skip[_: Int, _](x: Int) -> Int
+    x
+
+  print(zero[Int](1), seven[?String](2), skip[3, Bool](4))
+
+test "generic read view instances", '''
+  1 1
+  true
+  2
+  1
+  1
+  6
+  6
+  6
+  [] []
+  true
+  1
+  1
+  9
+'''
+  # A read view whose type holds a generic type's parameter (`?T`,
+  # `?Self`) takes the form each instance needs: a copy of plain data, a
+  # pointer to a value that owns resources, a shared Cell included. Both
+  # sides of a method call, a field, and a payload agree.
+
+  obj Wrap[T]
+    v: T
+
+    fun get(?self) -> ?T
+      ?self.v
+
+    fun echo(?self, x: ?T) -> ?T
+      x
+
+    fun same(?self, other: ?Self) -> Bool
+      s = other.get()
+      t = self.echo(s)
+      u = self.echo(?other.v)
+      print(t, u)
+      true
+
+    sub show(?self)
+      r = self.get()
+      print(r)
+
+  obj Num[T]
+    v: T
+
+    fun copy(?self) -> T
+      r = ?self.v
+      +r
+
+  obj Ref[T]
+    r: ?T
+
+    fun val(?self) -> ?T
+      self.r
+
+  enum Opt[T]
+    some(v: ?T)
+    nothing
+
+  a = Wrap(v: 1)
+  b = Wrap(v: 1)
+  print(a.same(?b))
+  r = ?a.get()
+  print(r + 1)
+  print(Num(v: 1).copy())
+  a.show()
+  x = 5
+  c = Ref(r: ?x)
+  print(c.r + 1)
+  print(c.val() + 1)
+  o = Opt.some(v: ?x)
+  match o
+    .some(v) => print(v + 1)
+    .nothing => print(0)
+  v: List[Int] = List()
+  !v.push(4)
+  va = Wrap(v: <v)
+  w: List[Int] = List()
+  vb = Wrap(v: <w)
+  print(va.same(?vb))
+  print(va.get().len)
+  vr = Ref(r: ?va)
+  print(vr.val().get().len)
+  n = *Cell(3)
+  m = +n
+  d = Wrap(v: <m)
+  e = ?d.get()
+  !n.set(9)
+  print(e.get())
+
+test "generic read view of vec element", '''
+  4 5
+  2
+  hi
+'''
+  # A read view of a List element through a lent to read receiver reads
+  # the element in place.
+
+  obj P
+    x: Int
+    y: Int
+
+  obj Bag[T]
+    items: List[T]
+
+    fun first(?self) -> ?T
+      ?self.items[0]
+
+    fun at(?self, i: Int) -> ?T
+      ?self.items[i]
+
+  a: Bag[Int] = Bag(items: List())
+  !a.items.push(4)
+  !a.items.push(5)
+  print(a.first(), a.at(1))
+  b: Bag[P] = Bag(items: List())
+  !b.items.push(P(x: 1, y: 2))
+  r = ?b.first()
+  print(r.y)
+  s: Bag[?String] = Bag(items: List())
+  !s.items.push("hi")
+  print(s.first())
+
+test "generic struct drop glue", '''
+  1
+  6
+'''
+  # A generic struct instantiated with a handle (`Holder[*Noisy]`) drops the
+  # handle it holds.
+
+  obj Holder[T]
+    value: T
+    id: Int
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  n = *Noisy(id: 6)
+  h: Holder[*Noisy] = Holder(value: <n, id: 1)
+  print(h.id)
+
+test "generic temporary receiver", '''
+  side 2
+  side 3
+  side 4
+  3 43
+'''
+  # A temporary receiver holding a type parameter, evaluated before the
+  # arguments, is dropped like a resource in the generic body.
+
+  fun side(k: Int) -> Int
+    print("side", k)
+    k
+
+  obj Wrap[T]
+    v: T
+
+    fun plus(?self, k: Int) -> Int
+      k + 1
+
+    fun get(?self, a: Int, b: Int) -> Int
+      a * 10 + b
+
+    fun twice(?self) -> Wrap[T]
+      Wrap(v: self.v)
+
+    fun again(?self) -> Int
+      self.twice().plus(side(2))
+
+    fun order(?self) -> Int
+      self.twice().get(b: side(3), a: side(4))
+
+  b = Wrap(v: 1)
+  print(b.again(), b.order())
+
+test "generic type beside module self", "3 W(v: 1)"
+  # A module-level function named `Self` does not clash with the name a
+  # generic type uses for itself in the emitted Zig.
+
+  fun Self() -> Int
+    3
+
+  obj W[T]
+    v: T
+
+    fun get(?self) -> Int
+      Self()
+
+    fun same(?self) -> W[T]
+      W(v: self.v)
+
+  w = W(v: 1)
+  print(w.get(), w.same())
+
+test "generic view field guard", '''
+  look [1, 2, 3, 4, 5, 6, 7, 8]
+  look [9, 9, 9, 9, 9, 9, 9, 9]
+  1
+  10
+  look [1, 2, 3, 4, 5, 6, 7, 8]
+  1
+'''
+  # A guarded `match` on a generic read view a field holds binds its
+  # payload through `rig.viewedPtr(T, &w.r).*`, the place the view
+  # reaches, for the guard and again for the arm: it stays valid across
+  # the arm's statements, a nested match, and a call that reuses the stack
+  # (`spill`), where an address into a copy of the view's value would not.
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj V[T]
+    r: ?Opt[T]
+
+  fun look[T](x: ?T) -> Int
+    print("look", x)
+    1
+
+  fun spill(n: Int) -> [8]Int
+    [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+
+  fun g[T](w: ?V[T], u: ?V[T]) -> Int
+    match w.r
+      .some(v) if look(?v) == 1
+        a = spill(7)
+        k = match u.r
+          .some(q) => look(?q)
+          .nothing => 0
+        print(k)
+        print(a[3])
+        look(?v)
+      _ => 0
+
+  o = Opt.some(v: [1, 2, 3, 4, 5, 6, 7, 8])
+  p = Opt.some(v: [9, 9, 9, 9, 9, 9, 9, 9])
+  w = V(r: ?o)
+  u = V(r: ?p)
+  print(g(?w, ?u))
+
+test "generic view field subject", '''
+  look t
+  look t
+  look t
+  1 2
+  look [5, 6, 7, 8]
+  look [5, 6, 7, 8]
+  look [5, 6, 7, 8]
+  1 2
+  look y
+  look y
+  look x
+  3
+'''
+  # A `match` on a generic read view a field or an element holds (`w.r`,
+  # `arr[1]`) switches on the value the view reaches where it is,
+  # `rig.viewedPtr(T, &w.r).*`: a payload of a type parameter, bound by
+  # pointer, points there, never into a copy of the view's value in a Zig
+  # temporary, so it reads the right value after the stack is reused
+  # (`clobber`) in every instance.
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj V[T]
+    r: ?Opt[T]
+
+  fun look[T](x: ?T) -> Int
+    print("look", x)
+    1
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun f[T](w: ?V[T]) -> Int
+    match w.r
+      .some(v)
+        k = clobber(100)
+        look(?v) + k - 101
+      .nothing => 0
+
+  fun g[T](w: ?V[T]) -> Int
+    match w.r
+      .some(v) if clobber(1) == 2 and look(?v) == 1
+        k = clobber(200)
+        look(?v) + k - 200
+      _ => 0
+
+  fun h[T](a: ?Opt[T], b: ?Opt[T]) -> Int
+    arr = [a, b]
+    n = match arr[1]
+      .some(v) if look(?v) == 1
+        k = clobber(300)
+        look(?v) + k - 300
+      _ => 0
+    m = match arr[0]
+      .some(v) => look(?v)
+      .nothing => 0
+    n + m
+
+  o = Opt.some(v: String("t"))
+  w = V(r: ?o)
+  print(f(?w), g(?w))
+  i = Opt.some(v: [5, 6, 7, 8])
+  wi = V(r: ?i)
+  print(f(?wi), g(?wi))
+  x = Opt.some(v: String("x"))
+  y = Opt.some(v: String("y"))
+  print(h(?x, ?y))

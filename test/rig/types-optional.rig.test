@@ -1,0 +1,333 @@
+# types: tests whose names start `optional`.
+
+test "optional compared with value", "true true true false true true"
+  # `T?` compares with a `T`: equal when it holds that value.
+
+  enum E
+    a
+    b
+
+  a: Int? = 5
+  u: U8? = none
+  k = 5
+  e: E? = E.b
+  print(a == 5, a != 6, 5 == a, u == 3, a == k, e == E.b)
+
+test "optional equality", '''
+  true true true false
+  true false false false true
+  true true false true true
+'''
+  # `==` and `!=` compare optionals of equatable types: two present values
+  # compare as the values do (Strings by contents), and `none` equals only
+  # `none`.
+
+  enum Color
+    red
+    green
+
+  fun find(key: Int) -> (?String)?
+    if key == 1
+      return "one"
+    none
+
+  fun pick(n: Int) -> Color?
+    if n == 1
+      return .green
+    none
+
+  fun num(n: Int) -> Int?
+    if n == 1
+      return 5
+    none
+
+  a = find(1)
+  b = find(2)
+  s = "one"
+  print(a == "one", a == s, a != "two", a == none)
+  print(b == none, b != none, b == "one", a == b, b == find(3))
+  print(pick(1) == .green, pick(2) == none, pick(1) == pick(2), num(1) == 5, num(2) == num(3))
+
+test "optional error compare", '''
+  true
+  false
+  true
+  true
+  false
+  true
+'''
+  # An optional error compares with an error, a contextual `.name`,
+  # `none`, and another optional error.
+
+  error E
+    bad
+    worse
+
+  e: E? = E.bad
+  n: E? = none
+  print(e == E.bad)
+  print(e == .worse)
+  print(e != none)
+  print(n == none)
+  print(e == n)
+  print(n != E.bad)
+
+test "optional fallback from context", "0 3 4 7"
+  # Where an optional is expected, the fallback of `??` or `catch` may be
+  # `none` or another optional.
+
+  error Bad
+    nope
+
+  fun g(ok: Bool) -> Int!
+    if ok
+      3
+    else
+      return Bad.nope
+
+  fun pick(a: Int?, b: Int?) -> Int?
+    a ?? b
+
+  x: Int? = g(false) catch none
+  y: Int? = g(true) catch none
+  a: Int? = none
+  b: Int? = 4
+  c: Int? = a ?? b
+  print(x ?? 0, y ?? 0, c ?? 1, pick(none, 7) ?? 0)
+
+test "optional from value", "3"
+  # A plain value is lifted where an optional is expected: `y: Int? = 3`.
+  # `??` yields the value inside, or the fallback when it is `none`.
+
+  y: Int? = 3
+  print(y ?? 7)
+
+fail "optional function field call", "8:9: field `f` holds an optional function, `(fun(Int) -> Int)?`: take the function out first, `if h.f as g`, then call `g(...)`"
+  # A field holding an optional function is not called directly: the
+  # function is taken out of the optional first.
+
+  obj Hooks
+    f: (fun(Int) -> Int)? = none
+
+  h = Hooks()
+  print(h.f(1))
+
+test "optional handle binding", '''
+  false true true
+  -1 1 1
+  3 3 0 none
+  true true
+  true true true
+'''
+  # `*` and `~` bind to the type they touch, tighter than a suffix: `*Node?`
+  # is an optional handle. A view covers the whole type after it:
+  # `?*Node?` views an optional handle, `!Int?` an optional Int. A slice's
+  # element takes the suffix (`[]Int?`); an optional slice is `([]Int)?`.
+  # A type argument in an expression reads the same way: `Cell[*Node?]` and
+  # `Cell[*(Node)?]` hold optional handles. A handle to an optional,
+  # `*(Node?)`, is named there with a `type` alias.
+
+  obj Node
+    value: Int
+
+  type Held = *(Node?)
+
+  fun present(h: ?*Node?) -> Bool
+    h != none
+
+  fun take(h: *Node?) -> Int
+    if <h as n
+      return n.value
+    -1
+
+  fun first(xs: []Int?) -> Int
+    xs[1] ?? 0
+
+  fun size(xs: ([]Int)?) -> Int
+    if xs as s
+      return s.len
+    0
+
+  sub clear(x: !Int?)
+    x = none
+
+  a: *Node? = none
+  b: *Node? = *Node(value: 1)
+  w: ~Node? = none
+  cell = *Cell[*Node?](none)
+  !cell.set(+b)
+  print(present(?a), present(?b), w == none)
+  print(take(<a), take(<b), take((!cell).replace(none)))
+  xs: [2]Int? = [none, 3]
+  ys = [1, 2, 3]
+  n: Int? = 4
+  clear(!n)
+  print(first(?xs[0..2]), size(?ys[0..3]), size(none), n)
+  p = *Cell[*(Node)?](none)
+  q = *Cell[~Node?](none)
+  m: Node? = Node(value: 2)
+  held = *Cell[Held](*m)
+  old = (!held).replace(*none)
+  <old
+  print((!p).replace(none) == none, (!q).replace(none) == none)
+  nd = *Node(value: 3)
+  sw: *Cell[~Node?] = *Cell[~Node?](~nd)
+  ws: *Cell[~*Node?] = *Cell[~*Node?](none)
+  sp: *Cell[(~Node)?] = *Cell[(~Node)?](none)
+  print((!sw).replace(none) != none, (!ws).replace(none) == none, (!sp).replace(none) == none)
+
+test "optional handle none", '''
+  true
+  true
+  true
+  2 true
+  true
+  true
+'''
+  # An optional handle with no value is `none`, in every position where
+  # a `(*T)?` is expected, and a box of an optional holds `none` as any
+  # other value. (`*none` is rejected: test/reject/types/share_of_none.rig.)
+
+  obj S
+    h: (*Int)?
+
+  sub f(h: (*Int)?)
+    print(h == none)
+
+  fun g() -> (*Int)?
+    none
+
+  fun empty(o: ?(Int?)) -> Bool
+    o == none
+
+  b: (*Int)? = none
+  print(b == none)
+  f(none)
+  s = S(h: none)
+  print(s.h == none)
+  w: List[(*Int)?] = List()
+  !w.push(none)
+  !w.push(*5)
+  print(w.len, w[0] == none)
+  print(g() == none)
+  x: ^(Int?) = ^none
+  print(empty(?x))
+
+test "optional holds read view", '''
+  1 7
+  true
+  2 2
+  true
+'''
+  # An optional holds a read view of an owner, and keeps the owner lent
+  # while it is used.
+
+  fun find(v: ?List[List[Int]], want: Int) -> (?List[Int])?
+    for i in 0..v.len
+      if v[i].len == want
+        return ?v[i]
+    none
+
+  v: List[Int] = List()
+  !v.push(7)
+  o: (?List[Int])? = ?v
+  if o as w
+    print(w.len, w[0])
+  n: (?List[Int])? = none
+  print(n == none)
+  rows: List[List[Int]] = List()
+  !rows.push(List())
+  inner: List[Int] = List()
+  !inner.push(1)
+  !inner.push(2)
+  !rows.push(<inner)
+  if find(?rows, 2) as hit
+    print(hit.len, hit[1])
+  none_hit = find(?rows, 9)
+  print(none_hit == none)
+
+fail "optional member without unwrap", "8:5: cannot access `name` on optional `User?`; take the value out first with `x ?? fallback`"
+  # Field access on an optional (`u.name` with `u: User?`) requires
+  # unwrapping it first.
+
+  obj User
+    name: ?String
+
+  fun name_of(u: User?) -> ?String
+    u.name
+
+  print("unused")
+
+fail "optional method without unwrap", "cannot call `get` on optional `U?`"
+  # Methods are not reachable through an optional.
+
+  obj U
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+  fun f(u: U?) -> Int
+    u.get()
+
+  print(1)
+
+test "optional none literal", "7"
+  # `none` is the absent optional.
+
+  x: Int? = none
+  print(x ?? 7)
+
+test "optional return", '''
+  3
+  0
+  true
+  false
+'''
+  # A `-> T?` function returns either a `T` (lifted) or `none`; `??`
+  # supplies a fallback and `== none` tests for absence.
+
+  fun positive(n: Int) -> Int?
+    if n > 0
+      n
+    else
+      none
+
+  print(positive(3) ?? 0)
+  print(positive(-1) ?? 0)
+  m: Int? = none
+  print(m == none)
+  print(positive(5) == none)
+
+fail "optional slice size", "4:14: `[600000](?String)?` takes 9600000 bytes", "5:14: `[600000]([]Int)?` takes 9600000 bytes"
+  # An optional String or slice takes no more room than the String or
+  # slice: its absence is a null address.
+
+  type Names = [600000](?String)?
+  type Views = [600000]([]Int)?
+
+  print(1)
+
+test "optional text eq", '''
+  true false false true
+  true false false true
+  true false
+  true false true
+  true false
+'''
+  # An optional of text compares with text of any type by its bytes, as
+  # two texts do: a `String?` beside a `?String`, a `Static`, or a String,
+  # and a `?String?` beside a String, or a boxed String beside a
+  # `String?`. `none` equals no text.
+
+  o: String? = String("a")
+  n: String? = none
+  t = String("a")
+  u = String("b")
+  print(o == ?t, o == ?u, n == ?t, o != ?u)
+  print(o == "a", o == "b", n == "a", "a" == o)
+  print(o == t, ?u == o)
+  v: (?String)? = ?t
+  print(v == t, v == u, v == "a")
+  bx = ^String("a")
+  print(o == bx, n == bx)

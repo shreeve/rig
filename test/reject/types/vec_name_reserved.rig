@@ -1,9 +1,0 @@
-# `List` is a built-in nominal name and cannot be redefined.
-
-obj List
-  x: Int
-
-sub main()
-  print("hi")
-
-# error: `List` is a reserved built-in nominal name

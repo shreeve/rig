@@ -1,0 +1,506 @@
+# types: tests whose names start `ct`.
+
+test "ct arg constants", '''
+  true
+  false
+  8
+  3.0
+  14
+  17
+'''
+  # A compile-time argument may compute with constants, which Rig folds
+  # and checks, and may compare or combine compile-time values.
+
+  LIM = 4
+  FL = 1.5
+
+  sub g[n: Int]()
+    print(n)
+
+  sub h[b: Bool]()
+    print(b)
+
+  sub fl[x: Float]()
+    print(x)
+
+  sub f[n: Int]()
+    k =! n > 1
+    h[k]()
+    h[n > 1 and not k]()
+    g[LIM * 2]()
+    fl[FL * 2.0]()
+    a =! 7
+    j =! a * 2
+    g[j]()
+    g[a * 3 - LIM]()
+
+  sub main()
+    f[3]()
+
+fail "ct arg param arithmetic", "9:9: compile-time argument 1 of `inner` does arithmetic on a compile-time parameter", "10:9: compile-time argument 1 of `inner` does arithmetic on a compile-time parameter", "11:9: compile-time argument 1 of `inner` does arithmetic on a compile-time parameter", "18:5: compile-time argument 1 of `g` does arithmetic on a compile-time parameter", "18:15: compile-time argument 1 of `g` must be known at compile time; `k` is bound with `=!` to a value computed when the program runs"
+  # Arithmetic in a compile-time argument is checked only when Rig folds
+  # it to a constant. On a compile-time parameter it would be computed per
+  # instance, unchecked, so it is rejected, as is a `=!` binding of it.
+
+  sub inner[n: U8]()
+    print(n)
+
+  sub outer[n: U8]()
+    inner[n + 1]()
+    inner[10 / n]()
+    inner[1 << n]()
+
+  fun g[n: Int]() -> Int
+    n
+
+  fun f[n: Int]() -> Int
+    k =! n * 2
+    g[-n]() + g[k]()
+
+  outer[255]()
+  print(f[3]())
+
+test "ct array const", '''
+  [1, 2, 3, 4] 8 9 6 [1, 2] 0 [1, 2, 3] 5
+  2 3
+'''
+  # An array's length is any compile-time integer: a literal, a constant,
+  # or arithmetic on them. `[LIMIT]Int` is the same type as `[4]Int`.
+
+  LIMIT = 4
+  DOUBLE = LIMIT * 2
+  A = 1
+  B = 2
+
+  fun count[n: U8](xs: [n]Int) -> Int
+    Int(n)
+
+  sub main()
+    a: [LIMIT]Int = [1, 2, 3, 4]
+    b: [4]Int = a
+    c: [DOUBLE]Int = [8 of 0]
+    d: [LIMIT * 2 + 1]U8 = [9 of 7]
+    e: [(A + B) * 2][LIMIT - 2]Int = [6 of [1, 2]]
+    f: [0]Int = []
+    k =! 3
+    g: [k]Int = [1, 2, 3]
+    h = |xs: [LIMIT + 1]Int| xs[4]
+    print(b, c.len, d.len, e.len, e[5], f.len, g, h([1, 2, 3, 4, 5]))
+    print(count([1, 2]), count[3]([3 of 0]))
+
+bomb "ct array index panics", "index out of bounds", prints: "3"
+  # An index into an array whose length is a compile-time parameter is
+  # checked when the program runs, even for an array of length 0.
+
+  fun at[n: Int](xs: [n]Int, i: Int) -> Int
+    xs[i]
+
+  fun first[n: Int](xs: [n]Int) -> Int
+    xs[0]
+
+  print(at([1, 2, 3], 2))
+  e: [0]Int = []
+  print(first(e))
+
+test "ct array infer", '''
+  6
+  22 4 66 21
+  [0, 0, 0]
+'''
+  # A compile-time integer parameter that a parameter's or the result's
+  # type holds as an array length is inferred, as a type parameter is:
+  # from the arguments, or from the type expected of the result.
+
+  fun sum[n: Int](xs: [n]Int) -> Int
+    total = 0
+    for x in xs
+      total += x
+    total
+
+  fun first[n: Int](xs: ?[n]Int) -> Int
+    xs[0]
+
+  fun zeros[n: Int]() -> [n]Int
+    [n of 0]
+
+  fun pair[n: Int](a: [n]Int, b: [n]Int) -> Int
+    sum(a) * sum(b)
+
+  # A generic body passes its own parameter on, inferred or named.
+  fun twice[n: Int](xs: [n]Int) -> Int
+    k =! n
+    ys: [k]Int = xs
+    sum(ys) + sum[k](xs) + sum[n](xs)
+
+  print(sum([1, 2, 3]))
+  a = [4, 5, 6, 7]
+  print(sum(a), first(?a), twice(a), pair([1, 2], [3, 4]))
+  b: [3]Int = zeros()
+  print(b)
+
+fail "ct array infer values", "14:7: conflicting values for `n` in the call to `sum`: `3` (argument 1) and `4` (argument 2)", "15:7: argument 1 gives `n` of `small` the value `300`, which a `U8` cannot hold", "16:13: integer value `300` does not fit in `U8` (0..255)", "12:3: argument 1 gives `n` of `small` the compile-time `Int` `n`; `n` is a `U8`"
+  # An inferred length must agree across the arguments, and fit the type
+  # of the parameter it gives: a `U8` holds no 300, and takes no `Int`
+  # compile-time parameter.
+
+  fun sum[n: Int](a: [n]Int, b: [n]Int) -> Int
+    1
+
+  fun small[n: U8](xs: [n]Int) -> Int
+    1
+
+  fun big[n: Int](xs: [n]Int) -> Int
+    small(xs)
+
+  print(sum([1, 2, 3], [1, 2, 3, 4]))
+  print(small([300 of 0]))
+  print(small[300]([1]))
+  print(big([1]))
+
+test "ct array len", '''
+  [10, 11, 12] 33 3
+  [] 0
+  [10, 11, 12]
+'''
+  # An array's length can be a compile-time integer parameter: in a
+  # function's result and parameter types, and in a local's annotation.
+  # Each call's instance has its own length.
+
+  fun zeros[n: Int]() -> [n]Int
+    [n of 0]
+
+  sub fill[n: Int](xs: ![n]Int, v: Int)
+    for i in 0..n
+      xs[i] = v + i
+
+  fun total[n: Int](xs: ?[n]Int) -> Int
+    sum = 0
+    for x in xs
+      sum += x
+    sum
+
+  fun copy[n: Int](xs: ?[n]Int) -> [n]Int
+    out: [n]Int = [n of 0]
+    for x, i in xs
+      out[i] = x
+    out
+
+  a = zeros[3]()
+  fill[3](!a, 10)
+  print(a, total[3](?a), a.len)
+  b = zeros[0]()
+  print(b, b.len)
+  print(copy[3](?a))
+
+fail "ct array len not constant", "7:23: an array length `n + 1` does arithmetic on a compile-time parameter", "10:16: an array length is an integer; `HALF` is not an integer constant", "18:7: an array length must be known at compile time; `k` is not", "19:7: `Int` is a type; an array length is an integer, a constant, a compile-time parameter, or arithmetic on them", "20:7: an array length is an integer; `HALF` is a `Float`", "21:7: an array length `4 / 0` divides by zero", "22:7: use of unbound name `nope`", "23:8: an array length is an integer; `2.5` is a `Float`", "24:8: an array length is an integer; `true` is a `Bool`", "25:8: an array length is an integer; `\"x\"` is a `?String`", "26:8: an array length is an integer; `none` is the absent optional", "27:8: an array length cannot call a function: `three()` runs only when the program does"
+  # An array's length is a compile-time integer: not a type, a run-time
+  # value, a float, a call, or arithmetic on a compile-time parameter, which Rig
+  # cannot check for overflow at each instance.
+
+  HALF = 2.5
+
+  fun grow[n: Int](xs: [n + 1]Int) -> Int
+    1
+
+  fun halve(xs: [HALF]Int) -> Int
+    1
+
+  fun three() -> Int
+    3
+
+  sub main()
+    k = 3
+    a: [k]Int = [1, 2, 3]
+    b: [Int]Int = [1]
+    c: [HALF]Int = [1, 2]
+    d: [4 / 0]Int = [1]
+    e: [nope]Int = [1]
+    f = [2.5 of 0]
+    g = [true of 0]
+    h = ["x" of 0]
+    i = [none of 0]
+    j = [three() of 0]
+    print(a, b, c, d, e, f, g, h, i, j)
+
+fail "ct array len range", "20:7: array length -3 is out of range", "15:7: array length -1 is out of range: an array length runs from 0 to 4294967295", "16:7: array length 4294967296 is out of range", "17:8: an array length `999999999999999999999999999999999999999999999999999999999999999999999999999999999` is too large to compute", "18:9: `zeros[-1]` cannot use `n = -1`: the generic body uses `n` as an array length, which runs from 0 to 4294967295", "19:9: `zeros[-2]` cannot use `n = -2`: the generic body uses `n` as an array length", "19:9: `zeros[-2]` is made by `wrap[-2]`"
+  # An array's length runs from 0 to 2^32 - 1. A compile-time parameter
+  # used as one is checked at each instance: called directly, and through
+  # a generic body that passes it on.
+
+  NEG = -1
+  BIG = 4294967296
+
+  fun zeros[n: Int]() -> [n]Int
+    [n of 0]
+
+  fun wrap[n: Int]() -> Int
+    zeros[n]().len
+
+  sub main()
+    a: [NEG]Int = [0 of 0]
+    b: [BIG]U8 = [0 of 0]
+    c = [999999999999999999999999999999999999999999999999999999999999999999999999999999999 of 0]
+    print(zeros[-1]().len)
+    print(wrap[-2]())
+    d: [-3]Int = []
+    print(a, b, c, d)
+
+fail "ct array symbolic literal", "5:15: an array of compile-time length `n` is built with `[n of x]`, not a list of elements"
+  # An array whose length is a compile-time parameter is built with
+  # `[n of x]`: a list of elements has a length of its own.
+
+  fun zeros[n: Int]() -> [n]Int
+    a: [n]Int = [0, 0]
+    a
+
+  print(zeros[2]())
+
+fail "ct call diagnostics", "16:7: generic parameter `List` has the name of a built-in type", "19:7: generic parameter `Self` has the name of a built-in type", "34:9: parameter `T` has the name of the generic parameter `T`", "37:1: `show` takes 1 compile-time argument in brackets: `show[...]()`", "38:1: compile-time arguments go in brackets after the name: `show[3]()`", "39:6: compile-time argument 1 of `show` is a value of type `Int`, not a type", "40:7: `scaled` takes 1 compile-time argument in brackets: `scaled[...](...)`", "41:1: `plain` takes no compile-time arguments; call it with `plain(...)`", "42:5: `size[4]` is a function with compile-time arguments; call it with `size[4]()`", "44:1: `s.put[3]` is a method with compile-time arguments; call it with `s.put[3]()`", "45:5: `s.gen[Int]` is a method with compile-time arguments; call it with `s.gen[Int](...)`", "46:7: `plain` takes no compile-time arguments"
+  # Each misuse of compile-time arguments gets one diagnostic that says
+  # what to write, with no cascade from the same mistake.
+
+  fun plain(n: Int) -> Int
+    n
+
+  fun size[n: Int]() -> Int
+    n
+
+  sub show[n: Int]()
+    print(n)
+
+  fun scaled[n: Int](x: Int) -> Int
+    x * n
+
+  fun f[List](x: List) -> List
+    x
+
+  fun g[Self](x: Self) -> Self
+    <x
+
+  obj S
+    k: Int
+
+    sub put[n: Int](?self)
+      print(self.k * n)
+
+    fun gen[T](?self, x: T) -> T
+      <x
+
+  obj Wrap[T]
+    v: T
+
+    fun m[T](?self, x: T) -> T
+      x
+
+  show(3)
+  show([3])
+  show[Int]()
+  print(scaled(3))
+  plain[0]
+  x = size[4]
+  s = S(k: 1)
+  s.put[3]
+  n = s.gen[Int]
+  print(plain[0], f(1), g(2), Wrap(v: 1).m("s"))
+
+fail "ct call without parens", "11:1: `show[3]` is a function with compile-time arguments; call it with `show[3]()`", "12:1: `greet` is a function; call it with `greet()`"
+  # Brackets choose a function's instance and parentheses call it: a
+  # statement `show[3]` does not call `show`, as `greet` alone does not
+  # call `greet`.
+
+  sub show[n: Int]()
+    print(n)
+
+  sub greet()
+    print("hi")
+
+  show[3]
+  greet
+
+test "ct const chain", "5 2 4"
+  # Module constants fold once, in dependency order, so a long chain of
+  # them sizes a signature or a field at once, and a type anywhere in the
+  # module can name one declared after it.
+
+  C0 = 1
+  C1 = C0 + C0 - C0
+  C2 = C1 + C1 - C1
+  C3 = C2 + C2 - C2
+  C4 = C3 + C3 - C3
+  C5 = C4 + C4 - C4
+  C6 = C5 + C5 - C5
+  C7 = C6 + C6 - C6
+  C8 = C7 + C7 - C7
+  C9 = C8 + C8 - C8
+  C10 = C9 + C9 - C9
+  C11 = C10 + C10 - C10
+  C12 = C11 + C11 - C11
+  C13 = C12 + C12 - C12
+  C14 = C13 + C13 - C13
+  C15 = C14 + C14 - C14
+  C16 = C15 + C15 - C15
+  C17 = C16 + C16 - C16
+  C18 = C17 + C17 - C17
+  C19 = C18 + C18 - C18
+  C20 = C19 + C19 - C19
+  C21 = C20 + C20 - C20
+  C22 = C21 + C21 - C21
+  C23 = C22 + C22 - C22
+  C24 = C23 + C23 - C23
+  C25 = C24 + C24 - C24
+  C26 = C25 + C25 - C25
+  C27 = C26 + C26 - C26
+  C28 = C27 + C27 - C27
+  C29 = C28 + C28 - C28
+  C30 = C29 + C29 - C29
+  C31 = C30 + C30 - C30
+  C32 = C31 + C31 + C31
+  C33 = C32 + 1
+  C34 = C33 + 1
+
+  obj Row
+    cells: [C34]Int
+
+  fun f(xs: [C34]Int) -> Int
+    xs.len
+
+  fun g(xs: [LATER]Int) -> Int
+    xs.len
+
+  type Size = Int
+  N: Size = 4
+
+  fun h(xs: [N]Int) -> Int
+    xs.len
+
+  LATER = 2
+
+  sub main()
+    r = Row(cells: [5 of 0])
+    print(f(r.cells), g([LATER of 0]), h([1, 2, 3, 4]))
+
+test "ct const order", "3 3 4"
+  # A module constant may name any constant of its module, wherever it is
+  # declared, and so may the array lengths in its declaration.
+
+  Z = [B of 0]
+  Y: [B]Int = [1, 2, 3]
+  B = 3
+  A = B + 1
+
+  sub main()
+    print(Z.len, Y[2], A)
+
+fail "ct param recursion grows", "6:9: an array length `n + 1` does arithmetic on a compile-time parameter"
+  # A generic body that calls itself with a larger length would have no
+  # last instance; arithmetic on a compile-time parameter is rejected, so
+  # it cannot.
+
+  fun grow[n: Int](xs: [n]Int) -> Int
+    grow([n + 1 of 0])
+
+  print(grow([1]))
+
+test "ct param value types", '''
+  0
+  3
+  true s true 1.5 7
+  false t false 2.0 255
+'''
+  # Compile-time parameters of every type a compile-time value can have,
+  # with `none` for an optional one.
+
+  enum Mode
+    fast
+    slow
+
+  sub f[n: Int?]()
+    print(n ?? 0)
+
+  sub g[m: Mode?, s: ?String, b: Bool, x: Float, u: U8]()
+    print(m == none, s, b, x, u)
+
+  f[none]()
+  f[3]()
+  g[none, "s", true, 1.5, 7]()
+  g[.slow, "t", false, 2, 255]()
+
+fail "ct param value types is rejected", "19:10: compile-time parameter `o` cannot have the type `Res?`", "22:10: compile-time parameter `p` cannot have the type `P`", "25:11: compile-time parameter `xs` cannot have the type `[2]Int`", "28:10: compile-time parameter `v` cannot have the type `List[Int]`", "31:10: compile-time parameter `f` cannot have the type `fun(Int) -> Int`", "34:10: compile-time parameter `s` cannot have the type `Shape`"
+  # A compile-time argument is a literal, an enum value, or `none`, so a
+  # compile-time parameter's type is one such a value can have: a number,
+  # `Bool`, `?String`, an enum whose variants carry nothing, or an optional
+  # of one.
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj P
+    x: Int
+
+  enum Shape
+    circle(r: Int)
+    dot
+
+  fun a[o: Res?]() -> Int
+    1
+
+  fun b[p: P]() -> Int
+    1
+
+  fun c[xs: [2]Int]() -> Int
+    1
+
+  fun d[v: List[Int]]() -> Int
+    1
+
+  fun e[f: fun(Int) -> Int]() -> Int
+    1
+
+  fun g[s: Shape]() -> Int
+    1
+
+  print(2)
+
+test "ct paren size", "5 2 10 4 5 true 3"
+  # A size, or any operand in one, may be parenthesized.
+
+  A = 2
+  B = 3
+
+  obj Ring[T, n: Int]
+    items: [n]T
+
+  fun count[n: Int](xs: [(n)]Int) -> Int
+    xs.len
+
+  sub main()
+    a: [(A + B)]Int = [(A + B) of 0]
+    b: [(A)]Int = [1, 2]
+    c: [((A + B)) * 2]Int = [10 of 0]
+    d: [(4)]Int = [4 of 0]
+    r = Ring[Int, (A + B)](items: [5 of 0])
+    s: Ring[Int, (4)]? = none
+    print(a.len, b.len, c.len, d.len, r.items.len, s == none, count([1, 2, 3]))
+
+fail "ct typed fold", "13:7: an array length `W * 2` overflows `U8` (0..255)", "14:7: an array length `BIG * 4 - BIG * 4` overflows `Int` (-9223372036854775808..9223372036854775807) in `BIG * 4`", "15:7: an array length `W + N` combines `U8` and `I8`", "16:16: compile-time argument 2 of `Ring` is `N`, an `I8`; `n` takes an `Int`", "17:16: compile-time argument 2 of `Ring` is `N + N`, an `I8`; `n` takes an `Int`"
+  # A size is folded as constant arithmetic is checked: each operation in
+  # its operands' type, whose range its value must fit, and a value
+  # argument has its parameter's type.
+
+  W: U8 = 200
+  N: I8 = 4
+  BIG = 9223372036854775807
+
+  obj Ring[T, n: Int]
+    items: [n]T
+
+  sub main()
+    a: [W * 2]Int = []
+    b: [BIG * 4 - BIG * 4]Int = []
+    c: [W + N]Int = []
+    r: Ring[Int, N]? = none
+    s: Ring[Int, N + N]? = none
+    print(a, b, c, r == none, s == none)

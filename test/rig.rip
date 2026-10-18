@@ -1,0 +1,616 @@
+# test/rig.rip: run Rig's tests (docs/RIG-TESTS.md) with Swarm.
+#
+#   swarm test/rig.rip             the core (or `core`): every test/rig/*.rig.test,
+#                                        examples, test/torture, and the unit tests, a job per CPU
+#                                        at once
+#   swarm test/rig.rip cli         the scripts of test/cli, which take minutes
+#   swarm test/rig.rip all         the core and the scripts
+#   swarm test/rig.rip std-text    test/rig/std-text.rig.test alone
+#
+# Setup reads each file into its cases, writes each case as a program of
+# its own, and builds the file's `test` and `bomb` cases into its packs
+# (`rig batch build`): one in debug, with the sanitizer, and one in Zig's
+# safe mode for the cases marked `release: true`. A case Zig or rig will
+# not build into a pack runs alone, with `rig run`. Each job then checks
+# one case: `fail` and `code` with the compiler, `test` and `bomb` by
+# running it. A case that fails lands in .swarm/died, its reason in
+# .swarm/errors.log.
+
+import { swarm, init, todo, args } from 'rip/swarm'
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, readdirSync, rmSync } from 'fs'
+import { join, resolve, basename, dirname } from 'path'
+
+root = resolve(import.meta.dir, '..')
+rig  = join(root, 'bin', 'rig')
+work = join(root, '.zig-cache', 'rig-tests')
+
+# ---- Reading a test file ---------------------------------------------------
+
+# The items of a header after its name, split at the commas outside
+# strings and brackets.
+items = (s) ->
+  out = []
+  cur = ''
+  depth = 0
+  quote = false
+  i = 0
+  while i < s.length
+    ch = s[i]
+    if quote
+      cur += ch
+      if ch is '\\'
+        cur += s[i + 1] ?? ''
+        i++
+      else if ch is '"'
+        quote = false
+    else if ch is '"'
+      quote = true
+      cur += ch
+    else if ch is '/' and cur.trim() is ''
+      # A regex, `/…/flags`, to its closing slash.
+      cur += ch
+      i++
+      while i < s.length and s[i] isnt '/'
+        cur += s[i]
+        if s[i] is '\\'
+          cur += s[i + 1] ?? ''
+          i++
+        i++
+      cur += '/'
+    else if ch in ['[', '(', '{']
+      depth++
+      cur += ch
+    else if ch in [']', ')', '}']
+      depth--
+      cur += ch
+    else if ch is ',' and depth is 0
+      out.push(cur.trim())
+      cur = ''
+    else
+      cur += ch
+    i++
+  out.push(cur.trim()) if cur.trim() isnt ''
+  out
+
+# A Rig string literal's text.
+unquote = (lit) ->
+  body = lit.slice(1, -1)
+  body.replace /\\(x[0-9a-fA-F]{2}|.)/g, (m, e) ->
+    switch e[0]
+      when 'n' then '\n'
+      when 't' then '\t'
+      when 'r' then '\r'
+      when 'x' then String.fromCharCode(parseInt(e.slice(1), 16))
+      else e
+
+# What `print(v)` prints for an expected value: a string's text, and any
+# other value as written.
+printed = (v) -> if v.heredoc? then v.heredoc else if /^".*"$/.test(v.text) then unquote(v.text) else v.text
+
+# Is a line of a body a declaration, which goes to the top of the case's
+# program, and not a statement of `main`?
+declares = (line) -> /^(pub )?(inline )?(fun|sub|obj|enum|error|type|use|extern) [A-Za-z_"]/.test(line)
+
+# A file's cases. Each starts at a `verb "name"` header at the left
+# margin, whose items after the name are its expected result (a value, or
+# `'''` opening lines that a `'''` alone closes) and `key: value` options;
+# its body is the indented lines after it, two spaces out. Lines at the
+# left margin that are `use` declarations belong to every case.
+cases = (file) ->
+  lines = readFileSync(file, 'utf8').split('\n')
+  shared = []
+  out = []
+  cur = null
+  i = 0
+  while i < lines.length
+    line = lines[i]
+    m = line.match(/^(code|fail|test|bomb) "((?:[^"\\]|\\.)*)"(.*)$/)
+    if m
+      out.push(cur) if cur
+      cur = { verb: m[1], name: m[2], line: i + 1, args: [], opts: {}, body: [], bodyLine: 0 }
+      rest = m[3].trim()
+      throw new Error("#{basename(file)}:#{i + 1}: a header's items follow a comma") if rest isnt '' and not rest.startsWith(',')
+      for it in items(rest.slice(1))
+        kv = it.match(/^([a-z]+):\s*(.*)$/)
+        if kv
+          cur.opts[kv[1]] = (if /^".*"$/.test(kv[2]) then unquote(kv[2]) else kv[2])
+        else if /^\/.*\/[a-z]*$/.test(it)
+          cur.args.push({ regex: it.slice(1, it.lastIndexOf('/')), flags: it.slice(it.lastIndexOf('/') + 1) })
+        else if it is "'''"
+          text = []
+          i++
+          while i < lines.length and lines[i] isnt "'''"
+            text.push(lines[i].replace(/^  /, ''))
+            i++
+          cur.args.push({ heredoc: text.join('\n') })
+        else
+          cur.args.push({ text: it })
+      cur.bodyLine = i + 2
+    else if cur and (line is '' or line.startsWith('  '))
+      cur.body.push(line.slice(2))
+    else if line.startsWith('use ')
+      out.push(cur) if cur
+      cur = null
+      shared.push(line)
+    else if line.trim() isnt '' and not line.startsWith('#')
+      throw new Error("#{basename(file)}:#{i + 1}: expected a case, a `use`, or a comment")
+    else if cur
+      out.push(cur)
+      cur = null
+    i++
+  out.push(cur) if cur
+  for c in out
+    # `file "PATH"` at the body's margin starts another file of the case's
+    # program, its lines two spaces in; the files end the body.
+    c.files = []
+    at = c.body.findIndex((l) -> /^file "[^"]+"\s*$/.test(l))
+    if at >= 0
+      for l in c.body.slice(at)
+        m = l.match(/^file "([^"]+)"\s*$/)
+        if m
+          c.files.push({ path: m[1], lines: [] })
+        else
+          c.files[c.files.length - 1].lines.push(l.replace(/^  /, ''))
+      c.body = c.body.slice(0, at)
+      for f in c.files
+        f.lines.pop() while f.lines.length > 0 and f.lines[f.lines.length - 1].trim() is ''
+        f.text = f.lines.join('\n') + '\n'
+    c.body.pop() while c.body.length > 0 and c.body[c.body.length - 1].trim() is ''
+    c.shared = shared
+    program(c)
+  out
+
+# Does a case use the module a file's `use` imports? It does when it
+# names a member of it (`text.` for `use std.text`, `t.` for `use std.text
+# as t`) and binds no name of its own the same: a parameter, a local, a
+# loop variable, a closure's parameter, or a match arm's binding. Rig
+# rejects a program that imports a module and binds its name, so a case
+# that binds the name is one that never imported it.
+refers = (c, u) ->
+  m = u.match(/^use\s+([\w.]+)(?:\s+as\s+(\w+))?/)
+  return true unless m
+  name = m[2] ?? m[1].split('.').pop()
+  lines = [...c.body, ...c.files.flatMap((f) -> f.text.split('\n'))]
+  return false unless lines.some((l) -> new RegExp("\\b#{name}\\.").test(l))
+  binds = [
+    "^\\s*(pub )?(inline )?(fun|sub)\\b[^(]*\\(.*\\b#{name}\\s*:"
+    "^\\s*(new\\s+)?#{name}\\s*(:[^=]*)?=(?!=)"
+    "\\bfor\\s+(\\w+\\s*,\\s*)?#{name}\\b"
+    "\\|[^|]*\\b#{name}\\b[^|]*\\|"
+    "^\\s*\\.\\w+\\([^)]*\\b#{name}\\b(?!\\.)[^)]*\\)\\s*(=>|$|if\\b)"
+  ].map((p) -> new RegExp(p))
+  not lines.some((l) -> binds.some((b) -> b.test(l)))
+
+# The program a case runs as: the file's `use` lines, the body's
+# declarations, and its statements as `main`'s. When a `test` gives its
+# result and its body prints nothing itself, its last line, if it is a
+# value, is printed. A body that declares
+# `main` is a whole program already. `c.map[k]` is the body line and the
+# columns added for the program's line `k + 1`.
+program = (c) ->
+  lines = []
+  map = []
+  add = (text, at, shift) ->
+    lines.push(text)
+    map.push([at, shift])
+  add(u, 0, 0) for u in c.shared when refers(c, u) and not c.body.includes(u)
+  if c.opts.whole is 'true' or c.body.some((l) -> /^(?![\s#]).*\b(sub|fun) main\b/.test(l))
+    add(l, k + 1, 0) for l, k in c.body
+  else
+    decl = []
+    stmt = []
+    inDecl = false
+    for l, k in c.body
+      if l isnt '' and not l.startsWith(' ') and not l.startsWith('#')
+        inDecl = declares(l)
+      (if inDecl then decl else stmt).push([l, k + 1])
+    add(l, at, 0) for [l, at] in decl
+    stmt.pop() while stmt.length > 0 and stmt[stmt.length - 1][0].trim() is ''
+    if c.verb is 'test' and c.args.length > 0 and stmt.length > 0 and not c.body.some((l) -> /\bprint\(/.test(l))
+      [last, at] = stmt[stmt.length - 1]
+      bare = not /^(if|for|while|match|return|break|continue|defer|errdefer|print|warn|panic)\b/.test(last) and not /^[A-Za-z_][\w.\[\]]*\s*([-+*\/%|&^]|<<|>>)?=(?!=)/.test(last) and not last.startsWith(' ') and not last.startsWith('#')
+      stmt[stmt.length - 1] = ["print(#{last})", at] if bare
+      c.shiftLast = bare
+    fallible = stmt.some(([l]) -> /\)!(?!=)/.test(l))
+    add((if fallible then 'sub main()!' else 'sub main()'), 0, 0)
+    add((if l is '' then '' else '  ' + l), at, 2) for [l, at] in stmt
+    add('  pass', 0, 0) unless stmt.some(([l]) -> l.trim() isnt '' and not l.trimStart().startsWith('#'))
+  c.source = lines.join('\n') + '\n'
+  c.map = map
+
+# ---- Setup -----------------------------------------------------------------
+
+# The `# NAME:` block of a program: its comment lines up to one that is
+# no comment or opens another block; null when there is none.
+block = (src, name) ->
+  out = null
+  for l in src.split('\n')
+    t = l.replace(/[ \t\r]+$/, '')
+    if out?
+      break if t is '# expect:' or t is '# expect-stderr:'
+      break unless l.startsWith('#')
+      out.push(l.replace(/^# ?/, '').replace(/\r$/, ''))
+    else if t is "# #{name}:"
+      out = []
+  out
+
+# Whole programs read where they are, a case each: examples/, each a
+# `test` whose `# expect:` block is its result (a `bomb` with an
+# `# expect-panic:` line), and test/torture/, each bad input that `rig
+# run` must reject with a position and never crash on.
+programs = (area, dir) ->
+  readdirSync(dir).filter((f) -> f.endsWith('.rig')).sort().map (f) ->
+    path = join(dir, f)
+    # Torture input may be any bytes; it is only hashed and handed to rig.
+    text = readFileSync(path, (if area is 'torture' then 'latin1' else 'utf8'))
+    name = f.slice(0, -4).replace(/_/g, ' ')
+    if area is 'torture'
+      return { verb: 'torture', name, line: 1, args: [], opts: {}, files: [], path, source: text, map: [], given: true }
+    expect = block(text, 'expect')
+    panic = text.match(/^# expect-panic:[ \t]*(.*)$/m)
+    verb = if panic then 'bomb' else 'test'
+    results = if panic then [{ text: JSON.stringify(panic[1]) }] else (if expect? then [{ heredoc: expect.join('\n') }] else [])
+    opts = {}
+    opts.release = 'true' if /^# release[ \t]*$/m.test(text)
+    opts.prints = expect.join('\n') if panic and expect?
+    { verb, name, line: 1, args: results, opts, files: [], path, source: text, map: text.split('\n').map((_, k) -> [k + 1, 0]), given: true }
+
+# The behavior and rejection tests, each where it lived before test/rig:
+# `test` and `bomb` cases under behavior/, `fail` cases under reject/, in
+# the folder of their file's area (`ownership-match` → `ownership`), named
+# as they were (`<name>.rig`, or `<name>/main.rig` for a program of several
+# files). The scripts of test/cli read them there ($RIG_TESTS), and the
+# oracle reads them by those names.
+legacy = (area, c) ->
+  return null unless c.verb in ['test', 'bomb', 'fail']
+  kind = if c.verb is 'fail' then 'reject' else 'behavior'
+  stem = c.name.replace(/ is rejected$/, '').replace(/ /g, '_').replace(/\//g, '_')
+  rel = join(kind, area.split('-')[0])
+  if c.files.length > 0 or c.opts.file is 'main.rig'
+    { name: "test/#{rel}/#{stem}", file: join(rel, stem, 'main.rig'), dir: join(rel, stem) }
+  else
+    { name: "test/#{rel}/#{stem}.rig", file: join(rel, "#{stem}.rig"), dir: null }
+
+setup = ->
+  names = args()
+  # Each test file read at most once a run.
+  seen = {}
+  parsed = (file) -> seen[file] ?= cases(file)
+  dir = join(root, 'test', 'rig')
+  # Two tiers: `core`, which a run with no names checks (every test
+  # file, examples, torture, and the unit tests), and `cli`, the scripts of
+  # test/cli, which take minutes; `all` is both.
+  everything = names.includes('all')
+  core = names.length is 0 or names.includes('core')
+  wanted = (n) -> everything or names.includes(n) or (core and n isnt 'cli')
+  sources = []
+  for f in readdirSync(dir).filter((f) -> f.endsWith('.rig.test')).sort()
+    area = f.slice(0, -'.rig.test'.length)
+    file = join(dir, f)
+    sources.push({ area, inputs: [file], read: ((file) -> -> parsed(file))(file) }) if wanted(area)
+  for [area, d] in [['examples', join(root, 'examples')], ['torture', join(root, 'test', 'torture')]]
+    sources.push({ area, inputs: readdirSync(d).filter((f) -> f.endsWith('.rig')).sort().map((f) -> join(d, f)), read: ((area, d) -> -> programs(area, d))(area, d) }) if wanted(area)
+  unknown = names.filter((n) -> n not in ['all', 'core', 'cli', 'unit', 'oracle'] and not sources.some((s) -> s.area is n))
+  throw new Error("no test file test/rig/#{unknown[0]}.rig.test") if unknown.length > 0
+  init()
+  # The compiler, built as ./test/run builds it, so a script that runs
+  # ./test/run finds it built and leaves it as it is.
+  built = Bun.spawnSync({ cmd: ['zig', 'build', '-Dself-check=true'], cwd: root, stdout: 'pipe', stderr: 'pipe' })
+  throw new Error("zig build failed:\n#{built.stderr.toString()}") unless built.exitCode is 0
+  # The reference ownership checker, which the oracle's jobs and scripts
+  # of test/cli run.
+  oracle = Bun.spawnSync({ cmd: ['zig', 'build', '-Dself-check=true', 'oracle'], cwd: root, stdout: 'pipe', stderr: 'pipe' })
+  throw new Error("zig build oracle failed:\n#{oracle.stderr.toString()}") unless oracle.exitCode is 0
+  # The packs and Zig's caches stay between runs: a pack whose cases and
+  # compiler are unchanged is not compiled again, and when neither has
+  # changed since the pack was built, rig is not run at all.
+  builds = []
+  plans = []
+  # The compiler, and every setting of rig's that changes what it emits or
+  # how a program runs (RIG_STRICT_OPTIONALS, RIG_NO_PROOFS, ...), but those
+  # that only say where things go.
+  settings = Object.keys(process.env).filter((k) -> k.startsWith('RIG_') and not /^RIG_(OUT_DIR|BUILD_STORE|BUILD_STORE_DAYS|BUILD_STORE_MAX_GB|RESULTS_CACHE|TEST_OUT|RUN_STARTED|PROGRAM_STARTED|CACHE_MAX_GB)$/.test(k)).sort().map((k) -> "#{k}=#{process.env[k]}")
+  compiler = new Bun.CryptoHasher('sha256').update(readFileSync(rig)).update(settings.join('\n')).digest('hex')
+  runner = new Bun.CryptoHasher('sha256').update(readFileSync(join(root, 'test', 'rig.rip'))).digest('hex')
+  put = (path, text) ->
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, text) unless existsSync(path) and readFileSync(path, 'utf8') is text
+  for src in sources
+    area = src.area
+    # A source whose files, compiler, and runner are what its packs were
+    # built from is not read again: its jobs, saved then, are queued as
+    # they were.
+    h = new Bun.CryptoHasher('sha256').update(compiler + '\0' + runner + '\0')
+    h.update(f + '\0').update(readFileSync(f)) for f in src.inputs
+    fileKey = h.digest('hex')
+    saved = join(work, area, 'jobs.json')
+    if existsSync(saved)
+      last = JSON.parse(readFileSync(saved, 'utf8'))
+      if last.key is fileKey and last.packs.every((d) -> existsSync(join(d, 'bin')))
+        todo(j.id, j.payload) for j in last.jobs
+        continue
+    all = src.read()
+    for c, i in all when not c.given
+      n = String(i).padStart(3, '0')
+      # A case's program is named for it, so what it prints about itself
+      # (a panic's place) names the case.
+      slug = c.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') or 'case'
+      slug = 't_' + slug if /^[0-9]/.test(slug)
+      if c.files.length > 0
+        c.path = join(work, area, 'cases', n, 'main.rig')
+        put(join(work, area, 'cases', n, f.path), f.text) for f in c.files
+      else
+        c.path = join(work, area, 'cases', n, c.opts.file ?? "#{slug}.rig")
+      put(c.path, c.source)
+    runs = all.filter((c) -> c.verb is 'test' or c.verb is 'bomb')
+    packs = [{ dir: join(work, area, 'debug'), cases: runs, flags: [], env: { RIG_SANITIZE: '1' } }, { dir: join(work, area, 'release'), cases: runs.filter((c) -> c.opts.release is 'true'), flags: ['--release'], env: {} }]
+    for p in packs when p.cases.length > 0
+      h = new Bun.CryptoHasher('sha256')
+      h.update(part + '\0') for part in [compiler, ...p.flags, JSON.stringify(p.env), ...p.cases.flatMap((c) -> [c.path, c.source, ...c.files.flatMap((f) -> [f.path, f.text])])]
+      p.key = h.digest('hex')
+      keyPath = join(p.dir, 'key')
+      if existsSync(keyPath) and readFileSync(keyPath, 'utf8') is p.key and existsSync(join(p.dir, 'bin'))
+        builds.push({ pack: p, start: null })
+        continue
+      rmSync(keyPath, { force: true })
+      builds.push({ pack: p, start: ((p) -> -> Bun.spawn({ cmd: [rig, 'batch', 'build', ...p.flags, p.dir, ...p.cases.map((c) -> c.path)], env: { ...process.env, ...p.env }, stdout: 'ignore', stderr: 'ignore' }))(p) })
+    plans.push({ area, file: (if src.inputs.length is 1 then src.inputs[0] else area), all, packs, fileKey })
+  # The packs that need it are built a few at a time: each is one Zig
+  # compile, and as many at once as there are cores is enough.
+  pending = builds.filter((b) -> b.start?)
+  limit = Number(process.env.CPUQ_CORES ?? Math.max(1, Math.floor(navigator.hardwareConcurrency / 2)))
+  next = 0
+  builder = ->
+    while next < pending.length
+      b = pending[next]
+      next++
+      b.code = await b.start().exited
+  await Promise.all([1..limit].map(-> builder()))
+  # A pack holds the cases its `programs` lists; one rig rejects is left
+  # out, and runs alone, so it reports the compiler's own error.
+  for b in builds
+    ok = if b.start? then b.code is 0 else true
+    writeFileSync(join(b.pack.dir, 'key'), b.pack.key) if ok and b.start?
+    listed = join(b.pack.dir, 'programs')
+    b.pack.built = if ok and existsSync(listed) then readFileSync(listed, 'utf8').split('\n').filter((l) -> l isnt '').map((l) -> l.split('\t')[1]) else []
+  for plan in plans
+    jobs = []
+    queue = (id, payload) ->
+      todo(id, payload)
+      jobs.push({ id, payload })
+    for c, i in plan.all
+      job = { file: basename(plan.file), name: c.name, verb: c.verb, line: c.line, bodyLine: c.bodyLine, args: c.args, opts: c.opts, map: c.map, path: c.path }
+      id = "#{plan.area}.#{String(i).padStart(3, '0')}"
+      if c.verb in ['fail', 'code', 'torture']
+        queue(id, JSON.stringify(job))
+        continue
+      for p in plan.packs when p.cases.includes(c)
+        release = p.flags.length > 0
+        queue(id + (if release then 'r' else ''), JSON.stringify({ ...job, release, pack: (if p.built.includes(c.path) then p.dir else null), n: p.cases.indexOf(c) }))
+    # Saved only when every case is in a pack, so a case that runs alone
+    # is read and tried again next time.
+    built = plan.packs.filter((p) -> p.cases.length > 0)
+    alone = plan.all.some((c) -> (c.verb is 'test' or c.verb is 'bomb') and built.some((p) -> p.cases.includes(c) and not p.built.includes(c.path)))
+    mkdirSync(join(work, plan.area), { recursive: true })
+    writeFileSync(join(work, plan.area, 'jobs.json'), JSON.stringify({ key: plan.fileKey, packs: built.map((p) -> p.dir), jobs })) unless alone
+  # The tests as their own files (`legacy`), for whatever this run checks:
+  # a file's are written again only when it changed, and the ones it no
+  # longer has go.
+  tree = join(work, 'tree')
+  listed = []
+  for f in readdirSync(dir).filter((f) -> f.endsWith('.rig.test')).sort()
+    area = f.slice(0, -'.rig.test'.length)
+    file = join(dir, f)
+    key = new Bun.CryptoHasher('sha256').update(runner + '\0').update(readFileSync(file)).digest('hex')
+    record = join(work, area, 'tree.json')
+    last = if existsSync(record) then JSON.parse(readFileSync(record, 'utf8')) else null
+    if last?.key is key and last.list.every((t) -> existsSync(join(tree, t.file)))
+      listed.push(...last.list)
+      continue
+    rmSync(join(tree, t.dir ?? t.file), { recursive: true, force: true }) for t in (last?.list ?? [])
+    list = []
+    for c in parsed(file)
+      t = legacy(area, c)
+      continue unless t?
+      put(join(tree, t.file), c.source)
+      put(join(tree, t.dir, x.path), x.text) for x in c.files
+      list.push(t)
+    mkdirSync(join(work, area), { recursive: true })
+    writeFileSync(record, JSON.stringify({ key, list }))
+    listed.push(...list)
+  # The oracle's sets: the tests and the examples, and the corpus.
+  if wanted('oracle')
+    mkdirSync(join(work, 'oracle'), { recursive: true })
+    tests = listed.map((t) -> "#{t.name}\t#{join(tree, t.file)}")
+    tests.push("examples/#{f}\t#{join(root, 'examples', f)}") for f in readdirSync(join(root, 'examples')).filter((f) -> f.endsWith('.rig')).sort()
+    writeFileSync(join(work, 'oracle', 'tests.list'), tests.join('\n') + '\n')
+    corpus = []
+    for f in readdirSync(join(root, 'test', 'corpus')).sort()
+      p = join(root, 'test', 'corpus', f)
+      if f.endsWith('.rig') then corpus.push("test/corpus/#{f}\t#{p}")
+      else if existsSync(join(p, 'main.rig')) then corpus.push("test/corpus/#{f}\t#{join(p, 'main.rig')}")
+    writeFileSync(join(work, 'oracle', 'corpus.list'), corpus.join('\n') + '\n')
+    for set in ['tests', 'corpus']
+      todo("oracle.#{set}", JSON.stringify({ file: 'test/oracle', name: set, verb: 'oracle', line: 1, path: join(work, 'oracle', "#{set}.list"), opts: { timeout: '900' } }))
+    todo('oracle.lint', JSON.stringify({ file: 'test/oracle', name: 'lint', verb: 'lint', line: 1, opts: {} }))
+  # The scripts of test/cli, each a job, and the compiler's own Zig tests.
+  if wanted('cli')
+    for f in readdirSync(join(root, 'test', 'cli')).filter((f) -> f.endsWith('.sh') and not f.startsWith('_')).sort()
+      path = join(root, 'test', 'cli', f)
+      limit = readFileSync(path, 'utf8').match(/^# timeout:[ \t]*(\d+)[ \t]*$/m)
+      todo("cli.#{f.slice(0, -3)}", JSON.stringify({ file: "test/cli/#{f}", name: f.slice(0, -3), verb: 'script', line: 1, path, opts: { timeout: (if limit then limit[1] else '120') } }))
+  todo('unit', JSON.stringify({ file: 'zig build test', name: 'unit', verb: 'unit', line: 1, opts: { timeout: '900' } })) if wanted('unit')
+  {}
+
+# ---- Checking a case -------------------------------------------------------
+
+# Run a command; its status (null when the time limit ended it), stdout,
+# and stderr.
+run = (cmd, env, seconds, cwd = root) ->
+  r = Bun.spawnSync({ cmd, cwd, env: { ...process.env, ...env }, stdout: 'pipe', stderr: 'pipe', timeout: seconds * 1000 })
+  { code: r.exitCode, out: r.stdout.toString(), err: r.stderr.toString() }
+
+firstLine = (s) -> s.split('\n').find((l) -> l.trim() isnt '') or '(nothing)'
+
+# A diagnostic's position in the case's body, from its position in the
+# case's program.
+bodyAt = (c, file, line, col) ->
+  return "#{line}:#{col}" unless file.endsWith(c.path.slice(work.length))
+  [at, shift] = c.map[line - 1] ?? [0, 0]
+  "#{at}:#{col - shift}"
+
+checkFail = (c) ->
+  r = run([rig, 'check', c.path], {}, 120)
+  all = r.out + r.err
+  throw new Error('timed out') unless r.code?
+  throw new Error("the compiler crashed: #{firstLine(all)}") if r.code > 128 or /panic:|reached unreachable|Segmentation fault/.test(all)
+  throw new Error('accepted (a `fail` case must be rejected)') if r.code is 0
+  msgs = []
+  for l in all.split('\n')
+    m = l.match(/(\S+\.rig):(\d+):(\d+): (?:error|  note): (.*)$/)
+    msgs.push({ at: bodyAt(c, m[1], Number(m[2]), Number(m[3])), text: m[4] }) if m
+  throw new Error("a diagnostic has no position: #{firstLine(all)}") if msgs.length is 0
+  for a in c.args
+    want = printed(a)
+    pin = null
+    m = want.match(/^(\d+:\d+): (.*)$/)
+    [pin, want] = [m[1], m[2]] if m
+    unless msgs.some((d) -> d.text.includes(want) and (not pin? or d.at is pin))
+      throw new Error("no diagnostic#{if pin? then ' at ' + pin else ''} contains \"#{want}\"; got: #{msgs[0].at}: #{msgs[0].text}")
+  if c.opts.errors?
+    got = all.split('\n').filter((l) -> /(^|\.rig:\d+:\d+: )error: /.test(l)).length
+    throw new Error("expected #{c.opts.errors} error(s), got #{got}") unless got is Number(c.opts.errors)
+  # A lend of a place as a path's base: every hint it gives, applied
+  # alone, draws no error the program did not draw at the same place.
+  if /write a lend on the whole path, not its base|only reads the place it reaches/.test(all)
+    h = run(['python3', join(root, 'test', 'hints.py'), rig, c.path], {}, 300)
+    throw new Error("a hint does not compile: #{firstLine(h.out + h.err)}") unless h.code is 0
+
+checkCode = (c) ->
+  throw new Error('a `code` case gives the Zig it must emit') unless c.args.length > 0
+  r = run([rig, 'emit', c.path], { RIG_OUT_DIR: c.path + '.out' }, 120)
+  throw new Error("rejected: #{firstLine(r.err)}") unless r.code is 0
+  norm = (l) -> l.replace(/\s+/g, ' ').trim()
+  got = r.out.split('\n').map(norm).filter((l) -> l isnt '').join('\n')
+  for a in c.args
+    if a.regex?
+      throw new Error("the emitted Zig has nothing matching /#{a.regex}/") unless new RegExp(a.regex, a.flags).test(r.out)
+      continue
+    need = printed(a).split('\n').map(norm).filter((l) -> l isnt '').join('\n')
+    throw new Error("the emitted Zig has no #{JSON.stringify(need.split('\n')[0])}") unless got.includes(need)
+
+checkRun = (c) ->
+  panic = if c.verb is 'bomb' then (if c.args.length > 0 then printed(c.args[0]) else null) else null
+  throw new Error('a `bomb` names its panic') if c.verb is 'bomb' and not panic?
+  seconds = Number(c.opts.timeout ?? 120)
+  cmd = if c.pack? then [rig, 'batch', 'run', c.pack, String(c.n)] else [rig, 'run', ...(if c.release then ['--release'] else []), c.path]
+  # As the suite always has, a case that ends a program on purpose runs
+  # with RIG_NO_CRASH_REPORT=1.
+  quiet = if c.verb is 'bomb' or c.opts.exit? then { RIG_NO_CRASH_REPORT: '1' } else {}
+  r = run(cmd, { RIG_SANITIZE: '1', RIG_OUT_DIR: c.path + (if c.release then '.release' else '.debug'), ...quiet }, seconds)
+  mode = if c.release then ' (release)' else ''
+  throw new Error("timed out after #{seconds}s#{mode}") unless r.code?
+  rejected = r.err.match(/(\S+\.rig):(\d+):(\d+): error: (.*)/)
+  throw new Error("rejected by rig at #{bodyAt(c, rejected[1], Number(rejected[2]), Number(rejected[3]))}: #{rejected[4]}") if rejected and r.code is 1 and not c.pack?
+  throw new Error("did not run#{mode}: #{firstLine(r.err)}") if r.code is 125 or r.err.includes('rig: the program did not run')
+  throw new Error("a proven check failed#{mode}") if r.err.includes('rig: a proven check failed')
+  if panic?
+    throw new Error("expected panic \"#{panic}\", exited 0#{mode}") if r.code is 0
+    throw new Error("expected panic \"#{panic}\"#{mode}; got: #{firstLine(r.err)}") unless r.err.includes(panic)
+  throw new Error("#{firstLine(r.err.split('\n').filter((l) -> /memory leak|rig: (use of freed|access past|double free)/.test(l)).join('\n'))}#{mode}") if /memory leak detected|rig: (use of freed memory|access past the end|double free)/.test(r.err)
+  exitWant = Number(c.opts.exit ?? (if panic? then 134 else 0))
+  throw new Error("expected exit #{exitWant}, got #{r.code}#{mode}: #{firstLine(r.err)}") unless r.code is exitWant
+  if c.opts.stderr?
+    shown = r.err.split('\n').filter((l) -> not /^error: rig: the program was killed by signal \d+$/.test(l)).join('\n')
+    throw new Error("stderr differs#{mode}") unless shown is c.opts.stderr + '\n'
+  want = if c.verb is 'test' and c.args.length > 0 then printed(c.args[0]) + '\n' else (if c.opts.prints? then c.opts.prints + '\n' else null)
+  if want? and r.out isnt want
+    w = want.split('\n')
+    g = r.out.split('\n')
+    k = 0
+    k++ while k < w.length and w[k] is g[k]
+    throw new Error("output differs#{mode} at line #{k + 1}: expected #{JSON.stringify(w[k] ?? '')}, got #{JSON.stringify(g[k] ?? '')}")
+
+# Bad input: `rig run` rejects it with a position, and never crashes.
+checkTorture = (c) ->
+  r = run([rig, 'run', c.path], { RIG_OUT_DIR: join(work, 'torture', 'out', basename(c.path)) }, 120)
+  all = r.out + r.err
+  throw new Error('timed out') unless r.code?
+  throw new Error("the compiler crashed on bad input: #{firstLine(all)}") if r.code > 128 or /panic:|reached unreachable|Segmentation fault/.test(all)
+  throw new Error('bad input was accepted and ran') if r.code is 0
+  throw new Error("rejected without a file:line:col diagnostic: #{firstLine(all)}") unless /\.rig:\d+:\d+/.test(all)
+
+# A script of test/cli: it passes when it exits 0. It runs in an empty
+# directory of its own, with RIG, ROOT, and RIG_OUT_DIR set, as
+# ./test/run runs it.
+checkScript = (c) ->
+  # Its output directory stays between runs, as Zig's caches of the
+  # programs it builds do; its working directory starts empty.
+  out = join(work, 'cli', c.name)
+  rmSync(join(out, 'work'), { recursive: true, force: true })
+  mkdirSync(join(out, 'work'), { recursive: true })
+  seconds = Number(c.opts.timeout)
+  timeoutCmd = (Bun.which('timeout') ?? Bun.which('gtimeout')) ?? 'timeout'
+  r = run(['bash', c.path], { ROOT: root, RIG: rig, ZIG: 'zig', RIG_OUT_DIR: out, RIG_TESTS: join(work, 'tree'), TIMEOUT: String(seconds), TIMEOUT_CMD: timeoutCmd }, seconds, join(out, 'work'))
+  throw new Error("timed out after #{seconds}s") unless r.code?
+  unless r.code is 0
+    all = r.out + r.err
+    throw new Error(all.split('\n').find((l) -> l.startsWith('FAIL')) ?? "exit #{r.code}: #{all.trim().split('\n').pop()}")
+
+# The reference ownership checker (test/oracle) over one set: every function it
+# decides gets the compiler's verdict, or is listed in test/oracle/differences;
+# its rejections are test/oracle/rejections; and the set keeps its floor of
+# decided functions (test/oracle/coverage).
+checkOracle = (c) ->
+  r = run([join(root, 'bin', 'rig-oracle'), '--set', c.name, '--allow', 'test/oracle/differences', '--rejects', 'test/oracle/rejections', '--coverage', 'test/oracle/coverage', '--list', c.path], {}, Number(c.opts.timeout))
+  throw new Error('timed out') unless r.code?
+  unless r.code is 0
+    all = (r.out + r.err).split('\n')
+    throw new Error(all.find((l) -> /^(DIFF|FIXED|FAIL|LOST|UNLISTED)/.test(l)) ?? all.filter((l) -> l.trim() isnt '').pop() ?? "exit #{r.code}")
+
+# The oracle reads no ownership classification of the compiler's (comments
+# aside), and the compiler never imports the oracle.
+forbidden = new RegExp("ownership\\.zig|typecheck\\.zig|storage\\.zig|\\b(storageOf|recordStorage|Storage|StorageKind|StorageBy|StorageLife|copiesHeader|header_copies|dropsTemp|temp_drops|readsInPlace|in_place_reads|takesSubject|taken_subjects|readsThrough|readsAsView|unboxes|unboxed|arrayViewOf|array_views|lendsText|text_lends|takes|recordTake|moveSource|MoveSource|moveLeaves|MoveLeaf|writesThrough|through_writes|lendsCellTemp|cell_temps|handsOver)\\b|facts\\.(reads|views)")
+checkLint = (c) ->
+  for f in readdirSync(join(root, 'test', 'oracle')).filter((f) -> f.endsWith('.zig')).sort()
+    for l, k in readFileSync(join(root, 'test', 'oracle', f), 'utf8').split('\n')
+      throw new Error("test/oracle/#{f}:#{k + 1} uses a forbidden compiler fact: #{l.trim()}") if forbidden.test(l.replace(/\/\/.*/, ''))
+  for f in readdirSync(join(root, 'src')).filter((f) -> f.endsWith('.zig') and f isnt 'lib.zig')
+    throw new Error("src/#{f} imports the oracle's library or test code") if /@import\("(lib\.zig|\.\.\/test\/[^"]*)"\)/.test(readFileSync(join(root, 'src', f), 'utf8'))
+
+# The compiler's own Zig tests.
+checkUnit = (c) ->
+  r = run(['zig', 'build', 'test', '-Dself-check=true'], {}, Number(c.opts.timeout))
+  throw new Error('timed out') unless r.code?
+  throw new Error("zig build test failed: #{(r.err + r.out).trim().split('\n').slice(-3).join(' / ')}") unless r.code is 0
+
+perform = (task, ctx) ->
+  c = JSON.parse(readFileSync(task, 'utf8'))
+  # Each job's time goes to .swarm/times, `MS<TAB>JOB` a line, so the
+  # slowest are easy to find: `sort -rn .swarm/times | head`.
+  started = Date.now()
+  failure = null
+  try
+    switch c.verb
+      when 'fail' then checkFail(c)
+      when 'code' then checkCode(c)
+      when 'torture' then checkTorture(c)
+      when 'script' then checkScript(c)
+      when 'unit' then checkUnit(c)
+      when 'oracle' then checkOracle(c)
+      when 'lint' then checkLint(c)
+      else checkRun(c)
+  catch err
+    failure = err
+  finally
+    appendFileSync(join(root, '.swarm', 'times'), "#{Date.now() - started}\t#{basename(task)}\n")
+  where = "#{c.file}:#{c.line} #{c.verb} \"#{c.name}\""
+  # A known bug is a case written as Rig should behave, marked `known:
+  # true`: it passes while it fails, and fails the day it passes, so its
+  # mark comes off as the bug is fixed.
+  if c.opts?.known is 'true'
+    return if failure?
+    throw new Error("#{where}: a known bug no longer fails: remove `known: true`")
+  throw new Error("#{where}: #{failure.message}") if failure?
+
+swarm { setup, perform }

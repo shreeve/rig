@@ -1,0 +1,694 @@
+# types: tests whose names start `box`.
+
+test "box basic", '''
+  3 4 7 25
+  5 10
+  0 1
+  1
+  moved 1
+  took 2
+  drop 2
+  drop 1
+'''
+  # ^T owns one T on the heap. Fields and methods of a boxed struct are
+  # reached through the box; `?b` and `!b` lend the value as `?T` / `!T`;
+  # `<b.unbox()` moves the value out and frees the box.
+
+  obj Point
+    x: Int
+    y: Int
+
+    fun sum(?self) -> Int
+      self.x + self.y
+
+    sub shift(!self, d: Int)
+      self.x += d
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun norm(p: ?Point) -> Int
+    p.x * p.x + p.y * p.y
+
+  sub reset(p: !Point)
+    p = Point(x: 0, y: 1)
+
+  b = ^Point(x: 3, y: 4)
+  print(b.x, b.y, b.sum(), norm(?b))
+  b.y = 10
+  !b.shift(2)
+  print(b.x, b.y)
+  reset(!b)
+  print(b.x, b.y)
+  p = <b.unbox()
+  print(p.sum())
+  r = ^Res(n: 1)
+  s = <r
+  print("moved", s.n)
+  t: ^Res = ^Res(n: 2)
+  u = <t.unbox()
+  print("took", u.n)
+
+test "box caret forms", '''
+  2
+  1
+  3 5
+  7
+  true none
+  7 1 2
+  hi
+  8 9
+  2
+  4
+'''
+  # `^T` holds one `T` alone on the heap. `^Node(...)` makes a box, `^<x`
+  # boxes an existing owner, and `^x` copies plain data into a box. The
+  # sigil binds tighter than a suffix: `^Node?` is an optional box and
+  # `^(Int?)` a box of an optional.
+
+  obj Node
+    n: Int
+    next: ^Node?
+
+  obj Pair
+    a: Int
+    b: Int
+
+  type Cell3 = ^Int
+
+  fun wrap[T](x: T) -> ^T
+    ^<x
+
+  fun total(p: ?Pair) -> Int
+    p.a + p.b
+
+  fun first(xs: ?List[Int]) -> Int
+    xs.get(0) ?? -1
+
+  tail = ^Node(n: 1, next: none)
+  head = ^Node(n: 2, next: <tail)
+  print(head.n)
+  if ?head.next as t
+    print(t.n)
+
+  p = Pair(a: 3, b: 4)
+  moved = ^<p
+  copied = ^5
+  print(moved.a, copied)
+  print(total(?moved))
+
+  maybe: ^Int? = none
+  held: ^(Int?) = ^none
+  print(maybe == none, held)
+
+  alias: Cell3 = ^7
+  both = [^1, ^2]
+  print(alias, both[0], both[1])
+
+  w = wrap("hi")
+  print(w)
+
+  grid: [2]^Int = [^8, ^9]
+  print(grid[0], grid[1])
+  vs: List[^Int] = List()
+  !vs.push(^10)
+  !vs.push(^11)
+  print(vs.len)
+
+  nums = List[Int]()
+  !nums.push(4)
+  view_box: ^?List[Int] = ^?nums
+  print(first(?nums))
+
+fail "box cell", "8:14: a value of `C` holds a Cell, so it lives only behind a shared handle: write `*C`", errors: 1
+  # A Cell lives only behind a shared handle, so a Box cannot hold a value
+  # that holds a Cell: the rule that a Cell lives only behind `*` rejects
+  # `^C` as a generic type argument that holds a Cell.
+
+  obj C
+    hits: Cell[Int]
+
+  fun peek(b: ?^C) -> Int
+    b.hits.get()
+
+  pass
+
+test "box consuming method", '''
+  eat 1
+  drop 1
+  eat 2
+  drop 2
+'''
+  # A consuming method of a boxed value takes the value out of the box,
+  # which is freed: `<b.eat()` on a binding, or on a box a call returns.
+
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+    sub eat(<self)
+      print("eat", self.n)
+
+  fun mk() -> ^R
+    ^R(n: 2)
+
+  b = ^R(n: 1)
+  <b.eat()
+  mk().eat()
+
+test "box edge cases", '''
+  4
+  4
+  s 3
+  c 2
+'''
+  # A boxed value's data field named `unbox` (the box's
+  # own `unbox` is only called), and `match` on each boxed enum a loop
+  # walks by viewed slot.
+
+  obj R
+    n: Int
+
+  obj P
+    unbox: Int
+
+  enum Sh
+    c(r: Int)
+    s(k: Int)
+
+  b = ^P(unbox: 4)
+  print(b.unbox)
+  p = <b.unbox()
+  print(p.unbox)
+  v: List[^Sh] = List()
+  !v.push(^Sh.s(k: 3))
+  !v.push(^Sh.c(r: 2))
+  for x in ?v
+    match x
+      .c(r) => print("c", r)
+      .s(k) => print("s", k)
+
+fail "box function", "5:11: `^` boxes a value; a function has no box", "7:14: `^` boxes a value; a function has no box"
+  # A function has no box: `^fun` is reserved for a future uniquely owned
+  # closure. An owned closure today is `*|...| body`, and `^` is not
+  # a closure's prefix.
+
+  type Op = ^fun(Int) -> Int
+
+  sub apply(f: ^sub(Int), n: Int)
+    pass
+
+  pass
+
+test "box generic list", '''
+  2 Node(value: "b", next: Node(value: "a", next: none))
+'''
+  # A generic struct holds itself through a box, and generic functions
+  # build and walk it.
+
+  obj Node[T]
+    value: T
+    next: ^Node[T]?
+
+  fun push[T](top: ^Node[T]?, v: T) -> ^Node[T]?
+    ^Node(value: v, next: <top)
+
+  fun count[T](top: ?^Node[T]?) -> Int
+    n = 0
+    cur = top
+    while cur as node
+      n += 1
+      cur = ?node.next
+    n
+
+  s: ^Node[?String]? = none
+  s = push(<s, "a")
+  s = push(<s, "b")
+  print(count(?s), s)
+
+test "box holds read view", '''
+  2 2
+  7
+  5 hello
+  2
+  4
+'''
+  # A box holds a read view, of an owner too: `^?v` keeps `v` lent
+  # while the box is used, and the box reaches the viewed value as a
+  # view reaches it.
+
+  obj Point
+    x: Int
+    y: Int
+
+  fun size(b: ?^?List[Int]) -> Int
+    b.len
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  b = ^?v
+  print(b.len, size(?b))
+  p = Point(x: 3, y: 4)
+  bp = ^?p
+  print(bp.x + bp.y)
+  t = String("hello")
+  bt = ^?t
+  print(bt.len, bt)
+  moved = <b
+  print(moved.len)
+  boxes: List[^?List[Int]] = List()
+  !boxes.push(^?v)
+  !boxes.push(^?v)
+  print(boxes[0].len + boxes[1].len)
+
+test "box lent as value", '''
+  2
+  1
+  6
+  7 5
+  1 1
+  drop 2
+  drop 1
+'''
+  # A box lent as its value (`?b` where a `?T` is expected, `!b` where a
+  # `!T` is) works wherever a view goes: a typed or rebound
+  # view local, an argument evaluated out of order, a generic result, a
+  # write view of the box read as the value.
+
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    b: ^Int
+
+  fun add(x: ?Int, y: Int) -> Int
+    x + y
+
+  fun peek[T](b: ?^T) -> ?T
+    ?b
+
+  fun rd(r: ?R) -> Int
+    r.n
+
+  sub g(w: !^R)
+    print(rd(w), rd(?w))
+
+  b = ^R(n: 1)
+  c = ^R(n: 2)
+  r: ?R = ?c
+  print(r.n)
+  r = ?b
+  print(r.n)
+  s = S(b: ^5)
+  k: ?Int = ?s.b
+  print(k + 1)
+  n = 1
+  print(add(y: n + 1, x: ?s.b), peek(?s.b))
+  g(!b)
+
+test "box match enum", '''
+  circle 2
+  12 circle
+  .square(s: 3) 9
+'''
+  # `match` over a boxed enum, read or written through a view of the box.
+
+  enum Shape
+    circle(r: Int)
+    square(s: Int)
+
+  fun area(b: ?^Shape) -> Int
+    match b
+      .circle(r) => 3 * r * r
+      .square(s) => s * s
+
+  fun name(b: !^Shape) -> ?String
+    match b
+      .circle(_) => "circle"
+      .square(_) => "square"
+
+  b = ^Shape.circle(r: 2)
+  match ?b
+    .circle(r) => print("circle", r)
+    .square(s) => print("square", s)
+  print(area(?b), name(!b))
+  b = ^Shape.square(s: 3)
+  print(b, area(?b))
+
+test "box members compose", '''
+  6 6 12 xy
+  2
+  1 true
+  eat 6
+  3 true
+'''
+  # A box lends the views of its value (Core §4), so member access reaches
+  # through it: a struct's fields and methods, a List's and a Text's, and
+  # a Text through a shared handle.
+
+  obj S
+    n: Int
+    t: String
+
+    sub bump(!self)
+      self.n += 1
+
+    fun get(?self) -> Int
+      self.n
+
+    sub eat(<self)
+      print("eat", self.n)
+
+  fun read(b: ?^S) -> Int
+    b.n + b.get()
+
+  b = ^S(n: 1, t: String("x"))
+  b.n = 5
+  !b.bump()
+  !b.t.add("y")
+  print(b.n, b.get(), read(?b), b.t)
+  v: ^List[Int] = ^List()
+  !v.push(3)
+  !v.push(4)
+  print(v.len)
+  bt = ^String("q")
+  print(bt.len, bt == "q")
+  <b.eat()
+  h = *String("abc")
+  print(h.len, ?h == "abc")
+
+fail "box none", "4:12: `^none` makes a box of nothing", "6:5: `^none` makes a box of nothing"
+  # `^none` would box nothing: an optional box with no value is `none`
+  # itself. A box of an optional is written where the type says so.
+
+  a: ^Int? = ^none
+  b: ^(Int?) = ^none
+  c = ^none
+  print(b)
+
+test "box of handle access", '''
+  1 11 10 1 s1 2 101
+  12
+  2 22 20 1 s2 3 2
+  30 40 10 2 s1 2 101
+  10
+  1
+  30
+  7
+'''
+  # Fields and methods reach through a box and through a shared handle,
+  # read in place, lent to read, and matched. A shared Cell in the value
+  # changes through either, and `<b.unbox()` takes the value out of its
+  # box.
+
+  enum K
+    a(n: Int)
+    b
+
+  obj S
+    n: Int
+    xs: List[Int]
+    t: String
+    k: K
+    c: *Cell[Int]
+
+    fun get(?self) -> Int
+      self.n + self.xs[0]
+
+  fun mk(n: Int) -> S
+    xs: List[Int] = List()
+    !xs.push(n * 10)
+    S(n: n, xs: <xs, t: String("s", n), k: .a(n: n + 1), c: *Cell(n))
+
+  fun first(v: ?List[Int]) -> Int
+    v[0]
+
+  fun viewed(b: ?^S) -> Int
+    b.n + b.get()
+
+  sub show(n: Int, get: Int, x0: Int, len: Int, t: ?String, k: ?K, c: Int)
+    match k
+      .a(m) => print(n, get, x0, len, t, m, c)
+      .b => pass
+
+  bh: ^S = ^mk(1)
+  !bh.c.set(bh.c.get() + 100)
+  show(bh.n, bh.get(), first(?bh.xs), bh.xs.len, ?bh.t, ?bh.k, bh.c.get())
+  print(viewed(?bh))
+  hb: *S = *mk(2)
+  show(hb.n, hb.get(), first(?hb.xs), hb.xs.len, ?hb.t, ?hb.k, hb.c.get())
+  bh.n = 30
+  !bh.xs.push(1)
+  show(bh.n, bh.get(), first(?bh.xs), bh.xs.len, ?bh.t, ?bh.k, bh.c.get())
+  for x in bh.xs
+    print(x)
+  h = <bh.unbox()
+  print(h.n)
+  e: ^K = ^K.a(n: 7)
+  match e
+    .a(n) => print(n)
+    .b => pass
+
+test "box of values", '''
+  3 [1, 2]
+  7
+  hi
+  ["a"]
+  2
+'''
+  # A box of a List, an array, or a String is lent as its value (`?b` as a
+  # `?List[Int]`, `!b` as a `!List[Int]`) and taken apart with `unbox`. It
+  # prints as its value: a boxed String bare at the top, quoted inside.
+
+  sub fill(v: !List[Int])
+    !v.push(1)
+    !v.push(2)
+
+  fun total(v: ?List[Int]) -> Int
+    s = 0
+    for x in v
+      s += x
+    s
+
+  fun first(a: ?[4]Int) -> Int
+    a[0]
+
+  b = ^List[Int]()
+  fill(!b)
+  print(total(?b), b)
+  arr = ^[4 of 7]
+  print(first(?arr))
+  s = ^"hi"
+  print(s)
+  bs = List[^?String]()
+  !bs.push(^"a")
+  print(bs)
+  v = <b.unbox()
+  print(v.len)
+
+test "box of view signature", "4 4"
+  # `^?T` is a box that holds a read view, and it is written the same in a
+  # field, a parameter, and a result.
+
+  obj P
+    x: Int
+
+  obj Holder
+    b: ^?P
+
+  fun wrap(p: ?P) -> ^?P from p
+    ^?p
+
+  fun read(b: ?^?P) -> Int
+    b.x
+
+  p = P(x: 4)
+  h = Holder(b: wrap(?p))
+  print(read(?h.b), h.b.x)
+
+test "box recursive enum", '''
+  -3
+  left 2
+'''
+  # A recursive enum holds its children in boxes. `match` reaches a boxed
+  # enum through a view of the box (`match ?e`, or a `?^E`
+  # parameter), and a payload box is lent on as a view of its value.
+
+  enum Expr
+    num(n: Int)
+    add(l: ^Expr, r: ^Expr)
+    neg(e: ^Expr)
+
+  fun eval(e: ?^Expr) -> Int
+    match e
+      .num(n) => n
+      .add(l, r) => eval(?l) + eval(?r)
+      .neg(x) => 0 - eval(?x)
+
+  e = ^Expr.add(l: ^.num(n: 2), r: ^Expr.neg(e: ^.num(n: 5)))
+  print(eval(?e))
+  match ?e
+    .add(l, _) => print("left", eval(?l))
+    _ => print("other")
+
+fail "box retired name", "6:13: use of unbound type `Box`; a box is written `^T` as a type and `^value` as an expression", "9:5: use of unbound name `Box`; a box is written `^T` as a type and `^value` as an expression", "10:5: `Cell3` is a type alias for `^Int`; a box is made with `^`: write `^value`"
+  # `Box[T]` and `Box(v)` are written `^T` and `^v`. The old name is
+  # unbound, with a hint, and a type alias of a box is not a constructor.
+
+  type Cell3 = ^Int
+
+  fun take(b: Box[Int]) -> Int
+    1
+
+  a = Box(5)
+  b = Cell3(6)
+
+test "box search tree", '''
+  6 true false
+  1
+  2
+  3
+  5
+  8
+  9
+'''
+  # A binary search tree of boxed nodes: `if !slot as n` views the node
+  # inside an optional box in place, and assigning to a `!^Node?`
+  # slot stores a new subtree.
+
+  obj Node
+    key: Int
+    left: ^Node?
+    right: ^Node?
+
+  sub insert(slot: !^Node?, key: Int)
+    if !slot as n
+      if key < n.key
+        insert(!n.left, key)
+      else
+        insert(!n.right, key)
+    else
+      slot = ^Node(key: key, left: none, right: none)
+
+  fun contains(slot: ?^Node?, key: Int) -> Bool
+    if slot as n
+      if key == n.key
+        return true
+      if key < n.key
+        return contains(?n.left, key)
+      return contains(?n.right, key)
+    false
+
+  fun size(slot: ?^Node?) -> Int
+    if slot as n
+      1 + size(?n.left) + size(?n.right)
+    else
+      0
+
+  sub walk(slot: ?^Node?)
+    if slot as n
+      walk(?n.left)
+      print(n.key)
+      walk(?n.right)
+
+  root: ^Node? = none
+  for k in [5, 2, 8, 1, 9, 3]
+    insert(!root, k)
+  print(size(?root), contains(?root, 3), contains(?root, 4))
+  walk(?root)
+
+fail "box value access", "13:6: method `eat` consumes the receiver; cannot consume through a view", "14:10: method `unbox` consumes the receiver; cannot consume through a view", "18:9: type `^Int` has no field `value`", "23:7: `==` is not defined for `^R`", "24:7: operator `+` requires numeric operands; got `^Int`"
+  # A box's value has its fields and methods reached through the box (a
+  # List's `push`), but a box has no field `value` of its own. A box holds
+  # has no `==`, and its own consuming `unbox` and its value's consuming
+  # methods need an owned box.
+
+  obj R
+    n: Int
+
+    sub eat(<self)
+      print(self.n)
+
+  sub f(b: ?^R)
+    <b.eat()
+    q = <b.unbox()
+    print(q.n)
+
+  c = ^5
+  print(c.value + 1)
+  v = ^List[Int]()
+  !v.push(3)
+  a = ^R(n: 1)
+  b = ^R(n: 1)
+  print(a == b)
+  print(c + 1)
+
+test "box vec elements", '''
+  see 1
+  see 2
+  popped 12
+  drop 12
+  1
+  drop 11
+'''
+  # A List holds boxes as it holds handles: a box moves in with `push`,
+  # is walked by viewed slot (`for x in ?v`, `for x in !v`), and moves
+  # out with `pop`.
+
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+    sub bump(!self)
+      self.n += 10
+
+  v: List[^R] = List()
+  !v.push(^R(n: 1))
+  b = ^R(n: 2)
+  !v.push(<b)
+  for x in ?v
+    print("see", x.n)
+  for x in !v
+    !x.bump()
+  if (!v).pop() as last
+    print("popped", last.n)
+  print(v.len)
+
+test "box write view param", '''
+  R(n: 7)
+  drop 7
+  9
+  drop 9
+'''
+  # A `!^T` parameter writes the value in place: a `!self` method, a
+  # field, or the whole box (the old one is dropped).
+
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+    sub bump(!self)
+      self.n += 1
+
+  sub f(b: !^R)
+    !b.bump()
+    b.n += 5
+    print(b)
+    b = ^R(n: 9)
+
+  x = ^R(n: 1)
+  f(!x)
+  print(x.n)

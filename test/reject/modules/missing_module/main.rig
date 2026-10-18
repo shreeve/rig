@@ -1,9 +1,0 @@
-# `use nope` names a module file that does not exist.
-use nope
-
-sub main()
-  print(0)
-
-# error: 2:1: cannot read module `nope`
-# error: 2:1: no such file
-# errors: 1

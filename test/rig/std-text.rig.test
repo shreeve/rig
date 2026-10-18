@@ -1,0 +1,915 @@
+# std: tests whose names start `text`.
+
+use std.os
+use std.sort
+use std.text
+use std.utf8
+
+test "text bytes", '''
+  48 true false false 48 48
+  57 true false false 57 57
+  47 false false false 47 47
+  58 false false false 58 58
+  97 false true false 65 97
+  122 false true false 90 122
+  65 false true false 65 97
+  90 false true false 90 122
+  64 false false false 64 64
+  91 false false false 91 91
+  96 false false false 96 96
+  123 false false false 123 123
+  32 false false true 32 32
+  9 false false true 9 9
+  10 false false true 10 10
+  11 false false true 11 11
+  12 false false true 12 12
+  13 false false true 13 13
+  8 false false false 8 8
+  14 false false false 14 14
+  31 false false false 31 31
+  33 false false false 33 33
+  195 false false false 195 195
+  169 false false false 169 169
+  255 false false false 255 255
+  6 81 255
+  true false true false true
+  true false
+  false
+  -1 1 0 0
+  -1 1 -1 -1 1
+  true
+  true
+  true
+  ["", "Fig", "apple", "fig", "pear"]
+'''
+  # std.text's byte functions: ASCII classes and case, UTF-8 validity
+  # (`utf8.is_valid`), and `compare`, which orders Strings as `<` does.
+
+  sub classes(s: ?String)
+    for b in s
+      print(b, text.is_digit(b), text.is_alpha(b), text.is_space(b), text.to_upper(b), text.to_lower(b))
+
+  fun digits(s: ?String) -> Int
+    n = 0
+    for b in s
+      if text.is_digit(b)
+        n += 1
+    n
+
+  # "0", "9", "/", ":", "a", "z", "A", "Z", "@", "[", "`", "{"
+  classes("09/:azAZ@[`{")
+  # space, tab, line feed, vertical tab, form feed, carriage return, and
+  # the bytes either side of them
+  classes(" \t\n\x0b\x0c\r\x08\x0e\x1f!")
+  # the two bytes of "é", and 0xff
+  classes("é\xff")
+  print(digits("a1b22c333"), text.to_upper(text.to_lower(81)), text.to_lower(U8.max))
+
+  ok = "h\xc3\xa9!"
+  print(utf8.is_valid(ok), utf8.is_valid("h\xc3("), utf8.is_valid(""), utf8.is_valid("\xe2\x82"), utf8.is_valid("\xe2\x82\xac"))
+  print(utf8.is_valid(ok[1..3]), utf8.is_valid(ok[2..]))
+  print(utf8.is_valid("\xff"))
+
+  print(text.compare("a", "b"), text.compare("b", "a"), text.compare("ab", "ab"), text.compare("", ""))
+  print(text.compare("ab", "abc"), text.compare("abc", "ab"), text.compare("", "a"), text.compare("Z", "a"), text.compare("é", "z"))
+  for pair in [["pear", "fig"], ["fig", "fig"], ["a", "ab"]]
+    print((text.compare(pair[0], pair[1]) < 0) == (pair[0] < pair[1]))
+
+  names = ["pear", "Fig", "apple", "fig", ""]
+  sort.sort_by(!names, |a, b| text.compare(a, b) < 0)
+  print(names)
+
+fail "text bytes is rejected", "3:21: integer value `300` does not fit in `U8` (0..255)", errors: 1
+  # std.text's byte functions take a `U8`.
+
+  print(text.is_digit(300))
+
+bomb "text char boundary negative panics", "text.char_boundary: the index is out of bounds"
+  # A negative byte index is outside the text.
+
+  print(text.char_boundary("ab", -1))
+
+bomb "text char boundary panics", "text.char_boundary: the index is out of bounds"
+  # `char_boundary` takes a byte index from 0 to the text's length.
+
+  print(text.char_boundary("ab", 3))
+
+test "text chars", release: true, '''
+  a 1 1 [ 1 ]
+  e-acute 2 1 [ 2 ]
+  e+combining 3 1 [ 3 ]
+  wave+tone 8 1 [ 8 ]
+  family 18 1 [ 18 ]
+  crlf 2 1 [ 2 ]
+  lfcr 2 2 [ 1 1 ]
+  cr cr lf 3 2 [ 1 2 ]
+  flags 20 3 [ 8 8 4 ]
+  hangul 15 2 [ 9 6 ]
+  devanagari 12 1 [ 12 ]
+  empty 0 0 [  ]
+  bad 4 4 [ 1 1 1 1 ]
+  bad+mark 4 2 [ 3 1 ]
+  cut 3 2 [ 2 1 ]
+  mixed 26 8 [ 1 2 3 2 8 1 8 1 ]
+  0 1 1 3 3 3 6 6 8 8 8 8 8 8 8 8 16 17 17 17 17 17 17 17 17 25 26
+  0/0 1/1 3/9 6/10 8/18 16/20 17/23 25/25 26/26 26/26
+  0/0 0/0
+  0/0 1/1 2/2 3/3 3/3
+  [  ] héllo [  ] héllo
+  1 1 3
+  0 👨‍👩‍👧 a
+  48 64 64 47
+  true 3
+'''
+  # std.text's chars: Unicode's extended grapheme clusters. Each text in
+  # the first table is one char, however many bytes and runes it takes;
+  # CR LF is one char, regional indicators pair up into flags, and Hangul
+  # jamo join into syllables. Bytes that are not UTF-8 are one char each
+  # (each is one rune, U+FFFD), so the chars always tile the text.
+
+  # The byte size of each char of `s`.
+  fun sizes(s: ?String) -> String
+    out = String()
+    for c in text.chars(s)
+      !out.add(" ") if out.len > 0
+      !out.add(c.len)
+    out
+
+  # `piece`, `n` times.
+  fun repeat(piece: ?String, n: Int) -> String
+    out = String()
+    for _ in 0..n
+      !out.add(piece)
+    out
+
+  sub show(name: ?String, s: ?String)
+    print(name, s.len, text.char_count(s), "[", sizes(s), "]")
+
+  # Where `char_boundary` puts each byte of `s`, and `s.len`.
+  sub boundaries(s: ?String)
+    out = String()
+    for i in 0..s.len + 1
+      !out.add(" ") if out.len > 0
+      !out.add(text.char_boundary(s, i))
+    print(out)
+
+  sub ends(s: ?String)
+    out = String()
+    for n in 0..text.char_count(s) + 2
+      !out.add(" ") if out.len > 0
+      !out.add(text.first_chars(s, n).len, "/", text.last_chars(s, n).len)
+    print(out)
+
+  show("a", "a")
+  show("e-acute", "\u{e9}")
+  show("e+combining", "e\u{301}")
+  show("wave+tone", "\u{1f44b}\u{1f3fd}")
+  show("family", "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}")
+
+  show("crlf", "\r\n")
+  show("lfcr", "\n\r")
+  show("cr cr lf", "\r\r\n")
+  show("flags", "\u{1f1fa}\u{1f1f8}\u{1f1eb}\u{1f1f7}\u{1f1ef}")
+  show("hangul", "\u{1100}\u{1161}\u{11a8}\u{ac00}\u{11a8}")
+  show("devanagari", "\u{915}\u{94d}\u{937}\u{93f}")
+  show("empty", "")
+
+  # Each byte that is not UTF-8 is one char, and a combining mark joins
+  # it as it would any other rune.
+  show("bad", "\xff\xc3\xe2\x82")
+  show("bad+mark", "\xff\u{301}a")
+  show("cut", "\u{e9}\xa9")
+
+  mixed = "a\u{e9}e\u{301}\r\n\u{1f44b}\u{1f3fd}\xff\u{1f1fa}\u{1f1f8}z"
+  show("mixed", mixed)
+  boundaries(mixed)
+  ends(mixed)
+  ends("")
+  ends("\xe2\x82\xff")
+  print("[", text.first_chars("h\u{e9}llo", 0), "]", text.first_chars("h\u{e9}llo", 9), "[", text.last_chars("h\u{e9}llo", 0), "]", text.last_chars("h\u{e9}llo", 9))
+  print(text.first_chars("\xff\xfe", 1).len, text.last_chars("\xff\xfe", 1).len, text.first_chars("e\u{301}\xff", 1).len)
+
+  # Cutting at a byte limit without breaking a char.
+  s = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467} and more"
+  print(s[..text.char_boundary(s, 12)].len, s[..text.char_boundary(s, 20)])
+
+  # ASCII that ends the text where a block of 32 bytes ends.
+  a64 = repeat("ab\r\n", 16)
+  print(text.char_count(a64), text.first_chars(a64, 48).len, text.first_chars(a64, 99).len, text.char_count(a64[1..]))
+
+  # A char is a part of the String it came from.
+  owned = String("ab\u{e9}")
+  n = 0
+  it = text.chars(?owned)
+  for c in !it
+    n += c.len
+  print(n == owned.len, text.char_count(owned))
+
+test "text class end", release: true, '''
+  3 7 7
+  2 2 0
+  0 differ
+'''
+  # std.text's `class_end` against a plain loop: each of the 8 mask bits
+  # alone, a mask of several and of all; runs of 0 to 40 bytes in a class
+  # before a byte outside it, from every `i`; a text of one class to its
+  # end; and a byte whose table entry is 0xFF, in every class. Each case
+  # that differs prints itself; the last line counts them.
+
+  fun plain(s: ?String, i: Int, table: ?[256]U8, mask: U8) -> Int
+    j = i
+    while j < s.len and table[s[j]] & mask != 0
+      j += 1
+    j
+
+  # Byte `b` is in the classes of the bits of `b % 8` and `b % 8 + 1`;
+  # 0xFF is in every class, and 0x00 in none.
+  fun classes() -> [256]U8
+    t: [256]U8 = [256 of 0]
+    for b in 1..255
+      t[b] = U8(1) <<% (b % 8) | U8(1) <<% ((b + 1) % 8)
+    t[255] = 0xFF
+    t
+
+  fun differs(s: ?String, i: Int, table: ?[256]U8, mask: U8) -> Int
+    got = text.class_end(s, i, table, mask)
+    want = plain(s, i, table, mask)
+    return 0 if got == want
+    print("mask", mask, "len", s.len, "at", i, "got", got, "want", want)
+    1
+
+  t = classes()
+  bad = 0
+  masks: [11]U8 = [1, 2, 4, 8, 16, 32, 64, 128, 0x81, 0x5A, 0xFF]
+  for mask in masks
+    # The last byte below 0xFF in `mask`'s class, and the last outside it.
+    inside: U8 = 0xFF
+    outside: U8 = 0
+    for b in 1..255
+      if t[b] & mask != 0
+        inside = U8(b)
+      else
+        outside = U8(b)
+    for run in 0..41
+      for tail in 0..3
+        s = String()
+        for j in 0..run
+          !s.push(0xFF if j % 3 == 0 else inside)
+        !s.push(outside)
+        for _ in 0..tail
+          !s.push(inside)
+        for i in 0..s.len + 1
+          bad += differs(s, i, t, mask)
+    for b in 0..256
+      if t[b] & mask != 0
+        s = String()
+        for _ in 0..37
+          !s.push(U8(b))
+        bad += differs(s, 0, t, mask) + differs(s, 18, t, mask) + differs(s, s.len, t, mask)
+  s = "abc\x00def"
+  print(text.class_end(s, 0, t, 0xFF), text.class_end(s, 4, t, 0xFF), text.class_end(s, s.len, t, 0xFF))
+  print(text.class_end("\xff\xff\x00", 0, t, 0x80), text.class_end("\xff\xff", 1, t, 0x01), text.class_end("", 0, t, 1))
+  print(bad, "differ")
+
+bomb "text class end outside", "index out of bounds", prints: "2 2", release: true
+  # std.text's `class_end` panics at an `i` outside 0 to `s.len`, as
+  # indexing does.
+
+  t: [256]U8 = [256 of 1]
+  s = "ab"
+  print(text.class_end(s, 0, t, 1), text.class_end(s, s.len, t, 1))
+  print(text.class_end(s, -1, t, 1))
+
+test "text edit distance", '''
+  3 3
+  1 3
+  0 3 0
+  1 1
+  2 2
+  1 0
+  2 1
+  3
+  0 true
+'''
+  # `edit_distance` is Levenshtein distance over runes, with a scratch row
+  # the caller owns and an early exit when the distance passes `max`.
+
+  row: List[Int] = List()
+  print(text.edit_distance("kitten", "sitting", !row), text.edit_distance("", "abc", !row))
+  print(text.edit_distance("\u{e9}a", "ea", !row), text.edit_distance("kitten", "sitting", !row, max: 2))
+  print(text.edit_distance("", "", !row), text.edit_distance("abc", "", !row), text.edit_distance("abc", "abc", !row))
+  print(text.edit_distance("\xff", "a", !row), text.edit_distance("\u{20ac}\u{20ac}", "\u{20ac}", !row))
+  print(text.edit_distance("flaw", "lawn", !row), text.edit_distance("lawn", "flaw", !row))
+  print(text.edit_distance("\xff", "\xfe", !row), text.edit_distance("\xff", "\xff", !row))
+  print(text.edit_distance("\xc0\x80", "\xc1\x81", !row), text.edit_distance("\xe2\x82", "\xe2\x83", !row))
+  print(text.edit_distance("\xed\xa0\x80", "x", !row))
+  words = ["", "a", "ab", "ba", "abc", "kitten", "sitting", "saturday", "sunday", "\u{e9}t\u{e9}", "ete"]
+  bad = 0
+  for a in words
+    for b in words
+      full = text.edit_distance(a, b, !row)
+      for max in 0..9
+        got = text.edit_distance(a, b, !row, max: max)
+        want = full if full <= max else max + 1
+        bad += 1 if got != want else 0
+      bad += 1 if full != text.edit_distance(b, a, !row) else 0
+  print(bad, row.len > 0)
+
+test "text find any", release: true, '''
+  4 7 9 -1
+  -1 -1 -1
+  0 differ
+'''
+  # std.text's `find_any` against a plain loop over the set, with `none`
+  # read as -1: sets of 0 to 8 bytes and a long one, with 0x00, 0xFF and
+  # duplicates; a match at every offset from `i`, and none; every `i`
+  # from 0 to `s.len`; texts of every length 0 to 80, so the 16-byte
+  # steps, the tail that reads the last 16 bytes again, and the U64 test
+  # of a short text each meet every case; and random texts. The filler
+  # beside a match is a set byte plus 1, which a word test can wrongly
+  # mark when the subtraction at a match takes 1 from it. Each case that
+  # differs prints itself; the last line counts them.
+
+  obj Rand
+    x: Int
+
+    fun next(!self) -> Int
+      self.x = self.x *% 6364136223846793005 +% 1442695040888963407
+      (self.x >> 33) & 0x7FFFFFFF
+
+  # The first index from `i` whose byte is in `set`, or -1.
+  fun plain(s: ?String, set: ?String, i: Int) -> Int
+    for j in i..s.len
+      for b in set
+        return j if s[j] == b
+    -1
+
+  fun in_set(set: ?String, c: U8) -> Bool
+    for b in set
+      return true if b == c
+    false
+
+  # The bytes that fill a text around its matches: each set byte plus 1
+  # that is not in the set, or `a`.
+  fun fillers(set: ?String) -> String
+    out = String()
+    for b in set
+      c = U8((Int(b) + 1) & 0xFF)
+      !out.push(c) if not in_set(set, c)
+    !out.push(0x61) if out.len == 0
+    out
+
+  fun differs[set: ?String](s: ?String, i: Int) -> Int
+    got = text.find_any[set](s, i) ?? -1
+    want = plain(s, set, i)
+    return 0 if got == want
+    print("set", set.len, "len", s.len, "at", i, "got", got, "want", want)
+    1
+
+  # Every length 0 to 80, every place for one match (and none), and every
+  # `i`; a second match follows the first, so a test that reads past the
+  # first is caught.
+  fun sweep[set: ?String]() -> Int
+    bad = 0
+    owned = fillers(set)
+    fill = ?owned[..]
+    for n in 0..81
+      for p in -1..n
+        s = String()
+        for j in 0..n
+          if set.len > 0 and (j == p or j == p + 3)
+            !s.push(set[j % set.len])
+          else
+            !s.push(fill[j % fill.len])
+        for i in 0..n + 1
+          bad += differs[set](s, i)
+    bad
+
+  # Random texts of 0 to 100 bytes, each byte a set byte one time in 16,
+  # and every `i`.
+  fun random[set: ?String](rnd: !Rand) -> Int
+    bad = 0
+    owned = fillers(set)
+    fill = ?owned[..]
+    for _ in 0..300
+      n = (!rnd).next() % 101
+      s = String()
+      for _ in 0..n
+        v = (!rnd).next()
+        if set.len > 0 and v % 16 == 0
+          !s.push(set[(v >> 4) % set.len])
+        else if v % 16 == 1
+          !s.push(U8((v >> 4) & 0xFF))
+        else
+          !s.push(fill[(v >> 4) % fill.len])
+      for i in 0..n + 1
+        bad += differs[set](s, i)
+    bad
+
+  fun all[set: ?String](rnd: !Rand) -> Int
+    sweep[set]() + random[set](!rnd)
+
+  rnd = Rand(x: 7)
+  bad = 0
+  bad += all[""](!rnd)
+  bad += all["\""](!rnd)
+  bad += all["\"\\"](!rnd)
+  bad += all["\n\r\xe2"](!rnd)
+  bad += all["\"\\\n\r"](!rnd)
+  bad += all["<>&\"'"](!rnd)
+  bad += all["<>&\"'\n"](!rnd)
+  bad += all["<>&\"'\n\r"](!rnd)
+  bad += all["<>&\"'\n\r\t"](!rnd)
+  bad += all["<>&\"'\n\r\x00{}[]\xff~"](!rnd)
+  bad += all["\x00"](!rnd)
+  bad += all["\xff"](!rnd)
+  bad += all["\x00\xff"](!rnd)
+  bad += all["\x01\x00"](!rnd)
+  bad += all["aa"](!rnd)
+  bad += all["xyxyx"](!rnd)
+  s = "say \"hi\" \\ then"
+  print(text.find_any["\"\\"](s, 0) ?? -1, text.find_any["\"\\"](s, 5) ?? -1, text.find_any["\"\\"](s, 8) ?? -1, text.find_any["\"\\"](s, s.len) ?? -1)
+  print(text.find_any[""](s, 3) ?? -1, text.find_any["z"](s, 0) ?? -1, text.find_any["\x00"]("", 0) ?? -1)
+  print(bad, "differ")
+
+bomb "text find any negative", "index out of bounds", prints: "0", release: true
+  # std.text's `find_any` panics at a negative `i`, as indexing does.
+
+  print(text.find_any["a"]("ab", 0) ?? -1)
+  print(text.find_any["a"]("ab", -1) ?? -1)
+
+bomb "text find any outside", "index out of bounds", prints: "-1 -1", release: true
+  # std.text's `find_any` panics at an `i` outside 0 to `s.len`, as
+  # indexing does, even with an empty set.
+
+  s = "ab"
+  print(text.find_any["a"](s, s.len) ?? -1, text.find_any[""](s, s.len) ?? -1)
+  print(text.find_any[""](s, s.len + 1) ?? -1)
+
+bomb "text first chars negative panics", "text.first_chars: the count is negative"
+  # `first_chars` takes no negative count.
+
+  print(text.first_chars("ab", -1))
+
+bomb "text format base panics", "text.format_int: the base is not between 2 and 36"
+  # Bases run from 2 to 36.
+
+  print(text.format_int(1, 1))
+
+fail "text iterators", "5:10: field `rest` of `std.text.Split` is private to the standard library's module `std.text`", "6:10: only the standard library's module `std.text` can construct `std.text.Split`: its fields `rest`, `sep`, `done` are private", "7:10: method `next` needs its receiver lent to write; write `(!it).next()`", errors: 3
+  # std.text's iterators are made by `split`, `lines`, and `words`, which
+  # check their arguments, and advanced through a write view.
+
+  it = text.split("a b", " ")
+  print(it.rest)
+  s = text.Split(rest: "a", sep: "", done: false)
+  print(it.next(), (!s).next())
+
+bomb "text last chars negative panics", "text.last_chars: the count is negative"
+  # `last_chars` takes no negative count.
+
+  print(text.last_chars("ab", -1))
+
+test "text os from", '''
+  ["ada"]
+  ada
+  bc ax
+  ab
+  k v =x
+  unset
+'''
+  # std's text helpers and `os.env` say what their results view (Core
+  # sentence 7): `strip_prefix`, `strip_suffix`, and `cut` view `s` alone,
+  # and `os.env` only what lives for the whole program, so a computed key,
+  # prefix, or separator is free again after the call.
+
+
+  line = String("name=ada")
+  names = ["id", "name", "age"]
+  found: List[?String] = List()
+  for name in names
+    key = String(name, "=")
+    if text.strip_prefix(?line, ?key) as v
+      !found.push(v)
+  print(found)
+  key = String("name", "=")
+  w = text.strip_prefix(?line, ?key) ?? ""
+  <key
+  print(w)
+  t = String("abc")
+  p = String("a")
+  r = text.strip_prefix(?t, ?p)
+  !p.add("x")
+  print(r ?? "", p)
+  q = String("c")
+  s = text.strip_suffix(?t, ?q)
+  <q
+  print(s ?? "")
+  kv = String("k=v")
+  sep = String("=")
+  if text.cut(?kv, ?sep) as parts
+    !sep.add("x")
+    print(parts.before, parts.after, sep)
+  n = String("NO_SUCH_RIG_VARIABLE_", "X")
+  e = os.env(?n) ?? "unset"
+  <n
+  print(e)
+
+test "text parse", '''
+  [ 42 ] 42
+  [ -17 ] -17
+  [ +8 ] 8
+  [ -0 ] 0
+  [ +0 ] 0
+  [ 007 ] 7
+  [ 9223372036854775807 ] 9223372036854775807
+  [ -9223372036854775808 ] -9223372036854775808
+  [ 9223372036854775808 ] ParseError.overflow
+  [ -9223372036854775809 ] ParseError.overflow
+  [ 99999999999999999999999 ] ParseError.overflow
+  [  ] ParseError.invalid
+  [ + ] ParseError.invalid
+  [ - ] ParseError.invalid
+  [  1 ] ParseError.invalid
+  [ 1  ] ParseError.invalid
+  [ 1_000 ] ParseError.invalid
+  [ 0x10 ] ParseError.invalid
+  [ 1.5 ] ParseError.invalid
+  [ --1 ] ParseError.invalid
+  [ +-1 ] ParseError.invalid
+  [ 12a ] ParseError.invalid
+  [ ١ ] ParseError.invalid
+  [ 2.5 ] 2.5
+  [ -0.75 ] -0.75
+  [ +3 ] 3.0
+  [ -0 ] -0.0
+  [ 1. ] 1.0
+  [ .5 ] 0.5
+  [ 1e3 ] 1000.0
+  [ 2.5E-3 ] 0.0025
+  [ 1e+2 ] 100.0
+  [ 007.50 ] 7.5
+  [ inf ] inf
+  [ -Infinity ] -inf
+  [ NaN ] nan
+  [ 1.8e308 ] ParseError.overflow
+  [ -1e400 ] ParseError.overflow
+  [ 1e-400 ] 0.0
+  [  ] ParseError.invalid
+  [ . ] ParseError.invalid
+  [ e5 ] ParseError.invalid
+  [ 1e ] ParseError.invalid
+  [ 1.2.3 ] ParseError.invalid
+  [  1.0 ] ParseError.invalid
+  [ 1.0  ] ParseError.invalid
+  [ 1_0.0 ] ParseError.invalid
+  [ 0x1p3 ] ParseError.invalid
+  [ infinit ] ParseError.invalid
+  [ +-1 ] ParseError.invalid
+  [ true ] true
+  [ false ] false
+  [ True ] ParseError.invalid
+  [  ] ParseError.invalid
+  [  true ] ParseError.invalid
+  [ 1 ] ParseError.invalid
+  true true
+  6 -1
+  12 1 64
+'''
+  # std.text's parsers: an optional sign, `-0`, the ends of `Int`'s
+  # range, overflow, and the Strings that are not numbers, which include
+  # any with whitespace.
+
+  sub int(s: ?String)
+    n = text.parse_int(s) catch |e|
+      print("[", s, "]", e)
+      return
+    print("[", s, "]", n)
+
+  sub float(s: ?String)
+    x = text.parse_float(s) catch |e|
+      print("[", s, "]", e)
+      return
+    print("[", s, "]", x)
+
+  sub boolean(s: ?String)
+    b = text.parse_bool(s) catch |e|
+      print("[", s, "]", e)
+      return
+    print("[", s, "]", b)
+
+  fun sum(xs: []?String) -> Int!
+    total = 0
+    for x in xs
+      total += text.parse_int(x)!
+    total
+
+  sub main()!
+    for s in ["42", "-17", "+8", "-0", "+0", "007", "9223372036854775807", "-9223372036854775808"]
+      int(s)
+    for s in ["9223372036854775808", "-9223372036854775809", "99999999999999999999999"]
+      int(s)
+    for s in ["", "+", "-", " 1", "1 ", "1_000", "0x10", "1.5", "--1", "+-1", "12a", "١"]
+      int(s)
+
+    for s in ["2.5", "-0.75", "+3", "-0", "1.", ".5", "1e3", "2.5E-3", "1e+2", "007.50"]
+      float(s)
+    for s in ["inf", "-Infinity", "NaN", "1.8e308", "-1e400", "1e-400"]
+      float(s)
+    for s in ["", ".", "e5", "1e", "1.2.3", " 1.0", "1.0 ", "1_0.0", "0x1p3", "infinit", "+-1"]
+      float(s)
+
+    for s in ["true", "false", "True", "", " true", "1"]
+      boolean(s)
+
+    print(text.parse_float("1e308")! == 1e308, text.parse_float("1.7976931348623157e308")! == Float.max)
+    print(sum(["1", "2", "3"])!, sum(["1", "x"]) catch -1)
+    n = text.parse_int("12") catch |e|
+      match e
+        text.ParseError.invalid => -1
+        text.ParseError.overflow => -2
+        _ => -3
+    over = text.parse_int("1x") catch |e| 0 if e == text.ParseError.overflow else 1
+    print(n, over, text.parse_int(text.trim("  64\n"))!)
+
+fail "text parse fails", "5:5: fallible call to `text.parse_int` must be wrapped with `!` (propagate) or `catch` (handle)", "6:6: `!` needs a fallible operand; this expression has type `Int?` and cannot fail", "7:60: no member `empty` on type `std.text.ParseError`", errors: 3
+  # std.text's parsers can fail, and say so: a call handles the failure or
+  # propagates it, a search that cannot fail takes neither, and the
+  # errors are `ParseError`'s.
+
+  n = text.parse_int("1")
+  at = text.find("abc", "b")!
+  ok = text.parse_bool("yes") catch |e| e == text.ParseError.empty
+  print(n, at, ok)
+
+test "text radix", '''
+  255 -5 1295
+  255 15 42
+  -1
+  -1 -1 -1
+  -1 -1
+  ff FF -10
+  0 5 z Z
+  2 -1000000000000000000000000000000000000000000000000000000000000000 111111111111111111111111111111111111111111111111111111111111111 true true
+  8 -1000000000000000000000 777777777777777777777 true true
+  10 -9223372036854775808 9223372036854775807 true true
+  16 -8000000000000000 7fffffffffffffff true true
+  36 -1y2p0ij32e8e8 1y2p0ij32e8e7 true true
+  true
+  true
+  true
+'''
+  # `parse_int` and `format_int` in bases 2 to 36, with base 10 the default.
+
+  fun overflows(s: ?String, base: Int) -> Bool
+    text.parse_int(s, base) catch |err|
+      return err == text.ParseError.overflow
+    false
+
+  print(text.parse_int("ff", 16)!, text.parse_int("-101", 2)!, text.parse_int("zz", 36)!)
+  print(text.parse_int("FF", 16)!, text.parse_int("+17", 8)!, text.parse_int("42")!)
+  print(text.parse_int("12", 2) catch -1)
+  print(text.parse_int("", 16) catch -1, text.parse_int("-", 2) catch -1, text.parse_int("0x1f", 16) catch -1)
+  print(text.parse_int("1_0", 10) catch -1, text.parse_int(" 1", 10) catch -1)
+  print(text.format_int(255, 16), text.format_int(255, 16, upper: true), text.format_int(-8, 8))
+  print(text.format_int(0, 2), text.format_int(5), text.format_int(35, 36), text.format_int(35, 36, upper: true))
+  for base in [2, 8, 10, 16, 36]
+    s = text.format_int(Int.min, base)
+    t = text.format_int(Int.max, base)
+    print(base, s, t, text.parse_int(s, base)! == Int.min, text.parse_int(t, base)! == Int.max)
+  big = String("1")
+  for _ in 0..64
+    !big.add("0")
+  print(overflows(?big[..], 2))
+  neg = String("-")
+  !neg.add(?big[..])
+  print(overflows(?neg[..], 2))
+  edge = String("-1")
+  for _ in 0..63
+    !edge.add("0")
+  print(text.parse_int(?edge[..], 2)! == Int.min)
+
+bomb "text radix base high panics", "text.parse_int: the base is not between 2 and 36"
+  # Bases run from 2 to 36.
+
+  print(text.parse_int("1", 37) catch 0)
+
+bomb "text radix base low panics", "text.parse_int: the base is not between 2 and 36"
+  # Bases run from 2 to 36.
+
+  print(text.parse_int("1", 1) catch 0)
+
+test "text search", '''
+  1 4 none none
+  0 3 2 3
+  0 6 0 0
+  none none none
+  0 2 3
+  true false true true false
+  true false true true false
+  true false true true false
+  2 0 2 1 4
+  4 1 0 1
+  4 54 4 none
+'''
+  # std.text's searches: byte indexes, the empty pattern, patterns at the
+  # ends of the String, and overlapping occurrences.
+
+  s = "abcabc"
+  print(text.find(s, "bc"), text.find_last(s, "bc"), text.find(s, "x"), text.find_last(s, "x"))
+  print(text.find(s, "abc"), text.find_last(s, "abc"), text.find(s, "c"), text.find_last(s, "a"))
+  print(text.find(s, ""), text.find_last(s, ""), text.find("", ""), text.find_last("", ""))
+  print(text.find("", "a"), text.find("ab", "abc"), text.find_last("ab", "abc"))
+  print(text.find("aaaa", "aa"), text.find_last("aaaa", "aa"), text.find("héllo", "l"))
+
+  print(text.contains(s, "ca"), text.contains(s, "cb"), text.contains(s, ""), text.contains("", ""), text.contains("", "a"))
+  print(text.starts_with(s, "ab"), text.starts_with(s, "bc"), text.starts_with(s, s), text.starts_with(s, ""), text.starts_with("ab", "abc"))
+  print(text.ends_with(s, "bc"), text.ends_with(s, "ab"), text.ends_with(s, s), text.ends_with(s, ""), text.ends_with("bc", "abc"))
+
+  print(text.count(s, "bc"), text.count(s, "x"), text.count("aaaa", "aa"), text.count("aaa", "aa"), text.count("aaaa", "a"))
+  print(text.count("abc", ""), text.count("", ""), text.count("", "a"), text.count("abab", "abab"))
+
+  # Every search on a long String, where Zig searches by skip tables.
+  long = "the quick brown fox jumps over the lazy dog, then the quick brown fox naps"
+  print(text.find(long, "quick brown"), text.find_last(long, "quick brown"), text.count(long, "the"), text.find(long, "zebra"))
+
+test "text split", '''
+  [ a ]
+  [ b ]
+  [  ]
+  [ c ]
+  4 parts, one more than 3 separators
+  [  ]
+  [ a ]
+  [  ]
+  3 parts, one more than 2 separators
+  [  ]
+  1 parts, one more than 0 separators
+  [ no separator ]
+  1 parts, one more than 0 separators
+  [ a ]
+  [ b ]
+  [ :c ]
+  3 parts, one more than 2 separators
+  [  ]
+  [  ]
+  [  ]
+  3 parts, one more than 2 separators
+  0 3 [ one ] 0
+  1 3 [ two ] 0
+  2 0 [  ] 0
+  3 4 [ four ] 0
+  4 lines
+  0 9 [ no ending ] 0
+  1 lines
+  0 lines
+  0 0 [  ] 0
+  1 lines
+  0 0 [  ] 0
+  1 0 [  ] 0
+  2 lines
+  0 4 [ ... ] 2
+  1 lines
+  0 1 [ x ] 0
+  1 lines
+  < the >
+  < quick >
+  < brown >
+  < fox >
+  4 words
+  0 words
+  0 words
+  < one >
+  1 words
+  x y done x
+'''
+  # std.text's splitting iterators: `split` on a separator, `lines` on
+  # `\n` and `\r\n`, and `words` on runs of ASCII whitespace.
+
+  sub parts(s: ?String, sep: ?String)
+    it = text.split(s, sep)
+    n = 0
+    while (!it).next() as part
+      print("[" , part, "]")
+      n += 1
+    print(n, "parts, one more than", text.count(s, sep), "separators")
+
+  sub each_line(s: ?String)
+    ls = text.lines(s)
+    n = 0
+    while (!ls).next() as l
+      crs = text.count(l, "\r")
+      print(n, l.len, "[", l if crs == 0 else "...", "]", crs)
+      n += 1
+    print(n, "lines")
+
+  sub each_word(s: ?String)
+    ws = text.words(s)
+    n = 0
+    while (!ws).next() as w
+      print("<", w, ">")
+      n += 1
+    print(n, "words")
+
+  parts("a,b,,c", ",")
+  parts(",a,", ",")
+  parts("", ",")
+  parts("no separator", ",")
+  parts("a::b:::c", "::")
+  parts("aaaa", "aa")
+
+  each_line("one\ntwo\r\n\r\nfour\n")
+  each_line("no ending")
+  each_line("")
+  each_line("\n")
+  each_line("\n\n")
+  each_line("a\rb\r")
+  each_line("x\r\n")
+
+  each_word("  the quick\tbrown\n\nfox  ")
+  each_word("")
+  each_word(" \t\r\n ")
+  each_word("one")
+
+  # An iterator is a value: a second one walks the same String anew.
+  it = text.split("x-y", "-")
+  first = (!it).next() ?? "?"
+  again = text.split("x-y", "-")
+  print(first, (!it).next() ?? "?", (!it).next() ?? "done", (!again).next() ?? "?")
+
+bomb "text split empty", "text.split: the separator is empty"
+  # `split` needs a separator: the parts between occurrences of "" would
+  # split the String inside its UTF-8 sequences.
+
+  it = text.split("abc", "")
+  print((!it).next())
+
+test "text views", '''
+  [ two words ] [ x   ] [   x ]
+  0 0 1 x é
+  3 4 4
+  happy none  x
+  file none  none
+  key | value = more
+  0 start
+  end 0
+  no separator
+  0 abc
+  /usr/local 10 true
+'''
+  # std.text's views: trimming ASCII whitespace, stripping a prefix or a
+  # suffix, and cutting around a separator. Each is a part of the String
+  # it was given.
+
+  fun show(s: ?String) -> ?String
+    s
+
+  print("[" , text.trim("  two words \t\r\n"), "]", "[", text.trim_start("  x  "), "]", "[", text.trim_end("  x  "), "]")
+  print(text.trim("").len, text.trim(" \t\n\r").len, text.trim_start("\x0b\x0cv").len, text.trim("x"), text.trim_end("é "))
+  print(text.trim(" a b ").len, text.trim_start(" a b ").len, text.trim_end(" a b ").len)
+
+  print(text.strip_prefix("unhappy", "un"), text.strip_prefix("unhappy", "happy"), text.strip_prefix("un", "un"), text.strip_prefix("x", ""))
+  print(text.strip_suffix("file.rig", ".rig"), text.strip_suffix("file.rig", ".zig"), text.strip_suffix("", ""), text.strip_suffix("a", "ab"))
+
+  if text.cut("key = value = more", " = ") as kv
+    print(kv.before, "|", kv.after)
+  c = text.cut("=start", "=") ?? text.Cut(before: "?", after: "?")
+  print(c.before.len, c.after)
+  c = text.cut("end=", "=") ?? text.Cut(before: "?", after: "?")
+  print(c.before, c.after.len)
+  if text.cut("no separator", "=") as found
+    print("found", found.before)
+  else
+    print("no separator")
+  if text.cut("abc", "") as whole
+    print(whole.before.len, whole.after)
+
+  # A view is a String like any other.
+  path = "  /usr/local/bin  "
+  dir = text.strip_suffix(text.trim(path), "/bin") ?? "/"
+  print(show(dir), dir.len, dir == "/usr/local")
+
+# Written by hand, in the shortest forms.
+
+test "building a string from parts", "ab"
+  String("a", "b")
+
+test "a parse of empty text fails, and the caller handles it", true
+  text.parse_bool("") catch |e| e == text.ParseError.invalid
+
+test "splitting on a space", '''
+  a
+  b
+  c
+'''
+  for w in text.split("a b c", " ")
+    print(w)
+
+bomb "a char boundary past the end", "the index is out of bounds"
+  text.char_boundary("ab", 9)
+
+fail "a byte function takes a U8", "does not fit in `U8`"
+  text.is_digit(300)
+
+code "a call into std.text calls the module's function", /__rig_m\d+_std_text\.is_digit\(55\)/
+  text.is_digit(55)

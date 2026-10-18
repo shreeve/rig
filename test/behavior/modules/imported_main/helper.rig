@@ -1,2 +1,0 @@
-pub sub main()
-  print("helper main")

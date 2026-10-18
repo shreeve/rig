@@ -1,8 +1,0 @@
-# Cloning a fresh `*Cell(...)` without binding it first is rejected:
-# the anonymous handle would leak.
-
-sub main()
-  c = +(*Cell(0))
-  print(c.get())
-
-# error: bind it to a name first

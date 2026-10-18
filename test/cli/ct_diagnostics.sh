@@ -75,7 +75,7 @@ kinds.rig:3:8: error: an array length is an integer; \`none\` is the absent opti
 # A value too large is reported once, where it is spelled or made: a
 # type holding one, and a fill where its annotation is rejected, are not
 # reported again.
-expect_eq "$(errors_of "$ROOT/test/reject/types/array_too_large.rig" | wc -l | tr -d ' ')" "12" "one diagnostic per value too large"
+expect_eq "$(errors_of "$ROOT/test/cli/fixtures/array_too_large.rig" | wc -l | tr -d ' ')" "12" "one diagnostic per value too large"
 
 # An array argument is not read as brackets written apart from the name
 # when the function takes run-time parameters, and a rejected parameter
@@ -113,4 +113,4 @@ EOF2
 expect_eq "$(errors_of ctor.rig)" "ctor.rig:8:17: error: compile-time argument 2 of \`Ring\` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, a \`=!\` binding of one, or arithmetic on them" "a rejected instance's arguments"
 
 # Each frame too large is reported once.
-expect_eq "$(errors_of "$ROOT/test/reject/types/frame_too_large.rig" | wc -l | tr -d ' ')" "7" "one diagnostic per frame too large"
+expect_eq "$(errors_of "$ROOT/test/cli/fixtures/frame_too_large.rig" | wc -l | tr -d ' ')" "7" "one diagnostic per frame too large"

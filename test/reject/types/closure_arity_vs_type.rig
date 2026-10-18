@@ -1,7 +1,0 @@
-# A closure takes at most the parameters the type its context expects
-# passes it (fewer is allowed: test/behavior/syntax/closure_fewer_params.rig).
-
-sub main()
-  f: fun(Int) -> Int = |a, b| a + b
-
-# error: this closure takes 2 parameters, but its type `fun(Int) -> Int` passes 1

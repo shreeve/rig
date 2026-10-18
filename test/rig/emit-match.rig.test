@@ -1,0 +1,490 @@
+# emit: tests whose names start `match`.
+
+test "match bool both arms", '''
+  t
+  no
+'''
+  # A match on a Bool with both `true` and `false` arms covers every value.
+
+  fun name(b: Bool) -> ?String
+    match b
+      true => "yes"
+      false => "no"
+
+  match 1 > 0
+    true => print("t")
+    false => print("f")
+  print(name(false))
+
+test "match capture generated names", '''
+  3 2 0 0
+  drop 1
+'''
+  # Arm bindings may use the names the emitted code gives match captures.
+
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  enum Sh
+    c(r: R, k: Int)
+    d
+
+  s = Sh.c(r: R(n: 1), k: 2)
+  match <s
+    .c(_, k)
+      payload_1 = k + 1
+      whole_2 = k
+      payload_0 = 0
+      whole_0 = 0
+      print(payload_1, whole_2, payload_0, whole_0)
+    .d => print(0)
+
+test "match default arm", '''
+  red
+  not red: .blue
+'''
+  # A bare identifier pattern is a catch-all arm for unhandled variants.
+
+  enum Color
+    red
+    green
+    blue
+
+  sub show(c: Color)
+    match c
+      .red => print("red")
+      other => print("not red:", other)
+
+  show(.red)
+  show(.blue)
+
+test "match enum statement", "G"
+  # An exhaustive statement-position match on an enum runs the matching arm.
+
+  enum Color
+    red
+    green
+    blue
+
+  c: Color = .green
+  match c
+    .red => print("R")
+    .green => print("G")
+    .blue => print("B")
+
+test "match expr block", '''
+  7
+  7
+'''
+  # Multi-statement match arms in value position yield their last expression.
+
+  enum Op
+    add
+    minus
+
+  fun apply(op: Op, a: Int, b: Int) -> Int
+    match op
+      .add
+        tmp = a + b
+        tmp
+      .minus
+        tmp = a - b
+        tmp
+
+  print(apply(.add, 3, 4))
+  print(apply(.minus, 10, 3))
+
+test "match expr early return", '''
+  11
+  -1
+'''
+  # A value-position match arm that returns early has no value; the other
+  # arms supply the binding.
+
+  enum Op
+    go
+    abort
+
+  fun handle(op: Op, x: Int) -> Int
+    result: Int = match op
+      .go => x * 2
+      .abort
+        return -1
+    result + 1
+
+  print(handle(.go, 5))
+  print(handle(.abort, 5))
+
+test "match expr mixed", '''
+  0
+  25
+  27
+'''
+  # A value-position match mixing single-expression and multi-statement arms.
+
+  enum Op
+    zero
+    square
+    cube
+
+  fun apply(op: Op, x: Int) -> Int
+    match op
+      .zero => 0
+      .square => x * x
+      .cube
+        sq: Int = x * x
+        sq * x
+
+  print(apply(.zero, 5))
+  print(apply(.square, 5))
+  print(apply(.cube, 3))
+
+test "match integer pattern", "two"
+  # A match on an Int selects the arm whose literal equals the value.
+
+  n = 2
+  match n
+    1 => print("one")
+    2 => print("two")
+    _ => print("other")
+
+test "match on view", '''
+  write a 1
+  read a 1
+  param a 1
+'''
+  # `match ?t` and `match !t` match the value viewed.
+
+  enum S
+    a(n: Int)
+    b
+
+  sub show(s: !S)
+    match s
+      .a(n) => print("param a", n)
+      .b => print("param b")
+
+  t: S = .a(n: 1)
+  match !t
+    .a(n) => print("write a", n)
+    .b => print("write b")
+  match ?t
+    .a(n) => print("read a", n)
+    .b => print("read b")
+  show(!t)
+
+test "match on view call", '''
+  3
+  4
+'''
+  # A match on a call returning a view held by pointer (a `?Shape` whose
+  # payload is a handle, a `!Shape`) switches on the value it reaches.
+
+  obj B
+    n: Int
+
+  enum Shape
+    box(b: *B)
+    dot
+
+  fun g(s: ?Shape) -> ?Shape
+    s
+
+  fun h(s: !Shape) -> !Shape
+    s
+
+  s = Shape.box(b: *B(n: 3))
+  match g(?s)
+    .box(b) => print(b.n)
+    .dot => print(0)
+  n = match h(!s)
+    .box(b) => b.n + 1
+    .dot => 0
+  print(n)
+
+test "match partial statement", "R"
+  # A statement-position match covers every variant, here with `_` for the
+  # ones it does not name; the matching arm runs.
+
+  enum Color
+    red
+    green
+    blue
+
+  c: Color = .red
+  match c
+    .red => print("R")
+    .green => print("G")
+    _ => print("other")
+
+test "match payload destructure", "7"
+  # Match arms bind payload fields: `.circle(r)` binds the single field,
+  # `.triangle(a, b)` binds both fields.
+
+  enum Shape
+    circle(radius: Int)
+    triangle(a: Int, b: Int)
+    origin
+
+  s: Shape = .triangle(a: 3, b: 4)
+  match s
+    .circle(r) => print(r)
+    .triangle(a, b) => print(a + b)
+    .origin => print(0)
+
+test "match payload move disarms scrutinee", '''
+  5
+  drop
+  end
+'''
+  # Moving a payload binding of `match <s` out is allowed: `s` was
+  # consumed by the match, so it is not dropped again.
+
+  obj Wrap
+    payload: Int
+
+    drop(!self)
+      print("drop")
+
+  enum Slot
+    full(b: *Wrap)
+    empty
+
+  sub eat(rc: *Wrap)
+    print(rc.payload)
+
+  rc = *Wrap(payload: 5)
+  s: Slot = .full(b: <rc)
+  match <s
+    .full(b) => eat(<b)
+    .empty => print(0)
+  print("end")
+
+test "match range pattern", '''
+  negative
+  out 0
+  low
+  mid
+  mid
+  high
+  high
+  out 10
+  out -6
+'''
+  # `lo..hi` in a match arm is half-open, like every range: it matches
+  # `lo` up to, not including, `hi`. Bounds may be negative or named
+  # constants.
+
+  sub bucket(x: Int)
+    lim =! 10
+    match x
+      -5..0 => print("negative")
+      1..4 => print("low")
+      4..7 => print("mid")
+      7..lim => print("high")
+      other => print("out", other)
+
+  bucket(-5)
+  bucket(0)
+  bucket(3)
+  bucket(4)
+  bucket(6)
+  bucket(7)
+  bucket(9)
+  bucket(10)
+  bucket(-6)
+
+test "match statement no arm", '''
+  other
+  end
+'''
+  # A statement `match` runs its `_` arm for a value no other arm covers.
+
+  n = 5
+  match n
+    1 => print("one")
+    _ => print("other")
+  print("end")
+
+test "match subject evaluated once", '''
+  make 1
+  other
+  drop 101
+  drop 1
+  make 2
+  kept 102
+  drop 102
+  drop 2
+  make 4
+  drop 4
+  104
+  make 5
+  either
+  drop 105
+  drop 5
+  mk
+  mid 3
+  first, r = 1
+  idx calls: 1
+  [.circle(r: 1), .point] idx calls: 2
+  end
+  drop 104
+'''
+  # A match evaluates its subject once, however its arms are tested: a
+  # guarded match on a call, or on an element whose index has an effect,
+  # runs the call once, and a `match <` of a
+  # call owns and drops what the call made; so does a `match <` of a
+  # call with alternatives, and a `match !` of an element bound whole.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    full(b: *B, c: *B)
+    empty
+
+  enum Shape
+    circle(r: Int)
+    point
+
+  fun make(n: Int) -> Slot
+    print("make", n)
+    .full(b: *B(n: n), c: *B(n: n + 100))
+
+  fun mk() -> Shape
+    print("mk")
+    .circle(r: 3)
+
+  fun idx(c: !Cell[Int]) -> Int
+    n = c.get()
+    !c.set(n + 1)
+    n % 2
+
+  sub keep(b: *B)
+    print("kept", b.n)
+
+  match <make(1)
+    .full(b, _) if b.n > 5 => keep(<b)
+    _ => print("other")
+  match <make(2)
+    .full(b, c) if b.n > 5 => keep(<b)
+    .full(_, c) if c.n > 5 => keep(<c)
+    _ => print("other")
+  x = match <make(4)
+    .full(b, _) if b.n > 50 => <b
+    .full(_, c) => <c
+    .empty => *B(n: 0)
+  print(x.n)
+  match <make(5)
+    .full(_, _), .empty => print("either")
+  match mk()
+    .circle(r) if r > 5 => print("big")
+    .circle(r) if r > 1 => print("mid", r)
+    _ => print("other")
+  k = *Cell(0)
+  xs: [2]Shape = [.circle(r: 1), .circle(r: 2)]
+  match xs[idx(!k)]
+    .circle(r) if r == 1 => print("first, r =", r)
+    .circle(r) => print("second, r =", r)
+    _ => print("other")
+  print("idx calls:", k.get())
+  match !xs[idx(!k)]
+    .circle(r) if r > 5 => r = 0
+    w => w = .point
+  print(xs, "idx calls:", k.get())
+  print("end")
+
+test "match value multi field payload", "7"
+  # A value-position match arm can destructure a multi-field payload.
+
+  enum Shape
+    circle(radius: Int)
+    triangle(a: Int, b: Int)
+
+  fun measure(s: Shape) -> Int
+    match s
+      .circle(r) => r
+      .triangle(a, b) => a + b
+
+  s: Shape = .triangle(a: 3, b: 4)
+  print(measure(s))
+
+test "match value position", "2"
+  # A match used as a binding's value; arm results unify to one type.
+
+  enum Color
+    red
+    green
+    blue
+
+  c: Color = .green
+  x = match c
+    .red => 1
+    .green => 2
+    .blue => 3
+  print(x)
+
+test "match write vec element", release: true, '''
+  .a(n: 112, t: "vxp") .a(n: 22, t: "sy") .a(n: 33, t: "hz") .a(n: 44, t: "w")
+'''
+  # A `match !p` whose subject is an element of a List, or a path through
+  # one, writes its payloads where the element is: the switch is on the
+  # place, never on a copy of the element.
+
+  enum E
+    a(n: Int, t: String)
+    b
+
+  obj S
+    e: E
+
+  obj H
+    f: List[E]
+
+  sub bump(p: !List[E], i: Int)
+    match !p[i]
+      .a(n, t)
+        n += 1
+        !t.add("p")
+      .b => pass
+
+  v: List[E] = List()
+  !v.push(E.a(n: 1, t: String("v")))
+  !v.push(E.b)
+  i = 0
+  match !v[i]
+    .a(n, t)
+      n += 10
+      !t.add("x")
+    .b => pass
+  match !v[0]
+    .a(n, _) => n += 100
+    .b => pass
+  bump(!v, i)
+  s: List[S] = List()
+  !s.push(S(e: E.a(n: 2, t: String("s"))))
+  match !s[i].e
+    .a(n, t)
+      n += 20
+      !t.add("y")
+    .b => pass
+  h = H(f: List())
+  !h.f.push(E.a(n: 3, t: String("h")))
+  match !h.f[i]
+    .a(n, t)
+      n += 30
+      !t.add("z")
+    .b => pass
+  vv: List[List[E]] = List()
+  w: List[E] = List()
+  !w.push(E.a(n: 4, t: String("w")))
+  !vv.push(<w)
+  match !vv[0][i]
+    .a(n, _) => n += 40
+    .b => pass
+  print(v[0], s[0].e, h.f[0], vv[0][0])

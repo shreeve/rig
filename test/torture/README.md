@@ -9,8 +9,8 @@ directory, `bin/rig run <file>` must exit non-zero with at least one
 bounds` in its output). A crash here means the compiler panicked instead
 of producing a diagnostic.
 
-An ordinary rejection with a message worth pinning belongs in
-`test/reject/` instead.
+An ordinary rejection with a message worth pinning belongs in a
+`fail` case of `test/rig` instead.
 
 Each file should be a minimal reduction of a real failure mode (or a class of
 failures). New entries belong here whenever a panic/segfault is discovered.

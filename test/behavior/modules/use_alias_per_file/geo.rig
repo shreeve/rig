@@ -1,2 +1,0 @@
-pub fun two() -> Int
-  2

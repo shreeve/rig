@@ -1,6 +1,0 @@
-pub enum Opt[T]
-  some(v: T)
-  nothing
-
-pub fun wrap(x: ?String) -> Opt[?String] from x
-  Opt.some(v: x)

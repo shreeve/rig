@@ -1,0 +1,3707 @@
+# modules: the rest of its tests.
+
+test "alias across modules", '''
+  1 0 2 4 5 7 0 1.5
+  8
+  light
+  true true -128 true
+'''
+  # Another module's alias names its type in every role here: it
+  # constructs values of a struct (declared in that module or one it
+  # imports) or a generic instance, calls associated functions, names
+  # variants, and converts to a number type. A local alias of an imported
+  # alias does too, and a default naming a limit through an alias, of
+  # that module or one it imports, fills in here.
+
+  use lib
+
+  type LUP = lib.UP
+  type LIP = lib.IP
+
+  sub main()
+    p = lib.UP(x: 1)
+    o = lib.UP.origin()
+    l = LUP(x: 2)
+    q = lib.IP(a: 3, b: 4)
+    t = lib.IP.twin(5)
+    r = LIP(a: 6, b: 7)
+    v = lib.IV(capacity: 3)
+    s = lib.US.dark(n: 8)
+    k: lib.US = lib.US.light
+    print(p.x, o.x, l.x, q.b, t.a, r.b, v.len, lib.Real(1.5))
+    match s
+      .dark(n) => print(n)
+      .light => print("light")
+    match k
+      .light => print("light")
+      .dark(_) => print("dark")
+    m = lib.Limits()
+    print(m.hi > 3.0e38, m.lo < -3.0e38, m.small, m.wide > 1.0e308)
+
+  file "lib.rig"
+    use util
+
+    pub obj Pair[T]
+      pub a: T
+      pub b: T
+
+      pub fun twin(x: T) -> Pair[T]
+        Pair(a: x, b: x)
+
+    pub type UP = util.Point
+    pub type US = util.Shade
+    pub type IP = Pair[Int]
+    pub type IV = List[Int]
+    pub type Real = F32
+
+    type R = F32
+
+    pub obj Limits
+      pub hi: R = R.max
+      pub lo: Real = Real.min
+      pub small: util.Small = util.Small.min
+      pub wide: util.Wide = util.Wide.max
+
+  file "util.rig"
+    pub obj Point
+      pub x: Int
+
+      pub fun origin() -> Point
+        Point(x: 0)
+
+    pub enum Shade
+      light
+      dark(n: Int)
+
+    pub type Small = I8
+    pub type Wide = F64
+
+fail "alias named none", "2:12: `none` is the absent optional and cannot name a module; name it with `as`: `use ... as other`", errors: 1
+  # `none` is the absent optional, so no `use ... as` binds it.
+  use lib as none
+
+  sub main()
+    print(none.two())
+
+  file "lib.rig"
+    pub fun two() -> Int
+      2
+
+fail "aliased generic type name", "8:13: type mismatch: expected `Bool`, got `g.Wrap[Int]`", "9:13: type mismatch: expected `Bool`, got `g.Point`"
+  # A diagnostic names another module's type as this module spells it,
+  # by the name of the import: a generic type's instance as a plain type
+  # is, `g.Wrap[Int]` beside `g.Point`.
+
+  use geo as g
+
+  sub main()
+    w: Bool = g.Wrap(v: 1)
+    p: Bool = g.Point(x: 1)
+    print(w, p)
+
+  file "geo.rig"
+    pub obj Wrap[T]
+      pub v: T
+
+    pub obj Point
+      pub x: Int
+
+test "box across modules", '''
+  6 Tree(key: 1, kids: [Tree(key: 2, kids: []), Tree(key: 3, kids: [])])
+  5 6
+'''
+  # A type from another module is boxed, and holds boxes of itself in a
+  # List; its methods are called through the boxes, and a consuming method
+  # takes the value out of its box.
+
+  use lib
+
+  sub main()
+    root = lib.leaf(1)
+    !root.kids.push(lib.leaf(2))
+    !root.kids.push(lib.leaf(3))
+    print(root.total(), root)
+    t = lib.ticket(5)
+    print(<t.redeem(), lib.ticket(6).redeem())
+
+  file "lib.rig"
+    pub obj Tree
+      key: Int
+      pub kids: List[^Tree]
+
+      pub fun total(?self) -> Int
+        t = self.key
+        for k in ?self.kids
+          t += k.total()
+        t
+
+    pub fun leaf(key: Int) -> ^Tree
+      ^Tree(key: key, kids: List())
+
+    pub obj Ticket
+      n: Int
+
+      pub fun redeem(<self) -> Int
+        self.n
+
+    pub fun ticket(n: Int) -> ^Ticket
+      ^Ticket(n: n)
+
+test "builtin type args", "16 16 8 1 2 Bool 2"
+  # Every form a type argument of `@size`, `@align`, and `@name`
+  # can take: `Self`, an alias, an imported type, a builtin, and a type
+  # parameter.
+
+  use lib
+
+  obj P
+    x: I64
+    y: I64
+
+    fun size(?self) -> Int
+      @size(Self)
+
+  type P2 = P
+
+  obj Wrap[T]
+    v: T
+
+    fun size(?self) -> Int
+      @size(T)
+
+  sub main()
+    p = P(x: 1, y: 2)
+    b: Wrap[U16] = Wrap(v: 7)
+    print(@size(P2), p.size(), @size(lib.Q), @size(U8), b.size(), @name(Bool), @align(U16))
+
+  file "lib.rig"
+    pub obj Q
+      a: I32
+      b: I32
+
+test "closure args across modules", '''
+  ["apple", "fig", "pear"] [5, 3, 4] true
+  7
+'''
+  # Another module's generic functions and methods take callable views
+  # as local ones do: a closure literal written in the call, whose
+  # parameter and result types are inferred there.
+
+  use lib
+
+  sub main()
+    words = ["pear", "fig", "apple"]
+    calls = 0
+    lib.sort(!words[..], |!calls, a, b|
+      calls += 1
+      a < b
+    )
+    lens = lib.map(?words[..], |w| w.len)
+    print(words, lens, calls > 0)
+    bag = lib.Bag(items: List())
+    !bag.items.push(2)
+    !bag.items.push(5)
+    total = 0
+    bag.each(|!total, n| total += n)
+    print(total)
+
+  file "lib.rig"
+    pub sub sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+      i = 1
+      while i < xs.len : i += 1
+        j = i
+        while j > 0 and less(?xs[j], ?xs[j - 1]) : j -= 1
+          !xs.swap(j, j - 1)
+
+    pub fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> List[U]
+      out: List[U] = List()
+      for x in xs
+        !out.push(f(?x))
+      out
+
+    pub obj Bag
+      pub items: List[Int]
+
+      pub sub each(?self, f: ?sub(Int))
+        for x in ?self.items
+          f(x)
+
+test "comptime params across modules", '''
+  15
+  40
+  8
+'''
+  # An imported function takes its compile-time arguments in brackets, as
+  # a local one does.
+
+  use lib
+
+  sub main()
+    print(lib.scaled[3](5))
+    lib.banner[40]()
+    lib.banner[8]()
+
+  file "lib.rig"
+    pub fun scaled[n: Int](x: Int) -> Int
+      x * n
+
+    pub sub banner[width: Int]()
+      print(width)
+
+test "const generics across modules", '''
+  3 3 6 2
+  5
+  2 4 3
+  2 1.5
+'''
+  # Another module's compile-time integer parameters are given in brackets
+  # or inferred, as a local function's are, and each value is checked
+  # against what the module's bodies do with it, such as sizing an array.
+
+  use lib
+
+  sub main()
+    z = lib.zeros[3]()
+    a: [3]Int = lib.zeros()
+    print(z.len, a.len, lib.sum([1, 2, 3]), lib.plain[2]())
+    lib.show[5]()
+    m = lib.Maker.zeros[2]()
+    r = lib.Ring[Int, 4](items: [1, 2, 3, 4])
+    print(m.len, r.cap(), r.items[2])
+    b: lib.Ring[Float, 2] = lib.Ring(items: [0.5, 1.5])
+    print(b.cap(), b.items[1])
+
+  file "lib.rig"
+    pub fun zeros[n: Int]() -> [n]Int
+      [n of 0]
+
+    fun helper[m: Int]() -> Int
+      a = [m of 0]
+      a.len
+
+    pub sub show[k: Int]()
+      print(helper[k]())
+
+    pub fun plain[k: Int]() -> Int
+      k
+
+    pub obj Maker
+      x: Int
+
+      pub fun zeros[n: Int]() -> [n]Int
+        [n of 0]
+
+    pub fun sum[n: Int](xs: [n]Int) -> Int
+      t = 0
+      for x in xs
+        t += x
+      t
+
+    pub obj Ring[T, n: Int]
+      pub items: [n]T
+
+      pub fun cap(?self) -> Int
+        n
+
+fail "constant as pattern", "8:5: `lib.DEF` is a constant, which a pattern cannot name; compare with it in a guard: `x if x == lib.DEF =>`", "12:5: `lib.RED` is a constant, which a pattern cannot name; compare with it in a guard: `x if x == lib.RED =>`", errors: 2
+  # A pattern cannot name a module's constant, of an error set or of an
+  # enum: it is compared in a guard instead. The rejected arm covers
+  # nothing, and the match reports no more than that arm.
+  use lib
+
+  fun k(d: lib.Disk) -> ?String
+    match d
+      lib.DEF => "def"
+
+  fun c(x: lib.Color) -> ?String
+    match x
+      lib.RED => "red"
+      .green => "green"
+
+  sub main()
+    print(k(lib.Disk.full), c(.red))
+
+  file "lib.rig"
+    pub error Disk
+      full
+      empty
+
+    pub enum Color
+      red
+      green
+
+    pub DEF = Disk.full
+    pub RED = Color.red
+
+test "cross anon resource temp", "7"
+  # A field read from an imported function's `*Wrap` result, without
+  # binding it, reads the temporary handle, which its statement drops.
+
+  use a
+
+  sub main()
+    print(a.make_box().value)
+
+  file "a.rig"
+    pub obj Wrap
+      pub value: Int
+
+    pub fun make_box() -> *Wrap
+      *Wrap(value: 7)
+
+fail "cross arity", "call to `a.add` expects 2 arguments, got 5"
+  # A cross-module call is checked against the imported signature:
+  # `a.add` takes two arguments.
+  use a
+
+  sub main()
+    x = a.add(1, 2, 3, 4, 5)
+    print(x)
+
+  file "a.rig"
+    pub fun add(a: Int, b: Int) -> Int
+      a + b
+
+fail "cross constructor field", "no field `does_not_exist` on type `Wrap`"
+  # Constructing an imported struct checks its field list: `Wrap` has no
+  # field `does_not_exist`.
+  use a
+
+  sub main()
+    b = a.Wrap(does_not_exist: 5)
+    print(b.value)
+
+  file "a.rig"
+    pub obj Wrap
+      value: Int
+
+fail "cross fallible call", "fallible call to `a.parse_int` must be wrapped with `!` (propagate) or `catch` (handle)"
+  # `a.parse_int` returns `Int!`; calling it without `!` or `catch` is an
+  # error at the call site even though the callee lives in another module.
+  use a
+
+  sub main()
+    x = a.parse_int("hi")
+    print(x)
+
+  file "a.rig"
+    pub fun parse_int(s: ?String) -> Int!
+      return 42
+
+test "cross module default args", '''
+  19
+  35
+'''
+  # Keyword arguments and default parameter values work across modules;
+  # a default is the literal written in the declaring module.
+
+  use lib
+
+  sub main()
+    print(lib.scale(2))
+    print(lib.scale(off: 5, n: 3))
+
+  file "lib.rig"
+    pub fun scale(n: Int, by: Int = 10, off: Int = -1) -> Int
+      n * by + off
+
+test "cross module method kwargs", "12 19"
+  # Methods of a type from another module take keyword arguments and
+  # defaults.
+
+  use shapes
+
+  sub main()
+    r = shapes.Rect(w: 2, h: 3)
+    print(r.scaled(), r.scaled(plus: 1, by: 3))
+
+  file "shapes.rig"
+    pub obj Rect
+      pub w: Int
+      pub h: Int
+
+      pub fun scaled(?self, by: Int = 2, plus: Int = 0) -> Int
+        self.w * self.h * by + plus
+
+test "cross module read lend", "42"
+  # `a.log_box` takes a read view `?Wrap`; a bare `Wrap` argument is lent
+  # to read, as `?b` would lend it, across modules too.
+  use a
+
+  sub main()
+    b = a.make_box(42)
+    a.log_box(b)
+
+  file "a.rig"
+    pub obj Wrap
+      value: Int
+
+    pub fun make_box(v: Int) -> Wrap
+      Wrap(value: v)
+
+    # Public fn requires a read view (`?b`) of its argument.
+    pub sub log_box(b: ?Wrap)
+      print(b.value)
+
+test "cross module struct", '''
+  3 1
+  0
+'''
+  # A public struct from another module is constructed as `geo.Point(...)`,
+  # returned from its functions, and used through its methods and fields.
+
+  use geo
+
+  sub main()
+    p = geo.Point(x: 1, y: 2)
+    print(p.sum(), p.x)
+    o = geo.origin()
+    print(o.sum())
+
+  file "geo.rig"
+    pub obj Point
+      pub x: Int
+      pub y: Int
+
+      pub fun sum(?self) -> Int
+        self.x + self.y
+
+    pub fun origin() -> Point
+      Point(x: 0, y: 0)
+
+fail "cross private extern", "`a.abs` is not public; mark it `pub` in module `a`"
+  # `extern` does not bypass `pub`: a private extern in module `a` is
+  # invisible to importers, who must go through the `pub` safe wrapper.
+  use a
+
+  sub main()
+    raw
+      print(a.abs(-1))
+
+  file "a.rig"
+    # Not `pub`: a private extern behind a `pub` safe wrapper is the
+    # idiom; the extern itself is invisible to importers.
+    extern fun abs(n: I32) -> I32
+
+    pub fun safe_abs(n: I32) -> I32
+      raw
+        abs(n)
+
+fail "cross private fun", "`a.internal_helper` is not public; mark it `pub` in module `a`"
+  # `a.internal_helper` is not `pub`, so importers cannot call it.
+  use a
+
+  sub main()
+    y = a.internal_helper(5)
+    print(y)
+
+  file "a.rig"
+    pub fun visible_helper(x: Int) -> Int
+      x + 1
+
+    # Not `pub`: invisible to importers.
+    fun internal_helper(x: Int) -> Int
+      x * 2
+
+test "cross resource return", "42"
+  # An imported function returning `*Wrap` gives the caller a named binding
+  # with an auto-drop guard, and `b.value` auto-derefs through the Rc.
+  use a
+
+  sub main()
+    b = a.make_box(42)
+    print(b.value)
+
+  file "a.rig"
+    pub obj Wrap
+      pub value: Int
+
+    pub fun make_box(v: Int) -> *Wrap
+      *Wrap(value: v)
+
+fail "cross unknown member", "no member `no_such_fn` in module `a`"
+  # Qualified access to a name that module `a` does not define is a Rig
+  # diagnostic, not a fall-through to the Zig compiler.
+  use a
+
+  sub main()
+    z = a.no_such_fn(1, 2)
+    print(z)
+
+  file "a.rig"
+    pub fun add(x: Int, y: Int) -> Int
+      x + y
+
+fail "ct array len members", "7:7: `lib.N` is not public; mark it `pub` in module `lib`", "8:7: no member `nope` in module `lib`", "9:7: use of unbound name `nolib`", "10:7: `lib.S` is a type; an array length is an integer", "11:7: an array length is an integer; `lib.F` is a `Float`"
+  # `module.NAME` as an array length names a public integer constant of
+  # the module; anything else is reported for what it is.
+
+  use lib
+
+  sub main()
+    a: [lib.N]Int = [3 of 0]
+    b: [lib.nope]Int = [3 of 0]
+    c: [nolib.X]Int = [3 of 0]
+    d: [lib.S]Int = [3 of 0]
+    e: [lib.F]Int = [3 of 0]
+    f: [lib.P]Int = [4 of 0]
+    print(a, b, c, d, e, f)
+
+  file "lib.rig"
+    N = 3
+    pub F = 2.5
+    pub P = 4
+
+    pub obj S
+      x: Int
+
+test "ct array module const", "[1, 2, 3] 4 [1, 2, 3] 2"
+  # A module's constant sizes an array and gives a generic type's value
+  # argument in another module: `[lib.N]Int` is `[3]Int`. A public
+  # function's compile-time parameter crosses modules when it sizes no
+  # array.
+
+  use lib
+
+  obj Ring[T, n: Int]
+    items: [n]T
+
+  sub main()
+    a: [lib.N]Int = [1, 2, 3]
+    b: [3]Int = a
+    c: [lib.W * 2]Int = [4 of 0]
+    r: Ring[Int, lib.N] = Ring[Int, lib.N](items: b)
+    s: Ring[Int, 3] = r
+    print(b, c.len, s.items, lib.count[2]())
+
+  file "lib.rig"
+    pub N = 3
+    pub W: U8 = 2
+
+    pub fun count[n: Int]() -> Int
+      n
+
+test "ct imported enum value", '''
+  3 6 8
+  10
+'''
+  # A variant of an imported enum is a compile-time value.
+
+  use lib
+
+  sub main()
+    print(lib.check[lib.Mode.a](3), lib.check[lib.Mode.b](3), lib.check[.b](4))
+    m =! lib.Mode.b
+    print(lib.check[m](5))
+
+  file "lib.rig"
+    pub enum Mode
+      a
+      b
+
+    pub fun check[m: Mode](n: Int) -> Int
+      if m == .a
+        return n
+      n * 2
+
+test "default constants", '''
+  2 1 2 1 [-1, -1, -1] 3 10 255 8 0
+  8 lib 2.5 1 1 0
+  13 11 5 40.0 5.0 8.0
+'''
+  # Field and parameter defaults may name module constants, this module's
+  # or an imported one; a field default may also be an empty or literal
+  # constructor, made fresh for each value.
+  use lib
+
+  MAX = 3
+
+  obj Stack
+    items: List[Int] = List()
+    names: List[?String] = List[?String]()
+    hits: Int = 0
+    slots: [MAX]Int = [MAX of -1]
+    cap: Int = MAX
+    top: U8 = U8.max
+    far: Int = lib.LIMIT
+
+    sub push(!self, x: Int)
+      !self.items.push(x)
+      self.hits += 1
+
+  fun pad(s: ?String, width: Int = MAX, fill: Int = lib.LIMIT) -> Int
+    s.len + width + fill
+
+  sub main()
+    a = Stack()
+    b = Stack(cap: 10)
+    !a.push(1)
+    !a.push(2)
+    !b.push(5)
+    print(a.items.len, b.items.len, a.hits, b.hits, a.slots, a.cap, b.cap, a.top, a.far, a.names.len)
+    c = lib.Config()
+    !c.tags.push("x")
+    d = lib.Config(size: 1)
+    print(c.size, c.label, c.rate, c.tags.len, d.size, d.tags.len)
+    print(pad("ab"), pad("ab", 1), pad("ab", fill: 0), lib.scaled(2), lib.scaled(2, 1), lib.scaled(1, rate: 1.0))
+
+  file "lib.rig"
+    pub LIMIT = 8
+    pub NAME = "lib"
+    RATE = 2.5
+
+    pub obj Config
+      pub size: Int = LIMIT
+      pub label: ?String = NAME
+      pub rate: Float = RATE
+      pub tags: List[?String] = List()
+
+    pub fun scaled(n: Int, by: Int = LIMIT, rate: Float = RATE) -> Float
+      Float(n * by) * rate
+
+test "diamond import", "30"
+  # main imports a and b, and b imports a: a is loaded and checked once
+  # and both importers see the same module.
+  use a
+  use b
+
+  sub main()
+    print(a.base() + b.twice())
+
+  file "a.rig"
+    pub fun base() -> Int
+      10
+
+  file "b.rig"
+    use a
+
+    pub fun twice() -> Int
+      a.base() * 2
+
+test "directory module", "3"
+  # A directory is a module: its files share one namespace and call each
+  # other, and a module beneath it is a directory of its own.
+  use checker
+
+  sub main()
+    print(checker.Checker(depth: 0).expr(3))
+
+  file "checker/expr.rig"
+    pub obj Checker
+      pub depth: Int
+
+      pub fun expr(?self, n: Int) -> Int
+        0 if n == 0 else self.stmt(n - 1)
+
+  file "checker/stmt.rig"
+    use checker.binder
+
+    pub fun Checker.stmt(?self, n: Int) -> Int
+      binder.bump(self.expr(n))
+
+  file "checker/binder/bump.rig"
+    pub fun bump(n: Int) -> Int
+      n + 1
+
+test "directory module names", "21 4"
+  # The files of a directory module share its private names and
+  # constants, in any order; each file uses the modules it names, and two
+  # files may use one module. A method may be declared in any file of its
+  # type's module.
+  use m
+
+  sub main()
+    print(m.total(), m.ring().cap())
+
+  file "geo/point.rig"
+    pub obj Point
+      pub x: Int
+      pub y: Int
+
+  file "geo/sum.rig"
+    pub fun Point.sum(?self) -> Int
+      self.x + self.y
+
+  file "geo/util/twice.rig"
+    pub fun twice(n: Int) -> Int
+      2 * n
+
+  file "m/a.rig"
+    use geo
+    use geo.util as u
+
+    pub fun total() -> Int
+      LIMIT + helper() + u.twice(geo.Point(x: 1, y: 2).sum())
+
+    pub obj Ring[T, n: Int]
+      items: [n]T
+
+  file "m/b.rig"
+    use geo
+
+    LIMIT = BASE * 2
+
+    fun helper() -> Int
+      geo.Point(x: BASE, y: 0).x
+
+  file "m/c.rig"
+    BASE = 5
+
+    pub fun Ring[T, n].cap(?self) -> Int
+      n
+
+    pub fun ring() -> Ring[Int, 4]
+      Ring(items: [4 of 0])
+
+test "empty constructor", '''
+  9 3
+  7 0 1 0
+  1
+'''
+  # `T()` of an object whose every field has a default makes the value
+  # those defaults give, from any module, though some fields are private:
+  # as a local, as a field's default (a fresh one for each value), and for
+  # a generic object, as a local and as a default.
+
+  use lib
+
+  obj Shelf
+    bag: lib.Bag = lib.Bag()
+    pile: lib.Pile[String] = lib.Pile[String]()
+
+  sub main()
+    b = lib.Bag()
+    !b.add(4)
+    !b.add(5)
+    print(b.total(), b.limit)
+    s = Shelf()
+    t = Shelf()
+    !s.bag.add(7)
+    !s.pile.put(String("x"))
+    print(s.bag.total(), t.bag.total(), s.pile.count(), t.pile.count())
+    p = lib.Pile[Int]()
+    !p.put(1)
+    print(p.count())
+
+  file "lib.rig"
+    # Objects whose every field has a default, some private: another module
+    # makes an empty one with `T()`.
+
+    pub obj Bag
+      items: List[Int] = List()
+      label: String = String()
+      pub limit: Int = 3
+
+      pub sub add(!self, n: Int)
+        !self.items.push(n) if self.items.len < self.limit
+
+      pub fun total(?self) -> Int
+        sum = 0
+        for n in ?self.items
+          sum += n
+        sum
+
+    pub obj Pile[T]
+      items: List[T] = List()
+
+      pub sub put(!self, x: T)
+        !self.items.push(<x)
+
+      pub fun count(?self) -> Int
+        self.items.len
+
+fail "empty constructor needs defaults", "9:17: `lib.Half()` is a default only when every field of `lib.Half` has one, and `size` has none", "12:11: `lib.Half()` makes a `lib.Half` from its fields' defaults, and `size` has no default; its fields `items`, `size` are private to module `lib`, which alone can set them", "13:11: only module `lib` can construct `lib.Bag`: its field `items` is private"
+  # `T()` makes a value only from defaults for every field, as a local or
+  # as a field's default: a private field with no default is the module's
+  # to set. And explicit fields set a value only when every field is
+  # `pub`, as before.
+
+  use lib
+
+  obj Keep
+    h: lib.Half = lib.Half()
+
+  sub main()
+    h = lib.Half()
+    b = lib.Bag(limit: 4)
+    print(h, b)
+
+  file "lib.rig"
+    pub obj Half
+      items: List[Int] = List()
+      size: Int
+
+    pub obj Bag
+      items: List[Int] = List()
+      pub limit: Int = 3
+
+test "endian across modules", '''
+  .little true .big
+  513 258
+  [3, 4]
+  [4, 3]
+'''
+  # Every module's `Endian` is the one built-in type: values, constants,
+  # and compile-time arguments of it pass between modules.
+
+  use wire
+
+  sub main()
+    b: [2]U8 = [1, 2]
+    e: Endian = wire.order()
+    print(e, e == Endian.little, wire.ORDER)
+    print(wire.get[.little](?b[..]), wire.get[wire.ORDER](?b[..]))
+    wire.put(!b[..], .big, 0x0304)
+    print(b)
+    wire.put(!b[..], e, 0x0304)
+    print(b)
+
+  file "wire.rig"
+    pub ORDER = Endian.big
+
+    pub fun order() -> Endian
+      .little
+
+    pub fun get[e: Endian](b: []U8) -> U16
+      b.read[U16, e](0)
+
+    pub sub put(b: ![]U8, e: Endian, v: U16)
+      match e
+        .little => !b.write[U16, .little](0, v)
+        .big => !b.write[U16, .big](0, v)
+
+test "enum order imported", '''
+  true false true
+  false true .mid
+'''
+  # Another module's plain enum orders by its variants' values, beside a
+  # `.variant`, a qualified variant, and in its own module's function.
+  use lib
+  use std.math
+
+  sub main()
+    l: lib.Level = .mid
+    print(l > .low, lib.Level.high < l, l <= lib.Level.mid)
+    print(lib.at_least(l, .high), lib.at_least(.high, l), math.min(lib.Level.high, l))
+
+  file "lib.rig"
+    pub enum Level
+      high = 9
+      low = 1
+      mid = 5
+
+    pub fun at_least(l: Level, floor: Level) -> Bool
+      l >= floor
+
+test "enum text across modules", '''
+  .blue blue dark_red red
+  .red .dark_red none
+  two
+'''
+  # A plain enum of another module: its `.text` and `from_text`, called
+  # from two modules and through another module's alias of it. `Unused`
+  # is never looked up, so its module emits no table of names for it.
+
+  use colors
+  use paint
+
+  type Local = paint.Shade
+
+  sub main()
+    c = colors.Color.from_text("blue") ?? .red
+    print(c, c.text, paint.parse("dark_red").text, paint.parse("nope").text)
+    print(paint.Shade.from_text("red"), Local.from_text("dark_red"), Local.from_text("Blue"))
+    print(colors.Unused.two.text)
+
+  file "colors.rig"
+    pub enum Color
+      red
+      dark_red
+      blue
+
+    pub enum Unused
+      one
+      two
+
+  file "paint.rig"
+    use colors
+
+    pub type Shade = colors.Color
+
+    pub fun parse(word: ?String) -> colors.Color
+      colors.Color.from_text(word) ?? .red
+
+test "enum through third module", "7"
+  # An enum from one module passes through a function of another.
+
+  use util
+  use geo
+
+  sub main()
+    a: util.Shape = .circle(r: 1)
+    b: util.Shape = .sq(s: 2)
+    print(geo.total(?a, ?b))
+
+  file "geo.rig"
+    use util
+
+    pub fun total(a: ?util.Shape, b: ?util.Shape) -> Int
+      util.area(a) + util.area(b)
+
+  file "util.rig"
+    pub enum Shape
+      circle(r: Int)
+      sq(s: Int)
+
+    pub fun area(s: ?Shape) -> Int
+      match s
+        .circle(r) => 3 * r * r
+        .sq(x) => x * x
+
+fail "enum value private", "6:7: `lib.J` is not public"
+  # A variant's value may name only another module's public constants.
+
+  use lib
+
+  enum E
+    a = lib.J
+    b
+
+  sub main()
+    print(Int(E.a), Int(E.b))
+
+  file "lib.rig"
+    J = 9
+
+test "enum values imported", "5 6"
+  # A variant's value may name another module's public constant.
+
+  use lib
+
+  enum E
+    a = lib.K
+    b
+
+  sub main()
+    print(Int(E.a), Int(E.b))
+
+  file "lib.rig"
+    pub K = 5
+
+test "error constants and aliases", '''
+  Disk.full true H(e: Disk.full) Disk.full
+  true true true false
+  2 2 1 Disk.full Disk.empty Net.timeout
+'''
+  # A module's constant of an error-set type is that constant, read as a
+  # value, passed, and used as a default; an alias of an error set, local,
+  # of another module's set, or another module's own `pub type`, names the
+  # set's members as the set does, in values and in patterns.
+  use lib
+
+  type L = lib.Disk
+
+  error Net
+    timeout
+
+  type N = Net
+
+  obj H
+    e: lib.Disk = lib.DEF
+
+  fun g(e: lib.Disk = lib.DEF) -> lib.Disk
+    e
+
+  fun take(d: lib.Disk) -> Bool
+    d == lib.DEF
+
+  fun net() -> Int!
+    return N.timeout
+
+  sub main()
+    print(lib.DEF, take(lib.DEF), H(), g())
+    x = lib.fail(0) catch |e|
+      print(e == lib.DEF, e == L.full, e == lib.D.full, e == L.empty)
+      match e
+        L.empty => 1
+        lib.D.full => 2
+        _ => 3
+    y = lib.fail(1) catch |e|
+      match e
+        lib.D.full => 1
+        L.empty => 2
+        _ => 3
+    z = net() catch |e|
+      match e
+        N.timeout => 1
+        _ => 2
+    print(x, y, z, L.full, lib.D.empty, N.timeout)
+
+  file "lib.rig"
+    pub error Disk
+      full
+      empty
+
+    pub DEF = Disk.full
+    pub type D = Disk
+
+    pub fun fail(n: Int) -> Int!
+      return Disk.full if n == 0
+      return D.empty if n == 1
+      n
+
+fail "error name hints", "9:11: `.timeout` is not a value of `Int`; to fail, name the error set: `Net.timeout`, `b.Mid.timeout`, or `a.Deep.timeout` (import `a` to name it)", "13:35: error sets `Net`, `b.Mid`, and `a.Deep` all have a member `timeout`; name the set: `Net.timeout`, `b.Mid.timeout`, or `a.Deep.timeout` (import `a` to name it)", errors: 2
+  # A hint names every error set a bare name could mean, the way this
+  # module writes it; a set of a module it does not import says so.
+  use b
+
+  error Net
+    timeout
+
+  fun g(n: Int) -> Int!
+    return .timeout if n == 0
+    n
+
+  sub main()
+    x = b.h(0) catch |e| 1 if e == .timeout else 2
+    print(x, g(1) catch 0)
+
+  file "a.rig"
+    pub error Deep
+      timeout
+
+  file "b.rig"
+    use a
+
+    pub error Mid
+      timeout
+
+    pub fun h(n: Int) -> Int!
+      return a.Deep.timeout if n == 0
+      return Mid.timeout if n == 1
+      n
+
+fail "error name in two modules", "9:8: error sets `io.IoError` and `lex.LexError` both have a member `eof`; name the set: `io.IoError.eof` or `lex.LexError.eof`", errors: 1
+  # Two modules' error sets that share a member name are distinct: a bare
+  # `.eof` against any error could be either, so it names its set.
+  use io
+  use lex
+
+  sub main()
+    a = io.read(0) catch |e|
+      match e
+        .eof => 1
+        _ => 2
+    b = io.read(0) catch |e| 1 if e == io.IoError.eof else 2
+    print(a, b)
+
+  file "io.rig"
+    pub error IoError
+      eof
+
+    pub fun read(n: Int) -> Int!
+      return IoError.eof if n == 0
+      n
+
+  file "lex.rig"
+    pub error LexError
+      eof
+
+test "error name private sets", '''
+  Hidden.timeout
+  1 2
+'''
+  # A bare error name against any error counts this module's own sets and
+  # the `pub` sets of the modules it reaches, never another module's
+  # private set: `.timeout` here is `Net.timeout`, and `a`'s private
+  # `Hidden.timeout` is a different error.
+  use a
+
+  error Net
+    timeout
+
+  fun g() -> Int!
+    return Net.timeout
+
+  sub main()
+    x = g() catch |e| 1 if e == .timeout else 2
+    y = a.f(0) catch |e|
+      print(e)
+      match e
+        .timeout => 1
+        _ => 2
+    print(x, y)
+
+  file "a.rig"
+    error Hidden
+      timeout
+
+    pub fun f(n: Int) -> Int!
+      return Hidden.timeout if n == 0
+      n
+
+test "error sets per module", '''
+  -1 closed
+  0 io eof
+  1 parse eof
+  2 other
+  3 ok
+  IoError.eof true false
+  ParseError.eof false true
+  Hidden.eof false false
+  0 closed eof
+'''
+  # Error sets of different modules are distinct, even with the same
+  # member name: `io.IoError.eof` is not `parse.ParseError.eof`, nor the
+  # `eof` of a set `parse` keeps private. A set is named through its
+  # module in a comparison and a match arm, and a member only one set the
+  # module can see has, as `.closed`, needs no set. An error prints with
+  # its set.
+  use io
+  use parse
+
+  fun describe(n: Int) -> ?String
+    _ = parse.parse(n) catch |e|
+      match e
+        io.IoError.eof => return "io eof"
+        parse.ParseError.eof => return "parse eof"
+        .closed => return "closed"
+        _ => return "other"
+    "ok"
+
+  sub main()
+    for n in -1..4
+      print(n, describe(n))
+    a = parse.parse(0) catch |e|
+      print(e, e == io.IoError.eof, e == parse.ParseError.eof)
+      0
+    b = parse.parse(1) catch |e|
+      print(e, e == io.IoError.eof, e == parse.ParseError.eof)
+      0
+    c = parse.parse(2) catch |e|
+      print(e, e == io.IoError.eof, e == parse.ParseError.eof)
+      0
+    print(a + b + c, io.kind(), io.kind(io.IoError.eof))
+
+  file "io.rig"
+    pub error IoError
+      eof
+      closed
+
+    pub fun read(n: Int) -> Int!
+      return IoError.eof if n == 0
+      return IoError.closed if n < 0
+      n
+
+    pub fun kind(e: IoError = .closed) -> ?String
+      match e
+        .eof => "eof"
+        IoError.closed => "closed"
+
+  file "parse.rig"
+    use io
+
+    pub error ParseError
+      eof
+
+    error Hidden
+      eof
+
+    pub fun parse(n: Int) -> Int!
+      return ParseError.eof if n == 1
+      return Hidden.eof if n == 2
+      io.read(n)! * 10
+
+fail "extern zig outside std", "2:1: only the standard library binds declarations to Zig code with `extern zig`", errors: 1
+  # Only the standard library binds declarations to Zig code.
+  extern zig "fast.zig"
+    pub fun twice(n: Int) -> Int
+
+  print(twice(2))
+
+test "field default import", "3 true"
+  # A default declared in another module fills an omitted field.
+
+  use lib
+
+  sub main()
+    c = lib.Config(verbose: true)
+    print(c.retries, c.verbose)
+
+  file "lib.rig"
+    pub obj Config
+      pub retries: Int = 3
+      pub verbose: Bool = false
+
+test "for iterator across modules", release: true, '''
+  span 1
+  span 2
+  span 3
+  made 1
+  made 2
+  10
+'''
+  # An iterator declared in another module is walked by a `for` like a
+  # local one, whether a name holds it or a call makes it, and a module
+  # can loop over its own iterators in the functions it exports.
+  use span
+
+  sub main()
+    r = span.span(3)
+    for x in !r
+      print("span", x)
+    for y in span.span(2)
+      print("made", y)
+    print(span.total(4))
+
+  file "span.rig"
+    pub obj Span
+      n: Int
+      at: Int
+
+      pub fun next(!self) -> Int?
+        return none if self.at >= self.n
+        self.at += 1
+        self.at
+
+    pub fun span(n: Int) -> Span
+      Span(n: n, at: 0)
+
+    pub fun total(n: Int) -> Int
+      s = 0
+      for x in span(n)
+        s += x
+      s
+
+fail "foreign array len", "8:11: `lib.zeros[-1]` cannot use `n = -1`: the generic body uses `n` as an array length, which runs from 0 to 4294967295", "1:29: `n` used as an array length here", "9:7: `lib.helper[5000000000]` cannot use `m = 5000000000`", "5:8: `m` used as an array length here", "9:7: `lib.helper[5000000000]` is made by `lib.show[5000000000]`", "10:11: `lib.zeros[2000000]` makes `[2000000]Int`, which takes 16000000 bytes", "1:28: the array is made here", "11:7: `lib.Ring[Int, -2]` cannot use `n = -2`", "12:11: `n` used as an array length here"
+  # Each value another module's compile-time parameter takes here is
+  # checked against what its bodies do with it: an array length runs from
+  # 0 to 2^32 - 1, and a value takes at most 8 MiB.
+
+  use lib
+
+  sub main()
+    a = lib.zeros[-1]()
+    lib.show[5000000000]()
+    b = lib.zeros[2000000]()
+    r = lib.Ring[Int, -2](items: [])
+    print(a.len, b.len, r.items.len)
+
+  file "lib.rig"
+    pub fun zeros[n: Int]() -> [n]Int
+      [n of 0]
+
+    fun helper[m: Int]() -> Int
+      a = [m of 0]
+      a.len
+
+    pub sub show[k: Int]()
+      print(helper[k]())
+
+    pub obj Ring[T, n: Int]
+      items: [n]T
+
+test "foreign builtin element", '''
+  drop 1
+  1 1
+'''
+  # Another module's generic body makes a List of this module's owning
+  # type: the List holds it, and drops it with itself.
+
+  use lib
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub main()
+    print(lib.keep(1), lib.keep(Res(n: 1)))
+
+  file "lib.rig"
+    pub fun keep[T](x: T) -> Int
+      v = List[T]()
+      !v.push(<x)
+      v.len
+
+fail "foreign chain requirement", "8:26: `util.twice[Static]` cannot use `T = Static`: the generic body applies `+` to `T`, which `Static` does not support", "2:3: `+` used on `T` here (arithmetic)", "8:26: `util.twice[Static]` is made by `lib.quad[Static]`"
+  # An instance reached through another module's generic body is checked
+  # against the body of the module that declares it, which this module
+  # need not import.
+
+  use lib
+
+  sub main()
+    print(lib.quad(2), lib.quad("a"))
+
+  file "lib.rig"
+    use util
+
+    pub fun quad[T](x: T) -> T
+      util.twice(util.twice(x))
+
+  file "util.rig"
+    pub fun twice[T](x: T) -> T
+      x + x
+
+test "foreign constant methods", '''
+  true 5
+  b
+  a
+  1
+  b
+  a
+  2
+  3
+'''
+  # Methods called on another module's constants run on the constant, for
+  # generic and plain enums, with positional and keyword arguments, and
+  # through a constant declared in a third module.
+
+  use lib
+  use a
+
+  fun f(s: ?String, n: Int) -> Int
+    print(s)
+    n
+
+  sub main()
+    print(lib.NONE.is_none(), lib.NONE.or(5))
+    print(lib.NONE.pick(b: f("b", 2), a: f("a", 1)))
+    print(lib.GREEN.pick(b: f("b", 2), a: f("a", 1)))
+    print(a.D.or(3))
+
+  file "a.rig"
+    use lib
+
+    pub D: lib.Opt[Int] = .nothing
+
+  file "lib.rig"
+    pub enum Opt[T]
+      some(value: T)
+      nothing
+
+      pub fun or(?self, d: T) -> T
+        match self
+          .some(value) => value
+          .nothing => d
+
+      pub fun is_none(?self) -> Bool
+        match self
+          .some(value) => false
+          .nothing => true
+
+      pub fun pick(?self, a: Int, b: Int) -> Int
+        a if self.is_none() else b
+
+    pub enum Color
+      red
+      green
+
+      pub fun pick(?self, a: Int, b: Int) -> Int
+        match self
+          .red => a
+          .green => b
+
+    pub NONE: Opt[Int] = .nothing
+    pub GREEN: Color = .green
+
+fail "foreign constant write", "9:3: cannot assign to constant `geo.KP`", "10:9: cannot lend constant `geo.KP` to write", "11:13: cannot write-iterate constant `geo.KP`", "13:4: cannot lend constant `geo.KP` to write", "14:3: cannot assign to constant `geo.LIMIT`", errors: 5
+  # Another module's constants cannot change: not by assignment, a write
+  # view, a write loop, or an element method.
+  use geo
+
+  sub bump(x: ![3]Int)
+    x[0] += 1
+
+  sub main()
+    geo.KP[0] = 3
+    bump(!geo.KP)
+    for x in !geo.KP
+      x += 1
+    !geo.KP.fill(0)
+    geo.LIMIT = 11
+    print(geo.KP[0], geo.LIMIT)
+
+  file "geo.rig"
+    pub obj Point
+      pub x: Int
+      pub y: Int
+      pub o: Int?
+
+      pub sub bump(!self)
+        self.x += 1
+
+    pub KP = [1, 2, 3]
+    pub LIMIT = 10
+
+    pub fun mk() -> Point
+      Point(x: 0, y: 0, o: 1)
+
+fail "foreign instance names", "9:13: `conv[Bool]` cannot use `U = Bool`", "9:13: `conv[Bool]` is made by `lib.run[Bool]`", "10:19: `lib.Plain.sq` takes compile-time parameters", "11:11: `lib.max` takes compile-time parameters"
+  # Another module's generics are named as this module spells them: a
+  # function as `lib.max`, a type's member as `lib.Plain.sq`, and a
+  # method instance by its own name, even where the module has a function
+  # of that name.
+
+  use lib
+
+  sub main()
+    print(lib.run(true))
+    print(lib.Plain.sq)
+    f = lib.max
+    print(f)
+
+  file "lib.rig"
+    obj Wrap[T]
+      v: T
+
+      fun conv[U](?self, u: U) -> U
+        u + u
+
+    pub obj Plain
+      x: Int
+
+      fun sq[U](?self, u: U) -> U
+        u * u
+
+    pub fun conv(n: Int) -> Int
+      n
+
+    pub fun max[T](a: T, b: T) -> T
+      a
+
+    pub fun run[T](x: T) -> T
+      w = Wrap(v: 1)
+      w.conv(x)
+
+fail "foreign instance ownership", "16:11: `lib.twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns", "2:7: `T` copied here; move it with `<` instead"
+  # The ownership checker checks each instance of another module's
+  # generic against that module's body: an owning argument where the body
+  # copies a `T` (the note points into the body). A read view is a fine
+  # `T` there, of a generic function or of a type with methods.
+
+  use lib
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub main()
+    r = Res(n: 1)
+    a = lib.twice(Res(n: 2))
+    b = lib.same(?r)
+    print(a.n, b.n, lib.twice(3))
+    c = lib.Wrap[?Res](v: ?r)
+    print(c.v.n)
+
+  file "lib.rig"
+    pub fun twice[T](x: T) -> T
+      a = x
+      <a
+      x
+
+    pub fun same[T](x: T) -> T
+      x
+
+    pub obj Wrap[T]
+      pub v: T
+
+      fun get(?self) -> ?T
+        ?self.v
+
+fail "foreign instance requirement", "11:13: `lib.max[P]` cannot use `T = P`: the generic body applies `>` to `T`, which `P` does not support", "2:8: `>` used on `T` here (ordering comparison)"
+  # An instance of another module's generic function is checked where it
+  # is made, against what that module's body does with its type
+  # parameters; the note points into the body.
+
+  use lib
+
+  obj P
+    x: Int
+
+  sub main()
+    print(lib.max(P(x: 1), P(x: 2)).x)
+
+  file "lib.rig"
+    pub fun max[T](a: T, b: T) -> T
+      a if a > b else b
+
+fail "foreign oversized generic argument", "10:19: `[2]Big` takes 8480000 bytes", "11:19: `[3]Big` takes 12720000 bytes"
+  # An array too large for a value is reported where it is passed to
+  # another module's generic call that infers its type arguments from it.
+
+  use lib
+
+  obj Big
+    a: [530000]Int
+
+  sub main()
+    print(lib.first([Big(a: [530000 of 0]), Big(a: [530000 of 0])]))
+    w = lib.Wrap(v: [Big(a: [530000 of 0]), Big(a: [530000 of 0]), Big(a: [530000 of 0])])
+    print(w.v[0].a[0])
+
+  file "lib.rig"
+    pub obj Wrap[T]
+      v: T
+
+    pub fun first[T](x: T) -> Int
+      1
+
+fail "foreign polymorphic recursion", "9:13: `walk[Int]` leads to ever deeper instances of generic functions (through `walk[lib.Wrap[U]]`)"
+  # A generic method of another module's private type, reached through a
+  # public one, that calls itself with its type parameter nested ever
+  # deeper is reported where an instance of it is made.
+
+  use lib
+
+  sub main()
+    o = lib.make()
+    print(o.w.walk(1))
+
+  file "lib.rig"
+    obj Wrap[T]
+      v: T
+
+    obj Walker
+      n: Int
+
+      fun walk[U](?self, x: U) -> Int
+        self.walk(Wrap(v: x))
+
+    pub obj Outer
+      w: Walker
+
+    pub fun make() -> Outer
+      Outer(w: Walker(n: 1))
+
+fail "foreign private generic", "6:17: `lib.Hidden` is not public", "6:37: generic type `lib.Wrap` requires type arguments; write `lib.Wrap[T]`", "6:50: `lib.Point` is not a generic type; it takes no type arguments", "10:11: `lib.Hidden` is not public", "11:11: `lib.Hidden` is not public", "12:7: generic type `lib.Wrap` expects 1 type argument, got 2", "13:13: `lib.Wrap` is a type, not a value"
+  # Another module's generic type is named only when it is public, and
+  # with its type arguments.
+
+  use lib
+
+  sub keep(h: lib.Hidden[Int], b: lib.Wrap, p: lib.Point[Int])
+    print(lib.hide(1))
+
+  sub main()
+    h = lib.Hidden[Int](v: 1)
+    g = lib.Hidden(v: 1)
+    b = lib.Wrap[Int, Int](v: 1)
+    print(lib.Wrap)
+
+  file "lib.rig"
+    obj Hidden[T]
+      v: T
+
+    pub obj Wrap[T]
+      v: T
+
+    pub obj Point
+      x: Int
+
+    pub fun hide(n: Int) -> Int
+      Hidden(v: n).v
+
+fail "foreign variant write", "16:9: cannot lend constant `lib.Color.red` to write: it lives for the whole program and never changes", "17:9: cannot lend constant `lib.Byte.max` to write", "18:9: cannot lend constant `lib.twice` to write", errors: 3
+  # Another module's enum variant, an imported number type's limit, and
+  # another module's function are constants, as this module's are: never
+  # lent to write.
+  use lib
+
+  sub setc(c: !lib.Color)
+    c = lib.Color.green
+
+  sub setu(u: !U8)
+    u = 1
+
+  sub setf(g: !fun(Int) -> Int)
+    print(g(1))
+
+  sub main()
+    setc(!lib.Color.red)
+    setu(!lib.Byte.max)
+    setf(!lib.twice)
+
+  file "lib.rig"
+    pub enum Color
+      red
+      green
+
+    pub type Byte = U8
+
+    pub fun twice(n: Int) -> Int
+      n * 2
+
+test "generic chain three modules", "12 6.0 12"
+  # A generic function whose body calls another module's generic: each
+  # instance made here makes the other module's instance too, checked
+  # against its body, though this module does not import it.
+
+  use lib
+
+  sub main()
+    a: I8 = lib.quad(3)
+    print(lib.quad(3), lib.quad(1.5), a)
+
+  file "lib.rig"
+    use util
+
+    pub fun quad[T](x: T) -> T
+      util.twice(util.twice(x))
+
+  file "util.rig"
+    pub fun twice[T](x: T) -> T
+      x + x
+
+test "generic fn across modules", '''
+  7 2.0
+  2 5
+  9 1.5
+  drop 3
+  1 2
+  drop 2
+  drop 1
+'''
+  # Another module's generic function is called as a local one is: its
+  # type arguments are inferred, from the arguments and from the type
+  # expected of the result, or given in brackets, and each instance is
+  # checked against what the module's bodies do with them.
+
+  use lib
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub main()
+    print(lib.max(3, 7), lib.max[Float](1, 2))
+    z: U8 = lib.max(1, 2)
+    small: U8 = 5
+    print(z, lib.max(lib.max(1, 2), small))
+    print(lib.biggest(4, 9, 2), lib.biggest(1.5, 0.5, 1.0))
+    r = lib.keep(Res(n: 1))
+    kept = lib.first(Res(n: 2), Res(n: 3))
+    print(r.n, kept.n)
+
+  file "lib.rig"
+    pub fun max[T](a: T, b: T) -> T
+      a if a > b else b
+
+    fun bigger[T](a: T, b: T) -> T
+      a if a > b else b
+
+    pub fun biggest[T](a: T, b: T, c: T) -> T
+      bigger(bigger(a, b), c)
+
+    pub fun keep[T](x: T) -> T
+      x
+
+    pub fun first[T](a: T, b: T) -> T
+      <b
+      a
+
+test "generic fn in module", "9 1.5 3"
+  # A module's private generic functions serve its public ones; each
+  # module checks the instances its own calls make.
+
+  use lib
+
+  fun max[T](a: T, b: T) -> T
+    a if a < b else b
+
+  sub main()
+    print(lib.biggest(3, 9, 4), lib.widest(1.5, 0.5), max(3, 9))
+
+  file "lib.rig"
+    fun max[T](a: T, b: T) -> T
+      a if a > b else b
+
+    pub fun biggest(a: Int, b: Int, c: Int) -> Int
+      max(max(a, b), c)
+
+    pub fun widest(a: Float, b: Float) -> Float
+      max(a, b)
+
+test "generic instance identity", "5 6 [1, 2]"
+  # An instance of a generic type is one type in every module that reaches
+  # it, whichever module spells it: `a.make()` returns the `lib.Wrap[Int]`
+  # that `b.take` and `lib.unbox` take. A module that reaches the type
+  # only through another (`c`, through `a`) holds it all the same.
+
+  use lib
+  use a
+  use b
+  use c
+
+  sub main()
+    x = a.make(4)
+    y: lib.Wrap[Int] = a.make(6)
+    print(b.take(x), lib.unbox(y), c.pair(1))
+
+  file "a.rig"
+    use lib
+
+    pub fun make(n: Int) -> lib.Wrap[Int]
+      lib.Wrap(v: n)
+
+  file "b.rig"
+    use lib
+
+    pub fun take(x: lib.Wrap[Int]) -> Int
+      x.v + 1
+
+  file "c.rig"
+    use a
+
+    pub fun pair(n: Int) -> [2]Int
+      wraps = [a.make(n), a.make(n + 1)]
+      [wraps[0].v, wraps[1].v]
+
+  file "lib.rig"
+    pub obj Wrap[T]
+      pub v: T
+
+    pub fun unbox[T](b: Wrap[T]) -> T
+      b.v
+
+test "generic method own param", '''
+  1 x
+  1
+'''
+  # Another module's public generics may use instances of their own types
+  # at a method's own parameter (`Chain[Pair[T, U]]` in `zip[U]`, and a
+  # private `Wrap[Pair[T, U]]` in `tag[U]`): these do not nest themselves.
+
+  use lib
+
+  sub main()
+    a: List[Int] = List()
+    !a.push(1)
+    b: List[?String] = List()
+    !b.push("x")
+    l = lib.Chain(items: <a)
+    m = lib.Chain(items: <b)
+    z = ?l.zip(?m)
+    print(z.items[0].a, z.items[0].b)
+    print(lib.tagged(3))
+
+  file "lib.rig"
+    pub obj Pair[A, B]
+      pub a: A
+      pub b: B
+
+    pub obj Chain[T]
+      pub items: List[T]
+
+      pub fun zip[U](?self, other: ?Chain[U]) -> Chain[Pair[T, U]]
+        out: List[Pair[T, U]] = List()
+        i = 0
+        while i < self.items.len and i < other.items.len
+          !out.push(Pair(a: self.items[i], b: other.items[i]))
+          i += 1
+        Chain(items: <out)
+
+    obj Wrap[T]
+      v: T
+
+      fun tag[U](?self, u: U) -> Wrap[Pair[T, U]]
+        Wrap(v: Pair(a: self.v, b: u))
+
+    pub fun tagged[T](x: T) -> Int
+      w = Wrap(v: x)
+      t = w.tag(true)
+      1 if t.v.b else 0
+
+test "generic methods across modules", '''
+  tag 3
+  tag s
+  5 true x 3
+'''
+  # A generic method of another module's type, public or reached through
+  # a public one, is called as a local one is; so is a public generic
+  # function, and a private one serves its own module.
+
+  use lib
+
+  sub main()
+    t = lib.Tagger(label: "tag")
+    t.show(3)
+    t.show[?String]("s")
+    o = lib.make_outer(2)
+    print(o.i.same(5), o.i.same(true), lib.same("x"), lib.uses_local(3))
+
+  file "lib.rig"
+    pub fun same[T](x: T) -> T
+      x
+
+    pub obj Tagger
+      pub label: ?String
+
+      pub sub show[T](?self, x: T)
+        print(self.label, x)
+
+    fun local[T](x: T) -> T
+      x
+
+    obj Inner
+      n: Int
+
+      pub fun same[U](?self, x: U) -> U
+        x
+
+    pub obj Outer
+      pub i: Inner
+
+    pub fun uses_local(n: Int) -> Int
+      local(n)
+
+    pub fun make_outer(n: Int) -> Outer
+      Outer(i: Inner(n: n))
+
+test "generic type across modules", '''
+  3 3 1
+  1 1 1
+  s 2.5
+  1 true s 7
+  some 7
+  7 9 x
+  3 1
+  5 2
+'''
+  # Another module's generic type is named, constructed, and used as a
+  # local one is: `lib.Wrap[Int]` in a type or an expression, with its
+  # type arguments given or inferred, and its methods and variants.
+
+  use lib
+
+  sub show(b: lib.Wrap[Int])
+    print(b.v, b.get(), b.count)
+
+  sub main()
+    a = lib.Wrap[Int](v: 3)
+    s = lib.Wrap(v: "s")
+    b: lib.Wrap[Int] = lib.Wrap[Int].make(1)
+    c = lib.Wrap.make(2.5)
+    show(a)
+    show(b)
+    print(s.get(), c.get())
+    p = b.with[Bool](true)
+    q = ?s.with(7)
+    print(p.first, p.second, q.first, q.second)
+    o = lib.Opt[Int].some(value: 7)
+    n: lib.Opt[Int] = .nothing
+    match o
+      .some(value) => print("some", value)
+      .nothing => print("none")
+    print(o.or(0), n.or(9), lib.Opt[?String].nothing.or("x"))
+    v = List[lib.Wrap[Int]]()
+    !v.push(a)
+    !v.push(lib.Wrap(v: 5, count: 2))
+    for x in ?v
+      print(x.v, x.count)
+
+  file "lib.rig"
+    pub obj Wrap[T]
+      pub v: T
+      pub count: Int = 1
+
+      pub fun make(v: T) -> Self
+        Wrap(v: v)
+
+      pub fun get(?self) -> T
+        self.v
+
+      pub fun with[U](?self, u: U) -> Pair[T, U]
+        Pair(first: self.v, second: u)
+
+    pub obj Pair[A, B]
+      pub first: A
+      pub second: B
+
+    pub enum Opt[T]
+      some(value: T)
+      nothing
+
+      pub fun or(?self, d: T) -> T
+        match self
+          .some(value) => value
+          .nothing => d
+
+fail "import cycle", "1:1: cyclic import: `a` is still being loaded when `b` imports it"
+  # main imports a, a imports b, and b imports a: the cycle is rejected.
+  use a
+
+  sub main()
+    print(a.fa())
+
+  file "a.rig"
+    use b
+
+    pub fun fa() -> Int
+      1
+
+  file "b.rig"
+    use a
+
+    pub fun fb() -> Int
+      2
+
+fail "import cycle hint", "cyclic import: `a` is still being loaded when `b` imports it; modules may not import each other in a cycle: put the files that call each other in one module, a directory"
+  # Modules may not import each other: the message points to a directory
+  # module, whose files share one namespace.
+  use a
+
+  sub main()
+    print(a.fa())
+
+  file "a.rig"
+    use b
+
+    pub fun fa() -> Int
+      1
+
+  file "b.rig"
+    use a
+
+    pub fun fb() -> Int
+      2
+
+fail "import name collision", "4:9: two imports bind the name `math`; name one of them with `as`", "first imported here", errors: 1
+  # Two imports may not bind one name: `use std.math` binds `math`, as
+  # `use math` does, so one of them needs `as`.
+  use math
+  use std.math
+
+  sub main()
+    print(math.twice(1))
+
+  file "math.rig"
+    pub fun abs(n: Int) -> Int
+      n
+
+    pub fun twice(n: Int) -> Int
+      2 * n
+
+bomb "inline across modules", "integer overflow", prints: "2\n8\n10", release: true
+  # An inlined function of another module is called with the checks of any
+  # other; one that module's caller passes as a value is not inlined.
+
+  use lib
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  sub main()
+    print(lib.bump(1))
+    print(apply(lib.twice, 4))
+    print(lib.twice(5))
+    print(lib.bump(9223372036854775807))
+
+  file "lib.rig"
+    pub fun bump(n: Int) -> Int
+      n + 1
+
+    pub fun twice(n: Int) -> Int
+      n * 2
+
+test "keeps across modules", "let x 9"
+  # A method of another module keeps what its signature names, and no more:
+  # `note`'s lend ends with the call, and `watch`'s lasts while `b` is used.
+  use a
+
+  sub main()
+    text = String("let x")
+    b = a.Binder(src: "", notes: 0)
+    m = String("long note")
+    !b.note(?m)
+    <m
+    !b.watch(?text)
+    print(b.src, b.notes)
+
+  file "a.rig"
+    pub obj Binder
+      pub src: ?String
+      pub notes: Int
+
+      pub sub watch(!self, s: ?String) keeps s
+        self.src = s
+
+      pub sub note(!self, msg: ?String)
+        self.notes += msg.len
+
+test "limit defaults across modules", "true 255 true true"
+  # A number type's limit, named through the type or a local alias of it,
+  # is a default in another module too.
+
+  use lib
+
+  sub main()
+    p = lib.P()
+    print(p.a > 3.0e38, p.b, p.c < -1.0e308, lib.f())
+
+  file "lib.rig"
+    pub type Byte = U8
+
+    pub obj P
+      pub a: F32 = F32.max
+      pub b: Byte = Byte.max
+      pub c: Float = Float.min
+
+    pub fun f(x: Byte = Byte.min, y: F32 = F32.min) -> Bool
+      x == 0 and y < -3.0e38
+
+fail "marker frame across", "7:5: `generic` keeps", "10:5: `nested` keeps", "13:5: `method` keeps", errors: 3
+  # Another module's `inline` functions add their values to a caller's
+  # frame here, at the instances the calls make: a generic function, one
+  # that calls it in turn, and a method of a generic object type.
+
+  use lib
+
+  sub generic(i: Int)
+    print(lib.big(1, i) + lib.big(2, i))
+
+  sub nested(i: Int)
+    print(lib.outer(1, i) + lib.outer(2, i))
+
+  sub method(i: Int)
+    g = lib.G[Int](v: 1)
+    print(g.huge(i) + g.huge(i + 1))
+
+  sub main()
+    generic(1)
+    nested(1)
+    method(1)
+
+  file "lib.rig"
+    pub inline fun big[T](x: T, i: Int) -> T
+      t = [1000000 of x]
+      t[i % 1000000]
+
+    pub obj G[T]
+      pub v: T
+
+      pub inline fun huge(?self, i: Int) -> Int
+        t = [1000000 of i]
+        t[i % 1000000]
+
+    pub inline fun small[T](x: T) -> T
+      x
+
+    pub inline fun outer[T](x: T, i: Int) -> T
+      big(x, i)
+
+fail "marker frame alias", "12:5: `there` keeps 16000040 bytes of values on its stack", "15:5: `here` keeps 16000040 bytes of values on its stack", "18:5: `generic` keeps 16000040 bytes of values on its stack", errors: 3
+  # A call of another module's `inline` method through an alias, of its
+  # type or of an instance of its generic type, here or there, reaches the
+  # method it names: its values are in the caller's frame, counted by the
+  # function's declaration, never by where an alias stands.
+
+  use lib
+
+  type P = lib.Pt
+
+  type H = lib.G[Int]
+
+  sub there(i: Int)
+    print(lib.Q.make(i) + lib.Q.make(i + 1))
+
+  sub here(i: Int)
+    print(P.make(i) + P.make(i + 1))
+
+  sub generic(i: Int)
+    print(lib.GI.big(i) + H.big(i + 1))
+
+  sub main()
+    there(1)
+    here(1)
+    generic(1)
+
+  file "lib.rig"
+    pub obj Pt
+      pub n: Int
+
+      pub inline fun make(i: Int) -> Int
+        t = [1000000 of i]
+        t[i % 1000000]
+
+    pub type Q = Pt
+
+    pub obj G[T]
+      pub v: T
+
+      pub inline fun big(i: Int) -> Int
+        t = [1000000 of i]
+        t[i % 1000000]
+
+    pub type GI = G[Int]
+
+fail "marker frame instance across", "`gen` keeps 16000", "in `lib.gen[Int]`", errors: 1
+  # Another module's generic function holds calls of an `inline` one, whose
+  # values land in its frame at each instance: at `gen[Bool]` 2 MB, at
+  # `gen[Int]`, made only here, 16 MB, over 13 MiB.
+
+  use lib
+
+  sub main()
+    print(lib.gen(true, 0))
+    print(lib.gen(1, 0))
+
+  file "lib.rig"
+    inline fun big[T](x: T, i: Int) -> Int
+      t = [1000000 of x]
+      t.len - 1000000 + i
+
+    pub fun gen[T](x: T, i: Int) -> Int
+      big(x, i) + big(x, i + 1)
+
+test "marker generic member across", release: true, '''
+  1 ab 6 5
+  5 wxyz 7
+'''
+  # Another module's generic type's `inline` methods are inlined at each
+  # instance made here, and mean what they mean as calls: they hand back a
+  # view, call a function they are lent, and take an owned argument, drop
+  # the value it replaces, and keep the new one.
+
+  use lib
+
+  fun twice(n: ?Int) -> Int
+    n * 2
+
+  fun size(s: ?String) -> Int
+    s.len
+
+  sub main()
+    p = lib.Pair[Int](a: 1, b: 2)
+    q = lib.Pair[String](a: String("ab"), b: String("cde"))
+    print(p.first(), q.first(), p.both(twice), q.both(size))
+    !p.set(5)
+    !q.set(String("wxyz"))
+    print(p.first(), q.first(), q.both(size))
+
+  file "lib.rig"
+    pub obj Pair[T]
+      pub a: T
+      pub b: T
+
+      pub inline fun first(?self) -> ?T
+        ?self.a
+
+      pub inline fun both(?self, f: ?fun(?T) -> Int) -> Int
+        f(?self.a) + f(?self.b)
+
+      pub inline sub set(!self, a: T)
+        self.a = <a
+
+fail "marker inline value across", "9:19: `lib.next` is `inline`, inlined at every call, so it can only be called, not used as a value", errors: 1
+  # Another module's `inline` function is only called, as this module's is.
+
+  use lib
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  sub main()
+    print(apply(lib.next, 1))
+
+  file "lib.rig"
+    pub inline fun next(n: Int) -> Int
+      n + 1
+
+test "markers across modules", release: true, '''
+  30 12 11
+  warn 6
+  -6
+'''
+  # A marked function of another module, called through the module or a
+  # method of its type, is inlined or kept out of line as in its own. A
+  # marked `inline` function that calls another module's of the same name,
+  # or a method of the same name on another type, is no cycle: each call
+  # reaches the one function it names.
+
+  use lib
+
+  obj Box
+    p: lib.Point
+
+    inline fun sum(?self) -> Int
+      self.p.sum() * 10
+
+  inline fun twice(n: Int) -> Int
+    lib.twice(n) + 1
+
+  sub main()
+    b = Box(p: lib.Point(x: 1, y: 2))
+    print(b.sum(), lib.scale(3, 4), twice(5))
+    print(lib.warn(6))
+
+  file "lib.rig"
+    pub obj Point
+      pub x: Int
+      pub y: Int
+
+      pub inline fun sum(?self) -> Int
+        self.x + self.y
+
+    pub inline fun scale(n: Int, k: Int) -> Int
+      n * k
+
+    pub rarely fun warn(n: Int) -> Int
+      print("warn", n)
+      0 - n
+
+    # Of one name with `main`'s, which it does not call.
+    pub inline fun twice(n: Int) -> Int
+      scale(n, 2)
+
+test "method named like module", "15"
+  # A method named like an imported module still reaches the module's
+  # constants, types, and functions.
+
+  use lib
+
+  obj S
+    n: Int
+
+    fun lib(?self) -> Int
+      p: lib.P = lib.P(x: 2)
+      q = lib.P(x: 3)
+      self.n + lib.limit + lib.twice(1) + p.x + q.x
+
+  sub main()
+    s = S(n: 1)
+    print(s.lib())
+
+  file "lib.rig"
+    pub limit = 7
+
+    pub obj P
+      pub x: Int
+
+    pub fun twice(n: Int) -> Int
+      n * 2
+
+fail "method owner", "11:5: methods of `geo.Point` are declared in module `geo`, which declares the type", "14:5: `Nope` names no type declared in this module", "17:5: `P` is an alias of `Point`; declare the method as `fun Point.c`", "20:5: `List` is a built-in type; a method is declared on a type of this module", "23:5: write `fun Wrap[T].e`: a method names its type's parameters as `obj Wrap[T]` declares them", "29:11: duplicate member `x2` in `Point`"
+  use geo
+
+  type P = Point
+
+  obj Point
+    x: Int
+
+  obj Wrap[T]
+    v: T
+
+  fun geo.Point.a(?self) -> Int
+    1
+
+  fun Nope.b() -> Int
+    1
+
+  fun P.c(?self) -> Int
+    1
+
+  fun List.d(?self) -> Int
+    1
+
+  fun Wrap.e(?self) -> T
+    self.v
+
+  fun Point.x2(?self) -> Int
+    1
+
+  fun Point.x2(?self) -> Int
+    2
+
+  sub main()
+    print(1)
+
+  file "geo.rig"
+    pub obj Point
+      pub x: Int
+
+fail "method private", "method `norm` of `geo.Point` is private to module `geo`"
+  # A method declared outside its type's body is private unless `pub`.
+  use geo
+
+  sub main()
+    print(geo.Point(x: 1).norm())
+
+  file "geo.rig"
+    pub obj Point
+      pub x: Int
+
+    fun Point.norm(?self) -> Int
+      self.x
+
+fail "missing module", "2:1: cannot read module `nope`", "2:1: no such file", errors: 1, file: "main.rig"
+  # `use nope` names a module file that does not exist.
+  use nope
+
+  sub main()
+    print(0)
+
+test "module constant import", "20 .fast b 13"
+  # A `pub` constant is readable from an importing module.
+
+  use lib
+
+  sub main()
+    n = 2
+    print(lib.limit * n, lib.mode, lib.names[1], lib.get())
+
+  file "lib.rig"
+    pub enum Mode
+      fast
+      slow
+
+    pub limit = 10
+    pub mode: Mode = .fast
+    pub names = ["a", "b"]
+    secret = 3
+
+    pub fun get() -> Int
+      limit + secret
+
+fail "module named none", "3:5: `none` is the absent optional and cannot name a module; name it with `as`: `use ... as other`", errors: 1
+  # `none` is the absent optional, so no `use` binds it, even to a module
+  # whose file is `none.rig`; `use none as other` names it.
+  use none
+
+  sub main()
+    print(none.two())
+
+  file "none.rig"
+    pub fun two() -> Int
+      2
+
+test "module named rig", "7"
+  # A user module may be named `rig`; it is imported like any other.
+
+  use rig
+
+  sub main()
+    print(rig.helper())
+
+  file "rig.rig"
+    pub fun helper() -> Int
+      7
+
+test "module named runtime", "7"
+  # A user module may be named `_runtime`; it is imported like any other.
+  use _runtime
+
+  sub main()
+    print(_runtime.helper())
+
+  file "_runtime.rig"
+    pub fun helper() -> Int
+      7
+
+test "module named std", "7"
+  # A user module may be named `std`; it is imported like any other.
+
+  use std
+
+  sub main()
+    print(std.helper())
+
+  file "std.rig"
+    pub fun helper() -> Int
+      7
+
+fail "names across files decl first", "parameter `Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # The files of a directory module share its names, so a parameter in one file
+  # may not take the name of a declaration in another, whichever file sorts first.
+  use m
+
+  sub main()
+    print(m.site(1))
+
+  file "m/a.rig"
+    pub obj Thing
+      v: Int
+
+  file "m/b.rig"
+    pub fun site[Thing](a: Thing) -> Thing
+      a
+
+fail "names across files decl last", "parameter `Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # The files of a directory module share its names, so a parameter in one file
+  # may not take the name of a declaration in another, whichever file sorts first.
+  use m
+
+  sub main()
+    print(m.site(1))
+
+  file "m/a.rig"
+    pub fun site[Thing](a: Thing) -> Thing
+      a
+
+  file "m/b.rig"
+    pub obj Thing
+      v: Int
+
+fail "path ambiguous", "1:1: module `checker` is both the file `checker.rig` and the directory `checker/`; keep one"
+  use checker
+
+  sub main()
+    print(1)
+
+  file "checker.rig"
+    pub fun one() -> Int
+      1
+
+  file "checker/a.rig"
+    pub fun one() -> Int
+      1
+
+fail "path missing", "1:1: cannot read module `checker.nope`: no directory checker/nope/"
+  use checker.nope
+
+  sub main()
+    print(1)
+
+  file "checker/a.rig"
+    pub fun one() -> Int
+      1
+
+fail "path part", "1:1: `checker/binder.rig` is part of module `checker`; a module under `checker/` is a directory, such as `checker/binder/`"
+  use checker.binder
+
+  sub main()
+    print(1)
+
+  file "checker/binder.rig"
+    pub fun one() -> Int
+      1
+
+test "payload by name across modules", '''
+  4
+  box
+  t
+'''
+  # A pattern binds the fields of an imported enum's variant by name, as
+  # it binds its own enum's.
+  use shapes
+
+  fun height(s: ?shapes.Shape) -> Int
+    match s
+      .rect(h: h) => h
+      .point => 0
+
+  fun first(x: ?String, d: ?String) -> ?String from x, d
+    match shapes.wrap(x, 2)
+      .both(a: v) => v
+      .neither => d
+
+  sub main()
+    s = shapes.Shape.rect(w: 3, h: 4, label: String("box"))
+    print(height(?s))
+    match <s
+      .rect(label: l) => print(l)
+      .point => pass
+    t = String("t")
+    d = String("d")
+    print(first(?t, ?d))
+
+  file "shapes.rig"
+    pub enum Shape
+      rect(w: Int, h: Int, label: String)
+      point
+
+    pub enum Pair[A, B]
+      both(a: A, b: B)
+      neither
+
+    pub fun wrap(x: ?String, n: Int) -> Pair[?String, Int] from x
+      Pair.both(a: x, b: n)
+
+fail "private members", "8:5: field `count` of `lib.Counter` is private to module `lib`; declare it `pub count: ...` there to use it from here", "12:5: field `count` of `lib.Counter` is private", "13:6: method `reset` of `lib.Counter` is private to module `lib`; declare it `pub sub reset` there to call it from here", "14:11: method `value` of `lib.Counter` is private to module `lib`; declare it `pub fun value` there", "15:19: method `fresh` of `lib.Counter` is private", "16:19: method `value` of `lib.Counter` is private", "18:11: method `value` of `lib.Counter` is private", "20:11: field `b` of `lib.Pair` is private", "20:16: method `second` of `lib.Pair` is private", "21:7: only module `lib` can construct `lib.Pair`: its field `b` is private", "22:23: method `size` of `lib.Shape` is private", "23:11: only module `lib` can construct `lib.Counter`: its field `count` is private"
+  # Another module's private fields and methods are rejected wherever
+  # they are reached: a value, a view, a Box, a generic instance, an
+  # associated function or its value, and a constructor of a type with a
+  # private field.
+  use lib
+
+  fun peek(c: ?lib.Counter) -> Int
+    c.count
+
+  sub main()
+    c = lib.Counter.make("a")
+    c.count = 3
+    !c.reset()
+    print(c.value(), peek(?c))
+    _ = lib.Counter.fresh()
+    _ = lib.Counter.value
+    b = lib.boxed()
+    print(b.value())
+    p = lib.pair(1, 2)
+    print(p.b, p.second())
+    _ = lib.Pair[Int](a: 1, b: 2)
+    print(lib.Shape.dot.size())
+    _ = lib.Counter(label: "x", count: 1)
+
+  file "lib.rig"
+    pub obj Counter
+      pub label: ?String
+      count: Int
+
+      pub fun make(label: ?String) -> Counter
+        Counter(label: label, count: 0)
+
+      fun fresh() -> Counter
+        Counter(label: "f", count: 0)
+
+      fun value(?self) -> Int
+        self.count
+
+      sub reset(!self)
+        self.count = 0
+
+    pub obj Pair[T]
+      pub a: T
+      b: T
+
+      fun second(?self) -> T
+        self.b
+
+    pub fun pair(a: Int, b: Int) -> Pair[Int]
+      Pair(a: a, b: b)
+
+    pub enum Shape
+      dot
+
+      fun size(?self) -> Int
+        0
+
+    pub fun boxed() -> ^Counter
+      ^Counter.make("b")
+
+fail "private method of generic type", "25:21: method `make` of `lib.Wrap` is private to module `lib`; declare it `pub fun make` there", "27:5: method `show` of `lib.Wrap` is private to module `lib`; declare it `pub sub show` there", errors: 2
+  # A private method of another module's generic type cannot be called,
+  # through an instance or the type. The method's type is looked up in
+  # this module's types, which here outnumber the other module's.
+
+  use lib
+
+  obj Many
+    a: [1]Int
+    b: [2]Int
+    c: [3]Int
+    d: [4]Int
+    e: [5]Int
+    f: [6]Int
+    g: [7]Int
+    h: [8]Int
+    i: Int?
+    j: Bool?
+    k: (?String)?
+    l: [2]?String
+    m: [3]Bool
+    n: [4]Bool
+    o: [5]Bool
+
+  sub main()
+    b = lib.Wrap[Int].make(2)
+    w = lib.Wrap[Int](v: 1)
+    w.show()
+    print(b.v)
+
+  file "lib.rig"
+    pub obj Wrap[T]
+      pub v: T
+
+      fun make(v: T) -> Self
+        Wrap(v: v)
+
+      sub show(?self)
+        print(self.v)
+
+test "pub fun private type", "42"
+  # A `pub fun` may return a private struct: the importer holds the value
+  # and reads its fields, though it cannot name the type.
+  use a
+
+  sub main()
+    s = a.make_secret()
+    print(s.value)
+
+  file "a.rig"
+    # `Secret` is private, but the public `make_secret` returns it.
+
+    obj Secret
+      pub value: Int
+
+    pub fun make_secret() -> Secret
+      Secret(value: 42)
+
+fail "pub generic method self nesting", "7:7: `walk[U]` leads to ever deeper instances of generic functions (through `walk[Wrap[U]]`)"
+  # A generic method of a public type that calls itself with its type
+  # parameter nested ever deeper is reported where it is declared, even
+  # when no module calls it.
+
+  use lib
+
+  sub main()
+    print(lib.Walker(n: 1).n)
+
+  file "lib.rig"
+    obj Wrap[T]
+      v: T
+
+    pub obj Walker
+      n: Int
+
+      fun walk[U](?self, x: U) -> Int
+        self.walk(Wrap(v: x))
+
+fail "pub generic self nesting", "4:9: `nest[T]` leads to ever deeper instances of generic functions (through `nest[Wrap[T]]`); a generic function cannot call itself with its own type parameters nested deeper"
+  # A public generic function that calls itself with its type parameter
+  # nested ever deeper has no finite set of instances. Other modules would
+  # make its instances, so it is reported where it is declared.
+
+  use lib
+
+  sub main()
+    print(lib.nest(1))
+
+  file "lib.rig"
+    obj Wrap[T]
+      v: T
+
+    pub fun nest[T](x: T) -> Int
+      nest(Wrap(v: x))
+
+test "pub members", '''
+  bumped a 1
+  bumped a 6
+  a 6 6
+  0 h
+  bumped b 1
+  1 b
+  1 2 x
+  circle 3 3
+  0
+'''
+  # A struct's or enum's `pub` fields and methods are visible to other
+  # modules, through a value, a view, a `*T` handle, a `Box`, and an
+  # instance of a generic type; its private members are used by its own
+  # module's methods. Variants and payloads are always public.
+  use lib
+
+  fun peek(c: ?lib.Counter) -> Int
+    c.value()
+
+  sub main()
+    c = lib.Counter.make("a")
+    !c.bump()
+    c.step = 5
+    !c.bump()
+    print(c.label, c.value(), peek(?c))
+    h = *lib.Counter.make("h")
+    print(h.value(), h.label)
+    b = lib.boxed("b")
+    !b.bump()
+    print(b.value(), b.label)
+    p = lib.Pair[Int](a: 1, b: 2)
+    q = lib.Pair(a: "x", b: "y")
+    print(p.first(), p.b, q.first())
+    s = lib.Shape.circle(r: 3)
+    match s
+      .circle(r) => print("circle", r, s.size())
+      .dot => print("dot")
+    print(lib.Shape.dot.size())
+
+  file "lib.rig"
+    pub obj Counter
+      pub label: ?String
+      pub step: Int = 1
+      count: Int
+
+      pub fun make(label: ?String) -> Counter
+        Counter(label: label, count: 0)
+
+      pub fun value(?self) -> Int
+        self.count
+
+      pub sub bump(!self)
+        self.count += self.step
+        self.note()
+
+      sub note(?self)
+        print("bumped", self.label, self.count)
+
+    pub obj Pair[T]
+      pub a: T
+      pub b: T
+
+      pub fun first(?self) -> T
+        self.a
+
+    pub enum Shape
+      circle(r: Int)
+      dot
+
+      pub fun size(?self) -> Int
+        match self
+          .circle(r) => r
+          .dot => 0
+
+    pub fun boxed(label: ?String) -> ^Counter
+      ^Counter.make(label)
+
+test "public surface generic instances", '''
+  1 1 4 4 9
+  41
+  42
+  5 5
+'''
+  # A module's public surface may hold instances of its generic types,
+  # private ones included: importers hold the values and use their fields
+  # and methods, though they cannot name a private type. A type of the
+  # same name here is another type.
+
+  use lib
+
+  obj Wrap
+    v: Int
+
+  sub main()
+    b = lib.make(1)
+    h = lib.holder()
+    local = Wrap(v: 9)
+    print(b.v, b.get(), h.b.v, h.b.get(), local.v)
+    p = lib.P.make()
+    print(p.q.b.v)
+    w = lib.cover_secret(5)
+    lib.take_secret(lib.make_secret())
+    print(w.inner.value, lib.uncover(w))
+
+  file "lib.rig"
+    obj Wrap[T]
+      pub v: T
+
+      pub fun get(?self) -> T
+        self.v
+
+    pub obj Holder
+      pub b: Wrap[Int]
+
+    obj Slot[T]
+      pub v: T
+
+    obj Q
+      pub b: Slot[*Int]
+
+    pub obj P
+      pub q: Q
+
+      pub fun make() -> P
+        P(q: Q(b: Slot(v: *41)))
+
+    obj Secret
+      pub value: Int
+
+    pub obj Cover[T]
+      pub inner: T
+
+    pub fun make(n: Int) -> Wrap[Int]
+      Wrap(v: n)
+
+    pub fun holder() -> Holder
+      Holder(b: Wrap(v: 4))
+
+    pub fun make_secret() -> Secret
+      Secret(value: 42)
+
+    pub sub take_secret(s: Secret)
+      print(s.value)
+
+    pub fun cover_secret(x: Int) -> Cover[Secret]
+      Cover(inner: Secret(value: x))
+
+    pub fun uncover(w: Cover[Secret]) -> Int
+      w.inner.value
+
+test "qualified call", "3"
+  # `use math` imports math.rig from the same directory; its `pub`
+  # functions are called as `math.name(...)`.
+  use math
+
+  sub main()
+    print(math.add(1, 2))
+
+  file "math.rig"
+    pub fun add(a: Int, b: Int) -> Int
+      a + b
+
+test "qualified imported members", '''
+  7 2
+  r 2
+  true
+  6
+'''
+  # Members of an imported type are named through the module:
+  # associated functions (`lib.P.at(3, 4)`, with a lent to write
+  # parameter too) and enum variants, bare or with a payload.
+
+  use lib
+
+  sub main()
+    p = lib.P.at(3, 4)
+    q = lib.P.at(y: 1, x: 2)
+    print(p.sum(), q.x)
+    s = lib.Shape.circle(r: 2)
+    d = lib.Shape.dot
+    match s
+      .circle(r) => print("r", r)
+      .dot => print("dot")
+    match d
+      .dot => print(true)
+      _ => print(false)
+
+    q2 = lib.Q(n: 1)
+    lib.Q.grow(!q2, 5)
+    print(q2.n)
+
+  file "lib.rig"
+    pub enum Shape
+      circle(r: Int)
+      dot
+
+    pub obj P
+      pub x: Int
+      y: Int
+
+      pub fun at(x: Int, y: Int) -> P
+        P(x: x, y: y)
+
+      pub fun sum(?self) -> Int
+        self.x + self.y
+
+    pub obj Q
+      pub n: Int
+
+      pub sub grow(q: !Q, by: Int)
+        q.n += by
+
+test "qualified type annotations", '''
+  3
+  true
+  6
+'''
+  # A type from another module is named `module.Type` in annotations:
+  # parameters (also viewed), bindings, optionals, and aliases.
+
+  use geo
+
+  fun total(p: ?geo.Point) -> Int
+    p.sum()
+
+  sub main()
+    p: geo.Point = geo.Point(x: 1, y: 2)
+    print(total(?p))
+    none_p: geo.Point? = none
+    print(none_p == none)
+    m: geo.Meters = 5
+    print(m + 1)
+
+  file "geo.rig"
+    pub obj Point
+      pub x: Int
+      pub y: Int
+
+      pub fun sum(self: ?Point) -> Int
+        self.x + self.y
+
+    pub type Meters = Int
+
+fail "qualified type private", "`geo.Hidden` is not public", "no type `Missing` in module `geo`", "`geo.make` is not a type", "use of unbound module `nope`"
+  # A qualified type must name a public type of an imported module.
+
+  use geo
+
+  fun a(h: geo.Hidden) -> Int
+    h.n
+
+  fun b(h: geo.Missing) -> Int
+    1
+
+  fun c(h: geo.make) -> Int
+    1
+
+  fun d(h: nope.Thing) -> Int
+    1
+
+  sub main()
+    print(1)
+
+  file "geo.rig"
+    obj Hidden
+      n: Int
+
+    pub fun make() -> Int
+      1
+
+test "read only field", '''
+  2 [3, 4] 7 4
+  2 2 7
+  tag 3
+  tag 4
+  busy
+  last 4
+  8
+  1
+  10
+'''
+  # A field declared `pub ?name: T` is read by any module and written only
+  # by its own: here it is read, lent to read, walked, and matched, and
+  # changed only through the methods of its module. A plain `pub` field
+  # stays writable.
+
+  use lib
+
+  sub show(t: ?lib.Tally)
+    print(t.count, t.tags.len, t.inner.n)
+
+  sub main()
+    t = lib.Tally()
+    !t.bump(3)
+    !t.bump(4)
+    print(t.count, t.tags, t.inner.n, t.last)
+    show(?t)
+    for g in ?t.tags
+      print("tag", g)
+    if t.mode as m
+      match m
+        .idle => print("idle")
+        .busy => print("busy")
+    if t.last as l
+      print("last", l)
+    t.note = 7
+    t.note += 1
+    print(t.note)
+    b = ^lib.Tally()
+    !b.bump(1)
+    print(b.count)
+    print(lib.fresh().count)
+
+  file "lib.rig"
+    # A tally whose fields other modules read and only this module writes.
+
+    pub obj Inner
+      pub n: Int = 0
+
+    pub enum Mode
+      idle
+      busy
+
+    pub obj Tally
+      pub ?count: Int = 0
+      pub ?tags: List[Int] = List()
+      pub ?inner: Inner = Inner()
+      pub ?mode: Mode? = none
+      pub ?last: Int? = none
+      pub note: Int = 0
+
+      pub sub bump(!self, tag: Int)
+        self.count += 1
+        !self.tags.push(tag)
+        self.inner.n += tag
+        self.mode = Mode.busy
+        self.last = tag
+
+    pub fun fresh() -> Tally
+      t = Tally()
+      t.count = 10
+      t
+
+test "read only field handle", "5"
+  # Read-only stops at a shared handle: a `pub ?h: *Cell[Int]` field is
+  # not reassigned from another module, but the Cell it shares changes by
+  # a marked call, since a handle is only read.
+
+  use lib
+
+  sub main()
+    t = lib.make()
+    !t.h.set(5)
+    print(t.h.get())
+
+  file "lib.rig"
+    pub obj Holder
+      pub ?h: *Cell[Int]
+
+    pub fun make() -> Holder
+      Holder(h: *Cell(0))
+
+fail "read only field header", "9:5: cannot assign through a read view (`?T`); `b` is a read view of the value inside `t.boxed`, and field `boxed` of `lib.Tally` is read-only outside module `lib`, so nothing here writes through it", errors: 1
+  # A header that reads a read-only field binds a read view, and the hint
+  # does not suggest the write form, which the field rejects too.
+
+  use lib
+
+  sub main()
+    t = lib.make()
+    if t.boxed as b
+      b.n = 9
+
+  file "lib.rig"
+    pub obj Inner
+      pub n: Int = 0
+      pub name: String = String()
+
+    pub obj Tally
+      pub ?boxed: ^Inner? = none
+
+    pub fun make() -> Tally
+      Tally(boxed: ^Inner())
+
+fail "read only field writes", "14:5: cannot assign to `w.count`: field `count` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?count`", "18:5: cannot assign to `t.count`: field `count` of `lib.Tally` is read-only outside module `lib`", "19:5: cannot assign to `t.inner.n`: field `inner` of `lib.Tally` is read-only outside module `lib`", "20:5: cannot assign to `t.count`", "21:10: cannot lend `t.count` to write", "22:10: cannot take `t.last`", "23:6: cannot lend `t.tags` to write", "25:11: cannot lend `t.count` to write", "26:18: cannot lend `t.count` to write", "27:15: cannot write-iterate `t.tags`", "29:9: cannot lend `t.mode` to write", "32:5: cannot assign to `b.count`", "37:7: only module `lib` can construct `lib.Tally`: its fields `count`, `tags`, `inner`, `mode`, `last` are read-only", errors: 13
+  # A field declared `pub ?name: T` in another module is read-only here,
+  # however it would be written: assigned, or a part of it assigned;
+  # assigned by an operator; lent to write; taken out; written by a method
+  # that writes its receiver; exchanged; walked or matched to write; and
+  # written through a box or a write view. Nor does it set one by
+  # constructing the object with its fields given.
+
+  use lib
+
+  sub set(n: !Int)
+    n = 1
+
+  sub through(w: !lib.Tally)
+    w.count = 9
+
+  sub main()
+    t = lib.Tally()
+    t.count = 1
+    t.inner.n = 2
+    t.count += 1
+    set(!t.count)
+    x = <t.last
+    !t.tags.push(5)
+    y = 0
+    swap(!t.count, !y)
+    z = replace(!t.count, 3)
+    for g in !t.tags
+      g += 1
+    if !t.mode as m
+      m = lib.Mode.idle
+    b = ^lib.Tally()
+    b.count = 4
+    through(!t)
+    print(x, y, z)
+
+  fun make() -> lib.Tally
+    lib.Tally(count: 5, note: 1)
+
+  file "lib.rig"
+    # A tally whose fields other modules read and only this module writes.
+
+    pub obj Inner
+      pub n: Int = 0
+
+    pub enum Mode
+      idle
+      busy
+
+    pub obj Tally
+      pub ?count: Int = 0
+      pub ?tags: List[Int] = List()
+      pub ?inner: Inner = Inner()
+      pub ?mode: Mode? = none
+      pub ?last: Int? = none
+      pub note: Int = 0
+
+      pub sub bump(!self, tag: Int)
+        self.count += 1
+        !self.tags.push(tag)
+        self.inner.n += tag
+        self.mode = Mode.busy
+        self.last = tag
+
+    pub fun fresh() -> Tally
+      t = Tally()
+      t.count = 10
+      t
+
+test "same name local and imported", "1 2"
+  # A local type may share its name with an imported one: `P` and
+  # `lib.P` are different types.
+
+  use lib
+
+  obj P
+    y: Int
+
+  sub main()
+    a = lib.make()
+    b = P(y: 2)
+    print(a.x, b.y)
+
+  file "lib.rig"
+    pub obj P
+      pub x: Int
+
+    pub fun make() -> P
+      P(x: 1)
+
+fail "same named types", "type mismatch: expected `other.Point`, got `Point`"
+  # A struct from another module is a different type from a local struct
+  # with the same name; diagnostics name it through its module.
+
+  use other
+
+  obj Point
+    x: Int
+    y: Int
+
+  fun mine(p: Point) -> Int
+    p.x * p.y
+
+  sub main()
+    p = Point(x: 3, y: 4)
+    print(other.sumP(p))
+    q = other.make()
+    print(mine(q))
+
+  file "other.rig"
+    pub obj Point
+      x: Int
+      y: Int
+
+    pub fun sumP(p: Point) -> Int
+      p.x + p.y
+
+    pub fun make() -> Point
+      Point(x: 1, y: 2)
+
+fail "self import", "2:1: cyclic import: `main` is still being loaded when `main` imports it", file: "main.rig"
+  # A module cannot import itself.
+  use main
+
+  sub main()
+    print(0)
+
+test "simd across modules", '''
+  [1, 1, 1, 1] [1, 2, 1, 4] [3, 3, 3, 3] 4 Lexer(ahead: [4, 5, 4, 7])
+  5 8 [2, 3, 2, 5] 255
+  [true, true, true, true] Simd[U8, 4]
+'''
+  # A vector type, a function taking or making one, and a struct holding
+  # one, used from another module, through an alias of the type too.
+
+  use lib
+
+  sub main()
+    a = lib.ones()
+    b = lib.Block([1, 2, 1, 4])
+    c = lib.Block.splat(3)
+    l = lib.Lexer(ahead: b + c)
+    print(a, b, c, l.first(), l)
+    print(lib.hits(?b, 1), lib.hits(b, 4), lib.widen(b), lib.widen(Simd[U8, 16].splat(254))[15])
+    x: lib.Block = b
+    print(x == b, @name(lib.Block))
+
+  file "lib.rig"
+    pub type Block = Simd[U8, 4]
+
+    pub obj Lexer
+      pub ahead: Block
+
+      pub fun first(?self) -> U8
+        self.ahead[0]
+
+    pub fun ones() -> Block
+      Block.splat(1)
+
+    pub fun hits(v: ?Block, b: U8) -> U64
+      (v == b).bits()
+
+    pub fun widen[n: Int](v: Simd[U8, n]) -> Simd[U8, n]
+      v +% 1
+
+test "slice constant", "[1, 2] [2, 3] [7, 8] limit"
+  # A slice of a module-level constant points at the constant itself,
+  # which outlives every function, so it can be returned.
+
+  use lim
+
+  LOCAL = [7, 8, 9]
+
+  fun top() -> []Int
+    ?lim.LIMITS[1..3]
+
+  fun local_top() -> []Int
+    ?LOCAL[0..2]
+
+  sub main()
+    s = ?lim.LIMITS[0..2]
+    print(s, top(), local_top(), lim.NAME[0..5])
+
+  file "lim.rig"
+    pub LIMITS = [1, 2, 3]
+    pub NAME = "limits"
+
+test "std beside local", '''
+  3 -3
+  8
+'''
+  # A module of the standard library and a module beside the root with the
+  # same last name are two modules, each emitted to its own file; `as`
+  # names one of them here.
+
+  use std.math
+  use math as mine
+
+  sub main()
+    print(math.abs(-3), mine.abs(-3))
+    print(mine.twice(4))
+
+  file "math.rig"
+    pub fun abs(n: Int) -> Int
+      n
+
+    pub fun twice(n: Int) -> Int
+      2 * n
+
+fail "std unknown module", "3:1: the standard library has no module `nope`", "4:1: cannot read module `geo.point`: no directory geo/point/", errors: 2, file: "main.rig"
+  # There is no `std.nope`, and `geo.point` names the directory geo/point/,
+  # which does not exist.
+  use std.nope
+  use geo.point
+
+  sub main()
+    print(0)
+
+test "symbols across modules", '''
+  3 4 0
+  true :triangle :circle
+  :hexagon 6
+'''
+  # Symbols are one set for the whole program: `:triangle` written in two
+  # modules is one value, a default argument of another module's function
+  # is written where it is called, and a symbol only one module writes is
+  # found by `Symbol.from_text` in another.
+
+  use shapes
+
+  DEFAULT = :square
+
+  sub main()
+    print(shapes.sides(:triangle), shapes.sides(DEFAULT), shapes.sides(:blob))
+    print(shapes.kind() == :triangle, shapes.kind(), shapes.pick())
+    print(Symbol.from_text("hexagon") ?? :none, shapes.sides(Symbol.from_text("hexagon") ?? :none))
+
+  file "shapes.rig"
+    pub fun sides(s: Symbol) -> Int
+      match s
+        :triangle => 3
+        :square => 4
+        :hexagon => 6
+        _ => 0
+
+    pub fun kind() -> Symbol
+      :triangle
+
+    pub fun pick(s: Symbol = :circle) -> Symbol
+      s
+
+test "transitive errors", "empty bad digit ok"
+  # A module names the errors of a module it reaches only through an
+  # import: `.empty` is a member of `parsing`'s error set, which `main`
+  # does not import.
+
+  use mid
+
+  fun name(s: ?String) -> ?String
+    _ = mid.twice(s) catch |err|
+      match err
+        .empty => return "empty"
+        .bad_digit => return "bad digit"
+        _ => return "other"
+    "ok"
+
+  sub main()
+    print(name(""), name("x"), name("abc"))
+
+  file "mid.rig"
+    use parsing
+
+    pub fun twice(s: ?String) -> Int!
+      parsing.parse(s)! * 2
+
+  file "parsing.rig"
+    pub error ParseError
+      empty
+      bad_digit
+
+    pub fun parse(s: ?String) -> Int!
+      return ParseError.empty if s == ""
+      return ParseError.bad_digit if s == "x"
+      s.len
+
+test "transitive type", '''
+  full 2
+  1 3
+  drop 3
+  drop 2
+  drop 1
+'''
+  # A type from a module the program reaches only through an import
+  # (`lib` returns an `a.B`) is dropped, matched, and called like any
+  # other.
+
+  use lib
+
+  sub main()
+    x = lib.make(1)
+    w = ~x
+    s = lib.slot(2)
+    match s
+      .full(b) => print("full", b.get())
+      .empty => print("empty")
+    p = lib.plain(3)
+    q = <p
+    print(x.get(), q.n)
+
+  file "a.rig"
+    pub obj B
+      pub n: Int
+
+      drop(!self)
+        print("drop", self.n)
+
+      pub fun get(?self) -> Int
+        self.n
+
+    pub enum Slot
+      full(b: *B)
+      empty
+
+  file "lib.rig"
+    use a
+
+    pub fun make(n: Int) -> *a.B
+      *a.B(n: n)
+
+    pub fun slot(n: Int) -> a.Slot
+      .full(b: make(n))
+
+    pub fun plain(n: Int) -> a.B
+      a.B(n: n)
+
+fail "transitive type alias", "`p` owns a `a.B`, which can't be copied by `=`: write `<p` to move it or `?p` to view it"
+  # A value of a type reached only through an import still owns its
+  # resources: copying it is rejected.
+
+  use lib
+
+  sub main()
+    p = lib.plain(3)
+    q = p
+    print(q.n)
+
+  file "a.rig"
+    pub obj B
+      pub n: Int
+
+      drop(!self)
+        print("drop", self.n)
+
+      fun get(?self) -> Int
+        self.n
+
+    pub enum Slot
+      full(b: *B)
+      empty
+
+  file "lib.rig"
+    use a
+
+    pub fun make(n: Int) -> *a.B
+      *a.B(n: n)
+
+    pub fun slot(n: Int) -> a.Slot
+      .full(b: make(n))
+
+    pub fun plain(n: Int) -> a.B
+      a.B(n: n)
+
+test "use alias per file", "1 2"
+  # A `use` binds its name in its own file only: two files of one module
+  # may each name a different module `g`.
+  use m
+
+  sub main()
+    print(m.a(), m.b())
+
+  file "geo.rig"
+    pub fun two() -> Int
+      2
+
+  file "m/a.rig"
+    use std.math as g
+
+    pub fun a() -> Int
+      g.abs(-1)
+
+  file "m/b.rig"
+    use geo as g
+
+    pub fun b() -> Int
+      g.two()
+
+test "use as", "3 5 10 30"
+  # `use NAME as ALIAS` names a module here by the alias, for calls,
+  # types, members, and defaults; another module may import it under its
+  # own name, and it is still one module.
+
+  use geo as g
+  use shapes
+
+  sub main()
+    p: g.Point = g.Point.at(1, 2)
+    q = shapes.shifted(?p)
+    print(p.sum(), q.sum(), g.LIMIT, g.scaled(3))
+
+  file "geo.rig"
+    pub LIMIT = 10
+
+    pub obj Point
+      pub x: Int
+      pub y: Int
+
+      pub fun at(x: Int, y: Int) -> Point
+        Point(x: x, y: y)
+
+      pub fun sum(?self) -> Int
+        self.x + self.y
+
+    pub fun scaled(n: Int, by: Int = LIMIT) -> Int
+      n * by
+
+  file "shapes.rig"
+    use geo
+
+    pub fun shifted(p: ?geo.Point) -> geo.Point
+      geo.Point.at(p.x + 1, p.y + 1)
+
+fail "use name local", "6:3: local `ast` has the name of the module this file uses as `ast`; import the module under another name, `use ast as a`, or write `new ast = ...`, which hides the module `ast` for the rest of this scope"
+  # A local may not take the name a `use` of its file binds, unless it is
+  # written with `new`, which hides the module for the rest of the scope.
+  use ast
+
+  sub main()
+    ast = 1
+    print(ast)
+
+  file "ast.rig"
+    pub fun size() -> Int
+      3
+
+fail "use name param", "5:7: parameter `ast` has the name of the module this file uses as `ast`; import the module under another name, `use ast as a`"
+  # A parameter may not have the name a `use` of its file binds; the
+  # module can be imported under another name.
+  use ast
+
+  fun f(ast: Int) -> Int
+    ast
+
+  sub main()
+    print(f(1), ast.size())
+
+  file "ast.rig"
+    pub fun size() -> Int
+      3
+
+test "use names per file", "33 2 41"
+  # A `use` binds its name in its own file only: in another file of the
+  # module the name is free for a parameter or a local.
+  use m
+
+  sub main()
+    print(m.a(), m.b(1), m.c())
+
+  file "ast.rig"
+    pub fun size() -> Int
+      3
+
+  file "m/a.rig"
+    use ast
+
+    pub fun a() -> Int
+      n = ast.size()
+      new ast = n * 10
+      ast + n
+
+  file "m/b.rig"
+    pub fun b(ast: Int) -> Int
+      ast + 1
+
+    pub fun c() -> Int
+      ast = 40
+      ast + d()
+
+    fun d() -> Int
+      f = |ast: Int| ast + 1
+      f(0)
+
+fail "use per file", "2:3: `geo` is imported by another file of module `m`; add `use geo` to this file"
+  # A `use` binds its name in its own file only.
+  use m
+
+  sub main()
+    print(1)
+
+  file "geo.rig"
+    pub fun origin() -> Int
+      0
+
+  file "m/a.rig"
+    use geo
+
+    pub fun a() -> Int
+      geo.origin()
+
+  file "m/b.rig"
+    pub fun b() -> Int
+      geo.origin()
+
+fail "value too large", "6:6: `[3]lib.Big?` takes 12000003 bytes; a value takes at most 8388608 (8 MiB)"
+  # A type from another module is sized as it is declared there.
+
+  use lib
+
+  sub main()
+    a: [3]lib.Big? = [none, none, none]
+    print(a.len)
+
+  file "lib.rig"
+    pub obj Big
+      cells: [500000]Int
+
+test "view payload across modules", "t"
+  # A match binds a payload field of an imported enum's instance that is
+  # itself a view (`Opt[?String]`) as the view it is.
+  use opt
+
+  fun first(x: ?String, d: ?String) -> ?String from x, d
+    match opt.wrap(x)
+      .some(v) => v
+      .nothing => d
+
+  sub main()
+    t = String("t")
+    d = String("d")
+    print(first(?t, ?d))
+
+  file "opt.rig"
+    pub enum Opt[T]
+      some(v: T)
+      nothing
+
+    pub fun wrap(x: ?String) -> Opt[?String] from x
+      Opt.some(v: x)
+
+test "write lend made by module", '''
+  6 2 2
+  .a(s: "x")
+'''
+  # The value a function called through a module or a type makes, lent
+  # to write with its call in parentheses (Core sentence 4).
+  use lib
+
+  obj U
+    n: Int
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun make() -> U
+      U(n: 1)
+
+  enum E
+    a(s: ?String)
+    b
+
+  sub sete(e: !E)
+    print(e)
+    e = .b
+
+  sub main()
+    print((!(lib.mk())).bump(), (!(lib.T.make())).bump(), (!(U.make())).bump())
+    sete(!(E.a(s: "x")))
+
+  file "lib.rig"
+    pub obj T
+      pub n: Int
+
+      pub fun bump(!self) -> Int
+        self.n += 1
+        self.n
+
+      pub fun make() -> T
+        T(n: 1)
+
+    pub fun mk() -> T
+      T(n: 5)
+
+fail "write lend through module", "26:9: `!` here reaches `lib`, a module, not the value `lib.mk()` makes: write `!(lib.mk())` to lend that value, or remove the `!`", "27:9: `!` here reaches `lib.T`, a type, not the value `lib.T.make()` makes: write `!(lib.T.make())` to lend that value, or remove the `!`", "28:9: `!` here reaches `U`, a type, not the value `U.make()` makes: write `!(U.make())` to lend that value, or remove the `!`", "29:8: `!` here reaches `E`, a type, not the value `E.a(s: \"x\")` makes: write `!(E.a(s: \"x\"))` to lend that value, or remove the `!`", "30:6: `!` here reaches `lib`, a module, and `lib.ok()` makes a `Bool`; for negation use `not`", errors: 5
+  # `!` before a function called through a module or a type reaches the
+  # module or type, which a parse cannot tell from a value's method: one
+  # diagnostic says so, and how to lend the value the call makes
+  # (`test/behavior/modules/write_lend_made_by_module`), or, before a
+  # `Bool`, that `!` is not negation.
+  use lib
+
+  obj U
+    n: Int
+
+    fun bump(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun make() -> U
+      U(n: 1)
+
+  enum E
+    a(s: ?String)
+    b
+
+  sub sete(e: !E)
+    e = .b
+
+  sub main()
+    print(!lib.mk().bump())
+    print(!lib.T.make().bump())
+    print(!U.make().bump())
+    sete(!E.a(s: "x"))
+    if !lib.ok()
+      print("no")
+
+  file "lib.rig"
+    pub obj T
+      pub n: Int
+
+      pub fun bump(!self) -> Int
+        self.n += 1
+        self.n
+
+      pub fun make() -> T
+        T(n: 1)
+
+    pub fun mk() -> T
+      T(n: 5)
+
+    pub fun ok() -> Bool
+      true

@@ -1,2 +1,0 @@
-pub fun one() -> Int
-  1

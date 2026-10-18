@@ -1,6 +1,7 @@
 # Which functions `rig emit` writes `inline`: small ones that are only
 # called, and no other (docs/INTERNALS.md, "Inlining"). Each is checked by
-# the shape of its Zig; test/behavior/emit/inline_*.rig run the programs.
+# the shape of its Zig; the `inline` cases of test/rig/emit-*.rig.test run
+# the programs.
 source "$ROOT/test/cli/_lib.sh"
 
 # expect_lacks <text> <substring> <what>
@@ -186,8 +187,8 @@ expect_has "$out" 'pub fn keeps(self: rig.ReadView(__rig_Self)' "a member whose 
 out=$(rig run members.rig 2>&1) || fail "rig run members.rig: $out"
 expect_eq "$out" "1 true 9001 9002" "members.rig"
 # Its parameters are bound through `rig.rt`, as any inlined function's:
-# test/behavior/emit/inline_generic_member_overflow.rig runs it.
-out=$(emit "$ROOT/test/behavior/emit/inline_generic_member_overflow.rig")
+# the case `inline generic member overflow` of test/rig runs it.
+out=$(emit "$ROOT/test/cli/fixtures/inline_generic_member_overflow.rig")
 expect_has "$out" 'pub inline fn bump(__rig_in_self: rig.ReadView(__rig_Self), __rig_in_n: i64) i64 {' "a member of a generic type with a literal argument"
 expect_has "$out" 'const n = rig.rt(__rig_in_n);' "a member's parameter bound through rig.rt"
 

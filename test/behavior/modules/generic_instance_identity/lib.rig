@@ -1,5 +1,0 @@
-pub obj Wrap[T]
-  pub v: T
-
-pub fun unbox[T](b: Wrap[T]) -> T
-  b.v

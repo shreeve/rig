@@ -1,0 +1,2851 @@
+# types: tests whose names start `generic`.
+
+use std.math
+
+fail "generic array of resources", "`Wrap[*Int]` cannot use `T = *Int`: the generic body keeps in an array a value that holds a `T`"
+  # `[N]T` in a generic type needs plain data for `T`: an instance whose
+  # argument owns a resource is rejected.
+
+  obj Wrap[T]
+    xs: [2]T
+
+  a: Wrap[Int] = Wrap(xs: [1, 2])
+  b: Wrap[*Int] = Wrap(xs: [*1, *2])
+  print(a.xs[0], b.xs[0])
+
+fail "generic bare type", "generic type `Wrap` requires type arguments"
+  # A generic type in type position needs its type arguments: `Wrap`
+  # alone is not a type, `Wrap[Int]` is.
+
+  obj Wrap[T]
+    value: T
+
+  x: Wrap = Wrap(value: 5)
+  print(x.value)
+
+fail "generic body arith string", "11:4: `Wrap[?String]` cannot use `T = ?String`: the generic body applies `+` to `T`, which `?String` does not support"
+  # A generic body's operations on `T` are requirements on every
+  # instantiation: `self.value + 1` needs a numeric `T`, so `Wrap[?String]` is
+  # rejected.
+
+  obj Wrap[T]
+    value: T
+
+    fun bump(?self) -> T
+      self.value + 1
+
+  b: Wrap[?String] = Wrap(value: "a")
+  print(b.bump())
+
+fail "generic body copies resource", "`Keeper[*B]` cannot use `T = *B`: the generic body discards a value that holds a `T`", "`Counter[*B]` cannot use `T = *B`: the generic body copies into a closure a value that holds a `T`"
+  # A generic body is checked once, for any `T`. Where it discards a `T`,
+  # leaves one as a temporary, or copies one into a closure, every
+  # instantiation must use plain data for `T`.
+
+  obj B
+    n: Int
+
+  obj Keeper[T]
+    v: T
+
+    fun id(?self, x: T) -> T
+      <x
+
+    sub run(?self, x: T)
+      self.id(<x)
+
+  obj Counter[T]
+    v: T
+
+    fun count(?self, x: T) -> Int
+      f = |+x| 1
+      f()
+
+  k: Keeper[*B] = Keeper(v: *B(n: 2))
+  c: Counter[*B] = Counter(v: *B(n: 4))
+  i: Counter[Int] = Counter(v: 4)
+  print(i.count(5))
+
+fail "generic body copies resource ownership", "`Wrap[*B]` cannot use `T = *B`: the generic body copies a `T`", "`Opt[*B]` cannot use `T = *B`: the generic body copies a `T`"
+  # A generic body is checked once, for any `T`. Where it copies a `T`,
+  # every instantiation must use plain data for `T`, including
+  # instantiations reached through another generic's body (`Opt[*B]`
+  # through `Holder[*B]`).
+
+  obj B
+    n: Int
+
+  obj Wrap[T]
+    v: T
+
+    fun get(?self) -> T
+      self.v
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+    fun copy_out(?self, d: T) -> T
+      match self
+        .some(v) => v
+        .nothing => <d
+
+  obj Holder[T]
+    v: T
+
+    fun peek(?self, x: T, d: T) -> Int
+      o: Opt[T] = .some(v: <x)
+      c = o.copy_out(<d)
+      1
+
+  a: Wrap[Int] = Wrap(v: 1)
+  print(a.get())
+  b: Wrap[*B] = Wrap(v: *B(n: 1))
+  h: Holder[*B] = Holder(v: *B(n: 3))
+
+fail "generic body method on param", "a generic parameter `T` has no methods"
+  # A generic body cannot call methods on a type parameter.
+
+  obj Wrap[T]
+    value: T
+
+    fun show(?self) -> Int
+      self.value.len()
+
+  print(1)
+
+fail "generic catch all copy of cell holder", "19:5: a value of `C` holds a Cell, so it lives only behind a shared handle: write `*C`", "16:13: a value of `C` holds a Cell, so it lives only behind a shared handle: write `*C`", errors: 2
+  # A generic `match` never matches a copy of a value that holds a Cell:
+  # such a value is never a generic type argument (`Opt[C]`, `W[C]`), since
+  # it lives only behind a shared handle, so each is rejected where it is
+  # written.
+
+  obj C
+    c: Cell[Int]
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj W[T]
+    o: Opt[T]
+
+  fun hit(o: ?Opt[C]) -> Int
+    0
+
+  w: *W[C] = *W(o: .nothing)
+  print(hit(?w.o))
+
+fail "generic cell element per instance", "instantiates `Cell[fun(Int) -> Int]`: `Cell[T]` requires `T` to be a value that copies"
+  # A built-in generic constructed in a generic body (`Cell(self.v)` in
+  # `Wrap[T]`) is checked for each instance: `Cell[fun(Int) -> Int]` holds
+  # a function, which is neither plain data nor has drop glue.
+
+  obj Wrap[T]
+    v: T
+
+    fun peek(?self) -> Int
+      c = Cell(self.v)
+      _ = c
+      1
+
+  fun inc(x: Int) -> Int
+    x + 1
+
+  b: Wrap[fun(Int) -> Int] = Wrap(v: inc)
+  print(b.peek())
+
+fail "generic closure arg inference", "15:7: cannot infer `T` for `g` from its arguments or the type expected of its result", "16:7: conflicting types for `T` in the call to `h`: `Int` (argument 1) and `Bool` (argument 2)", "17:7: conflicting types for `T` in the call to `both`: `Int` (argument 1) and `Bool` (argument 2)"
+  # A closure literal passed to a generic function takes its parameter
+  # types from what the other arguments bind, so a type parameter nothing
+  # else binds cannot be inferred from an unannotated parameter; and the
+  # type of the literal's result must agree with the other arguments.
+
+  fun g[T](f: ?fun(T) -> Int) -> Int
+    0
+
+  fun h[T](x: T, f: ?fun(T) -> T) -> T
+    f(x)
+
+  fun both[T](f: ?fun() -> T, k: ?fun() -> T) -> T
+    f()
+
+  print(g(|x| 1))
+  print(h(1, |x| x > 0))
+  print(both(|| 1, || true))
+  print(g(|x: Int| 1))
+
+test "generic closure args", '''
+  [1, 2, 3]
+  ["ada", "bob", "cy"]
+  ["cy", "bob", "ada"] true
+  [20, 30, 30]
+  [false, true, true]
+  [0.5, 1.0, 1.5]
+  drop 1
+  2 2
+  drop 2
+  7
+'''
+  # A closure literal passed to a generic function is checked after the
+  # other arguments: they bind `T`, the literal's parameters take the
+  # types that gives them, and a type parameter only the literal's result
+  # mentions (`U` in `map`) takes the type of its body. The callable is
+  # passed down a generic chain as it is. Inside a generic body, a literal
+  # may move in a `T`, dropped when the call returns, and a callable
+  # taking a `?T` is passed one.
+
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  sub sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+    i = 1
+    while i < xs.len : i += 1
+      j = i
+      while j > 0 and less(?xs[j], ?xs[j - 1]) : j -= 1
+        !xs.swap(j, j - 1)
+
+  sub sort_by[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+    sort(!xs, less)
+
+  sub sort_twice[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+    sort_by(!xs, less)
+    sort_by(!xs, less)
+
+  fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> List[U]
+    out: List[U] = List()
+    for x in xs
+      !out.push(f(?x))
+    out
+
+  fun map_view[T, U](xs: ?[]T, f: ?fun(?T) -> U) -> List[U]
+    map(xs, f)
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  fun hold[T](x: T) -> Int
+    apply(|<x, a| a + 1, 1)
+
+  fun peek[T](x: ?T, f: ?fun(?T) -> Int) -> Int
+    f(x)
+
+  fun look[T](x: T) -> Int
+    n = peek(?x, |v| 7)
+    n
+
+  v: List[Int] = List()
+  !v.push(3)
+  !v.push(1)
+  !v.push(2)
+  sort(!v[..], |a, b| a < b)
+  print(v)
+  names = ["bob", "ada", "cy"]
+  sort(!names[..], |a, b| a < b)
+  print(names)
+  calls = 0
+  sort_twice(!names[..], |!calls, a, b|
+    calls += 1
+    a > b
+  )
+  print(names, calls > 0)
+  lens = map(?names[..], |s| s.len * 10)
+  print(lens)
+  big = map(?v[..], |n| n > 1)
+  print(big)
+  s = ?v[..]
+  halves = map_view(?s, |n| Float(n) / 2)
+  print(halves)
+  print(hold(Res(id: 1)), hold(5))
+  print(look(Res(id: 2)))
+
+fail "generic compare concrete", "cannot compare `T` with `Int`"
+  # A generic `T` compares with another `T` or a literal, not with a value
+  # of a concrete type.
+
+  obj Acc[T]
+    total: T
+
+    fun is(?self, n: Int) -> Bool
+      self.total == n
+
+  a: Acc[Float] = Acc(total: 1.5)
+  print(a.is(1))
+
+fail "generic constructor field type", "type mismatch: expected `Int`, got `Static`"
+  # A generic constructor's fields are checked against the substituted
+  # type from the expected `Wrap[Int]`.
+
+  obj Wrap[T]
+    value: T
+
+  b: Wrap[Int] = Wrap(value: "hello")
+  print(b.value)
+
+fail "generic copy of cell holder", "16:17: a value of `Counter` holds a Cell, so it lives only behind a shared handle: write `*Counter`", "17:3: a value of `Counter` holds a Cell, so it lives only behind a shared handle: write `*Counter`", errors: 2
+  # A generic body never binds a loop element of a type parameter that
+  # holds a Cell: such a value lives only behind a shared handle, so it is
+  # never an array's element nor a generic type argument, and the array
+  # is rejected where it is written.
+
+  obj Counter
+    hits: Cell[Int]
+
+  sub each[T](xs: ?[2]T, f: ?fun(?T) -> Int)
+    for k in xs
+      _ = f(?k)
+
+  fun look(c: ?Counter) -> Int
+    c.hits.get()
+
+  sub all(xs: ?[2]Counter)
+    each(xs, look)
+
+  n = [1, 2]
+  each(?n, |x: ?Int| x)
+
+test "generic enum method", '''
+  true
+  false
+'''
+  # A generic enum can declare instance methods; `is_some` dispatches on
+  # `Option[Int]` values.
+
+  enum Option[T]
+    some(value: T)
+    nothing
+
+    fun is_some(?self) -> Bool
+      match self
+        .some => true
+        .nothing => false
+
+  o1: Option[Int] = .some(value: 1)
+  o2: Option[Int] = .nothing
+  print(o1.is_some())
+  print(o2.is_some())
+
+test "generic enum option", "5"
+  # A generic enum `Option[T]`: the variant payload `value: T` is checked
+  # against the expected `Option[Int]`, and a match selects the arm.
+
+  enum Option[T]
+    some(value: T)
+    empty
+
+  o: Option[Int] = .some(value: 5)
+  match o
+    .some(v) => print(v)
+    .empty => print("nothing")
+
+fail "generic enum payload type", "type mismatch: expected `Int`, got `Static`"
+  # A generic enum payload is checked against the substituted type
+  # (`Int`), not the symbolic `T`.
+
+  enum Option[T]
+    some(value: T)
+    nothing
+
+  o: Option[Int] = .some(value: "hello")
+  print("done")
+
+test "generic enum two params", '''
+  42
+  oops
+'''
+  # A two-parameter generic enum `Result[T, E]`: each variant's payload is
+  # substituted independently.
+
+  enum Result[T, E]
+    ok(value: T)
+    err(reason: E)
+
+  good: Result[Int, ?String] = .ok(value: 42)
+  bad: Result[Int, ?String] = .err(reason: "oops")
+
+  match good
+    .ok(v) => print(v)
+    .err(r) => print(r)
+
+  match bad
+    .ok(v) => print(v)
+    .err(r) => print(r)
+
+test "generic eq branching", '''
+  true false
+  false true
+  true false
+  true false
+'''
+  # `==` on a branching value of a type parameter: each instance reads the
+  # chosen leaf where it is, or drops a made one with the statement.
+
+  fun same[T](c: Bool, a: T, b: T, x: T) -> Bool
+    (a if c else b) == x
+
+  fun pick[T](v: T) -> T
+    v
+
+  fun made[T](c: Bool, a: T, b: T, x: T) -> Bool
+    (pick(<a) if c else pick(<b)) == x
+
+  fun flipped[T](c: Bool, a: T, b: T, x: T) -> Bool
+    x == (a if c else b)
+
+  print(same(true, 1, 2, 1), same(false, 1, 2, 1))
+  print(same(true, String("a"), String("b"), String("b")), same(false, String("a"), String("b"), String("b")))
+  print(made(true, 5, 6, 5), made(false, 5, 6, 5))
+  print(flipped(false, String("a"), String("b"), String("b")), flipped(true, 3, 4, 4))
+
+fail "generic eq made temporary", "`same[String]` cannot use `T = String`: the generic body leaves a temporary that holds a `T`"
+  # A made `T` compared with `==` is a temporary of `T`, which a generic
+  # body may leave only for an instance that needs no cleanup: the same rule
+  # as any other temporary of `T` (`print(pick(<a))`).
+
+  fun pick[T](v: T) -> T
+    v
+
+  fun same[T](c: Bool, a: T, b: T, x: T) -> Bool
+    (pick(<a) if c else b) == x
+
+  print(same(true, 1, 2, 1))
+  print(same(true, String("a"), String("b"), String("a")))
+
+test "generic equality", '''
+  1 -1
+  2 -1
+  2
+  true false true false
+  true false
+'''
+  # In a generic body `==` compares every equatable `T`: numbers, Strings,
+  # structs, enums, optionals, and generic instances, each by content.
+
+  obj Point
+    x: Int
+    y: Int
+
+  obj Pair[A, B]
+    first: A
+    second: B
+
+  fun index_of[T](xs: []T, want: ?T) -> Int
+    for x, i in xs
+      if x == want
+        return i
+    -1
+
+  fun same[T](a: ?T, b: ?T) -> Bool
+    a == b and not (a != b)
+
+  pts = [Point(x: 1, y: 2), Point(x: 3, y: 4), Point(x: 5, y: 6)]
+  p = Point(x: 3, y: 4)
+  q = Point(x: 9, y: 9)
+  print(index_of(?pts[0..3], ?p), index_of(?pts[0..3], ?q))
+  words = ["ant", "bee", "cat"]
+  w = "cat"
+  print(index_of(?words[0..3], ?w), index_of(?words[0..2], ?w))
+  nums = [4, 5, 6]
+  n = 6
+  print(index_of(?nums[0..3], ?n))
+  a = Pair(first: 1, second: "one")
+  b = Pair(first: 1, second: "one")
+  c = Pair(first: 1, second: "uno")
+  print(a == b, a == c, same(?a, ?b), same(?a, ?c))
+  o: Point? = p
+  print(same(?o, ?o), same(?p, ?q))
+
+fail "generic equality owning", "24:7: `same[Res]` cannot use `T = Res`: the generic body applies `==` to `T`, which `Res` does not support: `Res` declares `drop`", "15:3: `==` used on `T` here", "26:7: `same[Tagged]` cannot use `T = Tagged`: the generic body applies `==` to `T`, which `Tagged` does not support: field `h` is a handle `*Res`"
+  # `==` in a generic body is checked per instance: a `T` that owns a
+  # resource or holds a handle has no `==`, and the reason is named.
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj Tagged
+    id: Int
+    h: *Res
+
+  fun same[T](a: ?T, b: ?T) -> Bool
+    a == b
+
+  fun pos[T](xs: []T, want: ?T) -> Int
+    for x, i in xs
+      if x == want
+        return i
+    -1
+
+  r = Res(n: 1)
+  print(same(?r, ?r))
+  t = Tagged(id: 1, h: *Res(n: 2))
+  print(same(?t, ?t))
+  a = [1, 2]
+  print(pos(?a[0..2], ?a[0]))
+
+fail "generic fallible of error set", "19:5: `id[E]` cannot use `T = E`: a return type `T!` would make a failure and a success both `E` values", "20:5: `Slot[E]` cannot use `T = E`: a return type `T!`"
+  # `E!` of an error set `E` is rejected: a failure and a success would
+  # both be `E` values. A generic `T!` is rejected where an instance gives
+  # `T` an error set.
+
+  error E
+    bad
+
+  fun id[T](x: T) -> T!
+    x
+
+  obj Slot[T]
+    v: T
+
+    fun get(?self) -> T!
+      self.v
+
+  print(id(1) catch 0)
+  e: E = E.bad
+  r = id(e) catch E.bad
+  b = Slot[E](v: E.bad)
+  print(r, b.v)
+
+test "generic float division", '''
+  2.5
+  2.5
+  -3
+  -3
+'''
+  # `/` on a type parameter's values divides floats exactly and integers
+  # truncating toward zero, whichever the instance holds.
+
+  obj Acc[T]
+    total: T
+
+    fun div(?self, x: T) -> T
+      self.total / x
+
+    fun half(?self) -> T
+      self.total / 2
+
+  f = Acc(total: 5.0)
+  print(f.div(2.0))
+  print(f.half())
+  i = Acc(total: -7)
+  print(i.div(2))
+  print(i.half())
+
+fail "generic float literal equality", "`Acc[Int]` cannot use `T = Int`: the generic body applies `==` to a `T` and a float literal, which `Int` cannot hold"
+  # Comparing a generic `T` with a float literal needs a float `T`; the
+  # diagnostic names the literal, not `==`.
+
+  obj Acc[T]
+    t: T
+    fun is(?self) -> Bool
+      self.t == 1.5
+
+  a = Acc(t: 1)
+  print(a.is())
+
+fail "generic fn as value", "7:5: `same` takes compile-time parameters, so it can only be called, not used as a value", "8:5: `same[Int]` is a function with compile-time arguments; call it with `same[Int](...)`"
+  # A generic function has an instance per call, so it can only be
+  # called, never used as a value.
+
+  fun same[T](x: T) -> T
+    x
+
+  f = same
+  g = same[Int]
+  print(f(1), g(2))
+
+test "generic fn closure uses type param", "6 3.0"
+  # A closure inside a generic function may use the function's type
+  # parameter; each instance has its own closure.
+
+  fun twice[T](x: T) -> T
+    f = |a: T| a + a
+    f(x)
+
+  print(twice(3), twice(1.5))
+
+fail "generic fn conflicting inference", "12:7: conflicting types for `T` in the call to `max`: `Static` (argument 1) and `Int` (argument 2); they must have one type", "13:7: conflicting types for `T` in the call to `max`: `I32` (argument 1) and `Int` (argument 2); convert argument 1 with `Int(...)`", "14:7: conflicting types for `T` in the call to `max`: `I32` (argument 1) and `Float` (argument 2); convert argument 1 with `Float(...)`", "15:7: conflicting types for `T` in the call to `max`: `Float` (argument 1) and `I32` (argument 2); convert argument 2 with `Float(...)`", "17:7: conflicting types for `T` in the call to `max`: `Int` (argument 1) and `Static` (argument 2)"
+  # Every argument that determines a type parameter must agree on it. A
+  # literal takes its default type only when no other argument gives the
+  # parameter a type. The diagnostic suggests brackets only when every
+  # argument can have the suggested type, and otherwise a conversion.
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  x: I32 = 3
+  y: I64 = 4
+  z: Float = 1.5
+  print(max("s", 2))
+  print(max(x, y))
+  print(max(x, 2.5))
+  print(max(2.5, x))
+  print(max(2, z), max(x, 2))
+  print(max(1, "s"))
+
+fail "generic fn copies owning", "18:5: `twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns"
+  # Where a generic body copies a `T`, every instance must be plain data:
+  # a copy of an owning value would duplicate the resource it owns.
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj Pair[A, B]
+    first: A
+    second: B
+
+  fun twice[T](x: T) -> Pair[T, T]
+    Pair(first: x, second: x)
+
+  print(twice(1).first)
+  p = twice(Res(n: 1))
+
+test "generic fn deep nesting", "41"
+  # Generic calls nested in each other's arguments are each checked a
+  # bounded number of times: inferring a call's type arguments does not
+  # check its arguments again at every level of nesting.
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  print(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(max(1, 2), 3), 4), 5), 6), 7), 8), 9), 10), 11), 12), 13), 14), 15), 16), 17), 18), 19), 20), 21), 22), 23), 24), 25), 26), 27), 28), 29), 30), 31), 32), 33), 34), 35), 36), 37), 38), 39), 40), 41))
+
+fail "generic fn double move", "10:28: use of `x` after move"
+  # A generic body is ownership-checked once, for a `T` that may own a
+  # resource: a `T` argument moved twice is a use after move, whatever
+  # the instance.
+
+  obj Pair[A, B]
+    first: A
+    second: B
+
+  fun twice[T](x: T) -> Pair[T, T]
+    Pair(first: <x, second: <x)
+
+  print(twice(1))
+
+fail "generic fn escaping view", "9:4: cannot return a view of `y`, which this function was not lent"
+  # Views in a generic function follow the ordinary rules: a view of
+  # a `?T` parameter may be returned, but not a view of a local copy.
+
+  fun keep[T](x: ?T) -> ?T
+    x
+
+  fun local[T](x: T) -> ?T
+    y = <x
+    ?y
+
+  n = 1
+  print(keep(?n), local(2))
+
+test "generic fn expected nested", '''
+  250 200 none none none 2.5
+  250
+  250 7 1 1
+'''
+  # A generic call that is an argument of another, and whose result only
+  # literals gave a type, takes the type the outer call gives it: directly,
+  # or propagated with `!` or `?`. One whose result is an optional nothing
+  # gave a type (`nothing()`, `id(none)`), takes the optional itself. A
+  # `return` in a closure whose result type is given takes that type. A
+  # nested call of another shape takes the type the outer call is given
+  # in brackets.
+
+  error Bad
+    bad
+
+  fun id[T](a: T) -> T
+    a
+
+  obj Wrap[T]
+    v: T
+
+    fun make(v: T) -> Wrap[T]
+      Wrap(v: v)
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun parse[T](ok: Bool, x: T) -> T!
+    return Bad.bad if not ok
+    x
+
+  fun opt[T](x: T) -> T?
+    x
+
+  fun nothing[T]() -> T?
+    none
+
+  fun run() -> U8!
+    z: U8 = max(parse(true, 1)!, 250)
+    z
+
+  fun some() -> U8?
+    z: U8 = max(opt(3)?, 200)
+    z
+
+  a: U8 = run() catch 0
+  b: U8 = some() ?? 0
+  c: Int? = id(nothing())
+  d: Int? = id(id(none))
+  e: U8? = id(id(nothing()))
+  f: Float = max(id(1), 2.5)
+  print(a, b, c, d, e, f)
+  up = false
+  g: fun(U8) -> U8 = |+up, x|
+    if up
+      return x
+    return max(3, 250)
+  print(g(7))
+  bx = Wrap[Wrap[U8]].make(Wrap.make(250))
+  od = id[Wrap[U8]](Wrap.make(7))
+  print(bx.v.v, od.v, @size(@type(bx.v.v)), @size(@type(od.v)))
+
+test "generic fn expected type", '''
+  2 1
+  1 3
+  2 2 4 6 8
+  3 1
+  200 1
+  1 1
+  9 1.5
+  11 2.5
+  2.5
+  5 7 21 1
+  1 2.0 .some(value: 1) 2 5 2.5
+  1 1
+  3 2 6 3 1
+'''
+  # A generic call takes the type parameters its arguments leave open
+  # from the type its result is expected to have: an annotated binding, a
+  # parameter, a `return`, a function's last expression, a field, an
+  # assigned place, an `if` or `match` arm, or a closure's result, and
+  # through `!`, `catch`, and the left of `??`. Literals take their
+  # default type only where neither says anything, and the expected type
+  # reaches generic calls nested in the arguments. A generic type's
+  # payload variants and associated functions take their type arguments
+  # the same way.
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun empty[T]() -> List[T]
+    List()
+
+  fun first[T](xs: ?List[T]) -> T?
+    if xs.len > 0
+      return xs[0]
+    none
+
+  fun nothing[T]() -> T?
+    none
+
+  fun half[T](x: T) -> T
+    x / 2
+
+  error Bad
+    bad
+
+  fun parse[T](ok: Bool, x: T) -> T!
+    return Bad.bad if not ok
+    x
+
+  fun twice() -> U8!
+    a: U8 = parse(true, 20)!
+    b: U8 = parse(true, 1)!
+    a + b
+
+  fun take(n: U8) -> U8
+    n
+
+  fun small() -> U8
+    return max(1, 2)
+
+  fun last_small() -> U8
+    max(3, 4)
+
+  fun maybe() -> U8?
+    max(5, 6)
+
+  fun checked(ok: Bool) -> U8!
+    if not ok
+      return Bad.bad
+    max(7, 8)
+
+  obj Wrap[T]
+    v: T
+
+    fun pick[U](?self, a: U, b: U) -> U
+      a if self.v > 0 else b
+
+  obj Pair[T, U]
+    first: T
+    second: U
+
+    fun make(a: T, b: U) -> Pair[T, U]
+      Pair(first: a, second: b)
+
+  enum Opt[T]
+    some(value: T)
+    nothing
+
+  fun wrap[T](x: T) -> List[T]
+    v: List[T] = empty()
+    !v.push(<x)
+    v
+
+  fun id[T](x: T) -> T
+    x
+
+  obj Holder
+    n: U8
+    f: F32
+
+  z: U8 = max(1, 2)
+  print(z, @size(@type(z)))
+  v: List[Int] = empty()
+  !v.push(3)
+  o: Int? = first(?v)
+  print(v.len, o ?? 0)
+  print(take(max(1, 2)), small(), last_small(), maybe() ?? 0, checked(true) catch 0)
+  n: U8 = max(max(1, 2), 3)
+  print(n, @size(@type(n)))
+  s: U8 = 200
+  m = max(max(1, 2), s)
+  print(m, @size(@type(m)))
+  b = Wrap(v: 1)
+  p: U8 = b.pick(1, 2)
+  print(p, @size(@type(p)))
+  h = Holder(n: max(4, 9), f: half(3.0))
+  print(h.n, h.f)
+  h.n = max(10, 11)
+  q: F32 = half(5)
+  print(h.n, q)
+  w: List[Float] = empty()
+  !w.push(max(1, 2.5))
+  print(w[0])
+  r: U8 = parse(true, 5) catch 0
+  t: U8 = parse(false, 5) catch 7
+  print(r, t, twice() catch 0, @size(@type(r)))
+  pr: Pair[U8, Float] = Pair.make(1, 2)
+  op: Opt[U8] = Opt.some(1)
+  ws: List[U8] = wrap(max(1, 2))
+  on: Int? = id(none)
+  print(pr.first, pr.second, op, ws[0], on ?? 5, max(max(1, 2), 2.5))
+  print(@size(@type(pr.first)), @size(@type(ws[0])))
+  d: U8 = nothing() ?? 3
+  c = true
+  i: U8 = max(1, 2) if c else max(3, 4)
+  k: U8 = match c
+    true => max(5, 6)
+    false => 0
+  g: fun() -> U8 = || max(1, 3)
+  print(d, i, k, g(), @size(@type(i)))
+
+fail "generic fn expected type conflicts", "17:9: type mismatch: expected `U8`, got `Int`; `max` takes `T = Int` from argument 1; convert its result with `U8(...)`", "18:16: integer value `300` does not fit in `U8` (0..255)", "19:17: type mismatch: expected `Int`, got `Float`", "20:5: cannot infer `T` for `empty` from its arguments or the type expected of its result; give `T` in brackets: `empty[...]()`", "21:10: type mismatch: expected `Int`, but `empty` returns `List[T]`", "22:5: cannot infer `U` for `pair` from its arguments or the type expected of its result; give `U` in brackets: `pair[Int, ...](...)`"
+  # The type expected of a generic call's result binds only the type
+  # parameters its arguments leave open. An argument that fixes one keeps
+  # it, and the mismatch that follows suggests converting the result; a
+  # literal the expected type's binding cannot hold is reported as for
+  # any binding; a parameter nothing determines names what to give.
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun empty[T]() -> List[T]
+    List()
+
+  fun pair[T, U](a: T) -> List[U]
+    List()
+
+  n: Int = 5
+  z: U8 = max(n, 2)
+  y: U8 = max(1, 300)
+  w: Int = max(1, 2.5)
+  v = empty()
+  e: Int = empty()
+  q = pair(1)
+  print(z, y, w, v.len, e, q.len)
+
+test "generic fn explicit", '''
+  2.0 3 9
+  3 three
+  1 0.5
+  hello
+  hello
+  0.5
+'''
+  # Brackets give every compile-time argument of a generic function, types
+  # and values alike, in order; a literal argument then takes the given
+  # type. A generic function with no run-time parameters is called by a
+  # statement `hello[Int]` as by `hello[Int]()`.
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  sub tag[T, n: Int](x: T)
+    print(n, x)
+
+  sub hello[T]()
+    print("hello")
+
+  fun double[T](x: T) -> T
+    x + x
+
+  print(max[Float](1, 2), max[Int](3, 2), max[U8](7, 9))
+  tag[?String, 3]("three")
+  tag[Float, 1](0.5)
+  hello[Int]()
+  hello[Bool]()
+  print(double[F32](0.25))
+
+fail "generic fn explicit arity", "11:7: `max` expects 1 compile-time argument, got 2", "12:1: `tag` expects 2 compile-time arguments, got 1", "13:1: `tag` takes 2 compile-time arguments in brackets: `tag[...](...)`", "14:11: `3` is not a type"
+  # Brackets give every compile-time argument, or none. A value parameter
+  # its signature does not hold is never inferred, so a function with one
+  # needs its brackets.
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  sub tag[T, n: Int](x: T)
+    print(n, x)
+
+  print(max[Int, Int](1, 2))
+  tag[Int](1)
+  tag(1)
+  print(max[3](1, 2))
+
+test "generic fn handles", '''
+  one dropped
+  alive 1
+  drop 1
+  both dropped
+  true
+'''
+  # A generic function over shared and weak handles: cloning a `*T`, taking
+  # a `~T` from it, and upgrading a `~T` count references without knowing
+  # `T`, and the value is dropped when its last strong handle is.
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun clone_of[T](h: ?*T) -> *T
+    +h
+
+  fun weak_of[T](h: *T) -> ~T
+    ~h
+
+  fun upgraded[T](w: ?~T) -> *T?
+    *w
+
+  h = *Res(n: 1)
+  c = clone_of(?h)
+  w = weak_of(+c)
+  <h
+  print("one dropped")
+  if upgraded(?w) as s
+    print("alive", s.n)
+  <c
+  print("both dropped")
+  print(upgraded(?w) == none)
+
+test "generic fn holds read view", '''
+  1
+  2
+  2
+  2
+  1
+  4
+  3 abc
+'''
+  # A generic function's `T` may be a read view of an owner: the result
+  # keeps the owner lent while it is used, whether it is returned whole,
+  # chosen between two, boxed, or made optional.
+
+  fun same[T](x: T) -> T
+    x
+
+  fun pick[T](a: T, b: T, first: Bool) -> T
+    a if first else b
+
+  fun boxed[T](x: T) -> ^T
+    ^x
+
+  fun maybe[T](x: T, keep: Bool) -> T?
+    x if keep else none
+
+  fun twice[T](x: T) -> List[T]
+    out: List[T] = List()
+    !out.push(x)
+    !out.push(x)
+    out
+
+  v: List[Int] = List()
+  w: List[Int] = List()
+  !v.push(1)
+  !w.push(1)
+  !w.push(2)
+  print(same(?v).len)
+  r = ?same(?w)
+  print(r.len)
+  p = pick(?v, ?w, false)
+  print(p.len)
+  b = boxed(?w)
+  print(b.len)
+  m = maybe(?v, true)
+  if m as x
+    print(x.len)
+  ts = twice(?w)
+  print(ts[0].len + ts[1].len)
+  t = String("abc")
+  print(same(?t).len, pick(?t, ?t, true))
+
+test "generic fn inference", '''
+  3 2.5 s true
+  1 1
+  5
+  7 true
+  4 6
+  2 1
+  1
+  9
+  11
+'''
+  # A generic function's type parameters are inferred by matching each
+  # parameter's type against its argument's: `T`, `?T`, `!T`, `*T`, `~T`,
+  # `T?`, `[]T`, `[N]T`, and generic instances (`List[T]`, `Cell[T]`, a
+  # user `Wrap[T]`). A literal takes its default type.
+
+  obj Wrap[T]
+    v: T
+
+  obj P
+    n: Int
+
+  fun same[T](x: T) -> T
+    x
+
+  fun seen[T](x: ?T) -> Int
+    1
+
+  sub put[T](dst: !T, v: T)
+    dst = <v
+
+  fun dup[T](h: ?*T) -> *T
+    +h
+
+  fun alive[T](w: ?~T) -> Bool
+    s = *w
+    s != none
+
+  fun or_else[T](x: T?, d: T) -> T
+    x ?? d
+
+  fun first_of[T](xs: []T) -> T
+    xs[0]
+
+  fun head[T](xs: [3]T) -> T
+    xs[0]
+
+  fun count[T](v: ?List[T]) -> Int
+    v.len
+
+  fun read[T](c: ?*Cell[T]) -> T
+    c.get()
+
+  fun unbox[T](b: ?Wrap[T]) -> T
+    b.v
+
+  print(same(3), same(2.5), same("s"), same(true))
+  p = P(n: 1)
+  print(seen(?p), same(p).n)
+  n = 1
+  put(!n, 5)
+  print(n)
+  h = *P(n: 7)
+  h2 = dup(?h)
+  w = ~h
+  print(h2.n, alive(?w))
+  o: Int? = none
+  print(or_else(o, 4), or_else(6, 0))
+  xs = [1, 2, 3]
+  print(first_of(?xs[1..3]), head(xs))
+  v = List[Int]()
+  !v.push(4)
+  print(count(?v))
+  c = *Cell(9)
+  print(read(?c))
+  b = Wrap(v: 11)
+  print(unbox(?b))
+
+test "generic fn max", '''
+  7 2.5 -3 2.0
+  5
+'''
+  # One generic `max` serves every type its body's `>` is defined for: an
+  # integer, a float, or a sized number. The type is inferred from the
+  # arguments, a literal taking its default type, or from a typed value
+  # beside a literal.
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  small: I8 = -3
+  f: F32 = 1.5
+  print(max(3, 7), max(2.5, -1.0), max(small, -9), max(2, f))
+  print(max(max(1, 5), 4))
+
+fail "generic fn method on param", "12:5: a generic parameter `T` has no methods", "15:5: a generic parameter `T` has no fields"
+  # A generic function's body cannot call a method, or read a field, of a
+  # value whose type is a type parameter: there are no traits to say what
+  # every instance has.
+
+  obj P
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+  fun call_get[T](x: ?T) -> Int
+    x.get()
+
+  fun read_n[T](x: ?T) -> Int
+    x.n
+
+  p = P(n: 1)
+  print(call_get(?p), read_n(?p))
+
+test "generic fn methods", '''
+  tag 3
+  tag x
+  tag 2.5
+  2 1.0
+  drop 2
+  kept 1
+  7 seven
+  3
+  drop 4
+  true
+  drop 3
+  drop 1
+'''
+  # Methods and associated functions take type parameters of their own,
+  # on a plain type and on a generic one, where they sit beside the
+  # type's parameters, whose rules they follow: `Wrap`'s `with` copies a
+  # `T`, so a `Wrap` holds plain data. They are inferred or given in brackets, and a
+  # method called through its type takes the receiver first.
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj Pair[A, B]
+    first: A
+    second: B
+
+  obj Tagger
+    label: ?String
+
+    sub show[T](?self, x: T)
+      print(self.label, x)
+
+    fun either[T](a: T, b: T, first: Bool) -> T
+      if first
+        return <a
+      <b
+
+  obj Wrap[T]
+    v: T
+
+    fun with[U](?self, u: U) -> Pair[T, U]
+      Pair(first: self.v, second: <u)
+
+  obj Cup[T]
+    v: T
+
+    fun into[U](self: Cup[T], u: U) -> Cup[U]
+      Cup(v: <u)
+
+  t = Tagger(label: "tag")
+  t.show(3)
+  t.show[?String]("x")
+  Tagger.show(?t, 2.5)
+  print(Tagger.either(1, 2, false), Tagger.either[Float](1, 2, true))
+  r = Tagger.either(Res(n: 1), Res(n: 2), true)
+  print("kept", r.n)
+  b = Wrap(v: 7)
+  p = ?b.with("seven")
+  print(p.first, p.second)
+  q = <Cup(v: 7).into(Res(n: 3))
+  print(q.v.n)
+  c: Cup[*Res] = Cup(v: *Res(n: 4))
+  d = <c.into(true)
+  print(d.v)
+
+fail "generic fn missing operation", "15:7: `max[P]` cannot use `T = P`: the generic body applies `>` to `T`, which `P` does not support", "16:7: `bump[P]` cannot use `T = P`: the generic body applies `+` to `T`, which `P` does not support", "17:7: `bump[Bool]` cannot use `T = Bool`: the generic body applies `+` to `T`, which `Bool` does not support"
+  # A generic function's body is checked for every instance its calls
+  # make: `>` is defined for numbers and Strings, not for a struct, and
+  # the error names the call and, in a note, the body line that needs it.
+
+  obj P
+    n: Int
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun bump[T](x: T) -> T
+    x + 1
+
+  print(max(3, 7))
+  print(max(P(n: 1), P(n: 2)).n)
+  print(bump(P(n: 1)).n)
+  print(bump(true))
+
+test "generic fn nested", '''
+  1 one 1
+  Pair(first: 2.5, second: 2.5)
+  10 10.0
+  counted 9
+  2
+  drop 2
+  drop 1
+  drop 9
+'''
+  # Generic functions call each other and themselves: a type parameter is
+  # passed on, inferred from values of its type, and a generic function
+  # can return an instance of a generic type built from its own
+  # parameters.
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj Pair[A, B]
+    first: A
+    second: B
+
+  fun pair[T, U](a: T, b: U) -> Pair[T, U]
+    Pair(first: <a, second: <b)
+
+  fun twice[T](x: T) -> Pair[T, T]
+    pair(x, x)
+
+  fun sum_to[T](n: T) -> T
+    n if n <= 1 else n + sum_to(n - 1)
+
+  fun count_down[T](n: Int, x: T) -> T
+    if n == 0
+      return <x
+    count_down(n - 1, <x)
+
+  fun first[T, U](p: ?Pair[T, U]) -> T
+    p.first
+
+  p = pair(1, "one")
+  print(p.first, p.second, first(?p))
+  print(twice(2.5))
+  print(sum_to(4), sum_to(4.0))
+  r = count_down(3, Res(n: 9))
+  print("counted", r.n)
+  q = pair(Res(n: 1), Res(n: 2))
+  print(q.second.n)
+
+test "generic fn owning", '''
+  drop 2
+  picked 1
+  2
+  3
+  consumed
+  drop 4
+  5
+  b b
+  drop 6
+  1
+  slot 7
+  drop 7
+  drop 5
+  drop 3
+  drop 1
+'''
+  # A type parameter bound to an owning type (a struct with a `drop` body,
+  # a List, a shared handle) moves where the generic body moves it: the
+  # argument the body returns is handed back to the caller, and one it
+  # does not return is dropped when the call ends. A Copy type is copied.
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj Wrap[T]
+    v: T
+
+  fun pick[T](a: T, b: T, first: Bool) -> T
+    if first
+      return <a
+    <b
+
+  fun keep[T](x: T) -> T
+    x
+
+  sub consume[T](x: T)
+    print("consumed")
+
+  fun wrap[T](x: T) -> Wrap[T]
+    Wrap(v: <x)
+
+  fun swap_in[T](dst: !T, v: T) -> Int
+    dst = <v
+    1
+
+  r = pick(Res(n: 1), Res(n: 2), true)
+  print("picked", r.n)
+  v = List[Int]()
+  !v.push(1)
+  w = List[Int]()
+  !w.push(2)
+  !w.push(3)
+  k = pick(<v, <w, false)
+  print(k.len)
+  h = *Res(n: 3)
+  h2 = keep(+h)
+  print(h2.n)
+  consume(Res(n: 4))
+  b = wrap(Res(n: 5))
+  print(b.v.n)
+  s = pick("a", "b", false)
+  print(s, keep(s))
+  slot = Res(n: 6)
+  print(swap_in(!slot, Res(n: 7)))
+  print("slot", slot.n)
+
+fail "generic fn param names", "10:7: generic parameter `Int` has the name of a built-in type", "13:7: parameter `P` has the same name as the module-level declaration `P`", "16:10: duplicate parameter `T`", "19:13: compile-time parameter `n` cannot have the type `T`, a type parameter", "23:3: local `T` has the name of the generic parameter `T`", "29:9: parameter `T` has the name of the generic parameter `T`"
+  # A function's type parameter needs a name of its own: not a built-in
+  # type or `Self`, a module-level declaration, or a parameter, and no
+  # local or parameter inside the function (or a generic type's method)
+  # reuses it. A compile-time value parameter cannot have a type
+  # parameter's type.
+
+  obj P
+    n: Int
+
+  fun a[Int](x: Int) -> Int
+    x
+
+  fun b[P](x: P) -> Int
+    1
+
+  fun c[T, T](x: T) -> Int
+    1
+
+  fun d[T, n: T](x: T) -> Int
+    1
+
+  fun f[T](x: T) -> T
+    T = 3
+    x
+
+  obj Wrap[T]
+    v: T
+
+    fun e[T](?self, x: T) -> Int
+      1
+
+  print(1)
+
+fail "generic fn polymorphic recursion", "13:7: `nest[Int]` leads to ever deeper instances of generic functions (through `nest[Wrap[T]]`); a generic function cannot call itself with its own type parameters nested deeper"
+  # A generic function that calls itself with a deeper instance of its own
+  # type parameter (`nest[Wrap[T]]` from `nest[T]`) would need ever deeper
+  # instances; it is rejected rather than expanded forever.
+
+  obj Wrap[T]
+    v: T
+
+  fun nest[T](x: T, n: Int) -> Int
+    if n == 0
+      return 0
+    nest(Wrap(v: <x), n - 1)
+
+  print(nest(1, 3))
+
+fail "generic fn undetermined", "20:7: cannot infer `T` for `make` from its arguments or the type expected of its result; give `T` in brackets: `make[...](...)`", "21:7: cannot infer `T` for `first` from its arguments or the type expected of its result; give `T` in brackets: `first[...](...)`", "22:12: enum literal `.red` needs a known enum type; write `Type.red` or annotate the binding"
+  # A type parameter neither the arguments nor the type expected of the
+  # result determine cannot be inferred: `none` says nothing about it, and
+  # a parameter used nowhere in the signature has nothing at all. The hint
+  # marks the type to give with `...`. A `.variant` with no type to take
+  # is reported itself, and the parameter it leaves unbound is not.
+
+  enum Color
+    red
+    blue
+
+  fun make[T](n: Int) -> Int
+    n
+
+  fun first[T](x: T?, y: T?) -> Int
+    1
+
+  fun pick[T](x: T) -> Int
+    1
+
+  print(make(3))
+  print(first(none, none))
+  print(pick(.red))
+
+fail "generic fn viewed operand missing", "20:7: `same[H]` cannot use `T = H`: the generic body applies `==` to `T`, which `H` does not support: field `p` is a handle `*P`", "12:3: `==` used on `T` here", "21:7: `bigger[P]` cannot use `T = P`: the generic body applies `>` to `T`, which `P` does not support", "15:3: `>` used on `T` here"
+  # A viewed `T` operand records the requirement a `T` operand would:
+  # an instance whose type lacks the operation is reported at the call,
+  # with a note at the body line.
+
+  obj P
+    n: Int
+
+  obj H
+    p: *P
+
+  fun same[T](a: ?T, b: ?T) -> Bool
+    a == b
+
+  fun bigger[T](a: !T, b: ?T) -> Bool
+    a > b
+
+  s = H(p: *P(n: 0))
+  p = P(n: 1)
+  q = P(n: 2)
+  print(same(?s, ?s))
+  print(bigger(!p, ?q))
+
+test "generic fn viewed operands", '''
+  7 3.75 250
+  false true true
+  true false true
+  9 0.25
+  4 2.5 201
+  false true
+  -3 -1.5
+  3 237
+  13 4.375
+  9
+  72 10.3125 2 false true
+'''
+  # A viewed `T` operand (`?T` or `!T`) acts as a `T`: it records the
+  # same requirement and gives the same result type, and the operator
+  # reads through the view, whether a name holds it or a call yields it.
+
+  enum Color
+    red
+    green
+
+  fun add[T](a: ?T, b: ?T) -> T
+    a + b
+
+  fun bigger[T](a: ?T, b: ?T) -> Bool
+    a > b
+
+  fun same[T](a: ?T, b: ?T) -> Bool
+    a == b and not (a != b)
+
+  fun mixed[T](a: ?T, b: T, c: !T) -> T
+    a + b - c
+
+  fun bump[T](a: ?T) -> T
+    a + 1
+
+  fun below[T](a: !T, b: ?T) -> Bool
+    a < b or a <= 1
+
+  fun flip[T](a: ?T) -> T
+    -a
+
+  fun bits[T](a: ?T, b: !T) -> T
+    (a & b) | (a ^ 1) | (a >> 1)
+
+  sub scale[T](a: !T, b: ?T)
+    a *= b
+    a += 1
+
+  fun wr[T](a: !T) -> !T
+    a
+
+  sub accum[T](a: !T, b: !T)
+    a += wr(!b)
+    a *= wr(!b)
+    a -= -wr(!b)
+
+  sub shift[T](a: !T, b: !T)
+    a <<= wr(!b)
+    a >>= wr(!b)
+    a /= wr(!b)
+    a %= wr(!b) + wr(!b)
+
+  fun order[T](a: !T, b: !T) -> Bool
+    wr(!a) < wr(!b) and wr(!a) != wr(!b)
+
+  obj Acc[T]
+    total: T
+
+    fun plus(?self, x: ?T) -> T
+      self.total + x
+
+  x = 3
+  y = 4
+  f = 1.5
+  g = 2.25
+  z = 2
+  u: U8 = 200
+  w: U8 = 50
+  c = Color.red
+  print(add(?x, ?y), add(?f, ?g), add(?u, ?w))
+  print(bigger(?x, ?y), bigger(?g, ?f), bigger(?u, ?w))
+  print(same(?x, ?x), same(?f, ?g), same(?c, ?c))
+  print(mixed(?x, 10, !y), mixed(?f, 1.0, !g))
+  print(bump(?x), bump(?f), bump(?u))
+  print(below(!y, ?x), below(!f, ?g))
+  print(flip(?x), flip(?f))
+  print(bits(?x, !y), bits(?u, !w))
+  scale(!x, ?y)
+  scale(!g, ?f)
+  print(x, g)
+  a = Acc(total: 5)
+  print(a.plus(?y))
+  accum(!x, !y)
+  accum(!g, !f)
+  shift(!y, !z)
+  print(x, g, y, order(!x, !y), order(!f, !g))
+
+fail "generic handle of function type", "40:5: `H[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`, and `fun(Int) -> Int` is a function type: `*fun(Int) -> Int` is an owned closure, not a handle of a function. Hold the owned closure itself in a `T`: `T = *fun(Int) -> Int`", "`Wk[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `~T` of a `T`", "`E[sub()]` cannot use `T = sub()`: the generic body makes a handle `*T` of a `T`", "`V[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`", "`O[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`", "`H[sub(Int)]` cannot use `T = sub(Int)`: the generic body makes a handle `*T` of a `T`", "`lend[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`", "`make[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body makes a handle `*T` of a `T`", errors: 8
+  # A generic declaration that makes a shared or weak handle of a type
+  # parameter (`*T`, `~T`) cannot be instantiated with a function type:
+  # `*fun(Int) -> Int` is an owned closure, not a handle of a function,
+  # so the handle would not be what the instance spells. Fields, enum
+  # payloads, parameters, a handle in a List or an optional, a nested
+  # instance, and a handle made in a body are all checked. The owned
+  # closure is held as a `T` instead (test/behavior/types/
+  # generic_holds_owned_closure.rig).
+
+  fun inc(a: Int) -> Int
+    a + 1
+
+  obj H[T]
+    h: *T
+
+  obj Wk[T]
+    w: ~T
+
+  enum E[T]
+    a(h: *T)
+    b
+
+  obj V[T]
+    hs: List[*T]
+
+  obj O[T]
+    h: (*T)?
+
+  obj G[U]
+    g: H[U]
+
+  fun lend[T](h: ?*T) -> Int
+    1
+
+  fun make[T](x: T) -> Int
+    h = *x
+    1
+
+  f: *fun(Int) -> Int = *|a: Int| a + 1
+  x = H(h: *|a: Int| a + 1)
+  w: Wk[fun(Int) -> Int] = Wk(w: ~f)
+  e: E[sub()] = .a(h: *|| print(1))
+  v: V[fun(Int) -> Int] = V(hs: List())
+  o: O[fun(Int) -> Int] = O(h: none)
+  g: G[sub(Int)] = G(g: H(h: *|a: Int| print(a)))
+  print(lend(?f))
+  print(make(inc))
+
+test "generic holds owned closure", '''
+  12
+  3
+  1
+  6
+  4
+'''
+  # A generic declaration holds an owned closure, or a function, as a
+  # `T`, or in a `List[T]`; a `*T` of plain data is a handle as ever. (A `*T` or `~T` of a function type is rejected:
+  # test/reject/types/generic_handle_of_function_type.rig.)
+
+  fun inc(a: Int) -> Int
+    a + 1
+
+  obj H[T]
+    h: T
+
+  obj L[T]
+    l: List[T]
+
+  obj S[T]
+    s: *T
+
+  x = H(h: *|a: Int| a + 10)
+  print(x.h(2))
+  y = H(h: inc)
+  print(y.h(2))
+  l: L[*fun(Int) -> Int] = L(l: List())
+  !l.l.push(*|a: Int| a - 1)
+  print(l.l[0](2))
+  m: L[fun(Int) -> Int] = L(l: List())
+  !m.l.push(inc)
+  print(m.l[0](5))
+  s = S(s: *4)
+  print(s.s)
+
+fail "generic infer shape mismatch", "15:16: type mismatch: expected `[]T`, got `Int`", "16:12: type mismatch: expected `*T`, got `N`"
+  # An argument whose type does not have the shape of its parameter's type
+  # is reported as a mismatch, not as a type parameter that cannot be
+  # inferred.
+
+  fun first_of[T](xs: []T) -> T
+    xs[0]
+
+  fun keep[T](h: *T) -> Int
+    1
+
+  obj N
+    n: Int
+
+  xs = [1, 2, 3]
+  print(first_of(xs.len))
+  print(keep(N(n: 1)))
+
+test "generic inference", '''
+  Pair(first: 1, second: "one") one 1
+  Pair(first: 2.5, second: true)
+  7
+  -1
+  4
+  9 1
+  5
+  2
+  drop box 9
+'''
+  # A generic type's arguments are inferred from the values that fill it:
+  # a constructor's fields, a payload variant's fields, or an associated
+  # function's arguments. An annotation is still allowed, and a literal
+  # takes its default type.
+
+  obj Pair[A, B]
+    first: A
+    second: B
+
+    fun make(a: A, b: B) -> Pair[A, B]
+      Pair(first: a, second: b)
+
+    fun swap(?self) -> Pair[B, A]
+      Pair(first: self.second, second: self.first)
+
+  enum Option[T]
+    some(value: T)
+    nothing
+
+    fun unwrap_or(?self, fallback: T) -> T
+      match self
+        .some(v) => v
+        .nothing => fallback
+
+  obj Holder[T]
+    item: T
+    count: Int
+
+  obj Wrap
+    n: Int
+
+    drop(!self)
+      print("drop box", self.n)
+
+  p = Pair(first: 1, second: "one")
+  q = ?p.swap()
+  print(p, q.first, q.second)
+  r = Pair.make(2.5, true)
+  print(r)
+  o = Option.some(value: 7)
+  print(o.unwrap_or(0))
+  n: Option[Int] = .nothing
+  print(n.unwrap_or(-1))
+  c = *Cell(3)
+  !c.set(c.get() + 1)
+  print(c.get())
+  h = Holder(item: *Wrap(n: 9), count: 1)
+  print(h.item.n, h.count)
+  s = *Signal(5)
+  print(s.get())
+  explicit: Pair[Int, Int] = Pair(first: 1, second: 2)
+  print(explicit.second)
+
+fail "generic inference checks", "cannot infer `T` for `Same` from the arguments", "`List()` needs its element type: name it (`List[T]()`)", "conflicting types for `T` in `Same`: `Int` (argument 1) and `Static` (argument 2)", "`Adder[Static]` cannot use `T = Static`", "`Cell[T]` requires `T` to be a value that copies"
+  # An inferred instance is checked like a spelled one: each type
+  # parameter needs a value to come from, the values must agree, and the
+  # instance must meet the generic body's requirements and the built-in
+  # generics' element rules.
+
+  obj Same[T]
+    a: T
+    b: T
+
+  obj Adder[T]
+    v: T
+
+    fun next(?self) -> T
+      self.v + 1
+
+  obj Plain
+    n: Int
+
+  p = Plain(n: 1)
+  x = Same(a: none, b: none)
+  v = List()
+  y = Same(a: 1, b: "two")
+  z = Adder(v: "s")
+  c = Cell(?p)
+
+fail "generic literal binding", "5:10: type mismatch: expected `T`, got `Int`", "6:10: type mismatch: expected `T`, got `Int`"
+  # A literal becomes a `T` only beside one; a binding annotated `T` takes
+  # a `T`, whether the literal is a number or a whole-number division.
+
+  fun f[T](x: T) -> T
+    y: T = 7
+    z: T = 7 / 2
+    x + y + z
+
+  print(f(1))
+
+test "generic literal division", '''
+  3 7 -1
+  4.5 4
+'''
+  # Integer literals in arithmetic over a type parameter take its type in
+  # each instance; a division of whole-number literals divides integers,
+  # so `1 / 2` is `0` (see reject/types/generic_whole_division for a
+  # float instance).
+
+  obj Wrap[T]
+    v: T
+
+    fun half(?self) -> T
+      self.v + 1 / 2
+
+    fun mix(?self) -> T
+      self.v + 7 % 4 * 3 / 2
+
+    fun more(?self) -> T
+      y = self.v - 7 / 2
+      y * (1 + 1) / 4 + -(3 / 2) % 2
+
+  obj Scale[T]
+    v: T
+
+    fun scale(?self) -> T
+      self.v * 3 / 2
+
+  print(Wrap(v: 3).half(), Wrap(v: 3).mix(), Wrap(v: 3).more())
+  print(Scale(v: 3.0).scale(), Scale(v: U8(3)).scale())
+
+fail "generic literal must fit", "`Half[Int]` cannot use `T = Int`: the generic body applies `*` to a `T` and a float literal, which `Int` cannot hold", "the generic body applies `+` to a `T` and the literal `300`, which `U8` cannot hold", "`Neg[U8]` cannot use `T = U8`: the generic body applies `-` to `T`", "`Wide[U8]` cannot use `T = U8`: the generic body shifts a `T` by 9 bits, which `U8` is too narrow for"
+  # A literal in a generic body becomes a `T`, so every instance must hold
+  # it; negation needs a signed `T`, and a constant shift a wide enough one.
+
+  obj Half[T]
+    v: T
+    fun get(?self) -> T
+      self.v * 1.5
+
+  obj Big[T]
+    v: T
+    fun get(?self) -> T
+      self.v + 300
+
+  obj Neg[T]
+    v: T
+    fun get(?self) -> T
+      -self.v
+
+  obj Wide[T]
+    v: T
+    fun get(?self) -> T
+      self.v << 9
+
+  a: Half[Int] = Half(v: 1)
+  b: Big[U8] = Big(v: 1)
+  c: Neg[U8] = Neg(v: 1)
+  d: Wide[U8] = Wide(v: 1)
+  print(a.get(), b.get(), c.get(), d.get())
+
+test "generic literal operands", '''
+  8 -7 7
+  3.5 -2.5
+  14
+'''
+  # Literals combined with a generic `T` take the instance's type: the
+  # instances here hold every literal the body uses.
+
+  obj Acc[T]
+    total: T
+
+    fun bumped(?self) -> T
+      self.total + 1
+
+    fun negated(?self) -> T
+      -self.total
+
+    sub add(!self, x: T)
+      self.total += x
+      self.total -= 1
+
+  obj Bits[T]
+    v: T
+
+    fun doubled(?self) -> T
+      self.v << 1
+
+  a: Acc[Int] = Acc(total: 5)
+  f: Acc[Float] = Acc(total: 2.5)
+  u: Bits[U8] = Bits(v: 7)
+  !a.add(3)
+  print(a.bumped(), a.negated(), a.total)
+  print(f.bumped(), f.negated())
+  print(u.doubled())
+
+test "generic literal order", '''
+  3.0 3.0 2
+  3.0 2.5 2.5 3.0
+'''
+  # When only literals give a type parameter its type, a float literal
+  # makes it `Float`, in any argument order, for generic functions and
+  # generic types alike.
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  obj P[T]
+    a: T
+    b: T
+
+  print(max(3, 2.5), max(2.5, 3), max(1, 2))
+  p = P(a: 3, b: 2.5)
+  q = P(a: 2.5, b: 3)
+  print(p.a, p.b, q.a, q.b)
+
+test "generic methods over resources", '''
+  drop 1
+  put
+  ignored
+  drop 3
+  drop 2
+  drop 4
+  kept 5
+  drop 7
+  replaced
+  drop 8
+  dropped
+  drop 6
+  drop 10
+  got 9
+  8
+  drop 9
+  drop 5
+'''
+  # A generic type's methods work for an argument that owns a resource as
+  # long as they move `T` values (`<x`) rather than copy them: values of
+  # `T` are dropped when they go out of scope, a replaced field drops its
+  # old value, and a consumed enum yields its payload.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj Wrap[T]
+    v: T
+
+    sub put(!self, x: T)
+      self.v = <x
+
+    sub ignore(self: Wrap[T], extra: T)
+      print("ignored")
+
+    fun keep(self: Wrap[T], x: T) -> T
+      y = <x
+      if true
+        z = <y
+        return <z
+      <y
+
+    sub juggle(self: Wrap[T], x: T, y: T)
+      a = <x
+      a = <y
+      print("replaced")
+      <a
+      print("dropped")
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+    fun or_else(self: Opt[T], d: T) -> T
+      match <self
+        .some(v) => v
+        .nothing => <d
+
+  b: Wrap[*B] = Wrap(v: *B(n: 1))
+  !b.put(*B(n: 2))
+  print("put")
+  <b.ignore(*B(n: 3))
+  c: Wrap[*B] = Wrap(v: *B(n: 4))
+  k = <c.keep(*B(n: 5))
+  print("kept", k.n)
+  d: Wrap[*B] = Wrap(v: *B(n: 6))
+  <d.juggle(*B(n: 7), *B(n: 8))
+  o: Opt[*B] = .some(v: *B(n: 9))
+  x = <o.or_else(*B(n: 10))
+  print("got", x.n)
+  i: Wrap[Int] = Wrap(v: 7)
+  !i.put(8)
+  print(i.v)
+
+fail "generic missing method", "no method `missing` on type `Wrap`"
+  # Calling a method that doesn't exist on a generic receiver names the
+  # generic type.
+
+  obj Wrap[T]
+    value: T
+
+  b: Wrap[Int] = Wrap(value: 5)
+  print(b.missing())
+
+fail "generic nested shape hints", "25:21: type mismatch: expected `Wrap[Wrap[U8]]`, got `Wrap[Wrap[Int]]`; `Wrap.make` takes `T = Wrap[Int]` from argument 1; to pass `Wrap[U8]` on to it, name the type: `Wrap[Wrap[U8]].make(...)`", "26:19: type mismatch: expected `Opt[Opt[U8]]`, got `Opt[Opt[Int]]`; `Opt.some` takes `T = Opt[Int]` from argument 1; to pass `Opt[U8]` on to it, name the type: `Opt[Opt[U8]].some(...)`", "27:19: type mismatch: expected `Opt[Opt[U8]]`, got `Opt[Opt[Int]]`; `Opt.some` takes `T = Opt[Int]` from argument 1; to pass `Opt[U8]` on to it, name the type: `Opt[Opt[U8]].some(...)`", "28:14: type mismatch: expected `Opt[U8]`, got `Opt[Int]`; `id` takes `T = Opt[Int]` from argument 1; to pass `Opt[U8]` on to it, give it in brackets: `id[Opt[U8]](...)`", "30:5: cannot infer `U` for `pair` from its arguments or the type expected of its result; give the type where the value goes: `x: List[U] = pair(...)`, with a type in place of `U`", "31:7: cannot infer `U` for `tag` from its arguments or the type expected of its result; give `U` in brackets, naming each array, slice, or function type in them with a `type` alias"
+  # A nested call whose result is not its type parameter (`Wrap.make(1)`,
+  # `Opt.some(1)`) keeps the type its own arguments give it; the
+  # mismatch that follows says how to pass the expected type on. A hint
+  # never spells a type an expression cannot.
+
+  obj Wrap[T]
+    v: T
+
+    fun make(v: T) -> Wrap[T]
+      Wrap(v: v)
+
+  enum Opt[T]
+    some(value: T)
+    nothing
+
+  fun id[T](a: T) -> T
+    a
+
+  fun pair[T, U](a: T) -> List[U]
+    List()
+
+  fun tag[T, U](a: T) -> Int
+    1
+
+  c: Wrap[Wrap[U8]] = Wrap.make(Wrap.make(1))
+  a: Opt[Opt[U8]] = Opt.some(value: Opt.some(value: 1))
+  b: Opt[Opt[U8]] = Opt.some(Opt.some(1))
+  d: Opt[U8] = id(Opt.some(1))
+  g: [2][2]Int = [[1, 2], [3, 4]]
+  q = pair(g)
+  print(tag(g))
+
+test "generic optional clone", "3 7"
+  # `+x` of a `T?` in a generic body copies the optional where each
+  # instance copies.
+
+  fun dup[T](x: T?) -> T?
+    +x
+
+  n: Int? = none
+  print(dup(3) ?? 0, dup(n) ?? 7)
+
+test "generic optional equality", '''
+  true false true false
+  true false true
+'''
+  # In a generic body a `T?` compares with a `T`, or with a literal every
+  # `T` holds, as an optional compares with a value outside one.
+
+  fun holds[T](a: T?, b: T) -> Bool
+    a == b
+
+  fun is3[T](x: T?) -> Bool
+    x == 3 and not (3 != x)
+
+  x: Int? = 3
+  n: Int? = none
+  s: (?String)? = "a"
+  b: U8? = 3
+  print(holds(x, 3), holds(n, 3), holds(s, "a"), holds(s, "b"))
+  print(is3(x), is3(n), is3(b))
+
+fail "generic optional literal", "8:7: `is3[?String]` cannot use `T = ?String`: the generic body applies `==` to a `T` and the literal `300`, which `?String` cannot hold", "8:15: `is3[U8]` cannot use `T = U8`: the generic body applies `==` to a `T` and the literal `300`, which `U8` cannot hold"
+  # A literal beside a `T?` becomes a `T`, so every `T` must hold it.
+
+  fun is3[T](x: T?) -> Bool
+    x == 300
+
+  s: (?String)? = "a"
+  b: U8? = 44
+  print(is3(s), is3(b))
+
+fail "generic ordering", "11:7: `max[Point]` cannot use `T = Point`: the generic body applies `>` to `T`, which `Point` does not support", "8:8: `>` used on `T` here (ordering comparison)"
+  # `<` in a generic body is checked per instance: numbers and Strings are
+  # ordered, structs are not.
+
+  obj Point
+    x: Int
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  print(max("a", "b"))
+  print(max(Point(x: 1), Point(x: 2)))
+
+fail "generic ordering payload enum", "8:12: max[Shape]` cannot use `T = Shape`: the generic body applies `<` to `T`, which `Shape` does not support"
+  # A generic body's `<` takes a plain enum but not one with a payload
+  # variant.
+
+  enum Shape
+    dot
+    circle(r: Int)
+
+  print(math.max(Shape.dot, Shape.dot))
+
+fail "generic param names", "generic parameter `Item` has the same name as the module-level declaration `Item`", "generic parameter `Int` has the name of a built-in type", "generic parameter `List` has the same name as the module-level declaration `List`", "generic parameter `T` has the same name as a method of the type", "parameter `U` has the name of the generic parameter `U`"
+  # A generic parameter needs a name of its own: not a built-in type, not
+  # `Self`, not a module-level declaration or a method of the type. Inside
+  # the type, locals and parameters cannot reuse it either.
+
+  obj Item
+    n: Int
+
+  obj Shadow[Item]
+    v: Item
+
+  obj Prim[Int]
+    v: Int
+
+  obj Builtin[List]
+    v: List
+
+  obj Own[T]
+    v: T
+
+    fun T(?self) -> Int
+      1
+
+  obj Uses[U]
+    v: U
+
+    fun f(?self, U: Int) -> Int
+      U = 3
+      U
+
+  print(1)
+
+test "generic param only in own type", '''
+  true false
+  2
+'''
+  # A generic type whose parameter appears only in its own instance at
+  # its own parameters (`Tag[T]` inside `Tag[T]`, which is the type
+  # itself) compiles: nothing else needs the parameter.
+
+  enum Tag[T]
+    on
+    off
+
+    fun flip(?self) -> Tag[T]
+      .off if self == .on else .on
+
+    fun is_on(?self) -> Bool
+      on = Tag[T].on
+      self == .on and on == .on
+
+  obj Marker[T]
+    n: Int
+
+    fun next(?self) -> Marker[T]
+      m: Marker[T] = Marker(n: self.n + 1)
+      m
+
+  t: Tag[Int] = .off
+  print(t.flip() == .on, t.is_on())
+  m: Marker[?String] = Marker(n: 1)
+  print(m.next().n)
+
+fail "generic payload copy any subject", "`place[String]` cannot use `T = String`: the generic body copies a `T`", "`lend[String]` cannot use `T = String`: the generic body copies a `T`", "`call[String]` cannot use `T = String`: the generic body copies a `T`", "`lend_call[String]` cannot use `T = String`: the generic body copies a `T`", "`branch[String]` cannot use `T = String`: the generic body copies a `T`", "`branch_call[String]` cannot use `T = String`: the generic body copies a `T`", "`field[String]` cannot use `T = String`: the generic body copies a `T`", "`field_of_call[String]` cannot use `T = String`: the generic body copies a `T`", "`field_of_branch[String]` cannot use `T = String`: the generic body copies a `T`", "`elem[String]` cannot use `T = String`: the generic body copies a `T`", "`elem_of_call[String]` cannot use `T = String`: the generic body copies a `T`", "`guarded[String]` cannot use `T = String`: the generic body copies a `T`", "`branch_value[String]` cannot use `T = String`: the generic body copies a `T`", "`holder[String]` cannot use `T = String`: the generic body copies a `T`", "`nested[String]` cannot use `T = String`: the generic body copies a `T`", "`catch_all[String]` cannot use `T = String`: the generic body copies a `T`", "`as_field_of_call[String]` cannot use `T = String`: the generic body copies a `T`", "`while_field_of_branch[String]` cannot use `T = String`: the generic body copies a `T`", "`for_call[String]` cannot use `T = String`: the generic body copies a `T`", errors: 19
+  # A generic body that copies a `T` out of what a `match`, an `if … as`,
+  # or a `for` reads, and gives the copy away, needs every instance's `T`
+  # to own nothing, whatever the subject: a place, a lend, a view a call
+  # returns, a branching value, a field or element of any of these, and a
+  # guarded match. Each instance below would free its Text twice.
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj P[T]
+    x: T
+
+  enum E[T]
+    has(p: P[T])
+    empty
+
+  obj W[T]
+    o: Opt[T]
+    p: T?
+
+  fun get[T](o: ?Opt[T]) -> ?Opt[T] from o
+    o
+
+  fun getw[T](w: ?W[T]) -> ?W[T] from w
+    w
+
+  fun geta[T](a: ?List[Opt[T]]) -> ?List[Opt[T]] from a
+    a
+
+  fun gete[T](e: ?E[T]) -> ?E[T] from e
+    e
+
+  fun getxs[T](xs: ?List[T]) -> ?List[T] from xs
+    xs
+
+  fun place[T](o: ?Opt[T], d: T) -> T
+    match o
+      .some(v) => v
+      .nothing => <d
+
+  fun lend[T](o: ?Opt[T], d: T) -> T
+    match ?o
+      .some(v) => v
+      .nothing => <d
+
+  fun call[T](o: ?Opt[T], d: T) -> T
+    match get(o)
+      .some(v) => v
+      .nothing => <d
+
+  fun lend_call[T](o: ?Opt[T], d: T) -> T
+    match ?get(o)
+      .some(v) => v
+      .nothing => <d
+
+  fun branch[T](o: ?Opt[T], o2: ?Opt[T], c: Bool, d: T) -> T
+    match (o if c else o2)
+      .some(v) => v
+      .nothing => <d
+
+  fun branch_call[T](o: ?Opt[T], o2: ?Opt[T], c: Bool, d: T) -> T
+    match (get(o) if c else get(o2))
+      .some(v) => v
+      .nothing => <d
+
+  fun field[T](w: ?W[T], d: T) -> T
+    match w.o
+      .some(v) => v
+      .nothing => <d
+
+  fun field_of_call[T](w: ?W[T], d: T) -> T
+    match getw(w).o
+      .some(v) => v
+      .nothing => <d
+
+  fun field_of_branch[T](w: ?W[T], w2: ?W[T], c: Bool, d: T) -> T
+    match (w if c else w2).o
+      .some(v) => v
+      .nothing => <d
+
+  fun elem[T](a: ?List[Opt[T]], d: T) -> T
+    match a[0]
+      .some(v) => v
+      .nothing => <d
+
+  fun elem_of_call[T](a: ?List[Opt[T]], d: T) -> T
+    match geta(a)[0]
+      .some(v) => v
+      .nothing => <d
+
+  fun guarded[T](o: ?Opt[T], c: Bool, d: T) -> T
+    match get(o)
+      .some(v) if c => v
+      _ => <d
+
+  fun branch_value[T](o: ?Opt[T], c: Bool, d: T) -> T
+    match get(o)
+      .some(v) => v if c else <d
+      .nothing => <d
+
+  fun holder[T](e: ?E[T], d: T) -> P[T]
+    match gete(e)
+      .has(p) => p
+      _ => P(x: <d)
+
+  fun nested[T](o: ?Opt[Opt[T]], d: T) -> T
+    match get(o)
+      .some(inner)
+        match inner
+          .some(v) => v
+          .nothing => <d
+      .nothing => <d
+
+  fun catch_all[T](w: ?W[T]) -> Opt[T]
+    match getw(w).o
+      x => x
+
+  fun as_field_of_call[T](w: ?W[T], d: T) -> T
+    if getw(w).p as v
+      return v
+    <d
+
+  fun while_field_of_branch[T](w: ?W[T], w2: ?W[T], c: Bool, d: T) -> T
+    while (w if c else w2).p as v
+      return v
+    <d
+
+  fun for_call[T](xs: ?List[T], d: T) -> T
+    for x in getxs(xs)
+      return x
+    <d
+
+  o: Opt[String] = .some(v: String("o"))
+  w: W[String] = W(o: .some(v: String("w")), p: String("p"))
+  a: List[Opt[String]] = List()
+  !a.push(.some(v: String("a")))
+  e2: E[String] = .has(p: P(x: String("p")))
+  xs: List[String] = List()
+  !xs.push(String("x"))
+  print(place(?o, String("d")))
+  print(lend(?o, String("d")))
+  print(call(?o, String("d")))
+  print(lend_call(?o, String("d")))
+  print(branch(?o, ?o, true, String("d")))
+  print(branch_call(?o, ?o, true, String("d")))
+  print(field(?w, String("d")))
+  print(field_of_call(?w, String("d")))
+  print(field_of_branch(?w, ?w, true, String("d")))
+  print(elem(?a, String("d")))
+  print(elem_of_call(?a, String("d")))
+  print(guarded(?o, true, String("d")))
+  print(branch_value(?o, true, String("d")))
+  print(holder(?e2, String("d")).x)
+  n: Opt[Opt[String]] = .some(v: .some(v: String("n")))
+  print(nested(?n, String("d")))
+  match catch_all(?w)
+    .some(v) => print(v)
+    .nothing => pass
+  print(as_field_of_call(?w, String("d")))
+  print(while_field_of_branch(?w, ?w, true, String("d")))
+  print(for_call(?xs, String("d")))
+
+test "generic payload copy plain", '''
+  1
+  1
+  1
+  1
+  1
+  1
+  2
+  2
+  2
+  4
+  4
+  1
+  0
+  0
+  6
+  5
+  2
+  3
+  3
+  7
+'''
+  # The generic bodies of reject/types/generic_payload_copy_any_subject.rig
+  # copy a `T` out of what a `match`, an `if … as`, or a `for` reads,
+  # whatever the subject. An instance of plain data copies it, and runs.
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj P[T]
+    x: T
+
+  enum E[T]
+    has(p: P[T])
+    empty
+
+  obj W[T]
+    o: Opt[T]
+    p: T?
+
+  fun get[T](o: ?Opt[T]) -> ?Opt[T] from o
+    o
+
+  fun getw[T](w: ?W[T]) -> ?W[T] from w
+    w
+
+  fun geta[T](a: ?List[Opt[T]]) -> ?List[Opt[T]] from a
+    a
+
+  fun gete[T](e: ?E[T]) -> ?E[T] from e
+    e
+
+  fun getxs[T](xs: ?List[T]) -> ?List[T] from xs
+    xs
+
+  fun place[T](o: ?Opt[T], d: T) -> T
+    match o
+      .some(v) => v
+      .nothing => <d
+
+  fun lend[T](o: ?Opt[T], d: T) -> T
+    match ?o
+      .some(v) => v
+      .nothing => <d
+
+  fun call[T](o: ?Opt[T], d: T) -> T
+    match get(o)
+      .some(v) => v
+      .nothing => <d
+
+  fun lend_call[T](o: ?Opt[T], d: T) -> T
+    match ?get(o)
+      .some(v) => v
+      .nothing => <d
+
+  fun branch[T](o: ?Opt[T], o2: ?Opt[T], c: Bool, d: T) -> T
+    match (o if c else o2)
+      .some(v) => v
+      .nothing => <d
+
+  fun branch_call[T](o: ?Opt[T], o2: ?Opt[T], c: Bool, d: T) -> T
+    match (get(o) if c else get(o2))
+      .some(v) => v
+      .nothing => <d
+
+  fun field[T](w: ?W[T], d: T) -> T
+    match w.o
+      .some(v) => v
+      .nothing => <d
+
+  fun field_of_call[T](w: ?W[T], d: T) -> T
+    match getw(w).o
+      .some(v) => v
+      .nothing => <d
+
+  fun field_of_branch[T](w: ?W[T], w2: ?W[T], c: Bool, d: T) -> T
+    match (w if c else w2).o
+      .some(v) => v
+      .nothing => <d
+
+  fun elem[T](a: ?List[Opt[T]], d: T) -> T
+    match a[0]
+      .some(v) => v
+      .nothing => <d
+
+  fun elem_of_call[T](a: ?List[Opt[T]], d: T) -> T
+    match geta(a)[0]
+      .some(v) => v
+      .nothing => <d
+
+  fun guarded[T](o: ?Opt[T], c: Bool, d: T) -> T
+    match get(o)
+      .some(v) if c => v
+      _ => <d
+
+  fun branch_value[T](o: ?Opt[T], c: Bool, d: T) -> T
+    match get(o)
+      .some(v) => v if c else <d
+      .nothing => <d
+
+  fun holder[T](e: ?E[T], d: T) -> P[T]
+    match gete(e)
+      .has(p) => p
+      _ => P(x: <d)
+
+  fun nested[T](o: ?Opt[Opt[T]], d: T) -> T
+    match get(o)
+      .some(inner)
+        match inner
+          .some(v) => v
+          .nothing => <d
+      .nothing => <d
+
+  fun catch_all[T](w: ?W[T]) -> Opt[T]
+    match getw(w).o
+      x => x
+
+  fun as_field_of_call[T](w: ?W[T], d: T) -> T
+    if getw(w).p as v
+      return v
+    <d
+
+  fun while_field_of_branch[T](w: ?W[T], w2: ?W[T], c: Bool, d: T) -> T
+    while (w if c else w2).p as v
+      return v
+    <d
+
+  fun for_call[T](xs: ?List[T], d: T) -> T
+    for x in getxs(xs)
+      return x
+    <d
+
+  o: Opt[Int] = .some(v: 1)
+  w: W[Int] = W(o: .some(v: 2), p: 3)
+  a: List[Opt[Int]] = List()
+  !a.push(.some(v: 4))
+  e2: E[Int] = .has(p: P(x: 6))
+  xs: List[Int] = List()
+  !xs.push(7)
+  print(place(?o, 0))
+  print(lend(?o, 0))
+  print(call(?o, 0))
+  print(lend_call(?o, 0))
+  print(branch(?o, ?o, false, 0))
+  print(branch_call(?o, ?o, true, 0))
+  print(field(?w, 0))
+  print(field_of_call(?w, 0))
+  print(field_of_branch(?w, ?w, false, 0))
+  print(elem(?a, 0))
+  print(elem_of_call(?a, 0))
+  print(guarded(?o, true, 0))
+  print(guarded(?o, false, 0))
+  print(branch_value(?o, false, 0))
+  print(holder(?e2, 0).x)
+  n: Opt[Opt[Int]] = .some(v: .some(v: 5))
+  print(nested(?n, 0))
+  match catch_all(?w)
+    .some(v) => print(v)
+    .nothing => pass
+  print(as_field_of_call(?w, 0))
+  print(while_field_of_branch(?w, ?w, true, 0))
+  print(for_call(?xs, 0))
+
+fail "generic polymorphic recursion", "`Wrap[*B]` leads to ever deeper instances of generic types (through `Wrap[Wrap[T]]`)"
+  # A generic body that uses a deeper instance of its own type (`Wrap[T]`
+  # using `Wrap[Wrap[T]]`) would need ever deeper instances; it is rejected
+  # rather than expanded forever.
+
+  obj B
+    n: Int
+
+  obj Wrap[T]
+    v: T
+
+    fun wrap(self: Wrap[T]) -> Wrap[Wrap[T]]
+      Wrap(v: <self)
+
+  b: Wrap[*B] = Wrap(v: *B(n: 1))
+
+fail "generic share of weak", "15:5: `share[~Node]` cannot use `T = ~Node`: the generic body copies a `T`, which would duplicate the resource `~Node` owns", errors: 1
+  # The meaning of `*x` is decided once, by the type the body sees: on a
+  # type parameter `T` it copies `x` into a new counted handle, which needs
+  # a `T` that copies, in every instance. An instance with `T = ~U` is
+  # rejected; `*x` never upgrades there, though `*` of a `~U` outside a
+  # generic body would.
+
+  obj Node
+    id: Int
+
+  fun share[T](x: T) -> T
+    h = *x
+    x
+
+  rc = *Node(id: 1)
+  w = share(~rc)
+  <w
+
+test "generic struct field", "6"
+  # A generic struct instantiated as `Wrap[Int]`; the constructor's field is
+  # checked against the substituted type and `b.value` types as Int.
+
+  obj Wrap[T]
+    value: T
+
+  b: Wrap[Int] = Wrap(value: 5)
+  print(b.value + 1)
+
+test "generic struct holds read view", '''
+  2 2
+  2 hey
+  hey
+'''
+  # A generic struct, with methods, holds a read view of an owner: the
+  # value built from it keeps the owner lent while it, or a view it gave
+  # out, is used.
+
+  obj Hold[T]
+    v: T
+
+    fun get(?self) -> T
+      self.v
+
+  obj Pair[A, B]
+    a: A
+    b: B
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  t = String("hey")
+  h = Hold(v: ?v)
+  r = ?h.get()
+  print(r.len, h.v.len)
+  p = Pair(a: ?v, b: ?t)
+  print(p.a.len, p.b)
+  nested = Hold(v: Hold(v: ?t))
+  print(nested.v.v)
+
+test "generic struct method", "42"
+  # A method on a generic struct: `get` returns `T`, which is Int for a
+  # `Wrap[Int]` receiver.
+
+  obj Wrap[T]
+    value: T
+
+    fun get(?self) -> T
+      self.value
+
+  b: Wrap[Int] = Wrap(value: 42)
+  print(b.get())
+
+test "generic struct string field", "hi"
+  # A `Wrap[?String]` field types as String, so print formats it as text.
+
+  obj Wrap[T]
+    value: T
+
+  b: Wrap[?String] = Wrap(value: "hi")
+  print(b.value)
+
+test "generic struct two params", '''
+  42
+  answer
+'''
+  # A generic struct with two type parameters; each field gets its own
+  # substituted type.
+
+  obj Pair[T, U]
+    first: T
+    second: U
+
+  p: Pair[Int, ?String] = Pair(first: 42, second: "answer")
+  print(p.first)
+  print(p.second)
+
+fail "generic symbolic body type", "type mismatch: expected `T`, got `Static`"
+  # Inside a generic body, constructor fields are checked symbolically:
+  # a String is not a `T`.
+
+  obj Wrap[T]
+    value: T
+
+    fun bad(?self) -> Self
+      b: Self = Wrap(value: "hello")
+      b
+
+  b: Wrap[Int] = Wrap(value: 5)
+  print(b.value)
+
+fail "generic type method polymorphic recursion", "13:6: `Wrap[Int]` leads to ever deeper instances of generic functions (through `keep[Wrap[Wrap[T]]]`); a generic type's body cannot nest itself in its own type arguments"
+  # A generic type whose method uses its own instance nested deeper, here
+  # through a generic function, would need ever deeper instances.
+
+  fun keep[T](x: T) -> T
+    x
+
+  obj Wrap[T]
+    v: T
+
+    fun rewrap(self: Wrap[T]) -> Wrap[Wrap[T]]
+      keep(Wrap(v: <self))
+
+  d = <Wrap(v: 1).rewrap()
+  print(d.v.v)
+
+fail "generic type param called", "5:3: `T` is a type parameter; it cannot be called or constructed", "8:7: `T` is a type parameter; it cannot be called or constructed", "12:3: `print` is a type parameter; it cannot be called or constructed", "19:9: `T` is a type, not a value"
+  # A type parameter names a type, not a function: it cannot be called or
+  # constructed, in a generic function or in a generic type's method.
+
+  fun f[T](x: T) -> T
+    T(x)
+
+  fun g[T](x: Int) -> Int
+    y = T(n: x)
+    2
+
+  fun h[print](x: print) -> Int
+    print(1)
+    2
+
+  obj Wrap[T]
+    v: T
+
+    fun make(?self, x: Int) -> Int
+      y = T(x)
+      2
+
+  print(f(3), g[Int](1), h(3), Wrap(v: 1).make(3))
+
+fail "generic type value param", "7:14: a compile-time value parameter of a type is an integer; `m` has the type `Mode`"
+  # A generic type's compile-time value parameter is an integer.
+
+  enum Mode
+    fast
+    slow
+
+  obj Tuned[m: Mode]
+    first: Int
+
+  print(1)
+
+test "generic unused type param", '''
+  1
+  .two
+'''
+  # A type parameter the body never uses is still a valid parameter.
+
+  obj Tag[T]
+    n: Int
+
+  enum Marker[T]
+    one
+    two
+
+  t: Tag[?String] = Tag(n: 1)
+  print(t.n)
+  m: Marker[Int] = .two
+  print(m)
+
+test "generic value param", '''
+  [5, 6, 0, 0] 4 2 40
+  [1, 1, 1, 1] 4
+  3 [true, false, true]
+  [1, 1, 1] [2, 2, 2]
+  Pair(items: [1, 2]) .full(items: [3, 4]) .empty
+'''
+  # A generic type takes compile-time integer parameters beside its type
+  # parameters. Its fields and methods use them; its instances are named
+  # (`Ring[Int, 4]`), or inferred from the fields. The same value, however
+  # it is written, names the same type.
+
+  LIMIT = 2
+
+  obj Ring[T, n: Int]
+    items: [n]T
+    head: Int = 0
+    log: List[Int]
+
+    fun new(x: T) -> Ring[T, n]
+      Ring[T, n](items: [n of x], log: List[Int]())
+
+    sub put(!self, x: T)
+      self.items[self.head % n] = x
+      self.head += 1
+      !self.log.push(self.head)
+
+    fun cap(?self) -> Int
+      n
+
+  obj Pool[T, m: Int]
+    ring: Ring[T, m]
+    spare: [m]T
+
+  obj Pair[n: Int]
+    items: [n]Int
+
+  enum Slot[n: Int]
+    full(items: [n]Int)
+    empty
+
+  fun capacity[T, n: Int](r: ?Ring[T, n]) -> Int
+    n * 10
+
+  sub main()
+    r = Ring[Int, 2 + 2].new(0)
+    s: Ring[Int, 4] = <r
+    !s.put(5)
+    !s.put(6)
+    print(s.items, s.cap(), s.log.len, capacity(?s))
+    q = Ring[Int, LIMIT * 2](items: [4 of 1], log: List[Int]())
+    print(q.items, q.cap())
+    u = Ring(items: [true, false, true], log: List[Int]())
+    print(u.cap(), u.items)
+    p = Pool[Int, 3](ring: Ring[Int, 3].new(1), spare: [3 of 2])
+    print(p.ring.items, p.spare)
+    pr = Pair(items: [1, 2])
+    x: Slot[2] = .full(items: [3, 4])
+    print(pr, x, Slot[2].empty)
+
+fail "generic value param args", "13:6: `n` is a compile-time value, not a type", "15:5: `Ring[Int, -4]` cannot use `n = -4`: the generic body uses `n` as an array length", "16:14: compile-time argument 2 of `Ring` is a value of type `Int`, not a type", "17:9: `4` is a value; `T` takes a type", "18:4: generic type `Ring` expects 2 compile-time arguments, got 1", "19:10: compile-time argument 1 of `Small` is `256`, which `n`, a `U8`, cannot hold", "20:23: `[n of x]` copies its element into every slot, and a `List[Int]` owns a resource"
+  # A generic type's compile-time arguments fill its parameters in order:
+  # a type where it takes a type, and an integer where it takes a value,
+  # which its parameter's type holds and, used as an array length, is in
+  # range. Its value parameters are values, not types.
+
+  obj Ring[T, n: Int]
+    items: [n]T
+
+  obj Small[n: U8]
+    items: [n]Int
+
+  obj Bad[n: Int]
+    x: n
+
+  a = Ring[Int, -4](items: [0 of 0])
+  b: Ring[Int, Int] = Ring(items: [1])
+  c: Ring[4, Int] = Ring(items: [1])
+  d: Ring[Int] = Ring(items: [1])
+  e: Small[256] = Small(items: [1])
+  f = Ring(items: [2 of List[Int]()])
+  print(a, b, c, d, e, f)
+
+fail "generic value param names", "8:10: generic parameter `Int` has the name of a built-in type", "11:10: generic parameter `LIMIT` has the same name as the module-level declaration `LIMIT`", "14:18: duplicate generic parameter `n` on `C`", "17:10: generic parameter `n` has the same name as a method of the type", "26:11: parameter `n` has the name of the generic parameter `n`", "30:5: local `n` has the name of the generic parameter `n`"
+  # A generic type's value parameter needs a name of its own, as a type
+  # parameter does: not a built-in type, a module-level declaration,
+  # another parameter, or a method of the type, and no local or parameter
+  # inside the type may reuse it.
+
+  LIMIT = 4
+
+  obj A[T, Int: Int]
+    items: [2]T
+
+  obj B[T, LIMIT: Int]
+    items: [2]T
+
+  obj C[T, n: Int, n: Int]
+    items: [n]T
+
+  obj D[T, n: Int]
+    items: [n]T
+
+    fun n() -> Int
+      1
+
+  obj E[T, n: Int]
+    items: [n]T
+
+    fun get(n: Int) -> Int
+      n
+
+    fun twice() -> Int
+      n = 2
+      n
+
+  sub main()
+    print(LIMIT)
+
+fail "generic variant arity", "11:9: variant `some` has one field: write `.some(value)` or `.some(v: value)`", "12:9: variant `some` is missing field `v`", "13:9: a variant with more than one field sets them by name: `.pair(a: ...)`"
+  # A generic variant given arguments that fill no field reports what the
+  # variant takes, not a failure to infer its type.
+
+  enum Opt[T]
+    some(v: T)
+    no
+
+  enum Two[T]
+    pair(a: T, b: T)
+
+  x = Opt.some(1, 2)
+  y = Opt.some()
+  z = Two.pair(1, 2)
+  print(x, y, z)
+
+fail "generic variant payload literal", "15:7: `holds[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body applies `==` to `T`, which `fun(Int) -> Int` does not support: `fun(Int) -> Int` is a function value", "9:3: `==` used on `T` here"
+  # A payload variant literal in a generic body compares a `T`, so each
+  # instance needs `==` on its `T`.
+
+  enum Opt[T]
+    some(value: T)
+    nothing
+
+  fun holds[T](o: ?Opt[T], x: T) -> Bool
+    o == .some(value: x)
+
+  fun inc(x: Int) -> Int
+    x + 1
+
+  o: Opt[fun(Int) -> Int] = .nothing
+  print(holds(?o, inc))
+
+test "generic vec field", "2 1"
+  # A generic type can hold a `List[T]`: the element rules are checked for
+  # each instance, here `Int` and the shared handle `*Int`.
+
+  obj Stack[T]
+    items: List[T]
+
+    sub push(!self, x: T)
+      !self.items.push(<x)
+
+    fun size(?self) -> Int
+      self.items.len
+
+  s: Stack[Int] = Stack(items: List())
+  !s.push(3)
+  !s.push(4)
+  t: Stack[*Int] = Stack(items: List())
+  !t.push(*9)
+  print(s.size(), t.size())
+
+fail "generic vec loop copies per instance", "8:5: a value of `C` holds a Cell, so it lives only behind a shared handle: write `*C`", errors: 1
+  # A generic loop over a `?List[T]` binds a copy of each element, which
+  # never holds a Cell: a value that holds one is never a type argument
+  # (`List[C]`), since it lives only behind a shared handle.
+
+  obj C
+    c: Cell[Int]
+
+  v: *List[C] = *List[C]()
+  print(v.len)
+
+test "generic vec owning instances", "0 1"
+  # `List[T]` in a generic type holds whatever each instance gives it.
+
+  obj Stack[T]
+    items: List[T]
+
+  obj Owner
+    h: *Int
+
+  s: Stack[List[Int]] = Stack(items: List())
+  o: Stack[Owner] = Stack(items: List())
+  !o.items.push(Owner(h: *3))
+  print(s.items.len, o.items.len)
+
+fail "generic whole division", "11:7: `Wrap[Float]` cannot use `T = Float`: the generic body gives a `T` the division of whole numbers `1 / 2`, which divides integers, not a `Float`"
+  # A division of whole-number literals divides integers, so an instance
+  # whose type parameter is a float is rejected where the body gives a `T`
+  # one.
+
+  obj Wrap[T]
+    v: T
+
+    fun half(?self) -> T
+      self.v + 1 / 2
+
+  print(Wrap(v: 3.0).half(), Wrap(v: 3).half())

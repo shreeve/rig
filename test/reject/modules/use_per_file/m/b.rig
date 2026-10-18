@@ -1,2 +1,0 @@
-pub fun b() -> Int
-  geo.origin()

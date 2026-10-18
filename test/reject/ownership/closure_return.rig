@@ -1,7 +1,0 @@
-# A lambda literal cannot be returned from a function.
-
-fun make(x: Int) -> fun() -> Int
-  return |+x|
-    x + 1
-
-# error: 4:10: closures cannot escape their defining scope

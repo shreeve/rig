@@ -1,9 +1,0 @@
-# `error!` could not tell a failure from a success, as `E!` could not.
-
-fun f() -> error!
-  1
-
-sub main()
-  print(f()!)
-
-# error: 3:12: `error!` would make a failure and a success both `error` values; return `error` or `error?`, or an object that holds one

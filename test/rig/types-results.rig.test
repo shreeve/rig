@@ -1,0 +1,132 @@
+# types: tests whose names start `results`.
+
+fail "results arity", "`divmod` gives 2 results, but 3 names are bound", errors: 1
+  fun divmod(a: Int, b: Int) -> (Int, Int)
+    return a / b, a % b
+
+  q, r, s = divmod(17, 5)
+
+fail "results as not results", "`as` binds several names to the results inside an optional, `(A, B)?`, that a call gives"
+  fun f() -> Int?
+    1
+
+  if f() as a, b
+    print(a, b)
+
+fail "results as one hint", "`g` gives 2 results: bind each, `if g(true) as a, b`", errors: 1
+  fun g(ok: Bool) -> (Int, Int)?
+    return none if not ok
+    return 1, 2
+
+  if g(true) as x
+    print(x)
+
+fail "results as value", "a call that gives several results stands only where each result is bound", errors: 1
+  fun divmod(a: Int, b: Int) -> (Int, Int)
+    return a / b, a % b
+
+  print(divmod(17, 5))
+
+fail "results bind one", "`divmod` gives 2 results; bind each: `a, b = divmod(17, 5)`", errors: 1
+  fun divmod(a: Int, b: Int) -> (Int, Int)
+    return a / b, a % b
+
+  p = divmod(17, 5)
+
+fail "results bind single", "`f` gives one result, of type `Int`; bind it to one name"
+  fun f() -> Int
+    1
+
+  a, b = f()
+
+fail "results closure inferred", "a closure gives several results only where its type says so", errors: 1
+  f = |x: Int|
+    return x, 1
+  f(3)
+  print("ok")
+
+fail "results extern", "cannot return `(Int, Int)`"
+  extern fun f() -> (Int, Int)
+
+fail "results for iterator", "a `for` binds one value each step, and this iterator's `next` gives 2 results", errors: 1
+  obj It
+    i: Int
+
+    fun next(!self) -> (Int, Int)?
+      return none if self.i >= 2
+      self.i += 1
+      return self.i, self.i * 10
+
+  it = It(i: 0)
+  for k in !it
+    print(k)
+
+fail "results forward mismatch", "type mismatch: expected `(String, Int)`, got `(?String, Int)`", errors: 1
+  fun split(s: ?String) -> (?String, Int)
+    return s, 1
+
+  fun own(s: ?String) -> (String, Int)
+    return split(s)
+
+fail "results forward optional", "type mismatch: expected `(Int, Int)`, got `(Int, Int)?`", errors: 1
+  fun g(ok: Bool) -> (Int, Int)?
+    return none if not ok
+    return 1, 2
+
+  fun h(ok: Bool) -> (Int, Int)
+    return g(ok)
+
+fail "results kept lend names", "`pick(!x, t)` keeps `t` lent while `r` lives; write `pick(!x, ?t)`", errors: 1
+  fun pick(a: !List[Int], b: ?String) -> (![]Int, ?String)
+    return !a[..], b
+
+  x = List[Int]()
+  !x.push(1)
+  t = String("q")
+  w, r = pick(!x, t)
+  w[0] = 5
+  print(r, x)
+
+fail "results one result", "`f` gives one result, of type `Int`; several are declared `-> (A, B)`"
+  fun f() -> Int
+    return 1, 2
+
+fail "results optional untested", "`g` gives several results inside an optional, `(Int, Int)?`: test it first", errors: 1
+  fun g(ok: Bool) -> (Int, Int)?
+    return none if not ok
+    return 1, 2
+
+  q, r = g(true)
+  print(q, r)
+
+fail "results param", "`(Int, Int)` is a function's results, not a type a value can have"
+  fun f(x: (Int, Int)) -> Int
+    1
+
+fail "results return arity", "`f` gives 2 results, but `return` gives 3"
+  fun f() -> (Int, Int)
+    return 1, 2, 3
+
+fail "results statement owns", "this statement gives the results `(String, Int)`, which own what they must release, and does not use them; bind each (`a, b = two()`), or drop them now with `_ = two()`", errors: 1
+  fun two() -> (String, Int)
+    return String("x"), 1
+
+  two()
+
+fail "results two write views", "at most one of a function's results is a write view"
+  obj M
+    a: Int
+    b: Int
+
+    fun both(!self) -> (!Int, !Int)
+      return !self.a, !self.b
+
+fail "results type arg", "`(Int, Int)` is a function's results, not a type a value can have: name an object for a stored pair"
+  xs: List[(Int, Int)] = List()
+
+fail "results value fallback", "several results are bound from a call that gives them", errors: 1
+  fun f() -> (Int, Int)?
+    return 1, 2
+
+  a, b = f() ?? 0
+  print(a, b)

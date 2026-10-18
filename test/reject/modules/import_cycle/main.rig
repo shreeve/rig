@@ -1,7 +1,0 @@
-# main imports a, a imports b, and b imports a: the cycle is rejected.
-use a
-
-sub main()
-  print(a.fa())
-
-# error: 1:1: cyclic import: `a` is still being loaded when `b` imports it

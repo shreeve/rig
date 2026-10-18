@@ -1,5 +1,0 @@
-pub N = 3
-pub W: U8 = 2
-
-pub fun count[n: Int]() -> Int
-  n

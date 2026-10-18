@@ -1,0 +1,320 @@
+# ownership: tests whose names start `block`.
+
+fail "block tail defer as binding", "9:8: use of `v` after move", errors: 1
+  # An `if ... as` binding at the tail of the then-branch leaves it before
+  # the branch's defer runs; the defer cannot write it.
+  w: List[Int] = List()
+  !w.push(1)
+  o: List[Int]? = <w
+  x = if <o as v
+    defer
+      for i in 0..100
+        !v.push(i)
+    v
+  else
+    List[Int]()
+  !x.push(3)
+  print(x.len, x[0])
+
+fail "block tail defer catch handler", "14:8: use of `v` after move", errors: 1
+  # A `catch` handler's block-local tail leaves the handler before its
+  # defer runs; the defer cannot write it.
+  error E
+    bad
+
+  fun f() -> List[Int]!
+    return E.bad
+
+  x = f() catch |_|
+    v: List[Int] = List()
+    !v.push(1)
+    defer
+      for i in 0..100
+        !v.push(i)
+    v
+  !x.push(3)
+  print(x.len, x[0])
+
+fail "block tail defer discard", "9:8: use of `v` after move", errors: 1
+  # A value block discarded with `_ =` still hands over its tail: the
+  # tail name leaves before the block's defer runs.
+  c = true
+  _ = if c
+    v: List[Int] = List()
+    !v.push(1)
+    defer
+      for i in 0..100
+        !v.push(i)
+    v
+  else
+    List[Int]()
+  print(1)
+
+fail "block tail defer field", "13:8: use of `v` after move", errors: 1
+  # A block-local name at the tail of a branch stored in a field leaves the
+  # branch before its defer runs; the defer cannot write it.
+  obj H
+    v: List[Int]
+
+  c = true
+  h = H(v: List())
+  h.v = if c
+    v: List[Int] = List()
+    !v.push(1)
+    defer
+      for i in 0..100
+        !v.push(i)
+    v
+  else
+    List[Int]()
+  !h.v.push(3)
+  print(h.v.len)
+
+fail "block tail defer for else", "9:10: use of `v` after move", errors: 1
+  # A `for ... else` value's block-local tail leaves the `else` block
+  # before its defer runs.
+  xs = [1, 2]
+  x = for k in xs
+    break List[Int]() if k > 5
+  else
+    v: List[Int] = List()
+    !v.push(1)
+    defer !v.push(2)
+    v
+  !x.push(3)
+  print(x.len, x[0])
+
+fail "block tail defer fun result", "9:10: use of `v` after move", errors: 1
+  # A branch block of a function's result: its block-local tail is
+  # returned before the branch's defer runs.
+  fun mk(c: Bool) -> List[Int]
+    if c
+      v: List[Int] = List()
+      !v.push(1)
+      defer
+        for i in 0..100
+          !v.push(i)
+      v
+    else
+      List()
+
+  x = mk(true)
+  !x.push(3)
+  print(x.len, x[0])
+
+fail "block tail defer if branch", "10:8: use of `v` after move", errors: 1
+  # A block-local name at the tail of an `if` branch moves out of the
+  # branch before the branch's defer runs, as `<v` would: the defer
+  # cannot write it.
+  c = true
+  x = if c
+    v: List[Int] = List()
+    !v.push(1)
+    defer
+      for i in 0..100
+        !v.push(i)
+    v
+  else
+    w: List[Int] = List()
+    w
+  !x.push(3)
+  print(x.len, x[0])
+
+fail "block tail defer match arm", "9:10: use of `v` after move", errors: 1
+  # A `match` arm's block-local tail leaves the arm before its defer runs.
+  k = 0
+  x = match k
+    0
+      v: List[Int] = List()
+      !v.push(1)
+      defer
+        for i in 0..100
+          !v.push(i)
+      v
+    _
+      w: List[Int] = List()
+      w
+  !x.push(3)
+  print(x.len, x[0])
+
+fail "block tail defer nested if", "11:8: use of `v` after move", errors: 1
+  # A name the outer branch declares, at the tail of an inner `if` that
+  # is the outer branch's value, leaves before the outer branch's defer
+  # runs.
+  c = true
+  d = true
+  x = if c
+    v: List[Int] = List()
+    !v.push(1)
+    defer
+      for i in 0..100
+        !v.push(i)
+    if d
+      v
+    else
+      List[Int]()
+  else
+    List[Int]()
+  !x.push(3)
+  print(x.len, x[0])
+
+fail "block tail defer reads", "7:15: use of `v` after move", errors: 1
+  # A defer that only reads a block's tail name runs after the name has
+  # moved out with the block's value.
+  c = true
+  x = if c
+    v: List[Int] = List()
+    !v.push(1)
+    defer print(v.len)
+    v
+  else
+    List[Int]()
+  print(x.len)
+
+fail "block tail defer struct realloc", "12:8: use of `r` after move", errors: 1
+  # A struct holding a List, moved out at a branch's tail: the defer that
+  # grows the List would write a value the result now owns.
+  obj R
+    v: List[Int]
+
+  c = true
+  x = if c
+    r = R(v: List())
+    !r.v.push(1)
+    defer
+      for i in 0..100
+        !r.v.push(i)
+    r
+  else
+    R(v: List())
+  !x.v.push(3)
+  print(x.v.len, x.v[0])
+
+fail "block tail defer while else", "11:8: use of `v` after move", errors: 1
+  # A `while ... else` value's block-local tail leaves the `else` block
+  # before its defer runs.
+  i = 0
+  x = while i < 0 : i += 1
+    break List[Int]() if i > 5
+  else
+    v: List[Int] = List()
+    !v.push(1)
+    defer
+      for k in 0..100
+        !v.push(k)
+    v
+  !x.push(3)
+  print(x.len, x[0])
+
+fail "block tail defer writes struct", "10:10: use of `r` after move", errors: 1
+  # A block-local struct at a branch's tail moves out before the branch's
+  # defer writes it.
+  obj R
+    v: List[Int]
+
+  c = true
+  x = if c
+    r = R(v: List())
+    !r.v.push(1)
+    defer !r.v.push(2)
+    r
+  else
+    R(v: List())
+  !x.v.push(3)
+  print(x.v.len, x.v[0])
+
+test "block tail moves out", '''
+  left 1
+  left 5
+  1 2 3 4 7 8 5
+  drop 5
+  drop 8
+  drop 7
+  drop 4
+  drop 3
+  drop 2
+  drop 1
+'''
+  # A block-local owner at the tail of a value block moves out with the
+  # block's value, in every shape that yields through its parts; the
+  # block's defers run after, and may use anything else.
+  error E
+    bad
+
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun fail(c: Bool) -> R!
+    return E.bad if c
+    R(n: 0)
+
+  fun pick(c: Bool) -> R
+    if c
+      r = R(n: 5)
+      defer print("left 5")
+      r
+    else
+      R(n: 6)
+
+  c = true
+  k = 0
+  a = if c
+    r = R(n: 1)
+    defer print("left 1")
+    r
+  else
+    R(n: 0)
+  b = match k
+    0
+      r = R(n: 2)
+      r
+    _ => R(n: 0)
+  d = fail(true) catch |_|
+    r = R(n: 3)
+    r
+  i = 0
+  e = while i < 0 : i += 1
+    break R(n: 0)
+  else
+    r = R(n: 4)
+    r
+  f = for x in [1, 2]
+    break R(n: 0) if x > 5
+  else
+    r = R(n: 7)
+    r
+  g = if c
+    r = R(n: 8)
+    if not c
+      R(n: 0)
+    else
+      r
+  else
+    R(n: 0)
+  h = pick(true)
+  print(a.n, b.n, d.n, e.n, f.n, g.n, h.n)
+
+test "block tail shadows outer", '''
+  1 7
+  drop 1
+  drop 7
+'''
+  # The tail of a value block names the block's own binding, not an outer
+  # one of the same name: it moves out, and the outer binding stays.
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  c = true
+  r = R(n: 7)
+  x = if c
+    new r = R(n: 1)
+    r
+  else
+    R(n: 2)
+  print(x.n, r.n)

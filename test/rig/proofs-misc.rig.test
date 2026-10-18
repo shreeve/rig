@@ -1,0 +1,1574 @@
+# proofs: the rest of its tests.
+
+test "assign order", "[0, 0, 99, 0]", release: true
+  # A check in a statement before the assignment proves its target.
+
+  sub put(t: ![]U8, src: ?String, at: Int)
+    i = at
+    c = t[i]
+    t[i] = src[i] + c # proves: index lower upper
+
+  a: [4]U8 = [0, 0, 0, 0]
+  put(!a[..], "abcd", 2)
+  print(a)
+
+bomb "assign order mut", "index out of bounds", release: true
+  # The place of `t[i] = src[i]` may be found before its value runs: the
+  # value's check proves nothing about the target.
+
+  sub put(t: ![]U8, src: ?String, at: Int)
+    i = at
+    t[i] = src[i] # keeps: index lower upper
+
+  a: [4]U8 = [0, 0, 0, 0]
+  put(!a[..], "abcd", -1)
+  print(a)
+
+test "assign value", "[1, 2, 7]", release: true
+  # The value writes another binding: the target's `a[i]` is proven.
+
+  fun next(n: !Int) -> Int
+    n += 1
+    7
+
+  sub put(a: ![]Int, at: Int)
+    i = at
+    j = 0
+    if i < a.len
+      a[i] = next(!j) # proves: index upper
+
+  a = [1, 2, 3]
+  put(!a[..], 2)
+  print(a)
+
+bomb "assign value mut", "index out of bounds", release: true
+  # An assignment's value runs before its target's index: `next(!i)`
+  # moves `i` past the guard before `a[i]` is reached.
+
+  fun next(n: !Int) -> Int
+    n += 1
+    7
+
+  sub put(a: ![]Int, at: Int)
+    i = at
+    if i < a.len
+      a[i] = next(!i) # keeps: index upper
+
+  a = [1, 2, 3]
+  put(!a[..], 2)
+  print(a)
+
+test "call target compound mut", release: true, '''
+  4
+  [101, 0, 0, 0]
+'''
+  # `call_target_mut.rig` with a compound store: the call that writes `i`
+  # is a step of the statement, so `s[i]` keeps its test.
+
+  fun pick(t: ![]U8, n: !Int) -> ![]U8 from t
+    n += 1
+    t
+
+  sub put(t: ![]U8, s: ?String, at: Int)
+    i = at
+    if i < s.len
+      pick(!t, !i)[0] += s[i] # keeps: index upper
+    print(i)
+
+  a: [4]U8 = [1, 0, 0, 0]
+  put(!a[..], "abcd", 3)
+  print(a)
+
+test "call target mut", release: true, '''
+  4
+  [100, 0, 0, 0]
+'''
+  # The target's root is a call that writes `i`: whichever of the call and
+  # the value runs first, nothing the guard showed of `i` is known while
+  # the statement runs, so `s[i]` keeps its test.
+
+  fun pick(t: ![]U8, n: !Int) -> ![]U8 from t
+    n += 1
+    t
+
+  sub put(t: ![]U8, s: ?String, at: Int)
+    i = at
+    if i < s.len
+      pick(!t, !i)[0] = s[i] # keeps: index upper
+    print(i)
+
+  a: [4]U8 = [0, 0, 0, 0]
+  put(!a[..], "abcd", 3)
+  print(a)
+
+test "check then sub", "194", release: true
+  # `c = s[i]` shows `0 <= i` and `i < s.len` for what follows.
+
+  fun peek(s: ?String, at: Int) -> U8
+    i = at
+    c = s[i]
+    return c + s.read[U8](i) # proves: read lower upper
+
+  print(peek("abc", 0))
+
+bomb "check then sub mut", "byte read out of range", release: true
+  # `c = s[i]` showed `0 <= i`; `i -= 1` ends it.
+
+  fun peek(s: ?String, at: Int) -> U8
+    i = at
+    c = s[i]
+    i -= 1
+    return c + s.read[U8](i) # keeps: read lower
+
+  print(peek("abc", 0))
+
+test "closure", "99", release: true
+  # A closure that writes another binding leaves `i`'s guard standing.
+
+  fun pick(s: ?String, at: Int) -> U8
+    i = at
+    j = 0
+    if i < s.len
+      f = |!j| j += 1
+      f()
+      return s[i] # proves: index upper
+    0
+
+  print(pick("abc", 2))
+
+bomb "closure mut", "index out of bounds", release: true
+  # A closure made after the guard, lent `i` to write, changes it when
+  # called.
+
+  fun pick(s: ?String, at: Int) -> U8
+    i = at
+    if i < s.len
+      f = |!i| i += 1
+      f()
+      return s[i] # keeps: index upper
+    0
+
+  print(pick("abc", 2))
+
+test "cond continue", "5", release: true
+  # Without a `continue` in the condition, every path to the step passed the
+  # guard.
+
+  fun pick(i: Int) -> Int?
+    if i % 2 == 0
+      return i
+    none
+
+  fun run(at: Int, n: Int) -> Int
+    i = at
+    t = 0
+    while i < n and (pick(i) ?? 0) >= 0 : i += 1 # proves: += no_overflow
+      t += 1
+    t
+
+  print(run(Int.max - 5, Int.max))
+
+bomb "cond continue mut", "integer overflow", release: true
+  # A `continue` in the condition reaches the step before the guard after it
+  # ran: the step's `i += 1` keeps its test.
+
+  fun pick(i: Int) -> Int?
+    none
+
+  fun run(at: Int, n: Int) -> Int
+    i = at
+    t = 0
+    while (pick(i) ?? continue) > 0 and i < n : i += 1 # keeps: += no_overflow
+      t += 1
+    t
+
+  print(run(Int.max, Int.max))
+
+test "defer", release: true, '''
+  2
+  done
+  99
+'''
+  # A `defer` that writes nothing the guard named.
+
+  fun pick(s: ?String, at: Int, flag: Bool) -> U8
+    i = at
+    if i < s.len
+      if flag
+        defer print("done")
+        print(i)
+      return s[i] # proves: index upper
+    0
+
+  print(pick("abc", 2, true))
+
+bomb "defer mut", "index out of bounds", prints: "2", release: true
+  # A `defer` in an inner block runs where that block ends, before the use.
+
+  fun pick(s: ?String, at: Int, flag: Bool) -> U8
+    i = at
+    if i < s.len
+      if flag
+        defer i += 1
+        print(i)
+      return s[i] # keeps: index upper
+    0
+
+  print(pick("abc", 2, true))
+
+test "else branch", "99", release: true
+  # The true edge proves the use.
+
+  fun pick(s: ?String, at: Int) -> U8
+    i = at
+    if i < s.len
+      return s[i] # proves: index upper
+    else
+      print("out of range")
+    0
+
+  print(pick("abc", 2))
+
+bomb "else branch mut", "index out of bounds", release: true
+  # A guard's false edge proves nothing.
+
+  fun pick(s: ?String, at: Int) -> U8
+    i = at
+    if i < s.len
+      print("in range")
+    else
+      return s[i] # keeps: index upper
+    0
+
+  print(pick("abc", 5))
+
+test "field", "99", release: true
+  # A local copy of the field is a subject.
+
+  obj Cursor
+    i: Int
+
+  fun pick(s: ?String, c: ?Cursor) -> U8
+    i = c.i
+    if i < s.len
+      return s[i] # proves: index upper
+    0
+
+  c = Cursor(i: 2)
+  print(pick("abc", ?c))
+
+bomb "field mut", "index out of bounds", release: true
+  # A field is never a fact's subject: `(!self).bump()` writes it.
+
+  obj Cursor
+    i: Int
+
+    sub bump(!self)
+      self.i += 1
+
+  fun pick(s: ?String, c: !Cursor) -> U8
+    if c.i < s.len
+      (!c).bump()
+      return s[c.i] # keeps: index upper
+    0
+
+  c = Cursor(i: 2)
+  print(pick("abc", !c))
+
+test "generic width", "1717920867", release: true
+  # A concrete width in a generic body.
+
+  fun peek[T](s: ?String, at: Int, d: T) -> U32
+    i = at
+    if i + 4 <= s.len
+      return s.read[U32, .little](i) # proves: read upper
+    0
+
+  print(peek[U64]("abcdef", 2, 0))
+
+bomb "generic width mut", "byte read out of range", release: true
+  # In a generic body the width of `read[T]` is not known: a guard for 4
+  # bytes proves nothing about a `U64` read.
+
+  fun peek[T](s: ?String, at: Int, d: T) -> T
+    i = at
+    if i + 4 <= s.len
+      return s.read[T, .little](i) # keeps: read upper
+    d
+
+  print(peek[U64]("abcdef", 2, 0))
+
+test "guard add", "99", release: true
+  # A guard proves `s[i]` when nothing writes `i` between them.
+
+  fun pick(s: ?String, at: Int) -> U8
+    i = at
+    if i < s.len
+      return s[i] # proves: index upper
+    0
+
+  print(pick("abc", 2))
+
+bomb "guard add mut", "index out of bounds", release: true
+  # A guard proves `s[i]`, but `i += 1` between them ends the proof.
+
+  fun pick(s: ?String, at: Int) -> U8
+    i = at
+    if i < s.len
+      i += 1
+      return s[i] # keeps: index upper
+    0
+
+  print(pick("abc", 2))
+
+test "guard overflow", "2", release: true
+  # The same loop from 0 runs.
+
+  fun count(s: ?String, at: Int) -> Int
+    i = at
+    n = 0
+    while i + 8 <= s.len
+      n += 1
+      i += 8 # proves: += no_overflow
+    n
+
+  print(count("abcdefghijklmnopq", 0))
+
+bomb "guard overflow mut", "integer overflow", release: true
+  # The loop's own `i + 8` is not proven at its entry: from `Int.max - 3` it
+  # overflows.
+
+  fun count(s: ?String, at: Int) -> Int
+    i = at
+    n = 0
+    while i + 8 <= s.len # keeps: + no_overflow
+      n += 1
+      i += 8
+    n
+
+  print(count("abcdefghij", Int.max - 3))
+
+test "held as", release: true, '''
+  drop 99
+  198
+'''
+  # An `if ... as` over a part of a value the header makes holds that
+  # value before the test (`Header.held`): the held value is the `as`
+  # part's code, so a guard before the `if` proves `s[i]` in it and in the
+  # body.
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj Bag
+    o: Res?
+
+  fun mk(c: U8) -> Bag
+    Bag(o: Res(n: Int(c)))
+
+  fun pick(s: ?String, at: Int) -> Int
+    i = at
+    if i < s.len
+      if mk(s[i]).o as r # proves: index upper
+        return r.n + Int(s[i]) # proves: index upper
+    0
+
+  print(pick("abc", 2))
+
+test "index writes mut", release: true, '''
+  4
+  [100, 0, 0, 0]
+'''
+  # The target's index writes `i`: the value's `s[i]` keeps its test, and
+  # the guard proves nothing in the statement.
+
+  fun next(n: !Int) -> Int
+    n += 1
+    n
+
+  sub put(t: ![]U8, s: ?String, at: Int)
+    i = at
+    if i < s.len
+      t[next(!i) - 4] = s[i] # keeps: index upper
+    print(i)
+
+  a: [4]U8 = [0, 0, 0, 0]
+  put(!a[..], "abcd", 3)
+  print(a)
+
+test "int bound", "9223372036854775807", release: true
+  # `i < n` leaves room for one: `i += 1` fits.
+
+  fun step(at: Int, n: Int) -> Int
+    i = at
+    if i < n
+      i += 1 # proves: += no_overflow
+    i
+
+  print(step(Int.max - 1, Int.max))
+
+bomb "int bound mut", "integer overflow", release: true
+  # `i <= n` leaves no room above `i`: `i += 1` keeps its test.
+
+  fun step(at: Int, n: Int) -> Int
+    i = at
+    if i <= n
+      i += 1 # keeps: += no_overflow
+    i
+
+  print(step(Int.max, Int.max))
+
+test "int bound write", "4", release: true
+  # Nothing writes `n`: `i + 1` fits.
+
+  fun step(s: ?String, at: Int) -> Int
+    n = s.len
+    i = at
+    if i < n
+      return i + 1 # proves: + no_overflow
+    0
+
+  print(step("abcd", 3))
+
+test "int bound write mut", "6", release: true
+  # Writing the bound `n` ends the guard `i < n`: the add keeps its test.
+  # (`n` is no length here, so nothing the guard showed outlives the write;
+  # its twin `len_equal_write.rig` keeps what `n = s.len` lets the guard
+  # show of `s`.)
+
+  fun step(m: Int, at: Int) -> Int
+    n = m
+    i = at
+    if i < n
+      n -= 2
+      return i + 1 + n # keeps: + no_overflow
+    0
+
+  print(step(4, 3))
+
+test "len equal", "3", release: true
+  # `n = s.len` makes `n` stand for the length while neither changes: a
+  # guard on `n` proves an index into `s`.
+
+  fun count(src: ?String) -> Int
+    n = src.len
+    i = 0
+    while i < n and src[i] != 0 # proves: index lower upper
+      i += 1 # proves: += no_overflow
+    i
+
+  print(count("abc"))
+
+test "len equal add", "6", release: true
+  # After `n = s.len`, the guard `i < n` shows `i + 1 <= s.len`, which
+  # stays true when `n` changes, since `i` and `s` do not: `i + 1` fits.
+
+  fun step(s: ?String, at: Int) -> Int
+    n = s.len
+    i = at
+    if i < n
+      n -= 2
+      return i + 1 + n # proves: + no_overflow
+    0
+
+  print(step("abcd", 3))
+
+bomb "len equal mut", "index out of bounds", release: true
+  # Re-pointing `s` after `n = s.len` ends what `n` said of its length: a
+  # guard on `n` proves nothing about the shorter `s`.
+
+  fun get(t: ?String, at: Int) -> U8
+    s = t
+    n = s.len
+    s = t[..1]
+    i = at
+    if i < n
+      return s[i] # keeps: index upper
+    0
+
+  print(get("abc", 2))
+
+test "len equal write", "99", release: true
+  # A guard on `n` once `n = s.len` proves `i < s.len`, which stays true
+  # when `n` changes later, since `i` and `s` do not.
+
+  fun get(s: ?String, at: Int) -> U8
+    n = s.len
+    i = at
+    if i < n
+      n -= 2
+      return s[i] # proves: index upper
+    0
+
+  print(get("abc", 2))
+
+test "lend arg", "4", release: true
+  # `bump(!j)` writes another binding: `a[i]` is proven.
+
+  sub bump(n: !Int)
+    n += 1
+
+  fun pick(a: []Int, at: Int) -> Int
+    i = at
+    j = 0
+    if i < a.len
+      bump(!j)
+      return a[i] + j # proves: index upper
+    0
+
+  a = [1, 2, 3]
+  print(pick(a[..], 2))
+
+bomb "lend arg mut", "index out of bounds", release: true
+  # `bump(!i)` writes `i` after the guard: `a[i]` keeps its test.
+
+  sub bump(n: !Int)
+    n += 1
+
+  fun pick(a: []Int, at: Int) -> Int
+    i = at
+    if i < a.len
+      bump(!i)
+      return a[i] # keeps: index upper
+    0
+
+  a = [1, 2, 3]
+  print(pick(a[..], 2))
+
+test "loop", "6", release: true
+  # A guard before a loop holds in it when the loop does not write what it
+  # named.
+
+  fun total(a: []Int, at: Int) -> Int
+    i = at
+    t = 0
+    if i < a.len
+      k = 0
+      while k < 2
+        t += a[i] # proves: index upper
+        k += 1
+    t
+
+  a = [1, 2, 3]
+  print(total(a[..], 2))
+
+test "loop else", "99", release: true
+  # The loop's body sees its guard.
+
+  fun last(s: ?String) -> U8
+    i = 0
+    c: U8 = 0
+    while i < s.len
+      c = s[i] # proves: index lower upper
+      i += 1
+    else
+      return c
+    0
+
+  print(last("abc"))
+
+bomb "loop else mut", "index out of bounds", release: true
+  # A loop's `else` runs when its condition fails: it sees no guard.
+
+  fun last(s: ?String) -> U8
+    i = 0
+    while i < s.len
+      i += 1
+    else
+      return s[i] # keeps: index upper
+    0
+
+  print(last("abc"))
+
+bomb "loop mut", "index out of bounds", release: true
+  # A guard before a loop proves nothing in it about a binding the loop
+  # writes: the second iteration reads past the end.
+
+  fun total(a: []Int, at: Int) -> Int
+    i = at
+    t = 0
+    if i < a.len
+      k = 0
+      while k < 2
+        t += a[i] # keeps: index upper
+        i += 1
+        k += 1
+    t
+
+  a = [1, 2, 3]
+  print(total(a[..], 2))
+
+test "match arm", release: true, '''
+  1
+  99
+'''
+  # An arm that writes another binding.
+
+  fun pick(s: ?String, at: Int, k: Int) -> U8
+    i = at
+    j = 0
+    if i < s.len
+      match k
+        1 => j += 1
+        _ => pass
+      print(j)
+      return s[i] # proves: index upper
+    0
+
+  print(pick("abc", 2, 1))
+
+bomb "match arm mut", "index out of bounds", release: true
+  # A `match` arm that writes `i` ends the guard after the `match`.
+
+  fun pick(s: ?String, at: Int, k: Int) -> U8
+    i = at
+    if i < s.len
+      match k
+        1 => i += 1
+        _ => pass
+      return s[i] # keeps: index upper
+    0
+
+  print(pick("abc", 2, 1))
+
+test "match guard", "99", release: true
+  # A guard that writes another binding.
+
+  fun bump(n: !Int) -> Bool
+    n += 1
+    false
+
+  fun pick(s: ?String, at: Int, k: Int) -> U8
+    i = at
+    j = 0
+    if i < s.len
+      match k
+        1 if bump(!j) => print(1)
+        _ => return s[i] # proves: index upper
+    0
+
+  print(pick("abc", 2, 1))
+
+bomb "match guard mut", "index out of bounds", release: true
+  # An arm runs after the guards before it failed: a guard that writes `i`
+  # ends the facts every later arm would use.
+
+  fun bump(n: !Int) -> Bool
+    n += 1
+    false
+
+  fun pick(s: ?String, at: Int, k: Int) -> U8
+    i = at
+    if i < s.len
+      match k
+        1 if bump(!i) => print(1)
+        _ => return s[i] # keeps: index upper
+    0
+
+  print(pick("abc", 2, 1))
+
+test "negative start", release: true, '''
+  7523094288207667809
+  1
+'''
+  # From `i = 0`, `0 <= i` holds through `i += 8`.
+
+  fun count(s: ?String) -> Int
+    i = 0
+    n = 0
+    while i + 8 <= s.len
+      x = s.read[U64, .little](i) # proves: read lower upper
+      print(x)
+      n += 1
+      i += 8
+    n
+
+  print(count("abcdefghij"))
+
+bomb "negative start mut", "byte read out of range", release: true
+  # Nothing shows `0 <= i` when `i` starts below 0: the read keeps its
+  # sign test.
+
+  fun count(s: ?String, at: Int) -> Int
+    i = at
+    n = 0
+    while i + 8 <= s.len
+      x = s.read[U64, .little](i) # keeps: read lower
+      print(x)
+      n += 1
+      i += 8
+    n
+
+  print(count("abcdefghij", -5))
+
+test "or guard", "99", release: true
+  # `and` makes a fact from each side.
+
+  fun pick(s: ?String, at: Int, flag: Bool) -> U8
+    i = at
+    if i < s.len and flag
+      return s[i] # proves: index upper
+    0
+
+  print(pick("abc", 2, true))
+
+bomb "or guard mut", "index out of bounds", release: true
+  # `or` makes no fact: either side may be the one that held.
+
+  fun pick(s: ?String, at: Int, flag: Bool) -> U8
+    i = at
+    if i < s.len or flag
+      return s[i] # keeps: index upper
+    0
+
+  print(pick("abc", 5, true))
+
+test "other len", "98", release: true
+  # A guard on the view that is indexed.
+
+  fun pick(t: ?String, s: ?String, at: Int) -> U8
+    i = at
+    if i < s.len
+      return s[i] # proves: index upper
+    t[0]
+
+  print(pick("abcd", "ab", 1))
+
+bomb "other len mut", "index out of bounds", release: true
+  # A guard on one view's length proves nothing about another's.
+
+  fun pick(t: ?String, s: ?String, at: Int) -> U8
+    i = at
+    if i < t.len
+      return s[i] # keeps: index upper
+    0
+
+  print(pick("abcd", "ab", 3))
+
+test "raw", "97", release: true
+  # Without the `raw` block the guard stands.
+
+  fun pick(s: ?String, at: Int) -> U8
+    i = at
+    if i < s.len
+      return s[i] # proves: index upper
+    0
+
+  print(pick("abc", 0))
+
+bomb "raw mut", "index out of bounds", release: true
+  # Nothing proven before a `raw` block outlives it.
+
+  fun pick(s: ?String, at: Int) -> U8
+    i = at
+    if i < s.len
+      raw
+        i += 1
+      return s[i] # keeps: index upper
+    0
+
+  print(pick("abc", 2))
+
+test "repoint", "197", release: true
+  # A guard on the view `s` holds while `s` is not assigned.
+
+  fun pick(t: ?String, at: Int) -> U8
+    s = t
+    i = at
+    if i < s.len
+      u = t[..1]
+      return s[i] + u[0] # proves: index upper
+    0
+
+  print(pick("abcd", 3))
+
+bomb "repoint mut", "index out of bounds", release: true
+  # Assigning the view `s` points it at shorter text: the guard on its old
+  # length proves nothing.
+
+  fun pick(t: ?String, at: Int) -> U8
+    s = t
+    i = at
+    if i < s.len
+      s = t[..1]
+      return s[i] # keeps: index upper
+    0
+
+  print(pick("abcd", 3))
+
+test "result bound", "9093 8 3 8"
+  # A loop that steps by the size a decoder returns. Every size the decoder
+  # can return is a literal from 0 to 4, so under `i < s.len`, which leaves
+  # `i` below `s.len <= 2^62 - 1`, `i + d.size` cannot overflow.
+
+  obj Decoded
+    rune: Int
+    size: Int
+
+  fun bad() -> Decoded
+    Decoded(rune: 0xFFFD, size: 1)
+
+  fun multi(s: ?String, i: Int) -> Decoded
+    n = 2 if s[i] < 0xE0 else 3
+    return bad() if i + n > s.len
+    r = Int(s[i] & 0x0F) << 6 | Int(s[i + 1] & 0x3F)
+    return Decoded(rune: Int(s[i] & 0x1F) << 6 | Int(s[i + 1] & 0x3F), size: 2) if n < 3
+    Decoded(rune: r << 6 | Int(s[i + 2] & 0x3F), size: 3)
+
+  fun rune_after(s: ?String, i: Int) -> Decoded
+    if i >= 0 and i < s.len
+      b = s[i]
+      return Decoded(rune: Int(b), size: 1) if b < 0x80
+      return multi(s, i)
+    Decoded(rune: 0xFFFD, size: 0)
+
+  fun total(s: ?String) -> Int
+    sum = 0
+    i = 0
+    while i < s.len
+      d = rune_after(s, i)
+      sum += d.rune
+      i += d.size # proves: += no_overflow
+    sum
+
+  fun count(s: ?String) -> Int
+    n = 0
+    i = 0
+    while i < s.len
+      i += rune_after(s, i).size # proves: += no_overflow
+      n += 1
+    n
+
+  fun after(s: ?String, i: Int) -> Int
+    if i < s.len
+      d = rune_after(s, i)
+      return i + d.size # proves: + no_overflow
+    i
+
+  fun width(b: U8) -> Int
+    return 1 if b < 0x80
+    return 2 if b < 0xE0
+    3
+
+  fun skip(s: ?String) -> Int
+    n = 0
+    i = 0
+    while i < s.len
+      i += width(s[i]) # proves: += no_overflow
+      n += 1
+    n
+
+  s = "h\u{e9}llo \u{20ac}!"
+  print(total(s), count(s), after(s, 1), skip(s))
+
+bomb "result bound huge mut", "integer overflow", prints: "3", release: true
+  # A literal size past 2^62 is no bound, and a function on a cycle of
+  # calls bounds nothing: both adds keep their tests.
+
+  obj Decoded
+    rune: Int
+    size: Int
+
+  fun huge(s: ?String, i: Int) -> Decoded
+    return Decoded(rune: Int(s[i]), size: 1) if s[i] < 0x80
+    Decoded(rune: 0xFFFD, size: 0x7FFFFFFFFFFFFFFF)
+
+  fun spin(s: ?String, i: Int, k: Int) -> Decoded
+    return spin(s, i, k - 1) if k > 0
+    huge(s, i)
+
+  fun total(s: ?String) -> Int
+    sum = 0
+    i = 0
+    while i < s.len
+      d = huge(s, i)
+      sum += d.rune
+      i += d.size # keeps: += no_overflow
+    sum
+
+  fun spun(s: ?String) -> Int
+    i = 0
+    while i < s.len
+      i += spin(s, i, 2).size # keeps: += no_overflow
+    i
+
+  print(spun("abc"))
+  print(total("a\u{e9}"))
+
+test "result bound module", "664"
+  # What a function of another module bounds of its result proves the add
+  # of its caller: `decode.rune_after` returns a size from 0 to 2.
+
+  use decode
+
+  fun total(s: ?String) -> Int
+    sum = 0
+    i = 0
+    while i < s.len
+      d = decode.rune_after(s, i)
+      sum += d.rune
+      i += d.size # proves: += no_overflow
+    sum
+
+  sub main()
+    print(total("h\u{e9}llo"))
+
+  file "decode.rig"
+    # A decoder in another module, which bounds the size it returns.
+
+    pub obj Decoded
+      pub rune: Int
+      pub size: Int
+
+    pub fun rune_after(s: ?String, i: Int) -> Decoded
+      if i >= 0 and i < s.len
+        b = s[i]
+        return Decoded(rune: Int(b), size: 1) if b < 0x80
+        return multi(s, i)
+      Decoded(rune: 0xFFFD, size: 0)
+
+    fun multi(s: ?String, i: Int) -> Decoded
+      return bad() if i + 2 > s.len
+      Decoded(rune: Int(s[i] & 0x1F) << 6 | Int(s[i + 1] & 0x3F), size: 2)
+
+    fun bad() -> Decoded
+      Decoded(rune: 0xFFFD, size: 1)
+
+bomb "result bound mut", "integer overflow", release: true
+  # A size the decoder takes from its caller is not bounded, so `i +=
+  # d.size` keeps its test: from `i = 1` a size of `Int.max` overflows.
+
+  obj Decoded
+    rune: Int
+    size: Int
+
+  fun rune_after(s: ?String, i: Int, big: Int) -> Decoded
+    return Decoded(rune: Int(s[i]), size: 1) if s[i] < 0x80
+    Decoded(rune: 0xFFFD, size: big)
+
+  fun total(s: ?String, big: Int) -> Int
+    sum = 0
+    i = 0
+    while i < s.len
+      d = rune_after(s, i, big)
+      sum += d.rune
+      i += d.size # keeps: += no_overflow
+    sum
+
+  print(total("a\u{e9}", Int.max))
+
+bomb "result bound write mut", "integer overflow", release: true
+  # A store into the decoded value ends what the decoder bounds: `i +=
+  # d.size` keeps its test.
+
+  obj Decoded
+    rune: Int
+    size: Int
+
+  fun rune_after(s: ?String, i: Int) -> Decoded
+    return Decoded(rune: Int(s[i]), size: 1) if s[i] < 0x80
+    Decoded(rune: 0xFFFD, size: 2)
+
+  fun total(s: ?String, big: Int) -> Int
+    sum = 0
+    i = 0
+    while i < s.len
+      d = rune_after(s, i)
+      d.size = big if d.rune == 0xFFFD
+      sum += d.rune
+      i += d.size # keeps: += no_overflow
+    sum
+
+  print(total("a\u{e9}", Int.max))
+
+test "shadow", release: true, '''
+  3
+  99
+'''
+  # A new binding beside the guarded one.
+
+  fun pick(s: ?String, at: Int) -> U8
+    i = at
+    if i < s.len
+      new j = i + 1
+      print(j)
+      return s[i] # proves: index upper
+    0
+
+  print(pick("abc", 2))
+
+bomb "shadow mut", "index out of bounds", release: true
+  # `new i` is another binding: the guard named the old one.
+
+  fun pick(s: ?String, at: Int) -> U8
+    i = at
+    if i < s.len
+      new i = i + 1
+      return s[i] # keeps: index upper
+    0
+
+  print(pick("abc", 2))
+
+test "shift up", "[1, 2, 2, 4]", release: true
+  # A guard before the assignment proves the place's add.
+
+  sub shift(t: ![]U8, at: Int)
+    i = at
+    if i + 1 < t.len
+      t[i + 1] = t[i] # proves: + no_overflow
+
+  a: [4]U8 = [1, 2, 3, 4]
+  shift(!a[..], 1)
+  print(a)
+
+bomb "shift up mut", "integer overflow", release: true
+  # Shifting an element up: the value's check of `t[i]` says nothing about
+  # `i + 1`, which the place may compute first.
+
+  sub shift(t: ![]U8, at: Int)
+    i = at
+    t[i + 1] = t[i] # keeps: + no_overflow
+
+  a: [4]U8 = [1, 2, 3, 4]
+  shift(!a[..], Int.max)
+  print(a)
+
+test "simd lanes", release: true, '''
+  65
+  64
+  48
+  32
+  20
+  12
+  831105
+  402960
+  201480
+  100740
+  50370
+  25185
+  7 7 2 2
+'''
+  # Every lane count, 2 to 64: room for `n` bytes proves the read and the
+  # write of a `Simd[U8, n]`, and room for twice as many proves a
+  # `Simd[U16, n]`.
+
+  fun sum2(s: ![]U8) -> Int
+    t = 0
+    i = 0
+    while i + 2 <= s.len : i += 2
+      v = s.read[Simd[U8, 2]](i) # proves: read lower upper
+      !s.write[Simd[U8, 2]](i, v +% 1) # proves: write lower upper
+      t += Int(v[0])
+    t
+
+  fun sum4(s: ![]U8) -> Int
+    t = 0
+    i = 0
+    while i + 4 <= s.len : i += 4
+      v = s.read[Simd[U8, 4]](i) # proves: read lower upper
+      !s.write[Simd[U8, 4]](i, v +% 1) # proves: write lower upper
+      t += Int(v[0])
+    t
+
+  fun sum8(s: ![]U8) -> Int
+    t = 0
+    i = 0
+    while i + 8 <= s.len : i += 8
+      v = s.read[Simd[U8, 8]](i) # proves: read lower upper
+      !s.write[Simd[U8, 8]](i, v +% 1) # proves: write lower upper
+      t += Int(v[0])
+    t
+
+  fun sum16(s: ![]U8) -> Int
+    t = 0
+    i = 0
+    while i + 16 <= s.len : i += 16
+      v = s.read[Simd[U8, 16]](i) # proves: read lower upper
+      !s.write[Simd[U8, 16]](i, v +% 1) # proves: write lower upper
+      t += Int(v[0])
+    t
+
+  fun sum32(s: ![]U8) -> Int
+    t = 0
+    i = 0
+    while i + 32 <= s.len : i += 32
+      v = s.read[Simd[U8, 32]](i) # proves: read lower upper
+      !s.write[Simd[U8, 32]](i, v +% 1) # proves: write lower upper
+      t += Int(v[0])
+    t
+
+  fun sum64(s: ![]U8) -> Int
+    t = 0
+    i = 0
+    while i + 64 <= s.len : i += 64
+      v = s.read[Simd[U8, 64]](i) # proves: read lower upper
+      !s.write[Simd[U8, 64]](i, v +% 1) # proves: write lower upper
+      t += Int(v[0])
+    t
+
+  fun wide2(s: ?String) -> Int
+    t = 0
+    i = 0
+    while i + 4 <= s.len : i += 4
+      v = s.read[Simd[U16, 2], .little](i) # proves: read lower upper
+      t += Int(v[0])
+    t
+
+  fun wide4(s: ?String) -> Int
+    t = 0
+    i = 0
+    while i + 8 <= s.len : i += 8
+      v = s.read[Simd[U16, 4], .little](i) # proves: read lower upper
+      t += Int(v[0])
+    t
+
+  fun wide8(s: ?String) -> Int
+    t = 0
+    i = 0
+    while i + 16 <= s.len : i += 16
+      v = s.read[Simd[U16, 8], .little](i) # proves: read lower upper
+      t += Int(v[0])
+    t
+
+  fun wide16(s: ?String) -> Int
+    t = 0
+    i = 0
+    while i + 32 <= s.len : i += 32
+      v = s.read[Simd[U16, 16], .little](i) # proves: read lower upper
+      t += Int(v[0])
+    t
+
+  fun wide32(s: ?String) -> Int
+    t = 0
+    i = 0
+    while i + 64 <= s.len : i += 64
+      v = s.read[Simd[U16, 32], .little](i) # proves: read lower upper
+      t += Int(v[0])
+    t
+
+  fun wide64(s: ?String) -> Int
+    t = 0
+    i = 0
+    while i + 128 <= s.len : i += 128
+      v = s.read[Simd[U16, 64], .little](i) # proves: read lower upper
+      t += Int(v[0])
+    t
+
+  a: [130]U8 = [130 of 1]
+  print(sum2(!a[..]))
+  print(sum4(!a[..]))
+  print(sum8(!a[..]))
+  print(sum16(!a[..]))
+  print(sum32(!a[..]))
+  print(sum64(!a[..]))
+  s = "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
+  print(wide2(s))
+  print(wide4(s))
+  print(wide8(s))
+  print(wide16(s))
+  print(wide32(s))
+  print(wide64(s))
+  print(a[0], a[127], a[128], a[129])
+
+bomb "simd lanes mut", "byte read out of range", prints: "107 9\n105 9\n101 9\n119 9\n103 9\n97 9", release: true
+  # Every lane count, 2 to 64: room for one byte fewer than a
+  # `Simd[U8, n]` holds proves nothing about its read or its write,
+  # which run past the end at `s.len - n + 1`.
+
+  fun at2(s: ?String, at: Int) -> Int
+    i = at
+    if i + 1 <= s.len
+      return Int(s.read[Simd[U8, 2]](i)[0]) # keeps: read upper
+    0
+
+  sub put2(s: ![]U8, at: Int)
+    i = at
+    if i + 1 <= s.len
+      !s.write[Simd[U8, 2]](i, Simd[U8, 2].splat(9)) # keeps: write upper
+
+  fun at4(s: ?String, at: Int) -> Int
+    i = at
+    if i + 3 <= s.len
+      return Int(s.read[Simd[U8, 4]](i)[0]) # keeps: read upper
+    0
+
+  sub put4(s: ![]U8, at: Int)
+    i = at
+    if i + 3 <= s.len
+      !s.write[Simd[U8, 4]](i, Simd[U8, 4].splat(9)) # keeps: write upper
+
+  fun at8(s: ?String, at: Int) -> Int
+    i = at
+    if i + 7 <= s.len
+      return Int(s.read[Simd[U8, 8]](i)[0]) # keeps: read upper
+    0
+
+  sub put8(s: ![]U8, at: Int)
+    i = at
+    if i + 7 <= s.len
+      !s.write[Simd[U8, 8]](i, Simd[U8, 8].splat(9)) # keeps: write upper
+
+  fun at16(s: ?String, at: Int) -> Int
+    i = at
+    if i + 15 <= s.len
+      return Int(s.read[Simd[U8, 16]](i)[0]) # keeps: read upper
+    0
+
+  sub put16(s: ![]U8, at: Int)
+    i = at
+    if i + 15 <= s.len
+      !s.write[Simd[U8, 16]](i, Simd[U8, 16].splat(9)) # keeps: write upper
+
+  fun at32(s: ?String, at: Int) -> Int
+    i = at
+    if i + 31 <= s.len
+      return Int(s.read[Simd[U8, 32]](i)[0]) # keeps: read upper
+    0
+
+  sub put32(s: ![]U8, at: Int)
+    i = at
+    if i + 31 <= s.len
+      !s.write[Simd[U8, 32]](i, Simd[U8, 32].splat(9)) # keeps: write upper
+
+  fun at64(s: ?String, at: Int) -> Int
+    i = at
+    if i + 63 <= s.len
+      return Int(s.read[Simd[U8, 64]](i)[0]) # keeps: read upper
+    0
+
+  sub put64(s: ![]U8, at: Int)
+    i = at
+    if i + 63 <= s.len
+      !s.write[Simd[U8, 64]](i, Simd[U8, 64].splat(9)) # keeps: write upper
+
+  s = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijkl"
+  a: [64]U8 = [64 of 1]
+  put2(!a[..], 62)
+  print(at2(s, 62), a[62])
+  put4(!a[..], 60)
+  print(at4(s, 60), a[60])
+  put8(!a[..], 56)
+  print(at8(s, 56), a[56])
+  put16(!a[..], 48)
+  print(at16(s, 48), a[48])
+  put32(!a[..], 32)
+  print(at32(s, 32), a[32])
+  put64(!a[..], 0)
+  print(at64(s, 0), a[0])
+  print(at2(s, 63))
+
+bomb "simd mid unit mut", "byte read out of range", prints: "98", release: true
+  # A write of the offset inside the read's own statement ends the guard's
+  # facts for it, whichever part runs first: the read keeps both tests.
+
+  fun bump(n: !Int) -> Int
+    n += 1
+    0
+
+  fun peek(s: ?String, at: Int) -> Int
+    i = at
+    if i + 16 <= s.len
+      return bump(!i) + Int(s.read[Simd[U8, 16]](i)[0]) # keeps: read lower upper
+    0
+
+  s = "abcdefghijklmnopqrstuvwxyz"
+  print(peek(s, 0))
+  print(peek(s, s.len - 16))
+
+bomb "simd negative mut", "byte read out of range", prints: "[1, 1, 1, 1, 1, 1, 1, 1]\n97", release: true
+  # Nothing shows `0 <= i` when `i` starts below 0: a vector's read keeps
+  # its sign test, and its write too.
+
+  fun scan(s: ?String, at: Int) -> Int
+    i = at
+    n = 0
+    while i + 16 <= s.len : i += 16
+      v = s.read[Simd[U8, 16]](i) # keeps: read lower
+      n += Int(v[0])
+    n
+
+  sub fill(t: ![]U8, at: Int)
+    i = at
+    while i + 4 <= t.len : i += 4
+      !t.write[Simd[U8, 4]](i, Simd[U8, 4].splat(1)) # keeps: write lower
+
+  a: [8]U8 = [8 of 0]
+  fill(!a[..], 0)
+  print(a)
+  print(scan("abcdefghijklmnopqrstuvwxyz", 0))
+  print(scan("abcdefghijklmnopqrstuvwxyz", -5))
+
+bomb "simd past end mut", "byte read out of range", prints: "97", release: true
+  # Room for 15 bytes proves nothing about a 16-byte vector's read: at
+  # `s.len - 15` it runs one byte past the end.
+
+  fun scan(s: ?String, at: Int) -> Int
+    i = at
+    n = 0
+    while i + 15 <= s.len
+      v = s.read[Simd[U8, 16]](i) # keeps: read upper
+      n += Int(v[0])
+      i += 16
+    n
+
+  s = "abcdefghijklmnopqrstuvwxyz"
+  print(scan(s, 0))
+  print(scan(s, s.len - 15))
+
+test "simd read", release: true, '''
+  11
+  25443
+  [7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 0, 0, 0, 0, 0, 0, 0, 0]
+'''
+  # Room for a vector's bytes proves its read and its write, as it proves a
+  # `read` of an integer of as many bytes: a `Simd[T, n]` is `n` times the
+  # size of `T`.
+
+  fun count_a(s: ?String) -> Int
+    n = 0
+    i = 0
+    while i + 16 <= s.len : i += 16
+      v = s.read[Simd[U8, 16]](i) # proves: read lower upper
+      n += Int((v == 0x61).bits().count_ones())
+    n
+
+  fun wide_lanes(s: ?String, at: Int) -> Int
+    i = at
+    if i + 16 <= s.len
+      w = s.read[Simd[U16, 8], .little](i) # proves: read upper
+      f = s.read[Simd[F32, 4], .little](i) # proves: read upper
+      return Int(w[0]) + (1 if f[3] != 0.0 else 0)
+    0
+
+  sub fill(t: ![]U8, b: U8)
+    i = 0
+    while i + 16 <= t.len : i += 16
+      !t.write[Simd[U8, 16]](i, Simd[U8, 16].splat(b)) # proves: write lower upper
+
+  print(count_a("abcabcabcabcabcabcabcabcabcabcabcabc"))
+  print(wide_lanes("abcdefghijklmnopq", 1))
+  a: [40]U8 = [40 of 0]
+  fill(!a[..], 7)
+  print(a)
+
+bomb "simd wide mut", "byte read out of range", prints: "48\n858927408", release: true
+  # A guard proves a vector's read only for as many bytes as it leaves room
+  # for: room for 16 proves nothing about a 64-lane read, nor about eight
+  # 4-byte lanes (32 bytes).
+
+  fun lanes64(s: ?String) -> Int
+    i = 0
+    if i + 16 <= s.len
+      return Int(s.read[Simd[U8, 64]](i)[0]) # keeps: read upper
+    0
+
+  fun words8(s: ?String) -> Int
+    i = 0
+    if i + 16 <= s.len
+      return Int(s.read[Simd[U32, 8], .little](i)[0]) # keeps: read upper
+    0
+
+  print(lanes64("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"))
+  print(words8("0123456789abcdef0123456789abcdef"))
+  print(lanes64("0123456789abcdef0123456789abcdef"))
+
+bomb "simd write end mut", "byte write out of range", prints: "[0, 0, 0, 0, 9, 9, 9, 9]", release: true
+  # Room for 3 bytes proves nothing about a 4-byte vector's write: at
+  # `s.len - 3` it runs one byte past the end, and nothing is stored.
+
+  sub put(s: ![]U8, at: Int)
+    i = at
+    if i + 3 <= s.len
+      !s.write[Simd[U8, 4]](i, Simd[U8, 4].splat(9)) # keeps: write upper
+
+  a: [8]U8 = [8 of 0]
+  put(!a[..], 4)
+  print(a)
+  put(!a[..], 5)
+  print(a)
+
+test "step", "5", release: true
+  # A body that does not write `i` leaves the guard standing for the step.
+
+  fun run(at: Int, n: Int) -> Int
+    i = at
+    t = 0
+    while i < n : i += 1 # proves: += no_overflow
+      t += 1
+      continue
+    t
+
+  print(run(Int.max - 5, Int.max))
+
+bomb "step mut", "integer overflow", release: true
+  # A `continue` goes to the step after the body wrote `i`: the step's
+  # `i += 1` keeps its test.
+
+  fun run(at: Int, n: Int) -> Int
+    i = at
+    t = 0
+    while i < n : i += 1 # keeps: += no_overflow
+      t += 1
+      i += 5
+      continue
+    t
+
+  print(run(Int.max - 5, Int.max))
+
+test "swar", release: true, '''
+  13
+  13
+  16
+  1
+'''
+  # The loops of a JSON scanner, eight bytes at a time. `rig check
+  # --facts=proofs` on this file is compared line by line in
+  # test/cli/facts_proofs.sh.
+
+  fun is_digit(c: U8) -> Bool
+    c >= 48 and c <= 57
+
+  fun skip_space(s: ?String, at: Int) -> Int
+    i = at
+    while i < s.len
+      c = s[i]
+      if c == 32 and i + 8 <= s.len and s.read[U64, .little](i) == 0x2020202020202020
+        i += 8
+      else if c == 32 or c == 10 or c == 13 or c == 9
+        i += 1
+      else
+        break
+    i
+
+  fun take_digits(s: ?String, at: Int) -> Int
+    i = at
+    while i + 8 <= s.len
+      d = s.read[U64, .little](i)
+      if d & 0xf0f0f0f0f0f0f0f0 != 0x3030303030303030 or (d +% 0x0606060606060606) & 0xf0f0f0f0f0f0f0f0 != 0x3030303030303030
+        break
+      i += 8
+    while i < s.len and is_digit(s[i])
+      i += 1
+    i
+
+  fun skip_plain_ascii(s: ?String, at: Int) -> Int
+    i = at
+    while i + 8 <= s.len
+      w = s.read[U64, .little](i)
+      if w & 0x8080808080808080 != 0
+        break
+      i += 8
+    for c, k in s[i..]
+      return i + k if c >= 128 or c == 34
+    s.len
+
+  fun count_high(s: ?String) -> Int
+    n = 0
+    i = 0
+    while i + 8 <= s.len
+      w = s.read[U64, .little](i)
+      if w & 0x8080808080808080 != 0
+        n += 1
+      i += 8
+    n
+
+  print(skip_space("             x", 0))
+  print(take_digits("1234567890123x", 0))
+  print(skip_plain_ascii("abcdefghijklmnop\"", 0))
+  print(count_high("abcdefgh\u{e9}bcdefgh"))
+
+test "value block", release: true, '''
+  1
+  99
+'''
+  # The control for `value_block_mut.rig`: arms that write nothing see what
+  # the guard before the statement showed.
+
+  fun pick(s: ?String, at: Int, k: Int) -> U8
+    i = at
+    if i < s.len
+      x = match k
+        1
+          print(k)
+          s[i] # proves: index upper
+        _ => s[i] # proves: index upper
+      return x
+    0
+
+  print(pick("abc", 2, 1))
+
+bomb "value block mut", "index out of bounds", release: true
+  # A value that holds statements: an arm of the `match` writes `i`, so
+  # no `s[i]` in the statement is proven by the guard before it.
+
+  fun pick(s: ?String, at: Int, k: Int) -> U8
+    i = at
+    if i < s.len
+      x = match k
+        1
+          i += 1
+          s[i] # keeps: index upper
+        _ => s[i] # keeps: index upper
+      return x
+    0
+
+  print(pick("abc", 2, 1))
+
+test "wide read", "7812454979559974501", release: true
+  # Room for 8 bytes proves an 8-byte read.
+
+  fun peek(s: ?String, at: Int) -> U64
+    i = at
+    if i + 8 <= s.len
+      return s.read[U64, .little](i) # proves: read upper
+    0
+
+  print(peek("abcdefghijkl", 4))
+
+bomb "wide read mut", "byte read out of range", release: true
+  # Room for 8 bytes proves nothing about a 16-byte read.
+
+  fun peek(s: ?String, at: Int) -> U128
+    i = at
+    if i + 8 <= s.len
+      return s.read[U128, .little](i) # keeps: read upper
+    0
+
+  print(peek("abcdefghijkl", 4))
+
+test "wrapping guard", release: true, '''
+  7523094288207667809
+  1
+'''
+  # The checked `i + 8 <= s.len`, from `i = 0`, proves the read.
+
+  fun count(s: ?String) -> Int
+    i = 0
+    n = 0
+    while i + 8 <= s.len
+      x = s.read[U64, .little](i) # proves: read lower upper
+      n += 1
+      print(x)
+      i += 8
+    n
+
+  print(count("abcdefghij"))
+
+bomb "wrapping guard mut", "byte read out of range", release: true
+  # `i +% 8 <= s.len` says nothing about `i + 8`: the sum wraps, the guard
+  # passes, and the read keeps both its tests.
+
+  fun count(s: ?String, at: Int) -> Int
+    i = at
+    n = 0
+    while i +% 8 <= s.len
+      x = s.read[U64, .little](i) # keeps: read lower upper
+      n += 1
+      print(x)
+      i += 8
+    n
+
+  print(count("abcdefghij", Int.max - 3))

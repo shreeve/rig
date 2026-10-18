@@ -1,0 +1,3767 @@
+# types: the rest of its tests, part 2.
+
+use std.hash
+use std.math
+use std.os
+use std.text
+
+test "receiver sigil bool value", '''
+  true
+  false
+  true false
+  1
+  long form
+  6
+'''
+  # A write call whose value is used, here a `Bool`, is written
+  # `(!s).add(x)`: in a binding, an argument, a return value, a body's
+  # value, a condition. The short form `!s.add(x)` stays for a call whose
+  # value is discarded: a statement, alone or under `!` or `catch`.
+
+  obj Set
+    items: List[Int]
+    fun insert(!self, k: Int) -> Bool
+      for x in ?self.items
+        return false if x == k
+      !self.items.push(k)
+      true
+    fun checked(!self, k: Int) -> Bool!
+      (!self).insert(k)
+
+  fun add(s: !Set, k: Int) -> Bool
+    return (!s).insert(k)
+
+  fun again(s: !Set, k: Int) -> Bool
+    (!s).insert(k)
+
+  fun fill(s: !Set) -> Int!
+    added = (!s).checked(3)!
+    !s.checked(5)!
+    !s.checked(5) catch false
+    1 if added else 0
+
+  set = Set(items: List())
+  fresh = (!set).insert(1)
+  print(fresh)
+  print((!set).insert(1))
+  print(add(!set, 2), again(!set, 2))
+  print(fill(!set) catch 0)
+  if (!set).insert(4) and not (!set).insert(4)
+    print("long form")
+  !set.insert(6)
+  print(set.items.len)
+
+fail "receiver sigil consumes", "12:5: `top` does not consume its receiver; remove the `<`: a call's result moves without it", "13:5: `pop` does not consume its receiver; it writes it: `(!s).pop()`, and its result needs no `<`"
+  # `<` before a method call moves the receiver into it, so the method
+  # must consume it (`<self`); a call's result moves without `<`.
+
+  obj Stack
+    items: List[Int]
+    fun top(?self) -> Int?
+      self.items.get(0)
+    fun pop(!self) -> Int?
+      (!self.items).pop()
+
+  s = Stack(items: List())
+  a = <s.top()
+  b = <s.pop()
+  print(a ?? 0, b ?? 0)
+
+fail "receiver sigil field element", "17:5: `handlers` is a field holding functions, not a method with a receiver; remove the `<`", "18:4: `checks` is a field holding functions, not a method with a receiver; for negation use `not`", "20:5: `handlers` is a field holding functions", "21:5: this `P` is a temporary that owns a resource, and nothing would drop it"
+  # `x.f[i](args)` calls an element of a field `f` holding functions:
+  # there is no receiver for `!` or `<` to apply to, and a temporary that
+  # owns a resource cannot be the object, as for `x.f(args)`.
+
+  fun one() -> Int
+    1
+
+  fun yes() -> Bool
+    true
+
+  obj P
+    v: List[Int]
+    handlers: [1]fun() -> Int
+    checks: [1]fun() -> Bool
+
+  p = P(v: List(), handlers: [one], checks: [yes])
+  x = <p.handlers[0]()
+  if !p.checks[0]()
+    print("negated")
+  y = !p.handlers[0]()
+  z = P(v: List(), handlers: [one], checks: [yes]).handlers[0]()
+  print(x, y, z)
+
+fail "receiver sigil reads", "13:4: `is_empty` does not write its receiver; for negation use `not`", "15:7: `is_empty` does not write its receiver; for negation use `not`", "17:7: `peek` does not write its receiver; remove the `!`"
+  # `!` before a method call lends to write the receiver, so a method that
+  # only reads it is the habit of `!` as negation: use `not`, or drop the
+  # `!` when the method returns no `Bool`.
+
+  obj Queue
+    items: List[Int]
+    fun is_empty(?self) -> Bool
+      self.items.len == 0
+    fun peek(?self) -> Int?
+      self.items.get(0)
+
+  q = Queue(items: List())
+  if !q.is_empty()
+    print("items")
+  while !q.is_empty()
+    break
+  print(!q.peek() ?? 0)
+
+test "receiver sigil value used", release: true, '''
+  if 3
+  while 2
+  while 1
+  0 2 -1
+  2 [3] 4 6
+  seven
+  8 8 9
+  10
+  none 9
+'''
+  # A write call whose value is used, whatever its type, is written
+  # `(!v).m(...)`: a binding, `_ =`, an `as` header of `if` and `while`,
+  # an operand, `??`, an argument, an array element, `return`, a
+  # function's and a closure's last line, a `match` subject, and a value
+  # `if`'s branch. The short form `!v.m(...)` stays where the value is
+  # discarded: a statement, alone or under `!`, `?`, or `catch`.
+
+  error E
+    bad
+
+  obj Counter
+    n: Int
+
+    fun next(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun twice(!self) -> Int
+      !self.next()
+      (!self).next()
+
+    fun take(!self) -> Int!
+      return E.bad if self.n > 20
+      self.n
+
+  fun last(c: !Counter) -> Int
+    return (!c).next() if c.n > 50
+    (!c).next()
+
+  fun drain(v: !List[Int]) -> Int?
+    !v.pop()?
+    (!v).pop()
+
+  fun fill(c: !Counter) -> Int!
+    !c.take()!
+    !c.take() catch 0
+    (!c).take()! + 1
+
+  v: List[Int] = List()
+  for i in 0..6
+    !v.push(i)
+  c = Counter(n: 0)
+  x = (!v).remove(0)
+  _ = !v.pop()
+  !v.pop()
+  if (!v).pop() as t
+    print("if", t)
+  while (!v).pop() as t
+    print("while", t)
+  n = (!c).next() + 1
+  m = (!v).pop() ?? -1
+  print(x, n, m)
+  print((!c).next(), [(!c).next()], last(!c), (!c).twice())
+  match (!c).next()
+    7 => print("seven")
+    _ => print("other")
+  y = (!c).next() if x == 0 else 0
+  z = (!c).take() catch -1
+  f = |!c| (!c).next()
+  print(y, z, f())
+  print(fill(!c) catch -1)
+  !v.push(4)
+  print(drain(!v), c.n)
+
+fail "receiver sigil value used is rejected", "20:5: write `(!self).next()`: a write call whose value is used puts its `!` in parentheses", "27:10: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "28:3: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "34:5: write `(!v).remove(0)`: a write call whose value is used puts its `!` in parentheses", "36:4: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses", "38:7: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses", "40:5: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "41:5: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses", "42:7: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "42:19: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "43:7: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "46:5: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "47:5: write `(!c).take()`: a write call whose value is used puts its `!` in parentheses", "48:10: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", errors: 14
+  # A write call whose value is used, whatever its type, is written
+  # `(!v).m(...)`: a binding, an `as` header of `if` and `while`,
+  # an operand, `??`, an argument, an array element, `return`, a
+  # function's and a closure's last line, a `match` subject, a value
+  # `if`'s branch, and a `catch` whose value is used. The hint is the
+  # call to write.
+
+  error E
+    bad
+
+  obj Counter
+    n: Int
+
+    fun next(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun twice(!self) -> Int
+      !self.next()
+      !self.next()
+
+    fun take(!self) -> Int!
+      return E.bad if self.n > 9
+      self.n
+
+  fun last(c: !Counter) -> Int
+    return !c.next() if c.n > 5
+    !c.next()
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  c = Counter(n: 0)
+  x = !v.remove(0)
+  !v.pop()
+  if !v.pop() as t
+    print(t)
+  while !v.pop() as t
+    print(t)
+  n = !c.next() + 1
+  m = !v.pop() ?? 0
+  print(!c.next(), [!c.next()], last(!c))
+  match !c.next()
+    1 => print("one")
+    _ => pass
+  y = !c.next() if x > 0 else 0
+  z = !c.take() catch 0
+  f = |!c| !c.next()
+  print(x, n, m, y, z, f())
+
+fail "receiver sigil without receiver", "14:5: `!` here reaches `Point`, a type, not the value `Point.origin()` makes: write `!(Point.origin())` to lend that value, or remove the `!`", "15:5: `origin` is called through its type or module and has no receiver; remove the `<`", "17:1: `get` only reads the Cell; remove the `!`", "19:7: `on` is a field holding a function, not a method with a receiver; remove the `!`"
+  # `!` and `<` before a call apply to the method's receiver, so a call
+  # with none rejects them: an associated function called through its
+  # type (where `!` reaches the type, not the value the call makes), a
+  # Cell's List members, and a field holding a function.
+
+  obj Point
+    x: Int
+    fun origin() -> Point
+      Point(x: 0)
+
+  obj Hooks
+    on: *fun(Int) -> Int
+
+  a = !Point.origin()
+  b = <Point.origin()
+  log: Cell[List[Int]] = Cell(List())
+  !log.get(0)
+  hooks = Hooks(on: *|n| n + 1)
+  print(!hooks.on(1), a.x, b.x)
+
+test "recursive type through handle", '''
+  2 1
+  12
+'''
+  # A type may refer to itself through a shared handle or a List.
+
+  obj Node
+    n: Int
+    next: *Node?
+
+  obj Tree
+    n: Int
+    kids: List[*Tree]
+
+  fun sum(t: ?*Tree) -> Int
+    total = t.n
+    for k in ?t.kids
+      total += sum(?k)
+    total
+
+  a = *Node(n: 1, next: none)
+  b = *Node(n: 2, next: +a)
+  print(b.n, a.n)
+  leaf1 = *Tree(n: 3, kids: List())
+  leaf2 = *Tree(n: 4, kids: List())
+  kids: List[*Tree] = List()
+  !kids.push(<leaf1)
+  !kids.push(<leaf2)
+  root = *Tree(n: 5, kids: <kids)
+  print(sum(?root))
+
+test "remainder by minus one", '''
+  0 0 0
+  0 0 0
+  0 -1 1 1
+  1.5
+'''
+  # A signed integer's remainder by -1 is 0, the minimum included, on every
+  # target: x86_64's division traps on `Int.min % -1`, so `%` must not
+  # reach it. The divisor is only known at run time here.
+
+
+  fun neg(n: Int) -> Int
+    0 - n
+
+  fun rem[T](a: T, b: T) -> T
+    a % b
+
+  m = neg(1)
+  print(Int.min % m, I32.min % I32(m), I8.min % I8(m))
+  x = Int.min
+  x %= m
+  print(x, math.mod(Int.min, m), rem(Int.min, m))
+  print(7 % m, -7 % neg(-2), 7 % neg(-2), U8(7) % U8(neg(-2)))
+  print(7.5 % 2.0)
+
+test "replace and swap", '''
+  3
+  2
+  1
+  10 1 2
+  x ["y"]
+'''
+  # `replace(!place, v)` stores `v` and hands back the old value; `swap`
+  # exchanges two places, which may be different fields of one value.
+
+  obj Tree
+    key: Int
+    left: ^Tree?
+    right: ^Tree?
+
+  sub mirror(slot: !^Tree?)
+    if !slot as t
+      swap(!t.left, !t.right)
+      mirror(!t.left)
+      mirror(!t.right)
+
+  sub show(slot: ?^Tree?)
+    if slot as t
+      show(?t.left)
+      print(t.key)
+      show(?t.right)
+
+  fun leaf(k: Int) -> ^Tree?
+    ^Tree(key: k, left: none, right: none)
+
+  root: ^Tree? = ^Tree(key: 2, left: leaf(1), right: leaf(3))
+  mirror(!root)
+  show(?root)
+  a = 1
+  b = 2
+  swap(!a, !b)
+  old = replace(!a, 10)
+  print(a, b, old)
+  names: List[String] = List()
+  !names.push(String("x"))
+  first = replace(!names[0], String("y"))
+  print(first, names)
+
+test "replace swap generic", '''
+  1 W(x: 2, y: 5)
+  R(n: 2) R(n: 1)
+  R(n: 3) R(n: 2)
+  2 1
+  drop 2
+  drop 1
+  drop 3
+'''
+  # `replace` and `swap` in generic bodies: the places hold a `T`, which an
+  # instance never makes a view.
+
+  obj W[T]
+    x: T
+    y: T
+
+    fun put(!self, v: T) -> T
+      replace(!self.x, <v)
+
+    sub flip(!self)
+      swap(!self.x, !self.y)
+
+  sub pair()
+    w = W[Int](x: 1, y: 2)
+    o = (!w).put(5)
+    !w.flip()
+    print(o, w)
+
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun rep[T](p: !T, v: T) -> T
+    replace(!p, <v)
+
+  sub sw[T](a: !T, b: !T) keeps a, b
+    swap(!a, !b)
+
+  pair()
+  x = R(n: 1)
+  y = rep(!x, R(n: 2))
+  print(x, y)
+  z = R(n: 3)
+  sw(!x, !z)
+  print(x, z)
+  n = 1
+  m = 2
+  sw(!n, !m)
+  print(n, m)
+
+fail "replace swap misuse", "11:6: `swap` moves values that hold no `?T`, `!T`, or slice; `V` may hold one", "14:10: `swap` exchanges two places of one type; got `Int` and `Static`", "15:15: `replace` takes a place lent to write: `!x`; got `Int`", "16:19: type mismatch: expected `Int`, got `Static`"
+  # `replace` and `swap` take lent to write places (`!x`) of one type,
+  # whose values hold no view, and the value `replace` stores has the
+  # place's type.
+
+  obj V
+    p: ?Int
+
+  n = 1
+  a = V(p: ?n)
+  b = V(p: ?n)
+  swap(!a, !b)
+  x = 1
+  y = "s"
+  swap(!x, !y)
+  old = replace(x, 2)
+  new = replace(!x, "two")
+  print(old, new)
+
+fail "return type", "type mismatch: expected `Int`, got `Static`"
+  # A function's implicit return value must match its declared type.
+
+  fun bad() -> Int
+    "not an int"
+
+  x = bad()
+  print(x)
+
+test "saturating", release: true, '''
+  255 255 255 0
+  -32768 -32768 32767 32767
+  255 -128
+  18446744073709551615 0 0
+  9223372036854775807 -9223372036854775808 9223372036854775807 -9223372036854775808
+  4294967295 4294967292 11
+  255
+  255
+  55
+  0
+  -128
+  126
+'''
+  # `+|` and `-|` saturate: a result past the type's limits stops at the
+  # limit, with no panic and no wrap. They bind as `+` and `-` do, and `+|=`
+  # and `-|=` assign. A constant result is folded in its type.
+
+  LIMIT: U8 = 250 +| 10
+  FLOOR: I8 = -100 -| 100
+
+  fun add(a: U8, b: U8) -> U8
+    a +| b
+
+  fun minus(a: I16, b: I16) -> I16
+    a -| b
+
+  sub main()
+    print(add(200, 55), add(200, 56), add(255, 255), add(0, 0))
+    print(minus(-32000, 768), minus(-32000, 769), minus(32000, -767), minus(32000, -768))
+    print(LIMIT, FLOOR)
+    u: U64 = 18446744073709551615
+    print(u +| 1, u -| u, U64(3) -| 5)
+    i: Int = 9223372036854775807
+    print(i +| 1, -i -| 2, i -| -1, (-i - 1) +| -1)
+    x: U32 = 4294967290
+    print(x +| 2 * 4, (x +| 2) * 1, 10 -| 2 + 3)
+    c: U8 = 7
+    c +|= 250
+    print(c)
+    c +|= 1
+    print(c)
+    c -|= 200
+    print(c)
+    c -|= 100
+    print(c)
+    d: I8 = -120
+    d -|= 10
+    print(d)
+    d +|= 127
+    d +|= 127
+    print(d)
+
+fail "saturating operands", "12:7: operator `+|` requires integer operands; got `Float`", "12:17: operator `-|` requires integer operands; got `Bool`", "12:25: operator `+|` operands have different types `U8` and `I8`", "13:1: `+|=` requires an integer target; `f` has type `Float`", "14:1: `-|=` requires an integer target; `f` has type `Float`", "15:17: `twice[Float]` cannot use `T = Float`: the generic body applies `+|` to `T`, which `Float` does not support", "16:12: integer value `256` does not fit in `U8` (0..255)", errors: 7
+  # `+|` and `-|` saturate integers: a float, a Bool, or two integer types
+  # are rejected, as for the wrapping forms, and so is a generic body's `T`
+  # that is no integer.
+
+  fun twice[T](x: T) -> T
+    x +| x
+
+  f = 1.5
+  b = true
+  u: U8 = 1
+  i: I8 = 1
+  print(f +| 1.0, b -| b, u +| i)
+  f +|= 1.0
+  f -|= 1.0
+  print(twice(u), twice(f))
+  print(u +| 256)
+
+test "scope after nested blocks", '''
+  6
+  6
+  7
+'''
+  # Scopes are entered through the node that opens them, so blocks nested
+  # in methods, match arms, and lambdas earlier in the file leave later
+  # functions' locals intact.
+
+  enum Color
+    red
+    green
+
+  obj P
+    n: Int
+
+    fun describe(?self) -> Int
+      if self.n > 0
+        m = self.n * 2
+        m
+      else
+        0
+
+  fun pick(c: Color) -> Int
+    match c
+      .red => 1
+      .green
+        k = 2
+        k
+
+  n = 5
+  p = P(n: 3)
+  f = |+n|
+    x = n + 1
+    print(x)
+  f()
+  print(p.describe())
+  print(pick(.green) + n)
+
+test "scope after test block", "hi"
+  # Locals of a function after a `test` block resolve normally (scopes are
+  # keyed by the node that opens them, not by visiting order).
+
+  test "t"
+    a = 1
+    print(a)
+
+  sub main()
+    x = "hi"
+    print(x)
+
+fail "self sugar outside method", "`?self` is only allowed in a method body"
+  # `?self` has no meaning in a free function: there is no enclosing type.
+
+  fun lonely(?self) -> Int
+    42
+
+  print(lonely(1))
+
+test "sequence get", '''
+  20 none none 10
+  2 none 20
+  105 0 97
+  7
+  9 true
+  two ?
+  none none
+'''
+  # `get(i)` on an array, a slice, or a String gives the element as `T?`
+  # (a String's byte as `U8?`): `none` when `i` is out of range, as for a
+  # List.
+
+  obj Point
+    x: Int
+    y: Int
+
+  obj Grid
+    cells: [3]Int
+
+  fun first(xs: ?[3]Int) -> Int
+    xs.get(0) ?? -1
+
+  fun at(s: []Int, i: Int) -> Int?
+    s.get(i)
+
+  fun byte(s: ?String, i: Int) -> U8
+    s.get(i) ?? 0
+
+  a = [10, 20, 30]
+  print(a.get(1), a.get(3), a.get(-1), first(?a))
+  v: List[Int] = List()
+  for n in 1..5
+    !v.push(n)
+  print(at(?v[1..], 0), at(?v[..], 4), at(?a[..2], 1))
+  print(byte("hi", 1), byte("hi", 2), "abc".get(0))
+  pts = [Point(x: 1, y: 2), Point(x: 3, y: 4)]
+  if pts.get(1) as p
+    print(p.x + p.y)
+  g = Grid(cells: [7, 8, 9])
+  print(g.cells.get(2), g.cells.get(3) == none)
+  words = ["one", "two"]
+  print(words.get(1) ?? "?", words.get(2) ?? "?")
+  none_yet: [0]Int = []
+  print(none_yet.get(0), "".get(0))
+
+fail "sequence get owning", "7:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
+  # `get` copies an element out, and no array has write views for it to
+  # copy: a write view is never stored inside a value, so an array of
+  # them is rejected where it is made.
+
+  a = 1
+  b = 2
+  xs = [!a, !b]
+  print(xs.len)
+
+fail "sequence get receiver sigil", "6:7: `get` does not write its receiver; remove the `!`", "7:7: `get` does not write its receiver", "8:7: `get` does not consume its receiver; remove the `<`"
+  # `get` on a String or an array only reads its receiver, so a `!` or a
+  # `<` before the receiver is rejected, as for a List.
+
+  s = "hello"
+  a = [1, 2, 3]
+  print(!s.get(4))
+  print(!a.get(1))
+  print(<a.get(0))
+
+test "shadow reads previous binding", "11"
+  # In `new x = x + 10` the right side reads the previous `x`.
+
+  x = 1
+  new x = x + 10
+  print(x)
+
+test "shadow reassign after fixed", "3"
+  # `x =! 1` is fixed, but `new x = 2` introduces a fresh mutable `x`;
+  # name lookup finds the newest binding, so `x = 3` reassigns it.
+
+  x =! 1
+  new x = x + 1
+  x = 3
+  print(x)
+
+fail "share of none", "17:3: `*none` makes a handle of nothing; write `none` where a `(*T)?` is expected", "19:5: `*none` makes a handle of nothing", "20:14: `*none` makes a handle of nothing", "21:3: `*none` makes a handle of nothing", "22:10: `*none` makes a handle of nothing", "23:8: `*none` makes a handle of nothing", "23:15: `*none` makes a handle of nothing", "25:9: `*none` makes a handle of nothing", "26:6: `*none` makes a handle of nothing", errors: 9
+  # `*none` would make a shared handle of nothing: an optional handle
+  # with no value is `none` itself, where a `(*T)?` is expected. Every
+  # position is rejected: a binding, a typed binding, an argument, a
+  # field, a return, an array element, a List element, and `~*none`. (`none`
+  # itself, and a box of an optional, compile: test/behavior/types/
+  # optional_handle_none.rig. Where a handle of an optional, `*(T?)`, is
+  # expected, `*none` is that handle holding `none`:
+  # test/behavior/types/optional_handle_binding.rig.)
+
+  obj S
+    h: (*Int)?
+
+  sub f(h: (*Int)?)
+    print(h == none)
+
+  fun g() -> (*Int)?
+    *none
+
+  a = *none
+  b: (*Int)? = *none
+  f(*none)
+  s = S(h: *none)
+  print([*none, *none].len)
+  w: List[(*Int)?] = List()
+  !w.push(*none)
+  k = ~*none
+  print(g() == none)
+
+fail "share shared binding", "already a shared handle `*Noisy`"
+  # `*x` where `x` is already a shared handle is rejected; `+x` makes
+  # another handle to the same value.
+
+  obj Noisy
+    id: Int
+
+  inner = *Noisy(id: 4)
+  outer = *inner
+  print(outer.id)
+
+test "shared literal defaults", "5"
+  # `*5` holds an `Int`, like `x = 5`.
+
+  sub take(p: *Int)
+    print(p)
+
+  x = *5
+  take(<x)
+
+fail "shared of shared type", "8:8: `**Noisy` stacks one heap holding on another"
+  # A shared handle cannot itself be shared: `*(*T)` adds a second
+  # refcount for nothing. Clone the handle with `+x` instead.
+
+  obj Noisy
+    id: Int
+
+  inner = *Noisy(id: 4)
+  outer: *(*Noisy) = *(<inner)
+  print("wrapped")
+
+fail "shared of shared value", "already a shared handle"
+  # Sharing a value that is already a shared handle is rejected, like the
+  # `*(*T)` type: use `+x` to get another handle.
+
+  obj Noisy
+    id: Int
+
+  inner = *Noisy(id: 4)
+  outer = *(<inner)
+  print(outer.id)
+
+test "shift amount any integer", '''
+  12 16 20 4
+  20
+'''
+  # A shift amount may be any integer type; the result has the type of the
+  # shifted value.
+
+  fun sh(a: U8, n: Int) -> U8
+    a << n
+
+  fun back(a: Int, n: U8) -> Int
+    a >> n
+
+  n: U8 = 2
+  x: I32 = 5
+  print(sh(3, 2), back(64, n), x << n, 1 << n)
+  x <<= n
+  print(x)
+
+test "shift amounts", '''
+  8 12 32 3 16
+  8
+'''
+  # Shifts take an Int amount at run time or a constant one; the shifted
+  # value keeps the expression's type.
+
+  fun amount(n: Int) -> Int
+    n + 1
+
+  k = amount(2)
+  print(1 << k, k << 2, 256 >> k, 7 & k, 1 << 4)
+  u: U8 = 1
+  print(u << 3)
+
+test "shift literal context", "18446744073709551616 1267650600228229401496703205376 128 4611686018427387904 16"
+  # A literal shifted takes the type its context gives it, and the shift
+  # amount is checked against that type's width.
+
+  a: U128 = 1 << 64
+  b: I128 = 1 << 100
+  c: U8 = 1 << 7
+  d = 1 << 62
+  print(a, b, c, d, 256 >> 4)
+
+fail "shift literal context is rejected", "4:14: shift amount `15` is out of range for `U8` (0..7)", "6:10: shift amount `64` is out of range for `Int` (0..63)"
+  # A literal shifted by as much as its type's width or more is rejected in
+  # that type.
+
+  a: U8 = 2 >> 15
+  b = 128 >> 63
+  c = 1 << 64
+  print(a, b, c)
+
+bomb "shift overflow panics", "left shift overflowed bits", prints: "4611686018427387904"
+  # A left shift that loses bits overflows, like `+` and `*`: here at run
+  # time, as a panic.
+
+  fun rt(x: Int) -> Int
+    x
+
+  x = rt(1)
+  print(x << 62)
+  print(x << 63)
+
+test "shift wide", "170141183460469231731687303715884105728 -170141183460469231731687303715884105728 170141183460469231731687303715884105728"
+  # A constant shift is checked against its type's width: in a 128-bit
+  # type, a shift by 127 keeps its bits.
+
+  K: U128 = 1
+  TOP: U128 = K << 127
+
+  sub main()
+    x: U128 = 1
+    y: I128 = -1
+    print(x << 127, y << 127, TOP)
+
+bomb "shl amount panics", "left shift overflowed bits", prints: "128", release: true
+  # A `<<` amount at or over the width panics, and so does a `<<` that loses bits.
+
+  fun shift(x: U8, n: Int) -> U8
+    x << n
+
+  print(shift(1, 7))
+  print(shift(3, 7))
+
+test "shl wrap", release: true, '''
+  130 128 193
+  240 128
+  65280 32768
+  2 2147483648
+  9223372036854775808 18446744069414584320
+  319014718988379809496913694467282698240
+  -126 -128
+  -32768 -256
+  -2147483648 0
+  -4611686018427387904 -9223372036854775808 -9223372036854775808
+  -170141183460469231731687303715884105728 85070591730234615865843651857942052864
+  8 -72057594037927936
+  2
+  0
+  48336
+  52480
+  268435455 4294967292 8
+  8
+'''
+  # `<<%` is a left shift that drops the high bits, as `+%`, `-%`, and `*%` wrap;
+  # `<<` panics where it would lose them. `<<%=` assigns.
+
+  fun shl8(x: U8, n: Int) -> U8
+    x <<% n
+
+  a: U8 = 0b1100_0001
+  print(a <<% 1, a <<% 7, a <<% 0)
+  print(shl8(0xFF, 4), shl8(1, 7))
+  b: U16 = 0xFFFF
+  print(b <<% 8, b <<% 15)
+  c: U32 = 0x8000_0001
+  print(c <<% 1, c <<% 31)
+  d: U64 = 0xFFFF_FFFF_FFFF_FFFF
+  print(d <<% 63, d <<% 32)
+  e: U128 = 0xFF
+  print(e <<% 124)
+  s: I8 = 0b0100_0001
+  print(s <<% 1, s <<% 7)
+  t: I16 = -1
+  print(t <<% 15, t <<% 8)
+  u: I32 = 0x4000_0000
+  print(u <<% 1, u <<% 2)
+  v: Int = 3
+  print(v <<% 62, v <<% 63, (-1) <<% 63)
+  w: I128 = 1
+  print(w <<% 127, w <<% 126)
+  print(1 <<% 3, 255 <<% 56)
+  x: U8 = 0b1000_0001
+  x <<%= 1
+  print(x)
+  x <<%= 7
+  print(x)
+  y: U16 = 0xABCD
+  y <<%= 4
+  print(y)
+  n: Int = 4
+  y <<%= n
+  print(y)
+  z: U32 = 0xFFFF_FFFF
+  print((z <<% 4) >> 4, z <<% 1 + 1, 1 + 1 <<% 2)
+  f: U8 = 1
+  print(f <<% 1 <<% 1 <<% 1)
+
+bomb "shl wrap amount panics", "integer does not fit in destination type", prints: "128", release: true
+  # The amount of `<<%` must be below the width, as for `<<`: it is not masked.
+
+  fun shift(x: U8, n: Int) -> U8
+    x <<% n
+
+  print(shift(1, 7))
+  print(shift(1, 8))
+  print("unreachable")
+
+fail "shl wrap operands", "4:7: operator `<<%` requires integer operands; got `Float`", "shift amount `8` is out of range for `U8` (0..7)", "a shift amount must be an integer; got `Float`", "shift amount `16` is out of range for `U16` (0..15)", "`<<%=` requires an integer target; `f` has type `Float`", "a shift amount must be an integer; got `Bool`"
+  # `<<%` needs an integer on the left and an integer amount below the width, as `<<` does.
+
+  f = 1.5
+  print(f <<% 1)
+  n: U8 = 1
+  print(n <<% 8)
+  print(n <<% 1.5)
+  m: U16 = 1
+  m <<%= 16
+  f <<%= 1
+  print(1 <<% true)
+
+test "shl wrap places", release: true, '''
+  130
+  pick 0
+  pick 1
+  [2, 0, 3]
+  240
+  2 170141183460469231731687303715884105728
+  224
+'''
+  # `<<%=` assigns a wrapping left shift to a name or a place, evaluating the place once;
+  # a constant `<<%` wraps in the type its context gives it.
+
+  obj P
+    n: U8
+
+  fun pick(i: Int) -> Int
+    print("pick", i)
+    i
+
+  MASK: U8 = 0xFF <<% 4
+
+  sub main()
+    p = P(n: 0b1100_0001)
+    p.n <<%= 1
+    print(p.n)
+    xs: [3]U16 = [0x8001, 0x4000, 3]
+    xs[pick(0)] <<%= 1
+    xs[pick(1)] <<%= 2
+    print(xs)
+    print(MASK)
+    big: U128 = 0x8000_0000_0000_0000_0000_0000_0000_0001
+    print(big <<% 1, big <<% 127)
+    k: U8 = 0xF0 <<% 1
+    print(k)
+
+test "showcase program", '''
+  3
+  Steve
+  7
+  false
+  5
+  1
+'''
+  # The original language showcase: fallible functions return plain
+  # values, `?input` lends on a view parameter, a compile-time
+  # parameter specializes the function, and a user type may be named `Bytes`.
+
+  obj User
+    name: ?String
+    id: U64
+
+  obj Profile
+    name: ?String
+
+  obj UserView
+    user: ?User
+    profile: ?Profile
+
+  enum ParseMode
+    strict
+    loose
+
+  obj Ast
+    ok: Bool
+
+  obj Bytes
+    data: Int
+
+  fun parseStrict(input: ?Bytes) -> Ast
+    Ast(ok: input.data > 0)
+
+  fun parseLoose(input: ?Bytes) -> Ast
+    Ast(ok: true)
+
+  fun add(a: Int, b: Int) -> Int
+    a + b
+
+  fun loadUser(id: U64) -> User!
+    User(name: "Steve", id: id)
+
+  fun loadProfile(id: U64) -> Profile!
+    Profile(name: "Steve")
+
+  # Compile-time specialization: `[mode: ParseMode]` is Zig's `comptime`.
+  fun parse[mode: ParseMode](input: ?Bytes) -> Ast
+    if mode == .strict
+      parseStrict(?input)
+    else
+      parseLoose(?input)
+
+  obj Wrap[T]
+    value: T
+
+  total = add(1, 2)
+  print(total)
+
+  user =! loadUser(1)!         # fixed binding of a propagated result
+  print(user.name)
+
+  other = <user                # a move: `user` is done
+
+  u = loadUser(7)!
+  p = loadProfile(u.id)!
+  view = UserView(user: ?u, profile: ?p)
+  print(view.user.id)
+
+  bytes = Bytes(data: 0)
+  ast = parse[.strict](?bytes)
+  print(ast.ok)
+
+  b: Wrap[Int] = Wrap(value: 5)
+  print(b.value)
+
+  print(other.id)              # `other` owns the user now
+
+fail "signal stack field", "stack-local `Signal[T]` is not supported"
+  # A struct holds a Signal through a shared handle (`s: *Signal[Int]`).
+
+  obj H
+    s: Signal[Int]
+
+  h = H(s: Signal(1))
+  print(h.s.get())
+
+fail "signal stack local", "stack-local `Signal[T]` is not supported"
+  # A stack-local `Signal[T]` is rejected; signals must be heap-owned
+  # (`*Signal[T]`).
+
+  sig: Signal[Int] = Signal(0)
+
+fail "signal stack local inferred", "stack-local `Signal[T]` is not supported"
+  # A Signal lives behind a shared handle: an unannotated stack Signal is
+  # rejected too.
+
+  sig = Signal(0)
+  print(sig.get())
+
+fail "signal stack shared later", "stack-local `Signal[T]` is not supported"
+  # A Signal is constructed directly under `*`; sharing a stack one later
+  # is rejected.
+
+  s = Signal(1)
+  t = *<s
+  print(t.get())
+
+test "single field positional", '''
+  5 Node(key: 1, next: Node(key: 2, next: none)) 3 7 9 Meters(value: 3.5) Wrap(item: 4) Wrap(item: "hi") 6
+'''
+  # A type with one field takes it by position, as a variant with one
+  # field does: `^x`, `*Cell(0)`, `*Signal(7)`, a one-field struct,
+  # and a one-field generic type, whose argument is inferred from the
+  # value. The named form stays legal.
+
+  obj Meters
+    value: Float
+
+  obj Wrap[T]
+    item: T
+
+  obj Node
+    key: Int
+    next: ^Node?
+
+  b = ^5
+  n = ^Node(key: 1, next: ^Node(key: 2, next: none))
+  c = *Cell(0)
+  !c.set(c.get() + 3)
+  s = *Signal(7)
+  sh: *Cell[Int] = *Cell(9)
+  m = Meters(3.5)
+  w = Wrap(4)
+  w2 = Wrap[?String]("hi")
+  named = ^6
+  print(b, n, c.get(), s.get(), sh.get(), m, w, w2, named)
+
+test "single quoted string raw", '''
+  C:\qdir
+  a\nb
+'''
+  # A single-quoted string takes no escapes: a backslash is itself.
+
+  print('C:\qdir')
+  print('a\nb')
+
+test "sized literal arithmetic", '''
+  255
+  10000000000
+'''
+  # Literals take the sized type of the other operand.
+
+  a: U8 = 200
+  b = a + 55
+  c: I64 = 5000000000
+  print(b)
+  print(c * 2)
+
+fail "sized type leading zero", "2:4: use of unbound type `I08`", "3:5: use of unbound name `U08`"
+  # A sized type's width has no leading zero: `I08` is not `I8`.
+  x: I08 = 5
+  y = U08(7)
+  print(x, y)
+
+fail "statement without effect", "12:1: this expression does nothing as a statement", "13:2: this expression does nothing as a statement", "15:1: this expression does nothing as a statement", "16:1: this expression does nothing as a statement", "17:1: `greet` is a function; call it with `greet()`"
+  # An expression statement must do something: call, propagate, or catch.
+  # One that only reads a value is a mistake, and a function name alone was
+  # meant as a call.
+
+  obj P
+    n: Int
+
+  sub greet()
+    print("hi")
+
+  x = 1
+  x
+  (x)
+  p = P(n: 2)
+  p.n
+  ?p
+  greet
+  print(x, p.n)
+
+test "static array as slice", '''
+  2 a
+  2 a
+  3 x
+  1 q
+  2 a
+'''
+  # An array or a List of `Static` lends to read as a `[]?String`, as an
+  # array of `Int` lends as a `[]Int`: a bare name, `?name`, a temporary
+  # array, and a List.
+  sub show(xs: []?String)
+    print(xs.len, xs[0])
+
+  a: [2]Static = ["a", "b"]
+  show(a)
+  show(?a)
+  show(["x", "y", "z"])
+  l = List[Static]()
+  !l.push("q")
+  show(l)
+  show(?a[..])
+
+fail "static array as write slice", "7:6: type mismatch: expected `![]?String`, got `![2]Static`"
+  # The elements of a `Static` array are read as `?String`s, never
+  # written as them: a write lend holds exactly its element type.
+  sub fill(xs: ![]?String)
+    pass
+
+  a: [2]Static = ["a", "b"]
+  fill(!a)
+
+test "static in holders", release: true, '''
+  idle
+  busy
+  again
+  signal go
+  go
+  hello 1
+  hello 2
+  2 3
+  tag 7
+  second 2
+  p q
+  none
+  some
+  der true
+'''
+  # A `Static` is text that lives for the whole program: a literal, or
+  # text derived only from literals. It is plain data that carries no
+  # loan, so it goes where no loan is tracked: in a `Cell`, a `Signal`, an
+  # owned closure, and in a struct field or a generic `T` stored there.
+
+  obj Tag
+    name: Static
+    n: Int
+
+  obj Pair[T]
+    a: T
+    b: T
+
+  sub remember(c: !Cell[Static], s: Static)
+    !c.set(s)
+
+  sub keep[T](c: !Cell[T], v: T)
+    !c.set(v)
+
+  fun greeter(who: Static) -> *fun(Int) -> Int
+    *|+who, n: Int|
+      print(who, n)
+      n + 1
+
+  fun greeter_of(t: Tag) -> *sub()
+    *|+t| print(t.name, t.n)
+
+  c = *Cell("idle")
+  print(c.get())
+  remember(!c, "busy")
+  print(c.get())
+  keep(!c, "again")
+  print(c.get())
+
+  sig = *Signal("start")
+  !sig.subscribe(*|~sig|
+    if *sig as s
+      print("signal", s.get())
+  )
+  !sig.set("go")
+  print(sig.get())
+
+  f = greeter("hello")
+  print(f(1), f(2))
+  g = greeter_of(Tag(name: "tag", n: 7))
+  g()
+
+  tags: *Cell[Tag] = *Cell(Tag(name: "first", n: 1))
+  !tags.set(Tag(name: "second", n: 2))
+  print(tags.get().name, tags.get().n)
+
+  pairs: *Cell[Pair[Static]] = *Cell(Pair(a: "x", b: "y"))
+  !pairs.set(Pair(a: "p", b: "q"))
+  print(pairs.get().a, pairs.get().b)
+
+  opt: *Cell[Static?] = *Cell(none)
+  print(opt.get())
+  !opt.set("some")
+  print(opt.get())
+
+  name = "derived"
+  !c.set(name)
+  !c.set(name[..3])
+  print(c.get(), c.get() == "der")
+
+fail "static join is string", "8:13: type mismatch: expected `Static`, got `?String`", "9:13: type mismatch: expected `Static`, got `?String`", "10:17: type mismatch: expected `Static`, got `?String`", "11:35: type mismatch: expected `Static`, got `?String`", errors: 4
+  # A branch, `??`, or list literal that mixes a `Static` with a `?String`
+  # has the type `?String`: the `Static` is read there, and nothing makes the
+  # `?String` a `Static`.
+
+  t = String("abcdef")
+  v: ?String = ?t[..]
+  q: Static? = none
+  a: Static = v if t.len > 1 else "a"
+  b: Static = q ?? v
+  c: [2]Static = [v, "a"]
+  d: Static = "a" if t.len > 1 else v
+  print(a, b, c, d)
+
+fail "static name reserved", "3:5: `Static` is a reserved built-in nominal name and cannot be redefined"
+  # `Static` is a built-in type, like `String`, and cannot be redefined.
+
+  obj Static
+    n: Int
+
+  print(1)
+
+fail "static never where written", "12:8: cannot lend `loose` to write: it holds a read view of text, `?String`", "13:15: cannot lend `loose` to write", "14:23: type mismatch: expected `Static`, got `?String`", "15:9: type mismatch: expected `Static`, got `?String`; `fixed` is a `Static`, bound to a literal's text, and a `?String` may view a `String`: declare it `fixed: ?String = ...` to hold other text", errors: 4
+  # A `Static` is read as a `?String`, never where the text can be written:
+  # a `?String` view cannot be written into a `Static` place, and a `?String`
+  # place, which nothing lends to write, is no `!Static`.
+
+  sub reset(w: !Static)
+    w = "reset"
+
+  t = String("abcdefghijklmnop")
+  view: ?String = ?t[..]
+  fixed = "fixed"
+  loose: ?String = "loose"
+  reset(!loose)
+  swap(!fixed, !loose)
+  old = replace(!fixed, view)
+  fixed = view
+  print(fixed, loose, old)
+
+test "static reads as string", release: true, '''
+  3 4 lit
+  from
+  from
+  ["lit", "from", "end"] 3
+  a true
+  lit q b
+  none none from
+  default true false false false
+  from true
+  Static ?String ?String
+  it padded true 1
+'''
+  # A `Static` is read as a `?String` where the text is only read: an
+  # argument, a field, a return, a branch, `??`, a list literal, a slice
+  # of elements, a generic `T` that a `?String` binds too, and a
+  # comparison. The result of mixing the two is a `?String`.
+
+
+  obj Line
+    text: ?String
+
+  fun shout(s: ?String) -> Int
+    s.len
+
+  fun first_of(xs: []?String) -> ?String
+    xs[0]
+
+  fun pick[T](a: T, b: T, left: Bool) -> T
+    a if left else b
+
+  fun type_name[T]() -> ?String
+    @name(T)
+
+  fun fallback(s: (?String)?) -> ?String
+    s ?? "none"
+
+  lit = "lit"
+  t = String("from text")
+  view: ?String = ?t[..4]
+
+  print(shout(lit), shout("four"), Line(text: lit).text)
+
+  chosen = view if t.len > 3 else "other"
+  print(chosen)
+  other = "x" if t.len > 99 else view
+  print(other)
+
+  both = [lit, view, "end"]
+  print(both, both.len)
+  words = ["a", "b"]
+  print(first_of(?words[..]), first_of(os.args()) != "")
+
+  print(pick(lit, view, true), pick(view, "q", false), pick("a", "b", false))
+
+  maybe: Static? = none
+  print(fallback(maybe), fallback(os.env("RIG_STATIC_SURELY_UNSET")), fallback(view))
+  print(maybe ?? "default", view == "from", lit == view, "lit" < view, view >= lit)
+  mixed = maybe ?? view
+  print(mixed, (maybe ?? "same") == "same")
+
+  print(@name(Static), type_name[Static](), type_name[?String]())
+  part = lit[1..]
+  sub_text = text.trim("  padded  ")
+  print(part, sub_text, text.contains(lit, "i"), text.find(part, "t") ?? -1)
+
+fail "string byte and len write", "11:1: cannot assign to a byte of a `?String`; a `?String` is read-only", "12:7: cannot lend a byte of a `?String` to write; a `?String` is read-only", "13:3: cannot assign to `.len`; a length is read-only", "14:8: cannot lend `.len` to write; a length is read-only", "15:3: cannot assign to `.len`; a length is read-only"
+  # A String's bytes and every `.len` are read-only.
+
+  sub inc(n: !Int)
+    n += 1
+
+  sub bump(b: !U8)
+    b += 1
+
+  s = "abc"
+  a = [1, 2, 3]
+  s[0] = 65
+  bump(!s[1])
+  a.len = 5
+  inc(!a.len)
+  s.len += 1
+  print(s)
+
+test "string equality", '''
+  true
+  false
+'''
+  # `==` on Strings compares their contents.
+
+  s = "a"
+  print(s == "a")
+  print(s == "b")
+
+test "string ordering", '''
+  true false true false
+  true true true true false
+  true true true
+  true false
+  b pear 3
+  apple fig
+  true false
+'''
+  # `<`, `<=`, `>`, and `>=` order Strings and `[]U8` slices by their bytes:
+  # the first byte that differs decides, and a prefix sorts first. A
+  # generic body orders a `T` that is a String the same way.
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  fun min_of[T](xs: []T) -> T
+    best = xs[0]
+    for x in xs
+      if x < best
+        best = x
+    best
+
+  print("abc" < "abd", "abd" < "abc", "abc" <= "abc", "abc" >= "abd")
+  print("ab" < "abc", "abc" > "ab", "" < "a", "" <= "", "" > "")
+  print("Z" < "a", "é" > "z", "a" < "é")
+  s = "hello"
+  t = "help"
+  print(s < t, s > t)
+  print(max("a", "b"), max("pear", "apple"), max(3, 2))
+  words = ["pear", "fig", "apple", "fiddle"]
+  print(min_of(?words[0..4]), min_of(?words[0..2]))
+  bytes: [3]U8 = [1, 2, 3]
+  more: [4]U8 = [1, 2, 3, 0]
+  print(?bytes[0..3] < ?more[0..4], ?more[0..2] > ?bytes[0..3])
+
+test "string owned and view", '''
+  hi! 3 3
+  hi! there hi! hi
+'''
+  # A `String` owns its text and a `?String` views it. Names say what a
+  # value is and sigils say how it is held: `?s` lends a `String` as a
+  # `?String`, `!s` lends it to write, and `+s` of a `?String` copies it
+  # into a new `String`.
+
+  fun length(s: ?String) -> Int
+    s.len
+
+  sub shout(s: !String)
+    !s.add("!")
+
+  fun copy_of(s: ?String) -> String
+    +s
+
+  s = String("hi")
+  shout(!s)
+  print(s, length(?s), length("lit"))
+  t = copy_of(?s)
+  !t.add(" there")
+  v: ?String = ?t[..2]
+  print(t, s, v)
+
+fail "string owner expected", "9:12: type mismatch: expected `String`, got `Static`; a `String` owns its text: write `String(\"x\")` to copy it, or declare the place `?String` to only read it", "10:12: type mismatch: expected `String`, got `?String`; a `String` owns its text: write `String(?t)` to copy it", "11:13: type mismatch: expected `String`, got `Static`; a `String` owns its text: write `String(\"lit\")` to copy it"
+  # A `String` owns its text, so a place that expects one is not given a
+  # literal or a read view: the hint is a copy, `String(...)`, or a place
+  # that only reads, `?String`.
+
+  fun size(s: String) -> Int
+    s.len
+
+  t = String("a")
+  print(size("x"))
+  print(size(?t))
+  x: String = "lit"
+
+fail "string place not lent to write", "12:7: cannot lend `a` to write: it holds a read view of text, `?String`", "12:11: cannot lend `b` to write", "14:16: cannot lend `p.left` to write", "17:18: cannot lend `names[0]` to write", "20:6: cannot lend `v` to write", "21:7: cannot lend `a` to write", errors: 6
+  # A `?String` is a read view of text, and nothing lends a view's own slot
+  # to write: `swap`, `replace`, and `!` on a place that holds one are
+  # rejected, as for any read view. Assign to it to point it at other
+  # text, or hold a `String` to change the text in place.
+
+  obj Pair
+    left: ?String
+    right: ?String
+
+  a: ?String = "x"
+  b: ?String = "y"
+  swap(!a, !b)
+  p = Pair(left: "l", right: "r")
+  old = replace(!p.left, "z")
+  names: List[?String] = List()
+  !names.push("n")
+  first = replace(!names[0], "m")
+  t = String("t")
+  v = ?t
+  w = !v
+  f = |!a| a = "q"
+  f()
+
+fail "string plus int", "4:5: operator `+` requires numeric operands; got `Static`"
+  # Arithmetic operands must be numeric; `"a" + 1` is rejected.
+
+  s = "a"
+  t = s + 1
+  print(t)
+
+fail "string push generic", "7:1: `put[Float]` cannot use `T = Float`: the generic body applies `push` to `T`, which `Float` does not support"
+  # A type parameter given to `push[T, e]` must be an integer in every instance.
+
+  sub put[T](t: !String, v: T)
+    !t.push[T, .big](v)
+
+  s = String()
+  put(!s, 1.5)
+
+fail "string push keep", "8:22: `keep: 17` is more than the 16 bytes pushed", "9:22: `keep: -1` is negative; `push` keeps 0 up to the size of the value", "10:35: `keep: 9` is more than the 8 bytes pushed", "11:29: `keep: 3` is more than the 2 bytes pushed", "12:9: `push` with `keep:` takes a vector of bytes, a `Simd[U8, n]`, or an integer with its byte order, `push[U64, .little](word, keep: k)`; got `U64`", "13:22: type mismatch: expected `Int`, got `Float`", "14:4: `push` takes one byte, a `U8`; got 2 arguments", "15:29: `push` takes no keyword argument but `keep:`, last: `push[U64, .little](word, keep: k)`", "16:4: `push` takes one byte, a `U8`; got 2 arguments", "17:4: `push(v, keep: k)` takes one value and `keep:`; got 2 arguments", "18:9: `push` with `keep:` takes a vector of bytes, a `Simd[U8, n]`, or an integer with its byte order, `push[U64, .little](word, keep: k)`; got `Int`", "19:22: type mismatch: expected `Int`, got `Static`"
+  # `push(v, keep: k)` takes a vector of bytes, or an integer with its
+  # byte order, and an `Int` count, 0 up to the size of `v` when a constant.
+
+  s = String("abcdefghijklmnopqrstuvwxyz0123456789")
+  v: ?String = ?s
+  block = v.read[Simd[U8, 16]](0)
+  word = v.read[U64, .little](0)
+  !s.push(block, keep: 17)
+  !s.push(block, keep: -1)
+  !s.push[U64, .little](word, keep: 9)
+  !s.push[U16, .big](1, keep: 3)
+  !s.push(word, keep: 2)
+  !s.push(block, keep: 1.5)
+  !s.push(block, size: 1)
+  !s.push[U64, .little](word, size: 1)
+  !s.push(block, 1)
+  !s.push(block, block, keep: 1)
+  !s.push(1, keep: 1)
+  !s.push(block, keep: "x")
+
+fail "string push wide", "5:9: `push` appends an integer type; got `F32`", "6:9: `push` appends an integer type; got `Bool`", "7:2: `push` of a `U16` takes a byte order too: `push[U32, .little](value)`", "8:15: no variant `native` on enum `Endian`", "9:2: `push` takes the integer type and, for more than one byte, the byte order in brackets: `push[U32, .little](value)`", "10:4: `push` takes one argument, the integer to append; got 0 arguments", "11:4: `push` takes one argument, the integer to append; got 2 arguments", "12:20: type mismatch: expected `U16`, got `Static`", "13:4: `reserve` takes one argument, the number of bytes to make room for; got 0 arguments", "14:2: `reserve` takes no compile-time arguments", "15:12: type mismatch: expected `Int`, got `Static`", "16:4: `push` takes one byte, a `U8`; got 0 arguments"
+  # `push[T, e]` takes an integer type and, for more than one byte, a
+  # byte order; `reserve` takes a count.
+
+  s = String()
+  !s.push[F32, .big](1.5)
+  !s.push[Bool, .big](true)
+  !s.push[U16](1)
+  !s.push[U16, .native](1)
+  !s.push[U8, .big, .little](1)
+  !s.push[U16, .big]()
+  !s.push[U16, .big](1, 2)
+  !s.push[U16, .big]("x")
+  !s.reserve()
+  !s.reserve[U8](1)
+  !s.reserve("x")
+  !s.push()
+
+fail "string retired name", "4:13: use of unbound type `Text`; owned text is `String`, and its read view is `?String`", "7:5: use of unbound name `Text`; owned text is `String`, and its read view is `?String`"
+  # Owned text is `String` and its read view is `?String`. `Text` is
+  # unbound, with a hint.
+
+  fun size(t: Text) -> Int
+    t.len
+
+  a = Text("x")
+  print(size(?a))
+
+test "struct associated method", "hi"
+  # A `fun` declared in a struct body without `self` is called through the
+  # type name.
+
+  obj User
+    name: ?String
+
+    fun greet() -> ?String
+      "hi"
+
+  print(User.greet())
+
+test "struct constructor fields", '''
+  Steve
+  31
+'''
+  # A struct constructor with keyword fields; member access types each
+  # field from the declaration.
+
+  obj User
+    name: ?String
+    age: Int
+
+  u = User(name: "Steve", age: 30)
+  print(u.name)
+  print(u.age + 1)
+
+fail "struct contains itself", "`Node` contains itself by value through `next`", "`A` contains itself by value through `b`", "`Chain[...]` contains itself by value through `tail`", "`Tree` contains itself by value through `pair`"
+  # A type that holds itself by value, directly, through an optional, or
+  # through another type, has no finite size.
+
+  obj Node
+    n: Int
+    next: Node?
+
+  obj A
+    b: B
+
+  obj B
+    a: A?
+
+  obj Chain[T]
+    head: T
+    tail: Chain[T]?
+
+  enum Tree
+    leaf(n: Int)
+    pair(l: Tree, r: Int)
+
+  print(1)
+
+fail "struct duplicate kwarg", "duplicate field `name` in constructor of `User`"
+  # A constructor may not name the same field twice.
+
+  obj User
+    name: ?String
+    age: Int
+
+  u = User(name: "Steve", name: "Other", age: 30)
+
+test "struct equality", '''
+  true false false true
+  true false true
+  true
+  false
+  false false true
+  true false false true true
+  false true true false
+  true true
+  true false true false
+  true true
+'''
+  # `==` and `!=` compare structs field by field, payload enums by variant
+  # and then payload, and arrays and slices element by element. Floats
+  # compare as numbers do, so a NaN field makes two structs unequal.
+
+  obj Point
+    x: Int
+    y: Int
+
+  obj Segment
+    from: Point
+    to: Point
+    label: ?String
+
+  obj Sample
+    at: Point
+    value: Float
+
+  enum Shape
+    circle(center: Point, radius: Int)
+    square(side: Int)
+    origin
+
+  fun find(n: Int) -> Point?
+    if n > 0
+      return Point(x: n, y: n)
+    none
+
+  a = Point(x: 1, y: 2)
+  b = Point(x: 1, y: 2)
+  c = Point(x: 2, y: 1)
+  print(a == b, a != b, a == c, a != c)
+  s1 = Segment(from: a, to: c, label: "ac")
+  s2 = Segment(from: b, to: c, label: "ac")
+  s3 = Segment(from: a, to: c, label: "ca")
+  print(s1 == s2, s1 == s3, s1 != s3)
+  nan = 0.0 / 0.0
+  print(Sample(at: a, value: 1.5) == Sample(at: b, value: 1.5))
+  print(Sample(at: a, value: nan) == Sample(at: a, value: nan))
+  fs = [nan, 1.0]
+  print(fs == fs, ?fs[0..2] == ?fs[0..2], ?fs[1..2] == ?fs[1..2])
+  k1: Shape = .circle(center: a, radius: 3)
+  k2: Shape = .circle(center: b, radius: 3)
+  k3: Shape = .circle(center: c, radius: 3)
+  k4: Shape = .square(side: 3)
+  k5: Shape = .origin
+  print(k1 == k2, k1 == k3, k1 == k4, k4 != k5, k5 == .origin)
+  print(find(1) == none, find(0) == none, find(1) == find(1), find(1) == find(2))
+  print(find(1) == Point(x: 1, y: 1), find(0) != a)
+  xs = [a, c]
+  ys = [b, c]
+  zs = [c, a]
+  print(xs == ys, xs == zs, ?xs[0..1] == ?zs[1..2], ?xs[0..2] == ?zs[0..1])
+  grid = [[1, 2], [3, 4]]
+  print(grid == [[1, 2], [3, 4]], grid != [[1, 2], [3, 5]])
+
+fail "struct field type", "type mismatch: expected `?String`, got `Int`"
+  # Each constructor keyword's value must match the field's declared type.
+
+  obj User
+    name: ?String
+    age: Int
+
+  u = User(name: 42, age: 30)
+
+fail "struct missing field", "constructor of `User` is missing field `age`"
+  # A constructor must supply every declared field.
+
+  obj User
+    name: ?String
+    age: Int
+
+  u = User(name: "Steve")
+
+fail "struct positional fields", "12:5: a type with more than one field sets them by name: `P(x: ...)`", "13:5: a type with more than one field sets them by name: `Pair(a: ...)`", "14:5: a type with more than one field sets them by name: `Pair(a: ...)`"
+  # A type with one field takes it by position (`^x`); with more
+  # fields, they are set by name.
+
+  obj P
+    x: Int
+    y: Int
+
+  obj Pair[T]
+    a: T
+    b: T
+
+  p = P(1, 2)
+  w = Pair(2, 3)
+  u = Pair[Int](3, 4)
+  print(p.x, w.a, u.a)
+
+fail "struct sigil member", "sigil-prefixed member (`?x` / `!x` / `<x`) is not allowed in a nominal body"
+  # Sigil-prefixed names (`?x`) are sugar for `self` parameters only, not
+  # struct members.
+
+  obj S
+    name: ?String
+    ?x
+
+  s = S(name: "a", x: 5)
+  print(s.name)
+
+fail "struct unknown field", "8:9: no field `zzz` on type `User`", errors: 1
+  # Member access must name a declared field.
+
+  obj User
+    name: ?String
+    age: Int
+
+  u = User(name: "Steve", age: 30)
+  print(u.zzz)
+
+fail "struct unknown kwarg", "no field `lol` on type `User`"
+  # A constructor keyword must name a declared field.
+
+  obj User
+    name: ?String
+    age: Int
+
+  u = User(name: "Steve", lol: 30)
+
+fail "sub result arithmetic", "6:5: `x` would be bound to a value of type `Void`; this expression produces no value"
+  # A `sub` produces no value, so binding its result is rejected.
+
+  sub g()
+    print(1)
+
+  x = g()
+  y = x + 1
+  print(y)
+
+fail "sub returns value", "a `sub` returns no value"
+  # A `sub` returns no value.
+
+  sub f()
+    return 1
+
+  f()
+
+test "symbol basics", '''
+  12 6 0 :rect
+  true none
+  2 :done done 4
+  :triangle :none
+  help
+  keyword :if :type :match
+  [:a, :b] 2
+'''
+  # A symbol `:name` is a value of the builtin type `Symbol`: equal to
+  # the same name, matched with a required `_`, printed as written, its
+  # name a `Static` (`s.text`), and found by name with
+  # `Symbol.from_text(word)`, which allocates nothing and gives `none` for
+  # a name the program never writes.
+
+  fun area(shape: Symbol, w: Int, h: Int) -> Int
+    match shape
+      :rect => w * h
+      :triangle => w * h / 2
+      _ => 0
+
+  fun next(s: Symbol) -> Symbol
+    match s
+      :start => :middle
+      :middle => :done
+      _ => :done
+
+  print(area(:rect, 3, 4), area(:triangle, 3, 4), area(:circle, 3, 4), :rect)
+  print(Symbol.from_text("rect") == :rect, Symbol.from_text("hexagon"))
+  s = :start
+  steps = 0
+  while s != :done : s = next(s)
+    steps += 1
+  print(steps, s, s.text, s.text.len)
+  word = String("triangle")
+  print(Symbol.from_text(?word) ?? :none, Symbol.from_text("") ?? :none)
+  match Symbol.from_text("help") ?? :unknown
+    :help, :usage => print("help")
+    _ => print("unknown")
+  k: Symbol = :if
+  match k
+    :if if false => print("never")
+    :if, :else => print("keyword", k, :type, :match)
+    _ => print("other")
+  print([:a, :b], [k, :c].len)
+
+fail "symbol match rules", "6:7: `match` on a `Symbol` is not exhaustive without `_ =>`", "11:7: duplicate arm for symbol `:a`", errors: 2
+  # A `match` on a `Symbol` needs `_ =>`: its values are every symbol the
+  # whole program writes, so no set of arms covers them. Two arms for one
+  # symbol are rejected, as two for one integer are.
+
+  t = :a
+  match t
+    :a => print(1)
+    :b => print(2)
+  match t
+    :a => print(1)
+    :b, :a => print(2)
+    _ => print(3)
+
+test "symbol no literals", "none true"
+  # A program that writes no symbol still has the type `Symbol`, with no
+  # values: `Symbol.from_text(word)` finds none.
+
+  fun find(w: ?String) -> Symbol?
+    Symbol.from_text(w)
+
+  w = String("width")
+  s = find(?w)
+  print(s, s == none)
+
+test "symbol plain", '''
+  :one :bumped :one one lit x
+  :boxed :shared
+  :one
+  :x x
+  :y y
+  :other
+  :some :some
+  5 4 0 2
+  1 true false
+  true false
+'''
+  # A symbol is plain data, as an `Int` is: a bare use copies it, a view
+  # reads or writes it in place, and it is boxed, shared, held optional,
+  # and kept in a List, a Map (keyed on its id), and a Set like any
+  # plain value. Its name, `.text`, is a `Static`, which keeps no loan.
+
+
+  sub bump(s: !Symbol)
+    s = :bumped
+
+  fun look(s: ?Symbol) -> Static
+    s.text
+
+  fun name_of(s: Symbol) -> Static
+    t = s
+    t.text
+
+  a = :one
+  b = a
+  c = +a
+  !bump(!b)
+  print(a, b, c, look(?a), look(?:lit), name_of(:x))
+  bx = ^:boxed
+  sh = *:shared
+  print(bx, sh)
+  d = <a
+  print(d)
+  xs = List[Symbol]()
+  !xs.push(:x)
+  !xs.push(:y)
+  for s in xs
+    print(s, s.text)
+  o: Symbol? = none
+  print(o ?? :other)
+  o = :some
+  print(o, o ?? :other)
+  m = hash.Map[Symbol, Int]()
+  !m.put(:width, 3)
+  !m.put(:height, 4)
+  !m.put(:width, 5)
+  print(m.get(:width) ?? 0, m.get(:height) ?? 0, m.get(:depth) ?? 0, m.len)
+  set = hash.Set[Symbol]()
+  !set.add(:a)
+  !set.add(:a)
+  print(set.len, set.has(:a), set.has(:b))
+  w = :width
+  print(w.hash() == (:width).hash(), w.hash() == (:height).hash())
+
+fail "symbol reserved name", "4:5: `Symbol` is a reserved built-in nominal name and cannot be redefined"
+  # `Symbol` is a builtin type, as `String` and `Static` are, so no module
+  # declares a type of that name.
+
+  obj Symbol
+    x: Int
+
+  print(Symbol(x: 1).x)
+
+fail "symbol rules", "6:14: `.width` is an enum variant, and a `Symbol` is expected; a symbol is written `:width`", "8:10: operator `<` is not defined for `Symbol`: a symbol has no order; compare with `==` and `!=`", "8:18: operator `>=` is not defined for `Symbol`", "9:11: `U32(x)` converts a number; `x` has type `Symbol`", "9:22: `Symbol` has no function `from_int`; its one function is `Symbol.from_text(word)`", "10:3: cannot assign to `.text`; a symbol's name is read-only", "11:9: a `Symbol` has no field `name`; its one member is its name, `.text`", "11:21: `.a` is an enum variant, and a `Symbol` is expected; a symbol is written `:a`", errors: 8
+  # A symbol has one spelling, `:name`, and no order: `.width` where a
+  # `Symbol` is expected is an enum variant, `<` is not defined, and a
+  # symbol's id stays inside the compiler (no `U32(s)`, no
+  # `Symbol.from_int`). Its one member is `.text`, which is read-only.
+
+  s: Symbol = .width
+  t = :a
+  print(s, t < :b, t >= :a)
+  print(U32(t), Symbol.from_int(0))
+  t.text = "x"
+  print(t.name, t == .a)
+
+fail "temporary owned closure call", "bind it to a name first"
+  # Calling an owned closure built in place would never drop it.
+
+  c: *Cell[Int] = *Cell(1)
+  (*|+c| !c.set(2))()
+  print(c.get())
+
+test "temporary resource operand", '''
+  1
+  drop 1
+  next
+'''
+  # A temporary that owns a resource, read as an operand (here the value
+  # whose field is read), is dropped when its statement ends.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> B
+    B(n: n)
+
+  print(mk(1).n)
+  print("next")
+
+test "temporary resource print", '''
+  B(n: 1)
+  drop 1
+  next
+'''
+  # A temporary that owns a resource and is only read, as a `print`
+  # argument is, is dropped when its statement ends.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> B
+    B(n: n)
+
+  print(mk(1))
+  print("next")
+
+test "text build", '''
+  0 true
+  n=42 f=2.5 b=true u=200 i=-170141183460469231731687303715884105728
+  n=42 f=2.5 b=true u=200 i=-170141183460469231731687303715884105728 nan=nan one=1.0 tiny=0.30000000000000004
+  Point(x: 1, y: 2.0) User(name: "ada", age: 36) .circle(r: 1.5) .dot none [1, 2] [1, 2] ["a", "b"] c
+  99
+  5000 0123456789
+'''
+  # `String(...)` and `!t.add(...)` write each value as `print` writes it at
+  # the top level, with no separators: Strings bare, numbers and floats as
+  # `print` shows them, and structs, enums, optionals, arrays, and Vecs
+  # with Strings quoted inside them.
+
+  obj Point
+    x: Int
+    y: Float
+
+  obj User
+    name: ?String
+    age: Int
+
+  enum Shape
+    circle(r: Float)
+    dot
+
+  e = String()
+  print(e.len, e == "")
+  t = String("n=", 42, " f=", 2.5, " b=", true, " u=", U8(200), " i=", I128.min)
+  print(t)
+  !t.add(" nan=", 0.0 / 0.0, " one=", 1.0, " tiny=", 0.1 + 0.2)
+  print(t)
+  o: Int? = none
+  s = Shape.circle(r: 1.5)
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  u = String(Point(x: 1, y: 2.0), " ", User(name: "ada", age: 36), " ", s, " ", Shape.dot)
+  !u.add(" ", o, " ", [1, 2], " ", v, " ", ["a", "b"], " ", 'c')
+  print(u)
+  print(u.len)
+  big = String()
+  for i in 0..5000
+    !big.add(i % 10)
+  print(big.len, big[4990..])
+
+fail "text forms", "5:5: a slice of a String views it; write `?t[0..1]`", "6:6: cannot lend a slice of a String to write", "7:3: cannot assign to `.len`; a length is read-only", "8:3: method `add` needs its receiver lent to write; write `!t.add(\"x\")`", "9:12: `String(...)` takes no keyword arguments", "10:4: has no method `pop`"
+  # A Text is changed only through its `!` methods, and viewed only
+  # through a visible `?` view.
+
+  t = String("abc")
+  a = t[0..1]
+  b = !t[..]
+  t.len = 2
+  t.add("x")
+  u = String(first: "x")
+  !t.pop()
+  print(a, b, u)
+
+test "text friction", '''
+  opt1 ok1 4
+  1 none
+  hi 65
+  one  o
+  two tw
+  oxed true
+  3 1 3 2 true true
+  1 20 30
+  drop 30
+  end
+  drop 20
+  drop 1
+'''
+  # `!t.push(b)` appends one byte, while `!t.add(b)` writes a `U8` as a
+  # number. A `^String` is viewed through its box. A plain element of an
+  # owning temporary is read where it stands, and `??` on an owning
+  # optional temporary gives its value or the fallback.
+
+
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun maybe(k: Int) -> N?
+    N(id: k) if k > 0 else none
+
+  obj W
+    v: List[Int]
+    t: String
+
+  fun mkw() -> W
+    W(v: mkv(), t: String("wt"))
+
+  fun mkv() -> List[Int]
+    v: List[Int] = List()
+    !v.push(3)
+    v
+
+  fun mko(k: Int) -> String?
+    String("opt", k) if k > 0 else none
+
+  fun mkf(k: Int) -> String!
+    String("ok", k)
+
+  fun fresh(k: Int) -> Int?!
+    print(mko(k)?, mkf(k)!, mko(k)?.len)
+    k
+
+  print(fresh(1) catch 0, fresh(0) catch 0)
+  t = String()
+  for b in "Hi"
+    !t.push(text.to_lower(b))
+  !t.add(" ", U8(65))
+  print(t)
+  texts: List[^String] = List()
+  !texts.push(^String(" one "))
+  !texts.push(^String("two"))
+  for b in ?texts
+    print(text.trim(?b), b[..2])
+  bx = ^String("boxed")
+  print(bx[1..], text.starts_with(?bx, "box"))
+  print(mkv()[0], mkv().len, mkw().v[0], mkw().t.len, ?bx == "boxed", bx == String("boxed"))
+  a = maybe(1) ?? N(id: 10)
+  c = maybe(0) ?? N(id: 20)
+  print(a.id, c.id, (maybe(0) ?? N(id: 30)).id)
+  print("end")
+
+fail "text hints", "8:7: cannot index a value of type `String`; index its `?String` view: `(?t[..])[i]`", "9:3: `!t` here is read, not held: `f` only reads `t`; write `f(?t)`", errors: 2
+  # A Text is indexed through its String view, and lent as a String to
+  # read with `?t`: a written `!t` there only reads.
+
+  sub f(s: ?String)
+    print(s)
+
+  t = String("abc")
+  print(t[0])
+  f(!t)
+
+fail "text is owned", "3:5: `String` is a reserved built-in nominal name and cannot be redefined"
+  # `String` is a built-in type: its name is reserved.
+
+  obj String
+    n: Int
+
+  xs: List[String] = List()
+  ys: [2]String = [String("a"), String("b")]
+  print(xs.len, ys.len)
+
+test "text lent as string", "5 3 1 2 3"
+  # A Text is lent where a String is expected: `?t` means `?t[..]`, a
+  # view of one lends it as is, and a bare Text argument is lent to read
+  # as `?t` would be.
+
+  fun n(s: ?String) -> Int
+    s.len
+
+  fun a(p: ?String) -> Int
+    n(?p) + n(?p[1..])
+
+  fun b(p: ?String) -> Int
+    n(p)
+
+  t = String("abc")
+  print(a(?t), n(t), n(?String("x")), n(String("yz")), b(t))
+
+fail "text push bytes", "4:9: type mismatch: expected `U8`, got `Static`", "5:4: `push` takes one byte, a `U8`; got 2 arguments", "6:9: `push` takes its byte by position, not by name: `!t.push(U8(68))`", errors: 3
+  # `push` appends one `U8`.
+
+  t = String()
+  !t.push("ab")
+  !t.push(1, 2)
+  !t.push(b: U8(68))
+
+fail "text string plus", "4:7: operator `+` requires numeric operands; got `Static`; Rig has no `+` on text: build it with `String(a, b)` or `!t.add(...)`"
+  # Rig has no `+` on text: build it with `String(...)` or `!t.add(...)`.
+
+  a = "x"
+  print(a + "y")
+
+test "text values", '''
+  abc abcd false true true true false
+  abc! 4
+  abc!012
+  0 true []
+  again
+  Note(title: "hi", n: 2) hi
+  m
+  boxed shared shared one 6
+  alias 1
+  3
+  reborn
+  done
+'''
+  # A Text owns its bytes: it moves, clones with `+t`, compares by content
+  # with a Text or a String, clears, and prints bare at the top level and
+  # quoted inside other values. Every Text is released exactly once.
+
+  type Str = String
+
+  obj Note
+    title: String
+    n: Int
+
+  fun shout(t: ?String) -> String
+    String(t[..], "!")
+
+  sub grow(t: !String, n: Int)
+    for i in 0..n
+      !t.add(i)
+
+  fun take(t: String) -> Int
+    t.len
+
+  a = String("abc")
+  b = +a
+  !b.add("d")
+  print(a, b, a == b, a != b, a == "abc", "abcd" == b, b == ?a[..])
+  c = shout(?a)
+  print(c, c.len)
+  grow(!c, 3)
+  print(c)
+  !c.clear()
+  shown = String("[", c, "]")
+  print(c.len, c == "", shown)
+  !c.add("again")
+  print(c)
+  note = Note(title: String("hi"), n: 2)
+  print(note, note.title)
+  maybe: String? = String("m")
+  print(maybe)
+  boxed = ^String("boxed")
+  shared = *String("shared")
+  other = +shared
+  cell = *Cell(String("one"))
+  old = (!cell).replace(String("two"))
+  print(boxed, shared, other, old, shared.len)
+  named: Str = Str("alias ", 1)
+  print(named)
+  print(take(<a))
+  a = String("reborn")
+  print(a)
+  <b
+  print("done")
+
+test "text view is string", '''
+  5 5 3
+  2 true
+  3 false
+  6
+  3 xyz
+  7 payload
+  held true false
+  hello 5
+  hello! 6 hello
+  true
+  hello?
+  hello 5
+'''
+  # The read view of a Text is its bytes, a String: one text view, whether
+  # written `?t`, bound by a loop or a pattern, passed through a generic
+  # `?T`, or captured. A `?String` written as a type is that String, so a
+  # literal goes where one is expected, and `+v` of a String makes a Text.
+
+  obj Item
+    name: String
+
+  enum Slot
+    full(item: String)
+    empty
+
+  fun size(s: ?String) -> Int
+    s.len
+
+  fun id[T](x: T) -> T
+    x
+
+  fun first[T](xs: []T) -> T
+    xs[0]
+
+  fun same[T](a: ?T, b: ?T) -> Bool
+    a == b
+
+  fun label(s: ?String) -> ?String
+    s
+
+  fun shout(s: ?String) -> String
+    v = +s
+    !v.add("!")
+    v
+
+  t = String("hello")
+  v = ?t
+  print(size(v), size(?t), size(label("lit")))
+
+  names: List[String] = List()
+  !names.push(String("ab"))
+  !names.push(String("cde"))
+  for x in ?names
+    print(size(?x), x == "ab")
+  total = 0
+  for x, i in ?names
+    total += size(?x) + i
+  print(total)
+
+  o: String? = String("xyz")
+  if ?o as p
+    print(size(?p), p)
+
+  slot = Slot.full(item: String("payload"))
+  match ?slot
+    .full(item) => print(size(?item), item)
+    .empty => pass
+
+  held = Item(name: String("held"))
+  g: ?String = id(?held.name)
+  print(g, same(?t, ?t), same(?t, ?held.name))
+
+  show = |?t| print(t, size(?t))
+  show()
+
+  u = shout(v)
+  print(u, u.len, v)
+  print(v == "hello")
+  own = *|+v| print(v, v.len)
+  !t.add("?")
+  print(t)
+  own()
+
+test "text views", '''
+  hello world 5 true
+  hello 2 world
+  11
+  hello hello world!
+  0
+'''
+  # `?t[a..b]` and `?t[..]` view a Text's bytes as a String, and `?t`
+  # lends the whole Text where a String is expected. A view views the
+  # Text: once the view's last use is past, the Text can change again.
+
+  fun first_word(s: ?String) -> ?String
+    i = 0
+    while i < s.len and s[i] != 32
+      i += 1
+    s[..i]
+
+  fun count(s: ?String, b: U8) -> Int
+    n = 0
+    for c in s
+      if c == b
+        n += 1
+    n
+
+  t = String("hello world")
+  w = ?t[0..5]
+  rest = ?t[6..]
+  print(w, rest, w.len, ?t[..] == "hello world")
+  print(first_word(?t), count(?t, 111), first_word(?t[6..]))
+  print(t.len)
+  !t.add("!")
+  f = first_word(?t)
+  print(f, t)
+  !t.clear()
+  print(t.len)
+
+test "text views as strings", '''
+  padded padded 13
+  v none
+  97
+  98
+  99
+  lit lit
+'''
+  # A view of a Text lends its bytes where a String, or a `(?String)?`, is
+  # expected, whether written `?t` or returned by a call; a slice of such a
+  # view is a view without another `?`; `for b in ?t` walks its bytes;
+  # and a part of a temporary is read through it, as by `get`.
+
+
+  obj S
+    t: String
+
+    fun get(?self) -> ?String
+      ?self.t
+
+  obj E
+    value: String
+
+  fun find(e: ?E, ok: Bool) -> (?String)?
+    if ok
+      return ?e.value
+    none
+
+  fun n(p: ?String) -> Int
+    text.trim(p).len + p[1..].len
+
+  obj W
+    s: List[?String]
+
+  fun mkw() -> W
+    s: List[?String] = List()
+    !s.push("lit")
+    W(s: <s)
+
+  s = S(t: String(" padded "))
+  print(text.trim(s.get()), text.trim(s.get()[1..]), n(s.get()))
+  e = E(value: String("v"))
+  print(find(?e, true) ?? "none", find(?e, false) ?? "none")
+  t = String("ab")
+  for b in ?t
+    print(b)
+  bx = ^String("c")
+  for b in ?bx
+    print(b)
+  print(mkw().s.get(0), mkw().s[0])
+
+fail "type args misuse", "19:7: cannot index a value of type `Int`", "20:7: an index is one value with no trailing comma; a list in brackets gives compile-time arguments", "21:5: generic type `Pair` expects 2 type arguments, got 1", "22:5: `Point` is not a generic type; it takes no type arguments", "23:7: `plain` takes no compile-time arguments; call it with `plain(...)`", "24:7: `scaled` expects 1 compile-time argument, got 2", "25:7: `scaled` takes 1 compile-time argument in brackets: `scaled[...](...)`", "26:10: `3` is not a type", "27:5: `Pair[Int, ?String]` is a type, not a value", "28:1: `scaled[2]` is a function with compile-time arguments; call it with `scaled[2](...)`"
+  # Brackets after a name give compile-time arguments only to a generic
+  # type or a function that declares them; anything else must be
+  # indexable, and a type argument must be a type.
+
+  obj Pair[T, U]
+    a: T
+    b: U
+
+  obj Point
+    x: Int
+
+  fun plain(n: Int) -> Int
+    n
+
+  fun scaled[k: Int](n: Int) -> Int
+    n * k
+
+  n = 5
+  print(n[0])
+  print(n[Int, Int])
+  p = Pair[Int](a: 1, b: 2)
+  q = Point[Int](x: 1)
+  print(plain[3](4))
+  print(scaled[2, 3](4))
+  print(scaled(4))
+  b = Pair[3, Int](a: 1, b: 2)
+  t = Pair[Int, ?String]
+  scaled[2]
+
+fail "type argument cascades", "12:5: type arguments go in brackets: `Wrap[Int](...)`", "13:5: type arguments go in brackets: `Cell[Int](...)`", "14:12: variant of generic enum `Option` needs its type", "16:10: `Int` is a type, not a value", "16:16: `xs[0]` has type `Int` and cannot be called"
+  # A mistake with type arguments gets one diagnostic: the old parenthesized
+  # form, brackets after an unresolved variant, a type used as an index,
+  # and a call through an indexed value.
+
+  obj Wrap[T]
+    v: T
+
+  enum Option[T]
+    some(value: T)
+    nothing
+
+  b = Wrap(Int)(v: 1)
+  c = Cell(Int)(value: 1)
+  a = Option.some[Int](value: 3)
+  xs = [1, 2]
+  print(xs[Int], xs[0](1), b, c, a)
+
+test "type names", '''
+  Int
+  Int
+  I8
+  I16
+  I32
+  I128
+  U8
+  U8
+  U16
+  U32
+  U64
+  U128
+  Float
+  F32
+  Float
+  Bool
+  Void
+  ?String
+  String
+  Endian
+  Point
+  Shape
+  Mode
+  Oops
+  g.Point
+  g.Fault
+  g.Wrap[Point]
+  Pair[Int, String]
+  Ring[Int, 4]
+  List[Int]
+  *Cell[Bool]
+  ^Point
+  Signal[F32]
+  List[List[I8]]
+  Int?
+  (Int?)?
+  *Point
+  ~Point
+  *Point?
+  [4]Int
+  fun(Int, Bool) -> Int!
+  sub(Int)
+  sub()!
+  *fun(Int, Bool) -> Int!
+  *(Int?)
+  (*fun(Int, Bool) -> Int!)?
+  ~Point?
+  Point Point Wrap[Int]
+  Ring[Int, 2]
+  1
+  Int ?Int
+  ?Point !Point []Int ![]Int ?fun(Int) -> Int ?Int Point
+'''
+  # `@name(T)` is the type's name as Rig writes it, the spelling the
+  # diagnostics print: an alias is the type it names, another module's
+  # type is qualified the way this module names that module, and a
+  # generic type shows its arguments. Every built-in type and every shape
+  # is named twice, where it is written and through a type parameter,
+  # whose instance is named per instance, and the two must agree.
+
+  use geo as g
+
+  obj Point
+    x: Int
+
+  obj Pair[A, B]
+    a: A
+    b: B
+
+  obj Ring[T, n: Int]
+    items: [n]T
+
+    fun name(?self) -> ?String
+      @name(Self)
+
+  enum Shape
+    dot
+    circle(r: Float)
+
+  enum Mode
+    on
+    off
+
+  error Oops
+    bad
+
+  obj Holder[T]
+    v: T
+
+    fun name(?self) -> ?String
+      @name(T)
+
+    fun view(?self) -> ?String
+      @name(?T)
+
+  type Byte = U8
+  type Ints = []Int
+  type Four = [4]Int
+  type F = fun(Int, Bool) -> Int!
+  type S = sub(Int)
+  type SF = sub()!
+  type OO = (Int?)?
+  type RP = ?Point
+  type WP = !Point
+  type WI = ![]Int
+  type CB = ?fun(Int) -> Int
+  type HO = *(Int?)
+  type HF = *F?
+
+  fun name[T]() -> ?String
+    @name(T)
+
+  # Prints the name `@name` gives `T` where it is written, and checks
+  # that the name a type parameter gets in a generic body agrees.
+  sub show[T](direct: ?String)
+    through = name[T]()
+    print(direct if direct == through else "{direct} != {through}")
+
+  sub main()
+    show[Int](@name(Int))
+    show[I64](@name(I64))
+    show[I8](@name(I8))
+    show[I16](@name(I16))
+    show[I32](@name(I32))
+    show[I128](@name(I128))
+    show[U8](@name(U8))
+    show[Byte](@name(Byte))
+    show[U16](@name(U16))
+    show[U32](@name(U32))
+    show[U64](@name(U64))
+    show[U128](@name(U128))
+    show[Float](@name(Float))
+    show[F32](@name(F32))
+    show[F64](@name(F64))
+    show[Bool](@name(Bool))
+    show[Void](@name(Void))
+    show[?String](@name(?String))
+    show[String](@name(String))
+    show[Endian](@name(Endian))
+    show[Point](@name(Point))
+    show[Shape](@name(Shape))
+    show[Mode](@name(Mode))
+    show[Oops](@name(Oops))
+    show[g.Point](@name(g.Point))
+    show[g.Fault](@name(g.Fault))
+    show[g.Wrap[Point]](@name(g.Wrap[Point]))
+    show[Pair[Int, String]](@name(Pair[Int, String]))
+    show[Ring[Int, 4]](@name(Ring[Int, 4]))
+    show[List[Int]](@name(List[Int]))
+    show[*Cell[Bool]](@name(*Cell[Bool]))
+    show[^Point](@name(^Point))
+    show[Signal[F32]](@name(Signal[F32]))
+    show[List[List[I8]]](@name(List[List[I8]]))
+    show[Int?](@name(Int?))
+    show[OO](@name(OO))
+    show[*Point](@name(*Point))
+    show[~Point](@name(~Point))
+    show[*Point?](@name(*Point?))
+    show[Four](@name(Four))
+    show[F](@name(F))
+    show[S](@name(S))
+    show[SF](@name(SF))
+    show[*F](@name(*F))
+    show[HO](@name(HO))
+    show[HF](@name(HF))
+    show[~Point?](@name(~Point?))
+    # `geo` names its own types bare; the root module's are bare too.
+    print(g.name[g.Point](), g.name[Point](), g.name[g.Wrap[Int]]())
+    r: Ring[Int, 2] = Ring(items: [1, 2])
+    print(r.name())
+    p = Point(x: 1)
+    print(p.x)
+    h: Holder[Int] = Holder(v: 1)
+    print(h.name(), h.view())
+    # A type parameter's instance holds no view or slice.
+    print(@name(RP), @name(WP), @name(Ints), @name(WI), @name(CB), @name(?Int), @name(@type(p)))
+
+  file "geo.rig"
+    # A module whose types `main` names as `g.Point`, and whose generic
+    # function names a type as `geo` writes it.
+
+    pub obj Point
+      pub x: Int
+
+    pub obj Wrap[T]
+      pub v: T
+
+    pub error Fault
+      bent
+
+    pub fun name[T]() -> ?String
+      @name(T)
+
+fail "type print round trip", "11:13: type mismatch: expected `(N?)?`, got `Int`", "12:15: type mismatch: expected `(N?)?`, got `Int`", "13:16: type mismatch: expected `((N?)?)?`, got `Int`", "14:11: type mismatch: expected `*N?`, got `Int`", "15:13: type mismatch: expected `*N?`, got `Int`", "16:13: type mismatch: expected `*(N?)`, got `Int`", "17:15: type mismatch: expected `*(N?)`, got `Int`", "18:14: type mismatch: expected `*(N?)?`, got `Int`", "19:11: type mismatch: expected `~N?`, got `Int`", "20:13: type mismatch: expected `~(N?)`, got `Int`", "21:13: type mismatch: expected `?~N?`, got `Int`", "22:15: type mismatch: expected `?~N?`, got `Int`", "23:15: type mismatch: expected `(?~N)?`, got `Int`", "24:12: type mismatch: expected `?N?`, got `Int`", "25:14: type mismatch: expected `(?N)?`, got `Int`", "26:13: type mismatch: expected `?*N?`, got `Int`", "27:12: type mismatch: expected `!N?`, got `Int`", "28:15: type mismatch: expected `[]Int?`, got `Int`", "29:17: type mismatch: expected `([]Int)?`, got `Int`", "30:14: type mismatch: expected `[2]N?`, got `Int`", "31:16: type mismatch: expected `([2]N)?`, got `Int`", "32:17: type mismatch: expected `[2](N?)?`, got `Int`", "33:16: type mismatch: expected `*[]Int?`, got `Int`", "34:18: type mismatch: expected `(*[]Int)?`, got `Int`", "35:15: type mismatch: expected `*sub()`, got `Int`", "36:18: type mismatch: expected `(*sub())?`, got `Int`", "37:17: type mismatch: expected `(sub())?`, got `Int`", "38:26: type mismatch: expected `*fun(Int) -> Int?`, got `Int`", "39:28: type mismatch: expected `(*fun(Int) -> Int)?`, got `Int`", "40:23: type mismatch: expected `fun(N?) -> *N?`, got `Int`", "41:28: type mismatch: expected `fun((N?)?) -> (N?)?`, got `Int`", "42:20: type mismatch: expected `*List[Int]?`, got `Int`", "43:21: type mismatch: expected `*List[(N?)?]`, got `Int`"
+  # Every type a diagnostic prints is spelled so that it parses back to
+  # the same type: each binding below is written either in a type's
+  # printed spelling or another spelling of it, and the message prints the
+  # former. Handles bind tighter than suffixes, `N??` would lex as `??`,
+  # and a view, slice, array, or function type takes parentheses before
+  # a suffix.
+
+  obj N
+    a: Int
+
+  x0: (N?)? = 1
+  x1: ((N)?)? = 1
+  x2: ((N?)?)? = 1
+  x3: *N? = 1
+  x4: (*N)? = 1
+  x5: *(N?) = 1
+  x6: *((N)?) = 1
+  x7: *(N?)? = 1
+  x8: ~N? = 1
+  x9: ~(N?) = 1
+  x10: ?~N? = 1
+  x11: ?(~N?) = 1
+  x12: (?~N)? = 1
+  x13: ?N? = 1
+  x14: (?N)? = 1
+  x15: ?*N? = 1
+  x16: !N? = 1
+  x17: []Int? = 1
+  x18: ([]Int)? = 1
+  x19: [2]N? = 1
+  x20: ([2]N)? = 1
+  x21: [2](N?)? = 1
+  x22: *[]Int? = 1
+  x23: (*[]Int)? = 1
+  x24: *sub() = 1
+  x25: (*sub())? = 1
+  x26: (sub())? = 1
+  x27: *fun(Int) -> Int? = 1
+  x28: (*fun(Int) -> Int)? = 1
+  x29: fun(N?) -> *N? = 1
+  x30: fun((N?)?) -> (N?)? = 1
+  x31: *List[Int]? = 1
+  x32: *List[(N?)?] = 1
+
+fail "type used as value", "`P` is a type, not a value"
+  # A type name is not a value.
+
+  obj P
+    x: Int
+
+  print(P)
+
+fail "unbound call", "use of unbound name `nonexistent_fn`"
+  # Calling an undeclared function is a Rig diagnostic.
+
+  print(nonexistent_fn())
+
+fail "unbound name hints", "19:10: use of unbound type `i32`; Rig's types are capitalized: `I32`", "19:18: use of unbound type `string`; Rig's text is a `String` (owned), and `?String` is its read view", "19:29: use of unbound type `Piont`; did you mean `Point`?", "23:5: use of unbound name `null`; Rig's absent value is `none`", "24:5: use of unbound name `True`; Rig writes `true`", "25:5: use of unbound name `this`; a method's receiver is `self`", "26:5: use of unbound name `len`; a length is a member: `x.len`", "27:1: use of unbound name `println`; Rig prints a line with `print(...)`", "28:5: use of unbound name `self`; `self` is the receiver of a method that declares one", "29:7: use of unbound name `conuter`; did you mean `counter`?", "29:16: use of unbound name `totl`; did you mean `total`?", "29:25: use of unbound name `ture`; did you mean `true`?", "29:31: use of unbound name `prnt`; did you mean `print`?", "30:17: no field `widht` on type `Point`; did you mean `width`?", "31:9: no field `wdith` on type `Point`; did you mean `width`?", "31:18: no method `aera` on type `Point`; did you mean `area`?", "31:32: no method `orgin` on type `Point`; did you mean `origin`?"
+  # A name that is not found is reported with what it was likely meant as:
+  # another language's spelling of a Rig one, or a visible name, type,
+  # field, or method it is a typo of (one edit for a short name, two for
+  # a longer one).
+
+  obj Point
+    x: Int
+    width: Int
+
+    fun area(?self) -> Int
+      self.x * self.width
+
+    fun origin() -> Point
+      Point(x: 0, width: 0)
+
+  fun total(n: Int) -> Int
+    n + 1
+
+  fun f(a: i32, b: string, c: Piont) -> Int
+    1
+
+  counter = 3
+  a = null
+  b = True
+  c = this
+  d = len(counter)
+  println(counter)
+  e = self
+  print(conuter, totl(1), ture, prnt)
+  p = Point(x: 1, widht: 2)
+  print(p.wdith, p.aera(), Point.orgin(), a, b, c, d, e)
+
+fail "unbound parameter type", "3:13: use of unbound type `NopeType`"
+  # An undeclared type in a parameter list is a Rig diagnostic.
+
+  fun take(x: NopeType) -> Int
+    1
+
+  print(take(0))
+
+fail "unbound type", "3:4: use of unbound type `NopeType`", errors: 1
+  # An undeclared type name in an annotation is a Rig diagnostic.
+
+  x: NopeType = 1
+  print(x)
+
+fail "unbound value", "3:7: use of unbound name `nope`", errors: 1
+  # Using an undeclared name as a value is a Rig diagnostic.
+
+  print(nope)
+
+fail "unread local", "5:1: `totl` is assigned but never read", "7:1: `n` is assigned but never read", "8:1: `k` is assigned but never read", "9:5: `total` is assigned but never read"
+  # A local that is never read is rejected, however it is bound: a typo
+  # (`totl` for `total`), a typed or fixed binding, or a `new` binding.
+
+  total = 0
+  totl = 5
+  print(total)
+  n: Int = 1
+  k =! 2
+  new total = total + 1
+
+fail "unread local only assigned", "7:1: `x` is assigned but never read", "9:1: `count` is assigned but never read", "13:1: `q` is assigned but never read"
+  # Assigning a local is not reading it: a local that is only reassigned,
+  # move-assigned, or updated in place is still never read.
+
+  obj P
+    n: Int
+
+  x = 1
+  x = 2
+  count = 0
+  for i in 0..3
+    count += i
+  p = P(n: 1)
+  q = P(n: 2)
+  q = <p
+
+fail "unread pattern bindings", "12:5: `i` is bound but never read", "16:11: `r` is bound but never read", "17:3: `other` is bound but never read", "18:16: `m` is bound but never read"
+  # A name bound by `for`, a match pattern, or `as` must be read, or be
+  # `_`, unless its value moves, as the error `catch |e|` names does: a
+  # value that moves may be bound only to be dropped at the scope's end.
+
+  enum Shape
+    circle(r: Int)
+    dot
+
+  fun maybe(n: Int) -> Int?
+    n if n > 0 else none
+
+  for i in 0..2
+    print("tick")
+  s: Shape = .circle(r: 1)
+  match s
+    .circle(r) => print("circle")
+    other => print("other")
+  if maybe(1) as m
+    print("some")
+
+fail "unread view and closure locals", "4:1: `r` is assigned but never read", "6:3: `inner` is assigned but never read"
+  # A view binding and a local of a closure body must be read too.
+
+  v: List[Int] = List()
+  r = ?v
+  f = ||
+    inner = 4
+  f()
+
+fail "upgrade on shared handle", "9:9: a shared handle `*User` is already counted, and has no `upgrade`; a weak handle `w` of one (`~h`) upgrades with `*w`"
+  # A shared handle is already counted: calling `upgrade` on one (whose
+  # type has no `upgrade` method) is rejected, pointing at `*w` of a weak
+  # handle.
+
+  obj User
+    name: ?String
+
+  rc = *User(name: "x")
+  m  = rc.upgrade()
+  <rc
+
+fail "use before value", "`x` is used before it has a value"
+  # A new binding cannot refer to itself in its own initializer.
+
+  x = x + 1
+  print(x)
+
+test "value size limit", '''
+  10 1048576
+  2 1048576
+  3 1572864
+'''
+  # A value may take up to 8 MiB, and a function may keep up to 13 MiB of
+  # values on its stack: an array local, a struct, and a module constant
+  # at the limit all run, and so does a function keeping 12 MiB.
+
+  BIG = [1048576 of 7]
+  HALF = [524288 of 1]
+
+  obj Frame
+    a: [524288]Int
+    b: [524288]Int
+
+  sub array_local(i: Int)
+    a = [1048576 of 3]
+    a[i] += BIG[i]
+    print(a[i], a.len)
+
+  sub struct_local(i: Int)
+    f = Frame(a: HALF, b: HALF)
+    f.b[i] += f.a[i]
+    print(f.b[i], f.a.len + f.b.len)
+
+  sub two_locals(i: Int)
+    a = [786432 of 1]
+    b = [786432 of 2]
+    b[i] += a[i]
+    print(b[i], a.len + b.len)
+
+  sub main()
+    array_local(5)
+    struct_local(1048575 - 524288)
+    two_locals(786431)
+
+test "variant keyword construction", '''
+  12 6 .rect(w: 2, h: 3)
+  7
+'''
+  # A payload variant is constructed with keyword fields, in any order,
+  # through an enum literal or the enum's name; a pattern binds the fields
+  # in declaration order.
+
+  enum Shape
+    circle(radius: Int)
+    rect(w: Int, h: Int)
+
+  enum Option[T]
+    some(value: T)
+    nothing
+
+  fun area(s: Shape) -> Int
+    match s
+      .circle(r) => 3 * r * r
+      .rect(w, h) => w * h
+
+  a: Shape = .circle(radius: 2)
+  b = Shape.rect(h: 3, w: 2)
+  print(area(a), area(b), b)
+  o = Option.some(value: 7)
+  match o
+    .some(v) => print(v)
+    .nothing => print("none")
+
+fail "variant literal cell payload", "20:6: `.C(c: Cell(1))` makes a `CV`, which holds a Cell, so it lives only behind a shared handle", "21:7: `.O(v: .C(c: Cell(2)))` makes a `Outer`, which holds a Cell, so it lives only behind a shared handle", errors: 2
+  # A variant literal of an enum that holds a Cell by value, lent where a
+  # `?CV` goes, is rejected as `CV.C(c: Cell(1))` is: a value that holds a
+  # Cell lives only behind a shared handle.
+  enum CV
+    C(c: Cell[Int])
+    E
+
+  enum Outer
+    O(v: CV)
+
+  sub look(v: ?CV)
+    match v
+      .C(c) => print("c", c.get())
+      .E => print("e")
+
+  sub outer(o: ?Outer)
+    match o
+      .O(v) => look(v)
+
+  look(.C(c: Cell(1)))
+  outer(.O(v: .C(c: Cell(2))))
+  look(.E)
+
+test "variant literal equality", '''
+  true false true
+  true true false false
+  1.0
+  true
+'''
+  # A payload variant literal takes its enum type from the other side of
+  # `==` or `!=`, on either side, as a bare `.variant` does: through a
+  # view and beside an optional too.
+
+  enum Shape
+    circle(r: Float)
+    square(side: Int)
+    empty
+
+  fun is_unit(s: ?Shape) -> Bool
+    s == .circle(r: 1.0)
+
+  s: Shape = .circle(r: 1.0)
+  o: Shape? = .square(side: 2)
+  n: Shape? = none
+  print(s == .circle(r: 1.0), .circle(r: 2.0) == s, s != .square(side: 1))
+  print(is_unit(?s), o == .square(side: 2), .square(side: 3) == o, n == .empty)
+  match s
+    .circle(r) => print(r)
+    _ => print("other")
+  if o as sq
+    print(sq == .square(side: 2))
+
+fail "variant literal error name under view", "12:11: `.Oops` is not a variant of `?Val`; to fail, name the error set: `E.Oops`", errors: 1
+  # A bare error name where a `(?Val)!` goes names no variant of `Val`:
+  # it is reported once, with the error set to name.
+
+  enum Val
+    Num(n: Int)
+    Table(m: List[Int])
+
+  error E
+    Oops
+
+  fun pick(v: ?Val, k: Int) -> (?Val)!
+    return .Oops if k == 0
+    return v
+
+  v = Val.Num(n: 1)
+  _ = pick(?v, 1) catch return
+
+fail "variant literal where view kept", "33:7: type mismatch: expected `!Val`, got `Val`", "34:7: type mismatch: expected `!Color`, got `Color`", "35:12: type mismatch: expected `?Val`, got `Val`", "36:16: type mismatch: expected `?Val`, got `Val`", "37:11: type mismatch: expected `?Val`, got `Val`", "38:6: `.Num` is an enum variant, but the expected type `?Val?` is not an enum", "27:24: type mismatch: expected `?Val`, got `Val`", "31:10: type mismatch: expected `?Val`, got `Val`", errors: 8
+  # A variant literal whose enum comes from where it goes is, where a
+  # view held by address goes, the value `Val.V(...)` is, and is rejected
+  # where that value is: lent to write, kept in a field, an element, or a
+  # binding, returned, a view of an optional, or a parameter's default.
+
+  enum Val
+    Num(n: Int)
+    Table(m: List[Int])
+    Empty
+
+  enum Color
+    Red
+    Green
+
+  obj Ref
+    v: ?Val
+
+  sub write(v: !Val)
+    print("write")
+
+  sub paint(c: !Color)
+    print("paint")
+
+  sub opt(v: ?Val?)
+    print("opt")
+
+  sub fallback(v: ?Val = .Empty)
+    print("fallback")
+
+  fun made() -> ?Val
+    return .Num(n: 3)
+
+  write(.Num(n: 3))
+  paint(.Red)
+  r = Ref(v: .Num(n: 3))
+  xs: [1]?Val = [.Num(n: 3)]
+  v: ?Val = .Table(m: List())
+  opt(.Num(n: 3))
+  fallback()
+  print(r, xs, v, made())
+
+fail "variant literals compared", "7:7: variant `.circle(...)` needs a known enum type; annotate the binding"
+  # Two variant literals compared with each other name no enum type.
+
+  enum Shape
+    circle(r: Float)
+    empty
+
+  print(.circle(r: 1.0) == .circle(r: 1.0))
+
+fail "variant pattern arity", "9:4: variant `rect` has 2 payload fields, pattern destructures 1; bind them all in order, or the ones you need by name: `.rect(w: x)`", "12:4: variant `rect` has 2 payload fields, pattern destructures 3", errors: 2
+  # A pattern that binds in order binds every field of the variant.
+
+  enum Shape
+    rect(w: Int, h: Int)
+    point
+
+  s: Shape = .rect(w: 1, h: 2)
+  match s
+    .rect(a) => print(a)
+    _ => pass
+  match s
+    .rect(a, b, c) => print(a, b, c)
+    _ => pass
+
+fail "variant payload literal equality", "26:7: `==` is not defined for `Slot`: field `held.p` is a handle `*N`", "29:7: `==` is not defined for `A`: field `v.items` is a `List[Int]`, which has no `==`", "31:7: `!=` is not defined for `D`: field `r.res` is a `R`: `R` declares `drop`"
+  # A payload variant literal compares its payload, so the enum must have
+  # `==`: one holding a handle, a List, or a type with `drop` does not.
+
+  obj N
+    n: Int
+
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    held(p: *N)
+    empty
+
+  enum A
+    v(items: List[Int])
+    e
+
+  enum D
+    r(res: R)
+    e
+
+  s: Slot = .empty
+  print(s == .held(p: *N(n: 1)))
+  a: A = .e
+  v = List[Int]()
+  print(.v(items: <v) == a)
+  d: D = .e
+  print(d != .r(res: R(n: 2)))
+
+test "variant positional construction", '''
+  12 3 .circle(radius: 1) .circle(radius: 1) 27
+  .some(value: 7) .some(value: 2.5) .some(value: "hi") .some(value: 4) .nothing .some(value: 9)
+  7 5 -1
+  1 0 0
+'''
+  # A variant with exactly one field takes it by position, `.some(7)`, as a
+  # pattern binds it; by name, `.some(value: 7)`, is valid too. The field's
+  # type is expected of the argument, and a generic enum's argument is
+  # inferred from it.
+
+  enum Shape
+    circle(radius: Int)
+    rect(w: Int, h: Int)
+
+  enum Option[T]
+    some(value: T)
+    nothing
+
+    fun or(<self, fallback: T) -> T
+      match <self
+        .some(v) => v
+        .nothing => fallback
+
+  fun area(s: Shape) -> Int
+    match s
+      .circle(r) => 3 * r * r
+      .rect(w, h) => w * h
+
+  fun half(n: Int) -> Option[Int]
+    return .nothing if n % 2 == 1
+    .some(n / 2)
+
+  fun count(o: Option[List[Int]]) -> Int
+    match o
+      .some(v) => v.len
+      .nothing => 0
+
+  a: Shape = .circle(2)
+  b = Shape.circle(1)
+  c: Shape = .circle(radius: 1)
+  print(area(a), area(b), b, c, area(.circle(3)))
+  o = Option.some(7)
+  f = Option.some(2.5)
+  s: Option[?String] = .some("hi")
+  print(o, f, s, half(8), half(3), Option[U8].some(9))
+  print(<o.or(0), Option.some(5).or(0), half(3).or(-1))
+  v: List[Int] = List()
+  !v.push(1)
+  print(count(.some(<v)), count(Option.some(List[Int]())), count(.nothing))
+
+fail "variant positional construction is rejected", "8:11: a variant with more than one field sets them by name: `.rect(w: ...)`", "9:13: a variant with more than one field sets them by name: `.rect(w: ...)`", "10:13: variant `circle` has one field: write `.circle(value)` or `.circle(radius: value)`", "11:13: variant `circle` has one field: write `.circle(value)` or `.circle(radius: value)`", "12:20: type mismatch: expected `Int`, got `Static`"
+  # A variant with one field takes it by position or by name; a variant
+  # with more than one field sets them by name, like a struct's.
+
+  enum Shape
+    circle(radius: Int)
+    rect(w: Int, h: Int)
+
+  a = Shape.rect(2, h: 3)
+  b: Shape = .rect(2, 3)
+  c: Shape = .circle(2, 3)
+  d: Shape = .circle(2, radius: 3)
+  e: Shape = .circle("two")
+  print(a, b, c, d, e)
+
+test "variant tag equality", '''
+  false false true true
+  true false true
+  false true
+  false true
+  drop 3
+  false true false
+'''
+  # A bare `.variant` compared with a payload enum tests the variant only,
+  # whatever the payloads hold: handles, functions, or a generic `T` that
+  # has no `==`. It compares no payload, so it needs none to be equatable.
+  # A temporary that owns a resource is dropped once tested.
+
+  obj N
+    n: Int
+
+  enum Slot
+    held(p: *N)
+    empty
+
+  enum Op
+    f(g: fun(Int) -> Int)
+    none_
+
+  enum Opt[T]
+    some(value: T)
+    nothing
+
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum D
+    r(res: R)
+    e
+
+  fun make() -> Slot
+    .held(p: *N(n: 2))
+
+  fun maybe() -> Slot?
+    .empty
+
+  fun owned(n: Int) -> D
+    .r(res: R(n: n))
+
+  fun is_nothing[T](o: ?Opt[T]) -> Bool
+    o == .nothing
+
+  fun inc(x: Int) -> Int
+    x + 1
+
+  s: Slot = .held(p: *N(n: 1))
+  e: Slot = .empty
+  print(s == .empty, .empty == s, s != .empty, e == .empty)
+  o: Slot? = .empty
+  n: Slot? = none
+  print(o == .empty, n == .empty, n != .empty)
+  op: Op = .f(g: inc)
+  print(op == .none_, op != .none_)
+  a: Opt[fun(Int) -> Int] = .some(value: inc)
+  b: Opt[*N] = .nothing
+  print(is_nothing(?a), is_nothing(?b))
+  print(make() == .empty, maybe() == .empty, owned(3) == .e)
+
+fail "variants not enum", "5:17: `@variants` takes an enum type; `?S` is a read view of one: write `@variants(S)`", "5:32: `@variants` takes an enum type; `Int` is not one"
+  enum S
+    a
+    b
+
+  print(@variants(?S), @variants(Int))
+
+fail "vec bad element", "a callable view `?fun() -> Int` is only a parameter's, a local's, or a result's type"
+  # `List[T]` holds any value, views included, but not a callable view,
+  # which only a parameter, a local, or a result holds.
+
+  sub takeVec(v: List[?fun() -> Int])
+    print("placeholder")
+
+  print(1)
+
+fail "vec bad kwarg", "`List` constructor accepts only `capacity` as a kwarg; got `size`"
+  # The `List` constructor accepts only the `capacity` kwarg.
+
+  v: List[Int] = List(size: 10)
+
+fail "vec get copies only", "`List.get` would copy an element out of a `List` of `String`, which a copy cannot share; read it in place with `v[i]`, or lend it with `?v[i]`"
+  # `v.get(i)` hands out a copy of the element, so it needs one that
+  # copies; an owning element is read in place or lent.
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  print(v.get(0))
+
+test "vec index syntax", "9"
+  # `v[i]` reads an element of a List of Copy values (bounds-checked).
+
+  v: List[Int] = List()
+  !v.push(4)
+  !v.push(9)
+  print(v[1])
+
+fail "vec len read only", "5:3: cannot assign to `.len`; a length is read-only"
+  # A List's `.len` is read-only; elements are added with `push` and
+  # removed with `pop` or `clear`.
+
+  v: List[Int] = List()
+  v.len = 0
+  print(v.len)
+
+fail "vec length method", "6:9: a List has no `length()`; its length is `.len`, as for an array: `v.len`"
+  # A List's length is `v.len`, as for arrays, slices, and strings; there
+  # is no `length()` method.
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(v.length())
+
+fail "vec name reserved", "`List` is a reserved built-in nominal name"
+  # `List` is a built-in nominal name and cannot be redefined.
+
+  obj List
+    x: Int
+
+  print("hi")
+
+fail "vec of write views loop", "6:5: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
+  # No List holds write views for a loop binding to hold or `get` to copy:
+  # a write view is never stored inside a value, so `List[!Int]` is
+  # rejected where it is written.
+
+  a = 1
+  w = List[!Int]()
+  print(w.len, a)
+
+fail "vec positional arg", "`List` constructor takes no positional arguments"
+  # The `List` constructor takes no positional arguments.
+
+  v: List[Int] = List(10)
+
+test "view and string branches", '''
+  false true false
+  true 2
+  1
+  true true
+  3 1 3
+  S(t: "aa") aa bb
+'''
+  # A view compared with `==`, whether a call returns it or a branch
+  # picks it, owns nothing, so it is read where it stands and nothing is
+  # dropped. A String chosen by a branch is one slice type, whether it is
+  # a literal or a view.
+
+
+  obj S
+    t: String
+
+    fun get(?self) -> ?String
+      ?self.t
+
+  fun pick(a: ?String, ok: Bool) -> (?String)?
+    a if ok else none
+
+  fun g(a: ?String) -> Int?
+    print(pick(a, true)? == "aa", pick(a, true)?.len)
+    1
+
+  fun either(a: ?String, b: ?String, c: Bool) -> Bool
+    (a if c else b) == "bb"
+
+  fun f(s: ?String, c: Bool) -> Int
+    ("b" if c else s).len
+
+  fun mkt() -> String
+    String("made")
+
+  s = S(t: String("aa"))
+  print(s.get() == "x", s.get() == s.get(), mkt() == s.get())
+  print(g(?s.t))
+  a = String("aa")
+  b = String("bb")
+  c = false
+  print((?a if c else ?b) == "bb", either(?a, ?b, c))
+  print(f("abc", false), f("abc", true), ("b" if c else text.trim(" abc ")).len)
+  print(s, a, b)
+
+test "view lifted to optional", '''
+  5
+  5 5 5
+  5
+  7
+  4
+  1
+  5
+  5
+'''
+  # A view held by pointer lifted into an optional of that view stays the
+  # pointer: bound, assigned, passed, stored in a field, and returned.
+
+  obj Counter
+    hits: Int
+    name: String
+
+  obj P
+    x: Int
+
+  obj H
+    o: (?Counter)?
+
+  enum E
+    a(c: Counter, n: Int)
+    b
+
+  fun show(o: (?Counter)?) -> Int
+    if o as s
+      return s.hits
+    0
+
+  fun deep(r: ?Counter) -> ((?Counter)?)?
+    r
+
+  fun pick(r: ?Counter) -> (?Counter)?
+    r
+
+  a = Counter(hits: 5, name: String("c"))
+  r = ?a
+  saved: (?Counter)? = none
+  saved = r
+  if saved as s
+    print(s.hits)
+  decl: (?Counter)? = r
+  print(show(decl), show(r), show(pick(r)))
+  h = H(o: r)
+  h.o = r
+  print(show(h.o))
+  arr = [Counter(hits: 0, name: String("c")), Counter(hits: 7, name: String("c"))]
+  print(show(?arr[1]))
+  e = E.a(c: Counter(hits: 4, name: String("c")), n: 1)
+  match !e
+    .a(c, _) => print(show(c))
+    .b => pass
+  p = P(x: 1)
+  pr = ?p
+  ps: (?P)? = none
+  ps = pr
+  if ps as q
+    print(q.x)
+  nested: ((?Counter)?)? = r
+  nested = r
+  if nested as n1
+    if n1 as n2
+      print(n2.hits)
+  if deep(r) as d1
+    if d1 as d2
+      print(d2.hits)
+
+test "view number literal", '''
+  2 -2 201.5
+  5
+'''
+  # A number literal lent where a read view of a number is expected
+  # (`?1` for a `?Int`) takes the viewed type, as `?"ab"` does for a
+  # `?String`.
+
+  obj Map[K]
+    hash: fun(?K) -> U64
+
+    fun slot(?self, k: ?K) -> U64
+      self.hash(k) % 16
+
+  fun inc(k: ?Int) -> Int
+    k + 1
+
+  fun mix(b: ?U8, x: ?Float) -> Float
+    Float(b) + x
+
+  fun hash_int(k: ?Int) -> U64
+    U64(k)
+
+  print(inc(?1), inc(?-3), mix(?200, ?1.5))
+  m = Map[Int](hash: hash_int)
+  print(m.slot(?21))
+
+fail "view number literal range", "6:10: integer value `300` does not fit in `U8` (0..255)"
+  # A lent literal must fit the viewed type.
+
+  fun h(b: ?U8) -> Int
+    Int(b)
+
+  print(h(?300))
+
+fail "view place rules", "4:7: cannot point parameter `w` at another place: parameters are immutable, and `w = v` writes the value it views", "7:8: cannot point parameter `xs` at another place: parameters are immutable, and `xs[i] = v` writes its elements"
+  # A parameter never points elsewhere.
+
+  sub f(w: !Int, other: !Int)
+    w = !other
+
+  sub g(xs: ![]Int, ys: ![]Int)
+    xs = <ys
+
+  print(1)
+
+test "viewed copy reads as value", '''
+  12 18
+  true true 5
+  true false
+'''
+  # A read view of a Copy value (a number, a plain enum, an error) reads
+  # as the value: in branches, array elements, comparisons, and indexes.
+
+  enum E
+    bad
+    good
+
+  error Oops
+    boom
+    bang
+
+  fun mix(a: ?Int, c: Bool) -> Int
+    x = if c
+      a
+    else
+      5
+    y = 5 if c else a
+    z = [a, 5]
+    w = match c
+      true => a
+      false => 7
+    x + y + z[1] + w
+
+  fun same(e: ?E) -> Bool
+    x = e
+    e == E.bad and x == E.bad
+
+  fun is_boom(o: ?Oops) -> Bool
+    o == Oops.boom
+
+  fun at(a: ?[3]Int, i: ?Int, j: !Int) -> Int
+    a[i] + a[j]
+
+  fun empty(a: ?Int?) -> Bool
+    a == none
+
+  n = 1
+  m = 2
+  b = E.bad
+  p = Oops.boom
+  none_: Int? = none
+  some: Int? = 3
+  print(mix(?n, true), mix(?n, false))
+  print(same(?b), is_boom(?p), at(?[1, 2, 3], ?n, !m))
+  print(empty(?none_), empty(?some))
+
+fail "warn as value", "3:5: `warn` is called with parentheses: `warn(...)`"
+  # `warn` is only special as a direct call; it is no value.
+
+  x = warn
+  x(42)
+
+test "weak behind handle upgrade", '''
+  3
+  4
+  5
+  true true
+'''
+  # A weak handle held in a field behind a counted handle, or in a List,
+  # upgrades where it stands: `*h.w` reads the field, and `*ws[0]` the
+  # element, and each stays usable.
+
+  obj S
+    n: Int
+
+  obj Holder
+    w: ~S
+
+  s = *S(n: 1)
+  h = *Holder(w: ~s)
+  if *h.w as t
+    print(t.n + 2)
+  u: ?~S = ?h.w
+  if *u as t
+    print(t.n + 3)
+  ws: List[~S] = List()
+  !ws.push(~s)
+  if *ws[0] as t
+    print(t.n + 4)
+  <s
+  print(*h.w == none, *ws[0] == none)
+
+fail "weak of non shared", "`~` weak reference requires a shared handle `*T`"
+  # `~x` needs a shared handle `*T`; a plain struct value has no weak form.
+
+  obj User
+    name: ?String
+
+  u = User(name: "x")
+  w = ~u
+
+test "weak upgrade clone and drop", '''
+  n alive
+  1
+'''
+  # The `*T?` from `upgrade()` is an owning handle: `+m` clones it, `<m`
+  # drops it, and the clone keeps the value alive until it goes.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  rc = *Noisy(id: 1)
+  w = ~rc
+  m = *w
+  n = +m
+  <rc
+  <m
+  print("n alive")
+  <w
+  # scope exit drops `n`, the last strong handle: prints 1
+
+fail "weak upgrade forms", "12:8: `*w?` is `*(w?)`, and `w` is a weak handle, not an optional: to return `none` once its value is gone, write `(*w)?`", "17:5: `*` only reads the weak handle it upgrades: write `*w`", "22:6: cannot lend `w if c else w2`: it may be `w`, a value a name holds, which lending the branching value would copy; lend each branch: `*(?w if c else ?w2)`", errors: 3
+  # `*w` only reads the weak handle it upgrades, so a write lend there is
+  # rejected. A suffix binds tighter than `*`: `*w?` is `*(w?)`, which
+  # propagates `none` out of the weak handle itself; the hint gives
+  # `(*w)?`, which returns `none` once the value is gone. A branching
+  # value that may be a name's handle is lent branch by branch, as a
+  # receiver is.
+
+  obj Node
+    id: Int
+
+  fun id_of(w: ?~Node) -> Int?
+    n = *w?
+    n.id
+
+  rc = *Node(id: 1)
+  w = ~rc
+  if *!w as p
+    print(p.id)
+  print(id_of(?w) ?? 0)
+  w2 = ~rc
+  c = true
+  if *(w if c else w2) as p
+    print(p.id)
+
+fail "weak upgrade method", "10:6: a weak handle upgrades with `*w`, not a method: `if *w as s`", "12:10: a weak handle upgrades with `*w`, not a method: `if *w as s`", "13:7: a weak handle upgrades with `*w`, not a method: `if *w as s`", errors: 3
+  # A weak handle upgrades with `*w`, a sigil, not a method: `w.upgrade()`
+  # is rejected with the form to write, whatever lends the handle and
+  # whatever it is given.
+
+  obj User
+    name: ?String
+
+  rc = *User(name: "x")
+  w = ~rc
+  if w.upgrade() as u
+    print(u.name)
+  m = (?w).upgrade()
+  n = w.upgrade(42)
+
+test "while as optional", "6"
+  # `while e as x` repeats while `e` yields a value, binding it to `x` each
+  # time: here until the List is empty.
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  !v.push(3)
+  total = 0
+  while (!v).pop() as x
+    total += x
+  print(total)
+
+fail "while cond not bool", "type mismatch: expected `Bool`, got `Int`"
+  # A `while` condition must be Bool.
+
+  while 1
+    print("loop")
+
+fail "while header old label", "10:27: a label is written `@name`: the `:` in a `while` header starts the step, so `outer` reads as the step; to name a label, write `break @outer`", "12:30: a label is written `@name`: the `:` in a `while` header starts the step, so `outer` reads as the step; to name a label, write `continue @outer`"
+  # A label is written `@name`. In the old spelling, `while x ?? break
+  # :outer`, the `:` in the header starts the step, so `outer` reads as the
+  # step, and the error says how to write the label.
+
+  fun more(n: Int) -> Bool?
+    n > 0 if n < 9 else none
+
+  n = 3
+  @outer while true
+    while more(n) ?? break :outer
+      n -= 1
+    while more(n) ?? continue :outer
+      n -= 1
+    break
+  print(n)
+
+fail "while header old label step", "11:26: a label is written `@name`: `@outer for ...`, `break @outer`, `continue @outer`"
+  # A label in the old spelling in a `while` header that has a step:
+  # `while x ?? break :outer : i += 1` is rejected with the hint, not read
+  # as a step named `outer`.
+
+  fun more(n: Int) -> Bool?
+    n > 0 if n < 9 else none
+
+  n = 3
+  i = 0
+  @outer while true
+    while more(n) ?? break :outer : i += 1
+      n -= 1
+    break
+  print(n, i)
+
+fail "while last in fun", "5:3: a function returning `Int` must end with a value; this loop produces none"
+  # A `-> Int` function must end with a value; a trailing `while` produces
+  # none.
+
+  fun f() -> Int
+    while false
+      print(1)
+
+  print(f())
+
+test "whole division", "3 66 7.0 5.0 3.5 3.5 -1 8"
+  # Literal context reaches through `+`, `-`, and `*`, but a division of
+  # whole-number literals is integer division: `7 / 2` is 3.
+
+  x = 7 / 2
+  y: U8 = 200 / 3
+  a: Float = 7
+  b: Float = 2 * 3 - 1
+  c: Float = 7.0 / 2
+  d: Float = 7 / 2.0
+  e = -7 % 3
+  print(x, y, a, b, c, d, e, 9 / 2 * 2)
+
+fail "whole division compare", "4:7: `7 / 2` divides whole numbers (3); for 3.5 write `7.0 / 2`", "4:28: `7 / 2` divides whole numbers (3); for 3.5 write `7.0 / 2`", "4:35: `7 / 2` divides whole numbers (3); for 3.5 write `7.0 / 2`", "4:48: `1 / 2` divides whole numbers (0); for 0.5 write `1.0 / 2`"
+  # A division of whole-number literals compared with a float literal
+  # would be compared as a float, silently `3.0`: it is rejected.
+
+  print(7 / 2 == 3.5, 3.5 != 7 / 2, 7 / 2 < 3.5, 1 / 2 > 0.1)
+
+fail "whole division float", "9:12: `7 / 2` divides whole numbers (3); for 3.5 write `7.0 / 2`", "10:5: `7 / 2` divides whole numbers (3); for 3.5 write `7.0 / 2`", "11:14: `9 % 4` is a whole-number remainder; write `9.0 % 4` for a Float", "12:10: `1 / 3` divides whole numbers (0); for 0.3333333333333333 write `1.0 / 3`", "14:24: `5 / 2` divides whole numbers (2); for 2.5 write `5.0 / 2`"
+  # Dividing whole-number literals is integer division: a literal's
+  # context does not reach through `/` or `%`, so where a float is
+  # expected, `7 / 2` would silently be 3.0. It is rejected, with the
+  # float spelling.
+
+  fun half(x: Float) -> Float
+    x / 2
+
+  a: Float = 7 / 2
+  b = 7 / 2 + 1.5
+  c: F32 = 1 + 9 % 4
+  d = half(1 / 3)
+  x = 2.0
+  print(a, b, c, d, x * (5 / 2))
+
+test "wrapping arithmetic", '''
+  4 251 244
+  -128 127 1
+  -9223372036854775808
+  0 true
+  170141183460469231731687303715884105727
+  65532
+  14695981039346656037 12638187200555641996 9948945366585317705
+  44 256
+'''
+  # `+%`, `-%`, and `*%` wrap around on overflow, in two's complement, for
+  # any integer type; `+%=`, `-%=`, and `*%=` assign the wrapped result.
+
+  fun fnv1a(s: ?String) -> U64
+    h: U64 = 14695981039346656037
+    for b in s
+      h ^= U64(b)
+      h *%= 1099511628211
+    h
+
+  a: U8 = 250
+  print(a +% 10, a -% 255, a *% 2)
+  i: I8 = 127
+  print(i +% 1, I8(-128) -% 1, i *% i)
+  n = 9223372036854775807
+  print(n +% 1)
+  m: U128 = 340282366920938463463374607431768211455
+  print(m +% 1, U128(0) -% 1 == m)
+  k: I128 = -170141183460469231731687303715884105728
+  print(k -% 1)
+  c: U16 = 65535
+  c +%= 2
+  c -%= 5
+  print(c)
+  print(fnv1a(""), fnv1a("a"), fnv1a("rig"))
+  # Constants wrap as the program does.
+  print(U8(200) +% 100, 255 +% 1)
+
+fail "wrapping float", "4:5: operator `+%` requires integer operands", "5:1: `*%=` requires an integer target", "7:18: integer value `300` does not fit in `U8`"
+  # Wrapping arithmetic is for integers: a Float never wraps.
+
+  x = 1.5
+  y = x +% 2.0
+  x *%= 2.0
+  z: U8 = 7
+  print(y, x, z +% 300)
+
+test "wrapping nested", '''
+  18446744073709551617 18446744073709551616 9223372036854775809
+  22 10
+  3 3 255
+'''
+  # Wrapping arithmetic on literals takes the type its context gives the
+  # whole expression, however deep it sits in other arithmetic, and wraps
+  # in that type.
+
+  a: U128 = 1 + (4294967296 *% 4294967296)
+  b: U128 = 4294967296 *% 4294967296
+  c: I128 = 1 + (9223372036854775807 +% 1)
+  print(a, b, c)
+  v: U8 = 5
+  d: U8 = (200 +% 100) / 2
+  e: U8 = v + (1 + (250 +% 10))
+  print(d, e)
+  x: I8 = (-128 | 2) -% 127
+  y: I8 = -126 -% (127 | 0)
+  z: U8 = (1 | 2) -% (4 ^ 0)
+  print(x, y, z)
+
+bomb "zero len index fill", "index out of bounds"
+  # An index into a `[0 of x]` fill panics when the program runs.
+
+  fun at(i: Int) -> Int
+    [0 of 7][i]
+
+  i = 0
+  for j in 0..1
+    i += j
+  print(at(i))
+
+bomb "zero len index read", "index out of bounds", prints: "0 [] [] []"
+  # An array of length 0 can be sliced, looped over, and written through
+  # a loop; an index into it, which can only be out of range, panics when
+  # the program runs.
+
+  Z = 0
+
+  fun zeros[n: Int]() -> [n]Int
+    [n of 0]
+
+  fun at(xs: [0]Int, i: Int) -> Int
+    xs[i]
+
+  sub main()
+    i = 0
+    for j in 0..1
+      i += j
+    a: [Z]Int = []
+    for x in !a
+      x += 1
+    for x in a
+      print(x)
+    b = zeros[0]()
+    print(a.len, b, a[i..i], b[0..i])
+    print(at(a, i))
+
+bomb "zero len index write", "index out of bounds", prints: "[]"
+  # A write into a field of length 0 panics when the program runs, both
+  # through `!self` and through a generic type's instance.
+
+  obj Ring[T, n: Int]
+    items: [n]T
+
+  obj S
+    xs: [0]Int
+
+    sub put(!self, i: Int)
+      self.xs[i] = 1
+
+  i = 0
+  for j in 0..1
+    i += j
+  r = Ring[Int, 0](items: [])
+  if i > 0
+    r.items[i] = 3
+  print(r.items)
+  s = S(xs: [])
+  !s.put(i)
+  print(s.xs)

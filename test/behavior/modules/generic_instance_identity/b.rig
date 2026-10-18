@@ -1,4 +1,0 @@
-use lib
-
-pub fun take(x: lib.Wrap[Int]) -> Int
-  x.v + 1

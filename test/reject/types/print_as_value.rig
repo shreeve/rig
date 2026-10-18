@@ -1,7 +1,0 @@
-# `print` is only special as a direct call; it is no value.
-
-sub main()
-  x = print
-  x(42)
-
-# error: 4:7: `print` is called with parentheses: `print(...)`

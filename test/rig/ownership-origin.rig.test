@@ -1,0 +1,493 @@
+# ownership: tests whose names start `origin`.
+
+test "origin from", '''
+  1 1
+  1
+  1
+  1
+  1
+  /home HOMEX
+  long
+  3
+'''
+  # `-> T from a` says which arguments a result views (Core sentence 7):
+  # the others are free again after the call, even of the same type. The
+  # compiler checks each body against its clause.
+
+  obj Entry
+    key: ?String
+    value: ?String
+
+  obj Env
+    entries: List[Entry]
+
+    fun get(?self, key: ?String) -> (?String)? from self
+      for e in ?self.entries
+        if e.key == key
+          return e.value
+      none
+
+  fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int] from a
+    a
+
+  fun pick[T](a: ?T, b: ?T) -> ?T from a
+    a
+
+  fun deep(a: ?List[Int], b: ?List[Int], n: Int) -> ?List[Int] from a
+    if n == 0
+      return a
+    deep(a, b, n - 1)
+
+  fun label(t: ?String) -> ?String from static
+    if t.len > 3
+      "long"
+    else
+      "short"
+
+  fun mk() -> List[Int]
+    v: List[Int] = List()
+    !v.push(9)
+    v
+
+  fun span(from: Int, to: Int) -> Int
+    to - from
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  !x.push(1)
+  r = first(?x, ?y)
+  !y.push(2)
+  print(r.len, y.len)
+  s = first(b: ?y, a: ?x)
+  !y.push(3)
+  print(s.len)
+  p = pick(?x, ?y)
+  !y.push(4)
+  print(p.len)
+  d = deep(?x, ?y, 3)
+  !y.push(5)
+  print(d.len)
+  t = first(?x, ?mk())
+  print(t.len)
+  env = Env(entries: List())
+  !env.entries.push(Entry(key: "HOME", value: "/home"))
+  q = String("HO", "ME")
+  if env.get(?q) as home
+    !q.add("X")
+    print(home, q)
+  w = String("abcd")
+  l = label(?w)
+  <w
+  print(l)
+  from = 2
+  print(span(from, 5))
+
+fail "origin from body exceeds", "5:3: `tail` returns a view of `b`, but its signature says it views only `a`", "8:10: `early` returns a view of `b`", "12:3: `branch` returns a view of `b`", "15:3: `fallback` returns a view of `b`", "21:3: `through` returns a view of `b`", "24:3: `only` returns a view of `s`, but its signature says it views only what lives for the whole program", errors: 6
+  # A body is checked against its `from` clause, whatever form returns the
+  # view: a tail value, a `return`, a branch, a fallback, or a call.
+
+  fun tail(a: ?List[Int], b: ?List[Int]) -> ?List[Int] from a
+    b
+
+  fun early(a: ?List[Int], b: ?List[Int], c: Bool) -> ?List[Int] from a
+    return b if c
+    a
+
+  fun branch(a: ?List[Int], b: ?List[Int], c: Bool) -> ?List[Int] from a
+    a if c else b
+
+  fun fallback(a: (?List[Int])?, b: ?List[Int]) -> ?List[Int] from a
+    a ?? b
+
+  fun both(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
+    a
+
+  fun through(a: ?List[Int], b: ?List[Int]) -> ?List[Int] from a
+    both(a, b)
+
+  fun only(s: ?String) -> ?String from static
+    s
+
+  pass
+
+fail "origin from body forms", "17:5: `get` returns a view of `other`, but its signature says it views only `self`", "20:3: `arm` returns a view of `b`", "29:3: `loop` returns a view of `b`", "33:12: `unwrap` returns a view of `b`", "38:3: `field` returns a view of `b`", "41:3: `payload` returns a view of `b`", errors: 6
+  # More forms a body returns a view through, each checked against its
+  # `from` clause: a match arm, a loop's `break` value, `if … as`, a field
+  # of a local struct, a payload of a parameter, and a method's argument.
+
+  obj Pair
+    x: ?List[Int]
+    y: ?List[Int]
+
+  enum Pick
+    one(v: ?List[Int])
+    none_
+
+  obj Table
+    rows: List[Int]
+
+    fun get(?self, other: ?List[Int]) -> ?List[Int] from self
+      other
+
+  fun arm(a: ?List[Int], b: ?List[Int], n: Int) -> ?List[Int] from a
+    match n
+      0 => a
+      _ => b
+
+  fun loop(a: ?List[Int], b: ?List[Int]) -> ?List[Int] from a
+    r = while true
+      break b
+    else
+      a
+    r
+
+  fun unwrap(a: ?List[Int], b: (?List[Int])?) -> ?List[Int] from a
+    if b as v
+      return v
+    a
+
+  fun field(a: ?List[Int], b: ?List[Int]) -> ?List[Int] from a
+    p = Pair(x: a, y: b)
+    p.y
+
+  fun payload(a: ?List[Int], b: ?Pick) -> ?List[Int] from a
+    match b
+      .one(v) => v
+      .none_ => a
+
+  pass
+
+fail "origin from keeps named", "14:1: cannot lend `x` to write while a read loan is live", "17:1: cannot lend `y` to write while a read loan is live", errors: 2
+  # The arguments `from` names stay lent while the result lives; a
+  # function lent as a value calls with its type's origins, which keep
+  # every argument that could hold the result.
+
+  fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int] from a
+    a
+
+  fun apply(f: ?fun(?List[Int], ?List[Int]) -> ?List[Int], a: ?List[Int], b: ?List[Int]) -> ?List[Int]
+    f(a, b)
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  r = first(?x, ?y)
+  !x.push(1)
+  print(r.len)
+  s = apply(?first, ?x, ?y)
+  !y.push(2)
+  print(s.len)
+
+fail "origin from names", "4:50: `k: ?Int` cannot hold a view of what `a` returns", "7:41: `b` has no parameter `w`", "10:22: `c` returns `Int`, which views nothing", "13:59: `static` stands alone (`from static`)", errors: 4
+  # `from` names parameters whose types could hold what the result views,
+  # on a result that views something; `static` stands alone.
+
+  fun a(v: ?List[Int], k: ?Int) -> ?List[Int] from k
+    v
+
+  fun b(v: ?List[Int]) -> ?List[Int] from w
+    v
+
+  fun c(n: Int) -> Int from n
+    n
+
+  fun d(x: ?List[Int], y: ?List[Int]) -> ?List[Int] from y, static
+    y
+
+  pass
+
+fail "origin from static", "6:3: `pick` returns a view of `static`, but its signature says it views only what lives for the whole program", errors: 1
+  # `from static` means what lives for the whole program: a parameter
+  # named `static` cannot be named in `from`, so a body that returns it
+  # exceeds the clause, and the note says why.
+
+  fun pick(static: ?List[Int], other: ?List[Int]) -> ?List[Int] from static
+    static
+
+  pass
+
+fail "origin holder owns target", "22:6: cannot lend `c` to write while a read loan is live"
+  # A cursor that also owns items of the type it hands out keeps itself
+  # lent, to read: its result may view its own `scratch`.
+
+  obj Item
+    n: Int
+
+  obj Cursor
+    items: ?List[Item]
+    scratch: List[Item]
+    i: Int
+
+    fun next(!self) -> ?Item
+      k = self.i
+      self.i += 1
+      ?self.items[k]
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  !v.push(Item(n: 2))
+  c = Cursor(items: ?v, scratch: List(), i: 0)
+  a = (!c).next()
+  b = (!c).next()
+  print(a.n, b.n)
+
+test "origin key not kept", '''
+  5 2
+  7 0
+  5 3
+'''
+  # A call's result carries the loans of only the arguments whose types
+  # could hold what it views (Core sentence 7): a key, an index, or a
+  # counter is free again after the call.
+
+  obj Item
+    n: Int
+
+  obj Key
+    id: Int
+
+  obj Table
+    items: [4]Item
+
+    fun get(?self, k: ?Int) -> ?Item
+      ?self.items[k]
+
+    fun find(?self, key: ?Key) -> (?Item)?
+      for i in 0..4
+        if self.items[i].n == key.id
+          return ?self.items[i]
+      none
+
+  fun at(v: ?[4]Item, k: !Int) -> ?Item
+    k += 1
+    ?v[k - 1]
+
+  t = Table(items: [Item(n: 3), Item(n: 5), Item(n: 7), Item(n: 9)])
+  k = 1
+  r = ?t.get(?k)
+  k = 2
+  print(r.n, k)
+  key = Key(id: 7)
+  if t.find(?key) as hit
+    key.id = 0
+    print(hit.n, key.id)
+  a = [4 of Item(n: 5)]
+  i = 0
+  s = at(?a, !i)
+  i = 3
+  print(s.n, i)
+
+fail "origin keyword argument mapping", "10:1: cannot lend `x` to write while a read loan is live"
+  # Keyword arguments fill parameters by name: the result keeps the
+  # argument that fills `a`, wherever it is written.
+
+  fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
+    a
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  r = first(b: ?y, a: ?x)
+  !x.push(1)
+  print(r.len)
+
+test "origin read receiver keeps nothing", '''
+  x a
+  1
+  x cd
+  2
+  x
+'''
+  # A method that reads its receiver keeps none of its arguments' views
+  # in it (Core sentence 4: nothing changes through a read view), so a key
+  # that dies each iteration is fine.
+
+  obj Box2
+    label: ?String
+
+    fun show(?self, s: ?String) -> Int
+      print(self.label, s)
+      s.len
+
+  b = Box2(label: "x")
+  for n in ["a", "cd"]
+    q = String(n)
+    k = b.show(?q)
+    print(k)
+  print(b.label)
+
+fail "origin receiver stored in argument", "18:2: cannot drop `s` while it is lent"
+  # A method may store a view of what its receiver holds in what it was
+  # lent to write: the receiver stays lent while that view lives.
+
+  obj Holder
+    r: []Int
+
+  obj Src
+    items: List[Int]
+
+    sub put(?self, out: !Holder) keeps self
+      out.r = ?self.items[..]
+
+  x = [1, 2]
+  h = Holder(r: ?x[..])
+  s = Src(items: List())
+  !s.items.push(5)
+  ?s.put(!h)
+  <s
+  print(h.r[0])
+
+test "origin receiver stores into argument", "[1, 2, 3] 2"
+  # A method may store a view of what it is handed in an argument it was
+  # lent to write; its receiver is lent to write only for the call, so
+  # the argument keeps what it stored, and the receiver is free after.
+
+  obj View
+    xs: []Int
+
+  obj Counter
+    n: Int
+
+    sub stash(!self, v: !View, ys: []Int) keeps ys
+      self.n += 1
+      v.xs = ys
+
+  b = [9]
+  a = [1, 2, 3]
+  v = View(xs: ?b)
+  c = Counter(n: 0)
+  !c.stash(!v, ?a)
+  c.n += 1
+  print(v.xs, c.n)
+
+fail "origin same type keeps both", "10:1: cannot lend `y` to write while a read loan is live"
+  # Without `from`, a result carries every argument whose type could hold
+  # what it views: two arguments of the same type stay lent.
+
+  fun first(a: ?List[Int], b: ?List[Int]) -> ?List[Int]
+    a
+
+  x: List[Int] = List()
+  y: List[Int] = List()
+  r = first(?x, ?y)
+  !y.push(1)
+  print(r.len)
+
+test "origin store by type", '''
+  3 abcd
+  kept
+  3
+'''
+  # What a call stores through a write argument carries the loans of only
+  # the arguments whose types could be held there (Core sentence 7): a
+  # counter's name is free after the call, while the view stored stays.
+
+  obj Counter
+    n: Int
+
+  obj Holder
+    r: []Int
+
+  sub bump(c: !Counter, name: ?String)
+    c.n += name.len
+
+  sub keep(h: !Holder, x: []Int, label: ?String) keeps x
+    h.r = x
+    print(label)
+
+  c = Counter(n: 0)
+  t = String("abc")
+  bump(!c, ?t)
+  !t.add("d")
+  print(c.n, t)
+  a = [1, 2]
+  b = [3, 4]
+  h = Holder(r: ?a[..])
+  l = String("kept")
+  keep(!h, ?b[..], ?l)
+  <l
+  print(h.r[0])
+
+fail "origin stores before result", "`w` does not live long enough"
+  # A call stores before its result is handed back: `next` re-points
+  # `self.items` at `extra`, so its result views `w`, which ends first.
+
+  obj Item
+    n: Int
+
+  obj Cursor
+    items: ?List[Item]
+
+    fun next(!self, extra: ?List[Item]) -> ?Item keeps extra
+      self.items = extra
+      ?self.items[0]
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  c = Cursor(items: ?v)
+  r = ?v[0]
+  if true
+    w: List[Item] = List()
+    !w.push(Item(n: 2))
+    r = (!c).next(?w)
+  print(r.n)
+
+test "origin view through view", '''
+  1 2
+  1 5
+  1 0
+'''
+  # A view reached through another view carries that view's loans, not a
+  # loan on its holder (Core sentence 7): a cursor holding a view of a List
+  # hands out views of the List's items, and stays free to move on.
+
+  obj Item
+    n: Int
+
+  obj Cursor
+    items: ?List[Item]
+    i: Int
+
+    fun next(!self) -> ?Item
+      k = self.i
+      self.i += 1
+      ?self.items[k]
+
+  obj Pair
+    a: ?List[Int]
+    b: ?List[Int]
+
+  fun left(p: ?Pair) -> ?List[Int]
+    p.a
+
+  v: List[Item] = List()
+  !v.push(Item(n: 1))
+  !v.push(Item(n: 2))
+  c = Cursor(items: ?v, i: 0)
+  a = (!c).next()
+  b = (!c).next()
+  print(a.n, b.n)
+  r = ?c.items[0]
+  c.i = 5
+  print(r.n, c.i)
+  x: List[Int] = List()
+  y: List[Int] = List()
+  !x.push(4)
+  p = Pair(a: ?x, b: ?y)
+  l = left(?p)
+  p = Pair(a: ?y, b: ?y)
+  print(l.len, p.a.len)
+
+fail "origin write cursor keeps holder", "9:10: a write view is never stored inside a value, and `![]Item` cannot stand here", errors: 1
+  # A write cursor cannot hold its items as a write view: a write view is
+  # never stored inside a value, so the field is rejected where it is
+  # declared, and no two items such a cursor hands out can alias.
+
+  obj Item
+    n: Int
+
+  obj Cursor
+    items: ![]Item
+    i: Int
+
+  a = [Item(n: 1), Item(n: 2)]
+  c = Cursor(items: !a, i: 0)
+  print(c.i)

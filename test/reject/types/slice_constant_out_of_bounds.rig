@@ -1,9 +1,0 @@
-# Constant slice bounds are checked against an array's length.
-
-sub main()
-  a = [1, 2, 3]
-  print(a[1..4])
-  print(a[2..1])
-
-# error: 5:14: slice end `4` is past the end of an array of length 3
-# error: 6:11: slice `2..1` starts after it ends

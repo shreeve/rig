@@ -1,0 +1,522 @@
+# ownership: tests whose names start `defer`.
+
+test "defer effects at continuing exits", '''
+  live 1
+  drop 1
+  drop 9
+  1
+  drop 1
+  drop 9
+  -1
+  eat 2
+  drop 2
+  again 3
+  drop 3
+  1
+  eat 2
+  drop 2
+  drop 8
+  -1
+  r 15
+  deferred 20
+  5
+  deferred 20
+  -1
+  eat 4
+  drop 4
+  defer
+  1
+  eat 4
+  drop 4
+  defer
+  drop 7
+  -1
+  defer 5
+  drop 5
+  1
+  drop 5
+  defer 6
+  drop 6
+  -1
+  loop 10
+  drop 10
+  drop 20
+  loop 11
+  drop 11
+  drop 21
+  2
+  drop 10
+  drop 20
+  -1
+'''
+  # At `e!`, `e?`, and a function result that may be an error, the defers
+  # and errdefers run only on the path that leaves; the path that goes on
+  # has not run them yet. Defers that reassign, revive, or re-point there
+  # leave the continuing path as it was, and run when it ends.
+
+  error E
+    bad
+
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub eat(r: R)
+    print("eat", r.n)
+
+  fun maybe(ok: Bool) -> Int!
+    return E.bad if not ok
+    1
+
+  # A defer that replaces a live owner, at a `!` that may fail.
+  fun replace(ok: Bool) -> Int!
+    x = R(n: 1)
+    defer x = R(n: 9)
+    k = maybe(ok)!
+    print("live", x.n)
+    k
+
+  # An errdefer that revives an owner the path moves before a `!`.
+  fun revive(ok: Bool) -> Int!
+    x = R(n: 2)
+    errdefer x = R(n: 8)
+    eat(<x)
+    k = maybe(ok)!
+    x = R(n: 3)
+    print("again", x.n)
+    k
+
+  # A defer that re-points a view, at a `?` that may leave with none.
+  fun repoint(o: Int?) -> Int?
+    a: List[Int] = List()
+    !a.push(10)
+    b: List[Int] = List()
+    !b.push(20)
+    r = ?a
+    defer print("deferred", r[0])
+    defer r = ?b
+    k = o?
+    print("r", r[0] + k)
+    k
+
+  # An errdefer that revives a moved owner, at a tail `!`.
+  fun tail_bang(ok: Bool) -> Int!
+    x = R(n: 4)
+    defer print("defer")
+    errdefer x = R(n: 7)
+    eat(<x)
+    maybe(ok)!
+
+  # Errdefers at a `return` of an error value from a tail branch.
+  fun tail_value(ok: Bool) -> Int!
+    x = R(n: 5)
+    defer print("defer", x.n)
+    errdefer x = R(n: 6)
+    if ok
+      1
+    else
+      return E.bad
+
+  # A defer in a loop body, at a `!` inside the loop.
+  fun looped(ok: Bool) -> Int!
+    total = 0
+    for i in 0..2
+      x = R(n: 10 + i)
+      defer x = R(n: 20 + i)
+      total += maybe(ok)!
+      print("loop", x.n)
+    total
+
+  print(replace(true) catch -1)
+  print(replace(false) catch -1)
+  print(revive(true) catch -1)
+  print(revive(false) catch -1)
+  print(repoint(5) ?? -1)
+  print(repoint(none) ?? -1)
+  print(tail_bang(true) catch -1)
+  print(tail_bang(false) catch -1)
+  print(tail_value(true) catch -1)
+  print(tail_value(false) catch -1)
+  print(looped(true) catch -1)
+  print(looped(false) catch -1)
+
+fail "defer ends loan at propagate", "19:4: cannot drop `x` while it is lent", errors: 1
+  # The defers run at `e!` only on the path that fails. On the path that
+  # goes on, `r` still views `x`: the defer that re-points it has not
+  # run, so `x` cannot be dropped while `r` is in use.
+  error E
+    bad
+
+  fun maybe(ok: Bool) -> Int!
+    return E.bad if not ok
+    1
+
+  fun f(ok: Bool) -> Int!
+    keep: List[Int] = List()
+    !keep.push(1)
+    x: List[Int] = List()
+    !x.push(41)
+    r = ?x
+    defer r = ?keep
+    k = maybe(ok)!
+    <x
+    print(r[0] + k)
+    k
+
+  print(f(true) catch 0)
+
+fail "defer fallthrough stores", "11:16: `inner` does not live long enough", errors: 1
+  # A `defer` that stores a loan on a local of its scope runs as the
+  # scope ends, after which the local is gone.
+  obj H
+    r: ?List[Int]
+
+  z: List[Int] = List()
+  h = H(r: ?z)
+  if true
+    inner: List[Int] = List()
+    !inner.push(9)
+    defer h.r = ?inner
+    print("in")
+  print(h.r[0])
+
+fail "defer in loop keeps lent", "32:17: cannot lend `v` to write while a read loan is live", "38:17: cannot lend `v` to write while a read loan is live", "43:17: cannot lend `v` to write while a read loan is live", "48:17: cannot lend `b.xs` to write while a read loan on `b` is live", errors: 4
+  # A `defer` in a loop's body runs inside the loop, before the loop reads
+  # its source again, so it cannot write what that source views: a slice
+  # the condition reads, an iterator a `while … as` advances, or one a
+  # `for` holds or lends.
+
+  obj SCur
+    xs: []Int
+    i: Int
+
+    fun next(!self) -> Int?
+      return none if self.i >= self.xs.len
+      self.i += 1
+      self.xs[self.i - 1]
+
+  fun smk(v: ?List[Int]) -> SCur from v
+    SCur(xs: ?v[0..v.len], i: 0)
+
+  obj SB
+    xs: List[Int]
+
+    fun each(?self) -> SCur from self
+      SCur(xs: ?self.xs[0..self.xs.len], i: 0)
+
+  sub grow(v: !List[Int])
+    for _ in 0..100
+      !v.push(1)
+
+  sub cond(v: !List[Int])
+    s = ?v[0..2]
+    i = 0
+    while s[i] > 0 : i += 1
+      defer grow(!v)
+      break if i == 1
+
+  sub advanced(v: !List[Int])
+    c = smk(?v)
+    while (!c).next() as x
+      defer grow(!v)
+      print(x)
+
+  sub held(v: !List[Int])
+    for x in smk(?v)
+      defer grow(!v)
+      print(x)
+
+  sub lent(b: !SB)
+    for x in ?b.each()
+      defer grow(!b.xs)
+      print(x)
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  cond(!v)
+  advanced(!v)
+  held(!v)
+  b = SB(xs: List())
+  lent(!b)
+
+fail "defer moves outer", "a `defer` body cannot move or drop `rc`"
+  # A deferred body cannot move an outer binding: it runs at scope exit,
+  # after the binding's own cleanup has been decided.
+
+  obj Wrap
+    payload: Int
+
+  sub eat(rc: *Wrap)
+    print(rc.payload)
+
+  rc = *Wrap(payload: 1)
+  defer eat(<rc)
+  print(1)
+
+fail "defer reads moved", "10:13: use of `rc` after move"
+  # A deferred body runs at scope exit, after the move that follows it.
+
+  obj Wrap
+    payload: Int
+
+  sub eat(rc: *Wrap)
+    print(rc.payload)
+
+  rc = *Wrap(payload: 1)
+  defer print(rc.payload)
+  eat(<rc)
+
+test "defer reads view of earlier local", '''
+  8
+  defer reads 7
+'''
+  # Deferred code may read a view of a local declared before the
+  # `defer`, which is dropped after it runs.
+
+  obj Res
+    v: List[Int]
+
+  y = Res(v: List())
+  !y.v.push(7)
+  r = ?y
+  defer print("defer reads", r.v[0])
+  x = Res(v: List())
+  !x.v.push(8)
+  print(x.v[0])
+
+fail "defer reads view of later local", "14:36: deferred code reads `x` through `r`", "22:28: deferred code reads `x` through `r`"
+  # Deferred code runs after the locals declared after the `defer` are
+  # dropped, so it cannot read one through a view taken later.
+
+  obj Res
+    v: List[Int]
+
+  error Bad
+    oops
+
+  fun work() -> Int!
+    y = Res(v: List())
+    !y.v.push(1)
+    r = ?y
+    errdefer print("errdefer reads", r.v[0])
+    x = Res(v: List())
+    !x.v.push(2)
+    r = ?x
+    return Bad.oops
+
+  y = Res(v: List())
+  r = ?y
+  defer print("defer reads", r.v[0])
+  x = Res(v: List())
+  !x.v.push(12345)
+  r = ?x
+  print(work() catch 0)
+
+fail "defer revives struct at none", "17:9: use of `x` after move", errors: 1
+  # The defers run at `o?` only on the path that leaves with `none`. On
+  # the path that goes on, the defer has not run, so its reassignment
+  # does not revive the moved `x`.
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  sub eat(r: R)
+    print("eat", r.n)
+
+  fun f(o: Int?) -> Int?
+    x = R(n: 1)
+    defer x = R(n: 9)
+    eat(<x)
+    k = o?
+    print(x.n)
+    k
+
+  print(f(3) ?? 0)
+
+fail "defer revives struct at none in loop", "19:11: use of `x` after move", errors: 1
+  # The defers run at `o?` only on the path that leaves with `none`. In a
+  # loop body too, the path that goes on has not run them, so the defer's
+  # reassignment does not revive the moved `x`.
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  sub eat(r: R)
+    print("eat", r.n)
+
+  fun f(o: Int?) -> Int?
+    t = 0
+    for i in 0..2
+      x = R(n: i)
+      defer x = R(n: 9)
+      eat(<x)
+      t += o?
+      print(x.n)
+    t
+
+  print(f(3) ?? 0)
+
+fail "defer revives struct at propagate", "24:9: use of `x` after move", errors: 1
+  # The defers run at `e!` only on the path that fails. On the path that
+  # goes on, the defer has not run, so its reassignment does not revive
+  # the moved `x`.
+  error E
+    bad
+
+  obj R
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  sub eat(r: R)
+    print("eat", r.n)
+
+  fun maybe(ok: Bool) -> Int!
+    return E.bad if not ok
+    1
+
+  fun f(ok: Bool) -> Int!
+    x = R(n: 1)
+    defer x = R(n: 9)
+    eat(<x)
+    k = maybe(ok)!
+    print(x.n)
+    k
+
+  print(f(true) catch 0)
+
+fail "defer revives vec at propagate", "20:9: use of `v` after move", errors: 1
+  # The defers run at `e!` only on the path that fails. On the path that
+  # goes on, the defer has not run, so its reassignment does not revive
+  # the moved `v`.
+  error E
+    bad
+
+  sub eat(v: List[Int])
+    print("eat", v.len)
+
+  fun maybe(ok: Bool) -> Int!
+    return E.bad if not ok
+    1
+
+  fun f(ok: Bool) -> Int!
+    v: List[Int] = List()
+    !v.push(41)
+    defer v = List()
+    eat(<v)
+    k = maybe(ok)!
+    print(v[0] + k)
+    k
+
+  print(f(true) catch 0)
+
+fail "defer stores view", "8:14: `t` does not live long enough", "15:15: `v` does not live long enough", errors: 2
+  # Deferred code runs as its scope exits, before the scope's values are
+  # dropped: a view it stores in a binding from outside the scope would
+  # outlive them.
+
+  s: ?String = "x"
+  if true
+    t = String("abcdefghijklmnop")
+    defer s = ?t[..]
+  print(s)
+  e: List[Int] = List()
+  sl = ?e[..]
+  if true
+    v: List[Int] = List()
+    !v.push(7)
+    defer sl = ?v[..]
+  print(sl)
+
+fail "defer stores view at break", "10:14: `v` does not live long enough", errors: 1
+  # A `defer` body runs when a `break` leaves its scope: a view it
+  # stores outside the loop, of a var the loop body drops, does not live
+  # long enough.
+
+  e: List[Int] = List()
+  s = ?e[..]
+  for _ in 0..2
+    v: List[Int] = List()
+    !v.push(7)
+    defer s = ?v[..]
+    break
+  print(s)
+
+fail "defer stores view of scope var", "9:14: `v` does not live long enough", errors: 1
+  # A `defer` body runs when its scope exits: a view it stores outside
+  # the scope, of a var the scope drops, does not live long enough.
+
+  e: List[Int] = List()
+  s = ?e[..]
+  if true
+    v: List[Int] = List()
+    !v.push(7)
+    defer s = ?v[..]
+  print(s)
+
+fail "defer stores view past propagate", "18:16: `v` does not live long enough", errors: 1
+  # The defers checked at `e!` leave no effects on the path that goes on,
+  # but they still run when that path leaves the block: the view the
+  # defer stores there, of a var the block drops, does not live long
+  # enough.
+  error E
+    bad
+
+  fun maybe(ok: Bool) -> Int!
+    return E.bad if not ok
+    1
+
+  fun f(ok: Bool) -> Int!
+    e: List[Int] = List()
+    s = ?e[..]
+    if ok
+      v: List[Int] = List()
+      !v.push(7)
+      defer s = ?v[..]
+      k = maybe(ok)!
+      print(k)
+    print(s)
+    1
+
+  print(f(true) catch 0)
+
+fail "defer uses returned branch", "use of `v` after move", "use of `a` after move"
+  # `return v` and a bare `v` in a returned branch move `v` out before the
+  # defers of the function run.
+
+  fun early(c: Bool) -> List[Int]
+    v: List[Int] = List()
+    defer print(v.len)
+    return v if c
+    List()
+
+  fun pick(c: Bool) -> List[Int]
+    a: List[Int] = List()
+    b: List[Int] = List()
+    defer !a.push(1)
+    if c
+      a
+    else
+      <b
+
+  x = early(true)
+  y = pick(true)
+  print(x.len, y.len)
+
+fail "defer uses returned tail", "use of `v` after move"
+  # Returning a bare local moves it out; a `defer` that runs at that exit
+  # sees it moved.
+
+  fun mk() -> List[Int]
+    v: List[Int] = List()
+    !v.push(1)
+    defer !v.push(2)
+    v
+
+  w = mk()
+  print(w.len)

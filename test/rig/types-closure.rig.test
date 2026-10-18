@@ -1,0 +1,266 @@
+# types: tests whose names start `closure`.
+
+test "closure arg inference order", '''
+  yes
+  no
+  2 1
+'''
+  # Closure literals are inferred in any order: one whose parameters are
+  # not known yet waits until another literal's result gives them. Through
+  # a captured write view, `!c.inc()` and `!v.push(x)` lend it on, as on
+  # a `!T` parameter.
+
+  obj Counter
+    n: Int
+
+    sub inc(!self)
+      self.n += 1
+
+  fun pipe[A, B, C](a: A, f: ?fun(A) -> B, g: ?fun(B) -> C) -> C
+    g(f(a))
+
+  fun rpipe[A, B, C](a: A, g: ?fun(B) -> C, f: ?fun(A) -> B) -> C
+    g(f(a))
+
+  print(pipe(3, |x| x > 2, |b| "yes" if b else "no"))
+  print(rpipe(1, |b| "yes" if b else "no", |x| x > 2))
+  c = Counter(n: 0)
+  g = |!c|
+    !c.inc()
+    !c.inc()
+  g()
+  v: List[Int] = List()
+  h = |!v|
+    !v.push(1)
+  h()
+  print(c.n, v.len)
+
+fail "closure arity vs type", "this closure takes 2 parameters, but its type `fun(Int) -> Int` passes 1"
+  # A closure takes at most the parameters the type its context expects
+  # passes it (fewer is allowed: test/behavior/syntax/closure_fewer_params.rig).
+
+  f: fun(Int) -> Int = |a, b| a + b
+
+test "closure ends with else if", "two"
+  # A closure whose body ends in an `if ... else if ...` chain without a
+  # final `else` returns nothing.
+
+  n = 2
+  f = |+n|
+    if n == 1
+      print("one")
+    else if n == 2
+      print("two")
+  f()
+
+fail "closure lending hints", "22:9: `|+f|` captures what `+x` gives (a copy, a new count of a handle, or a deep copy), but `f` is `?fun(Int) -> Int`; capture it with `|?f|`", "30:7: but `f` is a closure of type `fun(Int) -> Int`; capture it with `|?f|`", "33:5: `keep` cannot take a callable view for `T`", "34:5: `Cell` cannot take a callable view for `T`", "35:7: only a local can be captured; `double` is declared at module level", "36:11: a closure literal is not a function value `fun(Int) -> Int`; declare the parameter `?fun(Int) -> Int`", "36:27: a lent closure goes to a parameter declared `?fun(Int) -> Int`", "39:14: `*sub()` is an owned closure; write `*|...| body` to make one"
+  # Each mistake in lending a closure gets one diagnostic whose hint
+  # compiles: a closure or a view is captured with `|?f|`, a closure
+  # literal goes to a parameter declared `?fun(...)`, and no type argument
+  # is a callable view. (An owned closure, bare or made, is lent to a
+  # `?fun(...)` argument as `?cb` lends it.)
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  fun run(f: fun(Int) -> Int) -> Int
+    f(1)
+
+  fun mk() -> *fun(Int) -> Int
+    *|a: Int| a + 5
+
+  fun keep[T](x: T) -> List[T]
+    v: List[T] = List()
+    !v.push(x)
+    v
+
+  sub outer(f: ?fun(Int) -> Int)
+    h = |+f| f(1)
+    print(h())
+
+  fun double(n: Int) -> Int
+    n * 2
+
+  k = 2
+  f = |+k, a: Int| a * k
+  h = |+f| f(1)
+  cb = *|a: Int| a + 1
+  print(h(), apply(cb, 1), apply(+cb, 1), apply(mk(), 1))
+  v = keep(?f)
+  c = Cell(?f)
+  m = |?double| apply(double, 3)
+  print(run(|a| a + 1), run(?f), v.len, m())
+  s = *Signal(0)
+  x = 1
+  !s.subscribe(|?x| print(x))
+
+fail "closure lending hints ownership", "9:9: cannot move-capture view parameter `f`; the caller still owns what it views. Capture the view with `|?f|`", "18:8: cannot move captured view `r`; the closure holds it for every call"
+  # A closure does not move a view out of its capture: a viewed
+  # parameter is captured with `|?f|`, and a captured view stays with the
+  # closure for every call.
+
+  obj Res
+    id: Int
+
+  sub outer(f: ?fun(Int) -> Int)
+    g = |<f| f(1)
+    print(g())
+
+  sub eat(r: !Res)
+    print(r.id)
+
+  outer(|a: Int| a + 1)
+  r = Res(id: 1)
+  e = |!r|
+    eat(<r)
+  e()
+
+fail "closure literal as owned binding", "11:23: `*fun(Int) -> Int` is an owned closure; write `*|...| body` to make one"
+  # A closure literal bound to a `*fun` binding is rejected once: the
+  # binding keeps its declared type, so lending it (`?f`) is checked as a
+  # view of an owned closure, with no second error.
+
+  fun ap(f: ?*fun(Int) -> Int) -> Int
+    f(1)
+
+  fun lend(f: ?fun(Int) -> Int) -> Int
+    f(2)
+
+  f: *fun(Int) -> Int = |x: Int| x + 1
+  print(ap(?f), lend(?f))
+
+fail "closure param annotation mismatch", "closure parameter `a` is declared `?String`, but the closure's type passes `Int`"
+  # A closure's parameter annotations must match the type its context
+  # gives it: a `*sub(Int)` closure cannot declare `a: ?String`.
+
+  v: *Cell[Int] = *Cell(0)
+  cb: *sub(Int) = *|+v, a: ?String| print(a)
+  cb(1)
+
+test "closure param inference", '''
+  5
+  40
+  202
+  ok 7
+  6
+'''
+  # A closure's bare parameters take their types from the type its context
+  # expects: a binding annotation, a parameter of the called function, a
+  # List's element type, a struct field, or a function's return type.
+
+  obj Button
+    label: ?String
+    on_click: *sub(Int)
+
+  fun apply(f: *fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  fun adder(n: Int) -> *fun(Int) -> Int
+    *|+n, a| a + n
+
+  add: fun(Int, Int) -> Int = |a, b| a + b
+  print(add(2, 3))
+
+  print(apply(*|a| a * 10, 4))
+
+  total: *Cell[Int] = *Cell(0)
+  handlers: List[*sub(Int)] = List()
+  !handlers.push(*|+total, n| !total.set(total.get() + n))
+  !handlers.push(*|+total, n| !total.set(total.get() + n * 100))
+  for h in ?handlers
+    h(2)
+  print(total.get())
+
+  b = Button(label: "ok", on_click: *|+total, n| !total.set(n))
+  b.on_click(7)
+  print(b.label, total.get())
+
+  plus5 = adder(5)
+  print(plus5(1))
+
+fail "closure param names local", "closure parameter `rc` has the name of the local `rc`; to capture the local, give it a sigil (`|+rc|` copies or clones it, `|<rc|` moves it, `|?rc|` or `|!rc|` lends it, `|~rc|` holds it weakly)", "closure parameter `n` has the name of the local `n`"
+  # In a bar list a bare name is a parameter; a capture carries a sigil.
+  # A bare name that is also a local is rejected with the sigils that
+  # would capture it, in a stack closure and in an owned closure.
+
+  rc: *Cell[Int] = *Cell(0)
+  f = |rc| rc.get()
+  print(f())
+  n = 3
+  cb: *sub() = *|n| print(n)
+  cb()
+
+fail "closure param needs type", "closure parameter `a` needs a type: annotate it (`|a: Int|`) or write the closure where its type is known", "closure parameter `b` needs a type"
+  # A bare closure parameter takes its type from context; with no type to
+  # take, it must be annotated.
+
+  add = |a, b| a + b
+  print(add(1, 2))
+
+fail "closure param shadows capture", "closure parameter `x` has the name of the capture `x`"
+  # A closure parameter cannot share a name with one of its captures.
+
+  x =! 10
+  f = |+x, x: Int| x
+  print(f(99))
+
+fail "closure return inconsistent", "this closure returns `Int` with `return`, so its body must end with a value or a `return`", "a bare `return` in a closure that returns `Int`; give it a value", "this closure returns `Int`, but this `return` gives `Static`"
+  # A closure's `return`s must agree with the value it ends with; one that
+  # returns a value with `return` must not fall off its end.
+
+  a = |x: Int|
+    if x > 0
+      return 1
+  b = |x: Int|
+    if x > 0
+      return
+    5
+  c = |x: Int|
+    if x > 0
+      return "big"
+    5
+
+fail "closure return inferred numeric", "12:3: this closure returns `U8`, but this `return` gives `Int`; give the closure its type where it goes (`f: fun(...) -> U8 = |...| ...`), and every `return` takes it"
+  # A closure whose result type is inferred gives its `return`s no type to
+  # take: a later `return max(3, 4)` stays `Int`. The error says to give
+  # the closure its type where it goes, which every `return` then takes.
+
+  fun max[T](a: T, b: T) -> T
+    a if a > b else b
+
+  c = true
+  f = |+c, x: U8|
+    if c
+      return x
+    return max(3, 4)
+  print(f(7))
+
+fail "closure return literal fits", "integer value `300` does not fit in `U8` (0..255)"
+  # A literal `return` in a closure takes the closure's inferred return
+  # type, and must fit it.
+
+  f = |x: U8|
+    if x > 5
+      return 300
+    x
+  print(f(3))
+
+fail "closure return mismatch", "type mismatch: expected `Int`, got `Static`", "type mismatch: expected `Int`, got `Void`", "a `sub` returns no value"
+  # A closure's body must produce what its type returns: a value of the
+  # return type for `fun(...) -> R`, nothing for `sub(...)`.
+
+  f: fun(Int) -> Int = |a| "text"
+  g: *fun() -> Int = *||
+    print("no value")
+  h: sub(Int) = |a|
+    return a
+
+fail "closure uses uncaptured local", "`m` is a local of the enclosing function; capture it"
+  # A closure reaches the enclosing function's locals only through the
+  # captures in its bar list.
+
+  n = 1
+  m = 2
+  f = |+n|
+    print(n + m)
+  f()

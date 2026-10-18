@@ -1,0 +1,2638 @@
+# ownership: the rest of its tests, part 2.
+
+use std.hash
+use std.text
+
+test "take places", '''
+  5 [none]
+  2 [1, none]
+  Node(v: 1, next: none) Node(v: 2, next: none)
+  4 W(x: none)
+'''
+  # Taking out of an element (`<v[i]`, `<arr[i]`), out of a boxed value,
+  # in a generic type's `T?` field, and in a drop body, which releases a
+  # long list one node at a time.
+
+  sub elements()
+    v: List[Int?] = List()
+    !v.push(5)
+    a = <v[0]
+    print(a, v)
+    arr: [2]Int? = [1, 2]
+    b = <arr[1]
+    print(b, arr)
+
+  obj Node
+    v: Int
+    next: ^Node?
+
+    drop(!self)
+      cur = <self.next
+      while <cur as n
+        cur = <n.next
+
+  obj W[T]
+    x: T?
+
+    fun grab(!self) -> T?
+      <self.x
+
+  elements()
+  head: ^Node? = none
+  i = 0
+  while i < 100000 : i += 1
+    head = ^Node(v: i, next: <head)
+  b = ^Node(v: 1, next: ^Node(v: 2, next: none))
+  rest = <b.next
+  print(b, rest)
+  w = W[Int](x: 4)
+  print((!w).grab(), w)
+
+test "take places more", '''
+  1 S(a: none) 1 T(s: S(a: none)) 2 S(a: none) 3 S(a: none)
+  S(a: 5)
+  S(a: 6)
+  6 [S(a: 5), S(a: none)]
+  3 H(a: none)
+  none
+  got 4
+  4
+'''
+  # A take writes its owner, so a plain-data local, a field of a field,
+  # and an array element are emptied in place; `(<s.a)?` takes, then
+  # returns `none` when there was nothing; `if <slot as t` moves a held
+  # write view of an optional into the binding.
+
+  obj S
+    a: Int?
+
+  obj T
+    s: S
+
+  fun mk() -> S
+    S(a: 1)
+
+  sub places()
+    s = mk()
+    t = <s.a
+    u = T(s: mk())
+    w = <u.s.a
+    x: S = S(a: 2)
+    y = <x.a
+    z = S(a: 3)
+    q = <z.a
+    print(t, s, w, u, y, x, q, z)
+    a: [2]S = [S(a: 5), S(a: 6)]
+    for e in a
+      print(e)
+    b = <a[1].a
+    print(b, a)
+
+  obj N
+    v: Int
+
+  obj H
+    a: ^N?
+
+  fun first(h: !H) -> Int?
+    b = (<h.a)?
+    b.v
+
+  sub peek(slot: !Int?)
+    if <slot as t
+      print("got", t)
+
+  places()
+  h = H(a: ^N(v: 3))
+  n = first(!h)
+  print(n, h)
+  print(first(!h))
+  x: Int? = 4
+  peek(!x)
+  print(x)
+
+fail "take rejections", "13:8: cannot take through a read view (`?T`)", "17:5: cannot take through a shared handle (`*T`)"
+  # Taking an optional out of a field writes the field: not through a read
+  # view or a shared handle.
+
+  obj N
+    v: Int
+    next: ^N?
+
+  obj S
+    top: ^N?
+    n: N
+
+  sub rd(s: ?S)
+    x = <s.top
+    print(x)
+
+  h = *S(top: none, n: N(v: 1, next: none))
+  z = <h.top
+  s = S(top: none, n: N(v: 1, next: none))
+  print(z)
+  rd(?s)
+
+fail "take rejections ownership", "16:10: cannot lend `s.top` to write while a read loan is live", "20:24: cannot lend `s.top` to write while a write loan is live", "24:7: cannot move out of `s.n`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.n, v)`", "27:7: use of `msg` after move"
+  # Taking an optional out of a field writes the field: not while another
+  # view of the value is live, and not twice in one call. A field that
+  # is not optional still cannot be moved out; it is exchanged with
+  # `replace`. A local is moved as a whole, and cannot be used after.
+
+  obj N
+    v: Int
+    next: ^N?
+
+  obj S
+    top: ^N?
+    n: N
+
+  sub both(s: !S)
+    if ?s.top as t
+      y = <s.top
+      print(t.v)
+
+  sub twice(s: !S)
+    a = replace(!s.top, <s.top)
+    print(a)
+
+  s = S(top: none, n: N(v: 1, next: none))
+  nm = <s.n
+  msg: (?String)? = "hi"
+  m = <msg
+  print(msg, m, nm)
+  both(!s)
+  twice(!s)
+
+test "take then exit", '''
+  drop 1
+  0
+  S(a: none, b: R(n: 2))
+  drop 2
+  none
+  S(a: none, b: none)
+  drop 3
+  none
+'''
+  # A taken field is `none` at once, so an early exit (`!`, `?`, `break`)
+  # after the take drops only what was taken, and the place is left empty.
+
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+    b: R?
+
+  error Bad
+    no
+
+  fun f(s: !S, fail: Bool) -> Int!
+    x = <s.a
+    return Bad.no if fail
+    s.a = <x
+    1
+
+  fun g(s: !S) -> Int?
+    y = <s.b
+    z: Int? = none
+    n = z?
+    n
+
+  s = S(a: R(n: 1), b: R(n: 2))
+  print(f(!s, true) catch 0)
+  print(s)
+  print(g(!s))
+  print(s)
+  i = 0
+  s.a = R(n: 3)
+  while true
+    t = <s.a
+    i += 1
+    break if i > 1
+  print(s.a)
+
+test "take through branch of write views", '''
+  [1] none [2]
+  [2] [1] none
+  [2] [1] none
+'''
+  # A branching value whose every leaf is a write view is a write view of
+  # the leaf it took: `<` through it takes the optional field out of the
+  # place that leaf views, and leaves `none` there. The other place is
+  # untouched.
+  # oracle: lends accept
+  # oracle: bindings accept
+
+  obj S
+    o: List[Int]?
+
+  fun mkv(n: Int) -> List[Int]
+    xs: List[Int] = List()
+    !xs.push(n)
+    xs
+
+  sub lends(c: Bool)
+    s = S(o: mkv(1))
+    t = S(o: mkv(2))
+    x = <(!s if c else !t).o
+    print(x, s.o, t.o)
+
+  sub bindings(c: Bool)
+    s = S(o: mkv(1))
+    t = S(o: mkv(2))
+    r1 = !s
+    r2 = !t
+    x = <(r1 if c else r2).o
+    print(x, r1.o, r2.o)
+
+  lends(true)
+  lends(false)
+  bindings(false)
+
+test "take through lend", "2 [1] none"
+  # `<` through a write view takes an optional field or element, leaving
+  # `none`, since the take writes the place it reaches; a plain field is
+  # read with no `<` (`test/reject/ownership/move_through_lend.rig` and
+  # `move_part_that_copies.rig` have the moves rejected).
+
+  obj S
+    n: Int
+    o: List[Int]?
+
+  fun take(p: !S) -> List[Int]?
+    <p.o
+
+  v: List[Int] = List()
+  !v.push(1)
+  s = S(n: 2, o: <v)
+  n = s.n
+  t = take(!s)
+  print(n, t, s.o)
+
+fail "take through view of temporary", "9:6: a write view is never stored inside a value, and `!B` cannot stand here", errors: 1
+  # A temporary cannot hold a write view on the way to storage that
+  # outlives it (`mk(!b).r.o`): a write view is never stored inside a
+  # value, so the field is rejected where it is declared.
+
+  obj B
+    o: Int?
+
+  obj H
+    r: !B
+
+  b = B(o: 3)
+  print(b.o ?? 0)
+
+test "taken cell holder lends", release: true, '''
+  touch 1
+  touch 2
+  touch 6
+  touch 7
+  touch 4
+  4
+  touch 1
+  1
+'''
+  # A loop or match binding of a handle to a Cell holder is never a copy
+  # (Core §1): a taken one is the construct's own, a viewed one a view of
+  # the place, and either may be lent, written or bare, and captured.
+
+  obj Counter
+    hits: Cell[Int]
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+  enum E
+    a(c: *Counter)
+    b
+
+  fun two() -> [2]*Counter
+    [*Counter(hits: Cell(0)), *Counter(hits: Cell(5))]
+
+  fun mk() -> E
+    E.a(c: *Counter(hits: Cell(3)))
+
+  sub touch(c: !Counter)
+    !c.hit()
+    print("touch", c.hits.get())
+
+  for k in two()
+    touch(!k)
+    touch(!k)
+  match mk()
+    .a(c)
+      touch(!c)
+      f = |?c| c.hits.get()
+      print(f())
+    .b => pass
+  arr = [*Counter(hits: Cell(0))]
+  for k in arr
+    touch(!(+k))
+    g = |?k| k.hits.get()
+    print(g())
+
+test "temporaries drop order", '''
+  2
+  drop R of 2
+  drop N 2
+  drop R of 1
+  drop N 1
+  -1
+  drop B pass0
+  body 0
+  drop B pass1
+  body 1
+  drop B pass2
+  body 2
+  drop B pass3
+  body 3
+  drop B pass4
+  body 4
+  drop B pass5
+  body 5
+  drop B pass6
+  body 6
+  drop B pass7
+  body 7
+  drop B pass8
+  body 8
+  drop B pass9
+  body 9
+  drop B pass10
+  10
+'''
+  # The temporaries of a statement are dropped last made first, on every
+  # path: after the statement, and when it fails. A loop's condition is a
+  # header, its own statement: its temporaries are dropped before each
+  # pass's body runs. A value whose `drop` body reads a temporary it
+  # views is dropped before that temporary.
+
+  obj N
+    id: Int
+    v: List[Int]
+
+    drop(!self)
+      print("drop N", self.id)
+      self.id = -99
+
+  obj R
+    n: ?N
+
+    drop(!self)
+      print("drop R of", self.n.id)
+
+  obj B
+    s: ?String
+    v: List[Int]
+
+    drop(!self)
+      print("drop B", self.s)
+
+  error Bad
+    no
+
+  fun f() -> Int!
+    return Bad.no
+
+  fun run() -> Int!
+    print(R(n: ?N(id: 1, v: List())).n.id, f()!)
+    0
+
+  fun mkb(s: ?String) -> B
+    B(s: s, v: List())
+
+  print(R(n: ?N(id: 2, v: List())).n.id)
+  print(run() catch -1)
+  i = 0
+  while mkb(?String("pass", i)).s.len < 6
+    print("body", i)
+    i += 1
+  print(i)
+
+fail "temporaries not kept", "19:9: a view of the temporary `String(\"abc\")` outlives its statement", "20:6: a view of the temporary `String(\"x\")` outlives its statement", "21:11: a view of the temporary `String(\"abc\")` outlives its statement", "22:6: a view of the temporary `String(\"r\")` outlives its statement", "25:17: `t` does not live long enough", errors: 5
+  # An owning temporary lives until its statement ends, so nothing may
+  # keep a view of it: not a binding, a field, a call's String result,
+  # or a slice. A `match` takes a call's result: a view of a payload it
+  # binds ends with the arm.
+
+  enum M
+    a(t: String)
+    b
+
+  obj E
+    s: ?String
+
+  fun mk() -> M
+    M.a(t: String("in m"))
+
+  fun id(s: ?String) -> ?String
+    s
+
+  w = id(?String("abc"))
+  s = ?String("x")[0..1]
+  e = E(s: ?String("abc"))
+  r = ?String("r")
+  o: ?String = "x"
+  match mk()
+    .a(t) => o = ?t[..]
+    .b => print("b")
+  print(w, s, e, r, o)
+
+test "temporaries read then dropped", '''
+  parsed 3
+  2 2
+  true false
+  got in m
+  Noisy(id: 1) x
+  drop 1
+  after
+  3
+  7
+  drop 9
+  Noisy(id: 9) 2
+  drop 9
+  -1 1
+  [] Cell(value: 5) boxed
+'''
+  # An owning temporary that is only read (a `print` or `String` argument,
+  # a view lent to a call that keeps none, an `==` operand) is dropped
+  # when its statement ends, also when the statement fails or leaves
+  # early; one in a loop's condition, a header, when the condition ends.
+  # A `match` takes a call's result and drops what its arms leave.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  enum M
+    a(t: String)
+    b
+
+  error Bad
+    no
+
+  fun mk() -> M
+    M.a(t: String("in m"))
+
+  fun len(s: ?String) -> Int
+    s.len
+
+  fun tlen(t: ?String) -> Int
+    t.len
+
+  fun fails(x: Int) -> Int!
+    if x > 0
+      return Bad.no
+    x
+
+  fun run(x: Int) -> Int!
+    print(String("before ", x), fails(x)!)
+    0
+
+  fun early(o: Int?) -> Int
+    print(Noisy(id: 9), o ?? return -1)
+    1
+
+  n = 3
+  print(String("parsed ", n))
+  print(len(?String("a", n)), tlen(?String("bc")))
+  s = "a"
+  print(String("a") == s, s == String("b"))
+  match mk()
+    .a(t) => print("got", t)
+    .b => print("b")
+  print(Noisy(id: 1), "x")
+  print("after")
+  i = 0
+  while String(i) != "3"
+    i += 1
+  print(i)
+  print(run(1) catch 7)
+  print(early(none), early(2))
+  print(List[Int](), *Cell(5), ^String("boxed"))
+
+test "temporary field read", '''
+  3 5
+  drop user
+  drop user
+  1
+  1
+  2
+  3
+  end
+'''
+  # A field that owns nothing is read from an owning temporary where it
+  # stands; the statement drops the temporary. A `for` over a call's
+  # result, and `as` over one, take its value.
+
+  obj User
+    age: Int
+    name: String
+
+    drop(!self)
+      print("drop user")
+
+  fun mv() -> List[Int]
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    v
+
+  fun mo() -> String?
+    String("opt")
+
+  print(String("bye").len, (*User(age: 5, name: String("u"))).age)
+  x = User(age: 1, name: String("n")).age
+  print(x)
+  for n in mv()
+    print(n)
+  if mo() as t
+    print(t.len)
+  print("end")
+
+test "temporary match takes payload", '''
+  took 1
+  drop 1
+  took 1
+  drop 1
+  read 1
+  drop 1
+  end
+'''
+  # A `match` takes a call's result, as `match <e` does: an arm may move a
+  # payload out, and what it leaves is dropped with the arm.
+
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  enum M
+    a(n: N)
+    b
+
+  fun mk() -> M
+    M.a(n: N(id: 1))
+
+  sub take(n: N)
+    print("took", n.id)
+
+  match mk()
+    .a(n) => take(<n)
+    .b => print("b")
+  match <mk()
+    .a(n) => take(<n)
+    .b => print("b")
+  match mk()
+    .a(n) => print("read", n.id)
+    .b => print("b")
+  print("end")
+
+fail "temporary match view escapes", "14:17: `t` does not live long enough", errors: 1
+  # A `match` takes a call's result, as `match <e` would: a payload an
+  # arm binds is dropped when the arm ends, so a view of it cannot
+  # outlive the arm.
+
+  enum M
+    a(t: String)
+    b
+
+  fun mk() -> M
+    M.a(t: String("in m"))
+
+  o: ?String = "x"
+  match mk()
+    .a(t) => o = ?t[..]
+    .b => print("b")
+  print(o)
+
+test "temporary part view in statement", '''
+  tt t in 1
+  1 7 bx tt
+  tt In(t: "in") tx nm
+'''
+  # A view of a part of a temporary (a field, a nested field, an element,
+  # a slice, a boxed or shared value, a branch value) may be used anywhere
+  # in its statement.
+
+
+  obj In
+    t: String
+
+  obj N
+    t: String
+    inner: In
+    arr: [2]Int
+    v: List[Int]
+    name: ?String
+
+  fun mk() -> N
+    v: List[Int] = List()
+    !v.push(7)
+    N(t: String("tt"), inner: In(t: String("in")), arr: [1, 2], v: <v, name: "nm")
+
+  fun mkbox() -> ^String
+    ^String("bx")
+
+  fun mksh() -> *N
+    *mk()
+
+  fun mkt() -> String
+    String("tx")
+
+  fun first(s: []Int) -> Int
+    s[0]
+
+  c = true
+  print(text.trim(?mk().t), ?mk().t[1..], text.trim(?mk().inner.t), ?mk().arr[0])
+  print(first(?mk().arr[..]), first(?mk().v[..]), text.trim(?mkbox()), text.trim(?mksh().t))
+  print(text.trim(?(mk() if c else mk()).t), ?mk().inner, ?mkt()[..], mk().name)
+
+fail "temporary part view kept", "34:17: a view of the temporary `mk()` outlives its statement", "35:7: a view of the temporary `mk()` outlives its statement", "36:17: a view of the temporary `mk()` outlives its statement", "37:7: a view of the temporary `mk()` outlives its statement", "38:7: a view of the temporary `mk()` outlives its statement", "39:7: a view of the temporary `mk()` outlives its statement", "40:17: a view of the temporary `mkbox()` outlives its statement", "41:17: a view of the temporary `mksh()` outlives its statement", "42:18: a view of the temporary `mk() if c else mk()` outlives its statement", "43:8: a view of the temporary `mk()` outlives its statement", errors: 10
+  # A view of a part of a temporary (a field, a nested field, an element,
+  # a slice, a boxed or shared value, a branch value) carries the loan on
+  # the temporary, so it may be used in its statement but not kept past it.
+
+
+  obj In
+    t: String
+
+  obj N
+    t: String
+    inner: In
+    arr: [2]Int
+    v: List[Int]
+    name: ?String
+
+  fun mk() -> N
+    v: List[Int] = List()
+    !v.push(7)
+    N(t: String("tt"), inner: In(t: String("in")), arr: [1, 2], v: <v, name: "nm")
+
+  fun mkbox() -> ^String
+    ^String("bx")
+
+  fun mksh() -> *N
+    *mk()
+
+  fun mkt() -> String
+    String("tx")
+
+  fun first(s: []Int) -> Int
+    s[0]
+
+  c = true
+  s1 = text.trim(?mk().t)
+  s2 = ?mk().t[1..]
+  s3 = text.trim(?mk().inner.t)
+  r4 = ?mk().arr[0]
+  r5 = ?mk().arr[..]
+  r6 = ?mk().v[..]
+  s7 = text.trim(?mkbox())
+  s8 = text.trim(?mksh().t)
+  s9 = text.trim(?(mk() if c else mk()).t)
+  r10 = ?mk().inner
+  print(s1, s2, s3, r4, r5, r6, s7, s8, s9, r10)
+
+test "temporary receiver read", '''
+  1 5
+  drop 5
+  end
+'''
+  # A `?self` receiver only reads: a value made there, a cloned handle
+  # included, is a temporary its statement drops.
+
+  obj B
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> B
+    B(n: n)
+
+  c: *Cell[Int] = *Cell(1)
+  print((+c).get(), mk(5).get())
+  print("end")
+
+test "temporary views in statement", '''
+  true
+  starts 1
+  3 v cd
+  5 [2, 3]
+  k v
+  0
+  1
+'''
+  # A view of a temporary, or a view made from one, may be used anywhere
+  # in its statement: the temporary lives until the statement ends. A
+  # header is its own statement: the temporaries of an `if` or `while`
+  # condition end with it, so a view the body uses is made from a Text
+  # bound to a name first.
+
+
+  obj S
+    n: Int
+
+  fun pick(s: ?S) -> ?Int
+    ?s.n
+
+  print(text.trim(?String("  padded  ")) == "padded")
+  n = text.find(?String("abc"), "b") ?? -1
+  a = "x"
+  b = "yz"
+  if text.starts_with(?String(a, b), "xy")
+    print("starts", n)
+  i = 0
+  while text.find(?String(i), "3") == none
+    i += 1
+  print(i, text.trim(?String(" v ")), ?String("abcdef")[2..4])
+  print(pick(?S(n: 4)) + 1, ?[1, 2, 3][1..])
+  kv_text = String("k=v")
+  if text.cut(?kv_text, "=") as kv
+    print(kv.before, kv.after)
+  j = 0
+  while true
+    pass_text = String("pass=", j)
+    kw = text.cut(?pass_text, "=") ?? break
+    print(kw.after)
+    j += 1
+    if j == 2
+      break
+
+fail "temporary views kept", "11:14: cannot return a view of `String(\" x \")`, which this function was not lent", "13:16: a view of the temporary `String(\" a \")` outlives its statement", "14:21: a view of the temporary `String(\" b \")` outlives its statement", "16:20: a view of the temporary `String(\" c \")` outlives its statement", "17:6: a view of the temporary `String(\"d\")` outlives its statement", "19:17: a view of the temporary `String(\"k=v\")` outlives its statement", errors: 6
+  # A view of a temporary cannot outlive its statement, which drops the
+  # temporary: not in a binding, a field, a List, or a result. A `while`
+  # header's temporaries last one pass, since the next pass evaluates the
+  # header again, so a view kept for a later pass is rejected.
+
+
+  obj E
+    s: ?String
+
+  fun f() -> ?String
+    text.trim(?String(" x "))
+
+  s = text.trim(?String(" a "))
+  e = E(s: text.trim(?String(" b ")))
+  v: List[?String] = List()
+  !v.push(text.trim(?String(" c ")))
+  r = ?String("d")
+  last: ?String = "none"
+  while text.cut(?String("k=v"), "=") as kw
+    print(last)
+    last = kw.after
+  print(s, e, v, r, f())
+
+fail "text add while viewed", "6:1: cannot lend `t` to write while a read loan is live", errors: 1
+  # A String taken from a Text views it: the Text cannot change while
+  # the view is in use, since the change may move its bytes.
+
+  t = String("abc")
+  s = ?t[..]
+  !t.add("d")
+  print(s)
+
+fail "text drop while viewed", "9:2: cannot drop `t` while it is lent", "13:1: cannot lend `u` to write while a read loan is live", "17:1: cannot reassign `w` while it is lent", errors: 3
+  # A Text cannot be dropped, cleared, or reassigned while a String
+  # views it, even through a function's result.
+
+  fun first(s: ?String) -> ?String
+    s[..1]
+
+  t = String("abc")
+  a = first(?t)
+  <t
+  print(a)
+  u = String("xyz")
+  b = ?u[..]
+  !u.clear()
+  print(b)
+  w = String("w")
+  c = ?w[..]
+  w = String("v")
+  print(c, w)
+
+test "text handle slice", '''
+  ello h
+  he lo
+  hello
+'''
+  # A Text reached through a handle is sliced in place: the
+  # String views the Text the handle shares, and the handle stays lent
+  # while it is used.
+
+  obj W
+    t: *String
+
+  fun first(s: ?String) -> ?String
+    s[0..1]
+
+  h = *String("hello")
+  s = ?h[1..]
+  g = +h
+  print(s, first(?g[..]))
+  w = W(t: +h)
+  u = ?w.t[..2]
+  vs: List[*String] = List()
+  !vs.push(+h)
+  v = ?vs[0][3..]
+  print(u, v)
+  <h
+  print(g)
+
+fail "text handle slice keeps handle", "9:4: cannot return a view of `h`", "14:4: cannot drop `h` while it is lent", "20:3: cannot reassign `w` while `w.t` is lent", "28:6: cannot drop `g` while it is lent", errors: 4
+  # A slice of a Text reached through a handle (`*String`) lends the
+  # handle (Core §4: a `*T` lends the read views of its `T`): the handle may
+  # not be dropped, moved, or replaced while the String is used.
+
+  obj W
+    t: *String
+
+  fun peek(h: *String) -> ?String
+    ?h[..]
+
+  sub local()
+    h = *String("hello")
+    s = ?h[..]
+    <h
+    print(s)
+
+  sub field()
+    w = W(t: *String("hello"))
+    s = ?w.t[1..]
+    w = W(t: *String("other"))
+    print(s)
+
+  sub upgraded()
+    h = *String("hello")
+    w = ~h
+    if *w as g
+      s = ?g[1..]
+      <g
+      print(s)
+
+  local()
+  field()
+  upgraded()
+
+fail "text move while viewed", "8:6: cannot move `t` while a read loan is live", errors: 1
+  # A Text cannot be moved while a String views it.
+
+  sub eat(t: String)
+    print(t)
+
+  t = String("abc")
+  s = ?t[1..]
+  eat(<t)
+  print(s)
+
+fail "text moves", "8:5: `t` owns a `String`, which can't be copied by `=`: write `<t` to move it, `+t` to clone it, or `?t` to view it", "10:7: use of `t` after move"
+  # A Text owns its bytes, so a bare name never copies it: it moves with
+  # `<t` or clones with `+t`, and a moved Text cannot be used.
+
+  sub keep(t: String)
+    print(t)
+
+  t = String("a")
+  u = t
+  keep(<t)
+  print(t, u)
+
+fail "text string param in cell", "5:10: cannot store a view of `s` in a `Cell`: every handle to it could reach the view; a value stored in a Cell or Signal may not hold one; if it is only passed literal text, declare the parameter `Static`, which carries no loan", "8:6: an owned closure cannot capture a view of `s`"
+  # A String parameter may view a caller's Text, so it cannot be stored
+  # where no loan is tracked: in a Cell, a Signal, or an owned closure.
+
+  sub keep(c: !Cell[?String], s: ?String)
+    !c.set(s)
+
+  fun later(s: ?String) -> *sub()
+    *|?s| print(s)
+
+  c: *Cell[?String] = *Cell("a")
+  keep(!c, "b")
+  f = later("c")
+  f()
+  print(c.get())
+
+fail "text view escaping closure", "6:8: an owned closure cannot capture a view of `s`", "9:8: cannot store a view of `t` in a `Cell`"
+  # An owned closure can be stored anywhere, so it cannot capture a String
+  # that views a Text; nor can a Cell hold one.
+
+  t = String("abc")
+  s = ?t[..]
+  f = *|?s| print(s)
+  f()
+  c: *Cell[?String] = *Cell("free")
+  !c.set(?t[1..])
+  print(c.get())
+
+test "text view loans", '''
+  Span(label: "alpha", width: 5)
+  ["alpha", "beta", "literal"] 3
+  show alp
+  alpha beta gamma!
+  yy
+'''
+  # A String viewing a Text carries the Text's loan wherever it goes: into
+  # a binding, a struct, a List[String], a call's result, and a closure.
+  # Each holds the Text viewed until its last use; then the Text can be
+  # changed, moved, or dropped again. Strings from literals hold no loan.
+
+  obj Span
+    label: ?String
+    width: Int
+
+  fun longer(a: ?String, b: ?String) -> ?String
+    if a.len >= b.len
+      a
+    else
+      b
+
+  fun head(t: ?String, n: Int) -> ?String
+    ?t[..n]
+
+  t = String("alpha beta")
+  s = Span(label: ?t[..5], width: 5)
+  print(s)
+  !t.add(" gamma")
+  words: List[?String] = List()
+  !words.push(?t[..5])
+  !words.push(?t[6..10])
+  !words.push("literal")
+  print(words, words.len)
+  <words
+  !t.add("!")
+  l = longer(head(?t, 3), "zz")
+  show = |+l| print("show", l)
+  show()
+  u = <t
+  print(u)
+  free = longer("x", "yy")
+  <u
+  print(free)
+
+fail "text view outlives scope", "does not live long enough"
+  # A struct holding a String that views a Text, or a List of such
+  # Strings, cannot outlive the Text.
+
+  obj Name
+    s: ?String
+
+  n = Name(s: "none")
+  names: List[?String] = List()
+  if true
+    t = String("inner")
+    n = Name(s: ?t[..])
+    !names.push(?t[1..])
+  print(n.s, names)
+
+fail "text view returned", "6:4: cannot return a view of `t`, which this function was not lent", "9:4: cannot return a view of `t`", "12:9: cannot return a view of `t`", errors: 3
+  # A view of a local Text, or of a Text parameter taken by value, cannot
+  # leave the function: the Text ends with it.
+
+  fun local_view() -> ?String
+    t = String("abc")
+    ?t[..]
+
+  fun param_view(t: String) -> ?String
+    ?t[1..]
+
+  fun lent(t: String) -> ?String
+    first(?t)
+
+  fun first(s: ?String) -> ?String
+    s
+
+  print(local_view(), param_view(String("x")), lent(String("y")))
+
+fail "text view through write view", "7:6: a write view is never stored inside a value, and `!String` cannot stand here", "10:6: a write view is never stored inside a value, and `!String` cannot stand here", errors: 2
+  # Neither a struct nor an iterator holds `!String`: a write view is never
+  # stored inside a value, so no String reached through one can view the
+  # Text while the holder writes it. Each field is rejected where it is
+  # declared.
+
+  obj W
+    t: !String
+
+  obj It
+    t: !String
+
+  print(1)
+
+fail "unbox receiver ternary", "11:6: `a` owns a `^N`, which can't be copied into an argument: write `<a` to move it or `+a` to pass a clone", "11:18: `b` owns a `^N`, which can't be copied into an argument: write `<b` to move it or `+b` to pass a clone", errors: 2
+  # `unbox` consumes its receiver: each name a branching receiver yields is
+  # moved with `<`.
+  obj N
+    v: List[Int]
+
+  p: List[Int] = List()
+  !p.push(5)
+  a = ^N(v: <p)
+  b = ^N(v: List())
+  c = true
+  n = (a if c else b).unbox()
+  print(n.v.len)
+  print(a.v[0])
+
+fail "unequal branch operand read then written", "12:32: cannot lend `a` to write while the left operand's read of it is in use", errors: 1
+  # A branching left operand of `!=` holds each place it may be until
+  # the right operand has run.
+
+  fun grow(t: !String) -> String
+    for _ in 0..100
+      !t.add("abcdefgh")
+    String("x")
+
+  a = String("a")
+  b = String("b")
+  c = true
+  print((a if c else b) != grow(!a))
+
+fail "unwrapped write param call stores", "19:7: cannot let this call store a view of `d` in `w`: `w` outlives it", "23:12: cannot let this call store a view of `d` in `w`: `w` outlives it", "29:12: cannot let this call store a view of `k` in `w`: `w` outlives it", errors: 3
+  # A call that stores through the write view a `(!H)?` parameter holds,
+  # passed on whole or unwrapped, or `swap` with it, stores in the
+  # caller's value.
+
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub put(w: (!H)?, v: ?String) keeps v
+    (w ?? return).s = v
+
+  sub put_view(w: !H, v: ?String) keeps v
+    w.s = v
+
+  sub whole(w: (!H)?)
+    d = String("local")
+    put(<w, ?d)
+
+  sub unwrapped(w: (!H)?)
+    d = String("local")
+    put_view(<w ?? return, ?d)
+
+  sub swapped(w: (!H)?)
+    d = String("local")
+    x = <w ?? return
+    k = H(s: ?d)
+    swap(!x, !k)
+
+  t = String("outer")
+  h = H(s: ?t)
+  whole(!h)
+  unwrapped(!h)
+  swapped(!h)
+  print(h.s)
+
+fail "unwrapped write param closure", "14:9: cannot let this call store a view of `d` in `w`: `w` outlives it", "14:16: cannot store a view of `d` through `w ?? return`: `w` outlives it", "20:9: cannot let this call store a view of `d` in `w`: `w` outlives it", errors: 3
+  # A closure that captures the write view a `(!H)?` parameter holds, or
+  # the view unwrapped from it, stores in the caller's value when it is
+  # called: the closure literal is reported, and a store through a base
+  # that is no place (`w ?? return`) is reported where it stands too.
+
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub captured(w: (!H)?)
+    d = String("local")
+    f = |<w, ?d| (w ?? return).s = d
+    f()
+
+  sub unwrapped(w: (!H)?)
+    d = String("local")
+    x = <w ?? return
+    f = |<x, ?d| x.s = d
+    f()
+
+  t = String("outer")
+  h = H(s: ?t)
+  captured(!h)
+  unwrapped(!h)
+  print(h.s)
+
+fail "unwrapped write param fallible", "19:3: cannot store a view of `d` through `must(<w)!`: `w` outlives it", "24:3: cannot store a view of `d` through `must(<w) catch return`: `w` outlives it", errors: 2
+  # A store through a fallible write view, `must(<w)!` or
+  # `must(<w) catch return`, made from a `(!H)?` parameter, lands in the
+  # caller's value, as through a `!H` parameter.
+
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  error E
+    bad
+
+  fun must(w: (!H)?) -> (!H)!
+    <w ?? return E.bad
+
+  fun bang(w: (!H)?) -> Int!
+    d = String("local")
+    must(<w)!.s = ?d
+    0
+
+  sub caught(w: (!H)?)
+    d = String("local")
+    (must(<w) catch return).s = ?d
+
+  t = String("outer")
+  h = H(s: ?t)
+  print(bang(!h) catch 1)
+  caught(!h)
+  print(h.s)
+
+fail "unwrapped write param header", "14:5: cannot store a view of `d` in `x.s`: `x` outlives it", "19:5: cannot store a view of `d` through `x`: what `x` views outlives it", "24:5: cannot store a view of `d` in `x.s`: `x` outlives it", errors: 3
+  # `if <w as x` and `while <w as x` bind the write view a `(!H)?`
+  # parameter holds: a store through `x`, to a field or to the whole value,
+  # lands in the caller's value.
+
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub field(w: (!H)?)
+    d = String("local")
+    if <w as x
+      x.s = ?d
+
+  sub whole(w: (!H)?)
+    d = String("local")
+    if <w as x
+      x = H(s: ?d)
+
+  sub looped(w: (!H)?)
+    d = String("local")
+    while <w as x
+      x.s = ?d
+      break
+
+  t = String("outer")
+  h = H(s: ?t)
+  field(!h)
+  whole(!h)
+  looped(!h)
+  print(h.s)
+
+fail "unwrapped write param list", "10:5: cannot let this call store a view of `d` in `w`: `w` outlives it", "14:3: cannot store a view of `d` through `w ?? return`: `w` outlives it", errors: 2
+  # A List in the value a `(!H)?` parameter views is the caller's: a
+  # push, or an element's store, of a view of a local is rejected.
+
+  obj H
+    items: List[?String]
+
+  sub pushed(w: (!H)?)
+    d = String("local")
+    if <w as x
+      !x.items.push(?d)
+
+  sub element(w: (!H)?)
+    d = String("local")
+    (w ?? return).items[0] = ?d
+
+  h = H(items: List())
+  !h.items.push("x")
+  pushed(!h)
+  element(!h)
+  print(h.items)
+
+fail "unwrapped write param local", "13:3: cannot store a view of `d` in `x.s`: `x` outlives it", "18:3: cannot store a view of `d` through `x`: what `x` views outlives it", "23:3: cannot store a view of `d` through `x ?? return`: `w` outlives it", "29:5: cannot store a view of `d` in `y.s`: `y` outlives it", "35:3: cannot store a view of `d` through `y`: `w` outlives it", errors: 5
+  # A local holding the write view a `(!H)?` parameter holds, unwrapped
+  # or not, or lent on from it, stores in the caller's value.
+
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub unwrapped(w: (!H)?)
+    d = String("local")
+    x = <w ?? return
+    x.s = ?d
+
+  sub whole(w: (!H)?)
+    d = String("local")
+    x = <w ?? return
+    x = H(s: ?d)
+
+  sub optional(w: (!H)?)
+    d = String("local")
+    x = <w
+    (x ?? return).s = ?d
+
+  sub optional_header(w: (!H)?)
+    d = String("local")
+    x = <w
+    if <x as y
+      y.s = ?d
+
+  sub lent_on(w: (!H)?)
+    d = String("local")
+    x = <w ?? return
+    y = !x
+    y.s = ?d
+
+  t = String("outer")
+  h = H(s: ?t)
+  unwrapped(!h)
+  whole(!h)
+  optional(!h)
+  optional_header(!h)
+  lent_on(!h)
+  print(h.s)
+
+fail "unwrapped write param match", "17:16: cannot store a view of `d` through `s`: `w` outlives it", "23:10: cannot store a view of `d` through `w ?? return`: `w` outlives it", errors: 2
+  # A `match !x.e` arm binds a write view of a field of the value a
+  # `(!H)?` parameter views, and a store through it lands in the caller's
+  # value; so does a store made in any arm.
+
+  enum E
+    a(s: ?String)
+    b
+
+  obj H
+    e: E
+    s: ?String
+
+  sub payload(w: (!H)?)
+    d = String("local")
+    if <w as x
+      match !x.e
+        .a(s) => s = ?d
+        .b => pass
+
+  sub arm(w: (!H)?)
+    d = String("local")
+    match d.len
+      5 => (w ?? return).s = ?d
+      _ => pass
+
+  t = String("outer")
+  h = H(e: E.a(s: ?t), s: ?t)
+  payload(!h)
+  arm(!h)
+  print(h.s)
+
+fail "unwrapped write param method", "12:4: cannot let this call store a view of `d` in `w`: `w` outlives it", "16:4: cannot let this call store a view of `d` in `w`: `w` outlives it", "21:5: cannot let this call store a view of `d` in `w`: `w` outlives it", errors: 3
+  # A write method called on the write view a `(!H)?` parameter holds,
+  # unwrapped by `??` or `if … as`, stores in the caller's value.
+
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub nullish(w: (!H)?)
+    d = String("local")
+    (w ?? return).keep(?d)
+
+  sub moved(w: (!H)?)
+    d = String("local")
+    (<w ?? return).keep(?d)
+
+  sub header(w: (!H)?)
+    d = String("local")
+    if <w as x
+      !x.keep(?d)
+
+  t = String("outer")
+  h = H(s: ?t)
+  nullish(!h)
+  moved(!h)
+  header(!h)
+  print(h.s)
+
+fail "unwrapped write param nested field", "12:3: cannot store a view of `d` through `w?`: `w` outlives it", "17:3: cannot store a view of `d` through `w ?? return`: `w` outlives it", errors: 2
+  # A store to a field of a field, through the write view a `(!H)?`
+  # parameter holds, lands in the caller's value.
+
+  obj In
+    s: ?String
+
+  obj H
+    a: In
+
+  fun prop(w: (!H)?) -> Int?
+    d = String("local")
+    w?.a.s = ?d
+    0
+
+  sub nullish(w: (!H)?)
+    d = String("local")
+    (w ?? return).a.s = ?d
+
+  t = String("outer")
+  h = H(a: In(s: ?t))
+  print(prop(!h))
+  nullish(!h)
+  print(h.a.s)
+
+fail "unwrapped write param nullish", "12:3: cannot store a view of `d` through `w ?? return`: `w` outlives it", errors: 1
+  # A store through `w ?? return`, the write view a `(!H)?` parameter
+  # holds, lands in the caller's value, as through a `!H` parameter.
+
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  sub set(w: (!H)?)
+    d = String("local")
+    (w ?? return).s = ?d
+
+  t = String("outer")
+  h = H(s: ?t)
+  set(!h)
+  print(h.s)
+
+fail "unwrapped write param propagate", "13:3: cannot store a view of `d` through `w?`: `w` outlives it", errors: 1
+  # A store through `w?`, the write view a `(!H)?` parameter holds, lands
+  # in the caller's value, which outlives this function's own: a view of a
+  # local may not go there, as through a `!H` parameter.
+
+  obj H
+    s: ?String
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  fun set(w: (!H)?) -> Int?
+    d = String("local")
+    w?.s = ?d
+    0
+
+  t = String("outer")
+  h = H(s: ?t)
+  print(set(!h))
+  print(h.s)
+
+test "unwrapped write param stores caller views", '''
+  0 new
+  outer
+  new ["outer", "new"]
+  static
+  after
+'''
+  # A `(!H)?` parameter's write view, unwrapped any way, may store what
+  # the caller lent or what lives for the whole program.
+
+  obj H
+    s: ?String
+    items: List[?String]
+
+    sub keep(!self, v: ?String) keeps v
+      self.s = v
+
+  error E
+    bad
+
+  fun must(w: (!H)?) -> (!H)!
+    <w ?? return E.bad
+
+  fun prop(w: (!H)?, v: ?String) -> Int? keeps v
+    w?.s = v
+    0
+
+  sub nullish(w: (!H)?, v: ?String) keeps v
+    (w ?? return).s = v
+    !(<w ?? return).items.push(v)
+
+  sub header(w: (!H)?, v: ?String) keeps v
+    if <w as x
+      x.s = v
+      !x.keep(v)
+      !x.items.push(v)
+
+  sub fallible(w: (!H)?)
+    (must(<w) catch return).s = "static"
+
+  fun passed(w: (!H)?) -> (!H)?
+    x = <w ?? return none
+    x.s = "passed"
+    x
+
+  t = String("outer")
+  u = String("new")
+  h = H(s: ?t, items: List())
+  print(prop(!h, ?u), h.s)
+  nullish(!h, ?t)
+  print(h.s)
+  header(!h, ?u)
+  print(h.s, h.items)
+  fallible(!h)
+  print(h.s)
+  if passed(!h) as y
+    y.s = "after"
+  print(h.s)
+
+fail "use after drop", "use of `user` after drop"
+  # A bare use of a dropped value is rejected.
+
+  obj User
+    name: ?String
+    tags: List[?String]
+
+  user = User(name: "Steve", tags: List())
+  <user
+  print(user)
+
+fail "use after move", "17:5: use of `packet` after move", errors: 1
+  # A bare use of a moved value is rejected.
+
+  obj Packet
+    payload: Int
+
+  fun make_packet() -> Packet
+    Packet(payload: 1)
+
+  sub send(p: Packet)
+    print(p.payload)
+
+  sub log(p: Packet)
+    print(p.payload)
+
+  packet = make_packet()
+  send(<packet)
+  log(packet)
+
+fail "use after move in branch", "15:7: use of `x` after move"
+  # If either branch moves a value, using it after the `if` is rejected.
+
+  obj Packet
+    payload: Int
+
+  sub send(p: Packet)
+    print(p.payload)
+
+  cond = true
+  x = Packet(payload: 42)
+  if cond
+    send(<x)
+  else
+    print(x.payload)
+  print(x.payload)
+
+fail "use after move in match arm", "14:7: use of `rc` after move"
+  # A move in one match arm makes the value unusable after the match.
+
+  obj Wrap
+    payload: Int
+
+  sub eat(rc: *Wrap)
+    print(rc.payload)
+
+  rc = *Wrap(payload: 5)
+  n = 1
+  match n
+    1 => eat(<rc)
+    _ => print(0)
+  print(rc.payload)
+
+test "value tails leave", '''
+  drop 3
+  1 2 4 6 8 8 9
+  drop 9
+  drop 8
+  drop 8
+  drop 6
+  drop 4
+  drop 2
+  drop 1
+  11 12 13 14 15 16
+  drop 16
+  drop 15
+  drop 14
+  drop 13
+  drop 12
+  drop 11
+  17 18
+  20 22 24
+  drop 24
+  drop 22
+  drop 20
+  drop 18
+  drop 17
+'''
+  # Every value that leaves where a name at its tail is moved out: a
+  # function's last value (a name, a branch, a block, a `match`, a `raw`
+  # block), `return`, a closure's result, a `break` value, a loop's
+  # `else`, and a binding's `if`, `match`, or `if … as` value.
+
+  obj D
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun mk(id: Int) -> D
+    D(id: id)
+
+  fun last_name(c: Bool) -> D
+    d = mk(1)
+    d
+
+  fun last_branch(c: Bool) -> D
+    d = mk(2)
+    e = mk(3)
+    <d if c else <e
+
+  fun last_block(c: Bool) -> D
+    if c
+      d = mk(4)
+      d
+    else
+      mk(5)
+
+  fun last_match(k: Int) -> D
+    match k
+      1
+        d = mk(6)
+        d
+      _ => mk(7)
+
+  fun early(c: Bool) -> D
+    d = mk(8)
+    if c
+      return d
+    d
+
+  fun via_raw() -> D
+    raw
+      d = mk(9)
+      d
+
+  fun apply(f: ?fun(D) -> D, x: D) -> D
+    f(<x)
+
+  c = true
+  print(last_name(c).id, last_branch(c).id, last_block(c).id, last_match(1).id, early(c).id, early(false).id, via_raw().id)
+  g = |x: D| x
+  h = |x: D, b: Bool|
+    if b
+      return x
+    x
+  k = |x: D, n: Int| match n
+    1 => x
+    _ => mk(10)
+  t: fun(D) -> D = |x| x
+  print(g(mk(11)).id, h(mk(12), true).id, h(mk(13), false).id, k(mk(14), 1).id, t(mk(15)).id, apply(?g, mk(16)).id)
+  v = while true
+    d = mk(17)
+    break <d
+  w = for _ in 0..1
+    break mk(18)
+  else
+    e = mk(19)
+    e
+  print(v.id, w.id)
+  y = if c
+    d = mk(20)
+    d
+  else
+    mk(21)
+  z = match 1
+    1
+      d = mk(22)
+      d
+    _ => mk(23)
+  o: D? = mk(24)
+  q = if <o as p
+    p
+  else
+    mk(25)
+  print(y.id, z.id, q.id)
+
+test "variant literal lent to view", '''
+  table 3
+  num 3
+  empty
+  table 3
+  none
+  same
+  table 3
+  true
+  16
+  table 3
+  10 false
+  table 3
+  table 3
+  -1
+'''
+  # A variant literal whose enum comes from where it goes (`.V`,
+  # `.V(...)`) is, where a read view held by address goes, the value
+  # `Val.V(...)` is: made where it stands and lent to read, held by its
+  # statement, which drops it at its end. So an owned payload, a List
+  # here, is dropped, in every place a view argument goes: a parameter,
+  # an optional view, a generic `?T`, a method's argument, a keyword
+  # argument, a std method's key, a nested variant, a loop, and a call
+  # whose later argument fails. A view that holds a copy (`?Color`)
+  # takes the literal itself.
+
+
+  enum Val
+    Num(n: Int)
+    Table(m: List[Int])
+    Empty
+
+  enum Outer
+    Box(v: Val)
+
+  enum Color
+    Red
+    Green
+
+  enum Key
+    K(n: Int)
+    S(s: String)
+
+  error E
+    Oops
+
+  obj Bag
+    n: Int
+
+  fun three() -> List[Int]
+    xs = List[Int]()
+    !xs.push(1)
+    !xs.push(2)
+    !xs.push(3)
+    return <xs
+
+  sub show(v: ?Val)
+    match v
+      .Num(n) => print("num", n)
+      .Table(m) => print("table", m.len)
+      .Empty => print("empty")
+
+  sub maybe(v: (?Val)?)
+    if v as x
+      show(x)
+    else
+      print("none")
+
+  sub same[T](a: ?T, b: ?T)
+    print("same")
+
+  sub outer(o: ?Outer)
+    match o
+      .Box(v) => show(v)
+
+  sub color(c: ?Color)
+    print(c == .Red)
+
+  fun size(v: ?Val, k: Int = 0) -> Int
+    match v
+      .Table(m) => m.len + k
+      _ => k
+
+  sub Bag.look(?self, v: ?Val)
+    show(v)
+
+  fun bad() -> Int!
+    return E.Oops
+
+  fun both(a: ?Val, b: ?Val) -> Int
+    2
+
+  fun failing() -> Int!
+    _ = both(.Table(m: three()), .Num(n: bad()!))
+    return 1
+
+  show(.Table(m: three()))
+  show(.Num(n: 3))
+  show(.Empty)
+  maybe(.Table(m: three()))
+  maybe(none)
+  same(Val.Num(n: 1), .Table(m: three()))
+  outer(.Box(v: .Table(m: three())))
+  color(.Red)
+  print(size(.Table(m: three())) + size(v: .Table(m: three()), k: 10))
+  b = Bag(n: 0)
+  b.look(.Table(m: three()))
+  m = hash.Map[Key, Int].new()
+  !m.put(Key.S(s: String("a")), 10)
+  print(m.get(.S(s: String("a"))) ?? 0, m.has(.K(n: 2)))
+  for _ in 0..2
+    show(.Table(m: three()))
+  print(failing() catch -1)
+
+fail "variant literal view outlives statement", "12:10: a view of the temporary `.Table(m: List())` outlives its statement, which drops it; bind the value to a name first", errors: 1
+  # A variant literal lent to a view argument is a temporary its
+  # statement drops, as `Val.Table(...)` is: a view the call returns of it
+  # cannot outlive the statement.
+
+  enum Val
+    Num(n: Int)
+    Table(m: List[Int])
+
+  fun keep(v: ?Val) -> ?Val
+    return v
+
+  x = keep(.Table(m: List()))
+  print(x)
+
+fail "variant positional bare owner", "9:30: `v` owns a `List[Int]`, which can't be copied into an argument: write `<v` to move it or `+v` to pass a clone", "10:17: `some` takes ownership of a `List[Int]`, and `v` can't be copied: write `<v` to move it or `+v` to pass a clone; if `some` only reads it, make its parameter a `?List[Int]`"
+  # A variant's one field given by position is moved in, as by name: an
+  # owning value takes `<`.
+
+  enum Option[T]
+    some(value: T)
+    nothing
+
+  v: List[Int] = List()
+  o: Option[List[Int]] = .some(v)
+  p = Option.some(v)
+  print(v.len)
+
+test "variant test catch", '''
+  line
+  1
+'''
+  # Testing a `catch` against a bare variant reads it, as any `==`
+  # operand: the name its handler gives is read where it is, and a value
+  # made there is dropped with the statement.
+  error E
+    bad
+
+  enum Shape
+    dot
+    line(v: List[Int])
+
+  fun mk(ok: Bool) -> Shape!
+    if not ok
+      return E.bad
+    .dot
+
+  p: List[Int] = List()
+  !p.push(1)
+  d = Shape.line(<p)
+  if (mk(false) catch d) != .dot
+    print("line")
+  match ?d
+    .line(v) => print(v[0])
+    .dot => print("dot")
+
+test "variant test name and call", '''
+  some
+  1
+  line
+  still line
+  1
+'''
+  # A name tested against `none` or a bare variant is read in place; a
+  # call's result tested that way is dropped after the test.
+  enum Shape
+    dot
+    line(v: List[Int])
+
+  fun mk() -> Shape
+    p: List[Int] = List()
+    !p.push(1)
+    .line(v: <p)
+
+  v: List[Int] = List()
+  !v.push(1)
+  a: List[Int]? = <v
+  if a != none
+    print("some")
+  if ?a as x
+    print(x[0])
+  if mk() != .dot
+    print("line")
+  s = mk()
+  if s != .dot
+    print("still line")
+  match ?s
+    .line(w) => print(w[0])
+    .dot => print("dot")
+
+test "variant test nullish", '''
+  line
+  1
+'''
+  # Testing `o ?? d` against a bare variant reads it, as any `==` operand:
+  # the value `o` or `d` holds is read where it is, never dropped.
+  enum Shape
+    dot
+    line(v: List[Int])
+
+  p: List[Int] = List()
+  !p.push(1)
+  o: Shape? = none
+  d = Shape.line(<p)
+  if (o ?? d) != .dot
+    print("line")
+  match ?d
+    .line(v) => print(v[0])
+    .dot => print("dot")
+
+test "variant test optional field", '''
+  true
+  1
+'''
+  # Testing `h.o?` against a bare variant reads the value the field holds
+  # where it is, as any `==` operand reads.
+  enum Shape
+    dot
+    line(v: List[Int])
+
+  obj H
+    o: Shape?
+
+  fun f(h: ?H) -> Bool?
+    r = h.o? != .dot
+    r
+
+  p: List[Int] = List()
+  !p.push(1)
+  h = H(o: Shape.line(<p))
+  print(f(?h) ?? false)
+  if ?h.o as s
+    match s
+      .line(v) => print(v[0])
+      .dot => print("dot")
+
+test "variant test ternary owners", '''
+  line
+  1
+'''
+  # Testing a branching value against a bare variant reads it, as any
+  # `==` operand: a name it may be is read where it is, never dropped.
+  enum Shape
+    dot
+    line(v: List[Int])
+
+  p: List[Int] = List()
+  !p.push(1)
+  a = Shape.line(<p)
+  b = Shape.dot
+  c = true
+  if (a if c else b) != .dot
+    print("line")
+  match ?a
+    .line(v) => print(v[0])
+    .dot => print("dot")
+
+fail "vec alias", "`v` owns a `List[Int]`, which can't be copied by `=`: write `<v` to move it, `+v` to clone it, or `?v` to view it"
+  # A bare copy of a `List` is rejected: both bindings would free the same
+  # buffer.
+
+  v: List[Int] = List()
+  v2: List[Int] = v
+
+test "vec for clone elem", '''
+  1
+  drop 0
+  drop 1
+  held 2
+  drop 2
+'''
+  # The element of `for x in ?v` views its slot; cloning it (`+x`) makes
+  # an independent strong handle, which may be kept after the loop and
+  # outlive the List.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  count: *Cell[Int] = *Cell(0)
+  subs: List[*sub()] = List()
+  !subs.push(*|+count| !count.set(count.get() + 1))
+  other: List[*sub()] = List()
+  for cb in ?subs
+    !other.push(+cb)
+  <subs
+  for cb in ?other
+    cb()
+  print(count.get())
+
+  v: List[*B] = List()
+  !v.push(*B(n: 1))
+  !v.push(*B(n: 2))
+  held = *B(n: 0)
+  for b in ?v
+    held = +b
+  <v
+  print("held", held.n)
+
+fail "vec for drop elem", "cannot drop loop view `cb`"
+  # Dropping the viewed element of `for cb in ?subs` is rejected.
+
+  count: *Cell[Int] = *Cell(0)
+  cb1: *sub() = *|+count| !count.set(count.get() + 1)
+
+  subs: List[*sub()] = List()
+  !subs.push(+cb1)
+
+  for cb in ?subs
+    <cb
+
+test "vec for moving elements bound", '''
+  a
+  a
+  a
+  a
+'''
+  # A List whose elements move, bound to a name first as the loop
+  # diagnostic says (`test/reject/ownership/vec_for_moving_elements_source.rig`),
+  # is walked where the name holds it, or taken with `<`.
+
+  obj H
+    items: List[String]
+
+  fun mk() -> List[String]
+    v: List[String] = List()
+    !v.push(String("a"))
+    v
+
+  fun mkh() -> H
+    H(items: mk())
+
+  fun items(v: ?List[String], k: ?List[String]) -> ?List[String]
+    v
+
+  v = mk()
+  k = mk()
+  m = mk()
+  for x in <m
+    print(x)
+  r = items(?v, ?k)
+  for x in r
+    print(x)
+  h = mkh()
+  for x in h.items
+    print(x)
+  c = v.len > 0
+  w = <v if c else <k
+  for x in w
+    print(x)
+
+fail "vec for moving elements source", "25:10: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "27:11: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "29:11: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "31:11: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mk()` to a name first", "33:10: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `items(?v, ?k)` to a name first", "35:10: a loop over a List of `String` walks a List that a name holds, or a field or element of one; bind `mkh()` to a name first", "37:10: cannot lend `v if c else k`: it may be `v`, a value a name holds", errors: 7
+  # A loop over a List whose elements move walks a List a name holds, or a
+  # field or element of one. Any other source, a List made here (bare,
+  # taken, or lent), a call's returned view of one, a part of a value made
+  # here, or a branching value, gets one diagnostic, whose hint compiles
+  # (`test/behavior/ownership/vec_for_moving_elements_bound.rig`); a
+  # branching value is read in place, so it is a lend of a name it may be.
+
+  obj H
+    items: List[String]
+
+  fun mk() -> List[String]
+    v: List[String] = List()
+    !v.push(String("a"))
+    v
+
+  fun mkh() -> H
+    H(items: mk())
+
+  fun items(v: ?List[String], k: ?List[String]) -> ?List[String]
+    v
+
+  v = mk()
+  k = mk()
+  c = v.len > 0
+  for x in mk()
+    print(x)
+  for x in <mk()
+    print(x)
+  for x in ?mk()
+    print(x)
+  for x in !mk()
+    print(x)
+  for x in items(?v, ?k)
+    print(x)
+  for x in mkh().items
+    print(x)
+  for x in v if c else k
+    print(x)
+
+fail "vec for non bare source", "8:12: a loop over a List of `*sub()` walks a List that a name holds, or a field or element of one; bind `makeSubs()` to a name first", errors: 1
+  # Iterating a List of resources needs a List binding (or a field of one) as
+  # the source, not a call result.
+
+  fun makeSubs() -> List[*sub()]
+    v: List[*sub()] = List()
+    <v
+
+  for cb in ?makeSubs()
+    cb()
+
+fail "vec for write during iter", "cannot lend `subs` to write while a read loan is live"
+  # Writing to a List while iterating over it is rejected (the loop holds a
+  # read view).
+
+  count: *Cell[Int] = *Cell(0)
+  cb1: *sub() = *|+count| !count.set(count.get() + 1)
+
+  subs: List[*sub()] = List()
+  !subs.push(+cb1)
+
+  for cb in ?subs
+    cb()
+    !subs.push(+cb1)
+
+fail "vec index resource", "10:5: `xs[0]` is a `*N` handle, which can't be copied by `=`: write `+xs[0]` for another handle or `?xs[0]` to view it"
+  # An element of a List of handles is a place: a bare use would copy the
+  # handle out of it.
+
+  obj N
+    v: Int
+
+  xs: List[*N] = List()
+  a = *N(v: 1)
+  !xs.push(<a)
+  b = xs[0]
+  print(b.v)
+
+test "vec of views", '''
+  3 [1, 2]
+  1
+  2
+  5
+  [2]
+  2
+  [[1, 2]]
+'''
+  # A List holds views: it holds the loans of every view pushed into it,
+  # until it is dropped.
+
+  obj Bag
+    items: List[?Int]
+
+  sub keep(v: !List[?Int], x: ?Int) keeps x
+    !v.push(x)
+
+  a = 1
+  b = 2
+  v: List[?Int] = List()
+  !v.push(?a)
+  keep(!v, ?b)
+  print(v[0] + v[1], v)
+  for x in v
+    print(x)
+  <v
+  a = 5
+  print(a)
+  bag = Bag(items: List())
+  !bag.items.push(?b)
+  print(bag.items)
+  e = 8
+  if true
+    !bag.items.push(?e)
+  print(bag.items.len)
+  s: List[[]Int] = List()
+  arr = [1, 2, 3]
+  !s.push(?arr[..2])
+  print(s)
+
+fail "vec of views loans", "6:1: cannot reassign `a` while it is lent"
+  # A List of views keeps each pushed view's loan while it lives.
+
+  a = 1
+  v: List[?Int] = List()
+  !v.push(?a)
+  a = 2
+  print(v.len)
+
+fail "vec of views outlived", "which this function was not lent", "`x` does not live long enough"
+  # A view pushed into a List may not outlive what it views.
+
+  fun mk() -> List[?Int]
+    a = 1
+    v: List[?Int] = List()
+    !v.push(?a)
+    v
+
+  v: List[?Int] = List()
+  for i in 0..3
+    x = i
+    !v.push(?x)
+  print(v, mk())
+
+test "vec push after iteration", '''
+  3
+  3
+'''
+  # Iterating a List views it for the loop only; it can be written again
+  # after the loop.
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  total = 0
+  for x in ?v
+    total += x
+  !v.push(3)
+  print(total)
+  print(v.len)
+
+fail "vec push during iteration", "cannot lend `v` to write while a read loan is live"
+  # Iterating a List (with or without `?`) views it for the whole loop; a
+  # push could reallocate the buffer being iterated.
+
+  v: List[Int] = List()
+  !v.push(1)
+  for x in ?v
+    !v.push(x)
+
+test "viewed temporary lives for statement", '''
+  P(x: 1) P(x: 2)
+  6
+  7
+'''
+  # A view of a temporary may be printed, since `print` keeps nothing,
+  # and a `for` walks a view of an array it makes, whose plain elements
+  # it copies. (A header that binds a view of a temporary it makes is
+  # rejected: `test/reject/ownership/header_temporary_rejected.rig`.)
+
+  obj P
+    x: Int
+
+  fun mk(n: Int) -> P
+    P(x: n)
+
+  fun opt(n: Int) -> P?
+    if n > 0
+      return mk(n)
+    none
+
+  print(?mk(1), ?opt(2))
+  for x in ?[mk(6), mk(7)]
+    print(x.x)
+
+fail "weak member access", "15:9: a weak handle `~S` reaches its value only once upgraded with `*w`: `if *w as s`", "16:9: a weak handle `~S` reaches its value only once upgraded with `*w`: `if *w as s`", "18:11: a weak handle `~S` reaches its value only once upgraded with `*h.w`: `if *h.w as s`"
+  # A weak handle does not keep its value alive, so its fields and methods
+  # are reached only once it is upgraded, with `*w`.
+
+  obj S
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+  obj Holder
+    w: ~S
+
+  s = *S(n: 1)
+  w = ~s
+  print(w.n)
+  print(w.get())
+  h = *Holder(w: ~s)
+  print(h.w.n)
+
+fail "weak upgrade taken", "12:8: use of `w` after move", errors: 1
+  # `*<w` upgrades the weak handle `w` and takes it: the handle is dropped
+  # once upgraded, so a later use of `w` is a use after move. `*w` reads
+  # `w`, which stays usable (test/behavior/runtime/weak_star_upgrade.rig).
+
+  obj Node
+    id: Int
+
+  rc = *Node(id: 1)
+  w = ~rc
+  if *<w as p
+    print(p.id)
+  print(*w == none)
+
+fail "while header view one error", "7:17: a view of the temporary `String(\"k=v\")` outlives its statement", "13:19: a view of the temporary `String(\"a=b\")` outlives its statement", errors: 2
+  # A view of a `while` header's temporary kept past the pass, whether the
+  # pass ends, breaks, or continues an outer loop, is one mistake and gets
+  # one error.
+
+
+  o: ?String = "init"
+  while text.cut(?String("k=v"), "=") as kv
+    o = kv.after
+    break
+  print(o)
+  p: ?String = "init"
+  @outer for _ in 0..2
+    while text.cut(?String("a=b"), "=") as kv
+      p = kv.after
+      continue @outer
+  print(p)
+
+fail "while step after continue moved", "23:34: use of `a` after move", errors: 1
+  # A `continue` in the body goes on to the step, so the step sees what
+  # the `continue` path moved, also when the step reads the condition's
+  # binding and runs in its scope.
+  #
+  # oracle: main reject C1
+
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int]) -> S?
+    if v.len < 40
+      return S(s: ?v[..])
+    none
+
+  fun take(a: List[Int]) -> Int
+    a.len
+
+  v: List[Int] = List()
+  !v.push(1)
+  a: List[Int] = List()
+  k = 0
+  i = 0
+  while mk(?v) as h: k += h.s[0] + a.len
+    a = List()
+    i += 1
+    if i == 2
+      k += take(<a)
+      continue
+    break if i > 3
+  print(k, v.len)
+
+test "while step drops old value", '''
+  iter 0
+  drop 0
+  iter 11
+  drop 11
+  iter 12
+  drop 12
+  j 0
+  j 1
+  j 2
+  end
+  drop 13
+'''
+  # The `: step` of a `while` is a statement: assigning a resource there
+  # drops the value it replaces.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  i = 0
+  b = *B(n: 0)
+  while i < 3 : b = *B(n: i + 10)
+    print("iter", b.n)
+    i += 1
+  j = 0
+  while j < 3 : j += 1
+    print("j", j)
+  print("end")
+
+test "while step reads binding", '''
+  20 5
+  325 5
+  5 5 6
+  5 5 6
+  12 6
+'''
+  # The step of `while c as h: step` may read `h`: it runs after the
+  # body, also after a `continue` (and a `continue @outer` from a nested
+  # loop), while the body only reads what `h` views. A step that does not
+  # read `h` runs after `h`'s scope ends, so the body may grow what `h`
+  # viewed once `h` is done, and the step may grow it too. A `continue`
+  # in the step ends it.
+  #
+  # oracle: reads accept
+  # oracle: continued accept
+  # oracle: body_uses accept
+  # oracle: step_grows accept
+  # oracle: step_continues accept
+
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 5
+      return S(s: ?v[..])
+    none
+
+  fun next(i: Int) -> Int?
+    i if i % 2 == 0 else none
+
+  sub reads()
+    v: List[Int] = List()
+    !v.push(4)
+    k = 0
+    i = 0
+    while mk(?v, i) as h: k += h.s[0]
+      i += 1
+    print(k, i)
+
+  sub continued()
+    v: List[Int] = List()
+    !v.push(5)
+    k = 0
+    i = 0
+    @outer while mk(?v, i) as h: k += h.s[0]
+      i += 1
+      if i == 1
+        continue
+      for j in 0..3
+        continue @outer if j == i
+      k += 100
+    print(k, i)
+
+  sub body_uses()
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    i = 0
+    while mk(?v, i) as h: i += 1
+      k += h.s[0]
+      !v.push(2)
+    print(k, i, v.len)
+
+  sub step_grows()
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    i = 0
+    while mk(?v, i) as h: !v.push(2)
+      k += h.s[0]
+      i += 1
+    print(k, i, v.len)
+
+  sub step_continues()
+    k = 0
+    i = 0
+    while i < 6: k += next(i) ?? continue
+      i += 1
+    print(k, i)
+
+  reads()
+  continued()
+  body_uses()
+  step_grows()
+  step_continues()
+
+fail "while step reads binding after grow", "57:5: cannot lend `v` to write while a read loan is live", "65:5: cannot lend `v` to write while a read loan is live", "73:5: cannot lend `v` to write while a read loan is live", "81:5: cannot lend `v` to write while a read loan is live", "88:5: cannot lend `t` to write while a read loan is live", "96:5: cannot lend `v` to write while a read loan is live", "104:5: cannot lend `v` to write while a read loan is live", "112:5: cannot lend `v` to write while a read loan is live", "122:7: cannot lend `v` to write while a read loan is live", "133:7: cannot lend `v` to write while a read loan is live", "141:11: cannot lend `v` to write while a read loan is live", "152:7: cannot lend `v` to write while a read loan is live", errors: 12
+  # The step of `while c as h: step` runs after the body, so a view the
+  # step reads through `h` keeps its loan through the body: growing the
+  # List or Text it views there is rejected, whatever the way to the step
+  # (the end of the body, `continue`, `continue @outer` from a nested
+  # loop, an inner loop, a `defer`) and however the step reads `h` (a
+  # field, a method, a closure), for a joined or a failing condition too.
+  #
+  # oracle: field reject C4
+  # oracle: slice reject C4
+  # oracle: method reject C4
+  # oracle: closure reject C4
+  # oracle: string reject C4
+  # oracle: failing reject C4
+  # oracle: continued reject C4
+  # oracle: labeled reject C4
+  # oracle: inner reject C4
+  # oracle: deferred reject C4
+  # oracle: nested reject C4
+
+
+  error E
+    bad
+
+  obj S
+    s: []Int
+
+    fun first(?self) -> Int
+      self.s[0]
+
+  obj T
+    s: ?String
+
+  fun mk(v: ?List[Int]) -> S?
+    if v.len < 40
+      return S(s: ?v[..])
+    none
+
+  fun all(v: ?List[Int]) -> ([]Int)?
+    if v.len < 40
+      return ?v[..]
+    none
+
+  fun mkt(t: ?String) -> T?
+    if t.len < 200
+      return T(s: ?t)
+    none
+
+  fun mkf(v: ?List[Int]) -> S?!
+    return E.bad if v.len > 100
+    mk(v)
+
+  sub field()
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    while mk(?v) as h: k += h.s[0]
+      !v.push(2)
+    print(k)
+
+  sub slice()
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    while all(?v) as h: k += h[0]
+      !v.push(2)
+    print(k)
+
+  sub method()
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    while mk(?v) as h: k += h.first()
+      !v.push(2)
+    print(k)
+
+  sub closure()
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    while mk(?v) as h: k += (|?h| h.s[0])()
+      !v.push(2)
+    print(k)
+
+  sub string()
+    t = String("abc")
+    k = 0
+    while mkt(?t) as h: k += (1 if text.ends_with(h.s, "9") else 0)
+      !t.add("0123456789")
+    print(k)
+
+  sub joined()
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    while mk(?v) as h and h.s.len > 0: k += h.s[0]
+      !v.push(2)
+    print(k)
+
+  sub failing()
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    while (mkf(?v) catch none) as h: k += h.s[0]
+      !v.push(2)
+    print(k)
+
+  sub continued()
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    while mk(?v) as h: k += h.s[0]
+      !v.push(2)
+      continue
+    print(k)
+
+  sub labeled()
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    @outer while mk(?v) as h: k += h.s[0]
+      for _ in 0..2
+        !v.push(2)
+        continue @outer
+    print(k)
+
+  sub inner()
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    while mk(?v) as h: k += h.s[0]
+      j = 0
+      while j < 2: j += 1
+        !v.push(2)
+    print(k)
+
+  sub deferred()
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    while mk(?v) as h: k += h.s[0]
+      defer !v.push(2)
+      k += 1
+    print(k)
+
+  sub nested()
+    v: List[Int] = List()
+    !v.push(1)
+    k = 0
+    i = 0
+    while i < 3: i += 1
+      while mk(?v) as h: k += h.s[0]
+        !v.push(2)
+    print(k)
+
+  field()
+
+fail "while step uses owning binding", "the loop step cannot use `b`: the body owns this `*B`"
+  # The body drops an owning `as` binding before the loop step runs, so
+  # the step cannot use it.
+
+  obj B
+    n: Int
+
+  w: List[*B] = List()
+  !w.push(*B(n: 1))
+  t = 0
+  while (!w).pop() as b : t += b.n
+    print(b.n)
+  print(t)
+
+fail "while step uses view binding", "10:17: the loop step cannot use `x`: it is a view (`!P`) that lives only in the body; use it at the end of the body instead", "14:23: the loop step cannot use `y`: it is a view (`?^P`) that lives only in the body"
+  # A view the condition of `while e as x` binds lives only in the body,
+  # so the step, which runs after it, cannot use it; a box's value is
+  # reached the same way.
+
+  obj P
+    n: Int
+
+  o: P? = P(n: 1)
+  k = 0
+  while !o as x : x.n += 1
+    k += 1
+    break if k == 3
+  b: ^P? = ^P(n: 1)
+  while ?b as y : print(y.n)
+    k += 1
+    break if k == 6
+  print(k)
+
+test "while true break move", '''
+  7
+  drop
+  end
+'''
+  # A move followed by `break` out of `while true` is the only way out of the
+  # loop, and the value is not used afterwards.
+
+  obj Wrap
+    payload: Int
+
+    drop(!self)
+      print("drop")
+
+  sub eat(rc: *Wrap)
+    print(rc.payload)
+
+  rc = *Wrap(payload: 7)
+  i = 0
+  while true
+    i += 1
+    if i == 3
+      eat(<rc)
+      break
+  print("end")
+
+fail "whole receiver method field arg", "28:6: cannot lend `self` to write while a read loan on `self.scanner.value` is live", "lend the fields it writes", errors: 1
+  # A `!self` method lends all of `self`, so it cannot be called while a
+  # field of `self` is lent: the caller does not look into the body (Core
+  # sentence 7). The idiom is a function of the fields it writes, which
+  # lends only those paths.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/beyond/whole_receiver_method_field_arg.rig).
+
+  obj Scanner
+    value: String
+
+  obj Arena
+    bytes: String
+
+    fun add(!self, text: ?String) -> Int
+      !self.bytes.add(text)
+      self.bytes.len
+
+  obj Parser
+    scanner: Scanner
+    ast: Arena
+    count: Int
+
+    fun new_identifier(!self, text: ?String) -> Int
+      self.count += 1
+      (!self.ast).add(text)
+
+    fun identifier(!self) -> Int
+      (!self).new_identifier(self.scanner.value)
+
+  p = Parser(scanner: Scanner(value: String("id")), ast: Arena(bytes: String()), count: 0)
+  print((!p).identifier(), p.count)

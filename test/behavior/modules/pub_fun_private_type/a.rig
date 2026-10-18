@@ -1,7 +1,0 @@
-# `Secret` is private, but the public `make_secret` returns it.
-
-obj Secret
-  pub value: Int
-
-pub fun make_secret() -> Secret
-  Secret(value: 42)

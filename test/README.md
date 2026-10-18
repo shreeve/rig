@@ -1,9 +1,17 @@
 # Rig test suite
 
+Rig is tested by two runners. `test/rig.rip` ([docs/RIG-TESTS.md](../docs/RIG-TESTS.md))
+runs the cases of `test/rig/*.rig.test` (every behavior and rejection
+test), `examples/`, `test/torture/`, the unit tests, the oracle's
+`lint`, `tests`, and `corpus` sets, and, as `cli`, the scripts of
+`test/cli/`: `swarm test/rig.rip all`. `./test/run`, below, runs the
+rest: the doc examples, the IR snapshots, the JSON comparison, the
+corpus programs, the oracle's `docs` and `matrix` sets, and the
+whole-program checks.
+
 ```bash
 ./test/run                 # everything (parallel)
-./test/run ownership       # only tests whose id contains "ownership"
-./test/run -v known        # list each result of the known bugs
+./test/run doc/SPEC        # only tests whose id contains "doc/SPEC"
 ./test/run --update ir     # rewrite IR snapshots after an intended grammar change
 ./test/run corpus          # every corpus program (a plain run takes a sample)
 ./test/run json            # all 10,511 inputs of std.json's comparison (a plain run takes a part)
@@ -21,10 +29,9 @@ runs the whole-program checks (`unit`, `classify`, `vocab`,
 `style`).
 
 The summary line reads `N passed, M failed, K known, P pending`. The
-suite is green when nothing fails and no known-failing test or pending
-doc example has started passing. A
-filter that selects nothing exits 2; naming only kinds that have no tests (`known`, when
-no bug is open) exits 0. The runner works from any directory.
+suite is green when nothing fails and no pending doc example has
+started passing. A filter that selects nothing exits 2. The runner
+works from any directory.
 
 The runner needs bash and either GNU `timeout` or perl (stock macOS has
 perl). `ZIG` names the Zig executable, `RIG_TEST_TIMEOUT` the seconds
@@ -39,13 +46,7 @@ each test's output, `RIG_BUILD_STORE` where programs build (see
 
 | Path | Contract |
 |---|---|
-| `test/behavior/<area>/<name>.rig` | the program runs, exits 0, has no leaks or use of freed memory, and its stdout equals the `# expect:` block |
-| `test/reject/<area>/<name>.rig` | `rig check` exits non-zero with `file:line:col` diagnostics whose messages contain each `# error:` text (and, with `# errors: n`, exactly `n` errors); each hint of a lend of a place as a path's base, applied alone, draws no error the program did not draw at the same place (`test/hints.py`) |
-| `test/known/<area>/<name>.rig` | a known bug, written as a behavior or reject test of the *correct* behavior |
-| `examples/<name>.rig` | curated showcase programs; same contract as `behavior/` |
 | `test/ir/<name>.rig` | raw and semantic IR snapshots (`<name>.raw.sexp`, `<name>.sem.sexp`) |
-| `test/torture/<name>.rig` | bad input: `rig run` must reject it with a `file:line:col` diagnostic, never crash |
-| `test/cli/<name>.sh` | a bash script exercising the `rig` commands; passes when it exits 0 (see below) |
 | `test/corpus/<name>.rig` | a reviewer's probe: `rig check` rejects it with a `file:line:col` diagnostic, or it runs sanitizer-clean (see below) |
 | `unit` | `zig build test` |
 | `classify` | no pass in `src/` keeps a classifier of what an expression hands over beside `sema.handsOver` (`isPlaceExpr`, `isPlace`, `makesValue`, `isBranching`, `readLeaves`, `classifyReceiverShape`), and emit names hidden storage only through its storage facts (`Emitter.hiddenStorage`) |
@@ -55,58 +56,12 @@ each test's output, `RIG_BUILD_STORE` where programs build (see
 | `doc/<file>/L<n>` | the ```` ```rig ```` block at line `n` of a Markdown file (see below) |
 | `oracle/<set>` | the reference ownership checker agrees with the compiler over a set of programs (see below) |
 
-Areas: `syntax`, `types`, `effects`, `ownership`, `emit`, `runtime`, `modules`,
-`std` (the standard library), and `proofs` (the tests the compiler omits,
-docs/INTERNALS.md, "Proven checks": each program there marks its use
-`# proves:` or `# keeps:`, which `test/cli/facts_proofs.sh` checks
-against `rig check --facts=proofs`).
-A multi-file test is a directory `<name>/` with an entry `main.rig`; the
-directives go in `main.rig`.
+## Examples
 
-One file per test, discovered automatically; there is no list to edit.
-
-## Directives
-
-Directives are whole-line comments.
-
-```rig
-sub main()
-  print(42)
-  print("done")
-
-# expect:
-# 42
-# done
-```
-
-- `# expect:` starts the expected-stdout block. Each following `#` line is
-  one line of output (`# ` is stripped; a bare `#` is an empty line). The
-  block ends at the first non-comment line. With no block, stdout must be
-  empty.
-- `# expect:` and `# expect-stderr:` blocks also end at each other, so
-  a test may give both.
-- `# expect-panic: <text>` — the program must exit 134 (the status of
-  every panic) with `<text>` on stderr. An `# expect:` block, if
-  present, still checks stdout.
-- `# expect-exit: <n>` — the program must exit with status `n` instead
-  of 0 (or 134 for `# expect-panic:`). It must still free what it
-  allocated and use no freed memory.
-- `# expect-stderr:` starts a block, written as `# expect:` is, that
-  stderr must equal. Without one, stderr is not compared. The line
-  `rig run` adds for a program a signal ended is left out.
-- `# error: <text>` — makes the file a rejection test. Repeat the line to
-  require several diagnostics. `# error: L:C: <text>` also requires the
-  diagnostic to be at line `L`, column `C`.
-- `# errors: <n>` — the check must report exactly `n` errors (notes
-  aside), so a cascade of follow-on errors fails the test. Use it where
-  one mistake should get one error.
-- `# release` — a behavior test is also built with `--release` (Zig's
-  safe optimized mode) and must pass the same way: exit 0 (or the
-  expected panic) and print the `# expect:` block. Use it where the
-  optimizer may treat the emitted Zig differently from a debug build.
-- `# timeout: <seconds>` — raises this test's time limit above
-  `RIG_TEST_TIMEOUT`, for a behavior test or CLI script that builds
-  programs slowly when Zig's cache is cold.
+An example, `examples/<name>.rig`, is a whole program whose `# expect:`
+block (the comment lines after it, `# ` taken off each) is what it
+prints. `test/rig.rip` runs each as a `test` case. The cases of
+`test/rig` give their results on their headers (docs/RIG-TESTS.md).
 
 ## Doc examples
 
@@ -215,8 +170,12 @@ for a change to how emit or the runtime handles optionals.
 
 ## CLI tests
 
-Each `test/cli/<name>.sh` runs in an empty directory with `RIG` (the
-compiler), `ROOT` (the checkout), and `RIG_OUT_DIR` set, sources
+Each `test/cli/<name>.sh`, which `swarm test/rig.rip cli` runs, runs in
+an empty directory with `RIG` (the compiler), `ROOT` (the checkout),
+`RIG_OUT_DIR`, and `RIG_TESTS` set: the behavior and rejection tests,
+as the runner writes them out (`behavior/<area>/<name>.rig` and
+`reject/<area>/<name>.rig`, or `<name>/main.rig`). A program a script
+needs exactly as it is lives in `test/cli/fixtures/`. A script sources
 `test/cli/_lib.sh` for `fail`, `expect_eq`, `expect_has`, and
 `expect_rc`, writes the programs it needs with heredocs, and passes when
 it exits 0. Files starting with `_` are helpers, not tests.
@@ -230,10 +189,7 @@ built in one directory would rebuild cold on every run. (`zig build-exe`
 caches nothing, so `rig build` is always cold; prefer `rig run` when the
 executable itself is not under test.) Call `"$RIG"` directly for
 commands that build nothing (`check`, `emit`, usage errors) and when
-the output directory is what the test is about. Scripts inherit the
-suite's `RIG_BUILD_STORE`, so `rig run|build|test` builds in the store
-(see [Output](#output)); a script about the output directory sets
-`RIG_BUILD_STORE=` for those commands.
+the output directory is what the test is about.
 
 ## The JSON tests
 
@@ -383,10 +339,13 @@ the function uses a form the oracle does not model yet. The test kind
 | Id | Programs |
 |---|---|
 | `oracle/lint` | none: `test/oracle/` uses none of the compiler's ownership classifications, and `src/` imports neither `lib.zig` nor `test/` |
-| `oracle/tests` | `test/behavior`, `test/reject`, `test/known`, and `examples` |
+| `oracle/tests` | the behavior and rejection tests, as `test/rig.rip` writes them out, and `examples` |
 | `oracle/corpus` | every corpus program (no sample) |
 | `oracle/docs` | every doc example but fragments |
 | `oracle/matrix` | the matrix programs (`test/matrix.py --oracle`) |
+
+`test/rig.rip` runs `lint`, `tests`, and `corpus` in its core;
+`./test/run` runs `docs` and `matrix`.
 
 A set fails when the compiler accepts a function the oracle rejects:
 that may be a soundness hole, and it can never be allowlisted. It also
@@ -477,12 +436,11 @@ pass untouched.
 
 ## Known bugs
 
-`test/known/` is the work queue. Each file is written as a behavior or
-reject test of the correct behavior, and its header also says what goes
-wrong today. Fix the bug, run the suite, and the test reports `FIXED`;
-move it into `test/behavior/` or `test/reject/` under the same area in
-the same commit, and drop the note about the bug from its header: tests
-outside `known/` describe current behavior only.
+A known bug is a case of `test/rig` written as Rig should behave, with
+what goes wrong today in its first comment, and marked `known: true`:
+the case passes while it fails, and fails the day it passes. Fix the
+bug, and the case says to take the mark off; take it off, and the
+comment about the bug, in the same commit.
 
 ## Output
 

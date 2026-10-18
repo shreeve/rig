@@ -1,0 +1,226 @@
+# names: the rest of its tests.
+
+fail "closure param after decl", "parameter `Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # A closure param may not share a module-level name, whichever comes first
+  # (here the declaration comes after).
+
+  fun site() -> Int
+    f = |Thing: Int| Thing
+    f(1)
+
+  obj Thing
+    v: Int
+
+  print(1)
+
+fail "closure param before decl", "parameter `Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # A closure param may not share a module-level name, whichever comes first
+  # (here the declaration comes before).
+
+  obj Thing
+    v: Int
+
+  fun site() -> Int
+    f = |Thing: Int| Thing
+    f(1)
+
+  print(1)
+
+fail "errors in source order", "1:7: parameter `Thing` has the same name as the module-level declaration `Thing`", "7:5: duplicate declaration of `dup`", "17:7: parameter `Thing` has the same name as the module-level declaration `Thing`", "17:19: parameter `Other` has the same name as the module-level declaration `Other`", errors: 4
+  fun a(Thing: Int) -> Int
+    Thing
+
+  fun dup() -> Int
+    1
+
+  fun dup() -> Int
+    2
+
+  fun b() -> Int
+    Other = 1
+    Other
+
+  Thing = 4
+  Other = 5
+
+  fun c(Thing: Int, Other: Int) -> Int
+    Thing
+
+  sub main()
+    print(1)
+
+fail "local after decl", "local `Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # A local may not share a module-level name, whichever comes first
+  # (here the declaration comes after).
+
+  fun site() -> Int
+    Thing = 1
+    Thing
+
+  obj Thing
+    v: Int
+
+  print(1)
+
+fail "local before decl", "local `Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # A local may not share a module-level name, whichever comes first
+  # (here the declaration comes before).
+
+  obj Thing
+    v: Int
+
+  fun site() -> Int
+    Thing = 1
+    Thing
+
+  print(1)
+
+fail "loop var after decl", "`Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # A loop var may not share a module-level name, whichever comes first
+  # (here the declaration comes after).
+
+  fun site() -> Int
+    for Thing in 0..2
+      print(Thing)
+    1
+
+  obj Thing
+    v: Int
+
+  print(1)
+
+fail "loop var before decl", "`Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # A loop var may not share a module-level name, whichever comes first
+  # (here the declaration comes before).
+
+  obj Thing
+    v: Int
+
+  fun site() -> Int
+    for Thing in 0..2
+      print(Thing)
+    1
+
+  print(1)
+
+fail "match binding after decl", "`Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # A match binding may not share a module-level name, whichever comes first
+  # (here the declaration comes after).
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  fun site(s: Sh) -> Int
+    match s
+      .circle(Thing) => return Thing
+      .point => return 0
+
+  obj Thing
+    v: Int
+
+  print(1)
+
+fail "match binding before decl", "`Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # A match binding may not share a module-level name, whichever comes first
+  # (here the declaration comes before).
+
+  obj Thing
+    v: Int
+
+  enum Sh
+    circle(r: Int)
+    point
+
+  fun site(s: Sh) -> Int
+    match s
+      .circle(Thing) => return Thing
+      .point => return 0
+
+  print(1)
+
+fail "method param after decl", "parameter `Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # A method param may not share a module-level name, whichever comes first
+  # (here the declaration comes after).
+
+  obj Foo
+    v: Int
+
+  fun Foo.m(?self, Thing: Int) -> Int
+    Thing
+
+  obj Thing
+    v: Int
+
+  print(1)
+
+fail "method param before decl", "parameter `Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # A method param may not share a module-level name, whichever comes first
+  # (here the declaration comes before).
+
+  obj Thing
+    v: Int
+
+  obj Foo
+    v: Int
+
+  fun Foo.m(?self, Thing: Int) -> Int
+    Thing
+
+  print(1)
+
+fail "panic reserved", "3:5: unexpected keyword `panic`; expected a name"
+  # `panic` is a keyword, so nothing declares it.
+
+  fun panic(n: Int) -> Int
+    n
+
+  print(panic(1))
+
+fail "param after decl", "parameter `Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # A param may not share a module-level name, whichever comes first
+  # (here the declaration comes after).
+
+  fun site(Thing: Int) -> Int
+    1
+
+  obj Thing
+    v: Int
+
+  print(1)
+
+fail "param before decl", "parameter `Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # A param may not share a module-level name, whichever comes first
+  # (here the declaration comes before).
+
+  obj Thing
+    v: Int
+
+  fun site(Thing: Int) -> Int
+    1
+
+  print(1)
+
+fail "type param after decl", "parameter `Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # A type param may not share a module-level name, whichever comes first
+  # (here the declaration comes after).
+
+  fun site[Thing](a: Thing) -> Thing
+    a
+
+  obj Thing
+    v: Int
+
+  print(1)
+
+fail "type param before decl", "parameter `Thing` has the same name as the module-level declaration `Thing`", "declared here", errors: 1
+  # A type param may not share a module-level name, whichever comes first
+  # (here the declaration comes before).
+
+  obj Thing
+    v: Int
+
+  fun site[Thing](a: Thing) -> Thing
+    a
+
+  print(1)

@@ -1,2 +1,0 @@
-pub fun main(n: Int) -> Int
-  n * 2

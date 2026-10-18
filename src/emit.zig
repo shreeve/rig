@@ -38,8 +38,10 @@ const ir = parser.ir;
 
 /// The runtime shipped with every emitted program: `src/runtime.zig`,
 /// written byte for byte next to the emitted modules, which import it
-/// as `rig`.
+/// as `rig`. A batch (`rig batch`) writes it once, as the Zig module
+/// `runtime_module` every program of the batch imports.
 pub const runtime_filename = "rig/runtime.zig";
+pub const runtime_module = "rig";
 pub const runtime_source = @embedFile("runtime.zig");
 /// The program's symbols, written next to the modules
 /// (`src/symbols.zig`), which a module that writes one imports as
@@ -344,6 +346,9 @@ pub const Emitter = struct {
     /// compiles only if every operation on one goes through the optional
     /// helpers (`RIG_STRICT_OPTIONALS`, `Facts.optionalRouted`).
     strict_optionals: bool = false,
+    /// What the module imports the runtime by: its file in the package,
+    /// or the module a batch shares (`runtime_module`).
+    runtime_import: []const u8 = runtime_filename,
     /// The module's files, each by its path from the package root, which
     /// a `panic` names where it stands.
     file: diag.File = .{ .source = "", .path = "" },
@@ -380,7 +385,7 @@ pub const Emitter = struct {
 
     pub fn emit(self: *Emitter, sexp: Sexp) Error!void {
         try self.w.writeAll("const std = @import(\"std\");\n");
-        try self.w.print("const rig = @import(\"{s}\");\n", .{runtime_filename});
+        try self.w.print("const rig = @import(\"{s}\");\n", .{self.runtime_import});
         if (!sexp.isKind(.module)) return;
         const decls = ir.Module.decls(sexp);
         try self.collectModule(decls);

@@ -1,9 +1,0 @@
-# A variant without a payload can't be constructed with arguments.
-
-enum Shape
-  origin
-
-sub main()
-  s: Shape = .origin(extra: 1)
-
-# error: variant `origin` of enum `Shape` takes no payload

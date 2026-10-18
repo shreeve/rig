@@ -1,8 +1,0 @@
-pub obj Wrap
-  pub v: List[Int]
-
-pub obj Holder
-  pub b: ?Wrap
-
-pub sub put(t: !Holder, x: ?Wrap) keeps x
-  t.b = x

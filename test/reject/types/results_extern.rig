@@ -1,3 +1,0 @@
-extern fun f() -> (Int, Int)
-
-# error: cannot return `(Int, Int)`

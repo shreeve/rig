@@ -1,0 +1,409 @@
+# ownership: tests whose names start `results`.
+
+fail "results as discard", "`as` binds each result to a name: name this one, and where the body does not use it", errors: 1
+  # A header's temporaries end with it, before its body: a result `as`
+  # discarded there would drop after them, so each result is named.
+
+  obj Guard
+    s: ?String
+
+    drop(!self)
+      print("guard", self.s)
+
+  fun mk(s: ?String) -> (Guard, Int)?
+    return Guard(s: s), s.len
+
+  if mk(?String("abc", "def")) as _, n
+    print(n)
+
+fail "results as header temp", "a view of the temporary `String(\"abc\", \"def\")` outlives its statement"
+  obj Guard
+    s: ?String
+
+    drop(!self)
+      print("guard", self.s)
+
+  fun mk(s: ?String) -> (Guard, Int)?
+    return Guard(s: s), s.len
+
+  if mk(?String("abc", "def")) as g, n
+    print(n)
+    <g
+
+test "results bool free", "10 true"
+  # Each result carries the loans its own type could hold: the `Bool`
+  # beside a write view carries none, so `c` may change once `w` is done
+  # while `big` is still used.
+
+  obj Counter
+    n: Int
+    m: Int
+
+    fun bump(!self, k: Int) -> (!Int, Bool)
+      self.n += k
+      return !self.m, self.n > 3
+
+  c = Counter(n: 0, m: 0)
+  w, big = (!c).bump(5)
+  w += 10
+  c.n = 0
+  print(c.m, big)
+
+test "results discard", '''
+  drop 2
+  drop 1
+  after
+  ab!
+'''
+  # Discarding results: a bare call statement discards results that own
+  # nothing, and `_ = f()` discards all of them, the last first. A result
+  # `_` discards whose drop runs no `drop` body reads none of its views,
+  # so its loans end at once.
+
+  obj Guard
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun divmod(a: Int, b: Int) -> (Int, Int)
+    return a / b, a % b
+
+  fun guards(k: Int) -> (Guard, Guard)
+    return Guard(n: k), Guard(n: k + 1)
+
+  fun two(s: ?String) -> (String, ?String)
+    return String(s, "!"), s
+
+  divmod(17, 5)
+  _ = guards(1)
+  print("after")
+  s = String("ab")
+  s, _ = two(?s)
+  print(s)
+
+fail "results discard nested drop", "26:4: cannot bind `s` while the result `_` discards views it", "27:4: cannot bind `s` while the result `_` discards views it", "28:4: cannot bind `s` while the result `_` discards views it"
+  # A discarded result keeps what it views lent to the statement's end
+  # when its drop runs a `drop` body anywhere inside it: a field's, a
+  # List's element's, or a shared handle's value's.
+
+  obj G
+    w: ?String
+
+    drop(!self)
+      print("g", self.w)
+
+  obj H
+    g: G
+
+  fun field(s: ?String) -> (H, String)
+    return H(g: G(w: s)), String(s, "!")
+
+  fun list(s: ?String) -> (List[G], String)
+    v: List[G] = List()
+    !v.push(G(w: s))
+    return v, String(s, "!")
+
+  fun shared(s: ?String) -> (*G, String)
+    return *G(w: s), String(s, "!")
+
+  s = String("ab")
+  _, s = field(?s)
+  _, s = list(?s)
+  _, s = shared(?s)
+  print(s)
+
+test "results discard order", '''
+  guard 1 abcdef
+  6
+  guard 1 gh
+  end
+'''
+  # A result `_` discards is a temporary of its statement, made after the
+  # call's arguments, so it drops first, at the statement's end (Core §3):
+  # a `drop` body that reads a view of an argument's temporary reads it
+  # while it lives. `_ = f()` drops each result the same way.
+
+  obj Guard
+    s: ?String
+    tag: Int
+
+    drop(!self)
+      print("guard", self.tag, self.s)
+
+  fun mk(s: ?String) -> (Guard, Int)
+    return Guard(s: s, tag: 1), s.len
+
+  _, n = mk(?String("abc", "def"))
+  print(n)
+  _ = mk(?String("g", "h"))
+  print("end")
+
+fail "results discard views", "cannot bind `s` while the result `_` discards views it: that result's `drop` body runs at the statement's end", errors: 1
+  # A result `_` discards drops at the statement's end; one whose `drop`
+  # body could read what it views keeps that viewed until then.
+
+  obj Guard
+    s: ?String
+
+    drop(!self)
+      print("guard", self.s)
+
+  fun keep(s: ?String) -> (Guard, String)
+    return Guard(s: s), String(s)
+
+  s = String("ab")
+  _, s = keep(?s)
+  print(s)
+
+test "results forward", '''
+  3 abc
+  a bc
+  a bc
+  drop 3
+'''
+  # `return f()` returns the results `f` gives, whole: owners move on, and
+  # views keep what they view.
+
+  obj G
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun two(s: ?String) -> (G, ?String)
+    return G(n: s.len), s
+
+  fun fwd(s: ?String) -> (G, ?String)
+    return two(s)
+
+  fun split(s: ?String, at: Int) -> (?String, ?String)
+    return s[..at], s[at..]
+
+  fun fwopt(s: ?String) -> (?String, ?String)?
+    return split(s, 1)
+
+  fun fwfail(s: ?String) -> (?String, ?String)!
+    return split(s, 1)
+
+  t = String("abc")
+  g, v = fwd(?t)
+  print(g.n, v)
+  if fwopt(?t) as c, d
+    print(c, d)
+  e, f = fwfail(?t) catch return
+  print(e, f)
+
+fail "results forward local view", "cannot return a view of `t`, which this function was not lent", errors: 1
+  fun split(s: ?String, at: Int) -> (?String, ?String)
+    return s[..at], s[at..]
+
+  fun bad() -> (?String, ?String)
+    t = String("hey")
+    return split(?t, 1)
+
+fail "results move then use", "use of `s` after move"
+  fun len(s: !String) -> Int
+    !s.add("x")
+    s.len
+
+  fun two() -> (String, Int)
+    s = String("abc")
+    return s, len(!s)
+
+test "results owned", '''
+  x y
+  drop u
+  v
+  drop x
+  drop t
+  end r
+  drop v
+  drop y
+  drop r
+'''
+  # Owned results are taken by their names, left to right; a result `_`
+  # takes is dropped at the statement's end, after the bindings, and an
+  # assigned name drops its old value.
+
+  obj Name
+    s: String
+
+    drop(!self)
+      print("drop", self.s)
+
+  fun two(a: ?String, b: ?String) -> (Name, Name)
+    return Name(s: String(a)), Name(s: String(b))
+
+  x, y = two("x", "y")
+  print(x.s, y.s)
+  _, z = two("u", "v")
+  print(z.s)
+  x, _ = two("r", "t")
+  print("end", x.s)
+
+fail "results pending view", "cannot bind `s` while `v` views it"
+  fun two(s: ?String) -> (String, ?String)
+    return String(s), s
+
+  s = String("ab")
+  s, v = two(?s)
+  print(v)
+
+fail "results return local view", "cannot return a view of `s`, which this function was not lent"
+  fun two() -> (Int, ?String)
+    s = String("x")
+    return 1, ?s
+
+test "results return parts", '''
+  3 3
+  3
+  2 x
+'''
+  # Each part of `return a, b` is judged by its own result's type: a write
+  # view read as a value that copies is a copy, and a view of a local read
+  # into an `Int` keeps no loan of it.
+
+  fun twice(w: !Int) -> (Int, Int)
+    return w, w
+
+  fun pair(a: !Int, b: ?Int) -> (!Int, Int) from a
+    return a, b
+
+  fun local() -> (Int, ?String)
+    n = 1
+    w = !n
+    w += 1
+    return w, "x"
+
+  n = 3
+  a, b = twice(!n)
+  print(a, b)
+  x = 1
+  y = 2
+  w, k = pair(!x, ?y)
+  w += k
+  print(x)
+  c, d = local()
+  print(c, d)
+
+fail "results view outlives", "cannot lend `t` to write while a read loan is live"
+  fun split(s: ?String, at: Int) -> (?String, ?String)
+    return s[..at], s[at..]
+
+  t = String("hello")
+  a, b = split(?t, 2)
+  !t.add("!")
+  print(a, b)
+
+test "results views", '''
+  he llo
+  hello!
+'''
+  # A result that views carries the loans its own type can hold: the two
+  # views of `t` keep it lent to read while they are used, and then `t`
+  # may change.
+
+  fun split(s: ?String, at: Int) -> (?String, ?String)
+    return s[..at], s[at..]
+
+  t = String("hello")
+  a, b = split(?t, 2)
+  print(a, b)
+  !t.add("!")
+  print(t)
+
+fail "results write and read", "`two` gives a write view and another result, `?Int`, that could both view `self`"
+  obj M
+    a: Int
+
+    fun two(!self) -> (!Int, ?Int)
+      return !self.a, ?self.a
+
+test "results write lend ends", "1 [0] 1"
+  # When no result holds a write view, the call's write lend ends as it
+  # returns: `v` may be read while `a` views it.
+
+  fun grab(v: !List[Int]) -> ([]Int, Int)
+    !v.push(v.len)
+    return ?v[..1], v.len
+
+  v: List[Int] = List()
+  a, n = grab(!v)
+  print(v.len, a, n)
+
+fail "results write lend per call", "cannot reassign `y` while it is lent", errors: 1
+  # While a result holds a write view, every write lend of the call lasts
+  # to the statement's end, as for a `!T` result: the first version
+  # decides it per call, not per argument (SPEC "Several results").
+
+  fun pair(a: !Int, b: !Int) -> (!Int, Int) from a
+    b += 1
+    return a, b
+
+  x = 1
+  y = 1
+  w, y = pair(!x, !y)
+  w += y
+  print(x, y)
+
+fail "results write lend read view", "cannot lend `v` to write while a read loan is live", errors: 1
+  # The write lend ends as the call returns, but what a result views stays
+  # lent to read: `v` may not be written while `a` lives.
+
+  fun grab(v: !List[Int]) -> ([]Int, Int)
+    !v.push(v.len)
+    return ?v[..1], v.len
+
+  v: List[Int] = List()
+  a, n = grab(!v)
+  !v.push(3)
+  print(a, n)
+
+test "results write view", '''
+  false
+  true 4 11
+'''
+  # One result may be a write view, beside results that hold none: `w`
+  # keeps the write loan on `c` while it lives, and `big` keeps nothing.
+
+  obj Counter
+    n: Int
+    m: Int
+
+    fun bump(!self, k: Int) -> (!Int, Bool)
+      self.n += k
+      return !self.m, self.n > 3
+
+  c = Counter(n: 0, m: 0)
+  w, big = (!c).bump(2)
+  w += 10
+  print(big)
+  w2, big2 = (!c).bump(2)
+  w2 += 1
+  print(big2, c.n, c.m)
+
+fail "results write view live", "use of `c.n` while a write loan on `c` is live"
+  obj Counter
+    n: Int
+
+    fun bump(!self) -> (!Int, Bool)
+      return !self.n, true
+
+  c = Counter(n: 0)
+  w, big = (!c).bump()
+  print(c.n, big)
+  w += 1
+
+fail "results write view part reused", "use of `x` after move"
+  fun f(x: !String) -> (!String, Int)
+    !x.add("1")
+    return x, g(!x)
+
+  fun g(x: !String) -> Int
+    !x.add("2")
+    x.len
+
+  s = String("abc")
+  w, n = f(!s)
+  print(w, n)

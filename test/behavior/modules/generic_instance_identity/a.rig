@@ -1,4 +1,0 @@
-use lib
-
-pub fun make(n: Int) -> lib.Wrap[Int]
-  lib.Wrap(v: n)

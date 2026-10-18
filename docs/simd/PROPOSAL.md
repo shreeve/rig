@@ -524,7 +524,7 @@ CI builds).
 
 ### 5.7 Tests
 
-- **Behavior** (`test/behavior/types/simd_*.rig`): construction (splat,
+- **Behavior** (the `simd` `test` cases of `test/rig/types-simd.rig.test`): construction (splat,
   array, conversion), every operator with each operand shape, masks
   (`bits`, `any`, `all`, `select`, `not`), reductions, lanes
   (`v[i]`, `with`, `array`), shuffle, join, lookup, bytes (`read` with
@@ -532,12 +532,12 @@ CI builds).
   List, behind `?` and `!` parameters, in a `Cell` and an owned closure
   (plain data goes there), generic over `n`, `@size`/`@name`, and
   `print`.
-- **Runtime panics** (`test/behavior/runtime/`): a lane overflowing `+`,
+- **Runtime panics** (its `simd` `bomb` cases): a lane overflowing `+`,
   `*`, and a conversion; a lane's shift losing bits; a run-time shift
   amount out of range; a lane divided by zero; `sum()` overflowing; a
   read out of range, with and without `pad:`; a run-time lane index out
   of range. Each runs in debug and `--release`.
-- **Rejects** (`test/reject/types/simd_*.rig`): lane count (48, 128,
+- **Rejects** (its `simd` `fail` cases): lane count (48, 128,
   0), lane type (`?String`, a struct), mixed `Simd` types, a scalar of
   another type, a literal that does not fit the lane, a mask as a
   condition, `and`/`or`/`not` on masks, a ternary on a mask, lane

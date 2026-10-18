@@ -1,4 +1,0 @@
-use a
-
-pub fun twice() -> Int
-  a.base() * 2

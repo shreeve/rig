@@ -432,7 +432,7 @@ extern zig "text.zig"
   # when `a` sorts first, 1 when `b` does, and 0 when they are equal.
   pub fun compare(a: ?String, b: ?String) -> Int
 
-extern zig "grapheme.zig"
+extern zig "char.zig"
   # How many chars `s` holds.
   pub fun char_count(s: ?String) -> Int
   # The char boundary at or before byte `i`: `i` itself when a char

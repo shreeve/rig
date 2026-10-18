@@ -1,0 +1,1095 @@
+# ownership: tests whose names start `move`.
+
+test "move assign shared", '''
+  102
+  1
+  101
+'''
+  # `rc2 = <rc` drops rc2's old handle, then moves rc into rc2. Each
+  # allocation is dropped exactly once.
+
+  obj U
+    v: Int
+
+    drop(!self)
+      print(self.v + 100)
+
+  rc = *U(v: 1)
+  rc2 = *U(v: 2)
+  rc2 = <rc
+  print(rc2.v)
+
+fail "move branch leaves", "39:9: `<` here would copy `n` out without moving it; move it inside the branch: `<n`", "40:9: `<` here would leave `s.n` as it was: it copies; remove the `<` to copy it", "41:9: `<` here would copy `o` out without moving it; move it inside the branch: `<o`", "42:20: `<` here would copy `n` out without moving it; move it inside the branch: `<n`", "44:9: `<` here would copy `p` out without moving it; move it inside the branch: `<p`", "45:9: `<` here would copy `s` out without moving it; move it inside the branch: `<s`", "49:8: `<` here would copy `o` out without moving it; move it before the `?` or `!`: `(<o)?`", "53:8: `<` here would copy `s.o` out without moving it; take it before the `?` or `!`: `(<s.o)?`", errors: 8
+  # `<` of a branching value (`a if c else b`, `a ?? b`, `e catch h`,
+  # `e?`, `e!`) gives up only what its leaves give up: a leaf made there
+  # is taken, and every other leaf is rejected, since `<` would leave it as
+  # it was. A name or an optional field is moved inside the branch
+  # (`<n if c else 5`, `(<s.o)?`); a part that copies is read with no `<`;
+  # a part of a value made there cannot leave it
+  # (`move_part_of_made_value.rig`).
+  # oracle: copying reject C3
+  # oracle: propagate reject C3
+  # oracle: propagate_field reject C3
+
+  error E
+    bad
+
+  obj P
+    n: Int
+
+  obj S
+    n: Int
+    o: Int?
+    v: List[Int]
+
+  fun mk() -> S
+    v: List[Int] = List()
+    !v.push(7)
+    S(n: 1, o: 2, v: <v)
+
+  fun f(k: Int) -> Int!
+    k
+
+  fun get(bad: Bool) -> List[Int]!
+    return E.bad if bad
+    List[Int]()
+
+  sub copying(c: Bool)
+    n = 1
+    s = mk()
+    o: Int? = 3
+    a = <(n if c else 5)
+    b = <(s.n if c else 5)
+    d = <(o ?? n)
+    e = <(f(1) catch n)
+    p = P(n: 4)
+    g = <(p if c else P(n: 5))
+    h = <(s if c else mk())
+    print(a, b, d, e, g.n, h.n, n, s.n, o, p.n)
+
+  fun propagate(o: Int?) -> Int?
+    x = <o?
+    x
+
+  fun propagate_field(s: S) -> Int?
+    y = <s.o?
+    y
+
+  copying(true)
+  print(propagate(1), propagate_field(mk()))
+
+fail "move capture", "24:17: cannot move `n`, a copy capture: the closure keeps it for every call; remove the `<` to copy it", "26:15: cannot move `p`, a copy capture: the closure keeps it for every call; remove the `<` to copy it", "28:17: cannot move captured `m`: the closure keeps what it captures for every call; write `+m` for a clone", "30:16: cannot move captured view `v`; the closure holds it for every call. Use it through the view, or pass it to a call", "32:16: cannot move captured view `w`; the closure holds it for every call. Use it through the view, or pass it to a call", "34:12: cannot move captured `hh`: the closure keeps what it captures for every call; write `+hh` for another weak handle", "38:16: cannot move captured `u`: the closure keeps what it captures for every call; write `+u` for a clone", "39:27: `<` here would leave `n` as it was: the closure keeps its capture for every call; remove the `<` to copy it", errors: 8
+  # A closure keeps what it captures for every call, so `<` cannot end a
+  # capture: a copy (`|+n|`) would be left as it was, an owned capture
+  # (`|<v|`) or a weak one (`|~h|`) is the closure's own, and a captured
+  # view (`|?v|`, `|!w|`) is held for every call. Each is rejected, as a
+  # branch leaf too.
+  # oracle: main reject B3
+
+  fun twice(n: Int) -> Int
+    n * 2
+
+  obj P
+    v: Int
+
+  fun eat(p: P) -> Int
+    p.v
+
+  fun eatv(v: List[Int]) -> Int
+    v.len
+
+  fun look(v: ?List[Int]) -> Int
+    v.len
+
+  n = 3
+  g = |+n| twice(<n)
+  p = P(v: 4)
+  h = |+p| eat(<p)
+  m = 5
+  k = |<m| twice(<m)
+  v: List[Int] = List()
+  r = |?v| look(<v)
+  w: List[Int] = List()
+  x = |!w| look(<w)
+  hh = *P(v: 1)
+  y = |~hh| <hh
+  yy = y()
+  print(*yy != none)
+  u: List[Int] = List()
+  z = |<u| eatv(<u)
+  q = |+n, c: Bool| twice(<(n if c else 4))
+  print(g(), h(), k(), r(), x(), z(), q(true))
+
+fail "move capture view param", "cannot move-capture view"
+  # `*|<rc| ...` cannot take ownership of a view parameter;
+  # the caller still owns it.
+
+  obj Wrap
+    payload: Int
+
+  fun f(rc: ?*Wrap) -> *sub()
+    *|<rc| print(rc.payload)
+
+  rc = *Wrap(payload: 5)
+  cb = f(?rc)
+  cb()
+  print(rc.payload)
+
+fail "move capture view param lambda", "cannot move-capture view"
+  # A local closure cannot move-capture a view parameter; the caller
+  # still owns it.
+
+  obj Wrap
+    payload: Int
+
+  sub f(rc: ?*Wrap)
+    g = |<rc|
+      print(rc.payload)
+    g()
+
+  rc = *Wrap(payload: 5)
+  f(?rc)
+  print(rc.payload)
+
+fail "move captured resource", "cannot move captured `sig`: the closure keeps what it captures for every call; write `+sig` for another handle, or `~sig` for a weak one"
+  # A closure body cannot move a captured resource out (here as a call
+  # argument inside an owned closure).
+
+  fun consume_sig(s: *Signal[Int]) -> Int
+    s.get()
+
+  sig: *Signal[Int] = *Signal(0)
+  cb: *sub() = *|+sig| consume_sig(<sig)
+  cb()
+
+fail "move captured resource with params", "cannot move captured `sig`: the closure keeps what it captures for every call; write `+sig` for another handle, or `~sig` for a weak one"
+  # Moving a captured resource out is rejected in an owned closure that
+  # takes parameters too.
+
+  sub takes_owned(c: *Cell[Int])
+    !c.set(0)
+
+  sig: *Cell[Int] = *Cell(0)
+  bad: *sub(Int) = *|+sig, a: Int| takes_owned(<sig)
+
+test "move copies plain payload", '''
+  P(x: 1)
+  .blue
+  .a(p: P(x: 1)) .b(c: .blue)
+'''
+  # A match payload of plain data is a copy of the field: `<p` copies it
+  # out and leaves the matched value whole, as `<n` does for an `Int`.
+
+  obj P
+    x: Int
+
+  enum Color
+    red
+    blue
+
+  enum E
+    a(p: P)
+    b(c: Color)
+
+  sub take(p: P)
+    print(p)
+
+  sub paint(c: Color)
+    print(c)
+
+  e = E.a(p: P(x: 1))
+  match e
+    .a(p) => take(<p)
+    .b(c) => paint(<c)
+  f = E.b(c: .blue)
+  match f
+    .a(p) => take(<p)
+    .b(c) => paint(<c)
+  print(e, f)
+
+test "move copies view payload", '''
+  1
+  5
+'''
+  # A payload of plain data that holds a view copies: `<v` copies it out
+  # of the matched value, and the copy views what `v` views.
+
+  obj N
+    n: Int
+
+  obj V
+    r: ?N
+
+  enum E
+    a(v: V)
+    b
+
+  sub show(v: V)
+    print(v.r.n)
+
+  x = N(n: 1)
+  e = E.a(v: V(r: ?x))
+  match e
+    .a(v)
+      k = <v
+      show(k)
+    .b => pass
+  x.n = 5
+  print(x.n)
+
+fail "move declared value", "15:6: cannot move function `one`: a function lives for the whole program; remove the `<` to use it", "16:6: cannot move function `Point.origin`: a function lives for the whole program", errors: 2
+  # A function lives for the whole program, as a module's constant does:
+  # `<` cannot end it, so `<` on one is rejected, a module's or a type's
+  # alike; a plain use copies it. (An enum variant is a value made there.)
+  # oracle: main reject C3
+
+  obj Point
+    x: Int
+
+    fun origin() -> Point
+      Point(x: 0)
+
+  fun one() -> Int
+    1
+
+  a = <one
+  b = <Point.origin
+  print(a(), b().x)
+
+test "move ends copy value", '''
+  42
+  4
+  0
+  2
+  4
+'''
+  # `<x` ends `x` for every type; a Copy value is copied out, and
+  # assigning the name again makes it usable.
+
+  fun twice(n: Int) -> Int
+    n * 2
+
+  n = 21
+  print(twice(<n))
+  n = 4
+  print(n)
+  i = 0
+  while i < 3 : i += 1
+    k = i
+    print(twice(<k))
+
+fail "move ends copy values", "use of `n` after move", "use of `flag` after move", "use of `s` after move", "use of `r` after move"
+  # `<x` ends `x` whatever its type: a number, a Bool, a String, or a
+  # view is done after it is moved, even though the value was copied.
+
+  obj Wrap
+    n: Int
+
+  sub take(b: ?Wrap)
+    print(b.n)
+
+  n = 1
+  m = <n
+  print(n)
+  flag = true
+  f = |<flag| print(flag)
+  f()
+  print(flag)
+  s = "text"
+  t = <s
+  print(s)
+  box = Wrap(n: 2)
+  r = ?box
+  take(<r)
+  take(r)
+
+fail "move field from shared", "15:6: cannot move out of `o.inner`: it is reached through a shared handle and other handles may still use it; clone it with `+o.inner`"
+  # A field cannot be moved out through a shared handle: other handles may
+  # still use it, and the last one drops it.
+
+  obj Wrap
+    payload: Int
+
+  obj Outer
+    inner: *Wrap
+
+  sub eat(rc: *Wrap)
+    print(rc.payload)
+
+  b = *Wrap(payload: 7)
+  o = *Outer(inner: <b)
+  eat(<o.inner)
+  print("back")
+
+fail "move field from view param", "14:8: cannot move out of `p.a`: `p` is a view; exchange it instead: `replace(!p.a, v)`", errors: 1
+  # A field cannot be moved out of a view parameter: the caller still
+  # owns and drops it.
+
+  obj Wrap
+    payload: Int
+
+  obj Pair
+    a: *Wrap
+
+  sub eat(rc: *Wrap)
+    print(rc.payload)
+
+  sub steal(p: ?Pair)
+    eat(<p.a)
+
+  p = Pair(a: *Wrap(payload: 1))
+  steal(?p)
+  print("back")
+
+fail "move field from viewed self", "11:10: cannot move out of `self.a`: `self` is a view; exchange it instead: `replace(!self.a, v)`"
+  # A field cannot be moved out of a `?self` receiver: the caller still
+  # owns and drops it.
+
+  obj Wrap
+    payload: Int
+
+  obj Pair
+    a: *Wrap
+
+    sub take(?self)
+      x = <self.a
+      print(x.payload)
+
+  p = Pair(a: *Wrap(payload: 1))
+  p.take()
+  print("back")
+
+fail "move field in drop body", "cannot move out of `self.cell`: `self` is a view"
+  # A drop body cannot move a resource field out: fields are dropped
+  # automatically after the body returns.
+
+  obj Owner
+    cell: *Cell[Int]
+
+    drop(!self)
+      stash = <self.cell
+
+test "move in one branch", '''
+  42
+  43
+'''
+  # Branches are checked independently: a move in the `then` branch does
+  # not make the value unusable in the `else` branch.
+
+  obj Packet
+    payload: Int
+
+  sub send(p: Packet)
+    print(p.payload)
+
+  sub run(cond: Bool)
+    x = Packet(payload: 42)
+    if cond
+      send(<x)
+    else
+      print(x.payload + 1)
+
+  run(true)
+  run(false)
+
+test "move leaves source done", '''
+  42
+  4
+  1 2 1 none
+  3 none
+  5 none 1
+  1 7 5 2
+'''
+  # `<` always leaves its source done. `<n` ends a local of any type, and
+  # assigning it makes it usable again; `<s.o` and `<v[i]` of an optional
+  # take the value and leave `none`, also through a write lend; a field or
+  # element that copies is copied by a plain read, with no `<`. A
+  # branching value moves each leaf where it is (`<a if c else <b`,
+  # `(<o)?`), and `<` of a value made there takes it (`<(mk() if c else
+  # <t)`, `<half(n)!`).
+  # oracle: main accept
+  # oracle: first accept
+
+  error Odd
+    odd
+
+  obj S
+    n: Int
+    o: Int?
+
+  fun mk() -> S
+    S(n: 7, o: 8)
+
+  fun twice(n: Int) -> Int
+    n * 2
+
+  fun half(n: Int) -> Int!
+    return Odd.odd if n % 2 == 1
+    n / 2
+
+  fun first(o: Int?) -> Int?
+    x = (<o)?
+    x + 1
+
+  n = 21
+  print(twice(<n))
+  n = 4
+  print(n)
+  s = S(n: 1, o: 2)
+  m = s.n
+  o = <s.o
+  print(m, o, s.n, s.o)
+  s.o = 3
+  w = !s
+  t = <w.o
+  print(t, s.o)
+  v: List[Int?] = List()
+  !v.push(5)
+  e = <v[0]
+  f = v[0]
+  print(e, f, v.len)
+  a = 1
+  b = 2
+  c = a < b
+  x = <a if c else <b
+  r = S(n: 9, o: none)
+  y = <(mk() if c else <r)
+  print(x, y.n, first(4), <half(n)!)
+
+fail "move module constant", "13:8: cannot move module-level `K` inside a function; later calls would still use it", "14:8: cannot move module-level `geo.K` inside a function; later calls would still use it", "15:8: cannot move out of `KP[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "16:8: cannot move out of `geo.KP[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "17:8: cannot move function `geo.mk`: a function lives for the whole program; remove the `<` to use it", errors: 5
+  # A module's constant lives for the whole program: `<` can neither end
+  # it nor empty it, whichever module names it, so `<K`, `<geo.K`, and
+  # `<` on an element of one are rejected; a plain read copies it. So is
+  # `<geo.mk`: a function lives for the whole program too.
+  # oracle: main reject C3
+
+  use geo
+
+  K = 7
+  KP = [4, 5]
+
+  sub main()
+    a = <K
+    b = <geo.K
+    c = <KP[0]
+    d = <geo.KP[0]
+    e = <geo.mk
+    print(a, b, c, d, e(), K, geo.K, KP[0], geo.KP[0])
+
+  file "geo.rig"
+    pub K = 5
+    pub KP = [1, 2, 3]
+
+    pub fun mk() -> Int
+      1
+
+fail "move part of branching value", "33:8: cannot move out of `(a if c else b).v`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`", "34:8: cannot move out of `(a if c else mk()).v`: `a if c else mk()` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`", "40:8: cannot move out of `(a if c else b).n`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "47:8: cannot move out of `(o ?? a).v`: `o ?? a` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`", "48:8: cannot move out of `(get(c) catch a).v`: `get(c) catch a` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`", "49:8: cannot move out of `(a if c else mk()).vs[0]`: `a if c else mk()` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`", "55:8: cannot take out of `(a if c else b).o`: `a if c else b` reads a binding where it stands; take it inside each branch", "61:13: cannot move out of `(a if c else b).v`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`", errors: 8
+  # A field or element of a branching value (`a if c else b`, `o ?? b`,
+  # `e catch b`) is a part of the binding its branch reads where it
+  # stands, so `<` on it is a part move like `<a.v`: the binding would
+  # still drop what moved, a part that copies would stay as it was, and an
+  # optional one is taken in each branch (`<a.o if c else <b.o`). Each is
+  # rejected, whatever form carries the move.
+  # oracle: owning reject C3
+  # oracle: copying reject C3
+  # oracle: others reject C3
+  # oracle: optional reject C7
+  # oracle: carried reject C3
+
+  error E
+    bad
+
+  obj S
+    n: Int
+    v: List[Int]
+    o: Int?
+    vs: List[List[Int]]
+
+  fun mk() -> S
+    S(n: 3, v: List(), o: none, vs: List())
+
+  fun get(bad: Bool) -> S!
+    return E.bad if bad
+    mk()
+
+  sub owning(c: Bool)
+    a = S(n: 1, v: List(), o: 1, vs: List())
+    b = S(n: 2, v: List(), o: 2, vs: List())
+    !a.v.push(1)
+    w = <(a if c else b).v
+    x = <(a if c else mk()).v
+    print(w.len, x.len, a.v.len)
+
+  sub copying(c: Bool)
+    a = S(n: 1, v: List(), o: 1, vs: List())
+    b = S(n: 2, v: List(), o: 2, vs: List())
+    m = <(a if c else b).n
+    print(m, a.n)
+
+  sub others(c: Bool)
+    a = S(n: 1, v: List(), o: 1, vs: List())
+    o: S? = mk()
+    !a.vs.push(List())
+    x = <(o ?? a).v
+    y = <(get(c) catch a).v
+    z = <(a if c else mk()).vs[0]
+    print(x.len, y.len, z.len)
+
+  sub optional(c: Bool)
+    a = S(n: 1, v: List(), o: 1, vs: List())
+    b = S(n: 2, v: List(), o: 2, vs: List())
+    t = <(a if c else b).o
+    print(t)
+
+  sub carried(c: Bool)
+    a = S(n: 1, v: List(), o: 1, vs: List())
+    b = S(n: 2, v: List(), o: 2, vs: List())
+    for x in <(a if c else b).v
+      print(x)
+
+  owning(true)
+  copying(true)
+  others(true)
+  optional(true)
+  carried(true)
+
+fail "move part of made value", "44:3: cannot move a part out of the temporary `G(f: <x)`, which its statement drops; bind it to a name first", "50:7: cannot move a part out of the temporary `mk()`, which its statement drops; bind it to a name first", "51:7: cannot move a part out of the temporary `<a`, which its statement drops; bind it to a name first", "52:7: cannot move a part out of the temporary `[<b, mk()]`, which its statement drops; bind it to a name first", "53:7: cannot move a part out of the temporary `mk() if c else mk()`, which its statement drops; bind it to a name first", "58:7: cannot move out of `mk().n`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "59:7: cannot move out of `mkh().n`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "60:7: cannot move out of `(+a).arr`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "61:7: cannot take out of a temporary: nothing would see it emptied; bind it to a name first", "65:13: cannot move a part out of the temporary `mk()`, which its statement drops; bind it to a name first", "69:13: cannot move out of `mk().arr`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "73:9: cannot move a part out of the temporary `mk()`, which its statement drops; bind it to a name first", "74:25: cannot move a part out of the temporary `mk()`, which its statement drops; bind it to a name first", "79:5: cannot move a part out of the temporary `mk()`, which its statement drops; bind it to a name first", "82:8: cannot take out of a temporary: nothing would see it emptied; bind it to a name first", "86:7: cannot take out of a temporary: nothing would see it emptied; bind it to a name first", "90:7: cannot take out of `(*w)?.o`: it is reached through the shared handle `(*w)?`, and other handles may still use it", "91:7: cannot move out of `(*w)?.v`: it is reached through the shared handle `(*w)?`, and other handles may still use it", errors: 18
+  # A field or element of a value made in the statement is dropped with
+  # it: `<` can neither end it nor empty it, so `<` on it is rejected,
+  # whatever its type and whatever form carries the move. One that copies
+  # is read with no `<`; one that moves is reached by binding the value to
+  # a name first. A branching value's leaf follows the same rule, and so
+  # does a part reached through a write view a call returns of a made
+  # value, or through a handle made there, whose box other handles may see.
+  # oracle: owning reject C3
+  # oracle: copying reject C3
+  # oracle: for_owning reject C3
+  # oracle: for_copying reject C3
+  # oracle: branch_leaves reject C3
+  # oracle: made_optional reject C3
+
+  error E
+    bad
+
+  obj S
+    n: Int
+    v: List[Int]
+    arr: [2]Int
+    vs: [2]List[Int]
+    o: Int?
+
+  fun mk() -> S
+    v: List[Int] = List()
+    !v.push(7)
+    S(n: 1, v: <v, arr: [1, 2], vs: [List(), List()], o: 3)
+
+  fun get(bad: Bool) -> List[Int]!
+    return E.bad if bad
+    List[Int]()
+
+  fun mkh() -> *S
+    *mk()
+
+  fun gw(s: !S) -> !S
+    s
+
+  obj G[T]
+    f: T
+
+  fun generic[T](x: T) -> T
+    <G(f: <x).f
+
+  sub owning()
+    a = mk()
+    b = mk()
+    c = a.n > 0
+    w = <mk().v
+    x = <(<a).v
+    y = <[<b, mk()][0].v
+    z = <(mk() if c else mk()).v
+    print(w.len, x.len, y.len, z.len)
+
+  sub copying()
+    a = mk()
+    m = <mk().n
+    h = <mkh().n
+    p = <(+a).arr
+    q = <mk().o
+    print(m, h, p, q)
+
+  sub for_owning()
+    for x in <mk().v
+      print(x)
+
+  sub for_copying()
+    for x in <mk().arr
+      print(x)
+
+  sub branch_leaves(c: Bool)
+    x = <(mk().v if c else List[Int]())
+    y = <(get(true) catch mk().v)
+    print(x.len, y.len)
+
+  fun made_leaf_value(c: Bool) -> List[Int]
+    w: List[Int] = List()
+    <(mk().v if c else <w)
+
+  fun made_optional() -> Int?
+    x = <mk().o?
+    x
+
+  sub through_lend()
+    b = <gw(!mk()).o
+    print(b)
+
+  fun through_handle(w: ~S) -> Int?
+    x = <((*w)?.o)
+    y = <((*w)?.v)
+    print(x, y.len)
+    0
+
+  owning()
+  copying()
+  for_owning()
+  for_copying()
+  print(generic(1))
+  branch_leaves(true)
+  through_lend()
+  h = mkh()
+  print(through_handle(~h))
+  print(made_leaf_value(true).len, made_optional())
+
+fail "move part that copies", "40:8: cannot move out of `s.n`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "41:8: cannot move out of `s.p`: it copies", "42:8: cannot move out of `s.p.x`: it copies", "43:8: cannot move out of `s.r`: it copies", "44:8: cannot move out of `s.name`: it copies", "54:8: cannot move out of `v[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "55:8: cannot move out of `ps[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "56:8: cannot move out of `ps[0].x`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "57:8: cannot move out of `arr[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "58:8: cannot move out of `sl[0]`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "62:4: cannot move out of `s.n`: it copies", "65:4: cannot move out of `s.p.x`: it copies", "70:8: cannot move out of `rv(?s).n`: it copies", "71:8: cannot move out of `wv(!s).n`: it copies", "77:8: cannot move out of `h.n`: it copies", "81:11: cannot move out of `s.n`: it copies", "86:9: cannot move out of `s.n`: it copies", "87:10: cannot move out of `s.n`: it copies", "90:13: cannot move out of `s.n`: it copies", "90:22: cannot move out of `s.p`: it copies", "90:52: cannot move out of `s.n`: it copies", "93:12: cannot move out of `s.n`: it copies", "96:10: cannot move out of `s.p`: it copies", "101:13: cannot move out of `s.arr`: it copies", "108:4: cannot move out of `g.f`: `g` would still drop it", errors: 25
+  # `<` always leaves its source done: a name is ended, an optional field
+  # or element is emptied to `none`, and any other place is rejected. A
+  # field or element whose value copies can be neither, so `<` on it is
+  # rejected, however the place is reached and whatever form carries the
+  # move; dropping the `<` copies it. In a generic body a `T` part is
+  # judged by `T`, whatever it is instantiated with, as a part that moves.
+  # oracle: fields reject C3
+  # oracle: elements reject C3
+  # oracle: read_part reject C3
+  # oracle: write_part reject C3
+  # oracle: through_views reject C3
+  # oracle: through_handle reject C3
+  # oracle: ret reject C3
+  # oracle: forms reject C3
+  # oracle: for_part reject C3
+  # oracle: generic_part reject C3
+
+  obj P
+    x: Int
+
+    fun into(<self) -> Int
+      self.x
+
+  obj S
+    n: Int
+    p: P
+    r: ?Int
+    name: ?String
+    arr: [2]Int
+
+  sub show(n: Int)
+    print(n)
+
+  fun mk(k: !Int) -> S
+    S(n: 1, p: P(x: 2), r: ?k, name: "s", arr: [3, 4])
+
+  sub fields()
+    k = 0
+    s = mk(!k)
+    a = <s.n
+    b = <s.p
+    c = <s.p.x
+    d = <s.r
+    e = <s.name
+    print(a, b, c, d, e, s.n)
+
+  sub elements()
+    v: List[Int] = List()
+    !v.push(1)
+    ps: List[P] = List()
+    !ps.push(P(x: 1))
+    arr = [1, 2]
+    sl = ?arr[..]
+    a = <v[0]
+    b = <ps[0]
+    c = <ps[0].x
+    d = <arr[0]
+    e = <sl[0]
+    print(a, b, c, d, e, v.len)
+
+  fun read_part(s: ?S) -> Int
+    <s.n
+
+  fun write_part(s: !S) -> Int
+    <s.p.x
+
+  sub through_views()
+    k = 0
+    s = mk(!k)
+    a = <rv(?s).n
+    b = <wv(!s).n
+    print(a, b, read_part(?s), write_part(!s))
+
+  sub through_handle()
+    k = 0
+    h = *mk(!k)
+    a = <h.n
+    print(a, h.n)
+
+  fun ret(s: S) -> Int
+    return <s.n
+
+  sub forms()
+    k = 0
+    s = mk(!k)
+    show(<s.n)
+    match <s.n
+      1 => print("one")
+      _ => print("other")
+    q = S(n: <s.n, p: <s.p, r: ?k, name: "q", arr: [<s.n, 0])
+    i = 0
+    j = while i < 2 : i += 1
+      break <s.n
+    else
+      0
+    print(<s.p.into(), q.n, j, ret(<s))
+
+  sub for_part()
+    k = 0
+    s = mk(!k)
+    for x in <s.arr
+      print(x)
+
+  obj G[T]
+    f: T
+
+  fun generic_part[T](g: G[T]) -> T
+    <g.f
+
+  print(generic_part(G(f: 3)))
+  fields()
+  elements()
+  through_views()
+  through_handle()
+  forms()
+  for_part()
+
+  fun rv(s: ?S) -> ?S
+    s
+
+  fun wv(s: !S) -> !S
+    s
+
+fail "move payload of viewed scrutinee", "cannot move out of `b`: it is a view of `s`"
+  # A payload cannot be moved out of a viewed value.
+
+  obj Wrap
+    payload: Int
+
+  enum Slot
+    full(b: *Wrap)
+    empty
+
+  sub eat(rc: *Wrap)
+    print(rc.payload)
+
+  sub look(s: ?Slot)
+    match s
+      .full(b) => eat(<b)
+      .empty => print(0)
+
+  print(1)
+
+fail "move scrutinee while payload live", "cannot move `s` while a read loan is live"
+  # A payload binding views the matched value, which cannot be moved while
+  # the binding is in use.
+
+  obj Wrap
+    payload: Int
+
+  enum Slot
+    full(b: *Wrap)
+    empty
+
+  sub both(s: Slot, b: ?*Wrap)
+    print(1)
+
+  rc = *Wrap(payload: 5)
+  s: Slot = .full(b: <rc)
+  match s
+    .full(b) => both(<s, ?b)
+    .empty => print(0)
+
+fail "move self in drop body", "cannot move `self` out of its own drop body"
+  # A drop body cannot move `self` out.
+
+  obj Owner
+    cell: *Cell[Int]
+
+    drop(!self)
+      other = <self
+
+test "move then return in if", '''
+  1
+  drop
+  11
+  drop
+'''
+  # A move in an `if` branch that ends in `return` does not affect the code
+  # after the `if`.
+
+  obj Wrap
+    payload: Int
+
+    drop(!self)
+      print("drop")
+
+  sub eat(rc: *Wrap)
+    print(rc.payload)
+
+  sub go(c: Bool)
+    rc = *Wrap(payload: 1)
+    if c
+      eat(<rc)
+      return
+    print(rc.payload + 10)
+
+  go(true)
+  go(false)
+
+fail "move through branch or exit", "16:8: `<` here would copy `o` out without moving it; move it before the `?` or `!`: `(<o)?`", "20:8: `<` here would copy `s.a` out without moving it; take it before the `?` or `!`: `(<s.a)?`", "26:7: `<` here would copy `a` out without moving it; move it inside the branch: `<a`", "28:7: `<` here would copy `s.b` out without moving it, and a field that is not optional cannot be moved out; exchange it: `replace(!s.b, v)`"
+  # `<` moves a binding or takes a field; the value of a branch or of `?`
+  # is neither, so moving it would copy the place out and leave its owner
+  # still dropping it. The move is written at the place.
+
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    a: R?
+    b: R
+
+  fun f(o: R?) -> Int?
+    x = <o?
+    x.n
+
+  fun g(s: !S) -> Int?
+    y = <s.a?
+    y.n
+
+  a = R(n: 1)
+  b = R(n: 2)
+  c = true
+  x = <(a if c else b)
+  s = S(a: none, b: R(n: 3))
+  z = <(s.b if c else R(n: 4))
+  print(x, z, f(none), g(!s))
+
+fail "move through lend", "30:8: cannot move out of `p.items`: `p` is a view; exchange it instead: `replace(!p.items, v)`", "37:8: cannot move out of `(!s if c else !t).items`: it is reached through `!s if c else !t`, a view", "44:8: cannot move out of `(?s if c else ?t).items`: it is reached through `?s if c else ?t`, a view", "49:8: cannot move out of `wrap(!s).items`: it is reached through `wrap(!s)`, a view", "54:6: cannot move out of `ws.items`: `ws` is a view", "56:6: cannot move out of `rs.items`: `rs` is a view", "57:6: cannot move out of `rd(?mk(2)).items`: it is reached through `rd(?mk(2))`, a view", "61:6: cannot move out of `rv[0]`: `rv` is a view; exchange it instead: `replace(!rv[0], v)`", "63:6: cannot move out of `wv[0]`: `wv` is a view; exchange it instead: `replace(!wv[0], v)`", errors: 9
+  # A field or element path that reaches its place through a view, by the
+  # type of a value on the path (`!S`, `?S`, a view a call returns, a
+  # branching value of lends), lets `<` move nothing out of it, as
+  # `<v.items` through a view `v` does not: the part stays owned by the
+  # value viewed, a name, a parameter's caller's value, or a temporary.
+  # Exchange it instead.
+  # oracle: from_branch reject C3
+  # oracle: from_read_branch reject C3
+  # oracle: from_call reject C3
+
+  obj S
+    n: Int
+    items: List[Int]
+
+  fun mk(n: Int) -> S
+    s = S(n: n, items: List())
+    !s.items.push(n)
+    s
+
+  fun wrap(s: !S) -> !S
+    s
+
+  fun rd(s: ?S) -> ?S
+    s
+
+  fun f(n: Int) -> Int
+    n
+
+  sub steal(p: !S)
+    x = <p.items
+    print(x)
+
+  sub from_branch()
+    s = mk(1)
+    t = mk(2)
+    c = f(1) == 1
+    x = <(!s if c else !t).items
+    print(x)
+
+  sub from_read_branch()
+    s = mk(1)
+    t = mk(2)
+    c = f(1) == 1
+    x = <(?s if c else ?t).items
+    print(x)
+
+  sub from_call()
+    s = mk(1)
+    x = <wrap(!s).items
+    print(x)
+
+  s = mk(1)
+  ws = !s
+  x = <ws.items
+  rs = ?s
+  y = <rs.items
+  z = <rd(?mk(2)).items
+  v: List[List[Int]] = List()
+  !v.push(List())
+  rv = ?v
+  w = <rv[0]
+  wv = !v
+  u = <wv[0]
+  print(x, y, z, w, u)
+
+fail "move through lent handle", "8:6: cannot move out of `h.items`: it is reached through a shared handle and other handles may still use it"
+  # A path through a shared handle reaches the handle's value, which other
+  # handles may still use: nothing is moved out of it.
+
+  obj S
+    items: List[Int]
+
+  h = *S(items: List())
+  x = <h.items
+  print(x)
+
+fail "move unique element", "12:6: cannot move out of `a[0]`: elements cannot be moved out of their container", "14:6: cannot move out of `h.s`: `h` would still drop it"
+  # A unique element stays in its array, and a field in its struct: `<`
+  # cannot take one out while the container still holds it.
+
+  obj Seed unique
+    n: Int
+
+  obj H
+    s: Seed
+    n: Int
+
+  a = [Seed(n: 0), Seed(n: 1)]
+  k = <a[0]
+  h = H(s: Seed(n: 2), n: 1)
+  j = <h.s
+  print(k.n, j.n)
+
+fail "move vec element", "12:6: cannot move out of `v[0]`: elements cannot be moved out of their container"
+  # An element that moves cannot be moved out of a List: the List still
+  # owns the slot. (`<` on an element that copies is rejected too.)
+
+  obj P
+    n: Int
+
+  sub eat(p: *P)
+    print(p.n)
+
+  v: List[*P] = List()
+  !v.push(*P(n: 7))
+  eat(<v[0])
+
+fail "move view payload keeps loan", "22:11: cannot lend `x` to write while a read loan is live"
+  # A payload copied out of the matched value still views what it views:
+  # `x` cannot be written while `k` is used.
+
+  obj N
+    n: Int
+
+  obj V
+    r: ?N
+
+  enum E
+    a(v: V)
+    b
+
+  sub bump(n: !N)
+    n.n += 1
+
+  x = N(n: 1)
+  e = E.a(v: V(r: ?x))
+  match e
+    .a(v)
+      k = <v
+      bump(!x)
+      print(k.r.n)
+    .b => pass
+
+fail "move write view field", "5:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
+  # A write view is never held in a field, so no `<h.w` can move one out
+  # of its holder: the field is rejected where it is declared.
+
+  obj H
+    w: !Int
+
+  n = 1
+  h = H(w: !n)
+  x = <h.w
+  x += 1
+  print(n)
+
+test "move write view into local", '''
+  drop 1
+  after 2
+  drop 2
+'''
+  # Moving a write view into a local moves the view: writes through the
+  # local reach the caller's value.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj C
+    b: *B
+
+  sub rep(c: !C)
+    x = <c
+    x.b = *B(n: 2)
+
+  c = C(b: *B(n: 1))
+  rep(!c)
+  print("after", c.b.n)
+
+test "move write view of copy", '''
+  6
+  6
+  5
+  5
+'''
+  # Moving a write view into a local moves the view, whatever it
+  # points to: `w = <a` of an `a: !Int` binds a `!Int`, and writing `w`
+  # writes the caller's value, as it does for a struct.
+
+  obj C
+    n: Int
+
+  sub set(a: !Int)
+    w = <a
+    w = 5
+    w += 1
+    print(w)
+
+  sub setc(a: !C)
+    w = <a
+    w = C(n: 5)
+    print(w.n)
+
+  z = 0
+  set(!z)
+  print(z)
+  c = C(n: 0)
+  setc(!c)
+  print(c.n)

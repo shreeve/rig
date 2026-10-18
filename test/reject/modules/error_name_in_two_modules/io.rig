@@ -1,6 +1,0 @@
-pub error IoError
-  eof
-
-pub fun read(n: Int) -> Int!
-  return IoError.eof if n == 0
-  n

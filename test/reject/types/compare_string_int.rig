@@ -1,8 +1,0 @@
-# `==` needs both operands of one type; `?String == Int` is rejected.
-
-sub main()
-  s = "a"
-  if s == 1
-    print("eq")
-
-# error: 5:6: cannot compare `Static` with `Int`

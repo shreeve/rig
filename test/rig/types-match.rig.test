@@ -1,0 +1,389 @@
+# types: tests whose names start `match`.
+
+fail "match arm never runs", "this arm never runs: the arms before it cover every value"
+  # An arm that follows arms covering every value, or follows a catch-all
+  # arm, never runs and is rejected.
+
+  enum Color
+    red
+    green
+
+  sub show(c: Color, n: U8)
+    match c
+      .red => print("red")
+      .green => print("green")
+      other => print("other")
+    match n
+      _ => print("any")
+      1 => print("one")
+
+  show(.green, 1)
+
+fail "match arm value is assignment", "11:7: type mismatch: expected `Int`, got `Void`"
+  # A match whose value is used needs a value from every arm; an arm that
+  # ends in an assignment has none.
+
+  enum Op
+    a
+    b
+
+  fun broken(op: Op) -> Int
+    match op
+      .a
+        x = 5
+      .b => 7
+
+  print(broken(.a))
+
+fail "match bool value partial", "`match` is not exhaustive: it misses `false`; add an arm for it, or `_ =>` for the rest"
+  # A match on a Bool must cover both values.
+
+  b = false
+  s = match b
+    true => "yes"
+  print(s)
+
+fail "match duplicate after guard", "12:4: duplicate arm for variant `circle`", "14:3: this arm never runs"
+  # An arm may repeat the pattern of a guarded arm before it, but not of
+  # an unguarded one; an arm after a catch-all never runs, guarded or not.
+
+  enum Shape
+    circle(r: Int)
+    point
+
+  s = Shape.circle(r: 1)
+  match s
+    .circle(r) if r > 0 => print("positive")
+    .circle(r) => print(r)
+    .circle(_) if true => print("again")
+    _ => print("other")
+    .point if true => print("point")
+
+fail "match duplicate arm", "duplicate arm for variant `red`"
+  # Two arms for the same variant are rejected.
+
+  enum Color
+    red
+    green
+
+  c: Color = .red
+  match c
+    .red => print(1)
+    .red => print(2)
+    .green => print(3)
+
+fail "match duplicate literal", "overlaps an earlier arm"
+  # Two arms that match the same value are rejected.
+
+  n = 2
+  match n
+    1..3 => print("low")
+    2 => print("two")
+    _ => print("other")
+
+fail "match guard changes subject", "16:24: a guard cannot change the value being matched", "23:13: a guard cannot change the value being matched"
+  # A guard changes nothing it matches: when it fails, a later arm matches
+  # the same value, so it may not lend the subject to write, a binding of
+  # the arm, or anything reached from them.
+
+  enum Shape
+    circle(r: Int)
+    point
+
+  fun flip(s: !Shape) -> Bool
+    s = .point
+    false
+
+  fun kind(s: !Shape) -> Int
+    match s
+      .point => 0
+      .circle(_) if flip(!s) => 1
+      .circle(_) => 2
+
+  c: Shape = .circle(r: 1)
+  print(kind(!c))
+  n = match !c
+    .point => 0
+    w if flip(!w) => 1
+    .circle(r) => r
+  print(n)
+
+fail "match guard rules", "19:9: `match` on `Int` is not exhaustive: it misses `1`", "28:9: `match` is not exhaustive: it misses `.full` (its arm has a guard); add an arm for it", "34:19: a guard cannot move a value", "37:8: type mismatch: expected `Bool`, got `Int`"
+  # A guard is a Bool that moves nothing, and a guarded arm covers none of
+  # its values: the match still needs an arm for them, and the error says
+  # why a variant with only a guarded arm is missed.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    full(b: *B)
+    empty
+
+  fun eat(b: *B) -> Bool
+    b.n > 0
+
+  fun size(n: Int) -> ?String
+    match n
+      k if k > 0 => "positive"
+      0 => "zero"
+
+  enum Tank
+    full(n: Int)
+    low
+
+  fun level(t: Tank) -> Int
+    match t
+      .full(n) if n > 9 => n
+      .low => 0
+
+  s: Slot = .full(b: *B(n: 1))
+  match <s
+    .full(b) if eat(<b) => print("ate")
+    _ => print("other")
+  match 3
+    n if n => print(n)
+    _ => print("other")
+  print(size(1))
+
+fail "match guarded repeats", "14:5: this pattern overlaps an earlier arm", "17:8: this pattern overlaps an earlier arm", "23:5: this pattern overlaps an earlier arm", "31:5: duplicate arm for variant `red`", "32:13: duplicate arm for variant `green`", "28:9: `match` is not exhaustive: it misses `.green` (its arm has a guard)"
+  # A guarded arm may not repeat what an arm before it covers, an integer,
+  # a Bool, or a variant, nor repeat itself across its alternatives; what
+  # it covers is its own, so a later arm may repeat it.
+
+  enum Light
+    red
+    amber
+    green
+
+  fun count(n: Int, k: Int) -> Int
+    match n
+      1, 2 => 1
+      3..6 if k > 0 => 2
+      2 if k > 1 => 3
+      4..9 if k > 2 => 4
+      3..6 => 5
+      7, 7 if k > 3 => 6
+      _ => 0
+
+  fun truth(b: Bool, k: Int) -> Int
+    match b
+      true => 1
+      true if k > 0 => 2
+      false if k > 0 => 3
+      false => 4
+
+  fun light(l: Light, k: Int) -> Int
+    match l
+      .red => 1
+      .amber if k > 0 => 2
+      .red if k > 1 => 3
+      .green, .green if k > 2 => 4
+      .amber => 5
+
+  print(count(1, 0), truth(true, 0), light(.red, 0))
+
+fail "match int runs", "11:5: this pattern overlaps an earlier arm", "14:5: this arm never runs: the arms before it cover every value", "14:5: this pattern overlaps an earlier arm", "17:9: `match` on `I8` is not exhaustive: it misses `3`", "24:9: `match` on `I8` is not exhaustive: it misses `-127`"
+  # Integer arms that touch cover the run between them: a pattern inside
+  # the run overlaps an earlier arm, an arm after the arms cover every
+  # value never runs, and a match that misses a value names the least one.
+
+  fun bytes(b: U8) -> Int
+    match b
+      0..100 => 1
+      101 => 2
+      102 => 3
+      100 => 4
+      98..102 => 8
+      104..256 => 5
+      103 => 6
+      7 => 7
+
+  fun signed(n: I8) -> Int
+    match n
+      -128..-1 => 1
+      1, 2 => 2
+      0 => 3
+      4..128 => 4
+
+  fun negative(n: I8) -> Int
+    match n
+      0..128 => 1
+      -126..0 => 2
+      -128 => 3
+
+  print(bytes(1), signed(1), negative(1))
+
+fail "match large enum", "27:3: duplicate member `op3` in `Op`", "33:6: duplicate arm for variant `op5`", "33:6: variant `op5` has 2 payload fields, pattern destructures 1", "35:5: duplicate arm for variant `op0`", "36:6: no variant `op21` on enum `Op`", "30:9: `match` is not exhaustive: it misses `.op2`, `.op3`, `.op4`, `.op6`, and 13 more", "39:10: no variant `op22` on enum `Op`"
+  # An enum of many variants finds each by name: a pattern or a value
+  # naming one it lacks is rejected, as is a repeated arm, and a match
+  # that misses some names them. A variant declared twice is rejected
+  # where it repeats.
+
+  enum Op
+    op0
+    op1
+    op2
+    op3
+    op4
+    op5(a: Int, b: Int)
+    op6
+    op7
+    op8
+    op9
+    op10
+    op11
+    op12
+    op13
+    op14
+    op15
+    op16
+    op17
+    op18
+    op19
+    op3
+
+  fun cost(o: ?Op) -> Int
+    match o
+      .op0 => 0
+      .op5(a, b) => a + b
+      .op5(a) => a
+      .op1 => 1
+      .op0 => 2
+      .op21 => 3
+      .op19 if true => 19
+
+  o: Op = .op22
+  print(cost(?o), Op.op3)
+
+fail "match on string", "cannot `match` on a value of type `Static`"
+  # `match` works on enums, integers, and Bool.
+
+  s = "a"
+  match s
+    other => print(2)
+
+fail "match range pattern bounds", "empty range `3..3`", "the end of range `0..257` does not fit `U8`; it may be at most 256", "the bounds of a range pattern must be constant integers"
+  # A range pattern is half-open: `n..n` matches nothing, its end may be
+  # one past the type's largest value but no further, and its bounds are
+  # constants.
+
+  fun f(n: U8, k: Int) -> Int
+    match n
+      3..3 => 0
+      0..257 => 1
+      _ => 2
+
+  sub g(k: Int)
+    match k
+      0..k => print("dynamic")
+      _ => print("other")
+
+  print(f(1, 2))
+  g(3)
+
+test "match ranges cover type", "small medium large"
+  # Integer ranges that together cover every value of the type make a
+  # complete match, needing no default arm.
+
+  fun size(n: U8) -> ?String
+    match n
+      0..10 => "small"
+      10..100 => "medium"
+      100..256 => "large"
+
+  print(size(5), size(42), size(200))
+
+fail "match reversed range", "5:3: empty range `5..1`: a range pattern matches from its start up to, not including, its end"
+  # A range pattern runs from low to high.
+
+  n = 2
+  match n
+    5..1 => print("in")
+    _ => print("out")
+
+fail "match struct value", "cannot `match` on a value of type `P`"
+  # `match` works on enums, integers, and Bool, not on structs.
+
+  obj P
+    n: Int
+
+  p = P(n: 1)
+  match p
+    x => print(x.n)
+
+fail "match unknown variant", "no variant `purple` on enum `Color`"
+  # A match arm pattern must name a variant of the scrutinee's enum.
+
+  enum Color
+    red
+    green
+
+  c: Color = .red
+  match c
+    .red => print("R")
+    .purple => print("P")
+
+fail "match value arm types", "incompatible types `Int` and `Static`"
+  # Value-position match arms must unify into a single result type.
+
+  enum Color
+    red
+    green
+
+  c: Color = .red
+  x = match c
+    .red => 1
+    .green => "no"
+
+fail "match value non exhaustive", "18:11: `match` is not exhaustive: it misses `.blue`; add an arm for it, or `_ =>` for the rest", "21:7: `match` is not exhaustive: it misses `.green`, `.blue`; add an arm for each, or `_ =>` for the rest", "24:7: `match` is not exhaustive: it misses `.b`, `.c`, `.d`, `.e`, and 1 more", "27:7: `match` on `U8` is not exhaustive: it misses `10`", "31:7: `match` on `Int` is not exhaustive: it misses `-1`", "33:7: `match` is not exhaustive: it misses `false`"
+  # A match, used as a value or as a statement, must cover every variant
+  # or value, or have a default arm; the error names what it misses.
+
+  enum Color
+    red
+    green
+    blue
+
+  enum Big
+    a
+    b
+    c
+    d
+    e
+    f
+
+  c: Color = .red
+  x = match c
+    .red => 1
+    .green => 2
+  match c
+    .red => print("red")
+  g: Big = .a
+  match g
+    .a => print("a")
+  n: U8 = 3
+  match n
+    0..10 => print("small")
+    k if k > 100 => print("big")
+  m = -3
+  match m
+    0..9223372036854775808 => print("not negative")
+  match n > 1
+    true => print("yes")
+  print(x)
+
+fail "match write bool", "6:7: `!` lends to write; use `not` for negation (a `Bool` is lent to write only where a `!Bool` is expected: `f(!flag)`)", "9:5: `!` lends to write; use `not` for negation"
+  # `!` before a Bool reads as negation, so a Bool subject is not matched
+  # with `match !b`, nor bound with `w = !b`: the message says where a Bool
+  # is lent to write.
+
+  b = true
+  match !b
+    true => print("t")
+    _ => print("f")
+  w = !b
+  print(w)

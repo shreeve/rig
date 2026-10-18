@@ -1215,7 +1215,7 @@ caf 3
 The tables are generated: `tools/gen-unicode.py` reads the pinned
 GraphemeBreakProperty.txt, emoji-data.txt (Extended_Pictographic), and
 DerivedCoreProperties.txt (Indic_Conjunct_Break, for GB9c) and writes
-`std/grapheme_tables.zig`, a two-level table of four bits a code point,
+`std/char_tables.zig`, a two-level table of four bits a code point,
 20 KB, whose levels each fill the range of the type that indexes them,
 so no lookup needs a bounds check. It also writes two tests: every line of Unicode's
 GraphemeBreakTest.txt, through each char tool at every byte, and a
@@ -1249,7 +1249,7 @@ how runes fit with bytes, units, and chars.
 | `ascii_end(s: ?String, i: Int) -> Int` | the index of the first byte at or after the cursor `i` that is 0x80 or more, or `s.len`: `s[i..ascii_end(s, i)]` is the run of ASCII from `i`, each byte a whole rune | |
 | `push_rune(out: !String, r: Int)` | append the bytes of `r`, or of `REPLACEMENT` when `r` is not a rune | `AppendRune` |
 
-`test/behavior/std/utf8_go.rig` runs Go's own test tables, and
+The case `utf8 go` of `test/rig/std-misc.rig.test` runs Go's own test tables, and
 `test/cli/text_go.sh` compares every function with Go's on generated
 text when `go` is installed.
 
@@ -1438,7 +1438,7 @@ true false true
 128512 65533
 ```
 
-`test/behavior/std/utf16_go.rig` runs Go's `unicode/utf16` test tables.
+The case `utf16 go` of `test/rig/std-misc.rig.test` runs Go's `unicode/utf16` test tables.
 
 ## std.unicode
 

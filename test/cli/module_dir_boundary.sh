@@ -56,7 +56,7 @@ expect_eq "$out" "1" "a local named like a later use"
 
 # A `use` binds its name in its own file only, in a build with
 # `--release` too: another file's parameters and locals may have it.
-cp -R "$ROOT/test/behavior/modules/use_names_per_file" names
+cp -R "$ROOT/test/cli/fixtures/use_names_per_file" names
 out=$(rig run --release names/main.rig 2>&1); expect_rc $? 0 "per-file use names with --release: $out"
 expect_eq "$out" "33 2 41" "per-file use names with --release"
 

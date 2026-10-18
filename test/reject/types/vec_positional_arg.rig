@@ -1,6 +1,0 @@
-# The `List` constructor takes no positional arguments.
-
-sub main()
-  v: List[Int] = List(10)
-
-# error: `List` constructor takes no positional arguments

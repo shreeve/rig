@@ -1,0 +1,3190 @@
+# emit: the rest of its tests, part 1.
+
+use std.math
+use std.os
+use std.sort
+
+bomb "array index out of bounds", "index out of bounds"
+  # Indexing an array past its end with an index known only when the
+  # program runs panics.
+
+  fun three() -> Int
+    3
+
+  xs = [1, 2, 3]
+  i = three()
+  print(xs[i])
+
+test "array literal index", "20"
+  # `[a, b, c]` is an array literal; `xs[i]` reads an element (bounds-checked).
+
+  xs = [10, 20, 30]
+  print(xs[1])
+
+test "array literal indexed directly", '''
+  id 1
+  1 4 2
+  id 1
+  id 8
+  8
+'''
+  # An array literal can be indexed where it is written, by a constant or
+  # a run-time index; its elements are evaluated once.
+
+  fun id(x: Int) -> Int
+    print("id", x)
+    x
+
+  print([id(1), 2][0], [3, 4][1], [5, 6].len)
+  i = id(1)
+  print([7, id(8)][i])
+
+test "assign cell list target base held", '''
+  10 20 0 1
+  5
+'''
+  # An element of a Cell's List is stored through the Cell its target's
+  # path starts from, which runs after the value and before the index: a
+  # call there changes what the index then reads, and a lend of an element
+  # is found before an index call runs.
+
+  obj B
+    c: *Cell[List[Int]]
+
+  fun pb(b: !B, x: !Cell[Int]) -> !B from b
+    !x.set(x.get() + 1)
+    b
+
+  fun peek(x: ?Cell[Int]) -> Int
+    x.get()
+
+  fun id(n: Int) -> Int
+    n
+
+  xs: List[Int] = List()
+  for _ in 0..4
+    !xs.push(0)
+  b = B(c: *Cell(<xs))
+  h: *Cell[Int] = *Cell(0)
+  g = +h
+  (!b.c)[peek(g)] = g.get() + 10
+  (!pb(!b, !h).c)[peek(g)] = g.get() + 20
+  print(b.c[0], b.c[1], b.c[2], h.get())
+
+  ys: List[Int] = List()
+  !ys.push(0)
+  !ys.push(0)
+  cs: List[*Cell[List[Int]]] = List()
+  !cs.push(*Cell(<ys))
+  i = 0
+  (!cs[i])[id(1)] = 5
+  print(cs[0][1])
+
+test "assign in nested block", "2"
+  # `x = ...` inside a nested block assigns the enclosing binding.
+
+  x = 1
+  if x > 0
+    x = 2
+  print(x)
+
+test "assign index through write view", '''
+  [1, 0, 0] 2
+  [[0, 0, 0], [5, 0, 0], [0, 0, 0]] 2
+'''
+  # An index an assignment evaluates before its store, read through a
+  # write view (`k: !Int`), holds the value it reads.
+
+  fun bump(k: !Int) -> Int
+    k += 1
+    0
+
+  sub f(a: ![]Int, k: !Int)
+    a[bump(!k)] = k
+    print(a, k)
+
+  sub g(a: ![3][3]Int, k: !Int)
+    a[k][bump(!k)] = 5
+    print(a, k)
+
+  a: [3]Int = [0, 0, 0]
+  k = 1
+  f(!a[..], !k)
+  b: [3][3]Int = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
+  j = 1
+  g(!b, !j)
+
+test "assign step leaves after value", '''
+  1 9
+  2 9
+'''
+  # An assignment makes its value first. When a later step of its target,
+  # the value its path starts from or an index, leaves (`?`, `!`), the
+  # value made first is dropped on the way out.
+
+  error E
+    bad
+
+  obj H
+    l: List[Int]
+
+  fun pick(h: !H, fail: Bool) -> (!H)?
+    if fail
+      return none
+    !h
+
+  fun slot(fail: Bool) -> Int!
+    return E.bad if fail
+    0
+
+  fun into_root(fail: Bool) -> Int?
+    h = H(l: List())
+    v: List[Int] = List()
+    !v.push(1)
+    pick(!h, fail)?.l = <v
+    h.l.len
+
+  fun into_index(fail: Bool) -> Int!
+    a: [2]List[Int] = [List(), List()]
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    a[slot(fail)!] = <v
+    a[0].len
+
+  print(into_root(false) ?? 9, into_root(true) ?? 9)
+  print(into_index(false) catch 9, into_index(true) catch 9)
+
+test "assign target root after value", '''
+  [20, 2, 0] 3
+  P(n: 1, v: [20, 2]) 4
+  P(n: 1, v: [18, 2]) 3
+  [7, 0] [0, 0] false
+  3 P(n: 1, v: [7, 5])
+  3 P(n: 1, v: [5, 20])
+'''
+  # An assignment evaluates its value first, then its target from the
+  # value its path starts from outward: a call there, a method's
+  # receiver, a propagation, or a branch runs after the value, and before
+  # the target's indexes. Each value below reads what its target's call
+  # then changes, so it must see it unchanged.
+
+  error E
+    bad
+
+  obj P
+    n: Int
+    v: [2]Int
+
+    fun at(self: !P, k: !Int) -> !P
+      k += 1
+      self
+
+  fun pick(t: ![]Int, k: !Int) -> ![]Int from t
+    k += 1
+    t
+
+  fun pick_p(p: !P, k: !Int) -> !P
+    k += 1
+    p
+
+  fun pick_opt(p: !P, k: !Int) -> (!P)?
+    k += 1
+    !p
+
+  fun pick_err(p: !P, k: !Int) -> (!P)!
+    k += 1
+    !p
+
+  fun flip(c: !Bool) -> Int
+    c = not c
+    0
+
+  fun with_opt(p: !P) -> Int?
+    i = 1
+    pick_opt(!p, !i)?.n = i
+    pick_opt(!p, !i)?.v[0] += i
+    i
+
+  fun with_err(p: !P) -> Int!
+    i = 1
+    pick_err(!p, !i)!.n = i
+    pick_err(!p, !i)!.v[1] <<= i
+    i
+
+  s: [3]Int = [10, 20, 30]
+  a: [3]Int = [0, 0, 0]
+  i = 1
+  pick(!a[..], !i)[0] = s[i]
+  pick(!a[..], !i)[1] += i
+  print(a, i)
+
+  p = P(n: 5, v: [5, 5])
+  j = 1
+  pick_p(!p, !j).n = j
+  pick_p(!p, !j).v[0] <<= j
+  pick_p(!p, !j).v[1] %= j
+  print(p, j)
+
+  k = 1
+  (!p).at(!k).n = k
+  (!p).at(!k).v[0] -= k
+  print(p, k)
+
+  b: [2]Int = [0, 0]
+  c: [2]Int = [0, 0]
+  yes = true
+  (!b[..] if yes else !c[..])[flip(!yes)] = 7
+  print(b, c, yes)
+
+  q = P(n: 5, v: [5, 5])
+  print(with_opt(!q) ?? 0, q)
+  r = P(n: 5, v: [5, 5])
+  print(with_err(!r) catch 0, r)
+
+test "assign target root in step and defer", '''
+  0
+  1
+  2
+  [3, 0]
+  body
+  [0, 5]
+'''
+  # A loop's step and a deferred assignment are assignments: each
+  # evaluates its value before the call its target starts from.
+
+  fun pick(t: ![]Int, k: !Int) -> ![]Int from t
+    k += 1
+    t
+
+  sub deferred(t: ![]Int)
+    i = 0
+    defer pick(!t, !i)[0] = i
+    print("body")
+
+  a: [2]Int = [0, 0]
+  i = 0
+  while i < 3 : pick(!a[..], !i)[0] += i
+    print(i)
+  print(a)
+
+  b: [2]Int = [5, 5]
+  deferred(!b[..])
+  print(b)
+
+test "assign value first", '''
+  5 101
+  14 401
+  6
+  11
+  P(a: [1, 9, 3, 4])
+  [103]
+  [3]
+  5 101
+  21
+  12
+  14 96
+  new 101
+'''
+  # An assignment evaluates its right-hand side first, then its target's
+  # index expressions, and only then finds the place it stores into. A
+  # call on the right, or in an index, may grow, replace, or free what the
+  # target lies in (through a List, a field, a Box, or a write view bound
+  # to a local), and the store lands in the value as the call left it.
+
+  obj Acc
+    total: Int
+
+  obj P
+    a: [4]Int
+
+  obj B
+    xs: List[Int]
+
+  fun grow(v: !List[Int]) -> Int
+    for i in 0..100
+      !v.push(i)
+    5
+
+  fun at0(v: !List[Int]) -> Int
+    for i in 0..100
+      !v.push(i)
+    0
+
+  fun spill(v: !List[Acc]) -> Int
+    for i in 0..100
+      !v.push(Acc(total: i))
+    1
+
+  fun grow_p(v: !List[P]) -> Int
+    for _ in 0..100
+      !v.push(P(a: [0, 0, 0, 0]))
+    1
+
+  fun renew(b: !B) -> Int
+    b.xs = List()
+    !b.xs.push(100)
+    3
+
+  fun rebox(b: !^B) -> Int
+    b = ^B(xs: List())
+    !b.xs.push(4)
+    3
+
+  fun bump(n: !Int) -> Int
+    n += 1
+    10
+
+  fun grow_s(v: !List[?String]) -> ?String
+    for _ in 0..100
+      !v.push("x")
+    "new"
+
+  v: List[Int] = List()
+  !v.push(7)
+  v[0] = grow(!v)
+  print(v[0], v.len)
+  v[at0(!v)] = 9
+  v[at0(!v)] += grow(!v)
+  print(v[0], v.len)
+
+  w: List[Int] = List()
+  !w.push(1)
+  w[0] += grow(!w)
+  print(w[0])
+
+  accs: List[Acc] = List()
+  !accs.push(Acc(total: 10))
+  accs[0].total += spill(!accs)
+  print(accs[0].total)
+
+  ps: List[P] = List()
+  !ps.push(P(a: [1, 2, 3, 4]))
+  ps[0].a[grow_p(!ps)] = 9
+  print(ps[0])
+
+  b = B(xs: List())
+  !b.xs.push(1)
+  b.xs[0] += renew(!b)
+  print(b.xs)
+
+  bx: ^B = ^B(xs: List())
+  !bx.xs.push(1)
+  bx.xs[0] = rebox(!bx)
+  print(bx.xs)
+
+  held: List[Int] = List()
+  !held.push(7)
+  h = !held
+  h[0] = grow(!h)
+  print(held[0], held.len)
+
+  n = 1
+  m = !n
+  m = bump(!m)
+  m += bump(!m)
+  print(n)
+  k = 1
+  k += bump(!k)
+  print(k)
+
+  q: List[Int] = List()
+  !q.push(70)
+  !q.push(3)
+  q[0] /= grow(!q)
+  q[1] <<= grow(!q)
+  print(q[0], q[1])
+
+  s: List[?String] = List()
+  !s.push("old")
+  s[0] = grow_s(!s)
+  print(s[0], s.len)
+
+bomb "assign value first bounds", "index out of bounds"
+  # The right-hand side runs before the target's place is found: here it
+  # empties the List, so the store is out of bounds, and panics.
+
+  obj B
+    xs: List[Int]
+
+  fun empty(b: !B) -> Int
+    !b.xs.push(9)
+    b.xs = List()
+    3
+
+  b = B(xs: List())
+  !b.xs.push(1)
+  b.xs[0] = empty(!b)
+  print(b.xs.len)
+
+test "assign value first cell vec", "0 3"
+  # An element of a Cell's List is stored after the right-hand side runs,
+  # into the Cell the field holds then.
+
+  obj B
+    c: *Cell[List[Int]]
+
+  fun renew(b: !B) -> Int
+    xs: List[Int] = List()
+    !xs.push(0)
+    !xs.push(0)
+    b.c = *Cell(<xs)
+    3
+
+  xs: List[Int] = List()
+  !xs.push(1)
+  b = B(c: *Cell(<xs))
+  (!b.c)[1] = renew(!b)
+  print(b.c[0], b.c[1])
+
+bomb "assign value first pop", "index out of bounds", prints: "[2]"
+  # `v[i] = !v.pop() ?? d` pops first, then stores: into the last element
+  # it pops, that is out of bounds.
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  v[0] = (!v).pop() ?? 0
+  print(v)
+  !v.push(5)
+  v[1] = (!v).pop() ?? 0
+  print(v)
+
+test "auto deref generic field", "8"
+  # A method call through a generic struct's shared-handle field
+  # (`h.value.get()`) auto-dereferences the handle.
+
+  obj Holder[T]
+    value: T
+
+  c: *Cell[Int] = *Cell(8)
+  h: Holder[*Cell[Int]] = Holder(value: <c)
+  print(h.value.get())
+
+test "auto deref loop element", "7"
+  # Reading a field through the element of `for n in ?xs`, where `xs` holds
+  # `*Node` handles, auto-derefs the handle.
+
+  obj Node
+    v: Int
+
+  xs: List[*Node] = List()
+  a = *Node(v: 7)
+  !xs.push(<a)
+  for n in ?xs
+    print(n.v)
+
+test "auto deref match payload", "8"
+  # A method call on a match-payload binding of shared type (`cell.get()`)
+  # auto-dereferences the handle.
+
+  enum Slot
+    full(cell: *Cell[Int])
+    empty
+
+  c: *Cell[Int] = *Cell(8)
+  s: Slot = .full(cell: <c)
+  match s
+    .full(cell) => print(cell.get())
+    .empty => print(0)
+
+test "auto deref struct field", '''
+  4
+  8
+'''
+  # Field reads and method calls through a struct's shared-handle field
+  # (`p.a.n`, `p.a.twice()`) auto-dereference the handle.
+
+  obj Wrap
+    n: Int
+
+    fun twice(self: ?Wrap) -> Int
+      self.n * 2
+
+  obj Pair
+    a: *Wrap
+
+  b = *Wrap(n: 4)
+  p = Pair(a: <b)
+  print(p.a.n)
+  print(p.a.twice())
+
+test "branch receiver copy not dropped", '''
+  221
+  243
+  265 387
+  211 322
+  222
+  221 0
+  221 0
+  1001
+  aa bbb ww v
+'''
+  # A receiver that branches, evaluated before arguments that run first
+  # (keyword arguments given in another order), is a copy of the leaf it
+  # takes, a name's value or a temporary its statement keeps: the call's
+  # block reads the copy and never drops it, so the owner drops the value
+  # once. So for `a if c else b`, a field of one, `o ?? b`, `e catch b`,
+  # `o?`, and `e!`.
+
+  obj S
+    t: String
+
+    fun size(?self, x: Int, y: Int) -> Int
+      self.t.len * 100 + x * 10 + y
+
+  obj W
+    s: S
+
+  error E
+    bad
+
+  fun f(n: Int) -> Int
+    n
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun maybe(c: Bool) -> S?
+    if c
+      return S(t: String("oo"))
+    none
+
+  fun fails(c: Bool) -> S!
+    if c
+      return E.bad
+    S(t: String("ff"))
+
+  fun first(c: Bool) -> Int?
+    o = maybe(c)
+    n = o?.size(y: f(1), x: f(2))
+    print(clobber(n))
+    n
+
+  fun second(c: Bool) -> Int!
+    fails(c)!.size(y: f(1), x: f(2))
+
+  a = S(t: String("aa"))
+  b = S(t: String("bbb"))
+  c = f(1) == 1
+  print((a if f(0) == 0 and c else b).size(y: f(1), x: f(2)))
+  w = W(s: S(t: String("ww")))
+  v = W(s: S(t: String("v")))
+  print((w if f(0) == 0 else v).s.size(y: f(3), x: f(4)))
+  o = maybe(true)
+  print((o ?? a).size(y: f(5), x: f(6)), (maybe(false) ?? b).size(y: f(7), x: f(8)))
+  print((fails(false) catch a).size(y: f(1), x: f(1)), (fails(true) catch b).size(y: f(2), x: f(2)))
+  print(first(true) ?? 0, first(false) ?? 0)
+  print(second(false) catch 0, second(true) catch 0)
+  print(clobber(1000))
+  print(a.t, b.t, w.s.t, v.s.t)
+
+test "branch receiver views leaf", '''
+  1001
+  aa [5, 6, 7, 8]
+  t1 2001
+  3001
+  oo bb
+  ff bb
+  4
+  oo
+  2 0
+  arg 0
+  arg 1
+  arg 2
+  4001
+  aa 2 3
+'''
+  # A `?self` method called on a value that branches, whose leaves are
+  # names holding values read by address, runs on the leaf the branch
+  # takes, where it is: a view it returns views that leaf, not a copy, and
+  # stays good after other calls reuse the stack. So does a field, an
+  # element, or a method reached through such a value, for `a if c else
+  # b`, `o ?? a`, `e catch a`, and `o?`, and for a receiver evaluated
+  # before keyword arguments.
+
+  obj S
+    t: String
+    xs: [4]Int
+
+    fun inner(?self) -> ?String
+      ?self.t
+
+    fun arr(?self) -> ?[4]Int
+      ?self.xs
+
+    fun pick(?self, x: Int, y: Int) -> ?String
+      ?self.t
+
+  error E
+    bad
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun say(n: Int) -> Int
+    print("arg", n)
+    n
+
+  fun maybe(c: Bool) -> S?
+    if c
+      return S(t: String("oo"), xs: [9, 9, 9, 9])
+    none
+
+  fun fails(c: Bool) -> S!
+    if c
+      return E.bad
+    S(t: String("ff"), xs: [8, 8, 8, 8])
+
+  fun first(c: Bool) -> Int?
+    o = maybe(c)
+    r = o?.inner()
+    print(clobber(3))
+    print(r)
+    r.len
+
+  a = S(t: String("aa"), xs: [1, 2, 3, 4])
+  b = S(t: String("bb"), xs: [5, 6, 7, 8])
+  c = a.t.len == 2
+  r = (a if c else b).inner()
+  s = (b if c else a).arr()
+  print(clobber(1000))
+  print(r, s)
+  ts = [S(t: String("t0"), xs: [0, 0, 0, 0]), S(t: String("t1"), xs: [1, 1, 1, 1])]
+  us = [S(t: String("u0"), xs: [0, 0, 0, 0]), S(t: String("u1"), xs: [1, 1, 1, 1])]
+  print((ts if c else us)[1].inner(), clobber(2000))
+  o = maybe(true)
+  n = maybe(false)
+  u = (o ?? a).inner()
+  v = (n ?? b).inner()
+  print(clobber(3000))
+  print(u, v)
+  print((fails(false) catch a).inner(), (fails(true) catch b).inner())
+  print(first(true) ?? 0, first(false) ?? 0)
+  w = (a if say(0) == 0 and c else b).pick(y: say(1), x: say(2))
+  print(clobber(4000))
+  print(w, (a if c else b).t.len, (a if c else b).xs[2])
+
+test "break if guard", '''
+  1
+  2
+  3
+  4
+'''
+  # `break if c` leaves the loop only when `c` holds.
+
+  i = 0
+  while i < 10
+    i += 1
+    print(i)
+    break if i > 3
+
+test "builtin len array", "3"
+  # Arrays expose their length as `.len`.
+
+  arr = [1, 2, 3]
+  print(arr.len)
+
+test "builtin type argument", "8"
+  # Rig type names passed to a builtin are spelled as Zig types
+  # (`@size(I64)` is `@sizeOf(i64)`).
+
+  n = @size(I64)
+  print(n)
+
+test "builtin type arguments", '''
+  true
+  true
+  8
+'''
+  # `@size` takes a type name or a weak handle type.
+
+  obj B
+    n: Int
+
+  type Pair = B
+
+  print(@size(~B) == @size(Int))
+  print(@size(Pair) == @size(B))
+  print(@align(B))
+
+test "capture move struct drop glue", '''
+  8
+  end
+  7
+'''
+  # A closure that move-captures a struct with drop glue owns it: the
+  # struct is dropped when the closure leaves scope, not at the move.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  n = Noisy(id: 7)
+  f = |<n|
+    print(n.id + 1)
+  f()
+  print("end")
+  # scope exit drops `f`, which drops the captured Noisy: prints 7
+
+test "capture move vec", "2"
+  # A closure that move-captures a `List` owns it and frees it when the
+  # closure leaves scope.
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  f = |<v|
+    print(v.len)
+  f()
+
+test "capture then shadow", '''
+  1
+  two
+  1
+'''
+  # A closure captures `x`; a later `new x = ...` in the same block is a
+  # different binding and does not change what the closure captured.
+
+  x = 1
+  f = |+x|
+    print(x)
+  f()
+  new x = "two"
+  print(x)
+  f()
+
+test "catch after call", "42"
+  # `f() catch 0` recovers from a failure of `f()` with 0; here `may`
+  # succeeds, so the result is its value.
+
+  fun may() -> Int!
+    return 42
+
+  y = may() catch 0
+  print(y)
+
+test "catch handler constructor", '''
+  0 0 0 0 1 1 2.5
+  2
+  dot
+'''
+  # A `catch` or `??` handler that takes its type from context (`List()`,
+  # a variant) takes the type of the value it stands in for, even where
+  # the binding is not annotated.
+
+  error E
+    e
+
+  enum Shape
+    dot
+    box(w: Int)
+
+  fun h(ok: Bool) -> List[U8]!
+    return E.e if not ok
+    v: List[U8] = List()
+    !v.push(1)
+    <v
+
+  fun g[T](ok: Bool, x: T) -> List[T]!
+    return E.e if not ok
+    v = List[T]()
+    !v.push(x)
+    <v
+
+  fun fresh[T](x: T) -> List[T]
+    v = g(false, x) catch List(capacity: 1)
+    !v.push(x)
+    <v
+
+  fun s(ok: Bool) -> Shape!
+    return E.e if not ok
+    Shape.dot
+
+  fun o(ok: Bool) -> Shape?
+    return none if not ok
+    Shape.dot
+
+  fun empty[T]() -> List[T]
+    List()
+
+  v = h(false) catch List()
+  w = g(false, 3) catch List()
+  t = h(false) catch List(capacity: 2)
+  r = h(false) catch empty()
+  k = h(true) catch List()
+  f = fresh(2.5)
+  print(v.len, w.len, t.len, r.len, k.len, f.len, f[0])
+  x = s(false) catch .box(w: 2)
+  y = o(false) ?? .dot
+  match x
+    .box(n)
+      print(n)
+    _
+      print(0)
+  match y
+    .dot
+      print("dot")
+    _
+      print("box")
+
+test "cell holder generic handle id", release: true, '''
+  11
+  11
+'''
+  # A generic type instanced at a shared handle to a type that holds a
+  # Cell, viewed through a generic function's `?T`: it holds no Cell
+  # inline, so its views are `*const` in generic and concrete code alike,
+  # and the Cell it reaches is read through them, in debug and in an
+  # optimized build.
+
+  obj C
+    c: Cell[Int]
+
+    sub hit(!self)
+      !self.c.set(self.c.get() + 1)
+
+  obj G[T]
+    h: T
+    n: Int
+
+  fun id[T](x: ?T) -> ?T
+    x
+
+  fun look(g: ?G[*C]) -> Int
+    g.h.c.get() + g.n
+
+  g = G(h: *C(c: Cell(1)), n: 10)
+  r = id(?g)
+  print(look(r))
+  print(look(id(?g)))
+
+test "cell holder generic handle stored view", "11", release: true
+  # A generic type instanced at a shared handle to a type that holds a
+  # Cell, viewed through a generic struct's stored `?T`: it holds no Cell
+  # inline, so its views are `*const` in generic and concrete code alike,
+  # and the Cell it reaches is read through them, in debug and in an
+  # optimized build.
+
+  obj C
+    c: Cell[Int]
+
+  obj G[T]
+    h: T
+    k: Int
+
+  obj R[T]
+    r: ?T
+
+  fun look(g: ?G[*C]) -> Int
+    g.h.c.get() + g.k
+
+  g = G(h: *C(c: Cell(1)), k: 10)
+  r = R(r: ?g)
+  print(look(r.r))
+
+test "cell holder generic handle subslice", "3 3", release: true
+  # A generic type instanced at a shared handle to a type that holds a
+  # Cell, in a subslice of an array of it: it holds no Cell inline, so its
+  # views are `*const` in generic and concrete code alike, and the Cell it
+  # reaches changes through them, in debug and in an optimized build.
+
+  obj C
+    c: Cell[Int]
+
+  obj G[T]
+    h: T
+
+  fun tot(xs: []G[*C]) -> Int
+    t = 0
+    for i in 0..xs.len
+      t += xs[i].h.c.get()
+    t
+
+  arr = [G(h: *C(c: Cell(1))), G(h: *C(c: Cell(2)))]
+  print(tot(?arr[0..2]), tot(?arr))
+
+test "cell holder generic handle substitution", "2", release: true
+  # A generic type instanced at a shared handle to a type that holds a
+  # Cell, viewed in generic code and in concrete code: it holds no Cell
+  # inline, so its views are `*const` in generic and concrete code alike,
+  # and the Cell it reaches changes through them, in debug and in an
+  # optimized build.
+
+  obj C
+    c: Cell[Int]
+
+  obj G[T]
+    h: T
+
+  fun pick[T](a: ?G[T], b: ?G[T], k: Bool) -> ?G[T]
+    a if k else b
+
+  fun look(g: ?G[*C]) -> Int
+    g.h.c.get()
+
+  a = G(h: *C(c: Cell(1)))
+  b = G(h: *C(c: Cell(2)))
+  print(look(pick(?a, ?b, false)))
+
+test "cell holder generic vec element", release: true, '''
+  20
+  20
+'''
+  # A generic type that holds its parameter only in a List, read through a
+  # read view of a List of it, at an instance whose argument is a shared
+  # handle to a type that holds a Cell: it holds no Cell inline, so its
+  # views are `*const` in generic and concrete code alike, and the Cell it
+  # reaches is read through them, in debug and in an optimized build.
+
+  obj C
+    c: Cell[Int]
+
+  obj G[T]
+    items: List[T]
+    k: Int
+
+  fun mk(k: Int) -> G[*C]
+    v: List[*C] = List()
+    !v.push(*C(c: Cell(k)))
+    G(items: <v, k: k)
+
+  fun look(g: ?G[*C]) -> Int
+    g.items[0].c.get() + g.k
+
+  fun first(v: ?List[G[*C]]) -> Int
+    look(?v[0])
+
+  v: List[G[*C]] = List()
+  !v.push(mk(10))
+  print(first(?v))
+  print(look(?v[0]))
+
+test "cell holder generic vec sort", "1 2 3", release: true
+  # A generic type that holds its parameter only in a List, compared by
+  # std.sort's comparator, at an instance whose argument is a shared
+  # handle to a type that holds a Cell: it holds no Cell inline, so its
+  # views are `*const` in generic and concrete code alike, and the Cell it
+  # reaches changes through them, in debug and in an optimized build.
+
+
+  obj C
+    c: Cell[Int]
+
+  obj G[T]
+    items: List[T]
+    k: Int
+
+  fun mk(k: Int) -> G[*C]
+    v: List[*C] = List()
+    !v.push(*C(c: Cell(k)))
+    G(items: <v, k: k)
+
+  fun less(a: ?G[*C], b: ?G[*C]) -> Bool
+    a.k < b.k
+
+  v: List[G[*C]] = List()
+  for k in [3, 1, 2]
+    !v.push(mk(k))
+  sort.sort_by(!v, less)
+  print(v[0].k, v[1].k, v[2].k)
+
+fail "cell in literal field", "11:7: `P(c: Cell(1))` makes a `P`, which holds a Cell, so it lives only behind a shared handle: write `*P(c: Cell(1))`", errors: 1
+  # A Cell lives only behind a shared handle, so a constructor literal of a
+  # type that holds one cannot stand as a temporary lent to a call: the
+  # rule that a Cell lives only behind `*` rejects it.
+
+  obj P
+    c: Cell[Int]
+
+  sub bump(p: !P)
+    !p.c.set(p.c.get() + 10)
+
+  bump(?P(c: Cell(1)))
+
+test "cell part lent in slot", '''
+  42
+  P(c: Cell(value: 1), n: 1) P(c: Cell(value: 1), n: 2)
+  11
+  402
+'''
+  # A field of a temporary that holds a shared Cell, lent to a call, is lent
+  # where the statement's slot keeps the temporary: a Cell change through
+  # the view is the temporary's own, and a view the call returns stays
+  # good until the statement ends.
+
+  obj P
+    c: *Cell[Int]
+    n: Int
+
+  obj H
+    p: P
+
+  fun mk(n: Int) -> H
+    H(p: P(c: *Cell(1), n: n))
+
+  fun id(x: ?P) -> ?P
+    x
+
+  fun touch(x: !P) -> ?P
+    !x.c.set(x.c.get() + 10)
+    x
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun show(x: ?P, k: Int) -> Int
+    x.n * 100 + x.c.get() + k
+
+  print(id(?mk(42).p).n)
+  print(id(?mk(1).p), id(?mk(2).p))
+  print(touch(!mk(3).p).c.get())
+  print(show(id(?mk(4).p), clobber(0)))
+
+test "cell view branch places", release: true, '''
+  4
+  2
+  1
+  5
+'''
+  # A `!self` method changes a Cell through a part of a value that branches
+  # between lends of shared handles names hold: each leaf's value is reached
+  # where it is, in debug and in an optimized build.
+
+  obj N
+    c: Cell[Int]
+
+    sub hit(!self)
+      !self.c.set(self.c.get() + 1)
+
+  obj W
+    t: N
+
+  sub go(k: Bool)
+    w = *W(t: N(c: Cell(1)))
+    o = *W(t: N(c: Cell(2)))
+    for _ in 0..3
+      !(!w if k else !o).t.hit()
+    print(w.t.c.get())
+    print(o.t.c.get())
+
+  go(true)
+  go(false)
+
+test "cell view counter loop", "20 20 159", release: true
+  # A Cell changed by a marked call through a `!self` method and a `!T`
+  # parameter of a named local, in a loop that leaves early: an optimized
+  # build keeps every change.
+
+  obj C
+    c: Cell[Int]
+    log: Cell[List[Int]]
+
+    sub hit(!self)
+      !self.c.set(self.c.get() + 1)
+      !self.log.push(self.c.get())
+
+  fun total(x: !C) -> Int
+    !x.hit()
+    x.c.get() + x.log.len
+
+  fun maybe(n: Int) -> Int?
+    return none if n % 3 == 0
+    n
+
+  k = *C(c: Cell(0), log: Cell(List()))
+  s = 0
+  for i in 0..10
+    !k.hit()
+    s += total(!k) + (maybe(i) ?? continue)
+  print(k.c.get(), k.log.len, s)
+
+test "cell view forms", release: true, '''
+  31
+  21 103
+  5 4
+  3 5
+  6 5 2
+  8
+'''
+  # A Cell changed through views that generic code, headers, returned and
+  # optional views, branches, `defer`, and early exits hand on, in loops.
+
+  obj C
+    c: Cell[Int]
+
+    sub hit(!self)
+      !self.c.set(self.c.get() + 1)
+
+    fun me(!self) -> !C
+      !self.hit()
+      self
+
+  obj Gn[T]
+    c: Cell[T]
+
+    sub put(!self, x: T)
+      !self.c.set(x)
+
+  sub touch[T](g: !Gn[T], x: T)
+    !g.put(x)
+
+  fun pick(a: !C, b: !C, k: Bool) -> !C
+    a if k else b
+
+  fun find(v: !List[*C], n: Int) -> (!C)?
+    return none if n >= v.len
+    !v[n]
+
+  fun early(x: !C, n: Int) -> Int
+    defer !x.hit()
+    for i in 0..10
+      !x.hit()
+      return i if i == n
+    -1
+
+  g = *Gn[Int](c: Cell(0))
+  for i in 0..4
+    touch(!g, i * 10)
+    !g.put(g.c.get() + 1)
+  print(g.c.get())
+  a = *C(c: Cell(0))
+  b = *C(c: Cell(100))
+  for i in 0..6
+    (!pick(!a, !b, i % 2 == 0)).hit()
+    m = (!a).me()
+    n = (!m).me()
+    !n.hit()
+  print(a.c.get(), b.c.get())
+  v: List[*C] = List()
+  !v.push(*C(c: Cell(0)))
+  !v.push(*C(c: Cell(0)))
+  for i in 0..4
+    if find(!v, i) as x
+      !x.hit()
+    for y in !v
+      !y.hit()
+      break if i == 3
+  print(v[0].c.get(), v[1].c.get())
+  e = *C(c: Cell(0))
+  print(early(!e, 3), e.c.get())
+  k = 0
+  while find(!v, k) as z
+    !z.hit()
+    k += 1
+    break if z.c.get() > 7
+  print(v[0].c.get(), v[1].c.get(), k)
+  o: (*C)? = *C(c: Cell(5))
+  for _ in 0..3
+    if !o as p
+      !p.hit()
+  if o as q
+    print(q.c.get())
+
+test "cell view param", release: true, '''
+  2 2
+  5 15
+  3
+  5
+  drop 0
+  2
+  drop 2
+  3
+  drop 3
+  drop 5
+'''
+  # A Cell changed through a `?Cell[T]` parameter, a `?T` parameter of a
+  # struct, a `?self` chain, and a part of a temporary, in loops.
+
+  fun build(n: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..n
+      !v.push(i)
+    v
+
+  fun look(x: !Cell[List[Int]]) -> Int
+    !x.push(10)
+    x.len
+
+  fun bump(x: !Cell[Int]) -> Int
+    !x.set(x.get() + 1)
+    x.get()
+
+  obj V
+    c: Cell[List[Int]]
+
+    drop(!self)
+      print("drop", self.c.len)
+
+    fun add(!self, n: Int) -> Int
+      !self.c.push(n)
+      self.c.len
+
+    fun twice(!self, n: Int) -> Int
+      !self.add(n)
+      (!self).add(n)
+
+  obj WV
+    t: *V
+
+  fun mkv(n: Int) -> *V
+    *V(c: Cell(build(n)))
+
+  fun mkwv(n: Int) -> WV
+    WV(t: mkv(n))
+
+  fun maybe(n: Int) -> Int?
+    return none if n < 0
+    n
+
+  a: *Cell[List[Int]] = *Cell(build(1))
+  print(look(!a), a.len)
+  n: *Cell[Int] = *Cell(0)
+  s = 0
+  for i in 0..5
+    s += bump(!n) + (maybe(i - 2) ?? continue)
+  print(n.get(), s)
+  w = mkv(1)
+  for i in 0..3
+    print((!w).twice(maybe(i - 1) ?? continue))
+  for i in 0..3
+    print((!mkwv(i).t).add(maybe(i - 1) ?? continue))
+
+test "cell view places", release: true, '''
+  1
+  5
+  9
+  606 0 606 606 606 606
+  303
+'''
+  # A Cell changed through a marked call on each kind of place that reaches
+  # it: a field of a shared value, a List element, an array element, and a
+  # slice element that hold a shared handle, a closure's `|+x|` capture, and
+  # a shared handle's value, each in a loop that leaves early.
+
+  obj C
+    c: Cell[Int]
+    log: Cell[List[Int]]
+
+    sub hit(!self)
+      !self.c.set(self.c.get() + 1)
+      !self.log.push(self.c.get())
+
+    fun score(?self) -> Int
+      self.c.get() * 100 + self.log.len
+
+  obj W
+    inner: C
+
+  fun mk() -> *C
+    *C(c: Cell(0), log: Cell(List()))
+
+  fun hits(s: []*C, k: Int) -> Int
+    !s[k].hit()
+    s[k].c.get()
+
+  fun maybe(n: Int) -> Int?
+    return none if n % 2 == 1
+    n
+
+  w = *W(inner: C(c: Cell(0), log: Cell(List())))
+  v: List[*C] = List()
+  !v.push(mk())
+  !v.push(mk())
+  a = [mk(), mk()]
+  shared = mk()
+  for i in 0..6
+    !w.inner.hit()
+    !v[1].hit()
+    !a[0].hit()
+    !shared.hit()
+    print(hits(?a[..], 1) + (maybe(i) ?? continue))
+  print(w.inner.score(), v[0].score(), v[1].score(), a[0].score(), a[1].score(), shared.score())
+  m = mk()
+  f = |+m| !m.hit()
+  for _ in 0..3
+    f()
+  print(m.score())
+
+test "cell view push realloc", release: true, '''
+  1
+  2
+  3
+  drop 0
+  5
+  drop 5
+  9
+  drop 9
+  0 1 0 1 100 200
+'''
+  # A `!self` method pushes onto a Cell[List] of a named local in a loop
+  # whose argument may leave the iteration. The push may reallocate the
+  # List, so the `drop` and the next allocations must see the new buffer:
+  # a stale header would free a buffer twice.
+
+  obj V
+    c: Cell[List[Int]]
+
+    drop(!self)
+      print("drop", self.c.len)
+
+    fun add(!self, n: Int) -> Int
+      !self.c.push(n)
+      self.c.len
+
+  obj P
+    c: Cell[List[Int]]
+
+    fun add(!self, n: Int) -> Int
+      !self.c.push(n)
+      self.c.len
+
+  fun build(n: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..n
+      !v.push(i)
+    v
+
+  fun maybe(n: Int) -> Int?
+    return none if n < 0
+    n
+
+  for i in 0..3
+    p = *P(c: Cell(build(i)))
+    print((!p).add(maybe(i - 1) ?? 9))
+  for i in 0..3
+    v = *V(c: Cell(build(4 * i)))
+    print((!v).add(maybe(i - 1) ?? continue))
+  x = build(4)
+  y = build(4)
+  !x.push(100)
+  !y.push(200)
+  print(x[0], x[1], y[0], y[1], x[4], y[4])
+
+test "clone assign to self", "3"
+  # `a = +a` clones before the old handle is dropped, so the new value is
+  # read from a live box.
+
+  obj Wrap
+    n: Int
+
+  a = *Wrap(n: 3)
+  a = +a
+  print(a.n)
+
+test "clone viewed handle result", '''
+  4
+  8
+'''
+  # `+` of a call that returns a view of a handle clones the handle it
+  # views, as it does for a binding holding that view.
+
+  obj Leaf
+    n: Int
+
+  error Lookup
+    missing
+
+  obj Root
+    leaf: *Leaf
+    fun first(?self) -> ?*Leaf
+      ?self.leaf
+    fun pick(?self, ok: Bool) -> (?*Leaf)!
+      return Lookup.missing if not ok
+      ?self.leaf
+
+  fun count(root: ?Root) -> Int!
+    k = +root.pick(true)!
+    k.n
+
+  root = Root(leaf: *Leaf(n: 4))
+  k = +root.first()
+  print(k.n)
+  r = ?root.first()
+  j = +r
+  print(j.n + (count(?root) catch 0))
+
+test "closure calls captured closure", "2"
+  # A closure can call a captured `*sub()`.
+
+  count: *Cell[Int] = *Cell(0)
+  inc: *sub() = *|+count| !count.set(count.get() + 1)
+  twice = |+inc|
+    inc()
+  twice()
+  twice()
+  print(count.get())
+
+test "closure calls function named invoke", "201 302"
+  # A closure body may call a module-level function named `invoke`.
+
+  fun invoke(x: Int) -> Int
+    x * 100
+
+  f = |a: Int| invoke(a) + 1
+  g = *|a: Int| invoke(a) + 2
+  print(f(2), g(3))
+
+test "closure generated names", '''
+  6
+  5
+'''
+  # Closure parameters and captures may use names the emitted code uses
+  # internally (`self`, `ctx`, `allocator`).
+
+  sub stack()
+    ctx = 2
+    allocator = 3
+    f = |+ctx, +allocator, self: Int| self + ctx + allocator
+    print(f(1))
+
+  sub owned()
+    c: *Cell[Int] = *Cell(0)
+    g: *sub(Int) = *|+c, ctx: Int| !c.set(ctx)
+    g(5)
+    print(c.get())
+
+  stack()
+  owned()
+
+test "closure inline invoke", '''
+  3
+  7
+'''
+  # A closure literal can be called where it is written, as a statement or
+  # for its value.
+
+  n = 3
+  (|+n| print(n))()
+  m = (|+n, k: Int| n + k)(4)
+  print(m)
+
+test "closure named invoke", '''
+  3
+  x
+  3 3
+'''
+  # A local, parameter, or closure parameter may be named `invoke`, the
+  # name a closure's call would otherwise have in the emitted Zig.
+
+  sub each(n: Int, f: ?sub(Int))
+    for i in 0..n
+      f(i)
+
+  fun helper(invoke: Int) -> Int
+    f = |a: Int| a + 1
+    f(invoke)
+
+  fun sum() -> Int
+    total = 0
+    each(3, |!total, invoke| total += invoke)
+    total
+
+  invoke = 3
+  print(invoke)
+  f = || print("x")
+  f()
+  print(sum(), helper(2))
+
+bomb "const match binding overflow", "integer overflow", prints: "2\n9223372036854775806", release: true
+  # A name a match binds to a constant subject is a run-time value, as is
+  # the value an optional constant holds.
+
+  M = 9223372036854775807
+  O: Int? = 9223372036854775807
+
+  sub main()
+    match 1
+      0 => print(0)
+      n => print(n + 1)
+    if O as x
+      print(x - 1)
+    match M
+      0 => print(0)
+      n => print(n + 1)
+
+bomb "const optional propagate none", "integer overflow", prints: "2", release: true
+  # `?` of a constant optional binds a run-time value: adding to it
+  # overflows when the program runs, not when Zig compiles it.
+
+  O: Int? = 9223372036854775807
+  P: Int? = 1
+
+  fun f(o: Int?) -> Int?
+    v = o?
+    v + 1
+
+  fun g() -> Int?
+    v = P?
+    w = O?
+    v + w
+
+  sub main()
+    print(f(1) ?? 0)
+    print(g() ?? 0)
+
+bomb "const table conversion", "integer does not fit", prints: "7", release: true
+  # A conversion of a constant array's element is checked when the program
+  # runs.
+
+  big = [300, 7]
+
+  sub main()
+    print(U8(big[1]))
+    print(U8(big[0]))
+
+bomb "const table element bound", "integer overflow", prints: "2", release: true
+  # A binding of a constant array's element is a run-time value too.
+
+  big = [9223372036854775807, 1]
+
+  sub main()
+    small = big[1]
+    print(small + 1)
+    m = big[0]
+    print(m + 1)
+
+bomb "const table element overflow", "integer overflow", prints: "2", release: true
+  # An element of a module constant array is a run-time value: the sum
+  # overflows when the program runs, not when Zig compiles it.
+
+  big = [9223372036854775807, 1]
+
+  sub main()
+    print(big[1] + 1)
+    print(big[0] + 1)
+
+bomb "const table row bound", "integer overflow", prints: "1", release: true
+  # A row of a nested constant array, bound, is read at run time.
+
+  grid = [[1, 2], [9223372036854775807, 0]]
+
+  sub main()
+    row = grid[1]
+    print(row[1] + 1)
+    print(row[0] + 1)
+
+bomb "const table zero divisor", "division by zero", prints: "8", release: true
+  # A zero element of a constant array divides when the program runs.
+
+  zeros = [1, 0]
+
+  sub main()
+    print(8 / zeros[0])
+    print(8 / zeros[1])
+
+bomb "constructed field overflow", "integer overflow", prints: "2", release: true
+  # A field read straight off a constructor is a run-time value.
+
+  obj P
+    a: Int = 9223372036854775807
+
+  print(P(a: 1).a + 1)
+  print(P().a + 1)
+
+test "consuming method temporary failing arg", '''
+  3
+  9
+'''
+  # A consuming method called on a temporary whose later argument fails:
+  # the temporary is evaluated first, and dropped when the argument fails.
+
+  error E
+    bad
+
+  obj Bag
+    v: List[Int]
+
+    fun consume(<self, n: Int) -> Int
+      self.v.len + n
+
+  fun mk() -> Bag
+    v: List[Int] = List()
+    !v.push(1)
+    Bag(v: <v)
+
+  fun g(ok: Bool) -> Int!
+    return E.bad if not ok
+    2
+
+  fun run(ok: Bool) -> Int!
+    mk().consume(g(ok)!)
+
+  print(run(true) catch 0)
+  print(run(false) catch 9)
+
+test "continue if guard", '''
+  4
+  5
+  6
+'''
+  # `continue if c` skips the rest of the body only when `c` holds.
+
+  i = 0
+  while i < 6
+    i += 1
+    continue if i < 4
+    print(i)
+
+test "discard copy clone or move", "1 a 2 4"
+  # Discarding a clone or move of a value that owns nothing copies it and
+  # throws the copy away; the name stays usable (a moved one once it is
+  # assigned again).
+
+  obj P
+    n: Int
+
+  x = 1
+  _ = +x
+  s = "a"
+  _ = +s
+  p = P(n: 2)
+  _ = +p.n
+  _ = +p
+  y = 3
+  _ = <y
+  y = 4
+  print(x, s, p.n, y)
+
+test "discard named value", '''
+  1
+  1
+'''
+  # `_ = x` discards a use of `x`; `x` may be used elsewhere too.
+
+  x = 1
+  _ = x
+  print(x)
+  r = ?x
+  _ = r
+  _ = ?x
+  f = |+x|
+    _ = x
+    print(x)
+  f()
+
+test "discarded call result", '''
+  consumed 1
+  5
+'''
+  # A call whose result is discarded is still evaluated. `<n` ends `n`,
+  # even for a Copy value; assigning `n` again makes it usable.
+
+  fun consume(n: Int) -> Int
+    print("consumed", n)
+    n
+
+  n = 1
+  consume(<n)
+  n = 5
+  print(n)
+
+test "drop value payload", '''
+  drop 1
+  dropped
+  end
+'''
+  # `<a` on a payload of `match <s` that owns a resource drops it now.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum S
+    one(a: B)
+    empty
+
+  s: S = .one(a: B(n: 1))
+  match <s
+    .one(a)
+      <a
+      print("dropped")
+    .empty => print(0)
+  print("end")
+
+test "dropped view binding", "Ada"
+  # A view binding read only by its drop: dropping the read view `r`
+  # ends it, so the write view `w` is allowed.
+
+  obj User
+    name: ?String
+
+  user = User(name: "Steve")
+  r = ?user
+  <r
+  w = !user
+  w.name = "Ada"
+  print(user.name)
+
+test "emitter reserved names", "2 20"
+  # `os`, `rig`, and `std` name things in the emitted root module (a hook
+  # Zig's standard library looks up, the runtime, Zig's standard library),
+  # so Rig declarations and locals with those names are renamed in the Zig.
+
+  fun os(n: Int) -> Int
+    n + 1
+
+  rig = os(1)
+  std = rig * 10
+  print(rig, std)
+
+test "emitter reserved type names", "std(x: 1) rig(y: 2)"
+  # Types named `std` or `rig` are renamed in the Zig, and print with
+  # their Rig names.
+
+  obj std
+    x: Int
+
+  obj rig[T]
+    y: T
+
+  print(std(x: 1), rig(y: 2))
+
+test "enum payload method", '''
+  false
+  true
+'''
+  # Methods declared inside an enum with payload variants.
+
+  enum Shape
+    circle(radius: Int)
+    point
+
+    fun is_point(?self) -> Bool
+      match self
+        .circle(_) => false
+        .point => true
+
+  s: Shape = .circle(radius: 2)
+  print(s.is_point())
+  p: Shape = .point
+  print(p.is_point())
+
+test "enum payload shared leak", "1"
+  # An enum variant carrying a shared handle owns it: the enum drops the
+  # handle when it goes.
+
+  obj Wrap
+    payload: Int
+
+  enum Slot
+    full(b: *Wrap)
+    empty
+
+  rc = *Wrap(payload: 5)
+  s: Slot = .full(b: <rc)
+  match s
+    .full(_) => print(1)
+    .empty => print(0)
+
+test "error set value", "timeout"
+  # A binding of an error-set type holds one of its members, and `match`
+  # selects on it.
+
+  error NetworkError
+    timeout
+    refused
+    reset
+
+  e: NetworkError = .timeout
+  match e
+    .timeout => print("timeout")
+    .refused => print("refused")
+    .reset => print("reset")
+
+test "fallible mutual recursion", '''
+  true
+  true
+  false
+  5
+  -1
+'''
+  # Fallible functions may call each other, and a function type may be
+  # fallible: every fallible type is emitted with the error set `anyerror`.
+
+  error Bad
+    negative
+
+  fun even(n: Int) -> Bool!
+    return Bad.negative if n < 0
+    return true if n == 0
+    odd(n - 1)!
+
+  fun odd(n: Int) -> Bool!
+    return false if n == 0
+    even(n - 1)!
+
+  fun half(n: Int) -> Int!
+    return Bad.negative if n < 0
+    n / 2
+
+  fun apply(f: fun(Int) -> Int!, x: Int) -> Int!
+    f(x)!
+
+  print(even(10)!)
+  print(odd(7)!)
+  print(even(-1) catch false)
+  print(apply(half, 10)!)
+  print(apply(half, -2) catch -1)
+
+test "field assign", "y"
+  # `u.name = "y"` assigns a field.
+
+  obj User
+    name: ?String
+
+  u = User(name: "x")
+  u.name = "y"
+  print(u.name)
+
+test "field assign shared drops old", '''
+  1
+  assigned
+  2
+'''
+  # Assigning a shared handle into a struct field drops the old handle at
+  # the assignment; the struct drops the new one when it goes.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  obj Pair
+    a: *Noisy
+
+  p = Pair(a: *Noisy(id: 1))
+  n = *Noisy(id: 2)
+  p.a = <n
+  print("assigned")
+
+test "field assign through write param", '''
+  2
+  bumped
+'''
+  # Assigning a field through a `!T` parameter updates the caller's value;
+  # compound assignment works on fields too.
+
+  obj Counter
+    hits: Int
+    label: ?String
+
+  sub bump(c: !Counter)
+    c.hits += 1
+    c.label = "bumped"
+
+  c = Counter(hits: 0, label: "new")
+  bump(!c)
+  bump(!c)
+  print(c.hits)
+  print(c.label)
+
+test "field assign through write self", '''
+  1
+  2
+  end
+  2
+'''
+  # Assigning a field through `!self` drops the old value and keeps the new
+  # one in the caller's struct.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  obj Slot
+    held: *Noisy
+
+    sub put(!self, n: *Noisy)
+      self.held = <n
+
+  s = Slot(held: *Noisy(id: 1))
+  !s.put(*Noisy(id: 2))
+  print(s.held.id)
+  print("end")
+
+test "float default leading dot", "0.25"
+  # A float default written with a leading dot (`.5`, `-.25`).
+
+  obj P
+    x: Float = .5
+
+  fun f(y: Float = -.25) -> Float
+    y
+
+  p = P()
+  print(p.x + f())
+
+test "for else block", '''
+  1
+  done
+'''
+  # The `else` block of a `for` runs when the loop ends without `break`.
+
+  v: List[Int] = List()
+  !v.push(1)
+  for n in ?v
+    print(n)
+  else
+    print("done")
+
+test "for index counter", '''
+  one 7 0
+  tail 30 0
+  tail 40 1
+  5001
+  jump 10 0
+  jump 30 2
+  grid 0 0 40
+  grid 0 1 50
+  grid 1 0 50
+  grid 1 1 60
+  byte 0
+  byte 1
+  byte 2
+  byte 3
+  list 5 0
+  list 6 1
+  take 5 0
+  take 6 1
+'''
+  # The index of `for x, i in ...` is the iteration count, at the edges: an
+  # empty source, one element, a slice with an offset, `break`, `continue`,
+  # nested loops, a String's bytes, and a List the loop consumes.
+
+  fun tally(xs: []Int) -> Int
+    n = 0
+    for x, i in xs
+      n += x * 100 + i
+    n
+
+  a = [10, 20, 30, 40]
+  empty: [0]Int = []
+  one = [7]
+  for x, i in ?empty[..]
+    print("never", x, i)
+  for x, i in ?one[..]
+    print("one", x, i)
+  for x, i in ?a[2..]
+    print("tail", x, i)
+  print(tally(?a[1..3]))
+
+  for x, i in ?a[..]
+    continue if i == 1
+    break if i == 3
+    print("jump", x, i)
+
+  for x, i in ?a[..2]
+    for y, j in ?a[2..]
+      print("grid", i, j, x + y)
+
+  s = String("héy")
+  for _, k in ?s
+    print("byte", k)
+
+  v: List[Int] = List()
+  !v.push(5)
+  !v.push(6)
+  for x, i in ?v
+    print("list", x, i)
+  for x, i in <v
+    print("take", x, i)
+
+test "for index discard", '''
+  1
+  2
+'''
+  # `for x, _ in xs` ignores the index.
+
+  for x, _ in [1, 2]
+    print(x)
+
+test "fun keyword args", "4"
+  # Keyword arguments bind to parameters by name, in any order.
+
+  fun sub_ab(a: Int, b: Int) -> Int
+    a - b
+
+  print(sub_ab(b: 1, a: 5))
+
+test "function values", '''
+  4
+  6
+  4
+  Op(f: <fun>, n: 1)
+  .op(f: <fun>)
+  [<fun>, <fun>]
+'''
+  # A function bound without an annotation is a function value; values
+  # holding functions print as `<fun>`.
+
+  fun twice(n: Int) -> Int
+    n * 2
+
+  fun thrice(n: Int) -> Int
+    n * 3
+
+  fun half(n: Int) -> Int!
+    n / 2
+
+  obj Op
+    f: fun(Int) -> Int
+    n: Int
+
+  enum K
+    op(f: fun(Int) -> Int)
+    nothing
+
+  g = twice
+  print(g(2))
+  g = thrice
+  print(g(2))
+  h = half
+  print(h(8)!)
+  print(Op(f: twice, n: 1))
+  k: K = .op(f: twice)
+  print(k)
+  print([twice, thrice])
+
+test "guarded match element of read vec", '''
+  5 5 -7
+  3
+'''
+  # A guarded match reads its subject where it is: an element of a List a
+  # read view reaches is read through a constant pointer, whether the
+  # subject is the element, a lend of it, or a field of it.
+
+  enum E
+    a(n: Int)
+    b(n: Int)
+
+  obj W
+    e: E
+
+  fun f(v: ?List[E]) -> Int
+    match v[0]
+      .a(n) if n > 1 => n
+      .a(_) => 1
+      .b(n) => n
+
+  fun g(v: ?List[E], i: Int) -> Int
+    match ?v[i]
+      .a(n) if n > 10 => 10
+      .a(n) => n
+      .b(n) => -n
+
+  fun h(ws: ?List[W]) -> Int
+    match ws[1].e
+      .b(n) if n < 0 => 0
+      .b(n) => n
+      _ => -1
+
+  e: List[E] = List()
+  !e.push(E.a(n: 5))
+  !e.push(E.b(n: 7))
+  print(f(?e), g(?e, 0), g(?e, 1))
+  ws: List[W] = List()
+  !ws.push(W(e: E.a(n: 1)))
+  !ws.push(W(e: E.b(n: 3)))
+  print(h(?ws))
+
+test "guarded match read view element", '''
+  zero
+  5 5 9
+  0
+'''
+  # A guarded match on an element of a List reached through a read view
+  # matches the element where it is: plain, Text, and Cell-holder
+  # payloads (the last behind a shared handle), through a parameter and
+  # through a field.
+
+  obj C
+    c: Cell[Int]
+
+  enum E
+    a(n: Int)
+    b(n: Int)
+
+  enum T
+    a(t: String)
+    b
+
+  enum K
+    a(x: C)
+    b
+
+  obj H
+    es: List[E]
+
+  fun plain(v: ?List[E]) -> Int
+    match v[0]
+      .a(n) if n > 1 => n
+      .a(_) => 1
+      .b(n) => n
+
+  fun text(v: ?List[T]) -> Int
+    match v[0]
+      .a(t) if t.len > 1 => t.len
+      .a(_) => 1
+      .b => 0
+
+  sub cell(v: ?List[*K])
+    match v[0]
+      .a(x) if x.c.get() == 0 => print("zero")
+      .a(_) => print("set")
+      .b => pass
+
+  fun field(h: ?H) -> Int
+    match h.es[0]
+      .a(n) if n > 1 => n
+      _ => 0
+
+  e: List[E] = List()
+  !e.push(E.a(n: 5))
+  t: List[T] = List()
+  !t.push(T.a(t: String("hello")))
+  k: List[*K] = List()
+  !k.push(*K.a(x: C(c: Cell(0))))
+  cell(?k)
+  es: List[E] = List()
+  !es.push(E.a(n: 9))
+  h = H(es: <es)
+  print(plain(?e), text(?t), field(?h))
+  match k[0]
+    .a(x) => print(x.c.get())
+    .b => pass
+
+test "handle reached through pointer", '''
+  4
+  1 1
+  4
+'''
+  # A handle reached through a pointer, a held receiver's address or the
+  # leaf a branch of lends takes, is dereferenced before its value is
+  # reached: a field, and a method whose arguments run first.
+
+  obj Q
+    n: Int
+
+    fun get(?self, j: Int, k: Int) -> Int
+      self.n + j + k
+
+  fun g(k: Int) -> Int
+    k
+
+  qs = [*Q(n: 1), *Q(n: 2)]
+  print(qs[g(0)].get(k: g(1), j: g(2)))
+  h1 = *Q(n: 1)
+  h2 = *Q(n: 2)
+  c = g(1) == 1
+  print((?h1 if c else ?h2).n, (h1 if c else h2).n)
+  print((?h1 if c else ?h2).get(k: g(1), j: g(2)))
+
+test "hoisted argument lent", '''
+  g
+  hello world, long enough to be on the heap
+  g
+  42
+'''
+  # An argument lent to a call whose arguments are evaluated first, as the
+  # view its parameter expects (a Text temporary as a `?String`, a Box as
+  # the value it holds), is held as that view, never as the owner: the
+  # statement's slot keeps and drops the owner.
+
+  fun g(k: Int) -> Int
+    print("g")
+    k
+
+  fun pick(s: ?String, n: Int) -> ?String
+    if n > 0
+      return s
+    "none"
+
+  obj P
+    x: Int
+    t: String
+
+  fun px(p: ?P, n: Int) -> Int
+    p.x + n
+
+  print(pick(n: g(1), s: String("hello world, long enough to be on the heap")))
+  b = ^P(x: 40, t: String("t"))
+  print(px(n: g(2), p: b))
+
+test "hoisted argument needs type", '''
+  18
+  9
+'''
+  # Arguments evaluated into temporaries before a later failing argument
+  # keep their types: `List()`, `none`, and `.north` have none on their own.
+
+  error E
+    bad
+
+  enum Dir
+    north
+    south
+
+  fun g(ok: Bool) -> Int!
+    return E.bad if not ok
+    7
+
+  fun take(v: List[Int], o: Int?, d: Dir, n: Int) -> Int
+    k = 10 if d == .north else 20
+    v.len + (o ?? 1) + n + k
+
+  fun run(ok: Bool) -> Int!
+    take(List(), none, .north, g(ok)!)
+
+  print(run(true) catch 0)
+  print(run(false) catch 9)
+
+test "hoisted call receiver first", '''
+  121
+  recv
+  b
+  a
+  111
+  i
+  b
+  a
+  211
+  i
+  b
+  a
+  311
+  3
+  v
+  b
+  a
+  411
+'''
+  # A method call runs its receiver before its arguments, as written, also
+  # when keyword arguments are evaluated into temporaries first.
+
+  obj K
+    n: Int
+
+    fun add(?self, a: Int, b: Int) -> Int
+      self.n * 100 + a * 10 + b
+
+    fun bump(!self, a: Int, b: Int) -> Int
+      self.n += 1
+      self.n * 100 + a * 10 + b
+
+  fun take(k: !K) -> K
+    k.n = k.n + 1
+    K(n: k.n)
+
+  fun say(s: ?String) -> Int
+    print(s)
+    1
+
+  fun mk(s: ?String) -> K
+    print(s)
+    K(n: 1)
+
+  k = K(n: 0)
+  print(take(!k).add(b: k.n, a: k.n + 1))
+  print(mk("recv").add(b: say("b"), a: say("a")))
+  ps = [K(n: 1), K(n: 2)]
+  print(ps[say("i")].add(b: say("b"), a: say("a")))
+  print((!ps[say("i")]).bump(b: say("b"), a: say("a")))
+  print(ps[1].n)
+  v: List[K] = List()
+  !v.push(K(n: 4))
+  print(v[say("v") - 1].add(b: say("b"), a: say("a")))
+
+test "hoisted field callable args", '''
+  -1
+  44
+  g 4
+  5
+  5
+'''
+  # A callable held in a field, `s.cb(...)`, has no receiver: a call of it
+  # whose arguments are evaluated first fills its parameters from its first
+  # argument, so an owned argument is held as the value it is and dropped
+  # when a later argument fails, and a write view its first parameter
+  # takes is of the argument.
+
+  error Bad
+    no
+
+  obj Q
+    c: Int
+    n: Int
+
+  obj H
+    q: Q
+
+  obj S
+    cb: fun(String, ?Q, Int) -> Int
+    wr: fun(!Q, Int) -> Int
+
+  fun gf(k: Int) -> Int!
+    if k > 1
+      return Bad.no
+    k
+
+  fun g(k: Int) -> Int
+    print("g", k)
+    k
+
+  fun mkh(k: Int) -> H
+    H(q: Q(c: k, n: k))
+
+  fun usq(t: String, q: ?Q, n: Int) -> Int
+    t.len + q.c + n
+
+  fun wr(q: !Q, n: Int) -> Int
+    q.n = q.n + n
+    q.n
+
+  fun run(s: ?S, k: Int) -> Int!
+    s.cb(String("a text long enough to live on the heap"), ?mkh(5).q, gf(k)!)
+
+  s = S(cb: usq, wr: wr)
+  print(run(?s, 2) catch -1)
+  print(run(?s, 1) catch -1)
+  q = Q(c: 0, n: 1)
+  print(s.wr(!q, g(4)))
+  print(q.n)
+
+test "hoisted receiver index first", '''
+  27
+  105 6 1
+  112 6 1
+'''
+  # A method call on an indexed element picks the element before its
+  # arguments run, also when the arguments are evaluated into temporaries
+  # first (keyword arguments, an owned argument before a failing one).
+
+  error E
+    bad
+
+  obj C
+    n: Int
+
+    fun sub2(!self, a: Int, b: Int) -> Int
+      self.n += 100
+      a * 10 + b
+
+    sub put(!self, v: List[Int], b: Int)
+      self.n += 100 + v.len + b
+
+  fun bump(k: !Int) -> Int
+    k += 1
+    7
+
+  fun bump2(k: !Int) -> Int!
+    return E.bad if k > 5
+    k += 1
+    7
+
+  fun two() -> Int
+    2
+
+  sub run()!
+    cs = [C(n: 5), C(n: 6)]
+    k = 0
+    !cs[k].put(List(), bump2(!k)!)
+    print(cs[0].n, cs[1].n, k)
+
+  cs = [C(n: 5), C(n: 6)]
+  k = 0
+  print((!cs[k]).sub2(b: bump(!k), a: two()))
+  print(cs[0].n, cs[1].n, k)
+  run() catch print("e")
+
+test "if expr basic", '''
+  10
+  20
+'''
+  # `if` as the value of a function body with single-expression branches.
+
+  fun pick(c: Bool) -> Int
+    if c
+      10
+    else
+      20
+
+  print(pick(true))
+  print(pick(false))
+
+test "if expr binding", '''
+  1
+  100
+'''
+  # `if` as the right-hand side of a binding; the binding's type comes
+  # from the unified branch type.
+
+  x = if true
+    1
+  else
+    2
+  y = if x > 0
+    100
+  else
+    -100
+  print(x)
+  print(y)
+
+test "if expr block", '''
+  21
+  0
+'''
+  # A multi-statement `if` branch in value position yields its last
+  # expression; its locals are visible inside the branch.
+
+  fun summarize(n: Int) -> Int
+    if n > 0
+      doubled: Int = n * 2
+      doubled + 1
+    else
+      0
+
+  print(summarize(10))
+  print(summarize(0))
+
+test "if expr block local", "11"
+  # A local bound inside a multi-statement branch of a binding's `if`
+  # resolves at its use in the same branch.
+
+  result = if 5 > 0
+    doubled: Int = 5 * 2
+    doubled + 1
+  else
+    0
+  print(result)
+
+test "if expr early return", '''
+  21
+  0
+'''
+  # A value-position `if` branch that returns early has no value; the
+  # other branch supplies the binding.
+
+  fun safe_mul(a: Int, b: Int) -> Int
+    result = if b == 0
+      return 0
+    else
+      a * b
+    result + 1
+
+  print(safe_mul(10, 2))
+  print(safe_mul(10, 0))
+
+test "if expr else if chain", '''
+  1
+  -1
+  0
+'''
+  # Nested `if`/`else` in value position selects among three results.
+
+  fun classify(x: Int) -> Int
+    if x > 0
+      1
+    else
+      if x < 0
+        -1
+      else
+        0
+
+  print(classify(5))
+  print(classify(-5))
+  print(classify(0))
+
+test "if expr enum variant", '''
+  1
+  -1
+  0
+'''
+  # A value-position `if` producing enum variants feeds a match.
+
+  enum Sign
+    pos
+    neg
+    zero
+
+  fun classify(x: Int) -> Sign
+    if x > 0
+      .pos
+    else
+      if x < 0
+        .neg
+      else
+        .zero
+
+  fun to_int(s: Sign) -> Int
+    match s
+      .pos => 1
+      .neg => -1
+      .zero => 0
+
+  print(to_int(classify(5)))
+  print(to_int(classify(-3)))
+  print(to_int(classify(0)))
+
+test "if expr runtime literal branches", "10"
+  # An `if` expression whose branches are literals, chosen at run time,
+  # binds an `Int`.
+
+  fun big(n: Int) -> Bool
+    n > 1
+
+  x = if big(3)
+    10
+  else
+    20
+  print(x)
+
+test "if expr yields local resource", '''
+  1
+  1
+  2
+  2
+  end
+'''
+  # A block that yields a resource declared inside it moves the resource
+  # out: the binding receives it and nothing is dropped at the block's end.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  sub pick(flag: Bool)
+    y = if flag
+      x = *Noisy(id: 1)
+      x
+    else
+      *Noisy(id: 2)
+    print(y.id)
+
+  pick(true)
+  pick(false)
+  print("end")
+
+test "ignored params", '''
+  1
+  5
+  ignored
+  15
+'''
+  # A parameter a function or closure does not use may be named `_`, any
+  # number of times; parameters may also use names Zig reserves.
+
+  fun first(a: Int, _: Int, _: Int) -> Int
+    a
+
+  print(first(1, 2, 3))
+  second: fun(Int, Int) -> Int = |_, b| b
+  print(second(4, 5))
+  ignore: *sub(Int, ?String) = *|_, _| print("ignored")
+  ignore(6, "x")
+  sum = |fn: Int, var: Int| fn + var
+  print(sum(7, 8))
+
+test "index assign", '''
+  42
+  54
+'''
+  # `xs[i] = x` stores into an array or a List element (bounds-checked).
+
+  xs = [1, 2, 3]
+  xs[0] = 10
+  i = 2
+  xs[i] = 30
+  print(xs[0] + xs[1] + xs[2])
+  v: List[Int] = List()
+  !v.push(4)
+  !v.push(5)
+  v[1] = 50
+  print(v[0] + v[1])
+
+test "index places and bases", '''
+  P(a: [8, 30], q: Q(z: 5))
+  [[1, 3], [9, 4]]
+  called
+  98
+'''
+  # An array inside a List element is assignable, a nested array is too, and
+  # indexing a string a call returns evaluates the call once.
+
+  obj P
+    a: [2]Int
+    q: Q
+
+  obj Q
+    z: Int
+
+  fun name() -> ?String
+    print("called")
+    "abc"
+
+  ps: List[P] = List()
+  !ps.push(P(a: [1, 2], q: Q(z: 0)))
+  ps[0].a[1] = 30
+  ps[0].q.z = 5
+  ps[0].a[0] += 7
+  print(ps[0])
+  grid = [[1, 2], [3, 4]]
+  grid[1][0] = 9
+  grid[0][1] += 1
+  print(grid)
+  i = [1][0]
+  print(name()[i])
+
+bomb "inline divide literal", "division by zero", prints: "4", release: true
+  # An inlined function divides with the checks of any other: a literal
+  # zero divisor panics when the program runs.
+
+  fun share(a: Int, b: Int) -> Int
+    a / b
+
+  print(share(8, 2))
+  print(share(8, 0))
+
+bomb "inline generic member overflow", "integer overflow", prints: "42 2", release: true
+  # A small method of a generic type, which the compiler inlines (one
+  # declaration for every instance), keeps its run-time checks when a call
+  # passes a literal, as any inlined function does: the sum overflows when
+  # the program runs, not when Zig compiles it (test/cli/inline.sh checks
+  # that `bump` is inlined).
+
+  obj Acc[T]
+    v: T
+
+    fun bump(?self, n: Int) -> Int
+      m = n
+      m += 1
+      m
+
+  a = Acc[Bool](v: true)
+  b = Acc[Int](v: 2)
+  print(a.bump(41), b.bump(1))
+  print(a.bump(9223372036854775807))
+
+bomb "inline index literal", "index out of bounds", prints: "30", release: true
+  # An inlined function indexes with the checks of any other: a literal
+  # index past the end panics when the program runs.
+
+  fun at(xs: ?[3]Int, i: Int) -> Int
+    xs[i]
+
+  xs = [10, 20, 30]
+  print(at(?xs, 2))
+  print(at(?xs, 7))
+
+test "inline iterator recursion", release: true, '''
+  0
+  1
+  2
+'''
+  # A `for` over an iterator calls `next` with no call in the source: an
+  # iterator whose `next` loops over another of its own kind is recursive, so
+  # Zig must not be asked to inline it into itself.
+
+  obj Count
+    lo: Int
+    hi: Int
+
+    fun next(!self) -> Int?
+      return none if self.lo >= self.hi
+      self.lo += 1
+      if self.hi > 100
+        inner = Count(lo: 0, hi: 1)
+        for x in !inner
+          print("inner", x)
+      self.lo - 1
+
+  c = Count(lo: 0, hi: 3)
+  for n in !c
+    print(n)
+
+test "inline kept calls", release: true, '''
+  120
+  true
+  false
+  42
+  3
+  6
+'''
+  # Functions that recurse, directly or through each other, and functions
+  # used as values are called, not inlined; the small ones around them are.
+
+  fun fact(n: Int) -> Int
+    1 if n <= 1 else n * fact(n - 1)
+
+  fun even(n: Int) -> Bool
+    true if n == 0 else odd(n - 1)
+
+  fun odd(n: Int) -> Bool
+    false if n == 0 else even(n - 1)
+
+  fun double(n: Int) -> Int
+    n * 2
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  fun plus_one(n: Int) -> Int
+    n + 1
+
+  obj Counter
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+    sub bump(!self, by: Int)
+      self.n += by
+
+  print(fact(5))
+  print(even(10))
+  print(odd(10))
+  print(apply(double, 21))
+  print(plus_one(plus_one(1)))
+  c = Counter(n: 1)
+  !c.bump(2)
+  !c.bump(3)
+  print(c.get())
+
+bomb "inline overflow literal", "integer overflow", prints: "42", release: true
+  # A small function that Zig inlines keeps its run-time checks when a call
+  # passes a literal: the sum overflows when the program runs, not when Zig
+  # compiles it.
+
+  fun next(n: Int) -> Int
+    n + 1
+
+  print(next(41))
+  print(next(9223372036854775807))
+
+test "inline owned params", release: true, '''
+  consume a
+  drop a
+  held b
+  n=7
+  drop b
+'''
+  # An inlined function takes an owned argument, drops it, hands it back,
+  # and writes through a lend, as one that is called does: nothing leaks and
+  # nothing is dropped twice.
+
+  obj Tag
+    name: String
+
+    drop(!self)
+      print("drop", self.name)
+
+  sub consume(t: Tag)
+    print("consume", t.name)
+
+  fun hand(t: Tag) -> Tag
+    t
+
+  sub fill(out: !String, n: Int)
+    !out.add("n=")
+    !out.add(String(n))
+
+  consume(Tag(name: String("a")))
+  t = hand(Tag(name: String("b")))
+  print("held", t.name)
+  s = String()
+  fill(!s, 7)
+  print(s)
+
+test "inline unreached literal", release: true, '''
+  2
+  ok
+'''
+  # A call of an inlined function that would panic, but does not run, is
+  # not an error: each call below passes literals that overflow, index past
+  # the end, or divide by zero, and the program never makes them.
+
+  fun next(n: Int) -> Int
+    n + 1
+
+  fun at(xs: ?[3]Int, i: Int) -> Int
+    xs[i]
+
+  fun share(a: Int, b: Int) -> Int
+    a / b
+
+  fun narrow(n: Int) -> U8
+    U8(n)
+
+  xs = [1, 2, 3]
+  if os.args().len > 50
+    print(next(9223372036854775807))
+    print(at(?xs, 7))
+    print(share(1, 0))
+    print(narrow(300))
+  print(next(1))
+  print("ok")
+
+test "kept temporary receiver in place", '''
+  a
+  b
+  221
+  42 6
+  pt 2
+'''
+  # A method called on a temporary its statement keeps, or on a field of
+  # one, runs on the value where the statement's slot holds it, also when
+  # its arguments are evaluated first: the slot alone drops the value, once,
+  # when the statement ends, and a view the method returns views the slot.
+
+  obj P
+    c: *Cell[Int]
+    n: Int
+    t: String
+
+    fun me(?self) -> ?P
+      self
+
+    fun tick(!self) -> Int
+      !self.c.set(self.c.get() + 1)
+      self.c.get()
+
+  obj H
+    p: P
+    u: String
+
+  obj S
+    t: String
+
+    fun pick(?self, x: Int, y: Int) -> ?String
+      ?self.t
+
+    fun size(?self, x: Int, y: Int) -> Int
+      self.t.len * 100 + x * 10 + y
+
+  fun f(n: Int) -> Int
+    n
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun mk(s: ?String) -> S
+    S(t: String(s))
+
+  fun mkh() -> H
+    H(p: P(c: *Cell(1), n: 42, t: String("pt")), u: String("u"))
+
+  print(mk("a").pick(y: f(1), x: f(2)))
+  print((mk("b") if f(0) == 0 else mk("c")).pick(y: f(1), x: f(2)))
+  print(mk("dd").size(y: f(1), x: f(2)))
+  print(mkh().p.me().n, clobber(5))
+  print(mkh().p.me().t, (!mkh().p).tick())
+
+test "kwarg evaluation order", '''
+  2
+  1
+  12
+'''
+  # Keyword arguments run in source order even when bound out of order.
+
+  fun note(n: Int) -> Int
+    print(n)
+    n
+
+  fun pair(a: Int, b: Int) -> Int
+    a * 10 + b
+
+  p = pair(b: (note(2)), a: (note(1)))
+  print(p)
+
+test "kwarg method", "61"
+  # Keyword arguments to a method bind by name.
+
+  obj Rect
+    w: Int
+    h: Int
+
+    fun area(self: ?Rect, scale: Int, extra: Int) -> Int
+      self.w * self.h * scale + extra
+
+  r = Rect(w: 2, h: 3)
+  print(r.area(extra: 1, scale: 10))
+
+test "kwarg reads before later writes", '''
+  x 7 y 1
+  x 7 y 1
+  x 7 y 1
+  101 101 101
+'''
+  # A keyword argument that reads a name or a field is evaluated in source
+  # order, before a later argument that changes it.
+
+  fun bump(n: !Int) -> Int
+    n += 100
+    7
+
+  fun poke(c: !Cell[Int]) -> Int
+    !c.set(c.get() + 100)
+    7
+
+  fun f(x: Int, y: Int) -> Int
+    print("x", x, "y", y)
+    0
+
+  n = 1
+  _ = f(y: n, x: bump(!n))
+  m = 1
+  _ = f(y: m + 0, x: bump(!m))
+  c = *Cell(1)
+  _ = f(y: c.get(), x: poke(!c))
+  print(n, m, c.get())
+
+test "kwargs reordered sub statement", '''
+  g 2
+  g 1
+  1 2
+'''
+  # Keyword arguments given out of order still run in source order, also
+  # when the call is a statement.
+
+  sub show(a: Int, b: Int)
+    print(a, b)
+
+  fun g(n: Int) -> Int
+    print("g", n)
+    n
+
+  show(b: g(2), a: g(1))
+
+test "labeled loop break", "1"
+  # `break @outer` inside a nested loop exits the loop labeled `@outer`,
+  # so the `print(99)` after the inner loop never runs.
+
+  @outer while true
+    while true
+      break @outer
+    print(99)
+  print(1)
+
+test "labeled loop continue", "3"
+  # `continue @outer` inside a nested loop continues the loop labeled
+  # `@outer`, running its continuation.
+
+  i = 0
+  @outer while i < 3 : i += 1
+    j = 0
+    while true
+      j += 1
+      continue @outer if j > i
+    print(99)
+  print(i)
+
+test "labels nested and generated", '''
+  outer 0
+  outer 1
+  7
+  k 1
+  three
+  end
+'''
+  # A label may repeat an enclosing label's name (the innermost one is
+  # meant), may be spelled like the emitter's own labels, and may name a
+  # `match` or `raw` statement, which `break` then leaves.
+
+  fun f(c: Bool) -> Int
+    @rig_blk_1 while true
+      x = if c
+        y = 3
+        y + 1
+      else
+        5
+      break @rig_blk_1 if x > 0
+    7
+
+  @l for i in 0..2
+    @l for _ in 0..2
+      break @l
+    print("outer", i)
+  print(f(true))
+  @rig_call_1 for i in 0..3
+    k = (|n: Int| n + 1)(i)
+    break @rig_call_1 if k > 1
+    print("k", k)
+  x = 3
+  @m match x
+    3
+      print("three")
+      break @m if x > 1
+      print("unreached")
+    _
+      print("other")
+  @r raw
+    break @r if x > 1
+    print("unreached")
+  print("end")
+
+bomb "literal element overflow", "integer overflow", prints: "3", release: true
+  # An element read straight off an array literal is a run-time value.
+
+  print([1, 2][1] + 1)
+  print([9223372036854775807, 1][0] + 1)
+
+test "local named like method", '''
+  3 15 3
+  31
+'''
+  # A local or a parameter may be named like a method of its type, though
+  # the method's Zig name is escaped (`var` is `@"var"`, `rig` is
+  # `@"rig'"`): the emitter renames the local, since Zig rejects a local
+  # that shadows a declaration, and compares the escaped names to know it.
+
+  obj O
+    v: Int
+
+    fun var(?self) -> Int
+      self.v
+
+    fun rig(?self) -> Int
+      self.v * 10
+
+    fun b(?self) -> Int
+      var = self.v + 1
+      var + self.var()
+
+    fun c(?self, rig: Int) -> Int
+      rig + self.rig()
+
+    fun d(?self) -> Int
+      g = |?self|
+        var = self.v + 2
+        var
+      g()
+
+  obj G[T]
+    v: T
+
+    fun var(?self) -> Int
+      1
+
+    fun b(?self, var: Int, u8: Int) -> Int
+      var + u8 + self.var()
+
+  o = O(v: 1)
+  print(o.b(), o.c(5), o.d())
+  print(G[Int](v: 0).b(10, 20))
+
+test "marker inline closure call", "6 4.0", release: true
+  # A closure is a function of its own: an `inline` function holding one
+  # that calls the function back is no cycle, as Zig inlines it into the
+  # closure, which is called. An `inline` wrapper of an `extern zig`
+  # function of its name calls no Rig function.
+
+  inline fun walk(n: Int) -> Int
+    f = |x: Int| 0 if x == 0 else walk(x - 1) + x
+    f(n)
+
+  inline fun sqrt(x: Float) -> Float
+    math.sqrt(x)
+
+  print(walk(3), sqrt(16.0))
+
+test "marker inline large", release: true, '''
+  50 103
+  drop a
+  a!
+  30
+  slow -4
+  4 -8
+'''
+  # A function marked `inline` is inlined at every call whatever its size,
+  # and means what it means as a call: it takes an owned argument and drops
+  # it, writes through a lend, holds a closure, and calls a `rarely`
+  # function, which stays a call. `mix` is over the size the compiler
+  # inlines by itself (test/cli/markers.sh checks the Zig).
+
+  obj Tag
+    name: String
+
+    drop(!self)
+      print("drop", self.name)
+
+  inline fun mix(a: Int, b: Int, k: Int) -> Int
+    x = a * 3 + b
+    y = b * 5 - a
+    if x > y
+      x = x - y + k
+    else
+      y = y - x + k
+    z = 0
+    i = 0
+    while i < k
+      z += (x + i) % 7 + (y - i) % 5
+      i += 1
+    if z > 100
+      z = z % 100 + 1
+    w = 0
+    j = k
+    while j > 0
+      w += (x * j + y) % 11 - (z + j) % 3
+      j -= 1
+    if w < 0
+      w = 0 - w
+    v = x - y
+    if v < 0
+      v = 0 - v
+    v = v % 13 + w % 17 + z % 19
+    x + y + z + w + v
+
+  inline sub consume(t: Tag, out: !String)
+    !out.add(t.name)
+    !out.add("!")
+
+  inline fun scaled(xs: ?List[Int], k: Int) -> Int
+    total = 0
+    each = |+k, x: Int| x * k
+    for x in xs
+      total += each(x)
+    total
+
+  rarely fun slow(n: Int) -> Int
+    print("slow", n)
+    n * 2
+
+  inline fun pick(n: Int) -> Int
+    slow(n) if n < 0 else n
+
+  sub main()
+    print(mix(1, 2, 3), mix(4, 5, 6))
+    s = String()
+    consume(Tag(name: String("a")), !s)
+    print(s)
+    xs = List[Int]()
+    !xs.push(1)
+    !xs.push(2)
+    print(scaled(xs, 10))
+    print(pick(4), pick(-4))
+
+bomb "marker inline overflow literal", "integer overflow", prints: "42", release: true
+  # A function marked `inline` keeps its run-time checks when a call passes
+  # a literal, as one the compiler inlines does: the sum overflows when the
+  # program runs, not when Zig compiles it.
+
+  inline fun next(n: Int) -> Int
+    m = n
+    m += 1
+    m
+
+  print(next(41))
+  print(next(9223372036854775807))

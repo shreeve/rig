@@ -1878,7 +1878,7 @@ fail a run rather than a proof:
   `match`'s selection around each arm, write more of it, and only units
   inside its construct start while it is paused), and each jump
   written once, going where the walk sends its facts. A unit test runs
-  it over `test/behavior/emit` and `test/behavior/proofs`, and checks
+  it over the programs of the `emit` and `proofs` behavior tests, and checks
   that a swapped pair of units, a unit written twice, a paused unit
   taken up again after a later unit, or a misdirected jump fails it.
 - The differential run (`./test/run --proofs-diff`): each program with
@@ -1890,8 +1890,8 @@ fail a run rather than a proof:
 `rig check --facts=proofs` prints each node with a test known to pass,
 `L:C KIND TESTS` (`index`, `read`, `write`, `+`, or `+=`, then `lower`,
 `upper`, `no_overflow`), in source order. `test/cli/facts_proofs.sh`
-compares it on `test/behavior/proofs/swar.rig` line by line and checks
-the `# proves:` and `# keeps:` marks of every program beside it.
+compares it on `test/cli/fixtures/swar.rig` line by line and checks
+the `# proves:` and `# keeps:` marks of every `proofs` case.
 `test/matrix.py`'s `proof.` grid puts each guard, write, and use
 together and checks the dump against its own copy of these tables; its
 `unit.` grid puts a write of `i` in each slot of each statement form
@@ -2191,7 +2191,7 @@ type, so `print` shows it as a mask rather than as the bytes that
 hold it. Sema sizes a mask as it is held (`sema.maskBytes`, a byte a
 lane above `max_bit_mask_lanes`, a bit a lane at or below), so the
 limits on a value's size and a frame's count its bytes
-(`test/reject/types/mask_size.rig`); a unit test holds that size to
+(the case `mask size` of `test/rig/types-misc-1.rig.test`); a unit test holds that size to
 the runtime's `@sizeOf(rig.Mask(n))`.
 `test/lanes/mask_rig_grid.py` checks every mask operation at every lane
 count, in debug and `--release`, against a scalar reference, in each
@@ -2252,7 +2252,7 @@ is the idiom for testing and locating at once; `hits.any()` followed by
 `hits.bits()` reduces the mask twice. In a release build the 16-lane scan
 loop is `cmeq`, `orr`, `shrn`, `fmov`, `cbz`.
 
-`test/behavior/types/simd_*` and `test/reject/types/simd_*` hold the
+The `simd` cases of `test/rig/types-simd.rig.test` hold the
 behavior and rejections, including every block offset from 0 to 130
 against a scan byte by byte.
 
@@ -3916,11 +3916,11 @@ symbols); a query that decides more than that belongs in `Pending`.
   which it was already copied into), and its calls read through `rig.rt`.
   The checker walks the same function, and the optimizer folds `rig.rt`
   away. The panic is the same one at the same line.
-  `test/behavior/emit/inline_*.rig` run calls with literal arguments in
+  The `inline` cases of `test/rig/emit-misc-1.rig.test` run calls with literal arguments in
   debug and `--release`, `test/cli/inline_grid.sh` runs every shape of
   result against every use in both, `test/cli/inline.sh` checks which
-  functions are inlined, and `test/behavior/types/value_size_limit.rig`
-  holds the frames to their limit.
+  functions are inlined, and the case `value size limit` of
+  `test/rig/types-misc-2.rig.test` holds the frames to their limit.
 
   **Parts of constants.** Zig also knows a part of a value built only
   of constants: an element of a module constant array (`pub const`),
@@ -3944,8 +3944,8 @@ symbols); a query that decides more than that belongs in `Pending`.
   instructions, and `rig.rt(T[3]) + rig.rt(T[5])` folds to the constant in
   `--release`. A part that is itself an array or a value (a row of a
   nested table) is left bare: what reads or binds it is one of the three.
-  `test/behavior/emit/const_table_*.rig` and `constructed_field_overflow.rig`
-  run the forms, and `test/matrix.py -k fold.` every constant against every
+  The `const table` cases and `constructed field overflow` of
+  `test/rig/emit-misc-1.rig.test` run the forms, and `test/matrix.py -k fold.` every constant against every
   way of reading it and every operator that can fail, in debug and `--release`.
 
 - **Evaluation order of arguments.** A call's arguments are evaluated
@@ -4175,7 +4175,7 @@ reviewed.
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
-| `typeName(x, names)` | `@name(T)` of a type that holds a type parameter. Emit writes such a `@name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, and a type whose parentheses depend on the instance (`T?`, `*T`, `sema.spelledPerInstance`) named whole, from its Zig type, while a type known where it is written is the printer's string itself. The Zig type of an instance that holds a view or a slice, but a `?String`, does not tell its Rig type, so such an instance is rejected (`Requirement.named`). Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which `test/behavior/types/type_names` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
+| `typeName(x, names)` | `@name(T)` of a type that holds a type parameter. Emit writes such a `@name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, and a type whose parentheses depend on the instance (`T?`, `*T`, `sema.spelledPerInstance`) named whole, from its Zig type, while a type known where it is written is the printer's string itself. The Zig type of an instance that holds a view or a slice, but a `?String`, does not tell its Rig type, so such an instance is rejected (`Requirement.named`). Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which the case `type names` of `test/rig/types-misc-2.rig.test` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
 | `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `filled` and `resize` fill new slots with one `@memset`; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
 | `cloneValue` | `+x` of a value that clones part by part (`sema.cloneable` is `deep`): a handle counted again, a String's bytes and a List's elements copied (`List.clone`), a box's value boxed again, a struct field by field, a tagged union by its payload, and plain data copied |
 | `String` | `String`: a `std.ArrayList(u8)` on the default allocator. `of` and `add` take the pieces `print` does (below), with no separators: each run of text is appended once, by the one writer of its length, a `?String` or a String as its bytes, and each other value by the one writer of its type, `writeValue` at the top level through a `std.Io.Writer.Allocating` over the list, so `String(...)` and `print` agree exactly; `bytes` is the `?String` view, `length`, `clear` (keeps the buffer), `clone`, and `__rig_drop`. `writeValue` prints it as its bytes and `eql` compares its bytes with a String's or a `?String`'s |
@@ -4397,8 +4397,8 @@ inputs, CLI scripts, the Zig unit tests, a parser-freshness check, and
 every `rig` example in the documentation. [test/README.md](../test/README.md)
 describes each kind and its directives.
 
-To fix a bug: write a failing test first (under `test/known/` if it will
-not be fixed in the same change), make it pass, and keep the suite
+To fix a bug: write a failing case first (marked `known: true` if it
+will not be fixed in the same change), make it pass, and keep the suite
 green.
 
 ### The reference ownership checker

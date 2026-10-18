@@ -1,0 +1,557 @@
+# ownership: tests whose names start `param`.
+
+fail "param store alias", "11:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # A store through a local write view of parameter `a` lands in `a`'s
+  # value, which keeps `b` lent for the rest of the body.
+
+  obj Holder
+    r: []Int
+
+  fun f(a: !Holder, b: !List[Int]) -> Int keeps b
+    k = !a
+    k.r = ?b[..]
+    for i in 0..100
+      !b.push(i)
+    a.r[0]
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  print(f(!h, !v))
+
+fail "param store as binding", "11:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # A store through an `if !a as h` binding lands in parameter `a`'s value,
+  # which keeps `b` lent for the rest of the body.
+
+  obj Holder
+    r: []Int
+
+  fun f(a: !Holder?, b: !List[Int]) -> Int keeps b
+    if !a as h
+      h.r = ?b[..]
+    for i in 0..100
+      !b.push(i)
+    if ?a as h
+      return h.r[0]
+    0
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h: Holder? = Holder(r: ?x[..])
+  print(f(!h, !v))
+
+fail "param store assign whole", "10:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # Assigning write parameter `a` writes into the caller's value, which
+  # keeps `b` lent for the rest of the body.
+
+  obj Holder
+    r: []Int
+
+  fun f(a: !Holder, b: !List[Int]) -> Int keeps b
+    a = Holder(r: ?b[..])
+    for i in 0..100
+      !b.push(i)
+    a.r[0]
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  print(f(!h, !v))
+
+fail "param store by value write field", "9:6: a write view is never stored inside a value, and `!Holder` cannot stand here", errors: 1
+  # A parameter taken by value cannot hold a `!Holder` that reaches the
+  # caller's Holder: a write view is never stored inside a value, so the
+  # field is rejected where it is declared.
+
+  obj Holder
+    r: []Int
+
+  obj Ctx
+    w: !Holder
+
+  print(1)
+
+fail "param store call", "13:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # A call that may store its arguments in its `!` arguments stores a view
+  # of `b` in parameter `a`, which keeps `b` lent for the rest of the body.
+
+  obj Holder
+    r: []Int
+
+  sub put(h: !Holder, s: []Int) keeps s
+    h.r = s
+
+  fun f(a: !Holder, b: !List[Int]) -> Int keeps b
+    put(!a, ?b[..])
+    for i in 0..100
+      !b.push(i)
+    a.r[0]
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  print(f(!h, !v))
+
+fail "param store closure capture", "11:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # A closure that captures `!a` and `?b` may store a view of `b` in `a`:
+  # making it keeps `b` lent for the rest of the body.
+
+  obj Holder
+    r: []Int
+
+  fun f(a: !Holder, b: !List[Int]) -> Int keeps b
+    g = |!a, ?b| a.r = ?b[..]
+    g()
+    for i in 0..100
+      !b.push(i)
+    a.r[0]
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  print(f(!h, !v))
+
+fail "param store closure param", "14:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # A closure's write parameter is a parameter too: a view of `b` stored
+  # in `a` keeps `b` lent for the rest of the closure's body.
+
+  obj Holder
+    r: []Int
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  g = |a: !Holder, b: !List[Int]|
+    a.r = ?b[..]
+    for i in 0..100
+      !b.push(i)
+    a.r[0]
+  print(g(!h, !v))
+
+fail "param store defer", "12:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # A `defer` that stores in parameter `a` runs when its block ends; from
+  # there on, `b` stays lent for the rest of the body.
+
+  obj Holder
+    r: []Int
+
+  fun f(a: !Holder, b: !List[Int]) -> Int keeps b
+    if a.r.len > 0
+      defer a.r = ?b[..]
+      print(1)
+    for i in 0..100
+      !b.push(i)
+    a.r[0]
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  print(f(!h, !v))
+
+fail "param store element", "7:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # A store into an element of write slice `a` keeps `b` lent for the
+  # rest of the body.
+
+  fun f(a: ![2][]Int, b: !List[Int]) -> Int keeps b
+    a[0] = ?b[..]
+    for i in 0..100
+      !b.push(i)
+    a[0][0]
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  hs = [?x[..], ?x[..]]
+  print(f(!hs, !v))
+
+fail "param store element field", "10:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # A store into a field of an element of write slice `a` keeps `b` lent
+  # for the rest of the body.
+
+  obj Holder
+    r: []Int
+
+  fun f(a: ![]Holder, b: !List[Int]) -> Int keeps b
+    a[0].r = ?b[..]
+    for i in 0..100
+      !b.push(i)
+    a[0].r[0]
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  hs = [Holder(r: ?x[..])]
+  print(f(!hs, !v))
+
+fail "param store field", "11:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # A view of write parameter `b` stored in write parameter `a` keeps `b`
+  # lent for the rest of the body: the caller reads `a` after the return,
+  # so `!b.push` cannot reallocate the buffer `a.r` views.
+
+  obj Holder
+    r: []Int
+
+  fun f(a: !Holder, b: !List[Int]) -> Int keeps b
+    a.r = ?b[..]
+    for i in 0..100
+      !b.push(i)
+    a.r[0]
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  print(f(!h, !v))
+
+fail "param store loop element", "11:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # A store through a `for k in !a` element lands in parameter `a`'s
+  # elements, which keeps `b` lent for the rest of the body.
+
+  obj Holder
+    r: []Int
+
+  fun f(a: ![]Holder, b: !List[Int]) -> Int keeps b
+    for k in !a
+      k.r = ?b[..]
+    for i in 0..100
+      !b.push(i)
+    a[0].r[0]
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  hs = [Holder(r: ?x[..])]
+  print(f(!hs, !v))
+
+fail "param store loop element assign", "11:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # Assigning a `for k in !a` element writes into parameter `a`'s
+  # elements, which keeps `b` lent for the rest of the body.
+
+  obj Holder
+    r: []Int
+
+  fun f(a: ![]Holder, b: !List[Int]) -> Int keeps b
+    for k in !a
+      k = Holder(r: ?b[..])
+    for i in 0..100
+      !b.push(i)
+    a[0].r[0]
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  hs = [Holder(r: ?x[..])]
+  print(f(!hs, !v))
+
+fail "param store match payload", "16:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # A store through a `match !a` payload lands in parameter `a`'s value,
+  # which keeps `b` lent for the rest of the body.
+
+  obj Holder
+    r: []Int
+
+  enum E
+    one(h: Holder)
+    zero
+
+  fun f(a: !E, b: !List[Int]) -> Int keeps b
+    match !a
+      .one(h) => h.r = ?b[..]
+      .zero => print(0)
+    for i in 0..100
+      !b.push(i)
+    match a
+      .one(h) => h.r[0]
+      .zero => 0
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  e: E = .one(h: Holder(r: ?x[..]))
+  print(f(!e, !v))
+
+fail "param store method", "13:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # A method that stores its argument in `!self` stores a view of `b` in
+  # parameter `a`, which keeps `b` lent for the rest of the body.
+
+  obj Holder
+    r: []Int
+
+    sub set(!self, s: []Int) keeps s
+      self.r = s
+
+  fun f(a: !Holder, b: !List[Int]) -> Int keeps b
+    !a.set(?b[..])
+    for i in 0..100
+      !b.push(i)
+    a.r[0]
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  print(f(!h, !v))
+
+fail "param store nested", "13:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # A store into a field of a field of parameter `a` keeps `b` lent for
+  # the rest of the body.
+
+  obj Holder
+    r: []Int
+
+  obj Outer
+    h: Holder
+
+  fun f(a: !Outer, b: !List[Int]) -> Int keeps b
+    a.h.r = ?b[..]
+    for i in 0..100
+      !b.push(i)
+    a.h.r[0]
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  o = Outer(h: Holder(r: ?x[..]))
+  print(f(!o, !v))
+
+fail "param store read back", "11:5: cannot lend `c` to write while a read loan is live", errors: 1
+  # A view of `b` stored in parameter `a` and read back into a local keeps
+  # `b` lent: `t` views `b`'s buffer through `a`.
+
+  obj Holder
+    r: []Int
+
+  fun f(a: !Holder, b: []Int, c: !List[Int]) -> Int keeps c
+    a.r = ?c[..]
+    t = a.r
+    for i in 0..100
+      !c.push(i)
+    t[0] + b.len
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  print(f(!h, ?x[..], !v))
+
+fail "param store swap", "11:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # `swap` moves a value holding a String that views `b` into parameter
+  # `a`, which keeps `b` lent for the rest of the body.
+
+  obj Holder
+    s: ?String
+
+  fun f(a: !Holder, b: !String) -> Int keeps b
+    q = Holder(s: ?b[0..1])
+    swap(!a, !q)
+    for _ in 0..100
+      !b.add("abcdefgh")
+    print(a.s)
+    0
+
+  t = String("zz")
+  w = String("abc")
+  h = Holder(s: ?t[..])
+  print(f(!h, !w))
+
+fail "param store then assign owner", "12:3: cannot assign to `b.n` while `b` is lent", errors: 1
+  # A read view of `b` stored in parameter `a` keeps `b` lent: `b` cannot
+  # be written while the read loan is live.
+
+  obj Item
+    n: Int
+
+  obj Holder
+    r: ?Item
+
+  fun f(a: !Holder, b: !Item) -> Int keeps b
+    a.r = ?b
+    b.n = 5
+    a.r.n
+
+  x = Item(n: 1)
+  y = Item(n: 2)
+  h = Holder(r: ?x)
+  print(f(!h, !y))
+
+test "param store view", '''
+  3 8
+  3
+  3
+  4
+  1
+  2
+  2
+  12
+  9
+  4
+  2 2
+  2
+  bcd abcdef
+  6
+  bcd
+'''
+  # A view stored in a view parameter keeps what it views lent for the
+  # rest of the body. The owner can still be read, written before the
+  # store, and written once the holder's caller is done with it; a caller's
+  # view stored there lends nothing of the callee's.
+
+  obj Holder
+    r: []Int
+
+    sub set(!self, s: []Int) keeps s
+      self.r = s
+
+  obj Text2
+    s: ?String
+
+  fun total(xs: []Int) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  # The owner is written first, then lent and only read.
+  fun grow_then_store(a: !Holder, b: !List[Int]) -> Int keeps b
+    !b.push(5)
+    a.r = ?b[..]
+    print(b.len, total(?b[..]))
+    a.r[0] + a.r[1]
+
+  # A method stores the view; the owner is read through other views.
+  fun store_by_method(a: !Holder, b: !List[Int]) -> Int keeps b
+    !a.set(?b[..])
+    for x in ?b
+      print(x)
+    a.r.len
+
+  # A caller's view stored in a parameter lends nothing here.
+  fun store_caller_view(a: !Holder, b: []Int, c: !List[Int]) -> Int keeps b
+    a.r = b
+    !c.push(7)
+    a.r[0] + c.len
+
+  # A local holder's loan ends at its last use.
+  fun local_holder(b: !List[Int]) -> Int
+    x = [9, 9]
+    h = Holder(r: ?x[..])
+    h.r = ?b[..]
+    n = h.r[0]
+    !b.push(8)
+    n + b.len
+
+  # A closure that captures `!a` and only reads leaves `b` readable.
+  fun closure_reads(a: !Holder, b: !List[Int]) -> Int keeps b
+    g = |!a, ?b| print(a.r.len, b.len)
+    g()
+    b.len
+
+  # A String viewing a Text stays readable beside the Text.
+  fun text_view(a: !Text2, b: !String) -> Int keeps b
+    !b.add("def")
+    a.s = ?b[1..4]
+    print(a.s, b)
+    b.len
+
+  fun mk() -> List[Int]
+    v: List[Int] = List()
+    !v.push(1)
+    !v.push(2)
+    v
+
+  x = [9, 9]
+  v1 = mk()
+  h1 = Holder(r: ?x[..])
+  print(grow_then_store(!h1, !v1))
+  print(h1.r.len)
+  !v1.push(3)
+  print(v1.len)
+  v2 = mk()
+  h2 = Holder(r: ?x[..])
+  print(store_by_method(!h2, !v2))
+  v3 = mk()
+  h3 = Holder(r: ?x[..])
+  print(store_caller_view(!h3, ?x[..], !v3))
+  print(h3.r[0])
+  v4 = mk()
+  print(local_holder(!v4))
+  v5 = mk()
+  h5 = Holder(r: ?x[..])
+  print(closure_reads(!h5, !v5))
+  t = String("abc")
+  q = String("zz")
+  w = Text2(s: ?q[..])
+  print(text_view(!w, !t))
+  print(w.s)
+
+fail "param store view is rejected", "10:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # Storing a String viewing `b` in a field of parameter `a` keeps `b`
+  # lent for the rest of the body.
+
+  obj Holder
+    s: ?String
+
+  fun f(a: !Holder, b: !String) -> Int keeps b
+    a.s = ?b[0..1]
+    for _ in 0..100
+      !b.add("abcdefgh")
+    print(a.s)
+    0
+
+  t = String("zz")
+  w = String("abc")
+  h = Holder(s: ?t[..])
+  print(f(!h, !w))
+
+fail "param store write field", "13:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # A store into a field of a `Holder` that parameter `c` writes lands in
+  # what the caller lent, which keeps `b` lent for the rest of the body.
+
+  obj Holder
+    r: []Int
+
+  obj Ctx
+    w: Holder
+
+  fun f(c: !Ctx, b: !List[Int]) -> Int keeps b
+    c.w.r = ?b[..]
+    for i in 0..100
+      !b.push(i)
+    c.w.r[0]
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  c = Ctx(w: <h)
+  print(f(!c, !v))
+
+fail "param store write through", "13:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # Assigning a `Holder` field of parameter `c` writes into what the
+  # caller lent, which keeps `b` lent for the rest of the body.
+
+  obj Holder
+    r: []Int
+
+  obj Ctx
+    w: Holder
+
+  fun f(c: !Ctx, b: !List[Int]) -> Int keeps b
+    c.w = Holder(r: ?b[..])
+    for i in 0..100
+      !b.push(i)
+    c.w.r[0]
+
+  x = [9, 9]
+  v: List[Int] = List()
+  !v.push(1)
+  h = Holder(r: ?x[..])
+  c = Ctx(w: <h)
+  print(f(!c, !v))

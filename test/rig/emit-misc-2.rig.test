@@ -1,0 +1,1736 @@
+# emit: the rest of its tests, part 2.
+
+test "member of branch value", '''
+  3 1
+  120 98
+  4
+  4
+'''
+  # A field or element of a value that branches (a ternary or `??`) whose branches have different Zig types, a literal and a
+  # String: the value is read as its Rig type first.
+
+  fun pick(s: ?String, c: Bool) -> Int
+    ("b" if c else s).len
+
+  fun first(s: ?String, c: Bool) -> U8
+    ("b" if c else s)[0]
+
+  o: (?String)? = none
+  k = 2
+  print(pick("abc", false), pick("abc", true))
+  print(first("xyz", false), first("xyz", true))
+  print((o ?? "four").len)
+  m = match k
+    1 => "one"
+    _ => "many"
+  print(m.len)
+
+test "member of constructor", "7"
+  # A field can be read straight off a constructed value.
+
+  obj B
+    n: Int
+
+  print(B(n: 7).n)
+
+test "method named like function", '''
+  42
+  40
+'''
+  # A method may share its name with a module-level function; inside the
+  # type, the bare name still means the module-level function.
+
+  fun helper() -> Int
+    40
+
+  obj S
+    n: Int
+
+    fun helper(?self) -> Int
+      self.n + helper()
+
+  s = S(n: 2)
+  print(s.helper())
+  print(helper())
+
+test "moved branch path base", "5 [3, 14] 3 2 8", release: true
+  # A value that branches over lends, moved (`<(!p if c else !q)`), is the
+  # view of the place the branch took: a field or element of it is
+  # reached through that place, read or written.
+
+  obj P
+    x: Int
+    a: [2]Int
+
+  c = 1 > 0
+  p = P(x: 1, a: [1, 2])
+  q = P(x: 3, a: [3, 4])
+  (<(!p if c else !q)).x = 5
+  (<(!q if c else !p)).a[1] += 10
+  y = (<(?p if not c else ?q)).x
+  arr = [1, 2]
+  b = [3, 4]
+  z = (<(?arr if c else ?b))[1]
+  v: List[Int] = List()
+  !v.push(7)
+  w: List[Int] = List()
+  !w.push(8)
+  u = (<(?v if not c else ?w))[0]
+  print(p.x, q.a, y, z, u)
+
+test "named args source order", release: true, '''
+  true 1
+  true 1
+  301 1
+  11 11
+  21 11
+  true
+  2
+  11 11
+'''
+  # Arguments are evaluated in the order they are written and passed in
+  # the order the parameters are declared, so a name that a later-written
+  # argument changes is read after it, whatever view it is read as: a
+  # String's bytes, a slice, or a copy of a number. The checker walks the
+  # same order.
+
+  obj Acc
+    total: Int
+
+    sub put(!self, s: ?String, n: Int)
+      self.total += n + s.len
+
+  obj P
+    x: Int
+    y: Int
+
+  fun grow(t: !String) -> Int
+    for _ in 0..200
+      !t.add("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+    1
+
+  fun fill(v: !List[Int]) -> Int
+    for i in 0..300
+      !v.push(i)
+    1
+
+  fun bump(n: !Int) -> Int
+    n += 10
+    n
+
+  sub show(s: ?String, n: Int)
+    print(s.len > 8000, n)
+
+  sub show_text(s: ?String, n: Int)
+    print(s.len > 8000, n)
+
+  sub total(xs: []Int, n: Int)
+    print(xs.len, n)
+
+  sub both(a: Int, b: Int)
+    print(a, b)
+
+  fun pick[T](v: ?T, n: Int) -> Int
+    n + 1
+
+  t = String("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
+  show(n: grow(!t), s: ?t)
+  u = String("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
+  show_text(n: grow(!u), s: ?u)
+  v: List[Int] = List()
+  !v.push(1)
+  total(n: fill(!v), xs: ?v)
+  x = 1
+  both(b: bump(!x), a: ?x)
+  both(b: ?x, a: bump(!x))
+  w = String("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
+  acc = Acc(total: 0)
+  !acc.put(n: grow(!w), s: ?w)
+  print(acc.total > 8000)
+  z = String("abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ")
+  print(pick(n: grow(!z), v: ?z))
+  q = 1
+  p = P(y: bump(!q), x: ?q)
+  print(p.x, p.y)
+
+test "optional binding discard", '''
+  some
+  alive
+  end
+  drop 1
+'''
+  # `if e as _` tests for a value without binding it; a resource inside is
+  # dropped at once.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  m: Int? = 3
+  if m as _
+    print("some")
+  rc = *Noisy(id: 1)
+  w = ~rc
+  if *w as _
+    print("alive")
+  print("end")
+
+test "optional view field as", '''
+  hi
+  hi
+  hi
+  none
+  hi
+'''
+  # `if … as` over a field or an element that holds a read view of an
+  # optional reads the optional through the view once: emit used to
+  # dereference a field's view twice, which Zig rejects.
+
+  obj H
+    o: ?String?
+
+  sub show(h: ?H)
+    if h.o as t
+      print(t)
+
+  sub showAll(hs: ?[2]H)
+    if hs[1].o as t
+      print(t)
+
+  fun pick(hs: ?[2]H, i: Int) -> ?String? from hs
+    hs[i].o
+
+  s: String? = String("hi")
+  e: String? = none
+  h = H(o: ?s)
+  show(?h)
+  if h.o as u
+    print(u)
+  hs = [H(o: ?e), H(o: ?s)]
+  showAll(?hs)
+  if hs[0].o as t
+    print(t)
+  else
+    print("none")
+  if pick(?hs, 1) as t
+    print(t)
+
+test "optional view from branch", '''
+  7
+  7
+  7
+  true
+  7
+  114
+  8
+  drop 8
+  drop 7
+'''
+  # An `if`, ternary, or `match` yielding a view where an optional
+  # view is expected yields the view itself.
+
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun pick(a: ?D, k: Int) -> (?D)?
+    ?a if k == 0 else none
+
+  fun choose(a: ?D, k: Int) -> (?D)?
+    if k == 0
+      ?a
+    else
+      none
+
+  fun which(a: ?D, k: Int) -> (?D)?
+    match k
+      0 => ?a
+      _ => none
+
+  fun whole(a: ?D) -> (?D)?
+    a
+
+  fun slot(m: !Int, k: Int) -> (!Int)?
+    m if k == 0 else none
+
+  fun cell(m: !Int) -> (!Int)?
+    m
+
+  obj Wrap[T]
+    v: T
+
+    fun get(?self, k: Int) -> (?T)?
+      ?self.v if k == 0 else none
+
+  d = D(n: 7)
+  if pick(?d, 0) as r
+    print(r.n)
+  if choose(?d, 0) as r
+    print(r.n)
+  if which(?d, 0) as r
+    print(r.n)
+  print(pick(?d, 1) == none)
+  if whole(?d) as r
+    print(r.n)
+  x = 3
+  if slot(!x, 0) as r
+    r += 1
+  if cell(!x) as r
+    r += 10
+  w: (!Int)? = !x if x > 0 else none
+  if <w as r
+    r += 100
+  print(x)
+  b = Wrap(v: D(n: 8))
+  if b.get(0) as r
+    print(r.n)
+
+test "owned vec param", "1"
+  # An owned value parameter (`v: List[Int]`) belongs to the callee, which
+  # drops it on return.
+
+  sub eat(v: List[Int])
+    print(v.len)
+
+  v: List[Int] = List()
+  !v.push(1)
+  eat(<v)
+
+test "owning param names", '''
+  1
+  ignored
+  drop 1
+  keep 2
+  drop 2
+  consume
+'''
+  # Owning by-value parameters are copied into locals under generated names,
+  # whatever they are called: Zig keywords, `_`, and names that look like the
+  # emitter's own.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub kw(var: List[Int])
+    print(var.len)
+
+  sub ignore(_: List[Int], _: *B)
+    print("ignored")
+
+  sub flags(alive_b: List[Int], b: *B)
+    if alive_b.len > 0
+      keep(<b)
+
+  sub keep(b: *B)
+    print("keep", b.n)
+
+  obj S
+    v: List[Int]
+
+    sub consume(<self)
+      f = || print("consume")
+      f()
+
+  v: List[Int] = List()
+  !v.push(1)
+  kw(<v)
+  w: List[Int] = List()
+  ignore(<w, *B(n: 1))
+  u: List[Int] = List()
+  !u.push(2)
+  flags(<u, *B(n: 2))
+  s = S(v: List())
+  <s.consume()
+
+test "print reads cell after later set", "Cell(value: []) 0"
+  # `print` reads a Cell when it is called: a later argument that replaces
+  # its List through another handle, dropping the old one, leaves the new List
+  # to print.
+  fun reset(c: !Cell[List[Int]]) -> Int
+    !c.set(List())
+    0
+
+  c: *Cell[List[Int]] = *Cell(List())
+  for i in 0..50
+    !c.push(i * 3)
+  d = +c
+  print(c, reset(!d))
+
+test "print reads cell box after later set", "Cell(value: 2) 0"
+  # `print` reads a `Cell[^Int]` when it is called: the box a later
+  # argument puts in it through another handle prints, not the one it dropped.
+  fun reset(c: !Cell[^Int]) -> Int
+    !c.set(^2)
+    0
+
+  c: *Cell[^Int] = *Cell(^1)
+  d = +c
+  print(c, reset(!d))
+
+test "print reads cell places after later args", release: true, '''
+  Cell(value: [0, 1, 2, 3, 4, 5, 6, 7]) 8
+  Cell(value: [0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7]) 16
+  Cell(value: [0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7]) 24
+  Cell(value: [0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7]) 32
+  S(c: Cell(value: [0, 1, 2, 3, 4, 5, 6, 7])) 8
+  S(c: Cell(value: [0, 1, 2, 3, 4, 5, 6, 7])) 8
+  Cell(value: [0, 1, 2, 3, 4, 5, 6, 7]) 8
+'''
+  # `print` reads every place that owns storage when it is called, after
+  # its later arguments ran, however the shared Cell is reached: through
+  # a read or write view, a generic `?T`, an optional, or a closure's
+  # capture. Each later argument here grows the Cell's List
+  # through another handle, which moves its buffer.
+  obj S
+    c: Cell[List[Int]]
+
+  fun grow(c: !Cell[List[Int]]) -> Int
+    for i in 0..8
+      !c.push(i)
+    c.len
+
+  fun grow_s(s: !S) -> Int
+    grow(!s.c)
+
+  fun grow_opt(o: ?(*S)?) -> Int
+    if o as s
+      return grow(!s.c)
+    0
+
+  sub read_param(c: ?Cell[List[Int]], o: !Cell[List[Int]])
+    print(c, grow(!o))
+
+  sub write_param(c: ?*Cell[List[Int]], o: !*Cell[List[Int]])
+    print(c, grow(!o))
+
+  sub generic[T](x: ?T, c: !Cell[List[Int]])
+    print(x, grow(!c))
+
+  c: *Cell[List[Int]] = *Cell(List())
+  d = +c
+  read_param(c, !d)
+  write_param(c, !d)
+  generic(?c, !d)
+  w = ?c
+  print(w, grow(!d))
+  o: (*S)? = *S(c: Cell(List()))
+  print(o, grow_opt(?o))
+  s0 = *S(c: Cell(List()))
+  s1 = +s0
+  print(s1, grow_s(!s0))
+  e: *Cell[List[Int]] = *Cell(List())
+  f = +e
+  g = |+f| grow(!f)
+  print(e, g())
+
+test "print reads cell shared after later set", "Cell(value: []) 0"
+  # `print` reads a `Cell[*List[Int]]` when it is called: a later argument
+  # that drops, through another handle, the last handle the Cell held leaves the new one to print.
+  fun reset(c: !Cell[*List[Int]]) -> Int
+    !c.set(*List[Int]())
+    0
+
+  v = List[Int]()
+  for i in 0..40
+    !v.push(i)
+  c: *Cell[*List[Int]] = *Cell(*<v)
+  d = +c
+  print(c, reset(!d))
+
+test "print reads cell vec after later args", '''
+  Cell(value: [42, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]) 5
+  21
+'''
+  # `print` reads each argument when it is called, after every argument
+  # has run: a Cell a later argument grows through another handle prints
+  # as it is then.
+  fun grow(c: !Cell[List[Int]]) -> Int
+    for i in 0..20
+      !c.push(i)
+    5
+
+  c: *Cell[List[Int]] = *Cell(List())
+  !c.push(42)
+  d = +c
+  print(c, grow(!d))
+  print(c.len)
+
+test "print reads self cell after later args", "Cell(value: [42, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]) 5"
+  # Inside a `?self` method, `print(self.c, (!other).grow())` reads the
+  # Cell when `print` is called, after `grow` has grown its List through
+  # another handle.
+  obj S
+    c: Cell[List[Int]]
+
+    fun grow(!self) -> Int
+      for i in 0..20
+        !self.c.push(i)
+      5
+
+    sub show(?self, other: !S)
+      print(self.c, (!other).grow())
+
+  s = *S(c: Cell(List()))
+  !s.c.push(42)
+  t = +s
+  s.show(!t)
+
+test "print reads shared cell after later args", "Cell(value: [42, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]) 5"
+  # A shared Cell prints its contents as they are when `print` is called,
+  # after a later argument has grown them through another handle.
+  fun grow(h: *Cell[List[Int]]) -> Int
+    for i in 0..20
+      !h.push(i)
+    5
+
+  h: *Cell[List[Int]] = *Cell(List())
+  !h.push(42)
+  print(h, grow(+h))
+
+test "print reads struct cell after later args", "S(c: Cell(value: [42, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19])) 5"
+  # `print` reads a struct holding a Cell when it is called, after a later
+  # argument has grown the Cell's List through another handle of the struct.
+  obj S
+    c: Cell[List[Int]]
+
+  fun grow(s: !S) -> Int
+    for i in 0..20
+      !s.c.push(i)
+    5
+
+  s = *S(c: Cell(List()))
+  !s.c.push(42)
+  d = +s
+  print(s, grow(!d))
+
+test "print reads unique cell after later args", '''
+  K(hits: Cell(value: 99)) 1
+  K(hits: Cell(value: 99))
+  1 Cell(value: 7) 2
+  Cell(value: 7)
+'''
+  # A shared Cell of plain data, alone or in a struct, is read by `print`
+  # where it is, when the call runs, as it reads a Cell of a List
+  # (print_reads_cell_after_later_set.rig): a later argument that changes
+  # the Cell through another handle shows in what is printed.
+  obj K
+    hits: Cell[Int]
+
+  fun bump(k: !K) -> Int
+    !k.hits.set(99)
+    1
+
+  fun bump2(c: !Cell[Int]) -> Int
+    !c.set(7)
+    2
+
+  k = *K(hits: Cell(1))
+  d = +k
+  print(k, bump(!d))
+  print(k)
+  c = *Cell(1)
+  e = +c
+  print(c.get(), c, bump2(!e))
+  print(c)
+
+test "qualified variant of payload enum", "0 .point"
+  # `Shape.point` names a bare variant of an enum whose other variants
+  # carry payloads; bound without an annotation it is a `Shape`, so its
+  # methods can be called.
+
+  enum Shape
+    circle(radius: Int)
+    point
+
+    fun area(?self) -> Int
+      match self
+        .circle(r) => 3 * r * r
+        .point => 0
+
+  c = Shape.point
+  print(c.area(), c)
+
+test "range for break else", '''
+  3
+  none
+'''
+  # A range loop's `else` runs only when the loop was not left by `break`;
+  # the range is half-open and its bounds may be expressions.
+
+  sub find(limit: Int, target: Int)
+    for i in 0..limit + 1
+      if i == target
+        print(i)
+        break
+    else
+      print("none")
+
+  find(5, 3)
+  find(2, 3)
+  for i in 3..3
+    print(i)
+
+test "raw block assigns outer", "5"
+  # Assigning an outer local inside a `raw` block updates it.
+
+  r = 0
+  raw
+    r = 5
+  print(r)
+
+test "raw block value", "5"
+  # A `raw` block can be a function's value.
+
+  extern fun abs(n: I32) -> I32
+
+  fun safe_abs(n: I32) -> I32
+    raw
+      abs(n)
+
+  print(safe_abs(-5))
+
+test "read view large by pointer", "57 3 7 400000"
+  # A read view of large plain data is passed by pointer, not copied:
+  # each of these frames would otherwise hold a 3.2 MB copy, and fifty of
+  # them overflow the stack. Small plain data is still passed as a copy.
+
+  obj Pair
+    a: Int
+    b: Int
+
+  fun deep(x: ?[400000]Int, n: Int) -> Int
+    return x[n] if n == 0
+    deep(x, n - 1) + 1
+
+  fun sum(p: ?Pair) -> Int
+    p.a + p.b
+
+  fun first(x: ?[400000]Int) -> ?[400000]Int
+    x
+
+  big: [400000]Int = [400000 of 7]
+  r = ?big
+  r = first(?big)
+  print(deep(?big, 50), sum(?Pair(a: 1, b: 2)), r[399999], big.len)
+
+test "read view local rebind", "2"
+  # A read view local of plain data rebound to a function's `?T`
+  # result: a local, a parameter, and a result hold a plain read view
+  # the same way.
+
+  obj Wrap
+    n: Int
+
+  fun get(w: ?Wrap) -> ?Wrap
+    w
+
+  a = Wrap(n: 1)
+  b = Wrap(n: 2)
+  r = ?a
+  r = get(?b)
+  print(r.n)
+
+test "read view of plain data rebound", '''
+  6
+  5
+  false
+  false
+  1 2
+  Pt(x: 3, y: 4)
+  7
+'''
+  # A read view of plain data copies (Core §4), in a local, a field, a
+  # parameter, and a result alike, generic or not: a local bound to a lend
+  # takes a call's result, and a generic `?T` agrees with its instance.
+
+  obj Pt
+    x: Int
+    y: Int
+
+  obj Pair[T]
+    x: T
+    r: ?T
+
+    fun left(?self, other: ?T) -> ?T
+      ?self.x
+
+    fun pick(?self, other: ?T, first: Bool) -> ?T
+      if first
+        ?self.x
+      else
+        other
+
+  fun choose[T](a: ?T, b: ?T, first: Bool) -> ?T
+    if first
+      a
+    else
+      b
+
+  fun keep[T](a: ?T) -> ?T
+    v = a
+    w = ?a
+    v = w
+    v
+
+  sub show[T](p: ?Pair[T], o: ?T)
+    q = p.left(o)
+    q = choose(?p.x, o, false)
+    q = ?p.x
+    print(q)
+
+  o = 6
+  p = Pair(x: 5, r: ?o)
+  q = ?p.x
+  q = ?p.left(?o)
+  q = ?p.pick(?o, false)
+  q = choose(?p.x, ?o, true)
+  q = keep(?o)
+  q = p.r
+  print(q)
+  show(?p, ?o)
+  b = true
+  pb = Pair(x: false, r: ?b)
+  c = ?pb.x
+  c = ?pb.left(?b)
+  c = choose(?b, ?pb.x, false)
+  print(c)
+  show(?pb, ?b)
+  t = Pt(x: 1, y: 2)
+  pt = Pair(x: Pt(x: 3, y: 4), r: ?t)
+  d = ?pt.x
+  d = ?pt.left(?t)
+  d = choose(?t, ?pt.x, true)
+  d = keep(?t)
+  print(d.x, d.y)
+  show(?pt, ?t)
+  plain()
+
+  sub plain()
+    p = Pt(x: 7, y: 8)
+    q = ?p.x
+    q = first_of(?p, ?p.y)
+    print(q)
+
+  fun first_of(p: ?Pt, k: ?Int) -> ?Int
+    ?p.x
+
+test "read view rebound to call", '''
+  5
+  5
+  6
+  6 true
+  two
+  .s
+  3
+  none
+'''
+  # A read view of a value it copies (a number, a String, a plain enum, an
+  # optional of one) that a name holds may be bound again to the view a
+  # call returns, a generic method's included, as to a lend of another
+  # place.
+
+  enum Dir
+    n
+    s
+
+  obj Pair[T]
+    x: T
+
+    fun left(?self, other: ?T) -> ?T
+      ?self.x
+
+  fun pick(a: ?Int, b: ?Int) -> ?Int
+    a
+
+  fun first(a: ?String, b: ?String) -> ?String
+    a
+
+  fun dir(d: ?Dir) -> ?Dir
+    d
+
+  fun some(o: ?Int?) -> ?Int?
+    o
+
+  p = Pair(x: 5)
+  o = 6
+  q = ?p.x
+  print(q)
+  q = ?p.left(?o)
+  print(q)
+  q = pick(?o, ?p.x)
+  print(q)
+  q = ?o
+  print(q, q == o)
+  s1 = "one"
+  s2 = "two"
+  t: ?String = ?s1
+  t = first(?s2, ?s1)
+  print(t)
+  d1 = Dir.n
+  d2 = Dir.s
+  e = ?d1
+  e = dir(?d2)
+  print(e)
+  o1: Int? = 3
+  o2: Int? = none
+  w = ?o1
+  print(w)
+  w = some(?o2)
+  print(w)
+
+test "reassign needs result type", '''
+  0
+  2
+'''
+  # Reassigning a binding, field, or `!T` parameter with a value that takes
+  # its type from context (`List()`, `.variant(...)`) works.
+
+  enum S
+    one(k: Int)
+    empty
+
+  obj H
+    v: List[Int]
+
+  sub reset(v: !List[Int])
+    v = List()
+
+  v: List[Int] = List()
+  !v.push(1)
+  v = List()
+  print(v.len)
+  h = H(v: List())
+  h.v = List()
+  reset(!v)
+  s: S = .empty
+  s = .one(k: 2)
+  match s
+    .one(k) => print(k)
+    .empty => print(0)
+
+test "renamed local names", '''
+  5 4 6 15
+  100
+'''
+  # A local the emitted Zig renames, and the flag that guards its drop,
+  # take names of the emitter's own (`__rig_local_get_3`,
+  # `__rig_alive_4`), so no name of the program's can be one: not a later
+  # local (`var_2`, `debug_2`), and not a generic type's parameter
+  # (`get_1`). A root declaration named `err` is no capture of the
+  # emitter's either.
+
+  err = 100
+
+  error E
+    bad
+
+  fun take(s: String) -> Int
+    s.len
+
+  fun go(c: Bool) -> Int
+    var = String("ab")
+    debug = String("xyz")
+    n = 0
+    if c
+      n += take(<var) + take(<debug)
+    var_2 = String("cde")
+    debug_2 = String("f")
+    if not c
+      n += take(<var_2) + take(<debug_2)
+    n
+
+  obj G[get_1]
+    v: get_1
+
+    fun get(?self) -> Int
+      get = 5
+      get + 1
+
+  enum K[T, get_1: Int]
+    aa(v: T)
+    bb
+
+    fun get(?self) -> Int
+      get = 5
+      get + get_1
+
+  fun f(k: Int) -> Int!
+    if k > 0
+      return E.bad
+    k
+
+  sub main()!
+    print(go(true), go(false), G[Int](v: 3).get(), K[Int, 10].bb.get())
+    print(err + f(0)!)
+
+test "return if guard", '''
+  1
+  2
+'''
+  # `return 1 if c` returns only when `c` holds; otherwise execution
+  # continues to `return 2`.
+
+  fun f(c: Bool) -> Int
+    return 1 if c
+    return 2
+
+  print(f(true))
+  print(f(false))
+
+test "return param through if expr", "1"
+  # Returning an owned parameter through an if-expression moves it out:
+  # the caller receives a live handle.
+
+  obj Wrap
+    n: Int
+
+  fun keep(a: *Wrap, flag: Bool) -> *Wrap
+    if flag
+      a
+    else
+      a
+
+  x = *Wrap(n: 1)
+  z = keep(<x, true)
+  print(z.n)
+
+test "return param through match", '''
+  1
+  2
+  0
+  end
+  0
+  1
+'''
+  # Returning an owned parameter from a match arm moves it out; the arms
+  # that don't return it leave it to be dropped.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  enum Pick
+    keep
+    lose
+
+  fun choose(a: *Noisy, p: Pick) -> *Noisy
+    match p
+      .keep => a
+      .lose => *Noisy(id: 0)
+
+  x = *Noisy(id: 1)
+  y = choose(<x, .keep)
+  print(y.id)
+  z = *Noisy(id: 2)
+  w = choose(<z, .lose)
+  print(w.id)
+  print("end")
+
+test "shadow unused resource", "2"
+  # `new rc = ...` shadows a resource that was never used; the first box is
+  # still dropped at the end of the scope.
+
+  obj Wrap
+    payload: Int
+
+  rc = *Wrap(payload: 1)
+  new rc = *Wrap(payload: 2)
+  print(rc.payload)
+
+test "shadow used resource", '''
+  1
+  2
+'''
+  # `new rc = ...` shadows a resource binding that was already used; both
+  # boxes stay valid until the scope ends, where each is dropped.
+
+  obj Wrap
+    payload: Int
+
+  rc = *Wrap(payload: 1)
+  print(rc.payload)
+  new rc = *Wrap(payload: 2)
+  print(rc.payload)
+
+test "signed int division", '''
+  3
+  -3
+'''
+  # `/` on integers truncates toward zero.
+
+  fun half(n: Int) -> Int
+    n / 2
+
+  print(half(7))
+  print(half(-7))
+
+test "signed remainder", '''
+  1
+  -1
+  1
+  -2
+  -1
+'''
+  # `%` is the remainder with the sign of the dividend.
+
+  print(7 % 2)
+  print(-7 % 2)
+  print(7 % -2)
+  x = -9
+  print(x / 4)
+  print(x % 4)
+
+test "take element through branch", release: true, '''
+  2 [1, none] [3, 4]
+  3
+  [1, none] [none, 4]
+  7 [5, 6] [none, 8]
+'''
+  # `<` takes an optional element through a value that branches over write
+  # lends, leaving `none` in the element of the place the branch took: the
+  # branch is indexed as a whole, in a binding and in an `if … as` header.
+
+  obj S
+    a: [2]Int?
+
+  k = 1 > 0
+  c: [2]Int? = [1, 2]
+  d: [2]Int? = [3, 4]
+  x = <(!c if k else !d)[1]
+  print(x, c, d)
+  if <(!d if k else !c)[0] as m
+    print(m)
+  print(c, d)
+  s = S(a: [5, 6])
+  t = S(a: [7, 8])
+  y = <(!s.a if not k else !t.a)[0]
+  print(y, s.a, t.a)
+
+test "test name single quoted", "1"
+  # A test name may be single-quoted, like any string.
+
+  test 'it''s ok'
+    print(2)
+
+  sub main()
+    print(1)
+
+test "text add reads cell after later args", release: true, '''
+  Cell(value: [])0
+  Cell(value: [0, 1, 2]) 3
+'''
+  # `!t.add(...)` reads every place that owns storage when it is called,
+  # after its later arguments ran, as `print` does: here a later argument
+  # replaces the Cell's List, which frees the old buffer.
+  fun reset(c: !Cell[List[Int]]) -> Int
+    !c.set(List())
+    0
+
+  fun fill(c: !Cell[List[Int]]) -> Int
+    for i in 0..3
+      !c.push(i)
+    3
+
+  c: *Cell[List[Int]] = *Cell(List())
+  for i in 0..40
+    !c.push(i * 1000)
+  t = String()
+  d = +c
+  !t.add(c, reset(!d))
+  print(t)
+  !t.clear()
+  !t.add(c, " ", fill(!d))
+  print(t)
+
+test "text reads cell after later args", release: true, '''
+  4908
+  Cell(value: [])0
+  S(c: Cell(value: [9])) 1
+'''
+  # `String(...)` reads every place that owns storage when it is called,
+  # after its later arguments ran, as `print` does: here a later argument
+  # grows the Cell's List, which moves its buffer, or replaces the List,
+  # which frees it.
+  obj S
+    c: Cell[List[Int]]
+
+  fun grow(c: !Cell[List[Int]]) -> Int
+    for i in 0..1000
+      !c.push(i)
+    5
+
+  fun reset(c: !Cell[List[Int]]) -> Int
+    !c.set(List())
+    0
+
+  fun grow_s(s: !S) -> Int
+    !s.c.push(9)
+    1
+
+  c: *Cell[List[Int]] = *Cell(List())
+  !c.push(42)
+  e = +c
+  t = String(c, grow(!e))
+  print(t.len)
+  d: *Cell[List[Int]] = *Cell(List())
+  !d.push(7)
+  f = +d
+  u = String(d, reset(!f))
+  print(u)
+  s = *S(c: Cell(List()))
+  s2 = +s
+  w = String(s, " ", grow_s(!s2))
+  print(w)
+
+test "underscore zig names", '''
+  .a ._ 2 ._
+  4
+  ._(w: 4)
+  1 O(_: 1, b: 2)
+  E._
+  0 4 G[Int]
+'''
+  # `_` names a variant, a payload variant, a field, an error, or a type
+  # parameter as any name does. Zig reads a bare `_` as a discard (or a
+  # non-exhaustive enum's marker), so the emitted Zig writes `@"_"`.
+
+  enum K
+    a
+    _
+
+  enum V
+    a = 1
+    _ = 2
+
+  enum P
+    p(v: Int)
+    _(w: Int)
+
+  obj O
+    _: Int
+    b: Int
+
+  error E
+    _
+
+  obj G[_]
+    x: Int
+
+  fun f() -> Int!
+    return E._
+
+  print(K.a, K._, Int(V._), V.from_int(2))
+  q = P._(w: 4)
+  match q
+    ._(w) => print(w)
+    _ => print("other")
+  print(q)
+  o = O(_: 1, b: 2)
+  print(o._, o)
+  x = f() catch |e|
+    print(e)
+    0
+  print(x, G[Int](x: 4).x, @name(G[Int]))
+
+test "unused error params", "1 2 3 3 4 5 4"
+  # Zig discards no error by value, so a parameter holding an error that
+  # the body never reads is discarded by address: one of an error set, of
+  # `error`, a read view of one, and a generic one whose instance is an
+  # error.
+
+  error A
+    x
+
+  fun f(e: A) -> Int
+    1
+
+  fun g(e: error) -> Int
+    2
+
+  fun h[T](x: ?T) -> Int
+    3
+
+  fun k[T](x: T) -> Int
+    4
+
+  fun m(e: ?error) -> Int
+    5
+
+  a: A = A.x
+  b: error = A.x
+  print(f(A.x), g(A.x), h(?a), h(?b), k(A.x), m(?b), k(<b))
+
+test "unused loop label", "2"
+  # A label that no `break` or `continue` names is allowed.
+
+  i = 0
+  @outer while i < 2
+    i += 1
+  print(i)
+
+test "unused param", "hello"
+  # A parameter the body never reads is allowed.
+
+  sub greet(name: ?String)
+    print("hello")
+
+  greet("ada")
+
+test "variant default zig names", '''
+  0 5 7 6 9
+  4 1 8 3
+  true false
+  std
+'''
+  # A variant named like a Zig keyword (`fn`, `var`, `struct`,
+  # `unreachable`, `comptime`), a Zig value (`null`, `undefined`), or a
+  # name the emitter uses (`rig`, `std`) is written as a Zig identifier
+  # everywhere it appears: as a field's or a parameter's default too.
+  # `some` names no optional, so it is a variant like any other.
+
+  enum K
+    fn
+    var
+    struct
+    unreachable
+    comptime
+    null
+    undefined
+    rig
+    std
+    some
+
+  obj Box
+    a: K = .fn
+    b: K = .null
+    c: K = .rig
+    d: K = .undefined
+    e: K = .some
+
+  fun pick(k: K = .comptime) -> Int
+    Int(k)
+
+  fun last(k: K = .std) -> K
+    k
+
+  fun mk() -> K
+    .unreachable
+
+  b = Box()
+  print(Int(b.a), Int(b.b), Int(b.c), Int(b.d), Int(b.e))
+  print(pick(), pick(.var), Int(last()), Int(mk()))
+  k: K = .struct
+  print(k == .struct, k == K.null)
+  match last()
+    .std => print("std")
+    _ => print("other")
+
+bomb "variant payload overflow", "integer overflow", prints: "2", release: true
+  # A payload read from a variant built of literals is a run-time value,
+  # whether the variant is bound or matched where it is made.
+
+  enum E
+    v(x: Int)
+
+  match E.v(x: 1)
+    .v(x) => print(x + 1)
+  e = E.v(x: 9223372036854775807)
+  match e
+    .v(x) => print(x + 1)
+
+bomb "vec index out of bounds", "index out of bounds"
+  # Indexing a List past its end panics, and so does a negative index.
+
+  v: List[Int] = List()
+  !v.push(1)
+  i = -1
+  print(v[i])
+
+test "view reached through pointer", '''
+  3
+  2
+'''
+  # A read view held as a pointer and reached through a pointer to it (a
+  # loop binding over a List of views) is dereferenced before a field is
+  # reached; a generic closure's read capture of a write view binding is
+  # the read view of what it points at.
+
+  obj P
+    n: Int
+
+  enum G[T]
+    a(x: T)
+    b
+
+  fun poke[T](g: !G[T]) -> Int
+    match !g
+      .a(x)
+        f = |?x| 2
+        f()
+      .b => 0
+
+  p = P(n: 3)
+  rv: List[?P] = List()
+  !rv.push(?p)
+  for x in rv
+    print(x.n)
+  g2: G[Int] = G.a(4)
+  print(poke(!g2))
+
+test "view result operands", '''
+  7
+  -6
+  1
+  2
+  12
+  true
+  8 3
+  true
+'''
+  # An operator reads through a view that an expression yields: a call
+  # returning `!Int` or `?Int`. (A `!x` written as an operand is read,
+  # its `!` ignored, and is rejected: test/reject/ownership/
+  # ignored_write_lend_read.rig.)
+
+  fun wr(a: !Int) -> !Int
+    a
+
+  fun rd(a: ?Int) -> ?Int
+    a
+
+  x = 6
+  y = 4
+  print(wr(!x) + 1)
+  print(-wr(!x))
+  print(wr(!x) / 4)
+  print(wr(!x) % 4)
+  print(wr(!x) << 1)
+  print(wr(!x) > y)
+  print(rd(?y) * 2, rd(?y) - 1)
+  print(x == 6)
+
+test "view result values", '''
+  false
+  true true
+  3 1
+  true true
+  true true
+  0
+  2 2 false 3
+  3 3 3 4 none
+  3 3
+  3 3
+  30 2
+  0
+  1
+  3.0 3
+  if
+  3
+  3
+  3 3 3
+  41
+'''
+  # A view of a Copy value that an expression yields (a call returning
+  # `!Int`, `!p.get()`) reads as the value wherever a value is expected:
+  # `not`, `and`/`or`, `??`, Text and enum equality, compound
+  # assignment, bindings of the value's type, arguments, returns, fields,
+  # payloads, array elements, indexes, ranges, slices, conversions,
+  # conditions, `if … as`, `?`, branches, loop values, and clones. The
+  # value read is a copy, so the view taken to reach it ends there, and it
+  # is read in argument order, also where a call evaluates its arguments
+  # first. (A binding with no type holds a call's write view, and a
+  # branching value's or a loop's each of whose values is one:
+  # `test/behavior/ownership/write_view_result_binding_holds_view.rig`.)
+
+  error Bad
+    bad
+
+  enum Color
+    red
+    green
+
+  enum Shape
+    dot
+    box(w: Int)
+
+  obj P
+    n: Int
+
+    fun get(!self) -> !Int
+      !self.n
+
+  fun wr(a: !Int) -> !Int
+    a
+
+  fun wb(a: !Bool) -> !Bool
+    a
+
+  fun ws(a: !String) -> !String
+    a
+
+  fun wo(a: !Int?) -> !Int?
+    a
+
+  fun wc(a: !Color) -> !Color
+    a
+
+  fun take(n: Int) -> Int
+    n
+
+  fun ret(a: !Int) -> Int
+    return wr(!a)
+
+  fun tail(a: !Int) -> Int?
+    wr(!a)
+
+  fun bump(a: !Int) -> Int
+    a += 1
+    a
+
+  fun join(a: Int, b: Int) -> Int
+    a * 10 + b
+
+  fun fail(ok: Bool) -> Int!
+    return Bad.bad if not ok
+    5
+
+  fun ordered() -> Int!
+    x = 1
+    v = join(wr(!x), bump(!x))
+    w = join(b: fail(true)!, a: wr(!x))
+    x += wr(!x)
+    v + w + x
+
+  fun next(a: !Int?) -> Int?
+    v = wo(!a)?
+    v + 1
+
+  x = 6
+  y = 2
+  b = true
+  s = String("hi")
+  o: Int? = 3
+  n: Int? = none
+  c = Color.red
+  arr = [10, 20, 30]
+
+  print(not wb(!b))
+  print(wb(!b) and true, false or wb(!b))
+  print(wo(!o) ?? 1, wo(!n) ?? 1)
+  print(ws(!s) == "hi", ws(!s) != "ho")
+  print(wc(!c) == .red, none == wo(!n))
+
+  x += wr(!y)
+  x <<= wr(!y)
+  x /= wr(!y)
+  x %= wr(!y)
+  print(x)
+
+  z: Int = wr(!y)
+  u: Int = wr(!y)
+  v: Bool = wb(!b)
+  y += 1
+  print(z, u, not v, y)
+
+  print(take(wr(!y)), ret(!y), tail(!y), next(!o), next(!n))
+  p = P(n: wr(!y))
+  sh = Shape.box(w: (!p).get())
+  match sh
+    .box(w)
+      print(p.n, w)
+    _
+      print(0)
+  pair: [2]Int = [wr(!y), 0]
+  print(pair[0], [(!p).get(), 1][0])
+
+  print(arr[wr(!u)], ws(!s).len)
+  for i in 0..wr(!u)
+    print(i)
+  print(Float(wr(!y)), +wr(!y))
+
+  if wb(!b)
+    print("if")
+  k = 0
+  while wb(!b)
+    k += 1
+    b = k < 3
+  print(k)
+  if wo(!o) as got
+    print(got)
+
+  t = wr(!y) if not b else 0
+  m = match y
+    3
+      wr(!y)
+    _
+      0
+  l: Int = while true
+    break wr(!y)
+  print(t, m, l)
+  print(ordered() catch 0)
+
+test "while continue expr", '''
+  0
+  1
+  2
+'''
+  # The `: i += 1` continuation of a `while` runs after every iteration.
+
+  i = 0
+  while i < 3 : i += 1
+    print(i)
+
+test "while else block", '''
+  done
+  2
+'''
+  # The `else` block of a `while` runs when the loop ends without `break`.
+
+  i = 0
+  while i < 2
+    i += 1
+  else
+    print("done")
+  print(i)
+
+test "while step nested jumps", '''
+  25 5
+  21 5
+  21 5
+  5021 5
+  3011 3
+'''
+  # A `continue @outer` or `break @outer` from loops nested in the body of
+  # a `while` whose step reads its condition's binding, where the loop is
+  # written as nested `if`s in a `while (true)` (a joined condition, or a
+  # jump in the condition). A `continue @outer` runs the step, at any
+  # depth (an inner `while`, `while … as`, a `for`, a `match` arm, an
+  # inner step) and after the body's defers; a `break @outer` leaves
+  # without it. Here the step refills `a`, which the body moves.
+
+  error E
+    bad
+
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 5
+      return S(s: ?v[..])
+    none
+
+  fun mkf(v: ?List[Int], i: Int) -> S?!
+    return E.bad if i > 70
+    mk(v, i)
+
+  fun fresh(n: Int) -> List[Int]
+    a: List[Int] = List()
+    !a.push(n)
+    a
+
+  fun take(a: List[Int]) -> Int
+    a[0]
+
+  fun odd(j: Int) -> Int?
+    j if j % 2 == 1 else none
+
+  sub joined()
+    v: List[Int] = List()
+    !v.push(5)
+    k = 0
+    i = 0
+    @outer while mk(?v, i) as h and h.s.len > 0: k += h.s[0]
+      i += 1
+      j = 0
+      while j < 3: j += 1
+        continue @outer if j == 2
+      k += 100
+    print(k, i)
+
+  sub joined_moves()
+    v: List[Int] = List()
+    !v.push(5)
+    a = fresh(1)
+    k = 0
+    i = 0
+    @outer while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
+      i += 1
+      k += take(<a)
+      continue if i > 200
+      j = 0
+      while j < 3: j += 1
+        break @outer if i > 100
+        continue @outer if j == 2
+    print(k, i)
+
+  sub catch_break()
+    v: List[Int] = List()
+    !v.push(5)
+    a = fresh(1)
+    k = 0
+    i = 0
+    @outer while (mkf(?v, i) catch break) as h: a = fresh(h.s[0])
+      i += 1
+      k += take(<a)
+      j = 0
+      while j < 3: j += 1
+        break @outer if i > 100
+        continue @outer if j == 2
+    print(k, i)
+
+  sub deep()
+    v: List[Int] = List()
+    !v.push(5)
+    a = fresh(1)
+    k = 0
+    i = 0
+    @outer while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
+      i += 1
+      defer k += 1000
+      k += take(<a)
+      match i % 3
+        0
+          for _ in 0..2
+            while mk(?v, 0) as g
+              continue @outer if g.s[0] > 0
+        1
+          j = 1
+          while j < 4: j += odd(j) ?? continue @outer
+            j += 1
+        _
+          j = 0
+          while j < 3: j += 1
+            continue @outer
+    print(k, i)
+
+  sub leaves()
+    v: List[Int] = List()
+    !v.push(5)
+    a = fresh(1)
+    k = 0
+    i = 0
+    @outer while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
+      i += 1
+      defer k += 1000
+      k += take(<a)
+      j = 0
+      while j < 3: j += 1
+        break @outer if i == 3
+        continue @outer
+    print(k, i)
+
+  joined()
+  joined_moves()
+  catch_break()
+  deep()
+  leaves()
+
+test "write self receiver", "2"
+  # A `!self` method mutates the receiver in place.
+
+  obj Bag
+    items: List[Int]
+
+    sub add(!self, x: Int)
+      !self.items.push(x)
+
+  v: List[Int] = List()
+  b = Bag(items: <v)
+  !b.add(4)
+  !b.add(5)
+  print(b.items.len)
+
+test "write view copy element", '''
+  3 4 3 3
+  3 5 6 5 3
+'''
+  # A write view of a Copy value meets plain values as the value it
+  # reaches: an array element, an `if` branch, and a `match` arm read
+  # through it, whether the view is a name or a call's result. (A `!m`
+  # written there would be read, its `!` ignored, and is rejected:
+  # test/reject/ownership/ignored_write_lend.rig.)
+
+  obj S
+    n: Int
+
+    fun get(!self) -> !Int
+      !self.n
+
+  m = 3
+  q = !m
+  a = [q, 4]
+  b = if a[1] > 3
+    q
+  else
+    0
+  c = match a[0]
+    3
+      q
+    _
+      0
+  print(a[0], a[1], b, c)
+
+  s = S(n: 5)
+  d = [q, (!s).get(), 6]
+  e = if d[2] > 3
+    (!s).get()
+  else
+    1
+  f = match d[2]
+    6
+      q
+    _
+      2
+  print(d[0], d[1], d[2], e, f)
+
+test "zig keyword identifiers", "5"
+  # `var` and `fn` are not Rig keywords, so they are ordinary local names.
+
+  var = 3
+  fn = 2
+  print(var + fn)
+
+test "zig std debug hook", "debug: hi"
+  # A root `sub debug` is the program's own function, not the hook Zig's
+  # standard library looks for under that name (`root.debug.SelfInfo`).
+
+  sub debug(msg: ?String)
+    print("debug:", msg)
+
+  debug("hi")
+
+test "zig std root hooks", '''
+  10 5 6
+  WinMain: hi
+'''
+  # Zig's standard library reads some declarations of the root module as
+  # hooks (`@hasDecl(root, "debug")`, `std_options`, `os`, the entry
+  # points of each target). A Rig declaration with one of those names is
+  # renamed in the Zig, so it is the program's own and no hook.
+
+  debug = 1
+  os = 2
+  std_options = 3
+  tracy = 4
+
+  fun std_options_debug_io() -> Int
+    5
+
+  fun _start() -> Int
+    6
+
+  sub WinMain(msg: ?String)
+    print("WinMain:", msg)
+
+  sub main()
+    print(debug + os + std_options + tracy, std_options_debug_io(), _start())
+    WinMain("hi")

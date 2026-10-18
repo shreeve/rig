@@ -1,6 +1,0 @@
-# `Cell` is a built-in nominal name and cannot be redefined.
-
-obj Cell[T]
-  value: T
-
-# error: `Cell` is a reserved built-in nominal name

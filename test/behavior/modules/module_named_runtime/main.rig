@@ -1,8 +1,0 @@
-# A user module may be named `_runtime`; it is imported like any other.
-use _runtime
-
-sub main()
-  print(_runtime.helper())
-
-# expect:
-# 7

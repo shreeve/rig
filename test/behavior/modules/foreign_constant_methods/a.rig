@@ -1,3 +1,0 @@
-use lib
-
-pub D: lib.Opt[Int] = .nothing

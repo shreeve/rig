@@ -115,5 +115,5 @@ There is no module-level `unit_index(s, bytes)`: the one-off form is
 Parked until a program needs them: `text.ByteSet`, a Two-Way
 `find`/`count`, and more char fast paths. Recorded to fix when a user
 appears: `find_last` for 1–4-byte patterns, `Split`'s per-part search
-table, `edit_distance` decoding once, and the grapheme walk's double
+table, `edit_distance` decoding once, and the char walk's double
 probe.

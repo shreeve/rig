@@ -1,9 +1,0 @@
-# A C function cannot return a Rig error union, so `extern fun g() -> Int!`
-# is rejected.
-
-extern fun g() -> Int!
-
-sub main()
-  print("unused")
-
-# error: 4:12: an `extern` function cannot return a fallible type `Int!`; C functions report failure through their return value

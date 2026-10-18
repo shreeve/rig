@@ -1,0 +1,2441 @@
+# ownership: tests whose names start `write`.
+
+use std.hash
+use std.sort
+
+fail "write field stores param view", "13:5: cannot lend `b` to write while a read loan is live", errors: 1
+  # A store through local write view `c` lands in local `h`, which then
+  # holds the view of parameter `b`: `b` stays lent while `h` is used.
+
+  obj Holder
+    r: []Int
+
+  fun f(b: !List[Int]) -> Int
+    x = [9, 9]
+    h = Holder(r: ?x[..])
+    c = !h
+    c.r = ?b[..]
+    for i in 0..100
+      !b.push(i)
+    c.r[0]
+
+  v: List[Int] = List()
+  !v.push(1)
+  print(f(!v))
+
+test "write lend as header", '''
+  4
+  14
+  16
+  16
+  0
+  2
+  7
+'''
+  # An `if … as` or `while … as` header writes the value inside an
+  # optional through `!` on the header, takes it with `<`, or reads it
+  # bare.
+
+  obj P
+    o: Int?
+
+  p = P(o: 3)
+  if !p.o as v
+    v += 1
+  print(p.o ?? 0)
+  if !p.o as v
+    v += 10
+  print(p.o ?? 0)
+  while !p.o as v
+    v += 1
+    if v > 15
+      break
+  print(p.o ?? 0)
+  if <p.o as v
+    print(v)
+  print(p.o ?? 0)
+  o: Int? = 1
+  if !o as v
+    v += 1
+  print(o ?? 0)
+  q = P(o: 7)
+  if q.o as v
+    print(v)
+
+test "write lend branch moved leaf", '''
+  v 101
+  v 107
+  v 105
+  v 102
+'''
+  # A value that branches, every leaf of which is made here, `<a` included,
+  # lent to write: the statement's slot keeps the value the branch takes,
+  # moved in, and the change lands there.
+
+  obj N
+    c: Int
+
+  fun poke(x: !N) -> Int
+    x.c += 100
+    x.c
+
+  sub go(k: Bool)
+    a = N(c: 1)
+    print("v", poke(!((<a) if k else N(c: 5))))
+    b = N(c: 2)
+    print("v", poke(!(N(c: 7) if k else <b)))
+    c = List[Int]()
+    d = List[Int]()
+    !(<c if k else <d).push(3)
+
+  go(true)
+  go(false)
+
+fail "write lend branch part of temp", "25:3: cannot lend `mkpair(3).a if c else mk(5)` to write: it may be `mkpair(3).a`, a part of the temporary `mkpair(3)`, which lending the branching value would copy", errors: 1
+  # A branching value that may be a part of a temporary is lent per
+  # branch, as one that may be a name's is: lending it whole would copy
+  # the part out of its temporary, which the write would miss.
+
+  obj S
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj Pair
+    a: S
+    b: S
+
+  fun mk(n: Int) -> S
+    S(n: n)
+
+  fun mkpair(n: Int) -> Pair
+    Pair(a: S(n: n), b: S(n: n + 1))
+
+  fun f(n: Int) -> Int
+    n
+
+  c = f(1) == 1
+  !(mkpair(3).a if c else mk(5)).bump()
+
+test "write lend branching part", '''
+  drop 30 t1 [3, 2, 1] 0
+  1
+  3
+  drop 7 t3 [3, 2, 1] 0
+  drop 1 t5 [3, 2, 1] 0
+  drop 5 t7 [3, 2, 1] 0
+  drop 8 mine [3, 2, 1] 0
+  t8
+  drop 10 t10 [1, 2, 3] 0
+  drop 12 t12 [2, 3, 1] 0
+  drop 14 t14 [3, 2, 1] 32
+  7
+'''
+  # A field of a branching temporary (`if`, `??`, `catch`) lent to write
+  # is written in the statement's slot, never in a copy, whichever site
+  # lends it: `swap`, `replace`, a write slice of an array field, or a
+  # receiver whose call evaluates its arguments first (Core sentence 4).
+
+
+  obj K2
+    n: Int
+
+    sub put2(!self, a: Int, b: Int)
+      self.n = a * 10 + b
+
+  obj S
+    n: Int
+    t: String
+    arr: [3]Int
+    kk: K2
+
+    drop(!self)
+      print("drop", self.n, self.t, self.arr, self.kk.n)
+
+  error Bad
+    no
+
+  fun f(n: Int) -> Int
+    n
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("t", n), arr: [3, 2, 1], kk: K2(n: 0))
+
+  fun mko(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun mkf(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  c = f(1) == 1
+  k = 30
+  swap(!(mk(1) if c else mk(2)).n, !k)
+  print(k)
+  print(replace(!(mk(3) if c else mk(4)).n, 7))
+  swap(!(mko(5) ?? mk(6)).n, !k)
+  swap(!(mkf(0) catch mk(7)).n, !k)
+  t = String("mine")
+  swap(!(mk(8) if c else mk(9)).t, !t)
+  print(t)
+  sort.sort(!(mk(10) if c else mk(11)).arr[..])
+  sort.sort(!(mk(12) if c else mk(13)).arr[0..2])
+  !(mk(14) if c else mk(15)).kk.put2(b: f(2), a: f(3))
+  print(k)
+
+test "write lend kept", release: true, '''
+  3
+  13
+  1113 1113
+  3
+  1115 0
+  5
+  1116 15
+'''
+  # A write lend `!x` keeps its write view where the slot's type is one:
+  # a type spelled with `!T` (also as `(!T)?`), a parameter declared
+  # `!T`, a write receiver, and a value whose type it gives (an `if`, a
+  # loop's `break`s). A `?T` slot takes `?n`. Each write below reaches
+  # the value lent.
+
+  obj S
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+    fun get(!self) -> !Int
+      !self.n
+
+  fun through[T](x: !T) -> !T
+    x
+
+  sub add(x: !Int, k: Int)
+    x += k
+
+  fun read(x: ?Int) -> Int
+    x
+
+  n = 0
+  o: (!Int)? = !n
+  if <o as v
+    v += 3
+  print(n)
+  g = through(!n)
+  g += 10
+  print(n)
+  w = through(!n)
+  w += 100
+  add(!n, 1000)
+  print(n, read(?n))
+  s = S(n: 1)
+  !s.bump()
+  q = (!s).get()
+  q += 1
+  print(s.n)
+  add(!n, 1)
+  m = 0
+  c = n > 0
+  b = !n if c else !m
+  b += 1
+  print(n, m)
+  h: !Int = !m
+  h += 5
+  print(m)
+  l = while true
+    break !m
+  l += 10
+  k = for i in 0..3
+    break !n if i == 1
+  else
+    !m
+  k += 1
+  print(n, m)
+
+test "write lend read result", '''
+  2 2 two
+  15
+  1 one
+  1 1
+  5
+  1 7
+  0 2
+  7
+  1 one
+  1 2
+  9
+  1 one
+  two 1
+  1 2
+  11
+  1 one 1
+  2 2
+  13
+  1 one
+  0 2 one
+  1 2 one
+  two 1
+  two 1
+  2
+  deferred 2 one
+  2
+  1
+'''
+  # A call lent `!v` whose result holds no write view reads what it views:
+  # while the result lives, `v` is lent to read, so `v` may be read, and
+  # other read lends of it are fine (Core sentence 7). This holds for an
+  # argument, a write receiver, a field or element lent to write, a
+  # generic call, inside a closure, in a loop, and in deferred code.
+  # oracle: main accept
+  # oracle: fields accept
+  # oracle: elements accept
+  # oracle: receivers accept
+  # oracle: loops accept
+  # oracle: deferred accept
+  # oracle: in_closure accept
+
+  obj Item
+    n: Int
+    name: ?String
+
+  obj Bag
+    items: List[Item]
+    count: Int
+
+    fun first(!self) -> ?Item
+      self.count += 1
+      ?self.items[0]
+
+  obj Counter
+    n: Int
+    items: List[Int]
+
+  fun bump(c: !Counter) -> ?List[Int]
+    c.n += 1
+    ?c.items
+
+  fun first(v: !List[Item]) -> ?Item
+    ?v[0]
+
+  fun firsts(v: !List[Item]) -> []Item
+    ?v[..1]
+
+  fun gfirst[T](v: !List[T]) -> ?T
+    ?v[0]
+
+  fun size(v: ?List[Item]) -> Int
+    v.len
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1] + b[2]
+
+  fun items() -> List[Item]
+    v: List[Item] = List()
+    !v.push(Item(n: 1, name: "one"))
+    !v.push(Item(n: 2, name: "two"))
+    v
+
+  sub fields()
+    c = Counter(n: 0, items: List())
+    !c.items.push(7)
+    r = bump(!c)
+    print(c.n, c.items.len)
+    print(clobber(1))
+    print(r.len, r[0])
+    b = Bag(items: items(), count: 0)
+    s = first(!b.items)
+    print(b.count, size(?b.items))
+    print(clobber(2))
+    print(s.n, s.name)
+
+  sub elements()
+    rows: List[List[Item]] = List()
+    !rows.push(items())
+    r = first(!rows[0])
+    print(rows.len, rows[0].len)
+    print(clobber(3))
+    print(r.n, r.name)
+    t = firsts(!rows[0])
+    print(rows[0][1].name, t.len)
+
+  sub receivers()
+    b = Bag(items: items(), count: 0)
+    r = (!b).first()
+    print(b.count, b.items.len)
+    q = ?b
+    print(clobber(4))
+    print(r.n, r.name, q.count)
+
+  sub generic()
+    v = items()
+    r = gfirst(!v)
+    print(v.len, size(?v))
+    print(clobber(5))
+    print(r.n, r.name)
+
+  sub loops()
+    v = items()
+    for i in 0..2
+      r = first(!v)
+      print(i, v.len, r.name)
+    total = 0
+    while total < 2
+      r = first(!v)
+      total += r.n
+      print(v[1].name, r.n)
+
+  sub deferred()
+    v = items()
+    r = first(!v)
+    defer print("deferred", v.len, r.name)
+    print(v.len)
+
+  sub in_closure()
+    v = items()
+    g = |!v|
+      r = first(!v)
+      print(v.len)
+      print(r.n)
+    g()
+
+  v = items()
+  r = first(!v)
+  print(v.len, size(?v), v[1].name)
+  print(clobber(6))
+  print(r.n, r.name)
+  fields()
+  elements()
+  receivers()
+  generic()
+  loops()
+  deferred()
+  in_closure()
+
+fail "write lend read result is rejected", "43:3: cannot lend `v` to write while a read loan is live", "49:3: cannot reassign `v` while it is lent", "55:8: cannot move `v` while a read loan is live", "61:9: use of `v` while a write loan is live", "67:3: cannot assign to `b.count` while `b` is lent", "73:3: cannot lend `b.items` to write while a read loan is live", "80:3: cannot lend `rows` to write while a read loan is live", "86:3: cannot lend `v` to write while a read loan is live", "94:5: cannot lend `v` to write while a read loan is live", "100:3: cannot lend `v` to write while a read loan is live", "106:3: cannot lend `v` to write while a read loan is live", errors: 11
+  # A call lent `!v` whose result holds no write view leaves `v` lent to
+  # read while the result lives: `v` may not be written, reassigned, or
+  # moved. A result that is a write view keeps `v` lent to write.
+  # oracle: writes reject C4
+  # oracle: reassigns reject C4
+  # oracle: moves reject C4
+  # oracle: write_result reject C4
+  # oracle: receiver reject C4
+  # oracle: field reject C4
+  # oracle: element reject C4
+  # oracle: generic reject C4
+  # oracle: loop reject C4
+  # oracle: deferred reject C4
+  # oracle: closure reject C4
+
+  obj Item
+    n: Int
+
+  obj Bag
+    items: List[Item]
+    count: Int
+
+    fun first(!self) -> ?Item
+      ?self.items[0]
+
+  fun first(v: !List[Item]) -> ?Item
+    ?v[0]
+
+  fun gfirst[T](v: !List[T]) -> ?T
+    ?v[0]
+
+  fun firstw(v: !List[Item]) -> !Item
+    !v[0]
+
+  fun items() -> List[Item]
+    v: List[Item] = List()
+    !v.push(Item(n: 1))
+    v
+
+  sub writes()
+    v = items()
+    r = first(!v)
+    !v.push(Item(n: 2))
+    print(r.n)
+
+  sub reassigns()
+    v = items()
+    r = first(!v)
+    v = items()
+    print(r.n)
+
+  sub moves()
+    v = items()
+    r = first(!v)
+    w = <v
+    print(r.n, w.len)
+
+  sub write_result()
+    v = items()
+    r = firstw(!v)
+    print(v.len)
+    r.n += 1
+
+  sub receiver()
+    b = Bag(items: items(), count: 0)
+    r = (!b).first()
+    b.count += 1
+    print(r.n)
+
+  sub field()
+    b = Bag(items: items(), count: 0)
+    r = first(!b.items)
+    !b.items.push(Item(n: 2))
+    print(r.n)
+
+  sub element()
+    rows: List[List[Item]] = List()
+    !rows.push(items())
+    r = first(!rows[0])
+    !rows.push(items())
+    print(r.n)
+
+  sub generic()
+    v = items()
+    r = gfirst(!v)
+    !v.push(Item(n: 2))
+    print(r.n)
+
+  sub loop()
+    v = items()
+    r = first(!v)
+    for i in 0..2
+      print(r.n)
+      !v.push(Item(n: i))
+
+  sub deferred()
+    v = items()
+    r = first(!v)
+    defer print(r.n)
+    !v.push(Item(n: 2))
+
+  sub closure()
+    v = items()
+    r = first(!v)
+    f = |?r| print(r.n)
+    !v.push(Item(n: 2))
+    f()
+
+  writes()
+
+test "write lend temporary", '''
+  bumped 2
+  drop 2
+  drop 3
+  4
+  drop 4
+  drop 4
+  [4, 4]
+  drop 5
+  6002
+  drop 6
+  28004
+  drop 28
+  109
+  drop 8
+  drop 9
+  16
+  drop 10
+  drop 111
+  drop 112
+  grown 1013
+  drop 1013
+  3 3006
+  5 7
+  end
+'''
+  # `!` lends any value to write, named or temporary (Core sentence 4). A
+  # temporary lent to write, or a field or element of one, is kept in its
+  # statement's slot until the statement ends, which drops it: a write
+  # method sees it there, whether or not its result is used, and a view
+  # it returns may be used anywhere in the statement. `clobber` reuses the
+  # stack between the lend and the last use of the view.
+  # oracle: main accept
+
+  obj P
+    k: Int
+
+    sub bump(!self)
+      self.k += 1
+
+    fun pop(!self) -> Int
+      self.k += 1
+      self.k
+
+    fun at(!self) -> !Int
+      !self.k
+
+  obj Bag
+    n: Int
+    items: List[Int]
+    p: P
+
+    sub bump(!self)
+      self.n += 1
+      print("bumped", self.n)
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun take(!self) -> List[Int]
+      r = +self.items
+      !r.push(self.n)
+      r
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun pick(!self, x: Int, y: Int) -> !Int
+      self.n += x * 10 + y
+      !self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> Bag
+    b = Bag(n: n, items: List(), p: P(k: n))
+    !b.items.push(n)
+    b
+
+  fun mkp(k: Int) -> P
+    P(k: k)
+
+  fun f(n: Int) -> Int
+    n
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun show(v: ?Int, k: Int) -> Int
+    v * 1000 + k
+
+  sub inc(v: !Int)
+    v += 100
+
+  sub grow(b: !Bag)
+    b.n += 1000
+    print("grown", b.n)
+
+  !mk(1).bump()
+  !mk(2).pop()
+  print((!mk(3)).pop())
+  x = (!mk(4)).take()
+  print(x)
+  !mk(5).items.push(9)
+  print(show((!mk(6)).at(), clobber(1)))
+  print(show((!mk(7)).pick(y: f(1), x: f(2)), clobber(3)))
+  print(((!mk(8)).at()) + clobber(100))
+  !mk(9).p.bump()
+  print((!mk(10).p).pop() + clobber(4))
+  inc((!mk(11)).at())
+  inc(!mk(12).n)
+  grow(!mk(13))
+  !mkp(1).bump()
+  print((!mkp(2)).pop(), show((!mkp(3)).at(), clobber(5)))
+  print((!P(k: 4)).pop(), (![mkp(5), mkp(6)][1]).pop())
+  print("end")
+
+test "write lend temporary assign", '''
+  dropH sees text 2 []
+  dropS 2
+  dropH sees text 3 []
+  dropS 3
+  dropH sees lit []
+  end 2
+'''
+  # A store into a temporary lent to write, through a write method or a
+  # write view a call returns, stores in the temporary (Core sentence 4,
+  # §6). Its value is made first, so its own temporaries are older: the
+  # statement drops the holder first, whose `drop` still sees the value it
+  # holds. `clobber` reuses the stack.
+
+  obj S
+    n: Int
+    t: String
+
+    drop(!self)
+      print("dropS", self.n)
+
+  obj H
+    r: ?String
+    rs: List[?String]
+
+    fun me(!self) -> !H
+      self
+
+    sub set(!self, r: ?String) keeps r
+      self.r = r
+
+    drop(!self)
+      print("dropH sees", self.r, self.rs)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("text ", n))
+
+  fun mkh() -> H
+    H(r: "init", rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  wrap(!mkh()).r = ?mk(2).t
+  ((!mkh()).me()).r = ?mk(3).t
+  !mkh().set("lit")
+  print("end", clobber(1))
+
+test "write lend temporary branches", '''
+  grow 101
+  inc 1003
+  inc 1006
+  10
+  12
+  13
+  grow 113
+  22
+  grow 130
+  30
+'''
+  # A branching value whose every branch is made there is one temporary
+  # (Core §3), lent to write as a whole or through a field or element
+  # (Core sentence 4): written in its statement's slot, never in a copy.
+  # oracle: main accept
+
+  obj P
+    k: Int
+
+    sub bump(!self)
+      self.k += 1
+
+    fun next(!self) -> Int
+      self.k += 1
+      self.k
+
+  obj S
+    n: Int
+    p: P
+
+    sub bump(!self)
+      self.n += 1
+
+    fun next(!self) -> Int
+      self.n += 1
+      self.n
+
+  error Bad
+    no
+
+  fun mk(n: Int) -> S
+    S(n: n, p: P(k: n))
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun trymk(n: Int) -> S!
+    return Bad.no if n == 0
+    mk(n)
+
+  sub grow(s: !S)
+    s.n += 100
+    print("grow", s.n)
+
+  sub inc(n: !Int)
+    n += 1000
+    print("inc", n)
+
+  c = mk(1).n == 1
+  grow(!(mk(1) if c else mk(2)))
+  inc(!(mk(3) if c else mk(4)).n)
+  inc(![P(k: 5), P(k: 6)][1].k)
+  !(mk(7) if c else mk(8)).p.bump()
+  print((!(mk(9) if c else mk(10)).p).next())
+  print((!(mkopt(0) ?? mk(11))).next())
+  print((!(trymk(0) catch mk(12))).next())
+  grow(!(mkopt(13) ?? mk(14)))
+  x = 2
+  y = match x
+    1 => (!mk(20)).next()
+    _ => (!mk(21)).next()
+  print(y)
+  s = mk(30)
+  grow(!(+s))
+  print(s.n)
+
+test "write lend temporary headers", '''
+  if
+  as 5
+  two
+'''
+  # A header's temporary lent to write (Core sentence 4, §3) ends with the
+  # header: an `if` or `while` condition, an `if … as` subject that binds
+  # plain data of it, and a `match` subject.
+
+  obj B
+    n: Int
+    items: List[Int]
+    o: Int?
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun opt(!self) -> Int?
+      self.o
+
+  fun mk() -> B
+    b = B(n: 1, items: List(), o: 5)
+    !b.items.push(7)
+    b
+
+  if (!mk()).pop() > 1
+    print("if")
+  while (!mk()).pop() < 1
+    print("never")
+  if (!mk()).opt() as x
+    print("as", x)
+  match (!mk()).pop()
+    2 => print("two")
+    _ => print("other")
+
+test "write lend temporary hoisted", '''
+  22004
+  drop 22
+  25004
+  drop 25
+  drop 3
+  312 312
+  drop 6
+  drop 5
+'''
+  # A call whose keyword arguments run before it (reordered) holds a
+  # receiver lent to write by its address in the statement's slot, a
+  # branching one made in every branch and an element of a made array
+  # too, and a field of a temporary is sliced to write there (Core
+  # sentence 4, §3). `clobber` reuses the stack before the view is read.
+  # oracle: main accept
+
+  obj S
+    n: Int
+    o: Int?
+    arr: [3]Int
+
+    fun pick(!self, x: Int, y: Int) -> !Int
+      self.n += x * 10 + y
+      !self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk(n: Int) -> S
+    S(n: n, o: n, arr: [3, 1, 2])
+
+  fun f(n: Int) -> Int
+    n
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun show(v: ?Int, k: Int) -> Int
+    v * 1000 + k
+
+  fun digits(xs: ![]Int) -> Int
+    t = 0
+    for x in xs
+      t = t * 10 + x
+    t
+
+  c = true
+  print(show((!(mk(1) if c else mk(2))).pick(y: f(1), x: f(2)), clobber(3)))
+  print(show((![mk(3), mk(4)][1]).pick(y: f(1), x: f(2)), clobber(3)))
+  print(digits(!mk(5).arr[..]), digits(!mk(6).arr))
+
+test "write lend temporary kinds", '''
+  was 1
+  now 9
+  was 2
+  now 9
+  was 3
+  now 9
+  3
+  3
+  true
+  inserted
+  end
+'''
+  # `!` lends a temporary of any kind to write (Core sentence 4): a handle,
+  # lent as the handle itself (`!*P`); a List and an array, whose element
+  # methods write them; a write method whose `Bool` value is used, written
+  # `(!e).insert(k)`; a Box, which lends what it holds; a `Bool`, where a
+  # `!Bool` is expected.
+
+  obj P
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj Seen
+    items: List[Int]
+
+    fun insert(!self, k: Int) -> Bool
+      for x in ?self.items
+        return false if x == k
+      !self.items.push(k)
+      true
+
+  fun mkh() -> *P
+    *P(n: 1)
+
+  sub repoint(h: !*P)
+    print("was", h.n)
+    h = *P(n: 9)
+    print("now", h.n)
+
+  fun mkv() -> List[Int]
+    v: List[Int] = List()
+    !v.push(3)
+    v
+
+  fun mka() -> [3]Int
+    [3, 1, 2]
+
+  fun mks() -> Seen
+    Seen(items: List())
+
+  fun mkbox() -> ^P
+    ^P(n: 5)
+
+  sub flip(b: !Bool)
+    b = not b
+
+  fun mkbool() -> Bool
+    true
+
+  repoint(!mkh())
+  h = *P(n: 2)
+  repoint(!(<h))
+  k = *P(n: 3)
+  repoint(!(+k))
+  print(k.n)
+  !mkv().push(1)
+  print((!mkv()).pop() ?? 0)
+  !mka().fill(0)
+  print((!mks()).insert(1))
+  !mks().insert(2)
+  if (!mks()).insert(3)
+    print("inserted")
+  !mkbox().bump()
+  flip(!mkbool())
+  print("end")
+
+fail "write lend temporary outlives", "25:5: cannot return a view of `mk()`, which this function was not lent", "27:6: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "29:7: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "31:6: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "33:7: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", "35:6: a view of the temporary `mk()` outlives its statement, which drops it; bind the value to a name first", errors: 6
+  # `!` lends any value to write, a temporary too, but a temporary lives
+  # only until its statement ends (Core §3): a write view of it, or of a
+  # field or element of it, or one a write method returns, that is held
+  # past the statement, or returned, is rejected, as a read view of it is.
+  # oracle: view reject C5
+  # oracle: main reject C5
+
+  obj S
+    n: Int
+    arr: [2]Int
+
+    fun at(!self) -> !Int
+      !self.n
+
+    fun all(!self) -> !S
+      self
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk() -> S
+    S(n: 1, arr: [1, 2])
+
+  fun view() -> !Int
+    (!mk()).at()
+
+  w = !mk()
+  print(w.n)
+  r = (!mk()).at()
+  print(r)
+  f = !mk().n
+  print(f)
+  a = (!mk()).all()
+  print(a.n)
+  z = !mk().arr[..]
+  print(z)
+
+fail "write lend temporary rejected", "36:1: `push` changes its receiver, a temporary no name holds; add `!`: `!mkv().push(1)`", "37:3: cannot lend `a if c else b` to write: it may be `a`, a value a name holds", "38:28: cannot call write-receiver method `bump` through a shared handle", "39:8: cannot call write-receiver method `bump` through a shared handle", "40:11: the loop would walk the temporary `mk()` after its header drops it", "42:1: cannot assign to a field or element of a temporary", "43:7: cannot lend constant `false` to write: it lives for the whole program"
+  # What `!` on a temporary does not make valid (Core sentences 4, 8, 9,
+  # §3): a write method with no `!` (the hint adds it); a branching value
+  # that may be a name's, which would be lent as a copy (each branch is
+  # lent instead); writing through a shared handle, which only reads; a
+  # `for` that would walk it after its header; and assigning into it,
+  # which no `!` marks. A literal is no temporary but a constant, which
+  # lives for the whole program (Core sentence 7) and is never lent to
+  # write (`test/reject/types/write_lend_constant.rig`). (A view of a temporary held past its statement:
+  # `write_lend_temporary_outlives.rig`.)
+
+  obj S
+    n: Int
+    items: List[Int]
+
+    sub bump(!self)
+      self.n += 1
+
+    fun at(!self) -> !Int
+      !self.n
+
+  fun mk() -> S
+    S(n: 1, items: List())
+
+  fun mkh() -> *S
+    *S(n: 1, items: List())
+
+  fun mkv() -> List[Int]
+    List()
+
+  sub setb(b: !Bool)
+    b = true
+
+  a = mk()
+  b = mk()
+  c = a.n == 1
+  mkv().push(1)
+  !(a if c else b).bump()
+  !(*S(n: 1, items: List())).bump()
+  !mkh().bump()
+  for x in !mk().items
+    print(x)
+  mk().n = 5
+  setb(!false)
+
+test "write lend temporary siblings", '''
+  1
+  11
+  123 123 123
+  2 102
+  k 1
+  k 2
+  drop 2
+  drop 6
+  11
+  11
+  drop 11
+  drop 201
+  -1
+  k 20
+  k 21
+  drop 21
+  40 40
+  end
+  61
+  drop 61
+  deferred 50
+  deferred 51
+  drop 51
+'''
+  # `!` lends any temporary to write (Core sentence 4) wherever a write
+  # lend goes: the receiver of a generic type's `!self` method, also in a
+  # generic body, and of a plain struct's; a Text; an array or List lent
+  # whole or sliced as a `![]T`; a generic function's `!List[T]`; a call
+  # followed by `?` or `!`, or under `catch`; a receiver whose method
+  # takes a closure, which may capture a name to write; a branching value
+  # made in every branch; a clone; and `defer`. Each lives in its
+  # statement's slot until the statement ends.
+
+
+  obj Wrap[V]
+    v: V
+
+    sub set(!self, v: V)
+      self.v = v
+
+    fun swap_in(!self, v: V) -> V
+      old = self.v
+      self.v = v
+      old
+
+    fun twice(?self) -> Wrap[V]
+      Wrap(v: self.v)
+
+    sub again(?self)
+      !(self.twice()).set(self.v)
+
+  obj C
+    c: Int
+
+    sub bump(!self)
+      self.c += 1
+
+    fun pop(!self) -> Int
+      self.c += 10
+      self.c
+
+  obj B
+    n: Int
+    items: List[Int]
+
+    sub each(!self, f: ?sub(Int))
+      self.n += 1
+      for x in self.items
+        f(x)
+
+    fun tryit(!self) -> Int!
+      self.n += 1
+      if self.n > 100
+        return Bad.big
+      self.n
+
+    drop(!self)
+      print("drop", self.n)
+
+  error Bad
+    big
+
+  fun mkb(n: Int) -> B
+    b = B(n: n, items: List())
+    !b.items.push(n)
+    !b.items.push(n + 1)
+    b
+
+  fun mkc() -> C
+    C(c: 1)
+
+  fun mkv() -> List[Int]
+    v: List[Int] = List()
+    !v.push(3)
+    !v.push(1)
+    !v.push(2)
+    v
+
+  fun mka() -> [3]Int
+    [3, 1, 2]
+
+  fun sum(xs: []Int) -> Int
+    t = 0
+    for x in xs
+      t = t * 10 + x
+    t
+
+  fun sorted(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    sum(?xs)
+
+  sub push_one[T](v: !List[T], x: T)
+    !v.push(x)
+
+  fun first_of(v: !List[Int]) -> Int?
+    (!v).pop()?
+
+  fun top() -> Int?
+    x = (!mkv()).pop()?
+    x + 100
+
+  fun fails() -> Int!
+    (!mkb(200)).tryit()!
+
+  !Wrap(v: 1).set(2)
+  print((!Wrap(v: 1)).swap_in(5))
+  Wrap(v: 7).again()
+  !mkc().bump()
+  print((!mkc()).pop())
+  !String("a").add("b")
+  print(sorted(!mka()[..]), sorted(!mkv()[..]), sorted(!mka()))
+  sort.sort(!mka())
+  sort.sort(!mkv())
+  push_one(!mkv(), 4)
+  print(first_of(!mkv()) ?? 0, top() ?? 0)
+  !mkb(1).each(|k| print("k", k))
+  total = 0
+  !mkb(5).each(|!total, k: Int| total += k)
+  print(total)
+  print((!mkb(10)).tryit() catch 0)
+  print(fails() catch -1)
+  c = total > 0
+  !(mkb(20) if c else mkb(30)).each(|k| print("k", k))
+  s = Wrap(v: 40)
+  print((!(+s)).swap_in(41), s.v)
+  defer !mkb(50).each(|k| print("deferred", k))
+  defer print((!mkb(60)).tryit() catch 0)
+  print("end")
+
+test "write lend temporary store ok", '''
+  drop ["kept"]
+  drop ["kept"]
+  end kept
+'''
+  # A temporary lent to write as a receiver holds what the call stores, as
+  # a name does: a view of a value that outlives the statement may be
+  # stored there, and the temporary's `drop` reads it before the statement
+  # ends (`test/reject/ownership/write_lend_temporary_stores.rig`). A
+  # holder with no `drop` body may even hold a view of a temporary made
+  # after it, which the statement drops first: dropping the holder reads
+  # nothing (Core sentence 6), as for a name.
+  # oracle: main accept
+
+  obj PR
+    r: ?String
+
+    sub set(!self, r: ?String) keeps r
+      self.r = r
+
+  obj S
+    t: String
+
+  fun mk(n: Int) -> S
+    S(t: String("t", n))
+
+  fun mkpr() -> PR
+    PR(r: "")
+
+  obj H
+    rs: List[?String]
+
+    sub keep(!self, r: ?String) keeps r
+      !self.rs.push(r)
+
+    drop(!self)
+      print("drop", self.rs)
+
+  fun mkh() -> H
+    H(rs: List())
+
+  t = String("kept")
+  !mkh().keep(?t)
+  !mkh().rs.push(?t)
+  !mkpr().set(?mk(1).t)
+  print("end", t)
+
+fail "write lend temporary stores", "33:16: a view of the temporary `mk(1)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first", "36:19: a view of the temporary `mk(1)` is held by `mkh()`, a temporary its statement drops after it; bind the value to a name first", "42:20: `s` does not live long enough", errors: 3
+  # A temporary lent to write as a method's receiver, or a part of one,
+  # holds what the call stores in it, as a name does
+  # (`store_into_unnamed_receiver.rig`): a view of a temporary made after
+  # it, which its statement drops first, would be read by its `drop`.
+  # oracle: stores_string reject C5
+  # oracle: pushes_string reject C5
+  # oracle: stores_through_bang reject C5
+
+  obj S
+    n: Int
+    t: String
+    items: List[Int]
+
+  obj H
+    rs: List[?String]
+
+    sub keep(!self, r: ?String) keeps r
+      !self.rs.push(r)
+
+    drop(!self)
+      print(self.rs)
+
+  fun mk(n: Int) -> S
+    S(n: n, t: String("t"), items: List())
+
+  fun mkh() -> H
+    H(rs: List())
+
+  fun wrap(h: !H) -> !H
+    h
+
+  sub stores_string()
+    !mkh().keep(?mk(1).t)
+
+  sub pushes_string()
+    !mkh().rs.push(?mk(1).t)
+
+  sub stores_through_bang()
+    h = mkh()
+    if h.rs.len == 0
+      s = mk(1)
+      !wrap(!h).keep(?s.t)
+
+  stores_string()
+
+test "write lend temporary view", '''
+  grown 2
+  grown 2
+  grown 4
+  grown 2
+  1
+  was 2
+  drop 2
+  drop 20
+  was 3
+  drop 3
+  drop 30
+  was 4
+  drop 40
+  4
+  123 12 12 2
+  drop 4
+'''
+  # `!` lends any value to write (Core sentence 4): a call's result, a
+  # struct literal, a clone, a moved or new handle, a branching value made
+  # in every branch, or a field or element of one, passed where a `!T` or
+  # `![]T` is expected. The temporary lives in its statement's slot, where
+  # the callee's change is seen and dropped with it.
+  # oracle: main accept
+
+
+  obj S
+    n: Int
+
+    fun twin(?self) -> S
+      S(n: self.n)
+
+  obj P
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun make() -> S
+    S(n: 1)
+
+  fun mkp(n: Int) -> *P
+    *P(n: n)
+
+  fun mka() -> [3]Int
+    [3, 1, 2]
+
+  fun mkv() -> List[Int]
+    v: List[Int] = List()
+    !v.push(2)
+    !v.push(1)
+    v
+
+  sub grow(s: !S)
+    s.n += 1
+    print("grown", s.n)
+
+  sub bump(n: !Int)
+    n += 1
+
+  sub repoint(p: !*P)
+    print("was", p.n)
+    p = *P(n: p.n * 10)
+
+  fun digits(xs: ![]Int) -> Int
+    sort.sort(!xs)
+    t = 0
+    for x in xs
+      t = t * 10 + x
+    t
+
+  o = S(n: 1)
+  c = o.n == 1
+  grow(!make())
+  grow(!(o.twin()))
+  grow(!S(n: 3))
+  grow(!(make() if c else S(n: 5)))
+  bump(!make().n)
+  print(o.n)
+  repoint(!mkp(2))
+  h = *P(n: 3)
+  repoint(!(<h))
+  k = *P(n: 4)
+  repoint(!(+k))
+  print(k.n)
+  print(digits(!mka()), digits(!mkv()), digits(!mka()[1..]), digits(!mkv()[..1]))
+  sort.sort(!mka())
+  !mka().fill(0)
+
+fail "write method while lent", "cannot lend `u` to write while a read loan is live"
+  # A write-receiver method call needs the receiver not lent.
+
+  obj User
+    age: Int
+
+    sub bump(!self, by: Int)
+      self.age = self.age + by
+
+  u = User(age: 1)
+  r = ?u
+  !u.bump(1)
+  print(r.age)
+
+test "write param read copy then local store", '''
+  outer local ["outer", "local"]
+  outer local ["outer", "local"]
+  outer
+'''
+  # A value copied out through a write parameter (`k.a = x.s`) views what
+  # the caller lent, but writes nothing: a view of a local stored in it
+  # later lands in it alone, not in the caller's value, for a `!H`
+  # parameter and for the write view a `(!H)?` parameter holds.
+
+  obj H
+    s: ?String
+
+  obj K
+    a: ?String
+    b: ?String
+
+    sub put(!self, v: ?String) keeps v
+      self.b = v
+
+  sub plain(w: !H)
+    d = String("local")
+    k = K(a: w.s, b: "")
+    !k.put(?d)
+    l: List[?String] = List()
+    !l.push(w.s)
+    !l.push(?d)
+    print(k.a, k.b, l)
+
+  sub optional(w: (!H)?)
+    d = String("local")
+    k = K(a: "", b: "")
+    if w as r
+      k.a = r.s
+    !k.put(?d)
+    x = <w ?? return
+    l: List[?String] = List()
+    !l.push(x.s)
+    !l.push(?d)
+    print(k.a, k.b, l)
+
+  t = String("outer")
+  h = H(s: ?t)
+  plain(!h)
+  optional(!h)
+  print(h.s)
+
+fail "write receiver note", "20:21: cannot lend `b` to write while a read loan is live", "20:9: lent to write here, as the receiver, which is read until the call starts"
+  # A write receiver is lent to write, and read until its call starts
+  # (Core §6), so an argument cannot lend it to write; the note says the
+  # lend was a write.
+
+  obj Item
+    n: Int
+
+  obj Bag
+    items: List[Item]
+
+    fun first(!self) -> ?Item
+      ?self.items[0]
+
+    fun consume(!self, it: ?Item) -> Int
+      !self.items.push(Item(n: 0))
+      it.n
+
+  b = Bag(items: List())
+  !b.items.push(Item(n: 7))
+  print((!b).consume((!b).first()))
+
+fail "write receiver outer bang", "25:4: `pop` changes its receiver, a temporary no name holds; the `!` here lends what `pop` returns, not its receiver: write `(!(mkopt(n)?)).pop()`", "28:11: `vs` changes its receiver, a temporary no name holds; the `!` before a `for` source is the loop's mode, not a lend of the receiver: bind `mk(1)` to a name first"
+  # A `!` that does not reach a write method's temporary receiver: one
+  # outside a chain the receiver-sigil rule stops at (`!o?.pop()` lends
+  # what `pop` returns), and the `!` before a `for` source, which is the
+  # loop's mode. The diagnostic says so, and names what works.
+
+  obj S
+    n: Int
+    items: List[Int]
+
+    fun pop(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun vs(!self) -> ![]Int
+      !self.items[..]
+
+  fun mk(n: Int) -> S
+    S(n: n, items: List())
+
+  fun mkopt(n: Int) -> S?
+    return none if n == 0
+    mk(n)
+
+  fun go(n: Int) -> Int?
+    !mkopt(n)?.pop()
+
+  print(go(1) ?? 0)
+  for x in !mk(1).vs()
+    x += 1
+
+fail "write receiver temporary", "41:5: `bump` changes its receiver, a temporary no name holds; add `!`: `!(self.twice()).bump()`", "48:1: `bump` changes its receiver, a temporary no name holds; add `!`: `!mk().bump()`", "49:1: `bump` changes its receiver, a temporary no name holds; add `!`: `!S(n: 1, inner: T(k: 0)).bump()`", "50:7: `next` changes its receiver, a temporary no name holds; add `!`: `(!mk()).next()`", "51:2: `bump` changes its receiver, a temporary no name holds; add `!`: `!(mk() if c else S(n: 2, inner: T(k: 0))).bump()`", "52:2: `bump` changes its receiver, a temporary no name holds; add `!`: `!(+s).bump()`", "53:1: `bump` changes its receiver, a temporary no name holds; add `!`: `!mk().inner.bump()`", "54:1: `bump` changes its receiver, a temporary no name holds; add `!`: `![T(k: 1), T(k: 2)][0].bump()`", "55:7: `at` changes its receiver, a temporary no name holds; add `!`: `(!mk()).at()`", errors: 9
+  # A `!self` method changes its receiver, and every change is marked by
+  # `!` (Core sentences 4 and 9): called on a value made in place, which no
+  # name holds, with no `!`, it is rejected, with the hint to add one. The
+  # same holds for a part of such a value, a field or an element, for a
+  # branching value whose every branch is made there, for a method that
+  # returns a view of the receiver, and in a generic body. Each hint, as
+  # written, runs: `test/behavior/ownership/write_receiver_temporary_lent.rig`.
+  # A write view a call returns is no temporary: the method writes through
+  # it (`test/behavior/ownership/write_receiver_through_returned_view.rig`).
+
+  obj S
+    n: Int
+    inner: T
+
+    sub bump(!self)
+      self.n += 1
+
+    fun next(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+  obj T
+    k: Int
+
+    sub bump(!self)
+      self.k += 1
+
+  obj Wrap[V]
+    v: V
+
+    sub bump(!self)
+      pass
+
+    fun twice(?self) -> Wrap[V]
+      Wrap(v: self.v)
+
+    sub again(?self)
+      self.twice().bump()
+
+  fun mk() -> S
+    S(n: 1, inner: T(k: 0))
+
+  c = mk().n == 1
+  s = mk()
+  mk().bump()
+  S(n: 1, inner: T(k: 0)).bump()
+  print(mk().next())
+  (mk() if c else S(n: 2, inner: T(k: 0))).bump()
+  (+s).bump()
+  mk().inner.bump()
+  [T(k: 1), T(k: 2)][0].bump()
+  print(mk().at() + 1)
+  Wrap(v: 1).again()
+  print(s.n)
+
+test "write receiver temporary lent", '''
+  2
+  2
+  2 3 2
+  1
+'''
+  # Each hint `test/reject/ownership/write_receiver_temporary.rig` gives,
+  # as written: `!` lends the temporary to write (Core sentence 4), which
+  # its statement keeps in a slot until it ends.
+
+  obj S
+    n: Int
+    inner: T
+
+    sub bump(!self)
+      self.n += 1
+
+    fun next(!self) -> Int
+      self.n += 1
+      self.n
+
+    fun at(!self) -> !Int
+      !self.n
+
+  obj T
+    k: Int
+
+    sub bump(!self)
+      self.k += 1
+
+    fun next(!self) -> Int
+      self.k += 1
+      self.k
+
+  obj Wrap[V]
+    v: V
+
+    sub bump(!self)
+      pass
+
+    fun twice(?self) -> Wrap[V]
+      Wrap(v: self.v)
+
+    sub again(?self)
+      !(self.twice()).bump()
+
+  fun mk() -> S
+    S(n: 1, inner: T(k: 0))
+
+  c = mk().n == 1
+  s = mk()
+  !mk().bump()
+  !S(n: 1, inner: T(k: 0)).bump()
+  print((!mk()).next())
+  !(mk() if c else S(n: 2, inner: T(k: 0))).bump()
+  !(+s).bump()
+  !mk().inner.bump()
+  ![T(k: 1), T(k: 2)][0].bump()
+  print((!mk()).at() + 1)
+  Wrap(v: 1).again()
+  print((!(mk() if c else S(n: 5, inner: T(k: 0)))).next(), (![T(k: 1), T(k: 2)][1]).next(), (!(+s)).next())
+  print(s.n)
+
+test "write receiver through returned view", "2 11"
+  # A write method called on a write view a call returns writes through
+  # it, to the value the call was lent: the receiver is a view, not a
+  # temporary (`test/reject/ownership/write_receiver_temporary.rig`).
+
+  obj S
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  fun slot(s: !S) -> !S
+    s
+
+  fun pick(a: !S, b: !S, c: Bool) -> !S
+    a if c else b
+
+  s = S(n: 1)
+  t = S(n: 10)
+  slot(!s).bump()
+  pick(!s, !t, false).bump()
+  print(s.n, t.n)
+
+fail "write slice aliasing", "8:8: cannot lend `a` to write while a write loan is live", "16:4: use of `v` while a write loan is live", "22:9: use of `a` while a write loan is live", "29:3: cannot assign to `w[1]` while `w` is lent", "36:3: cannot assign to `w[1]` while `w` is lent"
+  # A `![]T` is a write view of its root: two live write slices of one
+  # array are rejected, and so are a push to a List, a use of the root, and
+  # a write through the slice while a reslice of it is live.
+
+  sub two()
+    a = [1, 2, 3, 4]
+    x = !a[0..2]
+    y = !a[2..4]
+    x[0] = 1
+    y[0] = 2
+
+  sub push()
+    v: List[Int] = List()
+    !v.push(1)
+    w = !v[..]
+    !v.push(2)
+    w[0] = 3
+
+  sub root()
+    a = [1, 2, 3]
+    w = !a[..]
+    print(a)
+    w[0] = 1
+
+  sub reslice()
+    a = [1, 2, 3]
+    w = !a[..]
+    t = !w[1..]
+    w[1] = 9
+    t[0] = 2
+
+  sub reader()
+    a = [1, 2, 3]
+    w = !a[..]
+    t = ?w[1..]
+    w[1] = 9
+    print(t)
+
+  two()
+
+fail "write slice as read", "14:3: cannot assign to `w[0]` while `w` is lent", "19:9: cannot lend `w` to read while a write loan is live"
+  # A `![]T` lent to read cannot be written while the view lives, nor lent
+  # to write in the same call.
+
+  fun id(s: []Int) -> []Int
+    s
+
+  sub two(x: ![]Int, y: []Int)
+    x[0] = y[1]
+
+  sub view()
+    a = [1, 2, 3]
+    w = !a[..]
+    r = id(w)
+    w[0] = 5
+    print(r)
+
+  a = [1, 2]
+  w = !a[..]
+  two(!w, w)
+  view()
+
+fail "write slice escape", "6:8: `+x` cannot clone a `![]Int`: it is a write view of elements it does not own"
+  # A `![]T` is a write view of elements it does not own: it is not cloned.
+
+  sub clone()
+    a = [1, 2]
+    w = !a[..]
+    t = +w
+    w[0] = 5
+    print(t)
+
+  clone()
+
+fail "write slice escape ownership", "6:4: cannot return a view of `a`, which this function was not lent", "11:7: bare use of write view `w` in binding would copy a write view, which is unique"
+  # A `![]T` is a write view: it is not copied, and it is returned only
+  # when it views from a `!` parameter.
+
+  fun local() -> ![]Int
+    a = [1, 2]
+    !a[..]
+
+  sub copy()
+    a = [1, 2]
+    w = !a[..]
+    t = w
+    t[0] = 5
+    w[1] = 6
+
+  copy()
+
+test "write through local view", '''
+  6
+  6 20
+  drop 1
+  3
+  bb
+  2
+  drop 3
+'''
+  # A local write view is assigned like a `!T` parameter: `w = v` and
+  # `w += 1` write through to the viewed value (a resource's old value
+  # is dropped), and `new w = !m` points a new binding at another place.
+
+  obj R
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj In
+    n: Int
+
+  obj View
+    b: ?In
+
+  n = 1
+  w = !n
+  w = 5
+  w += 1
+  print(n)
+  m = 10
+  new w = !m
+  w *= 2
+  print(n, m)
+  r = R(n: 1)
+  if true
+    x = !r
+    x = R(n: 2)
+    x.n += 1
+  print(r.n)
+  s = "a"
+  t = !s
+  t = "bb"
+  print(s)
+  a = In(n: 1)
+  y = In(n: 2)
+  v = View(b: ?a)
+  if true
+    u = !v
+    u = View(b: ?y)
+  print(v.b.n)
+
+fail "write through moved view", "9:3: use of `w` after move"
+  # Assigning a write view writes through it, so the view must still be
+  # held: once moved on, it cannot be written through.
+
+  sub g(p: !Int)
+    w = !p
+    w = 3
+    q = <w
+    print(q)
+    w = 4
+
+  n = 1
+  g(!n)
+  print(n)
+
+fail "write through view field keeps loan", "6:6: a write view is never stored inside a value, and `!List[Int]` cannot stand here", errors: 1
+  # A struct never holds a `!T` field whose write view would keep what it
+  # views lent while the struct is used: a write view is never stored
+  # inside a value, so the field is rejected where it is declared.
+
+  obj H
+    w: !List[Int]
+
+  v: List[Int] = List()
+  print(v.len)
+
+fail "write through view field needs write access", "6:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
+  # No view held in a field is written through a plain parameter or a
+  # captured value: a write view is never stored inside a value, so the
+  # field is rejected where it is declared.
+
+  obj H
+    w: !Int
+
+  n = 1
+  print(n)
+
+fail "write through view field read path", "6:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
+  # No read view of a struct reaches a write view the struct holds, which
+  # other read views could reach too: a write view is never stored inside
+  # a value, so the field is rejected where it is declared.
+
+  obj H
+    w: !Int
+
+  n = 1
+  print(n)
+
+fail "write through view field stores view", "9:6: a write view is never stored inside a value, and `!V` cannot stand here", errors: 1
+  # No value is written through a `!T` field into what the field views: a
+  # write view is never stored inside a value, so the field is rejected
+  # where it is declared.
+
+  obj V
+    r: ?Int
+
+  obj H
+    w: !V
+
+  a = 1
+  x = V(r: ?a)
+  print(x.r)
+
+test "write through view of view", '''
+  b
+  c
+  0 none a
+  b
+  c a b c
+  1 2
+  3 2
+  8 7 8
+'''
+  # A write view `!T` whose `T` is itself a view (`T = ?P` in a generic)
+  # writes that view: assigning through it points the view at another
+  # place, and drops nothing. So for a call's write view, its `?`, a `!T`
+  # binding, a generic body's, and a Map's `edit` and `ensure`.
+
+
+  obj P
+    x: Int
+    n: String
+
+  fun gslot[T](v: !List[T], i: Int) -> !T from v
+    !v[i]
+
+  fun gpick[T](v: !List[T], i: Int) -> (!T)? from v
+    return none if i >= v.len
+    !v[i]
+
+  sub setit[T](v: !List[?T], x: ?T) keeps x
+    gslot(!v, 0) = x
+
+  fun opt(v: !List[?P], b: ?P, i: Int) -> Int? keeps b
+    gpick(!v, i)? = b
+    i
+
+  sub bind(v: !List[?P], b: ?P) keeps b
+    w = gslot(!v, 0)
+    w = b
+
+  sub edit(m: !hash.Map[Int, ?P], b: ?P) keeps b
+    if (!m).edit(1) as w
+      w = b
+
+  fun at(m: ?hash.Map[Int, ?P], k: Int) -> Int?
+    m.get(k)?.x
+
+  fun medit(m: !hash.Map[Int, ?P], b: ?P) -> Int? keeps b
+    (!m).edit(1)? = b
+    1
+
+  a = P(x: 1, n: String("a"))
+  b = P(x: 2, n: String("b"))
+  c = P(x: 3, n: String("c"))
+  v: List[?P] = List()
+  !v.push(?a)
+  gslot(!v, 0) = ?b
+  print(v[0].n)
+  setit(!v, ?c)
+  print(v[0].n)
+  print(opt(!v, ?a, 0), opt(!v, ?b, 5), v[0].n)
+  w = gslot(!v, 0)
+  w = ?b
+  print(v[0].n)
+  bind(!v, ?c)
+  print(v[0].n, a.n, b.n, c.n)
+  m = hash.Map[Int, ?P]()
+  !m.put(1, ?a)
+  print(medit(!m, ?b), at(?m, 1))
+  edit(!m, ?c)
+  (!m).ensure(2, ?a) = ?b
+  print(at(?m, 1), at(?m, 2))
+  shared: List[?*P] = List()
+  s1 = *P(x: 7, n: String("s1"))
+  s2 = *P(x: 8, n: String("s2"))
+  !shared.push(?s1)
+  gslot(!shared, 0) = ?s2
+  print(shared[0].x, s1.x, s2.x)
+
+fail "write through view of view local", "13:3: cannot store a view of `d`", "18:3: cannot store a view of `d`", errors: 2
+  # Pointing a view a write view reaches at another place stores that view
+  # where the write view reaches: the caller's List here, which outlives a
+  # local. So for a call's write view and a `!T` binding of it.
+
+  obj P
+    x: Int
+
+  fun gslot[T](v: !List[T], i: Int) -> !T from v
+    !v[i]
+
+  sub call(v: !List[?P])
+    d = P(x: 1)
+    gslot(!v, 0) = ?d
+
+  sub bind(v: !List[?P])
+    d = P(x: 1)
+    w = gslot(!v, 0)
+    w = ?d
+
+  a = P(x: 0)
+  v: List[?P] = List()
+  !v.push(?a)
+  call(!v)
+  bind(!v)
+  print(v[0].x)
+
+test "write view arg plain pointee", '''
+  3 22
+  45 23
+  2 5 6
+'''
+  # A write view of a value that cannot hold a view keeps no loan of
+  # the call's other arguments.
+
+  sub f(a: !Int, b: !Int)
+    a += 1
+    b += 10
+
+  sub g(acc: !Int, y: ?Int)
+    acc += y
+
+  sub h(out: !List[Int], k: ?Int)
+    !out.push(k)
+
+  sub fill(out: !List[Int])
+    t = 5
+    h(!out, ?t)
+    t += 1
+    h(!out, ?t)
+
+  x = 1
+  y = 2
+  f(!x, !y)
+  f(!x, !y)
+  print(x, y)
+  acc = 0
+  g(!acc, ?y)
+  y += 1
+  g(!acc, ?y)
+  print(acc, y)
+  v: List[Int] = List()
+  fill(!v)
+  print(v.len, v[0], v[1])
+
+test "write view args of several types", "changed [43, 4, 5] 7 none"
+  # Several write views passed to one call, none of which can hold a
+  # view, leave their values usable after it.
+
+  sub f(s: !String, a: ![3]Int, n: !Int, o: !Int?)
+    s = String("changed")
+    a[0] = 42
+    n += 1
+    o = none
+    for x in !a
+      x += 1
+
+  s = String("hi")
+  a = [1, 2, 3]
+  n = 5
+  o: Int? = 3
+  f(!s, !a, !n, !o)
+  f(!s, !a, !n, !o)
+  print(s, a, n, o)
+
+test "write view branches read", '''
+  11
+  1 2
+'''
+  # A branching value of write views where the value they see is wanted
+  # reads that value in each branch (Core §4): a bare name binds it.
+  # Changing the copy changes neither viewed value.
+  # oracle: names accept
+
+  fun pick() -> Bool
+    true
+
+  sub names()
+    n = 1
+    m = 2
+    w = !n
+    v = !m
+    y = w if pick() else v
+    y += 10
+    print(y)
+    print(n, m)
+
+  names()
+
+fail "write view copied", "bare use of write view `w` in binding would copy a write view, which is unique"
+  # Copying a write view into a second binding would give two live
+  # mutable paths to the same value; move it with `<w` instead. A bare
+  # write view of a value that copies reads that value (Core sentence 1:
+  # test/behavior/ownership/copies_write_view_reads.rig); one of an owner
+  # would be the view itself.
+
+  obj Wrap
+    payload: List[Int]
+
+  a = Wrap(payload: List())
+  w = !a
+  w2 = w
+  print(w2.payload.len)
+
+fail "write view copied by binding", "9:6: a write view is never stored inside a value, and `!Holder` cannot stand here", "12:8: a write view is never stored inside a value, and `!Holder` cannot stand here", errors: 2
+  # No read match or loop binding copies a write view out of a payload or
+  # an element: a write view is never stored inside a value, so a struct
+  # field or a variant field that is one is rejected where it is declared.
+
+  obj Holder
+    v: List[Int]
+
+  obj Ed
+    t: !Holder
+
+  enum E
+    a(t: !Holder)
+    b
+
+  h = Holder(v: List())
+  print(h.v.len)
+
+fail "write view field lent to struct", "13:6: use of `e` while a write loan is live", errors: 1
+  # Building a second write view from a first one lends the first out: it
+  # cannot be used while the second is live (here the second is read
+  # while the first would push, freeing the buffer).
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  !v.push(3)
+  if true
+    e = !v
+    f = !e
+    for x in ?f
+      !e.push(x)
+  print(v.len)
+
+fail "write view holder passed bare", "9:6: a write view is never stored inside a value, and `!Wrap` cannot stand here", errors: 1
+  # No value holds a write view to be passed bare to a call or placed bare
+  # in a constructor: a write view is never stored inside a value, so the
+  # field is rejected where it is declared.
+
+  obj Wrap
+    v: List[Int]
+
+  obj Ed
+    t: !Wrap
+
+  x = Wrap(v: List())
+  print(x.v.len)
+
+test "write view in payload", "3"
+  # A write view held as an optional's payload, in a `(!T)?` binding,
+  # still writes through to the viewed value once it is unwrapped.
+
+  obj Wrap
+    n: Int
+
+  b = Wrap(n: 1)
+  if true
+    o: (!Wrap)? = !b
+    if <o as r
+      r.n = 3
+  print(b.n)
+
+fail "write view in struct copied", "9:11: a write view is never stored inside a value, and `!Wrap` cannot stand here", errors: 1
+  # No struct holds a write view, so no copy of one is a second live
+  # mutable path to the viewed value: a write view is never stored inside
+  # a value, and the field is rejected where it is declared.
+
+  obj Wrap
+    payload: Int
+
+  obj Editor
+    target: !Wrap
+
+  b = Wrap(payload: 1)
+  print(b.payload)
+
+test "write view lent as copied read", '''
+  3 8
+  4 5
+'''
+  # A held write view may be lent where a read view is expected. A read
+  # view of a scalar, or of an optional one, is a copy of the value, so
+  # the write view is read through there. (A written `!x` there only
+  # reads, and is rejected: test/reject/ownership/
+  # ignored_write_lend_read_view.rig.)
+
+  fun peek(m: ?(Int?)) -> Int
+    m ?? 0
+
+  fun twice(n: ?Int) -> Int
+    n * 2
+
+  x: Int? = 3
+  n: Int = 4
+  k: Int = 5
+  wx = !x
+  wn = !n
+  wk = !k
+  print(peek(wx), twice(wn))
+  g: [2]?Int = [wn, wk]
+  print(g[0], g[1])
+
+fail "write view lent bare", "13:5: write `!self.bump()`: the call writes `self`", "26:8: write `!c`: the call writes through `c`", "30:3: `fill` writes the elements; write the receiver with `!`: `!xs.fill(0)`", "33:17: write `!c`: the call writes through `c`", "38:1: write `!w.bump()`: the call writes `w`"
+  # Lending a write view always shows its sigil: a held write view (a
+  # `!T` parameter, `self` in a `!self` method, a local) is lent to a `!T`
+  # parameter, a `!self` receiver, or an element method as `!w`. A held
+  # read view is lent on bare.
+
+  obj Counter
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+    sub twice(!self)
+      self.bump()
+      !self.bump()
+
+    fun get(?self) -> Int
+      self.n
+
+  sub bump(c: !Counter)
+    !c.bump()
+
+  fun peek(c: ?Counter) -> Int
+    c.get()
+
+  sub echo(c: !Counter, r: ?Counter)
+    bump(c)
+    print(peek(r), peek(c))
+
+  sub fill(xs: ![]Int)
+    xs.fill(0)
+
+  sub reset(c: !Counter)
+    old = replace(c, Counter(n: 0))
+    print(old.n)
+
+  c = Counter(n: 0)
+  w = !c
+  w.bump()
+  !w.twice()
+  d = Counter(n: 0)
+  echo(!c, ?d)
+  xs = [1, 2, 3]
+  fill(!xs[..])
+
+fail "write view lent bare unwritable", "6:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
+  # No write view is held in a field of a binding that cannot lend it (a
+  # plain parameter, a fixed binding, a read view): a write view is never
+  # stored inside a value, so the field is rejected where it is declared.
+
+  obj H
+    w: !Int
+
+  n = 1
+  print(n)
+
+test "write view lent on", "3 4 6"
+  # Passing a held write view on to a call lends it, written `!w`: the
+  # result writes through it.
+
+  fun id(t: !List[Int]) -> !List[Int]
+    t
+
+  v: List[Int] = List()
+  if true
+    w = !v
+    r = id(!w)
+    !r.push(4)
+    s = id(!r)
+    !s.push(5)
+    t = id(!s)
+    !t.push(6)
+  print(v.len, v[0], v[2])
+
+fail "write view lent through read view", "9:6: a write view is never stored inside a value, and `!Holder` cannot stand here", errors: 1
+  # No two read views of one value reach the same write view: a write view
+  # is never stored inside a value, so a field holding one is rejected
+  # where it is declared.
+
+  obj Holder
+    v: List[Int]
+
+  obj Ed
+    t: !Holder
+
+  h = Holder(v: List())
+  print(h.v.len)
+
+fail "write view lent through shared", "9:6: a write view is never stored inside a value, and `!Wrap` cannot stand here", errors: 1
+  # No shared handle's value holds a write view that other handles could
+  # reach: a write view is never stored inside a value, so the field is
+  # rejected where it is declared.
+
+  obj Wrap
+    v: List[Int]
+
+  obj WV
+    b: !Wrap
+
+  x = Wrap(v: List())
+  print(x.v.len)
+
+fail "write view lent through shared ownership", "9:6: a write view is never stored inside a value, and `!Wrap` cannot stand here", errors: 1
+  # No shared handle's value holds a write view, so no clone of a handle,
+  # even through a read view of its holder, gives two handles that write
+  # through one view: the field is rejected where it is declared.
+
+  obj Wrap
+    v: List[Int]
+
+  obj WV
+    b: !Wrap
+
+  obj Hold
+    h: *WV
+
+  x = Wrap(v: List())
+  print(x.v.len)
+
+fail "write view lent through slice", "6:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
+  # No element of a slice holds a write view to lend on: a write view is
+  # never stored inside a value, so the field is rejected where it is
+  # declared.
+
+  obj H
+    w: !Int
+
+  n = 1
+  print(n)
+
+fail "write view param stores local view", "cannot store a view of `x` through `p`"
+  # A value stored through a `!T` parameter lands in the caller's binding,
+  # so it may not lend the function's own locals.
+
+  sub keep(p: !?Int)
+    x = 5
+    p = ?x
+
+  print(1)
+
+test "write view reads plain enum", '''
+  .red 0
+  .blue
+'''
+  # A write view of a plain enum reads as the enum's value, as a write
+  # view of an `Int` does: `c = w` copies the value `w` reaches.
+
+  enum Color
+    red
+    blue
+
+  sub paint(w: !Color)
+    c = w
+    n: Int = 0
+    m = !n
+    k = m
+    w = .blue
+    print(c, k)
+
+  x = Color.red
+  paint(!x)
+  print(x)
+
+test "write view result binding holds view", '''
+  6
+  6
+  12 13
+  12 40
+  12
+  1 0
+'''
+  # A binding holds the write view its initializer hands over, with or
+  # without a type (Core §6, view places): a call's, a branching value's,
+  # or a loop value's `!Int` is held, so assigning the binding writes
+  # through to what the call was lent, as `w: !Int = slot(!n)` does. A bare name of type `!Int`
+  # copies the value it reaches.
+
+  fun slot(a: !Int) -> !Int
+    a
+
+  fun pick(a: !Int, b: !Int, c: Bool) -> !Int
+    a if c else b
+
+  n = 1
+  m = 10
+  w = slot(!n)
+  w = 5
+  w += 1
+  print(w)
+  print(n)
+  v = pick(!n, !m, false)
+  v += 3
+  t: !Int = slot(!n)
+  t *= 2
+  print(n, m)
+  x = slot(!n)
+  y = x
+  y = 40
+  print(x, y)
+  print(n)
+  b = slot(!n) if n > 100 else slot(!m)
+  b = 0
+  l = while true
+    break slot(!n)
+  l = 1
+  print(n, m)
+
+fail "write view result binding lent", "10:7: use of `n` while a write loan is live", errors: 1
+  # A binding of a call's `!Int` result holds the write view, so the value
+  # the call was lent stays lent to write while the binding is used.
+
+  fun slot(a: !Int) -> !Int
+    a
+
+  n = 1
+  w = slot(!n)
+  w = 5
+  print(n, w)
+
+fail "write view temporary handle", "14:6: cannot lend `o?` to write: it may be `o`, a value a name holds, which lending the branching value would copy", errors: 1
+  # A handle no binding holds is lent to write as any value is
+  # (`test/behavior/ownership/write_lend_temporary_view.rig`): `!h` lends the
+  # handle itself. A value that may be a name's, like the value inside an
+  # optional parameter, would be lent as a copy, which the change would
+  # miss: it is rejected.
+
+  obj P
+    n: Int
+
+  sub g(p: !*P)
+    print(p.n)
+
+  fun f(o: (*P)?) -> Int?
+    g(!o?)
+    1
+
+  print(f(none) ?? 0)
+
+fail "write view through read view", "cannot lend to write through a read view", "cannot write-iterate through a read view"
+  # A read view cannot be upgraded to a write view of a part of the
+  # value: a field reached through `?T` cannot be lent to write, given to
+  # a `!self` method, or write-iterated.
+
+  obj Counter
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  obj Holder
+    c: Counter
+    xs: [2]Int
+
+  sub inc(c: !Counter)
+    c.n += 1
+
+  sub f(p: ?Holder)
+    !p.c.bump()
+    inc(!p.c)
+    for x in !p.xs
+      x += 1
+
+  h = Holder(c: Counter(n: 0), xs: [1, 2])
+  f(?h)
+
+fail "write view view in loop", "16:2: cannot drop `t` while it is lent", errors: 1
+  # A view stored through a write view in a loop lands in what it
+  # views, and a copy made on the next iteration keeps the Text viewed.
+
+  obj Holder
+    s: ?String
+
+  t = String("scoped text here")
+  h = Holder(s: "lit")
+  o: ?String = "x"
+  i = 0
+  while i < 2
+    w = !h
+    o = w.s
+    w.s = ?t[..]
+    i += 1
+  <t
+  print(o)
+
+fail "write view while read live", "cannot lend `user` to write while a read loan is live"
+  # A write view cannot be taken while a read view of the same value
+  # is live: used later.
+
+  obj User
+    name: ?String
+
+  sub rename(u: !User)
+    print("rename")
+
+  user = User(name: "Steve")
+  r = ?user
+  rename(!user)
+  print(r.name)
+
+test "write views in sibling calls", "2 3"
+  # A view passed to a call ends when the call returns, so two calls in
+  # one statement may each lend the same value to write.
+
+  fun bump(c: !Int) -> Int
+    c = c + 1
+    c
+
+  n = 1
+  print(bump(!n), bump(!n))

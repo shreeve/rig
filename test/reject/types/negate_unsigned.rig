@@ -1,7 +1,0 @@
-# An unsigned value cannot be negated.
-
-sub main()
-  a: U8 = 3
-  print(-a)
-
-# error: cannot negate a value of unsigned type `U8`

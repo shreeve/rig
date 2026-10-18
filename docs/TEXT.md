@@ -10,7 +10,7 @@ lists every name of the text API in one place, built and planned.
 **Status.** Every layer below is built: a `String` holds UTF-8 bytes,
 and `s.len`, `s[i]`, slicing, and `std.text` work on them; `std.utf8`,
 `std.utf16`, and `std.unicode` read and write runes and units; and
-`std.text`'s char tools read chars, on the Unicode grapheme tables.
+`std.text`'s char tools read chars, on its char tables, made from Unicode's data.
 
 ## Four units, four words
 

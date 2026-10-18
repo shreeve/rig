@@ -1,2 +1,0 @@
-pub fun Point.sum(?self) -> Int
-  self.x + self.y
