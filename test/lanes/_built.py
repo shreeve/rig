@@ -14,7 +14,7 @@ def zig_version(zig):
 
 def settings():
     """The RIG_ settings that change what rig emits or how a program runs."""
-    where = {"RIG_OUT_DIR", "RIG_BUILD_STORE", "RIG_RESULTS_CACHE", "RIG_RUN_STARTED", "RIG_PROGRAM_STARTED", "RIG_CACHE_MAX_GB"}
+    where = {"RIG_OUT_DIR", "RIG_BUILD_STORE", "RIG_RESULTS_CACHE", "RIG_RUN_STARTED", "RIG_PROGRAM_STARTED", "RIG_CACHE_MAX_GB", "RIG_UCD", "RIG_TESTS"}
     return sorted(f"{k}={v}" for k, v in os.environ.items() if k.startswith("RIG_") and k not in where)
 
 

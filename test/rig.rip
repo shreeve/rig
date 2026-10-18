@@ -511,8 +511,11 @@ setup = ->
   # The compiler, and every setting of rig's that changes what it emits or
   # how a program runs (RIG_STRICT_OPTIONALS, RIG_NO_PROOFS, ...), but those
   # that only say where things go.
-  settings = Object.keys(process.env).filter((k) -> k.startsWith('RIG_') and not /^RIG_(OUT_DIR|BUILD_STORE|RESULTS_CACHE|RUN_STARTED|PROGRAM_STARTED|CACHE_MAX_GB)$/.test(k)).sort().map((k) -> "#{k}=#{process.env[k]}")
-  compiler = new Bun.CryptoHasher('sha256').update(readFileSync(rig)).update(settings.join('\n')).digest('hex')
+  settings = Object.keys(process.env).filter((k) -> k.startsWith('RIG_') and not /^RIG_(OUT_DIR|BUILD_STORE|RESULTS_CACHE|RUN_STARTED|PROGRAM_STARTED|CACHE_MAX_GB|UCD|TESTS)$/.test(k)).sort().map((k) -> "#{k}=#{process.env[k]}")
+  # Zig's version is part of it too: a new Zig builds every pack again.
+  zigExe = process.env.ZIG ?? 'zig'
+  zigVersion = Bun.spawnSync({ cmd: [zigExe, 'version'], stdout: 'pipe', stderr: 'pipe' }).stdout.toString().trim()
+  compiler = new Bun.CryptoHasher('sha256').update(readFileSync(rig)).update(settings.join('\n')).update("\nzig #{zigExe} #{zigVersion}").digest('hex')
   # Write case `i` of an area as its program, setting its path. A case's
   # program is named for it, so what it prints about itself (a panic's
   # place) names the case.
