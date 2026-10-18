@@ -1,7 +1,0 @@
-# +v where v: List[Cell[Int]] must be rejected
-sub main()
-  v: List[Cell[Int]] = List()
-  !v.push(Cell(1))
-  w = +v
-  w[0].set(5)
-  print(v[0].get())

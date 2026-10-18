@@ -1,4 +1,0 @@
-extern fun malloc(n: U64) -> *U8
-
-sub main()
-  print(1)

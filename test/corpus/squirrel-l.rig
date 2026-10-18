@@ -1,8 +1,0 @@
-obj C
-  n: Int
-
-sub main()
-  cs: List[C] = List()
-  !cs.push(C(n: 1))
-  for c in cs
-    c.n += 1

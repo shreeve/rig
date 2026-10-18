@@ -1,6 +1,0 @@
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  h = *<v
-  print(h[0])
-  h[0] = String("b")

@@ -1,8 +1,0 @@
-sub main()
-  c = *Cell("init")
-  d = +c
-  f = *|<c, s: ?String| !c.set(s)
-  if true
-    t = String("a long heap allocated text here")
-    f(?t)
-  print(d.get())

@@ -1,7 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  b = ^<v
-  for x in b
-    !b.push(x)
-  print("x")

@@ -1,8 +1,0 @@
-sub main()
-  c = Cell("a")
-  c.set("b")
-  v: List[?String] = List()
-  !v.push("q")
-  for x in ?v
-    c.set(x)
-  print(c.get())

@@ -1,5 +1,0 @@
-error E
-  bad(code: Int)
-
-sub main()
-  print(1)

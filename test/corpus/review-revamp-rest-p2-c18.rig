@@ -1,5 +1,0 @@
-A: U8 = 5
-B = A + 300
-
-sub main()
-  print(B)

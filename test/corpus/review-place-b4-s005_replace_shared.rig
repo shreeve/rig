@@ -1,6 +1,0 @@
-obj P
-  a: ?String
-
-sub main()
-  h = *P(a: "x")
-  print(replace(!h.a, "q"))

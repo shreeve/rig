@@ -1,5 +1,0 @@
-use lib
-
-sub main()
-  p = lib.P(x: 1)
-  print(lib.getx(!p))

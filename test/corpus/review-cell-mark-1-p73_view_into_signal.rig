@@ -1,9 +1,0 @@
-sub put(s: ?*Signal[?String], v: ?String)
-  !s.set(v)
-
-sub main()
-  sig = *Signal("a")
-  if true
-    t = String("abcdefghijklmnop")
-    put(?sig, ?t[..3])
-  print(sig.get())

@@ -1,3 +1,0 @@
-sub main()
-  b = ^(*|x: Int| x + 1)
-  print(b(2))

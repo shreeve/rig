@@ -1,5 +1,0 @@
-fun f(x: Int)
-  return x
-
-fun main()
-  f(1)

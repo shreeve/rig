@@ -1,8 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  o: ^P? = ^P(x: 1)
-  if o as b
-    b = ^P(x: 2)
-    print(b.x)

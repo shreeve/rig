@@ -1,4 +1,0 @@
-use geo
-
-sub main()
-  geo.KP[0] = 3

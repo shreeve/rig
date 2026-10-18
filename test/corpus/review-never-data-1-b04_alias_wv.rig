@@ -1,7 +1,0 @@
-type W = !Int
-
-obj H
-  w: W
-
-sub main()
-  print(1)

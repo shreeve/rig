@@ -1,8 +1,0 @@
-sub main()
-  a = 1
-  x = if true
-    a
-    a
-  else
-    2
-  print(x)

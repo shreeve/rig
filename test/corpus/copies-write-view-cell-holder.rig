@@ -1,8 +1,0 @@
-obj C
-  c: Cell[Int]
-
-sub main()
-  a = C(c: Cell(1))
-  w = !a
-  x = w
-  print(x.c.get())

@@ -1,8 +1,0 @@
-sub main()
-  outer: *^?List[Int]? = none
-  if true
-    v: List[Int] = List()
-    !v.push(1)
-    outer = *^?v
-  if outer as o
-    print(o.len)

@@ -1,9 +1,0 @@
-fun g(o: !String?) -> Int?
-  s = o?[1..]
-  o = none
-  print(s)
-  1
-
-sub main()
-  x: String? = String("hello")
-  print(g(!x))

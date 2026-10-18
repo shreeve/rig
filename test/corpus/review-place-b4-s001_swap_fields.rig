@@ -1,9 +1,0 @@
-obj P
-  a: ?String
-  b: ?String
-
-sub main()
-  p = P(a: "x", b: "y")
-  swap(!p.a, !p.b)
-  old = replace(!p.a, "z")
-  print(p.a, p.b, old)

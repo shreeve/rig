@@ -1,9 +1,0 @@
-obj Counter
-  hits: Cell[Int]
-
-sub main()
-  a = Counter(hits: Cell(0))
-  f = |<a| a.hits.set(a.hits.get() + 1)
-  f()
-  f()
-  print("ok")

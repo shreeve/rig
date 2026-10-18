@@ -1,5 +1,0 @@
-error ParseError
-  bad(line: Int)
-
-sub main()
-  print(1)

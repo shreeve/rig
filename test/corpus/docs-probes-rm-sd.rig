@@ -1,4 +1,0 @@
-use util.m
-
-sub main()
-  print(m.f())

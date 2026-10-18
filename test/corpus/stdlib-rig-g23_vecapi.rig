@@ -1,7 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  !v.push(3)
-  !v.insert(0, 1)
-  !v.remove(0)
-  !v.sort()
-  print(v.capacity, v.contains(3))

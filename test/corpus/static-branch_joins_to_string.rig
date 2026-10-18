@@ -1,5 +1,0 @@
-sub main()
-  t = String("abc")
-  v: ?String = ?t[..]
-  x: Static = v if t.len > 1 else "a"
-  print(x)

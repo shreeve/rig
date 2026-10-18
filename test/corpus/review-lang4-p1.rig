@@ -1,9 +1,0 @@
-obj H
-  w: !Int
-
-sub main()
-  n = 1
-  b = ^H(w: !n)
-  b.w += 1
-  b.w = 10
-  print(b.w)

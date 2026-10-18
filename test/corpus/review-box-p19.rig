@@ -1,7 +1,0 @@
-sub main()
-  b = ^"hi"
-  print(b)
-  s = <b.take()
-  print(s)
-  c = ^[1, 2, 3]
-  print(c)

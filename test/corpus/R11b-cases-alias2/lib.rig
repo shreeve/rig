@@ -1,8 +1,0 @@
-pub obj Wrap[T]
-  v: T
-
-pub obj Pt
-  x: Int
-
-pub type P = Pt
-pub type IntWrap = Wrap[Int]

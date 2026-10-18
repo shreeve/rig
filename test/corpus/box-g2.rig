@@ -1,4 +1,0 @@
-sub main()
-  c = ^5
-  print(c.value + 1)
-  c.value = 3

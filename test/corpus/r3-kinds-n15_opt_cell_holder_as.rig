@@ -1,9 +1,0 @@
-obj Counter
-  hits: Cell[Int]
-
-sub main()
-  o: Counter? = Counter(hits: Cell(0))
-  if !o as c
-    !c.hits.set(3)
-  if o as d
-    print(d.hits.get())

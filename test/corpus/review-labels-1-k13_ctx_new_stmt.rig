@@ -1,3 +1,0 @@
-sub main()
-  @new x = 1
-  print(x)

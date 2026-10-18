@@ -1,9 +1,0 @@
-sub main()
-  a = 1
-  c = 3
-  v: List[!Int] = List()
-  !v.push(!a)
-  v[0] = !c
-  v[0] = 7
-  <v
-  print(a, c)

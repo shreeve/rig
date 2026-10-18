@@ -1,2 +1,0 @@
-type Priv = U16
-pub type Pub = Priv

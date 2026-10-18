@@ -1,9 +1,0 @@
-# w = w2 for !Text locals: writes through (copy of a Text?) or re-point?
-sub main()
-  a = String("a")
-  b = String("b")
-  w = !a
-  w2 = !b
-  w = w2
-  !w.add("!")
-  print(a, b)

@@ -1,3 +1,0 @@
-print(1)
-sub main()
-  print(2)

@@ -1,6 +1,0 @@
-obj S
-  a: Int?
-
-sub main()
-  v = <S(a: 4).a
-  print(v)

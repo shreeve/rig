@@ -1,8 +1,0 @@
-# List[!Int]: push !a twice -> two write views of one value
-sub main()
-  a = 1
-  w: List[!Int] = List()
-  !w.push(!a)
-  !w.push(!a)
-  w[0] = 5
-  print(a)

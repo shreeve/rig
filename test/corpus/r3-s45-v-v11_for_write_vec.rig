@@ -1,6 +1,0 @@
-sub main()
-  a = 1
-  v: List[!Int] = List()
-  !v.push(!a)
-  for w in v
-    print(w)

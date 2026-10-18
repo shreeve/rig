@@ -1,7 +1,0 @@
-fun first[T](v: ?List[T]) -> Int
-  v.len
-
-sub main()
-  n = 1
-  v: List[!Int] = List()
-  print(first(v))

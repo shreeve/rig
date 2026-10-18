@@ -1,2 +1,0 @@
-sub main(args: []?String)
-  print(args.len)

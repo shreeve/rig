@@ -1,9 +1,0 @@
-# +v of a List[T] in a generic body with T = Int (false rejection?)
-fun dup[T](v: ?List[T]) -> List[T]
-  +v
-
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  w = dup(?v)
-  print(w)

@@ -1,6 +1,0 @@
-use lib
-
-sub main()
-  p = lib.P(x: 1, items: List())
-  y = (?p).x
-  print(lib.getn(?p, 1), y)

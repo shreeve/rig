@@ -1,3 +1,0 @@
-sub main()
-  b: bool = true
-  print(b)

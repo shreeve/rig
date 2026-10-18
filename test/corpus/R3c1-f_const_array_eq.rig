@@ -1,5 +1,0 @@
-ARR =! [1, 2]
-SAME =! ARR == [1, 2]
-
-sub main()
-  print(SAME)

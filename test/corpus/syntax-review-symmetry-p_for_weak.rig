@@ -1,8 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  v: List[*P] = List()
-  !v.push(*P(x: 1))
-  for x in ~v
-    print(x)

@@ -187,22 +187,15 @@ note, and `JSON_REQUIRE_DATA=1` makes that a failure.
 ## The corpus
 
 `test/corpus/` keeps the probe programs written by past reviews and
-audits, deduplicated by content. Each program either is rejected by
-`rig check` with a `file:line:col` diagnostic, or runs under the
-sanitizer with no leak, no use of freed memory, no Zig compile error,
-no crash, and no Zig safety check that means emitted code went wrong
-(`reached unreachable`, a wrong union field, ...). A probe need not
-succeed: Rig's own panics (bounds, overflow) and exit statuses are
-fine, and nothing checks its output. A multi-module probe is a
-directory with `main.rig`. Probes that need a module we no longer
-have, loop forever, or leak through a cycle of strong handles (the one
-leak Rig allows) are left out, and so are those rejected only by the
-parser.
-
-The suite's core checks every probe with the reference ownership
-checker (`oracle.corpus`, below), and `swarm test/rig.rip proofs` runs
-each one the compiler proves a check of. Add new review probes here,
-named `<review>-<probe>.rig`.
+audits, deduplicated by content, that reach the ownership checker: the
+reference ownership checker reads every one (`oracle.corpus`, below),
+and they give it most of the functions it decides. A probe need not run
+cleanly or print anything in particular. A multi-module probe is a
+directory with `main.rig`. A probe the compiler rejects before ownership
+checking gives the oracle nothing, so it belongs in `test/rig` as a
+`fail` case instead. `swarm test/rig.rip proofs` also runs each probe
+the compiler proves a check of. Add new review probes here, named
+`<review>-<probe>.rig`.
 
 Probe batches started by hand should set `RIG_OUT_DIR=$(mktemp -d)` and
 delete it afterwards, so they never write to the user cache.

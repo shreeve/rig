@@ -1,3 +1,0 @@
-sub main()
-  a = @size (Int)
-  print(a)

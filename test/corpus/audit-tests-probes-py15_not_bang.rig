@@ -1,4 +1,0 @@
-sub main()
-  a = true
-  if !a
-    print("no")

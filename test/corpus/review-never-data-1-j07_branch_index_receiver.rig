@@ -1,9 +1,0 @@
-sub main()
-  a: List[String] = List()
-  b: List[String] = List()
-  !a.push(String("x"))
-  !b.push(String("y"))
-  c = true
-  s: ?String = (a if c else b)[0]
-  <a
-  print(s)

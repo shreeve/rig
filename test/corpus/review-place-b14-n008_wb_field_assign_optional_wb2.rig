@@ -1,8 +1,0 @@
-obj H
-  w: !Int?
-
-sub main()
-  n: Int? = 1
-  h = H(w: !n)
-  h.w = 4
-  print(n ?? 0)

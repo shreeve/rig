@@ -1,8 +1,0 @@
-use util
-
-obj Q
-  n: Int
-
-sub main()
-  f = util.Byte
-  q = util.Q

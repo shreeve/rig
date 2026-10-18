@@ -1,5 +1,0 @@
-fun f(break: Int, continue: Int) -> Int
-  break + continue
-
-sub main()
-  print(f(break: 1, continue: 2))

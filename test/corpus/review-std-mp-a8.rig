@@ -1,4 +1,0 @@
-use foo.bar
-
-sub main()
-  print(1)

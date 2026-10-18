@@ -1,7 +1,0 @@
-obj S
-  n: Int
-
-sub main()
-  h = *S(n: 1)
-  g = +h
-  print(h == g)

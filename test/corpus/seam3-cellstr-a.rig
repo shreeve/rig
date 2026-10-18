@@ -1,6 +1,0 @@
-sub main()
-  c = Cell("lit")
-  print(c.get())
-  t = String("local")
-  c.set(?t[..])
-  print(c.get())

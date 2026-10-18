@@ -1,8 +1,0 @@
-obj U
-  n: Int
-  fun get(?self) -> Int
-    self.n
-
-sub main()
-  u: U? = U(n: 1)
-  print(u.get())

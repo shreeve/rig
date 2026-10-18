@@ -1,9 +1,0 @@
-use std.random
-
-sub main()
-  p: random.Random? = random.Random.seeded(2)
-  if p as s
-    print(!s.next() != 0)
-  v: List[Int]? = List()
-  if v as w
-    print(w.len)

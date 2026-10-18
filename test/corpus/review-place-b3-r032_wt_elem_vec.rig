@@ -1,6 +1,0 @@
-sub main()
-  a = 1
-  ws: List[!Int] = List()
-  !ws.push(!a)
-  ws[0] = 4
-  print(a)

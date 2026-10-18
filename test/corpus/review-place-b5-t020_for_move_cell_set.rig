@@ -1,6 +1,0 @@
-sub main()
-  xs: List[Cell[Int]] = List()
-  !xs.push(Cell(1))
-  for c in <xs
-    !c.set(3)
-    print(c.get())

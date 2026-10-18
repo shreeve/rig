@@ -1,4 +1,0 @@
-use util
-
-pub fun quad[T](x: T) -> T
-  util.twice(utillib.Wrap[.twice(x))

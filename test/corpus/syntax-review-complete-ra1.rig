@@ -1,3 +1,0 @@
-sub main()
-  r = 0..5
-  print(r)

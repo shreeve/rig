@@ -1,9 +1,0 @@
-obj P
-  x: Int
-
-  sub inc(?self)
-    self = P(x: 3)
-
-sub main()
-  p = P(x: 1)
-  p.inc()

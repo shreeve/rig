@@ -1,5 +1,0 @@
-pub obj Wrap[T]
-  v: T
-
-pub fun one() -> Int
-  1

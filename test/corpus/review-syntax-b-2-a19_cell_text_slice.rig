@@ -1,6 +1,0 @@
-sub main()
-  c = *Cell(String("hello"))
-  s = ?c[1..]
-  d = +c
-  !d.set(String("x"))
-  print(s)

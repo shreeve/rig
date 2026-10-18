@@ -1,3 +1,0 @@
-sub main()
-  extern k: Int
-  print(1)

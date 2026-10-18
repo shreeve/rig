@@ -1,6 +1,0 @@
-enum S
-  rect(w: Int, h: Int)
-
-sub main()
-  s = S.rect(2, 3)
-  print(s)

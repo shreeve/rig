@@ -1,7 +1,0 @@
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  for x in v
-    -x
-  t = String("hi")
-  -t

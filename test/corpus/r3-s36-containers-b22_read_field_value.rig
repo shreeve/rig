@@ -1,8 +1,0 @@
-obj H
-  r: ?Int
-
-sub main()
-  a = 1
-  h = H(r: ?a)
-  h.r = 5
-  print(h.r)

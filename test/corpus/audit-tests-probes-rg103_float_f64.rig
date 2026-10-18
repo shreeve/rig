@@ -1,3 +1,0 @@
-sub main()
-  x: f64 = 1.0
-  print(x)

@@ -1,8 +1,0 @@
-obj V
-  xs: []Int
-
-sub main()
-  a = [1, 2, 3]
-  v = V(xs: ?a[..])
-  w = !v.xs
-  w[0] = 9

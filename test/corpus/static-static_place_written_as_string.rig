@@ -1,7 +1,0 @@
-sub main()
-  t = String("abcdef")
-  lit = "lit"
-  w: !String = !lit
-  w = ?t[..2]
-  <t
-  print(lit)

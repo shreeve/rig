@@ -1,5 +1,0 @@
-fun f(n: Int) -> Int!
-  n
-
-sub main()
-  defer print(f(1)!)

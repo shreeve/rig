@@ -1,9 +1,0 @@
-sub g(r: ?String, u: ?String)
-  s = r[1..]
-  r = u
-  print(s)
-
-sub main()
-  t = String("hello")
-  u = String("other")
-  g(?t, ?u)

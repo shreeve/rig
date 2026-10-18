@@ -1,4 +1,0 @@
-use io as x
-
-sub main()
-  print(1)

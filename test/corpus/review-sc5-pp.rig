@@ -1,6 +1,0 @@
-obj S
-  pub pub x: Int
-
-sub main()
-  pub y = 3
-  print(y)

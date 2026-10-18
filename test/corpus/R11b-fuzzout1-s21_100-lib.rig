@@ -1,4 +1,0 @@
-pub fun keep[T](x: T) -> Int
-  v.Wrap = List[T]()
-  !v.push(<x)
-  v.len

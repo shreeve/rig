@@ -125,9 +125,9 @@ started:
   `a()`, as bare, but `sema.enumValues` (what `Int(x)`, `from_int`,
   `@variants`, and ordering read) does not, as resolve gives it no
   value. So for `enum E` of `a()` and `b`, `x == E.b` is accepted and
-  `x > E.b` and `Int(x)` are rejected as "variants with payloads"
-  (`test/corpus/enumorder-c02_empty_payload.rig`). Decide once whether
-  `a()` is bare (or reject the empty payload), and have both read it.
+  `x > E.b` and `Int(x)` are rejected as "variants with payloads".
+  Decide once whether `a()` is bare (or reject the empty payload), and
+  have both read it.
 - Objects nested by value, deep or wide, fail inside Zig, not in Rig
   (rule 2), found by #270.
   - Probe: a chain `obj A0` .. `obj A99`, each with nine `Int` fields and

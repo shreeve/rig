@@ -1,7 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  b = ^<v
-  print(b)
-  w = <b.take()
-  print(w.len)

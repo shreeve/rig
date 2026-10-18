@@ -1,9 +1,0 @@
-obj H
-  w: !^Int
-
-sub main()
-  b = ^5
-  h = H(w: !b)
-  r = ?h.w
-  h.w = ^6
-  print(r)

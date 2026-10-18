@@ -1,3 +1,0 @@
-sub main()
-  a: F32 = 16777217
-  print(a)

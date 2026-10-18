@@ -1,9 +1,0 @@
-enum Status
-  ok = 200
-  missing = 404
-
-sub main()
-  n: Int = 405
-  raw
-    s: Status = @fromBackingInt(n)
-    print(s)

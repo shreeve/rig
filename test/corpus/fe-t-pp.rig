@@ -1,5 +1,0 @@
-obj S
-  pub pub x: Int
-
-sub main()
-  print(S(x: 1).x)

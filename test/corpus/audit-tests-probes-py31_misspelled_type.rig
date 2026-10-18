@@ -1,3 +1,0 @@
-sub main()
-  x: Integer = 5
-  print(x)

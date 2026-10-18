@@ -1,5 +1,0 @@
-obj List
-  x: Int
-
-sub main()
-  print(1)

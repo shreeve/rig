@@ -1,5 +1,0 @@
-fun f(n: Int) -> Option[Int]
-  n
-
-sub main()
-  print(f(1))

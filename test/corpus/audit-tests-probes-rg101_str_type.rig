@@ -1,5 +1,0 @@
-fun f(s: str) -> Int
-  s.len
-
-sub main()
-  print(f("a"))

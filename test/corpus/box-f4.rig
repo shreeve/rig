@@ -1,8 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  a = [^P(x: 1), ^P(x: 2)]
-  print(a[1].x, a)
-  w: ^^P = ^^P(x: 3)
-  print(w)

@@ -1,8 +1,0 @@
-# std.slices.contains over List[Text] (x: T by value)
-use std.slices
-
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  !v.push(String("b"))
-  print(slices.contains(?v, String("b")))

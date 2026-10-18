@@ -1,8 +1,0 @@
-sub main()
-  a = *String("hello")
-  w = ~a
-  s = ""
-  if *w as h
-    s = h[1..]
-  <a
-  print(s)

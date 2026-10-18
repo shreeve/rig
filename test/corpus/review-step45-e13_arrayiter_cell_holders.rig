@@ -1,9 +1,0 @@
-# consuming loop over an array of Cell holders
-obj C
-  c: Cell[Int]
-
-sub main()
-  a = [C(c: Cell(1)), C(c: Cell(2))]
-  for x in <a
-    x.c.set(x.c.get() * 10)
-    print(x.c.get())

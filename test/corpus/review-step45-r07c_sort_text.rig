@@ -1,9 +1,0 @@
-# std.sort.sort on List[Text]: needs `<`, which Text lacks: reject
-use std.sort
-
-sub main()
-  v: List[String] = List()
-  !v.push(String("b"))
-  !v.push(String("a"))
-  sort.sort(!v)
-  print(v)

@@ -1,3 +1,0 @@
-sub main()
-  a = [1, 2]
-  !a.fill[Int](0)

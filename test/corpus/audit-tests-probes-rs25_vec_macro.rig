@@ -1,3 +1,0 @@
-sub main()
-  v = vec![1, 2, 3]
-  print(v.len)

@@ -1,7 +1,0 @@
-obj P
-  a: ?String
-
-sub main()
-  ps = [P(a: "x")]
-  for p in ps
-    print(replace(!p.a, "q"))

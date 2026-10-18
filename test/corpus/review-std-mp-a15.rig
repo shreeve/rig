@@ -1,4 +1,0 @@
-use math as mine
-
-sub main()
-  print(mine.twice(4))

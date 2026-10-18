@@ -1,9 +1,0 @@
-fun getv(v: ?List[String]) -> ?List[String]
-  v
-
-sub main()
-  v: List[String] = List()
-  !v.push(String("a"))
-  for x in getv(?v)
-    <x
-  print(v)

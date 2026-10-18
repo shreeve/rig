@@ -1,8 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  p = P(x: 4)
-  b: ^((?P)?) = ^?p
-  if b.value as q
-    print(q.x)

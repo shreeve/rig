@@ -1,8 +1,0 @@
-T = 3
-
-obj W[T]
-  v: T
-
-sub main()
-  w = W(v: 1)
-  print(w.v, T)

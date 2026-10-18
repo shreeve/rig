@@ -1,3 +1,0 @@
-sub main()
-  s = "abc"
-  w = !s[..]

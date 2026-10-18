@@ -1,3 +1,0 @@
-sub main()
-  s = *Signal([1048577 of 0])
-  print(s.get()[0])

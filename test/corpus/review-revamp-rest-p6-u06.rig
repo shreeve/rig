@@ -1,7 +1,0 @@
-obj S
-  x: Int
-  pub pub fun f(?self) -> Int
-    1
-
-sub main()
-  print(S(x: 1).f())

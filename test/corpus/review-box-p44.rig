@@ -1,7 +1,0 @@
-fun mk() -> ^[]Int
-  a = [1, 2, 3]
-  ^a[0..2]
-
-sub main()
-  b = mk()
-  print(b)

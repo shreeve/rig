@@ -1,7 +1,0 @@
-fun mk() -> (?String)?
-  "a"
-
-sub main()
-  if mk() as s
-    s = "b"
-    print(s)

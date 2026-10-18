@@ -1,7 +1,0 @@
-sub main()
-  hs: List[*^?List[Int]] = List()
-  for i in 0..2
-    v: List[Int] = List()
-    !v.push(i)
-    !hs.push(*^?v)
-  print(hs[0].len)

@@ -1,9 +1,0 @@
-fun first(o: List[Int]?) -> Int?
-  n = 0
-  for x in o?
-    n += x
-  n
-
-sub main()
-  o: List[Int]? = List()
-  print(first(<o))

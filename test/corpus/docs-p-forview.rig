@@ -1,7 +1,0 @@
-sub f(w: ?List[Int])
-  for x in <w
-    print(x)
-
-sub main()
-  v: List[Int] = List()
-  f(?v)

@@ -1,5 +1,0 @@
-sub main()
-  v = List[Int]()
-  b = ^<v
-  c = Cell(<v)
-  print(b)

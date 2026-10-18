@@ -1,3 +1,0 @@
-sub main()
-  b: [4]U8 = [1, 2, 3, 4]
-  print(b.read[U12, .big](0))

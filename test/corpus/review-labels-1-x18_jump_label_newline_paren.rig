@@ -1,8 +1,0 @@
-sub main()
-  v = if true
-    @a while true
-      break @a
-      (5)
-  else
-    0
-  print(v)

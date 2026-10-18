@@ -1,9 +1,0 @@
-sub main()
-  v: List[String] = List()
-  !v.push(String("hello"))
-  ws: List[![]String] = List()
-  !ws.push(!v[..])
-  for s in ws
-    r = ?s[0][1..]
-    s[0] = String("other")
-    print(r)

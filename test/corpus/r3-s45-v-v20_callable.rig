@@ -1,7 +1,0 @@
-fun one() -> Int
-  1
-
-sub main()
-  v: List[?fun() -> Int] = List()
-  !v.push(?one)
-  print(v.len)

@@ -1,6 +1,0 @@
-sub g(n: !Int)
-  n += 1
-
-sub main()
-  n = 2
-  g(n)

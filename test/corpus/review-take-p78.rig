@@ -1,8 +1,0 @@
-obj S
-  a: Int?
-
-G =! S(a: 1)
-
-sub main()
-  t = <G.a
-  print(t, G)

@@ -1,6 +1,0 @@
-obj P
-  o: (?String)?
-
-sub main()
-  p =! P(o: "a")
-  x = <p.o

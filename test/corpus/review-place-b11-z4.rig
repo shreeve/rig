@@ -1,5 +1,0 @@
-sub f(c: Cell[List[Int]])
-  (<c).push(1)
-
-sub main()
-  f(Cell(List()))

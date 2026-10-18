@@ -1,4 +1,0 @@
-sub main()
-  name = "world"
-  greeting = "hello, " + name
-  print(greeting)

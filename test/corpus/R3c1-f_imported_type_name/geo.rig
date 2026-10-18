@@ -1,6 +1,0 @@
-pub obj Point
-  x: Int
-
-pub obj Tagged
-  id: Int
-  h: *Point

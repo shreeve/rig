@@ -1,9 +1,0 @@
-obj H
-  t: String
-
-sub main()
-  p = *H(t: String("abcdefghijklmnop"))
-  q = p
-  s = ?q.t[..]
-  !p.t.add("more more more more more more more more more")
-  print(s)

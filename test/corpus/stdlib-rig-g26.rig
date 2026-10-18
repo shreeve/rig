@@ -1,9 +1,0 @@
-obj P
-  x: Int
-
-sub main()
-  c = Cell(3)
-  b = ^P(x: 1)
-  print(c.value, b.value, b.x)
-  v = List[Int](capacity: 4)
-  print(v.len)

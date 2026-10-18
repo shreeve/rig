@@ -1,7 +1,0 @@
-fun get(k: Int) -> Int?
-  k if k > 0 else none
-
-sub main()
-  x = get(1)
-  y = x?
-  print(y)

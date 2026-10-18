@@ -1,7 +1,0 @@
-obj W
-  xs: []Int
-
-sub main()
-  a = [1, 2, 3]
-  w = W(xs: a[..])
-  print(w.xs)

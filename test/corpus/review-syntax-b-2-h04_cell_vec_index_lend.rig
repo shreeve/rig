@@ -1,7 +1,0 @@
-sub main()
-  c = *Cell[List[String]](List())
-  !c.push(String("hello"))
-  d = +c
-  s = ?c[0][1..]
-  !d.clear()
-  print(s)

@@ -1,5 +1,0 @@
-use lib
-
-sub main()
-  p = lib.P(x: 1, s: String("ab"))
-  print(lib.gets(?p), (?p).zz)

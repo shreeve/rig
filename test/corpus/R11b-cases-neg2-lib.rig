@@ -1,5 +1,0 @@
-pub obj Wrap[T]
-  v: T
-
-  fun deeper(?self) -> Wrap[Wrap[T]]
-    Wrap(v: Wrap(v: self.v))

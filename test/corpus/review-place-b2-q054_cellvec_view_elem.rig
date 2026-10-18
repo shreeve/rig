@@ -1,7 +1,0 @@
-sub g(n: !Int)
-  n = 1
-
-sub main()
-  c: Cell[List[Int]] = Cell(List())
-  !c.push(1)
-  g(!c[0])

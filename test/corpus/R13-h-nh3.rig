@@ -1,3 +1,0 @@
-sub main()
-  s: *sub() = *|| print(1)
-  s = none

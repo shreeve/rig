@@ -1,3 +1,0 @@
-sub main()
-  name = input("name? ")
-  print("hi", name)

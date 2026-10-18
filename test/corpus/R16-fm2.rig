@@ -1,9 +1,0 @@
-obj Bag
-  items: List[Int]
-
-sub main()
-  b = Bag(items: List())
-  add = |!b, n: Int|
-    b.items.push(n)
-  add(1)
-  print(b.items.len)

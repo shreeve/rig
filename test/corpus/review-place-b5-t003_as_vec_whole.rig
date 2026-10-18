@@ -1,5 +1,0 @@
-sub main()
-  o: List[Int]? = List()
-  if o as v
-    v = List()
-    print(v.len)

@@ -1,8 +1,0 @@
-obj H
-  w: !Int
-
-sub main()
-  n = 1
-  h =! H(w: !n)
-  h.w = 5
-  print(n)

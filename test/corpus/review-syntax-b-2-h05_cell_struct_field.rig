@@ -1,9 +1,0 @@
-obj S
-  t: String
-
-sub main()
-  c = *Cell(S(t: String("hello")))
-  d = +c
-  s = ?c.t[1..]
-  !d.set(S(t: String("x")))
-  print(s)

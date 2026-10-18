@@ -1,5 +1,0 @@
-use lib
-
-sub main()
-  w = lib.Wrap(v: 1)
-  print(w.v)

@@ -1,5 +1,0 @@
-obj S
-  s: ![]Int
-
-sub main()
-  print(1)

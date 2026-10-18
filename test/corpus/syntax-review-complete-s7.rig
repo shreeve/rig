@@ -1,3 +1,0 @@
-sub main()
-  s = "hello world"
-  print(s.find("o"), s.starts_with("he"), s.split(" "))

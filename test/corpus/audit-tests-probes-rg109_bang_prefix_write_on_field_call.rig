@@ -1,7 +1,0 @@
-obj C
-  v: List[Int]
-
-sub main()
-  c = C(v: List())
-  c.v.push(1)
-  print(c.v.len)

@@ -1,5 +1,0 @@
-sub main()
-  v: List[Int] = List()
-  !v.push(1)
-  c = Cell(?v)
-  print(1)
