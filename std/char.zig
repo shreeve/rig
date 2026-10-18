@@ -1,5 +1,5 @@
 //! The chars of `std.text`: Unicode's extended grapheme clusters (UAX #29,
-//! rules GB1 to GB13 and GB999), with the classes of `grapheme_tables.zig`.
+//! rules GB1 to GB13 and GB999), with the classes of `char_tables.zig`.
 //!
 //! The text is UTF-8 read as Go reads it: a byte that starts no
 //! well-formed sequence is one U+FFFD of one byte. So every byte is in
@@ -20,7 +20,7 @@
 //! one slice whose length test covers them.
 
 const std = @import("std");
-const tables = @import("grapheme_tables.zig");
+const tables = @import("char_tables.zig");
 const Class = tables.Class;
 
 // ---- The text tools --------------------------------------------------------
@@ -270,7 +270,7 @@ const Dfa = struct {
             if (known.prev == st.prev and known.odd_flags == st.odd_flags and
                 known.emoji == st.emoji and known.conjunct == st.conjunct) return k;
         }
-        if (n.* == max_states) @compileError("more grapheme states than Dfa.max_states");
+        if (n.* == max_states) @compileError("more char states than Dfa.max_states");
         states[n.*] = st;
         n.* += 1;
         return n.* - 1;
@@ -464,7 +464,7 @@ fn pictBefore(s: []const u8, i: usize) bool {
 }
 
 // ---- Tests -------------------------------------------------------------------
-// `zig test std/grapheme.zig` (test/cli/grapheme_zig.sh): forward and
+// `zig test std/char.zig` (test/cli/char_zig.sh): forward and
 // backward agree on random text built from runes of every class and bytes
 // that are not UTF-8.
 

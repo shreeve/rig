@@ -2,8 +2,8 @@
 //! 15.1.0 (GraphemeBreakProperty.txt, emoji-data.txt, and
 //! DerivedCoreProperties.txt); do not edit.
 //!
-//! The grapheme class of every code point, for the chars of `std.text`
-//! (std/grapheme.zig): its Grapheme_Cluster_Break value, with
+//! The char class of every code point, for the chars of `std.text`
+//! (std/char.zig): its Grapheme_Cluster_Break value, with
 //! Extended_Pictographic and Indic_Conjunct_Break splitting the values
 //! they refine. The table is an index over blocks of 256 code points and
 //! the 103 distinct blocks, four bits to a code point (20480 bytes in

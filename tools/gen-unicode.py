@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generate std/unicode_tables.zig, the identifier tables of std.unicode,
-and std/grapheme_tables.zig, the grapheme classes behind the chars of
+and std/char_tables.zig, the char classes behind the chars of
 std.text, from the Unicode Character Database, and the tests of both.
 
     tools/gen-unicode.py [--ucd DIR] [--check]
@@ -18,7 +18,7 @@ Identifiers"). The table is two-level: an index of blocks over the code
 points, and the distinct blocks, four code points to a byte. The block
 size is the one that makes the table smallest.
 
-Chars: each code point holds its grapheme class, four bits, in a table of
+Chars: each code point holds its char class, four bits, in a table of
 the same shape: its Grapheme_Cluster_Break (GraphemeBreakProperty.txt),
 split by Extended_Pictographic (emoji-data.txt) and Indic_Conjunct_Break
 (DerivedCoreProperties.txt). The rules of UAX #29 are written here too
@@ -284,9 +284,9 @@ sub main()
 
 # ---- Chars: extended grapheme clusters (UAX #29) -------------------------
 
-GRAPHEME_TABLES = os.path.join(ROOT, "std", "grapheme_tables.zig")
+CHAR_TABLES = os.path.join(ROOT, "std", "char_tables.zig")
 
-# The grapheme classes, in the order of their numbers: each is a
+# The char classes, in the order of their numbers: each is a
 # Grapheme_Cluster_Break value, split where Extended_Pictographic (GB11) or
 # Indic_Conjunct_Break (GB9c) tells code points of one value apart. The
 # order keeps the ranges the rules test together: extend..linker are the
@@ -294,11 +294,11 @@ GRAPHEME_TABLES = os.path.join(ROOT, "std", "grapheme_tables.zig")
 # the InCB Extend and Linker of GB9c, and control..lf those GB4 and GB5
 # break around. CR and LF, the last two, are ASCII, so the table, which
 # holds the other sixteen, four bits to a code point, never needs them.
-GRAPHEME_CLASSES = [
+CHAR_CLASSES = [
     "other", "pict", "consonant", "prepend", "spacing_mark", "l", "v", "t", "lv", "lvt",
     "ri", "extend", "incb_extend", "linker", "zwj", "control", "cr", "lf",
 ]
-G = {name: i for i, name in enumerate(GRAPHEME_CLASSES)}
+G = {name: i for i, name in enumerate(CHAR_CLASSES)}
 GBP = {
     "CR": "cr", "LF": "lf", "Control": "control", "Extend": "extend", "ZWJ": "zwj",
     "Regional_Indicator": "ri", "Prepend": "prepend", "SpacingMark": "spacing_mark",
@@ -306,8 +306,8 @@ GBP = {
 }
 
 
-def grapheme_classes(ucd):
-    """The grapheme class of every code point, checking that each property
+def char_classes(ucd):
+    """The char class of every code point, checking that each property
     falls in the Grapheme_Cluster_Break values the classes assume."""
     v = bytearray(LIMIT)
     gbp = property_ranges(ucd_file(ucd, "auxiliary/GraphemeBreakProperty.txt"), list(GBP))
@@ -333,7 +333,7 @@ def grapheme_classes(ucd):
                     sys.exit("U+%04X is InCB %s but not the class %s" % (c, value, base))
                 v[c] = G[name]
     if any(v[c] == G["ri"] for c in range(LIMIT) if not 0x1F1E6 <= c <= 0x1F1FF):
-        sys.exit("a regional indicator is outside U+1F1E6..U+1F1FF, the four-byte runes std/grapheme.zig counts")
+        sys.exit("a regional indicator is outside U+1F1E6..U+1F1FF, the four-byte runes std/char.zig counts")
     zwj = [c for c in range(LIMIT) if v[c] == G["zwj"]]
     in_extend = any(a <= 0x200D <= b for a, b in incb["InCB=Extend"])
     if zwj != [0x200D] or not in_extend:
@@ -418,15 +418,15 @@ def break_tests(ucd, v):
     return out
 
 
-def grapheme_tables_source(v):
+def char_tables_source(v):
     for c in range(128):
         want = {0x0D: "cr", 0x0A: "lf"}.get(c, "control" if c < 0x20 or c == 0x7F else "other")
         if v[c] != G[want]:
-            sys.exit("U+%04X is not of the ASCII class std/grapheme_tables.zig gives it" % c)
+            sys.exit("U+%04X is not of the ASCII class std/char_tables.zig gives it" % c)
     if any(v[c] >= G["cr"] for c in range(128, LIMIT)):
         sys.exit("a code point beyond ASCII is CR or LF")
     if any(v[c] != G["other"] for c in range(0x100000, LIMIT)):
-        sys.exit("a code point of plane 16 is not `other`, which std/grapheme_tables.zig makes it")
+        sys.exit("a code point of plane 16 is not `other`, which std/char_tables.zig makes it")
     # Each level fills its index type's whole range, so no index needs a
     # check: 4096 entries for `c >> 8` below 0x100000 (a u12), and 128
     # blocks for an entry (a u7), each 128 bytes for `c >> 1` (a u7).
@@ -435,21 +435,21 @@ def grapheme_tables_source(v):
     nblocks = len(blocks) // 128
     other = [k for k in range(nblocks) if blocks[k * 128:(k + 1) * 128] == bytes(128)]
     if not other:
-        sys.exit("no block of the grapheme table is all `other`")
+        sys.exit("no block of the char table is all `other`")
     index += [other[0]] * (4096 - len(index))
     if nblocks > 128:
-        sys.exit("the grapheme table has more than 128 distinct blocks")
+        sys.exit("the char table has more than 128 distinct blocks")
     blocks += bytes(128 * (128 - nblocks))
     total = len(index) + len(blocks)
-    enum = "\n".join("    %s," % name for name in GRAPHEME_CLASSES)
+    enum = "\n".join("    %s," % name for name in CHAR_CLASSES)
     block_rows = "\n".join("    .{ " + ", ".join("0x%02x" % x for x in blocks[k * 128:(k + 1) * 128]) + " },"
                             for k in range(128))
     return """//! GENERATED by tools/gen-unicode.py from the Unicode Character Database
 //! {version} (GraphemeBreakProperty.txt, emoji-data.txt, and
 //! DerivedCoreProperties.txt); do not edit.
 //!
-//! The grapheme class of every code point, for the chars of `std.text`
-//! (std/grapheme.zig): its Grapheme_Cluster_Break value, with
+//! The char class of every code point, for the chars of `std.text`
+//! (std/char.zig): its Grapheme_Cluster_Break value, with
 //! Extended_Pictographic and Indic_Conjunct_Break splitting the values
 //! they refine. The table is an index over blocks of 256 code points and
 //! the {nblocks} distinct blocks, four bits to a code point ({total} bytes in
@@ -495,7 +495,7 @@ const blocks: [128][128]u8 = .{{
 
 
 
-# The texts around a code point X whose char counts tell every grapheme
+# The texts around a code point X whose char counts tell every char
 # class apart: (the code points before X, those after X).
 PROBES = [
     ([0x61], []), ([], [0x61]), ([], [0x301]), ([0x0D], []), ([], [0x0A]), ([], [0x1161]),
@@ -508,7 +508,7 @@ def probe_signatures(v):
     """{class: signature}: the char counts of the probes around a code point
     of each class, two bits each, by the rules above."""
     out = {}
-    for k in range(len(GRAPHEME_CLASSES)):
+    for k in range(len(CHAR_CLASSES)):
         sig = 0
         for i, (before, after) in enumerate(PROBES):
             cls = [v[x] for x in before] + [k] + [v[x] for x in after]
@@ -516,11 +516,11 @@ def probe_signatures(v):
             sig |= (n - 1) << (2 * i)
         out[k] = sig
     if len(set(out.values())) != len(out):
-        sys.exit("the probes do not tell every grapheme class apart")
+        sys.exit("the probes do not tell every char class apart")
     return out
 
 
-def grapheme_census_source(v):
+def char_census_source(v):
     """A Rig test that puts every code point but the surrogates in each
     probe and hashes the char counts."""
     sigs = probe_signatures(v)
@@ -533,7 +533,7 @@ def grapheme_census_source(v):
                        for i, (a, b) in enumerate(PROBES))
     return """# GENERATED by tools/gen-unicode.py; do not edit.
 # Every code point but the surrogates is put in short texts whose char
-# counts tell its grapheme class of Unicode {version} apart, and a hash of
+# counts tell its char class of Unicode {version} apart, and a hash of
 # all the counts equals that of the Character Database.
 use std.text
 
@@ -582,7 +582,7 @@ def rig_text(cps):
     return '"' + "".join("\\u{%x}" % c for c in cps) + '"'
 
 
-def grapheme_test_source(tests):
+def char_test_source(tests):
     calls = "\n".join("  bad += check(%d, %s, \"%s\")" % (n, rig_text(cps), " ".join(map(str, sizes)))
                       for n, cps, sizes in tests)
     return """# GENERATED by tools/gen-unicode.py from GraphemeBreakTest.txt of Unicode
@@ -674,11 +674,11 @@ def main():
     for name in PINNED:
         ucd_file(ucd, name)
     v = classes(ucd)
-    g = grapheme_classes(ucd)
-    outputs = [(TABLES, tables_source(v)), (GRAPHEME_TABLES, grapheme_tables_source(g)),
+    g = char_classes(ucd)
+    outputs = [(TABLES, tables_source(v)), (CHAR_TABLES, char_tables_source(g)),
                (TESTS, tests_source({"unicode_ids_table": census_source(v),
-                                     "text_chars_conformance": grapheme_test_source(break_tests(ucd, g)),
-                                     "text_chars_table": grapheme_census_source(g)}))]
+                                     "text_chars_conformance": char_test_source(break_tests(ucd, g)),
+                                     "text_chars_table": char_census_source(g)}))]
     bad = False
     for path, text in outputs:
         if args.check:
