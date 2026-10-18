@@ -1,0 +1,726 @@
+# runtime: tests whose names start `list`.
+
+use std.sort
+
+test "list clear reuse", '''
+  3 0 2
+  0
+  43 0 42
+  0
+  83 0 82
+  0
+  123 0 122
+  0
+  0
+  9 8 0
+  0
+  9 8 1
+  0
+  9 8 2
+  0
+  0 54321
+  0 54321
+  0 54321
+  7
+  78
+'''
+  # `clear` keeps the buffer for reuse. Plain elements own nothing, so it
+  # is only the length; owned elements are each dropped, last first. Both
+  # refill across growth boundaries, with the drops counted exactly.
+
+  obj Pt
+    x: Int
+    y: Int
+
+  obj Tracked
+    id: Int
+    log: *Cell[Int]
+
+    drop(!self)
+      !self.log.set(self.log.get() * 10 + self.id)
+
+  sub fill(v: !List[Int], n: Int)
+    i = 0
+    while i < n : i += 1
+      !v.push(i)
+
+  ints: List[Int] = List()
+  for round in 0..4
+    fill(!ints, 3 + round * 40)
+    print(ints.len, ints[0], ints[ints.len - 1])
+    !ints.clear()
+    print(ints.len)
+  !ints.clear()
+  print(ints.len)
+
+  pts: List[Pt] = List()
+  for round in 0..3
+    for i in 0..9
+      !pts.push(Pt(x: i, y: round))
+    print(pts.len, pts[8].x, pts[8].y)
+    !pts.clear()
+    print(pts.len)
+
+  log: *Cell[Int] = *Cell(0)
+  ts: List[Tracked] = List()
+  for _ in 0..3
+    for i in 1..6
+      !ts.push(Tracked(id: i, log: +log))
+    !ts.clear()
+    print(ts.len, log.get())
+    !log.set(0)
+  !ts.push(Tracked(id: 7, log: +log))
+  !ts.push(Tracked(id: 8, log: +log))
+  for t in <ts
+    print(t.id)
+    break
+  print(log.get())
+
+test "list filled", release: true, '''
+  [0, 0, 0] [1.0, 1.0] [255, 255, 255, 255]
+  [Pair(a: 1, b: 2.5), Pair(a: 9, b: 2.5)]
+  [.green, .green] [true, true] ["hi", "hi"]
+  [none, none, none]
+  [[1, 2], [1, 2]]
+  [] 0
+  say 2
+  say 7
+  [7, 7]
+  say 0
+  say 8
+  0
+  [4, 4, 4] ["g"]
+  300000 300000
+'''
+  # `List.filled(n, x)` makes a List of `n` copies of `x`, typed by `x`,
+  # by the type where it goes, or by brackets. `n` is evaluated first,
+  # then `x`, once, whatever `n` is.
+
+
+  obj Pair
+    a: Int
+    b: Float
+
+  enum Color
+    red
+    green
+
+  fun say(n: Int) -> Int
+    print("say", n)
+    n
+
+  fun make[T](n: Int, x: T) -> List[T]
+    List.filled(n, x)
+
+  ints = List.filled(3, 0)
+  floats: List[Float] = List.filled(2, 1)
+  bytes = List[U8].filled(4, 255)
+  print(ints, floats, bytes)
+  ps = List.filled(2, Pair(a: 1, b: 2.5))
+  ps[1].a = 9
+  print(ps)
+  print(List.filled(2, Color.green), List.filled(2, true), List.filled(2, "hi"))
+  maybe: List[Int?] = List.filled(3, none)
+  print(maybe)
+  rows = List.filled(2, [1, 2])
+  print(rows)
+  none_made = List.filled(0, 5)
+  print(none_made, none_made.len)
+  once = List.filled(say(2), say(7))
+  print(once)
+  skipped = List.filled(say(0), say(8))
+  print(skipped.len)
+  print(make(3, 4), make(1, "g"))
+  big = List.filled(300_000, 0)
+  total = 0
+  for x in big
+    total += x + 1
+  print(big.len, total)
+
+bomb "list filled negative", "negative size"
+  # A negative count panics.
+
+  fun rt(n: Int) -> Int
+    n
+
+  v = List.filled(rt(-1), 0)
+  print(v.len)
+
+test "list keep cell", release: true, '''
+  3 3
+  0
+  drop 3
+  drop 2
+  kept 1
+  drop 1
+'''
+  # A `Cell[List[T]]` answers `keep` as it does `pop`.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  c: *Cell[List[Int]] = *Cell(List())
+  for i in 1..8
+    !c.push(i)
+  !c.keep(c.len)
+  !c.keep(3)
+  print(c.len, c[2])
+  !c.keep(0)
+  print(c.len)
+
+  bc: *Cell[List[B]] = *Cell(List())
+  !bc.push(B(n: 1))
+  !bc.push(B(n: 2))
+  !bc.push(B(n: 3))
+  !bc.keep(1)
+  print("kept", bc.len)
+
+bomb "list keep cell negative", "index out of bounds", release: true
+  # A negative `keep` on a Cell's List panics.
+
+  c: *Cell[List[Int]] = *Cell(List())
+  !c.push(1)
+  n = 0 - 1
+  !c.keep(n)
+  print(c.len)
+
+bomb "list keep cell past len", "index out of bounds", release: true
+  # `keep` on a Cell's List past its length panics, as on a List.
+
+  c: *Cell[List[String]] = *Cell(List())
+  !c.push(String("a"))
+  !c.keep(c.len + 1)
+  print(c.len)
+
+test "list keep cell reenter keep", release: true, '''
+  drop 4 sees 3
+  drop 3 sees 2
+  drop 2 sees 1
+  drop 1 sees 0
+  after keep 0
+  drop 4 sees 3
+  drop 3 sees 2
+  drop 2 sees 0
+  drop 1 sees 0
+  after clear 0
+'''
+  # A drop body that calls `keep` or `clear` on the cell whose `keep` is
+  # dropping it: the inner call drops what is left past its own count, and
+  # the outer `keep`, finding the List already shorter, stops. Every
+  # element drops exactly once.
+
+  obj Holder
+    items: Cell[List[Item]]
+
+  obj Item
+    id: Int
+    clears: Bool
+    h: ~Holder
+
+    drop(!self)
+      if *self.h as h
+        print("drop", self.id, "sees", h.items.len)
+        if self.id == 3
+          if self.clears
+            !h.items.clear()
+          else
+            !h.items.keep(0)
+
+  sub fill(h: *Holder, clears: Bool)
+    for i in 1..5
+      !h.items.push(Item(id: i, clears: clears, h: ~h))
+
+  a = *Holder(items: Cell(List()))
+  fill(+a, false)
+  !a.items.keep(2)
+  print("after keep", a.items.len)
+
+  b = *Holder(items: Cell(List()))
+  fill(+b, true)
+  !b.items.keep(1)
+  print("after clear", b.items.len)
+
+test "list keep cell reentrant", '''
+  drop 3 sees 2
+  drop 30 sees 2
+  drop 2 sees 1
+  drop 20 sees 1
+  after keep 1
+  drop 1 sees 0
+  drop 10 sees 0
+  end 0
+'''
+  # `keep` on a Cell's List takes each element out of the List before it
+  # drops it, so a drop body that reaches back into the cell finds a valid
+  # List of the elements not yet dropped. It keeps the first `n`: what a
+  # drop body pushes past them is dropped too.
+
+  obj Item
+    id: Int
+    owner: ~Cell[List[*Item]]
+
+    drop(!self)
+      if *self.owner as cell
+        print("drop", self.id, "sees", cell.len)
+        (!cell).push(*Item(id: self.id * 10, owner: +self.owner)) if self.id < 10
+
+  items: *Cell[List[*Item]] = *Cell(List())
+  !items.push(*Item(id: 1, owner: ~items))
+  !items.push(*Item(id: 2, owner: ~items))
+  !items.push(*Item(id: 3, owner: ~items))
+  !items.keep(1)
+  print("after keep", items.len)
+  !items.keep(0)
+  print("end", items.len)
+
+test "list keep drop body", release: true, '''
+  keep len 7
+  drop 7
+  drop 6
+  drop 5
+  keep 4 4
+  drop 4
+  drop 3
+  drop 2
+  keep 1 1 1
+  drop 8
+  drop 1
+  keep 0 0
+  end
+  drop 10
+  drop 9
+'''
+  # Each element `keep` drops runs its drop body exactly once, last first
+  # as a List drops; the elements kept run theirs when the List drops.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  bs: List[B] = List()
+  for i in 1..8
+    !bs.push(B(n: i))
+  !bs.keep(bs.len)
+  print("keep len", bs.len)
+  !bs.keep(4)
+  print("keep 4", bs.len)
+  !bs.keep(1)
+  print("keep 1", bs.len, bs[0].n)
+  !bs.push(B(n: 8))
+  !bs.keep(0)
+  print("keep 0", bs.len)
+  !bs.push(B(n: 9))
+  !bs.push(B(n: 10))
+  print("end")
+
+test "list keep handles", release: true, '''
+  drop 4
+  drop 3
+  boxes 2 2
+  drop 2
+  drop 1
+  boxes empty 0
+  drop 12
+  handles 1 11
+  still kept 10
+  drop 11
+  end
+  drop 10
+'''
+  # `keep` on Lists of boxes and of shared handles: a dropped box frees its
+  # value, and a dropped handle releases its count, so a value another
+  # handle keeps lives on.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  boxes: List[^B] = List()
+  for i in 1..5
+    !boxes.push(^B(n: i))
+  !boxes.keep(boxes.len)
+  !boxes.keep(2)
+  print("boxes", boxes.len, boxes[1].n)
+  !boxes.keep(1)
+  !boxes.keep(0)
+  print("boxes empty", boxes.len)
+
+  kept = *B(n: 10)
+  hs: List[*B] = List()
+  !hs.push(*B(n: 11))
+  !hs.push(+kept)
+  !hs.push(*B(n: 12))
+  !hs.keep(hs.len)
+  !hs.keep(1)
+  print("handles", hs.len, hs[0].n)
+  print("still kept", kept.n)
+  !hs.keep(0)
+  print("end")
+
+test "list keep int", release: true, '''
+  [1, 2, 3, 4, 5, 6, 7]
+  [1, 2]
+  [1] 1
+  [] 0
+  []
+  [4, 5]
+  []
+  [6]
+'''
+  # `!v.keep(n)` keeps the first `n` elements and drops the rest: `n` is
+  # the length that remains. `n == v.len` changes nothing, and `n == 0`
+  # empties the List as `clear` does. A rewind saves `v.len` and keeps it.
+
+  v: List[Int] = List()
+  for i in 1..8
+    !v.push(i)
+  !v.keep(v.len)
+  print(v)
+  !v.keep(2)
+  print(v)
+  !v.keep(1)
+  print(v, v.len)
+  !v.keep(0)
+  print(v, v.len)
+  !v.keep(0)
+  print(v)
+
+  mark = v.len
+  !v.push(4)
+  !v.push(5)
+  print(v)
+  !v.keep(mark)
+  print(v)
+  !v.push(6)
+  print(v)
+
+bomb "list keep negative", "index out of bounds", release: true
+  # A negative `keep` panics.
+
+  v: List[Int] = List()
+  !v.push(1)
+  n = 0 - 1
+  !v.keep(n)
+  print(v)
+
+test "list keep nested", release: true, '''
+  [[], ["1:0"], ["2:0", "2:1"], ["3:0", "3:1", "3:2"]]
+  [[], ["1:0"], [], ["3:0"]]
+  [[]]
+  0
+'''
+  # `keep` on a List of Lists of String drops the inner Lists and their
+  # text, and works on an inner List lent as an element.
+
+  fun row(k: Int) -> List[String]
+    r: List[String] = List()
+    for j in 0..k
+      !r.push(String(k, ":", j))
+    r
+
+  rows: List[List[String]] = List()
+  for k in 0..5
+    !rows.push(row(k))
+  !rows.keep(rows.len)
+  !rows.keep(4)
+  print(rows)
+  !rows[3].keep(1)
+  !rows[2].keep(0)
+  print(rows)
+  !rows.keep(1)
+  print(rows)
+  !rows.keep(0)
+  print(rows.len)
+
+bomb "list keep past len", "index out of bounds", release: true
+  # `keep` past the List's length panics, as `remove` does out of range.
+
+  v: List[String] = List()
+  !v.push(String("a"))
+  !v.push(String("b"))
+  !v.keep(v.len + 1)
+  print(v)
+
+test "list keep string", release: true, '''
+  ["s0", "s1", "s2", "s3"]
+  ["s0"]
+  [] 0
+  ["again"]
+'''
+  # `keep` on a List of owned text frees the Strings it drops.
+
+  v: List[String] = List()
+  for i in 0..6
+    !v.push(String("s", i))
+  !v.keep(v.len)
+  !v.keep(4)
+  print(v)
+  !v.keep(1)
+  print(v)
+  !v.push(String("more"))
+  !v.keep(0)
+  print(v, v.len)
+  !v.push(String("again"))
+  print(v)
+
+test "list owners by move", '''
+  ["bb", "a", "ccc"]
+  ["a", "bb", "ccc"]
+  [[0, 1], [0], []]
+  zed al
+  ["x", "x", "x", "y"] ["x", "x", "y"] ["x", "x"]
+'''
+  # A List of owners works as a List of plain data does (docs/CORE.md §5):
+  # `swap` and `sort_by` only move elements, so they work on Strings,
+  # Lists, and objects that own a String, and each element drops once.
+  # The loops the copy diagnostics offer, each element made with `+x`,
+  # run too.
+
+  obj Named
+    name: String
+
+  fun shorter(a: ?String, b: ?String) -> Bool
+    a.len < b.len
+
+  sub refill(xs: ![]String, x: ?String)
+    for i in 0..xs.len
+      xs[i] = +x
+
+  sub recopy(xs: ![]String, src: []String)
+    for i in 0..src.len
+      xs[i] = +src[i]
+
+  words: List[String] = List()
+  !words.push(String("ccc"))
+  !words.push(String("a"))
+  !words.push(String("bb"))
+  !words.swap(0, 2)
+  print(words)
+  sort.sort_by(!words, shorter)
+  print(words)
+  rows: List[List[Int]] = List()
+  for n in 0..3
+    r: List[Int] = List()
+    for i in 0..n
+      !r.push(i)
+    !rows.push(<r)
+  !rows.swap(0, 2)
+  sort.sort_by(!rows, |a, b| a.len > b.len)
+  print(rows)
+  people: List[Named] = List()
+  !people.push(Named(name: String("zed")))
+  !people.push(Named(name: String("al")))
+  sort.sort_by(!people, |a, b| a.name.len < b.name.len)
+  !people.swap(0, 1)
+  print(people[0].name, people[1].name)
+  x = String("x")
+  made: List[String] = List()
+  for 0..3
+    !made.push(+x)
+  refill(!words[..], ?made[0])
+  !made.push(String("y"))
+  recopy(!words[..], ?made[1..])
+  pair = [+x, +x]
+  print(made, words, pair)
+
+test "list push growth", '''
+  0 0 0
+  1 1 0
+  3 3 3
+  4 4 6
+  5 5 10
+  8 8 28
+  9 9 36
+  1000 1000 499500
+  10 n9
+  0
+  10 n9
+  0
+  10 n9
+  0
+'''
+  # Pushing across every growth boundary keeps each element, and a List of
+  # owned elements cleared and reused drops and refills without leaks.
+
+  fun fill(n: Int) -> List[Int]
+    v: List[Int] = List()
+    i = 0
+    while i < n : i += 1
+      !v.push(i)
+    v
+
+  fun sum(v: ?List[Int]) -> Int
+    t = 0
+    for x in v
+      t += x
+    t
+
+  for n in [0, 1, 3, 4, 5, 8, 9, 1000]
+    v = fill(n)
+    print(n, v.len, sum(?v))
+  names: List[String] = List()
+  r = 0
+  while r < 3 : r += 1
+    i = 0
+    while i < 10 : i += 1
+      !names.push(String("n", i))
+    print(names.len, names[9])
+    !names.clear()
+    print(names.len)
+
+test "list reserve", '''
+  0
+  0
+  2000
+  1999000
+  9 n8
+'''
+  # `!v.reserve(n)` makes room for `n` more elements without changing the
+  # length; pushing across the growth boundaries keeps every element.
+
+  v: List[Int] = List()
+  !v.reserve(0)
+  print(v.len)
+  !v.reserve(10)
+  print(v.len)
+  for i in 0..10
+    !v.push(i)
+  !v.reserve(1000)
+  for i in 10..2000
+    !v.push(i)
+  print(v.len)
+  total = 0
+  for x in v
+    total += x
+  print(total)
+  s: List[String] = List()
+  !s.reserve(3)
+  for i in 0..9
+    !s.push(String("n", i))
+  !s.reserve(1)
+  print(s.len, s[8])
+
+bomb "list reserve negative", "negative size"
+  # A negative count panics.
+
+  fun rt(n: Int) -> Int
+    n
+
+  v: List[Int] = List()
+  !v.reserve(rt(-1))
+  print(v.len)
+
+test "list resize", release: true, '''
+  0
+  [1, 1, 1, 1, 2, 2]
+  [1, 1]
+  [1, 1, 8, 8, 8]
+  [] 0
+  199 1 101 199
+  [8, 8, 1, 1, 3]
+  3
+  [1, 1, none]
+  ["abc"]
+  say 3
+  say 5
+  say 1
+  say 6
+  [1]
+'''
+  # `!v.resize(n, x)` grows a List to `n` elements with copies of `x`, or
+  # shrinks it to `n` as `keep` does; `n == v.len` changes nothing. It
+  # works on any List a write lend reaches: a binding, a field, a write
+  # view, a box, and a temporary. `n` is evaluated first, then `x`, once,
+  # even when nothing is added.
+
+
+  obj Grid
+    cells: List[Int]
+
+  sub grow(v: !List[Int], n: Int)
+    !v.resize(n, 3)
+
+  fun say(n: Int) -> Int
+    print("say", n)
+    n
+
+  fun mk() -> List[Int]
+    List.filled(2, 4)
+
+  v: List[Int] = List()
+  !v.resize(0, 1)
+  print(v.len)
+  !v.resize(4, 1)
+  !v.resize(6, 2)
+  print(v)
+  !v.resize(6, 9)
+  !v.resize(2, 7)
+  print(v)
+  !v.resize(5, 8)
+  print(v)
+  !v.resize(0, 0)
+  print(v, v.len)
+  for i in 1..200
+    !v.resize(i, i)
+  print(v.len, v[0], v[100], v[198])
+  g = Grid(cells: List.filled(2, 8))
+  !g.cells.resize(4, 1)
+  grow(!g.cells, 5)
+  print(g.cells)
+  b = ^List.filled(2, 6)
+  !b.resize(3, 7)
+  print(b.len)
+  !mk().resize(9, 0)
+  opt: List[Int?] = List.filled(2, 1)
+  !opt.resize(3, none)
+  print(opt)
+  s = String("abc")
+  views: List[?String] = List()
+  !views.resize(2, ?s)
+  !views.resize(1, "lit")
+  print(views)
+  !v.resize(say(3), say(5))
+  !v.resize(say(1), say(6))
+  print(v)
+
+bomb "list resize negative", "negative size"
+  # A negative length panics.
+
+  fun rt(n: Int) -> Int
+    n
+
+  v = List.filled(2, 0)
+  !v.resize(rt(-2), 0)
+  print(v.len)
+
+test "list zero bit", release: true, '''
+  5 .only
+  2 [.only, .only] .only
+'''
+  # A List of an element that takes no memory, an enum of one variant,
+  # grows by `push`, `insert`, and `resize` as any List does.
+
+
+  enum One
+    only
+
+  xs = List.filled(1, One.only)
+  !xs.resize(3, One.only)
+  !xs.push(One.only)
+  !xs.insert(0, One.only)
+  print(xs.len, xs[4])
+  ys: List[One] = List()
+  for 0..100
+    !ys.push(One.only)
+  _ = (!ys).pop()
+  !ys.resize(10, One.only)
+  !ys.keep(2)
+  zs = +ys
+  print(ys.len, zs, ys.get(1))

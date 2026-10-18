@@ -58,10 +58,17 @@ code "a call into std.text calls the module's function", "__rig_m2_std_text.is_d
   body is the indented lines after it, up to the next line at the left
   margin.
 - **A body is statements**, run as `main`'s, with no `sub main()`. Its
-  `use`, `fun`, `sub`, and `obj` declarations are lifted to the top of
-  the case's program. A `use` at the left margin of the file applies to
-  every case. A body that declares `sub main()` is a whole program,
-  used as written.
+  declarations (`use`, `fun`, `sub`, `obj`, `enum`, `error`, `type`,
+  `extern`, `inline fun`) are lifted to the top of the case's program. A
+  body that declares `main` is a whole program, used as written, and so
+  is one marked `whole: true`.
+- **A `use` at the left margin of the file** serves every case that names
+  a member of the module (`text.` for `use std.text`) and binds no name
+  of its own the same, since Rig rejects a program that imports a
+  module and binds its name.
+- **A program of several files** gives the others after its body, each
+  `file "PATH"` at the body's margin with its lines two spaces in. A
+  position in one of them counts from that file's first line.
 - **The item after the name is the case's result:**
   - `test`: a Rig value, `true`, `42`, `"ab"`, `none`, `[1, 2]`. The case
     passes when what it prints is what `print` of that value prints. A
@@ -78,7 +85,10 @@ code "a call into std.text calls the module's function", "__rig_m2_std_text.is_d
   in Zig's safe mode), `timeout: SECONDS` (default 120), `exit: N` (the
   status a `test` exits with), `errors: N` (exactly N errors, for a
   `fail`), `prints: "TEXT"` (what a `bomb` prints before it panics),
-  `stderr: "TEXT"` (what a `test` writes to stderr).
+  `stderr: "TEXT"` (what a `test` writes to stderr), `whole: true` (the
+  body is a whole program, used as written), `file: "NAME.rig"` (the
+  name of the case's program file, by default its name, `split_on_a_space.rig`;
+  what a program prints about its own place names it).
 
 Every case that runs is held to the sanitizer: a leak or a use of freed
 memory fails it, and so does a panic in a `test`. A `fail` the compiler
@@ -132,14 +142,24 @@ from expectations built into the pack.
 
 ## Converting tests
 
-`tools/to-rig-test.py OUT.rig.test "TITLE" FILE.rig...` writes existing
-behavior and rejection tests into one test file. A file under
-`test/reject/` becomes a `fail` case, a behavior test with
-`# expect-panic:` a `bomb` case, and any other a `test` case; its
+`tools/to-rig-test.py --all test/rig` writes every test of
+`test/behavior` and `test/reject` into test files by area: each area's
+tests are grouped by the first word of their names (`types-simd`,
+`ownership-match`), the rest of an area shares one file
+(`ownership-misc`), and a file of more than 120 cases that run is split.
+`tools/to-rig-test.py OUT.rig.test "TITLE" TEST...` writes the tests
+named into one file.
+
+A test under `test/reject/` becomes a `fail` case, a behavior test with
+`# expect-panic:` a `bomb` case, and any other a `test` case. Its
 directives become the header's result and options, its `sub main()`
 goes, and the positions its `# error:` lines pin move with its
-statements. A test whose top level holds more than declarations and a
-plain `sub main()` keeps its whole program.
+statements. A test keeps its whole program where removing `main` would
+change it: top-level code other than declarations, a line of `main`
+less than two spaces in, a declaration nested in `main`, a position
+pinned to `main` itself, or a comparison of stderr. A test of several
+files keeps its program too, its other files following as `file`
+blocks.
 
 ## Why
 

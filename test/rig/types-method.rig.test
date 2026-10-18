@@ -1,0 +1,327 @@
+# types: tests whose names start `method`.
+
+fail "method body return type", "type mismatch: expected `?String`, got `Int`"
+  # Method bodies are type-checked against the declared return type.
+
+  obj User
+    name: ?String
+
+    fun greet(?self) -> ?String
+      42
+
+  u = User(name: "Steve")
+  print(u.greet())
+
+fail "method consume through view", "cannot consume through a view"
+  # A consuming method cannot be called on a viewed value, even when the
+  # view comes from a call's `?User` result. (A view of a value that copies
+  # is copied out instead.)
+
+  obj User
+    name: String
+
+    sub consume(self: User)
+      print(self.name)
+
+  fun get_ref(u: ?User) -> ?User
+    u
+
+  u = User(name: String("Steve"))
+  get_ref(?u).consume()
+
+fail "method consume without move", "method `consume` consumes the receiver; write `<u.consume()`"
+  # A consuming receiver (`self: User`) whose value moves needs an
+  # explicit move at the call site: `<u.consume()`, not `u.consume()`. (A
+  # receiver whose value copies is taken as a copy, as an argument is.)
+
+  obj User
+    name: String
+
+    sub consume(self: User)
+      print(self.name)
+
+  u = User(name: String("Steve"))
+  u.consume()
+
+test "method consuming receiver", "Steve"
+  # A by-value receiver (`self: User`) consumes the value; the call site
+  # must spell the move as `<u.consume()`.
+
+  obj User
+    name: ?String
+
+    sub consume(self: User)
+      print(self.name)
+
+  u = User(name: "Steve")
+  <u.consume()
+
+fail "method member without self", "11:5: use of unbound name `age`; did you mean `self.age`?", "14:5: use of unbound name `double`; did you mean `self.double(...)`?", "17:5: use of unbound name `self`; `get` declares no receiver: write `fun get(?self)`, `(!self)`, or `(<self)`"
+  # Inside a method, a field or another method is reached through the
+  # receiver: a bare name is unbound, and the message names `self.`.
+
+  obj Person
+    age: Int
+
+    fun double(?self) -> Int
+      self.age * 2
+
+    fun older(?self) -> Int
+      age + 1
+
+    fun quad(?self) -> Int
+      double() * 2
+
+    fun get() -> Int
+      self.age
+
+  p = Person(age: 3)
+  print(p.older(), p.quad(), Person.get())
+
+test "method on enum", '''
+  true
+  false
+'''
+  # Enums get instance methods with the same receiver rules as structs.
+
+  enum Color
+    red
+    green
+    blue
+
+    fun is_red(?self) -> Bool
+      match self
+        .red => true
+        .green => false
+        .blue => false
+
+  c1 = Color.red
+  c2 = Color.blue
+  print(c1.is_red())
+  print(c2.is_red())
+
+fail "method on int", "type `Int` has no method `twice`"
+  # Only nominal types have methods.
+
+  x = 3
+  print(x.twice())
+
+test "method read receiver", "Steve"
+  # `?self` is sugar for `self: ?Self`; `u.greet()` lends `u` implicitly.
+
+  obj User
+    name: ?String
+
+    fun greet(?self) -> ?String
+      self.name
+
+  u = User(name: "Steve")
+  print(u.greet())
+
+test "method receivers on two types", '''
+  Steve
+  2
+'''
+  # Two nominal types each have a `self` method with a different return
+  # type; each call's result is formatted by its own type.
+
+  obj User
+    name: ?String
+
+    fun greet(?self) -> ?String
+      self.name
+
+  enum Color
+    red
+    green
+    blue
+
+    fun code(?self) -> Int
+      match self
+        .red => 1
+        .green => 2
+        .blue => 3
+
+  u = User(name: "Steve")
+  c = Color.green
+  print(u.greet())
+  print(c.code())
+
+fail "method reference generic or mismatch", "16:10: method `Wrap.get` of a generic type must be called", "17:22: type mismatch: expected `fun(Int) -> Int`, got `fun(?P) -> Int`"
+  # A method of a generic type cannot be named as a value, and a method
+  # value has the method's full signature, receiver first.
+
+  obj Wrap[T]
+    v: T
+
+    fun get(?self) -> T
+      self.v
+
+  obj P
+    x: Int
+
+    fun get(?self) -> Int
+      self.x
+
+  g = Wrap.get
+  f: fun(Int) -> Int = P.get
+
+test "method reference value", '''
+  P(x: 4)
+  4
+  5
+  5
+  15
+  5
+  drop 7
+  7
+'''
+  # `Type.method` is a function value whose first parameter is the
+  # receiver, however the method takes it.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj P
+    x: Int
+
+    fun make(x: Int) -> P
+      P(x: x)
+
+    fun get(?self) -> Int
+      self.x
+
+    sub bump(!self)
+      self.x += 1
+
+    fun total(<self, k: Int) -> Int
+      self.x + k
+
+  obj H
+    b: B
+
+    fun take(<self) -> Int
+      self.b.n
+
+  fun apply(f: fun(Int) -> P, x: Int) -> P
+    f(x)
+
+  fun read(f: fun(?P) -> Int, p: ?P) -> Int
+    f(p)
+
+  sub write(f: sub(!P), p: !P)
+    f(!p)
+
+  p = apply(P.make, 4)
+  print(p)
+  print(read(P.get, ?p))
+  write(P.bump, !p)
+  print(p.x)
+  g = P.get
+  print(g(?p))
+  t: fun(P, Int) -> Int = P.total
+  print(t(p, 10))
+  fs = [P.get, P.get]
+  print(fs[1](?p))
+  h = H(b: B(n: 7))
+  k = H.take
+  print(k(<h))
+
+test "method returns self", "guest"
+  # An associated method (no `self`) returning `Self`; `User.make(...)`
+  # types as `User`.
+
+  obj User
+    name: ?String
+
+    fun make(default: ?String) -> Self
+      User(name: default)
+
+  u: User = User.make("guest")
+  print(u.name)
+
+fail "method self second position", "`self` must be the first parameter of a method"
+  # `self` must be the first parameter of a method.
+
+  obj User
+    name: ?String
+
+    fun bad(other: Int, ?self) -> Int
+      other
+
+  u = User(name: "x")
+  print(u.bad(42))
+
+fail "method self untyped", "`self` parameter requires an explicit receiver type"
+  # A bare `self` parameter needs an explicit receiver type: `?self`,
+  # `!self`, or `<self`.
+
+  obj User
+    name: ?String
+
+    fun greet(self) -> ?String
+      "hi"
+
+  u = User(name: "Steve")
+  print(u.greet())
+
+fail "method self wrong type", "`self` receiver type must be `?Self` or `?User`"
+  # A method's `self` must have the enclosing type (or `Self`).
+
+  obj Order
+    id: Int
+
+  obj User
+    name: ?String
+
+    fun bad(self: ?Order) -> Int
+      42
+
+  u = User(name: "x")
+  print(u.bad())
+
+fail "method static as instance", "method `make` has no `self` receiver; call as `User.make(...)`"
+  # A method without a `self` receiver can't be called on an instance.
+
+  obj User
+    name: ?String
+
+    fun make(default: ?String) -> User
+      User(name: default)
+
+  u = User(name: "Steve")
+  v = u.make()
+  print(v.name)
+
+test "method write receiver", '''
+  Steve
+  Bob
+'''
+  # `!self` is sugar for `self: !Self`; the call site must write the
+  # view explicitly as `!u.modify(...)`. The body may read fields.
+
+  obj User
+    name: ?String
+
+    sub modify(!self, new_name: ?String)
+      print(self.name)
+      print(new_name)
+
+  u = User(name: "Steve")
+  !u.modify("Bob")
+
+fail "method write without bang", "method `rename` needs its receiver lent to write"
+  # A write receiver (`!self`) needs an explicit write view at the call
+  # site: `!u.rename(...)`.
+
+  obj User
+    name: ?String
+
+    sub rename(!self, new_name: ?String)
+      print(new_name)
+
+  u = User(name: "Steve")
+  u.rename("Bob")

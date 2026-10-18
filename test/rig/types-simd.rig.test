@@ -1,0 +1,1721 @@
+# types: tests whose names start `simd`.
+
+bomb "simd add overflow panics", "integer overflow", prints: "[4, 11, 12, 13]\n[255, 6, 7, 8]", release: true
+  # Lane `+` panics when any lane overflows, as scalar `+` does; `+%` wraps.
+
+  fun add(v: Simd[U8, 4], k: U8) -> Simd[U8, 4]
+    v + k
+
+  v = Simd[U8, 4]([250, 1, 2, 3])
+  print(v +% 10)
+  print(add(v, 5))
+  print(add(v, 6))
+
+test "simd block edges", "7068 0"
+  # Loads at every offset from 0 to 130, with 16- and 64-lane blocks, from
+  # Strings of every length near a block's edge: each block read ends at or
+  # before the String's end, the last one exactly there when the length
+  # allows, and the scans agree with a scan byte by byte.
+
+  QUOTE: U8 = 0x22
+  BACKSLASH: U8 = 0x5C
+
+  fun scalar(s: ?String, at: Int) -> Int
+    i = at
+    while i < s.len : i += 1
+      return i if s[i] == QUOTE or s[i] == BACKSLASH or s[i] < 0x20
+    s.len
+
+  fun tail(s: ?String, at: Int) -> Int
+    i = at
+    while i < s.len : i += 1
+      return i if s[i] == QUOTE or s[i] == BACKSLASH or s[i] < 0x20
+    s.len
+
+  fun scan16(s: ?String, at: Int) -> Int
+    i = at
+    while i + 16 <= s.len : i += 16
+      v = s.read[Simd[U8, 16]](i)
+      hits = (v == QUOTE) | (v == BACKSLASH) | (v < 0x20)
+      return i + hits.bits().trailing_zeros() if hits.any()
+    tail(s, i)
+
+  fun scan64(s: ?String, at: Int) -> Int
+    i = at
+    while i + 64 <= s.len : i += 64
+      v = s.read[Simd[U8, 64]](i)
+      bits = ((v == QUOTE) | (v == BACKSLASH) | (v < 0x20)).bits()
+      return i + bits.trailing_zeros() if bits != 0
+    scan16(s, i)
+
+  fun text(n: Int, mark: Int, byte: U8) -> String
+    t = String()
+    for i in 0..n
+      b: U8 = byte if i == mark else U8(0x41 + i % 26)
+      !t.push(b)
+    t
+
+  sub main()
+    lengths = [0, 1, 2, 15, 16, 17, 31, 32, 33, 63, 64, 65, 79, 80, 81, 127, 128, 129, 130, 131, 191, 192, 193, 194]
+    marks: [3]U8 = [0x22, 0x5C, 0x01]
+    checks = 0
+    wrong = 0
+    for n in lengths
+      for k in 0..4
+        mark = -1 if k == 3 else (n * (k + 3)) % (n + 1)
+        t = text(n, mark, marks[k % 3])
+        at = 0
+        while at <= n and at <= 130 : at += 1
+          want = scalar(?t, at)
+          checks += 1
+          wrong += 1 if scan16(?t, at) != want or scan64(?t, at) != want
+    print(checks, wrong)
+
+test "simd bytes", '''
+  [65, 66, 67, 68] [52, 53]
+  [false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false]
+  [1, 2, 768, 1024] [256, 512, 3, 4]
+  [16777728, 196612] [1, 0, 2, 0, 0, 3, 0, 4]
+  [1, 0, 2, 0, 1, 2, 3, 4]
+  [128, 129, 130, 131] true
+  [true, true]
+  [7, 7, 7, 7, 7, 7, 7, 7] 108
+  [1.0, 2.0, 0.0, 0.0]
+'''
+  # `read` loads a vector from bytes with one bounds check, and `write`
+  # stores one: lanes of one byte need no byte order, and wider lanes are
+  # each read or written in the order given. The bytes may be a `?String`,
+  # a `[]U8`, an `![]U8`, a `[N]U8`, or a `List[U8]`.
+
+  s = "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
+  print(s.read[Simd[U8, 4]](0), s.read[Simd[U8, 2]](30))
+  t = String(s)
+  r = ?t
+  v = r.read[Simd[U8, 16]](16)
+  print(v == 0x30)
+  b: [8]U8 = [1, 0, 2, 0, 0, 3, 0, 4]
+  print(b.read[Simd[U16, 4], .little](0), b.read[Simd[U16, 4], .big](0))
+  print(b.read[Simd[U32, 2], .big](0), b.read[Simd[I8, 8]](0))
+  !b.write[Simd[U16, 2], .big](4, Simd[U16, 2]([0x0102, 0x0304]))
+  print(b)
+  xs: List[U8] = List()
+  for i in 0..32
+    !xs.push(U8(i))
+  w = xs.read[Simd[U8, 32]](0)
+  !xs.write[Simd[U8, 32]](0, w +% 100)
+  print(xs.read[Simd[U8, 4]](28), (xs.read[Simd[F32, 2], .little](0) == xs.read[Simd[F32, 2], .little](0)).all())
+  sl = ?xs[4..12]
+  print(sl.read[Simd[I32, 1 + 1], .big](0) == Simd[I32, 2]([0x68696A6B, 0x6C6D6E6F]))
+  ws = !xs[0..8]
+  !ws.write[Simd[U8, 8]](0, Simd[U8, 8].splat(7))
+  print(xs.read[Simd[U8, 8]](0), xs[8])
+  f: [16]U8 = [0, 0, 128, 63, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0]
+  print(f.read[Simd[F32, 4], .little](0))
+
+fail "simd bytes is rejected", "7:14: `read` reads an integer or float type, or a `Simd` of them; got `Simd[Bool, 16]`", "8:7: `read` of a `Simd[U32, 4]` takes a byte order too: `read[U32, .little](at)`", "9:27: `read` of a `Simd[U8, 4]` at `6` runs past the end of an array of length 8: it needs 4 bytes", "10:34: `read` of a `Simd[U16, 4]` at `1` runs past the end of an array of length 8: it needs 8 bytes", "11:2: `write` of a `Simd[U16, 2]` takes a byte order too: `write[U32, .little](at, value)`", "12:26: type mismatch: expected `Simd[U8, 4]`, got `Simd[U16, 4]`", "13:27: `read` of `Simd[U8, 4]`, whose lanes are one byte, takes no byte order: `read[Simd[U8, 4]](at)`", errors: 7
+  # `read` and `write` take a vector of number lanes, in a byte order
+  # unless the lanes are one byte, which take none; a constant offset into
+  # an array must leave room for every lane.
+
+  s = "abcdabcdabcdabcd"
+  b: [8]U8 = [1, 2, 3, 4, 5, 6, 7, 8]
+  print(s.read[Simd[Bool, 16]](0))
+  print(s.read[Simd[U32, 4]](0))
+  print(b.read[Simd[U8, 4]](6))
+  print(b.read[Simd[U16, 4], .big](1))
+  !b.write[Simd[U16, 2]](0, Simd[U16, 2].splat(1))
+  !b.write[Simd[U8, 4]](0, Simd[U16, 4].splat(1))
+  print(s.read[Simd[U8, 4], .big](0))
+
+bomb "simd compound overflow panics", "integer overflow", prints: "[44, 100]\n[199, 255]", release: true
+  # A compound `+=` on a vector panics when any lane overflows; `+%=` wraps.
+
+  v = Simd[U8, 2]([200, 0])
+  v +%= 100
+  print(v)
+  v += 155
+  print(v)
+  v += 1
+
+test "simd compound place", '''
+  130 130
+  1048560 4
+  1048561 0
+  2147483712 5
+'''
+  # A compound assignment that the runtime lowers (a vector's lane shifts,
+  # its saturating `+|=` and `-|=`, and a mask's `&=`, `|=`, and `^=`)
+  # writes a field or an element as it writes a name.
+
+  obj H
+    v: Simd[U8, 16]
+    m: Simd[Bool, 32]
+
+  h = H(v: Simd[U8, 16].splat(200), m: Simd[U8, 32].splat(1) == 1)
+  h.v >>= 1
+  h.v +|= 100
+  h.v -|= 7
+  h.v <<%= 1
+  print(h.v[0], h.v[15])
+  w = Simd[U8, 32]([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
+  h.m &= w < 20
+  h.m ^= w < 4
+  print(h.m.bits(), h.m.first())
+  h.m |= w == 0
+  print(h.m.bits(), h.m.first())
+  ms: [2]Simd[Bool, 32] = [w == 5, w == 6]
+  ms[1] |= w == 31
+  print(ms[1].bits(), ms[0].first())
+
+test "simd compound places", "3 6 6"
+  type V = Simd[I8, 32]
+
+  obj Box
+    v: V
+
+  sub bump(p: !V)
+    p += V.splat(1)
+
+  bx = Box(v: V.splat(1))
+  bx.v += V.splat(2)
+  arr = [V.splat(1), V.splat(2)]
+  arr[1] *= V.splat(3)
+  v = V.splat(5)
+  bump(!v)
+  print(bx.v[0], arr[1][0], v[0])
+
+bomb "simd const add panics", "integer overflow", prints: "[1, 2, 3, 127] [1, 1, 1, 1] [0, 1, 2, 126]", release: true
+  # A module constant may hold a vector made of constants. It is a run-time
+  # value where the program uses it: a lane that overflows panics when the
+  # program runs, rather than stopping the build.
+
+  type Block = Simd[I8, 4]
+
+  LOW = Block([1, 2, 3, 127])
+  ONES = Block.splat(1)
+
+  sub main()
+    print(LOW, ONES, LOW -| ONES)
+    print(LOW + ONES)
+
+bomb "simd const shl panics", "left shift overflowed bits", prints: "start", release: true
+  # A module constant's vector is a run-time value: a `<<` that loses its
+  # bits panics when the program runs, rather than stopping the build.
+
+  HIGH = Simd[U8, 16].splat(0x80)
+
+  sub main()
+    print("start")
+    print((HIGH << 1)[0])
+
+test "simd construct", '''
+  [7, 7, 7, 7] [-1, 0, 1, 300]
+  [9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9]
+  [0.5, -2.0] [1, 2, 3, 4] [true, false]
+  a=[7, 7, 7, 7] f=[true, false]
+  [18446744073709551615, 18446744073709551615]
+'''
+  # A vector is made from one value for every lane, or from an array of
+  # its lanes, through its type or an alias of it; it prints as the array
+  # of its lanes, and a mask as Bools.
+
+  type Block = Simd[U8, 16]
+  type Pair = Simd[F64, 2]
+
+  a = Simd[U8, 4].splat(7)
+  b = Simd[I16, 4]([-1, 0, 1, 300])
+  k: U8 = 9
+  c = Block.splat(k)
+  d = Pair([0.5, -2.0])
+  arr: [4]U32 = [1, 2, 3, 4]
+  e = Simd[U32, 4](arr)
+  f = Simd[Bool, 2]([true, false])
+  print(a, b)
+  print(c)
+  print(d, e, f)
+  print(String("a=", a, " f=", f))
+  g: Simd[U64, 2] = Simd[U64, 2].splat(18446744073709551615)
+  print(g)
+
+fail "simd equality", "12:7: `==` is not defined for `L`: field `v` is a `Simd[U8, 4]`, whose `==` compares lane by lane; compare the fields and reduce the mask: `(x.v == y.v).all()`", "14:7: `==` is not defined for `Simd[U8, 4]?`: `Simd[U8, 4]` holds a vector, whose `==` compares lane by lane", "17:7: `==` is not defined for `[2]Simd[U8, 4]`: `Simd[U8, 4]` holds a vector, whose `==` compares lane by lane", "15:7: `same[Simd[U8, 4]]` cannot use `T = Simd[U8, 4]`: the generic body applies `==` to `T`, which `Simd[U8, 4]` does not support: `Simd[U8, 4]` holds a vector, whose `==` compares lane by lane", errors: 4
+  # A vector's `==` is lane by lane and gives a mask, so a value that holds
+  # a vector has no `==`, and neither has a generic `T` that is one.
+
+  obj L
+    v: Simd[U8, 4]
+
+  fun same[T](a: T, b: T) -> Bool
+    a == b
+
+  a = L(v: Simd[U8, 4].splat(1))
+  b = L(v: Simd[U8, 4].splat(1))
+  print(a == b)
+  o: Simd[U8, 4]? = none
+  print(o == a.v, o == none)
+  print(same(a.v, b.v))
+  arr = [a.v, b.v]
+  print(arr == arr)
+
+test "simd first", '''
+  none 1 0
+  0 1 none
+  60903 0
+  32 none
+'''
+  # `m.first()` is the index of the first true lane of a mask, or `none`.
+  # Every lane count, every single true lane, every run of true lanes from
+  # a lane on, and the scans built on it agree with a scan byte by byte.
+
+  QUOTE: U8 = 0x22
+  BACKSLASH: U8 = 0x5C
+
+  fun slow(s: ?String, at: Int) -> Int
+    i = at
+    while i < s.len : i += 1
+      return i if s[i] == QUOTE or s[i] == BACKSLASH
+    s.len
+
+  fun tail(s: ?String, at: Int) -> Int
+    i = at
+    while i < s.len : i += 1
+      return i if s[i] == QUOTE or s[i] == BACKSLASH
+    s.len
+
+  # `first` gates itself: the one nibble mask is tested and located.
+  fun scan16(s: ?String, at: Int) -> Int
+    i = at
+    while i + 16 <= s.len : i += 16
+      v = s.read[Simd[U8, 16]](i)
+      if ((v == QUOTE) | (v == BACKSLASH)).first() as k
+        return i + k
+    tail(s, i)
+
+  fun scan16_or(s: ?String, at: Int) -> Int
+    i = at
+    while i + 16 <= s.len : i += 16
+      v = s.read[Simd[U8, 16]](i)
+      k = ((v == QUOTE) | (v == BACKSLASH)).first() ?? 16
+      return i + k if k < 16
+    tail(s, i)
+
+  fun scan64(s: ?String, at: Int) -> Int
+    i = at
+    while i + 64 <= s.len : i += 64
+      v = s.read[Simd[U8, 64]](i)
+      if ((v == QUOTE) | (v == BACKSLASH)).first() as k
+        return i + k
+    scan16(s, i)
+
+  fun scan32(s: ?String, at: Int) -> Int
+    i = at
+    while i + 32 <= s.len : i += 32
+      v = s.read[Simd[U8, 32]](i)
+      if ((v == QUOTE) | (v == BACKSLASH)).first() as k
+        return i + k
+    scan16(s, i)
+
+  fun every_lane8(from: Int) -> Int
+    lanes: [8]Bool = [false, false, false, false, false, false, false, false]
+    for j in from..8
+      lanes[j] = true
+    m = Simd[Bool, 8](lanes)
+    (m.first() ?? -1)
+
+  sub main()
+    v2 = Simd[U8, 2]([5, 7])
+    print((v2 > 9).first(), (v2 > 5).first(), (v2 > 1).first())
+    v4 = Simd[I64, 4]([5, -1, 5, 0])
+    print((v4 == 5).first(), (v4 < 0).first(), (v4 > 9).first())
+    wrong = 0
+    for j in 0..9
+      want = j if j < 8 else -1
+      wrong += 1 if every_lane8(j) != want
+    s = String()
+    for _ in 0..200
+      !s.push(0x41)
+    checks = 0
+    for n in 0..201
+      for k in 0..3
+        t = String()
+        for i in 0..n
+          !t.push(0x22 if k == 0 and i == n - 1 else (0x5C if k == 1 and i == n / 2 else 0x41))
+        for at in 0..(n + 1)
+          want = slow(?t, at)
+          checks += 1
+          wrong += 1 if scan16(?t, at) != want or scan16_or(?t, at) != want
+          wrong += 1 if scan32(?t, at) != want or scan64(?t, at) != want
+    print(checks, wrong)
+    b = Simd[U8, 16].splat(0)
+    hits = 0
+    for j in 0..16
+      m = b.with(j, 1) == 1
+      hits += 1 if m.first() == j
+      hits += 1 if (m | (b.with(15, 1) == 1)).first() == j
+    none16 = (b == 1).first()
+    print(hits, none16)
+
+fail "simd first is rejected", "6:9: `first` is a method of a mask, `Simd[Bool, n]`, which a comparison gives; got `Simd[U8, 4]`", "6:20: `first` takes no arguments; got 1 argument", "7:10: type mismatch: expected `Int`, got `Int?`", errors: 3
+  # `first` is a mask's, takes no arguments, and gives an optional index:
+  # it is not an `Int`.
+
+  v = Simd[U8, 4].splat(1)
+  m = v == 1
+  print(v.first(), m.first(2))
+  k: Int = m.first()
+  print(k)
+
+bomb "simd fold array add panics", "integer overflow", release: true
+  # A vector made of constants (array) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = Simd[I8, 4]([127, 0, 1, 2])
+  print(v + 1)
+
+bomb "simd fold array compound panics", "integer overflow", release: true
+  # A vector made of constants (array) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = Simd[I8, 4]([127, 0, 1, 2])
+  v += 1
+  print(v)
+
+bomb "simd fold array mul panics", "integer overflow", release: true
+  # A vector made of constants (array) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = Simd[I8, 4]([127, 0, 1, 2])
+  print(v * 2)
+
+bomb "simd fold array neg panics", "integer overflow", release: true
+  # A vector made of constants (array) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = Simd[I8, 4]([-128, 0, 1, 2])
+  print(-v)
+
+bomb "simd fold array sub panics", "integer overflow", release: true
+  # A vector made of constants (array) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = Simd[I8, 4]([-128, 0, 1, 2])
+  print(v - 1)
+
+bomb "simd fold return add panics", "integer overflow", release: true
+  # A vector made of constants (return) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  fun mk() -> Simd[I8, 4]
+    Simd[I8, 4].splat(127)
+
+  v = mk()
+  print(v + 1)
+
+bomb "simd fold return compound panics", "integer overflow", release: true
+  # A vector made of constants (return) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  fun mk() -> Simd[I8, 4]
+    Simd[I8, 4].splat(127)
+
+  v = mk()
+  v += 1
+  print(v)
+
+bomb "simd fold return mul panics", "integer overflow", release: true
+  # A vector made of constants (return) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  fun mk() -> Simd[I8, 4]
+    Simd[I8, 4].splat(127)
+
+  v = mk()
+  print(v * 2)
+
+bomb "simd fold return neg panics", "integer overflow", release: true
+  # A vector made of constants (return) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  fun mk() -> Simd[I8, 4]
+    Simd[I8, 4].splat(-128)
+
+  v = mk()
+  print(-v)
+
+bomb "simd fold return sub panics", "integer overflow", release: true
+  # A vector made of constants (return) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  fun mk() -> Simd[I8, 4]
+    Simd[I8, 4].splat(-128)
+
+  v = mk()
+  print(v - 1)
+
+bomb "simd fold select add panics", "integer overflow", release: true
+  # A vector made of constants (select) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = (Simd[I8, 4].splat(0) == 0).select(I8(127), 0)
+  print(v + 1)
+
+bomb "simd fold select compound panics", "integer overflow", release: true
+  # A vector made of constants (select) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = (Simd[I8, 4].splat(0) == 0).select(I8(127), 0)
+  v += 1
+  print(v)
+
+bomb "simd fold select mul panics", "integer overflow", release: true
+  # A vector made of constants (select) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = (Simd[I8, 4].splat(0) == 0).select(I8(127), 0)
+  print(v * 2)
+
+bomb "simd fold select neg panics", "integer overflow", release: true
+  # A vector made of constants (select) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = (Simd[I8, 4].splat(0) == 0).select(I8(-128), 0)
+  print(-v)
+
+bomb "simd fold select sub panics", "integer overflow", release: true
+  # A vector made of constants (select) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = (Simd[I8, 4].splat(0) == 0).select(I8(-128), 0)
+  print(v - 1)
+
+bomb "simd fold splat add panics", "integer overflow", release: true
+  # A vector made of constants (splat) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = Simd[I8, 4].splat(127)
+  print(v + 1)
+
+bomb "simd fold splat compound panics", "integer overflow", release: true
+  # A vector made of constants (splat) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = Simd[I8, 4].splat(127)
+  v += 1
+  print(v)
+
+bomb "simd fold splat const add panics", "integer overflow", release: true
+  # A vector made of constants (splat const) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  K: I8 = 127
+
+  sub main()
+    v = Simd[I8, 4].splat(K)
+    print(v + 1)
+
+bomb "simd fold splat const compound panics", "integer overflow", release: true
+  # A vector made of constants (splat const) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  K: I8 = 127
+
+  sub main()
+    v = Simd[I8, 4].splat(K)
+    v += 1
+    print(v)
+
+bomb "simd fold splat const mul panics", "integer overflow", release: true
+  # A vector made of constants (splat const) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  K: I8 = 127
+
+  sub main()
+    v = Simd[I8, 4].splat(K)
+    print(v * 2)
+
+bomb "simd fold splat const neg panics", "integer overflow", release: true
+  # A vector made of constants (splat const) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  K: I8 = -128
+
+  sub main()
+    v = Simd[I8, 4].splat(K)
+    print(-v)
+
+bomb "simd fold splat const sub panics", "integer overflow", release: true
+  # A vector made of constants (splat const) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  K: I8 = -128
+
+  sub main()
+    v = Simd[I8, 4].splat(K)
+    print(v - 1)
+
+bomb "simd fold splat mul panics", "integer overflow", release: true
+  # A vector made of constants (splat) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = Simd[I8, 4].splat(127)
+  print(v * 2)
+
+bomb "simd fold splat neg panics", "integer overflow", release: true
+  # A vector made of constants (splat) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = Simd[I8, 4].splat(-128)
+  print(-v)
+
+bomb "simd fold splat sub panics", "integer overflow", release: true
+  # A vector made of constants (splat) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = Simd[I8, 4].splat(-128)
+  print(v - 1)
+
+bomb "simd fold with add panics", "integer overflow", release: true
+  # A vector made of constants (with) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = Simd[I8, 4].splat(0).with(1, 127)
+  print(v + 1)
+
+bomb "simd fold with compound panics", "integer overflow", release: true
+  # A vector made of constants (with) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = Simd[I8, 4].splat(0).with(1, 127)
+  v += 1
+  print(v)
+
+bomb "simd fold with mul panics", "integer overflow", release: true
+  # A vector made of constants (with) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = Simd[I8, 4].splat(0).with(1, 127)
+  print(v * 2)
+
+bomb "simd fold with neg panics", "integer overflow", release: true
+  # A vector made of constants (with) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = Simd[I8, 4].splat(0).with(1, -128)
+  print(-v)
+
+bomb "simd fold with sub panics", "integer overflow", release: true
+  # A vector made of constants (with) is a run-time value:
+  # a lane that overflows panics when the program runs.
+
+  v = Simd[I8, 4].splat(0).with(1, -128)
+  print(v - 1)
+
+fail "simd forms", "7:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)", "8:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)", "9:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)", "10:8: a module-level constant needs a value known at compile time: a literal, `.variant`, a constant, or operators, ternaries, and arrays over them, or a vector of them (`Simd[T, n](array)`, `Simd[T, n].splat(x)`)", "14:12: cannot iterate over `Simd[U8, 4]`; a `for` source must be a range `a..b`, an array, a `?String`, a `List`, or an iterator (a type with `next(!self) -> T?`)", "16:9: cannot `match` on a value of type `Simd[U8, 4]`; match works on enums, errors, integers, Bool, and Symbol", "18:11: lane `4` is out of range for `Simd[U8, 4]`, whose lanes are 0 to 3", "18:17: lane `-1` is out of range for `Simd[U8, 4]`, whose lanes are 0 to 3", "19:7: `Simd[U8, 4]` is a type, not a value", errors: 9
+  # A vector is one value: a `for` walks its lanes through `v.array()`, a
+  # `match` does not take it, and a lane index is checked against the lane
+  # count. A module constant holds a vector made of constants, and no
+  # arithmetic on one; a vector type is no value.
+
+  LOW = Simd[U8, 4]([1, 2, 3, 4])
+  HIGH = LOW + 1
+  PAIR = [Simd[U8, 4].splat(200), Simd[U8, 4].splat(100)]
+  FILL = [2 of Simd[U8, 4].splat(200)]
+  PICK = Simd[U8, 4].splat(1) if 1 < 2 else Simd[U8, 4].splat(2)
+
+  sub main()
+    v = Simd[U8, 4].splat(1)
+    for x in v
+      print(x)
+    match v
+      _ => print(1)
+    print(v[4], v[-1])
+    t = Simd[U8, 4]
+    print(t, LOW)
+
+test "simd generic lanes", '''
+  [-1, -1] [3, 7] [7, -2]
+  1
+  [-2, 1, -4, -6] [2, 9, -6, -4] [7, -1, -1, 7]
+  9
+  [false, false, false, false] [20, 27, 24, 27]
+  5 true false 10 254 [1, 5, 3, 5] [0, 1, 0, 1] [false, false, false, false] 9 5
+  11
+  255 true false 65280 255 [0, 1, 2, 3, 4, 5, 6, 7, 8, 8, 8, 8, 8, 8, 8, 8] [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1] [false, false, false, false, false, false, false, false, true, false, false, false, false, false, false, false] 1 8
+  31
+  1024 4611686018427388928 2
+  [true, true, true, false, false, false, false, false] 7
+'''
+  # Every vector operator and method works where the lane count is a
+  # compile-time parameter, decided by the vector type, not by a known
+  # count: two vectors, a vector and a scalar or a literal on either side,
+  # a view of one, the compound forms, and each method.
+
+  fun ops[n: Int](v: Simd[I32, n], w: Simd[I32, n], s: I32) -> U64
+    a = (v + w) - (s * v) + (v - 1) * 2 + (1 - w) + -v
+    b = (v +% w) -% (s *% v) +% 1
+    c = (v & w) | (s ^ v) | (v & 1) | (6 | w)
+    m1 = (v == w) | (v != s) | (s == v) | (v != 3)
+    m2 = (v < w) | (v <= s) | (s > v) | (v >= 2) | (0x20 < w) | (w > 1)
+    m3 = (v < 0) ^ (w >= v)
+    print(a, b, c)
+    (m1 & m2.not() | m3).bits()
+
+  fun viewed[n: Int](v: ?Simd[I32, n], w: !Simd[I32, n]) -> Simd[Bool, n]
+    w += v
+    w -= 1
+    w *= 2
+    w +%= v
+    w &= 0x7FFF
+    w |= 1
+    w ^= v
+    w < v
+
+  LIM: U8 = 0x20
+
+  fun methods[n: Int](v: Simd[U8, n], k: U8) -> Int
+    m = (v < k) & (v < LIM) & (LIM > v)
+    arr = v.array()
+    picked = m.select(v, k)
+    both = m.select(0, 1)
+    z = Simd[U8, n].splat(k)
+    f = Simd[U8, n](arr)
+    print(m.bits(), m.any(), m.all(), m.not().bits(), v.not()[0], picked, both, z == f, v[1], v.with(0, k)[0])
+    Int(arr[n - 1]) + n
+
+  fun read[n: Int](s: ?String, at: Int) -> U64
+    (s.read[Simd[U8, n]](at) == 0x22).bits()
+
+  obj Window[n: Int]
+    lanes: Simd[U8, n]
+
+    fun low(?self, k: U8) -> Simd[Bool, n]
+      self.lanes < k
+
+  sub main()
+    print(ops(Simd[I32, 2]([1, -2]), Simd[I32, 2]([3, 4]), 2))
+    print(ops(Simd[I32, 4]([1, -2, 3, 5]), Simd[I32, 4]([3, 4, -1, 5]), 3))
+    w = Simd[I32, 4].splat(10)
+    print(viewed(?Simd[I32, 4]([1, 2, 3, 4]), !w), w)
+    print(methods(Simd[U8, 4]([1, 9, 3, 7]), 5))
+    print(methods(Simd[U8, 16]([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]), 8))
+    s = "0123456789\"bcdef0123456789abcdef0123456789abcdef0123456789abcd\"f"
+    print(read[16](s, 0), read[64](s, 0), read[2](s, 9))
+    win = Window(lanes: Simd[U8, 8]([1, 2, 3, 4, 5, 6, 7, 8]))
+    print(win.low(4), win.low(4).bits())
+
+test "simd json hex pair", release: true, '''
+  20013 25991
+  233 233
+  65535 0
+  55357 56832
+  none
+  none
+  none
+  none
+  20013 25991
+  43981 43981
+  none
+  none
+'''
+  # std.json's \\u decoder for two escapes in a row (escaped CJK): one
+  # 16-byte read, nibble lookups that check the eight hex digits and give
+  # their values, and lookups with constant indexes that gather them in
+  # order, so both code points come out of one block.
+  type Block = Simd[U8, 16]
+
+  # By high nibble: 1 for 0x30-0x3F (digits), 2 for 0x40-0x4F and 0x60-0x6F
+  # (letters); by low nibble, 1 where a digit may end, 2 where a letter may.
+  HIGH_CLASS = Block([0, 0, 0, 1, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+  LOW_CLASS = Block([1, 3, 3, 3, 3, 3, 3, 1, 1, 1, 0, 0, 0, 0, 0, 0])
+  # What to add to a digit's low nibble: 0 for 0-9, 9 for A-F and a-f.
+  HIGH_ADD = Block([0, 0, 0, 0, 9, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+  # Lanes 2-5 and 8-11 hold the digits; HIGH takes the first of each pair,
+  # LOW the second, and 16 (out of range) gives 0.
+  HIGH = Block([2, 4, 8, 10, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16])
+  LOW = Block([3, 5, 9, 11, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16])
+  DIGITS = Block([0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0])
+  BACKSLASH_U = Block([0x5C, 0x75, 0, 0, 0, 0, 0x5C, 0x75, 0, 0, 0, 0, 0, 0, 0, 0])
+
+  # Both code points of `\\uXXXX\\uXXXX` at the start of `s`, as c * 65536 + d,
+  # or -1 when the 12 bytes are not that.
+  fun hex_pair(s: ?String) -> Int
+    return -1 if s.len < 16
+    v = s.read[Block](0)
+    shape = ((v == BACKSLASH_U) | (BACKSLASH_U == 0)).all()
+    ok = ((HIGH_CLASS.lookup(v >> 4) & LOW_CLASS.lookup(v & 0x0F)) != 0) | (DIGITS == 0)
+    return -1 if not shape or not ok.all()
+    value = (v & 0x0F) +% HIGH_ADD.lookup(v >> 4)
+    bytes = (value.lookup(HIGH) << 4) | value.lookup(LOW)
+    c = Int(bytes[0]) * 256 + Int(bytes[1])
+    d = Int(bytes[2]) * 256 + Int(bytes[3])
+    c * 65536 + d
+
+  CASES = ["\\u4e2d\\u6587....", "\\u00e9\\u00E9....", "\\uFFFF\\u0000tail", "\\uD83D\\uDE00 :-)", "\\u4e2g\\u6587....", "\\u4e2d\\u658/....", "\\u4e2d\\u658:....", "\\u@e2d\\u6587....", "\\u4e2d\\u6587\\u00", "\\uabcd\\uABCD!!!!", "\\u4e2d\\x6587....", "\\u`e2d\\u6587...."]
+
+  sub main()
+    for s in CASES
+      r = hex_pair(s)
+      if r < 0
+        print("none")
+      else
+        print(r >> 16, r & 0xFFFF)
+
+test "simd json utf8 kl", "valid 248 of 248 invalid 424 of 424", release: true
+  # std.json's UTF-8 check, Keiser-Lemire ("Validating UTF-8 in less than
+  # one instruction per byte", 2021), a 16-byte block at a time: three
+  # nibble lookups find the errors of each byte with the one before it, and
+  # two saturating subtracts the continuations a 3- or 4-byte lead needs.
+  type Block = Simd[U8, 16]
+
+  BYTE_1_HIGH = Block([0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x80, 0x80, 0x80, 0x80, 0x21, 0x01, 0x15, 0x49])
+  BYTE_1_LOW = Block([0xE7, 0xA3, 0x83, 0x83, 0x8B, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xCB, 0xDB, 0xCB, 0xCB])
+  BYTE_2_HIGH = Block([0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0xE6, 0xAE, 0xBA, 0xBA, 0x01, 0x01, 0x01, 0x01])
+  # A block that ends the input may not end inside a sequence.
+  INCOMPLETE = Block([255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0xEF, 0xDF, 0xBF])
+
+  # The 16 bytes of `s` from `at`, zeros past its end.
+  fun block(s: ?String, at: Int) -> Block
+    return s.read[Block](at) if at + 16 <= s.len
+    b = Block.splat(0)
+    for k in 0..s.len - at
+      b = b.with(k, s[at + k])
+    b
+
+  fun valid(s: ?String) -> Bool
+    prev = Block.splat(0)
+    err = Block.splat(0)
+    i = 0
+    while i < s.len : i += 16
+      cur = block(s, i)
+      b1 = cur.lag[1](prev)
+      special = BYTE_1_HIGH.lookup(b1 >> 4) & BYTE_1_LOW.lookup(b1 & 0x0F) & BYTE_2_HIGH.lookup(cur >> 4)
+      must23 = ((cur.lag[2](prev) -| 0x60) | (cur.lag[3](prev) -| 0x70)) & 0x80
+      err = err | (must23 ^ special)
+      prev = cur
+    return false if (err != 0).any()
+    not (s.len > 0 and s.len % 16 == 0 and (prev > INCOMPLETE).any())
+
+  GOOD = ["a", "azzzzzzzzzzzzzz", "\x7f", "\x7fzzzzzzzzzzzzzzzzz", "\xc3\xa9", "\xc3\xa9zzzzzzzzzzzzzz", "\xe2\x82\xac", "\xe2\x82\xaczzzzzzzzzzzzzz", "\xf0\x9f\x98\x80", "\xf0\x9f\x98\x80zzzzzzzzzzzzzzzz", "\xed\x9f\xbf", "\xed\x9f\xbfzzzzzzzzzzzzzzzzzz", "\xef\xbf\xbf", "\xef\xbf\xbfzzzzzz", "\xf4\x8f\xbf\xbf", "\xf4\x8f\xbf\xbfzzzzz", "\xe0\xa0\x80", "\xe0\xa0\x80zzzzzzzzzzzzzzzzzzz", "\xf0\x90\x80\x80", "\xf0\x90\x80\x80zzzzzzzzzzzz", "aa", "aazzzzzzzzzzzzzz", "a\x7f", "a\x7fzzzzzzzzzzzzzzzzzzzz", "a\xc3\xa9", "a\xc3\xa9zzzzzzzzzzzzzzzzzzz", "a\xe2\x82\xac", "a\xe2\x82\xaczzzzzzzzzzzzzzzzzzzz", "a\xf0\x9f\x98\x80", "a\xf0\x9f\x98\x80zzzzz", "a\xed\x9f\xbf", "a\xed\x9f\xbfzzzzzzzzzzzzzzzzzzz", "a\xef\xbf\xbf", "a\xef\xbf\xbf", "a\xf4\x8f\xbf\xbf", "a\xf4\x8f\xbf\xbfzzzzzzzzzzzzzzzz", "a\xe0\xa0\x80", "a\xe0\xa0\x80zzzzzzz", "a\xf0\x90\x80\x80", "a\xf0\x90\x80\x80zzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaa", "aaaaaaaaaaaaazzzzzzzzz", "aaaaaaaaaaaa\x7f", "aaaaaaaaaaaa\x7fzzzzzzzzzzzzzzz", "aaaaaaaaaaaa\xc3\xa9", "aaaaaaaaaaaa\xc3\xa9", "aaaaaaaaaaaa\xe2\x82\xac", "aaaaaaaaaaaa\xe2\x82\xaczz", "aaaaaaaaaaaa\xf0\x9f\x98\x80", "aaaaaaaaaaaa\xf0\x9f\x98\x80zzzzzzzzzzzzzz", "aaaaaaaaaaaa\xed\x9f\xbf", "aaaaaaaaaaaa\xed\x9f\xbfzzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaa\xef\xbf\xbf", "aaaaaaaaaaaa\xef\xbf\xbfzzzzzzzz", "aaaaaaaaaaaa\xf4\x8f\xbf\xbf", "aaaaaaaaaaaa\xf4\x8f\xbf\xbfzzzzzzzzzzzzz", "aaaaaaaaaaaa\xe0\xa0\x80", "aaaaaaaaaaaa\xe0\xa0\x80zzzzzzzzz", "aaaaaaaaaaaa\xf0\x90\x80\x80", "aaaaaaaaaaaa\xf0\x90\x80\x80zzzzzzzzzzzz", "aaaaaaaaaaaaaa", "aaaaaaaaaaaaaazz", "aaaaaaaaaaaaa\x7f", "aaaaaaaaaaaaa\x7f", "aaaaaaaaaaaaa\xc3\xa9", "aaaaaaaaaaaaa\xc3\xa9", "aaaaaaaaaaaaa\xe2\x82\xac", "aaaaaaaaaaaaa\xe2\x82\xaczzzzzz", "aaaaaaaaaaaaa\xf0\x9f\x98\x80", "aaaaaaaaaaaaa\xf0\x9f\x98\x80zzzzzz", "aaaaaaaaaaaaa\xed\x9f\xbf", "aaaaaaaaaaaaa\xed\x9f\xbfz", "aaaaaaaaaaaaa\xef\xbf\xbf", "aaaaaaaaaaaaa\xef\xbf\xbfzzzzzzzzzzzzzzz", "aaaaaaaaaaaaa\xf4\x8f\xbf\xbf", "aaaaaaaaaaaaa\xf4\x8f\xbf\xbfzzzzzzzzzzzz", "aaaaaaaaaaaaa\xe0\xa0\x80", "aaaaaaaaaaaaa\xe0\xa0\x80zzz", "aaaaaaaaaaaaa\xf0\x90\x80\x80", "aaaaaaaaaaaaa\xf0\x90\x80\x80zzzz", "aaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaazzzzzzz", "aaaaaaaaaaaaaa\x7f", "aaaaaaaaaaaaaa\x7fzzz", "aaaaaaaaaaaaaa\xc3\xa9", "aaaaaaaaaaaaaa\xc3\xa9", "aaaaaaaaaaaaaa\xe2\x82\xac", "aaaaaaaaaaaaaa\xe2\x82\xacz", "aaaaaaaaaaaaaa\xf0\x9f\x98\x80", "aaaaaaaaaaaaaa\xf0\x9f\x98\x80zzzzzzzzzzzzzz", "aaaaaaaaaaaaaa\xed\x9f\xbf", "aaaaaaaaaaaaaa\xed\x9f\xbfzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaa\xef\xbf\xbf", "aaaaaaaaaaaaaa\xef\xbf\xbfzzzzz", "aaaaaaaaaaaaaa\xf4\x8f\xbf\xbf", "aaaaaaaaaaaaaa\xf4\x8f\xbf\xbfzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaa\xe0\xa0\x80", "aaaaaaaaaaaaaa\xe0\xa0\x80zzzzzzzz", "aaaaaaaaaaaaaa\xf0\x90\x80\x80", "aaaaaaaaaaaaaa\xf0\x90\x80\x80zzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaazzzzzzzzz", "aaaaaaaaaaaaaaa\x7f", "aaaaaaaaaaaaaaa\x7f", "aaaaaaaaaaaaaaa\xc3\xa9", "aaaaaaaaaaaaaaa\xc3\xa9zzzzzz", "aaaaaaaaaaaaaaa\xe2\x82\xac", "aaaaaaaaaaaaaaa\xe2\x82\xaczzzzz", "aaaaaaaaaaaaaaa\xf0\x9f\x98\x80", "aaaaaaaaaaaaaaa\xf0\x9f\x98\x80zzzzzzzzzzzz", "aaaaaaaaaaaaaaa\xed\x9f\xbf", "aaaaaaaaaaaaaaa\xed\x9f\xbfzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaa\xef\xbf\xbf", "aaaaaaaaaaaaaaa\xef\xbf\xbfzzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaa\xf4\x8f\xbf\xbf", "aaaaaaaaaaaaaaa\xf4\x8f\xbf\xbfzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaa\xe0\xa0\x80", "aaaaaaaaaaaaaaa\xe0\xa0\x80zz", "aaaaaaaaaaaaaaa\xf0\x90\x80\x80", "aaaaaaaaaaaaaaa\xf0\x90\x80\x80zzzzzz", "aaaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaaazzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaa\x7f", "aaaaaaaaaaaaaaaa\x7fzzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaa\xc3\xa9", "aaaaaaaaaaaaaaaa\xc3\xa9zzzzzzz", "aaaaaaaaaaaaaaaa\xe2\x82\xac", "aaaaaaaaaaaaaaaa\xe2\x82\xac", "aaaaaaaaaaaaaaaa\xf0\x9f\x98\x80", "aaaaaaaaaaaaaaaa\xf0\x9f\x98\x80zzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaa\xed\x9f\xbf", "aaaaaaaaaaaaaaaa\xed\x9f\xbfzzzzzzzzzzz", "aaaaaaaaaaaaaaaa\xef\xbf\xbf", "aaaaaaaaaaaaaaaa\xef\xbf\xbfzzzzzzzzzzz", "aaaaaaaaaaaaaaaa\xf4\x8f\xbf\xbf", "aaaaaaaaaaaaaaaa\xf4\x8f\xbf\xbfzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaa\xe0\xa0\x80", "aaaaaaaaaaaaaaaa\xe0\xa0\x80zzzzzzz", "aaaaaaaaaaaaaaaa\xf0\x90\x80\x80", "aaaaaaaaaaaaaaaa\xf0\x90\x80\x80zzzzzz", "aaaaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaazzzzz", "aaaaaaaaaaaaaaaaa\x7f", "aaaaaaaaaaaaaaaaa\x7fzzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaa\xc3\xa9", "aaaaaaaaaaaaaaaaa\xc3\xa9zzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaa\xe2\x82\xac", "aaaaaaaaaaaaaaaaa\xe2\x82\xaczzzzzz", "aaaaaaaaaaaaaaaaa\xf0\x9f\x98\x80", "aaaaaaaaaaaaaaaaa\xf0\x9f\x98\x80zzzzzzzzzzzz", "aaaaaaaaaaaaaaaaa\xed\x9f\xbf", "aaaaaaaaaaaaaaaaa\xed\x9f\xbfzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaa\xef\xbf\xbf", "aaaaaaaaaaaaaaaaa\xef\xbf\xbfzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaa\xf4\x8f\xbf\xbf", "aaaaaaaaaaaaaaaaa\xf4\x8f\xbf\xbfzz", "aaaaaaaaaaaaaaaaa\xe0\xa0\x80", "aaaaaaaaaaaaaaaaa\xe0\xa0\x80zzzzzzzzz", "aaaaaaaaaaaaaaaaa\xf0\x90\x80\x80", "aaaaaaaaaaaaaaaaa\xf0\x90\x80\x80zzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaazzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x7f", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x7fzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3\xa9", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3\xa9zzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82\xac", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82\xaczzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98\x80zzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\x9f\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\x9f\xbfzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xef\xbf\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xef\xbf\xbfzzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x8f\xbf\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x8f\xbf\xbfzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\xa0\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\xa0\x80zzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x90\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x90\x80\x80zzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaazzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x7f", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x7fzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3\xa9", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3\xa9zzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82\xac", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82\xaczzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98\x80zz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\x9f\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\x9f\xbfzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xef\xbf\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xef\xbf\xbfzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x8f\xbf\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x8f\xbf\xbfzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\xa0\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\xa0\x80zzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x90\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x90\x80\x80zz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaazzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x7f", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x7fzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3\xa9", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3\xa9zzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82\xac", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82\xaczzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98\x80zzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\x9f\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\x9f\xbfzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xef\xbf\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xef\xbf\xbfzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x8f\xbf\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x8f\xbf\xbfzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\xa0\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\xa0\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x90\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x90\x80\x80zzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaazzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x7f", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x7fzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3\xa9", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3\xa9zzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82\xac", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82\xac", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98\x80zzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\x9f\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\x9f\xbfzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xef\xbf\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xef\xbf\xbfzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x8f\xbf\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x8f\xbf\xbfzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\xa0\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\xa0\x80zzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x90\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x90\x80\x80", "\xed\x9f\xbf\xf4\x8f\xbf\xbf", "\xf0\x9f\x98\x80\xf0\x90\x80\x80a\x7f\xef\xbf\xbf\xf0\x9f\x98\x80\xf4\x8f\xbf\xbfa\xe0\xa0\x80", "\xf0\x9f\x98\x80\xf4\x8f\xbf\xbf\xf0\x9f\x98\x80\xc3\xa9", "\xe2\x82\xac", "\xc3\xa9\xe0\xa0\x80\xed\x9f\xbf", "\xef\xbf\xbf\xf0\x9f\x98\x80", "\xe2\x82\xac\xf4\x8f\xbf\xbf\x7f", "\xe0\xa0\x80\xf0\x9f\x98\x80"]
+  BAD = ["\xc0\x80", "\xc0\x80zzzzzzzzzzzzzzzz", "\xc1\xbf", "\xc1\xbfzzzzzzzzzzzzzzz", "\xe0\x80\x80", "\xe0\x80\x80zzzzzzzzzzzzzzzzzzzz", "\xed\xa0\x80", "\xed\xa0\x80zzzzzzzzzzzzzzzzzzz", "\xf4\x90\x80\x80", "\xf4\x90\x80\x80zzzzz", "\xf5\x80\x80\x80", "\xf5\x80\x80\x80zzz", "\x80", "\x80zzzzzzzzzzzzzz", "\xbf", "\xbfzzzzzzzzz", "\xc3", "\xc3zzzz", "\xe2\x82", "\xe2\x82zz", "\xf0\x9f\x98", "\xf0\x9f\x98zzzzzzzzzzzzzzzzz", "\xff", "\xffzzzzzzzzzzzzzzzzzzzz", "\xfe", "\xfez", "a\xc0\x80", "a\xc0\x80zz", "a\xc1\xbf", "a\xc1\xbfz", "a\xe0\x80\x80", "a\xe0\x80\x80z", "a\xed\xa0\x80", "a\xed\xa0\x80zzzzzz", "a\xf4\x90\x80\x80", "a\xf4\x90\x80\x80zzzzzzz", "a\xf5\x80\x80\x80", "a\xf5\x80\x80\x80zzzzzzzzzzzzzzzzzzz", "a\x80", "a\x80", "a\xbf", "a\xbfzzzzzzzzzzzzzz", "a\xc3", "a\xc3zzzzzzzzzz", "a\xe2\x82", "a\xe2\x82zzzzzzzzzzzzzz", "a\xf0\x9f\x98", "a\xf0\x9f\x98zzzzzzzzzzzzzzzzzz", "a\xff", "a\xffzzzzzz", "a\xfe", "a\xfezzzzzzzzzzzzzzzz", "aaaaaaaaaaaa\xc0\x80", "aaaaaaaaaaaa\xc0\x80zzzzzzzzzzzzzzzzz", "aaaaaaaaaaaa\xc1\xbf", "aaaaaaaaaaaa\xc1\xbfzz", "aaaaaaaaaaaa\xe0\x80\x80", "aaaaaaaaaaaa\xe0\x80\x80zzzzzzzz", "aaaaaaaaaaaa\xed\xa0\x80", "aaaaaaaaaaaa\xed\xa0\x80zzzzzzzzzz", "aaaaaaaaaaaa\xf4\x90\x80\x80", "aaaaaaaaaaaa\xf4\x90\x80\x80zzzzzzz", "aaaaaaaaaaaa\xf5\x80\x80\x80", "aaaaaaaaaaaa\xf5\x80\x80\x80zzzzzzzzzzzzzzzz", "aaaaaaaaaaaa\x80", "aaaaaaaaaaaa\x80zzzzzzzzz", "aaaaaaaaaaaa\xbf", "aaaaaaaaaaaa\xbf", "aaaaaaaaaaaa\xc3", "aaaaaaaaaaaa\xc3zz", "aaaaaaaaaaaa\xe2\x82", "aaaaaaaaaaaa\xe2\x82zzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaa\xf0\x9f\x98", "aaaaaaaaaaaa\xf0\x9f\x98zzz", "aaaaaaaaaaaa\xff", "aaaaaaaaaaaa\xffzzzzzzzzzzzz", "aaaaaaaaaaaa\xfe", "aaaaaaaaaaaa\xfezzz", "aaaaaaaaaaaaa\xc0\x80", "aaaaaaaaaaaaa\xc0\x80zzzzzzzzzzzz", "aaaaaaaaaaaaa\xc1\xbf", "aaaaaaaaaaaaa\xc1\xbfzzzzzzzzzzzzz", "aaaaaaaaaaaaa\xe0\x80\x80", "aaaaaaaaaaaaa\xe0\x80\x80zz", "aaaaaaaaaaaaa\xed\xa0\x80", "aaaaaaaaaaaaa\xed\xa0\x80zzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaa\xf4\x90\x80\x80", "aaaaaaaaaaaaa\xf4\x90\x80\x80zzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaa\xf5\x80\x80\x80", "aaaaaaaaaaaaa\xf5\x80\x80\x80zzzzzz", "aaaaaaaaaaaaa\x80", "aaaaaaaaaaaaa\x80zzzzzzzz", "aaaaaaaaaaaaa\xbf", "aaaaaaaaaaaaa\xbfzzzzzzzzzz", "aaaaaaaaaaaaa\xc3", "aaaaaaaaaaaaa\xc3zz", "aaaaaaaaaaaaa\xe2\x82", "aaaaaaaaaaaaa\xe2\x82zzzzzzzzz", "aaaaaaaaaaaaa\xf0\x9f\x98", "aaaaaaaaaaaaa\xf0\x9f\x98zzzzzzzzzz", "aaaaaaaaaaaaa\xff", "aaaaaaaaaaaaa\xff", "aaaaaaaaaaaaa\xfe", "aaaaaaaaaaaaa\xfezzzzzzzzzzzzz", "aaaaaaaaaaaaaa\xc0\x80", "aaaaaaaaaaaaaa\xc0\x80zzzzzz", "aaaaaaaaaaaaaa\xc1\xbf", "aaaaaaaaaaaaaa\xc1\xbfzzzzzzzzzzzzzz", "aaaaaaaaaaaaaa\xe0\x80\x80", "aaaaaaaaaaaaaa\xe0\x80\x80zzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaa\xed\xa0\x80", "aaaaaaaaaaaaaa\xed\xa0\x80zzzzzz", "aaaaaaaaaaaaaa\xf4\x90\x80\x80", "aaaaaaaaaaaaaa\xf4\x90\x80\x80zzzz", "aaaaaaaaaaaaaa\xf5\x80\x80\x80", "aaaaaaaaaaaaaa\xf5\x80\x80\x80zzzzzzzzzzzzz", "aaaaaaaaaaaaaa\x80", "aaaaaaaaaaaaaa\x80zzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaa\xbf", "aaaaaaaaaaaaaa\xbfzzzzzzzzzzzz", "aaaaaaaaaaaaaa\xc3", "aaaaaaaaaaaaaa\xc3zzz", "aaaaaaaaaaaaaa\xe2\x82", "aaaaaaaaaaaaaa\xe2\x82zzzzzzzzzzzz", "aaaaaaaaaaaaaa\xf0\x9f\x98", "aaaaaaaaaaaaaa\xf0\x9f\x98zzzzzzzzzzzzz", "aaaaaaaaaaaaaa\xff", "aaaaaaaaaaaaaa\xffzzzzzz", "aaaaaaaaaaaaaa\xfe", "aaaaaaaaaaaaaa\xfe", "aaaaaaaaaaaaaaa\xc0\x80", "aaaaaaaaaaaaaaa\xc0\x80zzz", "aaaaaaaaaaaaaaa\xc1\xbf", "aaaaaaaaaaaaaaa\xc1\xbfz", "aaaaaaaaaaaaaaa\xe0\x80\x80", "aaaaaaaaaaaaaaa\xe0\x80\x80zzzz", "aaaaaaaaaaaaaaa\xed\xa0\x80", "aaaaaaaaaaaaaaa\xed\xa0\x80zzzzzz", "aaaaaaaaaaaaaaa\xf4\x90\x80\x80", "aaaaaaaaaaaaaaa\xf4\x90\x80\x80zzzzzzzzzzzzzz", "aaaaaaaaaaaaaaa\xf5\x80\x80\x80", "aaaaaaaaaaaaaaa\xf5\x80\x80\x80zzzzzzzz", "aaaaaaaaaaaaaaa\x80", "aaaaaaaaaaaaaaa\x80", "aaaaaaaaaaaaaaa\xbf", "aaaaaaaaaaaaaaa\xbfzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaa\xc3", "aaaaaaaaaaaaaaa\xc3zzzzzzzzzz", "aaaaaaaaaaaaaaa\xe2\x82", "aaaaaaaaaaaaaaa\xe2\x82zzzzzzzzz", "aaaaaaaaaaaaaaa\xf0\x9f\x98", "aaaaaaaaaaaaaaa\xf0\x9f\x98zzzzzzzzzzzz", "aaaaaaaaaaaaaaa\xff", "aaaaaaaaaaaaaaa\xffzz", "aaaaaaaaaaaaaaa\xfe", "aaaaaaaaaaaaaaa\xfezz", "aaaaaaaaaaaaaaaa\xc0\x80", "aaaaaaaaaaaaaaaa\xc0\x80zzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaa\xc1\xbf", "aaaaaaaaaaaaaaaa\xc1\xbfzzzz", "aaaaaaaaaaaaaaaa\xe0\x80\x80", "aaaaaaaaaaaaaaaa\xe0\x80\x80zzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaa\xed\xa0\x80", "aaaaaaaaaaaaaaaa\xed\xa0\x80zzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaa\xf4\x90\x80\x80", "aaaaaaaaaaaaaaaa\xf4\x90\x80\x80zzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaa\xf5\x80\x80\x80", "aaaaaaaaaaaaaaaa\xf5\x80\x80\x80zzzz", "aaaaaaaaaaaaaaaa\x80", "aaaaaaaaaaaaaaaa\x80zzzzzzzzzzzz", "aaaaaaaaaaaaaaaa\xbf", "aaaaaaaaaaaaaaaa\xbfzzzzz", "aaaaaaaaaaaaaaaa\xc3", "aaaaaaaaaaaaaaaa\xc3zzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaa\xe2\x82", "aaaaaaaaaaaaaaaa\xe2\x82zzzz", "aaaaaaaaaaaaaaaa\xf0\x9f\x98", "aaaaaaaaaaaaaaaa\xf0\x9f\x98zzzzzzzzz", "aaaaaaaaaaaaaaaa\xff", "aaaaaaaaaaaaaaaa\xffzzzzzzz", "aaaaaaaaaaaaaaaa\xfe", "aaaaaaaaaaaaaaaa\xfezzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaa\xc0\x80", "aaaaaaaaaaaaaaaaa\xc0\x80zzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaa\xc1\xbf", "aaaaaaaaaaaaaaaaa\xc1\xbfz", "aaaaaaaaaaaaaaaaa\xe0\x80\x80", "aaaaaaaaaaaaaaaaa\xe0\x80\x80zzz", "aaaaaaaaaaaaaaaaa\xed\xa0\x80", "aaaaaaaaaaaaaaaaa\xed\xa0\x80zzz", "aaaaaaaaaaaaaaaaa\xf4\x90\x80\x80", "aaaaaaaaaaaaaaaaa\xf4\x90\x80\x80z", "aaaaaaaaaaaaaaaaa\xf5\x80\x80\x80", "aaaaaaaaaaaaaaaaa\xf5\x80\x80\x80zzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaa\x80", "aaaaaaaaaaaaaaaaa\x80zzzzzzzz", "aaaaaaaaaaaaaaaaa\xbf", "aaaaaaaaaaaaaaaaa\xbfzzzzzzz", "aaaaaaaaaaaaaaaaa\xc3", "aaaaaaaaaaaaaaaaa\xc3zzzzzzzzzzzz", "aaaaaaaaaaaaaaaaa\xe2\x82", "aaaaaaaaaaaaaaaaa\xe2\x82zzzzzzzz", "aaaaaaaaaaaaaaaaa\xf0\x9f\x98", "aaaaaaaaaaaaaaaaa\xf0\x9f\x98zzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaa\xff", "aaaaaaaaaaaaaaaaa\xffzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaa\xfe", "aaaaaaaaaaaaaaaaa\xfezzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc0\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc0\x80zzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc1\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc1\xbfzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\x80\x80zzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\xa0\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\xa0\x80zzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x90\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x90\x80\x80zzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf5\x80\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf5\x80\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x80zz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xbfzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3zzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82zzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98zzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xff", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xffz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xfe", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xfez", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc0\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc0\x80zzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc1\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc1\xbfzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\x80\x80zzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\xa0\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\xa0\x80zzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x90\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x90\x80\x80zzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf5\x80\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf5\x80\x80\x80z", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xbfzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3zzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82zzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98z", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xff", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xff", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xfe", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xfezzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc0\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc0\x80zzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc1\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc1\xbfzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\x80\x80z", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\xa0\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\xa0\x80zzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x90\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x90\x80\x80zzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf5\x80\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf5\x80\x80\x80zzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x80zz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xbfzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3zz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82zzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xff", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xffzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xfe", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xfezzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc0\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc0\x80zzzzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc1\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc1\xbfzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe0\x80\x80zzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\xa0\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xed\xa0\x80zzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x90\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf4\x90\x80\x80zzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf5\x80\x80\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf5\x80\x80\x80zzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x80", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\x80zzzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xbf", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xbfzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xc3zzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xe2\x82zzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xf0\x9f\x98zzzzzzzzzzzzzzzzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xff", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xffzz", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xfe", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\xfezzzzzzzzzzzzzzzz", "\xff\xc3\xa9\xbfa\xf4\x8f\xbf\xbf\xf0\x90\x80\x80\xe2\x82\xac\xbf\xff\xe0\xa0\x80", "\xc0\x80a\xed\xa0\x80\xc1\xbf\xf0\x9f\x98\x80\xe0\xa0\x80\xff\xef\xbf\xbf\xc3\xed\x9f\xbf\xe0\x80\x80\xe0\xa0\x80\x80\xbf\xf4\x8f\xbf\xbf\xe0\x80\x80", "\xe0\xa0\x80\xc0\x80\xef\xbf\xbf\xfe\xf5\x80\x80\x80\xef\xbf\xbf\xef\xbf\xbf\xf4\x90\x80\x80\xf4\x8f\xbf\xbf\xf0\x9f\x98\xe0\x80\x80\xef\xbf\xbf\xf0\x9f\x98\x80", "\xbf\xed\xa0\x80\x7f\xf0\x90\x80\x80\xc3\xa9", "\xed\x9f\xbf\xe2\x82\xac\x80\xbf\xc0\x80\xef\xbf\xbf\xf5\x80\x80\x80\xf4\x90\x80\x80\xfe", "\xbf\xe0\xa0\x80\xe0\x80\x80\xf0\x90\x80\x80\xff\x80\xe0\x80\x80\xc3\xa9\x7f\xc0\x80\xff\x7f\xe0\xa0\x80\xf0\x90\x80\x80\xc0\x80\xf0\x9f\x98\xed\xa0\x80", "\xfe\xf0\x9f\x98a\xfe\xf0\x9f\x98\x80\xf4\x90\x80\x80\x80\xef\xbf\xbfa\xc0\x80", "\xf0\x9f\x98\x80\x7f\xfe\xe2\x82\xac\x80\xe2\x82\xac\xfe\xe2\x82", "\xc3\xa9\xe0\xa0\x80\xef\xbf\xbf\xef\xbf\xbf\xbf\xc0\x80\xed\x9f\xbf\xf0\x90\x80\x80a\xbf\xe2\x82\xf0\x90\x80\x80", "\xed\xa0\x80\xe2\x82\xf0\x90\x80\x80\xc3\xc3\xff\xed\x9f\xbf\xf4\x90\x80\x80\xf0\x90\x80\x80", "\xc3\xa9\xf5\x80\x80\x80\xf4\x90\x80\x80\xf0\x9f\x98\x80\x80\x80\xef\xbf\xbf\xfe", "\xf4\x90\x80\x80", "\xf0\x9f\x98\xfe\xc3\xe0\x80\x80\x80\xe0\x80\x80\xfe\xef\xbf\xbf\xe2\x82\xac\xfe\xf0\x90\x80\x80\xe2\x82\xac\xef\xbf\xbf\xf4\x8f\xbf\xbf\xf4\x90\x80\x80\xc3\xa9\xc1\xbf\xe2\x82", "\xc0\x80\xf0\x90\x80\x80a\xed\xa0\x80\xc3\xc3\xa9\x7f\x80\xe0\x80\x80\xe2\x82\xf5\x80\x80\x80", "\xbfa\xef\xbf\xbf\xc3\xa9\xf5\x80\x80\x80\x7f\xed\x9f\xbf\xe2\x82\xe0\x80\x80", "\xbf\xf0\x9f\x98\x80\xc3\xc3\xe0\xa0\x80", "\xbf\xf0\x9f\x98\xf0\x90\x80\x80\xc3\xa9\xf4\x8f\xbf\xbf\x80\xc3\xe2\x82\xc1\xbf\xe2\x82\xfe\xed\x9f\xbf\xc3\xc3\xe2\x82", "\xc1\xbf\xe0\xa0\x80\xf4\x90\x80\x80\xff\xef\xbf\xbf\xc1\xbf\xf0\x9f\x98\x80\xe2\x82\xc3", "\xf0\x9f\x98\xbf\xef\xbf\xbf\xf5\x80\x80\x80\xe2\x82\xe2\x82\xac\xc3a\xff", "a\xe2\x82\x7f\xc3\xf4\x90\x80\x80\xe2\x82\xf0\x9f\x98\xe2\x82\xac\xbf\xc3\xa9\xf0\x90\x80\x80\xed\x9f\xbf\xc3\xa9", "\x80\xf5\x80\x80\x80\xf4\x90\x80\x80\xc0\x80\xf4\x8f\xbf\xbf\xbf\xbf\xf0\x9f\x98\x80\xe0\x80\x80\xf5\x80\x80\x80\xbf\xc3\xe0\x80\x80\xe2\x82\xac\xef\xbf\xbf\xf5\x80\x80\x80\xffa", "\xe0\x80\x80\xed\xa0\x80\xf4\x8f\xbf\xbf\xff\xbf\xe2\x82\xac\xbf\xf0\x9f\x98\xe2\x82\xac\xc3", "\xf0\x90\x80\x80\xef\xbf\xbf\xf0\x90\x80\x80\xc3\xf5\x80\x80\x80a\xf4\x90\x80\x80\xfe\xf5\x80\x80\x80", "\xff\xed\x9f\xbf\xe2\x82\xef\xbf\xbf\xfe\xe2\x82\xfe\xef\xbf\xbf\xc3\xef\xbf\xbf\xe2\x82\xff\xf0\x9f\x98\xf0\x9f\x98\x80\xf4\x8f\xbf\xbf\xfe\xed\xa0\x80", "\xe0\x80\x80\xff\xe0\x80\x80\xef\xbf\xbf\xef\xbf\xbf\xef\xbf\xbf", "\xf4\x90\x80\x80\xe2\x82\xac\xf5\x80\x80\x80\xf5\x80\x80\x80\xe2\x82\xf0\x90\x80\x80\xf0\x9f\x98\x80\xef\xbf\xbf\xf4\x90\x80\x80", "\xf0\x9f\x98\xe0\xa0\x80\xed\xa0\x80\xed\xa0\x80\xe2\x82\xac\xf0\x90\x80\x80\xc3", "\xc3\xe0\xa0\x80\xef\xbf\xbf\xc3\xa9\xbf\xe2\x82\xaca\x7f\xe2\x82\xff\xc3", "\xf0\x9f\x98\x80\xef\xbf\xbf\xed\x9f\xbf\xe2\x82\xac\xef\xbf\xbf\xed\x9f\xbf\xed\x9f\xbf\xc1\xbf\xe0\xa0\x80\xe2\x82\xac\xf0\x9f\x98\x7f\xf0\x9f\x98\x80\xe0\xa0\x80\x80\xc3\xa9", "\xe0\x80\x80\xf4\x90\x80\x80\x80\xf5\x80\x80\x80", "\xed\xa0\x80\xf5\x80\x80\x80\xef\xbf\xbf\xff\xed\xa0\x80a\xfe\xf0\x90\x80\x80\x7f\xef\xbf\xbf\xed\x9f\xbf\xf5\x80\x80\x80\x80\xed\xa0\x80\xed\xa0\x80\xf4\x90\x80\x80\xef\xbf\xbf", "\xe2\x82\xac\xc3a\xe0\x80\x80\xc3\xa9\xf0\x90\x80\x80", "\xf0\x9f\x98\xff\xef\xbf\xbf\xc3\xf0\x9f\x98\xe0\x80\x80\xc0\x80\xc0\x80\xe2\x82\xac\xed\x9f\xbf\xf4\x90\x80\x80\xf0\x9f\x98\x80\xe0\x80\x80", "\xf0\x90\x80\x80\xed\xa0\x80\xf5\x80\x80\x80\xed\x9f\xbf\xf4\x90\x80\x80\xef\xbf\xbf\xed\x9f\xbf\xc3\xa9\xe0\x80\x80\xc1\xbf\xbf\xe2\x82\xaca\xed\xa0\x80\xfe\xff\x7f\xf4\x8f\xbf\xbf", "\xe0\xa0\x80\xc1\xbf\xe0\x80\x80\xef\xbf\xbf\xe0\xa0\x80\xf4\x90\x80\x80\xf0\x9f\x98\xed\x9f\xbf\xe2\x82", "\xf4\x90\x80\x80\xc3\xbf", "\xf0\x90\x80\x80\xe2\x82\xac\xf4\x90\x80\x80\xf0\x9f\x98a\xe2\x82\xac\xff", "\xf4\x8f\xbf\xbf\xc0\x80\x80\xf4\x90\x80\x80", "\x7f\xef\xbf\xbf\xfe\xf4\x90\x80\x80a\xe2\x82\xac\xc0\x80\xc0\x80\xc0\x80\xe0\x80\x80\xe2\x82\xe2\x82\xc3\xf5\x80\x80\x80\xc3\xf0\x9f\x98\xe2\x82\xac", "\xfe\xc3\xa9\xe2\x82\xff\xe0\xa0\x80\x7f\xf4\x90\x80\x80\xed\x9f\xbf\xf4\x90\x80\x80\xbf\xed\x9f\xbf\xbf\xe2\x82\xff\xff", "\xf5\x80\x80\x80\xbf", "\xc1\xbf\xc3\xf4\x90\x80\x80\xff\xc1\xbf\xed\xa0\x80\xc3\xc1\xbf\xbf\xfe\xc0\x80\xe2\x82\xc1\xbf\xe0\xa0\x80", "aa\xf4\x8f\xbf\xbf\xf0\x9f\x98\x7f\xfe\xed\x9f\xbf\xf5\x80\x80\x80\xe0\xa0\x80\xf4\x90\x80\x80", "\xe0\x80\x80\xf4\x90\x80\x80", "\xf0\x9f\x98\xe0\x80\x80", "\xf4\x8f\xbf\xbf\xf5\x80\x80\x80\xbf", "\xf4\x8f\xbf\xbf\x7f\xc3\xe2\x82\xac\x80\xf0\x9f\x98\x80\xf4\x8f\xbf\xbf\xff\xf0\x90\x80\x80", "\x7f\xff\xf5\x80\x80\x80\x80", "\xef\xbf\xbf\x7f\xed\xa0\x80\xc3", "\xe2\x82\xac\xed\xa0\x80\x80\xf0\x9f\x98\x80\xe0\xa0\x80", "\x80\xff\xc0\x80\xfe\xf0\x9f\x98\xe0\xa0\x80\xf5\x80\x80\x80\xed\xa0\x80\xc3\xf0\x9f\x98\x80\xc1\xbf\xf0\x9f\x98\x80\xf4\x8f\xbf\xbf\xbf", "\xc3\xc1\xbf\xc3\xff", "\xc0\x80\xc0\x80\xff\xe0\xa0\x80\xf0\x9f\x98\xf0\x90\x80\x80\xf0\x9f\x98\xef\xbf\xbf\xfe\xc0\x80\xf4\x8f\xbf\xbf\xef\xbf\xbf", "\xc3\xfe\xef\xbf\xbf\xe0\xa0\x80\x7f\xfe\x7fa", "\xc0\x80\xf5\x80\x80\x80a\xff\x7f\xe2\x82\xac\xf4\x8f\xbf\xbf\xe2\x82\xc0\x80", "\xf4\x8f\xbf\xbf\xfe\xed\xa0\x80\xbf\xbf\xed\xa0\x80\xef\xbf\xbf\xe0\x80\x80\xe0\x80\x80\xbf\xf0\x9f\x98\x80\xc3\xa9\xe2\x82\xac\x80\xff\xef\xbf\xbf\x80\xf5\x80\x80\x80", "\xf4\x90\x80\x80\xf0\x9f\x98\x80\xed\xa0\x80\xf0\x9f\x98\x80\xfe\xff\xe0\x80\x80\xc1\xbf\xe2\x82", "\xf5\x80\x80\x80\xfe\xed\xa0\x80\xf0\x9f\x98\xe2\x82\xac\x80", "\xc3\xa9\xe2\x82\xc3\xa9\xf5\x80\x80\x80\xf0\x9f\x98\xf0\x9f\x98\xbf\xe0\xa0\x80\x80\xc1\xbfa", "\xc1\xbf\xef\xbf\xbf\xe0\xa0\x80", "\xf0\x90\x80\x80\xc1\xbf\xbf", "\xc1\xbf\xf0\x9f\x98\x80\xf4\x8f\xbf\xbf\xed\xa0\x80\xe0\xa0\x80\xe0\x80\x80\xed\xa0\x80\xe2\x82\xac\xe0\x80\x80\xf0\x90\x80\x80\x80", "\x80\xc3\xc1\xbf\x80\xe0\x80\x80\xf4\x8f\xbf\xbf\xf4\x90\x80\x80\xc3\xf4\x8f\xbf\xbf", "\xed\xa0\x80\xed\xa0\x80a", "\xe0\xa0\x80\xf4\x90\x80\x80\xf0\x9f\x98\xf4\x90\x80\x80\xef\xbf\xbf\xf0\x9f\x98\xed\xa0\x80\xf4\x90\x80\x80\xe2\x82\xf0\x9f\x98\x80\xf0\x9f\x98\xf0\x9f\x98", "\xed\x9f\xbf\xc3\xa9\x80\xc1\xbfa\xf4\x8f\xbf\xbf", "\x7f\xe2\x82\xed\x9f\xbf\xf0\x9f\x98\xc1\xbfa\xfe\xf5\x80\x80\x80\xc3\xa9\xf0\x9f\x98\xe2\x82\xc1\xbf\xe2\x82\xc3\xa9\xe0\x80\x80\xc3\xa9\xc0\x80", "\xe0\x80\x80\xc3\xa9a\xfe", "\xe2\x82\xac\xfe\xf5\x80\x80\x80\xf4\x8f\xbf\xbf\xf0\x90\x80\x80", "\xbf\xc3\xe0\x80\x80\x80\xf4\x90\x80\x80\xed\xa0\x80\xe0\x80\x80\xe0\x80\x80", "\xbf\xbf\xe2\x82\xc3\xa9\xf0\x90\x80\x80", "\xf5\x80\x80\x80\xe0\xa0\x80", "a\xf4\x90\x80\x80\xc3\xa9\x80\xe2\x82\xfea\xc3\xed\xa0\x80\xf0\x90\x80\x80a\xe2\x82\xac", "\xf5\x80\x80\x80\xf0\x9f\x98\x80\xf4\x8f\xbf\xbf\xed\x9f\xbf\xfe\xf4\x90\x80\x80\xe0\xa0\x80\xed\x9f\xbf\xe0\x80\x80\xef\xbf\xbf\xf4\x90\x80\x80\xf5\x80\x80\x80\xc3\xc1\xbf", "\x7f\xbf\xc1\xbf\xe2\x82\xac\xc1\xbf\xfe\xf0\x9f\x98\x80\xed\x9f\xbf\x7f", "a\xf0\x9f\x98\xbf\x7f\xe0\x80\x80\xe2\x82\xac\xef\xbf\xbf\xed\x9f\xbf\xed\xa0\x80\xef\xbf\xbf\xf0\x9f\x98\xf4\x8f\xbf\xbf\xff\xf0\x90\x80\x80\xbf", "\xf4\x8f\xbf\xbf\x80\xed\x9f\xbf\xc0\x80\xf4\x90\x80\x80\xed\x9f\xbf\xc1\xbf\xfe\xe2\x82\xe2\x82\xbf\xc0\x80\xbf\xf4\x90\x80\x80\xe0\x80\x80\xe0\xa0\x80\xe2\x82", "\xbf\xf4\x8f\xbf\xbf\xf4\x90\x80\x80", "\xc3\xc3\xc0\x80\x7f\xe0\xa0\x80\xf4\x8f\xbf\xbfa\xbf\xed\xa0\x80\x80\xf4\x8f\xbf\xbf\xf0\x90\x80\x80\xf5\x80\x80\x80", "\xf5\x80\x80\x80\xed\x9f\xbf\xe0\x80\x80\xf0\x9f\x98\x80\xc0\x80\xc3", "\xfe\xff\xc0\x80\xc3\xe2\x82", "\xf0\x9f\x98\x80\xf0\x9f\x98", "a\xef\xbf\xbf\xf0\x9f\x98\x80\xf0\x9f\x98\x80\xc3\xa9\xed\xa0\x80", "\xff\xf0\x90\x80\x80\xc3\xe2\x82\xac\xbf\xf0\x90\x80\x80\x80\xc3\xa9\xf0\x9f\x98", "\xc3\xc1\xbfa\xef\xbf\xbf\xf5\x80\x80\x80\xef\xbf\xbf\xe0\xa0\x80\xc3\xa9\x80\xef\xbf\xbf\x7f\xe2\x82\xf5\x80\x80\x80\xc3\xbf\xed\x9f\xbf\xc1\xbf\xe0\x80\x80", "\xf4\x90\x80\x80\xc3\xa9\xe2\x82\xc1\xbf\x80\xe0\xa0\x80\xf0\x90\x80\x80\xc3\xa9\xed\xa0\x80\xc3\xa9", "\xe2\x82\xac\xe0\xa0\x80\xf4\x90\x80\x80\xe0\xa0\x80\x80", "\xfe\x80a\xf4\x90\x80\x80", "\xf4\x8f\xbf\xbf\xc1\xbf\xf0\x9f\x98\xe2\x82\xac\x80a\xef\xbf\xbf\xff\xf0\x9f\x98\x80\xc1\xbf\xfe\xf4\x90\x80\x80\xe2\x82\xc1\xbf\xe0\x80\x80\xf4\x90\x80\x80", "\xe0\xa0\x80\xc3\xa9\xc0\x80\xef\xbf\xbf\xef\xbf\xbf\xf4\x90\x80\x80\xe2\x82\xac\xe0\x80\x80\xc1\xbf\xc0\x80\xf0\x9f\x98\xbf\xfe\xe0\x80\x80\x80\xf4\x90\x80\x80\xc3\xa9\xe2\x82\xac", "\xff\xe2\x82\xac\xf0\x9f\x98\x80\xe0\xa0\x80\xfe", "\xed\x9f\xbf\xef\xbf\xbf\xf4\x90\x80\x80\x7f\x80\xf0\x9f\x98", "\xe2\x82\xac\xf5\x80\x80\x80\xf5\x80\x80\x80\xc3\xa9\xe0\x80\x80\xf5\x80\x80\x80", "\xf0\x9f\x98\x80\xfe\xef\xbf\xbf\xf0\x9f\x98\x80\xf0\x90\x80\x80\xf4\x90\x80\x80\xbf\xe0\x80\x80\xf5\x80\x80\x80\xffa\xf4\x90\x80\x80\xff\xf0\x90\x80\x80\xe0\x80\x80\xf4\x8f\xbf\xbf\xe0\xa0\x80", "a\xc0\x80\xe0\x80\x80\xef\xbf\xbf\xe0\x80\x80\xc1\xbf\xfe\x80\xe2\x82\xac\xe2\x82\xf4\x90\x80\x80\xef\xbf\xbf\xc3\xe0\x80\x80\xc1\xbf\xe2\x82\xac\xff", "\xc0\x80\xe2\x82\xc1\xbf\xe2\x82\xf4\x8f\xbf\xbf\xed\xa0\x80", "\xc3\xf0\x9f\x98\x80\xf0\x9f\x98\xf0\x90\x80\x80\xef\xbf\xbf\xc3\xf0\x90\x80\x80\xf0\x90\x80\x80\xef\xbf\xbf\xf0\x9f\x98a\xfe\xe0\xa0\x80\xef\xbf\xbf\xc3\xa9\xf0\x9f\x98\x80\xf4\x8f\xbf\xbf", "\xf0\x9f\x98\xf5\x80\x80\x80\xf0\x90\x80\x80\xe0\x80\x80\xe0\x80\x80\xc3\xa9\xed\xa0\x80\xc0\x80\x80\xe2\x82\xac\x80\xf0\x9f\x98\x80\xf4\x8f\xbf\xbf\xf0\x9f\x98\xe2\x82\xe2\x82", "\xc3\xa9\xe2\x82\xc0\x80\xed\x9f\xbf\xe0\x80\x80\xff\xf0\x9f\x98\x80\xe2\x82\xaca\xc1\xbf\xe0\xa0\x80\xed\xa0\x80\xf4\x8f\xbf\xbf\xf0\x9f\x98\xed\xa0\x80\xed\x9f\xbf\xed\x9f\xbf\xff", "\xc3\xa9\x80\x7f\xf4\x90\x80\x80\xed\x9f\xbf\xe0\xa0\x80\xf0\x9f\x98\x80\xc1\xbf\xe0\xa0\x80\xf4\x90\x80\x80\xff\xf0\x9f\x98\xfea\xed\x9f\xbf\xef\xbf\xbf\xf5\x80\x80\x80\x80", "\xf0\x9f\x98\x80\xc3", "\xe2\x82\xac\xf0\x9f\x98\xf4\x90\x80\x80\xed\x9f\xbf\xe0\x80\x80\xc3\xf0\x9f\x98\x80\xc0\x80\xf4\x8f\xbf\xbf\xf0\x9f\x98\xe0\x80\x80\x7f\xfe", "\xbf\xff\xe2\x82\xac\xbf\xed\xa0\x80\xf5\x80\x80\x80\xff\xf0\x90\x80\x80\xf0\x9f\x98\xf5\x80\x80\x80\xc1\xbf\xbf\x80", "\xf5\x80\x80\x80\xe2\x82\xac\xf0\x9f\x98\xe2\x82\xac\xc3\xe0\x80\x80\xc3\xc3\xf5\x80\x80\x80\xf5\x80\x80\x80a\xe0\x80\x80\x7f\xc1\xbf", "\xf4\x90\x80\x80\xff\xe0\x80\x80\xc1\xbf\xf0\x9f\x98\xc3\xa9\xf4\x8f\xbf\xbf\xe2\x82\xac\x80\xf4\x8f\xbf\xbf\xc3\xf4\x90\x80\x80\x7f\xbf", "\xc3\xf4\x8f\xbf\xbf\xe2\x82\xc1\xbf", "\xf4\x8f\xbf\xbf\xc3\xa9\xe0\xa0\x80\xed\xa0\x80\xe2\x82\xf5\x80\x80\x80\xf0\x9f\x98\xed\x9f\xbf\xf4\x8f\xbf\xbf\xfe\xf5\x80\x80\x80\xf0\x9f\x98\xe2\x82\xac", "\xe2\x82\xac\xc3\xf0\x9f\x98\x80", "\xe2\x82\xf0\x9f\x98\x80a", "\xf4\x8f\xbf\xbf\xc1\xbfa\xe0\x80\x80\xed\x9f\xbf\xc3\xa9\x80\x80\xc3\xf4\x90\x80\x80", "\xed\xa0\x80\xf0\x90\x80\x80\xf0\x9f\x98\xf4\x8f\xbf\xbf\x7f", "a\x80\xe0\x80\x80\xc1\xbf\xe0\x80\x80\xbf\xf0\x9f\x98\x80\xbf\xef\xbf\xbf\xef\xbf\xbf"]
+
+  sub main()
+    g = 0
+    for s in GOOD
+      g += 1 if valid(s)
+    b = 0
+    for s in BAD
+      b += 1 if not valid(s)
+    print("valid", g, "of", GOOD.len, "invalid", b, "of", BAD.len)
+
+test "simd json ws classify", release: true, '''
+  checked 493 mismatches 0
+  4017777785597709808
+'''
+  # std.json's whitespace bitmap: the bytes of a 64-byte block that are not
+  # JSON whitespace, by one nibble lookup per 16 lanes and a compare. WS holds,
+  # for each low nibble, the whitespace byte with that nibble (0x20, 0x09,
+  # 0x0A, 0x0D) and 0 for the rest, which no byte with that nibble equals.
+  type Table = Simd[U8, 16]
+  type Wide = Simd[U8, 64]
+
+  WS = Table([0x20, 0, 0, 0, 0, 0, 0, 0, 0, 0x09, 0x0A, 0, 0, 0x0D, 0, 0])
+  SAMPLE = " \x09\x0a\x0d{\"a\": 1,  [x]\x0a\x0a    \x09}"
+
+  fun nonspace(s: ?String, at: Int) -> U64
+    v = s.read[Wide](at)
+    (WS.lookup(v & 0x0F) == v).not().bits()
+
+  fun nonspace_scalar(s: ?String, at: Int) -> U64
+    m: U64 = 0
+    for k in 0..64
+      c = s[at + k]
+      if not (c == 0x20 or c == 0x09 or c == 0x0A or c == 0x0D)
+        m = m | (U64(1) << k)
+    m
+
+  sub main()
+    s = String()
+    for k in 0..256
+      !s.push(U8(k))
+    for k in 0..300
+      !s.push(SAMPLE[k % SAMPLE.len])
+    bad = 0
+    for at in 0..s.len - 63
+      bad += 1 if nonspace(?s, at) != nonspace_scalar(?s, at)
+    print("checked", s.len - 63, "mismatches", bad)
+    print(nonspace(?s, 256))
+
+test "simd lag", release: true, '''
+  [15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]
+  [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
+  [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+  [-40, -1, -2, -3] [-30, -40, -1, -2] [-20, -30, -40, -1]
+  [true, true]
+  47 63 64 110
+  1000 2000 1
+'''
+  # `cur.lag[k](prev)` gives each lane the value `k` lanes before it in
+  # `prev` then `cur`: lane `i` is `cur[i - k]`, and the first `k` lanes are
+  # the last `k` of `prev`. `k` is a constant from 1 to the lane count less
+  # one; the lanes may be of any type.
+
+  LAG = 3
+
+  sub main()
+    prev = Simd[U8, 16]([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+    cur = prev + 16
+    print(cur.lag[1](prev))
+    print(cur.lag[LAG](prev))
+    print(cur.lag[15](prev))
+    i = Simd[I32, 4]([-1, -2, -3, -4])
+    print(i.lag[1](i * 10), i.lag[2](i * 10), i.lag[3](i * 10))
+    m = Simd[Bool, 2]([true, false])
+    print(m.lag[1](m.not()))
+    a: [64]U8 = [64 of 0]
+    for k in 0..64
+      a[k] = U8(k)
+    p64 = Simd[U8, 64](a)
+    c64 = p64 + 64
+    w = c64.lag[17](p64)
+    print(w[0], w[16], w[17], w[63])
+    b: [32]U16 = [32 of 0]
+    for k in 0..32
+      b[k] = U16(k * 1000)
+    p32 = Simd[U16, 32](b)
+    v = (p32 +| 1).lag[31](p32)
+    print(v[0], v[1], v[31])
+
+fail "simd lag forms", "7:9: `lag` takes a constant number of lanes, on a vector whose lane count is known where it is checked; got `k` on a `Simd[U8, 16]`", "10:9: `lag` takes a constant number of lanes, on a vector whose lane count is known where it is checked; got `1` on a `Simd[U8, n]`", "15:13: `lag` of a `Simd[U8, 16]` takes 1 to 15 lanes; got `0`", "15:26: `lag` of a `Simd[U8, 16]` takes 1 to 15 lanes; got `16`", "15:40: `lag` of a `Simd[U8, 16]` takes 1 to 15 lanes; got `-1`", "15:54: compile-time argument 1 of `lag` must be known at compile time", "16:7: `lag` takes one compile-time argument, how many lanes back: `v.lag[1](prev)`", "16:32: type mismatch: expected `Simd[U8, 16]`, got `Simd[U16, 16]`", "16:38: `lag` takes one argument, the vector before this one; got 0 arguments", "16:50: `lag` takes one argument, the vector before this one; got 2 arguments", "16:73: type mismatch: expected `Simd[U8, 16]`, got `Int`", errors: 11
+  # `cur.lag[k](prev)` takes one compile-time `k` from 1 to the lane count
+  # less one, and one argument of `cur`'s type. `k` is a constant: on a
+  # compile-time parameter, or a lane count a generic body does not know,
+  # Rig cannot check it.
+
+  fun back[k: Int](v: Simd[U8, 16]) -> Simd[U8, 16]
+    v.lag[k](v)
+
+  fun any_lanes[n: Int](v: Simd[U8, n]) -> Simd[U8, n]
+    v.lag[1](v)
+
+  v = Simd[U8, 16].splat(1)
+  w = Simd[U16, 16].splat(1)
+  k = 2
+  print(v.lag[0](v), v.lag[16](v), v.lag[-1](v), v.lag[k](v))
+  print(v.lag[1, 2](v), v.lag[1](w), v.lag[1](), v.lag[1](v, v), v.lag[1](1))
+  print(back[2](v), any_lanes(v))
+
+bomb "simd lane index panics", "index out of bounds", prints: "4", release: true
+  # A lane index is checked when the program runs, as an element index is.
+
+  fun lane(v: Simd[U8, 4], i: Int) -> U8
+    v[i]
+
+  v = Simd[U8, 4]([1, 2, 3, 4])
+  print(lane(v, 3))
+  print(lane(v, 4))
+
+fail "simd lane place", "9:1: a lane of `v` is a value, not a place, so it is not assigned: write `v = v.with(0, x)`", "10:1: a lane of `v` is a value, not a place, so it is not assigned: write `v = v.with(1, x)`", "11:6: a lane of `v` is a value, not a place, so it is not lent to write: change it with `v = v.with(2, x)`", "12:6: a lane of `v` is a value, not a place, so it is not lent: read it as `v[3]`", "13:6: a lane of `v` is a value, not a place, so it is not taken: read it as `v[0]`", errors: 5
+  # A lane of a vector is a part of its value, not a place: it is read with
+  # `v[i]`, and never assigned, lent, or taken; `v.with(i, x)` is the copy
+  # with one lane changed.
+
+  sub inc(x: !U8)
+    x += 1
+
+  v = Simd[U8, 4].splat(1)
+  v[0] = 2
+  v[1] += 2
+  inc(!v[2])
+  r = ?v[3]
+  x = <v[0]
+  print(v, r, x)
+
+fail "simd lane type count", "7:10: a lane of a `Simd` is a number or `Bool`; got `?String`", "10:10: a lane of a `Simd` is a number or `Bool`; got `P`", "13:10: a lane count is a power of two from 2 to 64; got 48", "16:10: a lane count is a power of two from 2 to 64; got 128", "19:10: a lane count is a power of two from 2 to 64; got 0", "22:10: a lane count is a power of two from 2 to 64; got 1", "25:13: a lane of a `Simd` is a number or `Bool`; got `T`", "31:16: `h[24]` cannot use `n = 24`: the generic body uses `n` as a lane count, a power of two from 2 to 64", errors: 8
+  # A lane is a number or `Bool`, and the lane count a power of two from 2
+  # to 64, so every mask fits a `U64`.
+
+  obj P
+    x: Int
+
+  fun a(v: Simd[?String, 4]) -> Int
+    1
+
+  fun b(v: Simd[P, 4]) -> Int
+    1
+
+  fun c(v: Simd[U8, 48]) -> Int
+    1
+
+  fun d(v: Simd[U8, 128]) -> Int
+    1
+
+  fun e(v: Simd[U8, 0]) -> Int
+    1
+
+  fun f(v: Simd[U8, 1]) -> Int
+    1
+
+  fun g[T](v: Simd[T, 4]) -> Int
+    1
+
+  fun h[n: Int]() -> Simd[U8, n]
+    Simd[U8, n].splat(0)
+
+  print(h[16](), h[24]())
+
+test "simd lanes", '''
+  10 -80
+  -40 50 -60
+  [1, -20, 30, 4, 50, -60, 70, -80] [10, -20, 30, -40, 50, -60, 70, -80]
+  -40 -5
+  [1, 2, 30, 4, 50, -60, 70, -80] [true, false, true, true, true, true, true, true]
+  true false 87
+  8
+'''
+  # A lane is read with `v[i]`, its index checked like an element's;
+  # `v.with(i, x)` is a copy with one lane changed, and `v.array()` the
+  # lanes as an array, which loops and slices take.
+
+  fun sum(v: ?Simd[I16, 8]) -> Int
+    total = 0
+    for x in v.array()
+      total += Int(x)
+    total
+
+  v = Simd[I16, 8]([10, -20, 30, -40, 50, -60, 70, -80])
+  print(v[0], v[7])
+  i = 3
+  print(v[i], v[i + 1], v[U8(5)])
+  w = v.with(0, 1).with(i, 4)
+  print(w, v)
+  print(sum(?v), sum(w))
+  a = w.array()
+  a[1] = 2
+  print(a, Simd[I16, 8](a) == w)
+  m = v > 0
+  print(m[0], m[1], m.with(1, true).bits())
+  k = 2
+  for j in 0..4
+    k = Int(v.with(j, I16(j))[j]) + k
+  print(k)
+
+test "simd lookup", release: true, '''
+  [48, 102, 0, 0]
+  [102, 101, 100, 99, 98, 97, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48]
+  [0, 0, 102, 101, 100, 99, 98, 97, 57, 56, 55, 54, 53, 52, 51, 50]
+  [97, 0] [57, 57, 57, 57, 57, 57, 57, 57]
+  1 4 25 100 196 0 0
+  224 255 240
+  49 53 97 50
+  52 53 49 52 50 53 53 54 48 53
+'''
+  # `t.lookup(idx)` gives, in each lane, the byte of table `t` at that
+  # lane's index, or 0 where the index is past the table. A table is 16, 32,
+  # or 64 bytes; the indexes are a `Simd[U8, n]` of any lane count.
+
+  type Table = Simd[U8, 16]
+
+  HEX = Table([0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66])
+
+  fun squares(n: Int) -> [64]U8
+    a: [64]U8 = [64 of 0]
+    for k in 0..64
+      a[k] = U8((k * k + n) % 256)
+    a
+
+  sub main()
+    idx = Simd[U8, 4]([0, 15, 16, 255])
+    print(HEX.lookup(idx))
+    i16 = Simd[U8, 16]([15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0])
+    print(HEX.lookup(i16))
+    print(HEX.lookup(i16 +| 2))
+    print(HEX.lookup(Simd[U8, 2]([10, 128])), HEX.lookup(Simd[U8, 8].splat(9)))
+    sq = squares(1)
+    wide = Simd[U8, 64](sq)
+    t64 = Simd[U8, 64](squares(0))
+    r64 = t64.lookup(wide)
+    print(r64[0], r64[1], r64[2], r64[3], r64[7], r64[8], r64[63])
+    a32: [32]U8 = [32 of 0]
+    for k in 0..32
+      a32[k] = U8(255 - k)
+    t32 = Simd[U8, 32](a32)
+    r32 = t32.lookup(Simd[U8, 32](a32) -% 224)
+    print(r32[0], r32[31], r32[16])
+    r16 = HEX.lookup(Simd[U8, 64](sq) & 0x0F)
+    print(r16[0], r16[2], r16[5], r16[63])
+    bytes = "deadbeef cafe"
+    hex = Simd[U8, 16].splat(0)
+    for k in 0..bytes.len
+      hex = hex.with(k, bytes[k] & 0x0F)
+    r = HEX.lookup(hex)
+    print(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[12])
+
+fail "simd lookup forms", "7:7: `lookup` looks up bytes in a table of 16, 32, or 64 of them: a `Simd[U8, 16]`, `Simd[U8, 32]`, or `Simd[U8, 64]`; got `Simd[U8, 8]`", "8:7: `lookup` looks up bytes in a table of 16, 32, or 64 of them: a `Simd[U8, 16]`, `Simd[U8, 32]`, or `Simd[U8, 64]`; got `Simd[I8, 16]`", "9:16: `lookup` takes its indexes as a `Simd[U8, n]`; got `Int`", "9:29: `lookup` takes its indexes as a `Simd[U8, n]`; got `Simd[I8, 16]`", "9:62: `lookup` takes its indexes as a `Simd[U8, n]`; got `Simd[Bool, 16]`", "10:9: `lookup` takes one argument, a `Simd[U8, n]` of indexes into the table; got 0 arguments", "10:21: `lookup` takes one argument, a `Simd[U8, n]` of indexes into the table; got 2 arguments", "10:48: `lookup` takes no keyword arguments", "10:58: `lookup` takes no compile-time arguments", "11:11: `lag` takes how many lanes back in brackets: `v.lag[1](prev)`", errors: 10
+  # `t.lookup(idx)` takes a table of 16, 32, or 64 `U8` lanes and one
+  # argument, a `Simd[U8, n]` of indexes: no scalar, no other lane type, no
+  # compile-time or keyword argument.
+
+  t = Simd[U8, 16].splat(1)
+  idx = Simd[U8, 16].splat(2)
+  print(Simd[U8, 8].splat(1).lookup(idx))
+  print(Simd[I8, 16].splat(1).lookup(idx))
+  print(t.lookup(3), t.lookup(Simd[I8, 16].splat(2)), t.lookup(idx == idx))
+  print(t.lookup(), t.lookup(idx, idx), t.lookup(at: idx), t.lookup[1](idx))
+  print(idx.lag(t))
+
+fail "simd mask bit counts", "5:9: `trailing_zeros` counts an integer's bits, and `m` is a mask, `Simd[Bool, 16]`: count the bits `bits()` gives, `m.bits().trailing_zeros()`", "5:35: `count_ones` counts an integer's bits, and `v < 3` is a mask, `Simd[Bool, 16]`: count the bits `bits()` gives, `(v < 3).bits().count_ones()`", "5:51: `leading_zeros` counts an integer's bits, and `m` is a mask, `Simd[Bool, 16]`: count the bits `bits()` gives, `m.bits().leading_zeros()`", errors: 3
+  # A mask's bits are counted as the `U64` `bits()` gives.
+
+  v = Simd[U8, 16].splat(0x22)
+  m = v == 0x22
+  print(m.trailing_zeros(), (v < 3).count_ones(), m.leading_zeros())
+
+fail "simd mask not bool", "6:4: `m` is a mask, `Simd[Bool, 4]`, not a `Bool`: write `m.any()` or `m.all()`", "8:7: `v == 2` is a mask, `Simd[Bool, 4]`, not a `Bool`: write `(v == 2).any()` or `(v == 2).all()`", "10:19: `m` is a mask, `Simd[Bool, 4]`, not a `Bool`: write `m.any()` or `m.all()`", "11:7: `and` takes Bools, and `m` is a mask, `Simd[Bool, 4]`: combine masks lane by lane with `&`, each in parentheses, or reduce each with `.any()` or `.all()`", "11:13: `and` takes Bools, and `v == 2` is a mask, `Simd[Bool, 4]`: combine masks lane by lane with `&`, each in parentheses, or reduce each with `.any()` or `.all()`", "12:11: `not` takes a Bool, and `m` is a mask, `Simd[Bool, 4]`: write `m.not()` for its lanes flipped, or reduce it with `.any()` or `.all()`", "13:10: `v < 3` is a mask, `Simd[Bool, 4]`, not a `Bool`: a ternary runs one side, so pick lanes with `(v < 3).select(a, b)`, or reduce the mask with `.any()` or `.all()`", "14:12: `m` is a mask, `Simd[Bool, 4]`, not a `Bool`: write `m.any()` or `m.all()`", "15:14: `or` takes Bools, and `m` is a mask, `Simd[Bool, 4]`: combine masks lane by lane with `|`, each in parentheses, or reduce each with `.any()` or `.all()`", "15:19: `or` takes Bools, and `m` is a mask, `Simd[Bool, 4]`: combine masks lane by lane with `|`, each in parentheses, or reduce each with `.any()` or `.all()`", errors: 10
+  # A mask is no `Bool`: a condition, `and`, `or`, `not`, and a ternary
+  # reject it, each with the form that reduces or combines it.
+
+  v = Simd[U8, 4].splat(1)
+  m = v == 1
+  if m
+    print("if")
+  while v == 2
+    print("while")
+  print("guard") if m
+  print(m and v == 2)
+  print(not m)
+  x = 1 if v < 3 else 2
+  ok: Bool = m
+  print(x, ok, m or m)
+
+test "simd masks", '''
+  2 true false 1
+  5 [5, 9, 5, 9] [0, -1, 0, 0] [1, 2, 1, 2]
+  170 1 4
+  true false true
+  2290649224 true false true true
+  287953294993589247 9223372036854775808 0 41
+  true true false true
+  [1.0, 0.0, 0.0, 2.0] [1.0, 0.5, 0.0, 2.0] 9
+  [false, false, false, false] 12
+'''
+  # A comparison gives a mask, `Simd[Bool, n]`. `bits()` is a `U64` whose
+  # bit `i` is lane `i` (the higher bits 0) for every lane count, `any()`
+  # and `all()` reduce it, `select` picks lanes, and `&`, `|`, `^`, and
+  # `not()` combine masks.
+
+  fun every(n: Int) -> U64
+    0xFFFF_FFFF_FFFF_FFFF if n == 64 else (U64(1) << n) - 1
+
+  sub check2(v: Simd[U8, 2])
+    m = v > 1
+    print(m.bits(), m.any(), m.all(), m.not().bits())
+
+  check2(Simd[U8, 2]([1, 2]))
+  a4 = Simd[I64, 4]([5, -1, 5, 0])
+  m4 = a4 == 5
+  print(m4.bits(), m4.select(a4, 9), m4.select(0, a4), m4.select(1, 2))
+  a8 = Simd[U16, 8]([1, 2, 3, 4, 5, 6, 7, 8])
+  m8 = (a8 & 1) == 0
+  print(m8.bits(), m8.bits().trailing_zeros(), m8.bits().count_ones())
+  a16 = Simd[U8, 16].splat(0x20)
+  print((a16 == 0x20).all(), (a16 != 0x20).any(), (a16 == 0x20).bits() == every(16))
+  b32 = Simd[U8, 32]([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31])
+  m32 = (b32 & 3) == 3
+  print(m32.bits(), m32.any(), m32.all(), (b32 < 32).all(), (b32 < 32).bits() == every(32))
+  s = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde!"
+  b64 = s.read[Simd[U8, 64]](0)
+  digits = (b64 >= 0x30) & (b64 <= 0x39)
+  bang = b64 == 0x21
+  print(digits.bits(), bang.bits(), bang.bits().leading_zeros(), (digits | bang).bits().count_ones())
+  print((b64 > 0).all(), (b64 > 0).bits() == every(64), (b64 == 0).any(), (b64 == 0).not().all())
+  f = Simd[F32, 4]([1.0, -0.5, 0.0, 2.0])
+  pos = f > 0.0
+  print(pos.select(f, 0.0), (f < 0.0).select(-f, f), pos.bits())
+  flags = Simd[Bool, 4]([true, false, true, false])
+  print(flags.select(flags.not(), flags), (flags ^ pos).bits())
+
+fail "simd methods", "7:9: `bits` is a method of a mask, `Simd[Bool, n]`, which a comparison gives; got `Simd[U8, 4]`", "7:19: `any` is a method of a mask, `Simd[Bool, n]`, which a comparison gives; got `Simd[U8, 4]`", "7:28: `select` is a method of a mask, `Simd[Bool, n]`, which a comparison gives; got `Simd[U8, 4]`", "8:9: `select` takes two arguments, the lanes where the mask is true and where it is false; got 1 argument", "8:22: `bits` takes no arguments; got 1 argument", "8:38: lane `4` is out of range for `Simd[U8, 4]`, whose lanes are 0 to 3", "8:55: integer value `300` does not fit in `U8` (0..255)", "9:16: `select` picks lanes from two vectors of one type; got `Simd[U8, 4]` and `Simd[U8, 8]`", "9:54: type mismatch: expected `U8`, got `Float`", "10:19: `Simd[U8, 4]` has no function `zero`; a vector is made with `Simd[U8, 4].splat(x)`, every lane `x`, or from an array of its lanes, `Simd[U8, 4]([...])`", "10:39: `splat` takes one argument, the value of every lane; got 0", "10:66: integer value `256` does not fit in `U8` (0..255)", "11:7: a vector names its lane type and count: `Simd[U8, 16](array)`, or `Simd[U8, 16].splat(x)`", "11:28: type mismatch: expected `[4]U8`, got `Int`", "11:44: array literal has 3 elements; `[4]U8` needs 4", "12:9: type `Simd[U8, 4]` has no method `sum`", "12:18: type `Simd[U8, 4]` has no method `min`", errors: 17
+  # A vector's methods: `bits`, `any`, `all`, and `select` are a mask's;
+  # each takes its own arguments; a vector type has only `splat`, and a
+  # vector is made by naming its lanes and count.
+
+  v = Simd[U8, 4].splat(1)
+  m = v == 1
+  print(v.bits(), v.any(), v.select(v, v))
+  print(m.select(v), m.bits(1), v.with(4, 1), v.with(0, 300))
+  print(m.select(v, Simd[U8, 8].splat(0)), m.select(v, 1.5))
+  print(Simd[U8, 4].zero(), Simd[U8, 4].splat(), Simd[U8, 4].splat(256))
+  print(Simd(1), Simd[U8, 4](1), Simd[U8, 4]([1, 2, 3]))
+  print(v.sum(), v.min())
+
+bomb "simd mul overflow panics", "integer overflow", prints: "[0, 65536]\n[4294901760, 65535]", release: true
+  # Lane `*` panics when any lane overflows, as scalar `*` does; `*%` wraps.
+
+  fun times(v: Simd[U32, 2], k: U32) -> Simd[U32, 2]
+    k * v
+
+  v = Simd[U32, 2]([65536, 1])
+  print(v *% 65536)
+  print(times(v, 65535))
+  print(times(v, 65536))
+
+bomb "simd neg overflow panics", "integer overflow", prints: "[-127, 127]", release: true
+  # Lane `-v` panics when a lane is the least value, as scalar `-` does.
+
+  fun neg(v: Simd[I8, 2]) -> Simd[I8, 2]
+    -v
+
+  print(neg(Simd[I8, 2]([127, -127])))
+  print(neg(Simd[I8, 2]([0, -128])))
+
+fail "simd operands", "12:7: operator `+` operands have different types `Simd[U8, 4]` and `Simd[U16, 4]`", "13:11: operator `+` operands have different types `Simd[U8, 4]` and `Int`; a scalar beside a vector is of its lane type, `U8`", "14:11: integer value `300` does not fit in `U8` (0..255)", "15:7: operator `/` does not take a `Simd`: a vector has `+`, `-`, `*`, their wrapping and saturating forms, `&`, `|`, `^`, the shifts, and the comparisons", "15:14: operator `%` does not take a `Simd`: a vector has `+`, `-`, `*`, their wrapping and saturating forms, `&`, `|`, `^`, the shifts, and the comparisons", "16:12: a shift amount must be an integer; got `Simd[U8, 4]`; a vector's lanes all shift by one integer", "16:20: shift amount `8` is out of range for `U8` (0..7)", "16:23: operator `<<%` requires integer lanes; got `Simd[F32, 4]`", "17:7: operator `<` orders numbers; the lanes of `Simd[Bool, 4]` are not", "18:7: operator `+%` requires integer operands; got `Simd[F32, 4]`", "18:15: operator `&` requires integer operands; got `Simd[F32, 4]`", "18:22: operator `+|` requires integer operands; got `Simd[F32, 4]`", "18:30: operator `-|` requires integer operands; got `Simd[Bool, 4]`", "19:8: operator `-` negates signed integer or float lanes; got `Simd[U8, 4]`", "20:6: type mismatch: expected `Simd[U8, 4]`, got `Simd[U16, 4]`", "21:7: shift amount `9` is out of range for `U8` (0..7)", "22:1: `+=` requires numeric lanes; got `Simd[Bool, 4]`", "23:1: `/=` does not take a `Simd`: a vector has `+=`, `-=`, `*=`, their wrapping and saturating forms, `&=`, `|=`, `^=`, and the shifts", "24:1: `>>=` requires integer lanes; got `Simd[Bool, 4]`", errors: 19
+  # Both sides of a lane-wise operator are one `Simd` type, or a vector and
+  # a scalar of its lane type; a literal must fit a lane. `/` and `%` take
+  # no vector, ordering takes number lanes, the wrapping and saturating
+  # forms and the shifts integer lanes, and `-` signed or float lanes. A
+  # shift moves every lane by one integer, below the lane width.
+
+  a = Simd[U8, 4].splat(1)
+  b = Simd[U16, 4].splat(1)
+  n = 3
+  f = Simd[F32, 4].splat(1.0)
+  m = a == 1
+  print(a + b)
+  print(a + n)
+  print(a + 300)
+  print(a / 2, a % 2)
+  print(a << a, a >> 8, f <<% 1)
+  print(m < m)
+  print(f +% f, f & f, f +| f, m -| m)
+  print(-a)
+  a += b
+  a <<= 9
+  m += m
+  a /= 2
+  m >>= 1
+
+test "simd operators", '''
+  [5, 5, 5, 5] [3, 4, 5, 6] [3, 4, 5, 6] [2, 3, 4, 5] [2, 3, 4, 5]
+  [-3, -1, 1, 3] [-1, 0, 1, 2] [1, 0, -1, -2] [0, 1, 2, 3] [0, -1, -2, -3]
+  [4, 6, 6, 4] [2, 4, 6, 8] [2, 4, 6, 8] [2, 4, 6, 8] [2, 4, 6, 8]
+  [5, 5, 5, 5] [-1, 0, 1, 2] [2, 4, 6, 8] [2, 3, 4, 5] [0, -1, -2, -3]
+  [0, 2, 2, 0] [3, 2, 3, 6] [3, 0, 1, 6] [1, 0, 1, 0] [7, 6, 7, 6]
+  [false, false, false, false] [true, false, true, true] [false, false, true, true] [true, true, false, false] [true, false, false, false] [false, false, true, true]
+  [-1, -2, -3, -4]
+  [23, 26, 29, 32] [11, 12, 13, 14]
+  [1, 2, 255, 0] [255, 0, 253, 254] [0, 2, 252, 254] [255, 254, 1, 0] [255, 254, 1, 0]
+  [-127, -128] [127, 126] [127, -128]
+  [2.0, -1.5, 0.75, 8.5] [2.25, 4.0, 0.0625, 64.0] [-1.5, 2.0, -0.25, -8.0] [true, true, true, true] [false, true, false, false]
+  [0.0, 1.5] [false, true]
+  [false, true, false, false] [true, true, true, true] [true, false, true, true] [false, true, false, false] [true, false, true, true] [false, false, true, true]
+  [2, 18446744073709551615] [true, false]
+  [376, 381, 262, 271]
+  [true, true, true, false]
+'''
+  # Every operator a vector takes works lane by lane, beside another vector
+  # of its type or a scalar of its lane type (a literal included), on
+  # either side, and through a view of it. Arithmetic and `&`, `|`, `^`
+  # give a vector; a comparison gives a mask.
+
+  sub shapes(v: Simd[I32, 4], w: Simd[I32, 4], s: I32)
+    print(v + w, v + s, s + v, v + 1, 1 + v)
+    print(v - w, v - s, s - v, v - 1, 1 - v)
+    print(v * w, v * s, s * v, v * 2, 2 * v)
+    print(v +% w, v -% s, s *% v, v +% 1, 1 -% v)
+    print(v & w, v | s, s ^ v, v & 1, 6 | v)
+    print(v == w, v != s, s < v, v <= 2, 2 > v, v >= w)
+    print(-v)
+
+  fun viewed(v: ?Simd[I32, 4], w: !Simd[I32, 4]) -> Simd[I32, 4]
+    w = w + v
+    w * 2 + v
+
+  v = Simd[I32, 4]([1, 2, 3, 4])
+  w = Simd[I32, 4]([4, 3, 2, 1])
+  shapes(v, w, 2)
+  x = Simd[I32, 4].splat(10)
+  print(viewed(?v, !x), x)
+  u = Simd[U8, 4]([0, 1, 254, 255])
+  print(u +% 1, u -% 1, u *% 2, u.not(), u ^ 0xFF)
+  b = Simd[I8, 2]([-128, 127])
+  print(b +% 1, b -% 1, b.not())
+  f = Simd[F32, 4]([1.5, -2.0, 0.25, 8.0])
+  print(f + 0.5, f * f, -f, f == f, f < 0.0)
+  g = Simd[F64, 2]([1.0, 2.5])
+  print(g - 1.0, g >= 2.5)
+  m = v < w
+  n = v > 1
+  print(m & n, m | n, m ^ n, m == n, m != n, m.not())
+  t = Simd[U64, 2]([1, 18446744073709551614])
+  print(t + 1, t == 1)
+  y = v
+  y += 1
+  y -= w
+  y *= 3
+  y +%= 2147483647
+  y &= 0x7F
+  y |= 0x100
+  y ^= v
+  print(y)
+  mm = m
+  mm |= n
+  mm &= v != 4
+  print(mm)
+
+test "simd places", '''
+  [3, 4, 5, 6] 3 Lexer(ahead: [3, 4, 5, 6], pos: 0)
+  Lexer(ahead: [0, 4, 5, 6], pos: 1)
+  [0, 4, 5, 6] [9, 9, 9, 9]
+  [1, 5, 6, 7]
+  [10, 10, 10, 10]
+  10 2 [10, 10, 10, 10]
+  none
+  [1, 5, 6, 7]
+  [1, 5, 6, 7]
+  [1, 5, 6, 7] 4 [0, 8, 10, 12] [0, 8, 10, 12] [0, 4, 5, 6]
+  [[2, -2], [2, -2]]
+  [2, 2, 2, 2]
+  4 5
+  4 64
+  Wrap(value: [0, 4, 5, 6]) [0, 4, 5, 6] 6
+  Simd[U8, 4] Simd[Bool, 64] Wrap[Simd[Bool, 4]]
+'''
+  # A vector is plain data, one value like an `Int`: a field, an element of
+  # a List or an array, an optional, a Cell, and a closure hold copies of
+  # it, and a lend of it views it as a lend of an `Int` does.
+
+  type Block = Simd[U8, 4]
+
+  obj Lexer
+    ahead: Block
+    pos: Int
+
+    fun peek(?self) -> U8
+      self.ahead[0]
+
+    sub skip(!self)
+      self.ahead = self.ahead.with(0, 0)
+      self.pos += 1
+
+  obj Wrap[T]
+    value: T
+
+  sub bump(v: !Block)
+    v = v + 1
+
+  fun twice(v: ?Block) -> Block
+    v + v
+
+  fun first(v: ?Block) -> ?Block
+    v
+
+  fun lanes[n: Int](v: Simd[U8, n]) -> Int
+    n
+
+  fun same[T](x: T) -> T
+    x
+
+  fun named[T](x: T) -> ?String
+    @name(Wrap[T])
+
+  l = Lexer(ahead: Block([1, 2, 3, 4]), pos: 0)
+  l.ahead = l.ahead + 1
+  bump(!l.ahead)
+  print(l.ahead, l.peek(), l)
+  (!l).skip()
+  print(l)
+  m = l
+  m.ahead = Block.splat(9)
+  print(l.ahead, m.ahead)
+  xs: List[Block] = List()
+  !xs.push(l.ahead)
+  !xs.push(Block.splat(5))
+  bump(!xs[0])
+  xs[1] = xs[1] * 2
+  for v in xs
+    print(v)
+  print(xs[1][3], xs.len, (!xs).pop())
+  o: Block? = none
+  print(o)
+  o = xs[0]
+  if o as got
+    print(got)
+  print(o ?? Block.splat(0))
+  r = ?l.ahead
+  print(r + 1, r[1], twice(r), twice(?l.ahead), first(r))
+  arr = [Simd[I8, 2]([1, -1]), Simd[I8, 2]([2, -2])]
+  arr[0] = arr[1]
+  print(arr)
+  c = *Cell(Block.splat(1))
+  !c.set(c.get() + 1)
+  print(c.get())
+  f = |+l| l.ahead[1]
+  g = *|v: Block| v.array()[2]
+  print(f(), g(l.ahead))
+  print(lanes(l.ahead), lanes(Simd[U8, 64].splat(0)))
+  w = Wrap(value: l.ahead)
+  print(w, same(l.ahead), same(w).value[3])
+  print(@name(Block), @name(Simd[Bool, 64]), named(l.ahead == 0))
+
+bomb "simd read past end panics", "byte read out of range: 16 bytes at offset 2 of 17", prints: "[false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true]", release: true
+  # A vector read is checked once: all its bytes must be in range.
+
+  fun load(s: ?String, at: Int) -> Simd[U8, 16]
+    s.read[Simd[U8, 16]](at)
+
+  s = "0123456789abcdefg"
+  print(load(s, 1) == 0x67)
+  print(load(s, 2))
+
+test "simd saturating", release: true, '''
+  [100, 101, 255, 255] [0, 0, 100, 155] [100, 99, 0, 0] [0, 2, 255, 255] [0, 0, 0, 0]
+  [-28, 99, 101, 127] [-128, -101, -99, 27] [-128, -2, 2, 127] [28, -99, -101, -128]
+  [-100, -100, -100, -1]
+  [18446744073709551615, 12] [18446744073709551609, 0]
+  [-2147483647, 2147483647]
+  [-2147483648, 2147483645]
+  100 252 255 255 0 0 4 152
+  0 0 4 64
+'''
+  # `+|` and `-|` work lane by lane, beside a vector or a scalar of the lane
+  # type, through views, and as `+|=` and `-|=`: each lane stops at its
+  # type's limits. Wide vectors give the same lanes.
+
+  sub viewed(v: ?Simd[I8, 4], w: !Simd[I8, 4])
+    w -|= v
+    w = w +| v
+
+  u = Simd[U8, 4]([0, 1, 200, 255])
+  print(u +| 100, u -| 100, 100 -| u, u +| u, u -| u)
+  i = Simd[I8, 4]([-128, -1, 1, 127])
+  print(i +| 100, i -| 100, i +| i, -100 -| i)
+  w = Simd[I8, 4].splat(-100)
+  viewed(?i, !w)
+  print(w)
+  big = Simd[U64, 2]([18446744073709551615, 5])
+  print(big +| 7, big -| 6)
+  s = Simd[I32, 2]([-2147483648, 2147483647])
+  s +|= 1
+  print(s)
+  s -|= 2
+  print(s)
+  a: [64]U8 = [64 of 0]
+  for k in 0..64
+    a[k] = U8(k * 4)
+  x = Simd[U8, 64](a)
+  y = x +| 100
+  z = x -| 100
+  print(y[0], y[38], y[39], y[63], z[0], z[25], z[26], z[63])
+  b: [32]U8 = [32 of 0]
+  for k in 0..32
+    b[k] = a[k]
+  h = Simd[U8, 32](b) -| Simd[U8, 32].splat(60)
+  print(h[14], h[15], h[16], h[31])
+
+bomb "simd shift amount panics", "integer does not fit in destination type", prints: "[1, 1, 1, 1]", release: true
+  # A shift amount known only when the program runs must be below the lane
+  # width, as a scalar's is.
+
+  fun shift(v: Simd[U16, 4], n: Int) -> Simd[U16, 4]
+    v >> n
+
+  v = Simd[U16, 4].splat(0x8000)
+  print(shift(v, 15))
+  print(shift(v, 16))
+
+test "simd shifts", release: true, '''
+  [1, 8, 15, 0] [32, 0, 240, 16] [2, 0, 15, 1] [18, 128, 255, 1] [0, 0, 128, 128]
+  [-64, -1, 32, 0] [-1, -1, 0, 0] [0, -2, -128, 2]
+  [16, 32, 65520, 0] [1, 2, 4095, 0]
+  [8, 2147483648] [-8, 8]
+  240
+  [4, 8, 16, 32]
+  [2, 4, 8, 16]
+  [64, 128, 0, 0]
+  15 240 17
+'''
+  # A vector of integers shifts every lane by one amount: a constant, or an
+  # integer known when the program runs, below the lane width. `>>` is
+  # arithmetic on signed lanes; `<<%` drops the bits shifted out, and `<<`
+  # panics where a lane would lose them (`simd_shl_overflow_panics.rig`).
+
+  fun nibbles(v: Simd[U8, 16]) -> Simd[U8, 16]
+    (v >> 4) | (v << 4 >> 4 << 4)
+
+  u = Simd[U8, 4]([0x12, 0x80, 0xFF, 1])
+  print(u >> 4, u <<% 4, u & 0x0F, u >> 0, u <<% 7)
+  i = Simd[I8, 4]([-128, -1, 64, 1])
+  print(i >> 1, i >> 7, i <<% 1)
+  small = Simd[U16, 4]([1, 2, 0x0FFF, 0])
+  print(small << 4, small << 0)
+  n = 3
+  print(Simd[U32, 2]([1, 0x10000000]) << n, Simd[I64, 2]([-64, 64]) >> n)
+  x = Simd[U8, 16].splat(0x0F)
+  print(nibbles(x)[0])
+  y = Simd[U8, 4]([1, 2, 4, 8])
+  y <<= 2
+  print(y)
+  y >>= 1
+  print(y)
+  y <<%= 5
+  print(y)
+  a: [64]U8 = [64 of 0]
+  for k in 0..64
+    a[k] = U8(k * 4)
+  w = Simd[U8, 64](a)
+  print((w >> 4)[63], (w <<% 2)[63], (w >> 2)[17])
+
+bomb "simd shl overflow panics", "left shift overflowed bits", prints: "128\nstart", release: true
+  # A vector `<<` that would lose a lane's bits panics, as a scalar `<<`
+  # does, also on lanes known when the program is built.
+
+  v = Simd[U8, 32].splat(0x40)
+  print((v << 1)[0])
+  w = v.with(31, 0x81)
+  print("start")
+  print((w << 1)[0])
+
+bomb "simd shl sign panics", "left shift overflowed bits", prints: "16384", release: true
+  # A signed lane that a `<<` would turn negative panics: it loses its sign.
+
+  v = Simd[I16, 8].splat(0x2000)
+  print((v << 1)[0])
+  print((v << 2)[0])
+
+fail "simd size", "18:8: `@size` takes no type that holds a vector: `Simd[U8, 4]` holds a `Simd`, whose size and alignment differ from target to target", "18:28: `@align` takes no type that holds a vector: `Simd[Bool, 64]` holds a `Simd`, whose size and alignment differ from target to target", "18:52: `@size` takes no type that holds a vector: `L` holds a `Simd`, whose size and alignment differ from target to target", "18:62: `@size` takes no type that holds a vector: `Simd[U8, 4]?` holds a `Simd`, whose size and alignment differ from target to target", "20:7: `size[Simd[U8, 4]]` cannot use `T = Simd[U8, 4]`: the generic body takes `@size` of a type that holds a `T`, and `Simd[U8, 4]` holds a vector, whose size and alignment differ from target to target", "20:28: `boxed[L]` cannot use `T = L`: the generic body takes `@align` of a type that holds a `T`, and `L` holds a vector, whose size and alignment differ from target to target", errors: 6
+  # A vector's size and alignment are the target's, so `@size` and
+  # `@align` take no type that holds one, and no generic `T` that is one.
+
+  obj L
+    v: Simd[U8, 16]
+    n: Int
+
+  fun size[T]() -> Int
+    @size(T)
+
+  obj Two[T]
+    a: T
+    b: T
+
+  fun boxed[T]() -> Int
+    @align(Two[T])
+
+  print(@size(Simd[U8, 4]), @align(Simd[Bool, 64]), @size(L), @size(Simd[U8, 4]?))
+  print(@size(List[Simd[U8, 4]]), @name(Simd[U8, 4]))
+  print(size[Simd[U8, 4]](), boxed[L]())
+
+bomb "simd sub overflow panics", "integer overflow", prints: "[-2, 32767]\n[-1, -32768]", release: true
+  # Lane `-` panics when any lane overflows, as scalar `-` does; `-%` wraps.
+
+  fun sub1(v: Simd[I16, 2], w: Simd[I16, 2]) -> Simd[I16, 2]
+    v - w
+
+  v = Simd[I16, 2]([0, -32767])
+  print(v -% 2)
+  print(sub1(v, Simd[I16, 2].splat(1)))
+  print(sub1(v, Simd[I16, 2]([0, 2])))
+
+test "simd wide add loop", "482", release: true
+  # A checked `+=` of `Simd[U8, 64]`s in a loop over a String's bytes, with
+  # no lane overflowing, runs in a debug build and with --release. Zig's
+  # own vector `+` here panicked "integer overflow" with --release on
+  # aarch64: LLVM computes its overflow flags wrong for 32 and 64 byte lanes
+  # (`rig.vecAdd` checks the lanes without them).
+  type Wide = Simd[U8, 64]
+
+  fun sum(v: Wide) -> Int
+    n = 0
+    for x in v.array()
+      n += Int(x)
+    n
+
+  s = String()
+  for k in 0..640
+    !s.push(U8((k * 37) % 256))
+  t = ?s[..]
+  acc = Wide.splat(0)
+  i = 0
+  while i + 64 <= t.len : i += 64
+    v = t.read[Wide](i)
+    acc += ((v < 0x80) | (v >= 0xC0)).select(Wide.splat(1), Wide.splat(0))
+  print(sum(acc))
+
+bomb "simd wide add overflow panics", "integer overflow", prints: "6", release: true
+  # A wide vector read from run-time bytes: a lane that overflows `+` panics, in every build mode, though the other lanes do not.
+
+  b: [64]U8 = [64 of 0]
+  for i in 0..64
+    b[i] = U8(i % 8)
+  c = b.read[Simd[U8, 32]](0)
+  print((c + c)[3])
+  b[20] = 200
+  d = b.read[Simd[U8, 32]](0)
+  print(d + d)
+
+test "simd wide ends", '''
+  84 99 68 99 36 99
+  136 199
+  9253 25187
+  35 136 199
+  35 36 99
+  83 85 100
+'''
+  # A 16, 32 or 64 byte vector read or write touches exactly its own
+  # bytes: at the very end of a `List` or a `String`, the last lane is
+  # the last byte, and a write leaves its neighbors alone.
+
+  xs: List[U8] = List()
+  for i in 0..100
+    !xs.push(U8(i))
+  t = String()
+  for i in 0..100
+    !t.push(U8(i + 100))
+  v16 = xs.read[Simd[U8, 16]](84)
+  v32 = xs.read[Simd[U8, 32]](68)
+  v64 = xs.read[Simd[U8, 64]](36)
+  print(v16[0], v16[15], v32[0], v32[31], v64[0], v64[63])
+  rt = ?t
+  s64 = rt.read[Simd[U8, 64]](36)
+  print(s64[0], s64[63])
+  w = xs.read[Simd[U16, 32], .big](36)
+  print(w[0], w[31])
+  !xs.write[Simd[U8, 64]](36, v64 +% 100)
+  print(xs[35], xs[36], xs[99])
+  !xs.write[Simd[U16, 32], .big](36, w)
+  print(xs[35], xs[36], xs[99])
+  !xs.write[Simd[U8, 16]](84, v16 +% 1)
+  print(xs[83], xs[84], xs[99])
+
+test "simd wide lane arith", release: true, '''
+  [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62]
+  [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80, 82, 84, 86, 88, 90, 92, 94, 96, 98, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26]
+  true
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  true
+  [0, 1, 4, 9, 16, 25, 36, 49, 0, 1, 4, 9, 16, 25, 36, 49, 0, 1, 4, 9, 16, 25, 36, 49, 0, 1, 4, 9, 16, 25, 36, 49]
+  49
+  [0, -1, -2, -3, -4, -5, -6, -7, 0, -1, -2, -3, -4, -5, -6, -7, 0, -1, -2, -3, -4, -5, -6, -7, 0, -1, -2, -3, -4, -5, -6, -7]
+  true
+  [0, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120] [0, 16, 64, 144, 256, 400, 576, 784, 1024, 1296, 1600, 1936, 2304, 2704, 3136, 3600] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  [0, 200, 400, 600, 800, 1000, 1200, 1400] [0, 10000, 40000, 90000, 160000, 250000, 360000, 490000] [0, -100, -200, -300, -400, -500, -600, -700]
+  [0, 2000, 4000, 6000] [0, 1000000, 4000000, 9000000] [0, -1000, -2000, -3000]
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+'''
+  # Checked lane arithmetic on wide vectors read from run-time bytes: no
+  # lane here overflows, so no operation panics. Zig's own vector `+` on
+  # `Simd[U8, 32]` and `Simd[U8, 64]` reports an overflow that is not there
+  # on aarch64, so `+`, `-`, `*`, and `-v` are checked another way.
+
+  b: [64]U8 = [64 of 0]
+  for i in 0..64
+    b[i] = U8(i % 50)
+  c = b.read[Simd[U8, 32]](0)
+  d = b.read[Simd[U8, 64]](0)
+  print(c + c)
+  print(d + d)
+  print(((d + d) - d == d).all())
+  print(c - c)
+  print((d - Simd[U8, 64].splat(0) == d).all())
+  s: [64]U8 = [64 of 0]
+  for i in 0..64
+    s[i] = U8(i % 8)
+  e = s.read[Simd[I8, 32]](0)
+  f = s.read[Simd[I8, 64]](0)
+  print(e * e)
+  print((f * f).array()[63])
+  print(-e)
+  print((-f == Simd[I8, 64].splat(0) - f).all())
+  u: [16]U16 = [16 of 0]
+  m: [8]I32 = [8 of 0]
+  n: [4]Int = [4 of 0]
+  for i in 0..16
+    u[i] = U16(i * 4)
+  for i in 0..8
+    m[i] = I32(i * 100)
+  for i in 0..4
+    n[i] = i * 1000
+  w = Simd[U16, 16](u)
+  x = Simd[I32, 8](m)
+  y = Simd[I64, 4](n)
+  print(w + w, w * w, w - w)
+  print(x + x, x * x, -x)
+  print(y + y, y * y, -y)
+  t = s.read[Simd[U8, 32]](0)
+  t += t
+  t *= t
+  t -= t
+  print(t)
+
+bomb "simd wide mul missed panics", "integer overflow", prints: "start", release: true
+  # Lanes of `Simd[I8, 32]` squared with one lane, 127, that overflows. Zig's
+  # own vector `*` misses this overflow on aarch64 with --release and gives
+  # the wrapped lanes, so the checked `*` is made another way and panics.
+
+  a: [32]I8 = [32 of 0]
+  for i in 0..32
+    if i == 5
+      a[i] = 127
+    else if i == 7 or i == 13
+      a[i] = 1
+    else if i == 9
+      a[i] = 7
+  v = Simd[I8, 32](a)
+  print("start")
+  print(v * v)
+
+bomb "simd wide mul overflow panics", "integer overflow", prints: "49", release: true
+  # A wide signed `*` panics on an overflowing lane, in every build mode.
+
+  b: [64]U8 = [64 of 0]
+  for i in 0..64
+    b[i] = U8(i % 8)
+  c = b.read[Simd[I8, 32]](0)
+  print((c * c)[7])
+  b[5] = 12
+  d = b.read[Simd[I8, 32]](0)
+  print(d * d)
+
+bomb "simd wide neg overflow panics", "integer overflow", prints: "-7", release: true
+  # A wide `-v` panics when a lane is the least value, in every build mode.
+
+  b: [64]U8 = [64 of 0]
+  for i in 0..64
+    b[i] = U8(i % 8)
+  c = b.read[Simd[I8, 32]](0)
+  print((-c)[7])
+  b[9] = 128
+  d = b.read[Simd[I8, 32]](0)
+  print(-d)
+
+bomb "simd wide sub overflow panics", "integer overflow", prints: "0", release: true
+  # A wide unsigned `-` panics on a lane below its subtrahend, in every build mode.
+
+  b: [64]U8 = [64 of 0]
+  for i in 0..64
+    b[i] = U8(i % 8)
+  c = b.read[Simd[U8, 64]](0)
+  print((c - c)[7])
+  b[40] = 9
+  d = b.read[Simd[U8, 64]](0)
+  print(c - d)
+
+bomb "simd with index panics", "index out of bounds", prints: "[9, 2, 3, 4]", release: true
+  # `v.with(i, x)` checks its index when the program runs.
+
+  fun put(v: Simd[U8, 4], i: Int) -> Simd[U8, 4]
+    v.with(i, 9)
+
+  v = Simd[U8, 4]([1, 2, 3, 4])
+  print(put(v, 0))
+  print(put(v, -1))
+
+bomb "simd write past end panics", "byte write out of range: 4 bytes at offset 3 of 6", prints: "[0, 0, 65, 66, 67, 68]", release: true
+  # A vector write is checked once: all its bytes must be in range.
+
+  sub store(b: ![]U8, at: Int)
+    !b.write[Simd[U16, 2], .big](at, Simd[U16, 2]([0x4142, 0x4344]))
+
+  b: [6]U8 = [0, 0, 0, 0, 0, 0]
+  store(!b, 2)
+  print(b)
+  store(!b, 3)

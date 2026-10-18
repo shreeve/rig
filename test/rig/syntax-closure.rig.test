@@ -1,0 +1,437 @@
+# syntax: tests whose names start `closure`.
+
+test "closure assignment body", '''
+  1
+  5 3 40 -2
+'''
+  # A closure's body on the same line may be an assignment, plain or
+  # compound, to a captured write view or a field through one: as a
+  # bound closure, and as a closure lent to a call in its last argument.
+
+  obj Wrap
+    n: Int
+
+  sub each(xs: ?List[Int], f: ?sub(Int))
+    for x in xs
+      f(x)
+
+  sub both(f: ?sub(Int), g: ?sub(Int))
+    f(1)
+    g(2)
+
+  v: List[Int] = List()
+  !v.push(2)
+  !v.push(3)
+  total = 0
+  each(?v, |!total, n| total += n)
+  last = 0
+  each(?v, |!last, n| last = n)
+  w = Wrap(n: 0)
+  set = |!w, k: Int| w.n = k * 10
+  set(4)
+  b = 0
+  both(|n| print(n), |!b, n| b -= n)
+  print(total, last, w.n, b)
+
+test "closure bar lists", '''
+  11 0 1 8 13
+  alive 0
+  nothing
+  owned nothing
+'''
+  # One bar list holds a closure's captures and parameters. An entry with
+  # a sigil is a capture (`+x` copies a Copy value or clones a handle, `<x`
+  # moves, `~x` holds weakly); a bare name is a parameter, typed from
+  # context or annotated. `||` is an empty list, and `*` before the bars
+  # makes the closure owned.
+
+  n = 10
+  cell: *Cell[Int] = *Cell(0)
+  v: List[Int] = List()
+  !v.push(1)
+
+  copy = |+n| n + 1
+  clone = |+cell| cell.get()
+  moved = |<v| v.len
+  weak = |~cell|
+    if *cell as c
+      print("alive", c.get())
+  param = |a: Int| a * 2
+  both = |+n, a: Int, b: Int| n + a + b
+  nothing = || print("nothing")
+  owned: *sub() = *|| print("owned nothing")
+
+  print(copy(), clone(), moved(), param(4), both(1, 2))
+  weak()
+  nothing()
+  owned()
+
+fail "closure body bad dedent", "indentation does not match any enclosing block"
+  # A multi-line closure body inside parentheses follows the usual block
+  # rules: a line must come back to an enclosing block's indentation.
+
+  sub twice(f: *sub())
+    f()
+
+  twice(*||
+      print("a")
+    print("b"))
+
+fail "closure body close", "16:24: a closure body below its bar list ends with `)` on a line of its own: end this line before the `)`, and write `)` on the next line at the indentation of the line that opened it (column 3); a one-line body may instead follow the bar list on its line", "19:10: a closure body below its bar list ends with `)` on a line of its own", "22:3: a closure body below its bar list ends where the `)` around it stands alone at the start of a line, at the indentation of the line that opened it (column 3)", "25:5: write this `)`, which ends a closure body below its bar list, at the indentation of the line that opened it (column 3)", "29:2: write this `)`, which ends a closure body below its bar list, at the indentation of the line that opened it (column 3)", errors: 5
+  # A closure body laid out below its bar list ends with the bracket around
+  # it on a line of its own, at the indentation of the line that opened the
+  # bracket. The bracket may not end the body's last line, nor may that
+  # line start with anything else, nor stand at another indentation.
+
+  sub each_n(n: Int, f: ?sub(Int))
+    i = 0
+    while i < n : i += 1
+      f(i)
+
+  fun run(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  sub main()
+    each_n(2, |i|
+      print("hanging", i))
+    n = (|k: Int|
+      m = k * 2
+      m + 1)(3)
+    t = run(|x: Int|
+      x + 1
+    , 3)
+    each_n(1, |i|
+      print("deep", i)
+      )
+    each_n(1,
+      |i|
+        print("shallow", i)
+   )
+    print(n, t)
+
+test "closure body typed binding", "1 12"
+  # In a closure body laid out inside a call's parentheses, `name: Type`
+  # starts a typed binding, not a keyword argument; keyword arguments of
+  # calls inside the body still work.
+
+  fun g(a: Int, b: Int) -> Int
+    a * 10 + b
+
+  sub run(f: *sub())
+    f()
+
+  run(*||
+    x: Int = 1
+    print(x, g(a: 1, b: 2))
+  )
+
+fail "closure capture after param", "captures come before parameters in a closure's bar list"
+  # In a closure's bar list the captures come first, then the parameters.
+
+  v: *Cell[Int] = *Cell(0)
+  set: *sub(Int) = *|a, +v| v.set(a)
+
+test "closure fewer params", '''
+  zero
+  event 7
+  7 3
+  7 3 5
+  window 3
+  field
+  tick
+  tick
+  1
+  3
+  typed 5
+  40
+  99
+  8
+'''
+  # A closure may declare fewer parameters than the function type it is
+  # checked against; the trailing ones it leaves out are `_`. This holds
+  # for stack and owned closures, `sub` and `fun` types, and binding,
+  # parameter, and field types.
+
+  obj Event
+    n: Int
+
+  obj Window
+    id: Int
+
+  obj Cx
+    tag: Int
+
+  obj Button
+    on_click: *sub(Event, Window, Cx)
+
+  fun register(f: *sub(Event, Window, Cx)) -> Button
+    Button(on_click: <f)
+
+  sub fire(b: ?Button)
+    cx = Cx(tag: 5)
+    b.on_click(Event(n: 7), Window(id: 3), cx)
+
+  sub twice(f: ?sub(Int, Int))
+    f(1, 2)
+    f(3, 4)
+
+  fun apply(f: ?fun(Int, Int) -> Int, a: Int, b: Int) -> Int
+    f(a, b)
+
+  fire(?register(*|| print("zero")))
+  fire(?register(*|e| print("event", e.n)))
+  fire(?register(*|e, w| print(e.n, w.id)))
+  fire(?register(*|e, w, cx| print(e.n, w.id, cx.tag)))
+  fire(?register(*|_, w| print("window", w.id)))
+  b = Button(on_click: *|| print("field"))
+  fire(?b)
+  twice(|| print("tick"))
+  twice(|a| print(a))
+  g: sub(Int, Int) = |a| print("typed", a)
+  g(5, 6)
+  print(apply(|a| a * 10, 4, 5))
+  print(apply(|| 99, 4, 5))
+  k = *|a: Int| print(a)
+  k(8)
+
+test "closure fewer params generic", '''
+  1
+  none
+  x
+  103
+  0
+  11
+  15
+  10
+  5
+'''
+  # Fewer parameters with a generic expected type, and with capture
+  # lists: sigiled entries are captures and bare names are parameters, so
+  # a closure that omits parameters still captures what it names.
+
+  sub each_pair[T](a: T, b: T, f: ?sub(T, T))
+    f(a, b)
+
+  fun pick[T](a: T, b: T, f: ?fun(T, T) -> T) -> T
+    f(a, b)
+
+  each_pair(1, 2, |a| print(a))
+  each_pair(1, 2, || print("none"))
+  each_pair("x", "y", |a| print(a))
+  print(pick(3, 4, |a| a + 100))
+  print(pick(3, 4, || 0))
+  count = 10
+  step = 5
+  each_pair(1, 2, |+count, a| print(count + a))
+  each_pair(1, 2, |+count, +step| print(count + step))
+  each_pair(1, 2, |+count, a: Int| print(count * a))
+  total: *Cell[Int] = *Cell(0)
+  add: *sub(Int, Int) = *|+total, a| !total.set(total.get() + a)
+  add(2, 100)
+  add(3, 100)
+  print(total.get())
+
+test "closure fewer params owned", '''
+  none
+  drop 2
+  drop 1
+  first 1
+  drop 2
+  drop 1
+  both ignored
+  drop 2
+  drop 1
+  one ignored
+  drop 2
+  drop 1
+  skip
+  drop 3
+'''
+  # An argument passed for a parameter a closure leaves out is handled as
+  # one passed to `_`: an owned argument is dropped when the closure is
+  # called.
+
+  obj F
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub feed(f: ?sub(F, F))
+    f(F(n: 1), F(n: 2))
+
+  sub feed_owned(f: ?sub(String, F))
+    f(String("a", 1), F(n: 3))
+
+  feed(|| print("none"))
+  feed(|a| print("first", a.n))
+  feed(|_, _| print("both ignored"))
+  feed(|_| print("one ignored"))
+  feed_owned(|| print("skip"))
+
+fail "closure middle param omitted", "closure parameter `c` is declared `Int`, but the closure's type passes `String`"
+  # Only trailing parameters may be left out: a closure that wants the
+  # third parameter names the second as `_`.
+
+  sub each(f: ?sub(Int, String, Int))
+    f(1, String("a", 1), 3)
+
+  each(|a, c: Int| print(a, c))
+
+fail "closure more params than type", "this closure takes 2 parameters, but its type `sub(Int)` passes 1"
+  # A closure takes at most the parameters its type passes.
+
+  sub each(f: ?sub(Int))
+    f(1)
+
+  each(|a, b| print(a, b))
+
+test "closure multiline args", '''
+  got 4
+  seen 0
+  seen 1
+  seen 2
+  3
+  zero
+  one
+  inner 0
+  inner 1
+  outer
+  inner 0
+  inner 1
+  outer
+  handler 3
+  7
+  trailing 0
+  trailing 1
+'''
+  # A closure passed inside parentheses or brackets may have a multi-line
+  # body: when its bar list ends the line, the body below is laid out in
+  # blocks as anywhere else, and the bracket around it closes on a line of
+  # its own, at the indentation of the line that opened it. A one-line
+  # body stays on the bar list's line. The other layouts are rejected, in
+  # reject/syntax/closure_body_close.rig.
+
+  sub each_n(n: Int, f: *sub(Int))
+    i = 0
+    while i < n : i += 1
+      f(i)
+
+  sub twice(f: *sub())
+    f()
+    f()
+
+  sig: *Signal[Int] = *Signal(0)
+  !sig.subscribe(*|~sig|
+    if *sig as s
+      print("got", s.get())
+  )
+  !sig.set(4)
+
+  total: *Cell[Int] = *Cell(0)
+  each_n(3, *|+total, i|   # the body starts on the next line
+    !total.set(total.get() + i)
+    print("seen", i)
+  )
+  print(total.get())
+
+  each_n(2, *|i|
+    if i == 0
+      print("zero")
+    else
+      print("one")
+  )
+
+  twice(*||
+    each_n(2, *|i| print("inner", i))
+    print("outer")
+  )
+
+  handlers: List[*sub()] = List()
+  !handlers.push(*|+total|
+    n = total.get()
+    print("handler", n)
+  )
+  for h in ?handlers
+    h()
+
+  n = 3
+  r = (|+n|
+    m = n * 2
+    m + 1
+  )()
+  print(r)
+
+  each_n(2, *|i| print("trailing", i))
+
+fail "closure no value expression", "7:10: this expression does nothing as a statement", "10:3: this expression does nothing as a statement", errors: 2
+  # A closure whose type returns nothing has no value, so a value on its
+  # last line does nothing, as in a `sub`.
+
+  sub each(f: ?sub(Int))
+    f(1)
+
+  each(|i| i + 1)
+  each(|i|
+    print(i)
+    i * 2
+  )
+
+test "closure no value tail", '''
+  1
+  drop 1
+  1
+  drop 1
+  done
+'''
+  # A closure whose type returns nothing, from the parameter it is passed
+  # to or a typed binding, treats its last line as a statement, as a `sub`
+  # does: `<x` there drops `x`. An untyped closure takes its last line as
+  # its value (test/reject/syntax/untyped_closure_last_line.rig), and a
+  # value on the last line of a closure that returns nothing does nothing
+  # (test/reject/syntax/closure_no_value_expression.rig).
+
+  obj F
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub each(f: ?sub(Int))
+    f(1)
+
+  sub feed(f: ?sub(String))
+    f(String("a", 1))
+
+  each(|i|
+    q = F(n: i)
+    print(q.n)
+    <q
+  )
+  each(|i|
+    q = F(n: i)
+    if i > 0
+      print(q.n)
+      <q
+    else
+      print(0)
+  )
+  feed(|t: String| <t)
+  keep: sub(String) = |t: String| <t
+  keep(String("b"))
+  print("done")
+
+test "closure paren body", "4"
+  # A closure's inline body may be a parenthesized expression: `|+k| (k)`
+  # yields its copy of `k`.
+
+  k = 4
+  g = |+k| (k)
+  print(g())
+
+fail "closure untyped keeps arity", "expects 2 arguments, got 1"
+  # A closure with no type from context keeps its declared parameters: a
+  # call must pass every one.
+
+  f = |a: Int, b: Int| print(a, b)
+  f(1)

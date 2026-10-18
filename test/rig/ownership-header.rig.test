@@ -1,0 +1,1742 @@
+# ownership: tests whose names start `header`.
+
+use std.random
+
+fail "header branch copies cell holder", "21:10: a `match` reads a place or takes a call's result; bind this `E` to a name first", errors: 1
+  # A branching value in a `match` header is taken leaf by leaf, as a
+  # binding takes it (Core §3, §5). A type holding a `Cell` is unique
+  # (Core §1), so a bare leaf of one (a field of a value behind `*`) would
+  # be copied, forking its Cell: it is rejected, as for a declared unique
+  # type (test/reject/ownership/header_branch_moves_unique.rig).
+  #
+  # oracle: matches reject C2
+  obj Counter
+    hits: Cell[Int]
+
+  enum E
+    a(c: Counter)
+    b
+
+  obj P
+    x: E
+    y: E
+
+  sub matches(f: Bool)
+    p = *P(x: E.a(c: Counter(hits: Cell(3))), y: E.b)
+    match (p.x if f else p.y)
+      .a(c) => print(c.hits.get())
+      .b => pass
+
+  matches(true)
+
+test "header branch copies plain", '''
+  1
+  2
+  1
+  2
+  3
+  4
+  1 3
+  13
+  b
+  5
+  .a(p: P(x: 5))
+  5
+  5
+  .a(p: P(x: 5))
+'''
+  # A branching value in a `for` or `match` header (`if`, `catch`, `??`,
+  # `o?`) is taken leaf by leaf, as a binding takes it (Core §3, §5): a
+  # leaf of plain data copies, so the names stay usable.
+  #
+  # oracle: loops accept
+  # oracle: run accept
+  # oracle: matches accept
+
+  obj P
+    x: Int
+
+  enum E
+    a(p: P)
+    b
+
+  error Bad
+    oops
+
+  fun two(n: Int) -> ([2]Int)!
+    return Bad.oops if n > 5
+    [n, n]
+
+  sub loops(f: Bool)
+    a = [1, 2]
+    b = [3, 4]
+    for k in (a if f else b)
+      print(k)
+    for k in two(9) catch a
+      print(k)
+    o: ([2]Int)? = none
+    for k in o ?? b
+      print(k)
+    print(a[0], b[0])
+
+  fun run(o: ([2]Int)?) -> Int?
+    new n = 0
+    for k in o?
+      n += k
+    n
+
+  sub matches(f: Bool)
+    x = E.a(p: P(x: 5))
+    y = E.b
+    match (x if f else y)
+      .a(p) => print(p.x)
+      .b => print("b")
+    o: E? = none
+    match o ?? x
+      .a(p) => print(p.x)
+      .b => print("b")
+    print(x)
+
+  loops(true)
+  print(run([6, 7]) ?? 0)
+  matches(false)
+  matches(true)
+
+fail "header branch moves unique", "31:13: cannot lend `a if f else b`: it may be `a`, a value a name holds", "34:12: cannot lend `two(9) catch d`: it may be `d`, a value a name holds", "37:12: cannot lend `o ?? d`: it may be `o`, a value a name holds", "41:12: cannot lend `o?`: it may be `o`, a value a name holds", "48:10: a `match` reads a place or takes a call's result; bind this `E` to a name first", "52:9: a `match` reads a place or takes a call's result; bind this `E` to a name first", "57:9: a `match` reads a place or takes a call's result; bind this `E` to a name first", errors: 7
+  # A branching value in a `for` or `match` header (`if`, `catch`, `??`,
+  # `o?`) is taken leaf by leaf, as a binding takes it (Core §3, §5). A
+  # bare leaf whose type is unique would be copied, so it is rejected:
+  # bind the value to a name, or take each leaf with `<`.
+  #
+  # oracle: loops reject C2
+  # oracle: run reject C2
+  # oracle: matches reject C2
+  # oracle: run2 reject C2
+
+  obj Die
+    r: random.Random
+
+  enum E
+    a(d: Die)
+    b
+
+  error Bad
+    oops
+
+  fun pair() -> [2]random.Random
+    [random.Random.seeded(1), random.Random.seeded(2)]
+
+  fun two(n: Int) -> ([2]random.Random)!
+    return Bad.oops if n > 5
+    pair()
+
+  sub loops(f: Bool)
+    a = pair()
+    b = pair()
+    for r in (a if f else b)
+      print(r)
+    d = pair()
+    for r in two(9) catch d
+      print(r)
+    o: ([2]random.Random)? = none
+    for r in o ?? d
+      print(r)
+
+  fun run(o: ([2]random.Random)?) -> Int?
+    for r in o?
+      print(r)
+    0
+
+  sub matches(f: Bool)
+    x = E.a(d: Die(r: random.Random.seeded(1)))
+    y = E.b
+    match (x if f else y)
+      .a(d) => print(d)
+      .b => pass
+    o: E? = none
+    match o ?? x
+      .a(d) => print(d)
+      .b => pass
+
+  fun run2(o: E?) -> Int?
+    match o?
+      .a(d) => print(d)
+      .b => pass
+    0
+
+  loops(true)
+  print(run(none) ?? 0)
+  matches(true)
+  print(run2(none) ?? 0)
+
+test "header branch points", release: true, '''
+  qxx
+  ["qxx"] wx 1 [50] 2 0
+'''
+  # A header whose subject branches, each leaf a place, one reached through
+  # a statement temporary the header makes (an index), binds the place of
+  # the leaf it takes (`storage.headerPoints`): a write through the binding
+  # lands there, whichever branch is taken.
+
+  obj S
+    o: String?
+
+  obj H
+    f: List[S]
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  v: List[String?] = List()
+  !v.push(String("q"))
+  w: String? = String("w")
+  c = v.len == 1
+  if (!v[idx(?String("a"))] if c else !w) as t
+    !t.add("x")
+  if (!w if c else !v[idx(?String("a"))]) as t
+    !t.add("x")
+  n = 0
+  while (!v[idx(?String("a"))] if c else !w) as t
+    !t.add("x")
+    break
+  h = H(f: List())
+  !h.f.push(S(o: String("q")))
+  if (!h.f[idx(?String("a"))].o if c else !w) as t
+    !t.add("x")
+  if (?v[idx(?String("a"))] if c else ?w) as t
+    print(t)
+  arr: [1]Int? = [1]
+  m: Int? = 2
+  if (!arr[idx(?String("a"))] if c else !m) as k
+    k = 50
+  print(v, w, h.f.len, arr, m, n)
+
+test "header branch read alternatives", release: true, '''
+  1
+  4
+  5
+  .a(r: Res(n: 9, v: [5]))
+  .a(r: Res(n: 1, v: [1, 0, 1, 2]))
+  .a(r: Res(n: 6, v: [6, 0, 1]))
+'''
+  # The forms that read or write what a branch reaches without copying a
+  # value out of a place: a path through a branch of read views
+  # (`(a if c else b).e` of `?W`), a branch that lends each leaf to read
+  # (`?h1.w if c else ?h2.w`), `if o as x` then `if !o as x` for the value
+  # inside an optional, a branch of lends named first (`t = (!a if c
+  # else !b)`, then `match !t.e`), and a write view a method returns.
+
+  obj Res
+    n: Int
+    v: List[Int]
+
+  enum E
+    a(r: Res)
+    b
+
+  obj W
+    e: E
+
+  obj H
+    w: E
+
+    fun gw(!self) -> !E
+      !self.w
+
+  fun mk(n: Int) -> E
+    v: List[Int] = List()
+    !v.push(n)
+    E.a(r: Res(n: n, v: <v))
+
+  sub read_part(a: ?W, b: ?W, c: Bool)
+    match (a if c else b).e
+      .a(r) => print(r.n)
+      .b => pass
+
+  sub read_lends(h1: ?H, h2: ?H, c: Bool)
+    match (?h1.w if c else ?h2.w)
+      .a(r) => print(r.n)
+      .b => pass
+
+  fun optional(e: !E) -> Int?
+    o: (!E)? = !e
+    if o as x
+      match x
+        .a(r) => print(r.n)
+        .b => pass
+    if !o as x
+      match !x
+        .a(r) => r.n = 9
+        .b => pass
+    print(o)
+    1
+
+  sub named_branch(a: !W, b: !W, c: Bool)
+    t = (!a if c else !b)
+    match !t.e
+      .a(r)
+        for i in 0..3
+          !r.v.push(i)
+      .b => pass
+
+  x = W(e: mk(1))
+  y = W(e: mk(2))
+  read_part(?x, ?y, true)
+  e = mk(3)
+  d = mk(4)
+  h1 = H(w: <e)
+  h2 = H(w: <d)
+  read_lends(?h1, ?h2, false)
+  f = mk(5)
+  _ = optional(!f)
+  named_branch(!x, !y, true)
+  print(x.e)
+  g = mk(6)
+  h = H(w: <g)
+  match (!h).gw()
+    .a(r)
+      for i in 0..2
+        !r.v.push(i)
+    .b => pass
+  print(h.w)
+
+fail "header branch take then use", "22:9: use of `a` after move", "30:9: use of `x` after move", errors: 2
+  # A branching header subject written with `<` on each name takes the
+  # name on its path (Core §3, §5), so the name may not be used after the
+  # header, on any path that took it.
+  #
+  # oracle: loops reject C1
+  # oracle: matches reject C1
+  obj Counter unique
+    hits: Int
+
+  enum E
+    a(c: Counter)
+    b
+
+  fun pair() -> [2]Counter
+    [Counter(hits: 1), Counter(hits: 2)]
+
+  sub loops(f: Bool)
+    a = pair()
+    b = pair()
+    for k in (<a if f else <b)
+      print(k.hits)
+    print(a[0].hits)
+
+  sub matches(f: Bool)
+    x = E.a(c: Counter(hits: 0))
+    y = E.b
+    match (<x if f else <y)
+      .a(c) => print(c.hits)
+      .b => pass
+    print(x)
+
+  loops(true)
+  matches(true)
+
+test "header branch takes cell holder", '''
+  1
+  1
+  21
+  21
+  31
+  31
+  4
+  51
+  41
+  51
+'''
+  # A branching value in a `for` or `match` header (`if`, `catch`, `??`,
+  # `o?`) is taken leaf by leaf, as a binding takes it (Core §3, §5): with
+  # `<` on each name, every leaf is the header's own, so each element or
+  # payload is the body's own `*Counter` handle, through which a `?self`
+  # method changes a Cell (Core s9).
+  #
+  # oracle: loops accept
+  # oracle: run accept
+  # oracle: matches accept
+
+  obj Counter
+    hits: Cell[Int]
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+  enum E
+    a(c: *Counter)
+    b
+
+  error Bad
+    oops
+
+  fun two(n: Int) -> ([2]*Counter)!
+    return Bad.oops if n > 5
+    [*Counter(hits: Cell(n)), *Counter(hits: Cell(n))]
+
+  fun pair(n: Int) -> [2]*Counter
+    [*Counter(hits: Cell(n)), *Counter(hits: Cell(n))]
+
+  sub loops(f: Bool)
+    a = pair(0)
+    b = pair(10)
+    for k in (<a if f else <b)
+      !k.hit()
+      print(k.hits.get())
+    d = pair(20)
+    for k in two(9) catch <d
+      !k.hit()
+      print(k.hits.get())
+    o: ([2]*Counter)? = none
+    g = pair(30)
+    for k in (<o) ?? <g
+      !k.hit()
+      print(k.hits.get())
+
+  fun run(o: ([2]*Counter)?) -> Int?
+    new n = 0
+    for k in (<o)?
+      !k.hit()
+      n += k.hits.get()
+    n
+
+  sub matches(f: Bool)
+    x = E.a(c: *Counter(hits: Cell(40)))
+    y = E.b
+    match (<x if f else <y)
+      .a(c)
+        !c.hit()
+        print(c.hits.get())
+      .b => pass
+    o: E? = none
+    d = E.a(c: *Counter(hits: Cell(50)))
+    match (<o) ?? <d
+      .a(c)
+        !c.hit()
+        print(c.hits.get())
+      .b => pass
+
+  loops(true)
+  print(run(pair(1)) ?? 0)
+  matches(false)
+  matches(true)
+
+test "header branch takes unique", '''
+  true
+  true
+  true
+'''
+  # A branching value in a `for` or `match` header is taken leaf by leaf
+  # (Core §3, §5): with `<` on each name, a unique value is moved, never
+  # copied, so the loop's elements and the arm's payloads are its own.
+  #
+  # oracle: loops accept
+
+  obj Die
+    r: random.Random
+
+  enum E
+    a(d: Die)
+    b
+
+  fun pair(n: U64) -> [2]random.Random
+    [random.Random.seeded(n), random.Random.seeded(n + 1)]
+
+  sub loops(f: Bool)
+    a = pair(1)
+    b = pair(3)
+    for r in (<a if f else <b)
+      new g = <r
+      print((!g).next() % 1000 >= 0)
+
+  sub matches(f: Bool)
+    x = E.a(d: Die(r: random.Random.seeded(5)))
+    y = E.b
+    match (<x if f else <y)
+      .a(d)
+        new e = <d
+        print((!e.r).next() % 1000 >= 0)
+      .b => pass
+
+  loops(true)
+  matches(true)
+
+fail "header copy plain read", "9:32: this header binds a copy of its subject, since a temporary it makes ends with the header: bind the index to a name first", errors: 1
+  # A header whose subject makes a temporary and reaches no place outside
+  # it binds a copy of a value made there, even of plain data that is only
+  # read: it is rejected, as every such header is
+  # (`header_temporary_rejected.rig`).
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  for x in [[1, 2], [3, 4]][idx(?String("ab"))]
+    print(x)
+
+fail "header held temporary", "30:7: this header holds `mkh(?mkres(1))` for its construct, but a temporary made inside it ends with the header; bind `mkh(?mkres(1))` to a name first", "33:10: this header holds `mkh(mkres(3))`", "35:4: this header holds `mkh(?mkres(5))`", errors: 3
+  # A header that holds the value it makes, of which its subject is a part
+  # that is not plain data, keeps that value for the whole construct; a
+  # temporary made inside it would end with the header while the held
+  # value, and what it views, lives on. Such a header is rejected: bind
+  # the value to a name first. (A part of plain data is read in the
+  # header: header_plain_part_temporary.rig.)
+
+  obj Res
+    n: Int
+    t: String
+
+  obj Counter unique
+    hits: Int
+
+  enum E
+    a(c: Counter)
+    b
+
+  obj H
+    e: E
+    arr: [2]Counter
+    o: Counter?
+
+  fun mkh(r: ?Res) -> H
+    H(e: E.a(c: Counter(hits: r.n)), arr: [Counter(hits: r.n), Counter(hits: 2)], o: Counter(hits: r.n))
+
+  fun mkres(n: Int) -> Res
+    Res(n: n, t: String("abc"))
+
+  match mkh(?mkres(1)).e
+    .a(c) => print("a", c.hits)
+    .b => pass
+  for k in mkh(mkres(3)).arr
+    print("k", k.hits)
+  if mkh(?mkres(5)).o as c
+    print("o", c.hits)
+
+fail "header lent made cell holder", "8:12: `Counter(hits: Cell(1))` makes a `Counter`, which holds a Cell, so it lives only behind a shared handle: write `*Counter(hits: Cell(1))`", errors: 1
+  # A value that holds a Cell lives only behind a shared handle, so a
+  # `for` header cannot make one by value to lend: the made value is
+  # rejected where it is written.
+
+  obj Counter
+    hits: Cell[Int]
+
+  for k in ?[Counter(hits: Cell(1))]
+    print(k.hits.get())
+
+fail "header made binding view escapes", "33:23: `p` does not live long enough", "41:23: `p` does not live long enough", "49:23: `p` does not live long enough", "57:14: `k` does not live long enough", "64:14: `k` does not live long enough", errors: 5
+  # A value a `match` or `for` header makes is taken and held through the
+  # statement (Core §3): what the header binds of it is the body's own, so
+  # a view of a payload or element does not outlive its arm or iteration,
+  # whether the subject is the made value or a part of one.
+  #
+  # oracle: arm_of_part reject C5
+  # oracle: arm_of_made reject C5
+  # oracle: arm_of_literal reject C5
+  # oracle: loop_of_made reject C5
+  # oracle: loop_of_part reject C5
+
+  obj P
+    x: Int
+
+  enum E
+    a(p: P)
+    b
+
+  obj H
+    e: E
+    arr: [2]P
+
+  fun mke(n: Int) -> E
+    E.a(p: P(x: n))
+
+  fun mkh(n: Int) -> H
+    H(e: mke(n), arr: [P(x: n), P(x: n)])
+
+  sub arm_of_part()
+    base = P(x: 1)
+    saved = ?base
+    match mkh(7).e
+      .a(p) => saved = ?p
+      .b => pass
+    print(saved.x)
+
+  sub arm_of_made()
+    base = P(x: 1)
+    saved = ?base
+    match mke(7)
+      .a(p) => saved = ?p
+      .b => pass
+    print(saved.x)
+
+  sub arm_of_literal()
+    base = P(x: 1)
+    saved = ?base
+    match [E.a(p: P(x: 2)), E.b][0]
+      .a(p) => saved = ?p
+      .b => pass
+    print(saved.x)
+
+  sub loop_of_part()
+    base = P(x: 1)
+    saved = ?base
+    for k in mkh(3).arr
+      saved = ?k
+    print(saved.x)
+
+  sub loop_of_made()
+    base = P(x: 1)
+    saved = ?base
+    for k in [P(x: 4), P(x: 5)]
+      saved = ?k
+    print(saved.x)
+
+  arm_of_part()
+  arm_of_made()
+  arm_of_literal()
+  loop_of_part()
+  loop_of_made()
+
+test "header made cell holder owned", '''
+  6
+  9
+  1
+  6
+  1
+  20
+'''
+  # A value a `for`, `if … as`, or `match` header makes is taken, and so is
+  # the made value the subject is a part of (Core §3): each element or
+  # payload is the body's own `*Counter` handle, through which a `?self`
+  # method changes a Cell (Core s9), and `<k` moves it out.
+  #
+  # oracle: loops accept
+  # oracle: ifs accept
+
+  obj Counter
+    hits: Cell[Int]
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+  obj H
+    o: (*Counter)?
+    arr: [2]*Counter
+
+  fun two() -> [2]*Counter
+    [*Counter(hits: Cell(0)), *Counter(hits: Cell(5))]
+
+  fun mkh() -> H
+    H(o: *Counter(hits: Cell(10)), arr: two())
+
+  sub loops()
+    x = for k in two()
+      !k.hit()
+      if k.hits.get() > 3
+        break k.hits.get()
+    else
+      0
+    print(x)
+    keep: (*Counter)? = none
+    for k in [*Counter(hits: Cell(7)), *Counter(hits: Cell(8))]
+      !k.hit()
+      keep = <k
+    if <keep as c
+      print(c.hits.get())
+    for k in mkh().arr
+      !(+k).hit()
+      print(k.hits.get())
+
+  sub ifs()
+    if H(o: *Counter(hits: Cell(0)), arr: two()).o as c
+      !(+c).hit()
+      print(c.hits.get())
+    if mkh().o as c
+      !c.hits.set(20)
+      print(c.hits.get())
+
+  loops()
+  ifs()
+
+fail "header path through branch", "31:10: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b).e`", "36:10: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b)[0].e`", "41:10: cannot lend `tg(!a, false) catch |_| b`: it may be `b`, a value a name holds, which lending the branching value would copy; lend each branch: `?(tg(!a, false) catch |_| ?b).e`", "46:7: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b).o`", "50:10: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b).o`", "55:13: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b).v`", "59:13: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if c else ?b`", "64:12: cannot lend `o?`: it may be `o`, a value a name holds, which lending the branching value would copy; lend what it unwraps, and unwrap it in a header: `if ?o as x`", "70:12: cannot lend `o ?? !d`: it may be `o`, a value a name holds, which lending the branching value would copy; lend each branch: `?o ?? !d`", "75:14: cannot assign through a read view (`?T`); `r` is a read view of a field of `(!a if c else !b).e`: to write through it, bind the branch to a name first, `t = (!a if c else !b)`, then match its part with `match !t.e`", errors: 10
+  # A header's subject that reaches a write view a name holds through a
+  # branch, the branch itself or a path through it (`(a if c else b).e`,
+  # `(a if c else b)[0].e`, `o?`, `o ?? !d`, a `catch` part), reads the
+  # branch in place, which is a lend of it: lending the branching value
+  # would copy the write view out of the name with no loan on it. This
+  # holds for `match`, `if … as`, `while … as`, and `for` alike. The hint
+  # lends each leaf; a part of a branch of lends is matched to write once
+  # the branch has a name.
+
+  obj Res
+    n: Int
+    v: List[Int]
+
+  enum E
+    a(r: Res)
+    b
+
+  error Bad
+    nope
+
+  obj W
+    e: E
+    o: E?
+    v: List[Int]
+
+  fun tg(w: !W, ok: Bool) -> (!W)!
+    return Bad.nope if not ok
+    w
+
+  sub part(a: !W, b: !W, c: Bool)
+    match (a if c else b).e
+      .a(r) => print(r.n)
+      .b => pass
+
+  sub part_index(a: !List[W], b: !List[W], c: Bool)
+    match (a if c else b)[0].e
+      .a(r) => print(r.n)
+      .b => pass
+
+  sub catch_part(a: !W, b: !W)
+    match (tg(!a, false) catch |_| b).e
+      .a(r) => print(r.n)
+      .b => pass
+
+  sub as_part(a: !W, b: !W, c: Bool)
+    if (a if c else b).o as x
+      print(x)
+
+  sub while_as_part(a: !W, b: !W, c: Bool)
+    while (a if c else b).o as x
+      print(x)
+      break
+
+  sub for_part(a: !W, b: !W, c: Bool)
+    for x in (a if c else b).v
+      print(x)
+
+  sub for_branch(a: !List[Int], b: !List[Int], c: Bool)
+    for x in (a if c else b)
+      print(x)
+
+  fun for_unwrapped(v: !List[Int]) -> Int?
+    o: (!List[Int])? = !v
+    for x in o?
+      print(x)
+    1
+
+  sub for_coalesce(v: !List[Int], d: !List[Int])
+    o: (!List[Int])? = !v
+    for x in o ?? !d
+      print(x)
+
+  sub lends_part(a: !W, b: !W, c: Bool)
+    match (!a if c else !b).e
+      .a(r) => r.n = 1
+      .b => pass
+
+  pass
+
+fail "header place inside temporary", "32:7: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first", "35:11: bind the argument to a name first", "38:14: bind the argument to a name first", "40:8: bind the argument to a name first", "43:11: bind the argument to a name first", "47:12: bind the argument to a name first", "50:15: bind the argument to a name first", errors: 7
+  # A header subject that is a place inside a view of a value the header
+  # makes (`id(?mk()).e`, `mk().e`) lives in a temporary the header
+  # ends, so emit evaluates the header as a copy, never as a pointer into
+  # the temporary (`storage.headerPoints`), and the header is rejected at
+  # the temporary, in every header form, plain data bound or not. Lifting
+  # the header rejection (B4b) must keep these rejected: pointing into the
+  # header's own temporary reads it after the header drops it (review of
+  # B4a, risk 1; the probes x05, x05b, x05c).
+
+  enum E
+    a(n: Int)
+    b
+
+  obj S
+    e: E
+    xs: [3]Int
+    o: Int?
+    t: String
+
+  fun mk() -> S
+    S(e: E.a(n: 42), xs: [1, 2, 3], o: 7, t: String("pad"))
+
+  fun id(s: ?S) -> ?S from s
+    s
+
+  fun mkh(n: Int) -> *S
+    *S(e: E.a(n: n), xs: [n, n, n], o: n, t: String("pad"))
+
+  fun idh(s: ?*S) -> ?S from s
+    s
+
+  match mk().e
+    .a(n) => print("lend", n)
+    .b => print("b")
+  match id(?mk()).e
+    .a(n) if n > 0 => print("guarded", n)
+    _ => print("other")
+  for x in id(?mk()).xs
+    print("for", x)
+  if id(?mk()).o as n
+    print("if", n)
+  k = 0
+  while id(?mk()).o as n
+    print("while", n)
+    k += 1
+    break if k > 0
+  match idh(?mkh(42)).e
+    .a(n) => print("handle", n)
+    .b => print("b")
+  for x in idh(?mkh(7)).xs
+    print("for", x)
+
+test "header place reads cell holder", '''
+  1
+  1
+  5
+  1 1
+  2
+  2
+'''
+  # A `match` or `for` whose subject is a place reads it where it stands
+  # (Core s1, §3): each payload or element is a view of the place, so a
+  # `!self` method changes the Cell its `*Counter` handle reaches (Core
+  # s9). Parentheses do not make a place a made value. `for k in <a` takes
+  # the array, and its elements are the loop's own.
+  #
+  # oracle: poke accept
+  # oracle: nested accept
+  # oracle: loops accept
+
+  obj Counter
+    hits: Cell[Int]
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+  enum E
+    a(c: *Counter)
+    b
+
+  enum F
+    w(e: E)
+    z
+
+  sub poke(s: []E)
+    match s[0]
+      .a(c) => (!(+c)).hit()
+      .b => pass
+
+  fun hits_of(e: ?E) -> Int
+    match e
+      .a(c) => c.hits.get()
+      .b => 0
+
+  sub nested()
+    f = F.w(e: E.a(c: *Counter(hits: Cell(0))))
+    match f
+      .w(e)
+        match e
+          .a(c) => (!(+c)).hit()
+          .b => pass
+      .z => pass
+    match f
+      .w(e)
+        match e
+          .a(c) => print(c.hits.get())
+          .b => pass
+      .z => pass
+    match F.w(e: E.a(c: *Counter(hits: Cell(4))))
+      .w(e)
+        match e
+          .a(c)
+            !(+c).hit()
+            print(c.hits.get())
+          .b => pass
+      .z => pass
+
+  sub loops()
+    a = [*Counter(hits: Cell(0)), *Counter(hits: Cell(0))]
+    for k in (a)
+      !(+k).hit()
+    print(a[0].hits.get(), a[1].hits.get())
+    for k in <a
+      !k.hit()
+      print(k.hits.get())
+
+  arr = [E.a(c: *Counter(hits: Cell(0))), E.b]
+  poke(?arr)
+  print(hits_of(?arr[0]))
+  nested()
+  loops()
+
+fail "header plain part temporary", "27:12: this header binds a copy of its subject, since a temporary it makes ends with the header: bind the argument to a name first"
+  # A part of a value made in a header that is plain data is read in the
+  # header, whose temporaries end with it: a payload that views a
+  # temporary made there cannot outlive the header (Core §3).
+  #
+  # oracle: main reject C5
+
+  obj Res
+    n: Int
+    t: String
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum E
+    a(r: ?Res)
+    b
+
+  obj H
+    e: E
+
+  fun mkh(r: ?Res) -> H
+    H(e: E.a(r: r))
+
+  fun mkres(n: Int) -> Res
+    Res(n: n, t: String("abc"))
+
+  match mkh(?mkres(1)).e
+    .a(r) => print("a", r.n, r.t)
+    .b => pass
+  print("end")
+
+test "header plain parts", '''
+  one
+  three
+  k 7
+  k 8
+  3
+  end
+'''
+  # A part of a value made in a header that is plain data is read in the
+  # header, as any value is: literal patterns match it, and a copy of it
+  # outlives the header. (One whose made value is a temporary that ends
+  # with the header is rejected:
+  # `test/reject/ownership/header_temporary_rejected.rig`.)
+
+  obj P
+    x: Int
+    y: Int
+
+  enum Q
+    a(p: P, q: ?P)
+    b
+
+  obj W
+    q: Q
+
+  obj G
+    n: Int
+
+  match [1, 2][0]
+    1 => print("one")
+    _ => print("other")
+  match G(n: 3).n
+    3 => print("three")
+    _ => print("other")
+  for k in [[5, 6], [7, 8]][1]
+    print("k", k)
+  base = P(x: 3, y: 4)
+  saved = ?base
+  match W(q: Q.a(p: P(x: 1, y: 2), q: ?base)).q
+    .a(_, q) => saved = q
+    .b => pass
+  print(saved.x)
+  print("end")
+
+test "header points through temporary", release: true, '''
+  2 3
+  q?x
+  sf
+  ["tw", "ull"]
+  11
+  [50]
+  ["twb", "ull"] wb
+  b 3
+  11 10
+  21 20
+  7
+'''
+  # A header whose subject makes a statement temporary (an index or an
+  # argument on the path to a place) and reaches a place outside it is
+  # evaluated in a block that ends the temporary and yields the place's
+  # address (`storage.headerPoints`): what `match`, `if … as`,
+  # `while … as`, and `for` bind is the place's own, so a write, a Cell
+  # change, and a view through a binding reach the place, after the
+  # header's temporary is gone.
+
+  obj C
+    c: Cell[Int]
+
+  enum E
+    a(t: String)
+    b(n: Int)
+
+  enum F
+    a(n: Int)
+    b(n: Int)
+
+  obj S
+    e: E
+    o: String?
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  sub write_match(v: !List[E])
+    match !v[idx(?String("a"))]
+      .a(t) if t.len > 1 => !t.add("x")
+      .a(t) => !t.add("?")
+      .b(n) => n += 1
+
+  fun read_match(v: ?List[E]) -> Int
+    match v[idx(?String("a"))]
+      .a(t) => t.len
+      .b(n) => n
+
+  sub field_match(v: !List[S])
+    match !v[idx(?String("a"))].e
+      .a(t) => !t.add("f")
+      .b(n) => print(n)
+
+  sub write_as(v: !List[String?])
+    if !v[idx(?String("a"))] as t
+      !t.add("w")
+
+  sub read_as(v: ?List[(*C)?])
+    if v[idx(?String("a"))] as c
+      !c.c.set(c.c.get() + 5)
+
+  sub write_while(v: !List[String?])
+    k = 0
+    while !v[idx(?String("ab"))] as t
+      !t.add("l")
+      k += 1
+      break if k > 1
+
+  sub plain(arr: ![1]Int?)
+    if !arr[idx(?String("a"))] as n
+      n = 50
+
+  sub branch(v: !List[String?], w: !String?, c: Bool)
+    if (!v[idx(?String("a"))] if c else !w) as t
+      !t.add("b")
+
+  es = [E.a(t: String("e")), E.b(n: 3)]
+  ev: List[E] = List()
+  !ev.push(E.a(t: String("q")))
+  write_match(!ev)
+  write_match(!ev)
+  print(clobber(1), read_match(?ev))
+  match ev[0]
+    .a(t) => print(t)
+    .b(n) => print(n)
+  sv: List[S] = List()
+  !sv.push(S(e: E.a(t: String("s")), o: none))
+  field_match(!sv)
+  match sv[0].e
+    .a(t) => print(t)
+    .b(n) => print(n)
+  tv: List[String?] = List()
+  !tv.push(String("t"))
+  !tv.push(String("u"))
+  write_as(!tv)
+  write_while(!tv)
+  print(tv)
+  cv: List[(*C)?] = List()
+  !cv.push(*C(c: Cell(1)))
+  read_as(?cv)
+  read_as(?cv)
+  if cv[0] as c
+    print(c.c.get())
+  arr: [1]Int? = [1]
+  plain(!arr)
+  print(arr)
+  w: String? = String("w")
+  branch(!tv, !w, true)
+  branch(!tv, !w, false)
+  print(tv, w)
+  match es[idx(?String("ab"))]
+    .a(t) => print(t)
+    .b(n) => print("b", n)
+  m: List[[2]Int] = List()
+  !m.push([1, 2])
+  for x in !m[idx(?String("k"))]
+    x *= 10
+  for x in m[idx(?String("k"))]
+    print(clobber(x), x)
+  ws: List[[1]*C] = List()
+  !ws.push([*C(c: Cell(0))])
+  for c in ws[idx(?String("k"))]
+    !c.c.set(7)
+  print(ws[0][0].c.get())
+
+test "header points view escapes", release: true, '''
+  7 7
+  skip
+  7 7
+  3
+  8 8
+'''
+  # A catch-all view of a header subject that reaches a place through the
+  # header's temporary is a view of the place: taken in one pass of a loop
+  # and read after it, guarded or not, or returned as the match's value,
+  # it reads the element it was taken from (the corpus probes
+  # review-step10-a07, a08, and a27, which once read another pass's copy).
+
+  enum E
+    a(xs: [4]Int)
+    b
+
+  fun idx(s: ?String, i: Int) -> Int
+    s.len - 1 + i
+
+  fun at2(v: ?List[E], i: Int) -> ?E from v
+    match ?v[idx(?String("a"), i)]
+      x => x
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  sub show(r: ?E)
+    match r
+      .a(xs) => print(xs[0], xs[3])
+      .b => print("b")
+
+  v = [E.a(xs: [7, 7, 7, 7]), E.a(xs: [8, 8, 8, 8])]
+  z = E.b
+  r = ?z
+  for i in 0..2
+    match ?v[idx(?String("a"), i)]
+      x => if i == 0
+        r = x
+  show(r)
+  g = ?z
+  for i in 0..2
+    match ?v[idx(?String("a"), i)]
+      x if i == 0 => g = x
+      _ => print("skip")
+  show(g)
+  w: List[E] = List()
+  !w.push(E.a(xs: [7, 7, 7, 7]))
+  !w.push(E.a(xs: [8, 8, 8, 8]))
+  s = at2(?w, 1)
+  print(clobber(2))
+  show(s)
+
+test "header reads in place", '''
+  1 0
+  2 1
+  7
+  104
+  105
+  2
+  in 3
+  while 3
+  while 3
+  circle 4
+  square 5
+  10
+  11
+  drop 10
+  held 20
+  drop 20
+  3
+  3
+  drop 3
+  drop 7
+'''
+  # A bare place in a header is read where it stands (Core sentence 1):
+  # `for x in v` is `for x in ?v`, `if o as x` over an owning optional is
+  # `if ?o as x`, `match b` on a box or a handle reaches the value it
+  # holds, and a part of a value the header makes is read in that value,
+  # which the construct holds (docs/INTERNALS.md, "Header subjects").
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj Tok unique
+    n: Int
+
+  enum Shape
+    circle(r: Int)
+    square(s: Int)
+
+  obj Bag
+    v: List[Int]
+    o: Res?
+
+  fun mk(n: Int) -> Bag
+    v: List[Int] = List()
+    !v.push(n)
+    !v.push(n + 1)
+    Bag(v: <v, o: Res(n: n))
+
+  fun bytes(t: ?String) -> Int
+    n = 0
+    for _ in t
+      n += 1
+    n
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  for x, i in v
+    print(x, i)
+  rs: List[*Res] = List()
+  !rs.push(*Res(n: 7))
+  for r in rs
+    print(r.n)
+  t = String("hi")
+  for b in t
+    print(b)
+  print(bytes(?t))
+  o: Res? = Res(n: 3)
+  if o as x
+    print("in", x.n)
+  m = 2
+  while o as x and m > 0
+    print("while", x.n)
+    m -= 1
+  b = ^Shape.circle(r: 4)
+  match b
+    .circle(r) => print("circle", r)
+    .square(s) => print("square", s)
+  h = *Shape.square(s: 5)
+  match h
+    .circle(r) => print("circle", r)
+    .square(s) => print("square", s)
+  for x in mk(10).v
+    print(x)
+  if mk(20).o as r
+    print("held", r.n)
+  toks = [Tok(n: 1), Tok(n: 2)]
+  n = 0
+  for k in toks
+    n += k.n
+  for k in [Tok(n: 3)]
+    new e = <k
+    print(e.n)
+  print(n)
+
+fail "header taken value views temporary", "18:12: a view of the temporary `String(\"a text long enough to live on the heap\")` outlives its statement", "21:9: a view of the temporary `String(\"a text long enough to live on the heap\")` outlives its statement", "23:15: a view of the temporary `String(\"a text long enough to live on the heap\")` outlives its statement", errors: 3
+  # A header that takes a value a call makes binds that value, but what it
+  # binds lives through the body: a view in it of a temporary the header
+  # made outlives the temporary, in a `match`, an `if … as`, or a `for`.
+
+  enum F
+    a(s: ?String)
+    b
+
+  fun mkf(t: ?String) -> F
+    .a(s: t)
+
+  fun mko(t: ?String) -> (?String)?
+    t
+
+  fun mka(t: ?String) -> [2]?String
+    [t, t]
+
+  match mkf(?String("a text long enough to live on the heap"))
+    .a(s) => print(s)
+    .b => print("b")
+  if mko(?String("a text long enough to live on the heap")) as s
+    print(s)
+  for s in mka(?String("a text long enough to live on the heap"))
+    print(s)
+
+test "header takes made branches", '''
+  1
+  10
+  4
+  40
+  loops done
+  line 5
+  drop 5
+  line 8
+  drop 8
+  matches done
+  drop 6
+'''
+  # A `for` or `match` header takes a value made there, as `<e` would: a
+  # call's result, and a branching value whose every leaf is made there
+  # (`mk() if c else mk2()`, `<a if c else <b`).
+
+  obj N
+    id: Int
+    t: String
+
+    drop(!self)
+      print("drop", self.id)
+
+  enum Shape
+    dot
+    line(n: N)
+
+  fun mkv(k: Int) -> List[Int]
+    v: List[Int] = List()
+    !v.push(k)
+    !v.push(k * 10)
+    v
+
+  fun mks(k: Int) -> Shape
+    .line(n: N(id: k, t: String("s")))
+
+  c = true
+  for x in (mkv(1) if c else mkv(2))
+    print(x)
+  v = mkv(3)
+  w = mkv(4)
+  for x in (<v if not c else <w)
+    print(x)
+  print("loops done")
+  a = mks(5)
+  b = mks(6)
+  match <a if c else <b
+    .line(n) => print("line", n.id)
+    .dot => print("dot")
+  match mks(7) if not c else mks(8)
+    .line(n) => print("line", n.id)
+    .dot => print("dot")
+  print("matches done")
+
+test "header temporaries end with header", '''
+  drop 1
+  then
+  drop 3
+  drop 2
+  x 2
+  drop 10
+  body 10
+  drop 11
+  body 11
+  drop 12
+  drop 55
+  drop 5
+  drop 6
+  drop 5
+  eq 5
+  drop 2
+  q 0
+  q 1
+  drop 1
+  then 1
+  drop 70
+  0 -1
+  drop 7
+  drop 8
+  y 8
+  drop 20
+  z 0
+  drop 1
+  drop 21
+  z 1
+  drop 1
+  drop 22
+  end
+'''
+  # A header is its own statement: an `if` or `while` condition (each
+  # part of a joined one), a guard, and the subject of a `match` or `for`
+  # (a range's bounds included). Its temporaries are dropped when it ends,
+  # before the body runs, also when it fails or leaves early; the step of
+  # a `while` is a statement too.
+
+  obj N
+    id: Int
+    v: List[Int]
+
+    drop(!self)
+      print("drop", self.id)
+
+  error Bad
+    no
+
+  fun mk(i: Int) -> N
+    v: List[Int] = List()
+    !v.push(i)
+    N(id: i, v: <v)
+
+  fun idof(n: ?N) -> Int
+    n.id
+
+  fun opt(n: ?N) -> Int?
+    return none if n.id > 50
+    n.id
+
+  fun fails(n: ?N) -> Int!
+    return Bad.no if n.id > 60
+    n.id
+
+  enum E
+    a(k: Int)
+    b
+
+  fun mke(n: ?N) -> E
+    .a(k: n.id)
+
+  fun run(k: Int) -> Int!
+    if fails(?mk(k))! > 0
+      print("then", k)
+    0
+
+  if idof(?mk(1)) == 1
+    print("then")
+  x = idof(?mk(2)) if idof(?mk(3)) > 0 else idof(?mk(4))
+  print("x", x)
+  i = 0
+  while opt(?mk(10 + i)) as k and k < 12
+    print("body", k)
+    i += 1
+  j = 0
+  while true
+    k = opt(?mk(55 + j)) ?? break
+    print("never", k)
+  match mke(?mk(5))
+    .a(k) if k > idof(?mk(6)) => print("big", k)
+    .a(k) if k == idof(?mk(5)) => print("eq", k)
+    _ => print("other")
+  for q in 0..idof(?mk(2))
+    print("q", q)
+  print(run(1) catch -1, run(70) catch -1)
+  y = if idof(?mk(7)) > 0
+    idof(?mk(8))
+  else
+    0
+  print("y", y)
+  z = 0
+  while idof(?mk(20 + z)) < 22 : z += idof(?mk(1))
+    print("z", z)
+  print("end")
+
+test "header temporary bound first", '''
+  5
+  [.a(n: 60)] [9]
+  3
+  4
+  1
+  2
+'''
+  # A header that would make a temporary binds what it needs to a name
+  # first, so it is matched where it is: a write through a binding lands
+  # in the place, and a Cell change is seen. A header that takes a value
+  # made there binds that value, temporaries or not.
+
+  enum E
+    a(xs: [4]Int)
+    b
+
+  enum F
+    a(n: Int)
+    b(n: Int)
+
+  obj C
+    c: Cell[Int]
+
+  obj P
+    x: Int
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun opt(n: ?String) -> P?
+    if n.len > 0
+      return P(x: n.len)
+    none
+
+  fun mke(s: ?String) -> E
+    .a(xs: [s.len, 0, 0, 0])
+
+  i = idx(?String("a"))
+  arr = [F.a(n: 1)]
+  match !arr[i]
+    .a(n) if n > 5 => n = 50
+    .a(n) => n = 60
+    .b(n) => print(n)
+  ints: [1]Int? = [1]
+  if !ints[i] as n
+    n = n + 7
+  while !ints[i] as n
+    n = n + 1
+    break
+  cs: [1](*C)? = [*C(c: Cell(1))]
+  if ?cs[i] as c
+    !c.c.set(5)
+  if ?cs[0] as c
+    print(c.c.get())
+  print(arr, ints)
+  match mke(?String("abc"))
+    .a(xs) => print(xs[0])
+    .b => pass
+  if opt(?String("abcd")) as p
+    print(p.x)
+  for x in [[1, 2], [3, 4]][i]
+    print(x)
+
+fail "header temporary outlived", "32:11: the loop would walk the temporary `mk()` after its header drops it", "34:11: the loop would walk a view of the temporary `mv()` after its header drops it", "36:5: cannot move a part out of the temporary `mk()`", errors: 3
+  # A header's temporaries end with the header, so nothing it binds may
+  # view one: not what a `for` lends. A call's result a `for` lends would
+  # end with the header too, and a part of a temporary cannot be moved out
+  # of it. (A bare part of a made value is held for the construct:
+  # test/known/ownership/match_made_part_cell_holder.rig. `as` and `match`
+  # bindings that view one: header_temporary_view_bound.rig.)
+
+  obj B
+    v: List[Int]
+    o: String?
+
+  enum E
+    a(t: String)
+    z
+
+  obj H
+    e: E
+
+  fun mk() -> B
+    v: List[Int] = List()
+    !v.push(1)
+    B(v: <v, o: String("o"))
+
+  fun mke() -> E
+    E.a(t: String("e"))
+
+  fun mv() -> List[Int]
+    v: List[Int] = List()
+    !v.push(2)
+    v
+
+  for x in ?mk().v
+    print(x)
+  for n in ?mv()
+    print(n)
+  x = <mk().v
+  print(x)
+
+test "header temporary points", release: true, '''
+  .a(xs: [7, 7, 7, 7])
+  [.a(n: 50)]
+  7
+  7
+  2 .a(xs: [1, 2, 3, 4])
+  5
+  [.a(n: 51)] [52] 2
+  7
+  a 3
+'''
+  # A `match`, `if … as`, `while … as`, or `for` header whose subject is a
+  # place reached through a statement temporary the header makes (an
+  # index or a call's argument) binds the place's own: a guarded or
+  # unguarded match, a lend of a Box's or a handle's value, a write, a
+  # Cell change, and a catch-all view returned from a function all reach
+  # the place, after the header drops its temporary.
+
+  enum E
+    a(xs: [4]Int)
+    b
+
+  enum F
+    a(n: Int)
+    b(n: Int)
+
+  enum G
+    a(n: Int)
+    b
+
+  obj C
+    c: Cell[Int]
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun at2(v: ?List[E]) -> ?E from v
+    match ?v[idx(?String("a"))]
+      x => x
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  v = [E.a(xs: [7, 7, 7, 7]), E.b]
+  k = 3
+  match ?v[idx(?String("a"))]
+    x if k > 2 => print(x)
+    _ => print(0)
+  arr = [F.a(n: 1)]
+  match !arr[idx(?String("a"))]
+    .a(n) if n > 0 => n = 50
+    .a(n) => n = 60
+    .b(n) => print(n)
+  print(arr)
+  match !arr[idx(?String("a"))]
+    .a(n) => n += 1
+    .b(n) => print(n)
+  ints: [1]Int? = [1]
+  if !ints[idx(?String("a"))] as n
+    n = 50
+  w: Int? = 2
+  if (!ints[idx(?String("a"))] if k > 0 else !w) as n
+    n += 1
+  while !ints[idx(?String("a"))] as n
+    n += 1
+    break
+  cs: [1](*C)? = [*C(c: Cell(1))]
+  if ?cs[idx(?String("a"))] as c
+    !c.c.set(5)
+  bs = [^E.a(xs: [7, 7, 7, 7]), ^E.b]
+  match ?bs[idx(?String("a"))]
+    .a(xs) if k > 2 => print(xs[0])
+    _ => print(0)
+  hs = [*E.a(xs: [7, 7, 7, 7]), *E.b]
+  match ?hs[idx(?String("a"))]
+    .a(xs) => print(xs[3])
+    _ => print(0)
+  ev: List[E] = List()
+  !ev.push(E.a(xs: [1, 2, 3, 4]))
+  r = at2(?ev)
+  print(clobber(1), r)
+  if cs[0] as c
+    print(c.c.get())
+  print(arr, ints, w)
+  pa: [2]Int? = [7, none]
+  pe = [G.a(n: 3), G.b]
+  if pa[idx(?String("a"))] as n
+    print(n)
+  match pe[idx(?String("a"))]
+    .a(n) if n > 1 => print("a", n)
+    .a(_) => print("small")
+    .b => print("b")
+
+fail "header temporary rejected", "36:5: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `opt(?String(\"abc\"))` to a name first", "38:8: bind `opt(?String(\"\"))` to a name first", "40:7: bind `mkh(4)` to a name first", "43:32: bind the index to a name first", errors: 4
+  # A `match`, `if … as`, `while … as`, or `for` header that makes a
+  # statement temporary and has no place outside it to reach (a value made
+  # in the header, or a part of one) is emitted over a copy of that value,
+  # in the block that drops the temporary, so what it binds would be in
+  # that copy: a write, a Cell change, or a view through a binding would
+  # reach the copy. Such a header is rejected, whatever it binds, unless it
+  # takes a value made there (`match mke(?String("a"))`, `if opt(3) as p`),
+  # and the hint says what to bind to a name first. A header that reaches a
+  # place binds the place's own (`header_temporary_points.rig`).
+
+  enum E
+    a(xs: [4]Int)
+    b
+
+  obj P
+    x: Int
+
+  obj H
+    e: E
+    t: String
+
+  fun idx(s: ?String) -> Int
+    s.len - 1
+
+  fun opt(n: ?String) -> P?
+    if n.len > 0
+      return P(x: n.len)
+    none
+
+  fun mkh(n: Int) -> H
+    H(e: E.a(xs: [n, n, n, n]), t: String("h"))
+
+  fun mke(s: ?String) -> E
+    .a(xs: [s.len, 0, 0, 0])
+
+  if ?opt(?String("abc")) as p
+    print(p.x)
+  while ?opt(?String("")) as q
+    print(q.x)
+  match mkh(4).e
+    .a(xs) => print(xs[0])
+    .b => pass
+  for x in [[1, 2], [3, 4]][idx(?String("ab"))]
+    print(x)
+  match mke(?String("a"))
+    .a(xs) => print(xs[0])
+    .b => pass
+  if opt(?String("abc")) as p
+    print(p.x)
+
+fail "header temporary view bound", "20:5: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first", "22:8: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mk()` to a name first", "25:8: this header binds a copy of its subject, since a temporary it makes ends with the header: bind `mke()` to a name first", errors: 3
+  # What `if … as`, `while … as`, or `match` binds lives through the
+  # body, past its header, so it may not lend a temporary the header
+  # made.
+  #
+  # oracle: main reject C5
+
+  obj B
+    o: String?
+
+  enum E
+    a(t: String)
+    z
+
+  fun mk() -> B
+    B(o: String("o"))
+
+  fun mke() -> E
+    E.a(t: String("e"))
+
+  if ?mk().o as t
+    print(t)
+  while ?mk().o as u
+    print(u)
+    break
+  match ?mke()
+    .a(t) => print(t)
+    .z => pass
+
+fail "header view loans", "22:5: cannot lend `v` to write while a read loan is live", "27:5: cannot reassign `o` while it is lent", "34:8: cannot drop `b` while it is lent", "42:8: a view of the temporary `mkh()` outlives its statement", errors: 4
+  # A header that reads a bare place keeps it lent while what it binds is
+  # used, as `?p` does; a value it holds ends with the construct.
+
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  obj H
+    e: E
+
+  fun mkh() -> H
+    H(e: E.a(r: Res(n: 1, t: String("a"))))
+
+  sub loops()
+    v: List[Int] = List()
+    !v.push(1)
+    for x in v
+      !v.push(x)
+
+  sub ifs()
+    o: List[Int]? = List()
+    if o as x
+      o = none
+      print(x.len)
+
+  sub boxes()
+    b = ^E.a(r: Res(n: 2, t: String("b")))
+    match b
+      .a(r)
+        <b
+        print(r.n)
+      .b => pass
+
+  sub held()
+    keep = Res(n: 0, t: String("c"))
+    saved = ?keep
+    match mkh().e
+      .a(r) => saved = ?r
+      .b => pass
+    print(saved.n)
+
+  loops()

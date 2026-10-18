@@ -1,0 +1,595 @@
+# ownership: tests whose names start `drop`.
+
+test "drop body calls write method", '''
+  made 1
+  drop 2
+'''
+  # A drop body can call a `!self` method on the value being destroyed.
+
+  obj N
+    id: Int
+
+    sub bump(!self)
+      self.id += 1
+
+    drop(!self)
+      !self.bump()
+      print("drop", self.id)
+
+  x = N(id: 1)
+  print("made", x.id)
+
+fail "drop body reads view stored through moved write view", "23:11: `x` is dropped before `o`, whose `drop` body could still read it through this view"
+  # A view stored through a moved write view is held by the value the
+  # view leads to, whose `drop` body could read it after it is dropped.
+
+  obj Res
+    v: List[Int]
+
+  obj View
+    r: ?Res
+
+    drop(!self)
+      print("view drop reads", self.r.v[0])
+
+  obj Outer
+    inner: View?
+
+  sub fill(o: !Outer, r: ?Res) keeps r
+    o.inner = View(r: r)
+
+  o = Outer(inner: none)
+  x = Res(v: List())
+  !x.v.push(5)
+  w = !o
+  fill(<w, ?x)
+
+fail "drop body reads younger view", "`x` is dropped before `h`", "`z` is dropped before `w`", "`x` is dropped before `h`"
+  # Values are dropped youngest first at the end of their block. A value
+  # whose `drop` body runs must not lend a younger value, directly or
+  # through a view: the younger one is dropped first, and the body would
+  # read it after.
+
+  obj Wrap
+    v: List[Int]
+
+  obj View
+    b: ?Wrap
+
+  obj Holder
+    b: ?Wrap
+
+    drop(!self)
+      print("holder drop reads", self.b.v[0])
+
+  obj Watcher
+    w: ?View
+
+    drop(!self)
+      print("watcher drop reads", self.w.b.v[0])
+
+  y0 = Wrap(v: List())
+  !y0.v.push(0)
+  h = Holder(b: ?y0)
+  x = Wrap(v: List())
+  !x.v.push(42)
+  h.b = ?x
+  v0 = View(b: ?y0)
+  w = Watcher(w: ?v0)
+  z = Wrap(v: List())
+  vw = View(b: ?z)
+  w.w = ?vw
+
+  sub early(c: Bool)
+    y0 = Wrap(v: List())
+    h = Holder(b: ?y0)
+    if c
+      x = Wrap(v: List())
+      h.b = ?x
+      return
+
+test "drop body reassigns field", '''
+  made 0
+  replaced 7
+'''
+  # A drop body may replace an owning field: the new value is released
+  # with the other fields after the body returns.
+
+  obj Owner
+    cell: *Cell[Int]
+
+    drop(!self)
+      fresh: *Cell[Int] = *Cell(7)
+      self.cell = <fresh
+      print("replaced", self.cell.get())
+
+  o = Owner(cell: *Cell(0))
+  print("made", o.cell.get())
+
+test "drop body views older value", '''
+  end
+  guard sees 2
+'''
+  # A value whose `drop` body uses a view may hold one of an older
+  # value: the younger value is dropped first, while what it views is
+  # still alive.
+
+  obj Wrap
+    n: Int
+
+  obj Guard
+    b: ?Wrap
+
+    drop(!self)
+      print("guard sees", self.b.n)
+
+  x = Wrap(n: 1)
+  y = Wrap(n: 2)
+  g = Guard(b: ?x)
+  g.b = ?y
+  print("end")
+
+fail "drop captured resource", "cannot drop captured `sig`: the closure keeps what it captures for every call"
+  # A closure body cannot drop a captured resource: the capture belongs to
+  # the closure env, and a retained closure may be called again.
+
+  sig: *Signal[Int] = *Signal(0)
+  bump = |+sig|
+    <sig
+    print("dropped")
+  bump()
+
+test "drop ends string view", '''
+  ab
+  a
+  bcde 1
+  0
+'''
+  # A String may view a Text, so a statement `<s` of a String, or of a
+  # struct or iterator holding Strings, ends the loan it carries: the
+  # Text may then change.
+
+  obj Split
+    rest: ?String
+
+    fun next(!self) -> (?String)?
+      return none if self.rest.len == 0
+      part = self.rest[..1]
+      self.rest = self.rest[1..]
+      part
+
+  fun split(s: ?String) -> Split
+    Split(rest: s)
+
+  obj Pair
+    a: ?String
+    b: Int
+
+  t = String("abc")
+  s = ?t[..2]
+  print(s)
+  <s
+  !t.add("d")
+  it = split(?t)
+  if (!it).next() as first
+    print(first)
+  <it
+  !t.add("e")
+  p = Pair(a: ?t[1..], b: 1)
+  print(p.a, p.b)
+  <p
+  !t.clear()
+  lit: ?String = "hi"
+  <lit
+  print(t.len)
+
+fail "drop glue struct alias", "`o1` owns an `Owner`, which can't be copied by `=`: write `<o1` to move it, `+o1` to clone it, or `?o1` to view it"
+  # A struct with a resource field has drop glue, so a bare alias
+  # (`o2 = o1`) is rejected: both bindings would run the destructor.
+
+  obj Owner
+    cell: *Cell[Int]
+
+  o1 = Owner(cell: *Cell(0))
+  o2 = o1
+  print(o2.cell.get())
+
+test "drop of views is no use", '''
+  5
+  [[1, 2], [2, 3]]
+  [9, 2, 3]
+  7
+  x 2
+  z
+  9
+  x y
+  4 5
+  11
+  x
+  7
+  13
+  [4, 5]
+  [4, 6]
+  1 a
+  2 b
+  c
+  15
+  inner
+  after
+  1
+  deferred 2
+  1 x
+  2
+'''
+  # Dropping a container of views is not a use of those views: a List, a
+  # generic instance, a struct, or a closure's environment that holds views and runs no
+  # `drop` body keeps their loans only until its last use, not until it is
+  # dropped where its scope ends (Core sentence 6). So the viewed owners may
+  # change after that, and a view of a value from an inner block may stay
+  # in it.
+  # oracle: slices accept
+  # oracle: returned accept
+  # oracle: fields accept
+  # oracle: elements accept
+  # oracle: in_closure accept
+  # oracle: loops accept
+  # oracle: inner_block accept
+  # oracle: deferred accept
+
+  obj Item
+    n: Int
+    name: ?String
+
+  obj Holder[T]
+    items: List[T]
+
+  obj Views
+    first: ?Item
+    rest: List[?Item]
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1] + b[2]
+
+  fun firsts(a: ?Item, b: ?Item) -> List[?Item]
+    v: List[?Item] = List()
+    !v.push(a)
+    !v.push(b)
+    v
+
+  sub slices()
+    a = [1, 2, 3]
+    v: List[[]Int] = List()
+    !v.push(?a[..2])
+    !v.push(?a[1..])
+    print(clobber(1))
+    print(v)
+    a[0] = 9
+    print(a)
+
+  sub returned()
+    x = Item(n: 1, name: "x")
+    y = Item(n: 2, name: "y")
+    v = firsts(?x, ?y)
+    print(clobber(2))
+    print(v[0].name, v[1].n)
+    x = Item(n: 3, name: "z")
+    print(x.name)
+
+  sub fields()
+    x = Item(n: 1, name: "x")
+    y = Item(n: 2, name: "y")
+    s = Views(first: ?x, rest: List())
+    !s.rest.push(?y)
+    print(clobber(3))
+    print(s.first.name, s.rest[0].name)
+    y.n = 5
+    x = Item(n: 4, name: "w")
+    print(x.n, y.n)
+
+  sub elements()
+    x = Item(n: 1, name: "x")
+    rows: List[List[?Item]] = List()
+    row: List[?Item] = List()
+    !row.push(?x)
+    !rows.push(<row)
+    print(clobber(4))
+    print(rows[0][0].name)
+    x.n = 7
+    print(x.n)
+
+  sub generic()
+    a = [4, 5]
+    h: Holder[[]Int] = Holder(items: List())
+    !h.items.push(?a[..])
+    print(clobber(5))
+    print(h.items[0])
+    a[1] = 6
+    print(a)
+
+  sub loops()
+    xs = [Item(n: 1, name: "a"), Item(n: 2, name: "b")]
+    seen: List[?Item] = List()
+    for i in 0..2
+      !seen.push(?xs[i])
+      print(seen.len, seen[i].name)
+    xs[0] = Item(n: 3, name: "c")
+    print(xs[0].name)
+
+  sub inner_block()
+    v: List[?Item] = List()
+    if true
+      t = Item(n: 8, name: "inner")
+      !v.push(?t)
+      print(clobber(6))
+      print(v[0].name)
+    print("after")
+
+  sub deferred()
+    x = Item(n: 1, name: "x")
+    defer print("deferred", x.n)
+    v: List[?Item] = List()
+    !v.push(?x)
+    print(v.len)
+    x.n = 2
+
+  sub in_closure()
+    x = Item(n: 1, name: "x")
+    v: List[?Item] = List()
+    !v.push(?x)
+    f = |<v| print(v.len, v[0].name)
+    f()
+    x.n = 2
+    print(x.n)
+
+  slices()
+  returned()
+  fields()
+  elements()
+  generic()
+  loops()
+  inner_block()
+  deferred()
+  in_closure()
+
+fail "drop of views reads through body", "28:3: cannot assign to `x.n` while `x` is lent", "35:3: cannot assign to `x.n` while `x` is lent", "41:3: cannot assign to `x.n` while `x` is lent", "48:3: cannot assign to `x.n` while `x` is lent", "54:3: cannot assign to `x.n` while `x` is lent", "62:3: cannot assign to `x.n` while `x` is lent", "68:26: `t` does not live long enough", errors: 7
+  # A container whose drop runs a `drop` body keeps the loans of the views
+  # it holds until it is dropped, since the body could read them: a struct
+  # with a `drop` body, a List, counted handle, or closure environment of
+  # one. A container used later, or in deferred code, keeps them too.
+  # oracle: own_body reject C4
+  # oracle: vec_of_bodies reject C4
+  # oracle: counted reject C4
+  # oracle: used_later reject C4
+  # oracle: deferred reject C4
+  # oracle: outlived reject C5
+
+  obj Item
+    n: Int
+
+  obj Guard
+    item: ?Item
+
+    drop(!self)
+      print("guard", self.item.n)
+
+  obj Plain
+    item: ?Item
+
+  sub own_body()
+    x = Item(n: 1)
+    g = Guard(item: ?x)
+    print(g.item.n)
+    x.n = 2
+
+  sub vec_of_bodies()
+    x = Item(n: 1)
+    gs: List[Guard] = List()
+    !gs.push(Guard(item: ?x))
+    print(gs.len)
+    x.n = 2
+
+  sub counted()
+    x = Item(n: 1)
+    g = *Guard(item: ?x)
+    print(g.item.n)
+    x.n = 2
+
+  sub closure_env()
+    x = Item(n: 1)
+    g = Guard(item: ?x)
+    f = |<g| print(g.item.n)
+    f()
+    x.n = 2
+
+  sub used_later()
+    x = Item(n: 1)
+    v: List[?Item] = List()
+    !v.push(?x)
+    x.n = 2
+    print(v.len)
+
+  sub deferred()
+    x = Item(n: 1)
+    v: List[?Item] = List()
+    defer print(v.len)
+    !v.push(?x)
+    x.n = 2
+
+  sub outlived()
+    v: List[Plain] = List()
+    if true
+      t = Item(n: 3)
+      !v.push(Plain(item: ?t))
+    print(v.len)
+
+  own_body()
+
+fail "drop self in drop body", "cannot drop `self` inside its own drop body"
+  # A drop body cannot drop `self`.
+
+  obj Owner
+    cell: *Cell[Int]
+
+    drop(!self)
+      <self
+
+test "drop stack closure releases captures", '''
+  has 1
+  drop 1
+  after drop
+  clone 2
+  end
+  drop 2
+'''
+  # `<f` on a closure that owns its captures releases them now; a closure
+  # that is not dropped releases them at scope exit.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  b = B(n: 1)
+  f = |<b| print("has", b.n)
+  f()
+  <f
+  print("after drop")
+  c = *B(n: 2)
+  g = |+c| print("clone", c.n)
+  g()
+  if c.n > 5
+    <g
+  print("end")
+
+test "drop statement takes", '''
+  drop 1
+  drop 2
+  field true
+  drop 4
+  drop 5
+  element true
+  drop 6
+  drop 7
+  kept 8
+  passed 10
+  closure 11
+  end
+  drop 11
+  drop 10
+  drop 8
+  drop 9
+  drop 3
+'''
+  # A statement `<e` moves `e` nowhere, so what it takes is dropped now: a
+  # binding, an optional field or element (left `none`), or a value a call
+  # makes. Where a value is used (a function's last line, a branch whose
+  # value is bound, a closure's last line), `<e` moves the value there.
+
+  obj F
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj S
+    f: F?
+    g: F
+
+  fun mk(n: Int) -> F
+    F(n: n)
+
+  fun pass_on(x: F) -> F
+    <x
+
+  fun neg(n: Int) -> Int
+    -n
+
+  a = F(n: 1)
+  <a
+  s = S(f: F(n: 2), g: F(n: 3))
+  <s.f
+  print("field", s.f == none)
+  <mk(4)
+  v: List[F?] = List()
+  !v.push(mk(5))
+  <v[0]
+  print("element", v[0] == none)
+  b = mk(6)
+  <b if neg(1) < 0
+  c = mk(7)
+  match c.n
+    7 => <c
+    _ => pass
+  d = mk(8)
+  e = mk(9)
+  k = true
+  x = if k
+    <d
+  else
+    <e
+  print("kept", x.n)
+  y = pass_on(mk(10))
+  print("passed", y.n)
+  f = |n: Int|
+    q = mk(n)
+    <q
+  w = f(11)
+  print("closure", w.n)
+  print("end")
+
+fail "drop statement undroppable", "10:4: cannot drop view parameter `o`; the caller owns what it views", "18:4: cannot drop captured view `v`; the closure holds it for every call", "22:4: cannot drop captured `s`: the closure keeps what it captures for every call", "26:4: cannot drop loop view `x`"
+  # `<x` does not drop a view parameter, a closure's capture, or a `for`
+  # element that views a slot of the List it walks: the same rule the hint
+  # for a statement `-x` follows. A write view of an element, and a local
+  # view, are dropped.
+
+  sub each(f: ?sub(Int))
+    f(1)
+
+  sub look(o: ?List[Int])
+    <o
+
+  v: List[List[Int]] = List()
+  !v.push(List[Int]())
+  s: ?String = "abc"
+  r = ?v
+  <r
+  each(|?v, i|
+    <v
+    print(i)
+  )
+  each(|+s, i|
+    <s
+    print(i)
+  )
+  for x in ?v
+    <x
+  for y in !v
+    <y
+  print(v.len, s)
+
+fail "drop string view then use", "8:7: use of `s` after drop", errors: 1
+  # Dropping a String that views a Text ends its loan, and the String
+  # may not be used after it.
+
+  t = String("abc")
+  s = ?t[..2]
+  <s
+  !t.add("d")
+  print(s)
+
+fail "drop view param", "cannot drop view"
+  # A view parameter cannot be dropped; the caller owns it.
+
+  obj Wrap
+    payload: Int
+
+  sub kill(rc: ?*Wrap)
+    <rc
+
+  rc = *Wrap(payload: 5)
+  kill(?rc)
+  print(rc.payload)

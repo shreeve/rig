@@ -1,0 +1,721 @@
+# types: tests whose names start `write`.
+
+use std.hash
+
+fail "write call already lent", "`(!b)` already lends `b` to write: remove the outer `!` and write `(!b).ensure(1, List())`"
+  # A receiver already lent to write, `(!b)`, takes no second `!`: the
+  # outer one is removed, not parenthesized again.
+
+
+  b = hash.Map[Int, List[Int]].new()
+  !(!b).ensure(1, List()).push(5)
+  print(b.len)
+
+fail "write call hint value used", "10:5: write `(!self.v).pop()`: a write call whose value is used puts its `!` in parentheses", "18:7: method `pop` needs its receiver lent to write; write `(!v).pop()`", "19:3: method `pop` needs its receiver lent to write; write `!v.pop()`", "20:5: `pop` does not consume its receiver; it writes it: `(!v).pop()`, and its result needs no `<`", "21:5: `pop` writes its receiver: write `(!v).pop()`; to lend the call's result, write `?(v.pop())`", "22:5: write `(!w).pop()`: the call writes `w`", "23:5: `take` changes its receiver, a temporary no name holds; add `!`: `(!mk()).take()`", errors: 7
+  # A hint that writes a write call writes it as the call is used: the
+  # long form `(!v).m(...)` where its value is used, and the short form
+  # where it is discarded, so following a hint never draws the error that
+  # a write call whose value is used puts its `!` in parentheses.
+
+  obj Box2
+    v: List[Int]
+
+    fun take(!self) -> Int?
+      !self.v.pop()
+
+  fun mk() -> Box2
+    Box2(v: List())
+
+  v: List[Int] = List()
+  w = !v
+  b = mk()
+  x = v.pop()
+  v.pop()
+  y = <v.pop()
+  z = ?v.pop()
+  q = w.pop()
+  s = mk().take()
+  print(x, y, z, q, s, b.v.len)
+
+fail "write lend constant", "56:7: cannot lend constant `Color.red` to write: it lives for the whole program and never changes", "57:7: cannot lend constant `E.bad` to write", "58:7: cannot lend constant `false` to write", "59:7: cannot lend constant `\"abc\"` to write", "60:7: cannot lend constant `none` to write", "61:6: cannot lend constant `5` to write", "62:6: cannot lend constant `-5` to write", "63:7: cannot lend constant `2 + 3` to write", "64:8: cannot lend constant `not true` to write", "65:8: cannot lend constant `Color.red if f(1) == 1 else Color.green` to write", "66:6: cannot lend constant `Int.max` to write", "67:7: cannot lend constant `U8.max` to write", "68:7: cannot lend constant `Int.max - 1` to write", "69:7: cannot lend constant `f` to write", "70:7: cannot lend constant `P.origin` to write", errors: 15
+  # A constant lives for the whole program and never changes (Core
+  # sentence 7), so it is never lent to write: a literal, `none`, an enum
+  # variant that holds no payload, an error value, a number type's limit,
+  # a function or a type's function, a module's constant, an operator
+  # applied to constants, or a value that branches, every value of which
+  # is a constant. One that may be a value made at run time is a
+  # temporary instead, lent to write in its statement's slot
+  # (`test/behavior/ownership/write_lend_temporary_branches.rig`); a binding that holds a function is a name like any
+  # other (`test/behavior/types/write_lend_function_binding.rig`).
+  # (Another module's: `modules/foreign_variant_write`.)
+
+  enum Color
+    red
+    green
+
+  error E
+    bad
+    worse
+
+  sub setc(c: !Color)
+    c = .green
+
+  sub sete(e: !E)
+    e = .worse
+
+  sub setb(b: !Bool)
+    b = true
+
+  sub sets(s: !String)
+    s = String("x")
+
+  sub seto(o: !Int?)
+    o = 1
+
+  sub inc(n: !Int)
+    n += 1
+
+  sub setu(u: !U8)
+    u = 1
+
+  obj P
+    x: Int
+
+    fun origin() -> P
+      P(x: 0)
+
+  sub setf(g: !fun(Int) -> Int)
+    print(g(1))
+
+  sub setp(g: !fun() -> P)
+    print(g().x)
+
+  fun f(n: Int) -> Int
+    n
+
+  setc(!Color.red)
+  sete(!E.bad)
+  setb(!false)
+  sets(!"abc")
+  seto(!none)
+  inc(!5)
+  inc(!-5)
+  inc(!(2 + 3))
+  setb(!(not true))
+  setc(!(Color.red if f(1) == 1 else Color.green))
+  inc(!Int.max)
+  setu(!U8.max)
+  inc(!(Int.max - 1))
+  setf(!f)
+  setp(!P.origin)
+
+test "write lend function binding", '''
+  1
+  20
+'''
+  # A binding that holds a function is a name like any other: it may be
+  # lent to write, and the callee may re-point it. A function itself is a
+  # constant (`test/reject/types/write_lend_constant.rig`).
+
+  fun f(n: Int) -> Int
+    n
+
+  fun g(n: Int) -> Int
+    n * 10
+
+  sub setf(h: !fun(Int) -> Int)
+    print(h(1))
+    h = g
+
+  h = f
+  setf(!h)
+  print(h(2))
+
+fail "write receiver branches", "14:2: method `bump` writes its receiver, and `p if c else q` may be `p`, a value a name holds", "15:2: method `bump` writes its receiver, and `o ?? q` may be `o`, a value a name holds", "16:3: method `bump` needs its receiver lent to write; write `!p.bump()`", errors: 3
+  # A `!self` method writes its receiver: a branching value that may be a
+  # name's would be written as a copy (plain data too), and a place is
+  # lent with `!`.
+  obj P
+    x: Int
+
+    sub bump(!self)
+      self.x += 1
+
+  p = P(x: 1)
+  q = P(x: 2)
+  o: P? = P(x: 3)
+  c = true
+  (p if c else q).bump()
+  (o ?? q).bump()
+  p.bump()
+  print(p.x, q.x)
+
+test "write self assign", '''
+  6
+  0
+'''
+  # `!self` is assignable: a method can replace the whole receiver.
+
+  obj Counter
+    n: Int
+
+    sub reset(!self)
+      self = Counter(n: 0)
+
+    sub bump(!self)
+      self.n += 1
+
+  c = Counter(n: 5)
+  !c.bump()
+  print(c.n)
+  !c.reset()
+  print(c.n)
+
+test "write slice", '''
+  [9, 9, 3, 4]
+  [9, 9, 13, 14]
+  [7, 18, 13, 14] 4 52 31
+  [7, 99, 13, 14]
+  [0, 0, 0, 0]
+  [1, 12, 13, 4]
+  66
+  [11, 20, 35]
+  0 0
+  [0, 1, 2, 3]
+'''
+  # `!xs[a..b]` is a `![]T`: a write view of the elements from `a` up to
+  # `b`, of an array or a List of plain data. Its elements are assigned
+  # with `s[i] = v`, written in a loop with `for x in !s`, and resliced
+  # with `!s[a..b]`. It is accepted where a `[]T` is expected.
+
+  obj Grid
+    cells: [4]Int
+
+  fun total(xs: []Int) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  sub fill(s: ![]Int, v: Int)
+    for x in !s
+      x = v
+
+  sub bump(s: ![]Int)
+    i = 0
+    while i < s.len : i += 1
+      s[i] += 10
+
+  fun tail(s: ![]Int) -> ![]Int
+    !s[1..]
+
+  sub clear(a: ![4]Int)
+    fill(!a[..], 0)
+
+  a = [1, 2, 3, 4]
+  fill(!a[0..2], 9)
+  print(a)
+  bump(!a[2..])
+  print(a)
+  w = !a[..]
+  w[0] = 7
+  w[1] *= 2
+  print(w, w.len, total(w), total(?w[1..3]))
+  t = tail(!a[..])
+  t[0] = 99
+  print(a)
+  clear(!a)
+  print(a)
+  g = Grid(cells: [1, 2, 3, 4])
+  bump(!g.cells[1..3])
+  print(g.cells)
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  !v.push(3)
+  for x in !v[1..]
+    x *= 5
+  s = !v[..]
+  bump(!s)
+  bump(!s[2..])
+  print(total(s))
+  print(v)
+  z = !a[2..2]
+  print(z.len, total(z))
+  for x, i in !a[..]
+    x = i
+  print(a)
+
+test "write slice as read", '''
+  3
+  1 [1, 2, 3]
+  [5, 2, 3]
+'''
+  # A `![]T` passed where a `[]T` is expected is lent to read: two reads
+  # of it in one call are fine, and so is reading it while a view returned
+  # from it lives.
+
+  fun sum2(x: []Int, y: []Int) -> Int
+    x[0] + y[1]
+
+  fun id(s: []Int) -> []Int
+    s
+
+  a = [1, 2, 3]
+  w = !a[..]
+  print(sum2(w, w))
+  r = id(w)
+  print(w[0], r)
+  w[0] = 5
+  print(a)
+
+test "write slice empty", '''
+  0 []
+  []
+  0
+  0
+  0 0
+  1 [3, 2, 1]
+  0
+  true
+'''
+  # Empty and nested write slices: at the end of an array, of an empty array
+  # or List or String, reslices down to nothing, and a generic `![]T`.
+
+  fun first[T](s: ![]T) -> T
+    t = s[0]
+    s[0] = s[s.len - 1]
+    s[s.len - 1] = t
+    t
+
+  a = [1, 2, 3]
+  z = !a[3..]
+  print(z.len, z)
+  !z.fill(9)
+  k = [7]
+  !z.copy(?k[1..])
+  e: [0]Int = []
+  !e.fill(1)
+  print(e)
+  v: List[Int] = List()
+  w = !v[..]
+  !w.fill(4)
+  print(w.len)
+  b: [0]U8 = []
+  eb = !b[..]
+  print(eb.len)
+  s = ""
+  print(s[..].len, s[0..].len)
+  print(first(!a[..]), a)
+  n = !a[1..]
+  m = !n[1..]
+  o = !m[..0]
+  print(o.len)
+  print(?a[..] == ?a[..])
+
+fail "write slice needs sigil", "6:5: a slice of a `![]T` views it; write `?w[1..]` or `!w[1..]`"
+  # A slice of a `![]T` views it, like a slice of an array: it is taken
+  # with `?` or `!`.
+
+  a = [1, 2, 3]
+  w = !a[..]
+  t = w[1..]
+  print(t)
+
+fail "write slice param assign", "5:7: cannot point parameter `s` at another place: parameters are immutable, and `s[i] = v` writes its elements"
+  # A `![]T` parameter views the caller's elements: it is written element
+  # by element, and never points elsewhere.
+
+  sub f(s: ![]Int, t: ![]Int)
+    s = <t
+    s[0] = 7
+
+  a = [1, 2]
+  b = [3, 4]
+  f(!a[..], !b[..])
+
+test "write slice places", '''
+  1
+  1
+  2
+  3
+  [1, 2]
+  [4, 5, 42]
+  [[1, 2, 3], [0, 5, 6]]
+  [7, 80, 9]
+  [1, 20, 3]
+  [30]
+  0
+  [1, 20, 33]
+'''
+  # A write slice of an array anywhere a place reaches one: a row of a 2D
+  # array, a field of an element of a `![]T` or a List, and a parameter.
+  # A `![]T` also goes where a generic `[]T` does, is returned from a
+  # `!List[T]` parameter, may be empty, and moves with `<`.
+
+  obj S
+    arr: [3]Int
+
+  fun first[T](xs: []T) -> T
+    xs[0]
+
+  fun head(xs: []S) -> []Int
+    ?xs[0].arr[0..2]
+
+  sub poke(s: ![]Int)
+    s[0] = 20
+
+  sub setrow(s: ![]S)
+    w = !s[1].arr[..]
+    w[2] = 42
+
+  fun items(v: !List[Int]) -> ![]Int
+    !v[..]
+
+  a = [1, 2, 3]
+  w = !a[..]
+  print(first(w))
+  for x in w
+    print(x)
+  bs = [S(arr: [1, 2, 3]), S(arr: [4, 5, 6])]
+  print(head(?bs[..]))
+  setrow(!bs[..])
+  print(bs[1].arr)
+  grid = [[1, 2, 3], [4, 5, 6]]
+  r = !grid[1][..]
+  r[0] = 0
+  print(grid)
+  vs: List[S] = List()
+  !vs.push(S(arr: [7, 8, 9]))
+  q = !vs[0].arr[1..]
+  q[0] = 80
+  print(vs[0].arr)
+  poke(!a[1..])
+  print(a)
+  v: List[Int] = List()
+  !v.push(3)
+  it = items(!v)
+  it[0] = 30
+  print(v)
+  e: [0]Int = []
+  z = !e[..]
+  print(z.len)
+  m = !a[..]
+  n = <m
+  n[2] = 33
+  print(a)
+
+test "write slice quicksort", '''
+  [-2, 0, 1, 3, 3, 5, 5, 7, 8, 9]
+  [4, 1, 2, 3]
+  [7]
+'''
+  # An in-place quicksort over a `![]Int`: each half is a reslice of the
+  # write view, passed on to the recursive call.
+
+  sub quicksort(s: ![]Int)
+    if s.len < 2
+      return
+    last = s.len - 1
+    pivot = s[last]
+    i = 0
+    j = 0
+    while j < last : j += 1
+      if s[j] < pivot
+        !s.swap(i, j)
+        i += 1
+    !s.swap(i, last)
+    quicksort(!s[..i])
+    quicksort(!s[i + 1..])
+
+  a = [5, 3, 9, 1, 5, 8, -2, 7, 0, 3]
+  quicksort(!a[..])
+  print(a)
+  v: List[Int] = List()
+  for x in [4, 1, 3, 2]
+    !v.push(x)
+  quicksort(!v[1..])
+  print(v)
+  e = [7]
+  quicksort(!e[..])
+  quicksort(!e[1..])
+  print(e)
+
+fail "write through temporary", "6:6: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 1
+  # No value a binding does not hold carries a write view in a field to be
+  # written through (`mk(!n).w = 5`): a write view is never stored inside
+  # a value, so the field is rejected where it is declared.
+
+  obj H
+    w: !Int
+
+  n = 1
+  print(n)
+
+fail "write through view field mismatch", "6:6: a write view is never stored inside a value, and `!List[Int]` cannot stand here", errors: 1
+  # No field is a `!T` that an assignment could write through or point
+  # elsewhere: a write view is never stored inside a value, so the field
+  # is rejected where it is declared.
+
+  obj H
+    w: !List[Int]
+
+  v: List[Int] = List()
+  print(v.len)
+
+test "write view bindings", "1112"
+  # A write view stands in a parameter, a result, a receiver, and a local
+  # or header binding, also as `(!T)?` and `(!T)!`.
+
+  obj P
+    n: Int
+
+    fun bump(!self) -> !Int
+      self.n += 1
+      !self.n
+
+  error Bad
+    bad
+
+  fun pick(a: !P, k: Bool) -> (!P)?
+    return none if k
+    a
+
+  fun must(a: !P, k: Bool) -> (!P)!
+    return Bad.bad if k
+    a
+
+  p = P(n: 1)
+  o: (!P)? = pick(!p, false)
+  if !o as w
+    w.n += 10
+  w = must(!p, false)!
+  w.n += 100
+  r = (!p).bump()
+  r += 1000
+  print(p.n)
+
+test "write view bool", '''
+  false
+  false
+  true
+  false
+'''
+  # A write view of a `Bool` goes where a `!Bool` is expected: a
+  # parameter, a field of a struct, a declared binding, forwarded on.
+
+  sub flip(f: !Bool)
+    f = not f
+
+  sub twice(f: !Bool)
+    flip(!f)
+    flip(!f)
+    print(f)
+
+  obj Flags
+    ready: Bool
+
+  a = true
+  flip(!a)
+  print(a)
+  twice(!a)
+  flags = Flags(ready: false)
+  flip(!flags.ready)
+  print(flags.ready)
+  view: !Bool = !a
+  print(view)
+
+fail "write view bool as not", "11:7: `!` lends to write; use `not` for negation", "15:6: `!` lends to write; use `not` for negation", "19:13: `!` lends to write; use `not` for negation", "23:20: `!` lends to write; use `not` for negation", "26:13: `!` lends to write; use `not` for negation", "29:15: `!` lends to write; use `not` for negation", "32:9: `ok` does not write its receiver; for negation use `not`", "36:6: `!` lends to write; use `not` for negation"
+  # `!` is a write view, never negation: a write view of a `Bool`
+  # read as a `Bool` is rejected wherever it appears, and so is `!` before
+  # a method that only reads its receiver (`!c.ok()`).
+
+  obj C
+    n: Int
+    fun ok(?self) -> Bool
+      self.n > 0
+
+  sub bound(a: Bool)
+    b = !a
+    print(b)
+
+  sub condition(a: Bool)
+    if !a
+      print("no")
+
+  sub declared(a: Bool)
+    x: Bool = !a
+    print(x)
+
+  sub operands(a: Int, b: Bool)
+    print(a == 1 and !b)
+
+  sub negated(a: Bool)
+    print(not !a)
+
+  sub guarded(ok: Bool)
+    print(1) if !ok
+
+  sub looped(c: C)
+    while !c.ok()
+      break
+
+  sub forwarded(f: !Bool)
+    if !f
+      print("no")
+
+  bound(true)
+  condition(true)
+  declared(true)
+  operands(1, true)
+  negated(true)
+  guarded(true)
+  looped(C(n: 1))
+  flag = true
+  forwarded(!flag)
+
+test "write view calls mutating method", '''
+  5
+  3 3
+'''
+  # A binding that already holds a write view (`x: !T`, `!self`, a local
+  # `w = !v`) calls a `!self` method as an owned binding does, `!x.m()`:
+  # lending a write view always shows its sigil.
+
+  obj Counter
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+    sub bump_twice(!self)
+      !self.bump()
+      !self.bump()
+
+  sub add_three(c: !Counter)
+    !c.bump()
+    !c.bump_twice()
+
+  sub fill(v: !List[Int])
+    !v.push(1)
+    !v.push(2)
+
+  c = Counter(n: 0)
+  add_three(!c)
+  !c.bump()
+  w = !c
+  !w.bump()
+  print(c.n)
+  v: List[Int] = List()
+  fill(!v)
+  b = !v
+  !b.push(3)
+  print(v.len, v[2])
+
+fail "write view immutable bindings", "cannot lend parameter `n` to write", "cannot lend fixed binding `y` to write", "cannot lend captured `k` to write", "cannot lend `x` to write; loop and pattern bindings are immutable", "cannot lend `v` to write: it is a copy of the value inside `m`; to change that value in place, bind it with `!m as v`"
+  # `!x` writes through `x`, so `x` must be mutable: a plain parameter, a
+  # fixed binding, a capture, and a loop or `as` binding are not.
+
+  sub bump(c: !Int)
+    c = c + 1
+
+  sub f(n: Int)
+    bump(!n)
+
+  y =! 1
+  bump(!y)
+  k = 1
+  g = |+k|
+    bump(!k)
+  g()
+  for x in [1, 2]
+    bump(!x)
+  m: Int? = 3
+  if m as v
+    bump(!v)
+  f(1)
+
+test "write view int param", "2"
+  # A `!Int` parameter writes through to the caller's binding.
+
+  sub bump(c: !Int)
+    c = c + 1
+
+  n = 1
+  bump(!n)
+  print(n)
+
+fail "write view of string type", "5:14: `!?String` cannot be written", "8:15: `!?String` cannot be written", errors: 2
+  # Nothing lends a `?String` place to write, so a write view of one has no
+  # value and cannot be written as a type: assign to the place to point it
+  # at other text, or hold a `String` to change text in place.
+
+  sub clear(s: !?String)
+    pass
+
+  sub maybe(s: (!?String)?)
+    pass
+
+  pass
+
+test "write view param replaces value", '''
+  1
+  20
+  2
+'''
+  # Assigning a `!T` parameter replaces the caller's value; the old value is
+  # dropped first.
+
+  obj Wrap
+    v: Int
+
+    drop(!self)
+      print(self.v)
+
+  sub replace(b: !Wrap)
+    b = Wrap(v: 2)
+
+  x = Wrap(v: 1)
+  replace(!x)
+  print(x.v * 10)
+
+fail "write view read slice", "8:4: cannot lend a `[]Int` to write: its elements are read-only", "12:6: cannot lend a `[]Int` to write: its elements are read-only", "15:6: cannot lend a `[]Int` to write: its elements are read-only"
+  # A `[]T` is read-only, so a write view of one, which would be a
+  # writable `![]T`, is rejected: of a local, a parameter, or a field.
+
+  obj View
+    xs: []Int
+
+  fun widen(t: []Int) -> ![]Int
+    !t
+
+  a = [1, 2, 3]
+  t = ?a[..]
+  w = !t
+  w[0] = 5
+  v = View(xs: ?a[..])
+  u = !v.xs
+  u[0] = 9
+  print(a)
+
+fail "write view stored in value", "5:6: a write view is never stored inside a value, and `!Int` cannot stand here", "8:8: a write view is never stored inside a value, and `!Int` cannot stand here", "14:12: a write view is never stored inside a value, and `!Int` cannot stand here", "14:37: a write view is never stored inside a value, and `!Int` cannot stand here", "14:51: a write view is never stored inside a value, and `!Int` cannot stand here", "14:65: a write view is never stored inside a value, and `(!Int)?` cannot stand here", "19:5: a write view is never stored inside a value, and `!Int` cannot stand here", errors: 7
+  # A write view is never stored inside a value: not in a field, a
+  # payload, an element, an optional's view, or a type argument.
+
+  obj H
+    w: !Int
+
+  enum E
+    a(w: !Int)
+    b
+
+  obj Opt[T]
+    v: T
+
+  sub f(p: ?(!Int), q: (!Int)?, r: [2]!Int, v: List[!Int], o: Opt[(!Int)?])
+    pass
+
+  n = 1
+  m = 2
+  a = [!n, !m]
+  print(a.len)

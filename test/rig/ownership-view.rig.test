@@ -1,0 +1,610 @@
+# ownership: tests whose names start `view`.
+
+fail "view chain through long loop", "cannot drop `b` while it is lent"
+  # A view handed down a 70-link chain, one link per loop iteration,
+  # still reaches the first link: the loop analysis runs to its fixpoint
+  # however many rounds that takes, so dropping `b` is rejected.
+
+  obj Wrap
+    payload: Int
+
+    drop(!self)
+      print("drop")
+
+  a = Wrap(payload: 1)
+  b = Wrap(payload: 2)
+  r1 = ?a
+  r2 = ?a
+  r3 = ?a
+  r4 = ?a
+  r5 = ?a
+  r6 = ?a
+  r7 = ?a
+  r8 = ?a
+  r9 = ?a
+  r10 = ?a
+  r11 = ?a
+  r12 = ?a
+  r13 = ?a
+  r14 = ?a
+  r15 = ?a
+  r16 = ?a
+  r17 = ?a
+  r18 = ?a
+  r19 = ?a
+  r20 = ?a
+  r21 = ?a
+  r22 = ?a
+  r23 = ?a
+  r24 = ?a
+  r25 = ?a
+  r26 = ?a
+  r27 = ?a
+  r28 = ?a
+  r29 = ?a
+  r30 = ?a
+  r31 = ?a
+  r32 = ?a
+  r33 = ?a
+  r34 = ?a
+  r35 = ?a
+  r36 = ?a
+  r37 = ?a
+  r38 = ?a
+  r39 = ?a
+  r40 = ?a
+  r41 = ?a
+  r42 = ?a
+  r43 = ?a
+  r44 = ?a
+  r45 = ?a
+  r46 = ?a
+  r47 = ?a
+  r48 = ?a
+  r49 = ?a
+  r50 = ?a
+  r51 = ?a
+  r52 = ?a
+  r53 = ?a
+  r54 = ?a
+  r55 = ?a
+  r56 = ?a
+  r57 = ?a
+  r58 = ?a
+  r59 = ?a
+  r60 = ?a
+  r61 = ?a
+  r62 = ?a
+  r63 = ?a
+  r64 = ?a
+  r65 = ?a
+  r66 = ?a
+  r67 = ?a
+  r68 = ?a
+  r69 = ?a
+  r70 = ?a
+  i = 0
+  while i < 100
+    r1 = r2
+    r2 = r3
+    r3 = r4
+    r4 = r5
+    r5 = r6
+    r6 = r7
+    r7 = r8
+    r8 = r9
+    r9 = r10
+    r10 = r11
+    r11 = r12
+    r12 = r13
+    r13 = r14
+    r14 = r15
+    r15 = r16
+    r16 = r17
+    r17 = r18
+    r18 = r19
+    r19 = r20
+    r20 = r21
+    r21 = r22
+    r22 = r23
+    r23 = r24
+    r24 = r25
+    r25 = r26
+    r26 = r27
+    r27 = r28
+    r28 = r29
+    r29 = r30
+    r30 = r31
+    r31 = r32
+    r32 = r33
+    r33 = r34
+    r34 = r35
+    r35 = r36
+    r36 = r37
+    r37 = r38
+    r38 = r39
+    r39 = r40
+    r40 = r41
+    r41 = r42
+    r42 = r43
+    r43 = r44
+    r44 = r45
+    r45 = r46
+    r46 = r47
+    r47 = r48
+    r48 = r49
+    r49 = r50
+    r50 = r51
+    r51 = r52
+    r52 = r53
+    r53 = r54
+    r54 = r55
+    r55 = r56
+    r56 = r57
+    r57 = r58
+    r58 = r59
+    r59 = r60
+    r60 = r61
+    r61 = r62
+    r62 = r63
+    r63 = r64
+    r64 = r65
+    r65 = r66
+    r66 = r67
+    r67 = r68
+    r68 = r69
+    r69 = r70
+    r70 = ?b
+    i += 1
+  r2 = ?a
+  r3 = ?a
+  r4 = ?a
+  r5 = ?a
+  r6 = ?a
+  r7 = ?a
+  r8 = ?a
+  r9 = ?a
+  r10 = ?a
+  r11 = ?a
+  r12 = ?a
+  r13 = ?a
+  r14 = ?a
+  r15 = ?a
+  r16 = ?a
+  r17 = ?a
+  r18 = ?a
+  r19 = ?a
+  r20 = ?a
+  r21 = ?a
+  r22 = ?a
+  r23 = ?a
+  r24 = ?a
+  r25 = ?a
+  r26 = ?a
+  r27 = ?a
+  r28 = ?a
+  r29 = ?a
+  r30 = ?a
+  r31 = ?a
+  r32 = ?a
+  r33 = ?a
+  r34 = ?a
+  r35 = ?a
+  r36 = ?a
+  r37 = ?a
+  r38 = ?a
+  r39 = ?a
+  r40 = ?a
+  r41 = ?a
+  r42 = ?a
+  r43 = ?a
+  r44 = ?a
+  r45 = ?a
+  r46 = ?a
+  r47 = ?a
+  r48 = ?a
+  r49 = ?a
+  r50 = ?a
+  r51 = ?a
+  r52 = ?a
+  r53 = ?a
+  r54 = ?a
+  r55 = ?a
+  r56 = ?a
+  r57 = ?a
+  r58 = ?a
+  r59 = ?a
+  r60 = ?a
+  r61 = ?a
+  r62 = ?a
+  r63 = ?a
+  r64 = ?a
+  r65 = ?a
+  r66 = ?a
+  r67 = ?a
+  r68 = ?a
+  r69 = ?a
+  r70 = ?a
+  <b
+  print(r1.payload)
+
+fail "view chosen by if", "cannot drop `h` while it is lent"
+  # A view chosen by an if-expression views from every candidate, so
+  # `h` stays lent while `r` is live.
+
+  obj Wrap
+    payload: Int
+
+  obj Holder
+    inner: *Wrap
+
+  h = Holder(inner: *Wrap(payload: 5))
+  r = if true
+    ?h
+  else
+    ?h
+  <h
+  x = +r.inner
+  print(x.payload)
+
+fail "view escapes by break", "`b` does not live long enough"
+  # `break` leaves the loop body's scope: a view of one of its locals
+  # cannot be carried out.
+
+  obj Wrap
+    payload: Int
+
+  a = Wrap(payload: 1)
+  r = ?a
+  while true
+    b = Wrap(payload: 2)
+    r = ?b
+    break
+  print(r.payload)
+
+fail "view escapes loop body", "`b` does not live long enough"
+  # A view of a loop-body local cannot survive into the next iteration or
+  # past the loop.
+
+  obj Wrap
+    payload: Int
+
+  a = Wrap(payload: 1)
+  r = ?a
+  i = 0
+  while i < 2
+    b = Wrap(payload: i)
+    r = ?b
+    i += 1
+  print(r.payload)
+
+fail "view field of call result", "19:1: cannot reassign `h` while it is lent", "22:3: cannot reassign `h` while it is lent", "25:3: cannot reassign `h` while it is lent"
+  # A view of a field reached through a view a call returns keeps what
+  # the call views, bound by `=` or by `as`.
+
+  obj R
+    n: Int
+
+  obj H2
+    r: R
+    b: ^R?
+
+  obj H
+    h2: H2
+
+  fun inner(h: ?H) -> ?H2
+    ?h.h2
+
+  h = H(h2: H2(r: R(n: 1), b: ^R(n: 1)))
+  x = ?inner(?h).r
+  h = H(h2: H2(r: R(n: 2), b: none))
+  print(x.n)
+  if ?inner(?h).b as y
+    h = H(h2: H2(r: R(n: 3), b: none))
+    print(y.n)
+  while ?inner(?h).b as y
+    h = H(h2: H2(r: R(n: 4), b: none))
+    print(y.n)
+
+test "view in local struct", "10"
+  # A struct may hold a view while the viewed value is alive, whether
+  # built locally or returned from a function taking the view.
+
+  obj Wrap
+    payload: Int
+
+  obj View
+    box: ?Wrap
+
+  fun view_of(b: ?Wrap) -> View
+    View(box: b)
+
+  b = Wrap(payload: 5)
+  v = View(box: ?b)
+  w = view_of(?b)
+  print(v.box.payload + w.box.payload)
+
+fail "view in returned struct", "cannot drop `h` while it is lent"
+  # A call whose result can hold a view views from its viewed
+  # arguments: `v` keeps `h` viewed.
+
+  obj Wrap
+    payload: Int
+
+  obj Holder
+    inner: *Wrap
+
+  obj View
+    h: ?Holder
+
+  fun mk(h: ?Holder) -> View
+    View(h: h)
+
+  h = Holder(inner: *Wrap(payload: 5))
+  v = mk(?h)
+  <h
+  x = +v.h.inner
+  print(x.payload)
+
+fail "view of temporary escapes", "18:9: cannot return a view of `S(n: rt(n))`, which this function was not lent", "23:11: a view of the temporary `S(n: rt(7))` outlives its statement", "24:6: a view of the temporary `S(n: 1)` outlives its statement", "25:11: a view of the temporary `S(n: rt(7))` outlives its statement", "26:6: a view of the temporary `mk(3)` outlives its statement"
+  # A view of a temporary lives only until its statement ends. Held in
+  # a binding, a field, or a returned value, it would outlive the
+  # temporary it points to; used within the statement, it is fine.
+
+  obj S
+    n: Int
+
+  obj H
+    s: ?S
+
+  fun rt(n: Int) -> Int
+    n
+
+  fun pick(s: ?S) -> ?S
+    s
+
+  fun mk(n: Int) -> H
+    H(s: ?S(n: rt(n)))
+
+  fun first(s: ?S) -> Int
+    s.n
+
+  h = H(s: ?S(n: rt(7)))
+  r = ?S(n: 1)
+  q = pick(?S(n: rt(7)))
+  c = ?mk(3)
+  print(first(?S(n: 2)))
+  print(h.s.n, r.n, q.n, c.s.n)
+
+fail "view outlives inner scope", "`b` does not live long enough"
+  # A view stored in an outer binding may not outlive the inner-scope
+  # value it views.
+
+  obj Wrap
+    payload: Int
+
+  a = Wrap(payload: 1)
+  r = ?a
+  if true
+    b = Wrap(payload: 2)
+    r = ?b
+  print(r.payload)
+
+test "view param field returned", "9"
+  # A view of a field of a view parameter may be returned.
+
+  obj Wrap
+    payload: Int
+
+  obj Holder
+    inner: Wrap
+
+  fun inner_of(h: ?Holder) -> ?Wrap
+    ?h.inner
+
+  h = Holder(inner: Wrap(payload: 9))
+  b = inner_of(?h)
+  print(b.payload)
+
+test "view param returned", "2"
+  # A function may return one of its view parameters, chosen by an
+  # if-expression; the result views from both arguments.
+
+  obj Wrap
+    payload: Int
+
+  fun pick(a: ?Wrap, b: ?Wrap, first: Bool) -> ?Wrap
+    if first
+      a
+    else
+      b
+
+  x = Wrap(payload: 1)
+  y = Wrap(payload: 2)
+  r = pick(?x, ?y, false)
+  print(r.payload)
+
+test "view places", '''
+  7 6
+  [9, 2] [8, 4]
+'''
+  # Assigning a view to a local that holds one points it elsewhere;
+  # assigning a value writes through it (Core §6).
+
+  m = 1
+  n = 2
+  w = !m
+  w = 5
+  w = !n
+  w = 6
+  w2 = !m
+  w = <w2
+  w = 7
+  print(m, n)
+  a = [1, 2]
+  b = [3, 4]
+  s = !a
+  s[0] = 9
+  s = !b
+  s[0] = 8
+  print(a, b)
+
+fail "view result owning value", "15:10: type mismatch: expected `T`, got `!T`; only a value that copies is copied out of a view, and `T` may not copy in every instance: lend it on where it goes (`?T` or `!T`)", "19:16: type mismatch: expected `List[Int]`, got `!List[Int]`; only a value that copies is copied out of a view, and `List[Int]` owns a resource", "20:12: type mismatch: expected `List[Int]`, got `!List[Int]`"
+  # Only a value that copies is copied out of a view where the value is
+  # expected. A view of an owning value, or of a `T` that may own one, is
+  # not.
+
+  fun wv(a: !List[Int]) -> !List[Int]
+    a
+
+  fun take(v: List[Int]) -> Int
+    v.len
+
+  fun wr[T](a: !T) -> !T
+    a
+
+  fun copy[T](a: !T) -> T
+    x: T = wr(!a)
+    x
+
+  v = List[Int]()
+  z: List[Int] = wv(!v)
+  print(take(wv(!v)), z.len)
+
+fail "view returned from fn", "cannot drop `h` while it is lent"
+  # A view returned from a function views from the viewed argument,
+  # so `h` cannot be dropped while `r` is live.
+
+  obj Wrap
+    payload: Int
+
+  obj Holder
+    inner: *Wrap
+
+  fun view(h: ?Holder) -> ?Holder
+    h
+
+  h = Holder(inner: *Wrap(payload: 5))
+  r = view(?h)
+  <h
+  x = +r.inner
+  print(x.payload)
+
+fail "view slice element outlives", "14:13: `a` does not live long enough"
+  # A returned view of a slice element keeps the slice's source
+  # viewed, so the source cannot go first.
+
+  obj Val
+    n: Int
+
+  fun first(xs: []Val) -> ?Val
+    ?xs[0]
+
+  v = Val(n: 0)
+  r = ?v
+  if true
+    a = [Val(n: 1)]
+    r = first(?a)
+  print(r.n)
+
+test "view slice element returned", '''
+  1 2
+  1
+'''
+  # A view of an element of a `[]T` parameter points into the caller's
+  # memory, so it may be returned; it keeps what the slice keeps.
+
+  obj Val
+    n: Int
+
+  fun first(xs: []Val) -> ?Val
+    ?xs[0]
+
+  fun firsti(xs: []Int) -> ?Int
+    ?xs[0]
+
+  fun inner(xs: []Val) -> ?Int
+    ?xs[1].n
+
+  a = [Val(n: 1), Val(n: 2)]
+  print(first(?a).n, inner(?a))
+  b = [1, 2]
+  print(firsti(?b))
+
+fail "view stored by callee", "cannot drop `b` while it is lent"
+  # A call may store the views it is given into its `!` arguments, so
+  # after `put(!v, ?b)` the view keeps `b` viewed.
+
+  obj Wrap
+    payload: Int
+    log: List[Int]
+
+  obj View
+    box: ?Wrap
+
+  sub put(v: !View, b: ?Wrap) keeps b
+    v.box = b
+
+  a = Wrap(payload: 1, log: List())
+  b = Wrap(payload: 2, log: List())
+  v = View(box: ?a)
+  put(!v, ?b)
+  <b
+  print(v.box.payload)
+
+fail "view stored in field", "cannot drop `b` while it is lent"
+  # A view stored in a struct field keeps its owner viewed while the
+  # struct is live.
+
+  obj Wrap
+    payload: Int
+    log: List[Int]
+
+  obj View
+    box: ?Wrap
+
+  b = Wrap(payload: 5, log: List())
+  v = View(box: ?b)
+  <b
+  print(v.box.payload)
+
+fail "view stored through passed write view", "21:13: `x` does not live long enough"
+  # A callee may store a view wherever a write view passed to it
+  # leads, also one moved in from a local.
+
+  obj Res
+    v: List[Int]
+
+  obj View
+    r: ?Res
+
+  obj Outer
+    inner: View?
+
+  sub fill(o: !Outer, r: ?Res) keeps r
+    o.inner = View(r: r)
+
+  a = Outer(inner: none)
+  if true
+    x = Res(v: List())
+    !x.v.push(5)
+    w = !a
+    fill(<w, ?x)
+  if a.inner as v
+    print(v.r.v[0])
+
+fail "view stored through view param", "cannot store a view of `b` in `v.box`: `v` outlives it"
+  # A function cannot store a view of its own local into a struct the
+  # caller owns: the local dies when the function returns.
+
+  obj Wrap
+    payload: Int
+
+  obj View
+    box: ?Wrap
+
+  sub put(v: !View)
+    b = Wrap(payload: 1)
+    v.box = ?b
+
+  print(1)

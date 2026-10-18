@@ -1,0 +1,820 @@
+# modules: tests whose names start `imported`.
+
+fail "imported alias as value", "8:11: `lib.Byte` is a type, not a value", "9:11: `lib.PA` is a type, not a value", "10:14: no member `n` on type `lib.P`", "11:16: a number type has no member `bits`; its limits are `lib.Byte.min` and `lib.Byte.max`"
+  # An imported alias is a type, not a value, and its members are the
+  # aliased type's: a struct has no member named after a field, and a
+  # number type has only its limits.
+
+  use lib
+
+  sub main()
+    x = lib.Byte
+    p = lib.PA
+    n = lib.PA.n
+    m = lib.Byte.bits
+    print(x, p.n, n, m)
+
+  file "lib.rig"
+    pub type Byte = U8
+
+    pub obj P
+      pub n: Int
+
+    pub type PA = P
+
+test "imported alias limit values", "255 0"
+  # Another module's public alias of a number type names its limits, which
+  # are constants, such as enum values.
+
+  use util
+
+  enum E
+    a = util.Byte.max
+    b = util.Byte.min
+
+  sub main()
+    print(Int(E.a), Int(E.b))
+
+  file "util.rig"
+    pub type Byte = U8
+
+test "imported alias limits", '''
+  5 5 4 true 0 true
+  255 true 0 200 1.5
+'''
+  # Another module's alias of a number type names its limits, which are
+  # constants: a module constant can use them, a type can use it, and a
+  # default value may be one. A call through the alias converts to its
+  # type, and folds when its argument is constant.
+
+  use util
+
+  type Local = util.Byte
+
+  K = util.Byte.max - 250
+  F = util.Real.min
+  C = Local(3) + 1
+
+  obj D
+    b: util.Byte = util.Byte.max
+    r: util.Real = util.Real.max
+
+  fun f(x: Local = Local.min) -> Int
+    Int(x)
+
+  sub main()
+    a: [K]Bool? = [5 of none]
+    c: [C]Int = [C of 0]
+    print(K, a.len, c.len, F < -3.0e38, util.Byte.min, util.Real.max > 3.0e38)
+    d = D()
+    print(d.b, d.r > 3.0e38, f(), util.Byte(200), util.Real(1.5))
+
+  file "util.rig"
+    pub type Byte = U8
+    pub type Real = F32
+
+test "imported alias of type", "1 2 true true"
+  # An imported alias of a struct or enum declared beside it is that type
+  # in every role: it constructs values, calls associated functions, and
+  # names variants.
+
+  use lib
+
+  sub main()
+    p = lib.PA.mk()
+    q = lib.PA(n: 2)
+    x = lib.M.a
+    y: lib.M = .b
+    print(p.n, q.n, x == lib.Mode.a, y == lib.M.b)
+
+  file "lib.rig"
+    pub enum Mode
+      a
+      b
+
+    pub type M = Mode
+
+    pub obj P
+      pub n: Int
+
+      pub fun mk() -> P
+        P(n: 1)
+
+    pub type PA = P
+
+fail "imported alias private", "6:11: `lib.Hidden` is not public", "7:11: `lib.Hidden` is not public", "8:11: `lib.PH` is not public"
+  # Another module's alias is used here only when it is `pub`.
+
+  use lib
+
+  sub main()
+    a = lib.Hidden.max
+    b = lib.Hidden(3)
+    c = lib.PH(n: 1)
+    print(a, b, c.n)
+
+  file "lib.rig"
+    type Hidden = U16
+
+    pub obj P
+      pub n: Int
+
+    type PH = P
+
+fail "imported bare method", "method `get` must be called; to pass it as a function that takes the receiver first, name it through its type: `lib.P.get`", "17:9: method `get` must be called; to pass it as a function that takes the receiver first, name it through its type: `Q.get`", "no field `nope` on type `P`", "no field `nope` on type `Q`", "20:11: method `get` must be called; wrap it in a closure to pass it as a value"
+  # A method named through a value (`p.get`) must be called, whether its
+  # type is local or imported; `lib.P.get` is the function value. A generic
+  # type's method has none, and is wrapped in a closure instead.
+
+  use lib
+
+  obj Q
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+  sub main()
+    p = lib.P(n: 1)
+    q = Q(n: 2)
+    a = p.get
+    c = q.get
+    print(p.nope, q.nope)
+    w = lib.Wrap(v: 3)
+    print(w.get)
+
+  file "lib.rig"
+    pub obj P
+      n: Int
+
+      fun get(?self) -> Int
+        self.n
+
+    pub obj Wrap[T]
+      v: T
+
+      fun get(?self) -> T
+        self.v
+
+test "imported constant comptime", '''
+  8 5
+  19 0 64
+'''
+  # An imported constant is known at compile time: it can build a
+  # module-level constant and fill a compile-time parameter. So are shifts and
+  # bitwise operators over constants.
+
+  use lib
+
+  fun size[n: Int]() -> Int
+    n * 2
+
+  y = lib.x + 1
+  mask = 1 << 4 | 3
+  flip = (5 & 3) ^ 1
+  quarter = 256 >> 2
+
+  sub main()
+    print(size[lib.x](), y)
+    print(mask, flip, quarter)
+
+  file "lib.rig"
+    pub x = 4
+
+fail "imported constant overflow", "5:9: integer value `256` does not fit in `U8`", "6:5: integer value `13835058055282163712` does not fit in `Int`", "9:15: integer value `256` does not fit in `U8`", "9:30: integer value `340282366920938463463374607431768211456` does not fit in `U128`"
+  # An imported constant is a constant here too: constant arithmetic on it
+  # is checked at compile time, in a module constant and in a body.
+  use lib
+
+  X: U8 = lib.SMALL + 6
+  Y = lib.HALF * 4611686018427387904
+
+  sub main()
+    print(X, Y, lib.SMALL + 6, lib.BIG + 1)
+
+  file "lib.rig"
+    pub SMALL: U8 = 250
+    pub HALF = 7 / 2
+    pub BIG: U128 = U128.max
+
+fail "imported constant write", "10:3: cannot assign to constant `lib.xs`", "11:9: cannot lend constant `lib.xs` to write", "12:3: cannot assign to constant `lib.xs`", "13:13: cannot write-iterate constant `lib.xs`"
+  # An imported module's bindings are constants, as in their own module:
+  # they cannot be assigned, lent to write, or written through a loop.
+
+  use lib
+
+  sub bump(a: ![3]Int)
+    a[0] = 9
+
+  sub main()
+    lib.xs[0] = 9
+    bump(!lib.xs)
+    lib.xs = [4, 5, 6]
+    for x in !lib.xs
+      x = 0
+    print(lib.xs)
+
+  file "lib.rig"
+    pub xs = [1, 2, 3]
+
+fail "imported drop glue alias", "`a` owns a `lib.Noisy`, which can't be copied by `=`: write `<a` to move it or `?a` to view it"
+  # Copying a value of an imported type with drop glue would run its
+  # destructor twice.
+
+  use lib
+
+  sub main()
+    a = lib.Noisy(n: 1)
+    b = a
+    print(b.n)
+
+  file "lib.rig"
+    pub obj Noisy
+      pub n: Int
+
+      drop(!self)
+        print("drop", self.n)
+
+    pub obj Holder
+      pub inner: Noisy
+
+test "imported drop glue value", '''
+  eat 2
+  drop 2
+  end 1 3
+  drop 3
+  drop 1
+'''
+  # A value of an imported type with drop glue is dropped at scope exit,
+  # moved by `<`, and dropped once when moved into a function; the same
+  # holds for an imported struct that owns one.
+
+  use lib
+
+  sub eat(n: lib.Noisy)
+    print("eat", n.n)
+
+  sub main()
+    a = lib.Noisy(n: 1)
+    b = lib.Noisy(n: 2)
+    eat(<b)
+    h = lib.Holder(inner: lib.Noisy(n: 3))
+    print("end", a.n, h.inner.n)
+
+  file "lib.rig"
+    pub obj Noisy
+      pub n: Int
+
+      drop(!self)
+        print("drop", self.n)
+
+    pub obj Holder
+      pub inner: Noisy
+
+test "imported enum match", '''
+  green
+  blue
+  is blue
+  10 12
+'''
+  # Enums from another module work like local ones: `.variant` literals
+  # and payload variants against the qualified type, `==` on plain enums,
+  # and exhaustive `match` with payload bindings.
+
+  use colors
+
+  fun name(c: colors.Color) -> ?String
+    match c
+      .red => "red"
+      .green => "green"
+      .blue => "blue"
+
+  fun area(s: ?colors.Shape) -> Int
+    match s
+      .circle(r) => 3 * r * r
+      .rect(w, h) => w * h
+      .dot => 0
+
+  sub main()
+    print(name(colors.favorite()))
+    c: colors.Color = .blue
+    print(name(c))
+    if c == .blue
+      print("is blue")
+    sq: colors.Shape = .rect(w: 2, h: 5)
+    ci: colors.Shape = .circle(r: 2)
+    print(area(?sq), area(?ci))
+
+  file "colors.rig"
+    pub enum Color
+      red
+      green
+      blue
+
+    pub enum Shape
+      circle(r: Int)
+      rect(w: Int, h: Int)
+      dot
+
+    pub fun favorite() -> Color
+      .green
+
+fail "imported enum unknown variant", "no variant `purple` on enum `colors.Color`", "no variant `mauve` on enum `colors.Color`", "`match` is not exhaustive: it misses `.green`"
+  # A variant an imported enum does not have is rejected, in a literal and
+  # in a pattern; a match that misses a variant needs a default arm.
+
+  use colors
+
+  fun name(c: colors.Color) -> ?String
+    match c
+      .red => "red"
+      .purple => "purple"
+
+  sub main()
+    c: colors.Color = .mauve
+    print(name(c))
+
+  file "colors.rig"
+    pub enum Color
+      red
+      green
+      blue
+
+    pub enum Shape
+      circle(r: Int)
+      rect(w: Int, h: Int)
+      dot
+
+    pub fun favorite() -> Color
+      .green
+
+test "imported equality", "true false true"
+  # `==` compares structs and payload enums declared in another module
+  # field by field, as it does the module's own.
+
+  use geo
+
+  sub main()
+    a = geo.Point(x: 1, y: 2)
+    b = geo.Point(x: 1, y: 2)
+    s: geo.Shape = .dot(at: a)
+    t: geo.Shape = .dot(at: geo.Point(x: 2, y: 1))
+    print(a == b, s == t, s != .empty)
+
+  file "geo.rig"
+    pub obj Point
+      pub x: Int
+      pub y: Int
+
+    pub enum Shape
+      dot(at: Point)
+      empty
+
+fail "imported equality handle", "19:9: `==` is not defined for `geo.Tagged`: field `h` is a handle `*geo.Point`", "21:9: `==` is not defined for `L`: field `g.h` is a handle `*geo.Point`", "23:9: `==` is not defined for `K`: field `r` is a `geo.Res`: `geo.Res` declares `drop`"
+  # A struct from another module that holds a handle has no `==`; the
+  # diagnostic names its field, and names the other module's types as
+  # this module spells them.
+
+  use geo
+
+  obj Point
+    y: Int
+
+  obj L
+    g: geo.Tagged
+    p: Point
+
+  obj K
+    r: geo.Res
+
+  sub main()
+    u = geo.Tagged(id: 1, h: *geo.Point(x: 1))
+    print(u == u)
+    l = L(g: geo.Tagged(id: 2, h: *geo.Point(x: 1)), p: Point(y: 1))
+    print(l == l)
+    k = K(r: geo.Res(n: 1))
+    print(k == k)
+
+  file "geo.rig"
+    pub obj Point
+      x: Int
+
+    pub obj Tagged
+      id: Int
+      h: *Point
+
+    pub obj Res
+      n: Int
+
+      drop(!self)
+        print("drop", self.n)
+
+test "imported errors", '''
+  empty bad digit empty ok
+  ParseError.bad_digit 1
+'''
+  # Errors cross modules: an imported function fails with its module's
+  # error set, and the importer names and matches those errors, or fails
+  # with them itself.
+  use parsing
+
+  fun checked(s: ?String) -> Int!
+    return parsing.ParseError.empty if s == "?"
+    parsing.parse(s)!
+
+  fun name(s: ?String) -> ?String
+    _ = checked(s) catch |err|
+      match err
+        .empty => return "empty"
+        .bad_digit => return "bad digit"
+        _ => return "other"
+    "ok"
+
+  sub main()
+    print(name(""), name("x"), name("?"), name("abc"))
+    e: parsing.ParseError = .bad_digit
+    print(e, parsing.parse("x") catch |err| 1 if err == e else 2)
+
+  file "parsing.rig"
+    pub error ParseError
+      empty
+      bad_digit
+
+    pub fun parse(s: ?String) -> Int!
+      return ParseError.empty if s == ""
+      return ParseError.bad_digit if s == "x"
+      s.len
+
+test "imported instance equality", "true false true"
+  # `==` on a struct from another module that holds that module's generic
+  # instance compares the instance's fields at its type arguments, and a
+  # generic function comparing it asks nothing of its own parameters.
+
+  fun same[T](a: T, p: ?lib.P, q: ?lib.P) -> Bool
+    p == q
+
+  use lib
+
+  sub main()
+    x = lib.P.make(1)
+    y = lib.P.make(1)
+    z = lib.P.make(2)
+    print(same(*1, ?x, ?y), same(*1, ?x, ?z), x == y)
+
+  file "lib.rig"
+    obj Wrap[T]
+      v: T
+
+    pub obj P
+      w: Wrap[Int]
+
+      pub fun make(n: Int) -> P
+        P(w: Wrap[Int](v: n))
+
+fail "imported instance equality is rejected", "9:9: `==` is not defined for `lib.P`: field `w.v` is a handle `*Int`"
+  # A struct from another module that holds that module's generic instance
+  # has `==` only if the instance's fields do, at its type arguments.
+
+  use lib
+
+  sub main()
+    a = lib.P.make(1)
+    b = lib.P.make(1)
+    print(a == b)
+
+  file "lib.rig"
+    obj Wrap[T]
+      v: T
+
+    pub obj P
+      pub w: Wrap[*Int]
+
+      pub fun make(n: Int) -> P
+        P(w: Wrap[*Int](v: *n))
+
+test "imported main", '''
+  helper main
+  after 1
+'''
+  # Only the root module's `main` is the program: calling another module's
+  # `main` does not check the caller's live allocations for leaks.
+
+  use helper
+
+  sub main()
+    v: List[Int] = List()
+    !v.push(1)
+    helper.main()
+    print("after", v.len)
+
+  file "helper.rig"
+    pub sub main()
+      print("helper main")
+
+test "imported main params", "42"
+  # Only the root module's `main` is the entry point: another module may
+  # declare a `main` that takes parameters and returns a value.
+
+  use helper
+
+  sub main()
+    print(helper.main(21))
+
+  file "helper.rig"
+    pub fun main(n: Int) -> Int
+      n * 2
+
+test "imported members like local", "2 2 11"
+  # Members of an imported type work as they do for a local one: a method
+  # called through its type with an explicit receiver, and a field of
+  # function type called directly.
+
+  use lib
+
+  sub main()
+    p = lib.P(n: 1, f: lib.inc)
+    lib.P.bump(!p)
+    print(lib.P.get(?p), p.get(), p.f(10))
+
+  file "lib.rig"
+    pub fun inc(n: Int) -> Int
+      n + 1
+
+    pub obj P
+      pub n: Int
+      pub f: fun(Int) -> Int
+
+      pub fun get(?self) -> Int
+        self.n
+
+      pub sub bump(!self)
+        self.n += 1
+
+test "imported method reference", "2"
+  # `module.Type.method` is a function value too.
+
+  use lib
+
+  sub main()
+    p = lib.P(n: 1)
+    bump = lib.P.bump
+    bump(!p)
+    get: fun(?lib.P) -> Int = lib.P.get
+    print(get(?p))
+
+  file "lib.rig"
+    pub obj P
+      pub n: Int
+
+      pub fun get(?self) -> Int
+        self.n
+
+      pub sub bump(!self)
+        self.n += 1
+
+test "imported method upgrade", "2"
+  # A method named `upgrade` of a struct from another module is called
+  # through a shared handle as the struct's own, not as a weak handle's
+  # `upgrade`.
+
+  use lib
+
+  sub main()
+    p = *lib.P(n: 1)
+    print(p.upgrade())
+
+  file "lib.rig"
+    pub obj P
+      pub n: Int
+
+      pub fun upgrade(?self) -> Int
+        self.n + 1
+
+test "imported methods and closures", '''
+  2 2
+  15
+  drop 7
+  7
+  end
+  drop 2
+'''
+  # An imported type's methods take their receivers as declared (read,
+  # write, consuming), and an imported function may return an owned
+  # closure.
+
+  use lib
+
+  sub main()
+    b = lib.B(n: 1)
+    !b.bump()
+    print(b.get(), lib.peek(?b))
+    f = lib.mkcl(10)
+    print(f(5))
+    c = lib.B(n: 7)
+    print(<c.take())
+    print("end")
+
+  file "lib.rig"
+    pub obj B
+      pub n: Int
+
+      drop(!self)
+        print("drop", self.n)
+
+      pub fun get(?self) -> Int
+        self.n
+
+      pub sub bump(!self)
+        self.n += 1
+
+      pub fun take(self: B) -> Int
+        self.n
+
+    pub fun peek(b: ?B) -> Int
+      b.n
+
+    pub fun mkcl(k: Int) -> *fun(Int) -> Int
+      *|+k, a| a + k
+
+test "imported resource containers", '''
+  one 1
+  drop 3
+  drop 2
+  drop 1
+'''
+  # Imported resource types work in match payloads, List, and Cell, and
+  # each value is dropped once.
+
+  use lib
+
+  sub main()
+    e = lib.mke(1)
+    match e
+      .one(b) => print("one", b.n)
+      .two(k) => print(k)
+    v: List[*lib.B] = List()
+    !v.push(*lib.B(n: 2))
+    c: *Cell[*lib.B] = *Cell(*lib.B(n: 3))
+
+  file "lib.rig"
+    pub obj B
+      pub n: Int
+
+      drop(!self)
+        print("drop", self.n)
+
+    pub enum E
+      one(b: *B)
+      two(k: Int)
+
+    pub fun mke(n: Int) -> E
+      .one(b: *B(n: n))
+
+test "imported resource field struct", '''
+  1 1
+  drop 1
+'''
+  # An imported struct holding a shared handle of another imported type is
+  # built with `*lib.Noisy(...)` and dropped with its field.
+
+  use lib
+
+  sub main()
+    h = lib.Holder(b: *lib.Noisy(n: 1))
+    k = +h.b
+    print(k.n, h.b.n)
+
+  file "lib.rig"
+    pub obj Noisy
+      pub n: Int
+
+      drop(!self)
+        print("drop", self.n)
+
+    pub obj Holder
+      pub b: *Noisy
+
+test "imported resource vec field", '''
+  2
+  1
+  2
+  drop 2
+  drop 1
+'''
+  # An imported struct holding a List of handles is filled through its
+  # write method, iterated by field, and drops its elements.
+
+  use lib
+
+  sub main()
+    h = lib.H(items: List())
+    !h.add(*lib.B(n: 1))
+    !h.add(*lib.B(n: 2))
+    print(h.count())
+    for x in ?h.items
+      print(x.n)
+
+  file "lib.rig"
+    pub obj B
+      pub n: Int
+      drop(!self)
+        print("drop", self.n)
+
+    pub obj H
+      pub items: List[*B]
+
+      pub sub add(!self, b: *B)
+        !self.items.push(<b)
+
+      pub fun count(?self) -> Int
+        self.items.len
+
+bomb "imported table element overflow", "integer overflow", prints: "2", release: true
+  # An element of another module's constant array is a run-time value too:
+  # the sum overflows when the program runs.
+
+  use lib
+
+  sub main()
+    print(lib.table[1] + 1)
+    print(lib.table[0] + 1)
+
+  file "lib.rig"
+    pub table = [9223372036854775807, 1]
+    pub names = ["a", "b"]
+
+test "imported variant positional", '''
+  4 5 .some(value: "x") .some(value: 6)
+'''
+  # A variant of another module's enum takes its one field by position too.
+
+  use geo
+
+  fun radius(s: geo.Shape) -> Int
+    match s
+      .circle(r) => r
+      .rect(w, h) => w + h
+
+  sub main()
+    a: geo.Shape = .circle(4)
+    b = geo.Shape.circle(5)
+    m = geo.Maybe.some("x")
+    n: geo.Maybe[Int] = .some(6)
+    print(radius(a), radius(b), m, n)
+
+  file "geo.rig"
+    pub enum Shape
+      circle(radius: Int)
+      rect(w: Int, h: Int)
+
+    pub enum Maybe[T]
+      some(value: T)
+      nothing
+
+fail "imported view stored through write view", "`x` does not live long enough"
+  # An imported function's write view parameter carries the loans stored
+  # through it, as a local one does: `put` stores `?x` into `holder`,
+  # which outlives `x`.
+
+  use a
+
+  sub main()
+    y = a.Wrap(v: List())
+    !y.v.push(1)
+    holder = a.Holder(b: ?y)
+    if true
+      x = a.Wrap(v: List())
+      !x.v.push(42)
+      a.put(!holder, ?x)
+    print(holder.b.v[0])
+
+  file "a.rig"
+    pub obj Wrap
+      pub v: List[Int]
+
+    pub obj Holder
+      pub b: ?Wrap
+
+    pub sub put(t: !Holder, x: ?Wrap) keeps x
+      t.b = x
+
+fail "imported write view holder copy", "5:10: a write view is never stored inside a value, and `!Wrap` cannot stand here", errors: 1
+  # An imported struct cannot hold a write view (a write view is never
+  # stored inside a value), so no copy of one can be a second writer.
+
+  use wv
+
+  sub main()
+    x: wv.Wrap = wv.Wrap(v: List())
+    !x.v.push(1)
+    a = wv.WV(b: !x)
+    b = a
+    b.b.v = List()
+    print(a.b.v.len)
+
+  file "wv.rig"
+    pub obj Wrap
+      pub v: List[Int]
+
+    pub obj WV
+      pub b: !Wrap

@@ -1,0 +1,889 @@
+# ownership: tests whose names start `for`.
+
+fail "for bare iterator not writable", "14:8: cannot lend to write through a read view `?Count`", "18:8: cannot lend parameter `it` to write; parameters are immutable (bind a copy with `new it = it`, or take `it: !Count` to write through to the caller)", "22:6: cannot lend fixed binding `k` to write (bound with `=!`)", "25:6: `for ?c` would only read an iterator, which `next` cannot advance; write `for !c` to advance it in place", "27:6: `!Count(lo: 0, hi: 2)` advances a place, and this is a value made here; write `for Count(lo: 0, hi: 2)`, which holds it for the loop", errors: 5
+  # `for !it` is `for _ in !it`, so the iterator must be writable where the
+  # loop stands, as for `for n in !it`.
+
+  obj Count
+    lo: Int
+    hi: Int
+
+    fun next(!self) -> Int?
+      return none if self.lo >= self.hi
+      self.lo += 1
+      self.lo - 1
+
+  sub scan(it: ?Count)
+    for !it
+      print(1)
+
+  sub peek(it: Count)
+    for !it
+      print(1)
+
+  k =! Count(lo: 0, hi: 2)
+  for !k
+    print(1)
+  c = Count(lo: 0, hi: 2)
+  for ?c
+    print(1)
+  for !Count(lo: 0, hi: 2)
+    print(1)
+
+test "for consuming iteration", '''
+  see 0
+  drop 0
+  eat 1
+  drop 1
+  drop 2
+  drop 3
+  after
+  drop 7
+  drop 8
+  7
+  all
+  7
+  1
+  drop 9
+'''
+  # `for x in <v` consumes the List: each element is handed to `x`, which
+  # owns it for one iteration (and may move it on). Elements a `break` or
+  # `return` leaves behind are dropped with the buffer.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub eat(b: *B)
+    print("eat", b.n)
+
+  fun first(v: List[*B]) -> Int
+    for x in <v
+      return x.n
+    -1
+
+  v: List[*B] = List()
+  for i in 0..4
+    !v.push(*B(n: i))
+  for x, i in <v
+    if i == 1
+      eat(<x)
+      continue
+    if i == 2
+      break
+    print("see", x.n)
+  print("after")
+
+  w: List[*B] = List()
+  !w.push(*B(n: 7))
+  !w.push(*B(n: 8))
+  print(first(<w))
+
+  nums: List[Int] = List()
+  !nums.push(3)
+  !nums.push(4)
+  total = 0
+  for x in <nums
+    total += x
+  else
+    print("all")
+  print(total)
+
+  src: List[*B] = List()
+  !src.push(*B(n: 9))
+  keep: List[*B] = List()
+  for x in <src
+    !keep.push(<x)
+  print(keep.len)
+
+fail "for consuming iteration moves", "use of `v` after move", "cannot move `w` while a read loan is live", "use of `u` after move"
+  # `for x in <v` moves `v`: it cannot be used afterwards, consumed while
+  # viewed, or consumed again by a later loop iteration.
+
+  obj B
+    n: Int
+
+  v: List[*B] = List()
+  for x in <v
+    print(x.n)
+  print(v.len)
+
+  w: List[*B] = List()
+  r = ?w
+  for x in <w
+    print(x.n)
+  print(r.len)
+
+  u: List[*B] = List()
+  i = 0
+  while i < 2
+    for x in <u
+      print(x.n)
+    i += 1
+
+fail "for held iterator keeps lent", "23:5: cannot lend `v` to write while a read loan is live", "28:5: cannot lend `v` to write while a read loan is live", "32:5: cannot lend `b.xs` to write while a read loan on `b` is live", "37:7: cannot lend `v` to write while a read loan is live", errors: 4
+  # A `for` over an iterator it holds (a value made there, a place it
+  # takes, or a method's iterator lent from a place) keeps what the
+  # iterator views lent for every iteration: writing it in the body would
+  # free what a later `next` reads.
+
+  obj Cur
+    xs: []Int
+    i: Int
+
+    fun next(!self) -> Int?
+      return none if self.i >= self.xs.len
+      self.i += 1
+      self.xs[self.i - 1]
+
+  obj Bag
+    xs: List[Int]
+
+    fun each(?self) -> Cur from self
+      Cur(xs: ?self.xs[0..self.xs.len], i: 0)
+
+  sub made(v: !List[Int])
+    for x in Cur(xs: ?v[0..v.len], i: 0)
+      !v.push(x)
+
+  sub taken(v: !List[Int])
+    c = Cur(xs: ?v[0..v.len], i: 0)
+    for x in <c
+      !v.push(x)
+
+  sub lent(b: !Bag)
+    for x in ?b.each()
+      !b.xs.push(x)
+
+  sub labeled(v: !List[Int])
+    @outer for x in Cur(xs: ?v[0..v.len], i: 0)
+      for y in 0..2
+        !v.push(x + y)
+        continue @outer
+
+  v: List[Int] = List()
+  made(!v)
+  taken(!v)
+  b = Bag(xs: List())
+  lent(!b)
+  labeled(!v)
+
+fail "for iterator bare place", "19:10: write `for n in !c`: the loop advances `c`", errors: 1
+  # A `for` advances an existing iterator, so a place that names one is
+  # written `!it`; a value made in the header is held by the loop and
+  # stays bare.
+
+  obj Count
+    lo: Int
+    hi: Int
+
+    fun next(!self) -> Int?
+      return none if self.lo >= self.hi
+      n = self.lo
+      self.lo += 1
+      n
+
+  fun mk() -> Count
+    Count(lo: 0, hi: 2)
+
+  c = Count(lo: 0, hi: 3)
+  for n in c
+    print(n)
+  for n in !c
+    print(n)
+  for n in mk()
+    print(n)
+
+test "for iterator bound view", '''
+  4
+  5
+'''
+  # The form the hints of a `for` over an iterator that views a place name:
+  # bind the iterator with the lend written, then advance it in place.
+
+  obj Cur
+    xs: ?List[Int]
+    i: Int
+
+    fun next(!self) -> Int?
+      return none if self.i >= self.xs.len
+      self.i += 1
+      self.xs[self.i - 1]
+
+  obj Bag
+    xs: List[Int]
+
+    fun each(?self) -> Cur from self
+      Cur(xs: ?self.xs, i: 0)
+
+  b = Bag(xs: List())
+  !b.xs.push(4)
+  !b.xs.push(5)
+  it = ?b.each()
+  for x in !it
+    print(x)
+
+test "for iterator exits", release: true, '''
+  drop 7
+  73
+  ok 82
+  ok 81
+  ok 80
+  drop 8
+  ok 82
+  drop 8
+  failed
+  drop 9
+  183
+  drop 5
+  drop 5
+  2 2
+  11 21
+  11 20
+  drop 2
+  10 21
+  10 20
+  drop 2
+  drop 1
+'''
+  # A source the `for` holds is dropped on every way out of the loop: its
+  # end, `break`, `return`, and a failure propagated from the body. Nested
+  # loops hold one each, the inner dropping first; a generic function,
+  # and a closure the body calls, make no difference.
+
+  error Bad
+    bad
+
+  obj Tracked
+    id: Int
+    left: Int
+
+    fun next(!self) -> Int?
+      return none if self.left == 0
+      self.left -= 1
+      self.id * 10 + self.left
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun tracked(id: Int, n: Int) -> Tracked
+    Tracked(id: id, left: n)
+
+  fun find(k: Int) -> Int
+    for n in tracked(7, 5)
+      return n if n == k
+    -1
+
+  sub check(n: Int, k: Int)!
+    return Bad.bad if n == k
+
+  sub risky(k: Int)!
+    for n in tracked(8, 3)
+      check(n, k)!
+      print("ok", n)
+
+  fun twice(c: ?Int) -> Int
+    f = |+c, x: Int| x + c
+    s = 0
+    for n in tracked(9, 2)
+      s += f(n)
+    s
+
+  fun reps[T](v: T) -> Int
+    s = 0
+    for _ in tracked(5, 2)
+      s += 1
+    s
+
+  print(find(73))
+  risky(99) catch |_| print("failed")
+  risky(81) catch |_| print("failed")
+  print(twice(?1))
+  print(reps("a"), reps(1.5))
+  for a in tracked(1, 2)
+    for b in tracked(2, 2)
+      print(a, b)
+
+test "for iterator hidden name", release: true, '''
+  0 5 7 100
+    0 0
+    0 1
+  1 5 7 100
+    1 0
+    1 1
+  5
+'''
+  # The binding that holds a loop's source has a name no program can write,
+  # so a program's own names, `__rig_iter0` and `next` included, are its
+  # own: they neither clash with it nor assign it, and loops nested in
+  # each other each have theirs.
+
+  obj Count
+    lo: Int
+    hi: Int
+
+    fun next(!self) -> Int?
+      return none if self.lo >= self.hi
+      self.lo += 1
+      self.lo - 1
+
+  fun upto(n: Int) -> Count
+    Count(lo: 0, hi: n)
+
+  __rig_iter0 = 5
+  next = 7
+  for n in upto(2)
+    __rig_iter1 = upto(100)
+    print(n, __rig_iter0, next, __rig_iter1.hi)
+    for m in upto(2)
+      print(" ", n, m)
+  print(__rig_iter0)
+
+fail "for iterator kept view", "26:5: `for iterator` does not live long enough", "34:5: `for iterator` does not live long enough", "44:5: `for iterator` does not live long enough", "53:8: `for iterator` does not live long enough", "62:5: `for iterator` does not live long enough", errors: 5
+  # A view a loop variable holds of the iterator's own state cannot outlive
+  # an iterator the loop holds: `for iterator` ends with the loop, whether
+  # the loop runs out, breaks, has an `else`, or is labeled, as the
+  # `h = …; while (!h).next() as it` it is written as does.
+
+  obj Item
+    name: ?String
+    n: Int
+
+  obj Buf
+    buf: List[Item]
+    at: Int
+
+    fun next(!self) -> (?Item)?
+      return none if self.at >= self.buf.len
+      self.at += 1
+      ?self.buf[self.at - 1]
+
+  fun mkbuf() -> Buf
+    v: List[Item] = List()
+    !v.push(Item(name: "a", n: 1))
+    Buf(buf: <v, at: 0)
+
+  sub by_break()
+    keep: (?Item)? = none
+    for it in mkbuf()
+      keep = it
+      break
+    if keep as k
+      print(k.name)
+
+  sub by_else()
+    keep: (?Item)? = none
+    for it in mkbuf()
+      keep = it
+      break
+    else
+      print("none")
+    if keep as k
+      print(k.name)
+
+  sub by_if(c: Bool)
+    keep: (?Item)? = none
+    for it in mkbuf()
+      if c
+        keep = it
+        break
+    if keep as k
+      print(k.name)
+
+  sub by_label()
+    keep: (?Item)? = none
+    @l for it in mkbuf()
+      keep = it
+      break @l
+    if keep as k
+      print(k.name)
+
+  sub by_take()
+    b = mkbuf()
+    keep: (?Item)? = none
+    for it in <b
+      keep = it
+      break
+    if keep as k
+      print(k.name)
+
+fail "for iterator made view", "37:10: `b.each()` keeps `b` lent while the loop walks it; write `for ... in ?b.each()`", "39:11: `!b.each()` advances a place, and this is a value made here, which holds no write view; write `for x in ?b.each()`, which holds it for the loop", "41:13: method `drain` needs its receiver lent to write; write `(!b).drain()`", errors: 3
+  # An iterator a method returns views the place it came from, so the
+  # loop keeps that place lent: the lend is written on the receiver, as
+  # `for x in ?b.each()`. No iterator holds a write view, so `!` before
+  # the source is rejected, with the form that compiles: `?` for a method
+  # that reads its receiver, and `(!b).drain()` for one that writes it.
+
+  obj Cur
+    xs: ?List[Int]
+    i: Int
+
+    fun next(!self) -> Int?
+      return none if self.i >= self.xs.len
+      self.i += 1
+      self.xs[self.i - 1]
+
+  obj Count
+    n: Int
+
+    fun next(!self) -> Int?
+      return none if self.n == 0
+      self.n -= 1
+      self.n
+
+  obj Bag
+    xs: List[Int]
+
+    fun each(?self) -> Cur from self
+      Cur(xs: ?self.xs, i: 0)
+
+    fun drain(!self) -> Count
+      n = self.xs.len
+      !self.xs.clear()
+      Count(n: n)
+
+  b = Bag(xs: List())
+  !b.xs.push(4)
+  for x in b.each()
+    print(x)
+  for x in !b.each()
+    print(x)
+  for x in !b.drain()
+    print(x)
+
+fail "for iterator not writable", "15:13: cannot lend to write through a read view `?Count`", "19:13: cannot lend parameter `it` to write; parameters are immutable (bind a copy with `new it = it`, or take `it: !Count` to write through to the caller)", "23:11: cannot lend fixed binding `k` to write (bound with `=!`)", "26:11: `for n in ?c` would only read an iterator, which `next` cannot advance; write `for n in !c` to advance it in place", "28:11: `!Count(lo: 0, hi: 2)` advances a place, and this is a value made here; write `for n in Count(lo: 0, hi: 2)`, which holds it for the loop", errors: 5
+  # `for x in it` is `while (!it).next() as x`, so the iterator must be
+  # writable where the loop stands: a read view, a `=!` binding, and `?it`
+  # cannot be advanced, and `!` needs a place, not a value made there.
+
+  obj Count
+    lo: Int
+    hi: Int
+
+    fun next(!self) -> Int?
+      return none if self.lo >= self.hi
+      self.lo += 1
+      self.lo - 1
+
+  sub scan(it: ?Count)
+    for n in !it
+      print(n)
+
+  sub peek(it: Count)
+    for n in !it
+      print(n)
+
+  k =! Count(lo: 0, hi: 2)
+  for n in !k
+    print(n)
+  c = Count(lo: 0, hi: 2)
+  for n in ?c
+    print(n)
+  for n in !Count(lo: 0, hi: 2)
+    print(n)
+
+fail "for iterator view loan", "21:3: cannot lend `items` to write while a read loan is live", "24:3: cannot lend `items` to write while a read loan is live", errors: 2
+  # A loop over an iterator that gives views of a List keeps the List lent:
+  # the List cannot change while a view the loop binds is alive, as for
+  # `while (!w).next() as it`.
+
+  obj Item
+    n: Int
+
+  obj Walk
+    items: ?List[Item]
+    at: Int
+
+    fun next(!self) -> (?Item)?
+      return none if self.at >= self.items.len
+      i = self.at
+      self.at += 1
+      ?self.items[i]
+
+  items: List[Item] = List()
+  !items.push(Item(n: 1))
+  for it in Walk(items: ?items, at: 0)
+    !items.push(Item(n: it.n))
+  w = Walk(items: ?items, at: 0)
+  for it in !w
+    !items.push(Item(n: it.n))
+
+test "for iterator views", release: true, '''
+  a 3
+  bb 9
+  c 4
+  first a
+  then bb
+  then c
+  9
+  4
+  11
+  10
+  done 1
+  drop 1
+  24
+  23
+  drop 2
+  after 2
+  30
+  drop 3
+  after 3
+  drop 4
+  41
+'''
+  # An iterator whose `next` gives views of what it walks: each loop
+  # variable is the view `as` binds over `(?Item)?`, and the loan on the
+  # walked List lasts as long as a view of it is alive. A source the loop
+  # holds is dropped when the loop ends, by `break` too, after the `else`.
+
+  obj Item
+    name: ?String
+    n: Int
+
+  obj Walk
+    items: ?List[Item]
+    at: Int
+
+    fun next(!self) -> (?Item)?
+      return none if self.at >= self.items.len
+      i = self.at
+      self.at += 1
+      ?self.items[i]
+
+  fun walk(items: ?List[Item]) -> Walk from items
+    Walk(items: items, at: 0)
+
+  obj Tracked
+    id: Int
+    left: Int
+
+    fun next(!self) -> Int?
+      return none if self.left == 0
+      self.left -= 1
+      self.id * 10 + self.left
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun tracked(id: Int, n: Int) -> Tracked
+    Tracked(id: id, left: n)
+
+  fun longest(items: ?List[Item]) -> Int
+    best = 0
+    for it in walk(items)
+      best = it.n if it.n > best
+    best
+
+  items: List[Item] = List()
+  !items.push(Item(name: "a", n: 3))
+  !items.push(Item(name: "bb", n: 9))
+  !items.push(Item(name: "c", n: 4))
+  for it in walk(?items)
+    print(it.name, it.n)
+  w = walk(?items)
+  for it in !w
+    print("first", it.name)
+    break
+  for it in !w
+    print("then", it.name)
+  print(longest(?items))
+  !items.push(Item(name: "d", n: 1))
+  print(items.len)
+
+  for n in tracked(1, 2)
+    print(n)
+  else
+    print("done 1")
+  for n in tracked(2, 5)
+    print(n)
+    break if n == 23
+  print("after 2")
+  t = tracked(3, 1)
+  for n in <t
+    print(n)
+  print("after 3")
+  found = for n in tracked(4, 3)
+    break n if n == 41
+  else
+    -1
+  print(found)
+
+fail "for lent branch path", "18:12: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?(?a if c else ?b).v`", "24:12: cannot lend `ys if c else zs`: it may be `ys`, a value a name holds", errors: 2
+  # `for x in ?S` lends its source as `?S` does: a path from a branch of
+  # names is lent through each branch, so the loan on the name taken is
+  # kept while the loop's views live.
+
+  obj W
+    n: Int
+    v: List[Int]
+
+  fun mkw(n: Int) -> W
+    v: List[Int] = List()
+    for i in 0..n
+      !v.push(i + 1)
+    W(n: n, v: <v)
+
+  a = mkw(3)
+  b = mkw(3)
+  c = true
+  for x in ?(a if c else b).v
+    !a.v.push(1) if a.v.len < 50
+    print(x)
+  ys: List[W] = List()
+  !ys.push(mkw(2))
+  zs: List[W] = List()
+  for y in ?(ys if c else zs)[0].v
+    print(y)
+
+fail "for lent iterator write", "23:3: cannot lend", "25:8: cannot move", errors: 2
+  # `for x in ?b.each()` holds the iterator `each` makes, which views `b`,
+  # so `b` stays lent to read for the whole loop: it cannot be written in
+  # the body, nor moved.
+
+  obj Cur
+    xs: ?List[Int]
+    i: Int
+
+    fun next(!self) -> Int?
+      return none if self.i >= self.xs.len
+      self.i += 1
+      self.xs[self.i - 1]
+
+  obj Bag
+    xs: List[Int]
+
+    fun each(?self) -> Cur from self
+      Cur(xs: ?self.xs, i: 0)
+
+  b = Bag(xs: List())
+  !b.xs.push(4)
+  for x in ?b.each()
+    !b.xs.push(x)
+  for x in ?b.each()
+    c = <b
+    print(x, c.xs.len)
+
+fail "for loop move", "11:8: use of `rc` after move"
+  # A move inside a `for` body is seen by the next iteration.
+
+  obj Wrap
+    payload: Int
+
+  sub eat(rc: *Wrap)
+    print(rc.payload)
+
+  rc = *Wrap(payload: 1)
+  for i in 0..3
+    eat(<rc)
+
+fail "for move element keeps view", "`y` does not live long enough"
+  # The elements of `for x in <v` carry the views the List held, so an
+  # element moved elsewhere cannot outlive what it views.
+
+  obj Wrap
+    v: List[Int]
+
+  obj View
+    b: ?Wrap
+
+  outer: List[*View] = List()
+  if true
+    y = Wrap(v: List())
+    !y.v.push(42)
+    v: List[*View] = List()
+    !v.push(*View(b: ?y))
+    for f in <v
+      !outer.push(<f)
+  for g in ?outer
+    print(g.b.v[0])
+
+fail "for move viewed vec", "9:13: `<w` would move the elements out of a List that `w` only views; loop over `?w` or `!w`", "13:13: `<w` would move the elements out of a List that `w` only views", "20:11: `<w` would move the elements out of a List that `w` only views"
+  # `for x in <w` hands each element over and frees the List, which it may
+  # do only to a List it owns. Through a view the elements stay with the
+  # lender, so the loop reads or writes them in place instead.
+
+  obj N
+    v: Int
+
+  sub drain_read(w: ?List[Int])
+    for x in <w
+      print(x)
+
+  sub drain_write(w: !List[*N])
+    for x in <w
+      print(x.v)
+
+  v = List[*N]()
+  (!v).push(*N(v: 1))
+  drain_write(!v)
+  w = !v
+  for x in <w
+    print(x.v)
+  print(v.len)
+
+test "for over temporary vec", '''
+  0
+  10
+  0 0
+  1 10
+  2 20
+  b 0
+  b 10
+  20
+'''
+  # A loop over a List that its source expression creates drops the List
+  # when the loop ends, however it ends.
+
+  fun mk(n: Int) -> List[Int]
+    v: List[Int] = List()
+    for i in 0..n
+      !v.push(i * 10)
+    v
+
+  fun first_big(n: Int) -> Int
+    for x in mk(n)
+      return x if x > 10
+    -1
+
+  for x in mk(2)
+    print(x)
+  for x, i in mk(3)
+    print(i, x)
+  for x in mk(5)
+    break if x > 10
+    print("b", x)
+  print(first_big(4))
+
+fail "for over vec expression", "8:13: cannot lend `o?`: it may be `o`, a value a name holds", "17:12: cannot lend `a if c else b`: it may be `a`, a value a name holds", "19:11: cannot lend `a if c else b`: it may be `a`, a value a name holds", errors: 3
+  # A `for` over a List walks a named List in place, or consumes the List a
+  # call makes. Any other expression (`o?`, a ternary, a `match`) could
+  # name a place on one path and make a List on another, so it is bound
+  # to a name first.
+
+  fun total(o: List[Int]?) -> Int?
+    t = 0
+    for e in ?o?
+      t += e
+    t
+
+  a: List[Int] = List()
+  !a.push(1)
+  b: List[Int] = List()
+  !b.push(2)
+  c = a.len > 0
+  for e in ?(a if c else b)
+    print(e)
+  for e in (a if c else b)
+    print(e)
+  print(total(<b) ?? 0, a.len)
+
+test "for takes array of owners", '''
+  got 1
+  drop 1
+  drop 3
+  drop 2
+  ["a", "b", "c", "d"]
+'''
+  # `for x in <a` over an array whose elements own hands each one over
+  # in turn; the loop drops the ones a `break` leaves, and the array is
+  # not dropped again. An array made in the header is taken the same way.
+
+  obj D
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun mk() -> [2]String
+    [String("a"), String("b")]
+
+  a = [D(n: 1), D(n: 2), D(n: 3)]
+  for d in <a
+    print("got", d.n)
+    break if d.n == 1
+  keep: List[String] = List()
+  for t in mk()
+    !keep.push(<t)
+  ts = [String("c"), String("d")]
+  for t in <ts
+    !keep.push(<t)
+  print(keep)
+
+fail "for temporary source loans", "26:2: cannot drop `t` while it is lent", "34:2: cannot drop `v` while it is lent", errors: 2
+  # The elements of a `for` over a value no binding holds (an array
+  # literal, or a call's result) carry what that value views, so one
+  # stored outside the loop keeps it viewed.
+
+  obj C
+    s: ?String
+
+  fun halves(s: ?String) -> [2]?String
+    [s[..s.len / 2], s[s.len / 2..]]
+
+  fun firsts(s: ?String) -> List[?String]
+    v: List[?String] = List()
+    !v.push(s[..1])
+    v
+
+  t = String("abcdefghijklmnop")
+  o: ?String = "x"
+  for x in [?t[..1], ?t[1..2]]
+    o = x
+  for c in [C(s: ?t[..3])]
+    o = c.s
+  for x in halves(?t)
+    o = x
+  for x in firsts(?t)
+    o = x
+  <t
+  print(o)
+  v: List[Int] = List()
+  !v.push(1)
+  e: List[Int] = List()
+  sl = ?e[..]
+  for x in [?v[..], ?v[..1]]
+    sl = x
+  <v
+  print(sl)
+
+fail "for write iteration conflicts", "cannot write-iterate parameter `xs`", "cannot write-iterate a `Static`", "`xs` must be a binding, or a field or element of one"
+  # `for x in !xs` needs a place it may write.
+
+  fun make() -> List[Int]
+    List()
+
+  sub read_only(xs: ?List[Int])
+    for x in !xs
+      x += 1
+
+  for c in !"abc"
+    print(c)
+  for y in !make()
+    y = 1
+
+fail "for write iteration conflicts ownership", "6:11: cannot lend `v` to write while a read loan is live"
+  # `for x in !xs` lends `xs` to write for the whole loop.
+
+  v: List[Int] = List()
+  !v.push(1)
+  r = ?v
+  for x in !v
+    x = 2
+  print(r.len)
+
+fail "for write view elements", "10:6: a write view is never stored inside a value, and `!Int` cannot stand here", "12:6: a write view is never stored inside a value, and `!H` cannot stand here", errors: 2
+  # An array cannot hold write views (`[2]!Int`, `[1]!H`): a write view is
+  # never stored inside a value, so no loop walks elements that are write
+  # views.
+
+  obj H
+    n: Int
+
+  n = 1
+  m = 2
+  xs = [!n, !m]
+  a = H(n: 1)
+  hs = [!a]
+  print(xs.len, hs.len)

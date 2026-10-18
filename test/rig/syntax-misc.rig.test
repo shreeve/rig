@@ -1,0 +1,4796 @@
+# syntax: the rest of its tests.
+
+fail "and operator spelling", "`&&` is not a Rig operator; use `and`"
+  # The boolean operators are `and`, `or`, `not`; `&&` is rejected with a
+  # pointer to the Rig spelling.
+
+  a = true
+  b = false
+  print(a && b)
+
+test "as chain", '''
+  3 0 0
+  big small small none
+  both 1 2
+  drop 1
+  drop 3
+  else 3 2
+  else 0 2
+  11
+  2
+  stopped
+  22 2
+  2 1
+'''
+  # Optional bindings join with `and`, with Bool conditions among them:
+  # each binding is visible in the conditions after it and in the body,
+  # and `else` runs when any of them is `none` or false.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  fun make(k: Int) -> Noisy?
+    Noisy(id: k) if k > 0 else none
+
+  fun sum(a: Int, b: Int) -> Int
+    if get(a) as x and get(b) as y
+      x + y
+    else
+      0
+
+  fun pick(a: Int, flag: Bool) -> ?String
+    if flag and get(a) as x and x > 3
+      "big"
+    else if get(a) as x and x > 0
+      "small"
+    else
+      "none"
+
+  sub owned(a: Int, b: Int)
+    if make(a) as n and get(b) as y and y > n.id
+      print("both", n.id, y)
+    else
+      print("else", a, b)
+
+  sub bump(o: !(Int?), p: !(Int?))
+    if ?o as x and !p as y
+      y += x
+
+  print(sum(1, 2), sum(0, 2), sum(1, 0))
+  print(pick(5, true), pick(5, false), pick(2, true), pick(0, true))
+  owned(1, 2)
+  owned(3, 2)
+  owned(0, 2)
+  o: Int? = 10
+  p: Int? = 1
+  bump(!o, !p)
+  print(p)
+  v = if get(4) as x and x % 2 == 0
+    x / 2
+  else
+    -1
+  print(v)
+
+  xs: List[Int] = List()
+  for n in 1..8
+    !xs.push(n)
+  seen = 0
+  while (!xs).pop() as x and x > 3
+    seen += x
+  else
+    print("stopped")
+  print(seen, xs.len)
+
+  first = while (!xs).pop() as x and x > 0
+    break x if x == 2
+  else
+    0
+  print(first, xs.len)
+
+fail "as chain scope", "17:4: use of unbound name `y`", "22:9: use of unbound name `x`", "24:40: the loop step cannot use `r`"
+  # A binding of a joined condition is visible to the parts after it and
+  # to the body, not to the parts before it or to `else`; a loop step
+  # cannot use one that owns a resource, which the body drops first.
+
+  obj Res
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  fun make(k: Int) -> Res?
+    Res(id: k) if k > 0 else none
+
+  if y > 0 and get(1) as y
+    print(y)
+  if get(1) as x and get(2) as y
+    print(x, y)
+  else
+    print(x)
+  i = 0
+  while make(i) as r and r.id < 3: print(r.id)
+    i += 1
+
+fail "as in ternary or guard", "7:10: `as` binds only in the condition of an `if` or `while` block", "9:13: `as` binds only in the condition of an `if` or `while` block"
+  # `as` binds in the condition of an `if` or `while` block, where the
+  # block can see the name; a ternary or a postfix guard has no block.
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  v = 1 if get(1) as x else 2
+  print(v)
+  print(3) if get(4) as y and y > 3
+
+fail "as outside condition", "7:5: `as` binds only in the condition of an `if` or `while` block, alone or joined to the rest by `and`", "8:4: `as` binds only in the condition of an `if` or `while` block", "10:8: `as` binds only in the condition of an `if` or `while` block", "12:7: `as` binds only in the condition of an `if` or `while` block"
+  # `as` binds only in the condition of an `if` or `while` block, alone or joined to
+  # the rest of it by `and`.
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  y = get(1) as x
+  if get(1) as x or true
+    print(1)
+  if not get(2) as x
+    print(2)
+  print(get(3) as z)
+
+fail "bad dedent diagnostic", "5:1: indentation does not match any enclosing block"
+  # Dedenting to a column that matches no enclosing block is an indentation
+  # error reported at the offending line.
+
+    x = 1
+  print(x)
+
+test "bitwise or chain", "7"
+  # `a | b | c` is bitwise or of three integers.
+
+  a = 1
+  b = 2
+  c = 4
+  x = a | b | c
+  print(x)
+
+fail "bom column", "1:5: use of unbound name `y`"
+  ﻿x = y
+
+  # The file starts with a UTF-8 byte order mark, which takes no column:
+  # `y` is at column 5 of line 1.
+
+  sub main()
+    print(x)
+
+test "boolean operators", '''
+  true
+  true
+  false
+  false
+  true
+  evaluated
+  true
+'''
+  # `and`, `or`, and `not` are the boolean operators. `not` binds looser
+  # than comparisons (`not a == b` is `not (a == b)`), `and` binds tighter
+  # than `or`, and both short-circuit.
+
+  fun loud(v: Bool) -> Bool
+    print("evaluated")
+    v
+
+  a = 1
+  b = 2
+  print(not (a == b))
+  print(true or false and false)
+  print((true or false) and false)
+  print(false and loud(true))
+  print(true or loud(false))
+  print(not false and loud(true))
+
+fail "builtin detached", "3:7: `@` touches the name after it: a label `@outer`, a builtin call `@size(T)`"
+  # `@` touches the name after it, for a builtin call as for a label.
+
+  print(@ size(Int))
+
+test "byte order mark", "1"
+  ﻿# A UTF-8 byte order mark at the start of a file is skipped.
+
+  sub main()
+    print(1)
+
+test "call positions", '''
+  3
+  9
+  3 7
+  4
+  1 -6 5 12 8
+  big
+  3
+  2
+  1
+  2
+  4
+  two
+  0
+  10
+  12
+  11
+'''
+  # A call takes its parentheses wherever it stands: a statement, an
+  # argument, a binding, `return`, a condition, a source, a subject, a
+  # match arm, and a closure body.
+
+  fun twice(n: Int) -> Int
+    n * 2
+
+  fun add(a: Int, b: Int) -> Int
+    a + b
+
+  sub each(n: Int, f: *sub(Int))
+    for i in 0..n
+      f(i)
+
+  fun quad(n: Int) -> Int
+    return twice(twice(n))
+
+  # Statements and arguments.
+  print(add(1, 2))
+  print((1 + 2) * 3)
+  print(add(1, 2), add(3, 4))
+  print(twice(twice(1)))
+  # Values: bindings, `return`, conditions, sources, and subjects.
+  x = twice(5)
+  x += twice(1)
+  print(1, twice(-3), 5, x, quad(2))
+  if twice(x) > 20
+    print("big")
+  n = 3
+  while n > 0: n -= 1
+    print(n)
+  for i in [twice(1), twice(2)]
+    print(i)
+  match twice(1)
+    2 => print("two")
+    _ => print("other")
+  # Closure bodies.
+  each(2, *|i| print(i * 10))
+  (|+x| print(x))()
+  print(x - 1)
+
+fail "call without parens", "7:11: unexpected `5`"
+  # Every call has parentheses: `twice 5` is not a call, and does not
+  # parse.
+
+  fun twice(n: Int) -> Int
+    n * 2
+
+  x = twice 5
+  print(x)
+
+test "caret xor and box", '''
+  6 3 6
+  4
+'''
+  # `^` between two values is XOR; where an operand starts it boxes.
+
+  a = 5
+  b = 3
+  x = a ^ b
+  y = ^b
+  z = [a ^ b, 1]
+  print(x, y, z[0])
+  a ^= 1
+  print(a)
+
+fail "comment block", "3:1: comments start with `#`"
+  # Comments start with `#`; there are no block comments.
+
+  /* main */
+  sub main()
+    print(1)
+
+fail "comment slashes", "3:7: comments start with `#`"
+  # Comments start with `#`.
+
+  x = 1 // one
+  print(x)
+
+fail "comparison chain", "5:21: unexpected `==`; comparisons do not chain, and `|`, `&`, and `^` bind tighter than a comparison: put each comparison in parentheses, `(a == b) | (c == d)`", errors: 1
+  # Comparisons do not chain, and `|` binds tighter than `==`, so two
+  # masks or Bools are combined with each comparison in parentheses.
+
+  v = Simd[U8, 16].splat(0x22)
+  print(v == 0x22 | v == 0x5C)
+
+test "crlf line endings", "3"
+  # Lines may end with CRLF, and `\` continues a line before one.
+
+  x = 1 + \
+    2
+  print(x)
+
+fail "deep bracket nesting", "use of unbound name `nope`"
+  # 256 nested brackets must not crash the compiler; the program is then
+  # rejected for its unbound name `nope`.
+
+  x = [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+  print(nope)
+
+test "deep paren nesting", "1"
+  # 128 nested parentheses around a literal are just the literal.
+
+  x = ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  print(x)
+
+fail "definition without params", "4:5: write `sub main()`: a function's parameter list is always written, even when empty", errors: 1
+  # A function writes its parameter list, even when empty, as its calls
+  # (`main()`) and its type (`sub()`) do; the fix-it shows the header.
+
+  sub main
+    print(1)
+
+fail "definition without params each", "4:5: write `fun answer() -> Int`: a function's parameter list is always written, even when empty", "10:7: write `fun get() -> Int`", "13:5: write `sub main()`", errors: 3
+  # Every definition that leaves out its parameter list is reported, each
+  # with its own header to write, so one run shows them all.
+
+  fun answer -> Int
+    42
+
+  obj Box
+    n: Int
+
+    fun get -> Int
+      1
+
+  sub main
+    print(answer())
+
+fail "definition without params extern", "4:12: write `extern sub halt()`: a function's parameter list is always written, even when empty", errors: 1
+  # A declared C function writes its parameter list too, and a failing
+  # `sub` puts its `!` after it.
+
+  extern sub halt
+
+  print(1)
+
+fail "definition without params fails", "7:5: write `sub save()!`: a function's parameter list is always written, even when empty", errors: 1
+  # A failing `sub` without a parameter list: the `!` goes after the
+  # `()`.
+
+  error Oops
+    bad
+
+  sub save!
+    raise()!
+
+  sub raise()!
+    return Oops.bad
+
+  sub main()!
+    save()!
+
+fail "definition without params method", "7:11: write `fun get[T]() -> T?`: a function's parameter list is always written, even when empty", errors: 1
+  # A method with compile-time parameters and no run-time ones still
+  # writes `()`: after its brackets, as a call does (`w.get[Int]()`).
+
+  obj Wrap
+    n: Int
+
+    pub fun get[T] -> T?
+      none
+
+  w = Wrap(n: 1)
+  print(w.n)
+
+fail "definition without params result", "4:5: write `fun answer() -> Int`: a function's parameter list is always written, even when empty", errors: 1
+  # A `fun` without a parameter list: the fix-it puts `()` before the
+  # result type.
+
+  fun answer -> Int
+    42
+
+  print(answer())
+
+fail "detached prefix arrow", "7:10: a prefix `-` touches its operand: write `-b`"
+  # Rig has no `<-`: `a <- b` is `a <` and then a `-` that does not touch
+  # its operand. `a < -b` compares with a negation.
+
+  a = 1
+  b = 2
+  print(a < -b)
+  print(a <- b)
+
+fail "detached prefix box", "4:4: a prefix `^` touches its operand: write `^Int`"
+  # A box sigil touches what it boxes, in a type: `^ Int` could be XOR,
+  # so it is rejected rather than read.
+
+  b: ^ Int = ^1
+  print(b)
+
+fail "detached prefix box value", "4:5: a prefix `^` touches its operand: write `^2`"
+  # A box sigil touches what it boxes, in an expression: `^ 2` could be
+  # XOR, so it is rejected rather than read.
+
+  c = ^ 2
+  print(c)
+
+fail "detached prefix clone", "4:5: a prefix `+` touches its operand: write `+h`"
+  # A clone is written against its operand: `+h`.
+
+  h = *Cell(1)
+  g = + h
+  print(g.get(), h.get())
+
+fail "detached prefix drop", "4:1: a prefix `<` touches its operand: write `<v`"
+  # A drop statement is written against the dropped name: `<v`.
+
+  v = List[Int]()
+  < v
+  print(1)
+
+fail "detached prefix element type", "5:8: a prefix `?` touches its operand: write `?Int`"
+  # After a type's `]`, a sigil starts the element type, and touches it as
+  # any prefix sigil does.
+
+  n = 1
+  xs: [1]? Int = [?n]
+  print(xs[0])
+
+fail "detached prefix minus", "6:5: a prefix `-` touches its operand: write `-b`"
+  # A prefix sigil touches its operand: `- b` is rejected, while an
+  # infix `-` is written with any spacing.
+
+  a = 1
+  b = 2
+  c = - b
+  print(a -b, c)
+
+fail "detached prefix move", "7:6: a prefix `<` touches its operand: write `<n`"
+  # A move is written against the moved name: `<n`.
+
+  sub take(n: Int)
+    print(n)
+
+  n = 1
+  take(< n)
+
+fail "detached prefix read", "7:6: a prefix `?` touches its operand: write `?n`"
+  # A read view is written against its operand: `?n`.
+
+  sub show(n: ?Int)
+    print(n)
+
+  n = 1
+  show(? n)
+
+fail "detached prefix type", "4:4: a prefix `*` touches its operand: write `*Cell`"
+  # In a type as in an expression, a handle or lend sigil touches the
+  # type it applies to.
+
+  x: * Cell[Int] = *Cell(0)
+  print(x.get())
+
+fail "detached prefix weak", "4:5: a prefix `~` touches its operand: write `~h`"
+  # A weak handle is written against its operand: `~h`.
+
+  h = *Cell(1)
+  w = ~ h
+  print(*w != none)
+
+fail "detached prefix write", "7:6: a prefix `!` touches its operand: write `!n`"
+  # A write view is written against its operand: `!n`.
+
+  sub bump(n: !Int)
+    n += 1
+
+  n = 1
+  bump(! n)
+  print(n)
+
+test "digit separators", "1000000 65535 170 63 1000.5"
+  # `_` may separate digits in any number; radix prefixes are lowercase.
+
+  print(1_000_000, 0xff_ff, 0b1010_1010, 0o7_7, 1_000.5)
+
+test "discard write call", "2"
+  # `_ =` discards the value, so a write call there is a statement's and
+  # keeps its short form `!v.pop()`; the parenthesized form still works.
+
+  v: List[Int] = List()
+  for i in 0..5
+    !v.push(i)
+  _ = !v.pop()
+  _ = (!v).pop()
+  _ = !v.remove(0)
+  print(v.len)
+
+fail "dot chain needs deeper line", "4:1: variant `.abs(...)` needs a known enum type; annotate the binding"
+  # A leading `.` line at the statement's own indentation is a new statement.
+
+  x = 5
+  .abs()
+  print(x)
+
+fail "dot chain not after arm", "11:8: `.blue` is an enum variant, but the expected type `Int` is not an enum"
+  # The body of a match arm written below its pattern is a block, so a
+  # `.variant` line there is a statement of that block, not a chain.
+
+  enum Color
+    red
+    blue
+
+  fun f(c: Color) -> Int
+    match c
+      .red
+        .blue
+      .blue => 2
+
+  print(f(.red))
+
+fail "dot chain not after header", "5:4: `.abs` is an enum variant, but the expected type `Int` is not an enum"
+  # A leading-dot line under a line that opens a block is the block's first
+  # line, not a continuation: here a variant expression, which has no type.
+
+  fun f() -> Int
+    .abs()
+
+  print(f())
+
+fail "dot chain not in members", "5:5: unexpected indentation"
+  # A member list holds fields and methods: a deeper `.` line is not a chain.
+
+  obj P
+    x: Int
+      .abs()
+
+  pass
+
+test "drop decl body", '''
+  0
+  7
+'''
+  # A struct's `drop(!self)` body runs at scope exit and can read
+  # `self`'s fields.
+
+  obj File
+    fd: Int
+
+    drop(!self)
+      print(self.fd)
+
+  f: File = File(fd: 7)
+  print(0)
+  # scope exit runs the drop body, which prints the fd
+
+test "drop decl long receiver", '''
+  3
+  b 2
+  a 1
+'''
+  # A `drop` receiver may be spelled as a method's is: `drop(!self)` or
+  # `drop(self: !Self)`, which may name the struct.
+
+  obj A
+    n: Int
+
+    drop(self: !Self)
+      print("a", self.n)
+
+  obj B
+    n: Int
+
+    drop(self: !B)
+      print("b", self.n)
+
+  a = A(n: 1)
+  b = B(n: 2)
+  print(a.n + b.n)
+
+fail "drop receiver without parens", "6:8: a drop body takes its receiver in parentheses: `drop(!self)`"
+  # A `drop` body takes its receiver in parentheses, like a method.
+
+  obj File
+    fd: Int
+
+    drop self: !Self
+      print(self.fd)
+
+fail "drop statement lend", "11:1: this expression does nothing as a statement: `<?a` moves a view nowhere, and a view owns nothing to drop", "12:1: this expression does nothing as a statement: `<!a` moves a view nowhere, and a view owns nothing to drop", errors: 2
+  # A statement `<?a` or `<!a` moves a view nowhere. A view owns nothing,
+  # so the statement does nothing, and is rejected; `<a` drops `a`.
+
+  obj F
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  a = F(n: 1)
+  <?a
+  <!a
+  print("end")
+
+fail "drop statement plain data", "18:1: `<n` drops nothing: `n` is plain data", "19:1: `<x` drops nothing: `x` is plain data", "20:1: `<p` drops nothing: `p` is plain data", "21:1: `<o` drops nothing: `o` is plain data", "22:1: `<k` drops nothing: `k` is plain data", errors: 5
+  # A statement `<x` releases what `x` owns or ends the loans it holds;
+  # plain data that holds no view owns nothing and carries no loan, so
+  # dropping it does nothing. (A String may view a Text: dropping one is
+  # accepted, in behavior/ownership/drop_ends_string_view.rig.)
+
+  obj P
+    x: Int
+
+  enum Color
+    red
+    green
+
+  n = 1
+  x = 2.5
+  p = P(x: 1)
+  o: Int? = 1
+  k = Color.red
+  <n
+  <x
+  <p
+  <o
+  <k if true
+  print("end")
+
+test "else after block", '''
+  one, flagged
+  one
+  not one
+  else if
+'''
+  # A line starting with `else` continues the `if` (or `while` / `for`)
+  # whose block just closed, even inside a match arm; the arm after it
+  # starts with its own pattern.
+
+  enum Kind
+    one
+    two
+    three
+
+  sub show(k: Kind, flag: Bool)
+    match k
+      .one
+        if flag
+          print("one, flagged")
+        else
+          print("one")
+      _
+        print("not one")
+
+  show(.one, true)
+  show(.one, false)
+  show(.three, true)
+  if false
+    print("no")
+  else if true
+    print("else if")
+  else
+    print("else")
+
+fail "empty type args", "3:10: empty brackets: give the compile-time arguments, as in `List[Int]()`"
+  # Brackets of compile-time arguments are never empty.
+
+  v = List[]()
+
+test "enum literal after return", '''
+  1
+  2
+'''
+  # `return .red` returns the enum literal `.red` of the declared return
+  # type, and a match covering every variant needs no default arm.
+
+  enum Color
+    red
+    green
+
+  fun pick(b: Bool) -> Color
+    if b
+      return .red
+    return .green
+
+  match pick(true)
+    .red => print(1)
+    .green => print(2)
+  match pick(false)
+    .red => print(1)
+    .green => print(2)
+
+test "explicit shadow", "2"
+  # `new x = ...` explicitly shadows an existing binding.
+
+  x = 1
+  new x = x + 1
+  print(x)
+
+fail "expression too deep", "expression is nested too deeply"
+  # An expression nested more than 1000 deep is rejected instead of
+  # exhausting the stack of a later pass.
+
+  x = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1
+  print(x)
+
+fail "fill in list", "5:12: unexpected `of`; expected `,` or `]`; a fill literal `[n of x]` holds one count and one element; it cannot share brackets with a list"
+  # A fill literal is the whole bracket: `[n of x]` cannot be one element
+  # of a list.
+
+  a = 1
+  xs = [a, 2 of 3]
+  print(xs)
+
+fail "first line indented", "2:3: unexpected indentation", whole: true
+  # The first line of a file cannot be indented.
+    sub main()
+      print(1)
+
+fail "first line tab", "1:1: tab in indentation; indent with spaces", whole: true
+  	sub main()
+    print(1)
+
+  # A tab before the first line is reported as a tab.
+
+fail "fixed assign spacing", "5:2: `x=! y`: an operator has the same spacing on both sides; write `x =! y`"
+  # `=!` is an infix operator: its spacing is the same on both sides, so
+  # `x=! y` is written `x =! y`.
+
+  y = 1
+  x=! y
+  print(x)
+
+fail "fixed assign touching operand", "6:3: `=!` needs a space after it: write `x =! y` for a fixed binding, or `x = !y` to lend `y` to write"
+  # `x =!y` could be a fixed binding of `y` or the write lend `x = !y`;
+  # `=!` is one token, so the source does not say which, and it is
+  # rejected.
+
+  y = 1
+  x =!y
+  print(x)
+
+test "fixed binding forms", '''
+  80 43
+  9 true
+'''
+  # `x =! e` binds a fixed local, with or without a type, and `new x =! e`
+  # shadows with one. `=!` lexes as one token only before a space, so
+  # `x =! !y` is a fixed binding of the write lend `!y`, and `x != y`
+  # compares.
+
+  a =! 40
+  b: Int =! a + 2
+  new a =! a * 2
+  new b: Int =! b + 1
+  print(a, b)
+  xs = [1, 2, 3]
+  w =! !xs
+  w[0] = 9
+  print(xs[0], a != b)
+
+test "float exponent literals", "10.0 2.0 150.0 300.0 225"
+  # Float literals may carry a decimal exponent: `1.0e10`, `2e-3`, `1.5E+2`.
+  # A hex literal's `e` is a digit, not an exponent.
+
+  big = 1.0e10
+  small = 2e-3
+  mid = 1.5E+2
+  typed: Float = 3e2
+  hex = 0xE1
+  print(big / 1e9, small * 1000.0, mid, typed, hex)
+
+test "for bare", release: true, '''
+  range 3
+  list 4
+  read 4
+  made 5
+  lent 8 3
+  rest 10 -1
+  name 10
+  nested 12
+  jumps 5
+  label 9
+  else 11
+  12
+  taken 3
+  var 0
+  var 1
+  10 0
+  20 1
+  30 2
+  40 3
+'''
+  # `for xs` with no variable is `for _ in xs`: it runs the body once per
+  # item and binds nothing, over any source `for x in xs` takes. `it` is
+  # an ordinary name. `break`, `continue`, labels, `else` and loop values
+  # work as they do with a variable.
+
+  obj Count
+    lo: Int
+    hi: Int
+
+    fun next(!self) -> Int?
+      return none if self.lo >= self.hi
+      self.lo += 1
+      self.lo - 1
+
+  fun upto(n: Int) -> Count
+    Count(lo: 0, hi: n)
+
+  hits = 0
+  for 0..3
+    hits += 1
+  print("range", hits)
+
+  xs = [10, 20, 30, 40]
+  hits = 0
+  for xs
+    hits += 1
+  print("list", hits)
+
+  hits = 0
+  for ?xs
+    hits += 1
+  print("read", hits)
+
+  hits = 0
+  for upto(5)
+    hits += 1
+  print("made", hits)
+
+  c = upto(6)
+  for !c
+    break if hits > 100
+    hits += 1
+    break if hits > 7
+  print("lent", hits, (!c).next() ?? -1)
+  for !c
+    hits += 1
+  print("rest", hits, (!c).next() ?? -1)
+
+  it = 5
+  for 0..it
+    it += 1
+  print("name", it)
+
+  hits = 0
+  for 0..3
+    for 0..4
+      hits += 1
+  print("nested", hits)
+
+  hits = 0
+  for 0..10
+    hits += 1
+    continue if hits < 3
+    break if hits == 5
+  print("jumps", hits)
+
+  @outer for 0..3
+    for 0..3
+      hits += 1
+      continue @outer if hits > 6
+  print("label", hits)
+
+  for upto(2)
+    hits += 1
+  else
+    print("else", hits)
+
+  for 0..9
+    break
+  else
+    print("never")
+
+  r = for 0..4
+    hits += 1
+    break hits if hits > 10
+  else
+    -1
+  print(r)
+
+  e = upto(3)
+  hits = 0
+  for <e
+    hits += 1
+  print("taken", hits)
+
+  for n in 0..2
+    print("var", n)
+  for x, i in xs
+    print(x, i)
+
+test "for iterator", release: true, '''
+  resumed at 3
+  rest 4
+  rest 5
+  ran out
+  5 -1
+  0 0
+  1 0
+  1 1
+  2 0
+  2 1
+  2 2
+  30
+  10 -1
+  took 0
+  took 1
+  took 2
+  6
+'''
+  # `for x in it`, where `it` has `next(!self) -> T?`, is
+  # `while (!it).next() as x`: the loop advances `it` where it stands, so
+  # an iterator a `break` leaves is still there to resume. A source made
+  # there (`upto(3)`), or a place the loop takes (`<it`), is held in a
+  # hidden binding for the loop. `else`, `break` values, labels and loop
+  # values work as they do for `while … as`.
+
+  obj Count
+    lo: Int
+    hi: Int
+
+    fun next(!self) -> Int?
+      return none if self.lo >= self.hi
+      self.lo += 1
+      self.lo - 1
+
+  fun upto(n: Int) -> Count
+    Count(lo: 0, hi: n)
+
+  fun first_over(k: Int) -> Int
+    for n in upto(10)
+      break n if n > k
+    else
+      -1
+
+  fun drain(it: !Count) -> Int
+    total = 0
+    for n in !it
+      total += n
+    total
+
+  c = upto(6)
+  for n in !c
+    break if n == 2
+  print("resumed at", (!c).next() ?? -1)
+  for n in !c
+    print("rest", n)
+  else
+    print("ran out")
+  print(first_over(4), first_over(20))
+
+  @outer for a in upto(3)
+    for b in upto(3)
+      continue @outer if b > a
+      print(a, b)
+
+  r = for n in upto(5)
+    break n * 10 if n == 3
+  else
+    -1
+  print(r)
+  d = upto(5)
+  print(drain(!d), (!d).next() ?? -1)
+
+  e = upto(3)
+  for n in <e
+    print("took", n)
+  s = 0
+  for n in upto(4)
+    s += n
+  print(s)
+
+fail "for iterator signature", "31:10: cannot iterate over `Reads`: a `for` walks a type with `next(!self) -> T?`, but its `next` takes `?self`", "34:10: cannot iterate over `Wants`: a `for` walks a type with `next(!self) -> T?`, but its `next` takes more than `self`", "37:10: cannot iterate over `Plain`: a `for` walks a type with `next(!self) -> T?`, but its `next` does not give an optional", "40:10: cannot iterate over `Free`: a `for` walks a type with `next(!self) -> T?`, but its `next` takes no `self`", "42:10: cannot iterate over `Int`; a `for` source must be a range `a..b`, an array, a `?String`, a `List`, or an iterator (a type with `next(!self) -> T?`)", errors: 5
+  # A `for` walks a type whose `next` is `next(!self) -> T?`: a `next`
+  # that takes `?self`, takes more, or gives no optional is not one, and
+  # a loop over such a type says why. Plain `List`, array and `?String`
+  # sources keep their own meaning.
+
+  obj Reads
+    n: Int
+
+    fun next(?self) -> Int?
+      none
+
+  obj Wants
+    n: Int
+
+    fun next(!self, step: Int) -> Int?
+      none
+
+  obj Plain
+    n: Int
+
+    fun next(!self) -> Int
+      self.n
+
+  obj Free
+    n: Int
+
+    fun next() -> Int?
+      none
+
+  a = Reads(n: 0)
+  for x in a
+    print(x)
+  b = Wants(n: 0)
+  for x in b
+    print(x)
+  c = Plain(n: 0)
+  for x in c
+    print(x)
+  d = Free(n: 0)
+  for x in d
+    print(x)
+  for x in 3
+    print(x)
+
+fail "for iterator source", "29:10: a `for` advances an iterator named by a name or a field path (`it`, `a.b`); bind `xs[0]` to a name first", "31:11: a `for` advances an iterator named by a name or a field path (`it`, `a.b`); bind `xs[1]` to a name first", "33:11: a `for` advances an iterator named by a name or a field path (`it`, `a.b`); bind `xs[0]` to a name first", "35:10: a `for` walks an iterator that is a place or a value made here; bind `mk().a` to a name first", "37:10: a `for` walks an iterator that is a place or a value made here; bind `p.a if c.lo > 0 else p.b` to a name first", "39:11: `for n in ?p.a` would only read an iterator, which `next` cannot advance; write `for n in !p.a` to advance it in place", "41:11: a `for` walks an iterator that is a place or a value made here; bind `mk().a` to a name first", "43:11: `!mk_count()` advances a place, and this is a value made here; write `for n in mk_count()`, which holds it for the loop", "45:8: an iterator has no index binding; keep a count in the loop: `for n in !c`", errors: 9
+  # What a `for` over an iterator can walk: a name or a field path it
+  # advances where it stands (written `!`), a value made there, or a place it takes with
+  # `<`. An element, a read lend, a part of a made value, a branching
+  # value, and `!` of a value made there cannot be advanced, and an
+  # iterator has no index binding.
+
+  obj Count
+    lo: Int
+    hi: Int
+
+    fun next(!self) -> Int?
+      return none if self.lo >= self.hi
+      self.lo += 1
+      self.lo - 1
+
+  obj Pair
+    a: Count
+    b: Count
+
+  fun mk() -> Pair
+    Pair(a: Count(lo: 0, hi: 1), b: Count(lo: 0, hi: 1))
+
+  fun mk_count() -> Count
+    Count(lo: 0, hi: 1)
+
+  p = Pair(a: Count(lo: 0, hi: 1), b: Count(lo: 0, hi: 1))
+  xs = [Count(lo: 0, hi: 1), Count(lo: 0, hi: 1)]
+  c = Count(lo: 0, hi: 2)
+  for n in xs[0]
+    print(n)
+  for n in !xs[1]
+    print(n)
+  for n in <xs[0]
+    print(n)
+  for n in mk().a
+    print(n)
+  for n in p.a if c.lo > 0 else p.b
+    print(n)
+  for n in ?p.a
+    print(n)
+  for n in !mk().a
+    print(n)
+  for n in !mk_count()
+    print(n)
+  for n, i in c
+    print(n, i)
+
+test "for lent made iterator", '''
+  4
+  5
+  40
+  8
+  9
+  10
+  9
+  10
+  11
+  10
+  11
+  12
+  4
+  5
+  6
+  15
+  [4, 5, 6, 1]
+  drained 3
+  drained 2
+  drained 1
+  drained 0
+  0
+'''
+  # The `?` before a `for` loop's source that is a method call reaches the
+  # call's receiver, as before any call (`?b.each()` is `(?b).each()`),
+  # and the loop holds the iterator the call makes, which keeps `b` lent
+  # to read for the loop. A method that writes its receiver is called
+  # with the `!` in parentheses, `(!b).drain()`, as any write call whose
+  # value is used is.
+
+  obj Cur
+    xs: ?List[Int]
+    i: Int
+
+    fun next(!self) -> Int?
+      return none if self.i >= self.xs.len
+      self.i += 1
+      self.xs[self.i - 1]
+
+  obj Count
+    n: Int
+
+    fun next(!self) -> Int?
+      return none if self.n == 0
+      self.n -= 1
+      self.n
+
+  obj Bag
+    xs: List[Int]
+
+    fun drain(!self) -> Count
+      n = self.xs.len
+      !self.xs.clear()
+      Count(n: n)
+
+    fun each(?self) -> Cur from self
+      Cur(xs: ?self.xs, i: 0)
+
+  obj Shelf
+    bag: Bag
+
+  b = Bag(xs: List())
+  !b.xs.push(4)
+  !b.xs.push(5)
+  for x in ?b.each()
+    print(x)
+  for x in ?b.each()
+    print(x * 10)
+    break
+  !b.xs.push(6)
+  for x in ?b.each()
+    for y in ?b.each()
+      print(x + y)
+  s = Shelf(bag: <b)
+  for x in ?s.bag.each()
+    print(x)
+  total = 0
+  for x in ?s.bag.each()
+    total += x
+  print(total)
+  !s.bag.xs.push(1)
+  print(s.bag.xs)
+  for x in (!s.bag).drain()
+    print("drained", x)
+  print(s.bag.xs.len)
+
+fail "for ptr binding reserved", "`for *x in` is reserved"
+  # `for *x in v` (by-reference loop binding) is reserved and does not
+  # parse; iterate with `for x in v`, `?v`, or `!v`.
+
+  v: List[Int] = List()
+  !v.push(1)
+  for *x in v
+    print(x)
+
+test "fun ends with endless loop", "8"
+  # A function may end with a `while true` loop that it leaves only by
+  # `return`.
+
+  fun first_over(limit: Int) -> Int
+    x = 0
+    while true : x += 1
+      if x * x > limit
+        return x
+
+  print(first_over(50))
+
+test "function markers", release: true, '''
+  7 8 3
+  count 3
+  6 15 2
+  note 1
+  7 20 15 502 2
+  0
+  7 7 7
+  9 b 12 20 5 6
+'''
+  # `inline`, `called`, and `rarely` mark a function before its `fun` or
+  # `sub`: a module's function, a public one, a method in its type's body or
+  # outside it, and a function with compile-time parameters. They ask for a
+  # speed and change no meaning, and anywhere else each word is a name. A
+  # `called` function, always a real call, may be passed as a value.
+
+  inline fun add(a: Int, b: Int) -> Int
+    a + b
+
+  rarely sub report(what: ?String, n: Int)
+    print(what, n)
+
+  pub inline fun double(x: Int) -> Int
+    x * 2
+
+  pub rarely fun fallback(x: Int) -> Int
+    x - 1
+
+  called fun triple(x: Int) -> Int
+    x * 3
+
+  pub called sub note(n: Int)
+    print("note", n)
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  obj Counter
+    n: Int
+    inline: Int
+
+    inline fun get(?self) -> Int
+      self.n + self.inline
+
+    rarely sub reset(!self)
+      self.n = 0
+
+    called fun total(?self) -> Int
+      self.n * 100 + self.inline
+
+    fun rarely(?self) -> Int
+      self.inline * 10
+
+  inline fun Counter.bumped(?self, by: Int) -> Int
+    self.n + by
+
+  rarely sub Counter.clear(!self)
+    self.inline = 0
+
+  called fun Counter.half(?self) -> Int
+    self.n / 2
+
+  obj Wrap[T]
+    value: T
+
+    inline fun get(?self) -> T
+      self.value
+
+  rarely fun Wrap[T].peek(?self) -> T
+    self.value
+
+  called fun Wrap[T].same(?self) -> T
+    self.value
+
+  inline fun larger[T](a: T, b: T) -> T
+    a if a > b else b
+
+  rarely fun scaled[k: Int](x: Int) -> Int
+    x * k
+
+  called fun shifted[k: Int](x: Int) -> Int
+    x + k
+
+  fun rarely(inline: Int) -> Int
+    called = inline + 1
+    called
+
+  sub main()
+    inline = 3
+    rare = rarely(inline)
+    print(add(inline, rare), double(rare), fallback(rare))
+    report("count", inline)
+    print(triple(2), apply(triple, 5), apply(fallback, 3))
+    note(1)
+    c = Counter(n: 5, inline: 2)
+    print(c.get(), c.rarely(), c.bumped(10), c.total(), c.half())
+    !c.reset()
+    !c.clear()
+    print(c.get())
+    w = Wrap[Int](value: 7)
+    print(w.get(), w.peek(), w.same())
+    print(larger(3, 9), larger("a", "b"), scaled[3](4), scaled[5](4), shifted[1](4), shifted[2](4))
+
+fail "function type arg in expression", "4:11: a function type has no expression spelling"
+  # A function type has no expression spelling, so it cannot be a type
+  # argument in an expression.
+
+  v = List[*fun(Int) -> Int]()
+
+fail "function type suffix", "4:13: unexpected `?`; a function type takes no suffix; write `(*sub(Int))?`"
+  # A function type takes no suffix: an optional one, or an optional owned
+  # closure, is written in parentheses.
+
+  s: *sub(Int)? = none
+  print(s == none)
+
+fail "function type without arrow", "3:23: unexpected name `Int`; expected `->`; a function type writes its result after `->`: `fun(Int) -> Int`"
+  # A function type writes its result after `->`, as a declaration does.
+
+  fun apply(f: fun(Int) Int, x: Int) -> Int
+    f(x)
+
+  print(apply(|a| a, 1))
+
+fail "generic error set", "3:8: an error set takes no type parameters"
+  # An error set takes no type parameters.
+
+  error E[T]
+    bad
+
+fail "generic struct declared as type", "4:10: an object is declared with `obj`: `obj Wrap[T]`"
+  # A generic struct is declared with `obj`; `type` declares only an
+  # alias.
+
+  type Wrap[T]
+    v: T
+
+fail "generic type alias", "3:7: a type alias takes no type parameters; generic aliases are not supported"
+  # A type alias takes no type parameters.
+
+  type A[T] = List[T]
+
+fail "generic type parens", "4:9: type parameters go in brackets: `obj Wrap[T]`"
+  # Type parameters go in brackets after the name; `obj Wrap(T)` is not
+  # Rig.
+
+  obj Wrap(T)
+    v: T
+
+fail "guard inside expression", "a postfix `if` guard must end a statement"
+  # A postfix `if` guards a whole statement; inside an expression a value
+  # needs both branches: `a if c else b`.
+
+  x = 1
+  print(x if x > 0)
+
+fail "habit ampersand view", "8:6: unexpected `&`; expected an expression, `)` or a keyword argument; Rig lends with `?x` (to read) or `!x` (to write)"
+  # Rust and C take an address or a reference with `&`; Rig views with
+  # `?x` to read and `!x` to write.
+
+  sub show(n: ?Int)
+    print(n)
+
+  n = 1
+  show(&n)
+
+fail "habit braces", "3:12: unexpected `{`; Rig has no braces: a block is the lines indented under its header"
+  # A block is the lines indented under its header; Rig has no braces.
+
+  sub main() {
+    print(1)
+  }
+
+fail "habit class", "3:1: Rig has no `class`; declare a type with `obj`", whole: true
+  # A type is declared with `obj`.
+
+  class Point
+    x: Int
+
+fail "habit const", "4:1: Rig has no `const`; write `x =! e` for a binding that never changes"
+  # `const` is reserved; a binding that never changes is written `x =! e`,
+  # and one that shadows `new x =! e`.
+
+  const x = 5
+  new const y = x
+  print(x, y)
+
+fail "habit def", "4:1: Rig has no `def`; declare a function with `fun`", whole: true
+  # A function is declared with `fun` or `sub`; `def` is named where it
+  # stands.
+
+  def greet(name: ?String)
+    print(name)
+
+fail "habit do", "4:13: Rig has no `do`; a block is the indented lines below the line that opens it"
+  # A block needs no `do` or `then`: it is the indented lines below.
+
+  n = 0
+  while n < 3 do
+    n += 1
+
+fail "habit elif", "6:1: Rig has no `elif`; write `else if`"
+  # `elif` is written `else if`.
+
+  n = 1
+  if n > 1
+    print(1)
+  elif n > 0
+    print(0)
+
+fail "habit fn", "3:5: Rig has no `fn`; declare a function with `fun`", whole: true
+  # Rust's `fn` is named at the word, even after `pub`.
+
+  pub fn add(a: Int, b: Int) -> Int
+    a + b
+
+fail "habit import", "3:1: Rig has no `import`; use a module with `use name`", whole: true
+  # A module is used with `use`.
+
+  import math
+
+fail "habit let", "3:1: Rig has no `let`; bind a name with `x = 5`, or `x =! 5` for one that never changes"
+  # A binding needs no `let`, `var`, or `mut`.
+
+  let mut x = 5
+  print(x)
+
+fail "habit loop", "4:1: Rig has no `loop`; write `while true`"
+  # An endless loop is `while true`; `loop` is named at the word, not
+  # at the block below it.
+
+  loop
+    print(1)
+
+fail "habit new const", "5:5: Rig has no `const`; write `x =! e` for a binding that never changes"
+  # `new const x = e` is no shadow: `const` is reserved, and a shadow
+  # that never changes is written `new x =! e`.
+
+  x = 1
+  new const x = x + 1
+  print(x)
+
+fail "habit switch", "4:1: Rig has no `switch`; write `match`"
+  # Rig's `switch` is `match`.
+
+  n = 1
+  switch n
+    1 => print(1)
+
+fail "header colon", "5:12: remove the `:`"
+  # A block's header ends without a `:`, as a `while` step would begin
+  # with one.
+
+  n = 0
+  while n < 3:
+    n += 1
+
+fail "increment operator", "4:2: Rig has no `++`; write `x += 1`"
+  # Rig has no `++`.
+
+  i = 0
+  i++
+  print(i)
+
+fail "indent too deep", "indentation is nested too deeply"
+  # Blocks may nest 64 deep; deeper is a diagnostic, not a crash.
+
+  if true
+    if true
+      if true
+        if true
+          if true
+            if true
+              if true
+                if true
+                  if true
+                    if true
+                      if true
+                        if true
+                          if true
+                            if true
+                              if true
+                                if true
+                                  if true
+                                    if true
+                                      if true
+                                        if true
+                                          if true
+                                            if true
+                                              if true
+                                                if true
+                                                  if true
+                                                    if true
+                                                      if true
+                                                        if true
+                                                          if true
+                                                            if true
+                                                              if true
+                                                                if true
+                                                                  if true
+                                                                    if true
+                                                                      if true
+                                                                        if true
+                                                                          if true
+                                                                            if true
+                                                                              if true
+                                                                                if true
+                                                                                  if true
+                                                                                    if true
+                                                                                      if true
+                                                                                        if true
+                                                                                          if true
+                                                                                            if true
+                                                                                              if true
+                                                                                                if true
+                                                                                                  if true
+                                                                                                    if true
+                                                                                                      if true
+                                                                                                        if true
+                                                                                                          if true
+                                                                                                            if true
+                                                                                                              if true
+                                                                                                                if true
+                                                                                                                  if true
+                                                                                                                    if true
+                                                                                                                      if true
+                                                                                                                        if true
+                                                                                                                          if true
+                                                                                                                            if true
+                                                                                                                              if true
+                                                                                                                                if true
+                                                                                                                                  if true
+                                                                                                                                    if true
+                                                                                                                                      if true
+                                                                                                                                        if true
+                                                                                                                                          if true
+                                                                                                                                            if true
+                                                                                                                                              print(1)
+
+test "index array literal then suffix", "3 none 3 7"
+  # After an array literal, `[i]` indexes it, and a `?` or `!` that
+  # follows is a suffix; in a type, a sigil after a `]` is the element
+  # type's prefix (`[2][3]?Int`).
+
+  error E
+    bad
+
+  fun second(a: Int?, b: Int?) -> Int?
+    x = [a, b][1]?
+    x + 1
+
+  fun pick(i: Int) -> Int!
+    return E.bad if i > 1
+    i
+
+  fun twice() -> Int!
+    y = [pick(0)!, 5][0]
+    [[1, 2], [3, 4]][1][0] + y
+
+  n = 7
+  d: [2][3]?Int = [[?n, ?n, ?n], [?n, ?n, ?n]]
+  print(second(1, 2), second(1, none), twice() catch -1, d[1][2])
+
+fail "index trailing comma", "5:7: an index is one value with no trailing comma"
+  # An index is one value: a trailing comma makes the brackets a list of
+  # compile-time arguments, which an array does not take.
+
+  xs = [1, 2]
+  print(xs[1,])
+
+test "inline ternary assign", '''
+  1
+  2
+'''
+  # `x = a if c else b` is the inline ternary expression.
+
+  fun f(c: Bool) -> Int
+    x = 1 if c else 2
+    return x
+
+  print(f(true))
+  print(f(false))
+
+test "inline ternary return", '''
+  1
+  2
+'''
+  # `return a if c else b` returns the ternary's value.
+
+  fun f(c: Bool) -> Int
+    return 1 if c else 2
+
+  print(f(true))
+  print(f(false))
+
+fail "islands too deep", "38:70: closures laid out inside brackets are nested too deeply"
+  # Closures laid out inside brackets nest at most 32 deep.
+
+  sub run(f: *sub())
+    f()
+
+  run(*||
+    run(*||
+      run(*||
+        run(*||
+          run(*||
+            run(*||
+              run(*||
+                run(*||
+                  run(*||
+                    run(*||
+                      run(*||
+                        run(*||
+                          run(*||
+                            run(*||
+                              run(*||
+                                run(*||
+                                  run(*||
+                                    run(*||
+                                      run(*||
+                                        run(*||
+                                          run(*||
+                                            run(*||
+                                              run(*||
+                                                run(*||
+                                                  run(*||
+                                                    run(*||
+                                                      run(*||
+                                                        run(*||
+                                                          run(*||
+                                                            run(*||
+                                                              run(*||
+                                                                run(*||
+                                                                  run(*||
+                                                                    print(1))))))))))))))))))))))))))))))))))
+
+test "jump fallback next line", "12 -1"
+  # Inside brackets a line break is whitespace, so a `??` whose jump
+  # starts the next line still takes the jump.
+
+  fun twice(n: Int) -> Int
+    n * 2
+
+  fun pick(a: Int?) -> Int
+    n = twice(a ??
+      return -1)
+    m = twice(a ?? \
+      return -2)
+    n + m
+
+  print(pick(3), pick(none))
+
+fail "keyword as function name", "unexpected keyword `match`"
+  # Every keyword is reserved: `match` cannot name a function.
+
+  fun match() -> Int
+    1
+
+  print(0)
+
+fail "keyword as function outside members", "10:5: unexpected keyword `type`"
+  # The name after `fun` may be a keyword only in a member list: a
+  # top-level function cannot be named `type`.
+
+  obj S
+    x: Int
+
+    fun test(?self) -> Int
+      self.x
+
+  fun type(s: ?S) -> Int
+    s.test()
+
+  print(type(S(x: 1)))
+
+fail "keyword as param", "4:10: `in` is a keyword and cannot name a parameter"
+  # Keywords are reserved outside member names: `in:` inside ( ) reads as
+  # a name, but `in` cannot name a parameter.
+
+  sub show(in: Int)
+    print(1)
+
+  show(1)
+
+fail "keyword as typed local", "4:1: unexpected keyword `in`"
+  # A keyword before `:` names a field only in a member list; in a body it
+  # stays reserved, so it cannot name a typed local.
+
+  in: Int = 1
+  print(in)
+
+test "keywords as member names", '''
+  1 bad true 5 6 3
+  9 Wrap(type: 9)
+  7 false
+  .key(type: 7, match: false)
+  dropping 1
+'''
+  # A keyword may name a field, a method, or a payload field: after `.`,
+  # before `:` inside ( ), and in a member list before `:` or after `fun`
+  # / `sub`. `drop(!self)` is still the drop body; `drop:` is a field.
+
+  obj Token
+    type: Int
+    error: ?String
+    drop: Bool
+    in: Int
+
+    fun test(?self) -> Int
+      self.type + self.in
+
+    fun match(?self, n: Int) -> Int
+      self.type * n
+
+    sub use(!self)
+      self.in += 1
+
+    drop(!self)
+      print("dropping", self.type)
+
+  obj Wrap[T]
+    type: T
+
+    fun error(?self) -> T
+      self.type
+
+  enum Ev
+    key(type: Int, match: Bool)
+    quit
+
+  t = Token(type: 1, error: "bad", drop: true, in: 4)
+  !t.use()
+  print(t.type, t.error, t.drop, t.in, t.test(), t.match(n: 3))
+  b = Wrap(type: 9)
+  print(b.error(), b)
+  e = Ev.key(type: 7, match: false)
+  match e
+    .key(k, m) => print(k, m)
+    .quit => print("quit")
+  print(e)
+
+test "keywords as members", '''
+  0 1 2 3 4 5 6 7 8 9
+  741
+  39
+'''
+  # Every keyword but `if` names a member where it cannot be mistaken for
+  # the keyword (SYNTAX.md, "Keywords"): a field, a method, and a
+  # payload field, read after `.` and before `:` inside parentheses.
+  # `if` names none (test/torture/03_keyword_as_field.rig).
+
+  obj O
+    fun: Int
+    sub: Int
+    enum: Int
+    error: Int
+    type: Int
+    use: Int
+    pub: Int
+    extern: Int
+    test: Int
+    drop: Int
+    const: Int
+    else: Int
+    while: Int
+    for: Int
+    in: Int
+    match: Int
+    break: Int
+    continue: Int
+    return: Int
+    defer: Int
+    errdefer: Int
+    pass: Int
+    and: Int
+    or: Int
+    not: Int
+    as: Int
+    catch: Int
+    true: Int
+    false: Int
+    raw: Int
+    zig: Int
+    try: Int
+    async: Int
+    await: Int
+    impl: Int
+    trait: Int
+    when: Int
+    where: Int
+    yield: Int
+
+    fun fun2(?self) -> Int
+      self.fun
+
+    fun sub2(?self) -> Int
+      self.sub
+
+    fun enum2(?self) -> Int
+      self.enum
+
+    fun error2(?self) -> Int
+      self.error
+
+    fun type2(?self) -> Int
+      self.type
+
+    fun use2(?self) -> Int
+      self.use
+
+    fun pub2(?self) -> Int
+      self.pub
+
+    fun extern2(?self) -> Int
+      self.extern
+
+    fun test2(?self) -> Int
+      self.test
+
+    fun drop2(?self) -> Int
+      self.drop
+
+    fun const2(?self) -> Int
+      self.const
+
+    fun else2(?self) -> Int
+      self.else
+
+    fun while2(?self) -> Int
+      self.while
+
+    fun for2(?self) -> Int
+      self.for
+
+    fun in2(?self) -> Int
+      self.in
+
+    fun match2(?self) -> Int
+      self.match
+
+    fun break2(?self) -> Int
+      self.break
+
+    fun continue2(?self) -> Int
+      self.continue
+
+    fun return2(?self) -> Int
+      self.return
+
+    fun defer2(?self) -> Int
+      self.defer
+
+    fun errdefer2(?self) -> Int
+      self.errdefer
+
+    fun pass2(?self) -> Int
+      self.pass
+
+    fun and2(?self) -> Int
+      self.and
+
+    fun or2(?self) -> Int
+      self.or
+
+    fun not2(?self) -> Int
+      self.not
+
+    fun as2(?self) -> Int
+      self.as
+
+    fun catch2(?self) -> Int
+      self.catch
+
+    fun true2(?self) -> Int
+      self.true
+
+    fun false2(?self) -> Int
+      self.false
+
+    fun raw2(?self) -> Int
+      self.raw
+
+    fun zig2(?self) -> Int
+      self.zig
+
+    fun try2(?self) -> Int
+      self.try
+
+    fun async2(?self) -> Int
+      self.async
+
+    fun await2(?self) -> Int
+      self.await
+
+    fun impl2(?self) -> Int
+      self.impl
+
+    fun trait2(?self) -> Int
+      self.trait
+
+    fun when2(?self) -> Int
+      self.when
+
+    fun where2(?self) -> Int
+      self.where
+
+    fun yield2(?self) -> Int
+      self.yield
+
+  enum P
+    pp(fun: Int, sub: Int, enum: Int, error: Int, type: Int, use: Int, pub: Int, extern: Int, test: Int, drop: Int, const: Int, else: Int, while: Int, for: Int, in: Int, match: Int, break: Int, continue: Int, return: Int, defer: Int, errdefer: Int, pass: Int, and: Int, or: Int, not: Int, as: Int, catch: Int, true: Int, false: Int, raw: Int, zig: Int, try: Int, async: Int, await: Int, impl: Int, trait: Int, when: Int, where: Int, yield: Int)
+    qq
+
+  fun total(p: P) -> Int
+    match p
+      .pp(fun: v0, sub: v1, enum: v2, error: v3, type: v4, use: v5, pub: v6, extern: v7, test: v8, drop: v9, const: v10, else: v11, while: v12, for: v13, in: v14, match: v15, break: v16, continue: v17, return: v18, defer: v19, errdefer: v20, pass: v21, and: v22, or: v23, not: v24, as: v25, catch: v26, true: v27, false: v28, raw: v29, zig: v30, try: v31, async: v32, await: v33, impl: v34, trait: v35, when: v36, where: v37, yield: v38) => v0 + v1 + v2 + v3 + v4 + v5 + v6 + v7 + v8 + v9 + v10 + v11 + v12 + v13 + v14 + v15 + v16 + v17 + v18 + v19 + v20 + v21 + v22 + v23 + v24 + v25 + v26 + v27 + v28 + v29 + v30 + v31 + v32 + v33 + v34 + v35 + v36 + v37 + v38
+      .qq => 0
+
+  o = O(fun: 0, sub: 1, enum: 2, error: 3, type: 4, use: 5, pub: 6, extern: 7, test: 8, drop: 9, const: 10, else: 11, while: 12, for: 13, in: 14, match: 15, break: 16, continue: 17, return: 18, defer: 19, errdefer: 20, pass: 21, and: 22, or: 23, not: 24, as: 25, catch: 26, true: 27, false: 28, raw: 29, zig: 30, try: 31, async: 32, await: 33, impl: 34, trait: 35, when: 36, where: 37, yield: 38)
+  print(o.fun, o.sub, o.enum, o.error, o.type, o.use, o.pub, o.extern, o.test, o.drop)
+  print(o.fun2() + o.sub2() + o.enum2() + o.error2() + o.type2() + o.use2() + o.pub2() + o.extern2() + o.test2() + o.drop2() + o.const2() + o.else2() + o.while2() + o.for2() + o.in2() + o.match2() + o.break2() + o.continue2() + o.return2() + o.defer2() + o.errdefer2() + o.pass2() + o.and2() + o.or2() + o.not2() + o.as2() + o.catch2() + o.true2() + o.false2() + o.raw2() + o.zig2() + o.try2() + o.async2() + o.await2() + o.impl2() + o.trait2() + o.when2() + o.where2() + o.yield2())
+  print(total(.pp(fun: 1, sub: 1, enum: 1, error: 1, type: 1, use: 1, pub: 1, extern: 1, test: 1, drop: 1, const: 1, else: 1, while: 1, for: 1, in: 1, match: 1, break: 1, continue: 1, return: 1, defer: 1, errdefer: 1, pass: 1, and: 1, or: 1, not: 1, as: 1, catch: 1, true: 1, false: 1, raw: 1, zig: 1, try: 1, async: 1, await: 1, impl: 1, trait: 1, when: 1, where: 1, yield: 1)))
+
+fail "label after defer", "5:9: the pin sigil `@x` is reserved"
+  # The statement after `defer`, `errdefer`, or `=>` takes no label, so
+  # `@name` there is the reserved pin sigil.
+
+  for i in 0..3
+    defer @a for j in 0..i
+      print(j)
+
+test "label break value", '''
+  10 7
+  4 0 0
+  4 1 0
+  4 1 1
+  4 2 0
+  4 2 1
+  4 2 2
+  4
+'''
+  # After `break`, `@name` is always a label, so a value in parentheses
+  # follows it with a space: `break @outer (x)` leaves `outer` with `(x)`.
+  # `@size(Int)`, with the `(` touching the name, is a builtin call, also
+  # inside a labeled loop.
+
+  fun pick(a: Int, b: Int) -> Int
+    if a > 0
+      @outer for i in 0..4
+        for j in 0..4
+          break @outer (a + b) * i if j == 1 and i == 2
+      else
+        0
+    else
+      @first while true
+        break @first (b)
+
+  print(pick(2, 3), pick(-1, 7))
+  @outer for i in 0..3
+    for j in 0..3
+      continue @outer if j > i
+      print(@size(I32), i, j)
+  n = 0
+  @rows while n < 10 : n += 1
+    m = n * @size(I16)
+    break @rows if m > 6
+  print(n)
+
+fail "label call after jump", "6:11: after `break` or `continue`, `@name` is a label, never a builtin call: put a space before a value, `break @outer (x)`, or break with a builtin's value as `break (@size(T))`"
+  # After `break` or `continue`, `@name` is always a label, so a `(`
+  # touching it would read as a builtin call: the value takes a space.
+
+  x = for i in 0..3
+    @inner for j in 0..3
+      break @inner(j)
+    break i
+  else
+    0
+  print(x)
+
+fail "label detached", "3:1: `@` touches the name after it: a label `@outer`, a builtin call `@size(T)`"
+  # `@` touches the name after it, for a label as for a builtin call.
+
+  @ outer for i in 0..3
+    break @outer
+
+fail "label keyword", "3:1: a keyword is not a label name"
+  # A keyword is not a label name.
+
+  @for for i in 0..3
+    print(i)
+
+fail "label old spelling", "4:1: a label is written `@name`: `@outer for ...`, `break @outer`, `continue @outer`"
+  # A label is written `@name`; the old spelling, `:name`, is rejected
+  # with a hint.
+
+  :outer for i in 0..3
+    print(i)
+
+fail "label old spelling jump", "7:14: a label is written `@name`: `@outer for ...`, `break @outer`, `continue @outer`"
+  # A label after a jump is written `@name`; `continue :outer`, spaced or
+  # not, is the old spelling.
+
+  @outer for i in 0..3
+    for j in 0..3
+      print(j - i)
+      continue : outer
+
+fail "label on defer", "3:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `@d` cannot label a `defer`", "4:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `@e` cannot label a `defer`", errors: 2
+  # A `defer` takes no label: nothing can jump out of it by name.
+
+  @d defer print("done")
+  @e defer
+    print("block")
+  print("body")
+
+fail "label on if", "5:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `@blk` cannot label an `if`", errors: 1
+  # A label names a loop, a `match`, or a `raw` block, which `break` or
+  # `continue` can leave; an `if` takes none.
+
+  n = 3
+  @blk if n > 1
+    break @blk if n > 2
+    print(n)
+
+fail "label on simple statement", "3:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `@c` on this statement would do nothing", "5:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `@d` on this statement would do nothing", errors: 2
+  # A label on a simple statement would do nothing, so it is rejected.
+
+  @c print(5)
+  n = 1
+  @d n += 1
+  print(n)
+
+fail "label touch", "7:19: a jump's label ends at its name: put a space before the value, `break @outer -1`"
+  # A jump's label ends at its name: a value after it stands apart, so
+  # `break @outer-1` does not pass for a subtraction.
+
+  x = if true
+    @outer for i in 0..3
+      for j in 0..3
+        break @outer-1 if j == i
+    else
+      0
+  else
+    1
+  print(x)
+
+fail "label twice", "3:1: a loop, `match`, or `raw` block takes one label; `@c` labels a statement already labeled `@d`", errors: 1
+  # A loop, `match`, or `raw` block takes one label.
+
+  @c @d while true
+    break @c
+
+fail "label value detached prefix", "7:20: a prefix `-` touches its operand"
+  # After a jump's label, the value starts an operand: a prefix sigil
+  # touches its operand there as anywhere.
+
+  x = if true
+    @outer for i in 0..3
+      for j in 0..3
+        break @outer - 1 if j == i
+    else
+      0
+  else
+    1
+  print(x)
+
+fail "label value position", "4:5: the pin sigil `@x` is reserved"
+  # A label stands where a statement starts or after `break` or
+  # `continue`; anywhere else a bare `@name` is the reserved pin sigil.
+
+  x = @outer for i in 0..3
+    break @outer i
+  print(x)
+
+test "labeled jump fallback", '''
+  0
+  1
+  10
+  11
+  0
+  11
+'''
+  # The jump after `??` or `catch` may name a loop's label, as the jump
+  # statements do. In a `while` header the first `:` starts the step.
+
+  error E
+    bad
+
+  fun get(i: Int, j: Int) -> Int?
+    none if j == 2 else i * 10 + j
+
+  fun check(n: Int) -> Int!
+    return E.bad if n == 20
+    n
+
+  @outer for i in 0..3
+    for j in 0..3
+      v = get(i, j) ?? continue @outer
+      w = check(v) catch break @outer
+      print(w)
+  i = 0
+  @loop while i < 5 : i += 1
+    while true
+      n = get(i, i) ?? break @loop
+      print(n)
+      break
+
+test "leading dot chain", release: true, '''
+  3
+  6
+  13
+  6
+  11
+  6
+  3
+'''
+  # A line indented deeper than its statement that starts with `.` continues
+  # the expression above it: in a binding, an assignment, a return, an
+  # argument, and a closure's body. A statement at the original indentation
+  # ends the chain.
+
+  obj B
+    n: Int
+
+    fun add(?self, k: Int) -> B
+      B(n: self.n + k)
+
+    fun get(?self) -> Int
+      self.n
+
+  fun total(b: B) -> Int
+    return b
+      .add(1)
+      .add(2)
+      .get()
+
+  fun last(b: B) -> Int
+    b
+      .add(10)
+      .get()
+
+  b = B(n: 0)
+    .add(1)
+    .add(2)
+  print(b.get())
+  print(total(b))
+  print(last(b))
+  print(B(n: 5)
+    .add(1)
+    .get())
+  f = |x: Int|
+    B(n: x)
+      .add(1)
+      .get()
+  print(f(10))
+  n = 3
+  n = B(n: n)
+    .add(n)
+    .get()
+  print(n)
+  print(b.get())
+
+test "leading dot chain gaps", release: true, '''
+  10
+  2
+  done
+'''
+  # Blank and comment lines between chain lines do not end the chain, and
+  # the chain lines may be indented by different amounts, as long as each
+  # is deeper than the statement.
+
+  obj B
+    n: Int
+
+    fun add(?self, k: Int) -> B
+      B(n: self.n + k)
+
+    fun get(?self) -> Int
+      self.n
+
+  r = B(n: 0)
+    .add(1)
+
+    # the next step
+    .add(2)
+      .add(3)
+  # a comment at the statement's level
+    .add(4)
+  print(r.get())
+  if r.get() > 5
+    s = B(n: 1)
+      .add(1)
+    print(s.get())
+  print("done")
+
+test "line joining", '''
+  6
+  6
+  7
+  3
+'''
+  # Inside ( ) a newline is whitespace, so expressions, arguments, and
+  # method chains may span lines regardless of indentation. A trailing `\`
+  # joins the next line anywhere.
+
+  obj Counter
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+  fun add3(a: Int, b: Int, c: Int) -> Int
+    a + b + c
+
+  total = (1 +
+           2 +
+      3)
+  print(total)
+  print(add3(
+    1,
+    2,
+    3
+  ))
+  c = Counter(n: 7)
+  print((c
+    .get()))
+  x = 1 + \
+    2
+  print(x)
+
+test "logical not", '''
+  1
+  true
+'''
+  # `not a` is logical negation of a Bool.
+
+  a = false
+  if not a
+    print(1)
+  b = not a
+  print(b)
+
+fail "lone carriage return", "3:11: carriage return without a line feed"
+  # Lines end with LF or CRLF; a carriage return alone is an error.
+
+  sub main()  print(1)
+
+fail "loop else continue own label", "`continue @a` names no enclosing loop or block"
+  # A loop's `else` runs after the loop, so a jump there cannot name it.
+  obj S
+    s: []Int
+
+  fun mk(v: ?List[Int], i: Int) -> S?
+    if i < 3
+      return S(s: ?v[..])
+    none
+
+  v: List[Int] = List()
+  !v.push(1)
+  k = 0
+  n = 0
+  for _ in 0..2
+    i = 0
+    @a while mk(?v, i) as h and i >= 0: k += h.s[0]
+      i += 1
+    else
+      n += 1
+      continue @a
+    k += 100
+  print("end", k, n)
+
+test "loop value", '''
+  2 -1
+  300
+  4 -1
+  26 -1
+  8
+  bb
+  0
+  1
+  7
+'''
+  # A loop whose `break` carries a value is an expression: its value is
+  # the value of the `break` that leaves it, or its `else` value when
+  # none does. `while true` needs no `else`.
+
+  obj Grid
+    rows: [3]Int
+    cols: [3]Int
+
+  fun find(xs: ?[4]Int, t: Int) -> Int
+    for x, i in xs
+      break i if x == t
+    else
+      -1
+
+  fun first_over(limit: Int) -> Int
+    for i in 0..10
+      break i if i * i > limit
+    else
+      -1
+
+  fun pair(g: ?Grid, t: Int) -> Int
+    @outer for r in g.rows
+      for c in g.cols
+        break @outer r * 10 + c if r + c == t
+    else
+      -1
+
+  fun collatz(start: Int) -> Int
+    n = start
+    steps = 0
+    while true
+      break steps if n == 1
+      n = n / 2 if n % 2 == 0 else 3 * n + 1
+      steps += 1
+
+  a = [5, 6, 7, 8]
+  print(find(?a, 7), find(?a, 9))
+  n = 0
+  y = while n < 10
+    n += 1
+    break n * 100 if n == 3
+  else
+    0
+  print(y)
+  print(first_over(10), first_over(1000))
+  g = Grid(rows: [1, 2, 3], cols: [4, 5, 6])
+  print(pair(?g, 8), pair(?g, 20))
+  print(collatz(6))
+  word = if first_over(3) > 1
+    for s in ["a", "bb", "ccc"]
+      break s if s.len == 2
+    else
+      "none"
+  else
+    "small"
+  print(word)
+  x = for i in 0..3
+    for j in 0..2
+      print(j)
+    else
+      break 7 + i
+  else
+    0
+  print(x)
+
+test "loop value break in nested source", release: true, '''
+  5
+  2.5
+  from the source
+  2 9 10 1
+  30
+'''
+  # A `for` source runs before its loop is entered, so a `break` there
+  # leaves the loop around that `for`, with its value. It counts as that
+  # loop's value even when it is the only `break` that gives one.
+  #
+
+  fun some(i: Int) -> Int?
+    i if i != 1 else none
+
+  fun mk(i: Int) -> List[Int]
+    l: List[Int] = List()
+    !l.push(i)
+    !l.push(i + 1)
+    l
+
+  n = for i in 0..3
+    for j in 0..(some(i) ?? break 5)
+      print("n", i, j)
+  else
+    0
+  print(n)
+
+  f = for i in 0..3
+    for j in 0..(some(i) ?? break 2.5)
+      print("f", i, j)
+    break 0.5 if i == 2
+  else
+    1.5
+  print(f)
+
+  s = for i in 0..3
+    for j in 0..(some(i) ?? break String("from the source"))
+      print("s", i, j)
+    break String("from the body") if i == 2
+  else
+    String("from the else")
+  print(s)
+
+  a: List[Int] = List()
+  !a.push(7)
+  l = for i in 0..3
+    for j in 0..(some(i) ?? break mk(9))
+      print("l", i, j)
+    break +a if i == 2
+  else
+    +a
+  print(l.len, l[0], l[1], a.len)
+
+  # Without the nested source's `break`, the body's leaves the loop.
+  m = for i in 2..5
+    for _ in 0..(some(i) ?? break 99)
+      pass
+    break i * 10 if i == 3
+  else
+    -1
+  print(m)
+
+fail "loop value break without value", "5:3: this `break` leaves a loop used as a value; give it the value (`break value`)"
+  # Every `break` that leaves a loop used as a value gives it a value.
+
+  x = for i in 0..3
+    break i if i == 2
+    break if i == 1
+  else
+    0
+  print(x)
+
+fail "loop value needs else", "4:5: a loop used as a value needs an `else` giving its value when no `break` does"
+  # A loop used as a value has no value when its condition fails, so it
+  # needs an `else`; only `while true` can do without one.
+
+  x = for i in 0..3
+    break i if i == 2
+  print(x)
+
+test "loop value positions", '''
+  4 -1
+  602
+  zero small big
+  4 0
+  4 -1
+  1
+  200
+'''
+  # Loops used as values in every value position: a returned value, a
+  # nested loop, a match arm, closure bodies, and with a type from context.
+
+  obj P
+    n: Int
+
+  fun first_even(xs: ?[4]Int) -> Int
+    return for x in xs
+      break x if x % 2 == 0
+    else
+      return -1
+
+  fun nested(limit: Int) -> Int
+    x = for i in 1..10
+      j = for k in 1..10
+        break k if k * i > limit
+      else
+        0
+      break i * 100 + j if j > 0 and j < 3
+    else
+      0
+    x
+
+  fun kind(n: Int) -> ?String
+    match n
+      0 => "zero"
+      _
+        i = 0
+        while i < n : i += 1
+          break "big" if i > 5
+        else
+          "small"
+
+  print(first_even(?[1, 3, 4, 5]), first_even(?[1, 3, 5, 7]))
+  print(nested(10))
+  print(kind(0), kind(3), kind(9))
+  f: fun(Int) -> Int = |n| for i in 0..n
+    break i if i * 3 > n
+  else
+    n
+  print(f(10), f(0))
+  g = |n: Int| for i in 0..n
+    break i * 2 if i == 2
+  else
+    -1
+  print(g(5), g(1))
+  a = P(n: 1)
+  b = P(n: 2)
+  r = for i in 0..2
+    break ?a if i == 1
+  else
+    ?b
+  print(r.n)
+  u8v: U8 = for i in 0..3
+    break 200 if i == 1
+  else
+    7
+  print(u8v)
+
+fail "loop value unused", "3:1: the value of this loop is not used", "10:3: the value of this loop is not used"
+  # A `break` value needs a loop whose value is used.
+
+  for i in 0..3
+    break i if i == 2
+  else
+    0
+  n = 0
+  while n < 3
+    n += 1
+    for j in 0..2
+      break 5 if j == 1
+
+fail "marker before pub", "3:1: `pub` comes before a function's marker: write `pub inline fun`", errors: 1
+  # `pub` comes first, then a function's marker.
+
+  inline pub fun f() -> Int
+    1
+
+  sub main()
+    print(f())
+
+fail "marker both", "3:8: a function takes one marker", errors: 1
+  # A function takes one marker: `inline` and `rarely` contradict each other.
+
+  inline rarely fun f(x: Int) -> Int
+    x
+
+  sub main()
+    print(f(1))
+
+fail "marker both reversed", "3:12: a function takes one marker", errors: 1
+  # A function takes one marker, in either order.
+
+  pub rarely inline sub f()
+    print(1)
+
+  sub main()
+    f()
+
+fail "marker called inline", "4:8: a function takes one marker", errors: 1
+  # A function takes one marker: `called` keeps every call a call, which
+  # contradicts `inline`.
+
+  called inline fun f(x: Int) -> Int
+    x
+
+  sub main()
+    print(f(1))
+
+fail "marker called rarely", "4:8: a function takes one marker", errors: 1
+  # A function takes one marker: `rarely` already keeps every call a call,
+  # so `called` beside it says nothing more, and is an error for clarity.
+
+  rarely called sub f()
+    print(1)
+
+  sub main()
+    f()
+
+fail "marker in test block", "5:3: declarations are only allowed at module level"
+  # A function is declared at module level, marked or not; a test block
+  # holds statements.
+
+  test "inner"
+    inline fun sq(x: Int) -> Int
+      x * x
+    print(sq(3))
+
+  sub main()
+    pass
+
+fail "marker repeated", "3:8: a function's marker is written once", errors: 1
+  # A function's marker is written once.
+
+  inline inline fun f() -> Int
+    1
+
+  sub main()
+    print(f())
+
+fail "match alternative bindings", "10:11: an arm with alternatives cannot bind names", "12:6: `n` matches every value, so the other alternatives never matter"
+  # An arm with alternatives binds no names, and none of its alternatives
+  # may match everything.
+
+  enum Shape
+    circle(r: Int)
+    square(s: Int)
+
+  s = Shape.circle(r: 1)
+  match s
+    .circle(r), .square(r) => print(r)
+  match 3
+    1, n => print(n)
+
+test "match arms stay arms", release: true, '''
+  1 12 23
+  10 20 30
+  1 2 3
+'''
+  # A `.variant` line under a line that opens a block is not a chain: the
+  # arms of a `match` are arms, an arm may be a pattern with a body below
+  # it, and a line deeper than a one-line arm's own is not allowed.
+
+  enum Color
+    red
+    green
+    blue
+
+  fun name(c: Color) -> Int
+    match c
+      .red => 10
+      .green
+        20
+      .blue => 30
+
+  fun code(c: Color) -> Int
+    match c
+      .red => 1
+      .green => 2
+      .blue
+        new k = 3
+        k
+
+  fun value(c: Color) -> Int
+    k = match c
+      .red => 1
+      .green => 2
+      .blue
+        3
+    return match c
+      .red => k
+      .green => k + 10
+      .blue => k + 20
+
+  print(value(.red), value(.green), value(.blue))
+  print(name(.red), name(.green), name(.blue))
+  print(code(.red), code(.green), code(.blue))
+
+fail "match else arm", "7:3: unexpected keyword `else`; expected a match arm, the end of the line or the end of the block; the catch-all arm is `_`, or a name that binds the value"
+  # A match's catch-all arm is `_` (or a name, which binds the value);
+  # `else` is not a pattern.
+
+  x = 3
+  match x
+    1 => print("one")
+    else => print("other")
+
+fail "match else block arm", "7:3: the catch-all arm is `_`, or a name that binds the value"
+  # `else` does not start a block arm either; the catch-all is `_`.
+
+  x = 3
+  match x
+    1
+      print("one")
+    else
+      print("other")
+
+fail "match float pattern", "unexpected `1.5`", "a pattern is a name, an integer, `true`, `false`, or an enum variant"
+  # A match pattern is a name, an integer, a Bool, or an enum variant;
+  # a float literal is not a pattern.
+
+  x = 1.5
+  match x
+    1.5 => print(1)
+    _ => print(2)
+
+test "match guards and alternatives", '''
+  big circle
+  round or square
+  round or square
+  square rect
+  rect
+  point
+  0 tiny
+  1 tiny
+  4 small even
+  5 small odd
+  -3 negative
+  12 large
+  any bool
+  next
+  over two: 3
+  .circle(r: 400)
+  small 1
+  drop 1
+  not big
+  drop 2
+  end
+'''
+  # An arm may list alternatives (`1, 2 =>`) and take a guard (`p if c`),
+  # which sees the pattern's bindings; an arm whose guard fails falls
+  # through to the later arms. It works in value and statement position,
+  # on enums, integers, ranges, and Bool, and for `match !e` and `match <e`.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Shape
+    circle(r: Int)
+    square(s: Int)
+    rect(w: Int, h: Int)
+    point
+
+  enum Slot
+    full(b: *B)
+    empty
+
+  fun describe(s: ?Shape) -> ?String
+    match s
+      .circle(r) if r > 10 => "big circle"
+      .circle(_), .square(_) => "round or square"
+      .rect(w, h) if w == h => "square rect"
+      .rect(_, _) => "rect"
+      .point => "point"
+
+  fun bucket(n: Int) -> ?String
+    match n
+      0, 1 => "tiny"
+      2..10 if n % 2 == 0 => "small even"
+      2..10 => "small odd"
+      k if k < 0 => "negative"
+      _ => "large"
+
+  fun next() -> Int
+    print("next")
+    3
+
+  shapes: [6]Shape = [.circle(r: 20), .circle(r: 1), .square(s: 2), .rect(w: 2, h: 2), .rect(w: 1, h: 3), .point]
+  for s in shapes
+    print(describe(?s))
+  for n in [0, 1, 4, 5, -3, 12]
+    print(n, bucket(n))
+  match true
+    b if not b => print("false")
+    true, false => print("any bool")
+  match next()
+    n if n > 2 => print("over two:", n)
+    _ => print("other")
+  c = Shape.circle(r: 4)
+  match !c
+    .circle(r) if r < 5
+      r *= 100
+    .circle(r) => r = 0
+    _ => print("no")
+  print(c)
+  s: Slot = .full(b: *B(n: 1))
+  match <s
+    .full(b) if b.n > 5 => print("big", b.n)
+    .full(b) => print("small", b.n)
+    .empty => print("empty")
+  t: Slot = .full(b: *B(n: 2))
+  match <t
+    .full(b) if b.n > 5 => print("big", b.n)
+    _ => print("not big")
+  print("end")
+
+fail "match string pattern", "unexpected `\"a\"`", "a pattern is a name, an integer, `true`, `false`, or an enum variant"
+  # A match pattern is a name, an integer, a Bool, or an enum variant;
+  # a string literal is not a pattern.
+
+  s = "a"
+  match s
+    "a" => print(1)
+    _ => print(2)
+
+test "methods outside body", "3 8"
+  # A method declared outside its type's body is the member it names.
+  obj Point
+    x: Int
+    y: Int
+
+  obj Wrap[T]
+    v: T
+
+  fun Point.origin() -> Self
+    Point(x: 0, y: 0)
+
+  sub Point.shift(!self, dx: Int)
+    self.x += dx
+
+  fun Wrap[T].map[U](?self, f: fun(T) -> U) -> Wrap[U]
+    Wrap(v: f(self.v))
+
+  fun double(n: Int) -> Int
+    2 * n
+
+  p = Point.origin()
+  !p.shift(3)
+  print(p.x, Wrap(v: 4).map(double).v)
+
+fail "minus statement drop hint", "13:3: this expression does nothing as a statement: `-x` negates a value and discards it; a view parameter is not dropped, since the caller owns what it views", "19:1: this expression does nothing as a statement; to drop `v` now, write `<v`", "20:1: this expression does nothing as a statement; to drop `s.o` now, write `<s.o`", "21:1: this expression does nothing as a statement; `s.r` is dropped with what holds it, or replaced by assigning to it", "22:1: this expression does nothing as a statement: `-a[0]` negates a value and discards it", "23:1: this expression does nothing as a statement: `-s.n` negates a value and discards it", errors: 6
+  # A statement `-x` negates `x` and throws the result away, so it does
+  # nothing. Where `x` owns or views something, the diagnostic says how to
+  # drop it: `<x` for a binding or an optional field or element, which `<`
+  # takes; any other field or element is dropped with what holds it. A
+  # view parameter is not dropped: the caller owns what it views.
+
+  obj S
+    r: List[Int]
+    o: List[Int]?
+    n: Int
+
+  sub look(x: ?List[Int])
+    -x
+
+  look(List[Int]())
+  s = S(r: List(), o: none, n: 1)
+  v: List[Int] = List()
+  a = [1, 2]
+  -v
+  -s.o
+  -s.r
+  -a[0]
+  -s.n
+  print(s.n, a, v.len)
+
+fail "minus statement negates", "14:3: this expression does nothing as a statement: `-f()` negates a value and discards it", "20:1: this expression does nothing as a statement: `-f()` negates a value and discards it", "21:1: this expression does nothing as a statement: `-(a + b)` negates a value and discards it", "22:1: this expression does nothing as a statement: `-p.get()` negates a value and discards it", "23:2: this expression does nothing as a statement: `-f()` negates a value and discards it", "24:1: `-f()` negates a value and discards it", "25:7: this expression does nothing as a statement: `-f()` negates", "27:8: this expression does nothing as a statement: `-f()` negates", "30:3: this expression does nothing as a statement: `-f()` negates", errors: 9
+  # A statement `-e` negates a value and throws it away, in every place a
+  # statement stands; a drop is written `<x`.
+
+  fun f() -> Int
+    3
+
+  obj P
+    n: Int
+
+    fun get(?self) -> Int
+      self.n
+
+  sub tail()
+    -f()
+
+  a = 1
+  b = 2
+  c = a > 0
+  p = P(n: 1)
+  -f()
+  -(a + b)
+  -p.get()
+  (-f())
+  -f() if c
+  defer -f()
+  match a
+    1 => -f()
+    _ => pass
+  if c
+    -f()
+  tail()
+  print(a, b, p.n)
+
+fail "minus statement view hint", "10:3: this expression does nothing as a statement: `-o` negates a value and discards it; a view parameter is not dropped, since the caller owns what it views", "15:1: this expression does nothing as a statement; to drop `r` now, write `<r`", "17:3: this expression does nothing as a statement: `-v` negates a value and discards it; a closure keeps what it captures for every call, so `v` is not dropped here", "21:3: this expression does nothing as a statement: `-v` negates a value and discards it; a closure keeps what it captures for every call, so `v` is not dropped here", "25:3: this expression does nothing as a statement: `-x` negates a value and discards it; `x` views an element the loop walks, which is dropped with what holds it", "27:3: this expression does nothing as a statement: `-x` negates a value and discards it; `x` views an element the loop walks, which is dropped with what holds it", "29:3: this expression does nothing as a statement; to drop `y` now, write `<y`", errors: 7
+  # A statement `-x` negates `x` and discards it. Where `x` owns or views
+  # something, the hint offers `<x` only where `<x` drops it: not for a
+  # view parameter, a closure's capture, or a `for` element that views a
+  # slot of the List it walks, which are each told why.
+
+  sub each(f: ?sub(Int))
+    f(1)
+
+  sub look(o: ?List[Int])
+    -o
+
+  v: List[List[Int]] = List()
+  !v.push(List[Int]())
+  r = ?v
+  -r
+  each(|?v, i|
+    -v
+    print(i)
+  )
+  each(|+v, i|
+    -v
+    print(i)
+  )
+  for x in ?v
+    -x
+  for x in v
+    -x
+  for y in !v
+    -y
+  print(v.len)
+
+fail "minus tail not number", "6:4: operator `-` requires a numeric operand; got `List[Int]`", "12:6: operator `-` requires a numeric operand; got `List[Int]`"
+  # `-x` always negates: on the last line of a `fun` or of a block whose
+  # value is used, a value that is not a number is reported as such.
+
+  fun total(v: List[Int]) -> Int
+    print(v.len)
+    -v
+
+  fun pick(c: Bool, v: List[Int]) -> Int
+    x = if c
+      1
+    else
+      -v
+    x
+
+  print(total(List()), pick(true, List()))
+
+fail "module fixed binding", "4:5: a module-level binding is already a constant; write `W: U8 = 2`"
+  # A module-level binding is already a constant: it is written with `=`,
+  # and `=!` there is rejected with the spelling to use.
+
+  pub W: U8 =! 2
+
+  sub main()
+    print(W)
+
+fail "module fixed binding plain", "3:1: a module-level binding is already a constant; write `LIMIT = 4`"
+  # `=!` at module level, without `pub` or a type.
+
+  LIMIT =! 4
+
+  sub main()
+    print(LIMIT)
+
+fail "module level expression", "only declarations and bindings are allowed at module level"
+  # A bare expression at module level is not a declaration.
+
+  sub main()
+    print(1)
+
+  2
+  foo
+  "s"
+
+test "multiline call args", "3"
+  # Inside parentheses a newline does not end the statement, so call
+  # arguments may span lines.
+
+  fun add(a: Int, b: Int) -> Int
+    a + b
+
+  x = add(1,
+    2)
+  print(x)
+
+test "negate as tail expr", "-3"
+  # `-x` as the last line of a `fun` is its value: numeric negation.
+
+  fun neg(x: Int) -> Int
+    -x
+
+  print(neg(3))
+
+test "negation in catch handler", "-4"
+  # The last line of a `catch` handler whose value is used is its value:
+  # `-y` there negates `y`.
+
+  error E
+    bad
+
+  fun g() -> Int!
+    return E.bad
+
+  y = 4
+  x = g() catch |_|
+    -y
+  print(x)
+
+test "negation in loop value", "-3 0 -3 20 -5"
+  # A loop's value is used, so `-y` as a `break` value, or as the last
+  # line of a loop's `else` block, is negation.
+
+  fun first(y: Int) -> Int
+    x = while true
+      break match y
+        3 => -y
+        _ => 0
+    x
+
+  fun found(xs: [3]Int, y: Int) -> Int
+    x = for v in xs
+      break v if v > 10
+    else
+      -y
+    x
+
+  fun counted(y: Int) -> Int
+    n = 0
+    x = while n < 2 : n += 1
+      break -y if n > 5
+    else
+      -y
+    x
+
+  print(first(3), first(4), found([1, 2, 3], 3), found([1, 20, 3], 3), counted(5))
+
+test "negation in value position", '''
+  -4
+  4
+  -5
+  5
+  -2
+'''
+  # `-x` is negation wherever a line's value is used: the last line of a
+  # `fun`, or of an `if` or `match` branch whose value is used.
+
+  enum Sign
+    plus
+    minus
+
+  fun pick(c: Bool, x: Int) -> Int
+    y = if c
+      -x
+    else
+      x
+    y
+
+  fun apply(s: Sign, n: Int) -> Int
+    match s
+      .plus
+        n
+      .minus
+        -n
+
+  fun tail(x: Int) -> Int
+    -x + 1
+
+  print(pick(true, 4))
+  print(pick(false, 4))
+  print(apply(.minus, 5))
+  print(apply(.plus, 5))
+  print(tail(3))
+
+fail "nested optional spelling", "4:7: an optional of an optional is written `(T?)?`"
+  # `??` is one token, the fallback operator; an optional of an optional
+  # is written with parentheses.
+
+  x: Int?? = none
+  print(x)
+
+fail "nesting too deep", "brackets are nested too deeply"
+  # Brackets may nest 512 deep; deeper is a diagnostic, not a crash.
+
+  x = ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  print(x)
+
+test "new is contextual", '''
+  3
+  20
+'''
+  # `new` is a keyword only at the start of a statement (`new x = ...`
+  # explicitly shadows); elsewhere it is an ordinary name, so a type can
+  # have a `new` constructor.
+
+  obj Point
+    x: Int
+
+    fun new(x: Int) -> Point
+      Point(x: x)
+
+  p = Point.new(3)
+  print(p.x)
+  x = 1
+  new x = x * 20
+  print(x)
+
+test "new keyword argument", "1 O(new: 1, b: 2) 34 56"
+  # `new` is a keyword only at the start of a statement, so it names a
+  # field, and a keyword argument or a payload field in a call or a
+  # pattern, as any member name does.
+
+  obj O
+    new: Int
+    b: Int
+
+  enum P
+    pp(new: Int, b: Int)
+    qq
+
+  fun pv(p: P) -> Int
+    match p
+      .pp(new: x, b: y) => x * 10 + y
+      .qq => 0
+
+  o = O(new: 1, b: 2)
+  print(o.new, o, pv(P.pp(new: 3, b: 4)), pv(.pp(b: 6, new: 5)))
+
+fail "not comparison enum", "9:7: write `l <= .low`, or `not (l > .low)`: `not` applies to the whole comparison", "10:7: write `Level.high > l`, or `not (Level.high <= l)`", errors: 2
+  # A plain enum is totally ordered, so an ordering of one directly under
+  # `not` is flipped exactly, a `.variant` side included.
+
+  enum Level
+    low
+    high
+
+  l = Level.low
+  print(not l > .low)
+  print(not Level.high <= l)
+
+fail "not comparison lines", "5:7: write `a <= 2`, or `not (a > 2)`: `not` applies to the whole comparison", "7:7: write `a > 2`, or `not (a <= 2)`: `not` applies to the whole comparison", errors: 2
+  # A comparison under `not` that spans lines: the hint writes it on one
+  # line, without the comments in it.
+
+  a = 1
+  print(not a # the count
+    > 2)
+  print(not a
+    <= 2, 0)
+
+fail "not comparison scope", "12:9: write `it.qty <= 3`, or `not (it.qty > 3)`: `not` applies to the whole comparison", "13:9: write `it.qty > 3`, or `not (it.qty <= 3)`", "16:9: write `a != 2`, or `not (a == 2)`", "17:9: write `b == 1.5`, or `not (b != 1.5)`", "20:9: write `not (it.price < 2.5)`: `not` applies to the whole comparison", "23:9: write `it.name < \"m\"`, or `not (it.name >= \"m\")`", "26:6: write `a <= 1`, or `not (a > 1)`", "28:14: write `a >= 0`, or `not (a < 0)`", "30:21: write `(a) <= (2)`, or `not ((a) > (2))`", "33:13: write `a != 1`, or `not (a == 1)`", errors: 10
+  # `not` applies to the whole comparison after it, which reads as
+  # `(not a) > b` too: a comparison directly under `not` is written in
+  # parentheses, or flipped where the flip means the same (integers,
+  # text, and any `==`), wherever `not` stands.
+
+  obj Item
+    qty: Int
+    price: Float
+    name: ?String
+
+  sub ordered(it: ?Item)
+    print(not it.qty > 3)
+    print(not it.qty <= 3)
+
+  sub equality(a: Int, b: Float)
+    print(not a == 2)
+    print(not b != 1.5)
+
+  sub floats(it: ?Item)
+    print(not it.price < 2.5)
+
+  sub text(it: ?Item)
+    print(not it.name >= "m")
+
+  sub joined(a: Int, b: Bool)
+    if not a > 1 and b
+      print(1)
+    while b or not a < 0
+      break
+    print(1) if b and not (a) > (2)
+
+  sub nested(a: Int)
+    print(not not a == 1)
+
+  it = Item(qty: 4, price: 1.0, name: "x")
+  ordered(?it)
+  equality(1, 2.0)
+  floats(?it)
+  text(?it)
+  joined(1, true)
+  nested(1)
+
+test "not scope", '''
+  true true true true
+  false true true
+  ok
+'''
+  # `not` takes a Bool: a name, a call, a parenthesized comparison, or
+  # another `not`. It binds tighter than `and` and `or`, so `not a and b`
+  # is `(not a) and b`, and it needs no parentheses there.
+
+  obj Bag
+    items: List[Int]
+
+    fun is_empty(?self) -> Bool
+      self.items.len == 0
+
+  done = false
+  bag = Bag(items: List())
+  a = 2
+  b = 3
+  while not done
+    !bag.items.push(a)
+    done = bag.items.len >= 2
+  print(not bag.is_empty(), not (a > b), not (a == b), a <= b)
+  print(not done and a < b, not not done, done or not (b < a))
+  if not (a > b) and not bag.is_empty()
+    print("ok")
+
+fail "number leading zero", "4:7: a decimal number has no leading zero"
+  # A decimal number has no leading zero (Zig would read `0777` as an
+  # error, and C as octal): write `777`, or `0o777` for octal.
+
+  print(0777)
+
+fail "number malformed", "5:7: malformed number; `_` may separate digits, and a space or an operator ends a number"
+  # Anything else that starts with a digit is one malformed number, not a
+  # number followed by a name.
+
+  x = 2
+  print(12abc + x)
+
+fail "number radix uppercase", "3:7: radix prefixes are lowercase: `0x`, `0b`, `0o`"
+  # Radix prefixes are lowercase.
+
+  print(0B11)
+
+fail "number trailing separator", "3:7: malformed number"
+  # `_` separates digits: it cannot end a number.
+
+  print(1_000_)
+
+test "obj declaration", "3 7 9", release: true
+  # A type is declared with `obj`: plain, generic, unique, and public.
+
+  obj Point
+    x: Int
+    y: Int
+
+  pub obj Pair[T]
+    a: T
+    b: T
+
+  obj Token unique
+    id: Int
+
+  p = Point(x: 1, y: 2)
+  q = Pair(a: 3, b: 4)
+  t = Token(id: 9)
+  print(p.x + p.y, q.a + q.b, t.id)
+
+test "obj is a name", release: true, '''
+  5
+  10
+  6
+  7 8
+  6
+'''
+  # `obj` is a keyword only where a declaration starts (before a name, at
+  # the start of a statement). Anywhere else it is an ordinary name, and
+  # so is the old `struct`.
+
+  obj Bag
+    obj: Int
+    struct: Int
+
+  fun twice(obj: Int) -> Int
+    obj * 2
+
+  obj = 5
+  print(obj)
+  print(twice(obj))
+  new struct = obj + 1
+  print(struct)
+  b = Bag(obj: 7, struct: 8)
+  print(b.obj, b.struct)
+  obj = obj + 1
+  print(obj)
+
+test "of is a name", '''
+  1 20 [1] [1, 1] 2 2 6
+  [1, 1] [2, 2, 2] [20, 20]
+  [[0, 0, 0], [0, 0, 0]] 8
+'''
+  # `of` is a keyword only after a value directly inside [ ], where it
+  # separates a fill literal's count from its element (`[n of x]`).
+  # Everywhere else it is an ordinary name.
+
+  obj Pair
+    of: Int
+
+  fun twice(of: Int) -> Int
+    of * 2
+
+  of = 1
+  xs = [10, 20, 30]
+  p = Pair(of: 2)
+  print(of, xs[of], [of], [of, of], twice(of), p.of, twice(of: 3))
+  print([2 of of], [3 of p.of], [2 of xs[of]])
+  grid: [2][3]Int = [2 of [3 of 0]]
+  page: [8]U8 = [8 of 0]
+  print(grid, page.len)
+
+fail "operands touching", "7:8: unexpected `.5`"
+  # Two operands with no operator between them do not parse: `t.5` is `t`
+  # and then `.5`, not a call of `t`.
+
+  fun t(x: Float) -> Float
+    x
+
+  print(t.5)
+
+fail "or operator fallback", "6:13: a fallback value for an optional is written with `??`"
+  # `||` before a literal is a fallback: Rig writes it `??`.
+
+  fun get() -> Int?
+    none
+
+  print(get() || 0)
+
+fail "or operator spelling", "`||` is not a Rig operator; use `or`"
+  # The boolean operators are `and`, `or`, `not`; `||` is rejected with a
+  # pointer to the Rig spelling.
+
+  a = true
+  b = false
+  print(a || b)
+
+fail "owned function type without arrow", "3:14: a function type writes its result after `->`: `fun(Int) -> Int`"
+  # An owned closure's type writes its result after `->` too.
+
+  g: *fun(Int) Int = *|a| a
+  print(g(1))
+
+fail "parse error position", "3:5: unexpected `)`; expected an expression"
+  # A parse error is reported with the file:line:col of the offending token.
+
+  x = )
+  print(x)
+
+fail "pass as name", "3:5: unexpected keyword `pass`"
+  # `pass` is a keyword, so it names nothing.
+
+  sub pass(n: Int)
+    print(n)
+
+  pass(1)
+
+fail "pass as value", "6:10: `pass` does nothing and has no value", "10:3: this `pass` produces none", "14:3: `pass` does nothing and has no value", "19:8: `pass` does nothing and has no value", errors: 4
+  # `pass` does nothing and has no value: a match arm, an `if` branch, or
+  # a block whose value is used cannot end with it.
+
+  fun sign(n: Int) -> Int
+    match n
+      0 => pass
+      _ => 1
+
+  fun twice(n: Int) -> Int
+    pass
+
+  a = 1 if true else 2
+  x = if a > 0
+    pass
+  else
+    2
+  y = match a
+    1 => 10
+    _ => pass
+  print(sign(0), twice(1), x, y)
+
+test "pass statement", '''
+  red
+  0
+  3
+  small
+  three
+  before
+  after
+'''
+  # `pass` is a statement that does nothing: a match arm, a loop body, an
+  # `if` branch, or a `sub` body with no work to do. Like any simple
+  # statement it takes a postfix guard.
+
+  enum Color
+    red
+    green
+    blue
+
+  obj Countdown
+    n: Int
+
+    fun next(!self) -> Int?
+      return none if self.n == 0
+      self.n -= 1
+      self.n
+
+  sub nothing()
+    pass
+
+  sub name(c: Color)
+    match c
+      .red => print("red")
+      _ => pass
+
+  nothing()
+  name(.red)
+  name(.blue)
+  c = Countdown(n: 3)
+  while (!c).next() as _
+    pass
+  print(c.n)
+  i = 0
+  while i < 3 : i += 1
+    pass
+  print(i)
+  for _ in 0..2
+    pass
+  if i > 5
+    pass
+  else
+    print("small")
+  match i
+    3
+      pass
+      print("three")
+    _ => pass
+  if i == 3
+    print("before")
+    pass
+    print("after")
+  pass if i > 1
+  defer pass
+
+fail "pin sigil reserved", "the pin sigil `@x` is reserved"
+  # The `@x` pin sigil is reserved: pinning has no semantics yet, so a
+  # tight `@` before a name (not a `@builtin(...)` call) is a lexical error.
+
+  x = 42
+  p = @x
+  print(p)
+
+test "postfix guard", '''
+  5
+  4
+'''
+  # `stmt if cond` runs the statement only when `cond` holds. Any simple
+  # statement takes a guard: a call, `return`, `break`.
+
+  fun first_big(limit: Int) -> Int
+    i = 0
+    while i < 100
+      i += 1
+      break if i > limit
+    return i
+
+  x = 5
+  print(x) if x > 3
+  print(99) if x > 9
+  print(first_big(3))
+
+fail "power operator", "3:9: `**` is not a Rig operator", errors: 1
+  # Rig has no `**` operator.
+
+  print(2 ** 3)
+
+fail "pre parameter", "4:15: compile-time parameters go in brackets after the name, before the run-time ones: `fun f[n: Int](x: Int)`"
+  # A compile-time parameter goes in brackets after the function's name;
+  # `pre` is an ordinary name, not a keyword.
+
+  fun scale(pre n: Int, x: Int) -> Int
+    x * n
+
+fail "print bare name", "4:7: `print` is called with parentheses: `print(-1)`"
+  # `print` is only a call: written without its parentheses, before a
+  # string, a negation, or a list, it is named with the fix.
+
+  print -1
+
+fail "print bare string", "3:7: unexpected `\"hi\"`; `print` is called with parentheses: `print(...)`"
+  # `print "hi"` is not a call; the error names the fix.
+
+  print "hi"
+
+test "print many values", '''
+  x is 3 and name is rig
+  3 4
+
+  true 1.5
+'''
+  # `print` takes any number of values and prints them on one line,
+  # separated by single spaces; with none it prints an empty line.
+
+  x = 3
+  name = "rig"
+  print("x is", x, "and name is", name)
+  print(x, x + 1)
+  print()
+  print(true, 1.5)
+
+fail "print without parens", "5:7: unexpected name `x`; `print` is called with parentheses: `print(...)`"
+  # A statement that calls takes parentheses too: `print x` is a syntax
+  # error, which names the fix for `print`, the name most often written so.
+
+  x = 1
+  print x
+
+fail "pub drop", "6:3: a `drop` body is never called by name, so it takes no `pub`"
+  # A `drop` body is never called by name, so it takes no `pub`.
+
+  obj S
+    n: Int
+
+    pub drop(!self)
+      print(self.n)
+
+  print(S(n: 1).n)
+
+fail "pub twice", "4:7: `pub` is written once"
+  # `pub` marks a member once.
+
+  obj S
+    pub pub x: Int
+
+  print(S(x: 1).x)
+
+fail "pub variant", "5:3: an enum's variants are always public; remove the `pub`"
+  # An enum variant is always public, so it takes no `pub`.
+
+  enum Color
+    red
+    pub green
+
+  print(Color.red)
+
+fail "range inclusive", "3:11: a range excludes its end: `..=3` is written `..4`"
+  # A range excludes its end; `..=` is not Rig.
+
+  for i in 0..=3
+    print(i)
+
+fail "range open for", "4:11: a range needs an end; only a slice leaves a side open"
+  # Only a slice leaves a side of its range open: a `for` range needs both
+  # ends.
+
+  for i in 0..
+    print(i)
+
+fail "range open match", "6:4: a range needs an end; only a slice leaves a side open"
+  # Only a slice leaves a side of its range open: a range pattern needs
+  # both ends.
+
+  x = 3
+  match x
+    1.. => print("big")
+    _ => print("small")
+
+fail "range open start", "3:10: a range needs a start; only a slice leaves a side open"
+  # Only a slice leaves out a range's start.
+
+  for i in ..3
+    print(i)
+
+fail "raw access sigil removed", "6:7: unexpected `%`; expected an expression"
+  # Rig has no raw-pointer access: `%` is only the remainder operator,
+  # even inside a `raw` block.
+
+  x = 7
+  raw
+    r = %x
+
+test "read receiver sigil", '''
+  2
+  13
+  6
+  p 1
+  point 5
+  7
+  step 1
+  step 1
+'''
+  # `?p.m()` spells out the read receiver a call takes anyway, on a place
+  # and its fields and elements, and in a `while` step; `?(p.m())`
+  # views the call's result.
+
+  obj Point
+    x: Int
+
+    fun shifted(?self, d: Int) -> Point
+      Point(x: self.x + d)
+
+    sub show(?self, label: ?String)
+      print(label, self.x)
+
+  obj Line
+    a: Point
+    b: Point
+
+  sub show_point(p: ?Point)
+    print("point", p.x)
+
+  p = Point(x: 1)
+  print(?p.shifted(1).x)
+  line = Line(a: Point(x: 2), b: Point(x: 3))
+  q = ?line.b.shifted(10)
+  print(q.x)
+  pts = [Point(x: 5), Point(x: 6)]
+  print(?pts[1].shifted(0).x)
+  ?p.show("p")
+  show_point(?(p.shifted(4)))
+  v: List[Int] = List()
+  !v.push(7)
+  print(?v.get(0) ?? 0)
+  i = 0
+  while i < 2 : ?p.show("step")
+    i += 1
+
+fail "read receiver sigil on writer", "21:1: `bump` writes its receiver: write `!c.bump()`", "22:7: `done` consumes its receiver: write `<c.done()`; to lend the call's result, write `?(c.done())`", "23:6: `make` is called through its type or module and has no receiver; to lend the call's result, write `?(Counter.make())`"
+  # `?p.m()` names a read receiver: a method that writes or consumes its
+  # receiver is called with `!` or `<`, and a call's result is lent
+  # with `?(p.m())`.
+
+  obj Counter
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+    fun done(<self) -> Int
+      self.n
+
+    fun make() -> Counter
+      Counter(n: 0)
+
+  sub show(c: ?Counter)
+    print(c.n)
+
+  c = Counter(n: 0)
+  ?c.bump()
+  print(?c.done())
+  show(?Counter.make())
+
+test "receiver move sigil", '''
+  2
+  5
+  7
+  1
+'''
+  # `<self` is the short form of `self: Self`: the method consumes its
+  # receiver, as `?self` reads it and `!self` writes it. The caller writes
+  # the move (`<c.close()`), or calls it on a temporary.
+
+  obj Conn
+    name: ?String
+
+    fun close(<self) -> Int
+      self.name.len
+
+    fun renamed(<self, name: ?String) -> Conn
+      c = <self
+      c.name = name
+      <c
+
+  obj Wrap[T]
+    v: T
+
+    fun unwrap(<self) -> T
+      self.v
+
+  enum Shape
+    circle(r: Int)
+    square
+
+    fun area(<self) -> Int
+      match self
+        .circle(r) => 3 * r * r
+        .square => 1
+
+  c = Conn(name: "db")
+  print(<c.close())
+  print(Conn(name: "cache").renamed("store").close())
+  w = Wrap[Int](v: 7)
+  print(<w.unwrap())
+  s: Shape = .square
+  print(<s.area())
+
+test "receiver sigils", '''
+  4 4
+  2
+  6
+  1
+  50
+  10
+  -1
+  3
+  2
+  1
+  2
+  sent 3
+'''
+  # `!` or `<` before a place followed by a method call is the receiver's
+  # mode: `!v.push(x)` is `(!v).push(x)`, `<c.close()` is `(<c).close()`.
+  # Postfixes after the call apply to its result.
+
+  error Empty
+    none_left
+
+  obj Cell2
+    n: Int
+    sub bump(!self)
+      self.n += 1
+
+  obj Bag
+    items: List[Int]
+    sub add(!self, k: Int)
+      !self.items.push(k)
+    fun take(!self) -> Int!
+      return Empty.none_left if self.items.len == 0
+      (!self.items).pop() ?? 0
+    fun with(!self, k: Int) -> !Bag
+      !self.items.push(k)
+      self
+
+  obj Conn
+    name: ?String
+    fun close(<self) -> Int
+      self.name.len
+
+  obj Builder
+    parts: List[Int]
+    # `self: Self` is the long form of `<self`.
+    fun with(self: Self, k: Int) -> Builder
+      b = <self
+      !b.parts.push(k)
+      <b
+    fun finish(<self) -> Int
+      total = 0
+      for p in ?self.parts
+        total += p
+      total
+
+  obj Holder
+    v: List[Int]
+
+  obj Row
+    cell: Cell2
+
+  fun drain(b: !Bag) -> Int!
+    (!b).take()! + (!b).take()!
+
+  sub send(n: Int)
+    print("sent", n)
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  (!v).push(3)
+  !v.push(4) if v.len == 3
+  !v.push(5) if false
+  print(v.len, v[3])
+
+  grid: List[Cell2] = List()
+  !grid.push(Cell2(n: 0))
+  !grid[0].bump()
+  (!grid[0]).bump()
+  print(grid[0].n)
+  rows: List[Row] = List()
+  !rows.push(Row(cell: Cell2(n: 5)))
+  !rows[0].cell.bump()
+  print(rows[0].cell.n)
+
+  x = Holder(v: List())
+  !x.v.push(7)
+  print(x.v.len)
+
+  bag = Bag(items: List())
+  !bag.add(10)
+  (!bag).with(20).with(30)
+  print(drain(!bag) catch -1)
+  print((!bag.items).pop() ?? 0)
+  print(drain(!bag) catch -1)
+
+  q: List[Int] = List()
+  i = 0
+  while i < 3 : !q.push(i)
+    i += 1
+  while (!q).pop() as j
+    print(j)
+
+  conn = Conn(name: "db")
+  print(<conn.close())
+  b = Builder(parts: List())
+  send(<b.with(1).with(2).finish())
+
+fail "reserved word as closure param", "3:6: unexpected keyword `when`"
+  # A keyword cannot name a closure parameter; the error names it.
+
+  f = |when: Int| when + 1
+  print(f(1))
+
+fail "reserved word as function", "3:5: unexpected keyword `yield`"
+  # `yield` is reserved and cannot name a top-level function.
+
+  fun yield() -> Int
+    1
+
+  print(1)
+
+fail "reserved word as local", "3:1: unexpected keyword `when`"
+  # `when` is reserved for a later form and cannot name a local.
+
+  when = 3
+  print(when)
+
+fail "reserved word as param", "4:10: `const` is a keyword and cannot name a parameter"
+  # `const` is reserved: inside ( ) `const:` reads as a name, but it
+  # cannot name a parameter.
+
+  sub show(const: Int)
+    print(1)
+
+  show(1)
+
+fail "reserved word as variant", "4:3: unexpected keyword `async`"
+  # `async` is reserved and cannot name an enum variant.
+
+  enum Mode
+    async
+    sync
+
+  print(1)
+
+test "reserved words as member names", '''
+  3 true here 6 true
+  .at(when: 5, async: false)
+'''
+  # The words reserved for later forms (`trait`, `impl`, `where`,
+  # `async`, `await`, `yield`, `when`, `const`) still name members: a
+  # field, a method, or a payload field.
+
+  obj Job
+    when: Int
+    const: Bool
+    where: ?String
+
+    fun yield(?self) -> Int
+      self.when * 2
+
+    fun await(?self) -> Bool
+      self.const
+
+  enum Ev
+    at(when: Int, async: Bool)
+    none_yet
+
+  j = Job(when: 3, const: true, where: "here")
+  print(j.when, j.const, j.where, j.yield(), j.await())
+  e = Ev.at(when: 5, async: false)
+  print(e)
+
+test "results as", '''
+  key value
+  no =
+  1 a
+  2 b
+  1
+  2
+'''
+  # `if f() as a, b` and `while f() as a, b` bind the results inside an
+  # optional, each name a new binding over the body.
+
+  fun cut(s: ?String, sep: U8) -> (?String, ?String)? from s
+    i = 0
+    while i < s.len
+      return s[..i], s[i + 1..] if s[i] == sep
+      i += 1
+    none
+
+  obj Pairs
+    ks: List[String]
+    i: Int
+
+    fun next(!self) -> (Int, String)?
+      return none if self.i >= self.ks.len
+      self.i += 1
+      return self.i, +self.ks[self.i - 1]
+
+  t = String("key=value")
+  if cut(?t, 61) as key, value and key.len > 0
+    print(key, value)
+  if cut("abc", 61) as k, v
+    print(k, v)
+  else
+    print("no =")
+  p = Pairs(ks: List(), i: 0)
+  !p.ks.push(String("a"))
+  !p.ks.push(String("b"))
+  while (!p).next() as n, s
+    print(n, s)
+  p.i = 0
+  while (!p).next() as n, s
+    print(n)
+    <s
+
+fail "results as plain discard", "`as` binds each result to a name: name this one, and where the body does not use it, discard it there with `_ = name`", errors: 1
+  fun divmod(a: Int, b: Int) -> (Int, Int)?
+    return a / b, a % b
+
+  if divmod(7, 2) as q, _
+    print(q)
+
+fail "results bare tail", "results are written `return a, a`"
+  fun f(a: Int) -> (Int, Int)
+    a, a
+
+test "results bind", '''
+  3 2
+  3 1
+  1 0
+  2 2
+  4 1
+'''
+  # Several results, `-> (A, B)`, given by `return a, b` and bound by
+  # name: each name declares or assigns as `x = e` does, `_` discards, and
+  # `new` and `=!` work as for one name.
+
+  fun divmod(a: Int, b: Int) -> (Int, Int)
+    return a / b, a % b
+
+  fun again(a: Int, b: Int) -> (Int, Int)
+    return divmod(a, b)
+
+  q, r = divmod(17, 5)
+  print(q, r)
+  _, r = divmod(9, 4)
+  print(q, r)
+  new q, r = divmod(1, 1)
+  print(q, r)
+  a, b =! again(8, 3)
+  print(a, b)
+  f = divmod
+  x, y = f(9, 2)
+  print(x, y)
+
+test "results contexts", '''
+  3 2
+  4 1
+  3 2
+  3
+'''
+  # A destructure stands wherever a statement does: a branch, an arm, a
+  # loop's body, a closure's last line, and `new` reads the names it
+  # shadows, as `new x = e` does.
+
+  fun divmod(a: Int, b: Int) -> (Int, Int)
+    return a / b, a % b
+
+  fun maybe(a: Int, b: Int) -> (Int, Int)?
+    return none if b == 0
+    return a / b, a % b
+
+  n = 17
+  new n, m = divmod(n, 5)
+  print(n, m)
+  q = 0
+  r = 0
+  match n
+    3 => q, r = divmod(9, 2)
+    _ => q, r = divmod(6, 4)
+  print(q, r)
+  f = |!q, !r|
+    q, r = divmod(11, 3)
+  f()
+  print(q, r)
+  if maybe(7, 2) as a, b
+    _ = b
+    print(a)
+
+fail "results element target", "each result is bound to a name, and `xs[i]` reads `i`, which this statement binds", errors: 1
+  fun divmod(a: Int, b: Int) -> (Int, Int)
+    return a / b, a % b
+
+  xs = [0, 0]
+  i = 0
+  i, xs[i] = divmod(1, 2)
+  print(xs)
+
+fail "results field target", "each result is bound to a name: bind one here, then assign `p.x` on the next line", errors: 1
+  obj P
+    x: Int
+
+  fun divmod(a: Int, b: Int) -> (Int, Int)
+    return a / b, a % b
+
+  p = P(x: 0)
+  q, p.x = divmod(1, 2)
+  print(q, p.x)
+
+fail "results named", "results are not named: write their types, `-> (Int, Int)`, and name them where they are bound, `q, r = f()`"
+  fun f() -> (q: Int, r: Int)
+    return 1, 2
+
+fail "results parallel", "Rig has no parallel assignment", errors: 1
+  q, r = 1, 2
+  print(q, r)
+
+fail "results parenthesized", "write `q, r = divmod(17, 5)`; parentheses aren't needed on the left", errors: 1
+  fun divmod(a: Int, b: Int) -> (Int, Int)
+    return a / b, a % b
+
+  (q, r) = divmod(17, 5)
+
+fail "results swap", "Rig has no parallel assignment: write `swap(!a, !b)` to exchange two places", errors: 1
+  a = 1
+  b = 2
+  a, b = b, a
+  print(a, b)
+
+fail "results tuple", "Rig has no tuple values: give several results with `return a / b, a % b`", errors: 1
+  fun divmod(a: Int, b: Int) -> (Int, Int)
+    (a / b, a % b)
+
+fail "results tuple value", "Rig has no tuple values"
+  x = (1, 2)
+
+fail "results twice", "`q` is bound twice by one statement", errors: 1
+  fun divmod(a: Int, b: Int) -> (Int, Int)
+    return a / b, a % b
+
+  q, q = divmod(1, 2)
+
+fail "rig keyword as local", "3:1: unexpected keyword `else`; expected a statement or the end of the block"
+  # `else` is a Rig keyword and cannot name a local binding.
+
+  else = 3
+  print(else)
+
+fail "rust array type", "3:8: unexpected `;`; an array type puts its length first: `[3]Int`"
+  # Rust's array type `[T; n]` is `[n]T` in Rig.
+
+  a: [Int; 3] = [1, 2, 3]
+  print(a)
+
+fail "rust fill literal", "4:7: unexpected `;`; a fill literal puts its count first: `[4 of 0]`"
+  # Rust's fill literal `[x; n]` is `[n of x]` in Rig: the count comes
+  # first, as in the type `[n]T`. Rig has no `;`.
+
+  a = [0; 4]
+  print(a)
+
+fail "rust fill value sigil", "4:8: unexpected `;`; a fill literal puts its count first: `[2 of ?x]`"
+  # Outside a type, `[?x; 2]` is a fill literal, written count first.
+
+  x = 1
+  a = [?x; 2]
+  print(a)
+
+fail "rust sized array type", "3:8: unexpected `;`; an array type puts its length first: `[4]U8`"
+  # Rust's `[T; n]` where a type goes, or with a sized type, is `[n]T`.
+
+  xs: [U8; 4] = [4 of 0]
+  print(xs)
+
+fail "saturating not closure", "4:5: unexpected `-|`; expected an expression", errors: 1
+  # `+|` and `-|` are operators, so a closure bar list cannot follow `+`
+  # or `-` directly: `-|x| x` is no negated closure, as it was not before.
+
+  g = -|x: Int| x
+  print(g(1))
+
+fail "semicolon in brackets", "4:10: unexpected `;`; `[x; n]` is written `[n of x]`, and `[Int; 3]` is written `[3]Int`"
+  # A `;` in brackets that do not spell a single element and count gets
+  # the general hint.
+
+  a = [f(1); g(2)]
+  print(a)
+
+test "sigil after bracket", '''
+  6 6 1
+  3 none
+  7 1 1
+'''
+  # A sigil after a `]` is read by what the parser expects there, never by
+  # spacing: in an expression it continues the value (`[3][0]*a` is
+  # `[3][0] * a`, `[a, b][1]?` a suffix), and in a type it starts the
+  # element type (`[2][3]?Int`, `[2](Int?)`, `[]?(Int?)`).
+
+  fun second(a: Int?, b: Int?) -> Int?
+    x = [a, b][1]?
+    x + 1
+
+  fun count(xs: []?(Int?)) -> Int
+    n = 0
+    for x in xs
+      n += 1 if x != none
+    n
+
+  a = 2
+  print([3][0]*a, [3][0] * a, [3][0]-a)
+  print(second(1, 2), second(1, none))
+  n = 7
+  d: [2][3]?Int = [[?n, ?n, ?n], [?n, ?n, ?n]]
+  e: [2](Int?) = [1, none]
+  f: Int? = 4
+  g: [2]?(Int?) = [?f, ?e[1]]
+  print(d[1][2], e[0], count(?g[..]))
+
+test "sigil spacing", '''
+  false
+  14
+  9
+  1
+  5
+  -3
+  8
+  10
+  10
+  1
+'''
+  # The same character is an infix operator when spaced (`a < x`, `a * b`,
+  # `a + b`, `a % b`, `a - b`) and an ownership sigil when tight against its
+  # operand at expression start (`<s`, `*Wrap`, `+s`, `?box`). `-x` is
+  # negation, and `<x` alone on a line drops `x`; `@name(...)` is a
+  # builtin call.
+
+  obj Wrap
+    v: Int
+
+  fun show(b: ?Wrap) -> Int
+    b.v
+
+  a = 7
+  b = 2
+  x = 3
+  print(a < x)
+  print(a * b)
+  print(a + b)
+  print(a % b)
+  print(a - b)
+  y = -x              # negation
+  print(y)
+  print(@size(Wrap)) # builtin call
+  s = *Wrap(v: 10)     # share
+  t = +s              # clone
+  u = <s              # move
+  print(u.v)
+  <u                  # drop statement
+  print(t.v)
+  box = Wrap(v: 1)
+  print(show(?box))   # read view
+
+test "sigils before calls", '''
+  0
+  3 true
+  -4 -5
+  6
+  1
+  pair
+  1 4
+'''
+  # Only `?`, `!`, and `<` reach a method's receiver. The other prefix
+  # sigils, and `?` / `!` / `<` before a place with no method call after
+  # it, apply to the whole expression; `?(p.m())` views a call's result.
+
+  obj Point
+    x: Int
+    fun origin() -> Point
+      Point(x: 0)
+    fun shifted(?self, d: Int) -> Point
+      Point(x: self.x + d)
+
+  obj Leaf
+    n: Int
+
+  obj Tree
+    leaf: *Leaf
+    fun first(?self) -> ?*Leaf
+      ?self.leaf
+
+  obj Pair
+    v: List[Int]
+    name: (?String)?
+
+  sub fill(v: !List[Int])
+    !v.push(1)
+
+  sub show(p: ?Point)
+    print(p.x)
+
+  shared = *Point.origin()
+  print(shared.x)
+  tree = Tree(leaf: *Leaf(n: 3))
+  copy = +tree.first()
+  weak = ~copy
+  print(copy.n, *weak != none)
+  p = Point(x: 4)
+  print(-p.x, -p.shifted(1).x)
+  show(?(p.shifted(2)))
+  pair = Pair(v: List(), name: "pair")
+  fill(!pair.v)
+  print(pair.v.len)
+  name = <pair.name
+  print(name)
+  xs = [1, 2, 3]
+  first = ?xs[0]
+  q = <p
+  print(first, q.x)
+
+test "slice open range newline", '''
+  [2, 3]
+  [1, 2, 3]
+'''
+  # A newline inside [ ] is whitespace, so an open range may end its line
+  # before the `]`, even with a comment between.
+
+  a = [1, 2, 3]
+  print(?a[1..
+    ])
+  print(?a[..  # the whole array
+    ])
+
+fail "slice type arg in expression", "8:12: a slice or array type has no expression spelling"
+  # A slice or array type has no expression spelling, so it cannot be a
+  # type argument in an expression; a `type` alias or an annotation can
+  # name it.
+
+  obj Wrap[T]
+    v: T
+
+  b = Wrap[[]Int](v: [])
+
+fail "spaced call bracket", "9:13: `twice (xs[0])`: a call's or index's bracket touches what it follows; write `twice(xs[0])`", "9:25: `xs [1]`: a call's or index's bracket touches what it follows; write `xs[1]`", "9:33: `xs [1..3]`: a call's or index's bracket touches what it follows; write `xs[1..3]`", "10:16: `xs [2]`: a call's or index's bracket touches what it follows; write `xs[2]`", errors: 4
+  # A call's parenthesis and an index's bracket touch what they follow:
+  # `f (x)` reads as a call and `xs [0]` as an index, so spacing that
+  # separates them is rejected, each case with the text to write.
+
+  fun twice(n: Int) -> Int
+    n * 2
+
+  xs = [1, 2, 3]
+  print(twice (xs[0]), xs [1], xs [1..3])
+  print(twice(xs [2]))
+
+fail "spacing hint after comment", "8:3: `n -1`: an operator has the same spacing on both sides; write `n - 1` to subtract, or `n, -1` to negate `1` as a value of its own", "10:3: `n <n`: an operator has the same spacing on both sides; write `n < n` to compare, or `n, <n` to move `n` as a value of its own", "12:3: `s.len -1`: an operator has the same spacing on both sides; write `s.len - 1` to subtract, or `s.len, -1` to negate `1` as a value of its own", "15:3: `n -1`: an operator has the same spacing on both sides; write `n - 1` to subtract, or `n, -1` to negate `1` as a value of its own", errors: 4
+  # The spacing hint quotes the operand before the operator, also when the
+  # line it ends on ends in a comment, which may hold words, calls, a `#`
+  # in a string, or no code at all.
+
+  n = 3
+  s = "a#b"
+  print(n # the count
+    -1)
+  print(n # see f(x)
+    <n)
+  print(s.len # "#" counts
+    -1)
+  print(n
+    # a line of comment
+    -1)
+
+fail "statement semicolon", "3:6: unexpected `;`; Rig ends a statement at the end of its line; remove the `;`"
+  # A statement ends at the end of its line; there is no `;` after it.
+
+  x = 1;
+  print(x)
+
+fail "statement semicolons", "4:6: unexpected `;`; Rig ends a statement at the end of its line; put each statement on its own line"
+  # Two statements on one line separated by `;` go on lines of their own;
+  # dropping the `;` would not do.
+
+  a = 1; b = 2
+  print(a, b)
+
+fail "string bad escape", "invalid escape `\\q` in a string", "invalid escape `\\x` in a string", "invalid escape `\\u` in a string"
+  # A string's escapes are those Zig understands; any other is rejected.
+
+  print("bad \q escape")
+  print("\x4g")
+  print("\u{110000}")
+
+fail "string control character", "3:9: control character in a string; write it as an escape (`\\t`, `\\n`) in a double-quoted string"
+  # A string holds no control characters: a tab is written `\t`.
+
+  print("a	b")
+
+test "string escapes", '''
+  a	b
+  q"x\y
+  AB🎉
+  line
+  break
+'''
+  # Strings take the escapes `\n`, `\t`, `\\`, `\"`, `\xNN`, and `\u{N}`.
+
+  print("a\tb")
+  print("q\"x\\y")
+  print("\x41\u{42}\u{1F389}")
+  print("line\nbreak")
+
+fail "string sq control character", "4:9: control character in a string"
+  # A single-quoted string takes no escapes, and no control characters
+  # either: a tab needs a double-quoted string.
+
+  print('a	b')
+
+fail "string touching name", "3:6: unexpected `\"hi\"`"
+  # A name followed by a string is no call: calls take parentheses.
+
+  print"hi"
+
+fail "struct declared as type", "4:3: an object is declared with `obj`: `obj Foo`"
+  # A struct is declared with `obj`; `type` declares only an alias.
+
+  type Foo
+    bar: Int
+
+  print("done")
+
+fail "struct retired", "3:1: write `obj Name`: `struct` is spelled `obj`", errors: 1
+  # `struct` is spelled `obj`.
+
+  struct Point
+    x: Int
+
+  sub main()
+    print(1)
+
+fail "struct retired pub generic", "3:5: write `obj Name`: `struct` is spelled `obj`", errors: 1
+  # The old spelling is named after `pub`, and with type parameters.
+
+  pub struct Pair[T] unique
+    a: T
+
+  sub main()
+    print(1)
+
+fail "sub with return type", "5:19: unexpected `->`; expected an indented block, `!` or `keeps`"
+  # A `sub` returns no value, so its parameters end the header; only `!`,
+  # to make it fallible, or a `keeps` clause may follow. The error names
+  # what may come next.
+
+  sub total(n: Int) -> Int
+    n
+
+  print(1)
+
+fail "symbol bad name", "4:5: a symbol is `:` and a name: `:width`, `:content-type`"
+  # A symbol is `:` and a name; a `:` before a digit or a quote, where an
+  # operand starts, is none.
+
+  y = :1st
+  print(y)
+
+fail "symbol detached", "4:5: a prefix `:` touches its operand: a symbol is written `:width`"
+  # A symbol's `:` touches its name: `: width`, where an operand starts,
+  # is no symbol.
+
+  y = : width
+  print(y)
+
+test "symbol operands", '''
+  true false true
+  :y :x
+  Tagged(tag: :plain, n: 1) Tagged(tag: :hot, n: 1) :cold
+  :content-type :utf-8 :a.b-c :x.text :x_1
+  content-type true true
+  3
+  2
+  2 :stop
+'''
+  # A `:` that stands where an operand starts and touches a name is a
+  # symbol: beside `or`, `and`, `not`, and a ternary inside parentheses,
+  # as a keyword argument's value, in a list, and in a `while` step. A
+  # `:` after a value, or after a bare jump in a `while` header, is a
+  # step. A name may go on in runs of `-` or `.`, each followed by a
+  # letter, digit, or `_`.
+
+  obj Tagged
+    tag: Symbol
+    n: Int
+
+  fun more(n: Int) -> Bool?
+    return none if n == 0
+    n > 1
+
+  fun tagged(tag: Symbol = :plain) -> Tagged
+    Tagged(tag: tag, n: 1)
+
+  c = false
+  print(c or :a == :a, :a == :b and true, not (:a == :b))
+  print((:x if c else :y), (:x if not c else :y))
+  print(tagged(), tagged(tag: :hot), Tagged(tag: :cold, n: 2).tag)
+  print(:content-type, :utf-8, :a.b-c, :x.text, :x_1)
+  t = :content-type
+  print(t.text, t == :content-type, t != :content)
+  n = 3
+  while more(n) ?? break : n -= 1
+    print(n)
+  i = 0
+  s = :go
+  while s != :stop : s = (:stop if i == 2 else :go)
+    i += 1
+  print(i, s)
+
+fail "tab indentation", "tab in indentation; indent with spaces"
+  # Indentation is spaces only; a tab in a line's indentation is an error
+  # at the tab.
+
+  sub main()
+  	print(1)
+
+test "ternary positions", '''
+  1
+  20
+  1
+  -1
+  0
+  10
+  50
+  0
+'''
+  # `a if c else b` is an expression anywhere a value goes: a call
+  # argument, a typed binding, a match arm, and nested in its own `else`
+  # branch.
+
+  enum Size
+    small
+    large
+
+  fun sign(n: Int) -> Int
+    return 1 if n > 0 else -1 if n < 0 else 0
+
+  fun weight(s: Size, heavy: Bool) -> Int
+    match s
+      .small => 10 if heavy else 1
+      .large => 100 if heavy else 50
+
+  x = 5
+  print(1 if x > 3 else 2)
+  y: Int = 10 if x < 3 else 20
+  print(y)
+  print(sign(7))
+  print(sign(-7))
+  print(sign(0))
+  print(weight(.small, true))
+  print(weight(.large, false))
+  print(x if x > 9 else 0)
+
+fail "test name escape", "invalid escape `\\z` in a string"
+  # A test name is a string, and its escapes are checked.
+
+  sub main()
+    print(1)
+
+  test "a\zb"
+    print(2)
+
+test "trailing comma patterns and bars", '''
+  6
+  11 6
+'''
+  # A variant pattern's bindings and a closure's bar list may end with a
+  # comma, like other comma lists.
+
+  enum Shape
+    rect(w: Int, h: Int)
+    dot
+
+  s = Shape.rect(w: 2, h: 3)
+  match s
+    .rect(w, h,) => print(w * h)
+    .dot() => print(0)
+  k = 10
+  f = |+k, a: Int,| a + k
+  g: fun(Int, Int) -> Int = |a, b,| a * b
+  print(f(1), g(2, 3))
+
+test "trailing commas", '''
+  20
+  6 [7]
+'''
+  # A list written one item a line may end with a comma: an array, a call's
+  # arguments, and a parameter list.
+
+  enum Shape
+    rect(
+      w: Int,
+      h: Int,
+    )
+
+  fun area(
+    w: Int,
+    h: Int,
+  ) -> Int
+    w * h
+
+  sub main()
+    sizes = [
+      2,
+      3,
+    ]
+    s: Shape = .rect(w: 4, h: 5,)
+    match s
+      .rect(w, h) => print(area(w, h))
+    print(area(
+      sizes[0],
+      sizes[1],
+    ), [7,])
+
+fail "try block reserved", "unexpected keyword `try`", "`try` blocks are reserved"
+  # The value-yielding `try` block (with an indented `catch |e|` block) is
+  # reserved and does not parse; use `expr!` to propagate or
+  # `expr catch |e| handler` inline.
+
+  fun may_fail() -> Int!
+    return 42
+
+  r = try
+    may_fail()!
+  catch |e|
+    0
+  print(r)
+
+fail "type args parens", "3:8: type arguments go in brackets: `List[...]`"
+  # In a type, type arguments go in brackets: `List[Int]`, not `List(Int)`.
+
+  v: List(Int) = List()
+
+test "type args trailing comma", '''
+  1 4
+  1 x
+'''
+  # A bracket list of compile-time arguments may end with a comma, in a
+  # type and in an expression, as other lists may; a single argument too.
+
+  obj Pair[T, U]
+    a: T
+    b: U
+
+  sub show(p: Pair[Int, ?String,])
+    print(p.a, p.b)
+
+  fun add[n: Int](x: Int) -> Int
+    n + x
+
+  v = List[Int,]()
+  !v.push(add[3,](1))
+  print(v.len, v[0])
+  p = Pair[
+    Int,
+    ?String,
+  ](a: 1, b: "x")
+  show(p)
+
+fail "unbalanced spacing", "23:16: `maybe(n) ?`: a postfix `?` touches what it follows; write `maybe(n)?`", "29:11: `a -1`: an operator has the same spacing on both sides; write `a - 1` to subtract, or `a, -1` to negate `1` as a value of its own", "29:16: `a- 1`: an operator has the same spacing on both sides; write `a - 1`", "30:11: `a *b`: an operator has the same spacing on both sides; write `a * b` to multiply, or `a, *b` to share `b` as a value of its own", "30:17: `a +b`: an operator has the same spacing on both sides; write `a + b` to add, or `a, +b` to clone `b` as a value of its own", "30:23: `a <b`: an operator has the same spacing on both sides; write `a < b` to compare, or `a, <b` to move `b` as a value of its own", "30:28: `a< b`: an operator has the same spacing on both sides; write `a < b`", "32:11: a member `.` touches both sides; write `w.get()`", "32:22: a member `.` touches both sides; write `w.get()`", "33:14: `.` touches the name after it; write `.green`", "34:9: `N -1`: an operator has the same spacing on both sides; write `N - 1` to subtract, or `N, -1` to negate `1` as a value of its own", "36:13: a range's `..` touches its only bound; write `..2`", "36:26: a range's `..` touches its only bound; write `a..`", "36:33: `0 ..a`: an operator has the same spacing on both sides; write `0..a` or `0 .. a`", "37:8: `a?? 0`: an operator has the same spacing on both sides; write `a ?? 0`", "38:5: `n =1`: an operator has the same spacing on both sides; write `n = 1`", "40:5: `n -1`: an operator has the same spacing on both sides; write `n - 1` to subtract, or `n, -1` to negate `1` as a value of its own", errors: 17
+  # An infix operator has the same spacing on both sides, and a postfix,
+  # a member `.`, an enum literal's `.`, and an open range's `..` touch
+  # what they join: spacing that reads one way and is parsed another is
+  # rejected, each case with the text to write. Every case in the file is
+  # reported, once the source parses.
+
+  N = 4
+
+  enum Color
+    red
+    green
+
+  obj Wrap[T]
+    v: T
+
+    fun get(?self) -> T
+      self.v
+
+  fun maybe(n: Int) -> Int?
+    n if n > 0 else none
+
+  fun half(n: Int) -> Int?
+    m = maybe(n) ?
+    m / 2
+
+  sub main()
+    a = 7
+    b = 3
+    print(a -1, a- 1)
+    print(a *b, a +b, a <b, a< b)
+    w = Wrap[Int](v: 3)
+    print(w . get(), w .get())
+    c: Color = . green
+    s: [N -1]Int = [N - 1 of 0]
+    xs = [1, 2, 3]
+    print(?xs[.. 2], ?xs[a ..], 0 ..a)
+    n = a?? 0
+    n =1
+    print(n
+      -1)
+    print(c, s, n, half(4))
+
+fail "unclosed bracket note", "5:1: unexpected name `print`", "4:5: the `[` opened here is not closed"
+  # A parse error inside a bracket opened on an earlier line points back
+  # at the bracket, which may be the one left open.
+
+  x = [1, 2
+  print(x)
+
+fail "unexpected end of block", "unexpected end of block"
+  # A block that ends in the middle of a construct is reported at the end
+  # of the last token, where the missing part belongs.
+
+  x = 1
+  match x
+
+fail "unique after header", "3:19: unexpected name `extra`; expected an indented block"
+  # `unique` ends a struct header: nothing follows it on the line.
+
+  obj Random unique extra
+    seed: Int
+
+fail "unique enum", "4:11: unexpected name `unique`; expected an indented block or `[`"
+  # Only a struct is declared `unique`; an enum is unique when a payload
+  # holds a unique value.
+
+  enum Coin unique
+    heads
+    tails
+
+test "unique is a name", "3 6 true true true 3 8"
+  # `unique` is a keyword only after a struct header's name or type
+  # parameters, where it declares the struct unique (`obj Random unique`).
+  # Everywhere else it is an ordinary name.
+
+  obj Seed unique
+    value: Int
+
+  pub obj Ring[T] unique
+    item: T
+
+  obj Flags
+    unique: Bool
+
+    fun only(?self, unique: Bool) -> Bool
+      self.unique and unique
+
+  enum Mode
+    unique
+    shared
+
+  fun twice(unique: Int) -> Int
+    unique * 2
+
+  unique = 3
+  f = Flags(unique: true)
+  m = Mode.unique
+  s = Seed(value: unique)
+  r = Ring(item: twice(unique: 4))
+  print(unique, twice(unique), f.unique, f.only(unique: true), m == .unique, s.value, r.item)
+
+fail "unreachable after jump", "unreachable code: this statement follows a `return`", "unreachable code: this statement follows a `break`", "unreachable code: this statement follows a `continue`"
+  # A statement right after `return`, `break`, or `continue` never runs.
+
+  fun f() -> Int
+    return 1
+    2
+
+  for i in 0..3
+    break
+    print(i)
+  while true
+    continue
+    print("x")
+  print(f())
+
+fail "unterminated string", "4:5: unterminated string", errors: 1
+  # A string literal with no closing quote is reported as unterminated at
+  # its line and column.
+
+  x = "abc
+  print(x)
+
+fail "untyped closure last line", "17:5: so `<q` here is no drop, and this closure gives no value; to drop `q` here, write `_ = <q`"
+  # An untyped closure (`go = || ...`) takes its last line as its value,
+  # and so does the last line of a branch that ends it, so `<q` there is
+  # no drop: the closure gives no value, and the line says what to write.
+  # (A closure whose type returns nothing treats its last line as a
+  # statement: test/behavior/syntax/closure_no_value_tail.rig.)
+
+  obj F
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  go = ||
+    q = F(n: 1)
+    if q.n > 0
+      print(q.n)
+      <q
+  go()
+
+test "utf8 bom", "bom skipped"
+  ﻿# A byte order mark at the start of the file is skipped: this file
+  # begins with the bytes EF BB BF.
+  sub main()
+    print("bom skipped")
+
+fail "warn bare name", "4:6: `warn` is called with parentheses: `warn(-1)`"
+  # `warn` is only a call: written without its parentheses, before a
+  # string, a negation, or a list, it is named with the fix.
+
+  warn -1
+
+fail "warn bare string", "3:6: unexpected `\"hi\"`; `warn` is called with parentheses: `warn(...)`"
+  # `warn "hi"` is not a call; the error names the fix.
+
+  warn "hi"
+
+test "while header jump label", '''
+  0
+  12
+  3 4
+  11
+'''
+  # A jump in a `while` header may name a label: `@outer` is a label after
+  # `break` or `continue`, and the header's `:` still starts the step.
+
+  fun more(n: Int) -> Bool?
+    n > 0 if n < 9 else none
+
+  n = 3
+  @outer while true
+    while more(n) ?? break @outer
+      n -= 1
+    print(n)
+    n = 12
+    while more(n) ?? continue @outer
+      n -= 1
+  print(n)
+  i = 0
+  k = 0
+  @rows while i < 4 : i += 1
+    j = 0
+    while (more(i * 4 - j) ?? break @rows) and j < 2 : j += 1
+      k += 1
+  print(i, k)
+  m = 0
+  @a while m < 5 : m += 1
+    while more(m) ?? break @a : m += 10
+      pass
+  print(m)
+
+fail "while step declares", "5:15: a `while` step runs after the body, so it cannot declare `x`; declare it before the loop"
+  # A `while` step runs after the body, so a name it declared would be
+  # seen by the body before it has a value.
+
+  i = 0
+  while i < 3 : x = i
+    print(x)
+    i += 1
+
+fail "while step not a call", "4:15: a `while` step is an assignment or a call"
+  # A `while` step is an assignment or a call.
+
+  j = 0
+  while j < 2 : j
+    j += 1
+
+fail "while step not assignment", "5:15: unexpected keyword `break`; expected an assignment or a call"
+  # A `while` step is an assignment or a call, run after each iteration;
+  # any other statement there is an error.
+
+  x = 0
+  while x < 3 : break
+    x += 1
+
+test "whitespace insensitive", '''
+  6 6 8 -21
+  21 21 10 10 false false false
+  10 10 10
+  20 20 1
+  3 3
+  .green true -7 -7
+  [0, 0, 0] 3
+  1 1 [20, 30] [20, 30]
+  4 4 none
+  7 7 3
+'''
+  # A character that several forms share is read by position, not by
+  # spacing. After a value it continues the value (an infix operator, a
+  # call, an index, a member, a suffix); anywhere else it starts an operand
+  # (a prefix sigil, grouping, an array literal, an enum literal, a
+  # closure's bar list). An infix operator may be spaced on both sides or
+  # neither, and a space before a call's or an index's bracket changes
+  # nothing; the spacing that would read two ways is rejected, in
+  # reject/syntax/unbalanced_spacing.rig.
+
+  N = 4
+
+  enum Color
+    red
+    green
+
+  obj Wrap[T]
+    v: T
+
+    fun get(?self) -> T
+      self.v
+
+  fun twice(n: Int) -> Int
+    n * 2
+
+  fun maybe(n: Int) -> Int?
+    n if n > 0 else none
+
+  fun half(n: Int) -> Int?
+    m = maybe(n)?
+    m / 2
+
+  sub main()
+    a = 7
+    b = 3
+    print(a - 1, a-1, a - -1, a*-b)
+    print(a * b, a*b, a + b, a+b, a < b, a<b, a<-b)
+    print(twice(5), twice(5), (twice)(5))
+    xs = [10, 20, 30]
+    print(xs[1], xs[1], [1, 2][0])
+    w = Wrap[Int](v: 3)
+    print(w.get(), w.get())
+    c: Color = .green
+    print(c, c == .green, -a, 0 - a)
+    s: [N - 1]Int = [N-1 of 0]
+    print(s, s.len)
+    v = List[Int]()
+    !v.push(1)
+    print(v.len, v[0], xs[1 .. 3], xs[1..])
+    f = | +b , x : Int | x + b
+    print(f(1), half(8), half(-1))
+    print(a | b, a|b, a & b)
+
+fail "zig block reserved", "unexpected keyword `zig`", "inline Zig is reserved"
+  # Inline `zig "..."` source splicing is reserved and does not parse;
+  # `raw` blocks and `extern` declarations are the escape hatches.
+
+  zig "const x = 42; std.debug.print(\"{any}\\n\", .{x});"

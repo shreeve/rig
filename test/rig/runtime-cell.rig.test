@@ -1,0 +1,537 @@
+# runtime: tests whose names start `cell`.
+
+test "cell construct", "7"
+  # A shared `Cell[Int]` is built from its value, and its Copy payload is
+  # read with `get()`.
+
+  c: *Cell[Int] = *Cell(7)
+  print(c.get())
+
+test "cell get set", '''
+  5
+  15
+'''
+  # `Cell.get` and `Cell.set` on a shared cell: interior mutation through
+  # a binding that is never reassigned.
+
+  c: *Cell[Int] = *Cell(0)
+  !c.set(5)
+  print(c.get())
+  !c.set(c.get() + 10)
+  print(c.get())
+
+fail "cell holder write view changes cells", "14:5: cannot assign through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", "17:6: cannot lend to write through a shared handle (`*T`); other handles may exist. To change a value that handles share, hold it in a `Cell[T]`.", errors: 2
+  # A value that holds a Cell lives only behind a shared handle, so a write
+  # view of it changes its Cells and nothing else: its other fields change
+  # only through a handle that owns them, which handles only read.
+
+  obj Counter
+    hits: Cell[Int]
+    n: Int
+    items: List[Int]
+
+    sub ok(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+    sub reset(!self)
+      self.n = 0
+
+    sub grow(!self)
+      !self.items.push(1)
+
+  k = *Counter(hits: Cell(0), n: 1, items: List())
+  !k.ok()
+  print(k.hits.get())
+
+test "cell holding closure vec", "1"
+  # `*Cell[List[*sub()]]`: a shared cell owning a list of closures.
+  # `replace` swaps the list out so it can be walked, then back in; the
+  # whole structure is freed when the cell's last handle drops.
+
+  count: *Cell[Int] = *Cell(0)
+  bump: *sub() = *|+count| !count.set(count.get() + 1)
+  v: List[*sub()] = List()
+  !v.push(<bump)
+  c: *Cell[List[*sub()]] = *Cell(<v)
+  empty: List[*sub()] = List()
+  current: List[*sub()] = (!c).replace(<empty)
+  for cb in ?current
+    cb()
+  discarded: List[*sub()] = (!c).replace(<current)
+  print(count.get())                # 1
+
+test "cell holding shared", '''
+  stored
+  30
+'''
+  # A `Cell[*Noisy]` has drop glue: when the last handle to it, `c`, leaves
+  # scope, it drops the handle it holds, which runs Noisy's drop body.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  u = *Noisy(id: 30)
+  c: *Cell[*Noisy] = *Cell(<u)
+  print("stored")
+
+test "cell marked calls", release: true, '''
+  2
+  2 7
+  10
+  9
+  2 5 5
+  popped 5
+  0
+  202
+  303 3
+  29
+  2 2
+  2
+'''
+  # A shared Cell changes only by a marked call: `!c.set(5)`. The mark
+  # lends the handle `c`, as `!v.push(x)` lends `v`; it is not exclusive
+  # over the Cell, since another handle is another name. Reading is
+  # unmarked. A `!self` method and a `!T` parameter change a Cell the same
+  # way, and a closure marks the handle it captured.
+
+  obj Counter
+    hits: Cell[Int]
+    log: Cell[List[Int]]
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+      !self.log.push(self.hits.get())
+
+    fun total(?self) -> Int
+      self.hits.get() * 100 + self.log.len
+
+  sub bump(c: !Cell[Int], by: Int)
+    !c.set(c.get() + by)
+
+  sub poke(k: !*Counter)
+    !k.hit()
+
+  sub from_owned_handle(c: *Cell[Int])
+    !c.set(c.get() + 1)
+
+  a: *Cell[Int] = *Cell(1)
+  b = +a
+  !a.set(2)
+  print(b.get())
+  print((!b).replace(7), a.get())
+  bump(!a, 3)
+  print(b.get())
+  seen = ?a
+  !b.set(9)
+  print(seen.get())
+
+  v: *Cell[List[Int]] = *Cell(List())
+  !v.push(4)
+  !v.push(5)
+  (!v)[0] = v[0] + 1
+  print(v.len, v[0], v.get(1))
+  if (!v).pop() as last
+    print("popped", last)
+  !v.clear()
+  print(v.len)
+
+  k = *Counter(hits: Cell(0), log: Cell(List()))
+  !k.hit()
+  poke(!k)
+  print(k.total())
+  other = +k
+  !other.hit()
+  print(k.total(), other.log.len)
+
+  step = |+a| !a.set(a.get() + 10)
+  step()
+  step()
+  print(a.get())
+
+  sig: *Signal[Int] = *Signal(0)
+  total: *Cell[Int] = *Cell(0)
+  !sig.subscribe(*|~sig, +total| !total.set(total.get() + 1))
+  !sig.set(1)
+  !sig.set(2)
+  print(total.get(), sig.get())
+
+  fixed: *Cell[Int] =! *Cell(0)
+  !fixed.set(1)
+  from_owned_handle(+fixed)
+  print(fixed.get())
+
+fail "cell read view unchanged", "10:6: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate", "13:6: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate", "16:4: cannot lend to write through a read view `?Cell[Int]`", errors: 3
+  # `?` promises that nothing changes, a shared Cell included: a read view
+  # of a Cell, or a `?self` method of a value holding one, cannot change
+  # it. It takes `!`, and the caller marks the lend.
+
+  obj Counter
+    hits: Cell[Int]
+    n: Int
+
+    sub hit(?self)
+      !self.hits.set(self.hits.get() + 1)
+
+    sub poke(?self)
+      !self.hits.set(1)
+
+  sub bump(c: ?Cell[Int])
+    !c.set(c.get() + 1)
+
+  k = *Counter(hits: Cell(0), n: 0)
+  bump(k.hits)
+  print(k.hits.get())
+
+test "cell replace shared", "30"
+  # `Cell[*User].replace(<new)` stores the new handle and returns the old
+  # one as an owned value. Each handle is dropped exactly once: `old` at
+  # scope exit, the stored one by the cell's drop glue.
+
+  obj User
+    age: Int
+
+  ua: *User = *User(age: 30)
+  ub: *User = *User(age: 99)
+  c: *Cell[*User] = *Cell(<ua)
+  old: *User = (!c).replace(<ub)
+  print(old.age)                    # 30
+
+test "cell set through read view", release: true, '''
+  11
+  11 5
+  7
+  k 2
+  102 2
+  shared 42
+'''
+  # A Cell changes by a marked call: `set` and `replace` change it through
+  # a `!T` view, and through a `!self` method of a struct holding one. A
+  # by-value parameter owns the shared handle moved into it, which it may
+  # lend out.
+
+  obj Counter
+    hits: Cell[Int]
+    name: ?String
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+  sub bump(c: !Cell[Int], by: Int)
+    !c.set(c.get() + by)
+
+  fun swap(c: !Cell[Int], v: Int) -> Int
+    (!c).replace(v)
+
+  fun lent(c: *Counter) -> Int
+    bump(!c.hits, 100)
+    c.hits.get()
+
+  c: *Cell[Int] = *Cell(1)
+  bump(!c, 10)
+  print(c.get())
+  old = swap(!c, 5)
+  print(old, c.get())
+  r = ?c
+  !(+r).set(7)
+  print(c.get())
+
+  k = *Counter(hits: Cell(0), name: "k")
+  !k.hit()
+  !k.hit()
+  print(k.name, k.hits.get())
+  before = k.hits.get()
+  print(lent(<k), before)
+
+  box = *Counter(hits: Cell(40), name: "shared")
+  !box.hit()
+  bump(!box.hits, 1)
+  print(box.name, box.hits.get())
+
+fail "cell set through slice", "5:16: a value of `Cell[Int]` holds a Cell, so it lives only behind a shared handle: write `*Cell[Int]`", errors: 1
+  # A Cell lives only behind a shared handle, so a slice cannot hold Cells
+  # by value: the rule that a Cell lives only behind `*` rejects the
+  # element type `[]Cell[Int]`.
+
+  sub bumps(s: []Cell[Int])
+    print(s.len)
+
+  pass
+
+test "cell through handle param", '''
+  6 5 1
+  6 2
+  1 2
+  1
+  2 1
+  40
+  41
+  44
+'''
+  # `!c` of a shared handle that may not be written, such as a parameter,
+  # lends the Cell the handle holds, not the handle: an element assigned
+  # through it, a List member called on it, and `swap` of two such lends
+  # all reach the Cell on the heap, with a concrete or a generic element.
+
+  obj P
+    x: Int
+    y: Int
+
+  obj H
+    h: *Cell[List[Int]]
+
+    sub bump(!self)
+      (!self.h)[0] = 40
+
+  sub put(c: *Cell[List[Int]], v: Int)
+    (!c)[0] = v
+    (!c).push(v + 1)
+    print((!c).pop() ?? -1, c[0], c.len)
+
+  sub fill[T](c: *Cell[List[T]], v: T)
+    (!c)[0] = v
+    (!c).push(v)
+
+  sub point(c: *Cell[List[P]])
+    (!c)[0] = P(x: 1, y: 2)
+
+  sub strings(c: *Cell[List[String]])
+    (!c).push(String("q"))
+
+  sub trade(a: *Cell[Int], b: *Cell[Int])
+    swap(!a, !b)
+
+  sub viaField(o: !H)
+    (!o.h)[0] = 41
+
+  sub viaCopy(c: *Cell[List[Int]])
+    d = +c
+    (!d)[0] = 43
+
+  c: *Cell[List[Int]] = *Cell(List())
+  !c.push(1)
+  put(+c, 5)
+  fill(+c, 6)
+  print(c[0], c.len)
+  p: *Cell[List[P]] = *Cell(List())
+  !p.push(P(x: 0, y: 0))
+  point(+p)
+  print(p[0].x, p[0].y)
+  s: *Cell[List[String]] = *Cell(List())
+  strings(+s)
+  print(s.len)
+  a: *Cell[Int] = *Cell(1)
+  b: *Cell[Int] = *Cell(2)
+  trade(+a, +b)
+  print(a.get(), b.get())
+  o = H(h: +c)
+  !o.bump()
+  print(c[0])
+  viaField(!o)
+  print(c[0])
+  viaCopy(+c)
+  f = |+c| (!c)[0] = 44
+  f()
+  print(c[0])
+
+fail "cell unmarked set", "6:3: method `set` needs its receiver lent to write; write `!c.set(5)`: changing a shared Cell is marked with `!`", "7:9: method `replace` needs its receiver lent to write; write `(!c).replace(6)`: changing a shared Cell is marked with `!`", "9:3: method `push` needs its receiver lent to write; write `!v.push(1)`: changing a shared Cell is marked with `!`", "10:10: method `pop` needs its receiver lent to write; write `(!v).pop()`: changing a shared Cell is marked with `!`", "11:3: method `clear` needs its receiver lent to write; write `!v.clear()`: changing a shared Cell is marked with `!`", "12:1: write `(!v)[i] = e`: changing a shared Cell is marked with `!`", errors: 6
+  # A shared Cell changes only by a marked call, so a call that changes it
+  # without `!` is rejected, with the mark in the hint: `set`, `replace`,
+  # and a Cell of a List's `push`, `pop`, `clear`, and element assignment.
+
+  c: *Cell[Int] = *Cell(1)
+  c.set(5)
+  old = c.replace(6)
+  v: *Cell[List[Int]] = *Cell(List())
+  v.push(1)
+  last = v.pop()
+  v.clear()
+  v[0] = 2
+  print(c.get(), old, last)
+
+test "cell vec clear reentrant", '''
+  drop 2 sees 0
+  drop 1 sees 1
+  after clear 2
+  drop 10 sees 0
+  drop 20 sees 0
+  end 0
+'''
+  # `clear` on a Cell's List empties the cell before it drops the elements,
+  # so a drop body that reaches back into the cell finds a valid, empty
+  # List, and may even push to it.
+
+  obj Item
+    id: Int
+    owner: ~Cell[List[*Item]]
+
+    drop(!self)
+      if *self.owner as cell
+        print("drop", self.id, "sees", cell.len)
+        (!cell).push(*Item(id: self.id * 10, owner: +self.owner)) if self.id < 10
+
+  items: *Cell[List[*Item]] = *Cell(List())
+  !items.push(*Item(id: 1, owner: ~items))
+  !items.push(*Item(id: 2, owner: ~items))
+  !items.clear()
+  print("after clear", items.len)
+  !items.clear()
+  print("end", items.len)
+
+test "cell vec members", release: true, '''
+  2 11 20 20 none
+  20 1
+  0
+  7
+  6 1
+  3
+  popped 1
+  drop 2
+  drop 1
+  cleared 0
+'''
+  # A Cell holding a List answers the List's members by a marked call, like
+  # `set`: a `!Cell[List[T]]` parameter, a Cell field reached from a
+  # `!self` method, and a shared handle. `push` moves
+  # or clones an owning element in, `pop` hands one out, `clear` drops
+  # them all; a plain-data element is read and written by index or `get`.
+
+  obj P
+    x: Int
+    y: Int
+
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  obj Holder
+    items: Cell[List[Int]]
+
+    sub add(!self, n: Int)
+      !self.items.push(n)
+
+    fun total(?self) -> Int
+      t = 0
+      i = 0
+      while i < self.items.len
+        t += self.items[i]
+        i += 1
+      t
+
+  sub fill(c: !Cell[List[Int]])
+    !c.push(10)
+    !c.push(20)
+    c[0] = c[0] + 1
+
+  c: *Cell[List[Int]] = *Cell(List())
+  fill(!c)
+  print(c.len, c[0], c[1], c.get(1), c.get(5))
+  print((!c).pop(), c.len)
+  !c.clear()
+  print(c.len)
+  h = *Holder(items: Cell(List()))
+  !h.add(3)
+  !h.add(4)
+  print(h.total())
+  s: *Cell[List[P]] = *Cell(List())
+  t = +s
+  !t.push(P(x: 1, y: 2))
+  (!s)[0] = P(x: 5, y: 6)
+  print(s[0].y, t.len)
+  ns: *Cell[List[*N]] = *Cell(List())
+  a = *N(id: 1)
+  !ns.push(+a)
+  !ns.push(*N(id: 2))
+  !ns.push(<a)
+  print(ns.len)
+  if (!ns).pop() as last
+    print("popped", last.id)
+  !ns.clear()
+  print("cleared", ns.len)
+
+test "cell vec reactive", "3 1 3 6 2"
+  # A reactive counter without Signal: watchers are owned closures that
+  # each capture a shared `*Cell[List[Int]]` and push to it in one call.
+
+  obj Counter
+    value: *Cell[Int]
+    watchers: List[*sub(Int)]
+
+    sub watch(!self, f: *sub(Int))
+      !self.watchers.push(<f)
+
+    sub bump(!self)
+      !self.value.set(self.value.get() + 1)
+      for w in ?self.watchers
+        w(self.value.get())
+
+  log: *Cell[List[Int]] = *Cell(List())
+  doubled: *Cell[List[Int]] = *Cell(List())
+  c = Counter(value: *Cell(0), watchers: List())
+  !c.watch(*|+log, n| !log.push(n))
+  !c.watch(*|+doubled, n| !doubled.push(n * 2))
+  !c.bump()
+  !c.bump()
+  !c.bump()
+  print(log.len, log[0], log[2], (!doubled).pop(), doubled.len)
+
+test "cell view sees updates", '''
+  5 5 5 5 5
+  5
+  5
+  3 3
+'''
+  # A read view of a `Cell` (or of a value holding one) is held by
+  # pointer, so it sees later `set`s through another handle, however it was kept: returned from a
+  # function, stored in a view, an optional, an array, a generic field, or
+  # an enum payload, or taken from a field of a viewed struct.
+
+  obj W[T]
+    v: T
+
+  enum E
+    held(c: ?Cell[Int])
+    empty
+
+  obj View
+    c: ?Cell[Int]
+
+  obj H
+    c: Cell[Int]
+
+    fun cell(?self) -> ?Cell[Int]
+      ?self.c
+
+  type C = Cell[Int]
+
+  fun id(c: ?C) -> ?C
+    c
+
+  fun inner(h: ?H) -> ?Cell[Int]
+    ?h.c
+
+  cell: *Cell[Int] = *Cell(1)
+  r = id(?cell)
+  v = View(c: ?cell)
+  o: (?Cell[Int])? = ?cell
+  xs = [?cell]
+  w: W[?Cell[Int]] = W(v: ?cell)
+  e: E = .held(c: ?cell)
+  f = |c: ?Cell[Int]| c
+  k = f(?cell)
+  other = +cell
+  !other.set(5)
+  print(r.get(), v.c.get(), xs[0].get(), w.v.get(), k.get())
+  if o as p
+    print(p.get())
+  match e
+    .held(c) => print(c.get())
+    .empty => print(0)
+  h = *H(c: Cell(3))
+  a = inner(?h)
+  b = ?h.cell()
+  print(a.get(), b.get())

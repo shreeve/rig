@@ -1,0 +1,1478 @@
+# effects: the rest of its tests.
+
+test "bare literal is success variant", '''
+  .red .missing .red
+  .red
+'''
+  # Where a `T!` is expected, a bare `.name` is a variant of `T` even when
+  # an error set has a member of the same name: the function succeeds with
+  # it. Failing names the set.
+
+  enum Color
+    red
+    missing
+
+  error E
+    missing
+
+  fun pick(n: Int) -> Color!
+    return E.missing if n < 0
+    return .missing if n == 0
+    .red
+
+  print(pick(1) catch .red, pick(0) catch .red, pick(-1) catch .red)
+  e = pick(-1) catch |err| .red if err == E.missing else .missing
+  print(e)
+
+test "closure propagation", '''
+  3
+  failed Parse.empty
+  6 -1
+  3 0
+  104 0
+  len 4
+  no
+'''
+  # A closure whose type can fail propagates with `!` to its caller, and
+  # one whose type returns an optional returns `none` with `?`.
+
+  error Parse
+    empty
+
+  fun parse(s: ?String) -> Int!
+    if s.len == 0
+      return Parse.empty
+    s.len
+
+  fun first(s: ?String) -> U8?
+    s.get(0)
+
+  sub each(xs: []?String, f: ?sub(?String)!)!
+    for x in xs
+      f(x)!
+
+  fun apply(s: ?String, f: ?fun(?String) -> Int!) -> Int
+    f(s) catch -1
+
+  fun lead(s: ?String, f: ?fun(?String) -> Int?) -> Int
+    f(s) ?? 0
+
+  total = *Cell(0)
+  each(["ab", "c"], |+total, l| !total.set(total.get() + parse(l)!)) catch print("failed")
+  print(total.get())
+  each(["ab", ""], |+total, l| !total.set(total.get() + parse(l)!)) catch |e| print("failed", e)
+  print(apply("abc", |l| parse(l)! * 2), apply("", |l| parse(l)! * 2))
+  g: *fun(?String) -> Int! = *|l| parse(l)! + 1
+  print(g("xy") catch 0, g("") catch 0)
+  print(lead("hi", |s| Int(first(s)?)), lead("", |s| Int(first(s)?)))
+  h: *sub(?String)! = *|l| print("len", parse(l)!)
+  h("abcd") catch print("no")
+  h("") catch print("no")
+
+fail "closure propagation type", "11:17: use of `!` propagation requires a fallible enclosing function; a closure body propagates failure only when its type can fail (`?fun(A) -> T!`), so handle it with `catch`", "12:18: use of `!` propagation requires a fallible enclosing function", "13:34: a closure body returns `none` with `?` only when its type returns an optional"
+  # A closure propagates with `!` only when its type can fail, and returns
+  # `none` with `?` only when its type returns an optional; a closure
+  # whose type is inferred can do neither.
+
+  fun parse(s: ?String) -> Int!
+    s.len
+
+  fun apply(f: ?fun(?String) -> Int) -> Int
+    f("x")
+
+  print(apply(|l| parse(l)!))
+  g = |l: ?String| parse(l)!
+  k: fun(?String) -> Int = |s| Int(s.get(0)?)
+  print(g("a"), k("b"))
+
+test "coalesce chain jump", '''
+  2 -1 1
+  30 0 10
+  4
+'''
+  # A jump fallback ends a chain of `??`: `a ?? b ?? return v` tries `a`,
+  # then `b`, and leaves when both are `none`.
+
+  fun f(a: Int?, b: Int?) -> Int
+    a ?? b ?? return -1
+
+  fun g(a: Int?, b: Int?, c: Int?) -> Int
+    n = a ?? b ?? c ?? return 0
+    n * 10
+
+  fun odd(k: Int) -> Int?
+    k if k % 2 == 1 else none
+
+  print(f(none, 2), f(none, none), f(1, none))
+  print(g(none, none, 3), g(none, none, none), g(1, 2, 3))
+  total = 0
+  for k in 0..4
+    total += odd(k) ?? odd(k + 2) ?? continue
+  print(total)
+
+fail "defer statement declares", "9:12: a deferred statement runs at scope exit and cannot declare `x`; use an indented `errdefer` block", "14:7: a deferred statement runs at scope exit and cannot declare `t`; use an indented `defer` block", "15:11: cannot declare `s`", "16:7: cannot declare `u`", errors: 4
+  # A one-line `defer` or `errdefer` runs its statement at scope exit, so
+  # that statement cannot declare a name: nothing after it could see one.
+  # An indented block may declare names of its own.
+
+  error E
+    bad
+
+  fun f(k: Int) -> Int!
+    errdefer x =! 1
+    return E.bad if k > 0
+    k
+
+  s = 1
+  defer t = s
+  defer new s = 3
+  defer u: Int = 1
+  defer
+    v = s
+    print(v)
+  print(f(0) catch -1)
+
+fail "entry point call", "13:5: `main` is the program's entry point; it cannot be called or used as a value", "16:5: `main` is the program's entry point; it cannot be called or used as a value"
+  # The root module's `main` is the program's entry point: it may
+  # propagate a failure out of the program, so no Rig code calls it or
+  # holds it as a value.
+
+  error E
+    bad
+
+  fun g() -> Int!
+    3
+
+  sub again(n: Int)
+    if n > 0
+      main()
+
+  x = g()!
+  f = main
+  again(x)
+
+fail "enum from int", "builtin `@enumFromInt` is not supported; an integer becomes a plain enum with `@fromBackingInt`", errors: 1
+  # Rig's builtins are Zig's: an integer becomes a plain enum with
+  # `@fromBackingInt`, and `@enumFromInt` names it.
+
+  enum Status
+    ok = 200
+    missing = 404
+
+  fun of(n: Int) -> Status
+    raw
+      s: Status = @enumFromInt(n)
+      s
+
+  print(of(404))
+
+fail "errdefer cannot fail", "6:3: `errdefer` runs only when the function fails, and `next` cannot fail; use `defer`", "10:3: `errdefer` runs only when the function fails, and `show` cannot fail; use `defer`", "18:5: `errdefer` runs only when the function fails, and a `drop` body cannot fail; use `defer`", "22:5: an `errdefer` inside deferred code never runs, since deferred code cannot fail; write its statement in the block directly", "26:3: `errdefer` runs only when the function fails, and this closure cannot fail; use `defer`", "29:3: `errdefer` runs only when the function fails, and this closure cannot fail; use `defer`", errors: 6
+  # `errdefer` runs only when its function fails, so a function, closure,
+  # or `drop` body that cannot fail takes `defer` instead, and one inside
+  # deferred code would never run.
+
+  fun next(x: Int) -> Int
+    errdefer print("never")
+    x + 1
+
+  sub show(x: Int)
+    errdefer
+      print("never")
+    print(x)
+
+  obj D
+    n: Int
+
+    drop(!self)
+      errdefer print("never")
+
+  fun later() -> Int!
+    defer
+      errdefer print("never")
+    1
+
+  k = ||
+    errdefer print("never")
+  k()
+  c: sub() = ||
+    errdefer print("never")
+  c()
+  show(next(1))
+  print(later()!)
+  d = D(n: 1)
+  print(d.n)
+
+test "errdefer in failing value block", '''
+  branch inner 1
+  branch outer 1
+  -1
+  0
+  arm 1
+  -1
+  2
+  nested inner 9
+  nested outer 9
+  -1
+  2
+'''
+  # A function fails with `return` of an error value, also from inside an
+  # `if` branch or `match` arm block: the `errdefer`s of that block run,
+  # and so do those of the blocks and function around it. A block that
+  # ends in a plain value leaves its `errdefer`s unrun.
+
+  error E
+    bad
+
+  fun branch(k: Int) -> Int!
+    errdefer print("branch outer", k)
+    if k > 0
+      errdefer print("branch inner", k)
+      return E.bad
+    else
+      k
+
+  fun arm(k: Int) -> Int!
+    match k
+      0 => 0
+      1
+        errdefer print("arm", k)
+        return E.bad
+      _
+        errdefer print("arm ok", k)
+        k
+
+  fun nested(k: Int) -> Int!
+    if k > 0
+      errdefer print("nested outer", k)
+      if k > 5
+        errdefer print("nested inner", k)
+        return E.bad
+      else
+        k
+    else
+      0
+
+  print(branch(1) catch -1)
+  print(branch(0) catch -1)
+  print(arm(1) catch -1)
+  print(arm(2) catch -1)
+  print(nested(9) catch -1)
+  print(nested(2) catch -1)
+
+test "errdefer in fallible functions", '''
+  parse failed
+  closure failed
+  1 0
+  parse failed
+  save failed
+  caught
+'''
+  # `errdefer` is accepted wherever a failure can leave: a `fun ... -> T!`,
+  # a `sub f()!`, `sub main`, a closure whose type can fail, and a test.
+
+  error E
+    bad
+
+  fun parse(k: Int) -> Int!
+    errdefer print("parse failed")
+    return E.bad if k < 0
+    k
+
+  sub save(k: Int)!
+    errdefer print("save failed")
+    _ = parse(k)!
+
+  sub main()
+    errdefer print("main failed")
+    f: fun(Int) -> Int! = |k|
+      errdefer print("closure failed")
+      parse(k)!
+    print(f(1) catch 0, f(-1) catch 0)
+    save(-1) catch print("caught")
+
+  test "a test may fail"
+    errdefer print("test failed")
+    _ = parse(1)!
+
+test "errdefer on failure", '''
+  defer 1
+  2
+  errdefer -1
+  defer -1
+  -1
+  inner errdefer 11
+  errdefer 11
+  defer 11
+  -1
+  defer 2
+  defer 2
+  6
+  errdefer -2
+  defer -2
+  twice errdefer -2
+  -1
+'''
+  # `errdefer` runs only when the function exits with an error, whether it
+  # fails with `return` or propagates a failure with `!`; `defer` runs on
+  # every exit. Both run in reverse order, including those of inner scopes
+  # the failure leaves.
+
+  error E
+    bad
+
+  fun check(n: Int) -> Int!
+    return E.bad if n < 0
+    n
+
+  fun step(n: Int) -> Int!
+    defer print("defer", n)
+    errdefer print("errdefer", n)
+    if n > 10
+      errdefer print("inner errdefer", n)
+      return E.bad
+    check(n)! + 1
+
+  fun twice(n: Int) -> Int!
+    errdefer print("twice errdefer", n)
+    step(n)! + step(n)!
+
+  print(step(1) catch -1)
+  print(step(-1) catch -1)
+  print(step(11) catch -1)
+  print(twice(2) catch -1)
+  print(twice(-2) catch -1)
+
+test "error identity by set", '''
+  1 net timeout net timeout
+  2 disk not a net timeout
+  3 disk not a net timeout
+  4 other not a net timeout
+  5 ok ok
+  Disk.timeout false true true
+  Disk.timeout Net.timeout true true
+  0 1
+'''
+  # Each error belongs to its error set: `Net.timeout` and `Disk.timeout`
+  # are different errors. They compare apart, a match arm for one does
+  # not catch the other, and each prints with its set.
+
+  error Net
+    timeout
+    refused
+
+  error Disk
+    timeout
+    full
+
+  fun fetch(n: Int) -> Int!
+    return Net.timeout if n == 1
+    return Disk.timeout if n == 2
+    return Disk.full if n == 3
+    return Net.refused if n == 4
+    n
+
+  fun describe(n: Int) -> ?String
+    _ = fetch(n) catch |e|
+      match e
+        Net.timeout => return "net timeout"
+        Disk.timeout, .full => return "disk"
+        _ => return "other"
+    "ok"
+
+  fun only_net(n: Int) -> ?String
+    _ = fetch(n) catch |e|
+      match e
+        Net.timeout => return "net timeout"
+        _ => return "not a net timeout"
+    "ok"
+
+  for n in 1..6
+    print(n, describe(n), only_net(n))
+  x = fetch(2) catch |e|
+    print(e, e == Net.timeout, e == Disk.timeout, e != Net.timeout)
+    0
+  d: Disk = .timeout
+  n: Net = .timeout
+  print(d, n, d == Disk.timeout, n == .timeout)
+  y = fetch(4) catch |e| 1 if e == .refused else 2
+  print(x, y)
+
+fail "extern fun argument", "an extern function can only be called, inside `raw`"
+  # An extern function can only be called, inside `raw`: passing it as an
+  # argument would let the callee call it without `raw`.
+
+  extern fun abs(n: I32) -> I32
+
+  fun apply(f: fun(I32) -> I32, n: I32) -> I32
+    f(n)
+
+  print(apply(abs, -1))
+
+fail "extern fun bound", "an extern function can only be called, inside `raw`"
+  # An extern function can only be called, inside `raw`: binding it to a
+  # name would let it be called later without `raw`.
+
+  extern fun abs(n: I32) -> I32
+
+  raw
+    f: fun(I32) -> I32 = abs
+    print(f(-1))
+
+test "extern fun call", '''
+  5
+  3
+'''
+  # A body-less `extern fun` declares a C symbol; a safe wrapper calls it
+  # inside a `raw` block, and callers of the wrapper need no `raw`.
+
+  extern fun abs(n: I32) -> I32
+
+  sub print_abs(n: I32)
+    raw
+      print(abs(n))
+
+  print_abs(-5)
+  print_abs(3)
+
+fail "extern fun call outside raw", "call to extern function `abs` requires `raw` block"
+  # Calling a body-less `extern fun` outside a `raw` block is rejected.
+
+  extern fun abs(n: I32) -> I32
+
+  print(abs(-1))
+
+fail "extern fun field", "an extern function can only be called, inside `raw`"
+  # An extern function can only be called, inside `raw`: storing it in a
+  # field would let it be called later without `raw`.
+
+  extern fun abs(n: I32) -> I32
+
+  obj Op
+    f: fun(I32) -> I32
+
+  raw
+    op = Op(f: abs)
+    print(op.f(-1))
+
+test "extern sub call", "true"
+  # A body-less `extern sub` declares a C function returning void; calls
+  # still require a `raw` block. Reseeding with the same seed repeats the
+  # sequence.
+
+  extern sub srand(seed: U32)
+  extern fun rand() -> I32
+
+  raw
+    srand(7)
+    a = rand()
+    srand(7)
+    b = rand()
+    print(a == b)
+
+fail "fallible call without bang", "fallible call to `loadUser` must be wrapped with `!` (propagate) or `catch` (handle)"
+  # A call to a fallible function must be wrapped with `!` (propagate) or
+  # `catch` (handle); a bare call would hide the failure path.
+
+  obj User
+    name: ?String
+
+  fun loadUser(id: U64) -> User!
+    User(name: "Steve")
+
+  x = loadUser(1)
+  print(x.name)
+
+test "fallible errors", '''
+  3
+  -1
+  100
+  empty too long long enough short
+  5 -9
+  3 7
+  failed with ParseError.empty
+  0
+  3
+'''
+  # A `-> T!` function fails by returning an error value: a member of an
+  # error set, named with its set (`return E.name`), or an error it
+  # caught. `catch |err|` names the error, which may be any error: it is
+  # matched and compared with error-set members.
+
+  error ParseError
+    empty
+    too_long
+
+  error NetError
+    timeout
+
+  fun parse_len(s: ?String) -> Int!
+    if s == ""
+      return ParseError.empty
+    if s.len > 5
+      return ParseError.too_long
+    s.len
+
+  fun fetch(n: Int) -> Int!
+    e: NetError = .timeout
+    return e if n < 0
+    parse_len("ab")! + n
+
+  fun describe(s: ?String) -> ?String
+    n = parse_len(s) catch |err|
+      match err
+        .empty => return "empty"
+        .too_long => return "too long"
+        _ => return "other"
+    if n > 2
+      "long enough"
+    else
+      "short"
+
+  fun retry(n: Int) -> Int!
+    fetch(n) catch |err|
+      return err if err == NetError.timeout
+      0
+
+  print(parse_len("abc") catch -1)
+  print(parse_len("") catch -1)
+  print(parse_len("abcdefg") catch |err| 100 if err == .too_long else 200)
+  print(describe(""), describe("abcdefgh"), describe("abcd"), describe("a"))
+  print(fetch(3) catch 0, fetch(-1) catch |e| -9 if e == .timeout else -8)
+  print(retry(1) catch 7, retry(-1) catch 7)
+  x = parse_len("") catch |err|
+    print("failed with", err)
+    0
+  print(x)
+  print(fetch(1)!)
+
+fail "fallible instance method without bang", "must be wrapped with `!` (propagate) or `catch` (handle)"
+  # A fallible instance method called without `!` or `catch` is rejected.
+
+  obj User
+    name: ?String
+
+    fun check(?self) -> Int!
+      1
+
+  u = User(name: "x")
+  n = u.check()
+  print(n)
+
+fail "fallible static method without bang", "must be wrapped with `!` (propagate) or `catch` (handle)"
+  # A fallible associated method called without `!` or `catch` is rejected.
+
+  obj User
+    name: ?String
+
+    fun make() -> User!
+      User(name: "x")
+
+  u = User.make()
+  print(u.name)
+
+fail "int from float", "builtin `@intFromFloat` is not supported; a float becomes an integer with `@trunc`", errors: 1
+  # Rig's builtins are Zig's: a float becomes an integer with `@trunc`,
+  # and `@intFromFloat` names it.
+
+  f = 2.5
+  raw
+    n: I64 = @intFromFloat(f)
+    print(n)
+
+fail "joined while step bindings", "18:45: the loop step reads `x`, a binding of the condition, so each binding there must be plain data; `r` is a `Res`", "21:54: the loop step reads `y`, a binding of the condition, which a `continue` in the condition leaves unbound"
+  # A step that reads a binding of a joined `while` condition runs after
+  # the body, inside the `if`s that bind it: every binding there must be
+  # plain data, and no `continue` in the condition may skip binding one.
+
+  obj Res
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  fun make(k: Int) -> Res?
+    Res(id: k) if k > 0 else none
+
+  n = 3
+  while make(n) as r and get(r.id) as x : n = x - 1
+    print(x)
+  m = 3
+  while (get(m) ?? continue) > 0 and get(m) as y : m = y - 1
+    print(y)
+
+test "jump as fallback", '''
+  found 4
+  drop 4
+  1
+  drop 5
+  -1
+  30 -1
+  ok error
+  at 2
+  total 6
+  seen 3
+  step 0 102
+  drop 102
+  step 1 104
+  drop 104
+  step 2 106
+  drop 106
+  step 3 108
+  drop 108
+  drop 110
+  first 2
+'''
+  # A jump is a fallback: `?? return`, `?? break`, `?? continue`, and the
+  # same after `catch`. It leaves as the statement would, dropping what
+  # the scope owns.
+
+  error E
+    missing
+    bad
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun find(xs: ?List[Int], k: Int) -> Int?
+    for x, i in xs
+      return i if x == k
+    none
+
+  fun parse(s: ?String) -> Int!
+    return E.bad if s == "x"
+    s.len
+
+  fun index_of(xs: ?List[Int], k: Int) -> Int!
+    guard = Noisy(id: k)
+    i = find(xs, k) ?? return E.missing
+    print("found", guard.id)
+    i
+
+  fun size(s: ?String) -> Int
+    n = parse(s) catch return -1
+    n * 10
+
+  fun describe(s: ?String) -> ?String
+    n = parse(s) catch |e| return "error" if e == E.bad else "other"
+    "ok" if n > 0 else "empty"
+
+  sub report(xs: ?List[Int], k: Int)
+    i = find(xs, k) ?? return
+    print("at", i)
+
+  xs: List[Int] = List()
+  for n in 1..5
+    !xs.push(n * 2)
+  print(index_of(?xs, 4) catch -1)
+  print(index_of(?xs, 5) catch -1)
+  print(size("abc"), size("x"))
+  print(describe("ab"), describe("x"))
+  report(?xs, 6)
+  report(?xs, 7)
+
+  total = 0
+  for k in 0..10
+    i = find(?xs, k) ?? continue
+    total += i
+  print("total", total)
+
+  words = ["1", "22", "x", "4444"]
+  seen = 0
+  for w in words
+    n = parse(w) catch break
+    seen += n
+  print("seen", seen)
+
+  j = 2
+  while true
+    held = Noisy(id: 100 + j)
+    i = find(?xs, j) ?? break
+    print("step", i, held.id)
+    j += 2
+
+  first = for w in words
+    n = parse(w) catch continue
+    break n if n > 1
+  else
+    0
+  print("first", first)
+
+fail "jump fallback checked", "11:24: expected `Int`, got `Static`", "15:17: `return` needs a value of type `Int`", "19:17: expected `Int`, got", "23:24: a `sub` returns no value"
+  # A `return` as a fallback is checked as the statement is, against the
+  # function's result. A bare error value is no fallback for `??`.
+
+  error E
+    missing
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  fun wrong(k: Int) -> Int
+    n = get(k) ?? return "none"
+    n
+
+  fun empty(k: Int) -> Int
+    n = get(k) ?? return
+    n
+
+  fun err(k: Int) -> Int!
+    n = get(k) ?? E.missing
+    n
+
+  sub nothing(k: Int)
+    n = get(k) ?? return 0
+    print(n)
+
+  n = get(1) ?? 0
+  print(n, wrong(1), empty(1), err(1) catch 0)
+  nothing(1)
+
+fail "jump fallback checked ownership", "7:15: `break` is not inside a loop"
+  # A `break` as a fallback is checked as the statement is: it must be
+  # inside a loop.
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  n = get(1) ?? break
+  print(n)
+
+fail "jump fallback outside loop", "10:17: `continue` is not inside a loop", "14:22: `continue` is not inside a loop"
+  # `?? continue` and `catch continue` must be inside a loop.
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  fun parse(k: Int) -> Int!
+    k
+
+  sub first()
+    m = get(2) ?? continue
+    print(m)
+
+  sub second()
+    n = parse(3) catch continue
+    print(n)
+
+  first()
+  second()
+
+fail "lambda inherits propagation", "use of `!` propagation requires"
+  # A closure body cannot propagate with `!` when its type cannot fail: this
+  # one's, inferred, returns Void, even
+  # inside a function that may fail.
+
+  fun g() -> Int!
+    3
+
+  n = 1
+  c = |+n|
+    print(g()! + n)
+  c()
+
+fail "module main propagate", "use of `!` propagation requires the enclosing `main` to be fallible: `sub main(...)!`"
+  # A `main` in an imported module is not the entry point, so it cannot
+  # propagate failure with `!`.
+  use tool
+
+  sub main()
+    tool.main()
+
+  file "tool.rig"
+    error E
+      oops
+
+    fun f() -> Int!
+      return E.oops
+
+    # Only the root module's `main` is the entry point; here `main` is an
+    # ordinary `sub`, which cannot propagate.
+    pub sub main()
+      x = f()!
+      print(x)
+
+fail "panic as value", "5:5: `panic` ends the program and gives no value, so it stands as a statement or as a branch's value", "11:10: `panic` ends the program and gives no value, so it stands as a statement or as a branch's value", "14:7: `panic` ends the program and gives no value, so it stands as a statement or as a branch's value", "15:5: `panic` ends the program and gives no value, so it stands as a statement or as a branch's value", "16:7: `panic` ends the program and gives no value, so it stands as a statement or as a branch's value", errors: 5
+  # `panic` gives no value, so it stands only as a statement or as a
+  # branch's value: not as an operand, an argument, a binding's value, a
+  # `return` value, or a module constant.
+
+  X = panic("module")
+
+  sub f(n: Int)
+    print(n)
+
+  fun g() -> Int
+    return panic("returned")
+
+  sub main()
+    a = panic("a") + 1
+    f(panic("argument"))
+    b = panic("bound")
+    print(a, b, g(), X)
+
+fail "panic in defer", "9:12: `panic` cannot stand in deferred code, which runs as its scope ends; check before the scope ends instead", "12:7: `panic` cannot stand in deferred code, which runs as its scope ends; check before the scope ends instead", errors: 2
+  # Deferred code runs as its scope ends, and a `panic` there would end
+  # the program in the middle of leaving it: `defer` and `errdefer` reject
+  # it.
+
+  error Bad
+    no
+
+  fun g() -> Int!
+    errdefer panic("b")
+    return Bad.no
+
+  defer panic("a")
+  print(g() catch 0)
+
+fail "panic needs message", "3:1: `panic` needs a message: say what went wrong"
+  # A `panic` says what went wrong.
+
+  panic()
+
+fail "panic ternary argument", "5:7: `print` needs a value; this expression never produces one", "6:6: `warn` needs a value; this expression never produces one", "7:5: `x` would be bound to an expression that never produces a value", errors: 3
+  # A ternary whose branches both `panic` never produces a value, so it
+  # cannot be printed, as it cannot be bound.
+
+  c = true
+  print(panic("a") if c else panic("b"))
+  warn(panic("a") if c else panic("b"))
+  x = panic("a") if c else panic("b")
+  print(x)
+
+fail "panic unreachable after", "6:1: unreachable code: this statement follows a `panic`"
+  # A `panic` ends the program, so a statement after it in the same block
+  # never runs.
+
+  print(0)
+  panic("a")
+  print(1)
+
+fail "print keyword arguments", "4:12: `print` takes no keyword arguments", "5:11: `warn` takes no keyword arguments", "6:12: `panic` takes no keyword arguments", errors: 3
+  # `print`, `warn`, and `panic` take values to write, separated by a
+  # space and ended by a newline; they take no keyword arguments.
+
+  print("a", sep: "x")
+  warn("a", end: "")
+  panic("a", sep: "x")
+
+fail "propagate in defer", "6:13: cannot use `!` inside `defer`; a deferred expression cannot propagate failure, so handle it with `catch`"
+  # A deferred expression cannot propagate with `!`.
+
+  fun g() -> Int!
+    3
+
+  defer print(g()!)
+  print(1)
+
+fail "propagate in drop", "a `drop` body cannot propagate failure; handle it with `catch`"
+  # A `drop` body cannot fail, so it cannot propagate with `!`.
+
+  error E
+    bad
+
+  fun check(n: Int) -> Int!
+    return E.bad if n < 0
+    n
+
+  obj P
+    n: Int
+
+    drop(!self)
+      print(check(self.n)!)
+
+  p = P(n: 1)
+  print(p.n)
+
+fail "propagate in method main", "use of `!` propagation requires the enclosing `main` to be fallible: `sub main(...)!`"
+  # Only the top-level `sub main` can fail; a method named `main` is an
+  # ordinary `sub` and cannot propagate with `!`.
+
+  error E
+    bad
+
+  fun check(n: Int) -> Int!
+    return E.bad if n < 0
+    n
+
+  obj P
+    n: Int
+
+    sub main(?self)
+      print(check(self.n)!)
+
+  p = P(n: 1)
+  p.main()
+
+test "propagate none", '''
+  36 none
+  leaving both
+  72
+  leaving both
+  none
+  3 none none
+  5 none
+'''
+  # `e?` is the value inside optional `e`; when `e` is `none`, the enclosing
+  # function returns `none`. Deferred code runs on that path, and owning
+  # values made earlier in the expression are dropped.
+
+  obj User
+    name: ?String
+    age: Int
+
+  obj Wrap
+    n: Int
+
+  fun find(id: Int) -> User?
+    return User(name: "ada", age: 36) if id == 1
+    none
+
+  fun age_of(id: Int) -> Int?
+    find(id)?.age
+
+  fun both(a: Int, b: Int) -> Int?
+    defer print("leaving both")
+    find(a)?.age + find(b)?.age
+
+  fun boxed(n: Int) -> *Wrap?
+    return *Wrap(n: n) if n > 0
+    none
+
+  fun pair(a: *Wrap, b: *Wrap) -> Int
+    a.n + b.n
+
+  fun sum_boxes(x: Int, y: Int) -> Int?
+    pair(boxed(x)?, boxed(y)?)
+
+  fun moved(x: Int) -> Int?
+    m = boxed(x)
+    b = (<m)?
+    b.n
+
+  print(age_of(1), age_of(2))
+  print(both(1, 1))
+  print(both(1, 2))
+  print(sum_boxes(1, 2), sum_boxes(1, 0), sum_boxes(0, 1))
+  print(moved(5), moved(0))
+
+test "propagate none chains", '''
+  10 none none
+  20 7 none
+  20 none
+  4 5 10
+  none none none
+'''
+  # `e?` chains through fields, works in a function returning `T?!`,
+  # leaves a loop with the function, and reads through a viewed optional.
+
+  error Bad
+    odd
+
+  obj Node
+    next: Int?
+    val: Int
+
+  fun get(i: Int) -> Node?
+    return none if i < 0
+    Node(next: i - 1 if i > 0 else none, val: i * 10)
+
+  fun second(i: Int) -> Int?
+    get(get(i)?.next?)?.val
+
+  fun checked(i: Int) -> Int?!
+    return Bad.odd if i % 2 == 1
+    v = get(i)?
+    v.val
+
+  fun first_even(xs: ?[3]Int) -> Int?
+    for x in xs
+      n = get(x)?
+      return n.val if n.val % 20 == 0
+    none
+
+  fun bump(m: !(Int?)) -> Int?
+    v = m?
+    m = v + 1
+    v
+
+  fun peek(m: ?(Int?)) -> Int?
+    m? * 2
+
+  print(second(2), second(0), second(-1))
+  print(checked(2) catch 7, checked(1) catch 7, checked(-2) catch 7)
+  print(first_even(?[1, 2, 3]), first_even(?[1, -1, 2]))
+  x: Int? = 4
+  print(bump(!x), x, peek(?x))
+  y: Int? = none
+  print(bump(!y), y, peek(?y))
+
+fail "propagate none in closure", "5:12: a closure body returns `none` with `?` only when its type returns an optional"
+  # A closure body cannot return `none` from the function around it; its
+  # type, inferred here, returns no optional.
+
+  fun f(m: Int?) -> Int?
+    g = |+m| m? + 1
+    g()
+
+  print(f(1))
+
+fail "propagate none in defer", "4:15: cannot use `?` inside `defer`"
+  # Deferred code runs as the function exits and cannot return.
+
+  fun f(m: Int?) -> Int?
+    defer print(m?)
+    m
+
+  print(f(1))
+
+fail "propagate none needs optional return", "5:3: use of `?` requires the enclosing function `f` to return an optional (`-> T?`)", "9:9: `?` returns `none` from `main`, which returns no value; handle the missing value with `x ?? fallback`, or `if x as value`", "14:9: use of `?` requires the enclosing function to return an optional"
+  # `e?` returns `none` from the enclosing function, which must be able to
+  # return it: a `-> T?` function. `sub main` and tests cannot.
+
+  fun f(m: Int?) -> Int
+    m? + 1
+
+  sub main()
+    x: Int? = 1
+    print(x?)
+    print(f(2))
+
+  test "t"
+    y: Int? = none
+    print(y?)
+
+fail "propagate none on fallible", "12:3: `?` propagates `none`, and `f(1)` fails with an error instead: propagate the failure with `f(1)!`, or handle it with `catch`"
+  # `?` propagates `none`; a failure is propagated with `!`. One error
+  # names the fix.
+
+  error E
+    bad
+
+  fun f(n: Int) -> Int!
+    return E.bad if n < 0
+    n
+
+  fun g() -> Int!
+    f(1)? + 1
+
+  print(g()!)
+
+fail "raw cast constants", "integer value `300` does not fit in `U8` (0..255)", "integer value `-1` does not fit in `U8` (0..255)", "`@fromBackingInt` of a constant: name the variant instead", "`1e300` does not fit in `I8`", "integer value `16777217` does not fit exactly in `F32`"
+  # A cast builtin converts a constant operand when Zig compiles it, so
+  # the value must convert.
+
+  enum C
+    a
+    b
+
+  raw
+    a: U8 = @intCast(300)
+    b: U8 = @intCast(-1)
+    c: C = @fromBackingInt(1)
+    d: I8 = @trunc(1e300)
+    e: F32 = @floatFromInt(16777217)
+    print(a, b, c, d, e)
+
+fail "raw cast mismatch", "`@truncate` cannot turn `Int` into `U8`: both must be signed, or both unsigned", "`@bitCast` cannot turn `I32` into `U64`: both must have the same size", "`@intCast` cannot turn `Float` into `U8`: it converts one integer type to another", "`@floatFromInt` cannot turn `Float` into `F32`: it converts an integer to a float"
+  # The cast builtins available in `raw` are checked like Zig checks them,
+  # so an accepted cast compiles.
+
+  x: I64 = 300
+  f = 1.5
+  i: I32 = 1
+  raw
+    a: U8 = @truncate(x)
+    b: U64 = @bitCast(i)
+    c: U8 = @intCast(f)
+    d: F32 = @floatFromInt(f)
+
+test "raw casts", "44 1 4609434218613702656 1.5 7.0 7"
+  # The cast builtins convert between number types inside `raw`.
+
+  x: U64 = 300
+  f = 1.5
+  n: I64 = 7
+  raw
+    a: U8 = @truncate(x)
+    b: I32 = @trunc(f)
+    c: U64 = @bitCast(f)
+    d: F32 = @floatCast(f)
+    e: F64 = @floatFromInt(n)
+    g: U8 = @intCast(n)
+    print(a, b, c, d, e, g)
+
+test "raw from backing int", '''
+  .ok
+  .missing
+'''
+  # `@fromBackingInt` turns an integer of any type into a plain enum
+  # inside `raw`.
+
+  enum Status
+    ok = 200
+    missing = 404
+
+  fun of(n: Int) -> Status
+    raw
+      @fromBackingInt(n)
+
+  fun ofSmall(n: U16) -> Status
+    raw
+      s: Status = @fromBackingInt(n)
+      s
+
+  print(ofSmall(200))
+  print(of(404))
+
+test "results fail midway", '''
+  abc 7
+  none
+'''
+  # A later result that fails after an earlier one was made: the earlier
+  # one is dropped on the way out, and nothing leaks.
+
+  error E
+    bad
+
+  fun num(ok: Bool) -> Int!
+    return E.bad if not ok
+    7
+
+  fun two(ok: Bool) -> (String, Int)!
+    s = String("abc")
+    return s, num(ok)!
+
+  fun three(ok: Bool) -> (String, Int)?
+    s = String("abc")
+    n = num(ok) catch return none
+    return s, n
+
+  a, n = two(true) catch return
+  print(a, n)
+  if three(false) as b, m
+    print(b, m)
+  else
+    print("none")
+  c, k = two(false) catch return
+  print(c, k)
+
+test "results fallible", '''
+  1 one
+  10
+  -1
+'''
+  # Fallible and optional results are consumed whole: `!` and `?` test
+  # before anything is bound, as does a fallback that jumps.
+
+  error E
+    bad
+
+  fun f(ok: Bool) -> (Int, String)!
+    return E.bad if not ok
+    return 1, String("one")
+
+  fun g(ok: Bool) -> (Int, Int)?
+    return none if not ok
+    return 2, 3
+
+  fun h(ok: Bool) -> (Int, Int)?
+    a, b = g(ok)?
+    return b, a
+
+  fun run(ok: Bool) -> Int!
+    n, s = f(ok)!
+    print(n, s)
+    a, b = g(ok) ?? return 0
+    c, d = h(ok) ?? return 0
+    a + b + c + d
+
+  print(run(true) catch -1)
+  print(run(false) catch -1)
+  x, y = f(false) catch return
+  print(x, y)
+
+fail "return inside defer", "6:7: cannot `return` inside `defer`; the deferred code runs as the function exits", errors: 1
+  # A deferred block runs as the function exits; it cannot return.
+
+  fun f(c: Bool) -> Int
+    defer
+      if c
+        return 3
+    1
+
+  print(f(true))
+
+test "rig builtins", '''
+  8 1 8 16
+  2 2 4
+  Bool I16
+  8 8 2 2
+  bool Bool 2 2
+'''
+  # Rig's builtins work anywhere: `@size(T)` and `@align(T)` are a type's
+  # size and alignment in bytes, `@name(T)` its name, and `@type(x)`, as
+  # their argument, the type of `x`. Inside `raw` they work too, as do
+  # Zig's names for them (`@sizeOf`, `@alignOf`, `@typeName`, `@TypeOf`);
+  # Zig's `@typeName` is the emitted Zig's name for the type.
+
+  obj P
+    a: I32
+    b: I64
+
+  fun width[T]() -> Int
+    @size(T)
+
+  x: I16 = 5
+  print(@size(I64), @size(U8), @align(P), @size(P))
+  print(@size(@type(x)), @align(@type(x)), width[U32]())
+  print(@name(Bool), @name(@type(x)))
+  raw
+    print(@sizeOf(I64), @size(I64), @alignOf(@TypeOf(x)), @align(@type(x)))
+    print(@typeName(Bool), @name(Bool), @sizeOf(@type(x)), @size(@TypeOf(x)))
+
+test "safe builtin outside raw", "8"
+  # Rig's builtins (`@size`, `@type`, ...) need no `raw` block.
+
+  x: I64 = 7
+  n = @size(@type(x))
+  print(n)
+
+fail "swap signal whole", "7:8: `swap` moves values whole, and a `Signal[Int]` changes only by its marked calls", errors: 1
+  # `swap` and `replace` move values whole. A Signal changes only by its
+  # marked calls, which may be running its subscribers, so the Signals two
+  # handle parameters lend are not exchanged; handles of local bindings,
+  # which `!` lends themselves, still are.
+
+  sub trade(s: *Signal[Int], t: *Signal[Int])
+    swap(!s, !t)
+
+  a: *Signal[Int] = *Signal(0)
+  b: *Signal[Int] = *Signal(1)
+  swap(!a, !b)
+  trade(+a, +b)
+  print(a.get(), b.get())
+
+fail "unknown builtin", "builtin `@min` is not supported; the builtins are `@size`"
+  # A builtin Rig does not have is reported once, with the list of the
+  # builtins it has.
+
+  x = @min(1, 2)
+  print(x)
+
+test "unsafe builtin in raw", "4294967295"
+  # A builtin outside the safe whitelist (`@bitCast`) is allowed inside a
+  # `raw` block.
+
+  x: I32 = -1
+  raw
+    y: U32 = @bitCast(x)
+    print(y)
+
+fail "unsafe builtin outside raw", "builtin `@bitCast` is not in the safe whitelist"
+  # A builtin outside the safe whitelist needs a `raw` block; the
+  # diagnostic names the builtin.
+
+  x: I32 = -1
+  y: U32 = @bitCast(x)
+  print(y)
+
+test "void fallible ends with statement", '''
+  1
+  3
+  caught E.bad
+  caught E.bad
+  7
+  caught E.bad
+'''
+  # A `Void!` function has no value to end with: its last statement may
+  # be a guard, an `if` with no `else`, an assignment, or a loop.
+
+  error E
+    bad
+
+  sub check(i: Int)!
+    print(i)
+    return E.bad if i == 3
+
+  sub block_guard(i: Int)!
+    if i == 3
+      return E.bad
+
+  sub ends_in_set(c: !Int, i: Int)!
+    return E.bad if i == 3
+    c = i
+
+  sub ends_in_loop(i: Int)!
+    for k in 0..i
+      return E.bad if k == 3
+
+  check(1) catch |e| print("caught", e)
+  check(3) catch |e| print("caught", e)
+  block_guard(2) catch |e| print("caught", e)
+  block_guard(3) catch |e| print("caught", e)
+  n = 0
+  ends_in_set(!n, 7) catch |e| print("caught", e)
+  print(n)
+  ends_in_loop(2) catch |e| print("caught", e)
+  ends_in_loop(5) catch |e| print("caught", e)
+
+test "while condition jumps", '''
+  break in condition 0
+  catch break 0 0
+  catch break 1 1
+  catch break 2 2
+  continue in condition 1 4
+  continue in step 6 1
+  break in step 3 1
+  step reads a binding 6 0
+  continue with the step inside 209 0
+'''
+  # A jump in a `while` condition or step targets that loop: `?? break`
+  # and `catch break` leave it, `?? continue` in the condition runs the
+  # step and tests again, and in the step `continue` ends the step and
+  # `break` leaves the loop.
+
+  error E
+    bad
+
+  fun get(k: Int) -> Int?
+    k if k > 0 else none
+
+  fun p(k: Int) -> Int!
+    return E.bad if k == 0
+    k
+
+  n = 3
+  while (get(n) ?? break) > 0
+    n -= 1
+  print("break in condition", n)
+
+  for i in 0..3
+    m = 3
+    while (p(m) catch break) > i
+      m -= 1
+    print("catch break", i, m)
+
+  n = 5
+  seen = 0
+  while (get(n % 3) ?? continue) > 0 : n -= 1
+    seen += 1
+    break if n < 2
+  print("continue in condition", n, seen)
+
+  c = 0
+  n = 3
+  while c < 6 : n = get(n - 1) ?? continue
+    c += 1
+  print("continue in step", c, n)
+
+  c = 0
+  n = 3
+  while c < 6 : n = get(n - 1) ?? break
+    c += 1
+  print("break in step", c, n)
+
+  n = 3
+  total = 0
+  while get(n) as x and x > 0 : n = x - 1
+    total += x
+  print("step reads a binding", total, n)
+
+  n = 6
+  odd = 0
+  @outer while get(n) as x and x > 0 : n = x - 1
+    for _ in 0..2
+      continue @outer if x % 2 == 0
+    odd += x
+    continue if x == 3
+    odd += 100
+  print("continue with the step inside", odd, n)
+
+fail "while step binding condition continue", "13:47: the loop step reads `h`, a binding of the condition, which a `continue` in the condition leaves unbound", errors: 1
+  # A `continue` in a `while` condition goes on to the step, so a step that
+  # reads a binding of the condition cannot have one, joined or not: the
+  # `continue` leaves the binding unbound.
+
+  fun odd(i: Int) -> Int?
+    none if i % 2 == 1 else i
+
+  fun some(i: Int) -> Int?
+    i if i < 10 else none
+
+  steps = 0
+  i = 0
+  while some(odd(i) ?? continue) as h: steps += h
+    i += 1
+  print(steps, i)
+
+fail "while step capture condition continue", "16:54: the loop step reads `h`, a binding of the condition, which a `continue` in the condition leaves unbound", errors: 1
+  # A step that reads the condition's binding through a closure's capture
+  # reads it too, so a `continue` in the condition, which goes on to the
+  # step, would leave it unbound.
+
+  fun odd(i: Int) -> Int?
+    none if i % 2 == 1 else i
+
+  fun some(i: Int) -> Int?
+    i if i < 6 else none
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  steps = 0
+  i = 0
+  while some(odd(i) ?? continue) as h: steps = apply(|+h, x: Int| x + h, steps)
+    i += 1
+  print(steps, i)
+
+test "while step propagates", '''
+  0
+  1
+  2
+  0
+  1
+  2
+  3
+  4
+  5
+  6
+  -1
+'''
+  # A `while` step may be a call that propagates its failure.
+
+  error E
+    bad
+
+  fun ok(n: !Int) -> Int!
+    return E.bad if n > 5
+    n += 1
+    n
+
+  fun run(limit: Int) -> Int!
+    i = 0
+    while i < limit : ok(!i)!
+      print(i)
+    i
+
+  print(run(2) catch 0)
+  print(run(9) catch -1)
+
+fail "zig builtin name outside raw", "10:7: write `@size(I64)`: Rig's builtin is `@size`; Zig's `@sizeOf` works only inside `raw`", "10:21: write `@align(P)`: Rig's builtin is `@align`; Zig's `@alignOf` works only inside `raw`", "10:34: write `@name(Int)`: Rig's builtin is `@name`; Zig's `@typeName` works only inside `raw`", "11:13: write `@type(x)`: Rig's builtin is `@type`; Zig's `@TypeOf` works only inside `raw`", "11:26: write `@size(@type(x))`: Rig's builtin is `@size`; Zig's `@sizeOf` works only inside `raw`", errors: 5
+  # Outside `raw`, a type query takes Rig's name: `@size`, `@align`,
+  # `@type`, `@name`. Zig's names (`@sizeOf`, `@alignOf`, `@TypeOf`,
+  # `@typeName`) work only inside `raw`; the fix-it rewrites the call,
+  # its argument included, once.
+
+  obj P
+    a: Int
+
+  x = 5
+  print(@sizeOf(I64), @alignOf(P), @typeName(Int))
+  print(@size(@TypeOf(x)), @sizeOf(@TypeOf(x)))

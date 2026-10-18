@@ -1,0 +1,2474 @@
+# runtime: the rest of its tests.
+
+test "box deep list drop", "200000"
+  # A singly linked list of 200,000 boxed nodes is built, counted, and
+  # dropped without deep recursion: releasing a box that releases boxes is
+  # queued past a fixed depth.
+
+  obj Node
+    value: Int
+    next: ^Node?
+
+  fun count(list: ?^Node?) -> Int
+    n = 0
+    cur = list
+    while cur as node
+      n += 1
+      cur = ?node.next
+    n
+
+  head: ^Node? = none
+  i = 0
+  while i < 200000 : i += 1
+    head = ^Node(value: i, next: <head)
+  print(count(?head))
+
+bomb "bytes read past end", "byte read out of range: 2 bytes at offset 3 of 4", prints: "772"
+  # A `read` whose bytes run past the end panics, even by one byte.
+
+  fun rt(n: Int) -> Int
+    n
+
+  b: [4]U8 = [1, 2, 3, 4]
+  print(b.read[U16, .big](rt(2)))
+  print(b.read[U16, .big](rt(3)))
+
+bomb "bytes write past end", "byte write out of range: 2 bytes at offset -1 of 3"
+  # A `write` whose bytes run past the end panics, and so does a negative
+  # offset.
+
+  fun rt(n: Int) -> Int
+    n
+
+  b: [4]U8 = [0, 0, 0, 0]
+  w = !b[1..]
+  !w.write[U16, .little](rt(-1), 7)
+
+test "clone user method names", "hi hi surprise 42 7"
+  # `+x` clones an object field by field, whatever its methods are named:
+  # a method named like one of the runtime's (`cloneWeak`, `cloneStrong`,
+  # `dropWeak`, `upgrade`) is no hook for it.
+
+  obj O
+    s: String
+
+    fun cloneWeak(?self) -> O
+      O(s: String("surprise"))
+
+    fun cloneStrong(?self) -> Int
+      42
+
+    fun upgrade(?self) -> Int
+      7
+
+  o = O(s: String("hi"))
+  xs: List[O] = List()
+  !xs.push(+o)
+  ys = +xs
+  p = +o
+  print(p.s, ys[0].s, o.cloneWeak().s, o.cloneStrong(), o.upgrade())
+
+test "closure args", '''
+  5 8
+  7
+  104 101
+  6
+  6
+  tick 3
+  tick 2
+  tick 1
+  drop 7
+  8
+  50
+  10
+  4
+  end
+  drop 4
+  drop 9
+'''
+  # A `?fun` / `?sub` parameter takes a callable view: a closure
+  # literal written in the call, a named stack closure lent as `?f`, a
+  # function, or an owned closure lent as `?cb`. The callee calls it and
+  # forwards it, here into a recursive helper. A literal's environment
+  # lives for the call: one that moved a resource in drops it when the
+  # call returns.
+
+  obj Res
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  sub each(xs: ?List[Int], f: ?sub(Int))
+    for x in xs
+      f(x)
+
+  sub countdown(n: Int, f: ?sub(Int))
+    if n > 0
+      f(n)
+      countdown(n - 1, f)
+
+  sub twice_each(xs: ?List[Int], f: ?sub(Int))
+    g = f
+    each(xs, g)
+    each(xs, f)
+
+  fun double(n: Int) -> Int
+    n * 2
+
+  fun found(f: ?fun() -> ?Res) -> ?Res
+    f()
+
+  k = 3
+  print(apply(|a| a + 1, 4), apply(double, 4))
+  add_k = |+k, a: Int| a + k
+  print(apply(?add_k, 4))
+  inc: *fun(Int) -> Int = *|a| a + 100
+  print(apply(?inc, 4), inc(1))
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  !v.push(3)
+  total = 0
+  each(?v, |!total, n| total += n)
+  print(total)
+  seen = 0
+  twice_each(?v, |!seen, n| seen += 1)
+  print(seen)
+  countdown(3, |n| print("tick", n))
+  r = Res(id: 7)
+  n = apply(|<r, a| a + r.id, 1)
+  print(n)
+  scale = 10
+  scaled = |?scale, a: Int| a * scale
+  print(apply(?scaled, 5))
+  owner = Res(id: 9)
+  show = |<owner, a: Int| a + owner.id
+  print(apply(?show, 1))
+  kept = Res(id: 4)
+  got = found(|?kept| kept)
+  print(got.id)
+  print("end")
+
+test "closure capture calls methods", "3"
+  # A closure that clone-captures a `*Cell[Int]` may call read and write
+  # methods on the captured handle; each call sees the shared cell.
+
+  count: *Cell[Int] = *Cell(0)
+  bump: *sub() = *|+count| !count.set(count.get() + 1)
+  bump()
+  bump()
+  bump()
+  print(count.get())                # 3
+
+test "closure capture clone", '''
+  0
+  0
+  0
+'''
+  # `|+rc|` clone-captures a shared handle: the closure owns its own
+  # strong handle, and the outer `rc` stays usable.
+
+  rc: *Cell[Int] = *Cell(0)
+  read = |+rc|
+    rc.get()
+  print(read())
+  print(read())
+  print(rc.get())
+
+test "closure capture copy", '''
+  14
+  7
+'''
+  # `|+n|` captures a copy of a Copy value; the outer binding is
+  # unaffected and still readable.
+
+  n =! 7
+  add = |+n|
+    n * 2
+  print(add())
+  print(n)
+
+test "closure capture move", "42"
+  # `|<rc|` moves a shared handle into a stack closure; the closure can
+  # be invoked and drops the handle when it goes out of scope.
+
+  rc: *Cell[Int] = *Cell(42)
+  owned = |<rc|
+    rc.get()
+  print(owned())
+
+test "closure capture plain values", "4 10 5"
+  # `|+x|` copies any plain value into a closure: a struct of numbers, an
+  # enum, an array. Later changes to the original are not seen.
+
+  obj Wrap
+    n: Int
+
+  enum Color
+    red
+    green
+
+  b = Wrap(n: 1)
+  c: Color = .green
+  arr = [1, 2]
+  f = |+b, +c, +arr| b.n + arr[1] + (1 if c == .green else 0)
+  g: *fun() -> Int = *|+b| b.n * 10
+  b.n = 5
+  print(f(), g(), b.n)
+
+test "closure capture weak", '''
+  observing weak
+  observing weak
+  1
+'''
+  # `|~rc|` weak-captures a shared handle without consuming it. The
+  # closure survives several calls and its weak handle is dropped before
+  # the outer strong handle.
+
+  rc: *Cell[Int] = *Cell(1)
+  watch = |~rc|
+    print('observing weak')
+  watch()
+  watch()
+  print(rc.get())
+
+test "closure captures write view", '''
+  21
+  84
+  85
+'''
+  # A write view moved into a closure (`|<w|`) writes through to the
+  # viewed value, on every call; a moved read view reads it.
+
+  obj Wrap
+    n: Int
+
+  b = Wrap(n: 1)
+  if true
+    w = !b
+    f = |<w|
+      w.n += 10
+    f()
+    f()
+  print(b.n)
+  if true
+    v = !b
+    g = |<v|
+      v.n *= 2
+    g()
+    g()
+  print(b.n)
+  r = ?b
+  k = |<r| r.n + 1
+  print(k())
+
+test "closure clone captures viewed handle", '''
+  vec gone
+  10
+  20
+  300
+  drop 3
+  drop 2
+  drop 1
+'''
+  # `|+b|` of a viewed handle (a `for b in ?v` element, a `?*B`
+  # parameter) clones the handle into the closure, which then outlives the
+  # view and the List.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun keep(b: ?*B) -> *fun() -> Int
+    *|+b| b.n * 100
+
+  v: List[*B] = List()
+  !v.push(*B(n: 1))
+  !v.push(*B(n: 2))
+  fs: List[*fun() -> Int] = List()
+  for b in ?v
+    !fs.push(*|+b| b.n * 10)
+  <v
+  print("vec gone")
+  for f in ?fs
+    print(f())
+  x = *B(n: 3)
+  g = keep(?x)
+  print(g())
+
+test "closure ends with if", '''
+  peek 13
+  flag
+'''
+  # A closure body may end with an `if` that has no `else`; the closure
+  # then returns nothing. Here it upgrades a weak capture.
+
+  c: *Cell[Int] = *Cell(13)
+  peek = |~c|
+    if *c as h
+      print("peek", h.get())
+  peek()
+  flag = true
+  say = |+flag|
+    if flag
+      print("flag")
+  say()
+
+test "closure return statements", '''
+  7 100 6
+  4 0
+  zero other
+'''
+  # `return` inside a closure body leaves the closure with a value. A
+  # closure with no type from context returns the type of its last value,
+  # or of its `return`s when it ends in one; `return` in a closure nested
+  # inside another leaves only the inner one.
+
+  clamp = |x: Int|
+    if x > 100
+      return 100
+    x
+  triple = |x: Int|
+    return x * 3
+  outer = |x: Int|
+    inner: *fun(Int) -> Int = *|y|
+      if y > 100
+        return 0
+      y + 1
+    return inner(x) * 2
+  label: *fun(Int) -> ?String = *|n|
+    if n == 0
+      return "zero"
+    "other"
+  print(clamp(7), clamp(700), triple(2))
+  print(outer(1), outer(500))
+  print(label(0), label(1))
+
+test "closure returns and arity", '''
+  42 2.5 5 6
+  15
+  negative zero positive
+  5 -1
+  false true
+'''
+  # Closures take any number of parameters and may return a value: Int,
+  # Float, Bool, String, a plain enum, or an optional of one. A `return`
+  # inside the body leaves the closure, not the enclosing function.
+
+  enum Sign
+    neg
+    zero
+    pos
+
+  none_args: *fun() -> Int = *|| 42
+  one: *fun(Float) -> Float = *|x| x / 2.0
+  three: *fun(Int, Int, Bool) -> Int = *|a, b, sum| a + b if sum else a * b
+  five: *fun(Int, Int, Int, Int, Int) -> Int = *|a, b, c, d, e| a + b + c + d + e
+  sign: *fun(Int) -> Sign = *|n|
+    if n < 0
+      return .neg
+    if n == 0
+      return .zero
+    .pos
+  name: *fun(Sign) -> ?String = *|s|
+    match s
+      .neg => "negative"
+      .zero => "zero"
+      .pos => "positive"
+  half: *fun(Int) -> Int? = *|n| n / 2 if n % 2 == 0 else none
+  is_big = |n: Int| n > 100
+
+  print(none_args(), one(5.0), three(2, 3, true), three(2, 3, false))
+  print(five(1, 2, 3, 4, 5))
+  print(name(sign(-3)), name(sign(0)), name(sign(9)))
+  print(half(10) ?? -1, half(7) ?? -1)
+  print(is_big(7), is_big(700))
+
+test "consuming loop break drops rest in reverse", '''
+  got 1
+  drop 1
+  got 2
+  drop 2
+  drop 4
+  drop 3
+  end
+'''
+  # A consuming loop that leaves early drops the elements it did not reach
+  # last first, as dropping the List would.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[*B] = List()
+  for i in 1..5
+    !v.push(*B(n: i))
+  for b in <v
+    print("got", b.n)
+    break if b.n == 2
+  print("end")
+
+bomb "convert fixed float out of range", "integer part of floating point value out of bounds", prints: "2"
+  # Converting a `=!` binding is checked when the program runs, like any
+  # other value: an out-of-range float panics.
+
+  small =! 2.75
+  huge =! 1e300
+  print(Int(small))
+  print(Int(huge))
+
+test "deep drop keeps field order", '''
+  depth 253
+  drop 2
+  drop 1
+  depth 254
+  drop 2
+  drop 1
+  depth 255
+  drop 2
+  drop 1
+  depth 256
+  drop 2
+  drop 1
+  depth 257
+  drop 2
+  drop 1
+'''
+  # Fields are dropped last first at any depth, including past the depth
+  # where the runtime queues releases instead of recursing.
+
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  obj Node
+    next: *Node?
+    a: *N?
+    b: *N?
+
+  fun chain(depth: Int) -> *Node
+    n = *Node(next: none, a: *N(id: 1), b: *N(id: 2))
+    for _ in 0..depth
+      n = *Node(next: <n, a: none, b: none)
+    n
+
+  for d in 253..258
+    print("depth", d)
+    h = chain(d)
+
+test "deep list drop", "dropped down to 0"
+  # Dropping a 200,000-node `*Node` list does not overflow the stack: the
+  # runtime queues boxes released too deep inside other drops. Every
+  # node's drop still runs exactly once, in list order, head first.
+
+  obj Node
+    value: Int
+    seen: *Cell[Int]
+    next: *Node?
+
+    drop(!self)
+      if self.seen.get() != self.value + 1
+        print("out of order at", self.value)
+      !self.seen.set(self.value)
+
+  n = 200000
+  seen: *Cell[Int] = *Cell(n)
+  head: *Node? = none
+  i = 0
+  while i < n
+    head = *Node(value: i, seen: +seen, next: <head)
+    i += 1
+  <head
+  print("dropped down to", seen.get())
+
+test "deep stack", "2501", release: true
+  # The program's stack holds 64 MiB: recursion 20 MB deep, more than the
+  # 16 MiB a thread's stack holds by default, runs to the end.
+
+  fun deep(n: Int, prev: ?[1000]Int) -> Int
+    a = [1000 of n]
+    a[1] = prev[1] + 1
+    if n == 0
+      return a[1]
+    deep(n - 1, ?a)
+
+  first = [1000 of 0]
+  print(deep(2500, ?first))
+
+test "empty array drop glue", '''
+  0
+  0
+  true
+  []
+  0
+  0
+  0
+  h
+  0
+'''
+  # A zero-length array of a type with drop glue drops, clones, compares,
+  # prints, sits in an object, passes as a slice, and returns.
+
+  obj Holder
+    tag: String
+    none: [0]String
+
+  obj Guard
+    n: Int
+
+    drop(!self)
+      print("guard dropped")
+
+  fun count(args: []String) -> Int
+    args.len
+
+  fun count_g(gs: []Guard) -> Int
+    gs.len
+
+  fun make() -> [0]String
+    []
+
+  no_args: [0]String = []
+  print(count(no_args))
+  copy = +no_args
+  print(copy.len)
+  print(no_args == copy)
+  print(no_args)
+  r = make()
+  print(r.len)
+  h = Holder(tag: String("h"), none: [])
+  print(h.none.len)
+  gs: [0]Guard = []
+  print(count_g(gs))
+  h2 = +h
+  print(h2.tag)
+  empty: [0]Int = []
+  print(empty.len)
+
+test "empty array drop glue more", '''
+  []
+  0
+  0
+  0
+  Holder(tag: "h", none: [], lists: [], shared: [])
+  0
+  0
+  0
+  2
+'''
+  obj Holder
+    tag: String
+    none: [0]String
+    lists: [0]List[Int]
+    shared: [0]*Int
+
+  fun take(a: []List[Int]) -> Int
+    a.len
+
+  fun give() -> [0]List[Int]
+    []
+
+  a: [0]List[Int] = []
+  b = +a
+  print(a)
+  print(take(a))
+  c = give()
+  print(c.len)
+  s: [0]*Int = []
+  s2 = +s
+  print(s2.len)
+  h = Holder(tag: String("h"), none: [], lists: [], shared: [])
+  print(h)
+  h2 = +h
+  print(h2.lists.len)
+  nested: [0][0]String = []
+  print(nested.len)
+  o: [0]?String = []
+  print(o.len)
+  m: [2][0]String = [[], []]
+  print(m.len)
+
+test "float literal arithmetic", '''
+  0.30000000000000004
+  0.30000000000000004
+  0.3333333333333333
+'''
+  # Float literal arithmetic gives the same result as the same arithmetic
+  # on 64-bit values at run time.
+
+  print(0.1 + 0.2)
+  a = 0.1
+  print(a + 0.2)
+  print(1.0 / 3.0)
+
+test "if as weak upgrade", '''
+  alive 7
+  drop 7
+  gone
+'''
+  # `if *w as n` binds a strong handle while the value is alive;
+  # the binding owns the handle and drops it when the branch ends.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  sub show(w: ?~Noisy)
+    if *w as n
+      print("alive", n.id)
+    else
+      print("gone")
+
+  rc = *Noisy(id: 7)
+  w = ~rc
+  show(?w)
+  <rc
+  show(?w)
+
+bomb "index wide integers", "index out of bounds", prints: "20 30\n5\n99\n[10, 30, 20]"
+  # An index of any integer type, 128-bit ones included, is checked and
+  # converted when the program runs.
+
+  fun rt(n: I128) -> I128
+    n
+
+  xs = [10, 20, 30]
+  i: I128 = 1
+  j: U128 = 2
+  print(xs[i], xs[j])
+  v: List[Int] = List()
+  !v.push(5)
+  k: U128 = 0
+  print(v[k])
+  s = "abc"
+  print(s[j])
+  !xs.swap(i, j)
+  print(xs)
+  print(xs[rt(-1)])
+
+test "main exit status", '''
+  body g
+  drop g
+'''
+  # `fun main -> Int` returns the exit status; `main`'s drops run first,
+  # and the status of 0 here lets the program pass.
+
+  obj Guard
+    name: ?String
+
+    drop(!self)
+      print("drop", self.name)
+
+  fun main() -> Int
+    g = Guard(name: "g")
+    print("body", g.name)
+    if g.name == "x"
+      return 1
+    0
+
+test "main fails with error", exit: 1, stderr: "error: IoErr.eof", '''
+  2 2 1
+  drop 1
+'''
+  # A failure that leaves `main` ends the program: what it printed is
+  # written out, what it owns is dropped and checked for leaks, and the
+  # error is reported as Rig shows it, `IoErr.eof`, with exit status 1.
+  use lib
+
+  obj Tok
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub main()
+    t = Tok(n: 1)
+    names = ["a", "b"]
+    print(lib.read(2)!, names.len, t.n)
+    print(lib.read(0)!)
+    print("unreachable")
+
+  file "lib.rig"
+    pub error IoErr
+      eof
+
+    pub fun read(n: Int) -> Int!
+      return IoErr.eof if n == 0
+      n
+
+test "main status fails", "4"
+  # `fun main -> Int!` returns the exit status, or fails; one that returns
+  # 0 passes.
+
+  error Oops
+    bad
+
+  fun half(n: Int) -> Int!
+    if n % 2 != 0
+      return Oops.bad
+    n / 2
+
+  fun main() -> Int!
+    print(half(8)!)
+    half(0)!
+
+test "main status propagates", "4"
+  # `fun main -> Int` may propagate a failure with `!`, as `sub main` may.
+
+  error Oops
+    bad
+
+  fun half(n: Int) -> Int!
+    if n % 2 != 0
+      return Oops.bad
+    n / 2
+
+  fun main() -> Int
+    print(half(8)!)
+    0
+
+test "main sub fails", '''
+  4
+  0
+'''
+  # `sub main!` may fail; one that does not runs as `sub main` does.
+
+  error Oops
+    bad
+
+  fun half(n: Int) -> Int!
+    if n % 2 != 0
+      return Oops.bad
+    n / 2
+
+  sub main()!
+    print(half(8)!)
+    x = half(3) catch 0
+    print(x)
+
+bomb "module constant overflow", "integer overflow", prints: "9223372036854775806"
+  # Arithmetic on a module-level constant is checked when it runs, as
+  # for any value.
+
+  big = 9223372036854775807
+
+  fun one() -> Int
+    1
+
+  sub main()
+    n = one()
+    print(big - n)
+    print(big + n)
+
+test "nested closure capture", '''
+  2
+  4
+  25
+  14
+  2
+  8
+  13
+  up 7
+  drop 7
+'''
+  # A closure nested in another captures from the scope where it is created:
+  # the outer closure's captures, parameters, and locals.
+
+  obj B
+    n: Int
+    drop(!self)
+      print("drop", self.n)
+
+  rc: *Cell[Int] = *Cell(0)
+  outer = |+rc|
+    inner = |+rc|
+      !rc.set(rc.get() + 2)
+      rc.get()
+    print(inner())
+    inner()
+  print(outer())
+  n = 3
+  f = |+n, k: Int|
+    m = k * 10
+    g = |+n, +m, +k| n + m + k
+    g()
+  print(f(2))
+  b = *B(n: 7)
+  h: *fun() -> Int = *|+b|
+    q = *|+b| b.n * 2
+    q()
+  print(h())
+  x = Wrap(v: 1)
+  r = ?x
+  rd = |a: ?Wrap|
+    k = a.v
+    rd2 = |+k| k + 1
+    rd2()
+  print(rd(<r))
+  wr = |+n|
+    y = Wrap(v: n)
+    lw = !y
+    wr2 = |<lw|
+      lw.v += 5
+      print(lw.v)
+    wr2()
+    wr2()
+  wr()
+  w = |+b|
+    ww = |~b|
+      if *b as s
+        print("up", s.n)
+    ww()
+  w()
+
+  obj Wrap
+    v: Int
+
+test "nested struct drop glue", '''
+  built
+  5
+'''
+  # Drop glue nests: `Outer` owns an `Inner` value that owns a `*Noisy`
+  # handle, so dropping `o` at scope exit drops the Noisy (its drop body
+  # prints the id).
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  obj Inner
+    r: *Noisy
+
+  obj Outer
+    inner: Inner
+
+  n = *Noisy(id: 5)
+  i: Inner = Inner(r: <n)
+  o: Outer = Outer(inner: <i)
+  print("built")
+
+test "nested struct drop glue reversed", '''
+  built
+  5
+'''
+  # Drop glue nests even when `Outer` is declared before the `Inner` it
+  # contains: dropping `o` still reaches the `*Noisy` inside `Inner`.
+
+  obj Outer
+    inner: Inner
+
+  obj Inner
+    r: *Noisy
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  n = *Noisy(id: 5)
+  i: Inner = Inner(r: <n)
+  o: Outer = Outer(inner: <i)
+  print("built")
+
+test "owned closure clone", "2"
+  # Cloning a `*sub()` handle shares one environment: dropping the
+  # original handle early leaves the clone callable, and the captured
+  # cell is released only when the last handle drops.
+
+  count: *Cell[Int] = *Cell(0)
+  cb: *sub() = *|+count| !count.set(count.get() + 1)
+  cb2 = +cb
+  <cb
+  cb2()
+  cb2()
+  print(count.get())                # 2
+
+test "owned closure failure drops", '''
+  drop 1
+  -1
+  drop 2
+  2
+  drop 4
+  3
+  drop 5
+  -2
+'''
+  # An owned closure drops what it is given to own once, whether its body
+  # returns, fails, or omits the parameter.
+
+  obj Gone
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  error Bad
+    oops
+
+  fun boom() -> Int!
+    return Bad.oops
+
+  fun later() -> Int!
+    f: *fun(Gone, Int) -> Int = *|g, n| g.n + n
+    f(Gone(n: 5), boom()!)
+
+  check: *fun(Gone) -> Int! = *|g|
+    if g.n == 1
+      return Bad.oops
+    g.n
+  skip: *fun(Int, Gone) -> Int = *|a| a
+  print(check(Gone(n: 1)) catch -1)
+  print(check(Gone(n: 2)) catch -1)
+  print(skip(3, Gone(n: 4)))
+  print(later() catch -2)
+
+test "owned closure move capture", '''
+  101
+  101
+  end
+  100
+'''
+  # `|<n|` moves a handle into an owned closure's environment. The closure
+  # is then the only owner; the Noisy is dropped (printing its id) when the
+  # closure's last handle drops at scope exit.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  n = *Noisy(id: 100)
+  cb: *sub() = *|<n| print(n.id + 1)
+  cb()
+  cb()
+  print("end")
+
+test "owned closure move vec", '''
+  3
+  3
+'''
+  # An owned closure that move-captures a List frees it when the last handle
+  # to the closure drops.
+
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  !v.push(3)
+  cb: *sub() = *|<v| print(v.len)
+  cb()
+  again = +cb
+  <cb
+  again()
+
+test "owned closure one arg", '''
+  7
+  42
+'''
+  # `*sub(Int)` is an owned closure taking one argument; each call
+  # passes the argument through to the body. The parameter's type comes
+  # from the binding's annotation.
+
+  v: *Cell[Int] = *Cell(0)
+  cb: *sub(Int) = *|+v, a| !v.set(a)
+  cb(7)
+  print(v.get())            # 7
+  cb(42)
+  print(v.get())            # 42
+
+test "owned closure owning values", '''
+  7
+  3
+  8
+  8
+  1
+  [1, 2] 1
+'''
+  # An owned closure takes and returns owners and handles as a function
+  # does: a parameter it is given to own it drops, returns, or stores, and
+  # a result it returns is the caller's, whether the closure's type is
+  # written or inferred from its body.
+
+  sub take(cb: *sub(List[Int]))
+    v: List[Int] = List()
+    !v.push(4)
+    cb(<v)
+
+  v: *Cell[Int] = *Cell(0)
+  set: *sub(*Cell[Int]) = *|cell| !cell.set(7)
+  share: *fun() -> *Cell[Int] = *|+v| +v
+  inferred = *|+v, cell: *Cell[Int]| !v.set(cell.get() + 1)
+  returns = *|+v| +v
+  c = *Cell(1)
+  set(+c)
+  print(c.get())
+  w = share()
+  !w.set(3)
+  print(v.get())
+  inferred(+c)
+  print(v.get())
+  r = returns()
+  print(r.get())
+  take(*|xs| print(xs.len))
+  grow: *fun(List[Int], Int) -> List[Int] = *|xs, n|
+    new ys = <xs
+    !ys.push(n)
+    ys
+  made: List[Int] = List()
+  made = grow(<made, 1)
+  made = grow(<made, 2)
+  print(made, grow(List(), 9).len)
+
+test "owned closure returned", '''
+  42
+  42
+'''
+  # An owned closure can escape the function that built it: the captured
+  # clone keeps the factory's local cell alive after the factory returns.
+
+  fun make_reporter() -> *sub()
+    value: *Cell[Int] = *Cell(42)
+    *|+value| print(value.get())
+
+  cb = make_reporter()
+  cb()
+  cb()
+
+test "owned closure signatures", '''
+  bb
+  ann
+  6
+  11
+  7
+  x
+'''
+  # An owned closure's parameters and result are any a function's may be:
+  # a write view it is lent for the call, a read view its result views, an
+  # owner it stores through a write parameter, a write view it returns of
+  # what the call lent it, a callable view, and another owned closure.
+
+  obj H
+    name: String
+
+  obj User
+    name: String
+
+  give: *sub(!H, String) = *|h, s| h.name = <s
+  h = H(name: String("a"))
+  give(!h, String("bb"))
+  print(h.name)
+  first: *fun(?User, ?User) -> ?String = *|a, b| ?a.name
+  u = User(name: String("ann"))
+  v = User(name: String("bo"))
+  print(first(?u, ?v))
+  pick: *fun(!Int) -> !Int = *|w| w
+  n = 1
+  g = pick(!n)
+  g += 5
+  print(n)
+  outer: *fun(*fun(Int) -> Int, Int) -> Int = *|f, x| f(x) + 1
+  inner: *fun(Int) -> Int = *|x| x * 2
+  print(outer(<inner, 5))
+  lent: *fun(?fun(Int) -> Int) -> Int = *|f| f(3)
+  k = 4
+  print(lent(|+k, x| x + k))
+  maybe: *fun(?String) -> (?String)? = *|s| s if s.len > 0 else none
+  if maybe("x") as y
+    print(y)
+
+test "owned closure through view", '''
+  6
+  7
+  8
+'''
+  # An owned closure is called through a view of its handle: one a
+  # method returns, one bound to a name, and a view parameter.
+
+  obj Hold
+    v: *fun(Int) -> Int
+
+    fun peek(?self) -> ?*fun(Int) -> Int
+      ?self.v
+
+  fun call(f: ?*fun(Int) -> Int, n: Int) -> Int
+    f(n)
+
+  k = 5
+  c = Hold(v: *|+k, n| n + k)
+  print(c.peek()(1))
+  f = ?c.peek()
+  print(f(2))
+  print(call(?c.v, 3))
+
+test "owned closure two args", '''
+  30
+  101
+'''
+  # `*sub(Int, Int)` is an owned closure taking two arguments. Its
+  # parameters may repeat the types its annotation gives them.
+
+  v: *Cell[Int] = *Cell(0)
+  cb: *sub(Int, Int) = *|+v, a: Int, b: Int| !v.set(a + b)
+  cb(10, 20)
+  print(v.get())            # 30
+  cb(100, 1)
+  print(v.get())            # 101
+
+test "owned closure uses", '''
+  9
+  4
+  30
+  now set
+  hi ada
+  hi ada
+'''
+  # Owned closures are ordinary shared handles: held in a struct field and
+  # called through it, stored in a List and called for their values, held
+  # in an optional, and given several parameters of different types.
+
+  obj Button
+    on_click: *sub(Int)
+
+    sub click(self: ?Button, n: Int)
+      self.on_click(n)
+
+  total: *Cell[Int] = *Cell(0)
+  button = Button(on_click: *|+total, n| !total.set(total.get() + n))
+  button.click(4)
+  button.click(5)
+  print(total.get())
+
+  fs: List[*fun(Int) -> Int] = List()
+  !fs.push(*|x| x + 1)
+  !fs.push(*|x| x * 10)
+  for f in ?fs
+    print(f(3))
+
+  later: (*sub())? = *|| print("now set")
+  if <later as run
+    run()
+
+  greet: *sub(?String, Int) = *|name, times|
+    i = 0
+    while i < times : i += 1
+      print("hi", name)
+  greet("ada", 2)
+
+test "owned closure view param", '''
+  2 3
+  11
+'''
+  # A named owned closure can be lent to a `?*fun` parameter; the caller
+  # keeps it.
+
+  fun apply(f: ?*fun(Int) -> Int, x: Int) -> Int
+    f(x)
+
+  inc: *fun(Int) -> Int = *|x| x + 1
+  print(apply(?inc, 1), apply(?inc, 2))
+  print(inc(10))
+
+test "owned closure write param reentrant", '''
+  rec 3 0
+  rec 2 1
+  rec 1 2
+  rec 0 3
+  rec 0 back
+  rec 1 back
+  rec 2 back
+  rec 3 back
+  4
+  rec 0 4
+  rec 0 back
+  5
+'''
+  # A stored closure that writes what it is lent calls, through that, a
+  # second handle to itself, three levels deep. Re-entry only reads the
+  # environment, and the innermost call replaces the stored handle while
+  # the outer calls run, each on a handle of its own.
+
+  obj Checker
+    n: Int
+    hook: *sub(!Checker, Int)
+
+  tag = String("rec")
+  rec: *sub(!Checker, Int) = *|+tag, k, n|
+    print(tag, n, k.n)
+    k.n += 1
+    if n > 0
+      f = +k.hook
+      f(!k, n - 1)
+    else
+      k.hook = *|j, m| j.n += 100
+    print(tag, n, "back")
+  c = Checker(n: 0, hook: +rec)
+  rec(!c, 3)
+  print(c.n)
+  c.hook = <rec
+  f = +c.hook
+  f(!c, 0)
+  print(c.n)
+
+bomb "panic branch values", "panic: negative -1", prints: "2 zero é\n7 8\n3\n3 1", stderr: "panic_branch_values.rig:15:28: panic: negative -1", release: true
+  # `panic` gives no value, so it stands for any: as a branch of a
+  # ternary, a match arm, the right side of `??`, a `catch` handler, and a
+  # destructuring fallback. The column counts runes: the `é` before the
+  # panic counts once.
+
+  error Bad
+    no
+
+  fun half(n: Int) -> Int
+    n / 2 if n % 2 == 0 else panic("odd:", n)
+
+  fun sign(n: Int) -> Static
+    match n
+      0 => "zero"
+      _ => "é" if n > 0 else panic("negative", n)
+
+  fun get(n: Int) -> Int!
+    return Bad.no if n < 0
+    n
+
+  fun divmod(a: Int, b: Int) -> (Int, Int)?
+    return none if b == 0
+    return a / b, a % b
+
+  sub main()
+    print(half(4), sign(0), sign(2))
+    o: Int? = none
+    print(o ?? 7, (o ?? 7) + 1)
+    x = get(3) catch panic("no value")
+    print(x)
+    q, r = divmod(7, 2) ?? panic("divide by zero")
+    print(q, r)
+    print(sign(-1))
+
+bomb "panic statement", "panic: index 5 past 3", prints: "before 2", stderr: "panic_statement.rig:13:5: panic: index 5 past 3 [\"é\"]", release: true
+  # `panic(a, b)` ends the program where it stands: what `print`
+  # buffered is written out, then stderr gets `file.rig:L:C: panic: ` and
+  # the line `print` would write, and the program exits 134 in every build
+  # mode. No drop, `defer`, or leak check runs.
+
+  obj Res
+    name: ?String
+    drop(!self)
+      print("dropping", self.name)
+
+  fun pick(xs: []Int, i: Int) -> Int
+    if i >= xs.len
+      panic("index", i, "past", xs.len, ["é"])
+    xs[i]
+
+  sub main()
+    r = Res(name: "r")
+    defer print("deferred")
+    xs = [1, 2, 3]
+    print("before", pick(?xs[..], 1))
+    list: List[Int] = List()
+    !list.push(1)
+    print(pick(?xs[..], 5))
+    print("after", r.name)
+
+test "print floats payloads and bytes", '''
+  1.0 2.5 -3.0 2.0
+  2.0
+  W(f: 1.0)
+  .pt(p: P(x: 1, y: 2))
+  .two(a: P(x: 1, y: 2), b: 3)
+  V(a: [72, 105, 33])
+  N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: ...))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+'''
+  # A whole Float prints with its decimal point; a variant whose one
+  # payload is a struct shows the struct's name; a viewed byte array
+  # prints as numbers; and a structure that reaches itself stops at `...`.
+
+  obj P
+    x: Int
+    y: Int
+
+  enum E
+    pt(p: P)
+    two(a: P, b: Int)
+
+  obj V
+    a: ?[3]U8
+
+  obj N
+    id: Int
+    next: Cell[*N?]
+
+  print(1.0, 2.5, -3.0, 0.5 * 4.0)
+  f: F32 = 2.0
+  print(f)
+  print(W(f: 1.0))
+  print(E.pt(p: P(x: 1, y: 2)))
+  print(E.two(a: P(x: 1, y: 2), b: 3))
+  xs: [3]U8 = [72, 105, 33]
+  print(V(a: ?xs))
+  a = *N(id: 1, next: Cell(none))
+  !a.next.set(+a)
+  print(a)
+  !a.next.set(none)
+
+  obj W
+    f: Float
+
+test "print floats shortest", release: true, '''
+  0.0 -0.0 1.0 -2.5 0.1 100.0 100000000000000000000.0 1e21 1.5e21 123456789012345680000.0
+  0.000001 0.0000015 1e-7 2.5e-10 1.7976931348623157e308 5e-324
+  0.30000000000000004 0.3333333333333333 0.6666666666666666
+  0.1 16777216.0 1e-7
+  inf -inf nan
+  [1.0, 1e22] 2.5e-7
+'''
+  # A Float prints the shortest digits that read back as the same value.
+  # It takes an exponent at 1e21 and above and below 1e-6, as JavaScript
+  # does, and a whole number keeps its `.0`, so what prints is a Rig float
+  # literal. An F32 prints its own shortest digits.
+
+  print(0.0, -0.0, 1.0, -2.5, 0.1, 100.0, 1e20, 1e21, 1.5e21, 123456789012345680000.0)
+  print(0.000001, 0.0000015, 1e-7, 2.5e-10, 1.7976931348623157e308, 5e-324)
+  print(0.1 + 0.2, 1.0 / 3.0, 2.0 / 3.0)
+  f: F32 = 0.1
+  g: F32 = 16777216.0
+  h: F32 = 1e-7
+  print(f, g, h)
+  big = 1e300
+  print(big * big, -big * big, (big * big) - (big * big))
+  print([1.0, 1e22], String(2.5e-7))
+
+test "print function value", '''
+  <fun>
+  param <fun> 6
+'''
+  # A function value prints as `<fun>`, whether a function name or a
+  # `fun(...)` parameter (SPEC §18).
+
+  fun twice(n: Int) -> Int
+    n * 2
+
+  sub show(f: fun(Int) -> Int)
+    print("param", f, f(3))
+
+  print(twice)
+  show(twice)
+
+test "print handles", '''
+  B(n: 1) ~(alive) <closure> ~(alive)
+  H(f: <fun>, n: 3) [<fun>]
+  ~(gone) ~(gone)
+'''
+  # `print` shows a weak handle as `~(alive)` while its value lives and
+  # `~(gone)` after, an owned closure as `<closure>`, and a function value
+  # held in a struct or array as `<fun>`. A shared handle prints the value
+  # it holds.
+
+  obj B
+    n: Int
+
+  obj H
+    f: fun(Int) -> Int
+    n: Int
+
+  fun twice(n: Int) -> Int
+    n * 2
+
+  b = *B(n: 1)
+  w = ~b
+  f: *fun(Int) -> Int = *|a| a + 1
+  wf: ~fun(Int) -> Int = ~f
+  print(b, w, f, wf)
+  print(H(f: twice, n: 3), [twice])
+  <b
+  <f
+  print(w, wf)
+
+test "print nested text quoted", release: true, '''
+  a"b\c é
+  ["a\"b\\c\nd\te\rf\x01g\x7fh\xffi\u{85}j\u{202e}ké"]
+  ["", "plain", "it's"]
+  Note(title: "t\t", tags: ["x\ny"], by: "q\"")
+  .said(text: "tab\t") .quiet
+  maybe ["maybe", none]
+  true
+'''
+  # Text printed on its own is written as it is. Text inside another value
+  # (a list, an object's field, a payload, an optional) is quoted and
+  # escaped, so it reads back as a Rig literal: `"` and `\` take a
+  # backslash; a newline, tab, and carriage return are `\n`, `\t`, `\r`;
+  # any other control byte and each byte of invalid UTF-8 is `\xHH`; a C1
+  # control and a bidirectional control are `\u{h}`; every other character
+  # is written as is. An object prints every field.
+
+  obj Note
+    title: String
+    tags: List[String]
+    by: ?String
+
+  enum Ev
+    said(text: ?String)
+    quiet
+
+  print("a\"b\\c é")
+  s = "a\"b\\c\nd\te\rf\x01g\x7fh\xffi\u{85}j\u{202e}k\u{e9}"
+  print([s])
+  print(["", "plain", "it's"])
+  tags: List[String] = List()
+  !tags.push(String("x\ny"))
+  n = Note(title: String("t\t"), tags: <tags, by: "q\"")
+  print(n)
+  print(Ev.said(text: "tab\t"), Ev.quiet)
+  o: Static? = "maybe"
+  p: Static? = none
+  print(o, [o, p])
+  print(String([s]) == "[\"a\\\"b\\\\c\\nd\\te\\rf\\x01g\\x7fh\\xffi\\u{85}j\\u{202e}k\u{e9}\"]")
+
+test "print pieces", '''
+  side 3
+  side 4
+  a 30 b 40
+  7 rig 3 -5 false true x 7
+
+
+    |
+  side 1
+  side 2
+  before 10 5 20
+  side 1
+  failed
+  side 5
+  s7truerig 50
+  s7truerig 50|7|rig|2.5|s7truerig 50  |
+'''
+  # `print` writes its pieces in order: every argument runs before a byte
+  # is written, so a call that prints inside an argument list prints its
+  # line first; a failing argument writes nothing. Constant text, Ints and
+  # Bools, the spaces between arguments, and the newline join into runs of
+  # text; and `String(...)` and `!t.add(...)` take the same pieces with no
+  # spaces.
+
+  N = 7
+  NAME = "rig"
+
+  error E
+    bad
+
+  fun side(n: Int) -> Int
+    print("side", n)
+    n * 10
+
+  fun parse(ok: Bool) -> Int!
+    if not ok
+      return E.bad
+    5
+
+  sub show(ok: Bool)!
+    print("before", side(1), parse(ok)!, side(2))
+
+  sub main()
+    print("a", side(3), "b", side(4))
+    print(N, NAME, 1 + 2, -5, not true, 3 > 2, "x", N)
+    print()
+    print("")
+    print("", "", "|")
+    show(true) catch print("failed")
+    show(false) catch print("failed")
+    s = String("s", N, true, NAME, " ", side(5))
+    print(s)
+    t = String()
+    !t.add(s, "|", N, "|", NAME, "|", 2.5, "|", s)
+    print(t, String(), "|")
+
+test "print renamed names", '''
+  .rig .std .os .debug .var
+  .rig(std: 1, var: 2) .os .__rig_x(v: 3)
+  O(rig: 1, std: 2, debug: 3, u8: 4)
+  .rig O(rig: 1, std: 2, debug: 3, u8: 4)
+  .rig
+  .std
+  .os
+  .debug
+  .var
+'''
+  # A name the emitted Zig renames (`rig` is `@"rig'"`) prints as the
+  # program wrote it: a variant, a payload variant, a field, and through
+  # `String(x)` and `@variants`.
+
+  enum K
+    rig
+    std
+    os
+    debug
+    var
+
+  enum P
+    rig(std: Int, var: Int)
+    os
+    __rig_x(v: Int)
+
+  obj O
+    rig: Int
+    std: Int
+    debug: Int
+    u8: Int
+
+  print(K.rig, K.std, K.os, K.debug, K.var)
+  print(P.rig(std: 1, var: 2), P.os, P.__rig_x(v: 3))
+  o = O(rig: 1, std: 2, debug: 3, u8: 4)
+  print(o)
+  print(String(K.rig), String(o))
+  for v in @variants(K)
+    print(v)
+
+test "print values", '''
+  User(name: "ada", age: 36)
+  hi none
+  ["a", "b"] [1, 2]
+  [3, 4]
+  .green
+  .rect(w: 2, h: 3)
+  User(name: "bo", age: 5)
+  true 2.5 -3
+'''
+  # `print` writes Rig values readably: text as is (quoted inside other
+  # values), `none` for an absent optional, structs as `Name(field: value)`,
+  # enums as `.variant`, and Vecs and arrays as `[a, b]`.
+
+  obj User
+    name: ?String
+    age: Int
+
+  enum Color
+    red
+    green
+
+  enum Shape
+    circle(radius: Int)
+    rect(w: Int, h: Int)
+
+  u = User(name: "ada", age: 36)
+  print(u)
+  m: (?String)? = "hi"
+  n: Int? = none
+  print(m, n)
+  print(["a", "b"], [1, 2])
+  v: List[Int] = List()
+  !v.push(3)
+  !v.push(4)
+  print(?v)
+  c: Color = .green
+  print(c)
+  s: Shape = .rect(w: 2, h: 3)
+  print(s)
+  b = *User(name: "bo", age: 5)
+  print(b)
+  print(true, 2.5, -3)
+
+test "reactive canary", '''
+  1
+  3
+  13 26
+  sig 7
+  sig 99
+  111
+  124
+'''
+  # The reactive substrate end to end: a Cell shared by closures, stack and
+  # owned closures, a List of closures, and Signals with subscribers. A
+  # subscriber that reads its own Signal holds it weakly (`|~sig|`), so the
+  # Signal and its subscriber do not keep each other alive.
+
+  # Cell: interior mutability through a shared handle.
+  count: *Cell[Int] = *Cell(0)
+  !count.set(1)
+  print(count.get())                # 1
+
+  # A stack closure clone-captures the cell.
+  bump = |+count| !count.set(count.get() + 1)
+  bump()
+  bump()
+  print(count.get())                # 3
+
+  # An owned closure can be stored and passed around; this one takes an
+  # argument, and the next returns a value.
+  add: *sub(Int) = *|+count, n| !count.set(count.get() + n)
+  add(10)
+  scaled: *fun(Int) -> Int = *|+count, n| count.get() * n
+  print(count.get(), scaled(2))     # 13 26
+
+  # A Signal calls every subscriber on `set`. This subscriber reads the
+  # Signal it listens to, so it holds it weakly.
+  sig: *Signal[Int] = *Signal(0)
+  !sig.subscribe(*|~sig|
+    if *sig as s
+      print("sig", s.get())
+  )
+  !sig.set(7)                        # sig 7
+  !sig.set(99)                       # sig 99
+
+  # A List of closures, walked by viewed slot.
+  notes: *Cell[Int] = *Cell(0)
+  steps: List[*sub()] = List()
+  !steps.push(*|+notes| !notes.set(notes.get() + 1))
+  !steps.push(*|+notes| !notes.set(notes.get() + 10))
+  !steps.push(*|+notes| !notes.set(notes.get() + 100))
+  for step in ?steps
+    step()
+  print(notes.get())                # 111
+
+  # Subscribers run in subscription order, each with its own captures.
+  tally: *Cell[Int] = *Cell(0)
+  multi: *Signal[Int] = *Signal(0)
+  for weight in [1, 10, 100]
+    !multi.subscribe(*|+tally, +weight| !tally.set(tally.get() * 2 + weight))
+  !multi.set(42)
+  print(tally.get())                # ((0*2 + 1)*2 + 10)*2 + 100 = 124
+
+test "reactive cascade", '''
+  10
+  70
+  70
+'''
+  # Two reactive sources chained by a subscriber that reads one and sets
+  # the other (count -> total -> print). Subscribers hold their sources
+  # weakly (`|~count, ~total|`), so no source is kept alive by its own
+  # subscriber list.
+
+  type Subscribers = List[*sub()]
+
+  obj IntSource
+    value: Cell[Int]
+    subs: Cell[Subscribers]
+
+    fun new(initial: Int) -> *IntSource
+      *IntSource(value: Cell(initial), subs: Cell(List()))
+
+    fun get(self: ?IntSource) -> Int
+      self.value.get()
+
+    sub subscribe(self: !IntSource, cb: *sub())
+      !self.subs.push(<cb)
+
+    # A Cell lends no view of the List inside it, so the list is swapped
+    # out to be walked, and swapped back.
+    sub set(self: !IntSource, v: Int)
+      !self.value.set(v)
+      subs = (!self.subs).replace(List())
+      for notify in ?subs
+        notify()
+      _ = !self.subs.replace(<subs)
+
+  count = IntSource.new(0)
+  total = IntSource.new(0)
+
+  !count.subscribe(*|~count, ~total|
+    if *count as c
+      if *total as t
+        !t.set(c.get() * 10)
+  )
+  !total.subscribe(*|~total|
+    if *total as t
+      print(t.get())
+  )
+
+  !count.set(1)        # total becomes 10, prints 10
+  !count.set(7)        # total becomes 70, prints 70
+  print(total.get())  # 70
+
+test "reactive int source", '''
+  1
+  7
+'''
+  # A userland reactive source: a `*Cell` value plus a list of subscriber
+  # closures, notified on every `set`. The subscriber holds the source
+  # weakly (`|~count|`), so the source's list and the closure do not keep
+  # each other alive.
+
+  type Subscribers = List[*sub()]
+
+  obj IntSource
+    value: Cell[Int]
+    subs: Cell[Subscribers]
+
+    fun new(initial: Int) -> *IntSource
+      *IntSource(value: Cell(initial), subs: Cell(List()))
+
+    fun get(self: ?IntSource) -> Int
+      self.value.get()
+
+    sub subscribe(self: !IntSource, cb: *sub())
+      !self.subs.push(<cb)
+
+    # A Cell lends no view of the List inside it, so the list is swapped
+    # out to be walked, and swapped back.
+    sub set(self: !IntSource, v: Int)
+      !self.value.set(v)
+      subs = (!self.subs).replace(List())
+      for notify in ?subs
+        notify()
+      _ = !self.subs.replace(<subs)
+
+  count = IntSource.new(0)
+  !count.subscribe(*|~count|
+    if *count as c
+      print(c.get())
+  )
+  !count.set(1)
+  !count.set(7)
+
+test "shared auto deref", '''
+  42
+  42
+'''
+  # Field reads and read-receiver method calls auto-deref through a shared
+  # `*User` handle.
+
+  obj User
+    age: Int
+
+    fun read_age(self: ?User) -> Int
+      self.age
+
+  rc = *User(age: 42)
+  print(rc.age)
+  print(rc.read_age())
+  <rc
+
+test "shared cell move assign", "20"
+  # `rc1 = <rc2` on shared cells: rc1's old box is dropped at the
+  # assignment, rc1 takes over rc2's box, and rc2 is not dropped again.
+
+  rc1: *Cell[Int] = *Cell(0)
+  rc2: *Cell[Int] = *Cell(0)
+  !rc1.set(10)
+  !rc2.set(20)
+  rc1 = <rc2
+  print(rc1.get())     # 20: rc1 now refers to rc2's old box
+
+test "shared cell set", "5"
+  # `*Cell[Int]`: mutation through a shared handle goes through the cell's
+  # `set`, and `get` reads the stored value back.
+
+  rc: *Cell[Int] = *Cell(0)
+  !rc.set(5)
+  print(rc.get())
+
+test "shared clone and drop", '''
+  1
+  ok
+'''
+  # `+rc` bumps the strong count; each handle is dropped explicitly with
+  # `-`, and the clone reads the same value as the original.
+
+  obj Counter
+    value: Int
+
+  rc = *Counter(value: 1)
+  rc2 = +rc
+  print(rc2.value)
+  <rc2
+  <rc
+  print("ok")
+
+test "shared move into fn", '''
+  42
+  moved
+'''
+  # `use_rc(<rc)` moves a shared handle into a function, which owns and
+  # drops it; the caller does not drop it again.
+
+  obj Wrap
+    payload: Int
+
+  sub use_rc(rc: *Wrap)
+    print(rc.payload)
+    <rc
+
+  rc = *Wrap(payload: 42)
+  use_rc(<rc)
+  print("moved")
+
+bomb "signal subscribe reentrant panics", "Signal.subscribe called while notifying subscribers", prints: "before\nnotified"
+  # Subscribing to a signal from inside one of its subscribers panics: the
+  # subscriber list is being walked. Subscribers before the panic still ran.
+
+  sig: *Signal[Int] = *Signal(0)
+  !sig.subscribe(*|~sig|
+    print("notified")
+    if *sig as s
+      !s.subscribe(*|| print("late"))
+  )
+  print("before")
+  !sig.set(1)
+  print("unreachable")
+
+test "signal subscribers", '''
+  0
+  111
+  222
+'''
+  # `Signal.subscribe` takes the handle the caller passes (`+cb` keeps
+  # the caller's own); every subscriber runs on `set`, and all are freed
+  # with the signal.
+
+  notes: *Cell[Int] = *Cell(0)
+  one:   *sub() = *|+notes| !notes.set(notes.get() + 1)
+  ten:   *sub() = *|+notes| !notes.set(notes.get() + 10)
+  cent:  *sub() = *|+notes| !notes.set(notes.get() + 100)
+
+  sig: *Signal[Int] = *Signal(0)
+  !sig.subscribe(+one)
+  !sig.subscribe(+ten)
+  !sig.subscribe(+cent)
+
+  print(notes.get())                # 0: no notification yet
+  !sig.set(1)                        # calls all three: 0 -> 111
+  print(notes.get())                # 111
+  !sig.set(2)                        # again: 111 -> 222
+  print(notes.get())                # 222
+
+fail "signal unmarked set", "6:5: method `subscribe` needs its receiver lent to write; write `!sig.subscribe(*|~sig, +total| !total.set(total.get() + 1))`: changing a shared Cell is marked with `!`", "7:5: method `set` needs its receiver lent to write; write `!sig.set(1)`: changing a shared Cell is marked with `!`", errors: 2
+  # A Signal is shared like a Cell: `set` and `subscribe` change it, so
+  # each is a marked call.
+
+  sig: *Signal[Int] = *Signal(0)
+  total: *Cell[Int] = *Cell(0)
+  sig.subscribe(*|~sig, +total| !total.set(total.get() + 1))
+  sig.set(1)
+  print(total.get())
+
+bomb "slice copy length mismatch", "copy between slices of different lengths"
+  # `copy` between slices of different lengths panics.
+
+  a = [1, 2, 3]
+  b = [4, 5]
+  !a.copy(?b[..])
+
+bomb "slice open start past end", "slice bounds out of range"
+  # An open slice's start past the length panics.
+
+  s = "abc"
+  n = 4
+  print(s[n..])
+
+bomb "slice past end", "slice bounds out of range"
+  # A slice end past the length panics, for a String as for an array.
+
+  s = "abc"
+  n = 4
+  print(s[0..n])
+
+bomb "slice start after end", "slice bounds out of range", prints: "3"
+  # Slice bounds are checked when the slice is taken: `a <= b <= len`.
+
+  xs = [1, 2, 3]
+  lo = xs[1]
+  print(xs.len)
+  s = ?xs[lo..1]
+  print(s)
+
+bomb "slice swap out of range", "index out of bounds"
+  # `swap` checks both indexes when the program runs.
+
+  fun rt(n: Int) -> Int
+    n
+
+  a = [1, 2, 3]
+  w = !a[1..]
+  !w.swap(0, rt(2))
+
+bomb "stack overflow frame", "rig: stack overflow", prints: "before"
+  # A frame larger than the whole stack stops the program with a
+  # stack-overflow error before it writes anything past the stack. `big`
+  # keeps one 6.4 MB array, but a debug build holds a copy of it for each
+  # argument passed by value, so its frame takes 109 MB. The stack holds
+  # 64 MiB, and below it the runtime keeps a guard of 64 GiB.
+
+  fun take(a: [800000]Int, k: Int) -> Int
+    a[k]
+
+  called sub big(i: Int)
+    a = [800000 of i]
+    s = 0
+    s += take(a, 0)
+    s += take(a, 1)
+    s += take(a, 2)
+    s += take(a, 3)
+    s += take(a, 4)
+    s += take(a, 5)
+    s += take(a, 6)
+    s += take(a, 7)
+    s += take(a, 8)
+    s += take(a, 9)
+    s += take(a, 10)
+    s += take(a, 11)
+    s += take(a, 12)
+    s += take(a, 13)
+    s += take(a, 14)
+    s += take(a, 15)
+    print(s)
+
+  sub main()
+    print("before")
+    big(1)
+    print("after")
+
+bomb "stack overflow recursion", "rig: stack overflow", prints: "before", release: true
+  # Recursion that runs out of stack stops the program with a
+  # stack-overflow error. Each level lends its array to the next, so debug
+  # and release builds keep a frame per level. `--release=fast` folds the
+  # levels into a loop that never ends, so the test does not build it.
+
+  fun dive(depth: Int, prev: ?[1000]Int) -> Int
+    a = [1000 of depth]
+    a[depth % 1000] = prev[0]
+    a[0] + dive(depth + 1, ?a)
+
+  print("before")
+  first = [1000 of 0]
+  print(dive(0, ?first))
+
+test "string add shapes", '''
+  abcdef7x1y 10
+  110
+  0 true
+  again!
+  oneagain!
+'''
+  # String.add with one slice, one String, one number, and mixed parts, and
+  # push across growth, give the same bytes; clear keeps the buffer for reuse.
+
+  s = String("")
+  !s.add("abc")
+  !s.add(String("def"))
+  !s.add(7)
+  !s.add("x", 1, "y")
+  print(s, s.len)
+  i = 0
+  while i < 100 : i += 1
+    !s.push(65)
+  print(s.len)
+  !s.clear()
+  print(s.len, s == "")
+  !s.add("again")
+  !s.push(33)
+  print(s)
+  t = String("one")
+  !t.add(?s[..])
+  print(t)
+
+test "string push boundaries", '''
+  true
+  120860
+'''
+  # Every append writes at the end of the live bytes and grows when the
+  # room runs out: right after `reserve`, exactly filling the reserved
+  # room, one past it, and a wide push that straddles the end of it.
+
+  ok = true
+  for room in 0..40
+    s = String()
+    !s.reserve(room)
+    for i in 0..room
+      !s.push(U8(i))
+    !s.push(U8(200))
+    !s.push[U32, .big](0x01020304)
+    !s.push[U16, .little](0xbeef)
+    !s.push[U64, .little](0x1122334455667788)
+    !s.add("xy")
+    !s.add(String("z"))
+    v: ?String = ?s
+    if v.len != room + 1 + 4 + 2 + 8 + 3
+      ok = false
+    for i in 0..room
+      if v[i] != U8(i)
+        ok = false
+    if v[room] != 200 or v.read[U32, .big](room + 1) != 0x01020304
+      ok = false
+    if v.read[U16, .little](room + 5) != 0xbeef or v.read[U64, .little](room + 7) != 0x1122334455667788
+      ok = false
+    if v[room + 15] != 120 or v[room + 17] != 122
+      ok = false
+  print(ok)
+
+  # A List appends the same way.
+  total = 0
+  for room in 0..40
+    l: List[Int] = List()
+    !l.reserve(room)
+    for i in 0..room
+      !l.push(i)
+    !l.push(1000)
+    !l.push(2000)
+    total += l.len + l[room] + l[room + 1]
+  print(total)
+
+test "string push keep", release: true, '''
+  0
+  abABCCD
+  0
+  1
+  16
+'''
+  # `!t.push(v, keep: k)` appends the first `k` bytes of a vector, and
+  # `!t.push[T, e](w, keep: k)` the first `k` of an integer's bytes, for
+  # every `k` from 0 to the size, at each distance from the capacity
+  # (none reserved, exactly full, one short, one over). The bytes stored
+  # past the new length are spare room: a later push overwrites them, and
+  # the String never shows them.
+
+  # 32 bytes counting up from `base`.
+  fun counting(base: Int) -> String
+    s = String()
+    for i in 0..32
+      !s.push(U8(base + i))
+    s
+
+  fun block16(base: Int) -> Simd[U8, 16]
+    s = counting(base)
+    v: ?String = ?s
+    v.read[Simd[U8, 16]](0)
+
+  fun block32(base: Int) -> Simd[U8, 32]
+    s = counting(base)
+    v: ?String = ?s
+    v.read[Simd[U8, 32]](0)
+
+  bad = 0
+  for room in 0..70
+    for k in 0..17
+      s = String()
+      !s.reserve(room)
+      for i in 0..room
+        !s.push(U8(i))
+      !s.push(block16(100), keep: k)
+      !s.push(U8(7))
+      v: ?String = ?s
+      bad += 1 if v.len != room + k + 1
+      for i in 0..room
+        bad += 1 if v[i] != U8(i)
+      for i in 0..k
+        bad += 1 if v[room + i] != U8(100 + i)
+      bad += 1 if v[room + k] != 7
+    for k in 0..33
+      s = String()
+      !s.reserve(room)
+      for i in 0..room
+        !s.push(U8(i))
+      !s.push(block32(50), keep: k)
+      !s.add("z")
+      v: ?String = ?s
+      bad += 1 if v.len != room + k + 1
+      for i in 0..k
+        bad += 1 if v[room + i] != U8(50 + i)
+      bad += 1 if v[room + k] != 122
+    for k in 0..9
+      s = String()
+      !s.reserve(room)
+      for i in 0..room
+        !s.push(U8(i))
+      !s.push[U64, .little](0x0807060504030201, keep: k)
+      !s.push[U64, .big](0x0102030405060708, keep: k)
+      v: ?String = ?s
+      bad += 1 if v.len != room + 2 * k
+      for i in 0..k
+        bad += 1 if v[room + i] != U8(1 + i)
+        bad += 1 if v[room + k + i] != U8(1 + i)
+  print(bad)
+
+  # A kept run is a prefix, appended after what is there.
+  t = String("ab")
+  !t.push(block16(65), keep: 3)
+  !t.push[U32, .big](0x43444546, keep: 2)
+  !t.push[U16, .little](0x4948, keep: 0)
+  print(t)
+
+  # The length never counts the spare bytes, and a clone copies none.
+  u = String()
+  !u.push(block32(200), keep: 0)
+  print(u.len)
+  !u.push(block32(200), keep: 1)
+  w = +u
+  print(w.len)
+  !u.clear()
+  !u.push(block16(1), keep: 16)
+  print(u.len)
+
+bomb "string push keep negative", "`keep: -1` is outside 0..16, the bytes pushed", prints: "before"
+  # `keep:` outside 0..size panics, and nothing is appended first.
+
+  s = String("abcdefghijklmnopqrstuvwxyz0123456789")
+  v: ?String = ?s
+  block = v.read[Simd[U8, 16]](0)
+  k = s.len - 37
+  print("before")
+  !s.push(block, keep: k)
+  print("unreachable")
+
+bomb "string push keep over vector", "`keep: 17` is outside 0..16, the bytes pushed", prints: "before"
+  # `keep:` outside 0..size panics, and nothing is appended first.
+
+  s = String("abcdefghijklmnopqrstuvwxyz0123456789")
+  v: ?String = ?s
+  block = v.read[Simd[U8, 16]](0)
+  k = s.len - 19
+  print("before")
+  !s.push(block, keep: k)
+  print("unreachable")
+
+bomb "string push keep over word", "`keep: 9` is outside 0..8, the bytes pushed", prints: "before"
+  # `keep:` outside 0..size panics, and nothing is appended first.
+
+  s = String("abcdefghijklmnopqrstuvwxyz0123456789")
+  v: ?String = ?s
+  word = v.read[U64, .little](0)
+  k = s.len - 27
+  print("before")
+  !s.push[U64, .little](word, keep: k)
+  print("unreachable")
+
+test "string push wide", '''
+  7 51966 3735928559 -1
+  0
+  0
+  ABC
+  34
+  258 258
+  16909060 16909060
+  72623859790382856 72623859790382856
+  -2 -2
+  2200
+  true
+  2200
+  7
+'''
+  # `!t.reserve(n)` makes room for `n` more bytes without changing the
+  # length, and `!t.push[T, e](v)` appends the bytes of the integer `v` in
+  # byte order `e`, in one write. A one-byte `T` needs no byte order.
+
+  fun intact(v: ?String) -> Bool
+    ok = true
+    for i in 0..300
+      if v.read[U32, .big](1000 + 4 * i) != U32(i) * 1000003
+        ok = false
+    for i in 0..1000
+      if v[i] != U8(i % 256)
+        ok = false
+    ok
+
+  sub put[T](t: !String, v: T)
+    !t.push[T, .big](v)
+
+  obj Frame
+    body: String
+
+  f = Frame(body: String())
+  !f.body.reserve(8)
+  !f.body.push[U16, .big](0xcafe)
+  put(!f.body, U32(0xdeadbeef))
+  put(!f.body, I8(-1))
+  g: ?String = ?f.body
+  print(g.len, g.read[U16, .big](0), g.read[U32, .big](2), g.read[I8](6))
+
+  s = String()
+  !s.reserve(0)
+  print(s.len)
+  !s.reserve(3)
+  print(s.len)
+  !s.push[U8](65)
+  !s.push[I8](66)
+  !s.push[U8](67)
+  print(s)
+
+  b = String()
+  !b.push[U16, .little](0x0102)
+  !b.push[U16, .big](0x0102)
+  !b.push[U32, .little](0x01020304)
+  !b.push[U32, .big](0x01020304)
+  !b.push[U64, .little](0x0102030405060708)
+  !b.push[U64, .big](0x0102030405060708)
+  !b.push[I16, .big](-2)
+  !b.push[I32, .little](-2)
+  print(b.len)
+  v: ?String = ?b
+  print(v.read[U16, .little](0), v.read[U16, .big](2))
+  print(v.read[U32, .little](4), v.read[U32, .big](8))
+  print(v.read[U64, .little](12), v.read[U64, .big](20))
+  print(v.read[I16, .big](28), v.read[I32, .little](30))
+
+  # Growth boundaries: reserve, then push many, and push many unreserved.
+  r = String()
+  !r.reserve(1000)
+  for i in 0..1000
+    !r.push(U8(i % 256))
+  for i in 0..300
+    !r.push[U32, .big](U32(i) * 1000003)
+  print(r.len)
+  print(intact(?r))
+  !r.reserve(5000)
+  print(r.len)
+  !r.push[U64, .little](7)
+  w: ?String = ?r
+  print(w.read[U64, .little](w.len - 8))
+
+test "struct drop field order", '''
+  built
+  2
+  1
+'''
+  # Generated drop glue drops resource fields in reverse declaration
+  # order: `b` (declared second) is dropped before `a`.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  obj Pair
+    a: *Noisy
+    b: *Noisy
+
+  na = *Noisy(id: 1)
+  nb = *Noisy(id: 2)
+  p: Pair = Pair(a: <na, b: <nb)
+  print("built")
+
+test "struct drop glue shared field", '''
+  built
+  9
+'''
+  # A struct with a shared-handle field and no user `drop` still gets
+  # compiler-generated drop glue: dropping `r` drops the Noisy it holds.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  obj Reactor
+    count: *Noisy
+
+  n = *Noisy(id: 9)
+  r: Reactor = Reactor(count: <n)
+  print("built")
+
+test "warn to stderr", stderr: "careful: 1.5 [1, 2] P(x: 3, name: \"p\")\n\na\"b [\"a\\\"b\"]", release: true, '''
+  one
+  two
+  three
+'''
+  # `warn(a, b)` writes the line `print` would, to stderr, once what
+  # `print` buffered is written out; the program goes on.
+
+  obj P
+    x: Int
+    name: ?String
+
+  sub main()
+    print("one")
+    warn("careful:", 1.5, [1, 2], P(x: 3, name: "p"))
+    print("two")
+    warn()
+    warn("a\"b", ["a\"b"])
+    print("three")
+
+test "weak basic", '''
+  7
+  done
+'''
+  # `~rc` makes a weak handle from a shared one. Dropping the strong
+  # handle first and the weak one second frees the box exactly once.
+
+  obj Node
+    value: Int
+
+  rc = *Node(value: 7)
+  w  = ~rc
+  print(rc.value)
+  <rc
+  <w
+  print("done")
+
+test "weak owned closure", '''
+  2 20
+  0
+  hi
+  hi
+  gone
+'''
+  # A weak handle to an owned closure (`~fun(...)`, `~sub()`) works as a
+  # capture, an annotated local, a struct field, a parameter, and a List
+  # element; it upgrades while the closure is alive.
+
+  obj H
+    cb: ~sub()
+
+  sub call(w: ?~sub())
+    if *w as g
+      g()
+    else
+      print("gone")
+
+  f: *fun(Int) -> Int = *|a| a + 1
+  g: *fun(Int) -> Int = *|~f, a|
+    if *f as h
+      return h(a) * 10
+    0
+  w: ~fun(Int) -> Int = ~f
+  if *w as h
+    print(h(1), g(1))
+  <f
+  print(g(1))
+
+  s: *sub() = *|| print("hi")
+  holder = H(cb: ~s)
+  call(?holder.cb)
+  v: List[~sub()] = List()
+  !v.push(~s)
+  for x in ?v
+    call(?x)
+  <s
+  call(?holder.cb)
+
+test "weak star closure signal", '''
+  2
+  30
+  true 0
+  now 7
+  true
+'''
+  # A weak handle to an owned closure (`~f`, `w: ~fun(...)`) and a signal
+  # captured weakly (`|~sig|`) upgrade as every weak handle does: `*w`, a
+  # new handle while the closure or signal lives, `none` after.
+
+  f: *fun(Int) -> Int = *|a| a + 1
+  w: ~fun(Int) -> Int = ~f
+  if *w as g
+    print(g(1))
+  g: *fun(Int) -> Int = *|~f, a|
+    if *f as h
+      return h(a) * 10
+    0
+  print(g(2))
+  <f
+  print(*w == none, g(2))
+
+  sig: *Signal[Int] = *Signal(0)
+  !sig.subscribe(*|~sig|
+    if *sig as s
+      print("now", s.get())
+  )
+  !sig.set(7)
+  ws = ~sig
+  <sig
+  print(*ws == none)
+
+test "weak star upgrade", '''
+  6
+  true 6
+  7 true
+  18
+  taken 7
+  either 6
+  gone
+  false -1 true
+  true
+  true
+  true
+  true
+'''
+  # `*w` upgrades a weak handle: a `*T?`, a new count while the value
+  # lives and `none` after. It reads `w`, a name or a view `?~T`, which
+  # stays usable; `*<w` upgrades and takes `w`, which is dropped. The
+  # result binds like any `*T?`: stored, defaulted with `??`, and
+  # propagated with `(*w)?`.
+
+  obj Point
+    x: Int
+    y: Int
+
+  fun x_of(w: ?~Point) -> Int?
+    p = (*w)?
+    p.x
+
+  fun alive(w: ?~Point) -> Bool
+    if *w as p
+      return p.y > 0
+    false
+
+  s = *Point(x: 6, y: 7)
+  w = ~s
+  if *w as p
+    print(p.x)
+  print(alive(?w), x_of(?w) ?? -1)
+  kept = *w
+  fallback = *Point(x: 0, y: 0)
+  q = *w ?? +fallback
+  print(q.y, kept != none)
+  <q
+  <kept
+  ws: List[~Point] = List()
+  for _ in 0..3
+    !ws.push(~s)
+  total = 0
+  for v in ?ws
+    if *v as p
+      total += p.x
+  print(total)
+  t = ~s
+  if *<t as p
+    print("taken", p.y)
+  t2 = ~s
+  c = total > 0
+  if *(?w if c else ?t2) as p
+    print("either", p.x)
+  <s
+  if *w as p
+    print(p.x)
+  else
+    print("gone")
+  print(alive(?w), x_of(?w) ?? -1, *w == none)
+  for v in ?ws
+    print(*v == none)
+  u = ~fallback
+  <fallback
+  print(*<u == none)
+
+test "weak upgrade result dropped", '''
+  rc dropped
+  1
+'''
+  # The `*T?` returned by `*w` owns a strong handle: `m` keeps
+  # the Noisy alive after `<rc` and drops it at scope exit.
+
+  obj Noisy
+    id: Int
+
+    drop(!self)
+      print(self.id)
+
+  rc = *Noisy(id: 1)
+  w  = ~rc
+  m = *w
+  <rc
+  print("rc dropped")               # `m` still holds the Noisy
+  <w
+  # scope exit drops `m`, the last strong handle: prints 1

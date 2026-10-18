@@ -1,0 +1,2442 @@
+# ownership: tests whose names start `match`.
+
+use std.text
+
+test "match arm drop statement", '''
+  one
+  end 1
+  drop 1
+  drop 2
+  end 2
+  -5
+'''
+  # `=> <name` in a match used as a statement drops `name` in that arm;
+  # `-a` is negation, also as the value of an arm whose match is used.
+
+  obj N
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  sub run(k: Int)
+    a = N(id: k)
+    match k
+      1 => print("one")
+      _ => <a
+    print("end", k)
+
+  fun pick(k: Int) -> Int
+    a = 5
+    return match k
+      1 => 1
+      _ => -a
+
+  run(1)
+  run(2)
+  print(pick(2))
+
+test "match arm statement liveness", '''
+  simple 11
+  block 5 21 5
+  21
+'''
+  # A `match` arm's body is a statement of its own, as a block's line is:
+  # a write view last used in the subject is no longer live there, so the
+  # arm may lend what it viewed, as a block arm may.
+  enum Shape
+    circle(r: Int)
+    point
+
+  fun grow(v: !List[Shape]) -> Int
+    for _ in 0..10
+      !v.push(.point)
+    v.len
+
+  v: List[Shape] = List()
+  !v.push(.circle(r: 5))
+  x = !v
+  match ?x[0]
+    .circle(_) => print("simple", grow(!v))
+    .point => pass
+  y = !v
+  match ?y[0]
+    .circle(r)
+      print("block", r, grow(!v), r)
+    .point => pass
+  print(v.len)
+
+fail "match bare payload move", "23:17: cannot move `v` out of `o`: `match o` reads `o`; write `match <o` to take its fields", "28:27: cannot move `box` out of `s`: `match s` reads `s`; write `match <s` to take its fields", "32:23: cannot drop `box` out of `t`: `match t` reads `t`; write `match <t` to take its fields"
+  # A bare `match e` on a value that owns a resource reads it: moving a
+  # payload out takes `match <e`, which consumes `e`.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    tagged(box: *B, tag: Int)
+    empty
+
+  enum Opt
+    some(v: *B)
+    nothing
+
+  sub eat(b: *B)
+    print(b.n)
+
+  fun get(o: Opt, d: *B) -> *B
+    match o
+      .some(v) => v
+      .nothing => <d
+
+  s: Slot = .tagged(box: *B(n: 1), tag: 2)
+  match s
+    .tagged(box, _) => eat(<box)
+    .empty => print(0)
+  t: Slot = .tagged(box: *B(n: 3), tag: 4)
+  match t
+    .tagged(box, _) => <box
+    .empty => print(0)
+  g = get(.some(v: *B(n: 5)), *B(n: 6))
+  print(g.n)
+
+fail "match branch copies write view", "21:10: cannot lend `getw(!x) if c else y`: it may be `y`, a value a name holds, which lending the branching value would copy; lend each branch: `getw(!x) if c else ?y`", "26:10: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if c else ?b`", "36:10: cannot lend `a if c else !d`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `?a if c else !d`", "42:9: cannot lend `o?`: it may be `o`, a value a name holds, which lending the branching value would copy; lend what it unwraps, and unwrap it in a header: `if ?o as x`", "49:9: cannot lend `o ?? !d`: it may be `o`, a value a name holds, which lending the branching value would copy; lend each branch: `?o ?? !d`", errors: 5
+  # A branch a `match` reads in place is lent there (every in-place read
+  # of a branch is a lend), and a leaf that is a name holding a write view
+  # would be copied by lending the branching value, a second writer that
+  # holds no loan on it: bare write views, a call beside a name, `??` and
+  # `?` of an optional write view. None is lent on (`sema.makesWriteView`
+  # lends on only write lends and calls), so no binding writes through a
+  # copy. The hint lends each leaf.
+
+  obj Res
+    n: Int
+    v: List[Int]
+
+  enum E
+    a(r: Res)
+    b
+
+  fun getw(e: !E) -> !E
+    e
+
+  sub call_and_name(x: !E, y: !E, c: Bool)
+    match (getw(!x) if c else y)
+      .a(r) => !r.v.push(1)
+      .b => pass
+
+  sub bare_write_views(a: !E, b: !E, c: Bool)
+    match (a if c else b)
+      .a(r)
+        s = ?r.v[..]
+        match !a
+          .a(r2) => !r2.v.push(1)
+          .b => pass
+        print(s)
+      .b => pass
+
+  sub bare_and_lend(a: !E, d: !E, c: Bool)
+    match (a if c else !d)
+      .a(r) => print(r.n)
+      .b => pass
+
+  fun unwrapped(e: !E) -> Int?
+    o: (!E)? = <e
+    match o?
+      .a(r) => print(r.n)
+      .b => pass
+    1
+
+  sub coalesce(e: !E, d: !E)
+    o: (!E)? = <e
+    match o ?? !d
+      .a(r) => print(r.n)
+      .b => pass
+
+  pass
+
+fail "match captured payload move", "cannot move captured resource `e`", "cannot drop captured resource `e2`"
+  # A closure owns what it captured and may be called again: a payload of
+  # a captured value cannot be moved or dropped out of it.
+
+  enum E
+    full(c: *Cell[Int])
+    empty
+
+  sub eat(c: *Cell[Int])
+    print(c.get())
+
+  e: E = .full(c: *Cell(1))
+  f = |<e|
+    match e
+      .full(c) => eat(<c)
+      .empty => print(0)
+  f()
+  e2: E = .full(c: *Cell(2))
+  g = *|<e2|
+    match e2
+      .full(c)
+        <c
+      .empty => print(0)
+    print("matched")
+  g()
+
+test "match consume", '''
+  kept 1
+  drop 1
+  arm end 2
+  drop 2
+  after
+  kept 4
+  drop 4
+  drop 3
+  other
+  drop 5
+  drop 7
+  6
+  three
+  empty
+  end
+  drop 6
+'''
+  # `match <e` consumes `e`: each payload binding owns its field and may
+  # move it on, and what an arm does not move (a binding it leaves, a `_`
+  # field, a value no binding names) is dropped at the end of the arm.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Pair
+    two(a: *B, b: *B)
+    one(a: *B)
+    empty
+
+  enum Opt
+    some(v: *B)
+    nothing
+
+  sub keep(b: *B)
+    print("kept", b.n)
+
+  fun get(o: Opt, d: *B) -> *B
+    match <o
+      .some(v) => v
+      .nothing => <d
+
+  p: Pair = .two(a: *B(n: 1), b: *B(n: 2))
+  match <p
+    .two(a, b)
+      keep(<a)
+      print("arm end", b.n)
+    .one(a) => keep(<a)
+    .empty => print("empty")
+  print("after")
+  q: Pair = .two(a: *B(n: 3), b: *B(n: 4))
+  match <q
+    .two(_, b) => keep(<b)
+    _ => print("other")
+  r: Pair = .one(a: *B(n: 5))
+  match <r
+    .two(a, b) => print("two", a.n, b.n)
+    _ => print("other")
+  o: Opt = .some(v: *B(n: 6))
+  x = get(<o, *B(n: 7))
+  print(x.n)
+  n = 3
+  match <n
+    3 => print("three")
+    _ => print("not three")
+  r = .empty
+  match <r
+    .empty => print("empty")
+    _ => print("full")
+  print("end")
+
+test "match consume binding writes", '''
+  12
+  drop 12
+  end
+'''
+  # A binding of `match <s` owns what it binds: a resource it holds can
+  # be written and lent for writing, like an owned `as` binding.
+
+  obj B
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    full(b: B)
+    empty
+
+  s: Slot = .full(b: B(n: 1))
+  match <s
+    .full(b)
+      !b.bump()
+      b.n += 10
+      print(b.n)
+    .empty => print("e")
+  print("end")
+
+fail "match consume view", "9:9: `match <s` consumes an owned value, and `s` is a view (`?Shape`); match what it views with `match s`", "16:7: a `match` reaches the value inside a box by lending the box: `match ?b` or `match !b`; to take the value out, bind it first: `v = <b.unbox()`"
+  # `match <e` consumes an owned value: a view owns no fields to hand
+  # over, and a box is matched through a view of it.
+
+  enum Shape
+    circle(r: Int)
+    square(s: Int)
+
+  sub show(s: ?Shape)
+    match <s
+      .circle(r) => print(r)
+      .square(q) => print(q)
+
+  c: Shape = .circle(r: 1)
+  show(?c)
+  b = ^Shape.square(s: 2)
+  match <b
+    .circle(r) => print(r)
+    .square(q) => print(q)
+
+test "match copy payload tail", '''
+  drop 1
+  3
+'''
+  # Yielding a Copy payload field from a match arm does not consume the
+  # scrutinee; it is still dropped.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum S
+    one(a: *B, k: Int)
+    empty
+
+  fun go(s: S) -> Int
+    match s
+      .one(_, k) => k
+      .empty => 0
+
+  s: S = .one(a: *B(n: 1), k: 3)
+  print(go(<s))
+
+fail "match field overwrite while payload live", "cannot assign to `h.s` while `h.s` is lent", "cannot reassign `h` while it is lent"
+  # The matched value stays lent while a payload binding is in use:
+  # overwriting it would drop the value the payload views.
+
+  obj Tok
+    v: List[Int]
+
+  enum Slot
+    empty
+    full(t: *Tok)
+
+  obj Holder
+    s: Slot
+
+  sub clear(h: !Slot)
+    match h
+      .full(t)
+        h = .empty
+        print(t.v[0])
+      .empty => print("empty")
+
+  t0 = Tok(v: List())
+  !t0.v.push(1)
+  h = Holder(s: .full(*<t0))
+  match h.s
+    .full(t)
+      h.s = .empty
+      print(t.v[0])
+    .empty => print("empty")
+
+fail "match field payload move", "cannot move `t` out of `h.s`", "cannot drop `t` out of `o.h.s`"
+  # A payload of a matched field views the field: moving or dropping it
+  # out would leave the parent owning it too.
+
+  obj Tok
+    n: Int
+
+  enum Slot
+    empty
+    full(t: *Tok)
+
+  obj Holder
+    s: Slot
+
+  obj Outer
+    h: Holder
+
+  sub eat(t: *Tok)
+    print(t.n)
+
+  h = Holder(s: .full(*Tok(n: 1)))
+  match h.s
+    .full(t) => eat(<t)
+    .empty => print("empty")
+  o = Outer(h: Holder(s: .full(*Tok(n: 2))))
+  match o.h.s
+    .full(t)
+      <t
+    .empty => print("empty")
+
+fail "match field payload through view", "cannot move out of `t`: it is a view of `h`", "cannot drop out of `t`: `sh` is a shared handle"
+  # A payload of a field reached through a view or a shared handle is
+  # owned by someone else: it cannot be moved or dropped.
+
+  obj Tok
+    n: Int
+
+  enum Slot
+    empty
+    full(t: *Tok)
+
+  obj Holder
+    s: Slot
+
+  sub eat(t: *Tok)
+    print(t.n)
+
+  sub peek(h: ?Holder)
+    match h.s
+      .full(t) => eat(<t)
+      .empty => print("empty")
+
+  h = Holder(s: .full(*Tok(n: 1)))
+  peek(?h)
+  sh = *Holder(s: .full(*Tok(n: 2)))
+  match sh.s
+    .full(t)
+      <t
+    .empty => print("empty")
+
+fail "match generic branch of places", "16:9: a `match` reads a place or takes a call's result; bind this `Opt[T]` to a name first", "26:9: a `match` reads a place or takes a call's result", "35:9: a `match` reads a place or takes a call's result", errors: 3
+  # A `match` on a value that branches over bare places is a copy of the
+  # place it takes, so a binding that views it would view the copy, or
+  # carry no loan on the place: the match is rejected, as for a value that
+  # moves, when the value may move, in a generic body (`sema.moves` is
+  # `depends`), guarded or not (the review-b4b-2 probes p63 to p70). A
+  # branch over lends (`?o1 if c else ?o2`) is matched where it points.
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  sub guarded[T](a: T, b: T, k: T, c: Bool)
+    o1 = Opt.some(v: <a)
+    o2 = Opt.some(v: <b)
+    saved = ?k
+    match o1 if c else o2
+      .some(x) if c => print(x)
+      .some(x) => saved = ?x
+      .nothing => pass
+    print(saved)
+
+  sub plain[T](a: T, b: T, k: T, c: Bool)
+    o1 = Opt.some(v: <a)
+    o2 = Opt.some(v: <b)
+    saved = ?k
+    match o1 if c else o2
+      .some(x) => saved = ?x
+      .nothing => pass
+    o2 = Opt[T].nothing
+    print(saved)
+
+  sub whole[T](a: T, b: T, c: Bool)
+    o1 = Opt.some(v: <a)
+    o2 = Opt.some(v: <b)
+    match o2 if c else o1
+      x => print(?x)
+
+  guarded(1, 2, 3, true)
+
+fail "match guard stores", "24:27: `x` does not live long enough", "35:3: cannot reassign `y` while it is lent"
+  # A guard that fails runs on the way to the later arms: a view it
+  # stored in an outer value is still there after the match, even when
+  # the guarded arm's body never falls through.
+
+  obj Big
+    v: List[Int]
+
+  obj View
+    b: ?Big
+
+  enum O
+    some(x: Big)
+    nothing
+
+  fun put(v: !View, t: ?Big) -> Bool keeps t
+    v.b = t
+    false
+
+  sub payload()
+    x0 = Big(v: List())
+    vw = View(b: ?x0)
+    o: O = .some(x: Big(v: List()))
+    match <o
+      .some(x) if put(!vw, ?x) => return
+      _ => print("other")
+    print(vw.b.v.len)
+
+  sub outer(n: Int)
+    x0 = Big(v: List())
+    vw = View(b: ?x0)
+    y = Big(v: List())
+    match n
+      3 if put(!vw, ?y) => return
+      _ => print("other")
+    y = Big(v: List())
+    print(vw.b.v.len, y.v.len)
+
+  payload()
+  outer(3)
+
+fail "match guard stores payload loan", "21:23: `v` does not live long enough", errors: 1
+  # A guard that fails leaves its arm's scope: a loan on the arm's own
+  # payload binding, stored in an outer value, cannot survive it, even
+  # when the arm leaves a labeled `match`.
+  obj H
+    r: ?List[Int]
+
+  enum S
+    a(v: List[Int])
+    b
+
+  fun store(h: !H, r: ?List[Int]) -> Bool keeps r
+    h.r = r
+    false
+
+  z: List[Int] = List()
+  h = H(r: ?z)
+  w: List[Int] = List()
+  !w.push(1)
+  s = S.a(v: <w)
+  @m match <s
+    .a(v) if store(!h, ?v) => break @m
+    _ => pass
+  print(h.r.len)
+
+test "match guards after subject", '''
+  false 2 1 101 100
+  2 false 201 200
+  other 301
+'''
+  # A match's subject stays lent through its guards and arms, and no
+  # longer: a guard may read the subject's owner, lend anything else, or
+  # change an unrelated value; after the match, its owner may change.
+
+  enum Shape
+    circle(r: Int)
+    point
+
+  fun grow(v: !List[Shape]) -> Bool
+    for _ in 0..100
+      !v.push(.point)
+    false
+
+  fun count(v: ?List[Shape]) -> Int
+    v.len
+
+  fun bump(n: !Int) -> Bool
+    n += 1
+    n > 1
+
+  v: List[Shape] = List()
+  !v.push(.circle(r: 5))
+  other: List[Shape] = List()
+  hits = 0
+  n = match ?v[0]
+    .point => 0
+    .circle(r) if r > count(?v) and bump(!hits) => r
+    .circle(_) if grow(!other) => 1
+    .circle(_) => 2
+  print(grow(!v), n, hits, v.len, other.len)
+  w = !v
+  m = match ?w[0]
+    .point => 0
+    .circle(_) if grow(!other) => 1
+    .circle(_) => 2
+  print(m, grow(!v), v.len, other.len)
+  k = v[0]
+  match k
+    .circle(r) if grow(!v) => print("grew", r)
+    _ => print("other", v.len)
+
+test "match made part cell holder", '''
+  1
+  4
+  6
+  8
+  2
+'''
+  # A `match` on a part of a value its header makes holds that value for
+  # the match (Core §3, docs/INTERNALS.md "Header subjects"): `H(...).e`,
+  # `mkh(n).e`, `[...][0]`, and `mk(n)[0]` are held, so each payload is
+  # read where it is, a `*Counter` handle through which a `!self` method
+  # or a marked `Cell.set` changes a Cell (Core s9).
+  #
+  # oracle: main accept
+
+  obj Counter
+    hits: Cell[Int]
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+  enum E
+    a(c: *Counter)
+    b
+
+  obj H
+    e: E
+
+  fun mkh(n: Int) -> H
+    H(e: E.a(c: *Counter(hits: Cell(n))))
+
+  fun mk(n: Int) -> [1]E
+    [E.a(c: *Counter(hits: Cell(n)))]
+
+  match H(e: E.a(c: *Counter(hits: Cell(0)))).e
+    .a(c)
+      !(+c).hit()
+      print(c.hits.get())
+    .b => pass
+  match mkh(3).e
+    .a(c)
+      !(+c).hit()
+      print(c.hits.get())
+    .b => pass
+  match [E.a(c: *Counter(hits: Cell(5))), E.b][0]
+    .a(c)
+      !(+c).hit()
+      print(c.hits.get())
+    .b => pass
+  match mk(7)[0]
+    .a(c)
+      !(+c).hit()
+      print(c.hits.get())
+    .b => pass
+  match H(e: E.a(c: *Counter(hits: Cell(0)))).e
+    .a(c)
+      !c.hits.set(2)
+      print(c.hits.get())
+    .b => pass
+
+test "match made write view lent on", release: true, '''
+  .a(r: Res(n: 60, t: "x"))
+  .a(r: Res(n: 60, t: "x")) .a(r: Res(n: 3, t: "y!"))
+  .a(r: Res(n: 10, t: "x")) .a(r: Res(n: 20, t: "y!")) .a(r: Res(n: 30, t: "z"))
+  .a(r: Res(n: 20, t: "y!")) .a(r: Res(n: 40, t: "z"))
+'''
+  # A write view a `match` subject makes is lent on, as `if … as` lends one
+  # on: a call's result, or a branch whose every leaf is a write lend, a
+  # call's result, or a write view taken with `<w` (`sema.makesWriteView`),
+  # through `if`, `??`, and `catch`, nested too. The bindings write
+  # through it, as under `match !e`, and the lend keeps what it views lent
+  # while they live.
+
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  error Bad
+    nope
+
+  fun getw(e: !E) -> !E
+    e
+
+  fun tryw(e: !E, ok: Bool) -> (!E)!
+    return Bad.nope if not ok
+    e
+
+  fun optw(e: !E, ok: Bool) -> (!E)?
+    return none if not ok
+    e
+
+  e = E.a(r: Res(n: 1, t: String("x")))
+  match getw(!e)
+    .a(r) => r.n = 60
+    .b => pass
+  print(e)
+  f = E.a(r: Res(n: 2, t: String("y")))
+  c = e == f
+  match (!e if c else !f)
+    .a(r)
+      r.n += 1
+      !r.t.add("!")
+    .b => pass
+  print(e, f)
+  g = E.a(r: Res(n: 3, t: String("z")))
+  match (!e if c else (!f if c else !g))
+    .a(r) => r.n = 30
+    .b => pass
+  match tryw(!e, false) catch !f
+    .a(r) => r.n = 20
+    .b => pass
+  match optw(!e, true) ?? !f
+    .a(r) => r.n = 10
+    .b => pass
+  print(e, f, g)
+  wa = !f
+  wb = !g
+  match (<wa if c else <wb)
+    .a(r) => r.n = 40
+    .b => pass
+  print(f, g)
+
+test "match move in two arms", '''
+  1
+  2
+'''
+  # A resource may be moved in each of two match arms: the arms are
+  # alternatives, and whichever runs consumes it.
+
+  obj Wrap
+    payload: Int
+
+  sub eat(rc: *Wrap)
+    print(rc.payload)
+
+  sub go(n: Int)
+    rc = *Wrap(payload: n)
+    match n
+      1 => eat(<rc)
+      _ => eat(<rc)
+
+  go(1)
+  go(2)
+
+fail "match pattern binding move twice", "19:7: use of `s` after move"
+  # `match <s` consumes the matched value, so a second match on `s` is a
+  # use after move.
+
+  obj Wrap
+    payload: Int
+
+  enum Slot
+    full(b: *Wrap)
+    empty
+
+  sub eat(rc: *Wrap)
+    print(rc.payload)
+
+  rc = *Wrap(payload: 5)
+  s: Slot = .full(b: <rc)
+  match <s
+    .full(b) => eat(<b)
+    .empty => print(0)
+  match s
+    .full(b) => print(b.payload)
+    .empty => print(0)
+
+test "match payload by name", release: true, '''
+  kept 1
+  drop 1
+  arm end
+  after 1
+  two 0
+  arm end
+  drop 2
+  after 2
+  three
+  drop 3
+  after 3
+  xs 0
+  drop 4
+  after 4
+  five
+  viewed
+  abc
+  drop 5
+  changed
+  taken big none
+  end
+  drop 6
+'''
+  # A consuming match that binds some fields by name owns them; every
+  # field it leaves out is dropped once, at the end of the arm, as a `_`
+  # field is. A read match's view of a field bound by name outlives the
+  # arm as a positional one does, and a write match writes it in place.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Bag
+    three(a: *B, label: String, xs: List[Int])
+    one(b: *B)
+    empty
+
+  obj Res
+    t: String
+
+  enum E
+    pair(r: Res, k: Int)
+    nothing
+
+  sub keep(b: *B)
+    print("kept", b.n)
+
+  fun label(e: ?Bag, d: ?String) -> ?String from e, d
+    match e
+      .three(label: t) => ?t
+      _ => d
+
+  fun res(e: ?E, d: ?Res) -> ?Res from e, d
+    match e
+      .pair(r: r) if r.t.len > 3 => ?r
+      .pair(r: r) => r
+      .nothing => d
+
+  fun take(e: E) -> Res
+    match <e
+      .pair(k: k) if k > 10 => Res(t: String("big"))
+      .pair(r: r) => <r
+      .nothing => Res(t: String("none"))
+
+  x: Bag = .three(a: *B(n: 1), label: String("one"), xs: List())
+  match <x
+    .three(a: a)
+      keep(<a)
+      print("arm end")
+    _ => pass
+  print("after 1")
+  y: Bag = .three(a: *B(n: 2), label: String("two"), xs: List())
+  match <y
+    .three(xs: v, label: t)
+      print(t, v.len)
+      print("arm end")
+    _ => pass
+  print("after 2")
+  z: Bag = .three(a: *B(n: 3), label: String("three"), xs: List())
+  match <z
+    .three(label: t) => print(t)
+    _ => pass
+  print("after 3")
+  w: Bag = .three(a: *B(n: 4), label: String("four"), xs: List())
+  match <w
+    .three(label: t) if t.len > 9 => print("long")
+    .three(xs: v) => print("xs", v.len)
+    _ => pass
+  print("after 4")
+  # A read match's view of a field bound by name, past the arm.
+  blank = String("")
+  dr = Res(t: String(""))
+  g: Bag = .three(a: *B(n: 5), label: String("five"), xs: List())
+  print(label(?g, ?blank))
+  e: E = .pair(r: Res(t: String("viewed")), k: 1)
+  print(res(?e, ?dr).t)
+  f: E = .pair(r: Res(t: String("abc")), k: 2)
+  print(res(?f, ?dr).t)
+  # A write match on owning fields, by name.
+  match !g
+    .three(label: t, a: a)
+      t = String("changed")
+      a = *B(n: 6)
+    _ => pass
+  print(label(?g, ?blank))
+  print(take(.pair(r: Res(t: String("taken")), k: 1)).t, take(.pair(r: Res(t: String("x")), k: 20)).t, take(.nothing).t)
+  print("end")
+
+fail "match payload copy escapes", "24:6: a view of the temporary `mkh(7)` outlives its statement", "27:6: a view of the temporary `mk(7)` outlives its statement"
+  # A match on a part of a made value holds that value for the match, and
+  # each payload is a view of it there: the view does not outlive the
+  # match.
+
+  obj Counter unique
+    hits: Int
+
+  enum E
+    a(c: Counter)
+    b
+
+  obj H
+    e: E
+
+  fun mkh(n: Int) -> H
+    H(e: E.a(c: Counter(hits: n)))
+
+  fun mk(n: Int) -> [1]E
+    [E.a(c: Counter(hits: n))]
+
+  one = [Counter(hits: 1)]
+  saved = ?one[0]
+  match mkh(7).e
+    .a(c) => saved = c
+    .b => pass
+  match mk(7)[0]
+    .a(c) => saved = c
+    .b => pass
+  print(saved.hits)
+
+test "match payload move with plain sibling", '''
+  9
+  5
+  drop
+  end
+'''
+  # A payload field of `match <s` may be moved out; the variant's other
+  # fields are plain data.
+
+  obj Wrap
+    payload: Int
+
+    drop(!self)
+      print("drop")
+
+  sub eat(rc: *Wrap)
+    print(rc.payload)
+
+  enum Slot
+    tagged(box: *Wrap, tag: Int)
+    empty
+
+  rc = *Wrap(payload: 5)
+  s: Slot = .tagged(box: <rc, tag: 9)
+  match <s
+    .tagged(box, tag)
+      print(tag)
+      eat(<box)
+    .empty => print(0)
+  print("end")
+
+test "match payload moved out of block", "hi"
+  # A payload moved out of `match <s` carries what the scrutinee held, not
+  # a view of the scrutinee, so it may outlive the scrutinee's block.
+
+  enum Slot
+    empty
+    full(f: *sub())
+
+  outer: List[*sub()] = List()
+  if true
+    s: Slot = .full(f: *|| print("hi"))
+    match <s
+      .full(f) => !outer.push(<f)
+      .empty => print("e")
+  for g in ?outer
+    g()
+
+test "match payload owner kept", '''
+  abc
+  abc
+'''
+  # The forms the payload-view hint names run: a new owner of what a read
+  # match's payload holds (`+t`), kept in a name declared before the
+  # match, and a payload moved out (`<t`) of a subject the match takes
+  # (`match <e`) (`test/reject/ownership/match_payload_view_hint.rig`).
+
+  enum E
+    a(t: String)
+    b
+
+  e = E.a(t: String("abc"))
+  r = String("x")
+  match e
+    .a(t) => r = +t
+    .b => pass
+  print(r)
+  s = String("y")
+  match <e
+    .a(t) => s = <t
+    .b => pass
+  print(s)
+
+fail "match payload view escapes", "27:8: cannot return a view of `e`, which this function was not lent", "37:3: cannot reassign `e` while it is lent", "47:8: cannot move `e` while a read loan is live", "54:8: a view of the temporary `mkh()` outlives its statement", "64:10: `e` does not live long enough", errors: 5
+  # A read `match` binding views the subject where it is, so a view of
+  # one lives as long as the subject's loan allows, and no longer: it is
+  # not returned from a function that owns the subject, the subject may
+  # not change, move, or end while the view is used, and a view of a value
+  # the header makes ends with the header.
+
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b
+
+  obj H
+    e: E
+
+  fun mk() -> E
+    E.a(r: Res(n: 1, t: String("m")))
+
+  fun mkh() -> H
+    H(e: mk())
+
+  fun local(d: ?Res) -> ?Res from d
+    e = mk()
+    match e
+      .a(r) => ?r
+      .b => d
+
+  sub changed()
+    e = mk()
+    k = Res(n: 0, t: String("k"))
+    saved = ?k
+    match e
+      .a(r) => saved = ?r
+      .b => pass
+    e = E.b
+    print(saved.n)
+
+  sub moved()
+    e = mk()
+    k = Res(n: 0, t: String("k"))
+    saved = ?k
+    match e
+      .a(r) => saved = ?r
+      .b => pass
+    f = <e
+    print(saved.n)
+
+  sub dropped()
+    k = Res(n: 0, t: String("k"))
+    saved = ?k
+    match mkh().e
+      .a(r) => saved = ?r
+      .b => pass
+    print(saved.n)
+
+  sub inner()
+    k = Res(n: 0, t: String("k"))
+    saved = ?k
+    if true
+      e = mk()
+      match e
+        .a(r) => saved = ?r
+        .b => pass
+    print(saved.n)
+
+  changed()
+
+test "match payload view in arm", '''
+  2003
+  1 hello
+  4003
+  4 5
+  6003
+  2 field
+  2003
+  3 boxed
+  1 5 1
+  8003
+  hello
+  1
+  10003
+  9 kept
+'''
+  # A view of a read `match` binding is used in its arm, however the arm
+  # reaches the subject, and a copy (`+r.t`) leaves the match. A catch-all
+  # binding of a lent subject views the subject where it is. A payload field
+  # that is itself a view points where it pointed, so it may leave.
+  # oracle: pick accept
+
+  obj P
+    x: Int
+    y: Int
+
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(p: P)
+
+  obj H
+    e: E
+
+  enum V
+    a(r: ?Res)
+    b
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    b = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1] + b[2]
+
+  sub see(r: ?Res)
+    print(clobber(1000))
+    print(r.n, r.t)
+
+  sub seep(p: ?P)
+    print(clobber(2000))
+    print(p.x, p.y)
+
+  fun count(e: ?E) -> Int
+    match e
+      .a(r) => r.n
+      .b(p) => p.x
+
+  sub arms(e: ?E)
+    match e
+      .a(r) => see(?r)
+      .b(p) => seep(?p)
+
+  sub local(h: ?H)
+    match h.e
+      .a(r)
+        w = ?r
+        print(clobber(3000))
+        print(w.n, w.t)
+      .b(_) => pass
+
+  sub guarded(b: ?^E)
+    match b
+      .a(r) if r.n > 0 => see(?r)
+      _ => print("other")
+
+  fun whole(e: ?E) -> Int
+    match e
+      .b(p) if p.y > 0 => p.y
+      x => count(x)
+
+  fun whole2(e: ?E) -> Int
+    match e
+      .b(_) => 0
+      x => count(x)
+
+  fun copied(e: ?E) -> String
+    match e
+      .a(r) => +r.t
+      .b(_) => String("none")
+
+  fun pick(v: ?V, d: ?Res) -> ?Res
+    match v
+      .a(r) => r
+      .b => d
+
+  fun gen[T](o: ?Opt[T]) -> Int
+    match o
+      .nothing => 0
+      x => gsize(x)
+
+  fun gsize[T](o: ?Opt[T]) -> Int
+    match o
+      .some(_) => 1
+      .nothing => 0
+
+  e = E.a(r: Res(n: 1, t: String("hello")))
+  arms(?e)
+  f = E.b(p: P(x: 4, y: 5))
+  arms(?f)
+  h = H(e: E.a(r: Res(n: 2, t: String("field"))))
+  local(?h)
+  b = ^E.a(r: Res(n: 3, t: String("boxed")))
+  guarded(?b)
+  print(whole(?e), whole(?f), whole2(?e))
+  c = copied(?e)
+  print(clobber(4000))
+  print(c)
+  o: Opt[Res] = .some(v: Res(n: 5, t: String("gen")))
+  print(gen(?o))
+  k = Res(n: 9, t: String("kept"))
+  v: V = .a(r: ?k)
+  dr = Res(n: 0, t: String("d"))
+  y = pick(?v, ?dr)
+  print(clobber(5000))
+  print(y.n, y.t)
+
+test "match payload view outlives arm", release: true, '''
+  3
+  a b box handle a b
+  2
+  gen .some(v: "gen") [3, 4] pick 5
+  2
+  x x x kt
+'''
+  # A read `match` matches its subject where it is (a place, a lent box or
+  # handle, a view a call returns, a guarded match, a generic body), so a
+  # binding that is no plain data views the subject's own payload: a view
+  # of it may be returned, stored past the arm, or yielded as the match's
+  # value, for as long as the subject's loan allows.
+
+  obj Res
+    n: Int
+    t: String
+    xs: [2]Int
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  obj Hold
+    r: ?Res
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  enum K
+    k(t: String)
+    empty
+
+  obj Key unique
+    n: Int
+
+  enum U
+    k(key: Key)
+    empty
+
+  fun get(e: ?E) -> ?E from e
+    e
+
+  fun ret(e: ?E) -> ?Res from e
+    match e
+      .a(r) => ?r
+      .b(r) => r
+
+  fun boxed(b: ?^E) -> ?Res from b
+    match b
+      .a(r) => ?r
+      .b(r) => ?r
+
+  fun shared(h: ?*E) -> ?Res from h
+    match h
+      .a(r) => ?r
+      .b(r) => ?r
+
+  fun guarded(e: ?E) -> ?Res from e
+    match get(e)
+      .a(r) if r.n > 1 => ?r
+      .a(r) => ?r
+      .b(r) => ?r
+
+  fun whole(e: ?E) -> ?E from e
+    match get(e)
+      .b(r) if r.n > 0 => e
+      x => x
+
+  fun peek[T](o: ?Opt[T], d: ?T) -> ?T from o, d
+    match o
+      .some(v) => ?v
+      .nothing => d
+
+  fun gwhole[T](o: ?Opt[T]) -> ?Opt[T] from o
+    match o
+      .nothing => o
+      x => ?x
+
+  fun elems(e: ?E, d: ?[2]Int) -> []Int from e, d
+    match e
+      .a(r) => ?r.xs[0..2]
+      .b(_) => ?d[0..1]
+
+  fun pick(e: ?K) -> ?String from e
+    match ?e
+      .k(t) => return ?t
+      .empty => return "none"
+
+  fun ukey(o: ?U, d: ?Key) -> ?Key from o, d
+    match o
+      .k(kk) => ?kk
+      .empty => d
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  sub stores()
+    e = E.a(r: Res(n: 1, t: String("x"), xs: [1, 2]))
+    k = Res(n: 0, t: String("k"), xs: [0, 0])
+    saved = ?k
+    match e
+      .a(r) => saved = ?r
+      .b(_) => pass
+    hold = Hold(r: ?k)
+    match e
+      .a(r) => hold.r = ?r
+      .b(_) => pass
+    v = match e
+      .a(r) => ?r
+      .b(r) => ?r
+    s: ?String = "s"
+    o = K.k(t: String("kt"))
+    match o
+      .k(t) => s = ?t
+      .empty => pass
+    print(clobber(1))
+    print(saved.t, hold.r.t, v.t, s)
+
+  e = E.a(r: Res(n: 2, t: String("a"), xs: [3, 4]))
+  f = E.b(r: Res(n: 0, t: String("b"), xs: [5, 6]))
+  bx = ^E.a(r: Res(n: 3, t: String("box"), xs: [7, 8]))
+  h = *E.b(r: Res(n: 4, t: String("handle"), xs: [9, 9]))
+  r1 = ret(?e)
+  r2 = ret(?f)
+  r3 = boxed(?bx)
+  r4 = shared(?h)
+  r5 = guarded(?e)
+  r6 = guarded(?f)
+  w1 = whole(?e)
+  o = Opt.some(v: String("gen"))
+  d = String("d")
+  g1 = peek(?o, ?d)
+  g2 = gwhole(?o)
+  zz = [0, 0]
+  x1 = elems(?e, ?zz)
+  kk = K.k(t: String("pick"))
+  p1 = pick(?kk)
+  u = U.k(key: Key(n: 5))
+  dk = Key(n: 0)
+  k1 = ukey(?u, ?dk)
+  print(clobber(2))
+  print(r1.t, r2.t, r3.t, r4.t, r5.t, r6.t)
+  match w1
+    .a(r) => print(r.n)
+    .b(r) => print(r.n)
+  print(g1, g2, x1, p1, k1.n)
+  stores()
+
+test "match payload views", '''
+  6 6
+  2
+  3
+  .a(c: Counter(hits: Cell(value: 3)))
+  1
+'''
+  # A read match binds a payload that is not plain data as a view (`?F`)
+  # of the field where it is, and so the binding of a catch-all arm, usable
+  # within its arm: through a place, a lent box or handle, a view a call
+  # returns (held as the pointer it is, also under a guard), and a generic
+  # body. A `Cell` it changes is the matched value's own.
+
+  obj Res
+    n: Int
+    t: String
+
+  obj Counter
+    hits: Cell[Int]
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+  enum E
+    a(r: Res)
+    b(r: Res)
+
+  enum C
+    a(c: Counter)
+    b
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  fun get(e: !C) -> !C
+    e
+
+  fun show(r: ?Res) -> Int
+    r.n
+
+  fun inner(e: ?E) -> Int
+    match e
+      .a(r) => show(r) + r.t.len
+      .b(r) => show(?r)
+
+  fun boxed(b: ?^E) -> Int
+    match b
+      .a(r) if r.n > 0 => r.n
+      .a(r) => -r.n
+      .b(r) => r.n
+
+  fun shared(h: ?*E) -> Int
+    match h
+      .a(r) => r.n
+      .b(r) => r.n
+
+  fun peek[T](o: ?Opt[T]) -> Int
+    match o
+      .some(v) => 1
+      .nothing => 0
+
+  e = E.a(r: Res(n: 1, t: String("place")))
+  print(inner(?e), inner(e))
+  b = ^E.b(r: Res(n: 2, t: String("box")))
+  print(boxed(b))
+  h = *E.a(r: Res(n: 3, t: String("handle")))
+  print(shared(h))
+  c = *C.a(c: Counter(hits: Cell(1)))
+  match get(!c)
+    .a(k) if k.hits.get() > 0 => !k.hit()
+    .a(k) => !k.hit()
+    .b => pass
+  match get(!c)
+    .a(k) => !k.hit()
+    .b => pass
+  match c
+    x => print(x)
+  o: Opt[Res] = .some(v: Res(n: 7, t: String("seven")))
+  print(peek(o))
+
+fail "match payload write view", "9:6: a write view is never stored inside a value, and `!Wrap` cannot stand here", errors: 1
+  # A payload holding a write view, which `match !h` once wrote through,
+  # cannot be written: a write view is never stored inside a value, so
+  # `Ed`'s `!Wrap` field is rejected.
+
+  obj Wrap
+    v: List[Int]
+
+  obj Ed
+    t: !Wrap
+
+  enum Hold
+    none_
+    has(e: Ed)
+
+  x = Wrap(v: List())
+  h: Hold = .has(e: Ed(t: !x))
+  match !h
+    .has(a) => !a.t.v.push(1)
+    .none_ => print("none")
+  print(x.v.len)
+
+fail "match payload write view twice", "17:14: cannot lend `h` to write while a write loan is live"
+  # A `match !h` payload lends to write its scrutinee while it is live, so
+  # a nested match on the same value cannot bind a second view of it.
+
+  obj Wrap
+    v: List[Int]
+
+  enum Hold
+    none_
+    has(w: Wrap)
+
+  x = Wrap(v: List())
+  !x.v.push(1)
+  h: Hold = .has(<x)
+  match !h
+    .has(a)
+      for n in ?a.v
+        match !h
+          .has(b)
+            b.v = List()
+          .none_
+            print("n")
+        print(n)
+    .none_
+      print("none")
+
+fail "match read payload assign", "11:5: cannot assign to `r`: it is a copy of a field of `c`; to change the field in place, match with `match !c`", "16:5: cannot assign to `r`: it is a read view of a field of `c`; to change the field in place, match with `match !c`"
+  # A payload binding of a bare or `?` match is a copy or read view:
+  # writing the matched value in place takes `match !e`.
+
+  enum Shape
+    circle(r: Int)
+    square(s: Int)
+
+  c: Shape = .circle(r: 1)
+  match c
+    .circle(r)
+      r += 1
+      print(r)
+    .square(s) => print(s)
+  match ?c
+    .circle(r)
+      r = 5
+      print(r)
+    .square(s) => print(s)
+  print(c)
+
+fail "match subject lent through arms", "32:23: cannot lend `v` to write while a write loan is live", "38:29: cannot lend `v` to write while a write loan is live", "43:25: cannot lend `v` to write while a write loan is live", "49:16: cannot lend `h` to write while a write loan is live", "52:15: cannot lend `v` to write while a read loan is live", errors: 5
+  # A `match` reads its subject again after a guard runs, to test the next
+  # arm's pattern: what the subject views stays lent through every guard,
+  # in a nested match too. A write lend of it there is rejected, as is one
+  # in an arm whose subject views it through a write view the arm uses,
+  # in the body of an `if … as` whose binding views it and is used after,
+  # and in a loop walking a view of it.
+
+  enum Shape
+    circle(r: Int)
+    point
+
+  fun grow(v: !List[Shape]) -> Bool
+    for _ in 0..100
+      !v.push(.point)
+    false
+
+  obj H
+    o: ^Int?
+
+  fun clear(h: !H) -> Bool
+    h.o = none
+    false
+
+  fun first(v: ?List[Shape]) -> []Shape
+    ?v[..1]
+
+  v: List[Shape] = List()
+  !v.push(.circle(r: 5))
+  w = !v
+  n = match ?w[0]
+    .point => 0
+    .circle(_) if grow(!v) => 1
+    .circle(_) => 2
+  print(n)
+  x = !v
+  match ?x[0]
+    .point => print(0)
+    .circle(_) => print(grow(!v), x.len)
+  k = 1
+  y = !v
+  match k
+    1 => match ?y[0]
+      .circle(_) if grow(!v) => print(k)
+      _ => print(0)
+    _ => print(k)
+  h = H(o: ^3)
+  z = !h
+  if ?z.o as s
+    print(clear(!h))
+    print(s)
+  for s in first(?v)
+    print(grow(!v), s)
+
+test "match subject loan ends with bindings", '''
+  4
+  6
+'''
+  # The view `match !t` takes lasts while its bindings are live: once
+  # they are done, an arm may reassign `t`.
+
+  enum Tree
+    leaf(v: Int)
+    node(l: ^Tree, r: ^Tree)
+
+  sub prune(t: !Tree)
+    match !t
+      .node(l, _)
+        l = ^Tree.leaf(v: 7)
+        t = .leaf(v: 5)
+      .leaf(v) => v += 1
+
+  sub show(t: ?Tree)
+    match t
+      .leaf(v) => print(v)
+      _ => print("node")
+
+  t: Tree = .node(l: ^Tree.leaf(v: 1), r: ^Tree.leaf(v: 3))
+  match !t
+    .node(l, _)
+      l = ^Tree.leaf(v: 7)
+      t = .leaf(v: 4)
+    .leaf(v) => v += 1
+  show(?t)
+  u: Tree = .node(l: ^Tree.leaf(v: 1), r: ^Tree.leaf(v: 3))
+  prune(!u)
+  prune(!u)
+  show(?u)
+
+fail "match subject reassign while binding live", "11:5: cannot reassign `t` while it is lent", "14:5: cannot reassign `t` while it is lent", "18:5: cannot reassign `t` while it is lent"
+  # While a payload binding is live, the matched value cannot be
+  # reassigned: the binding views what the old value holds.
+
+  enum Tree
+    leaf(v: Int)
+    node(l: ^Tree, r: ^Tree)
+
+  t: Tree = .node(l: ^Tree.leaf(v: 1), r: ^Tree.leaf(v: 3))
+  match !t
+    .node(l, _)
+      t = .leaf(v: 4)
+      l = ^Tree.leaf(v: 7)
+    .leaf(v)
+      t = .leaf(v: 9)
+      v += 1
+  match ?t
+    .node(l, _)
+      t = .leaf(v: 4)
+      print(l)
+    _ => print("x")
+
+test "match tail payload moves out", '''
+  drop 2
+  1
+  3
+  drop 3
+  drop 1
+'''
+  # `match <o` may yield a payload as its value, returned or bound: the
+  # payload moves out of the consumed scrutinee.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Opt
+    some(v: *B)
+    nothing
+
+  fun get(o: Opt, d: *B) -> *B
+    match <o
+      .some(v) => v
+      .nothing => <d
+
+  fun get2(o: Opt, d: *B) -> *B
+    x = match <o
+      .some(v) => v
+      .nothing => <d
+    <x
+
+  o: Opt = .some(v: *B(n: 1))
+  x = get(<o, *B(n: 2))
+  print(x.n)
+  p: Opt = .nothing
+  y = get2(<p, *B(n: 3))
+  print(y.n)
+
+fail "match tail payload of viewed", "cannot move out of `v`: it is a view of `self`", "23:17: incompatible types `?*B` and `*B`"
+  # A match that yields a payload of a viewed scrutinee as its value
+  # would copy the handle out of the viewed value (and drop it twice),
+  # whether the match is returned or bound.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Opt
+    some(v: *B)
+    nothing
+
+    fun copy_out(?self, d: *B) -> *B
+      match self
+        .some(v) => v
+        .nothing => <d
+
+  fun get(o: ?Opt, d: *B) -> *B
+    x = match o
+      .some(v) => v
+      .nothing => <d
+    <x
+
+  print(1)
+
+fail "match view into header temporary", "34:13: this `match` reads the view its subject returns after its header drops the temporary `mkh(7)` it points into; bind `mkh(7)` to a name first", "37:13: the temporary `mkh(8)`", "40:14: the temporary `mkg(?String(\"a text long enough to live on the heap\"))`", errors: 3
+  # A `match` on a view a call returns reads its subject, the tag and every
+  # payload, where the view points, after the header that made the call: a
+  # view into a temporary the header made reads it after the header drops
+  # it. A view of a place is matched where it points (`match pick(?h)`).
+
+  enum E
+    a(n: Int)
+    b
+
+  enum F
+    a(s: ?String)
+    b
+
+  obj H
+    e: E
+    t: String
+
+  obj G
+    f: F
+
+  fun mkh(k: Int) -> H
+    H(e: E.a(n: k), t: String("a text long enough to live on the heap"))
+
+  fun mkg(s: ?String) -> G from s
+    G(f: F.a(s: s))
+
+  fun pick(h: ?H) -> ?E
+    ?h.e
+
+  fun pickf(g: ?G) -> ?F from g
+    ?g.f
+
+  k = 1
+  match pick(?mkh(7))
+    .a(n) => print("a", n)
+    .b => print("b")
+  match pick(?mkh(8))
+    .a(n) if k > 0 => print("a", n)
+    _ => print("other")
+  match pickf(?mkg(?String("a text long enough to live on the heap")))
+    .a(s) => print(s)
+    .b => print("b")
+  h = mkh(9)
+  match pick(?h)
+    .a(n) => print("a", n)
+    .b => print("b")
+  match pick(?h)
+    .a(n) if n > k => print("a", n)
+    _ => print("other")
+
+fail "match view subject misuse", "16:9: `match <s` consumes an owned value, and `s` is a write view (`!Slot`); write the payload in place with `match !s`, or read it with `match s`", "21:10: cannot lend to write through a read view `?Slot`", "27:10: cannot assign to `x`: it is a read view of `s`; to change it in place, match with `match !s`"
+  # `match <s` on a write view points at `match !s`; `match !s` through a
+  # read view is one error, not a cascade; a bare match's binding of the
+  # whole viewed value only reads.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Slot
+    full(b: *B)
+    empty
+
+  sub take(s: !Slot)
+    match <s
+      .full(b) => print(b.n)
+      .empty => print("e")
+
+  sub show(s: ?Slot)
+    match !s
+      .full(b) => b = *B(n: 3)
+      .empty => print("e")
+
+  sub clear(s: !Slot)
+    match s
+      x => x = .empty
+
+  pass
+
+fail "match write binding excludes", "11:11: use of `c` while a write loan is live"
+  # A `match !c` binding lends `c` to write while it is live, so `c` cannot
+  # be used then.
+
+  enum Shape
+    circle(r: Int)
+    rect(w: Int, h: Int)
+
+  c: Shape = .circle(r: 1)
+  match !c
+    .circle(r)
+      print(c)
+      r += 1
+    _ => print("x")
+
+test "match write payload", '''
+  .circle(r: 2)
+  .circle(r: 3)
+  .rect(w: 4, h: 10)
+  .circle(r: 50)
+  drop 1
+  2 1 7
+  .rect(w: 1, h: 1)
+  end
+  drop 2
+'''
+  # `match !e` binds each payload field as a write view of the field:
+  # assigning it writes the matched value in place (a resource replaced is
+  # dropped), through a local, a `!T` parameter, a field, or a box.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Shape
+    circle(r: Int)
+    rect(w: Int, h: Int)
+
+  obj Holder
+    s: Shape
+
+  enum Slot
+    full(b: *B, v: List[Int])
+    empty
+
+  sub grow(s: !Shape)
+    match !s
+      .circle(r) => r += 1
+      .rect(w, h)
+        w *= 2
+        h = 10
+
+  c: Shape = .circle(r: 1)
+  match !c
+    .circle(r) => r += 1
+    .rect(w, _) => w = 0
+  print(c)
+  grow(!c)
+  print(c)
+  x = Holder(s: .rect(w: 2, h: 3))
+  grow(!x.s)
+  print(x.s)
+  b = ^Shape.circle(r: 5)
+  match !b
+    .circle(r) => r = 50
+    _ => print("other")
+  print(b)
+  s: Slot = .full(b: *B(n: 1), v: List())
+  match !s
+    .full(h, v)
+      h = *B(n: 2)
+      !v.push(7)
+    .empty => print("empty")
+  match s
+    .full(h, v) => print(h.n, v.len, v[0])
+    .empty => print("empty")
+  match !c
+    whole => whole = .rect(w: 1, h: 1)
+  print(c)
+  print("end")
+
+test "match write payload lend ends", release: true, '''
+  ello
+  ello! he
+  hello!?
+  .a(t: "hello!?")
+  1
+  [1, 2]
+  .a(xs: [1, 2, 3])
+  ox
+  n
+  .a(b: "new")
+  art
+  []
+  p parts [4]
+  .a(t: "whole")
+  .b
+  n
+  .a(t: "inner")
+  param
+  .a(t: "  param  +")
+  oxed
+  eld
+  ield
+  .a(t: "boxed!") .a(t: "held!") .a(t: "field!")
+  3
+  107
+  v12
+  =v123
+  k=v1234
+  .a(t: "k=v12345")
+  .a(t: "read")
+'''
+  # A lend of a `match !e` binding is a loan on the binding, which ends at
+  # the last use of the view: the arm may read a view of the payload, and
+  # write through the binding before the lend and after the view's last
+  # use, for each kind of payload, subject, and lend. A read match's
+  # binding, a write view by its type or not, is a read view, whose view
+  # may leave the arm.
+  # oracle: texts accept
+  # oracle: vec accept
+  # oracle: boxed accept
+  # oracle: parts accept
+  # oracle: whole accept
+  # oracle: nested accept
+  # oracle: param accept
+  # oracle: subjects accept
+  # oracle: forms accept
+  # oracle: whole_of accept
+  # oracle: read_match accept
+
+
+  enum E
+    a(t: String)
+    b
+
+  enum V
+    a(xs: List[Int])
+    b
+
+  enum B
+    a(b: ^String)
+    b
+
+  obj P
+    t: String
+    xs: List[Int]
+
+    fun head(?self) -> ?String
+      ?self.t[..1]
+
+  enum S
+    a(p: P)
+    b
+
+  enum O
+    a(e: E)
+    b
+
+  obj HE
+    e: E
+
+  obj H
+    s: ?String
+
+  fun keep(s: ?String) -> ?String
+    s
+
+  sub texts()
+    e = E.a(String("hello"))
+    match !e
+      .a(t)
+        r = ?t[1..]
+        print(r)
+        !t.add("!")
+        s = keep(?t[1..])
+        print(s, t[..2])
+        !t.add("?")
+        u = ?t
+        print(u)
+      .b => pass
+    print(e)
+
+  sub vec()
+    v: List[Int] = List()
+    !v.push(1)
+    e = V.a(<v)
+    match !e
+      .a(xs)
+        r = ?xs
+        print(r.len)
+        !xs.push(2)
+        s = ?xs[..]
+        print(s)
+        !xs.push(3)
+      .b => pass
+    print(e)
+
+  sub boxed()
+    e = B.a(^String("box"))
+    match !e
+      .a(b)
+        s = keep(?b[1..])
+        print(s)
+        b = ^String("new")
+        print(b[..1])
+      .b => pass
+    print(e)
+
+  sub parts()
+    e = S.a(P(t: String("part"), xs: List()))
+    match !e
+      .a(p)
+        s = ?p.t[1..]
+        print(s)
+        !p.t.add("s")
+        r = ?p.xs[..]
+        print(r)
+        !p.xs.push(4)
+        print(p.head(), p.t, p.xs)
+      .b => pass
+
+  sub whole()
+    e = E.a(String("whole"))
+    match !e
+      x
+        r = ?x
+        print(r)
+        x = E.b
+    print(e)
+
+  sub nested()
+    e = O.a(E.a(String("in")))
+    match !e
+      .a(i)
+        match !i
+          .a(t)
+            s = ?t[1..]
+            print(s)
+            !t.add("ner")
+          .b => pass
+        print(i)
+      .b => pass
+
+  sub param(e: !E)
+    match !e
+      .a(t)
+        s = text.trim(?t)
+        print(s)
+        !t.add("+")
+      .b => pass
+
+  sub subjects()
+    e = ^E.a(String("boxed"))
+    match !e
+      .a(t)
+        s = ?t[1..]
+        print(s)
+        !t.add("!")
+      .b => pass
+    f = E.a(String("held"))
+    w = !f
+    match !w
+      .a(t)
+        s = ?t[1..]
+        print(s)
+        !t.add("!")
+      .b => pass
+    h = HE(e: E.a(String("field")))
+    match !h.e
+      .a(t)
+        s = ?t[1..]
+        print(s)
+        !t.add("!")
+      .b => pass
+    print(e, f, h.e)
+
+  sub forms()
+    e = E.a(String("k=v"))
+    match !e
+      .a(t)
+        f = |?t| t.len
+        print(f())
+        !t.add("1")
+        for c in ?t[..1]
+          print(c)
+        !t.add("2")
+        if text.cut(?t, "=") as kv
+          print(kv.after)
+        !t.add("3")
+        h = H(s: ?t[1..])
+        print(h.s)
+        !t.add("4")
+        o: (?String)? = ?t
+        print(o)
+        !t.add("5")
+      .b => pass
+    print(e)
+
+  fun whole_of(o: !E) -> ?E from o
+    match o
+      x => ?x
+
+  sub read_match()
+    e = E.a(String("read"))
+    r = whole_of(!e)
+    print(r)
+
+  texts()
+  vec()
+  boxed()
+  parts()
+  whole()
+  nested()
+  e = E.a(String("  param  "))
+  param(!e)
+  print(e)
+  subjects()
+  forms()
+  read_match()
+
+fail "match write payload lent", "67:7: cannot lend `t` to write while a read loan is live", "76:7: cannot lend `t` to write while a read loan is live", "85:7: cannot lend `t` to write while a read loan is live", "94:7: cannot reassign `t` while it is lent", "102:7: cannot lend `t` to write while a read loan is live", "111:7: cannot lend `t` to write while a read loan is live", "120:7: cannot lend `x` to write while a read loan is live", "129:7: cannot reassign `b` while it is lent", "140:7: cannot lend `xs` to write while a read loan is live", "143:7: cannot lend `xs` to write while a read loan is live", "152:7: cannot lend `p.t` to write while a read loan is live", "155:7: cannot lend `p.xs` to write while a read loan is live", "164:7: cannot reassign `x` while it is lent", "174:11: cannot lend `t` to write while a read loan is live", "184:7: cannot lend `t` to write while a read loan is live", "194:7: cannot lend `t` to write while a read loan is live", "203:7: cannot lend `t` to write while a read loan is live", "211:7: cannot reassign `t` while it is lent", "217:7: cannot lend `xs` to write while a read loan is live", errors: 19
+  # A binding of `match !e` is a write view of the payload it binds, so a
+  # lend of it is a loan on the binding, as a lend of any write view is
+  # (`!T` parameters, `if !o as w`, `for x in !v`): while a view of it is
+  # live, nothing writes through the binding. Each binding kind, payload
+  # type, and lend is rejected at the write, a bare slice argument's
+  # read lend too.
+  # oracle: slice reject C4
+  # oracle: argument reject C4
+  # oracle: whole reject C4
+  # oracle: reassign reject C4
+  # oracle: param reject C4
+  # oracle: boxed_subject reject C4
+  # oracle: named reject C4
+  # oracle: box_payload reject C4
+  # oracle: vec_payload reject C4
+  # oracle: struct_payload reject C4
+  # oracle: catch_all reject C4
+  # oracle: nested reject C4
+  # oracle: read_call reject C4
+  # oracle: held_subject reject C4
+  # oracle: field_subject reject C4
+  # oracle: bare_argument reject C4
+
+
+  enum E
+    a(t: String)
+    b
+
+  enum N
+    a(t: String, n: Int)
+    b
+
+  enum B
+    a(b: ^String)
+    b
+
+  enum V
+    a(xs: List[Int])
+    b
+
+  obj P
+    t: String
+    xs: List[Int]
+
+  enum S
+    a(p: P)
+    b
+
+  enum O
+    a(e: E)
+    b
+
+  obj HE
+    e: E
+
+  fun keep(s: ?String) -> ?String
+    s
+
+  fun keepv(s: []Int) -> []Int
+    s
+
+  sub slice()
+    e = E.a(String("hello"))
+    match !e
+      .a(t)
+        s = ?t[1..]
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+      .b => pass
+
+  sub argument()
+    e = E.a(String("hello"))
+    match !e
+      .a(t)
+        s = keep(?t[1..])
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+      .b => pass
+
+  sub whole()
+    e = E.a(String("hello"))
+    match !e
+      .a(t)
+        r = ?t
+        !t.add("x")
+        print(r)
+      .b => pass
+
+  sub reassign()
+    e = E.a(String("hello"))
+    match !e
+      .a(t)
+        s = keep(?t[1..])
+        t = String("other")
+        print(s)
+      .b => pass
+
+  sub param(e: !E)
+    match !e
+      .a(t)
+        s = ?t[1..]
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+      .b => pass
+
+  sub boxed_subject()
+    e = ^E.a(String("hello"))
+    match !e
+      .a(t)
+        s = ?t[1..]
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+      .b => pass
+
+  sub named()
+    e = N.a(t: String("hello"), n: 1)
+    match !e
+      .a(t: x)
+        s = ?x[1..]
+        !x.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+      _ => pass
+
+  sub box_payload()
+    e = B.a(^String("hello"))
+    match !e
+      .a(b)
+        s = keep(?b[1..])
+        b = ^String("other")
+        print(s)
+      .b => pass
+
+  sub vec_payload()
+    v: List[Int] = List()
+    !v.push(1)
+    e = V.a(<v)
+    match !e
+      .a(xs)
+        r = ?xs
+        !xs.push(2)
+        print(r.len)
+        s = ?xs[..]
+        !xs.push(3)
+        print(s)
+      .b => pass
+
+  sub struct_payload()
+    e = S.a(P(t: String("hello"), xs: List()))
+    match !e
+      .a(p)
+        s = ?p.t[1..]
+        !p.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+        r = ?p.xs[..]
+        !p.xs.push(1)
+        print(r)
+      .b => pass
+
+  sub catch_all()
+    e = E.a(String("hello"))
+    match !e
+      x
+        r = ?x
+        x = E.b
+        print(r)
+
+  sub nested()
+    e = O.a(E.a(String("hello")))
+    match !e
+      .a(i)
+        match !i
+          .a(t)
+            s = ?t[1..]
+            !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+            print(s)
+          .b => pass
+      .b => pass
+
+  sub read_call()
+    e = E.a(String("  hello  "))
+    match !e
+      .a(t)
+        s = text.trim(?t)
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+      .b => pass
+
+  sub held_subject()
+    e = E.a(String("hello"))
+    w = !e
+    match !w
+      .a(t)
+        s = ?t[1..]
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+      .b => pass
+
+  sub field_subject()
+    h = HE(e: E.a(String("hello")))
+    match !h.e
+      .a(t)
+        s = ?t[1..]
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+      .b => pass
+
+  sub bare_argument(e: !E, f: !V)
+    match !e
+      .a(t)
+        s = keep(?t[1..])
+        t = String("other")
+        print(s)
+      .b => pass
+    match !f
+      .a(xs)
+        s = keepv(?xs[..])
+        !xs.push(2)
+        print(s)
+      .b => pass
+
+  slice()
+
+fail "match write payload lent forms", "37:7: cannot lend `t` to write while a read loan is live", "46:9: cannot lend `t` to write while a read loan is live", "55:9: cannot lend `t` to write while a read loan is live", "64:7: cannot lend `t` to write while a read loan is live", "74:7: cannot lend `t` to write while a read loan is live", "83:7: cannot lend `r.t` to write while a read loan on `r` is live", "92:7: cannot lend `t` to write while a read loan is live", errors: 7
+  # Every form of lend of a `match !e` binding puts a loan on the binding,
+  # which a write through it while the view is live conflicts with: a
+  # `|?t|` capture, a `for` source, an `if … as` subject, a view stored in
+  # a struct, pushed to a List, or kept as an optional, and a view a `?self`
+  # method returns.
+  # oracle: capture reject C4
+  # oracle: loop_over reject C4
+  # oracle: if_as reject C4
+  # oracle: stored reject C4
+  # oracle: pushed reject C4
+  # oracle: method reject C4
+  # oracle: optional reject C4
+
+
+  obj H
+    s: ?String
+
+  obj R
+    t: String
+
+    fun head(?self) -> ?String
+      ?self.t[..1]
+
+  enum E
+    a(t: String)
+    b
+
+  enum ER
+    a(r: R)
+    b
+
+  sub capture()
+    e = E.a(String("hello"))
+    match !e
+      .a(t)
+        f = |?t| t.len
+        !t.add("x")
+        print(f())
+      .b => pass
+
+  sub loop_over()
+    e = E.a(String("hello"))
+    match !e
+      .a(t)
+        for c in ?t[..]
+          !t.add("x")
+          print(c)
+      .b => pass
+
+  sub if_as()
+    e = E.a(String("k=v"))
+    match !e
+      .a(t)
+        if text.cut(?t, "=") as kv
+          !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+          print(kv.after)
+      .b => pass
+
+  sub stored()
+    e = E.a(String("hello"))
+    match !e
+      .a(t)
+        h = H(s: ?t[1..])
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(h.s)
+      .b => pass
+
+  sub pushed()
+    e = E.a(String("hello"))
+    match !e
+      .a(t)
+        v: List[?String] = List()
+        !v.push(?t[1..])
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(v)
+      .b => pass
+
+  sub method()
+    e = ER.a(R(t: String("hello")))
+    match !e
+      .a(r)
+        s = r.head()
+        !r.t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(s)
+      .b => pass
+
+  sub optional()
+    e = E.a(String("hello"))
+    match !e
+      .a(t)
+        o: (?String)? = ?t
+        !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+        print(o)
+      .b => pass
+
+  capture()
+
+test "match write payload views", '''
+  2
+  5
+  3
+  15 hi there!
+  909
+  900
+  1000
+'''
+  # Bindings of a `match !e` point into the matched value: a write through
+  # one, a view returned from one, and a whole-value write all land in it.
+
+  obj P
+    x: Int
+    y: Int
+
+  obj Res
+    n: Int
+    t: String
+
+  enum E
+    a(r: Res)
+    b(p: P)
+    c(r: Res)
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun pick(e: !E, d: !Res) -> !Res
+    match !e
+      .a(r) => r
+      .c(r) => r
+      .b(_) => d
+
+  sub grow(e: !E)
+    match !e
+      .a(r) if r.n > 0
+        r.n += 10
+        !r.t.add("!")
+      .a(r) => r.n = 0
+      .b(p) => p.x += 1
+      .c(_) => pass
+
+  sub reset(e: !E)
+    match !e
+      .b(p) if p.y > 0 => p.y = 0
+      x => x = E.b(p: P(x: 9, y: 9))
+
+  fun first(e: ?E) -> Int
+    match e
+      .a(r) => r.n
+      .b(p) => p.x * 100 + p.y
+      .c(r) => r.n
+
+  e = E.a(r: Res(n: 1, t: String("hi")))
+  d = Res(n: 0, t: String("d"))
+  r = pick(!e, !d)
+  print(clobber(1))
+  r.n = 5
+  !r.t.add(" there")
+  print(first(?e))
+  grow(!e)
+  print(clobber(2))
+  match e
+    .a(q) => print(q.n, q.t)
+    _ => pass
+  reset(!e)
+  print(first(?e))
+  reset(!e)
+  print(first(?e))
+  grow(!e)
+  print(first(?e))

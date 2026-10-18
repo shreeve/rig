@@ -1,0 +1,1079 @@
+# ownership: tests whose names start `field`.
+
+use std.text
+
+test "field argument read beside write", '''
+  [1] 1
+  [9]
+'''
+  # An argument that reads `p.a` in place is held until the call runs; a
+  # later argument may still lend `p.b` to write, a disjoint path.
+
+  obj P
+    a: List[Int]
+    b: List[Int]
+
+  fun grow(v: !List[Int]) -> Int
+    !v.push(9)
+    v.len
+
+  p = P(a: List(), b: List())
+  !p.a.push(1)
+  print(p.a, grow(!p.b))
+  print(p.b)
+
+test "field box fields", "id 1"
+  # A path continues through a box (`^T`), which has one owner.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_box_fields.rig).
+
+  obj Node
+    name: String
+    n: Int
+
+  b = ^Node(name: String("id"), n: 0)
+  r = ?b.name
+  b.n = 1
+  print(r, b.n)
+
+  # oracle: main accept
+
+fail "field closure captures whole", "15:1: cannot assign to `p.n` while `p` is lent", errors: 1
+  # A closure captures a name, not a path (`|?p|` lends all of `p` for the
+  # closure's life), so writing any field of `p` while the closure lives
+  # conflicts. A field-precise capture would need a capture of a path,
+  # which neither proposal adds.
+  # Rule: a closure captures each name with a sigil (Core §7).
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_closure_captures_whole.rig).
+
+  obj P
+    name: String
+    n: Int
+
+  p = P(name: String("ab"), n: 0)
+  f = |?p| p.name.len
+  p.n = 1
+  print(f())
+
+test "field closure read capture writes nothing", "7"
+  # A closure's body may store what one capture views through another
+  # capture's write view, so making it lets what the write captures lead
+  # to hold the captures' loans; a read capture leads nowhere, though its
+  # value carries `self`'s own write loan. So the closure stores nothing in
+  # `self` through `?hv`.
+
+  obj Holder
+    n: Int
+
+  obj Scanner
+    text: ?String
+    end: Int
+
+  obj Parser
+    scanner: Scanner
+    h: ?Holder
+
+    sub go(!self)
+      hv = self.h
+      sc = !self.scanner
+      g = |!sc, ?hv|
+        sc.end = hv.n
+      g()
+      print(self.scanner.end)
+
+  k = Holder(n: 7)
+  p = Parser(scanner: Scanner(text: "", end: 0), h: ?k)
+  !p.go()
+
+test "field drop body struct", '''
+  a.ts
+  close a.ts 1
+'''
+  # A struct with a `drop` body is lent field by field like any other; its
+  # drop runs once, at the end of its scope, after every loan is done.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_drop_body_struct.rig).
+
+  obj File
+    name: String
+    uses: Int
+
+    drop(!self)
+      print("close", self.name, self.uses)
+
+  f = File(name: String("a.ts"), uses: 0)
+  r = ?f.name
+  f.uses += 1
+  print(r)
+
+fail "field drop order view into sibling", "17:1: cannot store in `p.v` a view of `p.s`: a value never holds a view of itself", errors: 1
+  # If `p.v` could view `p.s`, the drop order of `p`'s fields would decide
+  # whether `p`'s `drop` body reads freed bytes; Rig rules such a value
+  # out instead of ordering drops (a value never holds a view of itself).
+  # Rule: a value never holds a view of itself (proposal-field-loans §3,
+  # 1c).
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_drop_order_view_into_sibling.rig).
+
+  obj P
+    s: String
+    v: ?String
+
+    drop(!self)
+      print(self.v)
+
+  p = P(s: String("abc"), v: "")
+  p.v = ?p.s[0..1]
+  print(p.s)
+
+  # oracle: main reject C9
+
+fail "field element then field of owner", "16:1: cannot assign to `p.items` while `p.items` is lent", errors: 1
+  # `?p.items[0]` is a loan on `p.items`; replacing the whole list frees
+  # the element.
+  # Rule: a path stops at an element; assigning the path so far overlaps.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_element_then_field_of_owner.rig).
+
+  obj Item
+    name: String
+
+  obj P
+    items: List[Item]
+
+  p = P(items: List())
+  !p.items.push(Item(name: String("a")))
+  r = ?p.items[0].name
+  p.items = List()
+  print(r)
+
+fail "field elements overlap", "19:1: cannot lend `p.items` to write while a read loan is live", errors: 1
+  # An index is a run-time value, so `v[0]` and `v[1]` cannot be told
+  # apart; and a push may move the whole buffer. A path stops at an
+  # element.
+  # Rule: a path stops at an element; the loan is on the path so far
+  # (`p.items`).
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_elements_overlap.rig).
+
+  obj Item
+    n: Int
+
+  obj P
+    items: List[Item]
+    k: Int
+
+  p = P(items: List(), k: 0)
+  !p.items.push(Item(n: 1))
+  first = ?p.items[0]
+  !p.items.push(Item(n: 2))
+  print(first.n)
+
+test "field fill from other field", "2 9"
+  # Iterating a view of one field while pushing to another is two disjoint
+  # loans.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_fill_from_other_field.rig).
+
+  obj Directive
+    pos: Int
+
+  obj Scanner
+    directives: List[Directive]
+
+  obj Parser
+    scanner: Scanner
+    directives: List[Directive]
+
+    sub finish(!self)
+      for d in self.scanner.directives
+        !self.directives.push(Directive(pos: d.pos))
+
+  s = Scanner(directives: List())
+  !s.directives.push(Directive(pos: 3))
+  !s.directives.push(Directive(pos: 9))
+  p = Parser(scanner: <s, directives: List())
+  !p.finish()
+  print(p.directives.len, p.directives[1].pos)
+
+test "field free function result", "[7] 2"
+  # A free function's view result carries the loans of its argument, here
+  # the path `p.a`, so `p.n` may be written while it lives.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_free_function_result.rig).
+
+  fun head(v: ?List[Int]) -> []Int
+    ?v[..1]
+
+  obj P
+    a: List[Int]
+    n: Int
+
+  p = P(a: List(), n: 0)
+  !p.a.push(7)
+  r = head(?p.a)
+  p.n = 2
+  print(r, p.n)
+
+test "field generic disjoint", "v 1"
+  # The path rule does not depend on a field's type, so a generic `T`
+  # field is a place like any other; lending `p.item` leaves `p.log` free.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_generic_disjoint.rig).
+
+  obj Slot[T]
+    item: T
+    log: List[Int]
+
+  p = Slot[String](item: String("v"), log: List())
+  r = ?p.item
+  !p.log.push(r.len)
+  print(r, p.log.len)
+
+fail "field generic same field", "14:1: cannot assign to `p.item` while `p.item` is lent", errors: 1
+  # With `T = String`, assigning `p.item` frees the bytes `r` views. The
+  # rule is the same for every `T`: the generic body is checked once, with
+  # `T` opaque.
+  # Rule: equal paths overlap whatever the field's type.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_generic_same_field.rig).
+
+  obj Slot[T]
+    item: T
+    n: Int
+
+  p = Slot[String](item: String("v"), n: 0)
+  r = ?p.item
+  p.item = String("w")
+  print(r)
+
+fail "field handle field reassigned", "17:1: cannot assign to `p.h` while `p.h` is lent", errors: 1
+  # A path stops at a handle: `?p.h.name` is a loan on `p.h`. Assigning
+  # `p.h` drops this handle's count, which may free the shared value `r`
+  # views.
+  # Rule: a path stops at a handle (`*T`); the loan is on the path so far.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_handle_field_reassigned.rig).
+
+  obj Sym
+    name: String
+
+  obj P
+    h: *Sym
+    n: Int
+
+  p = P(h: *Sym(name: String("a")), n: 0)
+  r = ?p.h.name
+  p.h = *Sym(name: String("b"))
+  print(r)
+
+fail "field loop carried", "17:3: cannot lend `p.items` to write while a read loan is live", errors: 1
+  # `prev`, declared before the loop and read in it, counts as live
+  # anywhere in the loop (docs/INTERNALS.md, "Liveness"), so its view of
+  # `p.items` conflicts with the push, though `prev` is re-pointed before
+  # its next use. The paths are equal: a field loan changes nothing here.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_loop_carried.rig).
+
+  obj P
+    items: List[Int]
+    n: Int
+
+  p = P(items: List(), n: 0)
+  !p.items.push(0)
+  prev = ?p.items[..]
+  for i in 0..3
+    print(prev.len)
+    !p.items.push(i)
+    prev = ?p.items[..]
+
+fail "field loop push into iterated", "14:7: cannot lend `self.items` to write while a read loan is live", errors: 1
+  # Pushing to the list a `for` walks may move its buffer under the loop;
+  # Go's range evaluates the slice once and never sees the appends, which
+  # Rig can't promise. The paths are equal.
+  # Rule: the `for` lends `self.items` for the loop; the body's push lends
+  # the same path to write.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_loop_push_into_iterated.rig).
+
+  obj C
+    items: List[Int]
+
+    sub grow(!self)
+      for x in ?self.items
+        !self.items.push(x + 1)
+
+  c = C(items: List())
+  !c.items.push(1)
+  !c.grow()
+  print(c.items.len)
+
+test "field match arm writes other", "13"
+  # A `match` on a view of one field lends that field; its arms may write
+  # another field.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_match_arm_writes_other.rig).
+
+  enum Tok
+    word(text: String)
+    num(n: Int)
+
+  obj Lexer
+    tok: Tok
+    count: Int
+
+    sub step(!self)
+      match ?self.tok
+        .word(text) => self.count += text.len
+        .num(n) => self.count += n
+
+  l = Lexer(tok: .word(text: String("abc")), count: 0)
+  !l.step()
+  l.tok = .num(n: 10)
+  !l.step()
+  print(l.count)
+
+test "field match write arms write other", "3"
+  # `match !p.a` lends `p.a` to write for its arms, whose bindings view it;
+  # the arms may write `p.b`, a disjoint path.
+
+  enum Tok
+    word(text: String)
+    num(n: Int)
+
+  obj P
+    a: Tok
+    b: Int
+
+  p = P(a: .word(text: String("ab")), b: 0)
+  match !p.a
+    .word(text)
+      !text.add("c")
+      p.b = text.len
+    .num(n) => p.b = n
+  print(p.b)
+
+test "field method result on field", "2 true"
+  # A method called on a field (`self.ast.text(id)`) lends that field, so
+  # its view result carries a loan on `self.ast` only, and other fields
+  # (`self.imports`, `self.uses_node`) may be written while it lives.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_method_result_on_field.rig).
+
+
+  obj Ast
+    texts: List[String]
+
+    fun text(?self, id: Int) -> ?String
+      ?self.texts[id]
+
+  obj Parser
+    ast: Ast
+    imports: List[Int]
+    uses_node: Bool
+
+    sub collect(!self, id: Int)
+      name = ?self.ast.text(id)
+      if name.len > 0
+        !self.imports.push(id)
+        if text.starts_with(name, "node:")
+          self.uses_node = true
+
+  a = Ast(texts: List())
+  !a.texts.push(String("fs"))
+  !a.texts.push(String("node:path"))
+  p = Parser(ast: <a, imports: List(), uses_node: false)
+  !p.collect(0)
+  !p.collect(1)
+  print(p.imports.len, p.uses_node)
+
+fail "field move whole while field lent", "16:10: cannot move `p` while a read loan on `p.name` is live", errors: 1
+  # Moving `p` moves every field, the one `r` views included; the moved
+  # value may be dropped or changed through its new owner.
+  # Rule: `<p` touches all of `p`.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_move_whole_while_field_lent.rig).
+
+  obj P
+    name: String
+    n: Int
+
+  sub consume(p: P)
+    print(p.n)
+
+  p = P(name: String("a"), n: 1)
+  r = ?p.name
+  consume(<p)
+  print(r)
+
+fail "field nested and parent", "16:1: cannot assign to `p.a` while `p.a.b` is lent", errors: 1
+  # `r` views `p.a.b`; assigning `p.a` drops the old `Inner`, and its
+  # String with it, so `r` would dangle. `p.a` is a prefix of `p.a.b`.
+  # Rule: a loan on a place covers every place inside it.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_nested_and_parent.rig).
+
+  obj Inner
+    b: String
+
+  obj Outer
+    a: Inner
+    n: Int
+
+  p = Outer(a: Inner(b: String("x")), n: 0)
+  r = ?p.a.b
+  p.a = Inner(b: String("y"))
+  print(r)
+
+test "field nested disjoint", "hi 2"
+  # `p.a.b` and `p.a.c` are disjoint (neither path is a prefix of the
+  # other).
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_nested_disjoint.rig).
+
+  obj Inner
+    b: String
+    c: Int
+
+  obj Outer
+    a: Inner
+
+  p = Outer(a: Inner(b: String("hi"), c: 0))
+  r = ?p.a.b
+  p.a.c = r.len
+  print(r, p.a.c)
+
+test "field optional payload disjoint", "abc 3"
+  # A payload bound from an optional field (`if ?p.o as s`) carries a loan
+  # on `p.o`; another field may be written while `s` lives.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_optional_payload_disjoint.rig).
+
+  obj P
+    o: String?
+    n: Int
+
+  p = P(o: String("abc"), n: 0)
+  if ?p.o as s
+    p.n = s.len
+    print(s, p.n)
+
+fail "field optional payload same field", "13:3: cannot assign to `p.o` while `p.o` is lent", errors: 1
+  # `s` views the String inside `p.o`; setting `p.o = none` drops it.
+  # Rule: the payload's loan is on `p.o`; assigning `p.o` is the same
+  # path.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_optional_payload_same_field.rig).
+
+  obj P
+    o: String?
+    n: Int
+
+  p = P(o: String("abc"), n: 0)
+  if ?p.o as s
+    p.o = none
+    print(s)
+
+fail "field parent while nested written", "23:17: cannot lend `p.a` to read while a write loan on `p.a.b` is live", errors: 1
+  # `w` is a write view of `p.a.b`; reading `p.a` (a parent) while it
+  # lives would read through a place another view may change.
+  # Rule: `p.a` and `p.a.b` overlap (prefix), so a read of one and a write
+  # loan of the other conflict.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_parent_while_nested_written.rig).
+
+  obj Inner
+    b: Int
+    c: Int
+
+  obj Outer
+    a: Inner
+
+  fun total(i: ?Inner) -> Int
+    i.b + i.c
+
+  sub bump(w: !Int, by: Int)
+    w += by
+
+  p = Outer(a: Inner(b: 1, c: 2))
+  w = !p.a.b
+  bump(!w, total(?p.a))
+  print(p.a.b)
+
+test "field range writes other", "7 2"
+  # A `for` over a view of one field lends that field; the body may write
+  # the subject's other fields.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_range_writes_other.rig).
+
+  obj Item
+    n: Int
+
+  obj Checker
+    items: List[Item]
+    total: Int
+    seen: List[Int]
+
+    sub sum(!self)
+      for x in ?self.items
+        self.total += x.n
+        !self.seen.push(x.n)
+
+  c = Checker(items: List(), total: 0, seen: List())
+  !c.items.push(Item(n: 2))
+  !c.items.push(Item(n: 5))
+  !c.sum()
+  print(c.total, c.seen.len)
+
+fail "field read view field carries source", "12:1: cannot lend `src` to write while a read loan is live", errors: 1
+  # A path ends where a read view begins: a slice through `s.text`, a
+  # `?String`, carries that view's loan on `src`, so `src` cannot be
+  # written while the slice lives.
+
+  obj Scanner
+    text: ?String
+    pos: Int
+
+  src = String("abcd")
+  s = Scanner(text: ?src, pos: 0)
+  t = s.text[0..2]
+  !src.add("e")
+  print(t)
+
+test "field read view field no holder loan", "ab 1"
+  # A path ends where a read view begins: a slice of `self.text`, itself a
+  # `?String`, carries the loans of that view, not a loan on `self`, so
+  # even a call that lends all of `self` may run while it lives.
+
+  obj Scanner
+    text: ?String
+    pos: Int
+
+    sub advance(!self)
+      self.pos += 1
+
+    sub scan(!self)
+      t = self.text[0..2]
+      !self.advance()
+      print(t, self.pos)
+
+  src = String("abcd")
+  s = Scanner(text: ?src, pos: 0)
+  !s.scan()
+
+fail "field reassign whole while field lent", "12:1: cannot reassign `p` while `p.name` is lent", errors: 1
+  # Assigning `p` drops its old value, the String `r` views included.
+  # Rule: `p = x` touches all of `p`.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_reassign_whole_while_field_lent.rig).
+
+  obj P
+    name: String
+    n: Int
+
+  p = P(name: String("a"), n: 1)
+  r = ?p.name
+  p = P(name: String("b"), n: 2)
+  print(r)
+
+fail "field same field two paths", "15:1: cannot lend `p.items` to write while a read loan is live", errors: 1
+  # `x` views `p.items`' buffer; pushing to `p.items` may move it, so `x`
+  # would read freed memory. The same path through two uses overlaps.
+  # Rule: two places conflict when one path is a prefix of the other (here
+  # they are equal).
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_same_field_two_paths.rig).
+
+  obj P
+    items: List[Int]
+    n: Int
+
+  p = P(items: List(), n: 0)
+  !p.items.push(1)
+  x = ?p.items[..]
+  !p.items.push(2)
+  print(x)
+
+fail "field self view", "15:1: cannot store in `p.v` a view of `p.s`: a value never holds a view of itself", errors: 1
+  # Storing in `p.v` a view of `p.s` makes `p` hold a view of itself. With
+  # whole-variable loans this was rejected for free; with paths it must be
+  # said: `p.s = ...` would then free the bytes `p.v` views, and no loan
+  # would stop it.
+  # Rule: a value never holds a view of itself (proposal-field-loans §3,
+  # 1c).
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_self_view.rig).
+
+  obj P
+    s: String
+    v: ?String
+
+  p = P(s: String("abc"), v: "")
+  p.v = ?p.s
+  print(p.v)
+
+  # oracle: main reject C9
+
+fail "field self view through call", "19:2: cannot let this call store a view of `p.b` in `p.a`: a value never holds a view of itself", errors: 1
+  # `keep` stores its argument in `self`; lending `p.b` to
+  # `(!p.a).keep(...)` would put in `p.a` a view of `p.b`, a value holding
+  # a view of itself.
+  # Rule: a value never holds a view of itself; a stored argument's loan
+  # goes into the holder.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_self_view_through_call.rig).
+  obj Holder
+    t: ?String
+
+    sub keep(!self, t: ?String) keeps t
+      self.t = t
+
+  obj P
+    a: Holder
+    b: String
+
+  p = P(a: Holder(t: ""), b: String("x"))
+  (!p.a).keep(?p.b)
+  p.b = String("z")
+  print(p.a.t)
+
+  # oracle: main reject C9
+
+fail "field self view through closure", "14:7: cannot let this call store a view of `p.b` in `p.a`: a value never holds a view of itself", errors: 1
+  # The closure may store `r`, a view of `p.b`, through `w`, a write view
+  # of `p.a`: making it would leave `p` holding a view of itself.
+
+  obj Holder
+    t: ?String
+
+  obj P
+    a: Holder
+    b: String
+
+  p = P(a: Holder(t: ""), b: String("x"))
+  r = ?p.b
+  w = !p.a
+  g = |!w, ?r|
+    w.t = r
+  g()
+  print(p.a.t)
+
+  # oracle: main reject C9
+
+fail "field self view through replace", "12:21: cannot let this call store a view of `p.s` in `p.a`: a value never holds a view of itself", errors: 1
+  # `replace(!p.a, Holder(t: ?p.s))` puts in `p.a` a view of `p.s`, a
+  # value holding a view of itself.
+
+  obj Holder
+    t: ?String
+
+  obj P
+    s: String
+    a: Holder
+
+  p = P(s: String("abc"), a: Holder(t: ""))
+  old = replace(!p.a, Holder(t: ?p.s))
+  print(old.t, p.a.t)
+
+  # oracle: main reject C9
+
+fail "field self view through swap", "13:12: cannot let this call store a view of `p.s` in `p.a`: a value never holds a view of itself", errors: 1
+  # `q` views `p.s`; swapping it into `p.a` would leave `p` holding a view
+  # of itself.
+
+  obj Holder
+    t: ?String
+
+  obj P
+    s: String
+    a: Holder
+
+  p = P(s: String("abc"), a: Holder(t: ""))
+  q = Holder(t: ?p.s)
+  swap(!p.a, !q)
+  print(p.a.t, q.t)
+
+  # oracle: main reject C9
+
+fail "field self view through write argument", "16:6: cannot let this call store a view of `p.b` in `p.a`: a value never holds a view of itself", errors: 1
+  # `link` stores its second argument in its first: `link(!p.a, ?p.b)`
+  # would leave `p.a` holding a view of `p.b`, a value holding a view of
+  # itself.
+
+  obj Holder
+    t: ?String
+
+  sub link(h: !Holder, t: ?String) keeps t
+    h.t = t
+
+  obj P
+    a: Holder
+    b: String
+
+  p = P(a: Holder(t: ""), b: String("x"))
+  link(!p.a, ?p.b)
+  print(p.a.t)
+
+  # oracle: main reject C9
+
+fail "field self view through write local", "13:1: cannot store in `p.a` a view of `p.b`: a value never holds a view of itself", errors: 1
+  # `w` views `p.a`, so storing through it a view of `p.b` leaves `p`
+  # holding a view of itself.
+
+  obj Holder
+    t: ?String
+
+  obj P
+    a: Holder
+    b: String
+
+  p = P(a: Holder(t: ""), b: String("x"))
+  w = !p.a
+  w.t = ?p.b
+  print(p.a.t)
+
+  # oracle: main reject C9
+
+test "field slice then write other", '''
+  ab
+  1
+'''
+  # A slice of one owned field lends that field only; assigning another
+  # field while the slice lives is allowed.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_slice_then_write_other.rig).
+
+  obj Scanner
+    text: String
+    flags: Int
+
+    sub tag(!self)
+      t = ?self.text[0..2]
+      self.flags |= 1
+      print(t)
+
+  s = Scanner(text: String("abcd"), flags: 0)
+  !s.tag()
+  print(s.flags)
+
+test "field store through local write view", '''
+  2
+  2
+'''
+  # Assigning a field through a local write view stores the value in
+  # the place it views, as assigning the whole value does: a view of
+  # a value that outlives that place may go there.
+
+  obj In
+    n: Int
+
+  obj View
+    b: ?In
+
+  enum Slot
+    full(v: View)
+    empty
+
+  a = In(n: 1)
+  y = In(n: 2)
+  v = View(b: ?a)
+  w = !v
+  w.b = ?y
+  print(v.b.n)
+  s: Slot = .full(v: View(b: ?a))
+  match !s
+    .full(sv) => sv.b = ?y
+    .empty => print("empty")
+  match s
+    .full(sv) => print(sv.b.n)
+    .empty => print("empty")
+
+fail "field store through local write view outlives", "14:3: cannot store a view of `y` through `w`: `p` outlives it", "21:10: `y` does not live long enough"
+  # A field assigned through a local write view is part of the place it
+  # views, which outlives a later local and the function's own values
+  # when it is a view parameter.
+
+  obj In
+    n: Int
+
+  obj View
+    b: ?In
+
+  sub fill(p: !View)
+    w = !p
+    y = In(n: 3)
+    w.b = ?y
+
+  a = In(n: 1)
+  v = View(b: ?a)
+  w = !v
+  if true
+    y = In(n: 2)
+    w.b = ?y
+  print(v.b.n)
+  fill(!v)
+
+test "field store through read only argument", '''
+  2
+  4
+'''
+  # A `?String` read out of `self` carries the parameter's own write loan
+  # on `self`, but it writes nothing: a call lends it no way into `self`,
+  # so `!self.scanner.set_text(t)` stores nothing of `self.scanner` in
+  # `self`. From Trig's JSDoc parser (src/parser/jsdoc.rig).
+
+  obj Scanner
+    text: ?String
+    end: Int
+
+    sub set_text(!self, text: ?String) keeps text
+      self.text = text
+      self.end = text.len
+
+  obj Parser
+    scanner: Scanner
+    source_text: ?String
+
+    sub narrow(!self)
+      save = self.source_text
+      t = save[0..2]
+      self.source_text = t
+      !self.scanner.set_text(t)
+      print(self.scanner.end)
+      self.source_text = save
+      !self.scanner.set_text(save)
+      print(self.scanner.end)
+
+  src = String("abcd")
+  p = Parser(scanner: Scanner(text: "", end: 0), source_text: ?src)
+  !p.narrow()
+
+test "field swap general", "y x"
+  # `swap(!p.a, !p.b)` touches `p.a` and `p.b`, two disjoint paths, under
+  # the general rule; A deletes `swap`'s special case (`disjointFields`,
+  # proposal-field-loans §5).
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_swap_general.rig).
+
+  obj P
+    a: String
+    b: String
+
+  p = P(a: String("x"), b: String("y"))
+  swap(!p.a, !p.b)
+  print(p.a, p.b)
+
+test "field take while other lent", '''
+  4 n
+  true
+'''
+  # `<p.f` takes only `p.f` (an optional field, left `none`), so it may
+  # happen while a view of `p.g` lives.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_take_while_other_lent.rig).
+
+  obj State
+    pos: Int
+
+  obj P
+    saved: State?
+    name: String
+
+  p = P(saved: State(pos: 4), name: String("n"))
+  r = ?p.name
+  if <p.saved as s
+    print(s.pos, r)
+  print(p.saved == none)
+
+fail "field through whole receiver method", "18:1: cannot lend `p` to write while a read loan on `p.name` is live", errors: 1
+  # `!p.bump()` lends all of `p` to write: the signature says so, and the
+  # caller may not look into the body (Core sentence 7). `bump` could
+  # clear `p.name`, so `r` must not live across the call.
+  # Rule: `(!p).m()` and `!p.m()` touch all of `p` (proposal-field-loans
+  # §7).
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_through_whole_receiver_method.rig).
+
+  obj P
+    name: String
+    n: Int
+
+    sub bump(!self)
+      self.n += 1
+
+  p = P(name: String("a"), n: 0)
+  r = ?p.name
+  !p.bump()
+  print(r, p.n)
+
+test "field through write param", "toktok"
+  # A path continues through what a write view the name holds sees, so in
+  # `sub f(p: !Parser)` the paths `p.ast` and `p.scanner.value` are
+  # disjoint.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_through_write_param.rig).
+
+  obj Scanner
+    value: String
+
+  obj Arena
+    bytes: String
+
+    sub add(!self, text: ?String)
+      !self.bytes.add(text)
+
+  obj Parser
+    scanner: Scanner
+    ast: Arena
+
+  sub take_token(p: !Parser)
+    (!p.ast).add(p.scanner.value)
+
+  p = Parser(scanner: Scanner(value: String("tok")), ast: Arena(bytes: String()))
+  take_token(!p)
+  take_token(!p)
+  print(p.ast.bytes)
+
+  # oracle: take_token accept
+
+test "field token value to arena", '''
+  1
+  2 abcde
+'''
+  # A use touches the path it names; `!self.ast` and `self.scanner.value`
+  # are disjoint paths of `self`, so the write lend of one and the read of
+  # the other may overlap (Core sentence 5, "A field is a place of its
+  # own").
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_token_value_to_arena.rig).
+
+  obj Scanner
+    value: String
+
+  obj Arena
+    bytes: String
+    count: Int
+
+    fun add(!self, text: ?String) -> Int
+      !self.bytes.add(text)
+      self.count += 1
+      self.count
+
+  obj Parser
+    scanner: Scanner
+    ast: Arena
+
+    fun literal(!self) -> Int
+      (!self.ast).add(self.scanner.value)
+
+  p = Parser(scanner: Scanner(value: String("abc")), ast: Arena(bytes: String(), count: 0))
+  print((!p).literal())
+  p.scanner.value = String("de")
+  print((!p).literal(), p.ast.bytes)
+
+  # oracle: Parser.literal accept
+
+fail "field view escapes by method result", "18:1: cannot assign to `p.n` while `p` is lent", errors: 1
+  # A `!self` method's view result carries a loan on all of `self`;
+  # without a path in the signature the caller cannot know which field the
+  # result views, so writing any field while it lives is rejected.
+  # Rule: a method's result carries its receiver (proposal-field-loans §7,
+  # row "`r = (?p).first()`, then `p.n = 2`").
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_view_escapes_by_method_result.rig).
+
+  obj P
+    name: String
+    n: Int
+
+    fun first(?self) -> ?String
+      ?self.name
+
+  p = P(name: String("abc"), n: 0)
+  r = (?p).first()
+  p.n = 2
+  print(r)
+
+test "field view local across arms", '''
+  4
+  8 s:x;n:x;
+'''
+  # A local view carries the loan on the path it was lent from
+  # (`?self.scanner.value`), and writes of another path (`self.ast`) may
+  # happen while it lives.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_view_local_across_arms.rig).
+
+  enum Kind
+    Str
+    Num
+
+  obj Scanner
+    value: String
+    kind: Kind
+
+  obj Arena
+    bytes: String
+
+    fun add(!self, tag: ?String, text: ?String) -> Int
+      !self.bytes.add(tag, text, ";")
+      self.bytes.len
+
+  obj Parser
+    scanner: Scanner
+    ast: Arena
+
+    fun literal(!self) -> Int
+      text = ?self.scanner.value
+      match self.scanner.kind
+        .Str => (!self.ast).add("s:", text)
+        .Num => (!self.ast).add("n:", text)
+
+  p = Parser(scanner: Scanner(value: String("x"), kind: .Str), ast: Arena(bytes: String()))
+  print((!p).literal())
+  p.scanner.kind = .Num
+  print((!p).literal(), p.ast.bytes)
+
+fail "field write param whole assign", "13:3: cannot reassign `p` while `p.name` is lent", errors: 1
+  # Through a write view `p: !P`, `p = P(...)` writes the whole value the
+  # caller owns, dropping the String `r` views.
+  # Rule: assigning a name writes all of what it names; a path through a
+  # write view continues, so `r`'s loan is on `p.name`, a part of `p`.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/reject/field_write_param_whole_assign.rig).
+
+  obj P
+    name: String
+
+  sub reset(p: !P)
+    r = ?p.name
+    p = P(name: String("new"))
+    print(r)
+
+  x = P(name: String("old"))
+  reset(!x)
+  print(x.name)
+
+test "field write view local", "4"
+  # A local write view of one field (`w = !p.a`) holds a write loan on
+  # `p.a` only; `p.b` may be read while it lives.
+  # From Trig's acceptance tests
+  # (docs/ownership/acceptance/accept/field_write_view_local.rig).
+
+  obj Counter
+    n: Int
+
+  obj P
+    a: Counter
+    b: String
+
+  sub bump(c: !Counter, by: Int)
+    c.n += by
+
+  p = P(a: Counter(n: 1), b: String("abc"))
+  w = !p.a
+  bump(!w, p.b.len)
+  print(p.a.n)
+
+  # oracle: main accept

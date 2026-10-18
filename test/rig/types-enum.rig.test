@@ -1,0 +1,946 @@
+# types: tests whose names start `enum`.
+
+use std.math
+use std.sort
+use std.target
+
+test "enum compare", '''
+  true
+  false
+  true
+'''
+  # Enum values compare with `==` against values and variant literals.
+
+  enum Color
+    red
+    green
+
+  a: Color = .red
+  b = Color.green
+  print(a == .red)
+  print(a == b)
+  print(b != .red)
+
+fail "enum constructor", "`Color` is an enum; construct a variant"
+  # An enum has no constructor; values are its variants.
+
+  enum Color
+    red
+
+  c = Color()
+  print(1)
+
+test "enum explicit values", ".warn"
+  # Enum variants may carry explicit integer values (`ok = 0`).
+
+  enum Status
+    ok = 0
+    warn = 1
+    err = 2
+
+  s: Status = .warn
+  print(s)
+
+test "enum from int", '''
+  .missing none .ok
+  .ok 200
+  .missing 404
+  2
+'''
+  enum Status
+    ok = 200
+    missing = 404
+
+  all = @variants(Status)
+
+  sub main()
+    print(Status.from_int(404), Status.from_int(500), Status.from_int(U16(200)))
+    for s in all
+      print(s, Int(s))
+    print(@variants(Status).len)
+
+fail "enum from int rules", "8:7: `from_int` is built into every plain enum", "11:17: `@variants(T)` takes a plain enum; `Shape` has variants with payloads", "11:31: `Shape` has variants with payloads, which have no integer value"
+  enum Shape
+    dot
+    circle(r: Int)
+
+  enum Status
+    ok = 200
+
+    fun from_int(n: Int) -> Int
+      n
+
+  print(@variants(Shape), Shape.from_int(0))
+
+test "enum from text", '''
+  .red .dark_red .blue
+  none none none none none none
+  .missing none 418
+  1 2 3 0
+  .dark_red .dark_red .blue .blue dark_red
+  30 30
+  .xor_op .branch none none
+'''
+  # `E.from_text(word)` is the variant of plain enum `E` named `word`, or
+  # `none`: the whole name, byte for byte. Every variant round-trips
+  # through `.text`, in a small enum, one with values, and one large
+  # enough that its table grows past its first size.
+
+  enum Color
+    red
+    dark_red
+    blue
+
+  enum Status
+    ok = 200
+    missing = 404
+    teapot = 418
+
+  enum Op
+    add
+    subtract
+    mul
+    div
+    rem
+    and_op
+    or_op
+    xor_op
+    shl
+    shr
+    eq
+    ne
+    lt
+    le
+    gt
+    ge
+    neg
+    not_op
+    load
+    store
+    call
+    ret
+    jump
+    branch
+
+  fun code(word: ?String) -> Int
+    s = Status.from_text(word) ?? return 0
+    match s
+      .ok => 1
+      .missing => 2
+      .teapot => 3
+
+  print(Color.from_text("red"), Color.from_text("dark_red"), Color.from_text("blue"))
+  # A miss: another word, the empty text, a prefix, a longer word, and
+  # another case.
+  print(Color.from_text("green"), Color.from_text(""), Color.from_text("dark"), Color.from_text("reds"), Color.from_text("Red"), Color.from_text("RED"))
+  # A value's digits are not its name.
+  print(Status.from_text("missing"), Status.from_text("404"), Int(Status.from_text("teapot") ?? .ok))
+  print(code("ok"), code("missing"), code("teapot"), code("nope"))
+  # Any text: a String, a view of one, a slice of one, and a temporary.
+  w = String("dark_", "red")
+  s = String("xblue")
+  print(Color.from_text(w), Color.from_text(?w), Color.from_text(?s[1..]), Color.from_text(String("bl", "ue")), w)
+  round = 0
+  for c in @variants(Color)
+    round += 1 if Color.from_text(c.text) == c else 0
+  for st in @variants(Status)
+    round += 1 if Status.from_text(st.text) == st else 0
+  for op in @variants(Op)
+    round += 1 if Op.from_text(op.text) == op else 0
+  print(round, @variants(Color).len + @variants(Status).len + @variants(Op).len)
+  print(Op.from_text("xor_op"), Op.from_text("branch"), Op.from_text("xor"), Op.from_text("branches"))
+
+test "enum literal binding", ".red"
+  # `c: Color = .red` checks the enum literal against the declared type
+  # and confirms `red` is a variant of `Color`.
+
+  enum Color
+    red
+    green
+    blue
+
+  c: Color = .red
+  print(c)
+
+fail "enum literal without type", "enum literal `.red` needs a known enum type"
+  # An enum literal needs a known enum type.
+
+  enum Color
+    red
+
+  c = .red
+  print(1)
+
+fail "enum order different", "15:7: operator `<` operands have different types `Color` and `Size`", "16:7: operator `>=` operands have different types `Color` and `Int`", "17:7: operator `<` operands have different types `Int` and `Color`", "18:7: enum literal `.red` needs a known enum type", "18:14: enum literal `.green` needs a known enum type", "19:12: no variant `small` on enum `Color`", errors: 6
+  # Both sides of an ordering are of one enum type: two enums, or an enum
+  # and an integer, do not order with each other; nor do two variant
+  # literals with no type to take.
+
+  enum Color
+    red
+    green
+
+  enum Size
+    small
+    large
+
+  c = Color.green
+  s = Size.small
+  print(c < s)
+  print(c >= 1)
+  print(0 < c)
+  print(.red < .green)
+  print(c < .small)
+
+fail "enum order error set", "9:7: operator `<` orders numbers, plain enums, Strings, and `[]U8` slices; got `NetworkError`", "10:7: operator `>=` orders numbers, plain enums, Strings, and `[]U8` slices; got `NetworkError`", errors: 2
+  # An error set has no order, though its members are written like a
+  # plain enum's variants.
+
+  error NetworkError
+    timeout
+    refused
+
+  e: NetworkError = .timeout
+  print(e < NetworkError.refused)
+  print(e >= .refused)
+
+test "enum order explicit", '''
+  false false true true
+  true true true
+  true true false false
+  true
+'''
+  # `<`, `<=`, `>`, `>=` order a plain enum by its variants' values: the
+  # explicit values, not the order the variants are declared in.
+
+  enum Target
+    es2015 = 2015
+    es5 = 5
+    es2020 = 2020
+    es3 = 3
+
+  a = Target.es2015
+  b = Target.es5
+  print(a < b, a <= b, a > b, a >= b)
+  print(b < a, Target.es3 < Target.es5, Target.es2020 > Target.es2015)
+  print(a <= a, a >= a, a < a, a > a)
+  print((Int(a) > Int(b)) == (a > b))
+
+fail "enum order generic builtin", "9:3: operator `<` orders a declared enum's values; the built-in enum `Arch` has no integer value", "13:7: operator `<` orders a plain enum's values; `Tag[Int]` is a generic enum, whose variants have no integer value", "13:14: operator `>=` orders a plain enum's values; `Tag[Int]` is a generic enum", "14:7: operator `>=` orders a declared enum's values; the built-in enum `Arch` has no integer value", "15:12: max[Arch]` cannot use `T = Arch`", "16:12: min[Tag[Int]]` cannot use `T = Tag[Int]`"
+  # A generic enum has no order, even of bare variants only, nor has the
+  # built-in enum `Arch`, in an ordering or a generic body's.
+
+  enum Tag[T]
+    a
+    b
+
+  fun f(a: Arch) -> Bool
+    a < .x86_64
+
+  x: Tag[Int] = .a
+  y: Tag[Int] = .b
+  print(x < y, x >= .b)
+  print(target.arch >= .aarch64, f(target.arch))
+  print(math.max(target.arch, target.arch))
+  print(math.min(x, y))
+
+test "enum order implicit", '''
+  true true false true
+  true true true true
+  11 6
+  2
+'''
+  # A plain enum without explicit values orders by declaration: each
+  # variant's value is the previous one's plus one, the first 0. A variant
+  # after an explicit value continues from it.
+
+  enum Level
+    low
+    mid
+    high
+
+  enum Code
+    a
+    b = 10
+    c
+    d = 5
+    e
+
+  lo = Level.low
+  hi = Level.high
+  print(lo < hi, Level.mid > lo, hi <= Level.mid, Level.mid >= Level.mid)
+  print(Code.c > Code.b, Code.d < Code.c, Code.e < Code.b, Code.a < Code.e)
+  print(Int(Code.c), Int(Code.e))
+  n = 0
+  for v in @variants(Level)
+    if v >= Level.mid
+      n += 1
+  print(n)
+
+fail "enum order payload", "10:7: operator `<` orders a plain enum's values; `Shape` has variants with payloads, which have no integer value", "11:7: operator `>=` orders a plain enum's values; `Shape` has variants with payloads, which have no integer value", "12:7: operator `>` orders a plain enum's values; `Shape` has variants with payloads, which have no integer value", "14:7: operator `<=` orders a declared enum's values; the built-in enum `Endian` has no integer value", errors: 4
+  # An enum with a payload variant has no order, nor has its `.variant`
+  # shorthand; nor has a built-in enum.
+
+  enum Shape
+    dot
+    circle(r: Int)
+
+  a: Shape = .dot
+  b: Shape = .circle(1)
+  print(a < b)
+  print(a >= .dot)
+  print(.dot > a)
+  e = Endian.big
+  print(e <= .little)
+
+test "enum order places", '''
+  true false true true false
+  false true false
+  [.es2020, .es2015, .es5]
+  old
+  .es2020 2
+  .es2020 false true
+  true
+'''
+  # A plain enum orders wherever a value does: in its own methods beside
+  # `self`, in a module constant, through read and write views, in a
+  # generic body, a comparator closure, a match guard, and a loop
+  # condition, and under `not`; an enum of one variant too.
+
+  enum Target
+    es2015 = 2015
+    es5 = 5
+    es2020 = 2020
+
+    fun modern(?self) -> Bool
+      self >= .es2015
+
+    fun before(?self, o: Target) -> Bool
+      self < o
+
+  enum One
+    only
+
+  LATE = Target.es2020 > Target.es5
+
+  fun both(a: ?Target, b: !Target) -> Bool
+    a < b and b >= .es5 and .es2020 > b
+
+  fun lt[K](a: K, b: K) -> Bool
+    a < b
+
+  sub bump(t: !Target)
+    if t < .es2020
+      t = .es2020
+
+  sub main()
+    t = Target.es5
+    u = Target.es2020
+    print(LATE, t.modern(), u.modern(), t.before(u), u.before(t))
+    print(both(?t, !u), One.only <= One.only, One.only < One.only)
+    xs = [Target.es2020, Target.es5, Target.es2015]
+    sort.sort_by(!xs, |a, b| a > b)
+    print(xs)
+    match t
+      .es5 if t < .es2015 => print("old")
+      _ => print("new")
+    i = 0
+    while t < u and i < 3 : i += 1
+      t = .es2015 if t < .es2015 else .es2020
+    print(t, i)
+    bump(!t)
+    print(t, not (t > .es5), lt[Target](Target.es5, Target.es2015))
+    o: Target? = .es5
+    if o as w
+      print(lt(w, Target.es2015))
+
+test "enum order shorthand", '''
+  true true false false
+  true false
+  0 1 2
+  true
+  2
+'''
+  # A `.variant` on either side of an ordering takes its enum type from the
+  # other side, as it does beside `==`: beside a binding, a view, a field
+  # read through a view, and an optional's value.
+
+  enum Target
+    es5 = 5
+    es2015 = 2015
+    es2020 = 2020
+
+  obj Options
+    target: Target
+
+  fun modern(t: ?Target) -> Bool
+    t >= .es2015
+
+  fun level(o: ?Options) -> Int
+    if o.target > .es2015
+      2
+    else if .es5 < o.target
+      1
+    else
+      0
+
+  t: Target = .es2015
+  print(t >= .es2015, .es5 < t, t > .es2020, .es2020 <= t)
+  print(modern(?t), modern(?Target.es5))
+  print(level(?Options(target: .es5)), level(?Options(target: .es2015)), level(?Options(target: .es2020)))
+  x: Target? = .es2020
+  if x as v
+    print(v > .es5)
+  ts = [Target.es2020, Target.es5, Target.es2015]
+  n = 0
+  for u in ts
+    if u <= .es2015
+      n += 1
+  print(n)
+
+test "enum payload bare variant value", '''
+  9 0 1
+  .d
+'''
+  # A bare variant of an enum with payloads, named through its enum, is a
+  # value of the enum: a method receiver, an argument, or printed.
+
+  enum Sh
+    c(r: Int)
+    d
+
+    fun area(?self) -> Int
+      match self
+        .c(r) => r * r
+        .d => 0
+
+    fun make(r: Int) -> Sh
+      .c(r: r)
+
+  fun show(s: Sh) -> Int
+    s.area() + 1
+
+  s = Sh.make(3)
+  print(s.area(), Sh.d.area(), show(Sh.d))
+  print(Sh.d)
+
+test "enum payload variants", '''
+  50
+  9
+  0
+'''
+  # Enum variants may carry payload fields; `.variant(field: value)`
+  # constructs them and a value-position match reads the payload back.
+
+  enum Shape
+    circle(radius: Int)
+    square(side: Int)
+    origin
+
+  fun measure(s: Shape) -> Int
+    match s
+      .circle(r) => r * 10
+      .square(side) => side * side
+      .origin => 0
+
+  s1: Shape = .circle(radius: 5)
+  s2: Shape = .square(side: 3)
+  s3: Shape = .origin
+  print(measure(s1))
+  print(measure(s2))
+  print(measure(s3))
+
+test "enum qualified payload variant", "12 10 0"
+  # A payload variant may be named through its enum: `Shape.circle(r: 2)`.
+
+  enum Shape
+    circle(r: Int)
+    rect(w: Int, h: Int)
+    dot
+
+  fun area(s: Shape) -> Int
+    match s
+      .circle(r) => 3 * r * r
+      .rect(w, h) => w * h
+      .dot => 0
+
+  a = Shape.circle(r: 2)
+  b = Shape.rect(w: 2, h: 5)
+  c = Shape.dot
+  print(area(a), area(b), area(c))
+
+fail "enum qualified unknown variant", "no member `purple` on type `Color`"
+  # `Color.purple` must name a real variant of `Color`.
+
+  enum Color
+    red
+
+  c: Color = Color.purple
+
+test "enum qualified variant", ".green"
+  # `Color.red` names a variant through its enum; sema checks the variant
+  # exists.
+
+  enum Color
+    red
+    green
+    blue
+
+  c: Color = Color.green
+  print(c)
+
+test "enum text", '''
+  dark_red red blue missing 404
+  dark_red
+  blue
+  red 3
+  blue dark_red
+  blue red
+  true blue! true
+  .text text other
+  red
+  dark_red
+  blue
+  .debug debug true none
+  .std std true none
+  .rig rig true none
+  .main main true none
+  .os os true none
+  .fn fn true none
+  .u8 u8 true none
+  .null null true none
+'''
+  # `e.text` is the name of a plain enum value's variant, a `Static`,
+  # however the value is reached: a local, a read or write view, a field,
+  # an element, a box, a shared handle, a call's result, and a variant
+  # named through its type.
+
+  enum Color
+    red
+    dark_red
+    blue
+
+  enum Status
+    ok = 200
+    missing = 404
+
+  enum Kind
+    text
+    other
+
+  # Names the emitted Zig spells another way: its own and its hooks'
+  # names, Zig's keywords and primitive types.
+  enum Word
+    debug
+    std
+    rig
+    main
+    os
+    fn
+    u8
+    null
+
+  obj Pen
+    color: Color
+
+  fun name(c: ?Color) -> Static
+    c.text
+
+  sub repaint(c: !Color)
+    print(c.text)
+    c = .blue
+
+  fun pick() -> Color
+    .dark_red
+
+  c: Color = .dark_red
+  print(c.text, Color.red.text, name(.blue), Status.missing.text, Int(Status.missing))
+  !repaint(!c)
+  print(c.text)
+  p = Pen(color: .red)
+  print(p.color.text, p.color.text.len)
+  xs = [Color.red, Color.blue]
+  print(xs[1].text, pick().text)
+  b = ^Color.blue
+  h = *Color.red
+  print(b.text, h.text)
+  t = c.text
+  print(t == "blue", String(t, "!"), t.hash() == "blue".hash())
+  k = Kind.text
+  print(k, k.text, Kind.other.text)
+  for v in @variants(Color)
+    print(v.text)
+  for w in @variants(Word)
+    print(w, w.text, Word.from_text(w.text) == w, Word.from_text(String(w.text, "'")))
+
+fail "enum text assign through", "18:10: cannot assign to `.text`; a variant's name is read-only", "19:14: cannot assign to `.text`; a variant's name is read-only", "20:10: cannot assign to `.text`; a variant's name is read-only", errors: 3
+  # A variant's name is read-only however the enum value is reached,
+  # through a call's write view too: `slot(!c) = .blue` assigns through
+  # that view, but `.text` is no part of the value it views, so
+  # `slot(!c).text = ...` and `slot(!c).text += ...` are rejected.
+
+  enum Color
+    red
+    blue
+
+  fun slot(c: !Color) -> !Color
+    c
+
+  fun pick(cs: ![]Color, i: Int) -> !Color
+    !cs[i]
+
+  c: Color = .red
+  xs = [Color.red, Color.blue]
+  slot(!c).text = "blue"
+  pick(!xs, 1).text = "red"
+  slot(!c).text += "x"
+  print(c, xs[1])
+
+test "enum text builtin", '''
+  big little .little none
+  true .x86_64 .aarch64 none
+  4
+'''
+  # The built-in plain enums, `Endian` and `Arch`, have `.text` and
+  # `from_text` too. The target's architecture is one of Zig's names,
+  # whatever the machine, so it is only checked to round-trip.
+
+
+  e: Endian = .big
+  print(e.text, Endian.little.text, Endian.from_text("little"), Endian.from_text("Big"))
+  print(Arch.from_text(target.arch.text) == target.arch, Arch.from_text("x86_64"), Arch.from_text("aarch64"), Arch.from_text("x86_65"))
+  n = 0
+  for a in [Arch.x86_64, Arch.aarch64, Arch.wasm32, Arch.riscv64]
+    n += 1 if Arch.from_text(a.text) == a else 0
+  print(n)
+
+fail "enum text rules", "11:3: `from_text` is built into every plain enum", "13:7: `text` is built into every plain enum: `e.text` is the name of `e`'s variant; give the method another name", "19:7: `from_text` is built into every plain enum", "27:9: `.text` is the name of a plain enum's variant; `Shape` has variants with payloads", "27:21: `from_text` gives a plain enum's variant by its name; `Shape` has variants with payloads, which a name cannot build", "29:3: cannot assign to `.text`; a variant's name is read-only", "30:9: no method `text` on type `Mode`; a variant's name is a member, read without a call: `m.text`", "30:22: `Mode.from_text(word)` takes its argument by position", "30:50: `Mode.from_text(word)` takes one argument, a `?String`; got 2", "30:86: type mismatch: expected `?String`, got `Int`", "32:5: `m.text` is a variant's name, a `Static`, not a part of the value to lend; pass it as it is: `m.text`", "33:9: `.text` is the name of a plain enum's variant; `Tag[Int]` is generic", "33:24: `from_text` gives a plain enum's variant by its name; `Tag` is generic", errors: 13
+  # `.text` and `from_text` are a plain enum's: a payload or generic enum
+  # has neither, a plain enum declares no member that clashes with them,
+  # and a variant's name is read as it is, never written or lent.
+
+  enum Shape
+    dot
+    circle(r: Int)
+
+  enum Color
+    red
+    from_text
+
+    fun text(?self) -> Static
+      "red"
+
+  enum Mode
+    on
+
+    fun from_text(word: ?String) -> Int
+      0
+
+  enum Tag[T]
+    a
+    b
+
+  s: Shape = .dot
+  print(s.text, Shape.from_text("dot"))
+  m: Mode = .on
+  m.text = "off"
+  print(m.text(), Mode.from_text(word: "on"), Mode.from_text("a", "b"), Mode.from_text(1))
+  t: Tag[Int] = .a
+  r = ?m.text
+  print(t.text, Tag[Int].from_text("a"), r)
+
+test "enum to int", '''
+  404 301 200 2 0
+  3 20
+  3
+'''
+  # An integer type's name converts a plain enum value to its declared or
+  # implicit value, checked to fit like any conversion.
+
+  enum Status
+    ok = 200
+    moved = 301
+    missing = 404
+
+  enum Dir
+    north
+    east
+    south
+
+  fun code(s: ?Status) -> Int
+    Int(s)
+
+  fun bump(d: !Dir) -> U8
+    U8(d) + 1
+
+  s = Status.missing
+  d: Dir = .south
+  print(Int(s), U16(Status.moved), code(?Status.ok), I32(d), U8(Dir.north))
+  print(bump(!d), Int(d) * 10)
+  xs = [Dir.east, Dir.north, Dir.south]
+  total = 0
+  for x in xs
+    total += Int(x)
+  print(total)
+
+fail "enum to int is rejected", "18:11: `Int(x)` takes a plain enum's value; `Shape` has variants with payloads, which have no integer value", "18:21: `Float(x)` converts an enum's value to an integer type only; write `Float(Int(...))`", "18:36: `Status.huge` has the value 300, which does not fit in `U8`", "18:69: `Int(x)` converts a number; `x` has type `Net`"
+  # Only a plain enum has integer values: a payload enum or an error is
+  # rejected, as is a conversion to a float, and a constant variant's value
+  # must fit the target type.
+
+  enum Shape
+    dot
+    circle(r: Int)
+
+  enum Status
+    ok = 200
+    huge = 300
+
+  error Net
+    timeout
+
+  s: Shape = .dot
+  e: Net = .timeout
+  print(Int(s), Float(Status.ok), U8(Status.huge), U8(Status.ok), Int(e))
+
+fail "enum unknown variant", "no variant `purple` on enum `Color`"
+  # An enum literal must name a variant of the expected enum.
+
+  enum Color
+    red
+    green
+    blue
+
+  c: Color = .purple
+
+test "enum value conversion", "7 8"
+  # A variant's value may convert a constant to a sized integer type.
+
+  enum E
+    a = U16(7)
+    b = I128(3) + 5
+
+  print(Int(E.a), Int(E.b))
+
+fail "enum value overflow", "6:10: an enum value `U8(300)` overflows `U8` (0..255)", "10:9: an enum value `I8.max + 1` overflows `I8` (-128..127)"
+  # A variant's value that overflows its type is reported as an overflow,
+  # and the enum stays a plain one: converting its variants to integers
+  # reports nothing further.
+
+  enum Small
+    a = U8(300)
+    b
+
+  enum Shifted
+    low = I8.max + 1
+
+  print(Int(Small.b), Int(Shifted.low))
+
+fail "enum values checked", "`also` has the value 200, which `ok` already has", "`c` has the value 2, which `b` already has", "`low` has the value -1, out of range: enum values run from 0 to 4294967295", "`big` has the value 5000000000, out of range", "the value of `yes` must be a constant integer", "an enum with payload variants cannot give its variants values", "a generic enum cannot give its variants values"
+  # Explicit enum values are constant integers from 0 to 2^32 - 1, and no
+  # two variants share one; only a plain, non-generic enum has them.
+
+  enum Twice
+    ok = 200
+    also = 200
+
+  enum Implicit
+    a = 1
+    b
+    c = 2
+
+  enum Negative
+    low = -1
+
+  enum Huge
+    big = 5000000000
+
+  enum String
+    yes = "yes"
+
+  enum Mixed
+    plain = 2
+    code(n: Int)
+
+  enum Opt[T]
+    nothing = 0
+    some(value: T)
+
+  print(1)
+
+test "enum values constants", "5 6 255 1024 110"
+  # A variant's value is a constant integer expression: it may name module
+  # constants, declared before or after the enum, and a number type's
+  # limits, directly or through an alias.
+
+  type Byte = U8
+
+  K = 5
+
+  enum E
+    a = K
+    b
+    c = Byte.max
+    d = 1 << 10
+    e = K * 2 + LATER
+
+  LATER = 100
+
+  sub main()
+    print(Int(E.a), Int(E.b), Int(E.c), Int(E.d), Int(E.e))
+
+test "enum values in range", '''
+  .created true false
+  .big
+'''
+  # Explicit enum values are constant integers from 0 to 2^32 - 1; a
+  # variant without one takes the value after the previous variant's.
+
+  enum Status
+    ok = 200
+    created
+    moved = 0x12D
+    missing = 400 + 4
+    big = 4294967295
+
+  s: Status = .created
+  print(s, s == .created, s == .ok)
+  print(Status.big)
+
+fail "enum variant none", "8:3: a variant cannot be named `none`: `none` is the absent value of an optional", errors: 1
+  # A variant cannot be named `none`: `.none` would read as `none`, the
+  # absent value of an optional, and in a `K?` could be taken for it. The
+  # variant is still declared, so each use of it below (a field default,
+  # a binding, a match arm, a comparison, an argument, a return, and
+  # `K.none` written out) draws no further error.
+
+  enum K
+    none = 0
+    some = 1
+
+  obj Box
+    k: K = .none
+
+  fun id(k: K) -> K
+    k
+
+  fun mk() -> K
+    .none
+
+  b = Box()
+  print(Int(b.k))
+  k: K = .none
+  match k
+    .none => print("n")
+    .some => print("s")
+  print(k == .none)
+  print(Int(id(.none)))
+  print(Int(mk()))
+  print(Int(K.none))
+  o: K? = .none
+  print(o)
+
+fail "enum variant none kinds", "6:3: a variant cannot be named `none`", "10:3: a variant cannot be named `none`", "14:3: a variant cannot be named `none`", "18:3: a variant cannot be named `none`", "21:3: a variant cannot be named `none`", "24:3: an error cannot be named `none`", errors: 6
+  # No enum names a variant `none`, nor an error set an error: a plain
+  # variant, one with a value, a payload variant, and one of a generic
+  # enum, with payload or without.
+
+  enum A
+    none
+
+  enum B
+    one = 1
+    none = 2
+
+  enum C
+    some(v: Int)
+    none(why: String)
+
+  enum D[T]
+    some(v: T)
+    none
+
+  enum E[T]
+    none(v: T)
+
+  error Bad
+    none
+
+  pass
+
+test "enum view payload match", '''
+  tt tt d
+  tt tt tt d
+  tt
+  4 0
+  2
+'''
+  # A match binds a payload field that is itself a view (an enum
+  # instantiated at a view type, `Opt[?T]`) as the view it is, not as a
+  # view of the field: in a plain arm, a guarded one, beside a field that
+  # is no view, at a concrete instance, a slice, and in a write match.
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  enum Pair[A, B]
+    both(a: A, b: B)
+    neither
+
+  fun wrap[T](x: ?T) -> Opt[?T] from x
+    Opt.some(v: x)
+
+  fun first[T](x: ?T, d: ?T) -> ?T from x, d
+    match wrap(x)
+      .some(v) => v
+      .nothing => d
+
+  fun pick[T](x: ?T, d: ?T, ok: Bool) -> ?T from x, d
+    match wrap(x)
+      .some(v) if ok => v
+      _ => d
+
+  fun mk[T](x: ?T, n: Int) -> Pair[?T, Int] from x
+    Pair.both(a: x, b: n)
+
+  fun left[T](x: ?T, d: ?T) -> ?T from x, d
+    match mk(x, 2)
+      .both(a, _) => a
+      .neither => d
+
+  fun wrapText(x: ?String) -> Opt[?String] from x
+    Opt.some(v: x)
+
+  fun firstText(x: ?String, d: ?String) -> ?String from x, d
+    match wrapText(x)
+      .some(v) => v
+      .nothing => d
+
+  fun longer(x: ?String, d: ?String) -> ?String from x, d
+    match wrapText(x)
+      .some(v) if v.len > 1 => v
+      _ => d
+
+  fun held(o: !Opt[?String], d: ?String) -> ?String from o, d
+    match o
+      .some(v) => v
+      .nothing => d
+
+  fun wrapSlice(xs: []Int) -> Opt[[]Int] from xs
+    Opt.some(v: xs)
+
+  t = String("tt")
+  u = String("u")
+  d = String("d")
+  print(first(?t, ?d), pick(?t, ?d, true), pick(?t, ?d, false))
+  print(left(?t, ?d), firstText(?t, ?d), longer(?t, ?d), longer(?u, ?d))
+  o = wrapText(?t)
+  print(held(!o, ?d))
+  n = 4
+  m = 0
+  print(first(?n, ?m), pick(?n, ?m, false))
+  v = [1, 2, 3]
+  match wrapSlice(?v[..])
+    .some(s) => print(s[1])
+    .nothing => pass

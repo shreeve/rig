@@ -1,0 +1,438 @@
+# types: tests whose names start `slice`.
+
+fail "slice argument needs read view", "31:6: `zero` writes the elements of `w[1..]`, and a slice is lent to read unless it is written `!`; write `zero(!w[1..])`", "32:11: `own` takes a `List[Int]`, which owns its elements, and `v[..]` only views `v`'s", "32:24: `pair` takes a `[2]Int`, which owns its elements, and `w[..2]` only views `w`'s", "32:38: `name` takes a `String`, which owns its bytes, and `t[1..]` only views `t`'s; write `name(String(?t[1..]))` to pass a copy", "32:52: type mismatch: expected `?[]Int`, got `[]Int`", "33:5: a slice of an array or List views it; write `?w[1..]`", "34:11: a slice of an array or List views it; write `?w[..2]`", "26:3: a slice of an array or List views it; write `?a[1..]`", errors: 8
+  # A slice argument is lent to read where its parameter takes the read
+  # view it makes: a `[]T`, a String, or an optional of one. Anywhere else
+  # it says what to write: `!xs[a..b]` where a `![]T` goes, a copy where a
+  # value of its own does. A slice is written with its lend everywhere but
+  # an argument: a binding, a field, a result.
+
+  sub zero(xs: ![]Int)
+    xs[0] = 0
+
+  fun own(v: List[Int]) -> Int
+    v.len
+
+  fun pair(a: [2]Int) -> Int
+    a[0]
+
+  fun name(t: String) -> Int
+    t.len
+
+  fun view(xs: ?[]Int) -> Int
+    xs.len
+
+  obj S
+    xs: []Int
+
+  fun back(a: ?[4]Int) -> []Int
+    a[1..]
+
+  w = [1, 2, 3, 4]
+  v: List[Int] = List()
+  t = String("abc")
+  zero(w[1..])
+  print(own(v[..]), pair(w[..2]), name(t[1..]), view(w[..]))
+  s = w[1..]
+  k = S(xs: w[..2])
+  print(s, k.xs, back(?w), t)
+
+test "slice array", '''
+  [2, 3] 2 2 5
+  10 0
+  [2, 3, 4] 3
+  [3]
+  0 3
+  1 4
+  3
+  21
+  [20, 30] 50
+  4
+'''
+  # `?xs[a..b]` of an array or a List is a `[]T`: a read-only view of the
+  # elements from `a` up to `b`, which views `xs`.
+
+  fun total(xs: []Int) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  fun tail(xs: []Int) -> []Int
+    xs[1..xs.len]
+
+  fun first_two(xs: ?[4]Int) -> Int
+    total(?xs[0..2])
+
+  obj Grid
+    cells: [4]Int
+
+  a = [1, 2, 3, 4]
+  s = ?a[1..3]
+  print(s, s.len, s[0], total(s))
+  print(total(?a[0..4]), total(?a[2..2]))
+  print(tail(?a[0..4]), tail(s)[0])
+  print(s[1..2])
+  for x, i in ?a[2..4]
+    print(i, x)
+  print(first_two(?a))
+  g = Grid(cells: [5, 6, 7, 8])
+  print(total(?g.cells[1..4]))
+  v: List[Int] = List()
+  !v.push(10)
+  !v.push(20)
+  !v.push(30)
+  w = ?v[1..v.len]
+  print(w, total(w))
+  !v.push(40)
+  print(v.len)
+
+fail "slice array without view", "4:5: a slice of an array or List views it; write `?a[0..2]`"
+  # A slice of an array views it, and views are spelled: `?xs[a..b]`.
+
+  a = [1, 2, 3]
+  s = a[0..2]
+  print(s)
+
+test "slice behind pointer", '''
+  [1, 2]
+  5 [5, 6] [7]
+'''
+  # An array behind a pointer (a lent to write parameter, a List's buffer)
+  # is not the function's copy, so a slice of it can be returned.
+
+  obj S
+    arr: [3]Int
+
+  fun head(xs: ![3]Int) -> []Int
+    ?xs[0..2]
+
+  fun second(v: ?List[S]) -> Int
+    s = ?v[0].arr[0..2]
+    s[1]
+
+  fun tail(v: ?List[S]) -> []Int
+    ?v[0].arr[1..3]
+
+  a = [1, 2, 3]
+  print(head(!a))
+  v: List[S] = List()
+  !v.push(S(arr: [4, 5, 6]))
+  !v.push(S(arr: [7, 8, 9]))
+  print(second(?v), tail(?v), ?v[1].arr[0..1])
+
+fail "slice bound not integer", "4:12: operator `..` requires integer operands; got `Float`"
+  # Slice bounds are integers.
+
+  s = "abc"
+  print(s[0..1.5])
+
+fail "slice constant out of bounds", "4:12: slice end `4` is past the end of an array of length 3", "5:9: slice `2..1` starts after it ends"
+  # Constant slice bounds are checked against an array's length.
+
+  a = [1, 2, 3]
+  print(a[1..4])
+  print(a[2..1])
+
+test "slice copy fill swap", '''
+  [9, 8, 7, 4, 5, 6]
+  [9, 8, 7, 0, 0, 0]
+  [0, 8, 7, 0, 0, 9]
+  [0, 4, 4, 4, 4, 4]
+  [8, 7]
+  5 5
+  [1.5, 1.5, 1.5]
+  2
+  1
+'''
+  # `!dst.copy(src)` copies a `[]T` of the same length into the elements,
+  # `!s.fill(v)` sets every element, and `!s.swap(i, j)` exchanges two, on a
+  # `![]T`, an array, or a List. `swap` also moves handles in a List of them.
+
+  obj P
+    x: Int
+
+  a = [1, 2, 3, 4, 5, 6]
+  b = [9, 8, 7]
+  !a[..3].copy(?b[..])
+  print(a)
+  !a[3..].fill(0)
+  print(a)
+  !a.swap(0, 5)
+  print(a)
+  w = !a[1..]
+  !w.swap(0, 1)
+  !w.fill(4)
+  print(a)
+  v: List[Int] = List()
+  !v.push(1)
+  !v.push(2)
+  !v.swap(0, 1)
+  !v.fill(3)
+  !v.copy(?b[1..])
+  print(v)
+  ps = [P(x: 1), P(x: 2)]
+  !ps.fill(P(x: 5))
+  print(ps[0].x, ps[1].x)
+  f: [3]F32 = [1.0, 2.0, 3.0]
+  !f.fill(1.5)
+  print(f)
+  hs: List[*P] = List()
+  !hs.push(*P(x: 1))
+  !hs.push(*P(x: 2))
+  !hs.swap(0, 1)
+  for h in ?hs
+    print(h.x)
+
+test "slice copy into param", '''
+  [7, 8]
+  [0, 4, 5]
+  [6, 9]
+  [0, 0, 0] [1, 9, 2] [2, 3, 3]
+'''
+  # `copy` stores elements, never its argument's view: a local copied
+  # into a caller's buffer (a `![]T`, `![N]T`, or `!List[T]` parameter, or a
+  # reslice of one) is fine, and the source is free again once the call
+  # returns.
+
+  sub load(s: ![]Int)
+    c = [7, 8]
+    !s.copy(?c[..])
+
+  sub load_array(a: ![3]Int)
+    c = [4, 5]
+    !a[1..].copy(?c[..])
+
+  sub load_vec(v: !List[Int])
+    c = [6]
+    !v[..1].copy(?c[..])
+
+  a = [1, 2]
+  load(!a[..])
+  print(a)
+  b = [0, 0, 0]
+  load_array(!b)
+  print(b)
+  v: List[Int] = List()
+  !v.push(0)
+  !v.push(9)
+  load_vec(!v)
+  print(v)
+  x = [1, 2, 3]
+  y = [0, 0, 0]
+  !y.copy(?x[..])
+  x[0] = 9
+  !v.copy(?x[1..])
+  !v.push(3)
+  w = !y[1..]
+  !w.copy(?x[..2])
+  !x.fill(0)
+  print(x, y, v)
+
+fail "slice elem methods", "10:3: cannot `fill` a `[]Int`; its elements are read-only", "13:1: `fill` writes the elements; write the receiver with `!`: `!a.fill(0)`", "15:1: cannot `swap` a `?String`; a `?String` is read-only", "17:5: `fill` copies its value into every element, and a `*P` owns a resource, so it cannot be copied: write a loop that makes each element with `+x` (`for i in 0..xs.len` with `xs[i] = +x`)", "19:9: type mismatch: expected `[]Int`, got `[]U8`", "20:12: index `2` is out of bounds for an array of length 2", "`swap` takes two arguments, the indexes of the elements to swap; got 1 argument", "`fill` takes no compile-time arguments", "24:1: `fill` does not consume its receiver; remove the `<`"
+  # `copy`, `fill`, and `swap` write the elements: the receiver is written
+  # `!xs` (or is a `![]T`), never moved, and a String or a `[]T` is
+  # read-only. `fill` and `copy` copy values in, so the elements are plain
+  # data.
+
+  obj P
+    x: Int
+
+  sub ro(s: []Int)
+    s.fill(0)
+
+  a = [1, 2]
+  a.fill(0)
+  t = "abc"
+  !t.swap(0, 1)
+  hs: List[*P] = List()
+  !hs.fill(*P(x: 1))
+  b: [2]U8 = [1, 2]
+  !a.copy(?b[..])
+  !a.swap(0, 2)
+  !a.swap(1)
+  !a.fill[Int](0)
+  w = !a[..]
+  <w.fill(0)
+
+fail "slice element write", "15:1: cannot assign through a slice; a `[]T` is read-only", "16:1: cannot assign through a slice; a `[]T` is read-only", "17:6: cannot lend to write through a slice; a `[]T` is read-only", "20:1: cannot assign through a slice; a `[]T` is read-only", "21:2: cannot lend to write through a slice; a `[]T` is read-only"
+  # A `[]T` is read-only: its elements cannot be assigned, lent to write,
+  # or reached by a `!self` method.
+
+  obj P
+    x: Int
+
+    fun bump(!self)
+      self.x += 1
+
+  sub inc(n: !Int)
+    n += 1
+
+  a = [1, 2, 3]
+  s = ?a[0..3]
+  s[0] = 5
+  s[1] += 1
+  inc(!s[2])
+  ps = [P(x: 1), P(x: 2)]
+  t = ?ps[0..2]
+  t[0].x = 9
+  !t[1].bump()
+  print(a[0])
+
+fail "slice fill copy views", "8:6: a write view is never stored inside a value, and `![]Int` cannot stand here", errors: 1
+  # `fill` and `copy` copy values into the elements, and no element holds
+  # a write view that a copy would give two holders: a write view is never
+  # stored inside a value, so the field is rejected where it is declared.
+  # (Read-view elements copy: see
+  # test/behavior/ownership/copies_fill_read_views.rig.)
+
+  obj V
+    s: ![]Int
+
+  a = [1, 2]
+  print(a[0])
+
+fail "slice of branch write views", "9:13: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `(?a if c else ?b)[1..]`", "10:14: cannot lend `a if c else b`: it may be `a`, a value a name holds, which lending the branching value would copy; lend each branch: `(?a if c else ?b)[..2]`", errors: 2
+  # A slice of a branching value whose branches are write views a name
+  # holds would copy a write view: each branch is lent instead, and the
+  # hint writes the slice that way.
+
+  fun keep(s: ?String) -> ?String
+    s
+
+  sub f(a: !String, b: !String, c: Bool)
+    s = keep((a if c else b)[1..])
+    r = keep(?(a if c else b)[..2])
+    print(s, r)
+
+  x = String("hello")
+  y = String("world")
+  f(!x, !y, true)
+
+fail "slice of write view text bound", "6:7: a slice of a String views it; write `?t[1..]`", "12:7: a slice of a String views it; write `?w[1..]`", "16:7: a slice of a String views it; write `?h[1..]`", "20:7: a slice of a String views it; write `?b[1..]`", errors: 4
+  # A slice of a write view of a Text lends that view, so a binding writes
+  # the lend, as for a slice of the Text itself: a `!String` parameter and
+  # local, a `!*String`, and a `!^String`.
+
+  sub param(t: !String)
+    s = t[1..]
+    print(s)
+
+  sub local()
+    t = String("hello")
+    w = !t
+    s = w[1..]
+    print(s)
+
+  sub shared(h: !*String)
+    s = h[1..]
+    print(s)
+
+  sub boxed(b: !^String)
+    s = b[1..]
+    print(s)
+
+  t = String("hello")
+  param(!t)
+
+fail "slice open out of bounds", "5:9: slice start `4` is past the end of an array of length 3", "7:11: a slice bound cannot be negative; got `-1`", "9:9: a slice bound must be an integer; got `Bool`"
+  # An open slice's constant start is checked against an array's length,
+  # and its bound must be an integer.
+
+  a = [1, 2, 3]
+  print(a[4..])
+  print(a[3..], a[..3])
+  print(a[..-1])
+  k = 1
+  print(a[k == 1..])
+
+test "slice open range", '''
+  world hello hello, world 0
+  [2, 3, 4] [1, 2] [1, 2, 3, 4] []
+  [20, 30] [10] [10, 20, 30]
+  [3, 4] [2] [2, 3, 4] [3, 4] [20, 30]
+  lo, world [3, 4] hell
+  0 3
+  1 4
+'''
+  # An open range leaves out a side of a slice: `xs[a..]` runs to the end,
+  # `xs[..b]` starts at 0, and `xs[..]` is the whole. It slices a String,
+  # an array, a List, and a `[]T`.
+
+  fun rest(xs: []Int) -> []Int
+    xs[1..]
+
+  s = "hello, world"
+  print(s[7..], s[..5], s[..], s[s.len..].len)
+  a = [1, 2, 3, 4]
+  print(a[1..], a[..2], a[..], a[4..])
+  v: List[Int] = List()
+  !v.push(10)
+  !v.push(20)
+  !v.push(30)
+  print(v[1..], v[..1], v[..])
+  t = ?a[1..]
+  print(t[1..], t[..1], t[..], rest(t), rest(?v[..]))
+  k = 2
+  print(s[k + 1..], a[k..], s[..k * 2])
+  for x, i in ?a[2..]
+    print(i, x)
+
+test "slice string", '''
+  hello 5
+  rig
+  0 true
+  wor 111
+  llo
+'''
+  # `s[a..b]` of a String is a String: the bytes from `a` up to `b`.
+
+  fun middle(s: ?String) -> ?String
+    s[1..s.len - 1]
+
+  s = "hello, world"
+  hello = s[0..5]
+  print(hello, hello.len)
+  print(middle("[rig]"))
+  empty = s[3..3]
+  print(empty.len, empty == "")
+  print(s[7..12][0..3], s[7..12][1])
+  i = 2
+  print(s[i..i + 3])
+
+test "slice temporary", "[1, 2] 5"
+  # A slice of a temporary array views the temporary, which lives until
+  # its statement ends: it can be used anywhere in the statement.
+
+  fun make() -> [3]Int
+    [1, 2, 3]
+
+  fun total(xs: []Int) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  print(?make()[0..2], total(?make()[1..]))
+
+fail "slice write", "7:8: cannot lend parameter `a` to write", "8:8: cannot lend to write through a read view (`?T`)", "9:8: cannot lend a slice of a `[]Int` to write; a `[]T` is read-only", "13:6: cannot lend a slice of a `?String` to write; a `?String` is read-only", "15:6: cannot lend fixed binding `c` to write", "18:8: cannot lend `row` to write: it is a copy of an element of `rows`; to change the elements in place, loop with `for row in !rows`"
+  # `!xs[a..b]` needs elements the code may write: not a String's, not a
+  # `[]T`'s, and not those of a fixed binding, a loop binding (a copy), a
+  # by-value or lent to read parameter. (A temporary's are written in its
+  # statement's slot: `test/behavior/ownership/write_lend_temporary_view.rig`.)
+
+  sub f(a: [2]Int, b: ?[2]Int, xs: []Int)
+    p = !a[..]
+    q = !b[..]
+    r = !xs[..]
+    print(p, q, r)
+
+  s = "abc"
+  w = !s[..]
+  c =! [1, 2]
+  x = !c[..]
+  rows = [[1, 2], [3, 4]]
+  for row in rows
+    y = !row[..]
+    print(y)
+  print(w, x)

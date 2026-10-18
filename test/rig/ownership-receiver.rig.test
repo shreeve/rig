@@ -1,0 +1,711 @@
+# ownership: tests whose names start `receiver`.
+
+fail "receiver branch view keeps leaf loans", "17:3: cannot assign to `a.t` while `a` is lent", "24:3: cannot assign to `b.t` while `b` is lent", "32:3: cannot assign to `ts[1].t` while `ts` is lent", errors: 3
+  # A method runs on its receiver where it is: called on a value that
+  # branches, it runs on the leaf the branch picks, so the view it returns
+  # keeps every leaf lent (Core sentence 7), through `if`, `??`, `catch`,
+  # and an element of a branching value.
+
+  obj S
+    t: String
+
+    fun inner(?self) -> ?String
+      ?self.t
+
+  sub branch()
+    a = S(t: String("aa"))
+    b = S(t: String("bb"))
+    c = a.t.len == 2
+    r = (a if c else b).inner()
+    a.t = String("zz")
+    print(r, b.t)
+
+  sub fallback()
+    b = S(t: String("bb"))
+    o: S? = S(t: String("oo"))
+    r = (o ?? b).inner()
+    b.t = String("zz")
+    print(r)
+
+  sub element()
+    ts = [S(t: String("a")), S(t: String("b"))]
+    us = [S(t: String("c")), S(t: String("d"))]
+    c = ts[0].t.len == 1
+    e = (ts if c else us)[1].inner()
+    ts[1].t = String("zz")
+    print(e)
+
+  branch()
+  fallback()
+  element()
+
+test "receiver by what it hands over", '''
+  1 3 1
+  drop 3
+  4 read
+  drop 4
+  11 write
+  drop 9
+  drop 10
+  9 10
+  drop 13
+  13 take
+  2
+  drop 12
+  drop 5
+  drop 2
+  drop 11
+'''
+  # A method's receiver, by what it hands over: a place, a value made
+  # there, a branching value that may be a name's, and one whose every
+  # branch is made there (`<a if c else <b`). A `?self` method reads any of
+  # them in place; a `!self` method writes a place it is lent (`!p.m()`);
+  # a `<self` method takes a value made there.
+
+  obj D
+    id: Int
+    t: String
+
+    drop(!self)
+      print("drop", self.id)
+
+    fun look(?self) -> Int
+      self.id
+
+    sub bump(!self)
+      self.id += 10
+
+    fun take(<self) -> Int
+      self.id
+
+  fun mk(id: Int) -> D
+    D(id: id, t: String("d"))
+
+  c = true
+  p = mk(1)
+  q = mk(2)
+  print(p.look(), mk(3).look(), (p if c else q).look())
+  r = mk(4)
+  s = mk(5)
+  print((<r if c else <s).look(), "read")
+  !p.bump()
+  print(p.id, "write")
+  print(mk(9).take(), (mk(10) if c else mk(11)).take())
+  w = mk(12)
+  x = mk(13)
+  print((<w if not c else <x).take(), "take")
+  print(q.id)
+
+fail "receiver field read then written", "21:36: cannot lend `a` to write while the receiver's read of it is in use", errors: 1
+  # A field of a value that is no place, used as a receiver, is read
+  # where the value is: a later argument cannot lend what the value may
+  # be to write.
+
+  obj P
+    v: List[Int]
+
+  fun mk(k: Int) -> P
+    v: List[Int] = List()
+    !v.push(k)
+    P(v: <v)
+
+  fun growp(p: !P) -> Int
+    for i in 0..100
+      !p.v.push(i)
+    0
+
+  a = mk(1)
+  b = mk(2)
+  c = true
+  print((a if c else b).v.get(growp(!a)))
+
+fail "receiver plain struct later write", "16:18: cannot lend `a` to write while a read loan is live"
+  # A method takes a plain struct receiver by address and reads it when
+  # it runs, after its arguments: a later argument cannot write it first.
+
+  obj P
+    x: Int
+
+    fun show(?self, n: Int) -> Int
+      print(self.x, n)
+      n
+
+  fun bump(p: !P) -> Int
+    p.x = p.x + 10
+    p.x
+
+  a = P(x: 1)
+  _ = a.show(bump(!a))
+
+fail "receiver read then moved", "21:34: cannot move `a` while the receiver's read of it is in use", errors: 1
+  # A read receiver that is no place is held until the call runs: a later
+  # argument cannot move what it may be.
+
+  obj P
+    v: List[Int]
+
+    fun sum(?self, k: Int) -> Int
+      self.v[0] + k
+
+  fun mk(k: Int) -> P
+    v: List[Int] = List()
+    !v.push(k)
+    P(v: <v)
+
+  fun takep(p: P) -> Int
+    p.v[0]
+
+  a = mk(1)
+  b = mk(2)
+  c = true
+  print((a if c else b).sum(takep(<a)))
+
+fail "receiver read then written", "21:29: cannot lend `a` to write while the receiver's read of it is in use", errors: 1
+  # A read receiver that is no place is copied where it runs, before the
+  # arguments: a later argument cannot lend what it may be to write, or
+  # the call would read the copy after its buffer was freed.
+
+  obj P
+    v: List[Int]
+
+    fun peek(?self, other: !P) -> Int
+      for i in 0..100
+        !other.v.push(i)
+      self.v[0]
+
+  fun mk(k: Int) -> P
+    v: List[Int] = List()
+    !v.push(k)
+    P(v: <v)
+
+  a = mk(1)
+  b = mk(2)
+  c = true
+  print((a if c else b).peek(!a))
+
+fail "receiver sigil parenthesized", "6:9: method `pop` needs its receiver lent to write; write `(!v).pop()`", errors: 1
+  # Parentheses around the call make `!` apply to its value, a temporary,
+  # not to the receiver, which the call then needs lent to write.
+
+  v: List[Int] = List()
+  !v.push(1)
+  n = !(v.pop())
+  print(n ?? 0)
+
+fail "receiver stored in argument siblings", "48:11: cannot let this call store a view of `s` in `h`", "56:4: cannot drop `s` while it is lent", "62:12: cannot let this call store a view of `o` in `h`", "68:14: cannot let this call store a view of `ps` in `h`", "76:10: cannot let this call store a view of `s` in `h`", "84:12: cannot let this call store a view of `y` in `h`", "89:12: cannot let this call store a view of `mk()` in `h`", errors: 7
+  # A method may store what its receiver lends or holds in what it was lent
+  # to write, as it may an argument's: a write receiver, a view of the
+  # receiver itself, a field or element of a value, a value reached
+  # through a handle, a consumed receiver's views, and a temporary
+  # receiver, which ends with its statement.
+
+  obj Holder
+    r: []Int
+
+  obj VH
+    s: ?Src
+
+  obj Src
+    items: List[Int]
+
+    sub put(?self, out: !Holder) keeps self
+      out.r = ?self.items[..]
+
+    sub putw(!self, out: !Holder) keeps self
+      out.r = ?self.items[..]
+
+    sub me(?self, out: !VH) keeps self
+      out.s = self
+
+  obj Outer
+    b: Src
+
+  obj P
+    xs: [2]Int
+
+    sub put(?self, out: !Holder) keeps self
+      out.r = ?self.xs[..]
+
+  obj HV
+    r: []Int
+
+    sub give(<self, out: !Holder)
+      out.r = self.r
+
+  fun mk() -> Src
+    s = Src(items: List())
+    !s.items.push(4)
+    s
+
+  sub write_receiver(h: !Holder)
+    s = Src(items: List())
+    !s.items.push(5)
+    !s.putw(!h)
+    <s
+    print(h.r[0])
+
+  sub view_of_self(t: ?Src)
+    v = VH(s: t)
+    s = Src(items: List())
+    ?s.me(!v)
+    <s
+    print(v.s.items.len)
+
+  sub nested_field(h: !Holder)
+    o = Outer(b: Src(items: List()))
+    !o.b.items.push(5)
+    ?o.b.put(!h)
+    <o
+    print(h.r[0])
+
+  sub element(h: !Holder)
+    ps = [P(xs: [1, 1]), P(xs: [2, 2])]
+    ?ps[1].put(!h)
+    ps[1].xs[0] = 9
+    print(h.r[0])
+
+  sub through_handle(h: !Holder)
+    v: List[Int] = List()
+    !v.push(5)
+    s = *Src(items: <v)
+    ?s.put(!h)
+    <s
+    print(h.r[0])
+
+  sub consumed(h: !Holder)
+    y: List[Int] = List()
+    !y.push(9)
+    hv = HV(r: ?y[..])
+    <hv.give(!h)
+    <y
+    print(h.r[0])
+
+  sub temporary(h: !Holder)
+    mk().put(!h)
+    print(h.r[0])
+
+  x = [1, 2]
+  h = Holder(r: ?x[..])
+  write_receiver(!h)
+  t = Src(items: List())
+  view_of_self(?t)
+  nested_field(!h)
+  element(!h)
+  through_handle(!h)
+  consumed(!h)
+  temporary(!h)
+
+fail "receiver temporary view outlives statement", "36:5: a view of the temporary `mk()` outlives its statement", "37:5: a view of the temporary `mkh()` outlives its statement", "39:6: a view of the temporary `mkf(1) catch b` outlives its statement", errors: 3
+  # A method called on a temporary runs on it where its statement keeps
+  # it, so the view it returns may be used only within the statement
+  # (Core §3): plain data, a fallible call's value, and a field holding a
+  # Cell of one. A value of plain data that branches is read as a copy,
+  # which its statement keeps the same way.
+
+  obj P
+    xs: [4]Int
+
+    fun arr(?self) -> ?[4]Int
+      ?self.xs
+
+  obj Q
+    c: Cell[Int]
+    n: Int
+
+    fun me(?self) -> ?Q
+      self
+
+  obj H
+    q: Q
+
+  error Bad
+    oops
+
+  fun mk() -> P
+    P(xs: [9, 9, 9, 9])
+
+  fun mkf(n: Int) -> P!
+    return Bad.oops if n > 5
+    P(xs: [1, 2, 3, 4])
+
+  fun mkh() -> *H
+    *H(q: Q(c: Cell(1), n: 42))
+
+  r = mk().arr()
+  s = mkh().q.me()
+  b = mk()
+  t = (mkf(1) catch b).arr()
+  print(r, s.n, t, mk().arr()[0])
+
+fail "receiver view of branch lends it", "60:6: a view of the temporary `fails(false)` outlives its statement", "67:1: cannot assign to `a.t` while `a` is lent", "68:1: cannot lend `vs` to write while a read loan is live", errors: 3
+  # A `?self` method whose result may keep a view of its receiver lends the
+  # receiver, as `?e` does. A receiver that branches lends each leaf it may
+  # be, where it is: whether the branch is the receiver itself, the value a
+  # field or element of it is read from, or `??`, `catch`, or `o?`. So a
+  # view of it keeps a loan on each name a leaf names, and a change to one
+  # of them while the view is live is rejected; a view of a leaf made there
+  # may not outlive its statement. (The forms that keep working:
+  # `test/behavior/ownership/receiver_view_of_branch_lends_leaves.rig`.)
+
+  obj S
+    t: String
+    xs: [4]Int
+
+    fun inner(?self) -> ?String
+      ?self.t
+
+    fun name(?self) -> ?String
+      ?self.t
+
+    fun arr(?self) -> ?[4]Int
+      ?self.xs
+
+  obj W
+    s: S
+
+  obj P
+    xs: [4]Int
+
+    fun arr(?self) -> ?[4]Int
+      ?self.xs
+
+  error E
+    bad
+
+  fun maybe(c: Bool) -> S?
+    if c
+      return S(t: String("oo"), xs: [9, 9, 9, 9])
+    none
+
+  fun fails(c: Bool) -> S!
+    if c
+      return E.bad
+    S(t: String("ff"), xs: [8, 8, 8, 8])
+
+  fun first(o: S?) -> Int?
+    r = o?.inner()
+    r.len
+
+  a = S(t: String("aa"), xs: [1, 2, 3, 4])
+  b = S(t: String("bb"), xs: [5, 6, 7, 8])
+  c = a.t.len == 2
+  r = (a if c else b).inner()
+  n = (a if c else b).name()
+  x = (a if c else b).arr()
+  wa = W(s: S(t: String("wa"), xs: [0, 0, 0, 0]))
+  wb = W(s: S(t: String("wb"), xs: [0, 0, 0, 0]))
+  w = (wa if c else wb).s.inner()
+  o = maybe(true)
+  u = (o ?? a).inner()
+  e = (fails(false) catch b).inner()
+  vs: List[P] = List()
+  !vs.push(P(xs: [1, 1, 1, 1]))
+  ws: List[P] = List()
+  !ws.push(P(xs: [2, 2, 2, 2]))
+  y = (vs if c else ws)[0].arr()
+  print((a if c else b).inner())
+  a.t = String("zz")
+  !vs.clear()
+  print(r, n, x, w, u, e, y, first(maybe(true)) ?? 0)
+
+test "receiver view of branch lends leaves", '''
+  a text long enough to live on the heap: wa 41
+  [1, 1, 1, 1] 51
+  [4, 4, 4, 4] 31
+  a text long enough to live on the heap: aa 10
+  a text long enough to live on the heap: aa a text long enough to live on the heap: bb 21
+  [1, 2, 3, 4] a text long enough to live on the heap: oo
+  42
+'''
+  # A `?self` method whose result may keep a view of a receiver that
+  # branches lends each leaf the receiver may be, where it is: the view
+  # points into that leaf, and keeps a loan on every name a leaf names, so
+  # it may be used after the statement, while those names live unchanged.
+  # A field or element of such a receiver is reached the same way. (Changing one while the view is live
+  # is rejected: `test/reject/ownership/receiver_view_of_branch_lends_it.rig`.)
+  # A branching value of plain data is read as a copy, which its statement
+  # keeps: a view of it is used within the statement.
+
+  obj S
+    t: String
+    xs: [4]Int
+
+    fun inner(?self) -> ?String
+      ?self.t
+
+    fun name(?self) -> ?String
+      ?self.t
+
+    fun arr(?self) -> ?[4]Int
+      ?self.xs
+
+  obj W
+    s: S
+
+  obj P
+    xs: [4]Int
+
+    fun arr(?self) -> ?[4]Int
+      ?self.xs
+
+  fun maybe(c: Bool) -> S?
+    if c
+      return S(t: String("a text long enough to live on the heap: oo"), xs: [9, 9, 9, 9])
+    none
+
+  fun first(o: S?) -> Int?
+    r = o?.inner()
+    r.len
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  a = S(t: String("a text long enough to live on the heap: aa"), xs: [1, 2, 3, 4])
+  b = S(t: String("a text long enough to live on the heap: bb"), xs: [5, 6, 7, 8])
+  c = clobber(1) == 2
+  r = (a if c else b).inner()
+  n = (a if not c else b).name()
+  x = (a if c else b).arr()
+  wa = W(s: S(t: String("a text long enough to live on the heap: wa"), xs: [0, 0, 0, 0]))
+  wb = W(s: S(t: String("a text long enough to live on the heap: wb"), xs: [0, 0, 0, 0]))
+  print((wa if c else wb).s.inner(), clobber(40))
+  o = maybe(true)
+  u = (o ?? a).inner()
+  vs: List[P] = List()
+  !vs.push(P(xs: [1, 1, 1, 1]))
+  ws: List[P] = List()
+  !ws.push(P(xs: [2, 2, 2, 2]))
+  print((vs if c else ws)[0].arr(), clobber(50))
+  ps = [P(xs: [1, 1, 1, 1]), P(xs: [2, 2, 2, 2])]
+  qs = [P(xs: [3, 3, 3, 3]), P(xs: [4, 4, 4, 4])]
+  print((ps if not c else qs)[1].arr(), clobber(30))
+  print((a if c else b).inner(), clobber(9))
+  print(r, n, clobber(20))
+  print(x, u)
+  print(first(maybe(true)) ?? 0)
+
+fail "receiver view of temporary leaves tail", "21:3: cannot return a view of `mk(42)`, which this function was not lent", "24:10: cannot return a view of `mk(43)`, which this function was not lent", "27:3: cannot return a view of `mk(44)`, which this function was not lent", "31:5: a view of the temporary `mk(45)` outlives its statement", "33:3: a view of the temporary `mk(46)` outlives its statement", "35:3: a view of the temporary `mk(47)` outlives its statement", "37:8: a view of the temporary `mk(48)` outlives its statement", "38:8: a view of the temporary `mk(49)` outlives its statement", "40:9: a view of the temporary `mk(50)` outlives its statement", "42:3: a view of the temporary `mk(51)` outlives its statement", "46:10: cannot return a view of `mk(y)`, which this function was not lent", errors: 11
+  # A view a method returns of a temporary receiver lives only until its
+  # statement ends, also where the call is a function's or closure's tail,
+  # `return`'s value, an `if` or `match` arm's value, or a `break` value:
+  # each leaves the statement the temporary ends with. (A write method on
+  # a temporary is rejected outright: `write_receiver_temporary.rig`.)
+
+  obj S
+    n: Int
+    m: Int
+
+    fun me(?self) -> ?S
+      self
+
+    fun rd(?self) -> ?Int
+      ?self.n
+
+  fun mk(k: Int) -> S
+    S(n: k, m: 6)
+
+  fun tail(d: ?S) -> ?S
+    mk(42).me()
+
+  fun ret(d: ?S) -> ?S
+    return mk(43).me()
+
+  fun read_tail(d: ?Int) -> ?Int
+    mk(44).rd()
+
+  z = 0
+  c = z == 0
+  r = mk(45).me()
+  a = if c
+    mk(46).me()
+  else
+    mk(47).me()
+  m = match z
+    0 => mk(48).me()
+    _ => mk(49).me()
+  b = for k in [1, 2]
+    break mk(50).me() if k > 0
+  else
+    mk(51).me()
+  y = 1
+  w = S(n: 2, m: 0)
+  v = S(n: 3, m: 0)
+  f = |?y| mk(y).rd()
+  print(tail(?w).n, ret(?v).n, read_tail(?z), r.n, a.n, m.n, b.n, f())
+
+fail "receiver view of temporary outlives statement", "31:5: a view of the temporary `mk()` outlives its statement", "32:5: a view of the temporary `mkh()` outlives its statement", "33:5: a view of the temporary `mkh()` outlives its statement", "37:6: a view of the temporary `ps if c else qs` outlives its statement", errors: 4
+  # A `?self` method whose result may keep a view of a temporary receiver
+  # lends the temporary, which lives until its statement ends, plain data
+  # too: the view may be used within the statement, and nowhere after.
+  # So does a field or element of a temporary, a Cell-holding part
+  # included, and a branching value all of whose values are plain data.
+
+  obj P
+    xs: [4]Int
+
+    fun arr(?self) -> ?[4]Int
+      ?self.xs
+
+  obj Q
+    c: Cell[Int]
+    n: Int
+
+    fun me(?self) -> ?Q
+      self
+
+  obj H
+    q: Q
+    p: P
+
+  fun mk() -> P
+    P(xs: [9, 9, 9, 9])
+
+  fun mkh() -> *H
+    *H(q: Q(c: Cell(1), n: 42), p: P(xs: [3, 3, 3, 3]))
+
+  print(mk().arr(), mkh().q.me().n)
+  r = mk().arr()
+  s = mkh().q.me()
+  t = mkh().p.arr()
+  ps = [P(xs: [1, 1, 1, 1]), P(xs: [2, 2, 2, 2])]
+  qs = [P(xs: [3, 3, 3, 3]), P(xs: [4, 4, 4, 4])]
+  c = ps[0].xs[0] == 1
+  u = (ps if c else qs)[1].arr()
+  print(r, s.n, t, u)
+
+fail "receiver view stored in argument", "36:3: cannot reassign `h` while it is lent", "44:4: use of `h.v` while a write loan on `h` is live", "53:6: use of `h.v` while a write loan on `h` is live", "63:6: use of `h.v` while a write loan on `h` is live", errors: 4
+  # A `!self` method may store a view of its receiver in another `!`
+  # argument, which keeps the receiver lent while the argument holds it
+  # (SPEC "Second-class views"): reassigning the receiver, growing what
+  # the view sees, or using it otherwise is rejected while the argument
+  # lives. The oracle's verdicts are stated too, so that a weaker
+  # reference checker fails the run.
+  # oracle: store_read_view reject C4
+  # oracle: bang_receiver reject C4
+  # oracle: store_slice reject C4
+  # oracle: store_into_struct reject C4
+
+  obj H
+    n: Int
+    v: List[Int]
+
+    sub put(!self, dst: !List[?List[Int]]) keeps self
+      !self.v.push(1)
+      !dst.push(?self.v)
+
+    sub puts(!self, dst: !List[[]Int]) keeps self
+      !self.v.push(1)
+      !dst.push(?self.v[..])
+
+    sub putf(!self, dst: !Slot) keeps self
+      !self.v.push(1)
+      dst.s = ?self.v[..]
+
+  obj Slot
+    s: []Int
+
+  sub store_read_view()
+    v: List[Int] = List()
+    h = H(n: 1, v: <v)
+    d: List[?List[Int]] = List()
+    !h.put(!d)
+    h = H(n: 2, v: List())
+    print(d.len)
+
+  sub bang_receiver()
+    v: List[Int] = List()
+    h = H(n: 1, v: <v)
+    d: List[?List[Int]] = List()
+    !h.put(!d)
+    !h.v.push(5)
+    print(d.len)
+
+  sub store_slice()
+    v: List[Int] = List()
+    h = H(n: 1, v: <v)
+    d: List[[]Int] = List()
+    !h.puts(!d)
+    for i in 0..100
+      !h.v.push(i)
+    print(d[0])
+
+  sub store_into_struct()
+    v: List[Int] = List()
+    h = H(n: 1, v: <v)
+    e: List[Int] = List()
+    sl = Slot(s: ?e[..])
+    !h.putf(!sl)
+    for i in 0..100
+      !h.v.push(i)
+    print(sl.s)
+
+  store_read_view()
+
+test "receiver view used in statement", '''
+  [5, 5, 5, 5] 70
+  [2, 2, 2, 2] 38
+  2 3
+  1001
+  aa
+'''
+  # A view a `?self` method returns of a temporary receiver, plain data
+  # included, or of a value that branches through data only, is used within
+  # its statement, where its statement keeps the receiver. A method whose
+  # result keeps no view reads a value that branches as before, and one
+  # called on what each branch lends keeps every branch lent.
+
+  obj P
+    xs: [4]Int
+
+    fun arr(?self) -> ?[4]Int
+      ?self.xs
+
+  obj S
+    t: String
+
+    fun inner(?self) -> ?String
+      ?self.t
+
+    fun size(?self) -> Int
+      self.t.len
+
+  fun mk(n: Int) -> P
+    P(xs: [n, n, n, n])
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  fun first(xs: ?[4]Int, n: Int) -> Int
+    xs[0] * 10 + n
+
+  ps = [P(xs: [1, 1, 1, 1]), P(xs: [2, 2, 2, 2])]
+  qs = [P(xs: [3, 3, 3, 3]), P(xs: [4, 4, 4, 4])]
+  c = clobber(0) == 1
+  print(mk(5).arr(), first(mk(6).arr(), clobber(9)))
+  print((ps if c else qs)[1].arr(), first((?qs if c else ?ps)[0].arr(), clobber(7)))
+  a = S(t: String("aa"))
+  b = S(t: String("bbb"))
+  print((a if c else b).size(), (b if c else a).size())
+  r = (?a if c else ?b).inner()
+  print(clobber(1000))
+  print(r)
+
+fail "receiver view with move arg", "cannot move `rc` while a read loan is live"
+  # A method call views its receiver for the whole call, so
+  # `rc.show(<rc)` is rejected like `show(?rc, <rc)`.
+
+  obj Inner
+    x: Int
+
+  obj Wrap
+    inner: *Inner
+
+    sub show(?self, other: *Wrap)
+      <other
+      y = +self.inner
+      print(y.x)
+
+  rc = *Wrap(inner: *Inner(x: 5))
+  rc.show(<rc)

@@ -1,0 +1,545 @@
+# ownership: tests whose names start `slice`.
+
+fail "slice argument lend", "23:1: cannot assign to `w[0]` while `w` is lent", "25:20: cannot lend `v` to write while a read loan is live", "26:10: a view of the temporary `mk()` outlives its statement", "29:1: cannot lend `t` to write while a read loan is live", errors: 4
+  # A slice argument is lent to read as `?xs[a..b]` is: it keeps what it
+  # slices lent while its view is used, a later argument cannot write
+  # what it slices, and a view of a temporary's slice ends with its
+  # statement.
+
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  fun grow(xs: []Int, v: !List[Int]) -> Int
+    !v.push(1)
+    xs.len
+
+  fun word(s: ?String) -> ?String
+    s
+
+  fun mk() -> [3]Int
+    [1, 2, 3]
+
+  w = [1, 2, 3, 4]
+  v: List[Int] = List()
+  t = String("abc")
+  r = keep(?w[1..3])
+  w[0] = 9
+  print(r)
+  print(grow(v[..], !v))
+  m = keep(mk()[..])
+  print(m)
+  s = word(?t[1..])
+  !t.add("d")
+  print(s)
+
+  # oracle: main reject C4
+
+test "slice argument lent", release: true, '''
+  5 30 7 2
+  4 he 2 hel
+  8 3 40 4
+  20 2 2
+  [10, 20, 30] [1, 0, 3, 4]
+  [1, 0]
+  [9, 0, 3, 4]
+'''
+  # A slice argument is lent to read the way its name is: `total(w[1..3])`
+  # is `total(?w[1..3])`, of an array, a List, a Text, a field, and a write
+  # view, where a `[]T`, a String, or an optional of one goes: a function,
+  # a method, a nested call, a closure, and a generic function. The slice
+  # keeps what it slices lent while its view is used, as `?w[1..3]` does.
+
+  fun total(xs: []Int) -> Int
+    n = 0
+    for x in xs
+      n += x
+    n
+
+  fun count(xs: ([]Int)?) -> Int
+    if xs as s
+      s.len
+    else
+      -1
+
+  fun size(s: ?String) -> Int
+    s.len
+
+  fun head(s: (?String)?) -> ?String
+    s ?? "none"
+
+  fun first[T](xs: []T) -> T
+    xs[0]
+
+  fun echo[T](x: T) -> T
+    x
+
+  fun keep(xs: []Int) -> []Int
+    xs
+
+  obj Bag
+    items: List[Int]
+    name: String
+
+    fun sum(?self, xs: []Int) -> Int
+      total(xs) + self.items.len
+
+  sub zero(v: !List[Int], w: ![]Int)
+    print(total(v[1..]), total(w[..1]), count(w[1..]))
+    !v.push(total(v[..]))
+    w[0] = 0
+
+  a = [1, 2, 3, 4]
+  v: List[Int] = List()
+  !v.push(10)
+  !v.push(20)
+  t = String("hello")
+  b = Bag(items: List(), name: String("bag"))
+  !b.items.push(7)
+  f = |xs: []Int| total(xs) * 2
+  print(total(a[1..3]), total(v[..]), total(b.items[..]), count(a[..2]))
+  print(size(t[1..]), head(t[..2]), size(b.name[1..]), echo(t[..3]))
+  print(b.sum(a[2..]), total(keep(a[..2])), f(v[1..]), first(a[3..]))
+  zero(!v, !a[1..])
+  print(v, a)
+  r = keep(?a[..2])
+  print(r)
+  a[0] = 9
+  print(a)
+
+fail "slice copy same root", "6:3: cannot lend `a` to write while a read loan is live", "11:3: cannot lend `w` to write while a read loan is live"
+  # `copy` writes its receiver while it reads its argument: the two cannot
+  # view the same array, so they never overlap.
+
+  sub halves()
+    a = [1, 2, 3, 4]
+    !a[..2].copy(?a[2..])
+
+  sub reslices()
+    a = [1, 2, 3, 4]
+    w = !a[..]
+    !w[..2].copy(?w[2..])
+
+  halves()
+
+fail "slice diagnostics", "8:4: cannot lend parameter `a` to write", "12:3: cannot lend to write through a shared handle"
+  # Each mistake around write slices gets one diagnostic that names it,
+  # and no hint that suggests code which fails too.
+
+  obj S
+    arr: [2]Int
+
+  fun by_value(a: [2]Int) -> ![]Int
+    !a[..]
+
+  sub shared()
+    h: *S = *S(arr: [1, 2])
+    h.arr.fill(4)
+
+  shared()
+
+fail "slice diagnostics ownership", "13:12: `w` is a write view the closure captures, and a return value would hand it out of the closure at each call, though a write view has one holder; use it inside the closure instead", "19:14: use of `grid` while a write loan is live", "29:18: `loc` does not live long enough"
+  # Each mistake in how long a write slice lives, or where it goes, gets
+  # one diagnostic that names it.
+
+  obj R
+    s: []Int
+
+  fun t() -> Bool
+    true
+
+  sub captured()
+    a = [1, 2]
+    w = !a[..]
+    f = |<w| w
+    print(f().len)
+
+  sub looped()
+    grid = [[1, 2], [3, 4]]
+    w = !grid[0][..]
+    for row in grid
+      print(row)
+    w[0] = 5
+
+  sub stored()
+    a = [1, 2]
+    rs = [R(s: ?a[..])]
+    if t()
+      loc = [7, 7]
+      w = !rs[..]
+      w[0] = R(s: ?loc[..])
+    print(rs[0].s)
+
+  captured()
+  looped()
+  stored()
+
+fail "slice of copy escapes", "10:8: `row` does not live long enough"
+  # A loop element is a copy: a slice of one points into the copy and
+  # cannot outlive it. (A read view of an array points at the array, so
+  # a slice of it may outlive the view; see
+  # test/behavior/ownership/slice_return_array_param.rig.)
+
+  a = [1, 2, 3]
+  s = ?a[0..1]
+  g = [[1, 2], [3, 4]]
+  for row in g
+    s = ?row[0..2]
+  print(s)
+
+test "slice of read view through write", release: true, '''
+  ello
+  other
+  oxed
+  hared
+  ello
+  ello other
+'''
+  # A read view held in a field or an element reached through a write view
+  # (`?String`, `?^String`, `?*String`) is sliced as a value: what it views
+  # cannot change while its loan lives, which the slice carries, so the
+  # field or element may be re-pointed while the slice is used.
+
+  obj R
+    f: ?String
+
+  obj RB
+    f: ?^String
+
+  obj RS
+    f: ?*String
+
+  sub field(w: !R, u: ?String) keeps u
+    s = w.f[1..]
+    w.f = u
+    print(s)
+
+  sub boxed(w: !RB, u: ?^String) keeps u
+    s = w.f[1..]
+    w.f = u
+    print(s)
+
+  sub shared(w: !RS, u: ?*String) keeps u
+    s = w.f[1..]
+    w.f = u
+    print(s)
+
+  sub element(w: !List[?String], u: ?String) keeps u
+    s = w[0][1..]
+    w[0] = u
+    print(s)
+
+  t = String("hello")
+  u = String("other")
+  r = R(f: ?t)
+  field(!r, ?u)
+  print(r.f)
+  b = ^String("boxed")
+  bu = ^String("other")
+  rb = RB(f: ?b)
+  boxed(!rb, ?bu)
+  h = *String("shared")
+  hu = *String("other")
+  rs = RS(f: ?h)
+  shared(!rs, ?hu)
+  v: List[?String] = List()
+  !v.push(?t)
+  element(!v, ?u)
+  r2 = R(f: ?t)
+  w = !r2
+  s = w.f[1..]
+  w.f = ?u
+  print(s, r2.f)
+
+  # oracle: field accept
+  # oracle: boxed accept
+  # oracle: shared accept
+  # oracle: element accept
+  # oracle: main accept
+
+test "slice of text view", release: true, '''
+  ello
+  ello llo
+  hared sh
+  oxed bo
+  ello
+  hello?
+  ello?
+  hello?! he
+'''
+  # A slice of a read view of a Text (`?String`, `?*String`, `?^String`) is
+  # a String of its own: the Text cannot change while the read view's loan
+  # lives, which the String carries. A slice of a write view of a Text
+  # lends the view until its last use, after which the view writes again.
+
+  fun word(s: ?String) -> ?String
+    s
+
+  sub read_param(t: ?String)
+    s = t[1..]
+    print(s, word(t[2..]))
+
+  sub shared(h: ?*String)
+    print(h[1..], word(h[..2]))
+
+  sub boxed(b: ?^String)
+    print(b[1..], word(b[..2]))
+
+  sub write_param(t: !String)
+    s = word(?t[1..])
+    print(s)
+    !t.add("!")
+    print(t, word(?t[..2]))
+
+  t = String("hello")
+  r = ?t
+  s = word(r[1..])
+  print(s)
+  read_param(?t)
+  h = *String("shared")
+  shared(?h)
+  b = ^String("boxed")
+  boxed(?b)
+  w = !t
+  x = word(?w[1..])
+  print(x)
+  !w.add("?")
+  print(t)
+  write_param(!t)
+
+  # oracle: write_param accept
+  # oracle: read_param accept
+
+test "slice of view bound first", release: true, '''
+  ello
+  hellox
+  orld
+  hellox
+'''
+  # The forms the slice-of-a-view hints write: a view a call returns,
+  # bound first, then sliced; and a branch of write views, each lent to
+  # read, then sliced. Each lends what it views until the slice's last use.
+
+  fun keep(s: ?String) -> ?String
+    s
+
+  obj H
+    t: String
+
+  fun get(h: !H) -> !String
+    !h.t
+
+  sub f(a: !String, b: !String, c: Bool)
+    s = keep((?a if c else ?b)[1..])
+    print(s)
+    !a.add("x")
+    print(a)
+
+  h = H(t: String("hello"))
+  w = get(!h)
+  s = keep(?w[1..])
+  print(s)
+  !h.t.add("x")
+  print(h.t)
+  x = String("hello")
+  y = String("world")
+  f(!x, !y, false)
+
+  # oracle: f accept
+  # oracle: main accept
+
+fail "slice of view result", "18:11: a view reached through `get(!h)` outlives its statement, which holds `get(!h)`, itself a view, only while it runs; bind `get(!h)` to a name first", "20:11: a view reached through `(!h).at()` outlives its statement, which holds `(!h).at()`, itself a view, only while it runs; bind `(!h).at()` to a name first", errors: 2
+  # A slice of a view a call returns, as an argument, views what the
+  # statement holds only while it runs: the view, which owns nothing to
+  # drop. The message says so, and to bind the view first.
+
+  fun keep(s: ?String) -> ?String
+    s
+
+  obj H
+    t: String
+
+    fun at(!self) -> !String
+      !self.t
+
+  fun get(h: !H) -> !String
+    !h.t
+
+  h = H(t: String("hello"))
+  s = keep(?get(!h)[1..])
+  print(s)
+  r = keep(?(!h).at()[1..])
+  print(r)
+
+fail "slice of write view text", "12:3: cannot lend `t` to write while a read loan is live", "17:3: cannot reassign `t` while it is lent", "24:3: cannot lend `w` to write while a read loan is live", "29:3: cannot reassign `h` while it is lent", "34:3: cannot lend `b` to write while a read loan is live", "39:3: cannot reassign `b` while it is lent", errors: 6
+  # A slice of a write view of a Text lends that view, as `?t[1..]` does:
+  # the holder of a write view may add to the Text or assign it, which
+  # frees the bytes the slice views, so it cannot while the slice is used.
+  # A `!String` parameter and local, a `!*String`, and a `!^String`,
+  # each written through by `add` or by assignment.
+
+  fun word(s: ?String) -> ?String
+    s
+
+  sub param_add(t: !String)
+    s = word(?t[1..])
+    !t.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(s)
+
+  sub param_assign(t: !String)
+    s = word(?t[1..])
+    t = String("other")
+    print(s)
+
+  sub local_add()
+    t = String("hello")
+    w = !t
+    s = word(?w[1..])
+    !w.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(s)
+
+  sub shared_assign(h: !*String)
+    s = word(?h[1..])
+    h = *String("other")
+    print(s)
+
+  sub box_add(b: !^String)
+    s = word(?b[1..])
+    !b.add("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
+    print(s)
+
+  sub box_assign(b: !^String)
+    s = word(?b[1..])
+    b = ^String("other")
+    print(s)
+
+  t = String("hello")
+  param_add(!t)
+
+  # oracle: param_add reject C4
+  # oracle: local_add reject C4
+  # oracle: shared_assign reject C4
+  # oracle: box_add reject C4
+
+fail "slice push while live", "10:1: cannot lend `v` to write while a read loan is live", "11:6: cannot move `v` while a read loan is live"
+  # A slice of a List points into its buffer, which `push` may move: the
+  # List cannot be written or moved while the slice is live.
+
+  sub eat(v: List[Int])
+    print(v.len)
+
+  v: List[Int] = List()
+  !v.push(1)
+  s = ?v[0..1]
+  !v.push(2)
+  eat(<v)
+  print(s)
+
+fail "slice return array copy", "10:4: cannot return a view of `a`: a parameter taken by value belongs to this function and ends with it; take `a: ?[3]Int`", "13:4: cannot return a view of `p`", "17:13: cannot return a view of `x`, which this function was not lent", "`b` does not live long enough", errors: 4
+  # A parameter taken by value, and a loop's copy of an element, belong to
+  # the function, so a view of them cannot be returned. A view returned
+  # from a lent to read array parameter views the caller's array, which
+  # must outlive it.
+
+  obj Pt
+    x: Int
+
+  fun f(a: [3]Int) -> []Int
+    ?a[0..2]
+
+  fun g(p: Pt) -> ?Pt
+    ?p
+
+  fun rows(xs: ?[2][3]Int) -> []Int
+    for x in xs
+      return ?x[1..3]
+    ?xs[0][0..1]
+
+  fun mid(a: ?[3]Int) -> []Int
+    ?a[1..3]
+
+  a = [1, 2, 3]
+  print(f(a), g(Pt(x: 1)).x)
+  s: []Int = ?a[0..1]
+  if a[0] == 1
+    b = [4, 5, 6]
+    s = mid(?b)
+  print(s)
+
+test "slice return array param", '''
+  [1, 2]
+  [2, 3] [5, 6] [4, 5]
+  8
+  [2, 3]
+'''
+  # A lent to read array parameter points at the caller's array, so a
+  # slice or element view of it, or of an array field of a lent to read
+  # struct, may be returned or stored in the caller's values: it views
+  # what the parameter views. A local read view of an array is a
+  # pointer too, so a slice of it may outlive the view.
+
+  obj View
+    xs: []Int
+
+  obj S
+    arr: [3]Int
+
+    fun head(?self) -> []Int
+      ?self.arr[0..2]
+
+  obj Pt
+    x: Int
+
+  fun f(a: ?[3]Int) -> []Int
+    ?a[0..2]
+
+  sub keep(v: !View, a: ?[3]Int) keeps a
+    v.xs = ?a[1..3]
+
+  fun field(p: ?S) -> []Int
+    ?p.arr[1..3]
+
+  fun pick(ps: ?[2]Pt) -> ?Pt
+    ?ps[1]
+
+  a = [1, 2, 3]
+  print(f(?a))
+  view = View(xs: ?a[0..1])
+  keep(!view, ?a)
+  s = S(arr: [4, 5, 6])
+  print(view.xs, field(?s), s.head())
+  ps = [Pt(x: 7), Pt(x: 8)]
+  p = pick(?ps)
+  print(p.x)
+  t = ?a[0..1]
+  if a[0] == 1
+    r = ?a
+    t = ?r[1..3]
+  print(t)
+
+fail "slice return local", "5:4: cannot return a view of `a`, which this function was not lent"
+  # A slice of a local array cannot leave the function.
+
+  fun f() -> []Int
+    a = [1, 2, 3]
+    ?a[0..2]
+
+  print(f())
+
+fail "slice temporary kept", "7:6: a view of the temporary `make()` outlives its statement", errors: 1
+  # A slice of a temporary cannot outlive its statement, which ends the
+  # temporary.
+
+  fun make() -> [3]Int
+    [1, 2, 3]
+
+  s = ?make()[0..2]
+  print(s)
+
+fail "slice write while live", "6:1: cannot assign to `a[0]` while `a` is lent"
+  # A slice is a read view of its array: the array cannot be written
+  # while the slice is live.
+
+  a = [1, 2, 3]
+  s = ?a[0..2]
+  a[0] = 9
+  print(s)

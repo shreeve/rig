@@ -14,7 +14,7 @@
 
 import { swarm, init, todo, args } from 'rip/swarm'
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, rmSync } from 'fs'
-import { join, resolve, basename } from 'path'
+import { join, resolve, basename, dirname } from 'path'
 
 root = resolve(import.meta.dir, '..')
 rig  = join(root, 'bin', 'rig')
@@ -85,7 +85,7 @@ printed = (v) -> if v.heredoc? then v.heredoc else if /^".*"$/.test(v.text) then
 
 # Is a line of a body a declaration, which goes to the top of the case's
 # program, and not a statement of `main`?
-declares = (line) -> /^(pub )?(fun|sub|obj|enum|error|type|use|extern) /.test(line)
+declares = (line) -> /^(pub )?(inline )?(fun|sub|obj|enum|error|type|use|extern) [A-Za-z_"]/.test(line)
 
 # A file's cases. Each starts at a `verb "name"` header at the left
 # margin, whose items after the name are its expected result (a value, or
@@ -136,10 +136,46 @@ cases = (file) ->
     i++
   out.push(cur) if cur
   for c in out
+    # `file "PATH"` at the body's margin starts another file of the case's
+    # program, its lines two spaces in; the files end the body.
+    c.files = []
+    at = c.body.findIndex((l) -> /^file "[^"]+"\s*$/.test(l))
+    if at >= 0
+      for l in c.body.slice(at)
+        m = l.match(/^file "([^"]+)"\s*$/)
+        if m
+          c.files.push({ path: m[1], lines: [] })
+        else
+          c.files[c.files.length - 1].lines.push(l.replace(/^  /, ''))
+      c.body = c.body.slice(0, at)
+      for f in c.files
+        f.lines.pop() while f.lines.length > 0 and f.lines[f.lines.length - 1].trim() is ''
+        f.text = f.lines.join('\n') + '\n'
     c.body.pop() while c.body.length > 0 and c.body[c.body.length - 1].trim() is ''
     c.shared = shared
     program(c)
   out
+
+# Does a case use the module a file's `use` imports? It does when it
+# names a member of it (`text.` for `use std.text`, `t.` for `use std.text
+# as t`) and binds no name of its own the same: a parameter, a local, a
+# loop variable, a closure's parameter, or a match arm's binding. Rig
+# rejects a program that imports a module and binds its name, so a case
+# that binds the name is one that never imported it.
+refers = (c, u) ->
+  m = u.match(/^use\s+([\w.]+)(?:\s+as\s+(\w+))?/)
+  return true unless m
+  name = m[2] ?? m[1].split('.').pop()
+  lines = [...c.body, ...c.files.flatMap((f) -> f.text.split('\n'))]
+  return false unless lines.some((l) -> new RegExp("\\b#{name}\\.").test(l))
+  binds = [
+    "^\\s*(pub )?(inline )?(fun|sub)\\b[^(]*\\(.*\\b#{name}\\s*:"
+    "^\\s*(new\\s+)?#{name}\\s*(:[^=]*)?=(?!=)"
+    "\\bfor\\s+(\\w+\\s*,\\s*)?#{name}\\b"
+    "\\|[^|]*\\b#{name}\\b[^|]*\\|"
+    "^\\s*\\.\\w+\\([^)]*\\b#{name}\\b(?!\\.)[^)]*\\)\\s*(=>|$|if\\b)"
+  ].map((p) -> new RegExp(p))
+  not lines.some((l) -> binds.some((b) -> b.test(l)))
 
 # The program a case runs as: the file's `use` lines, the body's
 # declarations, and its statements as `main`'s. When a `test` gives its
@@ -153,8 +189,8 @@ program = (c) ->
   add = (text, at, shift) ->
     lines.push(text)
     map.push([at, shift])
-  add(u, 0, 0) for u in c.shared
-  if c.body.some((l) -> /^(pub )?sub main\(/.test(l))
+  add(u, 0, 0) for u in c.shared when refers(c, u) and not c.body.includes(u)
+  if c.opts.whole is 'true' or c.body.some((l) -> /^(?![\s#]).*\b(sub|fun) main\b/.test(l))
     add(l, k + 1, 0) for l, k in c.body
   else
     decl = []
@@ -174,6 +210,7 @@ program = (c) ->
     fallible = stmt.some(([l]) -> /\)!(?!=)/.test(l))
     add((if fallible then 'sub main()!' else 'sub main()'), 0, 0)
     add((if l is '' then '' else '  ' + l), at, 2) for [l, at] in stmt
+    add('  pass', 0, 0) unless stmt.some(([l]) -> l.trim() isnt '' and not l.trimStart().startsWith('#'))
   c.source = lines.join('\n') + '\n'
   c.map = map
 
@@ -205,28 +242,50 @@ setup = ->
         continue
     all = cases(file)
     mkdirSync(join(work, area, 'cases'), { recursive: true })
+    put = (path, text) ->
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(path, text) unless existsSync(path) and readFileSync(path, 'utf8') is text
     for c, i in all
-      c.path = join(work, area, 'cases', "#{String(i).padStart(3, '0')}.rig")
-      writeFileSync(c.path, c.source) unless existsSync(c.path) and readFileSync(c.path, 'utf8') is c.source
+      n = String(i).padStart(3, '0')
+      # A case's program is named for it, so what it prints about itself
+      # (a panic's place) names the case.
+      slug = c.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') or 'case'
+      slug = 't_' + slug if /^[0-9]/.test(slug)
+      if c.files.length > 0
+        c.path = join(work, area, 'cases', n, 'main.rig')
+        put(join(work, area, 'cases', n, f.path), f.text) for f in c.files
+      else
+        c.path = join(work, area, 'cases', n, c.opts.file ?? "#{slug}.rig")
+      put(c.path, c.source)
     runs = all.filter((c) -> c.verb is 'test' or c.verb is 'bomb')
     packs = [{ dir: join(work, area, 'debug'), cases: runs, flags: [], env: { RIG_SANITIZE: '1' } }, { dir: join(work, area, 'release'), cases: runs.filter((c) -> c.opts.release is 'true'), flags: ['--release'], env: {} }]
     for p in packs when p.cases.length > 0
       h = new Bun.CryptoHasher('sha256')
-      h.update(part + '\0') for part in [compiler, ...p.flags, JSON.stringify(p.env), ...p.cases.flatMap((c) -> [c.path, c.source])]
+      h.update(part + '\0') for part in [compiler, ...p.flags, JSON.stringify(p.env), ...p.cases.flatMap((c) -> [c.path, c.source, ...c.files.flatMap((f) -> [f.path, f.text])])]
       p.key = h.digest('hex')
       keyPath = join(p.dir, 'key')
       if existsSync(keyPath) and readFileSync(keyPath, 'utf8') is p.key and existsSync(join(p.dir, 'bin'))
-        builds.push({ pack: p, proc: null })
+        builds.push({ pack: p, start: null })
         continue
       rmSync(keyPath, { force: true })
-      proc = Bun.spawn({ cmd: [rig, 'batch', 'build', ...p.flags, p.dir, ...p.cases.map((c) -> c.path)], env: { ...process.env, ...p.env }, stdout: 'ignore', stderr: 'ignore' })
-      builds.push({ pack: p, proc })
+      builds.push({ pack: p, start: ((p) -> -> Bun.spawn({ cmd: [rig, 'batch', 'build', ...p.flags, p.dir, ...p.cases.map((c) -> c.path)], env: { ...process.env, ...p.env }, stdout: 'ignore', stderr: 'ignore' }))(p) })
     plans.push({ area, file, all, packs, fileKey })
+  # The packs that need it are built a few at a time: each is one Zig
+  # compile, and as many at once as there are cores is enough.
+  pending = builds.filter((b) -> b.start?)
+  limit = Number(process.env.CPUQ_CORES ?? Math.max(1, Math.floor(navigator.hardwareConcurrency / 2)))
+  next = 0
+  builder = ->
+    while next < pending.length
+      b = pending[next]
+      next++
+      b.code = await b.start().exited
+  await Promise.all([1..limit].map(-> builder()))
   # A pack holds the cases its `programs` lists; one rig rejects is left
   # out, and runs alone, so it reports the compiler's own error.
   for b in builds
-    ok = if b.proc? then (await b.proc.exited) is 0 else true
-    writeFileSync(join(b.pack.dir, 'key'), b.pack.key) if ok and b.proc?
+    ok = if b.start? then b.code is 0 else true
+    writeFileSync(join(b.pack.dir, 'key'), b.pack.key) if ok and b.start?
     listed = join(b.pack.dir, 'programs')
     b.pack.built = if ok and existsSync(listed) then readFileSync(listed, 'utf8').split('\n').filter((l) -> l isnt '').map((l) -> l.split('\t')[1]) else []
   for plan in plans
@@ -262,7 +321,8 @@ firstLine = (s) -> s.split('\n').find((l) -> l.trim() isnt '') or '(nothing)'
 
 # A diagnostic's position in the case's body, from its position in the
 # case's program.
-bodyAt = (c, line, col) ->
+bodyAt = (c, file, line, col) ->
+  return "#{line}:#{col}" unless file.endsWith(c.path.slice(work.length))
   [at, shift] = c.map[line - 1] ?? [0, 0]
   "#{at}:#{col - shift}"
 
@@ -274,8 +334,8 @@ checkFail = (c) ->
   throw new Error('accepted (a `fail` case must be rejected)') if r.code is 0
   msgs = []
   for l in all.split('\n')
-    m = l.match(/\.rig:(\d+):(\d+): (?:error|  note): (.*)$/)
-    msgs.push({ at: bodyAt(c, Number(m[1]), Number(m[2])), text: m[3] }) if m
+    m = l.match(/(\S+\.rig):(\d+):(\d+): (?:error|  note): (.*)$/)
+    msgs.push({ at: bodyAt(c, m[1], Number(m[2]), Number(m[3])), text: m[4] }) if m
   throw new Error("a diagnostic has no position: #{firstLine(all)}") if msgs.length is 0
   for a in c.args
     want = printed(a)
@@ -306,11 +366,14 @@ checkRun = (c) ->
   throw new Error('a `bomb` names its panic') if c.verb is 'bomb' and not panic?
   seconds = Number(c.opts.timeout ?? 120)
   cmd = if c.pack? then [rig, 'batch', 'run', c.pack, String(c.n)] else [rig, 'run', ...(if c.release then ['--release'] else []), c.path]
-  r = run(cmd, { RIG_SANITIZE: '1', RIG_OUT_DIR: c.path + (if c.release then '.release' else '.debug') }, seconds)
+  # As the suite always has, a case that ends a program on purpose runs
+  # with RIG_NO_CRASH_REPORT=1.
+  quiet = if c.verb is 'bomb' or c.opts.exit? then { RIG_NO_CRASH_REPORT: '1' } else {}
+  r = run(cmd, { RIG_SANITIZE: '1', RIG_OUT_DIR: c.path + (if c.release then '.release' else '.debug'), ...quiet }, seconds)
   mode = if c.release then ' (release)' else ''
   throw new Error("timed out after #{seconds}s#{mode}") unless r.code?
-  rejected = r.err.match(/\.rig:(\d+):(\d+): error: (.*)/)
-  throw new Error("rejected by rig at #{bodyAt(c, Number(rejected[1]), Number(rejected[2]))}: #{rejected[3]}") if rejected and r.code is 1 and not c.pack?
+  rejected = r.err.match(/(\S+\.rig):(\d+):(\d+): error: (.*)/)
+  throw new Error("rejected by rig at #{bodyAt(c, rejected[1], Number(rejected[2]), Number(rejected[3]))}: #{rejected[4]}") if rejected and r.code is 1 and not c.pack?
   throw new Error("did not run#{mode}: #{firstLine(r.err)}") if r.code is 125 or r.err.includes('rig: the program did not run')
   throw new Error("a proven check failed#{mode}") if r.err.includes('rig: a proven check failed')
   if panic?

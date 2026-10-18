@@ -1,0 +1,452 @@
+# ownership: tests whose names start `closure`.
+
+fail "closure alias", "closure `f` cannot be moved, returned, stored, or copied; call it as `f()`, lend it to a call as `?f`, or make the literal owned (`*|...| body`) to pass it around"
+  # A closure binding cannot be aliased (`g = f`): copying the closure
+  # would duplicate its captures.
+
+  n =! 5
+  f = |+n|
+    n + 1
+  g = f
+  g()
+
+fail "closure capture view rules", "5:9: cannot lend parameter `n` to write", "9:9: cannot lend fixed binding `k` to write"
+  # `|!x|` follows the rules of `!x`: a write view needs a binding that
+  # may change.
+
+  sub go(n: Int)
+    f = |!n|
+      n += 1
+    f()
+    k =! 3
+    g = |!k|
+      k += 1
+    g()
+
+  go(1)
+
+fail "closure capture view rules ownership", "16:9: cannot lend `total` to write while a write loan is live", "23:12: an owned closure cannot capture a view of `x`: it can be stored anywhere", "24:13: an owned closure cannot capture a view of `x`", "30:7: use of `c.n` while a write loan on `c` is live", "36:3: cannot store a view of `inner` through captured `v`", "39:10: cannot lend `c` to write while a read loan is live"
+  # `|?x|` and `|!x|` follow the rules of `?x` and `!x`: a write view
+  # excludes every other view while the closure lives; an owned closure
+  # views nothing; and nothing a view of the closure's own values is
+  # stored through a captured write view.
+
+  obj Wrap
+    n: Int
+
+  obj View
+    w: ?Wrap
+
+  sub go()
+    total = 0
+    a = |!total|
+      total += 1
+    b = |!total|
+      total += 2
+    a()
+    b()
+
+  go()
+  x = 1
+  owned = *|?x| x + 1
+  owned2 = *|!x|
+    x += 1
+  c = Wrap(n: 0)
+  add = |!c|
+    c.n += 1
+  add()
+  print(c.n)
+  add()
+  outer = Wrap(n: 1)
+  v = View(w: ?outer)
+  keep = |!v|
+    inner = Wrap(n: 2)
+    v = View(w: ?inner)
+  keep()
+  r = ?c
+  late = |!c|
+    c.n = 5
+  late()
+  print(r.n)
+
+test "closure capture views", '''
+  7
+  2 2
+  11
+  2 4
+  drop 11
+  99
+  hi rig
+  100
+  drop 99
+'''
+  # `|?x|` captures a read view and `|!x|` a write view, held while the
+  # closure lives. Through a captured write view the body writes fields,
+  # calls `!self` methods, and assigns the whole value, which writes
+  # through; after the closure's last call, the value is free again.
+
+  obj Wrap
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  sub grow(w: !Wrap, by: Int)
+    inc = |!w, +by| w.n += by
+    inc()
+    inc()
+
+  fun count_of[T](xs: ?List[T]) -> Int
+    count = 0
+    f = |!count, ?xs| count += xs.len
+    f()
+    f()
+    count
+
+  total = 0
+  add = |!total, k: Int| total += k
+  add(3)
+  add(4)
+  print(total)
+  w = Wrap(n: 1)
+  peek = |?w| w.n + 1
+  print(peek(), peek())
+  grow(!w, 5)
+  print(w.n)
+  v: List[Int] = List()
+  push = |!v, x: Int|
+    !v.push(x)
+  push(1)
+  push(2)
+  print(v.len, count_of(?v))
+  swap = |!w| w = Wrap(n: 99)
+  swap()
+  print(w.n)
+  name = "rig"
+  greet = |?name, p: ?String| print(p, name)
+  greet("hi")
+  outer = |?w|
+    inner = |?w| w.n
+    inner() + 1
+  print(outer())
+
+fail "closure captures past enclosing closure", "6:9: capture `n` in the enclosing closure first", "11:9: capture `c` in the enclosing closure first"
+  # A closure nested in another captures from what the enclosing closure
+  # holds, so a name the enclosing closure did not capture is out of reach.
+
+  n = 5
+  f = ||
+    g = |+n| print(n)
+    g()
+  f()
+  c: *Cell[Int] = *Cell(0)
+  h = *||
+    k = |+c| c.set(1)
+    k()
+  h()
+
+fail "closure holds view", "cannot drop `a` while it is lent"
+  # A closure that captured a view keeps the owner viewed while the
+  # closure binding is live.
+
+  obj Wrap
+    payload: Int
+
+    drop(!self)
+      print("drop")
+
+  a = Wrap(payload: 1)
+  r = ?a
+  f = |<r|
+    print(r.payload)
+  <a
+  f()
+
+fail "closure in array literal", "closures cannot escape their defining scope"
+  # A lambda literal inside an array literal escapes its scope and is
+  # rejected.
+
+  count: *Cell[Int] = *Cell(0)
+  xs = [|+count| !count.set(count.get() + 1)]
+  _ = xs
+
+fail "closure in constructor arg", "8:16: closures cannot escape their defining scope"
+  # A lambda literal passed as a struct constructor argument escapes its
+  # scope and is rejected.
+
+  obj Holder
+    cb: sub()
+
+  count: *Cell[Int] = *Cell(0)
+  h = Holder(cb: |+count| !count.set(count.get() + 1))
+  _ = h
+
+fail "closure param stored through capture", "17:3: cannot store a view of `w` through captured `v`", "20:3: cannot store a view of `w` through captured `v`", "28:1: cannot lend `b` to write while a read loan is live"
+  # A view a closure receives as a parameter lives only for that call,
+  # as do the closure's own locals, while a captured write view reaches
+  # a value that outlives every call. So neither may be stored through the
+  # capture, by field or by whole assignment; a view the closure
+  # captured may, and the captured value then views it.
+
+  obj View
+    w: ?List[Int]
+
+  sub run(f: ?sub(?List[Int]))
+    local: List[Int] = List()
+    f(?local)
+
+  a: List[Int] = List()
+  v = View(w: ?a)
+  run(|!v, w|
+    v.w = w
+  )
+  set = |!v, w: ?List[Int]|
+    v = View(w: w)
+  if true
+    local: List[Int] = List()
+    set(?local)
+  b: List[Int] = List()
+  keep = |!v, ?b|
+    v.w = b
+  keep()
+  !b.push(1)
+  print(v.w.len)
+
+fail "closure pass as arg", "10:9: closure `f` cannot be moved, returned, stored, or copied; call it as `f()`, lend it to a call as `?f`, or make the literal owned (`*|...| body`) to pass it around"
+  # A local closure cannot be passed as a call argument, where the callee
+  # could retain it.
+
+  sub consume(f: fun() -> Int)
+    print(f())
+
+  n =! 3
+  f = |+n|
+    n
+  consume(f)
+
+test "closure passes captured view", "31"
+  # A closure may pass a view it captured to a call, which views it
+  # for the call, and call methods through a captured write view; the
+  # closure keeps the view for its next call.
+
+  obj Wrap
+    n: Int
+
+    sub bump(!self)
+      self.n += 10
+
+  sub poke(b: !Wrap)
+    b.n += 5
+
+  fun peek(b: ?Wrap) -> Int
+    b.n
+
+  x = Wrap(n: 1)
+  if true
+    w = !x
+    f = |<w|
+      poke(!w)
+      !w.bump()
+    f()
+    f()
+  r = ?x
+  g = |<r| print(peek(r))
+  g()
+
+fail "closure reassign", "cannot reassign closure binding `f`"
+  # Closure bindings are fixed; rebinding one is rejected with a
+  # closure-specific diagnostic.
+
+  n =! 7
+  f = |+n|
+    n
+  f = |+n|
+    n + 1
+  print(f())
+
+test "closure result takes tail", '''
+  1 2
+  drop 2
+  drop 1
+  tail
+  3 4
+  drop 4
+  drop 3
+  5 6 7
+  drop 7
+  drop 6
+  drop 5
+'''
+  # A closure's value is its result: the tail of an inferred closure, an
+  # expression body or a block body, a branch of it, a `match` arm, and a
+  # value an early `return` gives, leave the closure, as they leave a
+  # function. Lent as `?g`, it returns them the same way.
+
+  obj D
+    id: Int
+
+    drop(!self)
+      print("drop", self.id)
+
+  fun mk(id: Int) -> D
+    D(id: id)
+
+  fun apply(f: ?fun(D) -> D, x: D) -> D
+    f(<x)
+
+  g = |x: D| x
+  pick = |x: D, c: Bool| x if c else mk(9)
+  h = |x: D, c: Bool|
+    if c
+      return x
+    print("tail")
+    x
+  k = |x: D, n: Int| match n
+    1 => x
+    _ => mk(8)
+  t: fun(D) -> D = |x| x
+  print(g(mk(1)).id, pick(mk(2), true).id)
+  print(h(mk(3), true).id, h(mk(4), false).id)
+  print(k(mk(5), 1).id, t(mk(6)).id, apply(?g, mk(7)).id)
+
+fail "closure result views captured view", "13:8: `x` does not live long enough"
+  # Calling a closure yields a value that may lend what the closure
+  # captured, so it cannot outlive the viewed value.
+
+  obj Wrap
+    v: List[Int]
+
+  y = Wrap(v: List())
+  !y.v.push(1)
+  out = ?y
+  if true
+    x = Wrap(v: List())
+    !x.v.push(42)
+    r = ?x
+    s = |<r| r
+    out = s()
+  print(out.v[0])
+
+fail "closure return", "4:10: closures cannot escape their defining scope"
+  # A lambda literal cannot be returned from a function.
+
+  fun make(x: Int) -> fun() -> Int
+    return |+x|
+      x + 1
+
+test "closure returns captured view", '''
+  42
+  14
+'''
+  # A stack closure may return a captured read view or a moved-in Copy
+  # value; the result views what the closure holds.
+
+  obj Wrap
+    v: List[Int]
+
+  x = Wrap(v: List())
+  !x.v.push(42)
+  r = ?x
+  s = |<r| r
+  out = s()
+  print(out.v[0])
+  n = 7
+  t = |<n| n
+  print(t() + t())
+
+fail "closure returns local view", "an owned closure cannot capture `r`, which holds a view of `b`"
+  # An owned closure can be returned, so it cannot capture a view (here
+  # of a local that the return would outlive).
+
+  obj Wrap
+    payload: Int
+
+  fun mk() -> *sub()
+    b = Wrap(payload: 1)
+    r = ?b
+    *|<r| print(r.payload)
+
+  cb = mk()
+  cb()
+
+fail "closure tail moves capture", "9:10: `x` is captured by the closure, which keeps it for every call, so a return value can't take it; write `+x` for a clone"
+  # A closure may run again, so its value cannot move out a captured
+  # owning value, even as the last expression of its body.
+
+  obj Wrap
+    v: List[Int]
+
+  x = Wrap(v: List())
+  !x.v.push(5)
+  s = |<x| x
+  a = s()
+  b = s()
+  print(a.v[0], b.v[0])
+
+fail "closure tail views local", "9:4: cannot return a view of `y`, which this function was not lent"
+  # A closure's value cannot lend the closure's own locals.
+
+  obj Wrap
+    v: List[Int]
+
+  s = ||
+    y = Wrap(v: List())
+    !y.v.push(1)
+    ?y
+  q = s()
+  print(q.v[0])
+
+fail "closure uses uncaptured local", "`rc` is a local of the enclosing function; capture it"
+  # A closure body can only use outer locals it captures.
+
+  obj Wrap
+    payload: Int
+
+  sub eat(rc: *Wrap)
+    print(rc.payload)
+
+  rc = *Wrap(payload: 1)
+  n = 5
+  f = |+n|
+    eat(<rc)
+  f()
+
+test "closure write capture bindings", '''
+  3
+  3
+  5
+  1
+'''
+  # `|!x|` writes the binding it captures whatever its initializer: a
+  # call's result, a struct holding a view, a shared handle. A closure
+  # may store what it captured to read through a write capture: the
+  # written value then views it.
+
+  obj View
+    w: ?List[Int]
+    n: Int
+
+  obj Wrap
+    n: Int
+
+  fun seed(n: Int) -> Int
+    n + 1
+
+  x = seed(1)
+  f = |!x| x += 1
+  f()
+  print(x)
+  a: List[Int] = List()
+  v = View(w: ?a, n: 0)
+  g = |!v| v.n = 3
+  g()
+  print(v.n)
+  h = *Wrap(n: 1)
+  swap = |!h| h = *Wrap(n: 5)
+  swap()
+  print(h.n)
+  b: List[Int] = List()
+  !b.push(9)
+  keep = |!v, ?b| v.w = b
+  keep()
+  print(v.w.len)

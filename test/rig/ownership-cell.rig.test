@@ -1,0 +1,406 @@
+# ownership: tests whose names start `cell`.
+
+fail "cell get resource", "`Cell.get` returns a copy of the value, and a `*User` owns what it must release, so it can't be copied; write `(!cell).replace(<new)`, which puts `new` in and hands back the old value"
+  # `Cell.get` on a Cell of shared handles is rejected: the copy would
+  # alias the owned handle.
+
+  obj User
+    age: Int
+
+  u: *User = *User(age: 30)
+  c: Cell[*User] = Cell(<u)
+  copy = c.get()
+  print(0)
+
+fail "cell holder copies", "14:5: `a` is a `*Counter` handle, which can't be copied by `=`: write `<a` to move it, `+a` for another handle, or `?a` to view it", "16:5: `c` is a `*Cell[Int]` handle, which can't be copied by `=`: write `<c` to move it, `+c` for another handle, or `?c` to view it", "18:5: `h.c` is a unique `Counter`, which can't be copied by `=`: write `?h.c` to view it", "20:8: `arr` owns a `[2]*Counter`, which can't be copied by `=`: write `<arr` to move it, `+arr` to clone it, or `?arr` to view it", "21:5: `arr[1]` is a `*Counter` handle, which can't be copied by `=`: write `+arr[1]` for another handle or `?arr[1]` to view it", "24:5: `o` is a `*Counter?` handle, which can't be copied by `=`: write `<o` to move it, `+o` for another handle, or `?o` to view it", "24:10: `e` is a `*Counter` handle, which can't be copied by `=`: write `<e` to move it, `+e` for another handle, or `?e` to view it"
+  # A value that holds a Cell is never copied: a copy would fork the
+  # state the Cell shares. It lives behind a `*` handle, which `=` does not
+  # copy, or as a field of a value behind one, which a bare use cannot copy
+  # out: whether it is a name, a field, an element, an array, or a `??`
+  # operand.
+
+  obj Counter
+    hits: Cell[Int]
+
+  obj Holder
+    c: Counter
+
+  a = *Counter(hits: Cell(0))
+  b = a
+  c = *Cell(1)
+  d = c
+  h = *Holder(c: Counter(hits: Cell(2)))
+  k = h.c
+  arr = [*Counter(hits: Cell(0)), *Counter(hits: Cell(0))]
+  copy = arr
+  x = arr[1]
+  o: (*Counter)? = *Counter(hits: Cell(3))
+  e = *Counter(hits: Cell(4))
+  f = o ?? e
+  print(b.hits.get(), d.get(), k.hits.get(), copy[0].hits.get(), x.hits.get(), f.hits.get())
+
+fail "cell holder generic copy", "15:5: `keep[*Counter]` cannot use `T = *Counter`: the generic body copies a `T`, which would duplicate the resource `*Counter` owns", errors: 1
+  # A generic body that copies a `T` cannot take `T = *Counter`, the
+  # handle a value that holds a Cell lives behind: the copy would
+  # duplicate the handle.
+
+  obj Counter
+    hits: Cell[Int]
+
+  obj Wrap[T]
+    v: T
+
+  fun keep[T](x: T) -> Wrap[T]
+    Wrap(v: x)
+
+  a = *Counter(hits: Cell(0))
+  w = keep(<a)
+  print(w.v.hits.get())
+
+test "cell holder moves", '''
+  3
+  11
+  2 2
+'''
+  # `<a` hands a shared handle to a value that holds a Cell over whole,
+  # Cell and all, and `+h` clones one as a count.
+
+  obj Counter
+    hits: Cell[Int]
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+  fun take(c: *Counter) -> Int
+    !c.hit()
+    c.hits.get()
+
+  a = *Counter(hits: Cell(1))
+  b = <a
+  !b.hit()
+  print(take(<b))
+  c = *Cell(10)
+  d = <c
+  !d.set(11)
+  print(d.get())
+  h = *Counter(hits: Cell(0))
+  g = +h
+  !g.hit()
+  !h.hit()
+  print(h.hits.get(), g.hits.get())
+
+test "cell holder temp array slice", '''
+  1
+  5
+'''
+  # An array literal lent as a `[]T` argument lives in a slot through the
+  # call; when its elements are handles to values that hold a Cell, the
+  # callee changes them there, and reads its own changes.
+
+  obj Counter
+    hits: Cell[Int]
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+
+  sub bumpc(c: !Counter)
+    !c.hit()
+
+  fun look(s: []*Counter) -> Int
+    bumpc(!s[0])
+    s[0].hits.get()
+
+  fun total(s: []*Counter) -> Int
+    !s[0].hit()
+    !s[1].hit()
+    s[0].hits.get() + s[1].hits.get()
+
+  print(look(?[*Counter(hits: Cell(0))]))
+  print(total(?[*Counter(hits: Cell(1)), *Counter(hits: Cell(2))]))
+
+fail "cell holder whole value", "30:6: `swap` moves values whole, and `S` holds a Cell, so it lives only behind a shared handle, whose other fields only read", "32:9: type mismatch: expected `!*C`, got `!C`", errors: 2
+  # A value that holds a Cell lives only behind a shared handle, and a
+  # handle's other fields only read: a write view of it changes its Cells,
+  # so it is not exchanged as a whole, nor is the handle that holds it
+  # pointed elsewhere through a field of a value a handle shares.
+
+  obj S
+    n: Int
+    c: Cell[Int]
+
+  obj O
+    a: S
+    b: S
+
+  obj C
+    n: Cell[Int]
+
+    sub hit(!self)
+      !self.n.set(self.n.get() + 1)
+
+  obj W
+    h: *C
+
+  sub repoint(h: !*C, other: *C)
+    h = <other
+
+  sub bump(c: !C)
+    !c.hit()
+
+  o = *O(a: S(n: 1, c: Cell(1)), b: S(n: 2, c: Cell(2)))
+  swap(!o.a, !o.b)
+  w = *W(h: *C(n: Cell(0)))
+  repoint(!w.h, *C(n: Cell(10)))
+  bump(!w.h)
+  print(o.a.n, w.h.n.get())
+
+fail "cell mark lends the handle", "9:1: cannot lend `c` to write while a read loan is live", errors: 1
+  # `!c.set(5)` lends the handle `c`, as `!v.push(x)` lends `v`: it is not
+  # exclusive over the Cell, since another handle is another name. A view
+  # of `c` held across the mark conflicts with it; a view of another
+  # handle does not (test/behavior/runtime/cell_marked_calls.rig).
+
+  c: *Cell[Int] = *Cell(1)
+  d = +c
+  seen = ?c
+  !c.set(2)
+  print(seen.get())
+  held = ?d
+  !c.set(3)
+  print(held.get())
+
+test "cell marked handle views", release: true, '''
+  11
+  2 11 2
+  2
+  6 1
+  3 12
+'''
+  # A marked call lends the handle, so a write view of a handle reaches the
+  # value it holds through every form that reaches a value through a
+  # handle: a method, a field, a branch, a header, a parameter lent on,
+  # and a result.
+
+  obj C
+    hits: Cell[Int]
+    log: Cell[List[Int]]
+
+    sub hit(!self)
+      !self.hits.set(self.hits.get() + 1)
+      !self.log.push(self.hits.get())
+
+  enum E
+    a(c: C)
+    b
+
+  fun pick(a: !*C, b: !*C, k: Bool) -> !*C
+    !a if k else !b
+
+  sub twice(c: !*C)
+    !c.hit()
+    once(!c)
+
+  sub once(c: !*C)
+    !c.hit()
+
+  a = *C(hits: Cell(0), log: Cell(List()))
+  b = *C(hits: Cell(10), log: Cell(List()))
+  twice(!a)
+  w = pick(!a, !b, false)
+  !w.hit()
+  print(w.hits.get())
+  print(a.hits.get(), b.hits.get(), a.log.len)
+  e = *E.a(c: C(hits: Cell(1), log: Cell(List())))
+  match !e
+    .a(c) => !c.hit()
+    .b => pass
+  match e
+    .a(c) => print(c.hits.get())
+    .b => pass
+  o: (*C)? = *C(hits: Cell(5), log: Cell(List()))
+  if !o as p
+    !p.hit()
+  if o as q
+    print(q.hits.get(), q.log.len)
+  hs: List[*C] = List()
+  !hs.push(+a)
+  !hs.push(+b)
+  for x in !hs
+    !x.hit()
+  print(a.hits.get(), b.hits.get())
+
+test "cell part receiver view in statement", "42"
+  # A `?self` method that returns a view of its receiver, called on a
+  # Cell-holding field of a temporary handle, runs on the field where its
+  # statement's slot keeps the temporary, so the view may be used until the
+  # statement ends.
+
+  obj Q
+    c: Cell[Int]
+    n: Int
+
+    fun me(?self) -> ?Q
+      self
+
+  obj H
+    q: Q
+
+  fun mkh() -> *H
+    *H(q: Q(c: Cell(1), n: 42))
+
+  print(mkh().q.me().n)
+
+fail "cell resource alias", "9:20: `c1` is a `*Cell[*User]` handle, which can't be copied by `=`: write `<c1` to move it, `+c1` for another handle, or `?c1` to view it"
+  # A bare alias of a `*Cell` handle holding a shared handle is rejected:
+  # both bindings would run the destructor.
+
+  obj User
+    age: Int
+
+  u: *User = *User(age: 30)
+  c1: *Cell[*User] = *Cell(<u)
+  c2: *Cell[*User] = c1
+  print(0)
+
+test "cell set from viewed copy", "14 7 9"
+  # A view of a Copy value put in a Cell is read by value: the Cell
+  # holds the number, not the view.
+
+  sub put(c: !Cell[Int], k: ?Int)
+    !c.set(k)
+
+  c: *Cell[Int] = *Cell(1)
+  n = 7
+  put(!c, ?n)
+  q = ?n
+  !c.set(c.get() + q)
+  d: *Cell[Int] = *Cell(q)
+  n = 9
+  print(c.get(), d.get(), n)
+
+fail "cell store value holding view", "cannot store a view of `vw` in a `Cell`", "cannot store a view of `x` in a `Cell`", "cannot store a view of `y0` in a `Cell`"
+  # A Cell is reached through every clone of its handle and every view
+  # of it, so a value put in it (`Cell(v)`, `set`, `replace`) may
+  # not hold a view: another path to the cell could read it after the
+  # viewed value is gone.
+
+  obj Wrap
+    v: List[Int]
+
+  obj View
+    b: ?Wrap
+
+  sub stash(c: !Cell[*View], vw: *View)
+    !c.set(<vw)
+
+  sub park(h: *Cell[*View])
+    x = Wrap(v: List())
+    !x.v.push(42)
+    _ = !h.replace(*View(b: ?x))
+
+  y0 = Wrap(v: List())
+  a: *Cell[*View] = *Cell(*View(b: ?y0))
+  if true
+    x = Wrap(v: List())
+    !x.v.push(41)
+    b = +a
+    !b.set(*View(b: ?x))
+  park(+a)
+  print("done")
+
+fail "cell temporary lent named leaf", "35:8: cannot lend `a if c else mkc()`: it may be `a`, a value a name holds", "37:8: cannot lend `mkh().e if c else mkh().d`: it may be `mkh().e`, a part of the temporary `mkh()`", "39:14: cannot lend `r if c else mkr()`: it may be `r`, a value a name holds", errors: 3
+  # A temporary lent to read lives in its statement's slot (Core §3). A
+  # branching value with a leaf a name holds, or a part of a temporary, is
+  # no temporary: lending it would copy that leaf into the slot, which
+  # forks a Cell the value holds (a type holding a Cell, or declared
+  # `unique`, is unique, Core §1), as it would duplicate an owner or a
+  # `*` handle. Each branch is lent instead (`?a if c else ?mkc()`).
+
+  obj C
+    c: Cell[Int]
+
+  obj H
+    d: C
+    e: C
+
+  obj R unique
+    seed: Int
+
+  fun mkc() -> *C
+    *C(c: Cell(1))
+
+  fun mkh() -> *H
+    *H(d: C(c: Cell(1)), e: C(c: Cell(1)))
+
+  fun mkr() -> R
+    R(seed: 2)
+
+  sub bump(p: !C)
+    !p.c.set(p.c.get() + 1)
+
+  fun look(p: ?R) -> Int
+    p.seed
+
+  a = mkc()
+  c = a.c.get() > 0
+  bump(?(a if c else mkc()))
+  bump(!a if c else !mkc())
+  bump(?(mkh().e if c else mkh().d))
+  r = mkr()
+  print(look(?(r if c else mkr())))
+  print(a.c.get(), r.seed)
+
+fail "cell temporary view kept", "19:11: a view of the temporary `mkc()` outlives its statement", "20:11: a view of the temporary `mkc()` outlives its statement"
+  # A temporary handle to a value that holds a Cell, lent to read, lives in its statement's
+  # slot and is dropped when the statement ends (Core §3), so a view of it
+  # kept past the statement is rejected, as for any temporary.
+  #
+  # oracle: main reject C5
+
+  obj C
+    c: Cell[Int]
+
+  obj K
+    r: ?C
+
+  fun mkc() -> *C
+    *C(c: Cell(1))
+
+  fun keep(p: ?C) -> ?C
+    p
+
+  x = keep(?mkc())
+  k = K(r: ?mkc())
+  print(x.c.get(), k.r.c.get())
+
+fail "cell vec element view", "6:3: cannot store a view of `s` in a `Cell`", "15:1: cannot store a view of `t` in a `Cell`", "17:1: `fill[?String]` cannot use `T = ?String`", errors: 3
+  # Assigning an element of a Cell's List stores the value in the Cell,
+  # which every handle reaches: a String that may view
+  # a Text cannot go there, as with `set` and `push`. A literal can.
+
+  sub put(c: !Cell[List[?String]], s: ?String)
+    (!c)[0] = s
+
+  sub fill[T](c: !Cell[List[T]], x: T)
+    (!c)[0] = x
+
+  t = String("abcdefghijklmnop")
+  cv: *Cell[List[?String]] = *Cell(List())
+  !cv.push("lit")
+  put(!cv, ?t[..3])
+  (!cv)[0] = ?t[..2]
+  (!cv)[0] = "free"
+  fill(!cv, "x")
+  print(cv[0])
+
+fail "cell vec push bare handle", "9:10: `a` is a `*N` handle, which can't be copied into an argument: write `<a` to move it or `+a` for another handle"
+  # Pushing to a Cell's List takes an owning element as List push does: moved
+  # (`<a`) or cloned (`+a`).
+
+  obj N
+    id: Int
+
+  hs: *Cell[List[*N]] = *Cell(List())
+  a = *N(id: 1)
+  !hs.push(a)
+  print(hs.len, a.id)

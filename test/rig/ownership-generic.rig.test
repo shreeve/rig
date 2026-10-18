@@ -1,0 +1,563 @@
+# ownership: tests whose names start `generic`.
+
+test "generic as binding move", '''
+  drop 3
+  drop 1
+  2
+  7
+  drop 2
+'''
+  # In a generic body, `if <o as x` moves the optional's value into `x`,
+  # so the body works for any `T`, including a resource like `*B`.
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  obj Wrap[T]
+    v: T
+
+    fun first(self: Wrap[T], o: T?, d: T) -> T
+      if <o as x
+        return <x
+      <d
+
+  b: Wrap[*B] = Wrap(v: *B(n: 1))
+  o: *B? = *B(n: 2)
+  r = <b.first(<o, *B(n: 3))
+  print(r.n)
+
+  c: Wrap[Int] = Wrap(v: 0)
+  print(<c.first(none, 7))
+
+fail "generic as view", "23:5: `unwrap[Res]` cannot use `T = Res`: the generic body moves out of a view a value that holds a `T`", "24:1: `drain[Res]` cannot use `T = Res`"
+  # In a generic body, `if o as v` or `while o as v` over a viewed
+  # optional of `T` moves a `T` out of a view, so every instance must
+  # be plain data.
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun unwrap[T](o: ?T?, d: T) -> T
+    if o as v
+      return v
+    <d
+
+  sub drain[T](o: ?T?)
+    while o as v
+      break
+
+  k: Int? = 4
+  print(unwrap(?k, 3))
+  r: Res? = Res(n: 1)
+  s = unwrap(?r, Res(n: 2))
+  drain(?r)
+
+test "generic catch all view guarded", release: true, '''
+  2
+  .some(v: Pt(x: 3, y: 4))
+  2
+  .some(v: "two two two two two two two two")
+  .some(v: Pt(x: 7, y: 8))
+  .some(v: Pt(x: 3, y: 4))
+  9
+  2
+  two
+  2
+  Pt(x: 1, y: 2)
+'''
+  # A guarded match in a generic body reads its subject in place, so its
+  # catch-all binding is the subject's own (`storage.catchAllByAddress`,
+  # which the guarded and unguarded emit both read): a view of it kept
+  # past the arm, or a `*Counter` handle read through it to change a Cell,
+  # reaches the subject (the review-b4b-2 probes p78, p81, p82).
+  # A branch over lends of the subjects is matched where it points.
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj Pt
+    x: Int
+    y: Int
+
+  obj Counter
+    hits: Cell[Int]
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  sub g[T](a: T)
+    o = Opt.some(v: <a)
+    z = Opt[T].nothing
+    saved = ?z
+    match o
+      .nothing if clobber(2) > 100 => pass
+      x => saved = ?x
+    print(clobber(1))
+    print(saved)
+
+  sub two[T](a: T, b: T)
+    o = Opt.some(v: <a)
+    o2 = Opt.some(v: <b)
+    z = Opt[T].nothing
+    saved = ?z
+    if clobber(0) > 0
+      match o
+        .nothing if clobber(2) > 100 => pass
+        x => saved = ?x
+    if clobber(0) > 0
+      match o2
+        .nothing if clobber(2) > 100 => pass
+        y => print(y)
+    print(saved)
+
+  fun bump(o: ?Opt[*Counter]) -> Int
+    match o
+      .some(c) => (!c.hits).set(9)
+      .nothing => pass
+    0
+
+  fun show(o: ?Opt[*Counter]) -> Int
+    match o
+      .some(c) => print(c.hits.get())
+      .nothing => print("nothing")
+    0
+
+  sub cell[T](a: T, f: fun(?Opt[T]) -> Int, s: fun(?Opt[T]) -> Int)
+    o = Opt.some(v: <a)
+    z = Opt[T].nothing
+    saved = ?z
+    match o
+      .nothing if clobber(2) > 100 => pass
+      x => saved = ?x
+    _ = f(saved)
+    _ = s(?o)
+
+  sub lends[T](a: T, b: T, k: T, c: Bool)
+    o1 = Opt.some(v: <a)
+    o2 = Opt.some(v: <b)
+    saved = ?k
+    match (?o1 if c else ?o2)
+      .some(x) if clobber(2) > 100 => print(x)
+      .some(x) => saved = ?x
+      .nothing => pass
+    print(clobber(1))
+    print(saved)
+
+  g(Pt(x: 3, y: 4))
+  g(String("two two two two two two two two"))
+  two(Pt(x: 3, y: 4), Pt(x: 7, y: 8))
+  cell(*Counter(hits: Cell(1)), bump, show)
+  lends(String("one"), String("two"), String("k"), false)
+  lends(Pt(x: 1, y: 2), Pt(x: 3, y: 4), Pt(x: 0, y: 0), true)
+
+fail "generic fn value view at string view", "cannot drop `t` while it is lent"
+  # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
+  fun mk(s: ?String) -> ?String
+    s
+
+  fun run[T](f: fun(?String) -> T, s: ?String) -> T
+    f(s)
+
+  t = String("abc")
+  k = run(mk, ?t)
+  <t
+  print(k)
+
+fail "generic fn value view in list", "cannot drop `t` while it is lent"
+  # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
+  fun mk(s: ?String) -> List[?String]
+    l: List[?String] = List()
+    !l.push(s)
+    l
+
+  fun run[T](f: fun(?String) -> T, s: ?String) -> T
+    f(s)
+
+  t = String("abc")
+  k = run(mk, ?t)
+  <t
+  print(k)
+
+fail "generic fn value view result", "cannot drop `t` while it is lent"
+  # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
+  obj K
+    s: ?String
+
+  fun mk(s: ?String) -> K
+    K(s: s)
+
+  fun run[T](f: fun(?String) -> T, s: ?String) -> T
+    f(s)
+
+  t = String("abc")
+  k = run(mk, ?t)
+  <t
+  print(k.s)
+
+test "generic fn value view result used", "abc"
+  # A generic function's result may view what its `?String` argument views
+  # (its `T` could be a view): used before the String it views is dropped.
+
+  fun mk(s: ?String) -> ?String
+    s
+
+  fun run[T](f: fun(?String) -> T, s: ?String) -> T
+    f(s)
+
+  t = String("abc")
+  k = run(mk, ?t)
+  print(k)
+  <t
+
+fail "generic fn value view store", "cannot drop `t` while it is lent"
+  # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
+  obj K
+    s: ?String
+
+  sub put(k: !K, s: ?String) keeps s
+    k.s = s
+
+  sub run[T](f: sub(!T, ?String), k: !T, s: ?String) keeps s
+    f(!k, s)
+
+  k = K(s: "x")
+  t = String("abc")
+  run(put, !k, ?t)
+  <t
+  print(k.s)
+
+fail "generic fn value view through write", "cannot drop `t` while it is lent"
+  # A generic function's `T` may hold a view of its `?String` argument, so its result keeps that argument lent.
+  obj K
+    s: ?String
+
+  fun mk(s: ?String) -> K
+    K(s: s)
+
+  sub run[T](f: fun(?String) -> T, k: !T, s: ?String) keeps s
+    k = f(s)
+
+  k = K(s: "x")
+  t = String("abc")
+  run(mk, !k, ?t)
+  <t
+  print(k.s)
+
+test "generic for plain elements", '''
+  2 1
+  2 2 2
+'''
+  # A generic body may take the elements of a loop that does not consume
+  # its collection when each instance is plain data: they are copies.
+
+  fun last[T](v: ?List[T], d: T) -> T
+    r = <d
+    for x in v
+      r = <x
+    r
+
+  fun copyall[T](v: ?List[T]) -> List[T]
+    out = List[T]()
+    for x in v
+      !out.push(<x)
+    out
+
+  fun first[T](v: ?List[T], d: T) -> T
+    for x in v
+      return x
+    <d
+
+  w = List[Int]()
+  !w.push(1)
+  !w.push(2)
+  print(last(?w, 0), first(?w, 0))
+  c = copyall(?w)
+  print(c.len, c[1], w.len)
+
+fail "generic for takes element", "43:5: `steal[*Res]` cannot use `T = *Res`", "44:5: `copyall[*Res]` cannot use `T = *Res`", "45:1: `dropall[*Res]` cannot use `T = *Res`", "46:5: `first[*Res]` cannot use `T = *Res`", "47:4: `Bag[*Res]` cannot use `T = *Res`", "14:10: a `T` element is taken here while its collection still owns it", "25:6: a `T` element is taken here while its collection still owns it"
+  # A loop that does not consume its collection only views each element.
+  # Where a generic body takes such an element (moves, drops, or returns
+  # it), every instance must be plain data: the collection still owns it.
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  fun steal[T](v: ?List[T], d: T) -> T
+    r = <d
+    for x in v
+      r = <x
+    r
+
+  fun copyall[T](v: ?List[T]) -> List[T]
+    out = List[T]()
+    for x in v
+      !out.push(<x)
+    out
+
+  sub dropall[T](v: ?List[T])
+    for x in v
+      <x
+
+  fun first[T](v: ?List[T], d: T) -> T
+    for x in v
+      return x
+    <d
+
+  obj Bag[T]
+    items: List[T]
+
+    fun steal(?self, d: T) -> T
+      r = <d
+      for x in ?self.items
+        r = <x
+      r
+
+  w = List[*Res]()
+  !w.push(*Res(n: 1))
+  a = steal(?w, *Res(n: 10))
+  c = copyall(?w)
+  dropall(?w)
+  f = first(?w, *Res(n: 10))
+  b: Bag[*Res] = Bag(items: List())
+
+test "generic instance unit variant", '''
+  took
+  took
+  drop 1
+  .nothing
+'''
+  # A unit variant of an explicit instance (`Opt[Res].nothing`) is a fresh
+  # value, as `Opt.nothing` is, also in a generic body.
+
+  obj Res
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  sub take(o: Opt[Res])
+    print("took")
+
+  fun empty[T](x: T) -> Opt[T]
+    Opt[T].nothing
+
+  x = Opt[Res].nothing
+  take(<x)
+  take(Opt[Res].nothing)
+  e = empty(Res(n: 1))
+  print(e)
+
+fail "generic payload view moved", "24:23: cannot move out of `v`: it is a view of `get(o)`", "30:14: cannot move out of `v`: it is a view of `o if c else o2`", "36:8: cannot move out of `v`: it is a view of `getw(w).o`", "43:14: cannot move out of `x`: it is a view of `getw(w).o`", errors: 4
+  # A `match` binding of a `T` in a value the match reads without taking
+  # it is a view of that value, whatever the subject: a view a call
+  # returns, a branching value, or a field or element of either, as of a
+  # place. Moving it, returning it by name, or dropping it is rejected.
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj W[T]
+    o: Opt[T]
+
+  fun get[T](o: ?Opt[T]) -> ?Opt[T] from o
+    o
+
+  fun getw[T](w: ?W[T]) -> ?W[T] from w
+    w
+
+  fun take[T](x: T) -> T
+    <x
+
+  fun moved[T](o: ?Opt[T], d: T) -> T
+    match get(o)
+      .some(v) => take(<v)
+      .nothing => <d
+
+  fun returned[T](o: ?Opt[T], o2: ?Opt[T], c: Bool, d: T) -> T
+    match (o if c else o2)
+      .some(v)
+        return v
+      .nothing => <d
+
+  fun dropped[T](w: ?W[T], d: T) -> T
+    match getw(w).o
+      .some(v) if true
+        <v
+        <d
+      _ => <d
+
+  fun whole[T](w: ?W[T]) -> Opt[T]
+    match getw(w).o
+      x
+        return x
+
+  o: Opt[Int] = .some(v: 1)
+  w: W[Int] = W(o: .some(v: 2))
+  print(moved(?o, 0))
+  print(returned(?o, ?o, true, 0))
+  print(dropped(?w, 0))
+  _ = whole(?w)
+
+fail "generic stores view unlent", "13:7: `cell[?List[Int]]` instantiates `Cell[?List[Int]]`", "13:17: `signal[?List[Int]]` instantiates `Signal[?List[Int]]`", errors: 2
+  # A Cell, a Signal, and an owned closure carry no loan, so a generic
+  # body that stores its `T` there cannot take a view of an owner.
+
+  fun cell[T](x: T) -> Int
+    c = *Cell(x)
+    1
+
+  fun signal[T](x: T) -> Int
+    s = *Signal(x)
+    1
+
+  v: List[Int] = List()
+  print(cell(?v), signal(?v))
+
+fail "generic stores view untracked", "9:5: `later[?List[Int]]` cannot use `T = ?List[Int]`"
+  # A generic body that stores its `T` in an owned closure's capture, where
+  # loans are not followed, cannot be instantiated with a view of an owner:
+  # the viewed value could change or end under the closure.
+
+  fun later[T](x: T) -> *sub()
+    *|+x| print(x)
+
+  v: List[Int] = List()
+  f = later(?v)
+  f()
+
+test "generic value from", '''
+  u
+  w
+'''
+  # A generic function whose result is a `T` made from the parameter its
+  # `from` names views only that argument: the other argument may be
+  # dropped while the result lives.
+
+  fun second[T](xs: []T, ys: []T) -> T from ys
+    _ = xs.len
+    ys[0]
+
+  fun apply[T](f: ?fun(?String) -> T, a: ?String) -> T from f, a
+    f(a)
+
+  obj K
+    s: ?String
+
+  t = String("abc")
+  u = String("u")
+  a = [?t]
+  b = [?u]
+  r = second(?a[..], ?b[..])
+  <t
+  print(r)
+  w = String("w")
+  k = apply(|s: ?String| K(s: s), ?w)
+  print(k.s)
+
+fail "generic value from is rejected", "10:3: `pick` returns a view of `f`, but its signature says it views only `b`", "13:3: `first` returns a view of `xs`, but its signature says it views only `ys`", "19:5: `make` returns a view of `s`, but its signature says it views only `t`", "22:3: `get` returns a view of `o`, but its signature says it views only `d`", "26:12: `unwrap` returns a view of `o`, but its signature says it views only `d`", "34:3: `mk` returns a view of `x`, but its signature says it views only `c`", "41:3: `payload` returns a view of `o`, but its signature says it views only `d`", errors: 7
+  # A generic body tracks no loan in a value of a type parameter's type,
+  # but in an instance it may hold a view: a `T` made from a parameter
+  # views what that parameter's argument views, so returning it returns a
+  # view of that parameter, which `from` must name, as does a result that
+  # holds a `T` beside a view, and a `match` payload of type `T` viewing
+  # its subject. Each was accepted and used freed memory when the caller
+  # dropped what the unnamed argument viewed.
+
+  fun pick[T](f: ?fun(?String) -> T, a: ?String, b: ?String) -> T from b
+    f(a)
+
+  fun first[T](xs: []T, ys: []T) -> T from ys
+    xs[0]
+
+  obj H[T]
+    f: *fun(?String) -> T
+
+    fun make(?self, s: ?String, t: ?String) -> T from t
+      self.f(s)
+
+  fun get[T](o: T?, d: T) -> T from d
+    o ?? d
+
+  fun unwrap[T](o: T?, d: T) -> T from d
+    if <o as v
+      return v
+    d
+
+  obj P[T]
+    s: ?String
+    v: T
+
+  fun mk[T](x: T, c: ?String) -> P[T] from c
+    P(s: c, v: x)
+
+  enum Opt[T]
+    some(value: T)
+    nothing
+
+  fun payload[T](o: ?Opt[T], d: T) -> T from d
+    match o
+      .some(v) => v
+      .nothing => d
+
+  pass
+
+test "generic view field escape", release: true, '''
+  10
+  t t
+  10
+  [1, 2, 3, 4] [1, 2, 3, 4]
+'''
+  # A payload view of a generic read view held in a field leaves the
+  # match: emit reaches `w.r` in place (`rig.viewedPtr`), guarded or not,
+  # so the view returned is the field's own, which outlives the call.
+
+  enum Opt[T]
+    some(v: T)
+    nothing
+
+  obj V[T]
+    r: ?Opt[T]
+
+  fun get[T](w: ?V[T], d: ?T) -> ?T from w, d
+    match w.r
+      .some(v) => ?v
+      .nothing => d
+
+  fun getg[T](w: ?V[T], d: ?T) -> ?T from w, d
+    match w.r
+      .some(v) if true => ?v
+      _ => d
+
+  fun clobber(n: Int) -> Int
+    a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
+    a[1]
+
+  o = Opt.some(v: String("t"))
+  w = V(r: ?o)
+  d = String("d")
+  x = get(?w, ?d)
+  y = getg(?w, ?d)
+  print(clobber(9))
+  print(x, y)
+  p = Opt.some(v: [1, 2, 3, 4])
+  wp = V(r: ?p)
+  dd = [0, 0, 0, 0]
+  xp = get(?wp, ?dd)
+  yp = getg(?wp, ?dd)
+  print(clobber(9))
+  print(xp, yp)

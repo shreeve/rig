@@ -1,0 +1,329 @@
+# runtime: tests whose names start `vec`.
+
+test "vec clear drops", '''
+  drop 2
+  drop 0
+  len 0
+  kept 1
+  len 1
+  ints 0 []
+  drop 9
+  drop 1
+'''
+  # `!v.clear()` drops every element now, last first, leaving an empty
+  # List that can be reused; elements pushed afterwards are dropped with the
+  # List. A handle cloned into the List keeps its value alive past the clear.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  keep = *B(n: 1)
+  v: List[*B] = List()
+  !v.push(*B(n: 0))
+  !v.push(+keep)
+  !v.push(*B(n: 2))
+  !v.clear()
+  print("len", v.len)
+  print("kept", keep.n)
+  !v.push(*B(n: 9))
+  print("len", v.len)
+
+  w: List[Int] = List()
+  !w.push(4)
+  !w.clear()
+  print("ints", w.len, w)
+
+test "vec for closures", "111"
+  # `for cb in ?subs` walks a `List[*sub()]` by viewed slot and calls
+  # each closure; all handles and the shared cell are released at scope exit.
+
+  count: *Cell[Int] = *Cell(0)
+  cb1: *sub() = *|+count| !count.set(count.get() + 1)
+  cb2: *sub() = *|+count| !count.set(count.get() + 10)
+  cb3: *sub() = *|+count| !count.set(count.get() + 100)
+
+  subs: List[*sub()] = List()
+  !subs.push(+cb1)
+  !subs.push(+cb2)
+  !subs.push(+cb3)
+
+  for cb in ?subs
+    cb()
+
+  print(count.get())                  # 111
+
+test "vec for copy", '''
+  10
+  20
+  30
+'''
+  # `for n in nums` over a Copy-element List binds each element by value,
+  # in insertion order.
+
+  nums: List[Int] = List()
+  !nums.push(10)
+  !nums.push(20)
+  !nums.push(30)
+  for n in ?nums
+    print(n)
+
+bomb "vec insert past end", "index out of bounds"
+  # `insert` takes an index from 0 to `len`; past that it panics.
+
+  v: List[Int] = List()
+  !v.insert(0, 1)
+  !v.insert(2, 3)
+
+test "vec insert remove", '''
+  [1, 2, 3, 5]
+  1 5 [2, 3]
+  removed 3 2
+  unboxed 9 0
+  drop 9
+  drop 3
+  drop 1
+  drop 2
+'''
+  # `!v.insert(i, x)` puts `x` at `i`, moving the elements from `i` on up;
+  # `!v.remove(i)` hands the element at `i` over, moving the rest down.
+  # An owning element moves in and out, and the List drops what is left.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[Int] = List()
+  !v.insert(0, 3)
+  !v.insert(0, 1)
+  !v.insert(2, 5)
+  !v.insert(1, 2)
+  print(v)
+  first = (!v).remove(0)
+  last = (!v).remove(v.len - 1)
+  print(first, last, v)
+
+  bs: List[*B] = List()
+  !bs.push(*B(n: 1))
+  !bs.insert(0, *B(n: 2))
+  b = *B(n: 3)
+  !bs.insert(1, <b)
+  r = (!bs).remove(1)
+  print("removed", r.n, bs.len)
+
+  boxes: List[^B] = List()
+  !boxes.insert(0, ^B(n: 9))
+  y = (!boxes).remove(0)
+  print("unboxed", y.n, boxes.len)
+
+test "vec len through views", '''
+  2 2 10
+  0
+  0
+  10
+'''
+  # `.len` of a List reads through a read or write view and a shared
+  # handle, like `.len` of an array.
+
+  fun count(v: ?List[Int]) -> Int
+    v.len
+
+  sub grow(v: !List[Int])
+    !v.push(v.len * 10)
+
+  obj Bag
+    items: List[Int]
+
+  v: List[Int] = List()
+  grow(!v)
+  grow(!v)
+  print(count(?v), v.len, v[1])
+  b = *Bag(items: List())
+  print(b.items.len)
+  for i in 0..v.len
+    print(v[i])
+
+test "vec move shared elements", "2"
+  # Moving shared handles into a `List[*Cell[Int]]` transfers ownership;
+  # the List drops each element when it goes out of scope.
+
+  c1: *Cell[Int] = *Cell(7)
+  c2: *Cell[Int] = *Cell(13)
+  v: List[*Cell[Int]] = List()
+  !v.push(<c1)
+  !v.push(<c2)
+  print(v.len)                 # 2
+
+test "vec of closures", '''
+  11
+  2
+'''
+  # A `List[*sub()]` holding clones of two closures: the originals stay
+  # callable, and at scope exit the List's clones, the closures, and the
+  # captured cell are all released.
+
+  count: *Cell[Int] = *Cell(0)
+  cb1: *sub() = *|+count| !count.set(count.get() + 1)
+  cb2: *sub() = *|+count| !count.set(count.get() + 10)
+
+  subs: List[*sub()] = List()
+  !subs.push(+cb1)
+  !subs.push(+cb2)
+
+  cb1()
+  cb2()
+  print(count.get())                # 11
+  print(subs.len)              # 2
+
+test "vec of plain structs", '''
+  5
+  9 9
+  7 4
+  popped 7
+  1 true
+  circle 2
+  dot
+  3
+  0
+'''
+  # A List holds plain structs, enums (with payloads), and optionals like
+  # numbers: pushed, indexed, assigned (whole or by field), iterated, and
+  # popped by value.
+
+  obj P
+    x: Int
+    y: Int
+
+  enum Shape
+    circle(r: Int)
+    dot
+
+  v: List[P] = List()
+  !v.push(P(x: 1, y: 2))
+  !v.push(P(x: 3, y: 4))
+  print(v[0].x + v[1].y)
+  v[0] = P(x: 9, y: 9)
+  v[1].x = 7
+  for p in ?v
+    print(p.x, p.y)
+  if (!v).pop() as last
+    print("popped", last.x)
+  print(v.len, v.get(1) == none)
+
+  shapes: List[Shape] = List()
+  !shapes.push(.circle(r: 2))
+  !shapes.push(.dot)
+  for s in ?shapes
+    match s
+      .circle(r) => print("circle", r)
+      .dot => print("dot")
+
+  maybe: List[Int?] = List()
+  !maybe.push(3)
+  !maybe.push(none)
+  for m in ?maybe
+    print(m ?? 0)
+
+test "vec pop resource", '''
+  false
+  y 2
+  drop 2
+  drop 1
+  z 0
+  drop 0
+  end 0
+  drop 3
+'''
+  # `pop` removes a List's last element and hands it over: the caller owns
+  # the handle, bound by `as` or to a name (and dropped there), or discarded
+  # with `_ =`.
+
+  obj B
+    n: Int
+
+    drop(!self)
+      print("drop", self.n)
+
+  v: List[*B] = List()
+  for i in 0..4
+    !v.push(*B(n: i))
+  x = (!v).pop()
+  print(x == none)
+  if (!v).pop() as y
+    print("y", y.n)
+  _ = !v.pop()
+  while (!v).pop() as z
+    print("z", z.n)
+  print("end", v.len)
+
+test "vec push after loop", "12"
+  # The read view a `for cb in ?subs` loop holds on `subs` ends with the
+  # loop, so pushing to `subs` afterwards is allowed.
+
+  count: *Cell[Int] = *Cell(0)
+  cb1: *sub() = *|+count| !count.set(count.get() + 1)
+  cb2: *sub() = *|+count| !count.set(count.get() + 10)
+
+  subs: List[*sub()] = List()
+  !subs.push(+cb1)
+
+  for cb in ?subs
+    cb()
+  !subs.push(+cb2)
+  for cb in ?subs
+    cb()
+
+  print(count.get())                # 1 + (1 + 10) = 12
+
+test "vec push length", "3"
+  # `List[Int]`: push three values and read the length; the buffer is
+  # freed at scope exit.
+
+  v: List[Int] = List()
+  !v.push(10)
+  !v.push(20)
+  !v.push(30)
+  print(v.len)                 # 3
+
+bomb "vec remove empty", "index out of bounds"
+  # `remove` takes an index of an element; on an empty List it panics.
+
+  v: List[Int] = List()
+  print((!v).remove(0))
+
+test "vec shared", "4 200 300"
+  # A List shared between handles lives in a Cell: `*Cell[List[Int]]`. A
+  # handle reads the shared value but never writes through it; the Cell
+  # answers `push` itself, and otherwise `replace` takes the List out and
+  # `set` puts it back. The List is freed when the last strong handle drops.
+
+  sub push_all(cell: !*Cell[List[Int]], n: Int)
+    v = (!cell).replace(List())
+    for i in 0..n
+      !v.push(i * 100)
+    !cell.set(<v)
+
+  sub push_one(cell: !*Cell[List[Int]], n: Int)
+    !cell.push(n)
+
+  shared: *Cell[List[Int]] = *Cell(List())
+  other = +shared
+  push_all(!other, 3)
+  push_one(!other, 300)
+  v = (!shared).replace(List())
+  print(v.len, v[2], v[3])
+  !shared.set(<v)
+
+test "vec with capacity", "3"
+  # `List(capacity: N)` reserves room; pushes and length work as for
+  # an empty List.
+
+  v: List[Int] = List(capacity: 32)
+  !v.push(1)
+  !v.push(2)
+  !v.push(3)
+  print(v.len)                 # 3
