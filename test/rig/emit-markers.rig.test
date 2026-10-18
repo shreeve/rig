@@ -1,0 +1,1498 @@
+# The function markers, written by tools/markers.py (edit it, not this
+# file): `inline fun` is emitted `inline fn` at any size, `called fun`
+# `noinline fn`, and `rarely fun` starts with Zig's cold hint; the last
+# two are never inlined by the compiler's own rule, and no marker changes
+# what a program does (test/cli/markers.sh reads the symbols of an
+# optimized build, and the limits `rig check` holds).
+
+code "markers each shape", "pub inline fn big(__rig_in_a: i64) i64 {", "pub inline fn get(", "pub inline fn larger(comptime T: type, ", "pub fn small(a: i64) i64 {", "pub noinline fn tiny(a: i64) i64 {", "pub noinline fn same(", /fn tiny\([^\n]*\n    @setEvalBranchQuota\(rig\.eval_quota\);\n/, /fn small\([^\n]*\n    @branchHint\(\.cold\);\n    @setEvalBranchQuota\(rig\.eval_quota\);\n/, /fn peek\([^\n]*\n *@branchHint\(\.cold\);\n/
+  # `inline` over the size limit, of a generic type's method, and with a type
+  # parameter is `inline fn`; `rarely` is not inlined, and starts with the
+  # cold hint; `called` is `noinline`, with no cold hint.
+
+  inline fun big(a: Int) -> Int
+    x = a
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x
+
+  rarely fun small(a: Int) -> Int
+    a + 1
+
+  called fun tiny(a: Int) -> Int
+    a - 1
+
+  obj Wrap[T]
+    value: T
+
+    inline fun get(?self) -> T
+      self.value
+
+    rarely fun peek(?self) -> T
+      self.value
+
+    called fun same(?self) -> T
+      self.value
+
+  inline fun larger[T](a: T, b: T) -> T
+    a if a > b else b
+
+  sub main()
+    w = Wrap[Int](value: 2)
+    print(big(1), small(2), tiny(3), w.get(), w.peek(), w.same(), larger(3, 4))
+
+code "markers none, the compiler's rule decides", "pub fn big(a: i64) i64 {", "pub inline fn small(", "pub fn larger(comptime T: type, ", /^(?![\s\S]*@branchHint)/, /^(?![\s\S]*noinline)/
+  # Without the markers, the compiler's rule decides: `big` is over its size
+  # and is called; `small`, `get`, and `peek` are inlined; `larger`, generic
+  # over a type, is not; no function is cold or `noinline`.
+
+  fun big(a: Int) -> Int
+    x = a
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x
+
+  fun small(a: Int) -> Int
+    a + 1
+
+  fun tiny(a: Int) -> Int
+    a - 1
+
+  obj Wrap[T]
+    value: T
+
+    fun get(?self) -> T
+      self.value
+
+    fun peek(?self) -> T
+      self.value
+
+    fun same(?self) -> T
+      self.value
+
+  fun larger[T](a: T, b: T) -> T
+    a if a > b else b
+
+  sub main()
+    w = Wrap[Int](value: 2)
+    print(big(1), small(2), tiny(3), w.get(), w.peek(), w.same(), larger(3, 4))
+
+test "markers change no meaning", "5230176601 3 2 2 2 2 4", release: true
+  # A marker changes no meaning: the program prints the same without them.
+
+  inline fun big(a: Int) -> Int
+    x = a
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x
+
+  rarely fun small(a: Int) -> Int
+    a + 1
+
+  called fun tiny(a: Int) -> Int
+    a - 1
+
+  obj Wrap[T]
+    value: T
+
+    inline fun get(?self) -> T
+      self.value
+
+    rarely fun peek(?self) -> T
+      self.value
+
+    called fun same(?self) -> T
+      self.value
+
+  inline fun larger[T](a: T, b: T) -> T
+    a if a > b else b
+
+  sub main()
+    w = Wrap[Int](value: 2)
+    print(big(1), small(2), tiny(3), w.get(), w.peek(), w.same(), larger(3, 4))
+
+test "markers none change no meaning", "5230176601 3 2 2 2 2 4", release: true
+  # The same program without its markers.
+
+  fun big(a: Int) -> Int
+    x = a
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x = x * 3 + 1
+    x
+
+  fun small(a: Int) -> Int
+    a + 1
+
+  fun tiny(a: Int) -> Int
+    a - 1
+
+  obj Wrap[T]
+    value: T
+
+    fun get(?self) -> T
+      self.value
+
+    fun peek(?self) -> T
+      self.value
+
+    fun same(?self) -> T
+      self.value
+
+  fun larger[T](a: T, b: T) -> T
+    a if a > b else b
+
+  sub main()
+    w = Wrap[Int](value: 2)
+    print(big(1), small(2), tiny(3), w.get(), w.peek(), w.same(), larger(3, 4))
+
+code "markers json shape unmarked", "pub fn number(s: []const u8, i: i64) i64 {", "pub inline fn utf8_text(", "pub fn doc(comptime dense: bool, "
+  # std.json's shape: `doc[dense]` is one Zig function of two instances,
+  # each calling `number`, over the size limit, and rarely `utf8_text`.
+
+  # The shape std.json wants: one parser, two compile-time instances that
+  # each call one helper over the size the compiler inlines by itself.
+
+  DOT: U8 = 0x2E
+  ZERO: U8 = 0x30
+  NINE: U8 = 0x39
+  LOWER_E: U8 = 0x65
+
+  fun is_digit(b: U8) -> Bool
+    b >= ZERO and b <= NINE
+
+  # A number at `i`: its integer part times 100, plus the bytes it spans.
+  fun number(s: ?String, i: Int) -> Int
+    n = 0
+    j = i
+    while j < s.len and is_digit(s[j])
+      n = n * 10 + Int(s[j] - ZERO)
+      j += 1
+    if j < s.len and s[j] == DOT
+      j += 1
+      while j < s.len and is_digit(s[j])
+        j += 1
+    if j < s.len and s[j] == LOWER_E
+      j += 1
+      e = 0
+      while j < s.len and is_digit(s[j])
+        e = e * 10 + Int(s[j] - ZERO)
+        j += 1
+      while e > 0
+        n *= 10
+        e -= 1
+    n * 100 + (j - i)
+
+  # A byte past ASCII, which a document rarely holds.
+  fun utf8_text(s: ?String, i: Int) -> Int
+    Int(s[i])
+
+  # The parser: `dense` documents keep only the numbers' values.
+  fun doc[dense: Bool](s: ?String) -> Int
+    total = 0
+    words = 0
+    spaces = 0
+    i = 0
+    while i < s.len
+      b = s[i]
+      if b >= 128
+        total += utf8_text(s, i)
+        i += 1
+      else if is_digit(b)
+        v = number(s, i)
+        total += v / 100 if dense else v
+        i += v % 100
+      else if b == 0x20 or b == 0x0A or b == 0x09 or b == 0x0D
+        spaces += 1
+        i += 1
+      else if b == 0x2C or b == 0x3A
+        words += 2
+        i += 1
+      else
+        words += 1
+        i += 1
+    if dense
+      return total
+    j = 0
+    lines = 0
+    while j < s.len
+      if s[j] == 0x0A
+        lines += 1
+      j += 1
+    total + words * 1000000 + spaces * 10000000 + lines * 100000000
+
+  sub main()
+    s = "12 3 4.5 2e2 é"
+    print(doc[true](s), doc[false](s))
+
+code "markers json shape marked", "pub inline fn number(__rig_in_s: []const u8, __rig_in_i: i64) i64 {", "pub fn utf8_text(s: []const u8, i: i64) i64 {", /fn utf8_text\([^\n]*\n    @branchHint\(\.cold\);\n/
+  # Marked, `number` is inlined into each instance, and `utf8_text` is
+  # called, and cold.
+
+  # The shape std.json wants: one parser, two compile-time instances that
+  # each call one helper over the size the compiler inlines by itself.
+
+  DOT: U8 = 0x2E
+  ZERO: U8 = 0x30
+  NINE: U8 = 0x39
+  LOWER_E: U8 = 0x65
+
+  fun is_digit(b: U8) -> Bool
+    b >= ZERO and b <= NINE
+
+  # A number at `i`: its integer part times 100, plus the bytes it spans.
+  inline fun number(s: ?String, i: Int) -> Int
+    n = 0
+    j = i
+    while j < s.len and is_digit(s[j])
+      n = n * 10 + Int(s[j] - ZERO)
+      j += 1
+    if j < s.len and s[j] == DOT
+      j += 1
+      while j < s.len and is_digit(s[j])
+        j += 1
+    if j < s.len and s[j] == LOWER_E
+      j += 1
+      e = 0
+      while j < s.len and is_digit(s[j])
+        e = e * 10 + Int(s[j] - ZERO)
+        j += 1
+      while e > 0
+        n *= 10
+        e -= 1
+    n * 100 + (j - i)
+
+  # A byte past ASCII, which a document rarely holds.
+  rarely fun utf8_text(s: ?String, i: Int) -> Int
+    Int(s[i])
+
+  # The parser: `dense` documents keep only the numbers' values.
+  fun doc[dense: Bool](s: ?String) -> Int
+    total = 0
+    words = 0
+    spaces = 0
+    i = 0
+    while i < s.len
+      b = s[i]
+      if b >= 128
+        total += utf8_text(s, i)
+        i += 1
+      else if is_digit(b)
+        v = number(s, i)
+        total += v / 100 if dense else v
+        i += v % 100
+      else if b == 0x20 or b == 0x0A or b == 0x09 or b == 0x0D
+        spaces += 1
+        i += 1
+      else if b == 0x2C or b == 0x3A
+        words += 2
+        i += 1
+      else
+        words += 1
+        i += 1
+    if dense
+      return total
+    j = 0
+    lines = 0
+    while j < s.len
+      if s[j] == 0x0A
+        lines += 1
+      j += 1
+    total + words * 1000000 + spaces * 10000000 + lines * 100000000
+
+  sub main()
+    s = "12 3 4.5 2e2 é"
+    print(doc[true](s), doc[false](s))
+
+code "markers json shape called", "pub noinline fn doc(comptime dense: bool, s: []const u8) i64 {", "pub inline fn number("
+  # A `called` parser is `noinline`, each instance, and `number` is still
+  # inlined.
+
+  # The shape std.json wants: one parser, two compile-time instances that
+  # each call one helper over the size the compiler inlines by itself.
+
+  DOT: U8 = 0x2E
+  ZERO: U8 = 0x30
+  NINE: U8 = 0x39
+  LOWER_E: U8 = 0x65
+
+  fun is_digit(b: U8) -> Bool
+    b >= ZERO and b <= NINE
+
+  # A number at `i`: its integer part times 100, plus the bytes it spans.
+  inline fun number(s: ?String, i: Int) -> Int
+    n = 0
+    j = i
+    while j < s.len and is_digit(s[j])
+      n = n * 10 + Int(s[j] - ZERO)
+      j += 1
+    if j < s.len and s[j] == DOT
+      j += 1
+      while j < s.len and is_digit(s[j])
+        j += 1
+    if j < s.len and s[j] == LOWER_E
+      j += 1
+      e = 0
+      while j < s.len and is_digit(s[j])
+        e = e * 10 + Int(s[j] - ZERO)
+        j += 1
+      while e > 0
+        n *= 10
+        e -= 1
+    n * 100 + (j - i)
+
+  # A byte past ASCII, which a document rarely holds.
+  rarely fun utf8_text(s: ?String, i: Int) -> Int
+    Int(s[i])
+
+  # The parser: `dense` documents keep only the numbers' values.
+  called fun doc[dense: Bool](s: ?String) -> Int
+    total = 0
+    words = 0
+    spaces = 0
+    i = 0
+    while i < s.len
+      b = s[i]
+      if b >= 128
+        total += utf8_text(s, i)
+        i += 1
+      else if is_digit(b)
+        v = number(s, i)
+        total += v / 100 if dense else v
+        i += v % 100
+      else if b == 0x20 or b == 0x0A or b == 0x09 or b == 0x0D
+        spaces += 1
+        i += 1
+      else if b == 0x2C or b == 0x3A
+        words += 2
+        i += 1
+      else
+        words += 1
+        i += 1
+    if dense
+      return total
+    j = 0
+    lines = 0
+    while j < s.len
+      if s[j] == 0x0A
+        lines += 1
+      j += 1
+    total + words * 1000000 + spaces * 10000000 + lines * 100000000
+
+  sub main()
+    s = "12 3 4.5 2e2 é"
+    print(doc[true](s), doc[false](s))
+
+test "markers json shape unmarked runs", "583 40022273", release: true
+  # The unmarked parser computes what the others do.
+
+  # The shape std.json wants: one parser, two compile-time instances that
+  # each call one helper over the size the compiler inlines by itself.
+
+  DOT: U8 = 0x2E
+  ZERO: U8 = 0x30
+  NINE: U8 = 0x39
+  LOWER_E: U8 = 0x65
+
+  fun is_digit(b: U8) -> Bool
+    b >= ZERO and b <= NINE
+
+  # A number at `i`: its integer part times 100, plus the bytes it spans.
+  fun number(s: ?String, i: Int) -> Int
+    n = 0
+    j = i
+    while j < s.len and is_digit(s[j])
+      n = n * 10 + Int(s[j] - ZERO)
+      j += 1
+    if j < s.len and s[j] == DOT
+      j += 1
+      while j < s.len and is_digit(s[j])
+        j += 1
+    if j < s.len and s[j] == LOWER_E
+      j += 1
+      e = 0
+      while j < s.len and is_digit(s[j])
+        e = e * 10 + Int(s[j] - ZERO)
+        j += 1
+      while e > 0
+        n *= 10
+        e -= 1
+    n * 100 + (j - i)
+
+  # A byte past ASCII, which a document rarely holds.
+  fun utf8_text(s: ?String, i: Int) -> Int
+    Int(s[i])
+
+  # The parser: `dense` documents keep only the numbers' values.
+  fun doc[dense: Bool](s: ?String) -> Int
+    total = 0
+    words = 0
+    spaces = 0
+    i = 0
+    while i < s.len
+      b = s[i]
+      if b >= 128
+        total += utf8_text(s, i)
+        i += 1
+      else if is_digit(b)
+        v = number(s, i)
+        total += v / 100 if dense else v
+        i += v % 100
+      else if b == 0x20 or b == 0x0A or b == 0x09 or b == 0x0D
+        spaces += 1
+        i += 1
+      else if b == 0x2C or b == 0x3A
+        words += 2
+        i += 1
+      else
+        words += 1
+        i += 1
+    if dense
+      return total
+    j = 0
+    lines = 0
+    while j < s.len
+      if s[j] == 0x0A
+        lines += 1
+      j += 1
+    total + words * 1000000 + spaces * 10000000 + lines * 100000000
+
+  sub main()
+    s = "12 3 4.5 2e2 é"
+    print(doc[true](s), doc[false](s))
+
+test "markers json shape marked runs", "583 40022273", release: true
+  # The marked parser computes what the others do.
+
+  # The shape std.json wants: one parser, two compile-time instances that
+  # each call one helper over the size the compiler inlines by itself.
+
+  DOT: U8 = 0x2E
+  ZERO: U8 = 0x30
+  NINE: U8 = 0x39
+  LOWER_E: U8 = 0x65
+
+  fun is_digit(b: U8) -> Bool
+    b >= ZERO and b <= NINE
+
+  # A number at `i`: its integer part times 100, plus the bytes it spans.
+  inline fun number(s: ?String, i: Int) -> Int
+    n = 0
+    j = i
+    while j < s.len and is_digit(s[j])
+      n = n * 10 + Int(s[j] - ZERO)
+      j += 1
+    if j < s.len and s[j] == DOT
+      j += 1
+      while j < s.len and is_digit(s[j])
+        j += 1
+    if j < s.len and s[j] == LOWER_E
+      j += 1
+      e = 0
+      while j < s.len and is_digit(s[j])
+        e = e * 10 + Int(s[j] - ZERO)
+        j += 1
+      while e > 0
+        n *= 10
+        e -= 1
+    n * 100 + (j - i)
+
+  # A byte past ASCII, which a document rarely holds.
+  rarely fun utf8_text(s: ?String, i: Int) -> Int
+    Int(s[i])
+
+  # The parser: `dense` documents keep only the numbers' values.
+  fun doc[dense: Bool](s: ?String) -> Int
+    total = 0
+    words = 0
+    spaces = 0
+    i = 0
+    while i < s.len
+      b = s[i]
+      if b >= 128
+        total += utf8_text(s, i)
+        i += 1
+      else if is_digit(b)
+        v = number(s, i)
+        total += v / 100 if dense else v
+        i += v % 100
+      else if b == 0x20 or b == 0x0A or b == 0x09 or b == 0x0D
+        spaces += 1
+        i += 1
+      else if b == 0x2C or b == 0x3A
+        words += 2
+        i += 1
+      else
+        words += 1
+        i += 1
+    if dense
+      return total
+    j = 0
+    lines = 0
+    while j < s.len
+      if s[j] == 0x0A
+        lines += 1
+      j += 1
+    total + words * 1000000 + spaces * 10000000 + lines * 100000000
+
+  sub main()
+    s = "12 3 4.5 2e2 é"
+    print(doc[true](s), doc[false](s))
+
+test "markers json shape called runs", "583 40022273", release: true
+  # The called parser computes what the others do.
+
+  # The shape std.json wants: one parser, two compile-time instances that
+  # each call one helper over the size the compiler inlines by itself.
+
+  DOT: U8 = 0x2E
+  ZERO: U8 = 0x30
+  NINE: U8 = 0x39
+  LOWER_E: U8 = 0x65
+
+  fun is_digit(b: U8) -> Bool
+    b >= ZERO and b <= NINE
+
+  # A number at `i`: its integer part times 100, plus the bytes it spans.
+  inline fun number(s: ?String, i: Int) -> Int
+    n = 0
+    j = i
+    while j < s.len and is_digit(s[j])
+      n = n * 10 + Int(s[j] - ZERO)
+      j += 1
+    if j < s.len and s[j] == DOT
+      j += 1
+      while j < s.len and is_digit(s[j])
+        j += 1
+    if j < s.len and s[j] == LOWER_E
+      j += 1
+      e = 0
+      while j < s.len and is_digit(s[j])
+        e = e * 10 + Int(s[j] - ZERO)
+        j += 1
+      while e > 0
+        n *= 10
+        e -= 1
+    n * 100 + (j - i)
+
+  # A byte past ASCII, which a document rarely holds.
+  rarely fun utf8_text(s: ?String, i: Int) -> Int
+    Int(s[i])
+
+  # The parser: `dense` documents keep only the numbers' values.
+  called fun doc[dense: Bool](s: ?String) -> Int
+    total = 0
+    words = 0
+    spaces = 0
+    i = 0
+    while i < s.len
+      b = s[i]
+      if b >= 128
+        total += utf8_text(s, i)
+        i += 1
+      else if is_digit(b)
+        v = number(s, i)
+        total += v / 100 if dense else v
+        i += v % 100
+      else if b == 0x20 or b == 0x0A or b == 0x09 or b == 0x0D
+        spaces += 1
+        i += 1
+      else if b == 0x2C or b == 0x3A
+        words += 2
+        i += 1
+      else
+        words += 1
+        i += 1
+    if dense
+      return total
+    j = 0
+    lines = 0
+    while j < s.len
+      if s[j] == 0x0A
+        lines += 1
+      j += 1
+    total + words * 1000000 + spaces * 10000000 + lines * 100000000
+
+  sub main()
+    s = "12 3 4.5 2e2 é"
+    print(doc[true](s), doc[false](s))
+
+code "markers inline over the frame limit", "pub inline fn huge(", /^(?![\s\S]*noinline\ fn\ huge\()/, "pub noinline fn near("
+  # A marked `inline` function whose frame alone would make it `noinline`
+  # (4 times its reach passes 1 MiB) is still written `inline fn`: its
+  # values land in its caller, whose account holds them, and the caller is
+  # the frame written `noinline`.
+
+  inline fun huge(i: Int) -> Int
+    t = [40000 of i]
+    t[i % 40000]
+
+  fun near(i: Int) -> Int
+    huge(i) + 1
+
+  sub main()
+    print(near(3))
+
+test "markers inline over the frame limit runs", "4", release: true
+  # The large marked function's caller computes.
+
+  inline fun huge(i: Int) -> Int
+    t = [40000 of i]
+    t[i % 40000]
+
+  fun near(i: Int) -> Int
+    huge(i) + 1
+
+  sub main()
+    print(near(3))
+
+test "markers inline nest 256 deep", "256"
+  # Calls of marked `inline` functions nest at most 256 deep
+  # (`typecheck.max_inline_depth`): Zig analyzes each inlined body inside
+  # the one around it, and runs out of its own stack some thousands deep.
+  # `main` calls g0, and each marked g_i calls g_(i+1), 256 deep.
+
+  inline fun g0(x: Int) -> Int
+    g1(x) + 1
+
+  inline fun g1(x: Int) -> Int
+    g2(x) + 1
+
+  inline fun g2(x: Int) -> Int
+    g3(x) + 1
+
+  inline fun g3(x: Int) -> Int
+    g4(x) + 1
+
+  inline fun g4(x: Int) -> Int
+    g5(x) + 1
+
+  inline fun g5(x: Int) -> Int
+    g6(x) + 1
+
+  inline fun g6(x: Int) -> Int
+    g7(x) + 1
+
+  inline fun g7(x: Int) -> Int
+    g8(x) + 1
+
+  inline fun g8(x: Int) -> Int
+    g9(x) + 1
+
+  inline fun g9(x: Int) -> Int
+    g10(x) + 1
+
+  inline fun g10(x: Int) -> Int
+    g11(x) + 1
+
+  inline fun g11(x: Int) -> Int
+    g12(x) + 1
+
+  inline fun g12(x: Int) -> Int
+    g13(x) + 1
+
+  inline fun g13(x: Int) -> Int
+    g14(x) + 1
+
+  inline fun g14(x: Int) -> Int
+    g15(x) + 1
+
+  inline fun g15(x: Int) -> Int
+    g16(x) + 1
+
+  inline fun g16(x: Int) -> Int
+    g17(x) + 1
+
+  inline fun g17(x: Int) -> Int
+    g18(x) + 1
+
+  inline fun g18(x: Int) -> Int
+    g19(x) + 1
+
+  inline fun g19(x: Int) -> Int
+    g20(x) + 1
+
+  inline fun g20(x: Int) -> Int
+    g21(x) + 1
+
+  inline fun g21(x: Int) -> Int
+    g22(x) + 1
+
+  inline fun g22(x: Int) -> Int
+    g23(x) + 1
+
+  inline fun g23(x: Int) -> Int
+    g24(x) + 1
+
+  inline fun g24(x: Int) -> Int
+    g25(x) + 1
+
+  inline fun g25(x: Int) -> Int
+    g26(x) + 1
+
+  inline fun g26(x: Int) -> Int
+    g27(x) + 1
+
+  inline fun g27(x: Int) -> Int
+    g28(x) + 1
+
+  inline fun g28(x: Int) -> Int
+    g29(x) + 1
+
+  inline fun g29(x: Int) -> Int
+    g30(x) + 1
+
+  inline fun g30(x: Int) -> Int
+    g31(x) + 1
+
+  inline fun g31(x: Int) -> Int
+    g32(x) + 1
+
+  inline fun g32(x: Int) -> Int
+    g33(x) + 1
+
+  inline fun g33(x: Int) -> Int
+    g34(x) + 1
+
+  inline fun g34(x: Int) -> Int
+    g35(x) + 1
+
+  inline fun g35(x: Int) -> Int
+    g36(x) + 1
+
+  inline fun g36(x: Int) -> Int
+    g37(x) + 1
+
+  inline fun g37(x: Int) -> Int
+    g38(x) + 1
+
+  inline fun g38(x: Int) -> Int
+    g39(x) + 1
+
+  inline fun g39(x: Int) -> Int
+    g40(x) + 1
+
+  inline fun g40(x: Int) -> Int
+    g41(x) + 1
+
+  inline fun g41(x: Int) -> Int
+    g42(x) + 1
+
+  inline fun g42(x: Int) -> Int
+    g43(x) + 1
+
+  inline fun g43(x: Int) -> Int
+    g44(x) + 1
+
+  inline fun g44(x: Int) -> Int
+    g45(x) + 1
+
+  inline fun g45(x: Int) -> Int
+    g46(x) + 1
+
+  inline fun g46(x: Int) -> Int
+    g47(x) + 1
+
+  inline fun g47(x: Int) -> Int
+    g48(x) + 1
+
+  inline fun g48(x: Int) -> Int
+    g49(x) + 1
+
+  inline fun g49(x: Int) -> Int
+    g50(x) + 1
+
+  inline fun g50(x: Int) -> Int
+    g51(x) + 1
+
+  inline fun g51(x: Int) -> Int
+    g52(x) + 1
+
+  inline fun g52(x: Int) -> Int
+    g53(x) + 1
+
+  inline fun g53(x: Int) -> Int
+    g54(x) + 1
+
+  inline fun g54(x: Int) -> Int
+    g55(x) + 1
+
+  inline fun g55(x: Int) -> Int
+    g56(x) + 1
+
+  inline fun g56(x: Int) -> Int
+    g57(x) + 1
+
+  inline fun g57(x: Int) -> Int
+    g58(x) + 1
+
+  inline fun g58(x: Int) -> Int
+    g59(x) + 1
+
+  inline fun g59(x: Int) -> Int
+    g60(x) + 1
+
+  inline fun g60(x: Int) -> Int
+    g61(x) + 1
+
+  inline fun g61(x: Int) -> Int
+    g62(x) + 1
+
+  inline fun g62(x: Int) -> Int
+    g63(x) + 1
+
+  inline fun g63(x: Int) -> Int
+    g64(x) + 1
+
+  inline fun g64(x: Int) -> Int
+    g65(x) + 1
+
+  inline fun g65(x: Int) -> Int
+    g66(x) + 1
+
+  inline fun g66(x: Int) -> Int
+    g67(x) + 1
+
+  inline fun g67(x: Int) -> Int
+    g68(x) + 1
+
+  inline fun g68(x: Int) -> Int
+    g69(x) + 1
+
+  inline fun g69(x: Int) -> Int
+    g70(x) + 1
+
+  inline fun g70(x: Int) -> Int
+    g71(x) + 1
+
+  inline fun g71(x: Int) -> Int
+    g72(x) + 1
+
+  inline fun g72(x: Int) -> Int
+    g73(x) + 1
+
+  inline fun g73(x: Int) -> Int
+    g74(x) + 1
+
+  inline fun g74(x: Int) -> Int
+    g75(x) + 1
+
+  inline fun g75(x: Int) -> Int
+    g76(x) + 1
+
+  inline fun g76(x: Int) -> Int
+    g77(x) + 1
+
+  inline fun g77(x: Int) -> Int
+    g78(x) + 1
+
+  inline fun g78(x: Int) -> Int
+    g79(x) + 1
+
+  inline fun g79(x: Int) -> Int
+    g80(x) + 1
+
+  inline fun g80(x: Int) -> Int
+    g81(x) + 1
+
+  inline fun g81(x: Int) -> Int
+    g82(x) + 1
+
+  inline fun g82(x: Int) -> Int
+    g83(x) + 1
+
+  inline fun g83(x: Int) -> Int
+    g84(x) + 1
+
+  inline fun g84(x: Int) -> Int
+    g85(x) + 1
+
+  inline fun g85(x: Int) -> Int
+    g86(x) + 1
+
+  inline fun g86(x: Int) -> Int
+    g87(x) + 1
+
+  inline fun g87(x: Int) -> Int
+    g88(x) + 1
+
+  inline fun g88(x: Int) -> Int
+    g89(x) + 1
+
+  inline fun g89(x: Int) -> Int
+    g90(x) + 1
+
+  inline fun g90(x: Int) -> Int
+    g91(x) + 1
+
+  inline fun g91(x: Int) -> Int
+    g92(x) + 1
+
+  inline fun g92(x: Int) -> Int
+    g93(x) + 1
+
+  inline fun g93(x: Int) -> Int
+    g94(x) + 1
+
+  inline fun g94(x: Int) -> Int
+    g95(x) + 1
+
+  inline fun g95(x: Int) -> Int
+    g96(x) + 1
+
+  inline fun g96(x: Int) -> Int
+    g97(x) + 1
+
+  inline fun g97(x: Int) -> Int
+    g98(x) + 1
+
+  inline fun g98(x: Int) -> Int
+    g99(x) + 1
+
+  inline fun g99(x: Int) -> Int
+    g100(x) + 1
+
+  inline fun g100(x: Int) -> Int
+    g101(x) + 1
+
+  inline fun g101(x: Int) -> Int
+    g102(x) + 1
+
+  inline fun g102(x: Int) -> Int
+    g103(x) + 1
+
+  inline fun g103(x: Int) -> Int
+    g104(x) + 1
+
+  inline fun g104(x: Int) -> Int
+    g105(x) + 1
+
+  inline fun g105(x: Int) -> Int
+    g106(x) + 1
+
+  inline fun g106(x: Int) -> Int
+    g107(x) + 1
+
+  inline fun g107(x: Int) -> Int
+    g108(x) + 1
+
+  inline fun g108(x: Int) -> Int
+    g109(x) + 1
+
+  inline fun g109(x: Int) -> Int
+    g110(x) + 1
+
+  inline fun g110(x: Int) -> Int
+    g111(x) + 1
+
+  inline fun g111(x: Int) -> Int
+    g112(x) + 1
+
+  inline fun g112(x: Int) -> Int
+    g113(x) + 1
+
+  inline fun g113(x: Int) -> Int
+    g114(x) + 1
+
+  inline fun g114(x: Int) -> Int
+    g115(x) + 1
+
+  inline fun g115(x: Int) -> Int
+    g116(x) + 1
+
+  inline fun g116(x: Int) -> Int
+    g117(x) + 1
+
+  inline fun g117(x: Int) -> Int
+    g118(x) + 1
+
+  inline fun g118(x: Int) -> Int
+    g119(x) + 1
+
+  inline fun g119(x: Int) -> Int
+    g120(x) + 1
+
+  inline fun g120(x: Int) -> Int
+    g121(x) + 1
+
+  inline fun g121(x: Int) -> Int
+    g122(x) + 1
+
+  inline fun g122(x: Int) -> Int
+    g123(x) + 1
+
+  inline fun g123(x: Int) -> Int
+    g124(x) + 1
+
+  inline fun g124(x: Int) -> Int
+    g125(x) + 1
+
+  inline fun g125(x: Int) -> Int
+    g126(x) + 1
+
+  inline fun g126(x: Int) -> Int
+    g127(x) + 1
+
+  inline fun g127(x: Int) -> Int
+    g128(x) + 1
+
+  inline fun g128(x: Int) -> Int
+    g129(x) + 1
+
+  inline fun g129(x: Int) -> Int
+    g130(x) + 1
+
+  inline fun g130(x: Int) -> Int
+    g131(x) + 1
+
+  inline fun g131(x: Int) -> Int
+    g132(x) + 1
+
+  inline fun g132(x: Int) -> Int
+    g133(x) + 1
+
+  inline fun g133(x: Int) -> Int
+    g134(x) + 1
+
+  inline fun g134(x: Int) -> Int
+    g135(x) + 1
+
+  inline fun g135(x: Int) -> Int
+    g136(x) + 1
+
+  inline fun g136(x: Int) -> Int
+    g137(x) + 1
+
+  inline fun g137(x: Int) -> Int
+    g138(x) + 1
+
+  inline fun g138(x: Int) -> Int
+    g139(x) + 1
+
+  inline fun g139(x: Int) -> Int
+    g140(x) + 1
+
+  inline fun g140(x: Int) -> Int
+    g141(x) + 1
+
+  inline fun g141(x: Int) -> Int
+    g142(x) + 1
+
+  inline fun g142(x: Int) -> Int
+    g143(x) + 1
+
+  inline fun g143(x: Int) -> Int
+    g144(x) + 1
+
+  inline fun g144(x: Int) -> Int
+    g145(x) + 1
+
+  inline fun g145(x: Int) -> Int
+    g146(x) + 1
+
+  inline fun g146(x: Int) -> Int
+    g147(x) + 1
+
+  inline fun g147(x: Int) -> Int
+    g148(x) + 1
+
+  inline fun g148(x: Int) -> Int
+    g149(x) + 1
+
+  inline fun g149(x: Int) -> Int
+    g150(x) + 1
+
+  inline fun g150(x: Int) -> Int
+    g151(x) + 1
+
+  inline fun g151(x: Int) -> Int
+    g152(x) + 1
+
+  inline fun g152(x: Int) -> Int
+    g153(x) + 1
+
+  inline fun g153(x: Int) -> Int
+    g154(x) + 1
+
+  inline fun g154(x: Int) -> Int
+    g155(x) + 1
+
+  inline fun g155(x: Int) -> Int
+    g156(x) + 1
+
+  inline fun g156(x: Int) -> Int
+    g157(x) + 1
+
+  inline fun g157(x: Int) -> Int
+    g158(x) + 1
+
+  inline fun g158(x: Int) -> Int
+    g159(x) + 1
+
+  inline fun g159(x: Int) -> Int
+    g160(x) + 1
+
+  inline fun g160(x: Int) -> Int
+    g161(x) + 1
+
+  inline fun g161(x: Int) -> Int
+    g162(x) + 1
+
+  inline fun g162(x: Int) -> Int
+    g163(x) + 1
+
+  inline fun g163(x: Int) -> Int
+    g164(x) + 1
+
+  inline fun g164(x: Int) -> Int
+    g165(x) + 1
+
+  inline fun g165(x: Int) -> Int
+    g166(x) + 1
+
+  inline fun g166(x: Int) -> Int
+    g167(x) + 1
+
+  inline fun g167(x: Int) -> Int
+    g168(x) + 1
+
+  inline fun g168(x: Int) -> Int
+    g169(x) + 1
+
+  inline fun g169(x: Int) -> Int
+    g170(x) + 1
+
+  inline fun g170(x: Int) -> Int
+    g171(x) + 1
+
+  inline fun g171(x: Int) -> Int
+    g172(x) + 1
+
+  inline fun g172(x: Int) -> Int
+    g173(x) + 1
+
+  inline fun g173(x: Int) -> Int
+    g174(x) + 1
+
+  inline fun g174(x: Int) -> Int
+    g175(x) + 1
+
+  inline fun g175(x: Int) -> Int
+    g176(x) + 1
+
+  inline fun g176(x: Int) -> Int
+    g177(x) + 1
+
+  inline fun g177(x: Int) -> Int
+    g178(x) + 1
+
+  inline fun g178(x: Int) -> Int
+    g179(x) + 1
+
+  inline fun g179(x: Int) -> Int
+    g180(x) + 1
+
+  inline fun g180(x: Int) -> Int
+    g181(x) + 1
+
+  inline fun g181(x: Int) -> Int
+    g182(x) + 1
+
+  inline fun g182(x: Int) -> Int
+    g183(x) + 1
+
+  inline fun g183(x: Int) -> Int
+    g184(x) + 1
+
+  inline fun g184(x: Int) -> Int
+    g185(x) + 1
+
+  inline fun g185(x: Int) -> Int
+    g186(x) + 1
+
+  inline fun g186(x: Int) -> Int
+    g187(x) + 1
+
+  inline fun g187(x: Int) -> Int
+    g188(x) + 1
+
+  inline fun g188(x: Int) -> Int
+    g189(x) + 1
+
+  inline fun g189(x: Int) -> Int
+    g190(x) + 1
+
+  inline fun g190(x: Int) -> Int
+    g191(x) + 1
+
+  inline fun g191(x: Int) -> Int
+    g192(x) + 1
+
+  inline fun g192(x: Int) -> Int
+    g193(x) + 1
+
+  inline fun g193(x: Int) -> Int
+    g194(x) + 1
+
+  inline fun g194(x: Int) -> Int
+    g195(x) + 1
+
+  inline fun g195(x: Int) -> Int
+    g196(x) + 1
+
+  inline fun g196(x: Int) -> Int
+    g197(x) + 1
+
+  inline fun g197(x: Int) -> Int
+    g198(x) + 1
+
+  inline fun g198(x: Int) -> Int
+    g199(x) + 1
+
+  inline fun g199(x: Int) -> Int
+    g200(x) + 1
+
+  inline fun g200(x: Int) -> Int
+    g201(x) + 1
+
+  inline fun g201(x: Int) -> Int
+    g202(x) + 1
+
+  inline fun g202(x: Int) -> Int
+    g203(x) + 1
+
+  inline fun g203(x: Int) -> Int
+    g204(x) + 1
+
+  inline fun g204(x: Int) -> Int
+    g205(x) + 1
+
+  inline fun g205(x: Int) -> Int
+    g206(x) + 1
+
+  inline fun g206(x: Int) -> Int
+    g207(x) + 1
+
+  inline fun g207(x: Int) -> Int
+    g208(x) + 1
+
+  inline fun g208(x: Int) -> Int
+    g209(x) + 1
+
+  inline fun g209(x: Int) -> Int
+    g210(x) + 1
+
+  inline fun g210(x: Int) -> Int
+    g211(x) + 1
+
+  inline fun g211(x: Int) -> Int
+    g212(x) + 1
+
+  inline fun g212(x: Int) -> Int
+    g213(x) + 1
+
+  inline fun g213(x: Int) -> Int
+    g214(x) + 1
+
+  inline fun g214(x: Int) -> Int
+    g215(x) + 1
+
+  inline fun g215(x: Int) -> Int
+    g216(x) + 1
+
+  inline fun g216(x: Int) -> Int
+    g217(x) + 1
+
+  inline fun g217(x: Int) -> Int
+    g218(x) + 1
+
+  inline fun g218(x: Int) -> Int
+    g219(x) + 1
+
+  inline fun g219(x: Int) -> Int
+    g220(x) + 1
+
+  inline fun g220(x: Int) -> Int
+    g221(x) + 1
+
+  inline fun g221(x: Int) -> Int
+    g222(x) + 1
+
+  inline fun g222(x: Int) -> Int
+    g223(x) + 1
+
+  inline fun g223(x: Int) -> Int
+    g224(x) + 1
+
+  inline fun g224(x: Int) -> Int
+    g225(x) + 1
+
+  inline fun g225(x: Int) -> Int
+    g226(x) + 1
+
+  inline fun g226(x: Int) -> Int
+    g227(x) + 1
+
+  inline fun g227(x: Int) -> Int
+    g228(x) + 1
+
+  inline fun g228(x: Int) -> Int
+    g229(x) + 1
+
+  inline fun g229(x: Int) -> Int
+    g230(x) + 1
+
+  inline fun g230(x: Int) -> Int
+    g231(x) + 1
+
+  inline fun g231(x: Int) -> Int
+    g232(x) + 1
+
+  inline fun g232(x: Int) -> Int
+    g233(x) + 1
+
+  inline fun g233(x: Int) -> Int
+    g234(x) + 1
+
+  inline fun g234(x: Int) -> Int
+    g235(x) + 1
+
+  inline fun g235(x: Int) -> Int
+    g236(x) + 1
+
+  inline fun g236(x: Int) -> Int
+    g237(x) + 1
+
+  inline fun g237(x: Int) -> Int
+    g238(x) + 1
+
+  inline fun g238(x: Int) -> Int
+    g239(x) + 1
+
+  inline fun g239(x: Int) -> Int
+    g240(x) + 1
+
+  inline fun g240(x: Int) -> Int
+    g241(x) + 1
+
+  inline fun g241(x: Int) -> Int
+    g242(x) + 1
+
+  inline fun g242(x: Int) -> Int
+    g243(x) + 1
+
+  inline fun g243(x: Int) -> Int
+    g244(x) + 1
+
+  inline fun g244(x: Int) -> Int
+    g245(x) + 1
+
+  inline fun g245(x: Int) -> Int
+    g246(x) + 1
+
+  inline fun g246(x: Int) -> Int
+    g247(x) + 1
+
+  inline fun g247(x: Int) -> Int
+    g248(x) + 1
+
+  inline fun g248(x: Int) -> Int
+    g249(x) + 1
+
+  inline fun g249(x: Int) -> Int
+    g250(x) + 1
+
+  inline fun g250(x: Int) -> Int
+    g251(x) + 1
+
+  inline fun g251(x: Int) -> Int
+    g252(x) + 1
+
+  inline fun g252(x: Int) -> Int
+    g253(x) + 1
+
+  inline fun g253(x: Int) -> Int
+    g254(x) + 1
+
+  inline fun g254(x: Int) -> Int
+    g255(x) + 1
+
+  inline fun g255(x: Int) -> Int
+    g256(x) + 1
+
+  fun g256(x: Int) -> Int
+    x
+
+  sub main()
+    print(g0(0))
