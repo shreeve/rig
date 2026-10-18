@@ -111,9 +111,9 @@ const usage =
     \\  RIG_NO_PROOFS    Set to 1 to make every test, as if the compiler
     \\                   proved none: the differential run of the proofs
     \\  RIG_VERIFY_PROOFS
-    \\                   Set to 1 when building with --release to make
-    \\                   the tests the compiler proved, and omits, as
-    \\                   assertions, as every debug build does
+    \\                   Set to 1 when building with --release=fast to
+    \\                   make the tests the compiler proved, and omits,
+    \\                   as assertions, as debug and --release builds do
     \\  RIG_STRICT_OPTIONALS
     \\                   Set to 1 to hold every object's optional as a
     \\                   tagged struct, so a program compiles only if the

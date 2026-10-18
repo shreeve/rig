@@ -1949,9 +1949,11 @@ pub fn elemPtr(items: anytype, i: anytype) @TypeOf(&items[0]) {
 /// other is made as `index` makes it, with the same panic.
 pub const Proven = enum { lower, upper, both };
 
-/// Proven tests are asserted in every debug build, and in an optimized
-/// build whose root module asks for it (`RIG_VERIFY_PROOFS=1`).
-const verify_proofs = builtin.optimize == .debug or (@hasDecl(root, "__rig_verify_proofs") and root.__rig_verify_proofs);
+/// Proven tests are asserted in every build that keeps runtime safety
+/// (debug and `--release`), so a fault in a proof panics there instead of
+/// reading out of bounds; `--release=fast` omits them, unless its root
+/// module asks for them (`RIG_VERIFY_PROOFS=1`).
+const verify_proofs = builtin.optimize.runtimeSafety() or (@hasDecl(root, "__rig_verify_proofs") and root.__rig_verify_proofs);
 
 fn proofPanic() noreturn {
     @panic("rig: a proven check failed (compiler bug)");

@@ -130,8 +130,8 @@ package directory on stderr; `build` names it when Zig fails.
 `RIG_LEAK_TRACE=1` at build time adds `__rig_leak_trace` to the root
 module, `RIG_SANITIZE=1` adds `__rig_sanitize` (see
 [the runtime](#the-runtime)), and `RIG_VERIFY_PROOFS=1` adds
-`__rig_verify_proofs`, which makes an optimized build assert the tests
-it omits ([Proven checks](#proven-checks)). `run` and `test` also add
+`__rig_verify_proofs`, which makes a `--release=fast` build assert the
+tests it omits ([Proven checks](#proven-checks)). `run` and `test` also add
 `__rig_run_started`, the name of the variable `RIG_PROGRAM_STARTED`,
 which is what makes `rig.start` create the file: a program `rig build`
 makes has no such declaration, never reads that variable, and creates
@@ -1731,11 +1731,13 @@ i + c  ==>  test that i + c fits unless no_overflow is proven; i + c
 ```
 
 An omitted test is one the program already made, so the program means
-what it meant. A debug build still makes it, as an assertion ("rig: a
-proven check failed (compiler bug)"), so every test that runs checks the
-proofs it reaches; the test suite and the matrix fail on that
-message even where a panic is expected. An optimized build makes it too
-when `RIG_VERIFY_PROOFS=1` is set as it is built (the root module then
+what it meant. A debug or `--release` build still makes it, as an
+assertion ("rig: a proven check failed (compiler bug)"), so a fault in a
+proof panics instead of reading out of bounds or wrapping, and every
+test that runs checks the proofs it reaches; the test suite and the
+matrix fail on that message even where a panic is expected. Only
+`--release=fast` omits it, and makes it too when `RIG_VERIFY_PROOFS=1`
+is set as it is built (the root module then
 declares `__rig_verify_proofs`), and `RIG_NO_PROOFS=1` makes emit write
 every test, as if nothing were proven.
 
@@ -4190,7 +4192,7 @@ reviewed.
 | `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @size(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
 | `enumText`, `enumFromText`, `NameTable` | a plain enum's names: `e.text` is the variant's `@tagName`, less the `'` a renamed one carries (`rigName`); `E.from_text(word)` finds `word` in a `NameTable`, the enum's names in declaration order in an open-addressed table the compiler emits (`src/nametable.zig`): a power of two of at least 16 slots, at most four fifths full, a one-byte tag per slot from the word's Wyhash, and each slot's index into the names. `find` hashes once, probes, and compares bytes only where a tag agrees, and the index gives the variant (`std.enums.values`). `bench/names/` times it against comparing names one by one |
 | `Arch` | Rig's built-in enum `Arch`: Zig's `std.Target.Cpu.Arch`, so `std.target`'s `arch`, `builtin.cpu.arch`, needs no mapping; every module's `Arch` symbol names it (`importType`) |
-| `Proven`, `atProven`, `elemPtrProven`, `readIntProven`, `writeIntProven`, `simdReadProven`, `simdWriteProven`, `addProven` | the operations with the tests the compiler proved omitted ([Proven checks](#proven-checks)): `Proven` names which (`lower`, `upper`, `both`), an index is read through the slice's pointer, which carries no test of its own, and an add is one LLVM may assume does not wrap. The other test is made as `index`, `readInt`, and `simdRead` make it, with the same panic; a vector is loaded and stored as `simdRead` and `simdWrite` do. A debug build, or one whose root declares `__rig_verify_proofs`, makes the proven ones too, as assertions |
+| `Proven`, `atProven`, `elemPtrProven`, `readIntProven`, `writeIntProven`, `simdReadProven`, `simdWriteProven`, `addProven` | the operations with the tests the compiler proved omitted ([Proven checks](#proven-checks)): `Proven` names which (`lower`, `upper`, `both`), an index is read through the slice's pointer, which carries no test of its own, and an add is one LLVM may assume does not wrap. The other test is made as `index`, `readInt`, and `simdRead` make it, with the same panic; a vector is loaded and stored as `simdRead` and `simdWrite` do. A debug or `--release` build, or a `--release=fast` one whose root declares `__rig_verify_proofs`, makes the proven ones too, as assertions |
 | `len`, `max_len` | a length as an `Int`; it panics above `2^62 - 1` ("length out of range"), which no target holds, so `i + c` is known to fit where `i` is below a length |
 | `copy`, `fill`, `swap` | the element methods: `copy` panics in every build mode unless the lengths are equal, then is `@memcpy` (the checker keeps the two slices from overlapping); `fill` is `@memset`; `swap` checks both indexes |
 | `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `index` converts an index of any integer type, 128-bit ones included, to `usize`, `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
