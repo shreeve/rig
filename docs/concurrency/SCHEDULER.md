@@ -61,6 +61,20 @@ it faults in a small guard; Zig emits none on arm64 macOS. Rig will emit
 its own, from the frame sizes it already measures, and then guards of
 64 KiB let millions of tasks run at once (increment 7).
 
+## Waiting
+
+Every wait that something else ends (a task's end, a set's count, a
+timer, a cancel, a call on the blocking pool) follows one protocol
+(`sched.Wait`). The waiting fiber begins a numbered wait, tells its
+waker the number, looks once more at what it waits for, and switches
+away; only then does its worker mark it asleep. A waker moves the wait
+to woken, for its number only, with one compare-and-swap: exactly one
+waker wins, a waker that comes before the switch leaves the wait woken
+so the fiber goes straight back on a queue, and a stale waker finds a
+later number and does nothing. A cancel ends only a wait a cancel may
+end, and a task waiting on another passes its cancel on itself, hand
+over hand, so no cancel reaches a task through a chain another may free.
+
 ## Yield checks
 
 A fiber yields only at a waiting point, so a task that computes without
@@ -83,8 +97,11 @@ fails.
    when a worker keeps enough, handoff to a waited-for task, one
    allocation per task, and a shared count ticked only by tasks of sets
    that can fail.
-4. **Waiting without spinning**: futex and timers for fibers,
-   cancellation on them, and the blocking pool for the rest of `std.Io`.
+4. **Waiting without spinning**: one protocol for every wait that
+   something else ends (`sched.Wait`): a timer thread with a heap of
+   deadlines, a cancel that wakes the wait it ends, a waiter that passes
+   its cancel on to the task it waits on, and the blocking pool, which
+   `std.file` reads through.
 5. **Yield checks** in the compiler.
 6. **The default**: every program that makes tasks runs on the
    scheduler, and the `Threaded` path goes.

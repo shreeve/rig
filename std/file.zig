@@ -10,6 +10,11 @@ const rig = @import("../runtime.zig");
 /// a file that grows while it is read, or one that reports no size
 /// (a pipe, a device), is read to its end and the buffer trimmed.
 pub fn read(path: []const u8) ?rig.String {
+    return rig.blocking(readHere, .{path});
+}
+
+/// `read` on the thread it runs on, which may block.
+fn readHere(path: []const u8) ?rig.String {
     const io = rig.io();
     const file = std.Io.Dir.cwd().openFile(io, path, .{ .allow_directory = false }) catch return null;
     defer file.close(io);

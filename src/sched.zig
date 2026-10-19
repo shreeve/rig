@@ -37,6 +37,10 @@ pub const Fiber = struct {
     /// The fiber that handed this one its worker (`handoff`), to switch
     /// back to when this one ends without stopping first.
     handoff: ?*Fiber = null,
+    /// The epoch of that fiber's wait as it handed its worker over.
+    handoff_epoch: u32 = 0,
+    /// Its wait for what another fiber or thread does (`Wait`).
+    wait: Wait = .{},
 };
 
 /// What a worker does with the fiber that just switched away, once it has:
@@ -140,6 +144,337 @@ fn requeue(f: *Fiber, _: ?*anyopaque) void {
 /// the others waiting.
 const lifo_limit = 3;
 
+// -----------------------------------------------------------------------------
+// Waiting
+// -----------------------------------------------------------------------------
+
+/// How a fiber waits for what another fiber or thread does: a task's end,
+/// a set's count, a timer, a cancel, or a call on the blocking pool. Each
+/// wait has a number, its epoch. The fiber begins it (`beginWait`), tells
+/// its waker the epoch, looks once more at what it waits for, and commits
+/// (`commitWait`): it switches away, and its worker marks it asleep. A
+/// waker moves the wait from about to sleep, or asleep, to woken, for its
+/// epoch only (`interrupt`). So exactly one waker wins; one that comes
+/// before the fiber has switched away leaves it woken, and the fiber goes
+/// straight back on a queue; and one that comes late finds a later epoch
+/// and does nothing.
+pub const Wait = struct {
+    /// The epoch, whether a cancel may end the wait, and its state.
+    word: std.atomic.Value(u64) = .init(0),
+    epoch: u32 = 0,
+    /// When a timer may end the wait: its deadline, the epoch it was set
+    /// for, and its place in the timer heap.
+    deadline: i96 = 0,
+    timer_epoch: u32 = 0,
+    heap_index: usize = no_index,
+
+    const about = 0;
+    const asleep = 1;
+    const woken = 2;
+    const cancelable_bit: u64 = 4;
+    const states: u64 = 3;
+    const no_index = std.math.maxInt(usize);
+
+    fn pack(epoch: u32, cancelable: bool, state: u64) u64 {
+        return (@as(u64, epoch) << 3) | (if (cancelable) cancelable_bit else 0) | state;
+    }
+
+    fn epochOf(w: u64) u32 {
+        return @truncate(w >> 3);
+    }
+};
+
+/// Begin a wait of the running fiber, which a cancel may end when
+/// `cancelable`, and give its epoch, for its waker to pass to
+/// `interrupt`.
+pub fn beginWait(cancelable: bool) u32 {
+    const f = current().?;
+    f.wait.epoch +%= 1;
+    f.wait.word.store(Wait.pack(f.wait.epoch, cancelable, Wait.about), .seq_cst);
+    return f.wait.epoch;
+}
+
+/// Sleep until the wait `epoch`, which `beginWait` gave, is woken, or
+/// `deadline` (the monotonic clock, in nanoseconds) passes.
+pub fn commitWait(epoch: u32, deadline: ?i96) void {
+    const f = current().?;
+    if (deadline) |d| {
+        f.wait.deadline = d;
+        f.wait.timer_epoch = epoch;
+    }
+    park(.{ .run = fallAsleep, .ctx = if (deadline != null) @ptrFromInt(1) else null });
+    // Awake: a timer still set for this wait is taken back, so none
+    // touches this fiber once it goes on.
+    if (deadline != null) timers.cancel(f);
+}
+
+/// Once the fiber has switched away: set its timer, then mark it asleep,
+/// unless a waker has come first, when it goes on.
+fn fallAsleep(f: *Fiber, timed: ?*anyopaque) void {
+    if (timed != null) timers.add(f);
+    const w = f.wait.word.load(.seq_cst);
+    if (Wait.epochOf(w) == f.wait.epoch and w & Wait.states == Wait.about) {
+        if (f.wait.word.cmpxchgStrong(w, (w & ~Wait.states) | Wait.asleep, .seq_cst, .seq_cst) == null) return;
+    }
+    wake(f);
+}
+
+/// End the wait `epoch` of `f`, if it is still on, and give whether this
+/// call ended it. A cancel passes `cancel`, and ends only a wait that a
+/// cancel may end.
+pub fn interrupt(f: *Fiber, epoch: u32, cancel: bool) bool {
+    var w = f.wait.word.load(.seq_cst);
+    while (true) {
+        if (Wait.epochOf(w) != epoch) return false;
+        const state = w & Wait.states;
+        if (state == Wait.woken) return false;
+        if (cancel and w & Wait.cancelable_bit == 0) return false;
+        w = f.wait.word.cmpxchgWeak(w, (w & ~Wait.states) | Wait.woken, .seq_cst, .seq_cst) orelse {
+            if (state == Wait.asleep) wake(f);
+            return true;
+        };
+    }
+}
+
+/// Take the wait `epoch` of `f`, asleep, as `interrupt` does, but without
+/// queueing `f`: for the fiber `f` handed its worker to, which switches
+/// straight back to it (`fiberMain`). False when a waker took it first.
+fn claim(f: *Fiber, epoch: u32) bool {
+    var w = f.wait.word.load(.seq_cst);
+    while (Wait.epochOf(w) == epoch and w & Wait.states == Wait.asleep) {
+        w = f.wait.word.cmpxchgWeak(w, (w & ~Wait.states) | Wait.woken, .seq_cst, .seq_cst) orelse return true;
+    }
+    return false;
+}
+
+/// A cancel of the task `f` runs: end its present wait, if a cancel may.
+pub fn interruptForCancel(f: *Fiber) void {
+    _ = interrupt(f, Wait.epochOf(f.wait.word.load(.seq_cst)), true);
+}
+
+/// The monotonic clock, in nanoseconds: what deadlines count on.
+pub fn nowNs() i96 {
+    return std.Io.Timestamp.now(rt.io(), .awake).nanoseconds;
+}
+
+// -----------------------------------------------------------------------------
+// Timers
+// -----------------------------------------------------------------------------
+
+/// The fibers waiting with a deadline, earliest first, and the thread
+/// that sleeps until the earliest and wakes those whose deadline has
+/// passed. Its lock is held while it wakes one, so a fiber that takes its
+/// timer back (`cancel`) knows the thread is done with it.
+const Timers = struct {
+    lock: SpinLock = .{},
+    heap: std.ArrayList(*Fiber) = .empty,
+    /// The futex word its thread sleeps on: changed when an earlier
+    /// deadline is set, and when the program ends.
+    word: std.atomic.Value(u32) = .init(0),
+    thread: ?std.Thread = null,
+
+    fn add(t: *Timers, f: *Fiber) void {
+        t.lock.lock();
+        const earliest = t.heap.items.len == 0 or f.wait.deadline < t.heap.items[0].wait.deadline;
+        t.heap.append(std.heap.smp_allocator, f) catch rt.oom();
+        f.wait.heap_index = t.heap.items.len - 1;
+        t.up(f.wait.heap_index);
+        if (t.thread == null) t.thread = std.Thread.spawn(.{}, timerMain, .{t}) catch rt.oom();
+        t.lock.unlock();
+        if (earliest) t.poke();
+    }
+
+    fn cancel(t: *Timers, f: *Fiber) void {
+        t.lock.lock();
+        defer t.lock.unlock();
+        if (f.wait.heap_index != Wait.no_index) t.removeAt(f.wait.heap_index);
+    }
+
+    fn poke(t: *Timers) void {
+        _ = t.word.fetchAdd(1, .seq_cst);
+        rt.io().futexWake(u32, &t.word.raw, 1);
+    }
+
+    fn less(t: *Timers, i: usize, j: usize) bool {
+        return t.heap.items[i].wait.deadline < t.heap.items[j].wait.deadline;
+    }
+
+    fn swap(t: *Timers, i: usize, j: usize) void {
+        const items = t.heap.items;
+        std.mem.swap(*Fiber, &items[i], &items[j]);
+        items[i].wait.heap_index = i;
+        items[j].wait.heap_index = j;
+    }
+
+    fn up(t: *Timers, start: usize) void {
+        var i = start;
+        while (i > 0) {
+            const parent = (i - 1) / 2;
+            if (!t.less(i, parent)) return;
+            t.swap(i, parent);
+            i = parent;
+        }
+    }
+
+    fn down(t: *Timers, start: usize) void {
+        var i = start;
+        const n = t.heap.items.len;
+        while (true) {
+            var least = i;
+            const l = 2 * i + 1;
+            const r = l + 1;
+            if (l < n and t.less(l, least)) least = l;
+            if (r < n and t.less(r, least)) least = r;
+            if (least == i) return;
+            t.swap(i, least);
+            i = least;
+        }
+    }
+
+    fn removeAt(t: *Timers, i: usize) void {
+        const f = t.heap.items[i];
+        const last = t.heap.items.len - 1;
+        if (i != last) t.swap(i, last);
+        _ = t.heap.pop();
+        f.wait.heap_index = Wait.no_index;
+        if (i < t.heap.items.len) {
+            t.down(i);
+            t.up(i);
+        }
+    }
+
+    fn stop(t: *Timers) void {
+        const th = t.thread orelse return;
+        t.poke();
+        th.join();
+        t.thread = null;
+        t.heap.deinit(std.heap.smp_allocator);
+        t.heap = .empty;
+    }
+};
+
+var timers: Timers = .{};
+
+fn timerMain(t: *Timers) void {
+    while (!stopping.load(.acquire)) {
+        const seen = t.word.load(.seq_cst);
+        t.lock.lock();
+        const now = nowNs();
+        while (t.heap.items.len > 0 and t.heap.items[0].wait.deadline <= now) {
+            const f = t.heap.items[0];
+            t.removeAt(0);
+            _ = interrupt(f, f.wait.timer_epoch, false);
+        }
+        const earliest: ?i96 = if (t.heap.items.len > 0) t.heap.items[0].wait.deadline else null;
+        t.lock.unlock();
+        const timeout: std.Io.Timeout = if (earliest) |d| .{ .duration = .{ .raw = .fromNanoseconds(@max(d - nowNs(), 0)), .clock = .awake } } else .none;
+        rt.io().futexWaitTimeout(u32, &t.word.raw, seen, timeout) catch {};
+    }
+}
+
+// -----------------------------------------------------------------------------
+// The blocking pool
+// -----------------------------------------------------------------------------
+
+/// Threads that run calls which block the thread they run on (reading a
+/// file, say), so no worker blocks on one: a fiber that makes such a call
+/// waits, and the pool thread that ran it wakes it. A pool thread is
+/// started when a call finds none idle, up to `max_pool`.
+const Pool = struct {
+    lock: SpinLock = .{},
+    head: ?*Call = null,
+    tail: ?*Call = null,
+    idle: u32 = 0,
+    threads: std.ArrayList(std.Thread) = .empty,
+    word: std.atomic.Value(u32) = .init(0),
+
+    const max_pool = 64;
+
+    fn submit(p: *Pool, c: *Call) void {
+        p.lock.lock();
+        c.next = null;
+        if (p.tail) |t| t.next = c else p.head = c;
+        p.tail = c;
+        if (p.idle == 0 and p.threads.items.len < max_pool) {
+            const th = std.Thread.spawn(.{}, poolMain, .{p}) catch rt.oom();
+            p.threads.append(std.heap.smp_allocator, th) catch rt.oom();
+        }
+        p.lock.unlock();
+        _ = p.word.fetchAdd(1, .seq_cst);
+        rt.io().futexWake(u32, &p.word.raw, 1);
+    }
+
+    fn take(p: *Pool) ?*Call {
+        const c = p.head orelse return null;
+        p.head = c.next;
+        if (p.head == null) p.tail = null;
+        return c;
+    }
+
+    fn stop(p: *Pool) void {
+        _ = p.word.fetchAdd(1, .seq_cst);
+        rt.io().futexWake(u32, &p.word.raw, std.math.maxInt(u32));
+        for (p.threads.items) |th| th.join();
+        p.threads.deinit(std.heap.smp_allocator);
+        p.threads = .empty;
+    }
+};
+
+/// A call for the blocking pool: how to run it, and the wait it ends.
+const Call = struct {
+    run: *const fn (*Call) void,
+    fiber: *Fiber,
+    epoch: u32,
+    next: ?*Call = null,
+};
+
+var pool: Pool = .{};
+
+fn poolMain(p: *Pool) void {
+    while (true) {
+        const seen = p.word.load(.seq_cst);
+        p.lock.lock();
+        const c = p.take() orelse {
+            if (stopping.load(.acquire)) {
+                p.lock.unlock();
+                return;
+            }
+            p.idle += 1;
+            p.lock.unlock();
+            rt.io().futexWaitUncancelable(u32, &p.word.raw, seen);
+            p.lock.lock();
+            p.idle -= 1;
+            p.lock.unlock();
+            continue;
+        };
+        p.lock.unlock();
+        c.run(c);
+        _ = interrupt(c.fiber, c.epoch, false);
+    }
+}
+
+/// `f(args...)`, a call that may block its thread: on the blocking pool,
+/// while the fiber making it waits, so its worker runs other fibers.
+/// Outside every fiber, it runs here.
+pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
+    const R = @typeInfo(@TypeOf(f)).@"fn".return_type.?;
+    const fiber = current() orelse return @call(.auto, f, args);
+    const C = struct {
+        call: Call,
+        args: @TypeOf(args),
+        result: R = undefined,
+
+        fn run(c: *Call) void {
+            const self: *@This() = @fieldParentPtr("call", c);
+            self.result = @call(.auto, f, self.args);
+        }
+    };
+    var c: C = .{ .call = .{ .run = C.run, .fiber = fiber, .epoch = beginWait(false) }, .args = args };
+    pool.submit(&c.call);
+    commitWait(c.call.epoch, null);
+    return c.result;
+}
+
 /// Stop running until another fiber wakes this one (`wake`). `after`
 /// runs on the worker once this fiber has switched away: it records the
 /// fiber where the waker will find it, or queues it again when what it
@@ -195,6 +530,8 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
     me_slot = &workers[0];
     workers[0].ring.push(&m.fiber);
     loop(&workers[0]);
+    timers.stop();
+    pool.stop();
     for (workers[1..]) |*w| w.thread.?.join();
     for (workers) |*w| freeStacks(w);
     std.heap.smp_allocator.free(all_workers);
@@ -545,31 +882,65 @@ const SpinLock = struct {
 // Tasks
 // -----------------------------------------------------------------------------
 
-/// What a task's waiter shares with the fiber that runs it: whether it
-/// has ended, or is waited on, the fiber waiting for it, and how to free
-/// the record. Its end is published by the worker the fiber left for
-/// good, so the record is never freed while the fiber still runs.
+/// What a task's waiter shares with the fiber that runs it: whether the
+/// task has ended, the fiber waiting for it and the epoch of that wait,
+/// and how to free the record. The end is published by the worker the
+/// fiber left for good (`end`), so the record is never freed while the
+/// fiber still runs, and the waiter goes on only once the status says
+/// `ended`, after the waker is done with it.
 pub const Header = struct {
     fiber: Fiber,
     status: std.atomic.Value(u8) = .init(running),
-    waiter: ?*Fiber = null,
+    waiter: std.atomic.Value(?*Fiber) = .init(null),
+    waiter_epoch: std.atomic.Value(u32) = .init(0),
     destroy: *const fn (*Header) void,
 
     const running = 0;
     const waited = 1;
-    const ended = 2;
+    const ending = 2;
+    const ended = 3;
 
     fn end(f: *Fiber) void {
         const h: *Header = @fieldParentPtr("fiber", f);
-        if (h.status.swap(ended, .acq_rel) == waited) wake(h.waiter.?);
+        if (h.status.swap(ending, .seq_cst) == waited) {
+            _ = interrupt(h.waiter.load(.seq_cst).?, h.waiter_epoch.load(.seq_cst), false);
+        }
+        h.status.store(ended, .seq_cst);
     }
 
-    /// Record `f` as the waiter, unless the task has ended, when `f` goes
-    /// on at once.
-    fn wait(f: *Fiber, ctx: ?*anyopaque) void {
-        const h: *Header = @ptrCast(@alignCast(ctx.?));
-        h.waiter = f;
-        if (h.status.cmpxchgStrong(running, waited, .acq_rel, .acquire) != null) wake(f);
+    /// Whether the task has ended; while its end is being published,
+    /// wait for that to finish.
+    fn isEnded(h: *Header) bool {
+        while (true) {
+            const s = h.status.load(.seq_cst);
+            if (s == ended) return true;
+            if (s != ending) return false;
+            std.atomic.spinLoopHint();
+        }
+    }
+
+    /// Wait for the task to end, or, when `cancel` is given, for that
+    /// flag to be set first, when this gives false.
+    fn waitEnd(h: *Header, cancel: ?*const std.atomic.Value(bool)) bool {
+        if (!h.isEnded()) {
+            const w = me().?;
+            // Not started, and next on this worker: run it now. A fiber in
+            // the "run next" slot may also be one woken partway, which
+            // goes on where it stopped instead.
+            if (w.lifo == &h.fiber and h.fiber.sp == 0) handoff(w, h, cancel != null);
+        }
+        while (!h.isEnded()) {
+            if (cancel) |c| if (c.load(.seq_cst)) return false;
+            const e = beginWait(cancel != null);
+            h.waiter.store(current().?, .seq_cst);
+            h.waiter_epoch.store(e, .seq_cst);
+            if (h.status.cmpxchgStrong(running, waited, .seq_cst, .seq_cst)) |s| {
+                if (s != waited) continue;
+            }
+            if (cancel) |c| if (c.load(.seq_cst)) return false;
+            commitWait(e, null);
+        }
+        return true;
     }
 };
 
@@ -584,12 +955,14 @@ pub fn Job(comptime T: type) type {
         /// Wait for the task to end and give its result. Waiting again
         /// gives the same result; the owner takes it once (`Task`).
         pub fn join(self: *Self) T {
-            if (self.header.status.load(.acquire) != Header.ended) {
-                const w = me().?;
-                // Not started, and next on this worker: run it now.
-                if (w.lifo == &self.header.fiber) handoff(w, &self.header) else park(.{ .run = Header.wait, .ctx = &self.header });
-            }
+            _ = self.header.waitEnd(null);
             return self.result;
+        }
+
+        /// Wait for the task to end, unless the flag `cancel` is set
+        /// first: whether it has ended.
+        pub fn waitEnd(self: *Self, cancel: ?*const std.atomic.Value(bool)) bool {
+            return self.header.waitEnd(cancel);
         }
 
         pub fn free(self: *Self) void {
@@ -601,20 +974,26 @@ pub fn Job(comptime T: type) type {
 /// Hand this worker to the task of `h`, which has not started and is
 /// next on it (its "run next" slot, which only this worker takes): switch
 /// straight to it, on its own stack, and straight back when it ends,
-/// past the queues. The fiber waiting is recorded as its waiter first, so
-/// a task that stops on the way ends the usual way and wakes it.
-fn handoff(w: *Worker, h: *Header) void {
+/// past the queues. The fiber waiting sleeps as it hands its worker over,
+/// recorded as the task's waiter, so a task that stops on the way ends
+/// the usual way and wakes it.
+fn handoff(w: *Worker, h: *Header, cancelable: bool) void {
     const waiter = w.current.?;
     const f = &h.fiber;
     w.lifo = null;
-    h.waiter = waiter;
-    h.status.store(Header.waited, .release);
+    const e = beginWait(cancelable);
+    h.waiter.store(waiter, .seq_cst);
+    h.waiter_epoch.store(e, .seq_cst);
+    h.status.store(Header.waited, .seq_cst);
+    // The waiter is marked asleep by the task, once this switch has saved
+    // it (`fiberMain`), so no waker queues it while it still runs.
     f.handoff = waiter;
+    f.handoff_epoch = e;
     prepare(f);
     w.current = f;
     switchTo(&waiter.sp, f.sp);
     // Back: the task ended straight back here, or stopped and later ended
-    // the usual way, which woke this fiber.
+    // the usual way, or a cancel woke this fiber first.
     const now = me().?;
     if (now.returned) |done| {
         now.returned = null;
@@ -622,7 +1001,7 @@ fn handoff(w: *Worker, h: *Header) void {
             done.stack = null;
             releaseStack(now, s);
         }
-        h.status.store(Header.ended, .release);
+        h.status.store(Header.ended, .seq_cst);
     }
 }
 
@@ -652,6 +1031,9 @@ pub fn spawn(comptime T: type, comptime Extra: type, comptime f: anytype, args: 
     if (!started) startWorkers();
     const full = std.heap.smp_allocator.create(Full) catch rt.oom();
     full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end }, .destroy = Full.destroy } }, .args = args };
+    // An `Extra` that names its task's fiber is given it, for a cancel to
+    // reach the fiber's wait (`interruptForCancel`).
+    if (@hasField(Extra, "fiber")) full.extra.fiber = &full.job.header.fiber;
     wake(&full.job.header.fiber);
     return .{ .job = &full.job, .extra = &full.extra };
 }
@@ -829,17 +1211,35 @@ fn switchTo(from: *usize, to: usize) void {
 /// A fiber's body: its `run`, then back to its worker for good, which
 /// publishes its end (`runFiber`).
 fn fiberMain(f: *Fiber) callconv(.c) noreturn {
+    // Handed a worker: the fiber that handed it over has switched away, so
+    // mark it asleep; when a cancel woke it first, queue it, and end the
+    // usual way.
+    if (f.handoff) |back| {
+        const e = f.handoff_epoch;
+        const about = back.wait.word.load(.seq_cst);
+        const asleep_now = Wait.epochOf(about) == e and about & Wait.states == Wait.about and
+            back.wait.word.cmpxchgStrong(about, (about & ~Wait.states) | Wait.asleep, .seq_cst, .seq_cst) == null;
+        if (!asleep_now) {
+            f.handoff = null;
+            wake(back);
+        }
+    }
     f.run(f);
     f.finished = true;
     const w = me().?;
     // Handed over and never stopped: straight back to the fiber that
-    // handed it over, which finishes it (`handoff`).
+    // handed it over, which finishes it (`handoff`), unless a cancel has
+    // woken that fiber already, when this one ends the usual way.
     if (f.handoff) |back| {
         f.handoff = null;
-        w.returned = f;
-        w.current = back;
-        switchTo(&f.sp, back.sp);
-    } else switchTo(&f.sp, w.sp);
+        if (claim(back, f.handoff_epoch)) {
+            w.returned = f;
+            w.current = back;
+            switchTo(&f.sp, back.sp);
+            unreachable;
+        }
+    }
+    switchTo(&f.sp, w.sp);
     unreachable;
 }
 

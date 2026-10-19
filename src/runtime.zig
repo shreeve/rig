@@ -28,6 +28,14 @@ pub const waitTasks = tasks.waitTasks;
 pub const waitPoint = tasks.waitPoint;
 pub const taskCheck = tasks.check;
 pub const taskSleep = tasks.sleep;
+
+/// `f(args...)`, a call that may block its thread, as `std`'s shims make
+/// one (reading a file): on the scheduler, on its blocking pool, while the
+/// task waits; otherwise here.
+pub fn blocking(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
+    if (scheduled) return sched.blocking(f, args);
+    return @call(.auto, f, args);
+}
 pub const Stop = tasks.Stop;
 const Control = tasks.Control;
 // The scheduler, which runs tasks as fibers (`sched.zig`).
