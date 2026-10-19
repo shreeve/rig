@@ -59,7 +59,7 @@ fun first[T](x: T?, y: T?) -> T?
   x ?? y
 
 fun name[T]() -> ?String
-  @name(T)
+  $name(T)
 
 fun nested(o: (Node?)?) -> Int
   if o as inner

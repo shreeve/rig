@@ -454,8 +454,8 @@ test "review-printlow-order-failure", '''
     items: [n]T
 
     sub show(?self)
-      print("cap", n, @size(T), @name(T))
-      t = String(n, "/", @name(T))
+      print("cap", n, $size(T), $name(T))
+      t = String(n, "/", $name(T))
       print(t)
 
   fun side(tag: Int) -> Int
@@ -486,7 +486,7 @@ test "review-printlow-order-failure", '''
   print("r2", r2)
   g = Ring[Int, 3](items: [1, 2, 3])
   g.show()
-  print(@size(Int), @name(String), @align(I32))
+  print($size(Int), $name(String), $align(I32))
 
 test "review-printlow-past-buffer", '''
   start 100000 10000

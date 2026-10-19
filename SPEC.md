@@ -163,7 +163,7 @@ sub main()
   small: U8 = 200
   sum = small + 55          # 55 is a U8 here
   big = 9223372036854775807
-  print(sum, big, @size(Int), 0.1 + 0.2)
+  print(sum, big, $size(Int), 0.1 + 0.2)
 ```
 
 ```output
@@ -407,7 +407,7 @@ nothing turns a `?String` into a `Static`. A `Static` is read as a
 `[]Static` as a `[]?String` (so an array or a List of `Static`, lent to read, is one), and in a branch, a `??`, or a list literal
 that mixes the two (their type is `?String`). A generic `T` that a
 `Static` and a `?String` both bind is the `?String` (unless a place that
-holds it exactly, such as a `Cell[T]`, gives the type). `@name(Static)`
+holds it exactly, such as a `Cell[T]`, gives the type). `$name(Static)`
 is `"Static"`, but a type parameter bound to a `Static` is named
 `"?String"`, since both are one Zig type. It never converts
 where the text can be written: a place of type `Static` holds only a
@@ -929,7 +929,7 @@ cannot lend a slice of a `?String` to write; a `?String` is read-only
 ### Bytes
 
 Bytes hold fixed-size numbers. `bytes.read[T, e](at)` is the integer
-or float `T` stored in the `@size(T)` bytes from offset `at`, in byte
+or float `T` stored in the `$size(T)` bytes from offset `at`, in byte
 order `e`, and `!bytes.write[T, e](at, v)` stores `v` there. `T` is any
 integer or float type, a vector of them ([Vectors](#reading-bytes-into-a-vector)),
 or a type parameter every instance gives one of the first;
@@ -940,7 +940,7 @@ a compile-time parameter; there is no native order). A one-byte `T`
 `write[U8](at, v)`. `read` works on a
 `[]U8`, an `![]U8`, a `[N]U8`, a `List[U8]`, and a `?String`; `write` on
 the writable ones, written `!bytes` (or an `![]U8` binding). Every byte
-must be in range, `0 <= at` and `at + @size(T) <= len`: a constant
+must be in range, `0 <= at` and `at + $size(T) <= len`: a constant
 offset into an array is checked at compile time, and any other when the
 program runs, which panics in every build mode when it is not. A float
 is read and written by its bits, so a NaN's payload survives. `Endian`
@@ -1141,17 +1141,17 @@ integer value `300` does not fit in `U8` (0..255)
 
 `read` and `write` ([Bytes](#bytes)) take a vector of number lanes:
 `bytes.read[Simd[T, n], e](at)` is the `n` values of type `T` held one
-after another from `at`, lane `i` at `at + i * @size(T)`, each in byte
+after another from `at`, lane `i` at `at + i * $size(T)`, each in byte
 order `e`, and `!bytes.write[Simd[T, n], e](at, v)` stores them. As a
 one-byte `T` does, a vector of one-byte lanes takes no byte order:
 `s.read[Simd[U8, 64]](at)`. A read or write is checked once, for every
 byte it touches, and loads or stores the vector whole: the program
-reads no byte past `at + n * @size(T)`.
+reads no byte past `at + n * $size(T)`.
 
 **A vector is one value.** It has no `==` of its own beyond its lanes',
 so an object, enum, array, or optional that holds one has none, and a
 generic `T` that is one cannot be compared. Its size and alignment are
-the target's, so `@size` and `@align` take no type that holds one
+the target's, so `$size` and `$align` take no type that holds one
 inline (a `List` of vectors holds them on the heap, and has a size). A
 generic body applies to a vector `T` only what it applies to plain data:
 it copies, moves, prints, and stores one, but arithmetic and comparisons
@@ -1163,12 +1163,12 @@ obj Lexer
 
 sub main()
   a = Lexer(ahead: Simd[U8, 16].splat(0))
-  print(a == a, @size(Lexer))
+  print(a == a, $size(Lexer))
 ```
 
 ```error
 `==` is not defined for `Lexer`: field `ahead` is a `Simd[U8, 16]`, whose `==` compares lane by lane
-`@size` takes no type that holds a vector
+`$size` takes no type that holds a vector
 ```
 
 ### Composite and handle types
@@ -2169,9 +2169,9 @@ operator `<` operands have different types `Color` and `Size`
 `Status.from_int(n)` is the other way: the variant of a plain enum
 whose value is the integer `n`, of any integer type, or `none` when no
 variant has it. `from_int` is built into every plain enum, so an enum
-cannot declare a variant or method of that name. `@variants(T)` is every
+cannot declare a variant or method of that name. `$variants(T)` is every
 variant of a plain enum, in declaration order, as a constant `[N]T`; it
-can be a module constant, and it asks about a type as `@size(T)` does.
+can be a module constant, and it asks about a type as `$size(T)` does.
 A payload enum has neither, and nor does a built-in enum.
 
 ```rig
@@ -2179,13 +2179,13 @@ enum Status
   ok = 200
   missing = 404
 
-all = @variants(Status)
+all = $variants(Status)
 
 sub main()
   print(Status.from_int(404), Status.from_int(500), Status.from_int(U16(200)))
   for s in all
     print(s, Int(s))
-  print(@variants(Status).len)
+  print($variants(Status).len)
 ```
 
 ```output
@@ -2213,11 +2213,11 @@ enum Shape
   circle(r: Int)
 
 sub main()
-  print(@variants(Shape))
+  print($variants(Shape))
 ```
 
 ```error
-`@variants(T)` takes a plain enum; `Shape` has variants with payloads
+`$variants(T)` takes a plain enum; `Shape` has variants with payloads
 ```
 
 A plain enum's values have names. `e.text` is the name of `e`'s
@@ -2259,7 +2259,7 @@ sub main()
   print(c.text, Color.red.text.len)
   print(Color.from_text("red"), Color.from_text("Red"), Color.from_text("dark"))
   print(code("missing"), code("404"))
-  for v in @variants(Color)
+  for v in $variants(Color)
     print(Color.from_text(v.text) == v)
 ```
 
@@ -3959,10 +3959,11 @@ sub main()
 
 ### Builtins
 
-`@builtin(args)` calls a compiler builtin. Rig's own work anywhere:
-`@size(T)` and `@align(T)` are a type's size and alignment in bytes,
-`@name(T)` is its name, and `@type(x)`, only as the argument of one of
-these three, is the type of `x`. `@variants(T)` is the variants of a
+`$builtin(args)` calls a compiler builtin: the `$` touches its name, and
+the name its `(`, which a builtin always takes. Rig's own work anywhere:
+`$size(T)` and `$align(T)` are a type's size and alignment in bytes,
+`$name(T)` is its name, and `$type(x)`, only as the argument of one of
+these three, is the type of `x`. `$variants(T)` is the variants of a
 plain enum ([§3](#enums)). A type argument is written as one is
 in an expression (`List[Int]`, `?P`, `Int?`; a slice, array, or function
 type through a `type` alias).
@@ -3974,14 +3975,14 @@ obj P
 
 sub main()
   x: I16 = 5
-  print(@size(I64), @align(P), @size(@type(x)), @name(Int))
+  print($size(I64), $align(P), $size($type(x)), $name(Int))
 ```
 
 ```output
 8 8 2 Int
 ```
 
-`@name(T)` is the type as Rig writes it, the spelling the diagnostics
+`$name(T)` is the type as Rig writes it, the spelling the diagnostics
 print: `Int` (also for `I64`, the same type), `List[Int]`, `Int?`,
 `?P`, `*P`, `fun(Int) -> Int!`. An alias is the type it names (`type
 Byte = U8` gives `U8`), and another module's type is qualified the way
@@ -3995,12 +3996,12 @@ obj Pair[A, B]
   b: B
 
 fun name[T]() -> ?String
-  @name(T)
+  $name(T)
 
 type Byte = U8
 
 sub main()
-  print(@name(List[Int]), @name(Byte), name[Pair[Int, String]](), name[*Pair[U8, Bool]?]())
+  print($name(List[Int]), $name(Byte), name[Pair[Int, String]](), name[*Pair[U8, Bool]?]())
 ```
 
 ```output
@@ -4016,7 +4017,7 @@ read view of a number is the number and a `[]U8` is the bytes a
 
 ```rig reject
 fun name[T](x: T) -> ?String
-  @name(T)
+  $name(T)
 
 sub main()
   n = 5
@@ -4033,18 +4034,18 @@ inside a `raw` block ([§15](#15-raw-code-and-ffi)): the casts
 `@bitCast`, `@intCast`, `@floatCast`, `@truncate`, `@trunc`,
 `@floatFromInt`, and `@fromBackingInt`, and Zig's names for Rig's
 four, `@sizeOf`, `@alignOf`, `@typeName`, and `@TypeOf`, which mean
-what Rig's do, except that `@typeName(T)` is the name the emitted Zig
+what Rig's do, except that `$typeName(T)` is the name the emitted Zig
 gives the type (`i64` for `Int`). Rig's names work inside `raw` too.
 Outside it, Zig's name for one of Rig's is rejected, with the call to
 write:
 
 ```rig reject
 sub main()
-  print(@sizeOf(I64))
+  print($sizeOf(I64))
 ```
 
 ```error
-write `@size(I64)`: Rig's builtin is `@size`; Zig's `@sizeOf` works only inside `raw`
+write `$size(I64)`: Rig's builtin is `$size`; `$sizeOf`, Zig's name for it, works only inside `raw`
 ```
 
 ---
@@ -4389,7 +4390,7 @@ loop's value.
 A label is `@` and a name, which the `@` touches. It stands before a
 statement that starts a line (or another label), or right after `break`
 or `continue`; the statement after `=>`, `defer`, or `errdefer` takes
-none. `@name(...)`, with the `(` touching the name, is a builtin call
+none. `$name(...)`, with the `(` touching the name, is a builtin call
 ([Builtins](#builtins)) instead, except right after a jump, where
 `@name` is always a label: `break @outer (x)` leaves `outer` with the
 value `(x)`, and `break @outer(x)` is rejected. A jump's value stands
@@ -4410,7 +4411,7 @@ a label names a loop, `match`, or `raw` block that `break` or `continue` can lea
 
 ### Loops as values
 
-A loop that `break` leaves with a value (`break v`, or `break @name v`
+A loop that `break` leaves with a value (`break v`, or `break $name v`
 from an inner loop) is an expression. Its value is the value of the
 `break` that leaves it, or, when the loop ends without one, the value
 of its `else` block, which it therefore needs (only `while true` can do
@@ -7122,7 +7123,7 @@ String. A `?String` is the view of text; a String is where text is built.
 | `String(a, b, ...)` | a String holding each value as `print` writes it ([§17](#17-printing-and-stopping)), with no separators |
 | `!t.add(a, b, ...)` | append each value the same way; a `U8` is written as a number |
 | `!t.push(b)` | append one byte `b`, a `U8`, given by position |
-| `!t.push[T, e](v)` | append the `@size(T)` bytes of the integer `v`, a `T`, in byte order `e` (`.little` or `.big`), in one write; a one-byte `T` takes no `e`, and `push[U8](b)` is `push(b)` |
+| `!t.push[T, e](v)` | append the `$size(T)` bytes of the integer `v`, a `T`, in byte order `e` (`.little` or `.big`), in one write; a one-byte `T` takes no `e`, and `push[U8](b)` is `push(b)` |
 | `!t.push(v, keep: k)`, `!t.push[T, e](w, keep: k)` | append the first `k` bytes of `v`, a `Simd[U8, n]`, or of the integer `w` in byte order `e`; `0 <= k <= size of v`, else it panics (a constant `k` out of range is an error); with no `keep:`, `push[T, e]` keeps every byte |
 | `!t.reserve(n)` | make room for `n` more bytes, so the next `n` bytes of `push` allocate nothing; the length is unchanged |
 | `!t.clear()` | empty it |
@@ -9158,7 +9159,7 @@ fun safe_abs(n: I32) -> I32
 sub main()
   x: Int = 300
   raw
-    small: U8 = @intCast(x - 100)
+    small: U8 = $intCast(x - 100)
     print(small, x)
   print(safe_abs(-5))
 ```

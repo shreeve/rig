@@ -1470,7 +1470,7 @@ test "syntax-review-complete-r2", '''
 '''
   fun lo(x: U64) -> U32
     raw
-      @truncate(x)
+      $truncate(x)
 
   big: U64 = 0x1_0000_0005
   print(lo(big))

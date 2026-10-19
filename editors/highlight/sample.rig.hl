@@ -749,7 +749,7 @@
             ^ operator
                  ^^ operator
                     ^ punctuation
->   print(@size(Point), @align(Point), @name(Point), @variants(Status))
+>   print($size(Point), $align(Point), $name(Point), $variants(Status))
          ^ punctuation
           ^^^^^ function.builtin
                ^ punctuation

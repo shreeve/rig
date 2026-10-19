@@ -149,7 +149,7 @@ pub const Modifier = enum(u5) {
     control,
     /// The name a declaration introduces.
     declaration,
-    /// A builtin, `@name`.
+    /// A builtin, `$name`.
     defaultLibrary,
 
     pub fn bit(m: Modifier) u32 {
@@ -277,7 +277,7 @@ fn colourOf(cat: TokenCat) Colour {
         .assign, .fixed_assign, .plus_assign, .minus_assign, .star_assign, .slash_assign, .percent_assign, .amp_assign, .bar_assign, .caret_assign => .{ .class = operator },
         .lshift_assign, .lshift_wrap_assign, .rshift_assign, .plus_wrap_assign, .minus_wrap_assign, .star_wrap_assign, .plus_sat_assign, .minus_sat_assign => .{ .class = operator },
         .arrow, .fat_arrow => .{ .class = operator },
-        .at, .lparen, .rparen, .lbracket, .rbracket, .comma, .as_comma, .colon, .dot, .dotdot, .dotdot_open, .step_colon => .uncoloured,
+        .at, .dollar, .lparen, .rparen, .lbracket, .rbracket, .comma, .as_comma, .colon, .dot, .dotdot, .dotdot_open, .step_colon => .uncoloured,
         .label_at => .{ .class = .{ .kind = .label } },
         // A symbol is one constant: its `:` is coloured with its name.
         .symbol_colon => .{ .class = .{ .kind = .enumMember } },
@@ -380,7 +380,7 @@ const Classifier = struct {
             .@"continue" => try c.label(ir.get(node, .label)),
             .builtin => {
                 const lib: Class = .{ .kind = .function, .modifiers = Modifier.defaultLibrary.bit() };
-                try c.putAt(sp.start, .{ .kind = lib.kind, .modifiers = lib.modifiers, .need = .initOne(.at) });
+                try c.putAt(sp.start, .{ .kind = lib.kind, .modifiers = lib.modifiers, .need = .initOne(.dollar) });
                 try c.put(ir.get(node, .name), lib);
             },
             // Prefix sigils: the node starts at its sigil.
@@ -791,12 +791,12 @@ test "tokens: labels, builtins, suffix sigils, and a rejected token" {
         \\sub f()!
         \\  @outer while true
         \\    break @outer
-        \\  n = @sizeOf(Int)
+        \\  n = $sizeOf(Int)
         \\  x = g()?
         \\  y = 1 && 2
         \\
     );
-    for ([_][]const u8{ "f:function.declaration !:modifier ", "@:label outer:label ", "while:keyword.control ", "break:keyword.control @:label outer:label ", "@:function.defaultLibrary sizeOf:function.defaultLibrary ", "?:modifier ", "&&:invalid " }) |want| {
+    for ([_][]const u8{ "f:function.declaration !:modifier ", "@:label outer:label ", "while:keyword.control ", "break:keyword.control @:label outer:label ", "$:function.defaultLibrary sizeOf:function.defaultLibrary ", "?:modifier ", "&&:invalid " }) |want| {
         if (std.mem.find(u8, got, want) == null) {
             std.debug.print("missing `{s}` in: {s}\n", .{ want, got });
             return error.TestExpectedEqual;

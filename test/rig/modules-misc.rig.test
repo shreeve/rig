@@ -148,7 +148,7 @@ test "box across modules", '''
       ^Ticket(n: n)
 
 test "builtin type args", "16 16 8 1 2 Bool 2"
-  # Every form a type argument of `@size`, `@align`, and `@name`
+  # Every form a type argument of `$size`, `$align`, and `$name`
   # can take: `Self`, an alias, an imported type, a builtin, and a type
   # parameter.
 
@@ -159,7 +159,7 @@ test "builtin type args", "16 16 8 1 2 Bool 2"
     y: I64
 
     fun size(?self) -> Int
-      @size(Self)
+      $size(Self)
 
   type P2 = P
 
@@ -167,12 +167,12 @@ test "builtin type args", "16 16 8 1 2 Bool 2"
     v: T
 
     fun size(?self) -> Int
-      @size(T)
+      $size(T)
 
   sub main()
     p = P(x: 1, y: 2)
     b: Wrap[U16] = Wrap(v: 7)
-    print(@size(P2), p.size(), @size(lib.Q), @size(U8), b.size(), @name(Bool), @align(U16))
+    print($size(P2), p.size(), $size(lib.Q), $size(U8), b.size(), $name(Bool), $align(U16))
 
   file "lib.rig"
     pub obj Q
@@ -3209,7 +3209,7 @@ test "simd across modules", '''
     print(a, b, c, l.first(), l)
     print(lib.hits(?b, 1), lib.hits(b, 4), lib.widen(b), lib.widen(Simd[U8, 16].splat(254))[15])
     x: lib.Block = b
-    print(x == b, @name(lib.Block))
+    print(x == b, $name(lib.Block))
 
   file "lib.rig"
     pub type Block = Simd[U8, 4]

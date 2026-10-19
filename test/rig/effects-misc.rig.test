@@ -151,7 +151,7 @@ fail "entry point call", "13:5: `main` is the program's entry point; it cannot b
   f = main
   again(x)
 
-fail "enum from int", "builtin `@enumFromInt` is not supported; an integer becomes a plain enum with `@fromBackingInt`", errors: 1
+fail "enum from int", "builtin `$enumFromInt` is not supported; an integer becomes a plain enum with `$fromBackingInt`", errors: 1
   # Rig's builtins are Zig's: an integer becomes a plain enum with
   # `@fromBackingInt`, and `@enumFromInt` names it.
 
@@ -161,7 +161,7 @@ fail "enum from int", "builtin `@enumFromInt` is not supported; an integer becom
 
   fun of(n: Int) -> Status
     raw
-      s: Status = @enumFromInt(n)
+      s: Status = $enumFromInt(n)
       s
 
   print(of(404))
@@ -570,13 +570,13 @@ fail "fallible static method without bang", "must be wrapped with `!` (propagate
   u = User.make()
   print(u.name)
 
-fail "int from float", "builtin `@intFromFloat` is not supported; a float becomes an integer with `@trunc`", errors: 1
+fail "int from float", "builtin `$intFromFloat` is not supported; a float becomes an integer with `$trunc`", errors: 1
   # Rig's builtins are Zig's: a float becomes an integer with `@trunc`,
   # and `@intFromFloat` names it.
 
   f = 2.5
   raw
-    n: I64 = @intFromFloat(f)
+    n: I64 = $intFromFloat(f)
     print(n)
 
 fail "joined while step bindings", "18:45: the loop step reads `x`, a binding of the condition, so each binding there must be plain data; `r` is a `Res`", "21:54: the loop step reads `y`, a binding of the condition, which a `continue` in the condition leaves unbound"
@@ -1064,7 +1064,7 @@ fail "propagate none on fallible", "12:3: `?` propagates `none`, and `f(1)` fail
 
   print(g()!)
 
-fail "raw cast constants", "integer value `300` does not fit in `U8` (0..255)", "integer value `-1` does not fit in `U8` (0..255)", "`@fromBackingInt` of a constant: name the variant instead", "`1e300` does not fit in `I8`", "integer value `16777217` does not fit exactly in `F32`"
+fail "raw cast constants", "integer value `300` does not fit in `U8` (0..255)", "integer value `-1` does not fit in `U8` (0..255)", "`$fromBackingInt` of a constant: name the variant instead", "`1e300` does not fit in `I8`", "integer value `16777217` does not fit exactly in `F32`"
   # A cast builtin converts a constant operand when Zig compiles it, so
   # the value must convert.
 
@@ -1073,14 +1073,14 @@ fail "raw cast constants", "integer value `300` does not fit in `U8` (0..255)", 
     b
 
   raw
-    a: U8 = @intCast(300)
-    b: U8 = @intCast(-1)
-    c: C = @fromBackingInt(1)
-    d: I8 = @trunc(1e300)
-    e: F32 = @floatFromInt(16777217)
+    a: U8 = $intCast(300)
+    b: U8 = $intCast(-1)
+    c: C = $fromBackingInt(1)
+    d: I8 = $trunc(1e300)
+    e: F32 = $floatFromInt(16777217)
     print(a, b, c, d, e)
 
-fail "raw cast mismatch", "`@truncate` cannot turn `Int` into `U8`: both must be signed, or both unsigned", "`@bitCast` cannot turn `I32` into `U64`: both must have the same size", "`@intCast` cannot turn `Float` into `U8`: it converts one integer type to another", "`@floatFromInt` cannot turn `Float` into `F32`: it converts an integer to a float"
+fail "raw cast mismatch", "`$truncate` cannot turn `Int` into `U8`: both must be signed, or both unsigned", "`$bitCast` cannot turn `I32` into `U64`: both must have the same size", "`$intCast` cannot turn `Float` into `U8`: it converts one integer type to another", "`$floatFromInt` cannot turn `Float` into `F32`: it converts an integer to a float"
   # The cast builtins available in `raw` are checked like Zig checks them,
   # so an accepted cast compiles.
 
@@ -1088,10 +1088,10 @@ fail "raw cast mismatch", "`@truncate` cannot turn `Int` into `U8`: both must be
   f = 1.5
   i: I32 = 1
   raw
-    a: U8 = @truncate(x)
-    b: U64 = @bitCast(i)
-    c: U8 = @intCast(f)
-    d: F32 = @floatFromInt(f)
+    a: U8 = $truncate(x)
+    b: U64 = $bitCast(i)
+    c: U8 = $intCast(f)
+    d: F32 = $floatFromInt(f)
 
 test "raw casts", "44 1 4609434218613702656 1.5 7.0 7"
   # The cast builtins convert between number types inside `raw`.
@@ -1100,12 +1100,12 @@ test "raw casts", "44 1 4609434218613702656 1.5 7.0 7"
   f = 1.5
   n: I64 = 7
   raw
-    a: U8 = @truncate(x)
-    b: I32 = @trunc(f)
-    c: U64 = @bitCast(f)
-    d: F32 = @floatCast(f)
-    e: F64 = @floatFromInt(n)
-    g: U8 = @intCast(n)
+    a: U8 = $truncate(x)
+    b: I32 = $trunc(f)
+    c: U64 = $bitCast(f)
+    d: F32 = $floatCast(f)
+    e: F64 = $floatFromInt(n)
+    g: U8 = $intCast(n)
     print(a, b, c, d, e, g)
 
 test "raw from backing int", '''
@@ -1121,11 +1121,11 @@ test "raw from backing int", '''
 
   fun of(n: Int) -> Status
     raw
-      @fromBackingInt(n)
+      $fromBackingInt(n)
 
   fun ofSmall(n: U16) -> Status
     raw
-      s: Status = @fromBackingInt(n)
+      s: Status = $fromBackingInt(n)
       s
 
   print(ofSmall(200))
@@ -1216,8 +1216,8 @@ test "rig builtins", '''
   8 8 2 2
   bool Bool 2 2
 '''
-  # Rig's builtins work anywhere: `@size(T)` and `@align(T)` are a type's
-  # size and alignment in bytes, `@name(T)` its name, and `@type(x)`, as
+  # Rig's builtins work anywhere: `$size(T)` and `$align(T)` are a type's
+  # size and alignment in bytes, `$name(T)` its name, and `$type(x)`, as
   # their argument, the type of `x`. Inside `raw` they work too, as do
   # Zig's names for them (`@sizeOf`, `@alignOf`, `@typeName`, `@TypeOf`);
   # Zig's `@typeName` is the emitted Zig's name for the type.
@@ -1227,21 +1227,21 @@ test "rig builtins", '''
     b: I64
 
   fun width[T]() -> Int
-    @size(T)
+    $size(T)
 
   x: I16 = 5
-  print(@size(I64), @size(U8), @align(P), @size(P))
-  print(@size(@type(x)), @align(@type(x)), width[U32]())
-  print(@name(Bool), @name(@type(x)))
+  print($size(I64), $size(U8), $align(P), $size(P))
+  print($size($type(x)), $align($type(x)), width[U32]())
+  print($name(Bool), $name($type(x)))
   raw
-    print(@sizeOf(I64), @size(I64), @alignOf(@TypeOf(x)), @align(@type(x)))
-    print(@typeName(Bool), @name(Bool), @sizeOf(@type(x)), @size(@TypeOf(x)))
+    print($sizeOf(I64), $size(I64), $alignOf($TypeOf(x)), $align($type(x)))
+    print($typeName(Bool), $name(Bool), $sizeOf($type(x)), $size($TypeOf(x)))
 
 test "safe builtin outside raw", "8"
-  # Rig's builtins (`@size`, `@type`, ...) need no `raw` block.
+  # Rig's builtins (`$size`, `$type`, ...) need no `raw` block.
 
   x: I64 = 7
-  n = @size(@type(x))
+  n = $size($type(x))
   print(n)
 
 fail "swap signal whole", "7:8: `swap` moves values whole, and a `Signal[Int]` changes only by its marked calls", errors: 1
@@ -1259,11 +1259,11 @@ fail "swap signal whole", "7:8: `swap` moves values whole, and a `Signal[Int]` c
   trade(+a, +b)
   print(a.get(), b.get())
 
-fail "unknown builtin", "builtin `@min` is not supported; the builtins are `@size`"
+fail "unknown builtin", "builtin `$min` is not supported; the builtins are `$size`"
   # A builtin Rig does not have is reported once, with the list of the
   # builtins it has.
 
-  x = @min(1, 2)
+  x = $min(1, 2)
   print(x)
 
 test "unsafe builtin in raw", "4294967295"
@@ -1272,15 +1272,15 @@ test "unsafe builtin in raw", "4294967295"
 
   x: I32 = -1
   raw
-    y: U32 = @bitCast(x)
+    y: U32 = $bitCast(x)
     print(y)
 
-fail "unsafe builtin outside raw", "builtin `@bitCast` is not in the safe whitelist"
+fail "unsafe builtin outside raw", "builtin `$bitCast` is not in the safe whitelist"
   # A builtin outside the safe whitelist needs a `raw` block; the
   # diagnostic names the builtin.
 
   x: I32 = -1
-  y: U32 = @bitCast(x)
+  y: U32 = $bitCast(x)
   print(y)
 
 test "void fallible ends with statement", '''
@@ -1464,9 +1464,9 @@ test "while step propagates", '''
   print(run(2) catch 0)
   print(run(9) catch -1)
 
-fail "zig builtin name outside raw", "10:7: write `@size(I64)`: Rig's builtin is `@size`; Zig's `@sizeOf` works only inside `raw`", "10:21: write `@align(P)`: Rig's builtin is `@align`; Zig's `@alignOf` works only inside `raw`", "10:34: write `@name(Int)`: Rig's builtin is `@name`; Zig's `@typeName` works only inside `raw`", "11:13: write `@type(x)`: Rig's builtin is `@type`; Zig's `@TypeOf` works only inside `raw`", "11:26: write `@size(@type(x))`: Rig's builtin is `@size`; Zig's `@sizeOf` works only inside `raw`", errors: 5
-  # Outside `raw`, a type query takes Rig's name: `@size`, `@align`,
-  # `@type`, `@name`. Zig's names (`@sizeOf`, `@alignOf`, `@TypeOf`,
+fail "zig builtin name outside raw", "10:7: write `$size(I64)`: Rig's builtin is `$size`; `$sizeOf`, Zig's name for it, works only inside `raw`", "10:21: write `$align(P)`: Rig's builtin is `$align`; `$alignOf`, Zig's name for it, works only inside `raw`", "10:34: write `$name(Int)`: Rig's builtin is `$name`; `$typeName`, Zig's name for it, works only inside `raw`", "11:13: write `$type(x)`: Rig's builtin is `$type`; `$TypeOf`, Zig's name for it, works only inside `raw`", "11:26: write `$size($type(x))`: Rig's builtin is `$size`; `$sizeOf`, Zig's name for it, works only inside `raw`", errors: 5
+  # Outside `raw`, a type query takes Rig's name: `$size`, `$align`,
+  # `$type`, `$name`. Zig's names (`@sizeOf`, `@alignOf`, `@TypeOf`,
   # `@typeName`) work only inside `raw`; the fix-it rewrites the call,
   # its argument included, once.
 
@@ -1474,5 +1474,5 @@ fail "zig builtin name outside raw", "10:7: write `@size(I64)`: Rig's builtin is
     a: Int
 
   x = 5
-  print(@sizeOf(I64), @alignOf(P), @typeName(Int))
-  print(@size(@TypeOf(x)), @sizeOf(@TypeOf(x)))
+  print($sizeOf(I64), $alignOf(P), $typeName(Int))
+  print($size($TypeOf(x)), $sizeOf($TypeOf(x)))

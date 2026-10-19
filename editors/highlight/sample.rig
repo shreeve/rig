@@ -150,7 +150,7 @@ sub resources()
   tag = :content-type
   ok = true and not false or none == none
   b: Bool = st == .ok
-  print(@size(Point), @align(Point), @name(Point), @variants(Status))
+  print($size(Point), $align(Point), $name(Point), $variants(Status))
   raw
     pass
   print(ok, b, y, z, tag == :if)

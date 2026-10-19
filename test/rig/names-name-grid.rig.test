@@ -747,10 +747,10 @@ fail "name grid variant none", "none"
       .zz => print("m0")
     print(Int(V0.from_int(7) ?? V0.aa), pv0(P0.none(w: 5)), pv0(.pp(v: 6)), gv0(G0[Int].none(w: 8)))
     n = 0
-    for x in @variants(V0)
+    for x in $variants(V0)
       n += Int(x)
     print(n, K0.none, V0.none, P0.none(w: 1), String(k))
-    for x in @variants(K0)
+    for x in $variants(K0)
       print(x)
 
   sub main()
@@ -799,10 +799,10 @@ fail "name grid variant from_int", "from_int"
       .zz => print("m0")
     print(Int(V0.from_int(7) ?? V0.aa), pv0(P0.from_int(w: 5)), pv0(.pp(v: 6)), gv0(G0[Int].from_int(w: 8)))
     n = 0
-    for x in @variants(V0)
+    for x in $variants(V0)
       n += Int(x)
     print(n, K0.from_int, V0.from_int, P0.from_int(w: 1), String(k))
-    for x in @variants(K0)
+    for x in $variants(K0)
       print(x)
 
   sub main()
@@ -851,10 +851,10 @@ fail "name grid variant type", ""
       .zz => print("m0")
     print(Int(V0.from_int(7) ?? V0.aa), pv0(P0.type(w: 5)), pv0(.pp(v: 6)), gv0(G0[Int].type(w: 8)))
     n = 0
-    for x in @variants(V0)
+    for x in $variants(V0)
       n += Int(x)
     print(n, K0.type, V0.type, P0.type(w: 1), String(k))
-    for x in @variants(K0)
+    for x in $variants(K0)
       print(x)
 
   sub main()
@@ -903,10 +903,10 @@ fail "name grid variant drop", ""
       .zz => print("m0")
     print(Int(V0.from_int(7) ?? V0.aa), pv0(P0.drop(w: 5)), pv0(.pp(v: 6)), gv0(G0[Int].drop(w: 8)))
     n = 0
-    for x in @variants(V0)
+    for x in $variants(V0)
       n += Int(x)
     print(n, K0.drop, V0.drop, P0.drop(w: 1), String(k))
-    for x in @variants(K0)
+    for x in $variants(K0)
       print(x)
 
   sub main()
@@ -955,10 +955,10 @@ fail "name grid variant panic", ""
       .zz => print("m0")
     print(Int(V0.from_int(7) ?? V0.aa), pv0(P0.panic(w: 5)), pv0(.pp(v: 6)), gv0(G0[Int].panic(w: 8)))
     n = 0
-    for x in @variants(V0)
+    for x in $variants(V0)
       n += Int(x)
     print(n, K0.panic, V0.panic, P0.panic(w: 1), String(k))
-    for x in @variants(K0)
+    for x in $variants(K0)
       print(x)
 
   sub main()
@@ -1115,7 +1115,7 @@ fail "name grid tparam none", "`none` is the absent optional"
     x
 
   fun sz0[none]() -> Int
-    @size(none)
+    $size(none)
 
   sub t0()
     g = GT0[Int](x: 4)
@@ -1123,7 +1123,7 @@ fail "name grid tparam none", "`none` is the absent optional"
     match h
       .one(v) => print(v)
       .two => print("two")
-    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, @name(GT0[Int]))
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
 
   sub main()
     t0()
@@ -1143,7 +1143,7 @@ fail "name grid tparam type", ""
     x
 
   fun sz0[type]() -> Int
-    @size(type)
+    $size(type)
 
   sub t0()
     g = GT0[Int](x: 4)
@@ -1151,7 +1151,7 @@ fail "name grid tparam type", ""
     match h
       .one(v) => print(v)
       .two => print("two")
-    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, @name(GT0[Int]))
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
 
   sub main()
     t0()
@@ -1171,7 +1171,7 @@ fail "name grid tparam drop", ""
     x
 
   fun sz0[drop]() -> Int
-    @size(drop)
+    $size(drop)
 
   sub t0()
     g = GT0[Int](x: 4)
@@ -1179,7 +1179,7 @@ fail "name grid tparam drop", ""
     match h
       .one(v) => print(v)
       .two => print("two")
-    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, @name(GT0[Int]))
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
 
   sub main()
     t0()
@@ -1199,7 +1199,7 @@ fail "name grid tparam panic", ""
     x
 
   fun sz0[panic]() -> Int
-    @size(panic)
+    $size(panic)
 
   sub t0()
     g = GT0[Int](x: 4)
@@ -1207,7 +1207,7 @@ fail "name grid tparam panic", ""
     match h
       .one(v) => print(v)
       .two => print("two")
-    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, @name(GT0[Int]))
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
 
   sub main()
     t0()
@@ -1227,7 +1227,7 @@ fail "name grid tparam main", "module-level declaration `main`"
     x
 
   fun sz0[main]() -> Int
-    @size(main)
+    $size(main)
 
   sub t0()
     g = GT0[Int](x: 4)
@@ -1235,7 +1235,7 @@ fail "name grid tparam main", "module-level declaration `main`"
     match h
       .one(v) => print(v)
       .two => print("two")
-    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, @name(GT0[Int]))
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
 
   sub main()
     t0()
@@ -1255,7 +1255,7 @@ fail "name grid tparam self", "self"
     x
 
   fun sz0[self]() -> Int
-    @size(self)
+    $size(self)
 
   sub t0()
     g = GT0[Int](x: 4)
@@ -1263,7 +1263,7 @@ fail "name grid tparam self", "self"
     match h
       .one(v) => print(v)
       .two => print("two")
-    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, @name(GT0[Int]))
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
 
   sub main()
     t0()
@@ -1283,7 +1283,7 @@ fail "name grid tparam Self", "built-in type"
     x
 
   fun sz0[Self]() -> Int
-    @size(Self)
+    $size(Self)
 
   sub t0()
     g = GT0[Int](x: 4)
@@ -1291,7 +1291,7 @@ fail "name grid tparam Self", "built-in type"
     match h
       .one(v) => print(v)
       .two => print("two")
-    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, @name(GT0[Int]))
+    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
 
   sub main()
     t0()
@@ -1318,7 +1318,7 @@ fail "name grid type none", "`none` is the absent optional"
 
   sub t0()
     o = none(v: 3)
-    print(o.get2(), o, @name(none), mk0(2).v, noneE.b)
+    print(o.get2(), o, $name(none), mk0(2).v, noneE.b)
     x = fails0() catch |e|
       print(e)
       0
@@ -1349,7 +1349,7 @@ fail "name grid type _", "`_` discards a value"
 
   sub t0()
     o = _(v: 3)
-    print(o.get2(), o, @name(_), mk0(2).v, _E.b)
+    print(o.get2(), o, $name(_), mk0(2).v, _E.b)
     x = fails0() catch |e|
       print(e)
       0
@@ -1380,7 +1380,7 @@ fail "name grid type type", ""
 
   sub t0()
     o = type(v: 3)
-    print(o.get2(), o, @name(type), mk0(2).v, typeE.b)
+    print(o.get2(), o, $name(type), mk0(2).v, typeE.b)
     x = fails0() catch |e|
       print(e)
       0
@@ -1411,7 +1411,7 @@ fail "name grid type drop", ""
 
   sub t0()
     o = drop(v: 3)
-    print(o.get2(), o, @name(drop), mk0(2).v, dropE.b)
+    print(o.get2(), o, $name(drop), mk0(2).v, dropE.b)
     x = fails0() catch |e|
       print(e)
       0
@@ -1442,7 +1442,7 @@ fail "name grid type panic", ""
 
   sub t0()
     o = panic(v: 3)
-    print(o.get2(), o, @name(panic), mk0(2).v, panicE.b)
+    print(o.get2(), o, $name(panic), mk0(2).v, panicE.b)
     x = fails0() catch |e|
       print(e)
       0
@@ -1473,7 +1473,7 @@ fail "name grid type main", "duplicate declaration of `main`"
 
   sub t0()
     o = main(v: 3)
-    print(o.get2(), o, @name(main), mk0(2).v, mainE.b)
+    print(o.get2(), o, $name(main), mk0(2).v, mainE.b)
     x = fails0() catch |e|
       print(e)
       0
@@ -1504,7 +1504,7 @@ fail "name grid type self", "self"
 
   sub t0()
     o = self(v: 3)
-    print(o.get2(), o, @name(self), mk0(2).v, selfE.b)
+    print(o.get2(), o, $name(self), mk0(2).v, selfE.b)
     x = fails0() catch |e|
       print(e)
       0
@@ -1535,7 +1535,7 @@ fail "name grid type new", "new"
 
   sub t0()
     o = new(v: 3)
-    print(o.get2(), o, @name(new), mk0(2).v, newE.b)
+    print(o.get2(), o, $name(new), mk0(2).v, newE.b)
     x = fails0() catch |e|
       print(e)
       0

@@ -1508,7 +1508,7 @@ test "print renamed names", '''
 '''
   # A name the emitted Zig renames (`rig` is `@"rig'"`) prints as the
   # program wrote it: a variant, a payload variant, a field, and through
-  # `String(x)` and `@variants`.
+  # `String(x)` and `$variants`.
 
   enum K
     rig
@@ -1533,7 +1533,7 @@ test "print renamed names", '''
   o = O(rig: 1, std: 2, debug: 3, u8: 4)
   print(o)
   print(String(K.rig), String(o))
-  for v in @variants(K)
+  for v in $variants(K)
     print(v)
 
 test "print values", '''

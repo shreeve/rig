@@ -123,7 +123,7 @@ started:
 - One classifier for a plain enum. `sema.isPlainEnum` (what `==` and
   emit's scalar test read) counts a variant with an empty payload,
   `a()`, as bare, but `sema.enumValues` (what `Int(x)`, `from_int`,
-  `@variants`, and ordering read) does not, as resolve gives it no
+  `$variants`, and ordering read) does not, as resolve gives it no
   value. So for `enum E` of `a()` and `b`, `x == E.b` is accepted and
   `x > E.b` and `Int(x)` are rejected as "variants with payloads".
   Decide once whether `a()` is bare (or reject the empty payload), and
@@ -164,7 +164,7 @@ started:
   with "a generic function cannot call itself with its own type
   parameters nested deeper". No function there calls itself. Say that
   instances nest more than 24 deep instead. The same limit also rejects
-  `@name(Wrap[T?])` inside `Wrap`'s own method.
+  `$name(Wrap[T?])` inside `Wrap`'s own method.
 - Lending a handle parameter to write is accepted as `!c` but rejected
   as a capture. In `sub poke(c: *Cell[Int])`, `(!c).set(2)` lends the
   Cell `c` holds, while `f = |!c| (!c).set(3)` is "cannot lend parameter

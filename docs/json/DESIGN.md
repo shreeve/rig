@@ -182,7 +182,7 @@ references' published designs where marked. In order of expected gain:
    each push reloads them; a `List` write window (reserve n, write
    through a cursor) would keep them in registers (docs/RIG-NOTES.md,
    entry 8).
-5. **Embedding a file** (build). `@embed("file.json")` as a `Static`.
+5. **Embedding a file** (build). `$embed("file.json")` as a `Static`.
    A string literal may be of any length (#168), so the benchmark and
    the tests write each input as one literal, but a program is at most
    16 MiB of source, so the tests spread their inputs over several

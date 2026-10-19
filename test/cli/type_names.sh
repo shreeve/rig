@@ -10,10 +10,10 @@ obj Point
   x: Int
 
 fun name[T]() -> ?String
-  @name(T)
+  $name(T)
 
 sub main()
-  print(name[List[Point]](), @name(Point))
+  print(name[List[Point]](), $name(Point))
 EOF2
 
 "$RIG" emit main.rig >main.zig 2>err.txt || fail "rig emit: $(cat err.txt)"

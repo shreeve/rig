@@ -746,7 +746,7 @@ test "enumorder-a19 misc ok", '''
   [.large, .medium, .small]
 '''
   # Plain enum orderings: through views of a T, from_int, a List sorted
-  # in place, and @variants sorted by a comparator.
+  # in place, and $variants sorted by a comparator.
 
   enum Size
     large = 30
@@ -764,7 +764,7 @@ test "enumorder-a19 misc ok", '''
   print(lt2(?x, ?y), lt2(?y, ?x))
   print(pick(20), pick(10), pick(11))
   l: List[Size] = List()
-  for v in @variants(Size)
+  for v in $variants(Size)
     !l.push(v)
   sort.sort(!l)
   print(l)

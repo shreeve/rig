@@ -30,7 +30,7 @@ the appendix).
   exception, and the ownership checker gains no rule: every fact about a
   vector comes from the type facts it already reads.
 - **Methods, not `@` builtins.** Rig's `@` builtins are about types
-  (`@size(T)`, `@name(T)`), and Zig's value builtins (`@splat`,
+  (`$size(T)`, `$name(T)`), and Zig's value builtins (`@splat`,
   `@select`, `@reduce`) stay raw-only. So vector operations are
   operators and methods, like `x.not()` and `bytes.read[T, e](at)`.
 - **Portability.** Rig promises the meaning, not the instructions. With
@@ -73,7 +73,7 @@ expected to alias it: `type Block = Simd[U8, 64]`, `type Mask = Simd[Bool, 64]`.
   power of two so that every count maps to whole registers on every
   target. (A three-lane `vec3` is a struct, as it is in most SIMD
   libraries.)
-- `@size(Simd[U8, 64])` is 64, and `@size(Simd[Bool, 64])` is 8: the
+- `$size(Simd[U8, 64])` is 64, and `$size(Simd[Bool, 64])` is 8: the
   sizes are Zig's own.
 
 ### 1.3 Masks
@@ -420,7 +420,7 @@ are untouched.
     with no further change.
   - `minBytes` / `byteSizes`: Zig's `@sizeOf` (for `Bool` lanes, the
     packed size: `n / 8` rounded up to a power of two, at least 1).
-  - `formatType` / `@name`: `Simd[U8, 16]`. `substituteType`,
+  - `formatType` / `$name`: `Simd[U8, 16]`. `substituteType`,
     `importType`, `containsTypeVar`, and `heldTypeVars`, as for arrays.
   - `EquatableWalk.step`: `.simd` held in a declaration → a new
     `NotEquatable.Why.lanes` (§2.7). A bare `Simd` compared is the
@@ -464,7 +464,7 @@ re-derives anything from syntax.
   one bracket argument when `T`'s lanes are one byte (the single-argument
   bracket form is read as compile-time arguments, as for
   `s.times[5]()`), and takes the `pad:` keyword. `checkOffsetArg` uses
-  `@size(T)`.
+  `$size(T)`.
 - **Lanes:** `synthIndex` on a `Simd` gives the lane type, and checks a
   constant index against `n`. The place checks (assignment target,
   `?`/`!`/`<` of a lane) get the lane hint.
@@ -530,7 +530,7 @@ CI builds).
   (`v[i]`, `with`, `array`), shuffle, join, lookup, bytes (`read` with
   and without `pad:`, `write`, `.big` lanes), a vector in a struct, in a
   List, behind `?` and `!` parameters, in a `Cell` and an owned closure
-  (plain data goes there), generic over `n`, `@size`/`@name`, and
+  (plain data goes there), generic over `n`, `$size`/`$name`, and
   `print`.
 - **Runtime panics** (its `simd` `bomb` cases): a lane overflowing `+`,
   `*`, and a conversion; a lane's shift losing bits; a run-time shift

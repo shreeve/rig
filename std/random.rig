@@ -58,11 +58,11 @@ pub obj Random unique
 # The same 64 bits as the other type.
 fun as_u64(n: Int) -> U64
   raw
-    @bitCast(n)
+    $bitCast(n)
 
 fun as_int(n: U64) -> Int
   raw
-    @bitCast(n)
+    $bitCast(n)
 
 extern zig "random.zig"
   # 64 bits from the operating system's entropy source.

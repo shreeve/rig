@@ -639,15 +639,15 @@ test "bitwise ops", '''
   print(a ^ b)
   print(a << 1)
 
-fail "builtin enum values", "5:14: `Endian.from_int(n)` takes a declared enum; the built-in enum `Endian` has no integer value", "6:12: `Arch.from_int(n)` takes a declared enum; the built-in enum `Arch` has no integer value", "7:17: `@variants(T)` takes a declared enum; `Endian` is a built-in enum", "8:17: `@variants(T)` takes a declared enum; `Arch` is a built-in enum", errors: 4
+fail "builtin enum values", "5:14: `Endian.from_int(n)` takes a declared enum; the built-in enum `Endian` has no integer value", "6:12: `Arch.from_int(n)` takes a declared enum; the built-in enum `Arch` has no integer value", "7:17: `$variants(T)` takes a declared enum; `Endian` is a built-in enum", "8:17: `$variants(T)` takes a declared enum; `Arch` is a built-in enum", errors: 4
   # The built-in enums `Endian` and `Arch` have no payloads, but no
   # integer values either (`Arch`'s variants are Zig's), so neither has
-  # `from_int` or `@variants`, as neither converts with `Int(x)`.
+  # `from_int` or `$variants`, as neither converts with `Int(x)`.
 
   print(Endian.from_int(0))
   print(Arch.from_int(0))
-  print(@variants(Endian))
-  print(@variants(Arch).len)
+  print($variants(Endian))
+  print($variants(Arch).len)
 
 test "builtin needs routes", '''
   1 2 1
@@ -748,12 +748,12 @@ fail "builtin needs type rule", "5:14: `Signal[T]` requires `T` to be a value th
 
   print(0)
 
-fail "builtin ptrcast untyped", "5:8: builtin `@ptrCast` is not supported"
+fail "builtin ptrcast untyped", "5:8: builtin `$ptrCast` is not supported"
   # `@ptrCast` is not supported: Rig has no pointer types to cast to.
 
   x = 42
   raw
-    y = @ptrCast(x)
+    y = $ptrCast(x)
     print(y)
 
 fail "byte order one byte", "5:13: `push` of a one-byte `U8` takes no byte order: `push[U8](byte)`", "6:13: `push` of a one-byte `I8` takes no byte order: `push[I8](byte)`", "8:18: `read` of a one-byte `U8` takes no byte order: `read[U8](at)`", "9:18: `read` of a one-byte `I8` takes no byte order: `read[I8](at)`", "10:14: `write` of a one-byte `U8` takes no byte order: `write[U8](at, value)`", "11:7: `read` of a `U16` takes a byte order too: `read[U32, .little](at)`", "12:2: `write` of a `U16` takes a byte order too: `write[U32, .little](at, value)`"
@@ -871,7 +871,7 @@ test "bytes read write", '''
   1 2 2
 '''
   # `bytes.read[T, e](at)` reads the integer or float `T` from the
-  # `@size(T)` bytes at `at`, in byte order `e`, and
+  # `$size(T)` bytes at `at`, in byte order `e`, and
   # `!bytes.write[T, e](at, v)` stores one. Bytes are a `[N]U8`, a
   # `[]U8` or `![]U8`, a `List[U8]`, or (to read) a String.
 
@@ -1190,12 +1190,12 @@ test "capture type shared local name", '''
   f()
   other()
 
-fail "cast needs result type", "`@intCast` needs a known result type"
+fail "cast needs result type", "`$intCast` needs a known result type"
   # A cast builtin needs a known result type.
 
   x: I64 = 5
   raw
-    y = @intCast(x)
+    y = $intCast(x)
     print(y)
 
 test "clone owners", '''
@@ -2798,7 +2798,7 @@ test "error any type", '''
     return e
 
   fun name[T]() -> ?String
-    @name(T)
+    $name(T)
 
   fun pick(n: Int) -> error
     return Net.timeout if n == 1
@@ -2824,9 +2824,9 @@ test "error any type", '''
   kept: error? = none
   kept = <d
   print(kept)
-  print(@name(error), name[error](), name[List[error]?]())
+  print($name(error), name[error](), name[List[error]?]())
   more = List[error]()
-  print(more.len, @size(error) > 0)
+  print(more.len, $size(error) > 0)
 
 test "error compare branch", '''
   true false
@@ -5011,7 +5011,7 @@ test "int is 64 bit", '''
   print(big)
   small = -9223372036854775808
   print(small)
-  print(@size(Int), @size(Float))
+  print($size(Int), $size(Float))
   a = 0.1
   f = a + 0.2
   print(f == 0.30000000000000004)
@@ -6095,7 +6095,7 @@ test "name of type query use", '''
   Int
   ?Int true
 '''
-  # `@name(@type(x))` reads `x` as `@size(@type(x))` does, though its name
+  # `$name($type(x))` reads `x` as `$size($type(x))` does, though its name
   # is known where it is written: a binding read only there (a method's
   # `self`, a `for` capture, a closure's capture) is used.
 
@@ -6103,18 +6103,18 @@ test "name of type query use", '''
     v: Int
 
     sub show(?self)
-      print(@name(@type(self.v)))
+      print($name($type(self.v)))
 
   sub loops(xs: []Int)
     for x in xs
-      print(@name(@type(x)))
+      print($name($type(x)))
 
   w = W(v: 1)
   w.show()
   xs = [1, 2]
   loops(xs)
   n = 4
-  g = |?n| print(@name(@type(n)), @align(@type(n)) > 0)
+  g = |?n| print($name($type(n)), $align($type(n)) > 0)
   g()
 
 test "name of unusual instances", '''
@@ -6136,11 +6136,11 @@ test "name of unusual instances", '''
   true true
   (?Node)? ?Node !Node true
 '''
-  # `@name` of a type parameter names its instance as the printer spells
+  # `$name` of a type parameter names its instance as the printer spells
   # it: an optional of an optional, an array of optionals, an enum, a function
   # type, one that may fail, and a generic object's own instance, each
   # under a suffix or a handle's sigil with the printer's parentheses;
-  # `@size` and `@align` take the same instances, an optional of a view too.
+  # `$size` and `$align` take the same instances, an optional of a view too.
 
   obj Node
     v: Int
@@ -6149,24 +6149,24 @@ test "name of unusual instances", '''
     v: T
 
     fun name(?self) -> ?String
-      @name(T)
+      $name(T)
 
     fun self_name(?self) -> ?String
-      @name(Self)
+      $name(Self)
 
   enum Color
     red
     green
 
   sub show[T](x: T)
-    print(@name(T), @name(T?))
+    print($name(T), $name(T?))
 
   sub shapes[T](x: T)
-    print(@name(*T), @name(~T), @name(^T))
-    print(@name((*T)?), @name(List[T?]), @name(?T))
+    print($name(*T), $name(~T), $name(^T))
+    print($name((*T)?), $name(List[T?]), $name(?T))
 
   sub sized[T](x: T)
-    print(@size(T) > 0, @align(T) > 0)
+    print($size(T) > 0, $align(T) > 0)
 
   fun inc(a: Int) -> Int
     a + 1
@@ -6195,10 +6195,10 @@ test "name of unusual instances", '''
   n = Node(v: 1)
   e: (?Node)? = ?n
   sized(e)
-  print(@name((?Node)?), @name(?Node), @name(!Node), @size((?Node)?) > 0)
+  print($name((?Node)?), $name(?Node), $name(!Node), $size((?Node)?) > 0)
 
-fail "name of view instance", "26:1: `show[(?Node)?]` cannot use `T = (?Node)?`: the generic body names a type that holds a `T` with `@name`, which spells no view or slice in a type parameter's instance but a `?String`, and `(?Node)?` holds `?Node`", "28:1: `show[(?Int)?]` cannot use `T = (?Int)?`", "30:1: `show[[]Int]` cannot use `T = []Int`: the generic body names a type that holds a `T` with `@name`, which spells no view or slice in a type parameter's instance but a `?String`, and `[]Int` is one", "31:1: `show[fun(?Node) -> Int]` cannot use `T = fun(?Node) -> Int`", "32:5: `Wrap[(?Node)?]` cannot use `T = (?Node)?`", "35:1: `list_name[(?Int)?]` cannot use `T = (?Int)?`", errors: 6
-  # `@name` of a type parameter names its instance from the instance's Zig
+fail "name of view instance", "26:1: `show[(?Node)?]` cannot use `T = (?Node)?`: the generic body names a type that holds a `T` with `$name`, which spells no view or slice in a type parameter's instance but a `?String`, and `(?Node)?` holds `?Node`", "28:1: `show[(?Int)?]` cannot use `T = (?Int)?`", "30:1: `show[[]Int]` cannot use `T = []Int`: the generic body names a type that holds a `T` with `$name`, which spells no view or slice in a type parameter's instance but a `?String`, and `[]Int` is one", "31:1: `show[fun(?Node) -> Int]` cannot use `T = fun(?Node) -> Int`", "32:5: `Wrap[(?Node)?]` cannot use `T = (?Node)?`", "35:1: `list_name[(?Int)?]` cannot use `T = (?Int)?`", errors: 6
+  # `$name` of a type parameter names its instance from the instance's Zig
   # type, where a read view of a number is the number and a `[]U8` is a
   # `?String`'s bytes: an instance that holds a view or a slice, at any
   # depth, is rejected where it is made, not left to fail in Zig.
@@ -6210,13 +6210,13 @@ fail "name of view instance", "26:1: `show[(?Node)?]` cannot use `T = (?Node)?`:
     v: T
 
     fun name(?self) -> ?String
-      @name(T)
+      $name(T)
 
   sub show[T](x: T)
-    print(@name(T))
+    print($name(T))
 
   sub list_name[T](xs: ?List[T])
-    print(@name(List[T]))
+    print($name(List[T]))
 
   fun look(n: ?Node) -> Int
     n.v

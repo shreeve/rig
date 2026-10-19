@@ -16,7 +16,7 @@
 #     blocks as anywhere else and ends with the bracket around it on a
 #     line of its own;
 #   * reads a reserved word (each is a lexer rule) as a name where it
-#     names a member or a builtin: after `.` or `@`, before `:` inside
+#     names a member or a builtin: after `.` or `$`, before `:` inside
 #     ( ), and in a member list before `:` or after `fun` / `sub`;
 #   * joins a line that starts with `.` and a name, indented deeper than a
 #     complete statement that opens no block, to that statement (a method
@@ -29,11 +29,10 @@
 #     else (the other contextual words are the parser's: see @keywords);
 #   * marks a `..` whose next token is `]` as DOTDOT_OPEN, the end of an
 #     open range (`xs[a..]`, `xs[..]`);
-#   * marks an `@` as LABEL_AT, a label, when no `(` touches the name
-#     after it and it stands where a statement starts or after `break` or
-#     `continue` (`@outer for`, `break @outer (x)`); `@size(T)`, with the
-#     `(` touching the name, is a builtin call. After a jump, `@name` is
-#     always a label, and a `(` touching it is an error;
+#   * marks an `@` as LABEL_AT, a label, where a statement starts or
+#     after `break` or `continue` (`@outer for`, `break @outer (x)`); a
+#     `(` touching the name after it is an error, since a builtin call is
+#     `$size(T)`, `$` touching the name and the name the `(`;
 #   * classifies the tokens the parser cannot tell apart by its own
 #     state, by position, never by spacing:
 #
@@ -147,7 +146,8 @@ tokens
     lshift          # <<
     lshift_wrap     # <<%  wrapping left shift
     rshift          # >>
-    at              # @
+    at              # @   a label (`@outer for`, `break @outer`)
+    dollar          # $   a builtin call (`$size(T)`)
     assign          # =
     fixed_assign    # =!  a binding that never changes (`x =! e`)
     plus_assign     # +=
@@ -285,6 +285,7 @@ tokens
 '^'                                         → caret
 '~'                                         → tilde
 '@'                                         → at
+'$'                                         → dollar
 '='                                         → assign
 '('                                         → lparen
 ')'                                         → rparen
@@ -491,7 +492,7 @@ tokens
     "+|=": "`+|=`", "-|=": "`-|=`", "+|": "`+|`", "-|": "`-|`"
     ":": "`:`", "->": "`->`", "(": "`(`", ")": "`)`", "[": "`[`"
     "]": "`]`", ",": "`,`", ".": "`.`", "..": "`..`", "=>": "`=>`", "~": "`~`"
-    "@": "`@`", "==": "`==`", "!=": "`!=`", "<": "`<`", ">": "`>`", "<=": "`<=`"
+    "$": "`$`", "==": "`==`", "!=": "`!=`", "<": "`<`", ">": "`>`", "<=": "`<=`"
     ">=": "`>=`", "??": "`??`", "|": "`|`", "^": "`^`", "&": "`&`", "<<": "`<<`", "<<%": "`<<%`"
     ">>": "`>>`", "+": "`+`", "-": "`-`", "*": "`*`", "/": "`/`", "%": "`%`"
     "!": "`!`", "?": "`?`"
@@ -532,7 +533,7 @@ tokens
     keyword             "of" before ' ' after ' '
     keyword.control     ("break" | "continue") [ \t]+ label:('@' [A-Za-z_] [A-Za-z0-9_]*)
     label               '@' [A-Za-z_] [A-Za-z0-9_]* after [ \t]+ ("for" | "while" | "match" | "raw")
-    function.builtin    '@' [a-z_]+ after '('
+    function.builtin    '$' [A-Za-z_]+ after '('
     storage.modifier    '*' not before [A-Za-z0-9_)\]] after '<' [A-Za-z_(\[]
     storage.modifier    [<?!+^*~] not before [A-Za-z0-9_)\]] after [A-Za-z_(\[]
     storage.modifier    [!?] before [A-Za-z0-9_)\]] not after [A-Za-z0-9_(\[=?]
@@ -1141,7 +1142,7 @@ atom     = name
          | FALSE
          | "." name:name                            → (enum_lit)
          | SYMBOL_COLON name:name                   → (symbol)
-         | "@" name:name "(" args:args ")"          → (builtin)
+         | "$" name:name "(" args:args ")"          → (builtin)
          | PANIC "(" args:args ")"                  → (panic)  # a statement or a branch's value (typecheck)
          | "[" [elems:exprs] "]"                    → (array)
          | "[" elems:exprs "," "]"                  → (array)

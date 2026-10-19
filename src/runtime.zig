@@ -1587,7 +1587,7 @@ pub const String = struct {
 // Type names
 // -----------------------------------------------------------------------------
 
-// `@name(T)` of a type parameter: the name of the instance, as Rig writes
+// `$name(T)` of a type parameter: the name of the instance, as Rig writes
 // it. The runtime holds no Rig name. The emitter writes every name from
 // sema's type printer: into each type it emits, and into the table of
 // each module that asks. This follows the shape of a Zig type between

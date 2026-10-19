@@ -1297,7 +1297,7 @@ test "static reads as string", release: true, '''
     a if left else b
 
   fun type_name[T]() -> ?String
-    @name(T)
+    $name(T)
 
   fun fallback(s: (?String)?) -> ?String
     s ?? "none"
@@ -1326,7 +1326,7 @@ test "static reads as string", release: true, '''
   mixed = maybe ?? view
   print(mixed, (maybe ?? "same") == "same")
 
-  print(@name(Static), type_name[Static](), type_name[?String]())
+  print($name(Static), type_name[Static](), type_name[?String]())
   part = lit[1..]
   sub_text = text.trim("  padded  ")
   print(part, sub_text, text.contains(lit, "i"), text.find(part, "t") ?? -1)
@@ -2450,7 +2450,7 @@ test "type names", '''
   Int ?Int
   ?Point !Point []Int ![]Int ?fun(Int) -> Int ?Int Point
 '''
-  # `@name(T)` is the type's name as Rig writes it, the spelling the
+  # `$name(T)` is the type's name as Rig writes it, the spelling the
   # diagnostics print: an alias is the type it names, another module's
   # type is qualified the way this module names that module, and a
   # generic type shows its arguments. Every built-in type and every shape
@@ -2470,7 +2470,7 @@ test "type names", '''
     items: [n]T
 
     fun name(?self) -> ?String
-      @name(Self)
+      $name(Self)
 
   enum Shape
     dot
@@ -2487,10 +2487,10 @@ test "type names", '''
     v: T
 
     fun name(?self) -> ?String
-      @name(T)
+      $name(T)
 
     fun view(?self) -> ?String
-      @name(?T)
+      $name(?T)
 
   type Byte = U8
   type Ints = []Int
@@ -2507,62 +2507,62 @@ test "type names", '''
   type HF = *F?
 
   fun name[T]() -> ?String
-    @name(T)
+    $name(T)
 
-  # Prints the name `@name` gives `T` where it is written, and checks
+  # Prints the name `$name` gives `T` where it is written, and checks
   # that the name a type parameter gets in a generic body agrees.
   sub show[T](direct: ?String)
     through = name[T]()
     print(direct if direct == through else "{direct} != {through}")
 
   sub main()
-    show[Int](@name(Int))
-    show[I64](@name(I64))
-    show[I8](@name(I8))
-    show[I16](@name(I16))
-    show[I32](@name(I32))
-    show[I128](@name(I128))
-    show[U8](@name(U8))
-    show[Byte](@name(Byte))
-    show[U16](@name(U16))
-    show[U32](@name(U32))
-    show[U64](@name(U64))
-    show[U128](@name(U128))
-    show[Float](@name(Float))
-    show[F32](@name(F32))
-    show[F64](@name(F64))
-    show[Bool](@name(Bool))
-    show[Void](@name(Void))
-    show[?String](@name(?String))
-    show[String](@name(String))
-    show[Endian](@name(Endian))
-    show[Point](@name(Point))
-    show[Shape](@name(Shape))
-    show[Mode](@name(Mode))
-    show[Oops](@name(Oops))
-    show[g.Point](@name(g.Point))
-    show[g.Fault](@name(g.Fault))
-    show[g.Wrap[Point]](@name(g.Wrap[Point]))
-    show[Pair[Int, String]](@name(Pair[Int, String]))
-    show[Ring[Int, 4]](@name(Ring[Int, 4]))
-    show[List[Int]](@name(List[Int]))
-    show[*Cell[Bool]](@name(*Cell[Bool]))
-    show[^Point](@name(^Point))
-    show[Signal[F32]](@name(Signal[F32]))
-    show[List[List[I8]]](@name(List[List[I8]]))
-    show[Int?](@name(Int?))
-    show[OO](@name(OO))
-    show[*Point](@name(*Point))
-    show[~Point](@name(~Point))
-    show[*Point?](@name(*Point?))
-    show[Four](@name(Four))
-    show[F](@name(F))
-    show[S](@name(S))
-    show[SF](@name(SF))
-    show[*F](@name(*F))
-    show[HO](@name(HO))
-    show[HF](@name(HF))
-    show[~Point?](@name(~Point?))
+    show[Int]($name(Int))
+    show[I64]($name(I64))
+    show[I8]($name(I8))
+    show[I16]($name(I16))
+    show[I32]($name(I32))
+    show[I128]($name(I128))
+    show[U8]($name(U8))
+    show[Byte]($name(Byte))
+    show[U16]($name(U16))
+    show[U32]($name(U32))
+    show[U64]($name(U64))
+    show[U128]($name(U128))
+    show[Float]($name(Float))
+    show[F32]($name(F32))
+    show[F64]($name(F64))
+    show[Bool]($name(Bool))
+    show[Void]($name(Void))
+    show[?String]($name(?String))
+    show[String]($name(String))
+    show[Endian]($name(Endian))
+    show[Point]($name(Point))
+    show[Shape]($name(Shape))
+    show[Mode]($name(Mode))
+    show[Oops]($name(Oops))
+    show[g.Point]($name(g.Point))
+    show[g.Fault]($name(g.Fault))
+    show[g.Wrap[Point]]($name(g.Wrap[Point]))
+    show[Pair[Int, String]]($name(Pair[Int, String]))
+    show[Ring[Int, 4]]($name(Ring[Int, 4]))
+    show[List[Int]]($name(List[Int]))
+    show[*Cell[Bool]]($name(*Cell[Bool]))
+    show[^Point]($name(^Point))
+    show[Signal[F32]]($name(Signal[F32]))
+    show[List[List[I8]]]($name(List[List[I8]]))
+    show[Int?]($name(Int?))
+    show[OO]($name(OO))
+    show[*Point]($name(*Point))
+    show[~Point]($name(~Point))
+    show[*Point?]($name(*Point?))
+    show[Four]($name(Four))
+    show[F]($name(F))
+    show[S]($name(S))
+    show[SF]($name(SF))
+    show[*F]($name(*F))
+    show[HO]($name(HO))
+    show[HF]($name(HF))
+    show[~Point?]($name(~Point?))
     # `geo` names its own types bare; the root module's are bare too.
     print(g.name[g.Point](), g.name[Point](), g.name[g.Wrap[Int]]())
     r: Ring[Int, 2] = Ring(items: [1, 2])
@@ -2572,7 +2572,7 @@ test "type names", '''
     h: Holder[Int] = Holder(v: 1)
     print(h.name(), h.view())
     # A type parameter's instance holds no view or slice.
-    print(@name(RP), @name(WP), @name(Ints), @name(WI), @name(CB), @name(?Int), @name(@type(p)))
+    print($name(RP), $name(WP), $name(Ints), $name(WI), $name(CB), $name(?Int), $name($type(p)))
 
   file "geo.rig"
     # A module whose types `main` names as `g.Point`, and whose generic
@@ -2588,7 +2588,7 @@ test "type names", '''
       bent
 
     pub fun name[T]() -> ?String
-      @name(T)
+      $name(T)
 
 fail "type print round trip", "11:13: type mismatch: expected `(N?)?`, got `Int`", "12:15: type mismatch: expected `(N?)?`, got `Int`", "13:16: type mismatch: expected `((N?)?)?`, got `Int`", "14:11: type mismatch: expected `*N?`, got `Int`", "15:13: type mismatch: expected `*N?`, got `Int`", "16:13: type mismatch: expected `*(N?)`, got `Int`", "17:15: type mismatch: expected `*(N?)`, got `Int`", "18:14: type mismatch: expected `*(N?)?`, got `Int`", "19:11: type mismatch: expected `~N?`, got `Int`", "20:13: type mismatch: expected `~(N?)`, got `Int`", "21:13: type mismatch: expected `?~N?`, got `Int`", "22:15: type mismatch: expected `?~N?`, got `Int`", "23:15: type mismatch: expected `(?~N)?`, got `Int`", "24:12: type mismatch: expected `?N?`, got `Int`", "25:14: type mismatch: expected `(?N)?`, got `Int`", "26:13: type mismatch: expected `?*N?`, got `Int`", "27:12: type mismatch: expected `!N?`, got `Int`", "28:15: type mismatch: expected `[]Int?`, got `Int`", "29:17: type mismatch: expected `([]Int)?`, got `Int`", "30:14: type mismatch: expected `[2]N?`, got `Int`", "31:16: type mismatch: expected `([2]N)?`, got `Int`", "32:17: type mismatch: expected `[2](N?)?`, got `Int`", "33:16: type mismatch: expected `*[]Int?`, got `Int`", "34:18: type mismatch: expected `(*[]Int)?`, got `Int`", "35:15: type mismatch: expected `*sub()`, got `Int`", "36:18: type mismatch: expected `(*sub())?`, got `Int`", "37:17: type mismatch: expected `(sub())?`, got `Int`", "38:26: type mismatch: expected `*fun(Int) -> Int?`, got `Int`", "39:28: type mismatch: expected `(*fun(Int) -> Int)?`, got `Int`", "40:23: type mismatch: expected `fun(N?) -> *N?`, got `Int`", "41:28: type mismatch: expected `fun((N?)?) -> (N?)?`, got `Int`", "42:20: type mismatch: expected `*List[Int]?`, got `Int`", "43:21: type mismatch: expected `*List[(N?)?]`, got `Int`"
   # Every type a diagnostic prints is spelled so that it parses back to
@@ -3143,12 +3143,12 @@ test "variant tag equality", '''
   print(is_nothing(?a), is_nothing(?b))
   print(make() == .empty, maybe() == .empty, owned(3) == .e)
 
-fail "variants not enum", "5:17: `@variants` takes an enum type; `?S` is a read view of one: write `@variants(S)`", "5:32: `@variants` takes an enum type; `Int` is not one"
+fail "variants not enum", "5:17: `$variants` takes an enum type; `?S` is a read view of one: write `$variants(S)`", "5:32: `$variants` takes an enum type; `Int` is not one"
   enum S
     a
     b
 
-  print(@variants(?S), @variants(Int))
+  print($variants(?S), $variants(Int))
 
 fail "vec bad element", "a callable view `?fun() -> Int` is only a parameter's, a local's, or a result's type"
   # `List[T]` holds any value, views included, but not a callable view,

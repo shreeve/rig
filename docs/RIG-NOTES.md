@@ -216,7 +216,7 @@ tools that take them in `bench/json/`.
     Fix: `'"'`, `'\\'`, `'{'` as `U8` values. *Observed.*
 17. **An enum variant's name is not text.** `error_name` spells out all
     13 `Error` variants in a `match`. `print` shows a variant as `.ok`,
-    and `@variants(T)` lists the values, but no expression gives the
+    and `$variants(T)` lists the values, but no expression gives the
     name as text. Fix: `e.name()`, a `Static`. *Observed.*
 18. **Errors carry no data.** `parse` returns a `Bool` and keeps `error`
     and `error_pos` in the `Doc`; the parser's internal steps return
@@ -225,7 +225,7 @@ tools that take them in `bench/json/`.
 19. **Long literals and embedding.** A string literal was at most 64 KB
     and a source file is 16 MiB, so the benchmark and the tests split
     each JSON file into 60 KB literals and join them at run time. Fix:
-    `@embed("file.json")` as a `Static`, or longer literals. Literals
+    `$embed("file.json")` as a `Static`, or longer literals. Literals
     of any length within the 16 MiB source are *fixed* (`@longtokens`);
     `@embed` is *observed*.
 
