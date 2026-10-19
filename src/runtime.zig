@@ -4144,8 +4144,9 @@ pub noinline fn fail(pieces: anytype) noreturn {
 
 // Tests. `rig test` builds a driver whose `main` calls `runTests` with
 // the `__rig_tests` table of every module. Each test runs in order; it
-// fails when it returns an error or (in Debug builds) leaks. A panic
-// ends the run, naming the test that panicked.
+// fails when it returns an error, gives `false` (`testFalse`), or (in
+// Debug builds) leaks. A panic ends the run, naming the test that
+// panicked.
 
 /// One `test "name"` block.
 pub const Test = struct {
@@ -4170,6 +4171,15 @@ const TestName = struct {
 };
 
 var current_test: ?TestName = null;
+
+/// What the running test reports for the `false` that fails it.
+var test_false: ?[]const u8 = null;
+
+/// The running test gave `false`, from its last line or a `return`:
+/// it fails, reporting `report` (`t == "a" is false`).
+pub fn testFalse(report: []const u8) void {
+    test_false = report;
+}
 
 /// Run every test, reporting each on stdout; exit 1 if any failed.
 /// An error as a program shows it, `Set.name`: the emitter names each
@@ -4201,11 +4211,15 @@ fn runTestsHere(modules: []const TestModule) void {
         const name: TestName = .{ .module = m.module, .name = t.name };
         current_test = name;
         const before = usage();
+        test_false = null;
         const result = t.func();
         current_test = null;
         flush();
         if (result) |_| {
-            if (reportLeaks(before)) {
+            if (test_false) |report| {
+                w.print("FAIL  {f}: {s}\n", .{ name, report }) catch {};
+                tests_failed += 1;
+            } else if (reportLeaks(before)) {
                 w.print("FAIL  {f}: memory leak\n", .{name}) catch {};
                 tests_failed += 1;
             } else {

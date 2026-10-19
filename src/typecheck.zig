@@ -151,6 +151,9 @@ const Checker = struct {
     /// The expression statement being checked, whose value is
     /// discarded (`isDiscardedCall`).
     discarded: Sexp = .nil,
+    /// The last line of the test being checked: a `Bool` there is the
+    /// test's value, which decides it (`checkExprStmt`).
+    test_tail: Sexp = .nil,
     /// The call that gives several results where they may stand: the
     /// value of a destructure, of `return` in a function that gives
     /// them, or of `if ... as a, b` (docs/INTERNALS.md, "Several
@@ -329,6 +332,8 @@ const Checker = struct {
         /// A closure's body, or code inside one: a jump there cannot leave
         /// a loop around the closure.
         in_closure: bool = false,
+        /// A test's body, where `return` gives the `Bool` that decides it.
+        in_test: bool = false,
     };
 
     const LoopFrame = struct {
@@ -449,8 +454,13 @@ const Checker = struct {
                 const prev_scope = self.enter(sexp);
                 defer self.scope = prev_scope;
                 // A test fails by returning an error, which `rig test`
-                // reports.
-                try self.checkBody(ir.Test.body(sexp), .{ .ret = self.t().void_id, .fail_to = .caller });
+                // reports, or by giving `false`: from its last line, or
+                // from a `return`.
+                const body = ir.Test.body(sexp);
+                const saved_tail = self.test_tail;
+                defer self.test_tail = saved_tail;
+                self.test_tail = lastStmt(body);
+                try self.checkBody(body, .{ .ret = self.t().void_id, .fail_to = .caller, .in_test = true });
             },
             .set => try self.checkModuleConst(sexp),
             .use, .type, .@"extern", .extern_fun, .extern_sub, .zig_const => {},
@@ -990,6 +1000,8 @@ const Checker = struct {
         const ty = try self.synthExpr(stmt);
         // A closure literal alone is reported by the ownership checker.
         if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
+        // A test's last line is its value: a `Bool` decides the test.
+        if (self.body.in_test and sameSite(stmt, self.test_tail) and self.canonical(ty) == self.t().bool_id) return self.ctx.recordTestCheck(stmt, try self.testReport(stmt));
         if (!hasEffect(stmt)) {
             // A statement `<e` is a drop everywhere but on a line whose
             // value is used, which a closure's last line is, though this
@@ -1027,6 +1039,7 @@ const Checker = struct {
 
     fn checkReturn(self: *Checker, node: Sexp) Error!void {
         const value = ir.Return.value(node);
+        if (self.body.in_test and value.isKind(.results)) return self.errAt(value, "a test returns one `Bool`, and `false` fails it; it gives no several results", .{});
         if (value.isKind(.results)) return self.checkReturnResults(node, value);
         // `return f()` gives the several results `f` gives, whole.
         const saved_ok = self.results_ok;
@@ -1035,6 +1048,13 @@ const Checker = struct {
         if (value != .nil) try self.recordUse(value, .take);
         const ret = self.body.ret;
         if (self.body.fail_to == .deferred) try self.errAt(node, "cannot `return` inside `defer`; the deferred code runs as the function exits", .{});
+        // A test returns the `Bool` that decides it.
+        if (self.body.in_test and value != .nil) {
+            const ty = try self.synthExpr(value);
+            if (self.isPoison(ty)) return;
+            if (self.canonical(ty) != self.t().bool_id) return self.errAt(value, "a test returns a `Bool`, and `false` fails it; this `return` gives `{s}`", .{try self.tyName(ty)});
+            return self.ctx.recordTestCheck(node, try self.testReport(node));
+        }
         if (self.body.returns) |sites| {
             const ty: ?TypeId = if (value == .nil) null else try self.synthExpr(value);
             try sites.append(self.ctx.allocator, .{ .node = node, .ty = ty });
@@ -1058,6 +1078,23 @@ const Checker = struct {
         defer self.return_operand = saved;
         self.return_operand = value;
         try self.checkExpr(value, ret);
+    }
+
+    /// What `rig test` reports when the `Bool` that `node`, a test's last
+    /// line or a `return` in it, gives is `false`: `t == "a" is false`,
+    /// written on one line. For a `return false`, the rest of its line,
+    /// which holds any guard: `return false if n > 3`.
+    fn testReport(self: *Checker, node: Sexp) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        const value = if (node.isKind(.@"return")) ir.Return.value(node) else node;
+        if (node.isKind(.@"return") and value == .src and std.mem.eql(u8, self.sourceText(value), "false")) {
+            const src = self.ctx.source;
+            const start = self.ctx.span(node).start;
+            const end = std.mem.findScalarPos(u8, src, start, '\n') orelse src.len;
+            const rest = try withoutComments(a, src[start..end]);
+            return std.mem.trimEnd(u8, rest, " \t\r");
+        }
+        return a.print("{s} is false", .{try oneLine(a, self.sourceText(value))});
     }
 
     /// Whether `e` is a branch leaf of the `return` operand being

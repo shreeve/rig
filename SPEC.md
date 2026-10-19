@@ -2957,13 +2957,20 @@ without end. An alias that names a deeper type is rejected.
 
 `test "name"` (or `test 'name'`) declares a block that is checked like
 a function body that may fail: `f()!` in a test fails the test with
-that error. `rig test X` runs the tests of `X` itself and no others, as
+that error. A test's value is its last line, as a `fun` body's is: when
+it is a `Bool`, `false` fails the test. `return` with a `Bool` ends the
+test with that value, for a check partway through, as in
+`return false if n > 3`. A test ending in anything else fails only by an
+error or a panic. `rig test X` runs the tests of `X` itself and no others, as
 Go's `go test pkg` does: the test blocks of the file `X`, or, when `X` is a
 directory module, those of its files and its `*_test.rig` files
 ([§14](#directory-modules)). The test blocks of the modules `X` imports,
 the standard library's included, are checked and not run. It prints
 `ok    test "name"` for each test that finishes, or
 `FAIL  test "name": ...` with the reason, and then `N passed, M failed`.
+A test that gives `false` reports the source of the `Bool`,
+`FAIL  test "area": area(2, 3) == 5 is false`, or, for `return false`,
+the rest of its line, `FAIL  test "area": return false if n > 3`.
 `rig run` ignores test blocks. `rig check --tests X` checks what
 `rig test X` builds, without building or running it.
 
@@ -2972,6 +2979,13 @@ fun area(w: Int, h: Int) -> Int
   w * h
 
 test "area"
+  area(2, 3) == 6
+
+test "area of nothing"
+  return false if area(0, 3) != 0
+  area(3, 0) == 0
+
+test "area prints"
   print(area(2, 3))
 ```
 

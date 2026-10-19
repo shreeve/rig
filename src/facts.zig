@@ -308,6 +308,9 @@ pub const Facts = struct {
     pub fn readsInPlace(f: Facts, node: Sexp) bool {
         return f.c().readsInPlace(node);
     }
+    pub fn testCheckOf(f: Facts, node: Sexp) ?[]const u8 {
+        return f.c().testCheckOf(node);
+    }
     pub fn writesTemp(f: Facts, node: Sexp) bool {
         return f.c().writesTemp(node);
     }

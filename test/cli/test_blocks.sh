@@ -1,7 +1,7 @@
 # `rig test` runs every `test` block of the program, in order, and
 # reports each: `ok    test "name"`, or `FAIL  test "name": why`
-# for a test that returns an error, leaks, or panics (a panic ends the
-# run). The exit status is 1 when any test failed.
+# for a test that returns an error, gives `false`, leaks, or panics (a
+# panic ends the run). The exit status is 1 when any test failed.
 source "$ROOT/test/cli/_lib.sh"
 
 cat >util.rig <<'EOF'
@@ -69,6 +69,38 @@ expect_rc $rc 134 "a run a test panicked in"
 expect_eq "$(cat out.txt)" $'fine\nok    test "passes"\nFAIL  test "leaks a cycle": memory leak\n0\nFAIL  test "fails with an error": Bad.oops\nFAIL  test "panics": panicked\n1 passed, 3 failed' "failing report"
 expect_has "$(cat err.txt)" "memory leak detected: 2 allocations" "leak detail"
 expect_has "$(cat err.txt)" "index out of bounds" "panic detail"
+
+# A test's value decides it: a `Bool` last line, or a `return`'s.
+cat >bool.rig <<'EOF'
+fun big(n: Int) -> Bool
+  n > 10
+
+test "make sure move works"
+  s = String("a")
+  t = <s
+  t == "a"
+
+test "false at the end"
+  s = String("a")
+  s == "b"
+
+test "early return"
+  n = 3
+  return false if n > 2  # too big
+  print("not here")
+
+test "return a Bool"
+  n = 3
+  if n > 1
+    return big(n)
+  true
+
+test "not a Bool"
+  print("unchanged")
+EOF
+rig test bool.rig >out.txt 2>&1; rc=$?
+expect_rc $rc 1 "a run a test gave false in"
+expect_eq "$(cat out.txt)" $'ok    test "make sure move works"\nFAIL  test "false at the end": s == "b" is false\nFAIL  test "early return": return false if n > 2\nFAIL  test "return a Bool": big(n) is false\nunchanged\nok    test "not a Bool"\n2 passed, 3 failed' "Bool report"
 
 cat >none.rig <<'EOF'
 sub main()

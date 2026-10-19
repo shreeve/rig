@@ -579,6 +579,18 @@ pub const Emitter = struct {
         try self.w.writeAll("\n");
     }
 
+    /// A test's last line, or a `return` in a test, that gives the
+    /// `Bool` deciding it: `false` hands `rig.testFalse` the report, and
+    /// a `return` then ends the test.
+    fn emitTestCheck(self: *Emitter, stmt: Sexp, report: []const u8) Error!void {
+        const returns = stmt.isKind(.@"return");
+        if (returns) try self.w.writeAll("{ ");
+        try self.w.writeAll("if (!(");
+        try self.emitBare(if (returns) ir.Return.value(stmt) else stmt);
+        try self.w.print(")) rig.testFalse(\"{f}\");", .{std.zig.fmtString(report)});
+        if (returns) try self.w.writeAll(" return; }");
+    }
+
     fn emitTestTable(self: *Emitter) Error!void {
         if (self.tests.items.len == 0) return;
         try self.w.writeAll("\npub const __rig_tests = [_]rig.Test{\n");
@@ -1468,6 +1480,7 @@ pub const Emitter = struct {
     fn emitStmtOnly(self: *Emitter, sexp: Sexp) Error!void {
         self.stmt = sexp;
         try self.inUnit(sexp);
+        if (self.facts.testCheckOf(sexp)) |report| return self.emitTestCheck(sexp, report);
         const head = sexp.kind() orelse {
             try self.w.writeAll("_ = ");
             try self.emitExpr(sexp);

@@ -1,0 +1,76 @@
+# A test block's value: a `Bool` on its last line, or given by `return`,
+# decides it, and `false` fails it (SPEC.md "Tests").
+
+code "a test's Bool last line decides it", "if (!(rig.eql(t, \"a\"))) rig.testFalse(\"t == \\\"a\\\" is false\");"
+  test "make sure move works"
+    s = String("a")
+    t = <s
+    t == "a"
+
+  sub main()
+    pass
+
+code "a return in a test gives the Bool that decides it", "{ if (!(false)) rig.testFalse(\"return false if n > 2\"); return; }", "{ if (!(n == 3)) rig.testFalse(\"n == 3 is false\"); return; }"
+  test "early"
+    n = 3
+    return false if n > 2  # too big
+    if n > 1
+      return n == 3
+    print(n)
+
+  sub main()
+    pass
+
+code "a test ending in a value that is not a Bool is not decided by it", /^(?![\s\S]*testFalse)/
+  fun count() -> Int
+    3
+
+  test "ends in an Int"
+    count()
+
+  test "ends in a print"
+    print("hi")
+
+  sub main()
+    pass
+
+code "a Bool expression over several lines reports on one", "rig.testFalse(\"n == 3 and n > 0 is false\")"
+  test "long"
+    n = 3
+    (n == 3 and
+      n > 0)
+
+  sub main()
+    pass
+
+fail "a test returns a Bool", "a test returns a `Bool`, and `false` fails it; this `return` gives `Int`"
+  test "returns an Int"
+    return 3
+
+  sub main()
+    pass
+
+fail "a test returns one Bool", "a test returns one `Bool`, and `false` fails it; it gives no several results"
+  test "returns two"
+    return true, false
+
+  sub main()
+    pass
+
+fail "a Bool in a test before its last line does nothing", "2:3: this expression does nothing as a statement"
+  test "not last"
+    1 == 1
+    print("x")
+
+  sub main()
+    pass
+
+test "a closure in a test returns its own value", "1"
+  test "closure"
+    f: fun(Int) -> Bool = |n|
+      return false if n > 2
+      true
+    f(1)
+
+  sub main()
+    print(1)
