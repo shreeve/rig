@@ -68,8 +68,8 @@ test "cell holder moves", '''
   obj Counter
     hits: Cell[Int]
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   fun take(c: *Counter) -> Int
     !c.hit()
@@ -100,8 +100,8 @@ test "cell holder temp array slice", '''
   obj Counter
     hits: Cell[Int]
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   sub bumpc(c: !Counter)
     !c.hit()
@@ -135,8 +135,8 @@ fail "cell holder whole value", "30:6: `swap` moves values whole, and `S` holds 
   obj C
     n: Cell[Int]
 
-    sub hit(!self)
-      !self.n.set(self.n.get() + 1)
+    sub hit(!@)
+      !@n.set(@n.get() + 1)
 
   obj W
     h: *C
@@ -185,9 +185,9 @@ test "cell marked handle views", release: true, '''
     hits: Cell[Int]
     log: Cell[List[Int]]
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
-      !self.log.push(self.hits.get())
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
+      !@log.push(@hits.get())
 
   enum E
     a(c: C)
@@ -230,7 +230,7 @@ test "cell marked handle views", release: true, '''
   print(a.hits.get(), b.hits.get())
 
 test "cell part receiver view in statement", "42"
-  # A `?self` method that returns a view of its receiver, called on a
+  # A `?@` method that returns a view of its receiver, called on a
   # Cell-holding field of a temporary handle, runs on the field where its
   # statement's slot keeps the temporary, so the view may be used until the
   # statement ends.
@@ -239,8 +239,8 @@ test "cell part receiver view in statement", "42"
     c: Cell[Int]
     n: Int
 
-    fun me(?self) -> ?Q
-      self
+    fun me(?@) -> ?Q
+      @
 
   obj H
     q: Q

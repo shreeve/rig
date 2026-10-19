@@ -142,8 +142,8 @@ test "R15-p-n1", '''
   obj P
     x: Int
     arr: [2]Int
-    sub bump(!self)
-      self.x += 1
+    sub bump(!@)
+      @x += 1
 
   sub inc(p: !P)
     p.x += 100
@@ -319,8 +319,8 @@ test "R15-p-u5", "7 8"
 test "R15-p-u6", "7"
   obj P
     x: Int
-    sub set(!self, s: []Int)
-      self.x = s[0]
+    sub set(!@, s: []Int)
+      @x = s[0]
 
   sub load(p: !P)
     c = [7, 8]
@@ -360,15 +360,15 @@ test "R15-p-x1", '''
   obj Pkt
     hdr: [4]U8
     body: List[U8]
-    fun len(?self) -> U16
-      self.hdr.read[U16, .big](0)
-    fun tag(?self) -> U8
-      self.body.read[U8](0)
-    sub set(!self, n: U16)
-      !self.hdr.write[U16, .big](0, n)
-      !self.body.write[U8](0, 7)
-      !self.hdr.fill(1)
-      !self.body.swap(0, 0)
+    fun len(?@) -> U16
+      @hdr.read[U16, .big](0)
+    fun tag(?@) -> U8
+      @body.read[U8](0)
+    sub set(!@, n: U16)
+      !@hdr.write[U16, .big](0, n)
+      !@body.write[U8](0, 7)
+      !@hdr.fill(1)
+      !@body.swap(0, 0)
 
   fun peek(p: ?Pkt) -> U16
     p.hdr.read[U16, .little](2)
@@ -493,8 +493,8 @@ test "R16-ctx1", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun chk(f: ?fun(Int) -> Bool, x: Int) -> Bool
     print("chk", x)
@@ -659,8 +659,8 @@ test "R16-em2", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun may(n: Int) -> Int!
     return E.bad if n < 0
@@ -975,27 +975,27 @@ test "R16-m1", '''
   obj Bag[T]
     items: List[T]
 
-    sub each(?self, f: ?sub(T))
-      for x in ?self.items
+    sub each(?@, f: ?sub(T))
+      for x in ?@items
         f(x)
 
-    fun map[U](?self, f: ?fun(T) -> U) -> List[U]
+    fun map[U](?@, f: ?fun(T) -> U) -> List[U]
       out: List[U] = List()
-      for x in ?self.items
+      for x in ?@items
         !out.push(f(x))
       out
 
-    sub mutate(!self, f: ?fun(T) -> T) keeps f
+    sub mutate(!@, f: ?fun(T) -> T) keeps f
       i = 0
-      while i < self.items.len
-        self.items[i] = f(self.items[i])
+      while i < @items.len
+        @items[i] = f(@items[i])
         i += 1
 
   obj Counter
     n: Int
 
-    sub bump(!self, f: ?fun(Int) -> Int)
-      self.n = f(self.n)
+    sub bump(!@, f: ?fun(Int) -> Int)
+      @n = f(@n)
 
   b = Bag[Int](items: List())
   !b.items.push(1)
@@ -1207,8 +1207,8 @@ test "R16-rs1", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   sub run(f: ?sub())
     f()
@@ -1235,8 +1235,8 @@ fail "R16-rs3", "cannot drop captured view `r`; the closure holds it for every c
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   r = Res(id: 1)
   r = Res(id: 2)
@@ -1250,8 +1250,8 @@ fail "R16-rs5", "cannot move out of `b.r`: `b` is a view; exchange it instead: `
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   obj Box
     r: Res
@@ -1268,11 +1268,11 @@ fail "R16-rv2", "cannot lend `b` to write while a read loan is live"
   obj Bag
     items: List[Int]
 
-    sub grow(!self, f: ?fun(Int) -> Int)
-      n = self.items.len
+    sub grow(!@, f: ?fun(Int) -> Int)
+      n = @items.len
       i = 0
       while i < n
-        !self.items.push(f(i))
+        !@items.push(f(i))
         i += 1
 
   b = Bag(items: List())

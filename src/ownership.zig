@@ -4502,7 +4502,7 @@ pub const Checker = struct {
         // What the call keeps by its callee's `keeps`, for a conflict's note.
         if (params) |p| if (p.origins.stores & p.origins.lent != 0) {
             const write_recv = if (recv_mode == .write) recv_root else null;
-            if (p.keepsLentReceiver()) try self.noteKept(callee, recv_value, "self", write_recv, arg_values);
+            if (p.keepsLentReceiver()) try self.noteKept(callee, recv_value, "@", write_recv, arg_values);
             for (arg_values, 0..) |v, i| if (p.keepsLent(i)) try self.noteKept(callee, v, p.paramName(i) orelse "?", write_recv, arg_values);
         };
 
@@ -6843,6 +6843,8 @@ pub const Checker = struct {
         var out: std.ArrayList(u8) = .empty;
         try out.appendSlice(self.arena(), self.vars.items[root].name);
         try self.paths.appendText(self.arena(), &out, path);
+        // The receiver's member is `@name`, with no `.`.
+        if (std.mem.eql(u8, self.vars.items[root].name, "@") and out.items.len > 2) _ = out.orderedRemove(1);
         return out.items;
     }
 
@@ -6850,7 +6852,7 @@ pub const Checker = struct {
         switch (e) {
             .src => return self.text(e),
             .list => switch (e.kind() orelse return "expression") {
-                .member => return self.arena().print("{s}.{s}", .{ try self.placeText(ir.Member.object(e)), self.text(ir.Member.name(e)) }),
+                .member => return sema.memberText(self.arena(), try self.placeText(ir.Member.object(e)), self.text(ir.Member.name(e))),
                 .index => return self.arena().print("{s}[{s}]", .{ try self.placeText(ir.Index.object(e)), self.spanText(ir.Index.index(e)) }),
                 // A sigil: the place it wraps.
                 .read, .write, .move, .clone, .share, .box, .weak => return self.placeText(ir.get(e, .operand)),

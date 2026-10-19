@@ -395,8 +395,8 @@ test "review-copies-p05-clone-capture-vec-paths", '''
 '''
   obj N
     v: Int
-    drop(!self)
-      print("drop", self.v)
+    drop(!@)
+      print("drop", @v)
 
   fun build() -> *fun() -> Int
     v: List[String] = List()
@@ -705,8 +705,8 @@ test "review-copies-p34-clone-capture-escape-and-fail", '''
   obj N
     v: Int
 
-    drop(!self)
-      print("drop", self.v)
+    drop(!@)
+      print("drop", @v)
 
   fun mk(v: ?List[String]) -> *fun() -> Int
     *|+v| v.len + v[0].len
@@ -1557,18 +1557,18 @@ test "review-enumtext-self", '''
   red
   red
 '''
-  # `self.text` in `?self`, `!self`, and `<self` methods, and `from_text` in associated functions and a method declared outside the body.
+  # `@text` in `?@`, `!@`, and `<@` methods, and `from_text` in associated functions and a method declared outside the body.
   enum Color
     red
     dark_red
 
-    fun name(?self) -> Static
-      self.text
+    fun name(?@) -> Static
+      @text
 
-    sub flip(!self)
-      print(self.text)
-      self = Color.from_text("red") ?? .dark_red
-      print(self.text)
+    sub flip(!@)
+      print(@text)
+      @ = Color.from_text("red") ?? .dark_red
+      print(@text)
 
     fun parse(w: ?String) -> Self?
       Color.from_text(w)
@@ -1576,11 +1576,11 @@ test "review-enumtext-self", '''
     fun parse2(w: ?String) -> Color?
       Color.from_text(w)
 
-    fun owned(<self) -> Static
-      self.text
+    fun owned(<@) -> Static
+      @text
 
-  fun Color.outside(?self) -> Static
-    self.text
+  fun Color.outside(?@) -> Static
+    @text
 
   c: Color = .dark_red
   print(c.name(), Color.parse("dark_red"), Color.parse2("red"), c.outside(), c.owned())
@@ -1615,8 +1615,8 @@ test "review-enumtext-temp-owner", '''
     color: Color
     label: String
 
-    drop(!self)
-      print("drop", self.label)
+    drop(!@)
+      print("drop", @label)
 
   fun make(n: Int) -> Pen
     Pen(color: .dark_red, label: String("pen", n))

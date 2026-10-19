@@ -176,9 +176,9 @@ test "assign target root after value", '''
     n: Int
     v: [2]Int
 
-    fun at(self: !P, k: !Int) -> !P
+    fun at(!@, k: !Int) -> !P
       k += 1
-      self
+      @
 
   fun pick(t: ![]Int, k: !Int) -> ![]Int from t
     k += 1
@@ -498,8 +498,8 @@ test "auto deref struct field", '''
   obj Wrap
     n: Int
 
-    fun twice(self: ?Wrap) -> Int
-      self.n * 2
+    fun twice(?@) -> Int
+      @n * 2
 
   obj Pair
     a: *Wrap
@@ -530,8 +530,8 @@ test "branch receiver copy not dropped", '''
   obj S
     t: String
 
-    fun size(?self, x: Int, y: Int) -> Int
-      self.t.len * 100 + x * 10 + y
+    fun size(?@, x: Int, y: Int) -> Int
+      @t.len * 100 + x * 10 + y
 
   obj W
     s: S
@@ -596,7 +596,7 @@ test "branch receiver views leaf", '''
   4001
   aa 2 3
 '''
-  # A `?self` method called on a value that branches, whose leaves are
+  # A `?@` method called on a value that branches, whose leaves are
   # names holding values read by address, runs on the leaf the branch
   # takes, where it is: a view it returns views that leaf, not a copy, and
   # stays good after other calls reuse the stack. So does a field, an
@@ -608,14 +608,14 @@ test "branch receiver views leaf", '''
     t: String
     xs: [4]Int
 
-    fun inner(?self) -> ?String
-      ?self.t
+    fun inner(?@) -> ?String
+      ?@t
 
-    fun arr(?self) -> ?[4]Int
-      ?self.xs
+    fun arr(?@) -> ?[4]Int
+      ?@xs
 
-    fun pick(?self, x: Int, y: Int) -> ?String
-      ?self.t
+    fun pick(?@, x: Int, y: Int) -> ?String
+      ?@t
 
   error E
     bad
@@ -721,8 +721,8 @@ test "capture move struct drop glue", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   n = Noisy(id: 7)
   f = |<n|
@@ -845,8 +845,8 @@ test "cell holder generic handle id", release: true, '''
   obj C
     c: Cell[Int]
 
-    sub hit(!self)
-      !self.c.set(self.c.get() + 1)
+    sub hit(!@)
+      !@c.set(@c.get() + 1)
 
   obj G[T]
     h: T
@@ -1052,15 +1052,15 @@ test "cell view branch places", release: true, '''
   1
   5
 '''
-  # A `!self` method changes a Cell through a part of a value that branches
+  # A `!@` method changes a Cell through a part of a value that branches
   # between lends of shared handles names hold: each leaf's value is reached
   # where it is, in debug and in an optimized build.
 
   obj N
     c: Cell[Int]
 
-    sub hit(!self)
-      !self.c.set(self.c.get() + 1)
+    sub hit(!@)
+      !@c.set(@c.get() + 1)
 
   obj W
     t: N
@@ -1077,7 +1077,7 @@ test "cell view branch places", release: true, '''
   go(false)
 
 test "cell view counter loop", "20 20 159", release: true
-  # A Cell changed by a marked call through a `!self` method and a `!T`
+  # A Cell changed by a marked call through a `!@` method and a `!T`
   # parameter of a named local, in a loop that leaves early: an optimized
   # build keeps every change.
 
@@ -1085,9 +1085,9 @@ test "cell view counter loop", "20 20 159", release: true
     c: Cell[Int]
     log: Cell[List[Int]]
 
-    sub hit(!self)
-      !self.c.set(self.c.get() + 1)
-      !self.log.push(self.c.get())
+    sub hit(!@)
+      !@c.set(@c.get() + 1)
+      !@log.push(@c.get())
 
   fun total(x: !C) -> Int
     !x.hit()
@@ -1118,18 +1118,18 @@ test "cell view forms", release: true, '''
   obj C
     c: Cell[Int]
 
-    sub hit(!self)
-      !self.c.set(self.c.get() + 1)
+    sub hit(!@)
+      !@c.set(@c.get() + 1)
 
-    fun me(!self) -> !C
-      !self.hit()
-      self
+    fun me(!@) -> !C
+      !@hit()
+      @
 
   obj Gn[T]
     c: Cell[T]
 
-    sub put(!self, x: T)
-      !self.c.set(x)
+    sub put(!@, x: T)
+      !@c.set(x)
 
   sub touch[T](g: !Gn[T], x: T)
     !g.put(x)
@@ -1199,7 +1199,7 @@ test "cell view param", release: true, '''
   drop 5
 '''
   # A Cell changed through a `?Cell[T]` parameter, a `?T` parameter of a
-  # struct, a `?self` chain, and a part of a temporary, in loops.
+  # struct, a `?@` chain, and a part of a temporary, in loops.
 
   fun build(n: Int) -> List[Int]
     v: List[Int] = List()
@@ -1218,16 +1218,16 @@ test "cell view param", release: true, '''
   obj V
     c: Cell[List[Int]]
 
-    drop(!self)
-      print("drop", self.c.len)
+    drop(!@)
+      print("drop", @c.len)
 
-    fun add(!self, n: Int) -> Int
-      !self.c.push(n)
-      self.c.len
+    fun add(!@, n: Int) -> Int
+      !@c.push(n)
+      @c.len
 
-    fun twice(!self, n: Int) -> Int
-      !self.add(n)
-      (!self).add(n)
+    fun twice(!@, n: Int) -> Int
+      !@add(n)
+      (!@).add(n)
 
   obj WV
     t: *V
@@ -1271,12 +1271,12 @@ test "cell view places", release: true, '''
     c: Cell[Int]
     log: Cell[List[Int]]
 
-    sub hit(!self)
-      !self.c.set(self.c.get() + 1)
-      !self.log.push(self.c.get())
+    sub hit(!@)
+      !@c.set(@c.get() + 1)
+      !@log.push(@c.get())
 
-    fun score(?self) -> Int
-      self.c.get() * 100 + self.log.len
+    fun score(?@) -> Int
+      @c.get() * 100 + @log.len
 
   obj W
     inner: C
@@ -1322,7 +1322,7 @@ test "cell view push realloc", release: true, '''
   drop 9
   0 1 0 1 100 200
 '''
-  # A `!self` method pushes onto a Cell[List] of a named local in a loop
+  # A `!@` method pushes onto a Cell[List] of a named local in a loop
   # whose argument may leave the iteration. The push may reallocate the
   # List, so the `drop` and the next allocations must see the new buffer:
   # a stale header would free a buffer twice.
@@ -1330,19 +1330,19 @@ test "cell view push realloc", release: true, '''
   obj V
     c: Cell[List[Int]]
 
-    drop(!self)
-      print("drop", self.c.len)
+    drop(!@)
+      print("drop", @c.len)
 
-    fun add(!self, n: Int) -> Int
-      !self.c.push(n)
-      self.c.len
+    fun add(!@, n: Int) -> Int
+      !@c.push(n)
+      @c.len
 
   obj P
     c: Cell[List[Int]]
 
-    fun add(!self, n: Int) -> Int
-      !self.c.push(n)
-      self.c.len
+    fun add(!@, n: Int) -> Int
+      !@c.push(n)
+      @c.len
 
   fun build(n: Int) -> List[Int]
     v: List[Int] = List()
@@ -1392,11 +1392,11 @@ test "clone viewed handle result", '''
 
   obj Root
     leaf: *Leaf
-    fun first(?self) -> ?*Leaf
-      ?self.leaf
-    fun pick(?self, ok: Bool) -> (?*Leaf)!
+    fun first(?@) -> ?*Leaf
+      ?@leaf
+    fun pick(?@, ok: Bool) -> (?*Leaf)!
       return Lookup.missing if not ok
-      ?self.leaf
+      ?@leaf
 
   fun count(root: ?Root) -> Int!
     k = +root.pick(true)!
@@ -1435,7 +1435,7 @@ test "closure generated names", '''
   5
 '''
   # Closure parameters and captures may use names the emitted code uses
-  # internally (`self`, `ctx`, `allocator`).
+  # internally (`@`, `ctx`, `allocator`).
 
   sub stack()
     ctx = 2
@@ -1600,8 +1600,8 @@ test "consuming method temporary failing arg", '''
   obj Bag
     v: List[Int]
 
-    fun consume(<self, n: Int) -> Int
-      self.v.len + n
+    fun consume(<@, n: Int) -> Int
+      @v.len + n
 
   fun mk() -> Bag
     v: List[Int] = List()
@@ -1694,8 +1694,8 @@ test "drop value payload", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum S
     one(a: B)
@@ -1757,8 +1757,8 @@ test "enum payload method", '''
     circle(radius: Int)
     point
 
-    fun is_point(?self) -> Bool
-      match self
+    fun is_point(?@) -> Bool
+      match @
         .circle(_) => false
         .point => true
 
@@ -1855,8 +1855,8 @@ test "field assign shared drops old", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   obj Pair
     a: *Noisy
@@ -1893,20 +1893,20 @@ test "field assign through write self", '''
   end
   2
 '''
-  # Assigning a field through `!self` drops the old value and keeps the new
+  # Assigning a field through `!@` drops the old value and keeps the new
   # one in the caller's struct.
 
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   obj Slot
     held: *Noisy
 
-    sub put(!self, n: *Noisy)
-      self.held = <n
+    sub put(!@, n: *Noisy)
+      @held = <n
 
   s = Slot(held: *Noisy(id: 1))
   !s.put(*Noisy(id: 2))
@@ -2176,8 +2176,8 @@ test "handle reached through pointer", '''
   obj Q
     n: Int
 
-    fun get(?self, j: Int, k: Int) -> Int
-      self.n + j + k
+    fun get(?@, j: Int, k: Int) -> Int
+      @n + j + k
 
   fun g(k: Int) -> Int
     k
@@ -2275,12 +2275,12 @@ test "hoisted call receiver first", '''
   obj K
     n: Int
 
-    fun add(?self, a: Int, b: Int) -> Int
-      self.n * 100 + a * 10 + b
+    fun add(?@, a: Int, b: Int) -> Int
+      @n * 100 + a * 10 + b
 
-    fun bump(!self, a: Int, b: Int) -> Int
-      self.n += 1
-      self.n * 100 + a * 10 + b
+    fun bump(!@, a: Int, b: Int) -> Int
+      @n += 1
+      @n * 100 + a * 10 + b
 
   fun take(k: !K) -> K
     k.n = k.n + 1
@@ -2376,12 +2376,12 @@ test "hoisted receiver index first", '''
   obj C
     n: Int
 
-    fun sub2(!self, a: Int, b: Int) -> Int
-      self.n += 100
+    fun sub2(!@, a: Int, b: Int) -> Int
+      @n += 100
       a * 10 + b
 
-    sub put(!self, v: List[Int], b: Int)
-      self.n += 100 + v.len + b
+    sub put(!@, v: List[Int], b: Int)
+      @n += 100 + v.len + b
 
   fun bump(k: !Int) -> Int
     k += 1
@@ -2562,8 +2562,8 @@ test "if expr yields local resource", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   sub pick(flag: Bool)
     y = if flag
@@ -2667,7 +2667,7 @@ bomb "inline generic member overflow", "integer overflow", prints: "42 2", relea
   obj Acc[T]
     v: T
 
-    fun bump(?self, n: Int) -> Int
+    fun bump(?@, n: Int) -> Int
       m = n
       m += 1
       m
@@ -2701,14 +2701,14 @@ test "inline iterator recursion", release: true, '''
     lo: Int
     hi: Int
 
-    fun next(!self) -> Int?
-      return none if self.lo >= self.hi
-      self.lo += 1
-      if self.hi > 100
+    fun next(!@) -> Int?
+      return none if @lo >= @hi
+      @lo += 1
+      if @hi > 100
         inner = Count(lo: 0, hi: 1)
         for x in !inner
           print("inner", x)
-      self.lo - 1
+      @lo - 1
 
   c = Count(lo: 0, hi: 3)
   for n in !c
@@ -2746,11 +2746,11 @@ test "inline kept calls", release: true, '''
   obj Counter
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
-    sub bump(!self, by: Int)
-      self.n += by
+    sub bump(!@, by: Int)
+      @n += by
 
   print(fact(5))
   print(even(10))
@@ -2787,8 +2787,8 @@ test "inline owned params", release: true, '''
   obj Tag
     name: String
 
-    drop(!self)
-      print("drop", self.name)
+    drop(!@)
+      print("drop", @name)
 
   sub consume(t: Tag)
     print("consume", t.name)
@@ -2853,12 +2853,12 @@ test "kept temporary receiver in place", '''
     n: Int
     t: String
 
-    fun me(?self) -> ?P
-      self
+    fun me(?@) -> ?P
+      @
 
-    fun tick(!self) -> Int
-      !self.c.set(self.c.get() + 1)
-      self.c.get()
+    fun tick(!@) -> Int
+      !@c.set(@c.get() + 1)
+      @c.get()
 
   obj H
     p: P
@@ -2867,11 +2867,11 @@ test "kept temporary receiver in place", '''
   obj S
     t: String
 
-    fun pick(?self, x: Int, y: Int) -> ?String
-      ?self.t
+    fun pick(?@, x: Int, y: Int) -> ?String
+      ?@t
 
-    fun size(?self, x: Int, y: Int) -> Int
-      self.t.len * 100 + x * 10 + y
+    fun size(?@, x: Int, y: Int) -> Int
+      @t.len * 100 + x * 10 + y
 
   fun f(n: Int) -> Int
     n
@@ -2916,8 +2916,8 @@ test "kwarg method", "61"
     w: Int
     h: Int
 
-    fun area(self: ?Rect, scale: Int, extra: Int) -> Int
-      self.w * self.h * scale + extra
+    fun area(?@, scale: Int, extra: Int) -> Int
+      @w * @h * scale + extra
 
   r = Rect(w: 2, h: 3)
   print(r.area(extra: 1, scale: 10))
@@ -3053,33 +3053,33 @@ test "local named like method", '''
   obj O
     v: Int
 
-    fun var(?self) -> Int
-      self.v
+    fun var(?@) -> Int
+      @v
 
-    fun rig(?self) -> Int
-      self.v * 10
+    fun rig(?@) -> Int
+      @v * 10
 
-    fun b(?self) -> Int
-      var = self.v + 1
-      var + self.var()
+    fun b(?@) -> Int
+      var = @v + 1
+      var + @var()
 
-    fun c(?self, rig: Int) -> Int
-      rig + self.rig()
+    fun c(?@, rig: Int) -> Int
+      rig + @rig()
 
-    fun d(?self) -> Int
-      g = |?self|
-        var = self.v + 2
+    fun d(?@) -> Int
+      g = |?@|
+        var = @v + 2
         var
       g()
 
   obj G[T]
     v: T
 
-    fun var(?self) -> Int
+    fun var(?@) -> Int
       1
 
-    fun b(?self, var: Int, u8: Int) -> Int
-      var + u8 + self.var()
+    fun b(?@, var: Int, u8: Int) -> Int
+      var + u8 + @var()
 
   o = O(v: 1)
   print(o.b(), o.c(5), o.d())
@@ -3117,8 +3117,8 @@ test "marker inline large", release: true, '''
   obj Tag
     name: String
 
-    drop(!self)
-      print("drop", self.name)
+    drop(!@)
+      print("drop", @name)
 
   inline fun mix(a: Int, b: Int, k: Int) -> Int
     x = a * 3 + b

@@ -179,8 +179,8 @@ fail "review-step1-p45 grammar", "`w` is a unique `W[Int]`, which can't be copie
   pub obj S unique # comment
     unique: Int
 
-    fun get(?self) -> Int
-      self.unique
+    fun get(?@) -> Int
+      @unique
 
   obj W[T] unique
     item: T
@@ -211,8 +211,8 @@ test "review-step1-round2-q06 made loop rng", '''
   obj Counter
     hits: Cell[Int]
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
 
   for r in [random.Random.seeded(1), random.Random.seeded(2)]
@@ -236,8 +236,8 @@ test "review-step1-round2-q32 lift more", '''
   obj Counter
     hits: Cell[Int]
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   obj P
     x: Int
@@ -354,8 +354,8 @@ fail "review-step10-a01 leaf made coalesce", "a view of the temporary `mko(5) ??
     a: Int
     n: Int
 
-    fun me(?self) -> ?Q
-      self
+    fun me(?@) -> ?Q
+      @
 
   fun mko(k: Int) -> Q?
     if k > 0
@@ -677,11 +677,11 @@ test "review-step10-a28 leaf made branch", "5"
   obj Q
     xs: [4]Int
 
-    fun me(?self) -> ?Q
-      self
+    fun me(?@) -> ?Q
+      @
 
-    fun pick(?self, k: Int, j: Int) -> ?Q
-      self
+    fun pick(?@, k: Int, j: Int) -> ?Q
+      @
 
   fun mkq(k: Int) -> Q
     Q(xs: [k, k, k, k])
@@ -737,7 +737,7 @@ test "review-step10-a31 generic field subject", '''
     .b => print("b")
 
 test "review-step10-a32 q05 in hoisted call", "5"
-  # q05 class: `mkq(5).me()`, a `?self` method on a made value no slot
+  # q05 class: `mkq(5).me()`, a `?@` method on a made value no slot
   # keeps, takes `&` of a Zig rvalue. As an argument of a hoisted call
   # (keyword arguments out of order) the rvalue is made inside the call's
   # block `__rig_call_N`, and the call's result, a view of it, is read
@@ -745,8 +745,8 @@ test "review-step10-a32 q05 in hoisted call", "5"
   obj Q
     xs: [4]Int
 
-    fun me(?self) -> ?Q
-      self
+    fun me(?@) -> ?Q
+      @
 
   fun mkq(k: Int) -> Q
     Q(xs: [k, k, k, k])
@@ -766,8 +766,8 @@ test "review-step10-a33 q05 two blocks", "56"
   obj Q
     xs: [4]Int
 
-    fun me(?self) -> ?Q
-      self
+    fun me(?@) -> ?Q
+      @
 
   fun mkq(k: Int) -> Q
     Q(xs: [k, k, k, k])
@@ -829,8 +829,8 @@ fail "review-step10-a36b v014 form", "cannot return a view of `mk(42)`, which th
     n: Int
     m: Int
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
   fun mk(k: Int) -> S
     S(n: k, m: 6)
@@ -1567,10 +1567,10 @@ fail "review-step2-p1-h1", "cannot lend `a` to write while the receiver's read o
   obj P
     v: List[Int]
 
-    fun peek(?self, other: !P) -> Int
+    fun peek(?@, other: !P) -> Int
       for i in 0..100
         !other.v.push(i)
-      self.v[0]
+      @v[0]
 
   fun mk(k: Int) -> P
     v: List[Int] = List()
@@ -1635,10 +1635,10 @@ fail "review-step2-p1-h8", "cannot lend `a` to write while a read loan is live"
   obj P
     v: List[Int]
 
-    fun peek(?self, other: !P) -> Int
+    fun peek(?@, other: !P) -> Int
       for i in 0..100
         !other.v.push(i)
-      self.v[0]
+      @v[0]
 
   v: List[Int] = List()
   !v.push(1)
@@ -1670,8 +1670,8 @@ test "review-step3-a01 temp conditional", '''
   obj Bag
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun size(b: ?Bag) -> Int
     b.n
@@ -1707,8 +1707,8 @@ test "review-step3-a02 temp while", '''
   obj Bag
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun size(b: ?Bag) -> Int
     b.n
@@ -1737,8 +1737,8 @@ test "review-step3-a05 temp guard", '''
   obj Bag
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     a(n: Int)
@@ -1779,8 +1779,8 @@ test "review-step3-a06b", '''
   obj Bag
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun two(a: ?Bag, b: ?Bag) -> Int
     a.n * 10 + b.n
@@ -1815,11 +1815,11 @@ test "review-step3-a08 receiver temp", '''
   obj Bag
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
-    fun plus(?self, o: ?Bag) -> Int
-      self.n + o.n
+    fun plus(?@, o: ?Bag) -> Int
+      @n + o.n
 
   fun mk(n: Int) -> Bag
     Bag(n: n)
@@ -1861,8 +1861,8 @@ test "review-step3-a09 temp positions", '''
   obj Bag
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   error Bad
     boom
@@ -1973,8 +1973,8 @@ test "review-step3-d02 ifas local drop", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   o: Res? = Res(n: 1)
   if o as x
@@ -1993,8 +1993,8 @@ test "review-step3-d03 match local drop", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     a(r: Res)
@@ -2159,8 +2159,8 @@ test "review-step3-l03 opt temp", '''
     n: Int
     t: String
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun maybe(s: (?S)?) -> Int
     if s as x

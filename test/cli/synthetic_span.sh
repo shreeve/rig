@@ -9,8 +9,8 @@ cat >padded.rig <<'EOF2'
 obj Gone
   n: Int
 
-  drop(!self)
-    print("drop", self.n)
+  drop(!@)
+    print("drop", @n)
 
 sub each(f: ?sub(Int, Gone))
   f(1, Gone(n: 2))

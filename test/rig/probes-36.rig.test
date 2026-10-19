@@ -5,8 +5,8 @@ use std.text
 fail "review-take-p53", "cannot lend `s.a` to write while a read loan on `s` is live"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -21,8 +21,8 @@ fail "review-take-p53", "cannot lend `s.a` to write while a read loan on `s` is 
 fail "review-take-p54", "cannot lend `s.a` to write while a write loan on `s` is live"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -44,23 +44,23 @@ test "review-take-p55", '''
   obj Stack
     top: ^Node?
 
-    sub push(!self, v: Int)
-      self.top = ^Node(value: v, next: <self.top)
+    sub push(!@, v: Int)
+      @top = ^Node(value: v, next: <@top)
 
-    fun pop(!self) -> Int?
-      if <self.top as n
-        self.top = <n.next
+    fun pop(!@) -> Int?
+      if <@top as n
+        @top = <n.next
         return n.value
       none
 
-    sub reverse(!self)
-      cur = <self.top
+    sub reverse(!@)
+      cur = <@top
       prev: ^Node? = none
       while <cur as n
         cur = <n.next
         n.next = <prev
         prev = <n
-      self.top = <prev
+      @top = <prev
 
   s = Stack(top: none)
   i = 0
@@ -76,8 +76,8 @@ test "review-take-p55", '''
 fail "review-take-p56", "use of `cur` after move"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   cur: R? = R(n: 1)
   while <cur as n
@@ -95,8 +95,8 @@ test "review-take-p57", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -130,12 +130,12 @@ test "review-take-p61", "P(a: 2, b: 1) 3"
     a: Int
     b: Int
 
-    sub swap(!self)
-      t = self.a
-      self.a = self.b
-      self.b = t
+    sub swap(!@)
+      t = @a
+      @a = @b
+      @b = t
 
-    fun replace(?self, v: Int) -> Int
+    fun replace(?@, v: Int) -> Int
       v
 
   p = P(a: 1, b: 2)
@@ -155,8 +155,8 @@ test "review-take-p71", '''
     left: ^Tree?
     right: ^Tree?
 
-    drop(!self)
-      print("drop", self.key)
+    drop(!@)
+      print("drop", @key)
 
   fun leaf(k: Int) -> ^Tree?
     ^Tree(key: k, left: none, right: none)
@@ -181,8 +181,8 @@ test "review-take-p71", '''
 fail "review-take-p72", "cannot take out of `o?.a`: `o?` reads a binding where it stands, and `<` takes only out of a place"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -258,8 +258,8 @@ test "review-take-p85", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -282,8 +282,8 @@ test "review-take-p87", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: *R?
@@ -327,8 +327,8 @@ test "review-take-p88", '''
 fail "review-take-p89", "cannot lend `v` to write while a write loan is live: to swap two elements of `v`, write `!v.swap(0, 1)`"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[*R?] = List()
   !v.push(*R(n: 1))
@@ -350,8 +350,8 @@ test "review-take-p91", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   b: List[*R] = List()
   !b.push(*R(n: 2))
@@ -370,8 +370,8 @@ test "review-take-p93", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub put(r: !R)
     old = replace(!r, R(n: 9))
@@ -394,15 +394,15 @@ test "review-take-p94", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
     b: R?
 
-    fun into2(<self) -> R?
-      s = <self
+    fun into2(<@) -> R?
+      s = <@
       <s.a
 
   s = S(a: R(n: 1), b: R(n: 2))
@@ -441,8 +441,8 @@ test "review-take-p98", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -559,8 +559,8 @@ test "review-text-wa", "Ann [1]"
     name: ?String
     tags: List[Int]
 
-    fun label(?self) -> ?String
-      self.name
+    fun label(?@) -> ?String
+      @name
 
   p = Person(name: "Ann", tags: List())
   l = ?p.label()
@@ -597,11 +597,11 @@ test "review-text-wd", '''
   obj Reg
     names: List[?String]
 
-    sub add(!self, n: ?String) keeps n
-      !self.names.push(n)
+    sub add(!@, n: ?String) keeps n
+      !@names.push(n)
 
-    fun first(?self) -> ?String
-      self.names[0]
+    fun first(?@) -> ?String
+      @names[0]
 
   r = Reg(names: List())
   !r.add("x")
@@ -621,8 +621,8 @@ test "review-text2-a1", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun mk(i: Int) -> N
     N(id: i)
@@ -675,8 +675,8 @@ test "review-text2-a2", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   error Bad
     no
@@ -733,8 +733,8 @@ test "review-text2-a3", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun mk(i: Int) -> N
     N(id: i)
@@ -767,8 +767,8 @@ test "review-text2-a5", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun mk[T](x: T) -> T
     x
@@ -808,8 +808,8 @@ test "review-text2-d1", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun maybe(i: Int) -> N?
     if i > 0
@@ -901,8 +901,8 @@ test "review-text2-s1", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   enum M
     a(n: N)
@@ -932,8 +932,8 @@ test "review-text2-t8", '''
     id: Int
     v: List[Int]
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   enum M
     a(n: Int)
@@ -954,8 +954,8 @@ fail "review-text2-t9", "`a` owns an `N`, which can't be copied by `=`: write `<
     id: Int
     v: List[Int]
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   a = N(id: 1, v: List())
   b = N(id: 2, v: List())
@@ -966,8 +966,8 @@ fail "review-text3-b1", "`s` is bound but never read; name it `_` to ignore the 
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   enum M
     a(n: N, s: ?String)
@@ -994,8 +994,8 @@ test "review-text3-b10", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   enum M
     a(n: N)
@@ -1024,8 +1024,8 @@ test "review-text3-b11", '''
     id: Int
     t: String
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   enum M
     a(n: N, s: ?String, r: ?String)
@@ -1052,8 +1052,8 @@ test "review-text3-b3", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   enum Inner
     x(n: N)
@@ -1082,8 +1082,8 @@ test "review-text3-b4", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun mk() -> N?
     N(id: 1)
@@ -1103,8 +1103,8 @@ test "review-text3-b5", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   enum M
     a(n: N)
@@ -1159,8 +1159,8 @@ test "review-text3-d8", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun mk() -> N
     N(id: 9)
@@ -1176,8 +1176,8 @@ fail "review-text3-e7", "a view of the temporary `maybe(1) ?? N(id: 4, t: String
     id: Int
     t: String
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun maybe(k: Int) -> N?
     N(id: k, t: String("aaaa")) if k > 0 else none
@@ -1208,8 +1208,8 @@ fail "review-text3-f3", "cannot lend `b` to write while a read loan is live"
 fail "review-text4-a3", "`n` owns an `N`, which can't be copied into a counted handle: write `<n` to move it"
   obj N
     id: Int
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   n = N(id: 1)
   print(*n)
@@ -1218,8 +1218,8 @@ fail "review-text4-a3", "`n` owns an `N`, which can't be copied into a counted h
 fail "review-text4-e6", "`h` is a `*N` handle, which can't be copied into an argument: write `<h` to move it or `+h` for another handle"
   obj N
     id: Int
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   obj P
     a: *N
@@ -1247,8 +1247,8 @@ test "review-text4-q1", '''
 '''
   obj N
     id: Int
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun mo(k: Int) -> N?
     N(id: k) if k > 0 else none
@@ -1279,8 +1279,8 @@ test "review-text4-q2", '''
 '''
   obj N
     id: Int
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun mo(k: Int) -> N?
     N(id: k) if k > 0 else none
@@ -1371,8 +1371,8 @@ test "review-while-step-2-gen2-matchvalue-catchbreak-catchbreak", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(v: ?List[Int], i: Int) -> S?
     if i < 4
@@ -1496,8 +1496,8 @@ test "review-while-step-2-gen2-matchvalue-catchbreak-plain", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(v: ?List[Int], i: Int) -> S?
     if i < 4
@@ -1621,8 +1621,8 @@ test "review-while-step-2-gen2-matchvalue-catchnone-catchbreak", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(v: ?List[Int], i: Int) -> S?
     if i < 4
@@ -1746,8 +1746,8 @@ test "review-while-step-2-gen2-matchvalue-catchnone-plain", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(v: ?List[Int], i: Int) -> S?
     if i < 4
@@ -1871,8 +1871,8 @@ test "review-while-step-2-gen2-matchvalue-plain-catchbreak", '''
 
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(v: ?List[Int], i: Int) -> S?
     if i < 4

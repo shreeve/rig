@@ -24,84 +24,84 @@ pub obj BigInt
   # leading zeros: `0` for zero. Allocates the String, and for more than
   # 8 limbs (about 154 digits) a copy of the limbs and a List of the
   # 19-digit groups.
-  pub fun text(?self) -> String
-    n = self.limbs.len
+  pub fun text(?@) -> String
+    n = @limbs.len
     out = String()
     if n <= 1
-      v = self.limbs[0] if n == 1 else U64(0)
+      v = @limbs[0] if n == 1 else U64(0)
       !out.reserve(21)
-      !out.push(45) if self.neg
+      !out.push(45) if @neg
       push_u64(!out, v)
       return out
     if n <= 8
       q = [8 of U64(0)]
       groups = [10 of U64(0)]
-      !q[..n].copy(?self.limbs)
+      !q[..n].copy(?@limbs)
       g = to_groups(!q[..n], !groups)
-      write_groups(!out, self.neg, ?groups[..g])
+      write_groups(!out, @neg, ?groups[..g])
       return out
-    q: List[U64] = +self.limbs
+    q: List[U64] = +@limbs
     groups: List[U64] = List.filled(n * 64 / 63 + 1, U64(0))
     g = to_groups(!q, !groups)
-    write_groups(!out, self.neg, ?groups[..g])
+    write_groups(!out, @neg, ?groups[..g])
     out
 
   # A new BigInt of the same number, which `+x` would make if it
   # cloned a type from another module. Allocates its limbs.
-  pub fun clone(?self) -> BigInt
-    BigInt(neg: self.neg, limbs: +self.limbs)
+  pub fun clone(?@) -> BigInt
+    BigInt(neg: @neg, limbs: +@limbs)
 
   # -1, 0, or 1: whether this number is below, equal to, or above
   # `other`.
-  pub fun compare(?self, other: ?BigInt) -> Int
-    if self.neg != other.neg
-      return -1 if self.neg else 1
-    c = compare_limbs(self.limbs, other.limbs)
-    -c if self.neg else c
+  pub fun compare(?@, other: ?BigInt) -> Int
+    if @neg != other.neg
+      return -1 if @neg else 1
+    c = compare_limbs(@limbs, other.limbs)
+    -c if @neg else c
 
   # Whether this number equals `other`.
-  pub fun equals(?self, other: ?BigInt) -> Bool
-    self.neg == other.neg and compare_limbs(self.limbs, other.limbs) == 0
+  pub fun equals(?@, other: ?BigInt) -> Bool
+    @neg == other.neg and compare_limbs(@limbs, other.limbs) == 0
 
   # -1, 0, or 1: the sign of the number.
-  pub fun sign(?self) -> Int
-    if self.limbs.len == 0
+  pub fun sign(?@) -> Int
+    if @limbs.len == 0
       return 0
-    -1 if self.neg else 1
+    -1 if @neg else 1
 
   # The bits of the magnitude, without leading zeros: 0 for zero, 64 for
   # 2^63.
-  pub fun bit_len(?self) -> Int
-    n = self.limbs.len
+  pub fun bit_len(?@) -> Int
+    n = @limbs.len
     if n == 0
       return 0
-    n * 64 - self.limbs[n - 1].leading_zeros()
+    n * 64 - @limbs[n - 1].leading_zeros()
 
   # The sum. Allocates the result.
-  pub fun add(?self, other: ?BigInt) -> BigInt
-    signed(self.neg, other.neg, self.limbs, other.limbs)
+  pub fun add(?@, other: ?BigInt) -> BigInt
+    signed(@neg, other.neg, @limbs, other.limbs)
 
   # The difference, this number less `other`. Allocates the result.
-  pub fun sub(?self, other: ?BigInt) -> BigInt
-    signed(self.neg, not other.neg, self.limbs, other.limbs)
+  pub fun sub(?@, other: ?BigInt) -> BigInt
+    signed(@neg, not other.neg, @limbs, other.limbs)
 
   # The product. Allocates the result.
-  pub fun mul(?self, other: ?BigInt) -> BigInt
-    x = ?self.limbs[..]
+  pub fun mul(?@, other: ?BigInt) -> BigInt
+    x = ?@limbs[..]
     y = ?other.limbs[..]
     if x.len == 0 or y.len == 0
       return zero()
     z = List.filled(x.len + y.len, U64(0))
     mul_into(!z, x, y)
     trim(!z)
-    BigInt(neg: self.neg != other.neg, limbs: <z)
+    BigInt(neg: @neg != other.neg, limbs: <z)
 
   # This number times 2^n, as `<<` shifts. Panics when `n` is negative.
   # Allocates the result.
-  pub fun shl(?self, n: Int) -> BigInt
+  pub fun shl(?@, n: Int) -> BigInt
     if n < 0
       negative_shift("bigint.shl")
-    x = ?self.limbs[..]
+    x = ?@limbs[..]
     if x.len == 0
       return zero()
     q = n / 64
@@ -118,22 +118,22 @@ pub obj BigInt
         !z.push((v <<% r) | up)
         up = v >> (64 - r)
       !z.push(up) if up != 0
-    BigInt(neg: self.neg, limbs: <z)
+    BigInt(neg: @neg, limbs: <z)
 
   # This number divided by 2^n, rounded down, as `>>` shifts: toward
   # minus infinity, so a negative number stays negative, -1 at the least.
   # Panics when `n` is negative. Allocates the result.
-  pub fun shr(?self, n: Int) -> BigInt
+  pub fun shr(?@, n: Int) -> BigInt
     if n < 0
       negative_shift("bigint.shr")
-    x = ?self.limbs[..]
+    x = ?@limbs[..]
     q = n / 64
     r = n % 64
     if q >= x.len
-      return from_int(-1 if self.neg else 0)
+      return from_int(-1 if @neg else 0)
     # The limbs of `x` from `q` up, shifted down `r` bits. Only the top
     # one can come out zero, as `x` is normalized.
-    z: List[U64] = List(capacity: x.len - q + (1 if self.neg else 0))
+    z: List[U64] = List(capacity: x.len - q + (1 if @neg else 0))
     if r == 0
       for v in x[q..]
         !z.push(v)
@@ -145,7 +145,7 @@ pub obj BigInt
         !z.push((low >> r) | (v <<% (64 - r)))
         low = v
       !z.push(low >> r) if low >> r != 0
-    if self.neg
+    if @neg
       # A bit shifted out that is set rounds the result down.
       lost = r != 0 and x[q] <<% (64 - r) != 0
       i = 0
@@ -154,16 +154,16 @@ pub obj BigInt
       if lost
         c = add_small(!z, 1)
         !z.push(c) if c != 0
-    BigInt(neg: self.neg, limbs: <z)
+    BigInt(neg: @neg, limbs: <z)
 
   # This number to the power `e`; 1 when `e` is 0, also for zero. Panics
   # when `e` is negative. Allocates the result, and while it computes
   # one more List of the result's size.
-  pub fun pow(?self, e: Int) -> BigInt
+  pub fun pow(?@, e: Int) -> BigInt
     if e < 0
       negative_power()
-    neg = self.neg and e % 2 == 1
-    x = ?self.limbs[..]
+    neg = @neg and e % 2 == 1
+    x = ?@limbs[..]
     if e == 0
       return from_int(1)
     if x.len == 0
@@ -175,7 +175,7 @@ pub obj BigInt
       one = from_int(-1 if neg else 1)
       return one.shl(p)
     # Room for the result and one limb more, which a product's slot has.
-    room = (self.bit_len() * e) / 64 + 2
+    room = (@bit_len() * e) / 64 + 2
     z: List[U64] = List(capacity: room)
     for v in x
       !z.push(v)
@@ -204,8 +204,8 @@ pub obj BigInt
   # The Float nearest this number, ties to even, as Go's `Float64` and
   # JavaScript's `Number` round: an infinity when the number is too
   # large for one.
-  pub fun to_f64(?self) -> Float
-    x = ?self.limbs[..]
+  pub fun to_f64(?@) -> Float
+    x = ?@limbs[..]
     n = x.len
     if n == 0
       return 0.0
@@ -226,7 +226,7 @@ pub obj BigInt
         f = Float.inf()
       else
         f = Float(hi | U64(1) if below else hi) * Float.from_bits(U64(e + 1023) << 52)
-    -f if self.neg else f
+    -f if @neg else f
 
 # The BigInt of `n`. Allocates one limb unless `n` is 0.
 pub fun from_int(n: Int) -> BigInt

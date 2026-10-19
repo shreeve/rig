@@ -39,7 +39,7 @@ def variants(n, p):
 
 
 def methods(n, p):
-    s = ["obj O\n  v: Int\n"] + [f"  fun m{k}(?self) -> Int\n    self.v + {k}\n" for k in range(n)]
+    s = ["obj O\n  v: Int\n"] + [f"  fun m{k}(?@) -> Int\n    @v + {k}\n" for k in range(n)]
     s.append("pub sub run()\n  o = O(v: 1)\n  t = 0")
     s += [f"  t += o.m{k}()" for k in range(n)]
     s.append("  print(t)\n")
@@ -64,7 +64,7 @@ def lists(n, p):
 
 
 def generics(n, p):
-    s = ["obj Box[T]\n  v: T\n\n  fun get(?self) -> ?T\n    ?self.v\n"]
+    s = ["obj Box[T]\n  v: T\n\n  fun get(?@) -> ?T\n    ?@v\n"]
     s += [f"obj T{k}\n  v: Int\n" for k in range(n)]
     s.append("pub sub run()\n  t = 0")
     s += [f"  b{k} = Box[T{k}](v: T{k}(v: {k}))\n  t += b{k}.get().v" for k in range(n)]

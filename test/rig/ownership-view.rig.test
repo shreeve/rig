@@ -8,7 +8,7 @@ fail "view chain through long loop", "cannot drop `b` while it is lent"
   obj Wrap
     payload: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   a = Wrap(payload: 1)

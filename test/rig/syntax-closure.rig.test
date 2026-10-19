@@ -254,8 +254,8 @@ test "closure fewer params owned", '''
   obj F
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub feed(f: ?sub(F, F))
     f(F(n: 1), F(n: 2))
@@ -394,8 +394,8 @@ test "closure no value tail", '''
   obj F
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub each(f: ?sub(Int))
     f(1)

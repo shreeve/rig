@@ -935,7 +935,14 @@ pub const Emitter = struct {
             if (local.kind == .value or local.kind == .optional) {
                 local.param_name = try self.fmt("__rig_arg_{d}", .{self.nextId()});
             } else if (inlined and !unused) {
-                local.param_name = try self.fmt("__rig_in_{s}", .{rig_name});
+                // The receiver, `@`, comes in as `__rig_in_self`, so a
+                // parameter named `self` takes a number.
+                local.param_name = if (std.mem.eql(u8, rig_name, "@"))
+                    "__rig_in_self"
+                else if (std.mem.eql(u8, rig_name, "self"))
+                    try self.fmt("__rig_in_{d}", .{self.nextId()})
+                else
+                    try self.fmt("__rig_in_{s}", .{rig_name});
                 local.launder = true;
             }
             _ = try self.declare(local, rig_name);
@@ -954,7 +961,7 @@ pub const Emitter = struct {
 
     /// A method's receiver: `?self`, `!self`, or `self: T`.
     fn isReceiverParam(self: *Emitter, p: Sexp) bool {
-        return std.mem.eql(u8, facts.syntax.paramName(self.source, p) orelse "", "self");
+        return std.mem.eql(u8, facts.syntax.paramName(self.source, p) orelse "", "@");
     }
 
     /// Statements at the top of a function body: the cold hint of a
@@ -7439,12 +7446,12 @@ pub const Emitter = struct {
         var uses_env = false;
         for (caps) |c| {
             try self.writeIndent(self.indent);
-            try self.w.print("cap_{s}: ", .{c.name});
+            try self.w.print("{s}: ", .{try self.capField(c.name)});
             try self.emitTypeTy(c.ty);
             try self.w.writeAll(",\n");
             uses_env = uses_env or self.usage.used.contains(c.sym);
             // Inside the body, a capture is a field of the environment.
-            _ = try self.declare(.{ .sym = c.sym, .zig_name = try self.fmt("{s}.cap_{s}", .{ env, c.name }), .ty = c.ty }, c.name);
+            _ = try self.declare(.{ .sym = c.sym, .zig_name = try self.fmt("{s}.{s}", .{ env, try self.capField(c.name) }), .ty = c.ty }, c.name);
         }
         try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
@@ -7469,13 +7476,22 @@ pub const Emitter = struct {
         try self.closeBrace();
     }
 
+    /// The field of a closure's environment that holds capture `name`:
+    /// `cap_x`. The receiver, `@`, is `cap_self`, so a capture named
+    /// `self` is `cap_self'`, as `writeZigIdent` renames it.
+    fn capField(self: *Emitter, name: []const u8) Error![]const u8 {
+        if (std.mem.eql(u8, name, "@")) return "cap_self";
+        if (std.mem.eql(u8, name, "self")) return "@\"cap_self'\"";
+        return self.fmt("cap_{s}", .{name});
+    }
+
     /// `{ .cap_x = init, ... }` evaluated where the closure is created.
     fn emitCaptureInit(self: *Emitter, caps: []const Capture) Error!void {
         if (caps.len == 0) return self.w.writeAll("{}");
         try self.w.writeAll("{");
         for (caps, 0..) |c, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
-            try self.w.print(".cap_{s} = ", .{c.name});
+            try self.w.print(".{s} = ", .{try self.capField(c.name)});
             const outer = c.outer orelse return self.unsupported(c.node, "a capture of a name that is not a local");
             switch (c.mode) {
                 .cap_clone => try self.writeCloneCapture(&outer, c.node),

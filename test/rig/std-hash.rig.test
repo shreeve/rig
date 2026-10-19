@@ -24,42 +24,42 @@ test "hash churn", '''
     pairs: List[Pair] = List()
     len: Int = 0
 
-    fun find(?self, k: Int) -> Int?
-      for p, i in ?self.pairs
+    fun find(?@, k: Int) -> Int?
+      for p, i in ?@pairs
         return i if p.live and p.key == k
       none
 
-    sub put(!self, k: Int, v: Int)
-      if self.find(k) as i
-        self.pairs[i].value = v
+    sub put(!@, k: Int, v: Int)
+      if @find(k) as i
+        @pairs[i].value = v
       else
-        !self.pairs.push(Pair(key: k, value: v, live: true))
-        self.len += 1
+        !@pairs.push(Pair(key: k, value: v, live: true))
+        @len += 1
 
-    fun take(!self, k: Int) -> Int?
-      if self.find(k) as i
-        self.pairs[i].live = false
-        self.len -= 1
-        return self.pairs[i].value
+    fun take(!@, k: Int) -> Int?
+      if @find(k) as i
+        @pairs[i].live = false
+        @len -= 1
+        return @pairs[i].value
       none
 
-    sub bump(!self, k: Int)
-      if self.find(k) as i
-        self.pairs[i].value += 1
+    sub bump(!@, k: Int)
+      if @find(k) as i
+        @pairs[i].value += 1
 
-    sub clear(!self)
-      !self.pairs.clear()
-      self.len = 0
+    sub clear(!@)
+      !@pairs.clear()
+      @len = 0
 
     # Keep the live pairs `kept_after` is true for, each value first
     # raised by `raise`, as a `retain` raises it.
-    sub retain(!self, raise: Int)
+    sub retain(!@, raise: Int)
       kept: List[Pair] = List()
-      for p in ?self.pairs
+      for p in ?@pairs
         if p.live and kept_after(p.key, p.value + raise)
           !kept.push(Pair(key: p.key, value: p.value + raise, live: true))
-      self.len = kept.len
-      self.pairs = <kept
+      @len = kept.len
+      @pairs = <kept
 
   fun kept_after(k: Int, v: Int) -> Bool
     (k / 1024 + v) % 3 != 0
@@ -71,9 +71,9 @@ test "hash churn", '''
   obj Rand
     s: U64
 
-    fun next(!self, n: Int) -> Int
-      self.s = self.s *% 6364136223846793005 +% 1442695040888963407
-      Int((self.s >> 33) % U64(n))
+    fun next(!@, n: Int) -> Int
+      @s = @s *% 6364136223846793005 +% 1442695040888963407
+      Int((@s >> 33) % U64(n))
 
   fun agree(m: ?hash.Map[Int, Int], ref: ?Model, span: Int) -> Bool
     return false if m.len != ref.len
@@ -214,7 +214,7 @@ test "hash ensure chain", "[5, 6] 1"
   print(b.get(1), b.len)
 
 fail "hash ensure keeps lent", "use of `m.len` while a write loan on `m` is live"
-  # The write view `ensure` returns is `from self`: it keeps the Map lent
+  # The write view `ensure` returns is `from @`: it keeps the Map lent
   # to write, so the Map cannot be read or written while the view lives.
 
 
@@ -281,7 +281,7 @@ fail "hash ensure with no map", "cannot lend `m` to write while a read loan is l
   v += 1
 
 fail "hash get keeps lent", "cannot lend `m` to write while a read loan is live"
-  # The view `get` returns is `from self`: it keeps the Map lent to read,
+  # The view `get` returns is `from @`: it keeps the Map lent to read,
   # so the Map cannot be written while the view lives.
 
 
@@ -576,8 +576,8 @@ test "hash write drops", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(k: ?Int) -> Res
     print("make", k)
@@ -648,8 +648,8 @@ test "hash writes", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   words = ["to", "be", "or", "not", "to", "be", "to"]
 

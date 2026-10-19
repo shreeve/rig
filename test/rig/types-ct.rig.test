@@ -280,16 +280,16 @@ fail "ct call diagnostics", "16:7: generic parameter `List` has the name of a bu
   obj S
     k: Int
 
-    sub put[n: Int](?self)
-      print(self.k * n)
+    sub put[n: Int](?@)
+      print(@k * n)
 
-    fun gen[T](?self, x: T) -> T
+    fun gen[T](?@, x: T) -> T
       <x
 
   obj Wrap[T]
     v: T
 
-    fun m[T](?self, x: T) -> T
+    fun m[T](?@, x: T) -> T
       x
 
   show(3)
@@ -434,8 +434,8 @@ fail "ct param value types is rejected", "19:10: compile-time parameter `o` cann
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj P
     x: Int

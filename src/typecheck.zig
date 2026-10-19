@@ -2039,8 +2039,8 @@ const Checker = struct {
             .param => if (poison) {
                 return false;
             } else if (!writes) {
-                if (std.mem.eql(u8, name, "self")) {
-                    try self.err(pos, "cannot {s} parameter `self`{s}; parameters are immutable (take `!self` to write through to the caller)", .{ verb.head, verb.tail });
+                if (std.mem.eql(u8, name, "@")) {
+                    try self.err(pos, "cannot {s} the receiver `@`{s}; parameters are immutable (take `!@` to write through to the caller)", .{ verb.head, verb.tail });
                 } else try self.err(pos, "cannot {s} parameter `{s}`{s}; parameters are immutable (bind a copy with `new {s} = {s}`, or take `{s}: !{s}` to write through to the caller)", .{ verb.head, name, verb.tail, name, name, name, try self.tyName(sema.unwrapViews(self.ctx, sym.ty)) });
                 return false;
             },
@@ -2282,7 +2282,7 @@ const Checker = struct {
     /// value is used (`usesValue`).
     fn writeCall(self: *Checker, recv: Sexp, place: []const u8, method: []const u8, returns: TypeId) Error![]const u8 {
         const a = self.ctx.arena.allocator();
-        return if (self.usesValue(recv, returns)) a.print("(!{s}).{s}", .{ place, method }) else a.print("!{s}.{s}", .{ place, method });
+        return if (self.usesValue(recv, returns)) a.print("(!{s}).{s}", .{ place, method }) else a.print("!{s}", .{try sema.memberText(a, place, method)});
     }
 
     /// The whole write call a hint writes for `method` on `recv`, as
@@ -2713,7 +2713,7 @@ const Checker = struct {
     /// (docs/INTERNALS.md, "Loops over an iterator"). A positive list: a
     /// struct or enum the program declares, or a std one (not a `List`, an
     /// array, a slice, a `?String`, or a range, which keep their own
-    /// meaning), that declares `next(!self) -> T?`. A type with a `next`
+    /// meaning), that declares `next(!@) -> T?`. A type with a `next`
     /// of another shape is `.malformed`, so the mistake is reported where
     /// the loop is.
     const IterShape = union(enum) { not_iterator, malformed: []const u8, iterator };
@@ -2727,11 +2727,11 @@ const Checker = struct {
         }
         const next = (try self.findMethod(peeled, "next")) orelse return .not_iterator;
         if (next.field.receiver != .write) return .{ .malformed = switch (next.field.receiver) {
-            .read => "takes `?self`",
-            .value => "takes `<self`",
-            else => "takes no `self`",
+            .read => "takes `?@`",
+            .value => "takes `<@`",
+            else => "takes no receiver `@`",
         } };
-        if (next.fn_ty.params.len != 1) return .{ .malformed = "takes more than `self`" };
+        if (next.fn_ty.params.len != 1) return .{ .malformed = "takes more than `@`" };
         if (self.ctx.types.get(next.fn_ty.returns) != .optional) return .{ .malformed = "does not give an optional" };
         return .iterator;
     }
@@ -2782,7 +2782,7 @@ const Checker = struct {
         switch (try self.iteratorShape(source_ty)) {
             .not_iterator => return false,
             .malformed => |why| {
-                try self.errAt(source, "cannot iterate over `{s}`: a `for` walks a type with `next(!self) -> T?`, but its `next` {s}", .{ try self.tyName(source_ty), why });
+                try self.errAt(source, "cannot iterate over `{s}`: a `for` walks a type with `next(!@) -> T?`, but its `next` {s}", .{ try self.tyName(source_ty), why });
                 return true;
             },
             .iterator => {},
@@ -3094,7 +3094,7 @@ const Checker = struct {
             return self.byteType();
         }
         const text_hint = if (sema.unwrapViews(self.ctx, source_ty) == self.t().string_id) "; walk a String's bytes through its `?String` view: `for b in ?t`" else "";
-        try self.err(pos, "cannot iterate over `{s}`; a `for` source must be a range `a..b`, an array, a `?String`, a `List`, or an iterator (a type with `next(!self) -> T?`){s}", .{ try self.tyName(source_ty), text_hint });
+        try self.err(pos, "cannot iterate over `{s}`; a `for` source must be a range `a..b`, an array, a `?String`, a `List`, or an iterator (a type with `next(!@) -> T?`){s}", .{ try self.tyName(source_ty), text_hint });
         return self.t().invalid_id;
     }
 
@@ -4312,18 +4312,18 @@ const Checker = struct {
         // Inside a type's methods, a field or method is reached through
         // the receiver.
         if (!self.nominal.isEmpty()) {
-            const has_self = self.lookupAt(self.scope, "self", leaf.src.pos) != null;
+            const has_self = self.lookupAt(self.scope, "@", leaf.src.pos) != null;
             const method = self.body.name;
-            if (std.mem.eql(u8, name, "self") and method != .nil) {
-                try self.errAt(leaf, "use of unbound name `self`; `{s}` declares no receiver: write `{s} {s}(?self)`, `(!self)`, or `(<self)`", .{ self.text(method), if (self.body.is_sub) "sub" else "fun", self.text(method) });
+            if (std.mem.eql(u8, name, "@") and method != .nil) {
+                try self.errAt(leaf, "`{s}` declares no receiver `@`: write `{s} {s}(?@)`, `(!@)`, or `(<@)`", .{ self.text(method), if (self.body.is_sub) "sub" else "fun", self.text(method) });
                 return null;
             }
             if (self.ctx.symbols.items[self.nominal.sym].fields) |members| for (members) |m| {
                 if (m.is_variant or !std.mem.eql(u8, m.name, name)) continue;
                 const call: []const u8 = if (m.is_method) "(...)" else "";
                 if (has_self) {
-                    try self.errAt(leaf, "use of unbound name `{s}`; did you mean `self.{s}{s}`?", .{ name, name, call });
-                } else try self.errAt(leaf, "use of unbound name `{s}`; `{s}` is a member of `{s}`, reached through a receiver: declare `(?self)` and write `self.{s}{s}`", .{ name, name, self.ctx.symbols.items[self.nominal.sym].name, name, call });
+                    try self.errAt(leaf, "use of unbound name `{s}`; did you mean `@{s}{s}`?", .{ name, name, call });
+                } else try self.errAt(leaf, "use of unbound name `{s}`; `{s}` is a member of `{s}`, reached through a receiver: declare `(?@)` and write `@{s}{s}`", .{ name, name, self.ctx.symbols.items[self.nominal.sym].name, name, call });
                 return null;
             };
         }
@@ -4369,8 +4369,8 @@ const Checker = struct {
             .{ "NULL", "; Rig's absent value is `none`" },
             .{ "True", "; Rig writes `true`" },
             .{ "False", "; Rig writes `false`" },
-            .{ "this", "; a method's receiver is `self`, declared as `(?self)`, `(!self)`, or `(<self)`" },
-            .{ "self", "; `self` is the receiver of a method that declares one: `(?self)`, `(!self)`, or `(<self)`" },
+            .{ "this", "; a method's receiver is `@`, declared as `(?@)`, `(!@)`, or `(<@)`" },
+            .{ "@", "; `@` is the receiver of a method that declares one: `(?@)`, `(!@)`, or `(<@)`" },
             .{ "len", "; a length is a member: `x.len`" },
             .{ "println", "; Rig prints a line with `print(...)`" },
             .{ "puts", "; Rig prints a line with `print(...)`" },
@@ -7453,7 +7453,7 @@ const Checker = struct {
         if (callee.isKind(.member)) {
             const obj = ir.Member.object(callee);
             const name = self.text(ir.Member.name(callee));
-            if (obj == .src) return self.ctx.arena.allocator().print("{s}.{s}", .{ self.text(obj), name });
+            if (obj == .src) return sema.memberText(self.ctx.arena.allocator(), self.text(obj), name);
             return name;
         }
         return "expression";
@@ -10313,12 +10313,12 @@ const Checker = struct {
                     else => sema.type_invalid,
                 };
                 if (inner != sema.type_invalid and (sema.ownedClosureFn(self.ctx, inner) != null or self.ctx.types.get(inner) == .function)) {
-                    try self.err(pos, "field `{s}` holds an optional function, `{s}`: take the function out first, `if {s}.{s} as g`, then call `g(...)`", .{ method, try self.tyName(ty), try self.plainText(stripSigil(obj)), method });
+                    try self.err(pos, "field `{s}` holds an optional function, `{s}`: take the function out first, `if {s} as g`, then call `g(...)`", .{ method, try self.tyName(ty), try sema.memberText(self.ctx.arena.allocator(), try self.plainText(stripSigil(obj)), method) });
                     return self.skipCall(args);
                 }
                 // A data field is read, not called: `m.len`, not `m.len()`.
                 if (!self.isPoison(ty)) {
-                    try self.err(pos, "`{s}` is a field of `{s}`, not a method: write `{s}.{s}`", .{ method, try self.tyName(peeled), try self.plainText(stripSigil(obj)), method });
+                    try self.err(pos, "`{s}` is a field of `{s}`, not a method: write `{s}`", .{ method, try self.tyName(peeled), try sema.memberText(self.ctx.arena.allocator(), try self.plainText(stripSigil(obj)), method) });
                     return self.skipCall(args);
                 }
             }
@@ -10361,10 +10361,10 @@ const Checker = struct {
         try self.checkVisible(resolved.field, resolved.owner_sym, resolved.module, pos);
 
         if (receiver == .none) {
-            // A `self` without a sigil was reported where it is declared.
+            // An `@` without a sigil was reported where it is declared.
             const names = resolved.field.param_names orelse &.{};
-            if (names.len == 0 or !std.mem.eql(u8, names[0], "self")) {
-                try self.err(pos, "method `{s}` has no `self` receiver; call as `{s}.{s}(...)`", .{ method, resolved.owner, method });
+            if (names.len == 0 or !std.mem.eql(u8, names[0], "@")) {
+                try self.err(pos, "method `{s}` has no receiver `@`; call as `{s}.{s}(...)`", .{ method, resolved.owner, method });
             }
             try self.synthArgs(args);
             return resolved.fn_ty.returns;
@@ -12697,7 +12697,7 @@ const Checker = struct {
             },
             .read_receiver => |method| {
                 const call = self.current_call orelse Sexp.nil;
-                const fix = if (call != .nil) try self.unparenthesized(call, e, place) else try a.print("{s}.{s}(...)", .{ place, method });
+                const fix = if (call != .nil) try self.unparenthesized(call, e, place) else try a.print("{s}(...)", .{try sema.memberText(a, place, method)});
                 return self.errAt(e, "`{s}` here is read, not held: `{s}` only reads `{s}`; write `{s}`", .{ shown, method, place, fix });
             },
             else => return self.errAt(e, head ++ "Write `{s}`", .{ shown, try a.print("only its `{s}` is read here", .{ty}), place }),
@@ -12839,6 +12839,9 @@ const Checker = struct {
             try out.appendSlice(a, diag.textBetween(self.ctx.source, at, p.start));
             try out.appendSlice(a, withs[i]);
             at = p.end;
+            // `@name` written as `(!@)`: the member takes its `.` back.
+            const with = withs[i];
+            if (with.len > 0 and with[with.len - 1] == ')' and at < self.ctx.source.len and rig.isIdentStart(self.ctx.source[at])) try out.append(a, '.');
         }
         try out.appendSlice(a, diag.textBetween(self.ctx.source, at, w.end));
         return out.items;
@@ -15448,8 +15451,8 @@ test "check: a fallible call must be wrapped with `!` or `catch`" {
         \\obj U
         \\  n: Int
         \\
-        \\  fun check(?self) -> Int!
-        \\    self.n
+        \\  fun check(?@) -> Int!
+        \\    @n
         \\
         \\sub main()
         \\  x = load(1)
@@ -15719,11 +15722,11 @@ test "frame owners: one list of each kind, and the owner of a call in each kind 
         \\obj Res
         \\  n: Int
         \\
-        \\  fun get(?self) -> Int
-        \\    h(self.n)
+        \\  fun get(?@) -> Int
+        \\    h(@n)
         \\
-        \\  drop(!self)
-        \\    print(h(self.n))
+        \\  drop(!@)
+        \\    print(h(@n))
         \\
         \\fun f(i: Int) -> Int
         \\  defer print(h(i))

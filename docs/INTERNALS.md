@@ -292,7 +292,8 @@ detached sigil, is the one reported.
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
 | `name:` inside `( )` vs `f(not :a)` | `KWARG_NAME` vs a word | a keyword argument or typed parameter: a word right after `(`, `,`, or a closure's opening bar, before a `:` that touches it or that no name touches (`K(break : 3)`); a word anywhere else stays a word, so `f(c or :a)` holds a symbol; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
 | `while c : step`, `while a ?? break : step` vs `x: Int` vs `x = :width`, `:a =>` | `STEP_COLON` vs `:` vs `SYMBOL_COLON` | decided once, in `Lexer.classifyColon`. The first `:` at a `while` header's bracket depth, after a value or a jump, starts its step. A `:` after a value or a keyword argument's name anywhere else is `:`. A `:` where an operand starts that touches a name is a symbol's, and the word after it, a keyword too, is the symbol's name, with its runs of `-` or `.` and a name character (`symbolName`): `:content-type`, `:a.b`. A `:` there that touches no name is an error (`symbol_detached`, `symbol_name`) |
-| `$size(T)` vs `$outer: for`, `$outer:` over a block, `break $outer`, `break $outer (x)` | `$` vs `LABEL`, `LABEL_COLON` | decided in `Lexer.classifyDollar`. `$` touching a name that touches a `(` is a builtin call, anywhere. Any other `$name` is a label: declared at the start of a line or after another label, the places the grammar takes one (not after `=>`, `defer`, or `errdefer`, whose statement is a `simple`), with a `:` touching the name, which is `LABEL_COLON` (`label_decl` without it); and named after `break` or `continue`. The `$` touches the name (`dollar_detached`), a keyword is no label (`label_keyword`), a value does not touch a jump's label (`label_touch`), and a `$name` anywhere else is an error (`dollar_stray`). `@` is reserved (`pin_sigil`). After a declared label's `:` a statement starts; after a jump's label the next token starts an operand |
+| `$size(T)` vs `$outer: for`, `$outer:` over a block, `break $outer`, `break $outer (x)` | `$` vs `LABEL`, `LABEL_COLON` | decided in `Lexer.classifyDollar`. `$` touching a name that touches a `(` is a builtin call, anywhere. Any other `$name` is a label: declared at the start of a line or after another label, the places the grammar takes one (not after `=>`, `defer`, or `errdefer`, whose statement is a `simple`), with a `:` touching the name, which is `LABEL_COLON` (`label_decl` without it); and named after `break` or `continue`. The `$` touches the name (`dollar_detached`), a keyword is no label (`label_keyword`), a value does not touch a jump's label (`label_touch`), and a `$name` anywhere else is an error (`dollar_stray`). After a declared label's `:` a statement starts; after a jump's label the next token starts an operand |
+| `@`, `!@`, `@hits`, `@visit()` | `IDENT`, and `.` | `@` is the receiver, a name the rewriter returns as `IDENT` whose text is `@`; an `@` touching a name is followed by a `.` the rewriter returns before the name (`member_dot`), so `@hits` parses as the member access `@ . hits`. `@.hits` is an error (`receiver_dot`) |
 | `a ?? return`, `?? break`, `?? continue` vs `a ?? b` | `NULLISH_JUMP` vs `??` | a `??` whose next token is `return`, `break`, or `continue` takes a jump; the grammar reads it at the level of `catch` (`value`), where a jump's value may run to the end of the expression, and the infix `??` never sees a jump |
 | keywords | one token each | every keyword is reserved; `new` only at statement start, `obj` only where a declaration starts, `called` and `rarely` only there before `fun` or `sub` |
 | `called fun g()`, `pub rarely sub s()` vs `called = 3`, `p.rarely`, `fun called()` | `CALLED`, `RARELY` vs `IDENT` | a marker is a keyword at the start of a statement (after any `pub`) when `fun` or `sub` follows it; a second marker before the `fun` is the lexer's `two_markers` error |
@@ -301,9 +302,9 @@ detached sigil, is the one reported.
 | `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
 | `obj Random unique` vs `unique = 3`, `p.unique` | `UNIQUE` vs `IDENT` | `unique` is a keyword only on an `obj` header line, outside brackets, right after the name or the type parameters' `]`, where it fills the `unique` role of `struct` or `generic_struct` |
 | `-> ?T from a, b`, `-> ?String from static` vs `from = 3`, `f(from: 1)` | `FROM`, `STATIC` vs `IDENT` | on the header line of a `fun` or `extern fun`, outside brackets, past the `->` of its result type and right after a value (the type's last token), `from` is a keyword that starts the `origins` list of `fun` or `extern_fun`; `static` is one only right after that `from`. A function type inside the parameters is in brackets, so its `->` starts nothing |
-| `sub watch(!self, s: ?String) keeps s`, `-> T from a keeps s` vs `keeps = 3`, `f(keeps: 1)` | `KEEPS` vs `IDENT` | on the header line of a `fun`, `sub`, method, `extern fun`, `extern sub`, or Zig-backed declaration, outside brackets, right after its parameter list, its result type, its `from` list, or a failing `sub`'s `!`, `keeps` is a keyword that starts the `keeps` list; everywhere else it is a name |
+| `sub watch(!@, s: ?String) keeps s`, `-> T from a keeps s` vs `keeps = 3`, `f(keeps: 1)` | `KEEPS` vs `IDENT` | on the header line of a `fun`, `sub`, method, `extern fun`, `extern sub`, or Zig-backed declaration, outside brackets, right after its parameter list, its result type, its `from` list, or a failing `sub`'s `!`, `keeps` is a keyword that starts the `keeps` list; everywhere else it is a name |
 | `xs[a..]`, `xs[..]` vs `xs[a..b]` | `DOTDOT_OPEN` vs `..` | a `..` whose next token is `]` (past a line break, which is whitespace inside brackets) ends an open range, so `xs[a == b..]` reduces `a == b` before it; a `..` that starts an operand (`xs[..b]`) needs no mark, since no expression starts with one |
-| `t.type`, `(type: 1)`, a member `type: Int`, `fun type()` in a member list, `$type(x)` | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`, and names a builtin after `@`; sema rejects a keyword parameter |
+| `t.type`, `(type: 1)`, a member `type: Int`, `fun type()` in a member list, `$type(x)` | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`, and names a builtin after `$` and a member of the receiver after `@` (`@type`); sema rejects a keyword parameter |
 
 The grammar's own shape settles the rest:
 
@@ -359,7 +360,7 @@ forms to `value`, an expression without blocks or closures (conditions,
   inside brackets that `,` separates arguments or elements, and the
   parser's state alone cannot tell them apart;
 - rejects `&&`, `||` after a value, `**`, `i++` and `i--`, `//` and
-  `/*` comments, and the reserved `@`, and
+  `/*` comments, and `@.name` (the receiver's member is `@name`), and
   malformed input where it is written: a `=!` with no space after it
   (the one place token boundaries could read two ways: `x =!y` is a
   fixed binding of `y`, or `x = !y`), a number with a
@@ -466,9 +467,9 @@ wrapper also makes the only rewrites that need to inspect the tree:
   has a parenthesized head, that node. The wrapper records the new
   node's id (`Parser.isReceiverSigil`), since the checker rejects some
   calls in this short form that it accepts in parentheses: a `!` before
-  a method that does not take `!self` (the habit of `!` as negation),
-  a `<` before one that does not take `<self`, a `?` before one that
-  takes `!self` or `<self`, and a `!` call whose value is used,
+  a method that does not take `!@` (the habit of `!` as negation),
+  a `<` before one that does not take `<@`, a `?` before one that
+  takes `!@` or `<@`, and a `!` call whose value is used,
   written `(!set).insert(k)` there (`Checker.usesValue`). A `for` source sigil
   is the loop's mode, moved before this rewrite sees it.
 
@@ -666,9 +667,9 @@ A few kinds serve more than one surface form:
   index, where a side may be `_` (`xs[a..]`, `xs[..b]`, `xs[..]`). A
   range with a side left out anywhere else is a parse error, which the
   parser wrapper reports at the `..`.
-- A receiver in a parameter list, `?self`, `!self`, or `<self`, is
-  `(read self)`, `(write self)`, or `(move self)`; sema reads it as
-  `self: ?Self`, `self: !Self`, or `self: Self`.
+- A receiver in a parameter list, `?@`, `!@`, or `<@`, is
+  `(read @)`, `(write @)`, or `(move @)`; sema gives it the type
+  `?Self`, `!Self`, or `Self`.
 - A declaration's compile-time parameters are its `tparams` group (a
   `fun` or `sub`'s `[mode: Mode]`, a generic type's `[T, n: Int]`): a
   bare name is a type parameter, `(: name T)` a compile-time value. The list
@@ -834,14 +835,14 @@ knows its root, so no imported module has test files.
 ### Methods outside the body
 
 A method may be declared outside its type's body, in the type's
-module: `fun Point.norm(?self) -> Float`, `sub Point.shift(!self, dx:
-Int)`, `fun Wrap[T].map[U](?self, f: fun(T) -> U) -> Wrap[U]`. It
+module: `fun Point.norm(?@) -> Float`, `sub Point.shift(!@, dx:
+Int)`, `fun Wrap[T].map[U](?@, f: fun(T) -> U) -> Wrap[U]`. It
 desugars to the member it names (`Parser.attachMethods`, a rewrite of
 the tree before any pass reads it): in module M, where M declares `obj
 T[P]` or `enum T[P]`, `[pub] fun T[P].m[Q](r, ps) -> R` and its block
 are the same declaration without `T[P].`, appended as `T`'s last
-member, with `pub` kept, so `Self` is `T` and `?self`, `!self`, and
-`<self` mean what they mean in the body. `[P]` names the type's
+member, with `pub` kept, so `Self` is `T` and `?@`, `!@`, and
+`<@` mean what they mean in the body. `[P]` names the type's
 parameters exactly as its declaration does (`Ring[T, n]` for `obj
 Ring[T, n: Int]`). A method naming no such type is set aside
 (`Parser.detached`), and `resolve.checkDetachedMethods` says why: a
@@ -986,7 +987,7 @@ ownership:
 
 Temporaries (SPEC §7) desugar into a hidden binding per statement. A
 value made where it is only read (`readLeaf`: a `print` or `String`
-argument, an `==` operand, a `?self` receiver, the object of a field
+argument, an `==` operand, a `?@` receiver, the object of a field
 or element read) is bound to a hidden name `_t` at the start of its
 statement and dropped at its end: `print(mk().n)` is `_t = mk()`,
 `print(_t.n)`, `<_t`, with the drop also on every path out of the
@@ -995,13 +996,13 @@ and `e?` (`sema.valueLeaves`): a branch that is a name is read where it is
 (`readsInPlace`), never moved, and a branching value all of whose
 branches are made is one temporary. A read lend of a temporary
 (`?S(n: 1)`, `?make()`, a slice of one) records it the same way,
-owning or not (`lendTemp`), and so does a `?self` receiver made here,
+owning or not (`lendTemp`), and so does a `?@` receiver made here,
 or a field or element of one, whose method may keep a view of it (a
 result that may hold a view, or a call that may store one,
 `callRetains`): `r = mk().arr()` is `_t = mk()`, `r = P.arr(?_t)`,
 `<_t`, plain data too, so the view may be used until the statement
 ends. A write lend of a temporary or a part of one (`!mk()`,
-`!mk().items`, a `!self` receiver `!mk().pop()`, a slice `!mk()[..]`)
+`!mk().items`, a `!@` receiver `!mk().pop()`, a slice `!mk()[..]`)
 is recorded the same way, always (`lendsToWrite`): `print(!mk().pop())`
 is `_t = mk()`, `print(S.pop(!_t))`, `<_t`. A write method called on a
 temporary with no `!` is rejected, with the hint to add it
@@ -1194,7 +1195,7 @@ must be writable, a temporary is never written, and without a view
 or handle on the way the binding it starts from must be one that may
 change (`requireBinding`). No field or element holds a write view
 (Core §5), so no path writes through one, lends one on, or
-passes one. A Cell's members take `!self`, so a marked call on one is a
+passes one. A Cell's members take `!@`, so a marked call on one is a
 lend to write like any other; `lendsMarked` and `lendsHandle` say when that
 lend writes nothing of what holds the handle it reaches (a handle is lent,
 not rebound, so its binding need not be writable, and a read view or a
@@ -1595,7 +1596,7 @@ view only in some places, and one decider says where:
 
 Every spelled type asks it where it stands
 (`TypeResolver.misplacedAt`: a field's type, a parameter's, a
-receiver's `<self`, a result's, a local's annotation, a closure
+receiver's `<@`, a result's, a local's annotation, a closure
 parameter's, what an optional, a view, a handle, or an array or slice
 holds, and each type argument written); `checkGenericInstantiations`
 asks it for each instance's type arguments, inferred ones included
@@ -1614,7 +1615,7 @@ copy, move, or temporary of a value holding a Cell exists for the
 checkers or emit to reason about.
 
 **A marked call on a Cell.** `Cell`'s and `Signal`'s changing members take
-`!self` (`resolve.registerBuiltins`), and a `Cell[List[T]]`'s `push`, `pop`,
+`!@` (`resolve.registerBuiltins`), and a `Cell[List[T]]`'s `push`, `pop`,
 and `clear` and element assignment are marked the same way, so the
 receiver-sigil rule is the whole enforcement: `!c.set(v)` is `set` of the
 write view `!Cell[T]` that the lend table gives a handle, a `*T` lending
@@ -2654,8 +2655,8 @@ it, once, for every place the checker meets, and every loan, use, and
 store of the place carries it (`Place.path`, `Loan.path`); no other pass
 reads a path from syntax. A step goes on the path by a positive list
 (`extendsPath`): a data field of a struct value, of a box's value (a box
-has one owner), or of what the root's own write view sees (`self.a` in
-a `!self` method). Any other step ends it, and the loan is on the path
+has one owner), or of what the root's own write view sees (`@a` in
+a `!@` method). Any other step ends it, and the loan is on the path
 so far: an element or a slice (`p.items[i]` is a place of `p.items`), a
 handle (`p.h.a` with `h: *T` is a place of `p.h`), a read view (a lend
 through one keeps the view's loans and makes none on the holder,
@@ -2670,7 +2671,7 @@ of the other (`Paths.overlap`), which only `loanMatches` asks, for
 use names. A use of the whole var passes `whole_path`, which overlaps
 every path: a bare name read, a move, a drop, a reassignment, a closure
 capture, and a method's receiver that is the name (`(!p).m()`,
-`!p.m()`), since a signature lends all of `self`. A field read
+`!p.m()`), since a signature lends all of `@`. A field read
 (`p.b.len`) reads only its place: `walkMember` records the place, and
 the root's name, read first, takes it (`takePlaceRead`); its path is
 decided only where some write loan on the root is live
@@ -2682,8 +2683,8 @@ and so are a `for` source's loan and a `match` payload's.
 
 **Desugaring.** For loans, a struct binding, a write view's referent,
 and a box's value are each a group of bindings, one per field, nested;
-using the whole uses every binding in the group. `(!self.a).mk(self.t)`
-is `w = !self.a; t = ?self.t; w.mk(t)`, a write loan on one binding
+using the whole uses every binding in the group. `(!@a).mk(@t)`
+is `w = !@a; t = ?@t; w.mk(t)`, a write loan on one binding
 beside a read loan on another, which sentence 5 already allows. Emit is
 unchanged: it passes `&self.a` and `self.t`, adds no temporary, and
 keeps the order.
@@ -2790,12 +2791,12 @@ and each desugars into forms the checker already walks:
 
 | Form | Desugars to |
 |---|---|
-| a `?T` or `!T` where a `T` that copies is expected (`p: P = r`, `f(r)`, a result) | a read through the view, the node `recordRead` marks, as for a `?Int` (`copiedThrough`); a write lend written there, or anywhere its view is only read (`f(!n)`, `Opt.some(v: !n)`, `!n + 1`, `print(!n)`, `rd(!n)` for a `?Int`), is rejected instead, since its `!` would lend nothing to write: `Checker.readOf`, the one place type checking records a read, asks `Checker.writeLendRead` first, and `print`, `?!x`, a read view's slot, a `?self` receiver, and inference (`argType`) ask it too; a value that branches or loops is decided at each leaf (`sema.yieldedLeaves`) |
+| a `?T` or `!T` where a `T` that copies is expected (`p: P = r`, `f(r)`, a result) | a read through the view, the node `recordRead` marks, as for a `?Int` (`copiedThrough`); a write lend written there, or anywhere its view is only read (`f(!n)`, `Opt.some(v: !n)`, `!n + 1`, `print(!n)`, `rd(!n)` for a `?Int`), is rejected instead, since its `!` would lend nothing to write: `Checker.readOf`, the one place type checking records a read, asks `Checker.writeLendRead` first, and `print`, `?!x`, a read view's slot, a `?@` receiver, and inference (`argType`) ask it too; a value that branches or loops is decided at each leaf (`sema.yieldedLeaves`) |
 | `x = w` with a `!T` of a `T` that copies | `x: T = w` |
 | `[n of e]` | `t = e`, then `[t, t, ..., t]`: `n` copies of one value, each carrying `t`'s loans |
 | `!xs.fill(e)`, `!xs.copy(src)` | `xs[i] = e` (or `src[i]`) for each `i`: a store into `xs` of a value carrying those loans |
 | `List.filled(n, e)` | `k = n`, `t = e`, then `xs: List[T] = List(capacity: k)` and `!xs.push(t)` `k` times, a new List of `k` copies of one value, each carrying `t`'s loans, which is the call's result. Emit writes `rig.List(T).filled(k, t)`, which makes one allocation of exactly `k` slots and fills it with one `@memset` (`std.mem.Allocator` has no zeroed allocation, so a fill of zero is a `@memset` too) |
-| `!xs.resize(n, e)` | `xs` lent to write first, as any `!self` receiver is, then `k = n`, `t = e`, then `!xs.keep(k)` when `k <= xs.len`, and otherwise `!xs.push(t)` until `xs.len == k`: a store into `xs` of copies carrying `t`'s loans. Emit writes `xs.resize(k, t)`, which grows the buffer once as `push` does and fills the new slots with one `@memset`, or keeps the first `k` as `keep` does. The element copies, so it needs no cleanup, and shrinking drops nothing but the length |
+| `!xs.resize(n, e)` | `xs` lent to write first, as any `!@` receiver is, then `k = n`, `t = e`, then `!xs.keep(k)` when `k <= xs.len`, and otherwise `!xs.push(t)` until `xs.len == k`: a store into `xs` of copies carrying `t`'s loans. Emit writes `xs.resize(k, t)`, which grows the buffer once as `push` does and fills the new slots with one `@memset`, or keeps the first `k` as `keep` does. The element copies, so it needs no cleanup, and shrinking drops nothing but the length |
 | `\|+x\|` | `c = +x` where the closure is made, then `\|<c\|`, the capture named `x`: `+x` reads through a view, copies a value that copies, counts a handle again, and clones an owner (`sema.cloneable`) |
 | `Cell.get`, `List.get`, and `??` and `?` through a view | a copy of the element or value inside, rejected when it does not copy; `if r as x` binds a copy of a value that copies, and a view of any other |
 | `a ?? b` or `a catch b` whose payload is a `?T` or `!T` (`sema.payloadViewed`) and whose fallback `b` is no view of it: it meets neither the view nor the form's type as a view, so not a view, a jump, or `none` where an optional view goes | `if a as v` then `v` else `b`, with `v` read through: the form is a `T`, recorded once by typecheck (`fallbackCopy`, the fact `copiesPayload`), which emit writes as `(rig.copiedOut(T, a) orelse b)` (`catch` alike) and the ownership checker walks as the payload read through (`walkPayloadHolder`, `copiedOut`): the copy keeps the loans of the views `T` holds, not `a`'s. A `T` that does not copy is rejected, and so is a type parameter, which may not copy in every instance, as a view read where its `T` is expected is (`checkActual`). A value that holds no view keeps no lend (`keptLends`), so `n = m.get(k) ?? 0` needs no `?m` |
@@ -2830,10 +2831,10 @@ one's with its type parameters:
 
 A parameter is *lent* when its type is a view (`sema.isViewType`: a
 `?T`, `!T`, `[]T`, `![]T`, or `?String`) or an optional of one, a
-`?self` or `!self` receiver among them: `sema.lentParam`, one
+`?@` or `!@` receiver among them: `sema.lentParam`, one
 classifier, recorded as `Origins.lent`, which the ownership checker,
 typecheck's written-lend rule, and the oracle read. A `keeps` clause
-(`sub watch(!self, s: ?String) keeps s`, `keeps s, self`) names the lent
+(`sub watch(!@, s: ?String) keeps s`, `keeps s, @`) names the lent
 parameters a call keeps; every other lent parameter's loans end with the
 call. A name that is no parameter, one taken by value (the callee owns
 it already), one nothing the function writes could hold (`keeps s` on a
@@ -2905,8 +2906,8 @@ the fields and elements of such a value): a loan on the place a name
 holds, or on the statement's temporary a made value is, which ends with
 the statement (Core §3). The stores apply first,
 then the result is narrowed by `carry`, so a holder the result does not
-view stands for its loans after the call: `next(!self, extra)`, which
-re-points `self.items` at `extra`, gives a result that carries
+view stands for its loans after the call: `next(!@, extra)`, which
+re-points `@items` at `extra`, gives a result that carries
 `extra`'s loans. A result whose type holds no write view (no `!T`
 anywhere in it, no type parameter, no type not known) only reads what
 it views, so every loan it keeps is a read loan (`carryResult`), also
@@ -2977,7 +2978,7 @@ rest of its signature is.
 **Written lends of kept arguments** (typecheck `checkArgs`). A place lent
 to a lent parameter the call may keep is lent with `?` written (Core
 sentence 4): `!b.watch(t)` is rejected with the fix `!b.watch(?t)`, and a
-`?self` receiver a method keeps is written `?a.register(!out)`. Where no
+`?@` receiver a method keeps is written `?a.register(!out)`. Where no
 `keeps` narrows the stores, every lent parameter the call may store by
 its type counts (`sema.lentParam` of the parameter's type at the call):
 a call through a function value (`f(!b, ?t)`), an owned closure, and a
@@ -3241,7 +3242,7 @@ obj Env
   a: A
   b: B
 
-  fun invoke(?self, p: P, q: !Q) -> R from p, q
+  fun invoke(?@, p: P, q: !Q) -> R from p, q
     body
 
 sub make()
@@ -3250,9 +3251,9 @@ sub make()
 
 `Env`'s fields are the captures, none of them a view; `from` names the
 parameters whose types could hold what `R` views (`from static` if
-none), never `self`; and `*Env(...)` makes a new counted handle.
+none), never `@`; and `*Env(...)` makes a new counted handle.
 
-- The body reads `a` as `self.a`, through `?self`: captures are fixed,
+- The body reads `a` as `@a`, through `?@`: captures are fixed,
   and a re-entrant call is one more read of the environment.
 - `h(x, !y)` is `h.invoke(x, !y)`: the call reads `h` until it returns
   (the callee hold, `holdRead` with `Reader.callee`), so `x.hook(!x)` is
@@ -3298,10 +3299,10 @@ the `share` sigil node.
 
 | Form | Desugars to |
 |---|---|
-| `*w`, `w` read | the built-in `?self` method `w.upgrade()`: `w` read where it stands, its result a new owned `*T?` |
+| `*w`, `w` read | the built-in `?@` method `w.upgrade()`: `w` read where it stands, its result a new owned `*T?` |
 | `*<w`, `*~h`, `*f()`, `w` taken | `w` moved into a hidden binding `t`, then `t.upgrade()`, then `<t` |
 
-The ownership checker walks a read as a `?self` receiver's read
+The ownership checker walks a read as a `?@` receiver's read
 (`walk`) and a take as `*<x`'s (`walkConsumed`); the new handle carries
 what `w` carries, where its type may hold a loan. Emit writes a read as
 the receiver of the runtime's `upgrade` (`emitMemberBase`, then
@@ -3315,7 +3316,7 @@ place and a take as `*<x`'s make.
 has a form of its own for it. A `for` source is an iterator when its
 type, past views, is an object or enum (not a `List`, array, slice,
 `?String`, or range, which keep their own meaning) that declares
-`next(!self) -> T?` (`Checker.iteratorShape`, the one place this is
+`next(!@) -> T?` (`Checker.iteratorShape`, the one place this is
 decided); a `next` of another shape is reported where the loop is.
 `Checker.iterLoop` then classifies the source once, by
 what it hands over (`sema.handsOver`), as every header does:
@@ -3604,7 +3605,7 @@ symbols); a query that decides more than that belongs in `Pending`.
 
   Zig's `defer` then releases the value on every exit path, in reverse
   order, including early returns, loop exits, and error propagation.
-- **Views.** `!T` parameters, `!self` receivers, and bindings of a
+- **Views.** `!T` parameters, `!@` receivers, and bindings of a
   write view are pointers, read through `.*`. A `?T` of a scalar or a view (a
   number, `Bool`, a vector, a plain enum, an error, a slice or
   `?String`, a function, or an optional of one) is a copy: Zig parameters are
@@ -3697,7 +3698,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   a `break` leaves.
 - **Compile-time parameters** are Zig `comptime` parameters, first in
   the signature, after a method's receiver (Zig's method call syntax
-  needs the receiver first): `fun times[n: Int](?self)` is
+  needs the receiver first): `fun times[n: Int](?@)` is
   `fn times(self: P, comptime n: i64) i64`. A call passes its bracket
   arguments in the same place: `show[3]()` is `show(3)`.
   A compile-time value, or a module constant or `=!` binding, read in run-time arithmetic
@@ -4027,7 +4028,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   ownership checker confines to the statement too, but which no storage
   fact names:
 
-  - a `?self` method on a branching value with a leaf made there, which
+  - a `?@` method on a branching value with a leaf made there, which
     `reachesLeaf` does not reach, so the receiver is a copy:
     `(@as(Q, if (c) mkq(5) else b)).me()` (never of a `Q` that holds a
     Cell by value, which no temporary is), or on a value made there that
@@ -4468,7 +4469,7 @@ var holds after the call's stores. It maps arguments to parameters
 itself, positionally or through the call's slots. A method called on a
 value made there (a call, a clone, a shared allocation) lends that
 temporary, so a view it returns ends with the statement. A write lend
-of a value made there (`!mk()`, a `!self` receiver `!mk().pop()`, a
+of a value made there (`!mk()`, a `!@` receiver `!mk().pop()`, a
 branching value made in every branch) lends the statement's temporary
 that holds it to write (Core s4), as `!x` lends `x`. A path through a
 lend (`(!h).r`, `(?mk()).items`) is a path through that view, so a
@@ -4495,8 +4496,8 @@ var it lands in, but for the lends it goes in by, is C9 (Core §5, a
 value never holds a view of itself).
 
 What a call stores into its receiver itself leaves out the call's own
-lend of the receiver: a callee cannot store a view of `self` through
-`self`. Into another `!` argument it may store that view, which keeps
+lend of the receiver: a callee cannot store a view of `@` through
+`@`. Into another `!` argument it may store that view, which keeps
 the receiver lent while the argument holds it (SPEC "Second-class
 views").
 

@@ -94,13 +94,13 @@ fail "rev215-a12 recursion swap", "`g` returns a view of `xs`, but its signature
   <t
   print(r)
 
-fail "rev215-a13 method box", "`pick` returns a view of `self`, but its signature says it views only `other`"
+fail "rev215-a13 method box", "`pick` returns a view of `@`, but its signature says it views only `other`"
   # Review probe (#215): a loan reaching a generic body's T; rejected, or runs sanitizer-clean.
   obj Box[T]
     v: T
 
-    fun pick(?self, other: ?Box[T]) -> T from other
-      self.v
+    fun pick(?@, other: ?Box[T]) -> T from other
+      @v
 
   t = String("abc")
   u = String("u")
@@ -172,12 +172,12 @@ fail "rev215-a23 ret object K", "`mk` returns a view of `x`, but its signature s
   <t
   print(p.v.s)
 
-fail "rev220-cell-set", "cannot lend `self` to write in an index of `self.c`, a place being lent"
+fail "rev220-cell-set", "cannot lend `@` to write in an index of `@c`, a place being lent"
   obj K
     c: Cell[List[Int]]
 
-    fun get(!self) -> Int
-      self.c[reset(!self)]
+    fun get(!@) -> Int
+      @c[reset(!@)]
 
   fun reset(k: !K) -> Int
     n: List[Int] = List()
@@ -358,15 +358,15 @@ test "rev224-called-rarely", '''
   obj Acc
     items: List[Int]
 
-    called sub add(!self, x: Int)
-      !self.items.push(x)
+    called sub add(!@, x: Int)
+      !@items.push(x)
 
-    rarely fun first(?self) -> Int?
-      return none if self.items.len == 0
-      self.items[0]
+    rarely fun first(?@) -> Int?
+      return none if @items.len == 0
+      @items[0]
 
-  called fun Acc.count(?self) -> Int
-    self.items.len
+  called fun Acc.count(?@) -> Int
+    @items.len
 
   called fun tiny(x: Int) -> Int
     x
@@ -392,11 +392,11 @@ test "rev224-called-rarely", '''
     pub obj Box[T]
       pub v: T
 
-      pub called fun get(?self) -> T
-        self.v
+      pub called fun get(?@) -> T
+        @v
 
-      pub rarely sub set(!self, v: T)
-        self.v = v
+      pub rarely sub set(!@, v: T)
+        @v = v
 
     pub called fun twice[T](x: T) -> T
       x + x
@@ -414,17 +414,17 @@ fail "rev224-generic-cycle", "`G.a` is `inline` and calls itself through `G.b`, 
   obj G[T]
     v: T
 
-    inline fun a(?self, n: Int) -> Int
-      0 if n == 0 else self.b(n - 1)
+    inline fun a(?@, n: Int) -> Int
+      0 if n == 0 else @b(n - 1)
 
-    inline fun b(?self, n: Int) -> Int
-      0 if n == 0 else self.a(n - 1)
+    inline fun b(?@, n: Int) -> Int
+      0 if n == 0 else @a(n - 1)
 
   obj H
     n: Int
 
-    inline fun step(?self, k: Int) -> Int
-      0 if k == 0 else via[Int](self, k - 1)
+    inline fun step(?@, k: Int) -> Int
+      0 if k == 0 else via[Int](@, k - 1)
 
   inline fun via[T](x: ?H, k: Int) -> Int
     x.step(k)
@@ -446,15 +446,15 @@ test "rev224-inline-views", '''
     items: List[String]
     name: String
 
-    inline fun into_name(<self) -> String
-      new b = <self
+    inline fun into_name(<@) -> String
+      new b = <@
       replace(!b.name, String("x"))
 
-    inline fun first(?self) -> ?String
-      ?self.items[0]
+    inline fun first(?@) -> ?String
+      ?@items[0]
 
-    inline fun slot(!self) -> !String
-      !self.items[0]
+    inline fun slot(!@) -> !String
+      !@items[0]
 
   inline fun head(xs: ?List[Int]) -> ?Int
     ?xs[0]
@@ -488,8 +488,8 @@ test "rev224-std-wrapper", "1 7"
   obj Holder
     c: *Cell[Int]
 
-    inline fun get(?self) -> Int
-      self.c.get()
+    inline fun get(?@) -> Int
+      @c.get()
 
   xs = List[Int]()
   push(!xs, 1)
@@ -536,14 +536,14 @@ test "rev227-empty-defaults", '''
       id: Int = 7
       log: List[String] = List()
 
-      drop(!self)
-        print("drop", self.id, self.log.len)
+      drop(!@)
+        print("drop", @id, @log.len)
 
     pub obj Seed unique
       s: Int = 42
 
-      pub fun get(?self) -> Int
-        self.s
+      pub fun get(?@) -> Int
+        @s
 
     pub obj Half
       n: Int
@@ -551,16 +551,16 @@ test "rev227-empty-defaults", '''
     pub obj Box[T]
       items: List[T] = List()
       pub ?count: Int = 0
-      pub sub put(!self, x: T)
-        !self.items.push(<x)
-        self.count += 1
+      pub sub put(!@, x: T)
+        !@items.push(<x)
+        @count += 1
 
     pub obj Nest
       inner: Box[String] = Box[String]()
       more: List[Box[Int]] = List()
 
     pub obj Zero
-      pub fun one(?self) -> Int
+      pub fun one(?@) -> Int
         1
 
     pub obj Lim
@@ -589,14 +589,14 @@ test "rev227-empty-generic-field", "1 0 1 0"
       id: Int = 7
       log: List[String] = List()
 
-      drop(!self)
-        print("drop", self.id, self.log.len)
+      drop(!@)
+        print("drop", @id, @log.len)
 
     pub obj Seed unique
       s: Int = 42
 
-      pub fun get(?self) -> Int
-        self.s
+      pub fun get(?@) -> Int
+        @s
 
     pub obj Half
       n: Int
@@ -604,16 +604,16 @@ test "rev227-empty-generic-field", "1 0 1 0"
     pub obj Box[T]
       items: List[T] = List()
       pub ?count: Int = 0
-      pub sub put(!self, x: T)
-        !self.items.push(<x)
-        self.count += 1
+      pub sub put(!@, x: T)
+        !@items.push(<x)
+        @count += 1
 
     pub obj Nest
       inner: Box[String] = Box[String]()
       more: List[Box[Int]] = List()
 
     pub obj Zero
-      pub fun one(?self) -> Int
+      pub fun one(?@) -> Int
         1
 
     pub obj Lim
@@ -636,8 +636,8 @@ fail "rev227-ro-while", "cannot lend `t.last` to write: field `last` of `lib.Tal
   file "lib.rig"
     pub obj Inner
       pub n: Int = 0
-      pub sub inc(!self)
-        self.n += 1
+      pub sub inc(!@)
+        @n += 1
 
     pub enum Shape
       dot
@@ -649,10 +649,10 @@ fail "rev227-ro-while", "cannot lend `t.last` to write: field `last` of `lib.Tal
       pub ?shape: Shape = .dot
       pub ?last: Int? = none
 
-      pub sub bump(!self, tag: Int)
-        !self.tags.push(tag)
-        self.shape = Shape.rect(w: tag, h: tag)
-        self.last = tag
+      pub sub bump(!@, tag: Int)
+        !@tags.push(tag)
+        @shape = Shape.rect(w: tag, h: tag)
+        @last = tag
 
     pub obj Pile[T]
       pub ?n: Int = 0
@@ -819,7 +819,7 @@ fail "rev229-cycle-objects", "`A.go` is `inline` and calls itself through `B.go`
   obj A[T]
     v: T
 
-    inline fun go(?self, n: Int) -> Int
+    inline fun go(?@, n: Int) -> Int
       return 0 if n <= 0
       b = B[T](v: 1)
       b.go(n - 1) + 1
@@ -827,7 +827,7 @@ fail "rev229-cycle-objects", "`A.go` is `inline` and calls itself through `B.go`
   obj B[T]
     v: Int
 
-    inline fun go(?self, n: Int) -> Int
+    inline fun go(?@, n: Int) -> Int
       a = A[Int](v: 2)
       a.go(n - 1) + 1
 
@@ -983,7 +983,7 @@ test "rev229-generic-member-module", "1688700"
     pub obj Box[T]
       pub v: T
 
-      pub fun w(?self, i: Int) -> Int
+      pub fun w(?@, i: Int) -> Int
         t = [7000 of 0]
         for k in 0..7000
           t[k] = k + i
@@ -1000,7 +1000,7 @@ test "rev229-generic-member-nested", "1688700"
   obj Box[T]
     v: T
 
-    fun w(?self, i: Int) -> Int
+    fun w(?@, i: Int) -> Int
       t = [7000 of 0]
       for k in 0..7000
         t[k] = k + i
@@ -1435,17 +1435,17 @@ test "rev236-fuzz", "true true"
     pairs: List[Pair] = List()
     len: Int = 0
 
-    fun find(?self, k: ?String) -> Int?
-      for p, i in ?self.pairs
+    fun find(?@, k: ?String) -> Int?
+      for p, i in ?@pairs
         return i if p.live and p.key == k
       none
 
   obj Rand
     s: U64
 
-    fun next(!self, n: Int) -> Int
-      self.s = self.s *% 6364136223846793005 +% 1442695040888963407
-      Int((self.s >> 33) % U64(n))
+    fun next(!@, n: Int) -> Int
+      @s = @s *% 6364136223846793005 +% 1442695040888963407
+      Int((@s >> 33) % U64(n))
 
   fun mk(k: Int) -> String
     String("k", k, "-long-enough-to-allocate-on-heap")
@@ -1541,9 +1541,9 @@ test "rev236-sfuzz", "true true"
   obj Rand
     s: U64
 
-    fun next(!self, n: Int) -> Int
-      self.s = self.s *% 6364136223846793005 +% 1442695040888963407
-      Int((self.s >> 33) % U64(n))
+    fun next(!@, n: Int) -> Int
+      @s = @s *% 6364136223846793005 +% 1442695040888963407
+      Int((@s >> 33) % U64(n))
 
   fun mk(k: Int) -> String
     String("k", k, "-long-enough-to-allocate-on-heap")
@@ -1660,8 +1660,8 @@ test "rev240-fix d07 inner field on view", "[1]"
   obj W
     v: List[Int] = List()
 
-    fun inner(!self) -> !List[Int] from self
-      !self.v
+    fun inner(!@) -> !List[Int] from @
+      !@v
 
   w = W()
   (!w).inner().push(1)
@@ -1710,8 +1710,8 @@ test "rev240-m01 drop counting", "true true true 0"
     n: Int
     live: *Cell[Int]
 
-    drop(!self)
-      !self.live.set(self.live.get() - 1)
+    drop(!@)
+      !@live.set(@live.get() - 1)
 
   fun mk(n: Int, live: ?*Cell[Int]) -> Res
     c = +live
@@ -1721,9 +1721,9 @@ test "rev240-m01 drop counting", "true true true 0"
   obj Rand
     s: U64
 
-    fun next(!self, n: Int) -> Int
-      self.s = self.s *% 6364136223846793005 +% 1442695040888963407
-      Int((self.s >> 33) % U64(n))
+    fun next(!@, n: Int) -> Int
+      @s = @s *% 6364136223846793005 +% 1442695040888963407
+      Int((@s >> 33) % U64(n))
 
   fun run(seed: U64, span: Int, steps: Int, live: ?*Cell[Int]) -> Int
     r = Rand(s: seed)
@@ -1780,14 +1780,14 @@ test "rev240-m02 string model", '''
     pairs: List[Pair] = List()
     len: Int = 0
 
-    fun find(?self, k: ?String) -> Int?
-      for p, i in ?self.pairs
+    fun find(?@, k: ?String) -> Int?
+      for p, i in ?@pairs
         return i if p.live and p.key == k
       none
 
-    sub add(!self, k: ?String, v: Int)
-      !self.pairs.push(Pair(key: String(k), value: one(v), live: true))
-      self.len += 1
+    sub add(!@, k: ?String, v: Int)
+      !@pairs.push(Pair(key: String(k), value: one(v), live: true))
+      @len += 1
 
   fun one(n: Int) -> List[Int]
     l = List[Int]()
@@ -1797,9 +1797,9 @@ test "rev240-m02 string model", '''
   obj Rand
     s: U64
 
-    fun next(!self, n: Int) -> Int
-      self.s = self.s *% 6364136223846793005 +% 1442695040888963407
-      Int((self.s >> 33) % U64(n))
+    fun next(!@, n: Int) -> Int
+      @s = @s *% 6364136223846793005 +% 1442695040888963407
+      Int((@s >> 33) % U64(n))
 
   fun keep(k: ?String, v: !List[Int]) -> Bool
     !v.push(k.len)
@@ -2043,8 +2043,8 @@ test "rev240-m05 retain drop interleaving", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun keep(k: ?Int, r: !Res) -> Bool
     print("f", k)
@@ -2188,8 +2188,8 @@ fail "rev255-h07 for write holder", "cannot drop `t` while it is lent"
   obj P
     src: ?String
 
-    sub watch(!self, s: ?String) keeps s
-      self.src = s
+    sub watch(!@, s: ?String) keeps s
+      @src = s
 
   xs: List[P] = List()
   !xs.push(P(src: ""))
@@ -2215,9 +2215,9 @@ fail "rev255-i01 keyword reorder", "cannot drop `t` while it is lent"
   obj P
     src: ?String
 
-    sub watch(!self, a: ?String, b: ?String) keeps b
+    sub watch(!@, a: ?String, b: ?String) keeps b
       print(a)
-      self.src = b
+      @src = b
 
   p = P(src: "")
   t = String("tee")
@@ -2230,9 +2230,9 @@ fail "rev255-i03 comptime param method", "cannot drop `t` while it is lent"
   obj P
     src: ?String
 
-    sub watch[n: Int](!self, a: ?String, b: ?String) keeps b
+    sub watch[n: Int](!@, a: ?String, b: ?String) keeps b
       print(n, a)
-      self.src = b
+      @src = b
 
   p = P(src: "")
   t = String("tee")
@@ -2245,9 +2245,9 @@ fail "rev255-i08 method called as fn", "cannot drop `t` while it is lent"
   obj P
     src: ?String
 
-    sub watch(!self, a: ?String, b: ?String) keeps b
+    sub watch(!@, a: ?String, b: ?String) keeps b
       print(a)
-      self.src = b
+      @src = b
 
   p = P(src: "")
   t = String("tee")
@@ -2279,12 +2279,12 @@ fail "rev255-j03 temp array fntype", "cannot let this call store a view of `[a, 
   apply(!out, put)
   print(out.len)
 
-fail "rev255-k01 store held view of read param", "`absorb` stores a view of `other` in `self`, which its caller reaches, but its signature does not keep `other`; say so: `keeps other`"
+fail "rev255-k01 store held view of read param", "`absorb` stores a view of `other` in `@`, which its caller reaches, but its signature does not keep `other`; say so: `keeps other`"
   obj P
     src: ?String
 
-    sub absorb(!self, other: ?P)
-      self.src = other.src
+    sub absorb(!@, other: ?P)
+      @src = other.src
 
   t = String("hello")
   p = P(src: ?t)
@@ -2298,8 +2298,8 @@ test "rev255-k03 keeps held view drop holder ok", "hello"
   obj P
     src: ?String
 
-    sub absorb(!self, other: ?P) keeps other
-      self.src = other.src
+    sub absorb(!@, other: ?P) keeps other
+      @src = other.src
 
   t = String("hello")
   p = P(src: ?t)
@@ -2358,10 +2358,10 @@ fail "rev255-m01", "cannot drop `n` while it is lent"
     pub obj Bag[T]
       pub last: (?T)?
 
-      pub sub put(!self, x: ?T) keeps x
-        self.last = x
+      pub sub put(!@, x: ?T) keeps x
+        @last = x
 
-      pub sub peek(!self, x: ?T)
+      pub sub peek(!@, x: ?T)
         print(x)
 
     pub sub push_into[T](out: !List[?T], x: ?T) keeps x
@@ -2373,8 +2373,8 @@ fail "rev255-m01", "cannot drop `n` while it is lent"
     pub obj W
       pub src: ?String
 
-      pub sub watch(!self, a: ?String, s: ?String) keeps s
-        self.src = s
+      pub sub watch(!@, a: ?String, s: ?String) keeps s
+        @src = s
 
 fail "rev255-m03", "cannot drop `n` while it is lent"
   use b
@@ -2406,12 +2406,12 @@ fail "rev255-q02 swap between write params keeps one", "`sw` stores a view of `a
   <t1
   print(y.s)
 
-fail "rev255-q07 generic swap self receiver", "`take_all` stores a view of `self` in `other`, which its caller reaches, but its signature does not keep `self`; say so: `keeps self, other`"
+fail "rev255-q07 generic swap self receiver", "`take_all` stores a view of `@` in `other`, which its caller reaches, but its signature does not keep `@`; say so: `keeps @, other`"
   obj Bag[T]
     items: List[T]
 
-    sub take_all(!self, other: !Bag[T])
-      swap(!self.items, !other.items)
+    sub take_all(!@, other: !Bag[T])
+      swap(!@items, !other.items)
 
   t = String("hello")
   b = Bag[?String](items: List())
@@ -2469,8 +2469,8 @@ fail "rev255-r01 write self kept then write", "cannot assign to `p.name` while `
   obj P
     name: String
 
-    sub reg(!self, out: !List[?String]) keeps self
-      !out.push(?self.name)
+    sub reg(!@, out: !List[?String]) keeps @
+      !out.push(?@name)
 
   p = P(name: String("first"))
   out: List[?String] = List()
@@ -2538,8 +2538,8 @@ fail "rev255-y04 keeps self into own field list", "cannot let this call store a 
   obj N
     n: Int
 
-    sub reg(?self, out: !List[?N]) keeps self
-      !out.push(self)
+    sub reg(?@, out: !List[?N]) keeps @
+      !out.push(@)
 
   obj O
     a: N
@@ -2554,8 +2554,8 @@ fail "rev255-y05 keeps self receiver moved", "cannot move `a` while a read loan 
   obj N
     n: String
 
-    sub reg(?self, out: !List[?N]) keeps self
-      !out.push(self)
+    sub reg(?@, out: !List[?N]) keeps @
+      !out.push(@)
 
   out: List[?N] = List()
   a = N(n: String("a"))
@@ -2567,8 +2567,8 @@ fail "rev255-z01 holder used via view", "cannot drop `t` while it is lent"
   obj P
     src: ?String
 
-    sub watch(!self, s: ?String) keeps s
-      self.src = s
+    sub watch(!@, s: ?String) keeps s
+      @src = s
 
   p = P(src: "")
   t = String("hello")
@@ -2581,8 +2581,8 @@ fail "rev255-z05 holder used via moved closure", "cannot drop `t` while it is le
   obj P
     src: ?String
 
-    sub watch(!self, s: ?String) keeps s
-      self.src = s
+    sub watch(!@, s: ?String) keeps s
+      @src = s
 
   p = P(src: "")
   t = String("hello")
@@ -2595,11 +2595,11 @@ fail "rev255-za01 temp holder drop reads temp", "a view of the temporary `String
   obj P
     src: ?String
 
-    sub watch(!self, s: ?String) keeps s
-      self.src = s
+    sub watch(!@, s: ?String) keeps s
+      @src = s
 
-    drop(!self)
-      print("drop", self.src)
+    drop(!@)
+      print("drop", @src)
 
   !P(src: "").watch(?String("hello"))
   print("end")
@@ -2608,8 +2608,8 @@ fail "rev255-zb01 shared receiver kept", "cannot drop `a` while it is lent"
   obj N
     n: String
 
-    sub reg(?self, out: !List[?N]) keeps self
-      !out.push(self)
+    sub reg(?@, out: !List[?N]) keeps @
+      !out.push(@)
 
   a = *N(n: String("x"))
   out: List[?N] = List()
@@ -2621,8 +2621,8 @@ test "rev255-zb02 shared receiver kept clone", "x"
   obj N
     n: String
 
-    sub reg(?self, out: !List[?N]) keeps self
-      !out.push(self)
+    sub reg(?@, out: !List[?N]) keeps @
+      !out.push(@)
 
   a = *N(n: String("x"))
   b = +a
@@ -2635,8 +2635,8 @@ fail "rev255-zb03 weak upgrade kept", "`s` does not live long enough"
   obj N
     n: String
 
-    sub reg(?self, out: !List[?N]) keeps self
-      !out.push(self)
+    sub reg(?@, out: !List[?N]) keeps @
+      !out.push(@)
 
   a = *N(n: String("x"))
   w = ~a
@@ -2650,8 +2650,8 @@ fail "rev255-zc04 keeper in match guard", "cannot drop `t` while it is lent"
   obj P
     src: ?String
 
-    fun watch(!self, s: ?String) -> Bool keeps s
-      self.src = s
+    fun watch(!@, s: ?String) -> Bool keeps s
+      @src = s
       true
 
   p = P(src: "")
@@ -2672,8 +2672,8 @@ fail "rev255-zc07 keeper in catch handler", "cannot drop `t` while it is lent"
   obj P
     src: ?String
 
-    fun watch(!self, s: ?String) -> Int keeps s
-      self.src = s
+    fun watch(!@, s: ?String) -> Int keeps s
+      @src = s
       1
 
   fun fails() -> Int!
@@ -2689,8 +2689,8 @@ fail "rev255-zc10 keeper in and short circuit", "cannot drop `t` while it is len
   obj P
     src: ?String
 
-    fun watch(!self, s: ?String) -> Bool keeps s
-      self.src = s
+    fun watch(!@, s: ?String) -> Bool keeps s
+      @src = s
       true
 
   p = P(src: "")
@@ -2709,13 +2709,13 @@ test "rev255-zd01 nonkept copies", "hellohello 5 2 static hello zzzzzzzz"
     src: ?String
     names: List[String]
 
-    sub note(!self, s: ?String)
-      self.owned = String(s)
-      self.n += s.len
-      !self.owned.add(s)
-      self.pos = text.find(s, "l") ?? -1
-      self.src = "static"
-      !self.names.push(String(s))
+    sub note(!@, s: ?String)
+      @owned = String(s)
+      @n += s.len
+      !@owned.add(s)
+      @pos = text.find(s, "l") ?? -1
+      @src = "static"
+      !@names.push(String(s))
 
   p = P(owned: String(""), n: 0, pos: 0, src: "", names: List())
   t = String("hello")
@@ -2728,8 +2728,8 @@ test "rev255-zh01 generic keeps self", "2 1 2"
   obj Bag[T]
     v: T
 
-    sub reg(?self, out: !List[?Bag[T]]) keeps self
-      !out.push(self)
+    sub reg(?@, out: !List[?Bag[T]]) keeps @
+      !out.push(@)
 
   a = Bag[Int](v: 1)
   b = Bag[Int](v: 2)
@@ -2746,8 +2746,8 @@ test "rev255-zh03 keeps generic two params", '''
     a: (?A)?
     b: (?B)?
 
-    sub set(!self, x: ?A, y: ?B) keeps y
-      self.b = y
+    sub set(!@, x: ?A, y: ?B) keeps y
+      @b = y
       print(x)
 
   p = Pair[String, String](a: none, b: none)
@@ -2782,8 +2782,8 @@ fail "rev255-zj04 table entry generic method", "cannot drop `x` while it is lent
   obj Table[K, V]
     entries: List[Entry[K, V]]
 
-    sub put(!self, k: K, v: V)
-      !self.entries.push(Entry[K, V](k: k, v: v))
+    sub put(!@, k: K, v: V)
+      !@entries.push(Entry[K, V](k: k, v: v))
 
   t = Table[Int, ?String](entries: List())
   x = String("hello")
@@ -2804,8 +2804,8 @@ test "review-arm-temps-2-m01 name target moved in arm", '''
   obj D
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun sink(d: D) -> D
     print("sink", d.n)
@@ -2827,8 +2827,8 @@ fail "review-arm-temps-2-m02 field target moved in arm", "cannot move out of `o.
   obj D
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj O
     d: D
@@ -2859,8 +2859,8 @@ test "review-arm-temps-2-m03 name target dropped in arm", '''
   obj D
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub run(k: Int)
     s = D(n: k)

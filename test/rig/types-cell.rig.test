@@ -12,9 +12,9 @@ test "cell behind shared", '''
     hits: Cell[Int] = Cell(0)
     name: ?String
 
-    fun hit(!self) -> Int
-      !self.hits.set(self.hits.get() + 1)
-      self.hits.get()
+    fun hit(!@) -> Int
+      !@hits.set(@hits.get() + 1)
+      @hits.get()
 
   sub bump(c: !Cell[Int])
     !c.set(c.get() + 10)
@@ -85,8 +85,8 @@ test "cell branch leaf forms", release: true, '''
   obj D
     c: *Cell[Int]
 
-    drop(!self)
-      print("drop", self.c.get())
+    drop(!@)
+      print("drop", @c.get())
 
   sub bump(c: !Cell[Int])
     !c.set(c.get() + 1)
@@ -218,9 +218,9 @@ fail "cell made outside shared", "12:5: `Cell(0)` makes a `Cell[Int]`, which hol
   obj Counter
     hits: Cell[Int] = Cell(0)
 
-    fun hit(!self) -> Int
-      !self.hits.set(self.hits.get() + 1)
-      self.hits.get()
+    fun hit(!@) -> Int
+      !@hits.set(@hits.get() + 1)
+      @hits.get()
 
   c = Cell(0)
   Cell(1).set(2)
@@ -230,7 +230,7 @@ fail "cell made outside shared", "12:5: `Cell(0)` makes a `Cell[Int]`, which hol
 
 fail "cell moved receiver", "7:6: method `push` needs its receiver lent to write, not moved", "9:10: method `pop` needs its receiver lent to write, not moved", "11:6: method `clear` needs its receiver lent to write, not moved", "13:6: method `set` needs its receiver lent to write, not moved", "15:10: method `replace` needs its receiver lent to write, not moved", errors: 5
   # A Cell's `set`, `replace`, and its List's `push`, `pop`, and `clear`
-  # take their receiver lent to write, as any `!self` method does, so a
+  # take their receiver lent to write, as any `!@` method does, so a
   # `*Cell` handle moved there with `<` is rejected: `<` would end the
   # binding for a call that only lends it.
 

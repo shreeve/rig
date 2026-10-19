@@ -98,8 +98,8 @@ test "r3-s36-n03 tail match drops", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun pick(k: Int) -> R
     a = R(n: 1)
@@ -176,8 +176,8 @@ test "r3-s36-n18 block tail owner bare", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   c = true
   x = if c
@@ -233,8 +233,8 @@ fail "r3-s36-n25 match value bare owner", "`a` owns an `R`, which can't be copie
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   k = 1
   a = R(n: 1)
@@ -248,8 +248,8 @@ fail "r3-s36-n26 ternary value bare owner", "`a` owns an `R`, which can't be cop
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   c = true
   a = R(n: 1)
@@ -261,8 +261,8 @@ fail "r3-s36-n27 if value outer owner bare", "`a` owns an `R`, which can't be co
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   c = true
   a = R(n: 1)
@@ -280,8 +280,8 @@ test "r3-s36-n28 break outer owner", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   a = R(n: 5)
   x = while true
@@ -295,8 +295,8 @@ test "r3-s36-n29 block tail shadow copy outer", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   c = true
   r = 5
@@ -314,8 +314,8 @@ test "r3-s36-n31 match arm block local tail", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   k = 0
   x = match k
@@ -329,8 +329,8 @@ fail "r3-s36-n32 block local tail then defer", "use of `r` after move"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   c = true
   x = if c
@@ -515,8 +515,8 @@ test "r3-s36-reads-c03 closure q capture", '''
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -536,8 +536,8 @@ test "r3-s36-reads-d01 field read", "3 1"
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -557,8 +557,8 @@ fail "r3-s36-reads-d02 field owner bind", "`b.v` owns a `List[Int]`, which can't
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -577,8 +577,8 @@ test "r3-s36-reads-d04 bind view", "3 3"
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -631,8 +631,8 @@ test "r3-s36-reads-f03 for field bare", '''
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -652,8 +652,8 @@ test "r3-s36-reads-f04 for call", "5"
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -673,8 +673,8 @@ test "r3-s36-reads-f05 for vec of owner bare", '''
 '''
   obj B
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[*B] = List()
   !v.push(*B(n: 1))
@@ -705,8 +705,8 @@ test "r3-s36-reads-i01b ifas q", '''
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -727,8 +727,8 @@ test "r3-s36-reads-i01c ifas move", "2"
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -747,8 +747,8 @@ test "r3-s36-reads-i02 ifas call", "9"
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -769,8 +769,8 @@ fail "r3-s36-reads-k03 take push bare", "`b` owns a `Bag`, which can't be copied
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -796,8 +796,8 @@ fail "r3-s36-reads-k04 take assign field bare", "`b` owns a `Bag`, which can't b
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -823,8 +823,8 @@ test "r3-s36-reads-k05 take arg call", "1"
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -847,8 +847,8 @@ fail "r3-s36-reads-k07 take handle arg", "`h` is a `*Bag` handle, which can't be
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -884,8 +884,8 @@ test "r3-s36-reads-l04c handle member", "3 3"
   obj S
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   h = *S(n: 3)
   print(h.n, h.get())
@@ -1046,8 +1046,8 @@ test "r3-s36-reads-p01 print bare", '''
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -1070,8 +1070,8 @@ test "r3-s36-reads-p02 print owner", '''
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -1094,11 +1094,11 @@ test "r3-s36-reads-q01 print ternary names", '''
   obj B
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> B
     B(n: n)
@@ -1121,8 +1121,8 @@ test "r3-s36-reads-q02 print optprop name", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun show() -> Int?
     o: B? = B(n: 1)
@@ -1141,11 +1141,11 @@ test "r3-s36-reads-q03 print coalesce name", '''
   obj B
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> B
     B(n: n)
@@ -1164,11 +1164,11 @@ test "r3-s36-reads-q05 receiver temp paren", '''
   obj B
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> B
     B(n: n)
@@ -1186,11 +1186,11 @@ test "r3-s36-reads-q06 cond drop timing", '''
   obj B
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> B
     B(n: n)
@@ -1213,11 +1213,11 @@ test "r3-s36-reads-q07 while drop timing", '''
   obj B
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> B
     B(n: n)
@@ -1235,11 +1235,11 @@ fail "r3-s36-reads-q08 ifas header view", "a view of the temporary `mk(3)` outli
   obj B
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> B
     B(n: n)
@@ -1262,8 +1262,8 @@ test "r3-s36-reads-q09 match temp move", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     one(b: B)
@@ -1288,8 +1288,8 @@ test "r3-s36-reads-q10 match temp read", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     one(b: B)
@@ -1312,11 +1312,11 @@ test "r3-s36-reads-q12 print temp", '''
   obj B
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> B
     B(n: n)
@@ -1334,11 +1334,11 @@ test "r3-s36-reads-q13 coalesce bind", '''
   obj B
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> B
     B(n: n)
@@ -1357,11 +1357,11 @@ test "r3-s36-reads-q14 lend temp arg", '''
   obj B
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> B
     B(n: n)
@@ -1379,8 +1379,8 @@ fail "r3-s36-reads-q15 while as header view", "a view of the temporary `B(n: i)`
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun idp(b: ?B) -> (?B)?
     b if b.n < 3 else none
@@ -1404,8 +1404,8 @@ test "r3-s36-reads-r01 receiver bare", '''
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -1427,8 +1427,8 @@ test "r3-s36-reads-r01b receiver q", '''
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -1447,8 +1447,8 @@ test "r3-s36-reads-r02 receiver call", "4"
     n: Int
     v: List[Int]
 
-    fun total(?self) -> Int
-      self.n + self.v.len
+    fun total(?@) -> Int
+      @n + @v.len
 
   fun mk(n: Int) -> Bag
     v: List[Int] = List()
@@ -1465,8 +1465,8 @@ test "r3-s36-reads-r05 receiver box method", "3 3"
     n: Int
     v: List[Int]
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   b = ^S(n: 3, v: List())
   print(b.get(), b.n)

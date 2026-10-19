@@ -189,8 +189,8 @@ test "audit-tests-probes-y01 errdefer", '''
 
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun make(fail: Bool) -> Int!
     r = R(n: 1)
@@ -561,13 +561,13 @@ test "bang-b", '''
   obj S
     n: Int
 
-    fun add(!self, x: Int) -> Bool
-      self.n += x
-      self.n > 3
+    fun add(!@, x: Int) -> Bool
+      @n += x
+      @n > 3
 
-    fun bump(!self) -> Int
-      self.n += 1
-      self.n
+    fun bump(!@) -> Int
+      @n += 1
+      @n
 
   s = S(n: 0)
   print((!s).bump())
@@ -611,11 +611,11 @@ test "box-c1", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
-    sub eat(<self)
-      print("eat", self.n)
+    sub eat(<@)
+      print("eat", @n)
 
   b = ^R(n: 1)
   <b.eat()
@@ -650,8 +650,8 @@ test "box-c4", '''
   obj Wrap[T]
     v: T
 
-    fun get(?self) -> T
-      self.v
+    fun get(?@) -> T
+      @v
 
   obj H
     b: ^Wrap[Int]
@@ -736,8 +736,8 @@ test "box-f1", '''
     circle(r: Int)
     square(s: Int)
 
-    fun area(?self) -> Int
-      match self
+    fun area(?@) -> Int
+      match @
         .circle(r) => 3 * r * r
         .square(s) => s * s
 
@@ -755,8 +755,8 @@ test "box-p1", '''
   obj N
     k: Int
 
-    drop(!self)
-      print("drop", self.k)
+    drop(!@)
+      print("drop", @k)
 
   fun peek(o: ?N?) -> Int
     if o as n
@@ -881,8 +881,8 @@ test "c5-m2", '''
   obj Wrap[T]
     v: T
 
-    fun get(?self) -> T
-      self.v
+    fun get(?@) -> T
+      @v
 
   type IW = Wrap[Int]
   type IV = List[Int]
@@ -972,8 +972,8 @@ test "ca-a4", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
     f(x)
@@ -1073,14 +1073,14 @@ test "ca-e1", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   obj Tree
     vals: List[Int]
 
-    sub each(?self, f: ?sub(Int))
-      for v in ?self.vals
+    sub each(?@, f: ?sub(Int))
+      for v in ?@vals
         f(v)
 
   fun apply(f: ?fun(Int) -> Int, x: Int) -> Int

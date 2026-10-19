@@ -213,11 +213,11 @@ test "argument read then written", '''
     a: List[Int]
     b: Int
 
-    fun count(?self, n: Int) -> Int
-      self.a.len + n
+    fun count(?@, n: Int) -> Int
+      @a.len + n
 
-    sub add(!self, n: Int)
-      !self.a.push(n)
+    sub add(!@, n: Int)
+      !@a.push(n)
 
   obj Q
     p: P
@@ -275,8 +275,8 @@ fail "argument read then written is rejected", "50:16: cannot lend `v` to write 
     a: List[Int]
     b: Int
 
-    fun count(?self, n: Int) -> Int
-      self.a.len + n
+    fun count(?@, n: Int) -> Int
+      @a.len + n
 
   obj View
     r: ?List[Int]
@@ -346,8 +346,8 @@ fail "argument write loan held", "32:30: cannot lend `b` to read while a write l
   obj Bag
     items: List[Item]
 
-    fun firstw(!self) -> !Item
-      !self.items[0]
+    fun firstw(!@) -> !Item
+      !@items[0]
 
   fun both(a: !Item, b: ?Bag) -> Int
     a.n += 1
@@ -393,8 +393,8 @@ test "argument write view value read", '''
   obj Bag
     items: List[Item]
 
-    fun firstw(!self) -> !Item
-      !self.items[0]
+    fun firstw(!@) -> !Item
+      !@items[0]
 
   fun sum(a: Int, b: ?Bag) -> Int
     a + b.items.len
@@ -439,32 +439,32 @@ test "arm temporary drop reads binding", release: true, '''
     v: ?Int
     t: String
 
-    drop(!self)
-      print("drop hi", self.v)
+    drop(!@)
+      print("drop hi", @v)
 
   obj HP
     v: ?P
     t: String
 
-    drop(!self)
-      print("drop hp", self.v.n)
+    drop(!@)
+      print("drop hp", @v.n)
 
   obj D
     c: Cell[Int]
 
-    drop(!self)
-      print("drop d", self.c.get())
+    drop(!@)
+      print("drop d", @c.get())
 
   obj HC
     v: ?D
     c: Cell[Int]
 
-    drop(!self)
-      print("drop hc", self.v.c.get(), self.c.get())
+    drop(!@)
+      print("drop hc", @v.c.get(), @c.get())
 
-    fun me(!self) -> Int
-      !self.c.set(self.c.get() + 1)
-      self.c.get()
+    fun me(!@) -> Int
+      !@c.set(@c.get() + 1)
+      @c.get()
 
   enum Bx
     has(p: P)
@@ -645,8 +645,8 @@ fail "as bare write view", "11:9: `as` over a write view lends it on: write `!o`
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub spin(o: !Res?)
     while o as v
@@ -702,8 +702,8 @@ test "as chain moves", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun make(k: Int) -> Res?
     Res(id: k) if k > 0 else none
@@ -771,8 +771,8 @@ test "as lends optional value", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub peek(o: ?Res?)
     if o as v
@@ -821,8 +821,8 @@ test "as lends through paths", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Holder
     r: Res?
@@ -932,8 +932,8 @@ fail "as temp header cell copy", "14:6: a value of `Counter` holds a Cell, so it
   obj Counter
     hits: Cell[Int]
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   obj H
     o: Counter?
@@ -953,8 +953,8 @@ fail "as view aliasing", "13:10: expected `Res?`, got `?Res`"
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   r: Res? = Res(n: 1)
   keep: Res? = none
@@ -970,8 +970,8 @@ fail "as view aliasing ownership", "13:9: use of `r` while a write loan is live"
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   r: Res? = Res(n: 1)
   if !r as v
@@ -1462,11 +1462,11 @@ test "assign through returned view", '''
     items: List[Int]
     name: String
 
-    fun first(!self) -> !Int
-      !self.items[0]
+    fun first(!@) -> !Int
+      !@items[0]
 
-    fun label(!self) -> !String
-      !self.name
+    fun label(!@) -> !String
+      !@name
 
   fun slot(v: !List[Int], i: Int) -> !Int from v
     !v[i]
@@ -1740,7 +1740,7 @@ test "auto drop after branch drop", '''
   obj C
     v: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   sub run(cond: Bool)
@@ -1767,8 +1767,8 @@ test "auto drop early return", '''
   obj C
     v: Int
 
-    drop(!self)
-      print(self.v)
+    drop(!@)
+      print(@v)
 
   fun pick(cond: Bool) -> Int
     rc = *C(v: 99)
@@ -1794,8 +1794,8 @@ test "auto drop in loop", '''
   obj C
     v: Int
 
-    drop(!self)
-      print(self.v + 100)
+    drop(!@)
+      print(@v + 100)
 
   i = 0
   while i < 3
@@ -1814,7 +1814,7 @@ test "auto drop shared", '''
   obj Counter
     value: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   rc = *Counter(value: 7)
@@ -1853,8 +1853,8 @@ test "bare variant of owning enum", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: *B)
@@ -2061,8 +2061,8 @@ fail "box owns uniquely", "14:6: `+x` cannot clone a `^H`"
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     r: Res
@@ -2078,8 +2078,8 @@ fail "box owns uniquely ownership", "15:5: `b` owns a `^H`, which can't be copie
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     r: Res
@@ -2257,7 +2257,7 @@ fail "branch read cell changed later", "21:7: `a.s if k else b.s` would copy a `
   print(String(b.s if k else a.s, grow(!a.s)))
 
 fail "branch receiver change lands in copy", "25:8: method `inc` writes its receiver, and `a if c else b` may be `a`, a value a name holds, which the call would write as a copy", "26:8: method `inc2` writes its receiver, and `a if c else b` may be `a`", errors: 2
-  # A `!self` method called on a value that branches and may be a value a
+  # A `!@` method called on a value that branches and may be a value a
   # name holds would change a copy of that value: each branch is lent
   # instead (`(!a if c else !b).inc()`). A method that changes its receiver
   # through a Cell, called on a branching value or a part of one, changes
@@ -2267,13 +2267,13 @@ fail "branch receiver change lands in copy", "25:8: method `inc` writes its rece
   obj P
     n: Int
 
-    fun inc(!self) -> Int
-      self.n += 1
-      self.n
+    fun inc(!@) -> Int
+      @n += 1
+      @n
 
-    fun inc2(!self, j: Int, k: Int) -> Int
-      self.n += j
-      self.n
+    fun inc2(!@, j: Int, k: Int) -> Int
+      @n += j
+      @n
 
   fun g(k: Int) -> Int
     k
@@ -2299,7 +2299,7 @@ test "branch receiver change through leaves", release: true, '''
   4 2 13 5 3 a text long enough to live on the heap
   6
 '''
-  # A `!self` method that changes its receiver through a Cell, called on a
+  # A `!@` method that changes its receiver through a Cell, called on a
   # branch of shared handles, or on a field or element of one, reaches the
   # leaf the branch takes where it is, through `??` and `catch` too and when
   # the call's arguments are evaluated first: the change lands in that
@@ -2312,13 +2312,13 @@ test "branch receiver change through leaves", release: true, '''
     c: Cell[Int]
     t: String
 
-    fun bump(!self) -> Int
-      !self.c.set(self.c.get() + 1)
-      self.c.get()
+    fun bump(!@) -> Int
+      !@c.set(@c.get() + 1)
+      @c.get()
 
-    fun bump2(!self, j: Int, k: Int) -> Int
-      !self.c.set(self.c.get() + j)
-      self.c.get()
+    fun bump2(!@, j: Int, k: Int) -> Int
+      !@c.set(@c.get() + j)
+      @c.get()
 
   obj H
     q: Q
@@ -2373,7 +2373,7 @@ test "branch receiver change through lends", '''
   2 3
   2 3
 '''
-  # A method that changes its receiver, through a Cell or a `!self`, called
+  # A method that changes its receiver, through a Cell or a `!@`, called
   # on what each branch lends, changes the value the branch takes, also when
   # its arguments are evaluated first.
 
@@ -2381,13 +2381,13 @@ test "branch receiver change through lends", '''
     c: Cell[Int]
     n: Int
 
-    fun bump(!self) -> Int
-      !self.c.set(self.c.get() + 1)
-      self.c.get()
+    fun bump(!@) -> Int
+      !@c.set(@c.get() + 1)
+      @c.get()
 
-    fun bump2(!self, j: Int, k: Int) -> Int
-      !self.c.set(self.c.get() + j)
-      self.c.get()
+    fun bump2(!@, j: Int, k: Int) -> Int
+      !@c.set(@c.get() + j)
+      @c.get()
 
   obj H
     q: Q
@@ -2395,9 +2395,9 @@ test "branch receiver change through lends", '''
   obj P
     n: Int
 
-    fun inc(!self) -> Int
-      self.n += 1
-      self.n
+    fun inc(!@) -> Int
+      @n += 1
+      @n
 
   fun g(k: Int) -> Int
     k
@@ -2575,8 +2575,8 @@ test "break moves loop local", release: true, '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     a(r: R)
@@ -2631,8 +2631,8 @@ fail "break outer name", "14:9: `r0` owns an `R`, which can't be copied out by `
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   r0 = R(n: 5)
   a = while true
@@ -2751,18 +2751,18 @@ test "call held receiver values", '''
     n: Int
     m: Int
 
-    fun me(?self) -> ?S
-      self
+    fun me(?@) -> ?S
+      @
 
-    fun sum(?self) -> Int
-      self.n + self.m
+    fun sum(?@) -> Int
+      @n + @m
 
   obj Q
     c: Cell[Int]
     n: Int
 
-    fun get(?self) -> Int
-      self.c.get() + self.n
+    fun get(?@) -> Int
+      @c.get() + @n
 
   obj H
     q: Q
@@ -2817,9 +2817,9 @@ test "call write lend ends at return", '''
     items: List[Item]
     count: Int
 
-    fun first(!self) -> ?Item
-      self.count += 1
-      ?self.items[0]
+    fun first(!@) -> ?Item
+      @count += 1
+      ?@items[0]
 
   enum Res
     found(it: ?Item)
@@ -3018,8 +3018,8 @@ fail "callable view escape", "25:4: cannot return a view of `g`, which this func
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun double(n: Int) -> Int
     n * 2
@@ -3157,8 +3157,8 @@ fail "capture fix by type", "25:16: cannot move captured `v`: the closure keeps 
   obj Res
     n: Int
 
-    drop(!self)
-      print(self.n)
+    drop(!@)
+      print(@n)
 
   fun eat(v: List[Int]) -> Int
     v.len
@@ -3259,7 +3259,7 @@ test "catch handler temporary read", release: true, '''
   # `catch` handler's value: the leaf lives in its statement's slot, for
   # the statement, as every temporary the handler makes does
   # (`sema.stmtTemps`), so a read within the statement reads a live value,
-  # with or without a `drop`. A `!self` method called on such a leaf is
+  # with or without a `drop`. A `!@` method called on such a leaf is
   # used within the statement too, also in a `while` condition, a part of
   # the branch, and under a handler that names its error.
 
@@ -3269,19 +3269,19 @@ test "catch handler temporary read", release: true, '''
   obj N
     c: Cell[Int]
 
-    fun me(!self) -> Int
-      !self.c.set(self.c.get() + 1)
-      self.c.get()
+    fun me(!@) -> Int
+      !@c.set(@c.get() + 1)
+      @c.get()
 
   obj D
     c: Cell[Int]
 
-    drop(!self)
-      print("drop", self.c.get())
+    drop(!@)
+      print("drop", @c.get())
 
-    fun me(!self) -> Int
-      !self.c.set(self.c.get() + 1)
-      self.c.get()
+    fun me(!@) -> Int
+      !@c.set(@c.get() + 1)
+      @c.get()
 
   obj WW
     t: *N
@@ -3333,7 +3333,7 @@ fail "clone of shared view keeps view", "cannot drop `a` while it is lent"
   obj Wrap
     payload: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   obj View
@@ -3373,7 +3373,7 @@ test "clone shared field", '''
   obj Wrap
     payload: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   obj Pair
@@ -3395,8 +3395,8 @@ test "clone viewed handle", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub f(b: ?*B)
     k = +b
@@ -3492,8 +3492,8 @@ test "coalesce jump owning", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun make(k: Int) -> Res?
     Res(id: k) if k > 0 else none
@@ -3529,8 +3529,8 @@ fail "coalesce jump owning place", "11:7: `o` owns a `Res?`, which can't be copi
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun first(o: Res?) -> Int
     r = o ?? return 0
@@ -3638,7 +3638,7 @@ test "conditional move no later use", '''
   obj Wrap
     payload: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   sub eat(rc: *Wrap)
@@ -3662,8 +3662,8 @@ fail "consume receiver catch", "19:24: `d` owns a `Bag`, which can't be copied i
   obj Bag
     items: List[Int]
 
-    fun total(<self) -> Int
-      self.items.len
+    fun total(<@) -> Int
+      @items.len
 
   fun mk(ok: Bool) -> Bag!
     if not ok
@@ -3681,7 +3681,7 @@ test "consume receiver copies", '''
   2 2 2
   4
 '''
-  # A method that consumes its receiver (`<self`) takes a copy of a
+  # A method that consumes its receiver (`<@`) takes a copy of a
   # receiver whose value copies, as an argument does: `s.p.into()` and
   # `v[0].into()` copy the part and leave it as it was, and `p.into()`
   # copies a local. `<p.into()` still moves the local, which ends it, and
@@ -3692,8 +3692,8 @@ test "consume receiver copies", '''
   obj P
     x: Int
 
-    fun into(<self) -> Int
-      self.x
+    fun into(<@) -> Int
+      @x
 
   obj S
     p: P
@@ -3724,11 +3724,11 @@ test "consume receiver moved branches", '''
   obj Bag
     items: List[Int]
 
-    fun total(<self) -> Int
-      self.items.len
+    fun total(<@) -> Int
+      @items.len
 
-    fun size(?self) -> Int
-      self.items.len
+    fun size(?@) -> Int
+      @items.len
 
   fun mk() -> Bag
     b = Bag(items: List())
@@ -3754,8 +3754,8 @@ fail "consume receiver nullish", "11:8: `o` owns a `Bag?`, which can't be copied
   obj Bag
     items: List[Int]
 
-    fun total(<self) -> Int
-      self.items.len
+    fun total(<@) -> Int
+      @items.len
 
   o: Bag? = Bag(items: List())
   b = Bag(items: List())
@@ -3768,8 +3768,8 @@ fail "consume receiver optional field", "13:8: `h.o` owns a `Bag?`, which can't 
   obj Bag
     items: List[Int]
 
-    fun total(<self) -> Int
-      self.items.len
+    fun total(<@) -> Int
+      @items.len
 
   obj Holder
     o: Bag?
@@ -3791,8 +3791,8 @@ fail "consume receiver ternary", "13:8: `a` owns a `Bag`, which can't be copied 
   obj Bag
     items: List[Int]
 
-    fun total(<self) -> Int
-      self.items.len
+    fun total(<@) -> Int
+      @items.len
 
   a = Bag(items: List())
   b = Bag(items: List())
@@ -3824,8 +3824,8 @@ test "copies clone capture", '''
   obj N
     v: Int
 
-    drop(!self)
-      print("drop", self.v)
+    drop(!@)
+      print("drop", @v)
 
   obj S
     r: ?List[Int]
@@ -4271,8 +4271,8 @@ fail "copy read while write view live", "13:7: use of `n` while a write loan is 
   obj P
     x: Int
 
-    fun get(?self) -> Int
-      self.x
+    fun get(?@) -> Int
+      @x
 
   n = 1
   w = !n
@@ -4378,8 +4378,8 @@ test "discard resource drops", '''
   obj Wrap
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun make(n: Int) -> *Wrap
     *Wrap(n: n)
@@ -4414,7 +4414,7 @@ test "discard take plain optional", release: true, '''
 '''
   # A discarded take of an optional field or element, a statement `<e` or
   # `_ = <e`, leaves `none` whatever the optional holds: plain data, a
-  # plain struct, or a view, through the owner, a write view, a `!self`
+  # plain struct, or a view, through the owner, a write view, a `!@`
   # receiver, or a `defer`, as a take whose value is bound does.
 
   obj P
@@ -4425,9 +4425,9 @@ test "discard take plain optional", release: true, '''
     p: P?
     s: (?String)?
 
-    sub clear(!self)
-      <self.n
-      _ = <self.p
+    sub clear(!@)
+      <@n
+      _ = <@p
 
   sub take_through(w: !S)
     <w.n
@@ -4664,8 +4664,8 @@ fail "errdefer reads value moved before block fails", "19:32: use of `t` after m
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub eat(t: Tok)
     print("eat", t.n)
@@ -4699,8 +4699,8 @@ fail "errdefer revives struct at propagate", "24:9: use of `x` after move", erro
 
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub eat(r: R)
     print("eat", r.n)
@@ -4744,8 +4744,8 @@ test "errdefer success path moves", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub eat(t: Tok)
     print("eat", t.n)
@@ -4895,19 +4895,19 @@ fail "fallback bare owner", "8:15: `d` owns a `String`, which can't be copied by
 
 test "function field through write self", "195 99"
   # A function held in a field is called with its arguments alone, so a
-  # `!self` method may lend it a view of a local: nothing of `self` can
+  # `!@` method may lend it a view of a local: nothing of `@` can
   # keep the view.
 
   obj Map[K]
     hash: fun(?K) -> U64
     n: Int
 
-    sub put(!self, k: K)
-      x = self.hash(?k)
-      self.n += Int(x)
+    sub put(!@, k: K)
+      x = @hash(?k)
+      @n += Int(x)
 
-    fun slot(!self, k: ?K) -> U64
-      self.hash(k)
+    fun slot(!@, k: ?K) -> U64
+      @hash(k)
 
   fun byte_sum(s: ?String) -> U64
     total: U64 = 0
@@ -4928,8 +4928,8 @@ test "guarded view subject cell", ".a(c: Counter(hits: Cell(value: 2)))"
   obj Counter
     hits: Cell[Int]
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   enum E
     a(c: Counter)
@@ -5171,11 +5171,11 @@ test "hoisted implicit lends", '''
   obj Bag
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
-    fun plus2(?self, o: ?Bag, p: ?Bag) -> Int
-      self.n + o.n + p.n
+    fun plus2(?@, o: ?Bag, p: ?Bag) -> Int
+      @n + o.n + p.n
 
   error Bad
     boom
@@ -5295,8 +5295,8 @@ test "if as clone or move optional", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   rc = *B(n: 1)
   w = ~rc
@@ -5319,8 +5319,8 @@ test "if as move binding", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   sub eat(n: *Noisy)
     print("eat", n.id)
@@ -5439,8 +5439,8 @@ fail "ignored write lend", "42:3: `!x` here is read, not held: an `Int` goes her
   obj G[T]
     r: T
 
-    sub set(!self, x: T)
-      self.r = x
+    sub set(!@, x: T)
+      @r = x
 
   obj P
     x: Int
@@ -5596,14 +5596,14 @@ fail "ignored write lend read", "13:8: `!p` here is read, not held: only its `In
 fail "ignored write lend read view", "30:10: `!n` here is read, not held: `rd` only reads `n`; write `rd(?n)`", "31:11: `!n` here is read, not held: a `?Int` only reads `n`; write `?n`", "32:16: `!n` here is read, not held: `G[?Int]` only reads `n`; write `G[?Int](r: ?n)`", "33:13: `!arr[0..2]` here is read, not held: `total` only reads `arr[0..2]`; write `total(?arr[0..2])`", "33:32: `!arr` here is read, not held: `total` only reads `arr`; write `total(?arr)`", "34:11: `!t` here is read, not held: `len` only reads `t`; write `len(?t)`", "35:8: `!p` here is read, not held: `get` only reads `p`; write `p.get()`", errors: 7
   # A written `!x` where only a read view goes lends nothing to write:
   # a `?T` parameter, field, or binding, a `[]T` or a String parameter,
-  # and a `?self` receiver. It is rejected with `?x`, which lends to
+  # and a `?@` receiver. It is rejected with `?x`, which lends to
   # read. A held write view (`w`) passes there as it is.
 
   obj P
     x: Int
 
-    fun get(?self) -> Int
-      self.x
+    fun get(?@) -> Int
+      @x
 
   obj G[T]
     r: T
@@ -6196,15 +6196,15 @@ fail "kept receiver view leaves tail", "35:3: cannot return a view of `mk(42)`, 
     n: Int
     m: Int
 
-    fun me(?self) -> ?S
-      self
+    fun me(?@) -> ?S
+      @
 
   obj Q
     c: Cell[Int]
     n: Int
 
-    fun me(?self, j: Int, k: Int) -> ?Q
-      self
+    fun me(?@, j: Int, k: Int) -> ?Q
+      @
 
   obj H
     q: Q
@@ -6258,19 +6258,19 @@ fail "kept receiver view outlives statement", "38:5: a view of the temporary `mk
     n: Int
     m: Int
 
-    fun me(?self) -> ?S
-      self
+    fun me(?@) -> ?S
+      @
 
   obj Q
     c: Cell[Int]
     n: Int
 
-    fun me(?self) -> ?Q
-      self
+    fun me(?@) -> ?Q
+      @
 
-    fun put(?self, h: !Holder) -> Int keeps self
-      h.r = self
-      self.n
+    fun put(?@, h: !Holder) -> Int keeps @
+      h.r = @
+      @n
 
   obj Holder
     r: (?Q)?
@@ -6302,8 +6302,8 @@ test "labeled break after move", '''
   obj Wrap
     payload: Int
 
-    drop(!self)
-      print("drop", self.payload)
+    drop(!@)
+      print("drop", @payload)
 
   sub eat(b: *Wrap)
     print("eat", b.payload)
@@ -6362,8 +6362,8 @@ fail "lend branch of places", "31:9: cannot lend `a if c else b`: it may be `a`,
     o: Res?
     v: List[Int]
 
-    fun gvw(!self) -> ![]Int
-      !self.v[..]
+    fun gvw(!@) -> ![]Int
+      !@v[..]
 
   fun first(v: ?List[Int]) -> []Int
     ?v[..1]
@@ -6479,20 +6479,20 @@ test "lend each branch", release: true, '''
     v: List[Int]
     q: Q?
 
-    fun ge(?self) -> ?E
-      ?self.e
+    fun ge(?@) -> ?E
+      ?@e
 
-    fun gv(?self) -> ?List[Int]
-      ?self.v
+    fun gv(?@) -> ?List[Int]
+      ?@v
 
-    fun go(?self) -> ?(E?)
-      ?self.o
+    fun go(?@) -> ?(E?)
+      ?@o
 
-    fun gew(!self) -> !E
-      !self.e
+    fun gew(!@) -> !E
+      !@e
 
-    fun gvw(!self) -> !List[Int]
-      !self.v
+    fun gvw(!@) -> !List[Int]
+      !@v
 
   fun mkv(n: Int) -> List[Int]
     v: List[Int] = List()
@@ -6565,15 +6565,15 @@ fail "lend path base", "70:11: `for x in !xs` writes each element in place; `xs`
   obj Set
     items: List[Int]
 
-    fun insert(!self, k: Int) -> Bool
-      !self.items.push(k)
+    fun insert(!@, k: Int) -> Bool
+      !@items.push(k)
       true
 
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -6648,15 +6648,15 @@ fail "lend path base contexts", "47:10: method `insert` needs its receiver lent 
   obj Set
     items: List[Int]
 
-    fun insert(!self, k: Int) -> Bool
-      !self.items.push(k)
+    fun insert(!@, k: Int) -> Bool
+      !@items.push(k)
       true
 
   obj Q
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   obj P
     x: Int
@@ -6859,8 +6859,8 @@ fail "lend path base temporary", "44:2: `(!mkh()).r`: write a lend on the whole 
   obj H
     r: ?String
 
-    drop(!self)
-      print("drop", self.r)
+    drop(!@)
+      print("drop", @r)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("x"), items: List(), e: E.a)
@@ -7008,20 +7008,20 @@ test "lend path plain forms", release: true, '''
   obj Set
     items: List[Int]
 
-    fun insert(!self, k: Int) -> Bool
-      for x in ?self.items
+    fun insert(!@, k: Int) -> Bool
+      for x in ?@items
         return false if x == k
-      !self.items.push(k)
+      !@items.push(k)
       true
 
-    sub put[k: Int](!self, x: Int)
-      !self.items.push(x * k)
+    sub put[k: Int](!@, x: Int)
+      !@items.push(x * k)
 
   obj Q
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj P
     x: Int
@@ -7031,8 +7031,8 @@ test "lend path plain forms", release: true, '''
     qs: [2]Q
     s: Set
 
-    fun pickw(!self) -> !Q
-      !self.qs[1]
+    fun pickw(!@) -> !Q
+      !@qs[1]
 
   sub set(v: !List[Int], q: !P, xs: ![]Int)
     v[0] = 4
@@ -7343,11 +7343,11 @@ test "loan ends at last use", '''
   obj Wrap
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj View
     box: ?Wrap
@@ -7410,7 +7410,7 @@ test "loan ends with scope", '''
   obj Wrap
     payload: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   a = Wrap(payload: 3)
@@ -7430,7 +7430,7 @@ test "loan released by drop", '''
   obj Wrap
     payload: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   b = Wrap(payload: 1)
@@ -7528,7 +7528,7 @@ test "loop move then break", '''
   obj Wrap
     payload: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   sub eat(rc: *Wrap)
@@ -7578,8 +7578,8 @@ test "loop move then reassign", '''
   obj Wrap
     payload: Int
 
-    drop(!self)
-      print(self.payload)
+    drop(!@)
+      print(@payload)
 
   sub eat(rc: *Wrap)
     print(rc.payload + 100)
@@ -7604,7 +7604,7 @@ test "loop move then return", '''
   obj Wrap
     payload: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   sub eat(rc: *Wrap)
@@ -7722,8 +7722,8 @@ test "loop view call arg", '''
   obj Circle
     r: Float
 
-    fun area(?self) -> Float
-      3.0 * self.r * self.r
+    fun area(?@) -> Float
+      3.0 * @r * @r
 
   obj Tag
     name: String
@@ -7762,19 +7762,19 @@ test "method plain receiver keeps no loan", '''
   [2, 1, 3]
   [1, 2, 3] 2
 '''
-  # A method taking `!self` may store what its arguments view in its
+  # A method taking `!@` may store what its arguments view in its
   # receiver only when the receiver's type can hold a view: a receiver
   # of plain data keeps none, so the argument's view ends with the call.
 
   obj Counter
     n: Int
 
-    sub bump(!self, xs: ![]Int)
-      self.n += 1
+    sub bump(!@, xs: ![]Int)
+      @n += 1
       !xs.swap(0, 1)
 
-    sub bump_each[T](!self, xs: ![]T)
-      self.n += 1
+    sub bump_each[T](!@, xs: ![]T)
+      @n += 1
       !xs.swap(0, 1)
 
   c = Counter(n: 0)
@@ -7785,15 +7785,15 @@ test "method plain receiver keeps no loan", '''
   print(a, c.n)
 
 fail "method receiver keeps loan", "cannot lend `a` to write while a read loan is live", errors: 1
-  # A `!self` receiver whose type holds a view may keep what the
+  # A `!@` receiver whose type holds a view may keep what the
   # method's arguments view, so the view lives as long as it does,
   # even when the receiver is written through a write view.
 
   obj View
     xs: []Int
 
-    sub point(!self, ys: []Int) keeps ys
-      self.xs = ys
+    sub point(!@, ys: []Int) keeps ys
+      @xs = ys
 
   a = [1, 2, 3]
   b = [4, 5]
@@ -7803,7 +7803,7 @@ fail "method receiver keeps loan", "cannot lend `a` to write while a read loan i
   print(v.xs)
 
 test "method returns view", "3"
-  # A `?self` method may return a view into `self`.
+  # A `?@` method may return a view into `@`.
 
   obj Wrap
     payload: Int
@@ -7811,8 +7811,8 @@ test "method returns view", "3"
   obj Holder
     inner: Wrap
 
-    fun get(?self) -> ?Wrap
-      ?self.inner
+    fun get(?@) -> ?Wrap
+      ?@inner
 
   h = Holder(inner: Wrap(payload: 3))
   b = ?h.get()
@@ -7848,8 +7848,8 @@ fail "moved view keeps loans in call", "34:13: cannot lend `x` to write while a 
   obj Wrap
     v: List[Int]
 
-    sub eat(!self, r: ?Wrap)
-      self.v = List()
+    sub eat(!@, r: ?Wrap)
+      @v = List()
       print(r.v.len)
 
   obj Ed
@@ -7975,11 +7975,11 @@ fail "nll captured later", "cannot lend `x` to write while a read loan is live"
   obj Wrap
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   x = Wrap(n: 1)
   r = ?x
@@ -7995,11 +7995,11 @@ fail "nll closure holds view", "cannot lend `x` to write while a read loan is li
   obj Wrap
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   x = Wrap(n: 1)
   r = ?x
@@ -8014,11 +8014,11 @@ fail "nll deferred use", "cannot lend `x` to write while a read loan is live"
   obj Wrap
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   x = Wrap(n: 1)
   r = ?x
@@ -8032,17 +8032,17 @@ fail "nll drop reaches view", "cannot drop `x` while it is lent"
   obj Wrap
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Guard
     box: ?Wrap
 
-    drop(!self)
-      print("guard", self.box.n)
+    drop(!@)
+      print("guard", @box.n)
 
   x = Wrap(n: 1)
   g = Guard(box: ?x)
@@ -8055,11 +8055,11 @@ fail "nll escapes by break", "`b` does not live long enough"
   obj Wrap
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   a = Wrap(n: 1)
   r = ?a
@@ -8076,11 +8076,11 @@ fail "nll guarded statement", "cannot lend `x` to write while a read loan is liv
   obj Wrap
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub pair(r: ?Wrap, w: !Wrap)
     print(r.n, w.n)
@@ -8097,11 +8097,11 @@ fail "nll lend on through write", "use of `x.n` while a write loan on `x` is liv
   obj Wrap
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun lend(b: !Wrap) -> !Wrap
     b
@@ -8119,11 +8119,11 @@ fail "nll loop condition", "cannot lend `v` to write while a read loan is live"
   obj Wrap
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[Int] = List()
   r = ?v
@@ -8137,11 +8137,11 @@ fail "nll next iteration", "cannot lend `x` to write while a read loan is live"
   obj Wrap
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   x = Wrap(n: 1)
   r = ?x
@@ -8157,11 +8157,11 @@ fail "nll payload after move", "cannot move `s` while a read loan is live"
   obj Wrap
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: Wrap)
@@ -8184,11 +8184,11 @@ fail "nll returned view still used", "cannot drop `y` while it is lent"
   obj Wrap
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun first(a: ?Wrap, b: ?Wrap) -> ?Wrap
     a
@@ -8205,11 +8205,11 @@ fail "nll view used later", "cannot lend `x` to write while a read loan is live"
   obj Wrap
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj View
     box: ?Wrap
@@ -8226,11 +8226,11 @@ fail "nll viewed view", "cannot drop `x` while it is lent"
   obj Wrap
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj View
     box: ?Wrap
@@ -8252,8 +8252,8 @@ test "none compare temporary", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   rc = *B(n: 1)
   w = ~rc
@@ -8323,8 +8323,8 @@ test "operand read order", '''
     v: List[Int]
     n: Int
 
-    fun sum(?self, k: Int) -> Int
-      self.v[0] + k
+    fun sum(?@, k: Int) -> Int
+      @v[0] + k
 
   fun mk(k: Int) -> P
     v: List[Int] = List()
@@ -8419,8 +8419,8 @@ test "owned args dropped when later arg fails", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj P
     a: B
@@ -8459,8 +8459,8 @@ test "owned args dropped when later arg fails", '''
   obj S
     b: B
 
-    sub put(!self, b: B, n: Int)
-      self.b = <b
+    sub put(!@, b: B, n: Int)
+      @b = <b
       print("put", n)
 
   fun temp() -> Int!
@@ -8546,7 +8546,7 @@ fail "owned closure call stores arg", "11:1: cannot lend `t` to write while a re
   !t.add("y")
   print(h.s)
 
-fail "owned closure callee write self", "14:16: cannot lend `self` to write while the callee's read of `self.hook` is in use", "14:5: clone the handle first: `f = +self.hook`, then `f(!self)`", "17:20: cannot lend `self` to write while the callee's read of `self.hooks` is in use", "17:5: clone the handle first: `f = +self.hooks[0]`, then `f(!self)`", "21:8: cannot lend `self` to write while a read loan on `self.hook` is live", "25:10: cannot lend `self` to write while a read loan on `self.opt` is live", "32:16: cannot lend `self` to write while the callee's read of `self.hook` is in use", "32:5: clone the handle first: `f = +self.hook`, then `f(!self, x)`", "35:11: cannot lend `b` to write while the callee's read of `b.hook` is in use", "39:11: cannot lend `w` to write while the callee's read of `w.hook` is in use", errors: 7
+fail "owned closure callee write self", "14:12: cannot lend `@` to write while the callee's read of `@hook` is in use", "14:5: clone the handle first: `f = +@hook`, then `f(!@)`", "17:16: cannot lend `@` to write while the callee's read of `@hooks` is in use", "17:5: clone the handle first: `f = +@hooks[0]`, then `f(!@)`", "21:8: cannot lend `@` to write while a read loan on `@hook` is live", "25:10: cannot lend `@` to write while a read loan on `@opt` is live", "32:12: cannot lend `@` to write while the callee's read of `@hook` is in use", "32:5: clone the handle first: `f = +@hook`, then `f(!@, x)`", "35:11: cannot lend `b` to write while the callee's read of `b.hook` is in use", "39:11: cannot lend `w` to write while the callee's read of `w.hook` is in use", errors: 7
   # Calling an owned closure reads what holds it until the call returns,
   # so the call may not lend that holder to write: the closure could
   # replace itself there and free the environment it runs in. Each form
@@ -8559,26 +8559,26 @@ fail "owned closure callee write self", "14:16: cannot lend `self` to write whil
     hooks: List[*sub(!Checker)]
     opt: (*sub(!Checker))?
 
-    sub run(!self)
-      self.hook(!self)
+    sub run(!@)
+      @hook(!@)
 
-    sub run_element(!self)
-      self.hooks[0](!self)
+    sub run_element(!@)
+      @hooks[0](!@)
 
-    sub run_view(!self)
-      g = ?self.hook
-      g(!self)
+    sub run_view(!@)
+      g = ?@hook
+      g(!@)
 
-    sub run_as(!self)
-      if self.opt as f
-        f(!self)
+    sub run_as(!@)
+      if @opt as f
+        f(!@)
 
   obj H[T]
     n: T
     hook: *sub(!H[T], T)
 
-    sub run(!self, x: T)
-      self.hook(!self, x)
+    sub run(!@, x: T)
+      @hook(!@, x)
 
   sub boxed(b: !^Checker)
     b.hook(!b)
@@ -8621,11 +8621,11 @@ fail "owned closure generic view loan", "23:4: cannot drop `t` while it is lent"
   obj H[T]
     f: *fun(?String) -> T
 
-    fun make(?self, s: ?String) -> T
-      self.f(s)
+    fun make(?@, s: ?String) -> T
+      @f(s)
 
-    sub fill(?self, out: !T, s: ?String) keeps s
-      out = self.f(s)
+    sub fill(?@, out: !T, s: ?String) keeps s
+      out = @f(s)
 
   sub run[T](f: ?*sub(!T, ?String), k: !T, s: ?String) keeps s
     f(!k, s)
@@ -8686,8 +8686,8 @@ fail "partial move field", "cannot move out of `p.a`: `p` would still drop it"
   obj Wrap
     payload: Int
 
-    drop(!self)
-      print(self.payload + 100)
+    drop(!@)
+      print(@payload + 100)
 
   obj Pair
     a: *Wrap
@@ -8826,9 +8826,9 @@ fail "propagate none owning binding ownership", "8:7: `m` is a `*Wrap?` handle, 
 
   print(f(none))
 
-fail "range field call whole receiver", "20:7: cannot lend `self` to write while a read loan on `self.ast.kinds` is live", "lend the fields it writes", errors: 1
-  # A `!self` method lends all of `self`, so it cannot be called while a
-  # `for` walks a field of `self`: the caller does not look into the body
+fail "range field call whole receiver", "20:7: cannot lend `@` to write while a read loan on `@ast.kinds` is live", "lend the fields it writes", errors: 1
+  # A `!@` method lends all of `@`, so it cannot be called while a
+  # `for` walks a field of `@`: the caller does not look into the body
   # (Core sentence 7). The idiom is a function of the fields it writes.
   # From Trig's acceptance tests
   # (docs/ownership/acceptance/beyond/range_field_call_whole_receiver.rig).
@@ -8840,13 +8840,13 @@ fail "range field call whole receiver", "20:7: cannot lend `self` to write while
     ast: Ast
     imports: List[Int]
 
-    sub collect(!self, node: Int)
-      if self.ast.kinds[node] == 1
-        !self.imports.push(node)
+    sub collect(!@, node: Int)
+      if @ast.kinds[node] == 1
+        !@imports.push(node)
 
-    sub collect_all(!self)
-      for _, i in ?self.ast.kinds
-        !self.collect(i)
+    sub collect_all(!@)
+      for _, i in ?@ast.kinds
+        !@collect(i)
 
   a = Ast(kinds: List())
   !a.kinds.push(1)
@@ -8882,8 +8882,8 @@ test "reach generic field instance", '''
     m: hash.Map[U32, U32]
     s: hash.Set[U32]
 
-  fun Checker.count(!self, t: Tok) -> Int
-    self.total += 1
+  fun Checker.count(!@, t: Tok) -> Int
+    @total += 1
     t.items.len
 
   p = Program(xs: List())
@@ -8911,8 +8911,8 @@ fail "reach generic field instance views", "25:1: cannot lend `xs` to write whil
     total: Int
     m: hash.Map[U32, ?List[Int]]
 
-  fun Checker.count(!self, t: Tok) -> Int
-    self.total += 1
+  fun Checker.count(!@, t: Tok) -> Int
+    @total += 1
     t.items.len
 
   xs: List[Int] = List()
@@ -9047,8 +9047,8 @@ test "read view branch value keeps owner", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub eat(b: B)
     print("eat", b.n)
@@ -9101,8 +9101,8 @@ test "read view of owner is not dropped", '''
   obj Tracked
     n: Int
 
-    drop(!self)
-      print("drop tracked", self.n)
+    drop(!@)
+      print("drop tracked", @n)
 
   x = Wrap(v: List())
   !x.v.push(41)
@@ -9134,14 +9134,14 @@ test "read view returned handle", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Wrap[T]
     v: T
 
-    fun get(?self) -> ?T
-      ?self.v
+    fun get(?@) -> ?T
+      ?@v
 
   b = Wrap(v: *B(n: 1))
   print(b.get().n)
@@ -9185,8 +9185,8 @@ test "reads made branches one temporary", '''
     id: Int
     t: String
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun mk(id: Int) -> N
     N(id: id, t: String("m"))
@@ -9235,8 +9235,8 @@ test "reads pass through branches", '''
     id: Int
     t: String
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun mk() -> N
     N(id: 9, t: String("m"))
@@ -9293,8 +9293,8 @@ test "reassign after move", '''
   obj Wrap
     payload: Int
 
-    drop(!self)
-      print(self.payload)
+    drop(!@)
+      print(@payload)
 
   sub eat(rc: *Wrap)
     print(rc.payload + 100)
@@ -9327,8 +9327,8 @@ test "reassign shared drops old", '''
   obj Counter
     value: Int
 
-    drop(!self)
-      print(self.value + 100)
+    drop(!@)
+      print(@value + 100)
 
   rc = *Counter(value: 11)
   rc = *Counter(value: 22)
@@ -9452,8 +9452,8 @@ fail "replace place lent during call", "12:25: cannot lend `s` to read while a w
 
 test "replace save restore field", "1 a.ts 1"
   # Saving a field by `replace` and restoring it is a take and two stores:
-  # the saved value carries what the field held, not a loan on `self`, so
-  # `self` may be written while it is saved (the save-and-restore of a
+  # the saved value carries what the field held, not a loan on `@`, so
+  # `@` may be written while it is saved (the save-and-restore of a
   # checker's flow state).
 
   obj Flow
@@ -9465,11 +9465,11 @@ test "replace save restore field", "1 a.ts 1"
     flow: Flow
     depth: Int
 
-    sub check_cached(!self)
-      saved = replace(!self.flow, Flow(file: "", labels: List(), stack: List()))
-      self.depth += 1
-      !self.flow.stack.push(self.depth)
-      self.flow = <saved
+    sub check_cached(!@)
+      saved = replace(!@flow, Flow(file: "", labels: List(), stack: List()))
+      @depth += 1
+      !@flow.stack.push(@depth)
+      @flow = <saved
 
   f = "a.ts"
   c = Checker(flow: Flow(file: ?f, labels: List(), stack: List()), depth: 0)
@@ -9533,12 +9533,12 @@ test "replace through holder", "2 abc"
     pos: Int
     value: String
 
-    sub round_trip(!self)
-      taken = replace(!self, Scanner(text: "", pos: 0, value: String()))
+    sub round_trip(!@)
+      taken = replace(!@, Scanner(text: "", pos: 0, value: String()))
       h = Holder(scanner: <taken)
       h.scanner.pos += 1
       back = replace(!h.scanner, Scanner(text: "", pos: 0, value: String()))
-      _ = replace(!self, <back)
+      _ = replace(!@, <back)
 
   obj Holder
     scanner: Scanner
@@ -9762,7 +9762,7 @@ test "return handle same name as int", '''
   obj U
     v: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   sub take_int(x: Int)
@@ -9788,7 +9788,7 @@ test "return local shared handle", '''
   obj Counter
     value: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   fun make_counter(n: Int) -> *Counter
@@ -9809,8 +9809,8 @@ test "return local through if", '''
   obj Wrap
     payload: Int
 
-    drop(!self)
-      print(self.payload * 10)
+    drop(!@)
+      print(@payload * 10)
 
   fun pick(c: Bool) -> *Wrap
     a = *Wrap(payload: 1)
@@ -9968,8 +9968,8 @@ fail "shared consume method", "method `consume` consumes the receiver"
   obj User
     name: ?String
 
-    sub consume(self: User)
-      print(self.name)
+    sub consume(<@)
+      print(@name)
 
   rc = *User(name: "x")
   rc.consume()
@@ -9999,13 +9999,13 @@ fail "shared field assign", "cannot assign through a shared handle"
 fail "shared field write view", "cannot lend to write through a shared handle", "cannot write-iterate through a shared handle"
   # A shared handle is read-only all the way down: a field reached through
   # it cannot be lent to write, lent to a `!T` parameter, given to a
-  # `!self` method, or write-iterated.
+  # `!@` method, or write-iterated.
 
   obj Counter
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   obj Holder
     v: List[Int]
@@ -10023,14 +10023,14 @@ fail "shared field write view", "cannot lend to write through a shared handle", 
 
 fail "shared vec write method", "cannot call write-receiver method `push` through a shared handle", "cannot call write-receiver method `bump` through a shared handle"
   # A shared handle is read-only, the built-in List included: `!h.push`
-  # through a `*List[T]` is rejected like any `!self` method, since other
+  # through a `*List[T]` is rejected like any `!@` method, since other
   # handles may be reading it. Shared mutable state goes in a Cell.
 
   obj Counter
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   rv: *List[Int] = *List()
   !rv.push(100)
@@ -10044,7 +10044,7 @@ fail "shared view pushed into vec", "cannot drop `a` while it is lent"
   obj Wrap
     payload: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   obj View
@@ -10063,8 +10063,8 @@ fail "shared write method", "cannot call write-receiver method `set_age` through
   obj User
     age: Int
 
-    sub set_age(self: !User, n: Int)
-      self.age = n
+    sub set_age(!@, n: Int)
+      @age = n
 
   rc = *User(age: 1)
   rc.set_age(5)
@@ -10077,7 +10077,7 @@ fail "signal subscriber view", "an owned closure cannot capture `r`, which holds
   obj Wrap
     payload: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   sig: *Signal[Int] = *Signal(0)
@@ -10213,8 +10213,8 @@ test "store into unnamed receiver", '''
     r: ?String
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
   fun wrap(h: !H) -> !H
     h
@@ -10260,14 +10260,14 @@ fail "store into unnamed receiver is rejected", "48:19: `s` does not live long e
     r: ?String
     rs: List[?String]
 
-    sub keep(!self, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep(!@, r: ?String) keeps r
+      !@rs.push(r)
 
-    sub keep2(!self, k: Int, r: ?String) keeps r
-      !self.rs.push(r)
+    sub keep2(!@, k: Int, r: ?String) keeps r
+      !@rs.push(r)
 
-    drop(!self)
-      print("dropH sees", self.r, self.rs)
+    drop(!@)
+      print("dropH sees", @r, @rs)
 
   fun mk(n: Int) -> S
     S(n: n, t: String("hello"))
@@ -10515,17 +10515,17 @@ test "string copies free", '''
     name: ?String
     tags: List[Int]
 
-    fun label(?self) -> ?String
-      self.name
+    fun label(?@) -> ?String
+      @name
 
   obj Reg
     names: List[?String]
 
-    sub add(!self, n: ?String) keeps n
-      !self.names.push(n)
+    sub add(!@, n: ?String) keeps n
+      !@names.push(n)
 
-    fun first(?self) -> ?String
-      self.names[0]
+    fun first(?@) -> ?String
+      @names[0]
 
   enum E
     a(c: ?String)
@@ -10659,9 +10659,9 @@ test "string view iterators", '''
   15 15 one
 '''
   # A String-holding struct is a view of what its Strings view. An
-  # iterator's `next(!self)` copies a String out of `self` and returns
+  # iterator's `next(!@)` copies a String out of `@` and returns
   # it: the result views what the iterator views, not the iterator, so
-  # two parts can be held at once. Literals stay free: `self.rest = ""`.
+  # two parts can be held at once. Literals stay free: `@rest = ""`.
 
   fun find(s: ?String, pat: ?String) -> Int?
     i = 0
@@ -10686,15 +10686,15 @@ test "string view iterators", '''
   obj Lines
     rest: ?String
 
-    fun next(!self) -> (?String)?
-      return none if self.rest.len == 0
-      end = find(self.rest, "\n") ?? -1
+    fun next(!@) -> (?String)?
+      return none if @rest.len == 0
+      end = find(@rest, "\n") ?? -1
       if end < 0
-        line = self.rest
-        self.rest = ""
+        line = @rest
+        @rest = ""
         return line
-      line = self.rest[..end]
-      self.rest = self.rest[end + 1..]
+      line = @rest[..end]
+      @rest = @rest[end + 1..]
       strip_suffix(line, "\r") ?? line
 
   fun lines(s: ?String) -> Lines
@@ -10739,10 +10739,10 @@ fail "string view results", "32:1: cannot lend `t` to write while a read loan is
   obj Split
     rest: ?String
 
-    fun next(!self) -> (?String)?
-      return none if self.rest.len == 0
-      part = self.rest[..1]
-      self.rest = self.rest[1..]
+    fun next(!@) -> (?String)?
+      return none if @rest.len == 0
+      part = @rest[..1]
+      @rest = @rest[1..]
       part
 
   fun split(s: ?String) -> Split
@@ -10939,36 +10939,36 @@ test "take optional field", '''
 '''
   # `<p.f` of an optional field takes the value out and leaves `none`
   # behind, so the place stays whole: a stack pushes, pops, and reverses
-  # through `!self`, and a field of an `as` binding that owns its value is
+  # through `!@`, and a field of an `as` binding that owns its value is
   # taken and written.
 
   obj Node
     value: Int
     next: ^Node?
 
-    drop(!self)
-      print("drop", self.value)
+    drop(!@)
+      print("drop", @value)
 
   obj Stack
     top: ^Node?
 
-    sub push(!self, v: Int)
-      self.top = ^Node(value: v, next: <self.top)
+    sub push(!@, v: Int)
+      @top = ^Node(value: v, next: <@top)
 
-    fun pop(!self) -> Int?
-      if <self.top as n
-        self.top = <n.next
+    fun pop(!@) -> Int?
+      if <@top as n
+        @top = <n.next
         return n.value
       none
 
-    sub reverse(!self)
-      cur = <self.top
+    sub reverse(!@)
+      cur = <@top
       prev: ^Node? = none
       while <cur as n
         cur = <n.next
         n.next = <prev
         prev = <n
-      self.top = <prev
+      @top = <prev
 
   s = Stack(top: none)
   !s.push(1)

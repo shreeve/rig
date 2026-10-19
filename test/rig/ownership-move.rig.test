@@ -11,8 +11,8 @@ test "move assign shared", '''
   obj U
     v: Int
 
-    drop(!self)
-      print(self.v + 100)
+    drop(!@)
+      print(@v + 100)
 
   rc = *U(v: 1)
   rc2 = *U(v: 2)
@@ -341,8 +341,8 @@ fail "move field from view param", "14:8: cannot move out of `p.a`: `p` is a vie
   steal(?p)
   print("back")
 
-fail "move field from viewed self", "11:10: cannot move out of `self.a`: `self` is a view; exchange it instead: `replace(!self.a, v)`"
-  # A field cannot be moved out of a `?self` receiver: the caller still
+fail "move field from viewed self", "11:10: cannot move out of `@a`: `@` is a view; exchange it instead: `replace(!@a, v)`"
+  # A field cannot be moved out of a `?@` receiver: the caller still
   # owns and drops it.
 
   obj Wrap
@@ -351,23 +351,23 @@ fail "move field from viewed self", "11:10: cannot move out of `self.a`: `self` 
   obj Pair
     a: *Wrap
 
-    sub take(?self)
-      x = <self.a
+    sub take(?@)
+      x = <@a
       print(x.payload)
 
   p = Pair(a: *Wrap(payload: 1))
   p.take()
   print("back")
 
-fail "move field in drop body", "cannot move out of `self.cell`: `self` is a view"
+fail "move field in drop body", "cannot move out of `@cell`: `@` is a view"
   # A drop body cannot move a resource field out: fields are dropped
   # automatically after the body returns.
 
   obj Owner
     cell: *Cell[Int]
 
-    drop(!self)
-      stash = <self.cell
+    drop(!@)
+      stash = <@cell
 
 test "move in one branch", '''
   42
@@ -680,8 +680,8 @@ fail "move part that copies", "40:8: cannot move out of `s.n`: it copies, so `<`
   obj P
     x: Int
 
-    fun into(<self) -> Int
-      self.x
+    fun into(<@) -> Int
+      @x
 
   obj S
     n: Int
@@ -823,14 +823,14 @@ fail "move scrutinee while payload live", "cannot move `s` while a read loan is 
     .full(b) => both(<s, ?b)
     .empty => print(0)
 
-fail "move self in drop body", "cannot move `self` out of its own drop body"
-  # A drop body cannot move `self` out.
+fail "move self in drop body", "cannot move `@` out of its own drop body"
+  # A drop body cannot move `@` out.
 
   obj Owner
     cell: *Cell[Int]
 
-    drop(!self)
-      other = <self
+    drop(!@)
+      other = <@
 
 test "move then return in if", '''
   1
@@ -844,7 +844,7 @@ test "move then return in if", '''
   obj Wrap
     payload: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   sub eat(rc: *Wrap)
@@ -868,8 +868,8 @@ fail "move through branch or exit", "16:8: `<` here would copy `o` out without m
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -1049,8 +1049,8 @@ test "move write view into local", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj C
     b: *B

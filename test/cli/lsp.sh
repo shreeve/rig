@@ -32,11 +32,11 @@ cat >shapes.rig <<'EOF'
 pub obj Square unique
   side: Int
 
-  fun area(?self) -> Int
-    self.side * self.side
+  fun area(?@) -> Int
+    @side * @side
 
-  sub grow(!self, by: Int)
-    self.side += by
+  sub grow(!@, by: Int)
+    @side += by
 
 enum Color
   red
@@ -178,8 +178,8 @@ by_line = {}
 for t in tokens:
     by_line.setdefault(t[0], []).append(t[1:])
 check(by_line[2], [[0, "pub", "keyword"], [4, "obj", "keyword"], [8, "Square", "struct", "declaration"], [15, "unique", "keyword"]], "an obj header with `unique`")
-check(by_line[5], [[2, "fun", "keyword"], [6, "area", "method", "declaration"], [11, "?", "modifier"], [12, "self", "parameter", "declaration"], [18, "->", "operator"]], "a method taking `?self`")
-check(by_line[8], [[2, "sub", "keyword"], [6, "grow", "method", "declaration"], [11, "!", "modifier"], [12, "self", "parameter", "declaration"], [18, "by", "parameter", "declaration"]], "a method taking `!self`")
+check(by_line[5], [[2, "fun", "keyword"], [6, "area", "method", "declaration"], [11, "?", "modifier"], [12, "@", "parameter", "declaration"], [15, "->", "operator"]], "a method taking `?@`")
+check(by_line[8], [[2, "sub", "keyword"], [6, "grow", "method", "declaration"], [11, "!", "modifier"], [12, "@", "parameter", "declaration"], [15, "by", "parameter", "declaration"]], "a method taking `!@`")
 check(by_line[17], [[2, "new", "keyword"], [8, "=", "operator"], [10, "<", "modifier"]], "`new` and a move")
 check(by_line[18], [[10, "area", "method"], [18, "if", "keyword", "control"], [23, "side", "property"], [28, ">", "operator"], [30, "0", "number"]], "a method called, a postfix `if`, and a field")
 check(by_line[0], [[0, "# Shapes, and how big they are.", "comment"]], "a comment")
@@ -193,10 +193,10 @@ def outline(syms, depth=0):
         out += outline(s["children"], depth + 1)
     return out
 check(outline(symbols), [
-    "23 Square obj 2:0-9:19",
+    "23 Square obj 2:0-9:15",
     "  8 side Int 3:2-3:11",
-    "  6 area fun 5:2-6:25",
-    "  6 grow sub 8:2-9:19",
+    "  6 area fun 5:2-6:17",
+    "  6 grow sub 8:2-9:15",
     "10 Color enum 11:0-13:7",
     "  22 red  12:2-12:5",
     "  22 green  13:2-13:7",

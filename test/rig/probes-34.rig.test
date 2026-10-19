@@ -137,7 +137,7 @@ fail "review-syntax-b-1-s06 method ret view", "cannot assign to `a[1]` while `a`
   obj B
     n: Int
 
-    fun pick(?self, xs: []Int) -> []Int
+    fun pick(?@, xs: []Int) -> []Int
       xs
 
   a = [1, 2, 3, 4]
@@ -306,9 +306,9 @@ fail "review-syntax-b-1-s32 self method alias", "cannot lend `b` to write while 
   obj B
     items: List[Int]
 
-    sub add_all(!self, xs: []Int)
+    sub add_all(!@, xs: []Int)
       for x in xs
-        !self.items.push(x)
+        !@items.push(x)
 
   b = B(items: List())
   !b.items.push(1)
@@ -435,16 +435,16 @@ fail "review-syntax-b-1-s47 closure param fn", "`apply` returns a view of `f`, b
   !v.push(2)
   print(r)
 
-fail "review-syntax-b-1-s48 self field", "cannot lend `self.items` to write while a read loan is live"
+fail "review-syntax-b-1-s48 self field", "cannot lend `@items` to write while a read loan is live"
   fun keep(xs: []Int) -> []Int
     xs
 
   obj B
     items: List[Int]
 
-    sub go(!self)
-      r = keep(?self.items[..])
-      !self.items.push(9)
+    sub go(!@)
+      r = keep(?@items[..])
+      !@items.push(9)
       print(r)
 
   b = B(items: List())
@@ -722,8 +722,8 @@ fail "review-syntax-b-1-s97 holder keep", "cannot lend `v` to write while a read
   obj H
     xs: []Int
 
-    sub keep(!self, xs: []Int) keeps xs
-      self.xs = xs
+    sub keep(!@, xs: []Int) keeps xs
+      @xs = xs
 
   v: List[Int] = List()
   !v.push(1)
@@ -738,8 +738,8 @@ fail "review-syntax-b-1-s98 holder keep text", "cannot lend `t` to write while a
   obj H
     s: ?String
 
-    sub keep(!self, s: ?String) keeps s
-      self.s = s
+    sub keep(!@, s: ?String) keeps s
+      @s = s
 
   t = String("hello")
   h = H(s: "x")
@@ -755,8 +755,8 @@ test "review-syntax-b-1-s99 holder keep text ok", '''
   obj H
     s: ?String
 
-    sub keep(!self, s: ?String) keeps s
-      self.s = s
+    sub keep(!@, s: ?String) keeps s
+      @s = s
 
   t = String("hello")
   h = H(s: "x")
@@ -817,10 +817,10 @@ test "review-syntax-b-1-w16 while as new only", '''
   obj It
     n: Int
 
-    fun next(!self) -> Int?
-      return none if self.n >= 3
-      self.n += 1
-      self.n
+    fun next(!@) -> Int?
+      return none if @n >= 3
+      @n += 1
+      @n
 
   it = It(n: 0)
   while (!it).next() as x
@@ -856,9 +856,9 @@ test "review-syntax-b-1-w33 for source long", '''
   obj C
     n: Int
 
-    fun next(!self) -> [2]Int
-      self.n += 1
-      [self.n, self.n]
+    fun next(!@) -> [2]Int
+      @n += 1
+      [@n, @n]
 
   c = C(n: 0)
   for x in (!c).next()
@@ -868,9 +868,9 @@ test "review-syntax-b-1-w35 return postfix", "3"
   obj C
     n: Int
 
-    fun next(!self) -> Int
-      self.n += 1
-      self.n
+    fun next(!@) -> Int
+      @n += 1
+      @n
 
   fun f(c: !C) -> Int
     !c.next() if c.n > 5
@@ -886,10 +886,10 @@ test "review-syntax-b-1-w36 stmt unwrap fail", "2"
   obj C
     n: Int
 
-    fun take(!self) -> Int!
-      return E.bad if self.n > 5
-      self.n += 1
-      self.n
+    fun take(!@) -> Int!
+      return E.bad if @n > 5
+      @n += 1
+      @n
 
   fun run(c: !C) -> Int!
     !c.take()!
@@ -1048,8 +1048,8 @@ fail "review-syntax-b-2-a29 method ret read", "cannot lend `h.t` to write while 
   obj H
     t: String
 
-    fun get(!self) -> ?String
-      ?self.t
+    fun get(!@) -> ?String
+      ?@t
 
   h = H(t: String("hello"))
   r = (!h).get()

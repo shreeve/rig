@@ -14,12 +14,12 @@ pub obj Instant
 
   # Nanoseconds from `earlier` to this reading; negative when `earlier`
   # is the later one.
-  pub fun since(?self, earlier: Instant) -> Int
-    self.ns - earlier.ns
+  pub fun since(?@, earlier: Instant) -> Int
+    @ns - earlier.ns
 
   # Nanoseconds from this reading to now.
-  pub fun elapsed(?self) -> Int
-    monotonic() - self.ns
+  pub fun elapsed(?@) -> Int
+    monotonic() - @ns
 
 # The monotonic clock now.
 pub fun now() -> Instant

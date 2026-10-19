@@ -12,8 +12,8 @@ test "keeps argument through result", "x"
   obj Binder
     src: ?String
 
-    sub watch(!self, s: ?String) keeps s
-      self.src = s
+    sub watch(!@, s: ?String) keeps s
+      @src = s
 
   fun name(t: ?String) -> ?String
     t
@@ -33,8 +33,8 @@ fail "keeps argument through result unwritten", "18:15: `name(t)` keeps `t` lent
   obj Binder
     src: ?String
 
-    sub watch(!self, s: ?String) keeps s
-      self.src = s
+    sub watch(!@, s: ?String) keeps s
+      @src = s
 
   fun name(t: ?String) -> ?String
     t
@@ -51,14 +51,14 @@ fail "keeps argument unwritten", "18:10: keeps `t` lent in what `watch` stores; 
   obj Binder
     src: ?String
 
-    sub watch(!self, s: ?String) keeps s
-      self.src = s
+    sub watch(!@, s: ?String) keeps s
+      @src = s
 
   obj Node
     n: Int
 
-    sub register(?self, out: !List[?Node]) keeps self
-      !out.push(self)
+    sub register(?@, out: !List[?Node]) keeps @
+      !out.push(@)
 
   b = Binder(src: "")
   t = String("x")
@@ -68,7 +68,7 @@ fail "keeps argument unwritten", "18:10: keeps `t` lent in what `watch` stores; 
   a.register(!out)
   print(b.src, out.len)
 
-fail "keeps body store forms", "18:11: `by_closure` stores a view of `s` in `self`", "23:5: `by_local_view` stores a view of `s` in `self`", "28:5: `by_local_moved` stores a view of `s` in `self`", "31:5: `by_box` stores a view of `s` in `self`", "34:11: `by_defer` stores a view of `s` in `self`", "39:7: `by_value` stores a view of `s` in `self`", "43:7: `by_payload` stores a view of `s` in `self`", "48:9: `by_loop` stores a view of `s` in `self`", "54:3: `link` stores a view of `b` in `a`, which its caller reaches, but its signature does not keep `b`; say so: `keeps b`", "60:5: `register` stores a view of `self` in `out`, which its caller reaches, but its signature does not keep `self`; say so: `keeps self`", errors: 10
+fail "keeps body store forms", "18:11: `by_closure` stores a view of `s` in `@`", "23:5: `by_local_view` stores a view of `s` in `@`", "28:5: `by_local_moved` stores a view of `s` in `@`", "31:5: `by_box` stores a view of `s` in `@`", "34:11: `by_defer` stores a view of `s` in `@`", "39:7: `by_value` stores a view of `s` in `@`", "43:7: `by_payload` stores a view of `s` in `@`", "48:9: `by_loop` stores a view of `s` in `@`", "54:3: `link` stores a view of `b` in `a`, which its caller reaches, but its signature does not keep `b`; say so: `keeps b`", "60:5: `register` stores a view of `@` in `out`, which its caller reaches, but its signature does not keep `@`; say so: `keeps @`", errors: 10
   # The body check finds a lent parameter stored where the caller reaches
   # it, whatever the form: through a closure, a local write view, a local
   # moved in, a box, `defer`, a call through a function value, an
@@ -85,38 +85,38 @@ fail "keeps body store forms", "18:11: `by_closure` stores a view of `s` in `sel
     boxed: ^In
     opt: In?
 
-    sub by_closure(!self, s: ?String)
-      f = |!self, ?s| self.src = s
+    sub by_closure(!@, s: ?String)
+      f = |!@, ?s| @src = s
       f()
 
-    sub by_local_view(!self, s: ?String)
-      w = !self.inner
+    sub by_local_view(!@, s: ?String)
+      w = !@inner
       w.src = s
 
-    sub by_local_moved(!self, s: ?String)
+    sub by_local_moved(!@, s: ?String)
       l: List[?String] = List()
       !l.push(s)
-      self.names = <l
+      @names = <l
 
-    sub by_box(!self, s: ?String)
-      self.boxed.src = s
+    sub by_box(!@, s: ?String)
+      @boxed.src = s
 
-    sub by_defer(!self, s: ?String)
-      defer self.src = s
+    sub by_defer(!@, s: ?String)
+      defer @src = s
       print(1)
 
-    sub by_value(!self, s: ?String)
+    sub by_value(!@, s: ?String)
       f: ?sub(!B, ?String) = ?put
-      f(!self, s)
+      f(!@, s)
 
-    sub by_payload(!self, s: ?String)
-      if !self.opt as o
+    sub by_payload(!@, s: ?String)
+      if !@opt as o
         o.src = s
 
-    sub by_loop(!self, s: ?String)
+    sub by_loop(!@, s: ?String)
       for i in 0..3
         if i == 2
-          self.src = s
+          @src = s
 
   sub put(b: !B, s: ?String) keeps s
     b.src = s
@@ -127,8 +127,8 @@ fail "keeps body store forms", "18:11: `by_closure` stores a view of `s` in `sel
   obj Node
     n: Int
 
-    sub register(?self, out: !List[?Node])
-      !out.push(self)
+    sub register(?@, out: !List[?Node])
+      !out.push(@)
 
   pass
 
@@ -143,8 +143,8 @@ test "keeps by value by type", "2 let x"
   obj Lexer
     tokens: List[Token]
 
-    sub add(!self, tok: Token)
-      !self.tokens.push(tok)
+    sub add(!@, tok: Token)
+      !@tokens.push(tok)
 
   src = String("let x")
   lx = Lexer(tokens: List())
@@ -169,49 +169,49 @@ test "keeps checker name lookup", "0 1"
     names: List[String]
     lookups: Int
 
-    fun property_of(!self, t: Int, name: ?String) -> Int
-      self.lookups += 1
-      for n, i in ?self.names
+    fun property_of(!@, t: Int, name: ?String) -> Int
+      @lookups += 1
+      for n, i in ?@names
         return i if n == name
       -1
 
-    fun check_access(!self, t: Int) -> Int
+    fun check_access(!@, t: Int) -> Int
       name = String("len", "gth")
-      (!self).property_of(t, ?name)
+      (!@).property_of(t, ?name)
 
   prog = Program(files: 1)
   c = Checker(program: ?prog, file: "a.ts", names: List(), lookups: 0)
   !c.names.push(String("length"))
   print((!c).check_access(7), c.lookups)
 
-fail "keeps clause names", "7:34: `a` has no parameter `t`; `keeps` names lent parameters, `self` among them", "10:37: `keeps s`: `s` is named twice", "13:31: `keeps n`: `c` takes nothing to write that could hold it", errors: 3
+fail "keeps clause names", "7:31: `a` has no parameter `t`; `keeps` names lent parameters, `@` among them", "10:34: `keeps s`: `s` is named twice", "13:28: `keeps n`: `c` takes nothing to write that could hold it", errors: 3
   # `keeps` names lent parameters, each once, that something the function
   # writes could hold.
 
   obj Binder
     src: ?String
 
-    sub a(!self, s: ?String) keeps t
-      self.src = s
+    sub a(!@, s: ?String) keeps t
+      @src = s
 
-    sub b(!self, s: ?String) keeps s, s
-      self.src = s
+    sub b(!@, s: ?String) keeps s, s
+      @src = s
 
-    sub c(!self, n: ?Int) keeps n
-      self.src = ""
+    sub c(!@, n: ?Int) keeps n
+      @src = ""
 
   pass
 
 fail "keeps drop while kept", "14:2: cannot drop `t` while it is lent", "13:10: `watch` keeps it in `b` (its signature says `keeps s`)"
-  # Why: `watch` keeps `s` in `self`; dropping `t` while `b` is used would
+  # Why: `watch` keeps `s` in `@`; dropping `t` while `b` is used would
   # leave `b.src` viewing freed bytes.
   # Rule: a kept lend lasts while its holder is used.
 
   obj Binder
     src: ?String
 
-    sub watch(!self, s: ?String) keeps s
-      self.src = s
+    sub watch(!@, s: ?String) keeps s
+      @src = s
 
   b = Binder(src: "")
   t = String("x")
@@ -231,8 +231,8 @@ test "keeps error args formatted", "a.ts:4: 'number' is not assignable to 'strin
     file: ?String
     messages: List[String]
 
-    sub error(!self, at: Int, a: ?String, b: ?String)
-      !self.messages.push(String(self.file, ":", at, ": '", a, "' is not assignable to '", b, "'"))
+    sub error(!@, at: Int, a: ?String, b: ?String)
+      !@messages.push(String(@file, ":", at, ": '", a, "' is not assignable to '", b, "'"))
 
   c = Checker(file: "a.ts", messages: List())
   a = String("num", "ber")
@@ -308,8 +308,8 @@ fail "keeps generic body values is rejected", "10:5: `run` stores a view of `s` 
   obj H[T]
     f: *fun(?String) -> T
 
-    sub fill(?self, out: !T, s: ?String)
-      out = self.f(s)
+    sub fill(?@, out: !T, s: ?String)
+      out = @f(s)
 
   sub copy_all[T](out: !List[T], xs: []T)
     for x in xs
@@ -361,8 +361,8 @@ fail "keeps generic param stored", "9:5: say so: `keeps x`"
   obj Bag[T]
     last: (?T)?
 
-    sub put(!self, x: ?T)
-      self.last = x
+    sub put(!@, x: ?T)
+      @last = x
 
   b = Bag[String](last: none)
   n = String("4")
@@ -377,16 +377,16 @@ test "keeps holder by type", '''
   # Rule: a kept loan lasts while the holder is used, though the holder's
   # own write lend ends as the call returns; a lend the call does not keep
   # lasts no longer than the call (Core sentence 7). `f` keeps `s` in
-  # `self`; `k`, a `!Int` that can hold no view, is free again after the
+  # `@`; `k`, a `!Int` that can hold no view, is free again after the
   # call, and so is `t` once `p` is no longer used.
   # From: the keeps Core review (spec author, p8).
 
   obj P
     src: ?String
 
-    sub f(!self, k: !Int, s: ?String) keeps s
+    sub f(!@, k: !Int, s: ?String) keeps s
       k += 1
-      self.src = s
+      @src = s
 
   p = P(src: "")
   k = 0
@@ -398,7 +398,7 @@ test "keeps holder by type", '''
 
 fail "keeps into write arg unsaid", "6:3: say so: `keeps s`"
   # Why: storing a lent parameter into a write argument is a store, just
-  # as into `self`.
+  # as into `@`.
   # Rule: `keeps` covers every write parameter the view could reach.
 
   sub collect(out: !List[?String], s: ?String)
@@ -412,8 +412,8 @@ fail "keeps into write arg unsaid", "6:3: say so: `keeps s`"
 
 test "keeps into write argument", "2 y"
   # Rule: `keeps` covers stores into a write argument too, not only into
-  # `self`.
-  # From: proposal-call-stores §10, "`keeps self` into a `!` argument".
+  # `@`.
+  # From: proposal-call-stores §10, "`keeps @` into a `!` argument".
 
   sub collect(out: !List[?String], s: ?String) keeps s
     !out.push(s)
@@ -425,21 +425,21 @@ test "keeps into write argument", "2 y"
   collect(!names, ?b)
   print(names.len, names[1])
 
-fail "keeps kept loan conflicts", "19:1: cannot lend `t` to write while a read loan is live", "18:10: `watch` keeps it in `b` (its signature says `keeps s`), so the loan lasts while `b` is used", "23:1: cannot assign to `a.n` while `a` is lent", "22:2: `register` keeps it in `out` (its signature says `keeps self`), so the loan lasts while `out` is used", errors: 2
+fail "keeps kept loan conflicts", "19:1: cannot lend `t` to write while a read loan is live", "18:10: `watch` keeps it in `b` (its signature says `keeps s`), so the loan lasts while `b` is used", "23:1: cannot assign to `a.n` while `a` is lent", "22:2: `register` keeps it in `out` (its signature says `keeps @`), so the loan lasts while `out` is used", errors: 2
   # A kept lend lasts while its holder is used, and the note says which
   # call kept it, in what.
 
   obj Binder
     src: ?String
 
-    sub watch(!self, s: ?String) keeps s
-      self.src = s
+    sub watch(!@, s: ?String) keeps s
+      @src = s
 
   obj Node
     n: Int
 
-    sub register(?self, out: !List[?Node]) keeps self
-      !out.push(self)
+    sub register(?@, out: !List[?Node]) keeps @
+      !out.push(@)
 
   b = Binder(src: "")
   t = String("x")
@@ -463,23 +463,23 @@ test "keeps lent kinds", '''
   obj Bag[T]
     last: (?T)?
 
-    sub put(!self, x: ?T) keeps x
-      self.last = x
+    sub put(!@, x: ?T) keeps x
+      @last = x
 
   obj Holder
     xs: []Int
     name: (?String)?
     src: ?String
 
-    sub take(!self, xs: []Int, name: (?String)?) keeps xs, name
-      self.xs = xs
-      self.name = name
+    sub take(!@, xs: []Int, name: (?String)?) keeps xs, name
+      @xs = xs
+      @name = name
 
-    sub watch(!self, s: ?String) keeps s
-      self.src = s
+    sub watch(!@, s: ?String) keeps s
+      @src = s
 
-    sub forward(!self, s: ?String) keeps s
-      !self.watch(s)
+    sub forward(!@, s: ?String) keeps s
+      !@watch(s)
 
   sub put_first(dst: ![]?String, s: ?String) keeps s
     dst[0] = s
@@ -520,7 +520,7 @@ test "keeps local lend ends", "1"
   <m
   print(p.errors)
 
-fail "keeps names by value param", "9:35: `keeps s`: `s` is taken by value, so the callee owns it already"
+fail "keeps names by value param", "9:32: `keeps s`: `s` is taken by value, so the callee owns it already"
   # Why: `keeps` names a lent parameter; a by-value parameter is the
   # callee's already, so naming it says nothing.
   # Rule: `keeps` names only lent parameters, and only when a write
@@ -529,8 +529,8 @@ fail "keeps names by value param", "9:35: `keeps s`: `s` is taken by value, so t
   obj Binder
     names: List[String]
 
-    sub add(!self, s: String) keeps s
-      !self.names.push(<s)
+    sub add(!@, s: String) keeps s
+      !@names.push(<s)
 
   b = Binder(names: List())
   !b.add(String("x"))
@@ -542,20 +542,20 @@ test "keeps note reads only", "1"
   # (Core sentence 7).
   # From: proposal-call-stores §1 (Trig NEEDS 11); Trig
   # src/parser/parser.rig:520-544 (the `_with` error forms take an owned
-  # String: "a `?String` argument to one of its `!self` methods counts as
+  # String: "a `?String` argument to one of its `!@` methods counts as
   # stored"); Go parser.go:321 parseErrorAt(..., args ...any).
 
   obj Parser
     src: ?String
     errors: Int
 
-    sub note(!self, msg: ?String)
-      if msg.len > self.src.len
-        self.errors += 1
+    sub note(!@, msg: ?String)
+      if msg.len > @src.len
+        @errors += 1
 
-    sub check(!self)
+    sub check(!@)
       suggestion = String("did you mean x?")
-      !self.note(?suggestion)
+      !@note(?suggestion)
 
   text = "x"
   p = Parser(src: text, errors: 0)
@@ -564,16 +564,16 @@ test "keeps note reads only", "1"
 
 fail "keeps own field kept", "14:2: cannot let this call store a view of `p.name` in `p`: a value never holds a view of itself"
   # Why: a method that keeps its argument, given a view of the receiver's
-  # own field, would make `self` hold a view of itself.
+  # own field, would make `@` hold a view of itself.
   # Rule: a value never holds a view of itself; with B, a kept argument's
-  # loans go into the holder (here `self`).
+  # loans go into the holder (here `@`).
 
   obj P
     name: String
     alias: ?String
 
-    sub watch(!self, s: ?String) keeps s
-      self.alias = s
+    sub watch(!@, s: ?String) keeps s
+      @alias = s
 
   p = P(name: String("a"), alias: "")
   (!p).watch(?p.name)
@@ -582,8 +582,8 @@ fail "keeps own field kept", "14:2: cannot let this call store a view of `p.name
 test "keeps receiver holds map", "1"
   # Rule: a call keeps only what its signature shows (Core sentence 7):
   # `sum` names nothing in `keeps`, so the lend of `xs` ends when the call
-  # returns, though `self` holds a view field and a Map.
-  # From: Trig NEEDS 11, its checker's `!self` methods that take a view
+  # returns, though `@` holds a view field and a Map.
+  # From: Trig NEEDS 11, its checker's `!@` methods that take a view
   # (.git/revamp/r3/repro/needs11-map-reach.rig).
 
 
@@ -595,14 +595,14 @@ test "keeps receiver holds map", "1"
     total: Int
     m: hash.Map[U32, U32]
 
-  fun Checker.sum(!self, xs: ?List[Int], i: Int) -> Int
-    self.total += 1
+  fun Checker.sum(!@, xs: ?List[Int], i: Int) -> Int
+    @total += 1
     xs[i]
 
-  fun Checker.run(!self) -> Int
+  fun Checker.run(!@) -> Int
     xs: List[Int] = List()
     !xs.push(1)
-    (!self).sum(?xs, 0)
+    (!@).sum(?xs, 0)
 
   p = Program(xs: List())
   c = Checker(program: ?p, total: 0, m: hash.Map[U32, U32]())
@@ -612,15 +612,15 @@ test "keeps receiver into write argument", '''
   2 1 2
   3
 '''
-  # `keeps self` names a `?self` receiver: the method stores a view of it
+  # `keeps @` names a `?@` receiver: the method stores a view of it
   # in a write argument, so the receiver is lent with `?` written and stays
   # lent while that argument is used.
 
   obj Node
     n: Int
 
-    sub register(?self, out: !List[?Node]) keeps self
-      !out.push(self)
+    sub register(?@, out: !List[?Node]) keeps @
+      !out.push(@)
 
   a = Node(n: 1)
   b = Node(n: 2)
@@ -649,11 +649,11 @@ test "keeps regexp parser beside scanner", '''
   obj RegExpParser
     groups: List[String]
 
-    sub scan_group(!self, s: !Scanner)
+    sub scan_group(!@, s: !Scanner)
       start = s.pos
       while s.pos < s.text.len and s.text[s.pos] != 0x3E
         s.pos += 1
-      !self.groups.push(String(s.text[start..s.pos]))
+      !@groups.push(String(s.text[start..s.pos]))
       s.pos += 1
 
   sub scan_regexp(s: !Scanner)
@@ -677,8 +677,8 @@ test "keeps setter declares", "let x"
     src: ?String
     n: Int
 
-    sub set_src(!self, s: ?String) keeps s
-      self.src = s
+    sub set_src(!@, s: ?String) keeps s
+      @src = s
 
   text = String("let x")
   b = Binder(src: "", n: 0)
@@ -696,11 +696,11 @@ fail "keeps some paths", "13:7: say so: `keeps s`"
     src: ?String
     n: Int
 
-    sub maybe_keep(!self, s: ?String)
+    sub maybe_keep(!@, s: ?String)
       if s.len > 3
-        self.src = s
+        @src = s
       else
-        self.n += 1
+        @n += 1
 
   b = Binder(src: "", n: 0)
   t = String("long")
@@ -709,8 +709,8 @@ fail "keeps some paths", "13:7: say so: `keeps s`"
   print(b.src)
 
 fail "keeps store without clause", "11:5: say so: `keeps s`"
-  # Why: `set_src` stores its lent parameter in `self` without saying so;
-  # callers would end the lend at the call and free the bytes `self.src`
+  # Why: `set_src` stores its lent parameter in `@` without saying so;
+  # callers would end the lend at the call and free the bytes `@src`
   # then views.
   # Rule: the compiler checks each body against its `keeps` (Core
   # sentence 7).
@@ -718,8 +718,8 @@ fail "keeps store without clause", "11:5: say so: `keeps s`"
   obj Binder
     src: ?String
 
-    sub set_src(!self, s: ?String)
-      self.src = s
+    sub set_src(!@, s: ?String)
+      @src = s
 
   b = Binder(src: "")
   t = String("x")
@@ -736,11 +736,11 @@ fail "keeps transitive", "13:5: say so: `keeps s`"
   obj Binder
     src: ?String
 
-    sub watch(!self, s: ?String) keeps s
-      self.src = s
+    sub watch(!@, s: ?String) keeps s
+      @src = s
 
-    sub forward(!self, s: ?String)
-      !self.watch(s)
+    sub forward(!@, s: ?String)
+      !@watch(s)
 
   t = String("x")
   b = Binder(src: "")
@@ -758,12 +758,12 @@ test "keeps union copies in", "0 2 3"
     program: ?Program
     members: List[List[Int]]
 
-    fun union_of(!self, types: []Int) -> Int
+    fun union_of(!@, types: []Int) -> Int
       copy: List[Int] = List()
       for t in types
         !copy.push(t)
-      !self.members.push(<copy)
-      self.members.len - 1
+      !@members.push(<copy)
+      @members.len - 1
 
   prog = Program(files: 1)
   c = Checker(program: ?prog, members: List())
@@ -789,23 +789,23 @@ test "keeps view field store", '''
     text: ?String
     pos: Int
 
-    sub add_to(!self, out: !String)
-      !out.add(self.text[0..1])
+    sub add_to(!@, out: !String)
+      !out.add(@text[0..1])
 
-    fun first(!self) -> String
+    fun first(!@) -> String
       out = String()
-      !self.add_to(!out)
+      !@add_to(!out)
       out
 
-    sub check(!self)
+    sub check(!@)
       c = Checker(names: List())
-      !c.run(!self)
+      !c.run(!@)
 
   obj Checker
     names: List[String]
 
-    sub run(!self, s: !Scanner)
-      s.pos += self.names.len + 1
+    sub run(!@, s: !Scanner)
+      s.pos += @names.len + 1
 
   src = "abc"
   s = Scanner(text: src, pos: 0)
@@ -821,9 +821,9 @@ test "keeps with from", "returned kept"
   obj Binder
     src: ?String
 
-    fun bind(!self, s: ?String, t: ?String, u: ?String) -> ?String from t keeps s
+    fun bind(!@, s: ?String, t: ?String, u: ?String) -> ?String from t keeps s
       if u.len > 0
-        self.src = s
+        @src = s
       t
 
   b = Binder(src: "")

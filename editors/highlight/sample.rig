@@ -24,24 +24,24 @@ obj Point
   x: Int = 0
   pub ?name: String = String("p")
 
-  fun norm(?self) -> Int
-    self.x * self.x
+  fun norm(?@) -> Int
+    @x * @x
 
-  sub shift(!self, by: Int)
-    self.x += by
+  sub shift(!@, by: Int)
+    @x += by
 
 obj Handle
   fd: Int
 
-  sub drop(!self)
-    print("closed", self.fd)
+  sub drop(!@)
+    print("closed", @fd)
 
 obj Pair[T]
   left: T
   right: T
 
-  fun first(?self) -> ?T from self
-    ?self.left
+  fun first(?@) -> ?T from @
+    ?@left
 
 called fun hot(n: Int) -> Int
   n *% 3 +% 1

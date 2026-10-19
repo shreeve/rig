@@ -4,17 +4,17 @@ test "drop body calls write method", '''
   made 1
   drop 2
 '''
-  # A drop body can call a `!self` method on the value being destroyed.
+  # A drop body can call a `!@` method on the value being destroyed.
 
   obj N
     id: Int
 
-    sub bump(!self)
-      self.id += 1
+    sub bump(!@)
+      @id += 1
 
-    drop(!self)
-      !self.bump()
-      print("drop", self.id)
+    drop(!@)
+      !@bump()
+      print("drop", @id)
 
   x = N(id: 1)
   print("made", x.id)
@@ -29,8 +29,8 @@ fail "drop body reads view stored through moved write view", "23:11: `x` is drop
   obj View
     r: ?Res
 
-    drop(!self)
-      print("view drop reads", self.r.v[0])
+    drop(!@)
+      print("view drop reads", @r.v[0])
 
   obj Outer
     inner: View?
@@ -59,14 +59,14 @@ fail "drop body reads younger view", "`x` is dropped before `h`", "`z` is droppe
   obj Holder
     b: ?Wrap
 
-    drop(!self)
-      print("holder drop reads", self.b.v[0])
+    drop(!@)
+      print("holder drop reads", @b.v[0])
 
   obj Watcher
     w: ?View
 
-    drop(!self)
-      print("watcher drop reads", self.w.b.v[0])
+    drop(!@)
+      print("watcher drop reads", @w.b.v[0])
 
   y0 = Wrap(v: List())
   !y0.v.push(0)
@@ -98,10 +98,10 @@ test "drop body reassigns field", '''
   obj Owner
     cell: *Cell[Int]
 
-    drop(!self)
+    drop(!@)
       fresh: *Cell[Int] = *Cell(7)
-      self.cell = <fresh
-      print("replaced", self.cell.get())
+      @cell = <fresh
+      print("replaced", @cell.get())
 
   o = Owner(cell: *Cell(0))
   print("made", o.cell.get())
@@ -120,8 +120,8 @@ test "drop body views older value", '''
   obj Guard
     b: ?Wrap
 
-    drop(!self)
-      print("guard sees", self.b.n)
+    drop(!@)
+      print("guard sees", @b.n)
 
   x = Wrap(n: 1)
   y = Wrap(n: 2)
@@ -152,10 +152,10 @@ test "drop ends string view", '''
   obj Split
     rest: ?String
 
-    fun next(!self) -> (?String)?
-      return none if self.rest.len == 0
-      part = self.rest[..1]
-      self.rest = self.rest[1..]
+    fun next(!@) -> (?String)?
+      return none if @rest.len == 0
+      part = @rest[..1]
+      @rest = @rest[1..]
       part
 
   fun split(s: ?String) -> Split
@@ -371,8 +371,8 @@ fail "drop of views reads through body", "28:3: cannot assign to `x.n` while `x`
   obj Guard
     item: ?Item
 
-    drop(!self)
-      print("guard", self.item.n)
+    drop(!@)
+      print("guard", @item.n)
 
   obj Plain
     item: ?Item
@@ -426,14 +426,14 @@ fail "drop of views reads through body", "28:3: cannot assign to `x.n` while `x`
 
   own_body()
 
-fail "drop self in drop body", "cannot drop `self` inside its own drop body"
-  # A drop body cannot drop `self`.
+fail "drop self in drop body", "cannot drop `@` inside its own drop body"
+  # A drop body cannot drop `@`.
 
   obj Owner
     cell: *Cell[Int]
 
-    drop(!self)
-      <self
+    drop(!@)
+      <@
 
 test "drop stack closure releases captures", '''
   has 1
@@ -449,8 +449,8 @@ test "drop stack closure releases captures", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   b = B(n: 1)
   f = |<b| print("has", b.n)
@@ -491,8 +491,8 @@ test "drop statement takes", '''
   obj F
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     f: F?

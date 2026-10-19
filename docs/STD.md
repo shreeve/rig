@@ -391,7 +391,7 @@ The operating system and the CPU's features are not built yet.
 
 `Random` is a small, fast pseudorandom generator (splitmix64), written in
 Rig. Its state is one `U64`, which its methods change, so they take
-`!self`. A `Random` is unique (`obj Random unique`): it moves (`a = <r`)
+`!@`. A `Random` is unique (`obj Random unique`): it moves (`a = <r`)
 and is never copied, since a copy would draw the same numbers as the
 original; `fork` makes a second generator on purpose. A seeded `Random` gives the same sequence on every
 platform. It is not for cryptography.
@@ -554,24 +554,24 @@ type, as any generic is.
 | Member | Signature | Ownership |
 |---|---|---|
 | `hash.Map[K, V]()`, `hash.Map[K, V].new(capacity: n)` | `fun new(capacity: Int = 0) -> Map[K, V]` | an empty Map, which allocates nothing until the first `put`, or with room for `n` entries |
-| `!m.reserve(n)` | `sub reserve(!self, n: Int)` | makes room for `n` more entries at once, sizing the entries and the table for them rather than growing as they are put |
+| `!m.reserve(n)` | `sub reserve(!@, n: Int)` | makes room for `n` more entries at once, sizing the entries and the table for them rather than growing as they are put |
 | `m.len` | `pub ?len: Int` | the number of entries: a field other modules read and only `std.hash` writes |
-| `m.has(k)` | `fun has(?self, k: ?K) -> Bool` | reads |
-| `m.get(k)` | `fun get(?self, k: ?K) -> (?V)? from self` | the view keeps `m` lent to read, not `k` |
-| `(!m).edit(k)` | `fun edit(!self, k: ?K) -> (!V)? from self` | keeps `m` lent to write |
-| `!m.put(k, v)` | `sub put(!self, k: K, v: V)` | puts `v` under `k`, inserting or overwriting; the old value is dropped, and a key already there keeps its place and `k` is dropped |
-| `(!m).replace(k, v)` | `fun replace(!self, k: K, v: V) -> V?` | puts `v` under `k`, inserting or overwriting, and hands back the old value, or `none` when `k` is new |
-| `(!m).put_new(k, v)` | `fun put_new(!self, k: K, v: V) -> Bool` | puts `v` under `k` only when `k` is new: true if it did; otherwise `k` and `v` are dropped |
-| `(!m).ensure(k, v)` | `fun ensure(!self, k: K, v: V) -> !V from self, k, v` | puts `v` under `k` when `k` is new, and lends the value under `k` to write; otherwise `k` and `v` are dropped. The view keeps `m` lent to write |
-| `(!m).ensure_with(k, make)` | `fun ensure_with(!self, k: K, make: ?fun(?K) -> V) -> !V from self, k` | as `ensure`, with the value `make(k)` made only when `k` is new; when `k` is there, `make` is not called and `k` is dropped |
-| `w, added = (!m).ensure_added(k, v)` | `fun ensure_added(!self, k: K, v: V) -> (!V, Bool) from self, k, v` | as `ensure`, and also whether `k` was new; `w` keeps `m` lent to write, `added` keeps nothing |
-| `if m.at(i) as k, v` | `fun at(?self, i: Int) -> (?K, ?V)? from self` | the entry at index `i` in order, its key and value viewed where the Map holds them, or `none` past the end; both views keep `m` lent to read. One step while no entry was taken since the entries were last compacted; else it counts the entries before |
-| `(!m).take(k)` | `fun take(!self, k: ?K) -> V?` | the value back, owned; the key dropped when the entries are next compacted (as the Map grows), or with the Map |
-| `!m.clear()` | `sub clear(!self)` | drops every entry |
-| `?m.items()` | `fun items(?self) -> Items[K, V] from self` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) lasts one step of the loop |
-| `?m.keys()`, `?m.values()` | `fun keys(?self) -> Keys[K, V] from self` | likewise, each a `?K` or a `?V` |
-| `!m.update(f)` | `sub update(!self, f: ?sub(?K, !V))` | writes each value in place; keys stay read-only |
-| `!m.retain(f)` | `sub retain(!self, f: ?fun(?K, !V) -> Bool)` | keeps the entries `f` is true for, in order; `f` reads each key and may write its value, in order, and cannot reach `m`; an entry it rejects is dropped then, not left for compaction as `take` leaves a key |
+| `m.has(k)` | `fun has(?@, k: ?K) -> Bool` | reads |
+| `m.get(k)` | `fun get(?@, k: ?K) -> (?V)? from @` | the view keeps `m` lent to read, not `k` |
+| `(!m).edit(k)` | `fun edit(!@, k: ?K) -> (!V)? from @` | keeps `m` lent to write |
+| `!m.put(k, v)` | `sub put(!@, k: K, v: V)` | puts `v` under `k`, inserting or overwriting; the old value is dropped, and a key already there keeps its place and `k` is dropped |
+| `(!m).replace(k, v)` | `fun replace(!@, k: K, v: V) -> V?` | puts `v` under `k`, inserting or overwriting, and hands back the old value, or `none` when `k` is new |
+| `(!m).put_new(k, v)` | `fun put_new(!@, k: K, v: V) -> Bool` | puts `v` under `k` only when `k` is new: true if it did; otherwise `k` and `v` are dropped |
+| `(!m).ensure(k, v)` | `fun ensure(!@, k: K, v: V) -> !V from @, k, v` | puts `v` under `k` when `k` is new, and lends the value under `k` to write; otherwise `k` and `v` are dropped. The view keeps `m` lent to write |
+| `(!m).ensure_with(k, make)` | `fun ensure_with(!@, k: K, make: ?fun(?K) -> V) -> !V from @, k` | as `ensure`, with the value `make(k)` made only when `k` is new; when `k` is there, `make` is not called and `k` is dropped |
+| `w, added = (!m).ensure_added(k, v)` | `fun ensure_added(!@, k: K, v: V) -> (!V, Bool) from @, k, v` | as `ensure`, and also whether `k` was new; `w` keeps `m` lent to write, `added` keeps nothing |
+| `if m.at(i) as k, v` | `fun at(?@, i: Int) -> (?K, ?V)? from @` | the entry at index `i` in order, its key and value viewed where the Map holds them, or `none` past the end; both views keep `m` lent to read. One step while no entry was taken since the entries were last compacted; else it counts the entries before |
+| `(!m).take(k)` | `fun take(!@, k: ?K) -> V?` | the value back, owned; the key dropped when the entries are next compacted (as the Map grows), or with the Map |
+| `!m.clear()` | `sub clear(!@)` | drops every entry |
+| `?m.items()` | `fun items(?@) -> Items[K, V] from @` | the iterator keeps `m` lent to read; each `Item[?K, ?V]` (`e.key`, `e.value`) lasts one step of the loop |
+| `?m.keys()`, `?m.values()` | `fun keys(?@) -> Keys[K, V] from @` | likewise, each a `?K` or a `?V` |
+| `!m.update(f)` | `sub update(!@, f: ?sub(?K, !V))` | writes each value in place; keys stay read-only |
+| `!m.retain(f)` | `sub retain(!@, f: ?fun(?K, !V) -> Bool)` | keeps the entries `f` is true for, in order; `f` reads each key and may write its value, in order, and cannot reach `m`; an entry it rejects is dropped then, not left for compaction as `take` leaves a key |
 
 `hash.Set[K]` has `hash.Set[K]()` and `new(capacity: n)`, `reserve(n)`,
 the field `len`, `has(k: ?K)`, `(!s).add(k: K) -> Bool` (true when `k`
@@ -740,11 +740,11 @@ end to end, so an id costs four bytes and a new string is copied once.
 | Member | Signature | Ownership |
 |---|---|---|
 | `hash.Symbols()` | | an empty one |
-| `(!names).intern(s)` | `fun intern(!self, s: ?String) -> U32` | the id of `s`, a new one when `s` is new, whose text is then copied in; nothing is copied otherwise |
-| `names.id(s)` | `fun id(?self, s: ?String) -> U32?` | the id of `s`, or `none`; adds nothing |
-| `names.text(id)` | `fun text(?self, id: U32) -> ?String from self` | the text of `id`, viewed where the table holds it |
+| `(!names).intern(s)` | `fun intern(!@, s: ?String) -> U32` | the id of `s`, a new one when `s` is new, whose text is then copied in; nothing is copied otherwise |
+| `names.id(s)` | `fun id(?@, s: ?String) -> U32?` | the id of `s`, or `none`; adds nothing |
+| `names.text(id)` | `fun text(?@, id: U32) -> ?String from @` | the text of `id`, viewed where the table holds it |
 | `names.len` | `pub ?len: Int` | how many strings it holds |
-| `!names.reserve(n, bytes: b)` | `sub reserve(!self, n: Int, bytes: Int = 0)` | room for `n` more strings of `b` bytes in all |
+| `!names.reserve(n, bytes: b)` | `sub reserve(!@, n: Int, bytes: Int = 0)` | room for `n` more strings of `b` bytes in all |
 
 ```rig
 use std.hash

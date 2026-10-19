@@ -41,13 +41,13 @@ needs no mark, since its loan ends with the statement.
 
 **A call keeps only what it says.** A view lent to a call ends when the
 call returns, unless the function names that parameter in `keeps`:
-`sub watch(!self, s: ?String) keeps s` may store `s` in `self`, so its
+`sub watch(!@, s: ?String) keeps s` may store `s` in `@`, so its
 call is written `!b.watch(?t)`, and `t` stays lent while `b` is used. A
 body that stores a lent parameter without saying so is rejected.
 
-**Receivers.** A method declares how it takes `self`, and its call says
-the same: `?self` reads (`a.balance()`), `!self` changes
-(`!a.pay(30)`), and `<self` consumes (`<a.close()`).
+**Receivers.** A method declares how it takes `@`, and its call says
+the same: `?@` reads (`a.balance()`), `!@` changes
+(`!a.pay(30)`), and `<@` consumes (`<a.close()`).
 
 **Shared state.** What handles share is a `Cell`, and it changes only by
 a marked call: `!c.set(5)`, which lends the handle `c`. Reading,
@@ -68,7 +68,7 @@ sub main()
 **Moves, clones, drops.** `b = <a` moves `a`, which is unusable after,
 and `f(<a)` hands it to `f`. `b = +a` is a new owner, or another handle
 of a `*T`. `<a` alone on a line drops `a` now; anything not moved is
-dropped where its block ends, running its `drop(!self)` body. A name
+dropped where its block ends, running its `drop(!@)` body. A name
 moves with no `<` only where its scope ends: `return x`, or `x` as the
 function's last value.
 
@@ -109,16 +109,16 @@ read parameter (`print(w[1..3])`);
 obj Account
   cents: Int
 
-  fun balance(?self) -> Int
-    self.cents
+  fun balance(?@) -> Int
+    @cents
 
-  sub pay(!self, amount: Int)
-    self.cents -= amount
+  sub pay(!@, amount: Int)
+    @cents -= amount
 
-  fun close(<self) -> Int
-    self.cents
+  fun close(<@) -> Int
+    @cents
 
-  drop(!self)
+  drop(!@)
     print("closed")
 
 fun size(xs: ?List[Int]) -> Int

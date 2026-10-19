@@ -131,10 +131,10 @@ pub obj Runes
 
   # The next rune, as `rune_after` reads it, or `none` after the
   # last.
-  pub fun next(!self) -> Int?
-    return none if self.at == self.s.len
-    d = rune_after(self.s, self.at)
-    self.at += d.size
+  pub fun next(!@) -> Int?
+    return none if @at == @s.len
+    d = rune_after(@s, @at)
+    @at += d.size
     d.rune
 
 # The runes of `s`, read by `rune_after` from its first byte to its

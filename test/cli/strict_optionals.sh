@@ -27,8 +27,8 @@ obj Rec
 obj Holder[T]
   item: T?
 
-  fun take(!self) -> T?
-    <self.item
+  fun take(!@) -> T?
+    <@item
 
 fun mk(k: Int) -> Node
   Node(id: k)

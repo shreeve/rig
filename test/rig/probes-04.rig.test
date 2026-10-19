@@ -3,8 +3,8 @@
 fail "audit-emit-q2", "`peek[^R]` cannot use `T = ^R`: the generic body copies a `T`, which would duplicate the resource `^R` owns"
   obj R
     n: Int
-    drop(!self)
-      print("drop R", self.n)
+    drop(!@)
+      print("drop R", @n)
 
   fun peek[T](o: T?) -> Int
     if o as v
@@ -15,8 +15,8 @@ fail "audit-emit-q2", "`peek[^R]` cannot use `T = ^R`: the generic body copies a
   obj Holder[T]
     o: T?
 
-    fun has(?self) -> Bool
-      if self.o as v
+    fun has(?@) -> Bool
+      if @o as v
         return true
       false
 
@@ -60,8 +60,8 @@ test "audit-emit-v4", exit: 1, '''
 
   obj R
     n: Int
-    drop(!self)
-      print("drop R", self.n)
+    drop(!@)
+      print("drop R", @n)
 
   sub main()!
     r = R(n: 1)
@@ -81,8 +81,8 @@ test "audit-emit-z1", '''
   obj C
     n: Int
 
-    fun sub2(!self, a: Int, b: Int) -> Int
-      self.n += 1
+    fun sub2(!@, a: Int, b: Int) -> Int
+      @n += 1
       a * 10 + b
 
   fun side(c: !C, k: Int) -> Int
@@ -112,8 +112,8 @@ test "audit-emit-z2", '''
   obj C
     n: Int
 
-    fun sub2(!self, a: Int, b: Int) -> Int
-      self.n += 100
+    fun sub2(!@, a: Int, b: Int) -> Int
+      @n += 100
       a * 10 + b
 
   fun bump(k: !Int) -> Int
@@ -135,8 +135,8 @@ test "audit-emit-z3", '''
   obj C
     n: Int
 
-    fun sub2(!self, a: Int, b: Int) -> Int
-      self.n += 100
+    fun sub2(!@, a: Int, b: Int) -> Int
+      @n += 100
       a * 10 + b
 
   fun bump(k: !Int) -> Int
@@ -158,8 +158,8 @@ test "audit-emit-z4", '''
   obj C
     n: Int
 
-    fun sub2(!self, a: Int, b: Int) -> Int
-      self.n += 100
+    fun sub2(!@, a: Int, b: Int) -> Int
+      @n += 100
       a * 10 + b
 
   fun bump(k: !Int) -> Int
@@ -178,8 +178,8 @@ test "audit-emit-z5", "5 7 1"
   obj C
     n: Int
 
-    fun sub2(!self, a: Int, b: Int) -> Int
-      self.n += 100
+    fun sub2(!@, a: Int, b: Int) -> Int
+      @n += 100
       a * 10 + b
 
   fun bump(k: !Int) -> Int
@@ -198,8 +198,8 @@ test "audit-emit-z6", "5 13 1"
   obj C
     n: Int
 
-    fun sub2(!self, a: Int, b: Int) -> Int
-      self.n += 100
+    fun sub2(!@, a: Int, b: Int) -> Int
+      @n += 100
       a * 10 + b
 
   fun bump(k: !Int) -> Int
@@ -236,8 +236,8 @@ test "audit-emit-z8", "112 6 1"
   obj C
     n: Int
 
-    sub put(!self, v: List[Int], b: Int)
-      self.n += 100 + v.len + b
+    sub put(!@, v: List[Int], b: Int)
+      @n += 100 + v.len + b
 
   fun bump(k: !Int) -> Int!
     return E.bad if k > 5
@@ -2871,8 +2871,8 @@ test "audit-fuzz-c-gen-g00000", '''
   obj R
     id: Int
 
-    drop(!self)
-      print("rel", self.id)
+    drop(!@)
+      print("rel", @id)
 
   obj P
     a: R
@@ -2951,17 +2951,17 @@ test "audit-fuzz-c-gen-g00000", '''
     first: T
     second: U
 
-    fun left(?self) -> ?T
-      ?self.first
+    fun left(?@) -> ?T
+      ?@first
 
   obj Shelf[T]
     items: List[T]
 
-    sub add(!self, x: T)
-      !self.items.push(<x)
+    sub add(!@, x: T)
+      !@items.push(<x)
 
-    fun take(!self) -> T?
-      (!self.items).pop()
+    fun take(!@) -> T?
+      (!@items).pop()
 
   enum Maybe[T]
     just(v: T)
@@ -3063,8 +3063,8 @@ test "audit-fuzz-c-gen-g00327", '''
   obj R
     id: Int
 
-    drop(!self)
-      print("rel", self.id)
+    drop(!@)
+      print("rel", @id)
 
   obj P
     a: R
@@ -3143,17 +3143,17 @@ test "audit-fuzz-c-gen-g00327", '''
     first: T
     second: U
 
-    fun left(?self) -> ?T
-      ?self.first
+    fun left(?@) -> ?T
+      ?@first
 
   obj Shelf[T]
     items: List[T]
 
-    sub add(!self, x: T)
-      !self.items.push(<x)
+    sub add(!@, x: T)
+      !@items.push(<x)
 
-    fun take(!self) -> T?
-      (!self.items).pop()
+    fun take(!@) -> T?
+      (!@items).pop()
 
   enum Maybe[T]
     just(v: T)
@@ -3439,8 +3439,8 @@ test "audit-fuzz-c-lit-.chk-c2862", "[127, 127]"
   obj Wrap[T]
     v: T
 
-    fun get(?self) -> T
-      self.v
+    fun get(?@) -> T
+      @v
 
     fun make(x: T) -> Wrap[T]
       Wrap(v: x)
@@ -3449,8 +3449,8 @@ test "audit-fuzz-c-lit-.chk-c2862", "[127, 127]"
     some(v: T)
     nothing
 
-    fun or(?self, d: T) -> T
-      match self
+    fun or(?@, d: T) -> T
+      match @
         .some(v) => v
         .nothing => d
 
@@ -3577,8 +3577,8 @@ test "audit-fuzz-c-lit-.chk-c891", "-32768"
   obj Wrap[T]
     v: T
 
-    fun get(?self) -> T
-      self.v
+    fun get(?@) -> T
+      @v
 
     fun make(x: T) -> Wrap[T]
       Wrap(v: x)
@@ -3587,8 +3587,8 @@ test "audit-fuzz-c-lit-.chk-c891", "-32768"
     some(v: T)
     nothing
 
-    fun or(?self, d: T) -> T
-      match self
+    fun or(?@, d: T) -> T
+      match @
         .some(v) => v
         .nothing => d
 
@@ -3730,8 +3730,8 @@ test "audit-fuzz-c-lit-p00005", '''
   obj Wrap[T]
     v: T
 
-    fun get(?self) -> T
-      self.v
+    fun get(?@) -> T
+      @v
 
     fun make(x: T) -> Wrap[T]
       Wrap(v: x)
@@ -3740,8 +3740,8 @@ test "audit-fuzz-c-lit-p00005", '''
     some(v: T)
     nothing
 
-    fun or(?self, d: T) -> T
-      match self
+    fun or(?@, d: T) -> T
+      match @
         .some(v) => v
         .nothing => d
 
@@ -4061,12 +4061,12 @@ test "audit-fuzz-c-tmp-t00027", '''
   obj R
     id: Int
 
-    drop(!self)
-      print("rel", self.id)
+    drop(!@)
+      print("rel", @id)
 
-    fun look(?self) -> Int
-      print("use", self.id)
-      self.id
+    fun look(?@) -> Int
+      print("use", @id)
+      @id
 
   obj P
     a: R
@@ -4084,16 +4084,16 @@ test "audit-fuzz-c-tmp-t00027", '''
   obj M
     r: R
 
-    fun with(<self, n: Int) -> Int
-      print("use", self.r.id)
-      n + self.r.id
+    fun with(<@, n: Int) -> Int
+      print("use", @r.id)
+      n + @r.id
 
-    fun peek(?self, n: Int) -> Int
-      print("use", self.r.id)
+    fun peek(?@, n: Int) -> Int
+      print("use", @r.id)
       n
 
-    sub put(!self, r: R)
-      self.r = <r
+    sub put(!@, r: R)
+      @r = <r
 
   error E
     bad
@@ -4229,12 +4229,12 @@ test "audit-fuzz-c-tmp-t00148", '''
   obj R
     id: Int
 
-    drop(!self)
-      print("rel", self.id)
+    drop(!@)
+      print("rel", @id)
 
-    fun look(?self) -> Int
-      print("use", self.id)
-      self.id
+    fun look(?@) -> Int
+      print("use", @id)
+      @id
 
   obj P
     a: R
@@ -4252,16 +4252,16 @@ test "audit-fuzz-c-tmp-t00148", '''
   obj M
     r: R
 
-    fun with(<self, n: Int) -> Int
-      print("use", self.r.id)
-      n + self.r.id
+    fun with(<@, n: Int) -> Int
+      print("use", @r.id)
+      n + @r.id
 
-    fun peek(?self, n: Int) -> Int
-      print("use", self.r.id)
+    fun peek(?@, n: Int) -> Int
+      print("use", @r.id)
       n
 
-    sub put(!self, r: R)
-      self.r = <r
+    sub put(!@, r: R)
+      @r = <r
 
   error E
     bad
@@ -4438,12 +4438,12 @@ test "audit-fuzz-c-tmp-t00214", '''
   obj R
     id: Int
 
-    drop(!self)
-      print("rel", self.id)
+    drop(!@)
+      print("rel", @id)
 
-    fun look(?self) -> Int
-      print("use", self.id)
-      self.id
+    fun look(?@) -> Int
+      print("use", @id)
+      @id
 
   obj P
     a: R
@@ -4461,16 +4461,16 @@ test "audit-fuzz-c-tmp-t00214", '''
   obj M
     r: R
 
-    fun with(<self, n: Int) -> Int
-      print("use", self.r.id)
-      n + self.r.id
+    fun with(<@, n: Int) -> Int
+      print("use", @r.id)
+      n + @r.id
 
-    fun peek(?self, n: Int) -> Int
-      print("use", self.r.id)
+    fun peek(?@, n: Int) -> Int
+      print("use", @r.id)
       n
 
-    sub put(!self, r: R)
-      self.r = <r
+    sub put(!@, r: R)
+      @r = <r
 
   error E
     bad
@@ -4646,12 +4646,12 @@ test "audit-fuzz-c-tmp-t00237", '''
   obj R
     id: Int
 
-    drop(!self)
-      print("rel", self.id)
+    drop(!@)
+      print("rel", @id)
 
-    fun look(?self) -> Int
-      print("use", self.id)
-      self.id
+    fun look(?@) -> Int
+      print("use", @id)
+      @id
 
   obj P
     a: R
@@ -4669,16 +4669,16 @@ test "audit-fuzz-c-tmp-t00237", '''
   obj M
     r: R
 
-    fun with(<self, n: Int) -> Int
-      print("use", self.r.id)
-      n + self.r.id
+    fun with(<@, n: Int) -> Int
+      print("use", @r.id)
+      n + @r.id
 
-    fun peek(?self, n: Int) -> Int
-      print("use", self.r.id)
+    fun peek(?@, n: Int) -> Int
+      print("use", @r.id)
       n
 
-    sub put(!self, r: R)
-      self.r = <r
+    sub put(!@, r: R)
+      @r = <r
 
   error E
     bad
@@ -4802,12 +4802,12 @@ test "audit-fuzz-c-tmp-t00260", '''
   obj R
     id: Int
 
-    drop(!self)
-      print("rel", self.id)
+    drop(!@)
+      print("rel", @id)
 
-    fun look(?self) -> Int
-      print("use", self.id)
-      self.id
+    fun look(?@) -> Int
+      print("use", @id)
+      @id
 
   obj P
     a: R
@@ -4825,16 +4825,16 @@ test "audit-fuzz-c-tmp-t00260", '''
   obj M
     r: R
 
-    fun with(<self, n: Int) -> Int
-      print("use", self.r.id)
-      n + self.r.id
+    fun with(<@, n: Int) -> Int
+      print("use", @r.id)
+      n + @r.id
 
-    fun peek(?self, n: Int) -> Int
-      print("use", self.r.id)
+    fun peek(?@, n: Int) -> Int
+      print("use", @r.id)
       n
 
-    sub put(!self, r: R)
-      self.r = <r
+    sub put(!@, r: R)
+      @r = <r
 
   error E
     bad
@@ -4941,8 +4941,8 @@ test "audit-fuzz-pf1-accepted-49de5b5de7", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   sub run(early: Bool)
     a = Noisy(id: 1)
@@ -5060,16 +5060,16 @@ fail "audit-fuzz-pf1-accepted-ef0d28d8d2", "cannot move out of `pair.name`: it c
     x: Int
     fun origin() -> Point
       Point(x: 0)
-    fun shifted(?self, d: Int) -> Point
-      Point(x: self.x + d)
+    fun shifted(?@, d: Int) -> Point
+      Point(x: @x + d)
 
   obj Leaf
     n: Int
 
   obj Tree
     leaf: *Leaf
-    fun first(?self) -> ?*Leaf
-      ?self.leaf
+    fun first(?@) -> ?*Leaf
+      ?@leaf
 
   obj Pair
     v: List[Int]
@@ -5126,13 +5126,13 @@ test "audit-fuzz-pf2-accepted-0bb6dd2b9b", '''
 
   obj Set
     items: List[Int]
-    fun insert(!self, k: Int) -> Bool
-      for x in ?self.items
+    fun insert(!@, k: Int) -> Bool
+      for x in ?@items
         return false if x == k
-      !self.items.push(k)
+      !@items.push(k)
       true
-    fun checked(!self, k: Int) -> Bool!
-      (!self).insert(k)
+    fun checked(!@, k: Int) -> Bool!
+      (!@).insert(k)
 
   fun add(s: !Set, k: Int) -> Bool
     return (!s).insert(k)
@@ -5173,20 +5173,20 @@ test "audit-fuzz-pf2-accepted-142f3b6e69", '''
   end
   2
 '''
-  # Assigning a field through `!self` drops the old value and keeps the new
+  # Assigning a field through `!@` drops the old value and keeps the new
   # one in the caller's struct.
 
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   obj Slot
     held: *Noisy
 
-    sub put(!self, n: *Noisy)
-      self.held = +n
+    sub put(!@, n: *Noisy)
+      @held = +n
 
   s = Slot(held: *Noisy(id: 1))
   !s.put(*Noisy(id: 2))
@@ -5207,8 +5207,8 @@ test "audit-fuzz-pf2-accepted-1fda7c156c", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub keep(b: *B)
     print("kept", b.n)
@@ -5425,8 +5425,8 @@ test "audit-fuzz-pf2-accepted-38eb257bac", '''
   obj R
     id: Int
 
-    drop(!self)
-      print("rel", self.id)
+    drop(!@)
+      print("rel", @id)
 
   obj P
     a: R
@@ -5505,17 +5505,17 @@ test "audit-fuzz-pf2-accepted-38eb257bac", '''
     first: T
     second: U
 
-    fun left(?self) -> ?T
-      ?self.first
+    fun left(?@) -> ?T
+      ?@first
 
   obj Shelf[T]
     items: List[T]
 
-    sub add(!self, x: T)
-      !self.items.push(<x)
+    sub add(!@, x: T)
+      !@items.push(<x)
 
-    fun take(!self) -> T?
-      (!self.items).pop()
+    fun take(!@) -> T?
+      (!@items).pop()
 
   enum Maybe[T]
     just(v: T)
@@ -5635,12 +5635,12 @@ test "audit-fuzz-pf2-accepted-46de4c483e", '''
   obj R
     id: Int
 
-    drop(!self)
-      print("rel", self.id)
+    drop(!@)
+      print("rel", @id)
 
-    fun look(?self) -> Int
-      print("use", self.id)
-      self.id
+    fun look(?@) -> Int
+      print("use", @id)
+      @id
 
   obj P
     a: R
@@ -5658,16 +5658,16 @@ test "audit-fuzz-pf2-accepted-46de4c483e", '''
   obj M
     r: R
 
-    fun with(<self, n: Int) -> Int
-      print("use", self.r.id)
-      n + self.r.id
+    fun with(<@, n: Int) -> Int
+      print("use", @r.id)
+      n + @r.id
 
-    fun peek(?self, n: Int) -> Int
-      print("use", self.r.id)
+    fun peek(?@, n: Int) -> Int
+      print("use", @r.id)
       n
 
-    sub put(!self, r: R)
-      self.r = <r
+    sub put(!@, r: R)
+      @r = <r
 
   error E
     bad
@@ -5978,17 +5978,17 @@ test "audit-fuzz-pf2-accepted-4af8d2d2c7", '''
     x: Int
     y: Int
 
-    fun sum(?self) -> Int
-      self.x + self.y
+    fun sum(?@) -> Int
+      @x + @y
 
-    sub shift(!self, d: Int)
-      self.x += d
+    sub shift(!@, d: Int)
+      @x += d
 
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun norm(p: ?Point) -> Int
     p.x * p.x + p.y * p.y
@@ -6238,8 +6238,8 @@ test "audit-fuzz-pf2-accepted-63d05e3672", '''
   obj R
     id: Int
 
-    drop(!self)
-      print("rel", self.id)
+    drop(!@)
+      print("rel", @id)
 
   obj P
     a: R
@@ -6318,17 +6318,17 @@ test "audit-fuzz-pf2-accepted-63d05e3672", '''
     first: T
     second: U
 
-    fun left(?self) -> ?T
-      ?self.first
+    fun left(?@) -> ?T
+      ?@first
 
   obj Shelf[T]
     items: List[T]
 
-    sub add(!self, x: T)
-      !self.items.push(<x)
+    sub add(!@, x: T)
+      !@items.push(<x)
 
-    fun take(!self) -> T?
-      (!self.items).pop()
+    fun take(!@) -> T?
+      (!@items).pop()
     a11: (?String)? = none
 
   enum Maybe[T]
@@ -6444,13 +6444,13 @@ test "audit-fuzz-pf2-accepted-65d1ddaa89", '''
   obj R
     id: Int
 
-    drop(!self)
-  # Sigil-prefixed names (`?x`) are sugar for `self` parameters only, not
-      print("rel", self.id)
+    drop(!@)
+  # Sigil-prefixed names (`?x`) are sugar for `@` parameters only, not
+      print("rel", @id)
 
-    fun look(?self) -> Int
-      print("use", self.id)
-      self.id
+    fun look(?@) -> Int
+      print("use", @id)
+      @id
 
   obj P
     a: R
@@ -6468,16 +6468,16 @@ test "audit-fuzz-pf2-accepted-65d1ddaa89", '''
   obj M
     r: R
 
-    fun with(<self, n: Int) -> Int
-      print("use", self.r.id)
-      n + self.r.id
+    fun with(<@, n: Int) -> Int
+      print("use", @r.id)
+      n + @r.id
 
-    fun peek(?self, n: Int) -> Int
-      print("use", self.r.id)
+    fun peek(?@, n: Int) -> Int
+      print("use", @r.id)
       n
 
-    sub put(!self, r: R)
-      self.r = <r
+    sub put(!@, r: R)
+      @r = <r
 
   error E
     bad

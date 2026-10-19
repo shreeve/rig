@@ -7,8 +7,8 @@ fail "results as discard", "`as` binds each result to a name: name this one, and
   obj Guard
     s: ?String
 
-    drop(!self)
-      print("guard", self.s)
+    drop(!@)
+      print("guard", @s)
 
   fun mk(s: ?String) -> (Guard, Int)?
     return Guard(s: s), s.len
@@ -20,8 +20,8 @@ fail "results as header temp", "a view of the temporary `String(\"abc\", \"def\"
   obj Guard
     s: ?String
 
-    drop(!self)
-      print("guard", self.s)
+    drop(!@)
+      print("guard", @s)
 
   fun mk(s: ?String) -> (Guard, Int)?
     return Guard(s: s), s.len
@@ -39,9 +39,9 @@ test "results bool free", "10 true"
     n: Int
     m: Int
 
-    fun bump(!self, k: Int) -> (!Int, Bool)
-      self.n += k
-      return !self.m, self.n > 3
+    fun bump(!@, k: Int) -> (!Int, Bool)
+      @n += k
+      return !@m, @n > 3
 
   c = Counter(n: 0, m: 0)
   w, big = (!c).bump(5)
@@ -63,8 +63,8 @@ test "results discard", '''
   obj Guard
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun divmod(a: Int, b: Int) -> (Int, Int)
     return a / b, a % b
@@ -90,8 +90,8 @@ fail "results discard nested drop", "26:4: cannot bind `s` while the result `_` 
   obj G
     w: ?String
 
-    drop(!self)
-      print("g", self.w)
+    drop(!@)
+      print("g", @w)
 
   obj H
     g: G
@@ -128,8 +128,8 @@ test "results discard order", '''
     s: ?String
     tag: Int
 
-    drop(!self)
-      print("guard", self.tag, self.s)
+    drop(!@)
+      print("guard", @tag, @s)
 
   fun mk(s: ?String) -> (Guard, Int)
     return Guard(s: s, tag: 1), s.len
@@ -146,8 +146,8 @@ fail "results discard views", "cannot bind `s` while the result `_` discards vie
   obj Guard
     s: ?String
 
-    drop(!self)
-      print("guard", self.s)
+    drop(!@)
+      print("guard", @s)
 
   fun keep(s: ?String) -> (Guard, String)
     return Guard(s: s), String(s)
@@ -168,8 +168,8 @@ test "results forward", '''
   obj G
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun two(s: ?String) -> (G, ?String)
     return G(n: s.len), s
@@ -229,8 +229,8 @@ test "results owned", '''
   obj Name
     s: String
 
-    drop(!self)
-      print("drop", self.s)
+    drop(!@)
+      print("drop", @s)
 
   fun two(a: ?String, b: ?String) -> (Name, Name)
     return Name(s: String(a)), Name(s: String(b))
@@ -313,12 +313,12 @@ test "results views", '''
   !t.add("!")
   print(t)
 
-fail "results write and read", "`two` gives a write view and another result, `?Int`, that could both view `self`"
+fail "results write and read", "`two` gives a write view and another result, `?Int`, that could both view `@`"
   obj M
     a: Int
 
-    fun two(!self) -> (!Int, ?Int)
-      return !self.a, ?self.a
+    fun two(!@) -> (!Int, ?Int)
+      return !@a, ?@a
 
 test "results write lend ends", "1 [0] 1"
   # When no result holds a write view, the call's write lend ends as it
@@ -371,9 +371,9 @@ test "results write view", '''
     n: Int
     m: Int
 
-    fun bump(!self, k: Int) -> (!Int, Bool)
-      self.n += k
-      return !self.m, self.n > 3
+    fun bump(!@, k: Int) -> (!Int, Bool)
+      @n += k
+      return !@m, @n > 3
 
   c = Counter(n: 0, m: 0)
   w, big = (!c).bump(2)
@@ -387,8 +387,8 @@ fail "results write view live", "use of `c.n` while a write loan on `c` is live"
   obj Counter
     n: Int
 
-    fun bump(!self) -> (!Int, Bool)
-      return !self.n, true
+    fun bump(!@) -> (!Int, Bool)
+      return !@n, true
 
   c = Counter(n: 0)
   w, big = (!c).bump()

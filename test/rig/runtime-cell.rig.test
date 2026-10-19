@@ -30,14 +30,14 @@ fail "cell holder write view changes cells", "14:5: cannot assign through a shar
     n: Int
     items: List[Int]
 
-    sub ok(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub ok(!@)
+      !@hits.set(@hits.get() + 1)
 
-    sub reset(!self)
-      self.n = 0
+    sub reset(!@)
+      @n = 0
 
-    sub grow(!self)
-      !self.items.push(1)
+    sub grow(!@)
+      !@items.push(1)
 
   k = *Counter(hits: Cell(0), n: 1, items: List())
   !k.ok()
@@ -70,8 +70,8 @@ test "cell holding shared", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   u = *Noisy(id: 30)
   c: *Cell[*Noisy] = *Cell(<u)
@@ -94,19 +94,19 @@ test "cell marked calls", release: true, '''
   # A shared Cell changes only by a marked call: `!c.set(5)`. The mark
   # lends the handle `c`, as `!v.push(x)` lends `v`; it is not exclusive
   # over the Cell, since another handle is another name. Reading is
-  # unmarked. A `!self` method and a `!T` parameter change a Cell the same
+  # unmarked. A `!@` method and a `!T` parameter change a Cell the same
   # way, and a closure marks the handle it captured.
 
   obj Counter
     hits: Cell[Int]
     log: Cell[List[Int]]
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
-      !self.log.push(self.hits.get())
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
+      !@log.push(@hits.get())
 
-    fun total(?self) -> Int
-      self.hits.get() * 100 + self.log.len
+    fun total(?@) -> Int
+      @hits.get() * 100 + @log.len
 
   sub bump(c: !Cell[Int], by: Int)
     !c.set(c.get() + by)
@@ -165,18 +165,18 @@ test "cell marked calls", release: true, '''
 
 fail "cell read view unchanged", "10:6: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate", "13:6: cannot lend to write through a read view (`?T`); take a write view (`!T`) to mutate", "16:4: cannot lend to write through a read view `?Cell[Int]`", errors: 3
   # `?` promises that nothing changes, a shared Cell included: a read view
-  # of a Cell, or a `?self` method of a value holding one, cannot change
+  # of a Cell, or a `?@` method of a value holding one, cannot change
   # it. It takes `!`, and the caller marks the lend.
 
   obj Counter
     hits: Cell[Int]
     n: Int
 
-    sub hit(?self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(?@)
+      !@hits.set(@hits.get() + 1)
 
-    sub poke(?self)
-      !self.hits.set(1)
+    sub poke(?@)
+      !@hits.set(1)
 
   sub bump(c: ?Cell[Int])
     !c.set(c.get() + 1)
@@ -208,7 +208,7 @@ test "cell set through read view", release: true, '''
   shared 42
 '''
   # A Cell changes by a marked call: `set` and `replace` change it through
-  # a `!T` view, and through a `!self` method of a struct holding one. A
+  # a `!T` view, and through a `!@` method of a struct holding one. A
   # by-value parameter owns the shared handle moved into it, which it may
   # lend out.
 
@@ -216,8 +216,8 @@ test "cell set through read view", release: true, '''
     hits: Cell[Int]
     name: ?String
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   sub bump(c: !Cell[Int], by: Int)
     !c.set(c.get() + by)
@@ -282,8 +282,8 @@ test "cell through handle param", '''
   obj H
     h: *Cell[List[Int]]
 
-    sub bump(!self)
-      (!self.h)[0] = 40
+    sub bump(!@)
+      (!@h)[0] = 40
 
   sub put(c: *Cell[List[Int]], v: Int)
     (!c)[0] = v
@@ -367,10 +367,10 @@ test "cell vec clear reentrant", '''
     id: Int
     owner: ~Cell[List[*Item]]
 
-    drop(!self)
-      if *self.owner as cell
-        print("drop", self.id, "sees", cell.len)
-        (!cell).push(*Item(id: self.id * 10, owner: +self.owner)) if self.id < 10
+    drop(!@)
+      if *@owner as cell
+        print("drop", @id, "sees", cell.len)
+        (!cell).push(*Item(id: @id * 10, owner: +@owner)) if @id < 10
 
   items: *Cell[List[*Item]] = *Cell(List())
   !items.push(*Item(id: 1, owner: ~items))
@@ -394,7 +394,7 @@ test "cell vec members", release: true, '''
 '''
   # A Cell holding a List answers the List's members by a marked call, like
   # `set`: a `!Cell[List[T]]` parameter, a Cell field reached from a
-  # `!self` method, and a shared handle. `push` moves
+  # `!@` method, and a shared handle. `push` moves
   # or clones an owning element in, `pop` hands one out, `clear` drops
   # them all; a plain-data element is read and written by index or `get`.
 
@@ -405,20 +405,20 @@ test "cell vec members", release: true, '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   obj Holder
     items: Cell[List[Int]]
 
-    sub add(!self, n: Int)
-      !self.items.push(n)
+    sub add(!@, n: Int)
+      !@items.push(n)
 
-    fun total(?self) -> Int
+    fun total(?@) -> Int
       t = 0
       i = 0
-      while i < self.items.len
-        t += self.items[i]
+      while i < @items.len
+        t += @items[i]
         i += 1
       t
 
@@ -461,13 +461,13 @@ test "cell vec reactive", "3 1 3 6 2"
     value: *Cell[Int]
     watchers: List[*sub(Int)]
 
-    sub watch(!self, f: *sub(Int))
-      !self.watchers.push(<f)
+    sub watch(!@, f: *sub(Int))
+      !@watchers.push(<f)
 
-    sub bump(!self)
-      !self.value.set(self.value.get() + 1)
-      for w in ?self.watchers
-        w(self.value.get())
+    sub bump(!@)
+      !@value.set(@value.get() + 1)
+      for w in ?@watchers
+        w(@value.get())
 
   log: *Cell[List[Int]] = *Cell(List())
   doubled: *Cell[List[Int]] = *Cell(List())
@@ -503,8 +503,8 @@ test "cell view sees updates", '''
   obj H
     c: Cell[Int]
 
-    fun cell(?self) -> ?Cell[Int]
-      ?self.c
+    fun cell(?@) -> ?Cell[Int]
+      ?@c
 
   type C = Cell[Int]
 

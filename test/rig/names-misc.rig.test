@@ -146,7 +146,7 @@ fail "method param after decl", "parameter `Thing` has the same name as the modu
   obj Foo
     v: Int
 
-  fun Foo.m(?self, Thing: Int) -> Int
+  fun Foo.m(?@, Thing: Int) -> Int
     Thing
 
   obj Thing
@@ -164,7 +164,7 @@ fail "method param before decl", "parameter `Thing` has the same name as the mod
   obj Foo
     v: Int
 
-  fun Foo.m(?self, Thing: Int) -> Int
+  fun Foo.m(?@, Thing: Int) -> Int
     Thing
 
   print(1)

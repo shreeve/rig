@@ -15,8 +15,8 @@ test "r3-or-fit-f7b parser text", "x 9"
     toks: []Tok
     pos: Int
 
-    fun text(?self, t: ?Tok) -> ?String
-      self.src[t.start..t.start + t.len]
+    fun text(?@, t: ?Tok) -> ?String
+      @src[t.start..t.start + t.len]
 
   src = String("let x")
   toks = [Tok(kind: 1, start: 0, len: 3), Tok(kind: 2, start: 4, len: 1)]
@@ -69,10 +69,10 @@ test "r3-or-formal-cursor", "1 2"
     items: ?List[Item]
     i: Int
 
-    fun next(!self) -> ?Item
-      k = self.i
-      self.i += 1
-      ?self.items[k]
+    fun next(!@) -> ?Item
+      k = @i
+      @i += 1
+      ?@items[k]
 
   v: List[Item] = List()
   !v.push(Item(n: 1))
@@ -214,10 +214,10 @@ test "r3-or-formal-lexer", "a b"
     src: ?String
     pos: Int
 
-    fun next(!self) -> ?String
-      start = self.pos
-      self.pos += 1
-      self.src[start..self.pos]
+    fun next(!@) -> ?String
+      start = @pos
+      @pos += 1
+      @src[start..@pos]
 
   t = String("abc")
   lx = Lexer(src: ?t, pos: 0)
@@ -232,8 +232,8 @@ test "r3-or-formal-method key", "3 2"
   obj Table
     items: [4]Item
 
-    fun get(?self, k: ?Int) -> ?Item
-      ?self.items[k]
+    fun get(?@, k: ?Int) -> ?Item
+      ?@items[k]
 
   t = Table(items: [4 of Item(n: 3)])
   k = 1
@@ -321,7 +321,7 @@ fail "r3-or-formal-recur", "cannot assign to `y.n` while `y` is lent"
   y.n = 5
   print(r.n, y.n)
 
-fail "r3-or-formal-selfref", "cannot store in `self.items` a view of `self.own`: a value never holds a view of itself"
+fail "r3-or-formal-selfref", "cannot store in `@items` a view of `@own`: a value never holds a view of itself"
   obj Item
     n: Int
 
@@ -329,8 +329,8 @@ fail "r3-or-formal-selfref", "cannot store in `self.items` a view of `self.own`:
     own: [2]Item
     items: ?[2]Item
 
-    sub fix(!self)
-      self.items = ?self.own
+    sub fix(!@)
+      @items = ?@own
 
   g = [2 of Item(n: 1)]
   s = S(own: [2 of Item(n: 5)], items: ?g)
@@ -440,11 +440,11 @@ test "r3-or-generic-sound", "3 2 1"
     a: T
     b: T
 
-    fun left(?self) -> T
-      self.a
+    fun left(?@) -> T
+      @a
 
-    sub put(!self, x: T)
-      self.a = <x
+    sub put(!@, x: T)
+      @a = <x
 
   fun first[T](v: ?List[T]) -> T
     v[0]
@@ -688,10 +688,10 @@ test "r3-or-impl-cursor own", "1"
     scratch: List[Item]
     i: Int
 
-    fun next(!self) -> ?Item
-      k = self.i
-      self.i += 1
-      ?self.items[k]
+    fun next(!@) -> ?Item
+      k = @i
+      @i += 1
+      ?@items[k]
 
   v: List[Item] = List()
   !v.push(Item(n: 1))
@@ -998,8 +998,8 @@ test "r3-or-planned-as sound", '''
   obj N
     v: Int
 
-    drop(!self)
-      print("drop", self.v)
+    drop(!@)
+      print("drop", @v)
 
   enum E
     one(b: ^N)
@@ -1073,7 +1073,7 @@ test "r3-or-power-logger", '''
 fail "r3-or-power-parser scratch", "cannot lend `p` to write while a read loan is live"
   # Parser that views a token slice and also owns a scratch List[Tok].
   # L0 alone keeps `p` lent after `next` (Parser can own a Tok itself,
-  # in `scratch`); `from self.toks` frees it. Rust: `-> &'a Tok` in
+  # in `scratch`); `from @toks` frees it. Rust: `-> &'a Tok` in
   # `impl<'a> Parser<'a>` accepts the twin.
   obj Tok
     kind: Int
@@ -1084,9 +1084,9 @@ fail "r3-or-power-parser scratch", "cannot lend `p` to write while a read loan i
     scratch: List[Tok]
     pos: Int
 
-    fun next(!self) -> ?Tok
-      t = ?self.toks[self.pos]
-      self.pos += 1
+    fun next(!@) -> ?Tok
+      t = ?@toks[@pos]
+      @pos += 1
       t
 
   ts = [Tok(kind: 1, start: 0), Tok(kind: 2, start: 3)]
@@ -1157,8 +1157,8 @@ test "r3-or-red-c4 rcap ret view", "1"
   print(r.n)
 
 fail "r3-or-red-d2 repoint", "`b` does not live long enough"
-  # Must stay rejected under D2 depth tokens: after `self.src = other`,
-  # a projection of `self.src` is not `ext(self, src)` alone.
+  # Must stay rejected under D2 depth tokens: after `@src = other`,
+  # a projection of `@src` is not `ext(@, src)` alone.
   obj Tok
     n: Int
 
@@ -1166,9 +1166,9 @@ fail "r3-or-red-d2 repoint", "`b` does not live long enough"
     src: ?List[Tok]
     scratch: List[Tok]
 
-    fun next(!self, other: ?List[Tok]) -> ?Tok keeps other
-      self.src = other
-      ?self.src[0]
+    fun next(!@, other: ?List[Tok]) -> ?Tok keeps other
+      @src = other
+      ?@src[0]
 
   a: List[Tok] = List()
   !a.push(Tok(n: 1))
@@ -1548,11 +1548,11 @@ test "r3-or-vec-owners sound", '''
   obj Stack[T]
     items: List[T]
 
-    sub push(!self, x: T)
-      !self.items.push(<x)
+    sub push(!@, x: T)
+      !@items.push(<x)
 
-    fun size(?self) -> Int
-      self.items.len
+    fun size(?@) -> Int
+      @items.len
 
   sub sorted()
     v: List[String] = List()
@@ -1681,8 +1681,8 @@ test "r3-s36-containers-a05 array drop struct", '''
 '''
   obj D
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   a = [D(n: 1), D(n: 2)]
   print(a[0].n)

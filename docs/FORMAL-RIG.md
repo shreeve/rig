@@ -103,17 +103,17 @@ proof, and how a Rig programmer copes without it.
 | Macros, editions, compile-time type functions | Checking code that does not exist until expansion | Libraries in userland; a migrator for each breaking release |
 
 Lending iterators need no associated types. A method's result can be a
-view `from self`, and `for` lends the iterator to each step:
+view `from @`, and `for` lends the iterator to each step:
 
 ```rig
 obj Windows
   buf: List[Int]
   i: Int
 
-  fun next(!self) -> ([]Int)? from self
-    return none if self.i + 2 > self.buf.len
-    self.i += 1
-    ?self.buf[self.i - 1 .. self.i + 1]
+  fun next(!@) -> ([]Int)? from @
+    return none if @i + 2 > @buf.len
+    @i += 1
+    ?@buf[@i - 1 .. @i + 1]
 
 sub main()
   b: List[Int] = List()
@@ -133,8 +133,7 @@ sub main()
 ## Pin is not needed
 
 Rust pins a value for four reasons. Rig meets each one without it, so
-the reserved pin sigil `@x` gets no rules and no proof. It stays reserved
-until tasks and channels are built.
+it has no pin: no form, no rules, and no proof.
 
 | Why Rust pins | Where it goes in Rig |
 |---|---|
@@ -225,7 +224,7 @@ that carry data, `yields !T`) stay as they are.
    With it come:
    - **Zig-backed types** (`obj Window owns`): each declares its kind,
      drop, clone and thread facts. A window, a GPU buffer or a mapped
-     file becomes an owner that lends `from self`.
+     file becomes an owner that lends `from @`.
    - **Objects with C layout and C-callable `export` subs**, for
      callbacks from C. A `void*` context stays in the Zig shim.
    - **An "every bit pattern is valid" fact** for plain objects with C

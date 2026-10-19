@@ -131,8 +131,8 @@ fail "imported bare method", "method `get` must be called; to pass it as a funct
   obj Q
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   sub main()
     p = lib.P(n: 1)
@@ -147,14 +147,14 @@ fail "imported bare method", "method `get` must be called; to pass it as a funct
     pub obj P
       n: Int
 
-      fun get(?self) -> Int
-        self.n
+      fun get(?@) -> Int
+        @n
 
     pub obj Wrap[T]
       v: T
 
-      fun get(?self) -> T
-        self.v
+      fun get(?@) -> T
+        @v
 
 test "imported constant comptime", '''
   8 5
@@ -232,8 +232,8 @@ fail "imported drop glue alias", "`a` owns a `lib.Noisy`, which can't be copied 
     pub obj Noisy
       pub n: Int
 
-      drop(!self)
-        print("drop", self.n)
+      drop(!@)
+        print("drop", @n)
 
     pub obj Holder
       pub inner: Noisy
@@ -265,8 +265,8 @@ test "imported drop glue value", '''
     pub obj Noisy
       pub n: Int
 
-      drop(!self)
-        print("drop", self.n)
+      drop(!@)
+        print("drop", @n)
 
     pub obj Holder
       pub inner: Noisy
@@ -406,8 +406,8 @@ fail "imported equality handle", "19:9: `==` is not defined for `geo.Tagged`: fi
     pub obj Res
       n: Int
 
-      drop(!self)
-        print("drop", self.n)
+      drop(!@)
+        print("drop", @n)
 
 test "imported errors", '''
   empty bad digit empty ok
@@ -544,11 +544,11 @@ test "imported members like local", "2 2 11"
       pub n: Int
       pub f: fun(Int) -> Int
 
-      pub fun get(?self) -> Int
-        self.n
+      pub fun get(?@) -> Int
+        @n
 
-      pub sub bump(!self)
-        self.n += 1
+      pub sub bump(!@)
+        @n += 1
 
 test "imported method reference", "2"
   # `module.Type.method` is a function value too.
@@ -566,11 +566,11 @@ test "imported method reference", "2"
     pub obj P
       pub n: Int
 
-      pub fun get(?self) -> Int
-        self.n
+      pub fun get(?@) -> Int
+        @n
 
-      pub sub bump(!self)
-        self.n += 1
+      pub sub bump(!@)
+        @n += 1
 
 test "imported method upgrade", "2"
   # A method named `upgrade` of a struct from another module is called
@@ -587,8 +587,8 @@ test "imported method upgrade", "2"
     pub obj P
       pub n: Int
 
-      pub fun upgrade(?self) -> Int
-        self.n + 1
+      pub fun upgrade(?@) -> Int
+        @n + 1
 
 test "imported methods and closures", '''
   2 2
@@ -618,17 +618,17 @@ test "imported methods and closures", '''
     pub obj B
       pub n: Int
 
-      drop(!self)
-        print("drop", self.n)
+      drop(!@)
+        print("drop", @n)
 
-      pub fun get(?self) -> Int
-        self.n
+      pub fun get(?@) -> Int
+        @n
 
-      pub sub bump(!self)
-        self.n += 1
+      pub sub bump(!@)
+        @n += 1
 
-      pub fun take(self: B) -> Int
-        self.n
+      pub fun take(<@) -> Int
+        @n
 
     pub fun peek(b: ?B) -> Int
       b.n
@@ -660,8 +660,8 @@ test "imported resource containers", '''
     pub obj B
       pub n: Int
 
-      drop(!self)
-        print("drop", self.n)
+      drop(!@)
+        print("drop", @n)
 
     pub enum E
       one(b: *B)
@@ -688,8 +688,8 @@ test "imported resource field struct", '''
     pub obj Noisy
       pub n: Int
 
-      drop(!self)
-        print("drop", self.n)
+      drop(!@)
+        print("drop", @n)
 
     pub obj Holder
       pub b: *Noisy
@@ -717,17 +717,17 @@ test "imported resource vec field", '''
   file "lib.rig"
     pub obj B
       pub n: Int
-      drop(!self)
-        print("drop", self.n)
+      drop(!@)
+        print("drop", @n)
 
     pub obj H
       pub items: List[*B]
 
-      pub sub add(!self, b: *B)
-        !self.items.push(<b)
+      pub sub add(!@, b: *B)
+        !@items.push(<b)
 
-      pub fun count(?self) -> Int
-        self.items.len
+      pub fun count(?@) -> Int
+        @items.len
 
 bomb "imported table element overflow", "integer overflow", prints: "2", release: true
   # An element of another module's constant array is a run-time value too:

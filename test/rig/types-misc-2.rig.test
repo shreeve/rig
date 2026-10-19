@@ -20,13 +20,13 @@ test "receiver sigil bool value", '''
 
   obj Set
     items: List[Int]
-    fun insert(!self, k: Int) -> Bool
-      for x in ?self.items
+    fun insert(!@, k: Int) -> Bool
+      for x in ?@items
         return false if x == k
-      !self.items.push(k)
+      !@items.push(k)
       true
-    fun checked(!self, k: Int) -> Bool!
-      (!self).insert(k)
+    fun checked(!@, k: Int) -> Bool!
+      (!@).insert(k)
 
   fun add(s: !Set, k: Int) -> Bool
     return (!s).insert(k)
@@ -53,14 +53,14 @@ test "receiver sigil bool value", '''
 
 fail "receiver sigil consumes", "12:5: `top` does not consume its receiver; remove the `<`: a call's result moves without it", "13:5: `pop` does not consume its receiver; it writes it: `(!s).pop()`, and its result needs no `<`"
   # `<` before a method call moves the receiver into it, so the method
-  # must consume it (`<self`); a call's result moves without `<`.
+  # must consume it (`<@`); a call's result moves without `<`.
 
   obj Stack
     items: List[Int]
-    fun top(?self) -> Int?
-      self.items.get(0)
-    fun pop(!self) -> Int?
-      (!self.items).pop()
+    fun top(?@) -> Int?
+      @items.get(0)
+    fun pop(!@) -> Int?
+      (!@items).pop()
 
   s = Stack(items: List())
   a = <s.top()
@@ -98,10 +98,10 @@ fail "receiver sigil reads", "13:4: `is_empty` does not write its receiver; for 
 
   obj Queue
     items: List[Int]
-    fun is_empty(?self) -> Bool
-      self.items.len == 0
-    fun peek(?self) -> Int?
-      self.items.get(0)
+    fun is_empty(?@) -> Bool
+      @items.len == 0
+    fun peek(?@) -> Int?
+      @items.get(0)
 
   q = Queue(items: List())
   if !q.is_empty()
@@ -134,17 +134,17 @@ test "receiver sigil value used", release: true, '''
   obj Counter
     n: Int
 
-    fun next(!self) -> Int
-      self.n += 1
-      self.n
+    fun next(!@) -> Int
+      @n += 1
+      @n
 
-    fun twice(!self) -> Int
-      !self.next()
-      (!self).next()
+    fun twice(!@) -> Int
+      !@next()
+      (!@).next()
 
-    fun take(!self) -> Int!
-      return E.bad if self.n > 20
-      self.n
+    fun take(!@) -> Int!
+      return E.bad if @n > 20
+      @n
 
   fun last(c: !Counter) -> Int
     return (!c).next() if c.n > 50
@@ -185,7 +185,7 @@ test "receiver sigil value used", release: true, '''
   !v.push(4)
   print(drain(!v), c.n)
 
-fail "receiver sigil value used is rejected", "20:5: write `(!self).next()`: a write call whose value is used puts its `!` in parentheses", "27:10: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "28:3: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "34:5: write `(!v).remove(0)`: a write call whose value is used puts its `!` in parentheses", "36:4: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses", "38:7: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses", "40:5: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "41:5: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses", "42:7: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "42:19: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "43:7: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "46:5: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "47:5: write `(!c).take()`: a write call whose value is used puts its `!` in parentheses", "48:10: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", errors: 14
+fail "receiver sigil value used is rejected", "20:5: write `(!@).next()`: a write call whose value is used puts its `!` in parentheses", "27:10: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "28:3: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "34:5: write `(!v).remove(0)`: a write call whose value is used puts its `!` in parentheses", "36:4: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses", "38:7: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses", "40:5: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "41:5: write `(!v).pop()`: a write call whose value is used puts its `!` in parentheses", "42:7: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "42:19: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "43:7: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "46:5: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", "47:5: write `(!c).take()`: a write call whose value is used puts its `!` in parentheses", "48:10: write `(!c).next()`: a write call whose value is used puts its `!` in parentheses", errors: 14
   # A write call whose value is used, whatever its type, is written
   # `(!v).m(...)`: a binding, an `as` header of `if` and `while`,
   # an operand, `??`, an argument, an array element, `return`, a
@@ -199,17 +199,17 @@ fail "receiver sigil value used is rejected", "20:5: write `(!self).next()`: a w
   obj Counter
     n: Int
 
-    fun next(!self) -> Int
-      self.n += 1
-      self.n
+    fun next(!@) -> Int
+      @n += 1
+      @n
 
-    fun twice(!self) -> Int
-      !self.next()
-      !self.next()
+    fun twice(!@) -> Int
+      !@next()
+      !@next()
 
-    fun take(!self) -> Int!
-      return E.bad if self.n > 9
-      self.n
+    fun take(!@) -> Int!
+      return E.bad if @n > 9
+      @n
 
   fun last(c: !Counter) -> Int
     return !c.next() if c.n > 5
@@ -372,11 +372,11 @@ test "replace swap generic", '''
     x: T
     y: T
 
-    fun put(!self, v: T) -> T
-      replace(!self.x, <v)
+    fun put(!@, v: T) -> T
+      replace(!@x, <v)
 
-    sub flip(!self)
-      swap(!self.x, !self.y)
+    sub flip(!@)
+      swap(!@x, !@y)
 
   sub pair()
     w = W[Int](x: 1, y: 2)
@@ -387,8 +387,8 @@ test "replace swap generic", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun rep[T](p: !T, v: T) -> T
     replace(!p, <v)
@@ -523,9 +523,9 @@ test "scope after nested blocks", '''
   obj P
     n: Int
 
-    fun describe(?self) -> Int
-      if self.n > 0
-        m = self.n * 2
+    fun describe(?@) -> Int
+      if @n > 0
+        m = @n * 2
         m
       else
         0
@@ -558,10 +558,10 @@ test "scope after test block", "hi"
     x = "hi"
     print(x)
 
-fail "self sugar outside method", "`?self` is only allowed in a method body"
-  # `?self` has no meaning in a free function: there is no enclosing type.
+fail "self sugar outside method", "`?@` is only allowed in a method body"
+  # `?@` has no meaning in a free function: there is no enclosing type.
 
-  fun lonely(?self) -> Int
+  fun lonely(?@) -> Int
     42
 
   print(lonely(1))
@@ -1524,7 +1524,7 @@ fail "string retired name", "4:13: use of unbound type `Text`; owned text is `St
   print(size(?a))
 
 test "struct associated method", "hi"
-  # A `fun` declared in a struct body without `self` is called through the
+  # A `fun` declared in a struct body without `@` is called through the
   # type name.
 
   obj User
@@ -1686,7 +1686,7 @@ fail "struct positional fields", "12:5: a type with more than one field sets the
   print(p.x, w.a, u.a)
 
 fail "struct sigil member", "sigil-prefixed member (`?x` / `!x` / `<x`) is not allowed in a nominal body"
-  # Sigil-prefixed names (`?x`) are sugar for `self` parameters only, not
+  # Sigil-prefixed names (`?x`) are sugar for `@` parameters only, not
   # struct members.
 
   obj S
@@ -1903,8 +1903,8 @@ test "temporary resource operand", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> B
     B(n: n)
@@ -1923,8 +1923,8 @@ test "temporary resource print", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> B
     B(n: n)
@@ -2013,8 +2013,8 @@ test "text friction", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun maybe(k: Int) -> N?
     N(id: k) if k > 0 else none
@@ -2314,8 +2314,8 @@ test "text views as strings", '''
   obj S
     t: String
 
-    fun get(?self) -> ?String
-      ?self.t
+    fun get(?@) -> ?String
+      ?@t
 
   obj E
     value: String
@@ -2469,7 +2469,7 @@ test "type names", '''
   obj Ring[T, n: Int]
     items: [n]T
 
-    fun name(?self) -> ?String
+    fun name(?@) -> ?String
       $name(Self)
 
   enum Shape
@@ -2486,10 +2486,10 @@ test "type names", '''
   obj Holder[T]
     v: T
 
-    fun name(?self) -> ?String
+    fun name(?@) -> ?String
       $name(T)
 
-    fun view(?self) -> ?String
+    fun view(?@) -> ?String
       $name(?T)
 
   type Byte = U8
@@ -2648,7 +2648,7 @@ fail "unbound call", "use of unbound name `nonexistent_fn`"
 
   print(nonexistent_fn())
 
-fail "unbound name hints", "19:10: use of unbound type `i32`; Rig's types are capitalized: `I32`", "19:18: use of unbound type `string`; Rig's text is a `String` (owned), and `?String` is its read view", "19:29: use of unbound type `Piont`; did you mean `Point`?", "23:5: use of unbound name `null`; Rig's absent value is `none`", "24:5: use of unbound name `True`; Rig writes `true`", "25:5: use of unbound name `this`; a method's receiver is `self`", "26:5: use of unbound name `len`; a length is a member: `x.len`", "27:1: use of unbound name `println`; Rig prints a line with `print(...)`", "28:5: use of unbound name `self`; `self` is the receiver of a method that declares one", "29:7: use of unbound name `conuter`; did you mean `counter`?", "29:16: use of unbound name `totl`; did you mean `total`?", "29:25: use of unbound name `ture`; did you mean `true`?", "29:31: use of unbound name `prnt`; did you mean `print`?", "30:17: no field `widht` on type `Point`; did you mean `width`?", "31:9: no field `wdith` on type `Point`; did you mean `width`?", "31:18: no method `aera` on type `Point`; did you mean `area`?", "31:32: no method `orgin` on type `Point`; did you mean `origin`?"
+fail "unbound name hints", "19:10: use of unbound type `i32`; Rig's types are capitalized: `I32`", "19:18: use of unbound type `string`; Rig's text is a `String` (owned), and `?String` is its read view", "19:29: use of unbound type `Piont`; did you mean `Point`?", "23:5: use of unbound name `null`; Rig's absent value is `none`", "24:5: use of unbound name `True`; Rig writes `true`", "25:5: use of unbound name `this`; a method's receiver is `@`", "26:5: use of unbound name `len`; a length is a member: `x.len`", "27:1: use of unbound name `println`; Rig prints a line with `print(...)`", "28:5: use of unbound name `@`; `@` is the receiver of a method that declares one", "29:7: use of unbound name `conuter`; did you mean `counter`?", "29:16: use of unbound name `totl`; did you mean `total`?", "29:25: use of unbound name `ture`; did you mean `true`?", "29:31: use of unbound name `prnt`; did you mean `print`?", "30:17: no field `widht` on type `Point`; did you mean `width`?", "31:9: no field `wdith` on type `Point`; did you mean `width`?", "31:18: no method `aera` on type `Point`; did you mean `area`?", "31:32: no method `orgin` on type `Point`; did you mean `origin`?"
   # A name that is not found is reported with what it was likely meant as:
   # another language's spelling of a Rig one, or a visible name, type,
   # field, or method it is a typo of (one edit for a short name, two for
@@ -2658,8 +2658,8 @@ fail "unbound name hints", "19:10: use of unbound type `i32`; Rig's types are ca
     x: Int
     width: Int
 
-    fun area(?self) -> Int
-      self.x * self.width
+    fun area(?@) -> Int
+      @x * @width
 
     fun origin() -> Point
       Point(x: 0, width: 0)
@@ -2676,7 +2676,7 @@ fail "unbound name hints", "19:10: use of unbound type `i32`; Rig's types are ca
   c = this
   d = len(counter)
   println(counter)
-  e = self
+  e = @
   print(conuter, totl(1), ture, prnt)
   p = Point(x: 1, widht: 2)
   print(p.wdith, p.aera(), Point.orgin(), a, b, c, d, e)
@@ -2988,8 +2988,8 @@ fail "variant payload literal equality", "26:7: `==` is not defined for `Slot`: 
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     held(p: *N)
@@ -3030,8 +3030,8 @@ test "variant positional construction", '''
     some(value: T)
     nothing
 
-    fun or(<self, fallback: T) -> T
-      match <self
+    fun or(<@, fallback: T) -> T
+      match <@
         .some(v) => v
         .nothing => fallback
 
@@ -3108,8 +3108,8 @@ test "variant tag equality", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum D
     r(res: R)
@@ -3235,8 +3235,8 @@ test "view and string branches", '''
   obj S
     t: String
 
-    fun get(?self) -> ?String
-      ?self.t
+    fun get(?@) -> ?String
+      ?@t
 
   fun pick(a: ?String, ok: Bool) -> (?String)?
     a if ok else none
@@ -3345,8 +3345,8 @@ test "view number literal", '''
   obj Map[K]
     hash: fun(?K) -> U64
 
-    fun slot(?self, k: ?K) -> U64
-      self.hash(k) % 16
+    fun slot(?@, k: ?K) -> U64
+      @hash(k) % 16
 
   fun inc(k: ?Int) -> Int
     k + 1
@@ -3486,8 +3486,8 @@ test "weak upgrade clone and drop", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   rc = *Noisy(id: 1)
   w = ~rc
@@ -3711,7 +3711,7 @@ bomb "zero len index read", "index out of bounds", prints: "0 [] [] []"
 
 bomb "zero len index write", "index out of bounds", prints: "[]"
   # A write into a field of length 0 panics when the program runs, both
-  # through `!self` and through a generic type's instance.
+  # through `!@` and through a generic type's instance.
 
   obj Ring[T, n: Int]
     items: [n]T
@@ -3719,8 +3719,8 @@ bomb "zero len index write", "index out of bounds", prints: "[]"
   obj S
     xs: [0]Int
 
-    sub put(!self, i: Int)
-      self.xs[i] = 1
+    sub put(!@, i: Int)
+      @xs[i] = 1
 
   i = 0
   for j in 0..1

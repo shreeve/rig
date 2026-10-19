@@ -8,8 +8,8 @@ obj S
   n: Int
   m: Int
 
-  fun f(?self, a: Int, b: Int) -> Int
-    self.n + a * b
+  fun f(?@, a: Int, b: Int) -> Int
+    @n + a * b
 
 fun mk() -> S
   S(n: 1, m: 2)
@@ -51,8 +51,8 @@ cat >zig_temp.rig <<'EOF2'
 obj R unique
   n: Int
 
-  fun get(?self) -> Int
-    self.n
+  fun get(?@) -> Int
+    @n
 
 fun mkr(n: Int) -> R
   R(n: n)

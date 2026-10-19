@@ -12,13 +12,13 @@ test "generic as binding move", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Wrap[T]
     v: T
 
-    fun first(self: Wrap[T], o: T?, d: T) -> T
+    fun first(<@, o: T?, d: T) -> T
       if <o as x
         return <x
       <d
@@ -39,8 +39,8 @@ fail "generic as view", "23:5: `unwrap[Res]` cannot use `T = Res`: the generic b
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun unwrap[T](o: ?T?, d: T) -> T
     if o as v
@@ -289,8 +289,8 @@ fail "generic for takes element", "43:5: `steal[*Res]` cannot use `T = *Res`", "
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun steal[T](v: ?List[T], d: T) -> T
     r = <d
@@ -316,9 +316,9 @@ fail "generic for takes element", "43:5: `steal[*Res]` cannot use `T = *Res`", "
   obj Bag[T]
     items: List[T]
 
-    fun steal(?self, d: T) -> T
+    fun steal(?@, d: T) -> T
       r = <d
-      for x in ?self.items
+      for x in ?@items
         r = <x
       r
 
@@ -342,8 +342,8 @@ test "generic instance unit variant", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Opt[T]
     some(v: T)
@@ -487,8 +487,8 @@ fail "generic value from is rejected", "10:3: `pick` returns a view of `f`, but 
   obj H[T]
     f: *fun(?String) -> T
 
-    fun make(?self, s: ?String, t: ?String) -> T from t
-      self.f(s)
+    fun make(?@, s: ?String, t: ?String) -> T from t
+      @f(s)
 
   fun get[T](o: T?, d: T) -> T from d
     o ?? d

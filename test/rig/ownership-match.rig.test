@@ -16,8 +16,8 @@ test "match arm drop statement", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   sub run(k: Int)
     a = N(id: k)
@@ -73,8 +73,8 @@ fail "match bare payload move", "23:17: cannot move `v` out of `o`: `match o` re
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     tagged(box: *B, tag: Int)
@@ -209,8 +209,8 @@ test "match consume", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Pair
     two(a: *B, b: *B)
@@ -269,11 +269,11 @@ test "match consume binding writes", '''
   obj B
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: B)
@@ -318,8 +318,8 @@ test "match copy payload tail", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum S
     one(a: *B, k: Int)
@@ -585,7 +585,7 @@ test "match made part cell holder", '''
   # A `match` on a part of a value its header makes holds that value for
   # the match (Core §3, docs/INTERNALS.md "Header subjects"): `H(...).e`,
   # `mkh(n).e`, `[...][0]`, and `mk(n)[0]` are held, so each payload is
-  # read where it is, a `*Counter` handle through which a `!self` method
+  # read where it is, a `*Counter` handle through which a `!@` method
   # or a marked `Cell.set` changes a Cell (Core s9).
   #
   # oracle: main accept
@@ -593,8 +593,8 @@ test "match made part cell holder", '''
   obj Counter
     hits: Cell[Int]
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   enum E
     a(c: *Counter)
@@ -778,8 +778,8 @@ test "match payload by name", release: true, '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Bag
     three(a: *B, label: String, xs: List[Int])
@@ -900,7 +900,7 @@ test "match payload move with plain sibling", '''
   obj Wrap
     payload: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   sub eat(rc: *Wrap)
@@ -1334,8 +1334,8 @@ test "match payload views", '''
   obj Counter
     hits: Cell[Int]
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   enum E
     a(r: Res)
@@ -1588,8 +1588,8 @@ test "match tail payload moves out", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Opt
     some(v: *B)
@@ -1613,7 +1613,7 @@ test "match tail payload moves out", '''
   y = get2(<p, *B(n: 3))
   print(y.n)
 
-fail "match tail payload of viewed", "cannot move out of `v`: it is a view of `self`", "23:17: incompatible types `?*B` and `*B`"
+fail "match tail payload of viewed", "cannot move out of `v`: it is a view of `@`", "23:17: incompatible types `?*B` and `*B`"
   # A match that yields a payload of a viewed scrutinee as its value
   # would copy the handle out of the viewed value (and drop it twice),
   # whether the match is returned or bound.
@@ -1621,15 +1621,15 @@ fail "match tail payload of viewed", "cannot move out of `v`: it is a view of `s
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Opt
     some(v: *B)
     nothing
 
-    fun copy_out(?self, d: *B) -> *B
-      match self
+    fun copy_out(?@, d: *B) -> *B
+      match @
         .some(v) => v
         .nothing => <d
 
@@ -1700,8 +1700,8 @@ fail "match view subject misuse", "16:9: `match <s` consumes an owned value, and
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: *B)
@@ -1756,8 +1756,8 @@ test "match write payload", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Shape
     circle(r: Int)
@@ -1873,8 +1873,8 @@ test "match write payload lend ends", release: true, '''
     t: String
     xs: List[Int]
 
-    fun head(?self) -> ?String
-      ?self.t[..1]
+    fun head(?@) -> ?String
+      ?@t[..1]
 
   enum S
     a(p: P)
@@ -2273,7 +2273,7 @@ fail "match write payload lent forms", "37:7: cannot lend `t` to write while a r
   # Every form of lend of a `match !e` binding puts a loan on the binding,
   # which a write through it while the view is live conflicts with: a
   # `|?t|` capture, a `for` source, an `if … as` subject, a view stored in
-  # a struct, pushed to a List, or kept as an optional, and a view a `?self`
+  # a struct, pushed to a List, or kept as an optional, and a view a `?@`
   # method returns.
   # oracle: capture reject C4
   # oracle: loop_over reject C4
@@ -2290,8 +2290,8 @@ fail "match write payload lent forms", "37:7: cannot lend `t` to write while a r
   obj R
     t: String
 
-    fun head(?self) -> ?String
-      ?self.t[..1]
+    fun head(?@) -> ?String
+      ?@t[..1]
 
   enum E
     a(t: String)

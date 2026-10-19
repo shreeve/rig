@@ -107,8 +107,8 @@ fail "sb-r av4", "cannot lend `b` to read while a write loan is live"
 fail "sb-r av6", "a view of the temporary `[7]` outlives its statement, which drops it; bind the value to a name first"
   obj B
     xs: []Int
-    sub set(!self, s: []Int) keeps s
-      self.xs = s
+    sub set(!@, s: []Int) keeps s
+      @xs = s
 
   a = [1]
   b = B(xs: ?a)
@@ -312,8 +312,8 @@ test "sc2v-s", "true [[7, 7, 7], [7, 7, 7]] [0, 0] true [9, 9, 9] 1"
     n: Int
     next: *Node?
 
-    fun total(<self) -> Int
-      self.n
+    fun total(<@) -> Int
+      @n
 
   enum Opt
     some(value: Int)
@@ -338,8 +338,8 @@ test "sc3-d", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun neg(x: Int) -> Int
     -x
@@ -360,8 +360,8 @@ test "sc4-m", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Shape
     circle(r: Int)
@@ -451,14 +451,14 @@ fail "seam3-holder-stack", "cannot lend `v` to write while a read loan is live"
   obj Stack[T]
     items: List[T]
 
-    sub push(!self, x: T)
-      !self.items.push(x)
+    sub push(!@, x: T)
+      !@items.push(x)
 
-    fun top(?self) -> T?
-      if self.items.len == 0
+    fun top(?@) -> T?
+      if @items.len == 0
         none
       else
-        self.items[self.items.len - 1]
+        @items[@items.len - 1]
 
   v: List[Int] = List()
   !v.push(1)
@@ -1111,10 +1111,10 @@ test "seams-surface-a01 bool short", "dup? true false"
   obj Set
     items: List[Int]
 
-    fun insert(!self, k: Int) -> Bool
-      for x in ?self.items
+    fun insert(!@, k: Int) -> Bool
+      for x in ?@items
         return false if x == k
-      !self.items.push(k)
+      !@items.push(k)
       true
 
   s = Set(items: List())
@@ -1142,8 +1142,8 @@ test "seams-surface-a06 tail moves", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun pick(a: R, b: R, c: Bool) -> R
     if c
@@ -1167,8 +1167,8 @@ test "seams-surface-b01 reads", '''
   obj P
     v: List[Int]
 
-    fun n(?self) -> Int
-      self.v.len
+    fun n(?@) -> Int
+      @v.len
 
   enum E
     a(v: List[Int])
@@ -1193,7 +1193,7 @@ test "seams-surface-b01 reads", '''
 test "seams-surface-b04 if as", "1"
   obj R
     n: Int
-    drop(!self)
+    drop(!@)
       pass
 
   o: R? = R(n: 1)
@@ -1242,8 +1242,8 @@ test "seams-surface-c13 temp receiver", '''
   obj Log
     lines: List[Int]
 
-    fun count(?self) -> Int
-      self.lines.len
+    fun count(?@) -> Int
+      @lines.len
 
   fun make() -> Log
     Log(lines: List())
@@ -1261,8 +1261,8 @@ test "seams-surface-c14 temp receiver2", '''
   obj Log
     lines: List[Int]
 
-    fun count(?self) -> Int
-      self.lines.len
+    fun count(?@) -> Int
+      @lines.len
 
   fun make() -> Log
     Log(lines: List())

@@ -125,8 +125,8 @@ fail "review-arm-temps-2-m21 name target old drop reads view", "cannot lend `v` 
   obj H
     v: ?List[Int]
 
-    drop(!self)
-      print("drop", self.v[0])
+    drop(!@)
+      print("drop", @v[0])
 
   fun grow(v: !List[Int]) -> Int
     for _ in 0..200
@@ -170,8 +170,8 @@ test "review-arm-temps-2-m24 arm local view of name target", '''
   obj D
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   s = D(n: 1)
   k = 0
@@ -186,8 +186,8 @@ fail "review-arm-temps-2-m25 outer view of name target set in arm", "cannot reas
   obj D
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   t = D(n: 9)
   s = D(n: 1)
@@ -227,8 +227,8 @@ test "review-arm-temps-2-m27 catch block name moved", '''
   obj D
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> D!
     return E.bad if n < 0
@@ -257,8 +257,8 @@ test "review-arm-temps-2-m28 if block name moved", '''
   obj D
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun sink(d: D) -> D
     D(n: d.n + 10)
@@ -325,8 +325,8 @@ fail "review-arm-temps-2-m33 slice holder drop reads", "cannot lend `v` to write
   obj H
     v: []Int
 
-    drop(!self)
-      print("drop", self.v[0])
+    drop(!@)
+      print("drop", @v[0])
 
   fun grow(v: !List[Int]) -> Int
     for _ in 0..200
@@ -352,8 +352,8 @@ fail "review-arm-temps-2-m34 slice holder drop reads plain", "cannot lend `v` to
   obj H
     v: []Int
 
-    drop(!self)
-      print("drop", self.v[0])
+    drop(!@)
+      print("drop", @v[0])
 
   fun growh(v: !List[Int], u: ?List[Int]) -> H
     for _ in 0..200
@@ -393,14 +393,14 @@ test "review-arm-temps-2-m36 self field target grow in arm", "201 201"
   obj B
     v: List[Int]
 
-    fun grow(!self) -> Int
+    fun grow(!@) -> Int
       for _ in 0..200
-        !self.v.push(1)
-      self.v.len
+        !@v.push(1)
+      @v.len
 
-    sub set(!self, k: Int)
-      self.v[0] = match k
-        0 => (!self).grow()
+    sub set(!@, k: Int)
+      @v[0] = match k
+        0 => (!@).grow()
         _ => 3
 
   b = B(v: List())
@@ -1473,8 +1473,8 @@ test "review-assign-desugar-n25 value temp drop order", '''
   obj D
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> D
     D(n: n)

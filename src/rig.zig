@@ -539,16 +539,16 @@ const zig_primitives = std.StaticStringMap(void).initComptime(.{
 /// prelude declares (`std`, `rig`, and `panic`, the root module's panic
 /// handler), and the ones Zig's standard library looks up in the root
 /// module with `@hasDecl(root, ...)` and uses as hooks (`debug`, `os`,
-/// `std_options`, the entry points of each target). Every one is
-/// renamed wherever it stands, so no hook depends on which module or
-/// scope declares it.
+/// `std_options`, the entry points of each target), and `self`, which
+/// the receiver `@` is written as. Every one is renamed wherever it
+/// stands, so no hook depends on which module or scope declares it.
 const emitter_names = std.StaticStringMap(void).initComptime(.{
     .{"std"},       .{"rig"},                .{"panic"},
     .{"debug"},     .{"os"},                 .{"tracy"},
     .{"_start"},    .{"__start"},            .{"main"},
     .{"WinMain"},   .{"wWinMain"},           .{"WinMainCRTStartup"},
     .{"DllMain"},   .{"wWinMainCRTStartup"}, .{"DllMainCRTStartup"},
-    .{"EfiMain"},   .{"_DllMainCRTStartup"},
+    .{"EfiMain"},   .{"_DllMainCRTStartup"}, .{"self"},
 });
 /// The prefixes of the names emitter temporaries take (`__rig_tmp_3`),
 /// and of the `std_options_*` hooks.
@@ -585,8 +585,9 @@ pub const ZigSpelling = enum { rig, exact };
 /// method, variant, type, generic parameter, constant, function,
 /// label, or module the program names is written here, so a use is
 /// always spelled as its declaration.
+///   * the receiver, `@`, is `self`;
 ///   * a name the emitter or Zig's standard library uses
-///     (`zigRenames`: `std`, `rig`, `debug`, `__rig*`) gets a `'`
+///     (`zigRenames`: `std`, `rig`, `debug`, `self`, `__rig*`) gets a `'`
 ///     suffix, which no Rig identifier can contain: `@"rig'"`; an
 ///     `.exact` name never does;
 ///   * a Zig keyword or primitive (`var`, `fn`, `u8`, `type`), and `_`,
@@ -596,7 +597,9 @@ pub const ZigSpelling = enum { rig, exact };
 /// name, and the runtime strips the suffix where a name is printed
 /// (`rig.rigName`).
 pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8, spelling: ZigSpelling) std.Io.Writer.Error!void {
-    if (!isPlainName(name)) {
+    if (std.mem.eql(u8, name, "@")) {
+        try w.writeAll("self");
+    } else if (!isPlainName(name)) {
         // A name no program writes (`hiddenLeaf`).
         try w.print("@\"{s}\"", .{name});
     } else if (spelling == .rig and zigRenames(name)) {
@@ -781,6 +784,10 @@ pub const Lexer = struct {
     island_count: u32 = 0,
     /// A token held back until pending OUTDENTs are returned.
     pending_token: ?Token = null,
+    /// Where the name after an `@` touching it starts (`@hits`): the
+    /// next token is a `.` there, which makes `@hits` the member access
+    /// `@ . hits`.
+    member_dot: ?u32 = null,
     /// A module of several files, joined: where each file but the last
     /// ends in the source, ascending. Each file closes its own blocks and
     /// brackets: no token is read across an end while a bracket is open,
@@ -858,7 +865,7 @@ pub const Lexer = struct {
         increment,
         decrement,
         slash_comment,
-        pin_sigil,
+        receiver_dot,
         dollar_detached,
         dollar_stray,
         label_keyword,
@@ -907,7 +914,7 @@ pub const Lexer = struct {
                 .increment => "Rig has no `++`; write `x += 1`",
                 .decrement => "Rig has no `--`; write `x -= 1`",
                 .slash_comment => "comments start with `#`; Rig has no `//` or `/* */` comments",
-                .pin_sigil => "`@` is reserved",
+                .receiver_dot => "a member of the receiver is written `@name`, the name touching the `@`",
                 .dollar_detached => "`$` touches the name after it: a builtin call is written `$size(T)`, a label `$outer:` (`break $outer`)",
                 .dollar_stray => "`$name` is a builtin call, `$size(T)`, with the name touching its `(`, or a label: `$outer:` where a statement starts, and `break $outer` or `continue $outer`",
                 .label_keyword => "a keyword is not a label name",
@@ -1022,6 +1029,10 @@ pub const Lexer = struct {
         if (self.pending_token) |t| {
             self.pending_token = null;
             return self.classify(t);
+        }
+        if (self.member_dot) |pos| {
+            self.member_dot = null;
+            return synthetic(.dot, pos);
         }
 
         while (true) {
@@ -1244,7 +1255,7 @@ pub const Lexer = struct {
                 if (self.nesting > 0) self.nesting -= 1;
                 break :blk tok.cat;
             },
-            .at => return self.fail(.pin_sigil, tok.pos),
+            .at => if (self.receiverMember(tok)) |err| return self.fail(err, tok.pos) else .ident,
             .dollar => switch (self.classifyDollar(tok)) {
                 .cat => |cat| cat,
                 .err => |err| return self.fail(err, tok.pos),
@@ -1498,6 +1509,19 @@ pub const Lexer = struct {
         return out;
     }
 
+    /// `@` is the receiver, a name, and `@name` its member `name`: an
+    /// `@` touching a name is followed by a `.` before it, which the
+    /// next call returns (`member_dot`). The receiver's member is never
+    /// written `@.name`.
+    fn receiverMember(self: *Lexer, at: Token) ?LexError {
+        var probe = self.base;
+        const after = probe.next();
+        if (after.pos != endOf(&self.base, at)) return null;
+        if (after.cat == .dot) return .receiver_dot;
+        if (isWord(after.cat)) self.member_dot = after.pos;
+        return null;
+    }
+
     /// `$name(...)` is a builtin call, anywhere: the `$` touches the
     /// name, and the name the `(`. Any other `$name` is a label: declared
     /// where a statement that takes one starts, its `:` touching the name
@@ -1541,8 +1565,9 @@ pub const Lexer = struct {
             var t = probe.next();
             if (t.cat == .plus or t.cat == .lt or t.cat == .tilde or t.cat == .question or t.cat == .not_sym) t = probe.next();
             // A keyword entry still makes a bar list, so that the parser
-            // reports the keyword (`|when: Int|`).
-            if (!isWord(t.cat)) return true;
+            // reports the keyword (`|when: Int|`). The receiver, `@`, is a
+            // name (`|?@|`).
+            if (!isWord(t.cat) and t.cat != .at) return true;
             var sep = probe.next();
             if (sep.cat == .colon) sep = skipType(&probe) orelse return true;
             switch (sep.cat) {
@@ -1789,7 +1814,7 @@ fn isSpace(c: u8) bool {
     };
 }
 
-fn isIdentStart(c: u8) bool {
+pub fn isIdentStart(c: u8) bool {
     return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_';
 }
 
@@ -2513,7 +2538,7 @@ pub const Parser = struct {
             .zig => "inline Zig is reserved: use `raw` blocks and `extern` declarations",
             .star => if (precededBy(src, tok.pos, "for")) reserved_for_star else null,
             .in => if (forStar(src, tok.pos)) reserved_for_star else null,
-            .ident, .not_sym, .question => if (precededBy(src, tok.pos, "drop")) "a drop body takes its receiver in parentheses: `drop(!self)`" else null,
+            .ident, .not_sym, .question => if (precededBy(src, tok.pos, "drop")) "a drop body takes its receiver in parentheses: `drop(!@)`" else null,
             else => null,
         };
     }
@@ -3319,9 +3344,11 @@ pub const Parser = struct {
         slot.* = try self.base.newNode(.drop, &.{slot.*}, self.span(slot.*));
     }
 
-    /// A name a binding may have: not a literal, `true`, or `false`.
+    /// A name a binding may have, the receiver `@` too: not a literal,
+    /// `true`, or `false`.
     fn isBindingName(source: []const u8, leaf: Sexp) bool {
         const text = leafText(source, leaf.src);
+        if (std.mem.eql(u8, text, "@")) return true;
         if (text.len == 0 or !isIdentStart(text[0])) return false;
         return keyword(text) == null;
     }
@@ -3601,7 +3628,7 @@ test "`inline`, `called`, and `rarely` are keywords only before a declaration's 
     try expectCats("f(inline: 1)", &.{ .ident, .lparen, .kwarg_name, .colon, .integer, .rparen });
     try expectCats("p.inline(rarely)", &.{ .ident, .dot, .ident, .lparen, .ident, .rparen });
     try parses("inline fun f() -> Int\n  1\n");
-    try parses("obj P\n  inline: Int\n  rarely sub m(?self)\n    pass\n  fun inline(?self) -> Int\n    self.inline\n");
+    try parses("obj P\n  inline: Int\n  rarely sub m(?@)\n    pass\n  fun inline(?@) -> Int\n    @inline\n");
     try parses("fun f(inline: Int, rarely: Int) -> Int\n  inline + rarely\n");
 }
 
@@ -3684,7 +3711,7 @@ fn keepsCount(source: []const u8) !?usize {
 }
 
 test "`keeps` is a keyword only at the end of a function's header" {
-    try testing.expectEqual(@as(?usize, 1), try keepsCount("sub f(!self, s: ?String) keeps s\n  pass\n"));
+    try testing.expectEqual(@as(?usize, 1), try keepsCount("sub f(!@, s: ?String) keeps s\n  pass\n"));
     try testing.expectEqual(@as(?usize, 2), try keepsCount("fun f(o: !T, s: ?T) -> ?T from s keeps s, o\n  s\n"));
     try testing.expectEqual(@as(?usize, 1), try keepsCount("fun f(o: !T, s: ?T) -> Int keeps s\n  1\n"));
     try testing.expectEqual(@as(?usize, 1), try keepsCount("sub f(o: !T, s: ?T)! keeps s\n  pass\n"));
@@ -3807,10 +3834,16 @@ test "`$name(` with the `(` touching is a builtin; `$name` alone is a label" {
     try expectCats("f($a)", &.{ .ident, .lparen, .err });
 }
 
-test "`@` is reserved" {
-    try expectCats("@", &.{.err});
-    try expectCats("x = @a", &.{ .ident, .assign, .err });
-    try expectCats("f(@a)", &.{ .ident, .lparen, .err });
+test "`@` is the receiver, and `@name` its member" {
+    try expectCats("@", &.{.ident});
+    try expectCats("x = @a", &.{ .ident, .assign, .ident, .dot, .ident });
+    try expectCats("f(!@)", &.{ .ident, .lparen, .not_sym, .ident, .rparen });
+    try expectCats("@type.x", &.{ .ident, .dot, .ident, .dot, .ident });
+    try expectCats("@a[0] += 1", &.{ .ident, .dot, .ident, .lbracket, .integer, .rbracket, .plus_assign, .integer });
+    try expectCats("!@a.push(1)", &.{ .not_sym, .ident, .dot, .ident, .dot, .ident, .lparen, .integer, .rparen });
+    try expectCats("@[0]", &.{ .ident, .lbracket, .integer, .rbracket });
+    try expectCats("@.a", &.{.err});
+    try expectCats("g = |?@| 1", &.{ .ident, .assign, .bar_capture, .question, .ident, .bar_capture, .integer });
 }
 
 test "a `:` touching a name where an operand starts is a symbol" {
@@ -4180,8 +4213,8 @@ test "parser: every form parses" {
         \\obj Wrap[T]
         \\  value: T
         \\
-        \\  fun get(?self) -> T
-        \\    self.value
+        \\  fun get(?@) -> T
+        \\    @value
         \\
         \\enum Shape
         \\  circle(radius: Int)
@@ -4197,8 +4230,8 @@ test "parser: every form parses" {
         \\obj P
         \\  n: Int
         \\
-        \\  drop(!self)
-        \\    print(self.n)
+        \\  drop(!@)
+        \\    print(@n)
         \\
         \\obj Random unique
         \\  seed: Int

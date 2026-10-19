@@ -27,8 +27,8 @@ from Trig's ownership evidence pack (trig `docs/ownership/EVIDENCE.md`).
   of such parameters are never stored. Needed before Trig ports the
   checker. Approved.
 - **Path tokens (round E2).** A method's result says which field it
-  views (`-> ?String from self.text`), so it does not lend all of
-  `self`. It removes 24 copies in Trig, all of the lexer's among them,
+  views (`-> ?String from @text`), so it does not lend all of
+  `@`. It removes 24 copies in Trig, all of the lexer's among them,
   and reuses the existing `from` clause.
 
 ## Should add soon

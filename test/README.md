@@ -252,7 +252,7 @@ guarded, nested, and of a branch of write lends; `if !o as b` and
 parameter; a `|!b|` capture; a held `b = !x`; a `defer` in the arm) of
 a String, a
 List, a `^String`, or an object holding a List, whole, sliced, or to a
-call or `?self` method, then writes through the binding while the view
+call or `?@` method, then writes through the binding while the view
 is live, or after its last use; a program that runs must print what the
 view showed before the write. A read binding of a write view (`if o as
 b` and `while o as b` of a local `(!T)?`) is written the same way, and
@@ -277,10 +277,10 @@ or `continue` in the inner construct's `else`) past a `defer` or an
 owned local, and a program that runs must print the trace of passes,
 steps, defers, and drops the jumps' meaning gives. Last, it changes or
 reads a Cell (`set`, `replace`, `get`, a `Cell[List]`'s `push`, `pop`,
-`clear`, and `c[i] = e`, and a `?self` method) of each kind of value
+`clear`, and `c[i] = e`, and a `?@` method) of each kind of value
 holding one (an object with a `drop`, the Cells in a part, a generic
 type, a bare Cell) through the `*` handle it lives behind: directly,
-through a `?T` parameter given the handle, and through a `?self`
+through a `?T` parameter given the handle, and through a `?@`
 method, in a statement, a loop that continues or breaks early, a
 `defer`, and a loop that returns. Every such program must be accepted,
 and print the state the operations give both in a debug build and

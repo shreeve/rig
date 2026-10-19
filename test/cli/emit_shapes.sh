@@ -95,7 +95,7 @@ expect_has "$out" 'const r = &__rig_payload_1.r;' "payload viewed where it is"
 expect_has "$out" 'else => |*x| rig.rt(count(x)),' "catch-all of a lent subject"
 expect_has "$out" 'const x = &e.*;' "guarded catch-all of a lent subject"
 
-# Emit takes no address of a Zig temporary value. A `?self` method on a
+# Emit takes no address of a Zig temporary value. A `?@` method on a
 # value that branches runs on the leaf it takes, through its address,
 # never on a copy (`@as(S, if ...)`), so a view it returns views the
 # leaf. A Cell-holding field of a temporary is lent, and a method is
@@ -105,11 +105,11 @@ cat >leaves.rig <<'EOF2'
 obj S
   t: String
 
-  fun inner(?self) -> ?String
-    ?self.t
+  fun inner(?@) -> ?String
+    ?@t
 
-  fun pick(?self, x: Int, y: Int) -> ?String
-    ?self.t
+  fun pick(?@, x: Int, y: Int) -> ?String
+    ?@t
 
 fun mks() -> S
   S(t: String("m"))
@@ -139,8 +139,8 @@ enum Opt[T]
   some(v: T)
   nothing
 
-  fun all(?self) -> Int
-    match self
+  fun all(?@) -> Int
+    match @
       x => size(?x)
 
 fun size[T](v: ?T) -> Int

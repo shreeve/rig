@@ -8,8 +8,8 @@ use lib
 obj Res
   n: Int
 
-  drop(!self)
-    print("drop", self.n)
+  drop(!@)
+    print("drop", @n)
 
 sub main()
   r = Res(n: 1)

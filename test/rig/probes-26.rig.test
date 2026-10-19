@@ -222,9 +222,9 @@ test "review-printlow-generic-simd", '''
   obj Box[T]
     item: T
 
-    sub show(?self, label: ?String)
-      print(label, self.item, "|", self.item)
-      t = String(label, self.item)
+    sub show(?@, label: ?String)
+      print(label, @item, "|", @item)
+      t = String(label, @item)
       print(t)
 
   sub show[T](x: T)
@@ -453,7 +453,7 @@ test "review-printlow-order-failure", '''
   obj Ring[T, n: Int]
     items: [n]T
 
-    sub show(?self)
+    sub show(?@)
       print("cap", n, $size(T), $name(T))
       t = String(n, "/", $name(T))
       print(t)
@@ -538,8 +538,8 @@ test "review-printlow-positions", '''
   obj Res
     name: String
 
-    drop(!self)
-      print("drop", self.name, 1, true)
+    drop(!@)
+      print("drop", @name, 1, true)
 
   sub stop(l: Light)
     match l
@@ -661,8 +661,8 @@ fail "review-results-f01", "cannot reassign `b` while it is lent"
     s: ?String
     tag: Int
 
-    drop(!self)
-      print("guard", self.tag, self.s)
+    drop(!@)
+      print("guard", @tag, @s)
 
   fun mk() -> (String, Guard)
     return String("newb"), Guard(s: "lit", tag: 2)
@@ -678,8 +678,8 @@ fail "review-results-f04", "cannot reassign `b` while it is lent"
     s: ?String
     tag: Int
 
-    drop(!self)
-      print("guard", self.tag, self.s)
+    drop(!@)
+      print("guard", @tag, @s)
 
   fun mk(s: ?String) -> (String, Guard)
     return String("newb"), Guard(s: s, tag: 2)
@@ -696,8 +696,8 @@ fail "review-results-f10", "cannot reassign `b` while it is lent"
     s: ?String
     tag: Int
 
-    drop(!self)
-      print("guard", self.tag, self.s)
+    drop(!@)
+      print("guard", @tag, @s)
 
   b = String("oldb")
   a = Guard(s: ?b, tag: 1)
@@ -710,8 +710,8 @@ fail "review-results-p02 for write", "`d` does not live long enough"
   obj K
     a: ?String
 
-    sub put(!self, v: ?String) keeps v
-      self.a = v
+    sub put(!@, v: ?String) keeps v
+      @a = v
 
   t = String("outer")
   l: List[K] = List()
@@ -725,8 +725,8 @@ fail "review-results-p03 for write chain", "`d` does not live long enough"
   obj K
     a: ?String
 
-    sub put(!self, v: ?String) keeps v
-      self.a = v
+    sub put(!@, v: ?String) keeps v
+      @a = v
 
   t = String("outer")
   l: List[K] = List()
@@ -752,8 +752,8 @@ fail "review-results-z04", "cannot lend `x` to write while a read loan is live"
     s: ?String
     tag: Int
 
-    drop(!self)
-      print("guard", self.tag, self.s)
+    drop(!@)
+      print("guard", @tag, @s)
 
   fun mk(s: !String, t: Int) -> (Guard, Int)
     for _ in 0..50
@@ -772,8 +772,8 @@ fail "review-results-z05", "cannot lend `x` to write while a read loan is live"
     s: ?String
     tag: Int
 
-    drop(!self)
-      print("guard", self.tag, self.s)
+    drop(!@)
+      print("guard", @tag, @s)
 
   fun mk(s: !String, t: Int) -> Guard
     s = String("replaced")
@@ -1089,8 +1089,8 @@ fail "review-revamp-checkers-p-f1", "cannot move out of `p.v`: `p` is a view; ex
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     v: List[*R]
@@ -1104,18 +1104,18 @@ fail "review-revamp-checkers-p-f1", "cannot move out of `p.v`: `p` is a view; ex
   drain(!s)
   print(s.v.len)
 
-fail "review-revamp-checkers-p-f2", "cannot move out of `self.v`: `self` is a view; exchange it instead: `replace(!self.v, v)`"
+fail "review-revamp-checkers-p-f2", "cannot move out of `@v`: `@` is a view; exchange it instead: `replace(!@v, v)`"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     v: List[*R]
 
-    sub drain(!self)
-      for x in <self.v
+    sub drain(!@)
+      for x in <@v
         print(x.n)
 
   s = S(v: List())
@@ -1390,8 +1390,8 @@ test "review-revamp-checkers-p-q1", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(k: Int) -> R?
     R(n: k) if k > 0 else none
@@ -1430,8 +1430,8 @@ test "review-revamp-checkers-p-q2", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun get(k: Int) -> Int?
     k if k > 0 else none
@@ -1865,8 +1865,8 @@ test "review-revamp-rest-p5-h01", '''
 '''
   obj P
     n: Int
-    sub bump(!self, k: Int)
-      self.n += k
+    sub bump(!@, k: Int)
+      @n += k
 
   fun f() -> Int
     print("f")
@@ -1885,8 +1885,8 @@ test "review-revamp-rest-p5-h01", '''
 test "review-revamp-rest-p5-h02", "5 0 1"
   obj P
     n: Int
-    sub bump(!self, k: Int)
-      self.n += k
+    sub bump(!@, k: Int)
+      @n += k
 
   fun g(i: !Int) -> Int
     i += 1
@@ -1900,8 +1900,8 @@ test "review-revamp-rest-p5-h02", "5 0 1"
 test "review-revamp-rest-p5-h03", "15 1"
   obj P
     n: Int
-    fun get(?self, k: Int) -> Int
-      self.n + k
+    fun get(?@, k: Int) -> Int
+      @n + k
 
   fun g(i: !Int) -> Int
     i += 1
@@ -1915,8 +1915,8 @@ test "review-revamp-rest-p5-h03", "15 1"
 test "review-revamp-rest-p5-h04", "2"
   obj P
     n: Int
-    sub bump(!self, k: Int)
-      self.n += k
+    sub bump(!@, k: Int)
+      @n += k
 
   ps = List[P]()
   !ps.push(P(n: 1))
@@ -1926,8 +1926,8 @@ test "review-revamp-rest-p5-h04", "2"
 fail "review-revamp-rest-p5-h05", "cannot lend `ps` to write while a read loan is live"
   obj P
     n: Int
-    sub bump(!self, k: Int)
-      self.n += k
+    sub bump(!@, k: Int)
+      @n += k
 
   fun grow(ps: !List[P]) -> Int
     for _ in 0..1000

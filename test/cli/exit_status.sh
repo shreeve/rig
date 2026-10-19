@@ -7,8 +7,8 @@ cat >status.rig <<'EOF2'
 obj Guard
   n: Int
 
-  drop(!self)
-    print("drop", self.n)
+  drop(!@)
+    print("drop", @n)
 
 fun main() -> Int
   g = Guard(n: 3)

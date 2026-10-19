@@ -65,8 +65,8 @@ fail "review-syntax-b-2-c08 method ret write view", "a view reached through `(!h
   obj H
     t: String
 
-    fun get(!self) -> !String
-      !self.t
+    fun get(!@) -> !String
+      !@t
 
   h = H(t: String("hello"))
   s = keep(?(!h).get()[1..])
@@ -717,8 +717,8 @@ fail "review-syntax-b-2-v07 method ret write ok", "a view reached through `(!h).
   obj H
     t: String
 
-    fun get(!self) -> !String
-      !self.t
+    fun get(!@) -> !String
+      !@t
 
   h = H(t: String("hello"))
   print(keep((!h).get()[1..]))
@@ -798,8 +798,8 @@ test "review-take-h4", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj T
     a: R?
@@ -818,8 +818,8 @@ test "review-take-h4", '''
 fail "review-take-p01", "cannot lend `s.a` to write while a read loan is live"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -834,8 +834,8 @@ fail "review-take-p01", "cannot lend `s.a` to write while a read loan is live"
 fail "review-take-p02", "cannot lend `s.a` to write while a read loan is live"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -855,8 +855,8 @@ test "review-take-p03", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -870,8 +870,8 @@ test "review-take-p03", '''
 fail "review-take-p04", "cannot lend `s.b` to write while a write loan on `s` is live"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -896,8 +896,8 @@ test "review-take-p06", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -918,8 +918,8 @@ test "review-take-p07", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -938,8 +938,8 @@ test "review-take-p08", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -957,8 +957,8 @@ test "review-take-p09", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -975,8 +975,8 @@ test "review-take-p10", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -999,8 +999,8 @@ test "review-take-p106", "5 2"
 fail "review-take-p108", "`<` here would copy `s.a` out without moving it; take it before the `?` or `!`: `(<s.a)?`"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -1036,8 +1036,8 @@ test "review-take-p11", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -1051,8 +1051,8 @@ test "review-take-p11", '''
 fail "review-take-p110", "`<` here would copy `s.a` out without moving it; take it before the `?` or `!`: `(<s.a)?`"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -1144,17 +1144,17 @@ test "review-take-p117", '''
     value: Int
     next: ^Node?
 
-    drop(!self)
-      print("drop", self.value)
+    drop(!@)
+      print("drop", @value)
 
   obj Stack
     top: ^Node?
 
-    fun find(!self, k: Int) -> Int?
-      while <self.top as n
+    fun find(!@, k: Int) -> Int?
+      while <@top as n
         if n.value == k
           return n.value
-        self.top = <n.next
+        @top = <n.next
         continue if n.value == 99
         break if n.value == 2
       none
@@ -1170,8 +1170,8 @@ test "review-take-p117", '''
 fail "review-take-p118", "`x` owns an `R`, which can't be copied into an argument: write `<x` to move it"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R
@@ -1184,8 +1184,8 @@ fail "review-take-p118", "`x` owns an `R`, which can't be copied into an argumen
 fail "review-take-p119", "use of `y` after move"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R
@@ -1208,12 +1208,12 @@ test "review-take-p120", '''
   obj R
     n: Int
 
-    fun take(!self) -> Int
-      self.n = 0
+    fun take(!@) -> Int
+      @n = 0
       7
 
-    fun unbox(<self) -> Int
-      self.n
+    fun unbox(<@) -> Int
+      @n
 
   b = ^R(n: 3)
   print((!b).take(), b)
@@ -1255,8 +1255,8 @@ test "review-take-p13", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -1276,8 +1276,8 @@ test "review-take-p13", '''
 fail "review-take-p15", "cannot move out of `s`: it is a view of `e`"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum E
     one(s: R?)
@@ -1299,8 +1299,8 @@ test "review-take-p17", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -1324,8 +1324,8 @@ test "review-take-p23", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -1347,8 +1347,8 @@ test "review-take-p24", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -1374,8 +1374,8 @@ test "review-take-p27", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj G[T]
     x: T
@@ -1395,8 +1395,8 @@ test "review-take-p29", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     h: *R?
@@ -1426,8 +1426,8 @@ fail "review-take-p32", "cannot lend `s.a` to write while a write loan is live"
 fail "review-take-p33", "`s.a` owns an `R`, which can't be copied into an argument, has no clone, and can't be moved out of its parent"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R
@@ -1440,8 +1440,8 @@ fail "review-take-p33", "`s.a` owns an `R`, which can't be copied into an argume
 fail "review-take-p34", "cannot move out of `s.b`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.b, v)`"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R
@@ -1458,8 +1458,8 @@ test "review-take-p35", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -1504,8 +1504,8 @@ test "review-take-p46", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -1530,8 +1530,8 @@ test "review-take-p46", '''
 fail "review-take-p47", "cannot lend `s.a` to write while a write loan on `s` is live"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -1547,8 +1547,8 @@ fail "review-take-p47", "cannot lend `s.a` to write while a write loan on `s` is
 fail "review-take-p48", "use of `s` while a write loan is live"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -1567,8 +1567,8 @@ test "review-take-p49", '''
 '''
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -1583,8 +1583,8 @@ test "review-take-p49", '''
 fail "review-take-p52", "use of `s` after move"
   obj R
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?

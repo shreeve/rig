@@ -116,8 +116,8 @@ fail "match guard rules", "19:9: `match` on `Int` is not exhaustive: it misses `
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: *B)

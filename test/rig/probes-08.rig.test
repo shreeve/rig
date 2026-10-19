@@ -199,7 +199,7 @@ test "core-audit-loans-c10b shared int array index", "1"
   h = *[1, 2]
   print(h[0])
 
-fail "corekeeps-p4 store through view", "`hold` stores a view of `c` in `self`, which its caller reaches, but its signature does not keep `c`; say so: `keeps c`"
+fail "corekeeps-p4 store through view", "`hold` stores a view of `c` in `@`, which its caller reaches, but its signature does not keep `c`; say so: `keeps c`"
   obj Cursor
     items: ?List[Int]
     i: Int
@@ -207,8 +207,8 @@ fail "corekeeps-p4 store through view", "`hold` stores a view of `c` in `self`, 
   obj Holder
     items: ?List[Int]
 
-    sub hold(!self, c: ?Cursor)
-      self.items = c.items
+    sub hold(!@, c: ?Cursor)
+      @items = c.items
 
   v: List[Int] = List()
   !v.push(1)
@@ -226,8 +226,8 @@ fail "corekeeps-p4b keeps through view", "cannot drop `c` while it is lent"
   obj Holder
     items: ?List[Int]
 
-    sub hold(!self, c: ?Cursor) keeps c
-      self.items = c.items
+    sub hold(!@, c: ?Cursor) keeps c
+      @items = c.items
 
   v: List[Int] = List()
   !v.push(1)
@@ -358,8 +358,8 @@ test "docs-p-misc", '''
 '''
   obj V
     items: List[Int]
-    sub put[k: Int](!self, x: Int)
-      !self.items.push(x * k)
+    sub put[k: Int](!@, x: Int)
+      !@items.push(x * k)
 
   fun top(v: !List[Int]) -> Int?
     a = ((!v).pop())?
@@ -393,10 +393,10 @@ test "docs-p-rig2", '''
 '''
   obj Wrap[T]
     v: T
-    fun get(?self) -> T
+    fun get(?@) -> T
       __rig_Self = 1
       print(__rig_Self)
-      self.v
+      @v
 
   __rig_invoke = 3
   f = |+__rig_invoke| __rig_invoke + 1
@@ -452,8 +452,8 @@ test "docs-probes-g1", '''
   obj Wrap[T]
     v: T
 
-    fun get(?self) -> T
-      self.v
+    fun get(?@) -> T
+      @v
 
   enum Shape
     circle(r: Int)
@@ -505,9 +505,9 @@ test "docs-probes-nb", '''
   obj S
     n: Int
 
-    fun bump(!self) -> Bool
-      self.n += 1
-      self.n > 1
+    fun bump(!@) -> Bool
+      @n += 1
+      @n > 1
 
   s = S(n: 0)
   added = (!s).bump()
@@ -609,12 +609,12 @@ test "enumorder-a02 generic obj", ".small"
   obj Best[T]
     items: List[T]
 
-    fun least(?self) -> T
-      b = self.items[0]
+    fun least(?@) -> T
+      b = @items[0]
       i = 1
-      while i < self.items.len : i += 1
-        if self.items[i] < b
-          b = self.items[i]
+      while i < @items.len : i += 1
+        if @items[i] < b
+          b = @items[i]
       b
 
   l: List[Size] = List()
@@ -715,8 +715,8 @@ test "enumorder-a17 generic chain", '''
     a: T
     b: T
 
-    fun ordered(?self) -> Bool
-      not (self.b < self.a)
+    fun ordered(?@) -> Bool
+      not (@b < @a)
 
   print(outer(Size.small, Size.medium), outer(Size.large, Size.small))
   p = Pair[Size](a: .small, b: .large)
@@ -724,18 +724,18 @@ test "enumorder-a17 generic chain", '''
   print(p.ordered(), q.ordered())
 
 test "enumorder-a18 method", ".mid .lo true false"
-  # Inside an enum's method, a bare `.variant` beside `self` and a
+  # Inside an enum's method, a bare `.variant` beside `@` and a
   # parameter.
   enum Lvl
     hi = 3
     lo = 1
     mid = 2
 
-    fun clamp_to(?self, top: Lvl) -> Lvl
-      top if self > top else self
+    fun clamp_to(?@, top: Lvl) -> Lvl
+      top if @ > top else @
 
-    fun is_top(?self) -> Bool
-      not (self < .hi)
+    fun is_top(?@) -> Bool
+      not (@ < .hi)
 
   print(Lvl.hi.clamp_to(.mid), Lvl.lo.clamp_to(.mid), Lvl.hi.is_top(), Lvl.mid.is_top())
 
@@ -852,16 +852,16 @@ test "enumorder-c05 write views", '''
   [.hi, .hi, .hi]
   false
 '''
-  # Plain enum orderings through write views: `!self`, a `!T` in a generic
+  # Plain enum orderings through write views: `!@`, a `!T` in a generic
   # body, loop elements written through `!xs`, and a closure's `|!t|`.
   enum Lvl
     lo = 1
     mid = 2
     hi = 3
 
-    sub raise(!self)
-      if self < .mid
-        self = .mid
+    sub raise(!@)
+      if @ < .mid
+        @ = .mid
 
   sub lift[T](x: !T, y: T)
     if x < y
@@ -969,8 +969,8 @@ test "enumorder-xgen", '''
       pub a: T
       pub b: T
 
-      pub fun least(?self) -> T
-        math.min(self.a, self.b)
+      pub fun least(?@) -> T
+        math.min(@a, @b)
 
   file "lib.rig"
     pub enum Level
@@ -1007,7 +1007,7 @@ test "final-m1-write-receiver-view-in-statement", '''
   26004
   106
 '''
-  # A write view a `!self` method returns of a temporary receiver lent
+  # A write view a `!@` method returns of a temporary receiver lent
   # with `!`, used within its statement (Core sentence 4); without the `!`
   # the call is rejected (`test/reject/ownership/write_receiver_temporary.rig`).
 
@@ -1015,12 +1015,12 @@ test "final-m1-write-receiver-view-in-statement", '''
     n: Int
     m: Int
 
-    fun at(!self) -> !Int
-      !self.n
+    fun at(!@) -> !Int
+      !@n
 
-    fun pick(!self, x: Int, y: Int) -> !Int
-      self.n += x * 10 + y
-      !self.n
+    fun pick(!@, x: Int, y: Int) -> !Int
+      @n += x * 10 + y
+      !@n
 
   fun mk(k: Int) -> S
     S(n: k, m: 6)
@@ -1054,8 +1054,8 @@ test "final-review-x91b-recv-made-write-explicit"
   obj S
     n: Int
 
-    sub bump(!self)
-      self.n += 1
+    sub bump(!@)
+      @n += 1
 
   fun mk() -> S
     S(n: 1)
@@ -1069,8 +1069,8 @@ fail "fix-r10a", "use of `t` after move"
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub eat(t: Tok)
     print("eat", t.n)
@@ -4741,2793 +4741,2793 @@ fail "fix11-cli", "only module `lib` can construct `lib.S399`: its field `v` is 
     pub obj S1[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S0[T]? = none
         1 if s == none else 0
 
     pub obj S2[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S1[T]? = none
         1 if s == none else 0
 
     pub obj S3[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S2[T]? = none
         1 if s == none else 0
 
     pub obj S4[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S3[T]? = none
         1 if s == none else 0
 
     pub obj S5[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S4[T]? = none
         1 if s == none else 0
 
     pub obj S6[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S5[T]? = none
         1 if s == none else 0
 
     pub obj S7[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S6[T]? = none
         1 if s == none else 0
 
     pub obj S8[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S7[T]? = none
         1 if s == none else 0
 
     pub obj S9[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S8[T]? = none
         1 if s == none else 0
 
     pub obj S10[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S9[T]? = none
         1 if s == none else 0
 
     pub obj S11[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S10[T]? = none
         1 if s == none else 0
 
     pub obj S12[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S11[T]? = none
         1 if s == none else 0
 
     pub obj S13[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S12[T]? = none
         1 if s == none else 0
 
     pub obj S14[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S13[T]? = none
         1 if s == none else 0
 
     pub obj S15[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S14[T]? = none
         1 if s == none else 0
 
     pub obj S16[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S15[T]? = none
         1 if s == none else 0
 
     pub obj S17[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S16[T]? = none
         1 if s == none else 0
 
     pub obj S18[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S17[T]? = none
         1 if s == none else 0
 
     pub obj S19[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S18[T]? = none
         1 if s == none else 0
 
     pub obj S20[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S19[T]? = none
         1 if s == none else 0
 
     pub obj S21[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S20[T]? = none
         1 if s == none else 0
 
     pub obj S22[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S21[T]? = none
         1 if s == none else 0
 
     pub obj S23[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S22[T]? = none
         1 if s == none else 0
 
     pub obj S24[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S23[T]? = none
         1 if s == none else 0
 
     pub obj S25[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S24[T]? = none
         1 if s == none else 0
 
     pub obj S26[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S25[T]? = none
         1 if s == none else 0
 
     pub obj S27[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S26[T]? = none
         1 if s == none else 0
 
     pub obj S28[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S27[T]? = none
         1 if s == none else 0
 
     pub obj S29[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S28[T]? = none
         1 if s == none else 0
 
     pub obj S30[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S29[T]? = none
         1 if s == none else 0
 
     pub obj S31[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S30[T]? = none
         1 if s == none else 0
 
     pub obj S32[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S31[T]? = none
         1 if s == none else 0
 
     pub obj S33[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S32[T]? = none
         1 if s == none else 0
 
     pub obj S34[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S33[T]? = none
         1 if s == none else 0
 
     pub obj S35[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S34[T]? = none
         1 if s == none else 0
 
     pub obj S36[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S35[T]? = none
         1 if s == none else 0
 
     pub obj S37[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S36[T]? = none
         1 if s == none else 0
 
     pub obj S38[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S37[T]? = none
         1 if s == none else 0
 
     pub obj S39[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S38[T]? = none
         1 if s == none else 0
 
     pub obj S40[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S39[T]? = none
         1 if s == none else 0
 
     pub obj S41[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S40[T]? = none
         1 if s == none else 0
 
     pub obj S42[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S41[T]? = none
         1 if s == none else 0
 
     pub obj S43[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S42[T]? = none
         1 if s == none else 0
 
     pub obj S44[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S43[T]? = none
         1 if s == none else 0
 
     pub obj S45[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S44[T]? = none
         1 if s == none else 0
 
     pub obj S46[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S45[T]? = none
         1 if s == none else 0
 
     pub obj S47[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S46[T]? = none
         1 if s == none else 0
 
     pub obj S48[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S47[T]? = none
         1 if s == none else 0
 
     pub obj S49[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S48[T]? = none
         1 if s == none else 0
 
     pub obj S50[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S49[T]? = none
         1 if s == none else 0
 
     pub obj S51[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S50[T]? = none
         1 if s == none else 0
 
     pub obj S52[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S51[T]? = none
         1 if s == none else 0
 
     pub obj S53[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S52[T]? = none
         1 if s == none else 0
 
     pub obj S54[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S53[T]? = none
         1 if s == none else 0
 
     pub obj S55[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S54[T]? = none
         1 if s == none else 0
 
     pub obj S56[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S55[T]? = none
         1 if s == none else 0
 
     pub obj S57[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S56[T]? = none
         1 if s == none else 0
 
     pub obj S58[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S57[T]? = none
         1 if s == none else 0
 
     pub obj S59[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S58[T]? = none
         1 if s == none else 0
 
     pub obj S60[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S59[T]? = none
         1 if s == none else 0
 
     pub obj S61[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S60[T]? = none
         1 if s == none else 0
 
     pub obj S62[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S61[T]? = none
         1 if s == none else 0
 
     pub obj S63[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S62[T]? = none
         1 if s == none else 0
 
     pub obj S64[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S63[T]? = none
         1 if s == none else 0
 
     pub obj S65[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S64[T]? = none
         1 if s == none else 0
 
     pub obj S66[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S65[T]? = none
         1 if s == none else 0
 
     pub obj S67[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S66[T]? = none
         1 if s == none else 0
 
     pub obj S68[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S67[T]? = none
         1 if s == none else 0
 
     pub obj S69[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S68[T]? = none
         1 if s == none else 0
 
     pub obj S70[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S69[T]? = none
         1 if s == none else 0
 
     pub obj S71[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S70[T]? = none
         1 if s == none else 0
 
     pub obj S72[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S71[T]? = none
         1 if s == none else 0
 
     pub obj S73[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S72[T]? = none
         1 if s == none else 0
 
     pub obj S74[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S73[T]? = none
         1 if s == none else 0
 
     pub obj S75[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S74[T]? = none
         1 if s == none else 0
 
     pub obj S76[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S75[T]? = none
         1 if s == none else 0
 
     pub obj S77[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S76[T]? = none
         1 if s == none else 0
 
     pub obj S78[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S77[T]? = none
         1 if s == none else 0
 
     pub obj S79[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S78[T]? = none
         1 if s == none else 0
 
     pub obj S80[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S79[T]? = none
         1 if s == none else 0
 
     pub obj S81[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S80[T]? = none
         1 if s == none else 0
 
     pub obj S82[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S81[T]? = none
         1 if s == none else 0
 
     pub obj S83[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S82[T]? = none
         1 if s == none else 0
 
     pub obj S84[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S83[T]? = none
         1 if s == none else 0
 
     pub obj S85[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S84[T]? = none
         1 if s == none else 0
 
     pub obj S86[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S85[T]? = none
         1 if s == none else 0
 
     pub obj S87[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S86[T]? = none
         1 if s == none else 0
 
     pub obj S88[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S87[T]? = none
         1 if s == none else 0
 
     pub obj S89[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S88[T]? = none
         1 if s == none else 0
 
     pub obj S90[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S89[T]? = none
         1 if s == none else 0
 
     pub obj S91[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S90[T]? = none
         1 if s == none else 0
 
     pub obj S92[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S91[T]? = none
         1 if s == none else 0
 
     pub obj S93[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S92[T]? = none
         1 if s == none else 0
 
     pub obj S94[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S93[T]? = none
         1 if s == none else 0
 
     pub obj S95[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S94[T]? = none
         1 if s == none else 0
 
     pub obj S96[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S95[T]? = none
         1 if s == none else 0
 
     pub obj S97[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S96[T]? = none
         1 if s == none else 0
 
     pub obj S98[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S97[T]? = none
         1 if s == none else 0
 
     pub obj S99[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S98[T]? = none
         1 if s == none else 0
 
     pub obj S100[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S99[T]? = none
         1 if s == none else 0
 
     pub obj S101[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S100[T]? = none
         1 if s == none else 0
 
     pub obj S102[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S101[T]? = none
         1 if s == none else 0
 
     pub obj S103[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S102[T]? = none
         1 if s == none else 0
 
     pub obj S104[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S103[T]? = none
         1 if s == none else 0
 
     pub obj S105[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S104[T]? = none
         1 if s == none else 0
 
     pub obj S106[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S105[T]? = none
         1 if s == none else 0
 
     pub obj S107[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S106[T]? = none
         1 if s == none else 0
 
     pub obj S108[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S107[T]? = none
         1 if s == none else 0
 
     pub obj S109[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S108[T]? = none
         1 if s == none else 0
 
     pub obj S110[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S109[T]? = none
         1 if s == none else 0
 
     pub obj S111[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S110[T]? = none
         1 if s == none else 0
 
     pub obj S112[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S111[T]? = none
         1 if s == none else 0
 
     pub obj S113[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S112[T]? = none
         1 if s == none else 0
 
     pub obj S114[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S113[T]? = none
         1 if s == none else 0
 
     pub obj S115[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S114[T]? = none
         1 if s == none else 0
 
     pub obj S116[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S115[T]? = none
         1 if s == none else 0
 
     pub obj S117[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S116[T]? = none
         1 if s == none else 0
 
     pub obj S118[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S117[T]? = none
         1 if s == none else 0
 
     pub obj S119[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S118[T]? = none
         1 if s == none else 0
 
     pub obj S120[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S119[T]? = none
         1 if s == none else 0
 
     pub obj S121[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S120[T]? = none
         1 if s == none else 0
 
     pub obj S122[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S121[T]? = none
         1 if s == none else 0
 
     pub obj S123[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S122[T]? = none
         1 if s == none else 0
 
     pub obj S124[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S123[T]? = none
         1 if s == none else 0
 
     pub obj S125[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S124[T]? = none
         1 if s == none else 0
 
     pub obj S126[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S125[T]? = none
         1 if s == none else 0
 
     pub obj S127[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S126[T]? = none
         1 if s == none else 0
 
     pub obj S128[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S127[T]? = none
         1 if s == none else 0
 
     pub obj S129[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S128[T]? = none
         1 if s == none else 0
 
     pub obj S130[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S129[T]? = none
         1 if s == none else 0
 
     pub obj S131[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S130[T]? = none
         1 if s == none else 0
 
     pub obj S132[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S131[T]? = none
         1 if s == none else 0
 
     pub obj S133[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S132[T]? = none
         1 if s == none else 0
 
     pub obj S134[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S133[T]? = none
         1 if s == none else 0
 
     pub obj S135[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S134[T]? = none
         1 if s == none else 0
 
     pub obj S136[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S135[T]? = none
         1 if s == none else 0
 
     pub obj S137[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S136[T]? = none
         1 if s == none else 0
 
     pub obj S138[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S137[T]? = none
         1 if s == none else 0
 
     pub obj S139[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S138[T]? = none
         1 if s == none else 0
 
     pub obj S140[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S139[T]? = none
         1 if s == none else 0
 
     pub obj S141[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S140[T]? = none
         1 if s == none else 0
 
     pub obj S142[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S141[T]? = none
         1 if s == none else 0
 
     pub obj S143[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S142[T]? = none
         1 if s == none else 0
 
     pub obj S144[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S143[T]? = none
         1 if s == none else 0
 
     pub obj S145[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S144[T]? = none
         1 if s == none else 0
 
     pub obj S146[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S145[T]? = none
         1 if s == none else 0
 
     pub obj S147[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S146[T]? = none
         1 if s == none else 0
 
     pub obj S148[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S147[T]? = none
         1 if s == none else 0
 
     pub obj S149[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S148[T]? = none
         1 if s == none else 0
 
     pub obj S150[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S149[T]? = none
         1 if s == none else 0
 
     pub obj S151[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S150[T]? = none
         1 if s == none else 0
 
     pub obj S152[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S151[T]? = none
         1 if s == none else 0
 
     pub obj S153[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S152[T]? = none
         1 if s == none else 0
 
     pub obj S154[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S153[T]? = none
         1 if s == none else 0
 
     pub obj S155[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S154[T]? = none
         1 if s == none else 0
 
     pub obj S156[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S155[T]? = none
         1 if s == none else 0
 
     pub obj S157[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S156[T]? = none
         1 if s == none else 0
 
     pub obj S158[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S157[T]? = none
         1 if s == none else 0
 
     pub obj S159[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S158[T]? = none
         1 if s == none else 0
 
     pub obj S160[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S159[T]? = none
         1 if s == none else 0
 
     pub obj S161[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S160[T]? = none
         1 if s == none else 0
 
     pub obj S162[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S161[T]? = none
         1 if s == none else 0
 
     pub obj S163[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S162[T]? = none
         1 if s == none else 0
 
     pub obj S164[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S163[T]? = none
         1 if s == none else 0
 
     pub obj S165[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S164[T]? = none
         1 if s == none else 0
 
     pub obj S166[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S165[T]? = none
         1 if s == none else 0
 
     pub obj S167[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S166[T]? = none
         1 if s == none else 0
 
     pub obj S168[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S167[T]? = none
         1 if s == none else 0
 
     pub obj S169[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S168[T]? = none
         1 if s == none else 0
 
     pub obj S170[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S169[T]? = none
         1 if s == none else 0
 
     pub obj S171[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S170[T]? = none
         1 if s == none else 0
 
     pub obj S172[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S171[T]? = none
         1 if s == none else 0
 
     pub obj S173[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S172[T]? = none
         1 if s == none else 0
 
     pub obj S174[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S173[T]? = none
         1 if s == none else 0
 
     pub obj S175[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S174[T]? = none
         1 if s == none else 0
 
     pub obj S176[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S175[T]? = none
         1 if s == none else 0
 
     pub obj S177[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S176[T]? = none
         1 if s == none else 0
 
     pub obj S178[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S177[T]? = none
         1 if s == none else 0
 
     pub obj S179[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S178[T]? = none
         1 if s == none else 0
 
     pub obj S180[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S179[T]? = none
         1 if s == none else 0
 
     pub obj S181[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S180[T]? = none
         1 if s == none else 0
 
     pub obj S182[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S181[T]? = none
         1 if s == none else 0
 
     pub obj S183[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S182[T]? = none
         1 if s == none else 0
 
     pub obj S184[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S183[T]? = none
         1 if s == none else 0
 
     pub obj S185[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S184[T]? = none
         1 if s == none else 0
 
     pub obj S186[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S185[T]? = none
         1 if s == none else 0
 
     pub obj S187[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S186[T]? = none
         1 if s == none else 0
 
     pub obj S188[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S187[T]? = none
         1 if s == none else 0
 
     pub obj S189[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S188[T]? = none
         1 if s == none else 0
 
     pub obj S190[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S189[T]? = none
         1 if s == none else 0
 
     pub obj S191[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S190[T]? = none
         1 if s == none else 0
 
     pub obj S192[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S191[T]? = none
         1 if s == none else 0
 
     pub obj S193[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S192[T]? = none
         1 if s == none else 0
 
     pub obj S194[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S193[T]? = none
         1 if s == none else 0
 
     pub obj S195[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S194[T]? = none
         1 if s == none else 0
 
     pub obj S196[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S195[T]? = none
         1 if s == none else 0
 
     pub obj S197[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S196[T]? = none
         1 if s == none else 0
 
     pub obj S198[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S197[T]? = none
         1 if s == none else 0
 
     pub obj S199[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S198[T]? = none
         1 if s == none else 0
 
     pub obj S200[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S199[T]? = none
         1 if s == none else 0
 
     pub obj S201[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S200[T]? = none
         1 if s == none else 0
 
     pub obj S202[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S201[T]? = none
         1 if s == none else 0
 
     pub obj S203[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S202[T]? = none
         1 if s == none else 0
 
     pub obj S204[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S203[T]? = none
         1 if s == none else 0
 
     pub obj S205[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S204[T]? = none
         1 if s == none else 0
 
     pub obj S206[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S205[T]? = none
         1 if s == none else 0
 
     pub obj S207[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S206[T]? = none
         1 if s == none else 0
 
     pub obj S208[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S207[T]? = none
         1 if s == none else 0
 
     pub obj S209[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S208[T]? = none
         1 if s == none else 0
 
     pub obj S210[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S209[T]? = none
         1 if s == none else 0
 
     pub obj S211[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S210[T]? = none
         1 if s == none else 0
 
     pub obj S212[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S211[T]? = none
         1 if s == none else 0
 
     pub obj S213[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S212[T]? = none
         1 if s == none else 0
 
     pub obj S214[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S213[T]? = none
         1 if s == none else 0
 
     pub obj S215[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S214[T]? = none
         1 if s == none else 0
 
     pub obj S216[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S215[T]? = none
         1 if s == none else 0
 
     pub obj S217[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S216[T]? = none
         1 if s == none else 0
 
     pub obj S218[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S217[T]? = none
         1 if s == none else 0
 
     pub obj S219[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S218[T]? = none
         1 if s == none else 0
 
     pub obj S220[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S219[T]? = none
         1 if s == none else 0
 
     pub obj S221[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S220[T]? = none
         1 if s == none else 0
 
     pub obj S222[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S221[T]? = none
         1 if s == none else 0
 
     pub obj S223[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S222[T]? = none
         1 if s == none else 0
 
     pub obj S224[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S223[T]? = none
         1 if s == none else 0
 
     pub obj S225[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S224[T]? = none
         1 if s == none else 0
 
     pub obj S226[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S225[T]? = none
         1 if s == none else 0
 
     pub obj S227[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S226[T]? = none
         1 if s == none else 0
 
     pub obj S228[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S227[T]? = none
         1 if s == none else 0
 
     pub obj S229[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S228[T]? = none
         1 if s == none else 0
 
     pub obj S230[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S229[T]? = none
         1 if s == none else 0
 
     pub obj S231[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S230[T]? = none
         1 if s == none else 0
 
     pub obj S232[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S231[T]? = none
         1 if s == none else 0
 
     pub obj S233[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S232[T]? = none
         1 if s == none else 0
 
     pub obj S234[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S233[T]? = none
         1 if s == none else 0
 
     pub obj S235[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S234[T]? = none
         1 if s == none else 0
 
     pub obj S236[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S235[T]? = none
         1 if s == none else 0
 
     pub obj S237[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S236[T]? = none
         1 if s == none else 0
 
     pub obj S238[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S237[T]? = none
         1 if s == none else 0
 
     pub obj S239[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S238[T]? = none
         1 if s == none else 0
 
     pub obj S240[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S239[T]? = none
         1 if s == none else 0
 
     pub obj S241[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S240[T]? = none
         1 if s == none else 0
 
     pub obj S242[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S241[T]? = none
         1 if s == none else 0
 
     pub obj S243[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S242[T]? = none
         1 if s == none else 0
 
     pub obj S244[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S243[T]? = none
         1 if s == none else 0
 
     pub obj S245[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S244[T]? = none
         1 if s == none else 0
 
     pub obj S246[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S245[T]? = none
         1 if s == none else 0
 
     pub obj S247[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S246[T]? = none
         1 if s == none else 0
 
     pub obj S248[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S247[T]? = none
         1 if s == none else 0
 
     pub obj S249[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S248[T]? = none
         1 if s == none else 0
 
     pub obj S250[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S249[T]? = none
         1 if s == none else 0
 
     pub obj S251[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S250[T]? = none
         1 if s == none else 0
 
     pub obj S252[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S251[T]? = none
         1 if s == none else 0
 
     pub obj S253[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S252[T]? = none
         1 if s == none else 0
 
     pub obj S254[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S253[T]? = none
         1 if s == none else 0
 
     pub obj S255[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S254[T]? = none
         1 if s == none else 0
 
     pub obj S256[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S255[T]? = none
         1 if s == none else 0
 
     pub obj S257[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S256[T]? = none
         1 if s == none else 0
 
     pub obj S258[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S257[T]? = none
         1 if s == none else 0
 
     pub obj S259[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S258[T]? = none
         1 if s == none else 0
 
     pub obj S260[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S259[T]? = none
         1 if s == none else 0
 
     pub obj S261[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S260[T]? = none
         1 if s == none else 0
 
     pub obj S262[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S261[T]? = none
         1 if s == none else 0
 
     pub obj S263[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S262[T]? = none
         1 if s == none else 0
 
     pub obj S264[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S263[T]? = none
         1 if s == none else 0
 
     pub obj S265[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S264[T]? = none
         1 if s == none else 0
 
     pub obj S266[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S265[T]? = none
         1 if s == none else 0
 
     pub obj S267[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S266[T]? = none
         1 if s == none else 0
 
     pub obj S268[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S267[T]? = none
         1 if s == none else 0
 
     pub obj S269[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S268[T]? = none
         1 if s == none else 0
 
     pub obj S270[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S269[T]? = none
         1 if s == none else 0
 
     pub obj S271[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S270[T]? = none
         1 if s == none else 0
 
     pub obj S272[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S271[T]? = none
         1 if s == none else 0
 
     pub obj S273[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S272[T]? = none
         1 if s == none else 0
 
     pub obj S274[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S273[T]? = none
         1 if s == none else 0
 
     pub obj S275[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S274[T]? = none
         1 if s == none else 0
 
     pub obj S276[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S275[T]? = none
         1 if s == none else 0
 
     pub obj S277[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S276[T]? = none
         1 if s == none else 0
 
     pub obj S278[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S277[T]? = none
         1 if s == none else 0
 
     pub obj S279[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S278[T]? = none
         1 if s == none else 0
 
     pub obj S280[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S279[T]? = none
         1 if s == none else 0
 
     pub obj S281[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S280[T]? = none
         1 if s == none else 0
 
     pub obj S282[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S281[T]? = none
         1 if s == none else 0
 
     pub obj S283[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S282[T]? = none
         1 if s == none else 0
 
     pub obj S284[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S283[T]? = none
         1 if s == none else 0
 
     pub obj S285[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S284[T]? = none
         1 if s == none else 0
 
     pub obj S286[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S285[T]? = none
         1 if s == none else 0
 
     pub obj S287[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S286[T]? = none
         1 if s == none else 0
 
     pub obj S288[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S287[T]? = none
         1 if s == none else 0
 
     pub obj S289[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S288[T]? = none
         1 if s == none else 0
 
     pub obj S290[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S289[T]? = none
         1 if s == none else 0
 
     pub obj S291[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S290[T]? = none
         1 if s == none else 0
 
     pub obj S292[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S291[T]? = none
         1 if s == none else 0
 
     pub obj S293[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S292[T]? = none
         1 if s == none else 0
 
     pub obj S294[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S293[T]? = none
         1 if s == none else 0
 
     pub obj S295[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S294[T]? = none
         1 if s == none else 0
 
     pub obj S296[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S295[T]? = none
         1 if s == none else 0
 
     pub obj S297[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S296[T]? = none
         1 if s == none else 0
 
     pub obj S298[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S297[T]? = none
         1 if s == none else 0
 
     pub obj S299[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S298[T]? = none
         1 if s == none else 0
 
     pub obj S300[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S299[T]? = none
         1 if s == none else 0
 
     pub obj S301[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S300[T]? = none
         1 if s == none else 0
 
     pub obj S302[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S301[T]? = none
         1 if s == none else 0
 
     pub obj S303[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S302[T]? = none
         1 if s == none else 0
 
     pub obj S304[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S303[T]? = none
         1 if s == none else 0
 
     pub obj S305[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S304[T]? = none
         1 if s == none else 0
 
     pub obj S306[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S305[T]? = none
         1 if s == none else 0
 
     pub obj S307[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S306[T]? = none
         1 if s == none else 0
 
     pub obj S308[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S307[T]? = none
         1 if s == none else 0
 
     pub obj S309[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S308[T]? = none
         1 if s == none else 0
 
     pub obj S310[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S309[T]? = none
         1 if s == none else 0
 
     pub obj S311[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S310[T]? = none
         1 if s == none else 0
 
     pub obj S312[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S311[T]? = none
         1 if s == none else 0
 
     pub obj S313[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S312[T]? = none
         1 if s == none else 0
 
     pub obj S314[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S313[T]? = none
         1 if s == none else 0
 
     pub obj S315[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S314[T]? = none
         1 if s == none else 0
 
     pub obj S316[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S315[T]? = none
         1 if s == none else 0
 
     pub obj S317[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S316[T]? = none
         1 if s == none else 0
 
     pub obj S318[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S317[T]? = none
         1 if s == none else 0
 
     pub obj S319[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S318[T]? = none
         1 if s == none else 0
 
     pub obj S320[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S319[T]? = none
         1 if s == none else 0
 
     pub obj S321[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S320[T]? = none
         1 if s == none else 0
 
     pub obj S322[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S321[T]? = none
         1 if s == none else 0
 
     pub obj S323[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S322[T]? = none
         1 if s == none else 0
 
     pub obj S324[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S323[T]? = none
         1 if s == none else 0
 
     pub obj S325[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S324[T]? = none
         1 if s == none else 0
 
     pub obj S326[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S325[T]? = none
         1 if s == none else 0
 
     pub obj S327[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S326[T]? = none
         1 if s == none else 0
 
     pub obj S328[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S327[T]? = none
         1 if s == none else 0
 
     pub obj S329[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S328[T]? = none
         1 if s == none else 0
 
     pub obj S330[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S329[T]? = none
         1 if s == none else 0
 
     pub obj S331[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S330[T]? = none
         1 if s == none else 0
 
     pub obj S332[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S331[T]? = none
         1 if s == none else 0
 
     pub obj S333[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S332[T]? = none
         1 if s == none else 0
 
     pub obj S334[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S333[T]? = none
         1 if s == none else 0
 
     pub obj S335[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S334[T]? = none
         1 if s == none else 0
 
     pub obj S336[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S335[T]? = none
         1 if s == none else 0
 
     pub obj S337[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S336[T]? = none
         1 if s == none else 0
 
     pub obj S338[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S337[T]? = none
         1 if s == none else 0
 
     pub obj S339[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S338[T]? = none
         1 if s == none else 0
 
     pub obj S340[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S339[T]? = none
         1 if s == none else 0
 
     pub obj S341[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S340[T]? = none
         1 if s == none else 0
 
     pub obj S342[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S341[T]? = none
         1 if s == none else 0
 
     pub obj S343[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S342[T]? = none
         1 if s == none else 0
 
     pub obj S344[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S343[T]? = none
         1 if s == none else 0
 
     pub obj S345[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S344[T]? = none
         1 if s == none else 0
 
     pub obj S346[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S345[T]? = none
         1 if s == none else 0
 
     pub obj S347[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S346[T]? = none
         1 if s == none else 0
 
     pub obj S348[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S347[T]? = none
         1 if s == none else 0
 
     pub obj S349[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S348[T]? = none
         1 if s == none else 0
 
     pub obj S350[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S349[T]? = none
         1 if s == none else 0
 
     pub obj S351[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S350[T]? = none
         1 if s == none else 0
 
     pub obj S352[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S351[T]? = none
         1 if s == none else 0
 
     pub obj S353[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S352[T]? = none
         1 if s == none else 0
 
     pub obj S354[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S353[T]? = none
         1 if s == none else 0
 
     pub obj S355[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S354[T]? = none
         1 if s == none else 0
 
     pub obj S356[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S355[T]? = none
         1 if s == none else 0
 
     pub obj S357[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S356[T]? = none
         1 if s == none else 0
 
     pub obj S358[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S357[T]? = none
         1 if s == none else 0
 
     pub obj S359[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S358[T]? = none
         1 if s == none else 0
 
     pub obj S360[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S359[T]? = none
         1 if s == none else 0
 
     pub obj S361[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S360[T]? = none
         1 if s == none else 0
 
     pub obj S362[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S361[T]? = none
         1 if s == none else 0
 
     pub obj S363[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S362[T]? = none
         1 if s == none else 0
 
     pub obj S364[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S363[T]? = none
         1 if s == none else 0
 
     pub obj S365[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S364[T]? = none
         1 if s == none else 0
 
     pub obj S366[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S365[T]? = none
         1 if s == none else 0
 
     pub obj S367[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S366[T]? = none
         1 if s == none else 0
 
     pub obj S368[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S367[T]? = none
         1 if s == none else 0
 
     pub obj S369[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S368[T]? = none
         1 if s == none else 0
 
     pub obj S370[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S369[T]? = none
         1 if s == none else 0
 
     pub obj S371[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S370[T]? = none
         1 if s == none else 0
 
     pub obj S372[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S371[T]? = none
         1 if s == none else 0
 
     pub obj S373[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S372[T]? = none
         1 if s == none else 0
 
     pub obj S374[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S373[T]? = none
         1 if s == none else 0
 
     pub obj S375[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S374[T]? = none
         1 if s == none else 0
 
     pub obj S376[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S375[T]? = none
         1 if s == none else 0
 
     pub obj S377[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S376[T]? = none
         1 if s == none else 0
 
     pub obj S378[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S377[T]? = none
         1 if s == none else 0
 
     pub obj S379[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S378[T]? = none
         1 if s == none else 0
 
     pub obj S380[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S379[T]? = none
         1 if s == none else 0
 
     pub obj S381[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S380[T]? = none
         1 if s == none else 0
 
     pub obj S382[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S381[T]? = none
         1 if s == none else 0
 
     pub obj S383[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S382[T]? = none
         1 if s == none else 0
 
     pub obj S384[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S383[T]? = none
         1 if s == none else 0
 
     pub obj S385[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S384[T]? = none
         1 if s == none else 0
 
     pub obj S386[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S385[T]? = none
         1 if s == none else 0
 
     pub obj S387[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S386[T]? = none
         1 if s == none else 0
 
     pub obj S388[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S387[T]? = none
         1 if s == none else 0
 
     pub obj S389[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S388[T]? = none
         1 if s == none else 0
 
     pub obj S390[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S389[T]? = none
         1 if s == none else 0
 
     pub obj S391[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S390[T]? = none
         1 if s == none else 0
 
     pub obj S392[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S391[T]? = none
         1 if s == none else 0
 
     pub obj S393[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S392[T]? = none
         1 if s == none else 0
 
     pub obj S394[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S393[T]? = none
         1 if s == none else 0
 
     pub obj S395[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S394[T]? = none
         1 if s == none else 0
 
     pub obj S396[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S395[T]? = none
         1 if s == none else 0
 
     pub obj S397[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S396[T]? = none
         1 if s == none else 0
 
     pub obj S398[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S397[T]? = none
         1 if s == none else 0
 
     pub obj S399[T]
       v: T
 
-      fun get(?self) -> Int
+      fun get(?@) -> Int
         s: S398[T]? = none
         1 if s == none else 0
 

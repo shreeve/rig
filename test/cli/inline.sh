@@ -66,8 +66,8 @@ cat >method.rig <<'RIG'
 obj Counter
   n: Int
 
-  fun get(?self) -> Int
-    self.n
+  fun get(?@) -> Int
+    @n
 
 sub main()
   c = Counter(n: 2)
@@ -84,26 +84,26 @@ cat >methods.rig <<'RIG'
 obj Ping
   n: Int
 
-  fun depth(?self, k: Int) -> Int
-    0 if k == 0 else 1 + self.depth(k - 1)
+  fun depth(?@, k: Int) -> Int
+    0 if k == 0 else 1 + @depth(k - 1)
 
   fun count(k: Int) -> Int
     0 if k == 0 else 1 + Ping.count(k - 1)
 
-  fun hop(?self, p: ?Pong, k: Int) -> Int
-    0 if k == 0 else p.hop(?self, k - 1)
+  fun hop(?@, p: ?Pong, k: Int) -> Int
+    0 if k == 0 else p.hop(?@, k - 1)
 
-  fun size(?self) -> Int
-    self.n
+  fun size(?@) -> Int
+    @n
 
 obj Pong
   n: Int
 
-  fun hop(?self, p: ?Ping, k: Int) -> Int
-    0 if k == 0 else p.hop(?self, k - 1)
+  fun hop(?@, p: ?Ping, k: Int) -> Int
+    0 if k == 0 else p.hop(?@, k - 1)
 
-  fun size(?self, p: ?Ping) -> Int
-    p.size() + self.n
+  fun size(?@, p: ?Ping) -> Int
+    p.size() + @n
 
 sub main()
   a = Ping(n: 1)
@@ -126,8 +126,8 @@ cat >wrappers.rig <<'RIG'
 obj Ast
   kinds: List[Int]
 
-  fun kind(?self, n: Int) -> Int
-    self.kinds[n]
+  fun kind(?@, n: Int) -> Int
+    @kinds[n]
 
 obj File
   ast: Ast
@@ -135,17 +135,17 @@ obj File
 obj Binder
   file: File
 
-  fun kind(?self, n: Int) -> Int
-    self.file.ast.kind(n)
+  fun kind(?@, n: Int) -> Int
+    @file.ast.kind(n)
 
 obj Node
   next: ^Node?
   n: Int
 
-  fun kind(?self) -> Int
-    if self.next as m
+  fun kind(?@) -> Int
+    if @next as m
       return m.kind() + 1
-    self.n
+    @n
 
 sub main()
   kinds: List[Int] = List()
@@ -169,11 +169,11 @@ cat >members.rig <<'RIG'
 obj Wrap[T]
   v: T
 
-  fun get(?self) -> ?T
-    ?self.v
+  fun get(?@) -> ?T
+    ?@v
 
-  fun keeps(?self, i: Int) -> Int
-    t = [9000 of self.v]
+  fun keeps(?@, i: Int) -> Int
+    t = [9000 of @v]
     i + t.len
 
 sub main()
@@ -388,14 +388,14 @@ obj Count
   lo: Int
   hi: Int
 
-  fun next(!self) -> Int?
-    return none if self.lo >= self.hi
-    self.lo += 1
-    if self.hi > 100
+  fun next(!@) -> Int?
+    return none if @lo >= @hi
+    @lo += 1
+    if @hi > 100
       inner = Count(lo: 0, hi: 1)
       for x in !inner
         print("inner", x)
-    self.lo - 1
+    @lo - 1
 
 sub main()
   c = Count(lo: 0, hi: 3)

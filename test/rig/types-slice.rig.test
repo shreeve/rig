@@ -257,13 +257,13 @@ fail "slice elem methods", "10:3: cannot `fill` a `[]Int`; its elements are read
 
 fail "slice element write", "15:1: cannot assign through a slice; a `[]T` is read-only", "16:1: cannot assign through a slice; a `[]T` is read-only", "17:6: cannot lend to write through a slice; a `[]T` is read-only", "20:1: cannot assign through a slice; a `[]T` is read-only", "21:2: cannot lend to write through a slice; a `[]T` is read-only"
   # A `[]T` is read-only: its elements cannot be assigned, lent to write,
-  # or reached by a `!self` method.
+  # or reached by a `!@` method.
 
   obj P
     x: Int
 
-    fun bump(!self)
-      self.x += 1
+    fun bump(!@)
+      @x += 1
 
   sub inc(n: !Int)
     n += 1

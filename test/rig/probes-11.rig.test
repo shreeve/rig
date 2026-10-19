@@ -89,9 +89,9 @@ test "purity-newbie-shared", '''
     name: ?String
     counter: *Cell[Int]
 
-    sub click(!self)
-      !self.counter.set(self.counter.get() + 1)
-      print(self.name, "clicked; total now", self.counter.get())
+    sub click(!@)
+      !@counter.set(@counter.get() + 1)
+      print(@name, "clicked; total now", @counter.get())
 
   counter = *Cell(0)
   left = Clicker(name: "left", counter: +counter)
@@ -107,15 +107,15 @@ test "purity-newbie-shared v1 silent copy", "total clicks: 0"
   obj Counter
     count: Int = 0
 
-    sub increment(!self)
-      self.count += 1
+    sub increment(!@)
+      @count += 1
 
   obj Clicker
     name: ?String
     counter: Counter
 
-    sub click(!self)
-      !self.counter.increment()
+    sub click(!@)
+      !@counter.increment()
 
   counter = Counter()
   left = Clicker(name: "left", counter: counter)
@@ -138,14 +138,14 @@ test "purity-newbie-todo", '''
   obj TodoList
     items: List[Todo]
 
-    sub add(!self, title: ?String) keeps title
-      !self.items.push(Todo(title: title))
+    sub add(!@, title: ?String) keeps title
+      !@items.push(Todo(title: title))
 
-    sub complete(!self, index: Int)
-      self.items[index].done = true
+    sub complete(!@, index: Int)
+      @items[index].done = true
 
-    sub show(?self)
-      for item, i in ?self.items
+    sub show(?@)
+      for item, i in ?@items
         mark = "[x]" if item.done else "[ ]"
         print(i, mark, item.title)
 
@@ -205,8 +205,8 @@ test "purity-principles-p02 assign drop", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Holder
     r: Res
@@ -228,8 +228,8 @@ test "purity-principles-p03 writethrough", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub f(w: !Res, k: !Int)
     w = Res(n: 9)
@@ -257,8 +257,8 @@ test "purity-principles-p07 print", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[Int] = List()
   !v.push(1)
@@ -299,8 +299,8 @@ test "purity-principles-p09 box", "16 16"
   obj P
     x: Int
 
-    sub bump(!self)
-      self.x += 1
+    sub bump(!@)
+      @x += 1
 
   fun read(p: ?P) -> Int
     p.x
@@ -322,8 +322,8 @@ test "purity-principles-p12 closure", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
     f(x)
@@ -375,8 +375,8 @@ test "purity-principles-p15 generic", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun keep[T](a: T, b: T) -> T
     b
@@ -396,8 +396,8 @@ test "purity-principles-p17 prop", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   error E
     bad
@@ -422,10 +422,10 @@ test "purity-principles-p18 notbang", '''
   obj Set
     items: List[Int]
 
-    fun insert(!self, k: Int) -> Bool
-      for x in ?self.items
+    fun insert(!@, k: Int) -> Bool
+      for x in ?@items
         return false if x == k
-      !self.items.push(k)
+      !@items.push(k)
       true
 
   s = Set(items: List())
@@ -451,8 +451,8 @@ test "purity-principles-p21 retmove", '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun pick(c: Bool) -> Res
     a = Res(n: 1)
@@ -504,8 +504,8 @@ test "purity-principles-p26 implicitread", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   enum Slot
     full(b: B)
@@ -530,8 +530,8 @@ test "purity-principles-p27 tempview", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun peek(r: ?R) -> Int
     r.n
@@ -588,43 +588,43 @@ test "purity-rustzig-bst", '''
     left: ^Node?
     right: ^Node?
 
-    sub insert(!self, key: Int)
-      if key < self.key
-        if !self.left as l
+    sub insert(!@, key: Int)
+      if key < @key
+        if !@left as l
           !l.insert(key)
         else
-          self.left = ^Node(key: key, left: none, right: none)
+          @left = ^Node(key: key, left: none, right: none)
       else
-        if !self.right as r
+        if !@right as r
           !r.insert(key)
         else
-          self.right = ^Node(key: key, left: none, right: none)
+          @right = ^Node(key: key, left: none, right: none)
 
-    sub walk(?self, visit: ?sub(Int))
-      if ?self.left as l
+    sub walk(?@, visit: ?sub(Int))
+      if ?@left as l
         l.walk(visit)
-      visit(self.key)
-      if ?self.right as r
+      visit(@key)
+      if ?@right as r
         r.walk(visit)
 
   obj Tree
     root: ^Node?
     size: Int
 
-    sub insert(!self, key: Int)
-      if !self.root as n
+    sub insert(!@, key: Int)
+      if !@root as n
         !n.insert(key)
       else
-        self.root = ^Node(key: key, left: none, right: none)
-      self.size += 1
+        @root = ^Node(key: key, left: none, right: none)
+      @size += 1
 
-    sub each(?self, visit: ?sub(Int))
-      if ?self.root as n
+    sub each(?@, visit: ?sub(Int))
+      if ?@root as n
         n.walk(visit)
 
-    fun sorted(?self) -> List[Int]
+    fun sorted(?@) -> List[Int]
       out: List[Int] = List()
-      self.each(|!out, k| !out.push(k))
+      @each(|!out, k| !out.push(k))
       out
 
   t = Tree(root: none, size: 0)
@@ -643,8 +643,8 @@ fail "purity-rustzig-family", "cannot store a view of `name` in a `Cell`: every 
     parent: ~Node?
     children: Cell[List[*Node]]
 
-    drop(!self)
-      print("free", self.name)
+    drop(!@)
+      print("free", @name)
 
   # Make a child of `parent` and hand back a handle to it.
   fun child(parent: ?*Node, name: ?String) -> *Node
@@ -784,9 +784,9 @@ test "purity-rustzig-probes-q3 resurrect", '''
     name: ?String
     cb: Cell[(*sub())?]
 
-    drop(!self)
-      print("dropping", self.name)
-      if (!self.cb).replace(none) as f
+    drop(!@)
+      print("dropping", @name)
+      if (!@cb).replace(none) as f
         f()
 
   h = *H(name: "h", cb: Cell(none))
@@ -803,8 +803,8 @@ fail "purity-rustzig-probes-q5 moveloop", "use of `r` after move"
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub eat(r: R)
     print("ate", r.n)
@@ -822,8 +822,8 @@ test "purity-rustzig-probes-q6 condmove", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub eat(r: R)
     print("ate", r.n)
@@ -866,21 +866,21 @@ test "purity-rustzig-stock", '''
     items: List[Item]
     shipped: Int = 0
 
-    sub add(!self, name: ?String, qty: Int) keeps name
-      !self.items.push(Item(name: name, qty: qty))
+    sub add(!@, name: ?String, qty: Int) keeps name
+      !@items.push(Item(name: name, qty: qty))
 
-    fun find(?self, name: ?String) -> Int?
-      for it, i in ?self.items
+    fun find(?@, name: ?String) -> Int?
+      for it, i in ?@items
         return i if it.name == name
       none
 
     # Take `qty` of `name`: fails when the item is unknown or short.
-    fun take(!self, name: ?String, qty: Int) -> Int!
-      i = self.find(name) ?? return StockError.unknown
-      return StockError.short if self.items[i].qty < qty
-      self.items[i].qty -= qty
-      self.shipped += qty
-      self.items[i].qty
+    fun take(!@, name: ?String, qty: Int) -> Int!
+      i = @find(name) ?? return StockError.unknown
+      return StockError.short if @items[i].qty < qty
+      @items[i].qty -= qty
+      @shipped += qty
+      @items[i].qty
 
   # Parse a quantity like "12": fails on anything but digits.
   fun parse_qty(s: ?String) -> Int!
@@ -1126,8 +1126,8 @@ test "r3-or-arm-unsound", '''
     some(v: T)
     nothing
 
-    fun peek(?self, d: ?T) -> ?T
-      match self
+    fun peek(?@, d: ?T) -> ?T
+      match @
         .some(v) => ?v
         .nothing => d
 
@@ -1171,8 +1171,8 @@ fail "r3-or-branch-part-receiver-unsound", "cannot reassign `wa` while it is len
     t: String
     xs: [4]Int
 
-    fun inner(?self) -> ?String
-      ?self.t
+    fun inner(?@) -> ?String
+      ?@t
 
   obj W
     s: S
@@ -1180,8 +1180,8 @@ fail "r3-or-branch-part-receiver-unsound", "cannot reassign `wa` while it is len
   obj P
     xs: [4]Int
 
-    fun arr(?self) -> ?[4]Int
-      ?self.xs
+    fun arr(?@) -> ?[4]Int
+      ?@xs
 
   fun mk(n: Int) -> W
     W(s: S(t: String("a text long enough to live on the heap:", n), xs: [n, n, n, n]))
@@ -1273,8 +1273,8 @@ test "r3-or-branch-part-receiver", '''
     t: String
     xs: [4]Int
 
-    fun inner(?self) -> ?String
-      ?self.t
+    fun inner(?@) -> ?String
+      ?@t
 
   obj W
     s: S
@@ -1282,8 +1282,8 @@ test "r3-or-branch-part-receiver", '''
   obj P
     xs: [4]Int
 
-    fun arr(?self) -> ?[4]Int
-      ?self.xs
+    fun arr(?@) -> ?[4]Int
+      ?@xs
 
   fun clobber(n: Int) -> Int
     a = [n, n + 1, n + 2, n + 3, n + 4, n + 5, n + 6, n + 7]
@@ -1443,17 +1443,17 @@ fail "r3-or-carry-match write string payload", "cannot reassign `h` while it is 
     .no => print("no")
 
 test "r3-or-carry-owned text through write", "ab"
-  # A String sliced from a Text the holder owns, through `!self`, lends
-  # `self.src`: that field cannot change while the String is used, and the
+  # A String sliced from a Text the holder owns, through `!@`, lends
+  # `@src`: that field cannot change while the String is used, and the
   # holder's other fields can (Core §5, "A field is a place of its own").
 
   obj P
     src: String
     pos: Int
 
-    fun word(!self) -> ?String
-      w = ?self.src[..2]
-      self.pos += 1
+    fun word(!@) -> ?String
+      w = ?@src[..2]
+      @pos += 1
       w
 
   p = P(src: String("abc"), pos: 0)
@@ -1461,8 +1461,8 @@ test "r3-or-carry-owned text through write", "ab"
   print(a)
 
 test "r3-or-carry-owned vec through write", "1"
-  # An element of a List the holder owns, reached through `!self`, lends
-  # `self.toks`: that field cannot change while the view is used, and the
+  # An element of a List the holder owns, reached through `!@`, lends
+  # `@toks`: that field cannot change while the view is used, and the
   # holder's other fields can (Core §5, "A field is a place of its own").
 
   obj Tok
@@ -1472,9 +1472,9 @@ test "r3-or-carry-owned vec through write", "1"
     toks: List[Tok]
     pos: Int
 
-    fun next(!self) -> ?Tok
-      t = ?self.toks[self.pos]
-      self.pos += 1
+    fun next(!@) -> ?Tok
+      t = ?@toks[@pos]
+      @pos += 1
       t
 
   p = P(toks: List(), pos: 0)
@@ -1490,8 +1490,8 @@ test "r3-or-carry-result string of slice holder", "a 5"
     src: ?String
     toks: []Int
 
-    fun head(?self) -> ?String
-      self.src[0..1]
+    fun head(?@) -> ?String
+      @src[0..1]
 
   t = String("abc")
   a = [1, 2]
@@ -1508,8 +1508,8 @@ fail "r3-or-carry-result string text changed", "cannot lend `t` to write while a
     src: ?String
     toks: []Int
 
-    fun head(?self) -> ?String
-      self.src[0..1]
+    fun head(?@) -> ?String
+      @src[0..1]
 
   t = String("abc")
   a = [1, 2]
@@ -1588,16 +1588,16 @@ fail "r3-or-carry-slice field through write view then write", "cannot assign to 
   print(t.kind)
 
 fail "r3-or-carry-string field text changed", "cannot lend `t` to write while a read loan is live"
-  # A String sliced from a String field through `!self` carries the field's
+  # A String sliced from a String field through `!@` carries the field's
   # loan on the Text.
 
   obj P
     src: ?String
     pos: Int
 
-    fun word(!self) -> ?String
-      w = self.src[0..1]
-      self.pos += 1
+    fun word(!@) -> ?String
+      w = @src[0..1]
+      @pos += 1
       w
 
   t = String("abc")
@@ -1607,16 +1607,16 @@ fail "r3-or-carry-string field text changed", "cannot lend `t` to write while a 
   print(a)
 
 test "r3-or-carry-string field through write self", "a 5"
-  # A String sliced from a String field through `!self` carries the field's
-  # loans, not a loan on `self`.
+  # A String sliced from a String field through `!@` carries the field's
+  # loans, not a loan on `@`.
 
   obj P
     src: ?String
     pos: Int
 
-    fun word(!self) -> ?String
-      w = self.src[0..1]
-      self.pos += 1
+    fun word(!@) -> ?String
+      w = @src[0..1]
+      @pos += 1
       w
 
   t = String("abc")
@@ -2056,8 +2056,8 @@ fail "r3-or-fit-f2 lookup", "`q` does not live long enough"
   obj Env
     vars: [3]Var
 
-    fun get(?self, name: ?String) -> (?String)?
-      for v in ?self.vars
+    fun get(?@, name: ?String) -> (?String)?
+      for v in ?@vars
         if v.name == name
           return v.value
       none
@@ -2078,10 +2078,10 @@ fail "r3-or-fit-f2b lookup struct", "cannot assign to `probe.id` while `probe` i
   obj Table
     rows: [3]Entry
 
-    fun find(?self, key: ?Entry) -> (?Entry)?
+    fun find(?@, key: ?Entry) -> (?Entry)?
       for i in 0..3
-        if self.rows[i].id == key.id
-          return ?self.rows[i]
+        if @rows[i].id == key.id
+          return ?@rows[i]
       none
 
   t = Table(rows: [Entry(id: 1, score: 10), Entry(id: 2, score: 20), Entry(id: 3, score: 30)])
@@ -2101,10 +2101,10 @@ test "r3-or-fit-f2c lookup key", "20 3"
   obj Table
     rows: [3]Entry
 
-    fun find(?self, key: ?Key) -> (?Entry)?
+    fun find(?@, key: ?Key) -> (?Entry)?
       for i in 0..3
-        if self.rows[i].id == key.id
-          return ?self.rows[i]
+        if @rows[i].id == key.id
+          return ?@rows[i]
       none
 
   t = Table(rows: [Entry(id: 1, score: 10), Entry(id: 2, score: 20), Entry(id: 3, score: 30)])
@@ -2121,8 +2121,8 @@ fail "r3-or-fit-f2d lookup print", "cannot drop `q` while it is lent"
   obj Env
     vars: [3]Var
 
-    fun get(?self, name: ?String) -> (?String)?
-      for v in ?self.vars
+    fun get(?@, name: ?String) -> (?String)?
+      for v in ?@vars
         if v.name == name
           return v.value
       none
@@ -2145,8 +2145,8 @@ test "r3-or-fit-f2e lookup loop print", '''
   obj Env
     vars: [3]Var
 
-    fun get(?self, name: ?String) -> (?String)?
-      for v in ?self.vars
+    fun get(?@, name: ?String) -> (?String)?
+      for v in ?@vars
         if v.name == name
           return v.value
       none
@@ -2188,11 +2188,11 @@ fail "r3-or-fit-f3 two buffers", "cannot assign to `b[1]` while `b` is lent"
     old: []Int
     cur: []Int
 
-    fun old_at(?self, i: Int) -> Int
-      self.old[i]
+    fun old_at(?@, i: Int) -> Int
+      @old[i]
 
-    fun old_view(?self) -> []Int
-      self.old
+    fun old_view(?@) -> []Int
+      @old
 
   a = [1, 2, 3]
   b = [1, 5, 3]
@@ -2315,9 +2315,9 @@ test "r3-or-fit-f5d method log", '''
     prefix: ?String
     lines: Int
 
-    sub say(!self, msg: ?String)
-      self.lines += 1
-      print(self.prefix, msg)
+    sub say(!@, msg: ?String)
+      @lines += 1
+      print(@prefix, msg)
 
   log = Logger(prefix: "app:", lines: 0)
   name = String("ada")
@@ -2354,13 +2354,13 @@ test "r3-or-fit-f7 parser cursor", "1 2"
     toks: []Tok
     pos: Int
 
-    fun next(!self) -> ?Tok
-      t = ?self.toks[self.pos]
-      self.pos += 1
+    fun next(!@) -> ?Tok
+      t = ?@toks[@pos]
+      @pos += 1
       t
 
-    fun text(?self, t: ?Tok) -> ?String
-      self.src[t.start..t.start + t.len]
+    fun text(?@, t: ?Tok) -> ?String
+      @src[t.start..t.start + t.len]
 
   src = String("let x")
   toks = [Tok(kind: 1, start: 0, len: 3), Tok(kind: 2, start: 4, len: 1)]

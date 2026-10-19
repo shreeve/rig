@@ -26,16 +26,16 @@ test "take places", '''
     v: Int
     next: ^Node?
 
-    drop(!self)
-      cur = <self.next
+    drop(!@)
+      cur = <@next
       while <cur as n
         cur = <n.next
 
   obj W[T]
     x: T?
 
-    fun grab(!self) -> T?
-      <self.x
+    fun grab(!@) -> T?
+      <@x
 
   elements()
   head: ^Node? = none
@@ -180,8 +180,8 @@ test "take then exit", '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj S
     a: R?
@@ -304,8 +304,8 @@ test "taken cell holder lends", release: true, '''
   obj Counter
     hits: Cell[Int]
 
-    sub hit(!self)
-      !self.hits.set(self.hits.get() + 1)
+    sub hit(!@)
+      !@hits.set(@hits.get() + 1)
 
   enum E
     a(c: *Counter)
@@ -376,22 +376,22 @@ test "temporaries drop order", '''
     id: Int
     v: List[Int]
 
-    drop(!self)
-      print("drop N", self.id)
-      self.id = -99
+    drop(!@)
+      print("drop N", @id)
+      @id = -99
 
   obj R
     n: ?N
 
-    drop(!self)
-      print("drop R of", self.n.id)
+    drop(!@)
+      print("drop R of", @n.id)
 
   obj B
     s: ?String
     v: List[Int]
 
-    drop(!self)
-      print("drop B", self.s)
+    drop(!@)
+      print("drop B", @s)
 
   error Bad
     no
@@ -468,8 +468,8 @@ test "temporaries read then dropped", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   enum M
     a(t: String)
@@ -536,7 +536,7 @@ test "temporary field read", '''
     age: Int
     name: String
 
-    drop(!self)
+    drop(!@)
       print("drop user")
 
   fun mv() -> List[Int]
@@ -572,8 +572,8 @@ test "temporary match takes payload", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   enum M
     a(n: N)
@@ -707,17 +707,17 @@ test "temporary receiver read", '''
   drop 5
   end
 '''
-  # A `?self` receiver only reads: a value made there, a cloned handle
+  # A `?@` receiver only reads: a value made there, a cloned handle
   # included, is a temporary its statement drops.
 
   obj B
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun mk(n: Int) -> B
     B(n: n)
@@ -1068,8 +1068,8 @@ fail "unwrapped write param call stores", "19:7: cannot let this call store a vi
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub put(w: (!H)?, v: ?String) keeps v
     (w ?? return).s = v
@@ -1107,8 +1107,8 @@ fail "unwrapped write param closure", "14:9: cannot let this call store a view o
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub captured(w: (!H)?)
     d = String("local")
@@ -1135,8 +1135,8 @@ fail "unwrapped write param fallible", "19:3: cannot store a view of `d` through
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   error E
     bad
@@ -1167,8 +1167,8 @@ fail "unwrapped write param header", "14:5: cannot store a view of `d` in `x.s`:
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub field(w: (!H)?)
     d = String("local")
@@ -1222,8 +1222,8 @@ fail "unwrapped write param local", "13:3: cannot store a view of `d` in `x.s`: 
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub unwrapped(w: (!H)?)
     d = String("local")
@@ -1300,8 +1300,8 @@ fail "unwrapped write param method", "12:4: cannot let this call store a view of
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub nullish(w: (!H)?)
     d = String("local")
@@ -1355,8 +1355,8 @@ fail "unwrapped write param nullish", "12:3: cannot store a view of `d` through 
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   sub set(w: (!H)?)
     d = String("local")
@@ -1375,8 +1375,8 @@ fail "unwrapped write param propagate", "13:3: cannot store a view of `d` throug
   obj H
     s: ?String
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   fun set(w: (!H)?) -> Int?
     d = String("local")
@@ -1402,8 +1402,8 @@ test "unwrapped write param stores caller views", '''
     s: ?String
     items: List[?String]
 
-    sub keep(!self, v: ?String) keeps v
-      self.s = v
+    sub keep(!@, v: ?String) keeps v
+      @s = v
 
   error E
     bad
@@ -1543,8 +1543,8 @@ test "value tails leave", '''
   obj D
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun mk(id: Int) -> D
     D(id: id)
@@ -1707,7 +1707,7 @@ test "variant literal lent to view", '''
       .Table(m) => m.len + k
       _ => k
 
-  sub Bag.look(?self, v: ?Val)
+  sub Bag.look(?@, v: ?Val)
     show(v)
 
   fun bad() -> Int!
@@ -1916,8 +1916,8 @@ test "vec for clone elem", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   count: *Cell[Int] = *Cell(0)
   subs: List[*sub()] = List()
@@ -2192,8 +2192,8 @@ fail "weak member access", "15:9: a weak handle `~S` reaches its value only once
   obj S
     n: Int
 
-    fun get(?self) -> Int
-      self.n
+    fun get(?@) -> Int
+      @n
 
   obj Holder
     w: ~S
@@ -2288,8 +2288,8 @@ test "while step drops old value", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   i = 0
   b = *B(n: 0)
@@ -2415,8 +2415,8 @@ fail "while step reads binding after grow", "57:5: cannot lend `v` to write whil
   obj S
     s: []Int
 
-    fun first(?self) -> Int
-      self.s[0]
+    fun first(?@) -> Int
+      @s[0]
 
   obj T
     s: ?String
@@ -2589,7 +2589,7 @@ test "while true break move", '''
   obj Wrap
     payload: Int
 
-    drop(!self)
+    drop(!@)
       print("drop")
 
   sub eat(rc: *Wrap)
@@ -2604,9 +2604,9 @@ test "while true break move", '''
       break
   print("end")
 
-fail "whole receiver method field arg", "28:6: cannot lend `self` to write while a read loan on `self.scanner.value` is live", "lend the fields it writes", errors: 1
-  # A `!self` method lends all of `self`, so it cannot be called while a
-  # field of `self` is lent: the caller does not look into the body (Core
+fail "whole receiver method field arg", "28:6: cannot lend `@` to write while a read loan on `@scanner.value` is live", "lend the fields it writes", errors: 1
+  # A `!@` method lends all of `@`, so it cannot be called while a
+  # field of `@` is lent: the caller does not look into the body (Core
   # sentence 7). The idiom is a function of the fields it writes, which
   # lends only those paths.
   # From Trig's acceptance tests
@@ -2618,21 +2618,21 @@ fail "whole receiver method field arg", "28:6: cannot lend `self` to write while
   obj Arena
     bytes: String
 
-    fun add(!self, text: ?String) -> Int
-      !self.bytes.add(text)
-      self.bytes.len
+    fun add(!@, text: ?String) -> Int
+      !@bytes.add(text)
+      @bytes.len
 
   obj Parser
     scanner: Scanner
     ast: Arena
     count: Int
 
-    fun new_identifier(!self, text: ?String) -> Int
-      self.count += 1
-      (!self.ast).add(text)
+    fun new_identifier(!@, text: ?String) -> Int
+      @count += 1
+      (!@ast).add(text)
 
-    fun identifier(!self) -> Int
-      (!self).new_identifier(self.scanner.value)
+    fun identifier(!@) -> Int
+      (!@).new_identifier(@scanner.value)
 
   p = Parser(scanner: Scanner(value: String("id")), ast: Arena(bytes: String()), count: 0)
   print((!p).identifier(), p.count)

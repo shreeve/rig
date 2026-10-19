@@ -52,13 +52,13 @@ test "clone user method names", "hi hi surprise 42 7"
   obj O
     s: String
 
-    fun cloneWeak(?self) -> O
+    fun cloneWeak(?@) -> O
       O(s: String("surprise"))
 
-    fun cloneStrong(?self) -> Int
+    fun cloneStrong(?@) -> Int
       42
 
-    fun upgrade(?self) -> Int
+    fun upgrade(?@) -> Int
       7
 
   o = O(s: String("hi"))
@@ -96,8 +96,8 @@ test "closure args", '''
   obj Res
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
     f(x)
@@ -282,8 +282,8 @@ test "closure clone captures viewed handle", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun keep(b: ?*B) -> *fun() -> Int
     *|+b| b.n * 100
@@ -405,8 +405,8 @@ test "consuming loop break drops rest in reverse", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[*B] = List()
   for i in 1..5
@@ -448,8 +448,8 @@ test "deep drop keeps field order", '''
   obj N
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   obj Node
     next: *Node?
@@ -476,10 +476,10 @@ test "deep list drop", "dropped down to 0"
     seen: *Cell[Int]
     next: *Node?
 
-    drop(!self)
-      if self.seen.get() != self.value + 1
-        print("out of order at", self.value)
-      !self.seen.set(self.value)
+    drop(!@)
+      if @seen.get() != @value + 1
+        print("out of order at", @value)
+      !@seen.set(@value)
 
   n = 200000
   seen: *Cell[Int] = *Cell(n)
@@ -526,7 +526,7 @@ test "empty array drop glue", '''
   obj Guard
     n: Int
 
-    drop(!self)
+    drop(!@)
       print("guard dropped")
 
   fun count(args: []String) -> Int
@@ -622,8 +622,8 @@ test "if as weak upgrade", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print("drop", self.id)
+    drop(!@)
+      print("drop", @id)
 
   sub show(w: ?~Noisy)
     if *w as n
@@ -668,8 +668,8 @@ test "main exit status", '''
   obj Guard
     name: ?String
 
-    drop(!self)
-      print("drop", self.name)
+    drop(!@)
+      print("drop", @name)
 
   fun main() -> Int
     g = Guard(name: "g")
@@ -690,8 +690,8 @@ test "main fails with error", exit: 1, stderr: "error: IoErr.eof", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   sub main()
     t = Tok(n: 1)
@@ -788,8 +788,8 @@ test "nested closure capture", '''
 
   obj B
     n: Int
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   rc: *Cell[Int] = *Cell(0)
   outer = |+rc|
@@ -847,8 +847,8 @@ test "nested struct drop glue", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   obj Inner
     r: *Noisy
@@ -877,8 +877,8 @@ test "nested struct drop glue reversed", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   n = *Noisy(id: 5)
   i: Inner = Inner(r: <n)
@@ -914,8 +914,8 @@ test "owned closure failure drops", '''
   obj Gone
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   error Bad
     oops
@@ -950,8 +950,8 @@ test "owned closure move capture", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   n = *Noisy(id: 100)
   cb: *sub() = *|<n| print(n.id + 1)
@@ -1102,8 +1102,8 @@ test "owned closure through view", '''
   obj Hold
     v: *fun(Int) -> Int
 
-    fun peek(?self) -> ?*fun(Int) -> Int
-      ?self.v
+    fun peek(?@) -> ?*fun(Int) -> Int
+      ?@v
 
   fun call(f: ?*fun(Int) -> Int, n: Int) -> Int
     f(n)
@@ -1144,8 +1144,8 @@ test "owned closure uses", '''
   obj Button
     on_click: *sub(Int)
 
-    sub click(self: ?Button, n: Int)
-      self.on_click(n)
+    sub click(?@, n: Int)
+      @on_click(n)
 
   total: *Cell[Int] = *Cell(0)
   button = Button(on_click: *|+total, n| !total.set(total.get() + n))
@@ -1267,8 +1267,8 @@ bomb "panic statement", "panic: index 5 past 3", prints: "before 2", stderr: "pa
 
   obj Res
     name: ?String
-    drop(!self)
-      print("dropping", self.name)
+    drop(!@)
+      print("dropping", @name)
 
   fun pick(xs: []Int, i: Int) -> Int
     if i >= xs.len
@@ -1659,20 +1659,20 @@ test "reactive cascade", '''
     fun new(initial: Int) -> *IntSource
       *IntSource(value: Cell(initial), subs: Cell(List()))
 
-    fun get(self: ?IntSource) -> Int
-      self.value.get()
+    fun get(?@) -> Int
+      @value.get()
 
-    sub subscribe(self: !IntSource, cb: *sub())
-      !self.subs.push(<cb)
+    sub subscribe(!@, cb: *sub())
+      !@subs.push(<cb)
 
     # A Cell lends no view of the List inside it, so the list is swapped
     # out to be walked, and swapped back.
-    sub set(self: !IntSource, v: Int)
-      !self.value.set(v)
-      subs = (!self.subs).replace(List())
+    sub set(!@, v: Int)
+      !@value.set(v)
+      subs = (!@subs).replace(List())
       for notify in ?subs
         notify()
-      _ = !self.subs.replace(<subs)
+      _ = !@subs.replace(<subs)
 
   count = IntSource.new(0)
   total = IntSource.new(0)
@@ -1709,20 +1709,20 @@ test "reactive int source", '''
     fun new(initial: Int) -> *IntSource
       *IntSource(value: Cell(initial), subs: Cell(List()))
 
-    fun get(self: ?IntSource) -> Int
-      self.value.get()
+    fun get(?@) -> Int
+      @value.get()
 
-    sub subscribe(self: !IntSource, cb: *sub())
-      !self.subs.push(<cb)
+    sub subscribe(!@, cb: *sub())
+      !@subs.push(<cb)
 
     # A Cell lends no view of the List inside it, so the list is swapped
     # out to be walked, and swapped back.
-    sub set(self: !IntSource, v: Int)
-      !self.value.set(v)
-      subs = (!self.subs).replace(List())
+    sub set(!@, v: Int)
+      !@value.set(v)
+      subs = (!@subs).replace(List())
       for notify in ?subs
         notify()
-      _ = !self.subs.replace(<subs)
+      _ = !@subs.replace(<subs)
 
   count = IntSource.new(0)
   !count.subscribe(*|~count|
@@ -1742,8 +1742,8 @@ test "shared auto deref", '''
   obj User
     age: Int
 
-    fun read_age(self: ?User) -> Int
-      self.age
+    fun read_age(?@) -> Int
+      @age
 
   rc = *User(age: 42)
   print(rc.age)
@@ -2238,8 +2238,8 @@ test "struct drop field order", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   obj Pair
     a: *Noisy
@@ -2260,8 +2260,8 @@ test "struct drop glue shared field", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   obj Reactor
     count: *Noisy
@@ -2462,8 +2462,8 @@ test "weak upgrade result dropped", '''
   obj Noisy
     id: Int
 
-    drop(!self)
-      print(self.id)
+    drop(!@)
+      print(@id)
 
   rc = *Noisy(id: 1)
   w  = ~rc

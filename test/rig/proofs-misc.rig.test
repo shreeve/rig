@@ -258,13 +258,13 @@ test "field", "99", release: true
   print(pick("abc", ?c))
 
 bomb "field mut", "index out of bounds", release: true
-  # A field is never a fact's subject: `(!self).bump()` writes it.
+  # A field is never a fact's subject: `(!@).bump()` writes it.
 
   obj Cursor
     i: Int
 
-    sub bump(!self)
-      self.i += 1
+    sub bump(!@)
+      @i += 1
 
   fun pick(s: ?String, c: !Cursor) -> U8
     if c.i < s.len
@@ -360,8 +360,8 @@ test "held as", release: true, '''
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Bag
     o: Res?

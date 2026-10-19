@@ -80,8 +80,8 @@ test "slice argument lent", release: true, '''
     items: List[Int]
     name: String
 
-    fun sum(?self, xs: []Int) -> Int
-      total(xs) + self.items.len
+    fun sum(?@, xs: []Int) -> Int
+      total(xs) + @items.len
 
   sub zero(v: !List[Int], w: ![]Int)
     print(total(v[1..]), total(w[..1]), count(w[1..]))
@@ -358,8 +358,8 @@ fail "slice of view result", "18:11: a view reached through `get(!h)` outlives i
   obj H
     t: String
 
-    fun at(!self) -> !String
-      !self.t
+    fun at(!@) -> !String
+      !@t
 
   fun get(h: !H) -> !String
     !h.t
@@ -483,8 +483,8 @@ test "slice return array param", '''
   obj S
     arr: [3]Int
 
-    fun head(?self) -> []Int
-      ?self.arr[0..2]
+    fun head(?@) -> []Int
+      ?@arr[0..2]
 
   obj Pt
     x: Int

@@ -39,7 +39,7 @@ built in debug and with `--release`, and a value holding a Cell made or
 held anywhere but behind `*` (`cellmut.value.`, `celltemp.value.`),
 every one of which must be rejected, and a branch of such places copied
 by value (`cellbranch.`), likewise, the loans on a struct's fields, a
-nested struct's, a read-view field's, `self`'s, and a box's, each beside
+nested struct's, a read-view field's, `@`'s, and a box's, each beside
 a second use of a sibling, the same field, or the whole value, in a
 line, a loop, or a closure, past each exit, rejected exactly where the
 paths overlap, and run to the output the rule gives (`field.`), and a guard, a write between it and
@@ -295,7 +295,7 @@ CRASH = re.compile(r"panic:|Segmentation fault|reached unreachable|Bus error")
 # fresh one, and a constructor expression.
 # -----------------------------------------------------------------------------
 
-N_DECL = "obj N\n  v: Int\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?N\n    self\n"
+N_DECL = "obj N\n  v: Int\n\n  fun peek(?@, k: Int) -> Int\n    @v + k\n\n  fun me(?@) -> ?N\n    @\n"
 TYPES = {
     "int": dict(ty="Int", decls="", mk="n", ctor="Int(5)"),
     "string": dict(ty="?String", decls="", mk='"s" if n > 0 else "t"', ctor='"lit"'),
@@ -305,7 +305,7 @@ TYPES = {
                 mk="xs: List[Int] = List()\n  !xs.push(n)\n  xs", ctor="List[Int]()"),
     "shared": dict(ty="*N", decls=N_DECL, mk="*N(v: n)", ctor="*N(v: 5)"),
     "box": dict(ty="^N", decls=N_DECL, mk="^N(v: n)", ctor="^N(v: 5)"),
-    "drop": dict(ty="D", decls='obj D\n  v: Int\n\n  drop(!self)\n    print("drop", self.v)\n\n  fun take(<self) -> Int\n    self.v\n\n  sub bump(!self)\n    self.v += 1\n\n  fun peek(?self, k: Int) -> Int\n    self.v + k\n\n  fun me(?self) -> ?D\n    self\n',
+    "drop": dict(ty="D", decls='obj D\n  v: Int\n\n  drop(!@)\n    print("drop", @v)\n\n  fun take(<@) -> Int\n    @v\n\n  sub bump(!@)\n    @v += 1\n\n  fun peek(?@, k: Int) -> Int\n    @v + k\n\n  fun me(?@) -> ?D\n    @\n',
                  mk="D(v: n)", ctor="D(v: 5)"),
     # A struct that holds a Cell, which lives only behind `*`: a value
     # of it is rejected wherever it stands, so it keeps only the cells
@@ -593,7 +593,7 @@ GEN_FORMS = {
                args="o"),
     "closure": dict(params="f: ?fun(?String) -> T, p: ?String", said="f, p", body=["h = |?f, ?p| f(p)", "h()"],
                     setup=[], args="|s: ?String| s, ?t"),
-    "field": dict(field=True, params="p: ?String", said="p", body=["self.f(p)"], setup=[], args="?t"),
+    "field": dict(field=True, params="p: ?String", said="p", body=["@f(p)"], setup=[], args="?t"),
     "match": dict(params="p: ?Opt[T]", said="p, d", body=["match p", "  .some(v) => v", "  .nothing => d"],
                   setup=["o = Opt[?String].some(?t)"], args="?o"),
 }
@@ -606,7 +606,7 @@ def gen_program(fname, said, then):
     out = ["obj K\n  s: ?String\n", "enum Opt[T]\n  some(value: T)\n  nothing\n"]
     if f.get("field"):
         out.append("obj H[T]\n  f: *fun(?String) -> T\n\n"
-                   f"  fun g(?self, {f['params']}, d: ?String) -> T from {origin}\n{indent(f['body'], 4)}\n")
+                   f"  fun g(?@, {f['params']}, d: ?String) -> T from {origin}\n{indent(f['body'], 4)}\n")
         call = "r = h.g(?t, ?u)"
         setup = ["h = H[K](f: *|s| K(s: s))"]
         show = "print(r.s)"
@@ -845,7 +845,7 @@ def step_program(oname, hname, shape, then):
     v = o["view"]
     hty = h["ty"].replace("V", v)
     out = ["use std.text\n" if oname == "text" else "", "error E\n  bad\n",
-           f"obj H\n  r: {v}\n\n  fun get(?self) -> {v}\n    self.r\n",
+           f"obj H\n  r: {v}\n\n  fun get(?@) -> {v}\n    @r\n",
            f"sub grow(v: !{o['ty']})\n  for {'i' if 'i' in o['grow'] else '_'} in 0..100\n    {o['grow']}\n",
            f"fun mk(v: {rd(o['ty'])}, n: Int) -> {hty}?\n  if n < 3\n    return {h['make'].replace('L', o['lend'])}\n  none\n",
            f"fun mkf(v: {rd(o['ty'])}, n: Int) -> {hty}?!\n  return E.bad if n == 7\n  mk(v, n)\n"]
@@ -959,10 +959,10 @@ def dloop_program(source, write):
     setup, head, first = DLOOP_SOURCES[source]
     body, after, out = DLOOP_WRITES[write]
     lines = ["obj SCur", "  xs: []Int", "  i: Int", "",
-             "  fun next(!self) -> Int?", "    return none if self.i >= self.xs.len", "    self.i += 1",
-             "    self.xs[self.i - 1]", "",
+             "  fun next(!@) -> Int?", "    return none if @i >= @xs.len", "    @i += 1",
+             "    @xs[@i - 1]", "",
              "obj SB", "  xs: List[Int]", "",
-             "  fun each(?self) -> SCur from self", "    SCur(xs: ?self.xs[0..self.xs.len], i: 0)", "",
+             "  fun each(?@) -> SCur from @", "    SCur(xs: ?@xs[0..@xs.len], i: 0)", "",
              "fun smk(v: ?List[Int]) -> SCur from v", "  SCur(xs: ?v[0..v.len], i: 0)", "",
              "sub grow(v: !List[Int])", "  for _ in 0..100", "    !v.push(1)", "",
              "sub main()", "  b = SB(xs: List())", "  !b.xs.push(1)", "  !b.xs.push(2)", "  w: List[Int] = List()"]
@@ -1001,7 +1001,7 @@ VLIT_PLACES = {
     "opt_arg": ("sub maybe(v: (?T)?)\n  if v as x\n    show(x)\n  else\n    print(\"none\")\n",
                 ["maybe(@L)", "maybe(none)"], True, True, "none\n"),
     "generic_arg": ("sub same[U](a: ?U, b: ?U)\n  print(\"same\")\n", ["x: @T = @L", "same(?x, @L)"], True, True, "same\n"),
-    "method_arg": ("obj H\n  n: Int\n\nsub H.look(?self, v: ?T)\n  show(v)\n",
+    "method_arg": ("obj H\n  n: Int\n\nsub H.look(?@, v: ?T)\n  show(v)\n",
                    ["h = H(n: 0)", "h.look(@L)"], True, True, ""),
     "kwarg": ("sub show2(v: ?T, k: Int)\n  show(v)\n  print(k)\n", ["show2(k: one(), v: @L)"], True, True, "1\n"),
     "nested_call": ("fun count(v: ?T) -> Int\n  show(v)\n  1\n", ["print(count(@L) + count(@L))"], True, True, "2\n"),
@@ -1272,8 +1272,8 @@ def iter_program(source, ctx):
     else:
         run += loop[ctx] + ['print("after")'] + rest
     lines = ["obj It", "  id: Int", "  at: Int", "",
-             "  fun next(!self) -> Int?", "    return none if self.at >= 3", "    self.at += 1", "    self.at - 1", "",
-             "  drop(!self)", '    print("drop", self.id)', "",
+             "  fun next(!@) -> Int?", "    return none if @at >= 3", "    @at += 1", "    @at - 1", "",
+             "  drop(!@)", '    print("drop", @id)', "",
              "obj Hold", "  it: It", "",
              "error E", "  bad", "",
              "fun mk(id: Int) -> It", "  It(id: id, at: 0)", "",
@@ -1509,7 +1509,7 @@ def loop_program(outer, inner, jump, end):
             else:
                 lines.append(l)
     lines.append('print("tail", i)')
-    head = ["obj D", "  n: Int", "", "  drop(!self)", '    print("drop", self.n)', "",
+    head = ["obj D", "  n: Int", "", "  drop(!@)", '    print("drop", @n)', "",
             "error E", "  bad", "",
             "fun st(i: Int) -> Int", '  print("step", i)', "  i + 1", "",
             "fun lim(i: Int, n: Int) -> Int?", "  i if i < n else none", "",
@@ -1891,7 +1891,7 @@ def lendw_program(bname, tname, lname, when):
         body += write + [show_s, fill(t["show"])]
     else:
         body += [show_s] + write + [fill(t["show"])]
-    out = ["use std.text\n", "obj P\n  xs: List[Int]\n\n  fun rest(?self) -> []Int\n    ?self.xs[1..]\n",
+    out = ["use std.text\n", "obj P\n  xs: List[Int]\n\n  fun rest(?@) -> []Int\n    ?@xs[1..]\n",
            "fun tail3() -> List[Int]\n  xs: List[Int] = List()\n  !xs.push(1)\n  !xs.push(2)\n  !xs.push(3)\n  xs\n",
            "fun tail(v: ?List[Int]) -> []Int\n  ?v[1..]\n",
            f"fun mk() -> {t['ty']}\n  {t['mk']}\n"]
@@ -2031,7 +2031,7 @@ def hdr_program(hname, sname, lname, gname="bare"):
 # none), and whether it prints when dropped.
 CELLMUT_TYPES = {
     # a `drop`
-    "drop": dict(ty="D", decls='obj D\n  c: Cell[Int]\n  v: Cell[List[Int]]\n\n  drop(!self)\n    print("drop", self.c.get(), self.v.len)\nMETHODS',
+    "drop": dict(ty="D", decls='obj D\n  c: Cell[Int]\n  v: Cell[List[Int]]\n\n  drop(!@)\n    print("drop", @c.get(), @v.len)\nMETHODS',
                  mk="*D(c: Cell(1), v: Cell(list2()))", c="E.c", v="E.v", drop=True),
     # the Cells in a part
     "part": dict(ty="W", decls="obj In\n  c: Cell[Int]\n  v: Cell[List[Int]]\n\nobj W\n  t: In\nMETHODS",
@@ -2066,7 +2066,7 @@ _CM_WRAP = "  s = 0\nOP\n  s\n"
 CELLMUT_ACCESS = {
     "handle": dict(do="OP", e="x"),
     "param": dict(decls="fun via(y: !T, k: Int) -> Int\n" + _CM_WRAP, do="s += via(!x, KARG)", e="y"),
-    "method": dict(method="fun via(!self, k: Int) -> Int\n" + _CM_WRAP, do="s += (!x).via(KARG)", e="self"),
+    "method": dict(method="fun via(!@, k: Int) -> Int\n" + _CM_WRAP, do="s += (!x).via(KARG)", e="@"),
 }
 
 
@@ -2079,6 +2079,16 @@ def cellmut_applies(tname, aname, oname):
 
 def _cm_op(t, oname, e, karg):
     """The operation's lines through path `e`, with argument `karg`."""
+    return [_at(l) for l in _cm_lines(t, oname, e, karg)]
+
+
+def _at(text):
+    """`@.name`, the receiver's member written through a path, as Rig
+    writes it: `@name`."""
+    return re.sub(r"@\.(?=[A-Za-z_])", "@", text)
+
+
+def _cm_lines(t, oname, e, karg):
     out = []
     for l in CELLMUT_OPS[oname][1]:
         if t["c"]:
@@ -2112,17 +2122,17 @@ def cellmut_program(tname, aname):
     ty = t["ty"]
     out = []
     if t["decls"]:
-        c = t["c"].replace("E", "self")
-        bump = [f"!{c}.set({c}.get() + k)"] + (["!" + t["v"].replace("E", "self") + ".push(k)"] if t["v"] else [])
+        c = t["c"].replace("E", "@")
+        bump = [_at(f"!{c}.set({c}.get() + k)")] + ([_at("!" + t["v"].replace("E", "@") + ".push(k)")] if t["v"] else [])
         # A generic type's methods take and add its `T`.
         kty = "T" if tname == "generic" else "Int"
-        methods = ["", f"  sub bump(!self, k: {kty})"] + ["    " + l for l in bump]
+        methods = ["", f"  sub bump(!@, k: {kty})"] + ["    " + l for l in bump]
         if aname == "method":
             for oname in ops:
                 wrap = a["method"].replace("via(", f"via_{oname}(")
                 if tname == "generic":
                     wrap = wrap.replace("k: Int) -> Int", "k: T) -> T").replace("  s = 0\n", "  s: T = k - k\n")
-                op = _cm_op(t, oname, "self", "k")
+                op = _cm_op(t, oname, "@", "k")
                 if tname == "generic":
                     op = [l.replace("?? -1", "?? k - k - 1") for l in op]
                 methods += [""] + ["  " + l for l in _cm_wrap(wrap, ty, op)]
@@ -2372,7 +2382,7 @@ def store_program(oname, fname, then):
     kind, lines = STORE_FORMS[fname]
     h = STORE_HOLDERS[kind]
     v = o["view"]
-    out = [f"obj H\n  r: {v}\n\n  sub set(!self, s: {v}) keeps s\n    self.r = s\n",
+    out = [f"obj H\n  r: {v}\n\n  sub set(!@, s: {v}) keeps s\n    @r = s\n",
            "obj O\n  h: H\n", "enum E\n  one(h: H)\n  zero\n",
            f"sub put(h: !H, s: {v}) keeps s\n  h.r = s\n"]
     body = [l.replace("S", o["lend"]) for l in lines]
@@ -2419,7 +2429,7 @@ KEEPS_KINDS = {
                      lend="?t", read="print(h.r)", stored="seven", first="none", change='!t.add("x")'),
     "generic": dict(P="?T", held="(?T)?", E="p", setup=[], init="none", owner=['t = String("seven")'], lend="?t",
                     read="print(h.r)", stored="seven", first="none", change='!t.add("x")', generic=True),
-    "receiver": dict(P="?self", lend="it", owner=["it = Item(n: 7)"], read="print(out.len)", stored="1", first="0",
+    "receiver": dict(P="?@", lend="it", owner=["it = Item(n: 7)"], read="print(out.len)", stored="1", first="0",
                      change="it.n = 8", recv=True),
     "value": dict(P="Token", held="Token", E="p", setup=[], init='Token(text: "first")', owner=['t = String("seven")'],
                   lend="Token(text: ?t)", read="print(h.r.text)", stored="seven", first="first", change='!t.add("x")',
@@ -2448,16 +2458,16 @@ def keeps_program(kname, sname, said, then):
     # is a function, which has no receiver.
     if recv and sname == "self" or fnval and sname in ("self", "some"):
         return None, None
-    clause = (" keeps self" if recv else " keeps p") if said else ""
+    clause = (" keeps @" if recv else " keeps p") if said else ""
     some = sname == "some"
     out = ["obj Item\n  n: Int\n", "obj Token\n  text: ?String\n"]
     if recv:
-        body = {"arg": ["!out.push(self)"], "call": ["self.put_in(!out)"],
-                "some": ["if c", "  !out.push(self)"], "none": ["pass"]}[sname]
-        params = "?self, out: !List[?Item]" + (", c: Bool" if some else "")
+        body = {"arg": ["!out.push(@)"], "call": ["@put_in(!out)"],
+                "some": ["if c", "  !out.push(@)"], "none": ["pass"]}[sname]
+        params = "?@, out: !List[?Item]" + (", c: Bool" if some else "")
         out[0] = ("obj Item\n  n: Int\n\n"
                   f"  sub m({params}){clause}\n{indent(body, 4)}\n\n"
-                  "  sub put_in(?self, out: !List[?Item]) keeps self\n    !out.push(self)\n")
+                  "  sub put_in(?@, out: !List[?Item]) keeps @\n    !out.push(@)\n")
         main = k["owner"] + ["out: List[?Item] = List()", f"(?it).m(!out{', true' if some else ''})"]
         main += ([k["change"]] if then == "change" else []) + [k["read"]]
         out.append("sub main()\n" + indent(main, 2) + "\n")
@@ -2466,14 +2476,14 @@ def keeps_program(kname, sname, said, then):
     hty = "H[T]" if generic else "H"
     tp = "[T]" if generic else ""
     setter_keeps = "" if by_value else " keeps p"
-    target = "h.r" if sname == "arg" or fnval else "self.r"
+    target = "h.r" if sname == "arg" or fnval else "@r"
     body = {"self": [f"{target} = {k['E']}"], "arg": [f"{target} = {k['E']}"],
-            "call": ["set_r(!h, p)" if fnval else f"!self.set({k.get('on', 'p')})"],
+            "call": ["set_r(!h, p)" if fnval else f"!@set({k.get('on', 'p')})"],
             "some": ["if c", f"  {target} = {k['E']}"], "none": ["pass"]}[sname]
     params = f"p: {k['P']}" + (", c: Bool" if some else "")
-    methods = f"  sub set(!self, p: {k['P']}){setter_keeps}\n    self.r = {k['E']}\n"
+    methods = f"  sub set(!@, p: {k['P']}){setter_keeps}\n    @r = {k['E']}\n"
     if sname in ("self", "call", "some", "none") and not fnval:
-        methods += f"\n  sub m(!self, {params}){clause}\n{indent(body, 4)}\n"
+        methods += f"\n  sub m(!@, {params}){clause}\n{indent(body, 4)}\n"
     out.append(f"obj H{tp}\n  r: {k['held']}\n\n{methods}")
     if fnval:
         out.append(f"sub m(h: !H, {params}){clause}\n{indent(body, 2)}\n")
@@ -2572,7 +2582,7 @@ def holder_program(oname, fname, change, then):
     out = ["obj Big\n  v: List[Int]\n",
            "fun same[T](x: T) -> T\n  x\n",
            "fun boxed[T](x: T) -> ^T\n  ^x\n",
-           "obj Hold[T]\n  v: T\n\n  fun get(?self) -> T\n    self.v\n",
+           "obj Hold[T]\n  v: T\n\n  fun get(?@) -> T\n    @v\n",
            "obj Pair[A, B]\n  a: A\n  b: B\n"]
     view = o["view"]
     body = list(o["mk"])
@@ -2741,7 +2751,7 @@ def named_program(call, kind, order):
         lines += [f"sub show(v: {ptype}, w: Int)", f"  print({observe}, w)", ""]
         callee = "show"
     elif call == "method":
-        lines += ["obj M", "  k: Int", "", f"  sub show(?self, v: {ptype}, w: Int)", f"    print({observe}, w)", ""]
+        lines += ["obj M", "  k: Int", "", f"  sub show(?@, v: {ptype}, w: Int)", f"    print({observe}, w)", ""]
         callee = "m.show"
     else:
         lines += ["sub show[T](v: T, w: Int)", "  print(v, w)", ""]
@@ -2807,9 +2817,9 @@ obj P
   n: Int
   v: [2]Int
 
-  fun at(self: !P, k: !Int) -> !P
+  fun at(!@, k: !Int) -> !P
     k += 1
-    self
+    @
 
 obj H
   l: List[Int]
@@ -3003,7 +3013,7 @@ FIELD_ROOTS = {
     "field": dict(make=['x = P(a: String("a"), b: String("b"), o: String("o"), n: 1)'], X="x", Y="x", cap="x", again='x = P(a: String("a"), b: String("B"), o: String("o"), n: 1)'),
     "nested": dict(make=['x = Outer(i: P(a: String("a"), b: String("b"), o: String("o"), n: 1), m: 0)'], X="x.i", Y="x.i", cap="x", again='x.i = P(a: String("a"), b: String("B"), o: String("o"), n: 1)'),
     "readview": dict(make=['src = P(a: String("a"), b: String("s"), o: none, n: 0)', 'x = H(r: ?src, b: String("b"), o: String("o"), n: 1)'], X="x.r", Y="x", cap="x", again='x = H(r: ?src, b: String("B"), o: String("o"), n: 1)', viewed=True),
-    "self": dict(make=[], X="self", Y="self", cap="self", again='self = P(a: String("a"), b: String("B"), o: String("o"), n: 1)'),
+    "self": dict(make=[], X="@", Y="@", cap="@", again='@ = P(a: String("a"), b: String("B"), o: String("o"), n: 1)'),
     "box": dict(make=['x = ^P(a: String("a"), b: String("b"), o: String("o"), n: 1)'], X="x", Y="x", cap="x", again='x = ^P(a: String("a"), b: String("B"), o: String("o"), n: 1)'),
 }
 FIELD_FIRSTS = ("read", "write")
@@ -3132,7 +3142,7 @@ def field_program(root, first, rel, second, ctx, ex):
         middle = second_lines + exit_lines + use_first
     body = list(r["make"]) + take_first + middle + (use_first if ctx == "closure" else []) + after_first + final + ["0"]
     if root == "self":
-        decls = FIELD_DECLS.replace("obj P\n  a: String\n  b: String\n  o: String?\n  n: Int\n", "obj P\n  a: String\n  b: String\n  o: String?\n  n: Int\n\n  fun run(!self, k: Int) -> Int!\n" + indent(body, 4) + "\n")
+        decls = FIELD_DECLS.replace("obj P\n  a: String\n  b: String\n  o: String?\n  n: Int\n", "obj P\n  a: String\n  b: String\n  o: String?\n  n: Int\n\n  fun run(!@, k: Int) -> Int!\n" + indent(body, 4) + "\n")
         call = ['x = P(a: String("a"), b: String("b"), o: String("o"), n: 1)', "n = (!x).run(k) catch 9"]
     else:
         decls = FIELD_DECLS + "\nfun run(k: Int) -> Int!\n" + indent(body, 2) + "\n"
@@ -3691,8 +3701,8 @@ UNIT_GUARDS = {
 UNIT_PRELUDE = """obj P
   v: [2]Int
 
-  fun at(self: !P, n: Int) -> !P
-    self
+  fun at(!@, n: Int) -> !P
+    @
 
 fun z(n: Int) -> Int
   0
@@ -3895,7 +3905,7 @@ RUN_MEM_EVERY = 1.0
 PAGE_KB = os.sysconf("SC_PAGE_SIZE") // 1024
 # Linux lists a process's children in /proc, so the reading walks only
 # the program's own tree; elsewhere (macOS) `ps` lists every process.
-PROC_CHILDREN = os.path.exists(f"/proc/self/task/{os.getpid()}/children")
+PROC_CHILDREN = os.path.exists(f"/proc/@/task/{os.getpid()}/children")
 
 
 def tree_rss(pgid):
@@ -4239,7 +4249,7 @@ def main():
                     continue
                 path = os.path.join(work, ident.replace(".", "__") + ".rig")
                 with open(path, "w") as fh:
-                    fh.write(src)
+                    fh.write(_at(src))
                 cells.append((ident, path))
                 if kept is not None:
                     # No run prints this: a program that runs fails the cell.
@@ -4252,7 +4262,7 @@ def main():
                     continue
                 path = os.path.join(work, ident.replace(".", "__") + ".rig")
                 with open(path, "w") as fh:
-                    fh.write(store_program(o, f, then))
+                    fh.write(_at(store_program(o, f, then)))
                 cells.append((ident, path))
     release = set()
     also = set()
@@ -4269,7 +4279,7 @@ def main():
                         continue
                     path = os.path.join(work, ident.replace(".", "__") + ".rig")
                     with open(path, "w") as fh:
-                        fh.write(src)
+                        fh.write(_at(src))
                     cells.append((ident, path))
                     expects[ident] = expect
                     # A cell that prints must be accepted.
@@ -4284,7 +4294,7 @@ def main():
                 src, expects[ident] = gen_program(fname, said == "said", then)
                 path = os.path.join(work, ident.replace(".", "__") + ".rig")
                 with open(path, "w") as fh:
-                    fh.write(src)
+                    fh.write(_at(src))
                 cells.append((ident, path))
                 # A cell that prints must be accepted.
                 if expects[ident] != "(rejected)\n":
@@ -4300,7 +4310,7 @@ def main():
                 continue
             path = os.path.join(work, ident.replace(".", "__") + ".rig")
             with open(path, "w") as fh:
-                fh.write(src)
+                fh.write(_at(src))
             cells.append((ident, path))
             expects[ident] = taken_then(pname, then)[1]
             # A cell that runs must be accepted.
@@ -4321,7 +4331,7 @@ def main():
                                 continue
                             path = os.path.join(work, ident.replace(".", "__") + ".rig")
                             with open(path, "w") as fh:
-                                fh.write(src)
+                                fh.write(_at(src))
                             cells.append((ident, path))
                             expects[ident] = out
                             if out != "(rejected)\n" and ctx == "straight" and ex == "fall":
@@ -4335,7 +4345,7 @@ def main():
                         continue
                     path = os.path.join(work, ident.replace(".", "__") + ".rig")
                     with open(path, "w") as fh:
-                        fh.write(step_program(o, hname, shape, then))
+                        fh.write(_at(step_program(o, hname, shape, then)))
                     cells.append((ident, path))
                     if then == "read":
                         expects[ident] = step_output(shape)
@@ -4351,7 +4361,7 @@ def main():
                     continue
                 path = os.path.join(work, ident.replace(".", "__") + ".rig")
                 with open(path, "w") as fh:
-                    fh.write(src)
+                    fh.write(_at(src))
                 cells.append((ident, path))
                 if target_output(tp, nest, act) is not None:
                     expects[ident] = target_output(tp, nest, act)
@@ -4365,7 +4375,7 @@ def main():
                         continue
                     path = os.path.join(work, ident.replace(".", "__") + ".rig")
                     with open(path, "w") as fh:
-                        fh.write(loop_program(outer, inner, jump, end))
+                        fh.write(_at(loop_program(outer, inner, jump, end)))
                     cells.append((ident, path))
                     expects[ident] = loop_trace(outer, inner, jump, end)
     for source in ITER_SOURCES:
@@ -4375,7 +4385,7 @@ def main():
                 continue
             path = os.path.join(work, ident.replace(".", "__") + ".rig")
             with open(path, "w") as fh:
-                fh.write(iter_program(source, ctx))
+                fh.write(_at(iter_program(source, ctx)))
             cells.append((ident, path))
             out = iter_output(source, ctx)
             expects[ident] = out if out is not None else "(rejected)\n"
@@ -4386,7 +4396,7 @@ def main():
             continue
         path = os.path.join(work, ident.replace(".", "__") + ".rig")
         with open(path, "w") as fh:
-            fh.write(src)
+            fh.write(_at(src))
         cells.append((ident, path))
         expects[ident] = out if out is not None else "(rejected)\n"
         if out is not None:
@@ -4396,7 +4406,7 @@ def main():
             continue
         path = os.path.join(work, ident.replace(".", "__") + ".rig")
         with open(path, "w") as fh:
-            fh.write(src)
+            fh.write(_at(src))
         cells.append((ident, path))
         expects[ident] = out if out is not None else "(rejected)\n"
         if out is not None:
@@ -4406,7 +4416,7 @@ def main():
             continue
         path = os.path.join(work, ident.replace(".", "__") + ".rig")
         with open(path, "w") as fh:
-            fh.write(src)
+            fh.write(_at(src))
         cells.append((ident, path))
         expects[ident] = out if out is not None else "(rejected)\n"
         also.add(ident)
@@ -4416,7 +4426,7 @@ def main():
         src, accepted = fold_program(c, a, op)
         path = os.path.join(work, ident.replace(".", "__") + ".rig")
         with open(path, "w") as fh:
-            fh.write(src)
+            fh.write(_at(src))
         cells.append((ident, path))
         # The part is read when the program runs: it panics before it prints.
         expects[ident] = ""
@@ -4434,7 +4444,7 @@ def main():
                     continue
                 path = os.path.join(work, ident.replace(".", "__") + ".rig")
                 with open(path, "w") as fh:
-                    fh.write(src)
+                    fh.write(_at(src))
                 cells.append((ident, path))
                 expects[ident] = out if out is not None else "(rejected)\n"
                 if out is not None:
@@ -4450,7 +4460,7 @@ def main():
             continue
         path = os.path.join(work, ident.replace(".", "__") + ".rig")
         with open(path, "w") as fh:
-            fh.write(src)
+            fh.write(_at(src))
         cells.append((ident, path))
         expects[ident] = out
         release.add(ident)
@@ -4467,7 +4477,7 @@ def main():
                 expects[ident] = out
                 path = os.path.join(work, ident.replace(".", "__") + ".rig")
                 with open(path, "w") as fh:
-                    fh.write(src)
+                    fh.write(_at(src))
                 cells.append((ident, path))
                 if expects[ident] != "(rejected)\n":
                     release.add(ident)
@@ -4483,7 +4493,7 @@ def main():
                     continue
                 path = os.path.join(work, ident.replace(".", "__") + ".rig")
                 with open(path, "w") as fh:
-                    fh.write(src)
+                    fh.write(_at(src))
                 cells.append((ident, path))
     for t in VIEWPAY_TYPES:
         for sname in VIEWPAY_SUBJECTS:
@@ -4497,7 +4507,7 @@ def main():
                     continue
                 path = os.path.join(work, ident.replace(".", "__") + ".rig")
                 with open(path, "w") as fh:
-                    fh.write(src)
+                    fh.write(_at(src))
                 cells.append((ident, path))
     for hname in SLICEVIEW_HOLDERS:
         for ename in SLICEVIEW_ELEMS:
@@ -4508,7 +4518,7 @@ def main():
                         continue
                     path = os.path.join(work, ident.replace(".", "__") + ".rig")
                     with open(path, "w") as fh:
-                        fh.write(sliceview_program(hname, ename, use, then))
+                        fh.write(_at(sliceview_program(hname, ename, use, then)))
                     cells.append((ident, path))
     for oname in HOLDER_OWNERS:
         for fname in HOLDER_FORMS:
@@ -4523,7 +4533,7 @@ def main():
                         continue
                     path = os.path.join(work, ident.replace(".", "__") + ".rig")
                     with open(path, "w") as fh:
-                        fh.write(src)
+                        fh.write(_at(src))
                     cells.append((ident, path))
                     expects[ident] = expect
                     if then == "done":
@@ -4538,7 +4548,7 @@ def main():
                     src, expects[ident] = clos_program(callee, aname, rname, then)
                     path = os.path.join(work, ident.replace(".", "__") + ".rig")
                     with open(path, "w") as fh:
-                        fh.write(src)
+                        fh.write(_at(src))
                     cells.append((ident, path))
     for wname in NEST_WRAPPERS:
         for home in NEST_HOMES:
@@ -4548,7 +4558,7 @@ def main():
                     continue
                 path = os.path.join(work, ident.replace(".", "__") + ".rig")
                 with open(path, "w") as fh:
-                    fh.write(nest_program(wname, home, oname))
+                    fh.write(_at(nest_program(wname, home, oname)))
                 cells.append((ident, path))
                 # A `Static` carries no loan, so it goes there at any depth.
                 expects[ident] = "1\n" if oname == "static" else "(rejected)\n"
@@ -4562,7 +4572,7 @@ def main():
                     src, expects[ident] = lendw_program(bname, t, lname, when)
                     path = os.path.join(work, ident.replace(".", "__") + ".rig")
                     with open(path, "w") as fh:
-                        fh.write(src)
+                        fh.write(_at(src))
                     cells.append((ident, path))
     for hname in HDR_HEADERS:
         for gname in HDR_SIGILS:
@@ -4574,7 +4584,7 @@ def main():
                     src = hdr_program(hname, sname, lname, gname)
                     path = os.path.join(work, ident.replace(".", "__") + ".rig")
                     with open(path, "w") as fh:
-                        fh.write(src)
+                        fh.write(_at(src))
                     cells.append((ident, path))
                     # No run prints this: a program that runs fails the cell.
                     expects[ident] = "(rejected)\n"
@@ -4589,7 +4599,7 @@ def main():
                 continue
             path = os.path.join(work, ident.replace(".", "__") + ".rig")
             with open(path, "w") as fh:
-                fh.write(src)
+                fh.write(_at(src))
             cells.append((ident, path))
             expects[ident] = cellmut_output(t, a)
             release.add(ident)
@@ -4598,7 +4608,7 @@ def main():
             continue
         path = os.path.join(work, ident.replace(".", "__") + ".rig")
         with open(path, "w") as fh:
-            fh.write(src)
+            fh.write(_at(src))
         cells.append((ident, path))
         # No run prints this: a program that runs fails the cell.
         expects[ident] = "(rejected)\n"
@@ -4615,7 +4625,7 @@ def main():
                         continue
                     path = os.path.join(work, ident.replace(".", "__") + ".rig")
                     with open(path, "w") as fh:
-                        fh.write(cell[0])
+                        fh.write(_at(cell[0]))
                     cells.append((ident, path))
                     proofs[ident] = cell[1:]
     units = {}
@@ -4627,7 +4637,7 @@ def main():
             continue
         path = os.path.join(work, ident.replace(".", "__").replace("-", "_") + ".rig")
         with open(path, "w") as fh:
-            fh.write(cell[0])
+            fh.write(_at(cell[0]))
         cells.append((ident, path))
         units[ident] = cell[1:]
     if args.oracle:

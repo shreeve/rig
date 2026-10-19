@@ -1293,8 +1293,8 @@ fail "clone rules", "18:6: `+x` cannot clone a `File`: a value with a `drop` bod
   obj File
     name: String
 
-    drop(!self)
-      print("closing", self.name)
+    drop(!@)
+      print("closing", @name)
 
   obj Holder
     f: File
@@ -1330,8 +1330,8 @@ test "clone viewed owner", "1 [4]"
   obj Bag
     v: List[Int]
 
-    fun n(<self) -> Int
-      self.v.len
+    fun n(<@) -> Int
+      @v.len
 
   fun f(b: ?Bag) -> Int
     (+b).n()
@@ -1659,8 +1659,8 @@ fail "comptime function as value", "13:5: `rep` takes compile-time parameters, s
   obj P
     x: Int
 
-    fun times[n: Int](?self) -> Int
-      self.x * n
+    fun times[n: Int](?@) -> Int
+      @x * n
 
   g = rep
   f: fun(Int) -> Int = rep
@@ -1736,11 +1736,11 @@ test "comptime param calls", '''
   obj Scale
     k: Int
 
-    fun times[n: Int](?self) -> Int
-      self.k * n
+    fun times[n: Int](?@) -> Int
+      @k * n
 
-    sub bump[by: Int](!self)
-      self.k += by
+    sub bump[by: Int](!@)
+      @k += by
 
     fun unit[n: Int]() -> Scale
       Scale(k: n)
@@ -1967,8 +1967,8 @@ fail "consume receiver part", "19:7: method `into` consumes its receiver, and `<
   obj D
     v: List[Int]
 
-    fun into(<self) -> Int
-      self.v.len
+    fun into(<@) -> Int
+      @v.len
 
   obj K
     d: D
@@ -1984,17 +1984,17 @@ test "consuming method on temporary", '''
   drop 4
   8
 '''
-  # A method that consumes its receiver (`<self`) may take a
+  # A method that consumes its receiver (`<@`) may take a
   # temporary: the method owns it and drops it.
 
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
-    fun take(self: B) -> Int
-      self.n * 2
+    fun take(<@) -> Int
+      @n * 2
 
   fun mk(n: Int) -> B
     B(n: n)
@@ -2017,8 +2017,8 @@ test "containers hold owners", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj A
     items: [2]C
@@ -2282,8 +2282,8 @@ test "deeply nested generic drop", '''
   obj P
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Wrap[T]
     value: T
@@ -2358,17 +2358,17 @@ fail "discard name read", "`_` discards a value; it cannot be read", "`_` discar
   _ += 1
   print(f(1))
 
-fail "drop body assigns self", "cannot reassign `self` inside its own drop body"
-  # A drop body cannot replace `self`: the replaced value would be dropped
+fail "drop body assigns self", "cannot reassign `@` inside its own drop body"
+  # A drop body cannot replace `@`: the replaced value would be dropped
   # by running the same body again.
 
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
-      if self.n < 3
-        self = B(n: self.n + 1)
+    drop(!@)
+      print("drop", @n)
+      if @n < 3
+        @ = B(n: @n + 1)
 
   b = B(n: 1)
 
@@ -2378,20 +2378,20 @@ fail "drop decl duplicate", "duplicate `drop` declaration on this object"
   obj File
     fd: Int
 
-    drop(!self)
-      print(self.fd)
+    drop(!@)
+      print(@fd)
 
-    drop(!self)
-      print(self.fd + 1)
+    drop(!@)
+      print(@fd + 1)
 
-fail "drop decl extra param", "`drop` takes exactly one parameter, its receiver: `drop(!self)`; got 2"
+fail "drop decl extra param", "`drop` takes exactly one parameter, its receiver: `drop(!@)`; got 2"
   # A `drop` declaration takes exactly one parameter, its receiver.
 
   obj File
     fd: Int
 
-    drop(!self, extra: Int)
-      print(self.fd + extra)
+    drop(!@, extra: Int)
+      print(@fd + extra)
 
 fail "drop decl on enum", "`drop` bodies are only for non-generic objects, not enums"
   # A `drop` body is only for a struct, not an enum.
@@ -2401,7 +2401,7 @@ fail "drop decl on enum", "`drop` bodies are only for non-generic objects, not e
     green
     blue
 
-    drop(!self)
+    drop(!@)
       print(1)
 
 fail "drop decl on generic", "`drop` bodies are only for non-generic objects, not generic objects"
@@ -2410,18 +2410,18 @@ fail "drop decl on generic", "`drop` bodies are only for non-generic objects, no
   obj Wrap[T]
     value: T
 
-    drop(!self)
+    drop(!@)
       print(0)
 
-fail "drop decl read self", "`drop` takes its receiver lent to write: `drop(!self)`"
-  # A `drop` declaration's receiver is lent to write, `drop(!self)`; a
+fail "drop decl read self", "`drop` takes its receiver lent to write: `drop(!@)`"
+  # A `drop` declaration's receiver is lent to write, `drop(!@)`; a
   # read view is rejected.
 
   obj File
     fd: Int
 
-    drop(?self)
-      print(self.fd)
+    drop(?@)
+      print(@fd)
 
 fail "duplicate parameter", "duplicate parameter `a`"
   # Parameter names are unique.
@@ -2450,8 +2450,8 @@ fail "duplicate type body checked", "duplicate declaration of `S`", "use of unbo
   obj S
     y: Int
 
-    fun get(?self) -> Int
-      self.y + zzz
+    fun get(?@) -> Int
+      @y + zzz
 
   print(1)
 
@@ -2497,8 +2497,8 @@ test "elements are places", '''
   obj D
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Rec
     name: String
@@ -2621,7 +2621,7 @@ test "equality claims", '''
     x: Int
     y: Int
 
-    fun eq(?self, o: ?P) -> Bool
+    fun eq(?@, o: ?P) -> Bool
       true
 
   fun same(a: !P, b: ?P) -> Bool
@@ -2643,8 +2643,8 @@ fail "equality drop struct", "12:7: `!=` is not defined for `File`: `File` decla
   obj File
     fd: Int
 
-    drop(!self)
-      print("close", self.fd)
+    drop(!@)
+      print("close", @fd)
 
   a = File(fd: 3)
   b = File(fd: 3)
@@ -2688,8 +2688,8 @@ fail "equality nested offender", "26:7: `==` is not defined for `Outer`: field `
   obj Res
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj Inner
     items: List[Int]
@@ -2948,7 +2948,7 @@ fail "error set members", "only enums declare payload variants", "error set memb
     refused(code: Int)
     reset = 3
 
-    fun describe(?self) -> ?String
+    fun describe(?@) -> ?String
       "err"
 
   e: NetErr = .timeout
@@ -3051,8 +3051,8 @@ test "explicit type args", '''
   obj Wrap[T]
     v: T
 
-    fun get(?self) -> T
-      self.v
+    fun get(?@) -> T
+      @v
 
   obj Pair[T, U]
     a: T
@@ -3061,8 +3061,8 @@ test "explicit type args", '''
     fun make(a: T, b: U) -> Pair[T, U]
       Pair(a: a, b: b)
 
-    fun swap(?self) -> Pair[U, T]
-      Pair[U, T](a: self.b, b: self.a)
+    fun swap(?@) -> Pair[U, T]
+      Pair[U, T](a: @b, b: @a)
 
   enum Option[T]
     some(value: T)
@@ -3356,9 +3356,9 @@ test "fallible sub", '''
   obj Bin
     items: List[Int]
 
-    sub add(!self, n: Int)!
-      return Bad.full if self.items.len >= 2
-      !self.items.push(n)
+    sub add(!@, n: Int)!
+      return Bad.full if @items.len >= 2
+      !@items.push(n)
 
   check(1)!
   twice(3) catch |e|
@@ -3395,7 +3395,7 @@ fail "fallible sub hints", "11:3: use of `!` propagation requires the enclosing 
     v: Int
 
   obj Empty
-    sub hi(?self)
+    sub hi(?@)
       print("hi")
 
   w()
@@ -3528,8 +3528,8 @@ test "field default values", '''
   obj Tok
     n: Int
 
-    drop(!self)
-      print("drop tok", self.n)
+    drop(!@)
+      print("drop tok", @n)
 
   obj P
     x: Int = 1
@@ -3778,7 +3778,7 @@ fail "for index first hint", "10:12: an index must be an integer; got `Static`; 
   for i, n in ns
     print(width(n))
 
-fail "for over int", "4:10: cannot iterate over `Int`; a `for` source must be a range `a..b`, an array, a `?String`, a `List`, or an iterator (a type with `next(!self) -> T?`)"
+fail "for over int", "4:10: cannot iterate over `Int`; a `for` source must be a range `a..b`, an array, a `?String`, a `List`, or an iterator (a type with `next(!@) -> T?`)"
   # A `for` source must be iterable; an Int is not.
 
   x = 3
@@ -3842,8 +3842,8 @@ test "for write iteration", '''
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   obj H
     v: List[Int]
@@ -4043,8 +4043,8 @@ fail "frame reach receiver", "12:5: `calls` makes or copies", errors: 1
     a: [800000]Int
     b: Int
 
-    fun get(self: Q, k: Int) -> Int
-      self.a[k] + self.b
+    fun get(<@, k: Int) -> Int
+      @a[k] + @b
 
   fun calls(i: Int) -> Int
     q = Q(a: [800000 of i], b: 1)
@@ -4099,7 +4099,7 @@ fail "frame too large", "15:5: `big` keeps 24000008 bytes of values on its stack
   obj Ring[T, n: Int]
     items: [n]T
 
-    fun spread(?self) -> Int
+    fun spread(?@) -> Int
       a = [n of 0]
       b = [n of 1]
       c = [n of 2]
@@ -4299,8 +4299,8 @@ fail "handle of view", "9:10: a handle holds a value, not a view; `?P` is a view
   obj P
     x: Int
 
-    fun boxed(?self) -> Int
-      h = *self
+    fun boxed(?@) -> Int
+      h = *@
       1
 
   fun f(a: *(?Int), b: ~(!P)) -> Int
@@ -4699,8 +4699,8 @@ test "index beside type args", '''
   obj Table
     ops: [2]fun(Int) -> Int
 
-    fun apply(?self, i: Int, x: Int) -> Int
-      self.ops[i](x)
+    fun apply(?@, i: Int, x: Int) -> Int
+      @ops[i](x)
 
   xs = [10, 20, 30]
   view = ?xs[0..2]
@@ -4812,8 +4812,8 @@ fail "instance expression stacked", "18:5: `W[~P]` holds `*~P`, which stacks one
   obj W[T]
     h: (*T)?
 
-    sub keep(!self, x: T)
-      self.h = *<x
+    sub keep(!@, x: T)
+      @h = *<x
 
   obj B[T]
     h: (^T)?
@@ -5194,8 +5194,8 @@ test "is empty", '''
   obj Bag
     n: Int
 
-    fun is_empty(?self) -> Bool
-      self.n == 99
+    fun is_empty(?@) -> Bool
+      @n == 99
 
   fun list_empty[T](xs: ?List[T]) -> Bool
     xs.is_empty()
@@ -5311,11 +5311,11 @@ test "lasting lend forms", '''
   obj Bag
     items: List[Int]
 
-    fun all(?self) -> []Int
-      ?self.items[..]
+    fun all(?@) -> []Int
+      ?@items[..]
 
-    fun size(?self) -> Int
-      self.items.len
+    fun size(?@) -> Int
+      @items.len
 
   obj Holder
     seen: []Int
@@ -5398,11 +5398,11 @@ fail "lasting lend written", "26:8: `head(b.items[..])` keeps `b.items[..]` lent
   obj Bag
     items: List[Int]
 
-    fun all(?self) -> []Int
-      ?self.items[..]
+    fun all(?@) -> []Int
+      ?@items[..]
 
-    fun size(?self) -> Int
-      self.items.len
+    fun size(?@) -> Int
+      @items.len
 
   obj Holder
     seen: []Int
@@ -5740,7 +5740,7 @@ fail "marker frame siblings", "22:5: `values` keeps", "25:5: `methods` keeps", "
   obj G[T]
     v: T
 
-    inline fun big(?self, i: Int) -> Int
+    inline fun big(?@, i: Int) -> Int
       t = [1000000 of i]
       t[i % 1000000]
 
@@ -5810,8 +5810,8 @@ fail "marker inline method recursive", "7:14: `Node.deeper` is `inline` and call
   obj Node
     depth: Int
 
-    inline fun deeper(?self, n: Int) -> Int
-      self.depth if n == 0 else self.deeper(n - 1) + 1
+    inline fun deeper(?@, n: Int) -> Int
+      @depth if n == 0 else @deeper(n - 1) + 1
 
   print(Node(depth: 1).deeper(2))
 
@@ -5849,8 +5849,8 @@ fail "marker inline value", "17:13: `next` is `inline`, inlined at every call, s
   obj Counter
     n: Int
 
-    inline fun get(?self) -> Int
-      self.n
+    inline fun get(?@) -> Int
+      @n
 
   fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
     f(x)
@@ -6054,8 +6054,8 @@ fail "module level binding", "14:5: a module-level constant needs a value known 
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun f() -> Int
     3
@@ -6097,13 +6097,13 @@ test "name of type query use", '''
 '''
   # `$name($type(x))` reads `x` as `$size($type(x))` does, though its name
   # is known where it is written: a binding read only there (a method's
-  # `self`, a `for` capture, a closure's capture) is used.
+  # `@`, a `for` capture, a closure's capture) is used.
 
   obj W
     v: Int
 
-    sub show(?self)
-      print($name($type(self.v)))
+    sub show(?@)
+      print($name($type(@v)))
 
   sub loops(xs: []Int)
     for x in xs
@@ -6148,10 +6148,10 @@ test "name of unusual instances", '''
   obj Wrap[T]
     v: T
 
-    fun name(?self) -> ?String
+    fun name(?@) -> ?String
       $name(T)
 
-    fun self_name(?self) -> ?String
+    fun self_name(?@) -> ?String
       $name(Self)
 
   enum Color
@@ -6209,7 +6209,7 @@ fail "name of view instance", "26:1: `show[(?Node)?]` cannot use `T = (?Node)?`:
   obj Wrap[T]
     v: T
 
-    fun name(?self) -> ?String
+    fun name(?@) -> ?String
       $name(T)
 
   sub show[T](x: T)
@@ -6635,8 +6635,8 @@ fail "param default not literal", "a default parameter value must be a literal"
 
   print(scaled(3))
 
-fail "param sigil sugar not self", "sigil-prefixed parameter is only allowed for `self`"
-  # Sigil-on-name parameter sugar is only for `self`; other parameters put
+fail "param sigil sugar not self", "sigil-prefixed parameter is only allowed for the receiver `@`"
+  # Sigil-on-name parameter sugar is only for `@`; other parameters put
   # the sigil on the type (`xs: ?Type`).
 
   fun first(?xs) -> Int
@@ -6914,7 +6914,7 @@ fail "pub generic method nests own type", "13:7: `deep[U]` leads to ever deeper 
   pub obj Chain[T]
     items: List[T]
 
-    fun deep[U](?self, u: U) -> Int
+    fun deep[U](?@, u: U) -> Int
       out: List[Pair[T, U]] = List()
       l = Chain(items: <out)
       l.deep(u)
@@ -6935,11 +6935,11 @@ test "pub generic method own param", "2 b 2"
   pub obj Chain[T]
     items: List[T]
 
-    fun zip[U](?self, other: ?Chain[U]) -> Chain[Pair[T, U]]
+    fun zip[U](?@, other: ?Chain[U]) -> Chain[Pair[T, U]]
       out: List[Pair[T, U]] = List()
       i = 0
-      while i < self.items.len and i < other.items.len
-        !out.push(Pair(a: self.items[i], b: other.items[i]))
+      while i < @items.len and i < other.items.len
+        !out.push(Pair(a: @items[i], b: other.items[i]))
         i += 1
       Chain(items: <out)
 
@@ -6982,8 +6982,8 @@ fail "pub generic self nesting through method", "14:9: `f[T]` leads to ever deep
   obj Hidden[T]
     v: T
 
-    fun m(?self) -> Int
-      f(Wrap(v: self.v))
+    fun m(?@) -> Int
+      f(Wrap(v: @v))
 
   pub fun f[T](x: T) -> Int
     Hidden(v: x).m()
@@ -6998,7 +6998,7 @@ fail "pub generic type self nesting", "5:9: `Deep[T]` leads to ever deeper insta
   pub obj Deep[T]
     v: T
 
-    fun deeper(?self) -> Int
+    fun deeper(?@) -> Int
       d: Deep[Deep[T]]? = none
       print(d == none)
       1
@@ -7046,8 +7046,8 @@ test "read locals", '''
   obj Lock
     id: Int
 
-    drop(!self)
-      print("unlock", self.id)
+    drop(!@)
+      print("unlock", @id)
 
   obj P
     n: Int
@@ -7117,8 +7117,8 @@ fail "read receiver where result view expected", "15:13: `?p.shifted(4)` reads `
   obj Point
     x: Int
 
-    fun shifted(?self, d: Int) -> Point
-      Point(x: self.x + d)
+    fun shifted(?@, d: Int) -> Point
+      Point(x: @x + d)
 
   sub show(p: ?Point)
     print(p.x)
@@ -7154,27 +7154,27 @@ test "rebind view local", '''
   print(r)
   print(a, b)
 
-fail "receiver move sigil misuse", "6:4: sigil-prefixed member (`?other` / `!other` / `<other`) is not allowed in a nominal body", "11:20: `self` must be the first parameter of a method", "11:20: sigil-prefixed parameter sugar (`?self` / `!self` / `<self`) is only allowed at the first parameter position", "14:9: `drop` takes its receiver lent to write: `drop(!self)`", "17:8: sigil-prefixed parameter is only allowed for `self`", "20:8: `<self` is only allowed in a method body"
-  # `<self` is only a method's first parameter, and only `self` takes it; a
-  # drop body views its receiver, so it cannot take `<self`.
+fail "receiver move sigil misuse", "6:4: sigil-prefixed member (`?other` / `!other` / `<other`) is not allowed in a nominal body", "11:17: the receiver `@` must be the first parameter of a method", "11:17: sigil-prefixed parameter sugar (`?@` / `!@` / `<@`) is only allowed at the first parameter position", "14:9: `drop` takes its receiver lent to write: `drop(!@)`", "17:8: sigil-prefixed parameter is only allowed for the receiver `@`", "20:8: `<@` is only allowed in a method body"
+  # `<@` is only a method's first parameter, and only `@` takes it; a
+  # drop body views its receiver, so it cannot take `<@`.
 
   obj Conn
     name: ?String
     <other
 
-    fun close(<self) -> Int
-      self.name.len
+    fun close(<@) -> Int
+      @name.len
 
-    fun both(?self, <self) -> Int
+    fun both(?@, <@) -> Int
       1
 
-    drop(<self)
+    drop(<@)
       print("bye")
 
   fun f(<x) -> Int
     1
 
-  fun g(<self) -> Int
+  fun g(<@) -> Int
     1
 
   print(f(1), g(2))
@@ -7186,13 +7186,13 @@ fail "receiver sigil bool result", "16:6: write `(!s).checked(3)`: a write call 
 
   obj Set
     items: List[Int]
-    fun insert(!self, k: Int) -> Bool
-      for x in ?self.items
+    fun insert(!@, k: Int) -> Bool
+      for x in ?@items
         return false if x == k
-      !self.items.push(k)
+      !@items.push(k)
       true
-    fun checked(!self, k: Int) -> Bool!
-      self.insert(k)
+    fun checked(!@, k: Int) -> Bool!
+      @insert(k)
 
   fun fill(s: !Set) -> Int!
     if !s.checked(3)!
@@ -7219,7 +7219,7 @@ fail "receiver sigil bool result", "16:6: write `(!s).checked(3)`: a write call 
   g = 1 if !set.insert(12) == true else 2
   print(e, f, g)
 
-fail "receiver sigil bool used", "14:5: write `(!self).insert(k)`: a write call whose value is used puts its `!` in parentheses", "17:10: write `(!s).insert(k)`: a write call whose value is used puts its `!` in parentheses", "20:3: write `(!s).insert(k)`: a write call whose value is used puts its `!` in parentheses", "23:11: write `(!s).checked(3)`: a write call whose value is used puts its `!` in parentheses", "27:9: write `(!set).insert(1)`: a write call whose value is used puts its `!` in parentheses", "28:7: write `(!set).insert(1)`: a write call whose value is used puts its `!` in parentheses", "29:7: write `(!set).insert(2)`: a write call whose value is used puts its `!` in parentheses", "32:25: write `(!set).insert(3)`: a write call whose value is used puts its `!` in parentheses", "33:6: write `(!set).checked(4)`: a write call whose value is used puts its `!` in parentheses", errors: 9
+fail "receiver sigil bool used", "14:5: write `(!@).insert(k)`: a write call whose value is used puts its `!` in parentheses", "17:10: write `(!s).insert(k)`: a write call whose value is used puts its `!` in parentheses", "20:3: write `(!s).insert(k)`: a write call whose value is used puts its `!` in parentheses", "23:11: write `(!s).checked(3)`: a write call whose value is used puts its `!` in parentheses", "27:9: write `(!set).insert(1)`: a write call whose value is used puts its `!` in parentheses", "28:7: write `(!set).insert(1)`: a write call whose value is used puts its `!` in parentheses", "29:7: write `(!set).insert(2)`: a write call whose value is used puts its `!` in parentheses", "32:25: write `(!set).insert(3)`: a write call whose value is used puts its `!` in parentheses", "33:6: write `(!set).checked(4)`: a write call whose value is used puts its `!` in parentheses", errors: 9
   # A write call whose value is used is written `(!s).m(...)` wherever
   # the value goes, not only where its `!` could read as negation: here a
   # `Bool` in a binding, an argument, a `return`, a body's value, a
@@ -7227,13 +7227,13 @@ fail "receiver sigil bool used", "14:5: write `(!self).insert(k)`: a write call 
 
   obj Set
     items: List[Int]
-    fun insert(!self, k: Int) -> Bool
-      for x in ?self.items
+    fun insert(!@, k: Int) -> Bool
+      for x in ?@items
         return false if x == k
-      !self.items.push(k)
+      !@items.push(k)
       true
-    fun checked(!self, k: Int) -> Bool!
-      !self.insert(k)
+    fun checked(!@, k: Int) -> Bool!
+      !@insert(k)
 
   fun add(s: !Set, k: Int) -> Bool
     return !s.insert(k)

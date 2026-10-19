@@ -16,8 +16,8 @@ enough that writing it is no burden:
 obj Packet
   size: Int
 
-  drop(!self)
-    print("freed", self.size)
+  drop(!@)
+    print("freed", @size)
 
 fun size_of(p: ?Packet) -> Int
   p.size
@@ -59,7 +59,7 @@ A count is added only where
 scope ends; there is no implicit error propagation, and no unmarked
 unsafe code.
 What else stays implicit is cheap and cannot surprise: reading through
-a shared handle, lending an argument or a `?self` receiver to read for
+a shared handle, lending an argument or a `?@` receiver to read for
 the call, and moving a local out with `return x` or `break x`, where
 its scope ends anyway. Writing through a receiver
 (`!v.push(x)`) or consuming it (`<u.close()`) is always spelled out,
@@ -179,7 +179,7 @@ One exception is made, for method calls: `?`, `!`, or `<` directly
 before a place followed by a method call applies to the place, so
 `!v.push(x)` is `(!v).push(x)` and `<conn.close()` is
 `(<conn).close()`. The three are exactly the receiver modes a method
-declares (`?self`, `!self`, `<self`), so a call reads the same way
+declares (`?@`, `!@`, `<@`), so a call reads the same way
 whichever mode its method takes; `?p.m()` spells out the read lend
 a plain `p.m()` makes anyway. On a call's result `!` and `<` would mean
 nothing (the result is a temporary the caller already owns, so writing
@@ -206,7 +206,7 @@ reuses the expression sigils for captures (`|+x|` clones, `|<x|` moves,
 `|?x|` and `|!x|` lend, `|~x|` holds weakly). A loop over a List says how its source
 is lent (`for x in ?v`), and a `match` says the same of its subject (`match !e`
 writes the payload in place, `match <e` takes it). Receivers are
-`?self`, `!self`, and `<self`, the only place a sigil may prefix a
+`?@`, `!@`, and `<@`, the only place a sigil may prefix a
 parameter name. A move-assignment is `a = <b`, and a move to nowhere,
 `<x` alone on a line, is a drop: releasing a value early needs no sigil
 of its own, so `-` means only negation. The fixed binding `x =! e`
@@ -220,8 +220,8 @@ Here the algebra is at work in one small program:
 obj Node
   id: Int
 
-  drop(!self)
-    print("drop", self.id)
+  drop(!@)
+    print("drop", @id)
 
 obj Owner
   node: *Node

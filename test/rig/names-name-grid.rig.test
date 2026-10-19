@@ -421,33 +421,33 @@ fail "name grid method none", "`none` is the absent optional"
   obj M0
     v: Int
 
-    fun none(?self) -> Int
-      self.v
+    fun none(?@) -> Int
+      @v
 
-    fun b(?self) -> Int
-      none = self.v + 1
-      none + self.none()
+    fun b(?@) -> Int
+      none = @v + 1
+      none + @none()
 
-    fun c(?self, none: Int) -> Int
-      none + self.none()
+    fun c(?@, none: Int) -> Int
+      none + @none()
 
-    fun d(?self) -> Int
-      g = |?self|
-        none = self.v + 2
+    fun d(?@) -> Int
+      g = |?@|
+        none = @v + 2
         none
       g()
 
-    sub none2(!self)
-      self.v += 1
+    sub none2(!@)
+      @v += 1
 
   obj GM0[T]
     v: T
 
-    fun none(?self) -> Int
+    fun none(?@) -> Int
       1
 
-    fun b(?self, none: Int) -> Int
-      none + self.none()
+    fun b(?@, none: Int) -> Int
+      none + @none()
 
   sub t0()
     m = M0(v: 1)
@@ -462,33 +462,33 @@ fail "name grid method _", "`_` discards a value"
   obj M0
     v: Int
 
-    fun _(?self) -> Int
-      self.v
+    fun _(?@) -> Int
+      @v
 
-    fun b(?self) -> Int
-      _ = self.v + 1
-      _ + self._()
+    fun b(?@) -> Int
+      _ = @v + 1
+      _ + @_()
 
-    fun c(?self, _: Int) -> Int
-      _ + self._()
+    fun c(?@, _: Int) -> Int
+      _ + @_()
 
-    fun d(?self) -> Int
-      g = |?self|
-        _ = self.v + 2
+    fun d(?@) -> Int
+      g = |?@|
+        _ = @v + 2
         _
       g()
 
-    sub _2(!self)
-      self.v += 1
+    sub _2(!@)
+      @v += 1
 
   obj GM0[T]
     v: T
 
-    fun _(?self) -> Int
+    fun _(?@) -> Int
       1
 
-    fun b(?self, _: Int) -> Int
-      _ + self._()
+    fun b(?@, _: Int) -> Int
+      _ + @_()
 
   sub t0()
     m = M0(v: 1)
@@ -503,33 +503,33 @@ fail "name grid method type", ""
   obj M0
     v: Int
 
-    fun type(?self) -> Int
-      self.v
+    fun type(?@) -> Int
+      @v
 
-    fun b(?self) -> Int
-      type = self.v + 1
-      type + self.type()
+    fun b(?@) -> Int
+      type = @v + 1
+      type + @type()
 
-    fun c(?self, type: Int) -> Int
-      type + self.type()
+    fun c(?@, type: Int) -> Int
+      type + @type()
 
-    fun d(?self) -> Int
-      g = |?self|
-        type = self.v + 2
+    fun d(?@) -> Int
+      g = |?@|
+        type = @v + 2
         type
       g()
 
-    sub type2(!self)
-      self.v += 1
+    sub type2(!@)
+      @v += 1
 
   obj GM0[T]
     v: T
 
-    fun type(?self) -> Int
+    fun type(?@) -> Int
       1
 
-    fun b(?self, type: Int) -> Int
-      type + self.type()
+    fun b(?@, type: Int) -> Int
+      type + @type()
 
   sub t0()
     m = M0(v: 1)
@@ -544,33 +544,33 @@ fail "name grid method drop", ""
   obj M0
     v: Int
 
-    fun drop(?self) -> Int
-      self.v
+    fun drop(?@) -> Int
+      @v
 
-    fun b(?self) -> Int
-      drop = self.v + 1
-      drop + self.drop()
+    fun b(?@) -> Int
+      drop = @v + 1
+      drop + @drop()
 
-    fun c(?self, drop: Int) -> Int
-      drop + self.drop()
+    fun c(?@, drop: Int) -> Int
+      drop + @drop()
 
-    fun d(?self) -> Int
-      g = |?self|
-        drop = self.v + 2
+    fun d(?@) -> Int
+      g = |?@|
+        drop = @v + 2
         drop
       g()
 
-    sub drop2(!self)
-      self.v += 1
+    sub drop2(!@)
+      @v += 1
 
   obj GM0[T]
     v: T
 
-    fun drop(?self) -> Int
+    fun drop(?@) -> Int
       1
 
-    fun b(?self, drop: Int) -> Int
-      drop + self.drop()
+    fun b(?@, drop: Int) -> Int
+      drop + @drop()
 
   sub t0()
     m = M0(v: 1)
@@ -585,33 +585,33 @@ fail "name grid method panic", ""
   obj M0
     v: Int
 
-    fun panic(?self) -> Int
-      self.v
+    fun panic(?@) -> Int
+      @v
 
-    fun b(?self) -> Int
-      panic = self.v + 1
-      panic + self.panic()
+    fun b(?@) -> Int
+      panic = @v + 1
+      panic + @panic()
 
-    fun c(?self, panic: Int) -> Int
-      panic + self.panic()
+    fun c(?@, panic: Int) -> Int
+      panic + @panic()
 
-    fun d(?self) -> Int
-      g = |?self|
-        panic = self.v + 2
+    fun d(?@) -> Int
+      g = |?@|
+        panic = @v + 2
         panic
       g()
 
-    sub panic2(!self)
-      self.v += 1
+    sub panic2(!@)
+      @v += 1
 
   obj GM0[T]
     v: T
 
-    fun panic(?self) -> Int
+    fun panic(?@) -> Int
       1
 
-    fun b(?self, panic: Int) -> Int
-      panic + self.panic()
+    fun b(?@, panic: Int) -> Int
+      panic + @panic()
 
   sub t0()
     m = M0(v: 1)
@@ -626,80 +626,39 @@ fail "name grid method main", "module-level declaration `main`"
   obj M0
     v: Int
 
-    fun main(?self) -> Int
-      self.v
+    fun main(?@) -> Int
+      @v
 
-    fun b(?self) -> Int
-      main = self.v + 1
-      main + self.main()
+    fun b(?@) -> Int
+      main = @v + 1
+      main + @main()
 
-    fun c(?self, main: Int) -> Int
-      main + self.main()
+    fun c(?@, main: Int) -> Int
+      main + @main()
 
-    fun d(?self) -> Int
-      g = |?self|
-        main = self.v + 2
+    fun d(?@) -> Int
+      g = |?@|
+        main = @v + 2
         main
       g()
 
-    sub main2(!self)
-      self.v += 1
+    sub main2(!@)
+      @v += 1
 
   obj GM0[T]
     v: T
 
-    fun main(?self) -> Int
+    fun main(?@) -> Int
       1
 
-    fun b(?self, main: Int) -> Int
-      main + self.main()
+    fun b(?@, main: Int) -> Int
+      main + @main()
 
   sub t0()
     m = M0(v: 1)
     !m.main2()
     h = |?m| m.main()
     print(m.main(), m.b(), m.c(10), m.d(), h(), GM0[Int](v: 0).b(5))
-
-  sub main()
-    t0()
-
-fail "name grid method self", "self"
-  obj M0
-    v: Int
-
-    fun self(?self) -> Int
-      self.v
-
-    fun b(?self) -> Int
-      self = self.v + 1
-      self + self.self()
-
-    fun c(?self, self: Int) -> Int
-      self + self.self()
-
-    fun d(?self) -> Int
-      g = |?self|
-        self = self.v + 2
-        self
-      g()
-
-    sub self2(!self)
-      self.v += 1
-
-  obj GM0[T]
-    v: T
-
-    fun self(?self) -> Int
-      1
-
-    fun b(?self, self: Int) -> Int
-      self + self.self()
-
-  sub t0()
-    m = M0(v: 1)
-    !m.self2()
-    h = |?m| m.self()
-    print(m.self(), m.b(), m.c(10), m.d(), h(), GM0[Int](v: 0).b(5))
 
   sub main()
     t0()
@@ -1104,8 +1063,8 @@ fail "name grid tparam none", "`none` is the absent optional"
   obj GT0[none]
     x: none
 
-    fun first(?self) -> none
-      self.x
+    fun first(?@) -> none
+      @x
 
   enum HT0[none]
     one(v: none)
@@ -1132,8 +1091,8 @@ fail "name grid tparam type", ""
   obj GT0[type]
     x: type
 
-    fun first(?self) -> type
-      self.x
+    fun first(?@) -> type
+      @x
 
   enum HT0[type]
     one(v: type)
@@ -1160,8 +1119,8 @@ fail "name grid tparam drop", ""
   obj GT0[drop]
     x: drop
 
-    fun first(?self) -> drop
-      self.x
+    fun first(?@) -> drop
+      @x
 
   enum HT0[drop]
     one(v: drop)
@@ -1188,8 +1147,8 @@ fail "name grid tparam panic", ""
   obj GT0[panic]
     x: panic
 
-    fun first(?self) -> panic
-      self.x
+    fun first(?@) -> panic
+      @x
 
   enum HT0[panic]
     one(v: panic)
@@ -1216,8 +1175,8 @@ fail "name grid tparam main", "module-level declaration `main`"
   obj GT0[main]
     x: main
 
-    fun first(?self) -> main
-      self.x
+    fun first(?@) -> main
+      @x
 
   enum HT0[main]
     one(v: main)
@@ -1240,40 +1199,12 @@ fail "name grid tparam main", "module-level declaration `main`"
   sub main()
     t0()
 
-fail "name grid tparam self", "self"
-  obj GT0[self]
-    x: self
-
-    fun first(?self) -> self
-      self.x
-
-  enum HT0[self]
-    one(v: self)
-    two
-
-  fun id0[self](x: self) -> self
-    x
-
-  fun sz0[self]() -> Int
-    $size(self)
-
-  sub t0()
-    g = GT0[Int](x: 4)
-    h = HT0[Int].one(v: 7)
-    match h
-      .one(v) => print(v)
-      .two => print("two")
-    print(g.first(), id0[Int](5), id0(6), sz0[U8](), g, $name(GT0[Int]))
-
-  sub main()
-    t0()
-
 fail "name grid tparam Self", "built-in type"
   obj GT0[Self]
     x: Self
 
-    fun first(?self) -> Self
-      self.x
+    fun first(?@) -> Self
+      @x
 
   enum HT0[Self]
     one(v: Self)
@@ -1300,8 +1231,8 @@ fail "name grid type none", "`none` is the absent optional"
   obj none
     v: Int
 
-    fun get2(?self) -> Int
-      self.v
+    fun get2(?@) -> Int
+      @v
 
   enum noneE
     a
@@ -1331,8 +1262,8 @@ fail "name grid type _", "`_` discards a value"
   obj _
     v: Int
 
-    fun get2(?self) -> Int
-      self.v
+    fun get2(?@) -> Int
+      @v
 
   enum _E
     a
@@ -1362,8 +1293,8 @@ fail "name grid type type", ""
   obj type
     v: Int
 
-    fun get2(?self) -> Int
-      self.v
+    fun get2(?@) -> Int
+      @v
 
   enum typeE
     a
@@ -1393,8 +1324,8 @@ fail "name grid type drop", ""
   obj drop
     v: Int
 
-    fun get2(?self) -> Int
-      self.v
+    fun get2(?@) -> Int
+      @v
 
   enum dropE
     a
@@ -1424,8 +1355,8 @@ fail "name grid type panic", ""
   obj panic
     v: Int
 
-    fun get2(?self) -> Int
-      self.v
+    fun get2(?@) -> Int
+      @v
 
   enum panicE
     a
@@ -1455,8 +1386,8 @@ fail "name grid type main", "duplicate declaration of `main`"
   obj main
     v: Int
 
-    fun get2(?self) -> Int
-      self.v
+    fun get2(?@) -> Int
+      @v
 
   enum mainE
     a
@@ -1482,43 +1413,12 @@ fail "name grid type main", "duplicate declaration of `main`"
   sub main()
     t0()
 
-fail "name grid type self", "self"
-  obj self
-    v: Int
-
-    fun get2(?self) -> Int
-      self.v
-
-  enum selfE
-    a
-    b
-
-  error selfErr
-    bad
-
-  fun mk0(v: Int) -> self
-    self(v: v)
-
-  fun fails0() -> Int!
-    return selfErr.bad
-
-  sub t0()
-    o = self(v: 3)
-    print(o.get2(), o, $name(self), mk0(2).v, selfE.b)
-    x = fails0() catch |e|
-      print(e)
-      0
-    print(x)
-
-  sub main()
-    t0()
-
 fail "name grid type new", "new"
   obj new
     v: Int
 
-    fun get2(?self) -> Int
-      self.v
+    fun get2(?@) -> Int
+      @v
 
   enum newE
     a
@@ -1713,15 +1613,15 @@ fail "name grid static from_int", "from_int"
   fun PS0.from_int() -> PS0
     PS0(x: 4)
 
-  sub PS0.from_int2(!self)
-    self.x += 1
+  sub PS0.from_int2(!@)
+    @x += 1
 
   enum KS0
     a
     b
 
-    fun from_int(?self) -> Int
-      Int(self) + 7
+    fun from_int(?@) -> Int
+      Int(@) + 7
 
   fun KS0.from_int3() -> KS0
     .b
@@ -1781,8 +1681,8 @@ fail "name grid module none", "`none` is the absent optional"
       pub k: K0 = .none
       pub none: Int = 4
 
-      pub fun none2(?self) -> Int
-        self.none + 1
+      pub fun none2(?@) -> Int
+        @none + 1
 
     pub error E0
       zz
@@ -1849,8 +1749,8 @@ fail "name grid module type", ""
       pub k: K0 = .type
       pub type: Int = 4
 
-      pub fun type2(?self) -> Int
-        self.type + 1
+      pub fun type2(?@) -> Int
+        @type + 1
 
     pub error E0
       zz
@@ -1920,8 +1820,8 @@ fail "name grid module drop", ""
       pub k: K0 = .drop
       pub drop: Int = 4
 
-      pub fun drop2(?self) -> Int
-        self.drop + 1
+      pub fun drop2(?@) -> Int
+        @drop + 1
 
     pub error E0
       zz
@@ -1985,8 +1885,8 @@ fail "name grid module panic", ""
       pub k: K0 = .panic
       pub panic: Int = 4
 
-      pub fun panic2(?self) -> Int
-        self.panic + 1
+      pub fun panic2(?@) -> Int
+        @panic + 1
 
     pub error E0
       zz
@@ -2053,8 +1953,8 @@ fail "name grid module main", "cyclic import"
       pub k: K0 = .main
       pub main: Int = 4
 
-      pub fun main2(?self) -> Int
-        self.main + 1
+      pub fun main2(?@) -> Int
+        @main + 1
 
     pub error E0
       zz
@@ -2121,8 +2021,8 @@ fail "name grid module from_int", "from_int"
       pub k: K0 = .from_int
       pub from_int: Int = 4
 
-      pub fun from_int2(?self) -> Int
-        self.from_int + 1
+      pub fun from_int2(?@) -> Int
+        @from_int + 1
 
     pub error E0
       zz
@@ -2138,74 +2038,6 @@ fail "name grid module from_int", "from_int"
 
     pub fun from_int(x: Int) -> Int
       x + 100
-
-fail "name grid module self", "module-level declaration `self`"
-  use lib
-  use self
-
-  fun pv0(p: lib.P0) -> Int
-    match p
-      .self(w) => w
-      .pp(v) => v
-
-  fun gv0(g: lib.G0[Int]) -> Int
-    match g
-      .self(w: x) => x
-      _ => 0
-
-  sub t0()
-    b = lib.Box0()
-    print(Int(b.k), b.self, b.self2(), lib.pick0(), lib.pick0(.zz), lib.self(1), self.two())
-    k: lib.K0 = .self
-    print(k == lib.K0.self, k == .self)
-    match k
-      .self => print("m")
-      .zz => print("z")
-    print(pv0(lib.P0.self(w: 5)), gv0(lib.G0[Int].self(w: 6)))
-    x = lib.fails0(0) catch |e|
-      print(e == lib.E0.self, e)
-      -1
-    print(x, lib.Box0(self: 9).self)
-
-  sub main()
-    t0()
-  file "lib.rig"
-    pub enum K0
-      zz
-      self
-
-    pub enum P0
-      pp(v: Int)
-      self(w: Int)
-
-    pub enum G0[T]
-      gg(v: T)
-      self(w: T)
-
-    pub obj Box0
-      pub k: K0 = .self
-      pub self: Int = 4
-
-      pub fun self2(?self) -> Int
-        self.self + 1
-
-    pub error E0
-      zz
-      self
-
-    pub fun pick0(k: K0 = .self) -> Int
-      Int(k)
-
-    pub fun fails0(k: Int) -> Int!
-      if k == 0
-        return E0.self
-      k
-
-    pub fun self(x: Int) -> Int
-      x + 100
-  file "self.rig"
-    pub fun two() -> Int
-      2
 
 fail "name grid module __rig", "reserved for the compiler"
   use lib
@@ -2257,8 +2089,8 @@ fail "name grid module __rig", "reserved for the compiler"
       pub k: K0 = .__rig
       pub __rig: Int = 4
 
-      pub fun __rig2(?self) -> Int
-        self.__rig + 1
+      pub fun __rig2(?@) -> Int
+        @__rig + 1
 
     pub error E0
       zz
@@ -2325,8 +2157,8 @@ fail "name grid module __rig_x", "reserved for the compiler"
       pub k: K0 = .__rig_x
       pub __rig_x: Int = 4
 
-      pub fun __rig_x2(?self) -> Int
-        self.__rig_x + 1
+      pub fun __rig_x2(?@) -> Int
+        @__rig_x + 1
 
     pub error E0
       zz
@@ -2393,8 +2225,8 @@ fail "name grid module __rig_tmp_1", "reserved for the compiler"
       pub k: K0 = .__rig_tmp_1
       pub __rig_tmp_1: Int = 4
 
-      pub fun __rig_tmp_12(?self) -> Int
-        self.__rig_tmp_1 + 1
+      pub fun __rig_tmp_12(?@) -> Int
+        @__rig_tmp_1 + 1
 
     pub error E0
       zz
@@ -2461,8 +2293,8 @@ fail "name grid module __rig_Self", "reserved for the compiler"
       pub k: K0 = .__rig_Self
       pub __rig_Self: Int = 4
 
-      pub fun __rig_Self2(?self) -> Int
-        self.__rig_Self + 1
+      pub fun __rig_Self2(?@) -> Int
+        @__rig_Self + 1
 
     pub error E0
       zz
@@ -2529,8 +2361,8 @@ fail "name grid module __rig_module", "reserved for the compiler"
       pub k: K0 = .__rig_module
       pub __rig_module: Int = 4
 
-      pub fun __rig_module2(?self) -> Int
-        self.__rig_module + 1
+      pub fun __rig_module2(?@) -> Int
+        @__rig_module + 1
 
     pub error E0
       zz

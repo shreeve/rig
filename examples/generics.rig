@@ -11,21 +11,21 @@ obj Tape
   label: ?String
   minutes: Int
 
-  drop(!self)
-    print("eject", self.label)
+  drop(!@)
+    print("eject", @label)
 
 obj Stack[T]
   items: List[T]
 
-  sub push(!self, x: T)
-    !self.items.push(<x)
+  sub push(!@, x: T)
+    !@items.push(<x)
 
-  fun pop(!self) -> T?
-    (!self.items).pop()
+  fun pop(!@) -> T?
+    (!@items).pop()
 
-  fun map[U](?self, f: fun(?T) -> U) -> Stack[U]
+  fun map[U](?@, f: fun(?T) -> U) -> Stack[U]
     out = Stack[U](items: List())
-    for x in ?self.items
+    for x in ?@items
       !out.push(f(?x))
     out
 
@@ -33,12 +33,12 @@ obj Ring[T, n: Int]
   items: [n]T
   count: Int = 0
 
-  sub put(!self, x: T)
-    self.items[self.count % n] = x
-    self.count += 1
+  sub put(!@, x: T)
+    @items[@count % n] = x
+    @count += 1
 
-  fun last(?self) -> T
-    self.items[(self.count - 1) % n]
+  fun last(?@) -> T
+    @items[(@count - 1) % n]
 
 fun total[n: Int](xs: [n]Int) -> Int
   sum = 0

@@ -102,8 +102,8 @@ use std.os
 
 obj Res
   name: ?String
-  drop(!self)
-    print("dropping", self.name)
+  drop(!@)
+    print("dropping", @name)
 
 fun down(n: Int) -> Int
   a = [64 of n]

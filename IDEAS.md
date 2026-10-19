@@ -27,15 +27,15 @@ obj Pak
   entries: List[PakEntry]
   next: (*Pak)?
 
-  fun find(?self, name: ?String) -> (?PakEntry)?
-    self.entries.find(|e| e.name == name)
+  fun find(?@, name: ?String) -> (?PakEntry)?
+    @entries.find(|e| e.name == name)
 
-  fun over(<self, rest: Pak) -> Pak
-    self.next = *<rest
-    <self
+  fun over(<@, rest: Pak) -> Pak
+    @next = *<rest
+    <@
 
-  fun read_file(?self, name: ?String) -> List[U8]?!
-    for p in self.path()
+  fun read_file(?@, name: ?String) -> List[U8]?!
+    for p in @path()
       if p.read_own(name)! as bytes
         return bytes
     none
@@ -60,7 +60,7 @@ and `max` on slices and Lists, each taking a closure that is not stored
   the type that comes back.
 
 ### 0.3 `for` over an iterator *(decided)*
-`for x in !it`, where `it` has `next(!self) -> T?`, is the desugaring
+`for x in !it`, where `it` has `next(!@) -> T?`, is the desugaring
 `while (!it).next() as x`, stated in INTERNALS ("Loops over an
 iterator") and SPEC §6 (`for`). A source made there is held in a hidden
 binding for the loop, and `<it` moves a place into one. The checker
@@ -85,11 +85,11 @@ These came out of writing real code (the `pak.rs` sketch) and are each a
 small round.
 
 ### 1.1 `for e in ?v` should give views of the elements *(new)*
-In `for e in ?self.entries`, `e` is a **copy** when the element type
+In `for e in ?@entries`, `e` is a **copy** when the element type
 copies, such as an object of `?String` values and integers. So this is rejected:
 ```rig fragment
-fun find(?self, name: ?String) -> (?PakEntry)?
-  for e in ?self.entries
+fun find(?@, name: ?String) -> (?PakEntry)?
+  for e in ?@entries
     return ?e if e.name == name     # error: `e` is local to this function
   none
 ```
@@ -111,18 +111,18 @@ it is parenthesized, so it is always `?(T?)` or `(?T)?`. Both readings
 stay one keystroke away, and neither one is ever a guess.
 
 ### 1.3 A moved-in parameter is the callee's own value *(new)*
-`fun over(<self, rest: Pak)` takes `self` by move, but `self` cannot be
+`fun over(<@, rest: Pak)` takes `@` by move, but `@` cannot be
 assigned, so the body has to rebind it:
 ```rig fragment
-fun over(<self, rest: Pak) -> Pak
-  p = <self
+fun over(<@, rest: Pak) -> Pak
+  p = <@
   p.next = *<rest
   <p
 ```
 Nothing else can see a moved-in value, so writing it is safe.
 
 **Idea:** a `<` parameter is writable, like a local, giving
-`self.next = *<rest` then `<self`. Rust's `mut self` does the same. Read
+`@next = *<rest` then `<@`. Rust's `mut self` does the same. Read
 and write parameters stay as they are.
 
 ### 1.4 Error values that carry data *(decided)*

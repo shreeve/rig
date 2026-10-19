@@ -268,8 +268,8 @@ fail "t-q6", "cannot lend `t` to write while a read loan is live"
 
   obj T
     x: Int
-    fun get(?self, n: Int) -> Int
-      self.x + n
+    fun get(?@, n: Int) -> Int
+      @x + n
 
   fun bt(t: !T) -> Int
     t.x += 10
@@ -395,8 +395,8 @@ test "t1-ex", exit: 3, '''
   obj R
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   fun main() -> Int
     r = R(n: 1)
@@ -447,12 +447,12 @@ test "t1-lo", '''
   obj R
     s: U64
 
-    sub touch(!self, xs: ![]Int)
-      self.s += 1
+    sub touch(!@, xs: ![]Int)
+      @s += 1
       !xs.swap(0, 1)
 
-    sub gtouch[T](!self, xs: ![]T)
-      self.s += 1
+    sub gtouch[T](!@, xs: ![]T)
+      @s += 1
       !xs.swap(0, 1)
 
   r = R(s: 1)
@@ -540,8 +540,8 @@ fail "t1-vi", "cannot lend `v` to write while an earlier argument's read of it i
   obj B
     n: Int
 
-    drop(!self)
-      print("drop", self.n)
+    drop(!@)
+      print("drop", @n)
 
   v: List[Int] = List()
   !v.insert(0, 3)
@@ -574,16 +574,16 @@ test "take-p3", '''
     v: Int
     next: ^Node?
 
-    drop(!self)
-      cur = <self.next
+    drop(!@)
+      cur = <@next
       while <cur as n
         cur = <n.next
 
   obj W[T]
     x: T?
 
-    fun grab(!self) -> T?
-      <self.x
+    fun grab(!@) -> T?
+      <@x
 
   head: ^Node? = none
   i = 0
@@ -698,8 +698,8 @@ fail "viewvalue-a6", "a view of the temporary `mk()` outlives its statement, whi
     items: List[Int]
     name: String
 
-    fun label(!self) -> !String
-      !self.name
+    fun label(!@) -> !String
+      !@name
 
   fun mk() -> Bag
     Bag(items: List(), name: String("a"))
