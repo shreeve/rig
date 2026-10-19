@@ -2956,23 +2956,83 @@ without end. An alias that names a deeper type is rejected.
 ### Tests
 
 `test "name"` (or `test 'name'`) declares a block that is checked like
-a function body that may fail: `f()!` in a test fails the test with
-that error. `rig test X` runs the tests of `X` itself and no others, as
+a function body that may fail. It takes one argument, its name, and its
+body decides its result:
+
+- it fails when its last line, or a `return`, gives a `Bool` that is
+  `false`, as a `fun` body's last line is its value;
+- it fails when a `!` passes an error out of it, or when it panics;
+- otherwise it passes.
+
+`rig test X` runs the tests of `X` itself and no others, as
 Go's `go test pkg` does: the test blocks of the file `X`, or, when `X` is a
 directory module, those of its files and its `*_test.rig` files
 ([§14](#directory-modules)). The test blocks of the modules `X` imports,
 the standard library's included, are checked and not run. It prints
-`ok    test "name"` for each test that finishes, or
+`ok    test "name"` for each test that passes, or
 `FAIL  test "name": ...` with the reason, and then `N passed, M failed`.
+For a `false`, the reason is the source of the `Bool`
+(`sum([1, 2, 3]) == 7 is false`); for `return false`, the rest of its
+line, which holds any guard (`return false if xs.len != 2`); for a last
+line `false`, where it is (`reached false on line 12`).
 `rig run` ignores test blocks. `rig check --tests X` checks what
 `rig test X` builds, without building or running it.
 
 ```rig
-fun area(w: Int, h: Int) -> Int
-  w * h
+error Parse
+  empty
 
-test "area"
-  print(area(2, 3))
+fun sum(xs: []Int) -> Int
+  total = 0
+  for x in xs
+    total += x
+  total
+
+fun parse(s: ?String) -> Int!
+  return Parse.empty if s.len == 0
+  s.len
+
+# One check: the last line decides.
+test "sum adds the elements"
+  sum([1, 2, 3]) == 6
+
+# Several checks: `return false if ...` partway, the last line at the end.
+test "a list grows and shrinks"
+  xs: List[Int] = List()
+  !xs.push(1)
+  !xs.push(2)
+  return false if xs.len != 2
+  n = (!xs).pop() ?? -1
+  n == 2 and xs.len == 1
+
+# A call that can fail: `!` fails the test with its error.
+test "parse reads text"
+  parse("abc")! == 3
+
+# Expecting an error: `catch` decides, and getting no error fails.
+test "parse rejects empty text"
+  _ = parse("") catch |e| return e == Parse.empty
+  false
+
+test "sum is wrong on purpose"
+  sum([1, 2, 3]) == 7
+
+# Not ending in a Bool: it passes unless it panics or fails.
+test "prints and passes"
+  print(sum([4, 5]))
+```
+
+`rig test` prints:
+
+```text
+ok    test "sum adds the elements"
+ok    test "a list grows and shrinks"
+ok    test "parse reads text"
+ok    test "parse rejects empty text"
+FAIL  test "sum is wrong on purpose": sum([1, 2, 3]) == 7 is false
+9
+ok    test "prints and passes"
+5 passed, 1 failed
 ```
 
 ### Constants

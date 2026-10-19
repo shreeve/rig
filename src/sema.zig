@@ -937,6 +937,9 @@ pub const Facts = struct {
     /// Branches of a read branching value that a name holds (`a` in
     /// `print(a if c else b)`): read where they are, never moved out.
     in_place_reads: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// The `Bool`s that decide a test, its last line and each `return`
+    /// with a value in it -> what a failing one reports.
+    test_checks: std.AutoHashMapUnmanaged(u64, []const u8) = .empty,
     /// Values a context reads, takes, or lends (`Use`), keyed by the
     /// value: a name, or a value that yields one of its parts
     /// (`valueParts`). Emit moves a name at a tail of the value out of
@@ -1837,6 +1840,7 @@ fn writeFactValue(ctx: *const SemContext, a: std.mem.Allocator, w: *std.Io.Write
     if (comptime std.mem.eql(u8, name, "scopes")) return w.print(" scope {d}", .{v});
     switch (V) {
         StringCall, Use, Upgrade => try w.print(" {s}", .{@tagName(v)}),
+        []const u8 => try w.print(" \"{f}\"", .{std.zig.fmtString(v)}),
         Lift => try w.print(" {s} from {s}", .{ try formatTypeIn(ctx, a, v.into), try formatTypeIn(ctx, a, v.from) }),
         HeaderFact => try w.print(" {s}", .{@tagName(v.how)}),
         ReadOnlyField => try w.print(" {s}.{s}.{s}", .{ v.module, v.owner, v.field }),
@@ -3113,6 +3117,17 @@ pub const SemContext = struct {
     /// end (`recordTempDrop`).
     pub fn dropsTemp(self: *const SemContext, node: Sexp) bool {
         return self.facts.temp_drops.contains(nodeKey(node) orelse return false);
+    }
+
+    pub fn recordTestCheck(self: *SemContext, node: Sexp, shown: []const u8) !void {
+        try self.facts.test_checks.put(self.allocator, recordExprKey(node) orelse return, shown);
+    }
+
+    /// When `node`, a test's last line or a `return` in a test, gives the
+    /// `Bool` that decides the test (`recordTestCheck`), what `rig test`
+    /// reports when it is `false`.
+    pub fn testCheckOf(self: *const SemContext, node: Sexp) ?[]const u8 {
+        return self.facts.test_checks.get(exprKey(node) orelse return null);
     }
 
     pub fn recordReadInPlace(self: *SemContext, node: Sexp) !void {

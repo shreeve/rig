@@ -998,6 +998,11 @@ of its module, before or after it.
 
 `test "name"` (or `test 'name'`) declares a block that `rig test` runs when it is in the file or directory module `rig test` is given, not in a module that one imports.
 
+It takes one argument, its name. It fails when its last line, or a
+`return`, gives a `Bool` that is `false`; when a `!` passes an error out
+of it; or when it panics. Otherwise it passes
+([SPEC §3](SPEC.md#tests)).
+
 ### Imports and extern
 
 `use name` imports the module `name.rig` or the directory `name/`,
