@@ -7,7 +7,8 @@ record. The current design is CONCURRENCY.md.
 **A proposal for discussion. Nothing here is built.** It draws on three
 expert reviews: of Tokio's runtime source; of Go, Erlang/BEAM, Java Loom,
 .NET, and JavaScript; and of Zig 0.17's `std.Io`, structured-concurrency
-theory, scheduling theory, and soundness. Their full reports are in this directory. Decisions are listed at the end, each with the answer
+theory, scheduling theory, and soundness. Their full reports are in
+this directory. Decisions are listed at the end, each with the answer
 this document assumes. Once they are settled, the examples become
 ```` ```rig pending ```` blocks and SPEC gains the rules.
 
