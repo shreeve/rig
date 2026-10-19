@@ -1,9 +1,13 @@
 # Rig's tasks timed five ways (bench/tasks/README.md): starting and
 # waiting for many tiny tasks in waves (spawn), one at a time (chain),
 # CPU work split across tasks (fanout), tasks that only yield (yield),
-# and a chain while CPU-bound tasks keep every core busy (hog). Prints `NAME NS CHECK` per benchmark (bench/tasks/bench-tasks);
+# and a chain while CPU-bound tasks keep every core busy (hog). Run as
+# `tasks many`, it holds many sleeping tasks at once (many), and as
+# `tasks idle`, none, sleeping as long: the driver reads the memory each
+# takes. Prints `NAME NS CHECK` per benchmark (bench/tasks/bench-tasks);
 # the checks must agree with tokio.rs's and main.go's.
 
+use std.os
 use std.task
 use std.time
 
@@ -18,6 +22,8 @@ HOG_TASKS = 32
 HOG_WORK = 20000000
 HOG_CHAIN = 50
 HOG_SLICE = 1000000
+MANY = 10000
+MANY_NAP_MS = 200
 
 fun leaf(i: Int) -> Int
   i
@@ -97,7 +103,34 @@ called sub hog()
     sum += y
   print("hog", ns, sum)
 
+fun nap() -> Int!
+  time.sleep(MANY_NAP_MS * time.MS)!
+  1
+
+called sub many()
+  t = time.now()
+  ts = Tasks[Int!]()
+  for _ in 0..MANY
+    !ts.add(nap()&)
+  xs = <ts.wait_all() catch List[Int]()
+  sum = 0
+  for x in xs
+    sum += x
+  print("many", t.elapsed(), sum)
+
+called sub idle()
+  t = time.now()
+  n = nap() catch 0
+  print("idle", t.elapsed(), n)
+
 sub main()
+  args = os.args()
+  if args.len > 1
+    if args[1] == "many"
+      many()
+    else
+      idle()
+    return
   spawn()
   chain()
   fanout()

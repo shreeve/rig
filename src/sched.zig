@@ -2,9 +2,8 @@
 //! switched by saving and restoring the registers a call keeps
 //! (`switchTo`), not by the operating system. One worker thread per core
 //! runs them; the thread that runs `main` is worker 0, and `main` is the
-//! first fiber (`runMain`). A program selects it with `__rig_scheduler`
-//! (`RIG_SCHEDULER=1` when `bin/rig` builds it); `bin/rig` writes this
-//! file beside the runtime as `rig/sched.zig`.
+//! first fiber (`runMain`). Every program that makes tasks runs on it;
+//! `bin/rig` writes this file beside the runtime as `rig/sched.zig`.
 //!
 //! Each worker owns a ring of fibers ready to run, which it takes from in
 //! order; a worker with none takes from the global queue, or steals half

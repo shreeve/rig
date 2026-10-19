@@ -6,8 +6,6 @@ usage: bench/tasks/bench-tasks [options]
   --variants a,b  what to build and time (default: rig-fast,tokio,go):
                     rig-fast   bench/tasks/tasks.rig, rig build --release=fast
                     rig-safe   the same, rig build --release (Zig's safe mode)
-                    rig-sched  rig-fast on the scheduler (RIG_SCHEDULER=1,
-                               src/sched.zig)
                     tokio      bench/tasks/tokio, cargo build --release, on
                                Tokio's multi-threaded runtime
                     go         bench/tasks/go, go build
@@ -23,8 +21,10 @@ usage: bench/tasks/bench-tasks [options]
                   dated, with NOTE (say, "#348: fibers on one worker")
 
 Each program prints `NAME NS CHECK` per benchmark; the checks must
-agree. The report gives each benchmark's time per operation, and how
-each variant compares with Tokio.
+agree. The report gives each benchmark's time per operation, the
+memory each live task takes (`memory`: the peak memory of a run that
+holds MANY sleeping tasks at once, less that of a run that holds none,
+over MANY), and how each variant compares with Tokio.
 """
 import argparse, os, shutil, subprocess, sys, tempfile
 
@@ -58,9 +58,6 @@ def build(v, out, tokio):
     tmp = exe + ".new"
     if v.startswith("rig-"):
         env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out-" + v))
-        env.pop("RIG_SCHEDULER", None)
-        if v == "rig-sched":
-            env["RIG_SCHEDULER"] = "1"
         flag = "--release" if v == "rig-safe" else "--release=fast"
         subprocess.run([RIG, "build", flag, "-o", tmp, os.path.join(HERE, "tasks.rig")], check=True, env=env)
     elif v == "tokio":
@@ -88,6 +85,56 @@ def run(exe):
     return rows
 
 
+# How many tasks `exe many` holds at once (the programs' MANY).
+MANY = 10000
+
+
+def peak(exe, mode):
+    """`exe mode`'s output and its peak resident memory, in bytes. On
+    macOS, the child's `ru_maxrss`. On Linux, that counts this process's
+    memory too, copied at the fork, so the driver reads the program's own
+    high-water mark (`VmHWM`) while it runs, which both modes keep it
+    doing for 200 ms."""
+    p = subprocess.Popen([exe, mode], stdout=subprocess.PIPE, text=True)
+    hwm = 0
+    if sys.platform != "darwin":
+        import time
+        while p.poll() is None:
+            try:
+                with open("/proc/%d/status" % p.pid) as f:
+                    for line in f:
+                        if line.startswith("VmHWM:"):
+                            hwm = max(hwm, int(line.split()[1]) * 1024)
+            except (OSError, ValueError):
+                pass
+            time.sleep(0.005)
+        out = p.stdout.read()
+    else:
+        out = p.stdout.read()
+        _, status, usage = os.wait4(p.pid, 0)
+        p.returncode = os.waitstatus_to_exitcode(status)
+        hwm = usage.ru_maxrss
+    if p.returncode != 0:
+        sys.exit("bench-tasks: `%s %s` exited %d" % (exe, mode, p.returncode))
+    return out, hwm
+
+
+def memory(exe):
+    """The memory one live task takes, in bytes, and the run's check."""
+    out, many = peak(exe, "many")
+    _, idle = peak(exe, "idle")
+    name, _, check = out.split()
+    return max(1, many - idle) / MANY, check
+
+
+def size(b):
+    if b >= 1024 * 1024:
+        return "%.1f MiB" % (b / 1024 / 1024)
+    if b >= 1024:
+        return "%.1f KiB" % (b / 1024)
+    return "%.0f B" % b
+
+
 def per_op(name, ns):
     unit, count = OPS[name]
     v = ns / count
@@ -112,7 +159,8 @@ def record(note, variants, best):
     with open(path, "a") as f:
         for v in variants:
             if v.startswith("rig-"):
-                f.write("| %s | %s | %s | %s |\n" % (day, note, v, " | ".join(cell(n, best[v][n]) for n in OPS)))
+                cells = [cell(n, best[v][n]) for n in OPS] + [size(best[v]["memory"])]
+                f.write("| %s | %s | %s | %s |\n" % (day, note, v, " | ".join(cells)))
     print("bench-tasks: recorded in %s" % path, file=sys.stderr)
 
 
@@ -148,12 +196,19 @@ def main():
                     sys.exit("bench-tasks: %s's %s check is %s, not %s" % (v, name, check, checks[name]))
                 checks[name] = check
                 best[v][name] = min(ns, best[v].get(name, ns))
+            per_task, check = memory(exes[v])
+            if checks.setdefault("many", check) != check:
+                sys.exit("bench-tasks: %s's many check is %s, not %s" % (v, check, checks["many"]))
+            best[v]["memory"] = min(per_task, best[v].get("memory", per_task))
     base = "tokio" if "tokio" in variants else variants[0]
     print("%-8s" % "" + "".join("%-18s" % v for v in variants) + "vs %s" % base)
     for name in OPS:
         cells = "".join("%-18s" % per_op(name, best[v][name]) for v in variants)
         ratios = ", ".join("%s %s" % (v, compare(best[v][name], best[base][name])) for v in variants if v != base)
         print("%-8s%s%s" % (name, cells, ratios))
+    cells = "".join("%-18s" % (size(best[v]["memory"]) + "/task") for v in variants)
+    ratios = ", ".join("%s %s" % (v, compare(best[v]["memory"], best[base]["memory"]).replace("slower", "more").replace("faster", "less")) for v in variants if v != base)
+    print("%-8s%s%s" % ("memory", cells, ratios))
     if a.record:
         record(a.record, variants, best)
     if not a.out:

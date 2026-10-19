@@ -25,7 +25,6 @@ const tasks = @import("tasks.zig");
 pub const Task = tasks.Task;
 pub const Tasks = tasks.Tasks;
 pub const waitTasks = tasks.waitTasks;
-pub const waitPoint = tasks.waitPoint;
 pub const taskCheck = tasks.check;
 pub const taskSleep = tasks.sleep;
 
@@ -3081,19 +3080,17 @@ const leak_trace = leak_checked and @hasDecl(root, "__rig_leak_trace") and root.
 const sanitize = leak_checked and Sanitizer.supported and @hasDecl(root, "__rig_sanitize") and root.__rig_sanitize;
 
 // Tasks. A program that makes tasks (`f(x)&`) declares `__rig_tasks` in
-// its root module; on Zig's `Threaded` backend each of its tasks runs on a
-// thread of its own. The runtime then keeps what belongs to one task in
-// that thread's `TaskState`, and takes a lock around output and the leak
-// checker. Any other program compiles as if there were one thread, at no
-// cost. The runtime's own unit tests take the concurrent paths, so they
-// are tested.
+// its root module, and runs them on the scheduler (`sched.zig`): fibers
+// on a worker thread per core. The runtime then keeps what belongs to one
+// task in its fiber's `TaskState`, and takes a lock around output and the
+// leak checker. Any other program compiles as if there were one thread,
+// at no cost. The runtime's own unit tests take the concurrent paths, so
+// they are tested.
 
 const makes_tasks = @hasDecl(root, "__rig_tasks") and root.__rig_tasks;
 const concurrent = builtin.is_test or makes_tasks;
-/// A program that makes tasks runs them on the scheduler (`sched.zig`)
-/// when its root declares `__rig_scheduler`, and on the `Threaded`
-/// backend otherwise.
-pub const scheduled = makes_tasks and @hasDecl(root, "__rig_scheduler") and root.__rig_scheduler;
+/// A program that makes tasks runs them on the scheduler (`sched.zig`).
+pub const scheduled = makes_tasks;
 
 /// What the runtime keeps for the task that is running: the depth and
 /// queue of nested `*T` releases (`drainDropQueue`), how deep a `print`
@@ -3536,41 +3533,12 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
     return call.result;
 }
 
-/// The guards a task's stack takes. A task's stack is as large as
-/// `main`'s, for the same frames, and its guard is the smaller of
-/// `main`'s, which still holds any frame the compiler accepts
-/// (`max_frame_reach`), so many tasks fit in the address space.
-const task_guard_sizes = [_]usize{guard_sizes[guard_sizes.len - 1]};
-/// A task's stack and its guard, as `sched.zig` maps a fiber's.
+/// A task's stack and its guard, as `sched.zig` maps a fiber's. A task's
+/// stack is as large as `main`'s, for the same frames, and its guard is
+/// the smaller of `main`'s, which still holds any frame the compiler
+/// accepts (`max_frame_reach`), so many tasks fit in the address space.
 pub const task_stack_size = stack_size;
-pub const task_guard = task_guard_sizes[0];
-
-/// `f(args...)` on a stack of the task's own, mapped for the call and
-/// unmapped after it, as `onOwnStack` runs `main`: called on the thread
-/// that runs a task. A task whose stack cannot be mapped ends the
-/// program, as running out of memory does.
-pub fn onTaskStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn".return_type.? {
-    if (!own_stack) return @call(.auto, f, args);
-    const top = mapStack(&task_guard_sizes) orelse oom();
-    const guard = task().stack_guard;
-    defer {
-        const mapped = top + std.heap.pageSize() - guard.lo;
-        std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(guard.lo))[0..mapped]);
-        task().stack_guard = .{};
-    }
-    const Call = struct {
-        args: @TypeOf(args),
-        result: @typeInfo(@TypeOf(f)).@"fn".return_type.? = undefined,
-
-        fn run(p: *anyopaque) callconv(.c) void {
-            const call: *@This() = @ptrCast(@alignCast(p));
-            call.result = @call(.auto, f, call.args);
-        }
-    };
-    var call: Call = .{ .args = args };
-    switchStack(&call, &Call.run, top - unwind_headroom);
-    return call.result;
-}
+pub const task_guard = guard_sizes[guard_sizes.len - 1];
 
 fn attachSignalStack() callconv(.c) void {
     std.Thread.maybeAttachSignalStack();
@@ -3809,9 +3777,11 @@ pub fn processArgs() []const []const u8 {
 }
 
 /// The `std.Io` the runtime and the standard library's Zig files do
-/// their I/O through: synchronous, on the calling thread; and, in a
-/// program that makes tasks, the `Threaded` backend that runs them, set
-/// up by `start` and joined by `finish`.
+/// their I/O through: synchronous, on the calling thread. In a program
+/// that makes tasks, a `Threaded` instance set up by `start` and torn
+/// down by `finish`, for what the scheduler's threads call: the blocking
+/// pool's work, clocks, and the futexes idle workers sleep on. It runs
+/// no tasks.
 pub fn io() std.Io {
     return if (makes_tasks) threaded.io() else std.Io.Threaded.global_single_threaded.io();
 }
@@ -5215,35 +5185,6 @@ test "the leak checker counts allocations made by many tasks at once" {
     for (threads) |t| t.join();
     try testing.expectEqual(0, checker.live.count());
     try testing.expectEqual(0, checker.bytes);
-}
-
-test "a task runs on a stack of its own, mapped for it and unmapped after" {
-    if (!own_stack) return error.SkipZigTest;
-    const Run = struct {
-        fn deep(n: usize) usize {
-            var pad: [1024]u8 = undefined;
-            std.mem.doNotOptimizeAway(&pad);
-            return if (n == 0) 0 else 1 + deep(n - 1);
-        }
-        fn body(out: *usize, guard_set: *bool) void {
-            guard_set.* = task().stack_guard.hi != 0;
-            out.* = deep(20_000);
-        }
-        fn onThread(out: *usize, guard_set: *bool, cleared: *bool) void {
-            onTaskStack(body, .{ out, guard_set });
-            cleared.* = task().stack_guard.hi == 0;
-        }
-    };
-    var out: [4]usize = @splat(0);
-    var guard_set: [4]bool = @splat(false);
-    var cleared: [4]bool = @splat(false);
-    var threads: [4]std.Thread = undefined;
-    for (&threads, &out, &guard_set, &cleared) |*t, *o, *g, *c| t.* = try std.Thread.spawn(.{}, Run.onThread, .{ o, g, c });
-    for (threads) |t| t.join();
-    for (out, guard_set, cleared) |o, g, c| {
-        try testing.expectEqual(20_000, o);
-        try testing.expect(g and c);
-    }
 }
 
 test "values print the way Rig writes them" {

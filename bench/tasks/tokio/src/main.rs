@@ -1,8 +1,10 @@
 //! Tokio's tasks timed as bench/tasks/tasks.rig times Rig's: spawn,
-//! chain, fanout, yield, hog. Prints `NAME NS CHECK` per benchmark.
+//! chain, fanout, yield, hog. Run as `tasks-tokio many`, it holds many
+//! sleeping tasks at once (many), and as `tasks-tokio idle`, none,
+//! sleeping as long. Prints `NAME NS CHECK` per benchmark.
 
 use std::hint::black_box;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const WAVES: i64 = 100;
 const SIZE: i64 = 1000;
@@ -15,6 +17,8 @@ const HOG_TASKS: i64 = 32;
 const HOG_WORK: i64 = 20_000_000;
 const HOG_CHAIN: i64 = 50;
 const HOG_SLICE: i64 = 1_000_000;
+const MANY: i64 = 10000;
+const MANY_NAP: Duration = Duration::from_millis(200);
 
 fn leaf(i: i64) -> i64 {
     black_box(i)
@@ -34,7 +38,33 @@ fn spin(n: i64) -> i64 {
 // outside the worker threads, where every wait would cross threads.
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
-    tokio::spawn(run()).await.unwrap();
+    match std::env::args().nth(1).as_deref() {
+        Some("many") => tokio::spawn(many()).await.unwrap(),
+        Some(_) => tokio::spawn(idle()).await.unwrap(),
+        None => tokio::spawn(run()).await.unwrap(),
+    }
+}
+
+async fn idle() {
+    let t = Instant::now();
+    tokio::time::sleep(MANY_NAP).await;
+    println!("idle {} {}", t.elapsed().as_nanos(), 1);
+}
+
+async fn many() {
+    let t = Instant::now();
+    let mut hs = Vec::with_capacity(MANY as usize);
+    for _ in 0..MANY {
+        hs.push(tokio::spawn(async {
+            tokio::time::sleep(MANY_NAP).await;
+            1i64
+        }));
+    }
+    let mut sum = 0i64;
+    for h in hs {
+        sum += h.await.unwrap();
+    }
+    println!("many {} {}", t.elapsed().as_nanos(), sum);
 }
 
 async fn run() {
