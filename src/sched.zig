@@ -34,6 +34,9 @@ pub const Fiber = struct {
     done: ?*const fn (*Fiber) void = null,
     /// The next fiber in the global queue.
     next: ?*Fiber = null,
+    /// The fiber that handed this one its worker (`handoff`), to switch
+    /// back to when this one ends without stopping first.
+    handoff: ?*Fiber = null,
 };
 
 /// What a worker does with the fiber that just switched away, once it has:
@@ -57,6 +60,10 @@ const Worker = struct {
     lifo: ?*Fiber = null,
     lifo_streak: u8 = 0,
     free: ?*FreeStack = null,
+    free_count: u32 = 0,
+    /// A fiber handed this worker that ended and switched straight back
+    /// to the fiber that handed it over, which finishes it (`handoff`).
+    returned: ?*Fiber = null,
     /// Turns since it last looked at the global queue first.
     tick: u32 = 0,
     /// The futex word it sleeps on: 1 once woken.
@@ -144,6 +151,9 @@ pub fn park(after: After) void {
 fn stop(after: After) void {
     const w = me().?;
     const f = w.current.?;
+    // A fiber that stops goes back to its worker, so whoever handed it
+    // over waits for its end the usual way (`Header.wait`).
+    f.handoff = null;
     w.after = after;
     switchTo(&f.sp, w.sp);
 }
@@ -172,22 +182,40 @@ pub fn runMain(arg: *anyopaque, run: *const fn (*anyopaque) callconv(.c) void, t
             for (workers) |*w| wakeWorker(w);
         }
     };
-    const n = workerCount();
-    workers = std.heap.smp_allocator.alloc(Worker, n) catch rt.oom();
-    for (workers, 0..) |*w, i| w.* = .{ .rng = @intCast(i * 2654435761 % 4294967291 + 1) };
+    // Worker 0 runs `main` alone until its first task (`startWorkers`).
+    const cap = @max(max_workers, workers_override orelse 0);
+    all_workers = std.heap.smp_allocator.alloc(Worker, cap) catch rt.oom();
+    for (all_workers, 0..) |*w, i| w.* = .{ .rng = @intCast(i * 2654435761 % 4294967291 + 1) };
+    workers = all_workers[0..1];
+    started = false;
     stopping.store(false, .seq_cst);
     var m: Main = .{ .fiber = .{ .run = Main.start, .done = Main.end }, .arg = arg, .run = run };
     m.fiber.state.stack_guard = guard;
     m.fiber.sp = initialFrame(&m.fiber, top);
     me_slot = &workers[0];
     workers[0].ring.push(&m.fiber);
-    for (workers[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
     loop(&workers[0]);
     for (workers[1..]) |*w| w.thread.?.join();
     for (workers) |*w| freeStacks(w);
-    std.heap.smp_allocator.free(workers);
+    std.heap.smp_allocator.free(all_workers);
     workers = &.{};
+    all_workers = &.{};
     me_slot = null;
+}
+
+/// The most workers a program runs.
+const max_workers = 64;
+var all_workers: []Worker = &.{};
+var started = false;
+
+/// Start the other workers, when `main` makes its first task: by then
+/// the runtime has the program's environment, for `RIG_WORKERS`, and a
+/// program that makes none starts none.
+fn startWorkers() void {
+    started = true;
+    const n = @min(workerCount(), all_workers.len);
+    workers = all_workers[0..n];
+    for (workers[1..]) |*w| w.thread = std.Thread.spawn(.{}, workerMain, .{w}) catch rt.oom();
 }
 
 fn workerCount() usize {
@@ -210,35 +238,50 @@ fn workerMain(w: *Worker) void {
 fn loop(w: *Worker) void {
     while (!stopping.load(.acquire)) {
         const f = next(w) orelse {
+            if (w.searching) {
+                w.searching = false;
+                _ = searching.fetchSub(1, .seq_cst);
+            }
             sleep(w);
             continue;
         };
+        // Work found: stop searching, and if this worker was the last
+        // searching, wake another to look for more.
+        if (w.searching) {
+            w.searching = false;
+            if (searching.fetchSub(1, .seq_cst) == 1) notify();
+        }
         runFiber(w, f);
     }
 }
 
 fn runFiber(w: *Worker, f: *Fiber) void {
-    // A fiber gets its stack when it first runs, from this worker, which
-    // keeps it for the next when the fiber ends.
-    if (f.sp == 0) {
-        const s = takeStack();
-        f.stack = s;
-        f.state.stack_guard = .{ .lo = s.base, .hi = s.base + s.guard };
-        f.sp = initialFrame(f, s.top());
-    }
+    prepare(f);
     w.current = f;
     switchTo(&w.sp, f.sp);
+    // The fiber that switched away: `f`, or one `f` handed this worker.
+    const gone = w.current.?;
     w.current = null;
     if (w.after) |a| {
         w.after = null;
-        a.run(f, a.ctx);
-    } else if (f.finished) {
-        if (f.stack) |s| {
-            f.stack = null;
+        a.run(gone, a.ctx);
+    } else if (gone.finished) {
+        if (gone.stack) |s| {
+            gone.stack = null;
             releaseStack(w, s);
         }
-        if (f.done) |d| d(f);
+        if (gone.done) |d| d(gone);
     }
+}
+
+/// Give a fiber that has not run yet its stack, from this worker, which
+/// keeps it for the next when the fiber ends.
+fn prepare(f: *Fiber) void {
+    if (f.sp != 0) return;
+    const s = takeStack();
+    f.stack = s;
+    f.state.stack_guard = .{ .lo = s.base, .hi = s.base + s.guard };
+    f.sp = initialFrame(f, s.top());
 }
 
 /// The next fiber to run: the global queue's (first, one turn in 61, so
@@ -269,13 +312,12 @@ fn next(w: *Worker) ?*Fiber {
 /// was the last searching, wakes another to look for more.
 fn search(w: *Worker) ?*Fiber {
     if (workers.len < 2) return null;
-    if (2 * searching.load(.acquire) >= workers.len) return null;
-    _ = searching.fetchAdd(1, .seq_cst);
-    w.searching = true;
-    defer if (w.searching) {
-        w.searching = false;
-        _ = searching.fetchSub(1, .seq_cst);
-    };
+    // A worker woken to look for work is counted as searching already.
+    if (!w.searching) {
+        if (2 * searching.load(.acquire) >= workers.len) return null;
+        _ = searching.fetchAdd(1, .seq_cst);
+        w.searching = true;
+    }
     w.rng ^= w.rng << 13;
     w.rng ^= w.rng >> 17;
     w.rng ^= w.rng << 5;
@@ -283,20 +325,22 @@ fn search(w: *Worker) ?*Fiber {
     for (0..workers.len) |k| {
         const v = &workers[(start + k) % workers.len];
         if (v == w) continue;
-        if (w.ring.stealFrom(&v.ring)) |f| {
-            w.searching = false;
-            if (searching.fetchSub(1, .seq_cst) == 1) notify();
-            return f;
-        }
+        if (w.ring.stealFrom(&v.ring)) |f| return f;
     }
     return global.pop();
 }
 
-/// Wake a sleeping worker when work was made and no worker is looking.
+/// Wake a sleeping worker when work was made and no worker is looking,
+/// counting it as searching from now, so the next work made does not
+/// wake another before this one has looked.
 fn notify() void {
     if (searching.load(.seq_cst) != 0) return;
     if (sleepers.count.load(.seq_cst) == 0) return;
-    if (sleepers.pop()) |w| wakeWorker(w);
+    if (sleepers.pop()) |w| {
+        _ = searching.fetchAdd(1, .seq_cst);
+        w.searching = true;
+        wakeWorker(w);
+    }
 }
 
 fn wakeWorker(w: *Worker) void {
@@ -305,11 +349,13 @@ fn wakeWorker(w: *Worker) void {
 }
 
 /// Sleep until woken: listed as asleep first, then, after a last look
-/// for work made meanwhile, on the futex.
+/// for work made meanwhile, on the futex. Work a worker searching will
+/// find needs no last look: only work made when none searches, which
+/// woke no one (`notify`), keeps this worker up.
 fn sleep(w: *Worker) void {
     w.woken.store(0, .seq_cst);
     sleepers.push(w);
-    if (stopping.load(.seq_cst) or hasWork()) {
+    if (stopping.load(.seq_cst) or (searching.load(.seq_cst) == 0 and hasWork())) {
         if (!sleepers.remove(w)) waitWoken(w);
         return;
     }
@@ -329,9 +375,9 @@ fn hasWork() bool {
 fn freeStacks(w: *Worker) void {
     while (w.free) |n| {
         w.free = n.next;
-        std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(n.stack.base))[0 .. n.stack.guard + n.stack.len + std.heap.pageSize()]);
-        std.heap.smp_allocator.destroy(n);
+        unmapStack(n.stack);
     }
+    w.free_count = 0;
 }
 
 // -----------------------------------------------------------------------------
@@ -538,7 +584,11 @@ pub fn Job(comptime T: type) type {
         /// Wait for the task to end and give its result. Waiting again
         /// gives the same result; the owner takes it once (`Task`).
         pub fn join(self: *Self) T {
-            if (self.header.status.load(.acquire) != Header.ended) park(.{ .run = Header.wait, .ctx = &self.header });
+            if (self.header.status.load(.acquire) != Header.ended) {
+                const w = me().?;
+                // Not started, and next on this worker: run it now.
+                if (w.lifo == &self.header.fiber) handoff(w, &self.header) else park(.{ .run = Header.wait, .ctx = &self.header });
+            }
             return self.result;
         }
 
@@ -548,18 +598,49 @@ pub fn Job(comptime T: type) type {
     };
 }
 
-/// Start `f(args...)` as a fiber, ready to run, and give its record.
-pub fn spawn(comptime T: type, comptime f: anytype, args: anytype) *Job(T) {
+/// Hand this worker to the task of `h`, which has not started and is
+/// next on it (its "run next" slot, which only this worker takes): switch
+/// straight to it, on its own stack, and straight back when it ends,
+/// past the queues. The fiber waiting is recorded as its waiter first, so
+/// a task that stops on the way ends the usual way and wakes it.
+fn handoff(w: *Worker, h: *Header) void {
+    const waiter = w.current.?;
+    const f = &h.fiber;
+    w.lifo = null;
+    h.waiter = waiter;
+    h.status.store(Header.waited, .release);
+    f.handoff = waiter;
+    prepare(f);
+    w.current = f;
+    switchTo(&waiter.sp, f.sp);
+    // Back: the task ended straight back here, or stopped and later ended
+    // the usual way, which woke this fiber.
+    const now = me().?;
+    if (now.returned) |done| {
+        now.returned = null;
+        if (done.stack) |s| {
+            done.stack = null;
+            releaseStack(now, s);
+        }
+        h.status.store(Header.ended, .release);
+    }
+}
+
+/// Start `f(args...)` as a fiber, ready to run, and give its record,
+/// and an `Extra` the record holds for the caller (`tasks.zig` keeps a
+/// task's `Control` there), which `f` gets first.
+pub fn spawn(comptime T: type, comptime Extra: type, comptime f: anytype, args: anytype) Spawned(T, Extra) {
     const Args = @TypeOf(args);
     const Full = struct {
         job: Job(T),
+        extra: Extra = .{},
         args: Args,
 
         fn start(fiber: *Fiber) void {
             const h: *Header = @fieldParentPtr("fiber", fiber);
             const j: *Job(T) = @fieldParentPtr("header", h);
             const full: *@This() = @fieldParentPtr("job", j);
-            j.result = @call(.auto, f, full.args);
+            j.result = @call(.auto, f, .{&full.extra} ++ full.args);
         }
 
         fn destroy(h: *Header) void {
@@ -568,10 +649,16 @@ pub fn spawn(comptime T: type, comptime f: anytype, args: anytype) *Job(T) {
             std.heap.smp_allocator.destroy(full);
         }
     };
+    if (!started) startWorkers();
     const full = std.heap.smp_allocator.create(Full) catch rt.oom();
     full.* = .{ .job = .{ .header = .{ .fiber = .{ .run = Full.start, .done = Header.end }, .destroy = Full.destroy } }, .args = args };
     wake(&full.job.header.fiber);
-    return &full.job;
+    return .{ .job = &full.job, .extra = &full.extra };
+}
+
+/// What `spawn` gives: the task's record, and the `Extra` in it.
+pub fn Spawned(comptime T: type, comptime Extra: type) type {
+    return struct { job: *Job(T), extra: *Extra };
 }
 
 // -----------------------------------------------------------------------------
@@ -591,30 +678,52 @@ pub const Stack = struct {
     }
 };
 
+/// A free stack's link in its worker's list, kept in the stack itself, at
+/// the bottom of its usable part.
 const FreeStack = struct { stack: Stack, next: ?*FreeStack };
 
+/// How many stacks a worker keeps free; one more is returned to the
+/// system, with what its fiber touched.
+const keep_free = 64;
+
+/// How many stacks one reservation of address space holds.
+const chunk = 16;
+
 /// A stack to run a fiber on: one a fiber that ended on this worker
-/// left, or a new one.
+/// left, or one of a new reservation, whose others it keeps free.
 fn takeStack() Stack {
-    if (me()) |w| if (w.free) |n| {
-        w.free = n.next;
-        const s = n.stack;
-        std.heap.smp_allocator.destroy(n);
-        return s;
+    const w = me();
+    if (w) |x| if (x.free) |n| {
+        x.free = n.next;
+        x.free_count -= 1;
+        return n.stack;
     };
     const guard = rt.task_guard;
     const len = rt.task_stack_size;
-    const got = std.posix.mmap(null, guard + len + std.heap.pageSize(), .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch rt.oom();
+    const span = guard + len + std.heap.pageSize();
+    const count: usize = if (w != null) chunk else 1;
+    const got = std.posix.mmap(null, span * count, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .NORESERVE = true }, -1, 0) catch rt.oom();
     const base = @intFromPtr(got.ptr);
-    if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(base + guard), len, .{ .READ = true, .WRITE = true })) != .SUCCESS) rt.oom();
+    for (0..count) |i| {
+        const b = base + i * span;
+        if (std.posix.errno(std.posix.system.mprotect(@ptrFromInt(b + guard), len, .{ .READ = true, .WRITE = true })) != .SUCCESS) rt.oom();
+        if (i > 0) releaseStack(w.?, .{ .base = b, .guard = guard, .len = len });
+    }
     return .{ .base = base, .guard = guard, .len = len };
 }
 
-/// Keep a stack a fiber has finished with, for the next on `w`.
+/// Keep a stack a fiber has finished with, for the next on `w`, or
+/// return it to the system when `w` keeps enough.
 fn releaseStack(w: *Worker, s: Stack) void {
-    const n = std.heap.smp_allocator.create(FreeStack) catch rt.oom();
+    if (w.free_count >= keep_free) return unmapStack(s);
+    const n: *FreeStack = @ptrFromInt(s.base + s.guard);
     n.* = .{ .stack = s, .next = w.free };
     w.free = n;
+    w.free_count += 1;
+}
+
+fn unmapStack(s: Stack) void {
+    std.posix.munmap(@as([*]align(std.heap.page_size_min) u8, @ptrFromInt(s.base))[0 .. s.guard + s.len + std.heap.pageSize()]);
 }
 
 // -----------------------------------------------------------------------------
@@ -722,7 +831,15 @@ fn switchTo(from: *usize, to: usize) void {
 fn fiberMain(f: *Fiber) callconv(.c) noreturn {
     f.run(f);
     f.finished = true;
-    switchTo(&f.sp, me().?.sp);
+    const w = me().?;
+    // Handed over and never stopped: straight back to the fiber that
+    // handed it over, which finishes it (`handoff`).
+    if (f.handoff) |back| {
+        f.handoff = null;
+        w.returned = f;
+        w.current = back;
+        switchTo(&f.sp, back.sp);
+    } else switchTo(&f.sp, w.sp);
     unreachable;
 }
 
@@ -805,14 +922,15 @@ test "many workers run many fibers, each waited for, and their results add up" {
     if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
     const Run = struct {
         var sum: u64 = 0;
-        fn leaf(i: u64) u64 {
+        const Unit = struct {};
+        fn leaf(_: *Unit, i: u64) u64 {
             if (i % 7 == 0) yield();
             return i;
         }
         fn first(_: *anyopaque) callconv(.c) void {
             var jobs: [2000]*Job(u64) = undefined;
             for (0..50) |_| {
-                for (&jobs, 0..) |*j, i| j.* = spawn(u64, leaf, .{@as(u64, i)});
+                for (&jobs, 0..) |*j, i| j.* = spawn(u64, Unit, leaf, .{@as(u64, i)}).job;
                 for (jobs) |j| {
                     sum += j.join();
                     j.free();
@@ -826,4 +944,29 @@ test "many workers run many fibers, each waited for, and their results add up" {
     var dummy: u8 = 0;
     runMain(&dummy, Run.first, s.top(), .{});
     try std.testing.expectEqual(@as(u64, 50 * (1999 * 2000 / 2)), Run.sum);
+}
+
+test "a task waited for as soon as it is made runs by handoff, and one that stops on the way still ends" {
+    if (builtin.target.os.tag != .macos and builtin.target.os.tag != .linux) return error.SkipZigTest;
+    const Run = struct {
+        var sum: u64 = 0;
+        const Unit = struct {};
+        fn leaf(_: *Unit, i: u64) u64 {
+            if (i % 3 == 0) yield();
+            return i;
+        }
+        fn first(_: *anyopaque) callconv(.c) void {
+            for (0..20000) |i| {
+                const j = spawn(u64, Unit, leaf, .{@as(u64, i)}).job;
+                sum += j.join();
+                j.free();
+            }
+        }
+    };
+    workers_override = 4;
+    defer workers_override = null;
+    const s = takeStack();
+    var dummy: u8 = 0;
+    runMain(&dummy, Run.first, s.top(), .{});
+    try std.testing.expectEqual(@as(u64, 19999 * 20000 / 2), Run.sum);
 }

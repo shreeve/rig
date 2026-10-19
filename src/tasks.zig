@@ -68,9 +68,14 @@ pub fn Task(comptime T: type) type {
                     return @call(.auto, f, a);
                 }
             };
+            // On the scheduler, the task's record holds its `Control`: one
+            // allocation for both.
+            if (rt.scheduled) {
+                const made = rt.sched.spawn(T, Control, Fiber.run, .{args});
+                return .{ .handle = .{ .job = made.job }, .control = made.extra };
+            }
             const control = std.heap.smp_allocator.create(Control) catch oom();
             control.* = .{};
-            if (rt.scheduled) return .{ .handle = .{ .job = rt.sched.spawn(T, Fiber.run, .{ control, args }) }, .control = control };
             return .{ .handle = .{ .future = io().concurrent(Run.run, .{ control, args }) catch noTaskThread() }, .control = control };
         }
 
@@ -163,7 +168,7 @@ pub fn Task(comptime T: type) type {
 
         fn release(self: *Self) void {
             self.handle.free();
-            std.heap.smp_allocator.destroy(self.control);
+            if (!rt.scheduled) std.heap.smp_allocator.destroy(self.control);
         }
     };
 }
@@ -425,12 +430,17 @@ pub fn Tasks(comptime T: type) type {
         /// `!ts.add(t)`: take the task into the set.
         pub fn add(self: *Self, t: Task(T)) void {
             if (Value == void) self.dropEnded();
-            const w = self.wakeup orelse blk: {
-                const w = Wakeup.create();
-                self.wakeup = w;
-                break :blk w;
-            };
-            w.watch(t.control);
+            // Only a set that can fail waits for whichever task ends
+            // first; one that cannot waits for each in turn, so its tasks
+            // need not tell a shared count as they end.
+            if (fallible) {
+                const w = self.wakeup orelse blk: {
+                    const w = Wakeup.create();
+                    self.wakeup = w;
+                    break :blk w;
+                };
+                w.watch(t.control);
+            }
             self.items.append(defaultAllocator(), t) catch oom();
             self.len = self.items.items.len;
         }
