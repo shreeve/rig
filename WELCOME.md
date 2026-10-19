@@ -851,7 +851,8 @@ You will reach for these and not find them:
   instance supports;
 - **string interpolation**: text is built with `String(...)` and
   `!t.add(...)`, which write values as `print` does;
-- **concurrency and async**;
+- **concurrency beyond single tasks** ([SPEC §18](SPEC.md#18-tasks)):
+  sets of tasks, cancellation, channels, and actors;
 - **a large standard library**: beyond `print`, `Cell`, `List`,
   `String`, `Signal`, and the slice methods (`copy`, `fill`, `swap`, `read`,
   `write`), [the standard library](docs/STD.md) has only `std.math`,
@@ -860,7 +861,7 @@ You will reach for these and not find them:
 - **raw pointers**;
 - **macros**, which Rig does not plan to have.
 
-[SPEC §18](SPEC.md#18-reserved-and-unsupported-forms) lists every form
+[SPEC §19](SPEC.md#19-reserved-and-unsupported-forms) lists every form
 the compiler rejects as reserved or not supported yet, and the
 [roadmap](docs/ROADMAP.md) lists the plans.
 

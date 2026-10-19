@@ -129,6 +129,15 @@ const Checker = struct {
     handled: Sexp = .nil,
     /// The operand of the `*x` being checked.
     shared_operand: Sexp = .nil,
+    /// The value and target of the binding of a name being checked
+    /// (`t = f(!x)&`), where a task lent to write may stand.
+    local_value: Sexp = .nil,
+    local_target: Sexp = .nil,
+    /// The locals that hold a task lent to write, each moved only into
+    /// its own `<t.wait()`.
+    write_tasks: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    /// The operand of the `<t` in the `<t.wait()` being checked.
+    task_wait: Sexp = .nil,
     /// The value of the struct or enum field, or the field default, being
     /// checked: a value holding a Cell may be made there (`cellMadeAway`).
     cell_home: Sexp = .nil,
@@ -937,6 +946,13 @@ const Checker = struct {
     /// over (`!`, `?`), or handle a failure. One that only reads a value
     /// and drops it is a mistake; a function name was meant as a call.
     fn checkExprStmt(self: *Checker, stmt: Sexp) Error!void {
+        // A task as a statement is dropped at the statement's end, which
+        // cancels it and waits for it: it would never run concurrently.
+        if (stmt.isKind(.call) and ir.Call.task(stmt) != .nil) {
+            _ = try self.synthExpr(stmt);
+            try self.errAt(stmt, "this task is dropped as soon as it starts, which waits for it to end: bind it, `t = {s}`, and wait for it later, or call without `&`", .{self.sourceText(stmt)});
+            return;
+        }
         // A statement `-x` negates `x` and discards the result; a drop is
         // written `<x`.
         if (stmt.isKind(.neg)) {
@@ -1320,10 +1336,12 @@ const Checker = struct {
         const target = ir.Set.target(node);
         const type_node = ir.Set.type(node);
         const rhs = ir.Set.value(node);
-        const saved_bound = .{ self.bound_value, self.bound_call };
-        defer self.bound_value, self.bound_call = saved_bound;
+        const saved_bound = .{ self.bound_value, self.bound_call, self.local_value, self.local_target };
+        defer self.bound_value, self.bound_call, self.local_value, self.local_target = saved_bound;
         self.bound_value = rhs;
         self.bound_call = resultCall(rhs) orelse .nil;
+        self.local_value = if (target == .src) rhs else .nil;
+        self.local_target = target;
         // A binding, an assignment, and `_ = e` take the value.
         try self.recordUse(rhs, .take);
 
@@ -2268,10 +2286,15 @@ const Checker = struct {
     }
 
     /// Whether the call on `recv`, returning `returns`, has a value that
-    /// is used: anywhere but a statement, alone or under `!`, `?`, or
-    /// `catch` (`isDiscardedCall`). Such a write call is written
-    /// `(!s).m(...)`, so its `!` never reads as negation.
+    /// is used: a task, whose value is always used, or a call anywhere
+    /// but a statement, alone or under `!`, `?`, or `catch`
+    /// (`isDiscardedCall`). Such a write call is written `(!s).m(...)`,
+    /// so its `!` never reads as negation.
     fn usesValue(self: *Checker, recv: Sexp, returns: TypeId) bool {
+        if (self.current_call) |c| if (ir.Call.task(c) != .nil) {
+            const callee = ir.Call.callee(c);
+            if (callee.isKind(.member) and sameNode(ir.Member.object(callee), recv)) return true;
+        };
         const result = self.ctx.types.get(returns);
         const value = if (result == .fallible) result.fallible else returns;
         return value != self.t().void_id and !self.isDiscardedCall(recv);
@@ -5799,6 +5822,10 @@ const Checker = struct {
     fn synthMove(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Move.operand(e);
         const ty = try self.synthExpr(operand);
+        if (operand == .src and !sameSite(operand, self.task_wait)) if (self.ctx.symbolOf(operand)) |id| if (self.write_tasks.contains(id)) {
+            try self.errAt(e, "`{s}` is a task lent to write, which keeps its write loan while it runs, so it is only waited for where it is bound: `<{s}.wait()`", .{ self.text(operand), self.text(operand) });
+            return self.t().invalid_id;
+        };
         if (operand == .src) if (self.ctx.symbolOf(operand)) |id| try self.ctx.recordWrite(e, id, .move);
         if (try self.payloadViewTaken(operand, "move")) return self.t().invalid_id;
         if (self.isPoison(ty)) return ty;
@@ -7428,7 +7455,16 @@ const Checker = struct {
         // What the call reaches, recorded where it resolves to a Rig
         // function (`noteTarget`); any other call reaches none.
         try self.ctx.recordCallTarget(node, .none);
+        // `<t.wait()`: the move of `t` there takes a task lent to write.
+        const saved_wait = self.task_wait;
+        defer self.task_wait = saved_wait;
+        const callee_node = ir.Call.callee(node);
+        if (callee_node.isKind(.member) and std.mem.eql(u8, self.text(ir.Member.name(callee_node)), "wait")) {
+            const obj = ir.Member.object(callee_node);
+            if (obj.isKind(.move)) self.task_wait = ir.Move.operand(obj);
+        }
         const ty = try self.synthCallInner(node);
+        if (ir.Call.task(node) != .nil) return self.taskOf(node, ty);
         // A call that gives several results stands only where each is
         // bound at once, or where they are returned whole.
         if (sema.resultsOf(self.ctx, ty) != null and !sameNode(node, self.results_ok)) {
@@ -7445,6 +7481,50 @@ const Checker = struct {
             }
         }
         return ty;
+    }
+
+    /// `f(x)&`: the call made a task, of type `Task[T]` for the call's
+    /// result `T`, a fallible one too, whose failure `<t.wait()!` passes
+    /// on (docs/CONCURRENCY.md, "Tasks"). The callee is a Rig function or
+    /// method, and every argument, and the receiver, may go to another
+    /// core (`sema.crossesCores`).
+    fn taskOf(self: *Checker, node: Sexp, ty: TypeId) Error!TypeId {
+        if (self.isPoison(ty)) return self.t().invalid_id;
+        const callee = ir.Call.callee(node);
+        if (sema.resultsOf(self.ctx, ty) != null) {
+            try self.errAt(callee, "a call that gives several results cannot be a task; make it a call, or have the function give one value", .{});
+            return self.t().invalid_id;
+        }
+        const target = self.ctx.callTargetOf(node) orelse .none;
+        if (target != .function) {
+            try self.errAt(callee, "a task runs a call of a function or a method: `f(x)&`, `(!v).m(x)&`", .{});
+            return self.t().invalid_id;
+        }
+        var parts: std.ArrayList(Sexp) = .empty;
+        if (callee.isKind(.member)) try parts.append(self.ctx.arena.allocator(), ir.Member.object(callee));
+        for (ir.Call.args(node)) |arg| try parts.append(self.ctx.arena.allocator(), if (arg.isKind(.kwarg)) ir.get(arg, .value) else arg);
+        // A task lent to write keeps its write loan while it runs, and no
+        // value holds a write view: it stays where it is bound, and is
+        // only waited for there.
+        const lends_write = for (parts.items) |part| {
+            if (part.isKind(.write)) break true;
+            if (self.ctx.typeOf(part)) |pt| if (self.ctx.types.get(pt) == .write_view) break true;
+        } else false;
+        if (lends_write) {
+            if (!sameNode(node, self.local_value)) {
+                try self.errAt(callee, "this task is lent to write, and keeps its write loan while it runs, so it stays where it is bound: `t = {s}`, then `<t.wait()`", .{self.sourceText(node)});
+                return self.t().invalid_id;
+            }
+            if (self.ctx.symbolOf(self.local_target)) |id| try self.write_tasks.put(self.ctx.arena.allocator(), id, {});
+        }
+        for (parts.items) |part| {
+            const part_ty = self.ctx.typeOf(part) orelse continue;
+            if (self.isPoison(part_ty) or sema.crossesCores(self.ctx, part_ty)) continue;
+            try self.errAt(part, "a task may run on another core, and `{s}` holds what stays on this one: a `*T` or `~T` handle, a `Cell`, a `Signal`, a task, or a function", .{try self.tyName(part_ty)});
+            return self.t().invalid_id;
+        }
+        self.ctx.makes_tasks = true;
+        return self.ctx.intern(.{ .parameterized_nominal = .{ .sym = self.ctx.task_sym_id, .args = try self.ctx.dupeIds(&.{ty}) } });
     }
 
     /// How a callee is spelled, for messages: `f`, `a.f`, or `.m`.
@@ -8839,7 +8919,15 @@ const Checker = struct {
             .arg => |i| .{ .arg = i },
             .default => .default,
         };
-        const recorded: sema.CallParams = .{ .fills = fills, .origins = site.origins, .names = info.names };
+        // A task keeps the loans of every argument, and of its receiver,
+        // until it ends: its result is the call itself, still running
+        // (docs/CONCURRENCY.md, "Loans and structure").
+        var origins = site.origins;
+        if (call_node.isKind(.call) and ir.Call.task(call_node) != .nil) {
+            origins.result = sema.all_params;
+            origins.declared = false;
+        }
+        const recorded: sema.CallParams = .{ .fills = fills, .origins = origins, .names = info.names };
         try self.ctx.recordCallParams(call_node, recorded);
         // What the call may store outlives its statement. A place lent to
         // a parameter the call may keep is lent with `?` written (Core

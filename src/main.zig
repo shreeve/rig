@@ -195,10 +195,12 @@ const Env = struct {
 
     /// The declarations that ask the runtime for leak traces, the
     /// sanitizer, or the assertions of proven tests, written into the root
-    /// module (`runtime.zig`); and, in a
+    /// module (`runtime.zig`); the one that runs a program's tasks
+    /// (`tasks`, `makesTasks`) on the `Threaded` backend; and, in a
     /// package `rig run` or `rig test` builds (`hook`), the variable
     /// naming the file the program creates as it starts (`buildCommand`).
-    fn writeRootFlags(env: Env, w: *std.Io.Writer, hook: bool) !void {
+    fn writeRootFlags(env: Env, w: *std.Io.Writer, hook: bool, tasks: bool) !void {
+        if (tasks) try w.writeAll("pub const __rig_tasks = true;\n");
         if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
         if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
@@ -700,9 +702,10 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         \\pub const panic = rig.panic;
         \\
     , .{emit.runtime_module});
-    try env.writeRootFlags(&root.writer, true);
+    try env.writeRootFlags(&root.writer, true, false);
     try root.writer.writeAll("\nconst programs = .{\n");
     var links_libc = false;
+    var makes_tasks = false;
     var built: usize = 0;
     var inputs = std.crypto.hash.sha2.Sha256.init(.{});
     const Part = struct {
@@ -726,6 +729,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         }
         const pkg = try emitPackage(allocator, env, &graph, .{ .batch = true });
         links_libc = links_libc or pkg.links_libc;
+        makes_tasks = makes_tasks or makesTasks(&graph);
         const sub = try allocator.print("p{d}", .{n});
         try writePackage(allocator, io, try std.fs.path.join(allocator, &.{ dir, sub }), pkg.files.items);
         for (pkg.files.items) |f| {
@@ -741,8 +745,10 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
         std.debug.print("error: rig batch: no program to build\n", .{});
         return 1;
     }
+    try root.writer.writeAll("};\n");
+    // One runtime serves the batch: it runs tasks if any program makes them.
+    if (makes_tasks) try root.writer.writeAll("\npub const __rig_tasks = true;\n");
     try root.writer.print(
-        \\}};
         \\
         \\// The first argument names the program; it sees the others, after
         \\// the executable's path, as `rig run` would give them. A program whose
@@ -993,7 +999,7 @@ fn testDriver(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGrap
         \\pub const panic = rig.panic;
         \\
     , .{emit.runtime_filename});
-    try env.writeRootFlags(w, true);
+    try env.writeRootFlags(w, true, makesTasks(graph));
     try w.writeAll(
         \\
         \\fn testsOf(comptime module: type) []const rig.Test {
@@ -1152,6 +1158,12 @@ fn fromPackageRoot(graph: *const modules.ModuleGraph, path: []const u8) []const 
     return path;
 }
 
+/// Some module of the program makes a task (`f(x)&`).
+fn makesTasks(graph: *const modules.ModuleGraph) bool {
+    for (graph.modules.items) |*m| if (m.sema.makes_tasks) return true;
+    return false;
+}
+
 /// How `emitPackage` writes a package.
 const PackageKind = struct {
     /// `rig run`: the root module names the file the program creates as
@@ -1176,6 +1188,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
     var root_source: []const u8 = "";
     var links_libc = false;
     var uses_symbols = false;
+    const tasks = makesTasks(graph);
     for (graph.modules.items, 0..) |*m, i| {
         var file_buffer: std.Io.Writer.Allocating = .init(allocator);
         var em = emit.Emitter.init(allocator, m.source, &file_buffer.writer, emit_facts.Facts.of(m.sema));
@@ -1201,9 +1214,9 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
         }
         links_libc = links_libc or em.links_libc;
         uses_symbols = uses_symbols or em.uses_symbols;
-        if (i == 0 and !kind.batch and (env.leakTrace() or env.sanitize() or env.verifyProofs() or hook)) {
+        if (i == 0 and !kind.batch and (env.leakTrace() or env.sanitize() or env.verifyProofs() or hook or tasks)) {
             try file_buffer.writer.writeAll("\n");
-            try env.writeRootFlags(&file_buffer.writer, hook);
+            try env.writeRootFlags(&file_buffer.writer, hook, tasks);
         }
         try files.append(allocator, .{ .path = m.out_basename, .contents = file_buffer.written() });
         for (m.shims.items) |shim| {
