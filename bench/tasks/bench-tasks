@@ -196,6 +196,10 @@ def main():
                     sys.exit("bench-tasks: %s's %s check is %s, not %s" % (v, name, check, checks[name]))
                 checks[name] = check
                 best[v][name] = min(ns, best[v].get(name, ns))
+    # Memory after every timed run, so the many tasks one program holds
+    # and frees never slow the next one's times.
+    for _ in range(a.reps):
+        for v in variants:
             per_task, check = memory(exes[v])
             if checks.setdefault("many", check) != check:
                 sys.exit("bench-tasks: %s's many check is %s, not %s" % (v, check, checks["many"]))
