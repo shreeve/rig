@@ -5258,26 +5258,26 @@ fail "labeled loop broken out of", "a function returning `Int` must end with a v
 
   fun f(n: Int) -> Int
     i = 0
-    @a while true
+    $a: while true
       while true
         i += 1
         if i > n
-          break @a
+          break $a
 
   print(f(3))
 
 fail "labeled loop checked", "type mismatch: expected `Int`, got `Static`"
   # The body of a labeled loop is type-checked like any other.
 
-  @outer while true
+  $outer: while true
     x: Int = "s"
-    break @outer
+    break $outer
 
 test "labeled loop ends function", "4"
   # A function may end with a labeled `while true` that no `break` leaves.
 
   fun f(n: Int) -> Int
-    @a while true
+    $a: while true
       while true
         break
       return n
@@ -5289,12 +5289,12 @@ fail "labeled match at function end", "5:3: this labeled `match` (a label makes 
   # value a function ends with.
 
   fun f(n: Int) -> Int
-    @done match n
+    $done: match n
       0 => 1
       _ => 2
 
   fun g(n: Int) -> Int
-    @blk raw
+    $blk: raw
       n + 1
 
   print(f(0), g(1))

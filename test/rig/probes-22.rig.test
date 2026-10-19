@@ -253,9 +253,9 @@ test "review-hotfix7-p14-nested-place-payload", "5"
 
 test "review-labels-1-c10 break postif", "5"
   c = true
-  @outer for i in 0..3
+  $outer: for i in 0..3
     for j in 0..3
-      break @outer if c
+      break $outer if c
       print(i, j)
   print(5)
 
@@ -264,20 +264,20 @@ test "review-labels-1-c17b break label bang lend", "2"
     n += 1
 
   n = 1
-  @outer while true
+  $outer: while true
     while true
       bump(!n)
-      break @outer
+      break $outer
   print(n)
 
 test "review-labels-1-c19 break no space", '''
   0 0
   9
 '''
-  @outer for i in 0..2
+  $outer: for i in 0..2
     for j in 0..2
       print(i, j)
-      break@outer
+      break$outer
   print(9)
 
 test "review-labels-1-h01 header break outer defer", '''
@@ -291,10 +291,10 @@ test "review-labels-1-h01 header break outer defer", '''
   fun get(i: Int) -> Bool?
     (i < 9) if i < 2 else none
 
-  @o for k in 0..3
+  $o: for k in 0..3
     defer print("d", k)
     i = 0
-    while get(i) ?? break @o : i += 1
+    while get(i) ?? break $o : i += 1
       defer print("e", i)
       print(k, i)
     print("after", k)
@@ -315,10 +315,10 @@ test "review-labels-1-h02 header continue outer defer", '''
   fun get(i: Int) -> Bool?
     (i < 9) if i < 2 else none
 
-  @o for k in 0..3
+  $o: for k in 0..3
     defer print("d", k)
     i = 0
-    while get(i) ?? continue @o : i += 1
+    while get(i) ?? continue $o : i += 1
       print(k, i)
     print("never", k)
   print(9)
@@ -331,10 +331,10 @@ test "review-labels-1-h04 header break outer drops owned", '''
   fun get(i: Int) -> Bool?
     (i < 9) if i < 2 else none
 
-  @o for k in 0..3
+  $o: for k in 0..3
     s = String("x")
     i = 0
-    while get(i) ?? break @o : i += 1
+    while get(i) ?? break $o : i += 1
       print(k, i, s)
   print(9)
 
@@ -342,10 +342,10 @@ fail "review-labels-1-h05 header move then jump", "use of `s` after move"
   fun pick(s: String, i: Int) -> Bool?
     (s.len > 0) if i < 2 else none
 
-  @o for k in 0..2
+  $o: for k in 0..2
     s = String("x")
     i = 0
-    while pick(<s, i) ?? break @o : i += 1
+    while pick(<s, i) ?? break $o : i += 1
       print(k, i)
   print(9)
 
@@ -360,9 +360,9 @@ test "review-labels-1-h06 header loan then mutate", '''
   v: List[Int] = List()
   !v.push(1)
   !v.push(2)
-  @o for k in 0..2
+  $o: for k in 0..2
     i = 0
-    while (first(?v, i) ?? break @o) > 0 : i += 1
+    while (first(?v, i) ?? break $o) > 0 : i += 1
       print(k, i)
     !v.push(3)
   print(v.len)
@@ -378,9 +378,9 @@ test "review-labels-1-h06b header view then mutate", '''
   v: List[Int] = List()
   !v.push(1)
   !v.push(2)
-  @o for k in 0..2
+  $o: for k in 0..2
     i = 0
-    while (first(?v, i) ?? break @o) > 0 : i += 1
+    while (first(?v, i) ?? break $o) > 0 : i += 1
       print(k, i)
     !v.push(3)
   !v.push(4)
@@ -392,10 +392,10 @@ fail "review-labels-1-h06c header view held across jump", "cannot lend `v` to wr
 
   v: List[Int] = List()
   !v.push(1)
-  @o for k in 0..2
+  $o: for k in 0..2
     i = 0
     w = ?v[0]
-    while (first(?v, i) ?? break @o) > 0 : !v.push(i)
+    while (first(?v, i) ?? break $o) > 0 : !v.push(i)
       print(k, i, w)
       i += 1
       break if i > 2
@@ -407,7 +407,7 @@ test "review-labels-1-h07 header label names own while", "3 3"
 
   i = 0
   n = 0
-  @a while get(i) ?? break @a : i += 1
+  $a: while get(i) ?? break $a : i += 1
     n += 1
   print(i, n)
 
@@ -417,7 +417,7 @@ test "review-labels-1-h08 header continue own while", "4 3"
 
   i = 0
   n = 0
-  @a while (get(i) ?? continue @a) and i < 4 : i += 1
+  $a: while (get(i) ?? continue $a) and i < 4 : i += 1
     n += 1
   print(i, n)
 
@@ -436,9 +436,9 @@ test "review-labels-1-h09 header shadow same name", '''
   fun get(i: Int) -> Bool?
     (i < 9) if i < 2 else none
 
-  @a for k in 0..3
+  $a: for k in 0..3
     i = 0
-    @a while get(i) ?? break @a : i += 1
+    $a: while get(i) ?? break $a : i += 1
       print(k, i)
     print("after", k)
   print(9)
@@ -459,9 +459,9 @@ test "review-labels-1-h10 header catch continue outer", '''
     return E.bad if i > k
     true
 
-  @o for k in 0..3
+  $o: for k in 0..3
     i = 0
-    while get(i, k) catch continue @o : i += 1
+    while get(i, k) catch continue $o : i += 1
       print(k, i)
   print(9)
 
@@ -477,9 +477,9 @@ test "review-labels-1-h11 while as header jump", '''
     return E.bad if i > 2
     i * 10 if i != 1 else none
 
-  @o for k in 0..2
+  $o: for k in 0..2
     i = 0
-    while (pick(i) catch break @o) as v : i += 1
+    while (pick(i) catch break $o) as v : i += 1
       print(k, v)
   print(9)
 
@@ -502,10 +502,10 @@ test "review-labels-1-h12 header step reads binding", '''
   fun get(i: Int) -> Bool?
     (i < 9) if i < 5 else none
 
-  @o for k in 0..2
+  $o: for k in 0..2
     i = 0
     t = 0
-    while get(i) ?? continue @o : t += i
+    while get(i) ?? continue $o : t += i
       i += 1
       print(k, i, t)
   print(9)
@@ -519,10 +519,10 @@ test "review-labels-1-h13 header nested two levels", '''
   fun get(i: Int) -> Bool?
     (i < 9) if i < 2 else none
 
-  @x for a in 0..2
-    @y for b in 0..2
+  $x: for a in 0..2
+    $y: for b in 0..2
       i = 0
-      while get(i + a + b) ?? continue @x : i += 1
+      while get(i + a + b) ?? continue $x : i += 1
         print(a, b, i)
   print(9)
 
@@ -540,10 +540,10 @@ test "review-labels-1-h20 header continue outer runs outer step", '''
 
   k = 0
   steps = 0
-  @o while mk(k) as v : steps += v + 1
+  $o: while mk(k) as v : steps += v + 1
     k += 1
     i = 0
-    while get(i + v) ?? continue @o : i += 1
+    while get(i + v) ?? continue $o : i += 1
       print(v, i)
   print(k, steps)
 
@@ -552,21 +552,21 @@ fail "review-labels-1-h21 header move continue outer reuse", "use of `s` after m
     (s.len > 0) if i < 1 else none
 
   s = String("x")
-  @o for k in 0..2
+  $o: for k in 0..2
     print(k, s)
     i = 0
-    while take(<s, i) ?? continue @o : i += 1
+    while take(<s, i) ?? continue $o : i += 1
       print(i)
-      break @o
+      break $o
 
 fail "review-labels-1-h22 header move break outer use after", "use of `s` after move"
   fun take(s: String, i: Int) -> Bool?
     (s.len > 0) if i < 1 else none
 
   s = String("x")
-  @o for k in 0..2
+  $o: for k in 0..2
     i = 0
-    while take(<s, i) ?? break @o : i += 1
+    while take(<s, i) ?? break $o : i += 1
       print(k, i)
       s = String("y")
       break
@@ -581,9 +581,9 @@ test "review-labels-1-h22b header move break outer reassigned", '''
     (s.len > 0) if i != 1 else none
 
   s = String("x")
-  @o for k in 0..3
+  $o: for k in 0..3
     i = k
-    while take(<s, i) ?? break @o : i += 1
+    while take(<s, i) ?? break $o : i += 1
       print(k, i)
       s = String("y")
       break
@@ -606,9 +606,9 @@ test "review-labels-1-h23 header write lend then outer step", '''
 
   n = 0
   t = 0
-  @o while t < 10 : t += n
+  $o: while t < 10 : t += n
     m = 0
-    while bump(!m) ?? continue @o : n += 1
+    while bump(!m) ?? continue $o : n += 1
       print(t, m)
   print(n, t)
 
@@ -629,10 +629,10 @@ test "review-labels-1-h24 header view continue outer mutate", '''
 
   v: List[Int] = List()
   !v.push(1)
-  @o for k in 0..3
+  $o: for k in 0..3
     !v.push(k + 2)
     i = 0
-    while (first(?v, i) ?? continue @o) > 0 : i += 1
+    while (first(?v, i) ?? continue $o) > 0 : i += 1
       print(k, i)
   print(v.len)
 
@@ -642,9 +642,9 @@ test "review-labels-1-n01 same name nested", '''
   2 0
   9
 '''
-  @a for i in 0..3
-    @a for j in 0..3
-      break @a if j == 1
+  $a: for i in 0..3
+    $a: for j in 0..3
+      break $a if j == 1
       print(i, j)
   print(9)
 
@@ -653,10 +653,10 @@ test "review-labels-1-n05 label match break", '''
   9
 '''
   k = 2
-  @m match k
+  $m: match k
     2
       print(1)
-      break @m if k > 1
+      break $m if k > 1
       print(2)
     _ => print(3)
   print(9)
@@ -668,9 +668,9 @@ test "review-labels-1-n12 label in arm body loop", '''
   k = 1
   match k
     1
-      @a for i in 0..3
+      $a: for i in 0..3
         for j in 0..3
-          break @a if j == 1
+          break $a if j == 1
           print(i, j)
     _ => print(0)
   print(9)
@@ -685,9 +685,9 @@ test "review-labels-1-n14 label in island closure", '''
       f(i)
 
   each(2, |k: Int|
-    @a for i in 0..3
+    $a: for i in 0..3
       for j in 0..3
-        break @a if j == 1
+        break $a if j == 1
         print(k, i, j)
   )
   print(9)
@@ -707,12 +707,12 @@ test "review-labels-1-n22 label nested match in loop break", '''
   0
   9
 '''
-  @o for i in 0..3
-    @m match i
+  $o: for i in 0..3
+    $m: match i
       1
-        break @o
+        break $o
       _
-        break @m
+        break $m
     print(i)
   print(9)
 
@@ -721,8 +721,8 @@ test "review-labels-1-n23 label name shadows var", '''
   9
 '''
   a = 5
-  @a for i in 0..3
-    break @a if i == a - 4
+  $a: for i in 0..3
+    break $a if i == a - 4
     print(i, a)
   print(9)
 
@@ -736,27 +736,27 @@ test "review-labels-1-n24 label on while as", '''
     i if i < 3 else none
 
   i = 0
-  @a while get(i) as v : i += 1
+  $a: while get(i) as v : i += 1
     for j in 0..2
-      continue @a if j == 1
+      continue $a if j == 1
       print(v, j)
   print(9)
 
 test "review-labels-1-n37 label zig kw", "0 0"
-  @blk for i in 0..2
-    @comptime for j in 0..2
+  $blk: for i in 0..2
+    $comptime: for j in 0..2
       print(i, j)
-      break @blk
+      break $blk
 
 test "review-labels-1-n38 label emitted name collision", '''
   0 0
   0 1
 '''
-  @a for i in 0..2
+  $a: for i in 0..2
     a = i
-    @i for j in 0..2
+    $i: for j in 0..2
       print(a, j)
-      break @a if j == 1
+      break $a if j == 1
 
 test "review-labels-1-w01 header label step", '''
   0 0
@@ -770,9 +770,9 @@ test "review-labels-1-w01 header label step", '''
   fun get(i: Int) -> Bool?
     (i < 9) if i < 3 else none
 
-  @o for k in 0..3
+  $o: for k in 0..3
     i = 0
-    while get(i) ?? break @o : i += 1
+    while get(i) ?? break $o : i += 1
       print(k, i)
       if i == 1
         break
@@ -787,9 +787,9 @@ test "review-labels-1-w01b header label step continue", '''
   fun get(i: Int) -> Bool?
     (i < 9) if i < 2 else none
 
-  @o for k in 0..3
+  $o: for k in 0..3
     i = 0
-    while get(i + k) ?? continue @o : i += 1
+    while get(i + k) ?? continue $o : i += 1
       print(k, i)
   print(9)
 
@@ -803,8 +803,8 @@ test "review-labels-1-w02 header label no step", '''
     (i < 9) if i < 3 else none
 
   i = 0
-  @o for k in 0..2
-    while get(i) ?? break @o
+  $o: for k in 0..2
+    while get(i) ?? break $o
       print(k, i)
       i += 1
   print(i)
@@ -839,7 +839,7 @@ test "review-labels-1-w07c header old label named like var", '''
     n += 1
 
   i = 0
-  @o for k in 0..2
+  $o: for k in 0..2
     while get(i) ?? break :tick(!i)
       print(k, i)
   print(9)
@@ -856,9 +856,9 @@ test "review-labels-1-w08 header label continue step call", '''
   sub tick(n: !Int)
     n += 1
 
-  @o for k in 0..3
+  $o: for k in 0..3
     i = 0
-    while get(i + k) ?? continue @o : tick(!i)
+    while get(i + k) ?? continue $o : tick(!i)
       print(k, i)
   print(9)
 
@@ -874,9 +874,9 @@ test "review-labels-1-w09 header step has label jump", '''
   fun get(i: Int) -> Bool?
     (i < 9) if i < 3 else none
 
-  @o for k in 0..2
+  $o: for k in 0..2
     i = 0
-    while i < 5 : i = idx(i + 1) ?? break @o
+    while i < 5 : i = idx(i + 1) ?? break $o
       print(k, i)
   print(9)
 
@@ -902,9 +902,9 @@ test "review-labels-1-w15 header kwarg then label", '''
   fun get(i: Int, lim: Int) -> Bool?
     (i < 9) if i < lim else none
 
-  @o for k in 0..2
+  $o: for k in 0..2
     i = 0
-    while get(i, lim: 2) ?? break @o : i += 1
+    while get(i, lim: 2) ?? break $o : i += 1
       print(k, i)
   print(9)
 
@@ -913,9 +913,9 @@ test "review-labels-1-x03 defer block label", '''
   0 0
 '''
   defer
-    @a for i in 0..3
+    $a: for i in 0..3
       for j in 0..3
-        break @a if j == 1
+        break $a if j == 1
         print(i, j)
   print(0)
 
@@ -925,9 +925,9 @@ test "review-labels-1-x10 continue label postif value", '''
   2 0
   9
 '''
-  @a for i in 0..3
+  $a: for i in 0..3
     for j in 0..3
-      continue @a if j == 1
+      continue $a if j == 1
       print(i, j)
   print(9)
 
@@ -935,9 +935,9 @@ test "review-labels-1-x15 match arm jump label", '''
   0
   9
 '''
-  @o for i in 0..3
+  $o: for i in 0..3
     match i
-      1 => break @o
+      1 => break $o
       _ => print(i)
   print(9)
 
@@ -947,17 +947,17 @@ test "review-labels-1-x16 match arm continue label", '''
   2 0
   9
 '''
-  @o for i in 0..3
+  $o: for i in 0..3
     for j in 0..3
       match j
-        1 => continue @o
+        1 => continue $o
         _ => print(i, j)
   print(9)
 
 test "review-labels-1-x17 label tab", "0"
-  @a	for i in 0..2
+  $a:	for i in 0..2
     print(i)
-    break	@a
+    break	$a
 
 test "review-labels-1-x21 nullish continue label in arg", '''
   0 0 0
@@ -969,9 +969,9 @@ test "review-labels-1-x21 nullish continue label in arg", '''
   fun get(i: Int) -> Int?
     i if i != 1 else none
 
-  @a for i in 0..3
+  $a: for i in 0..3
     for j in 0..2
-      print(i, j, get(i) ?? continue @a)
+      print(i, j, get(i) ?? continue $a)
   print(9)
 
 test "review-lang4-c1", '''
@@ -1064,27 +1064,27 @@ test "review-lang4-l1", '''
   9
 '''
   fun find(xs: []Int, t: Int) -> Int
-    @outer for i in 0..xs.len
+    $outer: for i in 0..xs.len
       for j in 0..2
-        break @outer i if xs[i] == t + j
+        break $outer i if xs[i] == t + j
     else
       -1
 
   sub kind(n: Int)
-    @m match n
+    $m: match n
       0 => print(5)
       _
-        break @m if n > 2
+        break $m if n > 2
         print(9)
 
   xs = [1, 5, 9]
   print(find(?xs[..], 5), find(?xs[..], 100))
-  @w while true
-    break @w
-  @r raw
-    break @r
-  @mm match 3
-    3 => break @mm
+  $w: while true
+    break $w
+  $r: raw
+    break $r
+  $mm: match 3
+    3 => break $mm
     _ => pass
   kind(0)
   kind(3)

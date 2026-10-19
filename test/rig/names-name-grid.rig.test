@@ -978,12 +978,12 @@ fail "name grid error none", "none"
 
   sub t0()
     t = 0
-    @none for a in 0..3
+    $none: for a in 0..3
       for j in 0..3
         if j == 2
-          continue @none
+          continue $none
         if a == 2
-          break @none
+          break $none
         t += 1
     print(t)
     _ = f0(1) catch |e|
@@ -1012,12 +1012,12 @@ fail "name grid error type", ""
 
   sub t0()
     t = 0
-    @type for a in 0..3
+    $type: for a in 0..3
       for j in 0..3
         if j == 2
-          continue @type
+          continue $type
         if a == 2
-          break @type
+          break $type
         t += 1
     print(t)
     _ = f0(1) catch |e|
@@ -1046,12 +1046,12 @@ fail "name grid error drop", ""
 
   sub t0()
     t = 0
-    @drop for a in 0..3
+    $drop: for a in 0..3
       for j in 0..3
         if j == 2
-          continue @drop
+          continue $drop
         if a == 2
-          break @drop
+          break $drop
         t += 1
     print(t)
     _ = f0(1) catch |e|
@@ -1080,12 +1080,12 @@ fail "name grid error panic", ""
 
   sub t0()
     t = 0
-    @panic for a in 0..3
+    $panic: for a in 0..3
       for j in 0..3
         if j == 2
-          continue @panic
+          continue $panic
         if a == 2
-          break @panic
+          break $panic
         t += 1
     print(t)
     _ = f0(1) catch |e|

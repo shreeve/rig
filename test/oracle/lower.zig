@@ -132,7 +132,8 @@ const Fails = enum { no, yes, maybe };
 const Loop = struct {
     label: ?[]const u8,
     brk: BlockId,
-    /// Null for a `match`, which only `break @label` leaves.
+    /// Null for a `match` or a labeled block, which only `break $label`
+    /// leaves.
     cont: ?BlockId,
     /// The region depth a `break` unwinds to.
     depth: usize,
@@ -736,6 +737,7 @@ const Lowerer = struct {
             .panic => try self.panicStmt(s),
             .labeled => {
                 const inner = ir.Labeled.stmt(s);
+                if (inner.isKind(.block)) return self.labeledBlock(leafText(ir.Labeled.label(s), self.src), inner);
                 if (!inner.isKind(.@"while") and !inner.isKind(.@"for") and !inner.isKind(.match)) return abstain("a labeled `raw` block");
                 self.label = leafText(ir.Labeled.label(s), self.src);
                 try self.stmtIn(inner);
@@ -1506,6 +1508,17 @@ const Lowerer = struct {
         const c = try self.readOpt(cond);
         try self.emit(.{ .pos = self.posOf(cond), .what = .use, .uses = try self.list(c) });
         try self.popRegion(self.posOf(cond));
+    }
+
+    /// A block a label on a line of its own names (`$done:`): its
+    /// statements, which `break $done` leaves to the point after it.
+    fn labeledBlock(self: *Lowerer, label: []const u8, b: Sexp) Error!void {
+        const x = try self.newBlock();
+        try self.loops.append(self.a, .{ .label = label, .brk = x, .cont = null, .depth = self.regions.items.len, .value = null });
+        try self.blockStmts(b);
+        _ = self.loops.pop();
+        try self.goto(x);
+        self.cur = x;
     }
 
     fn blockStmts(self: *Lowerer, b: Sexp) Error!void {

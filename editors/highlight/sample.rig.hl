@@ -557,17 +557,17 @@
                         ^ constant.numeric
 >     total += i
             ^^ operator
->   @outer for row in xs
-    ^^^^^^ label
-           ^^^ keyword.control
-                   ^^ keyword.control
+>   $outer: for row in xs
+    ^^^^^^^ label
+            ^^^ keyword.control
+                    ^^ keyword.control
 >     for col in xs
       ^^^ keyword.control
               ^^ keyword.control
 >       if col == row
         ^^ keyword.control
                ^^ operator
->         break @outer
+>         break $outer
           ^^^^^^ keyword.control
                 ^^^^^^ label
 >       total += 1 if col != row
@@ -575,6 +575,17 @@
                  ^ constant.numeric
                    ^^ keyword.control
                           ^^ operator
+>   $done:
+    ^^^^^^ label
+>     break $done if total > 99
+      ^^^^^^ keyword.control
+            ^^^^^ label
+                  ^^ keyword.control
+                           ^ operator
+                             ^^ constant.numeric
+>     total += 1
+            ^^ operator
+               ^ constant.numeric
 >   v = next() ?? continue
       ^ operator
             ^^ punctuation

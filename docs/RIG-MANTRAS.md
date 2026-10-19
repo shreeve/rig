@@ -77,13 +77,13 @@ does; a program means the same with every marker removed.
 **Square brackets after a name mean compile time.** `List[Int]`,
 `push[U32, .big](x)`, `Simd[U8, 16]`; parentheses are run time.
 
-**`$name(…)` asks the compiler about a type; `@name` alone is a
+**`$name(…)` asks the compiler about a type; `$name:` is a
 label.** The `$` touches the name, and the name the `(`. Each of Rig's
 builtins (`$size`, `$align`, `$name`, `$type`, `$variants`) is a
 question the compiler answers when it compiles, at no cost when the
 program runs. Work done on a value is a method or a function, never a
 `$`: so `x.hash()`, not `$hash(x)`. (Zig's own builtins, inside `raw`,
-keep Zig's names: `$intCast`.) A label, `@outer for`, `break @outer`,
+keep Zig's names: `$intCast`.) A label, `$outer: for`, `break $outer`,
 names a statement and asks nothing.
 
 **Name from the owner's side.** The owner lends; the compiler records a

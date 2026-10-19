@@ -158,10 +158,10 @@ fail "for held iterator keeps lent", "23:5: cannot lend `v` to write while a rea
       !b.xs.push(x)
 
   sub labeled(v: !List[Int])
-    @outer for x in Cur(xs: ?v[0..v.len], i: 0)
+    $outer: for x in Cur(xs: ?v[0..v.len], i: 0)
       for y in 0..2
         !v.push(x + y)
-        continue @outer
+        continue $outer
 
   v: List[Int] = List()
   made(!v)
@@ -341,7 +341,7 @@ test "for iterator hidden name", release: true, '''
       print(" ", n, m)
   print(__rig_iter0)
 
-fail "for iterator kept view", "26:5: `for iterator` does not live long enough", "34:5: `for iterator` does not live long enough", "44:5: `for iterator` does not live long enough", "53:8: `for iterator` does not live long enough", "62:5: `for iterator` does not live long enough", errors: 5
+fail "for iterator kept view", "26:5: `for iterator` does not live long enough", "34:5: `for iterator` does not live long enough", "44:5: `for iterator` does not live long enough", "53:9: `for iterator` does not live long enough", "62:5: `for iterator` does not live long enough", errors: 5
   # A view a loop variable holds of the iterator's own state cannot outlive
   # an iterator the loop holds: `for iterator` ends with the loop, whether
   # the loop runs out, breaks, has an `else`, or is labeled, as the
@@ -394,9 +394,9 @@ fail "for iterator kept view", "26:5: `for iterator` does not live long enough",
 
   sub by_label()
     keep: (?Item)? = none
-    @l for it in mkbuf()
+    $l: for it in mkbuf()
       keep = it
-      break @l
+      break $l
     if keep as k
       print(k.name)
 

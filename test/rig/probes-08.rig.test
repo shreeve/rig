@@ -323,10 +323,10 @@ test "docs-p-lbl", '''
     return E.bad if k == 2
     k
 
-  @outer for i in 0..4
+  $outer: for i in 0..4
     for j in 0..3
-      v = get(j) ?? continue @outer
-      w = p(i) catch break @outer
+      v = get(j) ?? continue $outer
+      w = p(i) catch break $outer
       print(i, j, v, w)
 
 test "docs-p-matcherr", '''
@@ -548,8 +548,8 @@ test "docs-probes-rm-clo own", "0"
 
 test "docs-probes-rm-label match", "2"
   x = 1
-  @m match x
-    1 => break @m
+  $m: match x
+    1 => break $m
     _ => print(0)
   print(2)
 

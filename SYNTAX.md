@@ -1053,15 +1053,16 @@ A statement is one of:
   line of a closure that gives a value, a branch whose value is used),
   `<x` moves the value there;
 - `pass`, which does nothing;
-- `return`, `return e`, `break`, `break e`, `break @label`,
-  `break @label e`, `continue`, `continue @label`;
+- `return`, `return e`, `break`, `break e`, `break $label`,
+  `break $label e`, `continue`, `continue $label`;
 - `panic(a, b, ...)`, which ends the program; it may also stand as a
   branch's value: in a ternary, a `match` arm, after `??`, or as a
   `catch` handler ([SPEC §17](SPEC.md#panic));
 - `defer` or `errdefer` with a statement or block (a one-line
   statement may not declare a name);
 - a `raw` block ([SPEC §15](SPEC.md#15-raw-code-and-ffi));
-- a labeled loop, `match`, or `raw` block, `@name stmt`.
+- a labeled loop, `match`, or `raw` block, `$name: stmt`, or a label
+  alone on a line over the block it names, `$name:`.
 
 ### if
 
@@ -1215,25 +1216,27 @@ has the rules. An `else` block runs when the loop ends without `break`.
 
 ### Labels, break, and continue
 
-`@name` before a loop labels it, and `break @name` or `continue @name`
+`$name:` before a loop labels it, and `break $name` or `continue $name`
 names it from an inner loop. A `match` or `raw` statement may be
-labeled too, and `break @name` leaves it; no other statement takes a
-label, and none takes two. A jump after `??` or `catch` names a label
-the same way, `v = next() ?? continue @outer`, also in a `while`
-header: `while more() ?? break @outer : i += 1`.
+labeled too, and `break $name` leaves it. A label alone on a line
+names the indented block under it, which `break $name` leaves (no
+`continue` names a block). No other statement takes a label, and none
+takes two. A jump after `??` or `catch` names a label
+the same way, `v = next() ?? continue $outer`, also in a `while`
+header: `while more() ?? break $outer : i += 1`.
 
-A label's `@` touches its name, and no `(` touches the name: `@size(T)`,
-with the `(` touching, asks the compiler about a type
-([§11](#calls)). After `break` or `continue`, `$name` is always a
-label, so `break @outer (x)` leaves `outer` with the value `(x)`; the
-value stands apart from the label.
+A label's `$` touches its name, and so does the `:` that declares it;
+a jump names it with no `:`. `$size(T)`, with the `(` touching the
+name, asks the compiler about a type ([§11](#calls)) instead, after a
+jump too, so `break $outer (x)` leaves `outer` with the value `(x)`;
+the value stands apart from the label.
 
 ```rig
 sub main()
-  @outer for i in 0..3
+  $outer: for i in 0..3
     for j in 0..3
-      continue @outer if j > i
-      break @outer if i == 2
+      continue $outer if j > i
+      break $outer if i == 2
       print(i, j)
 ```
 
@@ -1241,6 +1244,23 @@ sub main()
 0 0
 1 0
 1 1
+```
+
+```rig
+sub main()
+  xs = [4, 8, 15]
+  $scan:
+    for x in xs
+      if x > 10
+        print("big", x)
+        break $scan
+    print("none big")
+  print("done")
+```
+
+```output
+big 15
+done
 ```
 
 ### Loops as values
@@ -1708,7 +1728,7 @@ A parameter's type, and the result's, may come from context;
 | Form | Meaning |
 |---|---|
 | `a ?? b` | the value in `a`, or `b` when `a` is `none` |
-| `a ?? return v`, `a ?? break`, `a ?? continue @outer` | the value in `a`, or leave |
+| `a ?? return v`, `a ?? break`, `a ?? continue $outer` | the value in `a`, or leave |
 | `a?` | the value in `a`, or return `none` from the function |
 | `f()!` | the value of `f()`, or propagate its failure |
 | `f() catch v` | the value of `f()`, or `v` when it fails |

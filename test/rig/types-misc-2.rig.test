@@ -3558,8 +3558,8 @@ fail "while cond not bool", "type mismatch: expected `Bool`, got `Int`"
   while 1
     print("loop")
 
-fail "while header old label", "10:27: a label is written `@name`: the `:` in a `while` header starts the step, so `outer` reads as the step; to name a label, write `break @outer`", "12:30: a label is written `@name`: the `:` in a `while` header starts the step, so `outer` reads as the step; to name a label, write `continue @outer`"
-  # A label is written `@name`. In the old spelling, `while x ?? break
+fail "while header old label", "10:27: a label is written `$name`: the `:` in a `while` header starts the step, so `outer` reads as the step; to name a label, write `break $outer`", "12:30: a label is written `$name`: the `:` in a `while` header starts the step, so `outer` reads as the step; to name a label, write `continue $outer`"
+  # A label is written `$name`. In the old spelling, `while x ?? break
   # :outer`, the `:` in the header starts the step, so `outer` reads as the
   # step, and the error says how to write the label.
 
@@ -3567,7 +3567,7 @@ fail "while header old label", "10:27: a label is written `@name`: the `:` in a 
     n > 0 if n < 9 else none
 
   n = 3
-  @outer while true
+  $outer: while true
     while more(n) ?? break :outer
       n -= 1
     while more(n) ?? continue :outer
@@ -3575,7 +3575,7 @@ fail "while header old label", "10:27: a label is written `@name`: the `:` in a 
     break
   print(n)
 
-fail "while header old label step", "11:26: a label is written `@name`: `@outer for ...`, `break @outer`, `continue @outer`"
+fail "while header old label step", "11:26: a label is written `$name:`: `$outer: for ...`, `break $outer`, `continue $outer`"
   # A label in the old spelling in a `while` header that has a step:
   # `while x ?? break :outer : i += 1` is rejected with the hint, not read
   # as a step named `outer`.
@@ -3585,7 +3585,7 @@ fail "while header old label step", "11:26: a label is written `@name`: `@outer 
 
   n = 3
   i = 0
-  @outer while true
+  $outer: while true
     while more(n) ?? break :outer : i += 1
       n -= 1
     break

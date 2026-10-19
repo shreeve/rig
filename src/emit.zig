@@ -2228,7 +2228,7 @@ pub const Emitter = struct {
         return l;
     }
 
-    /// The Zig label of a construct the program labels `@name`: the name
+    /// The Zig label of a construct the program labels `$name:`: the name
     /// itself, unless a construct around it has it too (Zig rejects a
     /// label inside another of the same name).
     fn rigLabel(self: *Emitter, name: []const u8, kind: []const u8) Error!*ZigLabel {
@@ -2531,8 +2531,8 @@ pub const Emitter = struct {
         try self.w.writeAll(" }");
     }
 
-    /// `(labeled name stmt)`: a labeled loop, or a labeled `match` or
-    /// `raw` block, which `break @name` leaves as it leaves a Zig
+    /// `(labeled name stmt)`: a labeled loop, or a labeled `match`, `raw`
+    /// block, or block, which `break $name` leaves as it leaves a Zig
     /// labeled block.
     fn emitLabeled(self: *Emitter, sexp: Sexp) Error!void {
         const stmt = ir.Labeled.stmt(sexp);
