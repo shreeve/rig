@@ -11,3 +11,4 @@ scheduler grows (`bench-tasks --record "#PR: what changed"`).
 | 2026-10-19 | reference | tokio | 171 ns | 167 ns | 69.0 ms | 40 ns |
 | 2026-10-19 | reference | go | 232 ns | 223 ns | 69.6 ms | 233 ns |
 | 2026-10-19 | #347: baseline, Zig's `Threaded` backend | rig-fast | 12.28 us | 10.29 us | 82.7 ms | 412 ns |
+| 2026-10-19 | #348: fibers on one worker | rig-sched | 103 ns | 47 ns | 570.5 ms | 17 ns |
