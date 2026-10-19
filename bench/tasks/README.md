@@ -65,6 +65,40 @@ So the numbers compare like with like:
 - **Where to time.** Time arm64 on the Mac and x86 on pup, on a quiet
   machine; never on burst, a shared VM.
 
+## Where it stands
+
+On 2026-10-19, after #356 made the scheduler the default, best of 7.
+On the Mac (an Apple M5 with 10 cores):
+
+```text
+        rig-fast          tokio             go                vs tokio
+spawn   100 ns/task       178 ns/task       291 ns/task       rig-fast 1.8x faster, go 1.6x slower
+chain   54 ns/task        165 ns/task       221 ns/task       rig-fast 3.1x faster, go 1.3x slower
+fanout  82.9 ms/run       68.7 ms/run       70.1 ms/run       rig-fast 1.2x slower, go 1.0x slower
+yield   10 ns/yield       42 ns/yield       247 ns/yield      rig-fast 4.2x faster, go 5.8x slower
+hog     69.25 us/step     4.0 ms/step       4.2 ms/step       rig-fast 58.3x faster, go 1.0x slower
+memory  32.0 KiB/task     262 B/task        2.8 KiB/task      rig-fast 125.0x more, go 11.1x more
+```
+
+On pup (Linux, x86-64, 22 cores):
+
+```text
+        rig-fast          tokio             go                vs tokio
+spawn   293 ns/task       328 ns/task       354 ns/task       rig-fast 1.1x faster, go 1.1x slower
+chain   88 ns/task        212 ns/task       282 ns/task       rig-fast 2.4x faster, go 1.3x slower
+fanout  94.4 ms/run       96.0 ms/run       80.6 ms/run       rig-fast 1.0x faster, go 1.2x faster
+yield   7 ns/yield        43 ns/yield       474 ns/yield      rig-fast 6.2x faster, go 11.0x slower
+hog     44.00 us/step     2.2 ms/step       1.9 ms/step       rig-fast 49.9x faster, go 1.2x faster
+memory  9.0 KiB/task      367 B/task        2.9 KiB/task      rig-fast 25.0x more, go 8.0x more
+```
+
+Rig is ahead of Tokio wherever the scheduler is what is measured:
+starting, waiting for, and switching tasks, and keeping a task that
+waits behind a long computation from waiting for all of it. It is
+behind in memory, where a task holds two pages of stack, and on the
+Mac in `fanout`, whose gap is the compiled loop's. PROGRESS.md tracks
+each step.
+
 ## Baseline
 
 The first numbers, on 2026-10-19, an Apple M5 with 10 cores, best of

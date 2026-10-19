@@ -63,7 +63,7 @@ arrives as `error.Canceled`, so a `Task[Int]` runs to its end and a
 ## Rig and Tokio
 
 Tokio, Rust's async runtime, is the measure of a fast one. Rig's tasks
-go further than it in five ways, each following from the model, and
+go further than it in six ways, each following from the model, and
 aim to match it in the rest.
 
 **Where Rig goes further:**
@@ -85,6 +85,11 @@ aim to match it in the rest.
   it saves the few registers a call keeps, and resuming restores them. A
   Tokio task is a state machine: each pause returns up through every
   future it is nested in, and each resume calls back down through them.
+- **A long computation never holds up the rest.** The compiler puts a
+  yield check in every outermost loop and recursive function of a
+  program that makes tasks, so a task waiting behind one waits for a
+  slice of it, not all of it. Tokio never stops a running task, and Go
+  stops one after 10 ms.
 - **Errors stay the call's own.** `Task[Page!]` gives back the error
   the call failed with, from the call's own error set; a canceled task
   fails with `Stop.canceled`, an ordinary member of that set. A Tokio
@@ -96,16 +101,19 @@ aim to match it in the rest.
   io_uring) is tuned by years of real load. Rig's is the plan's fifth
   step ("The engine").
 - **Memory for a task at rest.** A Tokio task can be a few hundred
-  bytes; a Rig task holds at least a page of stack. Closing that gap, by
-  stacks sized to a proven bound and stacks smaller still, is measured
-  work ("The engine").
+  bytes; a Rig task holds two pages of its stack, 32 KiB on the Mac and
+  9 KiB on Linux. Closing that gap, by stacks sized to a proven bound
+  and stacks smaller still, is measured work ("The engine").
 - **Maturity.** Its ecosystem, its tooling, and its years in
   production.
 
 `bench/tasks` times Rig's tasks against Tokio's and Go's on starting,
-waiting, spreading work over cores, and switching, and
-`bench/tasks/PROGRESS.md` records each step of the scheduler
-([docs/concurrency/SCHEDULER.md](concurrency/SCHEDULER.md)).
+waiting, spreading work over cores, switching, and waiting behind a
+long computation, and measures the memory a task takes. Rig is ahead
+of Tokio wherever the scheduler is what is measured, and behind in
+memory ([bench/tasks/README.md](../bench/tasks/README.md), "Where it
+stands"), and `bench/tasks/PROGRESS.md` records each step of the
+scheduler ([docs/concurrency/SCHEDULER.md](concurrency/SCHEDULER.md)).
 
 ## What a program writes
 
