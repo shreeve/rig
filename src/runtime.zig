@@ -26,8 +26,16 @@ pub const Task = tasks.Task;
 pub const Tasks = tasks.Tasks;
 pub const waitTasks = tasks.waitTasks;
 pub const waitPoint = tasks.waitPoint;
+pub const taskCheck = tasks.check;
+pub const taskSleep = tasks.sleep;
 pub const Stop = tasks.Stop;
 const Control = tasks.Control;
+// The scheduler, which runs tasks as fibers (`sched.zig`).
+pub const sched = @import("sched.zig");
+
+test {
+    _ = sched;
+}
 
 // -----------------------------------------------------------------------------
 // Optionals
@@ -3045,13 +3053,17 @@ const sanitize = leak_checked and Sanitizer.supported and @hasDecl(root, "__rig_
 
 const makes_tasks = @hasDecl(root, "__rig_tasks") and root.__rig_tasks;
 const concurrent = builtin.is_test or makes_tasks;
+/// A program that makes tasks runs them on the scheduler (`sched.zig`)
+/// when its root declares `__rig_scheduler`, and on the `Threaded`
+/// backend otherwise.
+pub const scheduled = makes_tasks and @hasDecl(root, "__rig_scheduler") and root.__rig_scheduler;
 
 /// What the runtime keeps for the task that is running: the depth and
 /// queue of nested `*T` releases (`drainDropQueue`), how deep a `print`
 /// is inside the value it writes (`writeValue`), the guard below the
 /// task's stack (`mapStack`), and what it shares with its owner
 /// (`Control`), which `main` has none of.
-const TaskState = struct {
+pub const TaskState = struct {
     drop_depth: u32 = 0,
     drop_queue: std.ArrayList(PendingDrop) = .empty,
     print_depth: u32 = 0,
@@ -3062,8 +3074,10 @@ const TaskState = struct {
 threadlocal var thread_task: TaskState = .{};
 var only_task: TaskState = .{};
 
-/// The running task's `TaskState`.
+/// The running task's `TaskState`: on the scheduler, the running
+/// fiber's.
 pub inline fn task() *TaskState {
+    if (scheduled) if (sched.current()) |f| return &f.state;
     return if (concurrent) &thread_task else &only_task;
 }
 
@@ -3423,7 +3437,7 @@ const own_stack = (builtin.target.os.tag == .macos or builtin.target.os.tag == .
 /// pointer the frame started from. Without this room the walk would
 /// read past the top of the first frame on this stack, into the page
 /// above, which faults while a panic prints its trace.
-const unwind_headroom: usize = 256;
+pub const unwind_headroom: usize = 256;
 
 comptime {
     // Room for five pairs read from 8 below a frame pointer that is 16
@@ -3433,7 +3447,7 @@ comptime {
 
 /// The guard below a stack, once it is mapped: an access in it is a
 /// stack overflow. Each task has its own (`TaskState`).
-const StackGuard = struct { lo: usize = 0, hi: usize = 0 };
+pub const StackGuard = struct { lo: usize = 0, hi: usize = 0 };
 
 /// Map a stack, read-write, above its guard and below one inaccessible
 /// page, so a read past its top faults whatever else is mapped, and make
@@ -3478,7 +3492,10 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
         }
     };
     var call: Call = .{ .args = args };
-    switchStack(&call, &Call.run, top - unwind_headroom);
+    // On the scheduler, `f` runs as the first fiber, on this stack.
+    if (scheduled) {
+        sched.runMain(&call, &Call.run, top - unwind_headroom, task().stack_guard);
+    } else switchStack(&call, &Call.run, top - unwind_headroom);
     return call.result;
 }
 
@@ -3487,6 +3504,9 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
 /// `main`'s, which still holds any frame the compiler accepts
 /// (`max_frame_reach`), so many tasks fit in the address space.
 const task_guard_sizes = [_]usize{guard_sizes[guard_sizes.len - 1]};
+/// A task's stack and its guard, as `sched.zig` maps a fiber's.
+pub const task_stack_size = stack_size;
+pub const task_guard = task_guard_sizes[0];
 
 /// `f(args...)` on a stack of the task's own, mapped for the call and
 /// unmapped after it, as `onOwnStack` runs `main`: called on the thread

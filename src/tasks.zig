@@ -35,7 +35,7 @@ const task = rt.task;
 /// after it fails with `task.Stop.canceled`.
 pub fn Task(comptime T: type) type {
     return struct {
-        future: std.Io.Future(T),
+        handle: Handle(T),
         control: *Control,
 
         const Self = @This();
@@ -59,9 +59,19 @@ pub fn Task(comptime T: type) type {
                     return onTaskStack(call, .{a});
                 }
             };
+            // On the scheduler a task is a fiber, already on a stack of
+            // its own, whose state the runtime keeps per fiber.
+            const Fiber = struct {
+                fn run(control: *Control, a: Args) T {
+                    task().control = control;
+                    defer control.finish();
+                    return @call(.auto, f, a);
+                }
+            };
             const control = std.heap.smp_allocator.create(Control) catch oom();
             control.* = .{};
-            return .{ .future = io().concurrent(Run.run, .{ control, args }) catch noTaskThread(), .control = control };
+            if (rt.scheduled) return .{ .handle = .{ .job = rt.sched.spawn(T, Fiber.run, .{ control, args }) }, .control = control };
+            return .{ .handle = .{ .future = io().concurrent(Run.run, .{ control, args }) catch noTaskThread() }, .control = control };
         }
 
         /// `recv.name(args...)&`: start a method's call as a task. `recv`
@@ -95,13 +105,25 @@ pub fn Task(comptime T: type) type {
                 dropElement(T, &result);
                 return canceled_error;
             }
-            const prev = io().swapCancelProtection(.unblocked);
-            var result = t.future.await(io());
-            // A cancel that came to the waiter during the wait reached
-            // the task, which recorded it, or came back to the waiter
-            // unanswered.
-            const passed_on = t.control.canceled.load(.acquire) or std.meta.isError(io().checkCancel());
-            _ = io().swapCancelProtection(prev);
+            var result: T = undefined;
+            var passed_on = false;
+            if (rt.scheduled) {
+                // A cancel that comes to the waiter during the wait goes
+                // on to the task it waits on (`Control.cancel`).
+                const me = task().control;
+                if (me) |c| c.waiting_on = t.control;
+                result = t.handle.result();
+                if (me) |c| c.waiting_on = null;
+                passed_on = t.control.canceled.load(.acquire);
+            } else {
+                const prev = io().swapCancelProtection(.unblocked);
+                result = t.handle.result();
+                // A cancel that came to the waiter during the wait reached
+                // the task, which recorded it, or came back to the waiter
+                // unanswered.
+                passed_on = t.control.canceled.load(.acquire) or std.meta.isError(io().checkCancel());
+                _ = io().swapCancelProtection(prev);
+            }
             if (!passed_on) return result;
             markCanceled();
             if (comptime !fallible) return result;
@@ -127,20 +149,67 @@ pub fn Task(comptime T: type) type {
         /// drops it is canceled, which passes the cancel on.
         pub fn __rig_drop(self: *Self) void {
             defer self.release();
-            var result = if (fallible or canceledHere()) self.stop() else self.future.await(io());
+            var result = if (fallible or canceledHere()) self.stop() else self.handle.result();
             dropElement(T, &result);
         }
 
-        /// Record the cancel, then ask `std.Io` for it, which interrupts
-        /// a waiting point the task is in, and wait for the task.
+        /// Record the cancel, then ask the backend for it, which
+        /// interrupts a waiting point the task is in, and wait for the
+        /// task.
         fn stop(self: *Self) T {
-            self.control.canceled.store(true, .release);
-            return self.future.cancel(io());
+            self.control.cancel();
+            return self.handle.stopped();
         }
 
         fn release(self: *Self) void {
+            self.handle.free();
             std.heap.smp_allocator.destroy(self.control);
         }
+    };
+}
+
+/// How a task is held: on the `Threaded` backend, the `std.Io` future
+/// of its call; on the scheduler, its fiber's record, which keeps its
+/// result once it ends. `result` waits for the task and gives what it
+/// gave, again on a later call; `stopped` does so once a cancel is
+/// recorded, asking the backend to interrupt the task's waiting point.
+fn Handle(comptime T: type) type {
+    if (rt.scheduled) return struct {
+        job: *rt.sched.Job(T),
+
+        fn result(h: *@This()) T {
+            return h.job.join();
+        }
+
+        /// A fiber sees the cancel at its next waiting point, where it
+        /// yields to look (`check`, `sleep`, `Wakeup.sleep`).
+        fn stopped(h: *@This()) T {
+            return h.job.join();
+        }
+
+        /// The task has ended and its result is kept for a later wait.
+        fn keep(_: *@This(), _: T) void {}
+
+        fn free(h: *@This()) void {
+            h.job.free();
+        }
+    };
+    return struct {
+        future: std.Io.Future(T),
+
+        fn result(h: *@This()) T {
+            return h.future.await(io());
+        }
+
+        fn stopped(h: *@This()) T {
+            return h.future.cancel(io());
+        }
+
+        fn keep(h: *@This(), r: T) void {
+            h.future = .{ .any_future = null, .result = r };
+        }
+
+        fn free(_: *@This()) void {}
     };
 }
 
@@ -154,6 +223,16 @@ pub const Control = struct {
     canceled: std.atomic.Value(bool) = .init(false),
     done: std.atomic.Value(bool) = .init(false),
     wakeup: std.atomic.Value(?*Wakeup) = .init(null),
+    /// On the scheduler, the task this one waits on (`Task.wait`).
+    waiting_on: ?*Control = null,
+
+    /// Record a cancel: on the scheduler, also of the task this one
+    /// waits on, and so on down, since a fiber waiting on a task sees
+    /// no cancel of its own until that task ends.
+    fn cancel(self: *Control) void {
+        var c: ?*Control = self;
+        while (c) |x| : (c = if (rt.scheduled) x.waiting_on else null) x.canceled.store(true, .release);
+    }
 
     /// The task has ended: record it, then wake what waits on it. A
     /// waiter that registers after the task ends finds `done` set
@@ -185,7 +264,7 @@ const Wakeup = struct {
 
     fn tick(self: *Wakeup) void {
         _ = self.ticks.fetchAdd(1, .seq_cst);
-        io().futexWake(u32, &self.ticks.raw, 1);
+        if (!rt.scheduled) io().futexWake(u32, &self.ticks.raw, 1);
     }
 
     /// Sleep until a watched task ends after `seen` was read, the
@@ -197,6 +276,15 @@ const Wakeup = struct {
             if (left <= 0) return timeout_error;
             break :blk .{ .duration = .{ .raw = .fromNanoseconds(left), .clock = .awake } };
         } else .none;
+        // A fiber yields until a tick, the deadline, or a cancel.
+        if (rt.scheduled) {
+            while (self.ticks.load(.seq_cst) == seen) {
+                rt.sched.yield();
+                if (canceledHere()) return canceled_error;
+                if (deadline) |d| if (nowNs() >= d) return timeout_error;
+            }
+            return;
+        }
         const prev = io().swapCancelProtection(.unblocked);
         defer _ = io().swapCancelProtection(prev);
         io().futexWaitTimeout(u32, &self.ticks.raw, seen, timeout) catch {
@@ -253,7 +341,7 @@ pub fn waitTasks(tasks: anytype) TaskValues(@TypeOf(tasks)) {
             if (failure == null and !taken[i] and ts[i].control.done.load(.seq_cst)) {
                 taken[i] = true;
                 left -= 1;
-                const result = ts[i].future.await(io());
+                const result = ts[i].handle.result();
                 ts[i].release();
                 const R = @TypeOf(result);
                 if (@typeInfo(R) == .error_union) {
@@ -272,9 +360,9 @@ pub fn waitTasks(tasks: anytype) TaskValues(@TypeOf(tasks)) {
         };
     }
     const err = failure orelse return values;
-    inline for (0..n) |i| if (!taken[i]) ts[i].control.canceled.store(true, .release);
+    inline for (0..n) |i| if (!taken[i]) ts[i].control.cancel();
     inline for (0..n) |i| if (!taken[i]) {
-        var result = ts[i].future.cancel(io());
+        var result = ts[i].handle.stopped();
         dropElement(@TypeOf(result), &result);
         ts[i].release();
     };
@@ -353,16 +441,16 @@ pub fn Tasks(comptime T: type) type {
             var kept: usize = 0;
             for (self.items.items) |*t| {
                 if (t.control.done.load(.seq_cst)) {
-                    var result = t.future.await(io());
+                    var result = t.handle.result();
                     const ok = if (fallible) !std.meta.isError(result) else true;
                     if (ok) {
                         dropElement(T, &result);
                         t.release();
                         continue;
                     }
-                    // Its result is kept: the future is spent, so the task
+                    // Its result is kept: its handle is spent, so the task
                     // is kept as one already waited for.
-                    t.future = .{ .any_future = null, .result = result };
+                    t.handle.keep(result);
                 }
                 self.items.items[kept] = t.*;
                 kept += 1;
@@ -401,7 +489,7 @@ pub fn Tasks(comptime T: type) type {
                     if (taken[i] or !t.control.done.load(.seq_cst)) continue;
                     taken[i] = true;
                     left -= 1;
-                    const result = t.future.await(io());
+                    const result = t.handle.result();
                     t.release();
                     if (result) |v| {
                         results[i] = v;
@@ -444,7 +532,7 @@ pub fn Tasks(comptime T: type) type {
                     if (taken[i] or !t.control.done.load(.seq_cst)) continue;
                     taken[i] = true;
                     left -= 1;
-                    const result = t.future.await(io());
+                    const result = t.handle.result();
                     t.release();
                     if (result) |v| {
                         s.stopUntaken(taken);
@@ -468,11 +556,11 @@ pub fn Tasks(comptime T: type) type {
         /// what it gave.
         fn stopUntaken(self: *Self, taken: []const bool) void {
             for (self.items.items, taken) |t, k| {
-                if (!k) t.control.canceled.store(true, .release);
+                if (!k) t.control.cancel();
             }
             for (self.items.items, taken) |*t, k| {
                 if (k) continue;
-                var result = t.future.cancel(io());
+                var result = t.handle.stopped();
                 dropElement(T, &result);
                 t.release();
             }
@@ -497,10 +585,10 @@ pub fn Tasks(comptime T: type) type {
         pub fn __rig_drop(self: *Self) void {
             defer self.free();
             if (fallible or canceledHere()) {
-                for (self.items.items) |t| t.control.canceled.store(true, .release);
+                for (self.items.items) |t| t.control.cancel();
             }
             for (self.items.items) |*t| {
-                var result = if (fallible or canceledHere()) t.future.cancel(io()) else t.future.await(io());
+                var result = if (fallible or canceledHere()) t.handle.stopped() else t.handle.result();
                 dropElement(T, &result);
                 t.release();
             }
@@ -541,6 +629,35 @@ pub fn waitPoint(comptime op: anytype, args: anytype) Stop!@typeInfo(@typeInfo(@
         markCanceled();
         return canceled_error;
     };
+}
+
+/// `task.check()`: a waiting point that waits for nothing. It fails
+/// when the running task is canceled, and otherwise lets other tasks
+/// run: other fibers on the scheduler, other threads on `Threaded`.
+pub fn check() Stop!void {
+    if (rt.scheduled) {
+        if (canceledHere()) return canceled_error;
+        rt.sched.yield();
+        return;
+    }
+    try waitPoint(std.Io.checkCancel, .{io()});
+    std.Thread.yield() catch {};
+}
+
+/// `time.sleep(ns)`: a waiting point that waits `ns` nanoseconds. On the
+/// scheduler a fiber yields until the time has passed, looking for a
+/// cancel each time it runs.
+pub fn sleep(ns: i64) Stop!void {
+    if (ns <= 0) return;
+    if (rt.scheduled) {
+        const until = nowNs() + ns;
+        while (true) {
+            if (canceledHere()) return canceled_error;
+            if (nowNs() >= until) return;
+            rt.sched.yield();
+        }
+    }
+    try waitPoint(std.Io.sleep, .{ io(), std.Io.Duration.fromNanoseconds(ns), std.Io.Clock.awake });
 }
 
 fn noTaskThread() noreturn {

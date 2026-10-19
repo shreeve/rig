@@ -201,6 +201,7 @@ const Env = struct {
     /// naming the file the program creates as it starts (`buildCommand`).
     fn writeRootFlags(env: Env, w: *std.Io.Writer, hook: bool, tasks: bool) !void {
         if (tasks) try w.writeAll("pub const __rig_tasks = true;\n");
+        if (tasks and env.flag("RIG_SCHEDULER")) try w.writeAll("pub const __rig_scheduler = true;\n");
         if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
         if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
@@ -748,6 +749,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     try root.writer.writeAll("};\n");
     // One runtime serves the batch: it runs tasks if any program makes them.
     if (makes_tasks) try root.writer.writeAll("\npub const __rig_tasks = true;\n");
+    if (makes_tasks and env.flag("RIG_SCHEDULER")) try root.writer.writeAll("pub const __rig_scheduler = true;\n");
     try root.writer.print(
         \\
         \\// The first argument names the program; it sees the others, after
@@ -780,6 +782,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     try writePackage(allocator, io, dir, &.{
         .{ .path = emit.runtime_filename, .contents = emit.runtime_source },
         .{ .path = emit.tasks_filename, .contents = emit.tasks_source },
+        .{ .path = emit.sched_filename, .contents = emit.sched_source },
         .{ .path = "main.zig", .contents = root.written() },
         .{ .path = "programs", .contents = list.written() },
     });
@@ -787,7 +790,7 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     const bin = try std.fs.path.join(allocator, &.{ dir, "bin" });
     // A Zig that cannot say what it is (`zigIdentity`) builds every time.
     const zig_identity = zigIdentity(allocator, io, env);
-    for ([_][]const u8{ emit.runtime_source, emit.tasks_source, root.written(), env.zig(), zig_identity orelse "", mode.zigFlag(), if (links_libc) "-lc" else "" }) |part| Part.add(&inputs, part);
+    for ([_][]const u8{ emit.runtime_source, emit.tasks_source, emit.sched_source, root.written(), env.zig(), zig_identity orelse "", mode.zigFlag(), if (links_libc) "-lc" else "" }) |part| Part.add(&inputs, part);
     var digest: [std.crypto.hash.sha2.Sha256.digest_length]u8 = undefined;
     inputs.final(&digest);
     const hex = std.fmt.bytesToHex(digest, .lower);
@@ -1187,6 +1190,7 @@ fn emitPackage(allocator: std.mem.Allocator, env: Env, graph: *modules.ModuleGra
     if (!kind.batch) {
         try files.append(allocator, .{ .path = emit.runtime_filename, .contents = emit.runtime_source });
         try files.append(allocator, .{ .path = emit.tasks_filename, .contents = emit.tasks_source });
+        try files.append(allocator, .{ .path = emit.sched_filename, .contents = emit.sched_source });
     }
 
     var root_source: []const u8 = "";

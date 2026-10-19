@@ -4,6 +4,5 @@ const std = @import("std");
 const rig = @import("../runtime.zig");
 
 pub fn check() rig.Stop!void {
-    try rig.waitPoint(std.Io.checkCancel, .{rig.io()});
-    std.Thread.yield() catch {};
+    return rig.taskCheck();
 }
