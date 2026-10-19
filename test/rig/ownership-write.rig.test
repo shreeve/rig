@@ -134,7 +134,7 @@ test "write lend branching part", '''
 '''
   # A field of a branching temporary (`if`, `??`, `catch`) lent to write
   # is written in the statement's slot, never in a copy, whichever site
-  # lends it: `swap`, `replace`, a write slice of an array field, or a
+  # lends it: `swap`, a write slice of an array field, or a
   # receiver whose call evaluates its arguments first (Core sentence 4).
 
 
@@ -174,7 +174,7 @@ test "write lend branching part", '''
   k = 30
   swap(!(mk(1) if c else mk(2)).n, !k)
   print(k)
-  print(replace(!(mk(3) if c else mk(4)).n, 7))
+  print(swap(!(mk(3) if c else mk(4)).n, 7))
   swap(!(mko(5) ?? mk(6)).n, !k)
   swap(!(mkf(0) catch mk(7)).n, !k)
   t = String("mine")
@@ -2130,7 +2130,7 @@ test "write view lent as copied read", '''
   g: [2]?Int = [wn, wk]
   print(g[0], g[1])
 
-fail "write view lent bare", "13:5: write `!@bump()`: the call writes `@`", "26:8: write `!c`: the call writes through `c`", "30:3: `fill` writes the elements; write the receiver with `!`: `!xs.fill(0)`", "33:17: write `!c`: the call writes through `c`", "38:1: write `!w.bump()`: the call writes `w`"
+fail "write view lent bare", "13:5: write `!@bump()`: the call writes `@`", "26:8: write `!c`: the call writes through `c`", "30:3: `fill` writes the elements; write the receiver with `!`: `!xs.fill(0)`", "33:14: write `!c`: the call writes through `c`", "38:1: write `!w.bump()`: the call writes `w`"
   # Lending a write view always shows its sigil: a held write view (a
   # `!T` parameter, `@` in a `!@` method, a local) is lent to a `!T`
   # parameter, a `!@` receiver, or an element method as `!w`. A held
@@ -2163,7 +2163,7 @@ fail "write view lent bare", "13:5: write `!@bump()`: the call writes `@`", "26:
     xs.fill(0)
 
   sub reset(c: !Counter)
-    old = replace(c, Counter(n: 0))
+    old = swap(c, Counter(n: 0))
     print(old.n)
 
   c = Counter(n: 0)

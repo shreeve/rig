@@ -1669,10 +1669,10 @@ test "reactive cascade", '''
     # out to be walked, and swapped back.
     sub set(!@, v: Int)
       !@value.set(v)
-      subs = (!@subs).replace(List())
+      subs = (!@subs).swap(List())
       for notify in ?subs
         notify()
-      _ = !@subs.replace(<subs)
+      _ = !@subs.swap(<subs)
 
   count = IntSource.new(0)
   total = IntSource.new(0)
@@ -1719,10 +1719,10 @@ test "reactive int source", '''
     # out to be walked, and swapped back.
     sub set(!@, v: Int)
       !@value.set(v)
-      subs = (!@subs).replace(List())
+      subs = (!@subs).swap(List())
       for notify in ?subs
         notify()
-      _ = !@subs.replace(<subs)
+      _ = !@subs.swap(<subs)
 
   count = IntSource.new(0)
   !count.subscribe(*|~count|

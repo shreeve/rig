@@ -4438,9 +4438,20 @@ pub fn returnsNothing(ctx: *const SemContext, ret: TypeId) bool {
 }
 
 /// A built-in function called by name unless a declaration hides it:
-/// `print`, `warn`, `replace`, `swap`.
+/// `print`, `warn`, `swap`, and `replace`, which is retired: its call is
+/// reported, with `swap` to write in its place.
 pub fn isBuiltinCallName(name: []const u8) bool {
     return std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "warn") or std.mem.eql(u8, name, "replace") or std.mem.eql(u8, name, "swap");
+}
+
+/// Whether the built-in `swap`'s second argument `arg`, of type `ty`
+/// where known, is a second place lent to write, `!b` or a held `!T`: the
+/// call exchanges two places. Otherwise it is a value the call puts in
+/// the first place, giving back what was there.
+pub fn swapsTwoPlaces(ctx: *const SemContext, arg: Sexp, ty: ?TypeId) bool {
+    if (arg.isKind(.write)) return true;
+    const t = ty orelse return false;
+    return ctx.types.get(t) == .write_view;
 }
 
 /// A built-in generic that keeps its values on the heap: a `List[T]` and

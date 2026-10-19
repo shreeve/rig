@@ -984,7 +984,7 @@ test "review-take-p10", '''
   v: List[^S] = List()
   !v.push(^S(a: R(n: 1)))
   v[0].a = R(n: 2)
-  x = replace(!v[0].a, none)
+  x = swap(!v[0].a, none)
   print(x, v)
 
 test "review-take-p106", "5 2"
@@ -1105,7 +1105,7 @@ fail "review-take-p114", "`<` here would copy `s.a` out without moving it; take 
   b = <(s.a if c else none)
   print(b, s)
 
-fail "review-take-p115", "`<` here would copy `s.a` out without moving it, and a field that is not optional cannot be moved out; exchange it: `replace(!s.a, v)`"
+fail "review-take-p115", "`<` here would copy `s.a` out without moving it, and a field that is not optional cannot be moved out; exchange it: `old = swap(!s.a, v)`"
   obj N
     v: Int
 
@@ -1178,7 +1178,7 @@ fail "review-take-p118", "`x` owns an `R`, which can't be copied into an argumen
 
   s = S(a: R(n: 1))
   x = R(n: 2)
-  old = replace(!s.a, x)
+  old = swap(!s.a, x)
   print(old, x)
 
 fail "review-take-p119", "use of `y` after move"
@@ -1192,12 +1192,12 @@ fail "review-take-p119", "use of `y` after move"
 
   s = S(a: R(n: 1))
   x = R(n: 2)
-  old = replace(!s.a, <x)
+  old = swap(!s.a, <x)
   print(old, s)
   y = R(n: 3)
   i = 0
   while i < 2 : i += 1
-    o2 = replace(!s.a, <y)
+    o2 = swap(!s.a, <y)
     print(o2)
 
 test "review-take-p120", '''
@@ -1243,7 +1243,7 @@ test "review-take-p125", "2 S(a: none)"
     a: Int?
 
   x = 1
-  replace(!x, 2)
+  _ = swap(!x, 2)
   s = S(a: 1)
   _ = <s.a
   print(x, s)
@@ -1313,7 +1313,7 @@ test "review-take-p17", '''
   match !e
     .one(s)
       s.a = R(n: 5)
-      x = replace(!s.a, none)
+      x = swap(!s.a, none)
       print(x)
     .two => print("two")
   print(e)
@@ -1434,10 +1434,10 @@ fail "review-take-p33", "`s.a` owns an `R`, which can't be copied into an argume
     b: R
 
   s = S(a: R(n: 1), b: R(n: 2))
-  old = replace(!s.a, s.a)
+  old = swap(!s.a, s.a)
   print(old, s)
 
-fail "review-take-p34", "cannot move out of `s.b`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.b, v)`"
+fail "review-take-p34", "cannot move out of `s.b`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `old = swap(!s.b, v)`"
   obj R
     n: Int
     drop(!@)
@@ -1448,7 +1448,7 @@ fail "review-take-p34", "cannot move out of `s.b`: `s` would still drop it (part
     b: R
 
   s = S(a: R(n: 1), b: R(n: 2))
-  old = replace(!s.a, <s.b)
+  old = swap(!s.a, <s.b)
   print(old)
 
 test "review-take-p35", '''
@@ -1466,19 +1466,19 @@ test "review-take-p35", '''
     b: R?
 
   s = S(a: R(n: 1), b: R(n: 2))
-  old = replace(!s.a, <s.b)
+  old = swap(!s.a, <s.b)
   print(old, s)
 
 fail "review-take-p36", "use of `x` while a write loan is live"
   x = 1
-  old = replace(!x, x + 1)
+  old = swap(!x, x + 1)
   print(old, x)
 
 fail "review-take-p37", "use of `v` while a write loan is live"
   v: List[Int] = List()
   !v.push(1)
   !v.push(2)
-  old = replace(!v[0], v[1])
+  old = swap(!v[0], v[1])
   print(old, v)
   swap(!v[0], !v[1])
   print(v)

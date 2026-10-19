@@ -682,7 +682,7 @@ test "review-seam2b-fixes-emit-e02 prop head", '''
 
   fun g(c: Bool) -> Int!
     swap(!(mkf(7)!).n, !(mkf(8)!).kk.n)
-    print(replace(!(mkf(9)!).arr[0], 5))
+    print(swap(!(mkf(9)!).arr[0], 5))
     sort.sort(!(mkf(10)!).arr[..])
     !(mkf(11)!).kk.put2(b: f(2), a: f(3))
     0
@@ -816,7 +816,7 @@ test "review-seam2b-fixes-emit-e03 opt head", '''
 
   fun g(c: Bool) -> Int?
     swap(!(mkopt(7)?).n, !(mkopt(8)?).kk.n)
-    print(replace(!(mkopt(9)?).arr[0], 5))
+    print(swap(!(mkopt(9)?).arr[0], 5))
     sort.sort(!(mkopt(10)?).arr[..])
     !(mkopt(11)?).kk.put2(b: f(2), a: f(3))
     0
@@ -1198,7 +1198,7 @@ test "review-seam2b-fixes-emit-e10 elem of branch arr", '''
   k = 3
   swap(!([mk(3), mk(4)] if c else [mk(5), mk(6)])[f(1)].kk.n, !k)
   print(k)
-  print(replace(!([1, 2] if c else [3, 4])[0], 9))
+  print(swap(!([1, 2] if c else [3, 4])[0], 9))
 
 test "review-seam2b-fixes-emit-e17 box branch", '''
   make 1
@@ -1463,7 +1463,7 @@ test "review-seam2b-fixes-emit-e18 whole array branch", '''
   show(!(vec3(9) if c else vec3(8))[..])
   show(!(arr3(9) if c else arr3(8))[0..2])
   show(!(mkopt(0) ?? mk(5)).arr[..])
-  print(replace(!(arr3(9) if c else arr3(8)), [0, 0, 0]))
+  print(swap(!(arr3(9) if c else arr3(8)), [0, 0, 0]))
   k = 4
   swap(!(arr3(9) if c else arr3(8))[2], !k)
   print(k)
@@ -1597,7 +1597,7 @@ test "review-seam2b-fixes-emit-e19 generic branch", '''
     k = 3
     swap(sel(!(mkx(1) if c else mkx(2))), !k)
     print(k)
-    print(replace(!(GW(v: mkx(4), k: 1) if c else GW(v: mkx(5), k: 2)).k, 9))
+    print(swap(!(GW(v: mkx(4), k: 1) if c else GW(v: mkx(5), k: 2)).k, 9))
     swap(!(GW(v: mkx(6), k: 1) if c else GW(v: mkx(7), k: 2)).k, !k)
     print(k)
     swap(sel(!(GW(v: mkx(8), k: 1) if c else GW(v: mkx(9), k: 2)).v), !k)
@@ -1835,14 +1835,14 @@ test "review-seam2b-fixes-fuzz-p-branch2  replace", '''
   sub viatemp()
     c = f(1) == 1
     k = 3
-    print(replace(!(mk(3) if not c else mk(4)).n, 7))
+    print(swap(!(mk(3) if not c else mk(4)).n, 7))
     print(c, k)
 
   sub vianame()
     c = f(1) == 1
     k = 3
     tt = (mk(3) if not c else mk(4))
-    print(replace(!tt.n, 7))
+    print(swap(!tt.n, 7))
     print(c, k)
 
   viatemp()
@@ -2451,14 +2451,14 @@ test "review-seam2b-fixes-fuzz-p-brpart  replarr", '''
   sub viatemp()
     c = f(1) == 1
     k = 3
-    print(replace(!(mkpair(3) if c else mkpair(5)).b.arr[0], 9))
+    print(swap(!(mkpair(3) if c else mkpair(5)).b.arr[0], 9))
     print(c, k)
 
   sub vianame()
     c = f(1) == 1
     k = 3
     tt = (mkpair(3) if c else mkpair(5))
-    print(replace(!tt.b.arr[0], 9))
+    print(swap(!tt.b.arr[0], 9))
     print(c, k)
 
   viatemp()
@@ -3534,14 +3534,14 @@ test "review-seam2b-fixes-fuzz-p-coal  replitems", '''
   sub viatemp()
     c = f(1) == 1
     k = 3
-    print(replace(!(mkopt(5) ?? mk(6)).items[0], 9))
+    print(swap(!(mkopt(5) ?? mk(6)).items[0], 9))
     print(c, k)
 
   sub vianame()
     c = f(1) == 1
     k = 3
     tt = (mkopt(5) ?? mk(6))
-    print(replace(!tt.items[0], 9))
+    print(swap(!tt.items[0], 9))
     print(c, k)
 
   viatemp()
@@ -4399,7 +4399,7 @@ test "review-seam2b-fixes-fuzz-pc-and  catch  repl", '''
     n + 1
 
   c = f(1) == 1
-  print(c and replace(!(mkf(7) catch mk(8)).n, 7) > 0)
+  print(c and swap(!(mkf(7) catch mk(8)).n, 7) > 0)
   print("--- end", c)
 
 test "review-seam2b-fixes-fuzz-pc-cassign  coal0  replkk", '''
@@ -4521,7 +4521,7 @@ test "review-seam2b-fixes-fuzz-pc-cassign  coal0  replkk", '''
 
   c = f(1) == 1
   z = 1
-  z += replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n
+  z += swap(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n
   print(z)
   print("--- end", c)
 
@@ -4893,7 +4893,7 @@ test "review-seam2b-fixes-fuzz-pc-defer  catch  repl", '''
 
   c = f(1) == 1
   if c
-    defer print(replace(!(mkf(7) catch mk(8)).n, 7))
+    defer print(swap(!(mkf(7) catch mk(8)).n, 7))
     print("in")
   print("--- end", c)
 
@@ -5016,7 +5016,7 @@ test "review-seam2b-fixes-fuzz-pc-elif  coal0  replkk", '''
   c = f(1) == 1
   if f(0) == 1
     print("a")
-  else if replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n > 0
+  else if swap(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n > 0
     print("b")
   print("--- end", c)
 
@@ -5392,7 +5392,7 @@ test "review-seam2b-fixes-fuzz-pc-for  catch  repl", '''
 
   c = f(1) == 1
   for i in 0..2
-    print(i, replace(!(mkf(7) catch mk(8)).n, 7))
+    print(i, swap(!(mkf(7) catch mk(8)).n, 7))
   print("--- end", c)
 
 test "review-seam2b-fixes-fuzz-pc-idx  coal0  replkk", '''
@@ -5514,7 +5514,7 @@ test "review-seam2b-fixes-fuzz-pc-idx  coal0  replkk", '''
 
   c = f(1) == 1
   a2 = [0, 0]
-  a2[f(1)] = replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n
+  a2[f(1)] = swap(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n
   print(a2)
   print("--- end", c)
 
@@ -5880,7 +5880,7 @@ test "review-seam2b-fixes-fuzz-pc-ifcond  catch  repl", '''
     n + 1
 
   c = f(1) == 1
-  if replace(!(mkf(7) catch mk(8)).n, 7) > 0
+  if swap(!(mkf(7) catch mk(8)).n, 7) > 0
     print("y")
   print("--- end", c)
 
@@ -6002,7 +6002,7 @@ test "review-seam2b-fixes-fuzz-pc-kw  coal0  replkk", '''
     n + 1
 
   c = f(1) == 1
-  print(K3(n: replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n).n)
+  print(K3(n: swap(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n).n)
   print("--- end", c)
 
 test "review-seam2b-fixes-fuzz-pc-match  branch  at", '''
@@ -6370,7 +6370,7 @@ test "review-seam2b-fixes-fuzz-pc-match  catch  repl", '''
 
   c = f(1) == 1
   match f(1)
-    1 => print(replace(!(mkf(7) catch mk(8)).n, 7))
+    1 => print(swap(!(mkf(7) catch mk(8)).n, 7))
     _ => pass
   print("--- end", c)
 
@@ -6492,7 +6492,7 @@ test "review-seam2b-fixes-fuzz-pc-nested  coal0  replkk", '''
     n + 1
 
   c = f(1) == 1
-  print(f2(replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n))
+  print(f2(swap(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n))
   print("--- end", c)
 
 test "review-seam2b-fixes-fuzz-pc-or  branch  at", '''
@@ -6855,7 +6855,7 @@ test "review-seam2b-fixes-fuzz-pc-or  catch  repl", '''
     n + 1
 
   c = f(1) == 1
-  print(not c or replace(!(mkf(7) catch mk(8)).n, 7) > 0)
+  print(not c or swap(!(mkf(7) catch mk(8)).n, 7) > 0)
   print("--- end", c)
 
 test "review-seam2b-fixes-fuzz-pc-stmt  coal0  replkk", '''
@@ -6976,7 +6976,7 @@ test "review-seam2b-fixes-fuzz-pc-stmt  coal0  replkk", '''
     n + 1
 
   c = f(1) == 1
-  print(replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n)
+  print(swap(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n)
   print("--- end", c)
 
 test "review-seam2b-fixes-fuzz-pc-tern2  branch  at", '''
@@ -7339,7 +7339,7 @@ test "review-seam2b-fixes-fuzz-pc-tern2  catch  repl", '''
     n + 1
 
   c = f(1) == 1
-  print(0 if not c else replace(!(mkf(7) catch mk(8)).n, 7))
+  print(0 if not c else swap(!(mkf(7) catch mk(8)).n, 7))
   print("--- end", c)
 
 test "review-seam2b-fixes-fuzz-pc-tern  coal0  replkk", '''
@@ -7460,7 +7460,7 @@ test "review-seam2b-fixes-fuzz-pc-tern  coal0  replkk", '''
     n + 1
 
   c = f(1) == 1
-  print(replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n if c else 0)
+  print(swap(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n if c else 0)
   print("--- end", c)
 
 test "review-seam2b-fixes-fuzz-pc-two  branch  at", '''
@@ -7829,7 +7829,7 @@ test "review-seam2b-fixes-fuzz-pc-two  catch  repl", '''
     n + 1
 
   c = f(1) == 1
-  print(replace(!(mkf(7) catch mk(8)).n, 7), replace(!(mkf(7) catch mk(8)).n, 7))
+  print(swap(!(mkf(7) catch mk(8)).n, 7), swap(!(mkf(7) catch mk(8)).n, 7))
   print("--- end", c)
 
 test "review-seam2b-fixes-fuzz-pc-while  coal0  replkk", '''
@@ -7950,7 +7950,7 @@ test "review-seam2b-fixes-fuzz-pc-while  coal0  replkk", '''
 
   c = f(1) == 1
   i = 0
-  while i < 2 and replace(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n > 0
+  while i < 2 and swap(!(mkopt(0) ?? mk(6)).kk, K2(n: 8)).n > 0
     i += 1
   print("--- end", c)
 

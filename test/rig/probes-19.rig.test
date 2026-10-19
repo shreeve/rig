@@ -511,7 +511,7 @@ test "review-box-p24", '''
   x = mk().n
   print(x)
 
-fail "review-box-p25", "cannot move out of `s.b`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.b, v)`"
+fail "review-box-p25", "cannot move out of `s.b`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `old = swap(!s.b, v)`"
   obj R
     n: Int
 
@@ -1340,7 +1340,7 @@ fail "review-cell-mark-1-p21 same handle twice", "cannot lend `h` to read while 
   h = *H(log: Cell(List()))
   f(!h, ?h)
 
-fail "review-cell-mark-1-p23 wv holder take", "cannot move out of `x.items`: `x` is a view; exchange it instead: `replace(!x.items, v)`"
+fail "review-cell-mark-1-p23 wv holder take", "cannot move out of `x.items`: `x` is a view; exchange it instead: `old = swap(!x.items, v)`"
   obj H
     log: Cell[List[Int]]
     items: List[Int]
@@ -1398,7 +1398,7 @@ test "review-cell-mark-1-p32 swap cells holder", "0"
 
 test "review-cell-mark-1-p33 replace cell", "0"
   a: *Cell[List[Int]] = *Cell(List())
-  old = replace(!a, *Cell(List()))
+  old = swap(!a, *Cell(List()))
   print(old.len)
 
 test "review-cell-mark-1-p34 swap cell through view", "2"

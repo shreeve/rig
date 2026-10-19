@@ -2701,11 +2701,11 @@ test "builtin result does not view receiver", '''
   if <f as g
     g()
   c: *Cell[*sub()] = *Cell(*|| print("three"))
-  h = (!c).replace(*|| print("four"))
+  h = (!c).swap(*|| print("four"))
   !c.set(*|| print("five"))
   h()
 
-fail "call argument writes place", "24:28: cannot lend `v` to write while a write loan is live", "25:15: cannot lend `v` to write while a read loan is live", "26:19: cannot lend `v` to write while a read loan is live", "27:20: cannot lend `v` to write while a read loan is live", "29:28: cannot lend `b` to write while a write loan on `b.xs` is live", errors: 5
+fail "call argument writes place", "24:25: cannot lend `v` to write while a write loan is live", "25:15: cannot lend `v` to write while a read loan is live", "26:19: cannot lend `v` to write while a read loan is live", "27:20: cannot lend `v` to write while a read loan is live", "29:25: cannot lend `b` to write while a write loan on `b.xs` is live", errors: 5
   # A call whose place argument (a write view, or a receiver) is taken
   # before its later arguments run: a later argument cannot lend to write
   # the place's root, as Rust's two-phase views also forbid.
@@ -2729,12 +2729,12 @@ fail "call argument writes place", "24:28: cannot lend `v` to write while a writ
   v: List[Int] = List()
   !v.push(7)
   !v.push(8)
-  old = replace(!v[0], grow(!v))
+  old = swap(!v[0], grow(!v))
   !v.push(grow(!v))
   !v[..].fill(grow(!v))
   !v[..2].copy(pair(!v))
   b = B(xs: List())
-  xs = replace(!b.xs, renew(!b))
+  xs = swap(!b.xs, renew(!b))
   print(old, v, xs)
 
 test "call held receiver values", '''
@@ -4391,16 +4391,16 @@ test "discard resource drops", '''
   print("end")
 
 fail "discard resource result", "this statement makes a `*User`, which owns what it must release, and does not use it; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver"
-  # An expression statement whose value has drop glue (here the old value
-  # from `c.replace`) cannot be discarded.
+  # An expression statement whose value has drop glue (here a new
+  # handle) cannot be discarded.
 
   obj User
     age: Int
 
-  ua: *User = *User(age: 30)
-  ub: *User = *User(age: 99)
-  c: Cell[*User] = Cell(<ua)
-  !c.replace(<ub)
+  fun make(n: Int) -> *User
+    *User(age: n)
+
+  make(30)
   print(0)
 
 test "discard take plain optional", release: true, '''
@@ -9383,8 +9383,8 @@ fail "recheck implicit lend argument", "cannot lend `b` to write while a write l
   w = pick(?f, !b, !b)
   print(a)
 
-fail "replace element while sibling lent", "9:16: cannot lend `v` to write while a read loan is live"
-  # `replace(!v[1], ...)` writes into `v`'s buffer, and an index is a
+fail "replace element while sibling lent", "9:13: cannot lend `v` to write while a read loan is live"
+  # `swap(!v[1], ...)` writes into `v`'s buffer, and an index is a
   # run-time value, so it may be `v[0]`, which `r` views: `replace` of an
   # element lends the whole list to write.
 
@@ -9392,7 +9392,7 @@ fail "replace element while sibling lent", "9:16: cannot lend `v` to write while
   !v.push(String("a"))
   !v.push(String("b"))
   r = ?v[0]
-  old = replace(!v[1], String("c"))
+  old = swap(!v[1], String("c"))
   print(r, old)
 
 test "replace error place", '''
@@ -9422,21 +9422,21 @@ test "replace error place", '''
     err: error
 
   f = Failure(at: 1, err: Net.timeout)
-  old = replace(!f.err, Disk.full)
+  old = swap(!f.err, Disk.full)
   f.at = 2
   print(describe(?old), describe(?f.err), f.at)
   e: error = Disk.full
-  was = replace(!e, Net.timeout)
+  was = swap(!e, Net.timeout)
   print(describe(?was), describe(?e))
   es: List[error] = List()
   !es.push(Net.timeout)
-  first = replace(!es[0], <was)
+  first = swap(!es[0], <was)
   print(describe(?first), describe(?es[0]))
-  _ = replace(!f.err, <old)
+  _ = swap(!f.err, <old)
   print(describe(?f.err))
 
-fail "replace place lent during call", "12:25: cannot lend `s` to read while a write loan is live"
-  # `replace(!s, v)` lends `s` to write for the call; the argument
+fail "replace place lent during call", "12:22: cannot lend `s` to read while a write loan is live"
+  # `swap(!s, v)` lends `s` to write for the call; the argument
   # `make(?s)` reads `s` after that lend, so a view of the old value could
   # meet the new one.
 
@@ -9447,7 +9447,7 @@ fail "replace place lent during call", "12:25: cannot lend `s` to read while a w
     S(name: String(s.name, "!"))
 
   s = S(name: String("a"))
-  old = replace(!s, make(?s))
+  old = swap(!s, make(?s))
   print(old.name, s.name)
 
 test "replace save restore field", "1 a.ts 1"
@@ -9466,7 +9466,7 @@ test "replace save restore field", "1 a.ts 1"
     depth: Int
 
     sub check_cached(!@)
-      saved = replace(!@flow, Flow(file: "", labels: List(), stack: List()))
+      saved = swap(!@flow, Flow(file: "", labels: List(), stack: List()))
       @depth += 1
       !@flow.stack.push(@depth)
       @flow = <saved
@@ -9478,7 +9478,7 @@ test "replace save restore field", "1 a.ts 1"
   print(c.flow.stack.len, c.flow.file, c.depth)
 
 test "replace take and restore", "abc"
-  # `replace(!p, v)` is a take then a store, `t = <p; p = v`: its result
+  # `swap(!p, v)` is a take then a store, `t = <p; p = v`: its result
   # carries what `p`'s value held (here the loan on `src`) and no loan on
   # `p`, so `s` may be lent to write again while `taken` lives. The value
   # both holds a view and owns a String, which the view could view by type.
@@ -9489,8 +9489,8 @@ test "replace take and restore", "abc"
 
   src = "abc"
   s = Scanner(text: ?src, value: String())
-  taken = replace(!s, Scanner(text: "", value: String()))
-  _ = replace(!s, <taken)
+  taken = swap(!s, Scanner(text: "", value: String()))
+  _ = swap(!s, <taken)
   print(s.text)
 
 fail "replace taken carries source loan", "12:2: cannot drop `src` while it is lent"
@@ -9504,7 +9504,7 @@ fail "replace taken carries source loan", "12:2: cannot drop `src` while it is l
 
   src = String("abc")
   s = Scanner(text: ?src, value: String())
-  taken = replace(!s, Scanner(text: "", value: String()))
+  taken = swap(!s, Scanner(text: "", value: String()))
   <src
   print(taken.text)
 
@@ -9519,7 +9519,7 @@ fail "replace taken outlives source", "10:21: cannot return a view of `src`"
   fun take() -> Scanner
     src = String("abc")
     s = Scanner(text: ?src, value: String())
-    replace(!s, Scanner(text: "", value: String()))
+    swap(!s, Scanner(text: "", value: String()))
 
   print(take().value)
 
@@ -9534,11 +9534,11 @@ test "replace through holder", "2 abc"
     value: String
 
     sub round_trip(!@)
-      taken = replace(!@, Scanner(text: "", pos: 0, value: String()))
+      taken = swap(!@, Scanner(text: "", pos: 0, value: String()))
       h = Holder(scanner: <taken)
       h.scanner.pos += 1
-      back = replace(!h.scanner, Scanner(text: "", pos: 0, value: String()))
-      _ = replace(!@, <back)
+      back = swap(!h.scanner, Scanner(text: "", pos: 0, value: String()))
+      _ = swap(!@, <back)
 
   obj Holder
     scanner: Scanner
@@ -9548,7 +9548,7 @@ test "replace through holder", "2 abc"
   !s.round_trip()
   print(s.pos, s.text)
 
-fail "replace through read view", "8:18: cannot lend to write through a read view"
+fail "replace through read view", "8:15: cannot lend to write through a read view"
   # `replace` writes its place, and a place reached through a read view
   # may not be written.
 
@@ -9556,7 +9556,7 @@ fail "replace through read view", "8:18: cannot lend to write through a read vie
     name: String
 
   sub reset(s: ?S)
-    old = replace(!s.name, String())
+    old = swap(!s.name, String())
     print(old)
 
   s = S(name: String("a"))
@@ -9578,9 +9578,9 @@ test "replace through write local", "v ab"
   src = "ab"
   p = Parser(state: State(text: ?src, value: String("v")), n: 0)
   w = !p.state
-  saved = replace(!w, State(text: "", value: String()))
+  saved = swap(!w, State(text: "", value: String()))
   w.value = String("tmp")
-  _ = replace(!w, <saved)
+  _ = swap(!w, <saved)
   print(p.state.value, p.state.text)
 
 fail "replace use after put back", "13:7: use of `taken` after move"
@@ -9594,8 +9594,8 @@ fail "replace use after put back", "13:7: use of `taken` after move"
 
   src = "abc"
   s = Scanner(text: ?src, pos: 1, value: String())
-  taken = replace(!s, Scanner(text: "", pos: 0, value: String()))
-  _ = replace(!s, <taken)
+  taken = swap(!s, Scanner(text: "", pos: 0, value: String()))
+  _ = swap(!s, <taken)
   print(taken.pos)
 
 test "repoint local forms", '''
@@ -10626,7 +10626,7 @@ fail "string of local text", "10:3: cannot return a view of `t`, which this func
   fill(!u)
   print(name(), make().name, u.name)
 
-fail "string view in cell", "6:10: cannot store a view of `s` in a `Cell`", "11:8: cannot store a view of `t` in a `Cell`", "12:11: cannot store a view of `t` in a `Cell`", "14:10: cannot store a view of `t` in a `Signal`", "15:20: cannot store a view of `t` in a `Cell`", "17:10: cannot store a view of `t` in a `Cell`", "19:8: cannot store a view of `t` in a `Cell`", errors: 7
+fail "string view in cell", "6:10: cannot store a view of `s` in a `Cell`", "11:8: cannot store a view of `t` in a `Cell`", "12:11: cannot store a view of `t` in a `Cell`", "14:10: cannot store a view of `t` in a `Signal`", "15:17: cannot store a view of `t` in a `Cell`", "17:10: cannot store a view of `t` in a `Cell`", "19:8: cannot store a view of `t` in a `Cell`", errors: 7
   # A view of a String is read as the String it reaches, so storing one
   # in a Cell or Signal stores that view: rejected when it views a Text or
   # may (a parameter), and accepted for a literal.
@@ -10641,7 +10641,7 @@ fail "string view in cell", "6:10: cannot store a view of `s` in a `Cell`", "11:
   d = *Cell(?s)
   sig: *Signal[?String] = *Signal("x")
   !sig.set(?s)
-  old = (!c).replace(?s)
+  old = (!c).swap(?s)
   cv: *Cell[List[?String]] = *Cell(List())
   !cv.push(?s)
   f = |?s| s

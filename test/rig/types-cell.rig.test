@@ -228,7 +228,7 @@ fail "cell made outside shared", "12:5: `Cell(0)` makes a `Cell[Int]`, which hol
   b = ^Cell(3)
   print(c.get(), b)
 
-fail "cell moved receiver", "7:6: method `push` needs its receiver lent to write, not moved", "9:10: method `pop` needs its receiver lent to write, not moved", "11:6: method `clear` needs its receiver lent to write, not moved", "13:6: method `set` needs its receiver lent to write, not moved", "15:10: method `replace` needs its receiver lent to write, not moved", errors: 5
+fail "cell moved receiver", "7:6: method `push` needs its receiver lent to write, not moved", "9:10: method `pop` needs its receiver lent to write, not moved", "11:6: method `clear` needs its receiver lent to write, not moved", "13:6: method `set` needs its receiver lent to write, not moved", "15:10: method `swap` needs its receiver lent to write, not moved", errors: 5
   # A Cell's `set`, `replace`, and its List's `push`, `pop`, and `clear`
   # take their receiver lent to write, as any `!@` method does, so a
   # `*Cell` handle moved there with `<` is rejected: `<` would end the
@@ -243,7 +243,7 @@ fail "cell moved receiver", "7:6: method `push` needs its receiver lent to write
   n: *Cell[Int] = *Cell(1)
   (<n).set(2)
   m: *Cell[Int] = *Cell(1)
-  y = (<m).replace(2)
+  y = (<m).swap(2)
   print(x ?? 0, y)
 
 fail "cell name reserved", "`Cell` is a reserved built-in nominal name"
@@ -292,7 +292,7 @@ test "cell signal plain data", '''
   q = p.get()
   !p.set(Point(x: q.x + 10, y: q.y))
   print(p.get().x, q.x)
-  old = (!p).replace(Point(x: 0, y: 0))
+  old = (!p).swap(Point(x: 0, y: 0))
   print(old.x, p.get().y)
 
   c: *Cell[Color] = *Cell(Color.red)
@@ -423,7 +423,7 @@ fail "cell vec element take", "7:5: an element of a Cell's List is read and writ
   y = <c[0]
   print(y ?? 0)
 
-fail "cell vec handle elements", "10:5: cannot read or overwrite an element of a `Cell[List[*N]]` in place", "11:8: cannot read or overwrite an element of a `Cell[List[*N]]` in place", "12:1: cannot read or overwrite an element of a `Cell[List[*N]]` in place", "13:8: `Cell.get` returns a copy of the value, and a `List[*N]` owns what it must release, so it can't be copied; write `(!cell).replace(<new)`, which puts `new` in and hands back the old value"
+fail "cell vec handle elements", "10:5: cannot read or overwrite an element of a `Cell[List[*N]]` in place", "11:8: cannot read or overwrite an element of a `Cell[List[*N]]` in place", "12:1: cannot read or overwrite an element of a `Cell[List[*N]]` in place", "13:8: `Cell.get` returns a copy of the value, and a `List[*N]` owns what it must release, so it can't be copied; write `(!cell).swap(<new)`, which puts `new` in and hands back the old value"
   # The elements of a Cell's List of handles are not read or overwritten in
   # place: that would copy a handle out, or release one, while the cell
   # holds the List. `pop` them, or `replace` the List.

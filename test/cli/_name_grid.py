@@ -220,7 +220,7 @@ sub t{i}()
   print(O{i}({n}: 7, b: 2), P{i}.pp({n}: 1, b: 2), O{i}({n}: 1, b: 2) == O{i}({n}: 1, b: 2))
   print(String(o))
   w = W{i}({n}: String("hi"))
-  s = replace(!w.{n}, String("yo"))
+  s = swap(!w.{n}, String("yo"))
   c = +w.{n}
   q = Q{i}.ss({n}: String("x"))
   r = +q

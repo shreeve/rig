@@ -329,8 +329,8 @@ pub fn dropFields(ptr: anytype) void {
     }
 }
 
-/// `replace(!place, value)`: the old value, with `value` in its place.
-pub fn replace(place: anytype, value: @TypeOf(place.*)) @TypeOf(place.*) {
+/// `old = swap(!place, value)`: the old value, with `value` in its place.
+pub fn swapValue(place: anytype, value: @TypeOf(place.*)) @TypeOf(place.*) {
     const old = place.*;
     place.* = value;
     return old;
@@ -975,7 +975,7 @@ pub fn Cell(comptime T: type) type {
         }
 
         /// Store `value` and hand the old one to the caller.
-        pub fn replace(self: *Self, value: T) T {
+        pub fn swap(self: *Self, value: T) T {
             const old = self.value;
             self.value = value;
             return old;
@@ -4876,11 +4876,11 @@ test "Cell.set stores the new value before dropping the old one" {
     try expectNoLeaks(before);
 }
 
-test "Cell.replace hands the old value back without dropping it" {
+test "Cell.swap hands the old value back without dropping it" {
     const before = usage();
     var drops: usize = 0;
     var cell: Cell(*RcBox(Counter)) = .{ .value = rcNew(Counter{ .drops = &drops }) };
-    const old = cell.replace(rcNew(Counter{ .drops = &drops }));
+    const old = cell.swap(rcNew(Counter{ .drops = &drops }));
     try testing.expectEqual(0, drops);
     old.dropStrong();
     try testing.expectEqual(1, drops);

@@ -3064,7 +3064,7 @@ fail "read only field header", "9:5: cannot assign through a read view (`?T`); `
     pub fun make() -> Tally
       Tally(boxed: ^Inner())
 
-fail "read only field writes", "14:5: cannot assign to `w.count`: field `count` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?count`", "18:5: cannot assign to `t.count`: field `count` of `lib.Tally` is read-only outside module `lib`", "19:5: cannot assign to `t.inner.n`: field `inner` of `lib.Tally` is read-only outside module `lib`", "20:5: cannot assign to `t.count`", "21:10: cannot lend `t.count` to write", "22:10: cannot take `t.last`", "23:6: cannot lend `t.tags` to write", "25:11: cannot lend `t.count` to write", "26:18: cannot lend `t.count` to write", "27:15: cannot write-iterate `t.tags`", "29:9: cannot lend `t.mode` to write", "32:5: cannot assign to `b.count`", "37:7: only module `lib` can construct `lib.Tally`: its fields `count`, `tags`, `inner`, `mode`, `last` are read-only", errors: 13
+fail "read only field writes", "14:5: cannot assign to `w.count`: field `count` of `lib.Tally` is read-only outside module `lib`, which declares it `pub ?count`", "18:5: cannot assign to `t.count`: field `count` of `lib.Tally` is read-only outside module `lib`", "19:5: cannot assign to `t.inner.n`: field `inner` of `lib.Tally` is read-only outside module `lib`", "20:5: cannot assign to `t.count`", "21:10: cannot lend `t.count` to write", "22:10: cannot take `t.last`", "23:6: cannot lend `t.tags` to write", "25:11: cannot lend `t.count` to write", "26:15: cannot lend `t.count` to write", "27:15: cannot write-iterate `t.tags`", "29:9: cannot lend `t.mode` to write", "32:5: cannot assign to `b.count`", "37:7: only module `lib` can construct `lib.Tally`: its fields `count`, `tags`, `inner`, `mode`, `last` are read-only", errors: 13
   # A field declared `pub ?name: T` in another module is read-only here,
   # however it would be written: assigned, or a part of it assigned;
   # assigned by an operator; lent to write; taken out; written by a method
@@ -3090,7 +3090,7 @@ fail "read only field writes", "14:5: cannot assign to `w.count`: field `count` 
     !t.tags.push(5)
     y = 0
     swap(!t.count, !y)
-    z = replace(!t.count, 3)
+    z = swap(!t.count, 3)
     for g in !t.tags
       g += 1
     if !t.mode as m

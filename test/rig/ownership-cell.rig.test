@@ -1,6 +1,6 @@
 # ownership: tests whose names start `cell`.
 
-fail "cell get resource", "`Cell.get` returns a copy of the value, and a `*User` owns what it must release, so it can't be copied; write `(!cell).replace(<new)`, which puts `new` in and hands back the old value"
+fail "cell get resource", "`Cell.get` returns a copy of the value, and a `*User` owns what it must release, so it can't be copied; write `(!cell).swap(<new)`, which puts `new` in and hands back the old value"
   # `Cell.get` on a Cell of shared handles is rejected: the copy would
   # alias the owned handle.
 
@@ -296,7 +296,7 @@ fail "cell store value holding view", "cannot store a view of `vw` in a `Cell`",
   sub park(h: *Cell[*View])
     x = Wrap(v: List())
     !x.v.push(42)
-    _ = !h.replace(*View(b: ?x))
+    _ = !h.swap(*View(b: ?x))
 
   y0 = Wrap(v: List())
   a: *Cell[*View] = *Cell(*View(b: ?y0))

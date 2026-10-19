@@ -423,7 +423,7 @@ test "syntax-review-symmetry-p box pos", "5"
 
 test "syntax-review-symmetry-p box replace", "1 2"
   b = ^1
-  old = replace(!b, ^2)
+  old = swap(!b, ^2)
   print(<old.unbox(), <b.unbox())
 
 test "syntax-review-symmetry-p clone weak", "true"
@@ -702,12 +702,12 @@ test "syntax-review-symmetry-p qparam bare", "1 2"
 
 test "syntax-review-symmetry-p replace elem", "1 [9, 2]"
   a = [1, 2]
-  old = replace(!a[0], 9)
+  old = swap(!a[0], 9)
   print(old, a)
 
 test "syntax-review-symmetry-p replace local", "1 2"
   x = 1
-  old = replace(!x, 2)
+  old = swap(!x, 2)
   print(old, x)
 
 test "syntax-review-symmetry-p rparam pass both", "2"

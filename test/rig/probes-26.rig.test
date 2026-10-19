@@ -1085,7 +1085,7 @@ fail "review-revamp-checkers-p-e4", "use of `t` after move"
   print(f(1) catch -1)
   print(g(1) catch -1)
 
-fail "review-revamp-checkers-p-f1", "cannot move out of `p.v`: `p` is a view; exchange it instead: `replace(!p.v, v)`"
+fail "review-revamp-checkers-p-f1", "cannot move out of `p.v`: `p` is a view; exchange it instead: `old = swap(!p.v, v)`"
   obj R
     n: Int
 
@@ -1104,7 +1104,7 @@ fail "review-revamp-checkers-p-f1", "cannot move out of `p.v`: `p` is a view; ex
   drain(!s)
   print(s.v.len)
 
-fail "review-revamp-checkers-p-f2", "cannot move out of `@v`: `@` is a view; exchange it instead: `replace(!@v, v)`"
+fail "review-revamp-checkers-p-f2", "cannot move out of `@v`: `@` is a view; exchange it instead: `old = swap(!@v, v)`"
   obj R
     n: Int
 

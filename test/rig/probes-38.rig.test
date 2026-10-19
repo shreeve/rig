@@ -622,7 +622,7 @@ fail "seam3-review1-e12 gen vec cell string base", "`keep[?String]` cannot use `
   !t.add(" world, a long text that lives on the heap")
   c = keep(?t[..])
   <t
-  old = (!c).replace(List())
+  old = (!c).swap(List())
   print(old[0])
 
 fail "seam3-review1-e13 gen vec closure string base", "`mk[?String]` cannot use `T = ?String`: the generic body stores a `T` in a Cell, a Signal, or an owned closure, which carries no loan, and a `?String` may view a String (a `Static` carries no loan)"
@@ -812,13 +812,13 @@ fail "seam3-review1-j02 gen cell set vec", "`stash[?^String]` cannot use `T = ?^
   sub stash[T](c: *Cell[List[T]], x: T)
     xs: List[T] = List()
     !xs.push(x)
-    _ = (!c).replace(<xs)
+    _ = (!c).swap(<xs)
 
   c: *Cell[List[?^String]] = *Cell(List())
   b = ^String("hello")
   stash(+c, ?b)
   <b
-  old = (!c).replace(List())
+  old = (!c).swap(List())
   print(old[0])
 
 test "seams-mprobes-m01", "7 101"

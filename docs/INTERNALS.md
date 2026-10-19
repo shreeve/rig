@@ -1438,7 +1438,7 @@ the `?String`, and emit writes each as the String's `.bytes()`:
   and the clone's type is `String`.
 
 A `?String` is a view, so nothing lends a `?String` place to write: `!s`,
-and so `swap` and `replace` of one, are rejected where the lend is
+and so a `swap` of one, are rejected where the lend is
 checked (`synthLend`), and `!?String` as a written type is rejected where
 it is resolved. The unwritten steps make no new effect: the lend, the
 loan, and the bytes are the ones `?t[..]` already has.
@@ -1626,7 +1626,7 @@ shared Cell, since another handle to it is another name. So no loan rule
 has a case for a Cell: a view of `c` held across the mark conflicts, and a
 view of another handle does not. A write view of a value that holds a Cell
 reaches shared storage, so `placeOf` blocks every write through it but a
-lend of a Cell or Signal (`requireAccess`), and `swap` and `replace` refuse
+lend of a Cell or Signal (`requireAccess`), and `swap` refuses
 a place that holds a Cell whole. `!c` of a handle lends the handle itself, `!*C`, only where
 `c` may be written (`handleWritable`: `requireAccess` with the handle
 exemption off, the one fact); anywhere else it lends the value it holds,
@@ -2363,7 +2363,7 @@ value's var now holds each of them for as long as it lives.
 A `?T` or `!T` parameter is live at every exit, since the caller uses the
 value it lent after the return, and every store into what a parameter
 reaches (an assignment through it, through a loop or `match !` binding
-or a local write view of it, a call, `swap`, `replace`, or making a
+or a local write view of it, a call, `swap`, or making a
 closure that captures it) puts the stored loans in that parameter's
 flow, as a store into a local does. So a view of one parameter stored
 in another keeps the first lent for the rest of the body: after
@@ -3010,18 +3010,18 @@ so a `from` clause is sentence 7's refinement rather than a form that
 desugars, and its checker rule is the call rule with the named set plus
 the body check.
 
-**`replace` and `swap`** (`walkSwapCall`). `r = replace(!p, v)` is
+**`swap`** (`walkSwapCall`). `r = swap(!p, v)` is
 `t = v; r = <p; p = <t`: `v` is evaluated while `p` is lent to write, so
-it may not read `p` (`replace(!s, make(?s))` is rejected); then the
+it may not read `p` (`swap(!s, make(?s))` is rejected); then the
 value in `p` is taken out, and `v` stored in its place. Ownership follows
 from the desugaring and adds no rule. The take leaves no loan on `p`
 behind (Core §5, "`<` always leaves its source done"), so `r` is no view
 of `p`: it carries what `p`'s value held, `carry` of the loans `p`'s var
 holds (`takenValue`), as `<p.f` carries them (`walkTake`). This is sound
 because a value never views itself, nor what is moved into it. A place
-reached through a write view (`replace(!w, x)` with `w = !q.f`) gives
+reached through a write view (`swap(!w, x)` with `w = !q.f`) gives
 the loans that view's var holds, its loan on `q` among them, as `<w.f`
-does; a place no var holds (`replace(!f().x, v)`) gives the loans of
+does; a place no var holds (`swap(!f().x, v)`) gives the loans of
 its view. The store is an assignment: `p`'s var now also views what `v`
 viewed (`absorbThroughWrites`). `swap(!a, !b)` is
 `t = <a; a = <b; b = <t`, with each place lent to write for the call, and
@@ -3995,7 +3995,7 @@ symbols); a query that decides more than that belongs in `Pending`.
   the call's block. A temporary lent to write is reached in its
   statement's slot, `(rig.keep(&slot, &flag, mk()).*).bump()`, and one
   that branches is never wrapped in a copy there, whichever site lends it
-  (`swap`, `replace`, a write slice, a hoisted receiver): every one reads
+  (`swap`, a write slice, a hoisted receiver): every one reads
   the fact `writesTemp`. A header subject with temporaries that reaches a
   place is reached through the address its block yields
   (`storage.headerPoints`), never a copy of the block's value. A `match`
@@ -4188,7 +4188,7 @@ reviewed.
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade` (what `*w` lowers to), which returns a new strong handle or null once the value is gone |
 | `Opt(T)`, `Payload`, `some`, `somePtr`, `pack`, `Strict(T)` | Rig's `T?` and its helpers ([Emit](#emit), "Optionals"): `Opt(T)` is Zig's `?T`, or a struct that declares `__rig_optional`, its payload, and holds it its own way (`Strict(T)`, the tagged struct an object's optional is under `RIG_STRICT_OPTIONALS`); `some`, `somePtr`, and `pack` convert between it and Zig's `?T`, and are the identity on a `?T`. The generic API returns `Opt(T)` wherever Rig reads a `T?` (`List.get`, `pop`, `IntoIter.next`, `Cell`'s `listGet` and `listPop`, `elementAt`, `ArrayIntoIter.next`, `enumFromInt`), and each reflective function (`needsDrop`, `dropElement`, `cloneValue`, `cloneOptional`, `takeOut`, `noneAt`, `isNone`, `eql`, `hashAs`, `isVariant`, `writeValue`, `typeName`) has an arm for a struct optional, where an optional held another way will go |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
-| `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
+| `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `swap`; for a `Cell(List(E))`, `listPush`, `listPop`, `listLen`, `listAt`, `listGet`, `listSet`, and `listClear` (empties the cell before dropping the elements) |
 | `ReadView(T)`, `lend`, `viewed`, `viewedPtr` | a generic type's read view of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a vector, a plain enum, an error, a slice or `?String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources (a type argument never holds a Cell by value); the emitter's `readViewIsPtr` applies the same rule to a known `T`. `lend` makes one from a pointer, `viewed` reads the value, and `viewedPtr` gives its address from the view's own, which a `match` switches on |
 | `typeName(x, names)` | `$name(T)` of a type that holds a type parameter. Emit writes such a `$name` as sema's printer spells the type (`formatTypeMarked`), each type parameter named per instance by `rig.typeName(T, __rig_names)`, and a type whose parentheses depend on the instance (`T?`, `*T`, `sema.spelledPerInstance`) named whole, from its Zig type, while a type known where it is written is the printer's string itself. The Zig type of an instance that holds a view or a slice, but a `?String`, does not tell its Rig type, so such an instance is rejected (`Requirement.named`). Every Rig name comes from the printer: emit writes into each struct, enum, and union `pub const __rig_name = .{ .module, .name }`, its module (empty for the root, as an error's name has it) and its spelling, with a generic type's parameters in it (`.{ "Pair[", A, ", ", B, "]" }`); and into a module that asks, the table `__rig_names`: the module, what each module it imports qualifies its types with (`geo.`), each built-in type and its name, and each of the runtime's generic types and its spelling, an index for each argument, which those types declare (`__rig_args`). `typeName` holds no name: it reads these and follows the shape of the Zig type between them (an optional, an error union, an array, a function, `*T` and `~T`, an error set by its errors' names) as the printer spells each, so the two cannot drift, which the case `type names` of `test/rig/types-misc-2.rig.test` checks shape by shape and `test/cli/type_names.sh` checks of the runtime's source |
 | `List(T)` | a growable buffer that owns its elements and drops them in reverse order; `filled` and `resize` fill new slots with one `@memset`; `slot` and `constSlot` reach an element in place (`constSlot` through a read view, as a `*const T`); `intoIter` hands the elements over one at a time, as `ArrayIntoIter` does an array's |
@@ -4212,7 +4212,7 @@ reviewed.
 | `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `index` converts an index of any integer type, 128-bit ones included, to `usize`, `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `notNan` | wraps a float converted to an integer type: where safety checks run (debug and safe), a NaN panics as an out-of-range value does, which `@trunc`'s own check misses |
 | `isVariant`, `isVariantDiscard` | `x == .variant` on an enum with payloads, or an optional of one: tests the tag only, so it compiles whatever the payloads hold; `isVariantDiscard` drops a temporary that owns a resource |
-| `takeOut`, `replace`, `swapPlaces` | `<p.f` of an optional (the value, with `none` left behind), `replace(!place, v)`, and `swap(!a, !b)` |
+| `takeOut`, `swapValue`, `swapPlaces` | `<p.f` of an optional (the value, with `none` left behind), `swap(!place, v)`, and `swap(!a, !b)` |
 | `poison` | under the sanitizer, fills hidden storage whose scope has ended with `0xAA`; nothing otherwise |
 | `discard`, `discardAt`, `isNone`, `take`, `keep` | drop a value nothing keeps (`_ = e`), or, by address, a part of a payload a `match <e` arm leaves unused (deferred, so each exit passes only the address); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out; hold an owning temporary in its statement's slot |
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body or on a plain enum: numbers by the operator, a plain enum's values by `@intFromEnum`, `?String` values by `std.mem.order`. Outside a generic body a `?String` or `[]U8` ordering is `std.mem.order` itself |
@@ -4452,7 +4452,7 @@ never copy a type parameter. Every element of a List, an array, or a
 slice is a place: what `push`, `insert`, a store, or a literal puts in
 a container joins the loans the container carries, an element read out
 of it (`v[i]`, `get`, `pop`, `remove`) carries those and no loan on the
-container, and `swap` and `replace` exchange what their places hold. A
+container, and `swap` exchanges what its places hold. A
 local holding a write view (no field or element holds one) is written
 through by a value and re-pointed by a new view, after which it holds
 the new view's loans only; a parameter is never re-pointed. A clone `+x` is a new owner carrying

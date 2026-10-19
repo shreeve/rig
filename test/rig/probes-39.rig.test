@@ -630,7 +630,7 @@ fail "step3-adv1-rej", "method `new_stack` of `lib.Stack` is private to module `
       c: Cell[T]
 
       fun swap(!@, x: T) -> T
-        (!@c).replace(<x)
+        (!@c).swap(<x)
 
     pub fun wrap[T](x: T, label: ?String = "w") -> Stack[T]
       s = Stack[T].new_stack()

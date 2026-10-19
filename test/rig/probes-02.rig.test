@@ -1246,7 +1246,7 @@ fail "R16-rs3", "cannot drop captured view `r`; the closure holds it for every c
   f()
   print("end")
 
-fail "R16-rs5", "cannot move out of `b.r`: `b` is a view; exchange it instead: `replace(!b.r, v)`"
+fail "R16-rs5", "cannot move out of `b.r`: `b` is a view; exchange it instead: `old = swap(!b.r, v)`"
   obj Res
     id: Int
 

@@ -23,10 +23,10 @@ obj IntSource
   # out to be walked, and swapped back.
   sub set(!@, v: Int)
     !@value.set(v)
-    listeners = (!@listeners).replace(List())
+    listeners = (!@listeners).swap(List())
     for listener in ?listeners
       listener(v)
-    _ = !@listeners.replace(<listeners)
+    _ = !@listeners.swap(<listeners)
 
   fun map(!@, f: *fun(Int) -> Int) -> *IntSource
     derived = IntSource.new(f(@get()))

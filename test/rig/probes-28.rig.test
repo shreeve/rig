@@ -1518,7 +1518,7 @@ test "review-seam2-c01 steal", '''
     items: List[Int]
 
     fun steal(!@) -> List[Int]
-      replace(!@items, List())
+      swap(!@items, List())
 
     fun into(<@) -> Int
       @n
@@ -1554,7 +1554,7 @@ fail "review-seam2-c03 move lent", "a view of the temporary `mk(1)` outlives its
     items: List[Int]
 
     fun steal(!@) -> List[Int]
-      replace(!@items, List())
+      swap(!@items, List())
 
     fun into(<@) -> Int
       @n
@@ -1605,7 +1605,7 @@ fail "review-seam2-c07 move whole while lent", "cannot move `s` while a write lo
   s = mk(1)
   both(!s.n, <s)
 
-fail "review-seam2-c13 move part named plain", "cannot move out of `s.items`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.items, v)`"
+fail "review-seam2-c13 move part named plain", "cannot move out of `s.items`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `old = swap(!s.items, v)`"
   # Review probe c13_move_part_named_plain.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
   # oracle: main reject C3
   obj S
@@ -2621,7 +2621,7 @@ fail "review-seam2-r04 repoint whole", "a view of the temporary `mk(5)` outlives
   w = !mk(5)
   print(w.n)
 
-fail "review-seam2-r2-w15 branch temp lends", "cannot move out of `(!mk(1) if c else !mk(2)).items`: it is reached through `!mk(1) if c else !mk(2)`, a view, which gives up nothing of what it views; exchange the part where it is owned, with `replace`"
+fail "review-seam2-r2-w15 branch temp lends", "cannot move out of `(!mk(1) if c else !mk(2)).items`: it is reached through `!mk(1) if c else !mk(2)`, a view, which gives up nothing of what it views; exchange the part where it is owned, with `swap`"
   # Review probe r2/w15_branch_temp_lends.rig (seam 2 rounds 1 and 2): rejected, or runs sanitizer-clean.
   # oracle: S.drop accept
   # oracle: mk accept

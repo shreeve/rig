@@ -3173,7 +3173,7 @@ test "optwrite-relax-p13-accept-mix", '''
   sub viaReplace(w: !H)
     d = String("local3")
     a = K(a: w.s, b: "")
-    old = replace(!a, K(a: ?d, b: ""))
+    old = swap(!a, K(a: ?d, b: ""))
     print(a.a, old.a)
 
   sub viaOpt(w: (!H)?)

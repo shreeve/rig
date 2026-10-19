@@ -21,7 +21,7 @@ test "review-never-data-1-g10 branch replace", '''
   b = *O(s: S(c: Cell(List())))
   k = a.s.c.len == 0
   !a.s.c.push(1)
-  old = (!(!a.s if k else !b.s).c).replace(List())
+  old = (!(!a.s if k else !b.s).c).swap(List())
   print(old.len)
   print(a.s.c.len, b.s.c.len)
 

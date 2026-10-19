@@ -147,7 +147,7 @@ fail "R11a-d4", "only module `lib` can construct `lib.Bag`: its fields `items`, 
     hv = lib.Holder(v: List[Int]())
     !hv.v.push(9)
     !c.set(<hv)
-    old = (!c).replace(lib.Holder(v: List[Int]()))
+    old = (!c).swap(lib.Holder(v: List[Int]()))
     print(old.v.len)
 
   file "lib.rig"
