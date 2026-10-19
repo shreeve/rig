@@ -4080,7 +4080,7 @@ test "audit-emit-h1", '''
   s = S(a: ^R(n: 1), b: R(n: 2), xs: List())
   !s.xs.push(^R(n: 3))
   !s.xs.push(^R(n: 4))
-  old = replace(!s.a, ^R(n: 10))
+  old = swap(!s.a, ^R(n: 10))
   print(old.n, s.a.n)
   !s.xs.swap(0, 1)
   for e in ?s.xs
@@ -4094,7 +4094,7 @@ test "audit-emit-h1", '''
   y = 2
   swap(!x, !y)
   print(x, y)
-  q = replace(!s.b, R(n: 12))
+  q = swap(!s.b, R(n: 12))
   print(q == none)
 
 fail "audit-emit-i1", "`a` owns an `R`, which can't be copied out by `break`: write `<a` to move it"

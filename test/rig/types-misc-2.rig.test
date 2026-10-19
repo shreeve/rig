@@ -320,7 +320,7 @@ test "replace and swap", '''
   10 1 2
   x ["y"]
 '''
-  # `replace(!place, v)` stores `v` and hands back the old value; `swap`
+  # `swap(!place, v)` stores `v` and hands back the old value; `swap`
   # exchanges two places, which may be different fields of one value.
 
   obj Tree
@@ -349,11 +349,11 @@ test "replace and swap", '''
   a = 1
   b = 2
   swap(!a, !b)
-  old = replace(!a, 10)
+  old = swap(!a, 10)
   print(a, b, old)
   names: List[String] = List()
   !names.push(String("x"))
-  first = replace(!names[0], String("y"))
+  first = swap(!names[0], String("y"))
   print(first, names)
 
 test "replace swap generic", '''
@@ -373,7 +373,7 @@ test "replace swap generic", '''
     y: T
 
     fun put(!@, v: T) -> T
-      replace(!@x, <v)
+      swap(!@x, <v)
 
     sub flip(!@)
       swap(!@x, !@y)
@@ -391,7 +391,7 @@ test "replace swap generic", '''
       print("drop", @n)
 
   fun rep[T](p: !T, v: T) -> T
-    replace(!p, <v)
+    swap(!p, <v)
 
   sub sw[T](a: !T, b: !T) keeps a, b
     swap(!a, !b)
@@ -408,10 +408,45 @@ test "replace swap generic", '''
   sw(!n, !m)
   print(n, m)
 
-fail "replace swap misuse", "11:6: `swap` moves values that hold no `?T`, `!T`, or slice; `V` may hold one", "14:10: `swap` exchanges two places of one type; got `Int` and `Static`", "15:15: `replace` takes a place lent to write: `!x`; got `Int`", "16:19: type mismatch: expected `Int`, got `Static`"
-  # `replace` and `swap` take lent to write places (`!x`) of one type,
-  # whose values hold no view, and the value `replace` stores has the
-  # place's type.
+fail "swap result thrown away", "5:1: this `swap` gives back the old value of `x`, which a statement throws away: to store `2`, write `x = 2`; to exchange two places, lend both to write, `swap(!x, !b)`", "7:2: this `swap` gives back the Cell's old value, which a statement throws away: to store `3`, write `!c.set(3)`", errors: 2
+  # A swap that gives back a value is meant to keep it: a statement that
+  # throws it away meant to store, or to exchange two places.
+  x = 1
+  y = 2
+  swap(!x, 2)
+  c = *Cell(1)
+  !c.swap(3)
+  _ = swap(!x, y)
+  print(x, y, c.get())
+
+test "swap forms", '''
+  2 1 2
+  9 1 2
+  4 3
+'''
+  # One verb exchanges: two places, `swap(!a, !b)`; a place and a value,
+  # `old = swap(!x, v)`; and a Cell and a value, `old = (!c).swap(v)`.
+  x = 1
+  y = 2
+  swap(!x, !y)
+  print(x, y, 2)
+  old = swap(!x, 9)
+  print(x, y, old)
+  c = *Cell(3)
+  o = (!c).swap(4)
+  print(c.get(), o)
+
+fail "replace is swap", "3:5: `replace` is `swap`: `old = swap(!x, v)` puts `v` in `x` and gives back what was there, and `swap(!a, !b)` exchanges two places", "5:10: a Cell's `replace` is `swap`: `old = (!c).swap(v)` puts `v` in and gives back the old value", errors: 2
+  # `replace` became `swap`: each spelling of it says what to write.
+  x = 1
+  a = replace(!x, 2)
+  c = *Cell(1)
+  b = (!c).replace(3)
+  print(a, b)
+
+fail "replace swap misuse", "10:6: `swap` moves values that hold no `?T`, `!T`, or slice; `V` may hold one", "13:10: `swap` exchanges two places of one type; got `Int` and `Static`", "14:12: `swap` takes a place lent to write: `!x`; got `Int`", "15:16: type mismatch: expected `Int`, got `Static`"
+  # `swap` takes places lent to write (`!x`) of one type, whose values
+  # hold no view, and the value a swap stores has the place's type.
 
   obj V
     p: ?Int
@@ -423,8 +458,8 @@ fail "replace swap misuse", "11:6: `swap` moves values that hold no `?T`, `!T`, 
   x = 1
   y = "s"
   swap(!x, !y)
-  old = replace(x, 2)
-  new = replace(!x, "two")
+  old = swap(x, 2)
+  new = swap(!x, "two")
   print(old, new)
 
 fail "return type", "type mismatch: expected `Int`, got `Static`"
@@ -1247,7 +1282,7 @@ fail "static name reserved", "3:5: `Static` is a reserved built-in nominal name 
 
   print(1)
 
-fail "static never where written", "12:8: cannot lend `loose` to write: it holds a read view of text, `?String`", "13:15: cannot lend `loose` to write", "14:23: type mismatch: expected `Static`, got `?String`", "15:9: type mismatch: expected `Static`, got `?String`; `fixed` is a `Static`, bound to a literal's text, and a `?String` may view a `String`: declare it `fixed: ?String = ...` to hold other text", errors: 4
+fail "static never where written", "12:8: cannot lend `loose` to write: it holds a read view of text, `?String`", "13:15: cannot lend `loose` to write", "14:20: type mismatch: expected `Static`, got `?String`", "15:9: type mismatch: expected `Static`, got `?String`; `fixed` is a `Static`, bound to a literal's text, and a `?String` may view a `String`: declare it `fixed: ?String = ...` to hold other text", errors: 4
   # A `Static` is read as a `?String`, never where the text can be written:
   # a `?String` view cannot be written into a `Static` place, and a `?String`
   # place, which nothing lends to write, is no `!Static`.
@@ -1261,7 +1296,7 @@ fail "static never where written", "12:8: cannot lend `loose` to write: it holds
   loose: ?String = "loose"
   reset(!loose)
   swap(!fixed, !loose)
-  old = replace(!fixed, view)
+  old = swap(!fixed, view)
   fixed = view
   print(fixed, loose, old)
 
@@ -1434,7 +1469,7 @@ fail "string owner expected", "9:12: type mismatch: expected `String`, got `Stat
   print(size(?t))
   x: String = "lit"
 
-fail "string place not lent to write", "12:7: cannot lend `a` to write: it holds a read view of text, `?String`", "12:11: cannot lend `b` to write", "14:16: cannot lend `p.left` to write", "17:18: cannot lend `names[0]` to write", "20:6: cannot lend `v` to write", "21:7: cannot lend `a` to write", errors: 6
+fail "string place not lent to write", "12:7: cannot lend `a` to write: it holds a read view of text, `?String`", "12:11: cannot lend `b` to write", "14:13: cannot lend `p.left` to write", "17:15: cannot lend `names[0]` to write", "20:6: cannot lend `v` to write", "21:7: cannot lend `a` to write", errors: 6
   # A `?String` is a read view of text, and nothing lends a view's own slot
   # to write: `swap`, `replace`, and `!` on a place that holds one are
   # rejected, as for any read view. Assign to it to point it at other
@@ -1448,10 +1483,10 @@ fail "string place not lent to write", "12:7: cannot lend `a` to write: it holds
   b: ?String = "y"
   swap(!a, !b)
   p = Pair(left: "l", right: "r")
-  old = replace(!p.left, "z")
+  old = swap(!p.left, "z")
   names: List[?String] = List()
   !names.push("n")
-  first = replace(!names[0], "m")
+  first = swap(!names[0], "m")
   t = String("t")
   v = ?t
   w = !v
@@ -2167,7 +2202,7 @@ test "text values", '''
   shared = *String("shared")
   other = +shared
   cell = *Cell(String("one"))
-  old = (!cell).replace(String("two"))
+  old = (!cell).swap(String("two"))
   print(boxed, shared, other, old, shared.len)
   named: Str = Str("alias ", 1)
   print(named)

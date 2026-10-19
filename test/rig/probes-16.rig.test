@@ -448,7 +448,7 @@ test "rev224-inline-views", '''
 
     inline fun into_name(<@) -> String
       new b = <@
-      replace(!b.name, String("x"))
+      swap(!b.name, String("x"))
 
     inline fun first(?@) -> ?String
       ?@items[0]
@@ -2821,7 +2821,7 @@ test "review-arm-temps-2-m01 name target moved in arm", '''
   run(0)
   run(1)
 
-fail "review-arm-temps-2-m02 field target moved in arm", "cannot move out of `o.d`: `o` would still drop it (partial moves are not supported); move `o` whole, or exchange the field: `replace(!o.d, v)`"
+fail "review-arm-temps-2-m02 field target moved in arm", "cannot move out of `o.d`: `o` would still drop it (partial moves are not supported); move `o` whole, or exchange the field: `old = swap(!o.d, v)`"
   # `o.d = match k` whose arm moves `o.d` out: a conditional partial move,
   # then the store reinitializes it.
   obj D

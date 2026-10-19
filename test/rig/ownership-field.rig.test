@@ -661,8 +661,8 @@ fail "field self view through closure", "14:7: cannot let this call store a view
 
   # oracle: main reject C9
 
-fail "field self view through replace", "12:21: cannot let this call store a view of `p.s` in `p.a`: a value never holds a view of itself", errors: 1
-  # `replace(!p.a, Holder(t: ?p.s))` puts in `p.a` a view of `p.s`, a
+fail "field self view through replace", "12:18: cannot let this call store a view of `p.s` in `p.a`: a value never holds a view of itself", errors: 1
+  # `swap(!p.a, Holder(t: ?p.s))` puts in `p.a` a view of `p.s`, a
   # value holding a view of itself.
 
   obj Holder
@@ -673,7 +673,7 @@ fail "field self view through replace", "12:21: cannot let this call store a vie
     a: Holder
 
   p = P(s: String("abc"), a: Holder(t: ""))
-  old = replace(!p.a, Holder(t: ?p.s))
+  old = swap(!p.a, Holder(t: ?p.s))
   print(old.t, p.a.t)
 
   # oracle: main reject C9

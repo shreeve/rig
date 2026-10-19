@@ -381,7 +381,7 @@ bytes: `?t`, a loop or pattern binding of a `String` element, and a
 generic `?T` at `T = String` are all `?String` values, and a read view of
 a `?String` is that `?String` (`?s`). `+s` of a `?String` copies its
 bytes into a new `String`. A `?String` is a view, so nothing lends a
-`?String` place to write, `swap` and `replace` of one included: assign
+`?String` place to write, `swap` of one included: assign
 to the place to point it at other text, or hold a `String` to change text
 in place.
 
@@ -5063,7 +5063,7 @@ other place is rejected, as on a function or a module's constant, which
 lives for the whole program. So only whole bindings move. Moving a field
 that moves out of an object is rejected (the object would still drop
 it); clone a shared field with `+p.a`, move the object as a whole, take
-an optional field, or exchange the field with `replace` or `swap`
+an optional field, or exchange the field with `swap`
 ([Places](#places)). A field or element that copies would stay as it
 was, so `<p.n` is rejected too, and a plain read, `m = p.n`, copies it.
 A part of a value made in the statement (`<mk().n`, `<mk().v`) is
@@ -6209,7 +6209,7 @@ it, whatever its syntax: `w.f` of a held `w: !T`, `(?a if c else ?b).f`,
 and `wrap(!p).f` of a call returning a `!T`. Through a write view an
 optional is taken there; through a `?T` or a handle nothing is, since
 the take writes the place. Nothing else is moved out through any of
-them (`replace(!p.f, v)` exchanges it).
+them (`swap(!p.f, v)` exchanges it).
 
 ```rig
 obj Node
@@ -6395,16 +6395,25 @@ sub main()
 12 50
 ```
 
-#### Replace and swap
+#### Swap
 
-`replace(!place, v)` stores `v` in a place and hands back the value that
-was there, owned; `swap(!a, !b)` exchanges the values of two places of
+`swap` exchanges. `swap(!a, !b)` exchanges the values of two places of
 one type, which may be different fields of one value
 (`swap(!t.left, !t.right)`), two places neither of which holds the
-other ([Paths](#paths)). The places are lent to write for the call,
-and the values hold no `?T`, `!T`, or slice. A place that holds a view, a
-`?String` among them, is not lent to write: assign to it to point it at
-other text. Like `print`, both are names a declaration may hide.
+other ([Paths](#paths)). `old = swap(!place, v)` exchanges a place's
+value for `v`: it stores `v` and hands back the value that was there,
+owned. Its second argument is a place when it is lent to write, `!b` or
+a held `!T`, and a value otherwise. The places are lent to write for
+the call, and the values hold no `?T`, `!T`, or slice. A place that
+holds a view, a `?String` among them, is not lent to write: assign to it
+to point it at other text. Like `print`, `swap` is a name a declaration
+may hide.
+
+A swap with a value is meant to keep what it hands back: as a
+statement it is rejected, since the old value would be thrown away. To
+store without it, assign (`x = v`); to exchange two places, lend both
+to write (`swap(!a, !b)`); to drop the old value on purpose, write
+`_ = swap(!x, v)`.
 
 ```rig
 obj Pair
@@ -6414,7 +6423,7 @@ obj Pair
 sub main()
   p = Pair(left: String("a"), right: String("b"))
   swap(!p.left, !p.right)
-  old = replace(!p.left, String("c"))
+  old = swap(!p.left, String("c"))
   print(p, old)
 ```
 
@@ -6422,7 +6431,7 @@ sub main()
 Pair(left: "c", right: "a") b
 ```
 
-`replace(!p, v)` takes the old value out and stores `v`, as
+`swap(!p, v)` takes the old value out and stores `v`, as
 `t = <p; p = v` would. What it hands back is no view of `p`: it views
 what `p`'s value viewed, so `p` may be lent again while it lives, and
 the value may be put back:
@@ -6435,8 +6444,8 @@ obj Scanner
 sub main()
   src = "abc"
   s = Scanner(text: ?src, value: String())
-  taken = replace(!s, Scanner(text: "", value: String()))
-  _ = replace(!s, <taken)
+  taken = swap(!s, Scanner(text: "", value: String()))
+  _ = swap(!s, <taken)
   print(s.text)
 ```
 
@@ -6725,13 +6734,13 @@ default (`hits: Cell[Int] = Cell(0)`).
 | `*Cell(v)` | construct, behind a shared handle |
 | `c.get()` | a copy of the value (a `T` of plain data only) |
 | `!c.set(v)` | store `v`; the old value is dropped |
-| `(!c).replace(v)` | store `v` and return the old value |
+| `(!c).swap(v)` | store `v` and return the old value |
 | `!c.push(x)`, `(!c).pop()`, `!c.keep(n)`, `!c.clear()`, `c.len` | a `Cell[List[T]]`: its List's members |
 | `c[i]`, `(!c)[i] = x`, `c.get(i)` | a `Cell[List[T]]` of plain data: an element, bounds-checked, or `T?` |
 
 `T` is plain data ([§2](#kinds-of-value)), an owning type, or a type
 declared `unique`. An owning or unique value is never copied out of a
-cell: it moves in with `set` / `replace` and moves out with `replace`.
+cell: it moves in with `set` / `swap` and moves out with `swap`.
 What goes into a cell, by any of its members or `c[i] = x`, carries no
 loan: it holds no `?T`, `!T`, or slice, nor a `?String` that may view a
 String ([String](#string)), since every handle to the cell reaches it.
@@ -6746,9 +6755,9 @@ body that reaches back into the cell finds a valid List. For the same reason an 
 copy: `c[i]` and `c.get(i)` read one and `c[i] = x` writes one only
 when `T` is plain data, an element cannot be lent, and a field of one is
 not written in place. The elements of a List of handles are taken out
-with `pop`, or by taking the whole List out with `replace`.
+with `pop`, or by taking the whole List out with `swap`.
 
-Every call that changes a Cell is marked: `set`, `replace`, `push`,
+Every call that changes a Cell is marked: `set`, `swap`, `push`,
 `pop`, `keep`, `clear`, `c[i] = x` (written `(!c)[i] = x`), and a `Signal`'s `set`
 and `subscribe`. They take `!@`, so the receiver-sigil rule enforces
 the mark, and a read view (`?Cell[T]`, a `?@` method of an object
@@ -6779,7 +6788,7 @@ cannot lend to write through a read view `?Cell[Int]`
 
 A write view of a value that holds a Cell changes its Cells and nothing
 else, since the value lives only behind a handle and a handle's other
-fields only read: `swap` and `replace` do not exchange it whole. A
+fields only read: `swap` does not exchange it whole. A
 handle is lent as itself, `!*C`, which a callee may point elsewhere, only
 where the handle may be written (an owned mutable local, a `!*C` parameter,
 a handle field of a write view); anywhere else (a `=!` binding, a parameter that
@@ -6853,7 +6862,7 @@ sub main()
   print(shared.len, shared[0], shared.get(1), shared.get(2))
 
   # Anything else: take the value out, use it, and put it back.
-  v = (!shared).replace(List())
+  v = (!shared).swap(List())
   sum = 0
   for x in ?v
     sum += x
@@ -7406,7 +7415,7 @@ cannot return a view of `t`, which this function was not lent
 A `?String` whose origin a function cannot see, a parameter or a value
 built from one, may view a String, so it stays where views are
 followed. It cannot be stored in a `Cell` or a `Signal` (by `Cell(v)`,
-`set`, `replace`, `push`, or `c[i] = v`), or captured by an owned
+`set`, `swap`, `push`, or `c[i] = v`), or captured by an owned
 closure, since every handle to those reaches what they hold;
 nor can a closure store its `?String` parameter through a capture. A
 generic body that stores a `T` in a `Cell`, a `Signal`, or an owned
@@ -8970,7 +8979,7 @@ A field declared `pub ?name: T` (also `pub ?name: T = v`) is public to
 read and private to write: any module reads it, lends it to read, and
 walks it, and only its own module writes it. Another module that
 assigns it or a part of it, lends it to write (a `!` lend, a call of a
-method that writes it, `swap`, `replace`, a `for` or header that writes
+method that writes it, `swap`, a `for` or header that writes
 it), or takes it out with `<`, is rejected, through a view, a `^T`, or
 an instance alike. The `?` is the read sigil: other modules get a read
 view. It needs `pub`, since a private field is read by no other module,

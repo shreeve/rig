@@ -197,6 +197,11 @@ pub const Facts = struct {
     pub fn startOf(f: Facts, node: Sexp) u32 {
         return f.c().startOf(node);
     }
+    /// Whether the built-in `swap`'s second argument exchanges a second
+    /// place, not a value (`sema.swapsTwoPlaces`).
+    pub fn swapsTwoPlaces(f: Facts, arg: Sexp) bool {
+        return sema.swapsTwoPlaces(f.c(), arg, f.c().typeOf(arg));
+    }
     /// Whether the function or method whose name leaf is `name` is
     /// emitted `inline` (`inlining.decide`).
     pub fn isInlined(f: Facts, name: Sexp) bool {

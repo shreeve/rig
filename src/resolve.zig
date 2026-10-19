@@ -2960,7 +2960,7 @@ const builtin_pos = sema.builtin_decl_pos;
 
 /// `c.get()` hands out a copy of the Cell's value.
 const cell_get: sema.Needs = .{ .t = .copies, .op = "copies out with `Cell.get` a value", .says = .{
-    .value_out = "write `(!cell).replace(<new)`, which puts `new` in and hands back the old value",
+    .value_out = "write `(!cell).swap(<new)`, which puts `new` in and hands back the old value",
 } };
 
 /// `xs.get(i)` hands out a copy of an element.
@@ -2998,8 +2998,8 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             .{ .name = "value", .ty = t, .decl_pos = builtin_pos },
             try method(ctx, "get", .read, &.{self_ty}, t, &cell_get),
             try method(ctx, "set", .write, &.{ write_self, t }, ctx.types.void_id, null),
-            // Swap in a new value and return the old one as owned.
-            try method(ctx, "replace", .write, &.{ write_self, t }, t, null),
+            // Swap in a new value and give back the old one, owned.
+            try method(ctx, "swap", .write, &.{ write_self, t }, t, null),
         });
     }
 

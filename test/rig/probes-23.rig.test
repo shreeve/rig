@@ -190,7 +190,7 @@ fail "review-lend-base-3-k-k09", "`?p if c else ?q.items` owns a `List[Int]`, wh
   print(y.len)
   print(p.x, q.x, p.arr[0], p.arr[1], p.arr[2], q.arr[0], q.arr[1], q.arr[2], p.items.len, q.items.len)
 
-fail "review-lend-base-3-k-k13", "cannot move out of `(!p if d else !q).items`: it is reached through `!p if d else !q`, a view, which gives up nothing of what it views; exchange the part where it is owned, with `replace`"
+fail "review-lend-base-3-k-k13", "cannot move out of `(!p if d else !q).items`: it is reached through `!p if d else !q`, a view, which gives up nothing of what it views; exchange the part where it is owned, with `swap`"
   obj P
     x: Int
     arr: [3]Int
@@ -2554,7 +2554,7 @@ test "review-move-done-2-grid drop brlend.paren.ret", '''
   # oracle: cell accept
   # oracle: main accept
 
-fail "review-move-done-2-grid vec brelem.catch.arg", "`<` here would copy `(v if c else v2)[0]` out without moving it, and the binding its branch reads would still drop it; exchange the part where it is owned, with `replace`"
+fail "review-move-done-2-grid vec brelem.catch.arg", "`<` here would copy `(v if c else v2)[0]` out without moving it, and the binding its branch reads would still drop it; exchange the part where it is owned, with `swap`"
   error E
     bad
 
@@ -2915,7 +2915,7 @@ fail "review-move-done-p02 ifblock part owner", "`a` owns an `S`, which can't be
 
   # oracle: main reject C2
 
-fail "review-move-done-p03 coalesce part", "cannot move out of `(o ?? b).v`: `o ?? b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`"
+fail "review-move-done-p03 coalesce part", "cannot move out of `(o ?? b).v`: `o ?? b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `swap`"
   obj S
     n: Int
     v: List[Int]
@@ -2928,7 +2928,7 @@ fail "review-move-done-p03 coalesce part", "cannot move out of `(o ?? b).v`: `o 
 
   # oracle: main reject C3
 
-fail "review-move-done-p04 catch part", "cannot move out of `(mk(true) catch b).v`: `mk(true) catch b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`"
+fail "review-move-done-p04 catch part", "cannot move out of `(mk(true) catch b).v`: `mk(true) catch b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `swap`"
   error E
     bad
 
@@ -2949,7 +2949,7 @@ fail "review-move-done-p04 catch part", "cannot move out of `(mk(true) catch b).
   # oracle: mk accept
   # oracle: main reject C3
 
-fail "review-move-done-p05 nested paren", "cannot move out of `((a if c else b).i).v`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`"
+fail "review-move-done-p05 nested paren", "cannot move out of `((a if c else b).i).v`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `swap`"
   obj In
     v: List[Int]
 
@@ -2966,7 +2966,7 @@ fail "review-move-done-p05 nested paren", "cannot move out of `((a if c else b).
 
   # oracle: main reject C3
 
-fail "review-move-done-p06 branch index", "cannot move out of `(a if c else b)[0]`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`"
+fail "review-move-done-p06 branch index", "cannot move out of `(a if c else b)[0]`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `swap`"
   a: List[List[Int]] = List()
   b: List[List[Int]] = List()
   r: List[Int] = List()
@@ -3187,7 +3187,7 @@ fail "review-move-done-p48 parens", "cannot move out of `s.n`: it copies, so `<`
 
   # oracle: main reject C3
 
-fail "review-move-done-p50 carriers branch owner", "cannot move out of `(a if c else b).v`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`"
+fail "review-move-done-p50 carriers branch owner", "cannot move out of `(a if c else b).v`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `swap`"
   # owning part of a branching value, in every carrier
   obj S
     n: Int
@@ -3380,7 +3380,7 @@ fail "review-move-done-p53 loops", "cannot move out of `x.n`: it copies, so `<` 
   # oracle: l7 reject C3
   # oracle: main accept
 
-fail "review-move-done-p54 match subject", "cannot move out of `s.e`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.e, v)`"
+fail "review-move-done-p54 match subject", "cannot move out of `s.e`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `old = swap(!s.e, v)`"
   enum E
     full(v: List[Int])
     empty

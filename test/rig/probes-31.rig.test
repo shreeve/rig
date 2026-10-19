@@ -1697,7 +1697,7 @@ test "review-step45-e06 arrayiter indexed", '''
     if i == 1
       break
 
-fail "review-step45-e07 arrayiter field", "cannot move out of `s.arr`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.arr, v)`"
+fail "review-step45-e07 arrayiter field", "cannot move out of `s.arr`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `old = swap(!s.arr, v)`"
   # consuming a struct's array field
   obj S
     arr: [2]String

@@ -1001,6 +1001,7 @@ const Checker = struct {
         const ty = try self.synthExpr(stmt);
         // A closure literal alone is reported by the ownership checker.
         if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
+        if (try self.discardedSwap(stmt)) return;
         // A test's last line is its value: a `Bool` decides the test.
         if (self.body.in_test and sameSite(stmt, self.test_tail) and self.canonical(ty) == self.t().bool_id) return self.ctx.recordTestCheck(stmt, try self.testReport(stmt));
         if (!hasEffect(stmt)) {
@@ -7676,7 +7677,7 @@ const Checker = struct {
                 if (std.mem.eql(u8, name, "print")) return self.checkPrint(args);
                 if (std.mem.eql(u8, name, "warn")) return self.checkWarn(args);
                 if (std.mem.eql(u8, name, "String")) return self.checkStringNew(node, args);
-                if (std.mem.eql(u8, name, "replace")) return self.checkReplace(callee, args);
+                if (std.mem.eql(u8, name, "replace")) return self.badCall(args, callee, "`replace` is `swap`: `old = swap(!x, v)` puts `v` in `x` and gives back what was there, and `swap(!a, !b)` exchanges two places", .{});
                 if (std.mem.eql(u8, name, "swap")) return self.checkSwap(callee, args);
                 if (resolve.isNumericTypeName(name)) {
                     var r = self.resolver();
@@ -7909,22 +7910,57 @@ const Checker = struct {
         } else try self.errAt(arg, "`{e}` does not fit in `{s}`", .{ f, try self.tyName(target) });
     }
 
-    /// `replace(!place, v)`: store `v` in the place and hand back what
-    /// was there, owned.
-    fn checkReplace(self: *Checker, callee: Sexp, args: []const Sexp) Error!TypeId {
-        if (args.len != 2 or args[0].isKind(.kwarg) or args[1].isKind(.kwarg)) return self.badCall(args, callee, "`replace` takes a place lent to write and the value to put there: `replace(!x, v)`", .{});
-        const ty = (try self.swapPlace(args[0], "replace")) orelse return self.skipCall(args[1..]);
-        try self.checkExpr(args[1], ty);
-        return ty;
+    /// `swap(!a, !b)`: exchange the values of two places of one type.
+    /// `old = swap(!x, v)`: put `v` in the place and give back what was
+    /// there, owned. The second argument is a place when it is lent to
+    /// write, `!b` or a held `!T` (`sema.swapsTwoPlaces`), and a value
+    /// otherwise.
+    fn checkSwap(self: *Checker, callee: Sexp, args: []const Sexp) Error!TypeId {
+        if (args.len != 2 or args[0].isKind(.kwarg) or args[1].isKind(.kwarg)) return self.badCall(args, callee, "`swap` takes a place lent to write, and another to exchange it with, `swap(!a, !b)`, or a value to put in it, `old = swap(!x, v)`", .{});
+        const a = (try self.swapPlace(args[0], "swap")) orelse return self.skipCall(args[1..]);
+        if (sema.swapsTwoPlaces(self.ctx, args[1], self.heldViewType(args[1]))) {
+            const b = (try self.swapPlace(args[1], "swap")) orelse return self.t().void_id;
+            if (a != b) try self.errAt(args[1], "`swap` exchanges two places of one type; got `{s}` and `{s}`", .{ try self.tyName(a), try self.tyName(b) });
+            return self.t().void_id;
+        }
+        try self.checkExpr(args[1], a);
+        return a;
     }
 
-    /// `swap(!a, !b)`: exchange the values of two places of one type.
-    fn checkSwap(self: *Checker, callee: Sexp, args: []const Sexp) Error!TypeId {
-        if (args.len != 2 or args[0].isKind(.kwarg) or args[1].isKind(.kwarg)) return self.badCall(args, callee, "`swap` takes two places lent to write: `swap(!a, !b)`", .{});
-        const a = (try self.swapPlace(args[0], "swap")) orelse return self.skipCall(args[1..]);
-        const b = (try self.swapPlace(args[1], "swap")) orelse return self.t().void_id;
-        if (a != b) try self.errAt(args[1], "`swap` exchanges two places of one type; got `{s}` and `{s}`", .{ try self.tyName(a), try self.tyName(b) });
-        return self.t().void_id;
+    /// A swap that gives back the old value, thrown away as a statement:
+    /// what was meant is a store (`x = v`, `!c.set(v)`), or an exchange of
+    /// two places (`swap(!a, !b)`); `_ = swap(!x, v)` drops the old value
+    /// on purpose. Reports it.
+    fn discardedSwap(self: *Checker, stmt: Sexp) Error!bool {
+        const call = if (stmt.isKind(.write)) ir.Write.operand(stmt) else stmt;
+        if (!call.isKind(.call) or ir.Call.task(call) != .nil) return false;
+        const callee = ir.Call.callee(call);
+        const args = ir.Call.args(call);
+        if (args.len == 0) return false;
+        const v = self.sourceText(args[args.len - 1]);
+        if (callee == .src and std.mem.eql(u8, self.text(callee), "swap") and self.lookupQuiet(callee) == null) {
+            if (args.len != 2 or sema.swapsTwoPlaces(self.ctx, args[1], self.ctx.typeOf(args[1]))) return false;
+            const place = self.sourceText(if (args[0].isKind(.write)) ir.Write.operand(args[0]) else args[0]);
+            try self.errAt(stmt, "this `swap` gives back the old value of `{s}`, which a statement throws away: to store `{s}`, write `{s} = {s}`; to exchange two places, lend both to write, `swap(!{s}, !b)`", .{ place, v, place, v, place });
+            return true;
+        }
+        if (callee.isKind(.member) and std.mem.eql(u8, self.text(ir.Member.name(callee)), "swap") and args.len == 1) {
+            const obj = ir.Member.object(callee);
+            const obj_ty = self.ctx.typeOf(obj) orelse return false;
+            if (cellElementType(self.ctx, obj_ty) == null) return false;
+            const c = self.sourceText(if (obj.isKind(.write)) ir.Write.operand(obj) else obj);
+            try self.errAt(stmt, "this `swap` gives back the Cell's old value, which a statement throws away: to store `{s}`, write `!{s}.set({s})`", .{ v, c, v });
+            return true;
+        }
+        return false;
+    }
+
+    /// The type a bare name holds, when it holds a view: what tells a held
+    /// `!T` from a value before the name is checked (`checkSwap`).
+    fn heldViewType(self: *Checker, arg: Sexp) ?TypeId {
+        if (arg != .src) return null;
+        const id = self.lookupQuiet(arg) orelse return null;
+        return self.ctx.symbols.items[id].ty;
     }
 
     /// The type of the place a `replace` or `swap` argument lends to write
@@ -10534,6 +10570,8 @@ const Checker = struct {
                 try self.err(pos, "a List has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
             } else if (has_len and std.mem.eql(u8, method, "len")) {
                 try self.err(pos, "no method `len` on type `{s}`; `len` is a field: write `{s}.len`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
+            } else if (std.mem.eql(u8, method, "replace") and cellElementType(self.ctx, peeled) != null) {
+                try self.err(pos, "a Cell's `replace` is `swap`: `old = (!c).swap(v)` puts `v` in and gives back the old value", .{});
             } else if (std.mem.eql(u8, method, "text") and (self.hasVariantNames(peeled) or peeled == self.t().symbol_id)) {
                 try self.err(pos, "no method `text` on type `{s}`; a variant's name is a member, read without a call: `{s}.text`", .{ try self.tyName(peeled), try self.plainText(stripSigil(obj)) });
             } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
@@ -11430,7 +11468,7 @@ const Checker = struct {
                     .place => if (!self.copiesValue(recv) and !self.copiesThrough(recv)) switch (sema.moveSource(self.ctx, recv)) {
                         .binding, .capture => try self.err(pos, "method `{s}` consumes the receiver; write `{s}`", .{ method, try self.callWith(recv, try self.ctx.arena.allocator().print("<{s}", .{self.sourceText(recv)}), method) }),
                         .made_part => try self.errAt(recv, "method `{s}` consumes its receiver, and `{s}` is a part of a temporary its statement drops; bind the value to a name first", .{ method, self.sourceText(recv) }),
-                        else => try self.errAt(recv, "method `{s}` consumes its receiver, and `<` cannot move `{s}` out of the value that holds it; exchange it out first: `replace(!{s}, v).{s}(...)`", .{ method, self.sourceText(recv), self.sourceText(recv), method }),
+                        else => try self.errAt(recv, "method `{s}` takes its self with `<@`, and `<` cannot move `{s}` out of the value that holds it; exchange it out first: `swap(!{s}, v).{s}(...)`", .{ method, self.sourceText(recv), self.sourceText(recv), method }),
                     },
                 }
             },
@@ -14349,7 +14387,7 @@ fn cellListElement(ctx: *const SemContext, ty: TypeId) ?TypeId {
 
 const slice_of_temporary = "only a named array, List, or String, or a field or element of one, can be sliced; bind this value to a name first";
 
-const cell_list_handle = "cannot read or overwrite an element of a `{s}` in place: its elements are handles, which would be copied out or released while the cell holds them; `pop` the element, or `replace` the List to work on it";
+const cell_list_handle = "cannot read or overwrite an element of a `{s}` in place: its elements are handles, which would be copied out or released while the cell holds them; `pop` the element, or `swap` the List out to work on it";
 
 /// The data field (not a method or variant) named `name`.
 fn findDataField(ctx: *SemContext, fields: []const Field, name: []const u8) Error!?Field {

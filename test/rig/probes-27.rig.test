@@ -213,7 +213,7 @@ test "review-rule2-cell-handle-alias", '''
   sub alias(a: *Cell[List[String]], b: *Cell[List[String]])
     swap(!a, !b)
     (!b).push(String("y"))
-    old = (!a).replace(List())
+    old = (!a).swap(List())
     print(old.len, b.len)
 
   sub alias2(a: *Cell[String], b: *Cell[String])
@@ -225,7 +225,7 @@ test "review-rule2-cell-handle-alias", '''
   alias(+c, +c)
   s: *Cell[String] = *Cell(String("a"))
   alias2(+s, +s)
-  print((!s).replace(String("")))
+  print((!s).swap(String("")))
 
 test "review-rule2-cell-handle-forms", '''
   20 2
@@ -326,7 +326,7 @@ test "review-rule2-cell-handle-lend-binding", '''
     swap(!a if k else !b, !c)
 
   sub cellSwapMember(a: *Cell[Int], b: *Cell[Int])
-    x = (!a).replace(b.get())
+    x = (!a).swap(b.get())
     (!b).set(x)
 
   c: *Cell[List[Int]] = *Cell(List())
@@ -366,7 +366,7 @@ test "review-rule2-cell-handle-module", '''
     a: *Cell[String] = *Cell(String("a"))
     b: *Cell[String] = *Cell(String("b"))
     lib.trade(+a, +b)
-    print((!a).replace(String("")), (!b).replace(String("")))
+    print((!a).swap(String("")), (!b).swap(String("")))
     local(+c)
     s: *Cell[List[String]] = *Cell(List())
     lib.through(+s)
@@ -394,7 +394,7 @@ test "review-rule2-cell-handle-module", '''
 
     pub sub through(c: *Cell[List[String]])
       (!c).push(String("n"))
-      old = (!c).replace(List())
+      old = (!c).swap(List())
       print(old.len, c.len)
 
 test "review-rule2-cell-handle-param-ops", '''
@@ -435,17 +435,17 @@ test "review-rule2-cell-handle-param-ops", '''
   sub cellops(c: *Cell[Int], s: *Cell[String])
     (!c).set(5)
     print(c.get())
-    old = (!c).replace(6)
+    old = (!c).swap(6)
     print(old, c.get())
     (!s).set(String("hi"))
-    t = (!s).replace(String("yo"))
+    t = (!s).swap(String("yo"))
     print(t)
 
   sub builtins(c: *Cell[Int], d: *Cell[Int], s: *Cell[String], t: *Cell[String])
     swap(!c, !d)
     print(c.get(), d.get())
     swap(!s, !t)
-    u = (!s).replace(String("z"))
+    u = (!s).swap(String("z"))
     print(u)
 
   c: *Cell[List[Int]] = *Cell(List())
@@ -460,7 +460,7 @@ test "review-rule2-cell-handle-param-ops", '''
   t: *Cell[String] = *Cell(String("b"))
   builtins(+i, +j, +s, +t)
   print(i.get(), j.get())
-  print((!s).replace(String("")), (!t).replace(String("")))
+  print((!s).swap(String("")), (!t).swap(String("")))
 
 test "review-rule2-name-module", '''
   (Node?)? (Node?)?
@@ -661,7 +661,7 @@ test "review-rule2-swap-writable-handles", '''
   q = H(h: +b)
   swap(!o.h, !q.h)
   print(o.h.get(), q.h.get(), a2.get(), b.get())
-  r = replace(!o.h, *Cell(40))
+  r = swap(!o.h, *Cell(40))
   print(r.get(), o.h.get())
   print(c.get())
 
@@ -1832,7 +1832,7 @@ test "review-sc4-e1", '''
     n if n > 1 => print("b", n)
     _ => print("c")
 
-fail "review-sc4-f1", "cannot move out of `h.s`: `h` would still drop it (partial moves are not supported); move `h` whole, or exchange the field: `replace(!h.s, v)`"
+fail "review-sc4-f1", "cannot move out of `h.s`: `h` would still drop it (partial moves are not supported); move `h` whole, or exchange the field: `old = swap(!h.s, v)`"
   obj B
     n: Int
 
@@ -1945,7 +1945,7 @@ test "review-sc4-k2", '''
 
   sub pair(a: !Counter, b: !Counter)
     swap(!a, !b)
-    x = replace(!a, Counter(n: 5))
+    x = swap(!a, Counter(n: 5))
     print(x.n)
 
   c = Counter(n: 0)
@@ -2168,7 +2168,7 @@ test "review-sc4-sa2", '''
   c = B(n: 2)
   w = !b
   w = <c
-  w = replace(!w, B(n: 3))
+  w = swap(!w, B(n: 3))
   print(b.n)
 
 test "review-sc4-sf", '''

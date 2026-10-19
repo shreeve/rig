@@ -283,7 +283,7 @@ held for later start no form yet. Words that are keywords elsewhere but
 not in Rig, such as Zig's `var` and `fn`, are ordinary names.
 
 The built-in types `Cell`, `List`, `String`, `Signal`, `Simd`, and
-`Endian` are reserved names. The built-in functions `print`, `warn`, `replace`, and `swap`
+`Endian` are reserved names. The built-in functions `print`, `warn`, and `swap`
 are names a declaration may hide.
 
 ## 4. Literals
@@ -1636,8 +1636,8 @@ type Held = *(Node?)
 sub main()
   a = *Cell[*Node?](none)
   b = *Cell[Held](*none)
-  print((!a).replace(none) == none)
-  old = (!b).replace(*none)
+  print((!a).swap(none) == none)
+  old = (!b).swap(*none)
   <old
 ```
 

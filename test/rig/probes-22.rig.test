@@ -1773,7 +1773,7 @@ test "review-lend-base-3-j-j05", '''
   qs = [Q(x: 1), Q(x: 2)]
   c = true
   _ = c
-  y = replace(!(!arr[..])[0], 7)
+  y = swap(!(!arr[..])[0], 7)
   print(y)
   print(arr[0], arr[1], qs[0].x, qs[1].x)
 
