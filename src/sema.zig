@@ -2092,7 +2092,7 @@ pub const SemContext = struct {
     task_sym_id: SymbolId = symbol_invalid,
     tasks_sym_id: SymbolId = symbol_invalid,
     /// The module makes a task (`f(x)&`): the program's root declares
-    /// `__rig_tasks`, which runs it on the `Threaded` backend.
+    /// `__rig_tasks`, which runs it on the scheduler.
     makes_tasks: bool = false,
     simd_sym_id: SymbolId = symbol_invalid,
     box_sym_id: SymbolId = symbol_invalid,

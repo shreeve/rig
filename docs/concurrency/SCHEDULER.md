@@ -3,10 +3,9 @@
 How Rig runs tasks fast: the engine under `f(x)&` (docs/CONCURRENCY.md,
 "The engine"), measured against Tokio and Go by `bench/tasks`, whose
 `PROGRESS.md` records each step. It is built in increments, each its own
-pull request; until the last, a program runs on it only when built with
-`RIG_SCHEDULER=1` (`__rig_scheduler`), and on Zig's `Threaded` backend
-otherwise. It runs one worker per core, or `RIG_WORKERS` of them when
-that is set as the program starts.
+pull request. Every program that makes tasks runs on it, with one worker
+per core, or `RIG_WORKERS` of them when that is set as the program
+starts; a program that makes none starts no workers.
 
 ## Shape
 
@@ -17,13 +16,15 @@ that is set as the program starts.
   switch saves the registers a call keeps on the stack being left and
   restores those of the stack resumed (`sched.switchTo`, written for
   aarch64 and x86_64).
-- **The boundary.** Rig implements Zig's `std.Io` interface. Its task
-  functions (start, wait, cancel, cancel protection, futex, sleep) are
-  the scheduler's; the rest (files, directories, processes, sockets)
-  forward to Zig's `Threaded` backend on a pool of blocking threads,
-  while the task waiting on them parks, so a worker never blocks.
-  `tasks.zig` calls the scheduler directly (`Handle`), with no call
-  through the interface.
+- **The boundary.** `tasks.zig` calls the scheduler directly (`Handle`,
+  `Control`, `Wakeup`) for everything a task does: start, wait, cancel,
+  sleep, and yield. A call that blocks its thread runs on the blocking
+  pool (`rig.blocking`) while the task waiting on it parks, so a worker
+  never blocks; `std.file.read` does so today. Other system calls go
+  through a `Threaded` instance of Zig's `std.Io` (`rt.io`) on the
+  calling thread, which runs no tasks; a write to a full pipe holds its
+  worker until it returns. Rig's own `std.Io`, with the rest of I/O on
+  the pool or an event loop, comes with step 5 of the plan.
 
 ## Speed
 
@@ -61,6 +62,10 @@ to about 100,000 tasks at once on macOS. A compiler usually emits
 it faults in a small guard; Zig emits none on arm64 macOS. Rig will emit
 its own, from the frame sizes it already measures, and then guards of
 64 KiB let millions of tasks run at once (increment 7).
+
+A sleeping task holds two pages of its stack: about 32 KiB on the Mac,
+whose pages are 16 KiB, and 9 KiB on pup's Linux, where Tokio's task
+holds about 300 bytes and Go's about 3 KiB (`bench/tasks`, `memory`).
 
 ## Waiting
 
@@ -134,7 +139,7 @@ signal; Tokio never does.
    read on entry to each recursive function, in programs that make
    tasks (above).
 6. **The default**: every program that makes tasks runs on the
-   scheduler, and the `Threaded` path goes.
+   scheduler, and Zig's `Threaded` backend no longer runs tasks.
 7. **Rig's own stack probes**, and 64 KiB guards, before step 5's
    servers with many connections.
 

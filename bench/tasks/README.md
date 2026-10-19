@@ -13,9 +13,8 @@ bench/tasks/bench-tasks --out $D --time-only --reps 9
 
 It needs `bin/rig` built first, Cargo, and Go. `bench/tasks/bench-tasks
 --help` lists the variants (`rig-fast`, `tokio` and `go` by default;
-`rig-safe`, and `rig-sched` on the scheduler, on request) and the
-options. The `rig-sched` program runs one worker per core, or
-`RIG_WORKERS` when set. `--record "#PR: what changed"` adds the Rig rows to
+`rig-safe` on request) and the options. The Rig programs run on the
+scheduler with one worker per core, or `RIG_WORKERS` when set. `--record "#PR: what changed"` adds the Rig rows to
 [PROGRESS.md](PROGRESS.md), which tracks each benchmark as the
 scheduler grows ([docs/concurrency/SCHEDULER.md](../../docs/concurrency/SCHEDULER.md)).
 
@@ -23,7 +22,10 @@ scheduler grows ([docs/concurrency/SCHEDULER.md](../../docs/concurrency/SCHEDULE
 
 Each program runs all five, times each with the monotonic clock, and
 prints `NAME NS CHECK`; the driver rejects a run whose checks differ
-between programs.
+between programs. The driver also runs each program as `PROGRAM many`,
+which holds 10,000 tasks at once, each sleeping 200 ms, and as
+`PROGRAM idle`, which makes none; `memory` is the difference in their
+peak resident memory, per task.
 
 | Name | What it does | Per |
 |---|---|---|

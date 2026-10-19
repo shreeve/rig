@@ -663,8 +663,9 @@ Zig 0.17's own evented backends are not a foundation:
 - network streams are unfinished on Linux and macOS;
 - the kqueue backend cannot cancel.
 
-The first step runs on Zig's `Threaded` backend, which is complete and
-preemptive. It proves the language rules, and measures nothing.
+Tasks run on Rig's own scheduler (docs/concurrency/SCHEDULER.md). The
+first step was built on Zig's `Threaded` backend, which is complete and
+preemptive: it proved the language rules, and measured nothing.
 
 **The memory model.** User code has no data races, and `Atomic`
 operations are sequentially consistent, so a program sees sequential

@@ -196,12 +196,11 @@ const Env = struct {
     /// The declarations that ask the runtime for leak traces, the
     /// sanitizer, or the assertions of proven tests, written into the root
     /// module (`runtime.zig`); the one that runs a program's tasks
-    /// (`tasks`, `makesTasks`) on the `Threaded` backend; and, in a
+    /// (`tasks`, `makesTasks`) on the scheduler; and, in a
     /// package `rig run` or `rig test` builds (`hook`), the variable
     /// naming the file the program creates as it starts (`buildCommand`).
     fn writeRootFlags(env: Env, w: *std.Io.Writer, hook: bool, tasks: bool) !void {
         if (tasks) try w.writeAll("pub const __rig_tasks = true;\n");
-        if (tasks and env.flag("RIG_SCHEDULER")) try w.writeAll("pub const __rig_scheduler = true;\n");
         if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
         if (env.sanitize()) try w.writeAll("pub const __rig_sanitize = true;\n");
         if (env.verifyProofs()) try w.writeAll("pub const __rig_verify_proofs = true;\n");
@@ -749,7 +748,6 @@ fn batchCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, args: []cons
     try root.writer.writeAll("};\n");
     // One runtime serves the batch: it runs tasks if any program makes them.
     if (makes_tasks) try root.writer.writeAll("\npub const __rig_tasks = true;\n");
-    if (makes_tasks and env.flag("RIG_SCHEDULER")) try root.writer.writeAll("pub const __rig_scheduler = true;\n");
     try root.writer.print(
         \\
         \\// The first argument names the program; it sees the others, after

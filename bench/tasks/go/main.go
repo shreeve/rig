@@ -1,9 +1,12 @@
 // Go's goroutines timed as bench/tasks/tasks.rig times Rig's tasks:
-// spawn, chain, fanout, yield, hog. Prints `NAME NS CHECK` per benchmark.
+// spawn, chain, fanout, yield, hog. Run as `tasks-go many`, it holds
+// many sleeping goroutines at once (many), and as `tasks-go idle`, none,
+// sleeping as long. Prints `NAME NS CHECK` per benchmark.
 package main
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"sync"
 	"time"
@@ -21,6 +24,8 @@ const (
 	hogWork    = 20000000
 	hogChain   = 50
 	hogSlice   = 1000000
+	many       = 10000
+	manyNap    = 200 * time.Millisecond
 )
 
 //go:noinline
@@ -35,7 +40,33 @@ func spin(n int64) int64 {
 	return total
 }
 
+func manyTasks() {
+	t := time.Now()
+	results := make([]int64, many)
+	var wg sync.WaitGroup
+	for i := 0; i < many; i++ {
+		wg.Add(1)
+		go func(i int) { time.Sleep(manyNap); results[i] = 1; wg.Done() }(i)
+	}
+	wg.Wait()
+	var sum int64
+	for _, x := range results {
+		sum += x
+	}
+	fmt.Println("many", time.Since(t).Nanoseconds(), sum)
+}
+
 func main() {
+	if len(os.Args) > 1 {
+		if os.Args[1] == "many" {
+			manyTasks()
+		} else {
+			t := time.Now()
+			time.Sleep(manyNap)
+			fmt.Println("idle", time.Since(t).Nanoseconds(), 1)
+		}
+		return
+	}
 	t := time.Now()
 	var sum int64
 	for w := 0; w < waves; w++ {

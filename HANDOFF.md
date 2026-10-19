@@ -99,14 +99,15 @@ from).
     (`Stop`, `check`), and a fallible `time.sleep`.
   - **Sets and joins:** `Tasks[T]` with `wait_all`, `wait_first`, and
     `within:` deadlines; `task.both` and `task.all`.
-  - **Where tasks run:** by default on Zig's `Threaded` backend, a
-    thread each (`src/tasks.zig`). A program built with
-    `RIG_SCHEDULER=1` runs them on Rig's own scheduler instead
-    (`src/sched.zig`): fibers on a worker per core, `RIG_WORKERS` of
-    them when set ([docs/concurrency/SCHEDULER.md](docs/concurrency/SCHEDULER.md)).
+  - **Where tasks run:** on Rig's own scheduler (`src/sched.zig`,
+    `src/tasks.zig`): fibers on a worker per core, `RIG_WORKERS` of
+    them when set, with yield checks in long loops and recursion
+    ([docs/concurrency/SCHEDULER.md](docs/concurrency/SCHEDULER.md)).
     `bench/tasks` times it against Tokio and Go, and
-    `bench/tasks/PROGRESS.md` records each step: it already starts,
-    waits for, and switches tasks faster than Tokio.
+    `bench/tasks/PROGRESS.md` records each step: it starts, waits for,
+    and switches tasks faster than Tokio, but a sleeping task holds
+    two stack pages (32 KiB on the Mac), where Tokio's holds about 300
+    bytes.
 - **Releases:** every change, fixes included, ships in the current
   line, `v0.3.x`; an earlier line gets no further releases. Rounds land
   on `main` untagged until the next tag; its release notes include a
@@ -361,11 +362,9 @@ migration guide (`tools/migrate-0.3.py`).
 docs/CONCURRENCY.md, "Decisions" 15; the scheduler moved ahead of the
 plan's second step):
 
-1. Scheduler increment 6: the scheduler is the default, and the
-   `Threaded` path goes.
-2. Increment 7: Rig's own stack probes, so task stacks take 64 KiB
+1. Scheduler increment 7: Rig's own stack probes, so task stacks take 64 KiB
    guards in place of 1 GiB ones (Zig emits none on arm64 macOS).
-3. The plan's next steps: the crossing facts, `*Atomic`, and `par`;
+2. The plan's next steps: the crossing facts, `*Atomic`, and `par`;
    actors, panics unwinding to boundaries, and `task.isolate`; then
    I/O, timers, and `http.serve` on Rig's own `std.Io`, whose blocking
    pool today serves only `std.file.read`.
