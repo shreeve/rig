@@ -19,11 +19,11 @@ scheduler grows (`bench-tasks --record "#PR: what changed"`).
 ## x86-64 (pup)
 
 The same benchmarks on pup: Linux, x86-64, 22 cores. Tokio builds from
-the crates.io release (pup has no `misc/tokio` clone), and Go is not
-installed there.
+the crates.io release (pup has no `misc/tokio` clone).
 
 | Date | Change | Variant | spawn (per task) | chain (per task) | fanout (per run) | yield (per yield) |
 |---|---|---|---|---|---|---|
 | 2026-10-19 | reference | tokio | 252 ns | 252 ns | 101.2 ms | 44 ns |
+| 2026-10-19 | reference | go | 272 ns | 265 ns | 84.9 ms | 474 ns |
 | 2026-10-19 | #352: Zig's `Threaded` backend | rig-fast | 20.37 us | 19.94 us | 109.3 ms | 98 ns |
 | 2026-10-19 | #352: waiting without spinning | rig-sched | 274 ns | 82 ns | 108.0 ms | 7 ns |
