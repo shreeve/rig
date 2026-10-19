@@ -71,8 +71,8 @@ chmod +x zigstub
 cat >sleeper.rig <<'EOF'
 use std.time
 
-sub main()
-  time.sleep(60000000000)
+sub main()!
+  time.sleep(60000000000)!
 EOF
 
 # A time `days` days ago (a negative count is in the future).

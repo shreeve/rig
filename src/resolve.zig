@@ -1462,8 +1462,10 @@ pub const TypeResolver = struct {
     /// A Zig-backed `fun` or `sub` has a signature the checker can
     /// trust without a body: one with compile-time parameters would need
     /// requirements it cannot infer. One that fails returns errors of its
-    /// module's error sets, which the emitter hands `rig.expectShim` to
-    /// check its Zig function against, so the module must declare one.
+    /// module's error sets, or `std.task`'s `Stop` (a waiting point that
+    /// a cancel stops), which the emitter hands `rig.expectShim` to check
+    /// its Zig function against, so the module declares a set or uses
+    /// `std.task`.
     fn checkZigBacked(self: *TypeResolver, node: Sexp) Error!void {
         const name = ir.get(node, .name);
         const text = identAt(self.ctx.source, name) orelse "it";
@@ -1472,8 +1474,11 @@ pub const TypeResolver = struct {
         }
         const f = self.ctx.types.get(self.ctx.symbols.items[self.ctx.symbolOf(name) orelse return].ty);
         const fails = rig.subFails(node) or (f == .function and self.ctx.types.get(f.function.returns) == .fallible);
-        if (fails and !self.declares_errors) {
-            try self.ctx.errAt(name, "`{s}` can fail, so its module must declare the errors its Zig function returns: add an error set, `error Name`, with a member for each", .{text});
+        const uses_stop = for (self.ctx.imports) |imp| {
+            if (std.mem.eql(u8, imp.sema.name, "std.task")) break true;
+        } else false;
+        if (fails and !self.declares_errors and !uses_stop) {
+            try self.ctx.errAt(name, "`{s}` can fail, so its module must declare the errors its Zig function returns: add an error set, `error Name`, with a member for each, or `use std.task` when it fails only with `task.Stop`", .{text});
         }
     }
 
@@ -3097,8 +3102,9 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
 
     // Task[T]: a call made a task, `f(x)&`, running at the same time as
     // the code after it; `T` is the call's result. Only `&` makes one, a
-    // task is never copied or cloned, and `wait` takes it and gives the
-    // result (docs/CONCURRENCY.md).
+    // task is never copied or cloned, `wait` takes it and gives the
+    // result, and `cancel`, for a `T` that can fail, stops it first
+    // (docs/CONCURRENCY.md).
     {
         const g = try addGeneric(ctx, module_scope, module_scope, "Task", &.{"T"});
         ctx.task_sym_id = g.sym;
@@ -3106,6 +3112,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const t = g.params[0];
         try setFields(ctx, g.sym, &.{
             try method(ctx, "wait", .value, &.{g.self_ty}, t, null),
+            try method(ctx, "cancel", .value, &.{g.self_ty}, t, null),
         });
     }
 }

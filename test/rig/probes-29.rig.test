@@ -7971,10 +7971,10 @@ test "review-std-al", "true true"
   use std.random
   use dice
 
-  sub main()
+  sub main()!
     r = random.Random.seeded(1)
     x = dice.roll(!r)
-    dice.wait()
+    dice.wait()!
     f: random.Random = dice.fresh()
     s = random.Random.seeded(1)
     print(x >= 1 and x <= 6, (!f).next() == (!s).next())
@@ -7986,8 +7986,8 @@ test "review-std-al", "true true"
     pub fun roll(r: !rnd.Random, n: Int = 6) -> Int
       (!r).int(1, n + 1)
 
-    pub sub wait(ns: Int = t.MS)
-      t.sleep(ns)
+    pub sub wait(ns: Int = t.MS)!
+      t.sleep(ns)!
 
     pub fun fresh() -> rnd.Random
       rnd.Random.seeded(1)
@@ -8145,7 +8145,7 @@ test "review-std-f1", '''
   h = *|x: Float| math.sqrt(x)
   print(h(9.0))
   s = time.sleep
-  s(1)
+  s(1)!
   e = os.env
   print(e("NOPE_X") == none)
 

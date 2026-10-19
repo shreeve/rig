@@ -361,17 +361,18 @@ and environment variable.
 - SIMD vectors, `Simd[T, n]`: lane-wise operators with the same overflow
   rules as scalars, comparisons that give masks, and byte reads
 - tasks: `f(x)&` runs a call on a thread of its own, keeping the loans
-  of its arguments until `<t.wait()` takes its result
+  of its arguments until `<t.wait()` takes its result, and a task that
+  can fail is canceled with `<t.cancel()`
 - `fun main() -> Int` for an exit status, and the start of a
   [standard library](docs/STD.md): `std.math`, `std.os` (arguments and
   environment), `std.file` (reading a whole file), `std.time`,
-  `std.random`, `std.sort`, `std.slices`, `std.text` (searching,
+  `std.task` (stopping a task), `std.random`, `std.sort`, `std.slices`, `std.text` (searching,
   splitting, and parsing `?String` values), and
   `std.json` (a fast JSON parser; experimental)
 
 **Not yet:** most of a standard library (writing files, maps, number
 formatting), and concurrency beyond single tasks: sets of tasks,
-cancellation, channels, and actors. [SPEC §19](SPEC.md#19-reserved-and-unsupported-forms)
+deadlines, channels, and actors. [SPEC §19](SPEC.md#19-reserved-and-unsupported-forms)
 lists every form the compiler rejects as not supported yet, among them
 storing or returning a stack closure (lending one to a call, as a
 `?fun`, works);

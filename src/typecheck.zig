@@ -134,9 +134,10 @@ const Checker = struct {
     local_value: Sexp = .nil,
     local_target: Sexp = .nil,
     /// The locals that hold a task lent to write, each moved only into
-    /// its own `<t.wait()`.
+    /// its own `<t.wait()` or `<t.cancel()`.
     write_tasks: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
-    /// The operand of the `<t` in the `<t.wait()` being checked.
+    /// The operand of the `<t` in the `<t.wait()` or `<t.cancel()` being
+    /// checked.
     task_wait: Sexp = .nil,
     /// The value of the struct or enum field, or the field default, being
     /// checked: a value holding a Cell may be made there (`cellMadeAway`).
@@ -5823,7 +5824,7 @@ const Checker = struct {
         const operand = ir.Move.operand(e);
         const ty = try self.synthExpr(operand);
         if (operand == .src and !sameSite(operand, self.task_wait)) if (self.ctx.symbolOf(operand)) |id| if (self.write_tasks.contains(id)) {
-            try self.errAt(e, "`{s}` is a task lent to write, which keeps its write loan while it runs, so it is only waited for where it is bound: `<{s}.wait()`", .{ self.text(operand), self.text(operand) });
+            try self.errAt(e, "`{s}` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `<{s}.wait()`", .{ self.text(operand), self.text(operand) });
             return self.t().invalid_id;
         };
         if (operand == .src) if (self.ctx.symbolOf(operand)) |id| try self.ctx.recordWrite(e, id, .move);
@@ -7455,16 +7456,29 @@ const Checker = struct {
         // What the call reaches, recorded where it resolves to a Rig
         // function (`noteTarget`); any other call reaches none.
         try self.ctx.recordCallTarget(node, .none);
-        // `<t.wait()`: the move of `t` there takes a task lent to write.
+        // `<t.wait()`, `<t.cancel()`: the move of `t` there takes a task
+        // lent to write.
         const saved_wait = self.task_wait;
         defer self.task_wait = saved_wait;
         const callee_node = ir.Call.callee(node);
-        if (callee_node.isKind(.member) and std.mem.eql(u8, self.text(ir.Member.name(callee_node)), "wait")) {
+        const member_name = if (callee_node.isKind(.member)) self.text(ir.Member.name(callee_node)) else "";
+        if (std.mem.eql(u8, member_name, "wait") or std.mem.eql(u8, member_name, "cancel")) {
             const obj = ir.Member.object(callee_node);
             if (obj.isKind(.move)) self.task_wait = ir.Move.operand(obj);
         }
         const ty = try self.synthCallInner(node);
         if (ir.Call.task(node) != .nil) return self.taskOf(node, ty);
+        // Only a task that can fail can be stopped: one that cannot runs
+        // to its end.
+        if (std.mem.eql(u8, member_name, "cancel")) if (self.ctx.typeOf(ir.Member.object(callee_node))) |obj_ty| {
+            const peeled = sema.unwrapViews(self.ctx, obj_ty);
+            if (sema.isTask(self.ctx, peeled) and !self.isPoison(ty) and self.ctx.types.get(ty) != .fallible) {
+                const obj = ir.Member.object(callee_node);
+                const held = if (obj.isKind(.move)) ir.Move.operand(obj) else obj;
+                try self.errAt(ir.Member.name(callee_node), "`{s}` cannot fail, so it cannot be canceled: it runs to its end; wait for it, `<{s}.wait()`", .{ try self.tyName(peeled), self.sourceText(held) });
+                return self.t().invalid_id;
+            }
+        };
         // A call that gives several results stands only where each is
         // bound at once, or where they are returned whole.
         if (sema.resultsOf(self.ctx, ty) != null and !sameNode(node, self.results_ok)) {
