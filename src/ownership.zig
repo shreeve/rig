@@ -3250,8 +3250,8 @@ pub const Checker = struct {
             else => if (ty != null and (self.copies(ty) or self.refOfType(ty) == .read)) {
                 try self.errAt(place, "`<` here would leave `{s}` as it was: it copies; remove the `<` to copy it", .{shown});
             } else if (leaf.source == .branch_part) {
-                try self.errAt(place, "`<` here would copy `{s}` out without moving it, and the binding its branch reads would still drop it; exchange the part where it is owned, with `replace`", .{shown});
-            } else try self.errAt(place, "`<` here would copy `{s}` out without moving it, and a field that is not optional cannot be moved out; exchange it: `replace(!{s}, v)`", .{ shown, shown }),
+                try self.errAt(place, "`<` here would copy `{s}` out without moving it, and the binding its branch reads would still drop it; exchange the part where it is owned, with `swap`", .{shown});
+            } else try self.errAt(place, "`<` here would copy `{s}` out without moving it, and a field that is not optional cannot be moved out; exchange it: `old = swap(!{s}, v)`", .{ shown, shown }),
         }
     }
 
@@ -3364,22 +3364,22 @@ pub const Checker = struct {
                 const handle = if (lent_handle) ir.get(l, .operand) else l;
                 try self.err(pos, "cannot move out of `{s}`: it is reached through the shared handle `{s}`, and other handles may still use it; clone it with `+({s})`", .{ shown, self.spanText(handle), shown });
             } else if (branching) {
-                try self.err(pos, "cannot move out of `{s}`: `{s}` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`", .{ shown, self.spanText(l) });
+                try self.err(pos, "cannot move out of `{s}`: `{s}` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `swap`", .{ shown, self.spanText(l) });
             } else if ((l.isKind(.read) or l.isKind(.write)) and self.resolvePlace(ir.get(l, .operand)) != null) {
                 // A lend of a place: the place's own path names the part.
-                try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view; exchange it instead: `replace(!{s}, v)`", .{ shown, self.spanText(l), path });
-            } else try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view, which gives up nothing of what it views; exchange the part where it is owned, with `replace`", .{ shown, self.spanText(l) });
+                try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view; exchange it instead: `old = swap(!{s}, v)`", .{ shown, self.spanText(l), path });
+            } else try self.err(pos, "cannot move out of `{s}`: it is reached through `{s}`, a view, which gives up nothing of what it views; exchange the part where it is owned, with `swap`", .{ shown, self.spanText(l) });
             return .{};
         }
         const root = self.vars.items[place.root].name;
         if (place.through_view) {
-            try self.err(pos, "cannot move out of `{s}`: `{s}` is a view; exchange it instead: `replace(!{s}, v)`", .{ path, root, path });
+            try self.err(pos, "cannot move out of `{s}`: `{s}` is a view; exchange it instead: `old = swap(!{s}, v)`", .{ path, root, path });
         } else if (place.through_shared) {
             try self.err(pos, "cannot move out of `{s}`: it is reached through a shared handle and other handles may still use it; clone it with `+{s}`", .{ path, path });
         } else if (place.indexed) {
             try self.err(pos, "cannot move out of `{s}`: elements cannot be moved out of their container", .{path});
         } else {
-            try self.err(pos, "cannot move out of `{s}`: `{s}` would still drop it (partial moves are not supported); move `{s}` whole, or exchange the field: `replace(!{s}, v)`", .{ path, root, root, path });
+            try self.err(pos, "cannot move out of `{s}`: `{s}` would still drop it (partial moves are not supported); move `{s}` whole, or exchange the field: `old = swap(!{s}, v)`", .{ path, root, root, path });
         }
         return .{};
     }
@@ -4323,7 +4323,7 @@ pub const Checker = struct {
         // Compile-time arguments (`f[3](x)`) are constants: no effect.
         const callee = if (self.sema) |s| s.calleeOf(node) else ir.Call.callee(node);
         const args = ir.Call.args(node);
-        if (self.swapBuiltin(callee)) |swap| if (args.len == 2) return self.walkSwapCall(args, swap);
+        if (self.isSwapBuiltin(callee) and args.len == 2) return self.walkSwapCall(args, if (self.sema) |ctx| sema.swapsTwoPlaces(ctx, args[1], self.exprType(args[1])) else args[1].isKind(.write));
         // The value the call calls (a closure's captures, what a lent
         // callable lends), which its result always carries, and its
         // receiver's value.
@@ -4874,23 +4874,19 @@ pub const Checker = struct {
         return !self.mayCarryLoan(value);
     }
 
-    /// Whether `callee` is the built-in `swap` (true) or `replace`
-    /// (false); null for anything else.
-    fn swapBuiltin(self: *Checker, callee: Sexp) ?bool {
-        if (callee != .src) return null;
-        const name = self.text(callee);
-        const swap = std.mem.eql(u8, name, "swap");
-        if (!swap and !std.mem.eql(u8, name, "replace")) return null;
-        if (self.sema) |ctx| return if (ctx.symbolOf(callee) == null) swap else null;
-        return if (self.find(name) == null) swap else null;
+    /// Whether `callee` is the built-in `swap`, not hidden by a declaration.
+    fn isSwapBuiltin(self: *Checker, callee: Sexp) bool {
+        if (callee != .src or !std.mem.eql(u8, self.text(callee), "swap")) return false;
+        if (self.sema) |ctx| return ctx.symbolOf(callee) == null;
+        return self.find("swap") == null;
     }
 
-    /// `replace(!place, v)` / `swap(!a, !b)`: the places are lent to write
-    /// for the call, and `v` moves in. The two places of a `swap` may be
-    /// different fields of one value (`swap(!t.left, !t.right)`), two
-    /// places, neither of which holds the other (Core sentence 5).
-    /// `replace` is `t = <place; place = v` (`takenValue`): its result is
-    /// no view of the place.
+    /// `swap(!a, !b)` (`swap` true) / `old = swap(!place, v)`: the places
+    /// are lent to write for the call, and `v` moves in. The two places
+    /// may be different fields of one value (`swap(!t.left, !t.right)`),
+    /// two places, neither of which holds the other (Core sentence 5). A
+    /// swap with a value is `t = <place; place = v` (`takenValue`): its
+    /// result is no view of the place.
     fn walkSwapCall(self: *Checker, args: []const Sexp, swap: bool) Error!Value {
         const start = self.temps.items.len;
         const first = try self.walkConsumed(args[0], .argument);
@@ -4906,7 +4902,7 @@ pub const Checker = struct {
         }
         const second = try self.walkConsumed(args[1], .argument);
         try self.temps.appendSlice(self.gpa, saved.items);
-        // What `replace` hands back views what the place's value viewed,
+        // What a swap with a value hands back views what the place's value viewed,
         // and each place now views what went in. A `swap`'s two lends are
         // the ways in, not views stored.
         var result: Value = .{};
@@ -4922,7 +4918,7 @@ pub const Checker = struct {
         return result;
     }
 
-    /// What `replace(!p, v)` hands back, as `t = <p; p = v` takes it: the
+    /// What `swap(!p, v)` hands back, as `t = <p; p = v` takes it: the
     /// value that was in `p`, which carries what `p`'s value held and no
     /// loan on `p`, as `walkTake` gives `<p.f`. A place no var holds
     /// (`!f().x`) is known only by the loans of its view.

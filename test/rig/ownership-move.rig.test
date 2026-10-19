@@ -321,7 +321,7 @@ fail "move field from shared", "15:6: cannot move out of `o.inner`: it is reache
   eat(<o.inner)
   print("back")
 
-fail "move field from view param", "14:8: cannot move out of `p.a`: `p` is a view; exchange it instead: `replace(!p.a, v)`", errors: 1
+fail "move field from view param", "14:8: cannot move out of `p.a`: `p` is a view; exchange it instead: `old = swap(!p.a, v)`", errors: 1
   # A field cannot be moved out of a view parameter: the caller still
   # owns and drops it.
 
@@ -341,7 +341,7 @@ fail "move field from view param", "14:8: cannot move out of `p.a`: `p` is a vie
   steal(?p)
   print("back")
 
-fail "move field from viewed self", "11:10: cannot move out of `@a`: `@` is a view; exchange it instead: `replace(!@a, v)`"
+fail "move field from viewed self", "11:10: cannot move out of `@a`: `@` is a view; exchange it instead: `old = swap(!@a, v)`"
   # A field cannot be moved out of a `?@` receiver: the caller still
   # owns and drops it.
 
@@ -483,7 +483,7 @@ fail "move module constant", "13:8: cannot move module-level `K` inside a functi
     pub fun mk() -> Int
       1
 
-fail "move part of branching value", "33:8: cannot move out of `(a if c else b).v`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`", "34:8: cannot move out of `(a if c else mk()).v`: `a if c else mk()` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`", "40:8: cannot move out of `(a if c else b).n`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "47:8: cannot move out of `(o ?? a).v`: `o ?? a` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`", "48:8: cannot move out of `(get(c) catch a).v`: `get(c) catch a` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`", "49:8: cannot move out of `(a if c else mk()).vs[0]`: `a if c else mk()` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`", "55:8: cannot take out of `(a if c else b).o`: `a if c else b` reads a binding where it stands; take it inside each branch", "61:13: cannot move out of `(a if c else b).v`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `replace`", errors: 8
+fail "move part of branching value", "33:8: cannot move out of `(a if c else b).v`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `swap`", "34:8: cannot move out of `(a if c else mk()).v`: `a if c else mk()` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `swap`", "40:8: cannot move out of `(a if c else b).n`: it copies, so `<` would leave it as it was; remove the `<` to copy it", "47:8: cannot move out of `(o ?? a).v`: `o ?? a` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `swap`", "48:8: cannot move out of `(get(c) catch a).v`: `get(c) catch a` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `swap`", "49:8: cannot move out of `(a if c else mk()).vs[0]`: `a if c else mk()` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `swap`", "55:8: cannot take out of `(a if c else b).o`: `a if c else b` reads a binding where it stands; take it inside each branch", "61:13: cannot move out of `(a if c else b).v`: `a if c else b` reads a binding where it stands, which would still drop it; exchange the part where it is owned, with `swap`", errors: 8
   # A field or element of a branching value (`a if c else b`, `o ?? b`,
   # `e catch b`) is a part of the binding its branch reads where it
   # stands, so `<` on it is a part move like `<a.v`: the binding would
@@ -860,7 +860,7 @@ test "move then return in if", '''
   go(true)
   go(false)
 
-fail "move through branch or exit", "16:8: `<` here would copy `o` out without moving it; move it before the `?` or `!`: `(<o)?`", "20:8: `<` here would copy `s.a` out without moving it; take it before the `?` or `!`: `(<s.a)?`", "26:7: `<` here would copy `a` out without moving it; move it inside the branch: `<a`", "28:7: `<` here would copy `s.b` out without moving it, and a field that is not optional cannot be moved out; exchange it: `replace(!s.b, v)`"
+fail "move through branch or exit", "16:8: `<` here would copy `o` out without moving it; move it before the `?` or `!`: `(<o)?`", "20:8: `<` here would copy `s.a` out without moving it; take it before the `?` or `!`: `(<s.a)?`", "26:7: `<` here would copy `a` out without moving it; move it inside the branch: `<a`", "28:7: `<` here would copy `s.b` out without moving it, and a field that is not optional cannot be moved out; exchange it: `old = swap(!s.b, v)`"
   # `<` moves a binding or takes a field; the value of a branch or of `?`
   # is neither, so moving it would copy the place out and leave its owner
   # still dropping it. The move is written at the place.
@@ -891,7 +891,7 @@ fail "move through branch or exit", "16:8: `<` here would copy `o` out without m
   z = <(s.b if c else R(n: 4))
   print(x, z, f(none), g(!s))
 
-fail "move through lend", "30:8: cannot move out of `p.items`: `p` is a view; exchange it instead: `replace(!p.items, v)`", "37:8: cannot move out of `(!s if c else !t).items`: it is reached through `!s if c else !t`, a view", "44:8: cannot move out of `(?s if c else ?t).items`: it is reached through `?s if c else ?t`, a view", "49:8: cannot move out of `wrap(!s).items`: it is reached through `wrap(!s)`, a view", "54:6: cannot move out of `ws.items`: `ws` is a view", "56:6: cannot move out of `rs.items`: `rs` is a view", "57:6: cannot move out of `rd(?mk(2)).items`: it is reached through `rd(?mk(2))`, a view", "61:6: cannot move out of `rv[0]`: `rv` is a view; exchange it instead: `replace(!rv[0], v)`", "63:6: cannot move out of `wv[0]`: `wv` is a view; exchange it instead: `replace(!wv[0], v)`", errors: 9
+fail "move through lend", "30:8: cannot move out of `p.items`: `p` is a view; exchange it instead: `old = swap(!p.items, v)`", "37:8: cannot move out of `(!s if c else !t).items`: it is reached through `!s if c else !t`, a view", "44:8: cannot move out of `(?s if c else ?t).items`: it is reached through `?s if c else ?t`, a view", "49:8: cannot move out of `wrap(!s).items`: it is reached through `wrap(!s)`, a view", "54:6: cannot move out of `ws.items`: `ws` is a view", "56:6: cannot move out of `rs.items`: `rs` is a view", "57:6: cannot move out of `rd(?mk(2)).items`: it is reached through `rd(?mk(2))`, a view", "61:6: cannot move out of `rv[0]`: `rv` is a view; exchange it instead: `old = swap(!rv[0], v)`", "63:6: cannot move out of `wv[0]`: `wv` is a view; exchange it instead: `old = swap(!wv[0], v)`", errors: 9
   # A field or element path that reaches its place through a view, by the
   # type of a value on the path (`!S`, `?S`, a view a call returns, a
   # branching value of lends), lets `<` move nothing out of it, as

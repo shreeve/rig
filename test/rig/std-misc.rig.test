@@ -2167,7 +2167,7 @@ test "random in cell", '''
     score: Int
 
   c = *Cell(random.Random.seeded(1))
-  r = (!c).replace(random.Random.seeded(2))
+  r = (!c).swap(random.Random.seeded(2))
   print((!r).next())
   g = Game(rng: random.Random.seeded(7), score: 3)
   h = <g
@@ -2261,7 +2261,7 @@ test "random owned bindings", '''
     .a(r) => print((!r).next() != 0)
     .b => pass
   w = *Cell(random.Random.seeded(5))
-  old = (!w).replace(random.Random.seeded(6))
+  old = (!w).swap(random.Random.seeded(6))
   print((!old).next() != 0)
 
 fail "random read loop", "24:11: cannot lend `a if f else b`: it may be `a`, a value a name holds", "29:7: `count[random.Random]` cannot use `T = random.Random`: the generic body copies into a loop binding a value that holds a `T`, and `random.Random` is unique"
@@ -2295,7 +2295,7 @@ fail "random read loop", "24:11: cannot lend `a if f else b`: it may be `a`, a v
   look(?a[..])
   print(count(?a))
 
-fail "random unique kept out", "6:7: `==` is not defined for `random.Random`: `random.Random` is unique", "8:7: `Cell.get` returns a copy of the value, and a `random.Random` is unique, so it can't be copied; write `(!cell).replace(<new)`, which puts `new` in and hands back the old value"
+fail "random unique kept out", "6:7: `==` is not defined for `random.Random`: `random.Random` is unique", "8:7: `Cell.get` returns a copy of the value, and a `random.Random` is unique, so it can't be copied; write `(!cell).swap(<new)`, which puts `new` in and hands back the old value"
   # A `Random` is unique: `==` is not defined for it, and `Cell.get` would
   # copy it out of its cell.
 

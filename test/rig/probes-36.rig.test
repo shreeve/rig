@@ -238,7 +238,7 @@ fail "review-take-p82", "cannot lend `v` to write in an index of a place it is l
 
   v: List[Int?] = List()
   !v.push(7)
-  t = replace(!v[grow(!v)], 5)
+  t = swap(!v[grow(!v)], 5)
   print(t, v.len)
 
 fail "review-take-p83", "cannot lend `v` to write while a read loan is live"
@@ -308,7 +308,7 @@ test "review-take-p88", '''
 '''
   sub f(v: ![]Int?)
     t = <v[0]
-    u = replace(!v[1], 9)
+    u = swap(!v[1], 9)
     print(t, u)
 
   a: [3]Int? = [1, 2, 3]
@@ -338,7 +338,7 @@ fail "review-take-p89", "cannot lend `v` to write while a write loan is live: to
   b: List[^R?] = List()
   !b.push(^R(n: 2))
   y = <b[0]
-  z = replace(!b[0], ^R(n: 3))
+  z = swap(!b[0], ^R(n: 3))
   print(y, z, b)
   swap(!v[0], !v[1])
   print("end")
@@ -355,7 +355,7 @@ test "review-take-p91", '''
 
   b: List[*R] = List()
   !b.push(*R(n: 2))
-  z = replace(!b[0], *R(n: 3))
+  z = swap(!b[0], *R(n: 3))
   print(z, b)
 
 test "review-take-p93", '''
@@ -374,7 +374,7 @@ test "review-take-p93", '''
       print("drop", @n)
 
   sub put(r: !R)
-    old = replace(!r, R(n: 9))
+    old = swap(!r, R(n: 9))
     print(old)
     q = R(n: 7)
     swap(!r, !q)
@@ -382,7 +382,7 @@ test "review-take-p93", '''
 
   x = R(n: 1)
   w = !x
-  old = replace(!w, R(n: 2))
+  old = swap(!w, R(n: 2))
   print(old)
   put(!x)
   print(x)
@@ -415,7 +415,7 @@ fail "review-take-p95", "cannot move `s` while a write loan on `s.a` is live"
     a: ^S?
 
   s = S(n: 1, a: none)
-  old = replace(!s.a, ^<s)
+  old = swap(!s.a, ^<s)
   print(old)
 
 test "review-take-p96", '''

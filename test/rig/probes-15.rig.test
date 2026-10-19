@@ -3481,7 +3481,7 @@ fail "rev203-b01b closure dropped", "cannot drop `h` while it is lent"
 
   src = String("abc")
   h = H(s: S(text: ?src, value: String()))
-  f = |!h| replace(!h.s, S(text: "", value: String()))
+  f = |!h| swap(!h.s, S(text: "", value: String()))
   t = f()
   <f
   <h
@@ -3501,7 +3501,7 @@ fail "rev203-c02 view local in block", "cannot drop `src` while it is lent"
   out: List[S] = List()
   if src.len > 0
     w = !h.s
-    !out.push(replace(!w, S(text: "", value: String())))
+    !out.push(swap(!w, S(text: "", value: String())))
   <src
   print(out[0].text)
 
@@ -3535,7 +3535,7 @@ test "rev203-e09 failing guard between", '''
     x
 
   fun go(h: !Hd, x: Int) -> D!
-    t = replace(!h.d, D(n: 10 + x))
+    t = swap(!h.d, D(n: 10 + x))
     _ = chk(x)!
     return Bad.no if x == 1
     t
@@ -3561,7 +3561,7 @@ fail "rev203-e10 loop break continue", "`tmp` does not live long enough"
     s = S(text: ?keep, value: String())
     s.text = ?tmp if i == 1
     continue if i == 2
-    t = replace(!s, S(text: "", value: String()))
+    t = swap(!s, S(text: "", value: String()))
     break if i == 3
     !out.push(<t)
   print(out[0].text)
@@ -3576,7 +3576,7 @@ test "rev203-f06 closure writes h while t", "abc v n"
 
   src = String("abc")
   h = H(s: S(text: ?src, value: String("v")))
-  f = |!h| replace(!h.s, S(text: "", value: String("n")))
+  f = |!h| swap(!h.s, S(text: "", value: String("n")))
   t = f()
   u = f()
   print(t.text, t.value, u.value)
@@ -3593,8 +3593,8 @@ fail "rev203-h04 put back then drop viewed", "cannot drop `src` while it is lent
   src2 = String("def")
   h = H(s: S(text: ?src, value: String()))
   w = !h.s
-  t = replace(!w, S(text: ?src2, value: String()))
-  _ = replace(!w, <t)
+  t = swap(!w, S(text: ?src2, value: String()))
+  _ = swap(!w, <t)
   <src
   print(h.s.text)
 
@@ -3608,7 +3608,7 @@ fail "rev203-h06 swap after take", "cannot drop `src` while it is lent"
 
   src = String("abc")
   h = H(s: S(text: ?src, value: String()))
-  t = replace(!h.s, S(text: "", value: String()))
+  t = swap(!h.s, S(text: "", value: String()))
   h = H(s: S(text: "", value: String()))
   <src
   print(t.text)
@@ -3629,7 +3629,7 @@ test "rev203-j01 closure take twice in fn", '''
     s: S
 
   fun useh(h: !H) -> S
-    f = |!h| replace(!h.s, S(text: "", value: String("n")))
+    f = |!h| swap(!h.s, S(text: "", value: String("n")))
     a = f()
     b = f()
     print(a.value, b.value)

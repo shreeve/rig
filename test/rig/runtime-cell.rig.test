@@ -54,10 +54,10 @@ test "cell holding closure vec", "1"
   !v.push(<bump)
   c: *Cell[List[*sub()]] = *Cell(<v)
   empty: List[*sub()] = List()
-  current: List[*sub()] = (!c).replace(<empty)
+  current: List[*sub()] = (!c).swap(<empty)
   for cb in ?current
     cb()
-  discarded: List[*sub()] = (!c).replace(<current)
+  discarded: List[*sub()] = (!c).swap(<current)
   print(count.get())                # 1
 
 test "cell holding shared", '''
@@ -121,7 +121,7 @@ test "cell marked calls", release: true, '''
   b = +a
   !a.set(2)
   print(b.get())
-  print((!b).replace(7), a.get())
+  print((!b).swap(7), a.get())
   bump(!a, 3)
   print(b.get())
   seen = ?a
@@ -186,7 +186,7 @@ fail "cell read view unchanged", "10:6: cannot lend to write through a read view
   print(k.hits.get())
 
 test "cell replace shared", "30"
-  # `Cell[*User].replace(<new)` stores the new handle and returns the old
+  # `Cell[*User].swap(<new)` stores the new handle and returns the old
   # one as an owned value. Each handle is dropped exactly once: `old` at
   # scope exit, the stored one by the cell's drop glue.
 
@@ -196,7 +196,7 @@ test "cell replace shared", "30"
   ua: *User = *User(age: 30)
   ub: *User = *User(age: 99)
   c: *Cell[*User] = *Cell(<ua)
-  old: *User = (!c).replace(<ub)
+  old: *User = (!c).swap(<ub)
   print(old.age)                    # 30
 
 test "cell set through read view", release: true, '''
@@ -222,9 +222,6 @@ test "cell set through read view", release: true, '''
   sub bump(c: !Cell[Int], by: Int)
     !c.set(c.get() + by)
 
-  fun swap(c: !Cell[Int], v: Int) -> Int
-    (!c).replace(v)
-
   fun lent(c: *Counter) -> Int
     bump(!c.hits, 100)
     c.hits.get()
@@ -232,7 +229,7 @@ test "cell set through read view", release: true, '''
   c: *Cell[Int] = *Cell(1)
   bump(!c, 10)
   print(c.get())
-  old = swap(!c, 5)
+  old = (!c).swap(5)
   print(old, c.get())
   r = ?c
   !(+r).set(7)
@@ -336,14 +333,14 @@ test "cell through handle param", '''
   f()
   print(c[0])
 
-fail "cell unmarked set", "6:3: method `set` needs its receiver lent to write; write `!c.set(5)`: changing a shared Cell is marked with `!`", "7:9: method `replace` needs its receiver lent to write; write `(!c).replace(6)`: changing a shared Cell is marked with `!`", "9:3: method `push` needs its receiver lent to write; write `!v.push(1)`: changing a shared Cell is marked with `!`", "10:10: method `pop` needs its receiver lent to write; write `(!v).pop()`: changing a shared Cell is marked with `!`", "11:3: method `clear` needs its receiver lent to write; write `!v.clear()`: changing a shared Cell is marked with `!`", "12:1: write `(!v)[i] = e`: changing a shared Cell is marked with `!`", errors: 6
+fail "cell unmarked set", "6:3: method `set` needs its receiver lent to write; write `!c.set(5)`: changing a shared Cell is marked with `!`", "7:9: method `swap` needs its receiver lent to write; write `(!c).swap(6)`: changing a shared Cell is marked with `!`", "9:3: method `push` needs its receiver lent to write; write `!v.push(1)`: changing a shared Cell is marked with `!`", "10:10: method `pop` needs its receiver lent to write; write `(!v).pop()`: changing a shared Cell is marked with `!`", "11:3: method `clear` needs its receiver lent to write; write `!v.clear()`: changing a shared Cell is marked with `!`", "12:1: write `(!v)[i] = e`: changing a shared Cell is marked with `!`", errors: 6
   # A shared Cell changes only by a marked call, so a call that changes it
   # without `!` is rejected, with the mark in the hint: `set`, `replace`,
   # and a Cell of a List's `push`, `pop`, `clear`, and element assignment.
 
   c: *Cell[Int] = *Cell(1)
   c.set(5)
-  old = c.replace(6)
+  old = c.swap(6)
   v: *Cell[List[Int]] = *Cell(List())
   v.push(1)
   last = v.pop()

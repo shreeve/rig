@@ -420,7 +420,7 @@ test "review-step45-j03 shared cell vec", '''
   d = +c
   w: List[String] = List()
   !w.push(String("b"))
-  old = (!d).replace(<w)
+  old = (!d).swap(<w)
   print(old)
 
 fail "review-step45-k01 closure elem view", "cannot lend `v` to write while a read loan is live"

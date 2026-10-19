@@ -2894,11 +2894,11 @@ const Lowerer = struct {
         // A write receiver reached through a write view.
         var recv_view: ?VarId = null;
         var recv_root: ?VarId = null;
-        // The holders of the places a `swap` or `replace` lends, and the
-        // value `replace` stores.
+        // The holders of the places a `swap` lends, and the value a swap
+        // with a value stores.
         var exchanged: std.ArrayList(VarId) = .empty;
         var stored_value: std.ArrayList(VarId) = .empty;
-        // The root of the place `replace` takes its result out of.
+        // The root of the place a swap with a value takes its result out of.
         var taken: ?VarId = null;
 
         // A generic function or type at type arguments of plain data is
@@ -2920,7 +2920,7 @@ const Lowerer = struct {
         // `copy`'s element type: what it stores is a copy of each element
         // its argument's slice views.
         var elem_copy: ?TypeId = null;
-        // `swap` or `replace`, which lend their places for the call.
+        // `swap`, which lends its places for the call.
         var exchange = false;
         var is_ctor = false;
         var reach: kinds.Reach = .{ .a = self.a };
@@ -2939,9 +2939,12 @@ const Lowerer = struct {
             const builtin = sym == null or sym.?.decl_pos == sema.builtin_decl_pos;
             if (builtin and (std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "warn"))) {
                 all_read = true;
-            } else if (builtin and (std.mem.eql(u8, name, "swap") or std.mem.eql(u8, name, "replace"))) {
+            } else if (builtin and std.mem.eql(u8, name, "swap")) {
+                // `swap(!a, !b)` exchanges two places; `swap(!p, v)` puts a
+                // value in one and gives back what was there.
                 exchange = true;
-                if (std.mem.eql(u8, name, "swap")) all_read = true else shapes = &.{ .view, .take };
+                const swap_args = ir.Call.args(e);
+                if (swap_args.len == 2 and sema.swapsTwoPlaces(self.ctx, swap_args[1], self.ctx.typeOf(swap_args[1]))) all_read = true else shapes = &.{ .view, .take };
             } else if (self.ctx.stringCallOf(e) == .new) {
                 // `String(...)` formats its arguments as `print` does.
                 all_read = true;
@@ -3146,7 +3149,7 @@ const Lowerer = struct {
             }
             try spans.append(self.a, .{ .reads = reads.items.len, .moves = moves.items.len, .param = param_at, .to_store = to_store });
             if (exchange and val.isKind(.write)) {
-                // `swap` and `replace` lend their places for the call.
+                // `swap` lends its places for the call.
                 const p = try self.place(ir.Write.operand(val)) orelse return abstain("an unusual `swap`");
                 const deref = p.via == .write or (!p.slice and self.isWriteRef(p.ty));
                 const loan = try self.lentLoan(p, .write, deref, pos);
@@ -3230,7 +3233,7 @@ const Lowerer = struct {
                 pc.* = .{ .v = pv, .no_result = c.no_result, .result_loan = c.result_loan };
             }
         }
-        // `replace(!p, v)` is `t = <p; p = v` (Core §5): its result is
+        // `swap(!p, v)` is `t = <p; p = v` (Core §5): its result is
         // taken out of the place before the store, and carries what the
         // place's value held, no view of the place.
         if (taken) |root| if (result) |r| {
@@ -3270,7 +3273,7 @@ const Lowerer = struct {
         };
         // `swap` exchanges what its places hold (Core s6): each place's
         // holder then holds the views the other held, not the call's own
-        // lends of them. `replace` stores its value in its place, above.
+        // lends of them. A swap with a value stores it in its place, above.
         for (exchanged.items) |root| {
             const others = try self.a.alloc(VarId, exchanged.items.len);
             var n: usize = 0;

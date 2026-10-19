@@ -6106,21 +6106,22 @@ pub const Emitter = struct {
     // Calls
     // -------------------------------------------------------------------------
 
-    /// `replace` or `swap` when `call` calls the built-in.
-    fn builtinCall(self: *Emitter, call: Sexp) ?[]const u8 {
+    /// Whether `call` calls the built-in `swap`.
+    fn isSwapCall(self: *Emitter, call: Sexp) bool {
         const callee = self.facts.calleeOf(call);
-        if (callee != .src or self.facts.symbolOf(callee) != null) return null;
-        const name = self.srcText(callee);
-        return if (std.mem.eql(u8, name, "replace") or std.mem.eql(u8, name, "swap")) name else null;
+        if (callee != .src or self.facts.symbolOf(callee) != null) return false;
+        return std.mem.eql(u8, self.srcText(callee), "swap");
     }
 
-    /// `rig.replace(&place, value)` / `rig.swapPlaces(&a, &b)`: each place by
-    /// its address, a held write view as the pointer it is.
-    fn emitSwapCall(self: *Emitter, name: []const u8, args: []const Sexp) Error!void {
-        try self.w.writeAll(if (std.mem.eql(u8, name, "swap")) "rig.swapPlaces(" else "rig.replace(");
+    /// `rig.swapPlaces(&a, &b)` / `rig.swapValue(&place, value)`: each
+    /// place by its address, a held write view as the pointer it is
+    /// (`sema.swapsTwoPlaces`).
+    fn emitSwapCall(self: *Emitter, args: []const Sexp) Error!void {
+        const two = args.len == 2 and self.facts.swapsTwoPlaces(args[1]);
+        try self.w.writeAll(if (two) "rig.swapPlaces(" else "rig.swapValue(");
         for (args, 0..) |a, i| {
             if (i > 0) try self.w.writeAll(", ");
-            if (i == 0 or std.mem.eql(u8, name, "swap")) {
+            if (i == 0 or two) {
                 if (!try self.emitHeldAddress(a)) try self.emitAddressOf(lentPlace(a));
             } else try self.emitStored(a);
         }
@@ -6579,7 +6580,7 @@ pub const Emitter = struct {
             .warn => self.emitWarn(args),
         };
         if (self.stringCall(sexp)) |op| return self.emitStringCall(sexp, op);
-        if (self.builtinCall(sexp)) |name| return self.emitSwapCall(name, args);
+        if (self.isSwapCall(sexp)) return self.emitSwapCall(args);
         if (callee == .src and self.facts.symbolOf(callee) == null and facts.syntax.isNumericTypeName(self.srcText(callee))) return self.emitConversion(sexp);
         // A call through an alias: a conversion to the number type it
         // names, or a value of the struct it names.
@@ -6704,11 +6705,11 @@ pub const Emitter = struct {
             try self.emitArgs(sexp);
             return self.w.writeAll(")");
         };
-        // `set` / `replace` change a Cell through any path to it: the
+        // `set` / `swap` change a Cell through any path to it: the
         // Cell's address, a mutable pointer (`emitCellAddress`).
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.cell_sym_id)) {
             const m = self.srcText(ir.Member.name(callee));
-            if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "replace")) {
+            if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "swap")) {
                 try self.emitCellAddress(ir.Member.object(callee));
                 try self.w.print(".{s}(", .{m});
                 try self.emitArgs(sexp);

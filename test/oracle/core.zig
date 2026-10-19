@@ -194,7 +194,7 @@ pub const Op = struct {
     /// loan that reaches it. The flow replaces each pointer loan on a
     /// place by the loans that place carries.
     unpoint: bool = false,
-    /// A value taken out of a place (`<p.f`, `replace(!p, v)`), whose
+    /// A value taken out of a place (`<p.f`, `swap(!p, v)`), whose
     /// root is `reads[0]` (Core §5: `<` leaves its source done): it
     /// carries what the place's value held and no loan on the place. The
     /// flow replaces each write loan the root's view of the place holds

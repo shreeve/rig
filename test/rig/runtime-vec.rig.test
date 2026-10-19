@@ -302,7 +302,7 @@ test "vec shared", "4 200 300"
   # `set` puts it back. The List is freed when the last strong handle drops.
 
   sub push_all(cell: !*Cell[List[Int]], n: Int)
-    v = (!cell).replace(List())
+    v = (!cell).swap(List())
     for i in 0..n
       !v.push(i * 100)
     !cell.set(<v)
@@ -314,7 +314,7 @@ test "vec shared", "4 200 300"
   other = +shared
   push_all(!other, 3)
   push_one(!other, 300)
-  v = (!shared).replace(List())
+  v = (!shared).swap(List())
   print(v.len, v[2], v[3])
   !shared.set(<v)
 

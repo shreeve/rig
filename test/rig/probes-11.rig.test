@@ -786,7 +786,7 @@ test "purity-rustzig-probes-q3 resurrect", '''
 
     drop(!@)
       print("dropping", @name)
-      if (!@cb).replace(none) as f
+      if (!@cb).swap(none) as f
         f()
 
   h = *H(name: "h", cb: Cell(none))

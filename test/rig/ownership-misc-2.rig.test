@@ -133,7 +133,7 @@ fail "take rejections", "13:8: cannot take through a read view (`?T`)", "17:5: c
   print(z)
   rd(?s)
 
-fail "take rejections ownership", "16:10: cannot lend `s.top` to write while a read loan is live", "20:24: cannot lend `s.top` to write while a write loan is live", "24:7: cannot move out of `s.n`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `replace(!s.n, v)`", "27:7: use of `msg` after move"
+fail "take rejections ownership", "16:10: cannot lend `s.top` to write while a read loan is live", "20:21: cannot lend `s.top` to write while a write loan is live", "24:7: cannot move out of `s.n`: `s` would still drop it (partial moves are not supported); move `s` whole, or exchange the field: `old = swap(!s.n, v)`", "27:7: use of `msg` after move"
   # Taking an optional out of a field writes the field: not while another
   # view of the value is live, and not twice in one call. A field that
   # is not optional still cannot be moved out; it is exchanged with
@@ -153,7 +153,7 @@ fail "take rejections ownership", "16:10: cannot lend `s.top` to write while a r
       print(t.v)
 
   sub twice(s: !S)
-    a = replace(!s.top, <s.top)
+    a = swap(!s.top, <s.top)
     print(a)
 
   s = S(top: none, n: N(v: 1, next: none))

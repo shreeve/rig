@@ -143,7 +143,7 @@ pub obj Map[K, V]
     h = k.hash()
     if @find(?k, h) as j
       <k
-      return replace(!@es[j].value, <v)
+      return swap(!@es[j].value, <v)
     !@add_entry(<k, <v, h)
     none
 
@@ -315,7 +315,7 @@ pub obj Map[K, V]
       held = <@es[j].value
       if !held as v
         f(?@es[j].key, !v)
-      old = replace(!@es[j].value, <held)
+      old = swap(!@es[j].value, <held)
       <old
 
   # The entry of the key `k`, whose hash is `h`, or `none`: in a small

@@ -3685,7 +3685,7 @@ test "audit-ownership-i04 replace clone other field", '''
     b: *Tok
 
   p = P(a: *Tok(n: 1), b: *Tok(n: 2))
-  old = replace(!p.a, +p.b)
+  old = swap(!p.a, +p.b)
   print(old.n, p.a.n, p.b.n)
 
 test "audit-ownership-i05 swap nested paths", '''
@@ -3811,7 +3811,7 @@ test "audit-ownership-i08 replace moves self", '''
     a: *Tok?
 
   p = P(a: *Tok(n: 1))
-  old = replace(!p.a, none)
+  old = swap(!p.a, none)
   print(old == none, p.a == none)
 
 fail "audit-ownership-i09 replace whole var", "cannot lend `t` to write while a read loan is live"
@@ -3835,7 +3835,7 @@ fail "audit-ownership-i09 replace whole var", "cannot lend `t` to write while a 
 
   t = *Tok(n: 1)
   r = ?t
-  old = replace(!t, *Tok(n: 2))
+  old = swap(!t, *Tok(n: 2))
   print(old.n, r.n)
 
 test "audit-ownership-i12 swap elems", '''
