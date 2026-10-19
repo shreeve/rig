@@ -3534,11 +3534,15 @@ pub fn onOwnStack(comptime f: anytype, args: anytype) @typeInfo(@TypeOf(f)).@"fn
 }
 
 /// A task's stack and its guard, as `sched.zig` maps a fiber's. A task's
-/// stack is as large as `main`'s, for the same frames, and its guard is
-/// the smaller of `main`'s, which still holds any frame the compiler
-/// accepts (`max_frame_reach`), so many tasks fit in the address space.
+/// stack is as large as `main`'s, for the same frames. Its guard is at
+/// least twice the largest frame the program's code may take, which
+/// `bin/rig` measures and writes into the root (`__rig_task_guard`,
+/// `sema.taskGuard`): 16 MiB for most programs, so a million tasks fit
+/// in the address space, and up to `main`'s smaller guard for a program
+/// with frames as large as the compiler accepts. A program built without
+/// it takes that guard.
 pub const task_stack_size = stack_size;
-pub const task_guard = guard_sizes[guard_sizes.len - 1];
+pub const task_guard: usize = if (@hasDecl(root, "__rig_task_guard")) root.__rig_task_guard else guard_sizes[guard_sizes.len - 1];
 
 fn attachSignalStack() callconv(.c) void {
     std.Thread.maybeAttachSignalStack();

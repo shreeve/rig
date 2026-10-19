@@ -369,3 +369,62 @@ test "task hogs", release: true, '''
   xs = <hogs.wait_all()
   ys = <slices.wait_all()
   print("hogs", xs.len)
+
+bomb "task stack overflow frame", "rig: stack overflow", prints: "before"
+  # A task's frame larger than its whole stack stops the program with a
+  # stack-overflow error before it writes anything past the stack: the
+  # guard below a task's stack is at least twice the program's largest
+  # frame (docs/concurrency/SCHEDULER.md, "Stacks"), here `big`'s.
+
+  fun take(a: [800000]Int, k: Int) -> Int
+    a[k]
+
+  called sub big(i: Int)
+    a = [800000 of i]
+    s = 0
+    s += take(a, 0)
+    s += take(a, 1)
+    s += take(a, 2)
+    s += take(a, 3)
+    s += take(a, 4)
+    s += take(a, 5)
+    s += take(a, 6)
+    s += take(a, 7)
+    s += take(a, 8)
+    s += take(a, 9)
+    s += take(a, 10)
+    s += take(a, 11)
+    s += take(a, 12)
+    s += take(a, 13)
+    s += take(a, 14)
+    s += take(a, 15)
+    print(s)
+
+  fun run(i: Int) -> Int
+    big(i)
+    i
+
+  sub main()
+    print("before")
+    t = run(1)&
+    print(<t.wait())
+
+bomb "task stack overflow deep frames", "rig: stack overflow", prints: "before", release: true
+  # Recursion in a task whose frames are large runs out of stack in the
+  # guard below it, sized from those frames, and stops the program with a
+  # stack-overflow error. `--release=fast` folds the levels into a loop
+  # that never ends, so the test does not build it.
+
+  fun dive(depth: Int, prev: ?[300000]Int) -> Int
+    a = [300000 of depth]
+    a[depth % 1000] = prev[0]
+    a[0] + dive(depth + 1, ?a)
+
+  fun start() -> Int
+    first = [300000 of 0]
+    dive(0, ?first)
+
+  sub main()
+    print("before")
+    t = start()&
+    print(<t.wait())

@@ -2006,7 +2006,11 @@ reach, which `sema.reach_factor` (4) times must fit
 is `sema.noinline_reach` (1 MiB) or more, with what is inlined into it,
 marks its owner in `large_frames`: emit writes a function, a closure's
 `__rig_invoke`, and a `drop` body's `__rig_user_drop` `noinline` there,
-and `inlining.decide` never inlines it. A frame that mentions
+and `inlining.decide` never inlines it. `large_frames` keeps the most
+stack each such frame may take, and the largest of the program's sizes
+the guard below each task's stack (`sema.taskGuard`, written into the
+root as `__rig_task_guard`): at least twice it, and at least 16 MiB
+(`sema.min_task_guard`), so an overflowing frame faults in the guard. A frame that mentions
 generic parameters is kept in `generic_frames` (its copies last,
 `Frame.copies`) and summed at each instance: a function instance checks
 the frames that use its own parameters, a type instance its methods'.

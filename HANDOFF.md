@@ -106,7 +106,7 @@ from).
     `bench/tasks` times it against Tokio and Go, and
     `bench/tasks/PROGRESS.md` records each step: it starts, waits for,
     and switches tasks faster than Tokio, but a sleeping task holds
-    two stack pages (32 KiB on the Mac), where Tokio's holds about 300
+    one stack page (17 KiB on the Mac), where Tokio's holds about 300
     bytes.
 - **Releases:** every change, fixes included, ships in the current
   line, `v0.3.x`; an earlier line gets no further releases. Rounds land
@@ -360,14 +360,10 @@ migration guide (`tools/migrate-0.3.py`).
 
 **Concurrency**, in order (docs/concurrency/SCHEDULER.md and
 docs/CONCURRENCY.md, "Decisions" 15; the scheduler moved ahead of the
-plan's second step):
-
-1. Scheduler increment 7: Rig's own stack probes, so task stacks take 64 KiB
-   guards in place of 1 GiB ones (Zig emits none on arm64 macOS).
-2. The plan's next steps: the crossing facts, `*Atomic`, and `par`;
-   actors, panics unwinding to boundaries, and `task.isolate`; then
-   I/O, timers, and `http.serve` on Rig's own `std.Io`, whose blocking
-   pool today serves only `std.file.read`.
+plan's second step, and its increments are done): the crossing facts,
+`*Atomic`, and `par`; actors, panics unwinding to boundaries, and
+`task.isolate`; then I/O, timers, and `http.serve` on Rig's own
+`std.Io`, whose blocking pool today serves only `std.file.read`.
 
 **Later:**
 

@@ -272,9 +272,9 @@ pub const register_bytes: u64 = 16;
 pub const reach_factor: u64 = 4;
 
 /// The most stack one function's code may take, `reach_factor` times its
-/// reach: 512 MiB, half the smallest guard the runtime keeps below the
-/// stack (`guard_sizes` in `rig/runtime.zig`, 1 GiB), so a frame within
-/// the measured bound that overflows the stack faults in the guard.
+/// reach: 512 MiB, half the smallest guard the runtime keeps below
+/// `main`'s stack (`guard_sizes` in `rig/runtime.zig`, 1 GiB). A task's
+/// guard is sized from the program's largest frame (`taskGuard`).
 pub const max_frame_reach: u64 = 512 << 20;
 
 /// A function whose code may take this much stack (`reach_factor` times
@@ -282,9 +282,41 @@ pub const max_frame_reach: u64 = 512 << 20;
 /// such frames merge into one.
 pub const noinline_reach: u64 = 1 << 20;
 
+/// The smallest guard below a task's stack (`task_guard` in
+/// `rig/runtime.zig`): 16 MiB. A frame larger than the guard could skip
+/// past it into memory that is not the task's, so a program's tasks take
+/// a guard at least twice its largest frame (`taskGuard`), and at least
+/// this, which holds sixteen frames of under `noinline_reach` that Zig's
+/// own inlining merged into one.
+pub const min_task_guard: u64 = 16 * noinline_reach;
+
+/// What a frame takes beside its values: the registers and scalars every
+/// frame saves (`test/cli/frame_reach.sh`).
+pub const frame_slack: u64 = 16 << 10;
+
+/// The guard below the stack of each task of a program whose largest
+/// frame may take `largest` bytes (`large_frames`; 0 when none is large):
+/// at least twice that and its slack, a power of two, and at least
+/// `min_task_guard`, so an overflowing frame faults in it, never past it.
+/// At most 1 GiB, the guard below `main`'s stack, which already holds
+/// twice the largest frame the compiler accepts (`max_frame_reach`).
+pub fn taskGuard(largest: u64) u64 {
+    const need = std.math.ceilPowerOfTwo(u64, 2 * (largest + frame_slack)) catch unreachable;
+    return std.math.clamp(need, min_task_guard, 1 << 30);
+}
+
+/// Record that the frame owner declared at `pos` may take `bytes` of
+/// stack, a large frame (`SemContext.large_frames`): the most of all its
+/// instances.
+pub fn markLarge(frames: *std.AutoHashMapUnmanaged(u32, u64), allocator: std.mem.Allocator, pos: u32, bytes: u64) !void {
+    const gop = try frames.getOrPut(allocator, pos);
+    gop.value_ptr.* = if (gop.found_existing) @max(gop.value_ptr.*, bytes) else bytes;
+}
+
 /// A declaration, `pos` in module `module`, whose frame is large at an
-/// instance another module makes (`SemContext.large_foreign_frames`).
-pub const ForeignFrame = struct { module: u32, pos: u32 };
+/// instance another module makes, taking `bytes` of stack there
+/// (`SemContext.large_foreign_frames`).
+pub const ForeignFrame = struct { module: u32, pos: u32, bytes: u64 };
 
 /// The values one function or closure keeps on its stack: `label` names
 /// it in messages, declared at `pos` in module `module_id` (0 for the
@@ -2240,9 +2272,10 @@ pub const SemContext = struct {
     /// A call (`decisionKey`) -> what it reaches (`callTargetOf`).
     call_targets: std.AutoHashMapUnmanaged(u64, CallTarget) = .empty,
     /// The functions, by where their names are declared, whose code may
-    /// take `noinline_reach` of stack or more: emitted `noinline` and
-    /// never inlined (`typecheck.checkFrames`, `inlining.decide`).
-    large_frames: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// take `noinline_reach` of stack or more, and the most it may take:
+    /// emitted `noinline`, never inlined, and sizing the program's task
+    /// guard (`taskGuard`; `typecheck.checkFrames`, `inlining.decide`).
+    large_frames: std.AutoHashMapUnmanaged(u32, u64) = .empty,
     /// Those of other modules, found large at an instance made here;
     /// `inlining.decide` marks them in their own modules.
     large_foreign_frames: std.ArrayList(ForeignFrame) = .empty,
