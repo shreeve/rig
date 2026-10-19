@@ -34,8 +34,8 @@
 #     of its own over the block it names), the `:` as LABEL_COLON, and
 #     after `break` or `continue` (`break $outer (x)`); a `$` touching a
 #     name that touches a `(` is a builtin call (`$size(T)`), anywhere;
-#   * reads `@`, the receiver, as a name, and an `@` touching a name as
-#     the receiver's member, with a `.` between them (`@hits` is the
+#   * reads `@`, self, as a name, and an `@` touching a name as
+#     self's member, with a `.` between them (`@hits` is the
 #     member access `@ . hits`);
 #   * classifies the tokens the parser cannot tell apart by its own
 #     state, by position, never by spacing:
@@ -150,7 +150,7 @@ tokens
     lshift          # <<
     lshift_wrap     # <<%  wrapping left shift
     rshift          # >>
-    at              # @   the receiver, a name: `@`, and `@name` its member
+    at              # @   self, a name: `@`, and `@name` its member
     dollar          # $   a builtin call (`$size(T)`)
     assign          # =
     fixed_assign    # =!  a binding that never changes (`x =! e`)

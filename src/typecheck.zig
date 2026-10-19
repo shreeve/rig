@@ -2040,7 +2040,7 @@ const Checker = struct {
                 return false;
             } else if (!writes) {
                 if (std.mem.eql(u8, name, "@")) {
-                    try self.err(pos, "cannot {s} the receiver `@`{s}; parameters are immutable (take `!@` to write through to the caller)", .{ verb.head, verb.tail });
+                    try self.err(pos, "cannot {s} `@`{s}; a method changes self only when it takes `!@`, which writes through to the caller", .{ verb.head, verb.tail });
                 } else try self.err(pos, "cannot {s} parameter `{s}`{s}; parameters are immutable (bind a copy with `new {s} = {s}`, or take `{s}: !{s}` to write through to the caller)", .{ verb.head, name, verb.tail, name, name, name, try self.tyName(sema.unwrapViews(self.ctx, sym.ty)) });
                 return false;
             },
@@ -2729,7 +2729,7 @@ const Checker = struct {
         if (next.field.receiver != .write) return .{ .malformed = switch (next.field.receiver) {
             .read => "takes `?@`",
             .value => "takes `<@`",
-            else => "takes no receiver `@`",
+            else => "takes no self",
         } };
         if (next.fn_ty.params.len != 1) return .{ .malformed = "takes more than `@`" };
         if (self.ctx.types.get(next.fn_ty.returns) != .optional) return .{ .malformed = "does not give an optional" };
@@ -4315,7 +4315,7 @@ const Checker = struct {
             const has_self = self.lookupAt(self.scope, "@", leaf.src.pos) != null;
             const method = self.body.name;
             if (std.mem.eql(u8, name, "@") and method != .nil) {
-                try self.errAt(leaf, "`{s}` declares no receiver `@`: write `{s} {s}(?@)`, `(!@)`, or `(<@)`", .{ self.text(method), if (self.body.is_sub) "sub" else "fun", self.text(method) });
+                try self.errAt(leaf, "`{s}` takes no self: write `{s} {s}(?@)`, `(!@)`, or `(<@)`", .{ self.text(method), if (self.body.is_sub) "sub" else "fun", self.text(method) });
                 return null;
             }
             if (self.ctx.symbols.items[self.nominal.sym].fields) |members| for (members) |m| {
@@ -4323,7 +4323,7 @@ const Checker = struct {
                 const call: []const u8 = if (m.is_method) "(...)" else "";
                 if (has_self) {
                     try self.errAt(leaf, "use of unbound name `{s}`; did you mean `@{s}{s}`?", .{ name, name, call });
-                } else try self.errAt(leaf, "use of unbound name `{s}`; `{s}` is a member of `{s}`, reached through a receiver: declare `(?@)` and write `@{s}{s}`", .{ name, name, self.ctx.symbols.items[self.nominal.sym].name, name, call });
+                } else try self.errAt(leaf, "use of unbound name `{s}`; `{s}` is a member of `{s}`, reached through self: declare `(?@)` and write `@{s}{s}`", .{ name, name, self.ctx.symbols.items[self.nominal.sym].name, name, call });
                 return null;
             };
         }
@@ -4369,8 +4369,8 @@ const Checker = struct {
             .{ "NULL", "; Rig's absent value is `none`" },
             .{ "True", "; Rig writes `true`" },
             .{ "False", "; Rig writes `false`" },
-            .{ "this", "; a method's receiver is `@`, declared as `(?@)`, `(!@)`, or `(<@)`" },
-            .{ "@", "; `@` is the receiver of a method that declares one: `(?@)`, `(!@)`, or `(<@)`" },
+            .{ "this", "; a method's self is `@`, declared as `(?@)`, `(!@)`, or `(<@)`" },
+            .{ "@", "; `@` is the self of a method that declares it: `(?@)`, `(!@)`, or `(<@)`" },
             .{ "len", "; a length is a member: `x.len`" },
             .{ "println", "; Rig prints a line with `print(...)`" },
             .{ "puts", "; Rig prints a line with `print(...)`" },
@@ -5923,7 +5923,7 @@ const Checker = struct {
     /// value, and takes a weak handle made there (`*<w`, `*~h`, `*f()`),
     /// which is dropped once upgraded. Recorded
     /// (`SemContext.recordUpgrade`), which the ownership checker and emit
-    /// read: a read is `w`'s, as a `?self` method's receiver is read; a
+    /// read: a read is `w`'s, as a `?@` method's receiver is read; a
     /// take moves `w` as `*<x` moves `x`.
     fn weakUpgrade(self: *Checker, e: Sexp, ty: TypeId) Error!?TypeId {
         const operand = ir.Share.operand(e);
@@ -10220,8 +10220,8 @@ const Checker = struct {
         if (try self.numberType(obj)) |nty| return self.misreachedWrite(misreached, obj, method, try self.numberTypeCall(callee, obj, nty, method, pos, args, ct));
         if (try self.namedType(obj)) |nt| return self.misreachedWrite(misreached, obj, method, try self.associatedCall(obj, nt, method, pos, args, ct));
 
-        // A consuming (`<self`) method may take a temporary, and a
-        // `?self` one reads it where it stands; a `!self` one needs it
+        // A consuming (`<@`) method may take a temporary, and a
+        // `?@` one reads it where it stands; a `!@` one needs it
         // lent to write, `!mk().m()`, which keeps it in its statement's
         // slot.
         const saved_receiver = self.receiver_obj;
@@ -10364,7 +10364,7 @@ const Checker = struct {
             // An `@` without a sigil was reported where it is declared.
             const names = resolved.field.param_names orelse &.{};
             if (names.len == 0 or !std.mem.eql(u8, names[0], "@")) {
-                try self.err(pos, "method `{s}` has no receiver `@`; call as `{s}.{s}(...)`", .{ method, resolved.owner, method });
+                try self.err(pos, "method `{s}` takes no self; call as `{s}.{s}(...)`", .{ method, resolved.owner, method });
             }
             try self.synthArgs(args);
             return resolved.fn_ty.returns;
@@ -10388,7 +10388,7 @@ const Checker = struct {
             .returns = f.returns,
             .is_sub = f.is_sub,
         };
-        // A `?self` or `!self` method that may keep a view of a temporary
+        // A `?@` or `!@` method that may keep a view of a temporary
         // receiver, in its result or through a write argument, lends it
         // as `?e` does: the value it is part of is kept in its statement's
         // slot until the statement ends, where the view may still be used.
@@ -10676,7 +10676,7 @@ const Checker = struct {
         };
         try self.noteCallee(f);
         if (member == .get) {
-            // The receiver is read where it stands, as any `?self`
+            // The receiver is read where it stands, as any `?@`
             // method's is (`readLeaf`).
             if (!self.hands(obj).hasStorage()) try self.readLeaf(obj);
             if (try self.cannotCopy(elem, pos, "copies an element out of a Cell's List")) {
@@ -11074,8 +11074,8 @@ const Checker = struct {
         return if (sema.changesByMark(self.ctx, ty)) ": changing a shared Cell is marked with `!`" else "";
     }
 
-    /// Receiver rules: `?self` is lent implicitly; `!self` needs an explicit
-    /// `!x.m()`; a consuming `self` needs an explicit `<x.m()`. Write and
+    /// Receiver rules: `?@` is lent implicitly; `!@` needs an explicit
+    /// `!x.m()`; a consuming `<@` needs an explicit `<x.m()`. Write and
     /// consuming receivers are refused through `?T` and `*T`.
     fn checkReceiverMode(self: *Checker, recv: Sexp, mode: MethodReceiver, kind: ReceiverTypeKind, method: []const u8, pos: u32, returns: TypeId) Error!void {
         const shape = self.receiverShape(recv);
@@ -11106,7 +11106,7 @@ const Checker = struct {
                     .read_explicit => try self.err(pos, "method `{s}` needs its receiver lent to write, not read; write `{s}`{s}", .{ method, try self.writeCallText(recv, method, returns), self.markNote(recv) }),
                     .move_explicit => try self.err(pos, "method `{s}` needs its receiver lent to write, not moved; write `{s}`", .{ method, try self.writeCallText(recv, method, returns) }),
                     // A binding that already holds a write view (`x: !T`,
-                    // `!self`) lends it visibly too.
+                    // `!@`) lends it visibly too.
                     .place => if (kind != .write_view and self.hands(recv).kind == .part_of_made) {
                         try self.writeOfTemporary(recv, method, returns);
                     } else if (kind != .write_view) {
@@ -12583,7 +12583,7 @@ const Checker = struct {
         /// Where this read view goes (a `?T`, a `[]T`, a `?String`), which
         /// only reads what it views.
         read_view: TypeId,
-        /// A method's receiver it takes as a read view (`?self`).
+        /// A method's receiver it takes as a read view (`?@`).
         read_receiver: []const u8,
         /// The base of this path, which only reads what it reaches: a
         /// lend of a slice (`(!arr[..])[0]`, `lendBase`).
@@ -14527,7 +14527,7 @@ fn plural(n: usize) []const u8 {
 
 /// Every instantiation of a generic type, and every instance of a
 /// generic function, must support the operations its bodies apply to
-/// the type parameters (`self.value + 1` requires a numeric `T`). Checked
+/// the type parameters (`@value + 1` requires a numeric `T`). Checked
 /// after all bodies, against every instance the module's code makes.
 /// An instance's type arguments, each standing as one (`sema.misplaced`):
 /// a value holding a Cell by value, or a write view, is no type argument.

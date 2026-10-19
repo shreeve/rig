@@ -683,7 +683,7 @@ pub const Field = struct {
     receiver: MethodReceiver = .none,
     /// An enum / error-set variant (not a data field).
     is_variant: bool = false,
-    /// The struct's user `drop(!self)` body. Not callable.
+    /// The struct's user `drop(!@)` body. Not callable.
     is_drop_method: bool = false,
     /// A data field's default value (`name: T = literal`).
     default: ?Sexp = null,
@@ -926,7 +926,7 @@ pub const Facts = struct {
     /// no view of them (`SemContext.lendsTempArray`).
     temp_arrays: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Owning temporaries only read where they stand (a `print`
-    /// argument, a view lent to a call, an `==` operand, a `?self`
+    /// argument, a view lent to a call, an `==` operand, a `?@`
     /// receiver): each is dropped at the end of its statement, or of
     /// its header.
     temp_drops: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
@@ -1393,7 +1393,7 @@ pub const StorageKey = struct { node: u64, kind: StorageKind };
 /// What a context does with a value (Core §3).
 pub const Use = enum {
     /// Reads it where it is: a `print` argument, an `==` operand, `+e`,
-    /// a `?self` receiver, a field or element read.
+    /// a `?@` receiver, a field or element read.
     read,
     /// Takes it: a binding, an argument, a stored field or element,
     /// `return`, a `break` value, a consuming receiver, a header that
@@ -1673,7 +1673,7 @@ pub const CallParams = struct {
     }
 
     /// Whether the call keeps its receiver, which its callee's `keeps`
-    /// names (`keeps self`).
+    /// names (`keeps @`).
     pub fn keepsLentReceiver(self: CallParams) bool {
         return self.filled(.receiver, self.origins.stores & self.origins.lent);
     }
@@ -2247,7 +2247,7 @@ pub const SemContext = struct {
     /// parameters (`computeOrigins`).
     declared_origins: std.AutoHashMapUnmanaged(u32, DeclaredOrigins) = .empty,
     /// The `keeps` clause of each function and method that writes one
-    /// (`keeps s, self`), by where its name is declared, with its
+    /// (`keeps s, @`), by where its name is declared, with its
     /// parameters (`computeOrigins`).
     declared_keeps: std.AutoHashMapUnmanaged(u32, DeclaredKeeps) = .empty,
     /// The `for` loops over an iterator that typecheck found, each to be
@@ -7552,7 +7552,7 @@ pub fn bindingName(b: Sexp) Sexp {
 }
 
 /// The member `name` of `object`, as Rig writes it: `object.name`, or
-/// `@name` on the receiver, `@`.
+/// `@name` on self, `@`.
 pub fn memberText(a: std.mem.Allocator, object: []const u8, name: []const u8) std.mem.Allocator.Error![]const u8 {
     if (std.mem.eql(u8, object, "@")) return a.print("@{s}", .{name});
     return a.print("{s}.{s}", .{ object, name });
@@ -8922,7 +8922,7 @@ pub fn tparamsOf(node: Sexp) Sexp {
 }
 
 /// Name leaf of a parameter: `(: name T)`, `(default name T value)`,
-/// `(read self)`, `(write self)`, `(move self)`, or a bare name.
+/// `(read @)`, `(write @)`, `(move @)`, or a bare name.
 pub fn paramNameNode(param: Sexp) ?Sexp {
     return switch (param.kind() orelse return if (param == .src) param else null) {
         .@":", .default => ir.get(param, .name),
@@ -9376,9 +9376,9 @@ test "facts: captures, parameters, and self resolve to their symbols" {
         \\
     );
     defer r.deinit();
-    const self_decl = r.sym("@", 0).?;
-    try std.testing.expectEqual(self_decl, r.sym("@n", 0).?);
-    try std.testing.expectEqual(SymbolKind.param, r.ctx.symbols.items[self_decl].kind);
+    const self_sym = r.sym("@", 0).?;
+    try std.testing.expectEqual(self_sym, r.sym("@n", 0).?);
+    try std.testing.expectEqual(SymbolKind.param, r.ctx.symbols.items[self_sym].kind);
     const cap = r.sym("s", 1).?;
     try std.testing.expectEqual(SymbolKind.capture, r.ctx.symbols.items[cap].kind);
     try std.testing.expectEqual(cap, r.sym("s", 2).?);

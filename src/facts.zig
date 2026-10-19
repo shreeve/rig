@@ -572,7 +572,7 @@ pub const Facts = struct {
     pub fn receiverOf(f: Facts, call: Sexp) ?Sexp {
         return storage.receiverOf(f.c(), call);
     }
-    /// Whether the method of `value.method(...)` takes `!self`.
+    /// Whether the method of `value.method(...)` takes `!@`.
     pub fn receiverWrites(f: Facts, call: Sexp) bool {
         return storage.receiverWrites(f.c(), call);
     }

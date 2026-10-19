@@ -30,9 +30,10 @@ fail "method consume through view", "cannot consume through a view"
   get_ref(?u).consume()
 
 fail "method consume without move", "method `consume` consumes the receiver; write `<u.consume()`"
-  # A consuming receiver (`@: User`) whose value moves needs an
-  # explicit move at the call site: `<u.consume()`, not `u.consume()`. (A
-  # receiver whose value copies is taken as a copy, as an argument is.)
+  # A method that consumes self (`<@`), called on a value that moves,
+  # needs an explicit move at the call site: `<u.consume()`, not
+  # `u.consume()`. (A receiver whose value copies is taken as a copy, as
+  # an argument is.)
 
   obj User
     name: String
@@ -43,8 +44,8 @@ fail "method consume without move", "method `consume` consumes the receiver; wri
   u = User(name: String("Steve"))
   u.consume()
 
-test "method consuming receiver", "Steve"
-  # A by-value receiver (`@: User`) consumes the value; the call site
+test "method consumes self", "Steve"
+  # A method that takes self by value (`<@`) consumes it; the call site
   # must spell the move as `<u.consume()`.
 
   obj User
@@ -56,9 +57,9 @@ test "method consuming receiver", "Steve"
   u = User(name: "Steve")
   <u.consume()
 
-fail "method member without self", "11:5: use of unbound name `age`; did you mean `@age`?", "14:5: use of unbound name `double`; did you mean `@double(...)`?", "17:5: `get` declares no receiver `@`: write `fun get(?@)`, `(!@)`, or `(<@)`"
-  # Inside a method, a field or another method is reached through the
-  # receiver: a bare name is unbound, and the message names `@`.
+fail "method member without self", "11:5: use of unbound name `age`; did you mean `@age`?", "14:5: use of unbound name `double`; did you mean `@double(...)`?", "17:5: `get` takes no self: write `fun get(?@)`, `(!@)`, or `(<@)`"
+  # Inside a method, a field or another method is reached through self:
+  # a bare name is unbound, and the message names `@`.
 
   obj Person
     age: Int
@@ -106,8 +107,8 @@ fail "method on int", "type `Int` has no method `twice`"
   x = 3
   print(x.twice())
 
-test "method read receiver", "Steve"
-  # `?@` is sugar for `@: ?Self`; `u.greet()` lends `u` implicitly.
+test "method reads self", "Steve"
+  # A `?@` method reads self; `u.greet()` lends `u` implicitly.
 
   obj User
     name: ?String
@@ -118,8 +119,8 @@ test "method read receiver", "Steve"
   u = User(name: "Steve")
   print(u.greet())
 
-fail "method receiver at dot", "7:5: a member of the receiver is written `@name`, the name touching the `@`"
-  # A member of the receiver is `@n`, the name touching the `@`.
+fail "method self at dot", "7:5: a member of self is written `@name`, the name touching the `@`"
+  # A member of self is `@n`, the name touching the `@`.
 
   obj P
     n: Int
@@ -127,8 +128,8 @@ fail "method receiver at dot", "7:5: a member of the receiver is written `@name`
     fun get(?@) -> Int
       @.n
 
-fail "method receiver names nothing else", "6:3: `@` is a method's receiver and names nothing else", "8:5: `@` is a method's receiver and names nothing else", "11:7: `@` is a method's receiver and names nothing else", "15:3: `@` is a method's receiver and names nothing else", "16:8: `@` is a method's receiver and names nothing else", "17:7: `@` is a method's receiver and names nothing else"
-  # `@` is a method's receiver: no field, function, parameter, local,
+fail "method self names nothing else", "6:3: `@` is a method's self and names nothing else", "8:5: `@` is a method's self and names nothing else", "11:7: `@` is a method's self and names nothing else", "15:3: `@` is a method's self and names nothing else", "16:8: `@` is a method's self and names nothing else", "17:7: `@` is a method's self and names nothing else"
+  # `@` is a method's self: no field, function, parameter, local,
   # closure parameter, or loop binding is named `@`.
 
   obj P
@@ -147,8 +148,8 @@ fail "method receiver names nothing else", "6:3: `@` is a method's receiver and 
     for @ in 0..2
       pass
 
-fail "method receiver typed", "7:9: the receiver `@` takes no type: write `?@`, `!@`, or `<@`"
-  # The receiver is written with its sigil, `?@`, `!@`, or `<@`, and no
+fail "method self typed", "7:9: self takes no type: write `?@`, `!@`, or `<@`"
+  # Self is written with its sigil, `?@`, `!@`, or `<@`, and no
   # type.
 
   obj P
@@ -283,7 +284,7 @@ test "method returns self", "guest"
   print(u.name)
 
 test "method self as a name", "5 4"
-  # `self` is an ordinary name: a parameter beside the receiver `@`, a
+  # `self` is an ordinary name: a parameter beside `@`, a
   # local, a closure's capture, and a binding of the program.
 
   obj P
@@ -300,7 +301,7 @@ test "method self as a name", "5 4"
   self = P(n: 2)
   print(self.add(3), self.twice())
 
-fail "method self second position", "the receiver `@` must be the first parameter of a method"
+fail "method self second position", "self, `@`, must be the first parameter of a method"
   # `@` must be the first parameter of a method.
 
   obj User
@@ -312,9 +313,9 @@ fail "method self second position", "the receiver `@` must be the first paramete
   u = User(name: "x")
   print(u.bad(42))
 
-fail "method self untyped", "the receiver `@` is declared with how it is lent"
-  # A bare `@` parameter needs an explicit receiver type: `?@`,
-  # `!@`, or `<@`.
+fail "method self without sigil", "self is declared with how the method takes it"
+  # A bare `@` parameter says nothing of how the method takes self:
+  # write `?@`, `!@`, or `<@`.
 
   obj User
     name: ?String
@@ -325,8 +326,8 @@ fail "method self untyped", "the receiver `@` is declared with how it is lent"
   u = User(name: "Steve")
   print(u.greet())
 
-fail "method static as instance", "method `make` has no receiver `@`; call as `User.make(...)`"
-  # A method without a `@` receiver can't be called on an instance.
+fail "method static as instance", "method `make` takes no self; call as `User.make(...)`"
+  # A method that takes no self can't be called on an instance.
 
   obj User
     name: ?String
@@ -338,12 +339,12 @@ fail "method static as instance", "method `make` has no receiver `@`; call as `U
   v = u.make()
   print(v.name)
 
-test "method write receiver", '''
+test "method writes self", '''
   Steve
   Bob
 '''
-  # `!@` is sugar for `@: !Self`; the call site must write the
-  # view explicitly as `!u.modify(...)`. The body may read fields.
+  # A `!@` method writes self; the call site must write the view
+  # explicitly as `!u.modify(...)`. The body may read fields.
 
   obj User
     name: ?String
@@ -356,8 +357,8 @@ test "method write receiver", '''
   !u.modify("Bob")
 
 fail "method write without bang", "method `rename` needs its receiver lent to write"
-  # A write receiver (`!@`) needs an explicit write view at the call
-  # site: `!u.rename(...)`.
+  # A method that writes self (`!@`) needs its receiver lent to write
+  # at the call: `!u.rename(...)`.
 
   obj User
     name: ?String

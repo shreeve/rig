@@ -4415,8 +4415,8 @@ test/reject/probes/R11a-n1-lib.rig maker
 test/reject/probes/corekeeps-p4_store_through_view.rig Holder.hold
 test/reject/probes/corekeeps-p4b_keeps_through_view.rig main
 test/reject/ownership/owned_closure_call_stores_arg.rig main
-test/reject/ownership/owned_closure_callee_write_self.rig Checker.run_as
-test/reject/ownership/owned_closure_callee_write_self.rig Checker.run_view
+test/reject/ownership/owned_closure_callee_writes_self.rig Checker.run_as
+test/reject/ownership/owned_closure_callee_writes_self.rig Checker.run_view
 test/reject/ownership/owned_closure_result_views_env.rig main
 test/reject/ownership/owned_closure_stores_env_view.rig main
 doc/CORE/df75b74aab6c main
@@ -4715,7 +4715,7 @@ test/reject/probes/rev255-q11_swap_keeps_both_drop_t1.rig main
 test/reject/probes/rev255-r01_write_self_kept_then_write.rig main
 test/reject/probes/rev255-r04_write_slice_kept_then_write.rig main
 test/reject/probes/rev255-y04_keeps_self_into_own_field_list.rig main
-test/reject/probes/rev255-y05_keeps_self_receiver_moved.rig main
+test/reject/probes/rev255-y05_keeps_self_moved.rig main
 test/reject/probes/rev255-z01_holder_used_via_view.rig main
 test/reject/probes/rev255-z05_holder_used_via_moved_closure.rig main
 test/reject/probes/rev255-za01_temp_holder_drop_reads_temp.rig main

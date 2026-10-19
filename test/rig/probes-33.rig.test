@@ -648,7 +648,7 @@ test "review-step45-r2-f05 guarded match readview array elem", "5"
   print(f(?e))
 
 test "review-step45-r2-f06 readview elem forms", "20"
-  # element of a read-view List in each form: while-as, lends of fields, implicit lend args, ?self method
+  # element of a read-view List in each form: while-as, lends of fields, implicit lend args, ?@ method
   obj R
     t: String
     n: Int

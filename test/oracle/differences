@@ -17,8 +17,8 @@
 # what the function was lent (s7), keeps every loan in order.
 test/reject/probes/review-box-p117.rig main prod-rejects prod-strict `y = x` of a `for x in ?v` element view
 test/reject/probes/review-box-p142.rig main prod-rejects prod-strict `new x = x` of a `for x in ?v` element view
-test/reject/probes/syntax-review-complete-g7.rig Map.find prod-rejects prod-strict returns a `for e in ?self.es` element view of the receiver
-test/reject/probes/syntax-review-complete-vw2.rig BagIter.next prod-rejects prod-strict returns a `for x in ?self.bag.items` element view of what the receiver views
+test/reject/probes/syntax-review-complete-g7.rig Map.find prod-rejects prod-strict returns a `for e in ?@es` element view of self
+test/reject/probes/syntax-review-complete-vw2.rig BagIter.next prod-rejects prod-strict returns a `for x in ?@bag.items` element view of what self views
 
 # Whether writing through a fixed `w =! !n` (`w = 5`, `w += 1`) reassigns
 # `w`: Core §6 forbids reassigning a const binding, and SPEC §7 says a
@@ -114,7 +114,7 @@ test/reject/ownership/vec_for_drop_elem.rig main prod-rejects prod-strict `-cb` 
 # A view reached through a slice or a write view carries that view's
 # loans, not a loan on what holds it (Core s7).
 test/reject/probes/R15-p-m2.rig main prod-rejects prod-strict `w = !s.arr[..]` views an element of `vs`, which outlives the loop's `s`
-test/reject/probes/syntax-review-complete-g3.rig Map.find_mut prod-rejects prod-strict `return !e` of a `for e in !self.es` element views what `self` was lent
+test/reject/probes/syntax-review-complete-g3.rig Map.find_mut prod-rejects prod-strict `return !e` of a `for e in !@es` element views what `@` was lent
 
 # A place holding a write view, re-pointed or exchanged, holds the new
 # view's loans (Core §6): `swap` exchanges two fields' views, and a
