@@ -735,13 +735,16 @@ pub const Lexer = struct {
     /// The last token ends an operand (`isValue`, or a `?` / `!` suffix
     /// after one), so a character after it continues the operand.
     after_value: bool = false,
-    /// The last token is an `@` that starts a statement's label; the name
-    /// after it is the label.
-    label_at: bool = false,
-    /// The last token is a statement's label: a statement starts after
-    /// it, and it ends no operand.
+    /// The last token is a `$` that declares a statement's label; the
+    /// name after it is the label.
+    label_sigil: bool = false,
+    /// The last token is the name of a label being declared: its `:`
+    /// is next, and it ends no operand.
+    label_name: bool = false,
+    /// The last token is a label's `:` (`$outer:`): a statement starts
+    /// after it.
     after_label: bool = false,
-    /// The last token is the label of a jump (`break @outer`): what
+    /// The last token is the label of a jump (`break $outer`): what
     /// follows it starts the jump's value, and ends no operand.
     after_jump_label: bool = false,
     /// The category of the token before the last one.
@@ -856,13 +859,11 @@ pub const Lexer = struct {
         decrement,
         slash_comment,
         pin_sigil,
-        at_detached,
-        at_builtin,
-        dollar_call,
+        dollar_detached,
+        dollar_stray,
         label_keyword,
-        label_call,
+        label_decl,
         label_touch,
-        colon_label,
         symbol_detached,
         symbol_name,
         symbol_long,
@@ -906,17 +907,15 @@ pub const Lexer = struct {
                 .increment => "Rig has no `++`; write `x += 1`",
                 .decrement => "Rig has no `--`; write `x -= 1`",
                 .slash_comment => "comments start with `#`; Rig has no `//` or `/* */` comments",
-                .pin_sigil => "the pin sigil `@x` is reserved; `@` starts a label, `@name`, before a statement that starts a line or after `break` or `continue`, and `$` a builtin call, `$size(T)`",
-                .at_detached => "`@` touches the name after it: a label is written `@outer`",
-                .at_builtin => "a builtin call is written with `$`: `$size(T)`, `$name(T)`",
-                .dollar_call => "`$` starts a builtin call: `$size(T)`, with the `$` touching the name and the name touching the `(`",
+                .pin_sigil => "`@` is reserved",
+                .dollar_detached => "`$` touches the name after it: a builtin call is written `$size(T)`, a label `$outer:` (`break $outer`)",
+                .dollar_stray => "`$name` is a builtin call, `$size(T)`, with the name touching its `(`, or a label: `$outer:` where a statement starts, and `break $outer` or `continue $outer`",
                 .label_keyword => "a keyword is not a label name",
-                .label_call => "after `break` or `continue`, `@name` is a label: put a space before a value, `break @outer (x)`; a builtin call is written with `$`, `break $size(T)`",
-                .label_touch => "a jump's label ends at its name: put a space before the value, `break @outer -1`",
+                .label_decl => "a label is declared with a `:` touching its name: `$outer: for ...`, or `$outer:` on a line of its own over the block it names",
+                .label_touch => "a jump's label ends at its name: put a space before the value, `break $outer -1`",
                 .symbol_detached => "a prefix `:` touches its operand: a symbol is written `:width`",
                 .symbol_name => "a symbol is `:` and a name: `:width`, `:content-type`",
                 .symbol_long => "a symbol's name is too long",
-                .colon_label => "a label is written `@name`: `@outer for ...`, `break @outer`, `continue @outer`",
                 .marker_before_pub => "`pub` comes before a function's marker: write `pub inline fun`, `pub called fun`, or `pub rarely fun`",
                 .repeated_marker => "a function's marker is written once",
                 .two_markers => "a function takes one marker: `inline` (inline it at every call), `called` (keep every call a call), or `rarely` (rarely called, so kept out of line and cold); `called` contradicts `inline`, and `rarely` already keeps every call a call",
@@ -932,10 +931,11 @@ pub const Lexer = struct {
 
     pub fn next(self: *Lexer) Token {
         const tok = self.produce();
-        self.after_label = self.label_at and tok.cat == .ident;
-        self.label_at = tok.cat == .label_at and !isLabelJump(self.last_cat);
-        self.after_jump_label = tok.cat == .ident and self.last_cat == .label_at and isLabelJump(self.last2_cat);
-        self.after_value = !self.after_label and !self.after_jump_label and (isValue(tok.cat) or (self.after_value and (tok.cat == .question or tok.cat == .not_sym)));
+        self.after_label = tok.cat == .label_colon;
+        self.label_name = self.label_sigil and tok.cat == .ident;
+        self.label_sigil = tok.cat == .label and !isLabelJump(self.last_cat);
+        self.after_jump_label = tok.cat == .ident and self.last_cat == .label and isLabelJump(self.last2_cat);
+        self.after_value = !self.label_name and !self.after_jump_label and (isValue(tok.cat) or (self.after_value and (tok.cat == .question or tok.cat == .not_sym)));
         self.last2_cat = self.last_cat;
         self.last_cat = tok.cat;
         switch (tok.cat) {
@@ -1244,11 +1244,11 @@ pub const Lexer = struct {
                 if (self.nesting > 0) self.nesting -= 1;
                 break :blk tok.cat;
             },
-            .at => switch (self.classifyAt(tok)) {
+            .at => return self.fail(.pin_sigil, tok.pos),
+            .dollar => switch (self.classifyDollar(tok)) {
                 .cat => |cat| cat,
                 .err => |err| return self.fail(err, tok.pos),
             },
-            .dollar => if (self.isBuiltinCall(tok)) .dollar else return self.fail(.dollar_call, tok.pos),
             .bar => if (self.isCaptureBar(tok, after_value)) .bar_capture else .bar,
             .and_sym => return self.fail(.and_operator, tok.pos),
             // `||` where an operand starts is an empty closure bar list.
@@ -1262,7 +1262,7 @@ pub const Lexer = struct {
             .fixed_assign => if (!isBlank(self.charAfter(tok))) return self.fail(.fixed_touch, tok.pos) else tok.cat,
             // `xs[a..]`: an open range ends at the `]`.
             .dotdot => if (self.nextJoined().cat == .rbracket) .dotdot_open else .dotdot,
-            .colon => switch (self.classifyColon(tok, after_value)) {
+            .colon => if (self.label_name) .label_colon else switch (self.classifyColon(tok, after_value)) {
                 .cat => |cat| cat,
                 .err => |err| return self.fail(err.err, err.pos),
             },
@@ -1276,7 +1276,7 @@ pub const Lexer = struct {
             else => if (isKeyword(tok.cat)) self.classifyKeyword(tok) else tok.cat,
         };
         // A jump's label ends at its name: a value after it stands apart
-        // (`break @outer -1`, not `break @outer-1`).
+        // (`break $outer -1`, not `break $outer-1`).
         if (self.after_jump_label and tok.pos == self.prev_end and startsOperand(tok.cat)) return self.fail(.label_touch, tok.pos);
         // A prefix sigil touches its operand (`-b`, `<x`, `*T`); `i++`
         // is no increment.
@@ -1464,44 +1464,19 @@ pub const Lexer = struct {
     ///     value anywhere else (`x: Int`, `f(a: 1)`);
     ///   * a symbol's `:` where an operand starts, touching its name
     ///     (`x = :width`, `:a =>`).
-    ///
-    /// Where an operand starts, a `:` before a name and a loop, or after
-    /// `continue`, is a label in the old spelling (`:outer for`,
-    /// `continue :outer`), and so is a `:` after a jump that touches no
-    /// name (`break : outer`).
     fn classifyColon(self: *Lexer, tok: Token, after_value: bool) union(enum) { cat: TokenCat, err: struct { err: LexError, pos: u32 } } {
         const jump_end = self.after_jump_label or switch (self.last_cat) {
             .@"return", .@"break", .@"continue" => true,
             else => false,
         };
-        if (self.while_header == self.nesting and (after_value or jump_end)) {
-            if (isLabelJump(self.last_cat) and self.oldLabelBeforeStep()) return .{ .err = .{ .err = .colon_label, .pos = tok.pos } };
-            return .{ .cat = .step_colon };
-        }
+        if (self.while_header == self.nesting and (after_value or jump_end)) return .{ .cat = .step_colon };
         if (after_value or self.last_cat == .kwarg_name) return .{ .cat = .colon };
         const end = endOf(&self.base, tok);
         const src = self.base.source;
         const touches = end < src.len and isIdentStart(src[end]);
-        if (self.last_cat == .@"continue" or (isLabelJump(self.last_cat) and !touches) or (self.stmtStart() and self.isOldLabel()))
-            return .{ .err = .{ .err = .colon_label, .pos = tok.pos } };
         if (!touches) return .{ .err = .{ .err = if (end >= src.len or isBlank(src[end])) .symbol_detached else .symbol_name, .pos = tok.pos } };
         self.symbol_name = true;
         return .{ .cat = .symbol_colon };
-    }
-
-    /// `:outer for`, `:outer :inner while`: names after `:`, then a
-    /// statement that takes a label. A label in the old spelling.
-    fn isOldLabel(self: *const Lexer) bool {
-        var probe = self.base;
-        while (true) {
-            if (!isWord(probe.next().cat)) return false;
-            const t = probe.next();
-            switch (t.cat) {
-                .@"for", .@"while", .match, .raw => return true,
-                .colon => continue,
-                else => return false,
-            }
-        }
     }
 
     /// The name after a symbol's `:`, a keyword too (`:if`): a word,
@@ -1523,34 +1498,24 @@ pub const Lexer = struct {
         return out;
     }
 
-    /// `@name` is a label where a statement that takes one starts (`@outer
-    /// for`) and after `break` or `continue`, where `@name` is always a
-    /// label (`break @outer (x)` leaves `outer` with the value `(x)`).
-    /// Anywhere else it is the reserved pin sigil. The `@` touches the
-    /// name. A `(` touching the name is a builtin call written the old
-    /// way: builtins are `$name(...)`.
-    fn classifyAt(self: *const Lexer, at: Token) union(enum) { cat: TokenCat, err: LexError } {
+    /// `$name(...)` is a builtin call, anywhere: the `$` touches the
+    /// name, and the name the `(`. Any other `$name` is a label: declared
+    /// where a statement that takes one starts, its `:` touching the name
+    /// (`$outer: for`, or `$outer:` on a line of its own over the block
+    /// it names), and named after `break` or `continue` (`break $outer`,
+    /// `break $outer (x)`, which leaves `outer` with the value `(x)`).
+    fn classifyDollar(self: *const Lexer, dollar: Token) union(enum) { cat: TokenCat, err: LexError } {
         var probe = self.base;
         const name = probe.next();
-        const paren = probe.next();
-        const word = isWord(name.cat);
-        if (word and name.pos != endOf(&self.base, at)) return .{ .err = .at_detached };
-        const call = word and paren.cat == .lparen and paren.pos == endOf(&probe, name);
+        const after = probe.next();
+        if (!isWord(name.cat) or name.pos != endOf(&self.base, dollar)) return .{ .err = .dollar_detached };
+        const touches = after.pos == endOf(&probe, name);
+        if (after.cat == .lparen and touches) return .{ .cat = .dollar };
         const jump = isLabelJump(self.last_cat);
-        if (call and !jump) return .{ .err = .at_builtin };
-        if (!word or !(jump or self.labelStart())) return .{ .err = .pin_sigil };
+        if (!jump and !self.labelStart()) return .{ .err = .dollar_stray };
         if (name.cat != .ident) return .{ .err = .label_keyword };
-        if (call) return .{ .err = .label_call };
-        return .{ .cat = .label_at };
-    }
-
-    /// `$name(...)` is a builtin call: the `$` touches the name, and the
-    /// name the `(`.
-    fn isBuiltinCall(self: *const Lexer, dollar: Token) bool {
-        var probe = self.base;
-        const name = probe.next();
-        const paren = probe.next();
-        return isWord(name.cat) and name.pos == endOf(&self.base, dollar) and paren.cat == .lparen and paren.pos == endOf(&probe, name);
+        if (!jump and (after.cat != .colon or !touches)) return .{ .err = .label_decl };
+        return .{ .cat = .label };
     }
 
     /// The character right after `tok`, or 0 at the end of the source.
@@ -1643,7 +1608,7 @@ pub const Lexer = struct {
     }
 
     /// A statement starts here: at the start of a line, after `=>`,
-    /// `defer`, or `errdefer`, or after a statement's label (`@outer`).
+    /// `defer`, or `errdefer`, or after a statement's label (`$outer:`).
     fn stmtStart(self: *const Lexer) bool {
         return self.after_label or switch (self.last_cat) {
             .newline, .indent, .outdent, .eof, .fat_arrow, .@"defer", .@"errdefer" => true,
@@ -1684,15 +1649,6 @@ pub const Lexer = struct {
                 else => return t,
             }
         }
-    }
-
-    /// `while a ?? break :outer : i += 1`: after a jump in a `while`
-    /// header, a name and a second `:` follow the first `:`, so it was
-    /// meant as a label in the old spelling, not as the step.
-    fn oldLabelBeforeStep(self: *const Lexer) bool {
-        var probe = self.base;
-        if (probe.next().cat != .ident) return false;
-        return probe.next().cat == .colon;
     }
 
     /// The next token is `return`, `break`, or `continue`.
@@ -1779,7 +1735,7 @@ fn isValue(cat: TokenCat) bool {
 
 /// The characters that start an operand as a prefix sigil.
 /// A token that starts an operand and does not continue a name: what may
-/// not touch a jump's label (`break @outer-1`, `break @outer.red`).
+/// not touch a jump's label (`break $outer-1`, `break $outer.red`).
 fn startsOperand(cat: TokenCat) bool {
     return isSigil(cat) or switch (cat) {
         .lparen, .lbracket, .dot, .dotdot, .bar, .or_sym, .at, .dollar, .string_sq, .string_dq => true,
@@ -3782,7 +3738,7 @@ fn expectLayout(source: []const u8, expected: []const Lexer.Layout.Kind) !void {
 }
 
 test "spacing: an infix operator is balanced; a postfix, a member, and an open range touch" {
-    for ([_][]const u8{ "a < b", "a<b", "a - 1", "a-1", "x = -1", "x=1", "a ?? b", "0..n", "0 .. n", "f()!", "x?", "w.get()", "c = .red", "xs[..2]", "xs[a..]", "a < -b", "a<-b", "f(\n  a\n  .b())", "[]?T", "[2]*T", "break @a !n", "break @a (n)", "f = |a| a + 1", "while i < n : i += 1" }) |src| {
+    for ([_][]const u8{ "a < b", "a<b", "a - 1", "a-1", "x = -1", "x=1", "a ?? b", "0..n", "0 .. n", "f()!", "x?", "w.get()", "c = .red", "xs[..2]", "xs[a..]", "a < -b", "a<-b", "f(\n  a\n  .b())", "[]?T", "[2]*T", "break $a !n", "break $a (n)", "f = |a| a + 1", "while i < n : i += 1" }) |src| {
         try expectLayout(src, &.{});
     }
     try expectLayout("a <b", &.{.infix_before});
@@ -3808,9 +3764,11 @@ test "`name:` is a keyword argument inside ( ), a name inside [ ]" {
 }
 
 test "a statement label ends no operand" {
-    try expectCats("@a if x", &.{ .label_at, .ident, .@"if", .ident });
-    try expectCats("@a -x", &.{ .label_at, .ident, .minus, .ident });
-    try expectCats("@a (x)", &.{ .label_at, .ident, .lparen, .ident, .rparen });
+    try expectCats("$a: if x", &.{ .label, .ident, .label_colon, .@"if", .ident });
+    try expectCats("$a: -x", &.{ .label, .ident, .label_colon, .minus, .ident });
+    try expectCats("$a: (x)", &.{ .label, .ident, .label_colon, .lparen, .ident, .rparen });
+    try expectCats("$a: $b: for x in y", &.{ .label, .ident, .label_colon, .label, .ident, .label_colon, .@"for", .ident, .in, .ident });
+    try expectCats("$a:\n  x", &.{ .label, .ident, .label_colon, .indent, .ident, .outdent });
 }
 
 test "a `,` after `as name` outside brackets joins the names `as` binds" {
@@ -3820,42 +3778,39 @@ test "a `,` after `as name` outside brackets joins the names `as` binds" {
     try expectCats("q, r = f()", &.{ .ident, .comma, .ident, .assign, .ident, .lparen, .rparen });
 }
 
-test "`$name(` with the `(` touching is a builtin; `@name` alone is a label" {
+test "`$name(` with the `(` touching is a builtin; `$name` alone is a label" {
     try expectCats("$size(T)", &.{ .dollar, .ident, .lparen, .ident, .rparen });
     try expectCats("$type(x)", &.{ .dollar, .ident, .lparen, .ident, .rparen });
     try expectCats("x = $size(T)", &.{ .ident, .assign, .dollar, .ident, .lparen, .ident, .rparen });
     try expectCats("break $size(T)", &.{ .@"break", .dollar, .ident, .lparen, .ident, .rparen });
-    try expectCats("@size(T)", &.{.err});
-    try expectCats("x = @size(T)", &.{ .ident, .assign, .err });
     try expectCats("$size", &.{.err});
     try expectCats("$ size(T)", &.{.err});
     try expectCats("$size (T)", &.{.err});
-    try expectCats("break @a", &.{ .@"break", .label_at, .ident });
-    try expectCats("break @a (x)", &.{ .@"break", .label_at, .ident, .lparen, .ident, .rparen });
-    try expectCats("break @a x if c", &.{ .@"break", .label_at, .ident, .ident, .post_if, .ident });
-    try expectCats("continue @a if c", &.{ .@"continue", .label_at, .ident, .post_if, .ident });
-    try expectCats("break @size(x)", &.{ .@"break", .err });
-    try expectCats("@ a for x in y", &.{.err});
-    try expectCats("@ size(T)", &.{.err});
-    try expectCats("break @a -1", &.{ .@"break", .label_at, .ident, .minus, .integer });
-    try expectCats("break @a-1", &.{ .@"break", .label_at, .ident, .err });
-    try expectCats("break @a.red", &.{ .@"break", .label_at, .ident, .err });
-    try expectCats("break @a - 1", &.{ .@"break", .label_at, .ident, .err });
-    try expectCats("break @a |x| x", &.{ .@"break", .label_at, .ident, .bar_capture, .ident, .bar_capture, .ident });
-    try expectCats("break @a, 1", &.{ .@"break", .label_at, .ident, .comma, .integer });
-    try expectCats("x => @a for y in z", &.{ .ident, .fat_arrow, .err });
-    try expectCats("defer @a for y in z", &.{ .@"defer", .err });
-    try expectCats("@for for x in y", &.{.err});
-    try expectCats("x = @a", &.{ .ident, .assign, .err });
-    try expectCats("f(@a)", &.{ .ident, .lparen, .err });
+    try expectCats("break $a", &.{ .@"break", .label, .ident });
+    try expectCats("break $a (x)", &.{ .@"break", .label, .ident, .lparen, .ident, .rparen });
+    try expectCats("break $a x if c", &.{ .@"break", .label, .ident, .ident, .post_if, .ident });
+    try expectCats("continue $a if c", &.{ .@"continue", .label, .ident, .post_if, .ident });
+    try expectCats("break $a -1", &.{ .@"break", .label, .ident, .minus, .integer });
+    try expectCats("break $a-1", &.{ .@"break", .label, .ident, .err });
+    try expectCats("break $a.red", &.{ .@"break", .label, .ident, .err });
+    try expectCats("break $a - 1", &.{ .@"break", .label, .ident, .err });
+    try expectCats("break $a |x| x", &.{ .@"break", .label, .ident, .bar_capture, .ident, .bar_capture, .ident });
+    try expectCats("break $a, 1", &.{ .@"break", .label, .ident, .comma, .integer });
+    try expectCats("break $for", &.{ .@"break", .err });
+    try expectCats("$a for x in y", &.{.err});
+    try expectCats("$a : for x in y", &.{.err});
+    try expectCats("$ a: for x in y", &.{.err});
+    try expectCats("$for: for x in y", &.{.err});
+    try expectCats("x => $a: for y in z", &.{ .ident, .fat_arrow, .err });
+    try expectCats("defer $a: for y in z", &.{ .@"defer", .err });
+    try expectCats("x = $a", &.{ .ident, .assign, .err });
+    try expectCats("f($a)", &.{ .ident, .lparen, .err });
 }
 
-test "a label in the old spelling, `:name`, is an error" {
-    try expectCats(":a for x in y", &.{.err});
-    try expectCats(":a :b while x", &.{.err});
-    try expectCats("continue :a", &.{ .@"continue", .err });
-    try expectCats("continue : a", &.{ .@"continue", .err });
-    try expectCats("break : a", &.{ .@"break", .err });
+test "`@` is reserved" {
+    try expectCats("@", &.{.err});
+    try expectCats("x = @a", &.{ .ident, .assign, .err });
+    try expectCats("f(@a)", &.{ .ident, .lparen, .err });
 }
 
 test "a `:` touching a name where an operand starts is a symbol" {
@@ -3889,10 +3844,9 @@ test "a `while` header's first `:` starts its step, and a jump there may name a 
     try expectCats("while x : y", &.{ .@"while", .ident, .step_colon, .ident });
     try expectCats("while f(a: 1) : y", &.{ .@"while", .ident, .lparen, .kwarg_name, .colon, .integer, .rparen, .step_colon, .ident });
     try expectCats("while a ?? break : y", &.{ .@"while", .ident, .nullish_jump, .@"break", .step_colon, .ident });
-    try expectCats("while a ?? break @b : y", &.{ .@"while", .ident, .nullish_jump, .@"break", .label_at, .ident, .step_colon, .ident });
-    try expectCats("while a ?? break :b : y", &.{ .@"while", .ident, .nullish_jump, .@"break", .err });
-    try expectCats("while x : y = a ?? break @b", &.{ .@"while", .ident, .step_colon, .ident, .assign, .ident, .nullish_jump, .@"break", .label_at, .ident });
-    try expectCats("x = a ?? break @b", &.{ .ident, .assign, .ident, .nullish_jump, .@"break", .label_at, .ident });
+    try expectCats("while a ?? break $b : y", &.{ .@"while", .ident, .nullish_jump, .@"break", .label, .ident, .step_colon, .ident });
+    try expectCats("while x : y = a ?? break $b", &.{ .@"while", .ident, .step_colon, .ident, .assign, .ident, .nullish_jump, .@"break", .label, .ident });
+    try expectCats("x = a ?? break $b", &.{ .ident, .assign, .ident, .nullish_jump, .@"break", .label, .ident });
 }
 
 test "minus: infix or negation, never a drop" {
@@ -4281,8 +4235,11 @@ test "parser: every form parses" {
         \\    return
         \\  if m as v
         \\    print(v)
-        \\  @outer while x < 3 : x += 1
-        \\    break @outer
+        \\  $outer: while x < 3 : x += 1
+        \\    break $outer
+        \\  $done:
+        \\    break $done if x > 2
+        \\    x += 1
         \\  while m as v
         \\    continue
         \\  else

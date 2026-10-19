@@ -881,9 +881,9 @@ fail "review-revamp-checkers-p-b1", "`i` is bound but never read; name it `_` to
     print(v.len)
 
   a: List[Int] = List()
-  @outer for i in 0..3
+  $outer: for i in 0..3
     for j in 0..3
-      n = get(j) ?? break @outer
+      n = get(j) ?? break $outer
       eat(<a)
       print(n)
 
@@ -1001,14 +1001,14 @@ test "review-revamp-checkers-p-c1", '''
     y + eat(<b)
 
   print(f(1), f(2), g(0), g(1), g(2), h(1), h(3))
-  @outer for i in 0..3
+  $outer: for i in 0..3
     v: List[Int] = List()
     !v.push(i)
     for j in 0..3
       w: List[Int] = List()
       !w.push(j)
-      n = get(j + i) ?? break @outer
-      m = get(n) ?? continue @outer
+      n = get(j + i) ?? break $outer
+      m = get(n) ?? continue $outer
       print(i, j, n, m, v.len, w.len)
 
 fail "review-revamp-checkers-p-e1", "use of `t` after move"
@@ -1219,18 +1219,18 @@ test "review-revamp-checkers-p-k1", '''
     print(v.len)
 
   fun find(k: Int) -> Int
-    @lp for i in 0..5
+    $lp: for i in 0..5
       for j in 0..2
-        x = get(i + k) ?? break @lp i * 100 + j
+        x = get(i + k) ?? break $lp i * 100 + j
         print(x)
     else
       -1
 
-  @outer for i in 0..3
+  $outer: for i in 0..3
     a: List[Int] = List()
     for j in 0..3
       eat(<a)
-      n = get(j) ?? continue @outer
+      n = get(j) ?? continue $outer
       a = List()
       print(n, i)
   print(find(0), find(5))
@@ -1730,21 +1730,21 @@ fail "review-revamp-rest-p1-a28", "`y` is assigned but never read; use it, or di
     _ => print(0)
 
 fail "review-revamp-rest-p1-a29", "`i` is bound but never read; name it `_` to ignore the value"
-  @lbl for i in 0..3
+  $lbl: for i in 0..3
     x: Int? = none
-    y = x ?? continue @lbl
+    y = x ?? continue $lbl
     print(y)
   print(9)
 
 fail "review-revamp-rest-p1-a30", "`y` is assigned but never read; use it, or discard the value with `_ = ...`"
-  @l while true
+  $l: while true
     x: Int? = none
-    y = x ?? break @l
+    y = x ?? break $l
   print(9)
 
 test "review-revamp-rest-p1-a31", "9"
-  @l while true
-    break @l
+  $l: while true
+    break $l
   print(9)
 
 fail "review-revamp-rest-p1-b01", "`x` is assigned but never read; use it, or discard the value with `_ = ...`"
@@ -1940,8 +1940,8 @@ fail "review-revamp-rest-p5-h05", "cannot lend `ps` to write while a read loan i
   print(ps[0].n)
 
 test "review-revamp-rest-p5-l06", "2"
-  @x match 1
-    1 => break @x
+  $x: match 1
+    1 => break $x
     _ => print(0)
   print(2)
 

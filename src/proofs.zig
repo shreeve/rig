@@ -708,7 +708,7 @@ const Pass = struct {
             .@"while" => |x| try p.walkWhile(stmt, x.cond, x.body, x.step, x.@"else", st),
             .@"for" => |x| try p.walkFor(stmt, x.source, x.body, x.@"else", st),
             .match => |m| try p.walkMatch(m, st),
-            .labeled => |inner| try p.walkStmt(inner, st),
+            .labeled => |inner| if (inner.isKind(.block)) try p.walkLabeledBlock(inner, st) else try p.walkStmt(inner, st),
             // A `defer` body runs at its block's exits, from facts this
             // pass does not track: it is walked from none.
             .@"defer" => |body| {
@@ -791,6 +791,16 @@ const Pass = struct {
             frame.step_in = try State.meet(p.a, &frame.step_in, &carried);
             return;
         };
+    }
+
+    /// A block a label names (`$done:`), which `break $done` leaves from
+    /// anywhere in it: its statements from the facts before, and after
+    /// it those facts less every write in it, as after a `match`.
+    fn walkLabeledBlock(p: *Pass, block: Sexp, st: *State) Error!void {
+        var b = try st.clone(p.a);
+        try p.walkBlock(block, &b);
+        applyKills(st, &(try p.killsOf(block)));
+        st.dead = false;
     }
 
     /// `raw` is opaque: nothing in it is proven, and no fact outlives it.

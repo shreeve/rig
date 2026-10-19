@@ -196,7 +196,7 @@ test "boolean operators", '''
   print(true or loud(false))
   print(not false and loud(true))
 
-fail "builtin detached", "3:7: `$` starts a builtin call: `$size(T)`, with the `$` touching the name and the name touching the `(`"
+fail "builtin detached", "3:7: `$` touches the name after it: a builtin call is written `$size(T)`, a label `$outer:` (`break $outer`)"
   # A builtin call's `$` touches its name, and the name its `(`.
 
   print($ size(Int))
@@ -874,10 +874,10 @@ test "for bare", release: true, '''
     break if hits == 5
   print("jumps", hits)
 
-  @outer for 0..3
+  $outer: for 0..3
     for 0..3
       hits += 1
-      continue @outer if hits > 6
+      continue $outer if hits > 6
   print("label", hits)
 
   for upto(2)
@@ -968,9 +968,9 @@ test "for iterator", release: true, '''
     print("ran out")
   print(first_over(4), first_over(20))
 
-  @outer for a in upto(3)
+  $outer: for a in upto(3)
     for b in upto(3)
-      continue @outer if b > a
+      continue $outer if b > a
       print(a, b)
 
   r = for n in upto(5)
@@ -1913,12 +1913,12 @@ test "keywords as members", '''
   print(o.fun2() + o.sub2() + o.enum2() + o.error2() + o.type2() + o.use2() + o.pub2() + o.extern2() + o.test2() + o.drop2() + o.const2() + o.else2() + o.while2() + o.for2() + o.in2() + o.match2() + o.break2() + o.continue2() + o.return2() + o.defer2() + o.errdefer2() + o.pass2() + o.and2() + o.or2() + o.not2() + o.as2() + o.catch2() + o.true2() + o.false2() + o.raw2() + o.zig2() + o.try2() + o.async2() + o.await2() + o.impl2() + o.trait2() + o.when2() + o.where2() + o.yield2())
   print(total(.pp(fun: 1, sub: 1, enum: 1, error: 1, type: 1, use: 1, pub: 1, extern: 1, test: 1, drop: 1, const: 1, else: 1, while: 1, for: 1, in: 1, match: 1, break: 1, continue: 1, return: 1, defer: 1, errdefer: 1, pass: 1, and: 1, or: 1, not: 1, as: 1, catch: 1, true: 1, false: 1, raw: 1, zig: 1, try: 1, async: 1, await: 1, impl: 1, trait: 1, when: 1, where: 1, yield: 1)))
 
-fail "label after defer", "5:9: the pin sigil `@x` is reserved"
+fail "label after defer", "5:9: `$name` is a builtin call, `$size(T)`, with the name touching its `(`, or a label: `$outer:` where a statement starts, and `break $outer` or `continue $outer`"
   # The statement after `defer`, `errdefer`, or `=>` takes no label, so
-  # `$name` there is the reserved pin sigil.
+  # `$name:` there is an error.
 
   for i in 0..3
-    defer @a for j in 0..i
+    defer $a: for j in 0..i
       print(j)
 
 test "label break value", '''
@@ -1931,138 +1931,145 @@ test "label break value", '''
   4 2 2
   4
 '''
-  # After `break`, `@name` is always a label, so a value in parentheses
-  # follows it with a space: `break @outer (x)` leaves `outer` with `(x)`.
+  # After `break`, `$name` is always a label, so a value in parentheses
+  # follows it with a space: `break $outer (x)` leaves `outer` with `(x)`.
   # `$size(Int)`, with the `(` touching the name, is a builtin call, also
   # inside a labeled loop.
 
   fun pick(a: Int, b: Int) -> Int
     if a > 0
-      @outer for i in 0..4
+      $outer: for i in 0..4
         for j in 0..4
-          break @outer (a + b) * i if j == 1 and i == 2
+          break $outer (a + b) * i if j == 1 and i == 2
       else
         0
     else
-      @first while true
-        break @first (b)
+      $first: while true
+        break $first (b)
 
   print(pick(2, 3), pick(-1, 7))
-  @outer for i in 0..3
+  $outer: for i in 0..3
     for j in 0..3
-      continue @outer if j > i
+      continue $outer if j > i
       print($size(I32), i, j)
   n = 0
-  @rows while n < 10 : n += 1
+  $rows: while n < 10 : n += 1
     m = n * $size(I16)
-    break @rows if m > 6
+    break $rows if m > 6
   print(n)
 
-fail "label call after jump", "6:11: after `break` or `continue`, `@name` is a label: put a space before a value, `break @outer (x)`; a builtin call is written with `$`, `break $size(T)`"
-  # After `break` or `continue`, `@name` is always a label, so a `(`
-  # touching it would read as a builtin call: the value takes a space.
+fail "label block continue", "6:3: `continue $b` names a block, not a loop"
+  # A label alone on a line names the block under it, which `break`
+  # leaves; no `continue` names a block.
 
-  x = for i in 0..3
-    @inner for j in 0..3
-      break @inner(j)
-    break i
-  else
-    0
-  print(x)
+  $b:
+    print(1)
+    continue $b
 
-fail "label detached", "3:1: `@` touches the name after it: a label is written `@outer`"
-  # `@` touches the name after it, for a label as for a builtin call.
+fail "label block value", "4:12: a labeled block has no value; `break $b` cannot carry one"
+  # A labeled block has no value, so a `break` leaving it carries none.
 
-  @ outer for i in 0..3
-    break @outer
+  $b:
+    break $b 3
+
+fail "label block alone", "4:4: unexpected end of line; expected a statement or an indented block"
+  # A label alone on a line names the block indented under it: a
+  # statement at the label's own indentation is not that block.
+
+  $b:
+  print(1)
+
+fail "label colon", "4:1: a label is declared with a `:` touching its name: `$outer: for ...`, or `$outer:` on a line of its own over the block it names"
+  # A label is declared with a `:` touching its name; a jump names it
+  # with none.
+
+  $outer for i in 0..3
+    break $outer
+
+fail "label colon spaced", "3:1: a label is declared with a `:` touching its name: `$outer: for ...`, or `$outer:` on a line of its own over the block it names"
+  # The `:` that declares a label touches its name.
+
+  $outer : for i in 0..3
+    break $outer
+
+fail "label detached", "3:1: `$` touches the name after it: a builtin call is written `$size(T)`, a label `$outer:` (`break $outer`)"
+  # `$` touches the name after it, for a label as for a builtin call.
+
+  $ outer: for i in 0..3
+    break $outer
 
 fail "label keyword", "3:1: a keyword is not a label name"
   # A keyword is not a label name.
 
-  @for for i in 0..3
+  $for: for i in 0..3
     print(i)
 
-fail "label old spelling", "4:1: a label is written `@name`: `@outer for ...`, `break @outer`, `continue @outer`"
-  # A label is written `@name`; the old spelling, `:name`, is rejected
-  # with a hint.
-
-  :outer for i in 0..3
-    print(i)
-
-fail "label old spelling jump", "7:14: a label is written `@name`: `@outer for ...`, `break @outer`, `continue @outer`"
-  # A label after a jump is written `@name`; `continue :outer`, spaced or
-  # not, is the old spelling.
-
-  @outer for i in 0..3
-    for j in 0..3
-      print(j - i)
-      continue : outer
-
-fail "label on defer", "3:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `@d` cannot label a `defer`", "4:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `@e` cannot label a `defer`", errors: 2
+fail "label on defer", "3:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave, or, on a line of its own, the block under it; `$d` cannot label a `defer`", "4:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave, or, on a line of its own, the block under it; `$e` cannot label a `defer`", errors: 2
   # A `defer` takes no label: nothing can jump out of it by name.
 
-  @d defer print("done")
-  @e defer
+  $d: defer print("done")
+  $e: defer
     print("block")
   print("body")
 
-fail "label on if", "5:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `@blk` cannot label an `if`", errors: 1
-  # A label names a loop, a `match`, or a `raw` block, which `break` or
-  # `continue` can leave; an `if` takes none.
+fail "label on if", "6:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave, or, on a line of its own, the block under it; `$blk` cannot label an `if`", errors: 1
+  # A label names a loop, a `match`, a `raw` block, or the block under a
+  # label alone on its line, which `break` or `continue` can leave; an
+  # `if` takes none.
 
   n = 3
-  @blk if n > 1
-    break @blk if n > 2
+  $blk: if n > 1
+    break $blk if n > 2
     print(n)
 
-fail "label on simple statement", "3:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `@c` on this statement would do nothing", "5:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave; `@d` on this statement would do nothing", errors: 2
+fail "label on simple statement", "3:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave, or, on a line of its own, the block under it; `$c` on this statement would do nothing", "5:1: a label names a loop, `match`, or `raw` block that `break` or `continue` can leave, or, on a line of its own, the block under it; `$d` on this statement would do nothing", errors: 2
   # A label on a simple statement would do nothing, so it is rejected.
 
-  @c print(5)
+  $c: print(5)
   n = 1
-  @d n += 1
+  $d: n += 1
   print(n)
 
-fail "label touch", "7:19: a jump's label ends at its name: put a space before the value, `break @outer -1`"
+fail "label touch", "7:19: a jump's label ends at its name: put a space before the value, `break $outer -1`"
   # A jump's label ends at its name: a value after it stands apart, so
-  # `break @outer-1` does not pass for a subtraction.
+  # `break $outer-1` does not pass for a subtraction.
 
   x = if true
-    @outer for i in 0..3
+    $outer: for i in 0..3
       for j in 0..3
-        break @outer-1 if j == i
+        break $outer-1 if j == i
     else
       0
   else
     1
   print(x)
 
-fail "label twice", "3:1: a loop, `match`, or `raw` block takes one label; `@c` labels a statement already labeled `@d`", errors: 1
-  # A loop, `match`, or `raw` block takes one label.
+fail "label twice", "3:1: a loop, `match`, `raw` block, or block takes one label; `$c` labels a statement already labeled `$d`", errors: 1
+  # A loop, `match`, `raw` block, or block takes one label.
 
-  @c @d while true
-    break @c
+  $c: $d: while true
+    break $c
 
 fail "label value detached prefix", "7:20: a prefix `-` touches its operand"
   # After a jump's label, the value starts an operand: a prefix sigil
   # touches its operand there as anywhere.
 
   x = if true
-    @outer for i in 0..3
+    $outer: for i in 0..3
       for j in 0..3
-        break @outer - 1 if j == i
+        break $outer - 1 if j == i
     else
       0
   else
     1
   print(x)
 
-fail "label value position", "4:5: the pin sigil `@x` is reserved"
+fail "label value position", "4:5: `$name` is a builtin call, `$size(T)`, with the name touching its `(`, or a label: `$outer:` where a statement starts, and `break $outer` or `continue $outer`"
   # A label stands where a statement starts or after `break` or
-  # `continue`; anywhere else a bare `$name` is the reserved pin sigil.
+  # `continue`; anywhere else `$name` with no `(` is an error.
 
-  x = @outer for i in 0..3
-    break @outer i
+  x = $outer: for i in 0..3
+    break $outer i
   print(x)
 
 test "labeled jump fallback", '''
@@ -2086,15 +2093,15 @@ test "labeled jump fallback", '''
     return E.bad if n == 20
     n
 
-  @outer for i in 0..3
+  $outer: for i in 0..3
     for j in 0..3
-      v = get(i, j) ?? continue @outer
-      w = check(v) catch break @outer
+      v = get(i, j) ?? continue $outer
+      w = check(v) catch break $outer
       print(w)
   i = 0
-  @loop while i < 5 : i += 1
+  $loop: while i < 5 : i += 1
     while true
-      n = get(i, i) ?? break @loop
+      n = get(i, i) ?? break $loop
       print(n)
       break
 
@@ -2238,7 +2245,7 @@ fail "lone carriage return", "3:11: carriage return without a line feed"
 
   sub main()  print(1)
 
-fail "loop else continue own label", "`continue @a` names no enclosing loop or block"
+fail "loop else continue own label", "`continue $a` names no enclosing loop or block"
   # A loop's `else` runs after the loop, so a jump there cannot name it.
   obj S
     s: []Int
@@ -2254,11 +2261,11 @@ fail "loop else continue own label", "`continue @a` names no enclosing loop or b
   n = 0
   for _ in 0..2
     i = 0
-    @a while mk(?v, i) as h and i >= 0: k += h.s[0]
+    $a: while mk(?v, i) as h and i >= 0: k += h.s[0]
       i += 1
     else
       n += 1
-      continue @a
+      continue $a
     k += 100
   print("end", k, n)
 
@@ -2294,9 +2301,9 @@ test "loop value", '''
       -1
 
   fun pair(g: ?Grid, t: Int) -> Int
-    @outer for r in g.rows
+    $outer: for r in g.rows
       for c in g.cols
-        break @outer r * 10 + c if r + c == t
+        break $outer r * 10 + c if r + c == t
     else
       -1
 
@@ -3386,9 +3393,8 @@ test "pass statement", '''
   pass if i > 1
   defer pass
 
-fail "pin sigil reserved", "the pin sigil `@x` is reserved"
-  # The `@x` pin sigil is reserved: pinning has no semantics yet, so a
-  # tight `@` before a name (not a label) is a lexical error.
+fail "pin sigil reserved", "`@` is reserved"
+  # `@` is reserved: an `@` is a lexical error.
 
   x = 42
   p = @x
@@ -4673,31 +4679,31 @@ test "while header jump label", '''
   3 4
   11
 '''
-  # A jump in a `while` header may name a label: `@outer` is a label after
+  # A jump in a `while` header may name a label: `$outer` is a label after
   # `break` or `continue`, and the header's `:` still starts the step.
 
   fun more(n: Int) -> Bool?
     n > 0 if n < 9 else none
 
   n = 3
-  @outer while true
-    while more(n) ?? break @outer
+  $outer: while true
+    while more(n) ?? break $outer
       n -= 1
     print(n)
     n = 12
-    while more(n) ?? continue @outer
+    while more(n) ?? continue $outer
       n -= 1
   print(n)
   i = 0
   k = 0
-  @rows while i < 4 : i += 1
+  $rows: while i < 4 : i += 1
     j = 0
-    while (more(i * 4 - j) ?? break @rows) and j < 2 : j += 1
+    while (more(i * 4 - j) ?? break $rows) and j < 2 : j += 1
       k += 1
   print(i, k)
   m = 0
-  @a while m < 5 : m += 1
-    while more(m) ?? break @a : m += 10
+  $a: while m < 5 : m += 1
+    while more(m) ?? break $a : m += 10
       pass
   print(m)
 

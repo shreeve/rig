@@ -3980,10 +3980,10 @@ test "audit-emit-ff", '''
   2 0
   10
 '''
-  @fn for i in 0..3
-    @u8 for j in 0..3
-      continue @fn if j > i
-      break @u8 if j == 1
+  $fn: for i in 0..3
+    $u8: for j in 0..3
+      continue $fn if j > i
+      break $u8 if j == 1
       print(i, j)
   var = 1
   fn = 2
@@ -4257,7 +4257,7 @@ test "audit-emit-k1", '''
     i
 
   i = 0
-  @outer while i < 10 : i += 1
+  $outer: while i < 10 : i += 1
     j = 0
     while (odd(i) ?? continue) > j : j += (lim(j) ?? break) + 1
       print(i, j)
@@ -4473,9 +4473,9 @@ test "audit-emit-oo2"
     return E.bad if i % 2 == 0
     i
 
-  @outer for i in 0..3
+  $outer: for i in 0..3
     for j in 0..3
-      x = odd(j) catch continue @outer
+      x = odd(j) catch continue $outer
       print(i, x)
 
 test "audit-emit-p1", '''

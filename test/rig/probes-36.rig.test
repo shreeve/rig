@@ -638,14 +638,14 @@ test "review-text2-a1", '''
     if i == 3
       break
   print("i", i)
-  @outer for k in 0..2
+  $outer: for k in 0..2
     j = 0
     while get(?mk(10 + j)) < 12
       j += 1
       if k == 1
-        break @outer
+        break $outer
       if j == 1
-        continue @outer
+        continue $outer
   print("end")
 
 test "review-text2-a2", '''
@@ -1400,14 +1400,14 @@ test "review-while-step-2-gen2-matchvalue-catchbreak-catchbreak", '''
   a = fresh(0, 0)
   k = 0
   i = 0
-  @outer while (mkf(?v, i, 99) catch break) as h: a = fresh(1, h.s[0] + i)
+  $outer: while (mkf(?v, i, 99) catch break) as h: a = fresh(1, h.s[0] + i)
     i += 1
     defer print("odefer", i)
     x = D(n: i)
     k += take(<a)
     m = 0
     b = fresh(9, 0)
-    @mid while (mkf(?v, m, 99) catch break) as g: b = fresh(2, g.s[0] + m)
+    $mid: while (mkf(?v, m, 99) catch break) as g: b = fresh(2, g.s[0] + m)
       m += 1
       defer print("mdefer", i, m)
       y = D(n: 100 + m)
@@ -1415,7 +1415,7 @@ test "review-while-step-2-gen2-matchvalue-catchbreak-catchbreak", '''
       w = match m
         1 => 10
         2
-          continue @outer if i % 2 == 0
+          continue $outer if i % 2 == 0
           20
         _ => 30
       k += w
@@ -1525,14 +1525,14 @@ test "review-while-step-2-gen2-matchvalue-catchbreak-plain", '''
   a = fresh(0, 0)
   k = 0
   i = 0
-  @outer while (mkf(?v, i, 99) catch break) as h: a = fresh(1, h.s[0] + i)
+  $outer: while (mkf(?v, i, 99) catch break) as h: a = fresh(1, h.s[0] + i)
     i += 1
     defer print("odefer", i)
     x = D(n: i)
     k += take(<a)
     m = 0
     b = fresh(9, 0)
-    @mid while mk(?v, m) as g: b = fresh(2, g.s[0] + m)
+    $mid: while mk(?v, m) as g: b = fresh(2, g.s[0] + m)
       m += 1
       defer print("mdefer", i, m)
       y = D(n: 100 + m)
@@ -1540,7 +1540,7 @@ test "review-while-step-2-gen2-matchvalue-catchbreak-plain", '''
       w = match m
         1 => 10
         2
-          continue @outer if i % 2 == 0
+          continue $outer if i % 2 == 0
           20
         _ => 30
       k += w
@@ -1650,14 +1650,14 @@ test "review-while-step-2-gen2-matchvalue-catchnone-catchbreak", '''
   a = fresh(0, 0)
   k = 0
   i = 0
-  @outer while (mkf(?v, i, 99) catch none) as h: a = fresh(1, h.s[0] + i)
+  $outer: while (mkf(?v, i, 99) catch none) as h: a = fresh(1, h.s[0] + i)
     i += 1
     defer print("odefer", i)
     x = D(n: i)
     k += take(<a)
     m = 0
     b = fresh(9, 0)
-    @mid while (mkf(?v, m, 99) catch break) as g: b = fresh(2, g.s[0] + m)
+    $mid: while (mkf(?v, m, 99) catch break) as g: b = fresh(2, g.s[0] + m)
       m += 1
       defer print("mdefer", i, m)
       y = D(n: 100 + m)
@@ -1665,7 +1665,7 @@ test "review-while-step-2-gen2-matchvalue-catchnone-catchbreak", '''
       w = match m
         1 => 10
         2
-          continue @outer if i % 2 == 0
+          continue $outer if i % 2 == 0
           20
         _ => 30
       k += w
@@ -1775,14 +1775,14 @@ test "review-while-step-2-gen2-matchvalue-catchnone-plain", '''
   a = fresh(0, 0)
   k = 0
   i = 0
-  @outer while (mkf(?v, i, 99) catch none) as h: a = fresh(1, h.s[0] + i)
+  $outer: while (mkf(?v, i, 99) catch none) as h: a = fresh(1, h.s[0] + i)
     i += 1
     defer print("odefer", i)
     x = D(n: i)
     k += take(<a)
     m = 0
     b = fresh(9, 0)
-    @mid while mk(?v, m) as g: b = fresh(2, g.s[0] + m)
+    $mid: while mk(?v, m) as g: b = fresh(2, g.s[0] + m)
       m += 1
       defer print("mdefer", i, m)
       y = D(n: 100 + m)
@@ -1790,7 +1790,7 @@ test "review-while-step-2-gen2-matchvalue-catchnone-plain", '''
       w = match m
         1 => 10
         2
-          continue @outer if i % 2 == 0
+          continue $outer if i % 2 == 0
           20
         _ => 30
       k += w
@@ -1900,14 +1900,14 @@ test "review-while-step-2-gen2-matchvalue-plain-catchbreak", '''
   a = fresh(0, 0)
   k = 0
   i = 0
-  @outer while mk(?v, i) as h: a = fresh(1, h.s[0] + i)
+  $outer: while mk(?v, i) as h: a = fresh(1, h.s[0] + i)
     i += 1
     defer print("odefer", i)
     x = D(n: i)
     k += take(<a)
     m = 0
     b = fresh(9, 0)
-    @mid while (mkf(?v, m, 99) catch break) as g: b = fresh(2, g.s[0] + m)
+    $mid: while (mkf(?v, m, 99) catch break) as g: b = fresh(2, g.s[0] + m)
       m += 1
       defer print("mdefer", i, m)
       y = D(n: 100 + m)
@@ -1915,7 +1915,7 @@ test "review-while-step-2-gen2-matchvalue-plain-catchbreak", '''
       w = match m
         1 => 10
         2
-          continue @outer if i % 2 == 0
+          continue $outer if i % 2 == 0
           20
         _ => 30
       k += w
@@ -1951,14 +1951,14 @@ fail "review-while-step-gen-catchbreak-match-grow", "cannot lend `v` to write wh
   !v.push(1)
   k = 0
   n = 0
-  @outer while (mkf(?v, n) catch break) as h: k += h.s[0]
+  $outer: while (mkf(?v, n) catch break) as h: k += h.s[0]
     n += 1
     match n
       1
         j = 0
         while j < 2: j += 1
           grow(!v)
-          continue @outer
+          continue $outer
       _
         grow(!v)
   print(k, n)
@@ -1992,14 +1992,14 @@ test "review-while-step-gen-catchbreak-match-read", "4004 4"
   !v.push(1)
   k = 0
   n = 0
-  @outer while (mkf(?v, n) catch break) as h: k += h.s[0]
+  $outer: while (mkf(?v, n) catch break) as h: k += h.s[0]
     n += 1
     match n
       1
         j = 0
         while j < 2: j += 1
           k += 1000
-          continue @outer
+          continue $outer
       _
         k += 1000
   print(k, n)
@@ -2033,12 +2033,12 @@ test "review-while-step-gen-catchbreak-whileas-read", "4004 4"
   !v.push(1)
   k = 0
   n = 0
-  @outer while (mkf(?v, n) catch break) as h: k += h.s[0]
+  $outer: while (mkf(?v, n) catch break) as h: k += h.s[0]
     n += 1
     while mk(?v, 0) as g
       k += g.s[0] - 1
       k += 1000
-      continue @outer
+      continue $outer
   print(k, n)
 
 fail "review-while-step-gen-catchnone-whilefor-grow", "cannot lend `v` to write while a read loan is live"
@@ -2070,13 +2070,13 @@ fail "review-while-step-gen-catchnone-whilefor-grow", "cannot lend `v` to write 
   !v.push(1)
   k = 0
   n = 0
-  @outer while (mkf(?v, n) catch none) as h: k += h.s[0]
+  $outer: while (mkf(?v, n) catch none) as h: k += h.s[0]
     n += 1
     j = 0
     while j < 2: j += 1
       for _ in 0..1
         grow(!v)
-        continue @outer
+        continue $outer
   print(k, n)
 
 test "review-while-step-gen-plain-whilecond-read", "4004 4"
@@ -2108,17 +2108,17 @@ test "review-while-step-gen-plain-whilecond-read", "4004 4"
   !v.push(1)
   k = 0
   n = 0
-  @outer while mk(?v, n) as h: k += h.s[0]
+  $outer: while mk(?v, n) as h: k += h.s[0]
     n += 1
     j = 0
     while j < 2
       j += 1
       k += 1000
-      continue @outer if j > 0
+      continue $outer if j > 0
   print(k, n)
 
 test "review-while-step-w04-labeled-continue-inner-while", "25 5"
-  # `continue @outer` from an inner `while` must run the outer step,
+  # `continue $outer` from an inner `while` must run the outer step,
   # which reads the outer condition's binding.
   #
   # oracle: mk accept
@@ -2135,11 +2135,11 @@ test "review-while-step-w04-labeled-continue-inner-while", "25 5"
   !v.push(5)
   k = 0
   i = 0
-  @outer while mk(?v, i) as h: k += h.s[0]
+  $outer: while mk(?v, i) as h: k += h.s[0]
     i += 1
     j = 0
     while j < 3: j += 1
-      continue @outer if j == 2
+      continue $outer if j == 2
     k += 100
   print(k, i)
 
@@ -2280,13 +2280,13 @@ test "review-while-step-w13-labeled-continue-skips-step-plain", "21 5"
   a = fresh(1)
   k = 0
   i = 0
-  @outer while mk(?v, i) as h: a = fresh(h.s[0])
+  $outer: while mk(?v, i) as h: a = fresh(h.s[0])
     i += 1
     k += take(<a)
     j = 0
     while j < 3: j += 1
-      break @outer if i > 100
-      continue @outer if j == 2
+      break $outer if i > 100
+      continue $outer if j == 2
   print(k, i)
 
   # expect: 21 5
@@ -2324,14 +2324,14 @@ test "review-while-step-w15-catchbreak-continue-skips-step-uaf", "21 5"
   a = fresh(1)
   k = 0
   i = 0
-  @outer while (mk(?v, i) catch break) as h: a = fresh(h.s[0])
+  $outer: while (mk(?v, i) catch break) as h: a = fresh(h.s[0])
     i += 1
     k += take(<a)
     continue if i > 200
     j = 0
     while j < 3: j += 1
-      break @outer if i > 100
-      continue @outer if j == 2
+      break $outer if i > 100
+      continue $outer if j == 2
   print(k, i)
 
   # expect: 21 5

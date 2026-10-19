@@ -709,12 +709,12 @@ test "review-loop-lowering-b04-step-moves-repoints", '''
 
   o = D(n: 10)
   c = 0
-  @outer while lim(c, 4) as h and h >= 0: o = mv(<o, h)
+  $outer: while lim(c, 4) as h and h >= 0: o = mv(<o, h)
     c += 1
     defer print("defer", o.n)
     continue if c == 1
     for t in 0..2
-      continue @outer if c == 3 and t == 1
+      continue $outer if c == 3 and t == 1
     else
       continue if c == 2
     print("tail", c)
@@ -848,26 +848,26 @@ test "review-loop-lowering-d04-loops-in-defer-and-closure", '''
 
   fun work(fail: Bool) -> Int!
     n = 0
-    @a for i in 0..2
+    $a: for i in 0..2
       defer
-        @a for j in 0..3
-          continue @a if j == 0
+        $a: for j in 0..3
+          continue $a if j == 0
           print("defer", i, j)
-          break @a if j == 1
+          break $a if j == 1
       errdefer
         k = 0
-        @a while (opt(k) ?? continue) > 0: k += 1
+        $a: while (opt(k) ?? continue) > 0: k += 1
           print("errdefer", i, k)
-          break @a if k > 2
+          break $a if k > 2
       n += run(x: 3, f: |x: Int|
         t = 0
-        @a for q in 0..x
-          continue @a if q == 0
+        $a: for q in 0..x
+          continue $a if q == 0
           t += q
         t
       )
       return E.bad if fail and i == 1
-      continue @a
+      continue $a
     n
 
   print(work(false) catch 0 - 1)
@@ -1192,7 +1192,7 @@ test "review-loop-lowering-gen5-s11-0001", '''
   guard = 0
   c0 = 0
   p0 = 0
-  @a while mkd(0, c0, 3) as h0: c0 = st(0, c0)
+  $a: while mkd(0, c0, 3) as h0: c0 = st(0, c0)
     guard += 1
     if guard > 300
       print("cap")
@@ -1201,11 +1201,11 @@ test "review-loop-lowering-gen5-s11-0001", '''
     _ = p0
     y0 = D(n: 0 + c0)
     print("b0", c0, h0.n)
-    @a match c0
+    $a: match c0
       _
         c1 = 0
         p1 = 0
-        @a while c1 < 2: c1 = st(1, c1)
+        $a: while c1 < 2: c1 = st(1, c1)
           guard += 1
           if guard > 300
             print("cap")
@@ -1213,11 +1213,11 @@ test "review-loop-lowering-gen5-s11-0001", '''
           p1 += 1
           _ = p1
           print("b1", c0, c1)
-          @a match c1
+          $a: match c1
             _
               z2 = "ab"
               p2 = 0
-              @a for ch2, c2 in z2
+              $a: for ch2, c2 in z2
                 guard += 1
                 if guard > 300
                   print("cap")
@@ -1591,7 +1591,7 @@ test "review-loop-lowering-gen5-s11-0582", '''
   guard = 0
   c0 = 0
   p0 = 0
-  @l0 while (limf(c0, 3, false) catch none) as h0: c0 = st(0, h0)
+  $l0: while (limf(c0, 3, false) catch none) as h0: c0 = st(0, h0)
     guard += 1
     if guard > 300
       print("cap")
@@ -1603,7 +1603,7 @@ test "review-loop-lowering-gen5-s11-0582", '''
     o1 = ints(1)
     c1 = 0
     p1 = 0
-    @l1 while (limf(c1, 2, false) catch break) as h1: c1 = grow(!o1, 1, h1)
+    $l1: while (limf(c1, 2, false) catch break) as h1: c1 = grow(!o1, 1, h1)
       guard += 1
       if guard > 300
         print("cap")
@@ -1615,7 +1615,7 @@ test "review-loop-lowering-gen5-s11-0582", '''
       print("b1", c0, c1, h1)
       c2 = 0
       p2 = 0
-      @l2 while lim(c2, 2) as h2: c2 = adv(2, h2, c0 == 1 and c1 == 1 and p2 == 2) ?? return
+      $l2: while lim(c2, 2) as h2: c2 = adv(2, h2, c0 == 1 and c1 == 1 and p2 == 2) ?? return
         guard += 1
         if guard > 300
           print("cap")
@@ -1739,7 +1739,7 @@ test "review-loop-lowering-gen5-s11-1103", '''
   guard = 0
   v0 = ints(3)
   p0 = 0
-  @a for x0, c0 in v0
+  $a: for x0, c0 in v0
     guard += 1
     if guard > 300
       print("cap")
@@ -1749,7 +1749,7 @@ test "review-loop-lowering-gen5-s11-1103", '''
     y0 = D(n: 0 + c0)
     defer print("d0", c0)
     print("b0", c0, x0)
-    @w0 match c0
+    $w0: match c0
       _
         c1 = 0
         p1 = 0
@@ -1764,7 +1764,7 @@ test "review-loop-lowering-gen5-s11-1103", '''
           break 77 if c1 == 99
           z2 = "ab"
           p2 = 0
-          @a for ch2, c2 in z2
+          $a: for ch2, c2 in z2
             guard += 1
             if guard > 300
               print("cap")
@@ -1925,7 +1925,7 @@ test "review-loop-lowering-gen5-s11-1162", '''
   guard = 0
   z0 = "abc"
   p0 = 0
-  @l0 for ch0, c0 in z0
+  $l0: for ch0, c0 in z0
     guard += 1
     if guard > 300
       print("cap")
@@ -1938,7 +1938,7 @@ test "review-loop-lowering-gen5-s11-1162", '''
     print("b0", c0)
     z1 = "ab"
     p1 = 0
-    @l1 for ch1, c1 in z1
+    $l1: for ch1, c1 in z1
       guard += 1
       if guard > 300
         print("cap")
@@ -1948,10 +1948,10 @@ test "review-loop-lowering-gen5-s11-1162", '''
       defer print("d1", c1)
       _ = ch1
       print("b1", c0, c1)
-      continue @l0 if c0 == 1 and c1 == 1
+      continue $l0 if c0 == 1 and c1 == 1
       c2 = 0
       p2 = 0
-      @l2 while (limf(c2, 2, false) catch break) as h2: c2 = st(2, h2)
+      $l2: while (limf(c2, 2, false) catch break) as h2: c2 = st(2, h2)
         guard += 1
         if guard > 300
           print("cap")
@@ -2095,12 +2095,12 @@ test "review-loop-lowering-gen5-s23-d3-0000", '''
     defer print("d0", c0)
     _ = ch0
     print("b0", c0)
-    @a match c0
+    $a: match c0
       _
         o1 = ints(1)
         c1 = 0
         p1 = 0
-        @l1 while (limf(c1, 2, false) catch continue) as h1: c1 = grow(!o1, 1, c1)
+        $l1: while (limf(c1, 2, false) catch continue) as h1: c1 = grow(!o1, 1, c1)
           guard += 1
           if guard > 300
             print("cap")
@@ -2111,7 +2111,7 @@ test "review-loop-lowering-gen5-s23-d3-0000", '''
           sv1 = ?o1[..]
           defer print("od1", sv1[0])
           print("b1", c0, c1, h1)
-          @a match c1
+          $a: match c1
             _
               c2 = 0
               p2 = 0
@@ -2260,7 +2260,7 @@ test "review-loop-lowering-gen5-s23-d3-1250", '''
   guard = 0
   c0 = 0
   p0 = 0
-  @a while (limf(c0, 3, false) catch continue) as h0: c0 = adv(0, c0, p0 == 2) ?? continue
+  $a: while (limf(c0, 3, false) catch continue) as h0: c0 = adv(0, c0, p0 == 2) ?? continue
     guard += 1
     if guard > 300
       print("cap")
@@ -2268,10 +2268,10 @@ test "review-loop-lowering-gen5-s23-d3-1250", '''
     p0 += 1
     _ = p0
     print("b0", c0, h0)
-    continue @a if c0 == 1
+    continue $a if c0 == 1
     c1 = 0
     p1 = 0
-    @a while (limf(c1, 2, false) catch none) as h1: c1 = st(1, h1)
+    $a: while (limf(c1, 2, false) catch none) as h1: c1 = st(1, h1)
       guard += 1
       if guard > 300
         print("cap")
@@ -2279,12 +2279,12 @@ test "review-loop-lowering-gen5-s23-d3-1250", '''
       p1 += 1
       _ = p1
       print("b1", c0, c1, h1)
-      @a match c1
+      $a: match c1
         _
           o2 = ints(1)
           c2 = 0
           p2 = 0
-          @a while (limf(c2, 2, false) catch break) as h2: c2 = grow(!o2, 2, h2)
+          $a: while (limf(c2, 2, false) catch break) as h2: c2 = grow(!o2, 2, h2)
             guard += 1
             if guard > 300
               print("cap")

@@ -36,7 +36,7 @@ test "loop else continue joined inner", "21 5"
   print(k, i)
 
 test "loop else continue labeled", "21 5"
-  # A `continue @outer` in a nested loop's `else` goes through the outer
+  # A `continue $outer` in a nested loop's `else` goes through the outer
   # loop's step.
   obj S
     s: []Int
@@ -59,14 +59,14 @@ test "loop else continue labeled", "21 5"
   a = fresh(1)
   k = 0
   i = 0
-  @outer while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
+  $outer: while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
     i += 1
     k += take(<a)
     j = 0
     while j < 2: j += 1
       k += 0
     else
-      continue @outer
+      continue $outer
     k += 100
   print(k, i)
 
@@ -206,8 +206,8 @@ test "loop else continue runs step", '''
   print("end", i)
 
 test "loop else continue shadowed label", "21 5"
-  # A `continue @a` in the `else` of an inner loop also labeled `@a` names
-  # the outer `@a`, since the inner loop has ended.
+  # A `continue $a` in the `else` of an inner loop also labeled `$a` names
+  # the outer `$a`, since the inner loop has ended.
   obj S
     s: []Int
 
@@ -229,15 +229,15 @@ test "loop else continue shadowed label", "21 5"
   a = fresh(1)
   k = 0
   i = 0
-  @a while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
+  $a: while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
     i += 1
     k += take(<a)
     j = 0
-    @a while j < 2: j += 1
-      continue @a if j == 7
+    $a: while j < 2: j += 1
+      continue $a if j == 7
       k += 0
     else
-      continue @a
+      continue $a
     k += 100
   print(k, i)
 
@@ -314,7 +314,7 @@ test "loop else loop then continue", "21 5"
   print(k, i)
 
 test "loop label shadow break", "end 3 3"
-  # An inner `@a for` inside an outer `@a` loop: `break @a` leaves the inner
+  # An inner `$a: for` inside an outer `$a` loop: `break $a` leaves the inner
   # loop.
   obj S
     s: []Int
@@ -329,16 +329,16 @@ test "loop label shadow break", "end 3 3"
   k = 0
   i = 0
   j = 0
-  @a while mk(?v, i) as h and i >= 0: k += h.s[0]
+  $a: while mk(?v, i) as h and i >= 0: k += h.s[0]
     i += 1
-    continue @a if i == 99
-    @a for _ in 0..2
+    continue $a if i == 99
+    $a: for _ in 0..2
       j += 1
-      break @a
+      break $a
   print("end", k, j)
 
 test "loop label shadow continue", "end 3 6"
-  # An inner `@a for` inside an outer `@a` loop: `continue @a` targets the
+  # An inner `$a: for` inside an outer `$a` loop: `continue $a` targets the
   # inner loop, the innermost of that name.
   obj S
     s: []Int
@@ -353,16 +353,16 @@ test "loop label shadow continue", "end 3 6"
   k = 0
   i = 0
   j = 0
-  @a while mk(?v, i) as h and i >= 0: k += h.s[0]
+  $a: while mk(?v, i) as h and i >= 0: k += h.s[0]
     i += 1
-    break @a if i > 50
-    @a for _ in 0..2
+    break $a if i > 50
+    $a: for _ in 0..2
       j += 1
-      continue @a
+      continue $a
   print("end", k, j)
 
 test "loop label shadow joined inner", "end 3 9 3"
-  # An inner joined `@a` loop inside an outer `@a` loop: its `continue @a`
+  # An inner joined `$a` loop inside an outer `$a` loop: its `continue $a`
   # goes through its own step.
   obj S
     s: []Int
@@ -378,18 +378,18 @@ test "loop label shadow joined inner", "end 3 9 3"
   i = 0
   q = 0
   m = 0
-  @a while mk(?v, i) as h and i >= 0: k += h.s[0]
+  $a: while mk(?v, i) as h and i >= 0: k += h.s[0]
     i += 1
     m = 0
-    break @a if i > 50
-    @a while mk(?v, m) as g and m >= 0: q += g.s[0]
+    break $a if i > 50
+    $a: while mk(?v, m) as g and m >= 0: q += g.s[0]
       m += 1
       for _ in 0..2
-        continue @a
+        continue $a
   print("end", k, q, m)
 
 test "loop label shadow match", "end 3 3"
-  # A labeled `@a match` inside an `@a` loop: its `break @a` leaves the match.
+  # A labeled `$a: match` inside an `$a` loop: its `break $a` leaves the match.
   obj S
     s: []Int
 
@@ -403,13 +403,13 @@ test "loop label shadow match", "end 3 3"
   k = 0
   i = 0
   j = 0
-  @a while mk(?v, i) as h and i >= 0: k += h.s[0]
+  $a: while mk(?v, i) as h and i >= 0: k += h.s[0]
     i += 1
-    continue @a if i == 99
-    @a match i
+    continue $a if i == 99
+    $a: match i
       1
         j += 1
-        break @a
+        break $a
       _ => j += 1
   print("end", k, j)
 
@@ -420,15 +420,15 @@ test "loop label shadow value", '''
   20 3
 '''
   # A label repeated inside a loop of the same name means the innermost:
-  # its `break @a 5` gives the inner loop's value, not the outer one's,
+  # its `break $a 5` gives the inner loop's value, not the outer one's,
   # and the outer loop is used as a value only by the `break`s that leave
-  # it. An inner loop's `else` runs after that loop, so its `break @a`
+  # it. An inner loop's `else` runs after that loop, so its `break $a`
   # leaves the outer loop.
 
   fun first(n: Int) -> Int
-    @a while true
-      @a while true
-        break @a
+    $a: while true
+      $a: while true
+        break $a
       if n > 0
         return n
 
@@ -436,33 +436,33 @@ test "loop label shadow value", '''
   m = 2
   c = n > 0
   k = if c
-    @a while true
+    $a: while true
       j = if c
-        @a while true
-          break @a 5
+        $a: while true
+          break $a 5
       else
         6
       print(j)
-      break @a !n
+      break $a !n
   else
     !m
   k += 10
   print(n, m)
-  @a while true
+  $a: while true
     j = if c
-      @a while true
-        break @a 7
+      $a: while true
+        break $a 7
     else
       8
     print(j)
-    break @a
+    break $a
   l = if c
-    @a for i in 0..3
-      @a for x in 0..2
+    $a: for i in 0..3
+      $a: for x in 0..2
         if x > 5
-          break @a
+          break $a
       else
-        break @a i + 20
+        break $a i + 20
     else
       0
   else
@@ -720,7 +720,7 @@ test "loop step order nested match value", '''
 '''
   # Steps, defers, and drops run in the same order for a joined outer loop
   # and a `catch break` inner loop as for plain `while … as` loops, with a
-  # `continue @outer` from a `match` value in the inner body.
+  # `continue $outer` from a `match` value in the inner body.
   error E
     bad
 
@@ -758,14 +758,14 @@ test "loop step order nested match value", '''
   a = fresh(0, 0)
   k = 0
   i = 0
-  @outer while mk(?v, i) as h and i >= 0: a = fresh(1, h.s[0] + i)
+  $outer: while mk(?v, i) as h and i >= 0: a = fresh(1, h.s[0] + i)
     i += 1
     defer print("odefer", i)
     x = D(n: i)
     k += take(<a)
     m = 0
     b = fresh(9, 0)
-    @mid while (mkf(?v, m, 99) catch break) as g: b = fresh(2, g.s[0] + m)
+    $mid: while (mkf(?v, m, 99) catch break) as g: b = fresh(2, g.s[0] + m)
       m += 1
       defer print("mdefer", i, m)
       y = D(n: 100 + m)
@@ -773,7 +773,7 @@ test "loop step order nested match value", '''
       w = match m
         1 => 10
         2
-          continue @outer if i % 2 == 0
+          continue $outer if i % 2 == 0
           20
         _ => 30
       k += w

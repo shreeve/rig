@@ -1071524,9 +1071524,9 @@ test "purity-designer-u05 vec clone", "1"
   print(w.len)
 
 test "purity-designer-u09 break label match", "x"
-  @m match 3
+  $m: match 3
     3
-      break @m
+      break $m
     _ => pass
   print("x")
 

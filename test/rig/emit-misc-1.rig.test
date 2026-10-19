@@ -2969,25 +2969,25 @@ test "kwargs reordered sub statement", '''
   show(b: g(2), a: g(1))
 
 test "labeled loop break", "1"
-  # `break @outer` inside a nested loop exits the loop labeled `@outer`,
+  # `break $outer` inside a nested loop exits the loop labeled `$outer`,
   # so the `print(99)` after the inner loop never runs.
 
-  @outer while true
+  $outer: while true
     while true
-      break @outer
+      break $outer
     print(99)
   print(1)
 
 test "labeled loop continue", "3"
-  # `continue @outer` inside a nested loop continues the loop labeled
-  # `@outer`, running its continuation.
+  # `continue $outer` inside a nested loop continues the loop labeled
+  # `$outer`, running its continuation.
 
   i = 0
-  @outer while i < 3 : i += 1
+  $outer: while i < 3 : i += 1
     j = 0
     while true
       j += 1
-      continue @outer if j > i
+      continue $outer if j > i
     print(99)
   print(i)
 
@@ -3004,34 +3004,34 @@ test "labels nested and generated", '''
   # `match` or `raw` statement, which `break` then leaves.
 
   fun f(c: Bool) -> Int
-    @rig_blk_1 while true
+    $rig_blk_1: while true
       x = if c
         y = 3
         y + 1
       else
         5
-      break @rig_blk_1 if x > 0
+      break $rig_blk_1 if x > 0
     7
 
-  @l for i in 0..2
-    @l for _ in 0..2
-      break @l
+  $l: for i in 0..2
+    $l: for _ in 0..2
+      break $l
     print("outer", i)
   print(f(true))
-  @rig_call_1 for i in 0..3
+  $rig_call_1: for i in 0..3
     k = (|n: Int| n + 1)(i)
-    break @rig_call_1 if k > 1
+    break $rig_call_1 if k > 1
     print("k", k)
   x = 3
-  @m match x
+  $m: match x
     3
       print("three")
-      break @m if x > 1
+      break $m if x > 1
       print("unreached")
     _
       print("other")
-  @r raw
-    break @r if x > 1
+  $r: raw
+    break $r if x > 1
     print("unreached")
   print("end")
 

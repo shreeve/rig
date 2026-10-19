@@ -114,11 +114,14 @@ fun loops(xs: ?List[Int]) -> Int
   i = 0
   while i < 10 : i += 1
     total += i
-  @outer for row in xs
+  $outer: for row in xs
     for col in xs
       if col == row
-        break @outer
+        break $outer
       total += 1 if col != row
+  $done:
+    break $done if total > 99
+    total += 1
   v = next() ?? continue
   total
 

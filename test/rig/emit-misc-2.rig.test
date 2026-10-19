@@ -1173,7 +1173,7 @@ test "unused loop label", "2"
   # A label that no `break` or `continue` names is allowed.
 
   i = 0
-  @outer while i < 2
+  $outer: while i < 2
     i += 1
   print(i)
 
@@ -1509,12 +1509,12 @@ test "while step nested jumps", '''
   5021 5
   3011 3
 '''
-  # A `continue @outer` or `break @outer` from loops nested in the body of
+  # A `continue $outer` or `break $outer` from loops nested in the body of
   # a `while` whose step reads its condition's binding, where the loop is
   # written as nested `if`s in a `while (true)` (a joined condition, or a
-  # jump in the condition). A `continue @outer` runs the step, at any
+  # jump in the condition). A `continue $outer` runs the step, at any
   # depth (an inner `while`, `while … as`, a `for`, a `match` arm, an
-  # inner step) and after the body's defers; a `break @outer` leaves
+  # inner step) and after the body's defers; a `break $outer` leaves
   # without it. Here the step refills `a`, which the body moves.
 
   error E
@@ -1548,11 +1548,11 @@ test "while step nested jumps", '''
     !v.push(5)
     k = 0
     i = 0
-    @outer while mk(?v, i) as h and h.s.len > 0: k += h.s[0]
+    $outer: while mk(?v, i) as h and h.s.len > 0: k += h.s[0]
       i += 1
       j = 0
       while j < 3: j += 1
-        continue @outer if j == 2
+        continue $outer if j == 2
       k += 100
     print(k, i)
 
@@ -1562,14 +1562,14 @@ test "while step nested jumps", '''
     a = fresh(1)
     k = 0
     i = 0
-    @outer while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
+    $outer: while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
       i += 1
       k += take(<a)
       continue if i > 200
       j = 0
       while j < 3: j += 1
-        break @outer if i > 100
-        continue @outer if j == 2
+        break $outer if i > 100
+        continue $outer if j == 2
     print(k, i)
 
   sub catch_break()
@@ -1578,13 +1578,13 @@ test "while step nested jumps", '''
     a = fresh(1)
     k = 0
     i = 0
-    @outer while (mkf(?v, i) catch break) as h: a = fresh(h.s[0])
+    $outer: while (mkf(?v, i) catch break) as h: a = fresh(h.s[0])
       i += 1
       k += take(<a)
       j = 0
       while j < 3: j += 1
-        break @outer if i > 100
-        continue @outer if j == 2
+        break $outer if i > 100
+        continue $outer if j == 2
     print(k, i)
 
   sub deep()
@@ -1593,7 +1593,7 @@ test "while step nested jumps", '''
     a = fresh(1)
     k = 0
     i = 0
-    @outer while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
+    $outer: while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
       i += 1
       defer k += 1000
       k += take(<a)
@@ -1601,15 +1601,15 @@ test "while step nested jumps", '''
         0
           for _ in 0..2
             while mk(?v, 0) as g
-              continue @outer if g.s[0] > 0
+              continue $outer if g.s[0] > 0
         1
           j = 1
-          while j < 4: j += odd(j) ?? continue @outer
+          while j < 4: j += odd(j) ?? continue $outer
             j += 1
         _
           j = 0
           while j < 3: j += 1
-            continue @outer
+            continue $outer
     print(k, i)
 
   sub leaves()
@@ -1618,14 +1618,14 @@ test "while step nested jumps", '''
     a = fresh(1)
     k = 0
     i = 0
-    @outer while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
+    $outer: while mk(?v, i) as h and i >= 0: a = fresh(h.s[0])
       i += 1
       defer k += 1000
       k += take(<a)
       j = 0
       while j < 3: j += 1
-        break @outer if i == 3
-        continue @outer
+        break $outer if i == 3
+        continue $outer
     print(k, i)
 
   joined()

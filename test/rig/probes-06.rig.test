@@ -3553,7 +3553,7 @@ test "audit-ownership-s16 for move continue outer", '''
     v: List[*Tok] = List()
     for i in 0..3
       !v.push(*Tok(n: i + j * 10))
-    @inner for t in <v
+    $inner: for t in <v
       continue if t.n == 0
       break
     print("j", j)

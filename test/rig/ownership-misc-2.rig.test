@@ -2231,10 +2231,10 @@ fail "while header view one error", "7:17: a view of the temporary `String(\"k=v
     break
   print(o)
   p: ?String = "init"
-  @outer for _ in 0..2
+  $outer: for _ in 0..2
     while text.cut(?String("a=b"), "=") as kv
       p = kv.after
-      continue @outer
+      continue $outer
   print(p)
 
 fail "while step after continue moved", "23:34: use of `a` after move", errors: 1
@@ -2309,7 +2309,7 @@ test "while step reads binding", '''
   12 6
 '''
   # The step of `while c as h: step` may read `h`: it runs after the
-  # body, also after a `continue` (and a `continue @outer` from a nested
+  # body, also after a `continue` (and a `continue $outer` from a nested
   # loop), while the body only reads what `h` views. A step that does not
   # read `h` runs after `h`'s scope ends, so the body may grow what `h`
   # viewed once `h` is done, and the step may grow it too. A `continue`
@@ -2346,12 +2346,12 @@ test "while step reads binding", '''
     !v.push(5)
     k = 0
     i = 0
-    @outer while mk(?v, i) as h: k += h.s[0]
+    $outer: while mk(?v, i) as h: k += h.s[0]
       i += 1
       if i == 1
         continue
       for j in 0..3
-        continue @outer if j == i
+        continue $outer if j == i
       k += 100
     print(k, i)
 
@@ -2392,7 +2392,7 @@ fail "while step reads binding after grow", "57:5: cannot lend `v` to write whil
   # The step of `while c as h: step` runs after the body, so a view the
   # step reads through `h` keeps its loan through the body: growing the
   # List or Text it views there is rejected, whatever the way to the step
-  # (the end of the body, `continue`, `continue @outer` from a nested
+  # (the end of the body, `continue`, `continue $outer` from a nested
   # loop, an inner loop, a `defer`) and however the step reads `h` (a
   # field, a method, a closure), for a joined or a failing condition too.
   #
@@ -2508,10 +2508,10 @@ fail "while step reads binding after grow", "57:5: cannot lend `v` to write whil
     v: List[Int] = List()
     !v.push(1)
     k = 0
-    @outer while mk(?v) as h: k += h.s[0]
+    $outer: while mk(?v) as h: k += h.s[0]
       for _ in 0..2
         !v.push(2)
-        continue @outer
+        continue $outer
     print(k)
 
   sub inner()

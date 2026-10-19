@@ -1014,8 +1014,8 @@ test "r3-step2-x04 labeled match guard stores", "0"
   z: List[Int] = List()
   h = H(r: ?z)
   k = 3
-  @m match k
-    3 if store(!h, ?z) => break @m
+  $m: match k
+    3 if store(!h, ?z) => break $m
     _ => pass
   print(h.r.len)
 

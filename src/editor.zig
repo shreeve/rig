@@ -278,7 +278,7 @@ fn colourOf(cat: TokenCat) Colour {
         .lshift_assign, .lshift_wrap_assign, .rshift_assign, .plus_wrap_assign, .minus_wrap_assign, .star_wrap_assign, .plus_sat_assign, .minus_sat_assign => .{ .class = operator },
         .arrow, .fat_arrow => .{ .class = operator },
         .at, .dollar, .lparen, .rparen, .lbracket, .rbracket, .comma, .as_comma, .colon, .dot, .dotdot, .dotdot_open, .step_colon => .uncoloured,
-        .label_at => .{ .class = .{ .kind = .label } },
+        .label, .label_colon => .{ .class = .{ .kind = .label } },
         // A symbol is one constant: its `:` is coloured with its name.
         .symbol_colon => .{ .class = .{ .kind = .enumMember } },
         .indent, .outdent, .newline, .eof, .skip => .uncoloured,
@@ -425,7 +425,8 @@ const Classifier = struct {
         }
     }
 
-    /// A label's name; the `@` before it is its own token, `label_at`.
+    /// A label's name; the `$` before it is its own token, `label`, and
+    /// so is the `:` after it where it is declared, `label_colon`.
     fn label(c: *Classifier, leaf: Sexp) !void {
         const s = c.parsed.leafSpan(leaf) orelse return;
         try c.putAt(s.start, .{ .kind = .label });
@@ -789,14 +790,14 @@ test "tokens: labels, builtins, suffix sigils, and a rejected token" {
     defer arena.deinit();
     const got = try renderTokens(arena.allocator(),
         \\sub f()!
-        \\  @outer while true
-        \\    break @outer
+        \\  $outer: while true
+        \\    break $outer
         \\  n = $sizeOf(Int)
         \\  x = g()?
         \\  y = 1 && 2
         \\
     );
-    for ([_][]const u8{ "f:function.declaration !:modifier ", "@:label outer:label ", "while:keyword.control ", "break:keyword.control @:label outer:label ", "$:function.defaultLibrary sizeOf:function.defaultLibrary ", "?:modifier ", "&&:invalid " }) |want| {
+    for ([_][]const u8{ "f:function.declaration !:modifier ", "$:label outer:label ::label while:keyword.control ", "break:keyword.control $:label outer:label ", "$:function.defaultLibrary sizeOf:function.defaultLibrary ", "?:modifier ", "&&:invalid " }) |want| {
         if (std.mem.find(u8, got, want) == null) {
             std.debug.print("missing `{s}` in: {s}\n", .{ want, got });
             return error.TestExpectedEqual;
