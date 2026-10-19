@@ -257,7 +257,7 @@ is not what the tool would write now.
 One Zig compile per file replaces one per case, and a pack is compiled
 only when it changes. The 2,964 behavior and rejection tests, in the 55
 files of `test/rig` and with the release runs 3,257 jobs, measured on
-the Mac with cpuq's 4 cores, against the bash runner it replaced, which
+the Mac with 4 cores, against the bash runner it replaced, which
 ran them as files of their own:
 
 | | Wall time | CPU time |
@@ -272,7 +272,7 @@ seconds when nothing changed; `all`, with the 65 scripts of `test/cli`
 and the probes, about 8,200 jobs and a minute. A script keeps only what
 needs the command line and builds nothing it built before, so none takes
 more than about 20 seconds. After a change to the compiler, every pack
-compiles again, once: a run takes about four minutes on cpuq's 5 cores,
+compiles again, once: a run takes about four minutes on 5 cores,
 and the first jobs are done within a minute.
 
 The verdicts are the same. A case runs in a few milliseconds; a warm

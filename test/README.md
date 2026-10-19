@@ -6,8 +6,7 @@
 ```` ```rig ```` block of the docs, `examples/`, `test/torture/`, the
 unit tests, and the reference ownership checker's sets in its core; the
 scripts of `test/cli/` as `cli`; and the probes of past reviews,
-`test/rig/probes-*.rig.test`, as `probes`. Run it through `cpuq run`
-(AGENTS.md):
+`test/rig/probes-*.rig.test`, as `probes`. Run it from the Rig directory:
 
 ```bash
 swarm test/rig.rip                 # the core

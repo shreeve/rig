@@ -20,7 +20,7 @@ tools/fetch-json-data.sh        # into bench/json/check/data/ (untracked)
 
 ```sh
 zig build                                   # bin/rig
-cpuq run --cores 2-6 --label rig:json -- bench/json/bench-json
+bench/json/bench-json
 ```
 
 That builds each variant and times them interleaved, keeping each one's
@@ -36,18 +36,15 @@ For numbers that hold still, build once and time on a quiet machine:
 
 ```sh
 D=$(mktemp -d)
-cpuq run --cores 2-6 --label rig:json -- bench/json/bench-json --out $D --build-only
-cpuq run --exclusive --cores 1 --label rig:json -- bench/json/bench-json --out $D --time-only --reps 15
+bench/json/bench-json --out $D --build-only
+bench/json/bench-json --out $D --time-only --reps 15
 ```
-
-Run without `cpuq`, it prints a note and runs anyway: the numbers are
-then only as steady as the machine.
 
 ## The guard: `guard.py`
 
 ```sh
-cpuq run --cores 2 --label rig:json -- bench/json/guard.py            # check
-cpuq run --cores 2 --label rig:json -- bench/json/guard.py --update   # new baseline
+bench/json/guard.py            # check
+bench/json/guard.py --update   # new baseline
 ```
 
 It runs on the Mac. It builds `rig-safe` for the six
@@ -122,7 +119,7 @@ after proofs2", has what they found.
 D=$(mktemp -d)
 RIG_OUT_DIR=$D/pkg bin/rig build --release -o $D/probe bench/json/checks/probe.rig
 bench/json/checks/inventory.py $D/pkg __rig_std_json.zig       # each check left, per line, aarch64 and x86_64
-cpuq run --cores 2 --label rig:json -- bench/json/checks/sizing.py $D/sz   # each class's cost
+bench/json/checks/sizing.py $D/sz   # each class's cost
 BENCH_OUT=$D/sz python3 bench/json/timers/time.py base,sread 15      # and in time
 ```
 
