@@ -243,7 +243,7 @@ fail "task write loan bound", "this task is lent to write, and keeps its write l
   ts: List[Task[Int]] = List()
   !ts.push(fill(!xs, 3)&)
 
-fail "task write loan moved", "`t` is a task lent to write, which keeps its write loan while it runs, so it is only waited for where it is bound: `<t.wait()`", errors: 1
+fail "task write loan moved", "`t` is a task lent to write, which keeps its write loan while it runs, so it is only waited for or canceled where it is bound: `<t.wait()`", errors: 1
   fun fill(xs: !List[Int], n: Int) -> Int
     !xs.push(n)
     n

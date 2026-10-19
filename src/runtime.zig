@@ -1176,15 +1176,27 @@ pub fn Signal(comptime T: type) type {
 /// `Task(T)`: a call running as a task of its own (`f(x)&`), which gives
 /// a `T` when it ends. It runs on a thread of the program's `Threaded`
 /// backend (`io`), on a stack of its own (`onTaskStack`). `wait` takes
-/// its result. Dropping a task waits for it and drops its result, so no
-/// task outlives the scope that holds it, nor the loans it was given.
+/// its result. Dropping a task that can fail cancels it and waits for
+/// it; dropping one that cannot only waits, unless the task dropping it
+/// is canceled. Either way its result is
+/// dropped, so no task outlives the scope that holds it, nor the loans
+/// it was given.
+///
+/// Cancellation. A task runs with cancels held off (`std.Io`'s cancel
+/// protection), so every call into `std.Io` it makes finishes, and lets
+/// them through only at its fallible waiting points (`waitPoint`, and
+/// `wait` on a task). A cancel is sticky: the `Control` the task shares
+/// with its owner records it, and every waiting point the task reaches
+/// after it fails with `task.Stop.canceled`.
 pub fn Task(comptime T: type) type {
     return struct {
         future: std.Io.Future(T),
+        control: *Control,
 
         const Self = @This();
         /// Its arguments, for `typeName`.
         pub const __rig_args = .{T};
+        const fallible = @typeInfo(T) == .error_union;
 
         /// `f(args...)&`: start the call as a task.
         pub fn spawn(comptime f: anytype, args: anytype) Self {
@@ -1194,11 +1206,16 @@ pub fn Task(comptime T: type) type {
                 fn call(a: Args) T {
                     return @call(.auto, f, a);
                 }
-                fn run(a: Args) T {
+                fn run(control: *Control, a: Args) T {
+                    task().control = control;
+                    defer task().control = null;
+                    _ = io().swapCancelProtection(.blocked);
                     return onTaskStack(call, .{a});
                 }
             };
-            return .{ .future = io().concurrent(Run.run, .{args}) catch noTaskThread() };
+            const control = std.heap.smp_allocator.create(Control) catch oom();
+            control.* = .{};
+            return .{ .future = io().concurrent(Run.run, .{ control, args }) catch noTaskThread(), .control = control };
         }
 
         /// `recv.name(args...)&`: start a method's call as a task. `recv`
@@ -1215,20 +1232,112 @@ pub fn Task(comptime T: type) type {
             return spawn(method, .{ptr.*} ++ args);
         }
 
-        /// `<t.wait()`: wait for the task to end and take its result.
+        /// `<t.wait()`: wait for the task to end and take its result. A
+        /// task that waits passes a cancel on to the task it waits for:
+        /// one canceled before the wait cancels it, and one canceled
+        /// during the wait reaches it through `std.Io`'s `await`. Waiting
+        /// on a task that can fail is a fallible waiting point, so a
+        /// canceled waiter drops the result and fails; waiting on one that
+        /// cannot fail finishes, and the cancel stays for the waiter's
+        /// next waiting point.
         pub fn wait(self: Self) T {
-            var future = self.future;
-            return future.await(io());
+            var t = self;
+            defer t.release();
+            if (canceledHere()) {
+                var result = t.stop();
+                if (comptime !fallible) return result;
+                dropElement(T, &result);
+                return canceled_error;
+            }
+            const prev = io().swapCancelProtection(.unblocked);
+            var result = t.future.await(io());
+            // A cancel that came to the waiter during the wait reached
+            // the task, which recorded it, or came back to the waiter
+            // unanswered.
+            const passed_on = t.control.canceled.load(.acquire) or std.meta.isError(io().checkCancel());
+            _ = io().swapCancelProtection(prev);
+            if (!passed_on) return result;
+            markCanceled();
+            if (comptime !fallible) return result;
+            dropElement(T, &result);
+            return canceled_error;
+        }
+
+        /// `<t.cancel()`: cancel the task, wait for it, and take what it
+        /// gave: `task.Stop.canceled` when the cancel reached it, or its
+        /// result when it ended first. Only a task that can fail is
+        /// canceled; the checker rejects any other.
+        pub fn cancel(self: Self) T {
+            var t = self;
+            defer t.release();
+            return t.stop();
         }
 
         pub fn __rig_print(_: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
             try w.writeAll("<task>");
         }
 
+        /// A task that cannot fail is waited for, unless the task that
+        /// drops it is canceled, which passes the cancel on.
         pub fn __rig_drop(self: *Self) void {
-            var result = self.future.await(io());
+            defer self.release();
+            var result = if (fallible or canceledHere()) self.stop() else self.future.await(io());
             dropElement(T, &result);
         }
+
+        /// Record the cancel, then ask `std.Io` for it, which interrupts
+        /// a waiting point the task is in, and wait for the task.
+        fn stop(self: *Self) T {
+            self.control.canceled.store(true, .release);
+            return self.future.cancel(io());
+        }
+
+        fn release(self: *Self) void {
+            std.heap.smp_allocator.destroy(self.control);
+        }
+    };
+}
+
+/// What a task and its owner share: whether the task is canceled. Its
+/// owner records a cancel before asking `std.Io` for it, and the task
+/// records one that reaches it through a wait (`Task.wait`). Allocated
+/// outside the leak count, as the backend's own records are.
+const Control = struct {
+    canceled: std.atomic.Value(bool) = .init(false),
+};
+
+/// `std.task`'s `Stop`, as the emitted code names its errors: what a
+/// waiting point of any `std` module may fail with (`expectShim`).
+pub const Stop = error{ @"std.task.Stop.canceled", @"std.task.Stop.timeout" };
+
+/// `task.Stop.canceled`, the error a canceled task's waiting points fail
+/// with.
+const canceled_error = error.@"std.task.Stop.canceled";
+
+/// Whether the running task is canceled. `main` never is.
+fn canceledHere() bool {
+    const control = task().control orelse return false;
+    return control.canceled.load(.acquire);
+}
+
+/// Record that the running task is canceled.
+fn markCanceled() void {
+    if (task().control) |control| control.canceled.store(true, .release);
+}
+
+/// A fallible waiting point of `std`: `op(args...)`, a call into
+/// `std.Io` whose only failure is `error.Canceled`, when a cancel reaches
+/// it. It runs with cancels let through, and fails with
+/// `task.Stop.canceled` when the running task is canceled, before the
+/// call or during it; the cancel stays, so every later waiting point
+/// fails too.
+pub fn waitPoint(comptime op: anytype, args: anytype) Stop!@typeInfo(@typeInfo(@TypeOf(op)).@"fn".return_type.?).error_union.payload {
+    if (canceledHere()) return canceled_error;
+    const prev = io().swapCancelProtection(.unblocked);
+    defer _ = io().swapCancelProtection(prev);
+    return @call(.auto, op, args) catch {
+        markCanceled();
+        return canceled_error;
     };
 }
 
@@ -1838,7 +1947,7 @@ pub fn expectShim(comptime f: anytype, comptime Rig: type, comptime Errors: type
     for (fi.param_types, ri.param_types, fi.param_attrs, ri.param_attrs) |p, q, pa, qa| if (p != q or pa.@"noalias" != qa.@"noalias") shimMismatch(F, lowered, name);
     const set = @typeInfo(@typeInfo(ret).error_union.error_set).error_set.error_names orelse
         @compileError("rig: the Zig function of `" ++ name ++ "` returns `anyerror`; it must name the errors it returns, each an error of module `" ++ moduleOf(name) ++ "`");
-    const allowed = @typeInfo(Errors).error_set.error_names.?;
+    const allowed = @typeInfo(Errors || Stop).error_set.error_names.?;
     for (set) |e| {
         const known = for (allowed) |a| {
             if (std.mem.eql(u8, a, e)) break true;
@@ -3106,13 +3215,15 @@ const concurrent = builtin.is_test or makes_tasks;
 
 /// What the runtime keeps for the task that is running: the depth and
 /// queue of nested `*T` releases (`drainDropQueue`), how deep a `print`
-/// is inside the value it writes (`writeValue`), and the guard below the
-/// task's stack (`mapStack`).
+/// is inside the value it writes (`writeValue`), the guard below the
+/// task's stack (`mapStack`), and what it shares with its owner
+/// (`Control`), which `main` has none of.
 const TaskState = struct {
     drop_depth: u32 = 0,
     drop_queue: std.ArrayList(PendingDrop) = .empty,
     print_depth: u32 = 0,
     stack_guard: StackGuard = .{},
+    control: ?*Control = null,
 };
 
 threadlocal var thread_task: TaskState = .{};

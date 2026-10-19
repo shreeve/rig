@@ -7,8 +7,8 @@ suite or CI.
 
 ```sh
 D=$(mktemp -d)
-cpuq run --cores 2 --label rig:hash -- bench/hash/bench-hash --out $D --build-only
-cpuq run --exclusive --cores 1 --label rig:hash -- bench/hash/bench-hash --out $D --time-only
+bench/hash/bench-hash --out $D --build-only
+bench/hash/bench-hash --out $D --time-only
 ```
 
 It needs `bin/rig` built first. `bench/hash/bench-hash --help` lists the

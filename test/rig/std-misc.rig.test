@@ -2564,12 +2564,12 @@ test "time", '''
     start.elapsed()
 
   start = time.now()
-  time.sleep(3 * time.MS)
+  time.sleep(3 * time.MS)!
   later = time.now()
   took = later.since(start)
   print(took >= 3 * time.MS, took < 10 * time.SECOND, start.since(later) == -took)
-  time.sleep(0)
-  time.sleep(-1)
+  time.sleep(0)!
+  time.sleep(-1)!
   print(waited(start) >= took, start.elapsed() >= took)
   print(time.unix_ns() > 1_700_000_000 * time.SECOND)
   print(time.NS, time.US, time.MS, time.SECOND, time.MINUTE)

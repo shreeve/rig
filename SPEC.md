@@ -9699,10 +9699,11 @@ sub main()
 cannot lend `xs` to write while a read loan is live
 ```
 
-**Drop.** Dropping a task waits for it to end and drops its result, so
-no task outlives the scope that holds it, nor its loans. A task alone as
-a statement, `log(e)&`, is rejected: it would be dropped, and waited
-for, at once. A fallible task the normal path leaves without waiting
+**Drop.** Dropping a task that can fail cancels it and waits for it to
+end; dropping one that cannot fail waits for it. Either way its result
+is dropped, so no task outlives the scope that holds it, nor its loans.
+A task alone as a statement, `log(e)&`, is rejected: it would be
+dropped at once. A fallible task the normal path leaves without waiting
 for is rejected, since its error would be lost; where an error passes
 on (`!`), a `return`, or a `break` leaves its scope early, the task is
 dropped.
@@ -9732,6 +9733,68 @@ sub main()
 -1
 ```
 
+**Cancellation.** Canceling a task asks it to stop. Only a task that
+can fail is canceled: `<t.cancel()` cancels it, waits for it, and gives
+what it gave, `task.Stop.canceled` from `std.task` when the request
+reached it ([std.task](docs/STD.md#stdtask)). A task that cannot fail
+runs to its end, and `<t.cancel()` on one is rejected.
+
+The request reaches a task at its next fallible *waiting point*:
+`task.check()`, `time.sleep`, or a wait on a task that can fail. There
+it fails with `Stop.canceled`, and its `defer`s and drops run as for any
+failure. The request stays: every waiting point the task reaches after
+it fails too, so `time.sleep(d) catch print("woken")` does not let the
+task carry on. Everything else the task does, its output and its
+drops among them, finishes as it would.
+
+A task passes a cancel on to the tasks it owns. A wait passes it to the
+task waited for: waiting on a task that can fail is a waiting point,
+so the waiter fails with `Stop.canceled`, and waiting on one that
+cannot fail finishes, leaving the request for the waiter's next
+waiting point. Dropping a task cancels it when it can fail, or when the
+task dropping it is canceled.
+
+```rig
+use std.task
+use std.time
+
+fun nap() -> Int!
+  defer print("nap stops")
+  time.sleep(10 * time.SECOND)!
+  1
+
+fun stubborn() -> Int!
+  time.sleep(10 * time.SECOND) catch print("caught once")
+  task.check()!
+  2
+
+sub main()
+  u = nap()&
+  v = stubborn()&
+  print(<u.cancel() catch -1)
+  print(<v.cancel() catch -2)
+```
+
+```output
+nap stops
+-1
+caught once
+-2
+```
+
+```rig reject
+fun sq(x: Int) -> Int
+  x * x
+
+sub main()
+  t = sq(3)&
+  print(<t.cancel())
+```
+
+```error
+`Task[Int]` cannot fail, so it cannot be canceled: it runs to its end; wait for it, `<t.wait()`
+```
+
 **What a task may take.** A task may run on another core, so what it
 takes holds nothing that stays on one: no `*T` or `~T` handle, `Cell`,
 `Signal`, task, or function, whether by value, through a view, or in a
@@ -9759,7 +9822,8 @@ writes it as `<task>`. `Task[T]` holds a call's result, so its `T` may
 be fallible, `Task[Int!]` ([§13](#13-errors)).
 
 **Running.** A program that makes tasks runs each on a thread of Zig's
-`Threaded` I/O backend, on a stack of its own as large as `main`'s,
+`Threaded` I/O backend, with cancels held off except at its waiting
+points, on a stack of its own as large as `main`'s,
 with a guard below it. Output from several tasks is written a
 whole `print` at a time. A panic in a task ends the program, as one in
 `main` does. If no thread can be started for a task, the program
