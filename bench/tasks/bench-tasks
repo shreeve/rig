@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""Time Rig's tasks against Tokio's and Go's (bench/tasks/README.md).
+
+usage: bench/tasks/bench-tasks [options]
+
+  --variants a,b  what to build and time (default: rig-fast,tokio,go):
+                    rig-fast   bench/tasks/tasks.rig, rig build --release=fast
+                    rig-safe   the same, rig build --release (Zig's safe mode)
+                    tokio      bench/tasks/tokio, cargo build --release, on
+                               Tokio's multi-threaded runtime
+                    go         bench/tasks/go, go build
+  --reps N        runs per variant, interleaved across variants; the
+                  fastest of each benchmark counts (default 5)
+  --out DIR       keep the builds in DIR and reuse them; with
+  --build-only    build and stop, and later
+  --time-only     time what DIR holds
+  --tokio DIR     the Tokio source to build against (default: the
+                  repository's misc/tokio clone, if it has one; else
+                  the crates.io release Cargo resolves)
+
+Each program prints `NAME NS CHECK` per benchmark; the checks must
+agree. The report gives each benchmark's time per operation, and how
+each variant compares with Tokio.
+"""
+import argparse, os, shutil, subprocess, sys, tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))
+RIG = os.environ.get("RIG", os.path.join(ROOT, "bin", "rig"))
+
+# What one operation of each benchmark is, and how many there are
+# (the constants every program shares).
+OPS = {
+    "spawn": ("task", 100 * 1000),
+    "chain": ("task", 10000),
+    "fanout": ("run", 1),
+    "yield": ("yield", 100 * 10000),
+}
+
+
+def tokio_source(given):
+    if given:
+        return given
+    common = subprocess.run(["git", "rev-parse", "--git-common-dir"], cwd=HERE, capture_output=True, text=True).stdout.strip()
+    clone = os.path.join(os.path.dirname(os.path.abspath(os.path.join(HERE, common))), "misc", "tokio", "tokio")
+    return clone if os.path.isfile(os.path.join(clone, "Cargo.toml")) else None
+
+
+def build(v, out, tokio):
+    exe = os.path.join(out, v)
+    if os.path.exists(exe):
+        return exe
+    tmp = exe + ".new"
+    if v.startswith("rig-"):
+        env = dict(os.environ, RIG_OUT_DIR=os.path.join(out, "rig-out"))
+        flag = "--release" if v == "rig-safe" else "--release=fast"
+        subprocess.run([RIG, "build", flag, "-o", tmp, os.path.join(HERE, "tasks.rig")], check=True, env=env)
+    elif v == "tokio":
+        target = os.path.join(out, "cargo")
+        cmd = ["cargo", "build", "--release", "-q", "--target-dir", target]
+        if tokio:
+            cmd += ["--config", 'patch.crates-io.tokio.path="%s"' % tokio]
+            print("tokio: built from %s" % tokio, file=sys.stderr)
+        subprocess.run(cmd, check=True, cwd=os.path.join(HERE, "tokio"))
+        shutil.copy(os.path.join(target, "release", "tasks-tokio"), tmp)
+    elif v == "go":
+        subprocess.run(["go", "build", "-o", tmp, "."], check=True, cwd=os.path.join(HERE, "go"))
+    else:
+        sys.exit("bench-tasks: no variant `%s`" % v)
+    os.rename(tmp, exe)
+    return exe
+
+
+def run(exe):
+    p = subprocess.run([exe], check=True, capture_output=True, text=True)
+    rows = {}
+    for line in p.stdout.splitlines():
+        name, ns, check = line.split()
+        rows[name] = (int(ns), check)
+    return rows
+
+
+def per_op(name, ns):
+    unit, count = OPS[name]
+    v = ns / count
+    if v >= 1e6:
+        return "%.1f ms/%s" % (v / 1e6, unit)
+    if v >= 1e3:
+        return "%.2f us/%s" % (v / 1e3, unit)
+    return "%.0f ns/%s" % (v, unit)
+
+
+def compare(ns, base):
+    if ns >= base:
+        return "%.1fx slower" % (ns / base)
+    return "%.1fx faster" % (base / ns)
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=True)
+    ap.add_argument("--variants", default="rig-fast,tokio,go")
+    ap.add_argument("--reps", type=int, default=5)
+    ap.add_argument("--out")
+    ap.add_argument("--build-only", action="store_true")
+    ap.add_argument("--time-only", action="store_true")
+    ap.add_argument("--tokio")
+    a = ap.parse_args()
+    variants = a.variants.split(",")
+    out = a.out or tempfile.mkdtemp(prefix="bench-tasks-")
+    os.makedirs(out, exist_ok=True)
+    tokio = tokio_source(a.tokio) if "tokio" in variants else None
+    exes = {v: (os.path.join(out, v) if a.time_only else build(v, out, tokio)) for v in variants}
+    if a.build_only:
+        return
+    best = {v: {} for v in variants}
+    checks = {}
+    for _ in range(a.reps):
+        for v in variants:
+            for name, (ns, check) in run(exes[v]).items():
+                if name in checks and checks[name] != check:
+                    sys.exit("bench-tasks: %s's %s check is %s, not %s" % (v, name, check, checks[name]))
+                checks[name] = check
+                best[v][name] = min(ns, best[v].get(name, ns))
+    base = "tokio" if "tokio" in variants else variants[0]
+    print("%-8s" % "" + "".join("%-18s" % v for v in variants) + "vs %s" % base)
+    for name in OPS:
+        cells = "".join("%-18s" % per_op(name, best[v][name]) for v in variants)
+        ratios = ", ".join("%s %s" % (v, compare(best[v][name], best[base][name])) for v in variants if v != base)
+        print("%-8s%s%s" % (name, cells, ratios))
+    if not a.out:
+        shutil.rmtree(out, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    main()
