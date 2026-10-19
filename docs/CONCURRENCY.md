@@ -60,6 +60,53 @@ A task can be stopped early only if its result can fail: cancellation
 arrives as `error.Canceled`, so a `Task[Int]` runs to its end and a
 `Task[Int!]` can be canceled.
 
+## Rig and Tokio
+
+Tokio, Rust's async runtime, is the measure of a fast one. Rig's tasks
+go further than it in five ways, each following from the model, and
+aim to match it in the rest.
+
+**Where Rig goes further:**
+
+- **One kind of function.** There is no `async` or `await`, no second
+  kind of function, no `Pin`, no `'static` bound, and no `Arc` around
+  data a task only reads. Any function runs as a task with `&`, and a
+  function that waits on a socket is an ordinary function, called as
+  any other.
+- **Tasks borrow in place.** `score(?d)&` reads `d` where it is, with
+  no copy and no counted handle, because Rig's ownership rules make the
+  task end before `d` does ("Loans and structure"). Tokio cannot offer
+  this: a future can be leaked, so its `spawn` takes only `'static`
+  data, and a task reads its caller's data through a copy or an `Arc`.
+- **No task is ever left running.** Dropping a task cancels it and waits
+  for it, so every task ends inside the scope that made it. Dropping a
+  Tokio `JoinHandle` detaches the task, which runs on with no owner.
+- **Switching is cheap.** A Rig task runs on a stack of its own: pausing
+  it saves the few registers a call keeps, and resuming restores them. A
+  Tokio task is a state machine: each pause returns up through every
+  future it is nested in, and each resume calls back down through them.
+- **Errors stay the call's own.** `Task[Page!]` gives back the error
+  the call failed with, from the call's own error set; a canceled task
+  fails with `Stop.canceled`, an ordinary member of that set. A Tokio
+  `JoinHandle` gives a `JoinError` around a panic or a cancellation.
+
+**Where Tokio is still ahead:**
+
+- **I/O.** Tokio's engine for sockets, files and timers (epoll, kqueue,
+  io_uring) is tuned by years of real load. Rig's is the plan's fifth
+  step ("The engine").
+- **Memory for a task at rest.** A Tokio task can be a few hundred
+  bytes; a Rig task holds at least a page of stack. Closing that gap, by
+  stacks sized to a proven bound and stacks smaller still, is measured
+  work ("The engine").
+- **Maturity.** Its ecosystem, its tooling, and its years in
+  production.
+
+`bench/tasks` times Rig's tasks against Tokio's and Go's on starting,
+waiting, spreading work over cores, and switching, and
+`bench/tasks/PROGRESS.md` records each step of the scheduler
+([docs/concurrency/SCHEDULER.md](concurrency/SCHEDULER.md)).
+
 ## What a program writes
 
 Score every document in parallel, each task reading its document in
