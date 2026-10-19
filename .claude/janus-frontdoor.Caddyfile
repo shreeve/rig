@@ -1,0 +1,21 @@
+# Loopback helper for the running Janus edge's status page.
+#
+# The front door serves the dashboard for one Host only, janus.local, and
+# this machine's resolver does not answer that name for its own edge. This
+# proxies loopback port 7681 to the edge's shared HTTP port with that Host.
+# It binds the loopbacks only; admin is off, so it never touches the
+# service edge's admin socket.
+#
+#   janus run --config .claude/janus-frontdoor.Caddyfile --adapter caddyfile
+{
+	admin off
+	auto_https off
+	skip_install_trust
+	default_bind 127.0.0.1 ::1
+}
+
+:7681 {
+	reverse_proxy 127.0.0.1:80 {
+		header_up Host janus.local
+	}
+}

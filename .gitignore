@@ -1,7 +1,9 @@
 .zig-cache/
 zig-out/
 bin/
-.claude/
+.claude/*
+!.claude/launch.json
+!.claude/janus-frontdoor.Caddyfile
 .equiv-docs/
 __pycache__/
 src/parser.zig

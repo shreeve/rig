@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "janus-frontdoor",
+      "runtimeExecutable": "janus",
+      "runtimeArgs": ["run", "--config", ".claude/janus-frontdoor.Caddyfile", "--adapter", "caddyfile"],
+      "port": 7681
+    }
+  ]
+}
