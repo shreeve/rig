@@ -5,7 +5,8 @@ How Rig runs tasks fast: the engine under `f(x)&` (docs/CONCURRENCY.md,
 `PROGRESS.md` records each step. It is built in increments, each its own
 pull request; until the last, a program runs on it only when built with
 `RIG_SCHEDULER=1` (`__rig_scheduler`), and on Zig's `Threaded` backend
-otherwise.
+otherwise. It runs one worker per core, or `RIG_WORKERS` of them when
+that is set as the program starts.
 
 ## Shape
 
