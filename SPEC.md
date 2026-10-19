@@ -6735,6 +6735,8 @@ default (`hits: Cell[Int] = Cell(0)`).
 | `c.get()` | a copy of the value (a `T` of plain data only) |
 | `!c.set(v)` | store `v`; the old value is dropped |
 | `(!c).swap(v)` | store `v` and return the old value |
+| `(!c).compare_swap(old, new)` | store `new` if the value is `old`, at once; whether it did (a Cell of one word) |
+| `(!c).add(n)`, `(!c).sub(n)` | count, and return the new value (a `Cell[Int]`) |
 | `!c.push(x)`, `(!c).pop()`, `!c.keep(n)`, `!c.clear()`, `c.len` | a `Cell[List[T]]`: its List's members |
 | `c[i]`, `(!c)[i] = x`, `c.get(i)` | a `Cell[List[T]]` of plain data: an element, bounds-checked, or `T?` |
 
@@ -6756,6 +6758,33 @@ copy: `c[i]` and `c.get(i)` read one and `c[i] = x` writes one only
 when `T` is plain data, an element cannot be lent, and a field of one is
 not written in place. The elements of a List of handles are taken out
 with `pop`, or by taking the whole List out with `swap`.
+
+**Across tasks.** A Cell of one word, an `Int`, `Bool`, `Float`, or
+plain enum, may go to other tasks ([§18](#18-tasks)), each through a
+handle of its own (`+c`) or lent to read (`?c`). In a program that makes
+tasks, its handles are counted atomically, and each of its operations is
+one indivisible instruction, sequentially consistent, so a program sees
+one order of them all and no change is lost; elsewhere it is plain
+memory, as any Cell is. A Cell of more than one word stays with one
+task.
+
+```rig
+sub work(hits: *Cell[Int])
+  for 0..1000
+    !hits.add(1)
+
+sub main()
+  hits = *Cell(0)
+  ts = Tasks[Void]()
+  for 0..8
+    !ts.add(work(+hits)&)
+  <ts.wait_all()
+  print(hits.get())
+```
+
+```output
+8000
+```
 
 Every call that changes a Cell is marked: `set`, `swap`, `push`,
 `pop`, `keep`, `clear`, `c[i] = x` (written `(!c)[i] = x`), and a `Signal`'s `set`
@@ -9888,7 +9917,8 @@ one also reads it:
 | `?T` | when `T` shares | when `T` shares |
 | `!T` | when `T` moves | never |
 | `Task[T]` | when `T` moves | never |
-| `*T`, `~T`, `Cell`, `Signal`, `Tasks[T]`, a function | never | never |
+| `*Cell[T]` of one word: an `Int`, `Bool`, `Float`, or plain enum | yes | yes |
+| any other `*T`, `~T`, `Cell`, `Signal`, `Tasks[T]`, a function | never | never |
 
 So a task may be handed to another task, which waits for it, and keeps
 its loans for that task's whole life. A `*T` or `~T` handle never

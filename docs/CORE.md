@@ -725,7 +725,8 @@ you share with `*`. A name's own value changes by assigning it. What
 you share is a `Cell`, and it changes only by a marked call: `!c.set(5)`.
 A value that holds a `Cell` lives only behind `*` (`*Cell(0)`, or a
 field of a value made with `*`); it is never a local, parameter,
-element, or type argument by value. `Cell`, `Signal`, and owned
+element, or type argument by value. A `Cell` of one word may go to
+other tasks, each change landing at once. `Cell`, `Signal`, and owned
 closures are no-loan homes: they hold no view that carries a loan, so
 they keep text only as a `Static`; a `*T` carries the loans of what it
 holds. *(built)*

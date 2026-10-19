@@ -6705,11 +6705,12 @@ pub const Emitter = struct {
             try self.emitArgs(sexp);
             return self.w.writeAll(")");
         };
-        // `set` / `swap` change a Cell through any path to it: the
-        // Cell's address, a mutable pointer (`emitCellAddress`).
+        // `set`, `swap`, `compare_swap`, `add`, and `sub` change a Cell
+        // through any path to it: the Cell's address, a mutable pointer
+        // (`emitCellAddress`).
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.facts.cell_sym_id)) {
             const m = self.srcText(ir.Member.name(callee));
-            if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "swap")) {
+            if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "swap") or std.mem.eql(u8, m, "compare_swap") or std.mem.eql(u8, m, "add") or std.mem.eql(u8, m, "sub")) {
                 try self.emitCellAddress(ir.Member.object(callee));
                 try self.w.print(".{s}(", .{m});
                 try self.emitArgs(sexp);

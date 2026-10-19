@@ -5753,6 +5753,21 @@ pub fn changesByMark(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
+/// One machine word, which every change to it replaces at once: an
+/// `Int`, a `Bool`, a `Float`, or a plain enum.
+pub fn isWordValue(ctx: *const SemContext, ty: TypeId) bool {
+    return ty == ctx.types.int_id or ty == ctx.types.bool_id or ty == ctx.types.float_id or isPlainEnum(ctx, ty);
+}
+
+/// Whether `ty` is a `Cell` of one word (`isWordValue`): many tasks may
+/// change it at once, through handles of their own.
+pub fn isWordCell(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| pn.sym == ctx.cell_sym_id and pn.args.len == 1 and isWordValue(ctx, pn.args[0]),
+        else => false,
+    };
+}
+
 /// Whether `ty` is a `Cell[T]`.
 pub fn isCell(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
@@ -5917,9 +5932,11 @@ pub const Crossing = enum { moves, shares };
 /// is a `*T` or `~T`, whose counts are not atomic, a `Cell` or a
 /// `Signal`, which change through handles on this core, a set of tasks,
 /// or a function value, whose captures a function type does not show.
-/// A read view crosses when what it views shares; a write view and a
-/// `Task` move when what they hold moves, and never share. Where it
-/// cannot see what a type holds, it says no.
+/// A `*Cell` of one word crosses (`isWordCell`): its counts and its
+/// changes are atomic instructions. A read view crosses when what it
+/// views shares; a write view and a `Task` move when what they hold
+/// moves, and never share. Where it cannot see what a type holds, it
+/// says no.
 pub fn crosses(ctx: *const SemContext, ty: TypeId, how: Crossing) bool {
     return crossingBlocker(ctx, ty, how) == null;
 }
@@ -5936,7 +5953,8 @@ const SymbolKey = struct { ctx: *const SemContext, sym: SymbolId };
 
 fn blockerIn(ctx: *const SemContext, ty: TypeId, how: Crossing, seen: *std.AutoHashMapUnmanaged(SymbolKey, void)) ?TypeId {
     return switch (ctx.types.get(ty)) {
-        .shared, .weak, .function, .callable => ty,
+        .shared => |inner| if (isWordCell(ctx, inner)) null else ty,
+        .weak, .function, .callable => ty,
         .read_view => |inner| blockerIn(ctx, inner, .shares, seen),
         .write_view => |inner| if (how == .shares) ty else blockerIn(ctx, inner, .moves, seen),
         .optional, .fallible, .range => |inner| blockerIn(ctx, inner, how, seen),

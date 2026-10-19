@@ -41,7 +41,7 @@ fun nap() -> Int!
 sub main()
   t = big(3)&
   ts = Tasks[Int!]()
-  for _ in 0..4
+  for 0..4
     !ts.add(nap()&)
   xs = <ts.wait_all() catch List[Int]()
   u = nap()&
