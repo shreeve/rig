@@ -664,9 +664,19 @@ pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bo
 // Shared and weak handles
 // -----------------------------------------------------------------------------
 
+/// Whether `T` is a Cell many tasks change at once: one of one word in a
+/// program that makes tasks (`Cell.__rig_word`). The allocation behind
+/// a `*` of it counts its handles atomically, so they cross cores.
+fn synchronized(comptime T: type) bool {
+    return @typeInfo(T) == .@"struct" and @hasDecl(T, "__rig_word") and T.__rig_word;
+}
+
 /// The counted allocation behind `*T`. `strong` counts owning handles;
 /// `weak` counts weak handles plus one on behalf of all strong handles,
-/// so the box outlives its value while weak handles remain.
+/// so the box outlives its value while weak handles remain. A `*` of a
+/// synchronized Cell counts both atomically, since its strong handles
+/// may be on other cores while a weak one is used here; dropping its
+/// value, one word, does nothing.
 pub fn Shared(comptime T: type) type {
     return struct {
         strong: usize,
@@ -677,14 +687,23 @@ pub fn Shared(comptime T: type) type {
         pub const __rig_shared = {};
 
         const Self = @This();
+        const atomic_count = synchronized(T);
 
         pub fn cloneStrong(self: *Self) *Self {
+            if (atomic_count) {
+                _ = @atomicRmw(usize, &self.strong, .Add, 1, .monotonic);
+                return self;
+            }
             std.debug.assert(self.strong > 0);
             self.strong += 1;
             return self;
         }
 
         pub fn weakRef(self: *Self) Weak(T) {
+            if (atomic_count) {
+                _ = @atomicRmw(usize, &self.weak, .Add, 1, .monotonic);
+                return .{ .ptr = self };
+            }
             std.debug.assert(self.strong > 0);
             self.weak += 1;
             return .{ .ptr = self };
@@ -696,6 +715,12 @@ pub fn Shared(comptime T: type) type {
         /// chains of boxes are released through `drop_queue` rather than
         /// by unbounded recursion.
         pub fn dropStrong(self: *Self) void {
+            // The handle that takes the count to zero frees it, after every
+            // other handle's changes.
+            if (atomic_count) {
+                if (@atomicRmw(usize, &self.strong, .Sub, 1, .acq_rel) == 1) self.releaseValue();
+                return;
+            }
             std.debug.assert(self.strong > 0);
             self.strong -= 1;
             if (self.strong > 0) return;
@@ -714,6 +739,10 @@ pub fn Shared(comptime T: type) type {
         /// Drop the value, then give up the strong side's weak count.
         fn releaseValue(self: *Self) void {
             dropElement(T, &self.value);
+            if (atomic_count) {
+                if (@atomicRmw(usize, &self.weak, .Sub, 1, .acq_rel) == 1) defaultAllocator().destroy(self);
+                return;
+            }
             self.weak -= 1;
             if (self.weak == 0) defaultAllocator().destroy(self);
         }
@@ -722,6 +751,12 @@ pub fn Shared(comptime T: type) type {
             releaseValue(@ptrCast(@alignCast(box)));
         }
     };
+}
+
+/// One machine word, which a Cell many tasks change holds: an `Int`, a
+/// `Bool`, a `Float`, or a plain enum.
+fn isWord(comptime T: type) bool {
+    return T == i64 or T == bool or T == f64 or @typeInfo(T) == .@"enum";
 }
 
 // Releasing a box can release the boxes its value holds, recursively: a
@@ -763,23 +798,44 @@ pub fn Weak(comptime T: type) type {
         /// Its handle's type, for `typeName`.
         pub const __rig_weak = T;
 
+        /// Its counts are atomic where the allocation's are (`Shared`).
+        const atomic_count = synchronized(T);
+
         pub fn cloneWeak(self: Self) Self {
+            if (atomic_count) {
+                _ = @atomicRmw(usize, &self.ptr.weak, .Add, 1, .monotonic);
+                return self;
+            }
             self.ptr.weak += 1;
             return self;
         }
 
         pub fn dropWeak(self: Self) void {
+            if (atomic_count) {
+                if (@atomicRmw(usize, &self.ptr.weak, .Sub, 1, .acq_rel) == 1) defaultAllocator().destroy(self.ptr);
+                return;
+            }
             std.debug.assert(self.ptr.weak > 0);
             self.ptr.weak -= 1;
             if (self.ptr.weak == 0) defaultAllocator().destroy(self.ptr);
         }
 
         pub fn __rig_print(self: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
-            try w.writeAll(if (self.ptr.strong > 0) "~(alive)" else "~(gone)");
+            const strong = if (atomic_count) @atomicLoad(usize, &self.ptr.strong, .acquire) else self.ptr.strong;
+            try w.writeAll(if (strong > 0) "~(alive)" else "~(gone)");
         }
 
         /// A new strong handle, or null once the value has been dropped.
         pub fn upgrade(self: Self) ?*Shared(T) {
+            if (atomic_count) {
+                // Counted up only from a count above zero, which another
+                // core may be dropping at the same moment.
+                var n = @atomicLoad(usize, &self.ptr.strong, .acquire);
+                while (n != 0) {
+                    n = @cmpxchgWeak(usize, &self.ptr.strong, n, n + 1, .acq_rel, .acquire) orelse return self.ptr;
+                }
+                return null;
+            }
             if (self.ptr.strong == 0) return null;
             self.ptr.strong += 1;
             return self.ptr;
@@ -960,8 +1016,35 @@ pub fn Cell(comptime T: type) type {
         const Self = @This();
         /// Its arguments, for `typeName`.
         pub const __rig_args = .{T};
+        /// A Cell of one word in a program that makes tasks: its handles
+        /// cross cores, and every operation is one atomic instruction,
+        /// sequentially consistent, so a program sees one order of all of
+        /// them and none is lost (`synchronized`). Elsewhere a Cell is
+        /// plain memory.
+        pub const __rig_word = concurrent and isWord(T);
+        const atomic = __rig_word;
+
+        // A `Float` is exchanged and compared through its bits.
+        const Bits = if (T == f64) u64 else T;
+
+        fn bits(self: *Self) *Bits {
+            return if (T == f64) @ptrCast(&self.value) else &self.value;
+        }
+
+        fn constBits(self: *const Self) *const Bits {
+            return if (T == f64) @ptrCast(&self.value) else &self.value;
+        }
+
+        fn toBits(v: T) Bits {
+            return if (T == f64) @bitCast(v) else v;
+        }
+
+        fn fromBits(b: Bits) T {
+            return if (T == f64) @bitCast(b) else b;
+        }
 
         pub fn get(self: *const Self) T {
+            if (atomic) return fromBits(@atomicLoad(Bits, self.constBits(), .seq_cst));
             return self.value;
         }
 
@@ -969,6 +1052,7 @@ pub fn Cell(comptime T: type) type {
         /// the new value when the old one's drop runs, so a destructor
         /// that reaches back into this cell sees a live value.
         pub fn set(self: *Self, value: T) void {
+            if (atomic) return @atomicStore(Bits, self.bits(), toBits(value), .seq_cst);
             var old = self.value;
             self.value = value;
             dropElement(T, &old);
@@ -976,9 +1060,34 @@ pub fn Cell(comptime T: type) type {
 
         /// Store `value` and hand the old one to the caller.
         pub fn swap(self: *Self, value: T) T {
+            if (atomic) return fromBits(@atomicRmw(Bits, self.bits(), .Xchg, toBits(value), .seq_cst));
             const old = self.value;
             self.value = value;
             return old;
+        }
+
+        /// Store `new` if the value is `old`, at once; whether it did. A
+        /// Cell of one word's only (sema enforces this); a `Float` is
+        /// compared by its bits.
+        pub fn compare_swap(self: *Self, old: T, new: T) bool {
+            if (atomic) return @cmpxchgStrong(Bits, self.bits(), toBits(old), toBits(new), .seq_cst, .seq_cst) == null;
+            if (toBits(self.value) != toBits(old)) return false;
+            self.value = new;
+            return true;
+        }
+
+        /// Add `n` and give the new value; a `Cell(i64)`'s only.
+        pub fn add(self: *Self, n: T) T {
+            if (atomic) return @atomicRmw(T, &self.value, .Add, n, .seq_cst) + n;
+            self.value += n;
+            return self.value;
+        }
+
+        /// Subtract `n` and give the new value; a `Cell(i64)`'s only.
+        pub fn sub(self: *Self, n: T) T {
+            if (atomic) return @atomicRmw(T, &self.value, .Sub, n, .seq_cst) - n;
+            self.value -= n;
+            return self.value;
         }
 
         pub fn __rig_drop(self: *Self) void {
@@ -4285,7 +4394,16 @@ fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!
         },
         .optional => return if (value) |v| writeValue(w, v, top) else w.writeAll("none"),
         .pointer => |p| {
-            if (comptime isShared(T)) return writeValue(w, value.value, top);
+            if (comptime isShared(T)) {
+                // A Cell many tasks change is read as its `get` reads it,
+                // and printed as any Cell is.
+                if (comptime synchronized(@FieldType(p.child, "value"))) {
+                    try w.writeAll("Cell(value: ");
+                    try writeValue(w, value.value.get(), false);
+                    return w.writeAll(")");
+                }
+                return writeValue(w, value.value, top);
+            }
             if (@typeInfo(p.child) == .@"fn") return w.writeAll("<fun>");
             if (p.size != .slice) return writeValue(w, value.*, top);
         },

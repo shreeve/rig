@@ -7625,7 +7625,10 @@ const Checker = struct {
         const a = self.ctx.arena.allocator();
         const what = verb orelse try std.fmt.allocPrint(a, "holds `{s}`,", .{try self.tyName(blocker)});
         const why: []const u8 = switch (self.ctx.types.get(blocker)) {
-            .shared => "a `*` handle whose count is not atomic, so two cores could change it at once",
+            .shared => |inner| if (sema.isCell(self.ctx, inner))
+                "a `*` handle to a Cell of more than one word, which stays with one task; a Cell of an `Int`, `Bool`, `Float`, or plain enum goes to other tasks"
+            else
+                "a `*` handle whose count is not atomic, so two cores could change it at once",
             .weak => "a `~` handle whose count is not atomic, so two cores could change it at once",
             .function, .callable => "a function, whose captures its type does not show",
             .write_view => "a write view, which no two tasks may hold at once",
@@ -7953,6 +7956,26 @@ const Checker = struct {
             return true;
         }
         return false;
+    }
+
+    /// `compare_swap` compares, so it is a Cell of one word's
+    /// (`sema.isWordValue`); `add` and `sub` count, so they are a
+    /// `Cell[Int]`'s. Any other method fits every Cell. Reports a call
+    /// that does not fit.
+    fn cellMethod(self: *Checker, obj_ty: TypeId, method: []const u8, pos: u32) Error!bool {
+        const counts = std.mem.eql(u8, method, "add") or std.mem.eql(u8, method, "sub");
+        if (!counts and !std.mem.eql(u8, method, "compare_swap")) return true;
+        const elem = cellElementType(self.ctx, obj_ty) orelse return true;
+        if (sema.containsTypeVar(self.ctx, elem)) return true;
+        if (counts and elem != self.t().int_id) {
+            try self.err(pos, "`{s}` counts, so it is a `Cell[Int]`'s; this is a `Cell[{s}]`: change it with `set`, `swap`, or `compare_swap`", .{ method, try self.tyName(elem) });
+            return false;
+        }
+        if (!sema.isWordValue(self.ctx, elem)) {
+            try self.err(pos, "`compare_swap` compares and stores at once, so it is a Cell of one word's (`Int`, `Bool`, `Float`, or a plain enum); this is a `Cell[{s}]`: change it with `set` or `swap`", .{try self.tyName(elem)});
+            return false;
+        }
+        return true;
     }
 
     /// The type a bare name holds, when it holds a view: what tells a held
@@ -10586,6 +10609,7 @@ const Checker = struct {
             return self.skipCall(args);
         };
         const receiver = resolved.field.receiver;
+        if (resolved.nominal_sym == self.ctx.cell_sym_id and !try self.cellMethod(obj_ty, method, pos)) return self.skipCall(args);
         _ = try self.noteMethod(callee, receiver, resolved.fn_ty.returns);
         try self.noteCallee(resolved.fn_ty);
         const misplaced_sigil = receiver != .none and try self.checkReceiverSigil(obj, receiver, resolved.fn_ty.returns, method);

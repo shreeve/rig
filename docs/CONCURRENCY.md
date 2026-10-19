@@ -161,7 +161,7 @@ obj Rooms
     list.len
 
 sub main()
-  hits = *Atomic(0)
+  hits = *Cell(0)
   rooms = *Actor(Rooms(members: hash.Map()))
 
   handler = |+hits, +rooms, req|
@@ -266,7 +266,7 @@ loans goes. Five rules make that so:
    `t` drops, so it is rejected.
 3. **No shared home holds a loan.** A *shared home* is a type whose value
    changes through a shared path: `Cell`, `Signal`, an owned closure,
-   `Atomic`, `Chan`, `Actor`, and any Zig-backed type that declares
+   `Chan`, `Actor`, and any Zig-backed type that declares
    *shares*. None holds a value that may carry a loan, and `Task` always
    may. A leak in Rig needs a cycle through a shared home, so a value
    that carries a loan never leaks. Rig has no `forget`.
@@ -359,7 +359,7 @@ there. The checker derives two facts for every type:
 | `!T` (a write view) | when `T` moves | never |
 | `*T` and `~T` of a type that is not synchronized, `Cell[T]`, `Signal[T]` | never | never |
 | a stack closure | when its captures move | when it captures no `!` view and its captures share |
-| `*Atomic[T]`, for a word-sized plain `T` | yes | yes |
+| `*Cell[T]`, for a one-word plain `T` | yes | yes |
 | `*Chan[T]` | when `T` moves | when `T` moves |
 | `*Actor[T]` | yes | yes |
 | `Task[T]` | when `T` and its loans' views move | never |
@@ -402,12 +402,13 @@ core frees it there, so the program's allocator is thread-safe.
 
 ## Synchronized types
 
-`Atomic[T]`, `Chan[T]`, and `Actor[T]` are *synchronized*: they exist
-to be changed by many tasks at once. They follow CORE sentence 9 as a
-`Cell` does, with one difference.
+A `Cell` of one word, `Chan[T]`, and `Actor[T]` are *synchronized*:
+they are changed by many tasks at once. They follow CORE sentence 9 as
+any `Cell` does, with one difference. (A separate `Atomic[T]` was folded
+into `Cell`: a counter or a flag is a Cell of one word.)
 
-- **The same as a `Cell`:**
-  - each lives only behind `*`: `*Atomic(0)`, `*Chan[Job](64)`,
+- **The same as any `Cell`:**
+  - each lives only behind `*`: `*Cell(0)`, `*Chan[Job](64)`,
     `*Actor(Rooms(...))`;
   - each holder has a handle of its own, made with `+`;
   - a change is a marked call through a handle you hold: `!hits.add(1)`,
@@ -415,19 +416,19 @@ to be changed by many tasks at once. They follow CORE sentence 9 as a
   - a read view, `?hits`, only reads: `hits.get()`. `?` changes nothing
     here as everywhere.
 - **The difference:** a `*` over a synchronized value counts its handles
-  atomically, so the handle may cross cores. A `*Cell` stays confined to
-  one task.
+  atomically, so the handle may cross cores. A `*Cell` of more than one
+  word stays confined to one task.
 
-So CORE sentence 9's list of what may be shared gains these three types,
-and no rule changes.
+So CORE sentence 9's list of what may be shared gains `Chan` and
+`Actor`, and no rule changes.
 
 A synchronized value is never a local, a parameter, or an element by
-value, as a `Cell` isn't. Lowering never copies an `Atomic` into a
-read view. An `Atomic` operation is sequentially consistent, so user
+value, as a `Cell` isn't. Lowering never copies a Cell of one word into
+a read view. Each of its operations is sequentially consistent, so user
 code still has no data races and sees sequential consistency.
 
-A module-level `*Atomic` or `*Chan` carries no loan, so actors and tasks
-anywhere may use it, through a handle of their own.
+A module-level `*Cell` of one word or `*Chan` carries no loan, so actors
+and tasks anywhere may use it, through a handle of their own.
 
 ## Actors
 
@@ -576,11 +577,12 @@ restarted by a small parent) remains, as defence in depth.
 - `time.sleep`, deadlines, and `time.within(d, || ...)`, a deadline over
   a block of calls;
 - `task.check()!` and `task.isolate`;
-- `*Atomic[T]`, because a counter should cost an atomic add, not a
-  message.
+- a `*Cell` of one word, because a counter should cost an atomic add,
+  not a message.
 
 **Second wave:**
-- `*Chan[T]`, a bounded channel, shared through handles as `*Atomic` is;
+- `*Chan[T]`, a bounded channel, shared through handles as a `*Cell` of
+  one word is;
 - `select` over channel operations, which commits exactly one arm
   atomically, CML-style, so a message is never taken by an arm that then
   loses;
@@ -675,8 +677,8 @@ Tasks run on Rig's own scheduler (docs/concurrency/SCHEDULER.md). The
 first step was built on Zig's `Threaded` backend, which is complete and
 preemptive: it proved the language rules, and measured nothing.
 
-**The memory model.** User code has no data races, and `Atomic`
-operations are sequentially consistent, so a program sees sequential
+**The memory model.** User code has no data races, and the operations
+of a Cell of one word are sequentially consistent, so a program sees sequential
 consistency. The edges that order it:
 - a task's start after the call that made it;
 - a task's end before the `wait` that returns its result;
@@ -702,7 +704,7 @@ measured work, not a promise.
 
 - **String patterns in `match`** (`"/hits" =>`), rejected today. The
   server example needs them, and they are worth having on their own.
-- **No new keywords or forms.** `Actor`, `Atomic`, `Chan`, and `Tasks`
+- **No new keywords or forms.** `Actor`, `Chan`, and `Tasks`
   are types, shared with the `*` Rig already has. `async` and `await`
   stay reserved and unused.
 - **Unwinding.** Zig has none. Inside a boundary, a panic travels as a
@@ -761,9 +763,9 @@ Each item gives the answer this document assumes.
 7. **Crossing:** the fact table. A library that calls a function from
    many tasks at once has the requirement read from its body and checked
    where it is called, with no mark on the function's type. *Yes.*
-8. **Synchronized types:** `Atomic`, `Chan`, and `Actor` live behind
-   `*`, counted atomically, and change by a marked call through a handle
-   you hold, as a `Cell` does. A read view only reads, so CORE needs no
+8. **Synchronized types:** a `Cell` of one word, `Chan`, and `Actor`
+   live behind `*`, counted atomically, and change by a marked call
+   through a handle you hold, as any `Cell` does. A read view only reads, so CORE needs no
    amendment. *Yes.*
 9. **Actors:**
    - made with `*Actor(x)`, with no keywords;
@@ -799,7 +801,7 @@ Each item gives the answer this document assumes.
     1. moving the runtime's global state into task context, then `&`,
        `Task`, `Tasks`, the loan and cancellation rules, and
        `task.both`, on `Threaded`;
-    2. the crossing facts, `*Atomic`, and `par`;
+    2. the crossing facts, a `*Cell` of one word across tasks, and `par`;
     3. actors, unwinding, `task.isolate`, and supervised actors;
     4. the scheduler core, benchmarked with no I/O;
     5. I/O, timers, `http.serve`, and the benchmarks against Tokio and

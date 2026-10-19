@@ -360,10 +360,11 @@ migration guide (`tools/migrate-0.3.py`).
 
 **Concurrency**, in order (docs/concurrency/SCHEDULER.md and
 docs/CONCURRENCY.md, "Decisions" 15; the scheduler moved ahead of the
-plan's second step, and its increments are done): the crossing facts,
-`*Atomic`, and `par`; actors, panics unwinding to boundaries, and
-`task.isolate`; then I/O, timers, and `http.serve` on Rig's own
-`std.Io`, whose blocking pool today serves only `std.file.read`.
+plan's second step, and its increments are done; the crossing facts and
+a `Cell` of one word across tasks are built): `par` and `time.within`;
+actors, panics unwinding to boundaries, and `task.isolate`; then I/O,
+timers, and `http.serve` on Rig's own `std.Io`, whose blocking pool
+today serves only `std.file.read`.
 
 **Later:**
 

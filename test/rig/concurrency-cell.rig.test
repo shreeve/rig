@@ -1,0 +1,114 @@
+# concurrency: tests whose names start `cell`.
+
+test "cell count across tasks", "8000"
+  # A Cell of one word goes to other tasks, each through a handle of its
+  # own (`+hits`), and no change is lost.
+  sub work(hits: *Cell[Int])
+    for 0..1000
+      !hits.add(1)
+
+  hits = *Cell(0)
+  ts = Tasks[Void]()
+  for 0..8
+    !ts.add(work(+hits)&)
+  <ts.wait_all()
+  print(hits.get())
+
+test "cell count across tasks released", release: true, "80000"
+  # The same, with more changes than a build in Zig's safe mode can make
+  # by luck alone.
+  sub work(hits: *Cell[Int])
+    for 0..10000
+      !hits.add(1)
+
+  hits = *Cell(0)
+  ts = Tasks[Void]()
+  for 0..8
+    !ts.add(work(+hits)&)
+  <ts.wait_all()
+  print(hits.get())
+
+test "cell claim once", "1"
+  # The first of many tasks to flip a flag wins: `compare_swap` checks
+  # and stores at once, so exactly one sees `true`.
+  sub claim(flag: *Cell[Bool], wins: *Cell[Int])
+    if (!flag).compare_swap(false, true)
+      !wins.add(1)
+
+  flag = *Cell(false)
+  wins = *Cell(0)
+  ts = Tasks[Void]()
+  for 0..16
+    !ts.add(claim(+flag, +wins)&)
+  <ts.wait_all()
+  print(wins.get())
+
+test "cell word operations", '''
+  5 7
+  true false 9
+  5 15
+  15
+  true false true
+  true 3.5 3.5
+  true true
+  ~(alive)
+'''
+  # `swap` gives the old value, `compare_swap` whether it stored, and
+  # `add` and `sub` the new value; a Cell of one word holds an Int, a
+  # Bool, a Float, or a plain enum, and a task may be lent one to read.
+  enum Phase
+    idle
+    busy
+    done
+
+  fun peek(n: ?*Cell[Int]) -> Int
+    n.get()
+
+  n = *Cell(5)
+  print((!n).swap(7), n.get())
+  print((!n).compare_swap(7, 9), (!n).compare_swap(7, 1), n.get())
+  print((!n).sub(4), (!n).add(10))
+  t = peek(?n)&
+  print(<t.wait())
+  b = *Cell(false)
+  print((!b).compare_swap(false, true), (!b).compare_swap(false, true), b.get())
+  f = *Cell(1.5)
+  !f.set(2.25)
+  print((!f).compare_swap(2.25, 3.5), f.get(), (!f).swap(0.5))
+  p = *Cell(Phase.idle)
+  print((!p).compare_swap(Phase.idle, Phase.busy), p.get() == Phase.busy)
+  w = ~n
+  print(w)
+
+test "cell print shared", "Cell(value: 3) 4"
+  # A Cell many tasks change prints as any Cell does.
+  fun one() -> Int
+    1
+
+  c = *Cell(3)
+  t = one()&
+  print(c, 3 + <t.wait())
+
+fail "cell list stays", "a task may run on another core, and `xs` is given to it: `*Cell[List[Int]]` is a `*` handle to a Cell of more than one word, which stays with one task; a Cell of an `Int`, `Bool`, `Float`, or plain enum goes to other tasks", errors: 1
+  # A Cell of more than one word stays with one task.
+  fun total(xs: *Cell[List[Int]]) -> Int
+    xs.len
+
+  xs = *Cell(List[Int]())
+  t = total(xs)&
+  print(<t.wait())
+
+fail "cell add bool", "`add` counts, so it is a `Cell[Int]`'s; this is a `Cell[Bool]`: change it with `set`, `swap`, or `compare_swap`", errors: 1
+  a = *Cell(true)
+  !a.add(1)
+
+fail "cell compare list", "`compare_swap` compares and stores at once, so it is a Cell of one word's (`Int`, `Bool`, `Float`, or a plain enum); this is a `Cell[List[Int]]`: change it with `set` or `swap`", errors: 1
+  a = *Cell(List[Int]())
+  ok = (!a).compare_swap(List[Int](), List[Int]())
+  print(ok)
+
+fail "cell read view counts", "cannot lend to write through a read view `?*Cell[Int]`", errors: 1
+  # A read view only reads, a Cell's too.
+  a = *Cell(0)
+  r = ?a
+  !r.add(1)

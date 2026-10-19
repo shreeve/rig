@@ -35,14 +35,14 @@ fun spin(n: Int) -> Int
   total
 
 fun yielder(n: Int) -> Int!
-  for _ in 0..n
+  for 0..n
     task.check()!
   n
 
 called sub spawn()
   t = time.now()
   sum = 0
-  for _ in 0..WAVES
+  for 0..WAVES
     ts = Tasks[Int]()
     for i in 0..SIZE
       !ts.add(leaf(i)&)
@@ -73,7 +73,7 @@ called sub fanout()
 called sub yields()
   t = time.now()
   ts = Tasks[Int!]()
-  for _ in 0..YIELD_TASKS
+  for 0..YIELD_TASKS
     !ts.add(yielder(YIELDS)&)
   xs = <ts.wait_all() catch List[Int]()
   sum = 0
@@ -110,7 +110,7 @@ fun nap() -> Int!
 called sub many()
   t = time.now()
   ts = Tasks[Int!]()
-  for _ in 0..MANY
+  for 0..MANY
     !ts.add(nap()&)
   xs = <ts.wait_all() catch List[Int]()
   sum = 0

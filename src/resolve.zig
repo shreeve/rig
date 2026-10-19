@@ -3000,6 +3000,12 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "set", .write, &.{ write_self, t }, ctx.types.void_id, null),
             // Swap in a new value and give back the old one, owned.
             try method(ctx, "swap", .write, &.{ write_self, t }, t, null),
+            // A Cell of one word's (`Checker.cellMethod`): store `new` if
+            // the value is still `old`, at once, and say whether it did;
+            // and, for an Int, count, giving the new value.
+            try method(ctx, "compare_swap", .write, &.{ write_self, t, t }, ctx.types.bool_id, null),
+            try method(ctx, "add", .write, &.{ write_self, t }, t, null),
+            try method(ctx, "sub", .write, &.{ write_self, t }, t, null),
         });
     }
 
